@@ -27,7 +27,7 @@ export interface Route {
     | 'delivery-change'       // /delivery/changes/:namespace/:name
     | 'delivery-history'      // /delivery/history[?namespace=&stage=]
     | 'delivery-publish'      // /delivery/publish
-    | 'metrics';              // /metrics[?window=&metric=&environment=&offset=&limit=&servicesOffset=&servicesLimit=]
+    | 'metrics';              // /metrics[?window=&metric=&environment=&offset=&limit=&servicesOffset=&servicesLimit=&depth=]
   params: Record<string, string>;
 }
 
@@ -114,7 +114,7 @@ export function parseHash(hash: string | null | undefined): Route {
   }
 
   // #/metrics: Pacto's outcomes over time. `offset` and `limit` page the records panel,
-  // `servicesOffset` and `servicesLimit` the services table.
+  // `servicesOffset` and `servicesLimit` the services table, `depth` the promotion-depth filter.
   if (path === 'metrics') return { view: 'metrics', params: pick(query, METRICS_QUERY) };
 
   // #/impact?svc=&old=&new=&observed=1 — the superseded standalone impact deep link.
@@ -287,7 +287,7 @@ function parseFleet(path: string, query: string): Route {
   return { view: 'fleet-overview', params: {} };
 }
 
-const METRICS_QUERY = ['window', 'metric', 'environment', 'offset', 'limit', 'servicesOffset', 'servicesLimit'] as const;
+const METRICS_QUERY = ['window', 'metric', 'environment', 'offset', 'limit', 'servicesOffset', 'servicesLimit', 'depth'] as const;
 
 function pick(query: string, keys: readonly string[]): Record<string, string> {
   const params: Record<string, string> = {};

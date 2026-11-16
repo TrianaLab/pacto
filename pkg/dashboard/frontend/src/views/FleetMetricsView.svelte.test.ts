@@ -105,7 +105,7 @@ const populated = (extra: Record<string, unknown> = {}) => answer({
   recordsRead: 40, runs: 30, distinctChanges: 20, completeness: 'complete',
   window: { since: '2026-10-16T10:00:00Z', until: '2026-11-15T10:00:00Z' }, totals: metrics(),
   environmentOrder: 'stages',
-  environments: [env('staging', { upstream: [] }), env('production', { upstream: ['staging'], leadTime: { p50Seconds: 3600, p90Seconds: 7200, joined: 2, unjoined: 0 } })],
+  environments: [env('staging', { upstream: [], depth: 0 }), env('production', { upstream: ['staging'], parents: ['staging'], depth: 1, chainEnd: true, leadTime: { p50Seconds: 3600, p90Seconds: 7200, joined: 2, unjoined: 0 } })],
   services: [
     { label: 'payments', href: '/fleet/services/payments', metrics: metrics() },
     { label: 'ghost', note: 'not in the current snapshot', metrics: metrics() },
@@ -122,30 +122,23 @@ const populated = (extra: Record<string, unknown> = {}) => answer({
 });
 
 describe('FleetMetricsView content', () => {
-  it('keeps the answer order of environments, says what feeds them and links their counts', async () => {
+  it('draws one panel per environment in answer order, says what feeds them and links their counts in the table', async () => {
     statsFn.mockResolvedValue(populated());
     const { target, done } = mountView();
-    await vi.waitFor(() => expect(target.querySelector('[data-testid="metrics-environments"]')).not.toBeNull());
-    const env = target.querySelector('[data-testid="metrics-environments"]') as HTMLElement;
-    expect(env.querySelector('h2')?.textContent).toBe('Environments, in the order their Stages promote');
-    const rows = Array.from(env.querySelectorAll('[data-testid="metrics-env-row"]'));
-    expect(rows.map((r) => r.querySelector('th a')?.textContent)).toEqual(['staging', 'production']);
-    expect(rows[1].textContent).toContain('fed by staging');
-    expect(rows[1].textContent).toContain('1h');
-    const held = rows[0].querySelector('a[href*="metric=held"]') as HTMLAnchorElement;
+    await vi.waitFor(() => expect(card(target, 'health')).not.toBeNull());
+    const health = card(target, 'health');
+    const panels = Array.from(health.querySelectorAll('[data-testid="metrics-env-panel"]'));
+    expect(panels.map((p) => p.querySelector('h3')?.textContent)).toEqual(['staging', 'production']);
+    expect(panels[1].textContent).toContain('fed by staging');
+    // A rate with nothing to take it over is unknown, hatched, never 0.
+    const rolled = Array.from(panels[0].querySelectorAll('.hb-row')).find((r) => r.textContent?.includes('Rolled back')) as HTMLElement;
+    expect(rolled.querySelector('.hb-value')?.textContent).toBe('unknown');
+    expect(rolled.querySelector('.hb-fill.hatch')).not.toBeNull();
+    (health.querySelector('button.cc-toggle') as HTMLButtonElement).click();
+    flushSync();
+    const held = health.querySelector('table a[href*="metric=held"]') as HTMLAnchorElement;
     expect(held.getAttribute('href')).toBe('#/metrics?metric=held&environment=staging');
     expect(held.getAttribute('data-lists')).toBe('2');
-    // A rate with nothing to take it over is unknown, never a link and never 0.
-    expect(rows[0].querySelector('a[href*="metric=rolledBack"]')).toBeNull();
-    expect(rows[0].querySelector('td[data-label="Rolled back"]')?.textContent?.trim()).toBe('unknown');
-    done();
-  });
-
-  it('titles the environments by name when no Stage graph orders them', async () => {
-    statsFn.mockResolvedValue(populated({ environmentOrder: 'name' }));
-    const { target, done } = mountView();
-    await vi.waitFor(() => expect(target.querySelector('[data-testid="metrics-environments"] h2')).not.toBeNull());
-    expect(target.querySelector('[data-testid="metrics-environments"] h2')?.textContent).toBe('Environments, listed by name: no Stage graph to order by');
     done();
   });
 
@@ -486,4 +479,173 @@ describe('FleetMetricsView zero that another limitation explains', () => {
       done();
     });
   }
+});
+
+// A fleet of n environments for the scale tests: `depthOf` places each, its parent is the
+// environment one depth up in the same column, and `extra` overrides its numbers.
+type Extra = Record<string, unknown>;
+const fleet = (n: number, depthOf: (i: number) => number | undefined, extra: (i: number) => Extra = () => ({})) => {
+  const name = (i: number) => `env-${String(i).padStart(3, '0')}`;
+  return Array.from({ length: n }, (_, i) => {
+    const d = depthOf(i);
+    const p = d ? Array.from({ length: i }, (_, j) => j).reverse().find((j) => depthOf(j) === d - 1) : undefined;
+    return env(name(i), { ...(d == null ? {} : { depth: d }), ...(p == null ? {} : { parents: [name(p)], upstream: [name(p)] }), ...extra(i) });
+  });
+};
+const at = (envs: Extra[], extra: Extra = {}) => populated({ environments: envs, totals: metrics({ environments: envs }), ...extra });
+const groupButtons = (t: HTMLElement) => Array.from(card(t, 'health').querySelectorAll('tr.rung button')) as HTMLButtonElement[];
+
+describe('FleetMetricsView delivery health and lead time at scale', () => {
+  beforeEach(() => { location.hash = ''; });
+
+  it('draws 5 environments as panels on one shared scale, so an over-50% rate draws longer than a 50% one', async () => {
+    const envs = fleet(5, (i) => (i < 2 ? i : 2), (i) => (i === 3 ? { failed: ratio(2, 3), held: ratio(1, 2) } : {}));
+    statsFn.mockResolvedValue(at(envs));
+    const { target, done } = mountView();
+    await vi.waitFor(() => expect(card(target, 'health')).not.toBeNull());
+    const health = card(target, 'health');
+    expect(health.querySelectorAll('[data-testid="metrics-env-panel"]')).toHaveLength(5);
+    expect(health.querySelector('.hm-scroll')).toBeNull();
+    expect(target.querySelector('[data-testid="metrics-depths"]')).toBeNull();
+    const panel = health.querySelectorAll('[data-testid="metrics-env-panel"]')[3];
+    const width = (label: string) => parseFloat((Array.from(panel.querySelectorAll('.hb-row')).find((r) => r.textContent?.includes(label))!.querySelector('.hb-fill') as HTMLElement).style.width);
+    expect(width('Failed')).toBeGreaterThan(width('Held'));
+    expect(health.textContent).toContain('a full bar is 80%');
+    expect(health.querySelector('.mx-ladder')).not.toBeNull();
+    done();
+  });
+
+  it('draws 50 environments as the heatmap with every group open, in promotion order', async () => {
+    statsFn.mockResolvedValue(at(fleet(50, (i) => Math.floor(i / 15))));
+    const { target, done } = mountView();
+    await vi.waitFor(() => expect(card(target, 'health').querySelector('.hm-scroll')).not.toBeNull());
+    expect(groupButtons(target).map((b) => b.getAttribute('aria-expanded'))).toEqual(['true', 'true', 'true', 'true']);
+    expect(card(target, 'health').querySelector('.nm')?.getAttribute('title')).toBe('env-000');
+    expect((card(target, 'health').querySelector('select[aria-label="Sort"], .mx-ctl select:last-of-type') as HTMLSelectElement).value).toBe('order');
+    done();
+  });
+
+  it('draws 60 environments as the heatmap, groups collapsed as the approved design draws them, and says 60 of 60', async () => {
+    statsFn.mockResolvedValue(at(fleet(60, (i) => Math.floor(i / 15))));
+    const { target, done } = mountView();
+    await vi.waitFor(() => expect(card(target, 'health').querySelector('.hm-scroll')).not.toBeNull());
+    expect(groupButtons(target).map((b) => b.getAttribute('aria-expanded'))).toEqual(['false', 'false', 'false', 'false']);
+    expect(groupButtons(target).map((b) => b.querySelector('bdi')?.textContent)).toEqual(['entry', 'hop 2', 'hop 3', 'hop 4']);
+    expect(card(target, 'health').querySelector('[data-testid="metrics-env-count"]')?.textContent).toBe('60 of 60 environments');
+    groupButtons(target)[0].click();
+    flushSync();
+    // Long names are elided with the whole name in title.
+    expect(card(target, 'health').querySelector('.nm')?.getAttribute('title')).toMatch(/^env-0\d\d$/);
+    expect(card(target, 'lead').querySelector('.rd-name')?.getAttribute('title')).toMatch(/^env-\d{3}$/);
+    done();
+  });
+
+  it('collapses 200 environments into pooled group rows with the depth filter and group-by', async () => {
+    const envs = fleet(200, (i) => i % 5);
+    const owner = (key: string, es: Extra[]) => ({ key, label: key, environments: es });
+    statsFn.mockResolvedValue(at(envs, { environmentsBy: { owner: [owner('payments', envs.slice(0, 100)), owner('checkout', envs.slice(100))], domain: [],
+      attribution: { asOf: '2026-11-15T09:00:00Z', partial: true } } }));
+    const { target, done } = mountView();
+    await vi.waitFor(() => expect(card(target, 'health').querySelector('.hm-scroll')).not.toBeNull());
+    expect(groupButtons(target).every((b) => b.getAttribute('aria-expanded') === 'false')).toBe(true);
+    const pooled = card(target, 'health').querySelector('tr.rung .cell .visually-hidden') as HTMLElement;
+    expect(pooled.textContent).toBe('Held in entry: 80 of 400 promotions, 20%');
+    expect(card(target, 'health').textContent).toContain('200 of 200 environments');
+    expect(card(target, 'health').textContent).toContain('Group rows show the pooled rate of the group');
+    expect(target.querySelector('[data-testid="metrics-depths"]')?.getAttribute('aria-label')).toBe('Filter by promotion depth');
+    expect(Array.from(card(target, 'health').querySelectorAll('select')).some((s) => Array.from(s.options).some((o) => o.value === 'owner'))).toBe(true);
+    // An opened group shows its 10 worst, then pages by 20.
+    groupButtons(target)[0].click();
+    flushSync();
+    expect(card(target, 'health').querySelectorAll('tbody tr:not(.rung):not(.more)')).toHaveLength(10);
+    (Array.from(card(target, 'health').querySelectorAll('tr.more button')).find((b) => b.textContent === 'Show all 40') as HTMLButtonElement).click();
+    flushSync();
+    expect(card(target, 'health').querySelectorAll('tbody tr:not(.rung):not(.more)')).toHaveLength(20);
+    expect(card(target, 'health').querySelector('tr.more')?.textContent).toContain('1 to 20 of 40');
+    done();
+  });
+
+  it('filters delivery health, lead time and the lead tile by the depth chip, and keeps it in the URL', async () => {
+    const envs = fleet(20, (i) => i % 4);
+    const groups = [{ key: 'chain-end', label: 'chain end', environments: 5, leadTime: { p50Seconds: 7200, p90Seconds: 9000, joined: 4, unjoined: 0 }, buckets: [] },
+      { key: 'depth-2', label: 'hop 3', depth: 2, environments: 5, leadTime: { p50Seconds: 3600, p90Seconds: 5400, joined: 3, unjoined: 0 }, buckets: [] }];
+    statsFn.mockResolvedValue(at(envs, { leadTimeGroups: groups }));
+    const first = mountView();
+    await vi.waitFor(() => expect(first.target.querySelector('[data-testid="metrics-depths"]')).not.toBeNull());
+    const chip = Array.from(first.target.querySelectorAll('[data-testid="metrics-depths"] button')).find((b) => b.textContent?.startsWith('hop 3')) as HTMLButtonElement;
+    chip.click();
+    expect(location.hash).toBe('#/metrics?depth=2');
+    first.done();
+    const { target, done } = mountView({ depth: '2' });
+    await vi.waitFor(() => expect(card(target, 'health').querySelector('.hm-scroll')).not.toBeNull());
+    expect(target.querySelector('[data-testid="metrics-depths"] button[aria-pressed="true"]')?.textContent).toContain('hop 3');
+    expect(groupButtons(target).map((b) => b.querySelector('bdi')?.textContent)).toEqual(['hop 3']);
+    expect(card(target, 'health').querySelector('[data-testid="metrics-env-count"]')?.textContent).toBe('5 of 20 environments');
+    expect(card(target, 'lead').querySelectorAll('.rd-name')).toHaveLength(5);
+    const tile = tiles(target).querySelectorAll('.mx-tile')[2] as HTMLElement;
+    expect(tile.querySelector('.mx-tile-label')?.textContent).toBe('Lead time to hop 3');
+    expect(tile.querySelector('.mx-tile-value')?.textContent?.trim()).toBe('1h');
+    done();
+  });
+
+  it('lists an environment under each owner with that owner\'s numbers, and says owner is inferred', async () => {
+    const envs = fleet(10, (i) => i % 2);
+    const share = (held: [number, number]) => env('shared', { held: ratio(...held) });
+    statsFn.mockResolvedValue(at(envs, { environmentsBy: {
+      owner: [{ key: 'payments', label: 'payments', environments: [share([1, 10]), env('env-000')] }, { key: '(unowned)', label: 'unowned', environments: [share([3, 5])] }],
+      domain: [], attribution: { asOf: '2026-11-15T09:00:00Z', partial: false } } }));
+    const { target, done } = mountView();
+    await vi.waitFor(() => expect(card(target, 'health').querySelector('.hm-scroll')).not.toBeNull());
+    const select = Array.from(card(target, 'health').querySelectorAll('select')).find((s) => Array.from(s.options).some((o) => o.value === 'owner')) as HTMLSelectElement;
+    select.value = 'owner';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    flushSync();
+    expect(groupButtons(target).map((b) => b.querySelector('bdi')?.textContent)).toEqual(['payments', 'No owner']);
+    const words = Array.from(card(target, 'health').querySelectorAll('tbody tr:not(.rung) .visually-hidden')).map((e) => e.textContent);
+    expect(words).toContain('Held in shared: 1 of 10 promotions, 10%');
+    expect(words).toContain('Held in shared: 3 of 5 promotions, 60%');
+    expect(card(target, 'health').textContent).toContain('owner inferred from the fleet snapshot of');
+    expect(card(target, 'health').querySelector('[data-testid="metrics-env-count"]')?.textContent).toBe('2 of 10 environments');
+    done();
+  });
+
+  it('files a cycle under Depth unknown', async () => {
+    const envs = [...fleet(9, () => 0), env('looped', { cycle: true })];
+    statsFn.mockResolvedValue(at(envs));
+    const { target, done } = mountView();
+    await vi.waitFor(() => expect(card(target, 'health').querySelector('.hm-scroll')).not.toBeNull());
+    const unknown = card(target, 'health').querySelectorAll('tbody')[1] as HTMLElement;
+    expect(unknown.querySelector('tr.rung bdi')?.textContent).toBe('Depth unknown');
+    expect(unknown.querySelector('.nm')?.getAttribute('title')).toBe('looped');
+    done();
+  });
+
+  it('lists the 10 slowest lead times with unknown last, and pages all of them by 20', async () => {
+    const lt = (i: number) => (i < 3 ? { leadTime: { joined: 0, unjoined: 1, unknown: true } } : { leadTime: { p50Seconds: 60 * i, p90Seconds: 120 * i, joined: 2, unjoined: 0 } });
+    statsFn.mockResolvedValue(at(fleet(12, () => 0, lt)));
+    const { target, done } = mountView();
+    await vi.waitFor(() => expect(card(target, 'lead').querySelector('.rd-name')).not.toBeNull());
+    const names = () => Array.from(card(target, 'lead').querySelectorAll('.rd-name')).map((n) => n.getAttribute('title'));
+    expect(names()).toHaveLength(10);
+    expect(names()[0]).toBe('env-011');
+    expect(names()[9]).toMatch(/^env-00[012]$/);
+    expect(card(target, 'lead').querySelectorAll('.rd-plate')).toHaveLength(1);
+    expect(card(target, 'lead').textContent).toContain('The 10 slowest p50 of 12, grouped by promotion depth');
+    (Array.from(card(target, 'lead').querySelectorAll('button')).find((b) => b.textContent === 'Show all 12') as HTMLButtonElement).click();
+    flushSync();
+    expect(names()).toHaveLength(12);
+    expect(card(target, 'lead').textContent).toContain('1 to 12 of 12');
+    done();
+  });
+
+  it('pages no environment chart through the URL: only the records and services pagers carry a total', async () => {
+    statsFn.mockResolvedValue(at(fleet(60, (i) => Math.floor(i / 15))));
+    recordsFn.mockResolvedValue({ total: 30, items: [{ record: { id: 'a', kind: 'impact', service: 'payments', recordedAt: '2026-11-10T10:00:00Z', version: '1', pactoVersion: '4' } }], limitations: [], hidden: { present: false }, skipped: {}, completeness: 'complete', asOf: '2026-11-15T10:00:00Z', provenance: 'unsigned statistics' });
+    const { target, done } = mountView({ metric: 'held' });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="metrics-records-pager"]')).not.toBeNull());
+    for (const c of Array.from(target.querySelectorAll('button.cc-toggle')) as HTMLButtonElement[]) c.click();
+    flushSync();
+    expect(Array.from(target.querySelectorAll('[data-view-total]')).map((e) => e.getAttribute('data-testid'))).toEqual(['metrics-records-pager', 'metrics-services-pager']);
+    done();
+  });
 });

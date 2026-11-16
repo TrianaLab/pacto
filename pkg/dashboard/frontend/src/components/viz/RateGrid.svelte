@@ -178,7 +178,7 @@
   .hm tr.rung th { padding: var(--sp-2) var(--sp-2) 2px; max-inline-size: var(--name-w); }
   .hm tr.rung button {
     max-inline-size: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
-    display: inline-flex; align-items: center; gap: 6px; min-block-size: 30px; border: 0; background: none; padding: 0; cursor: pointer;
+    display: inline-flex; align-items: center; gap: var(--sp-2); min-block-size: 30px; border: 0; background: none; padding: 0; cursor: pointer;
     font: 600 var(--text-base) / 1.4 var(--font-display); font-variant-caps: all-small-caps; letter-spacing: .05em; color: var(--c-text-2);
   }
   .hm tr.rung button .n { font: 400 var(--text-xs) var(--font-sans); color: var(--c-text-3); letter-spacing: 0; font-variant-caps: normal; }

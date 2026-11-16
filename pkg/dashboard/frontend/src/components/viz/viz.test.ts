@@ -350,6 +350,13 @@ describe('HorizontalBars', () => {
     expect(unk.querySelector('a')?.getAttribute('href')).toBe('#/metrics');
   });
 
+  it('lets panels that share one domain state the scale once, instead of in each panel', () => {
+    comp = mount(HorizontalBars, { target, props: { title: 'prod', items: [{ label: 'Held', value: 0.2, valueText: '1/5 (20%)' }], domainMax: 0.5, scaleText: '' } });
+    expect(target.querySelector('.hb-scale')).toBeNull();
+    expect(target.querySelector('.hb-value')?.textContent).toBe('1/5 (20%)');
+    expect((target.querySelector('.hb-fill') as HTMLElement).style.width).toBe('40%');
+  });
+
   it('states no scale and no all-zero line when every row is unknown', () => {
     comp = mount(HorizontalBars, { target, props: { title: 'Per week', items: [{ label: 'a', value: 0, unknown: 'no records' }] } });
     expect(target.querySelector('.hb-scale')).toBeNull();

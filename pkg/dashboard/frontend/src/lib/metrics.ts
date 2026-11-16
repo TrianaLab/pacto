@@ -160,7 +160,7 @@ export function depthFilter(st: ProductStats): { total: number; depths: { depth:
 
 export type GroupBy = 'depth' | 'owner' | 'domain';
 export interface Group { key: string; label: string; unknown: boolean; envs: EnvMetrics[] }
-const GROUP_WORD: Record<GroupBy, string> = { depth: 'Promotion depth', owner: 'Owner', domain: 'Domain' };
+export const GROUP_WORD: Record<GroupBy, string> = { depth: 'Promotion depth', owner: 'Owner', domain: 'Domain' };
 
 /** The engine's placeholder keys, in parentheses so they never meet a real name. */
 function keyLabel(by: 'owner' | 'domain', key: string, label: string): string {
@@ -239,6 +239,70 @@ export function bin(r: number): 1 | 2 | 3 | 4 {
  *  is the neutral cell and nothing to count is the hatch. */
 export function cell(r: Ratio, foot = ''): { count: number; of: number; bin?: 1 | 2 | 3 | 4; foot: string } {
   return { count: r.count, of: r.of, ...(r.of > 0 && r.count > 0 ? { bin: bin(r.count / r.of) } : {}), foot };
+}
+
+/** pooledFoot is a pooled group cell's tooltip foot: what it pooled over, what it left
+ *  out and the group's worst environment. */
+export function pooledFoot(p: Pooled, worst: EnvMetrics | null, field: RateField): string {
+  const n = p.counted + p.excluded;
+  return [
+    `pooled over ${formatCount(p.counted)} of ${countOf(n, 'environment')}`,
+    p.excluded ? `${formatCount(p.excluded)} had nothing to take the rate over${p.strayCount ? ` (${formatCount(p.strayCount)} counted)` : ''}` : '',
+    worst ? `Worst: ${worst.environment}, ${ratioText(worst[field])}` : '',
+  ].filter(Boolean).join('. ');
+}
+
+/** worstRate is an environment's highest known rate, -1 when none is known. */
+const worstRate = (e: EnvMetrics) => Math.max(...RATES.map((r) => rate(e[r.field])));
+const byWorst = (a: EnvMetrics, b: EnvMetrics) => worstRate(b) - worstRate(a);
+
+export interface HealthOptions { by: GroupBy; depth?: number | null; q?: string; sort: 'order' | 'worst'; collapsed: boolean }
+export type HealthGroup = Group & { pooled: Record<RateField, Pooled>; worst: Record<RateField, EnvMetrics | null> };
+
+/** healthGroups are the heatmap's groups: filtered by name, rows worst first when sorted
+ *  so or when groups start collapsed (they then show their worst first), each with its
+ *  pooled rate and worst environment per column. `shown` and `total` count distinct
+ *  environments, so an environment under three owners counts once. */
+export function healthGroups(st: ProductStats, { by, depth, q = '', sort, collapsed }: HealthOptions): { groups: HealthGroup[]; shown: number; total: number } {
+  const needle = q.trim().toLowerCase();
+  const groups = groupBy(st, by, depth).map((g) => {
+    const envs = g.envs.filter((e) => !needle || e.environment.toLowerCase().includes(needle));
+    if (sort === 'worst' || collapsed) envs.sort(byWorst);
+    const fields = RATES.map((r) => r.field);
+    return {
+      ...g, envs,
+      pooled: Object.fromEntries(fields.map((f) => [f, pooledRate(envs, f)])) as Record<RateField, Pooled>,
+      worst: Object.fromEntries(fields.map((f) => [f, worstEnvironment(envs, f)])) as Record<RateField, EnvMetrics | null>,
+    };
+  }).filter((g) => g.envs.length);
+  if (sort === 'worst' && by !== 'depth') groups.sort((a, b) => worstRate(b.envs[0]) - worstRate(a.envs[0]));
+  const distinct = (gs: { envs: EnvMetrics[] }[]) => new Set(gs.flatMap((g) => g.envs.map((e) => e.environment))).size;
+  return { groups, shown: distinct(groups), total: environments(st).length };
+}
+
+/** chainSummary says how many independent Stage chains the environments form and how
+ *  deep they run (levels from entry to end), from direct parents only. */
+export function chainSummary(st: ProductStats): { chains: number; min: number; max: number } | null {
+  const envs = environments(st).filter((e) => e.depth != null);
+  if (!envs.length) return null;
+  const root = new Map(envs.map((e) => [e.environment, e.environment]));
+  const find = (x: string): string => (root.get(x) === x ? x : find(root.get(x)!));
+  for (const e of envs) for (const p of e.parents) if (root.has(p)) root.set(find(p), find(e.environment));
+  const deepest = new Map<string, number>();
+  for (const e of envs) deepest.set(find(e.environment), Math.max(deepest.get(find(e.environment)) ?? 0, e.depth! + 1));
+  const ds = [...deepest.values()];
+  return { chains: ds.length, min: Math.min(...ds), max: Math.max(...ds) };
+}
+
+/** ladder is the promotion strip of a small fleet: the environments on a chain, by depth.
+ *  An environment that neither feeds nor is fed stays out of it. */
+export function ladder(st: ProductStats): string[][] {
+  const envs = environments(st);
+  const fed = new Set(envs.flatMap((e) => e.parents));
+  const on = envs.filter((e) => e.depth != null && (e.parents.length || fed.has(e.environment)));
+  const levels: string[][] = [];
+  for (const e of on) (levels[e.depth!] ??= []).push(e.environment);
+  return levels.filter(Boolean);
 }
 
 /** healthMode: one small panel per environment up to SMALL_MULTIPLES_MAX, then the heatmap. */
@@ -456,13 +520,6 @@ export function noteLimitations(st: Pick<ProductStats, 'limitations'>): { note: 
   const all = (st.limitations ?? []).filter((l) => l.code !== COVERAGE_HIDDEN);
   const note = all.filter((l) => !SAID_ELSEWHERE.includes(l.code)).sort((a, b) => rank(a.code) - rank(b.code))[0] ?? null;
   return { note, rest: all.filter((l) => l !== note) };
-}
-
-/** envTitle names the environments table by how its rows are ordered (SPEC 21). */
-export function envTitle(st: ProductStats): string {
-  return st.environmentOrder === 'stages'
-    ? 'Environments, in the order their Stages promote'
-    : 'Environments, listed by name: no Stage graph to order by';
 }
 
 /** hiddenLine says that records outside the reader's view exist; it never counts them. */

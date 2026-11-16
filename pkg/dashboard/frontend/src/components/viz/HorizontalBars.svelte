@@ -24,6 +24,10 @@
     // A shared domain (#597 small multiples): panels drawn against one scale compare.
     // A domain only, never a clamp: a value above it still draws its full length.
     domainMax = undefined,
+    // Replaces the scale sentence when panels state their shared scale once ('' hides it).
+    scaleText = undefined,
+    // Each bar on a line of its own under its label and value, for narrow panels.
+    stacked = false,
   } = $props();
 
   // A zero is an ANSWER, not an absent row. Dropping zero-valued rows used to delete the
@@ -49,7 +53,7 @@
   const amount = (v) => `${v}${unit ? ` ${v === 1 ? unitOne || unit : unit}` : ''}`;
 </script>
 
-<figure class="hbars">
+<figure class="hbars" class:stacked>
   <figcaption class="hb-cap">
     <svelte:element this={`h${level}`} class="hb-title t-subsection-title">{title}</svelte:element>
     {#if description}<HelpTip label={title} text={description} textClass="hb-desc" />{/if}
@@ -83,7 +87,9 @@
         </li>
       {/each}
     </ul>
-    {#if max > 0}
+    {#if scaleText != null}
+      {#if scaleText}<p class="hb-scale">{scaleText}</p>{/if}
+    {:else if max > 0}
       <p class="hb-scale">{domainMax != null ? `Bar length is relative to ${max}.` : `Bar length is relative to the largest value shown (${max}).`}</p>
     {:else if known.length}
       <p class="hb-scale">Every row here is zero, so no bar is drawn.</p>
@@ -134,4 +140,8 @@
     .hb-value { grid-area: 1 / 2 / 2 / 3; }
     .hb-track { grid-area: 2 / 1 / 3 / -1; }
   }
+  .stacked .hb-inner { grid-template-columns: 1fr auto; row-gap: 2px; }
+  .stacked .hb-label { grid-area: 1 / 1 / 2 / 2; }
+  .stacked .hb-value { grid-area: 1 / 2 / 2 / 3; }
+  .stacked .hb-track { grid-area: 2 / 1 / 3 / -1; }
 </style>

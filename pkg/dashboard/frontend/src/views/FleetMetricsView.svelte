@@ -6,10 +6,13 @@
   import { formatCount, countOf } from '../lib/format.ts';
   import { formatDateTime } from '../lib/dateFormat.ts';
   import { andList, placedByName } from '../lib/delivery.ts';
-  import { durationText } from '../lib/chart.ts';
+  import { durationText, HEAT } from '../lib/chart.ts';
   import {
-    isDaily, envTitle, hiddenLine, ratioText, noCI, protectedText, NO_CI, RATES, METRIC_LABEL,
+    isDaily, hiddenLine, ratioText, noCI, protectedText, NO_CI, RATES, METRIC_LABEL, BINS, GROUP_WORD,
+    GROUP_TOP, GROUP_PAGE, LEAD_TOP, LEAD_PAGE,
     buckets, series, unknownReasons, headline, coverageSeries, tableRows, caption, noteLimitations,
+    environments, depthFilter, groupBy, groupOptions, attributionLine, healthGroups, pooledFoot, cell,
+    smallMultipleDomain, healthMode, collapsedByDefault, leadRows, chainSummary, ladder,
   } from '../lib/metrics.ts';
   import PageHeader from '../components/PageHeader.svelte';
   import EmptyState from '../components/EmptyState.svelte';
@@ -19,6 +22,8 @@
   import LimitationsList from '../components/LimitationsList.svelte';
   import StatsStrip from '../components/StatsStrip.svelte';
   import HorizontalBars from '../components/viz/HorizontalBars.svelte';
+  import RateGrid from '../components/viz/RateGrid.svelte';
+  import RangeDots from '../components/viz/RangeDots.svelte';
   import ColumnChart from '../components/viz/ColumnChart.svelte';
   import LineChart from '../components/viz/LineChart.svelte';
   import DistributionBar from '../components/viz/DistributionBar.svelte';
@@ -31,7 +36,7 @@
   // Never a number the page does not have; every number leads to the records behind it.
   let {
     capabilities = null, window: win = '', metric = '', environment = '', offset = '', limit = '',
-    servicesOffset = '', servicesLimit = '', refreshTick = 0,
+    servicesOffset = '', servicesLimit = '', depth = '', refreshTick = 0,
   } = $props();
 
   const GUIDE = 'https://pacto.run/latest/measure-what-pacto-does/';
@@ -77,7 +82,7 @@
   const limits = $derived(data ? noteLimitations(data) : { note: null, rest: [] });
   const daily = $derived(data ? isDaily(data) : false);
   const per = $derived(daily ? 'day' : 'week');
-  const envs = $derived(data?.environments ?? []);
+  const envs = $derived(data ? environments(data) : []);
   const byName = $derived(placedByName(envs));
   const hidden = $derived(data ? hiddenLine(data) : '');
   const now = $derived(data?.coverageNow ?? null);
@@ -85,7 +90,10 @@
   // The charts (#597): every drawing, tooltip and table cell reads lib/metrics.ts.
   const bl = $derived(data ? buckets(data) : []);
   const why = $derived(data ? unknownReasons(data) : []);
-  const head = $derived(data ? headline(data, { window: w }) : null);
+  // The promotion-depth filter (URL `depth`): a depth the answer has, or none.
+  const depths = $derived(data ? depthFilter(data) : null);
+  const d = $derived(depths?.depths.some((x) => String(x.depth) === depth) ? Number(depth) : null);
+  const head = $derived(data ? headline(data, { window: w, depth: d }) : null);
   const breaking = $derived(data ? series(data, 'breaking') : { values: [], caps: [] });
   const runs = $derived(data ? series(data, 'runs') : { values: [], caps: [] });
   const protectedS = $derived(data ? series(data, 'protected') : { values: [], caps: [] });
@@ -115,11 +123,76 @@
     foot: [coverage.foot[i], coverage.series[0].partial[i] ? 'from a partial snapshot' : ''].filter(Boolean).join('; '),
   });
 
+  // Delivery health and lead time (#597): small panels up to 8 environments, then the
+  // heatmap with its controls; both read lib/metrics.ts and follow the depth filter.
+  const mode = $derived(healthMode(envs.length));
+  const scoped = $derived(d == null ? envs : envs.filter((e) => e.depth === d));
+  const domain = $derived(smallMultipleDomain(scoped));
+  const pct = (v) => `${Math.round(v * 100)}%`;
+  const chains = $derived(data ? chainSummary(data) : null);
+  const steps = $derived(data && mode === 'multiples' ? ladder(data) : []);
+  const options = $derived(data ? groupOptions(data) : []);
+  let groupSel = $state('depth');
+  const gb = $derived(options.includes(groupSel) ? groupSel : 'depth');
+  let query = $state('');
+  let sortSel = $state('');
+  const collapsed = $derived(collapsedByDefault(scoped.length));
+  const sort = $derived(sortSel || (collapsed ? 'worst' : 'order'));
+  let toggled = $state({});
+  let gpage = $state({});
+  let leadAll = $state(false);
+  let leadPage = $state(0);
+  const COLUMNS = RATES.map((r) => ({ key: r.field, label: r.label }));
+  const panelItems = (e) => RATES.map((r) => {
+    const v = e[r.field];
+    return v.of ? { label: r.label, value: v.count / v.of, valueText: ratioText(v) } : { label: r.label, value: 0, unknown: ratioText(v) };
+  });
+  const cellsOf = (e) => Object.fromEntries(RATES.map((r) => [r.field, cell(e[r.field])]));
+  const grid = $derived.by(() => {
+    if (!data || mode !== 'grid') return null;
+    const hg = healthGroups(data, { by: gb, depth: d, q: query, sort, collapsed });
+    const groups = hg.groups.map((g) => {
+      const key = `${gb}:${g.key}`;
+      const open = query.trim() ? true : collapsed ? !!toggled[key] : !toggled[key];
+      const n = g.envs.length;
+      const page = collapsed ? (gpage[key] ?? -1) : -2;
+      const list = page === -2 ? g.envs : page === -1 ? g.envs.slice(0, GROUP_TOP) : g.envs.slice(page * GROUP_PAGE, (page + 1) * GROUP_PAGE);
+      const set = (p) => () => { gpage[key] = p; };
+      let more;
+      if (page === -1 && n > GROUP_TOP) more = { label: '', actions: [{ label: `Show all ${formatCount(n)}`, onclick: set(0) }] };
+      else if (page >= 0) {
+        more = { label: `${formatCount(page * GROUP_PAGE + 1)} to ${formatCount(Math.min((page + 1) * GROUP_PAGE, n))} of ${formatCount(n)}`, actions: [
+          { label: 'Previous', disabled: page === 0, onclick: set(page - 1) },
+          { label: 'Next', disabled: (page + 1) * GROUP_PAGE >= n, onclick: set(page + 1) },
+          { label: `Show the ${GROUP_TOP} worst`, onclick: set(-1) },
+        ] };
+      }
+      return {
+        key, label: g.label, title: `${g.label}, ${countOf(n, 'environment')}`, count: n, open, more,
+        summary: Object.fromEntries(RATES.map((r) => [r.field, cell(g.pooled[r.field], pooledFoot(g.pooled[r.field], g.worst[r.field], r.field))])),
+        rows: list.map((e) => ({ name: e.environment, cells: cellsOf(e) })),
+      };
+    });
+    return { groups, shown: hg.shown, total: hg.total };
+  });
+  const toggle = (key) => { toggled[key] = !toggled[key]; };
+  const lead = $derived.by(() => {
+    if (!data) return { rows: [], total: 0, from: 0, to: 0 };
+    const gs = mode === 'multiples' ? [{ key: 'all', label: '', unknown: false, envs: scoped }] : groupBy(data, gb, d);
+    const out = leadRows(gs, { all: mode === 'multiples' || leadAll, page: mode === 'multiples' ? 0 : leadPage });
+    return mode === 'multiples' ? { ...out, rows: out.rows.filter((r) => 'name' in r) } : out;
+  });
+  const depthMeta = $derived([
+    chains ? `${countOf(chains.chains, 'independent Stage chain')}, depth ${chains.min === chains.max ? chains.min : `${chains.min} to ${chains.max}`}.` : '',
+    depths?.unknown ? `${countOf(depths.unknown, 'environment')} with no known depth.` : '',
+    'Scopes lead time and delivery health. Breaking changes and gates count changes, not environments.',
+  ].filter(Boolean).join(' '));
+  const setDepth = (v) => { leadPage = 0; go({ ...keep, depth: v == null ? '' : String(v) }); };
+
   const go = (q) => { location.hash = metricsUrl(q); };
-  const keep = $derived({ window: w, metric, environment, offset, limit, servicesOffset, servicesLimit });
+  const keep = $derived({ window: w, metric, environment, offset, limit, servicesOffset, servicesLimit, depth: d == null ? '' : String(d) });
   const servicesHref = (o, l) => metricsUrl({ ...keep, servicesOffset: o ? String(o) : '', servicesLimit: l && l !== 25 ? String(l) : '' });
   const recordsHref = (o, l) => metricsUrl({ ...keep, offset: o ? String(o) : '', limit: l && l !== 25 ? String(l) : '' });
-  const countLink = (m, n, env) => (n > 0 ? metricsUrl({ window: w, metric: m, environment: env }) : '');
 
   function kindText(r) {
     if (r.kind === 'operation') return [r.type || 'operation', r.outcome].filter(Boolean).join(', ');
@@ -146,10 +219,6 @@
 
   {#snippet tileValue(text, unknown, href, n)}
     {#if href}<a {href} data-lists={n}>{#if unknown}{@render unknownText(text)}{:else}{text}{/if}</a>{:else if unknown}{@render unknownText(text)}{:else}{text}{/if}
-  {/snippet}
-
-  {#snippet count(text, href, n)}
-    {#if href}<a {href} data-lists={n}>{text}</a>{:else if text === 'unknown'}{@render unknownText()}{:else}{text}{/if}
   {/snippet}
 
   <PageHeader title="Metrics" subtitle="What has Pacto done for us lately?" />
@@ -181,7 +250,7 @@
     <section class="mx-content" data-testid="metrics-content" aria-label="Pacto outcomes">
       <div class="mx-prov-wrap" data-testid="metrics-prov">
         <div class="mx-prov">
-          <Select label="Window" value={w || '30d'} options={WINDOWS} onchange={(e) => go({ window: e.currentTarget.value, metric, environment })} />
+          <Select label="Window" value={w || '30d'} options={WINDOWS} onchange={(e) => go({ window: e.currentTarget.value, metric, environment, depth: keep.depth })} />
           <StatsStrip st={data} />
         </div>
         {#if limits.note}<p class="mx-note t-body-2" data-testid="metrics-note"><span class="mx-hatch hatch" aria-hidden="true"></span><span>{limits.note.message}</span></p>{/if}
@@ -199,7 +268,7 @@
         <section class="mx-records" data-testid="metrics-records" aria-labelledby="mx-rec-title">
           <div class="mx-rec-head">
             <h2 id="mx-rec-title" class="t-section-title">Records behind {METRIC_LABEL[metric] ?? metric}{#if environment}{' '}in <bdi title={environment}>{environment}</bdi>{/if}</h2>
-            <a href={metricsUrl({ window: w, servicesOffset, servicesLimit })}>Close</a>
+            <a href={metricsUrl({ window: w, servicesOffset, servicesLimit, depth: keep.depth })}>Close</a>
           </div>
           {#if recError}
             <p role="alert" class="t-body-2">{recError}</p>
@@ -261,6 +330,18 @@
             {/if}
           {/if}
         </section>
+      {/if}
+
+      {#if depths}
+        <div class="mx-chips" role="group" aria-label="Filter by promotion depth" data-testid="metrics-depths">
+          <span class="mx-chips-in">Promotion depth</span>
+          <button type="button" class="mx-chip" aria-pressed={d == null} aria-label={`All ${depths.total} environments`} onclick={() => setDepth(null)}>All <b>{formatCount(depths.total)}</b></button>
+          {#each depths.depths as x, i (x.depth)}
+            {#if i}<span class="mx-arrow" aria-hidden="true">→</span>{/if}
+            <button type="button" class="mx-chip" aria-pressed={d === x.depth} aria-label={`${x.label}, ${countOf(x.count, 'environment')}`} onclick={() => setDepth(x.depth)}>{x.label} <b>{formatCount(x.count)}</b></button>
+          {/each}
+          <span class="t-meta">{depthMeta}</span>
+        </div>
       {/if}
 
       {#if head}
@@ -332,44 +413,86 @@
         </ChartCard>
       </div>
 
-      <!-- ponytail: today's environments table holds the delivery health and lead time numbers until #597 P10 draws them. -->
-      <section class="card mx-card" aria-labelledby="mx-env-title" data-testid="metrics-environments">
-        <h2 id="mx-env-title" class="t-section-title">{envTitle(data)}</h2>
-        {#if envs.length === 0}
-          <p class="t-body-2">No delivery operation is recorded in this window.</p>
-        {:else}
-          <div class="data-scroll cq-cards" data-fig>
-            <table class="data-table mx-table">
-              <caption class="visually-hidden">Delivery numbers per environment</caption>
-              <colgroup><col style="width: 20%" />{#each Array(7) as _, i (i)}<col style="width: max(calc(9ch + 1.5rem), {i < 5 ? 12 : 10}%)" />{/each}</colgroup>
-              <thead><tr><th scope="col">Environment</th><th scope="col">Operations</th>{#each RATES as r (r.metric)}<th scope="col">{r.label}</th>{/each}<th scope="col">Lead time p50</th><th scope="col">p90</th></tr></thead>
-              <tbody>
-                {#each envs as e (e.environment)}
-                  <tr data-testid="metrics-env-row">
-                    <th scope="row">
-                      <div class="cell-stack">
-                        <a class="cell-clip" href={deliveryEnvironmentsUrl({ environment: e.environment })} title={e.environment}><bdi>{e.environment}</bdi></a>
-                        {#if (e.upstream ?? []).length}<span class="t-meta cell-clip" title={`fed by ${andList(e.upstream ?? [])}`}>fed by <bdi>{andList(e.upstream ?? [], 2)}</bdi></span>{/if}
-                        {#if e.cycle}<span class="t-meta">on a cycle of upstream links, placed by name</span>{/if}
-                        {#if e.unordered}<span class="t-meta">ordered both ways, placed by name</span>{/if}
-                      </div>
-                    </th>
-                    <td data-label="Operations">{formatCount(e.operations)}</td>
-                    {#each RATES as r (r.metric)}
-                      <td data-label={r.label}>{@render count(ratioText(e[r.field]), countLink(r.metric, e[r.field].count, e.environment), e[r.field].count)}</td>
-                    {/each}
-                    <td data-label="Lead time p50">{@render count(durationText(e.leadTime.p50Seconds), '', 0)}</td>
-                    <td data-label="Lead time p90">{@render count(durationText(e.leadTime.p90Seconds), '', 0)}</td>
-                  </tr>
+      <ChartCard title="Delivery health by environment" question="Share of promotions in the window, in promotion order"
+        tables={envs.length ? tableRows(data, 'health', { window: w, depth: d, by: gb }) : []} testid="metrics-health">
+        {#snippet chart()}
+          {#if envs.length === 0}
+            <p class="t-body-2">No delivery operation is recorded in this window.</p>
+          {:else if mode === 'multiples'}
+            {#if steps.length > 1}
+              <ol class="mx-ladder" aria-label="Promotion order from the Stages">
+                {#each steps as level, i (i)}
+                  <li>{#if i}<span class="mx-arrow" aria-hidden="true">→</span>{/if}<span class="mx-fork">{#each level as n (n)}<bdi class="mx-st" title={n}>{n}</bdi>{/each}</span></li>
                 {/each}
-              </tbody>
-            </table>
-          </div>
-          {#if byName}<p class="t-meta">{byName}</p>{/if}
-        {/if}
-      </section>
+              </ol>
+            {/if}
+            <div class="mx-envs">
+              {#each scoped as e (e.environment)}
+                <div class="mx-env" data-testid="metrics-env-panel">
+                  <HorizontalBars title={e.environment} items={panelItems(e)} domainMax={domain} scaleText="" stacked
+                    scopeNote={[e.parents.length ? `fed by ${andList(e.parents)}` : '', e.cycle ? 'on a cycle of upstream links, placed by name' : '', e.unordered ? 'ordered both ways, placed by name' : ''].filter(Boolean).join('; ')} />
+                </div>
+              {/each}
+            </div>
+          {:else if grid}
+            <div class="mx-ctl">
+              <input type="search" class="input" placeholder="Filter environments" aria-label="Filter environments" bind:value={query} />
+              {#if options.length > 1}
+                <Select label="Group by" value={gb} options={options.map((o) => ({ value: o, label: GROUP_WORD[o] }))} onchange={(e) => { groupSel = e.currentTarget.value; leadPage = 0; }} />
+              {/if}
+              <Select label="Sort" value={sort} options={[{ value: 'order', label: gb === 'depth' ? 'Promotion order' : 'Group order' }, { value: 'worst', label: 'Worst rate first' }]} onchange={(e) => { sortSel = e.currentTarget.value; }} />
+              <span class="t-meta" data-testid="metrics-env-count">{formatCount(grid.shown)} of {countOf(grid.total, 'environment')}</span>
+            </div>
+            {#if gb !== 'depth'}<p class="t-meta">{attributionLine(data, gb)}</p>{/if}
+            <RateGrid columns={COLUMNS} groups={grid.groups} ontoggle={toggle} emptyText="No environment matches this filter." />
+          {/if}
+        {/snippet}
+        {#snippet foot()}
+          {#if envs.length}
+            <div class="mx-keys">
+              {#if mode === 'multiples'}
+                <span class="mx-key"><i style:background="var(--c-info)" aria-hidden="true"></i><span>share of promotions</span></span>
+                <span class="mx-key">Every panel shares one scale: a full bar is {pct(domain)}</span>
+              {:else}
+                <span class="mx-key"><i class="zero" aria-hidden="true"></i><span>0%</span></span>
+                {#each BINS as b, i (b.label)}<span class="mx-key"><i style:background={`var(${HEAT[i]})`} aria-hidden="true"></i><span>{b.label}</span></span>{/each}
+              {/if}
+              <span class="mx-key"><span class="mx-hatch hatch" aria-hidden="true"></span><span>unknown, nothing to count</span></span>
+              {#if mode === 'grid' && collapsed}<span class="mx-key">Group rows show the pooled rate of the group</span>{/if}
+            </div>
+            {#if byName}<p class="t-meta">{byName}</p>{/if}
+          {/if}
+        {/snippet}
+      </ChartCard>
 
       <div class="mx-grid2">
+        <ChartCard title="Lead time by environment" question="Publish to promotion, dot at p50, line to p90"
+          tables={envs.length ? tableRows(data, 'lead', { depth: d }) : []} testid="metrics-lead">
+          {#snippet chart()}
+            {#if envs.length === 0}
+              <p class="t-body-2">No delivery operation is recorded in this window.</p>
+            {:else}
+              <RangeDots rows={lead.rows} label="Lead time by environment, p50 and p90" />
+              {#if mode === 'grid'}
+                <div class="mx-pager" data-testid="metrics-lead-pager">
+                  {#if !leadAll}
+                    <span>The {formatCount(Math.min(LEAD_TOP, lead.total))} slowest p50 of {formatCount(lead.total)}, grouped by {GROUP_WORD[gb].toLowerCase()}</span>
+                    {#if lead.total > LEAD_TOP}<button type="button" class="btn btn-sm" onclick={() => { leadAll = true; leadPage = 0; }}>Show all {formatCount(lead.total)}</button>{/if}
+                  {:else}
+                    <button type="button" class="btn btn-sm" disabled={leadPage === 0} onclick={() => { leadPage -= 1; }}>Previous</button>
+                    <span>{formatCount(lead.from)} to {formatCount(lead.to)} of {formatCount(lead.total)}</span>
+                    <button type="button" class="btn btn-sm" disabled={lead.to >= lead.total} onclick={() => { leadPage += 1; }}>Next</button>
+                    <button type="button" class="btn btn-sm" onclick={() => { leadAll = false; leadPage = 0; }}>Show the {LEAD_TOP} slowest</button>
+                  {/if}
+                </div>
+              {/if}
+            {/if}
+          {/snippet}
+          {#snippet foot()}
+            {#if envs.length}<div class="mx-keys"><span class="mx-key"><span class="mx-hatch hatch" aria-hidden="true"></span><span>unknown: no promotion joined its publish record</span></span></div>{/if}
+          {/snippet}
+        </ChartCard>
+
         <ChartCard title="Coverage over time" question={`Newest coverage snapshot of each ${per}`} tables={tableRows(data, 'coverage', opts)} testid="metrics-coverage">
           {#snippet chart()}
             {#if coverage}
@@ -502,9 +625,30 @@
   .mx-key i.dots { box-shadow: inset 0 0 0 1px var(--c-neutral); }
   .mx-key i.line { inline-size: 14px; block-size: 2px; border-radius: 1px; }
   .mx-key b { color: var(--c-text); font-weight: 600; }
-  .mx-card { container-type: inline-size; display: flex; flex-direction: column; gap: var(--sp-3); min-width: 0; padding: var(--sp-4); border-radius: var(--radius-sm); }
-  .mx-card:hover { border-color: var(--c-border); }
   .mx-card-title { font: italic 600 var(--text-md)/1.35 var(--font-display); }
+  .mx-key i.zero { background: var(--c-surface-raised); box-shadow: inset 0 0 0 1px var(--c-border); }
+  /* Promotion depth (#597): a row of chips, arrows between depths. */
+  .mx-chips { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); min-width: 0; }
+  .mx-chips-in { margin-inline-end: var(--sp-1); font-size: var(--text-sm); color: var(--c-text-2); }
+  .mx-chip {
+    display: inline-flex; align-items: center; gap: var(--sp-2); min-height: 34px; padding: 0 var(--sp-3); border: 1px solid var(--c-border);
+    border-radius: var(--radius-pill); background: var(--c-surface); color: var(--c-text-2); font-size: var(--text-sm); cursor: pointer;
+  }
+  .mx-chip b { font-weight: 600; font-size: var(--text-xs); color: var(--c-text-3); }
+  .mx-chip[aria-pressed='true'] { color: var(--c-accent); border-color: var(--c-accent-border); background: var(--c-accent-bg); }
+  .mx-arrow { color: var(--c-text-3); }
+  .mx-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-3); min-width: 0; font-size: var(--text-sm); color: var(--c-text-2); }
+  .mx-ctl input { flex: 1 1 22ch; min-width: 0; max-width: 36ch; }
+  .mx-pager { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); font-size: var(--text-xs); color: var(--c-text-3); }
+  @media (pointer: coarse) { .mx-chip, .mx-pager button { min-height: 44px; } }
+  /* The promotion strip of a small fleet: depths left to right, forks stacked. */
+  .mx-ladder { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-2); margin: 0; padding: 0; list-style: none; font-size: var(--text-xs); color: var(--c-text-3); }
+  .mx-ladder li { display: inline-flex; align-items: center; gap: var(--sp-2); min-width: 0; }
+  .mx-fork { display: inline-flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .mx-st { max-width: 24ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 8px; border: 1px solid var(--c-border); border-radius: var(--radius-pill); color: var(--c-text-2); background: var(--c-surface-raised); }
+  .mx-envs { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(28ch, 100%), 1fr)); gap: var(--sp-4) var(--sp-5); }
+  .mx-env { min-width: 0; }
+  .mx-env :global(.hb-title) { min-width: 0; overflow-wrap: anywhere; }
   .mx-unk { font-style: italic; color: var(--c-text-2); }
   .mx-hatch { display: inline-block; inline-size: 0.75em; block-size: 0.75em; margin-inline-end: var(--sp-1); border-radius: 2px; vertical-align: middle; }
   .mx-revs { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-2); min-width: 0; max-width: 100%; }

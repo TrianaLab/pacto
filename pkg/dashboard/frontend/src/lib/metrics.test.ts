@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
-  ratioText, protectedText, envTitle, hiddenLine, bucketLabel, isDaily, windowDays,
+  ratioText, protectedText, hiddenLine, bucketLabel, isDaily, windowDays,
   buckets, series, unknownReasons, headline, coverageSeries, environments, depthLabel, depthFilter,
   groupBy, groupOptions, attributionLine, pooledRate, worstEnvironment, smallMultipleDomain, bin, cell,
-  healthMode, collapsedByDefault, leadRows, tableRows, caption, noteLimitations, SMALL_MULTIPLES_MAX, COLLAPSE_ABOVE, LEAD_TOP, LEAD_PAGE,
+  healthMode, collapsedByDefault, leadRows, healthGroups, pooledFoot, chainSummary, ladder, tableRows, caption, noteLimitations, SMALL_MULTIPLES_MAX, COLLAPSE_ABOVE, LEAD_TOP, LEAD_PAGE,
 } from './metrics.ts';
 
 const ratio = (count: number, of: number) => (of ? { count, of } : { count, of: 0, unknown: true });
@@ -57,15 +57,13 @@ describe('kept helpers', () => {
     expect(protectedText(metrics({ changes: 0 }))).toEqual({ text: 'no CI records', qualified: true, unknown: true });
   });
 
-  it('labels days and weeks, titles environments and says records are hidden without counting them', () => {
+  it('labels days and weeks and says records are hidden without counting them', () => {
     const b = { since: '2026-11-03T00:00:00Z', until: '2026-11-04T00:00:00Z', days: 1 };
     expect(bucketLabel(b, true)).toBe('3 Nov');
     expect(bucketLabel({ ...b, days: 7 }, false)).toBe('week of 3 Nov');
     expect(isDaily(answer())).toBe(false);
     expect(isDaily(answer({ buckets: [b] }))).toBe(true);
     expect(windowDays(answer())).toBe(30);
-    expect(envTitle(answer())).toBe('Environments, in the order their Stages promote');
-    expect(envTitle(answer({ environmentOrder: 'name' }))).toBe('Environments, listed by name: no Stage graph to order by');
     expect(hiddenLine(answer())).toBe('');
     expect(hiddenLine(answer({ hidden: { present: true } }))).toBe('Some run records name services outside your view and are left out of every number.');
   });
@@ -404,5 +402,36 @@ describe('noteLimitations', () => {
   it('takes an unranked code after every ranked one', () => {
     expect(noteLimitations(answer({ limitations: [l('SOMETHING_NEW'), l('ATTRIBUTION_PARTIAL')] })).note?.code).toBe('ATTRIBUTION_PARTIAL');
     expect(noteLimitations(answer({ limitations: [l('SOMETHING_NEW')] })).note?.code).toBe('SOMETHING_NEW');
+  });
+});
+
+describe('delivery health at scale', () => {
+  const placed = answer({ environments: [
+    env('a', [1, 10], { depth: 0 }), env('b', [5, 10], { depth: 1, parents: ['a'] }), env('c', [0, 0], { depth: 1, parents: ['a'], rolledBack: { count: 2, of: 0, unknown: true } }),
+    env('solo', [0, 4], { depth: 0 }), env('x', [1, 2], { depth: 0 }), env('y', [1, 2], { depth: 1, parents: ['x'] }), env('z', [1, 2], { depth: 2, parents: ['y'] }),
+  ] });
+
+  it('pools each group, sorts its rows worst first when asked and counts distinct environments', () => {
+    const { groups, shown, total } = healthGroups(placed, { by: 'depth', sort: 'worst', collapsed: false });
+    expect(groups.map((g) => g.label)).toEqual(['entry', 'hop 2', 'hop 3']);
+    expect(groups[1].envs.map((e) => e.environment)).toEqual(['b', 'y', 'c']);
+    expect(groups[1].pooled.held).toMatchObject({ count: 6, of: 12, counted: 2, excluded: 1 });
+    expect(groups[1].worst.held?.environment).toBe('b');
+    expect([shown, total]).toEqual([7, 7]);
+    const filtered = healthGroups(placed, { by: 'depth', q: 'SOL', sort: 'order', collapsed: false });
+    expect(filtered.groups.map((g) => g.envs.map((e) => e.environment))).toEqual([['solo']]);
+    expect([filtered.shown, filtered.total]).toEqual([1, 7]);
+  });
+
+  it('says what a pooled cell pooled over, what it left out and its worst environment', () => {
+    const g = healthGroups(placed, { by: 'depth', sort: 'order', collapsed: false }).groups[1];
+    expect(pooledFoot(g.pooled.rolledBack, g.worst.rolledBack, 'rolledBack')).toBe('pooled over 0 of 3 environments. 3 had nothing to take the rate over (2 counted)');
+    expect(pooledFoot(g.pooled.held, g.worst.held, 'held')).toBe('pooled over 2 of 3 environments. 1 had nothing to take the rate over. Worst: b, 5/10 (50%)');
+  });
+
+  it('counts independent chains by direct parents and lays a small fleet out by depth, leaving lone environments out', () => {
+    expect(chainSummary(placed)).toEqual({ chains: 3, min: 1, max: 3 });
+    expect(chainSummary(answer({ environments: [env('a', [1, 2])] }))).toBeNull();
+    expect(ladder(placed)).toEqual([['a', 'x'], ['b', 'c', 'y'], ['z']]);
   });
 });

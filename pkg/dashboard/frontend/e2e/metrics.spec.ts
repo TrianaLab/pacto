@@ -82,18 +82,24 @@ test('never draws zero for unknown', async ({ page }) => {
     await expect(card.locator('.cc-plate').first()).toHaveText('no records');
     await expect(card.locator('.cc-val')).not.toHaveText(['0']);
   }
-  // A rate with nothing to take it over is unknown, never 0%.
-  const rolledBack = page.getByTestId('metrics-env-row').nth(1).locator('td[data-label="Rolled back"]');
-  await expect(rolledBack).toHaveText('unknown');
-  await expect(rolledBack.locator('.hatch')).toHaveCount(1);
+  // A rate with nothing to take it over is unknown, never 0%: the entry group holds one.
+  const health = page.getByTestId('metrics-health');
+  await health.locator('tr.rung button').first().click();
+  const unknown = health.locator('tbody tr:not(.rung) .cell.unk').first();
+  await expect(unknown.locator('.plate')).toHaveText('unknown');
+  await expect(unknown.locator('.hatch')).toHaveCount(1);
+  await expect(unknown.locator('.visually-hidden')).toContainText('unknown, 0 of 0 promotions');
 });
 
 test('environments follow the Stage order, not their names', async ({ page }) => {
   await openMetrics(page);
-  const section = page.getByTestId('metrics-environments');
-  await expect(section.getByRole('heading', { name: 'Environments, in the order their Stages promote' })).toBeVisible();
+  const health = page.getByTestId('metrics-health');
+  // The groups are promotion depths, never names; the cycle and the unordered one have none.
+  await expect(health.locator('tr.rung button bdi')).toHaveText(['entry', 'hop 2', 'hop 3', 'hop 4', 'Depth unknown']);
+  await health.getByRole('button', { name: 'Show as table' }).click();
+  await health.getByRole('button', { name: /^Show all 60 rows$/ }).click();
   const want = (await answer(page)).environments.map((e) => e.environment);
-  const shown = await section.locator('[data-testid="metrics-env-row"] th a').evaluateAll((as) => as.map((a) => a.getAttribute('title')));
+  const shown = await health.locator('table tbody th').evaluateAll((ths) => ths.map((th) => th.getAttribute('title')));
   expect(shown).toEqual(want);
   expect([...want].sort((a, b) => a.localeCompare(b))).not.toEqual(want);
 });
@@ -133,7 +139,9 @@ test('a blocked gate opens its records, each with its change analysis', async ({
 
 test('a failed promotion count opens exactly its records, each linked to its Stage history', async ({ page }) => {
   await openMetrics(page);
-  const cell = page.getByTestId('metrics-env-row').first().locator('td[data-label="Failed"] a');
+  const health = page.getByTestId('metrics-health');
+  await health.getByRole('button', { name: 'Show as table' }).click();
+  const cell = health.locator('table tbody tr').first().locator('td[data-label="Failed"] a');
   await expect(cell).toHaveAttribute('data-lists', '2');
   await cell.click();
   const rows = page.getByTestId('metrics-records').getByTestId('metrics-record');

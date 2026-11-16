@@ -1608,9 +1608,32 @@ const openMetrics = (mode: string) => async (page: Page) => {
  */
 export const openMetricsAt = (envs: '5' | '200') => async (page: Page) => {
   await page.evaluate((n) => { sessionStorage.removeItem('fixture.stats'); sessionStorage.setItem('fixture.stats.envs', n); }, envs);
-  await page.goto('/index.html?fixture=1#/metrics');
+  // The size in the path too, so a second size after a first one is a real navigation.
+  await page.goto(`/index.html?fixture=1&envs=${envs}#/metrics`);
   await page.evaluate(() => (window as unknown as { __pactoReady?: Promise<unknown> }).__pactoReady);
   await expect(page.getByTestId('metrics-tiles')).toBeVisible({ timeout: 30_000 });
+  const health = page.getByTestId('metrics-health');
+  if (envs === '5') {
+    await expect(health.getByTestId('metrics-env-panel')).toHaveCount(5);
+    return;
+  }
+  // 200: the depth filter row and collapsed groups with their pooled rows.
+  await expect(page.getByRole('group', { name: 'Filter by promotion depth' })).toBeVisible();
+  await expect(health.locator('tr.rung button[aria-expanded="false"]').first()).toBeVisible();
+};
+
+/**
+ * Opens Metrics at the default 60 environments: the heatmap, its groups collapsed, then
+ * the first group opened so its rows (long names) are laid out and checked too.
+ */
+const metricsSixty = async (page: Page) => {
+  await page.goto('/index.html?fixture=1#/metrics');
+  await page.evaluate(() => (window as unknown as { __pactoReady?: Promise<unknown> }).__pactoReady);
+  const health = page.getByTestId('metrics-health');
+  await expect(health.locator('.hm-scroll')).toBeVisible({ timeout: 30_000 });
+  await health.locator('tr.rung button').first().click();
+  await expect(health.locator('.hm tbody th[scope="row"]').first()).toBeVisible();
+  await page.evaluate(() => window.scrollTo(0, 0)); // the click scrolled the card into view; the gate reads from the top
 };
 
 /**
@@ -1624,7 +1647,11 @@ const metricsTables = async (page: Page) => {
   await expect(toggles.first()).toBeVisible({ timeout: 30_000 });
   const n = await toggles.count();
   for (let i = 0; i < n; i++) await toggles.first().click();
-  await expect(page.locator('.cc-table')).toHaveCount(n);
+  // Every card shows its table; lead time shows two (per environment and per week).
+  await expect(toggles).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Show as chart' })).toHaveCount(n);
+  await expect(page.getByTestId('metrics-health').locator('.cc-table')).toBeVisible();
+  await expect(page.getByTestId('metrics-lead').locator('.cc-table')).toHaveCount(2);
   await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
 };
 
@@ -1638,7 +1665,7 @@ const demoMetrics = (hash: string) => async (page: Page) => {
   await page.goto(`/index.html?fixture=1${hash}`);
   await page.evaluate(() => (window as unknown as { __pactoReady?: Promise<unknown> }).__pactoReady);
   await expect(page.getByTestId('metrics-tiles').locator('.mx-tile').first()).toBeVisible({ timeout: 30_000 });
-  await expect(page.locator('[data-testid="metrics-env-row"] th a[title="prod-eu"]')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId('metrics-health').getByText('prod-eu', { exact: true }).first()).toBeVisible({ timeout: 30_000 });
 };
 
 /** Opens a service created from a golden path, through the path's own created count. */
@@ -1951,10 +1978,11 @@ export const ROUTES: Route[] = [
   },
   { name: 'metrics off', open: openMetrics('off') },
   { name: 'metrics no records', open: openMetrics('none') },
-  { name: 'metrics', hash: '#/metrics' },
+  { name: 'metrics', open: metricsSixty },
   { name: 'metrics records', hash: '#/metrics?metric=blocked' },
   { name: 'metrics restricted', open: openMetrics('restricted') },
   { name: 'metrics 5 environments', open: openMetricsAt('5') },
+  { name: 'metrics 200 environments', open: openMetricsAt('200') },
   { name: 'metrics tables', open: metricsTables },
   { name: 'metrics (demo records)', open: demoMetrics('#/metrics') },
   { name: 'metrics (demo records, 90 days)', open: demoMetrics('#/metrics?window=90d') },

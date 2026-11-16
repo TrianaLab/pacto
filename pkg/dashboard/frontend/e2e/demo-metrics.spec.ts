@@ -26,7 +26,9 @@ test('the demo records say what they are and when they were read', async ({ page
 
 test('environments follow each Stage path: test before the prod-eu and prod-us fork', async ({ page }) => {
   await openMetrics(page);
-  const names = await page.locator('[data-testid="metrics-env-row"] th a').evaluateAll((as) => as.map((a) => a.getAttribute('title')));
+  const health = page.getByTestId('metrics-health');
+  await health.getByRole('button', { name: 'Show as table' }).click();
+  const names = await health.locator('table tbody th').evaluateAll((ths) => ths.map((th) => th.getAttribute('title')));
   for (const env of ['test', 'prod-eu', 'prod-us']) expect(names).toContain(env);
   expect(names.indexOf('test')).toBeLessThan(names.indexOf('prod-eu'));
   expect(names.indexOf('test')).toBeLessThan(names.indexOf('prod-us'));

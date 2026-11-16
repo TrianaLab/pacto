@@ -39,7 +39,15 @@
   const envs = $derived(rows.filter((r): r is Env => 'name' in r));
   const dom = $derived(logDomain(envs.flatMap((e) => [e.p50, e.p50 == null ? null : e.p90])));
   const x = $derived(dom ? logScale(dom, [labW, W - m.r]) : () => labW);
-  const ticks = $derived(dom ? logTicks(dom[0], dom[1], W) : []);
+  // The widest tick label, measured once laid out: ticks closer than it plus 8px are
+  // dropped from the right, so the last one always stays (never font-dependent).
+  let tickW = $state(0);
+  const ticks = $derived.by(() => {
+    const all = dom ? logTicks(dom[0], dom[1], W) : [];
+    const kept: typeof all = [];
+    for (const t of [...all].reverse()) if (!kept.length || x(kept[kept.length - 1].value) - x(t.value) >= tickW + 8) kept.push(t);
+    return kept.reverse();
+  });
 
   // Each row's top, in order; the plot ends where the last row does.
   const layout = $derived.by(() => {
@@ -68,6 +76,8 @@
     void W; void rows;
     if (!labelsEl) return;
     const el = labelsEl;
+    const widest = Math.max(0, ...[...el.querySelectorAll<HTMLElement>('.rd-tick')].map((t) => t.offsetWidth));
+    if (Math.abs(widest - tickW) > 0.5 && widest > tickW) tickW = widest;
     fitIdents(el);
     // Again once web fonts land: a name measured in the fallback font can still overflow.
     document.fonts?.ready.then(() => { if (el.isConnected) fitIdents(el); });
