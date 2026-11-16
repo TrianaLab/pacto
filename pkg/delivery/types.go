@@ -349,8 +349,8 @@ type Caller struct {
 // a TeamGroupPrefix only that prefix plus T. A Kubernetes system: group is
 // never a team, as every user carries one. No teams means the question names
 // nobody: any person may answer it, or nobody with RequireOwnerTeam. With
-// TeamNarrowing off any groups answer a named team. It is the one place that
-// reads TeamNarrowing, so every caller agrees.
+// TeamNarrowing off any groups answer a named team. It is the one decision
+// that reads TeamNarrowing, so every caller agrees; Narrows only says it.
 func (p ClassPolicy) InTeams(groups, teams []string) bool {
 	if len(teams) == 0 {
 		return !p.RequireOwnerTeam
@@ -365,6 +365,10 @@ func (p ClassPolicy) InTeams(groups, teams []string) bool {
 	}
 	return false
 }
+
+// Narrows reports whether owner teams narrow who may answer, for copy that
+// says so. It decides nothing: who may answer is InTeams.
+func (p ClassPolicy) Narrows() bool { return p.TeamNarrowing }
 
 // ClassSource says how ClassifyBy decided an identity's class.
 type ClassSource string

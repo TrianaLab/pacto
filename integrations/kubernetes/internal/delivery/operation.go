@@ -182,7 +182,7 @@ func (r *OperationReconciler) saveHeld(ctx context.Context, op *dv1.Operation, s
 	switch {
 	case a.Unverified != "":
 		event(r.Events, op, true, "ApproverUnverified", "no approval can count: "+a.Unverified+"; only break-glass can override")
-	case !r.Policy.TeamNarrowing:
+	case !r.Policy.Narrows():
 		event(r.Events, op, false, "TeamNarrowingOff", "owner teams do not narrow who may answer: whoever may "+a.Phrase()+
 			" decides; set delivery.identities.teamGroupPrefix to narrow it to the owner teams")
 	}

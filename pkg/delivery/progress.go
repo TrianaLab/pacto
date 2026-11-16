@@ -284,7 +284,7 @@ func (p *progress) heldReason(op OperationObject) {
 func (p *progress) heldWho(owners []string) string {
 	pol, phrase := p.in.Caller.Policy, p.workload().Phrase()
 	switch {
-	case len(owners) > 0 && pol.TeamNarrowing:
+	case len(owners) > 0 && pol.Narrows():
 		return "a person of " + strings.Join(owners, ", ") + " who may " + phrase
 	case len(owners) > 0:
 		return "a person who may " + phrase + " (asked of " + strings.Join(owners, ", ") + ")"
