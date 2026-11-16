@@ -578,3 +578,145 @@ func TestClusterDraftURLLiterals(t *testing.T) {
 		t.Fatalf("db is not a dependency: %+v", r.Dependencies)
 	}
 }
+
+// pactoCR is a Pacto in ns describing the Service svc with the contract
+// name at ref and version, at metadata.generation gen and
+// status.observedGeneration observed.
+func pactoCR(ns, name, svc, contractName, ref, version string, gen, observed int64) *unstructured.Unstructured {
+	return obj("pacto.trianalab.io/v1alpha1", "Pacto", ns, name, map[string]any{
+		"metadata": map[string]any{"generation": gen},
+		"spec":     map[string]any{"contractRef": map[string]any{"oci": ref + ":" + version}, "target": map[string]any{"serviceName": svc}},
+		"status": map[string]any{"observedGeneration": observed,
+			"contract": map[string]any{"serviceName": contractName, "version": version, "resolvedRef": ref + "@sha256:aa"}}})
+}
+
+const paymentsRef = "oci://reg.io/acme/contracts/payments"
+
+// TestClusterProviderLowestVersion: the dependency a call to payments is on
+// carries every version the reconciled Pactos describing it report,
+// ascending and distinct, whatever order they are listed in.
+func TestClusterProviderLowestVersion(t *testing.T) {
+	p := func(name, version string) *unstructured.Unstructured {
+		return pactoCR("shop", name, "payments", "payments", paymentsRef, version, 0, 0)
+	}
+	stale := pactoCR("shop", "payments-next", "payments", "payments", paymentsRef, "2.4.0", 3, 2)
+	other := pactoCR("other", "payments", "payments", "payments", paymentsRef, "1.0.0", 0, 0)
+	for _, tt := range []struct {
+		name     string
+		pactos   []*unstructured.Unstructured
+		versions []string
+		unknown  []string
+	}{
+		{"one", []*unstructured.Unstructured{p("a", "2.3.1")}, []string{"2.3.1"}, nil},
+		{"higher first", []*unstructured.Unstructured{p("a", "2.4.0"), p("b", "2.3.1")}, []string{"2.3.1", "2.4.0"}, nil},
+		{"lower first", []*unstructured.Unstructured{p("a", "2.3.1"), p("b", "2.4.0")}, []string{"2.3.1", "2.4.0"}, nil},
+		{"same version", []*unstructured.Unstructured{p("a", "2.3.1"), p("b", "2.3.1")}, []string{"2.3.1"}, nil},
+		{"non-strict ignored", []*unstructured.Unstructured{p("a", "v2.2"), p("b", "2.3.1")}, []string{"2.3.1"}, nil},
+		{"other namespace ignored", []*unstructured.Unstructured{other, p("b", "2.3.1")}, []string{"2.3.1"}, nil},
+		{"stale generation ignored", []*unstructured.Unstructured{stale, p("b", "2.4.1")}, []string{"2.4.1"},
+			[]string{"the version of payments that Pacto shop/payments-next describes: its status is not reconciled with its spec, so no range is proposed from it"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			cl := &cluster{}
+			for _, o := range tt.pactos {
+				cl.pactos = append(cl.pactos, *o)
+			}
+			d := cl.provider(*service("shop", "payments", "10.0.0.20"))
+			if !slices.Equal(d.Versions, tt.versions) || d.Ref != paymentsRef || d.Name != "payments" || !slices.Equal(d.Unknown, tt.unknown) {
+				t.Fatalf("provider: %+v", d)
+			}
+		})
+	}
+}
+
+// TestProviderConflictingContractsProposeNothing: two reconciled Pactos
+// describing one Service name different contracts, so no versions are kept,
+// the identity is the first by ref and one note names both.
+func TestProviderConflictingContractsProposeNothing(t *testing.T) {
+	cl := &cluster{pactos: []unstructured.Unstructured{
+		*pactoCR("shop", "payments", "payments", "payments", paymentsRef, "2.4.0", 1, 1),
+		*pactoCR("shop", "legacy", "payments", "payments-old", paymentsRef+"-old", "2.3.1", 1, 1),
+	}}
+	d := cl.provider(*service("shop", "payments", "10.0.0.20"))
+	want := "the version of shop/payments to propose a range from: the Pactos describing it name different contracts (" +
+		"payments at oci://reg.io/acme/contracts/payments in Pacto shop/payments and payments-old at oci://reg.io/acme/contracts/payments-old in Pacto shop/legacy), so no range is proposed"
+	if len(d.Versions) != 0 || d.Ref != paymentsRef || d.Name != "payments" || !slices.Equal(d.Unknown, []string{want}) {
+		t.Fatalf("provider: %+v", d)
+	}
+}
+
+// twoPaymentServices is checkout calling the Services payments and
+// payments-canary, each described by a Pacto naming the contract payments,
+// at canaryRef for the canary.
+func twoPaymentServices(now time.Time, canaryRef string) []runtime.Object {
+	call := func(ip string) map[string]any {
+		return map[string]any{"address": ip, "port": int64(80), "successes": int64(3), "lastSuccessAt": now.UTC().Format(time.RFC3339)}
+	}
+	return []runtime.Object{
+		deployment("shop", "checkout", "reg.io/acme/checkout:1.4.0"),
+		service("shop", "payments", "10.0.0.20"), service("shop", "payments-canary", "10.0.0.21"),
+		controlled(obj("apps/v1", "ReplicaSet", "shop", "checkout-7f", nil), "Deployment", "checkout", ""),
+		controlled(obj("v1", "Pod", "shop", "checkout-7f-a", map[string]any{"metadata": map[string]any{"labels": map[string]any{"app": "checkout"}}}), "ReplicaSet", "checkout-7f", "u-a"),
+		controlled(obj("v1", "Pod", "shop", "checkout-7f-b", map[string]any{"metadata": map[string]any{"labels": map[string]any{"app": "checkout"}}}), "ReplicaSet", "checkout-7f", "u-b"),
+		pactoCR("shop", "payments", "payments", "payments", paymentsRef, "2.4.0", 1, 1),
+		pactoCR("shop", "payments-canary", "payments-canary", "payments", canaryRef, "2.3.1", 1, 1),
+		obj("pacto.trianalab.io/v1alpha1", "NodeRuntimeObservation", "pacto-system", "node-1", map[string]any{"status": map[string]any{
+			"nodeName": "node-1",
+			"pods": []any{
+				map[string]any{"uid": "u-a", "connections": []any{call("10.0.0.20"), call("10.0.0.21")}},
+				map[string]any{"uid": "u-b", "connections": []any{call("10.0.0.20")}},
+			}}}),
+	}
+}
+
+func checkoutInferred(t *testing.T, canaryRef string) Inferred {
+	t.Helper()
+	now := time.Now()
+	cl, err := readCluster(context.Background(), fakeCluster(twoPaymentServices(now, canaryRef)...), []string{"shop"}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deps := cl.inferred(now.Add(-time.Hour))["shop/Deployment/checkout"]
+	if len(deps) != 1 || deps[0].Where != "calls seen to the Services shop/payments and shop/payments-canary" {
+		t.Fatalf("checkout's dependencies: %+v", deps)
+	}
+	return deps[0]
+}
+
+// TestInferredMergesVersionsAcrossServices: two Services whose Pactos name
+// one contract are one dependency with the versions of both.
+func TestInferredMergesVersionsAcrossServices(t *testing.T) {
+	d := checkoutInferred(t, paymentsRef)
+	if !slices.Equal(d.Versions, []string{"2.3.1", "2.4.0"}) || d.Ref != paymentsRef || len(d.Unknown) != 0 {
+		t.Fatalf("merged: %+v", d)
+	}
+}
+
+// TestInferredMergeConflictingRefsProposeNothing: the same, with the canary
+// naming another ref: no versions, the lower ref and a note naming both.
+func TestInferredMergeConflictingRefsProposeNothing(t *testing.T) {
+	d := checkoutInferred(t, "oci://reg.io/acme/contracts/canary")
+	if len(d.Versions) != 0 || d.Ref != "oci://reg.io/acme/contracts/canary" || len(d.Unknown) != 1 ||
+		!strings.Contains(d.Unknown[0], "the Services shop/payments and shop/payments-canary name different contracts (oci://reg.io/acme/contracts/canary and oci://reg.io/acme/contracts/payments)") {
+		t.Fatalf("merged: %+v", d)
+	}
+}
+
+// TestMergeInferredKeepsConflict: once the Pactos disagree, a later
+// agreeing Service adds no versions, a repeated note is kept once and a new
+// one is added.
+func TestMergeInferredKeepsConflict(t *testing.T) {
+	note := "conflict"
+	a := Inferred{Name: "payments", services: []string{"shop/a"}, Unknown: []string{note}, conflict: true, Ref: paymentsRef}
+	b := Inferred{Name: "payments", services: []string{"shop/b"}, Unknown: []string{note}, Versions: []string{"2.3.1"}, Ref: paymentsRef}
+	c := Inferred{Name: "payments", services: []string{"shop/c"}, Unknown: []string{"other"}}
+	list := mergeInferred(mergeInferred(mergeInferred(nil, a), b), c)
+	if len(list) != 1 || len(list[0].Versions) != 0 || !slices.Equal(list[0].Unknown, []string{note, "other"}) || list[0].Ref != paymentsRef ||
+		list[0].Where != "calls seen to the Services shop/a, shop/b and shop/c" {
+		t.Fatalf("merged: %+v", list)
+	}
+	d := mergeInferred([]Inferred{{Name: "payments", services: []string{"shop/a"}}}, Inferred{Name: "payments", services: []string{"shop/b"}, Ref: paymentsRef, Versions: []string{"2.0.0"}})
+	if d[0].Ref != paymentsRef || !slices.Equal(d[0].Versions, []string{"2.0.0"}) {
+		t.Fatalf("merged: %+v", d)
+	}
+}

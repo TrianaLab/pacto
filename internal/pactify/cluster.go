@@ -1,6 +1,7 @@
 package pactify
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -319,7 +320,7 @@ func (cl *cluster) described() map[string]bool {
 }
 
 // inferred maps each workload, as ns/Kind/name, to the services its pods
-// called since since.
+// called since since. Services that resolve to one contract are merged.
 func (cl *cluster) inferred(since time.Time) map[string][]Inferred {
 	pods := map[string]unstructured.Unstructured{}
 	for _, p := range cl.pods {
@@ -335,25 +336,111 @@ func (cl *cluster) inferred(since time.Time) map[string][]Inferred {
 				continue // not a pod read here, or the service calling itself
 			}
 			w := cl.owner(pod)
-			if !slices.ContainsFunc(out[w], func(d Inferred) bool { return d.Name == dep.Name }) {
-				out[w] = append(out[w], dep)
-			}
+			out[w] = mergeInferred(out[w], dep)
 		}
 	}
 	return out
 }
 
-// provider is the dependency a call to svc is on: pinned to the contract
-// version the Pacto describing svc runs, else only named.
+// mergeInferred adds d to list. An entry with d's name takes d's Services,
+// and its versions when both agree on the contract ref; when they name
+// different refs, it proposes nothing and says why.
+func mergeInferred(list []Inferred, d Inferred) []Inferred {
+	i := slices.IndexFunc(list, func(e Inferred) bool { return e.Name == d.Name })
+	if i < 0 {
+		return append(list, d)
+	}
+	e := &list[i]
+	if slices.Equal(e.services, d.services) {
+		return list // another pod of the workload calling the same Service
+	}
+	e.services = slices.Concat(e.services, d.services)
+	sort.Strings(e.services)
+	e.Where = callsSeen(e.services)
+	for _, u := range d.Unknown {
+		if !slices.Contains(e.Unknown, u) {
+			e.Unknown = append(e.Unknown, u)
+		}
+	}
+	switch {
+	case e.Ref != "" && d.Ref != "" && e.Ref != d.Ref:
+		e.Unknown = append(e.Unknown, fmt.Sprintf("the version of %s to propose a range from: %s name different contracts (%s), so no range is proposed",
+			e.Name, strings.TrimPrefix(e.Where, "calls seen to "), joinAnd(sortedPair(e.Ref, d.Ref))))
+		e.Ref, e.Versions, e.conflict = min(e.Ref, d.Ref), nil, true
+	case e.conflict || d.conflict:
+		e.Versions, e.conflict = nil, true
+		e.Ref = cmp.Or(e.Ref, d.Ref)
+	default:
+		e.Ref = cmp.Or(e.Ref, d.Ref)
+		e.Versions = ascending(slices.Concat(e.Versions, d.Versions))
+	}
+	return list
+}
+
+func sortedPair(a, b string) []string {
+	return []string{min(a, b), max(a, b)}
+}
+
+// callsSeen is where a dependency was found: the Services, as ns/name, its
+// calls were seen to.
+func callsSeen(services []string) string {
+	s := "calls seen to the Service"
+	if len(services) > 1 {
+		s += "s"
+	}
+	return s + " " + joinAnd(services)
+}
+
+// joinAnd joins parts as "a, b and c".
+func joinAnd(parts []string) string {
+	if len(parts) < 2 {
+		return strings.Join(parts, "")
+	}
+	return strings.Join(parts[:len(parts)-1], ", ") + " and " + parts[len(parts)-1]
+}
+
+// ascending sorts strict-semver versions ascending and drops repeats.
+func ascending(versions []string) []string {
+	vs := make([]*semver.Version, 0, len(versions))
+	for _, s := range versions {
+		vs = append(vs, semver.MustParse(s))
+	}
+	slices.SortFunc(vs, func(a, b *semver.Version) int { return a.Compare(b) })
+	vs = slices.CompactFunc(vs, func(a, b *semver.Version) bool { return a.Equal(b) })
+	out := make([]string, len(vs))
+	for i, v := range vs {
+		out[i] = v.String()
+	}
+	return out
+}
+
+// description is what one reconciled Pacto says about the Service it
+// describes.
+type description struct {
+	version, name, ref, pacto string
+}
+
+// provider is the dependency a call to svc is on, with every contract
+// version the reconciled Pactos describing svc report, when they agree on
+// one contract. A Pacto whose status is not reconciled with its spec adds
+// nothing; Pactos naming different contracts propose nothing.
 func (cl *cluster) provider(svc unstructured.Unstructured) Inferred {
-	d := Inferred{Name: svc.GetName(), Where: "calls seen to the Service " + svc.GetNamespace() + "/" + svc.GetName()}
+	svcID := svc.GetNamespace() + "/" + svc.GetName()
+	d := Inferred{Name: svc.GetName(), Where: callsSeen([]string{svcID}), services: []string{svcID}}
+	var found []description
 	for _, p := range cl.pactos {
 		target, _, _ := unstructured.NestedString(p.Object, "spec", "target", "serviceName")
 		if p.GetNamespace() != svc.GetNamespace() || target != svc.GetName() {
 			continue
 		}
+		pacto := p.GetNamespace() + "/" + p.GetName()
+		if og, _, _ := unstructured.NestedInt64(p.Object, "status", "observedGeneration"); og != p.GetGeneration() {
+			d.Unknown = append(d.Unknown, "the version of "+svc.GetName()+" that Pacto "+pacto+" describes: its status is not reconciled with its spec, so no range is proposed from it")
+			continue
+		}
+		name := svc.GetName()
 		if n, _, _ := unstructured.NestedString(p.Object, "status", "contract", "serviceName"); nameRE.MatchString(n) {
-			d.Name = n
+			name, d.Name = n, n
 		}
 		version, _, _ := unstructured.NestedString(p.Object, "status", "contract", "version")
 		ref, _, _ := unstructured.NestedString(p.Object, "status", "contract", "resolvedRef")
@@ -362,9 +449,36 @@ func (cl *cluster) provider(svc unstructured.Unstructured) Inferred {
 		}
 		ref = "oci://" + refRepo(ref)
 		if v, err := semver.StrictNewVersion(version); err == nil && refRE.MatchString(ref) {
-			d.Version, d.Ref = v.String(), ref
+			found = append(found, description{version: v.String(), name: name, ref: ref, pacto: pacto})
 		}
 	}
+	return fromPactos(d, found)
+}
+
+// fromPactos completes d from the Pactos describing its Service: their
+// versions when they agree on one contract, else the first contract by ref
+// and a note naming each one.
+func fromPactos(d Inferred, found []description) Inferred {
+	if len(found) == 0 {
+		return d
+	}
+	slices.SortFunc(found, func(a, b description) int {
+		return cmp.Or(cmp.Compare(a.ref, b.ref), cmp.Compare(a.name, b.name), cmp.Compare(a.pacto, b.pacto))
+	})
+	d.Name, d.Ref = found[0].name, found[0].ref
+	if found[0].ref != found[len(found)-1].ref || slices.ContainsFunc(found, func(f description) bool { return f.name != found[0].name }) {
+		var each []string
+		for _, f := range found {
+			each = append(each, f.name+" at "+f.ref+" in Pacto "+f.pacto)
+		}
+		d.Unknown = append(d.Unknown, "the version of "+d.services[0]+" to propose a range from: the Pactos describing it name different contracts ("+joinAnd(each)+"), so no range is proposed")
+		d.conflict = true
+		return d
+	}
+	for _, f := range found {
+		d.Versions = append(d.Versions, f.version)
+	}
+	d.Versions = ascending(d.Versions)
 	return d
 }
 

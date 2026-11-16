@@ -639,7 +639,7 @@ func sensitiveLiteral(name, value string) bool {
 func (p *planner) pinned(b *strings.Builder) map[string]bool {
 	out := map[string]bool{}
 	for _, d := range p.opts.Inferred {
-		if d.Version == "" || out[d.Name] {
+		if len(d.Versions) == 0 || out[d.Name] {
 			continue
 		}
 		if len(out) == 0 {
@@ -647,9 +647,9 @@ func (p *planner) pinned(b *strings.Builder) map[string]bool {
 		}
 		out[d.Name] = true
 		fmt.Fprintf(b, "  # inferred from runtime calls: pinned to the version seen running; widen it once you know\n"+
-			"  - name: %s\n    ref: %s\n    required: true\n    compatibility: %s\n", d.Name, d.Ref, yq("="+d.Version))
-		p.found("%s calls %s %s (%s)", p.r.Service, d.Name, d.Version, d.Where)
-		p.next("pacto.yaml declares %s pinned to =%s, the version seen running: widen compatibility to the versions %s accepts, or every new %s asks %s's owners", d.Name, d.Version, p.r.Service, d.Name, p.r.Service)
+			"  - name: %s\n    ref: %s\n    required: true\n    compatibility: %s\n", d.Name, d.Ref, yq("="+d.Versions[0]))
+		p.found("%s calls %s %s (%s)", p.r.Service, d.Name, d.Versions[0], d.Where)
+		p.next("pacto.yaml declares %s pinned to =%s, the version seen running: widen compatibility to the versions %s accepts, or every new %s asks %s's owners", d.Name, d.Versions[0], p.r.Service, d.Name, p.r.Service)
 	}
 	return out
 }

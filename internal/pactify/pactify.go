@@ -65,8 +65,8 @@ type Options struct {
 	// in to a private registry with.
 	RegistrySecret string
 	// Inferred are dependencies seen at runtime (pacto init --cluster). One
-	// with a Version is written as an entry pinned to exactly that version;
-	// one without gets a placeholder range, like a dependency read from the env.
+	// with Versions is pinned to the lowest; one without gets a placeholder
+	// range, like a dependency read from the env.
 	Inferred []Inferred
 	// Template creates the contract from a golden path. It needs Owner and
 	// refuses Delivery, FleetRoots and Inferred.
@@ -102,10 +102,21 @@ type Template struct {
 
 // Inferred is a service this one was seen calling at runtime.
 type Inferred struct {
-	Name    string `json:"name"`
-	Ref     string `json:"ref,omitempty"`
-	Version string `json:"version,omitempty"`
-	Where   string `json:"where"`
+	Name string `json:"name"`
+	Ref  string `json:"ref,omitempty"`
+	// Versions are the contract versions the reconciled Pactos describing the
+	// provider's Service report, strict semver, distinct and ascending; empty
+	// when no Pacto describes it.
+	Versions []string `json:"versions,omitempty"`
+	Where    string   `json:"where"`
+	// Unknown is what kept a range from being proposed, one sentence each.
+	Unknown []string `json:"unknown,omitempty"`
+
+	// services are the Services, as ns/name, the calls were seen to.
+	services []string
+	// conflict says the Pactos describing those Services name different
+	// contracts, so no versions are kept.
+	conflict bool
 }
 
 // File actions.
