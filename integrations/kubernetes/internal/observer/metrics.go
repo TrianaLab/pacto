@@ -18,11 +18,23 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/evidence"
 )
+
+// scrapeablePort is findServicePort for the metrics scrape, which never follows a namespace-chosen name out
+// of its selector-backed Services (same guard as health.go and interfaces.go): a namespace label can turn
+// metrics on, so an ExternalName's CNAME or a selector-less Service's hand-written endpoints must not
+// choose what the operator dials.
+func scrapeablePort(svc *corev1.Service, port intstr.IntOrString) (corev1.ServicePort, bool) {
+	if svc.Spec.Type == corev1.ServiceTypeExternalName || len(svc.Spec.Selector) == 0 {
+		return corev1.ServicePort{}, false
+	}
+	return findServicePort(svc, port)
+}
 
 // observeMetricsDim observes the metrics capability (spec section 7.5 / Refinement D). Returns nil if no metrics
 // capability is declared, otherwise exactly one observation. No reliable operator-side negative this release.
@@ -86,18 +98,10 @@ func (o *Observer) observeMetricsDim(ctx context.Context, input CollectInput, pr
 		return &obs, nil
 	}
 
-	// The scrape never follows a namespace-chosen name out of its selector-backed Services (same guard as
-	// health.go and interfaces.go): a namespace label can turn metrics on, so an ExternalName's CNAME or a
-	// selector-less Service's hand-written endpoints must not choose what the operator dials.
-	if svc.Spec.Type == corev1.ServiceTypeExternalName || len(svc.Spec.Selector) == 0 {
-		obs, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Unsupported, prov)
-		return &obs, nil
-	}
-
 	// Resolve the interface-bound port number.
-	boundPort, found := findServicePort(svc, binding.ServicePort)
+	boundPort, found := scrapeablePort(svc, binding.ServicePort)
 	if !found {
-		// Bound port not found in Service -> Unsupported.
+		// Bound port not found in Service, or a Service the scrape must not dial -> Unsupported.
 		obs, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Unsupported, prov)
 		return &obs, nil
 	}
