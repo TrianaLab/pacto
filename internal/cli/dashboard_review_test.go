@@ -153,3 +153,12 @@ func TestMCPViewerLocalUsesLocal(t *testing.T) {
 		t.Errorf("asked %v", r.asked)
 	}
 }
+
+// TestMCPFleetRefusesBadReview: `pacto mcp --fleet` refuses an unknown review
+// mode and a local review with no namespace before it serves anything.
+func TestMCPFleetRefusesBadReview(t *testing.T) {
+	err := remoteCmd(t, defaultDeps(), "--fleet", "--local", "", "--review", "bogus")
+	wantErr(t, err, `--review must be cluster or local, not "bogus"`)
+	err = remoteCmd(t, defaultDeps(), "--fleet", "--local", "", "--review", reviewLocal)
+	expect(t, errors.Is(err, errLocalReviewNeedsNamespace), "local without namespaces: %v", err)
+}

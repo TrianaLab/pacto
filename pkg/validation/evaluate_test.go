@@ -696,8 +696,8 @@ func TestUnknownMessageAppendsDetail(t *testing.T) {
 	if len(got) != 1 || got[0].Severity != finding.SeverityUnknown {
 		t.Fatalf("want one Unknown OBSERVATION_UNSUPPORTED, got %v", fs)
 	}
-	if !strings.HasSuffix(got[0].Message, ": "+detail) {
-		t.Fatalf("message %q must end with the detail", got[0].Message)
+	if want := `configuration "app" cannot be observed in this environment: ` + detail; got[0].Message != want {
+		t.Fatalf("message %q, want %q", got[0].Message, want)
 	}
 }
 
