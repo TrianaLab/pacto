@@ -24,6 +24,8 @@ The contract specification version: `"2.0"`, `"2.1"`, `"2.2"`, `"2.3"`, `"2.4"` 
   [`service.origin`](#service-origin), and `values` and a
   [`configuration`](configuration-and-policy.md#selecting-a-configuration) selector
   beside a configuration `ref`.
+- 2.5 adds an interface `port` and
+  [`breaks`](dependencies-and-state.md#breaks).
 
 Each version accepts every contract of the version before it.
 [Versions](../installation.md#versions) lists the Pacto core and operator
@@ -274,6 +276,7 @@ Declares the service's communication boundaries. Optional: a service with no net
 | `lifecycle` | object | No | 2.2. See [interface lifecycle](#interface-lifecycle) |
 | `guarantees` | object | No | 2.2. Behavior consumers may rely on. See [Guarantees](#guarantees) |
 | `compatibilityEpoch` | integer | No | 2.2. Minimum `0`. Default: `0`. See [Compatibility epoch](#compatibility-epoch) |
+| `port` | integer | No | 2.5. `1` to `65535`. The port the interface listens on. Several interfaces may share one port |
 
 ### Interface types
 
@@ -285,7 +288,7 @@ Declares the service's communication boundaries. Optional: a service with no net
 | `mcp` | The tools a service such as an AI agent exposes, as an MCP `tools/list` result. See [an agent is a service](checks.md#an-agent-is-a-service) |
 
 !!! note
-    Interface names must be unique within a contract. Every interface requires a non-empty `ref` (`SCHEMA_VIOLATION` otherwise), and the referenced file must exist in the bundle (`FILE_NOT_FOUND` otherwise). A `.json`, `.yaml` or `.yml` ref must also parse (`INVALID_INTERFACE_SPEC` otherwise). For any other extension, such as a gRPC `.proto`, Pacto checks only that the file exists. Ports are a deployment concern, so interfaces have no `port` field. Declare health and metrics endpoints as [capabilities](#capabilities).
+    Interface names must be unique within a contract. Every interface requires a non-empty `ref` (`SCHEMA_VIOLATION` otherwise), and the referenced file must exist in the bundle (`FILE_NOT_FOUND` otherwise). A `.json`, `.yaml` or `.yml` ref must also parse (`INVALID_INTERFACE_SPEC` otherwise). For any other extension, such as a gRPC `.proto`, Pacto checks only that the file exists. `pacto diff` reports a declared or dropped `port` as non-breaking and a moved one as potentially breaking. Declare health and metrics endpoints as [capabilities](#capabilities).
 
 ### Interface lifecycle
 

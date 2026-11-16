@@ -208,12 +208,20 @@ func needs24(result *ValidationResult, data any) any {
 }
 
 // needs25 records a NEEDS_PACTO_2_5 error for each part only pactoVersion 2.5
-// has (compatibility: unknown on a dependency) in an older contract, in place
-// of the older schema's generic error, and returns data without it for that
-// schema to check the rest. Every dependency stays in place so its other
-// errors keep their index.
+// has (compatibility: unknown on a dependency, a port on an interface and the
+// breaks section) in an older contract, in place of the older schema's generic
+// error, and returns data without it for that schema to check the rest. Every
+// dependency and interface stays in place so its other errors keep their index.
 func needs25(result *ValidationResult, data any) any {
 	m, _ := data.(map[string]any) // an older pactoVersion was read from it
+	if _, ok := m["breaks"]; ok {
+		result.AddError("breaks", string(finding.CodeNeedsPacto25), `breaks need pactoVersion "2.5"; set pactoVersion: "2.5", which keeps every older field`)
+		m = maps.Clone(m)
+		delete(m, "breaks")
+	}
+	m = needsItems(result, m, "2.5", finding.CodeNeedsPacto25, "interfaces", func(map[string]any) []needsKey {
+		return []needsKey{{"port", "port on an interface needs ", true}}
+	})
 	return needsItems(result, m, "2.5", finding.CodeNeedsPacto25, "dependencies", func(im map[string]any) []needsKey {
 		return []needsKey{{"compatibility", "compatibility: unknown needs ", im["compatibility"] == contract.CompatibilityUnknown}}
 	})

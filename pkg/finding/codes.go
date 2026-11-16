@@ -12,7 +12,7 @@ const (
 	CodeNeedsPacto22                   Code = "NEEDS_PACTO_2_2"               // an older contract uses an interface lifecycle, compatibilityEpoch or guarantees, or dependency requires
 	CodeNeedsPacto23                   Code = "NEEDS_PACTO_2_3"               // an older contract declares environments
 	CodeNeedsPacto24                   Code = "NEEDS_PACTO_2_4"               // an older contract declares service.domain, service.offering, service.summary, service.lifecycle, service.template or service.origin, values or a configuration selector beside a configuration ref, or an environment's lifetime, expires or owner
-	CodeNeedsPacto25                   Code = "NEEDS_PACTO_2_5"               // an older contract declares compatibility: unknown on a dependency
+	CodeNeedsPacto25                   Code = "NEEDS_PACTO_2_5"               // an older contract declares compatibility: unknown, an interface port or breaks
 	CodePublishNeedsServiceName        Code = "PUBLISH_NEEDS_SERVICE_NAME"    // pack, push or publish of a contract that does not declare service.name
 	CodePublishNeedsServiceVersion     Code = "PUBLISH_NEEDS_SERVICE_VERSION" // pack, push or publish of a contract that does not declare service.version
 	CodeSchemaError                    Code = "SCHEMA_ERROR"
@@ -41,6 +41,9 @@ const (
 	CodeInvalidPolicySchema            Code = "INVALID_POLICY_SCHEMA"
 	CodeFileNotFound                   Code = "FILE_NOT_FOUND"
 	CodeInvalidReadinessExpires        Code = "INVALID_READINESS_EXPIRES"
+	CodeDuplicateBreakConsumer         Code = "DUPLICATE_BREAK_CONSUMER" // a consumer named in two breaks entries
+	CodeBreakNamesSelf                 Code = "BREAK_NAMES_SELF"         // a break that names the service itself as a consumer
+	CodeInvalidBreakExpires            Code = "INVALID_BREAK_EXPIRES"    // a breaks[].expires that is not a strict YYYY-MM-DD date
 	CodeInvalidReadinessRevision       Code = "INVALID_READINESS_REVISION"
 	CodeDuplicateReadinessId           Code = "DUPLICATE_READINESS_ID"
 	CodeEmptyReadinessEvidence         Code = "EMPTY_READINESS_EVIDENCE"
@@ -147,6 +150,9 @@ var registry = map[Code]codeMeta{
 	CodeFileNotFound:                   {CategoryInvalidFile, SeverityError},
 	CodeStatelessPersistent:            {CategoryStateMismatch, SeverityError},
 	CodeInvalidReadinessExpires:        {CategoryInvalidReadiness, SeverityError},
+	CodeDuplicateBreakConsumer:         {CategoryDuplicateName, SeverityError},
+	CodeBreakNamesSelf:                 {CategoryInvalidReference, SeverityError},
+	CodeInvalidBreakExpires:            {CategorySchemaViolation, SeverityError},
 	CodeInvalidReadinessRevision:       {CategoryInvalidReadiness, SeverityError},
 	CodeDuplicateReadinessId:           {CategoryDuplicateName, SeverityError},
 	CodeEmptyReadinessEvidence:         {CategoryMissingEvidence, SeverityError},

@@ -1,6 +1,7 @@
 # Dependencies and state
 
-Three fields: `dependencies` lists the other services this one calls, `workload`
+Four fields: `dependencies` lists the other services this one calls, `breaks`
+announces deliberate breaking changes to its consumers, `workload`
 says how it runs (a long-running service, a job or a scheduled job) and `state`
 says what data it keeps. Impact analysis, the lockfile and the Kubernetes
 operator all read them. The other sections are
@@ -165,6 +166,27 @@ Practices:
 - **Pin by digest in production.** Use `oci://...@sha256:...`. A tag-based reference produces a validation warning.
 - **Give cloud-managed resources a contract when you can.** A lightweight Pacto contract for GCP Cloud SQL, AWS SNS or Azure Service Bus, referenced as an external dependency, makes it version-tracked alongside your own. When nobody writes one, name its version with `version`.
 - **Pin the whole closure with `pacto lock`.** When a `pacto.lock` file is present, every resolved dependency must match the pinned digest or the command fails. See [Lockfile](../lockfile.md).
+
+---
+
+## `breaks`
+
+Announces a deliberate breaking change to the consumers it affects. Needs
+`pactoVersion: "2.5"`. An announcement changes no interface: `pacto diff` reports
+every change to `breaks` as non-breaking.
+
+```yaml
+breaks:
+  - consumers: [reports]
+    reason: Amounts move from cents to euros; read amount_eur.
+    expires: "2026-12-14"
+```
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| `consumers` | list | Yes | Non-empty, unique service names. A consumer appears in one entry at most (`DUPLICATE_BREAK_CONSUMER`) and the service never names itself (`BREAK_NAMES_SELF`) |
+| `reason` | string | Yes | Non-empty. Why the break is needed and what the consumers change |
+| `expires` | string | No | `YYYY-MM-DD` date the announcement stops applying (`INVALID_BREAK_EXPIRES` otherwise) |
 
 ---
 

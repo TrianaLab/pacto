@@ -96,6 +96,7 @@ A finding is one conclusion from the engine. Findings fall in two families. Conf
 
 | Code | Category |
 | --- | --- |
+| `BREAK_NAMES_SELF` | `InvalidReference` |
 | `CAPABILITY_ABSENT` | `RuntimeDrift` |
 | `CAPABILITY_INTERFACE_UNKNOWN` | `InvalidCapability` |
 | `CAPABILITY_PATH_INVALID` | `InvalidCapability` |
@@ -111,6 +112,7 @@ A finding is one conclusion from the engine. Findings fall in two families. Conf
 | `DEPENDENCY_NAME_REQUIRED` | `InvalidDependency` |
 | `DEPENDENCY_UNREACHABLE` | `RuntimeDrift` |
 | `DEPENDENCY_VERSION_MISMATCH` | `RuntimeDrift` |
+| `DUPLICATE_BREAK_CONSUMER` | `DuplicateName` |
 | `DUPLICATE_CAPABILITY` | `DuplicateName` |
 | `DUPLICATE_CONFIGURATION_NAME` | `DuplicateName` |
 | `DUPLICATE_DEPENDENCY_NAME` | `DuplicateName` |
@@ -130,6 +132,7 @@ A finding is one conclusion from the engine. Findings fall in two families. Conf
 | `INTERFACE_ABSENT` | `RuntimeDrift` |
 | `INTERFACE_PROTOCOL_MISMATCH` | `RuntimeDrift` |
 | `INTERFACE_VISIBILITY_MISMATCH` | `RuntimeDrift` |
+| `INVALID_BREAK_EXPIRES` | `SchemaViolation` |
 | `INVALID_COMPATIBILITY` | `InvalidDependency` |
 | `INVALID_CONFIG_JSON` | `InvalidFile` |
 | `INVALID_CONFIG_REF` | `InvalidReference` |

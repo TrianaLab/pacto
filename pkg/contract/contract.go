@@ -19,6 +19,7 @@ type Contract struct {
 	Configurations []Configuration `yaml:"configurations,omitempty" json:"configurations,omitempty"`
 	Environments   []Environment   `yaml:"environments,omitempty" json:"environments,omitempty"`
 	Dependencies   []Dependency    `yaml:"dependencies,omitempty" json:"dependencies,omitempty"`
+	Breaks         []Break         `yaml:"breaks,omitempty" json:"breaks,omitempty"`
 	State          *State          `yaml:"state,omitempty" json:"state,omitempty"`
 	Workload       string          `yaml:"workload,omitempty" json:"workload,omitempty"`
 	Capabilities   []Capability    `yaml:"capabilities,omitempty" json:"capabilities,omitempty"`
@@ -28,6 +29,18 @@ type Contract struct {
 	Checks         []Check         `yaml:"checks,omitempty" json:"checks,omitempty"`
 	Metadata       map[string]any  `yaml:"metadata,omitempty" json:"metadata,omitempty"`
 	Extensions     map[string]any  `yaml:"extensions,omitempty" json:"extensions,omitempty"`
+}
+
+// Break announces a deliberate breaking change to named consumers
+// (pactoVersion 2.5). It changes no interface; what it does to a gate is
+// decided where the gate reads it.
+type Break struct {
+	// Consumers are the services the break affects, by service name.
+	Consumers []string `yaml:"consumers" json:"consumers"`
+	// Reason says why the break is needed and what consumers change.
+	Reason string `yaml:"reason" json:"reason"`
+	// Expires is the YYYY-MM-DD date the announcement stops applying.
+	Expires string `yaml:"expires,omitempty" json:"expires,omitempty"`
 }
 
 // Check is one test or eval suite the version ships (pactoVersion 2.1).
@@ -247,6 +260,9 @@ type Interface struct {
 	// incompatibly while its spec stays the same, such as an amount switching
 	// from cents to euros. Absent is 0.
 	CompatibilityEpoch int `yaml:"compatibilityEpoch,omitempty" json:"compatibilityEpoch,omitempty"`
+	// Port is the port the interface listens on (pactoVersion 2.5). Absent
+	// is 0: not declared.
+	Port int `yaml:"port,omitempty" json:"port,omitempty"`
 }
 
 // InterfaceLifecycle is the retirement schedule of a deprecated interface.

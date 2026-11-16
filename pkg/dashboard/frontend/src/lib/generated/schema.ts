@@ -1110,6 +1110,11 @@ export interface components {
             values?: components["schemas"]["Schemax.Property"][] | null;
             valuesAreCurrent?: boolean;
         };
+        "Contract.Break": {
+            consumers: string[] | null;
+            expires?: string;
+            reason: string;
+        };
         "Contract.Capability": {
             binding?: components["schemas"]["Contract.CapabilityBinding"];
             ref?: string;
@@ -1135,6 +1140,7 @@ export interface components {
             };
         };
         "Contract.Contract": {
+            breaks?: components["schemas"]["Contract.Break"][] | null;
             capabilities?: components["schemas"]["Contract.Capability"][] | null;
             checks?: components["schemas"]["Contract.Check"][] | null;
             configurations?: components["schemas"]["Contract.Configuration"][] | null;
@@ -1197,6 +1203,8 @@ export interface components {
             guarantees?: components["schemas"]["Contract.Guarantees"];
             lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             name: string;
+            /** Format: int64 */
+            port?: number;
             ref: string;
             type: string;
             visibility?: string;

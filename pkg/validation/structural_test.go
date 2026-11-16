@@ -1021,3 +1021,68 @@ func TestNeeds25CompatibilityUnknown(t *testing.T) {
 		t.Fatalf("2.5 compatibility: unknown: %v", r.Errors)
 	}
 }
+
+// TestNeeds25Port: a port on an interface is pactoVersion 2.5; an older
+// contract gets one NEEDS_PACTO_2_5 at the interface's index and the caller's
+// data is left alone.
+func TestNeeds25Port(t *testing.T) {
+	plain := map[string]any{"name": "a", "type": "openapi", "ref": "a.yaml"}
+	ported := map[string]any{"name": "b", "type": "openapi", "ref": "b.yaml", "port": 8080}
+	data := map[string]any{"pactoVersion": "2.4", "service": map[string]any{"name": "svc", "version": "1.0.0"}, "interfaces": []any{plain, ported}}
+	r := ValidateStructural(data)
+	if len(r.Errors) != 1 || r.Errors[0].Code != "NEEDS_PACTO_2_5" || r.Errors[0].Path != "interfaces.1.port" ||
+		!strings.Contains(r.Errors[0].Message, `set pactoVersion: "2.5"`) {
+		t.Fatalf("errors = %+v, want one NEEDS_PACTO_2_5 at interfaces.1.port", r.Errors)
+	}
+	if ported["port"] != 8080 {
+		t.Fatal("the caller's data was changed")
+	}
+	data["pactoVersion"] = "2.5"
+	if r := ValidateStructural(data); !r.IsValid() {
+		t.Fatalf("2.5 port: %v", r.Errors)
+	}
+}
+
+// TestNeeds25Breaks: the breaks section is pactoVersion 2.5; an older
+// contract gets one NEEDS_PACTO_2_5 for it and no generic schema error.
+func TestNeeds25Breaks(t *testing.T) {
+	breaks := []any{map[string]any{"consumers": []any{"reports"}, "reason": "amounts move to euros", "expires": "2026-12-14"}}
+	for _, version := range []string{"2.0", "2.4"} {
+		data := map[string]any{"pactoVersion": version, "service": map[string]any{"name": "svc", "version": "1.0.0"}, "breaks": breaks}
+		r := ValidateStructural(data)
+		if len(r.Errors) != 1 || r.Errors[0].Code != "NEEDS_PACTO_2_5" || r.Errors[0].Path != "breaks" ||
+			!strings.Contains(r.Errors[0].Message, `set pactoVersion: "2.5"`) {
+			t.Fatalf("%s: errors = %+v, want one NEEDS_PACTO_2_5 at breaks", version, r.Errors)
+		}
+		if _, ok := data["breaks"]; !ok {
+			t.Fatal("the caller's data was changed")
+		}
+	}
+	data := map[string]any{"pactoVersion": "2.5", "breaks": breaks}
+	if r := ValidateStructural(data); !r.IsValid() {
+		t.Fatalf("2.5 breaks: %v", r.Errors)
+	}
+	for _, bad := range []map[string]any{
+		{"consumers": []any{}, "reason": "x"},
+		{"consumers": []any{"Reports"}, "reason": "x"},
+		{"consumers": []any{"a", "a"}, "reason": "x"},
+		{"consumers": []any{"a"}, "reason": ""},
+		{"consumers": []any{"a"}},
+		{"consumers": []any{"a"}, "reason": "x", "other": true},
+	} {
+		if r := ValidateStructural(map[string]any{"pactoVersion": "2.5", "breaks": []any{bad}}); r.IsValid() {
+			t.Errorf("breaks %v: valid, want a schema error", bad)
+		}
+	}
+}
+
+// TestPortRange: a port is an integer from 1 to 65535.
+func TestPortRange(t *testing.T) {
+	for port, valid := range map[any]bool{1: true, 65535: true, 0: false, 65536: false, -1: false, "8080": false, 80.5: false} {
+		data := map[string]any{"pactoVersion": "2.5", "interfaces": []any{map[string]any{"name": "a", "type": "openapi", "ref": "a.yaml", "port": port}}}
+		r := ValidateStructural(data)
+		if got := r.IsValid(); got != valid {
+			t.Errorf("port %v: valid %v, want %v", port, got, valid)
+		}
+	}
+}

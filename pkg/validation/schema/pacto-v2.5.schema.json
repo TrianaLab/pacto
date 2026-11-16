@@ -342,6 +342,12 @@
             "type": "integer",
             "minimum": 0,
             "description": "Raise it when the interface's behavior changes incompatibly while its spec stays the same, such as an amount switching from cents to euros. pacto diff reports any change to it as breaking. Absent means 0."
+          },
+          "port": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535,
+            "description": "The port the interface listens on (pactoVersion 2.5 and later). Several interfaces may share one port."
           }
         }
       }
@@ -683,6 +689,41 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "breaks": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Deliberate breaking changes this version announces to named consumers (pactoVersion 2.5 and later). An announcement changes no interface; it tells each consumer the break is intended.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "consumers",
+          "reason"
+        ],
+        "properties": {
+          "consumers": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "description": "The services the break affects, by service name. A consumer appears in one entry at most.",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
+            }
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Why the break is needed and what the consumers have to change."
+          },
+          "expires": {
+            "type": "string",
+            "format": "date",
+            "description": "Date the announcement stops applying (YYYY-MM-DD)."
           }
         }
       }

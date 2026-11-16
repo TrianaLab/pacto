@@ -2,6 +2,7 @@ package validation
 
 import (
 	"io/fs"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -1307,5 +1308,52 @@ func TestCompatibilityUnknownWithoutRefRejected(t *testing.T) {
 	validateDependencyRefs(c, &result)
 	if !hasErrorCode(result, "COMPATIBILITY_WITHOUT_REF") {
 		t.Errorf("expected COMPATIBILITY_WITHOUT_REF, got %+v", result.Errors)
+	}
+}
+
+func breakCodes(c *contract.Contract) []string {
+	var r ValidationResult
+	validateBreaks(c, &r)
+	var out []string
+	for _, e := range r.Errors {
+		out = append(out, e.Path+" "+e.Code)
+	}
+	return out
+}
+
+func TestBreaksDuplicateConsumer(t *testing.T) {
+	c := validV20Contract()
+	c.Breaks = []contract.Break{{Consumers: []string{"reports", "billing"}, Reason: "x"}, {Consumers: []string{"audit", "reports"}, Reason: "y"}}
+	if got, want := breakCodes(c), []string{"breaks[1].consumers[1] DUPLICATE_BREAK_CONSUMER"}; !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestBreaksNamesSelf(t *testing.T) {
+	c := validV20Contract()
+	c.Breaks = []contract.Break{{Consumers: []string{"reports", c.Service.Name}, Reason: "x"}}
+	if got, want := breakCodes(c), []string{"breaks[0].consumers[1] BREAK_NAMES_SELF"}; !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestBreaksInvalidExpires(t *testing.T) {
+	c := validV20Contract()
+	c.Breaks = []contract.Break{{Consumers: []string{"reports"}, Reason: "x", Expires: "2026-2-30"}}
+	if got, want := breakCodes(c), []string{"breaks[0].expires INVALID_BREAK_EXPIRES"}; !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestBreaksValid(t *testing.T) {
+	c := validV20Contract()
+	c.Breaks = []contract.Break{{Consumers: []string{"reports"}, Reason: "x", Expires: "2026-12-14"}, {Consumers: []string{"billing"}, Reason: "y"}}
+	if got := breakCodes(c); len(got) != 0 {
+		t.Fatalf("got %v, want none", got)
+	}
+	// ValidateCrossField runs it.
+	c.Breaks[1].Consumers = []string{"reports"}
+	if r := ValidateCrossField(c, nil); !hasErrorCode(r, "DUPLICATE_BREAK_CONSUMER") {
+		t.Fatalf("ValidateCrossField: %+v", r.Errors)
 	}
 }

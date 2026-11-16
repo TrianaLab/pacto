@@ -47,11 +47,34 @@ func ValidateCrossField(c *contract.Contract, bundleFS fs.FS) ValidationResult {
 	validateEnvironmentFiles(c, bundleFS, &result)
 	validateStatePersistenceInvariants(c, &result)
 	validateReadiness(c, &result)
+	validateBreaks(c, &result)
 	validatePublish(c, &result)
 	validateMCPInterfaces(c, bundleFS, &result)
 	validateChecks(c, bundleFS, &result)
 
 	return result
+}
+
+// validateBreaks enforces what the schema cannot say about breaks: a consumer
+// appears in one entry at most, the service never names itself and expires is
+// a strict YYYY-MM-DD date.
+func validateBreaks(c *contract.Contract, result *ValidationResult) {
+	seen := map[string]int{}
+	for i, b := range c.Breaks {
+		for j, consumer := range b.Consumers {
+			path := fmt.Sprintf("breaks[%d].consumers[%d]", i, j)
+			if prev, dup := seen[consumer]; dup && prev != i {
+				result.AddError(path, string(finding.CodeDuplicateBreakConsumer), fmt.Sprintf("consumer %q is already named in breaks[%d]", consumer, prev))
+			}
+			seen[consumer] = i
+			if consumer == c.Service.Name {
+				result.AddError(path, string(finding.CodeBreakNamesSelf), fmt.Sprintf("%q is this service; a break announces a change to its consumers", consumer))
+			}
+		}
+		if b.Expires != "" && !isCanonicalDate(b.Expires) {
+			result.AddError(fmt.Sprintf("breaks[%d].expires", i), string(finding.CodeInvalidBreakExpires), fmt.Sprintf("expires %q must be a valid YYYY-MM-DD date", b.Expires))
+		}
+	}
 }
 
 // validatePublish enforces what the schema cannot say about publish: artifact

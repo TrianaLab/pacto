@@ -38,7 +38,8 @@ to `"2.3"` contract that sets `service.domain`, `service.offering`,
 `service.summary`, `service.lifecycle`, `service.template` or `service.origin`, or puts `values` or a `configuration`
 selector beside a configuration `ref`, reports `NEEDS_PACTO_2_4`: set
 `pactoVersion: "2.4"`. A `"2.0"` to `"2.4"` contract with a dependency whose
-`compatibility` is `unknown` reports `NEEDS_PACTO_2_5`: set `pactoVersion: "2.5"`.
+`compatibility` is `unknown`, an interface `port` or a `breaks` section reports
+`NEEDS_PACTO_2_5`: set `pactoVersion: "2.5"`.
 
 A contract that fails to **load**, because of malformed YAML, an unknown field or a
 `pactoVersion` other than `"2.0"`, `"2.1"`, `"2.2"`, `"2.3"`, `"2.4"` or `"2.5"`, fails before any layer runs and reports
@@ -105,6 +106,9 @@ Validates semantic references and consistency:
 | `readiness.claims[].description` (when present) has non-whitespace content | `EMPTY_READINESS_DESCRIPTION` |
 | `readiness.expires` is a strict `YYYY-MM-DD` date | `INVALID_READINESS_EXPIRES` |
 | `readiness.history[].{date,version,author,description}` are valid/non-blank | `INVALID_READINESS_REVISION` |
+| A consumer appears in one `breaks[]` entry at most | `DUPLICATE_BREAK_CONSUMER` |
+| `breaks[].consumers` never names the service itself | `BREAK_NAMES_SELF` |
+| `breaks[].expires` is a strict `YYYY-MM-DD` date | `INVALID_BREAK_EXPIRES` |
 
 This table lists the codes you can see. Layer 1 rejects the contract first and
 reports `SCHEMA_VIOLATION` wherever the JSON Schema already constrains a field. That covers the interface and capability `type` enums, a non-empty

@@ -1549,7 +1549,7 @@ func (o fileOps) check(ctx context.Context, validate Validator, path string, env
 // in: the newest schema's order.
 var topLevelKeyOrder = []string{
 	"pactoVersion", "service", "interfaces", "configurations", "environments",
-	"policies", "dependencies", "state", "workload", "capabilities", "readiness", "publish", "checks", "metadata", "extensions",
+	"policies", "dependencies", "breaks", "state", "workload", "capabilities", "readiness", "publish", "checks", "metadata", "extensions",
 }
 
 // marshalContract writes m with its top-level keys in topLevelKeyOrder, then
