@@ -1192,7 +1192,9 @@ func (d partialStages) Stages(_ context.Context, ns string) ([]delivery.StageObj
 	return d.stages, nil
 }
 
-func (partialStages) StageNamespaces(context.Context) ([]string, error) { return []string{"shop", "prod"}, nil }
+func (partialStages) StageNamespaces(context.Context) ([]string, error) {
+	return []string{"shop", "prod"}, nil
+}
 
 func TestStatsPartialStageReadSaysSo(t *testing.T) {
 	api := partialStages{stagesDelivery{stages: []delivery.StageObject{stageTo("dev", "dev", ""), stageTo("staging", "staging", "dev")}}}
