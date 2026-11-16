@@ -320,7 +320,11 @@ export function installScaleFixture(): void {
         off.unresolvedUses = { count: 4000, reason: longName('the reference is not digest-pinned or locked'), provenance: 'inferred' };
       }
       // The unsigned share of every Ready tally, so the stations read it at scale.
-      const cons = off?.consumers as { phases?: Record<string, number>; phaseConsumers?: Record<string, number> } | undefined;
+      const cons = off?.consumers as { phases?: Record<string, number>; phaseConsumers?: Record<string, number>; items?: Record<string, unknown>[] } | undefined;
+      // Every fourth dependency consumer, the first included, declares no range, so its
+      // badges read "Range not declared".
+      let deps = 0;
+      for (const u of cons?.items ?? []) if (u.via === 'dependency' && deps++ % 4 === 0) { u.compatibility = 'unknown'; u.rangeStatus = 'unknown'; }
       for (const t of [cons?.phases, cons?.phaseConsumers]) if (t?.ready) t.readyUnsigned = Math.floor(t.ready / 2);
     }
     // A checked range's answer carries the provider's successor at its longest ref.
@@ -386,6 +390,9 @@ export function installScaleFixture(): void {
       const pl = svc?.placement as Record<string, unknown> & { items?: Record<string, unknown>[] } | undefined;
       const changes = svc?.changes as Record<string, unknown> & { items?: Record<string, unknown>[] } | undefined;
       const entityKey = (doc.entity as { key?: string } | undefined)?.key;
+      // One declared dependency claim with no range declared (compatibility: unknown).
+      const firstRel = (svc?.relationships as { items?: { declaredClaims?: { items?: Record<string, unknown>[] } }[] } | undefined)?.items?.find((e) => e.declaredClaims?.items?.length);
+      for (const c of firstRel?.declaredClaims?.items ?? []) { c.compatibility = 'unknown'; c.rangeStatus = 'unknown'; }
       if (pl && entityKey === 'storefront-web') {
         const tpl = (pl.items ?? []).find((it) => it.declaration) ?? {};
         const names = Array.from({ length: 200 }, (_, i) => `env-${i}`);
@@ -615,7 +622,10 @@ export function installScaleFixture(): void {
         const targets = Array.from({ length: 21 }, (_, t) => ({ kind: 'target', key: `prod/k8s/${key}-${t}`, label: longName(`prod-eu-west-1/${name}-target-${t}`), href: `/fleet/targets/${encodeURIComponent(`prod/k8s/${key}-${t}`)}` }));
         return {
           service: { kind: 'service', key, label: name, domain: 'domain-load', href: `/fleet/services/${encodeURIComponent(key)}` },
-          direct: true, depth: 1, confidence: 'declared', compatibilityVerdict: event ? 'unknown' : V[i % 3], compatibility: event ? undefined : '^1.0.0',
+          // Every other consumer with an unknown verdict declares no range (compatibility:
+          // unknown, pactoVersion 2.5), so the verdict tallies stay as they were.
+          direct: true, depth: 1, confidence: 'declared',
+          compatibilityVerdict: event ? 'unknown' : V[i % 3], compatibility: event ? undefined : i % 6 === 1 ? 'unknown' : '^1.0.0',
           blocking: !event && i === 0, owner: longName(`team-${i}`), path: [], pathTotal: 0, pathTruncated: false,
           ownerRef: { kind: 'owner', key: `team:team-${i}`, label: longName(`team-${i}`), href: `/fleet/owners/${encodeURIComponent(`team:team-${i}`)}` },
           provenance: 'declared+observed', via: ['dependency', 'configuration_reference', 'policy_reference'], required: i % 2 === 0,

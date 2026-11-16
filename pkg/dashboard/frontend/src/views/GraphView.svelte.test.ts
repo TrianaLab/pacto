@@ -655,6 +655,20 @@ describe('GraphView — product Operational Graph', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  it('names a claim with compatibility unknown as a range not declared, never as a range', async () => {
+    const base = neighborhood();
+    const undeclared = { ...base.edges[0], declaredClaims: { total: 1, count: 1, truncated: false, items: [{ sourceRevision: 'domain-a/web@sha256:1', compatibility: 'unknown' }] } };
+    neighborhoodFn.mockResolvedValue(neighborhood({ edges: [undeclared, base.edges[1]] }));
+    const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
+    await vi.waitFor(() => expect(q(target, '[data-testid="graph-edge"]')).toBeTruthy());
+    (qa(target, '[data-testid="graph-edge"]')[0] as HTMLButtonElement).click();
+    flushSync();
+    const claim = q(target, '[data-testid="graph-drawer"] .gv-claims li')!;
+    expect(claim.textContent).toContain('Range not declared');
+    expect(claim.querySelector('code')).toBeNull();
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('names a refused guarantee and a deprecated interface on the edge, in the list and the drawer', async () => {
     const base = neighborhood();
     const refused = {
