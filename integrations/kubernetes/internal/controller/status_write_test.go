@@ -67,6 +67,11 @@ func TestReconcile_WritesStatusOnlyOnChangeOrHeartbeat(t *testing.T) {
 	}
 	ctx := context.Background()
 	for i := range 3 {
+		if i == 1 {
+			// The findings' evidence times are stamped each reconcile, to the
+			// second: cross into a new second so a write they cause cannot hide.
+			time.Sleep(time.Until(time.Now().Truncate(time.Second).Add(time.Second)))
+		}
 		res, err := r.Reconcile(ctx, reconcileReq("steady", "default"))
 		if err != nil {
 			t.Fatalf("reconcile %d: %v", i, err)
