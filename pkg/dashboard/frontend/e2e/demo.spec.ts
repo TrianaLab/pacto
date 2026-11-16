@@ -79,7 +79,17 @@ async function leaveStep(page: Page) {
   const next = page.getByTestId('demo-tour-next');
   const before = await stepNo.textContent();
   if (await skip.isVisible()) {
-    await skip.click();
+    // The bubble follows its target every frame, so a layout shift between mousedown and
+    // mouseup (the page under it still loading) can swallow the click: focus lands, no
+    // click fires, and the step waits forever (PR #598, rest shard 1). A press that took
+    // disables Skip in the same tick, so press again only while it is still enabled and
+    // nothing has moved: a second press can never skip two steps.
+    const moved = async () =>
+      (await stepNo.textContent()) !== before || (await next.isVisible()) || (await skip.isDisabled());
+    await expect(async () => {
+      if (!(await moved())) await skip.click({ timeout: 2_000 });
+      expect(await moved()).toBe(true);
+    }).toPass({ timeout: 10_000 });
     // A holding step answers a skip with the forward control rather than a move, so wait
     // for whichever arrives. Racing the two rather than assuming keeps this helper honest
     // about which steps hold -- that is the tour's business to decide, not the helper's.

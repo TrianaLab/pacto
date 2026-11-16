@@ -831,7 +831,11 @@ func unseenConsumersOf(in PlanInput, res *impact.Result, unknown []impact.Affect
 				InitClusterCommand(callerNamespace(c.Service))+"` for it, or declare its range")
 			continue
 		}
-		out = append(out, c.Service+" has no usable compatibility range for this change")
+		name := c.Service
+		if c.Compatibility == contract.CompatibilityUnknown {
+			name += " (" + contract.RangeLabel(c.Compatibility) + ")"
+		}
+		out = append(out, name+" has no usable compatibility range for this change")
 	}
 	if res.Classification != diff.NonBreaking.String() {
 		// A non-breaking change weakens no guarantee, so it breaks no requirement.
@@ -926,9 +930,13 @@ func describeRanges(cs []impact.AffectedConsumer) string {
 	for _, c := range cs {
 		policy := slices.Contains(c.Via, fleet.RelationshipPolicyRef)
 		switch {
-		case c.Compatibility != "" && policy:
+		case c.Compatibility == contract.CompatibilityUnknown && policy:
+			parts = append(parts, c.Service+" ("+contract.RangeLabel(c.Compatibility)+" and references its policy)")
+		case c.Compatibility == contract.CompatibilityUnknown:
+			parts = append(parts, c.Service+" ("+contract.RangeLabel(c.Compatibility)+")")
+		case contract.IsRange(c.Compatibility) && policy:
 			parts = append(parts, fmt.Sprintf("%s (accepts %s and references its policy)", c.Service, c.Compatibility))
-		case c.Compatibility != "":
+		case contract.IsRange(c.Compatibility):
 			parts = append(parts, fmt.Sprintf("%s (accepts %s)", c.Service, c.Compatibility))
 		case policy:
 			parts = append(parts, c.Service+" (fails its new policy)")

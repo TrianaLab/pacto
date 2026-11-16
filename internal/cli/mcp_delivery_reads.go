@@ -24,12 +24,12 @@ type deliveryAPIKey struct{}
 // mcpDeliveryReads runs the dashboard's delivery read routes in process, so
 // an agent reads exactly what a person reads on the dashboard. One dashboard
 // server per process answers from the fleet the fleet tools answer from,
-// narrowed by the same view, and lists delivery in namespace (the fleet
-// --namespace, empty for cluster-wide) as the dashboard does. The returned
+// narrowed by the same view, and lists delivery in narrowed (see
+// [deliveryNarrowing], empty for cluster-wide) as the dashboard does. The returned
 // function binds one caller: act is their delivery client and who keys their
 // cached Stage namespaces.
-func mcpDeliveryReads(id *dashboardIdentity, fm *pactomcp.FleetMode, namespace string) func(act *app.Delivery, who string) pactomcp.DeliveryReads {
-	opts := dashboard.Options{DeliveryNamespace: namespace, Delivery: func(r *http.Request) (dashboard.DeliveryAPI, error) {
+func mcpDeliveryReads(id *dashboardIdentity, fm *pactomcp.FleetMode, narrowed string) func(act *app.Delivery, who string) pactomcp.DeliveryReads {
+	opts := dashboard.Options{DeliveryNamespace: narrowed, Delivery: func(r *http.Request) (dashboard.DeliveryAPI, error) {
 		return r.Context().Value(deliveryAPIKey{}).(dashboard.DeliveryAPI), nil
 	}}
 	opts.DeliveryInstalled = id.installedProbe()

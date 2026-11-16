@@ -32,6 +32,7 @@
 #   load_images IMG...             import images into $CLUSTER
 #   delete_cluster / down_cluster  quiet teardown / the chatty `down` subcommand
 #   release_version GROUP          the version the release plan assigns
+#   load_built_images IMG...       load them from $PACTO_KIND_IMAGES, or say why not
 #   build_operator_images ...      the two production image builds, coupled
 #   package_chart CHART_DIR ...    helm package -> prints the .tgz
 #   build_pacto                    go build cmd/pacto -> prints the binary
@@ -289,6 +290,22 @@ release_version() {
     "$_PACTO_ROOT/release/release-plan.json" "$1"
 }
 
+# load_built_images IMG... — docker load $PACTO_KIND_IMAGES and confirm it holds
+# every IMG. Fails (so the caller builds) when the variable is unset, the file is
+# missing or unreadable, or an IMG is not in it.
+load_built_images() {
+  [ -n "${PACTO_KIND_IMAGES:-}" ] || return 1
+  local img
+  if [ ! -f "$PACTO_KIND_IMAGES" ] || ! docker load -i "$PACTO_KIND_IMAGES" >/dev/null; then
+    echo "could not load $PACTO_KIND_IMAGES: building the images instead"
+    return 1
+  fi
+  for img in "$@"; do
+    docker image inspect "$img" >/dev/null 2>&1 || { echo "$PACTO_KIND_IMAGES has no $img: building the images instead"; return 1; }
+  done
+  echo "loaded $* from $PACTO_KIND_IMAGES"
+}
+
 # build_operator_images OP_IMG DASH_IMG VERSION — the two production builds.
 # They are coupled by name only: the operator deploys the dashboard image baked
 # in at build time through its DASHBOARD_IMAGE build-arg, a string, so the two
@@ -298,7 +315,12 @@ release_version() {
 # default buildx builder uses the docker-container driver (otherwise the image
 # lives only in buildkit's cache and `kind load docker-image` fails with
 # "content digest not found").
+#
+# PACTO_KIND_IMAGES=FILE loads both from the archive CI's delivery-images job
+# saved (delivery.sh DELIVERY_SAVE_IMAGES: this function, the same tags) instead
+# of building them; a missing or mismatched archive falls back to the build.
 build_operator_images() {
+  load_built_images "$1" "$2" && return
   section "build the dashboard (root Dockerfile) and operator (production root context) images"
   docker build --load -f "$_PACTO_ROOT/Dockerfile" -t "$2" "$_PACTO_ROOT" &
   local dash=$!

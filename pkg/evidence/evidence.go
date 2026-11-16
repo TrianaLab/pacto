@@ -328,7 +328,15 @@ type Observation struct {
 	Outcome    Outcome
 	Value      json.RawMessage // set iff Outcome == Observed
 	Provenance Provenance
+	// Detail says why a non-Observed outcome happened, in Pacto's own words
+	// (for example the grant the operator lacks). It is in-process only and
+	// never serialized: no wire form, signed envelope or OCI referrer carries
+	// it, so no remote producer can write text into an Unknown finding.
+	Detail string
 }
+
+// MaxObservationDetail bounds Observation.Detail in bytes.
+const MaxObservationDetail = 256
 
 type observationJSON struct {
 	Kind       ObservationKind `json:"kind"`
@@ -386,6 +394,9 @@ func (o Observation) validate() error {
 		return err
 	}
 	if o.Outcome == Observed {
+		if o.Detail != "" {
+			return errors.New("outcome Observed must not carry a detail")
+		}
 		if len(o.Value) == 0 {
 			return fmt.Errorf("outcome Observed requires a value payload for kind %s", o.Kind)
 		}
@@ -393,6 +404,9 @@ func (o Observation) validate() error {
 	}
 	if len(o.Value) != 0 {
 		return fmt.Errorf("outcome %s must not carry a value payload", o.Outcome)
+	}
+	if len(o.Detail) > MaxObservationDetail {
+		return fmt.Errorf("detail exceeds %d bytes", MaxObservationDetail)
 	}
 	return nil
 }
@@ -545,7 +559,7 @@ func (o *Observation) UnmarshalJSON(data []byte) error {
 	if err := strictjson.Unmarshal(data, &j); err != nil {
 		return fmt.Errorf("unmarshal observation: %w", err)
 	}
-	*o = Observation(j)
+	*o = Observation{Kind: j.Kind, Subject: j.Subject, Outcome: j.Outcome, Value: j.Value, Provenance: j.Provenance}
 	return o.validate()
 }
 
@@ -640,10 +654,16 @@ func NewResourceUsage(subject SubjectRef, p UsageObservation, prov Provenance) O
 // NewUnobserved builds a payload-less observation for any non-Observed outcome. Identity is carried on
 // subject so the observation stays attributable (INV-1b); the Kind<->Subject.Kind pairing is enforced.
 func NewUnobserved(kind ObservationKind, subject SubjectRef, outcome Outcome, prov Provenance) (Observation, error) {
+	return NewUnobservedDetail(kind, subject, outcome, prov, "")
+}
+
+// NewUnobservedDetail is NewUnobserved with a Detail that says why the outcome
+// happened. The detail stays in process (see Observation.Detail).
+func NewUnobservedDetail(kind ObservationKind, subject SubjectRef, outcome Outcome, prov Provenance, detail string) (Observation, error) {
 	if outcome == Observed {
 		return Observation{}, fmt.Errorf("NewUnobserved requires a non-Observed outcome, got %s", outcome)
 	}
-	o := Observation{Kind: kind, Subject: subject, Outcome: outcome, Provenance: prov}
+	o := Observation{Kind: kind, Subject: subject, Outcome: outcome, Provenance: prov, Detail: detail}
 	if err := o.validate(); err != nil {
 		return Observation{}, err
 	}

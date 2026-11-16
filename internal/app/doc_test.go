@@ -32,6 +32,24 @@ func TestDoc_Local(t *testing.T) {
 	}
 }
 
+// An empty contract's document says where its name comes from and that it
+// declares no version, never a bare "v".
+func TestDoc_EmptyContractMarksInferredNameAndNoVersion(t *testing.T) {
+	result, err := NewService(nil, nil).Doc(context.Background(), DocOptions{Path: emptyChartDir(t, "")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	md := result.Markdown
+	for _, want := range []string{"**payments** (name inferred from chart/Chart.yaml:2) `version not declared`", `payments version not declared"]`} {
+		if !strings.Contains(md, want) {
+			t.Errorf("markdown lacks %q:\n%s", want, md)
+		}
+	}
+	if strings.Contains(md, "`v`") || strings.Contains(md, `payments v"]`) {
+		t.Errorf("markdown prints a bare v:\n%s", md)
+	}
+}
+
 func TestDoc_OCIRef(t *testing.T) {
 	store := &mockBundleStore{}
 	svc := NewService(store, nil)

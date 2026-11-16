@@ -292,13 +292,14 @@ func callersUnseen(snap *fleet.FleetSnapshot, service fleet.ServiceKey) []string
 
 // callerNamespace is the namespace in a CallerName.
 func callerNamespace(caller string) string {
-	ns, _, _ := strings.Cut(strings.TrimPrefix(caller, "k8s:"), "/")
+	_, ns, _, _, _ := fleet.ParseK8sCaller(caller)
 	return ns
 }
 
-// CallerName is the identity of a workload with no contract.
+// CallerName is the identity of a workload with no contract. Delivery plans
+// over one cluster, so it carries none (see [fleet.K8sCaller]).
 func CallerName(namespace, kind, name string) string {
-	return "k8s:" + namespace + "/" + kind + "/" + name
+	return fleet.K8sCaller("", namespace, kind, name)
 }
 
 // revisionFromStatus rebuilds the declared part of a contract (service, owner,

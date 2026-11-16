@@ -598,6 +598,27 @@ func TestCacheSource_Collect_AnUnreadableEntryIsAGapNotASilence(t *testing.T) {
 	}
 }
 
+// A published bundle that leaves its pactoVersion or name implied is refused on
+// read, so the cache entry is a gap that makes the source partial.
+func TestCacheSource_Collect_UndeclaredBundleIsARecordGap(t *testing.T) {
+	for name, y := range map[string]string{
+		"empty":           "",
+		"no pactoVersion": "service:\n  name: svc\n  version: 1.0.0\n",
+	} {
+		dir := t.TempDir()
+		entry := filepath.Join(dir, filepath.FromSlash("ghcr.io/org/svc/1.0.0"))
+		mustBundleYAML(t, filepath.Join(entry, oci.CachedBundleFile), y)
+		mustSidecar(t, entry, `{"ref":"ghcr.io/org/svc:1.0.0","digest":"`+validDigest("a")+`"}`)
+		col, err := NewCacheSource("cache", dir).Collect(context.Background())
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if len(col.Revisions) != 0 || len(col.Limitations) != 1 || col.Limitations[0].Code != fleet.LimitationSourceRecordInvalid {
+			t.Fatalf("%s: revisions %+v limitations %+v", name, col.Revisions, col.Limitations)
+		}
+	}
+}
+
 // diskBundle survives a round trip through the REAL disk cache: its FS carries
 // the pacto.yaml a reader parses back, and its service name says which
 // generation the reader got.
@@ -771,6 +792,12 @@ func mustCacheFile(t *testing.T, dir, rel string) {
 // service name is marker — so a reader's answer says WHICH generation it read.
 func mustBundleFile(t *testing.T, path, marker string) {
 	t.Helper()
+	mustBundleYAML(t, path, "pactoVersion: \"2.0\"\nservice:\n  name: "+marker+"\n  version: \"1.0.0\"\n")
+}
+
+// mustBundleYAML writes a real bundle archive at path holding pacto.yaml y.
+func mustBundleYAML(t *testing.T, path, pactoYAML string) {
+	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -780,7 +807,7 @@ func mustBundleFile(t *testing.T, path, marker string) {
 	}
 	gw := gzip.NewWriter(f)
 	tw := tar.NewWriter(gw)
-	y := []byte("pactoVersion: \"2.0\"\nservice:\n  name: " + marker + "\n  version: \"1.0.0\"\n")
+	y := []byte(pactoYAML)
 	if err := tw.WriteHeader(&tar.Header{Name: "pacto.yaml", Size: int64(len(y)), Mode: 0o644}); err != nil {
 		t.Fatal(err)
 	}

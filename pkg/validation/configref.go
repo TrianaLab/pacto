@@ -188,12 +188,12 @@ func SelectConfiguration(entry contract.Configuration, provider *contract.Contra
 // selector and inline values do, as do environment values for it and a
 // dependency on the same repository with a compatibility to check against.
 func refNeeded(c *contract.Contract, cfg contract.Configuration, given map[string]bool) bool {
-	if !olderThan(c.PactoVersion, "2.4") || given[cfg.Name] {
+	if RefValuesAllowed(c.PactoVersion) || given[cfg.Name] {
 		return true
 	}
 	repo := refRepository(cfg.Ref)
 	return slices.ContainsFunc(c.Dependencies, func(d contract.Dependency) bool {
-		return d.Compatibility != "" && refRepository(d.Ref) == repo
+		return contract.IsRange(d.Compatibility) && refRepository(d.Ref) == repo
 	})
 }
 
@@ -268,7 +268,7 @@ func ConfigRefStage(c *contract.Contract, refs ConfigRefs, res ValidationResult,
 		}
 	}
 	if len(declared) == 0 {
-		return SkippedStages("no configuration references", "configuration-refs")[0]
+		return SkippedStages(skipNoConfigRefs, "configuration-refs")[0]
 	}
 	st := RanStage("configuration-refs", res)
 	if st.Status == StagePass && len(unverified) > 0 {

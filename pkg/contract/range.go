@@ -41,3 +41,12 @@ func (r Range) Check(version string) (bool, error) {
 func (r Range) String() string {
 	return r.raw
 }
+
+// RangeLabel is how a compatibility value reads to a person: range not
+// declared for unknown.
+func RangeLabel(compatibility string) string {
+	if compatibility == "" || IsRange(compatibility) {
+		return compatibility
+	}
+	return "range not declared"
+}

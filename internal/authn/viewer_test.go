@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"testing/fstest"
@@ -192,11 +193,11 @@ func TestViewerBoundsAndFailures(t *testing.T) {
 		return false, nil
 	})
 	fail = ""
-	if _, err := v.Query(context.Background(), Person{User: "x"}, q); !errors.Is(err, boom) {
+	if _, err := v.Query(context.Background(), Person{User: "x"}, q); !errors.Is(err, ErrReview) {
 		t.Errorf("a failed cluster-wide review: %v", err)
 	}
 	fail = "a"
-	if _, err := v.Query(context.Background(), Person{User: "x"}, q); !errors.Is(err, boom) {
+	if _, err := v.Query(context.Background(), Person{User: "x"}, q); !errors.Is(err, ErrReview) {
 		t.Errorf("a failed namespace review: %v", err)
 	}
 	fail = "-"
@@ -292,5 +293,189 @@ func TestViewerCallerNamespaces(t *testing.T) {
 	}
 	if svc := s.Services[fleet.NewServiceKey("svc-a")]; svc == nil || svc.HiddenDependents != 1 {
 		t.Errorf("svc-a = %+v, want the f caller counted", svc)
+	}
+}
+
+func lsarClient(allowed func(ns string) bool) (*dynamicfake.FakeDynamicClient, *[]k8stesting.CreateAction) {
+	c := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())
+	var seen []k8stesting.CreateAction
+	c.PrependReactor("create", "*", func(a k8stesting.Action) (bool, runtime.Object, error) {
+		ca := a.(k8stesting.CreateAction)
+		seen = append(seen, ca)
+		obj := ca.GetObject().(*unstructured.Unstructured).DeepCopy()
+		_ = unstructured.SetNestedField(obj.Object, allowed(ca.GetNamespace()), "status", "allowed")
+		return true, obj, nil
+	})
+	return c, &seen
+}
+
+// TestLocalReviewPostsInNamespace: the local review posts a
+// LocalSubjectAccessReview into the namespace it asks about, which a
+// namespaced Role can grant.
+func TestLocalReviewPostsInNamespace(t *testing.T) {
+	c, seen := lsarClient(func(ns string) bool { return ns == "payments" })
+	review := LocalSubjectAccessReview(c)
+	ok, err := review(context.Background(), Person{User: "u", Groups: []string{"g"}}, "payments")
+	if err != nil || !ok {
+		t.Fatalf("payments: %v %v", ok, err)
+	}
+	if len(*seen) != 1 {
+		t.Fatalf("asked %d times", len(*seen))
+	}
+	a := (*seen)[0]
+	obj := a.GetObject().(*unstructured.Unstructured)
+	if a.GetResource().Resource != "localsubjectaccessreviews" || a.GetNamespace() != "payments" ||
+		obj.GetKind() != "LocalSubjectAccessReview" || obj.GetNamespace() != "payments" {
+		t.Errorf("posted %s in %q: %+v", a.GetResource().Resource, a.GetNamespace(), obj.Object)
+	}
+	checkReviewSpec(t, obj, "payments")
+	if ok, _ := review(context.Background(), Person{User: "u"}, "ledger"); ok {
+		t.Error("ledger allowed")
+	}
+	c.PrependReactor("create", "localsubjectaccessreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, errors.New("forbidden")
+	})
+	if _, err := review(context.Background(), Person{User: "u"}, "payments"); err == nil {
+		t.Error("a refused review is an error")
+	}
+}
+
+// checkReviewSpec: obj asks whether user u in group g may list Pactos in ns.
+func checkReviewSpec(t *testing.T, obj *unstructured.Unstructured, ns string) {
+	t.Helper()
+	spec, _, _ := unstructured.NestedMap(obj.Object, "spec")
+	attrs := spec["resourceAttributes"].(map[string]any)
+	if spec["user"] != "u" || spec["groups"].([]any)[0] != "g" || attrs["namespace"] != ns || attrs["verb"] != "list" ||
+		attrs["resource"] != "pactos" || attrs["group"] != "pacto.trianalab.io" {
+		t.Errorf("spec = %+v", spec)
+	}
+}
+
+// TestLocalReviewAnswersFalseForAllNamespaces: the question about every
+// namespace at once has no namespaced form, so it is answered false unasked.
+func TestLocalReviewAnswersFalseForAllNamespaces(t *testing.T) {
+	c, seen := lsarClient(func(string) bool { return true })
+	ok, err := LocalSubjectAccessReview(c)(context.Background(), Person{User: "root"}, "")
+	if ok || err != nil || len(*seen) != 0 {
+		t.Errorf("all namespaces: %v %v, %d requests", ok, err, len(*seen))
+	}
+}
+
+// scopedViewer is a scoped Viewer watching payments and ledger whose review
+// fails the test when asked about anything else, and allows alice in payments.
+func scopedViewer(t *testing.T) (*Viewer, *reviews) {
+	t.Helper()
+	r := &reviews{allow: func(p Person, ns string) (bool, error) {
+		if ns != "payments" && ns != "ledger" {
+			t.Errorf("asked about %q outside the watched namespaces", ns)
+		}
+		return p.User == "alice" && ns == "payments", nil
+	}}
+	return NewScopedViewer(r.review, []string{"payments", "ledger"}), r
+}
+
+func TestScopedViewerNeverAsksAllNamespaces(t *testing.T) {
+	v, r := scopedViewer(t)
+	q := viewerFleet(t, "payments", "ledger")
+	got, err := v.Query(context.Background(), Person{User: "root"}, q)
+	if err != nil || got == q || len(services(got)) != 0 {
+		t.Fatalf("root sees %v, %v", services(got), err)
+	}
+	if slices.Contains(r.asked, "") {
+		t.Errorf("asked %v, including every namespace at once", r.asked)
+	}
+}
+
+func TestScopedViewerSkipsUnwatchedNamespace(t *testing.T) {
+	v, r := scopedViewer(t)
+	got, err := v.Query(context.Background(), alice, viewerFleet(t, "payments", "kube-system"))
+	if err != nil || !slices.Equal(services(got), []string{"svc-payments"}) {
+		t.Fatalf("alice sees %v, %v", services(got), err)
+	}
+	if !slices.Equal(r.asked, []string{"payments"}) {
+		t.Errorf("asked %v", r.asked)
+	}
+}
+
+// TestScopedViewerUnwatchedCallerDoesNotFailRequest: an observed caller in
+// kube-system, where a review would be Forbidden, is hidden and counted and
+// never fails the request.
+func TestScopedViewerUnwatchedCallerDoesNotFailRequest(t *testing.T) {
+	k := fleet.SourceKindKubernetes
+	col := &fleet.Collection{
+		Targets:  []fleet.RawTarget{{Scope: "payments", Kind: k, Name: "svc-p", Service: "svc-p"}},
+		Observed: []fleet.ObservedEdge{{From: "k8s:kube-system/Deployment/coredns", To: "svc-p", Count: 1}},
+	}
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("k8s", k, col))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := &reviews{allow: func(_ Person, ns string) (bool, error) {
+		if ns != "payments" {
+			return false, errors.New("forbidden")
+		}
+		return true, nil
+	}}
+	got, err := NewScopedViewer(r.review, []string{"payments"}).Query(context.Background(), alice, fleet.NewQuery(snap))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := got.SnapshotForSerialization()
+	if len(s.UncontractedCallers) != 0 {
+		t.Errorf("alice sees callers %+v", s.UncontractedCallers)
+	}
+	if svc := s.Services[fleet.NewServiceKey("svc-p")]; svc == nil || svc.HiddenDependents != 1 {
+		t.Errorf("svc-p = %+v, want the kube-system caller counted", svc)
+	}
+}
+
+func TestScopedViewerFailedReviewIsError(t *testing.T) {
+	boom := errors.New(`localsubjectaccessreviews.authorization.k8s.io is forbidden: cannot create resource in the namespace "payments"`)
+	v := NewScopedViewer(func(context.Context, Person, string) (bool, error) { return false, boom }, []string{"payments"})
+	_, err := v.Query(context.Background(), alice, viewerFleet(t, "payments"))
+	if !errors.Is(err, ErrReview) {
+		t.Errorf("a failed review in a watched namespace: %v", err)
+	}
+	if err != nil && strings.Contains(err.Error(), "payments") {
+		t.Errorf("the error names the namespace it was asked in: %v", err)
+	}
+}
+
+// TestScopedViewerUnreadableNamespaceDoesNotFailRequest: a watched namespace
+// the source could not read, where the review is refused by the same missing
+// grant, is never asked about, so the readable namespace still answers.
+func TestScopedViewerUnreadableNamespaceDoesNotFailRequest(t *testing.T) {
+	k := fleet.SourceKindKubernetes
+	src := fleet.NewMemorySource("c1", k, &fleet.Collection{
+		Targets:     []fleet.RawTarget{{Scope: "payments", Kind: k, Name: "svc-payments", Service: "svc-payments"}},
+		State:       &fleet.SourceState{Status: fleet.SourcePartial, Namespaces: []string{"payments"}, NamespacesTotal: 1},
+		Limitations: []fleet.Limitation{fleet.NamespaceUnreadableLimitation("c1", "ledger", "forbidden")},
+	})
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := &reviews{allow: func(_ Person, ns string) (bool, error) {
+		if ns != "payments" {
+			return false, errors.New("forbidden")
+		}
+		return true, nil
+	}}
+	got, err := NewScopedViewer(r.review, []string{"payments", "ledger"}).Query(context.Background(), alice, fleet.NewQuery(snap))
+	if err != nil || !slices.Equal(services(got), []string{"svc-payments"}) {
+		t.Fatalf("alice sees %v, %v", services(got), err)
+	}
+	for _, l := range got.SnapshotForSerialization().Limitations {
+		if strings.Contains(l.Message, "ledger") {
+			t.Errorf("alice learns of the unreadable namespace: %q", l.Message)
+		}
+	}
+}
+
+func TestScopedViewerRestrictsToAllowed(t *testing.T) {
+	v, _ := scopedViewer(t)
+	got, err := v.Query(context.Background(), alice, viewerFleet(t, "payments", "ledger", "other"))
+	if err != nil || !slices.Equal(services(got), []string{"svc-payments"}) {
+		t.Errorf("alice sees %v, %v", services(got), err)
 	}
 }

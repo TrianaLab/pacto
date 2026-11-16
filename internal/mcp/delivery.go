@@ -71,7 +71,7 @@ const deliveryInstructions = "Pacto delivery decides which version each environm
 	"consumer, its Stage there and, as candidate, a version of it its upstream Stage verified that accepts both versions: " +
 	"plan and propose that promote on the consumer's Stage first, then plan this one again. Pacto never moves the other " +
 	"service for you, and order.unknown says what it could not see. When an agent proposes, it names the person it acts for " +
-	"in on_behalf_of, as the Kubernetes username the cluster authenticates them as, never itself, a service account or the " +
+	"in on_behalf_of, as the Kubernetes username the cluster authenticates them as, never itself, a service account, a system user or the " +
 	"promoter: the name is asserted, that person may not approve " +
 	"the change, and planning needs no person. Pass correlation_id on plan and propose to tie a change to a ticket or " +
 	"incident; the rollback, freeze or step-down the promoter raises after it inherits the id, and it never changes the " +
@@ -188,7 +188,8 @@ func registerDelivery(server *mcpsdk.Server, api DeliveryAPI, writes bool) {
 		Name:        "pacto_delivery_blame",
 		Annotations: readOnly(true),
 		Description: "Say who put a version in place on a Stage (by default the one it runs): the newest change that moved the " +
-			"Stage to it, who asked, on whose behalf (asserted), why, who approved and what every gate said, from the records. " +
+			"Stage to it, who asked and how they were classified, on whose behalf (asserted), why, who approved with what let them decide " +
+			"and what every gate said, from the records. " +
 			"No change with completeness partial means unknown, never nobody. revision is the digest's fleet revision key, derived " +
 			"from the contract's digest and name and not checked against a fleet; it is empty when the artifact could not be read " +
 			"or names another service than the Stage. Read-only." + noApprove,
@@ -236,7 +237,7 @@ func registerDelivery(server *mcpsdk.Server, api DeliveryAPI, writes bool) {
 		Name:        "pacto_delivery_record_get",
 		Annotations: readOnly(true),
 		Description: "Read one signed record of a Stage's stream by its id (a history line's record): the change, who asked and " +
-			"approved, every verdict with its citation and how to run it again, and whether its signature was checked against " +
+			"approved with how each was classified and what let each approver decide, every verdict with its citation and how to run it again, and whether its signature was checked against " +
 			"the trust config. Read-only." + noApprove,
 		InputSchema: inputSchema(map[string]property{
 			"namespace": {Type: "string", Description: "Namespace of the Stage"},
@@ -410,7 +411,7 @@ func requestSchema(extra ...string) map[string]any {
 		"from":         {Type: "string", Description: "Digest the Stage runs now (defaults to its pointer)"},
 		"undoes":       {Type: "string", Description: "For a rollback: the name of the operation it undoes"},
 		"reason":       {Type: "string", Description: "Why, for the record"},
-		"on_behalf_of": {Type: "string", Description: "The person an agent acts for, as the Kubernetes username the cluster authenticates them as (what kubectl auth whoami prints for them, any OIDC prefix included); asserted, not verified; required when an agent proposes, never a service account, and that person may not approve the change"},
+		"on_behalf_of": {Type: "string", Description: "The person an agent acts for, as the Kubernetes username the cluster authenticates them as (what kubectl auth whoami prints for them, any OIDC prefix included); asserted, not verified; required when an agent proposes, never a service account or other system user, and that person may not approve the change"},
 		"correlation_id": {Type: "string", Description: "An id that ties this change to an incident or another change, such as a ticket " +
 			"(at most 128 printable ASCII characters). Not part of the intent digest; pacto_delivery_history filters by it"},
 		"cause_verdict": {Type: "string", Description: "A verdict you cite as the cause, as JSON (a verdict from pacto_delivery_explain); " +

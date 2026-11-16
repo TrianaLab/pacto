@@ -3,7 +3,7 @@ import { settle } from './ready';
 
 // G1, the transversal layout gate, and the scale fixture it runs on.
 //
-// `layoutGate.ts`, not `*.spec.ts`, so Playwright does not collect it. layout.spec.ts
+// `layoutGate.ts`, not `*.spec.ts`, so Playwright does not collect it. layout-matrix.spec.ts
 // drives every route through it; any spec may call `layoutProblems` on a page it
 // already opened.
 //
@@ -225,6 +225,18 @@ export function installScaleFixture(): void {
         { ...row, domain: '', domainUnknown: true, services: 1400 }, { ...row, domain: '', services: 1100 }];
       const at = doc.attention as Record<string, unknown>;
       if (at) { at.total = 2400; at.actionable = 1900; }
+      // 'overview watched namespaces': a Kubernetes source reading 12 long namespaces,
+      // one of which it could not read. Behind a flag so no other route moves.
+      if ((window as unknown as { __scoped?: boolean }).__scoped && meta) {
+        // The first is a legal 63-character DNS label with no hyphen: no break point of its own.
+        const ns = Array.from({ length: 12 }, (_, i) => (i === 0 ? 'paymentsproductionnortheuropewestonealphabravocharliedeltaecho1' : longName(`watched-namespace-${i}`)));
+        meta.sources = [{ id: 'k8s-scoped', kind: 'kubernetes', status: 'partial', revisionCount: 0, targetCount: 0, namespaces: ns, namespacesTotal: 12 },
+          ...((meta.sources as unknown[] | undefined) ?? [])];
+        meta.limitations = [
+          { code: 'K8S_NAMESPACE_SCOPED', source: 'k8s-scoped', message: `source k8s-scoped watches 12 namespaces (${ns.slice(0, 3).join(', ')} and 9 more); services in any other namespace are unknown` },
+          { code: 'K8S_NAMESPACE_UNREADABLE', source: 'k8s-scoped', message: `source k8s-scoped could not read namespace ${longName('unreadable-namespace')}: forbidden` },
+          ...((meta.limitations as unknown[] | undefined) ?? [])];
+      }
     }
     if (route === '/api/fleet/attention') {
       page(doc, 2400);
@@ -320,7 +332,17 @@ export function installScaleFixture(): void {
         off.unresolvedUses = { count: 4000, reason: longName('the reference is not digest-pinned or locked'), provenance: 'inferred' };
       }
       // The unsigned share of every Ready tally, so the stations read it at scale.
-      const cons = off?.consumers as { phases?: Record<string, number>; phaseConsumers?: Record<string, number> } | undefined;
+      const cons = off?.consumers as { phases?: Record<string, number>; phaseConsumers?: Record<string, number>; items?: Record<string, unknown>[] } | undefined;
+      // Every fourth dependency consumer, the first included, declares no range, so its
+      // badges read "Range not declared".
+      let deps = 0;
+      // The engine grades a successor or supported range from the declared range, so
+      // with none it grades those unknown too.
+      for (const u of cons?.items ?? []) {
+        if (u.via !== 'dependency' || deps++ % 4 !== 0) continue;
+        u.compatibility = 'unknown'; u.rangeStatus = 'unknown';
+        for (const k of ['successorRange', 'supportedRange']) if (u[k]) u[k] = 'unknown';
+      }
       for (const t of [cons?.phases, cons?.phaseConsumers]) if (t?.ready) t.readyUnsigned = Math.floor(t.ready / 2);
     }
     // A checked range's answer carries the provider's successor at its longest ref.
@@ -386,6 +408,11 @@ export function installScaleFixture(): void {
       const pl = svc?.placement as Record<string, unknown> & { items?: Record<string, unknown>[] } | undefined;
       const changes = svc?.changes as Record<string, unknown> & { items?: Record<string, unknown>[] } | undefined;
       const entityKey = (doc.entity as { key?: string } | undefined)?.key;
+      // One dependency the service declares with no range (compatibility: unknown): the
+      // page shows the claims of the edges that leave it.
+      const firstRel = (svc?.relationships as { items?: { from?: { key?: string }; declaredClaims?: { items?: Record<string, unknown>[] } }[] } | undefined)?.items
+        ?.find((e) => e.from?.key === entityKey && e.declaredClaims?.items?.length);
+      for (const c of firstRel?.declaredClaims?.items ?? []) { c.compatibility = 'unknown'; c.rangeStatus = 'unknown'; }
       if (pl && entityKey === 'storefront-web') {
         const tpl = (pl.items ?? []).find((it) => it.declaration) ?? {};
         const names = Array.from({ length: 200 }, (_, i) => `env-${i}`);
@@ -464,6 +491,10 @@ export function installScaleFixture(): void {
         used.total = 120; used.count = 40; used.truncated = true;
         svc.hiddenProviders = 3;
       }
+      // The first resource a service uses and the first requirement of a golden path
+      // declare no range, so their badges read "Range not declared".
+      const tpl = svc?.template as { requirements?: { items?: Record<string, unknown>[] } } | undefined;
+      for (const u of [used?.items?.[0], tpl?.requirements?.items?.[0]]) if (u) { u.compatibility = 'unknown'; u.rangeStatus = 'unknown'; }
       for (const it of pl?.items ?? []) {
         if (it.environment) it.environment = longName(String(it.environment));
         for (const v of (it.revisions as Record<string, unknown>[] | undefined) ?? []) v.version = longName(String(v.version ?? 'v'));
@@ -487,11 +518,30 @@ export function installScaleFixture(): void {
       if (d.owner) d.owner = { team: longName(String((d.owner as { team?: string }).team ?? 'team')) };
     };
     if (route === '/api/fleet/entities/revision') {
-      for (const d of ((doc.revision as Record<string, unknown> | undefined)?.environments as { items?: Record<string, unknown>[] } | undefined)?.items ?? []) lengthenEnv(d);
+      const rev = doc.revision as Record<string, unknown> | undefined;
+      for (const d of (rev?.environments as { items?: Record<string, unknown>[] } | undefined)?.items ?? []) lengthenEnv(d);
+      // pactoVersion 2.5 at its longest: 20 announced break consumers of 25 with a long
+      // reason (every other one linked to the service it names), a 5-digit port on
+      // every interface, a long inferred source and a dependency named from its ref
+      // with no range declared.
+      if (rev) {
+        // A declared pactoVersion behind this Pacto adds a badge to the Pacto version fact.
+        rev.pactoVersionCurrent = '2.5'; delete rev.pactoVersionUnknown;
+        rev.breaks = { total: 25, count: 20, truncated: true, hidden: 3, items: Array.from({ length: 20 }, (_, i) => ({
+          consumer: longName(`break-consumer-${i}`), reason: longName(`break-reason-${i}`), expires: '2026-12-14',
+          ...(i % 2 ? { service: { kind: 'service', key: `default/break-consumer-${i}`, label: `break-consumer-${i}` } } : {}) })) };
+        const firstDep = (rev.dependencies as { items?: { declaredClaims?: { items?: Record<string, unknown>[] } }[] } | undefined)?.items?.[0];
+        for (const c of firstDep?.declaredClaims?.items ?? []) { c.compatibility = 'unknown'; c.nameFromRef = true; }
+        for (const it of (rev.interfaces as { items?: Record<string, unknown>[] } | undefined)?.items ?? []) it.port = 65535;
+        rev.inferred = [{ field: 'service.name', value: longName('inferred-service-name'), source: `${longName('charts/deeply/nested/chart-folder')}/Chart.yaml:2`, provenance: 'inferred' }];
+      }
     }
     if (route === '/api/fleet/entities/target') {
       const env = (doc.target as Record<string, unknown> | undefined)?.environment as Record<string, unknown> | undefined;
       if (env?.check) lengthenEnv(env.check as Record<string, unknown>);
+      // A cluster name at its longest (63 characters); the UID and the keys stay the engine's.
+      const cluster = (doc.target as Record<string, unknown> | undefined)?.cluster as Record<string, unknown> | undefined;
+      if (cluster) cluster.name = `${cluster.name ?? 'cluster'}-${WORDS.join('-')}`.slice(0, 63);
     }
     if (route === '/api/delivery/history') {
       const tl = doc.timeline as { buckets: Record<string, number>[]; totals: Record<string, number> } | undefined;
@@ -541,6 +591,15 @@ export function installScaleFixture(): void {
       doc.verdicts = Array.from({ length: 12 }, (_, i) => ({ ...base, message: longName(`verdict-${i}`),
         citation: Object.fromEntries(Array.from({ length: 6 }, (_, j) => [longName(`key-${i}-${j}`).slice(0, 40), longName(`value-${i}-${j}`)])) }));
       if (typeof doc.intentReason === 'string') doc.intentReason = longName(doc.intentReason || 'reason');
+    }
+    // Who put a version there at its longest: a long asker and approvers, each with how
+    // they were classified and what let them decide.
+    if (route === '/api/delivery/blame') {
+      const c = doc.change as Record<string, unknown> | undefined;
+      if (c) Object.assign(c, { actor: longName('https://idp.example.com/realms/payments#carol.long-surname'), actorClass: 'human', actorClassifiedBy: 'user' });
+      doc.approvals = [0, 1, 2].map((i) => ({ by: longName(`https://idp.example.com/realms/payments#approver-${i}`), decision: 'approve', operation: 'u',
+        note: longName(`note-${i}`), classifiedBy: 'user', access: `update deployments/${longName(`payments-settlement-worker-${i}`)} in ${longName('prod')}`,
+        accessSource: i % 2 ? 'self-subject-access-review' : 'subject-access-review', accessAt: '2026-11-15T10:00:00Z' }));
     }
     // The publish figure at fleet scale: thousands of services and versions, and the
     // unsigned lane's four chips named 60 to 200 characters long. Only the chip names
@@ -601,7 +660,10 @@ export function installScaleFixture(): void {
         const targets = Array.from({ length: 21 }, (_, t) => ({ kind: 'target', key: `prod/k8s/${key}-${t}`, label: longName(`prod-eu-west-1/${name}-target-${t}`), href: `/fleet/targets/${encodeURIComponent(`prod/k8s/${key}-${t}`)}` }));
         return {
           service: { kind: 'service', key, label: name, domain: 'domain-load', href: `/fleet/services/${encodeURIComponent(key)}` },
-          direct: true, depth: 1, confidence: 'declared', compatibilityVerdict: event ? 'unknown' : V[i % 3], compatibility: event ? undefined : '^1.0.0',
+          // Every other consumer with an unknown verdict declares no range (compatibility:
+          // unknown, pactoVersion 2.5), so the verdict tallies stay as they were.
+          direct: true, depth: 1, confidence: 'declared',
+          compatibilityVerdict: event ? 'unknown' : V[i % 3], compatibility: event ? undefined : i % 6 === 1 ? 'unknown' : '^1.0.0',
           blocking: !event && i === 0, owner: longName(`team-${i}`), path: [], pathTotal: 0, pathTruncated: false,
           ownerRef: { kind: 'owner', key: `team:team-${i}`, label: longName(`team-${i}`), href: `/fleet/owners/${encodeURIComponent(`team:team-${i}`)}` },
           provenance: 'declared+observed', via: ['dependency', 'configuration_reference', 'policy_reference'], required: i % 2 === 0,
@@ -712,7 +774,9 @@ export function installScaleFixture(): void {
   // lengthens the Stage rows' namespace, stage and version (a plan or propose body is
   // asked of the engine under the short names again), stalePropose answers every
   // propose PlanStale with the fresh plan and no field that explains it.
-  const flags = window as unknown as { __pactoLongPropose?: boolean; __pactoStalePropose?: boolean };
+  // ambiguousTarget answers the sentinel target key with the 409 a 3-part key that
+  // names targets in more than one cluster gets: 6 candidates with long labels.
+  const flags = window as unknown as { __pactoLongPropose?: boolean; __pactoStalePropose?: boolean; __pactoAmbiguousTarget?: boolean };
   const shortOf = (v: unknown) => [...memo].find(([, l]) => l === v)?.[0] ?? v;
   const engineBody = (path: string, body: string | null): string | null => {
     if (!flags.__pactoLongPropose || !body || !/^\/api\/delivery\/(plan|operations)$/.test(path)) return body;
@@ -847,6 +911,18 @@ export function installScaleFixture(): void {
       const plan = await (real as Serve)('POST', '/api/delivery/plan', body);
       return { status: 409, contentType: 'application/json', body: JSON.stringify({ status: 409, code: 'PlanStale',
         detail: 'the Stage moved since you planned; review the fresh plan and propose again', plan: JSON.parse(plan.body) }) };
+    }
+    const ambiguousQuery = new URLSearchParams(path.split('?')[1] ?? '');
+    if (flags.__pactoAmbiguousTarget && method === 'GET' && ambiguousQuery.get('key') === 'scale-ambiguous/kubernetes/payments'
+      && (route === '/api/fleet/entities/target' || (route === '/api/fleet/neighborhood' && ambiguousQuery.get('kind') === 'target'))) {
+      const errors = Array.from({ length: 6 }, (_, i) => {
+        const uid = `${(0x9f1c4e2a + i * 7919).toString(16)}-7f1a-4c55-9d1e-2b8a4e6f0a1${i}`;
+        return { location: 'candidates', value: `${uid}/scale-ambiguous/kubernetes/payments`, message: `${longName(`cluster-${i}`)} / scale-ambiguous / payments` };
+      });
+      // A target with no known cluster keeps a key of its own under the `_` component.
+      errors.push({ location: 'candidates', value: '_/scale-ambiguous/kubernetes/payments', message: 'scale-ambiguous/kubernetes/payments (cluster unknown)' });
+      return { status: 409, contentType: 'application/problem+json', body: JSON.stringify({ status: 409, title: 'Conflict',
+        detail: 'this target key names targets in more than one cluster; choose one', errors }) };
     }
     const res = await (real as Serve)(method, engineName(path), body);
     if (res.status !== 200 || !(res.contentType || '').includes('json')) return res;
@@ -1435,6 +1511,7 @@ const createdService = async (page: Page) => {
 export type Route = { name: string; hash?: string; list?: boolean; open?: (page: Page) => Promise<void> };
 export const ROUTES: Route[] = [
   { name: 'overview', hash: '#/fleet' },
+  { name: 'overview watched namespaces', open: async (page) => { await page.addInitScript(() => { (window as unknown as { __scoped?: boolean }).__scoped = true; }); await page.goto('/#/fleet'); await page.reload(); } }, // reload: the init script only runs on a new document
   { name: 'services', list: true, hash: '#/fleet/services' },
   { name: 'owners', list: true, hash: '#/fleet/owners' },
   { name: 'domains', list: true, hash: '#/fleet/domains' },
@@ -1482,8 +1559,53 @@ export const ROUTES: Route[] = [
   { name: 'service entity', hash: '#/fleet/services/payments-service' },
   { name: 'revision list', list: true, hash: '#/fleet/revisions?service=payments-service' },
   { name: 'revision entity', open: firstLink('#/fleet/revisions?service=payments-service', '/fleet/revisions/') },
+  { name: 'revision entity, implicit contract', open: firstLink('#/fleet/revisions?service=newsletter-service', '/fleet/revisions/') },
+  { name: 'service entity, implicit contract', hash: '#/fleet/services/newsletter-service' },
+  {
+    // The scale fixture's 2.5 rows (announced breaks, ports, a ref-named dependency
+    // with no range) live in closed disclosures, which mount nothing: open them all.
+    name: 'revision entity, 2.5 sections open',
+    open: async (page) => {
+      await firstLink('#/fleet/revisions?service=payments-service', '/fleet/revisions/')(page);
+      for (const title of ['Interfaces', 'Announced breaks', 'Declared dependencies']) {
+        const sec = page.locator('details').filter({ has: page.locator('summary.ps-head', { hasText: title }) }).first();
+        await expect(sec, `${title} is on the page`).toBeAttached({ timeout: 30_000 });
+        await sec.evaluate((d) => { (d as HTMLDetailsElement).open = true; });
+        const all = sec.getByTestId('preview-show-all');
+        if (await all.count()) await all.first().click();
+      }
+      await expect(page.locator('[data-testid="revision-break"]').first()).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByTestId('name-from-ref').first()).toBeAttached();
+      await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+    },
+  },
   { name: 'target list', list: true, hash: '#/fleet/targets' },
   { name: 'target entity', open: firstLink('#/fleet/targets', '/fleet/targets/') },
+  {
+    // A cluster-qualified key in the single-cluster demo lands on the 3-part canonical href.
+    name: 'target entity with a cluster',
+    open: async (page) => {
+      await page.goto('/#/fleet/targets/5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11%2Fprod%2FDeployment%2Fpayments-service');
+      await expect(page).toHaveURL(/#\/fleet\/targets\/prod%2FDeployment%2Fpayments-service$/, { timeout: 30_000 });
+      await expect(page.locator('[data-testid="target-cluster"]')).toBeVisible({ timeout: 30_000 });
+    },
+  },
+  {
+    name: 'target key names more than one cluster',
+    open: async (page) => {
+      await page.evaluate(() => { (window as unknown as { __pactoAmbiguousTarget?: boolean }).__pactoAmbiguousTarget = true; });
+      await page.goto('/#/fleet/targets/scale-ambiguous%2Fkubernetes%2Fpayments');
+      await expect(page.locator('[data-testid="target-key-chooser"] a')).toHaveCount(7, { timeout: 30_000 });
+    },
+  },
+  {
+    name: 'graph focus target key names more than one cluster',
+    open: async (page) => {
+      await page.evaluate(() => { (window as unknown as { __pactoAmbiguousTarget?: boolean }).__pactoAmbiguousTarget = true; });
+      await page.goto('/#/fleet/graph/target/scale-ambiguous%2Fkubernetes%2Fpayments');
+      await expect(page.locator('[data-testid="target-key-chooser"] a')).toHaveCount(7, { timeout: 30_000 });
+    },
+  },
   { name: 'owner entity', hash: '#/fleet/owners/team:catalog-team' },
   { name: 'domain entity', hash: '#/fleet/domains/commerce' },
   { name: 'offering entity', hash: '#/fleet/offerings/messaging' },
@@ -1559,6 +1681,16 @@ export const ROUTES: Route[] = [
       await page.goto('/#/delivery/history?namespace=prod&stage=payments');
       await page.locator('button[aria-label^="Read record"]').first().click();
       await expect(page.locator('[data-testid="record-verdicts"]')).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0)); // the click scrolled the panel into view; the gate reads from the top
+    },
+  },
+  {
+    name: 'history, blame panel open',
+    open: async (page) => {
+      await page.goto('/#/delivery/history?namespace=prod&stage=payments');
+      await page.locator('button', { hasText: /^Who put .+ here\?$/ }).first().click();
+      await expect(page.locator('[data-testid="blame-panel"]')).toBeVisible({ timeout: 30_000 });
+      await expect(page.locator('[data-testid="approval-access"]').first()).toBeVisible({ timeout: 30_000 });
       await page.evaluate(() => window.scrollTo(0, 0)); // the click scrolled the panel into view; the gate reads from the top
     },
   },

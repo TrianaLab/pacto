@@ -1,0 +1,67 @@
+name: Layout matrix (full)
+
+# The full SPEC 23 resolution matrix (make test-browser-layout-full): every named
+# viewport from a 320px phone to a 3840px screen, the 40px width sweep, DPR 2 and 3
+# on phones and tablets, and the default font beside Verdana. Pull requests run the
+# SPEC 24.6 subset inside ci.yml's dashboard-e2e; this is the rest of the matrix.
+# Pull requests also gate layout geometry (the matrix and the G1 gate it carries)
+# in the dark theme only; this run gates both in both themes.
+#
+# It runs every night on main, on demand, and on the changesets Version PR, where
+# ci.yml calls it (job layout-full, which the required check aggregates only on
+# changeset-release/ branches). Merging the Version PR is what cuts a release, so
+# no release ships without a green full matrix. A failure is a failed job.
+#
+# The audit (docs: test-audit-2026-11) estimates about 1,500 worker-min, so it is
+# sharded 20 ways. If shards near their timeout, add shards: Playwright splits by
+# test count, so more shards is the only knob.
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+# Keyed on the event too: a nightly and ci.yml's Version PR call must not cancel
+# each other.
+concurrency:
+  group: layout-full-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  layout-full:
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the demo build's `git describe` needs tags
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: pkg/dashboard/frontend/package-lock.json
+      - name: Full resolution matrix over the built WASM demo
+        timeout-minutes: 100
+        run: make test-browser-layout-full PW_SHARD=${{ matrix.shard }}/${{ strategy.job-total }}
+      - name: Upload browser traces
+        if: failure()
+        timeout-minutes: 5
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: layout-full-traces-shard-${{ matrix.shard }}
+          path: |
+            pkg/dashboard/frontend/test-results
+            pkg/dashboard/frontend/playwright-report
+          if-no-files-found: ignore
+          retention-days: 7

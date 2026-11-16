@@ -88,7 +88,7 @@ placed counts everywhere and, as a consumer, asks a person.
 | Identity | May | May not |
 |---|---|---|
 | Agent (its service account or `pacto:agents`) | propose, read and cancel its own operations | approve, freeze, unfreeze, write status, edit the pointer |
-| Person | propose, read and cancel any operation, approve a question their team is asked, freeze, unfreeze | write status (beyond clearing a Stage's `upstreamSeen`) |
+| Person | propose, read and cancel any operation, approve a question when they may update the workload (and, with team narrowing, are in a team asked), freeze, unfreeze | write status (beyond clearing a Stage's `upstreamSeen`) |
 | Break-glass (`pacto:break-glass`) | override and edit `spec.ref.digest` | |
 | Promoter | write status and raise its own operations | sign or push |
 | Recorder | write the record fields and finalizer; sign and push records | anything else |
@@ -98,7 +98,8 @@ requesting user, and a `spec.authTime` to match its login time. The promoter
 does not count a login older than `delivery.promoter.authFreshness` when you
 [set one](delivery-identity.md#a-recent-sign-in-to-decide), an approval from
 the operation's own actor or
-whoever it acts for, one from outside the teams asked, one given before the
+whoever it acts for, one from someone who may not update the Stage's
+workload, one from outside the teams asked when team narrowing is on, one given before the
 question was last asked, an accepted unknown where an approval is needed or an
 approval once the version shipped. The operation's `status.message` says why
 an Approval does not count. Once given, an Approval's spec cannot

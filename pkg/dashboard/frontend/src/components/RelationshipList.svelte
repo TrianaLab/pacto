@@ -3,7 +3,7 @@
   import IdentityBadge from './IdentityBadge.svelte';
   import BehaviorBadges from './BehaviorBadges.svelte';
   import RequirementList from './RequirementList.svelte';
-  import { provenanceLabel, provenanceIsImplied } from '../lib/entityLabels.ts';
+  import { provenanceLabel, provenanceIsImplied, RANGE_NOT_DECLARED } from '../lib/entityLabels.ts';
   import { corroborationLabel, corroborationTone, differenceLabel, differenceTone } from '../lib/graphState.ts';
   import { shortDigest, formatCount } from '../lib/format.ts';
   import { formatDate } from '../lib/dateFormat.ts';
@@ -72,6 +72,11 @@
     unsatisfied: { label: 'Outside range', tone: 'warn' },
     unknown: { label: 'Range unknown', tone: 'neutral' },
   };
+  // compatibility: unknown (pactoVersion 2.5) declares no range, so the claim is never
+  // judged in range whatever status the payload carries.
+  const NOT_DECLARED = { label: RANGE_NOT_DECLARED, tone: 'neutral' };
+  const rangeOf = (c) => (c.compatibility === 'unknown' ? NOT_DECLARED : RANGE[c.rangeStatus]);
+  const nameFromRef = (e) => claims(e).some((c) => c.nameFromRef);
 
   // When traffic on this edge was last seen, and how many calls were counted.
   const seen = (e) => [
@@ -83,7 +88,7 @@
     const out = [];
     if (c.requestedRef) out.push(['Ref', c.requestedRef]);
     out.push(['Required', c.required ? 'Yes' : 'No']);
-    if (c.compatibility) out.push(['Compatibility', c.compatibility]);
+    if (c.compatibility) out.push(['Compatibility', c.compatibility === 'unknown' ? '' : c.compatibility]);
     const pin = [c.lockedVersion, c.lockedDigest ? `@${shortDigest(c.lockedDigest)}` : ''].filter(Boolean).join(' ');
     if (pin) out.push(['Pinned', pin]);
     return out;
@@ -96,6 +101,7 @@
       <div class="rel">
         {#if selfKey}<span class="rel-word">{relationWord(e)}</span>{/if}
         <EntityLink ref={counterpart(e)} showStatus={false} showKind={!selfKey} />
+        {#if nameFromRef(e)}<span data-testid="name-from-ref"><IdentityBadge label="name from ref" title="The contract declares no name for this dependency; Pacto derived it from the ref." describe /></span>{/if}
         <!-- A configuration reference makes no calls, so it has no observation verdict. -->
         {#if e.relation !== 'configuration_reference'}<IdentityBadge label={verdictLabel(e)} tone={verdictTone(e)} />{/if}
         {#if e.provenance && !provenanceIsImplied(e.difference, e.provenance)}<span class="rel-prov">{provenanceLabel(e.provenance)}</span>{/if}
@@ -111,7 +117,7 @@
           <!-- The range verdict sits beside the range it judges, so a claim keeps one
                line at 1280px instead of wrapping a separate Range pair onto a second. -->
           {#each claimFacts(c) as [label, value] (label)}
-            <dt>{label}</dt><dd>{value}{#if label === 'Compatibility' && RANGE[c.rangeStatus]}{' '}<IdentityBadge label={RANGE[c.rangeStatus].label} tone={RANGE[c.rangeStatus].tone} />{/if}</dd>
+            <dt>{label}</dt><dd>{value}{#if label === 'Compatibility' && rangeOf(c)}{value ? ' ' : ''}<IdentityBadge label={rangeOf(c).label} tone={rangeOf(c).tone} />{/if}</dd>
           {/each}
           {#if !c.compatibility && RANGE[c.rangeStatus]}
             <dt>Range</dt><dd><IdentityBadge label={RANGE[c.rangeStatus].label} tone={RANGE[c.rangeStatus].tone} /></dd>

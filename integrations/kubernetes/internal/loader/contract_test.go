@@ -8,6 +8,7 @@ See LICENSE file in the project root for full license text.
 package loader
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -296,6 +297,25 @@ func TestLoadInline_InvalidYAML(t *testing.T) {
 	_, err := loadInline("invalid: [unclosed")
 	if err == nil {
 		t.Fatal("expected error for invalid YAML")
+	}
+}
+
+func TestLoadInlineRejectsNamelessContract(t *testing.T) {
+	_, err := loadInline("pactoVersion: \"2.5\"\nservice:\n  version: 1.0.0\n")
+	if !errors.Is(err, contract.ErrUndeclaredContract) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestLoadInlineRequiresNameAndVersion(t *testing.T) {
+	for _, y := range []string{
+		"",
+		"service:\n  name: a\n  version: 1.0.0\n", // no pactoVersion
+		"pactoVersion: \"2.5\"\nservice:\n  name: a\n",
+	} {
+		if _, err := loadInline(y); !errors.Is(err, contract.ErrUndeclaredContract) {
+			t.Errorf("%q: got %v", y, err)
+		}
 	}
 }
 

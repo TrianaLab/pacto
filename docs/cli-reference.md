@@ -225,8 +225,8 @@ pacto dashboard [sources...] [flags]
   # Custom port
   pacto dashboard --port 9090
 
-  # Specify Kubernetes namespace (default: all namespaces)
-  pacto dashboard --namespace production
+  # Read only some Kubernetes namespaces (default: all namespaces)
+  pacto dashboard --namespace payments,ledger
 ```
 
 **Flags:**
@@ -240,7 +240,7 @@ pacto dashboard [sources...] [flags]
       --host string                       bind address for the dashboard server (default "127.0.0.1")
       --mira-source stringArray           base URL of a Mira node whose service map supplies observed calls between services (repeatable; also PACTO_DASHBOARD_MIRA_SOURCES)
       --mira-url string                   Mira's address, to link health-check citations and open a service in Mira
-      --namespace string                  Kubernetes namespace (empty = all namespaces)
+      --namespace string                  Kubernetes namespaces to read, comma-separated (empty = all namespaces); delivery reads narrow to it only when it names one
       --oidc-ca-file string               PEM bundle of the CAs that sign the issuer's certificate, trusted on top of the system roots (also PACTO_DASHBOARD_OIDC_CA_FILE)
       --oidc-client-id string             OpenID Connect client id of the dashboard
       --oidc-display-name string          the identity provider's name on the sign-in button, as in Sign in with Keycloak (default OIDC; also PACTO_DASHBOARD_OIDC_DISPLAY_NAME)
@@ -253,6 +253,7 @@ pacto dashboard [sources...] [flags]
       --oidc-username-claim string        ID token claim the API server takes the username from; must match its claim mapping (default sub)
       --oidc-username-prefix string       prefix the API server puts before the username; must match its claim mapping (default the issuer URL and #, none for the email claim; - for none)
       --port int                          port for the dashboard server (default 3000)
+      --review string                     how people are reviewed: cluster asks once about every namespace and needs a ClusterRole; local asks in each --namespace only, which a namespaced Role grants, and then services without a namespace show to nobody (also PACTO_DASHBOARD_REVIEW) (default "cluster")
       --session-idle-timeout duration     a session without a request for this long ends (default 1h)
       --session-max-age duration          a session ends this long after sign-in, renewed or not (default 12h)
       --stats-registry string             stats repository the Metrics page reads run records from (unsigned statistics; also PACTO_STATS_REGISTRY); a public repository is read anonymously, otherwise with the dashboard's registry credentials
@@ -348,7 +349,7 @@ pacto delivery blame [flags]
 
 ### `pacto delivery caller`
 
-The caller as the API server names them, their actor class (human, agent, break-glass or controller), when they last logged in and whether a question that names no team has nobody who may answer it.
+The caller as the API server names them, their actor class (human, agent, break-glass or controller) and how it was decided, when they last logged in, whether a question that names no team has nobody who may answer it and whether owner teams narrow who may answer.
 
 It runs the dashboard's own caller view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads the namespaces you may list Stages in and leaves out, without naming them, those outside your permissions; a namespace that refuses the list makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
 
@@ -483,7 +484,7 @@ pacto delivery history [flags]
 
 ### `pacto delivery inbox`
 
-Held operations whose question names one of the caller's teams, with the decision asked and the affected services; frozen Stages of the caller's services and the Errored operations on them.
+Held operations whose decision by the caller the promoter would count: the caller may update the Stage's workload and, when owner teams narrow who may answer, is in a team the question names (break-glass also gets those that name no team), with the decision asked and the affected services; a change whose update rights could not be checked marks the answer partial. Also the frozen Stages of the caller's services (every frozen Stage they can read when owner teams do not narrow) and the Errored operations on them.
 
 It runs the dashboard's own inbox view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads the namespaces you may list Stages in and leaves out, without naming them, those outside your permissions; a namespace that refuses the list makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
 
@@ -540,7 +541,7 @@ pacto delivery plan [flags]
       --correlation-id string                                       an id that ties this change to an incident or another change, such as a ticket; kept with the change and its record, filtered by pacto delivery history --correlation-id
       --from string                                                 where the Stage is now: a digest, or a level for delivery.pacto.trianalab.io/autonomy (defaults to its pointer, or to its current level)
   -h, --help[=true|false]                                           help for plan
-      --on-behalf-of string                                         the person an agent acts for, as the Kubernetes username the cluster authenticates them as (what kubectl auth whoami prints for them, any OIDC prefix included); asserted, not verified; required when an agent proposes, never a service account, and that person may not approve the change
+      --on-behalf-of string                                         the person an agent acts for, as the Kubernetes username the cluster authenticates them as (what kubectl auth whoami prints for them, any OIDC prefix included); asserted, not verified; required when an agent proposes, never a service account or other system user, and that person may not approve the change
       --reason string                                               why, for the record
       --record string                                               for delivery.pacto.trianalab.io/acknowledge: the record id (sha256:...) of the upstream stand-in, as the Stage's Ready message names it
       --stage string                                                the Stage to change (required)
@@ -566,7 +567,7 @@ pacto delivery propose [flags]
   -h, --help[=true|false]                                           help for propose
       --intent-digest string                                        the intent digest from your plan; propose refuses if it no longer matches, so pass the same --to, --reason and --on-behalf-of
       --name string                                                 the Operation name (generated when empty)
-      --on-behalf-of string                                         the person an agent acts for, as the Kubernetes username the cluster authenticates them as (what kubectl auth whoami prints for them, any OIDC prefix included); asserted, not verified; required when an agent proposes, never a service account, and that person may not approve the change
+      --on-behalf-of string                                         the person an agent acts for, as the Kubernetes username the cluster authenticates them as (what kubectl auth whoami prints for them, any OIDC prefix included); asserted, not verified; required when an agent proposes, never a service account or other system user, and that person may not approve the change
       --reason string                                               why, for the record
       --record string                                               for delivery.pacto.trianalab.io/acknowledge: the record id (sha256:...) of the upstream stand-in, as the Stage's Ready message names it
       --stage string                                                the Stage to change (required)
@@ -894,12 +895,15 @@ pacto evidence serve [flags]
 **Flags:**
 
 ```
-  -h, --help[=true|false]       help for serve
-      --listen-address string   host:port to listen on (supersedes --port)
-      --port int                port to listen on (127.0.0.1); superseded by --listen-address (default 8686)
-      --producer stringArray    advertised trusted producer id (repeatable)
-      --subject stringArray     exact contract revision evidence is stored on: oci://<repo>@sha256:<digest> (repeatable, required)
-      --trust string            trust store: a public-key file or a directory of <keyId>.pub files
+      --cluster-id string            the kube-system namespace UID of the cluster this server runs in; the operator sets it
+      --cluster-name string          display name of that cluster (needs --cluster-id)
+      --cluster-name-source string   how the name was found: node-label, context, file or uid (needs --cluster-id)
+  -h, --help[=true|false]            help for serve
+      --listen-address string        host:port to listen on (supersedes --port)
+      --port int                     port to listen on (127.0.0.1); superseded by --listen-address (default 8686)
+      --producer stringArray         advertised trusted producer id (repeatable)
+      --subject stringArray          exact contract revision evidence is stored on: oci://<repo>@sha256:<digest> (repeatable, required)
+      --trust string                 trust store: a public-key file or a directory of <keyId>.pub files
 ```
 
 ### `pacto evidence sign`
@@ -1016,7 +1020,7 @@ pacto fleet [flags]
       --k8s[=true|false]           include live Pacto CRs from the current Kubernetes cluster as targets
       --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
       --mira-source stringArray    base URL of a Mira node whose service map supplies observed calls between services (repeatable)
-      --namespace string           namespace to read Pacto CRs from with --k8s (empty = all namespaces)
+      --namespace string           namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)
       --oci stringArray            registry reference to include as a published-baseline revision (repeatable)
       --root stringArray           contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
       --target-state stringArray   offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
@@ -1413,7 +1417,7 @@ pacto impact <old> <new> | --unavailable <service> | --removed <service> | --reg
       --k8s[=true|false]                include live Pacto CRs from the current Kubernetes cluster as targets
       --local stringArray               local bundle root(s) to scan (repeatable) (default [.])
       --mira-source stringArray         base URL of a Mira node whose service map supplies observed calls between services (repeatable)
-      --namespace string                namespace to read Pacto CRs from with --k8s (empty = all namespaces)
+      --namespace string                namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)
       --new-set stringArray             set a value on the new contract (e.g. --new-set service.version=2.0.0)
       --new-values stringArray          values file to merge into the new contract (can be repeated)
       --oci stringArray                 registry reference to include as a published-baseline revision (repeatable)
@@ -1442,11 +1446,15 @@ An empty or new folder gets a blank contract with the bundle structure
 already holds a service gets a contract read from its Dockerfile and
 Kubernetes manifests, and a list of what Pacto found and what it could not
 tell (Unknown). The workload's environment, including the ConfigMaps it reads,
-becomes a configuration schema with each value as its default. A URL in it
-that names another service in the cluster becomes a dependency: with that
-service's contract in --fleet, its bundle and a range from its version;
-without it, a placeholder range that the comment above it and Unknown name. A
-readiness, liveness or startup probe becomes a health check.
+becomes a configuration schema of keys and types, with no values: a key read
+from a Secret, named like a password, secret, token, key, credential, private
+key or DSN, or holding a URL with credentials is marked writeOnly, and a
+literal value for one is named under next steps. A URL in the environment
+that names another service in the cluster becomes a dependency with
+compatibility unknown: with that service's contract in --fleet, its bundle and
+a proposed range from its version in a comment; without it, the comment says
+no range was proposed. A readiness, liveness or startup probe becomes a health
+check.
 
 Either contract also gets a publish section, for pacto publish, with its
 bundle under --registry (default: the workload's image registry, else the
@@ -1468,9 +1476,11 @@ https://pacto.run/latest/contract-reference/checks/#an-agent-is-a-service.
 Several folders are each pactified, with a summary at the end. --cluster
 drafts a contract for every workload in the namespaces that no Pacto
 describes yet, in &lt;out&gt;/&lt;namespace&gt;/&lt;name&gt;: its manifests are read from the
-cluster, and the services its pods were seen calling become dependencies
-pinned to the version seen running, for you to widen. Drafts are only
-written, never published, and a draft that is not valid fails the command.
+cluster, and the services its pods were seen calling become dependencies with
+compatibility unknown and a proposed range, in a comment, from the lowest
+version the Pactos describing each one report, when they agree on one
+contract. Ranges are proposed, never declared: declare each one. Drafts are only written, never published, and a
+draft that is not valid fails the command.
 
 With --from the service is created from a golden path: an oci:// reference or
 a directory whose contract declares service.template. The path's contract is
@@ -1722,7 +1732,7 @@ pacto mcp [bundle-ref] [flags]
       --k8s[=true|false]              include live Pacto CRs from the current Kubernetes cluster as targets
       --local stringArray             local bundle root(s) to scan in --fleet mode (repeatable); over HTTP none unless set (default [.])
       --mira-source stringArray       base URL of a Mira node whose service map supplies observed calls between services (repeatable)
-      --namespace string              namespace to read Pacto CRs from with --k8s (empty = all namespaces)
+      --namespace string              namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)
       --oci stringArray               registry reference to include as a published-baseline revision (repeatable)
       --oidc-groups-claim string      ID token claim the API server takes the groups from; must match its claim mapping (default groups)
       --oidc-groups-prefix string     prefix the API server puts before every group; must match its claim mapping
@@ -1731,6 +1741,7 @@ pacto mcp [bundle-ref] [flags]
       --port int                      port for HTTP transport (default 8585)
       --publish[=true|false]          expose pacto_publish_plan and pacto_publish beside the authoring tools
       --resource string               with --auth-issuer: this endpoint's URL as clients reach it, served as protected-resource metadata (RFC 9728)
+      --review string                 with --fleet over HTTP with --auth-issuer: how people are reviewed: cluster asks once about every namespace and needs a ClusterRole; local asks in each --namespace only, which a namespaced Role grants, and then services without a namespace show to nobody (default "cluster")
       --root stringArray              contract root to discover a read-only catalog from: a local bundle path or an oci:// reference (repeatable)
       --stats-read-registry string    with --fleet: the stats repository pacto_stats reads; it reads and never records. Over stdio the default is $PACTO_STATS_REGISTRY; over HTTP only this flag enables pacto_stats
       --target-state stringArray      offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
@@ -1889,7 +1900,7 @@ pacto publish [dir] [flags]
 ```
       --correlation-id string      with --propose, an id that ties the promote to an incident or another change, such as a ticket; kept with the change and its record, filtered by pacto delivery history --correlation-id
   -h, --help[=true|false]          help for publish
-      --on-behalf-of string        with --propose, the person an agent acts for, as the Kubernetes username the cluster authenticates them as (what kubectl auth whoami prints for them, any OIDC prefix included); asserted, not verified; required when an agent proposes, never a service account, and that person may not approve the change
+      --on-behalf-of string        with --propose, the person an agent acts for, as the Kubernetes username the cluster authenticates them as (what kubectl auth whoami prints for them, any OIDC prefix included); asserted, not verified; required when an agent proposes, never a service account or other system user, and that person may not approve the change
   -p, --path string                path to contract directory, the same as [dir] (default: current directory)
       --plan[=true|false]          show what is missing and what refuses it; change nothing
       --propose string             after publishing, propose the deploy artifact on <namespace>/<stage> (needs delivery.enabled on the pacto-operator chart)
@@ -2045,7 +2056,7 @@ pacto stats [flags]
       --kind stringArray           total only run records of this kind: diff, impact, publish, operation, coverage (repeatable)
       --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
       --mira-source stringArray    base URL of a Mira node whose service map supplies observed calls between services (repeatable)
-      --namespace string           namespace to read Pacto CRs from with --k8s (empty = all namespaces)
+      --namespace string           namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)
       --oci stringArray            registry reference to include as a published-baseline revision (repeatable)
       --registry string            stats repository to read or publish to, for example ghcr.io/acme/pacto-stats (default $PACTO_STATS_REGISTRY)
       --root stringArray           contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
@@ -2104,7 +2115,7 @@ pacto tui [flags]
       --k8s[=true|false]           include live Pacto CRs from the current Kubernetes cluster as targets
       --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
       --mira-source stringArray    base URL of a Mira node whose service map supplies observed calls between services (repeatable)
-      --namespace string           namespace to read Pacto CRs from with --k8s (empty = all namespaces)
+      --namespace string           namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)
       --oci stringArray            registry reference to include as a published-baseline revision (repeatable)
       --read-only[=true|false]     hide every write verb
       --root stringArray           contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
@@ -2282,7 +2293,7 @@ The following variables configure the dashboard when set (see also [Dashboard Co
 | `PACTO_DASHBOARD_REPO` | *(positional args)* | **Comma**-separated OCI repositories, used only when no positional `oci://` argument is given |
 | `PACTO_DASHBOARD_HOST` | `--host` | Bind address (default: `127.0.0.1`) |
 | `PACTO_DASHBOARD_PORT` | `--port` | HTTP port (default: `3000`) |
-| `PACTO_DASHBOARD_NAMESPACE` | `--namespace` | Kubernetes namespace filter (empty = all) |
+| `PACTO_DASHBOARD_NAMESPACE` | `--namespace` | Kubernetes namespaces to read, comma-separated (empty = all) |
 | `PACTO_DASHBOARD_CORS_ORIGIN` | `--cors-origin` | One explicit origin allowed to call the API. Unset means same-origin only. |
 | `PACTO_DASHBOARD_TRACES` | `--traces` | OTLP/JSON trace files to fold observed dependencies from |
 | `PACTO_DASHBOARD_MIRA_SOURCES` | `--mira-source` | Space-separated Mira base URLs whose service map supplies observed calls |

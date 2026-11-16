@@ -5,7 +5,7 @@ import {
   versionLabel, shortDigests, digestParts, sentence, timeLabel,
   verdictBadge, isBreaking, andList, reasonWords, verificationLabel, outcomeTone, reasonAfter, changeSummary, actorBadge, autonomyOf, unknownHelp, undoCause, UNKNOWN_DOCS,
   exceptParam, exceptList, offerLabel, checkText, watchText, progressStamp, isCommand, offerRequest, lifecycleWords,
-  causeText, historyWindow, windowSince, samePerson,
+  causeText, historyWindow, windowSince, samePerson, classSourceLabel, accessSourceLabel,
 } from './delivery.ts';
 import {
   parseHash, deliveryInboxUrl, deliveryEnvironmentsUrl, deliveryPublishUrl, deliveryAutonomyUrl, deliveryHistoryUrl, deliveryChangeUrl,
@@ -401,5 +401,27 @@ describe('history filters (B3)', () => {
     expect(historyWindow('2026-11-10T12:00:00Z', '', '1', now)).toBe('custom');
     expect(windowSince('7d', now)).toBe('2026-11-04T12:00:00Z');
     expect(windowSince('all', now)).toBeUndefined();
+  });
+});
+
+describe('classSourceLabel and accessSourceLabel', () => {
+  it('names how an actor was classified, and says when a record does not', () => {
+    expect(classSourceLabel('service-account')).toBe('service account');
+    expect(classSourceLabel('agent-group')).toBe('agent group');
+    expect(classSourceLabel('outside-human-groups')).toBe('outside humanGroups');
+    expect(classSourceLabel('break-glass-group')).toBe('break-glass group');
+    expect(classSourceLabel('controller')).toBe('the promoter');
+    expect(classSourceLabel('system-user')).toBe('system user');
+    expect(classSourceLabel('user')).toBe('signed-in user');
+    expect(classSourceLabel('')).toBe('classification not recorded');
+    expect(classSourceLabel(undefined)).toBe('classification not recorded');
+    expect(classSourceLabel('later')).toBe('later');
+  });
+  it('names who checked the access, and says when a record does not', () => {
+    expect(accessSourceLabel('subject-access-review')).toBe('checked by the promoter');
+    expect(accessSourceLabel('self-subject-access-review')).toBe("checked with the caller's own credentials");
+    expect(accessSourceLabel('')).toBe('not recorded');
+    expect(accessSourceLabel(undefined)).toBe('not recorded');
+    expect(accessSourceLabel('registry-policy')).toBe('registry-policy');
   });
 });

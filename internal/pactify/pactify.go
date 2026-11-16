@@ -64,9 +64,9 @@ type Options struct {
 	// namespace, that Delivery's Flux OCIRepositories and Pacto resource log
 	// in to a private registry with.
 	RegistrySecret string
-	// Inferred are dependencies seen at runtime (pacto init --cluster). One
-	// with a Version is written as an entry pinned to exactly that version;
-	// one without gets a placeholder range, like a dependency read from the env.
+	// Inferred are dependencies seen at runtime (pacto init --cluster). Every
+	// one is written with compatibility unknown; one with Versions gets a
+	// proposed range from the lowest, in a comment.
 	Inferred []Inferred
 	// Template creates the contract from a golden path. It needs Owner and
 	// refuses Delivery, FleetRoots and Inferred.
@@ -102,10 +102,25 @@ type Template struct {
 
 // Inferred is a service this one was seen calling at runtime.
 type Inferred struct {
-	Name    string `json:"name"`
-	Ref     string `json:"ref,omitempty"`
-	Version string `json:"version,omitempty"`
-	Where   string `json:"where"`
+	Name string `json:"name"`
+	Ref  string `json:"ref,omitempty"`
+	// Versions are the contract versions the reconciled Pactos describing the
+	// provider's Service report, strict semver, distinct and ascending; empty
+	// when no Pacto describes it.
+	Versions []string `json:"versions,omitempty"`
+	Where    string   `json:"where"`
+	// Unknown is what kept a range from being proposed, one sentence each.
+	Unknown []string `json:"unknown,omitempty"`
+
+	// services are the Services, as ns/name, the calls were seen to.
+	services []string
+	// refs are the contract refs the Pactos describing them name, sorted;
+	// withRef are the Services whose Pactos name one, and described the
+	// Services whose Pactos report a version.
+	refs, withRef, described []string
+	// conflict says the Pactos describing those Services name different
+	// contracts, so no versions are kept.
+	conflict bool
 }
 
 // File actions.
@@ -157,10 +172,7 @@ const (
 	modeTemplate = "template"
 )
 
-var (
-	nameRE    = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
-	nonNameRE = regexp.MustCompile(`[^a-z0-9]+`)
-)
+var nameRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 
 // Init plans the folder and, unless opts.Plan, applies the plan with
 // writeFile.
@@ -285,7 +297,7 @@ func serviceName(name string, sc *scan, dir string) (string, error) {
 	}
 	if name == "" {
 		abs, _ := filepath.Abs(dir) // ponytail: Abs fails only without a working directory
-		name = strings.Trim(nonNameRE.ReplaceAllString(strings.ToLower(filepath.Base(abs)), "-"), "-")
+		name = contract.SanitizeName(filepath.Base(abs))
 	}
 	if !nameRE.MatchString(name) {
 		return "", fmt.Errorf("%q is not a valid service name (lowercase letters, digits and hyphens); pass one with --name", name)

@@ -996,3 +996,36 @@ func TestDiffConfigValues_RefReason(t *testing.T) {
 		})
 	}
 }
+
+func portChange(t *testing.T, o, n int) Change {
+	t.Helper()
+	old, new := minimalContract(), minimalContract()
+	old.Interfaces[0].Port, new.Interfaces[0].Port = o, n
+	changes := diffInterfaces(old, new, nil, nil)
+	if len(changes) != 1 || changes[0].Path != "interfaces.port" {
+		t.Fatalf("expected one interfaces.port change, got %+v", changes)
+	}
+	return changes[0]
+}
+
+func TestDiffPortAdded(t *testing.T) {
+	if c := portChange(t, 0, 8080); c.Type != Added || c.Classification != NonBreaking || c.NewValue != "api: 8080" {
+		t.Fatalf("got %+v", c)
+	}
+	old := minimalContract()
+	if changes := diffInterfaces(old, old, nil, nil); len(changes) != 0 {
+		t.Fatalf("unchanged: %+v", changes)
+	}
+}
+
+func TestDiffPortModifiedPotentialBreaking(t *testing.T) {
+	if c := portChange(t, 8080, 9090); c.Type != Modified || c.Classification != PotentialBreaking || c.OldValue != "api: 8080" || c.NewValue != "api: 9090" {
+		t.Fatalf("got %+v", c)
+	}
+}
+
+func TestDiffPortRemovedNonBreaking(t *testing.T) {
+	if c := portChange(t, 8080, 0); c.Type != Removed || c.Classification != NonBreaking || c.OldValue != "api: 8080" {
+		t.Fatalf("got %+v", c)
+	}
+}

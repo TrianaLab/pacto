@@ -4,6 +4,7 @@
   import { identityContext, primaryLabel } from '../lib/identityContext.ts';
   import { formatRelative } from '../lib/dateFormat.ts';
   import EntityStatusBadge from './EntityStatusBadge.svelte';
+  import IdentityBadge from './IdentityBadge.svelte';
   import Glyph from './figure/Glyph.svelte';
   import { KIND_GLYPH } from '../lib/figure.ts';
 
@@ -88,6 +89,9 @@
   <div class="page-hd-title-row">
     {#if glyphKind}<span class="page-hd-glyph"><Glyph kind={glyphKind} size="md" /></span>{/if}
     <h1 class="t-page-title" data-testid="page-title">{#if titlePrefix}<span class="visually-hidden">{`${titlePrefix}: `}</span>{/if}{heading}</h1>
+    <!-- The page's own title is the name too: an inferred one says so and where it
+         came from here as it does in every list row (EntityIdentity). -->
+    {#if !title && ref?.nameInferred}<span data-testid="page-name-inferred"><IdentityBadge label="inferred name" title={`Name inferred from ${ref.nameInferred.source}`} describe /></span>{/if}
     {#if showStatus && shownStatus}
       <EntityStatusBadge kind={shownKind} status={shownStatus} />
     {/if}

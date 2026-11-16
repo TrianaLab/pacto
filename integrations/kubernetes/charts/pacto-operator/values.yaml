@@ -106,33 +106,49 @@ resources:
     memory: 128Mi
 
 controller:
-  # -- Restrict the controller's observation scope to a single namespace.
-  # Empty string (default) means cluster-wide: the controller watches all namespaces.
-  # The dashboard inherits this scope automatically.
+  # -- Namespaces the controller and the managed dashboard watch. Empty means
+  # cluster-wide. With a list, the chart renders namespaced Roles only; fleet
+  # answers report the rest as unknown.
+  watchNamespaces: []
+  # -- Deprecated: use watchNamespaces. Merged into it.
   watchNamespace: ""
+  # -- Secrets outside the release namespace and watchNamespaces the operator may
+  # read, as namespace/name: pull secrets and Secrets that back a contract
+  # configuration. Each gets a Role limited to that Secret.
+  secretGrants: []
   # -- Stabilization window: how long a sustained NEGATIVE observation must persist
   # before it converts to a confirmed violation (a transient blip reads Unknown
   # meanwhile). Empty string uses the controller default (2m). Accepts a Go
   # duration (e.g. "30s", "5m").
   stabilizationWindow: ""
   # -- Actively probe in-cluster endpoints: the health capability over HTTP and
-  # the wire protocol of each present interface. Off by default; when off, health
-  # uses passive readiness-probe and EndpointSlice signals only and interface
-  # protocols read unverified.
-  enableProbing: false
-  # -- Observe the metrics capability (ServiceMonitor, PodMonitor, annotation or
-  # named-port discovery plus an active scrape). Also grants read access to
-  # ServiceMonitors and PodMonitors. Off by default; when off, metrics read
-  # unsupported.
-  enableMetricsObservation: false
+  # the wire protocol of each present interface. Takes auto, on or off; true and
+  # false still mean on and off. Empty means auto, and an explicit auto also
+  # overrides the deprecated enableProbing set to true. auto turns probing on
+  # only in namespaces whose owner labels them pacto.trianalab.io/observe=probing
+  # (or probing.metrics). When off, health uses passive readiness-probe and
+  # EndpointSlice signals only and interface protocols read unverified.
+  probing: ""
+  # -- Observe the metrics capability (annotation, named-port or contract
+  # discovery plus an active scrape). Takes auto, on or off; true and false still
+  # mean on and off. Empty means auto, and an explicit auto also overrides the
+  # deprecated enableMetricsObservation set to true. auto turns it on only in
+  # namespaces whose owner labels them pacto.trianalab.io/observe=metrics (or
+  # probing.metrics). ServiceMonitor and PodMonitor discovery and the read
+  # access it needs come with on only. When off, metrics read unsupported.
+  metricsObservation: ""
+  # -- Resolve an unbound interface's Service port by matching a Service port
+  # whose name equals the interface name. A positive availability assist only:
+  # it never produces an absent or error result.
+  interfaceNameMatchDiscovery: false
   kernelEvidence:
     # -- Merge the node agent's kernel observations (NodeRuntimeObservation
     # objects) into interface and dependency evidence. Needs the node agent
-    # running; off by default, so evidence comes from the Kubernetes API only.
-    # Kernel evidence is on whenever this OR nodeAgent.enabled is true: a
-    # managed agent whose observations nobody merges would be pure cost. Set
-    # this alone only for an agent you run yourself.
-    enabled: false
+    # running. Takes auto, on or "off" (quoted: a bare off is YAML false). auto
+    # follows nodeAgent.enabled: a managed agent whose observations nobody merges
+    # would be pure cost. Set on alone only for an agent you run yourself; "off"
+    # refuses it even with the node agent. false keeps meaning auto.
+    enabled: auto
     # -- Namespace the node agent publishes to. Empty uses nodeAgent.namespace.
     namespace: ""
     # -- How old a node's heartbeat may be before its evidence reads stale. Empty
@@ -434,6 +450,9 @@ evidence:
 nodeAgent:
   # -- Deploy the node agent DaemonSet. Off by default.
   enabled: false
+  # -- Full image reference of the node agent. Empty uses the runtime image the
+  # operator was built with.
+  image: ""
   # -- Dedicated namespace the agents run and publish in. The chart creates it
   # and labels it privileged for Pod Security; it must not be the release
   # namespace and must not exist outside this release.
@@ -581,27 +600,24 @@ delivery:
 
   identities:
     # -- Groups whose members are agents. Agents may propose, never approve or unfreeze.
-    # Service accounts other than the promoter are always agents.
+    # Service accounts other than the promoter, other `system:` users and unauthenticated requests
+    # are always agents; every other signed-in identity is a person. Use it for automation that
+    # signs in through OIDC.
     agentGroups:
       - pacto:agents
     # -- Groups that may raise an override and edit an OCIRepository's spec.ref.digest directly
     breakGlassGroups:
       - pacto:break-glass
-    # -- Only members of the teams a held question names may answer it. A contract owner team `T`
-    # is the identity-provider group `T`, or once this prefix is set only this prefix followed by `T`
-    # (for example `acme:`). A `system:` group is never a team.
-    teamGroupPrefix: ""
+    # -- Set it to narrow who may answer to the owner teams: a contract owner team `T` is then
+    # the group `T` (with `""`) or this prefix followed by `T` (for example `acme:`). A `system:`
+    # group is never a team. Unset, whoever may update the Stage's workload answers.
+    teamGroupPrefix: null
     # -- A held question whose service and consumers declare no owner team is answered by nobody,
-    # and only break-glass can override. Set false to let any person answer it, as before.
-    requireOwnerTeam: true
-    # -- When set, only members of these groups count as people. Anyone in none of them is an agent,
-    # so an agent identity nobody enrolled in an agent group still cannot approve. Empty classifies
-    # by `agentGroups` alone, which the chart refuses unless `allowEmptyHumanGroups` is set.
+    # and only break-glass can override. False lets whoever may update the workload answer it.
+    requireOwnerTeam: false
+    # -- Deprecated: people and agents are told apart by how they sign in. When set, anyone in none
+    # of these groups is an agent.
     humanGroups: []
-    # -- Render with `humanGroups` empty anyway. Then an identity left out of every agent group counts
-    # as a person, and one that completes a `pacto-approve` login (a public client, so a bot with
-    # stored credentials can) may approve.
-    allowEmptyHumanGroups: false
 
   recorder:
     # -- Run the recorder, which writes a signed record of every concluded operation to the registry
@@ -633,9 +649,11 @@ delivery:
         key: key.pem
         # -- Generate that Secret at install, with a new Ed25519 key kept across upgrades (for evaluation)
         generate: false
-      # -- Say yes to an Ed25519 key in a Secret. The operator reads every Secret in the cluster, so
-      # it can read this key too and the recorder is not its only holder. The chart refuses
-      # `ed25519.secretName` unless this is true. Prefer KMS or keyless signing
+      # -- Say yes to an Ed25519 key in a Secret the operator may read. The operator reads Secrets in
+      # the release namespace, in each of `controller.watchNamespaces` and the ones
+      # `controller.secretGrants` names, so the chart refuses `ed25519.secretName` unless this is true
+      # when `delivery.namespace` is the release namespace, is watched, or the key is granted by name:
+      # the recorder would not be the key's only holder. Prefer KMS or keyless signing
       allowOperatorReadableKey: false
       # -- A KMS key URI (`awskms://`, `gcpkms://`, `azurekms://`, `hashivault://`). The default image
       # includes every provider; an image built with `--build-arg GO_TAGS=` has none, and one built with

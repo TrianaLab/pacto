@@ -339,6 +339,31 @@ export function actorBadge(cls: string | undefined): { label: string; tone: stri
   return ACTOR_BADGES[cls ?? ''] ?? null;
 }
 
+const CLASS_SOURCES: Record<string, string> = {
+  'service-account': 'service account',
+  'agent-group': 'agent group',
+  'outside-human-groups': 'outside humanGroups',
+  'break-glass-group': 'break-glass group',
+  controller: 'the promoter',
+  'system-user': 'system user',
+  user: 'signed-in user',
+};
+
+/** classSourceLabel says how an actor was classified; a record from an earlier promoter kept nothing, and says so. */
+export function classSourceLabel(source: string | undefined): string {
+  return CLASS_SOURCES[source ?? ''] ?? (source || 'classification not recorded');
+}
+
+const ACCESS_SOURCES: Record<string, string> = {
+  'subject-access-review': 'checked by the promoter',
+  'self-subject-access-review': "checked with the caller's own credentials",
+};
+
+/** accessSourceLabel says who checked that an approver may update the workload. */
+export function accessSourceLabel(source: string | undefined): string {
+  return ACCESS_SOURCES[source ?? ''] ?? (source || 'not recorded');
+}
+
 /** One line of a history, as autonomyOf reads it. */
 export interface AutonomyEntry {
   type?: string;

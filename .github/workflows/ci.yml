@@ -37,6 +37,7 @@ jobs:
       release: ${{ steps.filter.outputs.release }}
       e2e: ${{ steps.filter.outputs.e2e }}
       delivery: ${{ steps.filter.outputs.delivery }}
+      delivery_ui: ${{ steps.filter.outputs.delivery_ui }}
       perf: ${{ steps.filter.outputs.perf }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -84,6 +85,7 @@ jobs:
               - 'pkg/fleet/**'
               - 'pkg/graph/**'
               - 'pkg/impact/**'
+              - 'pkg/kubecluster/**'
               - 'pkg/lock/**'
               - 'pkg/logging/**'
               - 'pkg/oci/**'
@@ -169,6 +171,7 @@ jobs:
               - 'pkg/fleet/**'
               - 'pkg/graph/**'
               - 'pkg/impact/**'
+              - 'pkg/kubecluster/**'
               - 'pkg/lock/**'
               - 'pkg/logging/**'
               - 'pkg/oci/**'
@@ -199,6 +202,7 @@ jobs:
               - 'integrations/kubernetes/charts/pacto-operator/files/crds/delivery.*'
               - 'pkg/delivery/**'
               - 'pkg/deliveryrecord/**'
+              - 'pkg/kubecluster/**'
               - 'pkg/ocireferrer/**'
               - 'pkg/runrecord/**'
               - 'pkg/signing/**'
@@ -206,12 +210,8 @@ jobs:
               - 'internal/app/delivery*.go'
               - 'internal/cli/delivery*.go'
               - 'pkg/dashboard/delivery*.go'
-              # The journeys drive the delivery views and the served bundle,
-              # and server.go wires the approval guard they run against.
+              # server.go wires the approval guard the journeys run against.
               - 'pkg/dashboard/server.go'
-              - 'pkg/dashboard/frontend/src/**/*[Dd]elivery*'
-              - 'pkg/dashboard/ui/**'
-              - 'pkg/dashboard/frontend/e2e-live/**'
               - 'examples/story/**'
               # delivery-demo.sh sources lib.sh, delivery-identity.sh and
               # delivery-lib.sh, and delivery-demo.yml runs it through kind-run.sh.
@@ -222,6 +222,15 @@ jobs:
               - 'scripts/ci/kind-run.sh'
               - 'tests/acceptance/kind/fixtures/delivery-demo/**'
               - '.github/workflows/delivery-demo.yml'
+            # The frontend the journeys drive: the delivery views, the served
+            # bundle and the journeys themselves. Only the browser and agent
+            # shards open it in Chromium, so a change here alone runs only those
+            # two (delivery-demo.yml's ui-only); the nightly and the Version PR
+            # run every shard.
+            delivery_ui:
+              - 'pkg/dashboard/frontend/src/**/*[Dd]elivery*'
+              - 'pkg/dashboard/ui/**'
+              - 'pkg/dashboard/frontend/e2e-live/**'
             # perf-envtest measures the dashboard's delivery and fleet views and
             # the promoter against a real apiserver, so it runs for changes to
             # them, to the operator and to the harness (tests/perf/README.md).
@@ -290,10 +299,14 @@ jobs:
   # build the WASM dashboard demo and drive it in a real (headless Chromium)
   # browser with Playwright. No cluster required.
   #
-  # Sharded: the full suite on one 4-vCPU runner outgrew its timeout. Each leg
-  # builds the demo once and runs its Playwright slice; the engine smoke runs in
-  # shard 1 only (see test-browser in the Makefile). The `required` aggregate
-  # sees one dashboard-e2e result that is failure if any leg fails.
+  # Sharded by weight: the layout matrix is most of the browser minutes, so
+  # it gets their own leg on 4 shards and the rest of the suite runs on 2
+  # (PW_LEG in playwright.config.ts; the legs partition the suite, so every spec
+  # runs once). Sharding the whole suite by test count left slow layout tests
+  # bunched on a few shards. Each shard builds the demo once and runs its
+  # Playwright slice; the engine smoke runs in rest shard 1 only (see
+  # test-browser in the Makefile). The `required` aggregate sees one
+  # dashboard-e2e result that is failure if any shard fails.
   dashboard-e2e:
     needs: changes
     if: needs.changes.outputs.dashboard == 'true'
@@ -302,7 +315,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6]
+        include:
+          - { leg: layout, shard: 1, of: 4 }
+          - { leg: layout, shard: 2, of: 4 }
+          - { leg: layout, shard: 3, of: 4 }
+          - { leg: layout, shard: 4, of: 4 }
+          - { leg: rest, shard: 1, of: 2 }
+          - { leg: rest, shard: 2, of: 2 }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -317,18 +336,27 @@ jobs:
           cache-dependency-path: pkg/dashboard/frontend/package-lock.json
       - name: Deterministic browser acceptance over the built WASM demo
         timeout-minutes: 35
-        run: make test-browser PW_SHARD=${{ matrix.shard }}/${{ strategy.job-total }}
+        run: make test-browser PW_LEG=${{ matrix.leg }} PW_SHARD=${{ matrix.shard }}/${{ matrix.of }}
       - name: Upload browser traces
         if: failure()
         timeout-minutes: 5
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: dashboard-e2e-traces-shard-${{ matrix.shard }}
+          name: dashboard-e2e-traces-${{ matrix.leg }}-shard-${{ matrix.shard }}
           path: |
             pkg/dashboard/frontend/test-results
             pkg/dashboard/frontend/playwright-report
           if-no-files-found: ignore
           retention-days: 7
+
+  # The pre-release gate for the full SPEC 23 layout matrix. It runs on the
+  # changesets Version PR only: merging that PR cuts the release, so `required`
+  # holds the release until the full matrix is green. Every other pull request
+  # skips it (skipped does not fail `required`) and keeps the SPEC 24.6 subset in
+  # dashboard-e2e; the same workflow also runs nightly on main.
+  layout-full:
+    if: startsWith(github.head_ref, 'changeset-release/')
+    uses: ./.github/workflows/layout-full.yml
 
   ci-integration-kubernetes:
     needs: changes
@@ -427,11 +455,15 @@ jobs:
   # on any change that can affect release execution or the operator (the `e2e` path
   # filter), plus the nightly schedule + manual dispatch. Skipped only for truly
   # unrelated (docs-only) PRs.
+  # The operator and dashboard images come from delivery-images' archive (the same
+  # build, tags and runner platform) instead of each shard building them. A shard
+  # still runs when that job failed: the download is allowed to fail, and lib.sh
+  # build_operator_images builds the images itself when the archive is missing.
   ci-e2e-kind:
-    needs: changes
-    if: needs.changes.outputs.e2e == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    needs: [changes, delivery-images]
+    if: ${{ !cancelled() && needs.changes.result == 'success' && (needs.changes.outputs.e2e == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 70
     # Shard the self-provisioning kind scenarios across parallel runners (each
     # spins up its own cluster) instead of running them serially in one job. The
     # `required` aggregate waits for all matrix legs, so coverage is unchanged.
@@ -439,7 +471,7 @@ jobs:
       fail-fast: false
       matrix:
         # delivery runs in its own sharded job below (ci-e2e-kind-delivery).
-        scenario: [reconcile, dashboard, upgrade, evidence, operational-graph, observation, gitops-flux, gitops-argocd, runtime-conformance]
+        scenario: [reconcile, dashboard, upgrade, evidence, operational-graph, observation, gitops-flux, gitops-argocd, runtime-conformance, least-privilege]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -464,9 +496,18 @@ jobs:
         run: make kind-install
       - name: Install Helm
         uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5
+      - name: Download the operator and dashboard images
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        continue-on-error: true
+        timeout-minutes: 10
+        with:
+          name: delivery-images
+          path: ${{ runner.temp }}/delivery-images
       - name: Run the scenario
         timeout-minutes: 35
-        run: bash scripts/ci/kind-run.sh "$RUNNER_TEMP/diagnostics/run.log" make test-acceptance-kind-${{ matrix.scenario }}
+        run: |
+          export PACTO_KIND_IMAGES="$RUNNER_TEMP/delivery-images/delivery-images.tar"
+          bash scripts/ci/kind-run.sh "$RUNNER_TEMP/diagnostics/run.log" make test-acceptance-kind-${{ matrix.scenario }}
       - name: Collect cluster diagnostics
         if: failure()
         timeout-minutes: 10
@@ -484,13 +525,13 @@ jobs:
           retention-days: 7
 
   # Pacto delivery, sharded by phase. The three Pacto images are built once here
-  # and every shard loads the same archive; each shard then runs its phase (plus
+  # and every shard loads the same archive (the ci-e2e-kind shards too); each shard then runs its phase (plus
   # the phases it needs: identity needs core, records needs core and publish) on
   # its own small cluster, created while the shard pulls and preloads the rest.
   # The delivery-demo shards load the same archive.
   delivery-images:
     needs: changes
-    if: needs.changes.outputs.e2e == 'true' || needs.changes.outputs.delivery == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: needs.changes.outputs.e2e == 'true' || needs.changes.outputs.delivery == 'true' || needs.changes.outputs.delivery_ui == 'true' || startsWith(github.head_ref, 'changeset-release/') || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 55
     steps:
@@ -509,7 +550,7 @@ jobs:
       # The demo's third-party images (Argo CD, Dex, Keycloak, Flux, zot...), pulled
       # once here with retries so no demo shard pulls from a public registry.
       - name: Pull the delivery demo's third-party images
-        if: needs.changes.outputs.delivery == 'true' || github.event_name == 'workflow_dispatch'
+        if: needs.changes.outputs.delivery == 'true' || needs.changes.outputs.delivery_ui == 'true' || startsWith(github.head_ref, 'changeset-release/') || github.event_name == 'workflow_dispatch'
         timeout-minutes: 15
         run: bash scripts/ci/kind-run.sh "$RUNNER_TEMP/save-images.log" bash tests/acceptance/kind/delivery-demo.sh save-images "$RUNNER_TEMP/delivery-images/demo-third-party.tar"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -574,17 +615,20 @@ jobs:
   # through its signed records) and the browser journeys against the real
   # sign-in guard run only here and in the nightly schedule of the same
   # workflow. It runs as parallel shards over delivery-images' archive, and its
-  # result is every shard's. The called workflow's report job needs issues:
-  # write, which only its own schedule uses.
+  # result is every shard's. A frontend-only change (delivery_ui) runs only the
+  # shards that load the UI bundle; the changesets Version PR runs every shard,
+  # so the release is gated on the whole demo. The called workflow's report job
+  # needs issues: write, which only its own schedule uses.
   delivery-demo:
     needs: [changes, delivery-images]
-    if: needs.changes.outputs.delivery == 'true' || github.event_name == 'workflow_dispatch'
+    if: needs.changes.outputs.delivery == 'true' || needs.changes.outputs.delivery_ui == 'true' || startsWith(github.head_ref, 'changeset-release/') || github.event_name == 'workflow_dispatch'
     permissions:
       contents: read
       issues: write
     uses: ./.github/workflows/delivery-demo.yml
     with:
       images-artifact: delivery-images
+      ui-only: ${{ needs.changes.outputs.delivery != 'true' && !startsWith(github.head_ref, 'changeset-release/') && github.event_name != 'workflow_dispatch' }}
 
   # The same product vertical on the OTHER surface, proved the way a stranger meets
   # it: the demo application is published to a local registry with `docker compose
@@ -685,12 +729,19 @@ jobs:
           go-version-file: go.mod
       - name: Install crane (the byte-exact comparison IS crane)
         uses: ./.github/actions/setup-crane
+      # GHCR's login endpoint times out now and then. A failed login must not fail
+      # the job before the check runs: the check then reads anonymously, and a
+      # registry it cannot read is its exit 75 below, a warning and not a pass.
       - name: Log in to GHCR (read-only, for the published-digest lookup)
-        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          ACTOR: ${{ github.actor }}
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for try in 1 2 3; do
+            printf '%s' "$TOKEN" | timeout 60 docker login ghcr.io -u "$ACTOR" --password-stdin && exit 0
+            [ "$try" = 3 ] || sleep $((try * 10))
+          done
+          echo "::warning::could not log in to GHCR after 3 tries; the check reads the registry anonymously"
       - name: Check demo bundles against their published digests
         run: |
           # 75 is EX_TEMPFAIL: the registry could not be read, so the check proved
@@ -791,6 +842,9 @@ jobs:
       # now the demo engine smoke, which is the check whose absence let a fixture
       # rename turn main red.
       - dashboard-e2e
+      # Runs only on the Version PR (see the job), so it gates the release and
+      # nothing else.
+      - layout-full
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

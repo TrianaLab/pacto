@@ -30,7 +30,9 @@
 #     person's shell cannot approve with it
 #   - `pacto delivery approve` logs the person in again with its own client and
 #     records the approval as them
-#   - only the named team may approve; the promoter ignores anyone else
+#   - only someone who may update the workload may approve; owner teams narrow
+#     it when teamGroupPrefix is set. The dashboard refuses anyone else and the
+#     promoter ignores them; a ServiceAccount and an agent group are agents
 #   - an agent reaches Pacto over HTTP as itself (token exchange) and cannot
 #     approve through the dashboard, the MCP server or the apiserver
 #   - the dashboard's ServiceAccount only lists and watches Stages and Operations
@@ -184,7 +186,7 @@ kc_token() { # -d ... — a Keycloak token-endpoint answer's access token
 }
 kc_agent_token() { kc_token -u agent-bot:agent-secret -d grant_type=client_credentials; }
 # kc_person_token [USER] — a person's token for the MCP server: dave (team-checkout,
-# an approver everywhere) by default; frank belongs to no group.
+# edit in test and prod, contracts read everywhere) by default; frank belongs to no group.
 kc_person_token() { kc_token -d grant_type=password -d client_id=mcp-client -d username="${1:-dave}" -d password=password -d scope=openid; }
 # kc_exchange TOKEN — what the MCP server does with a caller's token.
 kc_exchange() {
@@ -289,7 +291,8 @@ audited() { # VERB RESOURCE USER — the apiserver's audit log saw USER do it
 }
 
 # identity_rbac_views: viewing the dashboard reuses Kubernetes RBAC. erin may
-# list Pactos in rbac-open only; alice's approver role reads them everywhere.
+# list Pactos in rbac-open only; alice's delivery-planner role reads them
+# everywhere.
 # Each Pacto names a readable contract of its own, depending on nothing: a
 # Pacto with no contract would count in every environment's graph and hold the
 # plans of the phases running beside this one.
@@ -391,7 +394,7 @@ identity_mcp_composed() {
   jq -e --arg u "$user" '.user == $u' <<<"${out#* }" >/dev/null || fail "the dashboard's caller for the same token is not $user: $out"
   pass "MCP capabilities, the MCP delivery caller and the dashboard name dave's token as the apiserver does"
 
-  # RBAC hides a namespace. dave is an approver everywhere, so frank, in no
+  # RBAC hides a namespace. dave reads Pactos everywhere, so frank, in no
   # group, reads Pactos in rbac-open only, through a RoleBinding of his own.
   local frank
   frank="$(whoami_json "$(kc_exchange "$(kc_person_token frank)")" | jq -r .status.userInfo.username)"
@@ -457,18 +460,33 @@ identity_scenario() {
   pass "a kubeconfig login authenticates with no auth-time"
   # Every client reads the one identity policy the chart's delivery section publishes,
   # with the person's own token: nothing is configured twice. This run installs
-  # the chart with no team group prefix, since its contracts name the groups
-  # themselves (owner team-checkout is group team-checkout).
+  # the chart with no identity values: no team group prefix, so owner teams
+  # route questions and do not narrow who answers, and no owner-team rule.
   local policy
   policy="$(as_token "$kubelogin" -n "$DNS" get configmap pacto-delivery-identities -o jsonpath='{.data.policy\.json}')" \
     || fail "a signed-in person cannot read the published identity policy"
-  jq -e '(.teamGroupPrefix // "") == "" and .requireOwnerTeam == true and (.agentGroups | index("pacto:agents"))' <<<"$policy" >/dev/null \
+  jq -e '(.teamNarrowing // false) == false and .requireOwnerTeam == false and (.agentGroups | index("pacto:agents"))' <<<"$policy" >/dev/null \
     || fail "the published identity policy is not the chart's: $policy"
   pass "a signed-in person reads the identity policy the promoter runs with"
 
   # --- identities and rights ---
-  kubectl create clusterrolebinding delivery-oidc-approvers --clusterrole=pacto-operator-delivery-approver \
+  # People hold the built-in edit role in the Stage namespaces, so they may
+  # update the workloads there and, through the chart's aggregated roles,
+  # read and approve delivery objects; delivery-planner (delivery.sh) adds the
+  # cluster-wide contract and Kustomization reads planning needs.
+  local g n
+  for g in team-checkout team-payments; do
+    for n in test prod; do
+      kubectl -n "$n" create rolebinding "$g-edit" --clusterrole=edit --group="$g" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+    done
+  done
+  kubectl create clusterrolebinding delivery-oidc-planner --clusterrole=delivery-planner \
     --group=team-checkout --group=team-payments --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  # Explicit on purpose: erin (team-viewers) may read, propose and create
+  # Approvals in prod through the -approver role and update nothing, so the
+  # dashboard and the promoter must refuse her for want of update rights.
+  kubectl -n prod create rolebinding viewers-approver --clusterrole=pacto-operator-delivery-approver \
+    --group=team-viewers --dry-run=client -o yaml | kubectl apply -f - >/dev/null
   kubectl create clusterrolebinding delivery-oidc-agents --clusterrole=pacto-operator-delivery-agent \
     --group=pacto:agents --dry-run=client -o yaml | kubectl apply -f - >/dev/null
   local DSA="system:serviceaccount:${NS}:pacto-dashboard"
@@ -534,9 +552,9 @@ identity_scenario() {
   identity_rbac_views
 
   # --- the dashboard: people act as themselves ---
-  # Automation stays out of the way: prod is frozen from phase 1, and nothing
-  # may move it while phase 4 runs.
-  kubectl -n prod patch stage payments --type merge -p '{"spec":{"auto":false}}' >/dev/null
+  # prod is frozen from phase 1, so automation stays out of the way until alice
+  # unfreezes it below; the agent's promote of F then has to outrank the promote
+  # the promoter raises on its own.
   local carol carol_at; carol_at="$(date +%s)"; carol="$(login carol)" || fail "carol could not sign in to the dashboard"
   out="$(dash "$carol" GET /api/delivery/caller)"
   jq -e --arg iss "$DEX_ISSUER" '.user | startswith($iss + "#")' <<<"${out#* }" >/dev/null || fail "caller: $out"
@@ -550,14 +568,18 @@ identity_scenario() {
   out="$(dash "$carol" DELETE /api/delivery/operations/prod/idp-carol "" "$cs")"
   [ "${out%% *}" = 200 ] || fail "carol's cancel: $out"
   audited delete operations "$CAROL" || fail "the audit log does not show carol cancelling"
-  out="$(dash "$carol" POST /api/delivery/operations '{"namespace":"prod","stage":"payments","type":"delivery.pacto.trianalab.io/unfreeze","name":"idp-unfreeze","reason":"phase 4"}' "$cs")"
-  [ "${out%% *}" = 201 ] || fail "carol's unfreeze: $out"
-  eventually 40 concluded prod idp-unfreeze || fail "carol's unfreeze never concluded: $(field prod idp-unfreeze message)"
-  # carol is on team-checkout: only payments' own team, or break-glass, unfreezes payments.
-  [ "$(outcome prod idp-unfreeze)" = Rejected/ ] || fail "carol's unfreeze concluded $(outcome prod idp-unfreeze)"
-  field prod idp-unfreeze reason | grep -q NotYourTeam || field prod idp-unfreeze message | grep -q "NotYourTeam\|not in team-payments" \
-    || fail "carol's unfreeze was refused for the wrong reason: $(field prod idp-unfreeze reason) $(field prod idp-unfreeze message)"
-  [ "$(kubectl -n prod get operation idp-unfreeze -o jsonpath='{.spec.actor.user}')" = "$CAROL" ] || fail "the unfreeze is not carol's"
+  # erin may update nothing in prod: only someone who may update payments, or
+  # break-glass, unfreezes it.
+  local erin_u; erin_u="$(login erin)" || fail "erin could not sign in to the dashboard"
+  out="$(dash "$erin_u" GET /api/delivery/caller)"
+  local ERIN; ERIN="$(jq -r .user <<<"${out#* }")"
+  out="$(dash "$erin_u" POST /api/delivery/operations '{"namespace":"prod","stage":"payments","type":"delivery.pacto.trianalab.io/unfreeze","name":"idp-unfreeze","reason":"phase 4"}' "$(csrf_of "$erin_u")")"
+  [ "${out%% *}" = 201 ] || fail "erin's unfreeze: $out"
+  eventually 40 concluded prod idp-unfreeze || fail "erin's unfreeze never concluded: $(field prod idp-unfreeze message)"
+  [ "$(outcome prod idp-unfreeze)" = Rejected/ ] || fail "erin's unfreeze concluded $(outcome prod idp-unfreeze)"
+  field prod idp-unfreeze reason | grep -q CannotUpdateWorkload || field prod idp-unfreeze message | grep -q "cannot update deployments/payments in prod" \
+    || fail "erin's unfreeze was refused for the wrong reason: $(field prod idp-unfreeze reason) $(field prod idp-unfreeze message)"
+  [ "$(kubectl -n prod get operation idp-unfreeze -o jsonpath='{.spec.actor.user}')" = "$ERIN" ] || fail "the unfreeze is not erin's"
   local alice_u; alice_u="$(login alice)" || fail "alice could not sign in to the dashboard"
   out="$(dash "$alice_u" GET /api/delivery/caller)"
   local ALICE; ALICE="$(jq -r .user <<<"${out#* }")"
@@ -567,7 +589,7 @@ identity_scenario() {
   [[ "$(outcome prod idp-unfreeze-alice)" == Succeeded/* ]] || fail "alice's unfreeze concluded $(outcome prod idp-unfreeze-alice)"
   [ "$(kubectl -n prod get stage payments -o jsonpath='{.status.frozen}')" != true ] || fail "prod is still frozen"
   [ "$(kubectl -n prod get operation idp-unfreeze-alice -o jsonpath='{.spec.actor.user}')" = "$ALICE" ] || fail "the unfreeze is not alice's"
-  pass "propose and cancel from the dashboard run as carol; her unfreeze of payments is refused, alice of payments' team unfreezes it, and the audit log shows them"
+  pass "propose and cancel from the dashboard run as carol; erin's unfreeze of payments is refused, alice, who may update it, unfreezes it, and the audit log shows them"
 
   # --- remote MCP: agents as themselves, people read-only, nobody approves ---
   out="$(curl -s -D - -o /dev/null -X POST "$MCP_URL/mcp")"
@@ -584,6 +606,16 @@ identity_scenario() {
   pass "over HTTP an agent gets propose and cancel, a person the read tools, nobody an approve tool"
   identity_mcp_composed "$agent_tools" "$person_tools"
 
+  # Unfrozen, prod promotes its candidate on its own. A promote supersedes an
+  # older one by (creationTimestamp, uid), and creationTimestamp has one-second
+  # resolution: proposing F in the second the promoter raised its own loses to
+  # it half the time. Wait for that promote, then start a new second.
+  auto_raised() {
+    kubectl -n prod get operations -o json | jq -e '[.items[] | select((.metadata.name | startswith("payments-auto-"))
+      and .status.phase != "Concluded")] | length > 0' >/dev/null
+  }
+  eventually 20 auto_raised || fail "unfrozen, prod never promoted its candidate on its own"
+  sleep 1
   # The agent proposes F (payments 2.0.0, which breaks checkout) on prod.
   local from; from="$(kubectl -n prod get stage payments -o jsonpath='{.status.pointer}')"
   # Naming nobody it acts for, it is refused before anything reaches the cluster.
@@ -616,11 +648,14 @@ identity_scenario() {
   [ "$out" = 403 ] || fail "a decision without an Origin: $out"
   pass "a decision needs the CSRF header and the dashboard's own origin"
 
-  # Only the named team: alice (team-payments) is refused by the dashboard and
-  # ignored by the promoter.
-  local alice_s; alice_s="$(login alice -fresh)" || fail "alice could not sign in"
-  out="$(dash "$alice_s" POST /api/delivery/operations/prod/idp-f/decision '{"decision":"approve"}' "$(csrf_of "$alice_s")")"
-  [ "${out%% *}" = 403 ] && grep -q NotYourTeam <<<"$out" || fail "alice decided for team-checkout: $out"
+  # Only someone who may update the workload: erin, who may create an Approval
+  # and update nothing, is refused by the dashboard and ignored by the
+  # promoter. (Owner teams do not narrow it here; delivery-demo.sh proves
+  # NotYourTeam with teamGroupPrefix set.)
+  local erin_s; erin_s="$(login erin -fresh)" || fail "erin could not sign in"
+  out="$(dash "$erin_s" POST /api/delivery/operations/prod/idp-f/decision '{"decision":"approve"}' "$(csrf_of "$erin_s")")"
+  [ "${out%% *}" = 403 ] && grep -q CannotUpdateWorkload <<<"$out" && grep -q "cannot update deployments/payments in prod" <<<"$out" \
+    || fail "erin decided without update rights: $out"
   local uid digest
   uid="$(kubectl -n prod get operation idp-f -o jsonpath='{.metadata.uid}')"
   digest="$(kubectl -n prod get operation idp-f -o jsonpath='{.spec.intentDigest}')"
@@ -643,10 +678,12 @@ spec:
   authTime: "$(jq -r '.status.userInfo.extra["delivery.pacto.trianalab.io/auth-time"][0] // ""' <<<"$w")"
 YAML
   }
-  approval_as "$(dex_token alice)" idp-alice >/dev/null || fail "alice's own Approval was refused by admission"
+  approval_as "$(dex_token erin)" idp-erin >/dev/null || fail "erin's own Approval was refused by admission"
   still_held() { held prod idp-f; }
-  always 5 still_held || fail "the promoter took an approval from outside team-checkout"
-  pass "only team-checkout may approve: the dashboard refuses alice and the promoter ignores her Approval"
+  always 5 still_held || fail "the promoter took an approval from someone who may not update payments"
+  field prod idp-f message | grep -q "cannot update deployments/payments in prod" \
+    || fail "the promoter does not say why erin's approval does not count: $(field prod idp-f message)"
+  pass "only someone who may update payments approves: the dashboard refuses erin and the promoter ignores her Approval"
   # The promoter trusts an Approval's groups, so admission must refuse any
   # that are not exactly the approver's: alice naming team-checkout, or
   # leaving her groups out.
@@ -665,13 +702,19 @@ YAML
   # An agent cannot approve: not with its exchanged token at the apiserver,
   # where its role grants no create...
   refused="$(approval_as "$agent" idp-agent 2>&1 || true)"
-  grep -qE 'cannot create resource "approvals"|agents and service accounts may not approve' <<<"$refused" \
+  grep -qE 'cannot create resource "approvals"|agents cannot approve' <<<"$refused" \
     || fail "an agent's Approval was not refused as an agent's: $refused"
-  # ...nor with approver rights: robot is in team-checkout, so only the
+  # ...nor with edit rights: robot is in team-checkout, so only the
   # admission rule on agent groups stops it...
   refused="$(approval_as "$(dex_token robot)" idp-robot 2>&1 || true)"
-  grep -q "agents and service accounts may not approve" <<<"$refused" || fail "admission let an agent with approver rights approve: $refused"
-  [ -z "$(kubectl -n prod get approval idp-noazp idp-agent idp-robot --ignore-not-found -o name)" ] || fail "a refused Approval exists"
+  grep -q "agents cannot approve" <<<"$refused" || fail "admission let an agent with edit rights approve: $refused"
+  # ...nor as a ServiceAccount that may update payments: signing in as one
+  # makes it an agent, whatever its RBAC...
+  kubectl -n prod create serviceaccount ci-bot --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  kubectl -n prod create rolebinding ci-bot-edit --clusterrole=edit --serviceaccount=prod:ci-bot --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  refused="$(approval_as "$(kubectl -n prod create token ci-bot --duration 10m)" idp-ci-bot 2>&1 || true)"
+  grep -q "agents cannot approve" <<<"$refused" || fail "admission let a ServiceAccount that may update payments approve: $refused"
+  [ -z "$(kubectl -n prod get approval idp-noazp idp-agent idp-robot idp-ci-bot --ignore-not-found -o name)" ] || fail "a refused Approval exists"
   # ...nor through the dashboard, signed in as a person in an agent group.
   local robot; robot="$(login robot -fresh)" || fail "robot could not sign in"
   out="$(dash "$robot" POST /api/delivery/operations/prod/idp-f/decision '{"decision":"approve"}' "$(csrf_of "$robot")")"

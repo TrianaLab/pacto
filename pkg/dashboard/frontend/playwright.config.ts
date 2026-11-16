@@ -14,6 +14,16 @@ import { APP_PORT, DOC_PORT } from './e2e/ports';
 const DIST = '../../../examples/demo/dist';
 const DOC_DIST = '../../../examples/demo/.doc-export';
 
+// PW_LEG splits the suite by weight for CI (make test-browser PW_LEG=...): the layout
+// matrix (with the G1 gate it carries) is about 80% of the browser minutes, so sharding
+// by test count put slow layout tests next to fast ones and left the shards unbalanced.
+// `layout` runs only the layout matrix, `rest` runs everything else; unset runs the whole suite.
+// The two legs partition the suite, so every spec runs exactly once.
+const LAYOUT = /[\\/]layout-matrix\.spec\.ts$/;
+const MOBILE = /mobile\.spec\.ts/;
+const leg = process.env.PW_LEG;
+if (leg && leg !== 'layout' && leg !== 'rest') throw new Error(`PW_LEG=${leg}: want layout or rest`);
+
 export default defineConfig({
   testDir: './e2e',
   timeout: 30_000,
@@ -25,7 +35,9 @@ export default defineConfig({
   // GitHub's 4-vCPU ubuntu-latest, which is what keeps the CI job fast without starving it.
   workers: '50%',
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 1 : 0,
+  // No retry on a PR or a push: a retry turns a flake green and hides it. Only the
+  // scheduled nightly keeps one, where Playwright still reports the test as flaky.
+  retries: process.env.GITHUB_EVENT_NAME === 'schedule' ? 1 : 0,
   reporter: process.env.CI ? [['github'], ['list']] : [['list']],
   use: {
     baseURL: `http://127.0.0.1:${APP_PORT}/`,
@@ -33,8 +45,12 @@ export default defineConfig({
     screenshot: 'only-on-failure',
   },
   projects: [
-    { name: 'desktop', use: { ...devices['Desktop Chrome'] }, testIgnore: /mobile\.spec\.ts/ },
-    { name: 'mobile', use: { ...devices['Pixel 5'] }, testMatch: /mobile\.spec\.ts/ },
+    {
+      name: 'desktop',
+      use: { ...devices['Desktop Chrome'] },
+      ...(leg === 'layout' ? { testMatch: LAYOUT } : { testIgnore: leg === 'rest' ? [MOBILE, LAYOUT] : MOBILE }),
+    },
+    ...(leg === 'layout' ? [] : [{ name: 'mobile', use: { ...devices['Pixel 5'] }, testMatch: MOBILE }]),
   ],
   webServer: [
     {

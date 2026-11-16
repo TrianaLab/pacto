@@ -87,6 +87,14 @@ All three secret formats are supported in both paths:
 
 Create the Secret in the same namespace as the Pacto CR and name it in `spec.contractRef.pullSecretRef`. The supported Secret types and the `registry` key are in [Contract bindings](https://pacto.run/latest/integrations/kubernetes/contract-bindings/).
 
+The operator reads a pull Secret, or a Secret that backs a contract configuration, only where the chart grants it: in the release namespace, in each of `controller.watchNamespaces`, and the Secrets `controller.secretGrants` names as `namespace/name` (each through a Role limited to that Secret). No ClusterRole grants Secrets. A pull Secret outside those grants sets the Pacto's `ContractValid` condition to `Unknown` with reason `PullSecretNotGranted`, and a configuration Secret the operator may not read reads Unknown with a finding that names the missing grant.
+
+```yaml
+controller:
+  secretGrants:
+    - payments/regcred
+```
+
 #### Dashboard credentials (Helm value)
 
 To give the dashboard pod access to private registries, create Secrets in the **operator namespace** and configure them via Helm values. The operator reads these source secrets, merges their credentials, and creates a managed `dockerconfigjson` secret that the dashboard pod mounts automatically.
@@ -179,11 +187,11 @@ dashboard:
       - pacto.example.com
 ```
 
-The dashboard is always deployed into the release namespace. Its observation scope is inherited from `controller.watchNamespace` — there is no separate dashboard scope configuration.
+The dashboard is always deployed into the release namespace. Its observation scope is inherited from `controller.watchNamespaces` — there is no separate dashboard scope configuration.
 
 ### Observation Scope
 
-The dashboard inherits the controller's scope, `controller.watchNamespace`; see [Common overrides](https://pacto.run/latest/integrations/kubernetes/installation/#common-overrides).
+The dashboard inherits the controller's scope, `controller.watchNamespaces`; with a list it reads only those namespaces and reviews people with namespaced LocalSubjectAccessReviews. See [Common overrides](https://pacto.run/latest/integrations/kubernetes/installation/#common-overrides).
 
 ## Security
 

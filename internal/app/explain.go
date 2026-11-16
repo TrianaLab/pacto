@@ -45,6 +45,8 @@ type ExplainResult struct {
 	State        *ExplainState       `json:"state,omitempty"`
 	Capabilities []ExplainCapability `json:"capabilities,omitempty"`
 	Interfaces   []ExplainInterface  `json:"interfaces,omitempty"`
+	// Breaks are the deliberate breaking changes the contract announces.
+	Breaks       []contract.Break    `json:"breaks,omitempty"`
 	Dependencies []ExplainDependency `json:"dependencies,omitempty"`
 	// Configurations lists each configuration with the values it requests.
 	Configurations []ExplainConfiguration `json:"configurations,omitempty"`
@@ -125,6 +127,8 @@ type ExplainInterface struct {
 	Type       string `json:"type"`
 	Ref        string `json:"ref"`
 	Visibility string `json:"visibility,omitempty"`
+	// Port is the port the interface declares it listens on.
+	Port int `json:"port,omitempty"`
 	// Lifecycle is the retirement schedule of a deprecated interface.
 	Lifecycle *contract.InterfaceLifecycle `json:"lifecycle,omitempty"`
 	// Guarantees is the behavior the interface promises its consumers, and
@@ -249,12 +253,15 @@ func (s *Service) Explain(ctx context.Context, opts ExplainOptions) (*ExplainRes
 			Type:       iface.Type,
 			Ref:        iface.Ref,
 			Visibility: iface.Visibility,
+			Port:       iface.Port,
 			Lifecycle:  iface.Lifecycle,
 
 			Guarantees:         iface.Guarantees,
 			CompatibilityEpoch: iface.CompatibilityEpoch,
 		})
 	}
+
+	result.Breaks = c.Breaks
 
 	for _, dep := range c.Dependencies {
 		result.Dependencies = append(result.Dependencies, ExplainDependency{

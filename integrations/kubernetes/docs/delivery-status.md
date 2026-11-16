@@ -70,7 +70,7 @@ Reason codes: `NotReady`, `ReadyUnknown`, `StatusStale`, `NoCandidate`, `Frozen`
 `Held`, `InFlight`, `Level`, `OpsUnknown`, `PolicyUnknown`, `NotPermitted`,
 `RBACUnknown`, `PlanRejected`, `PlanHeld`, `PlanWaits` and `PlanUnknown`. A fix
 prints a command only when you may run it: the approve command only for a
-person of the operation's owner teams who did not ask for it, the unfreeze
+person who may answer and did not ask for it, the unfreeze
 command only for someone admission lets unfreeze and never an approve
 command for an agent.
 

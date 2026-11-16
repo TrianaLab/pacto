@@ -8,6 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import { neighborhoodToGraph, cyEdgeId, edgeState, topoSignature, presentationSignature, laneGraph, sidesOf, GROUP_THRESHOLD, MAX_GROUPS_PER_SIDE, LANE_CAP } from './neighborhoodGraph.ts';
 import type { GraphData } from './graph.ts';
+import { graphLabels, fullName } from './graph.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const ref = (kind: string, key: string, label?: string, status?: string): any => ({ kind, key, label: label ?? key, status });
@@ -380,5 +381,16 @@ describe('refused guarantees on the canvas', () => {
     expect(out.nodes.filter((n) => n.parent === 'lane:depends-on').map((n) => n.id)).toContain(`n${LANE_CAP + 3}`);
     const folded = out.nodes.find((n) => n.id === 'lane:depends-on')!.edges!.find((e) => e.targetId === 'group:depends-on:team-b')!;
     expect(folded).toMatchObject({ refused: true, edgeState: 'matched', label: 'refused (2)' });
+  });
+});
+
+describe('neighborhoodToGraph — an inferred service name', () => {
+  it('labels the node as an inferred name and says where it came from on hover', () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const nb: any = { nodes: [{ ref: { ...ref('service', 'd/payments', 'payments'), nameInferred: { field: 'service.name', value: 'payments', source: 'chart/Chart.yaml:2' } } }], edges: [] };
+    const [n] = neighborhoodToGraph(nb).nodes;
+    expect(n.nameInferred).toBe('chart/Chart.yaml:2');
+    expect(graphLabels([n]).get('d/payments')).toBe('payments\ninferred name');
+    expect(fullName(n)).toBe('payments (name inferred from chart/Chart.yaml:2)');
   });
 });

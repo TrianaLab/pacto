@@ -19,8 +19,8 @@ wins:
 |---|---|
 | Promoter | The promoter's own ServiceAccount |
 | [Break-glass](../../glossary.md#break-glass) | Members of `delivery.identities.breakGlassGroups` |
-| Agent | Any other ServiceAccount, members of `agentGroups` and, when you set `humanGroups`, anyone in none of them |
-| Person | Everyone else |
+| Agent | Any other ServiceAccount, any other `system:` user, an unauthenticated request, members of `agentGroups` and, when you set the deprecated `humanGroups`, anyone in none of them |
+| Person | Every other signed-in identity |
 
 A CI job that runs under a ServiceAccount counts as an agent. An agent that
 holds a person's credentials acts as that person. [Approvals and
@@ -34,7 +34,7 @@ Each one fails closed.
 
 | Policy | What it checks |
 |---|---|
-| `operation` | An Operation's actor is the user who creates it. Only the promoter raises a witnessed operation (an override it records for a digest it did not write; see [Plan, propose and approve](delivery-operations.md)). Only break-glass raises an override, apart from the promoter's witnessed override. Agents may not freeze, unfreeze, acknowledge or lower a Stage to observe. An agent's Operation names the person it acts for in `spec.onBehalfOf`, never itself, a service account or the promoter ([agents](delivery-agents.md#an-agent-names-the-person-it-acts-for)). A `spec.correlationID` is at most 128 printable ASCII characters. |
+| `operation` | An Operation's actor is the user who creates it. Only the promoter raises a witnessed operation (an override it records for a digest it did not write; see [Plan, propose and approve](delivery-operations.md)). Only break-glass raises an override, apart from the promoter's witnessed override. Agents may not freeze, unfreeze, acknowledge or lower a Stage to observe. An agent's Operation names the person it acts for in `spec.onBehalfOf`, never itself, a service account, a system user or the promoter ([agents](delivery-agents.md#an-agent-names-the-person-it-acts-for)). A `spec.correlationID` is at most 128 printable ASCII characters. |
 | `cancel` | An agent cancels only an Operation it proposed. Once the pointer has moved, nobody cancels the Operation, and only the promoter or the namespace controller deletes it after it concludes. |
 | `approval` | An Approval's author is the user who creates it. Agents and ServiceAccounts may not approve. |
 | `pointer` | On a labelled Flux OCIRepository, only the promoter or break-glass changes `spec.ref.digest`. Only break-glass changes its URL, layer selector or ignore rules, or removes the label. |

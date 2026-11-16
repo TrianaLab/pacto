@@ -240,7 +240,7 @@ func renderExplainDependencies(b *strings.Builder, deps []app.ExplainDependency)
 		case ref == "":
 			ref = "external, version " + dep.Version + " (cannot be checked)"
 		case dep.Compatibility != "":
-			ref += " (" + dep.Compatibility + ")"
+			ref += " (" + contract.RangeLabel(dep.Compatibility) + ")"
 		}
 		fmt.Fprintf(b, "  %s: %s%s\n", safeText(dep.Name), safeText(ref), req)
 		for _, r := range dep.Requires {
@@ -410,6 +410,8 @@ func renderConsumer(b *strings.Builder, cons impact.AffectedConsumer) {
 		compat = safeText(cons.Effect)
 	case compat == impact.CompatibilityIncompatible:
 		compat = errorStyle.Render(compat)
+	case cons.Compatibility == contract.CompatibilityUnknown:
+		compat += " (" + contract.RangeLabel(cons.Compatibility) + ")"
 	}
 	targets := fmt.Sprintf("%d targets", len(cons.Targets))
 	if len(cons.Targets) == 0 {

@@ -2,10 +2,12 @@ package pactify
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -22,6 +24,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/ignore"
+	"github.com/trianalab/pacto/v4/pkg/schemax"
 	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
@@ -206,11 +209,14 @@ func (p *planner) blank() string {
 	return b.String()
 }
 
-// pactoVersion is the lowest version that holds what init writes: 2.4 for a
-// domain, else 2.3 for the environments --delivery declares, else 2.1 for
+// pactoVersion is the lowest version that holds what init writes: 2.5 for
+// the compatibility unknown every dependency pactify writes has, else 2.4 for
+// a domain, else 2.3 for the environments --delivery declares, else 2.1 for
 // publish.
 func (p *planner) pactoVersion() string {
 	switch {
+	case p.r.Mode == modePactify && len(p.r.Dependencies) > 0:
+		return "2.5"
 	case p.opts.Domain != "":
 		return "2.4"
 	case p.opts.Delivery:
@@ -265,7 +271,8 @@ func (p *planner) existing(data []byte) {
 		p.unknown("pacto.yaml could not be read (%v), so nothing was taken from it", err)
 		return
 	}
-	p.r.Service, p.pub = c.Service.Name, c.Publish
+	// A contract that declares no name keeps the one --name or the folder gave.
+	p.r.Service, p.pub = cmp.Or(c.Service.Name, p.r.Service), c.Publish
 	if p.opts.Delivery {
 		missing := slices.DeleteFunc(slices.Clone(p.envs), func(env string) bool {
 			return slices.ContainsFunc(c.Environments, func(e contract.Environment) bool { return e.Name == env })
@@ -275,8 +282,12 @@ func (p *planner) existing(data []byte) {
 		}
 	}
 	if c.Publish == nil && !p.opts.DescribeOnly {
-		p.next("pacto.yaml has no publish section, so pacto publish refuses it: set pactoVersion: \"2.1\" and add publish " +
-			"(see Pactify a service in the docs), or move pacto.yaml aside and run pacto init again to have one written")
+		bump := ""
+		if validation.PublishNeedsRaise(c.PactoVersion) {
+			bump = "set pactoVersion: \"2.1\" and "
+		}
+		p.next("pacto.yaml has no publish section, so pacto publish refuses it: %sadd publish "+
+			"(see Pactify a service in the docs), or move pacto.yaml aside and run pacto init again to have one written", bump)
 	}
 }
 
@@ -436,19 +447,15 @@ func (p *planner) health(b *strings.Builder, api bool) {
 	}
 }
 
-// placeholderRange is the compatibility written for a dependency whose
-// contract was not found. It is named in Unknown, never passed off as known.
-const placeholderRange = "^1.0.0"
-
-// dependencyEntries declares the services found. One whose contract is in
-// --fleet gets its bundle and a range from the version that contract has; any
-// other gets the repository its contract would be published at and a
-// placeholder range, both said in a comment and in Unknown.
+// dependencyEntries declares the services found, each with compatibility
+// unknown and, when a version was read, a proposed range in a comment. One
+// whose contract is in --fleet gets its bundle; any other gets the
+// repository its contract would be published at.
 func (p *planner) dependencyEntries(b *strings.Builder, bundles string) {
-	pinned := p.pinned(b)
-	header := len(pinned) == 0
+	written := p.observedEntries(b, bundles)
+	header := len(written) == 0
 	for _, d := range p.r.Dependencies {
-		if pinned[d.Name] {
+		if written[d.Name] {
 			continue
 		}
 		if header {
@@ -456,19 +463,111 @@ func (p *planner) dependencyEntries(b *strings.Builder, bundles string) {
 			header = false
 		}
 		ref, version := p.provider(d.Name, bundles)
-		compat := placeholderRange
-		if version != "" {
-			compat = "^" + version
-			fmt.Fprintf(b, "  # from %s; its contract in --fleet is at %s\n", d.Where, version)
-			p.found("%s calls %s (%s), whose contract in --fleet is at %s", p.r.Service, d.Name, d.Where, version)
-			p.next("pacto.yaml declares %s compatible with %s, from the version its contract has: change it to the versions %s accepts", d.Name, compat, p.r.Service)
-		} else {
-			fmt.Fprintf(b, "  # from %s\n  # no contract for %s was read (pass its folder with --fleet): ref is where\n"+
-				"  # it would be published and %s is a placeholder; set the versions %s accepts\n", d.Where, d.Name, placeholderRange, p.r.Service)
-			p.unknown("the versions of %s that %s accepts: no contract for %s was read (pass its folder with --fleet), so compatibility %s in pacto.yaml is a placeholder", d.Name, p.r.Service, d.Name, placeholderRange)
+		if version == "" {
+			fmt.Fprintf(b, "  # from %s\n  # no contract for %s was read (pass its folder with --fleet): ref is where it would be published\n", d.Where, d.Name)
+			writeDependency(b, d.Name, ref, "no range proposed: no contract or running version of "+d.Name+" was read")
+			p.undeclared(d.Name, "", "")
+			continue
 		}
-		fmt.Fprintf(b, "  - name: %s\n    ref: %s\n    required: true\n    compatibility: %s\n", d.Name, ref, yq(compat))
+		proposal := proposedRange([]string{version})
+		fmt.Fprintf(b, "  # from %s\n", d.Where)
+		writeDependency(b, d.Name, ref, fmt.Sprintf("proposed %s, from its contract in --fleet at %s", proposal, version))
+		p.found("%s calls %s (%s), whose contract in --fleet is at %s", p.r.Service, d.Name, d.Where, version)
+		p.undeclared(d.Name, proposal, "its contract in --fleet")
 	}
+}
+
+// observedEntries writes the dependencies seen at runtime that the Pactos
+// describing their provider name, each with compatibility unknown: with a
+// range proposed from the lowest version those Pactos report in a comment,
+// or the reason none is. A person declares the range: a guess never decides
+// who a change breaks. It prints what kept a range from being proposed for
+// every entry.
+func (p *planner) observedEntries(b *strings.Builder, bundles string) map[string]bool {
+	out := map[string]bool{}
+	for _, d := range p.opts.Inferred {
+		for _, u := range d.Unknown {
+			p.unknown("%s", u)
+		}
+		if out[d.Name] || (len(d.Versions) == 0 && d.Ref == "" && len(d.Unknown) == 0) {
+			continue // nothing read: dependencyEntries writes it
+		}
+		if len(out) == 0 {
+			b.WriteString("dependencies:\n")
+		}
+		out[d.Name] = true
+		services := strings.TrimPrefix(d.Where, "calls seen to ")
+		fmt.Fprintf(b, "  # inferred from runtime calls (%s)\n", d.Where)
+		if len(d.Versions) == 0 {
+			p.unproposed(b, d, services, bundles)
+			continue
+		}
+		described, versions, proposal := cmp.Or(theServices(d.described), services), joinAnd(d.Versions), proposedRange(d.Versions)
+		writeDependency(b, d.Name, d.Ref, fmt.Sprintf("proposed %s, from the Pactos describing %s at %s", proposal, described, versions))
+		if described == services {
+			p.found("%s calls %s, described by %s %s", p.r.Service, services, d.Name, versions)
+		} else {
+			p.found("%s calls %s, and the Pactos describing %s report %s %s", p.r.Service, services, described, d.Name, versions)
+		}
+		p.undeclared(d.Name, proposal, "the lowest version the Pactos describing it report")
+	}
+	return out
+}
+
+// unproposed writes a dependency seen at runtime whose Pactos were read but
+// propose no range: they name different contracts, or none reports a
+// usable version. Its ref is the one they name, else where its contract
+// would be published.
+func (p *planner) unproposed(b *strings.Builder, d Inferred, services, bundles string) {
+	why := "no reconciled Pacto describing " + services + " reports a contract version"
+	if d.conflict {
+		why = "the Pactos describing " + services + " name different contracts"
+	}
+	ref := d.Ref
+	if ref == "" {
+		ref = "oci://" + bundles + "/" + d.Name
+		b.WriteString("  # no Pacto describing it names a contract ref: ref is where it would be published\n")
+	}
+	writeDependency(b, d.Name, ref, "no range proposed: "+why)
+	p.found("%s calls %s", p.r.Service, services)
+	p.undeclared(d.Name, "", "")
+}
+
+// writeDependency writes one dependency with compatibility unknown and
+// comment after it.
+func writeDependency(b *strings.Builder, name, ref, comment string) {
+	fmt.Fprintf(b, "  - name: %s\n    ref: %s\n    required: true\n    compatibility: %s   # %s\n", name, ref, contract.CompatibilityUnknown, comment)
+}
+
+// undeclared says, under Unknown and next, that pacto.yaml leaves the range
+// of dep to declare, with proposal and where it came from when there is one.
+func (p *planner) undeclared(dep, proposal, from string) {
+	svc := p.r.Service
+	unknown := fmt.Sprintf("the versions of %s that %s accepts: pacto.yaml leaves compatibility unknown, so impact cannot tell whether a %s change breaks %s: "+
+		"its verdict for %s is unknown, and a BREAKING change to %s stays unverified", dep, svc, dep, svc, svc, dep)
+	next := fmt.Sprintf("declare the versions of %s that %s accepts: replace compatibility: unknown with a range", dep, svc)
+	if proposal != "" {
+		unknown += "; the proposal " + proposal + " comes from " + from
+		next += ", such as the proposed " + proposal
+	}
+	p.unknown("%s", unknown)
+	p.next("%s", next)
+}
+
+// proposedRange is ^MAJOR.MINOR.0 of the lowest strict-semver version, ""
+// when there is none. It never widens across majors: the comment lists every
+// version, so a person sees the spread.
+func proposedRange(versions []string) string {
+	var low *semver.Version
+	for _, s := range versions {
+		if v, err := semver.StrictNewVersion(s); err == nil && (low == nil || v.LessThan(low)) {
+			low = v
+		}
+	}
+	if low == nil {
+		return ""
+	}
+	return fmt.Sprintf("^%d.%d.0", low.Major(), low.Minor())
 }
 
 // provider is the ref to declare name with and the version its contract in
@@ -501,8 +600,9 @@ func (p *planner) provider(name, bundles string) (ref, version string) {
 const configSchema = "configuration/schema.json"
 
 // configuration writes a configuration entry whose schema, configSchema,
-// lists the workload's environment: each variable typed by its value, with
-// that value as its default. A variable read from a Secret gets no default.
+// lists the workload's environment: each variable's key and type, never its
+// value. A key read from a Secret, whose name matches a sensitive pattern or
+// whose value is a URL with credentials is writeOnly.
 func (p *planner) configuration(b *strings.Builder) {
 	for _, n := range p.sc.envNotes {
 		p.unknown("%s", n)
@@ -511,16 +611,14 @@ func (p *planner) configuration(b *strings.Builder) {
 		return
 	}
 	props := map[string]map[string]any{}
-	var from []string
+	var from, sensitive []string
+	literals := p.sc.literals()
 	for _, e := range p.sc.env {
-		prop := map[string]any{"type": "string"}
-		switch {
-		case e.secret:
-			prop["description"] = "Read from the Secret " + e.ref + ", whose values pacto init does not read."
-		case e.value != "":
-			prop["type"], prop["default"] = typed(e.value)
-		}
+		prop := envProperty(e)
 		props[e.name] = prop
+		if prop["writeOnly"] == true {
+			sensitive = append(sensitive, e.name)
+		}
 		if !slices.Contains(from, e.file) {
 			from = append(from, e.file)
 		}
@@ -532,42 +630,96 @@ func (p *planner) configuration(b *strings.Builder) {
 	}{"https://json-schema.org/draft/2020-12/schema", "object", props}, "", "  ")
 	p.schema = string(data) + "\n"
 	fmt.Fprintf(b, "configurations:\n  - name: env\n    schema: %s\n    required: true\n", configSchema)
-	p.found("%s: the %d environment variables %s reads, with the values in %s as defaults", configSchema, len(p.sc.env), p.r.Service, strings.Join(from, ", "))
+	p.found("%s: the %d environment variables %s reads, from %s, with their types and no values", configSchema, len(p.sc.env), p.r.Service, strings.Join(from, ", "))
+	if len(sensitive) > 0 {
+		slices.Sort(sensitive)
+		p.found("sensitive keys, marked writeOnly: %s", strings.Join(sensitive, ", "))
+	}
+	for _, f := range slices.Sorted(maps.Keys(literals)) {
+		keys := literals[f]
+		slices.Sort(keys)
+		values, them := literalValues(len(keys))
+		p.next("%s sets %s to %s, and the bundle publishes that file to anyone who can pull it: "+
+			"read %s from a Secret (valueFrom.secretKeyRef) instead", f, strings.Join(keys, ", "), values, them)
+	}
 }
 
-// typed is an environment value as a JSON Schema type and default: an
-// integer, a boolean or a string.
-func typed(v string) (string, any) {
-	if n, err := strconv.ParseInt(v, 10, 64); err == nil {
-		return "integer", n
-	}
-	if v == "true" || v == "false" {
-		return "boolean", v == "true"
-	}
-	return "string", v
-}
-
-// pinned writes the dependencies seen at runtime whose provider runs a
-// contract version, each pinned to exactly that version. Never a wider range:
-// "*" accepts every version, so a breaking change would read compatible and
-// the caller would no longer hold it. An exact pin reads every new version as
-// incompatible, which asks this service's owners until a person widens it.
-func (p *planner) pinned(b *strings.Builder) map[string]bool {
-	out := map[string]bool{}
-	for _, d := range p.opts.Inferred {
-		if d.Version == "" || out[d.Name] {
-			continue
+// literals maps each folder file to the sensitive keys it sets to a literal
+// value for the workload: an inline env value or a key of a folder ConfigMap
+// the workload reads. It reads the environment before resolveEnv lets a later
+// variable replace an earlier one of the same name, because the earlier
+// literal is still in the file the bundle publishes.
+func (sc *scan) literals() map[string][]string {
+	out := map[string][]string{}
+	add := func(file, name, value string) {
+		if sensitiveLiteral(name, value) && !slices.Contains(out[file], name) {
+			out[file] = append(out[file], name)
 		}
-		if len(out) == 0 {
-			b.WriteString("dependencies:\n")
+	}
+	for _, v := range sc.workload.env {
+		cm, found := sc.configMaps[v.ref]
+		switch {
+		case v.from == "configmap" && found && v.key == "":
+			for k, val := range cm.data {
+				add(cm.file, v.name+k, val)
+			}
+		case v.from == "configmap" && found:
+			add(cm.file, v.name, cm.data[v.key])
+		case v.from == "":
+			add(v.file, v.name, v.value)
 		}
-		out[d.Name] = true
-		fmt.Fprintf(b, "  # inferred from runtime calls: pinned to the version seen running; widen it once you know\n"+
-			"  - name: %s\n    ref: %s\n    required: true\n    compatibility: %s\n", d.Name, d.Ref, yq("="+d.Version))
-		p.found("%s calls %s %s (%s)", p.r.Service, d.Name, d.Version, d.Where)
-		p.next("pacto.yaml declares %s pinned to =%s, the version seen running: widen compatibility to the versions %s accepts, or every new %s asks %s's owners", d.Name, d.Version, p.r.Service, d.Name, p.r.Service)
 	}
 	return out
+}
+
+// literalValues is how a next step names the literal values of n keys, and
+// the pronoun that refers back to those keys.
+func literalValues(n int) (values, them string) {
+	if n == 1 {
+		return "a literal value", "it"
+	}
+	return "literal values", "them"
+}
+
+// envProperty is an environment variable's schema property: its key and
+// type, never its value.
+func envProperty(e envVar) map[string]any {
+	switch {
+	case e.secret:
+		return map[string]any{"type": "string", "writeOnly": true, "description": "Read from the Secret " + e.ref + ", whose values pacto init does not read."}
+	case schemax.SensitiveKey(e.name) || schemax.SensitiveValue(literal(e.value)):
+		return map[string]any{"type": "string", "writeOnly": true, "description": "Sensitive: pacto init does not copy its value."}
+	}
+	return map[string]any{"type": typeOf(e.value)}
+}
+
+// typeOf is an environment value's JSON Schema type: an integer, a boolean or
+// a string.
+func typeOf(v string) string {
+	if _, err := strconv.ParseInt(v, 10, 64); err == nil {
+		return "integer"
+	}
+	if v == "true" || v == "false" {
+		return "boolean"
+	}
+	return "string"
+}
+
+// varRef is a Kubernetes dependent-variable reference, $(NAME), which the
+// kubelet expands from another variable when it reads env[].value.
+var varRef = regexp.MustCompile(`\$\([A-Za-z_][A-Za-z0-9_.-]*\)`)
+
+// literal is the part of an env value the manifest itself sets: v less its
+// $(NAME) references, which hold no value of their own.
+func literal(v string) string {
+	return varRef.ReplaceAllString(v, "")
+}
+
+// sensitiveLiteral reports whether an env variable named name sets a literal
+// value that is sensitive, by name or as a URL with credentials.
+func sensitiveLiteral(name, value string) bool {
+	v := literal(value)
+	return v != "" && (schemax.SensitiveKey(name) || schemax.SensitiveValue(v))
 }
 
 // publish writes the publish section and keeps it for the cluster pieces.
@@ -759,10 +911,12 @@ func declaredBy(snap *fleet.FleetSnapshot, name, bundle string) []Finding {
 		if rel.Type != fleet.RelationshipDependency || from == nil || from.Name == name {
 			continue
 		}
-		if (to == nil || to.Name != name) && (bundle == "" || refRepo(rel.To) != bundle) {
+		// The ref matches even when nothing in snap resolves it, where rel.To
+		// is only the dependency's name.
+		if (to == nil || to.Name != name) && (bundle == "" || refRepo(cmp.Or(rel.RequestedRef, rel.To)) != bundle) {
 			continue
 		}
-		f := Finding{Name: from.Name, Where: strings.TrimSpace("declares " + name + " " + rel.Compatibility)}
+		f := Finding{Name: from.Name, Where: strings.TrimSpace("declares " + name + " " + contract.RangeLabel(rel.Compatibility))}
 		if !seen[f] {
 			seen[f] = true
 			out = append(out, f)

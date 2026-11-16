@@ -93,10 +93,15 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `spec.witnessed` | `boolean` | no |  |  | Witnessed marks an override the promoter raised for an edit it saw but did not make. Only the promoter may set it. |
 | `status` | `object` | no |  |  | OperationStatus is written only by the promoter. |
 | `status.actorClass` | `string` | no |  |  | ActorClass is who raised an operation, as the promoter classifies the apiserver identity. It is derived, never asserted by the client. |
+| `status.actorClassifiedBy` | `string` | no |  |  | ActorClassifiedBy is how the actor's class was decided. |
 | `status.applied` | `boolean` | no |  |  | Applied is true once the pointer moved for this operation. |
 | `status.approvals` | `[]object` | no |  |  |  |
+| `status.approvals[].access` | `string` | no |  |  | Access is what let the approver decide, such as "update deployments/checkout in payments". |
+| `status.approvals[].accessAt` | `string` | no |  |  | AccessAt is when Access was answered (RFC 3339). |
+| `status.approvals[].accessSource` | `string` | no |  |  | AccessSource is who answered Access: subject-access-review or self-subject-access-review. |
 | `status.approvals[].authTime` | `string` | no |  |  |  |
 | `status.approvals[].by` | `string` | yes |  |  |  |
+| `status.approvals[].classifiedBy` | `string` | no |  |  | ClassifiedBy is how the approver was classified as a person. |
 | `status.approvals[].decision` | `string` | yes |  |  | Decision is what a human approval says. |
 | `status.approvals[].name` | `string` | yes |  |  |  |
 | `status.approvals[].note` | `string` | no |  |  |  |
@@ -561,7 +566,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.contractVersion` | `string` | no |  |  | ContractVersion is the version from the parsed contract. Kept for backward compatibility and simple access via JSONPath. |
 | `status.currentRevision` | `string` | no |  |  | CurrentRevision is the name of the active PactoRevision. |
 | `status.dependencies` | `[]object` | no |  |  | Dependencies lists the declared dependencies from the contract. |
-| `status.dependencies[].compatibility` | `string` | no |  |  | Compatibility is the semver constraint for the dependency. |
+| `status.dependencies[].compatibility` | `string` | no |  |  | Compatibility is the semver constraint for the dependency, or unknown when the versions that work are not known yet; unknown is never counted as compatible. |
 | `status.dependencies[].external` | `boolean` | no |  |  | External marks a dependency this Pacto system does not run, such as a managed database or a hosted model. |
 | `status.dependencies[].name` | `string` | yes |  |  | Name is the dependency name (required, unique within contract). |
 | `status.dependencies[].ref` | `string` | no |  |  | Ref is the dependency reference (OCI URI). Empty for an external dependency that has no contract. |
@@ -615,6 +620,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.interfaces[].lifecycle.successor` | `string` | no |  |  | Successor names the interface that replaces this one, or holds an absolute URL when the replacement lives in another service. |
 | `status.interfaces[].lifecycle.sunset` | `string` | no |  |  | Sunset is the date the interface is removed (YYYY-MM-DD). |
 | `status.interfaces[].name` | `string` | yes |  |  | Name is the interface name. |
+| `status.interfaces[].port` | `integer` | no |  |  | Port is the port the interface declares it listens on. |
 | `status.interfaces[].ref` | `string` | no |  |  | Ref is the bundle-relative path to the interface specification file. |
 | `status.interfaces[].type` | `string` | yes |  | `openapi`, `asyncapi`, `grpc`, `mcp` | Type is the interface type: openapi, asyncapi, grpc or mcp. |
 | `status.interfaces[].visibility` | `string` | no |  |  | Visibility is the declared visibility: public or internal. |

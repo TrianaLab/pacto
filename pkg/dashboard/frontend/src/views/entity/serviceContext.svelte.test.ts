@@ -327,6 +327,16 @@ describe('service page: relationships', () => {
     expect(text(sec)).toContain(`Last seen ${formatDate(at)} · 42 calls`);
     done();
   });
+
+  it('names a claim with compatibility unknown Range not declared, never in range', async () => {
+    const { target, done } = await render(detail({
+      relationships: preview([edge('satisfied', { declaredClaims: preview([{ required: true, compatibility: 'unknown', rangeStatus: 'satisfied' }]) })]),
+    }));
+    const sec = fact(target, 'service-relationships')!;
+    expect(text(sec)).toContain('Range not declared');
+    expect(text(sec)).not.toContain('In range');
+    done();
+  });
 });
 
 describe('service page: readiness and signatures', () => {

@@ -70,7 +70,9 @@ type Explanation struct {
 		Message      string       `json:"message,omitempty"`
 		Question     string       `json:"question,omitempty"`
 		ActorClass   ActorClass   `json:"actorClass,omitempty"`
-		Seq          int64        `json:"seq,omitempty"`
+		// ActorClassifiedBy is how the actor's class was decided.
+		ActorClassifiedBy ClassSource `json:"actorClassifiedBy,omitempty"`
+		Seq               int64       `json:"seq,omitempty"`
 	} `json:"status"`
 	Verdicts []ExplainedVerdict `json:"verdicts"`
 	// Order is what must move first, from the plan the promoter admitted.
@@ -105,19 +107,22 @@ type StageNow struct {
 
 // HistoryEntry is one operation on a Stage.
 type HistoryEntry struct {
-	Seq          int64        `json:"seq,omitempty"`
-	Operation    string       `json:"operation"`
-	OperationUID string       `json:"operationUID,omitempty" doc:"The Operation's uid, when known"`
-	Type         string       `json:"type"`
-	From         string       `json:"from,omitempty"`
-	To           string       `json:"to,omitempty"`
-	Actor        string       `json:"actor"`
-	ActorClass   ActorClass   `json:"actorClass,omitempty"`
-	Phase        Phase        `json:"phase,omitempty"`
-	Outcome      Outcome      `json:"outcome,omitempty"`
-	Verification Verification `json:"verification,omitempty"`
-	Reason       string       `json:"reason,omitempty"`
-	Finished     string       `json:"finished,omitempty"`
+	Seq          int64      `json:"seq,omitempty"`
+	Operation    string     `json:"operation"`
+	OperationUID string     `json:"operationUID,omitempty" doc:"The Operation's uid, when known"`
+	Type         string     `json:"type"`
+	From         string     `json:"from,omitempty"`
+	To           string     `json:"to,omitempty"`
+	Actor        string     `json:"actor"`
+	ActorClass   ActorClass `json:"actorClass,omitempty"`
+	// ActorClassifiedBy is how the actor's class was decided; empty when the
+	// record or status does not say (an earlier promoter).
+	ActorClassifiedBy ClassSource  `json:"actorClassifiedBy,omitempty"`
+	Phase             Phase        `json:"phase,omitempty"`
+	Outcome           Outcome      `json:"outcome,omitempty"`
+	Verification      Verification `json:"verification,omitempty"`
+	Reason            string       `json:"reason,omitempty"`
+	Finished          string       `json:"finished,omitempty"`
 	// Applied is when the change reached the Stage: from a record, the start
 	// of the window its first verify gate judged; from an Operation's status,
 	// the time the promoter applied it. Empty when neither says.

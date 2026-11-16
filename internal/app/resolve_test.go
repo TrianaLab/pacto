@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"testing/fstest"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/override"
 )
 
@@ -808,5 +810,188 @@ func TestCopyFSWithReplace(t *testing.T) {
 	}
 	if string(data) != "readme" {
 		t.Errorf("expected readme, got %q", string(data))
+	}
+}
+
+func implicitBundle(t *testing.T, raw string) *contract.Bundle {
+	t.Helper()
+	c, err := contract.Parse(strings.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &contract.Bundle{Contract: c, RawYAML: []byte(raw), FS: fstest.MapFS{
+		"pacto.yaml":     {Data: []byte(raw)},
+		"docs/readme.md": {Data: []byte("# a")},
+	}}
+}
+
+func TestPublishablePinsVersion(t *testing.T) {
+	b, err := publishable(implicitBundle(t, "service:\n  name: a\n  version: 1.0.0\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := fs.ReadFile(b.FS, "pacto.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `pactoVersion: "` + contract.Current() + `"` + "\n"
+	if !strings.HasPrefix(string(data), want) || !strings.HasPrefix(string(b.RawYAML), want) {
+		t.Errorf("bundled pacto.yaml %q, raw %q", data, b.RawYAML)
+	}
+	if _, err := fs.ReadFile(b.FS, "docs/readme.md"); err != nil {
+		t.Errorf("the other bundle files are kept: %v", err)
+	}
+	if b.Contract.Service.Name != "a" {
+		t.Errorf("contract %+v", b.Contract)
+	}
+}
+
+func TestPublishableKeepsDeclaredVersion(t *testing.T) {
+	in := implicitBundle(t, "pactoVersion: \"2.0\"\nservice:\n  name: a\n  version: 1.0.0\n")
+	if b, err := publishable(in); err != nil || b != in {
+		t.Fatalf("got %v, %v", b, err)
+	}
+}
+
+func TestPublishablePinIsDeterministic(t *testing.T) {
+	var digests []string
+	for range 2 {
+		b, err := publishable(implicitBundle(t, "service:\n  name: a\n  version: 1.0.0\n"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		d, err := oci.BundleDigest(b)
+		if err != nil {
+			t.Fatal(err)
+		}
+		digests = append(digests, d)
+	}
+	if digests[0] != digests[1] {
+		t.Errorf("digests differ: %v", digests)
+	}
+}
+
+func TestPublishableRefusesMissingVersion(t *testing.T) {
+	_, err := publishable(implicitBundle(t, "service:\n  name: a\n"))
+	if !errors.Is(err, ErrPublishNeedsServiceVersion) || !strings.HasPrefix(err.Error(), "PUBLISH_NEEDS_SERVICE_VERSION") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestPublishableRefusesMissingName(t *testing.T) {
+	_, err := publishable(implicitBundle(t, "service:\n  version: 1.0.0\n"))
+	if !errors.Is(err, ErrPublishNeedsServiceName) || !strings.HasPrefix(err.Error(), "PUBLISH_NEEDS_SERVICE_NAME") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestPublishablePinFailures(t *testing.T) {
+	named := &contract.Contract{Service: contract.Service{Name: "a", Version: "1.0.0"}}
+	for raw, want := range map[string]string{
+		"[a]": "not a mapping",
+		"service: {name: a, version: 1.0.0}\nbogus: 1\n": "pinning pactoVersion",
+	} {
+		_, err := publishable(&contract.Bundle{Contract: named, RawYAML: []byte(raw), FS: fstest.MapFS{}})
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: got %v", raw, err)
+		}
+	}
+	b := implicitBundle(t, "service:\n  name: a\n  version: 1.0.0\n")
+	b.FS = &errFS{}
+	if _, err := publishable(b); err == nil || !strings.Contains(err.Error(), "pinned bundle FS") {
+		t.Errorf("got %v", err)
+	}
+}
+
+// Push and publish load through loadAndValidateFull, so it must refuse an
+// undeclared service.version just as pack does.
+func TestLoadAndValidateFullRefusesMissingVersion(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("service:\n  name: a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, _, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{}, nil)
+	if !errors.Is(err, ErrPublishNeedsServiceVersion) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+// emptyChartDir is a folder holding an empty pacto.yaml and a chart named
+// payments.
+func emptyChartDir(t *testing.T, contractYAML string) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "payments-api")
+	if err := os.MkdirAll(filepath.Join(dir, "chart"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(contractYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "chart", "Chart.yaml"), []byte("apiVersion: v2\nname: payments\nversion: 0.1.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func TestLoadLocalBundleInfersName(t *testing.T) {
+	b, err := loadLocalBundle(emptyChartDir(t, ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	inf, ok := b.NameInferred()
+	if !ok || b.Contract.Service.Name != "payments" || inf.Source != "chart/Chart.yaml:2" {
+		t.Fatalf("got %+v %+v", b.Contract.Service, b.Inferred)
+	}
+	if len(b.RawYAML) != 0 {
+		t.Fatalf("the inferred name must never reach the bytes: %q", b.RawYAML)
+	}
+}
+
+func TestPublishableRefusesInferredName(t *testing.T) {
+	b, err := loadLocalBundle(emptyChartDir(t, "service:\n  version: 1.0.0\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = publishable(b)
+	if !errors.Is(err, ErrPublishNeedsServiceName) || !strings.Contains(err.Error(), "inferred from chart/Chart.yaml:2") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestOverrideNameClearsInferredName(t *testing.T) {
+	b, err := loadLocalBundleWithOverrides(emptyChartDir(t, ""), override.Overrides{SetValues: []string{"service.name=billing"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := b.NameInferred(); ok || b.Contract.Service.Name != "billing" {
+		t.Fatalf("got %+v %+v", b.Contract.Service, b.Inferred)
+	}
+}
+
+func TestPublishWithOverrideNamePublishes(t *testing.T) {
+	dir := emptyChartDir(t, "service:\n  version: 1.0.0\n")
+	c, raw, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{SetValues: []string{"service.name=payments"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Service.Name != "payments" || !strings.Contains(string(raw), "name: payments") {
+		t.Fatalf("got %+v\n%s", c.Service, raw)
+	}
+}
+
+func TestLoadLocalBundleWithOverridesErrors(t *testing.T) {
+	dir := emptyChartDir(t, "")
+	if _, err := loadLocalBundleWithOverrides(dir, override.Overrides{SetValues: []string{"service.name=Bad_Name"}}); err == nil {
+		t.Fatal("an invalid override must fail")
+	}
+	if got := dirBase("."); got == "." || got == "" {
+		t.Fatalf("dirBase(.) = %q", got)
+	}
+}
+
+func TestResolveBundleAsWrittenOverrideError(t *testing.T) {
+	dir := writeTree(t, "s", map[string]string{"s/pacto.yaml": "pactoVersion: '2.5'\nservice: {name: s, version: 1.0.0}\n"})
+	if _, _, err := NewService(nil, nil).resolveBundleAsWritten(context.Background(), dir, override.Overrides{SetValues: []string{"workload=nope"}}); err == nil {
+		t.Fatal("an override that breaks the contract loaded")
 	}
 }

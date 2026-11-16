@@ -61,19 +61,22 @@ type ConfigRefLoader interface {
 type PactoReconciler struct {
 	client.Client
 	// APIReader reads straight from the API server, bypassing the manager's cache.
-	// SetupWithManager wires it; only the pull Secret is read through it, so a Secret's
-	// values are never held in an informer store (INV-5).
+	// SetupWithManager wires it; every Secret read goes through it (the pull Secret and the
+	// configuration Secret metadata), so no Secret informer starts: a Secret's values are never
+	// held in an informer store (INV-5), and a namespaced or name-scoped get grant is enough.
 	//
 	// INV-5 is module-wide, not controller-local: the dashboard reconciler reads its
 	// OCI Secrets through its own APIReader for the same reason, and a typed Get on
 	// EITHER cached client is enough to break it cluster-wide.
-	APIReader                         client.Reader
-	Scheme                            *runtime.Scheme
-	Recorder                          record.EventRecorder
-	Loader                            ContractLoader
-	StabilizationWindow               time.Duration
-	EnableMetricsObservation          bool
-	EnableProbing                     bool
+	APIReader           client.Reader
+	Scheme              *runtime.Scheme
+	Recorder            record.EventRecorder
+	Loader              ContractLoader
+	StabilizationWindow time.Duration
+	// Probing and MetricsObservation run on, off or auto; auto resolves per target namespace from
+	// observer.LabelObserve (observeSettings).
+	Probing                           observer.Mode
+	MetricsObservation                observer.Mode
 	EnableInterfaceNameMatchDiscovery bool
 	// KernelEvidence merges the node agent's NodeRuntimeObservations (read from
 	// KernelEvidenceNamespace) into the runtime evidence. Those objects are not
@@ -84,6 +87,9 @@ type PactoReconciler struct {
 	KernelEvidenceStaleness time.Duration
 	// CallerIgnoreNamespaces are extra namespaces whose host-network pods leave caller coverage complete.
 	CallerIgnoreNamespaces []string
+	// Scoped is true when the operator watches a namespace list. It picks the grant hint of a
+	// Secret the operator may not read: only a scoped install is told about controller.watchNamespaces.
+	Scoped bool
 }
 
 // +kubebuilder:rbac:groups=pacto.trianalab.io,resources=pactos,verbs=get;list;watch;create;update;patch;delete
@@ -93,12 +99,13 @@ type PactoReconciler struct {
 // +kubebuilder:rbac:groups=pacto.trianalab.io,resources=pactorevisions/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;watch
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get,namespace=system
 // +kubebuilder:rbac:groups=discovery.k8s.io,resources=endpointslices,verbs=get;list;watch
 // +kubebuilder:rbac:groups=apps,resources=deployments;statefulsets;replicasets,verbs=get;list;watch
 // +kubebuilder:rbac:groups=batch,resources=jobs;cronjobs,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get
 // +kubebuilder:rbac:groups=pacto.trianalab.io,resources=noderuntimeobservations,verbs=get;list;watch
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=httproutes,verbs=get;list;watch
@@ -134,7 +141,7 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	// 3-5. Load the contract, apply overrides and validate the effective contract.
 	ec, failure := r.loadEffectiveContract(ctx, pacto)
 	if failure != nil {
-		return r.failReconciliation(ctx, pacto, failure.msg, failure.validation, prev, failure.status)
+		return r.failReconciliation(ctx, pacto, failure.msg, failure.validation, prev, failure.status, failure.reason)
 	}
 	effectiveContract := ec.effective.Contract
 
@@ -199,6 +206,8 @@ type loadFailure struct {
 	msg        string
 	validation *pactov1alpha1.ValidationResult
 	status     string
+	// reason is the ContractValid reason; empty picks the status's default.
+	reason string
 }
 
 // loadEffectiveContract resolves the pull secret, loads the contract, applies the configuration overrides
@@ -209,6 +218,14 @@ func (r *PactoReconciler) loadEffectiveContract(ctx context.Context, pacto *pact
 	var credID string
 	if secretName := pacto.Spec.ContractRef.PullSecretRef; secretName != "" {
 		auth, id, secretErr := r.resolveOCIAuthID(ctx, pacto.Namespace, secretName, pacto.Spec.ContractRef.OCI)
+		if notGranted, ok := errors.AsType[*pullSecretNotGrantedError](secretErr); ok {
+			return nil, &loadFailure{
+				msg:        notGranted.hint(r.Scoped),
+				validation: invalidAt("spec.contractRef.pullSecretRef", secretErr),
+				status:     pactov1alpha1.ContractStatusUnknown,
+				reason:     pactov1alpha1.ReasonPullSecretNotGranted,
+			}
+		}
 		if secretErr != nil {
 			return nil, &loadFailure{
 				msg:        fmt.Sprintf("failed to read pull secret %q: %v", secretName, secretErr),
@@ -225,7 +242,7 @@ func (r *PactoReconciler) loadEffectiveContract(ctx context.Context, pacto *pact
 
 	loadResult, err := r.Loader.Load(ctx, ociRef, pacto.Spec.ContractRef.Inline, ociAuth)
 	if err != nil {
-		return nil, &loadFailure{msg: err.Error(), validation: invalidAt("", err), status: classifyLoadError(err)}
+		return nil, &loadFailure{msg: err.Error(), validation: invalidAt("", err), status: classifyLoadError(err), reason: loadErrorReason(err)}
 	}
 	// Recorded before validation, so an Invalid verdict is tied to its contract too.
 	pacto.Status.EvaluatedRevision = &pactov1alpha1.EvaluatedRevision{ContractDigest: loadResult.ResolvedDigest}
@@ -294,10 +311,11 @@ func invalidAt(path string, err error) *pactov1alpha1.ValidationResult {
 // (steps 9 to 15), filling the runtime half of the status.
 func (r *PactoReconciler) evaluateRuntime(ctx context.Context, pacto *pactov1alpha1.Pacto, ec *effectiveContract) {
 	effectiveContract := ec.effective.Contract
-	obs := observer.New(r.Client)
+	obs := observer.New(r.Client).WithReader(r.APIReader)
 
 	// 10. Collect runtime evidence (spec section 9.1).
-	evidenceSet, windowUpdates, collectErr := obs.Collect(ctx, r.buildCollectInput(pacto, ec))
+	probing, metricsObs, readErr := r.observeSettings(ctx, pacto.Namespace)
+	evidenceSet, windowUpdates, collectErr := obs.Collect(ctx, r.buildCollectInput(pacto, ec, probing, metricsObs))
 	if e := pacto.Status.EvaluatedRevision; e != nil {
 		e.KernelCoverage = obs.KernelCoverage()
 	}
@@ -313,8 +331,9 @@ func (r *PactoReconciler) evaluateRuntime(ctx context.Context, pacto *pactov1alp
 	// 11-12. Lean observed runtime and resources status (backward compat for dashboard).
 	obsErr := r.observeBackCompat(ctx, obs, pacto)
 
-	// A Collect failure already covers the workload read the back-compat view shares with it.
-	r.setRuntimeObservedCondition(pacto, cmp.Or(collectErr, obsErr))
+	// A Collect failure already covers the workload read the back-compat view shares with it. A transient
+	// label read failure is a gap in this collection too.
+	r.setRuntimeObservedCondition(pacto, errors.Join(cmp.Or(collectErr, obsErr), readErr), observeMessage(probing, metricsObs))
 
 	// 13. Evaluate: contract × evidence → findings + coverage; contract-only structural findings first.
 	findings, cov := validation.Evaluate(*effectiveContract, evidenceSet)
@@ -339,7 +358,7 @@ func (r *PactoReconciler) evaluateRuntime(ctx context.Context, pacto *pactov1alp
 
 // buildCollectInput maps the resolved target, its bindings and the persisted observation windows onto the
 // observer's input (spec section 9.1).
-func (r *PactoReconciler) buildCollectInput(pacto *pactov1alpha1.Pacto, ec *effectiveContract) observer.CollectInput {
+func (r *PactoReconciler) buildCollectInput(pacto *pactov1alpha1.Pacto, ec *effectiveContract, probing, metricsObs observer.Setting) observer.CollectInput {
 	workloadName, workloadKind := pacto.ResolvedWorkload()
 	workloadRef := pacto.Spec.Target.WorkloadRef
 
@@ -369,14 +388,15 @@ func (r *PactoReconciler) buildCollectInput(pacto *pactov1alpha1.Pacto, ec *effe
 		StabilizationWindow:               r.StabilizationWindow,
 		ObservationWindows:                observationWindows,
 		Now:                               time.Now(),
-		EnableMetricsObservation:          r.EnableMetricsObservation,
-		EnableProbing:                     r.EnableProbing,
+		EnableMetricsObservation:          metricsObs.On,
+		EnableProbing:                     probing.On,
 		EnableInterfaceNameMatchDiscovery: r.EnableInterfaceNameMatchDiscovery,
 		KernelEvidence:                    r.KernelEvidence,
 		KernelEvidenceNamespace:           r.KernelEvidenceNamespace,
 		KernelEvidenceStaleness:           r.KernelEvidenceStaleness,
 		CallerWindow:                      r.requeueInterval(pacto),
 		CallerIgnoreNamespaces:            r.CallerIgnoreNamespaces,
+		Scoped:                            r.Scoped,
 	}
 }
 
@@ -482,22 +502,23 @@ func (r *PactoReconciler) resetDerivedStatus(pacto *pactov1alpha1.Pacto) {
 }
 
 // failReconciliation handles the common pattern for contract-level failures with phase-classified status
-// (spec section 9.8): Invalid vs Unknown. The status parameter drives condition reason + summary.
+// (spec section 9.8): Invalid vs Unknown. The status parameter drives condition reason + summary;
+// reason, when set, overrides the status's default ContractValid reason.
 // prev is the status persisted by the previous reconciliation; its contract status gates the
 // transition event (see emitContractStatusEvent) and the whole of it gates the write (see writeStatus).
-func (r *PactoReconciler) failReconciliation(ctx context.Context, pacto *pactov1alpha1.Pacto, msg string, valResult *pactov1alpha1.ValidationResult, prev *pactov1alpha1.PactoStatus, status string) (ctrl.Result, error) {
+func (r *PactoReconciler) failReconciliation(ctx context.Context, pacto *pactov1alpha1.Pacto, msg string, valResult *pactov1alpha1.ValidationResult, prev *pactov1alpha1.PactoStatus, status, reason string) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
 	switch status {
 	case pactov1alpha1.ContractStatusInvalid:
 		r.setCondition(pacto, pactov1alpha1.ConditionContractValid, metav1.ConditionFalse,
-			pactov1alpha1.ReasonContractInvalid, msg)
+			cmp.Or(reason, pactov1alpha1.ReasonContractInvalid), msg)
 		pacto.Status.Summary = &pactov1alpha1.Summary{ErrorCount: 1}
 		// The contract was loaded and judged invalid -> record the validation result.
 		pacto.Status.Validation = valResult
 	case pactov1alpha1.ContractStatusUnknown:
 		r.setCondition(pacto, pactov1alpha1.ConditionContractValid, metav1.ConditionUnknown,
-			pactov1alpha1.ReasonContractUnavailable, msg)
+			cmp.Or(reason, pactov1alpha1.ReasonContractUnavailable), msg)
 		pacto.Status.Summary = &pactov1alpha1.Summary{UnknownCount: 1}
 		// Transient obtain-failure (spec section 9.8): the contract was never loaded, so leave
 		// status.validation nil rather than asserting the contract IS invalid.
@@ -527,6 +548,16 @@ func (r *PactoReconciler) failReconciliation(ctx context.Context, pacto *pactov1
 	metrics.RecordContractStatus(pacto.Namespace, pacto.Name, pacto.Status.ContractStatus)
 
 	return ctrl.Result{RequeueAfter: r.requeueInterval(pacto)}, nil
+}
+
+// loadErrorReason names a load failure the ContractValid condition reports with
+// its own reason: a contract that leaves its pactoVersion, service.name or
+// service.version implied is ContractUndeclared.
+func loadErrorReason(err error) string {
+	if errors.Is(err, contract.ErrUndeclaredContract) {
+		return pactov1alpha1.ReasonContractUndeclared
+	}
+	return ""
 }
 
 // classifyLoadError maps OCI load errors to Invalid vs Unknown (spec section 9.8).
@@ -685,18 +716,33 @@ func (r *PactoReconciler) finishReconciliation(ctx context.Context, pacto *pacto
 // the check interval. Reconcile is re-entered on every write to every watched
 // workload, so stamping lastReconciledAt unconditionally wrote the status on each
 // of those events. The heartbeat keeps lastReconciledAt within one check interval
-// of now, which is what delivery and the fleet read as a live operator.
+// of now, which is what delivery and the fleet read as a live operator. The
+// evidence times each finding carries are stamped at observation, so they are
+// left out of the comparison too and refresh with the heartbeat: compared, they
+// wrote the status on every reconcile that fell in a new second.
 func (r *PactoReconciler) writeStatus(ctx context.Context, pacto *pactov1alpha1.Pacto, prev *pactov1alpha1.PactoStatus) error {
 	pacto.Status.ObservedGeneration = pacto.Generation
 	now := metav1.Now()
 	if prev != nil && prev.LastReconciledAt != nil && now.Sub(prev.LastReconciledAt.Time) < r.requeueInterval(pacto)/2 {
 		pacto.Status.LastReconciledAt = prev.LastReconciledAt
-		if equality.Semantic.DeepEqual(&pacto.Status, prev) {
+		if equality.Semantic.DeepEqual(withoutEvidenceTimes(&pacto.Status), withoutEvidenceTimes(prev)) {
 			return nil
 		}
 	}
 	pacto.Status.LastReconciledAt = &now
 	return r.Status().Update(ctx, pacto)
+}
+
+// withoutEvidenceTimes is a copy of st with every finding's evidence times blanked.
+func withoutEvidenceTimes(st *pactov1alpha1.PactoStatus) *pactov1alpha1.PactoStatus {
+	st = st.DeepCopy()
+	for i := range st.Findings {
+		for j := range st.Findings[i].EvidenceRefs {
+			st.Findings[i].EvidenceRefs[j].ObservedAt = ""
+			st.Findings[i].EvidenceRefs[j].DetectedAt = ""
+		}
+	}
+	return st
 }
 
 func (r *PactoReconciler) requeueInterval(pacto *pactov1alpha1.Pacto) time.Duration {
@@ -728,8 +774,8 @@ func resolutionPolicy(ociRef string) string {
 // For dockerconfigjson secrets, the registry is extracted from the OCI reference to select the
 // matching auth entry.
 // The read goes through APIReader (uncached, straight to the API server): a typed Get on
-// the manager's client would lazily start the very Secret informer the metadata-only watch
-// exists to avoid.
+// the manager's client would lazily start a Secret informer, which holds every Secret's
+// values (INV-5) and needs list and watch the operator is not granted.
 func (r *PactoReconciler) resolveOCIAuth(ctx context.Context, namespace, secretName, ociRef string) (*authn.AuthConfig, error) {
 	auth, _, err := r.resolveOCIAuthID(ctx, namespace, secretName, ociRef)
 	return auth, err
@@ -741,6 +787,9 @@ func (r *PactoReconciler) resolveOCIAuth(ctx context.Context, namespace, secretN
 func (r *PactoReconciler) resolveOCIAuthID(ctx context.Context, namespace, secretName, ociRef string) (*authn.AuthConfig, string, error) {
 	secret := &corev1.Secret{}
 	if err := r.APIReader.Get(ctx, client.ObjectKey{Namespace: namespace, Name: secretName}, secret); err != nil {
+		if apierrors.IsForbidden(err) {
+			return nil, "", &pullSecretNotGrantedError{Namespace: namespace, Name: secretName}
+		}
 		return nil, "", fmt.Errorf("secret %q not found: %w", secretName, err)
 	}
 
@@ -749,7 +798,28 @@ func (r *PactoReconciler) resolveOCIAuthID(ctx context.Context, namespace, secre
 	return auth, fmt.Sprintf("%s/%s@%s", namespace, secretName, secret.ResourceVersion), err
 }
 
-// SetupWithManager sets up the controller with the Manager.
+// pullSecretNotGrantedError is a pull Secret the operator has no grant to read.
+type pullSecretNotGrantedError struct{ Namespace, Name string }
+
+func (e *pullSecretNotGrantedError) Error() string {
+	return fmt.Sprintf("the operator may not read Secret %s/%s", e.Namespace, e.Name)
+}
+
+// hint is the error with the grant that would let the operator read the Secret. A cluster-wide
+// install is only told about controller.secretGrants, so it is never asked to narrow its fleet. A
+// scoped operator only reconciles watched namespaces, where the chart grants secrets get, so the
+// missing grant is that Role or its binding.
+func (e *pullSecretNotGrantedError) hint(scoped bool) string {
+	ref := e.Namespace + "/" + e.Name
+	if scoped {
+		return fmt.Sprintf("%s although it watches %s: check the chart's watch Role and RoleBinding in %s or list %s in controller.secretGrants", e, e.Namespace, e.Namespace, ref)
+	}
+	return fmt.Sprintf("%s: list %s in controller.secretGrants", e, ref)
+}
+
+// SetupWithManager sets up the controller with the Manager. Secrets are not watched: a watch needs
+// list and watch on every Secret in scope, which a name-scoped grant cannot give. Every reconcile
+// requeues after its check interval, so a rotated pull Secret is read within one interval.
 func (r *PactoReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.APIReader = mgr.GetAPIReader()
 	return ctrl.NewControllerManagedBy(mgr).
@@ -759,10 +829,6 @@ func (r *PactoReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&pactov1alpha1.Pacto{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Owns(&pactov1alpha1.PactoRevision{}).
 		Watches(&corev1.Service{}, enqueueForTarget(mgr.GetClient())).
-		// Metadata-only: the mapper reads name/namespace, and a typed watch would park
-		// every Secret's .Data in the informer store, breaking INV-5 cluster-wide before
-		// the observer's careful metadata-only reads ever run.
-		Watches(&corev1.Secret{}, enqueueForPullSecret(mgr.GetClient()), builder.OnlyMetadata).
 		Watches(&appsv1.Deployment{}, enqueueForTarget(mgr.GetClient())).
 		Watches(&appsv1.StatefulSet{}, enqueueForTarget(mgr.GetClient())).
 		Watches(&appsv1.ReplicaSet{}, enqueueForTarget(mgr.GetClient())).

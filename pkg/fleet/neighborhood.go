@@ -205,6 +205,8 @@ type DeclaredClaim struct {
 	// RangeStatus is whether the provider version satisfies this revision's
 	// declared range (see Relationship.RangeStatus).
 	RangeStatus string `json:"rangeStatus,omitempty" enum:"satisfied,unsatisfied,unknown"`
+	// NameFromRef marks a dependency whose name was derived from its ref.
+	NameFromRef bool `json:"nameFromRef,omitempty"`
 	// DependencyBehavior is what this revision's dependency requires of the
 	// provider's behavior and whether the provider meets it.
 	DependencyBehavior
@@ -295,13 +297,15 @@ type UnresolvedDependency struct {
 	// resolving is expected; Version is the free-text version it declares.
 	External bool   `json:"external,omitempty"`
 	Version  string `json:"version,omitempty"`
+	// NameFromRef marks a Ref (the dependency name) derived from RequestedRef.
+	NameFromRef bool `json:"nameFromRef,omitempty"`
 }
 
 // unresolvedDep is the unresolved-dependency row for rel, attributed to from.
 func unresolvedDep(from EntityRef, rel Relationship) UnresolvedDependency {
 	return UnresolvedDependency{
 		From: from, Ref: rel.To, SourceRevision: rel.FromRevision, RequestedRef: rel.RequestedRef,
-		Reason: rel.Reason, External: rel.External, Version: rel.Version,
+		Reason: rel.Reason, External: rel.External, Version: rel.Version, NameFromRef: rel.NameFromRef,
 	}
 }
 

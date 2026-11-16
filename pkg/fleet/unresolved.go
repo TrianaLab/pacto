@@ -16,6 +16,7 @@ type hiddenUnresolvedRef struct {
 	from         uint64
 	Type         string
 	RequestedRef string
+	NameFromRef  bool
 }
 
 // unresolvedDeclared reports whether rel is a declared dependency,
@@ -38,7 +39,7 @@ func appendHiddenUnresolved(hidden []hiddenUnresolvedRef, rel Relationship) []hi
 	}
 	h := fnv.New64a()
 	_, _ = h.Write([]byte(rel.FromService))
-	return append(hidden, hiddenUnresolvedRef{from: h.Sum64(), Type: rel.Type, RequestedRef: rel.RequestedRef})
+	return append(hidden, hiddenUnresolvedRef{from: h.Sum64(), Type: rel.Type, RequestedRef: rel.RequestedRef, NameFromRef: rel.NameFromRef})
 }
 
 // UnresolvedRefCount counts the declared references of relTypes the snapshot
@@ -48,7 +49,8 @@ func appendHiddenUnresolved(hidden []hiddenUnresolvedRef, rel Relationship) []hi
 // directories and a relative ref. A consumer counts once per type and
 // requested repository whatever its revision count, and a reference that may
 // name several providers counts once. The references of services a restricted
-// view hides are counted, never named.
+// view hides are counted, never named. A dependency counts only when its name
+// was derived from its ref: one that declares its name resolves by that name.
 func UnresolvedRefCount(snap *FleetSnapshot, providers []ServiceKey, relTypes ...string) int {
 	return countUnresolved(snap, providerMatchOf(snap, providers), relTypes)
 }
@@ -87,7 +89,10 @@ func countUnresolved(snap *FleetSnapshot, m providerMatch, relTypes []string) in
 		typ, toRepo string
 	}
 	seen := map[use]bool{}
-	note := func(u use, ref string) {
+	note := func(u use, ref string, nameFromRef bool) {
+		if u.typ == RelationshipDependency && !nameFromRef {
+			return
+		}
 		u.toRepo = repository(ref)
 		last := strings.TrimSuffix(path.Base(strings.TrimRight(u.toRepo, "/")), "-pacto")
 		if slices.Contains(relTypes, u.typ) && (repos[u.toRepo] || names[last]) {
@@ -96,11 +101,11 @@ func countUnresolved(snap *FleetSnapshot, m providerMatch, relTypes []string) in
 	}
 	for _, r := range snap.Relationships {
 		if unresolvedDeclared(r) {
-			note(use{visible: r.FromService, typ: r.Type}, r.RequestedRef)
+			note(use{visible: r.FromService, typ: r.Type}, r.RequestedRef, r.NameFromRef)
 		}
 	}
 	for _, h := range snap.hiddenUnresolvedRefs {
-		note(use{hidden: h.from, typ: h.Type}, h.RequestedRef)
+		note(use{hidden: h.from, typ: h.Type}, h.RequestedRef, h.NameFromRef)
 	}
 	return len(seen)
 }

@@ -551,6 +551,29 @@ describe('FleetEntityView — rich revision page (E)', () => {
     expect(labels).not.toContain('pactoVersion');
   });
 
+  it('says when a revision declares a pactoVersion behind or unknown to this Pacto', async () => {
+    const render = async (patch: Record<string, unknown>) => {
+      const d = revisionDetail();
+      Object.assign(d.revision, { pactoVersion: '2.0' }, patch);
+      detailFn.mockResolvedValue(d);
+      const { target, component } = await mountView('revision', 'domain-a/payments@2.1.0');
+      await vi.waitFor(() => expect(target.textContent).toContain('2.0'));
+      const text = target.textContent || '';
+      unmount(component); document.body.removeChild(target);
+      return text;
+    };
+    const behind = await render({ pactoVersionCurrent: '2.5' });
+    expect(behind).toContain('behind 2.5');
+    expect(behind).toContain('This revision declares pactoVersion 2.0. The latest version this Pacto knows is 2.5.');
+    const unknown = await render({ pactoVersion: '9.9', pactoVersionCurrent: '2.5', pactoVersionUnknown: true });
+    expect(unknown).toContain('unknown version');
+    expect(unknown).toContain('This revision declares pactoVersion 9.9, which this Pacto does not know. The latest version it knows is 2.5.');
+    expect(unknown).not.toContain('behind 2.5');
+    const current = await render({});
+    expect(current).not.toContain('behind');
+    expect(current).not.toContain('unknown version');
+  });
+
   it('links the owner from a revision, the same as from its service', async () => {
     // The backend emits the owner ref for both, so the trail out to "everything this
     // team owns" does not dead-end on the revision page.
@@ -878,6 +901,80 @@ describe('FleetEntityView — owner and source pages (G)', () => {
     const text = (target.textContent || '').replace(/\s+/g, ' ');
     expect(text).not.toContain('200 of 200');
     expect(text).toContain('Showing 200. More exist; total unknown.');
+    unmount(component); document.body.removeChild(target);
+  });
+});
+
+describe('FleetEntityView — cluster-qualified target keys', () => {
+  // A block body: a function returned from beforeEach is a cleanup hook, and the mock would run again after the test.
+  beforeEach(() => { detailFn.mockReset(); location.hash = ''; });
+
+  it('replaces a legacy or forward key with the canonical href, without a new history entry', async () => {
+    location.hash = '#/fleet/targets/c1%2Fprod%2Fk8s%2Fapp';
+    const replace = vi.spyOn(history, 'replaceState');
+    const push = vi.spyOn(history, 'pushState');
+    detailFn.mockResolvedValue(targetDetail());
+    const { target, component } = await mountView('target', 'c1/prod/k8s/app');
+    await vi.waitFor(() => expect(replace).toHaveBeenCalledWith(null, '', '#/fleet/targets/prod%2Fk8s%2Fapp'));
+    expect(push).not.toHaveBeenCalled();
+    replace.mockRestore(); push.mockRestore();
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('keeps the correlation id of the address when it replaces the key', async () => {
+    location.hash = '#/fleet/targets/c1%2Fprod%2Fk8s%2Fapp?correlationID=INC-42';
+    const replace = vi.spyOn(history, 'replaceState');
+    detailFn.mockResolvedValue(targetDetail());
+    const { target, component } = await mountView('target', 'c1/prod/k8s/app');
+    await vi.waitFor(() => expect(replace).toHaveBeenCalledWith(null, '', '#/fleet/targets/prod%2Fk8s%2Fapp?correlationID=INC-42'));
+    replace.mockRestore();
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('leaves the location alone when the requested key is the canonical one', async () => {
+    const replace = vi.spyOn(history, 'replaceState');
+    detailFn.mockResolvedValue(targetDetail());
+    const { target, component } = await mountView('target', 'prod/k8s/app');
+    expect(replace).not.toHaveBeenCalled();
+    replace.mockRestore();
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('offers a chooser when a target key names targets in more than one cluster', async () => {
+    const { ApiError } = await import('../lib/api.ts');
+    const err = new ApiError(409, 'this target key names targets in more than one cluster; choose one');
+    err.candidates = [
+      { key: 'c1/prod/k8s/app', label: 'eu-prod / prod / app' },
+      { key: 'c2/prod/k8s/app', label: 'us-prod / prod / app' },
+    ];
+    detailFn.mockRejectedValue(err);
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const component = mount(FleetEntityView, { target, props: { kind: 'target', entityKey: 'prod/k8s/app', refreshTick: 0 } });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="target-key-chooser"]')).toBeTruthy());
+    const chooser = target.querySelector('[data-testid="target-key-chooser"]') as HTMLElement;
+    expect(chooser.textContent).toContain('This target key names targets in more than one cluster; choose one.');
+    const links = [...chooser.querySelectorAll('a')];
+    expect(links.map((a) => a.getAttribute('href'))).toEqual(['#/fleet/targets/c1%2Fprod%2Fk8s%2Fapp', '#/fleet/targets/c2%2Fprod%2Fk8s%2Fapp']);
+    expect(links[0].textContent).toContain('eu-prod / prod / app');
+    expect(links[0].querySelector('bdi')?.textContent).toBe('c1/prod/k8s/app');
+    expect(target.querySelector('h1')).toBeTruthy();
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('chooser links open each candidate, the clusterless one included, and keep the correlation id', async () => {
+    location.hash = '#/fleet/targets/prod%2Fk8s%2Fapp?correlationID=INC-42';
+    const { ApiError } = await import('../lib/api.ts');
+    const err = new ApiError(409, 'this target key matches one target, but a source is incomplete and may hold the same target in another cluster; choose one');
+    err.candidates = [{ key: '_/prod/k8s/app', label: 'prod/k8s/app (cluster unknown)' }];
+    detailFn.mockRejectedValue(err);
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const component = mount(FleetEntityView, { target, props: { kind: 'target', entityKey: 'prod/k8s/app', refreshTick: 0 } });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="target-key-chooser"]')).toBeTruthy());
+    const chooser = target.querySelector('[data-testid="target-key-chooser"]') as HTMLElement;
+    expect(chooser.textContent).toContain('a source is incomplete');
+    expect([...chooser.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual(['#/fleet/targets/_%2Fprod%2Fk8s%2Fapp?correlationID=INC-42']);
     unmount(component); document.body.removeChild(target);
   });
 });

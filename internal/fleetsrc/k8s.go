@@ -1,6 +1,7 @@
 package fleetsrc
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -8,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 
@@ -24,22 +27,25 @@ import (
 // observer; this source only reads what it already reconciled. Each CR is a
 // concrete deployed instance, so it becomes a target (never a revision).
 type K8sSource struct {
-	id        string
-	client    k8sclient.K8sClient
-	namespace string // "" means all namespaces
+	id         string
+	cluster    *fleet.Cluster // nil when the cluster identity could not be read
+	client     k8sclient.K8sClient
+	namespaces []string // sorted, deduplicated; empty means all namespaces
 }
 
-// NewK8sSource returns a live cluster source reading Pacto CRs in namespace
-// (empty for all namespaces). id is the provenance id (e.g. the cluster or
-// context name).
-func NewK8sSource(id string, client k8sclient.K8sClient, namespace string) *K8sSource {
+// NewK8sSource returns a live cluster source reading Pacto CRs in namespaces
+// (empty for all namespaces). id is the provenance id (the cluster UID, else
+// the context name); cluster is the cluster every target is in, nil when
+// unknown.
+func NewK8sSource(id string, cluster *fleet.Cluster, client k8sclient.K8sClient, namespaces []string) *K8sSource {
 	if id == "" {
 		id = "k8s"
 	}
-	return &K8sSource{id: id, client: client, namespace: namespace}
+	ns := slices.Compact(slices.Sorted(slices.Values(slices.DeleteFunc(slices.Clone(namespaces), func(n string) bool { return n == "" }))))
+	return &K8sSource{id: id, cluster: cluster, client: client, namespaces: ns}
 }
 
-// ContractRefs returns the contract references the Pacto CRs in namespace
+// ContractRefs returns the contract references the Pacto CRs in namespaces
 // (empty for all namespaces) currently name: for every CR with a non-empty
 // status.contract.resolvedRef, that exact ref AND the repository it names,
 // deduplicated and sorted.
@@ -54,8 +60,8 @@ func NewK8sSource(id string, client k8sclient.K8sClient, namespace string) *K8sS
 //
 // The discovery, listing and error conventions are [K8sSource.Collect]'s: a
 // cluster with no Pacto CRD installed yields no references rather than an error.
-func ContractRefs(ctx context.Context, client k8sclient.K8sClient, namespace string) ([]string, error) {
-	col, err := NewK8sSource("k8s", client, namespace).Collect(ctx)
+func ContractRefs(ctx context.Context, client k8sclient.K8sClient, namespaces []string) ([]string, error) {
+	col, err := NewK8sSource("k8s", nil, client, namespaces).Collect(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -89,35 +95,94 @@ func (s *K8sSource) ID() string { return s.id }
 // Kind implements [fleet.Source].
 func (s *K8sSource) Kind() string { return fleet.SourceKindKubernetes }
 
-// Collect discovers the Pacto CRD, lists its resources in the configured
-// namespace, and projects each into a target. A cluster with no Pacto CRD
-// installed yields an empty collection (reachable, nothing declared) rather
-// than an error; an unreachable cluster or a failed list is a source-level
-// error so [fleet.Build] records it as unavailable.
+// Collect discovers the Pacto CRD, lists its resources in each configured
+// namespace (or once across all of them), and projects each into a target. A
+// cluster with no Pacto CRD installed yields an empty collection (reachable,
+// nothing declared) rather than an error; an unreachable cluster, or a list
+// that fails in every namespace, is a source-level error so [fleet.Build]
+// records it as unavailable.
+//
+// With a namespace list the source is partial whatever it finds, the
+// CRD-missing case included: a service in any other namespace is unknown,
+// never absent. A namespace whose list fails is left out of the namespaces it
+// reports and named in its own limitation; the others are kept.
 func (s *K8sSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 	disc, err := s.client.DiscoverCRD(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("discovering pacto crd: %w", err)
 	}
 	if !disc.Found {
-		return &fleet.Collection{}, nil
+		return s.scoped(&fleet.Collection{}, s.namespaces), nil
 	}
-	resource := disc.ResourceName
-	data, err := s.client.ListJSON(ctx, *disc, s.namespace)
-	if err != nil {
-		return nil, fmt.Errorf("listing %s: %w", resource, err)
+	col := &fleet.Collection{ObservedUndeclaredOnly: true, Cluster: s.cluster}
+	namespaces := s.namespaces
+	if len(namespaces) == 0 {
+		namespaces = []string{""}
 	}
+	var read []string
+	var listErr error
+	for _, ns := range namespaces {
+		data, err := s.client.ListJSON(ctx, *disc, ns)
+		if err != nil {
+			listErr = cmp.Or(listErr, fmt.Errorf("listing %s: %w", disc.ResourceName, err))
+			col.Limitations = append(col.Limitations, fleet.NamespaceUnreadableLimitation(s.id, ns, reasonClass(err)))
+			continue
+		}
+		if err := s.collectList(data, disc.ResourceName, col); err != nil {
+			return nil, err
+		}
+		read = append(read, ns)
+	}
+	if len(read) == 0 {
+		return nil, listErr
+	}
+	return s.scoped(col, read), nil
+}
+
+// scoped declares col partial with the namespaces read, and states the scope,
+// when the source reads a namespace list; an unscoped col is returned as is.
+func (s *K8sSource) scoped(col *fleet.Collection, read []string) *fleet.Collection {
+	if len(s.namespaces) == 0 {
+		return col
+	}
+	col.State = &fleet.SourceState{Status: fleet.SourcePartial, Namespaces: read, NamespacesTotal: len(read)}
+	col.Limitations = append(col.Limitations, fleet.NamespaceScopeLimitation(s.id, read, 0))
+	return col
+}
+
+// reasonClass is the class of a failed namespace list, never its raw text.
+func reasonClass(err error) string {
+	switch {
+	case apierrors.IsForbidden(err):
+		return "forbidden"
+	case apierrors.IsNotFound(err):
+		return "not found"
+	default:
+		return "error"
+	}
+}
+
+// collectList decodes one list of Pacto CRs into col.
+func (s *K8sSource) collectList(data []byte, resource string, col *fleet.Collection) error {
 	var list k8sList
 	if err := json.Unmarshal(data, &list); err != nil {
-		return nil, fmt.Errorf("decoding %s list: %w", resource, err)
+		return fmt.Errorf("decoding %s list: %w", resource, err)
 	}
 	// The same bytes decoded into list above, so they decode here too.
 	var raw struct {
 		Items []json.RawMessage `json:"items"`
 	}
 	_ = json.Unmarshal(data, &raw)
-	col := &fleet.Collection{ObservedUndeclaredOnly: true}
+	nameless := 0
 	for i, item := range list.Items {
+		if c := item.Status.Contract; c != nil && c.ServiceName == "" {
+			// The operator refuses a contract that does not declare its name, so
+			// a reconciled one without it is a record this source cannot place.
+			// The message names neither namespace nor Pacto: the item becomes no
+			// target, so a restricted view could not tell it is hidden.
+			nameless++
+			continue
+		}
 		t := s.targetFrom(item)
 		if v, ok := s.runtimeView(raw.Items[i], item, col); ok {
 			col.Observed = append(col.Observed, delivery.ObservedEdges(v)...)
@@ -125,7 +190,13 @@ func (s *K8sSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 		}
 		col.Targets = append(col.Targets, t)
 	}
-	return col, nil
+	if nameless > 0 {
+		col.Limitations = append(col.Limitations, fleet.Limitation{
+			Code: fleet.LimitationSourceRecordInvalid, Source: s.id,
+			Message: fmt.Sprintf("%d Pacto(s) report a contract with no service name", nameless),
+		})
+	}
+	return nil
 }
 
 // LimitationPactoStatusUnreadable marks a Pacto whose runtime observation (its
@@ -174,9 +245,7 @@ func (s *K8sSource) targetFrom(item k8sItem) fleet.RawTarget {
 	if st.Contract != nil {
 		businessDomain = st.Contract.Domain
 		offering, summary = st.Contract.Offering, st.Contract.Summary
-		if st.Contract.ServiceName != "" {
-			service = st.Contract.ServiceName
-		}
+		service = st.Contract.ServiceName
 		resolvedRef = st.Contract.ResolvedRef
 		if st.Contract.Owner != nil {
 			owner = *st.Contract.Owner

@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { appReady, settle } from './ready';
-import { ROUTES, gateMode, installScaleFixture, layoutProblems, loaded, shellProblems, toggleSidebar, touchProblems } from './layoutGate';
+import { ROUTES, densityProblems, figureLinkTotals, gateMode, installScaleFixture, layoutProblems, loaded, shellProblems, sweepOverflow, toggleSidebar, touchProblems } from './layoutGate';
 
 // The resolution matrix (SPEC 23, 24.6): every route on the scale fixture, both themes,
 // Verdana forced, at viewports from a 320px phone to a 3440px ultrawide, short heights
@@ -14,8 +14,34 @@ import { ROUTES, gateMode, installScaleFixture, layoutProblems, loaded, shellPro
 // On a PR it runs the representative set of SPEC 24.6. PACTO_LAYOUT_FULL=1 (make
 // test-browser-layout-full) runs the whole SPEC 23 matrix instead, plus the 40px width
 // sweep from 320 to 1920 at 900px high, phones and tablets at DPR 2 and 3, and the
-// default font as well as Verdana. G1's link totals and the 20px overflow sweep stay in
-// layout.spec.ts.
+// default font as well as Verdana. CI runs the full matrix nightly and on the changesets
+// Version PR (.github/workflows/layout-full.yml), never on an ordinary PR.
+//
+// The desktop group's Verdana test also runs G1, the transversal layout gate (SPEC
+// sections 12 and 22), on the page it already booted: at 390, 760, 1024, 1280, 1600, 1920
+// and 2560px, all 900px high, with a fine pointer at DPR 1, the final frame forced. It
+// fails on intersecting text, two text boxes closer than 8px on one line, a box spilling
+// with visible overflow, text under 12.19px, ellipsized text with no title, text cut with
+// no ellipsis, an identity that is not an elision of its title (or an elided one with no
+// title), a lone surrogate, horizontal page scroll, more than one element carrying an err
+// box-shadow ring, and the figure rules once figures exist: at most 20 marks, no mark over
+// text, every number a filter link or data-nofilter, every "List all N" landing on a list
+// of N and every "N more" on N plus the names shown, and on list views L3: the list within
+// 600px of the top or a Compact toggle on the figure, and (SPEC 22 r2) no word squeezed to
+// one or two characters per line and no table column under 6ch. Then it sweeps every 20px
+// from 760 to 1440 and every 40px on to 1920 for horizontal overflow (SPEC 19, 22), since
+// a layout clean at the fixed widths spilled between them. Both sidebar states are gated
+// (SPEC 20): from 1200px each fixed width is checked with the sidebar as it starts and
+// again with it toggled, and the sweep runs once as the sidebar starts and once with it
+// expanded from 1200px. A G1 width the matrix already gates at the same viewport (the full
+// run's 900px-high sweep) is not checked twice. G1 used to boot every route again in a
+// spec of its own (layout.spec.ts).
+//
+// On a PR the geometry runs in the dark theme only: light changes colour tokens,
+// color-scheme and one shadow, never a size, spacing or font (styles/tokens.css). The
+// light tests still boot every route per pointer and run the same axe scan at the same
+// first viewport, so contrast and a11y stay gated in both themes on every PR. Light
+// geometry runs under PACTO_LAYOUT_FULL.
 const FULL = !!process.env.PACTO_LAYOUT_FULL;
 type VP = [number, number];
 
@@ -36,6 +62,8 @@ const GROUPS = [
   { name: 'desktop', touch: false, sizes: DESK, dprs: [1] },
 ];
 const FONTS = FULL ? ['verdana', 'default'] as const : ['verdana'] as const;
+// G1's fixed widths, at 900px high.
+const G1_WIDTHS = [390, 760, 1024, 1280, 1600, 1920, 2560];
 
 async function atViewport(page: Page, [w, h]: VP) {
   await page.setViewportSize({ width: w, height: h });
@@ -43,6 +71,11 @@ async function atViewport(page: Page, [w, h]: VP) {
   await settle(page);
 }
 
+// Route outermost: Playwright shards a contiguous run of tests, so every kind of test
+// (the dark desktop one carries G1 and costs several times the rest) has to be spread
+// along the file, or one shard gets the heavy group whole. Titles are unchanged: each
+// (theme, group) describe repeats once per route.
+for (const r of ROUTES) {
 for (const theme of ['dark', 'light'] as const) {
   for (const g of GROUPS) {
     for (const dpr of g.dprs) {
@@ -56,9 +89,12 @@ for (const theme of ['dark', 'light'] as const) {
             }
           });
 
-          for (const r of ROUTES) {
+          // ponytail: light on a PR is axe only; geometry there waits for the full run.
+          const geometry = FULL || theme === 'dark';
+          // G1 runs where its own spec ran: fine pointer, DPR 1, Verdana, the same themes.
+          const g1 = geometry && !g.touch && dpr === 1 && font === 'verdana';
             test(r.name, async ({ page }) => {
-              test.setTimeout(FULL ? 900_000 : 240_000);
+              test.setTimeout((FULL ? 900_000 : 240_000) + (g1 ? 150_000 : 0));
               await appReady(page);
               if (r.open) await r.open(page);
               else await page.goto(`/${r.hash}`);
@@ -67,31 +103,55 @@ for (const theme of ['dark', 'light'] as const) {
               else await page.evaluate(() => { document.documentElement.dataset.narrate = 'final'; });
               expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches), 'the pointer is coarse exactly on touch devices').toBe(g.touch);
               const problems: string[] = [];
-              for (const [i, vp] of g.sizes.entries()) {
+              for (const [i, vp] of (geometry ? g.sizes : g.sizes.slice(0, 1)).entries()) {
                 await atViewport(page, vp);
                 const at = `${vp[0]}x${vp[1]}`;
-                for (const p of await layoutProblems(page)) problems.push(`${at}: ${p}`);
-                for (const p of await shellProblems(page)) problems.push(`${at}: ${p}`);
-                for (const p of await touchProblems(page)) problems.push(`${at}: ${p}`);
+                if (geometry) {
+                  for (const p of await layoutProblems(page)) problems.push(`${at}: ${p}`);
+                  for (const p of await shellProblems(page)) problems.push(`${at}: ${p}`);
+                  for (const p of await touchProblems(page)) problems.push(`${at}: ${p}`);
+                }
                 if (i === 0) {
                   const axe = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
                   for (const v of axe.violations) problems.push(`${at}: axe ${v.id} on ${v.nodes.slice(0, 3).map((n) => n.target.join(' ')).join(', ')}`);
                 }
                 // The other sidebar state, where the sidebar is a column of its own.
-                if (vp[0] >= 1200) {
+                if (geometry && vp[0] >= 1200) {
                   const state = await toggleSidebar(page);
                   for (const p of await layoutProblems(page)) problems.push(`${at}, sidebar ${state}: ${p}`);
                   for (const p of await shellProblems(page)) problems.push(`${at}, sidebar ${state}: ${p}`);
                   await toggleSidebar(page);
                 }
               }
+              if (g1) {
+                for (const w of G1_WIDTHS) {
+                  // ponytail: same viewport, same checks (a superset) already ran above.
+                  if (g.sizes.some(([sw, sh]) => sw === w && sh === 900)) continue;
+                  await atViewport(page, [w, 900]);
+                  for (const p of await layoutProblems(page)) problems.push(`${w}px: ${p}`);
+                  if (w >= 1200) {
+                    const state = await toggleSidebar(page);
+                    for (const p of await layoutProblems(page)) problems.push(`${w}px, sidebar ${state}: ${p}`);
+                    await toggleSidebar(page);
+                  }
+                }
+                problems.push(...await sweepOverflow(page));
+                await page.setViewportSize({ width: 1280, height: 900 });
+                if (await toggleSidebar(page) !== 'open') await toggleSidebar(page);
+                for (const p of await sweepOverflow(page)) problems.push(`sidebar expanded: ${p}`);
+                // Last, because it navigates: every "List all N" / "N more" lands on N (T3).
+                await page.setViewportSize({ width: 1280, height: 900 });
+                await settle(page);
+                if (r.list) problems.push(...await densityProblems(page));
+                problems.push(...await figureLinkTotals(page));
+              }
               expect(problems, `${r.name} (${theme}, ${g.name})`).toEqual([]);
             });
-          }
         });
       }
     }
   }
+}
 }
 
 // The case the reader reported (SPEC 22): at about 1900px with the sidebar expanded, the
@@ -152,4 +212,33 @@ test('the metrics fixture answers GET /api/stats on the plain demo', async ({ pa
   expect(await serve('off')).toEqual({ status: 404, stats: false });
   // `engine` leaves both to the demo, which serves its own run records.
   expect(await serve('engine')).toEqual({ status: 200, stats: true });
+});
+
+// R1: a URL naming something the snapshot does not hold renders the not-found state,
+// never data computed for it: no neighbours, no previous or next, no counts.
+async function rendersNotFound(page: Page) {
+  await expect(page.getByRole('heading', { name: 'Not found', exact: true })).toBeVisible({ timeout: 20_000 });
+  const main = page.locator('main');
+  await expect(main.getByRole('link', { name: /^(Previous|Next)\b/ })).toHaveCount(0);
+  await expect(main.locator('.dist, [data-fig], table')).toHaveCount(0);
+}
+
+test('a service the snapshot does not hold renders not found', async ({ page }) => {
+  await appReady(page);
+  await page.goto('/#/fleet/services/no-such-service-in-this-snapshot');
+  await rendersNotFound(page);
+});
+
+// The spec's case: a revision of a real service that the service never had. The key is
+// a real revision's, with its content digest swapped for one no bundle has.
+test('a revision the service never had renders not found', async ({ page }) => {
+  await appReady(page);
+  await page.goto('/#/fleet/revisions?service=payments-service');
+  const a = page.locator('main a[href*="/fleet/revisions/"]').first();
+  await expect(a).toBeVisible({ timeout: 20_000 });
+  const key = decodeURIComponent((await a.getAttribute('href'))!.replace(/^.*\/fleet\/revisions\//, ''));
+  expect(key, 'a revision key is service@content').toContain('@');
+  const ghost = `${key.slice(0, key.lastIndexOf('@'))}@sha256:${'0'.repeat(64)}`;
+  await page.goto(`/#/fleet/revisions/${encodeURIComponent(ghost)}`);
+  await rendersNotFound(page);
 });

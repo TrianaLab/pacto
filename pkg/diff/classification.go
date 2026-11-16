@@ -93,7 +93,7 @@ var rules = map[classificationKey]Classification{
 	{"readiness.claims", Removed}:         NonBreaking,
 	{"readiness.claims", Modified}:        NonBreaking,
 
-	// Interfaces (no port in v2; ref instead of contract)
+	// Interfaces
 	{"interfaces", Added}:               NonBreaking,
 	{"interfaces", Removed}:             Breaking,
 	{"interfaces.type", Modified}:       Breaking,
@@ -103,6 +103,19 @@ var rules = map[classificationKey]Classification{
 	// behavior changed incompatibly where no spec diff can see it. Lowering it
 	// is no undo: consumers that adapted to the raised epoch break in turn.
 	{"interfaces.compatibilityEpoch", Modified}: Breaking,
+	// A port declared or dropped changes no listener (2.5). One that moves is
+	// PotentialBreaking (the default): consumers may dial the old port.
+	{"interfaces.port", Added}:   NonBreaking,
+	{"interfaces.port", Removed}: NonBreaking,
+
+	// Announced breaks (2.5) change no interface; what one does to a gate is
+	// decided where the gate reads it.
+	{"breaks", Added}:            NonBreaking,
+	{"breaks", Removed}:          NonBreaking,
+	{"breaks.reason", Modified}:  NonBreaking,
+	{"breaks.expires", Added}:    NonBreaking,
+	{"breaks.expires", Modified}: NonBreaking,
+	{"breaks.expires", Removed}:  NonBreaking,
 
 	// Interface lifecycle (2.2): notices, except a sunset moved earlier, which
 	// diffLifecycleAt downgrades to NonBreaking when it moves later instead.
@@ -180,7 +193,11 @@ var rules = map[classificationKey]Classification{
 	{"dependencies", Removed}:                Breaking,
 	{"dependencies.ref", Modified}:           PotentialBreaking,
 	{"dependencies.compatibility", Modified}: PotentialBreaking,
-	{"dependencies.required", Modified}:      PotentialBreaking,
+	// From compatibility: unknown to a range only narrows what nobody knew;
+	// from a range to unknown drops what the service said works.
+	{"dependencies.compatibility.declared", Modified}: NonBreaking,
+	{"dependencies.compatibility.unknown", Modified}:  PotentialBreaking,
+	{"dependencies.required", Modified}:               PotentialBreaking,
 	// external only changes what Pacto expects to see running, not what the
 	// service needs. A new free-text version of an external dependency is
 	// something nobody can check: PotentialBreaking (the default).

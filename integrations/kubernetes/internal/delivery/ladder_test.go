@@ -48,24 +48,8 @@ func shadowOf(st delivery.StageStatus, d string) *delivery.Shadow {
 // GitOps applies it and raises nothing.
 func TestShadowPlansWhatGitOpsApplies(t *testing.T) {
 	e := observeEnv(t)
-	if err := e.reconcileStage("payments-prod"); err != nil {
-		t.Fatal(err)
-	}
-	st := e.getStage().Status
-	if st.ObservedRevision == nil || st.ObservedRevision.Digest != dA || st.ObservedRevision.Since != ts(e.now) {
-		t.Fatalf("observed revision: %+v", st.ObservedRevision)
-	}
-	b, a := shadowOf(st, dB), shadowOf(st, dA)
-	// A rollback target never verified here is an unknown a fully automatic
-	// Stage would ask its team to accept.
-	if b == nil || b.From != dA || b.ObservedAt != "" || b.Predicted != delivery.PredictHeld || b.Decision != delivery.AcceptUnknown ||
-		!slices.Equal(b.Owners, []string{"team-payments"}) || b.IntentDigest == "" || b.ImpactDigest == "" ||
-		a == nil || a.From != "" || a.ObservedAt != ts(e.now) || len(st.Shadow) != 2 {
-		t.Fatalf("shadow entries: %+v", st.Shadow)
-	}
-	if st.Proposal == nil || st.Proposal.Level != "" || st.Proposal.Blockers[2].Kind != delivery.BlockerUnlabelledApplyRef {
-		t.Fatalf("proposal: %+v", st.Proposal)
-	}
+	must(t, e.reconcileStage("payments-prod"))
+	a, b := firstShadow(t, e)
 	stale := stageObj("")
 	stale.Status.Level = delivery.LevelObserve
 	stale.ResourceVersion = ""
@@ -76,31 +60,61 @@ func TestShadowPlansWhatGitOpsApplies(t *testing.T) {
 	if err := e.reconcileStage("payments-prod"); err != nil || e.getStage().ResourceVersion != rv {
 		t.Fatalf("a tick with nothing new writes nothing: %v", err)
 	}
-	// A Stage spec edit replans the candidate that has not run yet, in place;
-	// what already ran keeps the plan it had.
-	s := e.getStage()
-	s.Spec.Gates.Verify.Checks = healthChecks
-	if err := e.c.Update(context.Background(), s); err != nil {
-		t.Fatal(err)
-	}
-	if err := e.reconcileStage("payments-prod"); err != nil {
-		t.Fatal(err)
-	}
-	if got := e.getStage().Status; len(got.Shadow) != 2 || shadowOf(got, dB).IntentDigest == b.IntentDigest ||
-		shadowOf(got, dB).IntentDigest != delivery.IntentDigest(e.st.shadowSpec(s, dA, dB), s.Spec) || shadowOf(got, dA).IntentDigest != a.IntentDigest {
-		t.Fatalf("a spec edit replans the unobserved candidate only: %+v", got.Shadow)
-	}
+	specEditReplans(t, e, a, b)
 	e.now = e.now.Add(10 * time.Second)
 	e.apply(dB)
-	if err := e.reconcileStage("payments-prod"); err != nil {
-		t.Fatal(err)
-	}
-	st = e.getStage().Status
+	must(t, e.reconcileStage("payments-prod"))
+	st := e.getStage().Status
 	if st.ObservedRevision.Digest != dB || shadowOf(st, dB).ObservedAt != ts(e.now) || len(st.Shadow) != 2 || len(e.ops()) != 0 {
 		t.Fatalf("GitOps applied B: %+v, %d ops", st, len(e.ops()))
 	}
 	if st.Pointer != "" || st.Locks[delivery.FacetPointer] != "" {
 		t.Fatal("observe moves nothing")
+	}
+}
+
+// firstShadow checks what the first observe reconcile wrote: the observed
+// revision A, the plans for A (applied) and B (the candidate) and the
+// proposal, and returns the two plans.
+func firstShadow(t *testing.T, e *env) (a, b delivery.Shadow) {
+	t.Helper()
+	st := e.getStage().Status
+	if st.ObservedRevision == nil || st.ObservedRevision.Digest != dA || st.ObservedRevision.Since != ts(e.now) {
+		t.Fatalf("observed revision: %+v", st.ObservedRevision)
+	}
+	pb, pa := shadowOf(st, dB), shadowOf(st, dA)
+	if pb == nil || pa == nil || len(st.Shadow) != 2 || pa.From != "" || pa.ObservedAt != ts(e.now) {
+		t.Fatalf("shadow entries: %+v", st.Shadow)
+	}
+	// A rollback target never verified here is an unknown a fully automatic
+	// Stage would ask its team to accept.
+	if !heldUnknown(*pb) {
+		t.Fatalf("shadow entries: %+v", st.Shadow)
+	}
+	if st.Proposal == nil || st.Proposal.Level != "" || st.Proposal.Blockers[2].Kind != delivery.BlockerUnlabelledApplyRef {
+		t.Fatalf("proposal: %+v", st.Proposal)
+	}
+	return *pa, *pb
+}
+
+// heldUnknown says b is the unobserved plan from A to B a fully automatic
+// Stage would hold for team-payments to accept as an unknown.
+func heldUnknown(b delivery.Shadow) bool {
+	return b.From == dA && b.ObservedAt == "" && b.Predicted == delivery.PredictHeld && b.Decision == delivery.AcceptUnknown &&
+		slices.Equal(b.Owners, []string{"team-payments"}) && b.IntentDigest != "" && b.ImpactDigest != ""
+}
+
+// specEditReplans: a Stage spec edit replans the candidate that has not run
+// yet, in place; what already ran keeps the plan it had.
+func specEditReplans(t *testing.T, e *env, a, b delivery.Shadow) {
+	t.Helper()
+	s := e.getStage()
+	s.Spec.Gates.Verify.Checks = healthChecks
+	must(t, e.c.Update(context.Background(), s))
+	must(t, e.reconcileStage("payments-prod"))
+	if got := e.getStage().Status; len(got.Shadow) != 2 || shadowOf(got, dB).IntentDigest == b.IntentDigest ||
+		shadowOf(got, dB).IntentDigest != delivery.IntentDigest(e.st.shadowSpec(s, dA, dB), s.Spec) || shadowOf(got, dA).IntentDigest != a.IntentDigest {
+		t.Fatalf("a spec edit replans the unobserved candidate only: %+v", got.Shadow)
 	}
 }
 
@@ -151,6 +165,50 @@ func TestShadowWouldHaveRefused(t *testing.T) {
 	}
 }
 
+// TestShadowReplanBesideACandidate: a refusal replanned once published sits
+// beside a new candidate's plan, and a replan that cannot read the candidate
+// source returns the error for a retry.
+func TestShadowReplanBesideACandidate(t *testing.T) {
+	ctx := context.Background()
+	e := observeEnv(t)
+	e.setStage(func(st *delivery.StageStatus) { st.Published = []string{dA} })
+	if err := e.reconcileStage("payments-prod"); err != nil {
+		t.Fatal(err)
+	}
+	e.apply(dC)
+	if err := e.reconcileStage("payments-prod"); err != nil {
+		t.Fatal(err)
+	}
+	dD := "sha256:" + strings.Repeat("d", 64) // a candidate nothing planned yet
+	e.setStage(func(st *delivery.StageStatus) { st.Published, st.Candidate = []string{dA, dB, dC, dD}, dD })
+	if err := e.st.shadow(ctx, e.getStage()); err != nil {
+		t.Fatal(err)
+	}
+	if c := shadowOf(e.getStage().Status, dC); c == nil || c.Predicted == delivery.PredictRejected || shadowOf(e.getStage().Status, dD) == nil {
+		t.Fatalf("the refusal is replanned beside the candidate: %+v", e.getStage().Status.Shadow)
+	}
+
+	broken := observeEnv(t)
+	broken.setStage(func(st *delivery.StageStatus) { st.Published = []string{dA} })
+	if err := broken.reconcileStage("payments-prod"); err != nil {
+		t.Fatal(err)
+	}
+	broken.apply(dC)
+	if err := broken.reconcileStage("payments-prod"); err != nil {
+		t.Fatal(err)
+	}
+	up := broken.getStage()
+	up.Spec.Candidates = delivery.Candidates{UpstreamStage: &delivery.StageRef{Name: "payments-test"}}
+	if err := broken.c.Update(ctx, up); err != nil {
+		t.Fatal(err)
+	}
+	broken.setStage(func(st *delivery.StageStatus) { st.Published, st.Candidate = []string{dA, dB, dC}, "" })
+	broken.fails["get/Stage/payments-test"] = true
+	if err := broken.st.shadow(ctx, broken.getStage()); err == nil {
+		t.Fatal("a replan's planning read error is returned")
+	}
+}
+
 // TestShadowVerify: once the verify window passed, the Stage's own checks run
 // on what GitOps applied. All-Pass marks it verified, and offered only when
 // published; Unknown writes nothing and is retried after the recheck
@@ -158,25 +216,19 @@ func TestShadowWouldHaveRefused(t *testing.T) {
 func TestShadowVerify(t *testing.T) {
 	e := observeEnv(t)
 	e.st.Gates = NewGates(e.op.Cluster, map[string]delivery.Gate{"mira": e.health})
-	if err := e.reconcileStage("payments-prod"); err != nil {
-		t.Fatal(err)
-	}
+	must(t, e.reconcileStage("payments-prod"))
 	if err := e.reconcileStage("payments-prod"); err != nil || len(e.getStage().Status.Verified) != 0 {
 		t.Fatalf("inside the window nothing verifies: %v", err)
 	}
 	s := e.getStage()
 	s.Spec.Gates.Verify.Checks = healthChecks
-	if err := e.c.Update(context.Background(), s); err != nil {
-		t.Fatal(err)
-	}
+	must(t, e.c.Update(context.Background(), s))
 	if err := e.reconcileStage("payments-prod"); err != nil { // the spec edit replans the candidate
 		t.Fatal(err)
 	}
 	e.health.result = delivery.Unknown
 	e.now = e.now.Add(2 * time.Minute)
-	if err := e.reconcileStage("payments-prod"); err != nil {
-		t.Fatal(err)
-	}
+	must(t, e.reconcileStage("payments-prod"))
 	st := e.getStage().Status
 	asked := len(e.health.inputs)
 	if len(st.Verified) != 0 || len(st.FailedDigests) != 0 || asked == 0 || e.health.inputs[asked-1].Subjects[0] != dA || e.health.inputs[asked-1].OperationUID != "" {
@@ -187,20 +239,23 @@ func TestShadowVerify(t *testing.T) {
 	}
 	e.health.result = delivery.Pass
 	e.now = e.now.Add(time.Hour)
-	if err := e.reconcileStage("payments-prod"); err != nil {
-		t.Fatal(err)
-	}
+	must(t, e.reconcileStage("payments-prod"))
 	st = e.getStage().Status
 	if !slices.Contains(st.Verified, dA) || !slices.Contains(st.Offered, dA) || shadowOf(st, dA).Verification != delivery.Verified {
 		t.Fatalf("all-Pass verifies and offers a published digest: %+v", st)
 	}
+	shadowVerifyAfterPass(t, e)
+}
 
+// shadowVerifyAfterPass checks an unpublished digest verifies but is never
+// offered, and that a confirmed Fail marks what runs as failed.
+func shadowVerifyAfterPass(t *testing.T, e *env) {
+	t.Helper()
+	var st delivery.StageStatus
 	// An unpublished digest verifies but is never offered.
 	e.setStage(func(st *delivery.StageStatus) { st.Published, st.Verified, st.Offered = nil, nil, nil })
 	e.now = e.now.Add(time.Hour)
-	if err := e.reconcileStage("payments-prod"); err != nil {
-		t.Fatal(err)
-	}
+	must(t, e.reconcileStage("payments-prod"))
 	if st = e.getStage().Status; !slices.Contains(st.Verified, dA) || len(st.Offered) != 0 {
 		t.Fatalf("verified, not offered: %+v", st)
 	}
@@ -209,9 +264,7 @@ func TestShadowVerify(t *testing.T) {
 	e.setStage(func(st *delivery.StageStatus) { st.Verified = nil })
 	e.health.result = delivery.Fail
 	e.now = e.now.Add(time.Hour)
-	if err := e.reconcileStage("payments-prod"); err != nil {
-		t.Fatal(err)
-	}
+	must(t, e.reconcileStage("payments-prod"))
 	if st = e.getStage().Status; !slices.Contains(st.FailedDigests, dA) || len(st.Verified) != 0 || len(e.ops()) != 0 {
 		t.Fatalf("a failed shadow verify rolls nothing back: %+v", st)
 	}
@@ -224,16 +277,10 @@ func TestShadowEarnsAdvise(t *testing.T) {
 	e := observeEnv(t)
 	s := e.getStage()
 	s.Spec.Autonomy.ProposeAfter = 1
-	if err := e.c.Update(context.Background(), s); err != nil {
-		t.Fatal(err)
-	}
-	if err := e.reconcileStage("payments-prod"); err != nil {
-		t.Fatal(err)
-	}
+	must(t, e.c.Update(context.Background(), s))
+	must(t, e.reconcileStage("payments-prod"))
 	e.now = e.now.Add(2 * time.Minute)
-	if err := e.reconcileStage("payments-prod"); err != nil {
-		t.Fatal(err)
-	}
+	must(t, e.reconcileStage("payments-prod"))
 	if p := e.getStage().Status.Proposal; p.Level != "" || len(p.Blockers) != 1 || p.Blockers[0].Kind != delivery.BlockerUnlabelledApplyRef {
 		t.Fatalf("verified, still unlabelled: %+v", p)
 	}
@@ -242,12 +289,8 @@ func TestShadowEarnsAdvise(t *testing.T) {
 	_ = e.c.Get(context.Background(), keyOf("payments"), u)
 	u.SetLabels(map[string]string{ApplyRefLabel: "payments-prod"})
 	unstructured.RemoveNestedField(u.Object, "spec", "ref", "digest")
-	if err := e.c.Update(context.Background(), u); err != nil {
-		t.Fatal(err)
-	}
-	if err := e.reconcileStage("payments-prod"); err != nil {
-		t.Fatal(err)
-	}
+	must(t, e.c.Update(context.Background(), u))
+	must(t, e.reconcileStage("payments-prod"))
 	st := e.getStage().Status
 	if st.Proposal.Level != delivery.LevelAdvise || !slices.Equal(st.Proposal.Evidence, []string{dA}) {
 		t.Fatalf("advise is proposed: %+v", st.Proposal)
@@ -259,9 +302,7 @@ func TestShadowEarnsAdvise(t *testing.T) {
 	if st = e.getStage().Status; st.Level != delivery.LevelAdvise || st.Pointer != dA || st.Proposal != nil {
 		t.Fatalf("raised: %+v", st)
 	}
-	if err := e.reconcileStage("payments-prod"); err != nil {
-		t.Fatal(err)
-	}
+	must(t, e.reconcileStage("payments-prod"))
 	if p := e.getStage().Status.Proposal; p == nil || p.Level != "" || !strings.Contains(p.Blockers[0].Message, "0 of 1") {
 		t.Fatalf("the count restarts on advise: %+v", p)
 	}
@@ -303,6 +344,15 @@ func TestStepDownAfterAConfirmedFailure(t *testing.T) {
 	if c := st.Stream.Concluded[len(st.Stream.Concluded)-1]; c.Type != delivery.TypeAutonomy || c.Person {
 		t.Fatalf("the step-down is the newest conclusion, raised by no person: %+v", c)
 	}
+	stepDownThenRollback(t, e)
+}
+
+// stepDownThenRollback drives the rollback of the failure that stepped the
+// level down: it concludes after the step-down, and the count restarts with
+// no incident.
+func stepDownThenRollback(t *testing.T, e *env) {
+	t.Helper()
+	var st delivery.StageStatus
 	// The rollback of that same failure concludes after the step-down; it is
 	// why the level dropped, so the count restarts at zero with no incident.
 	e.health.result = delivery.Pass
@@ -397,9 +447,7 @@ func TestShadowEdges(t *testing.T) {
 	e.fails["get/OCIRepository"] = false
 	up := e.getStage()
 	up.Spec.Candidates = delivery.Candidates{UpstreamStage: &delivery.StageRef{Name: "payments-test"}}
-	if err := e.c.Update(ctx, up); err != nil {
-		t.Fatal(err)
-	}
+	must(t, e.c.Update(ctx, up))
 	e.fails["get/Stage/payments-test"] = true
 	if err := e.st.shadow(ctx, e.getStage()); err == nil {
 		t.Fatal("a planning read error is returned")
@@ -412,9 +460,7 @@ func TestShadowEdges(t *testing.T) {
 	e.fails["status/Stage"] = false
 
 	busy := observeEnv(t)
-	if err := busy.reconcileStage("payments-prod"); err != nil {
-		t.Fatal(err)
-	}
+	must(t, busy.reconcileStage("payments-prod"))
 	busy.apply(dB)
 	busy.fails["status/Stage"] = true
 	if err := busy.reconcileStage("payments-prod"); err == nil || busy.getStage().Status.ObservedRevision.Digest != dA {
@@ -429,23 +475,17 @@ func TestShadowEdges(t *testing.T) {
 
 	frozen := observeEnv(t)
 	frozen.setStage(func(st *delivery.StageStatus) { st.Frozen, st.FrozenReason = true, "a person froze it" })
-	if err := frozen.st.shadow(ctx, frozen.getStage()); err != nil {
-		t.Fatal(err)
-	}
+	must(t, frozen.st.shadow(ctx, frozen.getStage()))
 	if a := shadowOf(frozen.getStage().Status, dA); a == nil || a.Predicted != delivery.PredictWaits || !strings.HasPrefix(a.Question, "StageFrozen: ") {
 		t.Fatalf("a frozen Stage would wait: %+v", a)
 	}
 
 	moved := observeEnv(t)
 	moved.st.Gates = NewGates(moved.op.Cluster, map[string]delivery.Gate{"mira": moved.health})
-	if err := moved.reconcileStage("payments-prod"); err != nil {
-		t.Fatal(err)
-	}
+	must(t, moved.reconcileStage("payments-prod"))
 	s := moved.getStage()
 	s.Spec.Gates.Verify.Checks = healthChecks
-	if err := moved.c.Update(ctx, s); err != nil {
-		t.Fatal(err)
-	}
+	must(t, moved.c.Update(ctx, s))
 	if err := moved.reconcileStage("payments-prod"); err != nil { // the spec edit replans the candidate
 		t.Fatal(err)
 	}

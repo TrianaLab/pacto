@@ -13,21 +13,22 @@ export function reactiveProps<T extends object>(initial: T): T {
 /** sessionApi serves a test's session fixture through the two reads the session
  *  store makes: /api/session (the fixture without its delivery caller, naming
  *  the caller's user and groups as the API server does) and
- *  /api/delivery/caller (the fixture's caller, or a 404 where it has none). */
+ *  /api/delivery/caller (the fixture's caller, or a 404 where it has none),
+ *  with owner teams narrowing who may answer unless the fixture says not. */
 export function sessionApi(
   read: () => Promise<Record<string, unknown> | null | undefined>,
   NotFound: new (status: number, message: string) => Error,
 ) {
   return {
     session: async () => {
-      const { caller, requireOwnerTeam: _r, ...s } = (await read()) ?? {};
+      const { caller, requireOwnerTeam: _r, teamNarrowing: _n, ...s } = (await read()) ?? {};
       const c = (caller ?? {}) as { user?: string; groups?: string[] };
       return { user: c.user, groups: c.groups, ...s };
     },
     deliveryCaller: async () => {
       const s = await read();
       if (!s?.caller) throw new NotFound(404, 'delivery is not served');
-      return { requireOwnerTeam: !!s.requireOwnerTeam, ...(s.caller as object) };
+      return { requireOwnerTeam: !!s.requireOwnerTeam, teamNarrowing: s.teamNarrowing !== false, ...(s.caller as object) };
     },
   };
 }

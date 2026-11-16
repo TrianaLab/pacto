@@ -69,6 +69,25 @@ func TestRemoteUpstreamReady(t *testing.T) {
 	}
 }
 
+// upstreamView is the upstream stream holding ids at seqs 1, 2 and so on,
+// each a verified and published promote of the next version in verified.
+func upstreamView(ids []string, verified ...string) []delivery.StoredRecord {
+	recs := make([]delivery.StoredRecord, 0, len(ids))
+	for i, id := range ids {
+		parent := ""
+		if i > 0 {
+			parent = ids[i-1]
+		}
+		recs = append(recs, delivery.StoredRecord{ID: id, Statement: delivery.Statement{Predicate: delivery.RecordPredicate{
+			Kind: delivery.RecordOperation, Type: &delivery.RecordType{ID: delivery.TypePromote},
+			Intent:   delivery.RecordIntent{Params: &delivery.Params{To: verified[i%len(verified)]}},
+			Verdicts: []delivery.Verdict{{Gate: delivery.GatePublished, Result: delivery.Pass}},
+			Outcome:  &delivery.RecordOutcome{Result: delivery.Succeeded, Verification: delivery.Verified},
+			Chain:    delivery.Chain{Stream: remoteTest.Stream, Seq: int64(i + 1), Parent: parent}}}})
+	}
+	return recs
+}
+
 // TestRemoteUpstreamUnreadable: records that cannot be read make the Stage
 // not Ready, naming why, instead of stalling silently; Ready returns once a
 // read succeeds. The registry is read again only every UpstreamPoll, and the
@@ -77,25 +96,7 @@ func TestRemoteUpstreamUnreadable(t *testing.T) {
 	s := remoteStage(dA)
 	e := newEnv(t, s, ociRepo("payments", dA, "", false))
 	reads := 0
-	// view is the upstream stream holding ids at seqs 1, 2 and so on, each a
-	// verified and published promote of the next version in verified.
 	var up []delivery.StoredRecord
-	view := func(ids []string, verified ...string) []delivery.StoredRecord {
-		recs := make([]delivery.StoredRecord, 0, len(ids))
-		for i, id := range ids {
-			parent := ""
-			if i > 0 {
-				parent = ids[i-1]
-			}
-			recs = append(recs, delivery.StoredRecord{ID: id, Statement: delivery.Statement{Predicate: delivery.RecordPredicate{
-				Kind: delivery.RecordOperation, Type: &delivery.RecordType{ID: delivery.TypePromote},
-				Intent:   delivery.RecordIntent{Params: &delivery.Params{To: verified[i%len(verified)]}},
-				Verdicts: []delivery.Verdict{{Gate: delivery.GatePublished, Result: delivery.Pass}},
-				Outcome:  &delivery.RecordOutcome{Result: delivery.Succeeded, Verification: delivery.Verified},
-				Chain:    delivery.Chain{Stream: remoteTest.Stream, Seq: int64(i + 1), Parent: parent}}}})
-		}
-		return recs
-	}
 	why := "reading the records: registry down"
 	f := func(_ context.Context, _ delivery.RemoteStage, seen delivery.RecordMark, acked []string) (*delivery.StageStatus, string) {
 		reads++
@@ -107,15 +108,13 @@ func TestRemoteUpstreamUnreadable(t *testing.T) {
 	e.op.Cluster.Upstream, e.st.Cluster.Upstream = f, f
 	ready := func() delivery.Condition {
 		t.Helper()
-		if err := e.reconcileStage("payments-prod"); err != nil {
-			t.Fatal(err)
-		}
+		must(t, e.reconcileStage("payments-prod"))
 		return *conditionOf(e.getStage().Status.Conditions, "Ready")
 	}
 	if c := ready(); c.Reason != "UpstreamUnreadable" || !strings.Contains(c.Message, "registry down") || !strings.Contains(c.Message, remoteTest.Stream) {
 		t.Fatalf("unreadable: %+v", c)
 	}
-	up = view([]string{"r1", "r2", "r3"}, dB)
+	up = upstreamView([]string{"r1", "r2", "r3"}, dB)
 	if c := ready(); c.Reason != "UpstreamUnreadable" || reads != 1 || len(e.ops()) != 0 {
 		t.Fatalf("a read younger than UpstreamPoll is reused: %+v reads=%d", c, reads)
 	}
@@ -129,9 +128,17 @@ func TestRemoteUpstreamUnreadable(t *testing.T) {
 	if ops := e.ops(); len(ops) != 1 || ops[0].Spec.Params.To != dB {
 		t.Fatalf("auto-promotes what the read offers: %+v", ops)
 	}
+	upstreamCutRewrittenReset(t, e, &up, ready)
+}
+
+// upstreamCutRewrittenReset checks a follower refuses a cut, rewritten or
+// reset upstream stream until it is extended or a person clears the mark; up
+// is the stream the upstream reader serves.
+func upstreamCutRewrittenReset(t *testing.T, e *env, up *[]delivery.StoredRecord, ready func() delivery.Condition) {
+	t.Helper()
 	// The newest records disappear: the shorter stream offers nothing, not
 	// the version a removed record failed.
-	up = view([]string{"r1", "r2"}, dB, dC)
+	*up = upstreamView([]string{"r1", "r2"}, dB, dC)
 	e.now = e.now.Add(UpstreamPoll)
 	if c := ready(); c.Reason != "UpstreamUnreadable" || !strings.Contains(c.Message, "newest records were removed") {
 		t.Fatalf("a cut stream: %+v", c)
@@ -141,33 +148,31 @@ func TestRemoteUpstreamUnreadable(t *testing.T) {
 		t.Fatalf("plan read of a cut stream: %+v %q %v", s, why, err)
 	}
 	// The same seq is not rewritten in place, and a read that extends it moves the mark.
-	up = view([]string{"r1", "r2", "x3"}, dB)
+	*up = upstreamView([]string{"r1", "r2", "x3"}, dB)
 	e.now = e.now.Add(UpstreamPoll)
 	if c := ready(); c.Reason != "UpstreamUnreadable" || !strings.Contains(c.Message, "rewritten") {
 		t.Fatalf("a rewritten stream: %+v", c)
 	}
 	// Nor is a rewrite accepted once the stream grows past it.
-	up = view([]string{"r1", "r2", "x3", "r4"}, dB)
+	*up = upstreamView([]string{"r1", "r2", "x3", "r4"}, dB)
 	e.now = e.now.Add(UpstreamPoll)
 	if c := ready(); c.Reason != "UpstreamUnreadable" || !strings.Contains(c.Message, "rewritten") {
 		t.Fatalf("a rewritten then extended stream: %+v", c)
 	}
-	up = view([]string{"r1", "r2", "r3", "r4"}, dB)
+	*up = upstreamView([]string{"r1", "r2", "r3", "r4"}, dB)
 	e.now = e.now.Add(UpstreamPoll)
 	if c := ready(); c.Reason != "Ready" || e.getStage().Status.UpstreamSeen.Seq != 4 {
 		t.Fatalf("extended: %+v %+v", c, e.getStage().Status.UpstreamSeen)
 	}
 	// A deliberate reset of the upstream stream blocks the follower until a
 	// person clears the mark, as delivery-reach.md tells them to.
-	up = view([]string{"n1"}, dC)
+	*up = upstreamView([]string{"n1"}, dC)
 	e.now = e.now.Add(UpstreamPoll)
 	if c := ready(); c.Reason != "UpstreamUnreadable" {
 		t.Fatalf("a reset stream: %+v", c)
 	}
 	reset := client.RawPatch(types.MergePatchType, []byte(`{"status":{"upstreamSeen":null}}`))
-	if err := e.c.Status().Patch(context.Background(), e.getStage(), reset); err != nil {
-		t.Fatal(err)
-	}
+	must(t, e.c.Status().Patch(context.Background(), e.getStage(), reset))
 	e.now = e.now.Add(UpstreamPoll)
 	if c := ready(); c.Reason != "Ready" || e.getStage().Status.UpstreamSeen.Record != "n1" {
 		t.Fatalf("after clearing the mark: %+v %+v", c, e.getStage().Status.UpstreamSeen)

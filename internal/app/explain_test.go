@@ -458,3 +458,31 @@ func TestExplainDifferencesErrorWithoutNames(t *testing.T) {
 		t.Fatal("with names, the error fails explain")
 	}
 }
+
+func TestExplainPortAndBreaks(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{"pacto.yaml": `pactoVersion: "2.5"
+service:
+  name: payments
+  version: 2.0.0
+interfaces:
+  - name: api
+    type: openapi
+    ref: openapi.yaml
+    port: 8080
+breaks:
+  - consumers: [reports]
+    reason: drops /v1
+    expires: "2026-12-14"
+`, "openapi.yaml": "openapi: 3.0.0\ninfo: {title: t, version: '1'}\npaths: {}\n"})
+	result, err := NewService(nil, nil).Explain(context.Background(), ExplainOptions{Path: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Interfaces) != 1 || result.Interfaces[0].Port != 8080 {
+		t.Errorf("interfaces = %+v", result.Interfaces)
+	}
+	if len(result.Breaks) != 1 || result.Breaks[0].Reason != "drops /v1" || result.Breaks[0].Expires != "2026-12-14" {
+		t.Errorf("breaks = %+v", result.Breaks)
+	}
+}

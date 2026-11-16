@@ -57,6 +57,14 @@ The delivery views read their own settings under `dashboard.delivery`
 A dashboard on your own machine (`pacto dashboard` on loopback, with no
 sign-in configured) acts as your kubeconfig user and shows no sign-in screen.
 
+The managed dashboard of a namespace-list install without delivery runs with
+`PACTO_DASHBOARD_REVIEW=local`. It reviews each person with a
+LocalSubjectAccessReview in each watched namespace only, so it needs no
+ClusterRole. In that mode a service with no namespace, such as a registry-only
+service or a caller outside Kubernetes, is hidden from everyone, cluster
+administrators included. A `pacto dashboard` or `pacto mcp` you run yourself
+opts in with `--review=local` and `--namespace`.
+
 ## Configure the chart
 
 ```yaml

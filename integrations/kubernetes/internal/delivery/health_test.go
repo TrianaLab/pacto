@@ -203,9 +203,7 @@ func TestRecheckAfterRelease(t *testing.T) {
 
 	e.now = e.now.Add(10 * time.Minute)
 	e.health.result = delivery.Unknown
-	if err := e.reconcileStage("payments-prod"); err != nil {
-		t.Fatal(err)
-	}
+	must(t, e.reconcileStage("payments-prod"))
 	s := e.getStage()
 	if lc := s.Status.LastCheck; lc == nil || lc.Operation != "uid-p1" || lc.Digest != dB || verdictOf(lc.Verdicts, "health").Result != delivery.Unknown {
 		t.Fatalf("an Unknown re-check is recorded: %+v", s.Status.LastCheck)
@@ -217,17 +215,22 @@ func TestRecheckAfterRelease(t *testing.T) {
 	if in := e.health.inputs[len(e.health.inputs)-1]; !in.Window.From.Equal(e.now.Add(-time.Minute)) || !in.Window.From.After(shippedAt) {
 		t.Fatalf("re-check window: %+v", in.Window)
 	}
+	recheckFailsAfterRelease(t, e)
+}
 
+// recheckFailsAfterRelease checks a failed re-check rolls the release back
+// once, re-checks what the rollback restored and freezes when that rollback
+// fails too.
+func recheckFailsAfterRelease(t *testing.T, e *env) {
+	t.Helper()
 	e.health.result = delivery.Fail
 	asked := len(e.health.inputs)
 	if err := e.reconcileStage("payments-prod"); err != nil || len(e.health.inputs) != asked {
 		t.Fatalf("a re-check inside the interval must not run: %v", err)
 	}
 	e.now = e.now.Add(time.Minute)
-	if err := e.reconcileStage("payments-prod"); err != nil {
-		t.Fatal(err)
-	}
-	s = e.getStage()
+	must(t, e.reconcileStage("payments-prod"))
+	s := e.getStage()
 	if s.Status.FailedDigests[0] != dB || len(s.Status.Verified) != 1 || !slices.Equal(s.Status.RolledBack, []string{"uid-p1"}) || s.Status.Frozen {
 		t.Fatalf("stage after a failed re-check: %+v", s.Status)
 	}
@@ -235,6 +238,14 @@ func TestRecheckAfterRelease(t *testing.T) {
 	if rb.Spec.Params.From != dB || rb.Spec.Params.To != dA || rb.Spec.Cause.Verdict.Gate != "health" || !strings.Contains(rb.Spec.Reason, "RecheckFailed") {
 		t.Fatalf("rollback: %+v", rb.Spec)
 	}
+	rollbackThenRecheck(t, e)
+}
+
+// rollbackThenRecheck checks nothing re-checks or raises another rollback
+// while one is in flight, and that the version it restored is re-checked
+// once it concludes.
+func rollbackThenRecheck(t *testing.T, e *env) {
+	t.Helper()
 	// While the rollback is in flight, nothing re-checks or raises another.
 	e.now = e.now.Add(time.Hour)
 	if err := e.reconcileStage("payments-prod"); err != nil || len(e.ops()) != 2 {
@@ -248,6 +259,14 @@ func TestRecheckAfterRelease(t *testing.T) {
 	if err := e.reconcileStage("payments-prod"); err != nil || len(e.ops()) != 2 || e.getStage().Status.LastCheck.Operation != "uid-p1-rollback" {
 		t.Fatalf("after the rollback the version it restored is re-checked: %v %+v", err, e.getStage().Status.LastCheck)
 	}
+	promoterRollbackFailsFreezes(t, e)
+}
+
+// promoterRollbackFailsFreezes checks the promoter's own rollback failing
+// after release is never undone, and the freeze says so instead of blaming a
+// person.
+func promoterRollbackFailsFreezes(t *testing.T, e *env) {
+	t.Helper()
 	// The promoter's own rollback failing after release is never undone, and
 	// the freeze says so instead of blaming a person.
 	e.health.result = delivery.Fail
@@ -333,9 +352,7 @@ func TestRecheckSkips(t *testing.T) {
 	}
 	// A shipping operation that is gone is said, not skipped in silence.
 	e.setStage(func(s *delivery.StageStatus) { s.Locks, s.LastOp = nil, "uid-gone" })
-	if err := e.reconcileStage("payments-prod"); err != nil {
-		t.Fatal(err)
-	}
+	must(t, e.reconcileStage("payments-prod"))
 	if lc := e.getStage().Status.LastCheck; lc == nil || lc.Operation != "uid-gone" || lc.Verdicts[0].Result != delivery.Unknown ||
 		!strings.Contains(lc.Verdicts[0].Message, "is gone") {
 		t.Fatalf("a missing shipping operation is recorded: %+v", lc)
@@ -348,26 +365,18 @@ func TestRecheckSkips(t *testing.T) {
 	if err := e.reconcileStage("payments-prod"); err != nil || e.getStage().Status.LastCheck != nil {
 		t.Fatal("an operation in flight owns the Stage")
 	}
-	if err := e.c.Delete(context.Background(), pending); err != nil {
-		t.Fatal(err)
-	}
-	if err := e.reconcileStage("payments-prod"); err != nil {
-		t.Fatal(err)
-	}
+	must(t, e.c.Delete(context.Background(), pending))
+	must(t, e.reconcileStage("payments-prod"))
 	p1 := e.getOp("p1")
 	p1.Status.Verification = delivery.Unverified
-	if err := e.c.Status().Update(context.Background(), p1); err != nil {
-		t.Fatal(err)
-	}
+	must(t, e.c.Status().Update(context.Background(), p1))
 	e.setStage(func(s *delivery.StageStatus) { s.LastCheck = nil })
 	if err := e.reconcileStage("payments-prod"); err != nil || e.getStage().Status.LastCheck != nil {
 		t.Fatal("an Unverified version is not re-checked")
 	}
 	p1 = e.getOp("p1")
 	p1.Status.Verification = delivery.Verified
-	if err := e.c.Status().Update(context.Background(), p1); err != nil {
-		t.Fatal(err)
-	}
+	must(t, e.c.Status().Update(context.Background(), p1))
 	e.health.result = delivery.Fail
 	e.fails["create/Operation"] = true
 	if err := e.reconcileStage("payments-prod"); err == nil {
@@ -519,14 +528,10 @@ func TestRecheckNeverUndoesAChoice(t *testing.T) {
 			e.shipB()
 			o := e.getOp("p1")
 			o.Spec.Type = c.typ
-			if err := e.c.Update(context.Background(), o); err != nil {
-				t.Fatal(err)
-			}
+			must(t, e.c.Update(context.Background(), o))
 			e.setStage(func(s *delivery.StageStatus) { s.AutoHold = c.hold })
 			e.health.result = delivery.Fail
-			if err := e.reconcileStage("payments-prod"); err != nil {
-				t.Fatal(err)
-			}
+			must(t, e.reconcileStage("payments-prod"))
 			s := e.getStage()
 			if !s.Status.Frozen || !strings.Contains(s.Status.FrozenReason, "a person must decide") || s.Status.FailedDigests[0] != dB ||
 				len(s.Status.RolledBack) != 0 || len(e.ops()) != 2 {
@@ -565,9 +570,7 @@ func TestRecheckDropsAStaleVerdict(t *testing.T) {
 				e.shipB()
 				e.health.result = res
 				e.health.during = func() { e.setStage(mutate) }
-				if err := e.reconcileStage("payments-prod"); err != nil {
-					t.Fatal(err)
-				}
+				must(t, e.reconcileStage("payments-prod"))
 				s := e.getStage()
 				if s.Status.LastCheck != nil || s.Status.Frozen || len(s.Status.FailedDigests) != 0 || len(s.Status.RolledBack) != 0 || len(e.ops()) != 1 {
 					t.Fatalf("a stale verdict changed the Stage: %+v ops=%d", s.Status, len(e.ops()))
@@ -582,9 +585,7 @@ func TestRecheckDropsAStaleVerdict(t *testing.T) {
 	e.st.APIReader = &afterFirstGet{Reader: e.c, fn: func() {
 		e.setStage(func(s *delivery.StageStatus) { s.Pointer, s.LastOp = dC, "uid-p2" })
 	}}
-	if err := e.reconcileStage("payments-prod"); err != nil {
-		t.Fatal(err)
-	}
+	must(t, e.reconcileStage("payments-prod"))
 	if s := e.getStage(); s.Status.LastCheck != nil || s.Status.Frozen || len(s.Status.FailedDigests) != 0 || len(s.Status.RolledBack) != 0 || len(e.ops()) != 1 {
 		t.Fatalf("a stale verdict changed the Stage: %+v ops=%d", s.Status, len(e.ops()))
 	}

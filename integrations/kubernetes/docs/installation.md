@@ -10,7 +10,8 @@ the [published artifacts](artifact-hub.md) page; every value is on the
 
 ## Prerequisites
 
-- A Kubernetes cluster (the operator watches cluster-wide by default). The
+- A Kubernetes cluster, watched whole or as a list of namespaces
+  ([run with least privilege](least-privilege.md)). The
   chart declares no `kubeVersion` floor. The acceptance suite runs on whatever
   [kind](https://kind.sigs.k8s.io/) ships by default, so older clusters are
   untested. The chart still installs on them.
@@ -75,13 +76,13 @@ For an evaluation cluster, use the [quickstart profile](quickstart.md).
 helm install pacto-operator \
   oci://ghcr.io/trianalab/pacto/charts/pacto-operator \
   --namespace pacto-operator-system --create-namespace \
-  --set controller.watchNamespace=my-namespace \
+  --set 'controller.watchNamespaces={payments,ledger}' \
   --set metrics.serviceMonitor.enabled=true \
   --set dashboard.enabled=false
 ```
 
-- `controller.watchNamespace` watches one namespace only (empty means the
-  whole cluster).
+- `controller.watchNamespaces` watches only the listed namespaces (empty means
+  the whole cluster).
 - `metrics.serviceMonitor.enabled` creates a Prometheus `ServiceMonitor`.
 - `dashboard.enabled` turns the operator-managed dashboard on or off.
 - `dashboard.repositories` lists `oci://` references the dashboard reads
@@ -104,18 +105,31 @@ for crd in $(kubectl get crd -o name | grep pacto.trianalab.io); do
 done
 ```
 
-Three checks are off by default because they cost something:
+Probing and metrics observation default to `auto`; a namespace owner turns
+them on with a label:
 
-- `controller.enableProbing` lets the operator send requests to your Services
-  to check health and protocol.
-- `controller.enableMetricsObservation` checks the metrics capability.
-- `nodeAgent.enabled` runs a small agent on every node that watches which ports
-  your pods really listen on and which services they really connect to. It has
-  requirements of its own, listed in
+```bash
+kubectl label ns payments pacto.trianalab.io/observe=probing
+```
+
+- The label value is `probing`, `metrics` or `probing.metrics`; unlabelled
+  namespaces stay passive. The label also works with
+  `controller.watchNamespaces`.
+- The operator reads the label at each Pacto's next check
+  (`spec.checkIntervalSeconds`, default 5 minutes); see
+  [Troubleshooting](troubleshooting.md#metrics-or-health-always-unknown) to apply it sooner.
+- `controller.probing` sends requests to your Services to check health and
+  protocol; `on` probes every namespace. An explicit `auto` overrides the
+  [deprecated keys](upgrade.md#deprecated-observation-keys).
+- `controller.metricsObservation` checks the metrics capability;
+  ServiceMonitor discovery needs `on`.
+- `nodeAgent.enabled` runs an agent on every node that sees which ports your
+  pods listen on and which services they call; see
   [Runtime conformance](runtime-conformance.md).
+- `controller.interfaceNameMatchDiscovery` binds an interface to the Service
+  port of the same name.
 
 [Opt-in features](limitations.md#opt-in-features) explains each one.
-Name-match discovery has no chart value.
 
 !!! warning "Keep the dashboard private unless sign-in protects it"
 
@@ -227,7 +241,7 @@ kubectl -n pacto-operator-system logs deploy/pacto-operator
 A healthy start ends with the workers and the dashboard reconciler:
 
 ```text
-INFO  dashboard  Starting dashboard reconciler  {"enabled": true, "image": "ghcr.io/trianalab/pacto/dashboard:4.4.2", ...}
+INFO  dashboard  Starting dashboard reconciler  {"enabled": true, "image": "ghcr.io/trianalab/pacto/dashboard:4.5.0", ...}
 INFO  Starting Controller  {"controller": "pacto", "controllerKind": "Pacto"}
 INFO  Starting workers     {"controller": "pacto", "worker count": 1}
 INFO  dashboard  Dashboard resources reconciled successfully
@@ -331,7 +345,7 @@ binding and the interface and its health capability resolve:
 ```
 
 Two findings remain: the `metrics` capability needs
-`controller.enableMetricsObservation` (see
+`controller.metricsObservation` or the namespace label (see
 [Opt-in features](limitations.md#opt-in-features)), and the `default` configuration needs a
 `configBindings` entry naming the ConfigMap or Secret behind it. See
 [Contract bindings](contract-bindings.md) for both, and [Runtime

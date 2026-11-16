@@ -110,6 +110,7 @@ func readReferrer(ctx context.Context, repo *remote.Repository, subj Subject, su
 	if err != nil {
 		return evidenceingest.Record{}, referrerMalformed
 	}
+	rec.Cluster = acceptedCluster(manifest)
 	return rec, referrerRecord
 }
 

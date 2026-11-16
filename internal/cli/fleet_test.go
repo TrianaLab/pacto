@@ -761,3 +761,23 @@ func TestFleetSearchRefusesMalformedLabel(t *testing.T) {
 		t.Errorf("search --label bare: err = %v, want invalid label", err)
 	}
 }
+
+// Two --local roots that each lose a folder to one name collision report the
+// same problem from two sources; text prints it once.
+func TestFleetStatusNameCollisionPrintedOnce(t *testing.T) {
+	var roots []string
+	for _, dir := range []string{"billing", "invoices"} {
+		root := t.TempDir()
+		mustMkdir(t, filepath.Join(root, dir, "chart"))
+		mustWrite(t, filepath.Join(root, dir, "pacto.yaml"), "")
+		mustWrite(t, filepath.Join(root, dir, "chart", "Chart.yaml"), "apiVersion: v2\nname: payments\nversion: 0.1.0\n")
+		roots = append(roots, root)
+	}
+	_, errOut, err := execFleet(t, "fleet", "status", "--local", roots[0], "--local", roots[1])
+	if err != nil {
+		t.Fatalf("fleet status: %v", err)
+	}
+	if n := strings.Count(errOut, "[SERVICE_NAME_COLLISION]"); n != 1 {
+		t.Fatalf("SERVICE_NAME_COLLISION printed %d times, want 1:\n%s", n, errOut)
+	}
+}

@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
+	"github.com/trianalab/pacto/v4/pkg/kubecluster"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -64,6 +65,12 @@ type Config struct {
 	// server reads and writes the contract registry under Pacto's ordinary
 	// credential policy. Empty means anonymous or in-cluster access.
 	CredentialsSecret string
+
+	// Cluster is the identity the operator read at start (the kube-system
+	// namespace UID and a display name). The server stamps it on the records it
+	// accepts and echoes it in its target listing. Empty when it could not be
+	// read: the server then reports no cluster.
+	Cluster kubecluster.Identity
 
 	// Resources overrides the container's resource requirements.
 	Resources ResourcesConfig

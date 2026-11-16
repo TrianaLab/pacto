@@ -1,5 +1,481 @@
 # @pacto/k8s-module
 
+## 6.5.0
+
+### Minor Changes
+
+- da4494d: Add `pactoVersion: "2.4"` with `service.domain`, `service.offering`,
+  `service.summary`, `service.lifecycle`, and `values` and a `configuration`
+  selector beside a configuration `ref`. Every 2.3 contract is schema-valid under
+  2.4, but 2.4 checks configuration refs strictly: a ref that cannot be resolved
+  or that matches more than one provider configuration is an error, and a
+  required ref configuration needs values in every environment. Raising a
+  contract to 2.4 can therefore turn those warnings into errors. A `"2.0"` to
+  `"2.3"` contract that sets any of the new fields reports `NEEDS_PACTO_2_4`.
+  
+  `service.domain` is the business domain a service belongs to, and `pacto diff`
+  reports an added, changed or removed domain as `NON_BREAKING`. The operator reports the
+  domain in `status.contract.domain` and writes `status.statusFormat` 2, so a
+  service seen only through Kubernetes is still grouped by it. A status from an
+  older operator leaves that service's domain unknown.
+  
+  The dashboard groups services by domain: domains have a list and a page with
+  their services, owners, operational targets and attention, and the overview
+  breaks services down by domain, with services that declare none under No domain
+  and services whose domain Pacto cannot tell under Domain unknown. Sources that
+  disagree on a domain raise `DOMAIN_CONFLICT`.
+  The registry path that used to read "domain" now reads "Registry". Services with
+  no owner from any source appear in attention as `unowned`. An operational target shows
+  the environment it runs in when its Pacto carries the
+  `delivery.pacto.trianalab.io/environment` label, and whether the revision it runs
+  declares that environment; without the label it reads Unknown. The services list
+  filters by declared capability. `pacto fleet search --business-domain`, the
+  `pacto_fleet_search` MCP tool and the TUI accept a domain, `(none)` or
+  `(unknown)`, and `pacto_edit`
+  sets one.
+- a6c189d: A delivery plan or proposal can carry a correlation id, such as a ticket or
+  incident id: `pacto delivery plan|propose --correlation-id`, `correlation_id`
+  on `pacto_delivery_operation_plan` and `pacto_delivery_operation_propose`, and
+  `correlationID` in the dashboard's plan and propose bodies, and `pacto publish
+  --propose --correlation-id`. The id is at most
+  128 printable ASCII characters, checked by the client and by the operation
+  admission policy. The automatic rollback, freeze and step-down the promoter
+  raises after a change inherit its id, so `pacto delivery history
+  --correlation-id` lists the changes of one incident.
+  
+  The intent digest now binds the cause a proposal cites (`--cause-verdict`,
+  `cause_verdict`), never the correlation id, and `PlanStale` names a changed
+  cause. Proposals that cite a cause need the CLI, the dashboard and the
+  operator at the same release, in both directions: across releases the client
+  and the promoter compute different digests, and the promoter finishes the
+  Operation `Rejected` with `PlanStale`. Proposals without a cause are
+  unaffected.
+  
+  An agent must name the person it acts for (`onBehalfOf`, `--on-behalf-of`,
+  `on_behalf_of`), as the Kubernetes username the cluster authenticates them as,
+  when it proposes a change, never itself, a service account or
+  the promoter. The client, the promoter and the operation admission policy
+  refuse an agent's proposal without one, with the reasons `NoPrincipal`,
+  `SelfPrincipal` and `NotAPerson`; planning needs none, and changes the
+  promoter raises itself need none. Existing agent automations that propose
+  without naming a person must add it. The named person may not approve the
+  change, and an approval of an agent's change that names nobody is refused.
+  The name is asserted, never verified: it records who an agent says it acts
+  for, and it does not stop a person who controls an agent's credentials from
+  naming someone else and then approving the change.
+  
+  The dashboard's propose panel proposes the plan it shows when a reason or an
+  on-behalf-of person is typed, with no false "Something changed" warning. Its delivery
+  errors carry `differs`, the field that made a plan stale. The propose panel
+  asks an agent who it acts for and takes a ticket or incident id.
+  
+  Fleet attention items whose fix is a contract edit carry `nextAction`
+  (`{"verb": "edit-contract", "tool": "pacto_edit"}`), inferred from the item's
+  code beside `nextStep`; it grants nothing, and unknown, stale, unresolved or
+  non-compliant items carry none. `pacto_edit` returns `impact` (who the edit
+  affects, from the session's fleet snapshot), `chain` (publish and promote,
+  each with its tool and CLI command) and `executor` (who acts on the published
+  revision), also on a dry run; `pacto_create` returns `chain`. The dashboard's
+  target, revision and Change analysis pages offer **Plan…** for the operations
+  the caller may take there, and a `correlationID` in the page URL fills the
+  propose panel's ticket field.
+- a6c189d: The dashboard's Metrics page, under Change and delivery, draws the run records
+  in a stats repository as daily or weekly trends: breaking changes caught,
+  consumers protected, gates, delivery rates, lead time per environment and
+  coverage of contracts and observations. Every number is labelled unsigned statistics
+  and links to the records behind it. Start the dashboard with
+  `pacto dashboard --stats-registry` (or `PACTO_STATS_REGISTRY`); without one the
+  page explains how to turn recording on. A signed-in viewer sees only the
+  services their Kubernetes RBAC allows: hidden services are never named or
+  counted. `pacto fleet status --stats-registry` (or `--stats-file`) writes a
+  coverage record of the snapshot it read. The operator chart value
+  `dashboard.stats.registry` points the managed dashboard at a stats repository.
+- 1e7624b: An environment in `environments[]` can now declare its `lifetime`
+  (`temporary` or `persistent`), an `expires` time (RFC 3339, only with
+  `temporary`) and an `owner` in the shape of `service.owner` (pactoVersion 2.4).
+  A lifetime nobody declared reads "not declared", never persistent. Once a
+  temporary environment's `expires` has passed, `pacto validate` and
+  `pacto_check` warn `ENVIRONMENT_EXPIRED`; Pacto deletes nothing for it.
+  `pacto diff` classifies every change to these fields, and to an environment's
+  `file`, as non-breaking.
+  
+  `pacto init --delivery --env` and `pacto_create` with `delivery` also declare
+  each environment in `pacto.yaml` with an empty values file.
+  `pacto_edit add_environments` takes `lifetime`, `expires` and `owner`, and
+  `pacto_edit remove_environments` retires an environment and deletes the values
+  file no other environment names. `pacto explain --environments a,b` and
+  `pacto_check environments` list the configuration values two or more
+  environments disagree on.
+  
+  A service's environments are one list in `pacto fleet entity service`,
+  `pacto_fleet_entity` and the dashboard's service page: each environment the
+  current revision declares or a visible target reports, with its declaration,
+  its owner (declared, or the service owner labelled inferred), the targets
+  observed there, its provisioning tally, the differences between environments
+  and how the declarations changed between versions. On a delivery host the
+  service page also shows the Stages for each environment.
+  `pacto fleet entities --consumes <offering> --phase <phase> --environment <env>`
+  and the matching `pacto_fleet_entities` arguments list the consumers in a
+  provisioning phase in one environment.
+  
+  The delivery promoter emits the Kubernetes Events `EnvironmentCreated` and
+  `EnvironmentDeleted` when a Stage is first reconciled and when it is deleted,
+  and the recorder posts the CDEvents `environment.created` and
+  `environment.deleted` to its CDEvents sink. Each names one Stage.
+- 9cdf40f: `service.template` (pactoVersion 2.4) marks a contract as a golden path and
+  names the generate plugins it offers, and `service.origin` (pactoVersion 2.4)
+  records the golden path a service was created from as declared provenance
+  (`ref` and the path's content `digest`). A `"2.0"` to `"2.3"` contract that
+  sets either field reports `NEEDS_PACTO_2_4`; a repeated plugin reports
+  `DUPLICATE_TEMPLATE_PLUGIN` and an origin that is neither an `oci://` reference
+  nor a directory reports `INVALID_ORIGIN_REF`. `pacto diff` classifies every
+  change to either field as non-breaking.
+  
+  `pacto init <dir> --from <oci-ref|dir> --owner <team>` creates a service from a
+  golden path: it resets the identity, applies `--values` and `--set`, records
+  `service.origin`, validates the result with its references resolved and only
+  adds files. A path read from a registry is pulled by digest and, when the
+  trust config (`--trust` or `$PACTO_DELIVERY_TRUST`) names a `role: template`
+  key, must be signed by one; otherwise the signature step reads Unknown.
+  `--run-plugins` runs only the plugins of the path you name. `--delivery`, with
+  `--env`, `--registry-secret` and `--insecure-registry`, plans the cluster pieces
+  from the created contract when the path publishes manifests under
+  `publish.deploy`. The step list says what was checked and what Pacto cannot
+  tell yet. The MCP `pacto_create` tool gains `from`, `values`, `set`,
+  `run_plugins` and `domain`, and takes `delivery` and its options with `from`;
+  `from` serves stdio only. `pacto_edit` gains `template`.
+  
+  A blank `pacto init` now writes `--owner`, `--domain` and a publish section,
+  and no placeholder readiness block. `pacto_create` without `pactify` refuses a
+  folder that already holds `pacto.yaml` and keeps any interface or schema file
+  already there.
+  
+  The operational graph treats a service whose newest readable revision declares
+  `service.template` and that runs nowhere as a golden path. Its dependencies and
+  references are requirements, never consumption: impact, dependents, offering
+  consumers, attention and the Overview population counts leave it out, and the
+  Overview counts it in `goldenPaths` and `invalidGoldenPaths`. A running
+  service that declares `service.template` stays a service and raises
+  `GOLDEN_PATH_DEPLOYED`. A declared origin links to the golden path revision
+  whose content digest matches. Entity lists take `template` (`only` or
+  `exclude`) and `createdFrom` (MCP `created_from`), search takes `template` and
+  marks golden path hits, and a service created from a path carries a creation
+  checklist derived from what the fleet observes. A restricted viewer sees a
+  golden path with no Kubernetes target, with the services created from it that
+  they may not read counted. The CLI, MCP tools, dashboard (a Golden paths tab)
+  and TUI show all of it. Consume snippets carry structured `entries`, and a
+  values skeleton leaves out and names in `missingValues` every required value
+  no candidate satisfies.
+  
+  The operator chart's `dashboard.repositories` (operator flag
+  `--dashboard-repositories`) lists `oci://` references the operator-managed
+  dashboard reads beside the contracts it discovers, so golden paths, which are
+  never deployed, show on its Golden paths tab.
+- a6c189d: People and agents now see the same organization and meet the same policy on
+  every surface.
+  
+  Changes that callers notice:
+  
+  - An MCP server over HTTP serves only `pacto_schema` of the contract tools.
+    `pacto_create`, `pacto_edit` and `pacto_check` read and write the server's
+    folders and follow refs with its credentials, so they run beside the agent
+    with `pacto mcp` over stdio.
+  - A remote `pacto mcp --fleet` with `--auth-issuer` needs token exchange
+    (`--exchange-client-id`): it asks the API server who each caller is, the way
+    remote delivery does, in place of reading the token's claims.
+  - `pacto mcp -t http` on loopback without `--auth-issuer` prints a bearer at
+    launch (`pmcp_...`), and every request must carry it.
+  - `pacto dashboard` bound beyond loopback without sign-in refuses to start
+    unless `--allow-anonymous` (`PACTO_DASHBOARD_ALLOW_ANONYMOUS=true`) allows
+    it. The operator passes `--dashboard-allow-anonymous` from the new chart
+    value `dashboard.auth.allowAnonymous`, `true` by default with a warning in
+    the install notes, so existing installs keep starting.
+  - A bundle operation whose name starts with `pacto_` is skipped, so a bundle
+    never takes a Pacto tool's name.
+  - `pacto_impact` over HTTP, and the impact view of a dashboard that is not on
+    loopback, accept only refs of revisions in the caller's view and read each
+    at its digest-pinned ref.
+  
+  Additions:
+  
+  - Every MCP tool carries annotations (`readOnlyHint`, `destructiveHint`,
+    `idempotentHint`, `openWorldHint`); a generated tool takes them from its
+    HTTP method. `--allow-writes` and the stdio-only rules still decide what
+    runs.
+  - A bundle, `--fleet` and `--delivery` combine in one `pacto mcp` process,
+    whose instructions describe only the modes it serves. `pacto_capabilities`
+    reports the modes, the contract tools, the caller and how Pacto knows them,
+    whether writes are exposed and the transport.
+  - Six delivery read tools answer what the dashboard's delivery views show,
+    with the caller's identity: `pacto_delivery_caller`, `pacto_delivery_inbox`,
+    `pacto_delivery_environments`, `pacto_delivery_autonomy`,
+    `pacto_delivery_published` and `pacto_delivery_refusals`. The CLI gains
+    `pacto delivery caller`, `inbox`, `environments`, `autonomy`, `published`
+    and `refusals` over the same route code.
+  - `pacto fleet entities` and `pacto_fleet_entities` list any entity kind and
+    take every filter the dashboard's entity list takes; a filter of one kind,
+    such as `--source-kind`, lists that kind. `pacto fleet attention` and
+    `pacto_fleet_attention` take `kind`, `key`, `source`, `status` and
+    `stale-only`, `pacto_fleet_neighborhood` takes `max_edges` and
+    `pacto_fleet_search` takes `label`. `pacto mcp --publish` serves
+    `pacto_capabilities` too.
+  - `pacto_fleet_revision_document` reads one document of a revision's bundle,
+    as the dashboard's revision page does.
+  - With `--verbose`, every MCP tool call logs one `mcp tool call` line with the
+    tool, the caller and how Pacto knows them, the outcome, the duration and a
+    keyed digest of the arguments.
+  - Generated tool calls send `User-Agent: pacto-mcp/<version>`.
+  - [Fleet views](https://pacto.run/latest/fleet-tools/) maps each question to
+    its command, MCP tool and dashboard route.
+- af4f27d: `service.lifecycle` (pactoVersion 2.4) deprecates a whole service with a
+  sunset and a successor, and a configuration `ref` takes `values` and a
+  `configuration` selector beside it (pactoVersion 2.4). Consumers of a deprecated service are warned with
+  `DEPENDENCY_SERVICE_DEPRECATED` or `DEPENDENCY_SERVICE_SUNSET`, and `pacto diff`
+  classifies the schedule like an interface lifecycle.
+  
+  Configuration references are now resolved and their values validated against
+  the referenced contract's selected configuration schema in a new
+  `configuration-refs` validation stage, in the fleet, the delivery gate,
+  `pacto_check`, `pacto_edit` and the operator. `pacto validate`, `pacto push` and
+  `pacto publish` fail with `CONFIG_REF_UNRESOLVED` on an unreachable
+  configuration ref whose values or selection depend on it, like a policy ref; a
+  `"2.0"` to `"2.3"` ref with no values anywhere only warns. Environment values
+  of `"2.0"` to `"2.3"` ref configurations are now checked, and only 2.4 reports
+  missing required values for a ref configuration. A failed configuration-refs
+  stage does not skip environments. Impact, graph traversal and dependents count
+  resolved configuration-reference consumers, and impact checks their values
+  against the new provider schema. Neighborhood edges gain the
+  `configuration_reference` relation.
+  
+  Provider adapters report provisioning status as `ResourceProvisioned`
+  evidence, written with `pacto evidence provisioned`. A trust entry needs
+  `allowedObservationKinds` listing `ResourceProvisioned` to report it. The
+  Evidence Server's targets endpoint answers `pacto.dev/evidence-source/v3` with
+  a `provisioning` list only when it holds provisioning reports, and v2
+  otherwise, and target-state files accept `pacto.dev/fleet-targets/v2` with
+  unsigned provisioning reports. Offering uses carry a provisioning status per
+  environment that reads Unknown without a current report. `pacto fleet
+  versions`, `pacto_fleet_versions` and the dashboard list each provider's
+  versions with their lifecycle and range status, `--consumes` and `consumes`
+  list an offering's consumers, and `pacto_edit` gains
+  `remove_configuration_refs`, `add_environments`, `set_environment_values` and
+  `lifecycle`. A provider with no Kubernetes target that declares its offering
+  is visible to every signed-in viewer, with its targets hidden and its hidden
+  consumers counted. `OfferingProvider.revisions` and `activeRevisions` become
+  `versions`. `pacto explain` lists each configuration with its
+  `environmentValues`, the effective values per environment an adapter
+  provisions from.
+  
+  The operator resolves configuration references with host-scoped credentials
+  and validates their values, `spec.overrides` and bound ConfigMaps against the
+  resolved schema. `status.metadata` renders non-string values as JSON.
+  The chart's `evidence.trust.configKey` (operator flag
+  `--evidence-trust-config-key`) names a structured trust config inside the
+  trust Secret, so the operator's Evidence Server can grant an adapter key
+  `ResourceProvisioned`.
+- a6c189d: A failing health check is reported as `HEALTH_FAILING` (category
+  `Inconclusive`, severity `unknown`), and compliance stays `Unknown`: a failing
+  endpoint does not contradict the contract. The operator reports it when the
+  declared health endpoint answers with a 5xx other than 501, or when the
+  readiness probe on the declared health path keeps every pod out of Ready;
+  `pacto run` and `pacto agent` report it on a 5xx other than 501. A 501 or a
+  405 stays `EVIDENCE_INSUFFICIENT`, as do a workload scaled to zero and
+  endpoints the operator cannot map to the health port. `COLLECTION_FAILED` now
+  means only that a collector query errored, an EndpointSlice read included. The Evidence Server re-evaluates the same evidence
+  and reaches the same finding. The `CapabilityObserved` evidence payload gains
+  the optional `healthy` key, which only a present capability may carry. Strict
+  decoders reject unknown keys, so upgrade the Evidence Server with or before the
+  operator.
+  
+  `pacto fleet`, `pacto mcp`, `pacto tui` and `pacto impact` now mark target
+  evidence older than 24 hours as stale by default, the window the dashboard
+  already uses. `--freshness 0` still skips the check, and every answer then
+  carries the `FRESHNESS_NOT_EVALUATED` limitation, so a stale count of zero is
+  never read as "nothing is stale"; the CLI also prints it as a note on stderr.
+  The limitation does not change completeness.
+  
+  `pacto fleet overview`, the MCP tool `pacto_fleet_overview` and the dashboard
+  overview answer "how healthy is the organization and how much do we know" in
+  one shape. The overview summary gains `operationalHealth` (targets that are
+  healthy, failing their own health check, unknown or declare no health check),
+  `knowledge` with its gap kinds (`noSummary`, `noDomain`, `noInterfaceDocs`,
+  `noReadiness`, `notDeployed`, `unverifiedCapability`) and an `unknown` bucket,
+  `knowledgeItems`, `coverage` (assertions evaluated and required, and the
+  targets that report none) and `staleCompliantTargets`. Every compliance tally
+  gains `staleCompliant`, the Compliant targets or services that rest on stale
+  evidence: a subset, never subtracted from `compliant`, drawn hatched. The
+  entity list aggregate gains `targetHealth` and `knowledge`. The dashboard draws
+  an Operational health band and a Knowledge band, and a target that is unknown
+  is never counted as healthy. There is still no composite score.
+  
+  Ownership splits a service whose contract Pacto cannot read from a service
+  that declares no owner: `ownership.unknown` and the filter value
+  `ownership=unknown` are new, labelled Owner unknown. Each business domain row
+  gains `failingHealth`, `ownerUnknown`, `notDeployed` and `withGaps`; owner and
+  domain pages gain operational health, knowledge, readiness, services that run
+  nowhere, services whose placement is unknown and unresolved and undeclared
+  dependencies; owner and domain list rows
+  gain `unknown`, `stale`, `failingHealth` and `withGaps` counts, and
+  `sort=health` ranks them by those counts. New filters and sorts: `gap`
+  (`--gap`), `sort=gaps` and `sourceHealth=incomplete`, which the new
+  Incomplete sources entry point opens. The attention categories `health` and
+  `knowledge` are new, and the dashboard's Attention view lists every category
+  with each item's reason.
+  
+  Changed meanings: `ownership.unowned` and a domain row's `unowned` no longer
+  count services whose contract Pacto cannot read; the lead "Services needing
+  attention" tile and `servicesNeedingAttention` count every service with at
+  least one attention item, and the tile's `itemCount` carries the item total;
+  an `unknown` attention item names its cause in `code` (for example
+  `EVIDENCE_STALE` or `EVIDENCE_MISSING`) and keeps `UNKNOWN` only when no
+  cause is known; the CLI and MCP mark targets stale after 24 hours by default;
+  and the evidence payload gains `healthy`. The dashboard's sidebar badge counts
+  only attention items above `info`.
+- 78fd229: `service.offering` (pactoVersion 2.4) names the platform offering a service
+  provides to other teams such as `postgresql`, and `service.summary` a one-line
+  purpose; `pacto diff` reports an added, changed or removed offering or summary as `NON_BREAKING`.
+  The operator reports both in `status.contract.offering` and
+  `status.contract.summary`.
+  
+  The dashboard gains an Offerings page. Each offering lists its providers with
+  their versions, owners, interfaces, configuration and policies, the services
+  that consume it and a snippet to consume it from a contract. A service page
+  lists the platform offerings the service uses and, marked inferred, the
+  providers its unresolved dependencies may mean. The capability filter and chips
+  now read "Declared capability" and count each extension by its ref.
+  `pacto fleet search --offering`, the `offering` argument of
+  `pacto_fleet_search` and the TUI Offerings tab find providers, and `pacto_edit`
+  gains `offering`, `summary`, `add_configuration_refs` and `add_policy_refs`.
+- a6c189d: The delivery promoter can publish an unsigned run record of every operation it
+  concludes to a repository you name with `delivery.stats.repository` (Helm) or
+  `--stats-repository`. Records hold the type, outcome, verification, gate
+  results, how long each operation was held, the class of who asked, the Stage
+  and the digests, never a name. Publishing is best effort: a full queue or a
+  registry error is counted in `pacto_delivery_stats_dropped_total` and never
+  changes an outcome. `pkg/runrecord` describes `kind: operation` records.
+
+### Patch Changes
+
+- a6c189d: Provisioning keys can be scoped to provider repositories with
+  `allowedProviderRepos` in the structured trust config. The Evidence Server
+  refuses a provisioning report whose declared configuration or dependency ref
+  names a repository outside the scope with HTTP 403 and the code
+  `provider_not_allowed`, and it logs a warning at startup for every provisioning
+  key with no scope. Older binaries reject a trust config that uses the field.
+  
+  An offering answer names who reports on it on the CLI, TUI, MCP and dashboard:
+  `adapters` lists each adapter slug, producer and signature with the
+  environments and phases it covers, `conflicting` counts requests whose adapters
+  disagree and `unattributed` counts requests no adapter reported on. A report
+  with no slug reads "unnamed adapter". `unresolvedUses` counts the declared
+  references that may name a provider of the offering but did not resolve, and
+  above 0 the answer carries `OFFERING_USES_UNRESOLVED` and is `partial`.
+  
+  Phase tallies count an unsigned Ready apart in `readyUnsigned`, and the CLI
+  prints "N ready (M unsigned)". The dashboard shows an unsigned Ready as
+  "Ready (unsigned)" in the info tone, so only a signed Ready reads positive.
+  
+  Impact's `CONFIG_REF_CONSUMERS_UNRESOLVED` and
+  `POLICY_REF_CONSUMERS_UNRESOLVED` now count hidden consumers and count each
+  consumer once instead of once per revision, so their numbers can change.
+  
+  The demo adds a `security-scanning` offering, provided by `platform-security`,
+  with a signed and an unsigned report from the `scanner` adapter.
+- 1e7624b: Follow a service through delivery on every surface. `pacto delivery status`,
+  the `pacto_delivery_status` MCP tool and the dashboard show each Stage of a
+  service in promotion order with its upstream, the one state the board counts,
+  the version, contract and source revision it runs, its newest re-check with
+  `Watched` and what you may ask for (`offers`: promote, unfreeze, freeze and
+  undo, each with why or why not). `--why` and `/api/delivery/progress` say why
+  a candidate cannot move yet, with each reason's fix and a dry-run plan that
+  proposes nothing. Offers go unavailable when RBAC denies or cannot answer, and
+  when the delivery identity policy cannot be read, with a `--delivery-namespace`
+  hint when it is not found. A Stage whose admission policies are missing (Ready
+  False `Unguarded`) and a Stage that observes (including one that reports no
+  level) offer no promote, and none appears in `actions`.
+  
+  `pacto delivery lifecycle`, `pacto_delivery_lifecycle` and
+  `/api/delivery/lifecycle` follow one version through every Stage, and
+  `pacto delivery record get`, `pacto_delivery_record_get` and
+  `/api/delivery/record` read one signed record by its id. History takes
+  `--cause` and `--correlation-id` (`cause` and `correlation_id` in MCP, which
+  also accepts durations for `since` and `until`); both narrow the timeline too.
+  The CLI history shows applied, cause and correlation columns and marks lines
+  that are not signed. `/api/delivery/plan` and propose return the full plan
+  answer (`next`, `precedent` and `order`). Published versions show the source
+  revision `pacto publish` stamps, an annotation, not signed, and link their
+  fleet revision; a service whose Stages name two domains is listed once per
+  domain. Delivery service filters match the service name exactly. A Stage
+  waiting on exactly one held change names it (`heldOperation`). A fleet service detail carries
+  `placement`, where its targets report it runs. The CLI labels an evidence
+  gate's Pass as Checked, `pacto.contract` verdicts cite each Pacto's target,
+  status, evaluation time and findings, a held promote on a frozen Stage names
+  the `StageFrozen` conflict and the `CandidateUnverified` fix points at
+  `spec.verify`. The operator uses the shared Ready reasons and auto-promote
+  rule, and a held shadow promote keeps the person's question.
+- 8517f96: Bump Go dependencies (sigstore, sigstore-go, go-jose, oras-go, prometheus,
+  pflag, ginkgo and k8s.io/apiextensions-apiserver), dashboard frontend
+  dependencies (jsdom 31, vite, vitest, playwright, mermaid, marked, d3 and
+  svelte-check) and the cosign-installer, docker/login-action and CodeQL
+  GitHub Actions.
+- a39e7dc: Build with Go 1.27.4 (was 1.27.3) everywhere it's pinned (both modules,
+  `go.work`, both Dockerfiles) for GO-2026-6859, a `net/http` vulnerability fixed
+  in Go 1.27.4 and reachable from Pacto's code. No source changes.
+- a6c189d: The demos ship generated run records, labelled unsigned statistics: the browser
+  demo opens Metrics with about 90 days of records that follow the payments story,
+  the Compose demo seeds CI records into its own registry and the Kubernetes demo
+  records its real publishes and promoter operations on top of a seeded history.
+  The delivery tour visits Metrics before its recap. The new guide "Measure what
+  Pacto does" explains what is recorded, where it goes, how to turn it on in CI
+  and in delivery, who sees which records and how to prune them, and the run
+  record reference says for every field whether it can hold personal data.
+- a6c189d: A service's detail now carries its `changes`: every declared change between
+  the revisions Pacto holds (owner, business domain, offering, dependency,
+  lifecycle and environment) and each validation finding that appeared or
+  resolved, newest first in version order, each with the revision that shows it,
+  the one it was compared with, its `provenance` and its `source`. `changes`
+  replaces the unreleased `environmentHistory`. `pacto fleet entity service
+  <key> --reached`, `reached` on a stdio `pacto_fleet_entity` and the service
+  page add when each change's revision reached a Stage, from signed delivery
+  records read as the caller; a change with no record reads "time not recorded",
+  and "time hidden" when the caller may not read delivery. The TUI and the
+  dashboard's service page show the same changes.
+  
+  A sequential owner handover is now an owner change, never `OWNER_CONFLICT`.
+  `OWNER_CONFLICT` remains for targets that run revisions declaring different
+  owners, or for two revisions of one version that disagree, and says when the
+  link is inferred. Rankings, owner filters and owner pages count the current
+  owner, and a former owner's page still lists the revisions it declared.
+  
+  `pacto delivery history`, `pacto_delivery_history` and Delivery history name
+  the fleet revision of every artifact and the `pacto.impact` verdict each
+  record signed, apart from a re-analysis against today's graph; blame names the
+  revision too. `pacto delivery history --at`, `at` on `pacto_delivery_history`
+  and `?at=` on the dashboard answer which revision each Stage ran at a past
+  time, from signed records, and read `unknown` where no record holds.
+- a6c189d: A service's detail lists every resource it consumes. A use of a provider that
+  declares no offering now shows once a provider reports on it, and the service's
+  `hiddenProviders` says at least how many resources come from providers the
+  viewer may not see. Each use carries `providerOwner`, `providerAvailability`,
+  `requested` (the values the contract declares, on the configuration-reference
+  row) and `consumption`, which reads `not-reported` until a provider reports
+  usage or cost. A new `provisioning` attention category raises
+  `PROVISIONING_FAILED` and `PROVISIONING_STALE`; a resource's phase never changes
+  the service's compliance. `pacto fleet entity service` and the TUI's service
+  page print a Resources block with provenance, and the dashboard's service page gains a Resources section
+  that joins each use with its requested configuration.
+  
+  Provider adapters can report a resource's usage and cost with the new
+  `ResourceUsage` observation kind, written by `pacto evidence usage`. Only a key
+  that lists `ResourceUsage` in `allowedObservationKinds` may report it, scoped by
+  `allowedProviderRepos` like `ResourceProvisioned`, and an EvidenceSet carries
+  one provider-reported kind only. The Evidence Server's targets endpoint lists
+  usage under schema `pacto.dev/evidence-source/v4`, written only when it holds
+  usage. `consumption` reads `reported`, with the figures, only for a signed,
+  fresh, uncontested report about the current revision; otherwise it reads
+  `unknown` and keeps the raw figures apart under `reported`. The CLI, MCP and the
+  dashboard's Resources section show both, and Pacto never sums or converts a cost.
+
 ## 6.4.1
 
 ### Patch Changes

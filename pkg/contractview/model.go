@@ -159,12 +159,18 @@ type ServiceDetails struct {
 
 	Namespace string            `json:"namespace,omitempty"`
 	Metadata  map[string]string `json:"metadata,omitempty"`
+	// NameInferredFrom is where Name comes from when the contract does not
+	// declare it (a local read inferred it).
+	NameInferredFrom string `json:"nameInferredFrom,omitempty"`
 
 	// Contract references from operator.
 	ResolvedRef     string `json:"resolvedRef,omitempty"`
 	CurrentRevision string `json:"currentRevision,omitempty"`
 
-	Interfaces     []InterfaceInfo     `json:"interfaces,omitempty"`
+	Interfaces []InterfaceInfo `json:"interfaces,omitempty"`
+	// Breaks are the deliberate breaking changes the contract announces
+	// (pactoVersion 2.5).
+	Breaks         []BreakInfo         `json:"breaks,omitempty"`
 	Configurations []ConfigurationInfo `json:"configurations,omitempty"`
 	Dependencies   []DependencyInfo    `json:"dependencies,omitempty"`
 	Workload       string              `json:"workload,omitempty"`
@@ -256,9 +262,11 @@ type SkillInfo struct {
 
 // InterfaceInfo describes a single service interface.
 type InterfaceInfo struct {
-	Name            string              `json:"name"`
-	Type            string              `json:"type"` // openapi, asyncapi, grpc
-	Visibility      string              `json:"visibility,omitempty"`
+	Name       string `json:"name"`
+	Type       string `json:"type"` // openapi, asyncapi, grpc
+	Visibility string `json:"visibility,omitempty"`
+	// Port is the port the interface declares it listens on (pactoVersion 2.5).
+	Port            int                 `json:"port,omitempty"`
 	HasContractFile bool                `json:"hasContractFile,omitempty"`
 	ContractFile    string              `json:"contractFile,omitempty"`
 	ContractContent string              `json:"contractContent,omitempty"`
@@ -270,6 +278,14 @@ type InterfaceInfo struct {
 	Lifecycle          *contract.InterfaceLifecycle `json:"lifecycle,omitempty"`
 	Guarantees         *contract.Guarantees         `json:"guarantees,omitempty"`
 	CompatibilityEpoch int                          `json:"compatibilityEpoch,omitempty"`
+}
+
+// BreakInfo is one announced deliberate break: the consumers it affects, why
+// and the YYYY-MM-DD date it stops applying.
+type BreakInfo struct {
+	Consumers []string `json:"consumers"`
+	Reason    string   `json:"reason"`
+	Expires   string   `json:"expires,omitempty"`
 }
 
 // ConfigValue is a flattened key/value/type entry for display. It aliases
@@ -299,10 +315,15 @@ type ConfigurationInfo struct {
 
 // DependencyInfo describes a declared dependency.
 type DependencyInfo struct {
-	Name          string `json:"name"`
+	Name string `json:"name"`
+	// NameFromRef marks a Name derived from Ref because the contract declares none.
+	NameFromRef   bool   `json:"nameFromRef,omitempty"`
 	Ref           string `json:"ref"`
 	Required      bool   `json:"required"`
 	Compatibility string `json:"compatibility,omitempty"`
+	// CompatibilityUnknown marks a Compatibility of unknown: the range is not
+	// declared, so the dependency is never counted as compatible.
+	CompatibilityUnknown bool `json:"compatibilityUnknown,omitempty"`
 	// External marks a dependency this Pacto system does not deliver; Version
 	// is the free-text version one with no ref declares.
 	External bool   `json:"external,omitempty"`

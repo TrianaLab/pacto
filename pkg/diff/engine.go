@@ -129,6 +129,7 @@ func Compare(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 
 	changes = append(changes, diffContract(old, new)...)
 	changes = append(changes, diffDependencies(old, new)...)
+	changes = append(changes, diffBreaks(old.Breaks, new.Breaks)...)
 	changes = append(changes, diffInterfaces(old, new, oldFS, newFS)...)
 	changes = append(changes, diffConfiguration(old, new, oldFS, newFS)...)
 	changes = append(changes, diffEnvironments(old.Environments, new.Environments, oldFS, newFS)...)

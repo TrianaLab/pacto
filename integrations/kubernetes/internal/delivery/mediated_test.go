@@ -63,9 +63,7 @@ func TestMediated(t *testing.T) {
 			for _, o := range c.objs {
 				e.create(o)
 			}
-			if err := e.reconcileStage("payments-prod"); err != nil {
-				t.Fatal(err)
-			}
+			must(t, e.reconcileStage("payments-prod"))
 			m := conditionOf(e.getStage().Status.Conditions, ConditionMediated)
 			if m == nil || m.Status != c.status || m.Reason != c.reason || !strings.Contains(m.Message, c.msg) {
 				t.Fatalf("Mediated: %+v", m)
@@ -77,9 +75,7 @@ func TestMediated(t *testing.T) {
 	bare := ociRepo("payments", dA, "", false)
 	bare.SetLabels(nil)
 	e := newEnv(t, stageObj(dA), bare, verifiedRepo("payments-candidates", "latest@"+dB), guardedKs("payments", ns, nil))
-	if err := e.reconcileStage("payments-prod"); err != nil {
-		t.Fatal(err)
-	}
+	must(t, e.reconcileStage("payments-prod"))
 	if m := conditionOf(e.getStage().Status.Conditions, ConditionMediated); m == nil || m.Status != statusFalse || m.Reason != "ApplyRefUnguarded" ||
 		!strings.Contains(m.Message, ApplyRefLabel) {
 		t.Fatalf("an unlabelled apply object is not mediated: %+v", m)
@@ -88,9 +84,7 @@ func TestMediated(t *testing.T) {
 	ignoring := ociRepo("payments", dA, "", false)
 	_ = unstructured.SetNestedField(ignoring.Object, "deploy/", "spec", "ignore")
 	e = newEnv(t, stageObj(dA), ignoring, verifiedRepo("payments-candidates", "latest@"+dB), guardedKs("payments", ns, nil))
-	if err := e.reconcileStage("payments-prod"); err != nil {
-		t.Fatal(err)
-	}
+	must(t, e.reconcileStage("payments-prod"))
 	if m := conditionOf(e.getStage().Status.Conditions, ConditionMediated); m == nil || m.Reason != "ApplierOverrides" ||
 		!strings.Contains(m.Message, "spec.ignore") {
 		t.Fatalf("an apply object with spec.ignore is not mediated: %+v", m)

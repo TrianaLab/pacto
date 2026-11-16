@@ -222,8 +222,8 @@ func TestNarrowRowsAsksOnlyForAnAction(t *testing.T) {
 		{StageRow: delivery.StageRow{Namespace: "team-b", Actions: []string{"unfreeze"}, Offers: freeze}},
 		{StageRow: delivery.StageRow{Namespace: "team-c", Actions: []string{}}},
 		{StageRow: delivery.StageRow{Namespace: "team-d", Actions: []string{}, Offers: []delivery.Offer{{Action: "promote", Reason: "no"}}}}}
-	narrowRows(context.Background(), f, rows)
-	if len(rows[0].Actions) != 1 || len(rows[1].Actions) != 0 || f.cans.Load() != 2 {
+	narrowRows(context.Background(), f, rows, delivery.ClassHuman, delivery.AccessMemo(nil, f.WorkloadAccess))
+	if len(rows[0].Actions) != 1 || len(rows[1].Actions) != 0 || f.cans.Load() != 2 || f.accesses.Load() != 0 {
 		t.Errorf("rows %v, %d reviews", rows, f.cans.Load())
 	}
 	if o := rows[1].Offers[0]; o.Available || o.Reason != "your Kubernetes RBAC does not let you create Operations in team-b" {

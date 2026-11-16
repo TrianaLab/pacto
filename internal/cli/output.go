@@ -13,8 +13,10 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/diff"
 	"github.com/trianalab/pacto/v4/pkg/doc"
+	"github.com/trianalab/pacto/v4/pkg/finding"
 	"github.com/trianalab/pacto/v4/pkg/graph"
 	"github.com/trianalab/pacto/v4/pkg/sbom"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 // outputFormats is the closed --output-format vocabulary. checkOutputFormat
@@ -60,14 +62,36 @@ func printInitResult(cmd *cobra.Command, result *app.InitResult, format string) 
 	}, nil)
 }
 
+// impliedClause names, in parentheses, what a validate run implied rather than
+// read on a valid contract: " (pactoVersion 2.5 from this CLI, service.name payments from
+// chart/Chart.yaml:2, service.version not declared)". It is empty when the
+// contract did not load or declares everything.
+func impliedClause(result *app.ValidateResult) string {
+	if len(result.Stages) == 0 || result.Stages[0].Name != "load" || result.Stages[0].Status != validation.StagePass {
+		return ""
+	}
+	var parts []string
+	for _, inf := range result.Inferred {
+		parts = append(parts, inf.Field+" "+inf.Value+" from "+inf.Source)
+	}
+	if result.VersionDeclared != nil && !*result.VersionDeclared {
+		parts = append(parts, "service.version not declared")
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return " (" + strings.Join(parts, ", ") + ")"
+}
+
 func printValidateResult(cmd *cobra.Command, result *app.ValidateResult, format string) error {
 	return formatResult(cmd, format, result, func() error {
 		w := cmd.OutOrStdout()
+		clause := impliedClause(result)
 		if result.Valid {
 			if useColor(w) {
-				_, _ = fmt.Fprintf(w, "%s %s is valid\n", checkGlyph(true), result.Path)
+				_, _ = fmt.Fprintf(w, "%s %s is valid%s\n", checkGlyph(true), result.Path, clause)
 			} else {
-				_, _ = fmt.Fprintf(w, "%s is valid\n", result.Path)
+				_, _ = fmt.Fprintf(w, "%s is valid%s\n", result.Path, clause)
 			}
 		} else {
 			if useColor(w) {
@@ -91,7 +115,11 @@ func printValidateResult(cmd *cobra.Command, result *app.ValidateResult, format 
 				_, _ = fmt.Fprintf(w, "  %sERROR [%s] %s: %s\n", at, e.Code, e.Path, e.Message)
 			}
 			for _, wr := range st.Warnings {
-				_, _ = fmt.Fprintf(w, "  WARN  [%s] %s: %s\n", wr.Code, wr.Path, wr.Message)
+				label := "WARN "
+				if finding.SeverityFor(finding.Code(wr.Code), true) == finding.SeverityInfo {
+					label = "INFO "
+				}
+				_, _ = fmt.Fprintf(w, "  %s [%s] %s: %s\n", label, wr.Code, wr.Path, wr.Message)
 			}
 		}
 		_, _ = fmt.Fprintln(w, "Next: "+result.Next)
@@ -278,6 +306,9 @@ func colorClassification(w io.Writer, s string) string {
 // interface, leaving out what is not set.
 func interfaceDetails(iface app.ExplainInterface) string {
 	var s string
+	if iface.Port != 0 {
+		s += fmt.Sprintf(", port %d", iface.Port)
+	}
 	if iface.Visibility != "" {
 		s += ", " + iface.Visibility
 	}
@@ -305,6 +336,22 @@ func printExplainInterfaces(w io.Writer, ifaces []app.ExplainInterface) {
 	}
 }
 
+// printExplainBreaks lists each announced break: its consumers, reason and
+// expiry.
+func printExplainBreaks(w io.Writer, breaks []contract.Break) {
+	if len(breaks) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "\nBreaks (%d):\n", len(breaks))
+	for _, b := range breaks {
+		expires := ""
+		if b.Expires != "" {
+			expires = ", expires " + b.Expires
+		}
+		_, _ = fmt.Fprintf(w, "  - %s: %s%s\n", strings.Join(b.Consumers, ", "), b.Reason, expires)
+	}
+}
+
 // printExplainDependencies lists each dependency and, as declared, what it
 // requires of each provider interface.
 func printExplainDependencies(w io.Writer, deps []app.ExplainDependency) {
@@ -320,7 +367,7 @@ func printExplainDependencies(w io.Writer, deps []app.ExplainDependency) {
 		if dep.Ref == "" {
 			_, _ = fmt.Fprintf(w, "  - %s: external, version %s (cannot be checked, %s)\n", dep.Name, dep.Version, req)
 		} else {
-			_, _ = fmt.Fprintf(w, "  - %s: %s (%s, %s)\n", dep.Name, dep.Ref, dep.Compatibility, req)
+			_, _ = fmt.Fprintf(w, "  - %s: %s (%s, %s)\n", dep.Name, dep.Ref, contract.RangeLabel(dep.Compatibility), req)
 		}
 		for _, r := range dep.Requires {
 			_, _ = fmt.Fprintf(w, "      requires from %s\n", r)
@@ -399,7 +446,11 @@ func printEnvironmentDifferences(w io.Writer, result *app.ExplainResult) {
 func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format string) error {
 	return formatResult(cmd, format, result, func() error {
 		w := cmd.OutOrStdout()
-		_, _ = fmt.Fprintf(w, "Service: %s@%s\n", result.Name, result.Version)
+		if result.Version == "" {
+			_, _ = fmt.Fprintf(w, "Service: %s (version not declared)\n", result.Name)
+		} else {
+			_, _ = fmt.Fprintf(w, "Service: %s@%s\n", result.Name, result.Version)
+		}
 		if !result.Owner.IsEmpty() {
 			_, _ = fmt.Fprintf(w, "Owner: %s\n", result.Owner.DisplayString())
 		}
@@ -441,6 +492,7 @@ func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format st
 		}
 
 		printExplainInterfaces(w, result.Interfaces)
+		printExplainBreaks(w, result.Breaks)
 		printExplainDependencies(w, result.Dependencies)
 		printExplainConfigurations(w, result.Configurations)
 

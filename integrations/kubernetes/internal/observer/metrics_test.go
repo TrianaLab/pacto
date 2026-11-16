@@ -220,6 +220,7 @@ func TestObserveMetricsDim_ServicePortNotFound(t *testing.T) {
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-svc", Namespace: "default"},
 		Spec: corev1.ServiceSpec{
+			Selector: map[string]string{"app": "test"},
 			Ports: []corev1.ServicePort{
 				{Name: "http", Port: 9090},
 			},
@@ -308,6 +309,7 @@ func TestObserveMetricsDim_ProbeReachable200Parsed(t *testing.T) {
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-svc", Namespace: "default"},
 		Spec: corev1.ServiceSpec{
+			Selector: map[string]string{"app": "test"},
 			Ports: []corev1.ServicePort{
 				{Name: "http", Port: 8080},
 			},
@@ -372,6 +374,7 @@ func TestObserveMetricsDim_Probe200NotParsed(t *testing.T) {
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-svc", Namespace: "default"},
 		Spec: corev1.ServiceSpec{
+			Selector: map[string]string{"app": "test"},
 			Ports: []corev1.ServicePort{
 				{Name: "http", Port: 8080},
 			},
@@ -426,6 +429,7 @@ func TestObserveMetricsDim_Probe404(t *testing.T) {
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-svc", Namespace: "default"},
 		Spec: corev1.ServiceSpec{
+			Selector: map[string]string{"app": "test"},
 			Ports: []corev1.ServicePort{
 				{Name: "http", Port: 8080},
 			},
@@ -479,6 +483,7 @@ func TestObserveMetricsDim_Probe410(t *testing.T) {
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-svc", Namespace: "default"},
 		Spec: corev1.ServiceSpec{
+			Selector: map[string]string{"app": "test"},
 			Ports: []corev1.ServicePort{
 				{Name: "http", Port: 8080},
 			},
@@ -532,6 +537,7 @@ func TestObserveMetricsDim_Probe5xx(t *testing.T) {
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-svc", Namespace: "default"},
 		Spec: corev1.ServiceSpec{
+			Selector: map[string]string{"app": "test"},
 			Ports: []corev1.ServicePort{
 				{Name: "http", Port: 8080},
 			},
@@ -585,6 +591,7 @@ func TestObserveMetricsDim_Probe401(t *testing.T) {
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-svc", Namespace: "default"},
 		Spec: corev1.ServiceSpec{
+			Selector: map[string]string{"app": "test"},
 			Ports: []corev1.ServicePort{
 				{Name: "http", Port: 8080},
 			},
@@ -638,6 +645,7 @@ func TestObserveMetricsDim_ProbeTransportError(t *testing.T) {
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-svc", Namespace: "default"},
 		Spec: corev1.ServiceSpec{
+			Selector: map[string]string{"app": "test"},
 			Ports: []corev1.ServicePort{
 				{Name: "http", Port: 8080},
 			},
@@ -684,5 +692,47 @@ func TestObserveMetricsDim_ProbeTransportError(t *testing.T) {
 	}
 	if obs.Outcome != evidence.Failed {
 		t.Errorf("expected Failed for transport error, got %s", obs.Outcome)
+	}
+}
+
+// A namespace label can turn metrics on, so the scrape must never dial through an ExternalName's CNAME or
+// a selector-less Service's hand-written endpoints, even when annotations name the port and path.
+func TestMetricsNoActiveProbeForExternalNameOrSelectorless(t *testing.T) {
+	ports := []corev1.ServicePort{{Name: "http", Port: 8080}}
+	annotations := map[string]string{"prometheus.io/scrape": "true", "prometheus.io/port": "8080", "prometheus.io/path": "/admin/flush"}
+	for _, tc := range []struct {
+		name      string
+		spec      corev1.ServiceSpec
+		wantProbe bool
+	}{
+		{"external name", corev1.ServiceSpec{Type: corev1.ServiceTypeExternalName, ExternalName: "admin.internal", Ports: ports}, false},
+		{"selector-less", corev1.ServiceSpec{Ports: ports}, false},
+		{"selector-backed", corev1.ServiceSpec{Selector: map[string]string{"app": "test"}, Ports: ports}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "test-svc", Namespace: "default", Annotations: annotations}, Spec: tc.spec}
+			prober := &fakeMetricsProber{result: probe.Result{Reachable: true, StatusCode: 200, PrometheusParsed: true}}
+			o := &Observer{client: fake.NewClientBuilder().WithObjects(svc).Build(), prober: prober}
+			cap := contract.Capability{
+				Type:    contract.CapabilityMetrics,
+				Binding: &contract.CapabilityBinding{Type: contract.CapabilityBindingHTTP, Interface: "api", Path: "/metrics"},
+			}
+			input := CollectInput{
+				Namespace:                "default",
+				ServiceName:              "test-svc",
+				Contract:                 &contract.Contract{Service: contract.Service{Name: "test"}, Capabilities: []contract.Capability{cap}},
+				InterfaceBindings:        []InterfaceBinding{{Interface: "api", ServicePort: intstr.FromInt32(8080)}},
+				EnableMetricsObservation: true,
+				ObservationWindows:       make(map[string]*metav1.Time),
+				Now:                      time.Now(),
+			}
+			obs, _ := o.observeMetricsDim(context.Background(), input, evidence.Provenance{Collector: "k8s-observer"}, input.Now)
+			if probed := prober.result.URL != ""; probed != tc.wantProbe {
+				t.Fatalf("probed = %v, want %v", probed, tc.wantProbe)
+			}
+			if !tc.wantProbe && (obs == nil || obs.Outcome != evidence.Unsupported) {
+				t.Errorf("observation %+v: a skipped scrape must read Unsupported", obs)
+			}
+		})
 	}
 }

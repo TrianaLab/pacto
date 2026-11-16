@@ -221,6 +221,9 @@ test.describe('Browser demo: the delivery story', () => {
     const prod = page.getByRole('region', { name: 'History of prod/payments' });
     await expect(prod).toContainText('Runs 3.0.0', { timeout: T });
     await expect(prod.getByTestId('history-source')).toHaveText('From signed records, every signature verified, complete.');
+    // Her decision says how she was classified and what let her decide.
+    const access = prod.getByTestId('approval-access').filter({ hasText: 'signed-in user' }).first();
+    await expect(access).toContainText(/signed-in user; may update \S+ in prod, checked with the caller's own credentials at /);
   });
 
   test('history shows the deliberate gap, the untrusted record and a status-only Stage', async ({ page }) => {

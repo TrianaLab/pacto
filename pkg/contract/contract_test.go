@@ -2,6 +2,8 @@ package contract
 
 import (
 	"encoding/json"
+	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -501,5 +503,109 @@ func TestValidCapabilityPath(t *testing.T) {
 		if got := ValidCapabilityPath(path); got != want {
 			t.Errorf("ValidCapabilityPath(%q) = %v, want %v", path, got, want)
 		}
+	}
+}
+
+func TestDependencyNameFromRef(t *testing.T) {
+	for ref, want := range map[string]string{
+		"oci://ghcr.io/acme/ledger":                   "ledger",
+		"ghcr.io/acme/ledger:1.2.0":                   "ledger",
+		"oci://ghcr.io/acme/ledger@sha256:" + hex64(): "ledger",
+		"oci://localhost:5000/acme/ledger:1.0.0":      "ledger",
+		"file://../ledger":                            "ledger",
+		"../ledger/":                                  "ledger",
+		"":                                            "",
+	} {
+		if got := DependencyName(ref); got != want {
+			t.Errorf("DependencyName(%q) = %q, want %q", ref, got, want)
+		}
+	}
+}
+
+func hex64() string { return strings.Repeat("a", 64) }
+
+// parseBoth parses doc through Parse and ParseDocument, failing the test when
+// they disagree on success.
+func parseBoth(t *testing.T, doc string) []*Contract {
+	t.Helper()
+	a, err := Parse(strings.NewReader(doc))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	b, _, err := ParseDocument([]byte(doc))
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	return []*Contract{a, b}
+}
+
+func TestDependencyRequiredDefaultsTrue(t *testing.T) {
+	for _, c := range parseBoth(t, "dependencies:\n  - ref: oci://ghcr.io/acme/ledger\n    compatibility: ^1.0.0\n") {
+		d := c.Dependencies[0]
+		if !d.Required || d.Name != "ledger" {
+			t.Errorf("dependency = %+v, want name ledger and required true", d)
+		}
+	}
+}
+
+func TestDependencyRequiredFalseKept(t *testing.T) {
+	for _, c := range parseBoth(t, "dependencies:\n  - name: ledger\n    ref: oci://ghcr.io/acme/ledger\n    required: false\n") {
+		if c.Dependencies[0].Required {
+			t.Error("an explicit required: false is kept")
+		}
+	}
+}
+
+func TestDependencyRequiredFromMergeKeyKept(t *testing.T) {
+	var root yaml.Node
+	if err := yaml.Unmarshal([]byte("dependencies:\n  - &a\n    <<: [{required: false}]\n    ref: oci://ghcr.io/acme/ledger\n  - <<: {required: false}\n    ref: oci://ghcr.io/acme/ledger\n  - *a\n"), &root); err != nil {
+		t.Fatal(err)
+	}
+	got := &Contract{Dependencies: make([]Dependency, 3)}
+	applyDependencyDefaults(&root, got)
+	for i, d := range got.Dependencies {
+		if d.Required {
+			t.Errorf("dependency %d: required from a merge key is kept false", i)
+		}
+	}
+}
+
+func TestDependencyNameFromRefMarked(t *testing.T) {
+	doc := "dependencies:\n  - ref: oci://ghcr.io/acme/ledger\n    compatibility: ^1.0.0\n  - name: billing\n    ref: oci://ghcr.io/acme/billing\n    compatibility: ^1.0.0\n"
+	for _, c := range parseBoth(t, doc) {
+		if !c.Dependencies[0].NameFromRef || c.Dependencies[1].NameFromRef {
+			t.Errorf("NameFromRef = %v, %v; want true, false", c.Dependencies[0].NameFromRef, c.Dependencies[1].NameFromRef)
+		}
+	}
+}
+
+func TestParseDependencyUnknownFieldStillRejected(t *testing.T) {
+	doc := "dependencies:\n  - ref: oci://ghcr.io/acme/ledger\n    bogus: 1\n"
+	if _, err := Parse(strings.NewReader(doc)); err == nil {
+		t.Error("Parse accepts an unknown dependency field")
+	}
+	if _, _, err := ParseDocument([]byte(doc)); err == nil {
+		t.Error("ParseDocument accepts an unknown dependency field")
+	}
+}
+
+func TestParseNodeFastPathKeptWithDependencies(t *testing.T) {
+	var root yaml.Node
+	if err := yaml.Unmarshal([]byte("dependencies:\n  - ref: oci://ghcr.io/acme/ledger\n    compatibility: ^1.0.0\n"), &root); err != nil {
+		t.Fatal(err)
+	}
+	if !knownFields(&root, reflect.TypeFor[Contract]()) {
+		t.Error("knownFields gives up on a contract with dependencies, so it leaves the fast path")
+	}
+}
+
+type failingReader struct{}
+
+func (failingReader) Read([]byte) (int, error) { return 0, errors.New("disk gone") }
+
+func TestParseReadError(t *testing.T) {
+	var pe *ParseError
+	if _, err := Parse(failingReader{}); !errors.As(err, &pe) || !strings.Contains(err.Error(), "disk gone") {
+		t.Errorf("Parse(failing reader) = %v, want a ParseError naming the read error", err)
 	}
 }

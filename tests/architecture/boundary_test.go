@@ -58,6 +58,7 @@ var corePackages = []string{
 	"github.com/trianalab/pacto/v4/pkg/schemax/...",
 	"github.com/trianalab/pacto/v4/pkg/semver/...",
 	"github.com/trianalab/pacto/v4/pkg/validation/...",
+	"github.com/trianalab/pacto/v4/pkg/workloadmanager/...",
 }
 
 // forbiddenPrefixes are import-path prefixes a core package may never reach.

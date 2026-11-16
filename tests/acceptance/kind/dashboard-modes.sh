@@ -26,10 +26,12 @@ source "$(dirname "$0")/lib.sh"
 CLUSTER="${KIND_CLUSTER:-pacto-mono}"
 NS=pacto-modes
 CHART="$PACTO_CHART"
-TAG=e2e-modes
+# The release tags every scenario builds, so CI loads them from the shared
+# archive (lib.sh build_operator_images) instead of building them again.
+TAG="$(release_version kubernetes)"
 OP_REPO="localhost:5001/pacto-operator/pacto-controller"
 OP_IMG="${OP_REPO}:${TAG}"
-DASH_IMG="localhost:5001/pacto-dashboard:${TAG}"
+DASH_IMG="localhost:5001/pacto-dashboard:$(release_version core)"
 
 exists() { kubectl "$@" -o name 2>/dev/null | grep -q .; }
 

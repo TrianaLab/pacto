@@ -85,7 +85,7 @@ func newPublishCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorde
 	cmd.Flags().Bool("plan", false, "show what is missing and what refuses it; change nothing")
 	cmd.Flags().String("revision", "", "source revision stamped on every artifact (default: the git commit of the contract directory, which must have no uncommitted changes)")
 	cmd.Flags().String("propose", "", "after publishing, propose the deploy artifact on <namespace>/<stage> (needs delivery.enabled on the pacto-operator chart)")
-	cmd.Flags().String("on-behalf-of", "", "with --propose, the person an agent acts for, as the Kubernetes username the cluster authenticates them as (what kubectl auth whoami prints for them, any OIDC prefix included); asserted, not verified; required when an agent proposes, never a service account, and that person may not approve the change")
+	cmd.Flags().String("on-behalf-of", "", "with --propose, the person an agent acts for, as the Kubernetes username the cluster authenticates them as (what kubectl auth whoami prints for them, any OIDC prefix included); asserted, not verified; required when an agent proposes, never a service account or other system user, and that person may not approve the change")
 	cmd.Flags().String("correlation-id", "", "with --propose, an id that ties the promote to an incident or another change, such as a ticket; "+
 		"kept with the change and its record, filtered by pacto delivery history --correlation-id")
 	cmd.Flags().Duration("propose-timeout", 10*time.Minute, "how long --propose waits for the Stage to record the version as published")

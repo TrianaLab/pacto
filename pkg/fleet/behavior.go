@@ -56,7 +56,8 @@ func (b DependencyBehavior) copyBehavior() DependencyBehavior {
 // reachableRevisions lists the provider revisions a resolved dependency can
 // reach, oldest first: the locked revision when the lock pins one, otherwise
 // every revision of the provider whose version the declared range accepts
-// (every revision when the range is absent).
+// (every revision when the range is absent or compatibility: unknown, since
+// nothing then narrows which revision it reaches).
 func reachableRevisions(snap *FleetSnapshot, rel Relationship) []*ContractRevision {
 	if rel.ResolvedRevision != "" {
 		return []*ContractRevision{snap.Revisions[rel.ResolvedRevision]}
@@ -64,7 +65,7 @@ func reachableRevisions(snap *FleetSnapshot, rel Relationship) []*ContractRevisi
 	var out []*ContractRevision
 	for _, rk := range snap.Services[rel.ToService].Revisions {
 		rev := snap.Revisions[rk]
-		if rel.Compatibility == "" || CheckRange(rel.Compatibility, rev.Version) == RangeSatisfied {
+		if !contract.IsRange(rel.Compatibility) || CheckRange(rel.Compatibility, rev.Version) == RangeSatisfied {
 			out = append(out, rev)
 		}
 	}
@@ -192,6 +193,6 @@ func declaredClaim(rel Relationship) DeclaredClaim {
 		SourceRevision: rel.FromRevision, Required: rel.Required, Compatibility: rel.Compatibility,
 		Reconciliation: rel.Reconciliation, RequestedRef: rel.RequestedRef,
 		LockedVersion: rel.LockedVersion, LockedDigest: rel.LockedDigest,
-		RangeStatus: rel.RangeStatus, DependencyBehavior: rel.copyBehavior(),
+		RangeStatus: rel.RangeStatus, NameFromRef: rel.NameFromRef, DependencyBehavior: rel.copyBehavior(),
 	}
 }

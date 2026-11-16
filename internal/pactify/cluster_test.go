@@ -2,10 +2,14 @@ package pactify
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -127,19 +131,22 @@ func result(t *testing.T, b *Bulk, name string) *Result {
 	return nil
 }
 
-// checkCheckoutDraft checks the checkout draft: payments pinned to the
-// version seen running and its manifests with no cluster-only fields.
+// checkCheckoutDraft checks the checkout draft: payments with compatibility
+// unknown and a range proposed from the version its Pacto reports, and its
+// manifests with no cluster-only fields.
 func checkCheckoutDraft(t *testing.T, checkout *Result, out string) {
 	t.Helper()
 	text := file(t, checkout, "pacto.yaml").Content
-	pin := "dependencies:\n  # inferred from runtime calls: pinned to the version seen running; widen it once you know\n" +
-		"  - name: payments\n    ref: oci://reg.io/acme/contracts/payments\n    required: true\n    compatibility: '=2.3.0'\n"
-	if !strings.Contains(text, pin) || strings.Contains(text, "'*'") || strings.Contains(text, `"*"`) || !strings.Contains(text, "  # from calls seen to the Service shop/fraud\n  # no contract for fraud was read") ||
-		!strings.Contains(text, "  - name: fraud\n    ref: oci://reg.io/acme/contracts/fraud\n    required: true\n    compatibility: '^1.0.0'\n") {
+	proposed := "dependencies:\n  # inferred from runtime calls (calls seen to the Service shop/payments)\n" +
+		"  - name: payments\n    ref: oci://reg.io/acme/contracts/payments\n    required: true\n" +
+		"    compatibility: unknown   # proposed ^2.3.0, from the Pactos describing the Service shop/payments at 2.3.0\n"
+	if !strings.Contains(text, proposed) || strings.Contains(text, "'*'") || strings.Contains(text, `"*"`) || !strings.Contains(text, "  # from calls seen to the Service shop/fraud\n  # no contract for fraud was read") ||
+		!strings.Contains(text, "  - name: fraud\n    ref: oci://reg.io/acme/contracts/fraud\n    required: true\n    compatibility: unknown   # no range proposed: no contract or running version of fraud was read\n") {
 		t.Fatalf("checkout's dependencies:\n%s", text)
 	}
 	if checkout.Dir != filepath.Join(out, "shop", "checkout") || file(t, checkout, "manifests.yaml").Action != Add ||
-		!hasLine(checkout.Next, "pacto.yaml declares payments pinned to =2.3.0") || !hasLine(checkout.Found, "checkout calls payments 2.3.0 (calls seen to the Service shop/payments)") {
+		!hasLine(checkout.Next, "declare the versions of payments that checkout accepts: replace compatibility: unknown with a range, such as the proposed ^2.3.0") ||
+		!hasLine(checkout.Found, "checkout calls the Service shop/payments, described by payments 2.3.0") {
 		t.Fatalf("checkout: %+v", checkout)
 	}
 	m := file(t, checkout, "manifests.yaml").Content
@@ -149,10 +156,10 @@ func checkCheckoutDraft(t *testing.T, checkout *Result, out string) {
 }
 
 // TestClusterDrafts: every workload no Pacto describes gets a draft, its
-// dependencies read from the calls its pods made. A call to a provider whose
-// Pacto runs a version is pinned to exactly that version, never "*"; one
-// with no contract version gets a placeholder range its comment names. A plan
-// writes nothing.
+// dependencies read from the calls its pods made, each with compatibility
+// unknown. A call to a provider whose Pacto reports a version gets a range
+// proposed from it in a comment, never "*"; one with no contract version
+// gets a comment saying no range is proposed. A plan writes nothing.
 func TestClusterDrafts(t *testing.T) {
 	now := time.Now()
 	out := filepath.Join(t.TempDir(), "drafts")
@@ -168,8 +175,10 @@ func TestClusterDrafts(t *testing.T) {
 		t.Fatal("a plan wrote under --out")
 	}
 	checkCheckoutDraft(t, result(t, b, "checkout"), out)
-	// ledger calls payments and legacy, whose Pacto runs no version yet: a placeholder range.
-	if l := file(t, result(t, b, "ledger"), "pacto.yaml").Content; !strings.Contains(l, "compatibility: '=2.3.0'") || !strings.Contains(l, "  - name: legacy\n") {
+	// ledger calls payments and legacy, whose Pacto names no contract yet: no range proposed.
+	if l := file(t, result(t, b, "ledger"), "pacto.yaml").Content; !strings.Contains(l, "compatibility: unknown   # proposed ^2.3.0, from the Pactos describing the Service shop/payments at 2.3.0\n") ||
+		!strings.Contains(l, "  - name: legacy\n    ref: oci://reg.io/acme/contracts/legacy\n    required: true\n    compatibility: unknown   # no range proposed: no reconciled Pacto describing the Service shop/legacy reports a contract version\n") ||
+		!hasLine(result(t, b, "ledger").Unknown, "the version of shop/legacy that Pacto shop/ghost describes: its status and spec name no usable contract ref, so no range is proposed from it") {
 		t.Fatalf("ledger:\n%s", l)
 	}
 	if n := result(t, b, "nightly"); strings.Contains(file(t, n, "pacto.yaml").Content, "dependencies") || len(n.Dependencies) != 0 {
@@ -197,12 +206,13 @@ func TestClusterDraftsApply(t *testing.T) {
 	if err != nil || file(t, result(t, again, "checkout"), "manifests.yaml").Action != Keep || file(t, result(t, again, "checkout"), "pacto.yaml").Action != Keep {
 		t.Fatalf("second run: %+v %v", again, err)
 	}
-	checkPinnedReadsIncompatible(t, out)
+	checkProposedReadsUnknown(t, out)
 }
 
-// checkPinnedReadsIncompatible: the draft consumer, pinned to =2.3.0, reads
-// incompatible for payments 2.4.0, so the change asks checkout's owners.
-func checkPinnedReadsIncompatible(t *testing.T, out string) {
+// checkProposedReadsUnknown: the draft consumer leaves its range to payments
+// unknown, with only a proposal in a comment, so payments 2.4.0 reads
+// unknown for it: no guessed range decides who the change breaks.
+func checkProposedReadsUnknown(t *testing.T, out string) {
 	t.Helper()
 	provider := `pactoVersion: "2.1"
 service: {name: payments, version: %s}
@@ -228,7 +238,7 @@ publish:
 	next, newFS := parse("2.4.0")
 	res := impact.Analyze(context.Background(), old, next, oldFS, newFS, snap, impact.Options{})
 	i := slices.IndexFunc(res.Consumers, func(c impact.AffectedConsumer) bool { return c.Service == "checkout" })
-	if i < 0 || res.Consumers[i].CompatibilityVerdict != impact.CompatibilityIncompatible || res.Consumers[i].Compatibility != "=2.3.0" {
+	if i < 0 || res.Consumers[i].CompatibilityVerdict != impact.CompatibilityUnknown || res.Consumers[i].Compatibility != contract.CompatibilityUnknown {
 		t.Fatalf("checkout for payments 2.4.0: %+v", res.Consumers)
 	}
 }
@@ -373,5 +383,432 @@ func TestMany(t *testing.T) {
 	}
 	if _, err := Many(context.Background(), Options{Name: "x"}, []string{a, b}, nil); err == nil {
 		t.Fatal("one name for two folders")
+	}
+}
+
+// env is an env list of literal name=value pairs.
+func env(pairs ...string) []any {
+	out := []any{}
+	for i := 0; i < len(pairs); i += 2 {
+		out = append(out, map[string]any{"name": pairs[i], "value": pairs[i+1]})
+	}
+	return out
+}
+
+// secretShop is checkout, whose container and initContainer set sensitive
+// literals, and nightly, a CronJob that sets one.
+func secretShop() []runtime.Object {
+	appEnv := append(env("DB_PASSWORD", "hunter2", "REDIS_URL", "redis://:r3dis-pw@cache:6379", "LOG_LEVEL", "info"),
+		map[string]any{"name": "CACHE_DSN", "valueFrom": map[string]any{"secretKeyRef": map[string]any{"name": "cache", "key": "dsn"}}})
+	checkout := obj("apps/v1", "Deployment", "shop", "checkout", map[string]any{"spec": map[string]any{"template": map[string]any{
+		"metadata": map[string]any{"labels": map[string]any{"app": "checkout"}},
+		"spec": map[string]any{
+			"containers":     []any{map[string]any{"name": "app", "image": "reg.io/acme/checkout:1.4.0", "env": appEnv}},
+			"initContainers": []any{map[string]any{"name": "migrate", "image": "reg.io/acme/migrate:1.0.0", "env": env("MIGRATE_TOKEN", "t0ken-123")}},
+		}}}})
+	nightly := obj("batch/v1", "CronJob", "shop", "nightly", map[string]any{"spec": map[string]any{"jobTemplate": map[string]any{"spec": map[string]any{"template": map[string]any{
+		"metadata": map[string]any{"labels": map[string]any{"app": "nightly"}},
+		"spec":     map[string]any{"containers": []any{map[string]any{"name": "nightly", "image": "reg.io/acme/nightly:1.0.0", "env": env("BATCH_PASSWORD", "cr0n-s3cret")}}}}}}}})
+	return []runtime.Object{checkout, nightly}
+}
+
+var secretLiterals = []string{"hunter2", "r3dis-pw", "t0ken-123", "cr0n-s3cret"}
+
+// secretRef matches a secretKeyRef to key in secret at any indentation.
+func secretRef(secret, key string) *regexp.Regexp {
+	return regexp.MustCompile(`secretKeyRef:\s+key: ` + regexp.QuoteMeta(key) + `\s+name: ` + regexp.QuoteMeta(secret) + `\n`)
+}
+
+// checkSecretSchema checks that a draft's schema reads each key from secret.
+func checkSecretSchema(t *testing.T, r *Result, secret string, keys ...string) {
+	t.Helper()
+	var s struct {
+		Properties map[string]map[string]any `json:"properties"`
+	}
+	if err := json.Unmarshal([]byte(file(t, r, configSchema).Content), &s); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range keys {
+		p := s.Properties[k]
+		if p["writeOnly"] != true || !strings.Contains(fmt.Sprint(p["description"]), "Read from the Secret "+secret) {
+			t.Fatalf("%s in %s: %+v", k, r.Service, s.Properties)
+		}
+	}
+}
+
+// checkSecretDrafts checks the checkout and nightly drafts of secretShop:
+// secretKeyRefs in place of the literals, none of which appears anywhere, the
+// Secret shape in the schema and a next step with no value on it.
+func checkSecretDrafts(t *testing.T, b *Bulk, checkout, nightly *Result) {
+	t.Helper()
+	m := file(t, checkout, "manifests.yaml").Content + file(t, nightly, "manifests.yaml").Content
+	for _, want := range []*regexp.Regexp{secretRef("checkout-env", "DB_PASSWORD"), secretRef("checkout-env", "REDIS_URL"), secretRef("checkout-env", "MIGRATE_TOKEN"),
+		secretRef("nightly-env", "BATCH_PASSWORD"), regexp.MustCompile(`name: LOG_LEVEL\s+value: info\n`), secretRef("cache", "dsn")} {
+		if !want.MatchString(m) {
+			t.Fatalf("manifests.yaml lacks %q:\n%s", want, m)
+		}
+	}
+	data, _ := json.Marshal(b)
+	for _, lit := range secretLiterals {
+		if strings.Contains(m, lit) || strings.Contains(string(data), lit) {
+			t.Fatalf("%s leaked:\n%s", lit, m)
+		}
+	}
+	checkSecretSchema(t, checkout, "checkout-env", "DB_PASSWORD", "REDIS_URL")
+	checkSecretSchema(t, nightly, "nightly-env", "BATCH_PASSWORD")
+	if !hasLine(checkout.Next, "manifests.yaml: the cluster sets DB_PASSWORD, MIGRATE_TOKEN, REDIS_URL to literal values") ||
+		!hasLine(checkout.Next, "kubectl -n shop create secret generic checkout-env --from-env-file=") || hasLine(checkout.Next, "--from-literal") ||
+		!hasLine(nightly.Next, "kubectl -n shop create secret generic nightly-env --from-env-file=") {
+		t.Fatalf("next steps: %q %q", checkout.Next, nightly.Next)
+	}
+	if !hasLine(checkout.Next, "manifests.yaml: REDIS_URL (cache) held a URL") || hasLine(checkout.Next, "DB_PASSWORD held") || hasLine(nightly.Next, "held a URL") {
+		t.Fatalf("URL next steps: %q %q", checkout.Next, nightly.Next)
+	}
+}
+
+// TestClusterDraftReadsSensitiveLiteralsFromSecret: a sensitive literal in a
+// container or initContainer, by name or by URL credentials, never reaches the
+// manifests.yaml a draft writes: the draft reads it from <workload>-env and
+// says how to create that Secret, with no value on the command line. The live
+// object is untouched.
+func TestClusterDraftReadsSensitiveLiteralsFromSecret(t *testing.T) {
+	for _, plan := range []bool{true, false} {
+		objs := secretShop()
+		out := filepath.Join(t.TempDir(), "drafts")
+		b, err := Cluster(context.Background(), fakeCluster(objs...), Options{Plan: plan}, ClusterOptions{Out: out}, os.WriteFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		checkout, nightly := result(t, b, "checkout"), result(t, b, "nightly")
+		checkSecretDrafts(t, b, checkout, nightly)
+		live := objs[0].(*unstructured.Unstructured)
+		if v, _, _ := unstructured.NestedSlice(live.Object, "spec", "template", "spec", "containers"); !strings.Contains(fmt.Sprint(v), "hunter2") {
+			t.Fatalf("the live object changed: %v", v)
+		}
+		if !plan {
+			disk, err := os.ReadFile(filepath.Join(out, "shop", "checkout", "manifests.yaml"))
+			if err != nil || strings.Contains(string(disk), "hunter2") || !strings.Contains(string(disk), "checkout-env") {
+				t.Fatalf("manifests.yaml on disk: %s %v", disk, err)
+			}
+		}
+	}
+}
+
+// TestClusterDraftSplitsDifferingLiterals: one name set to different literals
+// in two containers reads two Secret keys, so they never share one value; the
+// same literal keeps one key.
+func TestClusterDraftSplitsDifferingLiterals(t *testing.T) {
+	workload := func(migrate string) runtime.Object {
+		return obj("apps/v1", "Deployment", "shop", "checkout", map[string]any{"spec": map[string]any{"template": map[string]any{"spec": map[string]any{
+			"containers":     []any{map[string]any{"name": "app", "image": "reg.io/acme/checkout:1.4.0", "env": env("DB_PASSWORD", "app-pw")}},
+			"initContainers": []any{map[string]any{"name": "migrate", "image": "reg.io/acme/migrate:1.0.0", "env": env("DB_PASSWORD", migrate)}},
+		}}}})
+	}
+	b, err := Cluster(context.Background(), fakeCluster(workload("migrate-pw")), Options{Plan: true}, ClusterOptions{Out: t.TempDir()}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := result(t, b, "checkout")
+	m := file(t, r, "manifests.yaml").Content
+	if !strings.Contains(m, "key: app.DB_PASSWORD") || !strings.Contains(m, "key: migrate.DB_PASSWORD") || strings.Contains(m, "app-pw") || strings.Contains(m, "migrate-pw") ||
+		!hasLine(r.Next, "sets app.DB_PASSWORD, migrate.DB_PASSWORD to literal values") {
+		t.Fatalf("differing literals:\n%s\n%q", m, r.Next)
+	}
+	b, err = Cluster(context.Background(), fakeCluster(workload("app-pw")), Options{Plan: true}, ClusterOptions{Out: t.TempDir()}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r = result(t, b, "checkout")
+	if m := file(t, r, "manifests.yaml").Content; strings.Count(m, "key: DB_PASSWORD") != 2 || strings.Contains(m, ".DB_PASSWORD") || !hasLine(r.Next, "sets DB_PASSWORD to a literal value; the draft reads it from") {
+		t.Fatalf("equal literals:\n%s\n%q", m, r.Next)
+	}
+}
+
+// TestClusterDraftKeptManifestsNoSecretNote: a manifests.yaml already in the
+// draft folder is the user's, so the draft says nothing about its Secret.
+func TestClusterDraftKeptManifestsNoSecretNote(t *testing.T) {
+	out := t.TempDir()
+	writeTree(t, out, map[string]string{"shop/checkout/manifests.yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: checkout}\n"})
+	b, err := Cluster(context.Background(), fakeCluster(secretShop()...), Options{Plan: true}, ClusterOptions{Out: out}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := result(t, b, "checkout"); file(t, r, "manifests.yaml").Action != Keep || hasLine(r.Next, "manifests.yaml: the cluster sets") {
+		t.Fatalf("kept manifests: %+v", r)
+	}
+}
+
+// TestSecretEnvNoPodSpec: an object with no containers reads no Secret.
+func TestSecretEnvNoPodSpec(t *testing.T) {
+	o := obj("apps/v1", "Deployment", "shop", "empty", map[string]any{"spec": map[string]any{}})
+	before := fmt.Sprint(o.Object)
+	if keys, urls := secretEnv(o, "empty-env", nil); keys != nil || urls != nil || fmt.Sprint(o.Object) != before {
+		t.Fatalf("keys %v, object %v", keys, o.Object)
+	}
+}
+
+// TestClusterDraftURLLiterals: a $(NAME) reference is no literal, so a URL
+// whose password is one stays in the draft; a malformed credential URL is
+// rewritten; only a rewritten container URL the scan reads a dependency from
+// is named as a lost dependency, never an outside host or an initContainer's.
+func TestClusterDraftURLLiterals(t *testing.T) {
+	appEnv := append(env("DATABASE_URL", "postgres://app:$(DB_PASSWORD)@db:5432/x", "ORDERS_URL", "postgres://app:pa/ss@orders-db:5432/orders",
+		"DB_DSN", "postgres://app:p%zz@ledger:5432/x", "STRIPE_URL", "https://api.stripe.com/v1?api_key=sk_live_x", "ALIAS_PASSWORD", "$(OTHER_PASSWORD)"),
+		map[string]any{"name": "DB_PASSWORD", "valueFrom": map[string]any{"secretKeyRef": map[string]any{"name": "db", "key": "password"}}})
+	checkout := obj("apps/v1", "Deployment", "shop", "checkout", map[string]any{"spec": map[string]any{"template": map[string]any{"spec": map[string]any{
+		"containers":     []any{map[string]any{"name": "app", "image": "reg.io/acme/checkout:1.4.0", "env": appEnv}},
+		"initContainers": []any{map[string]any{"name": "migrate", "image": "reg.io/acme/migrate:1.0.0", "env": env("MIGRATE_DB_URL", "postgres://u:p@db/x")}},
+	}}}})
+	b, err := Cluster(context.Background(), fakeCluster(checkout), Options{Plan: true}, ClusterOptions{Out: t.TempDir()}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := result(t, b, "checkout")
+	m := file(t, r, "manifests.yaml").Content
+	for _, want := range []*regexp.Regexp{regexp.MustCompile(`value: postgres://app:\$\(DB_PASSWORD\)@db:5432/x\n`), regexp.MustCompile(`value: \$\(OTHER_PASSWORD\)\n`),
+		secretRef("checkout-env", "ORDERS_URL"), secretRef("checkout-env", "DB_DSN"), secretRef("checkout-env", "STRIPE_URL"), secretRef("checkout-env", "MIGRATE_DB_URL")} {
+		if !want.MatchString(m) {
+			t.Fatalf("manifests.yaml lacks %q:\n%s", want, m)
+		}
+	}
+	for _, lit := range []string{"pa/ss", "p%zz", "sk_live_x", "u:p@"} {
+		if strings.Contains(m, lit) {
+			t.Fatalf("%s leaked:\n%s", lit, m)
+		}
+	}
+	// ORDERS_URL's / in the password is one the scan's host reader never got past.
+	if !hasLine(r.Next, "manifests.yaml: DB_DSN (ledger) held a URL") || hasLine(r.Next, "ORDERS_URL (") || hasLine(r.Next, "STRIPE_URL (") ||
+		hasLine(r.Next, "MIGRATE_DB_URL (") || hasLine(r.Next, "DATABASE_URL") {
+		t.Fatalf("next steps: %q", r.Next)
+	}
+	if !hasDependency(r, "db") {
+		t.Fatalf("db is not a dependency: %+v", r.Dependencies)
+	}
+}
+
+// pactoCR is a Pacto in ns describing the Service svc with the contract
+// name at ref and version, at metadata.generation gen and
+// status.observedGeneration observed.
+func pactoCR(ns, name, svc, contractName, ref, version string, gen, observed int64) *unstructured.Unstructured {
+	return obj("pacto.trianalab.io/v1alpha1", "Pacto", ns, name, map[string]any{
+		"metadata": map[string]any{"generation": gen},
+		"spec":     map[string]any{"contractRef": map[string]any{"oci": ref + ":" + version}, "target": map[string]any{"serviceName": svc}},
+		"status": map[string]any{"observedGeneration": observed,
+			"contract": map[string]any{"serviceName": contractName, "version": version, "resolvedRef": ref + "@sha256:aa"}}})
+}
+
+const paymentsRef = "oci://reg.io/acme/contracts/payments"
+
+// TestClusterProviderLowestVersion: the dependency a call to payments is on
+// carries every version the reconciled Pactos describing it report,
+// ascending and distinct, whatever order they are listed in.
+func TestClusterProviderLowestVersion(t *testing.T) {
+	p := func(name, version string) *unstructured.Unstructured {
+		return pactoCR("shop", name, "payments", "payments", paymentsRef, version, 0, 0)
+	}
+	stale := pactoCR("shop", "payments-next", "payments", "payments", paymentsRef, "2.4.0", 3, 2)
+	other := pactoCR("other", "payments", "payments", "payments", paymentsRef, "1.0.0", 0, 0)
+	for _, tt := range []struct {
+		name     string
+		pactos   []*unstructured.Unstructured
+		versions []string
+		unknown  []string
+	}{
+		{"one", []*unstructured.Unstructured{p("a", "2.3.1")}, []string{"2.3.1"}, nil},
+		{"higher first", []*unstructured.Unstructured{p("a", "2.4.0"), p("b", "2.3.1")}, []string{"2.3.1", "2.4.0"}, nil},
+		{"lower first", []*unstructured.Unstructured{p("a", "2.3.1"), p("b", "2.4.0")}, []string{"2.3.1", "2.4.0"}, nil},
+		{"same version", []*unstructured.Unstructured{p("a", "2.3.1"), p("b", "2.3.1")}, []string{"2.3.1"}, nil},
+		{"non-strict ignored", []*unstructured.Unstructured{p("a", "v2.2"), p("b", "2.3.1")}, []string{"2.3.1"},
+			[]string{"the version of shop/payments that Pacto shop/a describes: its status reports no contract version, so no range is proposed from it"}},
+		{"other namespace ignored", []*unstructured.Unstructured{other, p("b", "2.3.1")}, []string{"2.3.1"}, nil},
+		{"stale generation ignored", []*unstructured.Unstructured{stale, p("b", "2.4.1")}, []string{"2.4.1"},
+			[]string{"the version of shop/payments that Pacto shop/payments-next describes: its status is not reconciled with its spec, so no range is proposed from it"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			cl := &cluster{}
+			for _, o := range tt.pactos {
+				cl.pactos = append(cl.pactos, *o)
+			}
+			d := cl.provider(*service("shop", "payments", "10.0.0.20"))
+			if !slices.Equal(d.Versions, tt.versions) || d.Ref != paymentsRef || d.Name != "payments" || !slices.Equal(d.Unknown, tt.unknown) {
+				t.Fatalf("provider: %+v", d)
+			}
+		})
+	}
+}
+
+// TestProviderConflictingContractsProposeNothing: two reconciled Pactos
+// describing one Service name different contracts, so no versions are kept,
+// the identity is the first by ref and one note names both.
+func TestProviderConflictingContractsProposeNothing(t *testing.T) {
+	cl := &cluster{pactos: []unstructured.Unstructured{
+		*pactoCR("shop", "payments", "payments", "payments", paymentsRef, "2.4.0", 1, 1),
+		*pactoCR("shop", "legacy", "payments", "payments-old", paymentsRef+"-old", "2.3.1", 1, 1),
+	}}
+	d := cl.provider(*service("shop", "payments", "10.0.0.20"))
+	want := "the version of shop/payments to propose a range from: the Pactos describing it name different contracts (" +
+		"payments at oci://reg.io/acme/contracts/payments in Pacto shop/payments and payments-old at oci://reg.io/acme/contracts/payments-old in Pacto shop/legacy), so no range is proposed"
+	if len(d.Versions) != 0 || d.Ref != paymentsRef || d.Name != "payments" || !slices.Equal(d.Unknown, []string{want}) {
+		t.Fatalf("provider: %+v", d)
+	}
+}
+
+// twoPaymentServices is checkout calling the Services payments and
+// payments-canary, each described by a Pacto naming the contract payments,
+// at canaryRef for the canary. Pod u-a calls both; u-b calls payments, or
+// both when bothPods.
+func twoPaymentServices(now time.Time, canaryRef string, bothPods bool) []runtime.Object {
+	call := func(ip string) map[string]any {
+		return map[string]any{"address": ip, "port": int64(80), "successes": int64(3), "lastSuccessAt": now.UTC().Format(time.RFC3339)}
+	}
+	callsB := []any{call("10.0.0.20")}
+	if bothPods {
+		callsB = append(callsB, call("10.0.0.21"))
+	}
+	return []runtime.Object{
+		deployment("shop", "checkout", "reg.io/acme/checkout:1.4.0"),
+		service("shop", "payments", "10.0.0.20"), service("shop", "payments-canary", "10.0.0.21"),
+		controlled(obj("apps/v1", "ReplicaSet", "shop", "checkout-7f", nil), "Deployment", "checkout", ""),
+		controlled(obj("v1", "Pod", "shop", "checkout-7f-a", map[string]any{"metadata": map[string]any{"labels": map[string]any{"app": "checkout"}}}), "ReplicaSet", "checkout-7f", "u-a"),
+		controlled(obj("v1", "Pod", "shop", "checkout-7f-b", map[string]any{"metadata": map[string]any{"labels": map[string]any{"app": "checkout"}}}), "ReplicaSet", "checkout-7f", "u-b"),
+		pactoCR("shop", "payments", "payments", "payments", paymentsRef, "2.4.0", 1, 1),
+		pactoCR("shop", "payments-canary", "payments-canary", "payments", canaryRef, "2.3.1", 1, 1),
+		obj("pacto.trianalab.io/v1alpha1", "NodeRuntimeObservation", "pacto-system", "node-1", map[string]any{"status": map[string]any{
+			"nodeName": "node-1",
+			"pods": []any{
+				map[string]any{"uid": "u-a", "connections": []any{call("10.0.0.20"), call("10.0.0.21")}},
+				map[string]any{"uid": "u-b", "connections": callsB},
+			}}}),
+	}
+}
+
+// checkoutInferred is checkout's one dependency, the same whether one or
+// both pods call both Services.
+func checkoutInferred(t *testing.T, canaryRef string) Inferred {
+	t.Helper()
+	one := checkoutInferredPods(t, canaryRef, false)
+	if both := checkoutInferredPods(t, canaryRef, true); !reflect.DeepEqual(one, both) {
+		t.Fatalf("both pods calling both Services: %+v, want %+v", both, one)
+	}
+	return one
+}
+
+func checkoutInferredPods(t *testing.T, canaryRef string, bothPods bool) Inferred {
+	t.Helper()
+	now := time.Now()
+	cl, err := readCluster(context.Background(), fakeCluster(twoPaymentServices(now, canaryRef, bothPods)...), []string{"shop"}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deps := cl.inferred(now.Add(-time.Hour))["shop/Deployment/checkout"]
+	if len(deps) != 1 || deps[0].Where != "calls seen to the Services shop/payments and shop/payments-canary" {
+		t.Fatalf("checkout's dependencies: %+v", deps)
+	}
+	return deps[0]
+}
+
+// TestInferredMergesVersionsAcrossServices: two Services whose Pactos name
+// one contract are one dependency with the versions of both.
+func TestInferredMergesVersionsAcrossServices(t *testing.T) {
+	d := checkoutInferred(t, paymentsRef)
+	if !slices.Equal(d.Versions, []string{"2.3.1", "2.4.0"}) || d.Ref != paymentsRef || len(d.Unknown) != 0 {
+		t.Fatalf("merged: %+v", d)
+	}
+}
+
+// TestInferredMergeConflictingRefsProposeNothing: the same, with the canary
+// naming another ref: no versions, the lower ref and a note naming both.
+func TestInferredMergeConflictingRefsProposeNothing(t *testing.T) {
+	d := checkoutInferred(t, "oci://reg.io/acme/contracts/canary")
+	if len(d.Versions) != 0 || d.Ref != "oci://reg.io/acme/contracts/canary" || len(d.Unknown) != 1 ||
+		!strings.Contains(d.Unknown[0], "the Services shop/payments and shop/payments-canary name different contracts (oci://reg.io/acme/contracts/canary and oci://reg.io/acme/contracts/payments)") {
+		t.Fatalf("merged: %+v", d)
+	}
+}
+
+// mergeAll merges ds as inferred does, then settles the result.
+func mergeAll(ds ...Inferred) []Inferred {
+	var list []Inferred
+	for _, d := range ds {
+		list = mergeInferred(list, d)
+	}
+	for i := range list {
+		finishInferred(&list[i])
+	}
+	return list
+}
+
+// described is a Service shop/<svc> whose Pactos name ref at versions.
+func described(svc, ref string, versions ...string) Inferred {
+	d := Inferred{Name: "payments", services: []string{"shop/" + svc}, Ref: ref, refs: []string{ref}, withRef: []string{"shop/" + svc}, Versions: versions}
+	if len(versions) > 0 {
+		d.described = d.services
+	}
+	return d
+}
+
+// TestMergeInferredKeepsConflict: once the Pactos disagree, a later
+// agreeing Service adds no versions, a repeated note is kept once and a new
+// one is added.
+func TestMergeInferredKeepsConflict(t *testing.T) {
+	note := "conflict"
+	a := described("a", paymentsRef)
+	a.Unknown, a.conflict = []string{note}, true
+	b := described("b", paymentsRef, "2.3.1")
+	b.Unknown = []string{note}
+	c := Inferred{Name: "payments", services: []string{"shop/c"}, Unknown: []string{"other"}}
+	list := mergeAll(a, b, c)
+	if len(list) != 1 || len(list[0].Versions) != 0 || !slices.Equal(list[0].Unknown, []string{note, "other"}) || list[0].Ref != paymentsRef ||
+		list[0].Where != "calls seen to the Services shop/a, shop/b and shop/c" {
+		t.Fatalf("merged: %+v", list)
+	}
+}
+
+// TestMergeUndescribedServiceNamesOnlyDescribed: a Service no Pacto
+// describes merged with one described at 2.0.0 keeps the version, credits
+// it only to the described Service and says the other has no Pacto.
+func TestMergeUndescribedServiceNamesOnlyDescribed(t *testing.T) {
+	other := Inferred{Name: "payments", services: []string{"other/payments"}, Where: "calls seen to the Service other/payments"}
+	for _, order := range [][]Inferred{{other, described("payments", paymentsRef, "2.0.0")}, {described("payments", paymentsRef, "2.0.0"), other}} {
+		d := mergeAll(order...)[0]
+		want := "the version of other/payments: no reconciled Pacto describing it names a contract, so the proposal comes only from the Pactos describing the Service shop/payments"
+		if d.Ref != paymentsRef || !slices.Equal(d.Versions, []string{"2.0.0"}) || !slices.Equal(d.described, []string{"shop/payments"}) || !slices.Equal(d.Unknown, []string{want}) {
+			t.Fatalf("merged: %+v", d)
+		}
+	}
+}
+
+// TestMergeConflictNotedOnce: a third Service naming a ref already seen adds
+// no second conflict note; the one note names every Service and ref.
+func TestMergeConflictNotedOnce(t *testing.T) {
+	x, y := paymentsRef, "oci://reg.io/acme/contracts/canary"
+	d := mergeAll(described("a", x, "2.0.0"), described("b", y, "2.1.0"), described("c", x, "2.2.0"))[0]
+	want := "the version of payments to propose a range from: the Services shop/a, shop/b and shop/c name different contracts (" + y + " and " + x + "), so no range is proposed"
+	if len(d.Versions) != 0 || d.Ref != y || !slices.Equal(d.Unknown, []string{want}) {
+		t.Fatalf("merged: %+v", d)
+	}
+}
+
+// TestProviderUnreadPactoJoinsAgreement: a reconciled Pacto whose contract
+// did not load still names its spec ref, so a different ref is a conflict;
+// one with no usable ref adds a note.
+func TestProviderUnreadPactoJoinsAgreement(t *testing.T) {
+	failed := func(name, ref string) unstructured.Unstructured {
+		return *obj("pacto.trianalab.io/v1alpha1", "Pacto", "shop", name, map[string]any{
+			"metadata": map[string]any{"generation": int64(1)},
+			"spec":     map[string]any{"contractRef": map[string]any{"oci": ref}, "target": map[string]any{"serviceName": "payments"}},
+			"status":   map[string]any{"observedGeneration": int64(1)}})
+	}
+	cl := &cluster{pactos: []unstructured.Unstructured{*pactoCR("shop", "payments", "payments", "payments", paymentsRef, "2.4.0", 1, 1), failed("payments-v3", "reg.io/acme/contracts/payments-v3:3.0.0")}}
+	d := cl.provider(*service("shop", "payments", "10.0.0.20"))
+	if len(d.Versions) != 0 || d.Ref != paymentsRef || !d.conflict || len(d.Unknown) != 2 ||
+		d.Unknown[0] != "the version of shop/payments that Pacto shop/payments-v3 describes: its status reports no contract version, so no range is proposed from it" ||
+		!strings.Contains(d.Unknown[1], "an unnamed contract at oci://reg.io/acme/contracts/payments-v3 in Pacto shop/payments-v3") {
+		t.Fatalf("provider: %+v", d)
+	}
+	cl.pactos[1] = failed("payments-v3", "")
+	d = cl.provider(*service("shop", "payments", "10.0.0.20"))
+	if !slices.Equal(d.Versions, []string{"2.4.0"}) || !slices.Equal(d.Unknown, []string{"the version of shop/payments that Pacto shop/payments-v3 describes: its status and spec name no usable contract ref, so no range is proposed from it"}) {
+		t.Fatalf("provider: %+v", d)
 	}
 }

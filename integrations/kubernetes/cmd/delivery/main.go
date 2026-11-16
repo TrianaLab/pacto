@@ -25,12 +25,11 @@ import (
 	"github.com/google/go-containerregistry/pkg/authn"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/dynamic"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -41,6 +40,7 @@ import (
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/runstats"
 	core "github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
+	"github.com/trianalab/pacto/v4/pkg/kubecluster"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 	"github.com/trianalab/pacto/v4/pkg/signing"
@@ -123,7 +123,7 @@ func runPromoter(args []string) error {
 		return err
 	}
 
-	clusterID, err := readClusterID(mgr)
+	clusterID, err := kubeClusterID(mgr)
 	if err != nil {
 		return err
 	}
@@ -250,7 +250,7 @@ func runRecorder(args []string) error {
 	if err != nil {
 		return err
 	}
-	clusterID, err := readClusterID(mgr)
+	clusterID, err := kubeClusterID(mgr)
 	if err != nil {
 		return err
 	}
@@ -304,14 +304,14 @@ func newManager(metricsAddr, probeAddr string, leaderElect bool, id string,
 	})
 }
 
-// readClusterID reads the cluster half of every stream id: the kube-system
+// kubeClusterID reads the cluster half of every stream id: the kube-system
 // namespace uid.
-func readClusterID(mgr ctrl.Manager) (string, error) {
-	kubeSystem := &corev1.Namespace{}
-	if err := mgr.GetAPIReader().Get(context.Background(), client.ObjectKey{Name: "kube-system"}, kubeSystem); err != nil {
-		return "", fmt.Errorf("reading the cluster id: %w", err)
+func kubeClusterID(mgr ctrl.Manager) (string, error) {
+	dyn, err := dynamic.NewForConfig(mgr.GetConfig())
+	if err != nil {
+		return "", err
 	}
-	return string(kubeSystem.UID), nil
+	return kubecluster.ID(context.Background(), dyn)
 }
 
 // upstreamReader reads what a Stage in another cluster verified from its

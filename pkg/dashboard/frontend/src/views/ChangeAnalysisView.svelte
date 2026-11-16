@@ -3,6 +3,7 @@
   import { api, ApiError } from '../lib/api.ts';
   import { boundedMatches, NAME_LOOKUP_LIMIT } from '../lib/entityResolve.ts';
   import { shortDigest, formatCount, countOf } from '../lib/format.ts';
+  import { RANGE_NOT_DECLARED } from '../lib/entityLabels.ts';
   import SearchPick from '../components/SearchPick.svelte';
   import { fleetChangesUrl, fleetOverviewUrl, fleetServicesUrl, fleetOfferingsUrl, fleetEntityUrl, hashForHref, replaceHash, parseHash } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
@@ -766,7 +767,7 @@
                     {:else}
                       <!-- A refused guarantee breaks the consumer whatever its range accepts, so its
                            range verdict is never shown as a plain pass next to the refusal. -->
-                      <td data-label="Verdict">{#if c.unmet?.length}<span class="badge badge-neutral" title="The range verdict. The new revision still refuses a guarantee this consumer requires.">range {c.compatibilityVerdict}</span>{:else}<span class="badge {verdictClass(c.compatibilityVerdict)}">{c.compatibilityVerdict}</span>{/if}{#if c.compatibility}<span class="consumer-range t-meta">accepts <code>{c.compatibility}</code></span>{/if}{#if c.note}<p class="text-3 consumer-note" data-testid="consumer-note">{c.note}</p>{/if}
+                      <td data-label="Verdict">{#if c.unmet?.length}<span class="badge badge-neutral" title="The range verdict. The new revision still refuses a guarantee this consumer requires.">range {c.compatibilityVerdict}</span>{:else}<span class="badge {verdictClass(c.compatibilityVerdict)}">{c.compatibilityVerdict}</span>{/if}{#if c.compatibility === 'unknown'}<span class="consumer-range t-meta" data-testid="consumer-range-undeclared">{RANGE_NOT_DECLARED}</span>{:else if c.compatibility}<span class="consumer-range t-meta">accepts <code>{c.compatibility}</code></span>{/if}{#if c.note}<p class="text-3 consumer-note" data-testid="consumer-note">{c.note}</p>{/if}
                         {#if c.unmet?.length}
                           <div class="consumer-refused" data-testid="consumer-refused"><RequirementList unmet={c.unmet} /></div>
                         {/if}</td>

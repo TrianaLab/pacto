@@ -1,1 +1,3 @@
+{{- if include "pacto-operator.clusterScoped" . }}
 {{- include "pacto-operator.binding" (dict "kind" "ClusterRoleBinding" "name" (printf "%s-manager" (include "pacto-operator.fullname" .)) "labels" (include "pacto-operator.labels" .) "serviceAccount" (include "pacto-operator.serviceAccountName" .) "serviceAccountNamespace" .Release.Namespace) }}
+{{- end }}

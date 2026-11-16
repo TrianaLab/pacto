@@ -801,7 +801,8 @@ func useNotes(u fleet.OfferingUse) string {
 	return s
 }
 
-// printRevisionPlace renders where a revision stands in its service, how many
+// printRevisionPlace renders where a revision stands in its service, its
+// declared pactoVersion with this Pacto's view of it, how many
 // of the service's targets run it and which sources report about it.
 func printRevisionPlace(w io.Writer, r *fleet.RevisionDetailData) {
 	current := ""
@@ -809,6 +810,9 @@ func printRevisionPlace(w io.Writer, r *fleet.RevisionDetailData) {
 		current = ", current"
 	}
 	_, _ = fmt.Fprintf(w, "Position: %d of %d revisions, newest first%s\n", r.Position, r.Revisions, current)
+	if v := r.PactoVersionText(); v != "" {
+		_, _ = fmt.Fprintf(w, "Pacto version: %s\n", v)
+	}
 	_, _ = fmt.Fprintf(w, "Targets: %d of the service's %d run this revision (%d exact, %d inferred)\n",
 		r.ExactTargets.Total+r.InferredTargets.Total, r.ServiceTargets, r.ExactTargets.Total, r.InferredTargets.Total)
 	c := r.EvidenceSourceCounts

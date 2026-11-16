@@ -35,9 +35,16 @@ const (
 const (
 	ReasonContractParsed  = "Parsed"
 	ReasonContractInvalid = "Invalid"
+	// ReasonContractUndeclared marks a contract that does not declare its pactoVersion, service.name
+	// or service.version: a published or inline contract must declare all three.
+	ReasonContractUndeclared = "ContractUndeclared"
 	// ReasonContractUnavailable marks a transient inability to OBTAIN the contract (registry/auth/not-found),
 	// distinct from a malformed one: validity is undetermined, not False.
 	ReasonContractUnavailable = "Unavailable"
+	// ReasonPullSecretNotGranted marks a contract the operator could not obtain because it has no grant
+	// to read the pull Secret: validity is undetermined, so ContractValid is Unknown, never False. The
+	// message names the grant that would let it read the Secret.
+	ReasonPullSecretNotGranted = "PullSecretNotGranted"
 
 	ReasonFound = "Found"
 

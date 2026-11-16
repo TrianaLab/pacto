@@ -368,24 +368,58 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "watchNamespaces": {
+          "type": ["array", "null"],
+          "uniqueItems": true,
+          "maxItems": 256,
+          "items": {
+            "type": "string",
+            "maxLength": 63,
+            "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+          }
+        },
         "watchNamespace": {
           "type": "string"
+        },
+        "secretGrants": {
+          "type": ["array", "null"],
+          "maxItems": 256,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?/[a-z0-9]([-.a-z0-9]*[a-z0-9])?$"
+          }
         },
         "stabilizationWindow": {
           "type": "string"
         },
-        "enableProbing": {
+        "probing": {
+          "enum": ["", "auto", "on", "off", true, false],
+          "description": "Active probing: auto (on in namespaces labelled pacto.trianalab.io/observe=probing), on or off; true and false mean on and off. Empty means auto, or the deprecated enableProbing when it is set."
+        },
+        "metricsObservation": {
+          "enum": ["", "auto", "on", "off", true, false],
+          "description": "Metrics observation: auto (on in namespaces labelled pacto.trianalab.io/observe=metrics), on or off; true and false mean on and off. ServiceMonitor discovery needs on. Empty means auto, or the deprecated enableMetricsObservation when it is set."
+        },
+        "interfaceNameMatchDiscovery": {
           "type": "boolean"
         },
+        "enableProbing": {
+          "type": "boolean",
+          "deprecated": true,
+          "description": "Deprecated: use controller.probing. Applies only while controller.probing is empty."
+        },
         "enableMetricsObservation": {
-          "type": "boolean"
+          "type": "boolean",
+          "deprecated": true,
+          "description": "Deprecated: use controller.metricsObservation. Applies only while controller.metricsObservation is empty."
         },
         "kernelEvidence": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
             "enabled": {
-              "type": "boolean"
+              "enum": ["auto", "on", "off", true, false],
+              "description": "Kernel evidence: on, \"off\" (quoted: a bare off is YAML false) or auto, which follows nodeAgent.enabled; false keeps meaning auto."
             },
             "namespace": {
               "type": "string"
@@ -727,6 +761,10 @@
       "properties": {
         "enabled": {
           "type": "boolean"
+        },
+        "image": {
+          "type": "string",
+          "description": "Full image reference of the node agent; empty uses the runtime image the operator was built with"
         },
         "namespace": {
           "type": "string",
@@ -1159,7 +1197,7 @@
               }
             },
             "teamGroupPrefix": {
-              "type": "string"
+              "type": ["string", "null"]
             },
             "requireOwnerTeam": {
               "type": "boolean"
@@ -1172,7 +1210,8 @@
               }
             },
             "allowEmptyHumanGroups": {
-              "type": "boolean"
+              "type": "boolean",
+              "description": "Deprecated and ignored: people and agents are told apart by how they sign in."
             }
           }
         },

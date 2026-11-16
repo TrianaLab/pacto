@@ -19,6 +19,7 @@ type Contract struct {
 	Configurations []Configuration `yaml:"configurations,omitempty" json:"configurations,omitempty"`
 	Environments   []Environment   `yaml:"environments,omitempty" json:"environments,omitempty"`
 	Dependencies   []Dependency    `yaml:"dependencies,omitempty" json:"dependencies,omitempty"`
+	Breaks         []Break         `yaml:"breaks,omitempty" json:"breaks,omitempty"`
 	State          *State          `yaml:"state,omitempty" json:"state,omitempty"`
 	Workload       string          `yaml:"workload,omitempty" json:"workload,omitempty"`
 	Capabilities   []Capability    `yaml:"capabilities,omitempty" json:"capabilities,omitempty"`
@@ -28,6 +29,18 @@ type Contract struct {
 	Checks         []Check         `yaml:"checks,omitempty" json:"checks,omitempty"`
 	Metadata       map[string]any  `yaml:"metadata,omitempty" json:"metadata,omitempty"`
 	Extensions     map[string]any  `yaml:"extensions,omitempty" json:"extensions,omitempty"`
+}
+
+// Break announces a deliberate breaking change to named consumers
+// (pactoVersion 2.5). It changes no interface; what it does to a gate is
+// decided where the gate reads it.
+type Break struct {
+	// Consumers are the services the break affects, by service name.
+	Consumers []string `yaml:"consumers" json:"consumers"`
+	// Reason says why the break is needed and what consumers change.
+	Reason string `yaml:"reason" json:"reason"`
+	// Expires is the YYYY-MM-DD date the announcement stops applying.
+	Expires string `yaml:"expires,omitempty" json:"expires,omitempty"`
 }
 
 // Check is one test or eval suite the version ships (pactoVersion 2.1).
@@ -247,6 +260,9 @@ type Interface struct {
 	// incompatibly while its spec stays the same, such as an amount switching
 	// from cents to euros. Absent is 0.
 	CompatibilityEpoch int `yaml:"compatibilityEpoch,omitempty" json:"compatibilityEpoch,omitempty"`
+	// Port is the port the interface listens on (pactoVersion 2.5). Absent
+	// is 0: not declared.
+	Port int `yaml:"port,omitempty" json:"port,omitempty"`
 }
 
 // InterfaceLifecycle is the retirement schedule of a deprecated interface.
@@ -347,6 +363,21 @@ type Dependency struct {
 	// Requires is the behavior this service relies on from the provider's
 	// interfaces (pactoVersion 2.2); see [Unmet].
 	Requires []Requirement `yaml:"requires,omitempty" json:"requires,omitempty"`
+	// NameFromRef marks a Name the parser derived from Ref because the contract
+	// declares none (pactoVersion 2.5). A derived name is a guess from a path,
+	// so it never resolves like a declared one.
+	NameFromRef bool `yaml:"-" json:"nameFromRef,omitempty"`
+}
+
+// CompatibilityUnknown is the compatibility of a dependency whose working
+// versions are not known yet (pactoVersion 2.5). It is valid, and it is never
+// counted as compatible: every range check reads it as unknown.
+const CompatibilityUnknown = "unknown"
+
+// IsRange reports whether a dependency's compatibility is a range to check
+// versions against: declared and other than [CompatibilityUnknown].
+func IsRange(compatibility string) bool {
+	return compatibility != "" && compatibility != CompatibilityUnknown
 }
 
 // Reference kinds for ReferenceRef.Kind.

@@ -166,6 +166,8 @@ func catalogFailure(err error) error {
 	switch {
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		return catalogErr(catalog.ReasonCancelled, "the resolution ended before the registry answered")
+	case errors.Is(err, oci.ErrCompatibilityUnknown):
+		return catalogErr(catalog.ReasonCompatibilityUnknown, "the compatibility is unknown and the reference names no tag; pin a tag or declare a range")
 	case errors.As(err, &auth):
 		return catalogErr(catalog.ReasonAuthFailed, "the registry rejected the available credentials")
 	case errors.As(err, &notFound), errors.As(err, &noVersion), errors.Is(err, oci.ErrNoMatchingTag):

@@ -130,6 +130,25 @@ tests:
             verbs: [get, delete]
             resourceNames: [pacto-evidence]
 
+  # Pull secrets, Secret-backed configurations and dashboard.ociSecrets in the
+  # release namespace are read with this always-on namespaced get.
+  - it: always grants secrets get in the release namespace, even with every component off
+    template: templates/role.yaml
+    documentIndex: 0
+    set:
+      dashboard.enabled: false
+      evidence.enabled: false
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: NAMESPACE
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [secrets]
+            verbs: [get]
+
   # --- optional exposure ---
   - it: renders no chart external evidence Service by default (ClusterIP, no exposure)
     template: templates/evidence-service.yaml

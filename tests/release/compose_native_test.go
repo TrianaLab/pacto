@@ -44,13 +44,20 @@ type wfStep struct {
 	Env            map[string]any `yaml:"env"`
 	Run            string         `yaml:"run"`
 	TimeoutMinutes int            `yaml:"timeout-minutes"`
+	ID             string         `yaml:"id"`
+	If             string         `yaml:"if"`
+	// ContinueOnError is any because it may be a bool or an expression.
+	ContinueOnError any `yaml:"continue-on-error"`
 }
 
 type wfJob struct {
-	TimeoutMinutes any      `yaml:"timeout-minutes"`
-	Steps          []wfStep `yaml:"steps"`
+	TimeoutMinutes any               `yaml:"timeout-minutes"`
+	Steps          []wfStep          `yaml:"steps"`
+	Permissions    map[string]string `yaml:"permissions"`
+	Env            map[string]any    `yaml:"env"`
 	// Uses is the reusable workflow a job calls instead of running steps.
 	Uses string `yaml:"uses"`
+	If   string `yaml:"if"`
 }
 
 // runs is every shell body the job executes, joined.

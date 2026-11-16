@@ -62,8 +62,9 @@ some records are outside your view.
 
 The operator's chart grants the dashboard's ServiceAccount create on
 `subjectaccessreviews` and get, list and watch on delivery Stages and
-Operations, for the [shared cache](dashboard-authentication.md). The operator
-holds the same rights while the dashboard is enabled, since Kubernetes lets it
+Operations, for the [shared cache](dashboard-authentication.md), and get on
+the `kube-system` namespace by name, to learn the cluster id. The operator
+reads the same namespace for its Evidence Server and holds the same rights while the dashboard is enabled, since Kubernetes lets it
 grant only what it has. A dashboard you run yourself with
 `pacto dashboard --oidc-issuer-url` needs the same rights for the credentials
 it runs with; without the delivery reads, it reads delivery with each person's

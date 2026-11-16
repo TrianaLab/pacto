@@ -61,7 +61,7 @@ You need, on every node that runs target pods:
 nodeAgent:
   enabled: true          # also turns on controller kernel evidence
 controller:
-  enableProbing: true    # the protocol fact; also active health probing
+  probing: "on"          # the protocol fact; also active health probing
 ```
 
 `nodeAgent.publishInterval` sets how often the agent reports.
@@ -202,7 +202,7 @@ a cluster without probing keeps its status.
 
 | Contract field | Fact and source | Contradiction |
 | --- | --- | --- |
-| `interfaces[].type` | protocol probe: the operator sends an HTTP/2 preface to the Service port and classifies the answer as `http1`, `http2`, `tls` or `other`; needs `controller.enableProbing` | `openapi` answering `other`, or `grpc` answering `http1` or `other`: `INTERFACE_PROTOCOL_MISMATCH` |
+| `interfaces[].type` | protocol probe: the operator sends an HTTP/2 preface to the Service port and classifies the answer as `http1`, `http2`, `tls` or `other`; needs `controller.probing` on or the namespace label `pacto.trianalab.io/observe=probing` | `openapi` answering `other`, or `grpc` answering `http1` or `other`: `INTERFACE_PROTOCOL_MISMATCH` |
 | `interfaces[].visibility` | exposure, see [how exposure is decided](#how-exposure-is-decided) | an `internal` interface (the default) that is `external`: `INTERFACE_VISIBILITY_MISMATCH` |
 | `dependencies[].compatibility` | the provider's `status.contract.version` from its Pacto resource; when several targets match the ref, the one version inside the range picks the target | a version outside the range: `DEPENDENCY_VERSION_MISMATCH`, an error for a required dependency and a warning for an optional one |
 | `state.persistence.scope` | a writable PersistentVolumeClaim volume in the pod template is shared when more than one pod runs at once (Deployment, ReplicaSet or StatefulSet replicas, Job parallelism); StatefulSet volume claim templates give each replica its own claim; a claim opened or mounted read-only everywhere is ignored | `local` scope with a shared claim: `PERSISTENCE_MISMATCH` |

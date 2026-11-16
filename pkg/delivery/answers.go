@@ -104,7 +104,7 @@ func AssembleHistory(st *StageObject, ops []OperationObject, r *RecordsRead, rea
 func StatusEntry(o OperationObject) HistoryEntry {
 	s := o.Status
 	e := HistoryEntry{Seq: s.Seq, Operation: o.Metadata.Name, OperationUID: o.Metadata.UID, Type: o.Spec.Type, From: o.Spec.Params.From,
-		To: o.Spec.Params.To, Actor: o.Spec.Actor.User, ActorClass: s.ActorClass, Phase: s.Phase, Outcome: s.Outcome,
+		To: o.Spec.Params.To, Actor: o.Spec.Actor.User, ActorClass: s.ActorClass, ActorClassifiedBy: s.ActorClassifiedBy, Phase: s.Phase, Outcome: s.Outcome,
 		Verification: s.Verification, Reason: s.Reason, Finished: s.Times.Finished, Applied: s.Times.Applied,
 		Cause: o.Spec.Cause, CorrelationID: o.Spec.CorrelationID}
 	if e.Finished == "" {
@@ -118,8 +118,7 @@ func StatusEntry(o OperationObject) HistoryEntry {
 		e.UnverifiedRecord = s.Record.Digest
 	}
 	for _, a := range s.Approvals {
-		e.Approvals = append(e.Approvals, RecordApproval{By: a.By, Decision: a.Decision, Operation: o.Metadata.UID,
-			AuthTime: a.AuthTime, Note: a.Note})
+		e.Approvals = append(e.Approvals, approvalOf(a, o.Metadata.UID))
 	}
 	return e
 }
@@ -157,7 +156,7 @@ func WithUnsignedMove(e HistoryEntry, ops []OperationObject, uid string) History
 		return e
 	}
 	s := StatusEntry(ops[i])
-	e.Type, e.From, e.To, e.Actor, e.ActorClass = s.Type, s.From, s.To, s.Actor, s.ActorClass
+	e.Type, e.From, e.To, e.Actor, e.ActorClass, e.ActorClassifiedBy = s.Type, s.From, s.To, s.Actor, s.ActorClass, s.ActorClassifiedBy
 	e.Outcome, e.Verification, e.Pointer, e.Applied = s.Outcome, s.Verification, s.Pointer, s.Applied
 	return e
 }

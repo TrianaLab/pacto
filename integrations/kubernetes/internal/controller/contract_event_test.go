@@ -188,7 +188,7 @@ func TestFailReconciliation_SteadyUnknownIsSilent(t *testing.T) {
 	r.Recorder = rec
 
 	_, err := r.failReconciliation(context.Background(), pacto, "registry unreachable", nil,
-		&pactov1alpha1.PactoStatus{ContractStatus: pactov1alpha1.ContractStatusUnknown}, pactov1alpha1.ContractStatusUnknown)
+		&pactov1alpha1.PactoStatus{ContractStatus: pactov1alpha1.ContractStatusUnknown}, pactov1alpha1.ContractStatusUnknown, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -206,7 +206,7 @@ func TestFailReconciliation_FirstFailureEmitsWarning(t *testing.T) {
 	r.Recorder = rec
 
 	_, err := r.failReconciliation(context.Background(), pacto, "bad bundle", nil,
-		&pactov1alpha1.PactoStatus{ContractStatus: pactov1alpha1.ContractStatusCompliant}, pactov1alpha1.ContractStatusInvalid)
+		&pactov1alpha1.PactoStatus{ContractStatus: pactov1alpha1.ContractStatusCompliant}, pactov1alpha1.ContractStatusInvalid, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

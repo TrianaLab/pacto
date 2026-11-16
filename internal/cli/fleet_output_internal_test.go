@@ -251,7 +251,7 @@ func TestPrintRevisionPlace(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.SetOut(&buf)
 	rev := &fleet.RevisionDetailData{
-		Position: 1, Revisions: 4, Current: true, ServiceTargets: 11,
+		Position: 1, Revisions: 4, Current: true, ServiceTargets: 11, PactoVersion: "2.3", PactoVersionCurrent: "2.5",
 		ExactTargets: fleet.RefPreview{Total: 6}, InferredTargets: fleet.RefPreview{Total: 2},
 		EvidenceSourceCounts: fleet.SourceCounts{Total: 3, Available: 2, Stale: 1},
 	}
@@ -260,6 +260,7 @@ func TestPrintRevisionPlace(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Position: 1 of 4 revisions, newest first, current\n",
+		"Pacto version: 2.3 (behind 2.5)\n",
 		"Targets: 8 of the service's 11 run this revision (6 exact, 2 inferred)\n",
 		"Evidence sources: 3 (2 available, 0 partial, 1 stale, 0 unavailable)\n",
 	} {
@@ -271,6 +272,9 @@ func TestPrintRevisionPlace(t *testing.T) {
 	printRevisionPlace(&buf, &fleet.RevisionDetailData{Position: 2, Revisions: 4})
 	if !strings.Contains(buf.String(), "Position: 2 of 4 revisions, newest first\n") {
 		t.Errorf("a revision that is not current says so: %q", buf.String())
+	}
+	if strings.Contains(buf.String(), "Pacto version") {
+		t.Errorf("a revision with no pactoVersion prints none: %q", buf.String())
 	}
 }
 
@@ -509,5 +513,33 @@ func TestOverviewPrinterEdges(t *testing.T) {
 	var buf bytes.Buffer
 	if printOverviewDomains(&buf, nil); buf.Len() != 0 {
 		t.Errorf("no domain prints a table: %q", buf.String())
+	}
+}
+
+// An inferred name keeps its source in text output, as in JSON and the dashboard.
+func TestPrintFleet_MarksInferredName(t *testing.T) {
+	inf := &contract.Inferred{Field: "service.name", Value: "payments", Source: "chart/Chart.yaml:2"}
+	cmd := &cobra.Command{}
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	res := &fleet.SearchResult{Total: 2, Count: 2, Services: []fleet.ServiceHit{{Name: "payments", NameInferred: inf}, {Name: "orders"}}}
+	if err := printFleetSearch(cmd, res, "text"); err != nil {
+		t.Fatal(err)
+	}
+	if err := printFleetService(cmd, &fleet.ServiceView{Service: &fleet.ServiceRecord{Name: "payments", NameInferred: inf}}, "text"); err != nil {
+		t.Fatal(err)
+	}
+	for line := range strings.Lines(out.String()) {
+		if strings.Contains(line, "orders") && strings.Contains(line, "inferred") {
+			t.Errorf("declared row marked: %q", line)
+		}
+	}
+	for _, want := range []string{"payments", "Service: payments (name inferred from chart/Chart.yaml:2)"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("text lacks %q:\n%s", want, out.String())
+		}
+	}
+	if strings.Count(out.String(), "(name inferred from chart/Chart.yaml:2)") != 2 {
+		t.Errorf("want the mark on the search row and the Service line:\n%s", out.String())
 	}
 }

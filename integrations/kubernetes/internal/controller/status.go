@@ -54,7 +54,7 @@ func (r *PactoReconciler) populateContractStatus(pacto *pactov1alpha1.Pacto, lr 
 	pacto.Status.Contract = info
 	pacto.Status.StatusFormat = pactov1alpha1.PactoStatusFormat
 
-	// Interfaces (v2: Type is openapi/asyncapi/grpc, Ref not Contract, no Port)
+	// Interfaces (v2: Type is openapi/asyncapi/grpc, Ref not Contract)
 	for _, iface := range c.Interfaces {
 		ii := pactov1alpha1.InterfaceInfo{
 			Name:       iface.Name,
@@ -64,6 +64,7 @@ func (r *PactoReconciler) populateContractStatus(pacto *pactov1alpha1.Pacto, lr 
 			// ponytail: plain conversions; a field added to the contract type
 			// without one here stops the build instead of drifting silently.
 			CompatibilityEpoch: int32(iface.CompatibilityEpoch),
+			Port:               int32(iface.Port), // the schema bounds it to 1-65535
 		}
 		if l := iface.Lifecycle; l != nil {
 			ii.Lifecycle = new(pactov1alpha1.InterfaceLifecycleInfo(*l))
@@ -266,15 +267,16 @@ func formatValidationErrors(validationErrors []contract.ValidationError) string 
 // setRuntimeObservedCondition records whether runtime evidence was collected. When
 // any read failed (obsErr may join several, one per line) it reports False
 // (ReasonObservationFailed) with every failure in the message, rather than
-// claiming success: True means the collection fully succeeded.
-func (r *PactoReconciler) setRuntimeObservedCondition(pacto *pactov1alpha1.Pacto, obsErr error) {
+// claiming success: True means the collection fully succeeded. Both messages end
+// with observe, which names where each observation setting came from.
+func (r *PactoReconciler) setRuntimeObservedCondition(pacto *pactov1alpha1.Pacto, obsErr error, observe string) {
 	if obsErr != nil {
 		r.setCondition(pacto, pactov1alpha1.ConditionRuntimeObserved, metav1.ConditionFalse,
-			pactov1alpha1.ReasonObservationFailed, "Runtime observation failed: "+strings.ReplaceAll(obsErr.Error(), "\n", "; "))
+			pactov1alpha1.ReasonObservationFailed, "Runtime observation failed: "+strings.ReplaceAll(obsErr.Error(), "\n", "; ")+". Observation: "+observe)
 		return
 	}
 	r.setCondition(pacto, pactov1alpha1.ConditionRuntimeObserved, metav1.ConditionTrue,
-		pactov1alpha1.ReasonFound, "Runtime evidence collected successfully")
+		pactov1alpha1.ReasonFound, "Runtime evidence collected successfully. Observation: "+observe)
 }
 
 // mapOwnerToInfo converts a contract.Owner to the CRD OwnerInfo representation.

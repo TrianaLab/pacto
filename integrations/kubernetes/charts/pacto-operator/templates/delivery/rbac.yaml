@@ -43,6 +43,11 @@ rules:
   - apiGroups: [""]
     resources: [events]
     verbs: [create, patch]
+  # It asks whether the author of an approval, unfreeze or acknowledge may
+  # update the Stage's workload: only someone who may decides.
+  - apiGroups: [authorization.k8s.io]
+    resources: [subjectaccessreviews]
+    verbs: [create]
   {{- if .Values.delivery.argocd.enabled }}
   - apiGroups: [argoproj.io]
     resources: [applications]
@@ -60,7 +65,7 @@ rules:
   - apiGroups: [batch]
     resources: [jobs, cronjobs]
     verbs: [get]
-  {{- include "pacto-operator.delivery.rbac.clusterIdentityRule" . | nindent 2 }}
+  {{- include "pacto-operator.rbac.clusterIdentityRule" . | nindent 2 }}
 ---
 {{ include "pacto-operator.binding" (dict "kind" "ClusterRoleBinding" "name" (printf "%s-promoter" (include "pacto-operator.delivery.fullname" .)) "labels" (include "pacto-operator.delivery.labels" (dict "ctx" . "component" "delivery-promoter")) "serviceAccount" (include "pacto-operator.delivery.serviceAccountName" .) "serviceAccountNamespace" (include "pacto-operator.delivery.namespace" .)) }}
 ---
@@ -78,7 +83,8 @@ rules:
 ---
 # Bind this to agents (their own service accounts, or the agent group): they
 # may propose and read operations, cancel the ones they proposed (admission
-# refuses the rest) and read Stages. Planning reads the
+# refuses the rest) and read Stages. It lets no one decide: the promoter's
+# SubjectAccessReview on the Stage's workload does. Planning reads the
 # Pactos and the Kustomizations, which place each consumer. No approvals, no
 # status, no pointer.
 apiVersion: rbac.authorization.k8s.io/v1
@@ -90,9 +96,13 @@ metadata:
 rules:
   {{- include "pacto-operator.delivery.rbac.agentRules" (dict "ctx" .) | nindent 2 }}
 ---
-# Bind this to the people who may approve: everything an agent may do, plus
-# creating Approvals. Admission still refuses an approval from a service
-# account or an agent group, so binding it to an agent does not make it one.
+# Everything an agent may do, plus creating Approvals. People with the built-in
+# edit or admin role in a namespace already hold this there (the -edit role
+# below aggregates into them); bind it only to grant Approval creation to
+# someone without either. The promoter still counts an approval only from a
+# person who may update the Stage's workload, and admission refuses one from a
+# service account, a system user or an agent group, so binding it to an agent
+# does not make it one.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -101,4 +111,40 @@ metadata:
     {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
 rules:
   {{- include "pacto-operator.delivery.rbac.agentRules" (dict "ctx" . "approver" true) | nindent 2 }}
+---
+# Whoever may view a namespace (the built-in view, edit and admin roles) may
+# read its delivery objects there. Delivery group only; no binding.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "pacto-operator.delivery.fullname" . }}-view
+  labels:
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+    rbac.authorization.k8s.io/aggregate-to-view: "true"
+    rbac.authorization.k8s.io/aggregate-to-edit: "true"
+    rbac.authorization.k8s.io/aggregate-to-admin: "true"
+rules:
+  - apiGroups: [delivery.pacto.trianalab.io]
+    resources: [stages, operations, approvals]
+    verbs: [get, list, watch]
+---
+# Whoever may edit a namespace (the built-in edit and admin roles, which also
+# update its workloads) may approve and propose there. The promoter counts an
+# approval only when a SubjectAccessReview says its author may update the
+# Stage's workload, so the two agree for the common case.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "pacto-operator.delivery.fullname" . }}-edit
+  labels:
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+    rbac.authorization.k8s.io/aggregate-to-edit: "true"
+    rbac.authorization.k8s.io/aggregate-to-admin: "true"
+rules:
+  - apiGroups: [delivery.pacto.trianalab.io]
+    resources: [approvals]
+    verbs: [create]
+  - apiGroups: [delivery.pacto.trianalab.io]
+    resources: [operations]
+    verbs: [create, delete]
 {{- end }}

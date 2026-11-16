@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
 	"sort"
@@ -170,6 +171,34 @@ func (e *AmbiguousError) Error() string {
 	return fmt.Sprintf("%s %q is ambiguous: matches %s", e.Kind, e.ID, strings.Join(e.Matches, ", "))
 }
 
+// TargetKeyAmbiguousError is returned when a target key does not name one
+// target for certain: a 3-part key that names targets in more than one
+// cluster, one that matches a single target while a source is incomplete, or a
+// 4-part key whose only match has no known cluster. Candidates are the targets
+// the caller may see, sorted by key, each labelled for a person to choose from;
+// every candidate key resolves on its own.
+type TargetKeyAmbiguousError struct {
+	Key        string
+	Candidates []EntityRef
+	// Reason says why the key does not resolve, for a person; empty means the
+	// key names targets in more than one cluster.
+	Reason string
+}
+
+// Message is Reason, or the several-clusters reason when Reason is empty.
+func (e *TargetKeyAmbiguousError) Message() string {
+	return cmp.Or(e.Reason, "this target key names targets in more than one cluster; choose one")
+}
+
+func (e *TargetKeyAmbiguousError) Error() string {
+	var b strings.Builder
+	b.WriteString("ambiguous target key: " + e.Message() + "; candidates:")
+	for _, c := range e.Candidates {
+		b.WriteString("\n  " + c.Label + "   " + c.Key)
+	}
+	return b.String()
+}
+
 // ParseLabels reads key=value pairs into SearchFilter.Labels. A pair with no
 // key or no =, or a key repeated with another value, is an InvalidQueryError:
 // dropping it would widen the answer past what the caller asked for.
@@ -244,6 +273,8 @@ type ServiceHit struct {
 	Labels        map[string]string `json:"labels,omitempty"`
 	// Template marks a golden path (see ServiceRecord.Template).
 	Template bool `json:"template,omitempty"`
+	// NameInferred is where Name comes from when no revision declares it.
+	NameInferred *contract.Inferred `json:"nameInferred,omitempty"`
 }
 
 // SearchResult is a bounded page of service hits.
@@ -338,6 +369,7 @@ func hitFromService(s *ServiceRecord) ServiceHit {
 		Offering: s.Offering, Summary: s.Summary, Owner: cloneOwner(s.Owner), Status: s.Status,
 		RevisionCount: len(s.Revisions), TargetCount: len(s.Targets),
 		Sources: append([]string(nil), s.Sources...), Labels: cloneStringMap(s.Labels), Template: s.Template,
+		NameInferred: clonePtr(s.NameInferred),
 	}
 }
 
@@ -604,8 +636,17 @@ type TargetView struct {
 
 // GetTarget returns a target by exact key, or (failing that) by unique name. It
 // returns a [NotFoundError] when nothing matches and an [AmbiguousError] when a
-// name matches more than one target.
+// name matches more than one target. A key in the other cluster form resolves
+// first (see resolveTargetKey): a 3-part key that names targets in several
+// clusters returns a [TargetKeyAmbiguousError]. The answer always carries the
+// canonical key.
 func (q *Query) GetTarget(id string) (*TargetView, error) {
+	if t, err := q.resolveTargetKey(id); t != nil || err != nil {
+		if err != nil {
+			return nil, err
+		}
+		return q.targetView(t), nil
+	}
 	if t := q.snap.Targets[TargetKey(id)]; t != nil {
 		return q.targetView(t), nil
 	}
@@ -628,6 +669,88 @@ func (q *Query) GetTarget(id string) (*TargetView, error) {
 		sort.Strings(keys)
 		return nil, &AmbiguousError{Kind: "target", ID: id, Matches: keys}
 	}
+}
+
+// resolveTargetKey resolves a key whose cluster form differs from the
+// snapshot's. In a snapshot keyed by cluster, a 3-part key gathers every
+// target with that scope, kind and name, clustered or not (see
+// resolveLegacyKey). In a snapshot that is not, a 4-part key resolves to the
+// 3-part target in that cluster (see resolveForwardKey). It returns nil, nil
+// when neither applies. It reads only q's snapshot, so a restricted viewer's
+// candidates are targets it may see.
+func (q *Query) resolveTargetKey(id string) (*TargetRecord, error) {
+	cluster, scope, kind, name, ok := ParseTargetKey(TargetKey(id))
+	switch {
+	case !ok:
+		return nil, nil
+	case cluster == "" && q.snap.clusterKeyed:
+		return q.resolveLegacyKey(id, scope, kind, name)
+	case cluster != "" && !q.snap.clusterKeyed:
+		return q.resolveForwardKey(id, cluster, scope, kind, name)
+	}
+	return nil, nil
+}
+
+// resolveLegacyKey resolves a 3-part key in a snapshot keyed by cluster: one
+// match resolves while every source is available; several matches, or one
+// while a source is incomplete, are a [TargetKeyAmbiguousError].
+func (q *Query) resolveLegacyKey(id, scope, kind, name string) (*TargetRecord, error) {
+	var matches []*TargetRecord
+	for _, t := range q.snap.Targets {
+		if t.Scope == scope && t.Kind == kind && t.Name == name {
+			matches = append(matches, t)
+		}
+	}
+	switch {
+	case len(matches) > 1:
+		return nil, targetKeyAmbiguous(id, "", matches)
+	case len(matches) == 1 && q.sourcesIncomplete():
+		// A source that failed or listed only part of its records may hold
+		// this name in another cluster, so one match is not proof of one.
+		return nil, targetKeyAmbiguous(id, "this target key matches one target, but a source is incomplete and may hold the same target in another cluster; choose one", matches)
+	case len(matches) == 1:
+		return matches[0], nil
+	}
+	return nil, nil
+}
+
+// resolveForwardKey resolves a 4-part key in a snapshot that is not keyed by
+// cluster to the 3-part target in that cluster, or to the clusterless one for
+// [UnknownClusterKeyPart]. A clusterless target under a real cluster's key
+// may or may not be in that cluster, so it is a [TargetKeyAmbiguousError]
+// with that one candidate.
+func (q *Query) resolveForwardKey(id, cluster, scope, kind, name string) (*TargetRecord, error) {
+	t := q.snap.Targets[NewTargetKey(scope, kind, name)]
+	switch {
+	case t == nil:
+		return nil, nil
+	case t.Cluster == cluster, t.Cluster == "" && cluster == UnknownClusterKeyPart:
+		return t, nil
+	case t.Cluster == "":
+		return nil, targetKeyAmbiguous(id, "the target with this name has no known cluster, so it may not be in the cluster this key names; choose it only if it is", []*TargetRecord{t})
+	}
+	return nil, nil
+}
+
+// sourcesIncomplete reports whether any source is not fully available.
+func (q *Query) sourcesIncomplete() bool {
+	return slices.ContainsFunc(q.snap.Sources, func(s SourceState) bool { return s.Status != SourceAvailable })
+}
+
+// targetKeyAmbiguous lists matches as the candidates of key, sorted by key,
+// with reason (see [TargetKeyAmbiguousError.Reason]). A clusterless candidate
+// says its cluster is unknown.
+func targetKeyAmbiguous(key, reason string, matches []*TargetRecord) *TargetKeyAmbiguousError {
+	e := &TargetKeyAmbiguousError{Key: key, Reason: reason}
+	for _, t := range matches {
+		ref := targetEntityRef(t)
+		if t.Cluster == "" {
+			ref.Label += " (cluster unknown)"
+		}
+		e.Candidates = append(e.Candidates, ref)
+	}
+	sort.Slice(e.Candidates, func(a, b int) bool { return e.Candidates[a].Key < e.Candidates[b].Key })
+	return e
 }
 
 func (q *Query) targetView(t *TargetRecord) *TargetView {
@@ -690,6 +813,8 @@ type GraphNode struct {
 	// Provenance is how the edge that first reached the node is known: declared,
 	// observed or declared+observed.
 	Provenance string `json:"provenance" enum:"declared,observed,declared+observed"`
+	// NameInferred is where Name comes from when no revision declares it.
+	NameInferred *contract.Inferred `json:"nameInferred,omitempty"`
 }
 
 // GraphResult is a deterministic, cycle-safe traversal answer. Aggregated is true
@@ -778,6 +903,9 @@ bfs:
 			nodeSet[next] = true
 			_, name := ParseServiceKey(next)
 			n := GraphNode{Key: next, Name: name, Depth: cur.Depth + 1, Path: append(append([]ServiceKey(nil), cur.Path...), next), Provenance: step.Provenance}
+			if s := q.snap.Services[next]; s != nil {
+				n.NameInferred = clonePtr(s.NameInferred)
+			}
 			res.Nodes = append(res.Nodes, n)
 			if gq.Transitive && (gq.MaxDepth == 0 || n.Depth < gq.MaxDepth) {
 				expanded[next] = true

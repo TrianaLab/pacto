@@ -110,6 +110,14 @@ func TestEnvironmentEventShape(t *testing.T) {
 	if sub["id"] != "cid/prod/payments-prod" || sub["content"].(map[string]any)["name"] != "prod" || len(sub["content"].(map[string]any)) != 1 {
 		t.Fatalf("subject = %v", sub)
 	}
+	createdEventCustom(t, c, sub, now)
+	deletedEventShape(t, s, now)
+}
+
+// createdEventCustom checks the created event's customData and that the
+// subjects of Stages in other namespaces or with other names never collide.
+func createdEventCustom(t *testing.T, c, sub map[string]any, now time.Time) {
+	t.Helper()
 	cd := customOf(c)
 	if cd["service"] != "payments" || cd["domain"] != "acme" || cd["stage"] != "prod/payments-prod" || cd["stageUID"] != "u1" ||
 		cd["createdAt"] != "2025-03-04T05:06:07Z" || cd["observedAt"] != nil {
@@ -120,7 +128,12 @@ func TestEnvironmentEventShape(t *testing.T) {
 	if other == sub["id"] || sibling == sub["id"] || other == sibling {
 		t.Fatalf("subjects collide: %v %v %v", sub["id"], other, sibling)
 	}
+}
 
+// deletedEventShape checks the deleted event is timed by the
+// deletionTimestamp, or observed now when the Stage has none.
+func deletedEventShape(t *testing.T, s *dv1.Stage, now time.Time) {
+	t.Helper()
 	d := environmentEvent("/pacto-delivery/cid", s, false, now)
 	if d["type"] != eventEnvironmentDeleted || d["id"] != "u1/deleted" || d["time"] != nil || customOf(d)["observedAt"] != "2026-10-20T10:00:00Z" {
 		t.Fatalf("deleted without deletionTimestamp = %v", d)

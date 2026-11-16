@@ -4,7 +4,9 @@
 # SAME shared adapters production uses (build-cli.sh, verify-oci.sh,
 # publish-go-tag.sh), then proves digest idempotency, fail-closed immutability and
 # resume — with real digests, no production coordinate or credential. This is the
-# code path release.yml runs; only the coordinates + credentials differ.
+# code path release.yml runs; only the coordinates + credentials differ. The one
+# production step it skips is the SLSA provenance attestation (it needs the
+# release workflow's OIDC token); it checks the attestation subjects instead.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 REG="${PACTO_STAGING_REGISTRY:-localhost:5001}"
@@ -110,6 +112,15 @@ PACTO_DIST_DIR="$DIST2" bash "$ROOT/release/orchestrator/build-cli.sh" "v$CORE" 
 diff -q "$DIST/checksums.txt" "$DIST2/checksums.txt" >/dev/null \
   && echo "   reproducible: identical checksums on rebuild" || { echo "CLI build not reproducible"; exit 1; }
 
+echo "== attest: skipped in the dry run (needs the release workflow's OIDC token) =="
+# release.yml attests dist/pacto_* and dist/checksums.txt. Prove those subjects
+# are exactly what build-cli.sh produced, so the two cannot drift apart.
+n="$(find "$DIST" -maxdepth 1 -name 'pacto_*' | wc -l | tr -d ' ')"
+[ "$n" = 6 ] || { echo "expected 6 pacto_* binaries to attest, found $n"; exit 1; }
+test -s "$DIST/checksums.txt" || { echo "no checksums.txt to attest"; exit 1; }
+awk '{print $2}' "$DIST/checksums.txt" | grep -v '^pacto_' && { echo "checksums.txt names a file outside the attested pacto_* set"; exit 1; }
+echo "   attestation subjects: $n binaries + checksums.txt"
+
 echo "== package + push the chart (with source-revision provenance, as production does) =="
 CHART_SRC="$WORK/chart-src"
 cp -r "$ROOT/integrations/kubernetes/charts/pacto-operator" "$CHART_SRC"
@@ -137,7 +148,7 @@ echo "== the operator chart installs delivery from the delivery image at its app
 # the delivery image the same release publishes.
 # Rendered first, then matched: piped into `grep -q`, which stops at the first
 # match, helm dies of SIGPIPE on the long render and pipefail fails the check.
-rendered="$(helm template d "$CHART" --set delivery.enabled=true --set delivery.identities.allowEmptyHumanGroups=true \
+rendered="$(helm template d "$CHART" --set delivery.enabled=true \
   --api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy)"
 grep -q "image: \"ghcr.io/trianalab/pacto/delivery:$DV\"" <<<"$rendered" \
   || { echo "operator chart delivery image is not ghcr.io/trianalab/pacto/delivery:$DV"; exit 1; }

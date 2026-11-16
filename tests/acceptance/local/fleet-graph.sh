@@ -224,4 +224,27 @@ echo "== 5b. target evidence older than 24h makes the consumer's confidence unkn
 SOUT="$("$BIN" impact "$WORK/pay-old" "$WORK/pay-new" --local "$WORK/ws" --target-state "$WORK/targets-stale.yaml" --traces "$WORK/traces.json" || true)"
 assert_contains "$SOUT" "confidence=unknown" "stale target evidence lowers confidence to unknown"
 
+echo "== 6. two clusters keep two targets; an old key names both =="
+# Two target-state files describe two clusters that each run prod/payments.
+for c in eu us; do
+  cat > "$WORK/cluster-$c.yaml" <<EOF
+schemaVersion: pacto.dev/fleet-targets/v1
+cluster: {id: uid-$c, name: $c-prod}
+targets:
+  - {scope: prod, kind: kubernetes, name: payments, service: payments, compliance: Compliant}
+EOF
+done
+TWO=(--target-state "$WORK/cluster-eu.yaml" --target-state "$WORK/cluster-us.yaml")
+if MOUT="$("$BIN" fleet entity target prod/kubernetes/payments "${TWO[@]}" 2>&1)"; then
+  echo "--- output ---"; echo "$MOUT"; fail "a 3-part key that names two clusters must not resolve"
+else
+  pass "a 3-part key that names two clusters exits non-zero"
+fi
+assert_contains "$MOUT" "eu-prod / prod / payments   uid-eu/prod/kubernetes/payments" "the eu candidate is listed"
+assert_contains "$MOUT" "us-prod / prod / payments   uid-us/prod/kubernetes/payments" "the us candidate is listed"
+COUT="$("$BIN" fleet entity target uid-eu/prod/kubernetes/payments "${TWO[@]}")"
+assert_contains "$COUT" "Key: uid-eu/prod/kubernetes/payments" "the cluster-qualified key answers"
+OOUT1="$("$BIN" fleet entity target prod/kubernetes/payments --target-state "$WORK/cluster-eu.yaml")"
+assert_contains "$OOUT1" "Key: prod/kubernetes/payments" "one cluster keeps the 3-part key"
+
 echo "== operational-graph acceptance PASSED =="

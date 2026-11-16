@@ -169,9 +169,13 @@ e2e-otel: test-acceptance-local
 # and liveness are different properties and a merged suite proves neither.
 #
 # PW_SHARD=i/n runs one Playwright slice (CI shards the suite to fit its timeout).
+# PW_LEG=layout|rest picks the layout matrix or everything else (playwright.config.ts),
+# so CI shards each leg by its own weight; unset runs the whole suite.
 # Every shard builds the demo and the doc export it needs; the engine smoke runs
-# only when PW_SHARD is unset or names shard 1, so it is neither duplicated nor dropped.
+# only outside the layout leg when PW_SHARD is unset or names shard 1, so it is
+# neither duplicated nor dropped.
 PW_SHARD ?=
+PW_LEG ?=
 test-browser:
 	$(MAKE) -C examples/demo build
 # The legacy non-Fleet views ship in the same bundle but no live host serves them:
@@ -186,18 +190,22 @@ test-browser:
 # check -- `impact <old>→<new> is BREAKING` -- which fails the moment a republish
 # stops the two compared revisions from differing incompatibly. Before Playwright,
 # because a broken engine makes the browser failures downstream noise.
-	$(if $(filter-out 1/%,$(PW_SHARD)),@echo "engine smoke runs in shard 1 only; skipped in shard $(PW_SHARD)",$(MAKE) -C examples/demo smoke)
-	cd pkg/dashboard/frontend && npm ci --ignore-scripts && npx playwright install chromium && npm run test:e2e$(if $(PW_SHARD), -- --shard=$(PW_SHARD))
+	$(if $(filter layout,$(PW_LEG))$(filter-out 1/%,$(PW_SHARD)),@echo "engine smoke runs in shard 1 of the rest leg only; skipped in $(PW_LEG) shard $(PW_SHARD)",$(MAKE) -C examples/demo smoke)
+	cd pkg/dashboard/frontend && npm ci --ignore-scripts && npx playwright install chromium && PW_LEG=$(PW_LEG) npm run test:e2e$(if $(PW_SHARD), -- --shard=$(PW_SHARD))
 e2e-dashboard-wasm: test-browser
 
 # The full SPEC 23 resolution matrix: every named viewport from a 320px phone to a
 # 3840px screen, the 40px width sweep, DPR 2 and 3 on phones and tablets, and the
 # default font beside Verdana. The PR suite (test-browser) runs the SPEC 24.6 subset of
-# the same spec; the final gate and the docs screenshot job run this one.
+# the same spec. CI runs this one in .github/workflows/layout-full.yml: nightly on main
+# and on the changesets Version PR, where `required` gates the release on it.
+# PW_SHARD=i/n runs one Playwright slice, as in test-browser. The matrix carries the G1
+# gate too, and here both run in both themes: PRs gate geometry in dark only, so this is
+# where the light theme's geometry is gated.
 test-browser-layout-full:
 	$(MAKE) -C examples/demo build
 	$(MAKE) -C examples/demo doc-export
-	cd pkg/dashboard/frontend && npm ci --ignore-scripts && npx playwright install chromium && PACTO_LAYOUT_FULL=1 npx playwright test e2e/layout-matrix.spec.ts --project=desktop
+	cd pkg/dashboard/frontend && npm ci --ignore-scripts && npx playwright install chromium && PACTO_LAYOUT_FULL=1 npx playwright test e2e/layout-matrix.spec.ts --project=desktop$(if $(PW_SHARD), --shard=$(PW_SHARD))
 
 # The dashboard screenshots in docs/assets/screenshots, captured from the built WASM
 # demo at 1600x1000 in both themes, so they are reproducible rather than hand-made.
