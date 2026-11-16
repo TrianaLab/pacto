@@ -506,6 +506,15 @@ describe('PageHeader', () => {
     comp = mount(PageHeader, { target, props: { title: 'Services', revalidating: true } });
     expect(age()).toBe('Checking for changes…');
   });
+  it('marks an inferred entity name with its source beside the title', () => {
+    comp = mount(PageHeader, { target, props: { ref: { kind: 'service', key: 'd/payments', label: 'payments', nameInferred: { field: 'service.name', value: 'payments', source: 'chart/Chart.yaml:2' } } } });
+    expect(target.querySelector('[data-testid="page-name-inferred"]')?.textContent).toContain('Name inferred from chart/Chart.yaml:2');
+    expect(target.querySelector('h1')?.textContent).toBe('payments');
+  });
+  it('marks no declared name', () => {
+    comp = mount(PageHeader, { target, props: { ref: { kind: 'service', key: 'd/payments', label: 'payments' } } });
+    expect(target.querySelector('[data-testid="page-name-inferred"]')).toBeNull();
+  });
 });
 
 describe('SchemaContent', () => {

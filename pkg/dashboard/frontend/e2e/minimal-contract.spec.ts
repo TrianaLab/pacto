@@ -41,6 +41,16 @@ test.describe('WASM demo — a service with an empty contract', () => {
     expect(errors).toEqual([]);
   });
 
+  test('its service page title says the name is inferred and where from', async ({ page }) => {
+    const errors = watchConsole(page);
+    await page.goto('/#/fleet/services/newsletter-service');
+    await expect(page.getByTestId('page-title')).toContainText('newsletter-service', { timeout: T });
+    const chip = page.getByTestId('page-name-inferred');
+    await expect(chip).toBeVisible();
+    await expect(chip).toContainText('Name inferred from chart/Chart.yaml:2');
+    expect(errors).toEqual([]);
+  });
+
   test('the overview counts it', async ({ page }) => {
     const errors = watchConsole(page);
     await page.goto('/#/fleet');
