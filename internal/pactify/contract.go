@@ -882,7 +882,9 @@ func declaredBy(snap *fleet.FleetSnapshot, name, bundle string) []Finding {
 		if rel.Type != fleet.RelationshipDependency || from == nil || from.Name == name {
 			continue
 		}
-		if (to == nil || to.Name != name) && (bundle == "" || refRepo(rel.To) != bundle) {
+		// The ref matches even when nothing in snap resolves it, where rel.To
+		// is only the dependency's name.
+		if (to == nil || to.Name != name) && (bundle == "" || refRepo(cmp.Or(rel.RequestedRef, rel.To)) != bundle) {
 			continue
 		}
 		f := Finding{Name: from.Name, Where: strings.TrimSpace("declares " + name + " " + contract.RangeLabel(rel.Compatibility))}
