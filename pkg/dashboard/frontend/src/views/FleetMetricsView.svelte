@@ -7,7 +7,8 @@
   import { formatDateTime } from '../lib/dateFormat.ts';
   import { andList, placedByName } from '../lib/delivery.ts';
   import { durationText } from '../lib/chart.ts';
-  import { tiles, trend, caption, isDaily, windowDays, windowTotal, envTitle, hiddenLine, ratioText, noCI, protectedText, coverageTrend, NO_CI, RATES, TRENDS, COVERAGE_SERIES, METRIC_LABEL } from '../lib/metrics.ts';
+  import { isDaily, windowDays, envTitle, hiddenLine, ratioText, noCI, protectedText, NO_CI, RATES, METRIC_LABEL } from '../lib/metrics.ts';
+  import { tiles, trend, caption, windowTotal, coverageTrend, TRENDS, COVERAGE_SERIES } from '../lib/metricsLegacy.ts';
   import PageHeader from '../components/PageHeader.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import CopyableIdentifier from '../components/CopyableIdentifier.svelte';
