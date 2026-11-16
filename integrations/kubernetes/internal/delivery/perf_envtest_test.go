@@ -40,6 +40,87 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 )
 
+// seedPerfStage creates the Stage name in space, running A with its apply
+// OCIRepository and Kustomization, and the candidate source.
+func seedPerfStage(ctx context.Context, c client.Client, space, name string) (*dv1.Stage, error) {
+	s := stageObj(dA)
+	s.Namespace, s.Name, s.Spec.ApplyRef.Name = space, name, name
+	s.Spec.Candidates.OCIRepositoryRef.Name = name + "-candidates"
+	s.Status.Stream.ID = "cid/" + space + "/" + name
+	st := s.Status
+	if err := c.Create(ctx, s); err != nil {
+		return nil, err
+	}
+	s.Status = st
+	if err := c.Status().Update(ctx, s); err != nil {
+		return nil, err
+	}
+	oci := ociRepo(name, dA, "latest@"+dA, true)
+	oci.SetNamespace(space)
+	oci.SetLabels(map[string]string{ApplyRefLabel: name})
+	ociStatus := oci.Object["status"]
+	if err := c.Create(ctx, oci); err != nil {
+		return nil, err
+	}
+	oci.Object["status"] = ociStatus
+	if err := c.Status().Update(ctx, oci); err != nil {
+		return nil, err
+	}
+	// The candidate source offers what runs now, so no Stage proposes a
+	// promote of its own while the burst is measured.
+	cand := verifiedRepo(name+"-candidates", "latest@"+dA)
+	cand.SetNamespace(space)
+	candStatus := cand.Object["status"]
+	if err := c.Create(ctx, cand); err != nil {
+		return nil, err
+	}
+	cand.Object["status"] = candStatus
+	if err := c.Status().Update(ctx, cand); err != nil {
+		return nil, err
+	}
+	k := kustomization(name, name, "True", "ReconciliationSucceeded", "latest@"+dA, "latest@"+dA)
+	k.SetNamespace(space)
+	ks := k.Object["status"]
+	if err := c.Create(ctx, k); err != nil {
+		return nil, err
+	}
+	k.Object["status"] = ks
+	return s, c.Status().Update(ctx, k)
+}
+
+// waitMoved waits until every promote-NNN operation moved its pointer and
+// returns how long each took since created.
+func waitMoved(ctx context.Context, t *testing.T, c client.Client, created []time.Time) []time.Duration {
+	t.Helper()
+	n := len(created)
+	moved := make([]time.Duration, n)
+	deadline := time.Now().Add(10 * time.Minute)
+	for left := n; left > 0; {
+		if time.Now().After(deadline) {
+			t.Fatalf("%d of %d promotes never moved their pointer", left, n)
+		}
+		time.Sleep(100 * time.Millisecond)
+		list := &dv1.OperationList{}
+		must(t, c.List(ctx, list))
+		left = 0
+		for _, o := range list.Items {
+			var i int
+			if _, err := fmt.Sscanf(o.Name, "promote-%03d", &i); err != nil {
+				continue
+			}
+			switch {
+			case o.Status.Applied && moved[i] == 0:
+				moved[i] = time.Since(created[i])
+			case o.Status.Phase == delivery.PhaseConcluded && !o.Status.Applied:
+				t.Fatalf("%s concluded without moving: %s %s", o.Name, o.Status.Reason, o.Status.Message)
+			case moved[i] == 0:
+				left++
+			}
+		}
+	}
+	return moved
+}
+
 // TestPerfPromoter: a burst of 200 promotes, one per Stage, against a real
 // apiserver with the promoter's reconcilers running in a manager as
 // cmd/delivery wires them (4 workers, a 3s operation poll, Stages woken by
@@ -56,9 +137,7 @@ func TestPerfPromoter(t *testing.T) {
 	te := &envtest.Environment{CRDDirectoryPaths: []string{filepath.Join("..", "..", "config", "crd", "bases")},
 		ErrorIfCRDPathMissing: true, CRDs: fluxCRDs()}
 	cfg, err := te.Start()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	t.Cleanup(func() { _ = te.Stop() })
 	cfg.QPS, cfg.Burst = 50, 100 // the promoter's --kube-api-qps and --kube-api-burst
 	var calls atomic.Int64
@@ -84,9 +163,7 @@ func TestPerfPromoter(t *testing.T) {
 	seedCfg := rest.CopyConfig(cfg)
 	seedCfg.QPS = -1
 	c, err := client.New(seedCfg, client.Options{Scheme: newScheme()})
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
@@ -115,51 +192,9 @@ func TestPerfPromoter(t *testing.T) {
 	must(t, c.Status().Update(ctx, p))
 	stages := make([]*dv1.Stage, n)
 	perfParallel(t, n, func(i int) error {
-		space, name := fmt.Sprintf("perf-%d", i%namespaces), fmt.Sprintf("payments-%03d", i)
-		s := stageObj(dA)
-		s.Namespace, s.Name, s.Spec.ApplyRef.Name = space, name, name
-		s.Spec.Candidates.OCIRepositoryRef.Name = name + "-candidates"
-		s.Status.Stream.ID = "cid/" + space + "/" + name
-		st := s.Status
-		if err := c.Create(ctx, s); err != nil {
-			return err
-		}
-		s.Status = st
-		if err := c.Status().Update(ctx, s); err != nil {
-			return err
-		}
-		stages[i] = s
-		oci := ociRepo(name, dA, "latest@"+dA, true)
-		oci.SetNamespace(space)
-		oci.SetLabels(map[string]string{ApplyRefLabel: name})
-		ociStatus := oci.Object["status"]
-		if err := c.Create(ctx, oci); err != nil {
-			return err
-		}
-		oci.Object["status"] = ociStatus
-		if err := c.Status().Update(ctx, oci); err != nil {
-			return err
-		}
-		// The candidate source offers what runs now, so no Stage proposes a
-		// promote of its own while the burst is measured.
-		cand := verifiedRepo(name+"-candidates", "latest@"+dA)
-		cand.SetNamespace(space)
-		candStatus := cand.Object["status"]
-		if err := c.Create(ctx, cand); err != nil {
-			return err
-		}
-		cand.Object["status"] = candStatus
-		if err := c.Status().Update(ctx, cand); err != nil {
-			return err
-		}
-		k := kustomization(name, name, "True", "ReconciliationSucceeded", "latest@"+dA, "latest@"+dA)
-		k.SetNamespace(space)
-		ks := k.Object["status"]
-		if err := c.Create(ctx, k); err != nil {
-			return err
-		}
-		k.Object["status"] = ks
-		return c.Status().Update(ctx, k)
+		var err error
+		stages[i], err = seedPerfStage(ctx, c, fmt.Sprintf("perf-%d", i%namespaces), fmt.Sprintf("payments-%03d", i))
+		return err
 	})
 
 	mgr, err := ctrl.NewManager(counted, ctrl.Options{Scheme: newScheme(), Metrics: metricsserver.Options{BindAddress: "0"}, HealthProbeBindAddress: "0"})
@@ -209,31 +244,7 @@ func TestPerfPromoter(t *testing.T) {
 			}
 		}
 	})
-	moved := make([]time.Duration, n)
-	deadline := time.Now().Add(10 * time.Minute)
-	for left := n; left > 0; {
-		if time.Now().After(deadline) {
-			t.Fatalf("%d of %d promotes never moved their pointer", left, n)
-		}
-		time.Sleep(100 * time.Millisecond)
-		list := &dv1.OperationList{}
-		must(t, c.List(ctx, list))
-		left = 0
-		for _, o := range list.Items {
-			var i int
-			if _, err := fmt.Sscanf(o.Name, "promote-%03d", &i); err != nil {
-				continue
-			}
-			switch {
-			case o.Status.Applied && moved[i] == 0:
-				moved[i] = time.Since(created[i])
-			case o.Status.Phase == delivery.PhaseConcluded && !o.Status.Applied:
-				t.Fatalf("%s concluded without moving: %s %s", o.Name, o.Status.Reason, o.Status.Message)
-			case moved[i] == 0:
-				left++
-			}
-		}
-	}
+	moved := waitMoved(ctx, t, c, created)
 	wall := time.Since(start)
 	t.Logf("apiserver requests during the burst: %s", kinds())
 	close(stop)

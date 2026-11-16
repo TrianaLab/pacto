@@ -54,16 +54,12 @@ func TestAutoPromoteFromOCIRepository(t *testing.T) {
 	s.Spec.Candidates.OCIRepositoryRef = &delivery.LocalRef{Name: "payments-candidates"}
 	s.Status.Published = nil
 	e := newEnv(t, s, ociRepo("payments", dA, "latest@"+dA, false), verifiedRepo("payments-candidates", "latest@"+dB))
-	if err := e.reconcileStage("payments-prod"); err != nil {
-		t.Fatal(err)
-	}
+	must(t, e.reconcileStage("payments-prod"))
 	if got := e.getStage().Status.Stream.ID; got != "cid/prod/payments-prod" {
 		t.Fatalf("stream id %q", got)
 	}
 	for range 2 {
-		if err := e.reconcileStage("payments-prod"); err != nil {
-			t.Fatal(err)
-		}
+		must(t, e.reconcileStage("payments-prod"))
 	}
 	ops := e.ops()
 	if len(ops) != 1 || ops[0].Spec.Type != delivery.TypePromote || ops[0].Spec.Params.From != dA || ops[0].Spec.Params.To != dB ||
@@ -213,9 +209,7 @@ func TestAutoPromoteSourcesMissing(t *testing.T) {
 func TestWitnessedOverride(t *testing.T) {
 	e := newEnv(t, stageObj(dA), ociRepo("payments", dC, "latest@"+dC, false),
 		kustomization("payments", "payments", "True", "", "latest@"+dC, "latest@"+dC))
-	if err := e.reconcileStage("payments-prod"); err != nil {
-		t.Fatal(err)
-	}
+	must(t, e.reconcileStage("payments-prod"))
 	ops := e.ops()
 	if len(ops) != 1 || ops[0].Spec.Type != delivery.TypeOverride || !ops[0].Spec.Witnessed || ops[0].Spec.Params.To != dC {
 		t.Fatalf("want one witnessed override to C: %+v", ops)
@@ -230,6 +224,21 @@ func TestWitnessedOverride(t *testing.T) {
 	if err := e.reconcileStage("payments-prod"); err != nil || len(e.ops()) != 1 {
 		t.Fatalf("adopted: %v %d", err, len(e.ops()))
 	}
+	noWitnessLockedOrEmpty(t)
+	e = newEnv(t, stageObj(dA), ociRepo("payments", "", "", false))
+	if err := e.reconcileStage("payments-prod"); err != nil || len(e.ops()) != 0 {
+		t.Fatal("an unpinned OCIRepository is not drift")
+	}
+	e = newEnv(t, stageObj(dA))
+	if err := e.reconcileStage("payments-prod"); err != nil || len(e.ops()) != 0 {
+		t.Fatal("a missing OCIRepository is not drift")
+	}
+}
+
+// noWitnessLockedOrEmpty checks nothing is witnessed while a lock is held or
+// for an empty Stage.
+func noWitnessLockedOrEmpty(t *testing.T) {
+	t.Helper()
 	for _, st := range []*dv1.Stage{
 		func() *dv1.Stage { s := stageObj(dA); s.Status.Locks = map[string]string{"pointer": "x"}; return s }(),
 		stageObj(""),
@@ -238,14 +247,6 @@ func TestWitnessedOverride(t *testing.T) {
 		if err := e.reconcileStage("payments-prod"); err != nil || len(e.ops()) != 0 {
 			t.Fatalf("no witness: %v %d", err, len(e.ops()))
 		}
-	}
-	e = newEnv(t, stageObj(dA), ociRepo("payments", "", "", false))
-	if err := e.reconcileStage("payments-prod"); err != nil || len(e.ops()) != 0 {
-		t.Fatal("an unpinned OCIRepository is not drift")
-	}
-	e = newEnv(t, stageObj(dA))
-	if err := e.reconcileStage("payments-prod"); err != nil || len(e.ops()) != 0 {
-		t.Fatal("a missing OCIRepository is not drift")
 	}
 }
 
@@ -421,19 +422,11 @@ func TestStageReady(t *testing.T) {
 	// Ready follows the OCIRepository: dropping spec.verify flips it to False.
 	repo := verifiedRepo("payments-candidates", "latest@"+dB)
 	e = newEnv(t, stageObj(dA), repo, ociRepo("payments", dA, "", false))
-	if err := e.reconcileStage("payments-prod"); err != nil {
-		t.Fatal(err)
-	}
-	if err := e.c.Get(context.Background(), client.ObjectKeyFromObject(repo), repo); err != nil {
-		t.Fatal(err)
-	}
+	must(t, e.reconcileStage("payments-prod"))
+	must(t, e.c.Get(context.Background(), client.ObjectKeyFromObject(repo), repo))
 	unstructured.RemoveNestedField(repo.Object, "spec", "verify")
-	if err := e.c.Update(context.Background(), repo); err != nil {
-		t.Fatal(err)
-	}
-	if err := e.reconcileStage("payments-prod"); err != nil {
-		t.Fatal(err)
-	}
+	must(t, e.c.Update(context.Background(), repo))
+	must(t, e.reconcileStage("payments-prod"))
 	if c := conditionOf(e.getStage().Status.Conditions, "Ready"); c == nil || c.Reason != "CandidateUnverified" {
 		t.Fatalf("Ready did not follow the OCIRepository: %+v", c)
 	}
@@ -497,9 +490,7 @@ func TestReadyObservesTheGeneration(t *testing.T) {
 	st := stageObj("")
 	st.Generation = 3
 	e := newEnv(t, st, ociRepo("payments", "", "", false), verifiedRepo("payments-candidates", "latest@"+dB))
-	if err := e.reconcileStage("payments-prod"); err != nil {
-		t.Fatal(err)
-	}
+	must(t, e.reconcileStage("payments-prod"))
 	s := e.getStage()
 	c := *conditionOf(s.Status.Conditions, "Ready")
 	if s.Generation != 3 || s.Status.ObservedGeneration != 3 || c.ObservedGeneration != 3 || c.LastTransitionTime != ts(e.now) || c.Status != "True" ||
@@ -510,14 +501,10 @@ func TestReadyObservesTheGeneration(t *testing.T) {
 	// keeps what it is given). Ready is judged again; its status did not
 	// change, so neither does its transition time.
 	s.Generation = 4
-	if err := e.c.Update(context.Background(), s); err != nil {
-		t.Fatal(err)
-	}
+	must(t, e.c.Update(context.Background(), s))
 	created := c.LastTransitionTime
 	e.now = e.now.Add(time.Minute)
-	if err := e.reconcileStage("payments-prod"); err != nil {
-		t.Fatal(err)
-	}
+	must(t, e.reconcileStage("payments-prod"))
 	s = e.getStage()
 	c = *conditionOf(s.Status.Conditions, "Ready")
 	if s.Status.ObservedGeneration != 4 || c.ObservedGeneration != 4 || c.LastTransitionTime != created {
@@ -529,12 +516,8 @@ func TestReadyObservesTheGeneration(t *testing.T) {
 		t.Fatalf("published freshness: %v %q", err, e.getStage().Status.AuthFreshness)
 	}
 	// Ready turning False is a transition.
-	if err := e.c.Delete(context.Background(), verifiedRepo("payments-candidates", "")); err != nil {
-		t.Fatal(err)
-	}
-	if err := e.reconcileStage("payments-prod"); err != nil {
-		t.Fatal(err)
-	}
+	must(t, e.c.Delete(context.Background(), verifiedRepo("payments-candidates", "")))
+	must(t, e.reconcileStage("payments-prod"))
 	if c = *conditionOf(e.getStage().Status.Conditions, "Ready"); c.Status != statusFalse || c.LastTransitionTime != ts(e.now) {
 		t.Fatalf("a transition: %+v", c)
 	}
@@ -589,6 +572,14 @@ func TestStageReadyApplier(t *testing.T) {
 			t.Errorf("%s: conditions %+v", c.name, conds)
 		}
 	}
+	unreadableApplierReady(t)
+}
+
+// unreadableApplierReady checks a read the promoter is not allowed and an
+// applier kind whose CRD the cluster lacks are named on Ready, while any
+// other failed read surfaces.
+func unreadableApplierReady(t *testing.T) {
+	t.Helper()
 	// A read the promoter is not allowed is named; any other failed read surfaces.
 	e := newEnv(t, argoStage(dA))
 	e.st.Cluster.Client = interceptor.NewClient(e.c, interceptor.Funcs{Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {

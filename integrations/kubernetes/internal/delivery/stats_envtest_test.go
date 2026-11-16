@@ -36,27 +36,53 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 )
 
-// TestStatsOutageChangesNoOutcomeOrTiming: with the stats registry hanging
-// and the emitter's queue full, a freeze concludes exactly as it does with no
-// emitter, in as many reconciles and about as fast, and the record it would
-// have written is counted as dropped.
-func TestStatsOutageChangesNoOutcomeOrTiming(t *testing.T) {
-	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
-		t.Skip("KUBEBUILDER_ASSETS is not set: run make -C integrations/kubernetes ci-test")
+// statsResult is what concluding a freeze left: the operation's status, the
+// Stage's conditions, the reconciles it took and the slowest of them.
+type statsResult struct {
+	status     delivery.OperationStatus
+	conditions []string
+	calls      int
+	slowest    time.Duration
+}
+
+// statsFreeze raises a freeze on stage and reconciles it with r until it
+// concludes, at most 20 times.
+func statsFreeze(ctx context.Context, t *testing.T, c client.Client, r *OperationReconciler, stage string) statsResult {
+	t.Helper()
+	op := opObj("freeze-"+stage, delivery.TypeFreeze, dA, "", "alice")
+	op.UID, op.Spec.Stage = "", stage
+	s := &dv1.Stage{}
+	must(t, c.Get(ctx, keyOf(stage), s)) // the apiserver defaults fields the digest covers
+	op.Spec.IntentDigest = delivery.IntentDigest(op.Spec, s.Spec)
+	must(t, c.Create(ctx, op))
+	var res statsResult
+	for res.calls < 20 && op.Status.Phase != delivery.PhaseConcluded {
+		start := time.Now()
+		_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: ns, Name: op.Name}})
+		must(t, err)
+		res.slowest, res.calls = max(res.slowest, time.Since(start)), res.calls+1
+		must(t, c.Get(ctx, keyOf(op.Name), op))
 	}
+	must(t, c.Get(ctx, keyOf(stage), s))
+	for _, cond := range s.Status.Conditions {
+		res.conditions = append(res.conditions, cond.Type+"/"+cond.Status+"/"+cond.Reason+"/"+cond.Message)
+	}
+	res.status = op.Status
+	return res
+}
+
+// statsCluster starts an envtest apiserver with an enforcing admission
+// policy and the Stages a and b, each running A.
+func statsCluster(ctx context.Context, t *testing.T) client.Client {
+	t.Helper()
 	ctrl.SetLogger(logr.Discard())
 	te := &envtest.Environment{CRDDirectoryPaths: []string{filepath.Join("..", "..", "config", "crd", "bases")},
 		ErrorIfCRDPathMissing: true}
 	cfg, err := te.Start()
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	t.Cleanup(func() { _ = te.Stop() })
 	c, err := client.New(cfg, client.Options{Scheme: newScheme()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx := context.Background()
+	must(t, err)
 	must(t, c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}}))
 	fail := admissionv1.Fail
 	// An enforcing policy that matches nothing this test writes: the promoter
@@ -76,6 +102,19 @@ func TestStatsOutageChangesNoOutcomeOrTiming(t *testing.T) {
 		s.Status = st
 		must(t, c.Status().Update(ctx, s))
 	}
+	return c
+}
+
+// TestStatsOutageChangesNoOutcomeOrTiming: with the stats registry hanging
+// and the emitter's queue full, a freeze concludes exactly as it does with no
+// emitter, in as many reconciles and about as fast, and the record it would
+// have written is counted as dropped.
+func TestStatsOutageChangesNoOutcomeOrTiming(t *testing.T) {
+	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
+		t.Skip("KUBEBUILDER_ASSETS is not set: run make -C integrations/kubernetes ci-test")
+	}
+	ctx := context.Background()
+	c := statsCluster(ctx, t)
 
 	// The stats registry takes every request and never answers until cleanup.
 	started, release := make(chan struct{}, 1), make(chan struct{})
@@ -121,40 +160,23 @@ func TestStatsOutageChangesNoOutcomeOrTiming(t *testing.T) {
 		em.Emit(filler)
 	}
 
-	type result struct {
-		status     delivery.OperationStatus
-		conditions []string
-		calls      int
-		slowest    time.Duration
-	}
-	freeze := func(r *OperationReconciler, stage string) result {
-		op := opObj("freeze-"+stage, delivery.TypeFreeze, dA, "", "alice")
-		op.UID, op.Spec.Stage = "", stage
-		s := &dv1.Stage{}
-		must(t, c.Get(ctx, keyOf(stage), s)) // the apiserver defaults fields the digest covers
-		op.Spec.IntentDigest = delivery.IntentDigest(op.Spec, s.Spec)
-		must(t, c.Create(ctx, op))
-		var res result
-		for res.calls < 20 && op.Status.Phase != delivery.PhaseConcluded {
-			start := time.Now()
-			if _, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: ns, Name: op.Name}}); err != nil {
-				t.Fatal(err)
-			}
-			res.slowest, res.calls = max(res.slowest, time.Since(start)), res.calls+1
-			must(t, c.Get(ctx, keyOf(op.Name), op))
-		}
-		must(t, c.Get(ctx, keyOf(stage), s))
-		for _, cond := range s.Status.Conditions {
-			res.conditions = append(res.conditions, cond.Type+"/"+cond.Status+"/"+cond.Reason+"/"+cond.Message)
-		}
-		res.status = op.Status
-		return res
-	}
-
-	a := freeze(reconciler(nil), "a")
+	a := statsFreeze(ctx, t, c, reconciler(nil), "a")
 	fullBefore, noStageBefore := full(), noStage()
-	b := freeze(reconciler(em.Emit), "b")
+	b := statsFreeze(ctx, t, c, reconciler(em.Emit), "b")
 
+	sameConclusion(t, a, b)
+	if got := full() - fullBefore; got != 1 {
+		t.Fatalf("the freeze's record must be dropped as queue-full once, got %v", got)
+	}
+	if got := noStage() - noStageBefore; got != 0 {
+		t.Fatalf("no record may count as no-stage, got %v", got)
+	}
+}
+
+// sameConclusion checks the freeze b concluded under a stats outage exactly
+// as a did without stats, in as many reconciles and about as fast.
+func sameConclusion(t *testing.T, a, b statsResult) {
+	t.Helper()
 	if a.status.Phase != delivery.PhaseConcluded || a.status.Outcome != delivery.Succeeded {
 		t.Fatalf("the freeze without stats did not conclude: %s %s %s", a.status.Phase, a.status.Outcome, a.status.Message)
 	}
@@ -167,12 +189,6 @@ func TestStatsOutageChangesNoOutcomeOrTiming(t *testing.T) {
 	}
 	if b.slowest > a.slowest+2*time.Second {
 		t.Fatalf("a stats outage slowed a reconcile: %s without, %s with", a.slowest, b.slowest)
-	}
-	if got := full() - fullBefore; got != 1 {
-		t.Fatalf("the freeze's record must be dropped as queue-full once, got %v", got)
-	}
-	if got := noStage() - noStageBefore; got != 0 {
-		t.Fatalf("no record may count as no-stage, got %v", got)
 	}
 }
 
