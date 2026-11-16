@@ -1851,7 +1851,7 @@ section "phase 5: a provider whose consumer must move first"
 for n in staging live; do
   kubectl create namespace "$n" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
   people_may_update "$n"
-  kubectl -n "$n" create secret generic cosign-pub  kubectl -n "$n" create secret generic cosign-pub --from-file=cosign.pub="$KEYDIR/cosign.pub" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  kubectl -n "$n" create secret generic cosign-pub --from-file=cosign.pub="$KEYDIR/cosign.pub" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 done
 PR100="$(contract pricing 1.0.0 service)"
 PR200="$(contract pricing 2.0.0 service)"  # orders 1.8.0 accepts ^1.0.0 only
