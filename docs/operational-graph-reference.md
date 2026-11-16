@@ -32,7 +32,11 @@ compliance evidence that a source carries.
   compliance, findings, coverage and observed runtime. The operator also
   reports runtime calls no contract declares and callers with no contract,
   which join the graph as `observed`. It reports only undeclared calls, so
-  this observation alone leaves every declared edge `insufficient`.
+  this observation alone leaves every declared edge `insufficient`. The
+  source id is the cluster UID when the source can read the `kube-system`
+  namespace, otherwise the context name. With more than one cluster, target
+  keys gain a cluster component; see
+  [Clusters and target keys](operational-graph-clusters.md).
 - **Ingested external evidence** (`--evidence-url <url>`): a running [Evidence
   Server](evidence.md)'s read-only contribution over HTTP, exposing a
   remote environment's signed `EvidenceSet` reports as operational targets.
@@ -73,6 +77,9 @@ or any other `schemaVersion`.
 
 ```yaml
 schemaVersion: pacto.dev/fleet-targets/v1
+cluster:                             # optional: the cluster of every target
+  id: 9f1c4e2a-5b7d-4c1e-8a3f-2d6b0e9c7a41   # required in the block: kube-system UID
+  name: eu-prod                      # a display name
 targets:
   - service: orders-service          # required: the service this target runs
     name: commerce/orders-service    # required: unique within the scope
