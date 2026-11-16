@@ -133,17 +133,17 @@ rm -rf ~/.cache/pacto
 
 The last two follow `XDG_CONFIG_HOME` and `XDG_CACHE_HOME` where you set them. Removing `~/.config/pacto` deletes stored registry credentials; run [`pacto logout <registry>`](cli-reference.md#pacto-logout) first if you would rather drop them one registry at a time.
 
-## Supply chain: signatures and checksums { #supply-chain-what-is-signed-and-what-is-not }
+## Supply chain: signatures, provenance and checksums { #supply-chain-what-is-signed-and-what-is-not }
 
 Check what ships with each release artifact before you rely on a signature:
 
 | Artifact | What ships with it |
 | --- | --- |
-| `ghcr.io/trianalab/pacto/operator` | Cosign signature (keyless) |
+| `ghcr.io/trianalab/pacto/operator` | Cosign signature (keyless) and SLSA build provenance |
 | `ghcr.io/trianalab/pacto/charts/pacto-operator` | Cosign signature (keyless) |
-| `ghcr.io/trianalab/pacto/delivery` | Cosign signature (keyless) |
-| `ghcr.io/trianalab/pacto/dashboard` | Cosign signature (keyless) |
-| CLI binaries on the GitHub release | `checksums.txt` (SHA-256) and an SPDX SBOM. **No signature, no provenance attestation.** |
+| `ghcr.io/trianalab/pacto/delivery` | Cosign signature (keyless) and SLSA build provenance |
+| `ghcr.io/trianalab/pacto/dashboard` | Cosign signature (keyless) and SLSA build provenance |
+| CLI binaries on the GitHub release | `checksums.txt` (SHA-256), an SPDX SBOM and SLSA build provenance. **No Cosign signature.** |
 | `ghcr.io/trianalab/pacto/dashboard-contract` | Nothing. **Unsigned.** |
 | The demo contract bundles (`ghcr.io/trianalab/pacto/<service>`) | Nothing. **Unsigned.** |
 
@@ -158,13 +158,34 @@ cosign verify \
 
 A successful run prints the certificate subject and the workflow ref it was issued to. Any other output, including `no signatures found`, means do not deploy it.
 
-For the CLI binaries the check available to you is the checksum:
+### Build provenance
+
+The release workflow records SLSA build provenance as GitHub artifact attestations for the CLI binaries, `checksums.txt` and the three images. The provenance names the workflow, the run and the commit it built from. Verify a binary or an image with the [GitHub CLI](https://cli.github.com/). First look up the commit the version's tag points at, then pass it to `--source-digest`. Use `v<version>` for the CLI and the dashboard, `integrations/kubernetes/v<version>` for the operator and delivery images:
+
+```bash
+sha="$(git ls-remote https://github.com/TrianaLab/pacto refs/tags/v<version> | cut -f1)"
+gh attestation verify pacto_darwin_arm64 --repo TrianaLab/pacto \
+  --cert-identity https://github.com/TrianaLab/pacto/.github/workflows/release.yml@refs/heads/main \
+  --source-digest "${sha:?tag not found}" --deny-self-hosted-runners
+k8s_sha="$(git ls-remote https://github.com/TrianaLab/pacto refs/tags/integrations/kubernetes/v<version> | cut -f1)"
+gh attestation verify oci://ghcr.io/trianalab/pacto/operator:<version> --repo TrianaLab/pacto \
+  --cert-identity https://github.com/TrianaLab/pacto/.github/workflows/release.yml@refs/heads/main \
+  --source-digest "${k8s_sha:?tag not found}" --deny-self-hosted-runners
+```
+
+An empty `--source-digest` turns the commit check off without a warning. `${sha:?tag not found}` stops the command when the tag lookup returned nothing. The identity pins the release workflow on `main`, and `--source-digest` pins the tag's commit.
+
+The command exits with status 0 and prints `✓ Verification succeeded!` when the provenance verifies. Any other exit status means do not run it. Scripts should check the exit status, or add `--format json` and read `.[].verificationResult.statement.predicateType`, which is `https://slsa.dev/provenance/v1`.
+
+Core v4.5.0, Kubernetes v6.5.0 and earlier releases carry no attestation. The first attested release is the one whose [core changelog](https://github.com/TrianaLab/pacto/blob/main/release/units/pacto-core/CHANGELOG.md) or [Kubernetes changelog](https://github.com/TrianaLab/pacto/blob/main/release/units/k8s-module/CHANGELOG.md) entry announces SLSA build-provenance attestations.
+
+To check that a download matches the release page, use the checksum:
 
 ```bash
 shasum -a 256 -c checksums.txt --ignore-missing
 ```
 
-`pacto update` performs this check before replacing the binary. `checksums.txt` proves the download matches what the release published; it does not prove who published it. If your policy requires signed CLI binaries, build from source at the tag instead.
+`pacto update` performs the checksum check, and `gh attestation verify` proves who built the binary. For a release without an attestation, `checksums.txt` proves only that the download matches what the release published and says nothing about who built it, so build from source at the tag if that matters.
 
 ---
 
