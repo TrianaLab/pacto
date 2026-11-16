@@ -250,6 +250,7 @@ check("pay-agent must name the person it acts for", noPrincipal.status === 403 &
 const held = json(call("POST", "/api/delivery/operations", JSON.stringify({ namespace: "prod", stage: "payments", to: cand("payments"), onBehalfOf: "dana@example.com" })));
 check("payments 3.0.0 is held for checkout and orders",
   held.operation?.status?.phase === "Held" && /Asked of: checkout, orders/.test(held.operation.status.question), held.operation?.status?.question);
+check("pay-agent's change records how it was classified", held.operation?.status?.actorClassifiedBy === "service-account", held.operation?.status?.actorClassifiedBy);
 call("POST", "/api/delivery/operations", JSON.stringify({ namespace: "prod", stage: "checkout", to: cand("checkout"), onBehalfOf: "dana@example.com" }));
 const opPath = `/api/delivery/operations/prod/${held.operation?.metadata?.name}`;
 let question = "";

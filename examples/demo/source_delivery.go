@@ -731,7 +731,9 @@ func (d *demoDelivery) propose(req delivery.Request, actor story.Persona) (*deli
 	t := d.clock()
 	o := &delivery.OperationObject{Metadata: delivery.ObjectMeta{Namespace: req.Namespace, UID: fmt.Sprintf("op-%d", d.n),
 		Name: fmt.Sprintf("%s-%s-%d", req.Stage, strings.TrimPrefix(spec.Type, "delivery.pacto.trianalab.io/"), d.n), CreationTimestamp: stamp(t)}, Spec: spec}
-	o.Status.ActorClass, o.Status.Plan, o.Status.Verdicts, o.Status.Times.Admitted = actor.Class(), &p, p.Verdicts, stamp(t)
+	// Classified as the promoter's admission does, so the record says how.
+	o.Status.ActorClass, o.Status.ActorClassifiedBy = story.Policy.ClassifyBy(delivery.Identity{User: actor.User, Groups: actor.Groups})
+	o.Status.Plan, o.Status.Verdicts, o.Status.Times.Admitted = &p, p.Verdicts, stamp(t)
 	d.ops = append(d.ops, o)
 	switch p.Predicted {
 	case delivery.PredictRejected:

@@ -805,4 +805,7 @@ func TestDemoApprovalRecordsAccess(t *testing.T) {
 	if w := d.WorkloadAccess(t.Context(), story.Prod, delivery.WorkloadRef{Kind: "Deployment", Name: "payments"}); !w.Allowed {
 		t.Fatalf("the persona may update payments in prod: %+v", w)
 	}
+	if got.Status.ActorClass != delivery.ClassAgent || got.Status.ActorClassifiedBy != delivery.ClassByServiceAccount {
+		t.Fatalf("the asker's classification is recorded: %s %q", got.Status.ActorClass, got.Status.ActorClassifiedBy)
+	}
 }
