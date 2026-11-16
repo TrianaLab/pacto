@@ -902,3 +902,16 @@ func TestPublishablePinFailures(t *testing.T) {
 		t.Errorf("got %v", err)
 	}
 }
+
+// Push and publish load through loadAndValidateFull, so it must refuse an
+// undeclared service.version just as pack does.
+func TestLoadAndValidateFullRefusesMissingVersion(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("service:\n  name: a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, _, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{}, nil)
+	if !errors.Is(err, ErrPublishNeedsServiceVersion) {
+		t.Fatalf("got %v", err)
+	}
+}
