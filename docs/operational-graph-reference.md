@@ -388,12 +388,12 @@ covers identities, the join order and catalogs.
 |---|---|
 | Relationship | `toExternal` names the identity and `resolved` stays `false`, because no fleet service delivers it. It never gets `rangeStatus` or `resolvedRevision` and never counts in impact, dependents or delivery |
 | Snapshot | `externals`, one record per identity, and `externalCatalogs`, the catalogs used with `digest`, `origin`, `copy`, `signature` and `reason`; every answer's meta repeats `externalCatalogs` |
-| Record | `key`, `label`, `class`, `aliases`, `sources` (one per consumer and dependency position, each with `provenance` and `match`), `sourcesTotal`, `catalog` (origin, digest and entry; absent when joined by name only), `consumers`, `consumersTotal`, `hiddenConsumers` |
+| Record | `key`, `label`, `class`, `aliases`, `sources` (one per consumer and dependency position, each with `provenance` and `match`), `sourcesTotal`, `catalog` (origin, digest and entry; absent when no entry classifies it), `joinedBy` (`identity`, `catalog-alias`, `host` or `normalized-name`), `consumers`, `consumersTotal`, `hiddenConsumers` |
 | Entities | `--kind external` (MCP `kind: external`) lists them, `--class` keeps one class; the default listing leaves them out |
 | Get | `pacto fleet get external:<identity>` and `pacto_fleet_get` with `service: external:<identity>` |
-| Search | A text search adds up to 20 matching `externals`, by identity, label or alias, with `externalsTotal` |
-| Explain | `EXTERNAL_DECLARED` per source, then `EXTERNAL_CATALOG_MATCH` or `EXTERNAL_NAME_ONLY`, and `EXTERNAL_CAP` when folded; status is always `Unknown` |
-| Graph | Rooted at `external:<identity>` with `direction: dependents`, it walks the consumers and their dependents; `direction: dependencies` is an invalid query |
+| Search | A search on text alone, first page, adds up to 20 matching `externals`, by identity, label or alias, with `externalsTotal`; any other filter or a later page lists none |
+| Explain | `EXTERNAL_DECLARED` per source, then `EXTERNAL_CATALOG_MATCH`, `EXTERNAL_UNCLASSIFIED` (joined by identity or host) or `EXTERNAL_NAME_ONLY`, `EXTERNAL_SOURCES_TRUNCATED` when consumers are cut or hidden, and `EXTERNAL_CAP` when folded; status is always `Unknown` |
+| Graph | Rooted at `external:<identity>`, it walks the consumers and their dependents (an unset direction means `dependents`); an explicit `direction: dependencies` is an invalid query |
 | Neighborhood | External systems are leaves beside the services that declare them; focusing one shows its consumers |
 | Overview | `externals` and `hiddenExternals` |
 | Cap | An answer that names more than 200 external systems folds the rest into `other-egress` and is partial with `EXTERNAL_CAP`; see [the cap](external-catalog-reference.md#the-cap) |

@@ -3,6 +3,7 @@ package fleet
 import (
 	"cmp"
 	"fmt"
+	"reflect"
 	"slices"
 	"sort"
 	"strings"
@@ -287,10 +288,12 @@ type SearchResult struct {
 	Total    int          `json:"total"`
 	Count    int          `json:"count"`
 	Services []ServiceHit `json:"services"`
-	// Externals are, for a text search, at most MaxSearchExternals external
-	// systems whose identity, label or alias holds the text; ExternalsTotal
-	// counts every match.
-	Externals      []EntityRef `json:"externals,omitempty" doc:"For a text search, the external systems whose identity, label or alias holds the text, bounded"`
+	// Externals are, for a search on text alone (no other filter, first
+	// page), at most MaxSearchExternals external systems whose identity,
+	// label or alias holds the text; ExternalsTotal counts every match. An
+	// external has no owner, status or compliance, so any other filter, or a
+	// later page, lists none.
+	Externals      []EntityRef `json:"externals,omitempty" doc:"For a search on text alone (no other filter, first page), the external systems whose identity, label or alias holds the text, bounded"`
 	ExternalsTotal int         `json:"externalsTotal,omitempty" doc:"How many external systems match the text"`
 }
 
@@ -313,8 +316,21 @@ func (q *Query) Search(f SearchFilter) (*SearchResult, error) {
 	for _, s := range pg.Items {
 		res.Services = append(res.Services, hitFromService(s))
 	}
-	res.Externals, res.ExternalsTotal = q.searchExternals(f.Text)
+	if textOnly(f) {
+		res.Externals, res.ExternalsTotal = q.searchExternals(f.Text)
+	}
 	return res, nil
+}
+
+// textOnly reports whether f filters on text alone, on the first page: the
+// only search an external system can answer.
+func textOnly(f SearchFilter) bool {
+	rest := f
+	rest.Text, rest.Limit = "", 0
+	if len(rest.Labels) == 0 {
+		rest.Labels = nil
+	}
+	return reflect.DeepEqual(rest, SearchFilter{})
 }
 
 // validateSearchFilter rejects malformed filter values with a typed error.

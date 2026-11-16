@@ -121,6 +121,13 @@ func fleetSourceArgs(cmd *cobra.Command) []string {
 // commands do that on purpose (`pacto impact` and `pacto fleet reconcile` each
 // take a single --traces document and read it themselves), and
 // TestSharedFleetFlagTypesAreConsistent fails any third one that appears.
+// longRunning marks opts as a process that builds again later (see
+// [app.FleetOptions.LongRunning]).
+func longRunning(opts app.FleetOptions) app.FleetOptions {
+	opts.LongRunning = true
+	return opts
+}
+
 func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 	local, _ := cmd.Flags().GetStringArray("local")
 	// --root is also `pacto mcp`'s catalog-server selector, where it is mutually
@@ -235,7 +242,10 @@ func newFleetSearchCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "search [text]",
 		Short: "Search logical services in the fleet",
-		Args:  cobra.MaximumNArgs(1),
+		Long: "Search logical services in the fleet. A search on text alone, first page, also " +
+			"lists up to 20 external systems whose identity, label or alias holds the text; " +
+			"any other filter or --offset lists none.",
+		Args: cobra.MaximumNArgs(1),
 		// Free text matched against the fleet, never a path — the same reason its
 		// three siblings give. Without this the shell falls back to filenames and
 		// offers the working directory as if it were a search term.
@@ -373,7 +383,7 @@ func newFleetGraphCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			"an exact revision (never 'latest'). The walk also follows observed " +
 			"runtime calls, so services no contract connects appear too; each node " +
 			"reports its provenance (declared, observed or declared+observed). Give " +
-			"external:<identity> with --direction dependents to list the consumers of an external system.",
+			"external:<identity> to list the consumers of an external system (its only direction is dependents).",
 		Args: cobra.MaximumNArgs(1),
 		// Same as `fleet get`: the candidates live in a snapshot too expensive to
 		// build at the prompt, and this positional is never a path.
@@ -399,7 +409,7 @@ func newFleetGraphCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			return printFleetGraph(cmd, res, v.GetString(outputFormatKey))
 		},
 	}
-	cmd.Flags().String("direction", "dependencies", "traversal direction (dependencies, dependents)")
+	cmd.Flags().String("direction", "", "traversal direction (dependencies, dependents); unset, dependencies, or dependents for an external: root")
 	cmd.Flags().Bool("transitive", false, "traverse transitively (cycle-safe)")
 	cmd.Flags().Int("max-depth", 0, "maximum transitive depth (0 = unlimited)")
 	cmd.Flags().String("revision", "", "root an exact contract revision key")

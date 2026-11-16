@@ -20,7 +20,8 @@ const (
 	reasonCatalogChecking  = "Pacto is checking the default catalog's signature on ghcr.io; a later refresh reports the result."
 	reasonCatalogNoGHCR    = "The default catalog is checked only when a source already reads ghcr.io, so the embedded copy is used unchecked."
 	reasonCatalogNoChecker = "No provenance checker is configured, so the embedded copy of the default catalog is used unchecked."
-	reasonCatalogVerified  = "Signed by the Pacto release workflow; the embedded copy has the digest the registry holds."
+	reasonCatalogOneShot   = "A one-shot command does not check the default catalog's signature; the dashboard, pacto mcp and the TUI do."
+	reasonCatalogVerified  = "Signed by the Pacto release workflow; the embedded copy in use has the digest of the signed registry artifact."
 	reasonOrgCatalogSigner = "No trusted signer is configured for the organization catalog, so its signature is not read; the digest pin is what it is trusted by."
 )
 
@@ -114,6 +115,9 @@ func (s *Service) defaultCatalogRef(opts FleetOptions) externalcatalog.Ref {
 	case opts.Provenance == nil:
 		ref.Reason = reasonCatalogNoChecker
 		return ref
+	case !opts.LongRunning:
+		ref.Reason = reasonCatalogOneShot
+		return ref
 	}
 	now := s.env().now
 	l := &s.catalogs
@@ -163,6 +167,10 @@ func (s *Service) orgCatalog(ctx context.Context, ref string) ([]byte, error) {
 	defer cancel()
 	client := oci.NewClient(oci.NewKeychain(oci.EnvCredentialOptions()), oci.WithInsecureRegistries(oci.EnvInsecureRegistries()...))
 	data, err := externalcatalog.Read(cctx, client, ref)
+	if ctx.Err() != nil {
+		// The caller gave up, not the registry: the next build pulls again.
+		return data, err
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.org == nil {

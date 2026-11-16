@@ -133,7 +133,7 @@ func printExternal(w io.Writer, rec fleet.ExternalRecord, into fleet.ExternalKey
 	if c := rec.Catalog; c != nil {
 		_, _ = fmt.Fprintf(w, "  catalog  %s %s entry %s\n", c.Origin, shortDigest(c.Digest), c.Entry)
 	} else if rec.Folded == 0 {
-		_, _ = fmt.Fprintln(w, "  catalog  none (joined by name)")
+		_, _ = fmt.Fprintf(w, "  catalog  none (%s)\n", rec.JoinWords())
 	}
 	if rec.Folded > 0 {
 		_, _ = fmt.Fprintf(w, "  folds    %d external systems\n", rec.Folded)

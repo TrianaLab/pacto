@@ -152,8 +152,8 @@ func TestEntitiesListExternalOnlyWhenAsked(t *testing.T) {
 	}
 	l := listExternals(t, q, EntityFilter{})
 	want := []EntityRef{
-		{Kind: KindExternal, Key: "legacy-mq", Label: "legacy-mq", Secondary: externalcatalog.ClassUnclassified, Status: StatusUnknown, Consumers: 1},
-		{Kind: KindExternal, Key: "stripe", Label: "Stripe", Secondary: externalcatalog.ClassVendorAPI, Status: StatusUnknown, Consumers: 2, CatalogEntry: "stripe"},
+		{Kind: KindExternal, Key: "legacy-mq", Label: "legacy-mq", Secondary: externalcatalog.ClassUnclassified, Status: StatusUnknown, Consumers: 1, JoinedBy: externalcatalog.MatchNormalizedName},
+		{Kind: KindExternal, Key: "stripe", Label: "Stripe", Secondary: externalcatalog.ClassVendorAPI, Status: StatusUnknown, Consumers: 2, CatalogEntry: "stripe", JoinedBy: externalcatalog.MatchCatalogAlias},
 	}
 	if !reflect.DeepEqual(l.Entities, want) || l.Hidden != 0 {
 		t.Fatalf("externals = %+v", l.Entities)
@@ -402,6 +402,29 @@ func TestNeighborhoodExternalLeavesBounded(t *testing.T) {
 	}
 }
 
+// TestNeighborhoodFocusExternalCapped: a node cap draws edges only between
+// drawn nodes; an edge cap says it cut edges.
+func TestNeighborhoodFocusExternalCapped(t *testing.T) {
+	q := externalsFleet(t)
+	nb, _ := q.Neighborhood(NeighborhoodQuery{Kind: KindExternal, Key: "stripe", MaxNodes: 2, MaxEdges: 5})
+	if len(nb.Nodes) != 2 || len(nb.Edges) != 1 || !nb.Truncated || nb.TruncatedEdges {
+		t.Errorf("node-capped focus = %+v", nb)
+	}
+	drawn := map[string]bool{}
+	for _, n := range nb.Nodes {
+		drawn[n.Ref.Key] = true
+	}
+	for _, e := range nb.Edges {
+		if !drawn[e.From.Key] || !drawn[e.To.Key] {
+			t.Errorf("edge %s names a node the answer leaves out", e.ID)
+		}
+	}
+	nb, _ = q.Neighborhood(NeighborhoodQuery{Kind: KindExternal, Key: "stripe", MaxEdges: 1})
+	if len(nb.Edges) != 1 || !nb.Truncated || !nb.TruncatedEdges {
+		t.Errorf("edge-capped focus = %+v", nb)
+	}
+}
+
 func TestNeighborhoodFocusExternal(t *testing.T) {
 	q := externalsFleet(t)
 	nb, err := q.Neighborhood(NeighborhoodQuery{Kind: KindExternal, Key: "stripe"})
@@ -410,10 +433,6 @@ func TestNeighborhoodFocusExternal(t *testing.T) {
 	}
 	if !nb.Nodes[0].Focus || nb.Nodes[0].Ref.Kind != KindExternal || len(nb.Nodes) != 3 || len(nb.Edges) != 2 || nb.TotalNodes != 3 || nb.FocusService.Key != "stripe" {
 		t.Fatalf("focus = %+v", nb)
-	}
-	nb, _ = q.Neighborhood(NeighborhoodQuery{Kind: KindExternal, Key: "stripe", MaxNodes: 2, MaxEdges: 1})
-	if len(nb.Nodes) != 2 || len(nb.Edges) != 1 || !nb.Truncated || !nb.TruncatedEdges {
-		t.Errorf("capped focus = %+v", nb)
 	}
 	nb, _ = q.Neighborhood(NeighborhoodQuery{Kind: KindExternal, Key: "stripe", Direction: DirectionDependencies})
 	if len(nb.Nodes) != 1 {
@@ -428,5 +447,27 @@ func TestOverviewCountsExternals(t *testing.T) {
 	ov := externalsFleet(t).Overview().Summary
 	if ov.Externals != 2 || ov.HiddenExternals != 0 {
 		t.Fatalf("overview = %d/%d", ov.Externals, ov.HiddenExternals)
+	}
+}
+
+func TestExplainExternalWordsTheJoin(t *testing.T) {
+	db := contract.Dependency{Name: "orders", External: true, Identity: "corp/orders-db"}
+	q := NewQuery(externalSnap(t, BuildOptions{}, extContract("a", "1.0.0", db, extDep("mq.corp-legacy.co.uk"))))
+	for subject, want := range map[string]string{
+		"external:corp/orders-db":         "no catalog entry classifies it; its consumers join through the identity they declare",
+		"external:host/corp-legacy.co.uk": "no catalog entry classifies it; its consumers join through its registrable domain",
+	} {
+		res, err := q.Explain(subject)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.ContainsFunc(res.Reasons, func(r Reason) bool { return r.Code == ReasonExternalUnclassified && r.Message == want }) ||
+			slices.ContainsFunc(res.Reasons, func(r Reason) bool { return r.Code == ReasonExternalNameOnly }) {
+			t.Errorf("%s reasons = %+v", subject, res.Reasons)
+		}
+	}
+	rec, _ := q.GetExternal("corp/orders-db")
+	if host, _ := q.GetExternal("host/corp-legacy.co.uk"); rec.External.JoinWords() != "joined by its declared identity" || host.External.JoinWords() != "joined by its registrable domain" || (ExternalRecord{}).JoinWords() != "joined by name" {
+		t.Errorf("join words = %q", rec.External.JoinWords())
 	}
 }

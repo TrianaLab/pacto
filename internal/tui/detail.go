@@ -435,7 +435,7 @@ func renderExternalDetail(b *strings.Builder, e *fleet.ExternalDetailData) {
 	case r.Folded > 0:
 		field(b, "folds", fmt.Sprintf("%d external systems", r.Folded))
 	default:
-		b.WriteString("  none (joined by name)\n")
+		b.WriteString("  none (" + r.JoinWords() + ")\n")
 	}
 }
 

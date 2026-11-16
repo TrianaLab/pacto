@@ -630,7 +630,7 @@ func dashboardFleetOptions(dir string, repos []string, namespaces []string, obse
 	// safe thing to render as fresh.
 	// One provenance checker for the dashboard's life: every refresh copies
 	// these options and keeps the pointer, so its memo outlives each refresh.
-	fopts := app.FleetOptions{FreshnessWindow: fleet.RecentEvidenceWindow, Provenance: app.NewProvenanceChecker()}
+	fopts := app.FleetOptions{FreshnessWindow: fleet.RecentEvidenceWindow, Provenance: app.NewProvenanceChecker(), LongRunning: true}
 	if det.local && dir != "" {
 		fopts.LocalRoots = []string{dir}
 	}

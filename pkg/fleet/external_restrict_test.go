@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"slices"
 	"testing"
 	"testing/fstest"
 
@@ -171,5 +172,69 @@ func TestRestrictFoldRanksOnVisibleConsumersOnly(t *testing.T) {
 	lb, _ := b.Restrict(shopView).Entities(EntityFilter{Kinds: []EntityKind{KindExternal}, Limit: MaxEntityLimit})
 	if !reflect.DeepEqual(la.Entities, lb.Entities) || la.Total != lb.Total || la.Hidden != lb.Hidden {
 		t.Error("the restricted answer depends on hidden consumer counts")
+	}
+}
+
+func TestRestrictedLabelNeverNamesAHiddenConsumer(t *testing.T) {
+	q := extK8sFleet(t,
+		extSvc{"a-payroll", []string{"secret"}, []string{"falcon-acquisition-mq.corp-legacy.co.uk"}},
+		extSvc{"z-billing", []string{"shop"}, []string{"billing.corp-legacy.co.uk"}})
+	if v, _ := q.GetExternal("host/corp-legacy.co.uk"); v.External.Label != "falcon-acquisition-mq.corp-legacy.co.uk" {
+		t.Fatalf("unrestricted label = %q, want the first consumer's spelling", v.External.Label)
+	}
+	r := q.Restrict(shopView)
+	v, err := r.GetExternal("host/corp-legacy.co.uk")
+	if err != nil || v.External.Label != "billing.corp-legacy.co.uk" {
+		t.Fatalf("restricted label = %+v, %v", v, err)
+	}
+	l, _ := r.Entities(EntityFilter{Kinds: []EntityKind{KindExternal}})
+	if l.Entities[0].Label != "billing.corp-legacy.co.uk" {
+		t.Errorf("restricted list label = %q", l.Entities[0].Label)
+	}
+	if s, _ := r.Search(SearchFilter{Text: "falcon"}); s.ExternalsTotal != 0 {
+		t.Errorf("a hidden spelling finds the external: %+v", s.Externals)
+	}
+}
+
+func TestRestrictFoldCountsAHiddenConsumerOnce(t *testing.T) {
+	var all []string
+	for i := 0; i < MaxExternalNodes+5; i++ {
+		all = append(all, fmt.Sprintf("ext-%03d", i))
+	}
+	q := extK8sFleet(t, extSvc{"v", []string{"shop"}, all}, extSvc{"h", []string{"secret"}, all})
+	v, err := q.Restrict(shopView).GetExternal(string(OtherEgress))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.External.Folded != 6 || v.External.HiddenConsumers != 1 {
+		t.Fatalf("other egress folds %d, hidden %d; want 6 and 1", v.External.Folded, v.External.HiddenConsumers)
+	}
+}
+
+func TestExplainExternalSaysWhatItLeavesOut(t *testing.T) {
+	svcs := []extSvc{{"hidden", []string{"secret"}, []string{"stripe"}}}
+	for i := 0; i < MaxExternalSources+5; i++ {
+		svcs = append(svcs, extSvc{fmt.Sprintf("s%03d", i), []string{"shop"}, []string{"stripe"}})
+	}
+	res, err := extK8sFleet(t, svcs...).Restrict(shopView).Explain("external:stripe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var truncated []string
+	declared := 0
+	for _, r := range res.Reasons {
+		switch r.Code {
+		case ReasonExternalSourcesTruncated:
+			truncated = append(truncated, r.Message)
+		case ReasonExternalDeclared:
+			declared++
+		}
+	}
+	want := "50 of 55 consumers (55 declarations) are listed; 5 more are not, and 1 consumers are hidden by your permissions; pacto fleet get counts them"
+	if declared != MaxExternalSources || len(truncated) != 1 || truncated[0] != want {
+		t.Fatalf("declared %d, truncated %q", declared, truncated)
+	}
+	if res, _ := extK8sFleet(t, svcs[1:3]...).Explain("external:stripe"); slices.ContainsFunc(res.Reasons, func(r Reason) bool { return r.Code == ReasonExternalSourcesTruncated }) {
+		t.Error("a complete list says it is truncated")
 	}
 }

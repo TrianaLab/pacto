@@ -100,14 +100,14 @@ func TestLockFromNoBundle(t *testing.T) {
 	}
 }
 
-// TestUnresolvedDependencyExternalReachesEveryPerspective: an external
-// dependency keeps External and Version in the revision projection and the
-// target projection. The service neighborhood leaves out a joined external:
-// it names its external system, so it is not an unresolved dependency.
+// TestUnresolvedDependencyExternalReachesEveryPerspective: a joined external
+// names its external system, so no perspective (service, revision or target)
+// lists it as an unresolved dependency; an unnameable external stays one in
+// all three.
 func TestUnresolvedDependencyExternalReachesEveryPerspective(t *testing.T) {
 	agent := &contract.Contract{PactoVersion: "2.1", Service: contract.Service{Name: "agent", Version: "1.0.0", Owner: contract.Owner{Team: "t"}},
 		Readiness:    readyContract(),
-		Dependencies: []contract.Dependency{{Name: "model", External: true, Version: "15", Required: true}}}
+		Dependencies: []contract.Dependency{{Name: "model", External: true, Version: "15", Required: true}, {Name: "日本語", External: true, Version: "15"}}}
 	src := NewMemorySource("local", "local", &Collection{
 		Revisions: []RawRevision{{Bundle: &contract.Bundle{Contract: agent, FS: fstest.MapFS{}}, Digest: "sha256:agent"}},
 		Targets:   []RawTarget{{Scope: "prod", Kind: "k8s", Name: "agent-prod", Service: "agent", Digest: "sha256:agent", Compliance: StatusCompliant}},
@@ -126,14 +126,8 @@ func TestUnresolvedDependencyExternalReachesEveryPerspective(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
-		if name == "service" {
-			if u := nb.UnresolvedDependencies.Items; len(u) != 0 {
-				t.Errorf("service: a joined external is not unresolved: %+v", u)
-			}
-			continue
-		}
-		if u := nb.UnresolvedDependencies.Items; len(u) != 1 || !u[0].External || u[0].Version != "15" || u[0].Ref != "model" {
-			t.Errorf("%s: unresolved = %+v", name, u)
+		if u := nb.UnresolvedDependencies.Items; len(u) != 1 || !u[0].External || u[0].Version != "15" || u[0].Ref != "日本語" {
+			t.Errorf("%s: only the unnameable external is unresolved: %+v", name, u)
 		}
 	}
 }
@@ -195,8 +189,8 @@ func TestJoinCatalogAliasAcrossConsumers(t *testing.T) {
 	want := &ExternalRecord{Key: "stripe", Label: "Stripe", Class: externalcatalog.ClassVendorAPI, Aliases: []string{"stripe", "stripe-api"},
 		Sources:      []ExternalSource{aliasSource(t, q, "billing", "stripe-api"), aliasSource(t, q, "checkout", "Stripe")},
 		SourcesTotal: 2, ConsumersTotal: 2, Consumers: []ServiceKey{NewServiceKey("billing"), NewServiceKey("checkout")},
-		Catalog:      &ExternalCatalogMatch{Origin: externalcatalog.OriginDefault, Digest: externalcatalog.DefaultDigest(), Entry: "stripe"},
-		declarations: rec.declarations}
+		Catalog:  &ExternalCatalogMatch{Origin: externalcatalog.OriginDefault, Digest: externalcatalog.DefaultDigest(), Entry: "stripe"},
+		JoinedBy: externalcatalog.MatchCatalogAlias, declarations: rec.declarations, catalogLabel: "Stripe"}
 	if !reflect.DeepEqual(rec, want) {
 		t.Fatalf("stripe = %+v, want %+v", rec, want)
 	}
@@ -471,5 +465,14 @@ func TestMetaCarriesExternalCatalogs(t *testing.T) {
 	m.ExternalCatalogs[0].Signature, pm.ExternalCatalogs[0].Signature = "verified", "verified"
 	if snap.ExternalCatalogs[0].Signature != externalcatalog.SignatureUnknown {
 		t.Error("a meta shares its catalogs with the snapshot")
+	}
+}
+
+func TestManagedResourceClassifiedByProviderService(t *testing.T) {
+	db := contract.Dependency{Name: "orders-db", External: true, Identity: "aws/rds/123456789012/eu-west-1/orders-db"}
+	snap := externalSnap(t, BuildOptions{}, extContract("checkout", "1.0.0", db))
+	rec := snap.Externals["aws/rds/123456789012/eu-west-1/orders-db"]
+	if rec == nil || rec.Class != externalcatalog.ClassManagedCloud || rec.Label != "orders-db" || rec.Catalog == nil || rec.Catalog.Entry != "aws/rds" {
+		t.Fatalf("managed resource = %+v", rec)
 	}
 }

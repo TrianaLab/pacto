@@ -85,11 +85,27 @@ func TestMCPFleetEntitiesClass(t *testing.T) {
 	}
 }
 
+func TestMCPFleetGraphExternalUnsetDirection(t *testing.T) {
+	var g fleet.GraphResult
+	decode(t, callHandler(t, fleetGraphTool(), fleetGraphHandler(externalFleet(t)), map[string]any{"service": "external:stripe"}), &g)
+	if g.External != "stripe" || g.Direction != fleet.DirectionDependents || len(g.Nodes) != 2 {
+		t.Errorf("an unset direction on an external root means dependents: %+v", g)
+	}
+	if res := callHandler(t, fleetGraphTool(), fleetGraphHandler(externalFleet(t)), map[string]any{"service": "external:stripe", "direction": "dependencies"}); !res.IsError {
+		t.Error("an explicit dependencies graph of an external system is not an error")
+	}
+}
+
 func TestMCPFleetSearchExternals(t *testing.T) {
 	var res fleet.SearchResult
 	decode(t, callHandler(t, fleetSearchTool(), fleetSearchHandler(externalFleet(t)), map[string]any{"text": "stripe"}), &res)
 	if res.ExternalsTotal != 1 || len(res.Externals) != 1 || res.Externals[0].Key != "stripe" {
 		t.Errorf("externals = %+v (total %d)", res.Externals, res.ExternalsTotal)
+	}
+	res = fleet.SearchResult{}
+	decode(t, callHandler(t, fleetSearchTool(), fleetSearchHandler(externalFleet(t)), map[string]any{"text": "stripe", "offset": 5}), &res)
+	if res.ExternalsTotal != 0 || len(res.Externals) != 0 {
+		t.Errorf("a later page repeats the externals: %+v", res.Externals)
 	}
 	if !strings.Contains(fleetInstructions, "kind external") || !strings.Contains(fleetSearchTool().Description, "externals") {
 		t.Error("the instructions or the search tool never mention external systems")

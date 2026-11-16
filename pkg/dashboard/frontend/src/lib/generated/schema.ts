@@ -2630,7 +2630,7 @@ export interface components {
             availabilityProvenance?: "observed" | "inferred" | "unknown";
             businessDomain?: string;
             businessDomainUnknown?: boolean;
-            /** @description On an external list row, the catalog entry that joined it; empty when it is joined by name only */
+            /** @description On an external list row, the catalog entry that joined it; empty when no catalog entry classifies it */
             catalogEntry?: string;
             /** Format: int64 */
             consumers?: number;
@@ -2649,6 +2649,11 @@ export interface components {
             hiddenConsumers?: number;
             /** Format: int64 */
             hiddenProviders?: number;
+            /**
+             * @description On an external list row, how its consumers join it
+             * @enum {string}
+             */
+            joinedBy?: "identity" | "catalog-alias" | "host" | "normalized-name";
             key: string;
             /** @enum {string} */
             kind: "service" | "revision" | "target" | "owner" | "source" | "domain" | "offering" | "external";
@@ -2803,7 +2808,7 @@ export interface components {
         };
         "Fleet.ExternalCatalogRef": {
             /**
-             * @description registry when the bytes were read from the registry, embedded when they are the copy compiled into this binary
+             * @description registry when the bytes in use are the registry artifact at this digest (pulled, or the embedded copy matched against the signed artifact), embedded when the copy compiled into this binary is used unchecked
              * @enum {string}
              */
             copy: "registry" | "embedded";
@@ -2836,7 +2841,7 @@ export interface components {
         "Fleet.ExternalRecord": {
             /** @description The aliases of the catalog entry that classified it */
             aliases?: string[] | null;
-            /** @description The catalog entry that classified it; absent when it is joined by name only */
+            /** @description The catalog entry that classified it; absent when no catalog entry classifies it */
             catalog?: components["schemas"]["Fleet.ExternalCatalogMatch"];
             /**
              * @description The catalog class, unclassified when no catalog entry names it
@@ -2860,9 +2865,14 @@ export interface components {
              * @description How many consumers the caller's permissions hide
              */
             hiddenConsumers?: number;
+            /**
+             * @description How its consumers join it, the strongest match among its sources: identity, catalog-alias, host or normalized-name (joined by name only)
+             * @enum {string}
+             */
+            joinedBy?: "identity" | "catalog-alias" | "host" | "normalized-name";
             /** @description The canonical identity */
             key: string;
-            /** @description The catalog label, else the first name a consumer declared */
+            /** @description The catalog label, else the name the first visible consumer, by service key, declared */
             label: string;
             /** @description The evidence that names this external system, one per consumer and dependency position, each with its own provenance */
             sources: components["schemas"]["Fleet.ExternalSource"][] | null;
@@ -3732,7 +3742,7 @@ export interface components {
         "Fleet.SearchResult": {
             /** Format: int64 */
             count: number;
-            /** @description For a text search, the external systems whose identity, label or alias holds the text, bounded */
+            /** @description For a search on text alone (no other filter, first page), the external systems whose identity, label or alias holds the text, bounded */
             externals?: components["schemas"]["Fleet.EntityRef"][] | null;
             /**
              * Format: int64
@@ -5438,7 +5448,7 @@ export interface components {
             availabilityProvenance?: "observed" | "inferred" | "unknown";
             businessDomain?: string;
             businessDomainUnknown?: boolean;
-            /** @description On an external list row, the catalog entry that joined it; empty when it is joined by name only */
+            /** @description On an external list row, the catalog entry that joined it; empty when no catalog entry classifies it */
             catalogEntry?: string;
             /** Format: int64 */
             consumers?: number;
@@ -5458,6 +5468,11 @@ export interface components {
             /** Format: int64 */
             hiddenProviders?: number;
             href: string;
+            /**
+             * @description On an external list row, how its consumers join it
+             * @enum {string}
+             */
+            joinedBy?: "identity" | "catalog-alias" | "host" | "normalized-name";
             key: string;
             /** @enum {string} */
             kind: "service" | "revision" | "target" | "owner" | "source" | "domain" | "offering" | "external";

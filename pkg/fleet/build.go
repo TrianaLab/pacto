@@ -2787,7 +2787,7 @@ func joinExternal(snap *FleetSnapshot, cat *externalcatalog.Catalog, rk Revision
 	if snap.Services[rev.ServiceKey].Template {
 		return key, reason
 	}
-	rec := externalRecord(snap, cat, key, dep.Name)
+	rec := externalRecord(snap, cat, key)
 	rec.declarations[rev.ServiceKey]++
 	src := ExternalSource{Kind: ExternalSourceContract, Service: rev.ServiceKey, Revision: rk, Dependency: dep.Name, Index: idx,
 		Version: dep.Version, Required: dep.Required, Provenance: ProvenanceDeclared, Match: match}
@@ -2807,19 +2807,21 @@ func joinExternal(snap *FleetSnapshot, cat *externalcatalog.Catalog, rk Revision
 }
 
 // externalRecord returns the record of key, creating it classified by the
-// catalog entry of that identity, else unclassified and labelled name.
-func externalRecord(snap *FleetSnapshot, cat *externalcatalog.Catalog, key ExternalKey, name string) *ExternalRecord {
+// catalog entry of that identity, else unclassified. finalizeExternal labels it.
+func externalRecord(snap *FleetSnapshot, cat *externalcatalog.Catalog, key ExternalKey) *ExternalRecord {
 	if rec := snap.Externals[key]; rec != nil {
 		return rec
 	}
 	if snap.Externals == nil {
 		snap.Externals = map[ExternalKey]*ExternalRecord{}
 	}
-	rec := &ExternalRecord{Key: key, Label: name, Class: externalcatalog.ClassUnclassified, declarations: map[ServiceKey]int{}}
+	rec := &ExternalRecord{Key: key, Class: externalcatalog.ClassUnclassified, declarations: map[ServiceKey]int{}}
 	if e, ref, ok := cat.Entry(externalid.ID(key)); ok {
 		rec.Class = e.Class
-		if e.Label != "" {
-			rec.Label = e.Label
+		// A managed resource classified by its provider/service entry keeps
+		// its own name: every RDS instance labelled "Amazon RDS" says nothing.
+		if e.Identity == externalid.ID(key) {
+			rec.catalogLabel = e.Label
 		}
 		rec.Catalog = &ExternalCatalogMatch{Origin: ref.Origin, Digest: ref.Digest, Entry: string(e.Identity)}
 		rec.Aliases = slices.Clone(e.Aliases)
@@ -2836,8 +2838,12 @@ func finalizeExternals(snap *FleetSnapshot) {
 	}
 }
 
+// joinStrength orders matches strongest first.
+var joinStrength = []string{externalcatalog.MatchIdentity, externalcatalog.MatchCatalogAlias, externalcatalog.MatchHost, externalcatalog.MatchNormalizedName}
+
 // finalizeExternal derives a record's consumers and totals from its
-// declarations and orders its sources by consumer then position.
+// declarations, orders its sources by consumer then position, and derives
+// its label and join from those sources (decision 5: only visible evidence).
 func finalizeExternal(rec *ExternalRecord) {
 	rec.Consumers = slices.Sorted(maps.Keys(rec.declarations))
 	rec.ConsumersTotal = len(rec.Consumers)
@@ -2851,6 +2857,18 @@ func finalizeExternal(rec *ExternalRecord) {
 		}
 		return a.Index - b.Index
 	})
+	rec.Label = rec.catalogLabel
+	if rec.Label == "" && len(rec.Sources) > 0 {
+		rec.Label = rec.Sources[0].Dependency
+	}
+	rec.JoinedBy = ""
+	for _, m := range joinStrength {
+		if slices.ContainsFunc(rec.Sources, func(s ExternalSource) bool { return s.Match == m }) {
+			rec.JoinedBy = m
+			break
+		}
+	}
+	rec.HiddenConsumers = len(rec.hidden)
 }
 
 // externalCatalogRefs projects the catalogs a build classified with.

@@ -386,3 +386,16 @@ func TestResolveSelectionForAnOfferingSkipsTheDetail(t *testing.T) {
 		t.Errorf("explainable(offering) = %q", why)
 	}
 }
+
+// TestExternalVerbReasonsNameTheCLILine: e and g on an external say which CLI
+// line does take it, the one y yanks for explain, never that only a service
+// or a target can be explained or graphed.
+func TestExternalVerbReasonsNameTheCLILine(t *testing.T) {
+	sel := Selection{Kind: fleet.KindExternal, Key: "parcel-carrier"}
+	if why := explainable(sel); !strings.Contains(why, "fleet explain external:parcel-carrier") || strings.Contains(why, "search") {
+		t.Errorf("explainable(external) = %q", why)
+	}
+	if why := graphable(sel); !strings.Contains(why, "pacto fleet graph external:parcel-carrier") {
+		t.Errorf("graphable(external) = %q", why)
+	}
+}

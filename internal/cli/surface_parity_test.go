@@ -106,7 +106,7 @@ func fleetRows() []surfaceRow {
 		alike("fleet neighborhood", "pacto_fleet_neighborhood", "GET /api/fleet/neighborhood", "", "depth", "direction", "max-edges", "max-nodes", "views"),
 		alike("fleet search", "pacto_fleet_search", "GET /api/fleet/services", "", "limit", "offset", "owner", "scope", "source", "status", "template"),
 		[]surfaceRow{{"fleet search [text]", "pacto_fleet_search.text", "GET /api/fleet/services?text",
-			"the CLI and MCP also list the external systems the text names; the dashboard finds them through GET /api/fleet/entities?text"}},
+			"the CLI and MCP also list the external systems the text names; the dashboard finds them through GET /api/fleet/entities?kinds=external&text"}},
 		alike("fleet search", "pacto_fleet_search", "", whySearchRoute, "business-domain", "compliance", "has-capability", "has-dependency", "not-ready", "offering", "ready", "workload"),
 		[]surfaceRow{{"fleet search --label", "pacto_fleet_search.label", "", whySearchRoute}},
 		alike("fleet status", "pacto_fleet_status", "", whyStatusRoute, "golden-path-deployed", "invalid", "lifecycle", "limit", "missing-readiness", "needs-attention",

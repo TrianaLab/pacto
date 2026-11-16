@@ -126,8 +126,13 @@ func (s *Server) fleetEntities(ctx context.Context, in *fleetEntitiesInput) (*fl
 		return nil, err
 	}
 	kinds := in.Kinds
-	if len(kinds) == 0 && in.Template == fleet.TemplateOnly {
+	switch {
+	case len(kinds) > 0:
+	case in.Template == fleet.TemplateOnly:
 		kinds = []string{string(fleet.KindService)}
+	case in.Class != "":
+		// class applies only to external systems, as on the CLI and MCP.
+		kinds = []string{string(fleet.KindExternal)}
 	}
 	res, err := q.Entities(fleet.EntityFilter{
 		Text: in.Text, Kinds: entityKinds(kinds), Owner: in.Owner, OwnerKey: in.OwnerKey, Domain: in.Domain,

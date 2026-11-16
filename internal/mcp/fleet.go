@@ -198,8 +198,8 @@ func fleetSearchTool() *mcpsdk.Tool {
 		Description: "Search logical services in the operational graph. Read-only. " +
 			"Returns a bounded, deterministically ordered list with an asOf time and completeness. " +
 			"Each service's 'owner' is the structured owner (team, dri, contacts), as in pacto_fleet_get. " +
-			"A text search also lists, in 'externals', up to 20 external systems whose identity, label or alias holds the text, " +
-			"with 'externalsTotal'.",
+			"A search on text alone (no other filter, offset 0) also lists, in 'externals', up to 20 external systems whose identity, label or alias holds the text, " +
+			"with 'externalsTotal'; any other filter or a later page lists none.",
 		InputSchema: inputSchema(map[string]property{
 			"text":            {Type: "string", Description: "Substring over service name, summary and owner"},
 			"owner":           {Type: "string", Description: "Filter by owner team, DRI or contact"},
@@ -335,7 +335,7 @@ func fleetGraphTool() *mcpsdk.Tool {
 			"service":    {Type: "string", Description: "Root logical service name (aggregates across its revisions), or external:<identity>"},
 			"revision":   {Type: "string", Description: "Root a specific contract revision key (exact, not latest)"},
 			"target":     {Type: "string", Description: "Root the revision linked to this operational target key or name"},
-			"direction":  {Type: "string", Description: "Traversal direction", Enum: []string{"dependencies", "dependents"}},
+			"direction":  {Type: "string", Description: "Traversal direction (default dependencies, dependents for an external: root)", Enum: []string{"dependencies", "dependents"}},
 			"transitive": {Type: "boolean", Description: "Traverse transitively"},
 			"max_depth":  {Type: "integer", Description: "Maximum transitive depth (0 = unlimited)"},
 		}, nil),
@@ -353,9 +353,15 @@ type fleetGraphArgs struct {
 
 func fleetGraphHandler(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetGraphArgs, any] {
 	return func(_ context.Context, _ *mcpsdk.CallToolRequest, a fleetGraphArgs) (*mcpsdk.CallToolResult, any, error) {
-		dir := fleet.DirectionDependencies
-		if a.Direction == "dependents" {
+		// Unset stays unset: dependencies for a service, dependents for an
+		// external: root, as on the CLI and the dashboard.
+		var dir fleet.Direction
+		switch a.Direction {
+		case "":
+		case "dependents":
 			dir = fleet.DirectionDependents
+		default:
+			dir = fleet.DirectionDependencies
 		}
 		res, err := q.Graph(fleet.GraphQuery{
 			Service:    a.Service,

@@ -57,7 +57,7 @@ func (g *ghcrRegistry) Layer(ctx context.Context, repo, digest string) ([]byte, 
 // ghcrOptions configures a build whose OCI source reads ghcr.io. No store is
 // configured, so the source fails without reaching the network.
 func ghcrOptions(p *ProvenanceChecker) FleetOptions {
-	return FleetOptions{OCIRefs: []string{"oci://ghcr.io/acme/orders:1.0.0"}, Provenance: p}
+	return FleetOptions{OCIRefs: []string{"oci://ghcr.io/acme/orders:1.0.0"}, Provenance: p, LongRunning: true}
 }
 
 // defaultRef builds a fleet with opts and returns its default catalog ref.
@@ -212,6 +212,32 @@ func TestDefaultCheckDoesNotDelayBuild(t *testing.T) {
 	ref := defaultRef(t, s, opts)
 	if time.Since(start) > 10*time.Second || ref.Signature != fleet.SignatureUnknown || ref.Reason != reasonCatalogChecking || ref.Copy != externalcatalog.CopyEmbedded {
 		t.Fatalf("ref = %+v after %s", ref, time.Since(start))
+	}
+}
+
+func TestDefaultNotCheckedByOneShotCommand(t *testing.T) {
+	reg := provenanceTestRegistry(t)
+	fake := &ghcrRegistry{Client: reg.client, host: reg.host}
+	s := NewService(nil, nil)
+	opts := ghcrOptions(newProvenanceChecker(fake))
+	opts.LongRunning = false
+	ref := defaultRef(t, s, opts)
+	if ref.Signature != fleet.SignatureUnknown || ref.Reason != reasonCatalogOneShot || checking(s) || fake.lists.Load() != 0 {
+		t.Fatalf("a one-shot build started the check: ref = %+v, lists %d", ref, fake.lists.Load())
+	}
+}
+
+func TestExtensionCancelledPullNotRemembered(t *testing.T) {
+	reg := provenanceTestRegistry(t)
+	ref := pushOrgCatalog(t, reg, orgCatalog)
+	s := NewService(nil, nil)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := s.orgCatalog(ctx, ref); err == nil {
+		t.Fatal("a cancelled pull succeeded")
+	}
+	if _, err := s.orgCatalog(t.Context(), ref); err != nil {
+		t.Fatalf("a cancelled caller's error was remembered: %v", err)
 	}
 }
 

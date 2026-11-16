@@ -227,8 +227,11 @@ type EntityRef struct {
 	// a target source is incomplete: Targets is then 0 and means unknown.
 	TargetsUnknown bool `json:"targetsUnknown,omitempty"`
 	// CatalogEntry is, on an EXTERNAL list row, the catalog entry that joined
-	// it; empty when it is joined by name only.
-	CatalogEntry string `json:"catalogEntry,omitempty" doc:"On an external list row, the catalog entry that joined it; empty when it is joined by name only"`
+	// it; empty when no catalog entry classifies it.
+	CatalogEntry string `json:"catalogEntry,omitempty" doc:"On an external list row, the catalog entry that joined it; empty when no catalog entry classifies it"`
+	// JoinedBy is, on an EXTERNAL list row, how its consumers join it (see
+	// [ExternalRecord.JoinedBy]).
+	JoinedBy string `json:"joinedBy,omitempty" enum:"identity,catalog-alias,host,normalized-name" doc:"On an external list row, how its consumers join it"`
 }
 
 // SourceCounts is the fleet's source population tallied by health, over EVERY

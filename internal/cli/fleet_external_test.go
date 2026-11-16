@@ -87,8 +87,14 @@ func TestFleetGraphExternalDependents(t *testing.T) {
 	if !strings.Contains(out, "dependents of external:stripe") || !strings.Contains(out, "checkout") || !strings.Contains(out, "pay-agent") {
 		t.Errorf("graph:\n%s", out)
 	}
-	if _, _, err := execFleet(t, "fleet", "graph", "external:stripe", "--local", root); err == nil {
-		t.Error("a dependencies graph of an external system is not an error")
+	if out, _, err := execFleet(t, "fleet", "graph", "external:stripe", "--local", root); err != nil || !strings.Contains(out, "dependents of external:stripe") {
+		t.Errorf("an unset direction on an external root means dependents: %v\n%s", err, out)
+	}
+	if _, _, err := execFleet(t, "fleet", "graph", "external:stripe", "--direction", "dependencies", "--local", root); err == nil {
+		t.Error("an explicit dependencies graph of an external system is not an error")
+	}
+	if out, _, err := execFleet(t, "fleet", "graph", "checkout", "--local", root); err != nil || !strings.Contains(out, "dependencies of") {
+		t.Errorf("an unset direction on a service still means dependencies: %v\n%s", err, out)
 	}
 }
 
@@ -116,6 +122,12 @@ func TestFleetSearchPrintsExternals(t *testing.T) {
 	}
 	if out, _, _ = execFleet(t, "fleet", "search", "checkout", "--local", root); strings.Contains(out, "EXTERNALS") {
 		t.Errorf("a search no external matches prints the section:\n%s", out)
+	}
+	for _, extra := range [][]string{{"--owner", "nobody-team"}, {"--offset", "5"}} {
+		args := append([]string{"fleet", "search", "stripe", "--local", root}, extra...)
+		if out, _, _ = execFleet(t, args...); strings.Contains(out, "EXTERNALS") {
+			t.Errorf("%v lists externals:\n%s", extra, out)
+		}
 	}
 }
 

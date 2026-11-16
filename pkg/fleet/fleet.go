@@ -1004,7 +1004,7 @@ const ExternalSourceContract = "contract"
 // external system: it never clears a gate.
 type ExternalRecord struct {
 	Key   ExternalKey `json:"key" doc:"The canonical identity"`
-	Label string      `json:"label" doc:"The catalog label, else the first name a consumer declared"`
+	Label string      `json:"label" doc:"The catalog label, else the name the first visible consumer, by service key, declared"`
 	Class string      `json:"class" enum:"vendor-api,managed-cloud,legacy,unclassified,other-egress" doc:"The catalog class, unclassified when no catalog entry names it"`
 	// Aliases are the catalog entry's aliases, so a search finds it by any.
 	Aliases []string `json:"aliases,omitempty" doc:"The aliases of the catalog entry that classified it"`
@@ -1012,14 +1012,23 @@ type ExternalRecord struct {
 	// with its own provenance. SourcesTotal counts every declaration.
 	Sources      []ExternalSource      `json:"sources" doc:"The evidence that names this external system, one per consumer and dependency position, each with its own provenance"`
 	SourcesTotal int                   `json:"sourcesTotal" doc:"Every declaration, across every revision of every consumer"`
-	Catalog      *ExternalCatalogMatch `json:"catalog,omitempty" doc:"The catalog entry that classified it; absent when it is joined by name only"`
+	Catalog      *ExternalCatalogMatch `json:"catalog,omitempty" doc:"The catalog entry that classified it; absent when no catalog entry classifies it"`
 	Consumers    []ServiceKey          `json:"consumers" doc:"The services that declare it"`
 	// ConsumersTotal counts Consumers before an answer bounds them.
 	ConsumersTotal  int `json:"consumersTotal" doc:"How many services declare it"`
 	HiddenConsumers int `json:"hiddenConsumers,omitempty" doc:"How many consumers the caller's permissions hide"`
 	Folded          int `json:"folded,omitempty" doc:"On the other-egress node, how many external systems it folds"`
+	// JoinedBy is the strongest match among the visible sources: identity,
+	// catalog-alias, host, then normalized-name.
+	JoinedBy string `json:"joinedBy,omitempty" enum:"identity,catalog-alias,host,normalized-name" doc:"How its consumers join it, the strongest match among its sources: identity, catalog-alias, host or normalized-name (joined by name only)"`
 	// declarations counts, per consumer, the revisions that declare it.
 	declarations map[ServiceKey]int
+	// catalogLabel is the label its catalog entry (or the fold) gives it;
+	// empty, the label comes from the visible sources, so a restricted view
+	// never shows a name only a hidden consumer declared.
+	catalogLabel string
+	// hidden is the consumers a restriction hid, so a fold counts each once.
+	hidden map[ServiceKey]bool
 }
 
 // ExternalSource is one piece of evidence that names an external system.
@@ -1050,7 +1059,7 @@ type ExternalCatalogRef struct {
 	Origin     string `json:"origin" enum:"default,organization"`
 	Repository string `json:"repository,omitempty"`
 	Digest     string `json:"digest" doc:"The digest of the catalog artifact; the recorded input whichever copy was read"`
-	Copy       string `json:"copy" enum:"registry,embedded" doc:"registry when the bytes were read from the registry, embedded when they are the copy compiled into this binary"`
+	Copy       string `json:"copy" enum:"registry,embedded" doc:"registry when the bytes in use are the registry artifact at this digest (pulled, or the embedded copy matched against the signed artifact), embedded when the copy compiled into this binary is used unchecked"`
 	Signature  string `json:"signature" enum:"verified,unverified,unsigned,unknown"`
 	Signer     string `json:"signer,omitempty"`
 	Reason     string `json:"reason,omitempty" doc:"Why the signature reads as it does"`

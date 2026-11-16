@@ -822,6 +822,11 @@ func TestTUIExternalDetail(t *testing.T) {
 	if out := renderDetail(&fleet.EntityDetail{External: &fleet.ExternalDetailData{External: rec}}); !strings.Contains(out, "none (joined by name)") {
 		t.Errorf("a name-only external:\n%s", out)
 	}
+	rec.JoinedBy = "identity"
+	if out := renderDetail(&fleet.EntityDetail{External: &fleet.ExternalDetailData{External: rec}}); !strings.Contains(out, "none (joined by its declared identity)") {
+		t.Errorf("an identity-joined external reads as joined by name:\n%s", out)
+	}
+	rec.JoinedBy = ""
 	rec.Folded = 3
 	if out := renderDetail(&fleet.EntityDetail{External: &fleet.ExternalDetailData{External: rec}}); !strings.Contains(out, "3 external systems") {
 		t.Errorf("the other-egress node:\n%s", out)

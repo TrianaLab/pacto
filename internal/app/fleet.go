@@ -62,6 +62,10 @@ type FleetOptions struct {
 	// every revision the OCI source reads. One checker is shared across builds
 	// so its memo outlives each refresh.
 	Provenance *ProvenanceChecker
+	// LongRunning says the process builds again later (the dashboard, pacto
+	// mcp, the TUI), so a background check started now can report on a later
+	// build. A one-shot command never starts the default catalog's check.
+	LongRunning bool
 	// ExternalCatalogRef is the organization external catalog merged over the
 	// default, as oci://REPOSITORY@sha256:DIGEST; a tag is refused.
 	ExternalCatalogRef string

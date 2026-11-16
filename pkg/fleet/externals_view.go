@@ -32,7 +32,7 @@ func foldExternals(s *FleetSnapshot) (*FleetSnapshot, map[ExternalKey]*ExternalR
 	for _, k := range keys[:keep] {
 		view[k] = s.Externals[k]
 	}
-	other := &ExternalRecord{Key: OtherEgress, Label: "Other egress", Class: ClassOtherEgress, declarations: map[ServiceKey]int{}}
+	other := &ExternalRecord{Key: OtherEgress, catalogLabel: "Other egress", Class: ClassOtherEgress, declarations: map[ServiceKey]int{}, hidden: map[ServiceKey]bool{}}
 	folded := make(map[ExternalKey]bool, len(keys)-keep)
 	for _, k := range keys[keep:] {
 		rec := s.Externals[k]
@@ -42,9 +42,8 @@ func foldExternals(s *FleetSnapshot) (*FleetSnapshot, map[ExternalKey]*ExternalR
 		for c, n := range rec.declarations {
 			other.declarations[c] += n
 		}
-		// ponytail: a sum, so a hidden service behind two folded systems
-		// counts twice; a hidden set per record would make it exact.
-		other.HiddenConsumers += rec.HiddenConsumers
+		// A union, so a hidden service behind several folded systems counts once.
+		maps.Copy(other.hidden, rec.hidden)
 	}
 	finalizeExternal(other)
 	view[OtherEgress] = other
@@ -107,8 +106,16 @@ func restrictExternal(out *FleetSnapshot, rec *ExternalRecord) *ExternalRecord {
 			r.declarations[c] = n
 		}
 	}
+	r.hidden = maps.Clone(rec.hidden)
+	for _, c := range rec.Consumers {
+		if !kept[c] {
+			if r.hidden == nil {
+				r.hidden = map[ServiceKey]bool{}
+			}
+			r.hidden[c] = true
+		}
+	}
 	finalizeExternal(&r)
-	r.HiddenConsumers = rec.HiddenConsumers + rec.ConsumersTotal - r.ConsumersTotal
 	return &r
 }
 
@@ -191,7 +198,20 @@ func externalListRef(r *ExternalRecord) EntityRef {
 	if r.Catalog != nil {
 		ref.CatalogEntry = r.Catalog.Entry
 	}
+	ref.JoinedBy = r.JoinedBy
 	return ref
+}
+
+// JoinWords is how the consumers of a record no catalog entry classifies
+// join it, for a text surface: only a normalized-name join is "by name".
+func (r ExternalRecord) JoinWords() string {
+	switch r.JoinedBy {
+	case externalcatalog.MatchIdentity:
+		return "joined by its declared identity"
+	case externalcatalog.MatchHost:
+		return "joined by its registrable domain"
+	}
+	return "joined by name"
 }
 
 // externalTextMatches reports whether text, compared without case, is in

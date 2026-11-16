@@ -6,6 +6,8 @@ import (
 	"maps"
 	"slices"
 	"sort"
+
+	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
 )
 
 // Reason codes an external system is explained with.
@@ -13,6 +15,12 @@ const (
 	ReasonExternalDeclared     = "EXTERNAL_DECLARED"
 	ReasonExternalCatalogMatch = "EXTERNAL_CATALOG_MATCH"
 	ReasonExternalNameOnly     = "EXTERNAL_NAME_ONLY"
+	// ReasonExternalUnclassified is a record no catalog entry classifies whose
+	// consumers still join through a declared identity or a host's domain.
+	ReasonExternalUnclassified = "EXTERNAL_UNCLASSIFIED"
+	// ReasonExternalSourcesTruncated says the declared reasons list only some
+	// consumers, or that permissions hide some.
+	ReasonExternalSourcesTruncated = "EXTERNAL_SOURCES_TRUNCATED"
 )
 
 // ExternalView is the answer for one external system. External lists at most
@@ -45,19 +53,30 @@ func (q *Query) explainExternal(key string) (*ExplainResult, error) {
 		return nil, err
 	}
 	res := &ExplainResult{Meta: q.meta(), Subject: ExternalSubjectPrefix + string(rec.Key), Kind: string(KindExternal), Status: StatusUnknown, Reasons: []Reason{}}
-	for _, src := range boundExternal(rec).Sources {
+	b := boundExternal(rec)
+	for _, src := range b.Sources {
 		msg := fmt.Sprintf("declared by %s dependencies[%d] (name: %s", src.Service, src.Index, src.Dependency)
 		if src.Version != "" {
 			msg += ", version: " + src.Version
 		}
 		res.Reasons = append(res.Reasons, Reason{Code: ReasonExternalDeclared, Message: msg + ")", Assertion: &AssertionRef{Kind: "dependency", Name: src.Dependency}})
 	}
+	if more := rec.ConsumersTotal - len(b.Consumers); more > 0 || rec.HiddenConsumers > 0 {
+		res.Reasons = append(res.Reasons, Reason{Code: ReasonExternalSourcesTruncated, Message: fmt.Sprintf(
+			"%d of %d consumers (%d declarations) are listed; %d more are not, and %d consumers are hidden by your permissions; pacto fleet get counts them",
+			len(b.Consumers), rec.ConsumersTotal, rec.SourcesTotal, more, rec.HiddenConsumers)})
+	}
 	switch {
 	case rec.Catalog != nil:
 		res.Reasons = append(res.Reasons, Reason{Code: ReasonExternalCatalogMatch,
 			Message: fmt.Sprintf("classified %s by entry %s of the %s catalog %s", rec.Class, rec.Catalog.Entry, rec.Catalog.Origin, rec.Catalog.Digest)})
-	case rec.Folded == 0:
-		res.Reasons = append(res.Reasons, Reason{Code: ReasonExternalNameOnly, Message: "no catalog entry names it; consumers that spell it differently do not join"})
+	case rec.Folded > 0:
+	case rec.JoinedBy == externalcatalog.MatchIdentity:
+		res.Reasons = append(res.Reasons, Reason{Code: ReasonExternalUnclassified, Message: "no catalog entry classifies it; its consumers join through the identity they declare"})
+	case rec.JoinedBy == externalcatalog.MatchHost:
+		res.Reasons = append(res.Reasons, Reason{Code: ReasonExternalUnclassified, Message: "no catalog entry classifies it; its consumers join through its registrable domain"})
+	default:
+		res.Reasons = append(res.Reasons, Reason{Code: ReasonExternalNameOnly, Message: "no catalog alias equals this name; consumers that spell it differently do not join"})
 	}
 	switch {
 	case into != "":
@@ -195,19 +214,19 @@ func (q *Query) externalNeighborhood(key string, bp boundedParams) (*Neighborhoo
 		return res, nil
 	}
 	res.TotalNodes += len(rec.Consumers)
+	// Only drawn consumers get an edge, so no edge names a node the answer
+	// leaves out.
+	drawn := map[ServiceKey]bool{}
 	for _, c := range rec.Consumers {
 		if len(res.Nodes) >= bp.maxNodes {
 			res.Truncated = true
 			break
 		}
+		drawn[c] = true
 		ref := q.serviceRef(c)
 		res.Nodes = append(res.Nodes, NeighborhoodNode{Ref: ref, Depth: 1, Status: ref.Status, Owner: q.snap.Services[c].Owner.DisplayString()})
 	}
-	consumers := map[ServiceKey]bool{}
-	for _, c := range rec.Consumers {
-		consumers[c] = true
-	}
-	edges := q.externalEdges(func(k ServiceKey) bool { return consumers[k] }, rec.Key)
+	edges := q.externalEdges(func(k ServiceKey) bool { return drawn[k] }, rec.Key)
 	res.Edges, res.TruncatedEdges = boundEdges(edges, bp.maxEdges)
 	res.Truncated = res.Truncated || res.TruncatedEdges
 	return res, nil
