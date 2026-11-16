@@ -32,7 +32,7 @@ matcher.
 | A host | The longest catalog host rule wins, an exact host over a `*.` wildcard of the same length. An exact rule matches only that name, and `*.example.com` matches its subdomains and never `example.com` itself | `likely` |
 | A host no rule names | Three or more labels and a public registrable domain give `host/<registrable-domain>`. A two-label name matches only a catalog rule, because a namespace short form such as `orders.shop` reads like a vendor's domain | `likely` |
 | A configuration key name | Compared without case against the entries' key patterns, with `-` and `.` read as `_`, so the Secret name `stripe-credentials` reads like `STRIPE_CREDENTIALS` | `possible` |
-| An OpenTelemetry `db.system`, `messaging.system` or `rpc.system` value | Compared exactly, without case, against the entries' values. A protocol no entry claims, such as `grpc`, gives no match | `likely` |
+| An OpenTelemetry `db.system`, `messaging.system` or `rpc.system` value | Compared exactly, without case, against the entries' values. A protocol no entry claims, such as `grpc`, gives no match. The default catalog claims only values that name one managed service, such as `aws_sqs` or `dynamodb`, so a generic `postgresql` or `kafka` callee stays unresolved | `likely` |
 
 A configuration value is a host candidate only when it has a scheme
 (`https://`), a port or a key named like a host: one that contains `url`,

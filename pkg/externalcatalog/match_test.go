@@ -270,3 +270,17 @@ func mustCatalog(t *testing.T, y string) *Catalog {
 	t.Helper()
 	return Merge(mustParse(t, y), Ref{Origin: OriginDefault, Digest: "sha256:t"}, nil, nil)
 }
+
+// TestDefaultCatalogOTelNamesOneService: the embedded catalog claims a value
+// that names one managed service and leaves a generic engine unresolved.
+func TestDefaultCatalogOTelNamesOneService(t *testing.T) {
+	c := Default()
+	if m, ok := c.MatchOTel("aws_sqs"); !ok || m.Identity != "aws/sqs" {
+		t.Errorf("aws_sqs = %+v %v", m, ok)
+	}
+	for _, v := range []string{"postgresql", "kafka", "grpc"} {
+		if m, ok := c.MatchOTel(v); ok {
+			t.Errorf("%s matched %+v", v, m)
+		}
+	}
+}
