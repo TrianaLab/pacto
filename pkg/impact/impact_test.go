@@ -985,6 +985,31 @@ func TestImpactConfigRefConsumer(t *testing.T) {
 	}
 }
 
+// A dependency named only by a ref that did not resolve may consume the changed
+// service: a BREAKING change on it never clears, it stays unverified.
+func TestUnresolvedDerivedNameDependencyKeepsGateUnverified(t *testing.T) {
+	for _, ref := range []string{"file://../payments", "oci://ghcr.io/acme/payments"} {
+		old := svcContract("payments", "1.0.0", contract.Owner{Team: "pay"})
+		old.Interfaces = []contract.Interface{{Name: "api", Type: contract.InterfaceTypeGRPC, Ref: "api.proto"}}
+		orders := svcContract("orders", "1.0.0", contract.Owner{Team: "ord"},
+			contract.Dependency{Name: "payments", Ref: ref, Compatibility: "^1.0.0", Required: true, NameFromRef: true})
+		orders.PactoVersion = "2.5"
+		col := &fleet.Collection{Revisions: []fleet.RawRevision{
+			{Bundle: mkBundle(old), RequestedRef: "file:///r/payments"},
+			{Bundle: mkBundle(orders), RequestedRef: "file:///r/orders"},
+		}}
+		snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("local", "local", col))
+		if err != nil {
+			t.Fatal(err)
+		}
+		res := Analyze(context.Background(), old, svcContract("payments", "2.0.0", contract.Owner{Team: "pay"}), nil, nil, snap, Options{})
+		if res.Classification != "BREAKING" || res.Gate != GateUnverified || res.Completeness != fleet.CompletenessPartial ||
+			!hasCode(res.Limitations, "DERIVED_NAME_CONSUMERS_UNRESOLVED") {
+			t.Errorf("%s: %s gate %s (%s), limitations %+v", ref, res.Classification, res.Gate, res.GateReason, res.Limitations)
+		}
+	}
+}
+
 // An unresolved configuration reference names the changed service by its last
 // path segment when the provider came from a directory or the ref is relative,
 // so the gate never clears with that consumer unseen.

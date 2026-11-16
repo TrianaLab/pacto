@@ -826,7 +826,9 @@ func (r *Result) collectOwnersAndTargets(snap *fleet.FleetSnapshot, changed ...f
 
 // noteUnresolvedRefs makes the answer partial when configuration references,
 // and with withPolicy policy references, may name changed but did not resolve:
-// they may consume or check against it, at a revision Pacto cannot tell.
+// they may consume or check against it, at a revision Pacto cannot tell. A
+// dependency named only by a ref that did not resolve (a file:// ref, a
+// repository the fleet did not read) may consume changed too.
 func (r *Result) noteUnresolvedRefs(snap *fleet.FleetSnapshot, changed fleet.ServiceKey, withPolicy bool) {
 	note := func(code, relType, what, verb string) {
 		n := fleet.UnresolvedRefCount(snap, []fleet.ServiceKey{changed}, relType)
@@ -839,6 +841,12 @@ func (r *Result) noteUnresolvedRefs(snap *fleet.FleetSnapshot, changed fleet.Ser
 				" but are not digest-pinned or locked, so Pacto cannot tell which revision they " + verb})
 	}
 	note("CONFIG_REF_CONSUMERS_UNRESOLVED", fleet.RelationshipConfigRef, "configuration references", "consume")
+	if n := fleet.UnresolvedRefCount(snap, []fleet.ServiceKey{changed}, fleet.RelationshipDependency); n > 0 {
+		r.Completeness = fleet.CompletenessPartial
+		r.Limitations = append(r.Limitations, fleet.Limitation{Code: "DERIVED_NAME_CONSUMERS_UNRESOLVED", Source: limitationSource,
+			Message: strconv.Itoa(n) + " " + plural(n, "dependency names", "dependencies name") + " " + string(changed) +
+				" only by a ref that did not resolve, so Pacto cannot tell whether " + plural(n, "it consumes", "they consume") + " it"})
+	}
 	if withPolicy {
 		note("POLICY_REF_CONSUMERS_UNRESOLVED", fleet.RelationshipPolicyRef, "policy references", "check against")
 	}
