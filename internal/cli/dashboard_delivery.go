@@ -152,6 +152,7 @@ func (id *dashboardIdentity) delivery(r *http.Request) (dashboard.DeliveryAPI, e
 	if s := id.sharedReads(); s != nil && token != "" {
 		c, sc := *act, sharedClient{Interface: dyn, s: s, token: token}
 		c.Dynamic, out.d, out.shared = sc, &c, &sc
+		out.access = out.d.WorkloadAccessByNamespace()
 	}
 	return out, nil
 }
@@ -159,7 +160,7 @@ func (id *dashboardIdentity) delivery(r *http.Request) (dashboard.DeliveryAPI, e
 // newDashDelivery is act as the dashboard routes call it, for the caller who
 // keys: their cached Stage namespaces ("" for the one local user).
 func newDashDelivery(id *dashboardIdentity, act *app.Delivery, who string) dashDelivery {
-	return dashDelivery{d: act, act: act, id: id, who: who}
+	return dashDelivery{d: act, act: act, id: id, who: who, access: act.WorkloadAccessByNamespace()}
 }
 
 // sharedReads starts the shared cache with the dashboard's own credentials
@@ -223,6 +224,9 @@ type dashDelivery struct {
 	// shared lists Stages and Operations in delivery's types; nil outside
 	// shared mode.
 	shared *sharedClient
+	// access answers WorkloadAccess for this request (or MCP call) through
+	// d, one rules review per namespace.
+	access func(ctx context.Context, ns string, w delivery.WorkloadRef) delivery.WorkloadAccess
 }
 
 func refusal(err error) error {
@@ -421,7 +425,7 @@ func (a dashDelivery) Can(ctx context.Context, verb, resource, ns string) (bool,
 }
 
 func (a dashDelivery) WorkloadAccess(ctx context.Context, ns string, w delivery.WorkloadRef) delivery.WorkloadAccess {
-	return a.d.WorkloadAccess(ctx, ns, w)
+	return a.access(ctx, ns, w)
 }
 
 // Bounds of the namespace answers: kept a minute, reviews asked eight at

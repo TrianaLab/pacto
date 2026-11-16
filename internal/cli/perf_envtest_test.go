@@ -676,7 +676,9 @@ const perfP95 = time.Second
 
 // perfMaxAPI is apiserver requests per dashboard request, by view.
 var perfMaxAPI = map[string]float64{
-	"inbox": 8,
+	// Each new person asks once per namespace holding a change whether they
+	// may update its workloads (a rules review, not one review per workload).
+	"inbox": 100,
 	// Each new person asks once per namespace shown whether they may promote there.
 	"environments":        45,
 	"environments?env&q":  21,
