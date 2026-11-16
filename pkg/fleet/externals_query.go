@@ -25,6 +25,55 @@ type ExternalView struct {
 	Catalog  *ExternalCatalogRef `json:"catalog,omitempty" doc:"The catalog that classified it, with its digest and signature"`
 	// FoldedInto is the node the answer folds it into, when it does.
 	FoldedInto ExternalKey `json:"foldedInto,omitempty" doc:"The other-egress node this answer folds it into"`
+	ExternalEvidence
+}
+
+// ExternalEvidence is where each source recognized or saw an external
+// system, for the consumers an answer lists: each list holds at most
+// MaxExternalSources entries and its total counts them all.
+type ExternalEvidence struct {
+	InferredSources      []ExternalInferredSource `json:"inferredSources,omitempty" doc:"Where each source recognized it in a listed consumer's configuration"`
+	InferredSourcesTotal int                      `json:"inferredSourcesTotal,omitempty" doc:"Every inferred source of the listed consumers"`
+	ObservedSources      []ExternalObservedSource `json:"observedSources,omitempty" doc:"Each trace source that saw a listed consumer call it"`
+	ObservedSourcesTotal int                      `json:"observedSourcesTotal,omitempty" doc:"Every observed source of the listed consumers"`
+}
+
+// ExternalInferredSource is one inferred source and the consumer it names.
+type ExternalInferredSource struct {
+	Service ServiceKey `json:"service" doc:"The consumer"`
+	InferredSource
+}
+
+// ExternalObservedSource is one trace source's calls from a consumer.
+type ExternalObservedSource struct {
+	Service ServiceKey `json:"service" doc:"The consumer"`
+	ObservedSourceStat
+}
+
+// externalEvidence is the inferred and observed evidence of the edges from
+// consumers to the external system key, bounded. Nil lists when none.
+func (q *Query) externalEvidence(key ExternalKey, consumers []ServiceKey) ExternalEvidence {
+	var inf []ExternalInferredSource
+	var obs []ExternalObservedSource
+	for _, rel := range q.snap.Relationships {
+		if !externalEdge(rel, key) || !slices.Contains(consumers, rel.FromService) {
+			continue
+		}
+		for _, s := range rel.InferredSources {
+			inf = append(inf, ExternalInferredSource{Service: rel.FromService, InferredSource: s})
+		}
+		for _, s := range rel.ObservedSources {
+			obs = append(obs, ExternalObservedSource{Service: rel.FromService, ObservedSourceStat: s})
+		}
+	}
+	var ev ExternalEvidence
+	if len(inf) > 0 {
+		ev.InferredSources, ev.InferredSourcesTotal, _ = boundSlice(inf, MaxExternalSources)
+	}
+	if len(obs) > 0 {
+		ev.ObservedSources, ev.ObservedSourcesTotal, _ = boundSlice(obs, MaxExternalSources)
+	}
+	return ev
 }
 
 // GetExternal returns one external system by identity, with or without the
@@ -35,7 +84,9 @@ func (q *Query) GetExternal(key string) (*ExternalView, error) {
 	if err != nil {
 		return nil, err
 	}
-	return jsonClone(&ExternalView{Meta: q.externalMeta(), External: boundExternal(rec), Catalog: q.externalCatalogRef(rec), FoldedInto: into}), nil
+	b := boundExternal(rec)
+	return jsonClone(&ExternalView{Meta: q.externalMeta(), External: b, Catalog: q.externalCatalogRef(rec), FoldedInto: into,
+		ExternalEvidence: q.externalEvidence(rec.Key, b.Consumers)}), nil
 }
 
 // externalsUnreported is the limitation an external answer carries when a
@@ -83,8 +134,14 @@ func (q *Query) explainExternal(key string) (*ExplainResult, error) {
 		return nil, err
 	}
 	res := &ExplainResult{Meta: q.externalMeta(), Subject: ExternalSubjectPrefix + string(rec.Key), Kind: string(KindExternal), Status: StatusUnknown, Reasons: []Reason{}}
-	for _, src := range boundExternal(rec).Sources {
-		res.Reasons = append(res.Reasons, externalSourceReason(src))
+	b := boundExternal(rec)
+	for _, src := range b.Sources {
+		if src.Kind != ExternalSourcePodSpec {
+			res.Reasons = append(res.Reasons, externalSourceReason(src))
+		}
+	}
+	for _, src := range q.externalEvidence(rec.Key, b.Consumers).InferredSources {
+		res.Reasons = append(res.Reasons, inferredSourceReason(src))
 	}
 	switch {
 	case rec.Catalog != nil:
@@ -103,23 +160,29 @@ func (q *Query) explainExternal(key string) (*ExplainResult, error) {
 	return res, nil
 }
 
-// externalSourceReason explains one piece of evidence by its kind.
+// externalSourceReason explains one declared or observed piece of evidence.
 func externalSourceReason(src ExternalSource) Reason {
-	switch src.Kind {
-	case ExternalSourceObserved:
+	if src.Kind == ExternalSourceObserved {
 		return Reason{Code: ReasonExternalObserved, Message: fmt.Sprintf("observed %s calling it (matched by %s)", src.Service, src.Match)}
-	case ExternalSourcePodSpec:
-		msg := fmt.Sprintf("inferred from the pod spec of %s (matched by %s", src.Service, src.Match)
-		if src.Target != "" {
-			msg += ", target " + string(src.Target)
-		}
-		return Reason{Code: ReasonExternalInferred, Message: msg + ")"}
 	}
 	msg := fmt.Sprintf("declared by %s dependencies[%d] (name: %s", src.Service, src.Index, src.Dependency)
 	if src.Version != "" {
 		msg += ", version: " + src.Version
 	}
 	return Reason{Code: ReasonExternalDeclared, Message: msg + ")", Assertion: &AssertionRef{Kind: "dependency", Name: src.Dependency}}
+}
+
+// inferredSourceReason explains where one source recognized it: the kind
+// and the object and key, never a value, then the confidence, the
+// normalized host, the catalog entry and the target.
+func inferredSourceReason(src ExternalInferredSource) Reason {
+	msg := fmt.Sprintf("inferred from %s %s of %s (%s", src.Kind, src.Where, src.Service, src.Confidence)
+	for _, kv := range [][2]string{{"host", src.Host}, {"entry", src.Entry}, {"target", string(src.Target)}} {
+		if kv[1] != "" {
+			msg += ", " + kv[0] + " " + kv[1]
+		}
+	}
+	return Reason{Code: ReasonExternalInferred, Message: msg + ")"}
 }
 
 // externalEdge reports whether rel is a declared dependency on the external
@@ -227,6 +290,7 @@ type ExternalDetailData struct {
 	Consumers  []ExternalConsumer  `json:"consumers"`
 	Catalog    *ExternalCatalogRef `json:"catalog,omitempty" doc:"The catalog that classified it, with its digest and signature"`
 	FoldedInto ExternalKey         `json:"foldedInto,omitempty" doc:"The other-egress node this answer folds it into"`
+	ExternalEvidence
 }
 
 // externalDetail is one external system's page.
@@ -236,7 +300,8 @@ func (q *Query) externalDetail(key string) (*EntityDetail, error) {
 		return nil, err
 	}
 	b := boundExternal(rec)
-	data := &ExternalDetailData{External: b, Consumers: []ExternalConsumer{}, Catalog: q.externalCatalogRef(rec), FoldedInto: into}
+	data := &ExternalDetailData{External: b, Consumers: []ExternalConsumer{}, Catalog: q.externalCatalogRef(rec), FoldedInto: into,
+		ExternalEvidence: q.externalEvidence(rec.Key, b.Consumers)}
 	for _, c := range b.Consumers {
 		ec := ExternalConsumer{Service: q.serviceRef(c)}
 		for _, src := range b.Sources {

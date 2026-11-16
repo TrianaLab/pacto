@@ -21,14 +21,15 @@ type NeighborhoodLike = Partial<Pick<ProductNeighborhood, 'nodes' | 'edges'>>;
 // one state per legend item, so every legend item is a real visual distinction. It is
 // DERIVED from the backend-authoritative difference (service projection) or
 // serviceCorroboration (fine-grained projection), never re-inferred from booleans.
-export type EdgeVisualState = '' | 'matched' | 'expected-not-observed' | 'drift' | 'insufficient';
+export type EdgeVisualState = '' | 'matched' | 'expected-not-observed' | 'drift' | 'insufficient' | 'inferred';
 
 /** edgeState collapses the backend edge verdict into the canvas visual vocabulary. A
  *  service-projection edge carries `difference`; a fine-grained (revision/target) edge
  *  carries `serviceCorroboration`. Both map to the SAME visual states (the drawer keeps
  *  the precise wording). An edge with neither (an expected-only view) has no state and
- *  renders as a plain declared edge. */
-export function edgeState(e: { difference?: string; serviceCorroboration?: string }): EdgeVisualState {
+ *  renders as a plain declared edge. An edge only inferred from configuration has
+ *  neither and is 'inferred'. */
+export function edgeState(e: { difference?: string; serviceCorroboration?: string; provenance?: string }): EdgeVisualState {
   switch (e.difference) {
     case 'matched': return 'matched';
     case 'observed-not-expected': return 'drift';
@@ -40,7 +41,7 @@ export function edgeState(e: { difference?: string; serviceCorroboration?: strin
     case 'expected-not-observed': return 'expected-not-observed';
     case 'insufficient': return 'insufficient';
   }
-  return '';
+  return e.provenance === 'inferred' ? 'inferred' : '';
 }
 
 /** cyEdgeId reproduces the Cytoscape edge id that buildElements assigns, so a canvas

@@ -124,6 +124,10 @@ describe('relationship provenance', () => {
     expect(provenanceLabel('declared')).toBe('Expected');
     expect(provenanceLabel('observed')).toBe('Observed');
     expect(provenanceLabel('declared+observed')).toBe('Expected and observed');
+    expect(provenanceLabel('inferred')).toBe('Inferred');
+    // An inferred-only edge already reads "Inferred from configuration": no second chip.
+    expect(provenanceIsImplied(undefined, 'inferred')).toBe(true);
+    expect(provenanceIsImplied(undefined, 'declared')).toBe(false);
     expect(provenanceLabel('declared+observed')).not.toMatch(/\+/);
   });
 

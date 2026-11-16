@@ -260,6 +260,21 @@ describe('GraphView — product Operational Graph', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  it('names an inferred-only edge in words, in the legend and the edge list', async () => {
+    const base = neighborhood();
+    neighborhoodFn.mockResolvedValue(neighborhood({ edges: [...base.edges,
+      { id: 'domain-a/web|domain-a/api|dependency|inferred', relation: 'dependency', from: ref('service', 'domain-a/web', 'web'), to: ref('service', 'domain-a/api', 'api'), expected: false, observed: false, inferred: true, provenance: 'inferred', declaredClaims: { total: 0, count: 0, truncated: false, items: [] }, observationSources: { total: 0, count: 0, truncated: false, items: [] } },
+    ] }));
+    const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
+    await vi.waitFor(() => expect(q(target, '[data-testid="graph-edges"]')).toBeTruthy());
+    const legend = qa(target, '[data-testid="graph-legend-toggle"]').map((b) => b.textContent || '');
+    expect(legend.some((t) => /Inferred from configuration/.test(t))).toBe(true);
+    expect(legend.some((t) => /Expected, not observed/.test(t))).toBe(true);
+    const diffs = qa(target, '[data-testid="edge-difference"]').map((b) => b.textContent || '');
+    expect(diffs.some((t) => /Inferred from configuration/.test(t))).toBe(true);
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('keeps an unresolved declared dependency and backend truncation + partial knowledge visible', async () => {
     const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
     await vi.waitFor(() => expect(q(target, '[data-testid="neighborhood-canvas"]')).toBeTruthy());

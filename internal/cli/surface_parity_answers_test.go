@@ -38,7 +38,7 @@ const parityState = "state:\n  type: stateless\n  persistence:\n    scope: local
 // parityFixture writes the inputs every surface reads: a bundle tree with an
 // unowned service and an offering whose consumer has no provisioning report,
 // targets in the prod, staging and secret namespaces, a trace file with an
-// observed-only call, an Evidence Server that is down and one whose evidence
+// observed-only call and app and lonely calling the external api.stripe.com, an Evidence Server that is down and one whose evidence
 // is old. It returns the fleet source flags.
 func parityFixture(t *testing.T) []string {
 	t.Helper()
@@ -53,7 +53,9 @@ func parityFixture(t *testing.T) []string {
 	write("app-0.9", "  name: app\n  version: \"0.9.0\"\n  owner:\n    team: shop\n")
 	write("lonely", "  name: lonely\n  version: \"1.0.0\"\n")
 	traces := filepath.Join(t.TempDir(), "traces.json")
-	mustWriteFile(t, traces, `{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"app"}}]},"scopeSpans":[{"spans":[{"kind":3,"attributes":[{"key":"peer.service","value":{"stringValue":"lonely"}}]}]}]}]}`)
+	mustWriteFile(t, traces, `{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"app"}}]},"scopeSpans":[{"spans":[{"kind":3,"attributes":[{"key":"peer.service","value":{"stringValue":"lonely"}}]},`+
+		`{"kind":3,"attributes":[{"key":"server.address","value":{"stringValue":"api.stripe.com"}}]}]}]},`+
+		`{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"lonely"}}]},"scopeSpans":[{"spans":[{"kind":3,"attributes":[{"key":"server.address","value":{"stringValue":"api.stripe.com"}}]}]}]}]}`)
 	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusServiceUnavailable) }))
 	old := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"schemaVersion":"pacto.dev/evidence-source/v2","health":{"status":"ready","subjects":2},"targets":[{"subject":"app","service":"app","producer":"prod","compliance":"Compliant","coverage":{"evaluated":3,"required":3},"evidenceAt":"2026-01-01T00:00:00Z","acceptedAt":"2026-01-01T00:00:00Z"},{"subject":"lonely","service":"lonely","producer":"prod","compliance":"Unknown","coverage":{"evaluated":0,"required":3},"evidenceAt":"2026-01-01T00:00:00Z","acceptedAt":"2026-01-01T00:00:00Z"}]}`))
@@ -117,6 +119,7 @@ func parityQueries(revision string) []parityQuery {
 		{"offerings failed first", []string{"fleet", "entities", "--kind", "offering", "--sort", "failed"}, "pacto_fleet_entities", map[string]any{"kind": "offering", "sort": "failed"}, "/api/fleet/entities?kinds=offering&sort=failed"},
 		{"offerings with a failed request", []string{"fleet", "entities", "--kind", "offering", "--failed"}, "pacto_fleet_entities", map[string]any{"kind": "offering", "failed": true}, "/api/fleet/entities?kinds=offering&failed=true"},
 		{"deprecated offerings", []string{"fleet", "entities", "--kind", "offering", "--lifecycle", "deprecated"}, "pacto_fleet_entities", map[string]any{"kind": "offering", "lifecycle": "deprecated"}, "/api/fleet/entities?kinds=offering&lifecycle=deprecated"},
+		{"external stripe", []string{"fleet", "entity", "external", "stripe"}, "pacto_fleet_entity", map[string]any{"kind": "external", "key": "stripe"}, "/api/fleet/entities/external?key=stripe"},
 		{"versions postgresql", []string{"fleet", "versions", "postgresql"}, "pacto_fleet_versions", map[string]any{"offering": "postgresql"}, "/api/fleet/versions?offering=postgresql"},
 	}
 }
@@ -282,6 +285,12 @@ func TestSurfaceParityAnswers(t *testing.T) {
 	// the fixture must hold one for the comparison to mean anything.
 	attention := cliJSON(t, flags, "fleet", "attention")
 	expect(t, strings.Contains(attention, `"verb": "edit-contract"`), "the fixture has no attention item with a nextAction: %s", attention)
+	// The external answer is compared above: the fixture must hold an
+	// observed external with its per-source evidence.
+	stripe := cliJSON(t, flags, "fleet", "entity", "external", "stripe")
+	for _, want := range []string{`"stripe"`, `"observedSources"`, `"consumersTotal": 2`} {
+		expect(t, strings.Contains(stripe, want), "the fixture's external answer lacks %s: %s", want, stripe)
+	}
 }
 
 // aliceView narrows a fleet to the prod and staging namespaces: one Viewer
@@ -345,6 +354,9 @@ func TestSurfaceParityRestrictedView(t *testing.T) {
 	expect(t, strings.Contains(attention, `"edit-contract"`) && !strings.Contains(attention, "UNOWNED_SERVICE"), "alice's attention: %s", attention)
 	services, _ := callText(t, session, "pacto_fleet_entities", map[string]any{"kind": "service"})
 	expect(t, strings.Contains(services, fleet.LimitationHiddenByPermissions), "the view says it hid something: %s", services)
+	// lonely's call to stripe is counted, never named, in alice's external answer.
+	stripe, _ := callText(t, session, "pacto_fleet_entity", map[string]any{"kind": "external", "key": "stripe"})
+	expect(t, strings.Contains(stripe, `"hiddenConsumers": 1`) && strings.Contains(stripe, `"observedSources"`), "alice's stripe: %s", stripe)
 
 	for _, route := range []string{"inbox", "environments"} {
 		m, isErr := callText(t, session, "pacto_delivery_"+route, map[string]any{})

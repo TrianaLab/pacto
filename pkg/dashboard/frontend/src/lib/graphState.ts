@@ -126,12 +126,20 @@ export function toggleView(views: KnowledgeView[], v: KnowledgeView): KnowledgeV
 
 export type EdgeDifference = 'matched' | 'expected-not-observed' | 'observed-not-expected' | 'insufficient';
 
+/** edgeDifference is the difference an edge shows: the backend verdict, else
+ *  'inferred' for an edge only inferred from configuration, which has no
+ *  declared-versus-observed verdict and must never render as a blank cell. */
+export function edgeDifference(e: { difference?: string; provenance?: string }): string | undefined {
+  return e.difference || (e.provenance === 'inferred' ? 'inferred' : undefined);
+}
+
 export function differenceLabel(d: string | undefined): string {
   switch (d) {
     case 'matched': return 'Matched';
     case 'expected-not-observed': return 'Expected, not observed';
     case 'observed-not-expected': return 'Observed, not expected';
     case 'insufficient': return 'Insufficient evidence';
+    case 'inferred': return 'Inferred from configuration';
     // An unrecognised wire value prints as itself, never as an empty pill: the
     // badge draws its border regardless, so '' renders a blank box.
     default: return d || 'Unknown';
@@ -153,6 +161,7 @@ export function differenceDescription(d: string | undefined): string {
     case 'expected-not-observed': return 'Declared, but not seen in the observation window. It may still be in use.';
     case 'observed-not-expected': return 'Observed at runtime but never declared.';
     case 'insufficient': return 'Declared, but there is no observation data to reconcile against.';
+    case 'inferred': return 'Recognized in the caller\'s configuration. Nothing declares or observes it, so it is never compared.';
     default: return '';
   }
 }

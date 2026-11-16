@@ -511,3 +511,44 @@ func TestOverviewPrinterEdges(t *testing.T) {
 		t.Errorf("no domain prints a table: %q", buf.String())
 	}
 }
+
+func TestFleetEntityExternalPrintsInferredSources(t *testing.T) {
+	var buf bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&buf)
+	ext := &fleet.ExternalDetailData{
+		External: fleet.ExternalRecord{Key: "stripe", Class: "vendor-api", HiddenConsumers: 2, Sources: []fleet.ExternalSource{
+			{Kind: fleet.ExternalSourceContract, Service: "pay", Index: 1, Dependency: "stripe-api", Provenance: fleet.ProvenanceDeclared},
+			{Kind: fleet.ExternalSourcePodSpec, Service: "checkout", Provenance: fleet.ProvenanceInferred},
+		}},
+		Catalog: &fleet.ExternalCatalogRef{Origin: "default", Digest: "sha256:3e9a"},
+		ExternalEvidence: fleet.ExternalEvidence{
+			InferredSources: []fleet.ExternalInferredSource{
+				{Service: "checkout", InferredSource: fleet.InferredSource{Kind: "env", Where: "deployment/checkout env STRIPE_API_BASE", Host: "api.stripe.com", Confidence: "likely", Entry: "stripe"}},
+				{Service: "checkout", InferredSource: fleet.InferredSource{Kind: "secretKeyRef", Where: "deployment/checkout secretKeyRef stripe/KEY", Confidence: "possible"}},
+			},
+			InferredSourcesTotal: 5,
+			ObservedSources:      []fleet.ExternalObservedSource{{Service: "checkout", ObservedSourceStat: fleet.ObservedSourceStat{Source: "otel", Count: 4}}},
+			ObservedSourcesTotal: 1,
+		},
+	}
+	if err := printFleetEntity(cmd, &fleet.EntityDetail{Entity: fleet.EntityRef{Kind: fleet.KindExternal, Key: "stripe"}, External: ext}, "text"); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Class: vendor-api\n",
+		"Catalog: default sha256:3e9a\n",
+		"  pay contract dependencies[1] (declared) name stripe-api\n",
+		"  checkout env deployment/checkout env STRIPE_API_BASE (inferred, likely)\n    -> api.stripe.com (credentials stripped)\n",
+		"  checkout secretKeyRef deployment/checkout secretKeyRef stripe/KEY (inferred, possible)\n  3 more inferred sources\n",
+		"  checkout otel (observed, 4 calls)\n",
+		"Hidden consumers: 2\n",
+	} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("external text lacks %q:\n%s", want, buf.String())
+		}
+	}
+	if strings.Contains(buf.String(), "pod-spec") {
+		t.Errorf("a pod-spec source prints through its inferred evidence only:\n%s", buf.String())
+	}
+}

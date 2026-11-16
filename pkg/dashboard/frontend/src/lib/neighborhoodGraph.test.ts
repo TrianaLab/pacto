@@ -121,6 +121,10 @@ describe('edgeState (backend verdict -> visual vocabulary, never re-inferred)', 
     expect(edgeState({ difference: 'matched', serviceCorroboration: 'insufficient' })).toBe('matched');
     expect(edgeState({})).toBe('');
   });
+  it('marks an edge only inferred from configuration, and lets a verdict win', () => {
+    expect(edgeState({ provenance: 'inferred' })).toBe('inferred');
+    expect(edgeState({ provenance: 'inferred', difference: 'matched' })).toBe('matched');
+  });
 });
 
 describe('graph signatures (Part 5: topology vs presentation)', () => {

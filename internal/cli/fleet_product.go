@@ -438,6 +438,9 @@ func printFleetEntity(cmd *cobra.Command, res *fleet.EntityDetail, format string
 		if res.Revision != nil {
 			printRevisionPlace(w, res.Revision)
 		}
+		if res.External != nil {
+			printExternalText(w, res.External)
+		}
 		_, _ = fmt.Fprintln(w, "Run with --output-format json for the full detail")
 		warnProductPartial(cmd, res.Meta)
 		return nil
@@ -803,6 +806,43 @@ func useNotes(u fleet.OfferingUse) string {
 
 // printRevisionPlace renders where a revision stands in its service, how many
 // of the service's targets run it and which sources report about it.
+// printExternalText prints an external system's class, catalog and every
+// source: declared and observed ones, and each inferred one with its kind,
+// where it was found and the normalized host, never a value.
+func printExternalText(w io.Writer, e *fleet.ExternalDetailData) {
+	_, _ = fmt.Fprintf(w, "Class: %s\n", e.External.Class)
+	if e.Catalog != nil {
+		_, _ = fmt.Fprintf(w, "Catalog: %s %s\n", e.Catalog.Origin, e.Catalog.Digest)
+	}
+	_, _ = fmt.Fprintln(w, "Sources:")
+	for _, s := range e.External.Sources {
+		if s.Kind == fleet.ExternalSourceContract {
+			_, _ = fmt.Fprintf(w, "  %s contract dependencies[%d] (declared) name %s\n", s.Service, s.Index, s.Dependency)
+		}
+	}
+	for _, s := range e.InferredSources {
+		_, _ = fmt.Fprintf(w, "  %s %s %s (inferred, %s)\n", s.Service, s.Kind, s.Where, s.Confidence)
+		if s.Host != "" {
+			_, _ = fmt.Fprintf(w, "    -> %s (credentials stripped)\n", s.Host)
+		}
+	}
+	printMore(w, e.InferredSourcesTotal-len(e.InferredSources), "inferred")
+	for _, s := range e.ObservedSources {
+		_, _ = fmt.Fprintf(w, "  %s %s (observed, %d calls)\n", s.Service, s.Source, s.Count)
+	}
+	printMore(w, e.ObservedSourcesTotal-len(e.ObservedSources), "observed")
+	if e.External.HiddenConsumers > 0 {
+		_, _ = fmt.Fprintf(w, "Hidden consumers: %d\n", e.External.HiddenConsumers)
+	}
+}
+
+// printMore says how many sources of a kind a bounded list leaves out.
+func printMore(w io.Writer, n int, kind string) {
+	if n > 0 {
+		_, _ = fmt.Fprintf(w, "  %d more %s sources\n", n, kind)
+	}
+}
+
 func printRevisionPlace(w io.Writer, r *fleet.RevisionDetailData) {
 	current := ""
 	if r.Current {

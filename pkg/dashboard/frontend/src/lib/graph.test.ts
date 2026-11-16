@@ -321,6 +321,7 @@ describe('renderGraph (Cytoscape)', () => {
         { targetId: 'dri', edgeState: 'drift' },
         { targetId: 'ins', edgeState: 'insufficient', refused: true },
         { targetId: 'dep', type: 'reference' },
+        { targetId: 'inf', edgeState: 'inferred' },
       ] },
       { id: 'rev', serviceName: 'svc', status: 'Compliant', kind: 'revision', edges: [] },
       { id: 'tgt', serviceName: 'svc', status: 'Compliant', kind: 'target', edges: [{ targetId: 'rev', type: 'runs' }] },
@@ -328,6 +329,7 @@ describe('renderGraph (Cytoscape)', () => {
       { id: 'eno', serviceName: 'eno', status: 'Compliant', kind: 'service', edges: [] },
       { id: 'dri', serviceName: 'dri', status: 'Compliant', kind: 'service', edges: [] },
       { id: 'ins', serviceName: 'ins', status: 'Compliant', kind: 'service', edges: [] },
+      { id: 'inf', serviceName: 'inf', status: 'Compliant', kind: 'service', edges: [] },
       { id: 'group:team', serviceName: 'team', status: 'group', kind: 'service', group: 3, edges: [] },
       { id: 'lane:used-by', serviceName: 'Used by (1)', status: 'lane', kind: 'service', lane: true, side: 1, edges: [] },
     ] };
@@ -651,6 +653,22 @@ describe('cyStylesheet', () => {
     expect(cy.getElementById('e').style('line-style')).toBe('dashed');
     expect(String(cy.getElementById('e').style('line-dash-pattern'))).toBe('6 5');
     expect(cy.getElementById('i').style('line-style')).toBe('dotted');
+    cy.destroy();
+  });
+  // An inferred edge shares the projected wire (SPEC 2.1); words tell the two apart.
+  it('draws an inferred edge with the projected dash', () => {
+    const pal = { surface: '#fff', text: '#000', textDim: '#666', border: '#ccc', ok: '#0a0', warn: '#aa0', err: '#a00', info: '#00a', neutral: '#888', accent: '#05f' };
+    const cy = cytoscape({
+      headless: true, styleEnabled: true, style: cyStylesheet(pal, 'force'),
+      elements: [
+        { data: { id: 'a' } }, { data: { id: 'b' } },
+        { data: { id: 'e', source: 'b', target: 'a', state: 'expected-not-observed' } },
+        { data: { id: 'n', source: 'a', target: 'b', state: 'inferred' } },
+      ],
+    });
+    expect(cy.getElementById('n').style('line-style')).toBe(cy.getElementById('e').style('line-style'));
+    expect(String(cy.getElementById('n').style('line-dash-pattern'))).toBe(String(cy.getElementById('e').style('line-dash-pattern')));
+    expect(LEGEND_SELECTORS['state:inferred']).toBe('edge[state = "inferred"]');
     cy.destroy();
   });
 });

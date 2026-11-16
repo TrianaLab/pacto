@@ -2759,6 +2759,56 @@ export interface components {
             external: components["schemas"]["Fleet.ExternalRecord"];
             /** @description The other-egress node this answer folds it into */
             foldedInto?: string;
+            /** @description Where each source recognized it in a listed consumer's configuration */
+            inferredSources?: components["schemas"]["Fleet.ExternalInferredSource"][] | null;
+            /**
+             * Format: int64
+             * @description Every inferred source of the listed consumers
+             */
+            inferredSourcesTotal?: number;
+            /** @description Each trace source that saw a listed consumer call it */
+            observedSources?: components["schemas"]["Fleet.ExternalObservedSource"][] | null;
+            /**
+             * Format: int64
+             * @description Every observed source of the listed consumers
+             */
+            observedSourcesTotal?: number;
+        };
+        "Fleet.ExternalInferredSource": {
+            /** @description The digest of the catalog the source classified it with */
+            catalog?: string;
+            /** @enum {string} */
+            confidence: "likely" | "possible";
+            /** @description The catalog entry that classified it */
+            entry?: string;
+            /** @description The normalized host and port; empty when only a key name matched */
+            host?: string;
+            /** @description What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService or serviceEntry */
+            kind: string;
+            /**
+             * Format: date-time
+             * @description When the source last read it
+             */
+            observedAt?: string;
+            /** @description The consumer */
+            service: string;
+            /** @description The id of the source that reported it */
+            source: string;
+            /** @description The target the evidence was read on */
+            target?: string;
+            /** @description The object and key it was found in, never a value */
+            where?: string;
+        };
+        "Fleet.ExternalObservedSource": {
+            /** Format: int64 */
+            count: number;
+            /** Format: date-time */
+            firstSeen?: string;
+            /** Format: date-time */
+            lastSeen?: string;
+            /** @description The consumer */
+            service: string;
+            source: string;
         };
         "Fleet.ExternalRecord": {
             /** @description The aliases of the catalog entry that classified it */
