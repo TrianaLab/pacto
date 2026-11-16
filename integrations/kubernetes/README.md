@@ -327,7 +327,7 @@ kubectl apply -f config/prometheus/alerts.yaml
 
 ## Artifact Verification
 
-All published artifacts (the controller image and Helm chart, and the opt-in delivery image) are signed with [Cosign](https://docs.sigstore.dev/cosign/signing/overview/) using keyless OIDC signing via GitHub Actions.
+All published artifacts (the controller image and Helm chart, and the opt-in delivery image) are signed with [Cosign](https://docs.sigstore.dev/cosign/signing/overview/) using keyless OIDC signing via GitHub Actions. The controller and delivery images also carry signed SLSA build provenance; the Helm chart carries none.
 
 Verify the controller image:
 
@@ -337,6 +337,16 @@ cosign verify \
   --certificate-identity-regexp 'github\.com/TrianaLab/pacto/\.github/workflows/release\.yml' \
   ghcr.io/trianalab/pacto/operator:<version>
 ```
+
+Verify the controller image's build provenance:
+
+```bash
+gh attestation verify oci://ghcr.io/trianalab/pacto/operator:<version> --repo TrianaLab/pacto \
+  --cert-identity https://github.com/TrianaLab/pacto/.github/workflows/release.yml@refs/heads/main \
+  --deny-self-hosted-runners
+```
+
+See [Supply chain](https://pacto.run/latest/installation/#supply-chain-what-is-signed-and-what-is-not) for what each artifact carries and how to pin the commit.
 
 Verify the Helm chart:
 

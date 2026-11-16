@@ -17,7 +17,7 @@ ledger for every claim family:
   (k) documented events match the reasons the recorder actually emits
   (l) no bare `<placeholder>` in prose (the browser deletes it as an HTML tag)
   (m) every fenced target-state fixture actually loads as a fleet source
-  (n) the signed/unsigned supply-chain table matches the real `cosign sign` sites
+  (n) the supply-chain table matches the real `cosign sign` and attest sites
   (o) versions with release notes but no GitHub Release are disclosed as such
   (p) no wrapped prose line begins with a number (Markdown eats it as a list)
   (q) the comparison page carries its review date (warns, never fails, when stale)
@@ -743,7 +743,7 @@ def check_placeholders() -> None:
 
 
 # ---------------------------------------------------------------------------
-# (n) supply-chain table  <-  the cosign sign call sites in release.yml
+# (n) supply-chain table  <-  the cosign sign and attest sites in release.yml
 # ---------------------------------------------------------------------------
 
 RELEASE_YML = os.path.join(REPO_ROOT, ".github", "workflows", "release.yml")
@@ -780,19 +780,19 @@ def expand_aliases(text: str) -> str:
     return "\n".join(out)
 
 
-def signed_coordinates() -> set[str]:
-    """Coordinates the release workflow actually runs `cosign sign` against.
+def coordinates_where(marker: str) -> set[str]:
+    """Coordinates on the release.yml lines that contain `marker`.
 
-    Signing targets are written as `${REF}` inside a job whose env sets `REF:`
-    (itself often `${{ env.IMAGE_REPO }}:...`), as `$CHART_REPO`, or as a bare
-    literal. Track every upper-case env value seen in the current job and
-    resolve on the way past -- crude, but it is the same reading a human does,
-    and it is grounded in the workflow rather than in a second document
-    repeating the claim.
+    Targets are written as `${REF}` inside a job whose env sets `REF:` (itself
+    often `${{ env.IMAGE_REPO }}:...`), as `$CHART_REPO`, or as a bare literal.
+    Track every upper-case env value seen in the current job and resolve on the
+    way past -- crude, but it is the same reading a human does, and it is
+    grounded in the workflow rather than in a second document repeating the
+    claim.
     """
     env = {}
     found = set()
-    # A signing command is routinely wrapped, and the coordinate is on the
+    # A command is routinely wrapped, and the coordinate is on the
     # continuation line. Collapse `\`-continuations before scanning.
     text = re.sub(r"\\\n\s*", " ", expand_aliases(read(RELEASE_YML)))
 
@@ -809,32 +809,71 @@ def signed_coordinates() -> set[str]:
         m = re.match(r"\s*([A-Z][A-Z0-9_]*):\s*(\S.*?)\s*$", line)
         if m:
             env[m.group(1)] = m.group(2)
-        if "cosign sign" in line and not line.lstrip().startswith("#"):
+        if marker in line and not line.lstrip().startswith("#"):
             found.update(COORD.findall(resolve(line)))
     # Drop the digest/tag suffix: the table names repositories, not releases.
     return {c.split(":")[0].split("@")[0] for c in found}
 
 
-def check_supply_chain() -> None:
-    """The signed/unsigned table must match what the pipeline signs.
+def signed_coordinates() -> set[str]:
+    """Coordinates the release workflow actually runs `cosign sign` against."""
+    return coordinates_where("cosign sign")
 
-    A signature a reader assumes exists is worse than one they know is missing,
-    and this table is the only place the distinction is written down. If a
-    signing step is added, removed or retargeted, the table has to move with it.
+
+def attested_coordinates() -> set[str]:
+    """Coordinates the release workflow records SLSA build provenance for."""
+    return coordinates_where("subject-name:")
+
+
+def cli_attested() -> bool:
+    """True when an attest step lists `dist/pacto_*` under its `subject-path`."""
+    lines = read(RELEASE_YML).splitlines()
+    for i, line in enumerate(lines):
+        m = re.match(r"^(\s*)subject-path:\s*(.*?)\s*$", line)
+        if not m:
+            continue
+        if m.group(2) == "dist/pacto_*":
+            return True
+        for b in lines[i + 1:]:
+            if b.strip() and len(b) - len(b.lstrip(" ")) <= len(m.group(1)):
+                break
+            if b.strip() == "dist/pacto_*":
+                return True
+    return False
+
+
+SUPPLY_CHAIN_CHECK = "(n) supply-chain table matches the signing and attestation pipeline"
+VERIFY_IDENTITY = "--cert-identity https://github.com/TrianaLab/pacto/.github/workflows/release.yml@refs/heads/main"
+
+
+def claims_provenance(ships: str) -> bool:
+    ships = ships.lower()
+    return "provenance" in ships and "no provenance" not in ships
+
+
+def check_supply_chain() -> None:
+    """The supply-chain table must match what the pipeline signs and attests.
+
+    A signature or provenance a reader assumes exists is worse than one they
+    know is missing, and this table is the only place the distinction is
+    written down. If a signing or attest step is added, removed or retargeted,
+    the table has to move with it.
     """
     text = read(SUPPLY_CHAIN_DOC)
     rows = re.findall(r"^\|\s*[`(]?(ghcr\.io/[^`\s|]+)[`)]?\s*\|([^|]*)\|\s*$", text, re.M)
     if not rows:
-        record(False, "(n) supply-chain table matches the signing pipeline",
+        record(False, SUPPLY_CHAIN_CHECK,
                "no ghcr.io rows found in docs/installation.md -- table moved or renamed")
         return
 
-    real = signed_coordinates()
-    claimed_signed, claimed_unsigned = set(), set()
+    real, real_attested, cli_real = signed_coordinates(), attested_coordinates(), cli_attested()
+    claimed_signed, claimed_unsigned, claimed_attested = set(), set(), set()
     for coord, ships in rows:
         # A row may name a repository family (`.../<service>`); compare the stem.
         stem = coord.split("<")[0].rstrip("/")
         (claimed_signed if "cosign" in ships.lower() else claimed_unsigned).add(stem)
+        if claims_provenance(ships):
+            claimed_attested.add(stem)
 
     problems = []
     for c in sorted(claimed_signed - real):
@@ -843,10 +882,32 @@ def check_supply_chain() -> None:
         problems.append(f"release.yml signs {c} but the table does not list it as signed")
     for c in sorted(claimed_unsigned & real):
         problems.append(f"{c} is documented as unsigned but release.yml signs it")
+    for c in sorted(claimed_attested - real_attested):
+        problems.append(f"{c} is documented with provenance but release.yml never attests it")
+    for c in sorted(real_attested - claimed_attested):
+        problems.append(f"release.yml attests {c} but the table does not list its provenance")
+
+    cli = re.search(r"^\|\s*CLI binaries on the GitHub release\s*\|([^|]*)\|\s*$", text, re.M)
+    if not cli:
+        problems.append("no 'CLI binaries on the GitHub release' row in docs/installation.md")
+    elif claims_provenance(cli.group(1)) != cli_real:
+        problems.append("CLI binaries row " + ("omits the provenance release.yml attests" if cli_real
+                                                else "claims provenance release.yml never attests"))
+
+    # Every documented verify command must pin the release workflow on main:
+    # a bare --signer-workflow accepts an attestation from any branch run.
+    commands = [l.strip() for l in re.sub(r"\\\n\s*", " ", text).splitlines()
+                if l.lstrip().startswith("gh attestation verify")]
+    if (real_attested or cli_real) and not commands:
+        problems.append("release.yml attests but docs/installation.md shows no gh attestation verify command")
+    for c in commands:
+        if VERIFY_IDENTITY not in c:
+            problems.append(f"'{c[:60]}...' does not pin the release.yml@refs/heads/main identity")
 
     ok = not problems
-    record(ok, "(n) supply-chain table matches the signing pipeline",
-           f"{len(real)} signed coordinates, table agrees" if ok else " ; ".join(problems[:5]))
+    record(ok, SUPPLY_CHAIN_CHECK,
+           f"{len(real)} signed and {len(real_attested) + cli_real} attested artifacts, table agrees"
+           if ok else " ; ".join(problems[:5]))
 
 
 def check_unreleased_versions() -> None:
