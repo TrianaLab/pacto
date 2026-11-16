@@ -100,7 +100,7 @@ server serves only `pacto_schema`.
 |------|-------------|
 | `pacto_create` | Create a new contract from intent-level inputs. Supports dry run. |
 | `pacto_edit` | Edit an existing contract, including its configuration references, environments and their values and the service lifecycle. Supports dry run. |
-| `pacto_check` | Validate a contract and return errors, warnings and suggestions. |
+| `pacto_check` | Validate a contract and return errors, warnings and suggestions. A contract with an older `pactoVersion` gets the info warning `CONTRACT_BEHIND` and a suggestion that says whether raising it keeps the contract's meaning. |
 | `pacto_schema` | Return the full JSON Schema reference. |
 
 **Structured inputs are JSON-encoded strings.** Every input that carries structure has the MCP wire type `string`, and the value is JSON serialised into a string:
@@ -134,6 +134,7 @@ server serves only `pacto_schema`.
 - `set_environment_values` merges values into environment files. Objects merge key by key and a `null` removes its key.
 - `lifecycle` sets `service.lifecycle` (`deprecated`, `sunset`, `successor`), and `{"clear": true}` removes it. Setting it raises `pactoVersion` to 2.4.
 - `template` sets [`service.template`](contract-reference/sections.md#golden-path-template), which makes the contract a golden path: `{"plugins": [...]}` replaces it, an empty `plugins` list writes `template: {}` and `{"clear": true}` removes it. Either raises `pactoVersion` to 2.4. No input sets `service.origin`: only creation from a golden path writes it.
+- A field that needs a newer `pactoVersion` raises it only when validation finds nothing new at that version, and `changes` reads `set pactoVersion to "2.4" (was "2.3")`. When the raise would add a finding, such as `ENVIRONMENT_VALUES_MISSING`, the edit fails with that finding and writes nothing.
 
 **Value edits are checked first.** Adding configuration references or environments, or setting environment values, writes only after `pacto_check` passes.
 
