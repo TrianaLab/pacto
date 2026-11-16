@@ -113,7 +113,7 @@ func TestObserveSettingsMetricsLabelNamesMonitorGrant(t *testing.T) {
 	if err != nil || !m.On {
 		t.Fatalf("metrics %+v err %v; want on", m, err)
 	}
-	if !strings.HasSuffix(m.Source, "; ServiceMonitor discovery needs controller.metricsObservation=on") {
+	if !strings.HasSuffix(m.Source, "; ServiceMonitor discovery needs read access to monitoring.coreos.com monitors (controller.metricsObservation=on in the chart)") {
 		t.Errorf("source %q must name the monitor grant", m.Source)
 	}
 	r.MetricsObservation = observer.ModeOn

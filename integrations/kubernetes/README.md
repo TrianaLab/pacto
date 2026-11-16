@@ -148,7 +148,7 @@ With no flag the operator observes health passively (readiness-probe and Endpoin
 | Flag | Default | Effect |
 |------|---------|--------|
 | `--enable-probing` | off | `on`, `off` or `auto`. Active in-cluster HTTP probing of health capability endpoints (Tier A) and of each present interface's wire protocol. When off, health uses passive readiness-probe and EndpointSlice signals only and interface protocols stay unverified. Chart value `controller.probing` (default `auto`). |
-| `--enable-metrics-observation` | off | `on`, `off` or `auto`. Full metrics observation (discovery + active probe). When off, the metrics dimension returns Unsupported. ServiceMonitor discovery needs `on`. Chart value `controller.metricsObservation` (default `auto`). |
+| `--enable-metrics-observation` | off | `on`, `off` or `auto`. Full metrics observation (discovery + active probe). When off, the metrics dimension returns Unsupported. ServiceMonitor discovery needs read access to monitoring.coreos.com monitors, which the chart grants only under `on`. Chart value `controller.metricsObservation` (default `auto`). |
 | `--enable-kernel-evidence` | off | Merge the node agent's kernel observations into interface and dependency evidence. Chart value `controller.kernelEvidence.enabled` (`auto`, `on` or `"off"`); `auto` follows `nodeAgent.enabled`. |
 | `--interface-name-match-discovery` | off | Resolve an unbound interface's Service port by matching a Service port whose name equals the interface name (positive availability assist only; never yields an absent or error result). Chart value `controller.interfaceNameMatchDiscovery`. |
 

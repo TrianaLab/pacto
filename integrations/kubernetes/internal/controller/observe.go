@@ -34,7 +34,7 @@ func (r *PactoReconciler) observeSettings(ctx context.Context, namespace string)
 	probing = observer.Resolve(r.Probing, "enable-probing", "probing", labels, readErr)
 	metrics = observer.Resolve(r.MetricsObservation, "enable-metrics-observation", "metrics", labels, readErr)
 	if metrics.On && r.MetricsObservation == observer.ModeAuto {
-		metrics.Source += "; ServiceMonitor discovery needs controller.metricsObservation=on"
+		metrics.Source += "; ServiceMonitor discovery needs read access to monitoring.coreos.com monitors (controller.metricsObservation=on in the chart)"
 	}
 	if readErr != nil && !apierrors.IsForbidden(readErr) && !apierrors.IsNotFound(readErr) {
 		// The message names the fixed reason the settings carry, never the raw error text.
