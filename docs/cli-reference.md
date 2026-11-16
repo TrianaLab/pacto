@@ -1145,7 +1145,7 @@ pacto fleet get [service] [flags]
 
 ### `pacto fleet graph`
 
-Traverse the operational graph from an explicit root. Give a service name to aggregate across its revisions, or --revision/--target to root an exact revision (never 'latest'). The walk also follows observed runtime calls, so services no contract connects appear too; each node reports its provenance (declared, observed or declared+observed). Give external:&lt;identity&gt; with --direction dependents to list the consumers of an external system.
+Traverse the operational graph from an explicit root. Give a service name to aggregate across its revisions, or --revision/--target to root an exact revision (never 'latest'). The walk also follows observed runtime calls, so services no contract connects appear too; each node reports its provenance (declared, observed or declared+observed). Give external:&lt;identity&gt; to list the consumers of an external system (its only direction is dependents).
 
 ```
 pacto fleet graph <service> [flags]
@@ -1154,7 +1154,7 @@ pacto fleet graph <service> [flags]
 **Flags:**
 
 ```
-      --direction string          traversal direction (dependencies, dependents) (default "dependencies")
+      --direction string          traversal direction (dependencies, dependents); unset means dependencies, or dependents for an external: root
   -h, --help[=true|false]         help for graph
       --max-depth int             maximum transitive depth (0 = unlimited)
       --revision string           root an exact contract revision key
@@ -1218,7 +1218,7 @@ pacto fleet reconcile [flags]
 
 ### `pacto fleet search`
 
-Search logical services in the fleet
+Search logical services in the fleet. A search on text alone, first page, also lists up to 20 external systems whose identity, label or alias holds the text; any other filter or --offset lists none.
 
 ```
 pacto fleet search [text] [flags]

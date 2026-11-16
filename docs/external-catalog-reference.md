@@ -44,9 +44,9 @@ applies, in this order:
 | Order | Match | Rule |
 |---|---|---|
 | 1 | `identity` | The dependency's [`identity`](contract-reference/dependencies-and-state.md#name-an-external-system) field (`pactoVersion: "2.5"`) |
-| 2 | `catalog-alias` | A catalog alias equal to the dependency name, ignoring case; organization entries first |
+| 2 | `catalog-alias` | A catalog alias equal to the dependency name, or to its normalized form (`Stripe API` is `stripe-api`), ignoring case; organization entries first |
 | 3 | `host` | The registrable domain of a name that is a hostname with a public suffix: `api.corp-legacy.example` joins `host/corp-legacy.example` |
-| 4 | `normalized-name` | The name lower-cased, with spaces, `_` and `/` turned into `-` and other characters dropped: `Legacy MQ` and `legacy-mq` join `legacy-mq` |
+| 4 | `normalized-name` | The name lower-cased, a numeric `:port` dropped, with spaces, `_` and `/` turned into `-` and other characters dropped: `Legacy MQ` and `legacy-mq` join `legacy-mq` |
 
 A dependency with a `ref` resolves through its provider contract and never
 joins. A name that normalizes to nothing, or to `other-egress`, stays an
@@ -54,7 +54,10 @@ unresolved external dependency. Consumers write nothing new: two contracts that
 declare `Stripe` and `stripe-api` join one `stripe` node through the default
 catalog. Two unrelated systems that share a generic name, such as `model`, also
 join by name; set `identity` or add an organization alias to tell them apart.
-The external page says when a node is joined by name only.
+A managed resource such as `aws/rds/123456789012/eu-west-1/orders-db` takes
+the class of its provider and service entry (`aws/rds`) and keeps its own name.
+The external page says how its consumers join it: by a declared identity, by a
+registrable domain or by name only.
 
 ## Catalog format
 
@@ -112,9 +115,9 @@ already reads `ghcr.io`, so a private-registry or air-gapped installation never
 calls it. The check runs in the background and never delays a build: the first
 answer reports `signature: unknown` with a reason saying the check is running,
 and a later refresh reports the result. A one-shot command such as
-`pacto fleet` exits before the check ends, so it always reports `unknown`; the
-long-running dashboard reports the result. When the signature verifies, `copy` reads
-`registry`. Otherwise `copy` reads `embedded`: Pacto classifies with the copy
+`pacto fleet` never starts the check; the dashboard, `pacto mcp` and the TUI
+report the result. When the signature verifies, `copy` reads `registry`: the
+embedded copy matches the signed artifact. Otherwise `copy` reads `embedded`: Pacto classifies with the copy
 compiled into the binary and `reason` says why the signature was not checked.
 A release run from a branch other than `main` signs with another identity, so
 that version's default catalog reads `unverified` and the embedded copy still

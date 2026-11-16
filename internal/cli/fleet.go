@@ -409,7 +409,7 @@ func newFleetGraphCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			return printFleetGraph(cmd, res, v.GetString(outputFormatKey))
 		},
 	}
-	cmd.Flags().String("direction", "", "traversal direction (dependencies, dependents); unset, dependencies, or dependents for an external: root")
+	cmd.Flags().String("direction", "", "traversal direction (dependencies, dependents); unset means dependencies, or dependents for an external: root")
 	cmd.Flags().Bool("transitive", false, "traverse transitively (cycle-safe)")
 	cmd.Flags().Int("max-depth", 0, "maximum transitive depth (0 = unlimited)")
 	cmd.Flags().String("revision", "", "root an exact contract revision key")
