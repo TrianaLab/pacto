@@ -79,3 +79,16 @@ func TestDeliveryCaller(t *testing.T) {
 	code, c = call(t, http.MethodGet, startDelivery(t, f, a.auth(false, true), false, nil)+"/api/delivery/caller", nil)
 	expect(t, code == http.StatusNotFound && c["code"] == "DeliveryNotInstalled", "not installed: %d %v", code, c)
 }
+
+// TestCallerReportsTeamNarrowing: the caller says whether owner teams narrow
+// who may answer, so the copy can say who may.
+func TestCallerReportsTeamNarrowing(t *testing.T) {
+	a := &authed{state: AuthState{SignedIn: true}}
+	f := &fakeDelivery{caller: person("acme:team-payments")}
+	base := startDelivery(t, f, a.auth(false, true), true, nil)
+	_, c := call(t, http.MethodGet, base+"/api/delivery/caller", nil)
+	expect(t, c["teamNarrowing"] == true, "narrowing on is reported: %v", c)
+	f.policy = &delivery.ClassPolicy{}
+	_, c = call(t, http.MethodGet, base+"/api/delivery/caller", nil)
+	expect(t, c["teamNarrowing"] == false, "narrowing off is reported: %v", c)
+}

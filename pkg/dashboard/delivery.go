@@ -115,6 +115,9 @@ type callerOutput struct {
 		// that names no team: nobody may answer it, only break-glass
 		// overrides.
 		RequireOwnerTeam bool `json:"requireOwnerTeam" doc:"A question that names no team has nobody who may answer it; only break-glass can override"`
+		// TeamNarrowing is the published policy's switch, forwarded for the
+		// copy: off, whoever may update the Stage's workload answers.
+		TeamNarrowing bool `json:"teamNarrowing" doc:"Owner teams narrow who may answer; off, whoever may update the Stage's workload answers"`
 	}
 }
 
@@ -130,7 +133,7 @@ func (s *Server) deliveryCaller(ctx context.Context, _ *struct{}) (*callerOutput
 		return nil, err
 	}
 	out := &callerOutput{}
-	out.Body.Caller, out.Body.RequireOwnerTeam = c, c.Policy.RequireOwnerTeam
+	out.Body.Caller, out.Body.RequireOwnerTeam, out.Body.TeamNarrowing = c, c.Policy.RequireOwnerTeam, c.Policy.TeamNarrowing
 	return out, nil
 }
 
@@ -147,8 +150,8 @@ func (s *Server) registerDeliveryOperations(api huma.API) {
 	}
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-caller", Method: http.MethodGet, Path: "/api/delivery/caller",
 		Summary: "Who delivery says I am",
-		Description: "The caller as the API server names them, their actor class (human, agent, break-glass or controller), when they last logged in " +
-			"and whether a question that names no team has nobody who may answer it."}), s.deliveryCaller)
+		Description: "The caller as the API server names them, their actor class (human, agent, break-glass or controller) and how it was decided, " +
+			"when they last logged in, whether a question that names no team has nobody who may answer it and whether owner teams narrow who may answer."}), s.deliveryCaller)
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-inbox", Method: http.MethodGet, Path: "/api/delivery/inbox",
 		Summary: "What waits on me",
 		Description: "Held operations whose question names one of the caller's teams, with the decision asked and the affected services; " +

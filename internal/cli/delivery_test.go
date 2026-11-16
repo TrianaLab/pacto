@@ -666,3 +666,54 @@ func mayUpdateWorkloads(a k8stesting.Action) (bool, runtime.Object, error) {
 	}
 	return true, &unstructured.Unstructured{Object: map[string]any{"status": map[string]any{"allowed": true}}}, nil
 }
+
+// TestActorCellShowsSource: a history actor says how it was classified.
+func TestActorCellShowsSource(t *testing.T) {
+	for _, c := range []struct {
+		e    delivery.HistoryEntry
+		want string
+	}{
+		{delivery.HistoryEntry{Actor: "ci-bot", ActorClass: delivery.ClassAgent, ActorClassifiedBy: delivery.ClassByServiceAccount}, "ci-bot (agent, service account)"},
+		{delivery.HistoryEntry{Actor: "dana", ActorClass: delivery.ClassHuman, ActorClassifiedBy: delivery.ClassByUser}, "dana (human, signed-in user)"},
+		{delivery.HistoryEntry{Actor: "dana", ActorClass: delivery.ClassHuman}, "dana (human)"},
+	} {
+		if got := actorCell(c.e); got != c.want {
+			t.Fatalf("actorCell(%+v) = %q, want %q", c.e, got, c.want)
+		}
+	}
+}
+
+// TestBlameShowsAccess: who asked says how they were classified, and each
+// decision says what let the person decide, who checked it and when.
+func TestBlameShowsAccess(t *testing.T) {
+	e := delivery.HistoryEntry{Actor: "ci-bot", ActorClass: delivery.ClassAgent, ActorClassifiedBy: delivery.ClassByServiceAccount}
+	a := delivery.RecordApproval{By: "dana", Decision: delivery.Approve, Note: "fine", ClassifiedBy: delivery.ClassByUser,
+		Access: "update deployments/checkout in payments", AccessSource: "subject-access-review", AccessAt: "2026-11-15T10:00:00Z"}
+	if got := classCell(e.ActorClass, e.ActorClassifiedBy); got != "agent, service account" {
+		t.Fatalf("classCell = %q", got)
+	}
+	want := "dana approve (signed-in user; may update deployments/checkout in payments, checked by the promoter at 2026-11-15T10:00:00Z) fine"
+	if got := approvalCell(a); got != want {
+		t.Fatalf("approvalCell = %q\nwant %q", got, want)
+	}
+	a.AccessSource = "self-subject-access-review"
+	if got := approvalCell(a); !strings.Contains(got, "checked with the caller's own credentials at") {
+		t.Fatalf("self review: %q", got)
+	}
+	a.Access = ""
+	if got := approvalCell(a); got != "dana approve (signed-in user; access not recorded) fine" {
+		t.Fatalf("no access: %q", got)
+	}
+}
+
+// TestBlameOldRecordNotRecorded: a record from an earlier promoter guesses
+// nothing.
+func TestBlameOldRecordNotRecorded(t *testing.T) {
+	if got := classCell(delivery.ClassAgent, ""); got != "agent, classification not recorded" {
+		t.Fatalf("classCell = %q", got)
+	}
+	a := delivery.RecordApproval{By: "alice", Decision: delivery.Approve, Note: "fine"}
+	if got := approvalCell(a); got != "alice approve (classification not recorded) fine" {
+		t.Fatalf("approvalCell = %q", got)
+	}
+}

@@ -54,8 +54,8 @@ func page(more map[string]property) map[string]property {
 // deliveryReadTools mirror the dashboard's delivery read routes one to one
 // (TestDeliveryReadToolsMirrorRouteParams holds them to the OpenAPI document).
 var deliveryReadTools = []deliveryRead{
-	{route: "caller", description: "The caller as the API server names them, their actor class (human, agent, break-glass or controller), " +
-		"when they last logged in and whether a question that names no team has nobody who may answer it."},
+	{route: "caller", description: "The caller as the API server names them, their actor class (human, agent, break-glass or controller) and how it was decided, " +
+		"when they last logged in, whether a question that names no team has nobody who may answer it and whether owner teams narrow who may answer."},
 	{route: "inbox", description: "Held operations whose question names one of the caller's teams, with the decision asked and the affected services; " +
 		"frozen Stages of the caller's services and the Errored operations on them.",
 		params: map[string]property{

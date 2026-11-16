@@ -76,6 +76,33 @@ describe('RecordPanel', () => {
     v.destroy();
   });
 
+  it('says how each actor was classified and what let the approver decide', async () => {
+    record.mockResolvedValue({ namespace: 'prod', stage: 'pay', record: REC, verified: true, asOf: '', note: 'read',
+      entry: { operation: 'op1', type: 'delivery.pacto.trianalab.io/promote', actor: 'ci-bot', actorClass: 'agent', actorClassifiedBy: 'service-account',
+        approvals: [{ by: 'dana', decision: 'approve', classifiedBy: 'user', access: 'update deployments/checkout in payments',
+          accessSource: 'subject-access-review', accessAt: '2026-11-15T10:00:00Z' }] }, verdicts: [] });
+    const v = render();
+    await settle();
+    const p = v.target.querySelector('[data-testid="record-panel"]')!;
+    expect(text(p.querySelector('[data-testid="actor-source"]'))).toBe('(service account)');
+    const access = text(p.querySelector('[data-testid="approval-access"]'));
+    expect(access).toContain('signed-in user; may update deployments/checkout in payments, checked by the promoter at 2026-11-15 10:00 UTC');
+    expect(p.querySelector('[data-testid="approval-access"] time')?.getAttribute('datetime')).toBe('2026-11-15T10:00:00Z');
+    v.destroy();
+  });
+
+  it('says an older record did not keep how anyone was classified', async () => {
+    record.mockResolvedValue({ namespace: 'prod', stage: 'pay', record: REC, verified: true, asOf: '', note: 'read',
+      entry: { operation: 'op1', type: 'delivery.pacto.trianalab.io/promote', actor: 'carol', actorClass: 'human',
+        approvals: [{ by: 'erin', decision: 'approve' }] }, verdicts: [] });
+    const v = render();
+    await settle();
+    const p = v.target.querySelector('[data-testid="record-panel"]')!;
+    expect(text(p.querySelector('[data-testid="actor-source"]'))).toBe('(classification not recorded)');
+    expect(text(p.querySelector('[data-testid="approval-access"]'))).toBe('classification not recorded');
+    v.destroy();
+  });
+
   it('shows a refusal', async () => {
     record.mockRejectedValue(new ApiError(404, 'record sha256:aaaa is not in the verified stream; see history', 'Not Found'));
     const v = render();

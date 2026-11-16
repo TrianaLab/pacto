@@ -833,15 +833,54 @@ func shortRecord(id string) string {
 	return id[:min(len(id), 19)]
 }
 
-// actorCell is who made a change and their class: user (class).
+// actorCell is who made a change, their class and how it was decided:
+// user (class, source); a line with no source keeps user (class).
 func actorCell(e delivery.HistoryEntry) string {
 	switch {
 	case e.Actor == "":
 		return cmp.Or(string(e.ActorClass), "-")
 	case e.ActorClass == "":
 		return e.Actor
+	case e.ActorClassifiedBy == "":
+		return e.Actor + " (" + string(e.ActorClass) + ")"
 	}
-	return e.Actor + " (" + string(e.ActorClass) + ")"
+	return e.Actor + " (" + classCell(e.ActorClass, e.ActorClassifiedBy) + ")"
+}
+
+// classSourceText says how an actor was classified, in words; empty is a
+// record from an earlier promoter.
+var classSourceText = map[delivery.ClassSource]string{
+	delivery.ClassByServiceAccount: "service account", delivery.ClassByAgentGroup: "agent group",
+	delivery.ClassByOutsideHumanGroups: "outside humanGroups", delivery.ClassByBreakGlassGroup: "break-glass group",
+	delivery.ClassByController: "the promoter", delivery.ClassBySystemUser: "system user", delivery.ClassByUser: "signed-in user",
+}
+
+// sourceText is classSourceText for s, or "classification not recorded".
+func sourceText(s delivery.ClassSource) string {
+	return cmp.Or(classSourceText[s], cmp.Or(string(s), "classification not recorded"))
+}
+
+// classCell is a class and how it was decided: "agent, service account".
+func classCell(c delivery.ActorClass, s delivery.ClassSource) string {
+	return string(c) + ", " + sourceText(s)
+}
+
+// approvalCell is one decision with how the approver was classified and what
+// let them decide: by decision (source; may access, checked by ... at ...) note.
+func approvalCell(a delivery.RecordApproval) string {
+	why := sourceText(a.ClassifiedBy)
+	switch {
+	case a.Access != "":
+		checked := map[string]string{"subject-access-review": "checked by the promoter",
+			"self-subject-access-review": "checked with the caller's own credentials"}[a.AccessSource]
+		why += "; may " + a.Access + ", " + cmp.Or(checked, cmp.Or(a.AccessSource, "source not recorded"))
+		if a.AccessAt != "" {
+			why += " at " + a.AccessAt
+		}
+	case a.ClassifiedBy != "":
+		why += "; access not recorded"
+	}
+	return strings.TrimSpace(fmt.Sprintf("%s %s (%s) %s", a.By, a.Decision, why, a.Note))
 }
 
 // causeCell is why a change was raised, in a few words: its reason, else the
@@ -924,13 +963,13 @@ func newDeliveryBlameCommand(v *viper.Viper, d deps) *cobra.Command {
 				}
 				if e := b.Change; e != nil {
 					_, _ = fmt.Fprintf(w, "change:    seq %d %s (%s) %s\n", e.Seq, e.Operation, strings.TrimPrefix(e.Type, "delivery.pacto.trianalab.io/"), shortRecord(e.Record))
-					_, _ = fmt.Fprintf(w, "asked by:  %s (%s)\n", e.Actor, e.ActorClass)
+					_, _ = fmt.Fprintf(w, "asked by:  %s (%s)\n", e.Actor, classCell(e.ActorClass, e.ActorClassifiedBy))
 					if b.OnBehalfOf != "" {
 						_, _ = fmt.Fprintf(w, "for:       %s (asserted)\n", b.OnBehalfOf)
 					}
 					_, _ = fmt.Fprintf(w, "why:       %s\n", orNone([]string{b.IntentReason}))
 					for _, a := range b.Approvals {
-						_, _ = fmt.Fprintf(w, "decided:   %s %s %s\n", a.By, a.Decision, a.Note)
+						_, _ = fmt.Fprintf(w, "decided:   %s\n", approvalCell(a))
 					}
 					for _, x := range b.Verdicts {
 						printVerdict(w, "  ", x)
@@ -1070,7 +1109,7 @@ func printRecordView(w io.Writer, r *delivery.RecordView) {
 	}
 	_, _ = fmt.Fprintf(w, "applied %s, finished %s\n", cmp.Or(e.Applied, "-"), cmp.Or(e.Finished, "-"))
 	for _, a := range e.Approvals {
-		_, _ = fmt.Fprintf(w, "decided: %s %s %s\n", a.By, a.Decision, a.Note)
+		_, _ = fmt.Fprintf(w, "decided: %s\n", approvalCell(a))
 	}
 	for _, x := range r.Verdicts {
 		printExplainedVerdict(w, x)

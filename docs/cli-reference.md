@@ -348,7 +348,7 @@ pacto delivery blame [flags]
 
 ### `pacto delivery caller`
 
-The caller as the API server names them, their actor class (human, agent, break-glass or controller), when they last logged in and whether a question that names no team has nobody who may answer it.
+The caller as the API server names them, their actor class (human, agent, break-glass or controller) and how it was decided, when they last logged in, whether a question that names no team has nobody who may answer it and whether owner teams narrow who may answer.
 
 It runs the dashboard's own caller view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads the namespaces you may list Stages in and leaves out, without naming them, those outside your permissions; a namespace that refuses the list makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
 

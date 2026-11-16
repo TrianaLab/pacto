@@ -3,7 +3,8 @@
   import { onMount } from 'svelte';
   import { api } from '../lib/api.ts';
   import { deliveryChangeUrl } from '../lib/router.ts';
-  import { typeLabel, decisionLabel, authTimeText, versionLabel, sentence, timeLabel, actorBadge } from '../lib/delivery.ts';
+  import { typeLabel, decisionLabel, authTimeText, versionLabel, sentence, timeLabel, actorBadge, classSourceLabel } from '../lib/delivery.ts';
+  import ApprovalAccess from './ApprovalAccess.svelte';
   import VerdictList from './VerdictList.svelte';
   import RefusalNotice from './RefusalNotice.svelte';
 
@@ -37,13 +38,13 @@
     {#if c}
       <p class="t-body" data-testid="blame-change">
         <a href={deliveryChangeUrl(namespace, c.operation)}>{typeLabel(c.type)}</a>
-        by <strong><Person user={c.actor} people={blame?.people} /></strong>{#if actorBadge(c.actorClass)}{@const ab = actorBadge(c.actorClass)}{' '}<span class="badge {ab.tone}" data-testid="actor-badge">{ab.label}</span>{/if}{#if blame.onBehalfOf}, for <strong><Person user={blame.onBehalfOf} people={blame?.people} /></strong>{/if}{#if c.from}, from {versionLabel(c.from, blame.versions)}{/if}{#if c.finished}, finished <time datetime={c.finished}>{timeLabel(c.finished)}</time>{/if}.
+        by <strong><Person user={c.actor} people={blame?.people} /></strong>{#if actorBadge(c.actorClass)}{@const ab = actorBadge(c.actorClass)}{' '}<span class="badge {ab.tone}" data-testid="actor-badge">{ab.label}</span>{' '}<span class="t-meta" data-testid="actor-source">({classSourceLabel(c.actorClassifiedBy)})</span>{/if}{#if blame.onBehalfOf}, for <strong><Person user={blame.onBehalfOf} people={blame?.people} /></strong>{/if}{#if c.from}, from {versionLabel(c.from, blame.versions)}{/if}{#if c.finished}, finished <time datetime={c.finished}>{timeLabel(c.finished)}</time>{/if}.
         {#if blame.intentReason}Why: “{blame.intentReason}”.{/if}
       </p>
       {#if blame.approvals?.length}
         <ul class="hp-list t-body-2">
           {#each blame.approvals as a, i (i)}
-            <li><strong>{decisionLabel(a.decision)}</strong> by <Person user={a.by} people={blame?.people} />{#if a.authTime}, signed in at {authTimeText(a.authTime)}{/if}{#if a.note}: “{a.note}”{/if}</li>
+            <li><strong>{decisionLabel(a.decision)}</strong> by <Person user={a.by} people={blame?.people} />{#if a.authTime}, signed in at {authTimeText(a.authTime)}{/if}{#if a.note}: “{a.note}”{/if}<ApprovalAccess {a} /></li>
           {/each}
         </ul>
       {:else}

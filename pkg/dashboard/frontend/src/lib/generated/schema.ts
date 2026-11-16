@@ -73,7 +73,7 @@ export interface paths {
         };
         /**
          * Who delivery says I am
-         * @description The caller as the API server names them, their actor class (human, agent, break-glass or controller), when they last logged in and whether a question that names no team has nobody who may answer it.
+         * @description The caller as the API server names them, their actor class (human, agent, break-glass or controller) and how it was decided, when they last logged in, whether a question that names no team has nobody who may answer it and whether owner teams narrow who may answer.
          */
         get: operations["delivery-caller"];
         put?: never;
@@ -1058,6 +1058,8 @@ export interface components {
             groups?: string[] | null;
             /** @description A question that names no team has nobody who may answer it; only break-glass can override */
             requireOwnerTeam: boolean;
+            /** @description Owner teams narrow who may answer; off, whoever may update the Stage's workload answers */
+            teamNarrowing: boolean;
             user: string;
         };
         CancelOutputBody: {

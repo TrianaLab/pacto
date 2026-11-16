@@ -70,7 +70,7 @@ async function axe(page: Page, what: string): Promise<void> {
 test('B7: the agent sees the held change and the refused publish, and may not decide', async ({ page }) => {
   await signIn(page, 'pay-agent', CHANGE);
   await expect(page.getByTestId('decision-panel')).toBeVisible({ timeout: T });
-  await expect(page.getByTestId('decide-agent')).toContainText('agents may not decide');
+  await expect(page.getByTestId('decide-agent')).toContainText('agents cannot approve');
   await expect(page.getByTestId('decision-panel').getByRole('button', { name: 'Approve' })).toHaveCount(0);
   // From and To name versions, read from the artifacts, with the digest second.
   await expect(page.locator('dt:text-is("To") + dd')).toContainText('3.0.0');

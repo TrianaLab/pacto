@@ -261,6 +261,12 @@ check("after checkout moves first, only orders is asked", /Asked of: orders$/.te
 check("pay-agent may not decide", call("POST", `${opPath}/decision`, JSON.stringify({ decision: "approve" })).status === 403);
 globalThis.__pactoPersona("carol", false);
 check("carol approves with the sign-in she has", call("POST", `${opPath}/decision`, JSON.stringify({ decision: "approve" })).status === 201);
+// Her approval keeps how she was classified and what let her decide, checked
+// with her own credentials, so the record it becomes carries them.
+const carolsApproval = (json(call("GET", opPath)).operation?.status?.approvals || []).find((a) => a.decision === "approve") || {};
+check("carol's approval records her classification and access",
+  carolsApproval.classifiedBy === "user" && /^update /.test(carolsApproval.access || "")
+    && carolsApproval.accessSource === "self-subject-access-review" && !!carolsApproval.accessAt, JSON.stringify(carolsApproval));
 const hist = json(call("GET", "/api/delivery/history")).histories || [];
 check("history has a verified stream and one with problems",
   hist.some((h) => h.verified && h.completeness === "complete")

@@ -3,7 +3,8 @@
   import { onMount } from 'svelte';
   import { api } from '../lib/api.ts';
   import { deliveryChangeUrl } from '../lib/router.ts';
-  import { typeLabel, decisionLabel, authTimeText, versionLabel, sentence, timeLabel, actorBadge, shortDigest, causeText } from '../lib/delivery.ts';
+  import { typeLabel, decisionLabel, authTimeText, versionLabel, sentence, timeLabel, actorBadge, shortDigest, causeText, classSourceLabel } from '../lib/delivery.ts';
+  import ApprovalAccess from './ApprovalAccess.svelte';
   import VerdictList from './VerdictList.svelte';
   import RefusalNotice from './RefusalNotice.svelte';
 
@@ -35,7 +36,7 @@
   {:else}
     <p class="t-body" data-testid="record-change">
       {#if e.operation}<a href={deliveryChangeUrl(namespace, e.operation)}>{typeLabel(e.type)}</a>{:else}{typeLabel(e.type)}{/if}
-      by <strong><Person user={e.actor} people={rec.people} /></strong>{#if actorBadge(e.actorClass)}{@const ab = actorBadge(e.actorClass)}{' '}<span class="badge {ab.tone}">{ab.label}</span>{/if}{#if rec.onBehalfOf}, for <strong><Person user={rec.onBehalfOf} people={rec.people} /></strong>{/if}{#if e.from}, from {v(e.from)}{/if}{#if e.to}{' '}to {v(e.to)}{/if}{#if e.finished}, finished <time datetime={e.finished}>{timeLabel(e.finished)}</time>{/if}.
+      by <strong><Person user={e.actor} people={rec.people} /></strong>{#if actorBadge(e.actorClass)}{@const ab = actorBadge(e.actorClass)}{' '}<span class="badge {ab.tone}">{ab.label}</span>{' '}<span class="t-meta" data-testid="actor-source">({classSourceLabel(e.actorClassifiedBy)})</span>{/if}{#if rec.onBehalfOf}, for <strong><Person user={rec.onBehalfOf} people={rec.people} /></strong>{/if}{#if e.from}, from {v(e.from)}{/if}{#if e.to}{' '}to {v(e.to)}{/if}{#if e.finished}, finished <time datetime={e.finished}>{timeLabel(e.finished)}</time>{/if}.
       {#if rec.intentReason}Why: “{rec.intentReason}”.{/if}
     </p>
     {#if e.applied || e.cause || e.correlationID}
@@ -48,7 +49,7 @@
     {#if e.approvals?.length}
       <ul class="hp-list t-body-2">
         {#each e.approvals as a, i (i)}
-          <li><strong>{decisionLabel(a.decision)}</strong> by <Person user={a.by} people={rec.people} />{#if a.authTime}, signed in at {authTimeText(a.authTime)}{/if}{#if a.note}: “{a.note}”{/if}</li>
+          <li><strong>{decisionLabel(a.decision)}</strong> by <Person user={a.by} people={rec.people} />{#if a.authTime}, signed in at {authTimeText(a.authTime)}{/if}{#if a.note}: “{a.note}”{/if}<ApprovalAccess {a} /></li>
         {/each}
       </ul>
     {:else}

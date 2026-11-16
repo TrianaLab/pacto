@@ -126,7 +126,7 @@
         {:else if it.question}
           <span class="dl-question">{firstSentence(it.question)}</span>
         {/if}
-        <span class="dl-who">{#if it.owners?.length}{andList(it.owners, 3)} may answer{:else if session.caller?.requireOwnerTeam}Nobody may answer: no team is declared, so only break-glass can override{:else}Any person may answer{/if}</span>
+        <span class="dl-who">{#if it.owners?.length}{#if session.caller?.teamNarrowing === false}People who may update this workload may answer; asked of {andList(it.owners, 3)}{:else}{andList(it.owners, 3)} may answer{/if}{:else if session.caller?.requireOwnerTeam}Nobody may answer: no team is declared, so only break-glass can override{:else if session.caller?.teamNarrowing === false}People who may update this workload may answer{:else}Any person may answer{/if}</span>
       </p>
     </div>
     <a class="btn btn-primary btn-sm dl-decide" href={deliveryChangeUrl(it.namespace, it.name)} aria-label={`Decide: ${typeLabel(it.type)} on ${it.namespace}/${it.stage}`}>Decide</a>

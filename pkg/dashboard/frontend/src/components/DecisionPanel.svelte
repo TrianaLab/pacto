@@ -30,10 +30,13 @@
   const canDecide = $derived(actions.includes('approve') || actions.includes('accept-unknown'));
   const s = $derived(session.data);
   const caller = $derived(session.caller);
-  // Who may answer a question that names no team depends on the published
-  // policy, which delivery's caller read carries.
+  // Who may answer depends on the published policy, which delivery's caller
+  // read carries: with owner teams narrowing it off, whoever may update the
+  // Stage's workload answers and the teams are only who was asked.
+  const unnarrowed = $derived(caller?.teamNarrowing === false);
   const ownerless = $derived(!caller ? 'No team is declared.'
     : caller.requireOwnerTeam ? 'No team is declared, so nobody may answer; only break-glass can override.'
+    : unnarrowed ? 'People who may update this workload may answer.'
     : 'Any person may answer.');
 
   const st = $derived(op.status ?? {});
@@ -186,7 +189,7 @@
 
 <section class="dp" aria-labelledby="dp-title" data-testid="decision-panel">
   <h2 id="dp-title" class="t-section-title">The decision</h2>
-  <p class="dp-chips t-meta">{#if breaking}<span class="badge badge-warn" data-testid="decision-breaking">Breaking</span>{/if}<span data-testid="decision-who">{!owners.length ? ownerless : offer ? `You can answer${myTeam ? `: you are in ${myTeam}` : ''}.` : `Only ${ownerList} may answer`}</span>{#if ownersCut && !offer}<button type="button" class="btn btn-sm" aria-expanded={allOwners} onclick={() => { allOwners = !allOwners; }}>{allOwners ? 'Show fewer' : `Show all ${formatCount(owners.length)} teams`}</button>{/if}</p>
+  <p class="dp-chips t-meta">{#if breaking}<span class="badge badge-warn" data-testid="decision-breaking">Breaking</span>{/if}<span data-testid="decision-who">{!owners.length ? ownerless : unnarrowed ? (offer ? 'You can answer.' : `People who may update this workload may answer; asked of ${ownerList}`) : offer ? `You can answer${myTeam ? `: you are in ${myTeam}` : ''}.` : `Only ${ownerList} may answer`}</span>{#if ownersCut && !offer}<button type="button" class="btn btn-sm" aria-expanded={allOwners} onclick={() => { allOwners = !allOwners; }}>{allOwners ? 'Show fewer' : `Show all ${formatCount(owners.length)} teams`}</button>{/if}</p>
   {#if asked === 'accept-unknown'}
     <p class="t-body-2" data-testid="decision-unknown">A check ended Unknown: Pacto could not see enough to decide, and Unknown never passes. <a class="dp-link" href={UNKNOWN_DOCS} target="_blank" rel="noopener noreferrer">What Unknown means</a></p>
   {/if}
@@ -256,9 +259,11 @@
     {:else if samePerson(me().user, op.spec?.actor?.user) || samePerson(me().user, op.spec?.onBehalfOf?.user)}
       <p class="t-body-2" data-testid="decide-own">You asked for this change, so someone else must decide it.</p>
     {:else if caller?.class === 'agent' || caller?.class === 'controller'}
-      <p class="t-body-2" data-testid="decide-agent">The cluster says you are an agent ({me().user}), and agents may not decide.</p>
+      <p class="t-body-2" data-testid="decide-agent">The cluster says you are an agent (<bdi>{me().user}</bdi>), and agents cannot approve.</p>
     {:else if freshness > 0 && cannotApproveHere(caller)}
       <p class="t-body-2" data-testid="decide-no-auth-time">Approving is not possible on this cluster: it does not report when you signed in. <a class="dp-link" href={APPROVING_DOCS} target="_blank" rel="noopener noreferrer">Where approving works</a></p>
+    {:else if unnarrowed && (owners.length || !caller.requireOwnerTeam)}
+      <p class="t-body-2" data-testid="decide-no-access">Only people who may update this workload may answer this question.</p>
     {:else if !owners.length}
       <p class="t-body-2" data-testid="decide-no-owner">No team is declared for this service, so only break-glass can override, from the command line. Declare service.owner so a team can answer.</p>
     {:else}

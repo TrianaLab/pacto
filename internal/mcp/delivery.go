@@ -188,7 +188,8 @@ func registerDelivery(server *mcpsdk.Server, api DeliveryAPI, writes bool) {
 		Name:        "pacto_delivery_blame",
 		Annotations: readOnly(true),
 		Description: "Say who put a version in place on a Stage (by default the one it runs): the newest change that moved the " +
-			"Stage to it, who asked, on whose behalf (asserted), why, who approved and what every gate said, from the records. " +
+			"Stage to it, who asked and how they were classified, on whose behalf (asserted), why, who approved with what let them decide " +
+			"and what every gate said, from the records. " +
 			"No change with completeness partial means unknown, never nobody. revision is the digest's fleet revision key, derived " +
 			"from the contract's digest and name and not checked against a fleet; it is empty when the artifact could not be read " +
 			"or names another service than the Stage. Read-only." + noApprove,
@@ -236,7 +237,7 @@ func registerDelivery(server *mcpsdk.Server, api DeliveryAPI, writes bool) {
 		Name:        "pacto_delivery_record_get",
 		Annotations: readOnly(true),
 		Description: "Read one signed record of a Stage's stream by its id (a history line's record): the change, who asked and " +
-			"approved, every verdict with its citation and how to run it again, and whether its signature was checked against " +
+			"approved with how each was classified and what let each approver decide, every verdict with its citation and how to run it again, and whether its signature was checked against " +
 			"the trust config. Read-only." + noApprove,
 		InputSchema: inputSchema(map[string]property{
 			"namespace": {Type: "string", Description: "Namespace of the Stage"},
