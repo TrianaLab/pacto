@@ -1166,3 +1166,38 @@ func TestExplainEnvironmentsFlag(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+// push refuses a contract whose service.version is undeclared or whose
+// service.name is only inferred, before anything reaches the registry.
+func TestPushCommand_UndeclaredContractRefused(t *testing.T) {
+	cases := []struct{ contract, want string }{
+		{"", "PUBLISH_NEEDS_SERVICE_VERSION"},
+		{"service:\n  version: 1.0.0\n", "PUBLISH_NEEDS_SERVICE_NAME: service.name is inferred from chart/Chart.yaml:2"},
+	}
+	for _, tc := range cases {
+		dir := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(dir, "chart"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(tc.contract), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "chart", "Chart.yaml"), []byte("apiVersion: v2\nname: payments\nversion: 0.1.0\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		store := &testutil.MockBundleStore{
+			ResolveFn: notFoundResolveFn,
+			PushFn: func(context.Context, string, *contract.Bundle) (string, error) {
+				t.Fatal("push reached the registry")
+				return "", nil
+			},
+		}
+		root := cli.NewRootCommand(app.NewService(store, nil), cli.VersionInfo{Version: "test"})
+		root.SetArgs([]string{"push", "oci://ghcr.io/acme/payments:1.0.0", "--path", dir})
+		root.SetOut(&bytes.Buffer{})
+		root.SetErr(&bytes.Buffer{})
+		if err := root.Execute(); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("contract %q: err = %v, want %q", tc.contract, err, tc.want)
+		}
+	}
+}

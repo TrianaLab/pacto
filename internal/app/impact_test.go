@@ -419,9 +419,9 @@ func TestImpactEventOnSnapshot(t *testing.T) {
 	if _, err := svc.ImpactEventOnSnapshot(ctx, opts, snap); err == nil || !strings.Contains(err.Error(), "parse traces") {
 		t.Fatalf("bad traces: %v", err)
 	}
-	opts.Fleet = FleetOptions{LocalRoots: []string{"/nonexistent/root"}}
-	if _, err := svc.ImpactEvent(ctx, opts); err == nil {
-		t.Fatal("a fleet that cannot build is an error")
+	opts.Fleet = FleetOptions{MiraURLs: []string{"https://user:pw@mira.example"}}
+	if _, err := svc.ImpactEvent(ctx, opts); err == nil || !strings.Contains(err.Error(), "build fleet snapshot") {
+		t.Fatalf("a fleet that cannot build is an error: %v", err)
 	}
 }
 
