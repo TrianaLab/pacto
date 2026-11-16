@@ -15,7 +15,8 @@ import { ROUTES, gateMode, installScaleFixture, layoutProblems, loaded, shellPro
 // test-browser-layout-full) runs the whole SPEC 23 matrix instead, plus the 40px width
 // sweep from 320 to 1920 at 900px high, phones and tablets at DPR 2 and 3, and the
 // default font as well as Verdana. G1's link totals and the 20px overflow sweep stay in
-// layout.spec.ts.
+// layout.spec.ts. CI runs the full matrix nightly and on the changesets Version PR
+// (.github/workflows/layout-full.yml), never on an ordinary PR.
 const FULL = !!process.env.PACTO_LAYOUT_FULL;
 type VP = [number, number];
 

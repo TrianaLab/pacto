@@ -326,6 +326,15 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  # The pre-release gate for the full SPEC 23 layout matrix. It runs on the
+  # changesets Version PR only: merging that PR cuts the release, so `required`
+  # holds the release until the full matrix is green. Every other pull request
+  # skips it (skipped does not fail `required`) and keeps the SPEC 24.6 subset in
+  # dashboard-e2e; the same workflow also runs nightly on main.
+  layout-full:
+    if: startsWith(github.head_ref, 'changeset-release/')
+    uses: ./.github/workflows/layout-full.yml
+
   ci-integration-kubernetes:
     needs: changes
     if: needs.changes.outputs.kubernetes == 'true'
@@ -787,6 +796,9 @@ jobs:
       # now the demo engine smoke, which is the check whose absence let a fixture
       # rename turn main red.
       - dashboard-e2e
+      # Runs only on the Version PR (see the job), so it gates the release and
+      # nothing else.
+      - layout-full
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

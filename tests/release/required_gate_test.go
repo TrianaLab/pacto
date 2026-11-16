@@ -215,3 +215,45 @@ func TestRequiredContextsCanAlwaysReport(t *testing.T) {
 		}
 	}
 }
+
+// TestFullLayoutMatrixGatesTheRelease: the full SPEC 23 layout matrix is too
+// slow for every pull request, so it runs nightly and as a pre-release gate.
+// The gate is ci.yml's call on the changesets Version PR, aggregated by
+// `required`: merging that PR is what cuts a release. Before this, a comment
+// claimed "the final gate" ran it while no workflow did.
+func TestFullLayoutMatrixGatesTheRelease(t *testing.T) {
+	wfs := loadGateWorkflows(t)
+	full, ok := wfs["layout-full.yml"]
+	if !ok {
+		t.Fatal("layout-full.yml is missing: nothing runs make test-browser-layout-full")
+	}
+	on, _ := full.On.(map[string]any)
+	for _, trig := range []string{"schedule", "workflow_dispatch", "workflow_call"} {
+		if _, ok := on[trig]; !ok {
+			t.Errorf("layout-full.yml has no %s trigger", trig)
+		}
+	}
+	if onPR, _ := pullRequestTrigger(full.On); onPR {
+		t.Error("layout-full.yml runs on pull_request; ordinary PRs keep the subset, only the Version PR runs the full matrix (through ci.yml)")
+	}
+	if !strings.Contains(readFile(t, repoRoot(t), ".github", "workflows", "layout-full.yml"), "make test-browser-layout-full") {
+		t.Error("layout-full.yml does not run make test-browser-layout-full")
+	}
+
+	jobs := workflowJobs(t, repoRoot(t), "ci.yml")
+	caller := ""
+	for _, name := range slices.Sorted(maps.Keys(jobs)) {
+		if strings.TrimPrefix(jobs[name].Uses, "./.github/workflows/") == "layout-full.yml" {
+			caller = name
+		}
+	}
+	if caller == "" {
+		t.Fatal("no ci.yml job calls layout-full.yml, so the Version PR can merge (and release) without the full matrix")
+	}
+	if !strings.Contains(jobs[caller].If, "startsWith(github.head_ref, 'changeset-release/')") {
+		t.Errorf("ci.yml job %q must run only on the changesets Version PR (if: startsWith(github.head_ref, 'changeset-release/')), got %q", caller, jobs[caller].If)
+	}
+	if !slices.Contains(gateNeeds(wfs["ci.yml"].Jobs["required"]), caller) {
+		t.Errorf("ci.yml job %q is not in required.needs, so a red full matrix would not hold the release", caller)
+	}
+}

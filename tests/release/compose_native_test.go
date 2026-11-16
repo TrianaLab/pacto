@@ -51,6 +51,7 @@ type wfJob struct {
 	Steps          []wfStep `yaml:"steps"`
 	// Uses is the reusable workflow a job calls instead of running steps.
 	Uses string `yaml:"uses"`
+	If   string `yaml:"if"`
 }
 
 // runs is every shell body the job executes, joined.
