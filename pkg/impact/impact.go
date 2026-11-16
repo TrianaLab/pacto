@@ -586,7 +586,7 @@ func Analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 		res = analyze(ctx, old, new, oldFS, newFS, snap, opts)
 		res.noteRangeOnlyMatches()
 	}
-	if opts.NameInferredFrom != "" {
+	if opts.NameInferredFrom != "" && res.nameInferred() == "" {
 		res.Limitations = append(res.Limitations, fleet.Limitation{
 			Code: LimitationServiceNameInferred, Source: limitationSource,
 			Message: "service.name is inferred from " + opts.NameInferredFrom + "; declare it so Pacto can find its consumers",
