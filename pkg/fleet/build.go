@@ -539,6 +539,7 @@ func clusterMergeLimitations(snap *FleetSnapshot, c clusterIndex) {
 		}
 		if len(hit) > 0 {
 			merged = true
+			slices.Sort(hit)
 			markSourcePartial(snap, i, clusterUnknownMerged(snap.Sources[i].ID, c.records[0].Name, hit))
 		}
 	}

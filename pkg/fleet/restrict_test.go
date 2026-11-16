@@ -444,6 +444,22 @@ func TestRestrictKeepsNamespacedCallers(t *testing.T) {
 	}
 }
 
+// TestRestrictHidesMalformedK8sCallers: a k8s: caller that does not parse
+// names no namespace a permission check can read, so even a viewer who may read
+// the cluster scope sees only a count, never the name.
+func TestRestrictHidesMalformedK8sCallers(t *testing.T) {
+	q := bareCallerFleet(t, ObservedEdge{From: "k8s:hidden/Deployment/x/y/z", To: "payments", Count: 1}, ObservedEdge{From: "k8s:shop/x", To: "payments", Count: 1})
+	s := q.Restrict(func(ns string) bool { return ns != "hidden" }).SnapshotForSerialization()
+	for _, name := range callerNames(s) {
+		if strings.HasPrefix(name, "k8s:") {
+			t.Errorf("restricted callers = %v, want no malformed k8s caller", callerNames(s))
+		}
+	}
+	if pay := s.Services[NewServiceKey("payments")]; pay.HiddenDependents != 3 {
+		t.Errorf("payments hidden dependents = %d, want ledger and both malformed callers counted", pay.HiddenDependents)
+	}
+}
+
 // TestRestrictHidesCallersInNamespacesWithoutTargets: a k8s caller in a
 // namespace no target runs in is still a namespace the viewer's permissions
 // decide, so the viewer is asked about it and, refused, sees only a count.

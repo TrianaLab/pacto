@@ -225,8 +225,9 @@ func provisioningVisible(s *FleetSnapshot) bool {
 // restrictCallers is s's uncontracted callers without those of a hidden
 // service, those in a hidden namespace and those a hidden service shares a name
 // with: such a caller may be that service's call, and its ambiguity counts it.
-// With hideBare, every caller with no namespace goes. Each caller removed from
-// a visible service is counted into its dependents.
+// With hideBare, every caller with no namespace goes. A k8s: caller that does
+// not parse names a namespace no permission check can read, so it always goes.
+// Each caller removed from a visible service is counted into its dependents.
 func restrictCallers(s *FleetSnapshot, hiddenSvc map[ServiceKey]bool, hiddenNS map[string]bool, hideBare bool, dependents map[ServiceKey]map[ServiceKey]bool) []UncontractedCaller {
 	hiddenNames := map[string]bool{}
 	for k := range hiddenSvc {
@@ -237,7 +238,8 @@ func restrictCallers(s *FleetSnapshot, hiddenSvc map[ServiceKey]bool, hiddenNS m
 			return true
 		}
 		ns, k8s := callerNamespace(c)
-		if (k8s && !hiddenNS[ns]) || (!k8s && !hideBare && !hiddenNames[c.Caller]) {
+		malformed := !k8s && strings.HasPrefix(c.Caller, "k8s:")
+		if (k8s && !hiddenNS[ns]) || (!k8s && !malformed && !hideBare && !hiddenNames[c.Caller]) {
 			return false
 		}
 		if dependents[c.ToService] == nil {

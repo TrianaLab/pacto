@@ -237,6 +237,21 @@ func TestUnknownClusterMergeListsAtMostTwentyKeys(t *testing.T) {
 	}
 }
 
+// TestUnknownClusterMergeListsKeysSorted: Build lists the merged keys sorted,
+// like the CLUSTER_UNKNOWN a restricted view rebuilds, so one set of keys reads
+// the same with and without a restriction.
+func TestUnknownClusterMergeListsKeysSorted(t *testing.T) {
+	targets := []RawTarget{workload("ns", "b"), workload("ns", "a")}
+	snap := buildClusterSnap(t,
+		NewMemorySource("k8s", SourceKindKubernetes, &Collection{Cluster: clusterOf(clusterA, "eu-prod", ClusterNameFromContext), Targets: targets}),
+		NewMemorySource("file", SourceKindTargetState, &Collection{Targets: targets}),
+	)
+	lims := limitationsWith(snap, LimitationClusterUnknown)
+	if len(lims) != 1 || !strings.HasSuffix(lims[0].Message, ": ns/kubernetes/a, ns/kubernetes/b") {
+		t.Errorf("CLUSTER_UNKNOWN must list the merged keys sorted: %+v", lims)
+	}
+}
+
 func TestUnknownClusterInSingleClusterSnapshotIsInformational(t *testing.T) {
 	snap := buildClusterSnap(t,
 		NewMemorySource("k8s", SourceKindKubernetes, &Collection{Cluster: clusterOf(clusterA, "eu-prod", ClusterNameFromContext), Targets: []RawTarget{workload("payments", "payments")}}),
