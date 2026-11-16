@@ -104,9 +104,25 @@ Everything it creates for the agent is granted by the `pacto-operator-manager` R
 
 Where the API serves `ValidatingAdmissionPolicy`, the chart also renders one that lets each agent write only the observation and Lease named after the node in its token, which RBAC cannot express.
 
+## Dashboard token sign-in (`dashboard.auth.tokenSignIn`)
+
+On by default with the dashboard. The dashboard's ServiceAccount may create TokenReviews, which reveals only whose token it already holds, and the `pacto-viewer` ServiceAccount the NOTES sign-in link carries a token for reads Pactos and nothing else. Helm creates both grants, so the operator holds neither:
+
+`pacto-operator-dashboard-tokenreview` (`ClusterRole`):
+
+| API groups | Resources | Verbs | Limited to |
+| --- | --- | --- | --- |
+| `authentication.k8s.io` | `tokenreviews` | `create` | *not name-restricted* |
+
+`pacto-operator-viewer` (`ClusterRole`):
+
+| API groups | Resources | Verbs | Limited to |
+| --- | --- | --- | --- |
+| `pacto.trianalab.io` | `pactos`, `pactorevisions` | `get`, `list`, `watch` | *not name-restricted* |
+
 ## With controller.watchNamespaces
 
-Rendered with `--set 'controller.watchNamespaces={payments,ledger}'`. The chart creates no ClusterRole and no ClusterRoleBinding; the node agent and the dashboard's delivery reads, when on, keep only their cluster-scoped rules. Each watched namespace gets these Roles:
+Rendered with `--set 'controller.watchNamespaces={payments,ledger}'`. The chart creates no ClusterRole and no ClusterRoleBinding beyond the dashboard's TokenReview grant, which has no namespaced form; the node agent and the dashboard's delivery reads, when on, keep only their cluster-scoped rules. Each watched namespace gets these Roles:
 
 `pacto-dashboard-watch` (`Role` in each watched namespace):
 
@@ -134,6 +150,12 @@ Rendered with `--set 'controller.watchNamespaces={payments,ledger}'`. The chart 
 | `pacto.trianalab.io` | `pactos` | `create`, `delete`, `get`, `list`, `patch`, `update`, `watch` | *not name-restricted* |
 | `pacto.trianalab.io` | `pactos/finalizers` | `update` | *not name-restricted* |
 | `pacto.trianalab.io` | `pactos/status` | `get`, `patch`, `update` | *not name-restricted* |
+
+`pacto-viewer` (`Role` in each watched namespace):
+
+| API groups | Resources | Verbs | Limited to |
+| --- | --- | --- | --- |
+| `pacto.trianalab.io` | `pactos`, `pactorevisions` | `get`, `list`, `watch` | *not name-restricted* |
 
 ## Namespaced Role (`pacto-operator-leader-election`)
 

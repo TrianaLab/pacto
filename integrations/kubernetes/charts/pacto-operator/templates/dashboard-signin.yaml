@@ -1,0 +1,68 @@
+{{- if and .Values.dashboard.enabled (include "pacto-operator.dashboardTokenSignIn" .) }}
+{{- $fullname := include "pacto-operator.fullname" . }}
+{{- $labels := include "pacto-operator.labels" . }}
+{{- $namespaces := include "pacto-operator.watchNamespaces" . | fromYamlArray }}
+# Token sign-in (dashboard.auth.tokenSignIn). Two grants, both from Helm, so
+# the operator gains no right:
+# - the dashboard's ServiceAccount may create TokenReviews, to prove a
+#   ServiceAccount token was minted for the pacto-dashboard audience. It
+#   reveals only whose token the dashboard already holds. TokenReview has no
+#   namespaced form, so this ClusterRole renders with watchNamespaces too.
+# - pacto-viewer, the ServiceAccount the NOTES sign-in link carries a token
+#   for, reads Pactos and PactoRevisions and nothing else. Minting its token
+#   needs create on serviceaccounts/token in the release namespace.
+# Cluster-scoped names come from the release, so two releases never collide.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $fullname }}-dashboard-tokenreview
+  labels:
+    {{- $labels | nindent 4 }}
+rules:
+  - apiGroups: [authentication.k8s.io]
+    resources: [tokenreviews]
+    verbs: [create]
+---
+{{ include "pacto-operator.binding" (dict "kind" "ClusterRoleBinding" "name" (printf "%s-dashboard-tokenreview" $fullname) "labels" $labels "serviceAccount" "pacto-dashboard" "serviceAccountNamespace" .Release.Namespace) }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pacto-viewer
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- $labels | nindent 4 }}
+automountServiceAccountToken: false
+{{- if $namespaces }}
+{{- range $ns := $namespaces }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pacto-viewer
+  namespace: {{ $ns }}
+  labels:
+    {{- $labels | nindent 4 }}
+rules:
+  - apiGroups: [pacto.trianalab.io]
+    resources: [pactos, pactorevisions]
+    verbs: [get, list, watch]
+---
+{{ include "pacto-operator.binding" (dict "kind" "RoleBinding" "name" "pacto-viewer" "namespace" $ns "labels" $labels "serviceAccount" "pacto-viewer" "serviceAccountNamespace" $.Release.Namespace) }}
+{{- end }}
+{{- else }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $fullname }}-viewer
+  labels:
+    {{- $labels | nindent 4 }}
+rules:
+  - apiGroups: [pacto.trianalab.io]
+    resources: [pactos, pactorevisions]
+    verbs: [get, list, watch]
+---
+{{ include "pacto-operator.binding" (dict "kind" "ClusterRoleBinding" "name" (printf "%s-viewer" $fullname) "labels" $labels "serviceAccount" "pacto-viewer" "serviceAccountNamespace" .Release.Namespace) }}
+{{- end }}
+{{- end }}

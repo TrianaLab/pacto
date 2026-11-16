@@ -422,13 +422,13 @@ tests:
     asserts:
       - failedTemplate: {}
 
-  - it: should pass no sign-in by default
+  - it: should pass no issuer, delivery or session flag by default
     set:
       dashboard.enabled: true
     asserts:
       - notMatchRegex:
           path: spec.template.spec.containers[0].args[*]
-          pattern: "--dashboard-oidc|--dashboard-mira|--dashboard-delivery|--dashboard-session|--dashboard-token"
+          pattern: "--dashboard-oidc|--dashboard-mira|--dashboard-delivery|--dashboard-session"
 
   - it: should pass the dashboard sign-in, the client secret by reference only
     set:
@@ -576,7 +576,7 @@ tests:
         groupsClaim: roles
         groupsPrefix: "oidc:"
       dashboard.auth.session: {idleTimeout: 30m, maxAge: 8h}
-      dashboard.auth.tokenLogin.enabled: true
+      dashboard.auth.tokenSignIn.enabled: true
     asserts:
       - contains:
           path: spec.template.spec.containers[0].args
@@ -609,23 +609,6 @@ tests:
           path: spec.template.spec.containers[0].args
           content: "--dashboard-oidc-username-prefix=https://idp.example#"
 
-  - it: should allow anonymous access by default, so existing installs keep starting
-    set:
-      dashboard.enabled: true
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].args
-          content: --dashboard-allow-anonymous
-
-  - it: should allow anonymous access when an upgrade reuses values without the key
-    set:
-      dashboard.enabled: true
-      dashboard.auth.allowAnonymous: null
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].args
-          content: --dashboard-allow-anonymous
-
   - it: should refuse anonymous access when it is turned off
     set:
       dashboard.enabled: true
@@ -638,7 +621,6 @@ tests:
   - it: should offer token sign-in without an issuer
     set:
       dashboard.enabled: true
-      dashboard.auth.tokenLogin.enabled: true
     asserts:
       - contains:
           path: spec.template.spec.containers[0].args

@@ -1,0 +1,252 @@
+# Token sign-in is the default, also for an upgrade that reuses the previous
+# chart's values: the key is new, so a reused release never carries it.
+# Anonymous needs tokenSignIn.enabled=false and allowAnonymous=true.
+suite: dashboard sign-in
+templates:
+  - templates/deployment.yaml
+  - templates/dashboard-signin.yaml
+release:
+  name: pacto-operator
+  namespace: pacto-operator-system
+tests:
+  - it: renders token sign-in and no anonymous flag by default
+    template: templates/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-token-login
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-allow-anonymous
+
+  - it: renders token sign-in for a reuse-values upgrade from the previous chart
+    template: templates/deployment.yaml
+    set:
+      dashboard.auth.tokenLogin.enabled: false
+      dashboard.auth.allowAnonymous: true
+      dashboard.auth.tokenSignIn: null
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-token-login
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-allow-anonymous
+
+  - it: renders anonymous only with tokenSignIn false and allowAnonymous true
+    template: templates/deployment.yaml
+    set:
+      dashboard.auth.tokenSignIn.enabled: false
+      dashboard.auth.allowAnonymous: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-allow-anonymous
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-token-login
+
+  - it: renders no anonymous flag with an issuer, even with allowAnonymous true
+    template: templates/deployment.yaml
+    set:
+      dashboard.auth.tokenSignIn.enabled: false
+      dashboard.auth.allowAnonymous: true
+      dashboard.auth.oidc: {issuerURL: https://idp.example, clientID: c, redirectURL: https://dash.example/auth/callback}
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-allow-anonymous
+
+  - it: renders neither sign-in nor anonymous with tokenSignIn false alone
+    template: templates/deployment.yaml
+    set:
+      dashboard.auth.tokenSignIn.enabled: false
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-token-login
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-allow-anonymous
+
+  - it: ignores the deprecated tokenLogin
+    template: templates/deployment.yaml
+    set:
+      dashboard.auth.tokenSignIn.enabled: false
+      dashboard.auth.tokenLogin.enabled: true
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-token-login
+
+  - it: ignores the deprecated tokenLogin set to false
+    template: templates/deployment.yaml
+    set:
+      dashboard.auth.tokenLogin.enabled: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-token-login
+
+  - it: grants the dashboard create on tokenreviews only
+    template: templates/dashboard-signin.yaml
+    asserts:
+      - equal: {path: kind, value: ClusterRole}
+        documentIndex: 0
+      - equal: {path: metadata.name, value: pacto-operator-dashboard-tokenreview}
+        documentIndex: 0
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [authentication.k8s.io]
+              resources: [tokenreviews]
+              verbs: [create]
+        documentIndex: 0
+      - equal: {path: kind, value: ClusterRoleBinding}
+        documentIndex: 1
+      - equal: {path: metadata.name, value: pacto-operator-dashboard-tokenreview}
+        documentIndex: 1
+      - equal:
+          path: roleRef
+          value: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: pacto-operator-dashboard-tokenreview}
+        documentIndex: 1
+      - equal:
+          path: subjects
+          value:
+            - kind: ServiceAccount
+              name: pacto-dashboard
+              namespace: pacto-operator-system
+        documentIndex: 1
+
+  - it: binds pacto-viewer to read Pactos cluster-wide by default
+    template: templates/dashboard-signin.yaml
+    asserts:
+      - hasDocuments: {count: 5}
+      - equal: {path: kind, value: ServiceAccount}
+        documentIndex: 2
+      - equal: {path: metadata.name, value: pacto-viewer}
+        documentIndex: 2
+      - equal: {path: metadata.namespace, value: pacto-operator-system}
+        documentIndex: 2
+      - equal: {path: automountServiceAccountToken, value: false}
+        documentIndex: 2
+      - equal: {path: kind, value: ClusterRole}
+        documentIndex: 3
+      - equal: {path: metadata.name, value: pacto-operator-viewer}
+        documentIndex: 3
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [pacto.trianalab.io]
+              resources: [pactos, pactorevisions]
+              verbs: [get, list, watch]
+        documentIndex: 3
+      - equal: {path: kind, value: ClusterRoleBinding}
+        documentIndex: 4
+      - equal:
+          path: roleRef
+          value: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: pacto-operator-viewer}
+        documentIndex: 4
+      - equal:
+          path: subjects
+          value:
+            - kind: ServiceAccount
+              name: pacto-viewer
+              namespace: pacto-operator-system
+        documentIndex: 4
+
+  - it: names cluster-scoped objects per release (alpha)
+    template: templates/dashboard-signin.yaml
+    release: {name: alpha, namespace: team-a}
+    asserts:
+      - equal: {path: metadata.name, value: alpha-pacto-operator-dashboard-tokenreview}
+        documentIndex: 1
+      - equal: {path: "subjects[0].namespace", value: team-a}
+        documentIndex: 1
+      - equal: {path: metadata.name, value: alpha-pacto-operator-viewer}
+        documentIndex: 4
+      - equal: {path: "subjects[0].namespace", value: team-a}
+        documentIndex: 4
+
+  - it: names cluster-scoped objects per release (beta)
+    template: templates/dashboard-signin.yaml
+    release: {name: beta, namespace: team-b}
+    asserts:
+      - equal: {path: metadata.name, value: beta-pacto-operator-dashboard-tokenreview}
+        documentIndex: 0
+      - equal: {path: "subjects[0].namespace", value: team-b}
+        documentIndex: 1
+      - equal: {path: metadata.name, value: beta-pacto-operator-viewer}
+        documentIndex: 3
+      - equal: {path: "subjects[0].namespace", value: team-b}
+        documentIndex: 4
+
+  - it: binds pacto-viewer per watched namespace with watchNamespaces and renders no viewer ClusterRole
+    template: templates/dashboard-signin.yaml
+    set:
+      controller.watchNamespaces: [payments, ledger]
+    asserts:
+      - hasDocuments: {count: 7}
+      - equal: {path: kind, value: ClusterRole}
+        documentIndex: 0
+      - equal: {path: metadata.name, value: pacto-operator-dashboard-tokenreview}
+        documentIndex: 0
+      - equal: {path: kind, value: Role}
+        documentIndex: 3
+      - equal: {path: metadata.name, value: pacto-viewer}
+        documentIndex: 3
+      - equal: {path: metadata.namespace, value: ledger}
+        documentIndex: 3
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [pacto.trianalab.io]
+              resources: [pactos, pactorevisions]
+              verbs: [get, list, watch]
+        documentIndex: 3
+      - equal: {path: kind, value: RoleBinding}
+        documentIndex: 4
+      - equal:
+          path: subjects
+          value:
+            - kind: ServiceAccount
+              name: pacto-viewer
+              namespace: pacto-operator-system
+        documentIndex: 4
+      - equal: {path: metadata.namespace, value: payments}
+        documentIndex: 5
+      - equal: {path: kind, value: RoleBinding}
+        documentIndex: 6
+
+  - it: renders no sign-in objects without the dashboard
+    template: templates/dashboard-signin.yaml
+    set:
+      dashboard.enabled: false
+    asserts:
+      - hasDocuments: {count: 0}
+
+  - it: renders no sign-in objects with tokenSignIn false
+    template: templates/dashboard-signin.yaml
+    set:
+      dashboard.auth.tokenSignIn.enabled: false
+    asserts:
+      - hasDocuments: {count: 0}
+
+  - it: never grants impersonate or a delivery read to the viewer
+    template: templates/dashboard-signin.yaml
+    set:
+      delivery.enabled: true
+      delivery.identities.allowEmptyHumanGroups: true
+    asserts:
+      - notMatchRegex:
+          path: rules[*].verbs[*]
+          pattern: impersonate
+        documentIndex: 3
+      - notMatchRegex:
+          path: rules[*].apiGroups[*]
+          pattern: delivery
+        documentIndex: 3
+      - notMatchRegex:
+          path: rules[*].verbs[*]
+          pattern: impersonate
+        documentIndex: 0

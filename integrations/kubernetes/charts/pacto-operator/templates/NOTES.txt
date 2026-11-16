@@ -23,17 +23,44 @@ Pacto Operator has been installed.
    kubectl get pactos
 
 {{- if .Values.dashboard.enabled }}
+{{- if include "pacto-operator.dashboardTokenSignIn" . }}
+
+4. Open the dashboard. It asks you to sign in:
+
+   kubectl -n {{ .Release.Namespace }} port-forward svc/pacto-dashboard 3000:3000
+   echo "http://127.0.0.1:3000/#token=$(kubectl -n {{ .Release.Namespace }} create token pacto-viewer --audience pacto-dashboard --duration 10m)"
+
+   Open the printed link within 10 minutes. It signs you in as pacto-viewer,
+   which reads Pactos and nothing else. To approve held changes, sign in with
+   your identity provider (dashboard.auth.oidc) or paste your own token.
+{{- if .Release.IsUpgrade }}
+{{- $previous := lookup "apps/v1" "Deployment" .Release.Namespace "pacto-dashboard" }}
+{{- $anonymous := false }}
+{{- range (dig "spec" "template" "spec" "containers" (list) $previous) }}
+{{- range (.env | default list) }}
+{{- if and (eq .name "PACTO_DASHBOARD_ALLOW_ANONYMOUS") (eq (toString .value) "true") }}{{ $anonymous = true }}{{ end }}
+{{- end }}
+{{- end }}
+{{- if $anonymous }}
+
+   The dashboard now asks people to sign in.
+   The previous release served it without sign-in. To keep serving without
+   sign-in, set dashboard.auth.tokenSignIn.enabled=false and
+   dashboard.auth.allowAnonymous=true.
+{{- end }}
+{{- end }}
+{{- else }}
 
 4. Dashboard is enabled. Access it via:
 
-   kubectl port-forward -n {{ .Release.Namespace }} svc/pacto-dashboard 3000:3000
-{{- $auth := .Values.dashboard.auth | default dict }}
-{{- if and (ne (toString $auth.allowAnonymous) "false") (not ($auth.oidc | default dict).issuerURL) (not ($auth.tokenLogin | default dict).enabled) }}
+   kubectl -n {{ .Release.Namespace }} port-forward svc/pacto-dashboard 3000:3000
+{{- end }}
+{{- if include "pacto-operator.dashboardAnonymous" . }}
 
    WARNING: the dashboard serves without sign-in. Everyone who reaches it reads
-   every service its ServiceAccount reads. Configure dashboard.auth.oidc or
-   dashboard.auth.tokenLogin, or set dashboard.auth.allowAnonymous=false to
-   keep it from starting without sign-in.
+   every service its ServiceAccount reads. Configure dashboard.auth.oidc or set
+   dashboard.auth.tokenSignIn.enabled=true, or set
+   dashboard.auth.allowAnonymous=false to keep it from starting without sign-in.
 {{- end }}
 {{- end }}
 {{- if and .Release.IsUpgrade (include "pacto-operator.watchNamespaces" . | fromYamlArray) (not (and .Values.dashboard.enabled (include "pacto-operator.dashboardDeliveryNamespace" .))) }}

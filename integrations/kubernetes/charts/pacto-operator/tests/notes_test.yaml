@@ -42,3 +42,85 @@ tests:
     asserts:
       - notMatchRegexRaw:
           pattern: "kubectl delete clusterrole"
+
+  - it: prints a port-forward and a sign-in link with the token in the fragment
+    asserts:
+      - matchRegexRaw:
+          pattern: 'kubectl -n pacto-operator-system port-forward svc/pacto-dashboard 3000:3000'
+      - matchRegexRaw:
+          pattern: 'echo "http://127\.0\.0\.1:3000/#token=\$\(kubectl -n pacto-operator-system create token pacto-viewer --audience pacto-dashboard --duration 10m\)"'
+      - notMatchRegexRaw:
+          pattern: '\?token='
+      - notMatchRegexRaw:
+          pattern: the dashboard serves without sign-in
+
+  - it: explains the sign-in change on an upgrade from an anonymous release
+    kubernetesProvider:
+      scheme:
+        "apps/v1/Deployment":
+          gvr: {group: apps, version: v1, resource: deployments}
+          namespaced: true
+      objects:
+        - kind: Deployment
+          apiVersion: apps/v1
+          metadata: {name: pacto-dashboard, namespace: pacto-operator-system}
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: dashboard
+                    env:
+                      - {name: PACTO_DASHBOARD_ALLOW_ANONYMOUS, value: "true"}
+    asserts:
+      - matchRegexRaw:
+          pattern: The previous release served it without sign-in
+      - matchRegexRaw:
+          pattern: 'dashboard\.auth\.tokenSignIn\.enabled=false and\s+dashboard\.auth\.allowAnonymous=true'
+
+  - it: says nothing about the change on an upgrade from a release that signed people in
+    kubernetesProvider:
+      scheme:
+        "apps/v1/Deployment":
+          gvr: {group: apps, version: v1, resource: deployments}
+          namespaced: true
+      objects:
+        - kind: Deployment
+          apiVersion: apps/v1
+          metadata: {name: pacto-dashboard, namespace: pacto-operator-system}
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: dashboard
+                    env:
+                      - {name: PACTO_DASHBOARD_TOKEN_LOGIN, value: "true"}
+    asserts:
+      - notMatchRegexRaw:
+          pattern: The previous release served it without sign-in
+
+  - it: says nothing about the change on an install
+    release: {upgrade: false}
+    asserts:
+      - notMatchRegexRaw:
+          pattern: The previous release served it without sign-in
+      - matchRegexRaw:
+          pattern: create token pacto-viewer
+
+  - it: prints no link with tokenSignIn false
+    set:
+      dashboard.auth.tokenSignIn.enabled: false
+    asserts:
+      - notMatchRegexRaw:
+          pattern: create token pacto-viewer
+
+  - it: the anonymous warning names tokenSignIn
+    set:
+      dashboard.auth.tokenSignIn.enabled: false
+      dashboard.auth.allowAnonymous: true
+    asserts:
+      - matchRegexRaw:
+          pattern: the dashboard serves without sign-in
+      - matchRegexRaw:
+          pattern: dashboard\.auth\.tokenSignIn\.enabled=true
+      - notMatchRegexRaw:
+          pattern: tokenLogin
