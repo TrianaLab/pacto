@@ -11,7 +11,11 @@ fixed. pacto_check adds it as a suggestion.
 
 pacto_edit raises pactoVersion only when that keeps the contract's meaning and
 otherwise fails with the finding the raise would add. Its change line now
-names the old version: `set pactoVersion to "2.4" (was "2.3")`.
+names the old version: `set pactoVersion to "2.4" (was "2.3")`, comes first
+and replaces the `set pactoVersion "2.1" for the external dependency` line. An
+edit that needs a raise now fails when the contract already fails validation,
+does not parse or declares an unknown or 1.x pactoVersion, where it used to
+overwrite the version.
 
 The fleet revision detail gains `pactoVersionCurrent` and
 `pactoVersionUnknown`, and `pacto fleet entity revision`, the TUI and the
