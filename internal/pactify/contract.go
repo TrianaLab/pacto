@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -22,6 +24,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/ignore"
+	"github.com/trianalab/pacto/v4/pkg/schemax"
 	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
@@ -501,8 +504,9 @@ func (p *planner) provider(name, bundles string) (ref, version string) {
 const configSchema = "configuration/schema.json"
 
 // configuration writes a configuration entry whose schema, configSchema,
-// lists the workload's environment: each variable typed by its value, with
-// that value as its default. A variable read from a Secret gets no default.
+// lists the workload's environment: each variable's key and type, never its
+// value. A key read from a Secret, whose name matches a sensitive pattern or
+// whose value is a URL with credentials is writeOnly.
 func (p *planner) configuration(b *strings.Builder) {
 	for _, n := range p.sc.envNotes {
 		p.unknown("%s", n)
@@ -511,16 +515,17 @@ func (p *planner) configuration(b *strings.Builder) {
 		return
 	}
 	props := map[string]map[string]any{}
-	var from []string
+	var from, sensitive []string
+	literals := map[string][]string{} // file -> sensitive keys it sets to literal values
 	for _, e := range p.sc.env {
-		prop := map[string]any{"type": "string"}
-		switch {
-		case e.secret:
-			prop["description"] = "Read from the Secret " + e.ref + ", whose values pacto init does not read."
-		case e.value != "":
-			prop["type"], prop["default"] = typed(e.value)
-		}
+		prop := envProperty(e)
 		props[e.name] = prop
+		if prop["writeOnly"] == true {
+			sensitive = append(sensitive, e.name)
+			if !e.secret && e.value != "" {
+				literals[e.file] = append(literals[e.file], e.name)
+			}
+		}
 		if !slices.Contains(from, e.file) {
 			from = append(from, e.file)
 		}
@@ -532,19 +537,60 @@ func (p *planner) configuration(b *strings.Builder) {
 	}{"https://json-schema.org/draft/2020-12/schema", "object", props}, "", "  ")
 	p.schema = string(data) + "\n"
 	fmt.Fprintf(b, "configurations:\n  - name: env\n    schema: %s\n    required: true\n", configSchema)
-	p.found("%s: the %d environment variables %s reads, with the values in %s as defaults", configSchema, len(p.sc.env), p.r.Service, strings.Join(from, ", "))
+	p.found("%s: the %d environment variables %s reads, from %s, with their types and no values", configSchema, len(p.sc.env), p.r.Service, strings.Join(from, ", "))
+	if len(sensitive) > 0 {
+		slices.Sort(sensitive)
+		p.found("sensitive keys, marked writeOnly: %s", strings.Join(sensitive, ", "))
+	}
+	for _, f := range slices.Sorted(maps.Keys(literals)) {
+		keys := literals[f]
+		slices.Sort(keys)
+		p.next("%s sets %s to literal values, and the bundle publishes that file to anyone who can pull it: "+
+			"read them from a Secret (valueFrom.secretKeyRef) and keep the values out of the folder", f, strings.Join(keys, ", "))
+	}
 }
 
-// typed is an environment value as a JSON Schema type and default: an
-// integer, a boolean or a string.
-func typed(v string) (string, any) {
-	if n, err := strconv.ParseInt(v, 10, 64); err == nil {
-		return "integer", n
+// envProperty is an environment variable's schema property: its key and
+// type, never its value.
+func envProperty(e envVar) map[string]any {
+	switch {
+	case e.secret:
+		return map[string]any{"type": "string", "writeOnly": true, "description": "Read from the Secret " + e.ref + ", whose values pacto init does not read."}
+	case schemax.SensitiveKey(e.name) || sensitiveValue(e.value):
+		return map[string]any{"type": "string", "writeOnly": true, "description": "Sensitive: pacto init does not copy its value."}
+	}
+	return map[string]any{"type": typeOf(e.value)}
+}
+
+// typeOf is an environment value's JSON Schema type: an integer, a boolean or
+// a string.
+func typeOf(v string) string {
+	if _, err := strconv.ParseInt(v, 10, 64); err == nil {
+		return "integer"
 	}
 	if v == "true" || v == "false" {
-		return "boolean", v == "true"
+		return "boolean"
 	}
-	return "string", v
+	return "string"
+}
+
+// sensitiveValue reports whether an environment value is a URL that carries
+// a credential: a password in its userinfo, or a query parameter with a
+// sensitive name. It never returns the value.
+func sensitiveValue(v string) bool {
+	u, err := url.Parse(v)
+	if err != nil || u.Scheme == "" {
+		return false
+	}
+	if _, ok := u.User.Password(); ok {
+		return true
+	}
+	for k := range u.Query() {
+		if schemax.SensitiveKey(k) {
+			return true
+		}
+	}
+	return false
 }
 
 // pinned writes the dependencies seen at runtime whose provider runs a

@@ -197,3 +197,16 @@ func TestParse(t *testing.T) {
 		t.Error("broken JSON parsed")
 	}
 }
+
+func TestSensitiveKey(t *testing.T) {
+	for name, want := range map[string]bool{
+		"DB_PASSWORD": true, "client_secret": true, "GITHUB_TOKEN": true, "API_KEY": true,
+		"AWS_CREDENTIALS": true, "PRIVATE_PEM": true, "SENTRY_DSN": true,
+		"PORT": false, "LOG_LEVEL": false, "HOST": false,
+		"MONKEY": true, // the documented ceiling of a substring match
+	} {
+		if got := SensitiveKey(name); got != want {
+			t.Errorf("SensitiveKey(%q) = %v, want %v", name, got, want)
+		}
+	}
+}

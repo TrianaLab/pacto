@@ -163,3 +163,21 @@ func (spec Doc) Meta() (title, description string) {
 	}
 	return title, description
 }
+
+// sensitivePatterns are the parts of a key name that mark its value as
+// sensitive.
+// ponytail: substring match; KEYCLOAK_URL and MONKEY read as sensitive, which only masks them. A word-boundary rule when a false positive hides something a reader needs.
+var sensitivePatterns = []string{"password", "secret", "token", "key", "credential", "private", "dsn"}
+
+// SensitiveKey reports whether a configuration key's name, in any case,
+// contains one of the sensitive patterns: password, secret, token, key,
+// credential, private or dsn.
+func SensitiveKey(name string) bool {
+	name = strings.ToLower(name)
+	for _, p := range sensitivePatterns {
+		if strings.Contains(name, p) {
+			return true
+		}
+	}
+	return false
+}
