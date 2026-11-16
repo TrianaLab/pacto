@@ -16,7 +16,7 @@ const OUT = '../../../docs/assets/screenshots';
 const NOW = '2026-11-09T12:00:00Z';
 const WORKER_CLOCK = `{const T=Date.parse('${NOW}'),D=Date;self.Date=class extends D{constructor(...a){super(...(a.length?a:[T]))}static now(){return T}}}\n`;
 
-const SHOTS: { name: string; open: (page: Page) => Promise<void>; clip?: { x: number; y: number; width: number; height: number }; element?: string }[] = [
+const SHOTS: { name: string; open: (page: Page) => Promise<void>; clip?: { x: number; y: number; width: number; height: number }; clipTo?: string; element?: string }[] = [
   { name: 'overview', open: (p) => go(p, '/#/fleet', 'Is anything wrong?') },
   { name: 'service', open: (p) => go(p, '/#/fleet/services/payments-service', 'payments-service') },
   { name: 'graph', open: async (p) => { await go(p, '/#/fleet/graph/service/payments-service', 'Operational graph'); await p.waitForTimeout(1500); } },
@@ -49,8 +49,58 @@ const SHOTS: { name: string; open: (page: Page) => Promise<void>; clip?: { x: nu
     open: async (p) => { await go(p, '/#/fleet/services/storefront-web', 'storefront-web'); await expect(p.locator('#sec-environments')).toBeVisible(); },
     element: '#sec-environments',
   },
+  // The overview's Operational health and Knowledge bands, each alone: the ownership and
+  // readiness band sits between them, so one shot would not hold both.
+  { name: 'overview-health', open: (p) => go(p, '/#/fleet', 'Is anything wrong?'), element: '#sec-health' },
+  { name: 'overview-knowledge', open: (p) => go(p, '/#/fleet', 'Is anything wrong?'), element: '#sec-knowledge' },
+  // The Offerings list: where requests for platform offerings stand, then who maintains
+  // each offering, its lifecycle, availability and failed requests.
+  { name: 'offerings-list', open: (p) => go(p, '/#/fleet/offerings', 'Platform offerings') },
+  // The postgresql offering: availability per environment from its two providers, then
+  // each provider's versions, the successor 16.1.0 names and its consumers.
+  { name: 'offering-postgresql', open: async (p) => { await go(p, '/#/fleet/offerings/postgresql', 'postgresql'); await expect(p.getByTestId('availability').first()).toBeVisible(); } },
+  // The delivery section of payments' target page in prod, opened under ticket CHG-2041:
+  // the Plan offers, and the promote plan the first one opens with the ticket filled in.
+  {
+    name: 'act-from-investigation',
+    open: async (p) => {
+      await go(p, '/#/fleet/targets/prod%2FDeployment%2Fpayments?correlationID=CHG-2041', 'payments');
+      await p.getByRole('button', { name: /^Plan promote/ }).click();
+      await expect(p.getByTestId('pp-correlation')).toHaveValue('CHG-2041');
+      await expect(p.getByTestId('plan-prediction')).toBeVisible();
+    },
+    element: '[data-testid="target-delivery"]',
+  },
   // The expanded sidebar alone, below the top bar, on the overview.
-  { name: 'sidebar', open: (p) => go(p, '/#/fleet', 'Is anything wrong?'), clip: { x: 0, y: 56, width: 232, height: 574 } },
+  // Clipped to the expanded nav's own box, so a new item never pushes Data sources out of frame.
+  { name: 'sidebar', open: (p) => go(p, '/#/fleet', 'Is anything wrong?'), clipTo: '[data-testid="sidebar"] nav' },
+  // catalog-service's Resources section alone: the declared request, its phase and usage.
+  {
+    name: 'service-resources',
+    open: async (p) => { await go(p, '/#/fleet/services/catalog-service', 'catalog-service'); await expect(p.locator('#sec-resources')).toBeVisible(); },
+    element: '#sec-resources',
+  },
+  // The story payments service's Changes section alone, with the times its revisions
+  // reached a Stage read from signed delivery records.
+  {
+    name: 'service-changes',
+    open: async (p) => {
+      await go(p, '/#/fleet/services/registry.example%252Fstory%2Fpayments?section=changes', 'payments');
+      await expect(p.locator('#sec-changes [data-testid="service-change-reached"] a').first()).toBeVisible();
+    },
+    element: '#sec-changes',
+  },
+  // The story payments service's Delivery history as of a minute ago: what each of its
+  // Stages ran then, known where a complete signed history holds and partial where not.
+  {
+    name: 'delivery-history-as-of',
+    open: async (p) => {
+      await go(p, '/#/delivery/history?service=payments&domain=registry.example%2Fstory&at=1m', 'History');
+      await expect(p.getByTestId('history-at-row').first()).toBeVisible();
+    },
+  },
+  // Metrics: the demo's own run records, generated from the payments story.
+  { name: 'metrics', open: async (p) => { await go(p, '/#/metrics', 'Metrics'); await expect(p.getByTestId('metrics-tiles')).toBeVisible(); } },
 ];
 
 async function finish(page: Page) {
@@ -109,7 +159,12 @@ for (const theme of ['light', 'dark'] as const) {
           await finish(page);
           await page.locator(s.element).screenshot({ path, animations: 'disabled', caret: 'hide' });
         }
-        else await page.screenshot({ path, animations: 'disabled', caret: 'hide', clip: s.clip });
+        else {
+          // clipTo: the full sidebar column below the 56px top bar, down to the selector's foot.
+          const box = s.clipTo ? await page.locator(s.clipTo).boundingBox() : null;
+          const clip = box ? { x: 0, y: 56, width: 232, height: Math.ceil(box.y + box.height) + 16 - 56 } : s.clip;
+          await page.screenshot({ path, animations: 'disabled', caret: 'hide', clip });
+        }
       });
     }
   });

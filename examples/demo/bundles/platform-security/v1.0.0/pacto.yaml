@@ -1,0 +1,31 @@
+pactoVersion: '2.4'
+service:
+  name: platform-security
+  version: 1.0.0
+  offering: security-scanning
+  summary: Scans images and blocks releases above a severity
+  owner:
+    team: platform-security
+    dri: priya.raman
+    contacts:
+    - type: email
+      value: platform-security@acme.com
+      purpose: escalation
+    - type: chat
+      value: '#platform-security'
+      purpose: support
+    - type: oncall
+      value: platform-security-oncall
+      purpose: oncall
+configurations:
+- name: scan
+  schema: configuration/scan.schema.json
+  required: true
+metadata:
+  tier: platform
+  category: security
+  criticality: high
+  repo: github.com/trianalab/pacto-demo/platform-security
+  tags:
+  - security
+  - scanning

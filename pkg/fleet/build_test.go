@@ -2011,24 +2011,24 @@ func TestDeriveOwner_SameOwnerNoConflict(t *testing.T) {
 	}
 }
 
-func TestDeriveOwner_Conflict(t *testing.T) {
-	// Differing owners across revisions → OWNER_CONFLICT; the summary owner is
-	// deterministically the newest revision's owner.
+func TestDeriveOwner_Handover(t *testing.T) {
+	// Differing owners across sequential versions with no target are a handover,
+	// not an OWNER_CONFLICT; the summary owner is the newest revision's owner.
 	snap := &FleetSnapshot{Revisions: map[RevisionKey]*ContractRevision{
 		"svc@a": {Key: "svc@a", Service: "svc", Version: "1.0.0", Owner: contract.Owner{Team: "old-team"}},
 		"svc@b": {Key: "svc@b", Service: "svc", Version: "2.0.0", Owner: contract.Owner{Team: "new-team"}},
 	}}
 	s := &ServiceRecord{Name: "svc", Revisions: []RevisionKey{"svc@b", "svc@a"}}
 	lim := deriveOwner(snap, s)
-	if len(lim) != 1 || lim[0].Code != LimitationOwnerConflict || lim[0].Source != "fleet" {
-		t.Fatalf("differing owners → OWNER_CONFLICT from fleet, got %+v", lim)
+	if len(lim) != 0 {
+		t.Fatalf("a handover raised %+v", lim)
 	}
 	if s.Owner.Team != "new-team" {
 		t.Errorf("owner summary should be the newest revision's owner (new-team), got %+v", s.Owner)
 	}
 }
 
-func TestBuild_OwnerConflictSurfaced(t *testing.T) {
+func TestBuild_OwnerHandoverNotSurfaced(t *testing.T) {
 	c1 := &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: "svc", Version: "1.0.0", Owner: contract.Owner{Team: "t1"}}}
 	c2 := &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: "svc", Version: "2.0.0", Owner: contract.Owner{Team: "t2"}}}
 	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("local", "local", &Collection{Revisions: []RawRevision{
@@ -2038,8 +2038,8 @@ func TestBuild_OwnerConflictSurfaced(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !hasLimitation(snap.Limitations, LimitationOwnerConflict) {
-		t.Errorf("conflicting per-revision owners should surface OWNER_CONFLICT: %+v", snap.Limitations)
+	if hasLimitation(snap.Limitations, LimitationOwnerConflict) {
+		t.Errorf("a sequential owner change surfaced OWNER_CONFLICT: %+v", snap.Limitations)
 	}
 }
 
@@ -2059,8 +2059,8 @@ func TestDeriveOwnerPrefersTheNewestRevision(t *testing.T) {
 		t.Errorf("Owner.Team = %q, want %q — the owner must come from the newest "+
 			"revision, not the lowest-hashing one", s.Owner.Team, "new-team")
 	}
-	if len(lims) != 1 || lims[0].Code != LimitationOwnerConflict {
-		t.Errorf("limitations = %v, want one OWNER_CONFLICT", lims)
+	if len(lims) != 0 {
+		t.Errorf("limitations = %v, want none: an older version's owner is a handover", lims)
 	}
 }
 
@@ -2153,6 +2153,9 @@ func TestIngestProvisioning_InvalidDropped(t *testing.T) {
 			r.Outcome, r.Provider, r.ExternalRef, r.Phase, r.Environment = "Failed", "", "", "", "Not A Slug"
 		}),
 		report(func(r *RawProvisioning) { r.ObservedAt, r.AcceptedAt = future, nil }),
+		report(func(r *RawProvisioning) { r.Producer = "adapter\x1b]52;c;evil\x07" }),  // a terminal would run it
+		report(func(r *RawProvisioning) { r.Producer = "security-adapter\u200b" }),     // reads as another producer
+		report(func(r *RawProvisioning) { r.Producer = "evil\u202eretpada-ytiruces" }), // a bidi override reorders it
 		skewed,
 	}
 	snap := provisioningSnap(t, 0, ordersFleet(), append(bad, report()))
@@ -2165,7 +2168,7 @@ func TestIngestProvisioning_InvalidDropped(t *testing.T) {
 			invalid = append(invalid, l)
 		}
 	}
-	if len(invalid) != 1 || invalid[0].Message != "10 provisioning records were invalid and dropped" || invalid[0].Source != "evidence-0" {
+	if len(invalid) != 1 || invalid[0].Message != "13 provisioning records were invalid and dropped" || invalid[0].Source != "evidence-0" {
 		t.Errorf("limitations = %+v", invalid)
 	}
 }
@@ -2223,5 +2226,66 @@ func TestIngestProvisioning_Deterministic(t *testing.T) {
 	}
 	if len(one.Provisioning) != 4 || one.Provisioning[0].Kind != "configuration" || one.Provisioning[3].Kind != "dependency" {
 		t.Errorf("order = %+v", one.Provisioning)
+	}
+}
+
+// freshnessSnap builds one target (with evidence) unless noTargets, under opts.
+func freshnessSnap(t *testing.T, opts BuildOptions, noTargets bool) *FleetSnapshot {
+	t.Helper()
+	col := &Collection{Revisions: []RawRevision{{Bundle: validLeafBundle(t), Digest: "sha256:leaf"}}}
+	if !noTargets {
+		at := fixedNow().Add(-48 * time.Hour)
+		col.Targets = []RawTarget{{Scope: "prod", Kind: "k8s", Name: "leaf", Service: "leaf", Digest: "sha256:leaf", EvidenceAt: &at}}
+	}
+	opts.Now = fixedNow
+	snap, err := Build(context.Background(), opts, NewMemorySource("src", "local", col))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return snap
+}
+
+func countLimitation(lims []Limitation, code string) int {
+	n := 0
+	for _, l := range lims {
+		if l.Code == code {
+			n++
+		}
+	}
+	return n
+}
+
+func TestBuildDisclosesUncheckedFreshness(t *testing.T) {
+	plain := freshnessSnap(t, BuildOptions{}, false)
+	snap := freshnessSnap(t, BuildOptions{DiscloseUncheckedFreshness: true}, false)
+	if n := countLimitation(snap.Limitations, LimitationFreshnessNotEvaluated); n != 1 {
+		t.Fatalf("want one %s limitation, got %d: %+v", LimitationFreshnessNotEvaluated, n, snap.Limitations)
+	}
+	if snap.Completeness != plain.Completeness || snap.Completeness != CompletenessComplete {
+		t.Errorf("the disclosure must not move completeness: %q vs %q", snap.Completeness, plain.Completeness)
+	}
+	if snap.SnapshotID == plain.SnapshotID {
+		t.Error("the limitation is part of the hashed snapshot, so the id must change")
+	}
+}
+
+func TestBuildNoDisclosureWithoutTargets(t *testing.T) {
+	snap := freshnessSnap(t, BuildOptions{DiscloseUncheckedFreshness: true}, true)
+	if hasLimitation(snap.Limitations, LimitationFreshnessNotEvaluated) {
+		t.Error("a snapshot with no target has no evidence age to skip")
+	}
+}
+
+func TestBuildNoDisclosureWhenNotAsked(t *testing.T) {
+	snap := freshnessSnap(t, BuildOptions{}, false)
+	if hasLimitation(snap.Limitations, LimitationFreshnessNotEvaluated) {
+		t.Error("only the product build path asks for the disclosure")
+	}
+}
+
+func TestBuildNoDisclosureWithWindow(t *testing.T) {
+	snap := freshnessSnap(t, BuildOptions{DiscloseUncheckedFreshness: true, FreshnessWindow: RecentEvidenceWindow}, false)
+	if hasLimitation(snap.Limitations, LimitationFreshnessNotEvaluated) {
+		t.Error("a window was set, so freshness was checked")
 	}
 }

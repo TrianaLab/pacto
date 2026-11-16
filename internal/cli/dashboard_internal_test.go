@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/spf13/viper"
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/logging"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 )
 
@@ -202,7 +204,7 @@ func TestNewDashboardCommand_HostFlag(t *testing.T) {
 	writeBundle(t, dir, "host-test")
 
 	svc := app.NewService(dummyStore{}, nil)
-	stderr, _ := runDashboard(t, svc, viper.New(), dir, "--port", "0", "--host", "0.0.0.0")
+	stderr, _ := runDashboard(t, svc, viper.New(), dir, "--port", "0", "--host", "0.0.0.0", "--allow-anonymous")
 
 	// When host is 0.0.0.0, display should show 127.0.0.1 for user-friendliness.
 	if !strings.Contains(stderr, "127.0.0.1") {
@@ -418,6 +420,21 @@ func TestNewDashboardCommand_IdentityModes(t *testing.T) {
 	if _, err := runDashboard(t, app.NewService(nil, nil), viper.New(), dir, "--port", "0", "--oidc-issuer-url", "https://idp.example"); err == nil ||
 		!strings.Contains(err.Error(), "client id") {
 		t.Errorf("an incomplete OIDC configuration must fail: %v", err)
+	}
+	if _, err := runDashboard(t, app.NewService(nil, nil), viper.New(), dir, "--port", "0", "--host", "0.0.0.0"); !errors.Is(err, errOpenNeedsAllowAnonymous) {
+		t.Errorf("an open bind without --allow-anonymous must fail: %v", err)
+	}
+	var logs bytes.Buffer
+	cmd := newDashboardCommand(app.NewService(nil, nil), viper.New(), "test", defaultDeps())
+	cmd.SetArgs([]string{dir, "--port", "0", "--host", "0.0.0.0", "--allow-anonymous"})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetOut(&bytes.Buffer{})
+	ctx, cancel := context.WithCancel(logging.WithLogger(context.Background(), logging.New(&logs, true)))
+	cancel()
+	cmd.SetContext(ctx)
+	_ = cmd.Execute()
+	if !strings.Contains(logs.String(), "without sign-in") {
+		t.Errorf("an open dashboard warns once:\n%s", logs.String())
 	}
 }
 

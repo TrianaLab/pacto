@@ -267,6 +267,11 @@ describe('allClearAllowed (the non-negotiable rule)', () => {
     expect(allClearAllowed(partial, 0)).toBe(false);
     expect(allClearAllowed(unknown, 0)).toBe(false);
   });
+  it('forbids all-clear with a failing or an unknown health check', () => {
+    expect(allClearAllowed(complete, 0, { unavailable: 1 })).toBe(false);
+    expect(allClearAllowed(complete, 0, { unknown: 2 })).toBe(false);
+    expect(allClearAllowed(complete, 0, { unavailable: 0, unknown: 0 })).toBe(true);
+  });
 });
 
 describe('degradedSourceSummary (naming WHAT is missing, not just that something is)', () => {

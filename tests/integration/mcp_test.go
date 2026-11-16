@@ -19,7 +19,7 @@ import (
 func mcpCallTool(t *testing.T, svc *app.Service, toolName string, args map[string]any) *mcpsdk.CallToolResult {
 	t.Helper()
 	ctx := context.Background()
-	server := pactomcp.NewServer(pactomcp.Authoring{Validate: svc.ValidationReport}, "test-e2e")
+	server, _ := pactomcp.New("test-e2e", pactomcp.Authoring{Validate: svc.ValidationReport}, pactomcp.Modes{})
 	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "e2e-client", Version: "1.0"}, nil)
 
 	t1, t2 := mcpsdk.NewInMemoryTransports()
@@ -215,5 +215,56 @@ func TestMCPCreateFromGoldenPath(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(out, "interfaces", "openapi.yaml")); err != nil {
 		t.Errorf("the path's files were not copied: %v", err)
+	}
+}
+
+// TestMCPFleetEditExplainsTheChain: a dry-run pacto_edit on a stdio fleet
+// server over the demo bundles says who the edit affects and how complete
+// that answer is, names the publish and promote steps it cannot serve itself
+// (a fleet-only server serves neither) and the provider as the executor.
+func TestMCPFleetEditExplainsTheChain(t *testing.T) {
+	t.Parallel()
+	bin := buildPactoBinary(t)
+	demo := filepath.Join(repoRoot, "examples", "demo")
+	dir := filepath.Join(t.TempDir(), "audit-log")
+	if err := os.CopyFS(dir, os.DirFS(filepath.Join(demo, "bundles", "audit-log"))); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, _, stderr := catalogStdioSession(t, bin, t.TempDir(),
+		"--fleet", "--local", filepath.Join(demo, "bundles"), "--target-state", filepath.Join(demo, "fleet-targets.yaml"))
+	defer func() { _ = session.Close() }()
+
+	res, err := session.CallTool(context.Background(), &mcpsdk.CallToolParams{Name: "pacto_edit", Arguments: map[string]any{
+		"path": dir, "add_environments": `[{"name":"staging"}]`, "dry_run": true,
+	}})
+	if err != nil {
+		t.Fatalf("pacto_edit: %v\nstderr:\n%s", err, stderr)
+	}
+	text := mcpResultText(t, res)
+	var got pactomcp.EditResult
+	if err := json.Unmarshal([]byte(text), &got); err != nil || res.IsError {
+		t.Fatalf("pacto_edit answered %v:\n%s", err, text)
+	}
+	if got.Impact == nil || got.Impact.Completeness == "" || got.Impact.AsOf == "" {
+		t.Fatalf("impact %+v:\n%s", got.Impact, text)
+	}
+	want := []string{"pacto publish --plan", "pacto publish", "pacto delivery plan --type promote --to "}
+	if len(got.Chain) != len(want) {
+		t.Fatalf("chain %+v", got.Chain)
+	}
+	for i, s := range got.Chain {
+		if !strings.HasPrefix(s.Command, want[i]) || s.Tool != "" || !strings.Contains(s.Why, "this session does not serve") {
+			t.Errorf("step %d = %+v", i, s)
+		}
+	}
+	if !strings.HasPrefix(got.Executor, "the provider") {
+		t.Errorf("executor %q", got.Executor)
+	}
+	if after, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml")); string(after) != string(before) {
+		t.Error("a dry run changed pacto.yaml")
 	}
 }

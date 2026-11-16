@@ -38,9 +38,13 @@ type Request struct {
 	From   string `json:"from,omitempty"`
 	Undoes string `json:"undoes,omitempty"`
 	// Record is the id of the upstream stand-in an acknowledge accepts.
-	Record     string `json:"record,omitempty"`
-	Reason     string `json:"reason,omitempty"`
-	OnBehalfOf string `json:"onBehalfOf,omitempty"`
+	Record string `json:"record,omitempty"`
+	Reason string `json:"reason,omitempty"`
+	// CorrelationID ties the change to an incident or another change (a
+	// ticket id). It is kept with the change and its record and is not part
+	// of the intent digest, so setting it never stales a plan.
+	CorrelationID string `json:"correlationID,omitempty"`
+	OnBehalfOf    string `json:"onBehalfOf,omitempty"`
 	// Cause is why, when it is a verdict the caller cites: the promoter runs
 	// it again at admission and refuses a cause that does not hold.
 	Cause *Cause `json:"cause,omitempty"`
@@ -136,6 +140,8 @@ type HistoryEntry struct {
 	UnverifiedRecord string `json:"unverifiedRecord,omitempty"`
 	// Pointer is the move this operation made, when it moved the Stage.
 	Pointer *PointerChange `json:"pointer,omitempty"`
+	// Impact is the pacto.impact verdict the record carries for the change.
+	Impact *Verdict `json:"impact,omitempty" doc:"The pacto.impact verdict the record carries for the change; empty on a line read from an Operation's status. It is signed only when the history is verified"`
 	// Approvals are the people's decisions the operation consumed. It is
 	// always sent, null when there were none, so a reader can tell "no
 	// person decided" from "not said".

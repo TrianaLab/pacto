@@ -1,0 +1,146 @@
+{
+  "asOf": "2026-11-14T12:00:00Z",
+  "window": {
+    "since": "2026-10-15T12:00:00Z",
+    "until": "2026-11-14T12:00:00Z"
+  },
+  "registry": "registry.example.com/acme/pacto-stats",
+  "provenance": "unsigned statistics",
+  "recordsRead": 7,
+  "runs": 5,
+  "distinctChanges": 1,
+  "skipped": {
+    "malformed": 1,
+    "oversized": 0,
+    "unreadable": 0
+  },
+  "truncated": "",
+  "hidden": {
+    "present": false
+  },
+  "completeness": "partial",
+  "limitations": [
+    {
+      "code": "RUN_RECORDS_SKIPPED",
+      "message": "1 record could not be read: 1 malformed, 0 oversized, 0 unreadable; they are left out of every number"
+    }
+  ],
+  "by": "service",
+  "totals": {
+    "changes": 1,
+    "breakingCaught": {
+      "distinct": 1,
+      "runs": 2
+    },
+    "consumersProtected": {
+      "count": 2,
+      "unknown": 1
+    },
+    "gates": {
+      "clear": 0,
+      "blocked": 1,
+      "unverified": 0
+    },
+    "environments": [
+      {
+        "environment": "production",
+        "source": "context",
+        "operations": 2,
+        "held": {
+          "count": 1,
+          "of": 2
+        },
+        "failed": {
+          "count": 1,
+          "of": 2
+        },
+        "rolledBack": {
+          "count": 0,
+          "of": 1
+        },
+        "verificationFailed": {
+          "count": 0,
+          "of": 1
+        },
+        "acceptedUnknown": 0,
+        "leadTime": {
+          "p50Seconds": 3600,
+          "p90Seconds": 3600,
+          "joined": 1,
+          "unjoined": 0
+        }
+      }
+    ]
+  },
+  "coverage": {
+    "services": 4,
+    "uncontracted": 1,
+    "knowledge": {
+      "services": 4,
+      "described": 1,
+      "withGaps": 2,
+      "unknown": 1,
+      "notDeployed": 1
+    },
+    "links": {
+      "exact": 3,
+      "inferred": 0,
+      "ambiguous": 0,
+      "unresolved": 1
+    },
+    "snapshotAsOf": "2026-11-14T08:00:00Z",
+    "completeness": "partial"
+  },
+  "groups": [
+    {
+      "key": "orders",
+      "label": "orders",
+      "metrics": {
+        "changes": 1,
+        "breakingCaught": {
+          "distinct": 1,
+          "runs": 2
+        },
+        "consumersProtected": {
+          "count": 2,
+          "unknown": 1
+        },
+        "gates": {
+          "clear": 0,
+          "blocked": 1,
+          "unverified": 0
+        },
+        "environments": [
+          {
+            "environment": "production",
+            "source": "context",
+            "operations": 2,
+            "held": {
+              "count": 1,
+              "of": 2
+            },
+            "failed": {
+              "count": 1,
+              "of": 2
+            },
+            "rolledBack": {
+              "count": 0,
+              "of": 1
+            },
+            "verificationFailed": {
+              "count": 0,
+              "of": 1
+            },
+            "acceptedUnknown": 0,
+            "leadTime": {
+              "p50Seconds": 3600,
+              "p90Seconds": 3600,
+              "joined": 1,
+              "unjoined": 0
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

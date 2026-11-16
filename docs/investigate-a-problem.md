@@ -10,21 +10,20 @@ says what to cite.
 
 ## Set up
 
-Run three MCP servers side by side and give your agent all three:
+Run one Pacto server for fleet and delivery questions beside Mira's own, and
+give your agent both:
 
 ```bash
-# Fleet questions, with Mira's service map as observed calls
+# Fleet questions, with Mira's service map as observed calls, and delivery
+# questions over the cluster your kubeconfig points at
 pacto mcp --fleet --k8s --mira-source http://mira:4318 \
-  --dashboard-url https://pacto.example.com
-
-# Delivery questions, over the cluster your kubeconfig points at
-pacto mcp --delivery
+  --dashboard-url https://pacto.example.com --delivery
 
 # Mira's own tools, served by Mira at POST /mcp
 #   http://mira:4318/mcp
 ```
 
-The servers stay separate because each has its own authorization model. Fleet
+Each family keeps its own authorization in the one Pacto server. Fleet
 answers can be restricted to what a caller may read. Delivery reads run as the
 caller against the cluster. Mira has no authentication. Pacto reads only
 Mira's service map, and only from the URL the operator passes with
@@ -53,6 +52,57 @@ questions. When the changes of an incident share a correlation id,
 `pacto delivery history --all --correlation-id <id>` (`correlation_id` in
 `pacto_delivery_history`) lists exactly those, and `--cause` finds the
 changes a verdict or reason caused.
+
+To ask what a service looked like before, run
+`pacto delivery history --all --service <service> --at <time>` (`at` in
+`pacto_delivery_history`): it names the revision each Stage ran then, from
+signed records, and a Stage with no record before that time reads `unknown`. Each history line carries the `pacto.impact`
+verdict its record signed at the time. Rerun `pacto_impact` on the same two
+revisions to see who the change reaches against today's graph.
+
+## Act on what you found
+
+The dashboard plans a change from the page where you found the problem:
+
+- A target page offers what you may do on the Stage that delivers its
+  environment, such as a promote or an undo of the change that Stage runs.
+- A revision page offers the promote of that revision's artifact, matched by
+  its contract digest, so another artifact with the same version is never
+  offered.
+- A Change analysis answer offers the promote of the new revision, or the undo
+  on a Stage that runs the regressed artifact.
+
+Each **Plan…** button shows only an action you may take now. It plans and
+proposes nothing: the panel shows the plan, and **Propose** sends it with your
+identity. A `?correlationID=CHG-2041` in the page's URL fills the panel's
+"Ticket or incident id" field, for example
+`#/fleet/targets/<target>?correlationID=CHG-2041`.
+
+![The delivery section of the payments target page in prod: the Plan promote of 3.0.0 button and the plan it opened, with CHG-2041 in the ticket field](assets/screenshots/dashboard-act-from-investigation-light.png#only-light)
+![The delivery section of the payments target page in prod: the Plan promote of 3.0.0 button and the plan it opened, with CHG-2041 in the ticket field](assets/screenshots/dashboard-act-from-investigation-dark.png#only-dark)
+
+Fleet attention items whose fix is a contract edit carry `nextAction`
+(`{"verb": "edit-contract", "tool": "pacto_edit"}`). Pacto infers it from the
+item's code, and it grants nothing.
+
+An agent plans with `pacto_delivery_operation_plan`, then proposes with
+`pacto_delivery_operation_propose`, the plan's intent digest, the person who
+asked in `on_behalf_of` and the incident in `correlation_id`. The CLI runs
+`pacto delivery plan`, then `pacto delivery propose` with the same flags and
+`--intent-digest`.
+
+To tie a change to an incident, write its id when you plan or propose it:
+`--correlation-id` in the CLI, `correlation_id` in
+`pacto_delivery_operation_plan` and `pacto_delivery_operation_propose`, or the
+"Ticket or incident id" field of the dashboard's propose panel. The automatic rollback,
+freeze or step-down the promoter raises after that change inherits the id, so
+the history of the incident lists them too. A rollback you ask for carries it
+the same way:
+
+```bash
+pacto delivery propose -n prod --stage payments --type rollback \
+  --undoes <operation> --correlation-id CHG-2041 --reason "error rate after 2.4.1"
+```
 
 ## Read the evidence
 

@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, type Locator, type Page } from '@playwright/test';
 import { settle } from './ready';
 
 // G1, the transversal layout gate, and the scale fixture it runs on.
@@ -80,7 +80,18 @@ export function installScaleFixture(): void {
     doc.truncated = offset + count < total;
     if (doc.truncated) doc.nextOffset = offset + count;
   };
-  const LIST_TOTAL: Record<string, number> = { service: 5000, owner: 300, domain: 300, source: 50 };
+  const LIST_TOTAL: Record<string, number> = { service: 5000, owner: 300, domain: 300, source: 50, offering: 2400 };
+  // The Offerings figure at fleet scale (B3): requests in the thousands across 2,400
+  // offerings, the three with most failed consumers named (the backend's bound) and 37
+  // more, so the failed list holds 40 offerings.
+  const FAILED_OFFERINGS: [string, number][] = [[longName('load-offering-a'), 412], [longName('load-offering-b'), 97], [longName('load-offering-c'), 31]];
+  const FAILED_BEYOND = 37;
+  const offeringAgg = (ag: Record<string, unknown>, offerings: number) => Object.assign(ag, {
+    matched: offerings, offeringCount: offerings,
+    offeringPhases: { requested: 1840, provisioning: 2210, ready: 18400, failed: 1290, deleting: 120, unknown: 3300 },
+    offeringPhaseConsumers: { requested: 900, provisioning: 1100, ready: 7200, failed: 640, deleting: 60, unknown: 1500 },
+    failedByOffering: FAILED_OFFERINGS.map(([type, services]) => ({ type, services })), failedOfferingsBeyond: FAILED_BEYOND,
+  });
   const NC_OWNERS: [string, number, number][] = [['team:load-owner-a', 40, 297], ['team:load-owner-b', 31, 60], ['team:load-owner-c', 22, 30], ['team:load-owner-d', 12, 400]];
   const NC_DOMAINS: [string, number, number][] = [[longName('load-domain-a'), 45, 310], [longName('load-domain-b'), 30, 90], [longName('load-domain-c'), 25, 40], [longName('load-domain-d'), 15, 700]];
   const NC_LISTS = new Map<string, number>([...NC_OWNERS, ...NC_DOMAINS].map(([k, n]) => [k, n] as [string, number])
@@ -95,10 +106,11 @@ export function installScaleFixture(): void {
     const q = new URLSearchParams(query);
     const meta = doc.meta as Record<string, unknown> | undefined;
     if (meta && meta.sourceCounts) meta.sourceCounts = { ...SOURCE_COUNTS };
+    if (route === '/api/capabilities' && statsMode() !== 'engine') doc.stats = statsMode() !== 'off';
     // A narrowed list (a domain, an owner, a status, a service, an offering's consumers)
     // keeps the engine's total: the fixture leaves the tallies that link to it (an
     // offering's phases, the non-compliant rankings) alone.
-    const narrowed = ['businessDomain', 'service', 'consumes', 'ownerKey', 'owner', 'status', 'ownership', 'sourceHealth', 'text', 'createdFrom'].some((k) => q.get(k));
+    const narrowed = ['businessDomain', 'service', 'consumes', 'ownerKey', 'owner', 'status', 'ownership', 'sourceHealth', 'text', 'createdFrom', 'failed', 'lifecycle', 'gap'].some((k) => q.get(k));
     // The golden path list keeps the engine's paths: a fleet has a handful.
     if (route === '/api/fleet/entities' && Number(q.get('limit') || 25) > 1 && !narrowed && q.get('template') !== 'only') {
       const total = LIST_TOTAL[q.get('kinds') || ''];
@@ -113,6 +125,36 @@ export function installScaleFixture(): void {
         } else if (ag) {
           ag.matched = total;
         }
+      }
+    }
+    // Offering rows at their longest: long owners, every availability with how Pacto
+    // knows it, consumers you may not see and target counts that cannot be known.
+    if (route === '/api/fleet/entities' && q.get('kinds') === 'offering') {
+      const AV: [string, string][] = [['unavailable', 'inferred'], ['degraded', 'observed'], ['available', 'observed'], ['unknown', 'unknown']];
+      (doc.entities as Record<string, unknown>[]).forEach((r, i) => {
+        r.owner = i % 3 === 1 ? '2 owners claim it' : longName(String(r.owner || 'platform-owner'));
+        [r.availability, r.availabilityProvenance] = AV[i % AV.length];
+        r.lifecycle = ['deprecated', 'sunset', 'supported', 'unknown'][i % 4];
+        r.consumers = 1200 + i; r.failedRequests = i % 2 ? 0 : 340 + i;
+        if (i % 2) { r.hiddenConsumers = 1234; r.hiddenProviders = 12; r.targetsUnknown = true; r.targets = 0; }
+      });
+      const ag = doc.aggregate as Record<string, unknown> | undefined;
+      // Only the bare failed list is the figure's: a failed list narrowed further keeps the engine's answer.
+      if (q.get('failed') && !q.get('lifecycle') && !q.get('text')) {
+        const n = FAILED_OFFERINGS.length + FAILED_BEYOND;
+        // The figure's failed offerings are made up, so the engine lists none of them:
+        // stand-ins fill the page and the total is what the Failed station lists.
+        const ents = doc.entities as Record<string, unknown>[];
+        if (!ents.length) {
+          const lim = Math.min(n, Number(q.get('limit') || 25));
+          doc.entities = Array.from({ length: lim }, (_, i) => ({ kind: 'offering', key: `load-failed-${i}`, label: longName(`load-failed-${i}`), offering: `load-failed-${i}`,
+            owner: longName(`owner-${i}`), services: 1, consumers: 900 + i, failedRequests: 20 + i, lifecycle: 'deprecated', availability: 'degraded', availabilityProvenance: 'inferred', href: `/fleet/offerings/load-failed-${i}` }));
+          doc.count = lim;
+        }
+        page(doc, n);
+        if (ag) offeringAgg(ag, n);
+      } else if (ag && !narrowed && Number(q.get('limit') || 25) > 1) {
+        offeringAgg(ag, LIST_TOTAL.offering);
       }
     }
     // The non-compliant rankings at fleet scale (389 of 5,000 across 300 owners and
@@ -164,16 +206,56 @@ export function installScaleFixture(): void {
     if (route === '/api/fleet/overview') {
       const s = doc.summary as Record<string, unknown>;
       s.services = 5000; s.servicesNeedingAttention = 389; s.domains = 300;
-      scaleTally(s.ownership as Record<string, number>, 5000);
+      s.ownership = { consistent: 3120, conflicting: 640, unowned: 1060, unknown: 180 };
       s.degradedSources = 2; s.staleSources = 2; s.unavailableSources = 2;
+      // The health and knowledge bands and the domain table at fleet scale: every
+      // count four digits, every gap kind present and long domain names.
+      Object.assign(s, {
+        targets: 9000, compliantTargets: 6100, staleCompliantTargets: 1240, nonCompliantTargets: 1200, unknownTargets: 1700,
+        warningTargets: 0, invalidTargets: 0, referenceTargets: 0, notEvaluatedTargets: 0, otherComplianceTargets: 0,
+        exactTargetLinks: 7000, inferredTargetLinks: 1200, ambiguousTargetLinks: 500, unresolvedTargetLinks: 300,
+        evidence: { withEvidence: 8100, withoutEvidence: 900, stale: 1500 },
+      });
+      s.operationalHealth = { available: 5200, degraded: 0, unavailable: 1180, unknown: 1820, notObserved: 800 };
+      s.knowledge = { services: 5000, described: 1100, withGaps: 3400, unknown: 500,
+        gaps: { noSummary: 2900, noDomain: 1400, noInterfaceDocs: 1200, noReadiness: 3100, notDeployed: 1050, unverifiedCapability: 1010 } };
+      s.coverage = { evaluated: 81200, required: 96400, reporting: 7900, notReporting: 1100 };
+      const row = { targets: 2100, nonCompliant: 1300, failingHealth: 1100, unknown: 1400, stale: 1250, notDeployed: 1020, withGaps: 1900, unowned: 1080, ownerUnknown: 1010 };
+      s.byDomain = [...NC_DOMAINS.map(([domain], i) => ({ ...row, domain, services: 1200 - i * 100 })),
+        { ...row, domain: '', domainUnknown: true, services: 1400 }, { ...row, domain: '', services: 1100 }];
       const at = doc.attention as Record<string, unknown>;
-      if (at) at.total = 2400;
+      if (at) { at.total = 2400; at.actionable = 1900; }
     }
     if (route === '/api/fleet/attention') {
       page(doc, 2400);
       scaleTally(doc.severities as Record<string, number>, 2400);
+      // Every category holds items, so each bar and its label are drawn at scale.
       const cats = doc.categories as { count: number }[] | undefined;
-      if (cats) { const parts = split(2400, cats.map((c) => c.count)); cats.forEach((c, i) => { c.count = parts[i]; }); }
+      if (cats) { const parts = split(2400, cats.map((c) => c.count || 1)); cats.forEach((c, i) => { c.count = parts[i] || 1; }); }
+      // Each item's cause and next action at their longest: the code chip, the reason and
+      // the words of #472's nextAction must wrap inside the row.
+      for (const it of (doc.items as Record<string, unknown>[] | undefined) ?? []) {
+        it.code = `${String(it.code || 'UNKNOWN')}_${'OBSERVATION_UNSUPPORTED_'.repeat(3)}CAUSE`;
+        it.reason = longName(String(it.reason || 'reason'));
+        it.nextAction = { verb: 'edit-contract', tool: 'pacto_edit', environment: longName('production-environment') };
+      }
+    }
+    // Owner and domain rows with every count four digits.
+    if (route === '/api/fleet/entities' && ['owner', 'domain'].includes(q.get('kinds') || '')) {
+      (doc.entities as Record<string, unknown>[]).forEach((r, i) => Object.assign(r, { unknown: 1400 + i, stale: 1250 + i, failingHealth: 1100 + i, withGaps: 1900 + i }));
+    }
+    // The owner and domain pages: their health, knowledge and facts line at fleet scale.
+    if (route === '/api/fleet/entities/owner' || route === '/api/fleet/entities/domain') {
+      const sum = ((doc.owner ?? doc.domain) as Record<string, unknown> | undefined)?.summary as Record<string, unknown> | undefined;
+      if (sum) {
+        Object.assign(sum, {
+          targets: 9000, health: { available: 5200, degraded: 0, unavailable: 1180, unknown: 1820, notObserved: 800 },
+          knowledge: { services: 5000, described: 1100, withGaps: 3400, unknown: 500,
+            gaps: { noSummary: 2900, noDomain: 1400, noInterfaceDocs: 1200, noReadiness: 3100, notDeployed: 1050, unverifiedCapability: 1010 } },
+          notDeployed: 1050, readiness: { passing: 2100, belowThreshold: 1300, expired: 1100, notDeclared: 3100 },
+          unresolvedDependencies: 1200, undeclaredDependencies: 1400,
+        });
+      }
     }
     if (route === '/api/fleet/entities/offering') {
       const off = doc.offering as Record<string, Record<string, unknown>>;
@@ -185,6 +267,69 @@ export function installScaleFixture(): void {
           ...base, service: { ...svc, key: `${svc.key}-p${i}`, label: `${svc.label}-provider-${i}`, href: `${svc.href}-p${i}` },
         }));
         prov.total = 25; prov.count = prov.items.length; prov.truncated = true;
+      }
+      // Availability at its longest (#464): long environment names, five unreachable
+      // reporters with long keys, a partial environment and a long successor ref.
+      const unreachable = Array.from({ length: 5 }, (_, u) => {
+        const key = `domain-load/${longName(`unreachable-${u}`)}`;
+        return { kind: 'service', key, label: longName(`unreachable-${u}`), href: `/fleet/services/${encodeURIComponent(key)}` };
+      });
+      const states = ['available', 'degraded', 'unavailable', 'unknown'];
+      const avail = (seed: string) => ({
+        state: 'degraded', asOf: '2026-11-10T08:00:00Z', total: 6,
+        byEnvironment: states.map((state, e) => ({
+          environment: longName(`${seed}-production-${e}`), state, provenance: ['observed', 'inferred', 'inferred', 'unknown'][e],
+          reason: longName(`${e} of 4 targets reporting; ${unreachable[0].label} cannot reach it`), reporting: e, targets: 4,
+          evidenceAt: '2026-11-10T07:00:00Z', partial: e === 1, unreachable: e ? unreachable : undefined,
+          providers: (prov?.items ?? []).slice(0, 3).map((p) => p.service),
+        })),
+      });
+      if (off) {
+        off.availability = avail('offering') as unknown as Record<string, unknown>;
+        (off as Record<string, unknown>).hiddenProviders = 2;
+      }
+      for (const [i, p] of (prov?.items ?? []).entries()) {
+        p.availability = avail(`provider-${i}`);
+        p.successor = { provenance: i % 2 ? 'unknown' : 'inferred', ref: `oci://ghcr.io/${longName('successor-registry-namespace')}/${longName('successor')}:17.0.0`, reason: i % 2 ? longName('no revision 17.0.0 in this snapshot') : undefined };
+      }
+      const pv = (prov?.items ?? [])[0]?.service as Record<string, unknown> | undefined;
+      if (off && pv) {
+        off.observedConsumers = {
+          items: Array.from({ length: 30 }, (_, o) => o % 3 === 2
+            ? { caller: longName(`uncontracted-caller-${o}`), provider: pv, provenance: 'observed', uncontracted: true }
+            : { consumer: { kind: 'service', key: `domain-load/observed-${o}`, label: longName(`observed-caller-${o}`), href: `/fleet/services/${encodeURIComponent(`domain-load/observed-${o}`)}` },
+              provider: pv, provenance: 'observed', lastSeen: '2026-11-08T08:00:00Z', stale: o % 2 === 0, sources: [longName('mira-observation-source')] }),
+          total: 412, count: 30, truncated: true,
+        };
+        (off as Record<string, unknown>).hiddenObservedConsumers = 7;
+      }
+      // Adapters at scale (#463), guarded like the providers: an offering with no
+      // adapter keeps its real empty state. One item has no slug ("unnamed adapter").
+      if ((off?.adapters as { items?: unknown[] } | undefined)?.items?.length) {
+        off.adapters = {
+          total: 40, count: 10, truncated: true, unattributed: 3200, conflicting: 400,
+          items: Array.from({ length: 10 }, (_, i) => ({
+            provider: i === 9 ? '' : longName(`scanner-${i}`), producer: longName(`security-adapter-${i}`), verified: i % 2 === 0,
+            environments: Array.from({ length: 12 }, (_, e) => longName(`prod-${e}`)),
+            phases: { requested: 1200, provisioning: 30, ready: 2400, readyUnsigned: i % 2 === 0 ? 0 : 2400, failed: 7, deleting: 2, unknown: 900 },
+            lastReportedAt: '2026-11-13T09:00:00Z', provenance: 'observed', disagrees: i === 3 ? 400 : 0,
+          })),
+        };
+      }
+      if (((off?.unresolvedUses as { count?: number } | undefined)?.count ?? 0) > 0) {
+        off.unresolvedUses = { count: 4000, reason: longName('the reference is not digest-pinned or locked'), provenance: 'inferred' };
+      }
+      // The unsigned share of every Ready tally, so the stations read it at scale.
+      const cons = off?.consumers as { phases?: Record<string, number>; phaseConsumers?: Record<string, number> } | undefined;
+      for (const t of [cons?.phases, cons?.phaseConsumers]) if (t?.ready) t.readyUnsigned = Math.floor(t.ready / 2);
+    }
+    // A checked range's answer carries the provider's successor at its longest ref.
+    if (route === '/api/fleet/versions') {
+      for (const pr of (doc.providers as { versions?: Record<string, unknown> }[] | undefined) ?? []) {
+        if (pr.versions && pr.versions.range) {
+          pr.versions.successor = { provenance: 'unknown', ref: `oci://ghcr.io/${longName('successor-registry-namespace')}/${longName('successor')}:17.0.0`, reason: longName('no revision 17.0.0 in this snapshot') };
+          pr.versions.successorRange = 'unknown';
+        }
       }
     }
     // The inbox figure at fleet scale: 60 environments with long names, a declared chain
@@ -215,6 +360,9 @@ export function installScaleFixture(): void {
       // keys, digests and hrefs stay the engine's.
       for (const r of (doc.environments as Record<string, unknown>[] | undefined) ?? []) {
         if (q.get('service') && longName(String(r.service)) === q.get('service')) r.service = q.get('service');
+        if (flags.__pactoLongPropose) {
+          for (const k of ['namespace', 'stage', 'candidateVersion']) if (typeof r[k] === 'string' && r[k]) r[k] = longName(r[k] as string);
+        }
         for (const o of (r.offers as Record<string, unknown>[] | undefined) ?? []) o.reason = longName(String(o.reason ?? 'offer'));
         for (const k of ['readyFix', 'readyMessage', 'sourceRevision', 'contractRef']) if (typeof r[k] === 'string') r[k] = longName(r[k] as string);
         const lc = r.lastCheck as { verdicts?: Record<string, unknown>[] } | undefined;
@@ -230,13 +378,15 @@ export function installScaleFixture(): void {
       if (typeof doc.autoPromote === 'string') doc.autoPromote = longName(doc.autoPromote || 'auto');
     }
     // A service's environments: long environment names, owners, reasons and version
-    // labels (keys and hrefs stay the engine's). storefront-web holds 200 environments,
-    // 200 differences and 200 history events, so the section is drawn at fleet scale.
+    // labels (keys and hrefs stay the engine's). storefront-web holds 200 environments
+    // and 200 differences, so the section is drawn at fleet scale. The plain and the
+    // reached=true request both answer here (matched on the pathname).
     if (route === '/api/fleet/entities/service') {
       const svc = doc.service as Record<string, unknown> | undefined;
       const pl = svc?.placement as Record<string, unknown> & { items?: Record<string, unknown>[] } | undefined;
-      const hist = svc?.environmentHistory as Record<string, unknown> & { items?: Record<string, unknown>[] } | undefined;
-      if (pl && hist && (doc.entity as { key?: string } | undefined)?.key === 'storefront-web') {
+      const changes = svc?.changes as Record<string, unknown> & { items?: Record<string, unknown>[] } | undefined;
+      const entityKey = (doc.entity as { key?: string } | undefined)?.key;
+      if (pl && entityKey === 'storefront-web') {
         const tpl = (pl.items ?? []).find((it) => it.declaration) ?? {};
         const names = Array.from({ length: 200 }, (_, i) => `env-${i}`);
         pl.items = names.map((n, i) => ({ ...tpl, environment: n, targetsComplete: i % 4 !== 0, targetsReason: i % 4 ? undefined : 'reason-targets',
@@ -248,10 +398,71 @@ export function installScaleFixture(): void {
         pl.differences = Array.from({ length: 200 }, (_, i) => ({ configuration: `config-${i % 5}`, path: `spec.path-${i}`,
           values: Object.fromEntries(names.slice(i % 190, (i % 190) + 4).map((n, j) => [n, j ? `value-${i}-${j}` : { nested: `value-${i}` }])) }));
         pl.differencesTotal = 240;
-        const rev = (hist.items ?? [])[0]?.revision ?? pl.currentRevision;
-        hist.items = Array.from({ length: 200 }, (_, i) => ({ change: ['added', 'removed', 'changed', 'present'][i % 4], environment: names[i],
-          fields: i % 4 === 2 ? ['file', 'lifetime', 'expires', 'owner'] : undefined, revision: rev }));
-        hist.total = 200; hist.count = 200; hist.truncated = false; hist.gaps = 3; hist.completeness = 'partial'; hist.completenessReason = 'reason-history';
+      }
+      // Changes at scale (#459): 200 events across every kind with long subjects and
+      // values, three reached Stages each with long names, three gaps, partial, and
+      // capped: 350 held, the 200 newest shown.
+      if (changes && entityKey === 'storefront-web') {
+        const first = (changes.items ?? [])[0];
+        const rev = first?.revision ?? pl?.currentRevision;
+        const prev = first?.previous ?? rev;
+        const kinds = ['owner', 'domain', 'offering', 'dependency', 'lifecycle', 'environment', 'finding'];
+        changes.items = Array.from({ length: 200 }, (_, i) => ({ kind: kinds[i % 7], change: ['added', 'removed', 'changed', 'present'][i % 4],
+          subject: i % 7 >= 3 ? longName(`subject-${i}`) : undefined, fields: i % 4 === 2 ? ['file', 'lifetime', 'expires', 'owner'] : undefined,
+          from: i % 4 === 3 ? undefined : longName(`from-value-${i}`), to: longName(`to-value-${i}`), revision: rev, previous: i % 4 === 3 ? undefined : prev,
+          provenance: 'declared', source: i % 7 === 6 ? 'validation' : 'contract',
+          reached: [0, 1, 2].map((j) => ({ namespace: longName(`namespace-${j}`), stage: longName(`stage-${j}`), environment: longName(`environment-${j}`),
+            at: '2026-11-10T14:02:00Z', record: j === 2 ? undefined : `rec-${i}-${j}`, verified: j === 0, fromStatus: j === 2 })) }));
+        Object.assign(changes, { total: 350, count: 200, truncated: true, gaps: 3, completeness: 'partial', completenessReason: longName('reason-changes'), times: 'read' });
+      }
+      // A caller who may not list Stages: every line reads "time hidden".
+      if (changes && entityKey === 'notification-worker') {
+        Object.assign(changes, { times: 'hidden', timesReason: longName('stages.delivery.pacto.trianalab.io is forbidden: User cannot list resource stages in API group delivery.pacto.trianalab.io at the cluster scope') });
+        for (const e of changes.items ?? []) delete e.reached;
+      }
+      // Resources at scale (#468), on orders-service only so catalog-service stays the
+      // realistic case: 40 uses with long provider labels, long configuration keys and
+      // values, long external refs, three environments each (Failed, stale Unknown and
+      // unsigned Ready), usage reported, untrusted and with 16 long metrics, and three
+      // providers the viewer may not see.
+      const used = svc?.consumedOfferings as Record<string, unknown> & { items?: Record<string, unknown>[] } | undefined;
+      if (svc && used && (used.items ?? []).length && (doc.entity as { key?: string } | undefined)?.key === 'orders-service') {
+        const base = (used.items ?? [])[0];
+        const pv = base.provider as Record<string, unknown>;
+        const phases = [
+          { phase: 'Failed', verified: true, producer: longName('platform-adapter'), source: 'evidence', asOf: '2026-11-10T07:00:00Z' },
+          { phase: 'Unknown', verified: false, source: 'target-state', stale: true, reportedPhase: 'Ready', reason: longName('the last report is older than the provisioning window'), asOf: '2026-07-29T09:40:00Z' },
+          { phase: 'Ready', verified: false, producer: longName('platform-adapter'), source: 'target-state', asOf: '2026-11-10T07:00:00Z' },
+        ];
+        // Usage per environment: reported, unknown with untrusted figures and long figures.
+        const figures = (n: number) => ({ metrics: Array.from({ length: n }, (_, m) => ({ name: longName(`storage-used-metric-${m}`), value: 123456789.123456, unit: 'GiB-month' })),
+          cost: { amount: '123456789012345.123456', currency: 'USD', period: 'P1Y' } });
+        const usage = [
+          { state: 'reported', figures: figures(2), producer: longName('platform-adapter'), source: 'evidence', verified: true, asOf: '2026-11-10T07:00:00Z' },
+          { state: 'unknown', reason: longName('the usage report is not signed'), reported: figures(3), source: 'target-state', verified: false, asOf: '2026-07-29T09:40:00Z' },
+          { state: 'reported', figures: figures(16), producer: longName('platform-adapter'), source: 'evidence', verified: true, asOf: '2026-11-10T07:00:00Z' },
+          { state: 'unknown', reason: longName('the providers that report usage for this resource disagree'), conflict: [longName('producer-a'), longName('producer-b')] },
+        ];
+        const consumerRevision = { kind: 'revision', key: `orders-service@sha256:${'b'.repeat(64)}`, label: longName('orders-service 1.4.0'), href: `/fleet/revisions/${encodeURIComponent(`orders-service@sha256:${'b'.repeat(64)}`)}` };
+        used.items = Array.from({ length: 40 }, (_, i) => {
+          const key = `${pv.key}-r${i}`;
+          return {
+            ...base, offering: i % 3 === 2 ? '' : base.offering, via: i % 2 ? 'dependency' : 'configuration_reference',
+            provider: { ...pv, key, label: longName(`resource-provider-${i}`), href: `${pv.href}-r${i}` },
+            providerAvailability: { state: ['available', 'degraded', 'unavailable', 'unknown'][i % 4], byEnvironment: [], total: 0, asOf: '2026-11-10T08:00:00Z' },
+            requested: i % 2 ? undefined : [{ entry: longName(`entry-${i}`), configuration: longName(`configuration-${i}`), provenance: 'declared', consumerRevision,
+              revision: { kind: 'revision', key: `${key}@sha256:${'a'.repeat(64)}`, label: longName(`resource-provider-${i} 16.1.0`), href: `/fleet/revisions/${encodeURIComponent(`${key}@sha256:${'a'.repeat(64)}`)}` },
+              values: { total: 3, count: 3, scanned: 3, truncated: false, items: [0, 1, 2].map((k) => ({ key: longName(`spec.parameters.key-${i}-${k}`), value: longName(`value-${i}-${k}`) })) } }],
+            provisioning: [0, 1, 2].map((e) => ({ ...phases[e], environment: longName(`production-${e}`), provenance: 'observed', provider: longName('crossplane-adapter'),
+              externalRef: `${longName('databases/external-reference')}/${longName(`resource-${i}-${e}`)}` })),
+            consumption: i % 4 === 3
+              ? [{ state: 'not-reported', provenance: 'observed', reason: 'no provider reports usage or cost for this resource to Pacto; ask Mira for live signals' }]
+              : [0, 1, 2, 3].map((e) => ({ ...usage[e], environment: longName(`production-${e}`), entry: longName(`entry-${i}`), provenance: 'observed',
+                revision: { kind: 'revision', key: consumerRevision.key, label: consumerRevision.label } })),
+          };
+        });
+        used.total = 120; used.count = 40; used.truncated = true;
+        svc.hiddenProviders = 3;
       }
       for (const it of pl?.items ?? []) {
         if (it.environment) it.environment = longName(String(it.environment));
@@ -266,8 +477,8 @@ export function installScaleFixture(): void {
         df.configuration = longName(String(df.configuration)); df.path = longName(String(df.path));
         df.values = Object.fromEntries(Object.entries(df.values as Record<string, unknown>).map(([k, v]) => [longName(k), typeof v === 'string' ? longName(v) : v]));
       }
-      for (const e of hist?.items ?? []) e.environment = longName(String(e.environment));
-      if (typeof hist?.completenessReason === 'string') hist.completenessReason = longName(hist.completenessReason);
+      for (const e of changes?.items ?? []) for (const k of ['subject', 'from', 'to']) if (typeof e[k] === 'string' && e[k]) e[k] = longName(e[k] as string);
+      if (typeof changes?.completenessReason === 'string') changes.completenessReason = longName(changes.completenessReason);
     }
     // A revision's and a target's environments at their longest: names, files and owners.
     const lengthenEnv = (d: Record<string, unknown> | undefined) => {
@@ -304,6 +515,24 @@ export function installScaleFixture(): void {
           o.reason = longName(`undo-${o.operation}`);
           if (i % 2) o.available = false;
         });
+      }
+      // Every record line carries a pacto.impact verdict with a long message (#459), and
+      // every digest a long fleet revision, so the impact line, its analyse link and the
+      // revision links show at their longest. Digests stay the engine's.
+      for (const h of (doc.histories as Record<string, unknown>[] | undefined) ?? []) {
+        ((h.entries as Record<string, unknown>[] | undefined) ?? []).forEach((en, i) => {
+          if (en.record) en.impact = { gate: 'pacto.impact', phase: 'pre', result: i % 2 ? 'Fail' : 'Pass', message: longName(`impact-${en.operation ?? i}`) };
+        });
+      }
+      const revs = (doc.revisions as Record<string, string> | undefined) ?? {};
+      for (const d of Object.keys((doc.versions as Record<string, string> | undefined) ?? {})) revs[d] ??= `${longName('registry.example/story/payments')}@${d}`;
+      doc.revisions = revs;
+      // As of at its longest: long Stage, service, owner, domain and reason names, and
+      // namespaces that could not be read.
+      const at = doc.at as { stages?: Record<string, unknown>[]; unreadable?: string[] } | undefined;
+      if (at) {
+        for (const st of at.stages ?? []) for (const k of ['stage', 'service', 'owner', 'businessDomain', 'reason', 'version']) if (typeof st[k] === 'string' && st[k]) st[k] = longName(st[k] as string);
+        at.unreadable = [longName('staging-eu-west-partner-feed'), longName('compliance-archive')];
       }
     }
     // One record at its longest: many verdicts with long messages and citations.
@@ -389,6 +618,13 @@ export function installScaleFixture(): void {
         };
       };
       const all = names.map(consumer);
+      // An offering event names every provider it asked about: 25, the bound.
+      if (req.offeringKey) {
+        doc.providers = Array.from({ length: 25 }, (_, i) => {
+          const key = `domain-load/${longName(`provider-${i}`)}`;
+          return { kind: 'service', key, label: longName(`provider-${i}`), href: `/fleet/services/${encodeURIComponent(key)}` };
+        });
+      }
       // A leaf (the real answer lists no consumer) draws the clear answer: every lane
       // empty and the gate under them, the shape a complete snapshot gives it.
       const leaf = !!event && !cs.total;
@@ -457,21 +693,173 @@ export function installScaleFixture(): void {
 
   // A service page asks delivery for its service by the page's (lengthened) label: ask
   // the engine for the name it knows, and the rows come back under the long name.
+  // Under longPropose a panel also asks by a Stage's lengthened namespace and stage (the
+  // undo panel's GET): those go back to the engine's names too.
   const engineName = (path: string): string => {
     const [route, query = ''] = path.split('?');
+    if (!route.startsWith('/api/delivery/')) return path;
     const q = new URLSearchParams(query);
-    const asked = q.get('service');
-    const short = asked && route.startsWith('/api/delivery/') ? [...memo].find(([, v]) => v === asked)?.[0] : undefined;
-    if (!short) return path;
-    q.set('service', short);
-    return `${route}?${q}`;
+    const keys = flags.__pactoLongPropose ? ['service', 'namespace', 'stage'] : ['service'];
+    let moved = false;
+    for (const k of keys) {
+      const asked = q.get(k);
+      const short = asked ? [...memo].find(([, v]) => v === asked)?.[0] : undefined;
+      if (short) { q.set(k, short); moved = true; }
+    }
+    return moved ? `${route}?${q}` : path;
+  };
+  // A route that opens the propose panel sets these flags on the page: longPropose
+  // lengthens the Stage rows' namespace, stage and version (a plan or propose body is
+  // asked of the engine under the short names again), stalePropose answers every
+  // propose PlanStale with the fresh plan and no field that explains it.
+  const flags = window as unknown as { __pactoLongPropose?: boolean; __pactoStalePropose?: boolean };
+  const shortOf = (v: unknown) => [...memo].find(([, l]) => l === v)?.[0] ?? v;
+  const engineBody = (path: string, body: string | null): string | null => {
+    if (!flags.__pactoLongPropose || !body || !/^\/api\/delivery\/(plan|operations)$/.test(path)) return body;
+    const b = JSON.parse(body) as Record<string, unknown>;
+    b.namespace = shortOf(b.namespace);
+    b.stage = shortOf(b.stage);
+    return JSON.stringify(b);
+  };
+  // The Metrics page's answers (#493). The fixture replaces the demo's own run records, so
+  // `sessionStorage['fixture.stats']` picks the state, read on every call: `off` serves
+  // none, `none` a window without run records, unset a recorded one, and `engine` leaves
+  // /api/stats, /api/stats/records and the stats capability to the engine (the browser
+  // demo's own run records, #493 S5).
+  const statsMode = () => { try { return sessionStorage.getItem('fixture.stats') ?? ''; } catch { return ''; } };
+  // `restricted` serves what a signed-in reader with a narrow view gets: the hidden line,
+  // no coverage history. Unset serves the scale case: 60 environments with forks, a
+  // cycle and an unordered one, 2,000 services paged, names of 60 to 200 characters and
+  // 3 skipped records. Every count the page links says how many records it opens, and
+  // /api/stats/records answers exactly that many (figureLinkTotals checks it).
+  const STATS_DAYS: Record<string, number> = { '7d': 7, '30d': 30, '90d': 90 };
+  const ratio = (count: number, of: number) => (of ? { count, of } : { count: 0, of: 0, unknown: true });
+  const statsEnvName = (i: number) => longName(`stats-env-${i}`);
+  const STATS_ENVS = Array.from({ length: 60 }, (_, i) => {
+    const hot = i % 15 === 0; // only a few environments have something to list, so the link sweep stays short
+    return {
+      environment: statsEnvName(i), source: 'context', operations: 40 + i,
+      held: ratio(hot ? 3 : 0, 20), failed: ratio(hot ? 2 : 0, 20), rolledBack: i % 4 === 1 ? ratio(0, 0) : ratio(hot ? 1 : 0, 18),
+      verificationFailed: ratio(hot ? 1 : 0, 16), acceptedUnknown: i % 9,
+      leadTime: i % 3 ? { p50Seconds: 3_600 * (i + 1), p90Seconds: 9_000 * (i + 1), joined: 4, unjoined: 1 } : { joined: 0, unjoined: 2, unknown: true },
+      upstream: i === 0 ? [] : i % 10 === 5 ? [statsEnvName(i - 1), statsEnvName(i - 2)] : [statsEnvName(i - 1)],
+      ...(i === 58 ? { cycle: true } : {}), ...(i === 59 ? { unordered: true } : {}),
+    };
+  });
+  const STATS_GATES = { clear: 400, blocked: 37, unverified: 12 };
+  const statsTotal = (metric: string, env: string): number => {
+    const rate = ['held', 'failed', 'rolledBack', 'verificationFailed'].includes(metric) ? metric as 'held' : '';
+    if (rate) return STATS_ENVS.filter((e) => !env || e.environment === env).reduce((n, e) => n + e[rate].count, 0);
+    return ({ breaking: 37, protected: STATS_GATES.blocked, ...STATS_GATES } as Record<string, number>)[metric] ?? 8;
+  };
+  const coverageOf = (asOf: Date, partial: boolean) => ({
+    services: 2000, uncontracted: 14, knowledge: { services: 2000, described: 1240, withGaps: 560, unknown: 200, notDeployed: 90 },
+    links: { exact: 4100, inferred: 900, ambiguous: 40, unresolved: 12 }, snapshotAsOf: asOf.toISOString(), completeness: partial ? 'partial' : 'complete',
+  });
+  const statsEnvelope = (mode: string, query: string) => {
+    const empty = mode === 'none', restricted = mode === 'restricted';
+    const days = STATS_DAYS[new URLSearchParams(query).get('window') ?? ''] ?? 30;
+    const until = new Date(), since = new Date(until.getTime() - days * 86_400_000);
+    const limitations = empty
+      ? [{ code: 'NO_RUN_RECORDS', message: 'no run records in this window: recording may be off for these jobs, or the window holds none' }]
+      : [{ code: 'RUN_RECORDS_SKIPPED', message: '3 run records could not be counted: 1 malformed and 2 unreadable' },
+          ...(restricted ? [{ code: 'OUTSIDE_YOUR_VIEW', message: 'some run records name services outside your view of the fleet and are left out of every number' },
+            { code: 'COVERAGE_OUTSIDE_YOUR_VIEW', message: 'coverage records count every service, so only a reader who can see every service sees them' }] : [])];
+    return {
+      asOf: until.toISOString(), window: { since: since.toISOString(), until: until.toISOString() }, registry: 'ghcr.io/acme/pacto-stats',
+      recordsRead: empty ? 0 : 1240, completeness: empty ? 'empty' : 'partial', provenance: 'unsigned statistics', truncated: '',
+      skipped: empty ? { malformed: 0, oversized: 0, unreadable: 0 } : { malformed: 1, oversized: 0, unreadable: 2 }, hidden: { present: restricted }, limitations,
+    };
+  };
+  const statsBuckets = (since: Date, until: Date, restricted: boolean) => {
+    const size = (until.getTime() - since.getTime()) <= 7 * 86_400_000 ? 86_400_000 : 7 * 86_400_000;
+    const out: Record<string, unknown>[] = [];
+    for (let end = until.getTime(), i = 0; end > since.getTime(); end -= size, i++) {
+      const start = Math.max(since.getTime(), end - size);
+      const b: Record<string, unknown> = { since: new Date(start).toISOString(), until: new Date(end).toISOString(), days: Math.ceil((end - start) / 86_400_000) };
+      if (end - start < size) b.partial = true;
+      if (i !== 1) {
+        b.metrics = { breakingCaught: { distinct: 2 + (i % 5), runs: 5 + i }, consumersProtected: { count: 3 * (i % 4), unknown: i % 2, ...(i === 2 ? { partial: 1 } : {}) },
+          gates: { clear: 30 + i, blocked: 2 + (i % 3), unverified: i % 2 },
+          environments: [{ ...STATS_ENVS[0], held: i === 3 ? ratio(0, 0) : ratio(i % 3, 6) }] };
+      }
+      if (!restricted && i !== 0) b.coverage = coverageOf(new Date(end - 3_600_000), i === 2);
+      out.push(b);
+    }
+    return out.reverse();
+  };
+  const statsServiceRow = (i: number) => {
+    const metrics = { breakingCaught: { distinct: i % 4, runs: i % 9 }, consumersProtected: { count: i % 13, unknown: 0 }, gates: { clear: i % 20, blocked: i % 3, unverified: i % 2 } };
+    if (i === 0) return { label: 'payments-service', href: '/fleet/services/payments-service', metrics };
+    return { label: longName(`stats-svc-${i}`), note: i % 7 === 3 ? 'ambiguous: more than one service has this name' : 'not in the current snapshot', metrics };
+  };
+  const statsRecord = (metric: string, env: string, n: number) => {
+    const digest = (k: string) => `sha256:${(hash(k).toString(16).padStart(8, '0')).repeat(8)}`;
+    const recordedAt = new Date(Date.now() - (n + 1) * 3_600_000).toISOString();
+    const id = `${metric}-${env}-${n}`;
+    if (['held', 'failed', 'rolledBack', 'verificationFailed', 'leadTime'].includes(metric)) {
+      const environment = env || STATS_ENVS[0].environment;
+      return { record: { id, version: '1', pactoVersion: '4', kind: 'operation', type: metric === 'rolledBack' ? 'rollback' : 'promote', outcome: metric === 'held' ? 'Held' : 'Failed',
+        service: n === 0 ? 'payments-service' : longName(`stats-svc-${n}`), environment, recordedAt },
+        stage: { namespace: longName('stats-team-namespace'), name: longName(`stats-stage-${n}`), environment },
+        ...(n === 0 ? { service: { label: 'payments-service', href: '/fleet/services/payments-service' } } : { note: 'not in the current snapshot' }) };
+    }
+    if (metric === 'coverage') return { record: { id, version: '1', pactoVersion: '4', kind: 'coverage', service: '_fleet', recordedAt } };
+    const verdict = ['clear', 'unverified'].includes(metric) ? metric : 'blocked';
+    // The two newest blocked records name payments-service, so each opens its change analysis.
+    const placed = n === 0 || (n === 1 && verdict === 'blocked');
+    const [oldRevision, newRevision] = [digest(`${id}-old`), digest(`${id}-new`)];
+    const change = placed && verdict === 'blocked'
+      ? { change: { href: `/fleet/changes/payments-service?old=${encodeURIComponent(oldRevision)}&new=${encodeURIComponent(newRevision)}` } } : {};
+    return { record: { id, version: '1', pactoVersion: '4', kind: 'impact', service: placed ? 'payments-service' : longName(`stats-svc-${n}`), classification: 'BREAKING',
+      oldRevision, newRevision, gate: { verdict }, recordedAt },
+      ...(placed ? { service: { label: 'payments-service', href: '/fleet/services/payments-service' }, ...change } : { note: 'not in the current snapshot' }) };
+  };
+  const statsAnswer = (route: string, query: string): Record<string, unknown> => {
+    const mode = statsMode(), q = new URLSearchParams(query);
+    const env = statsEnvelope(mode, query);
+    const offset = Math.max(0, Number(q.get('offset') ?? q.get('servicesOffset') ?? 0) || 0);
+    if (route === '/api/stats/records') {
+      const metric = q.get('metric') ?? '', environment = q.get('environment') ?? '';
+      const total = mode === 'none' ? 0 : statsTotal(metric, environment);
+      const limit = Math.min(100, Number(q.get('limit') ?? 25) || 25);
+      return { ...env, total, items: Array.from({ length: Math.max(0, Math.min(limit, total - offset)) }, (_, j) => statsRecord(metric, environment, offset + j)) };
+    }
+    if (mode === 'none') return { ...env, runs: 0, distinctChanges: 0, environmentOrder: 'name', environments: [], services: [], servicesTotal: 0, buckets: [] };
+    const sOffset = Math.max(0, Number(q.get('servicesOffset') ?? 0) || 0), sLimit = Math.min(100, Number(q.get('servicesLimit') ?? 25) || 25);
+    const restricted = mode === 'restricted';
+    return {
+      ...env, runs: 1180, distinctChanges: 860, environmentOrder: 'stages', environments: STATS_ENVS,
+      totals: { breakingCaught: { distinct: 37, runs: 90 }, consumersProtected: { count: 120, unknown: 4, partial: 1 }, gates: STATS_GATES, environments: STATS_ENVS },
+      services: Array.from({ length: Math.max(0, Math.min(sLimit, 2000 - sOffset)) }, (_, j) => statsServiceRow(sOffset + j)), servicesTotal: 2000,
+      buckets: statsBuckets(new Date(env.window.since), new Date(env.window.until), restricted),
+      coverageNow: restricted ? { ...coverageOf(new Date(), false), services: 300, knowledge: { services: 300, described: 200, withGaps: 60, unknown: 40, notDeployed: 12 } } : coverageOf(new Date(), true),
+    };
   };
   const wrapped: Serve = async (method, path, body) => {
+    body = engineBody(path, body);
+    const route = path.split('?')[0];
+    if (method === 'GET' && (route === '/api/stats' || route === '/api/stats/records') && statsMode() !== 'engine') {
+      if (statsMode() === 'off') return { status: 404, contentType: 'application/problem+json', body: JSON.stringify({ status: 404, title: 'Not Found' }) };
+      return { status: 200, contentType: 'application/json', body: JSON.stringify(statsAnswer(route, path.split('?')[1] ?? '')) };
+    }
+    if (flags.__pactoStalePropose && method === 'POST' && path === '/api/delivery/operations' && body) {
+      const plan = await (real as Serve)('POST', '/api/delivery/plan', body);
+      return { status: 409, contentType: 'application/json', body: JSON.stringify({ status: 409, code: 'PlanStale',
+        detail: 'the Stage moved since you planned; review the fresh plan and propose again', plan: JSON.parse(plan.body) }) };
+    }
     const res = await (real as Serve)(method, engineName(path), body);
     if (res.status !== 200 || !(res.contentType || '').includes('json')) return res;
     let doc: Record<string, unknown>;
     try { doc = JSON.parse(res.body); } catch { return res; }
-    try { amend(method, path, doc, body); } catch (e) { console.error('scale fixture', path, e); return res; }
+    try { amend(method, path, doc, body); } catch (e) {
+      // An override that throws would leave the route unscaled and the gate green:
+      // layoutProblems reports it.
+      console.error('scale fixture', path, e);
+      const w = window as unknown as { __pactoScaleErrors?: string[] };
+      (w.__pactoScaleErrors ??= []).push(`scale fixture ${path}: ${e}`);
+      return res;
+    }
     return { ...res, body: JSON.stringify(doc) };
   };
   Object.defineProperty(window, '__pactoServe', {
@@ -493,7 +881,7 @@ export async function gateMode(page: Page): Promise<void> {
  */
 export async function layoutProblems(page: Page): Promise<string[]> {
   return page.evaluate(() => {
-    const out: string[] = [];
+    const out: string[] = [...((window as unknown as { __pactoScaleErrors?: string[] }).__pactoScaleErrors ?? [])];
     const root = document.querySelector('#app') ?? document.body;
     const say = (el: Element | null) => {
       if (!el) return '?';
@@ -913,6 +1301,39 @@ const serviceEnvironments = (hash: string) => async (page: Page) => {
   await expect(page.locator('#sec-environments [data-testid="service-environment"]').first()).toBeVisible({ timeout: 30_000 });
 };
 
+/**
+ * changesRoute opens a route that scrolls to the Changes section, with reduced motion
+ * so the scroll is instant, and returns to the top once it has run: the gate reads
+ * from the top.
+ */
+const changesRoute = async (page: Page, hash: string, ready: () => Promise<void>) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto(`/${hash}`);
+  await ready();
+  await page.waitForFunction(() => window.scrollY > 0, null, { timeout: 5_000 }).catch(() => {});
+  // A wheel is the reader driving: it cancels the route's scroll restore.
+  await page.mouse.wheel(0, -1);
+  await page.evaluate(() => window.scrollTo(0, 0));
+};
+
+/** Opens a service page at its Changes section and waits for one change row. */
+const serviceChanges = (hash: string) => async (page: Page) =>
+  changesRoute(page, hash, () => expect(page.locator('[data-testid="service-change-row"]').first()).toBeVisible({ timeout: 30_000 }));
+
+/** Opens a service page with its Changes filtered to one kind and waits for the count. */
+const serviceChangesFiltered = (hash: string) => async (page: Page) =>
+  changesRoute(page, hash, () => expect(page.locator('[data-testid="service-changes-filtered"]')).toBeVisible({ timeout: 30_000 }));
+
+/** Opens a service page whose change times are hidden and waits for that text. */
+const serviceChangesHidden = (hash: string) => async (page: Page) =>
+  changesRoute(page, hash, () => expect(page.locator('[data-testid="service-change-reached"]', { hasText: 'time hidden' }).first()).toBeVisible({ timeout: 30_000 }));
+
+/** Opens a service page and waits for its Resources section (#468). */
+const serviceResources = (hash: string) => async (page: Page) => {
+  await page.goto(`/${hash}`);
+  await expect(page.locator('[data-testid="service-resources"]')).toBeVisible({ timeout: 30_000 });
+};
+
 /** Opens a delivery list narrowed to one service and waits for its filter chip, so an error page fails the route. */
 const deliveryOfService = (hash: string, landmark: string) => async (page: Page) => {
   await page.goto(`/${hash}`);
@@ -923,6 +1344,81 @@ const deliveryOfService = (hash: string, landmark: string) => async (page: Page)
 const INBOX_LOADED = '#inbox-held, [data-testid="inbox-empty"]';
 const PUBLISH_LOADED = 'li.pv-row';
 const AUTONOMY_LOADED = '[data-testid="autonomy-contracted"]';
+
+/**
+ * Opens the propose panel from the environments board as the default persona
+ * (pay-agent, an agent), with the Stage rows' names at their longest, and waits for
+ * the plan and the on-behalf-of field an agent is asked for.
+ */
+const openPropose = async (page: Page, stale = false) => {
+  await page.evaluate((s) => {
+    const w = window as unknown as { __pactoLongPropose?: boolean; __pactoStalePropose?: boolean };
+    w.__pactoLongPropose = true;
+    w.__pactoStalePropose = s;
+  }, stale);
+  await page.goto('/#/delivery/environments');
+  await page.getByRole('button', { name: /^Promote payments in prod to / }).first().click({ timeout: 30_000 });
+  const panel = page.locator('[data-testid="propose-panel"]');
+  await expect(panel.locator('[data-testid="plan-prediction"]')).toBeVisible({ timeout: 30_000 });
+  await expect(panel.getByTestId('pp-on-behalf-of')).toBeVisible();
+  return panel;
+};
+
+// The story's payments service and its 3.0.0 revision (examples/story): prod offers the
+// promote of 3.0.0's artifact, and test runs that artifact with an undo on offer.
+const STORY_PAYMENTS = 'registry.example%252Fstory%2Fpayments';
+const PAYMENTS_300 = 'sha256:a16380137bcba704971cd4258237e24fb8822d93f66bd3f280bd829005665323';
+const PAYMENTS_300_ARTIFACT = 'sha256:d08642a39559182a2b9bc69a8f7ad32e87fa058ebd250087dbc071bf3df809a4';
+const PLAN = /^Plan /;
+
+/**
+ * Opens an investigation page with the Stage rows' names at their longest (the panels
+ * ask the engine under the short names again) and waits for its first "Plan" offer, so
+ * a page that renders none fails instead of passing.
+ */
+const planOffer = async (page: Page, hash: string, before?: (page: Page) => Promise<void>) => {
+  await page.evaluate(() => { (window as unknown as { __pactoLongPropose?: boolean }).__pactoLongPropose = true; });
+  await page.goto(`/${hash}`);
+  if (before) await before(page);
+  const offer = page.getByRole('button', { name: PLAN }).first();
+  await expect(offer).toBeVisible({ timeout: 30_000 });
+  return offer;
+};
+const comparePayments = async (page: Page) => { await page.getByRole('button', { name: 'Compare revisions' }).click({ timeout: 30_000 }); };
+const planOpened = async (page: Page) => {
+  await expect(page.locator('[data-testid="propose-panel"] [data-testid="plan-prediction"]')).toBeVisible({ timeout: 30_000 });
+  await page.evaluate(() => window.scrollTo(0, 0)); // the click scrolled the panel into view; the gate reads from the top
+};
+
+/**
+ * Opens Metrics in one fixture state. A real navigation (the path changes), so the app
+ * asks for its capabilities again: a bare hash change keeps the ones it already has.
+ * The state's own heading must show, so a variant that fell back to another fails.
+ */
+const METRICS_SHOWS: Record<string, (page: Page) => Locator> = {
+  off: (page) => page.getByRole('heading', { name: 'Metrics are off' }),
+  none: (page) => page.getByRole('heading', { name: 'No run records in this window' }),
+  restricted: (page) => page.getByTestId('metrics-hidden'),
+};
+const openMetrics = (mode: string) => async (page: Page) => {
+  await page.evaluate((m) => sessionStorage.setItem('fixture.stats', m), mode);
+  await page.goto('/index.html?fixture=1#/metrics');
+  await page.evaluate(() => (window as unknown as { __pactoReady?: Promise<unknown> }).__pactoReady);
+  await expect(METRICS_SHOWS[mode](page)).toBeVisible({ timeout: 30_000 });
+};
+
+/**
+ * Opens Metrics over the browser demo's own run records (the fixture's `engine` mode),
+ * a real navigation like openMetrics, and waits for the populated tiles and checkout's
+ * prod-eu row, so an error page or the explainer cannot pass for the page.
+ */
+const demoMetrics = (hash: string) => async (page: Page) => {
+  await page.evaluate(() => sessionStorage.setItem('fixture.stats', 'engine'));
+  await page.goto(`/index.html?fixture=1${hash}`);
+  await page.evaluate(() => (window as unknown as { __pactoReady?: Promise<unknown> }).__pactoReady);
+  await expect(page.getByTestId('metrics-tiles').locator('.mx-tile').first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('[data-testid="metrics-env-row"] th a[title="prod-eu"]')).toBeVisible({ timeout: 30_000 });
+};
 
 /** Opens a service created from a golden path, through the path's own created count. */
 const createdService = async (page: Page) => {
@@ -943,8 +1439,18 @@ export const ROUTES: Route[] = [
   { name: 'owners', list: true, hash: '#/fleet/owners' },
   { name: 'domains', list: true, hash: '#/fleet/domains' },
   { name: 'offerings', list: true, hash: '#/fleet/offerings' },
+  { name: 'offerings failed', list: true, hash: '#/fleet/offerings?failed=1' },
+  { name: 'offerings deprecated', list: true, hash: '#/fleet/offerings?lifecycle=deprecated' },
   { name: 'sources', list: true, hash: '#/fleet/sources' },
   { name: 'attention', list: true, hash: '#/fleet/attention' },
+  { name: 'attention health category', list: true, hash: '#/fleet/attention?category=health' },
+  { name: 'attention knowledge category', list: true, hash: '#/fleet/attention?category=knowledge' },
+  { name: 'services with a knowledge gap', list: true, hash: '#/fleet/services?gap=no-summary' },
+  { name: 'services whose owner is unknown', list: true, hash: '#/fleet/services?ownership=unknown' },
+  { name: 'incomplete sources', list: true, hash: '#/fleet/sources?sourceHealth=incomplete' },
+  { name: 'domains by health', list: true, hash: '#/fleet/domains?sort=health' },
+  { name: 'owners by gaps', list: true, hash: '#/fleet/owners?sort=gaps' },
+  { name: 'attention lifecycle', list: true, hash: '#/fleet/attention?category=lifecycle' },
   { name: 'graph discovery', hash: '#/fleet/graph' },
   { name: 'graph focused', hash: '#/fleet/graph/service/payments-service' },
   { name: 'change analysis idle', hash: '#/fleet/changes/payments-service' },
@@ -981,6 +1487,21 @@ export const ROUTES: Route[] = [
   { name: 'owner entity', hash: '#/fleet/owners/team:catalog-team' },
   { name: 'domain entity', hash: '#/fleet/domains/commerce' },
   { name: 'offering entity', hash: '#/fleet/offerings/messaging' },
+  { name: 'offering entity postgresql unsigned provisioning', hash: '#/fleet/offerings/postgresql' },
+  { name: 'offering entity adapters', hash: '#/fleet/offerings/security-scanning' },
+  { name: 'offering entity unresolved uses', hash: '#/fleet/offerings/shared-config' },
+  { name: 'change analysis offering event', hash: '#/fleet/changes?offering=postgresql&event=unavailable' },
+  {
+    // The successor range line is component state, never in the URL: type the range.
+    name: 'offering entity postgresql range',
+    open: async (page) => {
+      await page.goto('/#/fleet/offerings/postgresql');
+      const input = page.locator('[data-testid="offering-provider"]').first().getByRole('textbox');
+      await input.fill('^16.0.0');
+      await expect(page.locator('[data-testid="versions-successor"]').first()).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0)); // the fill scrolled the input into view; the gate reads from the top
+    },
+  },
   { name: 'source entity', hash: '#/fleet/sources/edge-cluster' },
   { name: 'golden paths', list: true, hash: '#/fleet/golden-paths' },
   { name: 'golden path entity', open: firstLink('#/fleet/golden-paths?sort=name', '/fleet/services/') },
@@ -998,6 +1519,34 @@ export const ROUTES: Route[] = [
       const [cause, corr] = await page.locator('[data-testid="history-filters"] input').all();
       await cause.fill('reconciliation-settlement-ledger-export-worker-eu-west-partner-feed-compliance-archive');
       await corr.fill('incident-2026-11-08-payments-prod-error-budget-burn-settlement-reconciliation-ledger-export');
+    },
+  },
+  {
+    name: 'delivery history with impact',
+    open: async (page) => {
+      await page.goto('/#/delivery/history?namespace=prod&stage=payments');
+      await expect(page.locator('[data-testid="history-impact"]').first()).toBeVisible({ timeout: 30_000 });
+    },
+  },
+  {
+    name: 'delivery history as of',
+    open: async (page) => {
+      await page.goto('/#/delivery/history?at=1m');
+      await expect(page.locator('[data-testid="history-at-row"]').first()).toBeVisible({ timeout: 30_000 });
+    },
+  },
+  {
+    name: 'delivery history as of, one Stage',
+    open: async (page) => {
+      await page.goto('/#/delivery/history?namespace=prod&stage=payments&at=1m');
+      await expect(page.locator('[data-testid="history-at-row"]').first()).toBeVisible({ timeout: 30_000 });
+    },
+  },
+  {
+    name: 'delivery history as of unknown',
+    open: async (page) => {
+      await page.goto('/#/delivery/history?at=2000-01-01T00%3A00%3A00Z');
+      await expect(page.locator('[data-testid="history-at-row"]', { hasText: 'no record before this time' }).first()).toBeVisible({ timeout: 30_000 });
     },
   },
   {
@@ -1030,6 +1579,38 @@ export const ROUTES: Route[] = [
   },
   { name: 'service page, environments without Stages', open: serviceEnvironments('#/fleet/services/storefront-web') },
   { name: 'service page, environments beside Stages', open: serviceEnvironments('#/fleet/services/notification-worker') },
+  { name: 'service changes', open: serviceChanges('#/fleet/services/storefront-web?section=changes') },
+  { name: 'service changes filtered', open: serviceChangesFiltered('#/fleet/services/storefront-web?changesKind=owner') },
+  { name: 'service changes times hidden', open: serviceChangesHidden('#/fleet/services/notification-worker?section=changes') },
+  { name: 'service page, resources', open: serviceResources('#/fleet/services/catalog-service') },
+  {
+    // Expanded, so every card (usage figures included) is laid out where the gate looks,
+    // never below the preview's clip.
+    name: 'service page, resources at scale',
+    open: async (page) => {
+      await serviceResources('#/fleet/services/orders-service')(page);
+      await page.locator('#sec-resources [data-testid="preview-show-all"]').click();
+      await expect(page.locator('#sec-resources .ps-clipped')).toHaveCount(0);
+      await page.evaluate(() => window.scrollTo(0, 0)); // the click scrolled the section into view; the gate reads from the top
+    },
+  },
+  {
+    name: 'service page, resources empty',
+    open: async (page) => {
+      // postgresql provides an offering and consumes none.
+      await page.goto('/#/fleet/services/postgresql');
+      await expect(page.locator('#sec-resources').getByText('No resource you can see.', { exact: false })).toBeVisible({ timeout: 30_000 });
+    },
+  },
+  {
+    name: 'service page, resource rail open',
+    open: async (page) => {
+      await serviceResources('#/fleet/services/catalog-service')(page);
+      await page.locator('[data-testid="service-resources"] button[data-testid="provisioning-badge"]').first().click();
+      await expect(page.locator('[data-testid="offering-use-figure"]')).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0)); // the click scrolled the rail into view; the gate reads from the top
+    },
+  },
   { name: 'service environments', hash: '#/fleet/services/storefront-web' },
   {
     name: 'service environments with Stage cells',
@@ -1102,6 +1683,42 @@ export const ROUTES: Route[] = [
     },
   },
   {
+    name: 'propose panel open, agent (on-behalf-of field)',
+    open: async (page) => {
+      await openPropose(page);
+      await page.evaluate(() => window.scrollTo(0, 0)); // the click scrolled the panel into view; the gate reads from the top
+    },
+  },
+  {
+    name: 'propose panel, fresh plan banner',
+    open: async (page) => {
+      const panel = await openPropose(page, true);
+      await panel.getByTestId('pp-on-behalf-of').fill('dana@example.com');
+      await panel.getByRole('button', { name: /^Propose/ }).click();
+      await expect(panel.getByRole('alert')).toContainText('Something changed since the plan', { timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+    },
+  },
+  { name: 'target page with Plan offers', open: async (page) => { await planOffer(page, '#/fleet/targets/test%2FDeployment%2Fcheckout'); } },
+  { name: 'revision page with a promote offer', open: async (page) => { await planOffer(page, `#/fleet/revisions/${STORY_PAYMENTS}@${PAYMENTS_300}`); } },
+  { name: 'change analysis answered with Plan promote', open: async (page) => { await planOffer(page, `#/fleet/changes/${STORY_PAYMENTS}`, comparePayments); } },
+  { name: 'change analysis regressed with Plan undo', open: async (page) => { await planOffer(page, `#/fleet/changes/${STORY_PAYMENTS}?event=regressed&rev=${PAYMENTS_300_ARTIFACT}`); } },
+  {
+    name: 'target page, Plan undo panel open',
+    open: async (page) => {
+      await (await planOffer(page, '#/fleet/targets/test%2FDeployment%2Fcheckout')).click();
+      await page.getByRole('button', { name: /^Plan this / }).click({ timeout: 30_000 });
+      await planOpened(page);
+    },
+  },
+  {
+    name: 'change analysis answered, Plan promote panel open',
+    open: async (page) => {
+      await (await planOffer(page, `#/fleet/changes/${STORY_PAYMENTS}`, comparePayments)).click();
+      await planOpened(page);
+    },
+  },
+  {
     name: 'change page with service and revision links',
     open: async (page) => {
       await page.goto('/#/delivery/changes/prod/payments-promote-6');
@@ -1111,6 +1728,13 @@ export const ROUTES: Route[] = [
       await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
     },
   },
+  { name: 'metrics off', open: openMetrics('off') },
+  { name: 'metrics no records', open: openMetrics('none') },
+  { name: 'metrics', hash: '#/metrics' },
+  { name: 'metrics records', hash: '#/metrics?metric=blocked' },
+  { name: 'metrics restricted', open: openMetrics('restricted') },
+  { name: 'metrics (demo records)', open: demoMetrics('#/metrics') },
+  { name: 'metrics (demo records, 90 days)', open: demoMetrics('#/metrics?window=90d') },
 ];
 
 /** Flips the sidebar with its "[" shortcut and returns the state it lands in. */

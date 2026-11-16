@@ -40,6 +40,10 @@ type ComplianceTally struct {
 	Reference    int `json:"reference"`
 	NotEvaluated int `json:"notEvaluated"`
 	Other        int `json:"other"`
+	// StaleCompliant is, of Compliant, how many rest on stale evidence. It is a
+	// subset, never subtracted from Compliant, so the buckets above still sum to
+	// Total.
+	StaleCompliant int `json:"staleCompliant" doc:"Of compliant, how many rest on stale evidence; a subset, never subtracted from compliant"`
 }
 
 func (c *ComplianceTally) add(status string) {
@@ -61,6 +65,13 @@ func (c *ComplianceTally) add(status string) {
 	default:
 		c.Other++
 	}
+}
+
+// addStale buckets status like add and, when it is Compliant on stale evidence,
+// counts it into StaleCompliant: the one place that subset is counted.
+func (c *ComplianceTally) addStale(status string, stale bool) {
+	c.add(status)
+	c.StaleCompliant += b2i(stale && status == StatusCompliant)
 }
 
 // Total is the population the tally covers.
@@ -162,16 +173,20 @@ func (e *EvidenceWindow) add(t *TargetRecord) {
 }
 
 // OwnershipTally partitions a SERVICE population by how well ownership is
-// DECLARED on it: Consistent + Conflicting + Unowned == the population. A service
-// with no revision that declares an owner counts the owners its observing sources
-// read from the contracts its targets run (see [serviceOwnerClaims]), so Unowned
-// means no source knows an owner.
+// DECLARED on it: Consistent + Conflicting + Unowned + Unknown == the population.
+// A service with no revision that declares an owner counts the owners its
+// observing sources read from the contracts its targets run (see
+// [serviceOwnerClaims]), so Unowned means no source knows an owner of a contract
+// Pacto did read. Unknown is a service with no owner claim whose contract Pacto
+// cannot read at all: unreadable is never ownerless.
 //
 // Ownership is authored per revision (`service.owner` in the contract), so a
 // service's ownership is a property of its revisions agreeing rather than of one
-// field somebody set. A service is Consistent when every revision that declares an
-// owner declares the SAME one; a revision that declares none is silence, not a
-// contradiction. "The same one" is [ownerClaimSet]'s identity — the canonical owner
+// field somebody set. A service is Consistent when every revision of its current
+// claims (see [currentOwnerRevisions]: the newest version that declares an owner
+// and the revisions its targets run now) declares the SAME one; a revision that
+// declares none is silence, not a contradiction, and an older version that names
+// another owner is a handover, not a dispute. "The same one" is [ownerClaimSet]'s identity — the canonical owner
 // key, the one the product routes by — so a team declared with two different DRIs
 // is one owner. Both this tally and the OWNER_CONFLICT limitation [deriveOwner]
 // raises count through that set, so they can never disagree.
@@ -179,31 +194,34 @@ func (e *EvidenceWindow) add(t *TargetRecord) {
 // Conflicting is never folded into Unowned. "Two teams claim this" and "nobody
 // claims this" are different answers to "who do I page", and they need opposite
 // fixes. Neither is folded into Consistent either: ServiceRecord.Owner is only a
-// documented summary (the lowest-keyed revision's owner), so counting a conflicted
+// documented summary (the newest revision's owner), so counting a conflicted
 // service as owned would present that tie-break as agreement.
 type OwnershipTally struct {
 	Consistent  int `json:"consistent"`
 	Conflicting int `json:"conflicting"`
-	Unowned     int `json:"unowned"`
+	Unowned     int `json:"unowned" doc:"Services whose read contracts declare no owner and no source reports one"`
+	Unknown     int `json:"unknown" doc:"Services with no owner claim whose contract Pacto cannot read, so it cannot tell whether an owner is declared"`
 }
 
-// add buckets one service by the number of DISTINCT canonical owners its revisions
-// claim. It is the only place 0/1/many is turned into a bucket: the overview
-// partition, the entity aggregate and the ownership search filter all call it, so
-// a filtered list can never disagree with the distribution printed above it.
-func (o *OwnershipTally) add(distinctOwners int) {
-	switch distinctOwners {
-	case 0:
-		o.Unowned++
-	case 1:
+// add counts one service in the bucket [Query.ownershipBucket] classified it
+// into. The overview partition, the entity aggregate and the ownership search
+// filter all classify through that one function, so a filtered list can never
+// disagree with the distribution printed above it.
+func (o *OwnershipTally) add(bucket string) {
+	switch bucket {
+	case OwnershipConsistent:
 		o.Consistent++
-	default:
+	case OwnershipConflicting:
 		o.Conflicting++
+	case OwnershipUnknown:
+		o.Unknown++
+	default:
+		o.Unowned++
 	}
 }
 
 // Total is the population the tally covers.
-func (o OwnershipTally) Total() int { return o.Consistent + o.Conflicting + o.Unowned }
+func (o OwnershipTally) Total() int { return o.Consistent + o.Conflicting + o.Unowned + o.Unknown }
 
 // ReadinessTally partitions a CONTRACT REVISION population by its declared
 // readiness assessment. The unit is always the revision: readiness is authored
@@ -314,9 +332,14 @@ type EntityAggregate struct {
 	// targets, so adding the two would count the same operational reality twice.
 	ServiceCompliance ComplianceTally `json:"serviceCompliance"`
 	TargetCompliance  ComplianceTally `json:"targetCompliance"`
+	// TargetHealth partitions Targets by what their declared health check reports.
+	TargetHealth OperationalHealthTally `json:"targetHealth"`
 	// Ownership partitions Services; Readiness partitions Revisions.
 	Ownership OwnershipTally `json:"ownership"`
 	Readiness ReadinessTally `json:"readiness"`
+	// Knowledge partitions the matched services that are no golden path by what
+	// their contracts leave out.
+	Knowledge KnowledgeTally `json:"knowledge"`
 	// ByOwner ranks the CONSISTENTLY OWNED matched services by canonical owner,
 	// largest first, bounded to maxOwnerRanking. It is not a partition of Services
 	// and does not pretend to be: Ownership.Conflicting and Ownership.Unowned are
@@ -349,7 +372,7 @@ type EntityAggregate struct {
 	// >= len(ByOwner), and the difference is the ranking tail.
 	RankedOwners int `json:"rankedOwners,omitempty"`
 	// DistinctOwners is every canonical owner identity the matched services declare,
-	// including owners that appear ONLY on services their revisions disagree about.
+	// including owners that appear ONLY on services whose current owners disagree.
 	// It is therefore >= RankedOwners and is the honest answer to "how many owners
 	// are in this population" — an owner in a dispute is still an owner, and counting
 	// only the rankable ones would erase exactly the owners a reader is looking for.
@@ -390,6 +413,20 @@ type EntityAggregate struct {
 	Offerings     []TypeCount `json:"offerings,omitempty"`
 	OfferingTypes int         `json:"offeringTypes,omitempty"`
 	OfferingCount int         `json:"offeringCount"`
+	// OfferingPhases counts the provisioning statuses of every use of the
+	// matched offerings by phase, the sum of each offering's Consumers.Phases;
+	// Unknown is the requests no provider reported a phase for.
+	// OfferingPhaseConsumers counts the distinct consumer and offering pairs
+	// with a status in each phase, summed over the matched offerings: the
+	// population the consumes and phase filters list.
+	OfferingPhases         PhaseTally `json:"offeringPhases"`
+	OfferingPhaseConsumers PhaseTally `json:"offeringPhaseConsumers"`
+	// FailedByOffering ranks the matched offerings by their distinct
+	// consumers with a Failed status (Services counts those consumers), most
+	// first then by name, bounded to maxFailedOfferings;
+	// FailedOfferingsBeyond is how many more offerings have one.
+	FailedByOffering      []TypeCount `json:"failedByOffering,omitempty"`
+	FailedOfferingsBeyond int         `json:"failedOfferingsBeyond,omitempty"`
 	// Origins partitions the matched services that are no golden path by the
 	// golden path they were created from.
 	Origins OriginTally `json:"origins"`
@@ -510,8 +547,8 @@ func typeFacet(counts map[string]int) ([]TypeCount, int) {
 }
 
 // ownerClaimsOf collects the DISTINCT owners known for a service, under the
-// canonical owner identity the product routes by (see [ownerClaimSet]): its
-// revisions' owners, else the owners its observing sources report
+// canonical owner identity the product routes by (see [ownerClaimSet]): the
+// owners of its current claims, else the owners its observing sources report
 // ([serviceOwnerClaims], the rule deriveOwner applies). One walk answers three
 // questions that must never disagree: how the service is partitioned, which owner
 // it ranks under, and which owners are present at all.
@@ -520,7 +557,7 @@ func (q *Query) ownerClaimsOf(s *ServiceRecord) ownerClaimSet {
 }
 
 // ownershipState classifies a service's declared ownership: how many DISTINCT
-// owners its revisions declare, and the canonical owner KEY when they declare
+// owners its current claims hold, and the canonical owner KEY when they declare
 // exactly one. The count is the classification (0 unowned, 1 consistent, more
 // conflicting); the key is only for ranking and linking, and it is empty for an
 // owner that carries contacts but neither a team nor a DRI. Such a service is
@@ -533,50 +570,71 @@ func (q *Query) ownershipState(s *ServiceRecord) (distinctOwners int, ownerKey s
 	return claims.len(), claims.soleKey()
 }
 
+// ownershipBucket classifies a service into its ownership bucket (one of the
+// Ownership* partition values) and returns the canonical owner key when it is
+// consistently owned. A service with no owner claim is OwnershipUnknown when
+// Pacto cannot read its contract, else OwnershipUnowned.
+func (q *Query) ownershipBucket(s *ServiceRecord) (bucket, key string) {
+	claims := q.ownerClaimsOf(s)
+	switch n := claims.len(); {
+	case n == 1:
+		return OwnershipConsistent, claims.soleKey()
+	case n > 1:
+		return OwnershipConflicting, ""
+	case q.ownershipUnknown(s):
+		return OwnershipUnknown, ""
+	}
+	return OwnershipUnowned, ""
+}
+
 // addOwnership buckets one service into the ownership partition and returns the
 // canonical key it is consistently owned by (empty when conflicted, unowned or
 // unidentified), so a caller ranking owners classifies by the SAME rule the
 // partition uses.
 func (q *Query) addOwnership(o *OwnershipTally, s *ServiceRecord) string {
-	n, key := q.ownershipState(s)
-	o.add(n)
+	bucket, key := q.ownershipBucket(s)
+	o.add(bucket)
 	return key
 }
 
 // aggregate tallies the complete matched population. refs are the filtered
 // references BEFORE paging, which is the whole point: this is the denominator the
 // page is a slice of.
-func (q *Query) aggregate(refs []EntityRef) EntityAggregate {
+func (q *Query) aggregate(refs []EntityRef, offerings map[string]*offeringFacts) EntityAggregate {
 	agg := EntityAggregate{Matched: len(refs)}
+	var offeringNames []string
 	byOwner := map[string]*OwnerCount{}
 	byDomain := map[string]*DomainCount{}
 	present := map[string]bool{}
-	capabilities, offerings := map[string]int{}, map[string]int{}
+	capabilities, provided := map[string]int{}, map[string]int{}
 	byPath := map[string]*OriginCount{}
 	for _, r := range refs {
 		switch r.Kind {
 		case KindService:
 			agg.Services++
 			s := q.snap.Services[ServiceKey(r.Key)]
-			agg.ServiceCompliance.add(s.Status)
+			agg.ServiceCompliance.addStale(s.Status, q.restsOnStale(s))
 			nc := s.Status == StatusNonCompliant
 			agg.tallyDomain(byDomain, s, nc)
 			for _, c := range q.serviceCapabilities(s) {
 				capabilities[c]++
 			}
 			if s.Offering != "" {
-				offerings[s.Offering]++
+				provided[s.Offering]++
 			}
-			agg.tallyOwner(q.ownerClaimsOf(s), s, nc, byOwner, present)
+			bucket, _ := q.ownershipBucket(s)
+			agg.tallyOwner(q.ownerClaimsOf(s), bucket, s, nc, byOwner, present)
 			if !s.Template {
 				agg.Origins.tallyOrigin(byPath, s)
+				agg.Knowledge.add(q.serviceKnowledge(s))
 			}
 		case KindRevision:
 			agg.Revisions++
 			agg.Readiness.add(q.snap.Revisions[RevisionKey(r.Key)].Readiness)
 		case KindTarget:
 			agg.Targets++
-			agg.TargetCompliance.add(r.Status)
+			agg.TargetCompliance.addStale(r.Status, q.snap.Targets[TargetKey(r.Key)].Stale)
+			agg.TargetHealth.add(q.targetHealth(q.snap.Targets[TargetKey(r.Key)]))
 		case KindOwner:
 			agg.Owners++
 		case KindSource:
@@ -585,6 +643,7 @@ func (q *Query) aggregate(refs []EntityRef) EntityAggregate {
 			agg.Domains++
 		case KindOffering:
 			agg.OfferingCount++
+			offeringNames = append(offeringNames, r.Key)
 		}
 	}
 	agg.RankedOwners = len(byOwner)
@@ -594,7 +653,8 @@ func (q *Query) aggregate(refs []EntityRef) EntityAggregate {
 	agg.NonCompliantByOwner, agg.NonCompliantBeyondRanking, agg.NonCompliantOwners = rankNonCompliantOwners(byOwner)
 	agg.NonCompliantByDomain, agg.NonCompliantDomainsBeyond, agg.NonCompliantDomains = rankNonCompliantDomains(byDomain)
 	agg.Capabilities, agg.CapabilityTypes = typeFacet(capabilities)
-	agg.Offerings, agg.OfferingTypes = typeFacet(offerings)
+	agg.Offerings, agg.OfferingTypes = typeFacet(provided)
+	tallyOfferingPhases(&agg, offeringNames, offerings)
 	q.rankPaths(&agg.Origins, byPath)
 	return agg
 }
@@ -666,13 +726,13 @@ func rankOwners(m map[string]*OwnerCount) ([]OwnerCount, int) {
 
 // tallyOwner buckets one service by its owner claims: the ownership partition, the
 // owner ranking and the non-compliant services no owner row can name.
-func (agg *EntityAggregate) tallyOwner(claims ownerClaimSet, s *ServiceRecord, nc bool, byOwner map[string]*OwnerCount, present map[string]bool) {
+func (agg *EntityAggregate) tallyOwner(claims ownerClaimSet, bucket string, s *ServiceRecord, nc bool, byOwner map[string]*OwnerCount, present map[string]bool) {
 	// Every canonical owner the service names is present in the population,
 	// including the two sides of a dispute — neither of which can rank.
 	for _, k := range claims.keys {
 		present[k] = true
 	}
-	agg.Ownership.add(claims.len())
+	agg.Ownership.add(bucket)
 	key := claims.soleKey()
 	if nc && (claims.len() != 1 || key == "") {
 		agg.NonCompliantUnidentified++
@@ -831,12 +891,46 @@ type OwnerSummary struct {
 	Links            LinkTally       `json:"links"`
 	Evidence         EvidenceWindow  `json:"evidence"`
 	Findings         SeverityTally   `json:"findings"`
+	// Health partitions the targets by what their health check reports.
+	Health OperationalHealthTally `json:"health"`
+	// NotDeployed, PlacementUnknown, Knowledge, UnresolvedDependencies and
+	// UndeclaredDependencies are over the estate's services; Readiness is over its revisions.
+	NotDeployed            int            `json:"notDeployed" doc:"Services that run nowhere, counted only when Pacto can see every target of the service"`
+	PlacementUnknown       int            `json:"placementUnknown" doc:"Services with no visible target whose placement Pacto cannot see, never counted in notDeployed"`
+	Knowledge              KnowledgeTally `json:"knowledge"`
+	Readiness              ReadinessTally `json:"readiness"`
+	UnresolvedDependencies int            `json:"unresolvedDependencies" doc:"Distinct declared dependencies of the services that resolve to no known service"`
+	UndeclaredDependencies int            `json:"undeclaredDependencies" doc:"Observed calls of the services that no contract declares"`
+}
+
+// restsOnStale reports whether any target of the service that is not
+// quarantined rests on stale evidence.
+func (q *Query) restsOnStale(s *ServiceRecord) bool {
+	return slices.ContainsFunc(s.Targets, func(k TargetKey) bool {
+		t := q.snap.Targets[k]
+		return t.Stale && !t.Quarantined
+	})
+}
+
+// addService tallies one service of the estate into every service-scoped
+// dimension: whether it runs nowhere, what its contract leaves out and its
+// unresolved and undeclared dependencies, by the service page's own rules.
+func (o *OwnerSummary) addService(q *Query, s *ServiceRecord) {
+	runsNowhere, known := q.notDeployed(s)
+	o.NotDeployed += b2i(runsNowhere)
+	o.PlacementUnknown += b2i(!known)
+	o.Knowledge.add(q.serviceKnowledge(s))
+	var deps ServiceSummary
+	q.tallyServiceEdges(&deps, s.Key)
+	o.UnresolvedDependencies += deps.UnresolvedDeclared
+	o.UndeclaredDependencies += deps.ObservedNotDeclared
 }
 
 // addTarget tallies one target into every target-scoped dimension at once, so a
 // caller cannot update three of the four and ship a summary whose bars disagree.
-func (o *OwnerSummary) addTarget(t *TargetRecord) {
-	o.Compliance.add(t.Compliance)
+func (o *OwnerSummary) addTarget(q *Query, t *TargetRecord) {
+	o.Compliance.addStale(t.Compliance, t.Stale)
+	o.Health.add(q.targetHealth(t))
 	o.Links.add(t)
 	o.Evidence.add(t)
 	for _, f := range t.Findings {
@@ -850,7 +944,7 @@ func (q *Query) serviceSummary(view *ServiceView) (ServiceSummary, map[RevisionK
 	sum := ServiceSummary{Targets: len(view.Targets), Revisions: len(view.Revisions)}
 	inUse := map[RevisionKey]bool{}
 	for _, t := range view.Targets {
-		sum.Compliance.add(t.Compliance)
+		sum.Compliance.addStale(t.Compliance, t.Stale)
 		sum.Links.add(t)
 		sum.Evidence.add(t)
 		for _, f := range t.Findings {

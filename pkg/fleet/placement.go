@@ -62,7 +62,10 @@ const (
 	targetsIncompleteReason = "you may not see every target of this service"
 	unlabelledProvisioning  = "targets with no environment label have no provisioning status"
 	noEnvironmentsDeclared  = "the revision declares no environments; see the service-wide offering status"
-	noProvisioningHere      = "no offering use of the current revision provisions a resource"
+	noProvisioningHere      = "no resource use of the current revision provisions a resource"
+	// hiddenProviderMayProvision replaces noProvisioningHere when a provider
+	// the viewer may not see is used: missing is never none.
+	hiddenProviderMayProvision = "a provider you may not see may provision a resource here; its status is unknown"
 )
 
 // placement lists a service's environments: every one the current revision
@@ -87,7 +90,8 @@ func (q *Query) placement(key ServiceKey, targets []*TargetRecord, cur *Contract
 	revs := q.countTargets(group, targets)
 	tally := provisioningByEnvironment(uses)
 	complete := !q.snap.targetsHidden[key] && targetPlacementKnown(q.snap)
-	seed := q.provisioningSeed(key)
+	seed := q.provisioningSeed(key, uses)
+	hidden := q.hasHiddenProvider(key)
 	items := make([]EnvironmentPlacement, 0, len(groups))
 	for env, g := range groups {
 		shown, total, truncated := boundSlice(chronologicalRevisionRefs(revs[env]), MaxPlacementRevisions)
@@ -98,7 +102,7 @@ func (q *Query) placement(key ServiceKey, targets []*TargetRecord, cur *Contract
 		g.Owner = environmentOwner(g.Declaration, owner)
 		g.Provisioning, g.ProvisioningTracked = tally[env], tally[env] != PhaseTally{}
 		if !g.ProvisioningTracked {
-			g.ProvisioningReason = provisioningReason(env, g.Declaration != nil, len(declared) > 0)
+			g.ProvisioningReason = provisioningReason(env, g.Declaration != nil, len(declared) > 0, hidden)
 			if g.Declaration != nil && seed != nil && seed.Key != cur.Key {
 				g.ProvisioningReason = fmt.Sprintf("provisioning is seeded from %s, which does not declare %s, so its status here is unknown", revisionEntityRef(seed).Label, env)
 			}
@@ -128,15 +132,16 @@ func (q *Query) placement(key ServiceKey, targets []*TargetRecord, cur *Contract
 }
 
 // provisioningSeed is the revision whose environments seed the provisioning
-// slots of key's offering uses: the newest revision with an offering edge,
+// slots of key's uses: the newest revision with an edge one of uses keeps,
 // the revision offeringUsesIn keeps, which need not be the one running.
 // ponytail: one seed for the service; per-use seeds matter only if two uses
 // ever keep different revisions.
-func (q *Query) provisioningSeed(key ServiceKey) *ContractRevision {
+func (q *Query) provisioningSeed(key ServiceKey, uses []OfferingUse) *ContractRevision {
 	var seed *ContractRevision
 	for i := range q.snap.Relationships {
 		rel := &q.snap.Relationships[i]
-		if p := q.snap.Services[rel.ToService]; !offeringRelationship(rel, key) || rel.Type == RelationshipPolicyRef || p == nil || p.Offering == "" {
+		if !offeringRelationship(rel, key) || rel.Type == RelationshipPolicyRef ||
+			!slices.ContainsFunc(uses, func(u OfferingUse) bool { return u.Provider.Key == string(rel.ToService) && u.Via == rel.Type }) {
 			continue
 		}
 		if r := q.snap.Revisions[rel.FromRevision]; r != nil && (seed == nil || lessRevisionChrono(seed, r)) {
@@ -187,15 +192,17 @@ func provisioningByEnvironment(uses []OfferingUse) map[string]PhaseTally {
 				continue
 			}
 			t := out[st.Environment]
-			t.add(st.Phase)
+			t.addStatus(st)
 			out[st.Environment] = t
 		}
 	}
 	return out
 }
 
-// provisioningReason is why no provider is asked about env.
-func provisioningReason(env string, declared, revisionDeclares bool) string {
+// provisioningReason is why no provider is asked about env. hidden is
+// whether the service uses a provider the viewer may not see, which may be
+// provisioning there.
+func provisioningReason(env string, declared, revisionDeclares, hidden bool) string {
 	switch {
 	case env == "":
 		return unlabelledProvisioning
@@ -203,6 +210,8 @@ func provisioningReason(env string, declared, revisionDeclares bool) string {
 		return noEnvironmentsDeclared
 	case !declared:
 		return "the current revision does not declare " + env + ", so no provider is asked about it there"
+	case hidden:
+		return hiddenProviderMayProvision
 	default:
 		return noProvisioningHere
 	}
@@ -380,17 +389,33 @@ func (e EnvironmentPlacement) provisioningText() string {
 	if !e.ProvisioningTracked {
 		return "provisioning not tracked: " + e.ProvisioningReason
 	}
-	t := e.Provisioning
+	parts, total := e.Provisioning.parts()
+	return fmt.Sprintf("provisioning %s of %d", strings.Join(parts, ", "), total)
+}
+
+// parts renders the tally's non-zero buckets in track order, Ready with its
+// unsigned part, and their total.
+func (t PhaseTally) parts() ([]string, int) {
 	var parts []string
 	total := 0
 	for _, b := range []struct {
 		n    int
 		name string
-	}{{t.Requested, PhaseBucketRequested}, {t.Provisioning, PhaseBucketProvisioning}, {t.Ready, PhaseBucketReady}, {t.Failed, PhaseBucketFailed}, {t.Deleting, PhaseBucketDeleting}, {t.Unknown, PhaseBucketUnknown}} {
+	}{{t.Requested, PhaseBucketRequested}, {t.Provisioning, PhaseBucketProvisioning}, {t.Ready, PhaseBucketReady + t.UnsignedNote()}, {t.Failed, PhaseBucketFailed}, {t.Deleting, PhaseBucketDeleting}, {t.Unknown, PhaseBucketUnknown}} {
 		if b.n > 0 {
 			parts = append(parts, fmt.Sprintf("%d %s", b.n, b.name))
 			total += b.n
 		}
 	}
-	return fmt.Sprintf("provisioning %s of %d", strings.Join(parts, ", "), total)
+	return parts, total
+}
+
+// UnsignedNote is what follows the Ready count: " (M unsigned)" when some
+// of it is unsigned, else nothing, so an unsigned Ready never reads as a
+// plain one.
+func (t PhaseTally) UnsignedNote() string {
+	if t.ReadyUnsigned == 0 {
+		return ""
+	}
+	return fmt.Sprintf(" (%d unsigned)", t.ReadyUnsigned)
 }

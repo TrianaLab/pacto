@@ -147,7 +147,7 @@ jobs:
           cache: 'npm'
           cache-dependency-path: pkg/dashboard/frontend/package-lock.json
       - name: Install Helm
-        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0
       # Vale for the docs-lint gate. Without a pinned `vale` on PATH, docs_lint.py
       # falls back to `go run`, which builds Vale from source and verifies its
       # modules against sum.golang.org on every run -- a network dependency that

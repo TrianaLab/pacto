@@ -827,7 +827,9 @@ describe('inbox, publish and autonomy narrowed to one service (B2)', () => {
     ] }] });
     fns.lifecycle.mockResolvedValue({ ...listing, service: 'payments', digest: D2, version: '2.0.0', signature: 'signed', signedOn: ['test/pay'], note: '', sourceRevision: 'abc123def', stages: [
       { namespace: 'prod', stage: 'pay', environment: 'prod', completeness: 'complete', running: true, offered: false, recordsVerified: true, source: 'records', verified: 'yes', failed: 'no',
-        events: [{ role: 'arrived', type: 'delivery.pacto.trianalab.io/promote', operation: 'op-1', actor: 'carol', applied: '2026-11-04T09:58:00Z', approvals: [] }] },
+        events: [{ role: 'arrived', type: 'delivery.pacto.trianalab.io/promote', operation: 'op-1', actor: 'carol', applied: '2026-11-04T09:58:00Z', approvals: [] },
+          { role: 'arrived', kind: 'operation', type: 'delivery.pacto.trianalab.io/promote', operation: 'op-2', record: 'rec-2', finished: '2026-11-04T10:00:00Z', approvals: [],
+            impact: { gate: 'pacto.impact', phase: 'pre', result: 'Pass', message: 'no consumer breaks' } }] },
       { namespace: 'test', stage: 'pay', environment: 'test', completeness: 'complete', running: false, offered: false, recordsVerified: true, source: 'records', verified: 'unknown', failed: 'unknown', events: [] },
       { namespace: 'stage', stage: 'pay', environment: 'staging', completeness: 'partial', running: false, offered: false, recordsVerified: false, source: 'status', verified: 'unknown', failed: 'no', events: [] },
     ] });
@@ -848,6 +850,8 @@ describe('inbox, publish and autonomy narrowed to one service (B2)', () => {
     expect(text(lc)).toContain('Signature checked');
     expect(text(lc)).toContain('arrived');
     expect(text(lc)).toContain('from status, not signed');
+    // A record's impact verdict reads as recorded, once, on its own line.
+    expect([...lc.querySelectorAll('[data-testid="lifecycle-impact"]')].map((e) => e.textContent)).toEqual(['Impact recorded 2026-11-04 10:00 UTC: Pass no consumer breaks']);
     expect(text(lc)).toContain('not reached');
     expect(text(lc)).toContain('verified: not known');
     expect(text(lc)).toContain('not seen in the history read (partial)');
@@ -1294,7 +1298,7 @@ describe('change detail', () => {
     r.destroy();
 
     const own = heldOperation({ actions: ['cancel'] });
-    own.operation.spec = { ...own.operation.spec, actor: { user: 'agent-bot' }, onBehalfOf: { user: 'https://idp#carol' } } as typeof own.operation.spec;
+    own.operation.spec = { ...own.operation.spec, actor: { user: 'agent-bot' }, onBehalfOf: { user: ' https://IDP#Carol' } } as typeof own.operation.spec;
     fns.operation.mockResolvedValueOnce(own);
     auth.loaded = false;
     fns.session.mockResolvedValue(shared({ caller: human(['team-checkout']) }));

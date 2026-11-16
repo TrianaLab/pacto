@@ -4,10 +4,15 @@ import (
 	"bytes"
 	_ "embed"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/trianalab/pacto/v4/examples/story"
+	"github.com/trianalab/pacto/v4/pkg/runrecord"
 )
 
 // This file is the COMPOSE surface: the same scenario, projected onto a few
@@ -61,6 +66,15 @@ const (
 	ComposePlanFile = ComposeArtifactMount + "/plan.tsv"
 	// ComposeSeedScript is the static script the one-shot seed runs.
 	ComposeSeedScript = ComposeArtifactMount + "/seed.sh"
+	// ComposeStatsRepo is the repository the seed publishes the demo's run
+	// records to, beside the bundles in the demo's own registry.
+	ComposeStatsRepo = ComposeDomain + "/pacto-stats"
+	// ComposeStatsFile is the demo's run records, one per line, stamped at
+	// story.Now; the seed shifts them to seed time.
+	ComposeStatsFile = ComposeArtifactMount + "/stats/records.jsonl"
+	// ComposeStatsTimes lists every timestamp in ComposeStatsFile as
+	// "<unix seconds>\t<RFC 3339>", so the seed shifts them without parsing a date.
+	ComposeStatsTimes = ComposeArtifactMount + "/stats/times.tsv"
 )
 
 // ComposeMinVersion is the oldest Docker Compose that owns this artifact type:
@@ -288,6 +302,11 @@ func (s Scenario) Compose(opts ComposeOptions) ([]byte, error) {
 				"PACTO_DEMO_EVIDENCE_URL":   ComposeEvidenceURL,
 				"PACTO_DEMO_PLAN":           ComposePlanFile,
 				"PACTO_DEMO_KEYS":           composeKeyDir,
+				// Run records ride along as unsigned statistics, published once.
+				"PACTO_DEMO_STATS":            ComposeStatsFile,
+				"PACTO_DEMO_STATS_TIMES":      ComposeStatsTimes,
+				"PACTO_DEMO_STATS_BASE_EPOCH": strconv.FormatInt(story.Now.Unix(), 10),
+				"PACTO_DEMO_STATS_REPO":       ComposeStatsRepo,
 			},
 			DependsOn: map[string]composeDep{
 				// The registry needs no healthcheck of its own: the seed's first push
@@ -379,7 +398,12 @@ func (s Scenario) composeInputs() (seed, dashboard []composeInput, subjects []st
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
-	seedFiles := map[string]string{"plan.tsv": string(plan), "seed.sh": seedScript}
+	records, times, err := s.composeStats(digests)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	seedFiles := map[string]string{"plan.tsv": string(plan), "seed.sh": seedScript,
+		"stats/records.jsonl": records, "stats/times.tsv": times}
 	for rel, body := range files {
 		seedFiles[rel] = body
 	}
@@ -520,7 +544,10 @@ func (s Scenario) composeDashboardArgs() ([]string, error) {
 		}
 		args = append(args, "--trace-source", src.ID+"="+ComposeArtifactMount+"/"+src.ID+".json")
 	}
-	args = append(args, "--host", "0.0.0.0", "--port", strconv.Itoa(composeDashboardPort))
+	// The Metrics page reads the run records the seed published (CI records
+	// only: the Compose demo runs no delivery).
+	args = append(args, "--stats-registry", ComposeStatsRepo)
+	args = append(args, "--host", "0.0.0.0", "--port", strconv.Itoa(composeDashboardPort), "--allow-anonymous")
 	for _, a := range args {
 		if err := checkComposeValue(a); err != nil {
 			return nil, fmt.Errorf("scenario %s: dashboard argument: %w", s.Name, err)
@@ -852,4 +879,81 @@ type composeHealth struct {
 type composeVolumes struct {
 	State    struct{} `yaml:"pacto-demo-state"`
 	Registry struct{} `yaml:"pacto-demo-registry"`
+}
+
+// composeStatsEvents is the Compose demo's own small run record schedule over
+// the scenario's real revisions: checkout 1.0.0 to 1.1.0 caught as breaking
+// (run twice, one distinct change), its impact unverified (run twice): orders,
+// the one service that consumes checkout, declares ^1.0.0, which accepts 1.1.0,
+// so the breaking change is not checked against it, which is what pacto impact
+// answers for these two revisions, and a publish for every revision
+// the seed pushes, the newest at seed time. The stack runs no delivery, so
+// there is no operation record.
+func composeStatsEvents() []story.StatsEvent {
+	d := func(days int) time.Duration { return time.Duration(days) * 24 * time.Hour }
+	diff := func(days int) story.StatsEvent {
+		return story.StatsEvent{At: d(days), Kind: runrecord.KindDiff, Service: "checkout", From: 0, To: 1, Classification: "BREAKING"}
+	}
+	impact := func(days int) story.StatsEvent {
+		return story.StatsEvent{At: d(days), Kind: runrecord.KindImpact, Service: "checkout", From: 0, To: 1, Classification: "BREAKING",
+			Verdict: runrecord.VerdictUnverified, Reason: "CONSUMERS_UNCHECKED", Compatible: 1}
+	}
+	publish := func(days int, service string, from, to int) story.StatsEvent {
+		return story.StatsEvent{At: d(days), Kind: runrecord.KindPublish, Service: service, From: from, To: to, Classification: "NON_BREAKING"}
+	}
+	return []story.StatsEvent{
+		publish(60, "payments", -1, 0),
+		publish(58, "checkout", -1, 0),
+		publish(55, "orders", -1, 0),
+		publish(52, "inventory", -1, 0),
+		diff(12), diff(11),
+		impact(11), impact(10),
+		publish(0, "checkout", 0, 1),
+	}
+}
+
+// statsTimestamp matches every timestamp an encoded run record holds.
+var statsTimestamp = regexp.MustCompile(`"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"`)
+
+// composeStats is the Compose demo's run records, one per line, stamped at
+// story.Now, and every timestamp they hold as "<unix seconds>\t<RFC 3339>".
+// The artifact is built long before it runs, so the seed adds the shift to
+// seed time; computing the epochs here keeps date parsing out of the shell.
+func (s Scenario) composeStats(digests map[string]string) (records, times string, err error) {
+	services := make([]story.StatsService, 0, len(s.Services))
+	for _, svc := range s.Services {
+		st := story.StatsService{Name: svc.Name}
+		for _, rev := range svc.Revisions {
+			digest := digests[DigestKey(svc.Name, rev.Version)]
+			st.Revisions = append(st.Revisions, story.StatsRevision{Version: rev.Version, Digest: digest, Artifact: digest})
+		}
+		services = append(services, st)
+	}
+	recs, err := story.Records(story.Now, services, composeStatsEvents())
+	if err != nil {
+		return "", "", fmt.Errorf("scenario %s: run records: %w", s.Name, err)
+	}
+	var rb, tb strings.Builder
+	seen := map[string]bool{}
+	for _, r := range recs {
+		line, err := runrecord.Encode(r)
+		if err != nil {
+			return "", "", err
+		}
+		rb.Write(line)
+		rb.WriteByte('\n')
+		for _, q := range statsTimestamp.FindAllString(string(line), -1) {
+			ts := strings.Trim(q, `"`)
+			if seen[ts] {
+				continue
+			}
+			seen[ts] = true
+			at, err := time.Parse(time.RFC3339, ts)
+			if err != nil {
+				return "", "", err
+			}
+			fmt.Fprintf(&tb, "%d\t%s\n", at.Unix(), ts)
+		}
+	}
+	return rb.String(), tb.String(), nil
 }

@@ -28,6 +28,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/logging"
+	"github.com/trianalab/pacto/v4/pkg/runrecord/stats"
 )
 
 // ContentSecurityPolicy is sent with every answer. The page holds sessions and
@@ -104,6 +105,22 @@ type Options struct {
 	Auth *Auth
 	// MiraURL, when set, turns Mira citations into links and lets a service page open the service in Mira.
 	MiraURL string
+	// Stats reads the run records of the stats repository the Metrics page
+	// totals: those of services, or every record when services is nil. A
+	// restricted viewer's read names only the services in their view, so
+	// hidden records never use the bounds or fail the read. The host bounds
+	// and caches the read; nil serves no stats routes and capabilities.stats
+	// is false.
+	Stats func(ctx context.Context, services []string) (stats.RecordSet, error)
+	// StatsRegistry is the stats repository Stats reads, shown on the page.
+	StatsRegistry string
+	// OperationAccess reviews a signed-in viewer's access to list operations
+	// in the Stage namespaces the operation records name and says which they
+	// may see. Nil on a restricted host hides every operation record.
+	OperationAccess func(ctx context.Context, namespaces []string) (func(string) bool, error)
+	// Now is the clock behind the stats window and its buckets; nil is
+	// time.Now.
+	Now func() time.Time
 }
 
 // Server serves the dashboard web UI and REST API.
@@ -197,6 +214,14 @@ func NewServer(opts Options) *Server {
 	}
 	s.opts = opts
 	return s
+}
+
+// APIHandler serves the API alone, without the UI, the auth routes or CORS:
+// an in-process caller (the MCP delivery read tools) runs a route through it.
+func (s *Server) APIHandler() http.Handler {
+	mux := http.NewServeMux()
+	s.registerAPI(mux)
+	return withRequest(mux)
 }
 
 // Serve listens on the configured host and port and blocks until ctx is cancelled.
@@ -314,6 +339,7 @@ func (s *Server) RegisterOperations(api huma.API) {
 	s.registerProductOperations(api)
 	s.registerAuthOperations(api)
 	s.registerDeliveryOperations(api)
+	s.registerStatsOperations(api)
 }
 
 // ExportOpenAPI builds the Huma API with every operation registered — the live

@@ -83,6 +83,11 @@ tests:
           path: spec.template.spec.containers[0].args
           content: --dashboard-token-login
         template: templates/deployment.yaml
+      # The chart passes the anonymous choice; the operator ignores it while sign-in is configured.
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-allow-anonymous
+        template: templates/deployment.yaml
       - equal:
           path: metadata.name
           value: pacto-dex

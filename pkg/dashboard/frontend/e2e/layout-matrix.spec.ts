@@ -117,7 +117,7 @@ test('the History table at 1900px beside the expanded sidebar keeps every column
 // A service with 200 environments (the scale fixture's storefront-web): the rows cap
 // themselves behind one Show all, and the differences, history and the asOf and
 // completeness line #452 asks for stay visible instead of hiding behind a fade.
-test('the Environments section at 200 environments keeps its differences, history and footer visible', async ({ page }) => {
+test('the Environments section at 200 environments keeps its differences, changes link and footer visible', async ({ page }) => {
   await page.addInitScript(installScaleFixture);
   await page.setViewportSize({ width: 1440, height: 900 });
   await appReady(page);
@@ -128,10 +128,28 @@ test('the Environments section at 200 environments keeps its differences, histor
   await expect(section.locator('.ps-clipped')).toHaveCount(0);
   await expect(section.getByTestId('preview-show-all')).toHaveCount(0);
   await expect(section.getByRole('button', { name: /^Show all [\d,]+ environments$/ })).toHaveCount(1);
-  for (const id of ['environment-differences', 'environment-history', 'environments-footer']) {
+  for (const id of ['environment-differences', 'environment-changes-link', 'environments-footer']) {
     const el = section.getByTestId(id);
     await el.scrollIntoViewIfNeeded();
     await expect(el).toBeInViewport();
   }
   await expect(section.getByTestId('environments-footer')).toContainText(/^As of .*, (complete|partial)/);
+});
+
+// The Metrics fixture answers on the plain demo in place of the demo's own run records: the
+// metrics routes above draw the fixture's answers unless they ask for `engine`.
+test('the metrics fixture answers GET /api/stats on the plain demo', async ({ page }) => {
+  await page.addInitScript(installScaleFixture);
+  await appReady(page);
+  const serve = (mode: string) => page.evaluate(async (m) => {
+    sessionStorage.setItem('fixture.stats', m);
+    const w = window as unknown as { __pactoServe: (method: string, path: string, body: string | null) => Promise<{ status: number; body: string }> };
+    const [stats, caps] = await Promise.all([w.__pactoServe('GET', '/api/stats', null), w.__pactoServe('GET', '/api/capabilities', null)]);
+    return { status: stats.status, stats: caps.status === 200 ? JSON.parse(caps.body).stats : null };
+  }, mode);
+  expect(await serve('')).toEqual({ status: 200, stats: true });
+  expect(await serve('none')).toEqual({ status: 200, stats: true });
+  expect(await serve('off')).toEqual({ status: 404, stats: false });
+  // `engine` leaves both to the demo, which serves its own run records.
+  expect(await serve('engine')).toEqual({ status: 200, stats: true });
 });

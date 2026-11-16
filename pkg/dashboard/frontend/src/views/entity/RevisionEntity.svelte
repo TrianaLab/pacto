@@ -25,6 +25,8 @@
   import { fleetEntityListUrl } from '../../lib/router.ts';
   import RevisionFigures from '../../components/figure/RevisionFigures.svelte';
   import DeliveryLifecycle from '../../components/DeliveryLifecycle.svelte';
+  import StageOffers from '../../components/StageOffers.svelte';
+  import { stageRowsOf, artifactOf, promotes } from '../../lib/delivery.ts';
 
   // The revision page: an IMMUTABLE version of the service contract, not a deployment,
   // and the CONTRACT INSPECTOR -- the one place a user reads what this exact revision
@@ -47,8 +49,9 @@
   // schemas are the exceptions: RevisionDocs reads one doc body on demand, and the
   // backend reads schema content when this page is requested.
   // `deliveryState` is whether this dashboard serves delivery: only 'enabled' asks
-  // for the revision's way through its service's Stages.
-  let { detail, deliveryState = 'unknown', miraURL = '' } = $props();
+  // for the revision's way through its service's Stages and the promote of its artifact.
+  // `correlation` is the investigation's ticket or incident id (the URL's correlationID).
+  let { detail, deliveryState = 'unknown', miraURL = '', correlation = '' } = $props();
   const d = $derived(detail.revision ?? {});
   const id = $derived(d.identity ?? {});
   const r = $derived(d.readiness ?? null);
@@ -58,6 +61,17 @@
   // The parent ServiceKey comes from the backend ref, never parsed out of the revision
   // key: a RevisionKey is not a ServiceKey with a suffix.
   let noDelivery = $state(false);
+  // The promote a Stage offers of THIS content: its artifact is the one whose contract
+  // is this revision's digest, so another artifact of the same version is never offered.
+  let offers = $state(null);
+  $effect(() => {
+    offers = null;
+    const ask = { service: d.service?.label ?? '', domain: d.service?.domain ?? '', digest: id.digest ?? '' };
+    if (deliveryState !== 'enabled' || !ask.service || !ask.digest) return;
+    Promise.all([stageRowsOf(ask.service, ask.domain), artifactOf(ask.service, ask.domain, ask.digest)]).then(([rows, artifact]) => {
+      if (ask.digest === id.digest) offers = { rows, match: promotes(artifact) };
+    });
+  });
   const historyHref = $derived(d.service?.key ? fleetEntityListUrl('revision', { service: d.service.key }) : '');
 
   // The SBOM summary. The backend already bucketed every package by license over the
@@ -151,6 +165,7 @@
       {#key id.digest}
         <DeliveryLifecycle query={{ service: d.service.label, domain: d.service.domain ?? '', contract: id.digest }} subject="revision" {miraURL} onUnavailable={() => { noDelivery = true; }} />
       {/key}
+      {#if offers}<StageOffers rows={offers.rows} service={d.service.label} match={offers.match} onlyAvailable labelPrefix="Plan" {correlation} />{/if}
     </section>
   {/if}
 

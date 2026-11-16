@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -153,6 +154,27 @@ type AmbiguousError struct {
 
 func (e *AmbiguousError) Error() string {
 	return fmt.Sprintf("%s %q is ambiguous: matches %s", e.Kind, e.ID, strings.Join(e.Matches, ", "))
+}
+
+// ParseLabels reads key=value pairs into SearchFilter.Labels. A pair with no
+// key or no =, or a key repeated with another value, is an InvalidQueryError:
+// dropping it would widen the answer past what the caller asked for.
+func ParseLabels(pairs []string) (map[string]string, error) {
+	if len(pairs) == 0 {
+		return nil, nil
+	}
+	out := map[string]string{}
+	for _, p := range pairs {
+		k, val, ok := strings.Cut(p, "=")
+		if !ok || k == "" {
+			return nil, &InvalidQueryError{Field: "label", Value: p, Reason: "want key=value"}
+		}
+		if prev, dup := out[k]; dup && prev != val {
+			return nil, &InvalidQueryError{Field: "label", Value: p, Reason: fmt.Sprintf("key %q already filters on %q", k, prev)}
+		}
+		out[k] = val
+	}
+	return out, nil
 }
 
 // SearchFilter constrains a service search. The zero value matches everything
@@ -392,16 +414,19 @@ func (q *Query) matchOwnerKey(s *ServiceRecord, key string) bool {
 
 // ownerClaims is THE ownership question, asked once and answered the same way by
 // every surface that filters, aggregates or drills down by owner: a service is
-// associated with an owner when AT LEAST ONE of its revisions declares one that
-// satisfies pred. Ownership is authored per revision; ServiceRecord.Owner is only
-// the summary deriveOwner reads off the lowest-keyed revision, so asking it
-// instead answers a different question — it hands a service the two teams
-// dispute to whichever of them the revision key order happened to favour, and
-// hides it from the other. "Consistently owned by x" is this predicate plus
-// OwnershipConsistent, never a narrower reading of the predicate itself.
+// associated with an owner when one of the revisions of its CURRENT claims
+// ([currentOwnerRevisions]: the newest version that declares an owner and the
+// revisions its targets run now) declares one that satisfies pred. So owner=x
+// lists exactly the services the ownership ranking counts under x, and a team
+// that handed a service over no longer finds it under its name (its owner page
+// still lists the revisions it declared). ServiceRecord.Owner is only the
+// summary deriveOwner reads off the newest revision; asking it instead would
+// hand a service two teams dispute now to one of them and hide it from the
+// other. "Consistently owned by x" is this predicate plus OwnershipConsistent,
+// never a narrower reading of the predicate itself.
 func (q *Query) ownerClaims(s *ServiceRecord, pred func(contract.Owner) bool) bool {
-	return s != nil && q.anyRevision(s, func(r *ContractRevision) bool {
-		return r != nil && pred(r.Owner)
+	return s != nil && slices.ContainsFunc(currentOwnerRevisions(q.snap, s), func(r *ContractRevision) bool {
+		return pred(r.Owner)
 	})
 }
 
@@ -914,6 +939,8 @@ type StatusQuery struct {
 	// UnsatisfiedRanges reports declared dependencies whose provider is in the
 	// fleet at a version outside the consumer's compatibility range.
 	UnsatisfiedRanges bool
+	// Lifecycle reports services that use a deprecated or past-sunset provider.
+	Lifecycle bool
 	// Unowned reports services no source knows an owner for.
 	Unowned bool
 	// Undeclared reports runtime calls no contract declares and callers with no
@@ -958,9 +985,16 @@ func (q *Query) Status(sq StatusQuery) *StatusResult {
 		categoryReadiness:    sq.MissingReadiness,
 		categoryUnresolved:   sq.UnresolvedDeps,
 		categoryOutOfRange:   sq.UnsatisfiedRanges,
+		categoryLifecycle:    sq.Lifecycle,
 		categoryUndeclared:   sq.Undeclared,
 		categoryUnowned:      sq.Unowned,
 		categoryGoldenPath:   sq.GoldenPathDeployed,
+		// No flag selects provisioning alone: NeedsAttention and the empty
+		// query include it, so Status stays a projection of collectAttention.
+		categoryProvisioning: false,
+		// Nor does any flag select health or knowledge alone, for the same reason.
+		categoryHealth:    false,
+		categoryKnowledge: false,
 	}
 	// No category selected means every category: an empty query from the CLI, an
 	// MCP client or the dashboard asks "what needs attention", never "nothing".

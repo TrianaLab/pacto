@@ -133,6 +133,14 @@ describe('product endpoint serialization + schema validation', () => {
     await api.fleetEntityDetail('target', 'prod/k8s/app');
     expect(urlFor().pathname).toBe('/api/fleet/entities/target');
     expect(urlFor().searchParams.get('key')).toBe('prod/k8s/app');
+    expect(urlFor().searchParams.has('reached')).toBe(false);
+  });
+
+  it('fleetEntityDetail asks for reached times only when told to', async () => {
+    mockFetch.mockResolvedValue(productResponse({ entity: { kind: 'service' }, service: {} }));
+    await api.fleetEntityDetail('service', 'web', { reached: true });
+    expect(urlFor().searchParams.get('reached')).toBe('true');
+    expect(urlFor().searchParams.get('key')).toBe('web');
   });
 
   it('fleetNeighborhood serializes kind, key, direction, views and bounds', async () => {
@@ -420,6 +428,14 @@ describe('delivery endpoints', () => {
     mockFetch.mockResolvedValue(new Response('missing or wrong X-Pacto-CSRF header', { status: 403 }));
     const plain = await api.deliveryInbox().catch((e) => e);
     expect([plain.status, plain.code, plain.message]).toEqual([403, '', 'missing or wrong X-Pacto-CSRF header']);
+  });
+
+  it('carries differs on a PlanStale answer', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ status: 409, code: 'PlanStale', detail: 'moved', differs: 'reason', plan: { intentDigest: 'sha256:new' } }, 409));
+    const err = await api.deliveryOperation('prod', 'op1').catch((e) => e);
+    expect([err.code, err.differs, err.plan.intentDigest]).toEqual(['PlanStale', 'reason', 'sha256:new']);
+    mockFetch.mockResolvedValue(jsonResponse({ status: 409, code: 'PlanStale', detail: 'moved', plan: { intentDigest: 'sha256:new' } }, 409));
+    expect((await api.deliveryOperation('prod', 'op1').catch((e) => e)).differs).toBeFalsy();
   });
 
   it('sends every 401 but the session read to the sign-in gate', async () => {

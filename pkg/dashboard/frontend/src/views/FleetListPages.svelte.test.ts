@@ -110,12 +110,12 @@ describe('FleetOwnersView (G)', () => {
     expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['owner'], sort: 'rate' }));
     const ths = Array.from(target.querySelectorAll('[data-testid="owner-list"] thead th'));
     expect(ths.map((th) => [th.textContent?.trim(), th.getAttribute('aria-sort')])).toEqual([
-      ['Owner', 'none'], ['Services', 'none'], ['Non-compliant', 'none'], ['Rate ▼', 'descending'],
+      ['Owner', 'none'], ['Services', 'none'], ['Non-compliant', 'none'], ['Unknown', null], ['Failing', null], ['Stale', null], ['Gaps', 'none'], ['Rate ▼', 'descending'],
     ]);
     expect(ths[2].querySelector('a')?.getAttribute('href')).toBe('#/fleet/owners');
     const cells = Array.from(target.querySelectorAll('[data-testid="owner-list"] tbody td')).map((td) => td.textContent?.trim());
     // The rate is of the services the owner owns outright, the figure's denominator.
-    expect(cells).toEqual(['12', '3', '30%']);
+    expect(cells).toEqual(['12', '3', '0', '0', '0', '0', '30%']);
     expect(target.querySelector('[data-testid="owner-list"] tbody td a')?.getAttribute('href'))
       .toBe('#/fleet/services?ownerKey=team%3Aa&ownership=consistent&status=NonCompliant');
     const box = target.querySelector('[data-testid="owner-nc-filter"]') as HTMLInputElement;
@@ -137,7 +137,7 @@ describe('FleetOwnersView (G)', () => {
     expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['service'], limit: 1 }));
     // The buckets are the backend's 40 services, not the 2 owner rows below them.
     expect(legend(target)).toEqual([
-      ['Revisions name different owners', '2', '#/fleet/services?ownership=conflicting'],
+      ['Owners disagree', '2', '#/fleet/services?ownership=conflicting'],
       ['No declared owner', '4', '#/fleet/services?ownership=unowned'],
       ['One declared owner', '34', '#/fleet/services?ownership=consistent'],
     ]);
@@ -168,7 +168,7 @@ describe('FleetOwnersView (G)', () => {
     const note = bars[0].querySelector('.hb-scope')?.textContent || '';
     expect(note).toContain('Top 2 of 5 named owners by service count.');
     expect(note).toContain('The remaining 3 of 5 owners account for 4 more services.');
-    expect(note).toContain('Services with no declared owner, or whose revisions name different owners, appear in no row here.');
+    expect(note).toContain('Services with no declared owner, or whose owners disagree, appear in no row here.');
     unmount(component); document.body.removeChild(target);
   });
 
@@ -296,6 +296,20 @@ describe('FleetOwnersView (G)', () => {
  * with nothing to summarize, and, on a refresh, indistinguishable from a current
  * picture that had simply stopped moving.
  */
+describe('FleetOwnersView — rank by health and by gaps', () => {
+  beforeEach(() => { entitiesFn.mockReset(); location.hash = ''; });
+  for (const sort of ['health', 'gaps']) {
+    it(`asks the server for the ${sort} order`, async () => {
+      entitiesFn.mockResolvedValue(listResp([{ kind: 'owner', key: 'team:a', label: 'a', href: '/fleet/owners/team:a', services: 1 }], { total: 1 }));
+      const { target, component } = mountView(FleetOwnersView, { sort });
+      await vi.waitFor(() => expect(target.querySelector('[data-testid="owner-list"] tbody tr')).toBeTruthy());
+      expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['owner'], sort }));
+      expect(target.querySelector('[data-testid="owner-list-rank-health"]')?.getAttribute('href')).toBe('#/fleet/owners?sort=health');
+      unmount(component); document.body.removeChild(target);
+    });
+  }
+});
+
 describe('FleetOwnersView — the ownership summary has its own state', () => {
   beforeEach(() => { entitiesFn.mockReset(); location.hash = ''; });
 
@@ -372,7 +386,7 @@ describe('FleetOwnersView — the ownership summary has its own state', () => {
     ]);
     // 5 + 2 + 1 == 8 of 10: the missing two are a bucket, not rounding.
     expect(rows).toEqual([
-      ['Revisions name different owners', '2', '(20% of 10)'],
+      ['Owners disagree', '2', '(20% of 10)'],
       ['No declared owner', '1', '(10% of 10)'],
       ['One declared owner', '5', '(50% of 10)'],
       ['Unclassified', '2', '(20% of 10)'],
@@ -407,7 +421,7 @@ describe('FleetOwnersView — the ownership summary has its own state', () => {
     // Still shares of 8 -- the denominator was not quietly moved to make them fit --
     // and no Unclassified slice was invented to pad a bar that is already too full.
     expect(rows).toEqual([
-      ['Revisions name different owners', '(38% of 8)'],
+      ['Owners disagree', '(38% of 8)'],
       ['No declared owner', '(13% of 8)'],
       ['One declared owner', '(75% of 8)'],
     ]);
@@ -435,6 +449,17 @@ describe('FleetSourcesView (G)', () => {
     const sel = target.querySelector('select') as HTMLSelectElement;
     sel.value = 'unavailable'; sel.dispatchEvent(new Event('change', { bubbles: true }));
     expect(location.hash).toBe('#/fleet/sources?sourceHealth=unavailable');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  // The overview's "Incomplete sources" tile opens this list with sourceHealth=incomplete.
+  it('names the incomplete filter Incomplete in its chip and its select', async () => {
+    entitiesFn.mockResolvedValue(listResp([{ kind: 'source', key: 'kubernetes', label: 'kubernetes', href: '/fleet/sources/kubernetes' }], { total: 1 }));
+    const { target, component } = mountView(FleetSourcesView, { sourceHealth: 'incomplete' });
+    await vi.waitFor(() => expect(target.querySelector('.lv-item')).toBeTruthy());
+    expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ sourceHealth: 'incomplete' }));
+    expect(target.textContent).toContain('Incomplete');
+    expect((target.querySelector('select') as HTMLSelectElement).value).toBe('incomplete');
     unmount(component); document.body.removeChild(target);
   });
 

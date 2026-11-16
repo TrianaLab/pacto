@@ -409,3 +409,54 @@ func TestOCISecretAC_WithOwnerRef(t *testing.T) {
 		t.Errorf("expected owner name pacto-operator, got %q", *secret.OwnerReferences[0].Name)
 	}
 }
+
+// The anonymous choice reaches the dashboard only when nobody signs in: with
+// sign-in configured it would change nothing, so it is left out.
+func TestAllowAnonymousEnvOnlyWithoutSignIn(t *testing.T) {
+	anonymous := func(a AuthConfig) bool {
+		for _, e := range deploymentAC(Config{Image: "i", Namespace: "n", Auth: a}).(*appsv1ac.DeploymentApplyConfiguration).Spec.Template.Spec.Containers[0].Env {
+			if *e.Name == "PACTO_DASHBOARD_ALLOW_ANONYMOUS" {
+				return *e.Value == "true"
+			}
+		}
+		return false
+	}
+	for _, c := range []struct {
+		name string
+		auth AuthConfig
+		want bool
+	}{
+		{"chosen without sign-in", AuthConfig{AllowAnonymous: true}, true},
+		{"not chosen", AuthConfig{}, false},
+		{"issuer", AuthConfig{AllowAnonymous: true, IssuerURL: "https://idp", ClientID: "c", RedirectURL: "https://d/cb"}, false},
+		{"token sign-in", AuthConfig{AllowAnonymous: true, TokenLogin: true}, false},
+	} {
+		if got := anonymous(c.auth); got != c.want {
+			t.Errorf("%s: PACTO_DASHBOARD_ALLOW_ANONYMOUS=%v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+func envValue(cfg Config, name string) (string, bool) {
+	for _, e := range deploymentAC(cfg).(*appsv1ac.DeploymentApplyConfiguration).Spec.Template.Spec.Containers[0].Env {
+		if *e.Name == name && e.Value != nil {
+			return *e.Value, true
+		}
+	}
+	return "", false
+}
+
+// TestApplySetsStatsRegistryEnv: the Metrics page reads the stats repository
+// the operator names, through the env var `pacto dashboard` falls back to.
+func TestApplySetsStatsRegistryEnv(t *testing.T) {
+	cfg := Config{Image: "i", Namespace: "n", StatsRegistry: "ghcr.io/acme/pacto-stats"}
+	if v, ok := envValue(cfg, "PACTO_STATS_REGISTRY"); !ok || v != "ghcr.io/acme/pacto-stats" {
+		t.Fatalf("PACTO_STATS_REGISTRY: got %q, %v", v, ok)
+	}
+}
+
+func TestApplyNoStatsRegistryNoEnv(t *testing.T) {
+	if v, ok := envValue(Config{Image: "i", Namespace: "n"}, "PACTO_STATS_REGISTRY"); ok {
+		t.Fatalf("no stats registry configured, yet PACTO_STATS_REGISTRY=%q", v)
+	}
+}

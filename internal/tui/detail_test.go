@@ -649,7 +649,7 @@ func TestRenderServiceEnvironments(t *testing.T) {
 		{Environment: "prod\x1b[31m", Targets: 1, Declared: 1, RevisionsTotal: 1, Revisions: []fleet.EntityRef{{Version: "1.0.0"}},
 			Declaration: &fleet.EnvironmentResult{Status: fleet.EnvironmentPass, Lifetime: fleet.LifetimeNotDeclared},
 			Owner:       fleet.EnvironmentOwner{Owner: "team-a", Provenance: "declared"}, TargetsComplete: true,
-			ProvisioningReason: "no offering use of the current revision provisions a resource"},
+			ProvisioningReason: "no resource use of the current revision provisions a resource"},
 	}, DifferencesError: "environment b: cannot read b.yaml"}}, fleet.CompletenessComplete)
 	out := b.String()
 	for _, want := range []string{"Environments", "prod", "declared: values pass, lifetime not declared; owner team-a (declared); targets you can see: 1 (1 declared), 1.0.0",
@@ -673,25 +673,125 @@ func TestRenderServiceEnvironments(t *testing.T) {
 	}
 }
 
-func TestRenderServiceEnvironmentHistory(t *testing.T) {
+func TestRenderServiceChanges(t *testing.T) {
 	rev := fleet.EntityRef{Kind: fleet.KindRevision, Label: "svc 1.1.0\x1b[31m"}
 	var b strings.Builder
-	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{EnvironmentHistory: fleet.EnvironmentHistoryPreview{Total: 2, Count: 2, Gaps: 1, Items: []fleet.EnvironmentEvent{
-		{Environment: "prod", Change: "changed", Fields: []string{"owner"}, Revision: rev},
-		{Environment: "dev", Change: "present", Revision: rev},
+	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{Changes: fleet.ChangeHistoryPreview{Total: 2, Count: 2, Gaps: 1, Items: []fleet.ChangeEvent{
+		{Kind: "environment", Subject: "prod", Change: "changed", Fields: []string{"owner"}, Revision: rev},
+		{Kind: "owner", Change: "present", To: "team:web", Revision: rev},
 	}}}, fleet.CompletenessComplete)
 	out := b.String()
-	for _, want := range []string{"Environment history, version order (2 of 2, 1 revision(s) unread)", "changed prod (owner)  time not recorded", "dev declared since at least svc 1.1.0"} {
+	for _, want := range []string{"Changes, version order (2 of 2, 1 revision(s) unread)", "environment prod changed (owner)  time not read", "owner team:web declared since at least svc 1.1.0"} {
 		if !strings.Contains(out, want) {
-			t.Errorf("history lacks %q:\n%s", want, out)
+			t.Errorf("changes lack %q:\n%s", want, out)
 		}
 	}
-	if strings.Contains(out, "\x1b[31m") || strings.Count(out, "time not recorded") != 2 {
-		t.Errorf("history lines:\n%q", out)
+	if strings.Contains(out, "\x1b[31m") || strings.Count(out, "time not read") != 2 {
+		t.Errorf("change lines:\n%q", out)
 	}
 	b.Reset()
 	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{}, fleet.CompletenessComplete)
-	if strings.Contains(b.String(), "Environment history") {
-		t.Errorf("no history, no section:\n%s", b.String())
+	if strings.Contains(b.String(), "Changes") {
+		t.Errorf("no changes, no section:\n%s", b.String())
+	}
+}
+
+// TestRenderDetailForAnOfferingAvailability: the offering page shows its
+// availability per environment, each provider's own, the successor and the
+// newest supported revision, each use's successor range and the callers seen
+// without a declaration, hidden ones only counted.
+func TestRenderDetailForAnOfferingAvailability(t *testing.T) {
+	prod := fleet.EnvironmentAvailability{Environment: "prod", State: fleet.AvailabilityDegraded, Provenance: fleet.ProvenanceInferred, Reason: "1 of 2 consumers cannot reach it", Partial: true}
+	avail := fleet.Availability{State: fleet.AvailabilityDegraded, ByEnvironment: []fleet.EnvironmentAvailability{prod}, Total: 1}
+	rev := fleet.EntityRef{Label: "pg 17.0.0"}
+	out := renderDetail(&fleet.EntityDetail{
+		Entity: fleet.EntityRef{Kind: fleet.KindOffering, Key: "pg"},
+		Offering: &fleet.OfferingDetailData{
+			Availability: avail, HiddenProviders: 1,
+			Providers: fleet.OfferingProvidersPreview{Total: 1, Count: 1, Items: []fleet.OfferingProvider{{
+				Service: fleet.EntityRef{Label: "pg"}, Availability: avail,
+				Successor: &fleet.SuccessorInfo{Ref: "oci://x/pg:17.0.0", Revision: &rev}, LatestSupported: &fleet.EntityRef{Label: "pg 16.0.1"},
+			}}},
+			Consumers: fleet.OfferingUsesPreview{Total: 1, Count: 1, Items: []fleet.OfferingUse{{
+				Consumer: fleet.EntityRef{Label: "orders"}, Provider: fleet.EntityRef{Label: "pg"}, SuccessorRange: fleet.RangeUnsatisfied, SupportedRange: fleet.RangeUnknown,
+			}}},
+			ObservedConsumers:       fleet.ObservedConsumersPreview{Total: 1, Count: 1, Items: []fleet.ObservedConsumer{{Caller: "10.0.0.1", Uncontracted: true}}},
+			HiddenObservedConsumers: 2,
+		},
+	})
+	for _, want := range []string{
+		"Availability", "degraded", "  prod: degraded (inferred, 1 of 2 consumers cannot reach it) [partial]", "1 you may not see",
+		"    prod: degraded (inferred", "oci://x/pg:17.0.0 (pg 17.0.0)", "pg 16.0.1", "orders -> pg, successor range unsatisfied, latest supported range unknown",
+		"Also calling a provider (observed, no declaration): 10.0.0.1 (no contract, last seen unknown)", "Observed callers you may not see: 2",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("offering detail never says %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestRenderServiceResources(t *testing.T) {
+	at := time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC)
+	var b strings.Builder
+	renderServiceDetail(&b, "notifier", &fleet.ServiceDetailData{HiddenProviders: 2, ConsumedOfferings: fleet.OfferingUsesPreview{Total: 3, Count: 1, Truncated: true, Items: []fleet.OfferingUse{{
+		Provider: fleet.EntityRef{Label: "postgresql\x1b[31m"}, Offering: "postgresql", Via: fleet.RelationshipConfigRef,
+		ProviderOwner: &fleet.OwnershipInfo{Owner: "infra-data"},
+		Requested:     []fleet.RequestedConfiguration{{Provenance: "declared", Configuration: "db", Values: fleet.RuntimePreview{Items: []fleet.RuntimeFact{{Key: "size", Value: "medium"}}}}},
+		Provisioning:  []fleet.ProvisioningStatus{{Environment: "production", Phase: "Ready", Provider: "aws", Source: "evidence", Verified: true, AsOf: &at}},
+		Consumption:   []fleet.ResourceConsumption{{State: "unknown", Reason: "the usage report is not signed", Reported: &fleet.UsageFigures{}, Source: "target-state"}},
+	}}}}, fleet.CompletenessComplete)
+	out := b.String()
+	for _, want := range []string{"Resources (3)", " (offering postgresql) via configuration_reference", "infra-data",
+		"requested (declared): size=medium, configuration db", "production  Ready  aws  signed  asOf 2026-11-01T09:00:00Z",
+		"usage: unknown: the usage report is not signed", "... and 2 more", "at least 2 resources from providers you may not see", fleet.ResourceActionsNote} {
+		if !strings.Contains(out, want) {
+			t.Errorf("resources lack %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "\x1b[31m") {
+		t.Errorf("provider labels go through safeText:\n%q", out)
+	}
+	b.Reset()
+	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{}, fleet.CompletenessComplete)
+	if strings.Contains(b.String(), "Resources") {
+		t.Errorf("no resources, no section:\n%s", b.String())
+	}
+	b.Reset()
+	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{ConsumedOfferings: fleet.OfferingUsesPreview{Total: 1, Count: 1, Items: []fleet.OfferingUse{{Provider: fleet.EntityRef{Label: "email-provider"}, Via: fleet.RelationshipDependency, RequestedTruncated: true}}}}, fleet.CompletenessComplete)
+	// A cut request list and an unknown owner say so, as the CLI prints them.
+	for _, want := range []string{"email-provider (no offering) via dependency", "owner unknown, availability unknown", "requested values may be missing: the configurations list was cut"} {
+		if !strings.Contains(b.String(), want) {
+			t.Errorf("resources lack %q:\n%s", want, b.String())
+		}
+	}
+}
+
+// An offering page names its adapters through safeText, says Unknown when
+// none reported and shows the unresolved uses.
+func TestRenderDetailForAnOfferingAdapters(t *testing.T) {
+	render := func(o *fleet.OfferingDetailData) string {
+		return renderDetail(&fleet.EntityDetail{Entity: fleet.EntityRef{Kind: fleet.KindOffering, Key: "scan"}, Offering: o})
+	}
+	out := render(&fleet.OfferingDetailData{
+		Adapters: fleet.OfferingAdaptersPreview{Total: 2, Count: 2, Unattributed: 1, Items: []fleet.OfferingAdapter{
+			{Provider: "scanner", Producer: "security-adapter", Verified: true, Environments: []string{"production"}, Phases: fleet.PhaseTally{Ready: 1}},
+			{Producer: "platform-adapter", Environments: []string{"default"}, Phases: fleet.PhaseTally{Unknown: 1}},
+		}},
+		UnresolvedUses: fleet.UnresolvedUses{Count: 1, Reason: "not pinned"},
+	})
+	for _, want := range []string{"Adapters (2)", "scanner by security-adapter, signed: production; 1 ready", "unnamed adapter by platform-adapter", "1 requests no adapter reports on", "1 may name a provider of this offering (inferred): not pinned"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("offering detail never says %q:\n%s", want, out)
+		}
+	}
+	if out := render(&fleet.OfferingDetailData{}); !strings.Contains(out, "No adapter has reported. Provisioning status is Unknown.") || strings.Contains(out, "unresolved uses") {
+		t.Errorf("empty adapters:\n%s", out)
+	}
+	if out := render(&fleet.OfferingDetailData{HiddenConsumers: 1}); !strings.Contains(out, fleet.NoAdapterVisible) {
+		t.Errorf("empty adapters with hidden consumers:\n%s", out)
+	}
+	out = render(&fleet.OfferingDetailData{Adapters: fleet.OfferingAdaptersPreview{Total: 1, Count: 1, Items: []fleet.OfferingAdapter{{Provider: "evil\x1b[31m", Environments: []string{"default"}}}}})
+	if !strings.Contains(out, "evil^[[31m") {
+		t.Errorf("an adapter slug with an escape is not neutralized:\n%q", out)
 	}
 }

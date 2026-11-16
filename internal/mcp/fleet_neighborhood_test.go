@@ -48,7 +48,7 @@ func neighborLabels(nb fleet.Neighborhood) map[string]string {
 }
 
 func TestFleetNeighborhoodTool(t *testing.T) {
-	server := NewFleetServer("test", staticFleet(neighborhoodFleet(t)), Authoring{}, FleetOptions{})
+	server := mustNew("test", Authoring{}, Modes{Fleet: &FleetMode{Src: staticFleet(neighborhoodFleet(t)), Opts: FleetOptions{}}})
 
 	var nb fleet.Neighborhood
 	decode(t, callToolOn(t, server, "pacto_fleet_neighborhood", map[string]any{"service": "payments", "direction": "dependents"}), &nb)
@@ -90,15 +90,13 @@ func TestFleetNeighborhoodTool(t *testing.T) {
 	}
 }
 
-func TestSplitViews(t *testing.T) {
-	for in, want := range map[string][]fleet.KnowledgeView{
-		"":                       {fleet.ViewExpected, fleet.ViewObserved},
-		" , ":                    {fleet.ViewExpected, fleet.ViewObserved},
-		"differences":            {fleet.ViewDifferences},
-		" expected , observed ,": {fleet.ViewExpected, fleet.ViewObserved},
-	} {
-		if got := SplitViews(in); !slices.Equal(got, want) {
-			t.Errorf("SplitViews(%q) = %v, want %v", in, got, want)
-		}
+// max_edges bounds the edges as the CLI's --max-edges and the dashboard's
+// maxEdges do, and says the answer is truncated.
+func TestFleetNeighborhoodMaxEdges(t *testing.T) {
+	server := mustNew("test", Authoring{}, Modes{Fleet: &FleetMode{Src: staticFleet(neighborhoodFleet(t)), Opts: FleetOptions{}}})
+	var bounded fleet.Neighborhood
+	decode(t, callToolOn(t, server, "pacto_fleet_neighborhood", map[string]any{"service": "payments", "direction": "dependents", "max_edges": 1}), &bounded)
+	if len(bounded.Edges) != 1 || !bounded.Truncated {
+		t.Errorf("max_edges=1 = %d edges, truncated %v", len(bounded.Edges), bounded.Truncated)
 	}
 }

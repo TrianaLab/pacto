@@ -19,6 +19,7 @@ Controller flags and their exact defaults are captured from the operator's real 
 | Flag | Type | Default | Via chart | Description |
 | --- | --- | --- | --- | --- |
 | `-caller-coverage-ignore-namespace` | `value` |  | chart value | Namespace whose host-network pods are taken not to call workloads, so they leave a Service's caller coverage complete (repeatable). kube-system and the other cluster namespaces and the node agent's are always ignored. |
+| `-dashboard-allow-anonymous` | `bool` |  | chart value | Serve the dashboard without sign-in when neither an issuer nor token sign-in is set; everyone who reaches it reads what its ServiceAccount reads. |
 | `-dashboard-cpu-limit` | `string` |  | chart value | CPU limit for the dashboard container. Empty uses the built-in default. |
 | `-dashboard-cpu-request` | `string` |  | chart value | CPU request for the dashboard container. Empty uses the built-in default. |
 | `-dashboard-delivery-namespace` | `string` |  | chart value | Namespace Pacto delivery runs in, whose published identity policy the dashboard reads; empty means pacto-delivery. |
@@ -46,6 +47,7 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-dashboard-repositories` | `value` |  | chart value | Comma-separated oci:// references the dashboard reads beside the contracts it discovers from Pacto resources, such as golden paths, which are never deployed. |
 | `-dashboard-session-idle-timeout` | `duration` |  | chart value | A dashboard session without a request for this long ends (0: 1h). |
 | `-dashboard-session-max-age` | `duration` |  | chart value | A dashboard session ends this long after sign-in, renewed or not (0: 12h). |
+| `-dashboard-stats-registry` | `string` |  | chart value | Stats repository the dashboard's Metrics page reads run records from, with the dashboard's OCI credentials; empty: the page explains how to turn recording on. |
 | `-dashboard-token-login` | `bool` |  | chart value | Let people sign in to the dashboard by pasting a Kubernetes bearer token; a token session never decides. |
 | `-dashboard-trace-source` | `value` |  | chart value | Repeatable: an offline OTLP/JSON trace file to mount read-only into the dashboard, as name=NAME,file=RELATIVE_PATH,existingClaim=PVC (or configMap=NAME). NAME is the stable Data Source identity. Configures offline input only; Pacto runs no OTLP receiver. |
 | `-enable-dashboard` | `bool` |  | chart value | Enable the managed Pacto dashboard deployment. Disabled by default. |

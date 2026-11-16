@@ -32,12 +32,18 @@ test.describe('WASM demo — service context', () => {
   test('the service page states every fact, including the missing ones', async ({ page }) => {
     await openPaymentsService(page);
 
-    for (const id of ['service-domain', 'service-owner', 'service-contract', 'service-offerings-used', 'service-capabilities', 'service-sources']) {
+    for (const id of ['service-domain', 'service-owner', 'service-contract', 'service-resources-fact', 'service-capabilities', 'service-sources']) {
       await expect(page.getByTestId(id)).toBeVisible();
     }
     await expect(page.getByTestId('service-contract').locator('a.entity-link')).toHaveAttribute('href', /\/fleet\/revisions\/.*payments-service/);
     await expect(page.getByTestId('service-sources')).toContainText('k8s-production');
-    await expect(page.getByTestId('service-offerings-used').locator('a.se-chip', { hasText: /^postgresql$/ })).toHaveAttribute('href', /\/fleet\/offerings\/postgresql$/);
+    const resources = page.getByTestId('service-resources');
+    await expect(resources.locator('a.rl-chip', { hasText: /^postgresql$/ }).first()).toHaveAttribute('href', /\/fleet\/offerings\/postgresql$/);
+    // The Resources fact jumps to the section without leaving the service route.
+    const route = page.url();
+    await page.getByTestId('service-resources-fact').getByRole('button').click();
+    await expect(page.locator('#sec-resources')).toBeInViewport();
+    expect(page.url()).toBe(route);
 
     // Every operational target names its environment or says it is unknown.
     const targets = page.getByTestId('service-targets').locator('li.ref-row');

@@ -121,6 +121,14 @@ describe('offeringModel (G3, S2)', () => {
     expect(m.stations.find((s) => s.key === 'unknown')!.tone).not.toBe('ok');
     expect(m.summary).toBe('Of 10 requests, 6 are ready, 1 in progress, 2 failed and 0 being removed; 1 has no reported phase, so their readiness is unknown.');
   });
+  it('draws an unsigned Ready as info with no check, and ok once one Ready is signed', () => {
+    const all = offeringModel(providers(1), { ready: 3, readyUnsigned: 3 });
+    expect(all.stations.find((s) => s.key === 'ready')).toMatchObject({ tone: 'info', glyph: 'none', sub: 'in use; 3 unsigned' });
+    expect(all.summary).toBe('Of 3 requests, 3 are ready (3 unsigned), 0 in progress, 0 failed and 0 being removed; 0 have no reported phase, so their readiness is unknown.');
+    const one = offeringModel(providers(1), { ready: 3, readyUnsigned: 2 });
+    expect(one.stations.find((s) => s.key === 'ready')).toMatchObject({ tone: 'ok', glyph: 'ok', sub: 'in use; 2 unsigned' });
+    expect(offeringModel(providers(1), { ready: 3 }).stations.find((s) => s.key === 'ready')).toMatchObject({ tone: 'ok', glyph: 'ok', sub: 'in use' });
+  });
   it('says when nobody asked for a resource', () => {
     expect(offeringModel(providers(40), undefined).summary).toBe('No consumer has asked a provider for a resource yet.');
   });
@@ -179,6 +187,14 @@ describe('useDetailModel (A6, G2)', () => {
   it('keys the session on the phase and the request, never the time', () => {
     expect(sessionKey(useDetailModel({ phase: 'Ready', environment: 'prod' }, 'at 1').key)).toBe(sessionKey(useDetailModel({ phase: 'Ready', environment: 'prod', asOf: 'later' }, 'at 2').key));
     expect(useDetailModel({ phase: 'Ready', environment: 'prod', entry: 'db', verified: false }, 'x').summary).toContain('not signed');
+  });
+  it('never draws an unsigned Ready as positive', () => {
+    const m = useDetailModel({ phase: 'Ready', verified: false }, 'at 1');
+    expect(m.stations[2]).toMatchObject({ tone: 'info', glyph: 'none' });
+    expect(m.steps[0].cap).toBe('Ready (unsigned): reported at 1.');
+    expect(m.summary).toContain('The report is not signed.');
+    expect(useDetailModel({ phase: 'Ready', verified: true }, 'at 1').stations[2]).toMatchObject({ tone: 'ok', glyph: 'ok' });
+    expect(useDetailModel({ phase: 'Failed', verified: false }, 'at 1').steps[0].cap).toBe('Failed: reported at 1.');
   });
 });
 

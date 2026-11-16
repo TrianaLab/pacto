@@ -113,7 +113,7 @@ export interface paths {
         };
         /**
          * What happened
-         * @description What happened on each Stage: read from its signed records when the recorder runs (source records), plus the operations not recorded yet, otherwise from the operations still in the cluster (source status, always partial). Each history carries its own completeness, problems and what could not be read.
+         * @description What happened on each Stage: read from its signed records when the recorder runs (source records), plus the operations not recorded yet, otherwise from the operations still in the cluster (source status, always partial). Each history carries its own completeness, problems and what could not be read. With at, it also says which revision each Stage on the page ran at that time, from its signed records: known, partial or unknown, and partial as a whole when a namespace was not read or other pages remain.
          */
         get: operations["delivery-history"];
         put?: never;
@@ -397,7 +397,7 @@ export interface paths {
         };
         /**
          * Search entities
-         * @description Searches services, revisions, targets, owners and sources, returning stable navigable references. Powers global search, graph focus and entity pickers.
+         * @description Searches services, revisions, targets, owners, sources, business domains and platform offerings, returning stable navigable references. Powers global search, graph focus and entity pickers.
          */
         get: operations["fleet-entities"];
         put?: never;
@@ -417,7 +417,7 @@ export interface paths {
         };
         /**
          * Entity detail
-         * @description Returns one entity's strongly typed, discriminated detail (service, revision, target, owner or source), keyed by the query-param key so a key containing a slash is transported safely.
+         * @description Returns one entity's strongly typed, discriminated detail (service, revision, target, owner, source, domain or offering), keyed by the query-param key so a key containing a slash is transported safely.
          */
         get: operations["fleet-entity-detail"];
         put?: never;
@@ -443,7 +443,7 @@ export interface paths {
         put?: never;
         /**
          * Analyze impact by canonical identity
-         * @description Analyzes a change between two contract revisions identified by canonical revision keys. It rejects a stale snapshot id AND any revision whose exact snapshot content is not retrievable (a mutable tag or a local path), so a success always analyzed the exact content the snapshot represents. With event set it instead answers what happens if serviceKey becomes unavailable, is removed or regressed, over the same snapshot; a regressed artifact digest cites what delivery recorded, read with the caller's own identity.
+         * @description Analyzes a change between two contract revisions identified by canonical revision keys. It rejects a stale snapshot id AND any revision whose exact snapshot content is not retrievable (a mutable tag or a local path), so a success always analyzed the exact content the snapshot represents. With event set it instead answers what happens if serviceKey becomes unavailable, is removed or regressed, or offeringKey, every provider of a platform offering, becomes unavailable or is removed, over the same snapshot; a regressed artifact digest cites what delivery recorded, read with the caller's own identity.
          */
         post: operations["fleet-impact-post"];
         delete?: never;
@@ -481,7 +481,7 @@ export interface paths {
         };
         /**
          * Operational overview
-         * @description A product-oriented summary: what needs attention, incomplete sources, recent evidence and suggested entry points, each with a canonical href.
+         * @description A product-oriented summary: target compliance, operational health (available, unavailable = failing, unknown, notObserved = no health capability declared, degraded), the knowledge gaps the contracts leave, ownership (consistent, conflicting, unowned, unknown), evaluation coverage, what needs attention, incomplete sources, recent evidence and suggested entry points, each with a canonical href.
          */
         get: operations["fleet-overview"];
         put?: never;
@@ -872,6 +872,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Pacto outcomes over time
+         * @description Unsigned statistics from the configured stats repository: the same totals as pacto stats, per day or week. Services outside the caller's view are counted in hidden.present and never named.
+         */
+        get: operations["get-stats"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stats/records": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The records behind a statistic
+         * @description The visible run records one number of /api/stats counts, newest first, with links to the services, revisions and change analyses they name.
+         */
+        get: operations["get-stats-records"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -1034,6 +1074,8 @@ export interface components {
             miraURL?: string;
             /** @description An observation source backs impact analysis */
             observed: boolean;
+            /** @description The Metrics page has a stats repository to read */
+            stats: boolean;
         };
         CapabilityAuth: {
             /** @description Some services are hidden because this caller's Kubernetes permissions do not let them read their namespace */
@@ -1325,6 +1367,23 @@ export interface components {
             name: string;
             note?: string;
         };
+        "Delivery.AtAnswer": {
+            /** @description When the records were read */
+            asOf: string;
+            /** @description The time asked about, RFC 3339 */
+            at: string;
+            /**
+             * @description complete only when every Stage is known, every namespace was read and no other page of Stages remains
+             * @enum {string}
+             */
+            completeness: "complete" | "partial";
+            /** @description How many Stages were read and what was not */
+            note: string;
+            /** @description Each Stage read, with what it ran at the time */
+            stages: components["schemas"]["Delivery.StageAt"][] | null;
+            /** @description The namespaces or Stages that could not be read, and why */
+            unreadable?: string[] | null;
+        };
         "Delivery.AutonomyPolicy": {
             /** Format: int64 */
             proposeAfter?: number;
@@ -1410,6 +1469,8 @@ export interface components {
             correlationID?: string;
             finished?: string;
             from?: string;
+            /** @description The pacto.impact verdict the record carries for the change; empty on a line read from an Operation's status. It is signed only when the history is verified */
+            impact?: components["schemas"]["Delivery.Verdict"];
             kind?: string;
             operation: string;
             /** @description The Operation's uid, when known */
@@ -1454,6 +1515,8 @@ export interface components {
             correlationID?: string;
             finished?: string;
             from?: string;
+            /** @description The pacto.impact verdict the record carries for the change; empty on a line read from an Operation's status. It is signed only when the history is verified */
+            impact?: components["schemas"]["Delivery.Verdict"];
             kind?: string;
             operation: string;
             /** @description The Operation's uid, when known */
@@ -1700,6 +1763,7 @@ export interface components {
         };
         "Delivery.Request": {
             cause?: components["schemas"]["Delivery.Cause"];
+            correlationID?: string;
             from?: string;
             intentDigest?: string;
             name?: string;
@@ -1715,6 +1779,41 @@ export interface components {
         "Delivery.ServiceRef": {
             domain?: string;
             name: string;
+        };
+        "Delivery.StageAt": {
+            /** @description The business domain the artifact's contract declares */
+            businessDomain?: string;
+            /** @description The artifact digest the Stage ran, from the newest recorded move at or before the time */
+            digest?: string;
+            /** @description The registry domain the Stage names for its service, empty for the default */
+            domain?: string;
+            /** @description The environment the Stage delivers to */
+            environment?: string;
+            /** @description The Stage's namespace */
+            namespace: string;
+            /** @description The owner the artifact's contract declares */
+            owner?: string;
+            /** @description The key of that owner */
+            ownerKey?: string;
+            /** @description Why the state is not known */
+            reason?: string;
+            /** @description The record of that move */
+            record?: string;
+            /** @description The fleet revision key of the artifact. On the CLI and MCP it is derived from the contract's digest and name, not checked against a fleet; on the dashboard it is the revision this dashboard's fleet holds */
+            revision?: string;
+            /** @description The service the Stage delivers */
+            service?: string;
+            /** @description When that move reached the Stage */
+            since?: string;
+            /** @description The Stage's name */
+            stage: string;
+            /**
+             * @description known: a signed record names what ran and nothing after it is missing or unsigned; partial: a record names it but a later move may be missing, is not signed or the signatures were not checked; unknown: no record before this time, or the Stage could not be read
+             * @enum {string}
+             */
+            state: "known" | "partial" | "unknown";
+            /** @description The version the artifact's contract declares, when it could be read */
+            version?: string;
         };
         "Delivery.StageNow": {
             autoHold?: boolean;
@@ -2084,6 +2183,17 @@ export interface components {
             /** Format: int64 */
             required: number;
         };
+        "Evidence.UsageCost": {
+            amount: string;
+            currency: string;
+            period: string;
+        };
+        "Evidence.UsageMetric": {
+            name: string;
+            unit?: string;
+            /** Format: double */
+            value: number;
+        };
         ExplanationStatusStruct: {
             actorClass?: string;
             message?: string;
@@ -2118,6 +2228,25 @@ export interface components {
             category: string;
             /** Format: int64 */
             count: number;
+        };
+        "Fleet.Availability": {
+            /**
+             * Format: date-time
+             * @description The snapshot time the evidence is judged against
+             */
+            asOf: string;
+            /** @description The state per environment, bounded */
+            byEnvironment: components["schemas"]["Fleet.EnvironmentAvailability"][] | null;
+            /**
+             * @description available or unavailable when every environment is; degraded when an environment is degraded, or one is unavailable and another available; otherwise unknown
+             * @enum {string}
+             */
+            state: "available" | "degraded" | "unavailable" | "unknown";
+            /**
+             * Format: int64
+             * @description Environments before the bound
+             */
+            total: number;
         };
         "Fleet.BundleProvenance": {
             /** Format: date-time */
@@ -2156,6 +2285,24 @@ export interface components {
             ref?: string;
             type?: string;
         };
+        "Fleet.ChangeReach": {
+            /** @description When the move that brought the revision reached the Stage (applied, else finished), RFC 3339 */
+            at: string;
+            /** @description The environment the Stage delivers to */
+            environment?: string;
+            /** @description The move was read from an Operation's status or an unrecordable record: nothing signed it */
+            fromStatus?: boolean;
+            /** @description The pacto.impact verdict the record carries; signed only when verified */
+            impact?: components["schemas"]["Fleet.RecordedVerdict"];
+            /** @description The Stage's namespace */
+            namespace: string;
+            /** @description The delivery record of the move; empty when it was read from an Operation's status */
+            record?: string;
+            /** @description The Stage's name */
+            stage: string;
+            /** @description The record's signature was checked against a trust config: a signed move */
+            verified: boolean;
+        };
         "Fleet.ComplianceTally": {
             /** Format: int64 */
             compliant: number;
@@ -2169,6 +2316,11 @@ export interface components {
             other: number;
             /** Format: int64 */
             reference: number;
+            /**
+             * Format: int64
+             * @description Of compliant, how many rest on stale evidence; a subset, never subtracted from compliant
+             */
+            staleCompliant: number;
             /** Format: int64 */
             unknown: number;
             /** Format: int64 */
@@ -2304,8 +2456,23 @@ export interface components {
         "Fleet.DomainTally": {
             domain: string;
             domainUnknown?: boolean;
+            /**
+             * Format: int64
+             * @description Targets whose health check answered and reports it is failing
+             */
+            failingHealth: number;
             /** Format: int64 */
             nonCompliant: number;
+            /**
+             * Format: int64
+             * @description Services that run nowhere, counted only when Pacto can see every target of the service
+             */
+            notDeployed: number;
+            /**
+             * Format: int64
+             * @description Services with no owner claim whose contract Pacto cannot read
+             */
+            ownerUnknown: number;
             /** Format: int64 */
             services: number;
             /** Format: int64 */
@@ -2314,8 +2481,16 @@ export interface components {
             targets: number;
             /** Format: int64 */
             unknown: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Services that declare no owner; an owner Pacto cannot read is ownerUnknown
+             */
             unowned: number;
+            /**
+             * Format: int64
+             * @description Services with at least one knowledge gap
+             */
+            withGaps: number;
         };
         "Fleet.EntityAggregate": {
             /** Format: int64 */
@@ -2328,6 +2503,10 @@ export interface components {
             distinctOwners?: number;
             /** Format: int64 */
             domains: number;
+            failedByOffering?: components["schemas"]["Fleet.TypeCount"][] | null;
+            /** Format: int64 */
+            failedOfferingsBeyond?: number;
+            knowledge: components["schemas"]["Fleet.KnowledgeTally"];
             /** Format: int64 */
             matched: number;
             /** Format: int64 */
@@ -2348,6 +2527,8 @@ export interface components {
             nonCompliantUnidentified?: number;
             /** Format: int64 */
             offeringCount: number;
+            offeringPhaseConsumers: components["schemas"]["Fleet.PhaseTally"];
+            offeringPhases: components["schemas"]["Fleet.PhaseTally"];
             /** Format: int64 */
             offeringTypes?: number;
             offerings?: components["schemas"]["Fleet.TypeCount"][] | null;
@@ -2366,25 +2547,42 @@ export interface components {
             /** Format: int64 */
             sources: number;
             targetCompliance: components["schemas"]["Fleet.ComplianceTally"];
+            targetHealth: components["schemas"]["Fleet.OperationalHealthTally"];
             /** Format: int64 */
             targets: number;
             /** Format: int64 */
             unidentifiedOwnership?: number;
         };
         "Fleet.EntityRef": {
+            /** @enum {string} */
+            availability?: "available" | "degraded" | "unavailable" | "unknown";
+            /** @enum {string} */
+            availabilityProvenance?: "observed" | "inferred" | "unknown";
             businessDomain?: string;
             businessDomainUnknown?: boolean;
+            /** Format: int64 */
+            consumers?: number;
             /** Format: int64 */
             created?: number;
             domain?: string;
             environment?: string;
             explanation?: string;
+            /** Format: int64 */
+            failedRequests?: number;
+            /** Format: int64 */
+            failingHealth?: number;
             /** Format: date-time */
             fetchedAt?: string;
+            /** Format: int64 */
+            hiddenConsumers?: number;
+            /** Format: int64 */
+            hiddenProviders?: number;
             key: string;
             /** @enum {string} */
             kind: "service" | "revision" | "target" | "owner" | "source" | "domain" | "offering";
             label: string;
+            /** @enum {string} */
+            lifecycle?: "supported" | "deprecated" | "sunset" | "unknown";
             /** Format: int64 */
             nonCompliant?: number;
             offering?: string;
@@ -2400,12 +2598,58 @@ export interface components {
             services?: number;
             /** @enum {string} */
             signature?: "verified" | "unverified" | "unsigned" | "unknown" | "not-checked";
+            /** Format: int64 */
+            stale?: number;
             status?: string;
             summary?: string;
             /** Format: int64 */
             targets?: number;
+            targetsUnknown?: boolean;
             template?: boolean;
+            /** Format: int64 */
+            unknown?: number;
             version?: string;
+            /** Format: int64 */
+            withGaps?: number;
+        };
+        "Fleet.EnvironmentAvailability": {
+            /** @description The environment label of the targets; empty for targets with no label */
+            environment: string;
+            /**
+             * Format: date-time
+             * @description The newest fresh evidence the state reads
+             */
+            evidenceAt?: string;
+            /** @description Consumers or providers the viewer may not see are not counted */
+            partial?: boolean;
+            /**
+             * @description observed from the provider's own targets, inferred from consumer reports, unknown whenever the state is unknown
+             * @enum {string}
+             */
+            provenance: "observed" | "inferred" | "unknown";
+            /** @description On an offering: the providers whose state this is */
+            providers?: components["schemas"]["Fleet.EntityRef"][] | null;
+            /** @description Why the state is what it is */
+            reason: string;
+            /**
+             * Format: int64
+             * @description Provider targets with fresh evidence
+             */
+            reporting: number;
+            /**
+             * @description Whether the capability answers here
+             * @enum {string}
+             */
+            state: "available" | "degraded" | "unavailable" | "unknown";
+            /**
+             * Format: int64
+             * @description Provider targets in this environment the viewer can see
+             */
+            targets: number;
+            /** @description Targets of the provider the viewer may not see are not counted */
+            targetsHidden?: boolean;
+            /** @description Consumer targets that report they cannot reach it, bounded */
+            unreachable?: components["schemas"]["Fleet.EntityRef"][] | null;
         };
         "Fleet.EnvironmentResult": {
             /** @description Inferred: expires is at or before this answer's asOf. Nothing is deleted */
@@ -2439,6 +2683,28 @@ export interface components {
             truncated: boolean;
             /** Format: int64 */
             unverified: number;
+        };
+        "Fleet.EvaluationCoverage": {
+            /**
+             * Format: int64
+             * @description Assertions evaluated, summed over the targets that report coverage
+             */
+            evaluated: number;
+            /**
+             * Format: int64
+             * @description Targets whose source reported no coverage
+             */
+            notReporting: number;
+            /**
+             * Format: int64
+             * @description Targets whose source reported coverage
+             */
+            reporting: number;
+            /**
+             * Format: int64
+             * @description Assertions required, summed over the targets that report coverage
+             */
+            required: number;
         };
         "Fleet.EvidenceWindow": {
             /** Format: date-time */
@@ -2482,6 +2748,7 @@ export interface components {
                 [key: string]: components["schemas"]["Fleet.TargetRecord"];
             };
             uncontractedCallers?: components["schemas"]["Fleet.UncontractedCaller"][] | null;
+            usage?: components["schemas"]["Fleet.UsageRecord"][] | null;
         };
         "Fleet.GraphNode": {
             /** Format: int64 */
@@ -2533,6 +2800,61 @@ export interface components {
             /** Format: int64 */
             total: number;
             truncated: boolean;
+        };
+        "Fleet.KnowledgeGaps": {
+            /**
+             * Format: int64
+             * @description Services with no business domain
+             */
+            noDomain: number;
+            /**
+             * Format: int64
+             * @description Services whose current revision declares an interface with no document
+             */
+            noInterfaceDocs: number;
+            /**
+             * Format: int64
+             * @description Services whose current revision carries no readiness assessment
+             */
+            noReadiness: number;
+            /**
+             * Format: int64
+             * @description Services whose contract declares no summary
+             */
+            noSummary: number;
+            /**
+             * Format: int64
+             * @description Services that run nowhere, counted only when at least one source reports operational targets and every such source is complete
+             */
+            notDeployed: number;
+            /**
+             * Format: int64
+             * @description Services whose current revision declares an extension capability no evaluator verifies
+             */
+            unverifiedCapability: number;
+        };
+        "Fleet.KnowledgeTally": {
+            /**
+             * Format: int64
+             * @description Services whose contract and OpenAPI interface documents were read and leave nothing out; gRPC and AsyncAPI documents are never read
+             */
+            described: number;
+            gaps: components["schemas"]["Fleet.KnowledgeGaps"];
+            /**
+             * Format: int64
+             * @description Services that are no golden path; the whole the other three partition
+             */
+            services: number;
+            /**
+             * Format: int64
+             * @description Services whose knowledge Pacto cannot judge: an unreadable contract or OpenAPI document, conflicting summaries or business domains, or placement it cannot see
+             */
+            unknown: number;
+            /**
+             * Format: int64
+             * @description Services with at least one knowledge gap
+             */
+            withGaps: number;
         };
         "Fleet.LicenseCount": {
             /** Format: int64 */
@@ -2592,6 +2914,18 @@ export interface components {
             sources?: components["schemas"]["Fleet.SourceState"][] | null;
             sourcesTruncated?: boolean;
         };
+        "Fleet.NextAction": {
+            /**
+             * @description The MCP tool that performs the operation
+             * @enum {string}
+             */
+            tool: "pacto_edit";
+            /**
+             * @description The operation: edit-contract changes the contract of the item's service
+             * @enum {string}
+             */
+            verb: "edit-contract";
+        };
         "Fleet.OCIReferrer": {
             artifactType: string;
             /** Format: date-time */
@@ -2614,6 +2948,86 @@ export interface components {
             /** Format: date-time */
             lastSeen?: string;
             source: string;
+        };
+        "Fleet.OfferingAdapter": {
+            /**
+             * Format: int64
+             * @description Requests where its report disagrees with another adapter's, so the status is Unknown
+             */
+            disagrees: number;
+            /** @description The environments its reports cover; default when a request names none */
+            environments: string[] | null;
+            /**
+             * Format: date-time
+             * @description When its newest report was observed
+             */
+            lastReportedAt?: string;
+            /** @description The phase of each request it reports on, as the badge shows it when its own current, observed report says that phase; otherwise Unknown (reporters disagree, its report failed or is not current) */
+            phases: components["schemas"]["Fleet.PhaseTally"];
+            /** @description The producer that sent the reports */
+            producer?: string;
+            /**
+             * @description Adapters are observed from the reports
+             * @enum {string}
+             */
+            provenance: "observed";
+            /** @description The adapter slug the reports carry; free text the adapter chooses. Empty when the reports name none: surfaces render it as unnamed adapter */
+            provider: string;
+            /** @description True when the reports were accepted through signed envelopes; false for the unsigned target-state file */
+            verified: boolean;
+        };
+        "Fleet.OfferingAdaptersPreview": {
+            /**
+             * Format: int64
+             * @description Requests whose adapters disagree, so their status is Unknown; their adapters are listed
+             */
+            conflicting: number;
+            /**
+             * Format: int64
+             * @description The adapters listed in items
+             */
+            count: number;
+            /** @description Signed adapters first, then by slug (an empty slug last) and producer */
+            items: components["schemas"]["Fleet.OfferingAdapter"][] | null;
+            /**
+             * Format: int64
+             * @description Every adapter that reports on the offering's requests
+             */
+            total: number;
+            /** @description True when items lists fewer than total */
+            truncated: boolean;
+            /**
+             * Format: int64
+             * @description Requests no adapter reports on; their status is Unknown
+             */
+            unattributed: number;
+        };
+        "Fleet.OperationalHealthTally": {
+            /**
+             * Format: int64
+             * @description Targets whose declared health check was evaluated on fresh evidence with no health finding
+             */
+            available: number;
+            /**
+             * Format: int64
+             * @description Targets reported as degraded; no source reports degradation yet, so it reads 0
+             */
+            degraded: number;
+            /**
+             * Format: int64
+             * @description Targets whose contract revision declares no health capability
+             */
+            notObserved: number;
+            /**
+             * Format: int64
+             * @description Targets whose health check answered and reports it is failing (HEALTH_FAILING)
+             */
+            unavailable: number;
+            /**
+             * Format: int64
+             * @description Targets whose health Pacto cannot tell: no evaluation, stale or no evidence, an unresolved, inferred (mutable tag) or quarantined revision link, or another finding on the health capability
+             */
+            unknown: number;
         };
         "Fleet.OriginCount": {
             /** Format: int64 */
@@ -2638,6 +3052,7 @@ export interface components {
             byScope: components["schemas"]["Fleet.ScopeTally"][] | null;
             /** Format: int64 */
             compliantTargets: number;
+            coverage: components["schemas"]["Fleet.EvaluationCoverage"];
             /** Format: int64 */
             degradedSources: number;
             /** Format: int64 */
@@ -2655,12 +3070,18 @@ export interface components {
             invalidRevisions: number;
             /** Format: int64 */
             invalidTargets: number;
+            knowledge: components["schemas"]["Fleet.KnowledgeTally"];
+            /** Format: int64 */
+            knowledgeItems: number;
+            /** Format: int64 */
+            lifecycleConsumers: number;
             /** Format: int64 */
             nonCompliantTargets: number;
             /** Format: int64 */
             notEvaluatedTargets: number;
             /** Format: int64 */
             observedOnlyRelationships: number;
+            operationalHealth: components["schemas"]["Fleet.OperationalHealthTally"];
             /** Format: int64 */
             otherComplianceTargets: number;
             ownership: components["schemas"]["Fleet.OwnershipTally"];
@@ -2677,6 +3098,11 @@ export interface components {
             services: number;
             /** Format: int64 */
             servicesNeedingAttention: number;
+            /**
+             * Format: int64
+             * @description Of the compliant targets, how many rest on stale evidence; a subset, never subtracted
+             */
+            staleCompliantTargets: number;
             /** Format: int64 */
             staleSources: number;
             /** Format: int64 */
@@ -2719,22 +3145,53 @@ export interface components {
             compliance: components["schemas"]["Fleet.ComplianceTally"];
             evidence: components["schemas"]["Fleet.EvidenceWindow"];
             findings: components["schemas"]["Fleet.SeverityTally"];
+            health: components["schemas"]["Fleet.OperationalHealthTally"];
             /** Format: int64 */
             invalidRevisions: number;
+            knowledge: components["schemas"]["Fleet.KnowledgeTally"];
             links: components["schemas"]["Fleet.LinkTally"];
+            /**
+             * Format: int64
+             * @description Services that run nowhere, counted only when Pacto can see every target of the service
+             */
+            notDeployed: number;
+            /**
+             * Format: int64
+             * @description Services with no visible target whose placement Pacto cannot see, never counted in notDeployed
+             */
+            placementUnknown: number;
+            readiness: components["schemas"]["Fleet.ReadinessTally"];
             /** Format: int64 */
             revisions: number;
             /** Format: int64 */
             services: number;
             /** Format: int64 */
             targets: number;
+            /**
+             * Format: int64
+             * @description Observed calls of the services that no contract declares
+             */
+            undeclaredDependencies: number;
+            /**
+             * Format: int64
+             * @description Distinct declared dependencies of the services that resolve to no known service
+             */
+            unresolvedDependencies: number;
         };
         "Fleet.OwnershipTally": {
             /** Format: int64 */
             conflicting: number;
             /** Format: int64 */
             consistent: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Services with no owner claim whose contract Pacto cannot read, so it cannot tell whether an owner is declared
+             */
+            unknown: number;
+            /**
+             * Format: int64
+             * @description Services whose read contracts declare no owner and no source reports one
+             */
             unowned: number;
         };
         "Fleet.PathCount": {
@@ -2756,6 +3213,11 @@ export interface components {
             provisioning: number;
             /** Format: int64 */
             ready: number;
+            /**
+             * Format: int64
+             * @description Ready statuses reported through an unsigned file, a subset of Ready; only a signed Ready reads positive. In phaseConsumers, the consumers whose every Ready status is unsigned
+             */
+            readyUnsigned: number;
             /** Format: int64 */
             requested: number;
             /** Format: int64 */
@@ -2913,6 +3375,17 @@ export interface components {
             /** Format: int64 */
             passing: number;
         };
+        "Fleet.RecordedVerdict": {
+            /** @description The gate that judged */
+            gate: string;
+            /** @description Why */
+            message?: string;
+            /**
+             * @description What it said
+             * @enum {string}
+             */
+            result: "Pass" | "Fail" | "Unknown";
+        };
         "Fleet.ReferrersPreview": {
             /** Format: int64 */
             count: number;
@@ -2957,6 +3430,28 @@ export interface components {
             type: string;
             unmet?: components["schemas"]["Contract.Mismatch"][] | null;
             version?: string;
+        };
+        "Fleet.ResourceConsumption": {
+            /** Format: date-time */
+            asOf?: string;
+            conflict?: string[] | null;
+            entry?: string;
+            environment?: string;
+            externalRef?: string;
+            figures?: components["schemas"]["Fleet.UsageFigures"];
+            producer?: string;
+            producerKeyId?: string;
+            /** @enum {string} */
+            provenance: "observed";
+            provider?: string;
+            reason?: string;
+            reported?: components["schemas"]["Fleet.UsageFigures"];
+            revision?: components["schemas"]["Fleet.EntityRef"];
+            source?: string;
+            stale?: boolean;
+            /** @enum {string} */
+            state: "reported" | "unknown" | "not-reported";
+            verified?: boolean;
         };
         "Fleet.RevisionCapabilities": {
             revision: string;
@@ -3082,6 +3577,7 @@ export interface components {
             sources?: string[] | null;
             status?: string;
             summary?: string;
+            summaryUnknown?: boolean;
             targets?: string[] | null;
             template?: boolean;
         };
@@ -3297,6 +3793,49 @@ export interface components {
             sources: string[] | null;
             toService: string;
         };
+        "Fleet.UnresolvedUses": {
+            /**
+             * Format: int64
+             * @description Consumers' declared dependency, configuration or policy references that may name a provider of this offering but did not resolve, each consumer counted once per reference type and repository. Hidden consumers and providers are counted, never named
+             */
+            count: number;
+            /**
+             * @description The match is inferred from the reference's repository or name
+             * @enum {string}
+             */
+            provenance: "inferred";
+            /** @description Why such a reference does not resolve */
+            reason?: string;
+        };
+        "Fleet.UsageFigures": {
+            cost?: components["schemas"]["Evidence.UsageCost"];
+            metrics?: components["schemas"]["Evidence.UsageMetric"][] | null;
+        };
+        "Fleet.UsageRecord": {
+            /** Format: date-time */
+            acceptedAt?: string;
+            cost?: components["schemas"]["Evidence.UsageCost"];
+            digest: string;
+            domain?: string;
+            environment?: string;
+            externalRef?: string;
+            /** @enum {string} */
+            kind: "configuration" | "dependency";
+            metrics?: components["schemas"]["Evidence.UsageMetric"][] | null;
+            name: string;
+            /** Format: date-time */
+            observedAt: string;
+            outcome: string;
+            producer?: string;
+            producerKeyId?: string;
+            provider?: string;
+            service: string;
+            serviceKey: string;
+            source: string;
+            sourceKind?: string;
+            stale: boolean;
+            verified: boolean;
+        };
         "Fleet.ValidationStage": {
             name: string;
             reason?: string;
@@ -3356,6 +3895,8 @@ export interface components {
         };
         HistoryOutputBody: {
             asOf: string;
+            /** @description With at: which revision each Stage on this page ran at that time. Each revision is one this dashboard's fleet holds, never a guess */
+            at?: components["schemas"]["Delivery.AtAnswer"];
             /** @enum {string} */
             completeness: "complete" | "partial";
             /** @description Without a stage: Stages that wait for a person and frozen Stages, over every page */
@@ -3447,9 +3988,11 @@ export interface components {
              * @enum {string}
              */
             kind: "unavailable" | "removed" | "regressed";
+            /** @description A platform offering: the event is about every service that provides it */
+            offering?: string;
             /** @description The revision that regressed: a version or an artifact digest */
             revision?: string;
-            /** @description The fleet service key of the service */
+            /** @description The fleet service key of the service; empty when the event is about an offering */
             service: string;
         };
         "Impact.Evidence": {
@@ -3540,6 +4083,8 @@ export interface components {
             /** @description The canonical owner keys of the affected consumers */
             owners?: string[] | null;
             potentiallyBreakingChanges?: components["schemas"]["Diff.Change"][] | null;
+            /** @description The service keys of the services that provide the offering of an offering event */
+            providers?: string[] | null;
             regression?: components["schemas"]["Impact.RegressionEvidence"][] | null;
             schemaVersion: string;
             service: string;
@@ -3568,6 +4113,8 @@ export interface components {
              * @description Max consumers per page (negatives rejected; excessive values capped)
              */
             limit?: number;
+            /** @description With event unavailable or removed: a platform offering instead of serviceKey */
+            offeringKey?: string;
             /**
              * Format: int64
              * @description Consumer page offset (negatives rejected)
@@ -3885,10 +4432,12 @@ export interface components {
         };
         ProductAttentionItem: {
             /** @enum {string} */
-            category: "non-compliant" | "unknown" | "stale" | "invalid" | "readiness" | "unresolved" | "out-of-range" | "undeclared" | "golden-path" | "unowned";
+            category: "non-compliant" | "invalid" | "health" | "provisioning" | "unknown" | "stale" | "unresolved" | "out-of-range" | "lifecycle" | "undeclared" | "golden-path" | "readiness" | "knowledge" | "unowned";
             code: string;
             entity: components["schemas"]["ProductRef"];
             label: string;
+            /** @description NextStep as an operation an existing tool makes. Pacto infers it from the item's code; it grants nothing, and the edit decides */
+            nextAction?: components["schemas"]["Fleet.NextAction"];
             nextStep?: string;
             reason: string;
             service?: string;
@@ -3916,6 +4465,8 @@ export interface components {
         };
         ProductAttentionPreview: {
             /** Format: int64 */
+            actionable: number;
+            /** Format: int64 */
             count: number;
             items: components["schemas"]["ProductAttentionItem"][] | null;
             /** Format: int64 */
@@ -3942,6 +4493,89 @@ export interface components {
             /** Format: int64 */
             count: number;
             items: components["schemas"]["ProductAttributedLimitation"][] | null;
+            /** Format: int64 */
+            total: number;
+            truncated: boolean;
+        };
+        ProductAvailability: {
+            /**
+             * Format: date-time
+             * @description The snapshot time the evidence is judged against
+             */
+            asOf: string;
+            byEnvironment: components["schemas"]["ProductEnvironmentAvailability"][] | null;
+            /**
+             * @description available or unavailable when every environment is; degraded when an environment is degraded, or one is unavailable and another available; otherwise unknown
+             * @enum {string}
+             */
+            state: "available" | "degraded" | "unavailable" | "unknown";
+            /**
+             * Format: int64
+             * @description Environments before the bound
+             */
+            total: number;
+        };
+        ProductChangeEvent: {
+            /**
+             * @description present: declared by the oldest revision this answer holds, or the first after one it could not read (declared since at least that revision). For a finding, added: it appeared, removed: it resolved, changed: the readiness score crossed its minimum
+             * @enum {string}
+             */
+            change: "present" | "added" | "removed" | "changed";
+            /** @description changed: which declared fields changed */
+            fields?: string[] | null;
+            /** @description The value before the change, as the previous revision declares it; for a finding, its severity or the readiness "score N/M" (score and minimum) */
+            from?: string;
+            /**
+             * @description What changed: the owner, the business domain, the offering, one dependency, the lifecycle, one environment or a validation finding
+             * @enum {string}
+             */
+            kind: "owner" | "domain" | "offering" | "dependency" | "lifecycle" | "environment" | "finding";
+            /** @description The revision it was compared with: the change happened after it, at or before revision */
+            previous?: components["schemas"]["ProductRef"];
+            /**
+             * @description declared: read from immutable contract revisions
+             * @enum {string}
+             */
+            provenance: "declared";
+            /** @description With reached: when the revision first reached each Stage the caller may read, at most one per Stage, from delivery records */
+            reached?: components["schemas"]["Fleet.ChangeReach"][] | null;
+            /** @description The first revision this answer holds that shows the change */
+            revision: components["schemas"]["ProductRef"];
+            /**
+             * @description contract: an edit the contract declares; validation: a result of Pacto's own check of the revision
+             * @enum {string}
+             */
+            source: "contract" | "validation";
+            /** @description The dependency, environment or finding the change is about; empty for the owner, domain, offering and lifecycle */
+            subject?: string;
+            /** @description The value after the change, as the revision declares it */
+            to?: string;
+        };
+        ProductChangeHistoryPreview: {
+            /**
+             * @description partial when this view or a source holds only some of the service's revisions, a revision could not be read, two revisions of one version disagree, validation ran different checks on two revisions compared, or two versions are compared: no source lists every version, so a change is placed between the versions held
+             * @enum {string}
+             */
+            completeness: "complete" | "partial";
+            completenessReason?: string;
+            /** Format: int64 */
+            count: number;
+            /**
+             * Format: int64
+             * @description Revisions whose contract could not be read; no change is reported across them, the next readable revision reads present, and the answer is partial
+             */
+            gaps: number;
+            /** @description Newest first, in version order, not a timeline */
+            items: components["schemas"]["ProductChangeEvent"][] | null;
+            /**
+             * @description Whether delivery records were read for the times: not-read (not asked, or no delivery to read), read (every Stage the caller may list), partial (some namespaces refused or not listed, a Stage history that may lack earlier moves, an artifact that could not be read, or a local revision no record can name), hidden (the caller may not list Stages)
+             * @enum {string}
+             */
+            times: "not-read" | "read" | "partial" | "hidden";
+            /** @description Why the times were not read in full */
+            timesReason?: string;
+            /** @description partial: the namespaces or Stages not read, the Stages whose history may lack earlier moves and the artifacts that could not be read, each with why */
+            timesUnreadable?: string[] | null;
             /** Format: int64 */
             total: number;
             truncated: boolean;
@@ -4038,44 +4672,49 @@ export interface components {
             count?: number;
             description?: string;
             href: string;
+            /** Format: int64 */
+            itemCount?: number;
             label: string;
             /** @enum {string} */
             severity?: "error" | "warning" | "info";
             view: string;
         };
-        ProductEnvironmentEvent: {
-            /**
-             * @description present: declared by the oldest revision this answer holds (declared since at least that revision)
-             * @enum {string}
-             */
-            change: "present" | "added" | "removed" | "changed";
+        ProductEnvironmentAvailability: {
+            /** @description The environment label of the targets; empty for targets with no label */
             environment: string;
-            /** @description changed: which declared fields changed (file, lifetime, expires, owner) */
-            fields?: string[] | null;
-            /** @description The revision it was compared with */
-            previous?: components["schemas"]["ProductRef"];
-            /** @description The revision that made the change */
-            revision: components["schemas"]["ProductRef"];
-        };
-        ProductEnvironmentHistoryPreview: {
             /**
-             * @description partial when this view or a source holds only some of the service's revisions, or when two versions are compared: no source lists every version, so a change is placed between the versions held
+             * Format: date-time
+             * @description The newest fresh evidence the state reads
+             */
+            evidenceAt?: string;
+            /** @description Consumers or providers the viewer may not see are not counted */
+            partial?: boolean;
+            /**
+             * @description observed from the provider's own targets, inferred from consumer reports, unknown whenever the state is unknown
              * @enum {string}
              */
-            completeness: "complete" | "partial";
-            completenessReason?: string;
-            /** Format: int64 */
-            count: number;
+            provenance: "observed" | "inferred" | "unknown";
+            providers?: components["schemas"]["ProductRef"][] | null;
+            /** @description Why the state is what it is */
+            reason: string;
             /**
              * Format: int64
-             * @description Revisions whose contract could not be read; no change is reported across them
+             * @description Provider targets with fresh evidence
              */
-            gaps: number;
-            /** @description Newest first. Differences between consecutive versions in version order, not a timeline. Declared changes read from the revisions; value changes are pacto diff's */
-            items: components["schemas"]["ProductEnvironmentEvent"][] | null;
-            /** Format: int64 */
-            total: number;
-            truncated: boolean;
+            reporting: number;
+            /**
+             * @description Whether the capability answers here
+             * @enum {string}
+             */
+            state: "available" | "degraded" | "unavailable" | "unknown";
+            /**
+             * Format: int64
+             * @description Provider targets in this environment the viewer can see
+             */
+            targets: number;
+            /** @description Targets of the provider the viewer may not see are not counted */
+            targetsHidden?: boolean;
+            unreachable?: components["schemas"]["ProductRef"][] | null;
         };
         ProductEnvironmentOwner: {
             owner?: string;
@@ -4157,8 +4796,12 @@ export interface components {
             limitations: components["schemas"]["Fleet.LimitationsPreview"];
             meta: components["schemas"]["Fleet.ProductMeta"];
             newRevision?: components["schemas"]["ProductRef"];
+            /** @description The platform offering an offering event is about; service is then the same offering reference */
+            offering?: components["schemas"]["ProductRef"];
             oldRevision?: components["schemas"]["ProductRef"];
             owners: components["schemas"]["ProductRefPreview"];
+            /** @description The services that provide the offering of an offering event, each with its owner */
+            providers?: components["schemas"]["ProductRef"][] | null;
             /** @description The delivery evidence about a regressed revision, at most 50 */
             regression?: components["schemas"]["Impact.RegressionEvidence"][] | null;
             service: components["schemas"]["ProductRef"];
@@ -4299,23 +4942,55 @@ export interface components {
             revisionState?: string;
             status?: string;
         };
+        ProductObservedConsumer: {
+            /** @description A caller no contract describes */
+            caller?: string;
+            consumer?: components["schemas"]["ProductRef"];
+            /** Format: date-time */
+            lastSeen?: string;
+            /** @enum {string} */
+            provenance: "observed";
+            provider: components["schemas"]["ProductRef"];
+            sources?: string[] | null;
+            stale?: boolean;
+            uncontracted?: boolean;
+        };
+        ProductObservedConsumersPreview: {
+            /** Format: int64 */
+            count: number;
+            items: components["schemas"]["ProductObservedConsumer"][] | null;
+            /** Format: int64 */
+            total: number;
+            truncated: boolean;
+        };
         ProductOfferingDetail: {
+            adapters: components["schemas"]["Fleet.OfferingAdaptersPreview"];
+            availability: components["schemas"]["ProductAvailability"];
             consumers: components["schemas"]["ProductOfferingUsesPreview"];
             /** Format: int64 */
             hiddenConsumers: number;
+            /** Format: int64 */
+            hiddenObservedConsumers: number;
+            /** Format: int64 */
+            hiddenProviders?: number;
+            observedConsumers: components["schemas"]["ProductObservedConsumersPreview"];
             providers: components["schemas"]["ProductOfferingProvidersPreview"];
+            unresolvedUses: components["schemas"]["Fleet.UnresolvedUses"];
         };
         ProductOfferingProvider: {
+            availability: components["schemas"]["ProductAvailability"];
             configurations: components["schemas"]["ProductConfigurationsPreview"];
             consume?: components["schemas"]["Fleet.ConsumeSnippet"];
             currentRevision?: components["schemas"]["ProductRef"];
             interfaces: components["schemas"]["Fleet.InterfacesPreview"];
+            latestSupported?: components["schemas"]["ProductRef"];
             lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             /** @enum {string} */
             offeringProvenance: "declared" | "observed";
             ownership?: components["schemas"]["ProductOwnership"];
             policies: components["schemas"]["ProductPoliciesPreview"];
             service: components["schemas"]["ProductRef"];
+            successor?: components["schemas"]["ProductSuccessorInfo"];
             summary?: string;
             versions: components["schemas"]["ProductProviderVersions"];
         };
@@ -4334,12 +5009,21 @@ export interface components {
         ProductOfferingUse: {
             compatibility?: string;
             consumer: components["schemas"]["ProductRef"];
+            consumption?: components["schemas"]["Fleet.ResourceConsumption"][] | null;
             offering: string;
             provider: components["schemas"]["ProductRef"];
+            providerAvailability?: components["schemas"]["Fleet.Availability"];
             providerLifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
+            providerOwner?: components["schemas"]["ProductOwnership"];
             provisioning?: components["schemas"]["ProductProvisioningStatus"][] | null;
             /** @enum {string} */
             rangeStatus?: "satisfied" | "unsatisfied" | "unknown";
+            requested?: components["schemas"]["ProductRequestedConfiguration"][] | null;
+            requestedTruncated?: boolean;
+            /** @enum {string} */
+            successorRange?: "satisfied" | "unsatisfied" | "unknown";
+            /** @enum {string} */
+            supportedRange?: "satisfied" | "unsatisfied" | "unknown";
             /** @enum {string} */
             via: "dependency" | "configuration_reference" | "policy_reference";
         };
@@ -4387,6 +5071,8 @@ export interface components {
             summary: components["schemas"]["Fleet.OwnerSummary"];
         };
         ProductOwnership: {
+            /** @description Why the owners disagree: targets run revisions that declare different owners, or two revisions of one version do. Empty when they agree */
+            conflictReason?: string;
             conflicts: components["schemas"]["Fleet.StringsPreview"];
             contacts?: components["schemas"]["Fleet.ContactsPreview"];
             declared: boolean;
@@ -4444,6 +5130,9 @@ export interface components {
             latestCompatible?: components["schemas"]["ProductRef"];
             note: string;
             range?: string;
+            successor?: components["schemas"]["ProductSuccessorInfo"];
+            /** @enum {string} */
+            successorRange?: "satisfied" | "unsatisfied" | "unknown";
             /** Format: int64 */
             total: number;
             truncated: boolean;
@@ -4471,20 +5160,36 @@ export interface components {
             verified: boolean;
         };
         ProductRef: {
+            /** @enum {string} */
+            availability?: "available" | "degraded" | "unavailable" | "unknown";
+            /** @enum {string} */
+            availabilityProvenance?: "observed" | "inferred" | "unknown";
             businessDomain?: string;
             businessDomainUnknown?: boolean;
+            /** Format: int64 */
+            consumers?: number;
             /** Format: int64 */
             created?: number;
             domain?: string;
             environment?: string;
             explanation?: string;
+            /** Format: int64 */
+            failedRequests?: number;
+            /** Format: int64 */
+            failingHealth?: number;
             /** Format: date-time */
             fetchedAt?: string;
+            /** Format: int64 */
+            hiddenConsumers?: number;
+            /** Format: int64 */
+            hiddenProviders?: number;
             href: string;
             key: string;
             /** @enum {string} */
             kind: "service" | "revision" | "target" | "owner" | "source" | "domain" | "offering";
             label: string;
+            /** @enum {string} */
+            lifecycle?: "supported" | "deprecated" | "sunset" | "unknown";
             /** Format: int64 */
             nonCompliant?: number;
             offering?: string;
@@ -4500,12 +5205,19 @@ export interface components {
             services?: number;
             /** @enum {string} */
             signature?: "verified" | "unverified" | "unsigned" | "unknown" | "not-checked";
+            /** Format: int64 */
+            stale?: number;
             status?: string;
             summary?: string;
             /** Format: int64 */
             targets?: number;
+            targetsUnknown?: boolean;
             template?: boolean;
+            /** Format: int64 */
+            unknown?: number;
             version?: string;
+            /** Format: int64 */
+            withGaps?: number;
         };
         ProductRefPreview: {
             /** Format: int64 */
@@ -4528,6 +5240,15 @@ export interface components {
             /** Format: int64 */
             total?: number;
             truncated: boolean;
+        };
+        ProductRequestedConfiguration: {
+            configuration?: string;
+            consumerRevision?: components["schemas"]["ProductRef"];
+            entry: string;
+            /** @enum {string} */
+            provenance: "declared";
+            revision?: components["schemas"]["ProductRef"];
+            values: components["schemas"]["Fleet.RuntimePreview"];
         };
         ProductRevisionDetail: {
             capabilities: components["schemas"]["Fleet.CapabilitiesPreview"];
@@ -4596,6 +5317,8 @@ export interface components {
         ProductServiceDetail: {
             activeRevisions: components["schemas"]["ProductRefPreview"];
             capabilities: components["schemas"]["Fleet.StringsPreview"];
+            /** @description Every declared change across the service's revisions, in version order (declared; times only from signed delivery records) */
+            changes: components["schemas"]["ProductChangeHistoryPreview"];
             configurations: components["schemas"]["ProductConfigurationsPreview"];
             consumedOfferings: components["schemas"]["ProductOfferingUsesPreview"];
             creation?: components["schemas"]["Fleet.CreationStep"][] | null;
@@ -4605,14 +5328,17 @@ export interface components {
             dependentsStatus: components["schemas"]["Fleet.ComplianceTally"];
             deployments: components["schemas"]["ProductRefPreview"];
             domain?: string;
-            /** @description How the service's declared environments changed across its revisions (declared) */
-            environmentHistory: components["schemas"]["ProductEnvironmentHistoryPreview"];
             evidence: components["schemas"]["ProductEvidencePreview"];
             findings: components["schemas"]["ProductAttributedFindingsPreview"];
             /** Format: int64 */
             hiddenDependencies?: number;
             /** Format: int64 */
             hiddenDependents?: number;
+            /**
+             * Format: int64
+             * @description At least this many resources this service uses come from providers you may not see; counted from your own contract and reports, never named
+             */
+            hiddenProviders?: number;
             inferredOfferings: components["schemas"]["ProductInferredOffering"][] | null;
             lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             limitations: components["schemas"]["ProductAttributedLimitationsPreview"];
@@ -4646,6 +5372,13 @@ export interface components {
             revisionCount: number;
             /** Format: int64 */
             targetCount: number;
+        };
+        ProductSuccessorInfo: {
+            /** @enum {string} */
+            provenance: "inferred" | "unknown";
+            reason?: string;
+            ref: string;
+            revision?: components["schemas"]["ProductRef"];
         };
         ProductTargetDetail: {
             /** @enum {string} */
@@ -5030,6 +5763,103 @@ export interface components {
             /** @description What could not be read, and why */
             unreadable?: string[] | null;
         };
+        "Runrecord.Consumers": {
+            /** Format: int64 */
+            blocking: number;
+            /** Format: int64 */
+            compatible: number;
+            /** Format: int64 */
+            incompatible: number;
+            /** Format: int64 */
+            unclassified: number;
+            /** Format: int64 */
+            unknown: number;
+        };
+        "Runrecord.Coverage": {
+            completeness: string;
+            knowledge?: components["schemas"]["Runrecord.CoverageKnowledge"];
+            links: components["schemas"]["Runrecord.CoverageLinks"];
+            /** Format: int64 */
+            services: number;
+            /** Format: date-time */
+            snapshotAsOf: string;
+            /** Format: int64 */
+            uncontracted: number;
+        };
+        "Runrecord.CoverageKnowledge": {
+            /** Format: int64 */
+            described: number;
+            /** Format: int64 */
+            notDeployed: number;
+            /** Format: int64 */
+            services: number;
+            /** Format: int64 */
+            unknown: number;
+            /** Format: int64 */
+            withGaps: number;
+        };
+        "Runrecord.CoverageLinks": {
+            /** Format: int64 */
+            ambiguous: number;
+            /** Format: int64 */
+            exact: number;
+            /** Format: int64 */
+            inferred: number;
+            /** Format: int64 */
+            unresolved: number;
+        };
+        "Runrecord.Gate": {
+            reason?: string;
+            verdict: string;
+        };
+        "Runrecord.GateResult": {
+            gate: string;
+            phase: string;
+            result: string;
+        };
+        "Runrecord.Record": {
+            actorClass?: string;
+            /** Format: date-time */
+            asOf?: string;
+            bundleDigest?: string;
+            ciRunUrl?: string;
+            classification?: string;
+            completeness?: string;
+            consumers?: components["schemas"]["Runrecord.Consumers"];
+            contract?: string;
+            coverage?: components["schemas"]["Runrecord.Coverage"];
+            delegated?: boolean;
+            deployDigest?: string;
+            environment?: string;
+            finishedAt?: string;
+            from?: string;
+            gate?: components["schemas"]["Runrecord.Gate"];
+            gates?: components["schemas"]["Runrecord.GateResult"][] | null;
+            heldFor?: string;
+            id: string;
+            kind: string;
+            newRevision?: string;
+            oldRevision?: string;
+            outcome?: string;
+            pactoVersion: string;
+            reason?: string;
+            /** Format: date-time */
+            recordedAt: string;
+            repository?: string;
+            service: string;
+            serviceDomain?: string;
+            stage?: components["schemas"]["Runrecord.StageRef"];
+            startedAt?: string;
+            to?: string;
+            type?: string;
+            verification?: string;
+            version: string;
+        };
+        "Runrecord.StageRef": {
+            cluster: string;
+            name: string;
+            namespace: string;
+        };
         RuntimeDiffRow: {
             contractPath?: string;
             declaredValue: string;
@@ -5240,6 +6070,393 @@ export interface components {
             persistenceDurability?: string;
             persistenceScope?: string;
             type: string;
+        };
+        "Stats.Attribution": {
+            /**
+             * Format: date-time
+             * @description Time of the fleet snapshot
+             */
+            asOf: string;
+            /** @description True when the fleet snapshot is partial: a service it misses groups as unknown */
+            partial?: boolean;
+            /** @description Always inferred: resolved at read time from the current fleet snapshot */
+            provenance: string;
+            /** @description Fleet snapshot the attribution was resolved from */
+            snapshotId: string;
+        };
+        "Stats.Distinct": {
+            /**
+             * Format: int64
+             * @description Distinct changes (service, old revision, new revision)
+             */
+            distinct: number;
+            /**
+             * Format: int64
+             * @description Run records behind those changes
+             */
+            runs: number;
+        };
+        "Stats.EnvironmentMetrics": {
+            /**
+             * Format: int64
+             * @description Promote operations accepted with verification unknown; neither verified nor failed
+             */
+            acceptedUnknown: number;
+            /** @description Environment name */
+            environment: string;
+            /** @description Promote operations that ended Failed or Errored, of promote operations */
+            failed: components["schemas"]["Stats.Ratio"];
+            /** @description Promote operations that waited on a person, of promote operations */
+            held: components["schemas"]["Stats.Ratio"];
+            /** @description Time from the publish record to the first verified promotion of its digest per Stage */
+            leadTime: components["schemas"]["Stats.LeadTime"];
+            /**
+             * Format: int64
+             * @description Operations of every type in the window
+             */
+            operations: number;
+            /** @description Succeeded rollback operations, of Succeeded promote operations */
+            rolledBack: components["schemas"]["Stats.Ratio"];
+            /**
+             * @description Where the name came from: the record's environment (context) or, for an operation without one, its Stage name (stage)
+             * @enum {string}
+             */
+            source: "stage" | "context";
+            /** @description Promote operations whose verification is Unverified, of promote operations verified or unverified */
+            verificationFailed: components["schemas"]["Stats.Ratio"];
+        };
+        "Stats.Gates": {
+            /**
+             * Format: int64
+             * @description Changes whose newest gate verdict is blocked
+             */
+            blocked: number;
+            /**
+             * Format: int64
+             * @description Changes whose newest gate verdict is clear
+             */
+            clear: number;
+            /**
+             * Format: int64
+             * @description Changes whose newest gate verdict is unverified
+             */
+            unverified: number;
+        };
+        "Stats.Group": {
+            /** @description Group key */
+            key: string;
+            /** @description Group label */
+            label: string;
+            /** @description Numbers of the records in this group */
+            metrics: components["schemas"]["Stats.Metrics"];
+        };
+        "Stats.Hidden": {
+            /** @description True when run records name services outside the caller's view; they are left out of every number */
+            present: boolean;
+        };
+        "Stats.LeadTime": {
+            /**
+             * Format: int64
+             * @description Promotions joined to a publish record
+             */
+            joined: number;
+            /**
+             * Format: int64
+             * @description Median lead time in seconds, nearest rank; absent when none joined
+             */
+            p50Seconds?: number;
+            /**
+             * Format: int64
+             * @description 90th percentile lead time in seconds, nearest rank; absent when none joined
+             */
+            p90Seconds?: number;
+            /**
+             * Format: int64
+             * @description Promotions with no publish record of their digest; their lead time is unknown
+             */
+            unjoined: number;
+            /** @description True when no promotion joined */
+            unknown?: boolean;
+        };
+        "Stats.Metrics": {
+            /** @description Changes a diff or impact run classified BREAKING */
+            breakingCaught: components["schemas"]["Stats.Distinct"];
+            /**
+             * Format: int64
+             * @description Distinct changes among the diff and impact runs; 0 means no CI run was recorded, so breakingCaught, consumersProtected and gates measured nothing and are unknown, never 0
+             */
+            changes: number;
+            /** @description Consumers held back by changes whose newest gate is blocked; changes no impact run judged add nothing */
+            consumersProtected: components["schemas"]["Stats.Protected"];
+            /** @description Delivery numbers per environment, alphabetical */
+            environments?: components["schemas"]["Stats.EnvironmentMetrics"][] | null;
+            /** @description Changes by their newest gate verdict */
+            gates: components["schemas"]["Stats.Gates"];
+        };
+        "Stats.Protected": {
+            /**
+             * Format: int64
+             * @description Blocking consumers summed over changes whose newest gate is blocked
+             */
+            count: number;
+            /**
+             * Format: int64
+             * @description Changes among them judged on a partial fleet snapshot; with any, count is a lower bound
+             */
+            partial?: number;
+            /**
+             * Format: int64
+             * @description Unknown consumers summed over the same changes
+             */
+            unknown: number;
+        };
+        "Stats.Ratio": {
+            /**
+             * Format: int64
+             * @description Records that match
+             */
+            count: number;
+            /**
+             * Format: int64
+             * @description Records the rate is taken over
+             */
+            of: number;
+            /** @description True when of is 0: there is nothing to take the rate over, though count still says how many records matched, such as a rollback with no succeeded promote in the window */
+            unknown?: boolean;
+        };
+        "Stats.Skipped": {
+            /**
+             * Format: int64
+             * @description Records that are not a valid run record, are attached to another service's anchor or are dated in the future
+             */
+            malformed: number;
+            /**
+             * Format: int64
+             * @description Records whose manifest or layer is larger than the run-record size bound
+             */
+            oversized: number;
+            /**
+             * Format: int64
+             * @description Records the registry listed but would not serve
+             */
+            unreadable: number;
+        };
+        "Stats.Window": {
+            /**
+             * Format: date-time
+             * @description Start of the window, inclusive, UTC
+             */
+            since: string;
+            /**
+             * Format: date-time
+             * @description End of the window, exclusive, UTC
+             */
+            until: string;
+        };
+        StatsAnswer: {
+            /**
+             * Format: date-time
+             * @description Time the answer was computed, UTC
+             */
+            asOf: string;
+            /** @description Where owner and domain came from, when grouping by them */
+            attribution?: components["schemas"]["Stats.Attribution"];
+            /** @description The window per day (7d) or week (30d, 90d), oldest first, aligned back from now */
+            buckets: components["schemas"]["StatsBucket"][] | null;
+            /** @description What the groups are by */
+            by?: string;
+            /**
+             * @description partial when a record was skipped, the read was cut, records are outside the caller's view or a blocked change was judged on a partial snapshot; empty when the window holds no records
+             * @enum {string}
+             */
+            completeness: "complete" | "partial" | "empty";
+            /** @description The newest coverage record in the window; a level, never a sum. Absent when the window holds none */
+            coverage?: components["schemas"]["Runrecord.Coverage"];
+            /** @description Coverage of the caller's current fleet snapshot; absent without a fleet */
+            coverageNow?: components["schemas"]["Runrecord.Coverage"];
+            /**
+             * Format: int64
+             * @description Distinct changes (service, old revision, new revision) among diff and impact runs in the window; publish runs name versions, so they are counted in runs only
+             */
+            distinctChanges: number;
+            /**
+             * @description stages: environments follow the Stages' upstream links; name: no Stage graph to order by
+             * @enum {string}
+             */
+            environmentOrder: "stages" | "name";
+            /** @description Delivery numbers per environment, in environmentOrder */
+            environments: components["schemas"]["StatsEnvironment"][] | null;
+            /** @description Numbers per group */
+            groups?: components["schemas"]["Stats.Group"][] | null;
+            /** @description Whether records outside the caller's view exist */
+            hidden: components["schemas"]["Stats.Hidden"];
+            /** @description Why the answer is incomplete */
+            limitations: components["schemas"]["Fleet.Limitation"][] | null;
+            /** @description Always unsigned statistics: run records are never evidence */
+            provenance: string;
+            /**
+             * Format: int64
+             * @description Records read from the repository, in or out of the window; skipped records are counted apart
+             */
+            recordsRead: number;
+            /** @description Stats repository read */
+            registry?: string;
+            /**
+             * Format: int64
+             * @description Records in the window after retries of one record id count once
+             */
+            runs: number;
+            /** @description One page of per-service numbers */
+            services: components["schemas"]["StatsServiceRow"][] | null;
+            /**
+             * Format: int64
+             * @description Service rows across every page
+             */
+            servicesTotal: number;
+            /** @description Records that could not be counted; they are left out of every number */
+            skipped: components["schemas"]["Stats.Skipped"];
+            /** @description Numbers over every record in the window; absent when there are none */
+            totals?: components["schemas"]["Stats.Metrics"];
+            /** @description The bound that cut the read; services listed after the cut were not read at all. Empty when the read is whole */
+            truncated: string;
+            /** @description Time range the answer covers */
+            window: components["schemas"]["Stats.Window"];
+        };
+        StatsBucket: {
+            /** @description The newest coverage record in the bucket; absent when it holds none */
+            coverage?: components["schemas"]["Runrecord.Coverage"];
+            /**
+             * Format: int64
+             * @description Days the bucket spans
+             */
+            days: number;
+            /** @description Numbers of the bucket's records; absent when it holds none, which is no records, never 0 */
+            metrics?: components["schemas"]["Stats.Metrics"];
+            /** @description True when the bucket is shorter than the others: only the first one can be */
+            partial?: boolean;
+            /**
+             * Format: date-time
+             * @description Start of the bucket, inclusive, UTC
+             */
+            since: string;
+            /**
+             * Format: date-time
+             * @description End of the bucket, exclusive, UTC
+             */
+            until: string;
+        };
+        StatsEnvironment: {
+            /**
+             * Format: int64
+             * @description Promote operations accepted with verification unknown; neither verified nor failed
+             */
+            acceptedUnknown: number;
+            /** @description A Stage here is on a cycle of upstream links, so the environment is placed by name */
+            cycle?: boolean;
+            /** @description Environment name */
+            environment: string;
+            /** @description Promote operations that ended Failed or Errored, of promote operations */
+            failed: components["schemas"]["Stats.Ratio"];
+            /** @description Promote operations that waited on a person, of promote operations */
+            held: components["schemas"]["Stats.Ratio"];
+            /** @description Time from the publish record to the first verified promotion of its digest per Stage */
+            leadTime: components["schemas"]["Stats.LeadTime"];
+            /**
+             * Format: int64
+             * @description Operations of every type in the window
+             */
+            operations: number;
+            /** @description Succeeded rollback operations, of Succeeded promote operations */
+            rolledBack: components["schemas"]["Stats.Ratio"];
+            /**
+             * @description Where the name came from: the record's environment (context) or, for an operation without one, its Stage name (stage)
+             * @enum {string}
+             */
+            source: "stage" | "context";
+            /** @description Different services order this environment both ways, so it is placed by name */
+            unordered?: boolean;
+            /** @description Environments whose Stages feed a Stage here, as candidates.upstreamStage declares */
+            upstream: string[] | null;
+            /** @description Promote operations whose verification is Unverified, of promote operations verified or unverified */
+            verificationFailed: components["schemas"]["Stats.Ratio"];
+        };
+        StatsLink: {
+            /** @description The dashboard route, without the leading # */
+            href: string;
+            /** @description What the link names */
+            label: string;
+        };
+        StatsRecordRow: {
+            /** @description Change analysis of a gated change */
+            change?: components["schemas"]["StatsLink"];
+            /** @description The new revision page, when the snapshot holds it */
+            newRevision?: components["schemas"]["StatsLink"];
+            /** @description Why a link is missing */
+            note?: string;
+            /** @description The old revision page, when the snapshot holds it */
+            oldRevision?: components["schemas"]["StatsLink"];
+            /** @description The run record */
+            record: components["schemas"]["Runrecord.Record"];
+            /** @description The service page; absent when the snapshot cannot resolve it */
+            service?: components["schemas"]["StatsLink"];
+            /** @description The Stage of an operation record */
+            stage?: components["schemas"]["StatsStage"];
+        };
+        StatsRecordsAnswer: {
+            /**
+             * Format: date-time
+             * @description Time the answer was computed, UTC
+             */
+            asOf: string;
+            /**
+             * @description How complete the numbers these records make are
+             * @enum {string}
+             */
+            completeness: "complete" | "partial" | "empty";
+            /** @description Whether records outside the caller's view exist */
+            hidden: components["schemas"]["Stats.Hidden"];
+            /** @description One page of records, newest first */
+            items: components["schemas"]["StatsRecordRow"][] | null;
+            /** @description Why the answer is incomplete */
+            limitations: components["schemas"]["Fleet.Limitation"][] | null;
+            /** @description Always unsigned statistics: run records are never evidence */
+            provenance: string;
+            /**
+             * Format: int64
+             * @description Records read from the repository
+             */
+            recordsRead: number;
+            /** @description Stats repository read */
+            registry?: string;
+            /** @description Records that could not be counted */
+            skipped: components["schemas"]["Stats.Skipped"];
+            /**
+             * Format: int64
+             * @description Records behind the number across every page
+             */
+            total: number;
+            /** @description The bound that cut the read; empty when the read is whole */
+            truncated: string;
+            /** @description Time range the answer covers */
+            window: components["schemas"]["Stats.Window"];
+        };
+        StatsServiceRow: {
+            /** @description The service page; absent when the name resolves to no single service */
+            href?: string;
+            /** @description Service name, as the run records name it */
+            label: string;
+            /** @description Numbers of the service's records */
+            metrics: components["schemas"]["Stats.Metrics"];
+            /** @description Why there is no link */
+            note?: string;
+        };
+        StatsStage: {
+            /** @description The environment the Stage delivers to */
+            environment?: string;
+            /** @description Stage name */
+            name: string;
+            /** @description Stage namespace */
+            namespace: string;
         };
         UndoOutputBody: {
             command?: string;
@@ -5716,6 +6933,8 @@ export interface operations {
                 cause?: string;
                 /** @description Keep only changes with exactly this correlation id. It narrows the timeline too */
                 correlationID?: string;
+                /** @description RFC 3339 time, or a duration before now such as 2h: also say which revision each Stage on this page ran at that time, from its signed records (see at in the answer); the histories keep only changes at or before it. It takes no since, until, timed, cause or correlationID */
+                at?: string;
                 /** @description Where the page starts. Past the end answers the last page */
                 offset?: number;
                 /** @description How many per page; 0 means the list's default */
@@ -6870,12 +8089,14 @@ export interface operations {
                 scope?: string;
                 /** @description Compliance status filter (service/revision/target) */
                 status?: "Compliant" | "Invalid" | "NonCompliant" | "NotEvaluated" | "Reference" | "Unknown" | "Warning";
-                /** @description Declared-ownership filter for service entities; unidentified is every service with no single canonical owner (unowned, conflicting or contacts alone) */
-                ownership?: "consistent" | "conflicting" | "unowned" | "unidentified";
+                /** @description Declared-ownership filter for service entities; conflicting means owners disagree: targets run different owners, or one version declares two (an older version's owner is a handover, not a conflict); unidentified is every service with no single canonical owner (unowned, conflicting, unknown or contacts alone); unknown is a service with no owner claim whose contract Pacto cannot read */
+                ownership?: "consistent" | "conflicting" | "unowned" | "unidentified" | "unknown";
+                /** @description Knowledge-gap filter for service entities that are no golden path: the services whose contracts leave this out (not-deployed: run nowhere while every source reporting targets is complete; unverified-capability: declare an extension capability no evaluator verifies), or unknown for those whose knowledge Pacto cannot judge */
+                gap?: "no-summary" | "no-domain" | "no-interface-docs" | "no-readiness" | "not-deployed" | "unverified-capability" | "unknown";
                 /** @description Declared-readiness filter for contract revision entities */
                 readiness?: "passing" | "below-threshold" | "expired" | "not-declared";
-                /** @description Source-health filter for source entities */
-                sourceHealth?: "available" | "partial" | "stale" | "unavailable";
+                /** @description Source-health filter for source entities; incomplete matches partial, stale and unavailable */
+                sourceHealth?: "available" | "partial" | "stale" | "unavailable" | "incomplete";
                 source?: string;
                 /** @description Scope revision/target entities to a canonical parent ServiceKey (pages all revisions of one service) */
                 service?: string;
@@ -6887,8 +8108,12 @@ export interface operations {
                 hasNonCompliant?: boolean;
                 /** @description Exact source kind (oci, kubernetes, evidence-http, ...) for source entities */
                 sourceKind?: string;
-                /** @description Order: name (natural, so 2 before 10), health (least healthy first), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first) or created (golden paths that created the most services first); absent orders by kind then key */
-                sort?: "name" | "health" | "services" | "nonCompliant" | "rate" | "created";
+                /** @description Keeps the entities whose provider lifecycle is deprecated or past its sunset: offering entities by the worst provider lifecycle (each provider's newest revision a target runs, else its newest readable one), service entities by their newest revision */
+                lifecycle?: "deprecated" | "sunset";
+                /** @description Keeps the offerings with at least one failed provisioning request (offering entities) */
+                failed?: boolean;
+                /** @description Order: name (natural, so 2 before 10), health (least healthy first; owners and domains by non-compliant, failing, unknown, stale and gap services), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most consumers with a failed provisioning request first), consumers (offerings with the most declared consumers first) or gaps (owners and domains with the most services that leave knowledge out first); absent orders by kind then key */
+                sort?: "name" | "health" | "services" | "nonCompliant" | "rate" | "created" | "failed" | "consumers" | "gaps";
                 /** @description Max entities to return (negatives rejected; excessive values capped) */
                 limit?: number;
                 offset?: number;
@@ -6924,6 +8149,8 @@ export interface operations {
             query: {
                 /** @description Canonical entity key (a slash-bearing key is transported safely as a query param) */
                 key: string;
+                /** @description For a service: also read, as you, when each change reached a Stage, from delivery history (changes.times says how) */
+                reached?: boolean;
             };
             header?: never;
             path: {
@@ -7697,6 +8924,118 @@ export interface operations {
             };
             /** @description Error */
             default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-stats": {
+        parameters: {
+            query?: {
+                /** @description How far back the answer looks: daily buckets for 7d, weekly for 30d and 90d */
+                window?: "7d" | "30d" | "90d";
+                /** @description First service row to return */
+                servicesOffset?: number;
+                /** @description Service rows to return */
+                servicesLimit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatsAnswer"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-stats-records": {
+        parameters: {
+            query: {
+                /** @description How far back the answer looks */
+                window?: "7d" | "30d" | "90d";
+                /** @description The number whose records to list */
+                metric: "breaking" | "protected" | "clear" | "blocked" | "unverified" | "held" | "failed" | "rolledBack" | "verificationFailed" | "leadTime" | "coverage";
+                /** @description Only the records that count under this environment; coverage ignores it */
+                environment?: string;
+                /** @description First record to return */
+                offset?: number;
+                /** @description Records to return */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatsRecordsAnswer"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

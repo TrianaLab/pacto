@@ -2,10 +2,12 @@ package app
 
 import (
 	"bytes"
+	"cmp"
 	"fmt"
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/evidence"
 	"github.com/trianalab/pacto/v4/pkg/evidenceenvelope"
+	"github.com/trianalab/pacto/v4/pkg/evidenceingest"
 )
 
 // trustConfigAPIVersion is the only trust-config schema this build understands.
@@ -35,8 +38,12 @@ type trustConfigKey struct {
 	AllowedSubjects      []string `yaml:"allowedSubjects"`
 	AllowedContractRepos []string `yaml:"allowedContractRepos"`
 	// AllowedObservationKinds grants the kinds this key may report; empty keeps
-	// every runtime kind and withholds ResourceProvisioned.
+	// every runtime kind and withholds the provider-reported kinds
+	// (ResourceProvisioned and ResourceUsage).
 	AllowedObservationKinds []string `yaml:"allowedObservationKinds"`
+	// AllowedProviderRepos lists the prefixes of provider-contract repositories a
+	// ResourceProvisioned or ResourceUsage report may be about; empty means any provider.
+	AllowedProviderRepos []string `yaml:"allowedProviderRepos"`
 }
 
 // loadStructuredTrustStore parses a versioned trust-config file into a
@@ -110,11 +117,11 @@ func trustEntryFromConfigKey(k trustConfigKey, dir string, ts evidenceenvelope.M
 		}
 	}
 	for _, repo := range k.AllowedContractRepos {
-		if err := validateContractRepoPrefix(repo); err != nil {
+		if err := validateContractRepoPrefix("contract-repo", repo); err != nil {
 			return evidenceenvelope.TrustEntry{}, fmt.Errorf("key %q: %w", k.KeyID, err)
 		}
 	}
-	if err := validateObservationKinds(k.AllowedObservationKinds); err != nil {
+	if err := cmp.Or(validateObservationKinds(k.AllowedObservationKinds), validateProviderScope(k)); err != nil {
 		return evidenceenvelope.TrustEntry{}, fmt.Errorf("key %q: %w", k.KeyID, err)
 	}
 	return evidenceenvelope.TrustEntry{
@@ -123,6 +130,7 @@ func trustEntryFromConfigKey(k trustConfigKey, dir string, ts evidenceenvelope.M
 		Subjects:                k.AllowedSubjects,
 		ContractRepos:           k.AllowedContractRepos,
 		AllowedObservationKinds: k.AllowedObservationKinds,
+		ProviderRepos:           k.AllowedProviderRepos,
 	}, nil
 }
 
@@ -137,16 +145,56 @@ func validateObservationKinds(kinds []string) error {
 	return nil
 }
 
-// validateContractRepoPrefix rejects a malformed contract-repo allowlist prefix:
-// it must be a bare registry/repo path (no scheme, no digest, no whitespace).
-func validateContractRepoPrefix(prefix string) error {
+// registryWithPort reports whether p, a prefix with no "/", is a registry host
+// and port (localhost:5001, registry.example.com:5000) rather than a tagged
+// repository (postgresql:16): the host is localhost or holds a ".", as a
+// registry does in an OCI reference.
+func registryWithPort(p string) bool {
+	host, port, _ := strings.Cut(p, ":")
+	digits := port != "" && strings.Trim(port, "0123456789") == ""
+	return digits && (host == "localhost" || strings.Contains(host, "."))
+}
+
+// validateProviderScope checks a key's allowedProviderRepos: each entry is a
+// bare, lowercase registry/repo path with no empty segment and no tag (a tagged
+// prefix could never match, because the declared ref's tag is dropped before
+// matching; a registry port before the first "/", or a bare registry host and
+// port, stays valid), and a scope
+// requires a provider-scoped kind to be granted, so it can never silently grant
+// nothing.
+func validateProviderScope(k trustConfigKey) error {
+	for _, p := range k.AllowedProviderRepos {
+		if err := validateContractRepoPrefix("allowedProviderRepos", p); err != nil {
+			return err
+		}
+		if i := strings.LastIndex(p, "/"); strings.Contains(p[i+1:], ":") && (i >= 0 || !registryWithPort(p)) {
+			return fmt.Errorf("allowedProviderRepos entry %q must not carry a tag", p)
+		}
+		// A repository is lowercase and has no empty path segment, so an
+		// uppercase prefix or one with a trailing or doubled "/" could never match.
+		if p != strings.ToLower(p) || slices.Contains(strings.Split(p, "/"), "") {
+			return fmt.Errorf("allowedProviderRepos entry %q must be a lowercase repository path with no empty segment", p)
+		}
+	}
+	if len(k.AllowedProviderRepos) > 0 && !slices.ContainsFunc(evidenceingest.ProviderScopedKinds(), func(kind evidence.ObservationKind) bool {
+		return slices.Contains(k.AllowedObservationKinds, string(kind))
+	}) {
+		return fmt.Errorf("allowedProviderRepos scopes provisioning and usage reports, so allowedObservationKinds must list ResourceProvisioned or ResourceUsage")
+	}
+	return nil
+}
+
+// validateContractRepoPrefix rejects a malformed repository allowlist prefix
+// (what names the list): it must be a bare registry/repo path (no scheme, no
+// digest, no whitespace).
+func validateContractRepoPrefix(what, prefix string) error {
 	switch {
 	case prefix == "":
-		return fmt.Errorf("contract-repo prefix must not be empty")
+		return fmt.Errorf("%s prefix must not be empty", what)
 	case strings.ContainsAny(prefix, " \t\n"):
-		return fmt.Errorf("contract-repo prefix %q must not contain whitespace", prefix)
+		return fmt.Errorf("%s prefix %q must not contain whitespace", what, prefix)
 	case strings.Contains(prefix, contract.OCIScheme), strings.Contains(prefix, "@"):
-		return fmt.Errorf("contract-repo prefix %q must be a bare registry/repo path (no scheme or digest)", prefix)
+		return fmt.Errorf("%s prefix %q must be a bare registry/repo path (no scheme or digest)", what, prefix)
 	}
 	return nil
 }

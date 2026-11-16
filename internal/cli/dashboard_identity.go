@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/spf13/viper"
@@ -41,18 +42,22 @@ func isLoopback(host string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
+// errOpenNeedsAllowAnonymous stops a dashboard that would show the whole fleet
+// to everyone who reaches it, unless someone chose that.
+var errOpenNeedsAllowAnonymous = errors.New("serving beyond loopback without sign-in exposes the whole fleet; " +
+	"configure --oidc-issuer-url or --token-login, or pass --allow-anonymous")
+
 // newDashboardIdentity picks the mode: shared when an issuer or token sign-in
 // is configured (people sign in before the dashboard shows anything), local on
-// a loopback bind without either, and open (no delivery) anywhere else.
+// a loopback bind without either, and open (no delivery) anywhere else, only
+// with --allow-anonymous.
 func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, d deps) (*dashboardIdentity, error) {
 	trust, err := deliveryTrust(v.GetString("dashboard.delivery-trust"))
 	if err != nil {
 		return nil, err
 	}
-	id := &dashboardIdentity{cluster: cluster, registry: d.newDeliveryRegistry, now: time.Now, served: d.served, state: authn.StateFrom,
-		newClient: d.dynamicFor, records: d.newRecordRepo, trust: trust,
-		revisions: map[string]delivery.Revision{}, stageNS: map[string]stageNamespaces{}, policyNS: v.GetString("dashboard.delivery-namespace"), reads: newReadCache(),
-		loginName: v.GetString("dashboard.oidc-display-name")}
+	id := baseDashboardIdentity(cluster, d, trust, v.GetString("dashboard.delivery-namespace"))
+	id.loginName = v.GetString("dashboard.oidc-display-name")
 	life := authn.Lifetime{Idle: v.GetDuration("dashboard.session-idle-timeout"), Max: v.GetDuration("dashboard.session-max-age")}
 	var review authn.TokenReview // nil: no cluster to ask who a token is
 	if cluster != nil {
@@ -84,10 +89,21 @@ func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, d d
 		id.viewer = authn.NewViewer(clusterReview(cluster, d.dynamicFor))
 	case isLoopback(host):
 		id.auth = authn.NewLocal()
-	default:
+	case v.GetBool("dashboard.allow-anonymous"):
 		id.auth = authn.NewOpen()
+	default:
+		return nil, errOpenNeedsAllowAnonymous
 	}
 	return id, nil
+}
+
+// baseDashboardIdentity is an identity with everything delivery reads need
+// set; the dashboard adds its sign-in on top, the MCP delivery reads use it
+// as it is.
+func baseDashboardIdentity(cluster *rest.Config, d deps, trust *delivery.TrustConfig, policyNS string) *dashboardIdentity {
+	return &dashboardIdentity{cluster: cluster, registry: d.newDeliveryRegistry, now: time.Now, served: d.served, state: authn.StateFrom,
+		newClient: d.dynamicFor, records: d.newRecordRepo, trust: trust,
+		revisions: map[string]delivery.Revision{}, stageNS: map[string]stageNamespaces{}, policyNS: policyNS, reads: newReadCache()}
 }
 
 // options are the dashboard options this identity fills in.
@@ -105,6 +121,7 @@ func (id *dashboardIdentity) options(o *dashboard.Options) {
 		}}
 	if id.viewer != nil {
 		o.View = id.view
+		o.OperationAccess = id.operationAccess(o.Fleet)
 	}
 	if id.cluster != nil {
 		o.Delivery = id.delivery
@@ -153,6 +170,58 @@ func (id *dashboardIdentity) view(ctx context.Context, q *fleet.Query) (*fleet.Q
 		return nil, fmt.Errorf("checking your Kubernetes permissions failed: %w", err)
 	}
 	return r, nil
+}
+
+// operationAccess says which Stage namespaces the caller may list operations
+// in, for the run records of the Metrics page: each namespace of their fleet
+// view is reviewed for the person (as the API server names their token, with
+// uid and extra; anyone else as its anonymous user) through the shared
+// dashboard's cached SubjectAccessReview, the rule every delivery view on it
+// follows. Namespaces outside the view are refused unreviewed, so registry
+// data cannot choose what is asked.
+func (id *dashboardIdentity) operationAccess(full func(context.Context) (*fleet.Query, error)) func(context.Context, []string) (func(string) bool, error) {
+	return func(ctx context.Context, nss []string) (func(string) bool, error) {
+		var known []string
+		if full != nil {
+			q, err := full(ctx)
+			if err == nil {
+				q, err = id.view(ctx, q)
+			}
+			if err != nil {
+				return nil, err
+			}
+			known = q.Namespaces()
+		}
+		who := sync.OnceValues(func() (subject, error) { return id.subject(ctx) })
+		return reviewOperations(ctx, known, nss, func(ctx context.Context, ns string) (bool, error) {
+			p, err := who()
+			if err != nil {
+				return false, err
+			}
+			return id.shared.may(ctx, p, "list", sharedOps, ns, "")
+		})
+	}
+}
+
+// subject is the caller as the API server names them, for a review through
+// the shared cache, which it starts.
+func (id *dashboardIdentity) subject(ctx context.Context) (subject, error) {
+	var s *sharedReads
+	if id.cluster != nil {
+		s = id.sharedReads() // nil when no client can be built
+	}
+	if s == nil {
+		return subject{}, errNoClusterToAsk
+	}
+	st := id.state(ctx)
+	if !st.SignedIn {
+		return subject{User: authn.Anonymous.User, Groups: authn.Anonymous.Groups}, nil
+	}
+	dyn, err := id.newClient(authn.RESTConfig(id.cluster, st.Token))
+	if err != nil {
+		return subject{}, err
+	}
+	return s.whoami(ctx, sharedClient{Interface: dyn, s: s, token: st.Token})
 }
 
 // errNoClusterToAsk: the fleet holds Kubernetes namespaces but the dashboard

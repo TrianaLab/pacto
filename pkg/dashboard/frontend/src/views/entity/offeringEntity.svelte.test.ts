@@ -281,4 +281,192 @@ describe('offering page', () => {
     expect(text(target.querySelector('[data-testid="hidden-consumers"]'))).toBe('1 consumer you may not see');
     done();
   });
+  // #464: availability, successors, consumer status and undeclared callers.
+  it('shows the availability roll-up and each provider\'s, with its successor and latest supported version', async () => {
+    const av = (state: string) => ({ state, asOf: '2026-11-04T10:00:00Z', total: 1, byEnvironment: [{ environment: 'production', state, provenance: 'observed', reason: 'r', reporting: 1, targets: 1 }] });
+    const p = provider('postgresql');
+    const succRev = ref('revision', `${p.service.key}@sha256:17`, 'postgresql 17.0.0');
+    const { target, done } = await render(detail({
+      availability: av('available'), hiddenProviders: 1,
+      providers: preview([
+        { ...p, availability: av('degraded'), successor: { provenance: 'inferred', ref: 'oci://ghcr.io/acme/postgresql:17.0.0', revision: succRev }, latestSupported: p.currentRevision },
+        provider('legacy', { availability: av('unknown'), successor: { provenance: 'unknown', ref: 'oci://ghcr.io/acme/legacy:9.0.0', reason: 'no revision 9.0.0 of legacy in this snapshot' } }),
+      ]),
+    }));
+    const roll = target.querySelector('.offering-entity > section [data-testid="availability"], .offering-entity [data-testid="availability"]');
+    expect(roll?.querySelector('[data-state="available"]')).toBeTruthy();
+    expect(text(target.querySelector('[data-testid="hidden-providers"]'))).toBe('1 provider you may not see');
+    const [pg, legacy] = Array.from(target.querySelectorAll('[data-testid="offering-provider"]')) as HTMLElement[];
+    expect(pg.querySelector('[data-testid="availability-env"]')?.getAttribute('data-state')).toBe('degraded');
+    const succ = pg.querySelector('[data-testid="provider-successor"]') as HTMLElement;
+    expect(succ.querySelector('a')?.getAttribute('href')).toBe(succRev.href.replace(/^/, '#'));
+    expect(text(succ)).toContain('inferred');
+    expect(text(pg)).toContain('Latest supported');
+    const lsucc = legacy.querySelector('[data-testid="provider-successor"]') as HTMLElement;
+    expect(lsucc.querySelector('a')).toBeNull();
+    expect(text(lsucc)).toContain('oci://ghcr.io/acme/legacy:9.0.0');
+    expect(text(lsucc)).toContain('unknown: no revision 9.0.0 of legacy in this snapshot');
+    done();
+  });
+
+  it('shows each consumer\'s status and whether its range accepts the successor', async () => {
+    const pa = provider('postgresql').service;
+    const use = (consumer: string, successorRange?: string, supportedRange?: string) => ({ offering: 'shared-config', consumer: ref('service', consumer, consumer, { status: 'NonCompliant' }), provider: { ...pa, status: 'Compliant' }, via: 'dependency', compatibility: '^16.0.0', successorRange, supportedRange });
+    const { target, done } = await render(detail({ consumers: preview([use('orders', 'satisfied', 'satisfied'), use('billing', 'unsatisfied', 'unsatisfied'), use('fraud', 'unknown', 'unsatisfied'), use('cart')]) }));
+    const rows = Array.from(target.querySelectorAll('[data-testid="offering-consumer"]')) as HTMLElement[];
+    const links = rows[0].querySelectorAll('a.entity-link');
+    expect(text(links[0])).toContain('Not compliant');
+    expect(text(links[1])).toBe('postgresql');
+    const badge = (r: HTMLElement, label: string) => Array.from(r.querySelectorAll('.tag')).find((t) => t.textContent === label) as HTMLElement | undefined;
+    expect(badge(rows[0], 'accepts successor')?.classList.contains('tone-ok')).toBe(true);
+    expect(badge(rows[0], 'accepts successor')?.getAttribute('title')).toBe('Range ^16.0.0');
+    expect(badge(rows[1], 'excludes successor')?.classList.contains('tone-warn')).toBe(true);
+    expect(badge(rows[2], 'successor unknown')?.classList.contains('tone-neutral')).toBe(true);
+    // An ungraded successor falls back to the latest supported revision; a graded one needs no fallback.
+    expect(badge(rows[2], 'excludes latest supported')?.classList.contains('tone-warn')).toBe(true);
+    expect(text(rows[0]) + text(rows[1])).not.toContain('latest supported');
+    expect(text(rows[3])).not.toContain('successor');
+    done();
+  });
+
+  it('lists undeclared callers apart, never links an uncontracted one and counts the hidden ones', async () => {
+    const pa = provider('postgresql').service;
+    const { target, done } = await render(detail({
+      observedConsumers: preview([
+        { consumer: ref('service', 'reports'), provider: pa, provenance: 'observed', lastSeen: '2026-11-04T09:00:00Z', stale: true, sources: ['otel'] },
+        { caller: 'batch-job', provider: pa, provenance: 'observed', uncontracted: true },
+      ], { total: 5, truncated: true }),
+      hiddenObservedConsumers: 2,
+    }));
+    const rows = Array.from(target.querySelectorAll('[data-testid="observed-consumer"]')) as HTMLElement[];
+    expect(rows.length).toBe(2);
+    expect(rows[0].querySelector('a')?.getAttribute('href')).toBe('#/fleet/services/reports');
+    expect(text(rows[0])).toContain('stale');
+    expect(text(rows[0])).toContain('last seen');
+    expect(text(rows[0])).not.toContain('last seen unknown');
+    expect(text(rows[1])).toContain('batch-job');
+    expect(text(rows[1])).toContain('uncontracted');
+    expect(text(rows[1])).toContain('last seen unknown');
+    expect(text(rows[1])).not.toContain('stale');
+    // The caller is text; only the provider on the arrow side is a link.
+    expect(Array.from(rows[1].querySelectorAll('a')).map(text)).toEqual(['postgresql']);
+    expect(text(target)).toContain('+3 more callers');
+    expect(text(target.querySelector('[data-testid="hidden-observed-consumers"]'))).toBe('2 callers you may not see');
+    expect(text(target)).not.toContain('No observation source saw an undeclared caller.');
+    done();
+  });
+
+  it('says no undeclared caller was seen only when none is visible or hidden', async () => {
+    const empty = await render(detail({ observedConsumers: preview([]), hiddenObservedConsumers: 0 }));
+    expect(text(empty.target)).toContain('No observation source saw an undeclared caller. A caller outside the observed sources is not seen.');
+    expect(empty.target.querySelector('[data-testid="hidden-observed-consumers"]')).toBeNull();
+    empty.done();
+    const hidden = await render(detail({ observedConsumers: preview([]), hiddenObservedConsumers: 1 }));
+    expect(text(hidden.target)).not.toContain('No observation source saw an undeclared caller.');
+    expect(hidden.target.querySelectorAll('[data-testid="hidden-observed-consumers"]').length).toBe(1);
+    expect(text(hidden.target.querySelector('[data-testid="hidden-observed-consumers"]'))).toBe('1 caller you may not see');
+    hidden.done();
+  });
+
+  it('says whether an entered range accepts the provider\'s successor', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const p = provider('postgresql');
+      const succRev = ref('revision', `${p.service.key}@sha256:17`, 'postgresql 17.0.0');
+      versionsFn.mockResolvedValue({ providers: [{ provider: p.service, versions: { ...preview([]), completeness: 'fleet', note: '', range: '^16.0.0',
+        successor: { provenance: 'inferred', ref: 'oci://ghcr.io/acme/postgresql:17.0.0', revision: succRev }, successorRange: 'unsatisfied' } }] });
+      const { target, done } = await render(detail({ providers: preview([p]) }));
+      const input = target.querySelector('input[type="text"]') as HTMLInputElement;
+      input.value = '^16.0.0';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      await vi.advanceTimersByTimeAsync(300);
+      flushSync();
+      const line = target.querySelector('[data-testid="versions-successor"]') as HTMLElement;
+      expect(text(line)).toContain('Successor');
+      expect(line.querySelector('.tone-warn')?.textContent).toBe('excludes successor');
+      expect(line.querySelector('.tone-warn')?.getAttribute('title')).toBe('Range ^16.0.0');
+
+      versionsFn.mockResolvedValue({ providers: [{ provider: p.service, versions: { ...preview([]), completeness: 'fleet', note: '',
+        successor: { provenance: 'unknown', ref: 'oci://x/y:9', reason: 'no revision' } } }] });
+      input.value = '^9.0.0';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      await vi.advanceTimersByTimeAsync(300);
+      flushSync();
+      const unk = target.querySelector('[data-testid="versions-successor"]') as HTMLElement;
+      expect(unk.querySelector('a')).toBeNull();
+      expect(text(unk)).toContain('oci://x/y:9');
+      expect(text(unk)).toContain('successor unknown');
+      expect(text(unk)).toContain('unknown: no revision');
+      done();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('adapters reporting', () => {
+  const tally = (over = {}) => ({ requested: 0, provisioning: 0, ready: 0, readyUnsigned: 0, failed: 0, deleting: 0, unknown: 0, ...over });
+  const adapter = (extra: Record<string, unknown>) => ({ provider: 'scanner', producer: 'security-adapter', verified: true, environments: ['production'],
+    phases: tally({ ready: 1 }), disagrees: 0, provenance: 'observed', lastReportedAt: '2026-11-04T09:00:00Z', ...extra });
+
+  it('lists signed, unsigned and unnamed adapters with their disagreements and the requests nobody reports on', async () => {
+    const { target, done } = await render(detail({
+      adapters: { total: 3, count: 3, truncated: false, conflicting: 2, unattributed: 4, items: [
+        adapter({}),
+        adapter({ verified: false, environments: ['default', 'staging'], phases: tally({ ready: 1, readyUnsigned: 1, unknown: 2 }), disagrees: 2 }),
+        adapter({ provider: '', producer: undefined, verified: false, environments: ['default'], phases: tally({ unknown: 1 }), lastReportedAt: undefined }),
+      ] },
+    }));
+    const items = [...target.querySelectorAll('[data-testid="offering-adapter"]')] as HTMLElement[];
+    expect(items).toHaveLength(3);
+    expect(text(target)).toContain('Who reports on these requests?');
+    expect(text(items[0])).toContain('scanner');
+    expect(text(items[0])).toContain('by security-adapter');
+    expect(items[0].querySelector('.tone-ok')?.textContent).toBe('signed');
+    expect(text(items[0])).toContain('production');
+    expect(text(items[0])).toContain('observed');
+    expect(text(items[0])).toMatch(/last reported/);
+    expect(items[0].querySelector('[data-testid="adapter-last"]')?.getAttribute('title')).toBeTruthy();
+    const unsigned = [...items[1].querySelectorAll('.tag')].find((t) => t.textContent === 'unsigned') as HTMLElement;
+    expect(unsigned.classList.contains('tone-info')).toBe(true);
+    expect(unsigned.getAttribute('title')).toBe('Reported through the unsigned target-state file');
+    expect(items[1].querySelector('.tone-warn')?.textContent).toBe('disagrees on 2');
+    // An unsigned Ready never reads positive on its phase badge.
+    expect([...items[1].querySelectorAll('.tag.tone-ok')]).toHaveLength(0);
+    expect(text(items[2])).toContain('unnamed adapter');
+    expect(items[2].querySelector('bdi.oe-name:empty')).toBeNull();
+    // A report with no producer leaves the producer out, as the CLI's adapter line does.
+    expect(items[2].querySelector('.oe-by')).toBeNull();
+    expect(items[2].querySelector('.oe-head')?.getAttribute('title')).toBe('unnamed adapter, unsigned target-state file: default');
+    expect(text(target.querySelector('[data-testid="adapters-conflicting"]'))).toBe('2 requests where adapters disagree, so their status is Unknown');
+    expect(text(target.querySelector('[data-testid="adapters-unattributed"]'))).toBe('4 requests no adapter reports on');
+    // Every value that may be cut carries its full text.
+    for (const el of items[0].querySelectorAll('bdi.oe-name, bdi.oe-env')) expect(el.getAttribute('title')).toBe(el.textContent);
+    done();
+  });
+
+  it('says that provisioning is unknown when no adapter has reported', async () => {
+    const { target, done } = await render(detail({ adapters: { total: 0, count: 0, truncated: false, conflicting: 0, unattributed: 0, items: [] } }));
+    expect(text(target)).toContain('No adapter has reported. Provisioning status is Unknown.');
+    expect(target.querySelector('[data-testid="adapters-conflicting"]')).toBeNull();
+    expect(target.querySelector('[data-testid="adapters-unattributed"]')).toBeNull();
+    expect(target.querySelector('[data-testid="unresolved-uses"]')).toBeNull();
+    done();
+  });
+
+  it('speaks only for the visible requests when no adapter has reported and consumers are hidden', async () => {
+    const { target, done } = await render(detail({ hiddenConsumers: 1, adapters: { total: 0, count: 0, truncated: false, conflicting: 0, unattributed: 0, items: [] } }));
+    expect(text(target)).toContain('No adapter has reported on the requests you can see. Provisioning status is Unknown.');
+    expect(text(target)).not.toContain('No adapter has reported. Provisioning');
+    done();
+  });
+
+  it('counts the declared uses that did not resolve, as inferred', async () => {
+    const { target, done } = await render(detail({ unresolvedUses: { count: 3, reason: 'the reference is not digest-pinned or locked', provenance: 'inferred' } }));
+    const note = target.querySelector('[data-testid="unresolved-uses"]') as HTMLElement;
+    expect(text(note)).toContain('3 declared uses may name a provider of this offering but did not resolve: the reference is not digest-pinned or locked');
+    expect(note.querySelector('.tone-info')?.textContent).toBe('inferred');
+    expect(note.querySelector('a')?.getAttribute('href')).toBe('https://pacto.run/latest/platform-offerings/#consumers');
+    done();
+  });
 });

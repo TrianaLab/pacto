@@ -28,6 +28,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/logging"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/publish"
+	"github.com/trianalab/pacto/v4/pkg/runrecord"
 )
 
 const outputFormatKey = "output-format"
@@ -66,6 +67,8 @@ type deps struct {
 	resolveBundle func(svc *app.Service, ctx context.Context, ref string) (*contract.Bundle, error)
 	// publish runs `pacto publish`: it builds, signs and writes to a registry.
 	publish func(svc *app.Service, ctx context.Context, opts app.PublishOptions) (*publish.Result, error)
+	// publishRunRecord writes one unsigned run record to a stats repository and returns "<repo>@<digest>".
+	publishRunRecord func(ctx context.Context, repo string, r runrecord.Record) (string, error)
 	// selfProc is this process's own /proc, read for its network namespace.
 	selfProc runtimewatch.ProcFS
 	// attachTimeout bounds the wait for `pacto run`'s eBPF program before the command starts.
@@ -102,6 +105,7 @@ func defaultDeps() deps {
 		notifySignals:       signal.Notify,
 		resolveBundle:       (*app.Service).ResolveBundle,
 		publish:             (*app.Service).Publish,
+		publishRunRecord:    defaultPublishRunRecord,
 		selfProc:            runtimewatch.OSProcFS{Root: "/proc"},
 		attachTimeout:       10 * time.Second,
 		pollInterval:        time.Second,
@@ -236,19 +240,20 @@ func newRootCommand(svc *app.Service, info VersionInfo, d deps) *cobra.Command {
 	}
 
 	// Register subcommands
+	rec := newRunRecorder(info.Version, d)
 	root.AddCommand(newInitCommand(svc, v))
 	root.AddCommand(newValidateCommand(svc, v))
-	root.AddCommand(newDiffCommand(svc, v))
+	root.AddCommand(newDiffCommand(svc, v, rec))
 	root.AddCommand(newPackCommand(svc, v))
 	root.AddCommand(newPushCommand(svc, v))
-	root.AddCommand(newPublishCommand(svc, v, d))
+	root.AddCommand(newPublishCommand(svc, v, d, rec))
 	root.AddCommand(newPullCommand(svc, v))
 	root.AddCommand(newGraphCommand(svc, v))
-	root.AddCommand(newFleetCommand(svc, v))
+	root.AddCommand(newFleetCommand(svc, v, d, rec))
 	root.AddCommand(newEvidenceCommand(svc, v))
 	root.AddCommand(newAgentCommand(svc, v, info.Version, d))
 	root.AddCommand(newRunCommand(svc, v, info.Version, d))
-	root.AddCommand(newImpactCommand(svc, v, d))
+	root.AddCommand(newImpactCommand(svc, v, d, rec))
 	root.AddCommand(newOTelCommand(svc, v))
 	root.AddCommand(newExplainCommand(svc, v))
 	root.AddCommand(newDocCommand(svc, v, d))
@@ -262,6 +267,7 @@ func newRootCommand(svc *app.Service, info VersionInfo, d deps) *cobra.Command {
 	root.AddCommand(newDeliveryCommand(v, d))
 	root.AddCommand(newDashboardCommand(svc, v, info.Version, d))
 	root.AddCommand(newTUICommand(svc, v, d))
+	root.AddCommand(newStatsCommand(svc, v, d))
 
 	attachBanner(root)
 	return root

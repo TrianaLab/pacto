@@ -6,6 +6,7 @@ import {
   deliveryInboxUrl, deliveryEnvironmentsUrl, deliveryAutonomyUrl, deliveryHistoryUrl, deliveryPublishUrl,
 } from './router';
 import { ownerKey, ownerKeyLabel, ownerKeyKind, ownerMatchesFilter } from './owners';
+import { metricsNavItem } from './nav';
 
 export type CommandKind = 'view' | 'service' | 'owner' | 'action';
 
@@ -61,6 +62,12 @@ const DELIVERY_VIEWS: Command[] = [
   { kind: 'view', label: 'Delivery history', hint: CHANGE, href: deliveryHistoryUrl(), keywords: ['delivery', 'records', 'audit'] },
   { kind: 'view', label: 'Delivery published', hint: CHANGE, href: deliveryPublishUrl(), keywords: ['delivery', 'versions'] },
 ];
+// Metrics closes the Change and delivery group, with or without delivery; its label and
+// href come from the nav item so the sidebar and the palette never disagree.
+const METRICS: Command = {
+  kind: 'view', label: metricsNavItem().label, hint: CHANGE, href: metricsNavItem().href,
+  keywords: ['stats', 'statistics', 'trends', 'outcomes', 'breaking changes caught', 'lead time'],
+};
 const FLEET_TAIL: Command[] = [
   { kind: 'view', label: 'Operational graph', hint: SYSTEM, href: fleetUrl() },
   { kind: 'view', label: 'Data sources', hint: SYSTEM, href: fleetSourcesUrl() },
@@ -91,7 +98,7 @@ export function buildCommands(query: string, services: any[], fleet = false, del
   const match = (s: string) => !q || s.toLowerCase().includes(q);
   const groups: CommandGroup[] = [];
 
-  const views = (fleet ? [...FLEET_HEAD, ...(delivery ? DELIVERY_VIEWS : []), ...FLEET_TAIL] : LEGACY_VIEWS)
+  const views = (fleet ? [...FLEET_HEAD, ...(delivery ? DELIVERY_VIEWS : []), METRICS, ...FLEET_TAIL] : LEGACY_VIEWS)
     .filter((v) => match(v.label) || match(v.hint || '') || (v.keywords || []).some(match));
   if (views.length) groups.push({ label: 'Views', items: views });
 

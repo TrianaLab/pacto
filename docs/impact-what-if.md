@@ -27,6 +27,28 @@ an `effect`, graded over every path from it to the service:
 
 No version is judged, so every `compatibilityVerdict` is `unknown`.
 
+## Ask about an offering
+
+`--unavailable` and `--removed` also take `offering:<name>`, which asks the
+same question of every service that provides a
+[platform offering](platform-offerings.md):
+
+```bash
+pacto impact --unavailable offering:postgresql --local examples/demo/bundles
+```
+
+Each consumer appears once, with the worst effect over the providers it
+reaches. A provider is never its own consumer. `providers` lists the providers
+the answer covers. In the dashboard answer the offering's own reference fills
+both `offering` and `service`, and each provider carries its owner. A
+regression belongs to one revision, so `--regressed` takes no offering. When
+no visible provider exists, the answer raises `OFFERING_NOT_IN_FLEET`.
+Providers the viewer cannot see are counted in a `HIDDEN_PROVIDERS`
+limitation that makes the answer partial. The
+`pacto_impact` MCP tool takes `offering` in place of `service`, the dashboard
+API takes `offeringKey` and the offering page links here with
+**What if it becomes unavailable?**.
+
 ## The event gate
 
 An event never blocks: only a contract change has a version a consumer can
@@ -39,12 +61,12 @@ target evidence is stale was last seen there more than 24 hours before `asOf`.
 
 ## Removal and regression evidence
 
-`--removed` lists each consumer's `resources`: what it asked the service for,
-with the provisioning status per environment. When the service declares its
-lifecycle, such as deprecated or sunset, each consumer cites it as `lifecycle`
-evidence. Policy referrers join a
-removal as `unknown`, since their next revision fails validation. Golden paths
-that reference it are listed under `templates`, never as consumers.
+`--unavailable` and `--removed` list each consumer's `resources`: what it
+asked the service for, with the provisioning status per environment. When the
+service declares its lifecycle, such as deprecated or sunset, each consumer
+cites it as `lifecycle` evidence. Policy referrers join a removal as
+`unknown`, since their next revision fails validation. Golden paths that
+reference it are listed under `templates`, never as consumers.
 
 `--regressed` grades consumers like `--unavailable`. When the revision is an
 artifact digest (`sha256:...`), Pacto reads delivery's recorded failures of
@@ -55,6 +77,13 @@ Stage's status is marked "from status, not signed". A version names no single
 artifact, so it reads nothing. Whenever delivery cannot be read in full, the
 answer carries a `DELIVERY_EVIDENCE_UNAVAILABLE` limitation with the reason. An
 unread Stage never reads as "no failure recorded".
+
+Two answers about one change differ in time. A delivery record carries the
+`pacto.impact` verdict signed when the change shipped: the impact recorded at
+the time, shown in `pacto delivery history` and on Delivery history. An
+impact answer projects the change onto today's graph, so its consumers may
+differ from the recorded ones. Pacto never rebuilds a past graph; see
+[a service's changes](service-changes.md#recorded-impact-and-todays-graph).
 
 ## From an agent
 

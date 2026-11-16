@@ -12,9 +12,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
 
-const { detailFn, entitiesFn, impactFn, capsFn } = vi.hoisted(() => ({
+const { detailFn, entitiesFn, impactFn, capsFn, envFn, lifeFn } = vi.hoisted(() => ({
   detailFn: vi.fn(), entitiesFn: vi.fn(), impactFn: vi.fn(),
-  capsFn: vi.fn(),
+  capsFn: vi.fn(), envFn: vi.fn(), lifeFn: vi.fn(),
 }));
 
 vi.mock('../lib/api.ts', async (importOriginal) => {
@@ -26,6 +26,8 @@ vi.mock('../lib/api.ts', async (importOriginal) => {
       fleetEntities: (...a: unknown[]) => entitiesFn(...a),
       fleetImpactByIdentity: (...a: unknown[]) => impactFn(...a),
       capabilities: (...a: unknown[]) => capsFn(...a),
+      deliveryEnvironments: (...a: unknown[]) => envFn(...a),
+      deliveryLifecycle: (...a: unknown[]) => lifeFn(...a),
     },
   };
 });
@@ -93,10 +95,10 @@ function impactResult(opts: { offset?: number; nextOffset?: number; match?: bool
   };
 }
 
-function mountView(params: Record<string, unknown> = {}) {
+function mountView(params: Record<string, unknown> = {}, deliveryState = 'unknown') {
   const target = document.createElement('div');
   document.body.appendChild(target);
-  const component = mount(ChangeAnalysisView, { target, props: { params } });
+  const component = mount(ChangeAnalysisView, { target, props: { params, deliveryState } });
   return { target, component };
 }
 const analyzeBtn = (t: HTMLElement) => Array.from(t.querySelectorAll('button')).find((b) => /compare revisions/i.test(b.textContent || '')) as HTMLButtonElement;
@@ -115,6 +117,7 @@ describe('ChangeAnalysisView — one workspace for what changed and what it affe
     await vi.waitFor(() => expect(target.querySelector('#impact-new-rev')).toBeTruthy());
     // selectors are populated from the product entity-detail preview (never the snapshot)
     expect(detailFn).toHaveBeenCalledWith('service', 'domain-a/payments');
+    expect(detailFn.mock.calls.every((c) => c.length === 2)).toBe(true); // never reached
     analyzeBtn(target).click();
     await vi.waitFor(() => expect(impactFn).toHaveBeenCalled());
     // canonical ServiceKey + canonical RevisionKeys + snapshot id for mismatch rejection
@@ -543,6 +546,23 @@ describe('ChangeAnalysisView — migrating a legacy compare bookmark by NAME', (
     unmount(component); document.body.removeChild(target);
   });
 
+  it('keeps the correlation id when it canonicalizes a name or the picker routes', async () => {
+    entitiesFn.mockResolvedValue({ meta, total: 1, count: 1, limit: 20, offset: 0, entities: [ref('service', 'domain-a/payments', 'payments', { domain: 'domain-a' })] });
+    const named = mountView({ name: 'payments', correlationID: 'CHG-2041' });
+    await vi.waitFor(() => expect(location.hash).toBe('#/fleet/changes/domain-a%2Fpayments?correlationID=CHG-2041'));
+    unmount(named.component); document.body.removeChild(named.target);
+    location.hash = '';
+    const picked = mountView({ correlationID: 'CHG-2041' });
+    const input = picked.target.querySelector('#impact-pick') as HTMLInputElement;
+    input.value = 'pay';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    await vi.waitFor(() => expect(picked.target.querySelector('[data-testid="impact-picker-results"]')).toBeTruthy());
+    (picked.target.querySelector('[data-testid="impact-picker-results"] button') as HTMLButtonElement).click();
+    flushSync();
+    expect(location.hash).toBe('#/fleet/changes/domain-a%2Fpayments?correlationID=CHG-2041');
+    unmount(picked.component); document.body.removeChild(picked.target);
+  });
+
   it('asks which one when several services share the name, picking no arbitrary winner', async () => {
     entitiesFn.mockResolvedValue({ meta, total: 2, count: 2, entities: [
       ref('service', 'domain-a/payments', 'payments', { domain: 'domain-a' }),
@@ -667,6 +687,51 @@ describe('ChangeAnalysisView — migrating a legacy compare bookmark by NAME', (
     unmount(component); document.body.removeChild(target);
   });
 
+  // An offering event (#464): the subject is the offering, every provider at once.
+  it('restores an offering event link, asks with offeringKey and names the providers', async () => {
+    const pg = ref('service', 'domain-a/postgresql', 'postgresql');
+    const ha = ref('service', 'domain-b/postgresql-ha', 'postgresql-ha');
+    impactFn.mockResolvedValue(eventResult({
+      service: ref('offering', 'postgresql', 'postgresql'), offering: ref('offering', 'postgresql', 'postgresql'),
+      providers: [pg, ha], changedOwner: undefined, event: { kind: 'unavailable', offering: 'postgresql' },
+    }));
+    const { target, component } = mountView({ offering: 'postgresql', event: 'unavailable' });
+    await vi.waitFor(() => expect(impactFn).toHaveBeenCalled());
+    const body = impactFn.mock.calls[0][0];
+    expect(body).toMatchObject({ offeringKey: 'postgresql', event: 'unavailable', limit: 100, offset: 0 });
+    expect(body.serviceKey).toBeUndefined();
+    expect(detailFn).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="impact-figure"]')).toBeTruthy());
+    // No service picker, no compare question and no regression: only the offering's events.
+    expect(target.querySelector('[data-testid="impact-service-picker"]')).toBeNull();
+    expect(target.querySelector('[data-testid="changes-mode"]')).toBeNull();
+    const ev = target.querySelector('#impact-event') as HTMLSelectElement;
+    expect([...ev.options].map((o) => o.textContent)).toEqual(['becomes unavailable', 'is removed']);
+    expect(target.querySelector('label[for="impact-event"]')?.textContent).toBe('What if this offering');
+    expect(target.querySelector('.svc-line a')?.getAttribute('href')).toBe('#/fleet/offerings/postgresql');
+    const provs = Array.from(target.querySelectorAll('[data-testid="impact-providers"] a')).map((a) => a.getAttribute('href'));
+    expect(provs).toEqual(['#/fleet/services/domain-a%2Fpostgresql', '#/fleet/services/domain-b%2Fpostgresql-ha']);
+    expect(target.textContent).toContain('What happens if postgresql becomes unavailable?');
+    // The figure names its subject from impact.service, the offering's own ref (Decision 11).
+    const subject = target.querySelector('[data-testid="impact-figure"] .stack-name');
+    expect(subject?.textContent).toBe('postgresql');
+    expect(subject?.getAttribute('href')).toBe('#/fleet/offerings/postgresql');
+    await vi.waitFor(() => expect(location.hash).toBe('#/fleet/changes?offering=postgresql&event=unavailable'));
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('never asks an offering about a regression', async () => {
+    const { target, component } = mountView({ offering: 'postgresql', event: 'regressed' });
+    await vi.waitFor(() => expect(target.querySelector('#impact-event')).toBeTruthy());
+    await new Promise((r) => setTimeout(r, 20));
+    expect(impactFn).not.toHaveBeenCalled();
+    // The dashboard knows a regression: it says a regression needs a service and links the providers.
+    expect(target.textContent).not.toContain('Unknown event');
+    expect(target.textContent).toContain('A regression belongs to one revision of one service');
+    expect(target.querySelector('[data-testid="changes-event-needs-service"] a')?.getAttribute('href')).toBe('#/fleet/services?offering=postgresql');
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('never answers a link that names an unknown event as another event', async () => {
     impactFn.mockResolvedValue(eventResult());
     const { target, component } = mountView({ svc: 'domain-a/payments', event: 'down' });
@@ -737,5 +802,62 @@ describe('ChangeAnalysisView — migrating a legacy compare bookmark by NAME', (
     await vi.waitFor(() => expect(b.target.querySelector('[data-testid="changes-delivery-evidence"]')).toBeTruthy());
     expect(b.target.querySelector('[data-testid="changes-delivery-evidence"]')?.textContent).toContain('name the artifact digest to read delivery evidence');
     unmount(b.component); document.body.removeChild(b.target);
+  });
+});
+
+describe('ChangeAnalysisView — Plan from the answer (#472 D4)', () => {
+  const ART = 'sha256:' + 'a'.repeat(64);
+  const RUN = 'sha256:' + 'b'.repeat(64);
+  // The revision ref carries its contract digest as `secondary`, as the backend does.
+  const detail = () => {
+    const d = serviceDetail();
+    d.entity.domain = 'domain-a';
+    d.service.revisions.items = [{ ...rev2, secondary: 'sha256:2' }, { ...rev1, secondary: 'sha256:1' }];
+    return d;
+  };
+  const row = (over = {}) => ({ namespace: 'prod', stage: 'payments', service: 'payments', domain: 'domain-a', environment: 'prod', state: 'verified',
+    pointer: RUN, candidate: ART, candidateVersion: '2.0.0', offers: [
+      { action: 'promote', available: true, reason: 'promotes 2.0.0', to: ART },
+      { action: 'undo', available: true, reason: 'undoes op-1', operation: 'op-1', to: 'sha256:0' },
+    ], ...over });
+  const planButtons = (t: HTMLElement) => [...t.querySelectorAll('button')].map((b) => b.textContent!.replace(/\s+/g, ' ').trim()).filter((x) => x.startsWith('Plan '));
+  beforeEach(() => {
+    for (const f of [detailFn, entitiesFn, impactFn, capsFn, envFn, lifeFn]) f.mockReset();
+    detailFn.mockResolvedValue(detail());
+    capsFn.mockResolvedValue({ fleet: true, impact: true, observed: false });
+    envFn.mockResolvedValue({ asOf: '', completeness: 'complete', environments: [row()] });
+    lifeFn.mockResolvedValue({ digest: ART });
+    location.hash = '';
+  });
+
+  it('offers Plan promote for the new revision when a Stage offers it', async () => {
+    impactFn.mockResolvedValue(impactResult());
+    const { target, component } = mountView({ svc: 'domain-a/payments', correlationID: 'CHG-1' }, 'enabled');
+    await vi.waitFor(() => expect(target.querySelector('#impact-new-rev')).toBeTruthy());
+    analyzeBtn(target).click();
+    await vi.waitFor(() => expect(planButtons(target)).toEqual(['Plan promote of 2.0.0 in prod…']));
+    expect(lifeFn).toHaveBeenCalledWith({ service: 'payments', domain: 'domain-a', contract: 'sha256:2' });
+    // The analyzed pair's URL keeps the investigation's correlation id.
+    expect(location.hash).toContain('correlationID=CHG-1');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('offers Plan undo on a Stage that runs the regressed artifact digest', async () => {
+    impactFn.mockResolvedValue({ ...impactResult(), oldRevision: undefined, newRevision: undefined, event: { kind: 'regressed', service: 'domain-a/payments', revision: RUN } });
+    const { target, component } = mountView({ svc: 'domain-a/payments', event: 'regressed', rev: RUN }, 'enabled');
+    await vi.waitFor(() => expect(planButtons(target)).toEqual(['Plan undo in prod…']));
+    expect(lifeFn).not.toHaveBeenCalled();
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('offers nothing when delivery is not served', async () => {
+    impactFn.mockResolvedValue(impactResult());
+    const { target, component } = mountView({ svc: 'domain-a/payments' }, 'not-served');
+    await vi.waitFor(() => expect(target.querySelector('#impact-new-rev')).toBeTruthy());
+    analyzeBtn(target).click();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="changes-what-it-affects"]')).toBeTruthy());
+    expect(envFn).not.toHaveBeenCalled();
+    expect(planButtons(target)).toEqual([]);
+    unmount(component); document.body.removeChild(target);
   });
 });

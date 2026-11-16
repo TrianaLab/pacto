@@ -134,3 +134,61 @@ test('History: the payments prod steps read back from signed records that verify
   await expect(prod.getByRole('row').filter({ has: page.locator('td[data-label="Record"] button') }).first()).toBeVisible();
   await axe(page, 'history');
 });
+
+// The service the payments prod history names, from its revision link (#459): a
+// revision key is the service key, an @ and the digest.
+let paymentsService = '';
+let carolChanges = 0;
+
+test('History: carol reads the impact verdict prod/payments recorded and the revision of each version', async ({ page }) => {
+  await signIn(page, 'carol', '/#/delivery/history?namespace=prod&stage=payments');
+  const prod = page.getByRole('region', { name: 'History of prod/payments' });
+  await expect(prod.getByTestId('history-impact').first()).toContainText('Impact recorded', { timeout: T });
+  const rev = prod.locator('td[data-label="Version"] a[href^="#/fleet/revisions/"]').first();
+  await expect(rev).toBeVisible();
+  const key = decodeURIComponent((await rev.getAttribute('href'))!.slice('#/fleet/revisions/'.length));
+  paymentsService = key.slice(0, key.lastIndexOf('@'));
+  expect(paymentsService).not.toBe('');
+});
+
+test('History: the payments service page says when its changes reached a Stage, from signed records', async ({ page }) => {
+  expect(paymentsService, 'the history journey names the payments service').not.toBe('');
+  await signIn(page, 'carol', `/#/fleet/services/${encodeURIComponent(paymentsService)}?section=changes`);
+  const changes = page.getByTestId('service-changes');
+  await expect(changes.getByTestId('service-changes-caption')).not.toContainText('reading times', { timeout: T });
+  await expect(changes.locator('[data-testid="service-change-reached"] a').first()).toBeVisible({ timeout: T });
+  carolChanges = await changes.getByTestId('service-change-row').count();
+  expect(carolChanges).toBeGreaterThan(0);
+  await axe(page, 'service changes, as carol');
+});
+
+test('History: dave, who may read no Stage, sees the same changes with their times hidden', async ({ page }) => {
+  expect(carolChanges, 'the journey before counts carol\'s changes').toBeGreaterThan(0);
+  await signIn(page, 'dave', `/#/fleet/services/${encodeURIComponent(paymentsService)}?section=changes`);
+  const changes = page.getByTestId('service-changes');
+  await expect(changes.getByTestId('service-changes-caption')).not.toContainText('reading times', { timeout: T });
+  await expect(changes.getByTestId('service-change-reached').first()).toContainText('time hidden', { timeout: T });
+  await expect(changes.getByTestId('service-change-row')).toHaveCount(carolChanges);
+  await expect(changes.locator('[data-testid="service-change-reached"] a')).toHaveCount(0);
+});
+
+// The Metrics page totals the run records (unsigned statistics) the demo wrote:
+// the story's publishes, the promoter's operations and the history seeded for
+// the services the cluster runs. carol may list Pactos, Stages and Operations
+// in every namespace (the demo's approver ClusterRole, like alice and
+// pay-agent), so nothing she reads is counted as outside her view.
+test('Metrics: a signed-in reader sees the story\'s records', async ({ page }) => {
+  await signIn(page, 'carol', '/#/metrics');
+  const content = page.getByTestId('metrics-content');
+  await expect(content).toBeVisible({ timeout: T });
+  await expect(content.getByTestId('stats-strip').first()).toContainText(/[1-9][\d,]* records? read/);
+  await expect(page.getByTestId('metrics-hidden')).toHaveCount(0);
+  await expect(page.getByTestId('metrics-service-row').filter({ hasText: 'payments' }).first()).toBeVisible();
+  // Environments follow the promotion path: test feeds prod.
+  const rows = page.getByTestId('metrics-env-row');
+  await expect(rows.first()).toBeVisible();
+  const envs = (await rows.locator('th a bdi').allInnerTexts()).map((s) => s.trim());
+  expect(envs.indexOf('test'), `environments ${envs.join(', ')}`).toBeGreaterThanOrEqual(0);
+  expect(envs.indexOf('test'), `environments ${envs.join(', ')}`).toBeLessThan(envs.indexOf('prod'));
+  await axe(page, 'metrics');
+});

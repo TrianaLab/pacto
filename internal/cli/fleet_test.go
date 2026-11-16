@@ -735,6 +735,7 @@ func TestFleetBuildError(t *testing.T) {
 		{"fleet", "attention"},
 		{"fleet", "neighborhood", "orders"},
 		{"fleet", "versions", "redis"},
+		{"fleet", "overview"},
 	}
 	for _, sc := range subcommands {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -748,5 +749,15 @@ func TestFleetBuildError(t *testing.T) {
 		if err := root0.ExecuteContext(ctx); err == nil {
 			t.Errorf("expected error for %v when the build context is cancelled", sc)
 		}
+	}
+}
+
+// TestFleetSearchRefusesMalformedLabel: a label the filter cannot read is
+// refused, never dropped into an unfiltered answer.
+func TestFleetSearchRefusesMalformedLabel(t *testing.T) {
+	root, ev := writeFleetFixture(t)
+	_, _, err := execFleet(t, "fleet", "search", "--local", root, "--target-state", ev, "--label", "bare")
+	if err == nil || !strings.Contains(err.Error(), "invalid label") {
+		t.Errorf("search --label bare: err = %v, want invalid label", err)
 	}
 }

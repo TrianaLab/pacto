@@ -31,7 +31,7 @@
   let { text = '', sourceHealth = '', sourceKind = '', offset = '', limit = '', sort = '', refreshTick = 0 } = $props();
 
   const PAGE_SIZE = 25;
-  const HEALTH_OPTIONS = ['available', 'partial', 'stale', 'unavailable'];
+  const HEALTH_OPTIONS = ['available', 'partial', 'stale', 'unavailable', 'incomplete'];
   const pageOffset = $derived(urlInt(offset));
   const pageLimit = $derived(urlInt(limit) || PAGE_SIZE);
   // Least healthy first by default: the sources worth a look are the broken ones.

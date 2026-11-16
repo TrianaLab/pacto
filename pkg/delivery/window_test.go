@@ -3,6 +3,7 @@ package delivery
 import (
 	"encoding/json"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -270,5 +271,20 @@ func TestParseWhen(t *testing.T) {
 	}
 	if _, err := ParseWhen("yesterday", now); err == nil || err.Error() != `takes an RFC 3339 time or a duration before now, such as 2h: "yesterday"` {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestParseAt(t *testing.T) {
+	now := time.Date(2026, 11, 15, 12, 0, 0, 0, time.UTC)
+	if got, err := ParseAt("2h", now); err != nil || !got.Equal(now.Add(-2*time.Hour)) {
+		t.Fatalf("2h: %v %v", got, err)
+	}
+	if got, err := ParseAt("2026-11-15T12:00:00Z", now); err != nil || !got.Equal(now) {
+		t.Fatalf("now: %v %v", got, err)
+	}
+	for v, want := range map[string]string{"": "takes an RFC 3339 time", "2099-01-01T00:00:00Z": "is in the future", "soon": "takes an RFC 3339 time"} {
+		if _, err := ParseAt(v, now); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: %v", v, err)
+		}
 	}
 }

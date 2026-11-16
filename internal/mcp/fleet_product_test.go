@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
@@ -79,11 +80,30 @@ func TestFleetEntitiesToolPagingAndErrors(t *testing.T) {
 	if page.Total != 3 || !page.Truncated || entityKeys(page)[0] != "service/orders" {
 		t.Errorf("paged = %+v", page)
 	}
-	if res := callHandler(t, fleetEntitiesTool(), fleetEntitiesHandler(q, false), map[string]any{"kind": "revision"}); !res.IsError {
-		t.Error("kind=revision is outside the enum")
+	if res := callHandler(t, fleetEntitiesTool(), fleetEntitiesHandler(q, false), map[string]any{"kind": "planet"}); !res.IsError {
+		t.Error("kind=planet is outside the enum")
+	}
+	// Every kind the dashboard lists, and a filter of one kind with no kind.
+	var revs, sources fleet.EntityList
+	decode(t, callHandler(t, fleetEntitiesTool(), fleetEntitiesHandler(q, false), map[string]any{"kind": "revision", "service": "orders"}), &revs)
+	if revs.Total == 0 || slices.ContainsFunc(revs.Entities, func(e fleet.EntityRef) bool { return e.Kind != fleet.KindRevision }) {
+		t.Errorf("kind=revision service=orders = %+v", revs.Entities)
+	}
+	decode(t, callHandler(t, fleetEntitiesTool(), fleetEntitiesHandler(q, false), map[string]any{"source_health": "available"}), &sources)
+	if slices.ContainsFunc(sources.Entities, func(e fleet.EntityRef) bool { return e.Kind != fleet.KindSource }) {
+		t.Errorf("source_health = %+v, want sources only", sources.Entities)
 	}
 	if res := callHandler(t, fleetEntitiesTool(), fleetEntitiesHandler(q, false), map[string]any{"offset": -1}); !res.IsError {
 		t.Error("a negative offset is an invalid query")
+	}
+	sort := fleetEntitiesTool().InputSchema.(map[string]any)["properties"].(map[string]any)["sort"].(map[string]any)
+	if got := enumStrings(t, sort); !slices.Contains(got, fleet.SortFailed) || !slices.Contains(got, fleet.SortConsumers) || !slices.Contains(got, fleet.SortGaps) {
+		t.Errorf("sort enum = %v", got)
+	}
+	for _, order := range []string{fleet.SortFailed, fleet.SortConsumers} {
+		if res := callHandler(t, fleetEntitiesTool(), fleetEntitiesHandler(q, false), map[string]any{"kind": "offering", "sort": order}); res.IsError {
+			t.Errorf("sort=%s is refused", order)
+		}
 	}
 }
 
@@ -91,7 +111,7 @@ func TestFleetEntityTool(t *testing.T) {
 	q := buildProductQuery(t)
 	detail := func(kind, key string) fleet.EntityDetail {
 		var out fleet.EntityDetail
-		decode(t, callHandler(t, fleetEntityTool(), fleetEntityHandler(q, false), map[string]any{"kind": kind, "key": key}), &out)
+		decode(t, callHandler(t, fleetEntityTool(), fleetEntityHandler(q, false, nil), map[string]any{"kind": kind, "key": key}), &out)
 		return out
 	}
 	if d := detail("domain", "shop"); d.Domain == nil || d.Entity.Kind != fleet.KindDomain {
@@ -100,13 +120,25 @@ func TestFleetEntityTool(t *testing.T) {
 	if d := detail("offering", "payments-api"); d.Offering == nil {
 		t.Errorf("offering detail = %+v", d)
 	}
-	if res := callHandler(t, fleetEntityTool(), fleetEntityHandler(q, false), map[string]any{"kind": "planet", "key": "x"}); !res.IsError {
+	var raw struct {
+		Offering map[string]json.RawMessage `json:"offering"`
+	}
+	decode(t, callHandler(t, fleetEntityTool(), fleetEntityHandler(q, false, nil), map[string]any{"kind": "offering", "key": "payments-api"}), &raw)
+	if raw.Offering["adapters"] == nil || raw.Offering["unresolvedUses"] == nil || !strings.Contains(string(raw.Offering["consumers"]), `"readyUnsigned"`) {
+		t.Errorf("offering answer lacks adapters, unresolvedUses or readyUnsigned: %v", raw.Offering)
+	}
+	for _, want := range []string{"'adapters'", "'unresolvedUses'", "'phases.readyUnsigned'", "'phaseConsumers.readyUnsigned'", "'conflicting'", "'unattributed'"} {
+		if !strings.Contains(fleetEntityTool().Description, want) {
+			t.Errorf("description does not name %s", want)
+		}
+	}
+	if res := callHandler(t, fleetEntityTool(), fleetEntityHandler(q, false, nil), map[string]any{"kind": "planet", "key": "x"}); !res.IsError {
 		t.Error("an unknown kind is rejected by the schema")
 	}
-	if res := callHandler(t, fleetEntityTool(), fleetEntityHandler(q, false), map[string]any{"kind": "service"}); !res.IsError {
+	if res := callHandler(t, fleetEntityTool(), fleetEntityHandler(q, false, nil), map[string]any{"kind": "service"}); !res.IsError {
 		t.Error("a missing key is an error result")
 	}
-	if res := callHandler(t, fleetEntityTool(), fleetEntityHandler(q, false), map[string]any{"kind": "service", "key": "ghost"}); !res.IsError {
+	if res := callHandler(t, fleetEntityTool(), fleetEntityHandler(q, false, nil), map[string]any{"kind": "service", "key": "ghost"}); !res.IsError {
 		t.Error("an unknown key is an error result")
 	}
 }
@@ -123,6 +155,15 @@ func TestFleetAttentionTool(t *testing.T) {
 	if page.Total < 2 || !page.Truncated || page.NextOffset == nil || *page.NextOffset != 1 || page.Count != 1 {
 		t.Errorf("limit=1 = %+v", page)
 	}
+	var one fleet.AttentionList
+	decode(t, callHandler(t, fleetAttentionTool(), fleetAttentionHandler(q, false), map[string]any{"kind": "service", "key": "lonely", "stale_only": false}), &one)
+	if one.Total == 0 || slices.ContainsFunc(one.Items, func(it fleet.AttentionItem) bool { return it.Entity.Key != "lonely" }) {
+		t.Errorf("kind=service key=lonely = %+v", one.Items)
+	}
+	decode(t, callHandler(t, fleetAttentionTool(), fleetAttentionHandler(q, false), map[string]any{"stale_only": true}), &one)
+	if slices.ContainsFunc(one.Items, func(it fleet.AttentionItem) bool { return it.Code != "STALE_EVIDENCE" }) {
+		t.Errorf("stale_only = %+v", one.Items)
+	}
 	if res := callHandler(t, fleetAttentionTool(), fleetAttentionHandler(q, false), map[string]any{"category": "bogus"}); !res.IsError {
 		t.Error("an unknown category is rejected by the schema")
 	}
@@ -138,6 +179,11 @@ func TestFleetSearchOffset(t *testing.T) {
 	decode(t, callHandler(t, fleetSearchTool(), fleetSearchHandler(q), map[string]any{"offset": 1}), &skipped)
 	if len(skipped.Services) != len(all.Services)-1 || skipped.Services[0].Key != all.Services[1].Key {
 		t.Errorf("offset 1 = %+v, all %+v", skipped.Services, all.Services)
+	}
+	var labelled fleet.SearchResult
+	decode(t, callHandler(t, fleetSearchTool(), fleetSearchHandler(q), map[string]any{"label": []string{"no-such=label"}}), &labelled)
+	if labelled.Total != 0 {
+		t.Errorf("label no-such=label = %+v, want no service", labelled.Services)
 	}
 }
 
@@ -170,14 +216,17 @@ func TestFleetInstructionsGroundAnswers(t *testing.T) {
 			t.Errorf("fleetInstructions lack %q", want)
 		}
 	}
-	// The neighbourhood and Mira sentences come after the existing text, which
-	// stays unchanged.
+	// The neighbourhood, Mira and overview sentences come after the existing
+	// text, which stays unchanged.
 	const appended = "pacto_fleet_attention for what needs attention, most severe first. " +
+		"An attention item's nextAction names the operation that fixes it and the tool that makes it (edit-contract: " +
+		"edit the contract, from pacto mcp --transport stdio); Pacto infers it from the item's code, and it grants nothing. " +
 		"pacto_fleet_neighborhood lists the services around one service with their owners, for the blast radius of a problem. " +
 		"Observed edges from a source of kind mira come from Mira's sampled service map: an edge Mira did not see may still exist. " +
 		"For when a problem started and which signals degrade, ask Mira's own MCP tools (list_alerts, query_metric, service_map, " +
-		"correlate, get_trace and render_rca) with the service names Pacto reports, and cite them. " +
-		"A Mira read with no spans is unknown, never healthy."
+		"correlate, get_trace and render_rca) with the service names Pacto reports, and cite them; ask query_metric about a " +
+		"resource's utilization and cost too, unless a resource carries reported consumption. " +
+		"A Mira read with no spans is unknown, never healthy. " + overviewInstructions
 	if !strings.HasPrefix(fleetInstructions, "Pacto also exposes READ-ONLY fleet tools over the operational graph: ") || !strings.HasSuffix(fleetInstructions, appended) {
 		t.Errorf("fleetInstructions must keep their text and end with the neighbourhood sentences:\n%s", fleetInstructions)
 	}

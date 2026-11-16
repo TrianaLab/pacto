@@ -377,10 +377,13 @@ describe('FleetEntityView — rich service page (D)', () => {
       declared: true,
       ref: ref('owner', 'team-a'),
       conflicts: { total: 3, count: 1, truncated: true, items: [`domain-a/payments@${digest}: team-b`] },
+      conflictReason: 'targets of payments run revisions that declare different owners',
     };
     detailFn.mockResolvedValue(d);
     const { target, component } = await mountView('service', 'domain-a/payments');
     await vi.waitFor(() => expect(target.textContent).toContain('Ownership conflict'));
+    // The banner says why, from the answer's own reason.
+    expect(target.querySelector('.se-conflicts-head')?.textContent).toContain('Targets of payments run revisions that declare different owners:');
     const rows = Array.from(target.querySelectorAll('.se-conflict-list li'));
     expect(rows[0].textContent).toBe('domain-a/payments@673e8f73673e…: team-b');
     expect(rows[0].getAttribute('title')).toContain(digest); // exact key still available
@@ -397,6 +400,8 @@ describe('FleetEntityView — rich service page (D)', () => {
     expect(text).toMatch(/Showing 2 of 5/);      // truncation is explicit, not hidden
     expect(text).toContain('Ownership conflict'); // conflicting revision owners surfaced
     expect(text).toContain('contract drift');     // attributed finding
+    // The page's shared detail fetch never asks for reached times (a caller-scoped delivery read).
+    expect(detailFn.mock.calls[0]).toEqual(['service', 'domain-a/payments']);
     // a revision row links via the canonical href
     const link = Array.from(target.querySelectorAll('a.entity-link')).find((a) => a.getAttribute('href')?.includes('/fleet/revisions/')) as HTMLAnchorElement;
     expect(link).toBeTruthy();
@@ -440,6 +445,21 @@ describe('FleetEntityView — rich service page (D)', () => {
       .toBe('#/fleet/changes/domain-a%2Fpayments');
     expect(links.find((a) => a.textContent?.includes('What if'))?.getAttribute('href'))
       .toBe('#/fleet/changes/domain-a%2Fpayments?event=unavailable');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  // An offering's impact action asks the event about every provider at once.
+  it('asks what if a whole offering becomes unavailable from its page', async () => {
+    const pv = (items: unknown[]) => ({ total: items.length, count: items.length, truncated: false, items });
+    detailFn.mockResolvedValue({
+      meta, entity: { kind: 'offering', key: 'postgresql', label: 'postgresql', href: '/fleet/offerings/postgresql', offering: 'postgresql' },
+      actions: ['impact'], offering: { providers: pv([]), consumers: pv([]), observedConsumers: pv([]), hiddenConsumers: 0, hiddenObservedConsumers: 0 },
+    });
+    const { target, component } = await mountView('offering', 'postgresql');
+    await vi.waitFor(() => expect(target.querySelector('a.page-hd-action')).toBeTruthy());
+    const links = Array.from(target.querySelectorAll('a.page-hd-action'));
+    expect(links.map((a) => a.textContent?.trim())).toEqual(['What if it becomes unavailable?']);
+    expect(links[0].getAttribute('href')).toBe('#/fleet/changes?offering=postgresql&event=unavailable');
     unmount(component); document.body.removeChild(target);
   });
 
@@ -615,6 +635,8 @@ describe('FleetEntityView — owner and source pages (G)', () => {
     expect(text).toContain('2 of 4');       // services preview honest count
     expect(text).toContain('Needs attention');
     expect(text).toContain('evidence stale');
+    // The category reads as its label, the same as on the domain page.
+    expect(target.querySelector('.oe-cat')?.textContent).toBe('Stale evidence');
     // breadcrumb: Fleet > Owners > platform-team
     expect(Array.from(target.querySelectorAll('nav a, nav span')).map((n) => n.textContent?.trim())).toEqual(expect.arrayContaining(['Owners']));
     unmount(component); document.body.removeChild(target);

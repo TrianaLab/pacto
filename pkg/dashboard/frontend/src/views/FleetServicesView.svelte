@@ -4,7 +4,7 @@
   import { api } from '../lib/api.ts';
   import { createProductLoader, productListState } from '../lib/productLoader.svelte.ts';
   import { statusLabel, STATUS_FILTER_OPTIONS } from '../lib/format.ts';
-  import { businessDomainLabel, NO_DOMAIN, UNKNOWN_DOMAIN } from '../lib/entityLabels.ts';
+  import { businessDomainLabel, GAP_WORDS, NO_DOMAIN, UNKNOWN_DOMAIN } from '../lib/entityLabels.ts';
   import { ownerKeyLabel, ownerKeyKind } from '../lib/owners.ts';
   import { fleetOverviewUrl, fleetServicesUrl, fleetOwnersUrl, hashForHref, fleetEntityUrl } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
@@ -42,7 +42,7 @@
   // `team-a` finds `team-a-platform` too) and `ownerKey` is exact canonical IDENTITY.
   // The text box writes the first; picking a suggestion, or arriving from an owner
   // page or a per-owner ranking row, writes the second.
-  let { text = '', owner = '', ownerKey = '', ownership = '', status = '', domain = '', businessDomain = '', capability = '', offering = '', consumes = '', phase = '', createdFrom = '', offset = '', limit = '', sort = '', refreshTick = 0 } = $props();
+  let { text = '', owner = '', ownerKey = '', ownership = '', gap = '', status = '', domain = '', businessDomain = '', capability = '', offering = '', consumes = '', phase = '', createdFrom = '', offset = '', limit = '', sort = '', refreshTick = 0 } = $props();
 
   const PAGE_SIZE = 25;
   // The created-from values that name no golden path (B5), in words.
@@ -51,7 +51,7 @@
   const pageLimit = $derived(urlInt(limit) || PAGE_SIZE);
   // Natural name order by default, so service-2 comes before service-10.
   const order = $derived(sort || 'name');
-  const anyFilter = $derived(!!(text || owner || ownerKey || ownership || status || domain || businessDomain || capability || offering || consumes || phase || createdFrom));
+  const anyFilter = $derived(!!(text || owner || ownerKey || ownership || gap || status || domain || businessDomain || capability || offering || consumes || phase || createdFrom));
 
   // The search box is a local draft synced from the URL; it commits on submit so
   // typing does not spam browser history. It re-syncs when the URL text changes
@@ -72,6 +72,7 @@
     owner: owner || undefined,
     ownerKey: ownerKey || undefined,
     ownership: ownership || undefined,
+    gap: gap || undefined,
     status: status || undefined,
     domain: domain || undefined,
     businessDomain: businessDomain || undefined,
@@ -92,9 +93,9 @@
   // retaining them across a filter change would be showing one query's answer under
   // another query's heading, so `list` is gated on the tag matching. A page turn is the
   // exception: the old page stays, under a "Loading another page" line, until the next lands.
-  const queryIdentity = $derived(`${text}@@${owner}@@${ownerKey}@@${ownership}@@${status}@@${domain}@@${businessDomain}@@${capability}@@${offering}@@${consumes}@@${phase}@@${createdFrom}@@${pageOffset}@@${pageLimit}@@${order}`);
+  const queryIdentity = $derived(`${text}@@${owner}@@${ownerKey}@@${ownership}@@${gap}@@${status}@@${domain}@@${businessDomain}@@${capability}@@${offering}@@${consumes}@@${phase}@@${createdFrom}@@${pageOffset}@@${pageLimit}@@${order}`);
   // listIdentity is the same question without its page: a page turn keeps the rows.
-  const listIdentity = $derived(`${text}@@${owner}@@${ownerKey}@@${ownership}@@${status}@@${domain}@@${businessDomain}@@${capability}@@${offering}@@${consumes}@@${phase}@@${createdFrom}@@${order}`);
+  const listIdentity = $derived(`${text}@@${owner}@@${ownerKey}@@${ownership}@@${gap}@@${status}@@${domain}@@${businessDomain}@@${capability}@@${offering}@@${consumes}@@${phase}@@${createdFrom}@@${order}`);
   $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity, listIdentity); });
   onDestroy(() => loader.destroy());
   function load() { loader.refresh(); }
@@ -118,6 +119,7 @@
       owner: patch.owner ?? owner,
       ownerKey: patch.ownerKey ?? ownerKey,
       ownership: patch.ownership ?? ownership,
+      gap: patch.gap ?? gap,
       status: patch.status ?? status,
       domain: patch.domain ?? domain,
       businessDomain: patch.businessDomain ?? businessDomain,
@@ -179,6 +181,7 @@
     // and a reader must be able to tell which of them is the loose one.
     owner ? { key: 'owner', label: 'Owner search', value: owner } : null,
     ownership ? { key: 'ownership', label: 'Ownership', value: ownership === 'unidentified' ? UNIDENTIFIED : bucketLabel(OWNERSHIP_STATES, ownership) } : null,
+    gap ? { key: 'gap', label: 'Knowledge gap', value: GAP_WORDS[gap] ?? gap } : null,
     status ? { key: 'status', label: 'Status', value: statusLabel(status) } : null,
     businessDomain ? { key: 'businessDomain', label: 'Domain', value: businessDomainLabel(businessDomain) } : null,
     capability ? { key: 'capability', label: 'Declared capability', value: capability } : null,

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -50,9 +51,11 @@ func TestDashboardIdentityModes(t *testing.T) {
 	if !identityFor(t, v, "localhost", nil).auth.Local() {
 		t.Fatal("localhost is loopback")
 	}
+	v.Set("dashboard.allow-anonymous", true)
 	if open := identityFor(t, v, "0.0.0.0", nil); open.auth.Local() || open.auth.Login() {
 		t.Fatal("a shared bind without OIDC identifies nobody")
 	}
+	v.Set("dashboard.allow-anonymous", false)
 	v.Set("dashboard.oidc-issuer-url", "https://idp.example")
 	v.Set("dashboard.oidc-client-id", "pacto-dashboard")
 	v.Set("dashboard.oidc-redirect-url", "https://dash.example/auth/callback")
@@ -83,6 +86,34 @@ func TestDashboardIdentityModes(t *testing.T) {
 	if got := splitList([]string{"a, b", "c"}); len(got) != 3 || got[1] != "b" {
 		t.Fatalf("splitList %v", got)
 	}
+}
+
+// A bind beyond loopback without sign-in shows the whole fleet to anyone who
+// reaches it, so it starts only when someone chose that.
+func TestOpenModeNeedsAllowAnonymous(t *testing.T) {
+	_, err := newDashboardIdentity(viper.New(), "0.0.0.0", nil, defaultDeps())
+	expect(t, errors.Is(err, errOpenNeedsAllowAnonymous), "an open bind without the flag refuses: %v", err)
+	expect(t, strings.Contains(err.Error(), "pass --allow-anonymous"), "the refusal says how to allow it: %v", err)
+}
+
+func TestAllowAnonymousServesOpen(t *testing.T) {
+	v := viper.New()
+	v.Set("dashboard.allow-anonymous", true)
+	open := identityFor(t, v, "0.0.0.0", nil)
+	expect(t, !open.auth.Local() && !open.auth.SignsIn(), "the flag serves open mode: %+v", open.auth)
+}
+
+func TestLoopbackNeedsNoFlag(t *testing.T) {
+	expect(t, identityFor(t, viper.New(), "127.0.0.1", nil).auth.Local(), "loopback stays local without the flag")
+}
+
+func TestSignInIgnoresAllowAnonymous(t *testing.T) {
+	v := viper.New()
+	v.Set("dashboard.allow-anonymous", true)
+	v.Set("dashboard.oidc-issuer-url", "https://idp.example")
+	v.Set("dashboard.oidc-client-id", "pacto-dashboard")
+	v.Set("dashboard.oidc-redirect-url", "https://dash.example/auth/callback")
+	expect(t, identityFor(t, v, "0.0.0.0", nil).auth.Login(), "sign-in wins over the flag")
 }
 
 func TestDashboardTokenLoginIdentity(t *testing.T) {
@@ -268,4 +299,112 @@ func TestClaimsFlags(t *testing.T) {
 	v := viper.New()
 	v.Set("dashboard.oidc-username-claim", "email")
 	expect(t, claimsFlags(func(n string) string { return v.GetString("dashboard." + n) }).Person(tok).User == "carol@example.com", "the dashboard reads the same names")
+}
+
+// operationAccessWorld is a shared dashboard over a fleet in shop and vault
+// whose viewer lets everyone read shop only. The person's own client names
+// them alice, with a uid and extra; the ServiceAccount's records every
+// SubjectAccessReview and allows list operations everywhere.
+func operationAccessWorld(t *testing.T) (*dashboardIdentity, func(context.Context) (*fleet.Query, error), *[]map[string]any) {
+	t.Helper()
+	v := viper.New()
+	v.Set("dashboard.token-login", true)
+	id := identityFor(t, v, "0.0.0.0", &rest.Config{Host: "https://k"})
+	id.viewer = authn.NewViewer(func(_ context.Context, _ authn.Person, ns string) (bool, error) { return ns == "shop", nil })
+	var mu sync.Mutex
+	var sars []map[string]any
+	sa := fakeDelivery()
+	sa.PrependReactor("create", "subjectaccessreviews", func(a k8stesting.Action) (bool, runtime.Object, error) {
+		o := a.(k8stesting.CreateAction).GetObject().(*unstructured.Unstructured).DeepCopy()
+		spec, _, _ := unstructured.NestedMap(o.Object, "spec")
+		mu.Lock()
+		sars = append(sars, spec)
+		mu.Unlock()
+		o.Object["status"] = map[string]any{"allowed": true}
+		return true, o, nil
+	})
+	own := fakeDelivery()
+	own.PrependReactor("create", "selfsubjectreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, &unstructured.Unstructured{Object: map[string]any{"status": map[string]any{"userInfo": map[string]any{
+			"username": "alice", "uid": "u-1", "groups": []any{"team-a"}, "extra": map[string]any{"k": []any{"v"}}}}}}, nil
+	})
+	id.newClient = func(cfg *rest.Config) (dynamic.Interface, error) {
+		if cfg.BearerToken != "" {
+			return own, nil
+		}
+		return sa, nil
+	}
+	id.state = func(context.Context) authn.State { return authn.State{SignedIn: true, Token: "alice-token"} }
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("k8s", "kubernetes", &fleet.Collection{
+		Targets: []fleet.RawTarget{
+			{Scope: "shop", Kind: fleet.SourceKindKubernetes, Name: "web", Service: "web"},
+			{Scope: "vault", Kind: fleet.SourceKindKubernetes, Name: "billing", Service: "billing"},
+		},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := fleet.NewQuery(snap)
+	return id, func(context.Context) (*fleet.Query, error) { return q, nil }, &sars
+}
+
+func TestDashboardOperationAccessAsksListOperations(t *testing.T) {
+	id, full, sars := operationAccessWorld(t)
+	o := dashboard.Options{Fleet: full}
+	id.options(&o)
+	visible, err := o.OperationAccess(t.Context(), []string{"shop"})
+	expect(t, err == nil && visible("shop"), "shop: %v", err)
+	expect(t, len(*sars) == 1, "one review: %+v", *sars)
+	sar := (*sars)[0]
+	attrs := sar["resourceAttributes"].(map[string]any)
+	expect(t, attrs["verb"] == "list" && attrs["group"] == "delivery.pacto.trianalab.io" && attrs["resource"] == "operations" && attrs["namespace"] == "shop",
+		"list operations in shop: %+v", attrs)
+	expect(t, sar["user"] == "alice" && sar["uid"] == "u-1" && sar["extra"] != nil, "asked for the person as the API server names them: %+v", sar)
+}
+
+func TestDashboardOperationAccessOnlyWithViewer(t *testing.T) {
+	var o dashboard.Options
+	identityFor(t, viper.New(), "127.0.0.1", &rest.Config{Host: "https://k"}).options(&o)
+	expect(t, o.OperationAccess == nil, "a local dashboard reviews nothing")
+	v := viper.New()
+	v.Set("dashboard.allow-anonymous", true)
+	o = dashboard.Options{}
+	identityFor(t, v, "0.0.0.0", nil).options(&o)
+	expect(t, o.OperationAccess == nil, "an open dashboard reviews nothing: it hides every operation record")
+}
+
+func TestDashboardOperationAccessAnonymous(t *testing.T) {
+	id, full, sars := operationAccessWorld(t)
+	id.state = func(context.Context) authn.State { return authn.State{} }
+	visible, err := id.operationAccess(full)(t.Context(), []string{"shop"})
+	expect(t, err == nil && visible("shop") && len(*sars) == 1, "err %v sars %+v", err, *sars)
+	expect(t, (*sars)[0]["user"] == authn.Anonymous.User, "asked for the anonymous user: %+v", (*sars)[0])
+
+	id.cluster = nil
+	_, err = id.operationAccess(full)(t.Context(), []string{"shop"})
+	expect(t, errors.Is(err, errOperationReview), "no cluster to ask is a failed review: %v", err)
+}
+
+func TestDashboardOperationAccessReviewsOnlyFleetNamespaces(t *testing.T) {
+	id, full, sars := operationAccessWorld(t)
+	visible, err := id.operationAccess(full)(t.Context(), []string{"vault", "elsewhere", "shop"})
+	expect(t, err == nil && visible("shop") && !visible("vault") && !visible("elsewhere"), "err %v", err)
+	expect(t, len(*sars) == 1 && (*sars)[0]["resourceAttributes"].(map[string]any)["namespace"] == "shop",
+		"only the viewer's namespaces are reviewed: %+v", *sars)
+
+	visible, err = id.operationAccess(nil)(t.Context(), []string{"shop"})
+	expect(t, err == nil && !visible("shop") && len(*sars) == 1, "no fleet, nothing reviewed: %v", err)
+
+	broken := errors.New("no snapshot")
+	_, err = id.operationAccess(func(context.Context) (*fleet.Query, error) { return nil, broken })(t.Context(), []string{"shop"})
+	expect(t, errors.Is(err, broken), "a fleet that cannot be read: %v", err)
+
+	id.newClient = func(cfg *rest.Config) (dynamic.Interface, error) {
+		if cfg.BearerToken != "" {
+			return nil, errors.New("bad token config")
+		}
+		return fakeDelivery(), nil
+	}
+	_, err = id.operationAccess(full)(t.Context(), []string{"shop"})
+	expect(t, errors.Is(err, errOperationReview), "a person whose client cannot be built: %v", err)
 }

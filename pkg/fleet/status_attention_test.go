@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"testing"
 	"testing/fstest"
@@ -66,13 +67,17 @@ func TestStatusCoversEveryAttentionCategory(t *testing.T) {
 		categoryStale:        func(s *StatusQuery) { s.StaleEvidence = true },
 		categoryUnresolved:   func(s *StatusQuery) { s.UnresolvedDeps = true },
 		categoryOutOfRange:   func(s *StatusQuery) { s.UnsatisfiedRanges = true },
+		categoryLifecycle:    func(s *StatusQuery) { s.Lifecycle = true },
 		categoryUndeclared:   func(s *StatusQuery) { s.Undeclared = true },
 		categoryReadiness:    func(s *StatusQuery) { s.MissingReadiness = true },
 		categoryUnowned:      func(s *StatusQuery) { s.Unowned = true },
 		categoryGoldenPath:   func(s *StatusQuery) { s.GoldenPathDeployed = true },
 	}
-	fleets := []*Query{productFleet(t), rangeFleet(t), undeclaredFleet(t), domainFleet(t), deployedTemplateFleet(t)}
+	fleets := []*Query{productFleet(t), rangeFleet(t), undeclaredFleet(t), domainFleet(t), deployedTemplateFleet(t), lifecycleRangeFleet(t)}
 	for _, c := range AttentionCategoriesList() {
+		if c == categoryProvisioning || c == categoryHealth || c == categoryKnowledge {
+			continue // no flag selects them alone: TestStatusIncludesProvisioning, TestStatusIncludesHealth, TestStatusIncludesKnowledge
+		}
 		set, ok := flag[c]
 		if !ok {
 			t.Fatalf("category %q has no status flag", c)
@@ -126,11 +131,12 @@ func TestStatusReportsTruncation(t *testing.T) {
 		t.Fatal(err)
 	}
 	q := NewQuery(snap)
-	res := q.Status(StatusQuery{})
+	// Readiness alone: every service also raises knowledge items.
+	res := q.Status(StatusQuery{MissingReadiness: true})
 	if len(res.Items) != DefaultStatusLimit || res.Total != 250 || !res.Truncated {
 		t.Errorf("default limit: items=%d total=%d truncated=%v", len(res.Items), res.Total, res.Truncated)
 	}
-	res = q.Status(StatusQuery{Limit: 300})
+	res = q.Status(StatusQuery{MissingReadiness: true, Limit: 300})
 	if len(res.Items) != 250 || res.Total != 250 || res.Truncated {
 		t.Errorf("limit 300: items=%d total=%d truncated=%v", len(res.Items), res.Total, res.Truncated)
 	}
@@ -144,7 +150,7 @@ func TestUndeclaredAttentionMatchesOverviewTile(t *testing.T) {
 		t.Fatalf("total=%d observedOnly=%d callers=%d", al.Total, sum.ObservedOnlyRelationships, sum.UncontractedCallers)
 	}
 	var tile *EntryPoint
-	for _, ep := range entryPoints(&sum) {
+	for _, ep := range entryPoints(&sum, 0) {
 		if ep.Category == categoryUndeclared {
 			tile = &ep
 		}
@@ -159,10 +165,10 @@ func TestUndeclaredAttentionMatchesOverviewTile(t *testing.T) {
 	want := []AttentionItem{
 		{Entity: q.serviceRef("a"), Service: "a", Label: "a calls c", Severity: severityWarning, Code: "DEPENDENCY_UNDECLARED", Category: categoryUndeclared,
 			Summary: "Runtime call with no declared dependency", Reason: "observed calls from a to c, and no contract revision of a declares c",
-			NextStep: "Declare c in a's contract, or find out why a calls it"},
+			NextStep: "Declare c in a's contract, or find out why a calls it", NextAction: editContract()},
 		{Entity: q.serviceRef("d"), Service: "d", Label: "d calls b", Severity: severityWarning, Code: "DEPENDENCY_UNDECLARED", Category: categoryUndeclared,
 			Summary: "Runtime call with no declared dependency", Reason: "observed calls from d to b, and no contract revision of d declares b",
-			NextStep: "Declare b in d's contract, or find out why d calls it"},
+			NextStep: "Declare b in d's contract, or find out why d calls it", NextAction: editContract()},
 		{Entity: q.serviceRef("b"), Service: "b", Label: "k8s:secret/Deployment/x calls b", Severity: severityInfo, Code: "UNCONTRACTED_CALLER", Category: categoryUndeclared,
 			Summary: "Caller with no contract", Reason: "k8s:secret/Deployment/x calls b and no contract describes k8s:secret/Deployment/x",
 			NextStep: "Give k8s:secret/Deployment/x a contract, or find out why it calls b"},
@@ -171,7 +177,7 @@ func TestUndeclaredAttentionMatchesOverviewTile(t *testing.T) {
 			NextStep: "Make pay's name match one contracted service"},
 	}
 	for _, w := range want {
-		if got := byLabel[w.Label]; fmt.Sprintf("%+v", got) != fmt.Sprintf("%+v", w) {
+		if got := byLabel[w.Label]; !reflect.DeepEqual(got, w) {
 			t.Errorf("item %q:\n got %+v\nwant %+v", w.Label, got, w)
 		}
 	}

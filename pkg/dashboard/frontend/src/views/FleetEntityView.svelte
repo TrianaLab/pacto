@@ -30,7 +30,7 @@
   // canonical key, knowledge caveat and contextual actions. The kind-specific rich
   // body is delegated to the per-kind component.
   // miraURL: Mira's address, only for a caller whose permissions hide nothing.
-  let { kind = '', entityKey = '', refreshTick = 0, deliveryState = 'unknown', miraURL = '' } = $props();
+  let { kind = '', entityKey = '', refreshTick = 0, deliveryState = 'unknown', miraURL = '', correlation = '', changesQuery = {} } = $props();
 
   // Four lifecycle events, three behaviours -- the distinction this page used to lack.
   //
@@ -111,7 +111,8 @@
         out.push({ label: 'Compare revisions', href: fleetChangesUrl(svcKey, opts) });
         // The other question the same workspace answers (#471): what depends on it.
         out.push({ label: 'What if it becomes unavailable?', href: fleetChangesUrl(svcKey, { event: 'unavailable' }) });
-      } else if (a === 'service' && detail.target?.service?.href) out.push({ label: 'Open service', href: hashForHref(detail.target.service.href) });
+      } else if (a === 'impact' && e.kind === 'offering') out.push({ label: 'What if it becomes unavailable?', href: fleetChangesUrl('', { offering: e.key, event: 'unavailable' }) });
+      else if (a === 'service' && detail.target?.service?.href) out.push({ label: 'Open service', href: hashForHref(detail.target.service.href) });
     }
     return out;
   });
@@ -186,11 +187,11 @@
            this body, not the page: without a boundary it left the skeleton up for ever. -->
       <svelte:boundary>
         {#if detail.service}
-          <ServiceEntity {detail} {deliveryState} {refreshTick} {miraURL} />
+          <ServiceEntity {detail} {deliveryState} {refreshTick} {miraURL} {changesQuery} />
         {:else if detail.revision}
-          <RevisionEntity {detail} {deliveryState} {miraURL} />
+          <RevisionEntity {detail} {deliveryState} {miraURL} {correlation} />
         {:else if detail.target}
-          <TargetEntity {detail} {deliveryState} />
+          <TargetEntity {detail} {deliveryState} {correlation} />
         {:else if detail.owner}
           <OwnerEntity {detail} />
         {:else if detail.source}

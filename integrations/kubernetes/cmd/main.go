@@ -89,6 +89,7 @@ type options struct {
 	dashboardAuth          dashboard.AuthConfig
 	dashboardExtraScopes   string
 	dashboardMiraURL       string
+	dashboardStatsRegistry string
 	dashboardDeliveryNS    string
 	dashboardDeliveryTrust dashboard.KeyRef
 	dashboardRepositories  []string
@@ -207,11 +208,17 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 		"A dashboard session ends this long after sign-in, renewed or not (0: 12h).")
 	fs.BoolVar(&o.dashboardAuth.TokenLogin, "dashboard-token-login", false,
 		"Let people sign in to the dashboard by pasting a Kubernetes bearer token; a token session never decides.")
+	fs.BoolVar(&o.dashboardAuth.AllowAnonymous, "dashboard-allow-anonymous", false,
+		"Serve the dashboard without sign-in when neither an issuer nor token sign-in is set; "+
+			"everyone who reaches it reads what its ServiceAccount reads.")
 	fs.StringVar(&o.dashboardDeliveryNS, "dashboard-delivery-namespace", "",
 		"Namespace Pacto delivery runs in, whose published identity policy the dashboard reads; "+
 			"empty means pacto-delivery.")
 	fs.StringVar(&o.dashboardMiraURL, "dashboard-mira-url", "",
 		"Mira's address, to link the dashboard's health-check citations.")
+	fs.StringVar(&o.dashboardStatsRegistry, "dashboard-stats-registry", "",
+		"Stats repository the dashboard's Metrics page reads run records from, with the dashboard's OCI credentials; "+
+			"empty: the page explains how to turn recording on.")
 	fs.BoolVar(&o.enableEvidence, "enable-evidence-server", false,
 		"Enable the managed Pacto Evidence Server deployment. Disabled by default.")
 	fs.Func("evidence-subject",
@@ -532,6 +539,7 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string) error {
 		Auth:               o.dashboardAuth,
 		DeliveryNamespace:  o.dashboardDeliveryNS,
 		MiraURL:            o.dashboardMiraURL,
+		StatsRegistry:      o.dashboardStatsRegistry,
 		DeliveryTrust:      o.dashboardDeliveryTrust,
 		Repositories:       o.dashboardRepositories,
 	}

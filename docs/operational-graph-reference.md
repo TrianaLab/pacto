@@ -53,7 +53,7 @@ compliance evidence that a source carries.
 
 `pacto fleet` and `pacto impact` read every source flag above. `pacto mcp
 --fleet` reads all but `--root`, which on `pacto mcp` selects a frozen catalog
-and cannot be combined with `--fleet`. Two are narrower: `impact` takes a single
+server and takes no other mode. Two are narrower: `impact` takes a single
 `--traces` file, and `--trace-source` is `pacto dashboard` only.
 
 ### Observed calls under a restricted view
@@ -154,7 +154,7 @@ I/O. A single snapshot serves concurrent queries.
 | **search** | Which logical services match this filter (owner, label, status, compliance, capability, dependency, readiness). Bounded and deterministically ordered. |
 | **get** | Everything about one service (its owner, revisions, targets, declared dependencies, dependents, tools and skills) or one target. |
 | **graph** | Traverse dependencies or dependents from a service, direct or transitive, cycle-safe, with unresolved edges surfaced. Resolved [configuration references](#configuration-reference-consumers) count as dependencies. The CLI and MCP graph also follow observed-only edges, and each node's `provenance` (`declared`, `observed` or `declared+observed`) says how the edge that first reached it was known. Rooted at a revision or target, a dependencies traversal takes its first step over that revision's declared edges only; deeper steps are service-level and include observed edges. |
-| **status** | What needs attention, in the [attention categories](#attention-categories). With no category selected it reports every category. `total` counts every match and `truncated` says the limit cut the list. |
+| **status** | What needs attention, in the [attention categories](operational-graph-tallies.md#attention-categories). With no category selected it reports every category. `total` counts every match and `truncated` says the limit cut the list. |
 | **explain** | Deterministic, structured reasons for a subject's state. An agent can turn them into prose; Pacto itself embeds no model. |
 
 Two more operations sit beside the queries: `snapshot` emits the whole read model and
@@ -200,18 +200,9 @@ across domains. A bounded preview nested in a `get` answer is the
 exception: it omits `total` when the walk was itself bounded, so an absent
 `total` means "we stopped counting".
 
-Beside the rows, the dashboard's entity list and the TUI carry an aggregate over
-the complete matched population, computed before paging:
-
-| Tally | Partitions | Buckets |
-|-------|-----------|---------|
-| `serviceCompliance` | matched services | compliance states, rolled up from each service's targets |
-| `targetCompliance` | matched operational targets | compliance states as observed per target |
-| `ownership` | matched services | `consistent` · `conflicting` · `unowned` |
-| `readiness` | matched contract revisions | `passing` · `belowThreshold` · `expired` · `notDeclared` |
-
-`notDeclared` is its own readiness bucket so that a missing assessment stays
-separate from a failing one.
+Beside the rows, answers carry tallies over the complete matched population,
+computed before paging. The [tallies reference](operational-graph-tallies.md)
+lists them, the knowledge-gap filters and the attention categories.
 
 `get`, `graph` and `explain` name a single subject and carry no envelope: a
 missing subject is a *failure*. `pacto fleet get ghost` exits 1
@@ -228,14 +219,15 @@ with `service "ghost" not found in the fleet snapshot` on stderr. These answers 
 | Declaration | `declaration`: the current revision's entry with its values check, `lifetime` (`not-declared` when absent), `expires`, `owner` and `expired`, inferred against `asOf`. Absent for an environment only targets report |
 | Owner | `owner` with `provenance`: `declared` on the environment, `inferred` from the service owner, or `unknown` with a `reason` |
 | Counts | `targets` (observed), then `declared`, `notDeclared` and `unknown`: whether the revision each target runs declares that environment. `targetsComplete` is false, with `targetsReason`, when you may not see every target |
-| Provisioning | `provisioning`, a tally by phase of the statuses of the service's offering uses there; `provisioningTracked` is false, with `provisioningReason`, when no provider is asked about it there, so the tally is never a zero |
+| Provisioning | `provisioning`, a tally by phase of the statuses of the service's uses there (`consumedOfferings`, including reported uses of providers with no offering); `provisioningTracked` is false, with `provisioningReason`, when no provider is asked about it there, so the tally is never a zero. When a provider you may not see may provision there, the reason says its status is unknown |
 | Revisions | The newest 8 distinct revisions, with `revisionsTotal` and `revisionsTruncated` |
 | Differences | `differences`: each value the declared environments disagree on, by configuration and path, with `differencesTotal`, or `differencesError` saying why they are unknown. `pacto explain --environments` computes the same list |
 | Restricted | Only targets, revisions and provisioning your view may see count; on a partial answer the CLI heading reads "Environments (targets Pacto can see)" |
 
-| `environmentHistory` | Detail |
+| `changes` | Detail |
 |---|---|
-| Items | The revisions the answer holds, each compared with the previous one held in version order, newest first: each environment `added`, `removed` or `changed` with its changed fields, and `present` for the oldest revision held. `revision` is the first held revision that shows the change and `previous` the one it was compared with. Not a timeline: no item carries a time |
+| Items | Every declared change across the revisions the answer holds, newest first in version order. `kind` is `owner`, `domain`, `offering`, `dependency`, `lifecycle`, `environment` or `finding` (a validation finding that appeared or resolved); `subject` names the dependency, environment or finding; `change` is `present`, `added`, `removed` or `changed`, with `fields`, `from` and `to`. `revision` is the first held revision that shows the change and `previous` the one it was compared with; `provenance` is `declared` and `source` is `contract` or `validation` |
+| Times | A change carries a time only in `reached`: per Stage you may read, when its revision first arrived there (`at`), with the `record`, `verified`, `fromStatus` and the recorded `impact` verdict. It is read from delivery records as you when asked (`--reached`, `reached`, `?reached=true`); `times` says whether they were read: `not-read`, `read`, `partial` (with `timesUnreadable`) or `hidden`, with `timesReason` |
 | Gaps | `gaps` counts revisions whose contract could not be read; no change is reported across them |
 | Completeness | `partial` when your view or a source holds only some of the service's revisions, or when two versions are compared: no source lists every version, so a change is placed between the versions held |
 
@@ -257,26 +249,6 @@ provider never makes a revision invalid and never passes its values. A
 relationship carries the provider's
 [service lifecycle](contract-reference/sections.md#service-lifecycle) as
 `providerLifecycle`.
-
-### Attention categories
-
-Attention items fall into these categories, worst first:
-
-| Category | Code | Severity |
-|----------|------|----------|
-| `non-compliant` | `NON_COMPLIANT` | error |
-| `invalid` | `INVALID_CONTRACT` | error |
-| `unknown` | `UNKNOWN` | warning |
-| `stale` | `STALE_EVIDENCE` | warning |
-| `unresolved` | `UNRESOLVED_DEPENDENCY` | warning |
-| `out-of-range` | `DEPENDENCY_RANGE_UNSATISFIED` | warning |
-| `undeclared` | `DEPENDENCY_UNDECLARED`, a runtime call no contract declares | warning |
-| `undeclared` | `UNCONTRACTED_CALLER`, a caller with no contract | info |
-| `readiness` | `MISSING_READINESS` | info |
-| `unowned` | `UNOWNED_SERVICE` | info |
-
-The Overview tile "Undeclared runtime dependencies observed" opens both kinds
-of `undeclared` item.
 
 ### Resolved dependencies and accepted ranges
 
@@ -332,7 +304,9 @@ owner comes from the newest revision that declares one. A service known only
 from Kubernetes has no revisions, so its owner comes from the owner the
 operator read from the running contract (`status.contract.owner`). A service
 counts as `unowned`, in the ownership tally and in attention, only when no
-revision declares an owner and no source reports one.
+revision declares an owner and no source reports one. A service with no owner
+claim whose contract Pacto cannot read counts as `unknown` instead: the
+dashboard labels it Owner unknown and never No declared owner.
 
 ## Business domains
 
@@ -370,7 +344,30 @@ See the [golden paths reference](golden-paths-reference.md).
 
 ## Platform offerings
 
-See the [platform offerings reference](platform-offerings.md).
+See the [platform offerings reference](platform-offerings.md) and
+[offering availability and lifecycle](offering-availability.md).
+
+| `AvailabilityState` | Meaning |
+|---------------------|---------|
+| `available` | Fresh provider targets serve and no consumer reports the provider unreachable. |
+| `degraded` | Some provider targets report `INTERFACE_ABSENT`, or some consumer targets cannot reach it. |
+| `unavailable` | Every fresh provider target serves none of its interfaces, or with no fresh provider target every consumer target that declares it cannot reach it. |
+| `unknown` | Targets are hidden, a target source is incomplete, no fresh evidence exists or no interface was seen answering. |
+
+| Limitation | Raised when |
+|------------|-------------|
+| `SUCCESSOR_UNRESOLVED` | A provider's declared successor names no revision in the fleet. |
+| `HIDDEN_PROVIDERS` | An offering event has providers the viewer cannot see. |
+| `OFFERING_NOT_IN_FLEET` | No visible service provides the offering an event names. |
+
+| A service's `consumedOfferings` item | Detail |
+|---|---|
+| Rule | Every declared dependency or configuration reference on a provider with an offering, plus one on a provider with no offering once a provider reports on it (`offering` empty) |
+| `providerOwner` | Who owns the provider, as its offering page names it |
+| `providerAvailability` | Whether the provider answers where it runs; separate from the resource's phase |
+| `requested` | On the `configuration_reference` row only: each entry, configuration, provider `revision` and `values` the current revision declares, with `provenance: declared`; `requestedTruncated` when the configuration preview was cut |
+| `consumption` | On every use that provisions: one entry, `state: not-reported`, `provenance: observed` and a `reason`. A policy reference carries none |
+| `hiddenProviders` | On the service detail: at least this many resources come from providers you may not see, counted from the service's own contract and reports and never named; omitted at zero |
 
 The `capability` filter and facet count each declared capability by its key:
 `health`, `metrics` or, for an extension, its ref, such as `acme.io/cost`.

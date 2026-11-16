@@ -342,6 +342,8 @@ openssl genpkey -algorithm ed25519 -out "$RECORDER_KEY" 2>/dev/null || fail "ope
 openssl pkey -in "$RECORDER_KEY" -pubout -out "$RECORDER_PUB"
 kubectl -n "$DNS" create secret generic recorder-key --from-file=key.pem="$RECORDER_KEY" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 STREAMS_REPO="pacto-delivery-streams"
+# The promoter records a run record of every operation it concludes here.
+STATS_REPO="acme/pacto-stats"
 
 # Phase 2 needs the operator's node agent and the promoter's Mira provider.
 # Both are installed with the charts, not by phase 2 itself: an upgrade
@@ -367,6 +369,7 @@ helm upgrade --install pacto-operator "$OP_CHART" -n "$NS" ${OP_HEALTH[@]+"${OP_
   --set delivery.image.repository="$DL_REPO" --set delivery.image.tag="$VER" --set delivery.image.pullPolicy=Never \
   --set "delivery.insecureRegistries[0]=$REG_HOST" --set delivery.promoter.poll=2s \
   --set delivery.recorder.enabled=true --set delivery.recorder.streamsRepository="$REG_HOST/$STREAMS_REPO" --set delivery.recorder.poll=5s \
+  --set delivery.stats.repository="$REG_HOST/$STATS_REPO" \
   --set delivery.recorder.signing.ed25519.secretName=recorder-key --set delivery.recorder.signing.allowOperatorReadableKey=true --wait --timeout 240s >/dev/null || fail "the pacto-operator chart did not roll out" &
 OP_HELM=$!
 infra "roll out Flux's source-controller" kubectl -n flux-system rollout status deploy/source-controller --timeout=240s
@@ -494,7 +497,12 @@ YAML
 }
 AGENT_A="$(agent_kubeconfig agent-a)"
 AGENT_B="$(agent_kubeconfig agent-b)"
-as_agent() { local kc="$1"; shift; KUBECONFIG="$kc" "$PACTO" delivery "$@"; }
+# An agent's propose names the person it acts for: dana, who approves nothing here.
+as_agent() {
+  local kc="$1"; shift
+  if [ "$1" = propose ]; then shift; set -- propose --on-behalf-of dana@example.com "$@"; fi
+  KUBECONFIG="$kc" "$PACTO" delivery "$@"
+}
 # as_person USER TEAM ... — only members of the team a held question names may answer it.
 as_person() { local u="$1" g="$2"; shift 2; KUBECONFIG="$(person_kubeconfig "$u" "$g")" "$PACTO" delivery "$@"; }
 # approve_as USER TEAM NS OP DECISION [NOTE] — the Approval a person with a
@@ -1437,7 +1445,7 @@ OUT="$(KUBECONFIG="$AGENT_A" kubectl -n "$H" create -f - 2>&1 <<YAML || true
 apiVersion: delivery.pacto.trianalab.io/v1alpha1
 kind: Operation
 metadata: {name: promote-s-rollback, finalizers: [delivery.pacto.trianalab.io/record]}
-spec: {type: delivery.pacto.trianalab.io/promote, stage: payments, facet: pointer, params: {from: "$H1", to: "$H1"}, actor: {user: "system:serviceaccount:agents:agent-a", groups: [system:serviceaccounts, "system:serviceaccounts:agents", system:authenticated]}, reason: squat}
+spec: {type: delivery.pacto.trianalab.io/promote, stage: payments, facet: pointer, params: {from: "$H1", to: "$H1"}, actor: {user: "system:serviceaccount:agents:agent-a", groups: [system:serviceaccounts, "system:serviceaccounts:agents", system:authenticated]}, onBehalfOf: {user: dana@example.com}, reason: squat}
 YAML
 )"
 grep -q "the Pacto delivery promoter raises its own operations under" <<<"$OUT" || fail "an agent took the name of S's rollback: $OUT"
@@ -1944,6 +1952,7 @@ phase_records() {
 source "$(dirname "$0")/delivery-ladder.sh"
 phase_audit() {
   records_audit
+  stats_audit
   echo "DELIVERY RECORDS PASS"
 }
 

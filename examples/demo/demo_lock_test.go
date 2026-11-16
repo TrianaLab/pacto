@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -17,37 +18,110 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/ignore"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/lock"
+	"gopkg.in/yaml.v3"
 )
 
-// TestDemoLockPinsTheLocalProvider holds catalog-service 1.3.0's committed lock
-// to the postgresql bundle beside it: the fleet resolves the configuration
-// reference through the lock's contentHash, so an edit to postgresql 16.1.0 that
-// skips the lock would silently unresolve the demo's only provisioning request.
+// TestDemoLockPinsTheLocalProvider holds each locked consumer's committed lock
+// to the provider bundle beside it: the fleet resolves the configuration
+// reference through the lock's contentHash, so an edit to the provider that
+// skips the lock would silently unresolve the consumer's request. The lock
+// holds the full closure, as `pacto lock` writes it: catalog-service also
+// depends on postgresql, so that dependency pins the reference's revision;
+// the security-scanning consumers keep their own dependency pinned beside it.
 func TestDemoLockPinsTheLocalProvider(t *testing.T) {
-	l, err := lock.ReadFS(os.DirFS(filepath.Join("bundles", "catalog-service", "v1.3.0")))
-	if err != nil || l == nil {
-		t.Fatalf("read catalog-service 1.3.0 pacto.lock: %v", err)
-	}
-	if l.LockVersion < lock.RootOccurrenceLockVersion {
-		t.Errorf("lockVersion %d cannot attribute a root reference", l.LockVersion)
-	}
-	want := hashBundle(t, filepath.Join("bundles", "postgresql", "v16.1.0"))
-	for _, r := range l.References {
-		if r.From == "" && r.Kind == "config" && r.Name == "database" {
-			if r.ContentHash != want {
-				t.Errorf("contentHash %s, want %s (lock.HashFS of postgresql 16.1.0): update the lock", r.ContentHash, want)
+	for _, tc := range []struct {
+		dir, refName, providerDir string
+		wantDependency            bool
+		existingDep               string
+	}{
+		{filepath.Join("catalog-service", "v1.3.0"), "database", filepath.Join("postgresql", "v16.1.0"), true, ""},
+		{filepath.Join("returns-service", "v1.2.0"), "security", filepath.Join("platform-security", "v1.0.0"), false, "shipping-rates"},
+		{filepath.Join("warehouse-scanner", "v1.1.0"), "security", filepath.Join("platform-security", "v1.0.0"), false, "inventory-service"},
+	} {
+		t.Run(tc.dir, func(t *testing.T) {
+			l, err := lock.ReadFS(os.DirFS(filepath.Join("bundles", tc.dir)))
+			if err != nil || l == nil {
+				t.Fatalf("read %s pacto.lock: %v", tc.dir, err)
 			}
-			// The lock holds the full closure, as `pacto lock` writes it: the
-			// postgresql dependency resolves to the same published revision, so a
-			// live `pacto validate` reads the lock as current, not stale.
-			dep, ok := l.Dependency("postgresql")
-			if !ok || dep.Digest != r.Digest || dep.Version != r.Version {
-				t.Errorf("dependency entry %+v (found %v) must pin the reference's revision %s %s", dep, ok, r.Version, r.Digest)
+			if l.LockVersion < lock.RootOccurrenceLockVersion {
+				t.Errorf("lockVersion %d cannot attribute a root reference", l.LockVersion)
 			}
-			return
+			i := slices.IndexFunc(l.References, func(r lock.Reference) bool {
+				return r.From == "" && r.Kind == "config" && r.Name == tc.refName
+			})
+			if i < 0 {
+				t.Fatalf("the lock has no root entry for the %s configuration reference", tc.refName)
+			}
+			r := l.References[i]
+			if want := hashBundle(t, filepath.Join("bundles", tc.providerDir)); r.ContentHash != want {
+				t.Errorf("contentHash %s, want %s (lock.HashFS of %s): update the lock", r.ContentHash, want, tc.providerDir)
+			}
+			if tc.wantDependency {
+				dep, ok := l.Dependency(filepath.Dir(tc.providerDir))
+				if !ok || dep.Digest != r.Digest || dep.Version != r.Version {
+					t.Errorf("dependency entry %+v (found %v) must pin the reference's revision %s %s", dep, ok, r.Version, r.Digest)
+				}
+				return
+			}
+			if dep, ok := l.Dependency(tc.existingDep); !ok || dep.Digest == "" {
+				t.Errorf("dependency entry %s = %+v (found %v), want it pinned to a digest", tc.existingDep, dep, ok)
+			}
+		})
+	}
+}
+
+// TestDemoSecurityScanningOffering: platform-security provides the
+// security-scanning offering, returns-service 1.2.0 and warehouse-scanner 1.1.0
+// request a scan through a resolved configuration reference, the scanner
+// adapter's unsigned target-state report is the one adapter row.
+func TestDemoSecurityScanningOffering(t *testing.T) {
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{},
+		fleetsrc.NewLocalSource("local", "bundles"), fleetsrc.NewTargetStateFileSource("target-state", "fleet-targets.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := fleet.NewQuery(snap).EntityDetail(fleet.KindOffering, "security-scanning")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := d.Offering
+	if len(o.Providers.Items) != 1 || o.Providers.Items[0].Service.Key != "platform-security" {
+		t.Errorf("providers = %+v", o.Providers.Items)
+	}
+	consumers := map[string]bool{}
+	for _, u := range o.Consumers.Items {
+		consumers[u.Consumer.Key] = true
+		if u.Via != fleet.RelationshipConfigRef || u.Provider.Key != "platform-security" {
+			t.Errorf("%s use = %+v", u.Consumer.Key, u)
 		}
 	}
-	t.Fatal("the lock has no root entry for the database configuration reference")
+	if !reflect.DeepEqual(consumers, map[string]bool{"returns-service": true, "warehouse-scanner": true}) {
+		t.Errorf("consumers = %v", consumers)
+	}
+	if o.Adapters.Total != 1 || o.Adapters.Items[0].Provider != "scanner" || o.Adapters.Items[0].Producer != "security-adapter" || o.Adapters.Items[0].Verified {
+		t.Errorf("adapters = %+v", o.Adapters)
+	}
+}
+
+// TestDemoSecurityScanningImpact: impact of platform-security lists
+// returns-service and warehouse-scanner, its configuration-reference
+// consumers, as its only direct consumers.
+func TestDemoSecurityScanningImpact(t *testing.T) {
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleetsrc.NewLocalSource("local", "bundles"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	newC, newFS := readBundle(t, filepath.Join("bundles", "platform-security", "v1.0.0"))
+	res := impact.Analyze(context.Background(), newC, newC, newFS, newFS, snap, impact.Options{})
+	refs := map[string]bool{}
+	for _, c := range res.Consumers {
+		if c.Direct {
+			refs[c.Service] = true
+		}
+	}
+	if !refs["returns-service"] || !refs["warehouse-scanner"] || len(refs) != 2 {
+		t.Errorf("impact consumers = %v", refs)
+	}
 }
 
 // TestDemoConfigRefEdgeResolves builds the fleet `pacto fleet --local
@@ -128,6 +202,43 @@ func TestDemoEventUnavailablePaymentsBreaksOnly(t *testing.T) {
 	}
 }
 
+// TestDemoOfferingUnavailablePostgres: the offering answer lists every
+// consumer each provider's own answer lists, and nothing else; a provider is
+// never its own consumer. postgresql and shared-config each have two
+// providers, so the union runs over the demo twice.
+func TestDemoOfferingUnavailablePostgres(t *testing.T) {
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleetsrc.NewLocalSource("local", "bundles"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := func(res *impact.Result) map[string]bool {
+		out := map[string]bool{}
+		for _, c := range res.Consumers {
+			out[c.Domain+"/"+c.Service] = true
+		}
+		return out
+	}
+	for offering, providers := range map[string]int{"postgresql": 2, "shared-config": 2} {
+		res := impact.Analyze(context.Background(), nil, nil, nil, nil, snap, impact.Options{Event: &impact.Event{Kind: impact.EventUnavailable, Offering: offering}})
+		if len(res.Providers) != providers {
+			t.Fatalf("%s providers %v", offering, res.Providers)
+		}
+		got, want := names(res), map[string]bool{}
+		for _, p := range res.Providers {
+			for n := range names(impact.Analyze(context.Background(), nil, nil, nil, nil, snap, impact.Options{Event: &impact.Event{Kind: impact.EventUnavailable, Service: p}})) {
+				want[n] = true
+			}
+		}
+		for _, p := range res.Providers {
+			d, n := fleet.ParseServiceKey(fleet.ServiceKey(p))
+			delete(want, d+"/"+n)
+		}
+		if (offering == "postgresql" && len(got) == 0) || !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: offering consumers %v, provider consumers %v", offering, got, want)
+		}
+	}
+}
+
 // TestDemoTargetStateProvisioningMatches holds fleet-targets.yaml's provisioning
 // reports to the revisions they name: each digest is the local content identity
 // of its consumer bundle, so an edit to a bundle (its pacto.lock included) that
@@ -140,12 +251,111 @@ func TestDemoTargetStateProvisioningMatches(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, l := range snap.Limitations {
-		if l.Code == fleet.LimitationProvisioningUnmatched || l.Code == fleet.LimitationSourceRecordInvalid {
+		if l.Code == fleet.LimitationProvisioningUnmatched || l.Code == fleet.LimitationUsageUnmatched || l.Code == fleet.LimitationSourceRecordInvalid {
 			t.Errorf("%s: %s", l.Code, l.Message)
 		}
 	}
-	if len(snap.Provisioning) != 2 {
-		t.Errorf("provisioning records = %d, want both reports kept", len(snap.Provisioning))
+	raw, err := os.ReadFile("fleet-targets.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var file struct {
+		Provisioning []map[string]any `yaml:"provisioning"`
+		Usage        []map[string]any `yaml:"usage"`
+	}
+	if err := yaml.Unmarshal(raw, &file); err != nil {
+		t.Fatal(err)
+	}
+	if len(file.Provisioning) == 0 || len(snap.Provisioning) != len(file.Provisioning) {
+		t.Errorf("provisioning records = %d, want every one of the file's %d reports kept", len(snap.Provisioning), len(file.Provisioning))
+	}
+	if len(file.Usage) == 0 || len(snap.Usage) != len(file.Usage) {
+		t.Errorf("usage records = %d, want every one of the file's %d reports kept", len(snap.Usage), len(file.Usage))
+	}
+	for _, u := range snap.Usage {
+		if u.Verified {
+			t.Errorf("usage report %s/%s reads signed; the file is unsigned", u.Service, u.Name)
+		}
+	}
+}
+
+// TestDemoNonOfferingResourceStaleFailed: notification-worker 1.0.0 depends on
+// email-provider, which declares no offering, and the mail adapter reported
+// that resource Failed on the file's fixed date. Under the default provisioning
+// window the CLI demo reads it Unknown, a stale Failed report raising
+// PROVISIONING_STALE; a window that covers the date reads it Failed and raises
+// PROVISIONING_FAILED.
+func TestDemoNonOfferingResourceStaleFailed(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		window      time.Duration
+		phase, code string
+		reported    string
+		stale       bool
+	}{
+		{"default window", 0, "Unknown", "PROVISIONING_STALE", "Failed", true},
+		{"window covers the date", 100000 * time.Hour, "Failed", "PROVISIONING_FAILED", "Failed", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			snap, err := fleet.Build(context.Background(), fleet.BuildOptions{FreshnessWindow: tc.window},
+				fleetsrc.NewLocalSource("local", "bundles"), fleetsrc.NewTargetStateFileSource("target-state", "fleet-targets.yaml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			q := fleet.NewQuery(snap)
+			d, err := q.EntityDetail(fleet.KindService, "notification-worker")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var use *fleet.OfferingUse
+			for i, u := range d.Service.ConsumedOfferings.Items {
+				if u.Provider.Key == "email-provider" {
+					use = &d.Service.ConsumedOfferings.Items[i]
+				}
+			}
+			if use == nil || use.Offering != "" || len(use.Provisioning) != 1 {
+				t.Fatalf("email-provider use = %+v", use)
+			}
+			st := use.Provisioning[0]
+			if st.Phase != tc.phase || st.ReportedPhase != tc.reported || st.Stale != tc.stale {
+				t.Errorf("status phase %q reportedPhase %q stale %v", st.Phase, st.ReportedPhase, st.Stale)
+			}
+			l, err := q.Attention(fleet.AttentionFilter{Category: "provisioning", Limit: fleet.MaxAttentionLimit})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.ContainsFunc(l.Items, func(it fleet.AttentionItem) bool {
+				return it.Service == "notification-worker" && it.Code == tc.code
+			}) {
+				t.Errorf("attention %+v, want %s for notification-worker", l.Items, tc.code)
+			}
+		})
+	}
+}
+
+// TestDemoUsageUnsignedIsUnknown: the CLI demo's usage report for
+// catalog-service's database is unsigned, so under any window the usage reads
+// unknown and its figures stay in reported, never in figures.
+func TestDemoUsageUnsignedIsUnknown(t *testing.T) {
+	for _, window := range []time.Duration{0, 100000 * time.Hour} {
+		snap, err := fleet.Build(context.Background(), fleet.BuildOptions{FreshnessWindow: window},
+			fleetsrc.NewLocalSource("local", "bundles"), fleetsrc.NewTargetStateFileSource("target-state", "fleet-targets.yaml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		d, err := fleet.NewQuery(snap).EntityDetail(fleet.KindService, "catalog-service")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got []fleet.ResourceConsumption
+		for _, u := range d.Service.ConsumedOfferings.Items {
+			if u.Via == fleet.RelationshipConfigRef {
+				got = append(got, u.Consumption...)
+			}
+		}
+		if len(got) != 1 || got[0].State != "unknown" || got[0].Figures != nil || got[0].Reported == nil || got[0].Environment != "production" {
+			t.Errorf("window %v: catalog-service consumption = %+v", window, got)
+		}
 	}
 }
 
@@ -278,27 +488,32 @@ func TestDemoStorefrontEnvironments(t *testing.T) {
 	}
 }
 
-// TestDemoEnvironmentHistory: 1.1.0 adds staging, production and preview,
-// 1.3.0 gives them lifetimes, an expiry and an owner and adds pr-482, and 1.3.1
-// retires pr-482 again.
-func TestDemoEnvironmentHistory(t *testing.T) {
-	h := cliStorefront(t).EnvironmentHistory
-	find := func(env, change, version string) *fleet.EnvironmentEvent {
-		for i, e := range h.Items {
-			if e.Environment == env && e.Change == change && e.Revision.Version == version {
-				return &h.Items[i]
+// TestDemoChanges: 1.1.0 adds staging, production and preview, 1.3.0 gives
+// them lifetimes, an expiry and an owner and adds pr-482, and 1.3.1 retires
+// pr-482 again.
+func TestDemoChanges(t *testing.T) {
+	var envs []fleet.ChangeEvent
+	for _, e := range cliStorefront(t).Changes.Items {
+		if e.Kind == "environment" && e.Change != "present" {
+			envs = append(envs, e)
+		}
+	}
+	find := func(env, change, version string) *fleet.ChangeEvent {
+		for i, e := range envs {
+			if e.Subject == env && e.Change == change && e.Revision.Version == version {
+				return &envs[i]
 			}
 		}
 		return nil
 	}
 	if find("staging", "added", "1.1.0") == nil || find("pr-482", "added", "1.3.0") == nil || find("pr-482", "removed", "1.3.1") == nil {
-		t.Errorf("history %+v, want staging added in 1.1.0, pr-482 added in 1.3.0 and removed in 1.3.1", h.Items)
+		t.Errorf("changes %+v, want staging added in 1.1.0, pr-482 added in 1.3.0 and removed in 1.3.1", envs)
 	}
 	if e := find("staging", "changed", "1.3.0"); e == nil || !slices.Contains(e.Fields, "owner") || !slices.Contains(e.Fields, "lifetime") {
 		t.Errorf("staging change in 1.3.0 = %+v, want lifetime and owner", e)
 	}
-	if len(h.Items) != 8 {
-		t.Errorf("history %+v, want three added in 1.1.0, three changed and pr-482 added in 1.3.0 and pr-482 retired in 1.3.1", h.Items)
+	if len(envs) != 8 {
+		t.Errorf("changes %+v, want three added in 1.1.0, three changed and pr-482 added in 1.3.0 and pr-482 retired in 1.3.1", envs)
 	}
 }
 
@@ -323,5 +538,163 @@ func TestDemoStorefrontCurrentRevisionMatches(t *testing.T) {
 		if r[1] != cur.Version {
 			t.Errorf("source_fleet.go runs storefront-web %s, the CLI demo %s", r[1], cur.Version)
 		}
+	}
+}
+
+// TestDemoOfferingRows: on the demo fleet, postgresql has two providers with
+// two owners. Its newest revision, 17.0.0, declares no lifecycle, but its
+// targets still run the deprecated 16.1.0, the provider's current revision, so
+// the row reads deprecated and postgresql is the only deprecated offering.
+// The services whose range stops at 16 still reach the deprecated
+// 16.1.0, and each gets one lifecycle item saying the successor is out of its
+// range. The clock is pinned before postgresql 16.1.0's sunset, so the answer
+// never ages.
+func TestDemoOfferingRows(t *testing.T) {
+	now := func() time.Time { return time.Date(2026, 11, 13, 12, 0, 0, 0, time.UTC) }
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: now},
+		fleetsrc.NewLocalSource("local", "bundles"), fleetsrc.NewTargetStateFileSource("target-state", "fleet-targets.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := fleet.NewQuery(snap)
+	l, err := q.Entities(fleet.EntityFilter{Kinds: []fleet.EntityKind{fleet.KindOffering}, Text: "postgresql"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l.Total != 1 || l.Entities[0].Owner != "2 owners claim it" || l.Entities[0].Consumers == 0 || l.Entities[0].Lifecycle != fleet.LifecycleDeprecated {
+		t.Errorf("postgresql offering = %+v", l.Entities)
+	}
+	dep, err := q.Entities(fleet.EntityFilter{Kinds: []fleet.EntityKind{fleet.KindOffering}, Lifecycle: fleet.LifecycleDeprecated})
+	if err != nil || dep.Total != 1 || dep.Entities[0].Key != "postgresql" {
+		t.Errorf("deprecated offerings = %+v (%v)", dep, err)
+	}
+	items, err := q.Attention(fleet.AttentionFilter{Category: "lifecycle", Limit: fleet.MaxAttentionLimit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	codes := map[string]string{}
+	for _, it := range items.Items {
+		codes[it.Service] = it.Code
+	}
+	if codes["orders-service"] != "SUCCESSOR_OUT_OF_RANGE" || codes["ticketing-service"] != "" {
+		t.Errorf("lifecycle items = %v, want orders-service out of range and ticketing-service, which reaches 17.0.0, silent", codes)
+	}
+}
+
+// TestDemoOfferingRowsNoTarget: with no target the newest readable postgresql
+// revision, 17.0.0, speaks, so the row reads supported.
+func TestDemoOfferingRowsNoTarget(t *testing.T) {
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleetsrc.NewLocalSource("local", "bundles"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l, err := fleet.NewQuery(snap).Entities(fleet.EntityFilter{Kinds: []fleet.EntityKind{fleet.KindOffering}, Text: "postgresql"}); err != nil || l.Total != 1 || l.Entities[0].Lifecycle != fleet.LifecycleSupported {
+		t.Errorf("postgresql offering with no target = %+v (%v)", l, err)
+	}
+}
+
+// TestDemoOfferingSuccessorResolves: postgresql 16.1.0 names 17.0.0 as its
+// successor, and the demo ships it, so a ^16 consumer's use resolves the
+// successor (inferred, by name) and its range excludes it.
+func TestDemoOfferingSuccessorResolves(t *testing.T) {
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleetsrc.NewLocalSource("local", "bundles"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := fleet.NewQuery(snap).EntityDetail(fleet.KindOffering, "postgresql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, u := range d.Offering.Consumers.Items {
+		if u.Consumer.Key == "orders-service" && u.Via == "dependency" {
+			if u.ProviderLifecycle == nil || u.SuccessorRange != fleet.RangeUnsatisfied {
+				t.Errorf("orders-service use = %+v", u)
+			}
+			for _, l := range d.Meta.Limitations {
+				if l.Code == fleet.LimitationSuccessorUnresolved {
+					t.Errorf("successor unresolved: %s", l.Message)
+				}
+			}
+			return
+		}
+	}
+	t.Error("orders-service does not consume postgresql")
+}
+
+// TestDemoOfferingTwoProviders: postgresql and postgresql-ha both provide the
+// postgresql offering, owned by two teams, and ticketing-service 1.2.0
+// consumes the second one.
+func TestDemoOfferingTwoProviders(t *testing.T) {
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleetsrc.NewLocalSource("local", "bundles"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := fleet.NewQuery(snap).EntityDetail(fleet.KindOffering, "postgresql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	owners := map[string]string{}
+	for _, p := range d.Offering.Providers.Items {
+		owners[p.Service.Key] = p.Ownership.Owner
+	}
+	if !reflect.DeepEqual(owners, map[string]string{"postgresql": "infra-data", "postgresql-ha": "platform-data"}) {
+		t.Errorf("providers = %v", owners)
+	}
+	for _, u := range d.Offering.Consumers.Items {
+		if u.Consumer.Key == "ticketing-service" && u.Provider.Key == "postgresql-ha" {
+			return
+		}
+	}
+	t.Error("ticketing-service does not consume postgresql-ha")
+}
+
+// TestDemoOfferingFailedRequest: the CLI demo's adapter could not provision
+// ticketing-service 1.2.0's postgresql-ha database, so the postgresql row
+// counts one failed request. The wide window reads the file's fixed-date
+// reports as current, as its header says.
+func TestDemoOfferingFailedRequest(t *testing.T) {
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{FreshnessWindow: 100000 * time.Hour},
+		fleetsrc.NewLocalSource("local", "bundles"), fleetsrc.NewTargetStateFileSource("target-state", "fleet-targets.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	l, err := fleet.NewQuery(snap).Entities(fleet.EntityFilter{Kinds: []fleet.EntityKind{fleet.KindOffering}, Failed: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l.Total != 1 || l.Entities[0].Key != "postgresql" || l.Entities[0].FailedRequests != 1 {
+		t.Errorf("offerings with a failed request = %+v", l.Entities)
+	}
+}
+
+// TestDemoOfferingPhaseTallyMatchesDetail: over the CLI demo fleet, the
+// fleet-wide phase tally of the Offerings list is the sum of the tallies each
+// offering page shows, so the figure and the pages never disagree.
+func TestDemoOfferingPhaseTallyMatchesDetail(t *testing.T) {
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{FreshnessWindow: 100000 * time.Hour},
+		fleetsrc.NewLocalSource("local", "bundles"), fleetsrc.NewTargetStateFileSource("target-state", "fleet-targets.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := fleet.NewQuery(snap)
+	l, err := q.Entities(fleet.EntityFilter{Kinds: []fleet.EntityKind{fleet.KindOffering}, Limit: fleet.MaxEntityLimit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var phases, consumers fleet.PhaseTally
+	add := func(a *fleet.PhaseTally, b fleet.PhaseTally) {
+		*a = fleet.PhaseTally{Requested: a.Requested + b.Requested, Provisioning: a.Provisioning + b.Provisioning, Ready: a.Ready + b.Ready,
+			Failed: a.Failed + b.Failed, Deleting: a.Deleting + b.Deleting, Unknown: a.Unknown + b.Unknown, ReadyUnsigned: a.ReadyUnsigned + b.ReadyUnsigned}
+	}
+	for _, r := range l.Entities {
+		d, err := q.EntityDetail(fleet.KindOffering, r.Key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		add(&phases, d.Offering.Consumers.Phases)
+		add(&consumers, d.Offering.Consumers.PhaseConsumers)
+	}
+	if l.Aggregate.OfferingPhases != phases || l.Aggregate.OfferingPhaseConsumers != consumers || phases == (fleet.PhaseTally{}) {
+		t.Errorf("aggregate %+v / %+v, pages %+v / %+v", l.Aggregate.OfferingPhases, l.Aggregate.OfferingPhaseConsumers, phases, consumers)
 	}
 }

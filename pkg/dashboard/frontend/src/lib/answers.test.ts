@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { postureAnswer, joinAnd } from './answers.ts';
+import { postureAnswer, joinAnd, healthCaption, knowledgeCaption, problemPhrase } from './answers.ts';
 
 describe('postureAnswer', () => {
   it('names confirmed problems first', () => {
@@ -25,9 +25,9 @@ describe('postureAnswer', () => {
     expect(postureAnswer({ targets: 1, revisions: 3, revisionsInUse: 0, compliance: { unknown: 1 } }, true, 2)).toEqual({
       tone: 'warn',
       lead: 'Needs a look.',
-      rest: '1 running target has unknown compliance, no running target matches a known revision and 2 revisions name a different owner.',
+      rest: '1 running target has unknown compliance, no running target matches a known revision and owners disagree.',
     });
-    expect(postureAnswer({ targets: 1, compliance: { nonCompliant: 1 } }, false, 1).rest).toBe('1 running target breaks its contract and 1 revision names a different owner.');
+    expect(postureAnswer({ targets: 1, compliance: { nonCompliant: 1 } }, false, 1).rest).toBe('1 running target breaks its contract and owners disagree.');
   });
   it('says nothing runs when nothing runs', () => {
     expect(postureAnswer({ targets: 0 }).lead).toBe('Nothing running yet.');
@@ -70,5 +70,22 @@ describe('dropService', () => {
   });
   it('drops the parent service from the context of a shortened reference', () => {
     expect(inService({ label: 'orders 1.2.0', parentService: 'orders' }, 'orders')).toEqual({ label: '1.2.0', parentService: undefined });
+  });
+});
+
+describe('health and knowledge captions', () => {
+  it('words each health bucket apart, failing before unknown', () => {
+    expect(healthCaption({ available: 4, unavailable: 1, unknown: 2, notObserved: 3 }))
+      .toBe('1 target fails its health check, Pacto cannot tell the health of 2 targets, 4 targets are healthy and 3 targets declare no health check.');
+    expect(healthCaption({})).toBe('');
+  });
+
+  it('words the knowledge partition', () => {
+    expect(knowledgeCaption({ described: 1, withGaps: 5, unknown: 2 }))
+      .toBe('5 services leave something out of the contract, Pacto cannot tell for 2 services and 1 service is fully described.');
+  });
+
+  it('names failing health checks as a problem', () => {
+    expect(problemPhrase('health', 2)).toBe('2 running targets fail their health check');
   });
 });

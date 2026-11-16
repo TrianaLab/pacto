@@ -19,7 +19,7 @@ import (
 // cross-service operational view. It is deliberately distinct from `pacto graph`
 // (which is single-root: one service's transitive dependency tree). Fleet
 // commands operate over a snapshot composed from many sources.
-func newFleetCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
+func newFleetCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "fleet",
 		Short: "Query the Pacto operational graph across many services",
@@ -34,15 +34,16 @@ func newFleetCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd.AddCommand(newFleetSearchCommand(svc, v))
 	cmd.AddCommand(newFleetGetCommand(svc, v))
 	cmd.AddCommand(newFleetGraphCommand(svc, v))
-	cmd.AddCommand(newFleetStatusCommand(svc, v))
+	cmd.AddCommand(newFleetStatusCommand(svc, v, rec))
 	cmd.AddCommand(newFleetSnapshotCommand(svc, v))
 	cmd.AddCommand(newFleetExplainCommand(svc, v))
 	cmd.AddCommand(newFleetReconcileCommand(svc, v))
 	cmd.AddCommand(newFleetEntitiesCommand(svc, v))
-	cmd.AddCommand(newFleetEntityCommand(svc, v))
+	cmd.AddCommand(newFleetEntityCommand(svc, v, d))
 	cmd.AddCommand(newFleetAttentionCommand(svc, v))
 	cmd.AddCommand(newFleetNeighborhoodCommand(svc, v))
 	cmd.AddCommand(newFleetVersionsCommand(svc, v))
+	cmd.AddCommand(newFleetOverviewCommand(svc, v))
 	return cmd
 }
 
@@ -67,7 +68,7 @@ func addFleetSourceFlags(f *pflag.FlagSet) {
 	shared.Bool("cache", false, "include every bundle in the local OCI cache as an offline baseline revision")
 	shared.Bool("k8s", false, "include live Pacto CRs from the current Kubernetes cluster as targets")
 	shared.String("namespace", "", "namespace to read Pacto CRs from with --k8s (empty = all namespaces)")
-	shared.Duration("freshness", 0, "mark target evidence older than this as stale (0 disables)")
+	shared.Duration("freshness", fleet.RecentEvidenceWindow, "mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so)")
 	f.AddFlagSet(shared)
 }
 
@@ -167,8 +168,17 @@ func buildQuery(cmd *cobra.Command, svc *app.Service) (*fleet.Query, error) {
 
 // warnPartial prints a completeness warning and each limitation to stderr for
 // text output, so a partial answer is never silently presented as complete.
+//
+// A complete answer prints nothing, except a note when freshness was not
+// checked: that limitation never makes an answer partial, yet a stale count of
+// zero must not read as "nothing is stale".
 func warnPartial(cmd *cobra.Command, m fleet.Meta) {
 	if m.Completeness == fleet.CompletenessComplete {
+		for _, l := range m.Limitations {
+			if l.Code == fleet.LimitationFreshnessNotEvaluated {
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "note: [%s] %s\n", l.Code, l.Message)
+			}
+		}
 		return
 	}
 	w := cmd.ErrOrStderr()
@@ -192,7 +202,11 @@ func newFleetSearchCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			res, err := q.Search(searchFilterFromCmd(cmd, optionalArg(args)))
+			f, err := searchFilterFromCmd(cmd, optionalArg(args))
+			if err != nil {
+				return err
+			}
+			res, err := q.Search(f)
 			if err != nil {
 				return err
 			}
@@ -234,7 +248,7 @@ func newFleetSearchCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	return cmd
 }
 
-func searchFilterFromCmd(cmd *cobra.Command, text string) fleet.SearchFilter {
+func searchFilterFromCmd(cmd *cobra.Command, text string) (fleet.SearchFilter, error) {
 	owner, _ := cmd.Flags().GetString("owner")
 	businessDomain, _ := cmd.Flags().GetString("business-domain")
 	offering, _ := cmd.Flags().GetString("offering")
@@ -251,26 +265,13 @@ func searchFilterFromCmd(cmd *cobra.Command, text string) fleet.SearchFilter {
 	hasDep, _ := cmd.Flags().GetBool("has-dependency")
 	limit, _ := cmd.Flags().GetInt("limit")
 	offset, _ := cmd.Flags().GetInt("offset")
+	parsed, err := fleet.ParseLabels(labels)
 	return fleet.SearchFilter{
-		Text: text, Owner: owner, BusinessDomain: businessDomain, Offering: offering, Labels: parseLabels(labels), Scope: scope, Status: status,
+		Text: text, Owner: owner, BusinessDomain: businessDomain, Offering: offering, Labels: parsed, Scope: scope, Status: status,
 		Compliance: compliance, Source: source, Workload: workload,
 		HasCapability: hasCap, HasDependency: hasDep, ReadyOnly: ready, NotReady: notReady, Template: template,
 		Limit: limit, Offset: offset,
-	}
-}
-
-func parseLabels(pairs []string) map[string]string {
-	if len(pairs) == 0 {
-		return nil
-	}
-	out := map[string]string{}
-	for _, p := range pairs {
-		k, val, ok := strings.Cut(p, "=")
-		if ok {
-			out[k] = val
-		}
-	}
-	return out
+	}, err
 }
 
 func newFleetGetCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
@@ -358,13 +359,14 @@ func newFleetGraphCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	return cmd
 }
 
-func newFleetStatusCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
+func newFleetStatusCommand(svc *app.Service, v *viper.Viper, rec *runRecorder) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Report services and targets needing attention",
 		Long: "Reports what needs attention: non-compliant, unknown, invalid and stale targets, " +
 			"revisions without readiness, unresolved dependencies, dependencies whose provider " +
-			"version is outside the declared range, services with no declared owner and undeclared " +
+			"version is outside the declared range, services that use a deprecated or past-sunset provider, " +
+			"services with no declared owner and undeclared " +
 			"runtime dependencies. With no category flag it reports every category.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -373,9 +375,13 @@ func newFleetStatusCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 				return err
 			}
 			res := q.Status(statusQueryFromCmd(cmd))
-			return printFleetStatus(cmd, res, v.GetString(outputFormatKey))
+			// The print result is the exit code; the coverage record never is.
+			err = printFleetStatus(cmd, res, v.GetString(outputFormatKey))
+			recordCoverage(cmd, rec, q)
+			return err
 		},
 	}
+	addCoverageFlags(cmd)
 	cmd.Flags().Bool("needs-attention", false, "report every attention category")
 	cmd.Flags().Bool("non-compliant", false, "report non-compliant targets")
 	cmd.Flags().Bool("unknown", false, "report targets with unknown compliance")
@@ -384,6 +390,7 @@ func newFleetStatusCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd.Flags().Bool("missing-readiness", false, "report revisions without a readiness assessment")
 	cmd.Flags().Bool("unresolved-deps", false, "report unresolved declared dependencies")
 	cmd.Flags().Bool("unsatisfied-ranges", false, "report dependencies whose provider version is outside the declared range (DEPENDENCY_RANGE_UNSATISFIED)")
+	cmd.Flags().Bool("lifecycle", false, "report services that use a deprecated or past-sunset provider (DEPENDENCY_SERVICE_DEPRECATED, DEPENDENCY_SERVICE_SUNSET, SUCCESSOR_OUT_OF_RANGE)")
 	cmd.Flags().Bool("unowned", false, "report services with no declared owner")
 	cmd.Flags().Bool("undeclared", false, "report runtime calls no contract declares and callers with no contract")
 	cmd.Flags().Bool("golden-path-deployed", false, "report running services that declare service.template (GOLDEN_PATH_DEPLOYED)")
@@ -400,7 +407,7 @@ func statusQueryFromCmd(cmd *cobra.Command) fleet.StatusQuery {
 		NeedsAttention: get("needs-attention"), NonCompliant: get("non-compliant"),
 		Unknown: get("unknown"), Invalid: get("invalid"), StaleEvidence: get("stale"),
 		MissingReadiness: get("missing-readiness"), UnresolvedDeps: get("unresolved-deps"),
-		UnsatisfiedRanges: get("unsatisfied-ranges"), Unowned: get("unowned"), Undeclared: get("undeclared"),
+		UnsatisfiedRanges: get("unsatisfied-ranges"), Lifecycle: get("lifecycle"), Unowned: get("unowned"), Undeclared: get("undeclared"),
 		GoldenPathDeployed: get("golden-path-deployed"), Limit: limit,
 	}
 }

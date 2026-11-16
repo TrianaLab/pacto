@@ -7,11 +7,12 @@ walkthrough, start with [Drive Pacto from an agent](mcp-integration.md).
 
 | Family | Tools | What they do | Safety boundary |
 |--------|-------|--------------|-----------------|
-| **Authoring** | `pacto_create`, `pacto_edit`, `pacto_check`, `pacto_schema` | Create, edit and validate Pacto *contracts*. | Operate on contract files only. `pacto_edit` writes only after validation. |
+| **Authoring** | `pacto_create`, `pacto_edit`, `pacto_check`, `pacto_schema` | Create, edit and validate Pacto *contracts*. | Operate on contract files only. `pacto_edit` writes only after validation. Over HTTP only `pacto_schema` is served. |
 | **Generated service** | Derived per operation from a bundle's OpenAPI interfaces (`getUser`, `createRefund`, …) | Invoke the *live service* the contract describes. | Read-only (`GET`/`HEAD`) unless you pass `--allow-writes`; every call has a 30-second timeout and follows no redirect, so a 3xx comes back to the agent as the result. |
-| **Fleet query** | `pacto_fleet_search`, `pacto_fleet_get`, `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`, `pacto_fleet_entities`, `pacto_fleet_entity`, `pacto_fleet_attention`, `pacto_fleet_neighborhood`, `pacto_fleet_versions`, [`pacto_impact`](impact.md#the-mcp-tool-and-the-dashboard) | Read-only queries over the *operational system*: services, revisions, targets, owners, business domains, offerings, relationships and what needs attention. `pacto_impact` projects a contract diff onto that system to report which consumers a change affects, or asks what happens if a service becomes unavailable, is removed or regresses. `pacto_fleet_get` returns each revision's bundle signature check and OCI referrers as `provenance`. `pacto_fleet_entities` takes `consumes` to list the services that use an [offering](platform-offerings.md#consumers), and with `phase` and `environment` only those whose provisioning status in that phase is in that environment. | Always read-only: they write nothing. They still make network calls, and the server that hosts them may also register write tools; see [Fleet query safety](#fleet-query-safety). Catalog mode is the only server with no write tool. |
+| **Fleet query** | `pacto_fleet_search`, `pacto_fleet_get`, `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`, `pacto_fleet_entities`, `pacto_fleet_entity`, `pacto_fleet_attention`, `pacto_fleet_neighborhood`, `pacto_fleet_versions`, `pacto_fleet_revision_document`, `pacto_fleet_overview`, [`pacto_impact`](impact.md#the-mcp-tool-and-the-dashboard) | Read-only queries over the *operational system*: services, revisions, targets, owners, business domains, offerings, relationships and what needs attention. `pacto_impact` projects a contract diff onto that system to report which consumers a change affects, or asks what happens if a service becomes unavailable, is removed or regresses. `pacto_fleet_get` returns each revision's bundle signature check and OCI referrers as `provenance`. `pacto_fleet_revision_document` reads one document a revision's bundle carries, as the dashboard's revision page does. `pacto_fleet_overview` answers "how healthy is the organization and how much do we know" in one call, as `pacto fleet overview` does: a target is failing when its own health check reports it is not healthy and unknown when Pacto cannot tell, and a failing check leaves compliance `Unknown`; see [Organizational health and knowledge](operational-graph.md#organizational-health-and-knowledge). The fleet tools mark target evidence older than 24 hours as stale unless `--freshness` says otherwise. `pacto_fleet_entities` takes `consumes` to list the services that use an [offering](platform-offerings.md#consumers), and with `phase` and `environment` only those whose provisioning status in that phase is in that environment. For a service, `pacto_fleet_entity` lists the [resources it consumes](provision-infrastructure.md#resources-a-service-consumes) with `providerOwner`, `providerAvailability`, `requested` (declared) and `consumption`, plus `hiddenProviders`, and its `changes` in version order; `reached: true` on a stdio server adds when each change reached a Stage, from delivery records, and any other server answers `times: not-read`; `pacto_fleet_attention` and `pacto_fleet_status` report `PROVISIONING_FAILED` and `PROVISIONING_STALE` in the `provisioning` category. | Always read-only: they write nothing. They still make network calls, and the server that hosts them may also register write tools; see [Fleet query safety](#fleet-query-safety). Catalog mode is the only server with no write tool. |
+| **Fleet query**: statistics | `pacto_stats` | Totals the unsigned run records of a stats repository for a window. See [the stats answer](run-record-reference.md#the-stats-answer). | Always read-only. Over HTTP it appears only when the server was started with `--stats-read-registry` and reads only that repository; a signed-in caller sees only records of services in their view. |
 
-Outside these families: `pacto_skill` (a bundle's skill files) and `pacto_catalog_revision` (one revision from the catalog, see [Catalog mode](#catalog-mode)). The publish and delivery tools are listed [below](#publish-and-delivery-servers).
+Outside these families: `pacto_capabilities` (what this server serves, see [Combine modes](#combine-modes)), `pacto_skill` (a bundle's skill files) and `pacto_catalog_revision` (one revision from the catalog, see [Catalog mode](#catalog-mode)). The publish and delivery tools, including the six delivery read tools, are listed in [MCP publish and delivery tools](mcp-delivery-tools.md).
 
 These tasks are CLI-only: inspecting a registry contract, resolving a dependency
 graph, diffing revisions, generating docs and the two non-query `pacto fleet`
@@ -21,22 +22,25 @@ and no tool deploys. In delivery mode an agent asks for a change; Pacto's
 checks and people decide. [Server modes](cli-reference.md#server-modes) lists which tools each
 invocation registers.
 
-!!! warning "Tools carry no safety annotations"
-    Pacto ships **no MCP tool annotations**. A `tools/list` response carries no
-    [`annotations`](https://modelcontextprotocol.io/specification/2025-06-18/server/tools#tool-annotations)
-    member (`readOnlyHint`, `destructiveHint` or `idempotentHint`) on any tool,
-    including `pacto_create`, `pacto_edit` and a generated
-    tool such as `createRefund`, which moves money. Build allow-lists by hand
-    from the tool name. `pacto_check`, `pacto_schema`, `pacto_skill`, `pacto_fleet_*`,
-    `pacto_impact` and `pacto_catalog_revision` are read-only; `pacto_create` and
-    `pacto_edit` write contract files. Under `--allow-writes`, treat every
-    generated tool (no `pacto_` prefix) as able to change the live service. A
-    bundle cannot claim a `pacto_` name.
+!!! warning "Annotations are hints"
+    Every tool carries MCP
+    [`annotations`](https://modelcontextprotocol.io/specification/2025-06-18/server/tools#tool-annotations).
+    `pacto_check`, `pacto_schema`, `pacto_skill`, `pacto_fleet_*`, `pacto_impact`, `pacto_stats`,
+    `pacto_catalog_revision`, `pacto_publish_plan` and the delivery reads set
+    `readOnlyHint`. `pacto_edit` sets `destructiveHint`: it removes entries in
+    place. A generated tool takes its hints from its
+    HTTP method: `GET` and `HEAD` are read-only, `PUT` is idempotent and `DELETE` is
+    destructive. Every other method leaves `destructiveHint` unset, which
+    MCP clients read as destructive. Hints are advice to the client;
+    `--allow-writes` and the stdio-only rules decide which write tools exist.
+    A bundle cannot claim a `pacto_` name: Pacto skips every bundle operation
+    whose name starts with `pacto_`.
 
 ### Fleet query safety
 
-- **They are read-only.** They project the [Pacto Operational Graph](operational-graph.md) and write nothing. Every fleet tool, `pacto_impact` included, answers from one shared snapshot. `pacto_impact` also resolves both refs on every call with the server's credentials. When no source holds the changed service, it rebuilds the snapshot with the new revision added, reaching every source (your cluster too if `--k8s` is on). An HTTP server, whether its callers sign in or not, reads no `traces` path, accepts only `oci://` refs and reads no delivery evidence: a `regressed` event over HTTP carries `DELIVERY_EVIDENCE_UNAVAILABLE`. Run `pacto mcp --fleet` over stdio to read them with your own credentials.
+- **They are read-only.** They project the [Pacto Operational Graph](operational-graph.md) and write nothing. Every fleet tool, `pacto_impact` included, answers from one shared snapshot. Over stdio `pacto_impact` resolves both refs with your credentials; when no source holds the changed service, it rebuilds the snapshot with the new revision added, reaching every source (your cluster too if `--k8s` is on). An HTTP server, whether its callers sign in or not, reads no `traces` path and accepts only `oci://` refs that name a revision in the caller's view, by requested ref, resolved ref or digest; it then reads that revision's own digest-pinned ref. A revision read without a recorded digest has no pinned ref, so it is refused. It also reads no delivery evidence: a `regressed` event over HTTP carries `DELIVERY_EVIDENCE_UNAVAILABLE`. Run `pacto mcp --fleet` over stdio to read them with your own credentials. The fleet snapshot of an HTTP server holds local bundles only from the `--local` roots it was started with; over stdio `--local` defaults to the folder the server was started in.
 - **They expose knowledge only.** They never grant, scope or revoke a permission.
+- **A `nextAction` is a suggestion.** An attention item whose fix is a contract edit names `edit-contract` and `pacto_edit` in `nextAction` ([attention categories](operational-graph-tallies.md#attention-categories)); Pacto infers it from the item's code, and the edit itself decides.
 - **Partial or stale results are incomplete knowledge.** Every answer carries an `asOf` time, a `completeness` value and structured `limitations`. Branch on those before trusting an answer.
 - **Under partial coverage, a missing result means unknown.** If a source was unavailable, "not found" means "not known here".
 - **The snapshot refreshes on demand.** A call 30 seconds or more after the last rebuild attempt rebuilds it first, reaching your sources again. Calls inside that interval share one `snapshotId`; a failed rebuild keeps the last good snapshot.
@@ -56,9 +60,41 @@ With `--dashboard-url <url>`, each entity in a `pacto_fleet_*` answer except
 `pacto_fleet_get` and `pacto_fleet_explain` carries an `href` to its page on
 that dashboard, as does each contracted `pacto_impact` consumer.
 
+## Combine modes
+
+A bundle reference, `--fleet` and `--delivery` combine in one server:
+
+```bash
+pacto mcp --fleet --k8s --delivery
+```
+
+`--root` and `--publish` each start a server of their own. Pacto registers
+its own tools before a bundle's, so a bundle never replaces one, and the
+instructions describe only the modes the server serves.
+
+`pacto_capabilities` reports `modes`, the contract tools in `authoring`,
+`writes`, `transport`, `asOf` and the keys `fleet`, `impact`, `observed` and
+`delivery` of the dashboard's `GET /api/capabilities`. `caller.callerSource`
+says how Pacto knows `caller.user`: `reviewed` by the API server, a verified
+`token` (`user` is then `unknown`) or `local` (stdio or the loopback launch
+bearer). With delivery, `caller.class` is the actor class as read at
+`caller.classAsOf` (startup over stdio); `caller.policyError` marks policy
+defaults.
+
+## Tool-call log
+
+With `--verbose`, the server logs one `mcp tool call` line per call to stderr
+for the people who run it: `tool`, `caller`, `callerSource`, `readOnly`,
+`outcome` (`ok`, `error` or `failed`), `durationMs`, `snapshotId` for fleet
+answers and `argsDigest`, an HMAC-SHA256 of the arguments under a per-process
+key, so the log holds no value an agent passed. A call to a tool the server
+does not serve, or with arguments its input schema refuses, runs nothing and
+logs no line.
+
 ## The authoring tools
 
-Every mode except `--root` carries these four.
+Every mode except `--root` carries these four over stdio. Over HTTP the
+server serves only `pacto_schema`.
 
 | Tool | Description |
 |------|-------------|
@@ -100,6 +136,13 @@ Every mode except `--root` carries these four.
 - `template` sets [`service.template`](contract-reference/sections.md#golden-path-template), which makes the contract a golden path: `{"plugins": [...]}` replaces it, an empty `plugins` list writes `template: {}` and `{"clear": true}` removes it. Either raises `pactoVersion` to 2.4. No input sets `service.origin`: only creation from a golden path writes it.
 
 **Value edits are checked first.** Adding configuration references or environments, or setting environment values, writes only after `pacto_check` passes.
+
+### What an edit leads to
+
+- `pacto_edit` returns `impact`, `chain` and `executor`, with `dry_run` or without. `impact` is who the edit affects, analysed like `pacto_impact` from the contract on disk (`oldVersion`) to the edited one (`newVersion`) for the service the fleet holds under that name: `classification`, `gate`, `gateReason`, `affected` (the consumer count), `hidden`, `owners`, `templates` (golden paths to review), `approvals`, `completeness`, `asOf`, `snapshotId` and `limitations`. `approvals` names the owners of the consumers the edit breaks and always ends with the promote's own plan deciding. A gate is never clear when the fleet holds no revision at `oldVersion` or no source holds the service. `impact` is present only on a server that also serves `pacto_impact` (`pacto mcp --fleet` over stdio); when the session has no snapshot, the snapshot holds no single service of that name or the analysis fails, it is absent and the first `chain` step says who the edit affects is not known.
+- `chain`: the steps that carry the edit to running, in order: `pacto_impact` when impact is not known (after a dry run, run it once the edit is written), then `pacto_publish_plan`, `pacto_publish` and `pacto_delivery_operation_plan`. Each step has `command` (the CLI form), `why`, `tool` and, for the publish steps, `args` with the contract's `path`. A step whose tool this session does not register leaves `tool` empty and its `why` says so.
+- `executor`: who acts on the published revision. For configuration references and environments it is the provider (an adapter or a GitOps tool); otherwise Flux or Argo applies the version a Stage points at.
+- `pacto_create` from intent-level inputs (without `pactify` or `from`) returns `chain` too, from publish on: a new service has no published revision to compare with. A consumer that already declares it lists that dependency as unresolved until it is published. Neither tool runs a step of the chain.
 
 ### How `pacto_create` reads a description
 
@@ -187,44 +230,13 @@ or schema file already there as it is, listed in `kept`.
   Nothing else runs. A `dry_run` lists each plugin and the binary it runs.
 - `from` refuses the intent inputs, such as `interfaces`, and `pactify`,
   `fleet_roots` and the cluster inputs.
-- `from` serves stdio only. Over HTTP every caller would pull with the
-  server's registry credentials, read its directories and write to its paths.
+- `pacto_create`, `pacto_edit` and `pacto_check` serve stdio only. Over HTTP
+  every caller would pull with the server's registry credentials, read its
+  directories and write to its paths, so an HTTP server offers only
+  `pacto_schema` from the contract tools.
 - `pacto_fleet_entities` with `template: only` lists golden paths.
 
 `pacto_create` and `pacto_edit` return `warnings` for a value that validates
 but is likely wrong, such as an owner written as `team/billing`.
 `pacto_schema` returns the JSON Schema and, under `agents`, how to describe an
 AI agent as a service.
-
-## Publish and delivery servers
-
-`--publish` adds `pacto_publish_plan` (what publishing would write and which
-checks refuse it, without writing) and `pacto_publish` (publishes the version
-the same way `pacto publish` does, with this process's registry credentials,
-always to a new tag) beside the authoring tools. It runs over stdio
-only.
-
-`--delivery` serves the delivery tools over the cluster your kubeconfig
-points at: `pacto_delivery_status`, `pacto_delivery_operation_types`, `pacto_delivery_candidates`,
-`pacto_delivery_operation_plan`, `pacto_delivery_get`, `pacto_delivery_explain`,
-`pacto_delivery_history`, `pacto_delivery_blame`, `pacto_delivery_undo_plan`,
-`pacto_delivery_record_get`, `pacto_delivery_record_verify` and
-`pacto_delivery_lifecycle` for everyone, plus
-`pacto_delivery_operation_propose` and `pacto_delivery_cancel` only when the
-cluster says the caller is an agent. Delivery mode has no approve tool.
-
-`pacto_delivery_candidates` lists the versions a Stage may take, with their
-digests. The `to` input of plan and propose takes a version (`3.0.0`), a tag or
-a digest; a version or a tag must name exactly one of those candidates, or the
-tool refuses it and says why. A plan's `next` says what proposing it leads
-to, as [plan, propose and approve](integrations/kubernetes/delivery-operations.md)
-describes, and `pacto_delivery_get` repeats it while an operation is held.
-Propose with the plan's intent digest and the same `reason` and `on_behalf_of`: the digest binds them,
-and `PlanStale` names the one that differs when it can tell. Over HTTP it
-needs [token exchange](integrations/kubernetes/delivery-identity.md#agents-over-the-network).
-
-`pacto_delivery_history` takes `since` and `until` (an RFC 3339 time or a
-duration such as `2h`), `cause`, `correlation_id` and, without a `stage`,
-`service` and `domain`.
-[Status, progress and lifecycle](integrations/kubernetes/delivery-status.md)
-covers the status, lifecycle and record tools.

@@ -67,7 +67,11 @@ func (r *OperationReconciler) refusal(ctx context.Context, op *dv1.Operation, st
 		return fmt.Sprintf("WrongFacet: %s changes the %s facet, not %s", s.Type, t.Facet, s.Facet), nil
 	case !delivery.MayRaise(s.Type, op.Status.ActorClass, s.Witnessed):
 		return fmt.Sprintf("NotPermitted: a %s actor may not raise %s", op.Status.ActorClass, s.Type), nil
-	case s.IntentDigest != delivery.IntentDigest(s, stage.Spec):
+	}
+	if reason := delivery.AdmitPrincipal(s, op.Status.ActorClass, r.Policy); reason != "" {
+		return reason, nil
+	}
+	if s.IntentDigest != delivery.IntentDigest(s, stage.Spec) {
 		return "PlanStale: the intent digest does not match this Stage's policy; plan again", nil
 	}
 	if reason, err := r.causeRefusal(ctx, op, stage); reason != "" || err != nil {

@@ -17,18 +17,18 @@ import (
 // structures: ownership conflicts, readiness checks, observed runtime, and the owner-attention
 // / service-relationship double-truncation.
 
-// A service with more than MaxDetailPreview differently-owned revisions yields a
-// bounded conflicts preview with an honest total/count/truncated.
+// A service with more than MaxDetailPreview differently-owned revisions of one
+// version yields a bounded conflicts preview with an honest total/count/truncated.
 func TestServiceOwnershipConflictsBounded(t *testing.T) {
 	over := MaxDetailPreview + 5
-	revs := make([]*ContractRevision, over)
-	for i := range revs {
-		revs[i] = &ContractRevision{
-			Key:   RevisionKey(fmt.Sprintf("svc@%d", i)),
-			Owner: contract.Owner{Team: fmt.Sprintf("team-%d", i)},
-		}
+	snap := &FleetSnapshot{Revisions: map[RevisionKey]*ContractRevision{}}
+	s := &ServiceRecord{Key: "svc", Owner: contract.Owner{Team: "svc-owner"}}
+	for i := range over {
+		k := RevisionKey(fmt.Sprintf("svc@%d", i))
+		snap.Revisions[k] = &ContractRevision{Key: k, ServiceKey: "svc", Version: "1.0.0", Owner: contract.Owner{Team: fmt.Sprintf("team-%d", i)}}
+		s.Revisions = append(s.Revisions, k)
 	}
-	info := serviceOwnership(&ServiceRecord{Key: "svc", Owner: contract.Owner{Team: "svc-owner"}}, revs)
+	info := serviceOwnership(snap, s)
 	c := info.Conflicts
 	if c.Total != over || c.Count != MaxDetailPreview || !c.Truncated || len(c.Items) != MaxDetailPreview {
 		t.Errorf("conflicts preview = {total:%d count:%d trunc:%v items:%d}, want total=%d count=%d trunc=true",
@@ -352,7 +352,7 @@ func TestOwnerDetailAttentionTrueTotal(t *testing.T) {
 		revs[i] = RawRevision{Bundle: &contract.Bundle{Contract: c, FS: fstest.MapFS{}}, Digest: fmt.Sprintf("sha256:%04d", i)}
 	}
 	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow},
-		NewMemorySource("local", "local", &Collection{Revisions: revs}))
+		NewMemorySource("local", "local", &Collection{Revisions: revs}), emptyTargetSource())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -361,8 +361,10 @@ func TestOwnerDetailAttentionTrueTotal(t *testing.T) {
 		t.Fatal(err)
 	}
 	att := d.Owner.Attention
-	if att.Total != over {
-		t.Errorf("owner attention total = %d, want the TRUE matched total %d (double-truncation regression)", att.Total, over)
+	// Each service also raises three knowledge items: no summary, no domain and
+	// runs nowhere.
+	if att.Total != 4*over {
+		t.Errorf("owner attention total = %d, want the TRUE matched total %d (double-truncation regression)", att.Total, 4*over)
 	}
 	if att.Count != MaxDetailPreview || !att.Truncated {
 		t.Errorf("owner attention preview = {count:%d trunc:%v}, want count=%d trunc=true", att.Count, att.Truncated, MaxDetailPreview)

@@ -78,6 +78,9 @@ type OperationReconciler struct {
 	// Events receives the Events it emits on hold, conclusion and rollback;
 	// nil emits none.
 	Events record.EventRecorder
+	// Stats receives every operation once its conclusion is written, for run
+	// records; nil records none. It must not block.
+	Stats func(op *dv1.Operation)
 	// heldChecks is when the verify gates last ran for each operation held on
 	// a running version, by uid.
 	// ponytail: in memory, so a restart runs them once early.
@@ -250,6 +253,9 @@ func (r *OperationReconciler) lock(ctx context.Context, op *dv1.Operation, stage
 			return reconcile.Result{}, err
 		}
 		if cur.Predicted == delivery.PredictRejected {
+			// The record and explain name the gate that failed, not the
+			// first plan's passing verdicts.
+			op.Status.Plan, op.Status.Verdicts = &cur, mergeVerdicts(op.Status.Verdicts, cur.Verdicts)
 			return r.finish(ctx, op, stage, conclusion{outcome: delivery.Rejected, reason: planRefusal(cur)})
 		}
 		if !delivery.StillPasses(*op.Status.Plan, cur) {

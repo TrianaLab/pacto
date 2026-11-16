@@ -37,7 +37,7 @@ func TestFleetOptionsIgnoresUndeclaredFlags(t *testing.T) {
 }
 
 func TestFleetFlagNamesMatchDeclaredFlags(t *testing.T) {
-	root := newFleetCommand(newTestService(t), viper.New())
+	root := newFleetCommand(newTestService(t), viper.New(), deps{}, &runRecorder{})
 	for _, name := range fleetFlagNames() {
 		if root.PersistentFlags().Lookup(name) == nil {
 			t.Errorf("fleetFlagNames lists %q but newFleetCommand does not declare it", name)
@@ -81,7 +81,7 @@ func TestFleetOptionsCarriesTheCatalogRoots(t *testing.T) {
 // surprises), but every one of them is a source.
 func TestFleetOptionsReadersDeclareEverySharedFlag(t *testing.T) {
 	for _, cmd := range []*cobra.Command{
-		newImpactCommand(newTestService(t), viper.New(), defaultDeps()),
+		newImpactCommand(newTestService(t), viper.New(), defaultDeps(), newRunRecorder("dev", defaultDeps())),
 		newMCPCommand(newTestService(t), "test", defaultDeps()),
 		newTUICommand(newTestService(t), viper.New(), defaultDeps()),
 	} {

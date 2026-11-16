@@ -3,12 +3,15 @@ package cli
 import (
 	"fmt"
 	"net"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
 	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/pkg/evidence"
 )
 
 // newEvidenceCommand builds the `pacto evidence` command group: produce, verify,
@@ -30,6 +33,7 @@ func newEvidenceCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd.AddCommand(newEvidenceServeCommand(svc, v))
 	cmd.AddCommand(newEvidenceSendCommand(svc, v))
 	cmd.AddCommand(newEvidenceProvisionedCommand(svc, v))
+	cmd.AddCommand(newEvidenceUsageCommand(svc, v))
 	return cmd
 }
 
@@ -56,12 +60,9 @@ func newEvidenceProvisionedCommand(svc *app.Service, _ *viper.Viper) *cobra.Comm
 			opts.Subject, _ = cmd.Flags().GetString("subject")
 			opts.Outcome, _ = cmd.Flags().GetString("outcome")
 			opts.Collector, _ = cmd.Flags().GetString("collector")
-			if at, _ := cmd.Flags().GetString("observed-at"); at != "" {
-				t, err := time.Parse(time.RFC3339, at)
-				if err != nil {
-					return fmt.Errorf("invalid --observed-at: %w", err)
-				}
-				opts.ObservedAt = t
+			var err error
+			if opts.ObservedAt, err = observedAtFlag(cmd); err != nil {
+				return err
 			}
 			set, err := svc.ProvisionedEvidence(opts)
 			if err != nil {
@@ -84,6 +85,97 @@ func newEvidenceProvisionedCommand(svc *app.Service, _ *viper.Viper) *cobra.Comm
 	cmd.Flags().String("collector", "", "collector id recorded as provenance (defaults to pacto)")
 	_ = cmd.MarkFlagRequired("contract")
 	return cmd
+}
+
+// observedAtFlag parses --observed-at; empty means now.
+func observedAtFlag(cmd *cobra.Command) (time.Time, error) {
+	at, _ := cmd.Flags().GetString("observed-at")
+	if at == "" {
+		return time.Time{}, nil
+	}
+	t, err := time.Parse(time.RFC3339, at)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("invalid --observed-at: %w", err)
+	}
+	return t, nil
+}
+
+func newEvidenceUsageCommand(svc *app.Service, _ *viper.Viper) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "usage",
+		Short: "Write an EvidenceSet that reports a resource's usage and cost",
+		Long: "Writes an EvidenceSet that reports how much of the resource a consumer's " +
+			"configuration reference or dependency asked for is used, and what it costs. Sign it " +
+			"with pacto evidence sign and post it with pacto evidence send; the signing key needs " +
+			"ResourceUsage in allowedObservationKinds. Pacto never sums or converts the figures. " +
+			"The subject defaults to <repository>/<environment or default>/usage/<kind>/<name>, so " +
+			"a usage report never replaces the resource's provisioning report. Prints the EvidenceSet JSON.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			opts := app.UsageOptions{}
+			opts.ContractRef, _ = cmd.Flags().GetString("contract")
+			opts.Configuration, _ = cmd.Flags().GetString("configuration")
+			opts.Dependency, _ = cmd.Flags().GetString("dependency")
+			opts.Provider, _ = cmd.Flags().GetString("provider")
+			opts.ExternalRef, _ = cmd.Flags().GetString("external-ref")
+			opts.Environment, _ = cmd.Flags().GetString("environment")
+			opts.Subject, _ = cmd.Flags().GetString("subject")
+			opts.Outcome, _ = cmd.Flags().GetString("outcome")
+			opts.Collector, _ = cmd.Flags().GetString("collector")
+			var err error
+			if opts.ObservedAt, err = observedAtFlag(cmd); err != nil {
+				return err
+			}
+			metrics, _ := cmd.Flags().GetStringArray("metric")
+			for _, m := range metrics {
+				um, err := parseUsageMetric(m)
+				if err != nil {
+					return err
+				}
+				opts.Metrics = append(opts.Metrics, um)
+			}
+			if c, _ := cmd.Flags().GetString("cost"); c != "" {
+				parts := strings.Split(c, ":")
+				if len(parts) != 3 {
+					return fmt.Errorf("invalid --cost %q: want amount:CURRENCY:period, such as 212.40:USD:P30D", c)
+				}
+				opts.Cost = &evidence.UsageCost{Amount: parts[0], Currency: parts[1], Period: parts[2]}
+			}
+			set, err := svc.UsageEvidence(opts)
+			if err != nil {
+				return err
+			}
+			return printJSON(cmd, set)
+		},
+	}
+	cmd.Flags().String("contract", "", "consumer contract revision: oci://<repo>@sha256:<digest>")
+	cmd.Flags().String("configuration", "", "consumer configuration (with a ref) that asked for the resource")
+	cmd.Flags().String("dependency", "", "consumer dependency that asked for the resource")
+	cmd.Flags().String("provider", "", "provider slug (lowercase letters, digits and hyphens)")
+	cmd.Flags().String("external-ref", "", "opaque handle of the resource at the provider (at most 253 printable bytes)")
+	cmd.Flags().String("environment", "", "consumer environment the resource serves")
+	cmd.Flags().StringArray("metric", nil, "a measured quantity as name=value[:unit], such as storage-used=31:Gi (repeatable, at most 16)")
+	cmd.Flags().String("cost", "", "cost as amount:CURRENCY:period, such as 212.40:USD:P30D (ISO 4217 code, ISO 8601 period from P1D to P1Y)")
+	cmd.Flags().String("subject", "", "EvidenceSet subject (defaults to <repository>/<environment or default>/usage/<kind>/<name>)")
+	cmd.Flags().String("outcome", "Observed", "collection outcome: Observed, Unsupported, Failed, Stale or Insufficient; anything but Observed carries no figures")
+	cmd.Flags().String("observed-at", "", "observation timestamp (RFC3339; defaults to now)")
+	cmd.Flags().String("collector", "", "collector id recorded as provenance (defaults to pacto)")
+	_ = cmd.MarkFlagRequired("contract")
+	return cmd
+}
+
+// parseUsageMetric parses name=value[:unit].
+func parseUsageMetric(s string) (evidence.UsageMetric, error) {
+	name, rest, ok := strings.Cut(s, "=")
+	if !ok {
+		return evidence.UsageMetric{}, fmt.Errorf("invalid --metric %q: want name=value[:unit], such as storage-used=31:Gi", s)
+	}
+	value, unit, _ := strings.Cut(rest, ":")
+	v, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return evidence.UsageMetric{}, fmt.Errorf("invalid --metric %q: the value must be a number", s)
+	}
+	return evidence.UsageMetric{Name: name, Value: v, Unit: unit}, nil
 }
 
 func newEvidenceServeCommand(svc *app.Service, _ *viper.Viper) *cobra.Command {

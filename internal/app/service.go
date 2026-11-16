@@ -60,6 +60,8 @@ type sysDeps struct {
 	publishRegistry func() publish.Registry
 	// refusalRepo opens the repository a publish refusal is kept in.
 	refusalRepo func(path string) (*remote.Repository, error)
+	// statsRepo opens the stats repository run records are read from.
+	statsRepo func(path string) (*remote.Repository, error)
 }
 
 // env is sys with every unset field at its production default.
@@ -116,6 +118,9 @@ func publishDefaults(d *sysDeps) {
 	}
 	if d.refusalRepo == nil {
 		d.refusalRepo = defaultRefusalRepo
+	}
+	if d.statsRepo == nil {
+		d.statsRepo = defaultStatsRepo
 	}
 }
 

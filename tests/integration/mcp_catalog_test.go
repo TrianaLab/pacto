@@ -465,7 +465,7 @@ func TestMCPFleetDemoSurface(t *testing.T) {
 		"--traces", demoTraces)
 	defer func() { _ = session.Close() }()
 
-	// pacto_fleet_search returns all 38 services, the golden path included
+	// pacto_fleet_search returns all 40 services, the golden path, the second provider and the security scanning offering included
 	searchRes, err := session.CallTool(ctx, &mcpsdk.CallToolParams{
 		Name:      "pacto_fleet_search",
 		Arguments: map[string]any{},
@@ -482,8 +482,8 @@ func TestMCPFleetDemoSurface(t *testing.T) {
 	if err := json.Unmarshal([]byte(searchText), &searchResp); err != nil {
 		t.Fatalf("decode search response: %v\npayload:\n%s", err, searchText)
 	}
-	if got := len(searchResp.Services); got != 38 {
-		t.Errorf("pacto_fleet_search returned %d services, want 38", got)
+	if got := len(searchResp.Services); got != 40 {
+		t.Errorf("pacto_fleet_search returned %d services, want 40", got)
 	}
 
 	// pacto_fleet_status with needs_attention returns the NonCompliant and Unknown targets
@@ -507,7 +507,8 @@ func TestMCPFleetDemoSurface(t *testing.T) {
 		t.Fatalf("decode status response: %v\npayload:\n%s", err, statusText)
 	}
 
-	// The two signals a reader cares about: one NON_COMPLIANT and one UNKNOWN target.
+	// The two signals a reader cares about: one NON_COMPLIANT target and one Unknown
+	// target that names its cause (no evidence was ever collected).
 	// The 17 MISSING_READINESS entries are real but not asserted — any fixture change
 	// moves that number without meaning anything, and a test that breaks when someone
 	// adds a revision is a test nobody will trust.
@@ -516,7 +517,7 @@ func TestMCPFleetDemoSurface(t *testing.T) {
 		if item.Code == "NON_COMPLIANT" && item.Name == "production-eu/kubernetes-workload/commerce%2Forders-service" {
 			foundNonCompliant = true
 		}
-		if item.Code == "UNKNOWN" && item.Name == "production-eu/kubernetes-workload/identity%2Fauth-service" {
+		if item.Code == "EVIDENCE_MISSING" && item.Name == "production-eu/kubernetes-workload/identity%2Fauth-service" {
 			foundUnknown = true
 		}
 	}

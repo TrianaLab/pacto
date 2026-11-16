@@ -175,7 +175,8 @@ func renderServiceDetail(b *strings.Builder, service string, s *fleet.ServiceDet
 		}
 		b.WriteString(safeText(fleet.StagesHint(service)) + "\n")
 	}
-	if h := s.EnvironmentHistory; h.Total > 0 || h.Gaps > 0 {
+	renderResources(b, s)
+	if h := s.Changes; h.Total > 0 || h.Gaps > 0 {
 		section(b, h.Heading())
 		for _, l := range h.Lines() {
 			b.WriteString(safeText(l) + "\n")
@@ -192,6 +193,35 @@ func renderServiceDetail(b *strings.Builder, service string, s *fleet.ServiceDet
 			b.WriteString("  " + dimStyle.Render(fmt.Sprintf("... and %d more", s.Findings.Total-len(s.Findings.Items))) + "\n")
 		}
 	}
+}
+
+// renderResources writes the resources a service consumes, as the CLI prints
+// them: per use the provider, what the service requested (declared), each
+// environment's provisioning (observed) and what Pacto knows about usage.
+// Providers the viewer may not see are counted, never named.
+func renderResources(b *strings.Builder, s *fleet.ServiceDetailData) {
+	uses := s.ConsumedOfferings
+	if uses.Total == 0 && s.HiddenProviders == 0 {
+		return
+	}
+	section(b, fmt.Sprintf("Resources (%d)", uses.Total))
+	for _, u := range uses.Items {
+		offering := "no offering"
+		if u.Offering != "" {
+			offering = "offering " + u.Offering
+		}
+		fmt.Fprintf(b, "  %s (%s) via %s\n", safeText(u.Provider.Label), safeText(offering), safeText(u.Via))
+		for _, l := range u.ResourceLines() {
+			b.WriteString("    " + safeText(l) + "\n")
+		}
+	}
+	if uses.Truncated {
+		b.WriteString("  " + dimStyle.Render(fmt.Sprintf("... and %d more", uses.Total-len(uses.Items))) + "\n")
+	}
+	if s.HiddenProviders > 0 {
+		fmt.Fprintf(b, "  at least %d resources from providers you may not see\n", s.HiddenProviders)
+	}
+	b.WriteString("  " + dimStyle.Render(fleet.ResourceActionsNote) + "\n")
 }
 
 // renderTemplateDetail writes a golden path's section: its signature, the
@@ -377,47 +407,103 @@ func renderDomainDetail(b *strings.Builder, d *fleet.DomainDetailData) {
 	renderOwnerDetail(b, &fleet.OwnerDetailData{Summary: d.Summary, Services: d.Services, Attention: d.Attention})
 }
 
-// renderOfferingDetail lists the services that provide an offering, with the
-// owner, versions and ref to consume each, and the services that consume them.
+// renderOfferingDetail lists an offering's availability, the services that
+// provide it, with the owner, versions and ref to consume each, the services
+// that consume them and the callers seen without a declaration.
 func renderOfferingDetail(b *strings.Builder, o *fleet.OfferingDetailData) {
+	section(b, "Availability")
+	field(b, "state", string(o.Availability.State))
+	availabilityLines(b, "  ", o.Availability)
+	if o.HiddenProviders > 0 {
+		field(b, "hidden providers", fmt.Sprintf("%d you may not see", o.HiddenProviders))
+	}
 	section(b, fmt.Sprintf("Providers (%d)", o.Providers.Total))
 	for _, p := range o.Providers.Items {
-		fmt.Fprintf(b, "  %s\n", safeText(p.Service.Label))
-		if p.Ownership != nil {
-			field(b, "  owner", p.Ownership.Owner)
-		}
-		versions := make([]string, 0, len(p.Versions.Items))
-		for _, v := range p.Versions.Items {
-			label := v.Revision.Label
-			switch {
-			case v.SunsetReached:
-				label += " (sunset)"
-			case v.Lifecycle != nil:
-				label += " (deprecated)"
-			}
-			versions = append(versions, label)
-		}
-		if p.Versions.Truncated {
-			versions = append(versions, fmt.Sprintf("+%d more", p.Versions.Total-len(p.Versions.Items)))
-		}
-		field(b, "  versions", strings.Join(versions, ", "))
-		field(b, "  lifecycle", strings.TrimPrefix(lifecycleText(p.Lifecycle), ", "))
-		if p.Consume != nil {
-			field(b, "  consume", p.Consume.Ref)
-			for line := range strings.Lines(p.Consume.YAML) {
-				b.WriteString("    " + safeText(strings.TrimSuffix(line, "\n")) + "\n")
-			}
-		}
+		renderOfferingProvider(b, p)
 	}
 	if o.Providers.Truncated {
 		b.WriteString("  " + dimStyle.Render(fmt.Sprintf("... and %d more", o.Providers.Total-len(o.Providers.Items))) + "\n")
 	}
 	section(b, fmt.Sprintf("Consumers (%d)", o.Consumers.Total))
 	for _, u := range o.Consumers.Items {
-		fmt.Fprintf(b, "  %s -> %s\n", safeText(u.Consumer.Label), safeText(u.Provider.Label))
+		successor := ""
+		if u.SuccessorRange != "" {
+			successor = ", successor range " + u.SuccessorRange
+		}
+		if u.SupportedRange != "" {
+			successor += ", latest supported range " + u.SupportedRange
+		}
+		fmt.Fprintf(b, "  %s -> %s%s\n", safeText(u.Consumer.Label), safeText(u.Provider.Label), successor)
 	}
 	if o.Consumers.Truncated {
 		b.WriteString("  " + dimStyle.Render(fmt.Sprintf("... and %d more", o.Consumers.Total-len(o.Consumers.Items))) + "\n")
+	}
+	if l := o.ObservedConsumers.Line(); l != "" {
+		b.WriteString("  " + safeText(l) + "\n")
+	}
+	if o.HiddenObservedConsumers > 0 {
+		b.WriteString("  " + dimStyle.Render(fmt.Sprintf("Observed callers you may not see: %d", o.HiddenObservedConsumers)) + "\n")
+	}
+	renderOfferingAdapters(b, o)
+}
+
+// renderOfferingAdapters draws who reports on the offering's requests and the
+// declared uses that may name one of its providers but did not resolve. Every
+// slug, producer, environment and reason is adapter-chosen free text, so each
+// line goes through safeText.
+func renderOfferingAdapters(b *strings.Builder, o *fleet.OfferingDetailData) {
+	section(b, fmt.Sprintf("Adapters (%d)", o.Adapters.Total))
+	for _, l := range o.Adapters.Lines(o.HiddenConsumers) {
+		b.WriteString("  " + safeText(l) + "\n")
+	}
+	if u := o.UnresolvedUses; u.Count > 0 {
+		field(b, "unresolved uses", fmt.Sprintf("%d may name a provider of this offering (inferred): %s", u.Count, u.Reason))
+	}
+}
+
+// renderOfferingProvider draws one provider: owner, versions, lifecycle,
+// availability, successor and how to consume it.
+func renderOfferingProvider(b *strings.Builder, p fleet.OfferingProvider) {
+	fmt.Fprintf(b, "  %s\n", safeText(p.Service.Label))
+	if p.Ownership != nil {
+		field(b, "  owner", p.Ownership.Owner)
+	}
+	versions := make([]string, 0, len(p.Versions.Items))
+	for _, v := range p.Versions.Items {
+		label := v.Revision.Label
+		switch {
+		case v.SunsetReached:
+			label += " (sunset)"
+		case v.Lifecycle != nil:
+			label += " (deprecated)"
+		}
+		versions = append(versions, label)
+	}
+	if p.Versions.Truncated {
+		versions = append(versions, fmt.Sprintf("+%d more", p.Versions.Total-len(p.Versions.Items)))
+	}
+	field(b, "  versions", strings.Join(versions, ", "))
+	field(b, "  lifecycle", strings.TrimPrefix(lifecycleText(p.Lifecycle), ", "))
+	field(b, "  availability", string(p.Availability.State))
+	availabilityLines(b, "    ", p.Availability)
+	if p.Successor != nil {
+		field(b, "  successor", p.Successor.Text())
+	}
+	if p.LatestSupported != nil {
+		field(b, "  latest supported", p.LatestSupported.Label)
+	}
+	if p.Consume != nil {
+		field(b, "  consume", p.Consume.Ref)
+		for line := range strings.Lines(p.Consume.YAML) {
+			b.WriteString("    " + safeText(strings.TrimSuffix(line, "\n")) + "\n")
+		}
+	}
+}
+
+// availabilityLines writes a's environments, one per line, under indent.
+func availabilityLines(b *strings.Builder, indent string, a fleet.Availability) {
+	for _, l := range a.Lines() {
+		b.WriteString(indent + safeText(l) + "\n")
 	}
 }
 

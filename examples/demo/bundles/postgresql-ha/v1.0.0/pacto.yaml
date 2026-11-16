@@ -1,0 +1,45 @@
+pactoVersion: '2.4'
+service:
+  name: postgresql-ha
+  version: 1.0.0
+  offering: postgresql
+  summary: Highly available PostgreSQL for critical workloads
+  owner:
+    team: platform-data
+    dri: lena.fischer
+    contacts:
+    - type: email
+      value: platform-data@acme.com
+      purpose: escalation
+    - type: chat
+      value: '#platform-data'
+      purpose: support
+    - type: oncall
+      value: platform-data-oncall
+      purpose: oncall
+workload: service
+configurations:
+- name: provisioning
+  schema: configuration/provisioning.schema.json
+  required: true
+policies:
+- name: database-standards
+  schema: policy/schema.json
+state:
+  type: stateful
+  persistence:
+    scope: shared
+    durability: persistent
+  dataCriticality: high
+metadata:
+  tier: infra
+  category: storage
+  criticality: high
+  serviceType: infrastructure
+  protocol: postgresql
+  repo: github.com/trianalab/pacto-demo/postgresql-ha
+  tags:
+  - database
+  - relational
+  - high-availability
+  - infrastructure

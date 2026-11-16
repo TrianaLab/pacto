@@ -121,6 +121,7 @@ Each reconciliation compares the declared contract against observed runtime evid
 | `EVIDENCE_INSUFFICIENT` | an observation was collected but is inconclusive |
 | `OBSERVATION_UNSUPPORTED` | the dimension cannot be observed in this environment |
 | `COLLECTION_FAILED` | the cluster query needed to observe the assertion errored |
+| `HEALTH_FAILING` | the health check answered and reports it is not healthy (a 5xx, or a failing readiness probe on the declared path) |
 
 Severity is derived, not authored: a required assertion that is contradicted is `error`; an optional one is `warning`; one that cannot be observed is `unknown`. `DEPENDENCY_UNDECLARED` (a connection, seen by the node agent, to another Pacto service no dependency declares) is always a `warning`. See [Runtime conformance](docs/runtime-conformance.md) for the node agent and these checks.
 

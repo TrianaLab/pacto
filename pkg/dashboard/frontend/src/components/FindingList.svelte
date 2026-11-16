@@ -22,6 +22,8 @@
         <span class="f-msg">{f.message || f.code || 'Finding'}</span>
         {#if it.entity}<div class="f-entity"><EntityLink ref={it.entity} showStatus={false} /></div>{/if}
         <span class="f-meta">
+          <!-- The code a CLI or an agent reads, so the page and the API name it alike. -->
+          {#if f.code}<span class="f-code"><bdi>{f.code}</bdi></span>{/if}
           {#if f.category}<span>{f.category}</span>{/if}
           {#if f.contractPath}<span class="f-path">{f.contractPath}</span>{/if}
           {#if f.evidenceRefs?.total}<span>{formatCount(f.evidenceRefs.total)} evidence ref{f.evidenceRefs.total === 1 ? '' : 's'}</span>{/if}
@@ -39,5 +41,5 @@
   .f-msg { color: var(--c-text); font-size: var(--text-sm); overflow-wrap: anywhere; }
   .f-entity { font-size: var(--text-sm); }
   .f-meta { display: flex; gap: var(--sp-2); flex-wrap: wrap; color: var(--c-text-3); font-size: var(--text-xs); }
-  .f-path { font-family: var(--font-mono, monospace); }
+  .f-path, .f-code { font-family: var(--font-mono, monospace); overflow-wrap: anywhere; }
 </style>

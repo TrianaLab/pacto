@@ -363,10 +363,10 @@ func inboxQueues(ops []delivery.OperationObject, q string, frozen map[string]boo
 
 // waitsOn: held op it waits on caller, whose decision the promoter would
 // count. A question that names no team is also break-glass's: under
-// requireOwnerTeam nobody else can resolve it.
+// requireOwnerTeam nobody else can resolve it, unless they asked for it.
 func waitsOn(op *delivery.OperationObject, it InboxItem, caller delivery.Caller) bool {
 	return answerRefusal(op, caller, it.Decision) == "" ||
-		len(it.Owners) == 0 && caller.Class == delivery.ClassBreakGlass && caller.User != op.Spec.Actor.User
+		len(it.Owners) == 0 && caller.Class == delivery.ClassBreakGlass && !delivery.AskedBy(op.Spec, caller.User)
 }
 
 // EnvironmentRow is one Stage: one service in one environment, as the
@@ -795,6 +795,7 @@ type historyInput struct {
 	Timed         bool   `query:"timed" doc:"With since or until: keep only the changes whose own time (finished, else applied, else since when waiting) is at or after since and before until, as a timeline column counts them. A change with no time, or one that only overlaps the window, is left out"`
 	Cause         string `query:"cause" doc:"Keep only changes whose cause (reason, operation or cited verdict) names this text, ignoring case. A line with no record carries an unsigned cause. It narrows the timeline too"`
 	CorrelationID string `query:"correlationID" doc:"Keep only changes with exactly this correlation id. It narrows the timeline too"`
+	At            string `query:"at" doc:"RFC 3339 time, or a duration before now such as 2h: also say which revision each Stage on this page ran at that time, from its signed records (see at in the answer); the histories keep only changes at or before it. It takes no since, until, timed, cause or correlationID"`
 	// With a Stage, the page is of its changes; without, of Stages, each
 	// with its newest changes.
 	PageQuery
@@ -834,6 +835,7 @@ type historyOutput struct {
 		// Timeline is over every page; without a stage only (one Stage's is on
 		// its history).
 		Timeline *delivery.HistoryTimeline `json:"timeline,omitempty" doc:"Without a stage: the changes still in the cluster on every Stage that matches, by time and kind, over since..until or the last day. Signed records are read per Stage, so a missing record shows only on one Stage's timeline. It counts the changes left after cause and correlationID"`
+		At       *delivery.AtAnswer        `json:"at,omitempty" doc:"With at: which revision each Stage on this page ran at that time. Each revision is one this dashboard's fleet holds, never a guess"`
 		Labels
 	}
 }
@@ -858,6 +860,13 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 	if err != nil {
 		return nil, err
 	}
+	at, err := historyAtQuery(in)
+	if err != nil {
+		return nil, err
+	}
+	if !at.IsZero() {
+		until = at
+	}
 	api, err := s.deliveryFor(ctx)
 	if err != nil {
 		return nil, err
@@ -865,43 +874,18 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 	keep := delivery.EntryFilter{Cause: in.Cause, CorrelationID: in.CorrelationID}
 	out := &historyOutput{}
 	out.Body.Listing = Listing{Listing: delivery.Listing{AsOf: time.Now().UTC().Format(time.RFC3339), Completeness: "complete"}}
-	var targets []delivery.StageObject
+	one := in.Namespace != "" && in.Stage != ""
 	// describe: the Stages were read, so their artifacts can be asked for
 	// versions. A Stage that cannot be read still has a history to ask for.
-	describe := true
-	one := in.Namespace != "" && in.Stage != ""
-	if one {
-		if err := s.inScope(in.Namespace); err != nil {
-			return nil, err
-		}
-		st, err := api.Stage(ctx, in.Namespace, in.Stage)
-		if err != nil {
-			st, describe = &delivery.StageObject{Metadata: delivery.ObjectMeta{Namespace: in.Namespace, Name: in.Stage}}, false
-		}
-		targets, out.Body.Page = []delivery.StageObject{*st}, Page{Total: 1, Limit: 1}
-	} else {
-		stages, ops, l, err := s.lists(ctx, api, true)
-		if err != nil {
-			return nil, err
-		}
-		stages = filter(stages, func(st delivery.StageObject) bool {
-			return matches(in.Q, st.Metadata.Namespace+"/"+st.Metadata.Name, st.Spec.Service.Name, st.Spec.Environment) &&
-				delivery.OfService(st, in.Service, in.Domain)
-		})
-		out.Body.Counts = historyCounts(stages, ops)
-		out.Body.Timeline = clusterTimeline(stages, ops, since, until, keep)
-		slices.SortFunc(stages, func(a, b delivery.StageObject) int {
-			return cmp.Or(cmp.Compare(a.Metadata.Namespace, b.Metadata.Namespace), cmp.Compare(a.Metadata.Name, b.Metadata.Name))
-		})
-		out.Body.Listing = l
-		// Only the page's histories are read: each one reads and verifies a
-		// whole record stream.
-		targets, out.Body.Page = pageOf(stages, in.Offset, in.Limit, historyStagesPage)
+	targets, describe, err := s.historyTargets(ctx, api, in, out, since, until, keep)
+	if err != nil {
+		return nil, err
 	}
 	out.Body.Histories = []StageHistory{}
 	out.Body.Versions = map[string]string{}
 	var actors []string
 	var on []digestsOn
+	var ats []delivery.StageAt
 	hs, errs := historiesOf(ctx, api, targets, describe)
 	for i, t := range targets {
 		if errs[i] != nil {
@@ -928,6 +912,10 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 			sh.Problems, sh.Unreadable = nil, nil
 		}
 		digests := []string{h.Stage.Pointer}
+		if !at.IsZero() {
+			ats = append(ats, delivery.StateAt(t, *h, at))
+			digests = append(digests, ats[len(ats)-1].Digest)
+		}
 		for _, e := range sh.Entries {
 			digests, actors = append(digests, e.From, e.To), append(actors, e.Actor)
 		}
@@ -941,7 +929,84 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 	versionsIn(out.Body.Versions, read)
 	out.Body.Revisions = s.revisionLabels(ctx, read, on...)
 	out.Body.People = s.named(actors...)
+	if !at.IsZero() {
+		out.Body.At = s.atAnswer(ctx, at, ats, read, out.Body.Listing, out.Body.Page)
+	}
 	return out, nil
+}
+
+// historyAtQuery reads the at query parameter as --at reads its value
+// (delivery.ParseAt). It refuses the change filters with it: they would
+// drop the moves the answer reads.
+func historyAtQuery(in *historyInput) (time.Time, error) {
+	if in.At == "" {
+		return time.Time{}, nil
+	}
+	if in.Since != "" || in.Until != "" || in.Timed || in.Cause != "" || in.CorrelationID != "" {
+		return time.Time{}, huma.Error400BadRequest("at says what each Stage ran at one time; it takes no since, until, timed, cause or correlationID")
+	}
+	t, err := delivery.ParseAt(in.At, time.Now())
+	if err != nil {
+		return t, huma.Error400BadRequest("at " + err.Error())
+	}
+	return t, nil
+}
+
+// atAnswer is what each Stage of a page ran at t: described from read, each
+// revision the one this dashboard's fleet holds (revisionMatcher, never the
+// derived key), and complete only when the listing read every namespace and
+// no other page of Stages remains.
+func (s *Server) atAnswer(ctx context.Context, t time.Time, ats []delivery.StageAt, read map[string]delivery.Described, l Listing, p Page) *delivery.AtAnswer {
+	a := &delivery.AtAnswer{At: t.UTC().Format(time.RFC3339), AsOf: l.AsOf, Stages: ats}
+	a.Describe(read)
+	match := s.revisionMatcher(ctx)
+	for i, st := range a.Stages {
+		a.Stages[i].Revision = ""
+		if match != nil && st.Digest != "" {
+			a.Stages[i].Revision = match(st.Service, st.Domain, read[st.Digest].Contract)
+		}
+	}
+	a.Complete(l.Completeness == "complete" && len(l.Unreadable) == 0, p.Offset > 0 || p.NextOffset != nil, l.Unreadable)
+	return a
+}
+
+// historyTargets are the Stages a history page reads: the one named, else a
+// page of every Stage the caller can list that in keeps, with the listing,
+// page, counts and timeline set on out. describe says the Stages were read
+// from the apiserver; a named Stage that cannot be read is still asked for
+// its history.
+func (s *Server) historyTargets(ctx context.Context, api DeliveryAPI, in *historyInput, out *historyOutput, since, until time.Time,
+	keep delivery.EntryFilter) ([]delivery.StageObject, bool, error) {
+	if in.Namespace != "" && in.Stage != "" {
+		if err := s.inScope(in.Namespace); err != nil {
+			return nil, false, err
+		}
+		out.Body.Page = Page{Total: 1, Limit: 1}
+		st, err := api.Stage(ctx, in.Namespace, in.Stage)
+		if err != nil {
+			return []delivery.StageObject{{Metadata: delivery.ObjectMeta{Namespace: in.Namespace, Name: in.Stage}}}, false, nil
+		}
+		return []delivery.StageObject{*st}, true, nil
+	}
+	stages, ops, l, err := s.lists(ctx, api, true)
+	if err != nil {
+		return nil, false, err
+	}
+	stages = filter(stages, func(st delivery.StageObject) bool {
+		return matches(in.Q, st.Metadata.Namespace+"/"+st.Metadata.Name, st.Spec.Service.Name, st.Spec.Environment) &&
+			delivery.OfService(st, in.Service, in.Domain)
+	})
+	out.Body.Counts = historyCounts(stages, ops)
+	out.Body.Timeline = clusterTimeline(stages, ops, since, until, keep)
+	slices.SortFunc(stages, func(a, b delivery.StageObject) int {
+		return cmp.Or(cmp.Compare(a.Metadata.Namespace, b.Metadata.Namespace), cmp.Compare(a.Metadata.Name, b.Metadata.Name))
+	})
+	out.Body.Listing = l
+	// Only the page's histories are read: each one reads and verifies a
+	// whole record stream.
+	var targets []delivery.StageObject
+	targets, out.Body.Page = pageOf(stages, in.Offset, in.Limit, historyStagesPage)
+	return targets, true, nil
 }
 
 // causeReason is the reason of c, empty when there is none.
@@ -1116,12 +1181,7 @@ func describedAll(ctx context.Context, api DeliveryAPI, into map[string]delivery
 	}
 	revs := describeAll(ctx, api, len(ask), func(i int) (*delivery.StageObject, string) { return from[ask[i]], ask[i] })
 	for i, d := range ask {
-		r := revs[i]
-		desc := delivery.Described{Version: version(ctx, r), Contract: r.ContractRef, Source: r.SourceRevision, Err: r.Err}
-		if r.Bundle != nil {
-			desc.Team = r.Bundle.Contract.Service.Owner.DisplayString()
-		}
-		into[d] = desc
+		into[d] = delivery.DescribedOf(revs[i], version(ctx, revs[i]))
 	}
 	return into
 }

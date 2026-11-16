@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -19,7 +20,8 @@ import (
 
 func createTool() *mcpsdk.Tool {
 	return &mcpsdk.Tool{
-		Name: "pacto_create",
+		Name:        "pacto_create",
+		Annotations: writes(false, false, true),
 		Description: "Creates a new Pacto service contract from structured inputs. " +
 			"Translates user intent (stores_data, data_survives_restart, etc.) into " +
 			"correct contract primitives. Scaffolds pacto.yaml plus interface and " +
@@ -109,7 +111,7 @@ type createArgs struct {
 	RunPlugins                string `json:"run_plugins"`
 }
 
-func createHandler(init Initializer) mcpsdk.ToolHandlerFor[createArgs, any] {
+func createHandler(init Initializer, served func(string) bool) mcpsdk.ToolHandlerFor[createArgs, any] {
 	return func(ctx context.Context, _ *mcpsdk.CallToolRequest, args createArgs) (*mcpsdk.CallToolResult, any, error) {
 		if args.From != "" {
 			return createFromPath(ctx, args, init)
@@ -148,6 +150,7 @@ func createHandler(init Initializer) mcpsdk.ToolHandlerFor[createArgs, any] {
 		if err != nil {
 			return nil, nil, err
 		}
+		result.Chain = promoteChain(result.Summary.Name, result.Summary.Version, filepath.Dir(result.Path), served)
 		res, err := jsonResult(result)
 		return res, nil, err
 	}
@@ -275,14 +278,17 @@ var newDynamic = k8sclient.NewDynamic
 
 func editTool() *mcpsdk.Tool {
 	return &mcpsdk.Tool{
-		Name: "pacto_edit",
+		Name:        "pacto_edit",
+		Annotations: writes(true, false, true),
 		Description: "Edits an existing Pacto contract. Supports adding/removing interfaces, " +
 			"dependencies and configuration references, environments and their values, the service lifecycle, " +
 			"the golden path template, workload and state semantics, metadata and more. " +
 			"Validates the result before writing; when the edit adds configuration references or environments or sets environment values, " +
 			"the edited bundle must pass the same check as pacto_check, so values are checked against the referenced contract's configuration schema, " +
 			"and a reference the service depends on (values for it, a 2.4 contract or a ranged dependency on the same repository) that cannot be resolved fails the edit; any other unresolvable reference is a warning. Nothing is written unless the check passes; then every file is written together. Supports dry_run mode. " +
-			"The result lists the changes made and warnings, such as an owner that is not a bare team name.",
+			"The result lists the changes made and warnings, such as an owner that is not a bare team name. " +
+			"Dry run or not, it also carries impact (who the edit affects, from the fleet snapshot, absent when this session has none), " +
+			"chain (the steps that carry the edit to running: publish, then a promote on each Stage, naming a tool only when this session serves it) and executor (who acts on the published revision).",
 		InputSchema: inputSchema(map[string]property{
 			"path":                         {Type: "string", Description: "Path to directory containing pacto.yaml (defaults to '.')"},
 			"name":                         {Type: "string", Description: "New service name"},
@@ -349,7 +355,7 @@ type editArgs struct {
 	DryRun                    bool    `json:"dry_run"`
 }
 
-func editHandler(validate Validator) mcpsdk.ToolHandlerFor[editArgs, any] {
+func editHandler(validate Validator, opts EditOptions) mcpsdk.ToolHandlerFor[editArgs, any] {
 	return func(ctx context.Context, _ *mcpsdk.CallToolRequest, args editArgs) (*mcpsdk.CallToolResult, any, error) {
 		input := EditInput{
 			Path:                      args.Path,
@@ -387,7 +393,7 @@ func editHandler(validate Validator) mcpsdk.ToolHandlerFor[editArgs, any] {
 			return nil, nil, err
 		}
 
-		result, err := Edit(ctx, validate, input)
+		result, err := Edit(ctx, validate, opts, input)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -400,7 +406,8 @@ func editHandler(validate Validator) mcpsdk.ToolHandlerFor[editArgs, any] {
 
 func checkTool() *mcpsdk.Tool {
 	return &mcpsdk.Tool{
-		Name: "pacto_check",
+		Name:        "pacto_check",
+		Annotations: readOnly(true),
 		Description: "Validates a Pacto contract the way `pacto validate` and CI do, and returns structured results including " +
 			"each stage's status, located errors, warnings, next (the one command to run now), a contract summary and actionable suggestions for " +
 			"improvement with ready-to-use pacto_edit tool calls, such as an owner that is not a bare team name " +
@@ -451,7 +458,8 @@ func checkHandler(validate Validator) mcpsdk.ToolHandlerFor[checkArgs, any] {
 
 func schemaTool() *mcpsdk.Tool {
 	return &mcpsdk.Tool{
-		Name: "pacto_schema",
+		Name:        "pacto_schema",
+		Annotations: readOnly(false),
 		Description: "Returns the Pacto contract JSON Schema, how to describe an AI agent as a service and the documentation link. " +
 			"Pacto tells you which services a change breaks before it ships, and checks what is actually running. " +
 			"Call this FIRST before creating or editing contracts to understand the format.",
@@ -476,15 +484,21 @@ type schemaResult struct {
 	JSONSchema  string `json:"jsonSchema"`
 }
 
-func schemaHandler() mcpsdk.ToolHandlerFor[struct{}, any] {
+// schemaHandler answers pacto_schema. remote swaps the sentence on the file
+// tools for where they run, since an HTTP server does not offer them.
+func schemaHandler(remote bool) mcpsdk.ToolHandlerFor[struct{}, any] {
+	tools := "Use pacto_create to generate new contracts and pacto_edit to " +
+		"modify existing ones. Use pacto_check to validate and get improvement suggestions."
+	if remote {
+		tools = remoteAuthoringSentence
+	}
 	return func(_ context.Context, _ *mcpsdk.CallToolRequest, _ struct{}) (*mcpsdk.CallToolResult, any, error) {
 		result := schemaResult{
 			Description: "Pacto tells you which services a change breaks before it ships, and checks what is actually running. " +
 				"A pacto.yaml file describes one service: who owns it (service.owner.team, a bare team name such as billing), " +
 				"its interfaces, the services it calls and the versions of each it accepts, its configuration, " +
 				"workload and state semantics, health and policies. The publish section is opt-in and only pacto publish reads it. " +
-				"Use pacto_create to generate new contracts and pacto_edit to " +
-				"modify existing ones. Use pacto_check to validate and get improvement suggestions.",
+				tools,
 			Agents:     agentGuidance,
 			Docs:       docsURL,
 			JSONSchema: string(validation.SchemaBytes()),
@@ -500,6 +514,7 @@ type property struct {
 	Type        string
 	Description string
 	Enum        []string // optional: closed set of allowed string values
+	Items       string   // with Type array: the type of each item
 }
 
 // inputSchema builds the tool's declared JSON Schema. It is the schema the SDK
@@ -525,6 +540,9 @@ func inputSchema(props map[string]property, required []string) map[string]any {
 		optional := !isRequired[name]
 		if optional {
 			entry["type"] = []string{p.Type, "null"}
+		}
+		if p.Items != "" {
+			entry["items"] = map[string]any{"type": p.Items}
 		}
 		if len(p.Enum) > 0 {
 			vals := make([]any, 0, len(p.Enum)+1)

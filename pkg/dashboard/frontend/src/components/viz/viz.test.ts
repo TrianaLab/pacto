@@ -134,7 +134,7 @@ describe('DistributionBar', () => {
   it('refuses to hide an over-count by widening its own denominator', () => {
     const over = [
       { label: 'One declared owner', value: 6, tone: 'ok' },
-      { label: 'Revisions name different owners', value: 3, tone: 'err' },
+      { label: 'Owners disagree', value: 3, tone: 'err' },
       { label: 'No declared owner', value: 1, tone: 'warn' },
     ];
     comp = mount(DistributionBar, { target, props: { title: 'Declared ownership', segments: over, total: 8 } });
@@ -324,6 +324,32 @@ describe('HorizontalBars', () => {
     });
     expect(target.querySelectorAll('.hb-row')).toHaveLength(2);
     expect(target.querySelector('.hb-scale')?.textContent).toBe('Every row here is zero, so no bar is drawn.');
+  });
+
+  // Unknown is never 0 (Metrics trends): a bucket with no records draws a full hatched
+  // track and prints its reason in words, so the fact survives without colour.
+  it('prints an unknown row as its reason, hatched, never as 0, and keeps it out of the scale', () => {
+    comp = mount(HorizontalBars, {
+      target,
+      props: { title: 'Per week', items: [{ label: 'week of 3 Nov', value: 4 }, { label: 'week of 10 Nov', value: 0, unknown: 'no records', href: '#/metrics' }] },
+    });
+    const rows = Array.from(target.querySelectorAll('.hb-row'));
+    const unk = rows[1];
+    expect(unk.querySelector('.hb-value')?.textContent).toBe('no records');
+    expect(unk.textContent).not.toMatch(/\b0\b/);
+    const fill = unk.querySelector('.hb-fill') as HTMLElement;
+    expect(fill.classList.contains('hatch')).toBe(true);
+    expect(fill.style.width).toBe('100%');
+    expect((rows[0].querySelector('.hb-fill') as HTMLElement).style.width).toBe('100%');
+    expect(target.querySelector('.hb-scale')?.textContent).toContain('largest value shown (4)');
+    // A linked unknown row stays a keyboard-operable link.
+    expect(unk.querySelector('a')?.getAttribute('href')).toBe('#/metrics');
+  });
+
+  it('states no scale and no all-zero line when every row is unknown', () => {
+    comp = mount(HorizontalBars, { target, props: { title: 'Per week', items: [{ label: 'a', value: 0, unknown: 'no records' }] } });
+    expect(target.querySelector('.hb-scale')).toBeNull();
+    expect(target.textContent).not.toMatch(/\b0\b/);
   });
 
   it('says so plainly when there is nothing to rank, and states no scale for it', () => {

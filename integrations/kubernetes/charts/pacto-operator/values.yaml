@@ -270,6 +270,8 @@ dashboard:
     tokenLogin:
       # -- Let people sign in by pasting a Kubernetes bearer token, for a cluster whose API server trusts no identity provider. The token stays in the server-side session and every request runs with it; a token session never decides on a held change
       enabled: false
+    # -- Serve the dashboard without sign-in. Everyone who reaches it reads every service the dashboard's ServiceAccount reads. Ignored when sign-in is configured. With `false` and no sign-in the dashboard refuses to start
+    allowAnonymous: true
   # What the dashboard's delivery views read. They need sign-in
   # (`dashboard.auth`), because every delivery read and action runs with the
   # signed-in person's token.
@@ -283,6 +285,9 @@ dashboard:
       key: trust.yaml
     # -- Mira's address, to link the health-check citations in delivery views
     miraURL: ""
+  stats:
+    # -- Stats repository the dashboard's Metrics page reads run records from, such as ghcr.io/acme/pacto-stats. Empty: the page explains how to turn recording on. Credentials come from dashboard.ociSecrets
+    registry: ""
   service:
     # -- Dashboard exposure Service type (ClusterIP, NodePort, LoadBalancer).
     # The operator manages an internal ClusterIP Service (pacto-dashboard) for
@@ -357,8 +362,10 @@ evidence:
     # (apiVersion pacto.dev/evidence-trust/v1, a .yaml or .yml key). When set,
     # the Evidence Server starts with that file, so each key can carry subject,
     # contract-repository and observation-kind allowlists: a provisioning
-    # adapter needs allowedObservationKinds [ResourceProvisioned]. Its
-    # publicKeyFile entries name other keys of the same Secret. Empty trusts
+    # adapter needs allowedObservationKinds [ResourceProvisioned], and
+    # allowedProviderRepos scopes a provisioning adapter to the provider
+    # repositories it serves. Its publicKeyFile entries name other keys of the
+    # same Secret. Empty trusts
     # every *.pub key in the Secret for runtime evidence only.
     configKey: ""
   service:
@@ -534,6 +541,22 @@ delivery:
       interval: ""
       # -- Scrape timeout (empty uses Prometheus' default)
       scrapeTimeout: ""
+
+  stats:
+    # -- A repository (`host/path`) the promoter publishes an unsigned run record of every concluded
+    # operation to, attached to one anchor per service. Empty records none. Records are statistics for
+    # `pacto stats` and the dashboard Metrics page; nothing that decides reads them.
+    # Keep the repository private: pull access to it equals read access to the delivery history of
+    # every Stage in every cluster that records to it, so grant pull only to the identities that run
+    # `pacto stats` or the dashboard. A registry without the OCI Referrers API (GHCR) uses the
+    # run-record tag fallback, where concurrent writers to one service can lose a record without it
+    # being counted.
+    repository: ""
+    registryCredentials:
+      # -- A `kubernetes.io/dockerconfigjson` Secret in `delivery.namespace` with push access to
+      # `delivery.stats.repository`. Only the promoter mounts it. Without it the promoter uses
+      # `delivery.promoter.registryCredentials`, which is usually read-only.
+      secretName: ""
 
   gates:
     # -- Health gate providers a Stage may name in `spec.gates.verify.checks[].provider`, each

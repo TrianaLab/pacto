@@ -30,6 +30,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/logging"
 	"github.com/trianalab/pacto/v4/pkg/override"
 	"github.com/trianalab/pacto/v4/pkg/publish"
+	"github.com/trianalab/pacto/v4/pkg/runrecord/stats"
 )
 
 func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
@@ -52,19 +53,23 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 			"--evidence-url, --traces, --mira-source, --oci, --cache, --k8s, --namespace and --freshness) compose " +
 			"that snapshot and are read in --fleet mode only.\n\n" +
 			"With --delivery, the server exposes the Pacto delivery tools (pacto_delivery_*) over the " +
-			"ambient cluster: operation types, plan, get, explain, history, blame, undo plans and record checks, plus propose and cancel only when the " +
+			"ambient cluster: operation types, plan, get, explain, history, blame, undo plans and record checks, the dashboard's delivery views " +
+			"(caller, inbox, environments, autonomy, published and refusals, scoped by --namespace like the dashboard's), plus propose and cancel only when the " +
 			"apiserver says the caller is an agent (a service account, or an agent by the identity policy Pacto delivery publishes). It has " +
 			"no approve tool.\n\n" +
+			"Over HTTP on loopback without --auth-issuer, the server prints a bearer at launch (pmcp_..., this launch only) " +
+			"and every request must carry it, so other local processes cannot call the server.\n\n" +
 			"Over HTTP, --auth-issuer and --resource make every request carry a bearer token the server verifies " +
 			"(issuer, audience, expiry) and publish protected-resource metadata (RFC 9728); a bind beyond loopback " +
 			"needs them and refuses --auth and --allow-writes, which would lend this process's service credential to every caller. With --delivery the server then exchanges each caller's token for one the apiserver accepts " +
 			"(RFC 8693, --exchange-client-id) and builds the tools for that caller on every request, so an agent " +
-			"proposes as itself and a person gets the read-only tools. With --fleet the server names each caller with the claim mapping " +
-			"(--oidc-username-claim, --oidc-username-prefix, --oidc-groups-claim and --oidc-groups-prefix) and asks Kubernetes RBAC about that user; " +
-			"the API server does not confirm it, so the mapping must match its claimMappings.\n\n" +
+			"proposes as itself and a person gets the read-only tools. With --fleet the server exchanges each caller's token the same way, " +
+			"asks the apiserver who the caller is (a SelfSubjectReview) and asks Kubernetes RBAC what that user may read.\n\n" +
 			"With --publish, the authoring server also exposes pacto_publish_plan and pacto_publish, which publish " +
 			"a contract's version exactly as `pacto publish` does, with this process's registry credentials.\n\n" +
-			"A bundle reference, --root, --fleet, --delivery and --publish select different servers and cannot be combined.",
+			"Over HTTP the only contract tool is pacto_schema: pacto_create, pacto_edit and pacto_check read and write the server's folders and follow refs with its credentials, so they run beside the agent over stdio.\n\n" +
+			"A bundle reference, --fleet and --delivery combine in one server; --root and --publish select servers of their own. " +
+			"Call pacto_capabilities to learn what a server serves.",
 		Example: `  # Start MCP server over stdio (default)
   pacto mcp
 
@@ -88,21 +93,28 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 			if err := checkMCPTransport(s.transport); err != nil {
 				return err
 			}
-			if fm, _ := cmd.Flags().GetBool("fleet"); !fm && cmd.Flags().Changed("dashboard-url") {
-				return errDashboardURLNeedsFleet
+			fleetMode, _ := cmd.Flags().GetBool("fleet")
+			deliveryMode, _ := cmd.Flags().GetBool("delivery")
+			publishMode, _ := cmd.Flags().GetBool("publish")
+			// The mode is selected by --root being present, not by the values surviving:
+			// pflag round-trips a repeated flag through CSV, so a lone `--root ""` comes
+			// back as no roots at all. That has to fail, not turn into a different server.
+			if err := checkMCPMode(len(args) > 0, cmd.Flags().Changed("root"), fleetMode, deliveryMode, publishMode); err != nil {
+				return err
 			}
-			if pub, _ := cmd.Flags().GetBool("publish"); pub && s.transport != "stdio" {
+			if err := checkFleetOnlyFlags(cmd, fleetMode); err != nil {
+				return err
+			}
+			if publishMode && s.transport != "stdio" {
 				return errPublishOverHTTP
 			}
 			if err := mcpRemote(cmd, d, &s); err != nil {
 				return err
 			}
-			if dm, _ := cmd.Flags().GetBool("delivery"); dm && s.transport != "stdio" {
-				fleetMode, _ := cmd.Flags().GetBool("fleet")
-				if err := checkMCPMode(len(args) > 0, cmd.Flags().Changed("root"), fleetMode, true, false); err != nil {
-					return err
-				}
-				if err := remoteDeliveryFor(cmd, svc, version, d, &s); err != nil {
+			// Delivery over HTTP always names its callers (or refuses); fleet
+			// does once callers sign in.
+			if s.transport == "http" && (deliveryMode || fleetMode && s.issuer != "") {
+				if err := remoteCallerFor(cmd, svc, version, args, d, &s); err != nil {
 					return err
 				}
 				return runMCPServer(cmd.Context(), s, cmd.ErrOrStderr())
@@ -111,6 +123,8 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 			if s.server, err = buildMCPServer(cmd, svc, version, args, d); err != nil {
 				return err
 			}
+			// The catalog server registers no contract tools at all.
+			s.remoteAuthoring = s.transport != "stdio" && !cmd.Flags().Changed("root")
 			return runMCPServer(cmd.Context(), s, cmd.ErrOrStderr())
 		},
 	}
@@ -118,19 +132,21 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 	cmd.Flags().StringP("transport", "t", "stdio", "transport type: stdio or http")
 	_ = cmd.RegisterFlagCompletionFunc("transport", staticCompletions(mcpTransports...))
 	cmd.Flags().Int("port", 8585, "port for HTTP transport")
-	cmd.Flags().String("host", "127.0.0.1", "bind address for HTTP transport; beyond loopback it needs --auth-issuer")
+	cmd.Flags().String("host", "127.0.0.1", "bind address for HTTP transport; beyond loopback it needs --auth-issuer, and on loopback without it every request carries the bearer printed at launch")
 	cmd.Flags().String("auth-issuer", "", "OpenID issuer whose bearer tokens every HTTP request must carry")
 	cmd.Flags().String("resource", "", "with --auth-issuer: this endpoint's URL as clients reach it, served as protected-resource metadata (RFC 9728)")
 	cmd.Flags().String("audience", "", "with --auth-issuer: the audience incoming tokens must carry (default --resource)")
-	cmd.Flags().String("exchange-client-id", "", "with --delivery over HTTP: the server's own OAuth client, which exchanges each caller's token for the cluster "+
+	cmd.Flags().String("exchange-client-id", "", "with --fleet or --delivery over HTTP with --auth-issuer: the server's own OAuth client, which exchanges each caller's token for the cluster "+
 		"(RFC 8693); its secret comes from PACTO_MCP_EXCHANGE_CLIENT_SECRET")
-	cmd.Flags().String("exchange-audience", "pacto-cli", "with --delivery over HTTP: the audience to exchange for, one the apiserver accepts")
+	cmd.Flags().String("exchange-audience", "pacto-cli", "with --fleet or --delivery over HTTP with --auth-issuer: the audience to exchange for, one the apiserver accepts")
 	addClaimFlags(cmd)
 	cmd.Flags().String("base-url", "", "base URL for live invocation (overrides the OpenAPI servers[] URL)")
 	cmd.Flags().StringArray("auth", nil, "credential for a security scheme as name=value (repeatable)")
 	cmd.Flags().Bool("allow-writes", false, "expose mutating operations (POST/PUT/PATCH/DELETE) as tools")
 	cmd.Flags().Bool("fleet", false, "expose read-only operational-graph (fleet) query tools")
 	cmd.Flags().String("dashboard-url", "", "with --fleet: base URL of a Pacto dashboard; fleet answers then carry an href to each entity's page there")
+	cmd.Flags().String("stats-read-registry", "", "with --fleet: the stats repository pacto_stats reads; it reads and never records. "+
+		"Over stdio the default is $PACTO_STATS_REGISTRY; over HTTP only this flag enables pacto_stats")
 	cmd.Flags().Bool("delivery", false, "expose the Pacto delivery tools over the ambient cluster")
 	cmd.Flags().Bool("publish", false, "expose pacto_publish_plan and pacto_publish beside the authoring tools")
 	cmd.Flags().String("delivery-namespace", delivery.PolicyNamespace, "in --delivery mode: "+"namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer")
@@ -139,6 +155,7 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 	// Declared before the shared set so this spelling wins: here --root selects a
 	// catalog to discover, not a closure to fold into a snapshot.
 	cmd.Flags().StringArray("root", nil, "contract root to discover a read-only catalog from: a local bundle path or an oci:// reference (repeatable)")
+	cmd.Flags().StringArray("local", []string{"."}, "local bundle root(s) to scan in --fleet mode (repeatable); over HTTP none unless set")
 	// The rest are the fleet source flags, from the one declaration `pacto fleet`
 	// uses, and they apply in --fleet mode only.
 	addFleetSourceFlags(cmd.Flags())
@@ -146,47 +163,67 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 	return cmd
 }
 
-// buildMCPServer constructs the MCP server for the one mode the invocation
-// selected: catalog discovery from explicit roots, fleet queries, a bundle's
-// capability tools, or the authoring tools when nothing else is asked for.
+// buildMCPServer constructs the MCP server the invocation selected (RunE
+// checked the combination): the catalog from explicit roots, the publish
+// server, or the contract tools composed with any of fleet, delivery and a
+// bundle's operations.
 func buildMCPServer(cmd *cobra.Command, svc *app.Service, version string, args []string, d deps) (*mcpsdk.Server, error) {
 	roots, _ := cmd.Flags().GetStringArray("root")
-	fleetMode, _ := cmd.Flags().GetBool("fleet")
 	deliveryMode, _ := cmd.Flags().GetBool("delivery")
 	publishMode, _ := cmd.Flags().GetBool("publish")
-	// The mode is selected by --root being present, not by the values surviving:
-	// pflag round-trips a repeated flag through CSV, so a lone `--root ""` comes
-	// back as no roots at all. That has to fail, not turn into a different server.
-	catalogMode := cmd.Flags().Changed("root")
-	if err := checkMCPMode(len(args) > 0, catalogMode, fleetMode, deliveryMode, publishMode); err != nil {
-		return nil, err
-	}
-
 	switch {
 	case publishMode:
 		return pactomcp.NewPublishServer(version, mcpPublish(svc, d), mcpAuthoring(cmd, svc)), nil
-	case deliveryMode:
-		return buildDeliveryServer(cmd, svc, version, d)
-	case catalogMode:
+	case cmd.Flags().Changed("root"):
 		cat, err := buildCatalog(cmd, svc, roots)
 		if err != nil {
 			return nil, err
 		}
 		return pactomcp.NewCatalogServer(version, cat), nil
-	case fleetMode:
-		return buildFleetServer(cmd, svc, version, d)
-	case len(args) > 0:
-		return buildCapabilityServer(cmd, svc, version, args[0])
 	}
-	return pactomcp.NewServer(mcpAuthoring(cmd, svc), version), nil
+	m, err := mcpModes(cmd, svc, version, args, d)
+	if err == nil && deliveryMode {
+		m.Delivery, err = buildDeliveryMode(cmd, d, m.Fleet)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return pactomcp.New(version, mcpAuthoring(cmd, svc), m)
 }
 
-// buildFleetServer exposes the fleet tools over a snapshot that rebuilds after
+// mcpModes builds the modes every request shares: the fleet over one
+// refreshing snapshot and the bundle's operations. Delivery is per caller.
+func mcpModes(cmd *cobra.Command, svc *app.Service, version string, args []string, d deps) (pactomcp.Modes, error) {
+	transport, _ := cmd.Flags().GetString("transport")
+	fleetMode, _ := cmd.Flags().GetBool("fleet")
+	m := pactomcp.Modes{Transport: transport}
+	var err error
+	if fleetMode {
+		if m.Fleet, err = buildFleetMode(cmd, svc, d); err != nil {
+			return m, err
+		}
+	}
+	if len(args) > 0 {
+		m.Bundle, err = buildBundleMode(cmd, svc, version, args[0])
+	}
+	return m, err
+}
+
+// stdioReached reads delivery for reached as this process's own user, over
+// stdio only: an HTTP server's callers are not that user.
+func stdioReached(cmd *cobra.Command, d deps, transport string) pactomcp.ReachedReader {
+	if transport != "stdio" {
+		return nil
+	}
+	return attachReached(cmd, d)
+}
+
+// buildFleetMode serves the fleet tools over a snapshot that rebuilds after
 // the dashboard's refresh interval. The first build fails startup; later ones
 // run on the command's lifetime context, never a request's, so a cancelled call
 // cannot abort the build other sessions wait on.
-func buildFleetServer(cmd *cobra.Command, svc *app.Service, version string, d deps) (*mcpsdk.Server, error) {
-	fopts := fleetOptions(cmd)
+func buildFleetMode(cmd *cobra.Command, svc *app.Service, d deps) (*pactomcp.FleetMode, error) {
+	fopts := mcpFleetOptions(cmd)
 	src, err := mcpFleetSource(cmd.Context(), func(ctx context.Context) (*fleet.FleetSnapshot, error) {
 		return svc.Fleet(ctx, fopts)
 	}, fleetRefreshInterval, time.Now)
@@ -198,11 +235,24 @@ func buildFleetServer(cmd *cobra.Command, svc *app.Service, version string, d de
 	// view is nil for an HTTP server without --auth-issuer too, so only the
 	// transport says whether the caller is this process's own user.
 	transport, _ := cmd.Flags().GetString("transport")
-	return pactomcp.NewFleetServer(version, src, mcpAuthoring(cmd, svc), pactomcp.FleetOptions{
+	return &pactomcp.FleetMode{Src: src, Opts: pactomcp.FleetOptions{
 		// Under a view the new revision is never added: the rebuild would read
 		// the unrestricted sources.
 		Impact: mcpImpactProvider(cmd, svc, d, view == nil, transport == "stdio"), View: view, DashboardURL: url,
-	}), nil
+		Reached: stdioReached(cmd, d, transport),
+		Stats:   mcpStatsProvider(cmd, svc, transport == "stdio"),
+	}}, nil
+}
+
+// mcpFleetOptions is fleetOptions for the fleet server. Over HTTP every caller
+// reads the snapshot as this process, so the server scans the working
+// directory's bundles only when --local says so; stdio keeps `--local .`.
+func mcpFleetOptions(cmd *cobra.Command) app.FleetOptions {
+	fopts := fleetOptions(cmd)
+	if transport, _ := cmd.Flags().GetString("transport"); transport != "stdio" && !cmd.Flags().Changed("local") {
+		fopts.LocalRoots = nil
+	}
+	return fopts
 }
 
 // mcpFleetSource builds the first snapshot (its error fails startup) and
@@ -244,37 +294,50 @@ func mcpFleetSource(life context.Context, build fleet.Builder, interval time.Dur
 // errDashboardURLNeedsFleet: only the fleet tools answer with entities to link.
 var errDashboardURLNeedsFleet = errors.New("--dashboard-url needs --fleet: only the fleet tools link answers to a dashboard")
 
-// checkMCPMode rejects an invocation that selects more than one server. The
-// modes expose disjoint surfaces, so honouring one and dropping the rest would
-// hand a client a server it did not ask for; saying so is the only safe answer.
+// errStatsRegistryNeedsFleet: pacto_stats registers on the fleet server only.
+var errStatsRegistryNeedsFleet = errors.New("--stats-read-registry needs --fleet: pacto_stats is a fleet tool")
+
+// checkFleetOnlyFlags refuses a flag only the fleet tools read when the
+// server has none, so it is never silently ignored.
+func checkFleetOnlyFlags(cmd *cobra.Command, fleetMode bool) error {
+	switch {
+	case fleetMode:
+		return nil
+	case cmd.Flags().Changed("dashboard-url"):
+		return errDashboardURLNeedsFleet
+	case cmd.Flags().Changed("stats-read-registry"):
+		return errStatsRegistryNeedsFleet
+	}
+	return nil
+}
+
+// checkMCPMode rejects --root or --publish beside any other mode: each
+// selects a server of its own, so honouring one and dropping the rest would
+// hand a client a server it did not ask for. A bundle reference, --fleet and
+// --delivery combine in one server.
 func checkMCPMode(hasBundle, hasRoots, fleetMode, deliveryMode, publishMode bool) error {
 	var selected []string
-	if hasBundle {
-		selected = append(selected, "a bundle reference")
+	for _, m := range []struct {
+		on   bool
+		name string
+	}{{hasBundle, "a bundle reference"}, {hasRoots, "--root"}, {fleetMode, "--fleet"}, {deliveryMode, "--delivery"}, {publishMode, "--publish"}} {
+		if m.on {
+			selected = append(selected, m.name)
+		}
 	}
-	if hasRoots {
-		selected = append(selected, "--root")
-	}
-	if fleetMode {
-		selected = append(selected, "--fleet")
-	}
-	if deliveryMode {
-		selected = append(selected, "--delivery")
-	}
-	if publishMode {
-		selected = append(selected, "--publish")
-	}
-	if len(selected) > 1 {
-		return fmt.Errorf("%s cannot be combined: each selects a different MCP server, so pass only one",
+	if len(selected) > 1 && (hasRoots || publishMode) {
+		return fmt.Errorf("%s cannot be combined: --root and --publish each select an MCP server of their own, so pass them alone",
 			strings.Join(selected, ", "))
 	}
 	return nil
 }
 
-// buildDeliveryServer exposes the delivery tools. Write tools register only when
-// the apiserver says the caller is an agent: an agent must run under its own
-// identity, and a person's credentials get the read-only surface.
-func buildDeliveryServer(cmd *cobra.Command, svc *app.Service, version string, d deps) (*mcpsdk.Server, error) {
+// buildDeliveryMode serves the delivery tools for the kubeconfig's caller.
+// Write tools register only when the apiserver says the caller is an agent:
+// an agent must run under its own identity, and a person's credentials get
+// the read-only surface. The read tools run the dashboard's routes over fm,
+// the fleet mode when there is one.
+func buildDeliveryMode(cmd *cobra.Command, d deps, fm *pactomcp.FleetMode) (*pactomcp.DeliveryMode, error) {
 	c, _, err := deliveryClient(cmd, d)
 	if err != nil {
 		return nil, err
@@ -283,7 +346,19 @@ func buildDeliveryServer(cmd *cobra.Command, svc *app.Service, version string, d
 	if err != nil {
 		return nil, err
 	}
-	return pactomcp.NewDeliveryServer(version, mcpDelivery{c}, caller.Class == delivery.ClassAgent, mcpAuthoring(cmd, svc)), nil
+	cluster, _ := d.clusterConfig() // nil: delivery reads skip discovery and cannot list namespaces
+	id := baseDashboardIdentity(cluster, d, c.Trust, c.PolicyNamespace)
+	reads := mcpDeliveryReads(id, fm, fleetNamespace(cmd))
+	return &pactomcp.DeliveryMode{API: mcpDelivery{c}, Writes: caller.Class == delivery.ClassAgent, Caller: caller,
+		Reads: reads(c, ""), CallerAt: time.Now(), Installed: id.installedProbe()}, nil
+}
+
+// fleetNamespace is the fleet --namespace, the only namespace delivery reads
+// cover when set, as on the dashboard. --delivery-namespace names where the
+// identity policy is published and never narrows them.
+func fleetNamespace(cmd *cobra.Command) string {
+	ns, _ := cmd.Flags().GetString("namespace")
+	return ns
 }
 
 // mcpDelivery adapts app.Delivery to the MCP tools' interface.
@@ -320,12 +395,15 @@ var errDeliveryOverHTTP = errors.New("--delivery over HTTP needs --auth-issuer, 
 var errPublishOverHTTP = errors.New("--publish serves stdio only: over HTTP every caller would publish with this process's " +
 	"registry credentials; run `pacto mcp --publish` beside the agent, under the agent's own credentials")
 
-// mcpAuthoring is what every server's authoring tools get. pacto_create from
-// serves stdio only: over HTTP every caller would pull with this process's
-// registry credentials and write to its folders, so Init stays nil there.
+// mcpAuthoring is what every server's authoring tools get. pacto_create,
+// pacto_edit and pacto_check serve stdio only: over HTTP every caller would
+// read and write this process's folders, read its kubeconfig and follow refs
+// with its registry credentials, so Remote leaves only pacto_schema there.
 func mcpAuthoring(cmd *cobra.Command, svc *app.Service) pactomcp.Authoring {
 	a := pactomcp.Authoring{Validate: svc.ValidationReport}
-	if transport, _ := cmd.Flags().GetString("transport"); transport == "stdio" {
+	transport, _ := cmd.Flags().GetString("transport")
+	a.Remote = transport != "stdio"
+	if !a.Remote {
 		trust, _ := cmd.Flags().GetString("delivery-trust")
 		a.Init = mcpInit(svc, trust)
 	}
@@ -382,8 +460,8 @@ func buildCatalog(cmd *cobra.Command, svc *app.Service, roots []string) (*catalo
 	})
 }
 
-// buildCapabilityServer exposes one bundle's OpenAPI operations and skills.
-func buildCapabilityServer(cmd *cobra.Command, svc *app.Service, version, ref string) (*mcpsdk.Server, error) {
+// buildBundleMode serves one bundle's OpenAPI operations and skills.
+func buildBundleMode(cmd *cobra.Command, svc *app.Service, version, ref string) (*pactomcp.BundleMode, error) {
 	bundle, err := svc.ResolveBundle(cmd.Context(), ref)
 	if err != nil {
 		return nil, err
@@ -395,13 +473,12 @@ func buildCapabilityServer(cmd *cobra.Command, svc *app.Service, version, ref st
 	}
 	baseURL, _ := cmd.Flags().GetString("base-url")
 	allowWrites, _ := cmd.Flags().GetBool("allow-writes")
-	opts := pactomcp.CapabilityOptions{
+	return &pactomcp.BundleMode{Bundle: bundle, Stderr: cmd.ErrOrStderr(), Opts: pactomcp.CapabilityOptions{
 		BaseURL:     baseURL,
 		Creds:       creds,
 		AllowWrites: allowWrites,
-		Authoring:   mcpAuthoring(cmd, svc),
-	}
-	return pactomcp.NewCapabilityServer(bundle, opts, version, cmd.ErrOrStderr())
+		Version:     version,
+	}}, nil
 }
 
 // mcpImpactProvider builds the impact provider for pacto_impact. It analyses
@@ -412,9 +489,10 @@ func buildCapabilityServer(cmd *cobra.Command, svc *app.Service, version, ref st
 // delivery: over HTTP every caller would read them as this process.
 // Extracted so the wiring is directly testable.
 func mcpImpactProvider(cmd *cobra.Command, svc *app.Service, d deps, addMissing, trusted bool) func(ctx context.Context, snap *fleet.FleetSnapshot, req pactomcp.ImpactRequest) (*impact.Result, error) {
-	fopts := fleetOptions(cmd)
+	fopts := mcpFleetOptions(cmd)
 	return func(ctx context.Context, snap *fleet.FleetSnapshot, req pactomcp.ImpactRequest) (*impact.Result, error) {
-		if err := refuseUntrustedImpact(req, trusted); err != nil {
+		req, err := refuseUntrustedImpact(req, trusted, snap)
+		if err != nil {
 			return nil, err
 		}
 		var traces []byte
@@ -432,42 +510,49 @@ func mcpImpactProvider(cmd *cobra.Command, svc *app.Service, d deps, addMissing,
 			}
 			return svc.ImpactEventOnSnapshot(ctx, opts, snap)
 		}
-		opts := app.ImpactOptions{OldPath: req.OldRef, NewPath: req.NewRef, Fleet: fopts, IncludeObserved: req.IncludeObserved, Traces: traces}
+		opts := app.ImpactOptions{OldPath: req.OldRef, NewPath: req.NewRef, Domain: req.Domain, Fleet: fopts, IncludeObserved: req.IncludeObserved, Traces: traces}
 		return svc.ImpactOnSnapshot(ctx, opts, snap, addMissing)
 	}
 }
 
-// refuseUntrustedImpact keeps an HTTP caller from naming a file path or a
-// local ref: the server would read them with its own access.
-func refuseUntrustedImpact(req pactomcp.ImpactRequest, trusted bool) error {
+// refuseUntrustedImpact keeps an HTTP caller from naming a file path, a
+// local ref or a revision outside their fleet view: the server would read
+// them with its own access. Over HTTP the returned request carries each
+// revision's pinned ResolvedRef in place of the caller's string.
+func refuseUntrustedImpact(req pactomcp.ImpactRequest, trusted bool, snap *fleet.FleetSnapshot) (pactomcp.ImpactRequest, error) {
 	switch {
 	case trusted:
-		return nil
+		return req, nil
 	case req.TracesPath != "":
-		return errors.New("this server answers over HTTP: it reads no file path a caller names")
-	case req.Event == nil && (graph.ParseDependencyRef(req.OldRef).IsLocal() || graph.ParseDependencyRef(req.NewRef).IsLocal()):
-		return errors.New("this server answers over HTTP: pass oci:// references")
+		return req, errors.New("this server answers over HTTP: it reads no file path a caller names")
+	case req.Event != nil:
+		return req, nil
+	case graph.ParseDependencyRef(req.OldRef).IsLocal() || graph.ParseDependencyRef(req.NewRef).IsLocal():
+		return req, errors.New("this server answers over HTTP: pass oci:// references")
 	}
-	return nil
+	var err error
+	req.OldRef, req.NewRef, err = pinVisibleRefs(snap, req.OldRef, req.NewRef, "old_ref", "new_ref")
+	return req, err
 }
+
+// mcpNoDelivery says why an HTTP server reads no delivery for its callers.
+const mcpNoDelivery = "this server answers over HTTP and reads no delivery for its callers; " +
+	"run pacto mcp --fleet over stdio beside the agent, under its own cluster credentials, to read delivery evidence"
 
 // mcpRegression reads delivery about a regressed revision for a trusted
 // caller, with the kubeconfig the server runs under, which is the caller's.
 func mcpRegression(ctx context.Context, cmd *cobra.Command, d deps, ev impact.Event, trusted bool) *impact.Regression {
 	if !trusted {
-		return &impact.Regression{Unavailable: "this server answers over HTTP and reads no delivery for its callers; " +
-			"run pacto mcp --fleet over stdio beside the agent, under its own cluster credentials, to read delivery evidence"}
+		return &impact.Regression{Unavailable: mcpNoDelivery}
 	}
 	return readRegression(ctx, cmd, d, ev)
 }
 
 // mcpFleetView narrows the fleet tools of a server whose callers sign in
 // (HTTP with --auth-issuer) to what each caller's Kubernetes RBAC lets them
-// read, asked with this process's own credentials.
-// ponytail: the caller is named by the claim mapping, not confirmed by the
-// API server; exchange and authn.ReviewSelf per caller (as remote delivery
-// does) when a fleet server must name people exactly as the cluster does. Other servers answer from
-// the whole snapshot, as their single local user would read it.
+// read, asked with this process's own credentials about the person the
+// apiserver reviewed for the request (remoteCaller). Other servers answer
+// from the whole snapshot, as their single local user would read it.
 func mcpFleetView(cmd *cobra.Command, d deps) pactomcp.FleetView {
 	transport, _ := cmd.Flags().GetString("transport")
 	issuer, _ := cmd.Flags().GetString("auth-issuer")
@@ -476,9 +561,12 @@ func mcpFleetView(cmd *cobra.Command, d deps) pactomcp.FleetView {
 	}
 	cluster, _ := d.clusterConfig()
 	viewer := authn.NewViewer(clusterReview(cluster, d.dynamicFor))
-	claims := claimsFlags(flagString(cmd))
-	return func(ctx context.Context, caller *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
-		r, err := viewer.Query(ctx, claims.PersonFromTokenInfo(caller), q)
+	return func(ctx context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
+		p, ok := personFrom(ctx)
+		if !ok {
+			return nil, errNobodyReviewed
+		}
+		r, err := viewer.Query(ctx, p, q)
 		if err != nil {
 			return nil, fmt.Errorf("checking your Kubernetes permissions failed: %w", err)
 		}
@@ -510,7 +598,14 @@ func runMCPServer(ctx context.Context, s mcpServe, stderr io.Writer) error {
 		if err != nil {
 			return err
 		}
-		_, _ = fmt.Fprintf(stderr, "MCP server listening on http://%s/mcp\n", addr)
+		if s.launch != "" {
+			_, _ = fmt.Fprintf(stderr, "MCP server listening on http://%s/mcp   bearer: %s (this launch only)\n", addr, s.launch)
+		} else {
+			_, _ = fmt.Fprintf(stderr, "MCP server listening on http://%s/mcp\n", addr)
+		}
+		if s.remoteAuthoring {
+			_, _ = fmt.Fprintln(stderr, "contract tools: pacto_schema only over HTTP; pacto_create, pacto_edit and pacto_check run beside the agent with pacto mcp over stdio")
+		}
 		return serveHTTP(ctx, mcpHandler(s), listener)
 	case "stdio":
 		_, _ = fmt.Fprintln(stderr, "MCP server running on stdio")
@@ -533,4 +628,75 @@ func serveHTTP(ctx context.Context, handler http.Handler, listener net.Listener)
 	case err := <-errCh:
 		return err
 	}
+}
+
+// errNoStatsRegistryMCP is the D10 error of pacto_stats over stdio.
+var errNoStatsRegistryMCP = errors.New("no stats registry: pass registry, start pacto mcp with --stats-read-registry or set PACTO_STATS_REGISTRY")
+
+// errStatsRegistryOverHTTP: an HTTP caller cannot point the server's
+// credentials at another repository.
+var errStatsRegistryOverHTTP = errors.New("this server answers over HTTP: it reads only the stats repository it was started with")
+
+// mcpStatsProvider answers pacto_stats. A trusted (stdio) server always
+// serves it and reads the caller's registry argument, else
+// --stats-read-registry, else $PACTO_STATS_REGISTRY. An HTTP server serves it
+// only with --stats-read-registry and never reads the environment: a host
+// that exports it for CI recording must not serve that repository to remote
+// callers. A caller with a view is narrowed fail closed and reads only the
+// operation records its own exchanged client may list.
+func mcpStatsProvider(cmd *cobra.Command, svc *app.Service, trusted bool) pactomcp.StatsProvider {
+	flag, _ := cmd.Flags().GetString("stats-read-registry")
+	if !trusted && flag == "" {
+		return nil
+	}
+	return func(ctx context.Context, _ *auth.TokenInfo, full, view *fleet.Query, req pactomcp.StatsRequest) (*stats.Stats, error) {
+		now := statsNow()
+		if req.Registry != "" && !trusted {
+			return nil, errStatsRegistryOverHTTP
+		}
+		repo := cmp.Or(req.Registry, flag)
+		if repo == "" {
+			repo = os.Getenv("PACTO_STATS_REGISTRY") // only a trusted server gets here without a flag
+		}
+		if repo == "" {
+			return nil, errNoStatsRegistryMCP
+		}
+		q, err := statsQuery(req.Since, req.Until, req.By, req.Service, []string{req.Kinds}, now)
+		if err != nil {
+			return nil, err
+		}
+		scope, err := mcpStatsScope(full, view, req.Service)
+		if err != nil {
+			return nil, err
+		}
+		if q.Service, err = statsService(q.Service, full); err != nil {
+			return nil, err
+		}
+		r := app.StatsRequest{Registry: repo, Query: q, Scope: scope, Now: now}
+		// A signed-in caller's own exchanged client reviews the operation
+		// records; without one there is no delivery, never the server's.
+		if act := reviewedFrom(ctx).own; scope.Restricted && act != nil {
+			r.Scope.NoDelivery, r.OperationAccess = "", operationAccess(act, full)
+		}
+		return svc.Stats(ctx, r)
+	}
+}
+
+// mcpStatsScope is what a caller sees: everything without a view; with one,
+// only the services the view places and no operation records (the provider
+// adds those the caller's own review allows). A service
+// filter the view cannot place is the error pacto_fleet_get gives for an
+// absent service, before any registry read.
+func mcpStatsScope(full, view *fleet.Query, service string) (stats.Scope, error) {
+	attribution := statsAttribution(full)
+	if view == nil {
+		return stats.Scope{Place: stats.FleetPlacement(full, nil), Snapshot: attribution}, nil
+	}
+	place := stats.FleetPlacement(full, view)
+	if service != "" {
+		if _, ok := place(service); !ok {
+			return stats.Scope{}, &fleet.NotFoundError{Kind: "service", ID: service}
+		}
+	}
+	return stats.Scope{Restricted: true, Place: place, NoDelivery: mcpNoDelivery, Snapshot: attribution, Names: stats.VisibleNames(view)}, nil
 }

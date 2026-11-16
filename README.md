@@ -13,8 +13,8 @@ the OCI registry you already run.
 
 > **Why Pacto exists:** [MANIFEST.md](MANIFEST.md)
 
-![The Pacto dashboard overview on the demo fleet: it answers "Is anything wrong?" with two running targets that break their contract and two invalid revisions, warns that the snapshot is missing data and draws which data sources reported](docs/assets/screenshots/dashboard-overview-light.png#gh-light-mode-only)
-![The Pacto dashboard overview on the demo fleet: it answers "Is anything wrong?" with two running targets that break their contract and two invalid revisions, warns that the snapshot is missing data and draws which data sources reported](docs/assets/screenshots/dashboard-overview-dark.png#gh-dark-mode-only)
+![The Pacto dashboard overview on the demo fleet: it answers "Is anything wrong?" with two running targets that break their contract, one that fails its health check and four invalid revisions, warns that the snapshot is missing data and draws which data sources reported](docs/assets/screenshots/dashboard-overview-light.png#gh-light-mode-only)
+![The Pacto dashboard overview on the demo fleet: it answers "Is anything wrong?" with two running targets that break their contract, one that fails its health check and four invalid revisions, warns that the snapshot is missing data and draws which data sources reported](docs/assets/screenshots/dashboard-overview-dark.png#gh-dark-mode-only)
 
 ---
 
@@ -149,7 +149,11 @@ yours, and you can check that:
   artifact in your own registry, such as GHCR, ECR, ACR or Artifactory. Signed
   delivery records and evidence also need a registry that serves the OCI
   Referrers API, which GHCR does not. Nothing is stored on infrastructure
-  operated by the project.
+  operated by the project. Pacto can record what it catches as unsigned
+  statistics in a registry you name; `pacto stats` and the dashboard Metrics
+  page total them, and nothing leaves your registry.
+  [Measure what Pacto does](https://pacto.run/latest/measure-what-pacto-does/)
+  shows how.
 - **A published bundle opens without Pacto.** It is a gzipped tar layer, so
   standard OCI tooling is enough to get the files back out (below).
 - **Removing the runtime side leaves your workloads untouched.** The operator

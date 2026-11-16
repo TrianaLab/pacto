@@ -217,6 +217,7 @@ nav:
       - Example contracts: examples/index.md
       - Composition patterns: patterns/index.md
       - CI with GitHub Actions: github-actions.md
+      - Measure what Pacto does: measure-what-pacto-does.md
   - How Pacto decides:
       - How delivery works: integrations/kubernetes/delivery.md
       - The model: model.md
@@ -231,19 +232,27 @@ nav:
   - Reference:
       - Ladder reference: autonomy-reference.md
       - Operational graph reference: operational-graph-reference.md
+      - Operational graph tallies: operational-graph-tallies.md
       - Platform offerings reference: platform-offerings.md
+      - Offering availability and lifecycle: offering-availability.md
       - Golden paths reference: golden-paths-reference.md
-      - MCP reference: mcp-reference.md
+      - MCP reference:
+          - MCP reference: mcp-reference.md
+          - MCP publish and delivery tools: mcp-delivery-tools.md
       - Publish reference: publishing.md
+      - Run record reference: run-record-reference.md
       - Dashboard reference:
           - The service page: dashboard-service-page.md
+          - A service's changes and history: service-changes.md
           - Dashboard authentication: integrations/kubernetes/dashboard-authentication.md
           - Who sees what in the dashboard: integrations/kubernetes/dashboard-access.md
           - Dashboard container: dashboard-docker.md
       - Delivery reference:
-          - Approvals and agents: integrations/kubernetes/delivery-identity.md
+          - Approvals: integrations/kubernetes/delivery-identity.md
+          - Agents: integrations/kubernetes/delivery-agents.md
           - Signed records and history: integrations/kubernetes/delivery-records.md
           - Record keys: integrations/kubernetes/delivery-record-keys.md
+          - Run records: integrations/kubernetes/delivery-run-records.md
           - Setup and gates: integrations/kubernetes/delivery-setup.md
           - Plan, propose and approve: integrations/kubernetes/delivery-operations.md
           - Status, progress and lifecycle: integrations/kubernetes/delivery-status.md
@@ -267,6 +276,7 @@ nav:
       - Lockfile: lockfile.md
       - Packaging ignore: pactoignore.md
       - Evidence: evidence.md
+      - Provider reports: provider-reports.md
       - Plugin development: plugins.md
       # Kubernetes pages are owned by integrations/kubernetes/docs and assembled
       # into this site by release/scripts/mkdocs_integration_hook.py. Reference

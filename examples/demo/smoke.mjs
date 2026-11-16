@@ -162,6 +162,25 @@ check("evidence freshness partitions the population (fresh / stale / never obser
   ovs.evidence && ovs.evidence.withEvidence + ovs.evidence.withoutEvidence === ovs.targets
     && ovs.evidence.stale > 0 && ovs.evidence.withoutEvidence > 0,
   ovs.evidence && `${ovs.evidence.withEvidence}+${ovs.evidence.withoutEvidence} of ${ovs.targets}, ${ovs.evidence.stale} stale`);
+const oh = ovs.operationalHealth || {};
+check("operational health shows failing apart from unknown", oh.unavailable > 0 && oh.unknown > 0,
+  `failing=${oh.unavailable} unknown=${oh.unknown}`);
+check("operational health partitions the targets",
+  oh.available + oh.degraded + oh.unavailable + oh.unknown + oh.notObserved === ovs.targets, JSON.stringify(oh));
+const k = ovs.knowledge || { gaps: {} };
+check("knowledge gaps are a partition", k.described + k.withGaps + k.unknown === k.services && k.gaps.noSummary > 0,
+  `${k.described}+${k.withGaps}+${k.unknown} of ${k.services}, noSummary=${k.gaps.noSummary}`);
+// Every page of the attention list, so the lead tile is checked against the
+// whole list it opens rather than its first page.
+const allAttention = [];
+for (let off = 0; off != null;) {
+  const p = json(call("GET", `/api/fleet/attention?limit=200&offset=${off}`));
+  allAttention.push(...(p.items || []));
+  off = p.nextOffset;
+}
+const attnServices = new Set(allAttention.map((i) => i.service).filter(Boolean));
+check("the lead tile counts the services in its list", attnServices.size === ovs.servicesNeedingAttention,
+  `${attnServices.size} distinct services in ${allAttention.length} items, tile ${ovs.servicesNeedingAttention}`);
 check("source health shows available, partial and unavailable",
   ovs.degradedSources > 0 && ovs.unavailableSources > 0, `degraded=${ovs.degradedSources} unavailable=${ovs.unavailableSources}`);
 
@@ -226,10 +245,12 @@ const sess = json(call("GET", "/api/session"));
 check("session: signed in as pay-agent", sess.signedIn === true && sess.user === "system:serviceaccount:agents:pay-agent", JSON.stringify(sess));
 const rows = json(call("GET", "/api/delivery/environments")).environments || [];
 const cand = (svc) => (rows.find((r) => r.environment === "prod" && r.service === svc) || {}).candidate;
-const held = json(call("POST", "/api/delivery/operations", JSON.stringify({ namespace: "prod", stage: "payments", to: cand("payments") })));
+const noPrincipal = call("POST", "/api/delivery/operations", JSON.stringify({ namespace: "prod", stage: "payments", to: cand("payments") }));
+check("pay-agent must name the person it acts for", noPrincipal.status === 403 && json(noPrincipal).code === "NoPrincipal", noPrincipal.status);
+const held = json(call("POST", "/api/delivery/operations", JSON.stringify({ namespace: "prod", stage: "payments", to: cand("payments"), onBehalfOf: "dana@example.com" })));
 check("payments 3.0.0 is held for checkout and orders",
   held.operation?.status?.phase === "Held" && /Asked of: checkout, orders/.test(held.operation.status.question), held.operation?.status?.question);
-call("POST", "/api/delivery/operations", JSON.stringify({ namespace: "prod", stage: "checkout", to: cand("checkout") }));
+call("POST", "/api/delivery/operations", JSON.stringify({ namespace: "prod", stage: "checkout", to: cand("checkout"), onBehalfOf: "dana@example.com" }));
 const opPath = `/api/delivery/operations/prod/${held.operation?.metadata?.name}`;
 let question = "";
 for (let i = 0; i < 40 && !/Asked of: orders$/.test(question); i++) {
@@ -257,7 +278,68 @@ check("prod held payments 2.4.1 for team payments: it declares no prod environme
   env241.outcome === "Rejected" && /declares no environment prod/.test(envVerdict?.message || ""), envVerdict?.message);
 const evals = (json(call("GET", "/api/delivery/operations/test/pay-agent-promote-17")).operation?.status?.verdicts || []).find((v) => v.gate === "evals");
 check("pay-agent 1.1.0 failed evals its runner signed", evals?.result === "Fail" && evals.citation?.runner === "story-evals" && !!evals.citation?.runnerBundle, JSON.stringify(evals?.citation?.runner));
+// A sequential owner handover is a change, never a dispute: payments-service 2.1.0
+// moved from team/payments to payments-team, and no OWNER_CONFLICT names it.
+const payChanges = json(call("GET", "/api/fleet/entities/service?key=payments-service")).service?.changes?.items || [];
+const ownerConflicts = (snap.limitations || []).filter((l) => l.code === "OWNER_CONFLICT").map((l) => l.message);
+check("payments-service 2.1.0 is an owner change and no OWNER_CONFLICT names it",
+  payChanges.some((e) => e.kind === "owner" && e.change === "changed" && e.revision?.version === "2.1.0")
+    && ownerConflicts.length > 0 && !ownerConflicts.some((m) => /payments-service/.test(m)), ownerConflicts.join("; "));
+// A change's time comes only from delivery records, read when asked (reached):
+// the story payments service reached its Stages by signed records. test/payments
+// records a gap (seq 6), so its earliest move read may not be its first: the
+// answer is partial and names that Stage, never "read".
+const storyPayments = "/api/fleet/entities/service?key=registry.example%252Fstory%2Fpayments";
+const reached = json(call("GET", storyPayments + "&reached=true")).service?.changes || {};
+const unread = json(call("GET", storyPayments)).service?.changes || {};
+check("story payments changes carry reached times from records, partial over the test/payments gap",
+  reached.times === "partial" && (reached.timesUnreadable || []).some((u) => /^test\/payments: earlier moves may be missing/.test(u))
+    && (reached.items || []).some((e) => (e.reached || []).some((r) => !!r.record)),
+  `times=${reached.times} unreadable=${JSON.stringify(reached.timesUnreadable)}`);
+// The tour step says "2.3.0 reached prod and 3.0.0 reached test": keep it true.
+const reachedOn = (v, ns) => (reached.items || []).some((e) => e.revision?.version === v && (e.reached || []).some((r) => r.namespace === ns && !!r.record));
+check("story payments 2.3.0 reached prod and 3.0.0 reached test, as the tour says",
+  reachedOn("2.3.0", "prod") && reachedOn("3.0.0", "test"),
+  JSON.stringify((reached.items || []).map((e) => [e.revision?.version, (e.reached || []).map((r) => r.namespace + "/" + r.stage)])));
+check("without reached no delivery is read and the changes are the same",
+  unread.times === "not-read" && unread.total === reached.total && !(unread.items || []).some((e) => e.reached), `times=${unread.times} total=${unread.total}/${reached.total}`);
+// What each Stage ran at a past time comes only from signed records (at): the
+// Stage that moved after T still ran its older revision at T, and a Stage with
+// no record before T is unknown.
+const storyQ = "service=payments&domain=registry.example%2Fstory";
+const storyMoves = (json(call("GET", `/api/delivery/history?${storyQ}`)).histories || []).map((s) => {
+  const one = json(call("GET", `/api/delivery/history?namespace=${s.namespace}&stage=${s.stage.name}`)).histories[0];
+  const moves = one.entries.filter((e) => e.pointer?.after && e.outcome === "Succeeded" && e.record && (e.applied || e.finished))
+    .map((e) => ({ at: Date.parse(e.applied || e.finished), to: e.pointer.after })).sort((a, b) => a.at - b.at);
+  return { key: `${s.namespace}/${s.stage.name}`, verified: !!one.verified, complete: one.completeness === "complete", moves };
+});
+const moved = storyMoves.find((s) => s.moves.length >= 2);
+const atT = moved && new Date((moved.moves[0].at + moved.moves[1].at) / 2).toISOString().replace(/\.\d+Z$/, "Z");
+const atAnswer = moved ? json(call("GET", `/api/delivery/history?${storyQ}&at=${atT}`)).at || {} : {};
+const atOf = (key) => (atAnswer.stages || []).find((s) => `${s.namespace}/${s.stage}` === key) || {};
+const movedAt = moved ? atOf(moved.key) : {};
+check("at T the Stage that moved after T still ran its older revision",
+  !!moved && movedAt.digest === moved.moves[0].to && movedAt.state === (moved.verified && moved.complete ? "known" : "partial")
+    && (moved.verified || /signature not checked/.test(movedAt.reason || "")), `${moved?.key} at ${atT}: ${movedAt.state} ${movedAt.reason || ""}`);
+const notYet = storyMoves.filter((s) => moved && !s.moves.some((m) => m.at <= Date.parse(atT)));
+check("at T a Stage with no record before T is unknown",
+  notYet.length > 0 && notYet.every((s) => atOf(s.key).state === "unknown" && !atOf(s.key).digest), notYet.map((s) => `${s.key}=${atOf(s.key).state}`).join(","));
+check("an at answer with an unknown Stage is partial", atAnswer.completeness === "partial", atAnswer.completeness);
 check("the pacto init plan is embedded", JSON.parse(globalThis.__pactoPactifyPlan).files.some((f) => f.path === "pacto.yaml"));
+
+// ── Metrics (#493): the story's run records, generated in the tab, no registry ──
+check("capabilities: stats enabled", caps.stats === true, JSON.stringify(caps.stats));
+const statsRes = call("GET", "/api/stats");
+const st = statsRes.status === 200 ? json(statsRes) : {};
+check("GET /api/stats 200 with records, unsigned statistics and completeness",
+  statsRes.status === 200 && st.recordsRead > 0 && st.provenance === "unsigned statistics" && typeof st.completeness === "string" && st.completeness !== "",
+  `status=${statsRes.status} recordsRead=${st.recordsRead} provenance=${st.provenance} completeness=${st.completeness}`);
+// The trend's newest coverage point is the page's "now" value and the Overview's
+// service count: all three come from the demo's one fleet query.
+const ovServices = json(call("GET", "/api/fleet/overview")).summary?.services;
+check("the newest coverage point counts the Overview's services",
+  typeof ovServices === "number" && st.coverage?.services === ovServices && st.coverageNow?.services === ovServices,
+  `coverage=${st.coverage?.services} coverageNow=${st.coverageNow?.services} overview=${ovServices}`);
 
 console.log(failures === 0 ? "\nALL CHECKS PASSED" : `\n${failures} CHECK(S) FAILED`);
 process.exit(failures === 0 ? 0 : 1);

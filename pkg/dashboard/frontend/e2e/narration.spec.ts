@@ -52,7 +52,9 @@ const AUTOPLAY: Fig[] = [
       await p.goto('/#/fleet/offerings/messaging');
       const pick = p.locator('main button[data-testid="provisioning-badge"]').first();
       await expect(pick).toBeVisible({ timeout: 20_000 });
-      await pick.click();
+      // Pick without scrolling to the badge: where the figure lands relative to the
+      // badge depends on the font, and a figure scrolled into view by the pick plays.
+      await pick.evaluate((el: HTMLElement) => el.click());
     },
   },
 ];
@@ -87,8 +89,14 @@ test.describe('narration (G2)', () => {
         await expect(page.locator(f.sel)).toBeVisible({ timeout: 20_000 });
         await page.locator(f.sel).scrollIntoViewIfNeeded();
         await expect.poll(() => state(page, f.sel), { timeout: 20_000 }).toMatch(/playing|done/);
-        if ((await state(page, f.sel)) === 'playing') {
-          await expect(skipOf(page, f.sel)).toBeEnabled();
+        // Read the state and Skip in one snapshot: a short narration can finish between
+        // two separate reads, and then Skip is rightly disabled.
+        const snap = await page.locator(f.sel).evaluate((fig) => ({
+          state: fig.getAttribute('data-narration'),
+          skip: [...fig.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Skip to final frame')?.getAttribute('aria-disabled'),
+        }));
+        if (snap.state === 'playing') expect(snap.skip).toBe('false');
+        if (snap.state === 'playing' && (await state(page, f.sel)) === 'playing') {
           await skipOf(page, f.sel).click();
           // Skip reaches the final frame in one frame.
           await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => r(null))));

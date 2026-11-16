@@ -51,7 +51,7 @@ func tourSteps(t *testing.T, name string) []tourStep {
 	body = body[:strings.Index(body, "\n  }];")]
 	titleRe := regexp.MustCompile(`title: "([^"]+)"`)
 	textRe := regexp.MustCompile(`text: (?:NOTICE \+ )?"([^"]+)"`)
-	targetRe := regexp.MustCompile(`(?m)^\s+target: (.+),$`)
+	targetRe := regexp.MustCompile(`(?m)^\s+target: (.+?),?$`)
 	var out []tourStep
 	for _, chunk := range strings.Split(body, "\n  }, {\n") {
 		// A step that waits on the system (observe) asks the reader for nothing.
@@ -89,6 +89,8 @@ func TestTourLightsTheControlEachStepNames(t *testing.T) {
 		{"Propose roll back", `propose-panel"] button[type=submit]`},
 		{"press Propose on fraud", "Propose Advise for fraud in test"},
 		{"press Roll back this change", "change-rollback"},
+		{"press Plan undo", "service-delivery-offer"},
+		{"Press Plan this roll back", "undo-panel"},
 		{"press Compare revisions", "#sec-revisions button[type=submit]"},
 		{"press Ask", "#sec-revisions button[type=submit]"},
 		{"set Earlier revision", "#impact-old-rev"},
@@ -96,6 +98,9 @@ func TestTourLightsTheControlEachStepNames(t *testing.T) {
 		{"Open orders-service", "graph-focus-link"},
 		{"type payments in the search box", "svc-search"},
 		{"open payments-service from the list", "/fleet/services/payments-service"},
+		{"Press What if it becomes unavailable?", "page-hd-actions"},
+		{"the Changes section lists an owner change", "#sec-changes"},
+		{"each change says when its revision reached a Stage", "service-change-reached"},
 	}
 	for _, tour := range []string{"FLEET_TOUR", "DELIVERY_TOUR"} {
 		for i, s := range tourSteps(t, tour) {
@@ -144,5 +149,27 @@ func TestTourStepsHaveTitles(t *testing.T) {
 				t.Errorf("%s step %d needs a title of at most 40 characters, has %q", tour, i+1, s.title)
 			}
 		}
+	}
+}
+
+// TestTourPlansUndoOfTheChangeUnderInvestigation: Plan undo on a target page
+// reverses the change its Stage runs. Played after Carol's rollback it would
+// re-ship the 3.0.0 she rolled back, under the 2.4.0 incident's ticket, so the
+// beat comes while 3.0.0 runs and names its own ticket.
+func TestTourPlansUndoOfTheChangeUnderInvestigation(t *testing.T) {
+	act, undo := -1, -1
+	for i, s := range tourSteps(t, "DELIVERY_TOUR") {
+		if s.title == "Act from what you found" && act < 0 {
+			act = i
+			if strings.Contains(s.text, "CHG-2041") {
+				t.Errorf("step %d plans under the 2.4.0 incident's ticket: %s", i+1, s.text)
+			}
+		}
+		if s.title == "Undo it" && undo < 0 {
+			undo = i
+		}
+	}
+	if act < 0 || undo < 0 || act > undo {
+		t.Fatalf("Act from what you found at %d, Undo it at %d: plan the undo before the rollback", act, undo)
 	}
 }

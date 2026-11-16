@@ -38,6 +38,7 @@ import (
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/evidence"
 	"github.com/trianalab/pacto/v4/pkg/finding"
 	"github.com/trianalab/pacto/v4/pkg/lock"
 	"github.com/trianalab/pacto/v4/pkg/readiness"
@@ -266,6 +267,9 @@ const MaxProvisioningClockSkew = 5 * time.Minute
 // newest win.
 const MaxProvisioningRecords = 10000
 
+// MaxUsageRecords bounds the usage reports a snapshot keeps; the newest win.
+const MaxUsageRecords = 10000
+
 // Limitation codes explain, in a structured way, why an answer is incomplete or
 // why a record could not be fully established. Codes are stable and typed so
 // agents branch on them; the human message is advisory.
@@ -347,6 +351,20 @@ const (
 	// environment leaves out the consumers that have no provisioning status
 	// there, because their current revision does not declare it.
 	LimitationProvisioningEnvironmentScoped = "PROVISIONING_ENVIRONMENT_SCOPED"
+	// LimitationUsageConflict: two reporters disagree about the usage or
+	// cost of one resource; its consumption reads unknown.
+	LimitationUsageConflict = "USAGE_CONFLICT"
+	// LimitationUsageTruncated: the sources reported more than
+	// MaxUsageRecords usage reports; the oldest were dropped.
+	LimitationUsageTruncated = "USAGE_TRUNCATED"
+	// LimitationUsageUnmatched: usage reports name no contract revision in
+	// the snapshot or a use it resolves; they were dropped.
+	LimitationUsageUnmatched = "USAGE_UNMATCHED"
+	// LimitationFreshnessNotEvaluated: the snapshot was built with a zero
+	// freshness window (--freshness 0), so no target's evidence age was checked
+	// and no target is marked stale. Stale counts read zero because they were not
+	// computed. It does not change completeness, which states source health.
+	LimitationFreshnessNotEvaluated = "FRESHNESS_NOT_EVALUATED"
 )
 
 // Limitation is a structured, machine-readable reason an answer is incomplete.
@@ -434,15 +452,19 @@ type ServiceRecord struct {
 	// and Summary its one-line purpose (service.summary), derived like
 	// BusinessDomain (see deriveOffering). Both are exported so a detail answer
 	// cloned through JSON keeps them.
-	Offering  string            `json:"offering,omitempty"`
-	Summary   string            `json:"summary,omitempty"`
-	Name      string            `json:"name"`
-	Owner     contract.Owner    `json:"owner,omitzero"`
-	Revisions []RevisionKey     `json:"revisions,omitempty"`
-	Targets   []TargetKey       `json:"targets,omitempty"`
-	Labels    map[string]string `json:"labels,omitempty"`
-	Status    string            `json:"status,omitempty"`
-	Sources   []string          `json:"sources,omitempty"`
+	Offering string `json:"offering,omitempty"`
+	Summary  string `json:"summary,omitempty"`
+	// SummaryUnknown says an empty Summary is not a known absence: the sources
+	// report different summaries, or no revision was read and no source reports
+	// one. Like BusinessDomainUnknown, unknown is never "declares none".
+	SummaryUnknown bool              `json:"summaryUnknown,omitempty"`
+	Name           string            `json:"name"`
+	Owner          contract.Owner    `json:"owner,omitzero"`
+	Revisions      []RevisionKey     `json:"revisions,omitempty"`
+	Targets        []TargetKey       `json:"targets,omitempty"`
+	Labels         map[string]string `json:"labels,omitempty"`
+	Status         string            `json:"status,omitempty"`
+	Sources        []string          `json:"sources,omitempty"`
 	// OfferingProvenance says where Offering comes from: declared by a contract
 	// revision, or observed, reported only by the sources observing its targets.
 	OfferingProvenance string `json:"offeringProvenance,omitempty" enum:"declared,observed"`
@@ -845,6 +867,11 @@ type FleetSnapshot struct {
 	// configuration references and dependencies asked for, each matched to a
 	// revision in this snapshot and a use it resolves. Sorted deterministically.
 	Provisioning []ProvisioningRecord `json:"provisioning,omitempty"`
+	// Usage are the validated provider reports on the usage and cost of what
+	// consumers asked for, matched like Provisioning and kept apart from it.
+	// Each carries whether it was signed and whether it is stale; a reader
+	// shows its figures as trusted only through [ResourceConsumption].
+	Usage []UsageRecord `json:"usage,omitempty"`
 
 	// templateEdges are the declared dependency and reference edges of the
 	// golden paths (see deriveTemplate). They are kept out of Relationships and
@@ -859,6 +886,9 @@ type FleetSnapshot struct {
 	// provisioningDropped counts, per consumer service, the reports dropped past
 	// MaxProvisioningRecords, so a restricted view reports only its own losses.
 	provisioningDropped map[ServiceKey]int
+	// usageDropped counts, per consumer service, the usage reports dropped
+	// past MaxUsageRecords.
+	usageDropped map[ServiceKey]int
 
 	// targetsHidden holds, in a restricted snapshot, the visible services that
 	// lost a target to the view: those visible only because they declare a
@@ -871,6 +901,24 @@ type FleetSnapshot struct {
 	// hiddenConsumers maps, in a restricted snapshot, a provider to the hidden
 	// services with a declared, resolved [ConsumesEdge] to it. Only counted.
 	hiddenConsumers map[ServiceKey]map[ServiceKey]bool
+	// hiddenDependents maps, in a restricted snapshot, a service to the hidden
+	// services that depend on or call it and its hidden uncontracted callers
+	// (as caller:<name> keys). Only counted.
+	hiddenDependents map[ServiceKey]map[ServiceKey]bool
+	// hiddenReferrers maps, in a restricted snapshot, a service to the hidden
+	// services whose policy references resolve to it. Only counted.
+	hiddenReferrers map[ServiceKey]map[ServiceKey]bool
+	// hiddenProviders counts, in a restricted snapshot, the hidden providers
+	// of each offering that keeps a visible provider. Only counted.
+	hiddenProviders map[string]int
+	// hiddenUnresolvedRefs holds, in a restricted snapshot, the declared,
+	// unresolved references of the services the view hides, so counts of
+	// unresolved uses stay honest. Never serialized and never named.
+	hiddenUnresolvedRefs []hiddenUnresolvedRef
+	// hiddenProviderMatch holds, in a restricted snapshot, the repositories
+	// and names of each offering's hidden providers, so a visible consumer's
+	// unresolved reference to one still counts. Never serialized and never named.
+	hiddenProviderMatch map[string]providerMatch
 
 	// reverseDeps maps a service KEY to the keys of services that declare a
 	// dependency or a resolved configuration reference on it (see
@@ -915,6 +963,33 @@ type ProvisioningRecord struct {
 	Verified      bool       `json:"verified"`
 	Source        string     `json:"source"`
 	SourceKind    string     `json:"sourceKind,omitempty"`
+}
+
+// UsageRecord is one validated usage report (see [RawUsage]) about the
+// consumer revision Digest of ServiceKey. Stale says it is older than the
+// provisioning window when the snapshot was built. Source and SourceKind name
+// the source that delivered it.
+type UsageRecord struct {
+	ServiceKey    ServiceKey             `json:"serviceKey"`
+	Service       string                 `json:"service"`
+	Domain        string                 `json:"domain,omitempty"`
+	Digest        string                 `json:"digest"`
+	Kind          string                 `json:"kind" enum:"configuration,dependency"`
+	Name          string                 `json:"name"`
+	Environment   string                 `json:"environment,omitempty"`
+	Provider      string                 `json:"provider,omitempty"`
+	ExternalRef   string                 `json:"externalRef,omitempty"`
+	Metrics       []evidence.UsageMetric `json:"metrics,omitempty"`
+	Cost          *evidence.UsageCost    `json:"cost,omitempty"`
+	Outcome       string                 `json:"outcome"`
+	Producer      string                 `json:"producer,omitempty"`
+	ProducerKeyID string                 `json:"producerKeyId,omitempty"`
+	ObservedAt    time.Time              `json:"observedAt"`
+	AcceptedAt    *time.Time             `json:"acceptedAt,omitempty"`
+	Verified      bool                   `json:"verified"`
+	Stale         bool                   `json:"stale"`
+	Source        string                 `json:"source"`
+	SourceKind    string                 `json:"sourceKind,omitempty"`
 }
 
 // UncontractedCaller is a runtime caller no contract describes, of a service

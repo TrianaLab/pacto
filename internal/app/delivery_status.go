@@ -163,14 +163,18 @@ func (d *Delivery) describedAll(ctx context.Context, stages []delivery.StageObje
 	revs := delivery.DescribeAll(ctx, len(ask), func(i int) (*delivery.StageObject, string) { return from[ask[i]], ask[i] }, d.Describe)
 	out := map[string]delivery.Described{}
 	for i, dg := range ask {
-		r := revs[i]
-		desc := delivery.Described{Contract: r.ContractRef, Source: r.SourceRevision, Err: r.Err}
-		if r.Bundle != nil {
-			desc.Version, desc.Team = r.Bundle.Contract.Service.Version, r.Bundle.Contract.Service.Owner.DisplayString()
-		}
-		out[dg] = desc
+		out[dg] = delivery.DescribedOf(revs[i], bundleVersion(revs[i]))
 	}
 	return out
+}
+
+// bundleVersion is the version r's contract declares; "" when it was not
+// read.
+func bundleVersion(r delivery.Revision) string {
+	if r.Bundle == nil {
+		return ""
+	}
+	return r.Bundle.Contract.Service.Version
 }
 
 // whyAll sets Progress on the first statusWhyLimit rows; the note it returns

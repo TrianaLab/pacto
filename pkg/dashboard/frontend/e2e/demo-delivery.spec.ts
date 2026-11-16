@@ -18,12 +18,19 @@ async function ready(page: Page, hash: string) {
   await expect(page.getByTestId('demo-delivery-start')).toBeVisible({ timeout: T });
 }
 
+/** An agent names the person who asked it: fill the field when the panel asks. */
+async function nameRequester(page: Page, onBehalfOf = 'dana@example.com') {
+  const field = page.getByTestId('propose-panel').getByTestId('pp-on-behalf-of');
+  if (await field.isVisible()) await field.fill(onBehalfOf);
+}
+
 /** Propose a promote from the Stages board, as the current person. */
-async function promote(page: Page, service: string, version: string) {
+async function promote(page: Page, service: string, version: string, onBehalfOf?: string) {
   await page.goto('/#/delivery/environments');
   await page.getByRole('button', { name: `Promote ${service} in prod to ${version}` }).click({ timeout: T });
   const panel = page.getByTestId('propose-panel');
   await expect(panel.getByTestId('plan-prediction')).toBeVisible({ timeout: T });
+  await nameRequester(page, onBehalfOf);
   await panel.getByRole('button', { name: /^Propose/ }).click();
   await expect(page).toHaveURL(/#\/delivery\/changes\/prod\//, { timeout: T });
 }
@@ -81,15 +88,27 @@ async function playTour(page: Page, reload: boolean) {
   // The gated moments, one action each, skipped: Skip performs the action, and the
   // step either moves on by itself or holds on its result until Continue.
   await expect(text).toContainText('press Promote on payments 3.0.0');
+  let plannedUndo = false;
   for (let i = 0; i < 30 && !((await text.textContent()) ?? '').includes('History reads every step back'); i++) {
     const before = await text.textContent();
+    // Planned while 3.0.0 runs, the target page's undo rolls back the promote under investigation.
+    if (before?.includes('Press Plan this roll back')) {
+      await expect(page.getByTestId('undo-panel')).toContainText(/Undo payments-promote-\d+ Roll back/, { timeout: T });
+      plannedUndo = true;
+    }
     await page.getByTestId('demo-tour-skip').click();
     await expect
       .poll(async () => (await text.textContent()) !== before || (await next.isVisible()), { timeout: T })
       .toBe(true);
     if ((await text.textContent()) === before) await next.click();
   }
+  expect(plannedUndo).toBe(true);
   await expect(text).toContainText('History reads every step back');
+  await next.click();
+
+  // One ticket, the whole incident: the promote, the rollback and the step down.
+  await expect(text).toContainText('Ticket CHG-2041 gathers the incident');
+  await expect(page).toHaveURL(/correlationID=CHG-2041/);
   await next.click();
 
   // The autonomy ladder and the signed eval: reading steps, and one action.
@@ -107,6 +126,15 @@ async function playTour(page: Page, reload: boolean) {
   await next.click();
   await expect(text).toContainText('its runner ran the eval suite and signed the count');
   await expect(page.getByTestId('verdict-runner')).toContainText('Run and signed by story-evals', { timeout: T });
+  await next.click();
+  // What Pacto did this month: the numbers the demo's own run records total.
+  await expect(page.getByTestId('demo-tour-title')).toHaveText('What Pacto did this month');
+  await expect(text).toContainText('caught 2 breaking changes and blocked 2 changes');
+  await expect(page).toHaveURL(/#\/metrics$/);
+  const caught = page.getByTestId('metrics-tiles').locator('.mx-tile').first();
+  await expect(caught).toContainText('Breaking changes caught', { timeout: T });
+  await expect(caught).toContainText('2');
+  await expect.poll(() => lit(page, '[data-testid="metrics-tiles"] .mx-tile:first-child'), { timeout: T }).toBe(true);
   await next.click();
   await expect(page.getByTestId('demo-tour-explore').getByRole('link')).toHaveCount(4);
   await expect(page.getByTestId('demo-tour-more')).toHaveAttribute('href', '../examples/kubernetes-demo/');
@@ -130,6 +158,21 @@ test.describe('Browser demo: the delivery story', () => {
     expect(board!.y).toBeGreaterThanOrEqual(s!.y + s!.height);
     await page.goto('/#/fleet');
     await expect(strip).not.toContainText('Simulated delivery');
+  });
+
+  test('a typed reason proposes without a staleness warning', async ({ page }) => {
+    test.setTimeout(120_000);
+    await ready(page, '#/delivery/environments');
+    await switchTo(page, 'alice');
+    await page.goto('/#/delivery/environments');
+    await page.getByRole('button', { name: 'Promote checkout in prod to 1.9.0' }).click({ timeout: T });
+    const panel = page.getByTestId('propose-panel');
+    await expect(panel.getByTestId('plan-prediction')).toBeVisible({ timeout: T });
+    await expect(panel.getByTestId('pp-on-behalf-of')).toHaveCount(0);
+    await panel.getByLabel('Why (kept with the change)').fill('CHG-2041: checkout needs the new payments client');
+    await panel.getByRole('button', { name: /^Propose/ }).click();
+    await expect(page).toHaveURL(/#\/delivery\/changes\/prod\//, { timeout: T });
+    await expect(page.getByText('Something changed since the plan')).toHaveCount(0);
   });
 
   test('a breaking change asks only the affected teams, and only a person on them decides', async ({ page }) => {
@@ -247,12 +290,16 @@ test.describe('Browser demo: the delivery story', () => {
     };
     await step('press Promote on payments 3.0.0', '[aria-label="Promote payments in prod to 3.0.0"]');
     await page.getByRole('button', { name: 'Promote payments in prod to 3.0.0' }).click();
+    await step('type dana@example.com in Who asked you', '[data-testid="pp-on-behalf-of"]');
+    await nameRequester(page);
     await step('so press Propose promote', '[data-testid="propose-panel"] button[type=submit]');
     await page.getByTestId('propose-panel').getByRole('button', { name: /^Propose/ }).click();
     await expect(next).toBeVisible({ timeout: T });
     await next.click();
     await step('press Promote on checkout 1.9.0', '[aria-label="Promote checkout in prod to 1.9.0"]');
     await page.getByRole('button', { name: 'Promote checkout in prod to 1.9.0' }).click();
+    await step('Type dana@example.com again', '[data-testid="pp-on-behalf-of"]');
+    await nameRequester(page);
     await step('Press Propose promote: checkout ships', '[data-testid="propose-panel"] button[type=submit]');
     await page.getByTestId('propose-panel').getByRole('button', { name: /^Propose/ }).click();
     await expect(next).toBeVisible({ timeout: T });

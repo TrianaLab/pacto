@@ -57,7 +57,7 @@ An assertion is one claim of the contract the operator can check. These are the 
 - `PersistenceObserved`
 - `WorkloadObserved`
 
-Provider-reported kinds: `ResourceProvisioned`. Platform adapters report them through the Evidence Server; the operator never emits them.
+Provider-reported kinds: `ResourceProvisioned`, `ResourceUsage`. Platform adapters report them through the Evidence Server; the operator never emits them.
 
 ## Facts
 
@@ -74,7 +74,7 @@ Details an observation can carry beyond "it is there", such as the protocol a po
 
 ## Contract status
 
-`status.contractStatus` says whether the service matches its contract. It does not report pod health. Values are generated from the `Pacto` API.
+`status.contractStatus` says whether the service matches its contract. Compliance does not report pod health: a failing health check appears as `HEALTH_FAILING` with status `Unknown`. Values are generated from the `Pacto` API.
 
 | Status | Meaning |
 | --- | --- |
@@ -183,4 +183,5 @@ A finding is one conclusion from the engine. Findings fall in two families. Conf
 | `EVIDENCE_INSUFFICIENT` | `Inconclusive` |
 | `EVIDENCE_MISSING` | `Inconclusive` |
 | `EVIDENCE_STALE` | `Inconclusive` |
+| `HEALTH_FAILING` | `Inconclusive` |
 | `OBSERVATION_UNSUPPORTED` | `Inconclusive` |

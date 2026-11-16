@@ -83,7 +83,7 @@
   // for, because a tour that sits there wanting something it has not named is a wall.
   var FLEET_TOUR = [{
     title: "The guided tour",
-    text: NOTICE + " The tour asks ten questions about this fleet and opens the screen that answers each one, so press Continue to start.",
+    text: NOTICE + " The tour asks fifteen questions about this fleet and opens the screen that answers each one, so press Continue to start.",
     hash: "#/fleet",
     target: "#ov-answer"
   }, {
@@ -231,6 +231,20 @@
       if (a) { a.click(); } else { window.location.hash = "#/fleet/graph/service/orders-service"; }
     }
   }, {
+    // Only something to read: the Changes section filtered to owner changes, where
+    // the 2.1.0 handover reads as a change rather than a dispute.
+    title: "Who owns payments-service now?",
+    text: "Its 2.1.0 revision handed payments-service from team/payments to payments-team, so the Changes section lists an owner change, the service ranks under payments-team and nothing reads as a dispute.",
+    target: "#sec-changes",
+    hash: "#/fleet/services/payments-service?changesKind=owner"
+  }, {
+    // Also only something to read: a change gets a time only from a signed delivery
+    // record of its revision reaching a Stage.
+    title: "When did a change reach production?",
+    text: "On the story's payments service each change says when its revision reached a Stage, from signed delivery records: 2.3.0 reached prod and 3.0.0 reached test.",
+    target: '#sec-changes [data-testid="service-change-reached"]',
+    hash: "#/fleet/services/registry.example%252Fstory%2Fpayments?section=changes"
+  }, {
     // Nothing to do here, only something to read, so it keeps a real button like the
     // opening notice: an auto-advance would flash the rows past unread.
     title: "What does a provider promise?",
@@ -245,8 +259,36 @@
     hash: "#/fleet/golden-paths",
     target: '[data-testid="golden-path-list"] tbody tr'
   }, {
+    // Only something to read: the offering's availability per environment, from
+    // the targets of its two providers and what their consumers report.
+    title: "Is postgresql available where it runs?",
+    text: "Availability says where the postgresql offering answers: production is available because both providers' targets report it, and staging is unknown because the only postgresql evidence there is three days old.",
+    hash: "#/fleet/offerings/postgresql",
+    target: '[data-testid="availability"]'
+  }, {
+    // Also only something to read: 16.1.0 names 17.0.0 as its successor and the demo
+    // ships it, so each consumer's range is checked against it.
+    title: "Can its consumers move to 17.0.0?",
+    text: "PostgreSQL 16.1.0 names 17.0.0 as its successor, and each consumer whose range stops at 16 says excludes successor, so its owner widens the range before 16.1.0 reaches its sunset.",
+    hash: "#/fleet/offerings/postgresql",
+    target: '[data-testid="offering-consumer"]'
+  }, {
+    // The offering page's own action asks the question for every provider at once, and
+    // the answer is the point, so the step holds on it.
+    title: "What breaks if postgresql goes down?",
+    text: "Press What if it becomes unavailable? to ask who breaks if both providers of postgresql go down at once.",
+    hash: "#/fleet/offerings/postgresql",
+    target: ['.page-hd-actions a[href*="offering=postgresql"]', '[data-testid="changes-answer"]'],
+    wait: "Waiting for the question about the postgresql offering to be answered.",
+    hold: true,
+    gate: function () { return hashPath() === "#/fleet/changes" && /[?&]offering=postgresql\b/.test(window.location.hash) && !!q('[data-testid="changes-answer"]'); },
+    skip: function () {
+      var a = q('.page-hd-actions a[href*="offering=postgresql"]');
+      if (a) { a.click(); } else { window.location.hash = "#/fleet/changes?offering=postgresql&event=unavailable"; }
+    }
+  }, {
     title: "Recap",
-    text: "You have now seen what runs, what state it is in, whether a change breaks anyone, what happens if a service goes away or regresses, who a change reaches, what a provider promises and where new services start, all from contracts and observations.",
+    text: "You have now seen what runs, what state it is in, whether a change breaks anyone, what happens if a service goes away or regresses, who a change reaches, who owns a service and when its changes reached a Stage, what a provider promises, where new services start and whether a platform offering is available and who can move off it, all from contracts and observations.",
     href: "../examples/demo-tour/",
     linkText: "The same questions from a terminal"
   }];
@@ -334,6 +376,9 @@
 
   // The controls the delivery steps point at.
   var PROPOSE_BTN = '[data-testid="propose-panel"] button[type=submit]';
+  // An agent names the person who asked it before it may propose.
+  var BEHALF = '[data-testid="propose-panel"] [data-testid="pp-on-behalf-of"]';
+  var REQUESTER = "dana@example.com";
   // Switch person sits in the person menu at the top right; it can be lit only
   // while that menu is open.
   var PERSON_MENU = '[data-testid="identity-trigger"]';
@@ -341,11 +386,30 @@
   var NOTE = '[data-testid="decision-panel"] textarea';
   var APPROVE = '[data-testid="decide-approve"]';
   var RAISE_FRAUD = '[aria-label="Propose Advise for fraud in test"]';
+  // INCIDENT is the 2.4.0 incident's ticket. Acting from an investigation: the target
+  // page of payments in prod, opened under the ticket of the 3.0.0 investigation while
+  // 3.0.0 runs with its check Unknown, offers the undo of that promote.
+  var INCIDENT = "CHG-2041";
+  var INVESTIGATION = "CHG-2077";
+  var PLAN_UNDO = '[data-testid="target-delivery"] [data-testid="service-delivery-offer"][title^="Plan undo"]';
+  var PLAN_THIS = '[data-testid="undo-panel"] .btn-primary';
+  var TICKET = '[data-testid="propose-panel"] [data-testid="pp-correlation"]';
   // A plan is open for this Stage ("prod/payments"), as Promote opens it.
   function planOpen(stage) { var h = q("#pp-title"); return !!h && h.textContent.indexOf(stage) >= 0; }
   function noteText() { var t = q(NOTE); return t ? t.value.trim() : ""; }
+  function behalfText() { var t = q(BEHALF); return t ? t.value.trim() : ""; }
+  // The field renders once the plan is in: a skip pressed while it loads waits for it.
+  function fillBehalf(tries) {
+    var t = q(BEHALF);
+    if (t) { setValue(t, REQUESTER); } else if ((tries || 0) < 50) { setTimeout(function () { fillBehalf((tries || 0) + 1); }, 200); }
+  }
   function shipped(version) { return row("prod", "payments").version === version; }
   function clickOn(sel) { var b = q(sel); if (b) { b.click(); } }
+  // A control that renders after a read: a skip pressed while it loads waits for it.
+  function clickWhenReady(sel, tries) {
+    var b = q(sel);
+    if (b) { b.click(); } else if ((tries || 0) < 50) { setTimeout(function () { clickWhenReady(sel, (tries || 0) + 1); }, 200); }
+  }
   // A decision on the held change as Carol: what a skipped approve or accept
   // does in one go.
   function decide(decision, note) {
@@ -423,6 +487,14 @@
     skip: function () { clickOn('[aria-label="Promote payments in prod to 3.0.0"]'); }
   }, {
     title: "A breaking change asks first",
+    text: "An agent names the person who asked it, so type dana@example.com in Who asked you for this.",
+    hash: "#/delivery/environments",
+    target: BEHALF,
+    wait: "Waiting for the person pay-agent acts for.",
+    gate: function () { return behalfText().length >= 3 || (!!fact().held && onChange()); },
+    skip: function () { fillBehalf(); }
+  }, {
+    title: "A breaking change asks first",
     text: "The plan asks only checkout and orders, the two callers that accept nothing past 2.x, so press Propose promote.",
     hash: "#/delivery/environments",
     target: [PROPOSE_BTN, '[data-testid="decision-safer"]'],
@@ -431,7 +503,7 @@
     gate: function () { return !!fact().held && onChange(); },
     skip: function () {
       digestOf("payments", "3.0.0").then(function (to) {
-        return propose({ namespace: "prod", stage: "payments", to: to });
+        return propose({ namespace: "prod", stage: "payments", to: to, onBehalfOf: REQUESTER });
       }).then(function (r) {
         if (r && r.body && r.body.operation) { window.location.hash = "#/delivery/changes/prod/" + r.body.operation.metadata.name; }
       });
@@ -446,6 +518,14 @@
     skip: function () { clickOn('[aria-label="Promote checkout in prod to 1.9.0"]'); }
   }, {
     title: "Update a caller first",
+    text: "Type dana@example.com again, the person pay-agent acts for.",
+    hash: "#/delivery/environments",
+    target: BEHALF,
+    wait: "Waiting for the person pay-agent acts for.",
+    gate: function () { return behalfText().length >= 3 || row("prod", "checkout").version === "1.9.0"; },
+    skip: function () { fillBehalf(); }
+  }, {
+    title: "Update a caller first",
     text: "Press Propose promote: checkout ships with nobody asked, and now only orders is asked about payments 3.0.0, because checkout 1.9 accepts it.",
     hash: "#/delivery/environments",
     target: [PROPOSE_BTN, ".page-hd-sub"],
@@ -453,7 +533,7 @@
     hold: true,
     gate: function () { return row("prod", "checkout").version === "1.9.0" && fact().question.indexOf("Asked of: orders") >= 0; },
     skip: function () {
-      digestOf("checkout", "1.9.0").then(function (to) { return propose({ namespace: "prod", stage: "checkout", to: to }); });
+      digestOf("checkout", "1.9.0").then(function (to) { return propose({ namespace: "prod", stage: "checkout", to: to, onBehalfOf: REQUESTER }); });
     }
   }, {
     title: "Decide as team orders",
@@ -532,6 +612,23 @@
       decide("accept-unknown", NOTE_ACCEPT);
     }
   }, {
+    title: "Act from what you found",
+    text: "On this page of payments in prod, from ticket CHG-2077, 3.0.0 runs with its check still Unknown, so press Plan undo right here, where you found it.",
+    hash: "#/fleet/targets/prod%2FDeployment%2Fpayments?correlationID=" + INVESTIGATION,
+    target: PLAN_UNDO,
+    wait: "Waiting for the undo plan to open.",
+    gate: function () { return !!q('[data-testid="undo-panel"]'); },
+    skip: function () { clickWhenReady(PLAN_UNDO); }
+  }, {
+    title: "Act from what you found",
+    text: "Press Plan this roll back: the plan carries ticket CHG-2077 from the page address and would put back 2.3.0, and nothing is proposed until a person proposes it.",
+    hash: "#/fleet/targets/prod%2FDeployment%2Fpayments?correlationID=" + INVESTIGATION,
+    target: [PLAN_THIS, TICKET],
+    wait: "Waiting for the plan to carry the ticket.",
+    hold: true,
+    gate: function () { var t = q(TICKET); return !!t && t.value === INVESTIGATION; },
+    skip: function () { clickWhenReady(PLAN_THIS); }
+  }, {
     title: "Undo it",
     text: "Changed your mind? As Carol, press Roll back this change.",
     hash: changeHash,
@@ -562,6 +659,11 @@
     hash: "#/delivery/history",
     target: '[data-stage="prod/payments"]'
   }, {
+    title: "One incident, every change",
+    text: "Ticket CHG-2041 gathers the incident in one list: the promote of 2.4.0, the rollback Pacto raised by itself and the step down that followed.",
+    hash: "#/delivery/history?correlationID=" + INCIDENT,
+    target: '[data-stage="prod/payments"]'
+  }, {
     title: "How much runs on its own",
     text: "Each Stage, one service in one environment, has a level for how much ships without a person: fraud is new, so it observes, and Pacto only noted it would have shipped 1.0.0 to test.",
     hash: "#/delivery/autonomy",
@@ -589,6 +691,11 @@
     text: "pay-agent, the agent you started as, ships like any other service: its runner ran the eval suite and signed the count, and 1.1.0 passed only 1 of 2, so it rolled back in test.",
     hash: "#/delivery/changes/test/pay-agent-promote-17",
     target: '[data-testid="verdict-runner"]'
+  }, {
+    title: "What Pacto did this month",
+    text: "This month Pacto caught 2 breaking changes and blocked 2 changes at a gate, counted from unsigned statistics this demo generated from the story; each number links to the records it counts.",
+    hash: "#/metrics",
+    target: '[data-testid="metrics-tiles"] .mx-tile:first-child'
   }, {
     title: "Recap",
     text: "You saw pacto init write a contract, safe changes ship and roll back by themselves, a breaking change wait for the teams it breaks and autonomy earned one level at a time, all kept as signed records; the links below explore more.",

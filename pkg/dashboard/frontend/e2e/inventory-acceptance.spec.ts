@@ -221,7 +221,7 @@ test('Owners: a coverage bucket opens exactly the services it counted', async ({
   const f = await figure(page, 'Declared ownership');
   const populated = f.buckets.filter((b) => b.value > 0);
   // More than one, or the drill-down would be trivially the whole fleet. The demo fleet
-  // has services whose revisions disagree about who owns them, on purpose.
+  // has a service whose owners disagree, on purpose.
   expect(populated.length, `only one populated bucket: ${JSON.stringify(f.buckets)}`).toBeGreaterThan(1);
 
   for (const b of populated) {
@@ -274,10 +274,12 @@ test('Owners: a ranked owner opens exactly the services it counted, and says wha
 });
 
 /**
- * The counterexample the ownership model is built around: ownership is authored on each
- * contract REVISION, so a service whose revisions name different teams is claimed by
- * both and cleanly owned by neither. Every surface has to answer that the same way, or a
- * bar and its own drill-down disagree.
+ * The counterexample the ownership model is built around: targets of a service run
+ * revisions that name different teams, so the service is claimed by both and cleanly
+ * owned by neither. In the demo the staging-eu copy of orders-service still runs 1.1.0
+ * (team/commerce) beside 1.2.0 (commerce-team); an older version that names another
+ * team and runs nowhere is a handover, not a dispute. Every surface has to answer that
+ * the same way, or a bar and its own drill-down disagree.
  */
 test('Owners: both teams disputing a service can find it, and neither owns it cleanly', async ({ page }) => {
   test.setTimeout(240_000);
@@ -295,17 +297,20 @@ test('Owners: both teams disputing a service can find it, and neither owns it cl
       const mine = await get(`kinds=service&ownerKey=${encodeURIComponent(o.key)}&limit=200`);
       if (mine.some((s: { key: string }) => s.key === svc.key)) claimants.push(o.key);
     }
-    return { key: svc.key, label: svc.label || svc.key, claimants };
+    const detail = await (await fetch(`/api/fleet/entities/service?key=${encodeURIComponent(svc.key)}`)).json();
+    return { key: svc.key, label: svc.label || svc.key, claimants, reason: detail?.service?.ownership?.conflictReason ?? '' };
   });
-  expect(disputed, 'the demo fleet has no service whose revisions disagree about its owner').not.toBeNull();
+  expect(disputed, 'the demo fleet has no service whose owners disagree (the staging-eu orders-service target running 1.1.0)').not.toBeNull();
+  // Its targets are linked by tag, so the reason says the link is inferred, never authoritative.
+  expect(disputed!.reason).toContain('linked by tag (inferred)');
   // Both of them, not just whichever revision the summary happened to pick.
   expect(disputed!.claimants.length, `only ${JSON.stringify(disputed!.claimants)} can see ${disputed!.key}`)
     .toBeGreaterThanOrEqual(2);
 
   const rows = () => page.getByTestId('service-list').locator('> li').allTextContents();
   for (const owner of disputed!.claimants) {
-    // ownerKey=x means "at least one revision of this service names exactly x" -- the
-    // canonical identity, not a name that might belong to a second owner. Both find it.
+    // ownerKey=x means "a revision of this service's current claims names exactly x" --
+    // the canonical identity, not a name that might belong to a second owner. Both find it.
     await page.evaluate((o: string) => { location.hash = `/fleet/services?ownerKey=${encodeURIComponent(o)}`; }, owner);
     await expect.poll(rows, { timeout: 30_000 }).toEqual(expect.arrayContaining([expect.stringContaining(disputed!.label)]));
 

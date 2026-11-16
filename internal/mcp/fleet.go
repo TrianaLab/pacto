@@ -21,7 +21,7 @@ const fleetInstructions = "Pacto also exposes READ-ONLY fleet tools over the ope
 	"change really affects. It reports the semantic classification, breaking changes, affected " +
 	"consumers with confidence and compatibility, active targets and owners to review. " +
 	"Distinguish the three tool families: authoring tools " +
-	"(pacto_create/edit/check/schema) create and check contracts; generated service " +
+	"(pacto_create/edit/check/schema; over HTTP only pacto_schema, the rest from pacto mcp --transport stdio) create and check contracts; generated service " +
 	"tools (derived from a bundle's OpenAPI interfaces) invoke LIVE service operations; " +
 	"fleet tools read the operational system and its state. Fleet tools only " +
 	"OBSERVE: they never modify contracts, deploy, invoke services or grant " +
@@ -34,6 +34,8 @@ const fleetInstructions = "Pacto also exposes READ-ONLY fleet tools over the ope
 	"every provider of one. Offerings are read from contracts and are unrelated to a " +
 	"contract's capabilities, which are assertions a service makes about itself. " +
 	"pacto_fleet_versions lists an offering's provider versions and which satisfy a range. " +
+	"pacto_fleet_revision_document reads one document a revision lists in docs; its contract, configuration and " +
+	"policy content are on pacto_fleet_entity kind=revision. " +
 	"An offering use's provisioning status is observed evidence from a provider adapter; Unknown " +
 	"means no current report, never a failure or success. " +
 	"Every fleet answer carries 'meta' (pacto_impact carries the same fields at the top level): " +
@@ -43,16 +45,31 @@ const fleetInstructions = "Pacto also exposes READ-ONLY fleet tools over the ope
 	"declared in a contract, observed at runtime or inferred. Pacto uses 'inferred' in three " +
 	"places: a transitive consumer in pacto_impact, a target linked to a revision by tag or " +
 	"version match and a relationship provenance reserved for future use. pacto_fleet_entities " +
-	"with template=only lists golden paths, the starting points pacto_create takes as 'from'; a " +
+	"with template=only lists golden paths, the starting points pacto_create takes as 'from' (over stdio, from pacto mcp --transport stdio); a " +
 	"golden path is never a consumer, so it is absent from impact and offering consumers. Use " +
 	"pacto_fleet_entities to list owners, business domains and offerings, pacto_fleet_entity " +
 	"for one of them and pacto_fleet_attention for what needs attention, most severe first. " +
+	"An attention item's nextAction names the operation that fixes it and the tool that makes it (edit-contract: " +
+	"edit the contract, from pacto mcp --transport stdio); Pacto infers it from the item's code, and it grants nothing. " +
 	"pacto_fleet_neighborhood lists the services around one service with their owners, for the " +
 	"blast radius of a problem. Observed edges from a source of kind mira come from Mira's sampled " +
 	"service map: an edge Mira did not see may still exist. For when a problem started and which " +
 	"signals degrade, ask Mira's own MCP tools (list_alerts, query_metric, service_map, correlate, " +
-	"get_trace and render_rca) with the service names Pacto reports, and cite them. A Mira read " +
-	"with no spans is unknown, never healthy."
+	"get_trace and render_rca) with the service names Pacto reports, and cite them; ask query_metric about a " +
+	"resource's utilization and cost too, unless a resource carries reported consumption. A Mira read " +
+	"with no spans is unknown, never healthy. " + overviewInstructions
+
+// overviewInstructions explain pacto_fleet_overview and the words its answer
+// uses for health and knowledge.
+const overviewInstructions = "Use pacto_fleet_overview first for organization-wide questions. Its summary.operationalHealth " +
+	"partitions operational targets: available (healthy), unavailable (failing: its own health check reports it is not " +
+	"healthy, finding HEALTH_FAILING), unknown (Pacto cannot tell), notObserved (the revision declares no health " +
+	"capability, which is not missing evidence; see summary.evidence.withoutEvidence for that) and degraded (always 0 " +
+	"today); neither failing nor unknown changes compliance. summary.ownership is consistent (one declared owner), " +
+	"conflicting, unowned (none declared) or unknown (no contract read). summary.knowledge partitions services into " +
+	"described (nothing left out), withGaps and unknown, and knowledge.gaps counts what the contracts leave out " +
+	"(noSummary, noDomain, noInterfaceDocs, noReadiness, notDeployed, unverifiedCapability). Unknown is never a pass: " +
+	"report it as unknown."
 
 // FleetQuerySource returns the query the fleet tools answer from: the current
 // snapshot. It is asked once per call, so a long session follows a refreshing
@@ -70,23 +87,20 @@ type FleetOptions struct {
 	// DashboardURL, when set, is the base URL of a Pacto dashboard: fleet answers
 	// then carry an href to each entity's page there.
 	DashboardURL string
+	// Reached, when set, reads as this process's own user when each change of
+	// service svc reached its Stages and attaches it to h (q.AttachReached).
+	// nil: the server reads no delivery for its callers.
+	Reached ReachedReader
+	// Stats registers pacto_stats; nil omits it.
+	Stats StatsProvider
 }
 
-// NewFleetServer builds a server with the authoring tools plus the read-only
-// fleet query tools backed by src. When src is nil, only authoring tools
-// register (identical to NewServer) so a caller with no fleet sources degrades
-// cleanly.
-func NewFleetServer(version string, src FleetQuerySource, a Authoring, opts FleetOptions) *mcpsdk.Server {
-	instructions := baseInstructions
-	if src != nil {
-		instructions += "\n\n" + fleetInstructions
-	}
-	server := newServer(version, instructions, a)
-	if src != nil {
-		registerFleetTools(server, src, opts)
-	}
-	return server
-}
+// ReachedReader attaches to h when each change of service svc reached its
+// Stages, read as the caller.
+type ReachedReader func(ctx context.Context, q *fleet.Query, svc fleet.ServiceKey, h *fleet.ChangeHistoryPreview)
+
+// httpNotRead is why a server with no ReachedReader leaves times unread.
+const httpNotRead = "this server answers over HTTP and reads no delivery for its callers; run pacto mcp over stdio beside the agent"
 
 // FleetView narrows q to what the verified caller may see (caller is nil over
 // stdio). An error is answered as the tool's error, never as a smaller answer.
@@ -96,27 +110,35 @@ type FleetView func(ctx context.Context, caller *auth.TokenInfo, q *fleet.Query)
 // one is set.
 func viewed[A any](src FleetQuerySource, view FleetView, h func(*fleet.Query) mcpsdk.ToolHandlerFor[A, any]) mcpsdk.ToolHandlerFor[A, any] {
 	return func(ctx context.Context, req *mcpsdk.CallToolRequest, a A) (*mcpsdk.CallToolResult, any, error) {
-		q, err := src(ctx)
+		q, err := viewQuery(ctx, req, src, view)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-		if view != nil {
-			var caller *auth.TokenInfo
-			if req != nil && req.Extra != nil {
-				caller = req.Extra.TokenInfo
-			}
-			if q, err = view(ctx, caller, q); err != nil {
-				return errorResult(err), nil, nil
-			}
+		if n := noteFrom(ctx); n != nil {
+			n.snapshotID = q.SnapshotID()
 		}
 		return h(q)(ctx, req, a)
 	}
 }
 
+// viewQuery is the current query from src, narrowed by view when one is set.
+func viewQuery(ctx context.Context, req *mcpsdk.CallToolRequest, src FleetQuerySource, view FleetView) (*fleet.Query, error) {
+	q, err := src(ctx)
+	if err != nil || view == nil {
+		return q, err
+	}
+	var caller *auth.TokenInfo
+	if req != nil && req.Extra != nil {
+		caller = req.Extra.TokenInfo
+	}
+	return view(ctx, caller, q)
+}
+
 // addFleetTool registers one fleet tool: answered from the current (viewed)
 // query and, with a dashboard URL, linked to the dashboard.
 func addFleetTool[A any](server *mcpsdk.Server, tool *mcpsdk.Tool, src FleetQuerySource, opts FleetOptions, h func(*fleet.Query) mcpsdk.ToolHandlerFor[A, any]) {
-	mcpsdk.AddTool(server, tool, linkHrefs(tool.Name, hrefPrefix(opts), viewed(src, opts.View, h)))
+	tool.Annotations = readOnly(true)
+	addTool(server, tool, linkHrefs(tool.Name, hrefPrefix(opts), viewed(src, opts.View, h)))
 }
 
 // hrefPrefix is the dashboard base every href is prefixed with, empty without
@@ -141,7 +163,7 @@ func registerFleetTools(server *mcpsdk.Server, src FleetQuerySource, opts FleetO
 		return fleetEntitiesHandler(q, link)
 	})
 	addFleetTool(server, fleetEntityTool(), src, opts, func(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetEntityArgs, any] {
-		return fleetEntityHandler(q, link)
+		return fleetEntityHandler(q, link, opts.Reached)
 	})
 	addFleetTool(server, fleetAttentionTool(), src, opts, func(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetAttentionArgs, any] {
 		return fleetAttentionHandler(q, link)
@@ -150,12 +172,21 @@ func registerFleetTools(server *mcpsdk.Server, src FleetQuerySource, opts FleetO
 		return fleetNeighborhoodHandler(q, link)
 	})
 	addFleetTool(server, fleetVersionsTool(), src, opts, fleetVersionsHandler)
+	addFleetTool(server, fleetOverviewTool(), src, opts, func(q *fleet.Query) mcpsdk.ToolHandlerFor[struct{}, any] {
+		return fleetOverviewHandler(q, link)
+	})
+	addFleetTool(server, fleetRevisionDocumentTool(), src, opts, func(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetRevisionDocumentArgs, any] {
+		return fleetRevisionDocumentHandler(q, link)
+	})
 	if opts.Impact != nil {
 		// Impact analyses over the snapshot the other tools answer from (the
 		// caller's view of it when there is one), so one session's answers agree.
-		mcpsdk.AddTool(server, impactTool(), linkHrefs("pacto_impact", hrefPrefix(opts), viewed(src, opts.View, func(vq *fleet.Query) mcpsdk.ToolHandlerFor[impactArgs, any] {
+		addTool(server, impactTool(), linkHrefs("pacto_impact", hrefPrefix(opts), viewed(src, opts.View, func(vq *fleet.Query) mcpsdk.ToolHandlerFor[impactArgs, any] {
 			return impactHandler(opts.Impact, vq.SnapshotForSerialization())
 		})))
+	}
+	if opts.Stats != nil {
+		addTool(server, statsTool(), statsHandler(src, opts.View, opts.Stats))
 	}
 }
 
@@ -184,6 +215,7 @@ func fleetSearchTool() *mcpsdk.Tool {
 			"ready":          {Type: "boolean", Description: "Only operationally ready services"},
 			"not_ready":      {Type: "boolean", Description: "Only services not operationally ready"},
 			"template":       {Type: "string", Description: "only: keep only golden paths (services whose contract declares service.template and that run nowhere); exclude: leave them out. Empty lists every service, golden paths marked 'template'", Enum: []string{fleet.TemplateOnly, fleet.TemplateExclude}},
+			"label":          {Type: "array", Items: "string", Description: "Target labels as key=value; every pair must match one target of the service"},
 			"limit":          {Type: "integer", Description: "Maximum results (bounded)"},
 			"offset":         {Type: "integer", Description: "Number of results to skip, for paging"},
 		}, nil),
@@ -195,31 +227,37 @@ func fleetSearchTool() *mcpsdk.Tool {
 // before it reaches the query instead of decoding to a zero that reads as
 // "filter not requested".
 type fleetSearchArgs struct {
-	Text           string `json:"text"`
-	Owner          string `json:"owner"`
-	BusinessDomain string `json:"business_domain"`
-	Offering       string `json:"offering"`
-	Status         string `json:"status"`
-	Compliance     string `json:"compliance"`
-	Source         string `json:"source"`
-	Scope          string `json:"scope"`
-	Workload       string `json:"workload"`
-	HasCapability  bool   `json:"has_capability"`
-	HasDependency  bool   `json:"has_dependency"`
-	Ready          bool   `json:"ready"`
-	NotReady       bool   `json:"not_ready"`
-	Template       string `json:"template"`
-	Limit          int    `json:"limit"`
-	Offset         int    `json:"offset"`
+	Text           string   `json:"text"`
+	Owner          string   `json:"owner"`
+	BusinessDomain string   `json:"business_domain"`
+	Offering       string   `json:"offering"`
+	Status         string   `json:"status"`
+	Compliance     string   `json:"compliance"`
+	Source         string   `json:"source"`
+	Scope          string   `json:"scope"`
+	Workload       string   `json:"workload"`
+	HasCapability  bool     `json:"has_capability"`
+	HasDependency  bool     `json:"has_dependency"`
+	Ready          bool     `json:"ready"`
+	NotReady       bool     `json:"not_ready"`
+	Template       string   `json:"template"`
+	Label          []string `json:"label"`
+	Limit          int      `json:"limit"`
+	Offset         int      `json:"offset"`
 }
 
 func fleetSearchHandler(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetSearchArgs, any] {
 	return func(_ context.Context, _ *mcpsdk.CallToolRequest, a fleetSearchArgs) (*mcpsdk.CallToolResult, any, error) {
+		labels, err := fleet.ParseLabels(a.Label)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
 		res, err := q.Search(fleet.SearchFilter{
 			Text: a.Text, Owner: a.Owner, BusinessDomain: a.BusinessDomain, Offering: a.Offering, Status: a.Status, Compliance: a.Compliance,
 			Source: a.Source, Workload: a.Workload, Scope: a.Scope,
 			HasCapability: a.HasCapability, HasDependency: a.HasDependency,
 			ReadyOnly: a.Ready, NotReady: a.NotReady, Template: a.Template, Limit: a.Limit, Offset: a.Offset,
+			Labels: labels,
 		})
 		if err != nil {
 			return errorResult(err), nil, nil
@@ -332,8 +370,11 @@ func fleetStatusTool() *mcpsdk.Tool {
 		Name: "pacto_fleet_status",
 		Description: "Report services and targets needing attention: non-compliant, unknown, invalid, " +
 			"stale evidence, missing readiness, unresolved dependencies and dependencies whose provider " +
-			"version is outside the declared range (DEPENDENCY_RANGE_UNSATISFIED), services with no declared owner, " +
-			"undeclared runtime dependencies and running services that declare service.template (GOLDEN_PATH_DEPLOYED). 'total' and 'truncated' say whether the limit cut the list. With no category " +
+			"version is outside the declared range (DEPENDENCY_RANGE_UNSATISFIED), services that use a deprecated or past-sunset provider " +
+			"(DEPENDENCY_SERVICE_DEPRECATED, DEPENDENCY_SERVICE_SUNSET, SUCCESSOR_OUT_OF_RANGE), services with no declared owner, " +
+			"undeclared runtime dependencies, running services that declare service.template (GOLDEN_PATH_DEPLOYED) and " +
+			"resources that failed to provision or report stale (category provisioning: PROVISIONING_FAILED, PROVISIONING_STALE; " +
+			"needs_attention includes them). 'total' and 'truncated' say whether the limit cut the list. With no category " +
 			"selected, including empty input, it reports every category. Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"needs_attention":      {Type: "boolean", Description: "Report every attention category"},
@@ -344,6 +385,7 @@ func fleetStatusTool() *mcpsdk.Tool {
 			"missing_readiness":    {Type: "boolean", Description: "Revisions without a readiness assessment"},
 			"unresolved_deps":      {Type: "boolean", Description: "Unresolved declared dependencies"},
 			"unsatisfied_ranges":   {Type: "boolean", Description: "Dependencies whose provider version is outside the declared range"},
+			"lifecycle":            {Type: "boolean", Description: "Services that use a deprecated or past-sunset provider, or whose range refuses its successor"},
 			"unowned":              {Type: "boolean", Description: "Services with no declared owner"},
 			"undeclared":           {Type: "boolean", Description: "Runtime calls no contract declares and callers with no contract"},
 			"golden_path_deployed": {Type: "boolean", Description: "Running services that declare service.template (GOLDEN_PATH_DEPLOYED)"},
@@ -362,8 +404,10 @@ type fleetStatusArgs struct {
 	UnresolvedDeps   bool `json:"unresolved_deps"`
 	// UnsatisfiedRanges selects DEPENDENCY_RANGE_UNSATISFIED items.
 	UnsatisfiedRanges bool `json:"unsatisfied_ranges"`
-	Unowned           bool `json:"unowned"`
-	Undeclared        bool `json:"undeclared"`
+	// Lifecycle selects the lifecycle category.
+	Lifecycle  bool `json:"lifecycle"`
+	Unowned    bool `json:"unowned"`
+	Undeclared bool `json:"undeclared"`
 	// GoldenPathDeployed selects GOLDEN_PATH_DEPLOYED items.
 	GoldenPathDeployed bool `json:"golden_path_deployed"`
 	Limit              int  `json:"limit"`
@@ -375,7 +419,7 @@ func fleetStatusHandler(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetStatusArgs, a
 			NeedsAttention: a.NeedsAttention, NonCompliant: a.NonCompliant,
 			Unknown: a.Unknown, Invalid: a.Invalid,
 			StaleEvidence: a.Stale, MissingReadiness: a.MissingReadiness,
-			UnresolvedDeps: a.UnresolvedDeps, UnsatisfiedRanges: a.UnsatisfiedRanges,
+			UnresolvedDeps: a.UnresolvedDeps, UnsatisfiedRanges: a.UnsatisfiedRanges, Lifecycle: a.Lifecycle,
 			Unowned: a.Unowned, Undeclared: a.Undeclared, GoldenPathDeployed: a.GoldenPathDeployed, Limit: a.Limit,
 		}))
 		return r, nil, err
@@ -411,10 +455,11 @@ func fleetExplainHandler(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetExplainArgs,
 func fleetEntitiesTool() *mcpsdk.Tool {
 	return &mcpsdk.Tool{
 		Name: "pacto_fleet_entities",
-		Description: "List services, owners, business domains or platform offerings, with paging ('total', " +
+		Description: "List services, owners, business domains or platform offerings, or the one kind named, with paging ('total', " +
 			"'truncated', 'nextOffset') and an aggregate over everything matched. Use kind=owner to learn the " +
 			"exact owner keys (team:NAME, dri:NAME) that 'owner_key' takes, ownership=unowned for services with " +
-			"no declared owner and sort=health for the least healthy first. template=only lists golden paths: " +
+			"no declared owner (ownership=unknown: no contract Pacto could read, so it cannot tell), gap for services whose contracts " +
+			"leave something out (gap=unknown: Pacto cannot judge; aggregate.knowledge partitions the matched services) and sort=health for the least healthy first. template=only lists golden paths: " +
 			"starting points for pacto_create from; sort=created orders them by the services created from them. created_from lists the services created from one " +
 			"((none): no declared origin; (unresolved): an origin that resolves to no golden path), and over services aggregate.origins " +
 			"ranks golden paths by the services created from them and counts the rest, hidden services in a count of their own. Over services, the aggregate ranks owners " +
@@ -422,24 +467,38 @@ func fleetEntitiesTool() *mcpsdk.Tool {
 			"the rest, so the rows and counts sum to serviceCompliance.nonCompliant. Owner and domain rows carry nonCompliant " +
 			"(an owner's: the services it owns outright, 'owned'); has_non_compliant keeps the ones with at least one and " +
 			"sort=rate orders them by their share. source_kind keeps the sources of one kind; meta.sourceCounts.availableByKind " +
-			"counts the available ones per kind. Read-only.",
+			"counts the available ones per kind. A filter of one kind (readiness, scope, source_kind, source_health) lists that kind when kind is empty. " +
+			"Offering rows carry owner, lifecycle, availability with availabilityProvenance " +
+			"(observed, inferred or unknown), consumers, hiddenConsumers, failedRequests and targetsUnknown; aggregate.offeringPhases " +
+			"tallies their requests by phase. lifecycle keeps offerings or services that are deprecated or sunset, and failed keeps " +
+			"offerings with a failed provisioning request. Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"text":              {Type: "string", Description: "Substring over name, key and owner"},
-			"kind":              {Type: "string", Description: "Entity kind (empty lists all four)", Enum: fleet.ProductKinds()},
+			"kind":              {Type: "string", Description: "Entity kind (empty lists services, owners, domains and offerings)", Enum: fleet.EntityKinds()},
 			"owner":             {Type: "string", Description: "Free-text owner search over team, DRI and contacts"},
 			"owner_key":         {Type: "string", Description: "Exact owner key, such as team:platform or dri:alice"},
 			"business_domain":   {Type: "string", Description: "Exact business domain, " + fleet.NoBusinessDomain + " for none or " + fleet.UnknownBusinessDomain + " for unknown"},
 			"offering":          {Type: "string", Description: "Services that provide this platform offering, and the offering itself"},
 			"consumes":          {Type: "string", Description: "Services that depend on or reference a provider of this platform offering"},
 			"phase":             {Type: "string", Description: "With consumes: only the consumers with a provisioning status of that offering in this phase", Enum: fleet.PhaseBuckets()},
-			"environment":       {Type: "string", Description: "Needs consumes and phase: only the consumers whose provisioning status in that phase is in this environment. A name no visible revision declares and no visible target reports is said so in the limitations"},
-			"ownership":         {Type: "string", Description: "How a service's revisions declare ownership; unidentified is every service with no single canonical owner", Enum: []string{fleet.OwnershipConsistent, fleet.OwnershipConflicting, fleet.OwnershipUnowned, fleet.OwnershipUnidentified}},
+			"environment":       {Type: "string", Description: "With kind=target, the targets in this environment; otherwise it needs consumes and phase: only the consumers whose provisioning status in that phase is in this environment. A name no visible revision declares and no visible target reports is said so in the limitations"},
+			"ownership":         {Type: "string", Description: "How ownership is declared on a service; conflicting means owners disagree: targets run different owners, or one version declares two (an older version's owner is a handover, not a conflict); unknown is a service with no owner claim whose contract Pacto cannot read, unidentified every service with no single canonical owner", Enum: []string{fleet.OwnershipConsistent, fleet.OwnershipConflicting, fleet.OwnershipUnowned, fleet.OwnershipUnknown, fleet.OwnershipUnidentified}},
+			"gap":               {Type: "string", Description: "Services whose contracts leave this out (not-deployed: run nowhere while every source reporting targets is complete; unverified-capability: an extension capability no evaluator verifies), or unknown for those whose knowledge Pacto cannot judge", Enum: fleet.GapFilterValues()},
 			"status":            {Type: "string", Description: "Canonical compliance status", Enum: fleet.CanonicalStatuses()},
 			"template":          {Type: "string", Description: "only: keep only golden paths and, with no kind, list services only; exclude: leave golden paths and their revisions out", Enum: []string{fleet.TemplateOnly, fleet.TemplateExclude}},
 			"created_from":      {Type: "string", Description: "Services created from this golden path, by service key; " + fleet.NoOrigin + " for no declared origin or " + fleet.UnresolvedOrigin + " for an origin that resolves to no golden path"},
-			"sort":              {Type: "string", Description: "Order: by name, least healthy first, owners with the most services first, owners and domains with the most non-compliant services first or with the highest share of them first, or golden paths that created the most services first", Enum: []string{fleet.SortName, fleet.SortHealth, fleet.SortServices, fleet.SortNonCompliant, fleet.SortRate, fleet.SortCreated}},
+			"sort":              {Type: "string", Description: "Order: by name, least healthy first, owners with the most services first, owners and domains with the most non-compliant services first or with the highest share of them first, golden paths that created the most services first, offerings with the most consumers with a failed provisioning request or the most declared consumers first, or owners and domains with the most services that leave knowledge out first", Enum: []string{fleet.SortName, fleet.SortHealth, fleet.SortServices, fleet.SortNonCompliant, fleet.SortRate, fleet.SortCreated, fleet.SortFailed, fleet.SortConsumers, fleet.SortGaps}},
 			"has_non_compliant": {Type: "boolean", Description: "Owners and domains with at least one non-compliant service only"},
 			"source_kind":       {Type: "string", Description: "Sources of this exact kind only (oci, kubernetes, evidence-http, ...)"},
+			"capability":        {Type: "string", Description: "Services whose revisions declare this capability key, such as health or acme.io/cost"},
+			"domain":            {Type: "string", Description: "Exact registry path, the domain part of a service key"},
+			"service":           {Type: "string", Description: "This service and its revisions and targets, by service key"},
+			"source":            {Type: "string", Description: "Entities read from this fleet source, by source key"},
+			"scope":             {Type: "string", Description: "Targets in this scope, such as a namespace"},
+			"readiness":         {Type: "string", Description: "Revisions by declared readiness", Enum: []string{"passing", "below-threshold", "expired", "not-declared"}},
+			"source_health":     {Type: "string", Description: "Sources by health (incomplete: partial, stale or unavailable)", Enum: []string{"available", "partial", "stale", "unavailable", "incomplete"}},
+			"lifecycle":         {Type: "string", Description: "Offerings whose worst provider lifecycle (each provider's newest revision a target runs, else its newest readable one), or services whose newest revision, is this", Enum: []string{fleet.LifecycleDeprecated, fleet.LifecycleSunset}},
+			"failed":            {Type: "boolean", Description: "With kind offering: offerings with at least one failed provisioning request"},
 			"limit":             {Type: "integer", Description: "Maximum results (bounded)"},
 			"offset":            {Type: "integer", Description: "Number of results to skip, for paging"},
 		}, nil),
@@ -457,39 +516,43 @@ type fleetEntitiesArgs struct {
 	Phase           string `json:"phase"`
 	Environment     string `json:"environment"`
 	Ownership       string `json:"ownership"`
+	Gap             string `json:"gap"`
 	Status          string `json:"status"`
 	Template        string `json:"template"`
 	CreatedFrom     string `json:"created_from"`
 	Sort            string `json:"sort"`
 	HasNonCompliant bool   `json:"has_non_compliant"`
 	SourceKind      string `json:"source_kind"`
+	Capability      string `json:"capability"`
+	Domain          string `json:"domain"`
+	Service         string `json:"service"`
+	Source          string `json:"source"`
+	Scope           string `json:"scope"`
+	Readiness       string `json:"readiness"`
+	SourceHealth    string `json:"source_health"`
+	Lifecycle       string `json:"lifecycle"`
+	Failed          bool   `json:"failed"`
 	Limit           int    `json:"limit"`
 	Offset          int    `json:"offset"`
 }
 
 func fleetEntitiesHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[fleetEntitiesArgs, any] {
 	return func(_ context.Context, _ *mcpsdk.CallToolRequest, a fleetEntitiesArgs) (*mcpsdk.CallToolResult, any, error) {
-		if a.Environment != "" && a.Phase == "" {
-			// ponytail: this tool lists no targets, so the core's "alone it filters targets" hint never applies here.
+		if a.Environment != "" && a.Phase == "" && a.Kind != string(fleet.KindTarget) {
+			// ponytail: kind=target is the one listing where environment stands alone.
 			return errorResult(&fleet.InvalidQueryError{Field: "environment", Value: a.Environment,
 				Reason: "needs consumes and phase: it narrows the consumers of an offering in one phase to one environment"}), nil, nil
 		}
-		kinds := fleet.ProductKinds()
-		if a.Kind != "" {
-			kinds = []string{a.Kind}
-		} else if a.Template == fleet.TemplateOnly {
-			kinds = []string{string(fleet.KindService)}
-		}
-		var ks []fleet.EntityKind
-		for _, k := range kinds {
-			ks = append(ks, fleet.EntityKind(k))
-		}
-		return productResult(link, productview.ToEntityList)(q.Entities(fleet.EntityFilter{
-			Text: a.Text, Kinds: ks, Owner: a.Owner, OwnerKey: a.OwnerKey, BusinessDomain: a.BusinessDomain,
-			Offering: a.Offering, Consumes: a.Consumes, Phase: a.Phase, Environment: a.Environment, Ownership: a.Ownership, Status: a.Status, Sort: a.Sort, Limit: a.Limit, Offset: a.Offset,
+		f := fleet.EntityFilter{
+			Text: a.Text, Owner: a.Owner, OwnerKey: a.OwnerKey, BusinessDomain: a.BusinessDomain,
+			Offering: a.Offering, Consumes: a.Consumes, Phase: a.Phase, Environment: a.Environment, Ownership: a.Ownership, Gap: a.Gap, Status: a.Status, Sort: a.Sort, Limit: a.Limit, Offset: a.Offset,
 			Template: a.Template, CreatedFrom: a.CreatedFrom,
-			HasNonCompliant: a.HasNonCompliant, SourceKind: a.SourceKind,
-		}))
+			HasNonCompliant: a.HasNonCompliant, SourceKind: a.SourceKind, Lifecycle: a.Lifecycle, Failed: a.Failed,
+			Capability: a.Capability, Domain: a.Domain, Service: a.Service, Source: a.Source,
+			Scope: a.Scope, Readiness: a.Readiness, SourceHealth: a.SourceHealth,
+		}
+		f.Kinds = fleet.ListKinds(a.Kind, f)
+		return productResult(link, productview.ToEntityList)(q.Entities(f))
 	}
 }
 
@@ -500,7 +563,16 @@ func fleetEntityTool() *mcpsdk.Tool {
 			"or platform offering. A domain or owner answer summarizes its services; an offering answer lists " +
 			"providers and consumers. Each offering use carries 'provisioning': observed evidence a provider " +
 			"adapter reports per environment, Unknown until a provider reports. A status with 'verified' false " +
-			"comes from an unsigned target-state file. A golden path's service answer carries 'template': the " +
+			"comes from an unsigned target-state file. An offering answer carries 'adapters': the adapter slug, producer " +
+			"and signature of every current report on its requests, or of the newest report where none is current (observed; " +
+			"its 'phases' count a request Unknown unless its own current report says the phase the badge shows; the slug is free text the adapter picks and may " +
+			"be empty; the provider is the service that declares the offering), with 'conflicting' requests whose adapters " +
+			"disagree and 'unattributed' requests nobody reported on, and 'unresolvedUses' (inferred), declared references " +
+			"that may name a provider but did not resolve, each consumer counted once per reference type and repository, " +
+			"hidden consumers and providers included; when it " +
+			"is above 0 the answer is partial. 'phases.readyUnsigned' counts Ready statuses that are not signed; " +
+			"'phaseConsumers.readyUnsigned' counts consumers whose every Ready status is unsigned; only a signed Ready is " +
+			"positive. A golden path's service answer carries 'template': the " +
 			"plugins its service.template names, its requirements, the services created from it and the " +
 			"pacto_create call. A service created from one carries 'origin', its service.origin as declared, " +
 			"and 'creation', a checklist derived from what sources show: each step is unknown until a source " +
@@ -511,23 +583,77 @@ func fleetEntityTool() *mcpsdk.Tool {
 			"environment declared by its current revision, observed on its targets or both, with 'declaration' (lifetime, " +
 			"expires and an inferred 'expired'), 'owner' with provenance declared, inferred or unknown, 'provisioning' with " +
 			"'provisioningTracked', 'targetsComplete' and the 'differences' between the environments' values; and " +
-			"'environmentHistory', the environment changes between the versions held in version order (no time is " +
-			"recorded, so it is never a timeline), with 'gaps' and 'completeness'. Hidden services are only counted, in the hidden fields. Read-only.",
+			"'changes', every declared change across the versions held (owner, domain, offering, dependency, lifecycle, " +
+			"environment, plus finding changes from validation), in version order, each with 'provenance', 'source', " +
+			"'revision' and 'previous'; 'gaps' and 'completeness'. A change has a time only from delivery history, never " +
+			"from when Pacto read it: with reached=true each change carries 'reached', when its revision first reached each Stage " +
+			"(a 'record' with 'verified' true is signed; 'fromStatus' is not signed), and 'times' says how they were read " +
+			"(not-read, read, partial or hidden, with 'timesReason'). Only a server over stdio reads delivery, as its own user. An offering carries 'availability' and each provider its own: per " +
+			"environment a 'state' (available, degraded, unavailable or unknown) derived from observed targets and consumer reports, never " +
+			"from compliance, with 'provenance', 'reason' and 'partial' when the viewer may not see every consumer or provider; " +
+			"'hiddenProviders' counts the providers you may not see. 'observedConsumers' lists callers seen at runtime with no declaration. " +
+			"Each provider names its 'successor' (unknown when it resolves to no revision) and 'latestSupported', and each use its " +
+			"'successorRange'. A service's uses are the resources it consumes: each carries 'providerOwner', " +
+			"'providerAvailability', 'requested' (the values the service declares, provenance declared, on the " +
+			"configuration_reference row only, with the 'consumerRevision' that declares them) and 'consumption' per environment " +
+			"('entry' names the consumer entry when a use has more than one): 'reported' carries 'figures' (metrics " +
+			"and a cost exactly as one signed, fresh provider report about 'revision', the newest consumer revision that uses the " +
+			"resource, gave them, with producer and asOf); 'unknown' carries a 'reason' and, when a report exists but is unsigned, " +
+			"stale or about another revision, its raw numbers in 'reported', never to be quoted as current usage; when current " +
+			"reports disagree, 'conflict' names the producers and no figures are given; " +
+			"'not-reported' means no provider reports usage or cost to Pacto. Pacto never sums or converts a cost. A resource's provisioning phase is its lifecycle, never the service's health. " +
+			"The service's 'hiddenProviders' says at least that many resources come from providers you may not see. " +
+			fleet.ResourceActionsNote + " Hidden services are only counted, in the hidden fields. Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"kind": {Type: "string", Description: "Entity kind", Enum: fleet.EntityKinds()},
 			"key":  {Type: "string", Description: "Entity key, as pacto_fleet_entities or pacto_fleet_search reports it"},
+			"reached": {Type: "boolean", Description: "For a service: also read when each change reached a Stage, from delivery records " +
+				"with the server's own cluster credentials (stdio only)"},
 		}, []string{"kind", "key"}),
 	}
 }
 
 type fleetEntityArgs struct {
-	Kind string `json:"kind"`
-	Key  string `json:"key"`
+	Kind    string `json:"kind"`
+	Key     string `json:"key"`
+	Reached bool   `json:"reached,omitempty"`
 }
 
-func fleetEntityHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[fleetEntityArgs, any] {
-	return func(_ context.Context, _ *mcpsdk.CallToolRequest, a fleetEntityArgs) (*mcpsdk.CallToolResult, any, error) {
-		return productResult(link, productview.ToEntityDetail)(q.EntityDetail(fleet.EntityKind(a.Kind), a.Key))
+func fleetEntityHandler(q *fleet.Query, link bool, reached ReachedReader) mcpsdk.ToolHandlerFor[fleetEntityArgs, any] {
+	return func(ctx context.Context, _ *mcpsdk.CallToolRequest, a fleetEntityArgs) (*mcpsdk.CallToolResult, any, error) {
+		res, err := q.EntityDetail(fleet.EntityKind(a.Kind), a.Key)
+		switch {
+		case err != nil || !a.Reached || res.Service == nil:
+		case reached == nil:
+			q.AttachReached(&res.Service.Changes, nil, fleet.TimesNotRead, httpNotRead, nil)
+		default:
+			reached(ctx, q, fleet.ServiceKey(res.Entity.Key), &res.Service.Changes)
+		}
+		return productResult(link, productview.ToEntityDetail)(res, err)
+	}
+}
+
+func fleetRevisionDocumentTool() *mcpsdk.Tool {
+	return &mcpsdk.Tool{
+		Name: "pacto_fleet_revision_document",
+		Description: "Read one document a revision lists in its docs, exactly as published in that revision's bundle: its path, " +
+			"title, size and text. Only a path the revision's own docs list is served; a revision you cannot see is not found. " +
+			"A revision's contract, configuration and policy content are on pacto_fleet_entity kind=revision. Read-only.",
+		InputSchema: inputSchema(map[string]property{
+			"key":  {Type: "string", Description: "Canonical revision key the document belongs to"},
+			"path": {Type: "string", Description: "In-bundle document path, exactly as published in the revision's docs list"},
+		}, []string{"key", "path"}),
+	}
+}
+
+type fleetRevisionDocumentArgs struct {
+	Key  string `json:"key"`
+	Path string `json:"path"`
+}
+
+func fleetRevisionDocumentHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[fleetRevisionDocumentArgs, any] {
+	return func(_ context.Context, _ *mcpsdk.CallToolRequest, a fleetRevisionDocumentArgs) (*mcpsdk.CallToolResult, any, error) {
+		return productResult(link, productview.ToRevisionDocument)(q.RevisionDocument(a.Key, a.Path))
 	}
 }
 
@@ -537,7 +663,9 @@ func fleetVersionsTool() *mcpsdk.Tool {
 		Description: "List the versions of each provider of a platform offering, newest first, with whether a " +
 			"target runs each one and the service lifecycle it declares. With 'range', each version carries " +
 			"'rangeStatus' and each provider its 'latestCompatible' version. The list comes from the contract " +
-			"revisions the snapshot holds; the registry may publish others. Read-only.",
+			"revisions the snapshot holds; the registry may publish others. Each provider names the 'successor' its newest " +
+			"revision declares (unknown when it resolves to no revision); with 'range', the one the newest revision in the " +
+			"range declares, and 'successorRange'. Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"offering": {Type: "string", Description: "Platform offering slug, such as postgresql"},
 			"provider": {Type: "string", Description: "Only this provider: its key, or a name only one domain uses"},
@@ -569,7 +697,8 @@ func fleetAttentionTool() *mcpsdk.Tool {
 		Description: "List what needs attention, most severe first, each item with 'severity', 'category', " +
 			"'reason' and 'nextStep', paged ('total', 'truncated', 'nextOffset'), with 'severities' and " +
 			"'categories' tallied over every match. category=undeclared lists runtime calls no contract " +
-			"declares and callers with no contract. Read-only.",
+			"declares and callers with no contract. category=provisioning lists resources a provider reports " +
+			"Failed (PROVISIONING_FAILED) or whose last report about the current revision is stale (PROVISIONING_STALE). Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"category":        {Type: "string", Description: "Attention category", Enum: fleet.AttentionCategoriesList()},
 			"severity":        {Type: "string", Description: "Attention severity", Enum: []string{"error", "warning", "info"}},
@@ -577,6 +706,11 @@ func fleetAttentionTool() *mcpsdk.Tool {
 			"owner_key":       {Type: "string", Description: "Exact owner key, such as team:platform or dri:alice"},
 			"business_domain": {Type: "string", Description: "Exact business domain, " + fleet.NoBusinessDomain + " for none or " + fleet.UnknownBusinessDomain + " for unknown"},
 			"service":         {Type: "string", Description: "Items of this service: its key, or a name only one domain uses"},
+			"kind":            {Type: "string", Description: "Items about entities of this kind", Enum: fleet.EntityKinds()},
+			"key":             {Type: "string", Description: "Items about the entity with this exact key"},
+			"source":          {Type: "string", Description: "Items a fleet source reported, by source key"},
+			"status":          {Type: "string", Description: "Items about entities with this canonical compliance status", Enum: fleet.CanonicalStatuses()},
+			"stale_only":      {Type: "boolean", Description: "Only the items about stale evidence"},
 			"limit":           {Type: "integer", Description: "Maximum results (bounded)"},
 			"offset":          {Type: "integer", Description: "Number of results to skip, for paging"},
 		}, nil),
@@ -590,6 +724,11 @@ type fleetAttentionArgs struct {
 	OwnerKey       string `json:"owner_key"`
 	BusinessDomain string `json:"business_domain"`
 	Service        string `json:"service"`
+	Kind           string `json:"kind"`
+	Key            string `json:"key"`
+	Source         string `json:"source"`
+	Status         string `json:"status"`
+	StaleOnly      bool   `json:"stale_only"`
 	Limit          int    `json:"limit"`
 	Offset         int    `json:"offset"`
 }
@@ -599,6 +738,7 @@ func fleetAttentionHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[flee
 		return productResult(link, productview.ToAttentionList)(q.Attention(fleet.AttentionFilter{
 			Category: a.Category, Severity: a.Severity, Owner: a.Owner, OwnerKey: a.OwnerKey,
 			BusinessDomain: a.BusinessDomain, Service: a.Service, Limit: a.Limit, Offset: a.Offset,
+			Kind: a.Kind, Key: a.Key, Source: a.Source, Status: a.Status, StaleOnly: a.StaleOnly,
 		}))
 	}
 }
@@ -618,6 +758,7 @@ func fleetNeighborhoodTool() *mcpsdk.Tool {
 			"depth":     {Type: "integer", Description: fmt.Sprintf("How many hops to walk (0 = %d, at most %d)", fleet.DefaultNeighborhoodDepth, fleet.MaxNeighborhoodDepth)},
 			"views":     {Type: "string", Description: "Comma-separated knowledge views: expected, observed, differences (empty = expected,observed)"},
 			"max_nodes": {Type: "integer", Description: fmt.Sprintf("Maximum services (0 = %d, at most %d)", fleet.DefaultMaxNodes, fleet.MaxNeighborhoodNodes)},
+			"max_edges": {Type: "integer", Description: fmt.Sprintf("Maximum edges (0 = %d, at most %d)", fleet.DefaultMaxEdges, fleet.MaxNeighborhoodEdges)},
 		}, []string{"service"}),
 	}
 }
@@ -628,31 +769,35 @@ type fleetNeighborhoodArgs struct {
 	Depth     int    `json:"depth"`
 	Views     string `json:"views"`
 	MaxNodes  int    `json:"max_nodes"`
+	MaxEdges  int    `json:"max_edges"`
 }
 
 func fleetNeighborhoodHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[fleetNeighborhoodArgs, any] {
 	return func(_ context.Context, _ *mcpsdk.CallToolRequest, a fleetNeighborhoodArgs) (*mcpsdk.CallToolResult, any, error) {
 		return productResult(link, productview.ToNeighborhood)(q.Neighborhood(fleet.NeighborhoodQuery{
 			Kind: fleet.KindService, Key: a.Service, Direction: fleet.Direction(a.Direction),
-			Depth: a.Depth, Views: SplitViews(a.Views), MaxNodes: a.MaxNodes,
+			Depth: a.Depth, Views: fleet.ParseViews(a.Views), MaxNodes: a.MaxNodes, MaxEdges: a.MaxEdges,
 		}))
 	}
 }
 
-// SplitViews reads a comma-separated list of knowledge views. Blank parts are
-// dropped, and an empty list means expected and observed, so a neighbourhood
-// shows the dependents only observation has seen.
-func SplitViews(s string) []fleet.KnowledgeView {
-	var out []fleet.KnowledgeView
-	for _, p := range strings.Split(s, ",") {
-		if p = strings.TrimSpace(p); p != "" {
-			out = append(out, fleet.KnowledgeView(p))
-		}
+func fleetOverviewTool() *mcpsdk.Tool {
+	return &mcpsdk.Tool{
+		Name: "pacto_fleet_overview",
+		Description: "Summarize the organization in one call: target compliance (with how many compliant targets rest on " +
+			"stale evidence), summary.operationalHealth (available = healthy, unavailable = failing, unknown, notObserved = " +
+			"the revision declares no health capability, degraded = always 0 today), summary.knowledge (described, withGaps, " +
+			"unknown and knowledge.gaps per kind), summary.ownership (consistent, conflicting, unowned, unknown), evaluation " +
+			"coverage, evidence freshness, per-domain and per-scope breakdowns and entry points. unavailable means the " +
+			"target's own health check reports it is not healthy (HEALTH_FAILING); unknown means Pacto cannot tell. Read-only.",
+		InputSchema: inputSchema(map[string]property{}, nil),
 	}
-	if len(out) == 0 {
-		return []fleet.KnowledgeView{fleet.ViewExpected, fleet.ViewObserved}
+}
+
+func fleetOverviewHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[struct{}, any] {
+	return func(context.Context, *mcpsdk.CallToolRequest, struct{}) (*mcpsdk.CallToolResult, any, error) {
+		return productResult(link, productview.ToOverview)(q.Overview(), nil)
 	}
-	return out
 }
 
 // productResult answers a product query's result, or its error as the tool's

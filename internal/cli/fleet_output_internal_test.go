@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/evidence"
 	"github.com/trianalab/pacto/v4/pkg/finding"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
@@ -166,7 +168,7 @@ func TestOfferingTextEdges(t *testing.T) {
 		Consumers:       fleet.OfferingUsesPreview{Total: 2, Count: 1, Truncated: true, Items: []fleet.OfferingUse{{Consumer: fleet.EntityRef{Label: "app"}, Provider: fleet.EntityRef{Label: "pg"}, Offering: "pg", Via: "dependency", ProviderLifecycle: versions.Items[0].Lifecycle}}},
 		HiddenConsumers: 3,
 	})
-	for _, want := range []string{"    lifecycle: deprecated since 2026-01-01", "    versions: -\n", "via dependency, provider deprecated since", "  1 more\n", "3 consumers you may not see\n"} {
+	for _, want := range []string{"    lifecycle: deprecated since 2026-01-01", "    versions: -\n", "via dependency, provider deprecated since", "  1 more\n", "Consumers you may not see: 3\n"} {
 		if !strings.Contains(buf.String(), want) {
 			t.Errorf("offering text lacks %q:\n%s", want, buf.String())
 		}
@@ -306,5 +308,206 @@ func TestPrintOriginRanking(t *testing.T) {
 		"Plus 2 created from a golden path and hidden by your permissions\n"
 	if buf.String() != want {
 		t.Errorf("origin text = %q, want %q", buf.String(), want)
+	}
+}
+
+// resourcesFixture is a service with one configuration-reference use reported
+// Failed by a signed adapter and one dependency use nothing reported on.
+func resourcesFixture() *fleet.ServiceDetailData {
+	asOf := time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC)
+	consumption := []fleet.ResourceConsumption{{Environment: "production", State: "not-reported", Provenance: "observed"}}
+	return &fleet.ServiceDetailData{
+		HiddenProviders: 2,
+		ConsumedOfferings: fleet.OfferingUsesPreview{Total: 2, Count: 2, Items: []fleet.OfferingUse{
+			{
+				Offering: "postgresql", Provider: fleet.EntityRef{Label: "postgresql"}, Via: "configuration_reference",
+				ProviderOwner:        &fleet.OwnershipInfo{Owner: "infra-data", Declared: true},
+				ProviderAvailability: &fleet.Availability{State: fleet.AvailabilityDegraded},
+				Requested: []fleet.RequestedConfiguration{{
+					Entry: "database", Configuration: "provisioning", Provenance: "declared",
+					Revision: &fleet.EntityRef{Label: "postgresql 16.1.0", ParentService: "postgresql", Version: "16.1.0"},
+					Values:   fleet.RuntimePreview{Items: []fleet.RuntimeFact{{Key: "size", Value: "medium"}, {Key: "storageGi", Value: "50"}}},
+				}},
+				Provisioning: []fleet.ProvisioningStatus{{
+					Environment: "production", Entry: "database", Phase: "Failed", Provider: "platform-db",
+					ExternalRef: "databases/catalog", Source: "evidence", Verified: true, AsOf: &asOf,
+				}},
+				Consumption: consumption,
+			},
+			{
+				Provider: fleet.EntityRef{Label: "email-provider"}, Via: "dependency", RangeStatus: "satisfied",
+				Provisioning: []fleet.ProvisioningStatus{{Environment: "production", Phase: "Unknown", ReportedPhase: "Ready", Source: "target-state", AsOf: &asOf, Stale: true, Reason: "the last report is older than the provisioning window"}},
+				Consumption:  consumption,
+			},
+		}},
+	}
+}
+
+func printedResources(d *fleet.ServiceDetailData) string {
+	var b bytes.Buffer
+	printResources(&b, d)
+	return b.String()
+}
+
+func TestPrintResourcesProvenance(t *testing.T) {
+	out := printedResources(resourcesFixture())
+	for _, want := range []string{
+		"    production database  Failed  platform-db databases/catalog  signed  asOf 2026-11-01T09:00:00Z\n",
+		"    production  Unknown (reported Ready)  unsigned  asOf 2026-11-01T09:00:00Z: the last report is older than the provisioning window\n",
+		"    owner infra-data, availability degraded\n",
+		"    owner unknown, availability unknown\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("resources lack %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestPrintResourcesRequestedDeclared(t *testing.T) {
+	out := printedResources(resourcesFixture())
+	want := "    requested (declared): size=medium storageGi=50, provider postgresql@16.1.0, configuration provisioning\n"
+	if strings.Count(out, "requested (declared)") != 1 || !strings.Contains(out, want) {
+		t.Errorf("resources lack %q once:\n%s", want, out)
+	}
+	d := resourcesFixture()
+	d.ConsumedOfferings.Items[0].Requested[0] = fleet.RequestedConfiguration{Entry: "database", Provenance: "declared"}
+	d.ConsumedOfferings.Items[0].RequestedTruncated = true
+	out = printedResources(d)
+	if !strings.Contains(out, "    requested (declared): none\n") || !strings.Contains(out, "    requested values may be missing: the configurations list was cut\n") {
+		t.Errorf("bare request:\n%s", out)
+	}
+}
+
+func TestPrintResourcesNoOffering(t *testing.T) {
+	out := printedResources(resourcesFixture())
+	for _, want := range []string{"Resources:\n  postgresql (offering postgresql) via configuration_reference\n", "  email-provider (no offering) via dependency, range satisfied\n"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("resources lack %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestPrintResourcesHiddenProviders(t *testing.T) {
+	if out := printedResources(resourcesFixture()); !strings.Contains(out, "  at least 2 resources from providers you may not see\n") {
+		t.Errorf("hidden providers:\n%s", out)
+	}
+	// Only hidden uses still print the block: nothing visible never reads as none.
+	out := printedResources(&fleet.ServiceDetailData{HiddenProviders: 1})
+	if !strings.HasPrefix(out, "Resources:\n  at least 1 resources from providers you may not see\n") {
+		t.Errorf("only hidden:\n%s", out)
+	}
+	if out := printedResources(&fleet.ServiceDetailData{}); out != "" {
+		t.Errorf("no resources printed %q", out)
+	}
+}
+
+func TestPrintResourcesConsumptionNotReported(t *testing.T) {
+	out := printedResources(resourcesFixture())
+	want := "    usage production: not reported by any provider; for live signals ask Mira (query_metric)\n"
+	if strings.Count(out, want) != 2 {
+		t.Errorf("resources lack %q twice:\n%s", want, out)
+	}
+	if got := "    " + (fleet.ResourceConsumption{State: "unknown", Reason: "stale"}).Text(); got != "    usage: unknown: stale" {
+		t.Errorf("other state = %q", got)
+	}
+}
+
+// usageAt is the time every usage fixture is as of.
+var usageAt = time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC)
+
+func usageFigures() *fleet.UsageFigures {
+	return &fleet.UsageFigures{Metrics: []evidence.UsageMetric{{Name: "storage-used", Value: 31, Unit: "Gi"}, {Name: "connections", Value: 12.5}},
+		Cost: &evidence.UsageCost{Amount: "212.40", Currency: "USD", Period: "P30D"}}
+}
+
+func TestPrintResourcesUsageReported(t *testing.T) {
+	c := fleet.ResourceConsumption{Environment: "production", State: "reported", Figures: usageFigures(), Producer: "platform-db", Verified: true, AsOf: &usageAt}
+	want := "    usage production: storage-used 31 Gi  connections 12.5  cost 212.40 USD/P30D  platform-db  signed  asOf 2026-11-01T09:00:00Z"
+	if got := "    " + c.Text(); got != want {
+		t.Errorf("reported =\n%q, want\n%q", got, want)
+	}
+}
+
+func TestPrintResourcesUsageUnknown(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		c    fleet.ResourceConsumption
+		want string
+	}{
+		{"unsigned", fleet.ResourceConsumption{State: "unknown", Reason: "the usage report is not signed", Reported: usageFigures(), Source: "target-state", AsOf: &usageAt},
+			"    usage: unknown: the usage report is not signed (reported storage-used 31 Gi  connections 12.5  cost 212.40 USD/P30D, unsigned, asOf 2026-11-01T09:00:00Z)"},
+		{"stale signed", fleet.ResourceConsumption{Environment: "staging", State: "unknown", Reason: "old", Reported: &fleet.UsageFigures{Cost: &evidence.UsageCost{Amount: "1", Currency: "EUR", Period: "P1M"}}, Source: "evidence", Verified: true},
+			"    usage staging: unknown: old (reported cost 1 EUR/P1M, signed)"},
+		{"conflict", fleet.ResourceConsumption{State: "unknown", Reason: "disagree", Conflict: []string{"a", "b"}},
+			"    usage: unknown: disagree (a, b)"},
+	} {
+		if got := "    " + tc.c.Text(); got != tc.want {
+			t.Errorf("%s =\n%q, want\n%q", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestPrintResourcesFooter(t *testing.T) {
+	out := printedResources(resourcesFixture())
+	const footer = "Resize or delete runs in the provider's tools. pacto_edit refuses a request the provider's schema rejects, and pacto validate and push fail on it."
+	if !strings.HasSuffix(out, "  "+footer+"\n") || fleet.ResourceActionsNote != footer {
+		t.Errorf("footer:\n%s", out)
+	}
+}
+
+// TestPrintOfferingAdapters: signed and unsigned adapters, an unnamed one, a
+// disagreement, the bound, conflicting and unattributed requests, the empty
+// state, unresolved uses and the unsigned tallies.
+func TestPrintOfferingAdapters(t *testing.T) {
+	at := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
+	var buf bytes.Buffer
+	printOfferingText(&buf, &fleet.OfferingDetailData{
+		Consumers: fleet.OfferingUsesPreview{Total: 1, Count: 1, Items: []fleet.OfferingUse{{Consumer: fleet.EntityRef{Label: "app"}, Provider: fleet.EntityRef{Label: "scan"}}},
+			Phases: fleet.PhaseTally{Ready: 3, ReadyUnsigned: 2}, PhaseConsumers: fleet.PhaseTally{Ready: 2, ReadyUnsigned: 1}},
+		Adapters: fleet.OfferingAdaptersPreview{Total: 4, Count: 3, Truncated: true, Conflicting: 1, Unattributed: 2, Items: []fleet.OfferingAdapter{
+			{Provider: "scanner", Producer: "security-adapter", Verified: true, Environments: []string{"production"}, Phases: fleet.PhaseTally{Ready: 1}, LastReportedAt: &at},
+			{Provider: "scanner", Producer: "security-adapter", Environments: []string{"default", "staging"}, Phases: fleet.PhaseTally{Ready: 1, ReadyUnsigned: 1, Unknown: 1}, Disagrees: 1},
+			{Producer: "platform-adapter", Environments: []string{"default"}, Phases: fleet.PhaseTally{Unknown: 1}},
+		}},
+		UnresolvedUses: fleet.UnresolvedUses{Count: 2, Reason: "not pinned", Provenance: fleet.ProvenanceInferred},
+	})
+	for _, want := range []string{
+		"Adapters (observed):\n",
+		"  scanner by security-adapter, signed: production; 1 ready; last reported 2026-11-01T10:00:00Z\n",
+		"  scanner by security-adapter, unsigned target-state file: default, staging; 1 ready (1 unsigned), 1 unknown, disagrees on 1\n",
+		"  unnamed adapter by platform-adapter, unsigned target-state file: default; 1 unknown\n",
+		"  1 more\n", "  1 requests where adapters disagree, so their status is Unknown\n", "  2 requests no adapter reports on\n",
+		"Unresolved uses (inferred): 2 may name a provider of this offering (not pinned)\n",
+		"  provisioning requests: 0 requested, 0 provisioning, 3 ready (2 unsigned), 0 failed",
+		"  consumers by phase: 0 requested, 0 provisioning, 2 ready (1 unsigned), 0 failed",
+	} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("offering text lacks %q:\n%s", want, buf.String())
+		}
+	}
+	buf.Reset()
+	printOfferingText(&buf, &fleet.OfferingDetailData{})
+	if out := buf.String(); !strings.Contains(out, "Adapters (observed):\n  No adapter has reported. Provisioning status is Unknown.\n") || strings.Contains(out, "Unresolved uses") {
+		t.Errorf("empty adapters text:\n%s", out)
+	}
+	buf.Reset()
+	printOfferingText(&buf, &fleet.OfferingDetailData{HiddenConsumers: 1})
+	if out := buf.String(); !strings.Contains(out, "  "+fleet.NoAdapterVisible+"\n") {
+		t.Errorf("empty adapters text with hidden consumers:\n%s", out)
+	}
+}
+
+// TestOverviewPrinterEdges: a bucket with targets is named, a named domain
+// prints its name and an overview with no domain prints no table.
+func TestOverviewPrinterEdges(t *testing.T) {
+	if got := countSuffix(2, "warning"); got != " · warning 2" {
+		t.Errorf("countSuffix = %q", got)
+	}
+	if got := domainLabel(fleet.DomainTally{Domain: "shop"}); got != "shop" {
+		t.Errorf("domainLabel = %q", got)
+	}
+	var buf bytes.Buffer
+	if printOverviewDomains(&buf, nil); buf.Len() != 0 {
+		t.Errorf("no domain prints a table: %q", buf.String())
 	}
 }

@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -11,7 +13,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/trianalab/pacto/v4/internal/app"
-	"github.com/trianalab/pacto/v4/internal/mcp"
+	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
@@ -19,14 +21,15 @@ import (
 func newFleetEntitiesCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "entities [text]",
-		Short: "List services, owners, business domains or platform offerings",
-		Long: "Lists services, owners, business domains and platform offerings, paged. " +
+		Short: "List services, owners, business domains, platform offerings or any other entity kind",
+		Long: "Lists services, owners, business domains and platform offerings, paged, or the one --kind you name. " +
+			"A filter that applies to one kind only (--readiness, --scope, --source-kind, --source-health) lists that kind when --kind is empty. " +
 			"Use --kind owner to learn the owner keys (team:NAME, dri:NAME) that --owner-key takes.",
 		Args:              cobra.MaximumNArgs(1),
 		ValidArgsFunction: noCompletions,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if k, _ := cmd.Flags().GetString("kind"); k != "" && !slices.Contains(fleet.ProductKinds(), k) {
-				return fmt.Errorf("--kind %q: want one of %s", k, strings.Join(fleet.ProductKinds(), ", "))
+			if k, _ := cmd.Flags().GetString("kind"); k != "" && !slices.Contains(fleet.EntityKinds(), k) {
+				return fmt.Errorf("--kind %q: want one of %s", k, strings.Join(fleet.EntityKinds(), ", "))
 			}
 			q, err := buildQuery(cmd, svc)
 			if err != nil {
@@ -40,7 +43,7 @@ func newFleetEntitiesCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	f.String("kind", "", "entity kind (service, owner, domain, offering; empty lists all four)")
+	f.String("kind", "", "entity kind (service, revision, target, owner, source, domain, offering; empty lists services, owners, domains and offerings)")
 	f.String("owner", "", "free-text owner search over team, DRI and contacts")
 	f.String("owner-key", "", "exact owner key, such as team:platform or dri:alice")
 	f.String("business-domain", "", "exact business domain, "+fleet.NoBusinessDomain+" for none or "+fleet.UnknownBusinessDomain+" for unknown")
@@ -48,20 +51,34 @@ func newFleetEntitiesCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	f.String("consumes", "", "services that depend on or reference a provider of this platform offering")
 	f.String("phase", "", "with --consumes: only the consumers with a provisioning status of that offering in this phase")
 	f.String("environment", "", "with --kind target, targets in this environment (the delivery.pacto.trianalab.io/environment label); with --consumes and --phase, only the consumers whose status in that phase is in this environment")
-	f.String("ownership", "", "how a service's revisions declare ownership (consistent, conflicting, unowned, unidentified: no single canonical owner)")
+	f.String("ownership", "", "how ownership is declared on a service (consistent, conflicting, unowned, unknown or unidentified; conflicting means owners disagree: targets run different owners, or one version declares two; unknown is a service whose contract Pacto cannot read, unidentified every service with no single canonical owner)")
+	f.String("gap", "", "services whose contracts leave this out (no-summary, no-domain, no-interface-docs, no-readiness, not-deployed, unverified-capability), or unknown for those Pacto cannot judge")
 	f.String("status", "", "canonical compliance status")
 	addTemplateFlag(f)
 	f.String("created-from", "", "services created from this golden path, by key; "+fleet.NoOrigin+" for no declared origin or "+fleet.UnresolvedOrigin+" for an origin that resolves to no golden path")
-	f.String("sort", "", "order: name, health (least healthy first), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first) rate (owners and domains with the highest share of non-compliant services first) or created (golden paths that created the most services first)")
+	f.String("sort", "", "order: name, health (least healthy first; owners and domains by non-compliant, failing, unknown, stale and gap services), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most consumers with a failed provisioning request first), consumers (offerings with the most declared consumers first) or gaps (owners and domains with the most services that leave knowledge out first)")
 	f.Bool("has-non-compliant", false, "owners and domains with at least one non-compliant service only")
+	f.String("lifecycle", "", "offerings whose worst provider lifecycle (each provider's newest revision a target runs, else its newest readable one), or services whose newest revision, is deprecated or sunset")
+	f.Bool("failed", false, "with --kind offering, offerings with at least one failed provisioning request")
 	f.String("source-kind", "", "sources of this exact kind only (oci, kubernetes, evidence-http, ...)")
+	f.String("capability", "", "services whose revisions declare this capability key, such as health or acme.io/cost")
+	f.String("domain", "", "exact registry path, the domain part of a service key")
+	f.String("service", "", "this service and its revisions and targets, by service key")
+	f.String("source", "", "entities read from this fleet source, by source key")
+	f.String("scope", "", "targets in this scope, such as a namespace")
+	f.String("readiness", "", "revisions by declared readiness (passing, below-threshold, expired, not-declared)")
+	f.String("source-health", "", "sources by health (available, partial, stale, unavailable, or incomplete for any of the last three)")
 	f.Int("limit", 0, fmt.Sprintf("maximum results (0 = %d, capped at %d)", fleet.DefaultEntityLimit, fleet.MaxEntityLimit))
 	f.Int("offset", 0, "result offset for paging")
-	_ = cmd.RegisterFlagCompletionFunc("kind", staticCompletions(fleet.ProductKinds()...))
-	_ = cmd.RegisterFlagCompletionFunc("ownership", staticCompletions(fleet.OwnershipConsistent, fleet.OwnershipConflicting, fleet.OwnershipUnowned, fleet.OwnershipUnidentified))
+	_ = cmd.RegisterFlagCompletionFunc("kind", staticCompletions(fleet.EntityKinds()...))
+	_ = cmd.RegisterFlagCompletionFunc("readiness", staticCompletions("passing", "below-threshold", "expired", "not-declared"))
+	_ = cmd.RegisterFlagCompletionFunc("source-health", staticCompletions("available", "partial", "stale", "unavailable", "incomplete"))
+	_ = cmd.RegisterFlagCompletionFunc("ownership", staticCompletions(fleet.OwnershipConsistent, fleet.OwnershipConflicting, fleet.OwnershipUnowned, fleet.OwnershipUnknown, fleet.OwnershipUnidentified))
+	_ = cmd.RegisterFlagCompletionFunc("gap", staticCompletions(fleet.GapFilterValues()...))
 	_ = cmd.RegisterFlagCompletionFunc("status", staticCompletions(fleet.CanonicalStatuses()...))
 	_ = cmd.RegisterFlagCompletionFunc("phase", staticCompletions(fleet.PhaseBuckets()...))
-	_ = cmd.RegisterFlagCompletionFunc("sort", staticCompletions(fleet.SortName, fleet.SortHealth, fleet.SortServices, fleet.SortNonCompliant, fleet.SortRate, fleet.SortCreated))
+	_ = cmd.RegisterFlagCompletionFunc("lifecycle", staticCompletions(fleet.LifecycleDeprecated, fleet.LifecycleSunset))
+	_ = cmd.RegisterFlagCompletionFunc("sort", staticCompletions(fleet.SortName, fleet.SortHealth, fleet.SortServices, fleet.SortNonCompliant, fleet.SortRate, fleet.SortCreated, fleet.SortFailed, fleet.SortConsumers, fleet.SortGaps))
 	return cmd
 }
 
@@ -87,7 +104,7 @@ func newFleetNeighborhoodCommand(svc *app.Service, v *viper.Viper) *cobra.Comman
 			maxEdges, _ := f.GetInt("max-edges")
 			nb, err := q.Neighborhood(fleet.NeighborhoodQuery{
 				Kind: fleet.KindService, Key: args[0], Direction: fleet.Direction(dir),
-				Depth: depth, Views: mcp.SplitViews(views), MaxNodes: maxNodes, MaxEdges: maxEdges,
+				Depth: depth, Views: fleet.ParseViews(views), MaxNodes: maxNodes, MaxEdges: maxEdges,
 			})
 			if err != nil {
 				return err
@@ -110,22 +127,17 @@ func entityFilterFromCmd(cmd *cobra.Command, text string) fleet.EntityFilter {
 	limit, _ := cmd.Flags().GetInt("limit")
 	offset, _ := cmd.Flags().GetInt("offset")
 	nc, _ := cmd.Flags().GetBool("has-non-compliant")
-	kinds := fleet.ProductKinds()
-	if k := get("kind"); k != "" {
-		kinds = []string{k}
-	} else if get("template") == fleet.TemplateOnly {
-		kinds = []string{string(fleet.KindService)}
-	}
-	var ks []fleet.EntityKind
-	for _, k := range kinds {
-		ks = append(ks, fleet.EntityKind(k))
-	}
-	return fleet.EntityFilter{
-		Text: text, Kinds: ks, Owner: get("owner"), OwnerKey: get("owner-key"), BusinessDomain: get("business-domain"),
-		Offering: get("offering"), Consumes: get("consumes"), Phase: get("phase"), Environment: get("environment"), Ownership: get("ownership"), Status: get("status"), Sort: get("sort"),
+	failed, _ := cmd.Flags().GetBool("failed")
+	f := fleet.EntityFilter{
+		Text: text, Owner: get("owner"), OwnerKey: get("owner-key"), BusinessDomain: get("business-domain"),
+		Offering: get("offering"), Consumes: get("consumes"), Phase: get("phase"), Environment: get("environment"), Ownership: get("ownership"), Gap: get("gap"), Status: get("status"), Sort: get("sort"),
 		Template: get("template"), CreatedFrom: get("created-from"),
-		HasNonCompliant: nc, SourceKind: get("source-kind"), Limit: limit, Offset: offset,
+		HasNonCompliant: nc, SourceKind: get("source-kind"), Lifecycle: get("lifecycle"), Failed: failed, Limit: limit, Offset: offset,
+		Capability: get("capability"), Domain: get("domain"), Service: get("service"), Source: get("source"),
+		Scope: get("scope"), Readiness: get("readiness"), SourceHealth: get("source-health"),
 	}
+	f.Kinds = fleet.ListKinds(get("kind"), f)
+	return f
 }
 
 // addTemplateFlag adds --template: bare it keeps only golden paths, and
@@ -135,11 +147,14 @@ func addTemplateFlag(f *pflag.FlagSet) {
 	f.Lookup("template").NoOptDefVal = fleet.TemplateOnly
 }
 
-func newFleetEntityCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
-	return &cobra.Command{
+func newFleetEntityCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command {
+	cmd := &cobra.Command{
 		Use:   "entity <kind> <key>",
 		Short: "Inspect one service, revision, target, owner, source, business domain or offering",
-		Args:  cobra.ExactArgs(2),
+		Long: "Inspect one entity. For a service, --reached also reads, with your cluster credentials, when each change's " +
+			"revision first reached each Stage you may read, from delivery history. A --local fleet keys revisions by " +
+			"content, so their changes match no delivery record.",
+		Args: cobra.ExactArgs(2),
 		// The kind is a closed vocabulary; the key lives in a snapshot too
 		// expensive to build at the prompt.
 		ValidArgsFunction: func(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
@@ -149,6 +164,14 @@ func newFleetEntityCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			reached, _ := cmd.Flags().GetBool("reached")
+			if reached {
+				// A trust config that cannot be read is the caller's error,
+				// never a missing cluster.
+				if _, err := deliveryTrust(trustPath(cmd)); err != nil {
+					return err
+				}
+			}
 			q, err := buildQuery(cmd, svc)
 			if err != nil {
 				return err
@@ -157,8 +180,34 @@ func newFleetEntityCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if reached && res.Service != nil {
+				attachReached(cmd, d)(cmd.Context(), q, fleet.ServiceKey(res.Entity.Key), &res.Service.Changes)
+			}
 			return printFleetEntity(cmd, res, v.GetString(outputFormatKey))
 		},
+	}
+	cmd.Flags().Bool("reached", false, "read when each change reached a Stage from signed delivery records, with your cluster credentials")
+	cmd.Flags().String("trust", "", "with --reached: the trust config delivery records are verified with (default $"+trustEnv+")")
+	return cmd
+}
+
+// attachReached attaches to a service's changes when each reached its
+// Stages, read with the ambient cluster credentials; with no cluster to read
+// from, or a trust config it cannot read, it says which and reads nothing.
+func attachReached(cmd *cobra.Command, d deps) pactomcp.ReachedReader {
+	return func(ctx context.Context, q *fleet.Query, service fleet.ServiceKey, h *fleet.ChangeHistoryPreview) {
+		dyn, err := d.newDynamic()
+		if err != nil {
+			q.AttachReached(h, nil, fleet.TimesNotRead, "no cluster to read delivery from: "+err.Error(), nil)
+			return
+		}
+		c, _, err := deliveryClientFor(cmd, d, dyn)
+		if err != nil {
+			q.AttachReached(h, nil, fleet.TimesNotRead, "the delivery trust config could not be read: "+err.Error(), nil)
+			return
+		}
+		a := c.Reached(ctx, service)
+		q.AttachReached(h, a.ByContract, a.Times, a.Reason, a.Unreadable)
 	}
 }
 
@@ -196,7 +245,8 @@ func newFleetAttentionCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		Use:   "attention",
 		Short: "List what needs attention, most severe first",
 		Long: "Lists what needs attention, most severe first, each item with its reason and next step. " +
-			"--category undeclared lists runtime calls no contract declares and callers with no contract.",
+			"--category undeclared lists runtime calls no contract declares and callers with no contract. " +
+			"--category lifecycle lists services that use a deprecated or past-sunset provider, or whose range refuses its successor.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			q, err := buildQuery(cmd, svc)
@@ -217,10 +267,17 @@ func newFleetAttentionCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	f.String("owner-key", "", "exact owner key, such as team:platform or dri:alice")
 	f.String("business-domain", "", "exact business domain, "+fleet.NoBusinessDomain+" for none or "+fleet.UnknownBusinessDomain+" for unknown")
 	f.String("service", "", "items of this service: its key, or a name only one domain uses")
+	f.String("kind", "", "items about entities of this kind ("+strings.Join(fleet.EntityKinds(), ", ")+")")
+	f.String("key", "", "items about the entity with this exact key")
+	f.String("source", "", "items a fleet source reported, by source key")
+	f.String("status", "", "items about entities with this canonical compliance status")
+	f.Bool("stale-only", false, "only the items about stale evidence")
 	f.Int("limit", 0, fmt.Sprintf("maximum results (0 = %d, capped at %d)", fleet.DefaultAttentionLimit, fleet.MaxAttentionLimit))
 	f.Int("offset", 0, "result offset for paging")
 	_ = cmd.RegisterFlagCompletionFunc("category", staticCompletions(fleet.AttentionCategoriesList()...))
 	_ = cmd.RegisterFlagCompletionFunc("severity", staticCompletions("error", "warning", "info"))
+	_ = cmd.RegisterFlagCompletionFunc("kind", staticCompletions(fleet.EntityKinds()...))
+	_ = cmd.RegisterFlagCompletionFunc("status", staticCompletions(fleet.CanonicalStatuses()...))
 	return cmd
 }
 
@@ -228,9 +285,11 @@ func attentionFilterFromCmd(cmd *cobra.Command) fleet.AttentionFilter {
 	get := func(name string) string { s, _ := cmd.Flags().GetString(name); return s }
 	limit, _ := cmd.Flags().GetInt("limit")
 	offset, _ := cmd.Flags().GetInt("offset")
+	stale, _ := cmd.Flags().GetBool("stale-only")
 	return fleet.AttentionFilter{
 		Category: get("category"), Severity: get("severity"), Owner: get("owner"), OwnerKey: get("owner-key"),
 		BusinessDomain: get("business-domain"), Service: get("service"), Limit: limit, Offset: offset,
+		Kind: get("kind"), Key: get("key"), Source: get("source"), Status: get("status"), StaleOnly: stale,
 	}
 }
 
@@ -244,13 +303,69 @@ func printFleetEntities(cmd *cobra.Command, res *fleet.EntityList, format string
 				kind = "golden path"
 			}
 			_, _ = fmt.Fprintf(w, "  %-11s %-28s %-32s %s\n", kind, e.Label, e.Key, orDash(e.Status))
+			switch e.Kind {
+			case fleet.KindOffering:
+				_, _ = fmt.Fprintf(w, "              %s\n", offeringRowFacts(e))
+			case fleet.KindOwner, fleet.KindDomain:
+				_, _ = fmt.Fprintf(w, "              services %d  not compliant %d  failing health %d  unknown %d  stale %d  with gaps %d\n",
+					e.Services, e.NonCompliant, e.FailingHealth, e.Unknown, e.Stale, e.WithGaps)
+			}
 		}
+		if res.Aggregate.Knowledge.Services > 0 {
+			printOverviewKnowledge(w, res.Aggregate.Knowledge)
+		}
+		printOfferingPhases(w, &res.Aggregate)
 		printNonCompliantRanking(w, &res.Aggregate)
 		printOriginRanking(w, &res.Aggregate.Origins)
 		warnProductPartial(cmd, res.Meta)
 		noteScopedPhase(cmd, res.Meta)
 		return nil
 	}, nil)
+}
+
+// offeringRowFacts is the facts line under an offering row. A target count
+// the viewer cannot know reads unknown, never 0.
+func offeringRowFacts(e fleet.EntityRef) string {
+	consumers := strconv.Itoa(e.Consumers)
+	if e.HiddenConsumers > 0 {
+		consumers += fmt.Sprintf(" (+%d you may not see)", e.HiddenConsumers)
+	}
+	targets := strconv.Itoa(e.Targets)
+	if e.TargetsUnknown {
+		targets = "unknown"
+	}
+	s := fmt.Sprintf("owners %s  lifecycle %s  availability %s (%s)  consumers %s  failed consumers %d  observed targets %s",
+		orDash(e.Owner), orDash(e.Lifecycle), orDash(string(e.Availability)), orDash(e.AvailabilityProvenance), consumers, e.FailedRequests, targets)
+	if e.HiddenProviders > 0 {
+		s += fmt.Sprintf("  +%d providers you may not see", e.HiddenProviders)
+	}
+	return s
+}
+
+// printOfferingPhases renders the provisioning requests of the matched
+// offerings by phase and the offerings with the most consumers with a failed one.
+func printOfferingPhases(w io.Writer, a *fleet.EntityAggregate) {
+	if a.OfferingPhases == (fleet.PhaseTally{}) {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "Requests by phase: %s\n", phaseText(a.OfferingPhases))
+	if len(a.FailedByOffering) == 0 {
+		return
+	}
+	parts := make([]string, 0, len(a.FailedByOffering)+1)
+	for _, o := range a.FailedByOffering {
+		parts = append(parts, fmt.Sprintf("%s %d", o.Type, o.Services))
+	}
+	if a.FailedOfferingsBeyond > 0 {
+		parts = append(parts, fmt.Sprintf("and %d more offerings", a.FailedOfferingsBeyond))
+	}
+	_, _ = fmt.Fprintf(w, "Most consumers with a failed request: %s\n", strings.Join(parts, ", "))
+}
+
+// phaseText renders a phase tally, every phase in pipeline order.
+func phaseText(p fleet.PhaseTally) string {
+	return fmt.Sprintf("%d requested, %d provisioning, %d ready%s, %d failed, %d deleting, %d not reported",
+		p.Requested, p.Provisioning, p.Ready, p.UnsignedNote(), p.Failed, p.Deleting, p.Unknown)
 }
 
 // printNonCompliantRanking renders who owns the matched non-compliant services and
@@ -313,12 +428,12 @@ func printFleetEntity(cmd *cobra.Command, res *fleet.EntityDetail, format string
 			printOfferingText(w, res.Offering)
 		}
 		if res.Service != nil {
-			printOfferingUses(w, "Offerings used:", res.Service.ConsumedOfferings)
+			printResources(w, res.Service)
 			printTemplateText(w, res.Entity.Summary, res.Service.Template)
 			printOriginText(w, res.Service.Origin, res.Service.Creation)
 			printDependents(w, res.Service)
 			printPlacement(w, res.Entity.Label, res.Service.Placement, res.Meta.Completeness)
-			printEnvironmentHistory(w, res.Service.EnvironmentHistory)
+			printChanges(w, res.Service.Changes)
 		}
 		if res.Revision != nil {
 			printRevisionPlace(w, res.Revision)
@@ -345,6 +460,7 @@ func printFleetVersions(cmd *cobra.Command, res *fleet.OfferingVersionsResult, f
 			if p.Versions.Truncated {
 				_, _ = fmt.Fprintf(w, "  %d more\n", p.Versions.Total-p.Versions.Count)
 			}
+			printVersionsSuccessor(w, p.Versions)
 			note = p.Versions.Note
 		}
 		if res.Truncated {
@@ -354,6 +470,26 @@ func printFleetVersions(cmd *cobra.Command, res *fleet.OfferingVersionsResult, f
 		warnProductPartial(cmd, res.Meta)
 		return nil
 	}, nil)
+}
+
+// printVersionsSuccessor renders the successor a provider declares and, with
+// a range, whether the range accepts it.
+func printVersionsSuccessor(w io.Writer, v fleet.ProviderVersionsPreview) {
+	if v.Successor == nil {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "  successor: %s\n", v.Successor.Text())
+	if v.SuccessorRange != "" {
+		_, _ = fmt.Fprintf(w, "  Successor %s: %s for %s\n", successorName(v.Successor), v.SuccessorRange, v.Range)
+	}
+}
+
+// successorName is the revision a successor resolves to, else its reference.
+func successorName(s *fleet.SuccessorInfo) string {
+	if s.Revision != nil {
+		return s.Revision.Label
+	}
+	return s.Ref
 }
 
 // latestCompatible is the version of v's latest compatible revision, "none"
@@ -407,36 +543,94 @@ func lifecycleText(l *contract.InterfaceLifecycle) string {
 	return strings.Join(parts, ", ")
 }
 
-// printOfferingText renders an offering's providers, its consumers and how
-// many consumers the caller's permissions hide.
+// printOfferingText renders an offering's availability, its providers, its
+// consumers, the callers seen without a declaration and how many of each the
+// caller's permissions hide.
 func printOfferingText(w io.Writer, o *fleet.OfferingDetailData) {
+	printOfferingAvailability(w, o)
 	_, _ = fmt.Fprintln(w, "Providers:")
 	for _, p := range o.Providers.Items {
-		_, _ = fmt.Fprintf(w, "  %s (%s)\n", p.Service.Label, p.OfferingProvenance)
-		if p.Ownership != nil && p.Ownership.Owner != "" {
-			_, _ = fmt.Fprintf(w, "    owner: %s\n", p.Ownership.Owner)
-		}
-		if p.CurrentRevision != nil {
-			_, _ = fmt.Fprintf(w, "    current: %s\n", p.CurrentRevision.Label)
-		}
-		if l := lifecycleText(p.Lifecycle); l != "" {
-			_, _ = fmt.Fprintf(w, "    lifecycle: %s\n", l)
-		}
-		versions := make([]string, 0, len(p.Versions.Items))
-		for _, v := range p.Versions.Items {
-			versions = append(versions, orDash(v.Version)+versionNotes(v))
-		}
-		_, _ = fmt.Fprintf(w, "    versions: %s\n", orDash(strings.Join(versions, "; ")))
-		if p.Consume != nil {
-			_, _ = fmt.Fprintf(w, "    To consume %s:\n", p.Service.Label)
-			for line := range strings.Lines(p.Consume.YAML) {
-				_, _ = fmt.Fprint(w, "      "+line)
-			}
-		}
+		printOfferingProvider(w, p)
 	}
 	printOfferingUses(w, "Consumers:", o.Consumers)
 	if o.HiddenConsumers > 0 {
-		_, _ = fmt.Fprintf(w, "%d consumers you may not see\n", o.HiddenConsumers)
+		_, _ = fmt.Fprintf(w, "Consumers you may not see: %d\n", o.HiddenConsumers)
+	}
+	printObservedConsumers(w, o)
+	printOfferingAdapters(w, o)
+}
+
+// printOfferingAdapters renders who reports on the offering's requests
+// (observed) and how many declared uses may name one of its providers but
+// did not resolve (inferred).
+func printOfferingAdapters(w io.Writer, o *fleet.OfferingDetailData) {
+	_, _ = fmt.Fprintln(w, "Adapters (observed):")
+	for _, l := range o.Adapters.Lines(o.HiddenConsumers) {
+		_, _ = fmt.Fprintln(w, "  "+l)
+	}
+	if u := o.UnresolvedUses; u.Count > 0 {
+		_, _ = fmt.Fprintf(w, "Unresolved uses (inferred): %d may name a provider of this offering (%s)\n", u.Count, u.Reason)
+	}
+}
+
+// printOfferingAvailability renders the offering roll-up, then one line per
+// environment, then the providers the caller's permissions hide.
+func printOfferingAvailability(w io.Writer, o *fleet.OfferingDetailData) {
+	_, _ = fmt.Fprintf(w, "Availability: %s\n", orDash(string(o.Availability.State)))
+	for _, l := range o.Availability.Lines() {
+		_, _ = fmt.Fprintln(w, "  "+l)
+	}
+	if o.HiddenProviders > 0 {
+		_, _ = fmt.Fprintf(w, "Providers you may not see: %d\n", o.HiddenProviders)
+	}
+}
+
+// printOfferingProvider renders one provider: owner, current revision,
+// lifecycle, availability, successor, versions and how to consume it.
+func printOfferingProvider(w io.Writer, p fleet.OfferingProvider) {
+	_, _ = fmt.Fprintf(w, "  %s (%s)\n", p.Service.Label, p.OfferingProvenance)
+	if p.Ownership != nil && p.Ownership.Owner != "" {
+		_, _ = fmt.Fprintf(w, "    owner: %s\n", p.Ownership.Owner)
+	}
+	if p.CurrentRevision != nil {
+		_, _ = fmt.Fprintf(w, "    current: %s\n", p.CurrentRevision.Label)
+	}
+	if l := lifecycleText(p.Lifecycle); l != "" {
+		_, _ = fmt.Fprintf(w, "    lifecycle: %s\n", l)
+	}
+	if p.Availability.State != "" {
+		_, _ = fmt.Fprintf(w, "    availability: %s\n", p.Availability.State)
+		for _, l := range p.Availability.Lines() {
+			_, _ = fmt.Fprintln(w, "      "+l)
+		}
+	}
+	if p.Successor != nil {
+		_, _ = fmt.Fprintf(w, "    successor: %s\n", p.Successor.Text())
+	}
+	if p.LatestSupported != nil {
+		_, _ = fmt.Fprintf(w, "    latest supported: %s\n", p.LatestSupported.Label)
+	}
+	versions := make([]string, 0, len(p.Versions.Items))
+	for _, v := range p.Versions.Items {
+		versions = append(versions, orDash(v.Version)+versionNotes(v))
+	}
+	_, _ = fmt.Fprintf(w, "    versions: %s\n", orDash(strings.Join(versions, "; ")))
+	if p.Consume != nil {
+		_, _ = fmt.Fprintf(w, "    To consume %s:\n", p.Service.Label)
+		for line := range strings.Lines(p.Consume.YAML) {
+			_, _ = fmt.Fprint(w, "      "+line)
+		}
+	}
+}
+
+// printObservedConsumers renders the callers seen calling a provider without
+// declaring a use, and how many the caller's permissions hide.
+func printObservedConsumers(w io.Writer, o *fleet.OfferingDetailData) {
+	if l := o.ObservedConsumers.Line(); l != "" {
+		_, _ = fmt.Fprintln(w, l)
+	}
+	if o.HiddenObservedConsumers > 0 {
+		_, _ = fmt.Fprintf(w, "Observed callers you may not see: %d\n", o.HiddenObservedConsumers)
 	}
 }
 
@@ -527,14 +721,7 @@ func printOfferingUses(w io.Writer, title string, uses fleet.OfferingUsesPreview
 	}
 	_, _ = fmt.Fprintln(w, title)
 	for _, u := range uses.Items {
-		_, _ = fmt.Fprintf(w, "  %s -> %s (%s) via %s", u.Consumer.Label, u.Provider.Label, u.Offering, u.Via)
-		if u.RangeStatus != "" {
-			_, _ = fmt.Fprintf(w, ", range %s", u.RangeStatus)
-		}
-		if l := lifecycleText(u.ProviderLifecycle); l != "" {
-			_, _ = fmt.Fprintf(w, ", provider %s", l)
-		}
-		_, _ = fmt.Fprintln(w)
+		_, _ = fmt.Fprintf(w, "  %s -> %s (%s) via %s%s\n", u.Consumer.Label, u.Provider.Label, u.Offering, u.Via, useNotes(u))
 		for _, st := range u.Provisioning {
 			where := strings.TrimSpace(st.Environment + " " + st.Entry)
 			if where != "" {
@@ -543,18 +730,75 @@ func printOfferingUses(w io.Writer, title string, uses fleet.OfferingUsesPreview
 			_, _ = fmt.Fprintf(w, "    provisioning%s: %s\n", where, provisioningText(st))
 		}
 	}
+	printUsesTallies(w, uses)
+}
+
+// printUsesTallies renders what the bounded preview left out and the tallies
+// over every use.
+func printUsesTallies(w io.Writer, uses fleet.OfferingUsesPreview) {
 	if uses.Truncated {
 		_, _ = fmt.Fprintf(w, "  %d more\n", uses.Total-uses.Count)
 	}
 	r := uses.Range
 	_, _ = fmt.Fprintf(w, "  range of all %d: %d satisfied, %d unsatisfied, %d unknown, %d not checked\n", uses.Total, r.Satisfied, r.Unsatisfied, r.Unknown, r.None)
 	if p := uses.Phases; p != (fleet.PhaseTally{}) {
-		_, _ = fmt.Fprintf(w, "  provisioning requests: %d requested, %d provisioning, %d ready, %d failed, %d deleting, %d not reported\n",
-			p.Requested, p.Provisioning, p.Ready, p.Failed, p.Deleting, p.Unknown)
-		c := uses.PhaseConsumers
-		_, _ = fmt.Fprintf(w, "  consumers by phase: %d requested, %d provisioning, %d ready, %d failed, %d deleting, %d not reported\n",
-			c.Requested, c.Provisioning, c.Ready, c.Failed, c.Deleting, c.Unknown)
+		_, _ = fmt.Fprintf(w, "  provisioning requests: %s\n", phaseText(p))
+		_, _ = fmt.Fprintf(w, "  consumers by phase: %s\n", phaseText(uses.PhaseConsumers))
 	}
+}
+
+// printResources renders the resources a service consumes, one per use: the
+// provider and its owner and availability, what the service requested
+// (declared), what each environment reports (observed, with the adapter,
+// signature and time) and what Pacto knows about consumption. Uses whose
+// provider the caller may not see are counted, never named.
+func printResources(w io.Writer, d *fleet.ServiceDetailData) {
+	uses := d.ConsumedOfferings
+	if uses.Total == 0 && d.HiddenProviders == 0 {
+		return
+	}
+	_, _ = fmt.Fprintln(w, "Resources:")
+	for _, u := range uses.Items {
+		printResource(w, u)
+	}
+	if uses.Total > 0 {
+		printUsesTallies(w, uses)
+	}
+	if d.HiddenProviders > 0 {
+		_, _ = fmt.Fprintf(w, "  at least %d resources from providers you may not see\n", d.HiddenProviders)
+	}
+	_, _ = fmt.Fprintln(w, "  "+fleet.ResourceActionsNote)
+}
+
+// printResource renders one use row of the Resources block.
+func printResource(w io.Writer, u fleet.OfferingUse) {
+	offering := "no offering"
+	if u.Offering != "" {
+		offering = "offering " + u.Offering
+	}
+	_, _ = fmt.Fprintf(w, "  %s (%s) via %s%s\n", u.Provider.Label, offering, u.Via, useNotes(u))
+	for _, l := range u.ResourceLines() {
+		_, _ = fmt.Fprintln(w, "    "+l)
+	}
+}
+
+// useNotes is the range, provider lifecycle and successor range of a use, as
+// the offering pages print them.
+func useNotes(u fleet.OfferingUse) string {
+	var s string
+	if u.RangeStatus != "" {
+		s += ", range " + u.RangeStatus
+	}
+	if l := lifecycleText(u.ProviderLifecycle); l != "" {
+		s += ", provider " + l
+	}
+	if u.SuccessorRange != "" {
+		s += ", successor range " + u.SuccessorRange
+	}
+	if u.SupportedRange != "" {
+		s += ", latest supported range " + u.SupportedRange
+	}
+	return s
 }
 
 // printRevisionPlace renders where a revision stands in its service, how many
@@ -599,9 +843,12 @@ func printPlacement(w io.Writer, service string, p fleet.PlacementPreview, c fle
 	_, _ = fmt.Fprintln(w, fleet.StagesHint(service))
 }
 
-// printEnvironmentHistory prints how a service's declared environments
-// changed across its revisions, or nothing when there is nothing to say.
-func printEnvironmentHistory(w io.Writer, h fleet.EnvironmentHistoryPreview) {
+// changesFooter says where a change comes from and when it has a time.
+const changesFooter = "Declared, read from contract revisions; a time is read from delivery history with --reached, and each says how it is known."
+
+// printChanges prints every declared change across a service's revisions, or
+// nothing when there is nothing to say.
+func printChanges(w io.Writer, h fleet.ChangeHistoryPreview) {
 	if h.Total == 0 && h.Gaps == 0 {
 		return
 	}
@@ -609,6 +856,7 @@ func printEnvironmentHistory(w io.Writer, h fleet.EnvironmentHistoryPreview) {
 	for _, l := range h.Lines() {
 		_, _ = fmt.Fprintln(w, l)
 	}
+	_, _ = fmt.Fprintln(w, changesFooter)
 }
 
 // provisioningText renders one provisioning status: its phase, (unsigned) for
@@ -629,7 +877,11 @@ func printFleetAttention(cmd *cobra.Command, res *fleet.AttentionList, format st
 		w := cmd.OutOrStdout()
 		_, _ = fmt.Fprintf(w, "%d of %d attention item(s):\n", res.Count, res.Total)
 		for _, it := range res.Items {
-			_, _ = fmt.Fprintf(w, "  [%s] %s %s: %s (next: %s)\n", it.Severity, it.Category, it.Label, it.Summary, orDash(it.NextStep))
+			action := ""
+			if a := it.NextAction; a != nil {
+				action = fmt.Sprintf(" (action: %s via %s)", a.Verb, a.Tool)
+			}
+			_, _ = fmt.Fprintf(w, "  [%s] %s %s: %s (next: %s)%s\n", it.Severity, it.Category, it.Label, it.Summary, orDash(it.NextStep), action)
 		}
 		warnProductPartial(cmd, res.Meta)
 		return nil

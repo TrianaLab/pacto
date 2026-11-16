@@ -339,11 +339,13 @@ test.describe('WASM demo — an owner label is not an owner identity', () => {
     expect(shown + (agg.beyondRanking || 0) + unidentified).toBe(agg.ownership.consistent);
   });
 
-  test('owners named only by disagreeing revisions never become a ranking total', async ({ page }) => {
+  test('owners named only by a disputed service never become a ranking total', async ({ page }) => {
     await openBreakdown(page);
     const agg = await ownership(page);
-    // The demo's older payments/commerce/platform revisions name a different team than
-    // the newest one, so those owners exist but no service is consistently theirs.
+    // The staging-eu copy of orders-service still runs 1.1.0, which names team/commerce,
+    // beside 1.2.0 under commerce-team: team/commerce exists but no service is
+    // consistently theirs. (team/payments and team/platform only handed over, so they
+    // name no current claim at all.)
     expect(agg.distinctOwners, 'the demo fleet no longer holds a disputed-only owner')
       .toBeGreaterThan(agg.rankedOwners);
     const disputed = agg.distinctOwners - agg.rankedOwners;
@@ -354,11 +356,11 @@ test.describe('WASM demo — an owner label is not an owner identity', () => {
     await expect(scope).toContainText(`of ${agg.rankedOwners} rankable owner`);
     await expect(scope).toContainText(`out of ${agg.distinctOwners} named`);
     await expect(scope).toContainText(`The other ${disputed}`);
-    await expect(scope).toContainText('revisions disagree');
+    await expect(scope).toContainText('owners disagree');
     // No row claims them: the ranking holds only owners with a consistent service.
-    await expect(ranking(page).locator('a.hb-inner').filter({ hasText: 'team/payments' })).toHaveCount(0);
+    await expect(ranking(page).locator('a.hb-inner').filter({ hasText: 'team/commerce' })).toHaveCount(0);
     // But the roster still names them, so they are reachable rather than erased.
-    await expect(page.locator('[data-testid="owner-list"] tbody tr').filter({ hasText: 'team/payments' }))
+    await expect(page.locator('[data-testid="owner-list"] tbody tr').filter({ hasText: 'team/commerce' }))
       .toHaveCount(1, { timeout: T });
   });
 });
@@ -444,7 +446,7 @@ test.describe('WASM demo — the ownership summary is its own question', () => {
     await expect(legendRow(page, 'One declared owner')).toContainText('(75% of 8)');
     // Whole percent, not 37.5: on a population of eight the smallest step the data can
     // take is 12.5 points, so the tenth is precision the numbers do not have.
-    await expect(legendRow(page, 'Revisions name different owners')).toContainText('(38% of 8)');
+    await expect(legendRow(page, 'Owners disagree')).toContainText('(38% of 8)');
     // And nothing is invented to make the sum land: there is no missing remainder here.
     await expect(legendRow(page, 'Unclassified')).toHaveCount(0);
   });

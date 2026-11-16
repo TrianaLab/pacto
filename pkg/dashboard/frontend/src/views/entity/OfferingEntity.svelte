@@ -1,6 +1,9 @@
 <script>
   import { fleetServicesUrl } from '../../lib/router.ts';
-  import { formatCount } from '../../lib/format.ts';
+  import { formatCount, countOf } from '../../lib/format.ts';
+  import { formatRelative, formatDateTime } from '../../lib/dateFormat.ts';
+  import { PHASE_WORDS, phaseTone, adapterLine } from '../../lib/provisioning.ts';
+  import { successorBadge } from '../../lib/behavior.ts';
   import { inService } from '../../lib/identityContext.ts';
   import EntityLink from '../../components/EntityLink.svelte';
   import IdentityBadge from '../../components/IdentityBadge.svelte';
@@ -12,6 +15,7 @@
   import ConfigurationList from '../../components/ConfigurationList.svelte';
   import PolicyList from '../../components/PolicyList.svelte';
   import OfferingVersions from '../../components/OfferingVersions.svelte';
+  import OfferingAvailability from '../../components/OfferingAvailability.svelte';
   import ProvisioningBadges from '../../components/ProvisioningBadges.svelte';
   import OfferingFigure from '../../components/figure/OfferingFigure.svelte';
   import OfferingUseFigure from '../../components/figure/OfferingUseFigure.svelte';
@@ -29,7 +33,18 @@
   const VIA = { dependency: 'dependency', configuration_reference: 'configuration', policy_reference: 'policy' };
   const RANGE_TONE = { satisfied: 'ok', unsatisfied: 'warn', unknown: 'neutral' };
   const hiddenConsumers = $derived(d.hiddenConsumers ?? 0);
+  // Callers a source saw that declare no use of any provider: kept apart from the
+  // declared consumers above, and counted, never named, when the viewer may not see them.
+  const observed = $derived(d.observedConsumers ?? { items: [], total: 0, count: 0 });
+  const hiddenObserved = $derived(d.hiddenObservedConsumers ?? 0);
   const DOCS = 'https://pacto.run/latest/provision-infrastructure/';
+  const UNRESOLVED_DOCS = 'https://pacto.run/latest/platform-offerings/#consumers';
+  // The programs that report what they provisioned, observed from their reports; the
+  // provider is the service that declares the offering.
+  const adapters = $derived(d.adapters ?? { items: [], total: 0, count: 0, conflicting: 0, unattributed: 0 });
+  const unresolved = $derived(d.unresolvedUses?.count ?? 0);
+  const BUCKETS = ['ready', 'failed', 'provisioning', 'requested', 'deleting', 'unknown'];
+  const BUCKET_PHASE = { ready: 'Ready', failed: 'Failed', provisioning: 'Provisioning', requested: 'Requested', deleting: 'Deleting', unknown: 'Unknown' };
   // The request the reader opened: which use row and which of its statuses.
   let picked = $state(/** @type {{ row: number, i: number } | null} */ (null));
   const pickedUse = $derived(picked ? consumers.items?.[picked.row] : null);
@@ -38,6 +53,7 @@
 
 <div class="offering-entity">
   <OfferingFigure offering={key} {providers} {consumers} hidden={hiddenConsumers} providersHref={fleetServicesUrl({ offering: key })} />
+  {#if d.availability}<OfferingAvailability availability={d.availability} hiddenProviders={d.hiddenProviders ?? 0} />{/if}
   <PreviewSection title="Providers" total={providers.total ?? 0} count={providers.count ?? 0} truncated={providers.truncated}
     viewAllHref={fleetServicesUrl({ offering: key })} viewAllLabel="View all providers" empty="No service provides this offering."
     help="Services whose contract declares this platform offering.">
@@ -46,14 +62,28 @@
         {@const self = p.service?.label ?? ''}
         <li class="inset-card oe-provider" data-testid="offering-provider">
           <div class="oe-head">
+            <!-- The card's own provider: its compliance is not this offering's availability, shown below. -->
             <EntityLink ref={p.service} showStatus={false} showKind={false} />
             {#if p.ownership}<OwnershipFact ownership={p.ownership} />{/if}
             {#if p.offeringProvenance === 'observed'}<IdentityBadge label="observed" tone="info" title="Its targets report this offering. Its contract declares none." describe />{/if}
             <LifecycleBadge lifecycle={p.lifecycle} detail={false} />
           </div>
           {#if p.summary}<p class="oe-summary t-body-2">{p.summary}</p>{/if}
+          <OfferingAvailability availability={p.availability} compact />
+          <!-- Provider revisions (current, successor, latest supported): their compliance is not this offering's availability. -->
           {#if p.currentRevision}
             <div class="oe-row"><span class="oe-k">Current</span><EntityLink ref={inService(p.currentRevision, self)} showStatus={false} showKind={false} /></div>
+          {/if}
+          {#if p.successor}
+            <div class="oe-row" data-testid="provider-successor">
+              <span class="oe-k">Successor</span>
+              {#if p.successor.revision}<EntityLink ref={inService(p.successor.revision, self)} showStatus={false} showKind={false} />{:else}<bdi class="oe-ref" title={p.successor.ref}>{p.successor.ref}</bdi>{/if}
+              {#if p.successor.provenance === 'inferred'}<IdentityBadge label="inferred" tone="info" title="Matched by name and version in this snapshot" describe />
+              {:else}<span class="oe-note">unknown: {p.successor.reason || 'it does not resolve to a revision in this snapshot'}</span>{/if}
+            </div>
+          {/if}
+          {#if p.latestSupported}
+            <div class="oe-row"><span class="oe-k">Latest supported</span><EntityLink ref={inService(p.latestSupported, self)} showStatus={false} showKind={false} /></div>
           {/if}
           <OfferingVersions offering={key} provider={p.service} versions={p.versions} {self} />
           {#if (p.interfaces?.items ?? []).length}
@@ -100,13 +130,19 @@
     empty="No service has a resolved declaration that consumes this offering. References that are not digest-pinned or locked cannot be resolved and are not counted." help="Services whose contract declares a dependency on a provider of this offering or references its configuration or policy, once Pacto resolves the declaration. A configuration or policy reference resolves only when it is digest-pinned or locked.">
     <ul class="oe-uses">
       {#each consumers.items ?? [] as u, ui (`${u.consumer?.key}:${u.provider?.key}:${u.via}:${ui}`)}
+        {@const sb = successorBadge(u.successorRange, u.compatibility)}
+        <!-- The latest supported revision is the fallback when the successor itself cannot be graded. -->
+        {@const lb = u.successorRange === 'satisfied' || u.successorRange === 'unsatisfied' ? null : successorBadge(u.supportedRange, u.compatibility, 'latest supported')}
         <li data-testid="offering-consumer">
-          <EntityLink ref={u.consumer} showStatus={false} showKind={false} />
+          <EntityLink ref={u.consumer} showKind={false} />
           <span class="oe-arrow" aria-hidden="true">→</span><span class="visually-hidden">consumes from</span>
+          <!-- Arrow side: the provider's compliance is not what this row is about. -->
           <EntityLink ref={u.provider} showStatus={false} showKind={false} />
           <IdentityBadge label={VIA[u.via] ?? u.via} tone="neutral" />
           {#if u.rangeStatus}<IdentityBadge label={u.rangeStatus} tone={RANGE_TONE[u.rangeStatus] ?? 'neutral'} title={u.compatibility ? `Accepts ${u.compatibility}` : ''} describe />{/if}
           <LifecycleBadge lifecycle={u.providerLifecycle} detail={false} />
+          {#if sb}<IdentityBadge label={sb.label} tone={sb.tone} title={sb.title} describe />{/if}
+          {#if lb}<IdentityBadge label={lb.label} tone={lb.tone} title={lb.title} describe />{/if}
           <ProvisioningBadges statuses={u.provisioning ?? []} selected={picked?.row === ui ? picked.i : -1}
             onselect={(i) => { picked = i < 0 ? null : { row: ui, i }; }} />
         </li>
@@ -117,8 +153,69 @@
     <OfferingUseFigure consumer={pickedUse.consumer?.label ?? ''} request={pickedRequest}
       useKey={`${pickedUse.consumer?.key}:${pickedUse.provider?.key}:${pickedUse.via}:${picked?.i}`} />
   {/if}
+  <!-- Outside the section so the count shows when the list is empty; the empty text above stays true. -->
+  {#if unresolved > 0}
+    <p class="oe-note" data-testid="unresolved-uses">
+      <IdentityBadge label="inferred" tone="info" title="Matched by the reference's repository or name" describe />
+      {formatCount(unresolved)} declared {unresolved === 1 ? 'use' : 'uses'} may name a provider of this offering but did not resolve{#if d.unresolvedUses?.reason}: <bdi>{d.unresolvedUses.reason}</bdi>{/if}.
+      <a href={UNRESOLVED_DOCS} target="_blank" rel="noopener noreferrer">How Pacto resolves a use</a>
+    </p>
+  {/if}
   <!-- Outside the section so the count shows when every consumer is hidden. -->
   {#if hiddenConsumers > 0}<p class="oe-note" data-testid="hidden-consumers">{formatCount(hiddenConsumers)} {hiddenConsumers === 1 ? 'consumer' : 'consumers'} you may not see</p>{/if}
+
+  <PreviewSection title="Adapters reporting" summary="Who reports on these requests?" total={adapters.total ?? 0} count={adapters.count ?? 0} truncated={adapters.truncated}
+    empty={hiddenConsumers > 0 ? 'No adapter has reported on the requests you can see. Provisioning status is Unknown.' : 'No adapter has reported. Provisioning status is Unknown.'}
+    help="The programs that report what they provisioned for these requests, as their reports name them. The provider is the service that declares the offering.">
+    <div class="oe-adapters-box"><ul class="oe-adapters" data-testid="offering-adapters">
+      {#each adapters.items ?? [] as a, ai (`${a.provider}:${a.producer}:${a.verified}:${ai}`)}
+        <li class="inset-card oe-adapter" data-testid="offering-adapter">
+          <div class="oe-head" title={adapterLine(a)}>
+            {#if a.provider}<bdi class="oe-name" title={a.provider}>{a.provider}</bdi>{:else}<span class="oe-unnamed">unnamed adapter</span>{/if}
+            {#if a.producer}<span class="oe-by">by <bdi class="oe-name" title={a.producer}>{a.producer}</bdi></span>{/if}
+            {#if a.verified}<IdentityBadge label="signed" tone="ok" title="Reported through signed evidence" describe />
+            {:else}<IdentityBadge label="unsigned" tone="info" title="Reported through the unsigned target-state file" describe />{/if}
+            <IdentityBadge label="observed" tone="info" title="Observed from the adapter's reports" describe />
+            {#if a.disagrees > 0}<IdentityBadge label={`disagrees on ${formatCount(a.disagrees)}`} tone="warn" title="Requests where another adapter reports a different phase, so their status is Unknown" describe />{/if}
+          </div>
+          {#if (a.environments ?? []).length}
+            <div class="oe-row"><span class="oe-k">Environments</span>{#each a.environments as e, ei (`${e}:${ei}`)}<bdi class="oe-env" title={e}>{e}</bdi>{/each}</div>
+          {/if}
+          <div class="oe-row">
+            {#each BUCKETS.filter((k) => a.phases?.[k]) as k (k)}
+              <IdentityBadge label={`${PHASE_WORDS[k]} ${formatCount(a.phases[k])}${k === 'ready' && !a.verified ? ' (unsigned)' : ''}`} tone={phaseTone(BUCKET_PHASE[k], a.verified)} />
+            {/each}
+          </div>
+          <span class="oe-note" data-testid="adapter-last" title={a.lastReportedAt ? formatDateTime(a.lastReportedAt) : 'No report time'}>{a.lastReportedAt ? `last reported ${formatRelative(a.lastReportedAt)}` : 'last reported at an unknown time'}</span>
+        </li>
+      {/each}
+    </ul></div>
+  </PreviewSection>
+  {#if (adapters.conflicting ?? 0) > 0}<p class="oe-note" data-testid="adapters-conflicting">{countOf(adapters.conflicting, 'request')} where adapters disagree, so their status is Unknown</p>{/if}
+  {#if (adapters.unattributed ?? 0) > 0}<p class="oe-note" data-testid="adapters-unattributed">{countOf(adapters.unattributed, 'request')} no adapter reports on</p>{/if}
+
+  <PreviewSection title="Also calling a provider" total={observed.total ?? 0} count={observed.count ?? 0} truncated={observed.truncated}
+    empty="No observation source saw an undeclared caller. A caller outside the observed sources is not seen." emptyBody={hiddenObserved > 0 ? hiddenObservedNote : null}
+    help="Callers an observation source saw reaching a provider of this offering without declaring it. Observed, never declared.">
+    <ul class="oe-uses" data-testid="observed-consumers">
+      {#each observed.items ?? [] as o, oi (`${o.consumer?.key ?? o.caller}:${o.provider?.key}:${oi}`)}
+        <li data-testid="observed-consumer">
+          {#if o.uncontracted || !o.consumer}<bdi class="oe-name" title={o.caller}>{o.caller ?? o.consumer?.label}</bdi><IdentityBadge label="uncontracted" tone="neutral" title="No contract describes this caller" describe />
+          {:else}<EntityLink ref={o.consumer} showKind={false} />{/if}
+          <span class="oe-arrow" aria-hidden="true">→</span><span class="visually-hidden">calls</span>
+          <!-- Arrow side: the provider's compliance is not what this row is about. -->
+          <EntityLink ref={o.provider} showStatus={false} showKind={false} />
+          <IdentityBadge label="observed" tone="info" />
+          {#if o.stale}<IdentityBadge label="stale" tone="warn" title="Last seen more than 24h before asOf" describe />{/if}
+          <span class="oe-note">{o.lastSeen ? `last seen ${formatRelative(o.lastSeen)}` : 'last seen unknown'}</span>
+        </li>
+      {/each}
+    </ul>
+    {#if observed.truncated}<p class="oe-note">+{formatCount((observed.total ?? 0) - (observed.count ?? 0))} more callers</p>{/if}
+  </PreviewSection>
+  <!-- With nothing visible to list, the section body is this note and never the empty copy. -->
+  {#snippet hiddenObservedNote()}<p class="oe-note" data-testid="hidden-observed-consumers">{countOf(hiddenObserved, 'caller')} you may not see</p>{/snippet}
+  {#if hiddenObserved > 0 && (observed.total ?? 0) > 0}{@render hiddenObservedNote()}{/if}
 
   <p class="oe-foot t-body-2">Pacto validates what consumers request and shows what providers report. Provisioning runs in your platform's tools. <a href={DOCS} target="_blank" rel="noopener noreferrer">Provision infrastructure through contracts</a></p>
 </div>
@@ -132,7 +229,7 @@
   .oe-col { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; }
   .oe-ifaces, .oe-uses { display: flex; flex-direction: column; gap: var(--sp-1); }
   .oe-summary { margin: 0; color: var(--c-text-2); overflow-wrap: anywhere; }
-  .oe-name { font-weight: 600; overflow-wrap: anywhere; }
+  .oe-name, .oe-ref { font-weight: 600; overflow-wrap: anywhere; min-width: 0; }
   .oe-k { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .oe-note, .oe-caption { color: var(--c-text-3); font-size: var(--text-sm); overflow-wrap: anywhere; }
   .oe-note { margin: 0; }
@@ -140,4 +237,12 @@
   /* The snippet scrolls by itself and never widens the page. */
   .consume-snippet { margin: 0; padding: var(--sp-2) var(--sp-3); max-width: 100%; overflow-x: auto; background: var(--c-surface-inset); border: 1px solid var(--c-border); border-radius: var(--radius-sm); font-size: var(--text-sm); }
   .oe-foot { margin: 0; color: var(--c-text-3); }
+  /* Adapter cards flow into as many columns as fit and stack in a narrow container. */
+  .oe-adapters-box { container-type: inline-size; min-width: 0; }
+  .oe-adapters { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-2); grid-template-columns: repeat(auto-fit, minmax(min(28ch, 100%), 1fr)); }
+  @container (max-width: 40ch) { .oe-adapters { grid-template-columns: minmax(0, 1fr); } }
+  .oe-adapter { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; }
+  .oe-env { overflow-wrap: anywhere; min-width: 0; font-size: var(--text-sm); }
+  .oe-by { color: var(--c-text-2); overflow-wrap: anywhere; min-width: 0; }
+  .oe-unnamed { color: var(--c-text-3); font-style: italic; }
 </style>

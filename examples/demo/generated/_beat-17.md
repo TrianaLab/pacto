@@ -15,13 +15,16 @@ Plugins:
   dockerfile: A Dockerfile for a Go HTTP service
   github-actions: A CI workflow that validates and publishes the contract
 Requirements:
-  http-service -> postgresql (postgresql) via dependency, range satisfied, provider deprecated since 2026-11-01, sunset 2027-06-30, successor oci://ghcr.io/trianalab/pacto/postgresql:17.0.0
-  range of all 1: 1 satisfied, 0 unsatisfied, 0 unknown, 0 not checked
+  http-service -> postgresql (postgresql) via dependency, range unknown, provider deprecated since 2026-11-01, sunset 2027-06-30, successor oci://ghcr.io/trianalab/pacto/postgresql:17.0.0, successor range unsatisfied, latest supported range unsatisfied
+  range of all 1: 0 satisfied, 0 unsatisfied, 1 unknown, 0 not checked
 Unresolved requirements:
   database: this reference carries no resolved identity: it is not digest-pinned and pacto.lock records no unambiguous resolution for it, so the destination contract is unknown
   http-standards: this reference carries no resolved identity: it is not digest-pinned and pacto.lock records no unambiguous resolution for it, so the destination contract is unknown
 Created services:
   gift-cards
 Create a service: pacto init <name> --from examples/demo/bundles/http-service/v1.0.0 --owner <team>
+Changes, version order (1 of 1, times not-read: ask with reached to read delivery records):
+  http-service 1.0.0  owner team:platform declared since at least http-service 1.0.0  time not read
+Declared, read from contract revisions; a time is read from delivery history with --reached, and each says how it is known.
 Run with --output-format json for the full detail
 ```

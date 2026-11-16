@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -32,6 +33,8 @@ const (
 )
 
 type fakeDeliveryRegistry struct {
+	// mu guards hosts: describes run in parallel.
+	mu         sync.Mutex
 	hosts      []string
 	resolveErr error
 	// tag is the digest a tag resolves to; empty resolves to dlB.
@@ -110,7 +113,12 @@ func deliveryFixture(t *testing.T, user string, groups []string, extra map[strin
 			"username": user, "groups": gs, "extra": extra}}}}, nil
 	})
 	reg := &fakeDeliveryRegistry{}
-	d := &Delivery{Dynamic: c, Registry: func(hosts ...string) DeliveryRegistry { reg.hosts = hosts; return reg },
+	d := &Delivery{Dynamic: c, Registry: func(hosts ...string) DeliveryRegistry {
+		reg.mu.Lock()
+		defer reg.mu.Unlock()
+		reg.hosts = hosts
+		return reg
+	},
 		Policy: delivery.ClassPolicy{AgentGroups: []string{"pacto:agents"}}, Now: func() time.Time { return time.Unix(1_800_000_000, 0) }}
 	return d, c, reg
 }
@@ -139,6 +147,22 @@ func TestDeliveryPlanAndPropose(t *testing.T) {
 	var stale *PlanStaleError
 	if _, _, err := d.Propose(ctx, req); !errors.As(err, &stale) || stale.Plan.IntentDigest != plan.IntentDigest || !strings.Contains(err.Error(), "PlanStale") {
 		t.Fatalf("want PlanStale with the fresh plan, got %v", err)
+	}
+}
+
+func TestProposeStaleOnChangedCause(t *testing.T) {
+	d, _, _ := deliveryFixture(t, "system:serviceaccount:agents:bot", []string{"system:authenticated"}, nil)
+	ctx := context.Background()
+	req := delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB, OnBehalfOf: "alice"}
+	plan, _, err := d.Plan(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.IntentDigest = plan.IntentDigest
+	req.Cause = &delivery.Cause{Verdict: &delivery.Verdict{Gate: "smoke", Phase: "verify", Result: "Fail"}}
+	var stale *PlanStaleError
+	if _, _, err := d.Propose(ctx, req); !errors.As(err, &stale) || stale.Differs != "cause" || !strings.Contains(err.Error(), "planned with no cause") {
+		t.Fatalf("want PlanStale naming the cause, got %v", err)
 	}
 }
 
@@ -720,7 +744,7 @@ func TestDeliveryCandidates(t *testing.T) {
 func TestDeliveryPlanStaleNamesWhatDiffers(t *testing.T) {
 	d, _, _ := deliveryFixture(t, "system:serviceaccount:agents:bot", []string{"system:authenticated"}, nil)
 	ctx := context.Background()
-	req := delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB}
+	req := delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB, OnBehalfOf: "alice"}
 	plan, _, err := d.Plan(ctx, req)
 	if err != nil {
 		t.Fatal(err)
@@ -731,9 +755,9 @@ func TestDeliveryPlanStaleNamesWhatDiffers(t *testing.T) {
 	req.IntentDigest, req.OnBehalfOf = "sha256:0", "alice"
 	_, _, err = d.Propose(ctx, req)
 	wantErrContaining(t, err, `This request passes reason "ship" and on-behalf-of "alice"`)
-	req.OnBehalfOf = ""
+	req.OnBehalfOf = "bob"
 	_, _, err = d.Propose(ctx, req)
-	wantErrContaining(t, err, `This request passes reason "ship" and on-behalf-of ""`)
+	wantErrContaining(t, err, `This request passes reason "ship" and on-behalf-of "bob"`)
 }
 
 // TestWhoAmIPolicyNotFoundHint: a policy that could not be read is carried
@@ -756,4 +780,25 @@ func TestWhoAmIPolicyNotFoundHint(t *testing.T) {
 	if who, err := d.WhoAmI(ctx); err != nil || who.PolicyErr != "" {
 		t.Fatalf("a client given its policy: %q %v", who.PolicyErr, err)
 	}
+}
+
+func TestSpecCopiesCorrelationID(t *testing.T) {
+	d, _, _ := deliveryFixture(t, "alice", []string{"system:authenticated"}, nil)
+	req := delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB, CorrelationID: "CHG-2041"}
+	_, spec, err := d.Plan(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.CorrelationID = ""
+	_, bare, _ := d.Plan(context.Background(), req)
+	if spec.CorrelationID != "CHG-2041" || spec.IntentDigest != bare.IntentDigest {
+		t.Fatalf("spec %+v, digest without the id %s", spec, bare.IntentDigest)
+	}
+}
+
+func TestSpecRefusesLongCorrelationID(t *testing.T) {
+	d, _, _ := deliveryFixture(t, "alice", []string{"system:authenticated"}, nil)
+	req := delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB, CorrelationID: strings.Repeat("x", 129)}
+	_, _, err := d.Plan(context.Background(), req)
+	wantErrContaining(t, err, "at most 128 printable ASCII")
 }

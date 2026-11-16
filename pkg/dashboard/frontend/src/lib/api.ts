@@ -24,12 +24,16 @@ export class ApiError extends Error {
   code: string;
   /** The fresh plan a PlanStale refusal carries. */
   plan?: DeliveryPlan;
-  constructor(status: number, message: string, code = '', plan?: DeliveryPlan) {
+  /** On PlanStale, the bound field that alone explains the difference
+   *  (reason, on-behalf-of person, both, or cause); empty when something else moved. */
+  differs: string;
+  constructor(status: number, message: string, code = '', plan?: DeliveryPlan, differs = '') {
     super(message);
     this.status = status;
     this.name = 'ApiError';
     this.code = code;
     this.plan = plan;
+    this.differs = differs;
   }
 }
 
@@ -51,6 +55,8 @@ export type ProductAttentionList = JSON200<'fleet-attention'>;
 export type ProductImpact = JSON200<'fleet-impact-post'>;
 export type ProductRevisionDocument = JSON200<'fleet-revision-document'>;
 export type ProductOfferingVersions = JSON200<'fleet-versions'>;
+export type ProductStats = JSON200<'get-stats'>;
+export type ProductStatsRecords = JSON200<'get-stats-records'>;
 export type ProductMeta = ProductOverview['meta'];
 
 // JSONBody / GetResponse / PostResponse derive an operation's 200 application/json
@@ -104,7 +110,8 @@ export type EnvironmentRow = components['schemas']['EnvironmentRow'];
 export type ProductPlacementPreview = components['schemas']['ProductPlacementPreview'];
 export type EnvironmentOwner = components['schemas']['ProductEnvironmentOwner'];
 export type EnvironmentDifference = components['schemas']['Validation.EnvironmentDifference'];
-export type EnvironmentHistory = components['schemas']['ProductEnvironmentHistoryPreview'];
+export type ChangeHistory = components['schemas']['ProductChangeHistoryPreview'];
+export type ChangeEvent = components['schemas']['ProductChangeEvent'];
 
 // ── finite wire vocabularies (derived from generated enums, never hand-listed) ──
 /** One canonical entity reference as the backend emits it, href and all. */
@@ -317,10 +324,10 @@ interface FetchResult<T> {
   response: Response;
 }
 
-function errorCode(error: unknown): { code: string; plan?: DeliveryPlan } {
+function errorCode(error: unknown): { code: string; plan?: DeliveryPlan; differs?: string } {
   if (error && typeof error === 'object') {
-    const e = error as { code?: string; plan?: DeliveryPlan };
-    return { code: e.code ?? '', plan: e.plan };
+    const e = error as { code?: string; plan?: DeliveryPlan; differs?: string };
+    return { code: e.code ?? '', plan: e.plan, differs: e.differs };
   }
   return { code: '' };
 }
@@ -339,8 +346,8 @@ function errorMessage(error: unknown, response: Response): string {
 async function unwrap<T>(p: Promise<FetchResult<T>>): Promise<T> {
   const { data, error, response } = await p;
   if (!response.ok || error !== undefined) {
-    const { code, plan } = errorCode(error);
-    throw new ApiError(response.status, errorMessage(error, response), code, plan);
+    const { code, plan, differs } = errorCode(error);
+    throw new ApiError(response.status, errorMessage(error, response), code, plan, differs);
   }
   return (data ?? null) as T;
 }
@@ -440,8 +447,11 @@ export const api = {
       params: { query: { ...rest, kinds: kinds?.length ? kinds : undefined } },
     }));
   },
-  fleetEntityDetail: async (kind: EntityKind, key: string): Promise<NarrowedEntityDetail> => {
-    const raw = await productGet(client.GET('/api/fleet/entities/{kind}', { params: { path: { kind }, query: { key } } }));
+  // reached: also read, as the caller, when each change of a service reached a Stage
+  // (a delivery read the shared fleet answer never waits for).
+  fleetEntityDetail: async (kind: EntityKind, key: string, opts: { reached?: boolean } = {}): Promise<NarrowedEntityDetail> => {
+    const query = opts.reached ? { key, reached: true } : { key };
+    const raw = await productGet(client.GET('/api/fleet/entities/{kind}', { params: { path: { kind }, query } }));
     return narrowEntityDetail(raw);
   },
   fleetNeighborhood: (params: FleetNeighborhoodInput): Promise<ProductNeighborhood> => {
@@ -463,6 +473,12 @@ export const api = {
    *  the entity detail so a revision page stays bounded. */
   fleetRevisionDocument: (key: string, path: string): Promise<ProductRevisionDocument> =>
     productGet(client.GET('/api/fleet/revisions/document', { params: { query: { key, path } } })),
+
+  // ── Metrics: Pacto's outcomes over time, read from the stats repository. ──
+  stats: (query: operations['get-stats']['parameters']['query'] = {}): Promise<ProductStats> =>
+    unwrap(client.GET('/api/stats', { params: { query } })),
+  statsRecords: (query: operations['get-stats-records']['parameters']['query']): Promise<ProductStatsRecords> =>
+    unwrap(client.GET('/api/stats/records', { params: { query } })),
 
   // ── Session: who the dashboard acts as and how people sign in. ──
   /** The identity mode and the signed-in person, as the API server names them. */

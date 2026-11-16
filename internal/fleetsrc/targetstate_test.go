@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/trianalab/pacto/v4/pkg/evidence"
 	"github.com/trianalab/pacto/v4/pkg/finding"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
@@ -372,5 +373,74 @@ func TestTargetStateFileSource_V1ProvisioningRejected(t *testing.T) {
 	_, err := NewTargetStateFileSource("", writeFixture(t, "t.yaml", body)).Collect(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "fleet-targets/v2") {
 		t.Errorf("err = %v, want the v2 hint", err)
+	}
+}
+
+// A v2 file carries usage reports too: an empty outcome is Observed and every
+// report is unverified, so the fleet never shows its figures as reported.
+func TestTargetStateUsageUnsigned(t *testing.T) {
+	body := `schemaVersion: pacto.dev/fleet-targets/v2
+targets: []
+usage:
+  - service: orders
+    domain: ghcr.io/acme
+    digest: sha256:o
+    kind: configuration
+    name: db
+    environment: production
+    provider: aws
+    externalRef: orders-db
+    metrics:
+      - name: storage-used
+        value: 31
+        unit: Gi
+    cost:
+      amount: "212.40"
+      currency: USD
+      period: P30D
+    observedAt: 2026-07-29T09:40:00Z
+    producer: platform-adapter
+`
+	col, err := NewTargetStateFileSource("", writeFixture(t, "t.yaml", body)).Collect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := fleet.RawUsage{Service: "orders", Domain: "ghcr.io/acme", Digest: "sha256:o", Kind: "configuration", Name: "db",
+		Environment: "production", Provider: "aws", ExternalRef: "orders-db",
+		Metrics: []evidence.UsageMetric{{Name: "storage-used", Value: 31, Unit: "Gi"}},
+		Cost:    &evidence.UsageCost{Amount: "212.40", Currency: "USD", Period: "P30D"}, Outcome: "Observed",
+		Producer: "platform-adapter", ObservedAt: time.Date(2026, 7, 29, 9, 40, 0, 0, time.UTC)}
+	if got := col.Usage; len(got) != 1 || !reflect.DeepEqual(got[0], want) {
+		t.Errorf("usage = %+v, want %+v", got, want)
+	}
+	v1 := "schemaVersion: pacto.dev/fleet-targets/v1\ntargets: []\nusage:\n  - service: orders\n"
+	if _, err := NewTargetStateFileSource("", writeFixture(t, "v1.yaml", v1)).Collect(context.Background()); err == nil || !strings.Contains(err.Error(), "fleet-targets/v2") {
+		t.Errorf("v1 with usage: err = %v, want the v2 hint", err)
+	}
+}
+
+// TestAttackTargetStateMissingMetricValue: a usage entry whose metric omits
+// its value is skipped with a limitation, never read as a measured zero.
+func TestAttackTargetStateMissingMetricValue(t *testing.T) {
+	body := `schemaVersion: pacto.dev/fleet-targets/v2
+targets: []
+usage:
+  - service: orders
+    digest: sha256:o
+    kind: configuration
+    name: db
+    provider: aws
+    metrics:
+      - name: storage-used
+        unit: Gi
+    observedAt: 2026-07-29T09:40:00Z
+`
+	col, err := NewTargetStateFileSource("", writeFixture(t, "t.yaml", body)).Collect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(col.Usage) != 0 || len(col.Limitations) != 1 || col.Limitations[0].Code != fleet.LimitationSourceRecordInvalid ||
+		!strings.Contains(col.Limitations[0].Message, `metric "storage-used" has no value`) {
+		t.Errorf("usage %+v limitations %+v, want the entry skipped with a limitation", col.Usage, col.Limitations)
 	}
 }

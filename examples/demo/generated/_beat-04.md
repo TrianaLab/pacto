@@ -9,8 +9,9 @@ Target: production-eu/kubernetes-workload/commerce%2Forders-service
 Service: orders-service
 Compliance: NonCompliant
 Revision: orders-service@sha256:abf75f569260779a932066089e72cf0c2e6c8ac61a22fcf849cced91aaa75736 (inferred)
-Stale: false
+Stale: true
 Coverage: 5/5 evaluated
   finding [error] STATELESS_PERSISTENT_CONFLICT: declared stateless but the observed workload mounts a persistent volume
   finding [error] INTERFACE_ABSENT: nothing listens on the declared http interface (seen by k8s-observer+ebpf)
+  limitation [SOURCE_STALE] the most recent evidence is older than the configured freshness window
 ```

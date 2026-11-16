@@ -4,7 +4,8 @@ import {
   readinessUrl, fleetUrl,
   hashForHref, fleetOverviewUrl, fleetServicesUrl, fleetOwnersUrl, fleetSourcesUrl,
   fleetEntityUrl, fleetGraphFocusUrl, fleetAttentionUrl, fleetChangesUrl,
-  legacyRedirectTarget, replaceHash, fleetEntityListUrl, fleetGoldenPathsUrl,
+  legacyRedirectTarget, replaceHash, fleetEntityListUrl, fleetGoldenPathsUrl, fleetOfferingsUrl, serviceChangesUrl,
+  deliveryHistoryUrl, metricsUrl,
 } from './router.ts';
 
 describe('parseHash', () => {
@@ -307,6 +308,19 @@ describe('parseHash — fleet product IA', () => {
     expect(parseHash('#/fleet/sources/k8s')).toEqual({ view: 'fleet-entity', params: { kind: 'source', key: 'k8s' } });
   });
 
+  it('restores the As of time of a delivery history', () => {
+    const at = '2026-11-10T14:02:00Z';
+    expect(deliveryHistoryUrl({ at })).toBe('#/delivery/history?at=2026-11-10T14%3A02%3A00Z');
+    expect(parseHash(deliveryHistoryUrl({ at })).params).toEqual({ at });
+    expect(parseHash(deliveryHistoryUrl({ namespace: 'prod', stage: 'pay', at: '2h' })).params).toEqual({ namespace: 'prod', stage: 'pay', at: '2h' });
+  });
+
+  it('reads correlationID on a fleet entity route', () => {
+    expect(parseHash('#/fleet/targets/x?correlationID=CHG-1')).toEqual({ view: 'fleet-entity', params: { kind: 'target', key: 'x', correlationID: 'CHG-1' } });
+    expect(parseHash('#/fleet/changes/svc?correlationID=CHG-1').params.correlationID).toBe('CHG-1');
+    expect(fleetChangesUrl('svc', { new: 'b', correlationID: 'CHG-1' })).toBe('#/fleet/changes/svc?new=b&correlationID=CHG-1');
+  });
+
   it('round-trips slash- and percent-bearing canonical keys through escape/decode', () => {
     for (const key of ['domain-a/payments', 'prod/k8s/app', 'oci://ghcr.io/acme/pay@sha256:ab', 'weird%2Fkey', 'a b/c%d']) {
       const url = fleetEntityUrl('service', key);
@@ -373,6 +387,11 @@ describe('parseHash — fleet product IA', () => {
       view: 'fleet-services',
       params: { text: 'pay', owner: 'team-a', ownership: 'consistent', status: 'Unknown', domain: 'core', offset: '25' },
     });
+  });
+
+  it('carries the knowledge gap as route state', () => {
+    expect(fleetServicesUrl({ gap: 'no-summary', ownership: 'unknown' })).toBe('#/fleet/services?ownership=unknown&gap=no-summary');
+    expect(parseHash('#/fleet/services?gap=not-deployed')).toEqual({ view: 'fleet-services', params: { gap: 'not-deployed' } });
   });
 
   // Owner SEARCH and owner IDENTITY are two questions, so they are two params and both
@@ -523,6 +542,13 @@ describe('fleetChangesUrl', () => {
   });
   // A service NAME is not a canonical ServiceKey, so it is carried as a resolvable hint
   // in the query -- never promoted into the path where it would look canonical.
+  // An offering event names the offering, never a service key, and parses back.
+  it('carries an offering event and parses it back', () => {
+    const url = fleetChangesUrl('', { offering: 'postgresql', event: 'unavailable', outcome: 'breaks' });
+    expect(url).toBe('#/fleet/changes?offering=postgresql&event=unavailable&outcome=breaks');
+    expect(parseHash(url)).toEqual({ view: 'changes', params: { offering: 'postgresql', event: 'unavailable', outcome: 'breaks' } });
+    expect(fleetChangesUrl('redis', { offering: 'postgresql' })).toBe('#/fleet/changes/redis');
+  });
   it('carries an unresolved legacy name as a query hint, never as the path key', () => {
     expect(fleetChangesUrl('', { name: 'payments' })).toBe('#/fleet/changes?name=payments');
   });
@@ -763,5 +789,68 @@ describe('golden paths routes', () => {
     const url = fleetServicesUrl({ createdFrom: 'ghcr.io/acme/http-service' });
     expect(url).toBe('#/fleet/services?createdFrom=ghcr.io%2Facme%2Fhttp-service');
     expect(parseHash(url)).toEqual({ view: 'fleet-services', params: { createdFrom: 'ghcr.io/acme/http-service' } });
+  });
+});
+
+describe('offerings list routes', () => {
+  it('parses and serialises the lifecycle, failed and sort filters of the Offerings list', () => {
+    const url = fleetOfferingsUrl({ text: 'sql', lifecycle: 'deprecated', failed: true, sort: 'consumers', offset: 25 });
+    expect(url).toBe('#/fleet/offerings?text=sql&lifecycle=deprecated&failed=1&offset=25&sort=consumers');
+    expect(parseHash(url)).toEqual({
+      view: 'fleet-offerings', params: { text: 'sql', lifecycle: 'deprecated', failed: '1', offset: '25', sort: 'consumers' },
+    });
+    expect(fleetOfferingsUrl({ failed: false })).toBe('#/fleet/offerings');
+  });
+
+  it('keeps lifecycle and failed off the other group lists', () => {
+    for (const list of ['owners', 'sources', 'domains', 'golden-paths']) {
+      expect(parseHash(`#/fleet/${list}?lifecycle=deprecated&failed=1&text=a`).params).toEqual({ text: 'a' });
+    }
+  });
+});
+
+describe('serviceChangesUrl', () => {
+  it('round-trips each Changes param through the service route', () => {
+    const cases: [Parameters<typeof serviceChangesUrl>[1], Record<string, string>][] = [
+      [{ changesKind: 'owner' }, { changesKind: 'owner' }],
+      [{ changesOffset: 25 }, { changesOffset: '25' }],
+      [{ changesLimit: 50 }, { changesLimit: '50' }],
+      [{ section: 'changes' }, { section: 'changes' }],
+    ];
+    for (const [opts, want] of cases) {
+      const url = serviceChangesUrl('storefront-web', opts);
+      expect(url.split('#').length).toBe(2); // never a second # inside the hash
+      expect(parseHash(url)).toEqual({ view: 'fleet-entity', params: { kind: 'service', key: 'storefront-web', ...want } });
+    }
+    expect(serviceChangesUrl('storefront-web')).toBe('#/fleet/services/storefront-web');
+  });
+
+  it('keeps a key with encoded special characters', () => {
+    const key = 'registry.example%2Fstory/payments';
+    const url = serviceChangesUrl(key, { changesKind: 'environment', section: 'changes' });
+    expect(url).toBe('#/fleet/services/registry.example%252Fstory%2Fpayments?changesKind=environment&section=changes');
+    expect(parseHash(url).params).toEqual({ kind: 'service', key, changesKind: 'environment', section: 'changes' });
+  });
+
+  it('drops unknown params and keeps Changes params off other entity kinds', () => {
+    expect(parseHash('#/fleet/services/web?changesKind=owner&bogus=1').params).toEqual({ kind: 'service', key: 'web', changesKind: 'owner' });
+    expect(parseHash('#/fleet/targets/x?changesKind=owner&section=changes').params).toEqual({ kind: 'target', key: 'x' });
+  });
+});
+
+describe('metrics route', () => {
+  it('parses #/metrics and round-trips its window, metric, environment and both page offsets', () => {
+    expect(parseHash('#/metrics')).toEqual({ view: 'metrics', params: {} });
+    expect(metricsUrl()).toBe('#/metrics');
+    const url = metricsUrl({ window: '7d', metric: 'leadTime', environment: 'prod', offset: '25', limit: '50', servicesOffset: '100', servicesLimit: '100' });
+    expect(url).toBe('#/metrics?window=7d&metric=leadTime&environment=prod&offset=25&limit=50&servicesOffset=100&servicesLimit=100');
+    expect(parseHash(url)).toEqual({
+      view: 'metrics', params: { window: '7d', metric: 'leadTime', environment: 'prod', offset: '25', limit: '50', servicesOffset: '100', servicesLimit: '100' },
+    });
+    expect(parseHash('#/metrics?other=1').params).toEqual({});
+  });
+
+  it('is never redirected on a Fleet host', () => {
+    expect(legacyRedirectTarget('#/metrics?window=7d')).toBeNull();
   });
 });
