@@ -18,8 +18,8 @@ When an agent proposes a change, it names the person who asked for it in
 dashboard. The name is the person's Kubernetes username, any OIDC prefix included, as
 `kubectl auth whoami` prints it for them: a Git login never matches their
 approval. The cluster's admission policy and the promoter both refuse an
-agent's Operation that names nobody, names the agent itself, a service account
-or the promoter. The client refuses it first, before anything reaches the
+agent's Operation that names nobody, the agent itself, a service account, a
+system user or the promoter. The client refuses it first, before anything reaches the
 cluster:
 
 ```text

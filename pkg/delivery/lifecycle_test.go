@@ -221,6 +221,8 @@ func TestAdmitPrincipal(t *testing.T) {
 		{"agent with person", as(&Principal{User: "dana"}), ClassAgent, ""},
 		{"agent blank user", as(&Principal{User: "  "}), ClassAgent, "NoPrincipal:"},
 		{"agent self in another case", as(&Principal{User: " BOT"}), ClassAgent, "SelfPrincipal:"},
+		{"agent names a system user", as(&Principal{User: "system:kube-scheduler"}), ClassAgent, "NotAPerson:"},
+		{"agent names anonymous", as(&Principal{User: " system:anonymous"}), ClassAgent, "NotAPerson:"},
 		{"agent padded service account", as(&Principal{User: " system:serviceaccount:a:b"}), ClassAgent, "NotAPerson:"},
 		{"human none", as(nil), ClassHuman, ""},
 		{"controller none", as(nil), ClassController, ""},

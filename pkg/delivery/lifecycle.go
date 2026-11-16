@@ -115,7 +115,7 @@ func approvalAnswers(spec OperationSpec, st OperationStatus, uid string, a Appro
 
 // AdmitPrincipal says why an operation of class may not be raised as
 // spec names its principal: an agent names the person it acts for, never
-// itself, a service account or the promoter. The name is asserted, never
+// itself, a service account, a system user or the promoter. The name is asserted, never
 // verified; requiring it stops that person approving the change (OwnChange).
 // Only proposals are checked: a plan is a preview and names nobody.
 func AdmitPrincipal(spec OperationSpec, class ActorClass, p ClassPolicy) string {
@@ -126,8 +126,8 @@ func AdmitPrincipal(spec OperationSpec, class ActorClass, p ClassPolicy) string 
 		return "NoPrincipal: an agent must name the person it acts for (onBehalfOf); that person may not approve this change"
 	case samePerson(spec.OnBehalfOf.User, spec.Actor.User):
 		return "SelfPrincipal: an agent cannot act on behalf of itself; name the person who asked for this change"
-	case isServiceAccount(strings.TrimSpace(spec.OnBehalfOf.User)) || samePerson(spec.OnBehalfOf.User, p.ControllerUser):
-		return "NotAPerson: onBehalfOf names a service account or the promoter; name the person who asked for this change"
+	case strings.HasPrefix(strings.TrimSpace(spec.OnBehalfOf.User), "system:") || samePerson(spec.OnBehalfOf.User, p.ControllerUser):
+		return "NotAPerson: onBehalfOf names a service account, a system user or the promoter; name the person who asked for this change"
 	}
 	return ""
 }

@@ -25,12 +25,18 @@ type InboxEnvironment struct {
 
 // inboxByEnvironment counts the inbox's sections by the environment of the
 // Stage each item is on, in promotion order. Only environments where
-// something waits are listed; a Stage that names no environment comes last.
-// Every item is on a Stage of stages: a held change needs its Stage to ask
-// whether the caller may update the workload, an errored one a frozen Stage.
+// something waits are listed; the empty environment (a Stage that names none,
+// or one the caller cannot read) comes last. Break-glass resolves an ownerless
+// question without asking about the workload, so its held changes may sit on
+// a Stage the caller cannot read.
 func inboxByEnvironment(stages []delivery.StageObject, held, errored []InboxItem, frozen []delivery.StageObject) []InboxEnvironment {
 	byStage := delivery.StagesByName(stages)
-	envOf := func(it InboxItem) string { return byStage[it.Namespace+"/"+it.Stage].Spec.Environment }
+	envOf := func(it InboxItem) string {
+		if st := byStage[it.Namespace+"/"+it.Stage]; st != nil {
+			return st.Spec.Environment
+		}
+		return ""
+	}
 	counts := map[string]*InboxEnvironment{}
 	at := func(env string) *InboxEnvironment {
 		if counts[env] == nil {

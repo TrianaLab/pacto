@@ -293,7 +293,7 @@ func (e *PlanStaleError) Error() string {
 }
 
 // PrincipalError is the client's own refusal of an agent proposal that names
-// no person it acts for, itself, a service account or the promoter: the
+// no person it acts for, itself, a service account, a system user or the promoter: the
 // promoter would reject it, so it never reaches the cluster.
 type PrincipalError struct{ Code, Agent, Why string }
 

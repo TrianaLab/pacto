@@ -601,7 +601,7 @@ func TestDeliveryRequestArgsCorrelationID(t *testing.T) {
 // incident.
 func TestDeliveryInstructionsNamePrincipalAndCorrelation(t *testing.T) {
 	for _, want := range []string{
-		"names the person it acts for in on_behalf_of, as the Kubernetes username the cluster authenticates them as, never itself, a service account or the promoter",
+		"names the person it acts for in on_behalf_of, as the Kubernetes username the cluster authenticates them as, never itself, a service account, a system user or the promoter",
 		"that person may not approve the change, and planning needs no person",
 		"Pass correlation_id on plan and propose",
 		"it never changes the intent digest",

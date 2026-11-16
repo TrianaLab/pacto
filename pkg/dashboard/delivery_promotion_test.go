@@ -50,6 +50,20 @@ func TestInboxCountsWhatWaitsPerEnvironment(t *testing.T) {
 		"only what waits to enter prod: %v", inbox)
 	_, inbox = call(t, http.MethodGet, base+"/api/delivery/inbox?except=prod", nil)
 	expect(t, inbox["heldPage"].(map[string]any)["total"] == float64(0), "a held change on an unreadable Stage is not the caller's: %v", inbox["heldPage"])
+
+	// Break-glass resolves an ownerless question without asking about the
+	// workload, so a held change on a Stage it cannot read still waits on it:
+	// it waits to enter "", last, and an empty except leaves it out.
+	f.policy = &delivery.ClassPolicy{BreakGlassGroups: []string{"pacto:break-glass"}, RequireOwnerTeam: true}
+	f.caller = person("pacto:break-glass")
+	f.caller.Class = delivery.ClassBreakGlass
+	_, inbox = call(t, http.MethodGet, base+"/api/delivery/inbox", nil)
+	got = fmt.Sprint(inbox["byEnvironment"])
+	expect(t, strings.HasSuffix(got, "map[environment: errored:0 frozen:0 held:1 upstream:[]]]"), "the unreadable Stage comes last: %s", got)
+	_, inbox = call(t, http.MethodGet, base+"/api/delivery/inbox?except=prod&except=other", nil)
+	expect(t, names(inbox["held"]) == "unseen:approve", "only the unreadable waits outside prod and other: %v", inbox["held"])
+	_, inbox = call(t, http.MethodGet, base+"/api/delivery/inbox?except=prod&except=", nil)
+	expect(t, len(inbox["held"].([]any)) == 0, "an empty except leaves out the unreadable: %v", inbox["held"])
 }
 
 func TestUpstreamOfReadsTheDeclaredSource(t *testing.T) {
