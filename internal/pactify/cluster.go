@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -23,6 +24,7 @@ import (
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
 	"github.com/trianalab/pacto/v4/internal/runtimewatch/kubesink"
 	"github.com/trianalab/pacto/v4/pkg/runtimefacts"
+	"github.com/trianalab/pacto/v4/pkg/schemax"
 )
 
 // ClusterOptions says which namespaces pacto init --cluster reads and where
@@ -127,9 +129,10 @@ func (cl *cluster) draft(ctx context.Context, w unstructured.Unstructured, base 
 	writeFile func(string, []byte, os.FileMode) error) (*Result, error) {
 	dir := filepath.Join(out, w.GetNamespace(), w.GetName())
 	scanned, write := dir, writeFile
-	f := File{Path: "manifests.yaml", Action: Add, Content: cl.manifests(w)}
+	content, keys := cl.manifests(w)
+	f := File{Path: "manifests.yaml", Action: Add, Content: content}
 	if _, err := os.Stat(filepath.Join(dir, f.Path)); err == nil {
-		f = File{Path: f.Path, Action: Keep}
+		f, keys = File{Path: f.Path, Action: Keep}, nil
 	} else {
 		if base.Plan {
 			tmp, err := os.MkdirTemp("", "pacto-init-cluster-")
@@ -154,6 +157,12 @@ func (cl *cluster) draft(ctx context.Context, w unstructured.Unstructured, base 
 	}
 	r.Dir, r.Path = dir, filepath.Join(dir, "pacto.yaml")
 	r.Files = append([]File{f}, r.Files...)
+	if len(keys) > 0 {
+		secret := w.GetName() + "-env"
+		r.Next = append(r.Next, fmt.Sprintf("manifests.yaml: the cluster sets %s to literal values; the draft reads them from the Secret %s instead, "+
+			"so the values stay out of the bundle. Before you apply it, create that Secret from a file of KEY=value lines: "+
+			"kubectl -n %s create secret generic %s --from-env-file=<file>", strings.Join(keys, ", "), secret, w.GetNamespace(), secret))
+	}
 	if !cl.observed {
 		r.Unknown = append(r.Unknown, "dependencies seen at runtime: the cluster holds no node runtime observations, so no calls were seen")
 	}
@@ -419,20 +428,87 @@ func selects(sel, labels map[string]string) bool {
 }
 
 // manifests is the workload and the Services that select its pods, as
-// manifests a folder holds: no namespace, status or server-set fields.
-func (cl *cluster) manifests(w unstructured.Unstructured) string {
-	labels, _, _ := unstructured.NestedStringMap(w.Object, "spec", "template", "metadata", "labels")
-	if w.GetKind() == "CronJob" {
-		labels, _, _ = unstructured.NestedStringMap(w.Object, "spec", "jobTemplate", "spec", "template", "metadata", "labels")
+// manifests a folder holds: no namespace, status or server-set fields. A
+// sensitive literal in the workload's environment reads from the Secret
+// <name>-env instead; it returns that Secret's keys. w is never changed.
+func (cl *cluster) manifests(w unstructured.Unstructured) (string, []string) {
+	c := w.DeepCopy()
+	keys := secretEnv(c, w.GetName()+"-env")
+	labels, _, _ := unstructured.NestedStringMap(c.Object, "spec", "template", "metadata", "labels")
+	if c.GetKind() == "CronJob" {
+		labels, _, _ = unstructured.NestedStringMap(c.Object, "spec", "jobTemplate", "spec", "template", "metadata", "labels")
 	}
-	docs := []string{plain(w)}
+	docs := []string{plain(*c)}
 	for _, s := range cl.services {
 		sel, _, _ := unstructured.NestedStringMap(s.Object, "spec", "selector")
 		if s.GetNamespace() == w.GetNamespace() && selects(sel, labels) {
 			docs = append(docs, plain(s))
 		}
 	}
-	return strings.Join(docs, "---\n")
+	return strings.Join(docs, "---\n"), keys
+}
+
+// secretEnv rewrites every env entry of w's containers and initContainers
+// whose literal value is sensitive, by name or as a URL with credentials, to
+// read the key of the same name from the Secret secret. A name set to
+// different literals in two containers reads <container>.<name>, so the two
+// never share one value. It returns the Secret's keys, sorted; the values are
+// compared in memory and never kept.
+// ponytail: args and command literals stay as they are; 513-S2 strips them.
+func secretEnv(w *unstructured.Unstructured, secret string) []string {
+	pod := []string{"spec", "template", "spec"}
+	if w.GetKind() == "CronJob" {
+		pod = []string{"spec", "jobTemplate", "spec", "template", "spec"}
+	}
+	fields := []string{"containers", "initContainers"}
+	lists := make([][]any, len(fields))
+	for i, f := range fields {
+		lists[i], _, _ = unstructured.NestedSlice(w.Object, slices.Concat(pod, []string{f})...)
+	}
+	seen, split := map[string]string{}, map[string]bool{}
+	sensitiveEnv(lists, func(_ string, e map[string]any) {
+		name, value := e["name"].(string), e["value"].(string)
+		if v, ok := seen[name]; ok && v != value {
+			split[name] = true
+		}
+		seen[name] = value
+	})
+	keys := map[string]bool{}
+	sensitiveEnv(lists, func(container string, e map[string]any) {
+		k := e["name"].(string)
+		if split[k] {
+			k = container + "." + k
+		}
+		delete(e, "value")
+		e["valueFrom"] = map[string]any{"secretKeyRef": map[string]any{"name": secret, "key": k}}
+		keys[k] = true
+	})
+	for i, f := range fields {
+		if lists[i] != nil {
+			_ = unstructured.SetNestedSlice(w.Object, lists[i], slices.Concat(pod, []string{f})...) // ponytail: the path held a slice a moment ago
+		}
+	}
+	return slices.Sorted(maps.Keys(keys))
+}
+
+// sensitiveEnv calls fn with each env entry, and its container's name, whose
+// literal value is non-empty and sensitive.
+func sensitiveEnv(lists [][]any, fn func(container string, e map[string]any)) {
+	for _, list := range lists {
+		for _, c := range list {
+			cm, _ := c.(map[string]any)
+			name, _ := cm["name"].(string)
+			envs, _ := cm["env"].([]any)
+			for _, e := range envs {
+				em, _ := e.(map[string]any)
+				key, _ := em["name"].(string)
+				value, _ := em["value"].(string)
+				if value != "" && (schemax.SensitiveKey(key) || sensitiveValue(value)) {
+					fn(name, em)
+				}
+			}
+		}
+	}
 }
 
 // plain is o as a manifest: apiVersion, kind, name, labels and spec, less
