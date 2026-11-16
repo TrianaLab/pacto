@@ -153,19 +153,69 @@ spec:
 	}
 }
 
-func TestSensitiveValue(t *testing.T) {
-	for v, want := range map[string]bool{
-		"postgres://app:pw@db/x":  true,
-		"redis://:pw@cache:6379":  true,
-		"https://api/x?token=abc": true,
-		"postgres://app@db/x":     false,
-		"http://billing:8080":     false,
-		"info":                    false,
-		"":                        false,
+// TestSensitiveLiteral: a $(NAME) reference holds no value of its own, so a
+// value made only of references, or a URL whose password is one, is not a
+// sensitive literal; a malformed credential URL still is.
+func TestSensitiveLiteral(t *testing.T) {
+	for _, tc := range []struct {
+		name, value string
+		want        bool
+	}{
+		{"DB_PASSWORD", "hunter2", true},
+		{"DB_PASSWORD", "$(OTHER_PASSWORD)", false},
+		{"DB_PASSWORD", "", false},
+		{"DATABASE_URL", "postgres://app:$(DB_PASSWORD)@db:5432/x", false},
+		{"DATABASE_URL", "postgres://$(DB_USER):hunter2@db:5432/x", true},
+		{"DATABASE_URL", "postgres://app:pa%ss@db:5432/x", true},
+		{"DATABASE_URL", "app:pw@db:5432/x", true},
+		{"LOG_LEVEL", "info", false},
 	} {
-		if got := sensitiveValue(v); got != want {
-			t.Errorf("sensitiveValue(%q) = %v, want %v", v, got, want)
+		if got := sensitiveLiteral(tc.name, tc.value); got != tc.want {
+			t.Errorf("sensitiveLiteral(%q, %q) = %v, want %v", tc.name, tc.value, got, tc.want)
 		}
+	}
+}
+
+// TestShadowedLiteralNamed: a sensitive literal a later variable of the same
+// name replaces (a sidecar's secretKeyRef, an env entry over an envFrom
+// ConfigMap key) is still in its file, so the next steps still name it; a
+// malformed credential URL is named too.
+func TestShadowedLiteralNamed(t *testing.T) {
+	dir := writeTree(t, t.TempDir(), map[string]string{
+		"deploy/app.yaml": `apiVersion: apps/v1
+kind: Deployment
+metadata: {name: payments}
+spec:
+  template:
+    spec:
+      containers:
+        - name: payments
+          image: reg.io/payments:1.0.0
+          envFrom:
+            - {configMapRef: {name: cm}}
+          env:
+            - {name: DB_PASSWORD, value: hunter2}
+            - {name: CLIENT_SECRET, valueFrom: {secretKeyRef: {name: creds, key: client}}}
+            - {name: CACHE_URL, value: "postgres://app:pa%ss@cache:5432/x"}
+            - {name: SKIPPED, valueFrom: {configMapKeyRef: {name: absent, key: k}}}
+        - name: sidecar
+          image: reg.io/sidecar:1.0.0
+          env:
+            - {name: DB_PASSWORD, valueFrom: {secretKeyRef: {name: db-creds, key: password}}}
+            - {name: CM_TOKEN, valueFrom: {configMapKeyRef: {name: cm, key: CM_TOKEN}}}
+`,
+		"deploy/cm.yaml": "apiVersion: v1\nkind: ConfigMap\nmetadata: {name: cm}\ndata: {CLIENT_SECRET: c0nfigmap-s3cret, CM_TOKEN: t0ken}\n",
+	})
+	r, err := Init(context.Background(), Options{Dir: dir, Plan: true}, os.WriteFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasLine(r.Next, "deploy/app.yaml sets CACHE_URL, DB_PASSWORD to literal values") ||
+		!hasLine(r.Next, "deploy/cm.yaml sets CLIENT_SECRET, CM_TOKEN to literal values") {
+		t.Fatalf("next steps: %q", r.Next)
+	}
+	if strings.Contains(fmt.Sprint(r.Next), "hunter2") || strings.Contains(fmt.Sprint(r.Next), "pa%ss") {
+		t.Fatalf("a next step holds a value: %q", r.Next)
 	}
 }
 

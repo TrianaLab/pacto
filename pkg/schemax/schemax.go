@@ -12,6 +12,8 @@ package schemax
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -175,7 +177,7 @@ func (spec Doc) Meta() (title, description string) {
 
 // sensitivePatterns are the parts of a key name that mark its value as
 // sensitive.
-// ponytail: substring match; KEYCLOAK_URL and MONKEY read as sensitive, which only masks them. A word-boundary rule when a false positive hides something a reader needs.
+// ponytail: substring match; KEYCLOAK_URL and MONKEY read as sensitive, which masks them in a summary or a diff and, in a pacto init --cluster draft, moves their literal into a Secret the owner creates. A word-boundary rule when a false positive hides or moves something a reader needs.
 var sensitivePatterns = []string{"password", "secret", "token", "key", "credential", "private", "dsn"}
 
 // SensitiveKey reports whether a configuration key's name, in any case,
@@ -185,6 +187,36 @@ func SensitiveKey(name string) bool {
 	name = strings.ToLower(name)
 	for _, p := range sensitivePatterns {
 		if strings.Contains(name, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// credRE is a URL, or a scheme-less user:password@host, whose userinfo holds
+// a password, read from the raw text when url.Parse rejects the value: a
+// password with an unescaped %, /, ?, # or space.
+// ponytail: mailto:user@example.com matches the scheme-less form, which only masks it.
+var credRE = regexp.MustCompile(`^(?:[A-Za-z][A-Za-z0-9+.-]*://[^@/]*:[^@]+|[^@/:\s]+:[^@/\s]+)@`)
+
+// SensitiveValue reports whether a value is a URL that carries a credential:
+// a non-empty password in its userinfo, or a query parameter with a sensitive
+// name. A value url.Parse rejects, or reads as an opaque scheme:rest, is read
+// with credRE instead, so a malformed password still counts. It never returns
+// the value.
+func SensitiveValue(v string) bool {
+	u, err := url.Parse(v)
+	if err != nil || u.Opaque != "" {
+		return credRE.MatchString(v)
+	}
+	if u.Scheme == "" {
+		return false
+	}
+	if p, ok := u.User.Password(); ok && p != "" {
+		return true
+	}
+	for k := range u.Query() {
+		if SensitiveKey(k) {
 			return true
 		}
 	}

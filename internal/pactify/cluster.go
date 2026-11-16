@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -25,7 +24,6 @@ import (
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
 	"github.com/trianalab/pacto/v4/internal/runtimewatch/kubesink"
 	"github.com/trianalab/pacto/v4/pkg/runtimefacts"
-	"github.com/trianalab/pacto/v4/pkg/schemax"
 )
 
 // ClusterOptions says which namespaces pacto init --cluster reads and where
@@ -166,8 +164,8 @@ func (cl *cluster) draft(ctx context.Context, w unstructured.Unstructured, base 
 			"kubectl -n %s create secret generic %s --from-env-file=<file>", strings.Join(keys, ", "), values, them, secret, w.GetNamespace(), secret))
 	}
 	if len(urls) > 0 {
-		r.Next = append(r.Next, fmt.Sprintf("manifests.yaml: %s held a URL, which the draft now reads from a Secret, so the draft does not list "+
-			"the service it names as a dependency: add that service under dependencies", strings.Join(urls, ", ")))
+		r.Next = append(r.Next, fmt.Sprintf("manifests.yaml: %s held a URL naming the service in brackets, which the draft now reads from a Secret, so the draft does not list "+
+			"that service as a dependency: add it under dependencies", strings.Join(urls, ", ")))
 	}
 	if !cl.observed {
 		r.Unknown = append(r.Unknown, "dependencies seen at runtime: the cluster holds no node runtime observations, so no calls were seen")
@@ -436,21 +434,26 @@ func selects(sel, labels map[string]string) bool {
 // manifests is the workload and the Services that select its pods, as
 // manifests a folder holds: no namespace, status or server-set fields. A
 // sensitive literal in the workload's environment reads from the Secret
-// <name>-env instead; it returns that Secret's keys and the names of the
-// rewritten variables whose value was a URL. w is never changed.
+// <name>-env instead; it returns that Secret's keys and the rewritten
+// variables whose URL named a dependency (secretEnv). w is never changed.
 func (cl *cluster) manifests(w unstructured.Unstructured) (string, []string, []string) {
 	c := w.DeepCopy()
-	keys, urls := secretEnv(c, w.GetName()+"-env")
 	labels, _, _ := unstructured.NestedStringMap(c.Object, "spec", "template", "metadata", "labels")
 	if c.GetKind() == "CronJob" {
 		labels, _, _ = unstructured.NestedStringMap(c.Object, "spec", "jobTemplate", "spec", "template", "metadata", "labels")
 	}
-	docs := []string{plain(*c)}
+	var services []unstructured.Unstructured
+	objects := map[string]bool{w.GetName(): true}
 	for _, s := range cl.services {
 		sel, _, _ := unstructured.NestedStringMap(s.Object, "spec", "selector")
 		if s.GetNamespace() == w.GetNamespace() && selects(sel, labels) {
-			docs = append(docs, plain(s))
+			services, objects[s.GetName()] = append(services, s), true
 		}
+	}
+	keys, urls := secretEnv(c, w.GetName()+"-env", objects)
+	docs := []string{plain(*c)}
+	for _, s := range services {
+		docs = append(docs, plain(s))
 	}
 	return strings.Join(docs, "---\n"), keys, urls
 }
@@ -459,11 +462,13 @@ func (cl *cluster) manifests(w unstructured.Unstructured) (string, []string, []s
 // whose literal value is sensitive, by name or as a URL with credentials, to
 // read the key of the same name from the Secret secret. A name set to
 // different literals in two containers reads <container>.<name>, so the two
-// never share one value. It returns the Secret's keys and the names whose
-// value was a URL, both sorted; the values are compared in memory and never
-// kept.
+// never share one value. It returns the Secret's keys and, for each rewritten
+// container variable the scan would have read a dependency from, "NAME
+// (service)", both sorted; objects are the names the draft defines, which the
+// scan never reads as a dependency. The values are compared in memory and
+// never kept.
 // ponytail: args and command literals stay as they are; 513-S2 strips them.
-func secretEnv(w *unstructured.Unstructured, secret string) ([]string, []string) {
+func secretEnv(w *unstructured.Unstructured, secret string, objects map[string]bool) ([]string, []string) {
 	pod := []string{"spec", "template", "spec"}
 	if w.GetKind() == "CronJob" {
 		pod = []string{"spec", "jobTemplate", "spec", "template", "spec"}
@@ -474,7 +479,7 @@ func secretEnv(w *unstructured.Unstructured, secret string) ([]string, []string)
 		lists[i], _, _ = unstructured.NestedSlice(w.Object, slices.Concat(pod, []string{f})...)
 	}
 	seen, split := map[string]string{}, map[string]bool{}
-	sensitiveEnv(lists, func(_ string, e map[string]any) {
+	sensitiveEnv(lists, func(_ int, _ string, e map[string]any) {
 		name, value := e["name"].(string), e["value"].(string)
 		if v, ok := seen[name]; ok && v != value {
 			split[name] = true
@@ -482,10 +487,12 @@ func secretEnv(w *unstructured.Unstructured, secret string) ([]string, []string)
 		seen[name] = value
 	})
 	keys, urls := map[string]bool{}, map[string]bool{}
-	sensitiveEnv(lists, func(container string, e map[string]any) {
+	sensitiveEnv(lists, func(list int, container string, e map[string]any) {
 		k := e["name"].(string)
-		if u, err := url.Parse(e["value"].(string)); err == nil && u.Host != "" {
-			urls[k] = true
+		// The scan reads containers only (scan.go readWorkload).
+		sc := &scan{env: []envVar{{name: k, value: e["value"].(string)}}, objects: objects}
+		if d := sc.dependencies(w.GetName()); list == 0 && len(d) > 0 {
+			urls[k+" ("+d[0].Name+")"] = true
 		}
 		if split[k] {
 			k = container + "." + k
@@ -502,10 +509,10 @@ func secretEnv(w *unstructured.Unstructured, secret string) ([]string, []string)
 	return slices.Sorted(maps.Keys(keys)), slices.Sorted(maps.Keys(urls))
 }
 
-// sensitiveEnv calls fn with each env entry, and its container's name, whose
-// literal value is non-empty and sensitive.
-func sensitiveEnv(lists [][]any, fn func(container string, e map[string]any)) {
-	for _, list := range lists {
+// sensitiveEnv calls fn with each env entry whose literal value is sensitive,
+// with the index of its list in lists and its container's name.
+func sensitiveEnv(lists [][]any, fn func(list int, container string, e map[string]any)) {
+	for i, list := range lists {
 		for _, c := range list {
 			cm, _ := c.(map[string]any)
 			name, _ := cm["name"].(string)
@@ -514,8 +521,8 @@ func sensitiveEnv(lists [][]any, fn func(container string, e map[string]any)) {
 				em, _ := e.(map[string]any)
 				key, _ := em["name"].(string)
 				value, _ := em["value"].(string)
-				if value != "" && (schemax.SensitiveKey(key) || sensitiveValue(value)) {
-					fn(name, em)
+				if sensitiveLiteral(key, value) {
+					fn(i, name, em)
 				}
 			}
 		}

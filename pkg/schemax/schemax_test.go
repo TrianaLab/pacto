@@ -230,3 +230,33 @@ func TestPropertiesMaskWriteOnly(t *testing.T) {
 		t.Errorf("Properties() = %+v, want %+v", got, want)
 	}
 }
+
+// TestSensitiveValue: a URL carries a credential when its userinfo holds a
+// non-empty password or a query parameter has a sensitive name; a password
+// url.Parse rejects, or a scheme-less user:password@host, still counts.
+func TestSensitiveValue(t *testing.T) {
+	for v, want := range map[string]bool{
+		"postgres://app:pw@db/x":                     true,
+		"redis://:pw@cache:6379":                     true,
+		"https://api/x?token=abc":                    true,
+		"postgres://app:pa%ss@db:5432/x":             true,
+		"postgres://app:p%zz@orders-db:5432/x":       true,
+		"postgres://app:p w@db/x":                    true,
+		"postgres://app:pa/ss@orders-db:5432/orders": true,
+		"postgres://app:pa#ss@db:5432/x":             true,
+		"redis://:s3cr?t@redis:6379":                 true,
+		"app:pw@db:5432/x":                           true,
+		"postgres://app@db/x":                        false,
+		"postgres://app:@db/x":                       false,
+		"http://billing:8080":                        false,
+		"localhost:8080":                             false,
+		"Note: email me@x.com":                       false,
+		"bad%zz":                                     false,
+		"info":                                       false,
+		"":                                           false,
+	} {
+		if got := SensitiveValue(v); got != want {
+			t.Errorf("SensitiveValue(%q) = %v, want %v", v, got, want)
+		}
+	}
+}

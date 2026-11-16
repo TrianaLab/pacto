@@ -454,7 +454,7 @@ func checkSecretDrafts(t *testing.T, b *Bulk, checkout, nightly *Result) {
 		!hasLine(nightly.Next, "kubectl -n shop create secret generic nightly-env --from-env-file=") {
 		t.Fatalf("next steps: %q %q", checkout.Next, nightly.Next)
 	}
-	if !hasLine(checkout.Next, "manifests.yaml: REDIS_URL held a URL") || hasLine(checkout.Next, "DB_PASSWORD held") || hasLine(nightly.Next, "held a URL") {
+	if !hasLine(checkout.Next, "manifests.yaml: REDIS_URL (cache) held a URL") || hasLine(checkout.Next, "DB_PASSWORD held") || hasLine(nightly.Next, "held a URL") {
 		t.Fatalf("URL next steps: %q %q", checkout.Next, nightly.Next)
 	}
 }
@@ -535,7 +535,46 @@ func TestClusterDraftKeptManifestsNoSecretNote(t *testing.T) {
 func TestSecretEnvNoPodSpec(t *testing.T) {
 	o := obj("apps/v1", "Deployment", "shop", "empty", map[string]any{"spec": map[string]any{}})
 	before := fmt.Sprint(o.Object)
-	if keys, urls := secretEnv(o, "empty-env"); keys != nil || urls != nil || fmt.Sprint(o.Object) != before {
+	if keys, urls := secretEnv(o, "empty-env", nil); keys != nil || urls != nil || fmt.Sprint(o.Object) != before {
 		t.Fatalf("keys %v, object %v", keys, o.Object)
+	}
+}
+
+// TestClusterDraftURLLiterals: a $(NAME) reference is no literal, so a URL
+// whose password is one stays in the draft; a malformed credential URL is
+// rewritten; only a rewritten container URL the scan reads a dependency from
+// is named as a lost dependency, never an outside host or an initContainer's.
+func TestClusterDraftURLLiterals(t *testing.T) {
+	appEnv := append(env("DATABASE_URL", "postgres://app:$(DB_PASSWORD)@db:5432/x", "ORDERS_URL", "postgres://app:pa/ss@orders-db:5432/orders",
+		"DB_DSN", "postgres://app:p%zz@ledger:5432/x", "STRIPE_URL", "https://api.stripe.com/v1?api_key=sk_live_x", "ALIAS_PASSWORD", "$(OTHER_PASSWORD)"),
+		map[string]any{"name": "DB_PASSWORD", "valueFrom": map[string]any{"secretKeyRef": map[string]any{"name": "db", "key": "password"}}})
+	checkout := obj("apps/v1", "Deployment", "shop", "checkout", map[string]any{"spec": map[string]any{"template": map[string]any{"spec": map[string]any{
+		"containers":     []any{map[string]any{"name": "app", "image": "reg.io/acme/checkout:1.4.0", "env": appEnv}},
+		"initContainers": []any{map[string]any{"name": "migrate", "image": "reg.io/acme/migrate:1.0.0", "env": env("MIGRATE_DB_URL", "postgres://u:p@db/x")}},
+	}}}})
+	b, err := Cluster(context.Background(), fakeCluster(checkout), Options{Plan: true}, ClusterOptions{Out: t.TempDir()}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := result(t, b, "checkout")
+	m := file(t, r, "manifests.yaml").Content
+	for _, want := range []*regexp.Regexp{regexp.MustCompile(`value: postgres://app:\$\(DB_PASSWORD\)@db:5432/x\n`), regexp.MustCompile(`value: \$\(OTHER_PASSWORD\)\n`),
+		secretRef("checkout-env", "ORDERS_URL"), secretRef("checkout-env", "DB_DSN"), secretRef("checkout-env", "STRIPE_URL"), secretRef("checkout-env", "MIGRATE_DB_URL")} {
+		if !want.MatchString(m) {
+			t.Fatalf("manifests.yaml lacks %q:\n%s", want, m)
+		}
+	}
+	for _, lit := range []string{"pa/ss", "p%zz", "sk_live_x", "u:p@"} {
+		if strings.Contains(m, lit) {
+			t.Fatalf("%s leaked:\n%s", lit, m)
+		}
+	}
+	// ORDERS_URL's / in the password is one the scan's host reader never got past.
+	if !hasLine(r.Next, "manifests.yaml: DB_DSN (ledger) held a URL") || hasLine(r.Next, "ORDERS_URL (") || hasLine(r.Next, "STRIPE_URL (") ||
+		hasLine(r.Next, "MIGRATE_DB_URL (") || hasLine(r.Next, "DATABASE_URL") {
+		t.Fatalf("next steps: %q", r.Next)
+	}
+	if !hasDependency(r, "db") {
+		t.Fatalf("db is not a dependency: %+v", r.Dependencies)
 	}
 }
