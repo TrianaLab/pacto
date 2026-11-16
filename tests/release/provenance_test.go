@@ -5,21 +5,34 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
 )
 
-// The release attests SLSA build provenance for every CLI binary and
-// checksums.txt with actions/attest-build-provenance, and only when its own
-// release.yml@main attestation over the transaction's source commit does not
-// verify yet. provenanceProblems is the one checker every test and bite case
+// The release attests SLSA build provenance for every CLI binary,
+// checksums.txt and the index of every image it publishes with
+// actions/attest-build-provenance, and only when its own release.yml@main
+// attestation over the transaction's source commit does not verify yet. The
+// image builds write no BuildKit provenance, so each index carries one
+// statement, signed. provenanceProblems is the one checker every test and bite case
 // below calls, so the bite cases prove the same rules the real file passes.
 
 const attestAction = "actions/attest-build-provenance@"
 
 var attestPin = regexp.MustCompile(`actions/attest-build-provenance@([0-9a-f]{40})\b`)
+
+const publishedDigest = "${{ steps.publish.outputs.digest }}"
+
+// imageSubjects maps each image merge job to the subject-name it attests.
+// dashboard-image sets no IMAGE_REPO, so its coordinate is a literal.
+var imageSubjects = map[string]string{
+	"dashboard-image": "ghcr.io/trianalab/pacto/dashboard",
+	"operator-image":  "${{ env.IMAGE_REPO }}",
+	"delivery-image":  "${{ env.IMAGE_REPO }}",
+}
 
 func releaseWorkflowBytes(t *testing.T) []byte {
 	t.Helper()
@@ -48,12 +61,109 @@ func provenanceProblems(src []byte) []string {
 		}
 	}
 	out = append(out, cliAttestProblems(job.Steps)...)
+	for name, subject := range imageSubjects {
+		out = append(out, imageAttestProblems(name, doc.Jobs[name], subject)...)
+		out = append(out, buildProvenanceProblems(name+"-build", doc.Jobs[name+"-build"])...)
+	}
 	for name, j := range doc.Jobs {
 		if j.Uses != "" {
 			out = append(out, fmt.Sprintf("%s: a reusable workflow (uses: %s) breaks the skip-safe DAG", name, j.Uses))
 		}
+		_, attests := imageSubjects[name]
+		if _, ok := j.Permissions["attestations"]; ok != (attests || name == "release") {
+			out = append(out, fmt.Sprintf("%s: attestations permission belongs only to release and the image merge jobs", name))
+		}
+		if _, ok := j.Permissions["artifact-metadata"]; ok {
+			out = append(out, name+": artifact-metadata permission is not needed (create-storage-record: false)")
+		}
 	}
 	return out
+}
+
+// imageAttestProblems checks that an image merge job records the digest the
+// adapter printed, probes for its own attestation of that index and attests it.
+func imageAttestProblems(name string, job wfJob, subject string) []string {
+	var out []string
+	for _, p := range []string{"packages", "id-token", "attestations"} {
+		if job.Permissions[p] != "write" {
+			out = append(out, fmt.Sprintf("%s: permission %s: write is missing", name, p))
+		}
+	}
+	publish, probe, attest := -1, -1, -1
+	for i, s := range job.Steps {
+		switch {
+		case s.ID == "publish":
+			publish = i
+		case s.ID == "attested":
+			probe = i
+		case strings.HasPrefix(s.Uses, attestAction):
+			attest = i
+		}
+	}
+	if publish < 0 || probe < 0 || attest < 0 {
+		return append(out, fmt.Sprintf("%s: needs a publish step, a probe and an attest step (got %d %d %d)", name, publish, probe, attest))
+	}
+	if publish > probe || probe > attest {
+		out = append(out, fmt.Sprintf("%s: order must be publish < probe < attest, got %d %d %d", name, publish, probe, attest))
+	}
+	out = append(out, publishProblems(name, job.Steps[publish])...)
+	p := job.Steps[probe]
+	out = append(out, probeProblems(name, p, `gh attestation verify "oci://`, "/tmp/digests", "attestation-manifest")...)
+	if p.Env["DIGEST"] != publishedDigest || p.Env["REPO"] != subject {
+		out = append(out, fmt.Sprintf("%s: the probe must read DIGEST %s and REPO %s", name, publishedDigest, subject))
+	}
+	out = append(out, imageAttestStepProblems(name, job.Steps[attest], subject)...)
+	if repo, _ := job.Env["IMAGE_REPO"].(string); strings.Contains(subject, "IMAGE_REPO") && !strings.HasPrefix(repo, "ghcr.io/trianalab/pacto/") {
+		out = append(out, fmt.Sprintf("%s: job env IMAGE_REPO must name a ghcr.io/trianalab/pacto/ coordinate, got %q", name, repo))
+	}
+	return out
+}
+
+func imageAttestStepProblems(name string, a wfStep, subject string) []string {
+	var out []string
+	if !attestPin.MatchString(a.Uses) {
+		out = append(out, name+": attest step is not pinned to a 40-hex commit: "+a.Uses)
+	}
+	out = append(out, gatedOnProbe(name, a)...)
+	want := map[string]string{"subject-name": subject, "subject-digest": publishedDigest, "push-to-registry": "true", "create-storage-record": "false"}
+	for k, v := range want {
+		if got := fmt.Sprint(a.With[k]); got != v {
+			out = append(out, fmt.Sprintf("%s: attest %s must be %q, got %q", name, k, v, got))
+		}
+	}
+	return out
+}
+
+// publishProblems holds the merge step to the digest the adapter recorded:
+// never a second read of the mutable tag.
+func publishProblems(name string, s wfStep) []string {
+	var out []string
+	for _, w := range []string{`printf '%s\n' "$out"`, `echo "digest=$digest" >> "$GITHUB_OUTPUT"`} {
+		if !strings.Contains(s.Run, w) {
+			out = append(out, fmt.Sprintf("%s: the publish step does not contain %q", name, w))
+		}
+	}
+	if strings.Contains(s.Run, `crane digest "$REF"`) {
+		out = append(out, name+": the publish step re-reads the tag with crane digest")
+	}
+	for _, line := range strings.Split(s.Run, "\n") {
+		if strings.Contains(line, "cosign sign --") && !strings.Contains(line, `"${REF}@${digest}"`) {
+			out = append(out, name+": cosign must sign the recorded digest ${REF}@${digest}")
+		}
+	}
+	return out
+}
+
+func buildProvenanceProblems(name string, job wfJob) []string {
+	for _, s := range job.Steps {
+		if strings.Contains(s.Run, "docker buildx build") {
+			if !strings.Contains(s.Run, "--provenance=false") {
+				return []string{name + ": docker buildx build must pass --provenance=false (the merge job attests the index)"}
+			}
+			return nil
+		}
+	}
+	return []string{name + ": no docker buildx build step"}
 }
 
 // cliAttestProblems checks the probe, the attest step and their order inside
@@ -138,6 +248,40 @@ func TestReleaseJobAttestsEveryBinaryAndTheChecksums(t *testing.T) {
 	}
 }
 
+func TestImageJobsAttestTheIndexTheyPublish(t *testing.T) {
+	jobs := workflowJobs(t, repoRoot(t), "release.yml")
+	for name, subject := range imageSubjects {
+		for _, p := range imageAttestProblems(name, jobs[name], subject) {
+			t.Error(p)
+		}
+	}
+}
+
+func TestImageBuildsWriteNoBuildKitProvenance(t *testing.T) {
+	jobs := workflowJobs(t, repoRoot(t), "release.yml")
+	for name := range imageSubjects {
+		for _, p := range buildProvenanceProblems(name+"-build", jobs[name+"-build"]) {
+			t.Error(p)
+		}
+	}
+}
+
+func TestAttestationsPermissionOnlyWhereAttested(t *testing.T) {
+	var got []string
+	for name, j := range workflowJobs(t, repoRoot(t), "release.yml") {
+		if _, ok := j.Permissions["attestations"]; ok {
+			got = append(got, name)
+		}
+		if _, ok := j.Permissions["artifact-metadata"]; ok {
+			t.Errorf("%s holds artifact-metadata; create-storage-record is off", name)
+		}
+	}
+	sort.Strings(got)
+	if want := "dashboard-image delivery-image operator-image release"; strings.Join(got, " ") != want {
+		t.Errorf("attestations permission on %v, want exactly %s", got, want)
+	}
+}
+
 func TestEveryAttestStepIsGatedOnTheProbe(t *testing.T) {
 	jobs := workflowJobs(t, repoRoot(t), "release.yml")
 	n := 0
@@ -155,8 +299,8 @@ func TestEveryAttestStepIsGatedOnTheProbe(t *testing.T) {
 			}
 		}
 	}
-	if n == 0 {
-		t.Fatal("release.yml has no attest step")
+	if n != 1+len(imageSubjects) {
+		t.Fatalf("release.yml has %d attest steps after alias expansion, want the CLI one and one per image", n)
 	}
 }
 
@@ -228,10 +372,23 @@ func TestTheProvenanceGateBites(t *testing.T) {
 	replace := func(old, new string) func(*testing.T, string) string {
 		return func(t *testing.T, rel string) string { return strings.Replace(rel, old, new, 1) }
 	}
-	cases := []struct {
+	// inJob replaces the first old after the job's header, in the text before
+	// the release job where every image job lives.
+	inJob := func(job, old, new string) func(*testing.T, string) string {
+		return func(t *testing.T, head string) string {
+			i := strings.Index(head, "\n  "+job+":\n")
+			if i < 0 {
+				t.Fatalf("no job %s", job)
+			}
+			return head[:i] + strings.Replace(head[i:], old, new, 1)
+		}
+	}
+	const shaGuard = `            test "$GITHUB_SHA" = "$SRC" || { echo "::error::provenance would name $GITHUB_SHA but the bytes were built from $SRC; refusing to sign a false build commit"; exit 1; }` + "\n"
+	type bite struct {
 		name   string
 		mutate func(*testing.T, string) string
-	}{
+	}
+	cases := []bite{
 		{"delete the attest step", func(t *testing.T, rel string) string {
 			return strings.Replace(rel, stepBlock(t, rel, attestName), "", 1)
 		}},
@@ -268,20 +425,51 @@ func TestTheProvenanceGateBites(t *testing.T) {
 			return strings.Replace(rel, blk, blk[:i]+count, 1)
 		}},
 	}
+	// headCases mutate the image jobs, which sit before the release job.
+	headCases := []bite{
+		{"drop --provenance=false from the shared build", inJob("operator-image-build", "--provenance=false \\\n", "")},
+		{"drop push-to-registry", inJob("operator-image", "          push-to-registry: true\n", "")},
+		{"drop attestations: write from dashboard-image", inJob("dashboard-image", "      attestations: write\n", "")},
+		{"add attestations: write to operator-image-build", inJob("operator-image-build", "      packages: write\n", "      packages: write\n      attestations: write\n")},
+		{"remove id: publish", inJob("dashboard-image", "        id: publish\n", "")},
+		{"swap the dashboard subject-name literal", inJob("dashboard-image", "subject-name: ghcr.io/trianalab/pacto/dashboard", "subject-name: ${{ env.IMAGE_REPO }}")},
+		{"drop IMAGE_REPO from delivery-image", inJob("delivery-image", "      IMAGE_REPO: ghcr.io/trianalab/pacto/delivery\n", "")},
+		{"delete the child-set check from the shared probe", func(t *testing.T, head string) string {
+			i := strings.Index(head, "\n  operator-image:\n")
+			return head[:i] + regexp.MustCompile(`(?m)^.*find /tmp/digests.*\n`).ReplaceAllString(head[i:], "")
+		}},
+		{"restore crane digest in the shared merge", inJob("operator-image", `"${REF}@${digest}"`, `"${REF}@$(crane digest "$REF")"`)},
+		{"delete the GITHUB_SHA guard from the dashboard probe", inJob("dashboard-image", shaGuard, "")},
+	}
 	src := string(releaseWorkflowBytes(t))
 	if p := provenanceProblems([]byte(src)); len(p) != 0 {
 		t.Fatalf("the real release.yml already fails: %v", p)
 	}
-	for _, c := range cases {
+	run := func(c bite, onHead bool) {
 		t.Run(c.name, func(t *testing.T) {
 			head, rel := releaseSection(t, src)
-			mutated := c.mutate(t, rel)
-			if mutated == rel {
+			var before, after string
+			if onHead {
+				before = head
+				head = c.mutate(t, head)
+				after = head
+			} else {
+				before = rel
+				rel = c.mutate(t, rel)
+				after = rel
+			}
+			if after == before {
 				t.Fatal("the mutation changed nothing")
 			}
-			if len(provenanceProblems([]byte(head+mutated))) == 0 {
+			if len(provenanceProblems([]byte(head+rel))) == 0 {
 				t.Error("provenanceProblems accepts the mutated workflow")
 			}
 		})
+	}
+	for _, c := range cases {
+		run(c, false)
+	}
+	for _, c := range headCases {
+		run(c, true)
 	}
 }

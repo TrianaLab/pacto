@@ -316,6 +316,8 @@ jobs:
           VER: ${{ needs.detect.outputs.core_version }}
           SRC: ${{ needs.detect.outputs.source_sha }}
         run: |
+          # One provenance per image: the merge job attests the index, signed; BuildKit's
+          # unsigned per-child statement would be a second, unverifiable one.
           docker buildx build --platform ${{ matrix.platform }} \
             --build-arg "VERSION=v$VER" --build-arg "GIT_COMMIT=$SRC" \
             --label org.opencontainers.image.title=pacto-dashboard \
@@ -323,6 +325,7 @@ jobs:
             --label "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
             --label "org.opencontainers.image.revision=$SRC" \
             ${{ steps.cache.outputs.flags }} \
+            --provenance=false \
             --output type=image,name=ghcr.io/trianalab/pacto/dashboard,push-by-digest=true,push=true \
             --metadata-file /tmp/meta.json .
           mkdir -p /tmp/digests
@@ -342,7 +345,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       packages: write
+      # id-token and attestations sign and store the SLSA build provenance of the index.
       id-token: write
+      attestations: write
     env:
       PACTO_LEDGER_REPO: ghcr.io/trianalab/pacto-release-ledger
       PACTO_RELEASE_TXN: ${{ needs.detect.outputs.transaction_id }}
@@ -370,6 +375,7 @@ jobs:
           merge-multiple: true
           path: /tmp/digests
       - name: Merge the per-arch children + sign (shared adapter)
+        id: publish
         env:
           REF: ghcr.io/trianalab/pacto/dashboard:${{ needs.detect.outputs.core_version }}
           VER: ${{ needs.detect.outputs.core_version }}
@@ -392,9 +398,48 @@ jobs:
               --annotation "index:org.opencontainers.image.revision=$SRC" \
               -t "$REF"$refs)"
           echo "$out"
+          # Sign and attest the digest the adapter recorded, never a second read of the tag.
+          digest="$(printf '%s\n' "$out" | sed -n 's/.*(\(sha256:[0-9a-f]\{64\}\))$/\1/p' | tail -n1)"
+          [ -n "$digest" ] || { echo "::error::the adapter printed no recorded digest"; exit 1; }
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
           case "$out" in
-            *"published + recorded"*|*"adopt"*) cosign sign --yes "${REF}@$(crane digest "$REF")" ;;
+            *"published + recorded"*|*"adopt"*) cosign sign --yes "${REF}@${digest}" ;;
           esac
+      # Attest unless this release's own provenance of the index already verifies.
+      # Only a release.yml@main signature over this source commit counts.
+      - name: Check for a verified provenance attestation
+        id: attested
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SRC: ${{ needs.detect.outputs.source_sha }}
+          DIGEST: ${{ steps.publish.outputs.digest }}
+          REPO: ghcr.io/trianalab/pacto/dashboard
+        run: |
+          need=false
+          gh attestation verify "oci://$REPO@$DIGEST" --repo "$GITHUB_REPOSITORY" \
+            --cert-identity "https://github.com/$GITHUB_REPOSITORY/.github/workflows/release.yml@refs/heads/main" \
+            --source-digest "$SRC" --predicate-type https://slsa.dev/provenance/v1 \
+            --deny-self-hosted-runners >/dev/null 2>&1 || need=true
+          if [ "$need" = true ]; then
+            test "$GITHUB_REF" = refs/heads/main || { echo "::error::provenance is signed only from refs/heads/main, not $GITHUB_REF"; exit 1; }
+            test "$GITHUB_SHA" = "$SRC" || { echo "::error::provenance would name $GITHUB_SHA but the bytes were built from $SRC; refusing to sign a false build commit"; exit 1; }
+            # Attest only the index this run assembled: its platform children must be
+            # exactly the per-arch digests the build jobs pushed (adopt trusts labels).
+            want="$(find /tmp/digests -type f -exec basename {} \; | sed 's/^/sha256:/' | sort)"
+            got="$(crane manifest "$REPO@$DIGEST" | jq -r '.manifests[] | select(.annotations["vnd.docker.reference.type"] != "attestation-manifest") | .digest' | sort)"
+            if [ -z "$got" ] || [ "$got" != "$want" ]; then
+              echo "::error::index $DIGEST is not the one this run built (children differ); refusing to attest"; exit 1
+            fi
+          fi
+          echo "need=$need" >> "$GITHUB_OUTPUT"
+      - name: Attest SLSA build provenance for the image index
+        if: steps.attested.outputs.need == 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/trianalab/pacto/dashboard
+          subject-digest: ${{ steps.publish.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false
 
   # pacto-publishes: dashboard-contract-bundle
   # The OCI-distributed pacto CONTRACT for the dashboard service. Folded into the
@@ -712,6 +757,8 @@ jobs:
         run: |
           # BUILD_ARGS is word-split on purpose: it holds whole flags with no spaces
           # inside a value (the delivery target and CMD, the operator's dashboard image).
+          # One provenance per image: the merge job attests the index, signed; BuildKit's
+          # unsigned per-child statement would be a second, unverifiable one.
           # shellcheck disable=SC2086
           docker buildx build --platform ${{ matrix.platform }} \
             --file integrations/kubernetes/Dockerfile \
@@ -723,6 +770,7 @@ jobs:
             --label "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
             --label "org.opencontainers.image.revision=$SRC" \
             ${{ steps.cache.outputs.flags }} \
+            --provenance=false \
             --output "type=image,name=$IMAGE_REPO,push-by-digest=true,push=true" \
             --metadata-file /tmp/meta.json .
           mkdir -p /tmp/digests
@@ -746,7 +794,9 @@ jobs:
     timeout-minutes: 20
     permissions:
       packages: write
+      # id-token and attestations sign and store the SLSA build provenance of the index.
       id-token: write
+      attestations: write
     env:
       PACTO_LEDGER_REPO: ghcr.io/trianalab/pacto-release-ledger
       PACTO_RELEASE_TXN: ${{ needs.detect.outputs.transaction_id }}
@@ -777,6 +827,7 @@ jobs:
           merge-multiple: true
           path: /tmp/digests
       - name: Merge the per-arch children + sign (shared adapter)
+        id: publish
         env:
           REF: ${{ env.IMAGE_REPO }}:${{ needs.detect.outputs.k8s_version }}
           VER: ${{ needs.detect.outputs.k8s_version }}
@@ -800,10 +851,49 @@ jobs:
               --annotation "index:org.opencontainers.image.revision=$SRC" \
               -t "$REF"$refs)"
           echo "$out"
+          # Sign and attest the digest the adapter recorded, never a second read of the tag.
+          digest="$(printf '%s\n' "$out" | sed -n 's/.*(\(sha256:[0-9a-f]\{64\}\))$/\1/p' | tail -n1)"
+          [ -n "$digest" ] || { echo "::error::the adapter printed no recorded digest"; exit 1; }
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
           case "$out" in
             *"published + recorded"*|*"adopt"*)
-              cosign sign --yes --new-bundle-format=false --use-signing-config=false "${REF}@$(crane digest "$REF")" ;;
+              cosign sign --yes --new-bundle-format=false --use-signing-config=false "${REF}@${digest}" ;;
           esac
+      # Attest unless this release's own provenance of the index already verifies.
+      # Only a release.yml@main signature over this source commit counts.
+      - name: Check for a verified provenance attestation
+        id: attested
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SRC: ${{ needs.detect.outputs.source_sha }}
+          DIGEST: ${{ steps.publish.outputs.digest }}
+          REPO: ${{ env.IMAGE_REPO }}
+        run: |
+          need=false
+          gh attestation verify "oci://$REPO@$DIGEST" --repo "$GITHUB_REPOSITORY" \
+            --cert-identity "https://github.com/$GITHUB_REPOSITORY/.github/workflows/release.yml@refs/heads/main" \
+            --source-digest "$SRC" --predicate-type https://slsa.dev/provenance/v1 \
+            --deny-self-hosted-runners >/dev/null 2>&1 || need=true
+          if [ "$need" = true ]; then
+            test "$GITHUB_REF" = refs/heads/main || { echo "::error::provenance is signed only from refs/heads/main, not $GITHUB_REF"; exit 1; }
+            test "$GITHUB_SHA" = "$SRC" || { echo "::error::provenance would name $GITHUB_SHA but the bytes were built from $SRC; refusing to sign a false build commit"; exit 1; }
+            # Attest only the index this run assembled: its platform children must be
+            # exactly the per-arch digests the build jobs pushed (adopt trusts labels).
+            want="$(find /tmp/digests -type f -exec basename {} \; | sed 's/^/sha256:/' | sort)"
+            got="$(crane manifest "$REPO@$DIGEST" | jq -r '.manifests[] | select(.annotations["vnd.docker.reference.type"] != "attestation-manifest") | .digest' | sort)"
+            if [ -z "$got" ] || [ "$got" != "$want" ]; then
+              echo "::error::index $DIGEST is not the one this run built (children differ); refusing to attest"; exit 1
+            fi
+          fi
+          echo "need=$need" >> "$GITHUB_OUTPUT"
+      - name: Attest SLSA build provenance for the image index
+        if: steps.attested.outputs.need == 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE_REPO }}
+          subject-digest: ${{ steps.publish.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false
 
   # Per-arch NATIVE build of the opt-in delivery promoter image: the operator-image-build
   # steps, with the delivery target, CMD and coordinate in env.
@@ -830,7 +920,9 @@ jobs:
     timeout-minutes: 20
     permissions:
       packages: write
+      # id-token and attestations sign and store the SLSA build provenance of the index.
       id-token: write
+      attestations: write
     env:
       PACTO_LEDGER_REPO: ghcr.io/trianalab/pacto-release-ledger
       PACTO_RELEASE_TXN: ${{ needs.detect.outputs.transaction_id }}
