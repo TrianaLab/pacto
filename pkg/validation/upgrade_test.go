@@ -88,6 +88,7 @@ func TestUpgradeFindingsRule(t *testing.T) {
 		"skip":             {[]Stage{pass, {Name: "environments", Status: StageSkip, Reason: "could not verify: prod/db"}}, ErrUnverified},
 		"error":            {[]Stage{pass, {Name: "policy", Status: StageFail, Errors: []contract.ValidationError{{Code: "E"}}}}, ErrUnverified},
 		"skipped by error": {append([]Stage{pass}, SkippedStages("structural failed", "cross-field")...), ErrUnverified},
+		"run's own stages": {[]Stage{pass, {Name: "readiness", Status: StageSkip, Reason: "not requested (--readiness)"}}, nil},
 	} {
 		e, ws, err := UpgradeFindings(tc.stages)
 		if !errors.Is(err, tc.err) || len(ws) != 1 || len(e) != len(Merged(tc.stages).Errors) {

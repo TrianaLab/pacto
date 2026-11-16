@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"slices"
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -21,18 +22,22 @@ const (
 // it already fails or a stage could not verify what it checks.
 var ErrUnverified = errors.New("fix the errors above before Pacto can tell whether raising pactoVersion keeps its meaning")
 
+// meaningStages are the stages runLayers can skip. Every rule that depends on
+// pactoVersion lives in them; a run such as `pacto validate` adds stages of
+// its own (lock, readiness) that hold none.
+var meaningStages = []string{"cross-field", "policy", "configuration-refs", "environments"}
+
 // UpgradeFindings is a validation run's errors and warnings as a
 // [contract.UpgradeCheck] returns them. The run cannot tell what a contract
-// means, and the error is [ErrUnverified], when it has any error or any stage
-// skipped for a reason other than having nothing to check: every rule that
-// depends on pactoVersion lives in the stages a failure skips.
+// means, and the error is [ErrUnverified], when it has any error or a meaning
+// stage skipped for a reason other than having nothing to check.
 func UpgradeFindings(stages []Stage) ([]contract.ValidationError, []contract.ValidationWarning, error) {
 	r := Merged(stages)
 	if !r.IsValid() {
 		return r.Errors, r.Warnings, ErrUnverified
 	}
 	for _, st := range stages {
-		if st.Status == StageSkip && st.Reason != skipNoConfigRefs && st.Reason != skipNoEnvironments {
+		if st.Status == StageSkip && slices.Contains(meaningStages, st.Name) && st.Reason != skipNoConfigRefs && st.Reason != skipNoEnvironments {
 			return r.Errors, r.Warnings, ErrUnverified
 		}
 	}
