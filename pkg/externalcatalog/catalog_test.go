@@ -245,3 +245,34 @@ func TestDeclaredIdentity(t *testing.T) {
 		t.Errorf("an identity that does not parse falls back to the name: %q, %q", id, match)
 	}
 }
+
+func TestDeclaredIdentityNormalizedAlias(t *testing.T) {
+	c := Merge(mustParse(t, head+"  - identity: stripe\n    class: vendor-api\n    aliases: [stripe, stripe-api]\n"), DefaultRef(), nil, nil)
+	if id, match, err := DeclaredIdentity(c, "", "Stripe API"); err != nil || id != "stripe" || match != MatchCatalogAlias {
+		t.Fatalf("a name that normalizes to an alias joins its entry: %q, %q, %v", id, match, err)
+	}
+}
+
+func TestAliasWithSpacesStillTakenByOrganization(t *testing.T) {
+	org := mustParse(t, head+"  - identity: acme-payments\n    class: vendor-api\n    aliases: [\" stripe\"]\n")
+	c := Merge(mustParse(t, mergeDef), DefaultRef(), org, &Ref{Origin: OriginOrganization})
+	if e, _, ok := c.ResolveDeclared("stripe"); !ok || e.Identity != "acme-payments" {
+		t.Fatalf("the organization alias \" stripe\" must win over the default \"stripe\": %+v", e)
+	}
+	got := validateErr(t, head+"  - identity: a\n    class: vendor-api\n    aliases: [stripe]\n  - identity: b\n    class: vendor-api\n    aliases: [\" stripe\"]\n")
+	wantContains(t, got, "entries[1].aliases")
+}
+
+func TestEntryManagedResourceTakesProviderServiceEntry(t *testing.T) {
+	c := Merge(mustParse(t, head+"  - identity: aws/rds\n    class: managed-cloud\n    label: Amazon RDS\n  - identity: corp/mq\n    class: legacy\n"), DefaultRef(), nil, nil)
+	e, _, ok := c.Entry("aws/rds/123456789012/eu-west-1/orders-db")
+	if !ok || e.Identity != "aws/rds" || e.Label != "Amazon RDS" {
+		t.Fatalf("a managed resource takes aws/rds: %+v, %v", e, ok)
+	}
+	if _, _, ok := c.Entry("corp/mq/a/b/c"); ok {
+		t.Fatal("only a managed-cloud entry classifies a managed resource")
+	}
+	if _, _, ok := c.Entry("aws/rds/x"); ok {
+		t.Fatal("only a five-segment identity is a managed resource")
+	}
+}

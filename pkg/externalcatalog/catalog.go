@@ -74,8 +74,10 @@ type Ref struct {
 	Origin     string `json:"origin"`
 	Repository string `json:"repository,omitempty"`
 	Digest     string `json:"digest"`
-	// Copy is "registry" when the bytes were read from the registry and
-	// "embedded" when they are the copy compiled into this binary.
+	// Copy is "registry" when the bytes in use are the registry artifact at
+	// the recorded digest: pulled (an organization catalog) or the embedded
+	// copy matched against the signed artifact (a verified default). It is
+	// "embedded" when the compiled-in copy is used unchecked.
 	Copy string `json:"copy"`
 	// Signature is verified, unverified, unsigned or unknown.
 	Signature string `json:"signature"`
@@ -123,7 +125,7 @@ var (
 type claims map[string]int
 
 func (c claims) claim(errs *[]error, field, value string, i int) {
-	key := strings.ToLower(value)
+	key := foldKey(value)
 	if j, ok := c[key]; ok {
 		*errs = append(*errs, fmt.Errorf("entries[%d].%s: %q is already claimed by entries[%d]", i, field, value, j))
 		return
@@ -226,29 +228,42 @@ func Merge(def *File, defRef Ref, org *File, orgRef *Ref) *Catalog {
 func (c *Catalog) add(e Entry, ref int) {
 	c.entries[e.Identity] = sourced{entry: e, ref: ref}
 	for _, a := range e.Aliases {
-		c.aliases[strings.ToLower(strings.TrimSpace(a))] = e.Identity
+		c.aliases[foldKey(a)] = e.Identity
 	}
 }
 
+// foldKey is how an alias, host or key pattern is compared everywhere:
+// without case or surrounding spaces, so a claim, its index and a lookup
+// always agree.
+func foldKey(v string) string { return strings.ToLower(strings.TrimSpace(v)) }
+
 func mark(set map[string]bool, values []string) {
 	for _, v := range values {
-		set[strings.ToLower(v)] = true
+		set[foldKey(v)] = true
 	}
 }
 
 func without(values []string, taken map[string]bool) []string {
-	return slices.DeleteFunc(slices.Clone(values), func(v string) bool { return taken[strings.ToLower(v)] })
+	return slices.DeleteFunc(slices.Clone(values), func(v string) bool { return taken[foldKey(v)] })
 }
 
 // Refs returns a copy of the catalogs this catalog was built from, the default
 // first.
 func (c *Catalog) Refs() []Ref { return slices.Clone(c.refs) }
 
-// Entry returns the entry for id and the catalog that supplied it.
+// Entry returns the entry for id and the catalog that supplied it. A managed
+// resource ("aws/rds/123456789012/eu-west-1/orders-db") with no entry of its
+// own takes the managed-cloud entry of its provider and service ("aws/rds").
 func (c *Catalog) Entry(id externalid.ID) (Entry, Ref, bool) {
 	s, ok := c.entries[id]
 	if !ok {
-		return Entry{}, Ref{}, false
+		segs := id.Segments()
+		if len(segs) != 5 {
+			return Entry{}, Ref{}, false
+		}
+		if s, ok = c.entries[externalid.ID(segs[0]+"/"+segs[1])]; !ok || s.entry.Class != ClassManagedCloud {
+			return Entry{}, Ref{}, false
+		}
 	}
 	return s.entry, c.refs[s.ref], true
 }
@@ -260,7 +275,7 @@ func (c *Catalog) Len() int { return len(c.entries) }
 // case and surrounding spaces, and the catalog that supplied it. An
 // organization alias wins over a default one (see [Merge]).
 func (c *Catalog) ResolveDeclared(name string) (Entry, Ref, bool) {
-	id, ok := c.aliases[strings.ToLower(strings.TrimSpace(name))]
+	id, ok := c.aliases[foldKey(name)]
 	if !ok {
 		return Entry{}, Ref{}, false
 	}
@@ -279,7 +294,8 @@ const (
 
 // DeclaredIdentity names the external system a declared dependency with no
 // contract reference calls: the identity it declares when that parses, else
-// the catalog entry one of whose aliases is the name, else the registrable
+// the catalog entry one of whose aliases is the name or its normalized form
+// ("Stripe API" is the alias "stripe-api"), else the registrable
 // domain when the name is a host name, else the normalized name. It returns
 // how it matched, and the [externalid.Name] error when the name cannot be
 // normalized (empty, too long or reserved). Validation refuses an identity
@@ -292,10 +308,15 @@ func DeclaredIdentity(c *Catalog, identity, name string) (externalid.ID, string,
 	if e, _, ok := c.ResolveDeclared(name); ok {
 		return e.Identity, MatchCatalogAlias, nil
 	}
-	if id, ok := externalid.Host(name); ok {
-		return id, MatchHost, nil
-	}
 	id, err := externalid.Name(name)
+	if err == nil {
+		if e, _, ok := c.ResolveDeclared(string(id)); ok {
+			return e.Identity, MatchCatalogAlias, nil
+		}
+	}
+	if hid, ok := externalid.Host(name); ok {
+		return hid, MatchHost, nil
+	}
 	if err != nil {
 		return "", "", err
 	}

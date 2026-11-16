@@ -127,3 +127,16 @@ func TestHostRejectsIP(t *testing.T) {
 		}
 	}
 }
+
+func TestNameDropsPort(t *testing.T) {
+	a, _ := Name("legacy-db.corp.internal:5432")
+	b, _ := Name("legacy-db.corp.internal")
+	if a != b {
+		t.Fatalf("one host with and without a port: %q, %q", a, b)
+	}
+	x, _ := Name("10.0.0.5:5672")
+	y, _ := Name("10.0.0.55:672")
+	if x == y {
+		t.Fatalf("two IP:port names collapsed into %q", x)
+	}
+}

@@ -78,17 +78,26 @@ var nameDrop = regexp.MustCompile(`[^a-z0-9._-]+`)
 // consumers that spell the same name differently ("legacy-mq", "Legacy_MQ")
 // join on one node. It lower-cases, turns spaces, underscores and slashes into
 // '-', drops every other character outside the segment alphabet, trims
-// separators at either end and then applies [Parse]. A name that normalizes to
+// separators at either end and then applies [Parse]. A numeric ":port" is
+// dropped first, as [Host] does, so "legacy-db.corp.internal:5432" is
+// "legacy-db.corp.internal". A name that normalizes to
 // nothing, to a segment [Parse] refuses (longer than 63 bytes, for example) or
 // to [Reserved] is an error.
 func Name(s string) (ID, error) {
-	n := strings.NewReplacer(" ", "-", "_", "-", "/", "-").Replace(strings.ToLower(strings.TrimSpace(s)))
+	n := strings.ToLower(strings.TrimSpace(s))
+	if host, port, err := net.SplitHostPort(n); err == nil && portRE.MatchString(port) {
+		n = host
+	}
+	n = strings.NewReplacer(" ", "-", "_", "-", "/", "-").Replace(n)
 	n = strings.Trim(nameDrop.ReplaceAllString(n, ""), "-._")
 	if n == "" {
 		return "", fmt.Errorf("external name %q: nothing is left after normalizing it", s)
 	}
 	return Parse(n)
 }
+
+// portRE is a numeric port.
+var portRE = regexp.MustCompile(`^[0-9]+$`)
 
 // dnsNameRE is a lower-case DNS name of at least two labels.
 var dnsNameRE = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)

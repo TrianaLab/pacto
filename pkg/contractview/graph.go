@@ -205,7 +205,7 @@ func externalNode(dep DependencyInfo) GraphNodeData {
 		return n
 	}
 	n.ID = externalPrefix + string(id)
-	if e, _, ok := cat.Entry(id); ok && e.Label != "" {
+	if e, _, ok := cat.Entry(id); ok && e.Identity == id && e.Label != "" {
 		n.ServiceName = e.Label
 	}
 	return n
