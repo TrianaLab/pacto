@@ -722,12 +722,19 @@ jobs:
           go-version-file: go.mod
       - name: Install crane (the byte-exact comparison IS crane)
         uses: ./.github/actions/setup-crane
+      # GHCR's login endpoint times out now and then. A failed login must not fail
+      # the job before the check runs: the check then reads anonymously, and a
+      # registry it cannot read is its exit 75 below, a warning and not a pass.
       - name: Log in to GHCR (read-only, for the published-digest lookup)
-        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          ACTOR: ${{ github.actor }}
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for try in 1 2 3; do
+            printf '%s' "$TOKEN" | timeout 60 docker login ghcr.io -u "$ACTOR" --password-stdin && exit 0
+            [ "$try" = 3 ] || sleep $((try * 10))
+          done
+          echo "::warning::could not log in to GHCR after 3 tries; the check reads the registry anonymously"
       - name: Check demo bundles against their published digests
         run: |
           # 75 is EX_TEMPFAIL: the registry could not be read, so the check proved
