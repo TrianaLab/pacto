@@ -1861,6 +1861,11 @@ rules:
     resources: [namespaces]
     resourceNames: [kube-system]
     verbs: [get]
+  # auto reads the target namespace's pacto.trianalab.io/observe label, by
+  # name, uncached; names and labels only.
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get]
   # Dashboard lifecycle management, cluster-scoped half: the ClusterRole and
   # binding that let the dashboard read Pactos across namespaces.
   - apiGroups: [rbac.authorization.k8s.io]
@@ -2142,6 +2147,8 @@ spec:
             - --health-probe-bind-address=:8081
             - --metrics-bind-address=:8443
             - --metrics-secure=true
+            - --enable-probing=auto
+            - --enable-metrics-observation=auto
             - --node-agent-namespace=pacto-node-agent
             - --enable-dashboard
             - --dashboard-cpu-request=50m

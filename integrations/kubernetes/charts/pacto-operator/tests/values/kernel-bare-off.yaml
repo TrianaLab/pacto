@@ -1,0 +1,5 @@
+controller:
+  kernelEvidence:
+    enabled: off
+nodeAgent:
+  enabled: true

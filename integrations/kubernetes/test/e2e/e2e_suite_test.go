@@ -55,6 +55,7 @@ import (
 	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/controller"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/observer"
 )
 
 var (
@@ -190,6 +191,9 @@ type reconcileOpts struct {
 	probingDisabled bool
 	// kernelNamespace, when set, turns kernel evidence on and reads NodeRuntimeObservations from it.
 	kernelNamespace string
+	// probing and metrics, when set, win over probingDisabled and metricsEnabled (auto reads the
+	// namespace's pacto.trianalab.io/observe label); left empty, the boolean mapping holds.
+	probing, metrics observer.Mode
 }
 
 // reconcile builds a real PactoReconciler (direct, strongly-consistent client; no background manager) and
@@ -210,15 +214,15 @@ func reconcile(t *testing.T, name, ns string, opts reconcileOpts) reconcileResul
 		Client: cl,
 		// The envtest client is direct (no cache), so it is also the uncached reader
 		// SetupWithManager wires to mgr.GetAPIReader() in production.
-		APIReader:                cl,
-		Scheme:                   scheme.Scheme,
-		Recorder:                 rec,
-		Loader:                   ldr,
-		StabilizationWindow:      stabWindow,
-		EnableMetricsObservation: opts.metricsEnabled,
+		APIReader:           cl,
+		Scheme:              scheme.Scheme,
+		Recorder:            rec,
+		Loader:              ldr,
+		StabilizationWindow: stabWindow,
+		MetricsObservation:  modeOr(opts.metrics, opts.metricsEnabled),
 		// Active Tier-A health probing is opt-in (M4a). Existing e2e health assertions rely on it; the
 		// passive Tier-B path is driven by opts.probingDisabled (M11).
-		EnableProbing:           !opts.probingDisabled,
+		Probing:                 modeOr(opts.probing, !opts.probingDisabled),
 		KernelEvidence:          opts.kernelNamespace != "",
 		KernelEvidenceNamespace: opts.kernelNamespace,
 	}
@@ -678,5 +682,18 @@ func requireCoverage(t *testing.T, p *pactov1alpha1.Pacto, evaluated, required i
 	}
 	if c.Evaluated != evaluated || c.Required != required {
 		t.Fatalf("evaluationCoverage = {%d,%d}, want {%d,%d}", c.Evaluated, c.Required, evaluated, required)
+	}
+}
+
+// modeOr returns m when a case set it, else the explicit on or off mode the boolean option maps to, so a
+// case that sets neither never reads a namespace label.
+func modeOr(m observer.Mode, on bool) observer.Mode {
+	switch {
+	case m != "":
+		return m
+	case on:
+		return observer.ModeOn
+	default:
+		return observer.ModeOff
 	}
 }

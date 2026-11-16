@@ -99,11 +99,19 @@ rules:
     resources: [leases]
     verbs: [get, list, watch]
   {{- end }}
-  {{- if .Values.controller.enableMetricsObservation }}
+  {{- $observe := include "pacto-operator.observeRBAC" . | fromYaml }}
+  {{- if $observe.metricsMonitors }}
   # Metrics capability discovery through Prometheus Operator monitors.
   - apiGroups: [monitoring.coreos.com]
     resources: [servicemonitors, podmonitors]
     verbs: [get, list, watch]
+  {{- end }}
+  {{- if $observe.namespaceGet }}
+  # auto reads the target namespace's pacto.trianalab.io/observe label, by
+  # name, uncached; names and labels only.
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get]
   {{- end }}
   {{- end }}
   {{- if $dashboard }}

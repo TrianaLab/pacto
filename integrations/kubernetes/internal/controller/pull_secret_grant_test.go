@@ -29,6 +29,7 @@ import (
 
 	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/observer"
 )
 
 func pullSecretPacto(name string) *pactov1alpha1.Pacto {
@@ -174,7 +175,7 @@ func TestRevisionMirrorSkipsNotGrantedPullSecret(t *testing.T) {
 func TestBuildCollectInputCarriesScoped(t *testing.T) {
 	for _, scoped := range []bool{false, true} {
 		r := &PactoReconciler{Scoped: scoped}
-		in := r.buildCollectInput(&pactov1alpha1.Pacto{}, &effectiveContract{loaded: &loader.LoadResult{}})
+		in := r.buildCollectInput(&pactov1alpha1.Pacto{}, &effectiveContract{loaded: &loader.LoadResult{}}, observer.Setting{}, observer.Setting{})
 		if in.Scoped != scoped {
 			t.Errorf("Scoped = %v, want %v", in.Scoped, scoped)
 		}

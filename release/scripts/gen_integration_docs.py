@@ -367,6 +367,13 @@ def gen_rbac(k8s: str) -> str:
         "`controller.secretGrants` names (`namespace/name`), each through a Role limited to "
         "that Secret.\n"
     )
+    out.append(
+        "The `namespaces` `get` rule limited to `kube-system` reads the cluster id. The one "
+        "with no name reads the `pacto.trianalab.io/observe` label of a target's namespace, "
+        "names and labels only, and is granted only while `controller.probing` or "
+        "`controller.metricsObservation` is `auto` (the default). With "
+        "`controller.watchNamespaces` each watched namespace's Role carries it instead.\n"
+    )
 
     out.append(f"## Always granted in the release namespace (`{mgr_key[2]}` Role)\n")
     out.append(
@@ -442,7 +449,7 @@ def gen_rbac(k8s: str) -> str:
             "creates with the privileged Pod Security level. Cluster-wide, the operator gains "
             "a node read (the orphan prune), a read and relabel of that one namespace by name, "
             "and a read of the agents' heartbeat Leases (also granted when "
-            "`controller.kernelEvidence.enabled` is on alone):\n"
+            "`controller.kernelEvidence.enabled` is `on`):\n"
         )
         out.extend(_rbac_rules_table(agent_cluster))
         out.append("")
@@ -491,7 +498,7 @@ def gen_rbac(k8s: str) -> str:
             "Needed alongside the base role when `--enable-metrics-observation` is set. It is a "
             "separate `ClusterRole` (`metrics-observation-role`), never a patch of the base role, "
             "so the base grants are untouched. The Helm chart grants the same rules itself when "
-            "`controller.enableMetricsObservation` is on; apply the two objects yourself only for "
+            "`controller.metricsObservation` is `on`; apply the two objects yourself only for "
             "an operator installed without the chart. "
             "[Opt-in features](limitations.md#opt-in-features) has the YAML and the caveats.\n"
         )
@@ -598,9 +605,9 @@ def gen_operator_configuration(repo_root: str, k8s: str) -> str:
     out.append(
         "**One dash or two makes no difference.** The table shows the single-dash spelling "
         "because that is how Go's `flag` package prints and reports flags, and other pages "
-        "write `--enable-metrics-observation`. The parser accepts both forms identically: "
-        "`--enable-metrics-observation=x` and `-enable-metrics-observation=x` produce the "
-        "same `invalid boolean value \"x\" for -enable-metrics-observation` error. Neither "
+        "write `--enable-kernel-evidence`. The parser accepts both forms identically: "
+        "`--enable-kernel-evidence=x` and `-enable-kernel-evidence=x` produce the "
+        "same `invalid boolean value \"x\" for -enable-kernel-evidence` error. Neither "
         "spelling is more correct.\n"
     )
     out.append(

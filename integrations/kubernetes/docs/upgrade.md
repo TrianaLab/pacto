@@ -16,11 +16,31 @@ The currently published chart:
 !!! warning "An upgrade reverts hand-patched controller flags"
     `helm upgrade` rebuilds the Deployment's `args` from the chart, so a flag
     you patched in by hand disappears without an error. Set opt-in features
-    through chart values such as `controller.enableProbing`,
-    `controller.enableMetricsObservation` and `nodeAgent.enabled`, which
-    survive an upgrade. A flag with no chart value, such as name-match
-    discovery, has to be patched again after every upgrade; see
+    through chart values such as `controller.probing`,
+    `controller.metricsObservation`, `controller.interfaceNameMatchDiscovery`
+    and `nodeAgent.enabled`, which survive an upgrade. Each operator flag
+    has a chart value or a documented reason to stay off the chart; see
     [Limitations: opt-in features](limitations.md#opt-in-features).
+
+## Deprecated observation keys
+
+`controller.enableProbing` and `controller.enableMetricsObservation` still
+work. Their replacements, `controller.probing` and
+`controller.metricsObservation`, default to `auto`, which turns each feature on
+only in namespaces labelled `pacto.trianalab.io/observe`.
+
+An upgrade that keeps the previous release's values renders the arguments it
+rendered before. Set the new key, or reset the values, to move to `auto`. The
+new key wins, and an explicit `auto` overrides a deprecated `true`:
+
+```yaml
+controller:
+  enableProbing: true   # deprecated, ignored once probing is set
+  probing: auto
+```
+
+`controller.kernelEvidence.enabled: false` still follows `nodeAgent.enabled`;
+the quoted `"off"` refuses kernel evidence while the node agent runs.
 
 ## Hand older CRDs to Helm
 

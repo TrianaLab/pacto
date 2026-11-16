@@ -656,7 +656,7 @@ fields:
     platforms:
       kubernetes:
         evidence: partial
-        reason: 'protocol probe on the Service port with controller.enableProbing; tls and asyncapi stay unverified'
+        reason: 'protocol probe on the Service port with controller.probing (or the namespace label pacto.trianalab.io/observe=probing); tls and asyncapi stay unverified'
       agent:
         evidence: partial
         reason: 'protocol probe on the bound port with --enable-probing; tls and asyncapi stay unverified'

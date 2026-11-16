@@ -105,18 +105,31 @@ for crd in $(kubectl get crd -o name | grep pacto.trianalab.io); do
 done
 ```
 
-Three checks are off by default because they cost something:
+Probing and metrics observation default to `auto`; a namespace owner turns
+them on with a label:
 
-- `controller.enableProbing` lets the operator send requests to your Services
-  to check health and protocol.
-- `controller.enableMetricsObservation` checks the metrics capability.
-- `nodeAgent.enabled` runs a small agent on every node that watches which ports
-  your pods really listen on and which services they really connect to. It has
-  requirements of its own, listed in
+```bash
+kubectl label ns payments pacto.trianalab.io/observe=probing
+```
+
+- The label value is `probing`, `metrics` or `probing.metrics`; unlabelled
+  namespaces stay passive. The label also works with
+  `controller.watchNamespaces`.
+- The operator reads the label at each Pacto's next check
+  (`spec.checkIntervalSeconds`, default 5 minutes); see
+  [Troubleshooting](troubleshooting.md#metrics-or-health-always-unknown) to apply it sooner.
+- `controller.probing` sends requests to your Services to check health and
+  protocol; `on` probes every namespace. An explicit `auto` overrides the
+  [deprecated keys](upgrade.md#deprecated-observation-keys).
+- `controller.metricsObservation` checks the metrics capability;
+  ServiceMonitor discovery needs `on`.
+- `nodeAgent.enabled` runs an agent on every node that sees which ports your
+  pods listen on and which services they call; see
   [Runtime conformance](runtime-conformance.md).
+- `controller.interfaceNameMatchDiscovery` binds an interface to the Service
+  port of the same name.
 
 [Opt-in features](limitations.md#opt-in-features) explains each one.
-Name-match discovery has no chart value.
 
 !!! warning "Keep the dashboard private unless sign-in protects it"
 
@@ -332,7 +345,7 @@ binding and the interface and its health capability resolve:
 ```
 
 Two findings remain: the `metrics` capability needs
-`controller.enableMetricsObservation` (see
+`controller.metricsObservation` or the namespace label (see
 [Opt-in features](limitations.md#opt-in-features)), and the `default` configuration needs a
 `configBindings` entry naming the ConfigMap or Secret behind it. See
 [Contract bindings](contract-bindings.md) for both, and [Runtime

@@ -115,9 +115,11 @@ takes from each.
 
 ## Known limitations
 
-- A default Helm install observes health passively and reports declared
-  metrics `Unsupported`. Set `controller.enableProbing` and
-  `controller.enableMetricsObservation` to check them; see
+- A default Helm install probes health and observes metrics only in
+  namespaces labelled `pacto.trianalab.io/observe`; elsewhere it observes
+  health passively and reports declared metrics `Unsupported`. Set
+  `controller.probing` and `controller.metricsObservation` to `on` to check
+  them in every namespace; see
   [opt-in features](https://pacto.run/latest/integrations/kubernetes/limitations/#opt-in-features).
 - The opt-in node agent needs Linux 5.11 or later with BTF on every node; see
   [requirements](https://pacto.run/latest/runtime-conformance/#requirements).

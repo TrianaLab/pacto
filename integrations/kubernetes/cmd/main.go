@@ -41,6 +41,7 @@ import (
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/evidence"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/nodeagent"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/observer"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/scope"
 	"github.com/trianalab/pacto/v4/pkg/kubecluster"
 	// +kubebuilder:scaffold:imports
@@ -103,8 +104,8 @@ type options struct {
 	evidenceResources         component.Resources
 
 	stabilizationWindow               time.Duration
-	enableMetricsObservation          bool
-	enableProbing                     bool
+	metricsObservation                observer.Mode
+	probing                           observer.Mode
 	enableInterfaceNameMatchDiscovery bool
 	enableKernelEvidence              bool
 	kernelEvidenceNamespace           string
@@ -245,11 +246,15 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 	fs.DurationVar(&o.stabilizationWindow, "stabilization-window", 2*time.Minute,
 		"The stabilization window duration for compliance assertions before they trigger a false condition. "+
 			"Assertions must remain unsatisfied for this entire window before being considered a failure.")
-	fs.BoolVar(&o.enableMetricsObservation, "enable-metrics-observation", false,
-		"Enable full metrics observation (discovery + active probe). When disabled, metrics dimension returns Unsupported.")
-	fs.BoolVar(&o.enableProbing, "enable-probing", false,
-		"Enable active in-cluster probing: health capability endpoints over HTTP (Tier A) and the wire protocol "+
-			"of each present interface. Off by default; when off, health uses passive readiness-probe and "+
+	fs.Var(&o.metricsObservation, "enable-metrics-observation",
+		"Metrics observation (discovery and active probe), written `=mode`: on, off or auto. auto observes metrics only in "+
+			"namespaces labelled pacto.trianalab.io/observe with metrics. The bare flag means on. Off by default; "+
+			"when off, metrics read Unsupported.")
+	fs.Var(&o.probing, "enable-probing",
+		"Active in-cluster probing (health endpoints over HTTP and each present interface's wire protocol), "+
+			"written `=mode`: "+
+			"on, off or auto. auto probes only in namespaces labelled pacto.trianalab.io/observe with probing. "+
+			"The bare flag means on. Off by default; when off, health uses passive readiness-probe and "+
 			"EndpointSlice signals only and interface protocols read unverified.")
 	fs.BoolVar(&o.enableInterfaceNameMatchDiscovery, "interface-name-match-discovery", false,
 		"Enable resolving an unbound interface's Service port by matching a Service port whose name equals "+
@@ -308,12 +313,27 @@ func bindResourceFlags(fs *flag.FlagSet, rc *component.Resources, prefix, contai
 	}
 }
 
+// noStrayArgs refuses positional arguments. Boolean-style flags never take the next argument as their
+// value, so `--enable-probing off` reads as on and parsing stops at "off", silently dropping every later
+// flag.
+func noStrayArgs(fs *flag.FlagSet) error {
+	if fs.NArg() > 0 {
+		return fmt.Errorf("unexpected argument %q: write a flag value after an equals sign, as in "+
+			"--enable-probing=off", fs.Arg(0))
+	}
+	return nil
+}
+
 func main() {
 	// Production logging by default: JSON, info level, no stack traces on warnings. --zap-devel turns on the
 	// development encoder.
 	o := options{zap: zap.Options{Development: false}}
 	bindFlags(flag.CommandLine, &o)
 	flag.Parse()
+	if err := noStrayArgs(flag.CommandLine); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
 
 	if o.showVersion {
 		fmt.Printf("pacto-operator %s (commit: %s, built: %s)\n", version, gitCommit, buildDate)
@@ -357,8 +377,8 @@ func main() {
 		Recorder:                          mgr.GetEventRecorderFor("pacto-controller"),
 		Loader:                            loader.New(),
 		StabilizationWindow:               o.stabilizationWindow,
-		EnableMetricsObservation:          o.enableMetricsObservation,
-		EnableProbing:                     o.enableProbing,
+		MetricsObservation:                o.metricsObservation,
+		Probing:                           o.probing,
 		EnableInterfaceNameMatchDiscovery: o.enableInterfaceNameMatchDiscovery,
 		KernelEvidence:                    o.enableKernelEvidence,
 		KernelEvidenceNamespace:           o.kernelEvidenceNamespace,

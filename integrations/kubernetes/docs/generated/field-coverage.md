@@ -607,7 +607,7 @@ A runtime check never turns "could not look" into a violation. A check with no u
 
 | Platform | Evidence | Why | Tests |
 | --- | --- | --- | --- |
-| Kubernetes (the operator with its node agent) | `partial` | protocol probe on the Service port with controller.enableProbing; tls and asyncapi stay unverified | the e2e scenarios above |
+| Kubernetes (the operator with its node agent) | `partial` | protocol probe on the Service port with controller.probing (or the namespace label pacto.trianalab.io/observe=probing); tls and asyncapi stay unverified | the e2e scenarios above |
 | `pacto agent` (a Docker host or a server) | `partial` | protocol probe on the bound port with --enable-probing; tls and asyncapi stay unverified | `internal/runtimewatch/evalsink/sink_test.go:TestEvaluate_Compliant` |
 | `pacto run` (one wrapped command) | `partial` | protocol probe on --host at the bound port with --enable-probing; tls and asyncapi stay unverified | `internal/runtimewatch/evalsink/sink_test.go:TestEvaluate_Compliant` |
 

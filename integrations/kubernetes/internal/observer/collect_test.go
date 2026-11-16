@@ -678,7 +678,8 @@ func TestCollect_MetricsSatisfied(t *testing.T) {
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-service", Namespace: "default"},
 		Spec: corev1.ServiceSpec{
-			Ports: []corev1.ServicePort{{Name: "http", Port: 8080}},
+			Selector: map[string]string{"app": "test"},
+			Ports:    []corev1.ServicePort{{Name: "http", Port: 8080}},
 		},
 	}
 

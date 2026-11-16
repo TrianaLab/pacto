@@ -143,14 +143,14 @@ The evaluator compares only what the contract declares and the operator can obse
 
 Health and metrics are contract **capabilities**, evaluated like any other assertion: a declared-but-absent health or metrics capability is `CAPABILITY_ABSENT` (`error`, so `NonCompliant`) or `unknown` when it cannot be observed — never a bare `Warning`. There is no separate `status.endpoints` field and no `HealthEndpointValid`/`MetricsEndpointValid` condition; the only status conditions are `ContractValid`, `RuntimeObserved` and `ReadinessSatisfied`.
 
-By default the operator observes health passively (readiness-probe and EndpointSlice signals) and sends no traffic. Active probing and full metrics observation are opt-in:
+With no flag the operator observes health passively (readiness-probe and EndpointSlice signals) and sends no traffic. Active probing and full metrics observation take `on`, `off` or `auto`; the chart renders `auto`, which turns each one on only in namespaces labelled `pacto.trianalab.io/observe` (`probing`, `metrics` or `probing.metrics`):
 
 | Flag | Default | Effect |
 |------|---------|--------|
-| `--enable-probing` | off | Active in-cluster HTTP probing of health capability endpoints (Tier A) and of each present interface's wire protocol. When off, health uses passive readiness-probe and EndpointSlice signals only and interface protocols stay unverified. Chart value `controller.enableProbing`. |
-| `--enable-metrics-observation` | off | Full metrics observation (discovery + active probe). When off, the metrics dimension returns Unsupported. Chart value `controller.enableMetricsObservation`. |
-| `--enable-kernel-evidence` | off | Merge the node agent's kernel observations into interface and dependency evidence. The chart turns it on with `nodeAgent.enabled`. |
-| `--interface-name-match-discovery` | off | Resolve an unbound interface's Service port by matching a Service port whose name equals the interface name (positive availability assist only; never yields an absent or error result). |
+| `--enable-probing` | off | `on`, `off` or `auto`. Active in-cluster HTTP probing of health capability endpoints (Tier A) and of each present interface's wire protocol. When off, health uses passive readiness-probe and EndpointSlice signals only and interface protocols stay unverified. Chart value `controller.probing` (default `auto`). |
+| `--enable-metrics-observation` | off | `on`, `off` or `auto`. Full metrics observation (discovery + active probe). When off, the metrics dimension returns Unsupported. ServiceMonitor discovery needs read access to monitoring.coreos.com monitors, which the chart grants only under `on`. Chart value `controller.metricsObservation` (default `auto`). |
+| `--enable-kernel-evidence` | off | Merge the node agent's kernel observations into interface and dependency evidence. Chart value `controller.kernelEvidence.enabled` (`auto`, `on` or `"off"`); `auto` follows `nodeAgent.enabled`. |
+| `--interface-name-match-discovery` | off | Resolve an unbound interface's Service port by matching a Service port whose name equals the interface name (positive availability assist only; never yields an absent or error result). Chart value `controller.interfaceNameMatchDiscovery`. |
 
 > **Note:** `ContractStatus` reflects contract validation/compliance, not runtime health.
 
