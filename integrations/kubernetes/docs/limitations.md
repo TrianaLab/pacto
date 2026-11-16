@@ -270,7 +270,8 @@ namespace, in each of `controller.watchNamespaces` and wherever
 configuration reads `OBSERVATION_UNSUPPORTED`, which makes the contract
 `Unknown`, and the finding names the grant to add. A cluster-wide install is
 told to list the Secret in `controller.secretGrants`. A namespace-list install
-is also told it can add the namespace to `controller.watchNamespaces`.
+reads Secrets in every listed namespace, so it is told to check the chart's
+watch Role and RoleBinding in that namespace.
 
 A refused read never fails the collection: `RuntimeObserved` stays `True`, and
 the time the operator could not read the Secret never counts toward a later

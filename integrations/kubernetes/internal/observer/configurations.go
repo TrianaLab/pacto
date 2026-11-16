@@ -113,7 +113,9 @@ func forbiddenSecret(input CollectInput, cfg contract.Configuration, name string
 	ref := input.Namespace + "/" + name
 	detail := fmt.Sprintf("the operator may not read Secret %s; list %s in controller.secretGrants", ref, ref)
 	if input.Scoped {
-		detail = fmt.Sprintf("the operator may not read Secrets in namespace %s; add it to controller.watchNamespaces or list %s in controller.secretGrants", input.Namespace, ref)
+		// A scoped operator only reconciles watched namespaces, where the chart grants secrets get,
+		// so the grant that is missing is that Role or its binding, never the namespace.
+		detail = fmt.Sprintf("the operator may not read Secret %s although it watches %s; check the chart's watch Role and RoleBinding in %s or list %s in controller.secretGrants", ref, input.Namespace, input.Namespace, ref)
 	}
 	obs, err := evidence.NewUnobservedDetail(evidence.ConfigurationPresent, subj, evidence.Unsupported, prov, detail)
 	if err != nil {

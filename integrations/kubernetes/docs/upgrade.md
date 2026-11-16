@@ -189,9 +189,9 @@ kubectl get pactos -A \
 
 - A cluster-wide install lists each one as `namespace/name` in
   `controller.secretGrants`.
-- A namespace-list install can instead add the namespace to
-  `controller.watchNamespaces`. Adding a first namespace scopes the whole
-  operator and fleet to the list.
+- A namespace-list install already reads pull secrets in each listed
+  namespace. There the message points at the chart's watch Role and
+  RoleBinding in that namespace, which were removed or changed.
 
 The operator no longer watches Secrets. It reads a rotated pull secret on the
 next check, within one check interval.

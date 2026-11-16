@@ -1073,7 +1073,7 @@ func TestGrantHintClusterWideNamesSecretGrants(t *testing.T) {
 func TestGrantHintScopedNamesWatchNamespaces(t *testing.T) {
 	o := New(noSecretClient(t)).WithReader(&secretReader{denied: true})
 	got, _ := secretObservation(t, o, secretInput(true, nil, time.Now()))
-	want := "the operator may not read Secrets in namespace payments; add it to controller.watchNamespaces or list payments/app-secret in controller.secretGrants"
+	want := "the operator may not read Secret payments/app-secret although it watches payments; check the chart's watch Role and RoleBinding in payments or list payments/app-secret in controller.secretGrants"
 	if got.Detail != want {
 		t.Fatalf("detail = %q, want %q", got.Detail, want)
 	}

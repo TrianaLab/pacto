@@ -93,7 +93,7 @@ func TestPullSecretForbiddenScopedNamesWatchNamespaces(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	cond := meta.FindStatusCondition(getPacto(t, r, pacto.Name, pacto.Namespace).Status.Conditions, pactov1alpha1.ConditionContractValid)
-	want := "the operator may not read Secret payments/regcred: add payments to controller.watchNamespaces or list payments/regcred in controller.secretGrants"
+	want := "the operator may not read Secret payments/regcred although it watches payments: check the chart's watch Role and RoleBinding in payments or list payments/regcred in controller.secretGrants"
 	if cond == nil || cond.Reason != pactov1alpha1.ReasonPullSecretNotGranted || cond.Message != want {
 		t.Fatalf("condition = %+v, want reason PullSecretNotGranted and message %q", cond, want)
 	}

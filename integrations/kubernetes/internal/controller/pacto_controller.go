@@ -776,11 +776,13 @@ func (e *pullSecretNotGrantedError) Error() string {
 }
 
 // hint is the error with the grant that would let the operator read the Secret. A cluster-wide
-// install is only told about controller.secretGrants, so it is never asked to narrow its fleet.
+// install is only told about controller.secretGrants, so it is never asked to narrow its fleet. A
+// scoped operator only reconciles watched namespaces, where the chart grants secrets get, so the
+// missing grant is that Role or its binding.
 func (e *pullSecretNotGrantedError) hint(scoped bool) string {
 	ref := e.Namespace + "/" + e.Name
 	if scoped {
-		return fmt.Sprintf("%s: add %s to controller.watchNamespaces or list %s in controller.secretGrants", e, e.Namespace, ref)
+		return fmt.Sprintf("%s although it watches %s: check the chart's watch Role and RoleBinding in %s or list %s in controller.secretGrants", e, e.Namespace, e.Namespace, ref)
 	}
 	return fmt.Sprintf("%s: list %s in controller.secretGrants", e, ref)
 }
