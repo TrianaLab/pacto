@@ -319,3 +319,33 @@ func TestInClusterRegistrySupportsNativeReferrers(t *testing.T) {
 		t.Errorf("PACTO_REGISTRY_IMAGE must be the Compose demo's digest-pinned registry %q", pin)
 	}
 }
+
+// TestKindShardsReuseTheDeliveryImages pins the one image build per run: the
+// ci-e2e-kind shards download delivery-images' archive (a failed download is
+// allowed, so the shards still run) and point PACTO_KIND_IMAGES at it, and
+// build_operator_images tries that archive before it builds. Lose any half and
+// every shard quietly goes back to building the operator and dashboard itself.
+func TestKindShardsReuseTheDeliveryImages(t *testing.T) {
+	wf := code(t, filepath.Join(repoRoot(t), ".github", "workflows", "ci.yml"))
+	_, job, ok := strings.Cut(wf, "\n  ci-e2e-kind:\n")
+	if !ok {
+		t.Fatal("no ci-e2e-kind job in .github/workflows/ci.yml")
+	}
+	job, _, _ = strings.Cut(job, "\n  delivery-images:\n")
+	for _, want := range []string{
+		"needs: [changes, delivery-images]",
+		"!cancelled()",
+		"continue-on-error: true",
+		"name: delivery-images",
+		`PACTO_KIND_IMAGES="$RUNNER_TEMP/delivery-images/delivery-images.tar"`,
+	} {
+		if !strings.Contains(job, want) {
+			t.Errorf("the ci-e2e-kind job lacks %q", want)
+		}
+	}
+	lib := code(t, filepath.Join(kindDir(t), "lib.sh"))
+	_, body, _ := strings.Cut(lib, "\nbuild_operator_images() {\n")
+	if !strings.HasPrefix(strings.TrimSpace(body), `load_built_images "$1" "$2" && return`) {
+		t.Error("lib.sh build_operator_images no longer tries the PACTO_KIND_IMAGES archive before building")
+	}
+}

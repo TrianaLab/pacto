@@ -442,11 +442,15 @@ jobs:
   # on any change that can affect release execution or the operator (the `e2e` path
   # filter), plus the nightly schedule + manual dispatch. Skipped only for truly
   # unrelated (docs-only) PRs.
+  # The operator and dashboard images come from delivery-images' archive (the same
+  # build, tags and runner platform) instead of each shard building them. A shard
+  # still runs when that job failed: the download is allowed to fail, and lib.sh
+  # build_operator_images builds the images itself when the archive is missing.
   ci-e2e-kind:
-    needs: changes
-    if: needs.changes.outputs.e2e == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    needs: [changes, delivery-images]
+    if: ${{ !cancelled() && needs.changes.result == 'success' && (needs.changes.outputs.e2e == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 70
     # Shard the self-provisioning kind scenarios across parallel runners (each
     # spins up its own cluster) instead of running them serially in one job. The
     # `required` aggregate waits for all matrix legs, so coverage is unchanged.
@@ -479,9 +483,18 @@ jobs:
         run: make kind-install
       - name: Install Helm
         uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5
+      - name: Download the operator and dashboard images
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        continue-on-error: true
+        timeout-minutes: 10
+        with:
+          name: delivery-images
+          path: ${{ runner.temp }}/delivery-images
       - name: Run the scenario
         timeout-minutes: 35
-        run: bash scripts/ci/kind-run.sh "$RUNNER_TEMP/diagnostics/run.log" make test-acceptance-kind-${{ matrix.scenario }}
+        run: |
+          export PACTO_KIND_IMAGES="$RUNNER_TEMP/delivery-images/delivery-images.tar"
+          bash scripts/ci/kind-run.sh "$RUNNER_TEMP/diagnostics/run.log" make test-acceptance-kind-${{ matrix.scenario }}
       - name: Collect cluster diagnostics
         if: failure()
         timeout-minutes: 10
@@ -499,7 +512,7 @@ jobs:
           retention-days: 7
 
   # Pacto delivery, sharded by phase. The three Pacto images are built once here
-  # and every shard loads the same archive; each shard then runs its phase (plus
+  # and every shard loads the same archive (the ci-e2e-kind shards too); each shard then runs its phase (plus
   # the phases it needs: identity needs core, records needs core and publish) on
   # its own small cluster, created while the shard pulls and preloads the rest.
   # The delivery-demo shards load the same archive.
