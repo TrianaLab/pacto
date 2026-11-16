@@ -241,3 +241,18 @@ func TestPrintFleetNeighborhoodTruncatedEdges(t *testing.T) {
 		t.Fatalf("text = %v:\n%s", err, out.String())
 	}
 }
+
+func TestFleetFlagNamesIncludeExternalCatalog(t *testing.T) {
+	if !slices.Contains(fleetFlagNames(), "external-catalog") {
+		t.Fatal("fleetFlagNames lacks external-catalog")
+	}
+	cmd := &cobra.Command{Use: "x"}
+	addFleetSourceFlags(cmd.Flags())
+	ref := "oci://r.example/c@sha256:" + strings.Repeat("a", 64)
+	if err := cmd.Flags().Parse([]string{"--external-catalog=" + ref}); err != nil {
+		t.Fatal(err)
+	}
+	if got := fleetOptions(cmd).ExternalCatalogRef; got != ref {
+		t.Fatalf("ExternalCatalogRef = %q", got)
+	}
+}

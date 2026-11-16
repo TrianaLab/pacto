@@ -3101,6 +3101,7 @@ export interface components {
             /** Format: date-time */
             asOf: string;
             completeness: string;
+            externalCatalogs?: components["schemas"]["Fleet.ExternalCatalogRef"][] | null;
             limitations?: components["schemas"]["Fleet.Limitation"][] | null;
             limitationsTruncated?: boolean;
             schemaVersion: string;
@@ -3455,6 +3456,7 @@ export interface components {
             /** Format: date-time */
             asOf: string;
             completeness: string;
+            externalCatalogs?: components["schemas"]["Fleet.ExternalCatalogRef"][] | null;
             limitations?: components["schemas"]["Fleet.Limitation"][] | null;
             limitationsTruncated?: boolean;
             schemaVersion: string;

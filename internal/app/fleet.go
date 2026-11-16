@@ -62,6 +62,9 @@ type FleetOptions struct {
 	// every revision the OCI source reads. One checker is shared across builds
 	// so its memo outlives each refresh.
 	Provenance *ProvenanceChecker
+	// ExternalCatalogRef is the organization external catalog merged over the
+	// default, as oci://REPOSITORY@sha256:DIGEST; a tag is refused.
+	ExternalCatalogRef string
 	// IncludeCache adds every bundle in the local OCI disk cache as an offline
 	// baseline revision. Requires a configured BundleStore.
 	IncludeCache bool
@@ -140,11 +143,17 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 	if err := checkSourceIDsAreUnique(sources); err != nil {
 		return nil, err
 	}
+	cat, catLims, err := s.externalCatalog(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
 	return fleet.Build(ctx, fleet.BuildOptions{
-		Now:             opts.Now,
-		FreshnessWindow: opts.FreshnessWindow,
-		Concurrency:     opts.Concurrency,
-		DisallowPartial: opts.DisallowPartial,
+		ExternalCatalog:            cat,
+		ExternalCatalogLimitations: catLims,
+		Now:                        opts.Now,
+		FreshnessWindow:            opts.FreshnessWindow,
+		Concurrency:                opts.Concurrency,
+		DisallowPartial:            opts.DisallowPartial,
 		// The product answers say when freshness was not checked; the delivery
 		// planner's own build leaves this false.
 		DiscloseUncheckedFreshness: true,

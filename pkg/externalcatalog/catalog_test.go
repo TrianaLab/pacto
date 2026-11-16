@@ -169,13 +169,33 @@ func TestRefsAreCopies(t *testing.T) {
 	}
 }
 
-func TestMustDefaultPanicsOnInvalidBytes(t *testing.T) {
+func TestMustLoadPanicsOnInvalidBytes(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {
-			t.Fatal("mustDefault accepted an invalid catalog")
+			t.Fatal("mustLoad accepted an invalid catalog")
 		}
 	}()
-	mustDefault([]byte("apiVersion: v0\n"))
+	mustLoad([]byte("apiVersion: v0\n"))
+}
+
+func TestAssemble(t *testing.T) {
+	def := DefaultRef()
+	def.Reason = "checked"
+	c, err := Assemble(def, nil, Ref{})
+	if err != nil || c.Len() != Default().Len() || c.Refs()[0].Reason != "checked" || len(c.Refs()) != 1 {
+		t.Fatalf("Assemble(nil) = %+v, %v", c, err)
+	}
+	org := Ref{Origin: OriginOrganization, Digest: "sha256:org"}
+	c, err = Assemble(def, []byte("apiVersion: catalog.pacto.trianalab.io/v1\nentries:\n  - identity: corp/mq\n    class: legacy\n    aliases: [legacy-mq]\n"), org)
+	if err != nil || c.Len() != Default().Len()+1 || c.Refs()[1] != org {
+		t.Fatalf("Assemble(org) = %+v, %v", c, err)
+	}
+	if e, _, ok := c.ResolveDeclared("legacy-mq"); !ok || e.Identity != "corp/mq" {
+		t.Fatalf("legacy-mq = %+v %v", e, ok)
+	}
+	if _, err := Assemble(def, []byte("apiVersion: v0\n"), org); err == nil {
+		t.Fatal("Assemble accepted an invalid organization catalog")
+	}
 }
 
 func TestResolveDeclaredAliasCaseInsensitive(t *testing.T) {

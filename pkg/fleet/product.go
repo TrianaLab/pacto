@@ -300,6 +300,9 @@ type ProductMeta struct {
 	// LimitationsTruncated reports that the snapshot has more limitations than the
 	// meta carries (capped at MaxMetaLimitations).
 	LimitationsTruncated bool `json:"limitationsTruncated,omitempty"`
+	// ExternalCatalogs are the catalogs that classified external systems, with
+	// their digest and how far their signature was checked.
+	ExternalCatalogs []ExternalCatalogRef `json:"externalCatalogs,omitempty"`
 }
 
 func (q *Query) productMeta() ProductMeta { return q.productMetaWith(nil) }
@@ -322,6 +325,7 @@ func (q *Query) productMetaWith(derived []Limitation) ProductMeta {
 		SourcesTruncated:     srcTrunc,
 		Limitations:          lims,
 		LimitationsTruncated: limTrunc,
+		ExternalCatalogs:     slices.Clone(q.snap.ExternalCatalogs),
 	}
 }
 

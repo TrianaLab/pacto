@@ -462,3 +462,27 @@ func TestDashboardRejectsBadMiraSource(t *testing.T) {
 		t.Fatalf("err = %v, want the CheckMiraURL refusal", err)
 	}
 }
+
+// TestDashboardExternalCatalogEnv reads PACTO_DASHBOARD_EXTERNAL_CATALOG, the
+// setting the operator configures, and refuses a tag at startup.
+func TestDashboardExternalCatalogEnv(t *testing.T) {
+	ref := "oci://r.example/c@sha256:" + strings.Repeat("a", 64)
+	t.Setenv("PACTO_DASHBOARD_EXTERNAL_CATALOG", ref)
+	v := viper.New()
+	v.SetEnvPrefix("PACTO")
+	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
+	v.AutomaticEnv()
+	newDashboardCommand(app.NewService(nil, nil), v, "test", defaultDeps())
+	if got := v.GetString("dashboard.external-catalog"); got != ref {
+		t.Errorf("dashboard.external-catalog = %q", got)
+	}
+	if got := dashboardFleetOptions("", nil, nil, nil, dashboardSources{externalCatalog: ref}).ExternalCatalogRef; got != ref {
+		t.Errorf("ExternalCatalogRef = %q", got)
+	}
+
+	isolateHost(t)
+	_, err := runDashboard(t, app.NewService(nil, nil), viper.New(), t.TempDir(), "--port", "0", "--external-catalog", "oci://r.example/c:1")
+	if err == nil || !strings.Contains(err.Error(), "@sha256:") {
+		t.Fatalf("err = %v, want the digest refusal", err)
+	}
+}

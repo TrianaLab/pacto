@@ -236,6 +236,7 @@ pacto dashboard [sources...] [flags]
       --cors-origin string                explicit cross-origin allowed to call the API (default: same-origin only)
       --delivery-namespace string         namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer (default "pacto-delivery")
       --delivery-trust string             the trust config delivery records are verified with, so History reads signed records (the recorder's PEM public key or a YAML trust config; default $PACTO_DELIVERY_TRUST)
+      --external-catalog string           organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST; a tag is refused (also PACTO_DASHBOARD_EXTERNAL_CATALOG)
   -h, --help[=true|false]                 help for dashboard
       --host string                       bind address for the dashboard server (default "127.0.0.1")
       --mira-source stringArray           base URL of a Mira node whose service map supplies observed calls between services (repeatable; also PACTO_DASHBOARD_MIRA_SOURCES)
@@ -1015,6 +1016,7 @@ pacto fleet [flags]
 ```
       --cache[=true|false]         include every bundle in the local OCI cache as an offline baseline revision
       --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
+      --external-catalog string    organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST (a tag is refused)
       --freshness duration         mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]          help for fleet
       --k8s[=true|false]           include live Pacto CRs from the current Kubernetes cluster as targets
@@ -1411,6 +1413,7 @@ pacto impact <old> <new> | --unavailable <service> | --removed <service> | --reg
 ```
       --cache[=true|false]              include every bundle in the local OCI cache as an offline baseline revision
       --evidence-url stringArray        base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
+      --external-catalog string         organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST (a tag is refused)
       --freshness duration              mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]               help for impact
       --include-observed[=true|false]   let observed (runtime) relationships raise consumer confidence
@@ -1725,6 +1728,7 @@ pacto mcp [bundle-ref] [flags]
       --evidence-url stringArray      base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --exchange-audience string      with --fleet or --delivery over HTTP with --auth-issuer: the audience to exchange for, one the apiserver accepts (default "pacto-cli")
       --exchange-client-id string     with --fleet or --delivery over HTTP with --auth-issuer: the server's own OAuth client, which exchanges each caller's token for the cluster (RFC 8693); its secret comes from PACTO_MCP_EXCHANGE_CLIENT_SECRET
+      --external-catalog string       organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST (a tag is refused)
       --fleet[=true|false]            expose read-only operational-graph (fleet) query tools
       --freshness duration            mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]             help for mcp
@@ -2050,6 +2054,7 @@ pacto stats [flags]
       --by string                  group the numbers by service, owner, domain, repository, environment
       --cache[=true|false]         include every bundle in the local OCI cache as an offline baseline revision
       --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
+      --external-catalog string    organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST (a tag is refused)
       --freshness duration         mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]          help for stats
       --k8s[=true|false]           include live Pacto CRs from the current Kubernetes cluster as targets
@@ -2110,6 +2115,7 @@ pacto tui [flags]
 ```
       --cache[=true|false]         include every bundle in the local OCI cache as an offline baseline revision
       --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
+      --external-catalog string    organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST (a tag is refused)
       --freshness duration         mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]          help for tui
       --k8s[=true|false]           include live Pacto CRs from the current Kubernetes cluster as targets

@@ -8,8 +8,19 @@ import (
 // DefaultRepository is where the release pipeline publishes the default catalog.
 const DefaultRepository = "ghcr.io/trianalab/pacto/external-catalog"
 
+// DefaultSigner and DefaultIssuer are the keyless identity the release
+// workflow signs the default catalog with.
+const (
+	DefaultSigner = "https://github.com/TrianaLab/pacto/.github/workflows/release.yml@refs/heads/main"
+	DefaultIssuer = "https://token.actions.githubusercontent.com"
+)
+
 // CopyEmbedded is the [Ref] copy of bytes compiled into this binary.
 const CopyEmbedded = "embedded"
+
+// CopyRegistry is the [Ref] copy of bytes the registry holds at the recorded
+// digest.
+const CopyRegistry = "registry"
 
 // SignatureUnknown is a [Ref] signature nobody has checked.
 const SignatureUnknown = "unknown"
@@ -37,16 +48,33 @@ func DefaultRef() Ref {
 	}
 }
 
-// Default returns the embedded default catalog. The embedded file is validated
-// by TestDefaultCatalogValid, so the panic cannot ship.
-var Default = sync.OnceValue(func() *Catalog { return mustDefault(defaultBytes) })
+// Default returns the embedded default catalog.
+var Default = sync.OnceValue(func() *Catalog { return Merge(defaultFile(), DefaultRef(), nil, nil) })
 
-func mustDefault(b []byte) *Catalog {
+// defaultFile is the embedded default catalog file. It is validated by
+// TestDefaultCatalogValid, so the panic cannot ship.
+var defaultFile = sync.OnceValue(func() *File { return mustLoad(defaultBytes) })
+
+func mustLoad(b []byte) *File {
 	f, err := load(b)
 	if err != nil {
 		panic("embedded external catalog: " + err.Error())
 	}
-	return Merge(f, DefaultRef(), nil, nil)
+	return f
+}
+
+// Assemble merges the organization catalog org, when it is not nil, over the
+// embedded default catalog. defRef and orgRef record what is known about each;
+// an org that fails to parse or validate is an error.
+func Assemble(defRef Ref, org []byte, orgRef Ref) (*Catalog, error) {
+	if org == nil {
+		return Merge(defaultFile(), defRef, nil, nil), nil
+	}
+	f, err := load(org)
+	if err != nil {
+		return nil, err
+	}
+	return Merge(defaultFile(), defRef, f, &orgRef), nil
 }
 
 // load parses and validates one catalog file.

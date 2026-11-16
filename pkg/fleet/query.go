@@ -125,6 +125,9 @@ type Meta struct {
 	// the one dishonest field in a completeness envelope.
 	LimitationsTruncated bool `json:"limitationsTruncated,omitempty"`
 	SourcesTruncated     bool `json:"sourcesTruncated,omitempty"`
+	// ExternalCatalogs are the catalogs that classified external systems, with
+	// their digest and how far their signature was checked.
+	ExternalCatalogs []ExternalCatalogRef `json:"externalCatalogs,omitempty"`
 }
 
 // meta applies the SAME hard caps as productMeta. Limitations are emitted per
@@ -145,6 +148,7 @@ func (q *Query) meta() Meta {
 		Sources:              srcs,
 		LimitationsTruncated: limTrunc,
 		SourcesTruncated:     srcTrunc,
+		ExternalCatalogs:     slices.Clone(q.snap.ExternalCatalogs),
 	}
 }
 

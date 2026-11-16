@@ -69,6 +69,7 @@ func addFleetSourceFlags(f *pflag.FlagSet) {
 	shared.Bool("k8s", false, "include live Pacto CRs from the current Kubernetes cluster as targets")
 	shared.String("namespace", "", "namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)")
 	shared.Duration("freshness", fleet.RecentEvidenceWindow, "mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so)")
+	shared.String("external-catalog", "", "organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST (a tag is refused)")
 	f.AddFlagSet(shared)
 }
 
@@ -78,7 +79,7 @@ func addFleetSourceFlags(f *pflag.FlagSet) {
 func fleetFlagNames() []string {
 	return []string{
 		"local", "root", "target-state", "evidence-url", "mira-source", "traces", "oci",
-		"cache", "k8s", "namespace", "freshness",
+		"cache", "k8s", "namespace", "freshness", "external-catalog",
 	}
 }
 
@@ -140,6 +141,7 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 	noCache, _ := cmd.Flags().GetBool("no-cache")
 	includeK8s, _ := cmd.Flags().GetBool("k8s")
 	freshness, _ := cmd.Flags().GetDuration("freshness")
+	externalCatalog, _ := cmd.Flags().GetString("external-catalog")
 	return app.FleetOptions{
 		LocalRoots:         local,
 		CatalogRoots:       roots,
@@ -152,6 +154,7 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 		IncludeK8s:         includeK8s,
 		K8sNamespaces:      flagNamespaces(cmd),
 		FreshnessWindow:    freshness,
+		ExternalCatalogRef: externalCatalog,
 		Provenance:         app.NewProvenanceChecker(),
 	}
 }

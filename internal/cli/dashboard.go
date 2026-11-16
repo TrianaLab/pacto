@@ -107,6 +107,10 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 					return err
 				}
 			}
+			externalCatalog := v.GetString("dashboard.external-catalog")
+			if err := app.CheckExternalCatalogRef(externalCatalog); err != nil {
+				return err
+			}
 
 			cacheDir := v.GetString("cache-dir")
 			// Resolve cacheDir from the BundleStore when not explicitly set, so the
@@ -123,11 +127,12 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			// is the only place that answer stays true.
 			cluster, _ := k8sclient.NewGoClient()
 			det := dashboardSources{
-				local:       localRootHasBundle(dir),
-				cache:       !noCache && cacheHasEntries(cacheDir),
-				cluster:     cluster,
-				evidenceURL: v.GetString("evidence-source-url"),
-				miraURLs:    miraURLs,
+				local:           localRootHasBundle(dir),
+				cache:           !noCache && cacheHasEntries(cacheDir),
+				cluster:         cluster,
+				evidenceURL:     v.GetString("evidence-source-url"),
+				miraURLs:        miraURLs,
+				externalCatalog: externalCatalog,
 			}
 
 			fopts := dashboardFleetOptions(dir, repos, namespaces, observation, det)
@@ -204,6 +209,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	cmd.Flags().StringArray("traces", nil, "OTLP/JSON trace file to fold observed dependencies from (repeatable; also PACTO_DASHBOARD_TRACES)")
 	cmd.Flags().StringArray("trace-source", nil, "named offline OTLP/JSON trace source as NAME=PATH, where NAME is its stable data-source identity (repeatable; also PACTO_DASHBOARD_TRACE_SOURCES)")
 	cmd.Flags().StringArray("mira-source", nil, "base URL of a Mira node whose service map supplies observed calls between services (repeatable; also PACTO_DASHBOARD_MIRA_SOURCES)")
+	cmd.Flags().String("external-catalog", "", "organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST; a tag is refused (also PACTO_DASHBOARD_EXTERNAL_CATALOG)")
 	cmd.Flags().String("oidc-issuer-url", "", "OpenID Connect issuer people sign in with before the dashboard shows anything; every view then shows what the signed-in person's Kubernetes RBAC lets them read, and every action runs as them (also PACTO_DASHBOARD_OIDC_ISSUER_URL; the client secret comes from PACTO_DASHBOARD_OIDC_CLIENT_SECRET)")
 	cmd.Flags().String("oidc-client-id", "", "OpenID Connect client id of the dashboard")
 	cmd.Flags().String("oidc-redirect-url", "", "the dashboard's /auth/callback as browsers reach it (https)")
@@ -233,6 +239,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	_ = v.BindPFlag("dashboard.traces", cmd.Flags().Lookup("traces"))
 	_ = v.BindPFlag("dashboard.trace-sources", cmd.Flags().Lookup("trace-source"))
 	_ = v.BindPFlag("dashboard.mira-sources", cmd.Flags().Lookup("mira-source"))
+	_ = v.BindPFlag("dashboard.external-catalog", cmd.Flags().Lookup("external-catalog"))
 	for _, f := range []string{"oidc-issuer-url", "oidc-client-id", "oidc-redirect-url", "oidc-display-name", "oidc-extra-scopes", "oidc-ca-file", "oidc-internal-issuer-url",
 		"oidc-username-claim", "oidc-username-prefix", "oidc-groups-claim", "oidc-groups-prefix",
 		"session-idle-timeout", "session-max-age", "token-login", "allow-anonymous", "review", "mira-url", "delivery-namespace", "delivery-trust"} {
@@ -320,6 +327,10 @@ type dashboardSources struct {
 	// miraURLs are the operator-configured Mira nodes (--mira-source,
 	// PACTO_DASHBOARD_MIRA_SOURCES), already checked by fleetsrc.CheckMiraURL.
 	miraURLs []string
+	// externalCatalog is the organization external catalog (--external-catalog,
+	// PACTO_DASHBOARD_EXTERNAL_CATALOG), already checked by
+	// app.CheckExternalCatalogRef.
+	externalCatalog string
 }
 
 // localRootHasBundle reports whether dir looks like a place contracts live: a
@@ -649,5 +660,6 @@ func dashboardFleetOptions(dir string, repos []string, namespaces []string, obse
 		fopts.EvidenceURLs = append(fopts.EvidenceURLs, det.evidenceURL)
 	}
 	fopts.MiraURLs = det.miraURLs
+	fopts.ExternalCatalogRef = det.externalCatalog
 	return fopts
 }

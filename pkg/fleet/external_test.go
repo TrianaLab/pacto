@@ -460,3 +460,16 @@ func TestJoinIdentityOverridesAlias(t *testing.T) {
 		t.Errorf("legacy-mq = %+v", mq)
 	}
 }
+
+func TestMetaCarriesExternalCatalogs(t *testing.T) {
+	snap := externalSnap(t, BuildOptions{}, extContract("a", "1.0.0"))
+	q := NewQuery(snap)
+	m, pm := q.meta(), q.ProductMeta()
+	if !reflect.DeepEqual(m.ExternalCatalogs, snap.ExternalCatalogs) || !reflect.DeepEqual(pm.ExternalCatalogs, snap.ExternalCatalogs) || len(m.ExternalCatalogs) != 1 {
+		t.Fatalf("meta %+v, product meta %+v, want %+v", m.ExternalCatalogs, pm.ExternalCatalogs, snap.ExternalCatalogs)
+	}
+	m.ExternalCatalogs[0].Signature, pm.ExternalCatalogs[0].Signature = "verified", "verified"
+	if snap.ExternalCatalogs[0].Signature != externalcatalog.SignatureUnknown {
+		t.Error("a meta shares its catalogs with the snapshot")
+	}
+}
