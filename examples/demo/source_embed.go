@@ -4,6 +4,7 @@
 package main
 
 import (
+	_ "embed"
 	"fmt"
 	"io/fs"
 	"path"
@@ -15,6 +16,13 @@ import (
 )
 
 const contractFile = "pacto.yaml"
+
+// demoExternalCatalog is the demo organization's external catalog extension.
+// It names the demo's ref-less external dependencies, so consumers that spell
+// one differently join one external system.
+//
+//go:embed external-catalog.yaml
+var demoExternalCatalog []byte
 
 // versionEntry is one parsed contract version held in memory.
 type versionEntry struct {
