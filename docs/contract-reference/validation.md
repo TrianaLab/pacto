@@ -27,19 +27,17 @@ Validates against the embedded schema of the contract's version, `pacto-v2.0.sch
 - Discriminated shapes hold: a `configurations[]` entry has exactly one of `schema` or `ref`, a `capabilities[]` `extension` requires a namespaced `ref` and `health` or `metrics` sets no `ref`
 - State invariants hold (`stateless` requires `ephemeral` durability)
 
-Structural failures report `SCHEMA_VIOLATION`. A `"2.0"` contract that uses
-`publish`, `checks`, an external dependency or an `mcp` interface reports `NEEDS_PACTO_2_1` for each
-instead: set `pactoVersion: "2.1"`, which keeps every 2.0 field. A `"2.0"` or
-`"2.1"` contract that uses an interface `lifecycle`, `compatibilityEpoch` or
-`guarantees` or a dependency `requires` reports `NEEDS_PACTO_2_2` for each: set
-`pactoVersion: "2.2"`. A `"2.0"`, `"2.1"` or `"2.2"` contract that declares
-`environments` reports `NEEDS_PACTO_2_3`: set `pactoVersion: "2.3"`. A `"2.0"`
-to `"2.3"` contract that sets `service.domain`, `service.offering`,
-`service.summary`, `service.lifecycle`, `service.template` or `service.origin`, or puts `values` or a `configuration`
-selector beside a configuration `ref`, reports `NEEDS_PACTO_2_4`: set
-`pactoVersion: "2.4"`. A `"2.0"` to `"2.4"` contract with a dependency whose
-`compatibility` is `unknown`, an interface `port` or a `breaks` section reports
-`NEEDS_PACTO_2_5`: set `pactoVersion: "2.5"`.
+Structural failures report `SCHEMA_VIOLATION`. A field a later version adds,
+in an older contract, reports that version's code for each use instead: set
+`pactoVersion` to that version, which keeps every older field.
+
+| Field | Version | Code |
+|---|---|---|
+| `publish`, `checks`, an external dependency, an `mcp` interface | `"2.1"` | `NEEDS_PACTO_2_1` |
+| An interface `lifecycle`, `compatibilityEpoch` or `guarantees`, a dependency `requires` | `"2.2"` | `NEEDS_PACTO_2_2` |
+| `environments` | `"2.3"` | `NEEDS_PACTO_2_3` |
+| `service.domain`, `service.offering`, `service.summary`, `service.lifecycle`, `service.template`, `service.origin`, `values` or a `configuration` selector beside a configuration `ref` | `"2.4"` | `NEEDS_PACTO_2_4` |
+| A dependency `compatibility: unknown`, an interface `port`, `breaks` | `"2.5"` | `NEEDS_PACTO_2_5` |
 
 A contract that fails to **load**, because of malformed YAML, an unknown field or a
 `pactoVersion` other than `"2.0"`, `"2.1"`, `"2.2"`, `"2.3"`, `"2.4"` or `"2.5"`, fails before any layer runs and reports
