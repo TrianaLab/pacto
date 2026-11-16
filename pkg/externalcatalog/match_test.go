@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/trianalab/pacto/v4/pkg/externalid"
 )
 
 const credFixture = "postgres://user:pass@db.xyz.rds.amazonaws.com/app?password=x"
@@ -235,4 +237,34 @@ func TestMatchJSONHasNoRawValue(t *testing.T) {
 	if !strings.Contains(string(b), `"host":"db.xyz.rds.amazonaws.com"`) {
 		t.Errorf("match JSON %s lacks the host", b)
 	}
+}
+
+func TestMatchOTel(t *testing.T) {
+	c := mustCatalog(t, `apiVersion: catalog.pacto.trianalab.io/v1
+entries:
+  - identity: aws/rds
+    class: managed-cloud
+    otel: { dbSystem: [postgresql] }
+  - identity: confluent
+    class: vendor-api
+    otel: { messagingSystem: [kafka] }
+  - identity: aws/api
+    class: managed-cloud
+    otel: { rpcSystem: [aws-api] }
+`)
+	for value, id := range map[string]string{"postgresql": "aws/rds", "KAFKA": "confluent", " aws-api ": "aws/api"} {
+		m, ok := c.MatchOTel(value)
+		want := Match{Identity: externalid.ID(id), Class: m.Class, Confidence: ConfidenceLikely, Kind: KindSystem, Entry: id}
+		if !ok || m != want || m.Class == "" {
+			t.Errorf("MatchOTel(%q) = %+v, %v", value, m, ok)
+		}
+	}
+	if m, ok := c.MatchOTel("grpc"); ok {
+		t.Errorf("grpc matched %+v", m)
+	}
+}
+
+func mustCatalog(t *testing.T, y string) *Catalog {
+	t.Helper()
+	return Merge(mustParse(t, y), Ref{Origin: OriginDefault, Digest: "sha256:t"}, nil, nil)
 }

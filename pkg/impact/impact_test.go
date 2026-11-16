@@ -1125,3 +1125,26 @@ func TestImpactLeavesGoldenPathsOut(t *testing.T) {
 		})
 	}
 }
+
+// A trace callee the catalog names is an external system: it is never a
+// consumer of a service, so it is skipped without an unresolved limitation.
+// An unknown caller of it still is one.
+func TestImpactTracesExternalCalleeNotUnresolved(t *testing.T) {
+	snap := buildChain(t)
+	edges := []ObservedEdge{
+		{Consumer: "api-gateway", Provider: "api.stripe.com"},
+		{Consumer: "ghost", Provider: "api.stripe.com"},
+	}
+	resolved, lims := resolveObservedEdges(snap, edges, true)
+	if len(resolved) != 0 {
+		t.Fatalf("resolved = %+v", resolved)
+	}
+	if len(lims) != 1 || !strings.Contains(lims[0].Message, "observed service ghost ") {
+		t.Fatalf("lims = %+v", lims)
+	}
+	snap.Relationships = append(snap.Relationships, fleet.Relationship{FromService: fleet.NewServiceKey("api-gateway"), ToExternal: "stripe",
+		Type: fleet.RelationshipDependency, Provenance: fleet.ProvenanceObserved, Resolved: true})
+	if got := snapshotObservedEdges(snap); len(got) != 0 {
+		t.Errorf("snapshot edges = %+v", got)
+	}
+}

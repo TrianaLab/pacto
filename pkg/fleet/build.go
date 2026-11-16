@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -157,10 +158,12 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	if cat == nil {
 		cat = externalcatalog.Default()
 	}
+	snap.catalog = cat
 	snap.ExternalCatalogs = externalCatalogRefs(cat.Refs())
 	snap.Limitations = append(snap.Limitations, opts.ExternalCatalogLimitations...)
 	buildRelationships(snap, cat)
 	foldObservedRelationships(snap, observed)
+	finalizeExternals(snap)
 	reconcileDeclared(snap, undeclaredOnly)
 	matchProvisioning(snap)
 	matchUsage(snap)
@@ -1944,7 +1947,6 @@ func buildRelationships(snap *FleetSnapshot, cat *externalcatalog.Catalog) {
 			snap.Relationships = append(snap.Relationships, edges...)
 		}
 	}
-	finalizeExternals(snap)
 }
 
 // observedInput pairs a raw observed edge with the id of the source that
@@ -1978,34 +1980,76 @@ func setUncontractedCallers(snap *FleetSnapshot, uncontracted map[callerKey]map[
 	})
 }
 
+// observedEdgeKey is one observed (caller, callee) pair: a service, or an
+// external system when ext is set.
+type observedEdgeKey struct {
+	from, to ServiceKey
+	ext      ExternalKey
+}
+
+// observedEdgeAgg is one observed edge's per-source aggregate: a multi-source
+// edge keeps EVERY source's own count and window rather than crediting the
+// first source with the total. match is how an external callee was named.
+type observedEdgeAgg struct {
+	total    int
+	bySource map[string]*ObservedSourceStat
+	sources  []string
+	match    string
+}
+
+// add counts one raw observed edge from source into the aggregate.
+func (a *observedEdgeAgg) add(oi observedInput) {
+	a.total += oi.edge.Count
+	st := a.bySource[oi.source]
+	if st == nil {
+		st = &ObservedSourceStat{Source: oi.source}
+		a.bySource[oi.source] = st
+		a.sources = append(a.sources, oi.source)
+	}
+	st.Count += oi.edge.Count
+	mergeWindow(&st.FirstSeen, &st.LastSeen, oi.edge.FirstSeen, oi.edge.LastSeen)
+}
+
 // foldObservedRelationships resolves runtime-observed edges to UNIQUE
 // domain-qualified services and folds resolved edges into the snapshot as observed
 // dependency relationships, summing counts for duplicate edges. An endpoint that
 // matches zero or multiple services is never coerced to a domain — it becomes an
 // explicit unresolved limitation so observed traffic can't be misattributed across
-// domains (see [FleetSnapshot.ObservedNameResolver]). Resolved edges also extend
-// the SEPARATE observed adjacency indexes, keeping the declared graph declared
-// while making observed-only (shadow) callers reachable in the operational graph.
+// domains (see [FleetSnapshot.ObservedNameResolver]). A callee that matches no
+// service but names an external system (see [FleetSnapshot.ObservedExternal])
+// is an observed edge to that system instead, kept out of every service index.
+// Resolved service edges also extend the SEPARATE observed adjacency indexes,
+// keeping the declared graph declared while making observed-only (shadow)
+// callers reachable in the operational graph.
 func foldObservedRelationships(snap *FleetSnapshot, observed []observedInput) {
 	if len(observed) == 0 {
 		return
 	}
 	resolve := snap.ObservedNameResolver()
 	seenLim := map[string]bool{}
-	type edgeKey struct{ from, to ServiceKey }
-	// Per-edge, per-source aggregate: a multi-source edge keeps EVERY source's own
-	// count and window rather than crediting the first source with the total.
-	type edgeAgg struct {
-		total    int
-		bySource map[string]*ObservedSourceStat
-		sources  []string
+	edges := map[observedEdgeKey]*observedEdgeAgg{}
+	var order []observedEdgeKey
+	count := func(k observedEdgeKey, oi observedInput, match string) {
+		a := edges[k]
+		if a == nil {
+			a = &observedEdgeAgg{bySource: map[string]*ObservedSourceStat{}, match: match}
+			edges[k] = a
+			order = append(order, k)
+		}
+		a.add(oi)
 	}
-	edges := map[edgeKey]*edgeAgg{}
-	var order []edgeKey
 	uncontracted := map[callerKey]map[string]bool{}
 	for _, oi := range observed {
 		fromKey, fromRes := resolve(oi.edge.From)
 		toKey, toRes := resolve(oi.edge.To)
+		if m, ok := snap.observedExternalMatch(oi.edge.To, toRes); ok {
+			// An external callee is no unresolved service; an unresolved caller still is.
+			addObservedLimitation(snap, seenLim, oi.edge.From, fromRes, oi.source)
+			if fromRes == ObservedResolved {
+				count(observedEdgeKey{from: fromKey, ext: ExternalKey(m.Identity)}, oi, m.Kind)
+			}
+			continue
+		}
 		addObservedLimitation(snap, seenLim, oi.edge.To, toRes, oi.source)
 		if toRes == ObservedResolved && fromRes != ObservedResolved {
 			// A caller with no contract of a service with one is kept, not dropped:
@@ -2018,58 +2062,51 @@ func foldObservedRelationships(snap *FleetSnapshot, observed []observedInput) {
 			continue
 		}
 		addObservedLimitation(snap, seenLim, oi.edge.From, fromRes, oi.source)
-		if fromRes != ObservedResolved || toRes != ObservedResolved {
-			continue
+		if fromRes == ObservedResolved && toRes == ObservedResolved {
+			count(observedEdgeKey{from: fromKey, to: toKey}, oi, "")
 		}
-		k := edgeKey{fromKey, toKey}
-		a := edges[k]
-		if a == nil {
-			a = &edgeAgg{bySource: map[string]*ObservedSourceStat{}}
-			edges[k] = a
-			order = append(order, k)
-		}
-		a.total += oi.edge.Count
-		st := a.bySource[oi.source]
-		if st == nil {
-			st = &ObservedSourceStat{Source: oi.source}
-			a.bySource[oi.source] = st
-			a.sources = append(a.sources, oi.source)
-		}
-		st.Count += oi.edge.Count
-		mergeWindow(&st.FirstSeen, &st.LastSeen, oi.edge.FirstSeen, oi.edge.LastSeen)
 	}
 	setUncontractedCallers(snap, uncontracted)
-	sort.Slice(order, func(i, j int) bool {
-		if order[i].from != order[j].from {
-			return order[i].from < order[j].from
-		}
-		return order[i].to < order[j].to
+	slices.SortFunc(order, func(a, b observedEdgeKey) int {
+		return cmp.Or(cmp.Compare(a.from, b.from), cmp.Compare(a.to, b.to), cmp.Compare(a.ext, b.ext))
 	})
 	for _, k := range order {
-		a := edges[k]
-		sort.Strings(a.sources)
-		stats := make([]ObservedSourceStat, 0, len(a.sources))
-		var winFirst, winLast *time.Time
-		for _, s := range a.sources {
-			st := a.bySource[s]
-			stats = append(stats, *st)
-			mergeWindowP(&winFirst, &winLast, st.FirstSeen, st.LastSeen)
-		}
-		// Source names a single unambiguous contributor; multi-source edges leave it
-		// empty and rely on the per-source breakdown.
-		source := ""
-		if len(a.sources) == 1 {
-			source = a.sources[0]
-		}
-		snap.Relationships = append(snap.Relationships, Relationship{
-			FromService: k.from, ToService: k.to, Type: RelationshipDependency,
-			Provenance: ProvenanceObserved, Resolved: true,
-			ObservedCount: a.total, Source: source,
-			ObservedSources: stats, FirstSeen: winFirst, LastSeen: winLast,
-		})
-		snap.observedForward[k.from] = appendUnique(snap.observedForward[k.from], k.to)
-		snap.observedReverse[k.to] = appendUnique(snap.observedReverse[k.to], k.from)
+		emitObservedRelationship(snap, k, edges[k])
 	}
+}
+
+// emitObservedRelationship appends the observed relationship of one
+// aggregated edge. A service edge extends the observed adjacency indexes; an
+// edge to an external system records its caller on the system's record
+// instead.
+func emitObservedRelationship(snap *FleetSnapshot, k observedEdgeKey, a *observedEdgeAgg) {
+	sort.Strings(a.sources)
+	stats := make([]ObservedSourceStat, 0, len(a.sources))
+	var winFirst, winLast *time.Time
+	for _, s := range a.sources {
+		st := a.bySource[s]
+		stats = append(stats, *st)
+		mergeWindowP(&winFirst, &winLast, st.FirstSeen, st.LastSeen)
+	}
+	// Source names a single unambiguous contributor; multi-source edges leave it
+	// empty and rely on the per-source breakdown.
+	source := ""
+	if len(a.sources) == 1 {
+		source = a.sources[0]
+	}
+	rel := Relationship{
+		FromService: k.from, ToService: k.to, ToExternal: k.ext, Type: RelationshipDependency,
+		Provenance: ProvenanceObserved, Resolved: k.ext == "",
+		ObservedCount: a.total, Source: source,
+		ObservedSources: stats, FirstSeen: winFirst, LastSeen: winLast,
+	}
+	snap.Relationships = append(snap.Relationships, rel)
+	if k.ext != "" {
+		recordObservedExternal(snap, k.from, k.ext, a.match)
+		return
+	}
+	snap.observedForward[k.from] = appendUnique(snap.observedForward[k.from], k.to)
+	snap.observedReverse[k.to] = appendUnique(snap.observedReverse[k.to], k.from)
 }
 
 // reconcileDeclared classifies each declared dependency edge against the
@@ -2083,13 +2120,17 @@ func foldObservedRelationships(snap *FleetSnapshot, observed []observedInput) {
 // witnessed but are no observation data otherwise: they never report, or see
 // only part of, the declared calls, so their silence says nothing about one.
 func reconcileDeclared(snap *FleetSnapshot, undeclaredOnly map[string]bool) {
-	type edge struct{ from, to ServiceKey }
+	// The target is the service, or the external system the edge names.
+	type edge struct {
+		from, to ServiceKey
+		ext      ExternalKey
+	}
 	observed := map[edge]bool{}
 	haveObservation := false
 	for _, rel := range snap.Relationships {
 		// Runtime calls are observed dependencies; a reference never makes one.
 		if rel.Type == RelationshipDependency && rel.Provenance == ProvenanceObserved {
-			observed[edge{rel.FromService, rel.ToService}] = true
+			observed[edge{rel.FromService, rel.ToService, rel.ToExternal}] = true
 			haveObservation = haveObservation || slices.ContainsFunc(rel.ObservedSources, func(s ObservedSourceStat) bool { return !undeclaredOnly[s.Source] })
 		}
 	}
@@ -2100,7 +2141,7 @@ func reconcileDeclared(snap *FleetSnapshot, undeclaredOnly map[string]bool) {
 			continue
 		}
 		switch {
-		case observed[edge{rel.FromService, rel.ToService}]:
+		case observed[edge{rel.FromService, rel.ToService, rel.ToExternal}]:
 			rel.Reconciliation = ReconciliationMatched
 		case !haveObservation:
 			rel.Reconciliation = ReconciliationInsufficient
@@ -2300,10 +2341,7 @@ func finalizeExternal(rec *ExternalRecord) {
 		rec.SourcesTotal += n
 	}
 	slices.SortFunc(rec.Sources, func(a, b ExternalSource) int {
-		if c := strings.Compare(string(a.Service), string(b.Service)); c != 0 {
-			return c
-		}
-		return a.Index - b.Index
+		return cmp.Or(strings.Compare(string(a.Service), string(b.Service)), strings.Compare(a.Kind, b.Kind), a.Index-b.Index)
 	})
 }
 

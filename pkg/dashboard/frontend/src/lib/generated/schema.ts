@@ -2808,11 +2808,11 @@ export interface components {
              */
             index: number;
             /**
-             * @description Where the evidence comes from
+             * @description Where the evidence comes from: a contract's dependency or a call a trace source saw
              * @enum {string}
              */
-            kind: "contract";
-            /** @description How the evidence was joined to the identity: identity, catalog-alias, host or normalized-name */
+            kind: "contract" | "observed";
+            /** @description How the evidence was joined to the identity: identity, catalog-alias, host, normalized-name or system (an OpenTelemetry system value) */
             match: string;
             /** @enum {string} */
             provenance: "declared" | "observed" | "inferred";
@@ -3550,7 +3550,7 @@ export interface components {
             resolvedRevision?: string;
             source?: string;
             to: string;
-            /** @description The canonical identity of the external system this ref-less external dependency joins; resolved stays false because no fleet service delivers it */
+            /** @description The canonical identity of the external system this ref-less external dependency or observed call joins; resolved stays false because no fleet service delivers it */
             toExternal?: string;
             toService?: string;
             type: string;

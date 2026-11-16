@@ -318,3 +318,47 @@ func TestService_Reconcile_FleetError(t *testing.T) {
 		t.Fatal("expected fleet build error")
 	}
 }
+
+// A trace callee the catalog names matches the external a contract declares
+// under the same key.
+func TestReconcileExternalCalleeMatchesDeclared(t *testing.T) {
+	web := fleet.NewServiceKeyDomain("eu", "web")
+	snap := &fleet.FleetSnapshot{
+		Services: map[fleet.ServiceKey]*fleet.ServiceRecord{web: {Name: "web"}},
+		Relationships: []fleet.Relationship{
+			{Type: fleet.RelationshipDependency, Provenance: fleet.ProvenanceDeclared, FromService: web, To: "stripe", External: true, ToExternal: "stripe"},
+		},
+	}
+	declared := declaredFromSnapshot(snap)
+	observed, _ := observedFromEdges(snap, []otelobserver.Edge{{From: "web", To: "api.stripe.com", Count: 1}})
+	want := "external:stripe"
+	if len(declared) != 1 || declared[0].Dependency != want || len(observed) != 1 || observed[0].Dependency != want {
+		t.Fatalf("declared = %+v, observed = %+v", declared, observed)
+	}
+	if rep := reconcile.Reconcile(declared, observed); rep.Summary.Matched != 1 {
+		t.Errorf("report = %+v", rep)
+	}
+}
+
+// TestFleet_TraceFileExternalCallee: a --traces span whose only callee is
+// api.stripe.com becomes an observed edge to stripe, with no unresolved
+// limitation naming it.
+func TestFleet_TraceFileExternalCallee(t *testing.T) {
+	root := t.TempDir()
+	writeLocalBundleWithDeps(t, filepath.Join(root, "payments-service"), "payments-service")
+	snap, err := NewService(nil, nil).Fleet(context.Background(), FleetOptions{
+		LocalRoots:         []string{root},
+		ObservationSources: TraceFileSources([]string{filepath.Join("..", "fleetsrc", "testdata", "traces-external-callee.json")}),
+	})
+	if err != nil {
+		t.Fatalf("Fleet: %v", err)
+	}
+	if len(snap.Relationships) != 1 || snap.Relationships[0].ToExternal != "stripe" || snap.Relationships[0].Provenance != fleet.ProvenanceObserved {
+		t.Fatalf("relationships = %+v", snap.Relationships)
+	}
+	for _, l := range snap.Limitations {
+		if l.Code == fleet.LimitationObservedIdentityUnresolved {
+			t.Errorf("limitation = %+v", l)
+		}
+	}
+}

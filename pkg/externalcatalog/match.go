@@ -4,6 +4,7 @@ import (
 	"net"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/trianalab/pacto/v4/pkg/externalid"
@@ -22,6 +23,9 @@ const (
 const (
 	KindHost    = "host"
 	KindKeyName = "keyName"
+	// KindSystem is an OpenTelemetry db.system, messaging.system or
+	// rpc.system value.
+	KindSystem = "system"
 )
 
 // Match is one external system a configuration value, a key name or an
@@ -132,6 +136,23 @@ func (c *Catalog) MatchKeyName(key string) (Match, bool) {
 		return Match{}, false
 	}
 	return Match{Identity: e.Identity, Class: e.Class, Confidence: ConfidencePossible, Kind: KindKeyName, Entry: string(e.Identity)}, true
+}
+
+// MatchOTel names the system an OpenTelemetry db.system, messaging.system or
+// rpc.system value names, compared exactly without case against the entries'
+// otel values. A protocol no entry claims (grpc) gives no match.
+func (c *Catalog) MatchOTel(value string) (Match, bool) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	e, ok := c.bestEntry(func(e Entry) int {
+		if slices.ContainsFunc(slices.Concat(e.OTel.DBSystem, e.OTel.MessagingSystem, e.OTel.RPCSystem), func(v string) bool { return strings.ToLower(v) == value }) {
+			return 1
+		}
+		return 0
+	})
+	if !ok {
+		return Match{}, false
+	}
+	return Match{Identity: e.Identity, Class: e.Class, Confidence: ConfidenceLikely, Kind: KindSystem, Entry: string(e.Identity)}, true
 }
 
 // bestEntry returns the entry with the highest positive score, the lower

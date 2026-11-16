@@ -39,6 +39,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/evidence"
+	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
 	"github.com/trianalab/pacto/v4/pkg/externalid"
 	"github.com/trianalab/pacto/v4/pkg/finding"
 	"github.com/trianalab/pacto/v4/pkg/lock"
@@ -804,9 +805,10 @@ type Relationship struct {
 	// is the free-text version an external dependency with no ref declares.
 	External bool   `json:"external,omitempty"`
 	Version  string `json:"version,omitempty"`
-	// ToExternal is the external system a ref-less external dependency joins
-	// (see [ExternalRecord]). Resolved stays false: no fleet service delivers it.
-	ToExternal ExternalKey `json:"toExternal,omitempty" doc:"The canonical identity of the external system this ref-less external dependency joins; resolved stays false because no fleet service delivers it"`
+	// ToExternal is the external system a ref-less external dependency or an
+	// observed call joins (see [ExternalRecord]). Resolved stays false: no
+	// fleet service delivers it.
+	ToExternal ExternalKey `json:"toExternal,omitempty" doc:"The canonical identity of the external system this ref-less external dependency or observed call joins; resolved stays false because no fleet service delivers it"`
 	// FoldedInto is set only on an answer: the other-egress node ToExternal is
 	// folded into when the answer names more than MaxExternalNodes external
 	// systems. ToExternal keeps the real identity.
@@ -858,9 +860,13 @@ const OtherEgress ExternalKey = externalid.Reserved
 // ClassOtherEgress is the class of the OtherEgress node.
 const ClassOtherEgress = "other-egress"
 
-// ExternalSourceContract is the kind of an [ExternalSource] that a contract's
-// dependencies declare.
-const ExternalSourceContract = "contract"
+// The kinds of an [ExternalSource].
+const (
+	// ExternalSourceContract is a dependency a contract declares.
+	ExternalSourceContract = "contract"
+	// ExternalSourceObserved is a runtime call a trace source saw.
+	ExternalSourceObserved = "observed"
+)
 
 // ExternalRecord is one external system: a vendor API, a managed cloud
 // resource or a legacy host that no contract in the fleet describes. Pacto
@@ -888,7 +894,7 @@ type ExternalRecord struct {
 
 // ExternalSource is one piece of evidence that names an external system.
 type ExternalSource struct {
-	Kind     string      `json:"kind" enum:"contract" doc:"Where the evidence comes from"`
+	Kind     string      `json:"kind" enum:"contract,observed" doc:"Where the evidence comes from: a contract's dependency or a call a trace source saw"`
 	Service  ServiceKey  `json:"service" doc:"The consumer"`
 	Revision RevisionKey `json:"revision,omitempty" doc:"The newest consumer revision that declares it"`
 	// Target is empty for a contract source.
@@ -898,7 +904,7 @@ type ExternalSource struct {
 	Version    string    `json:"version,omitempty" doc:"The free-text version the dependency declares"`
 	Required   bool      `json:"required,omitempty"`
 	Provenance string    `json:"provenance" enum:"declared,observed,inferred"`
-	Match      string    `json:"match" doc:"How the evidence was joined to the identity: identity, catalog-alias, host or normalized-name"`
+	Match      string    `json:"match" doc:"How the evidence was joined to the identity: identity, catalog-alias, host, normalized-name or system (an OpenTelemetry system value)"`
 }
 
 // ExternalCatalogMatch names the catalog entry that classified an external system.
@@ -921,8 +927,9 @@ type ExternalCatalogRef struct {
 }
 
 // missing reports whether a declared dependency failed to resolve in a way
-// worth reporting: an external one is not expected in the fleet.
-func (r Relationship) missing() bool { return !r.Resolved && !r.External }
+// worth reporting: an external one is not expected in the fleet, and an
+// observed call to an external system resolves to that system.
+func (r Relationship) missing() bool { return !r.Resolved && !r.External && r.ToExternal == "" }
 
 // ObservedSourceStat is one observation source's contribution to an observed
 // relationship: the calls it witnessed and the window it saw them in.
@@ -975,6 +982,10 @@ type FleetSnapshot struct {
 	// dependents, offering consumers and attention never count it. Readers of a
 	// revision's own references read both lists through declaredEdges.
 	templateEdges []Relationship
+
+	// catalog is the external catalog the snapshot was built with (see
+	// [FleetSnapshot.ObservedExternal]); nil means the embedded default.
+	catalog *externalcatalog.Catalog
 
 	// provisioningWindow is BuildOptions.FreshnessWindow: a provisioning report
 	// older than it (RecentEvidenceWindow when zero) is stale.
