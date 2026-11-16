@@ -24,7 +24,7 @@ pacto fleet search --local examples/demo/bundles --target-state examples/demo/fl
   http-service                 NotEvaluated owner=platform       domain=-            offering=-            revs=1 targets=0 golden path
   inventory-service            NotEvaluated owner=catalog-team   domain=fulfillment  offering=-            revs=4 targets=0
   loyalty-service              NotEvaluated owner=growth-team    domain=-            offering=-            revs=2 targets=0
-  newsletter-service           NotEvaluated owner=-              domain=-            offering=-            revs=1 targets=0
+  newsletter-service           NotEvaluated owner=-              domain=-            offering=-            revs=1 targets=0 (name inferred from chart/Chart.yaml:2)
   notification-worker          Unknown      owner=commerce-team  domain=-            offering=-            revs=1 targets=1
   orders-service               NonCompliant owner=commerce-team  domain=commerce     offering=-            revs=4 targets=2
   pacto-demo                   NotEvaluated owner=platform-foundations domain=-            offering=-            revs=1 targets=0
