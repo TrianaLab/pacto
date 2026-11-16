@@ -5,7 +5,7 @@
   import { shortDigest } from '../../lib/format.ts';
 
   // An external system's page: a system no Pacto contract describes, keyed by its
-  // canonical identity. Its class and catalog first, the services that declare it, then
+  // canonical identity. Its class and catalog first, the services that declare, call or use it, then
   // where each source recognized it. Pacto never observes an external's health, so the
   // page states none.
   let { detail } = $props();
@@ -29,7 +29,7 @@
     <p class="t-meta xe-line" data-testid="external-catalog" title={rec.catalog?.digest || undefined}>{catalogLine}</p>
   </section>
 
-  <PreviewSection title="Consumers" total={rec.consumersTotal ?? consumers.length} count={consumers.length} empty="No service you can see declares it.">
+  <PreviewSection title="Consumers" total={rec.consumersTotal ?? consumers.length} count={consumers.length} empty="No service you can see declares, calls or uses it.">
     <ul class="xe-consumers">
       {#each consumers as c (c.service.key)}
         <li class="xe-consumer">
