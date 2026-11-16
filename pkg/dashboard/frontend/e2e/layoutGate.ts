@@ -853,12 +853,15 @@ export function installScaleFixture(): void {
       return { status: 409, contentType: 'application/json', body: JSON.stringify({ status: 409, code: 'PlanStale',
         detail: 'the Stage moved since you planned; review the fresh plan and propose again', plan: JSON.parse(plan.body) }) };
     }
-    if (flags.__pactoAmbiguousTarget && method === 'GET' && route === '/api/fleet/entities/target'
-      && new URLSearchParams(path.split('?')[1] ?? '').get('key') === 'scale-ambiguous/kubernetes/payments') {
+    const ambiguousQuery = new URLSearchParams(path.split('?')[1] ?? '');
+    if (flags.__pactoAmbiguousTarget && method === 'GET' && ambiguousQuery.get('key') === 'scale-ambiguous/kubernetes/payments'
+      && (route === '/api/fleet/entities/target' || (route === '/api/fleet/neighborhood' && ambiguousQuery.get('kind') === 'target'))) {
       const errors = Array.from({ length: 6 }, (_, i) => {
         const uid = `${(0x9f1c4e2a + i * 7919).toString(16)}-7f1a-4c55-9d1e-2b8a4e6f0a1${i}`;
         return { location: 'candidates', value: `${uid}/scale-ambiguous/kubernetes/payments`, message: `${longName(`cluster-${i}`)} / scale-ambiguous / payments` };
       });
+      // A target with no known cluster keeps a key of its own under the `_` component.
+      errors.push({ location: 'candidates', value: '_/scale-ambiguous/kubernetes/payments', message: 'scale-ambiguous/kubernetes/payments (cluster unknown)' });
       return { status: 409, contentType: 'application/problem+json', body: JSON.stringify({ status: 409, title: 'Conflict',
         detail: 'this target key names targets in more than one cluster; choose one', errors }) };
     }
@@ -1512,7 +1515,15 @@ export const ROUTES: Route[] = [
     open: async (page) => {
       await page.evaluate(() => { (window as unknown as { __pactoAmbiguousTarget?: boolean }).__pactoAmbiguousTarget = true; });
       await page.goto('/#/fleet/targets/scale-ambiguous%2Fkubernetes%2Fpayments');
-      await expect(page.locator('[data-testid="target-key-chooser"] a')).toHaveCount(6, { timeout: 30_000 });
+      await expect(page.locator('[data-testid="target-key-chooser"] a')).toHaveCount(7, { timeout: 30_000 });
+    },
+  },
+  {
+    name: 'graph focus target key names more than one cluster',
+    open: async (page) => {
+      await page.evaluate(() => { (window as unknown as { __pactoAmbiguousTarget?: boolean }).__pactoAmbiguousTarget = true; });
+      await page.goto('/#/fleet/graph/target/scale-ambiguous%2Fkubernetes%2Fpayments');
+      await expect(page.locator('[data-testid="target-key-chooser"] a')).toHaveCount(7, { timeout: 30_000 });
     },
   },
   { name: 'owner entity', hash: '#/fleet/owners/team:catalog-team' },

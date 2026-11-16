@@ -31,15 +31,30 @@ test('a key that names targets in more than one cluster offers a chooser', async
   await page.addInitScript(installScaleFixture);
   await appReady(page);
   await page.evaluate(() => { (window as unknown as { __pactoAmbiguousTarget?: boolean }).__pactoAmbiguousTarget = true; });
-  await page.goto('/#/fleet/targets/scale-ambiguous%2Fkubernetes%2Fpayments');
+  await page.goto('/#/fleet/targets/scale-ambiguous%2Fkubernetes%2Fpayments?correlationID=INC-42');
   const chooser = page.getByTestId('target-key-chooser');
-  await expect(chooser).toContainText('This target key names targets in more than one cluster. Choose one:', { timeout: 30_000 });
+  await expect(chooser).toContainText('This target key names targets in more than one cluster; choose one.', { timeout: 30_000 });
   await expect(page.locator('h1').first()).toBeVisible();
   const links = chooser.locator('a');
-  await expect(links).toHaveCount(6);
+  await expect(links).toHaveCount(7);
   for (const a of await links.all()) {
     const key = await a.locator('bdi').textContent();
-    expect(key).toMatch(/^[0-9a-f-]+\/scale-ambiguous\/kubernetes\/payments$/);
-    expect(await a.getAttribute('href')).toBe(`#/fleet/targets/${encodeURIComponent(key ?? '')}`);
+    expect(key).toMatch(/^([0-9a-f-]+|_)\/scale-ambiguous\/kubernetes\/payments$/);
+    expect(await a.getAttribute('href')).toBe(`#/fleet/targets/${encodeURIComponent(key ?? '')}?correlationID=INC-42`);
+  }
+  // The target with no known cluster has a key of its own, so its link leaves the chooser.
+  await expect(chooser.getByText('scale-ambiguous/kubernetes/payments (cluster unknown)')).toBeVisible();
+});
+
+test('a graph focus on a key that names more than one cluster offers the candidates to focus', async ({ page }) => {
+  await page.addInitScript(installScaleFixture);
+  await appReady(page);
+  await page.evaluate(() => { (window as unknown as { __pactoAmbiguousTarget?: boolean }).__pactoAmbiguousTarget = true; });
+  await page.goto('/#/fleet/graph/target/scale-ambiguous%2Fkubernetes%2Fpayments');
+  const links = page.getByTestId('target-key-chooser').locator('a');
+  await expect(links).toHaveCount(7, { timeout: 30_000 });
+  for (const a of await links.all()) {
+    const key = await a.locator('bdi').textContent();
+    expect(await a.getAttribute('href')).toBe(`#/fleet/graph/target/${encodeURIComponent(key ?? '')}`);
   }
 });
