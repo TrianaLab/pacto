@@ -810,8 +810,8 @@ func printRevisionPlace(w io.Writer, r *fleet.RevisionDetailData) {
 		current = ", current"
 	}
 	_, _ = fmt.Fprintf(w, "Position: %d of %d revisions, newest first%s\n", r.Position, r.Revisions, current)
-	if r.PactoVersion != "" {
-		_, _ = fmt.Fprintf(w, "Pacto version: %s\n", r.PactoVersionText())
+	if v := r.PactoVersionText(); v != "" {
+		_, _ = fmt.Fprintf(w, "Pacto version: %s\n", v)
 	}
 	_, _ = fmt.Fprintf(w, "Targets: %d of the service's %d run this revision (%d exact, %d inferred)\n",
 		r.ExactTargets.Total+r.InferredTargets.Total, r.ServiceTargets, r.ExactTargets.Total, r.InferredTargets.Total)
