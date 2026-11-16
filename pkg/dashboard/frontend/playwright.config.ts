@@ -14,6 +14,16 @@ import { APP_PORT, DOC_PORT } from './e2e/ports';
 const DIST = '../../../examples/demo/dist';
 const DOC_DIST = '../../../examples/demo/.doc-export';
 
+// PW_LEG splits the suite by weight for CI (make test-browser PW_LEG=...): the two
+// layout gates are about 80% of the browser minutes, so sharding by test count put
+// slow layout tests next to fast ones and left the shards unbalanced. `layout` runs
+// only the layout specs, `rest` runs everything else; unset runs the whole suite.
+// The two legs partition the suite, so every spec runs exactly once.
+const LAYOUT = /[\\/]layout(-matrix)?\.spec\.ts$/;
+const MOBILE = /mobile\.spec\.ts/;
+const leg = process.env.PW_LEG;
+if (leg && leg !== 'layout' && leg !== 'rest') throw new Error(`PW_LEG=${leg}: want layout or rest`);
+
 export default defineConfig({
   testDir: './e2e',
   timeout: 30_000,
@@ -33,8 +43,12 @@ export default defineConfig({
     screenshot: 'only-on-failure',
   },
   projects: [
-    { name: 'desktop', use: { ...devices['Desktop Chrome'] }, testIgnore: /mobile\.spec\.ts/ },
-    { name: 'mobile', use: { ...devices['Pixel 5'] }, testMatch: /mobile\.spec\.ts/ },
+    {
+      name: 'desktop',
+      use: { ...devices['Desktop Chrome'] },
+      ...(leg === 'layout' ? { testMatch: LAYOUT } : { testIgnore: leg === 'rest' ? [MOBILE, LAYOUT] : MOBILE }),
+    },
+    ...(leg === 'layout' ? [] : [{ name: 'mobile', use: { ...devices['Pixel 5'] }, testMatch: MOBILE }]),
   ],
   webServer: [
     {

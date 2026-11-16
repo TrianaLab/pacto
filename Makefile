@@ -169,9 +169,13 @@ e2e-otel: test-acceptance-local
 # and liveness are different properties and a merged suite proves neither.
 #
 # PW_SHARD=i/n runs one Playwright slice (CI shards the suite to fit its timeout).
+# PW_LEG=layout|rest picks the layout specs or everything else (playwright.config.ts),
+# so CI shards each leg by its own weight; unset runs the whole suite.
 # Every shard builds the demo and the doc export it needs; the engine smoke runs
-# only when PW_SHARD is unset or names shard 1, so it is neither duplicated nor dropped.
+# only outside the layout leg when PW_SHARD is unset or names shard 1, so it is
+# neither duplicated nor dropped.
 PW_SHARD ?=
+PW_LEG ?=
 test-browser:
 	$(MAKE) -C examples/demo build
 # The legacy non-Fleet views ship in the same bundle but no live host serves them:
@@ -186,8 +190,8 @@ test-browser:
 # check -- `impact <old>→<new> is BREAKING` -- which fails the moment a republish
 # stops the two compared revisions from differing incompatibly. Before Playwright,
 # because a broken engine makes the browser failures downstream noise.
-	$(if $(filter-out 1/%,$(PW_SHARD)),@echo "engine smoke runs in shard 1 only; skipped in shard $(PW_SHARD)",$(MAKE) -C examples/demo smoke)
-	cd pkg/dashboard/frontend && npm ci --ignore-scripts && npx playwright install chromium && npm run test:e2e$(if $(PW_SHARD), -- --shard=$(PW_SHARD))
+	$(if $(filter layout,$(PW_LEG))$(filter-out 1/%,$(PW_SHARD)),@echo "engine smoke runs in shard 1 of the rest leg only; skipped in $(PW_LEG) shard $(PW_SHARD)",$(MAKE) -C examples/demo smoke)
+	cd pkg/dashboard/frontend && npm ci --ignore-scripts && npx playwright install chromium && PW_LEG=$(PW_LEG) npm run test:e2e$(if $(PW_SHARD), -- --shard=$(PW_SHARD))
 e2e-dashboard-wasm: test-browser
 
 # The full SPEC 23 resolution matrix: every named viewport from a 320px phone to a
