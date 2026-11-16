@@ -1,6 +1,7 @@
 package release
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -118,18 +119,26 @@ print("cli", m.cli_attested())
 
 const lastSupplyChainVerdict = `
 m.SUPPLY_CHAIN_DOC = sys.argv[2]
+if len(sys.argv) > 3:
+    m.OPERATOR_README = sys.argv[3]
 m.check_supply_chain()
 ok, name, detail = m.ledger[-1]
 print("OK" if ok else "FAIL", name, "--", detail)
 `
 
-func supplyChainVerdict(t *testing.T, doc string) string {
+// supplyChainVerdict runs check (n) on doc and, when given, an operator README.
+func supplyChainVerdict(t *testing.T, doc string, readme ...string) string {
 	t.Helper()
-	p := filepath.Join(t.TempDir(), "installation.md")
-	if err := os.WriteFile(p, []byte(doc), 0o600); err != nil {
-		t.Fatal(err)
+	dir := t.TempDir()
+	args := []string{}
+	for i, body := range append([]string{doc}, readme...) {
+		p := filepath.Join(dir, fmt.Sprintf("doc%d.md", i))
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		args = append(args, p)
 	}
-	return lastLine(runDocsCheck(t, lastSupplyChainVerdict, p))
+	return lastLine(runDocsCheck(t, lastSupplyChainVerdict, args...))
 }
 
 // lastLine drops what record() printed on the way.
@@ -171,6 +180,12 @@ func TestDocsSupplyChainCheckBitesOnAMissingClaim(t *testing.T) {
 				"--signer-workflow TrianaLab/pacto/.github/workflows/release.yml"),
 			"refs/heads/main",
 		},
+	}
+	readme := readFile(t, repoRoot(t), "integrations", "kubernetes", "README.md")
+	if bad := strings.ReplaceAll(readme, "release.yml@refs/heads/main", "release.yml"); bad == readme {
+		t.Error("README without the main ref: the mutation changed nothing; the README moved")
+	} else if out := supplyChainVerdict(t, doc, bad); !strings.HasPrefix(out, "FAIL ") || !strings.Contains(out, "refs/heads/main") {
+		t.Errorf("README without the main ref: check (n) = %s, want a failure naming refs/heads/main", out)
 	}
 	for name, c := range cases {
 		if c.doc == doc {

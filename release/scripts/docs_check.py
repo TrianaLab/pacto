@@ -748,6 +748,7 @@ def check_placeholders() -> None:
 
 RELEASE_YML = os.path.join(REPO_ROOT, ".github", "workflows", "release.yml")
 SUPPLY_CHAIN_DOC = os.path.join(REPO_ROOT, "docs", "installation.md")
+OPERATOR_README = os.path.join(REPO_ROOT, "integrations", "kubernetes", "README.md")
 COORD = re.compile(r"ghcr\.io/[a-z0-9._/-]+")
 
 
@@ -896,11 +897,13 @@ def check_supply_chain() -> None:
 
     # Every documented verify command must pin the release workflow on main:
     # a bare --signer-workflow accepts an attestation from any branch run.
-    commands = [l.strip() for l in re.sub(r"\\\n\s*", " ", text).splitlines()
+    def verify_commands(doc: str) -> list[str]:
+        return [l.strip() for l in re.sub(r"\\\n\s*", " ", doc).splitlines()
                 if l.lstrip().startswith("gh attestation verify")]
+    commands = verify_commands(text)
     if (real_attested or cli_real) and not commands:
         problems.append("release.yml attests but docs/installation.md shows no gh attestation verify command")
-    for c in commands:
+    for c in commands + verify_commands(read(OPERATOR_README)):
         if VERIFY_IDENTITY not in c:
             problems.append(f"'{c[:60]}...' does not pin the release.yml@refs/heads/main identity")
 
