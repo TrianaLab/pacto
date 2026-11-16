@@ -825,13 +825,13 @@ export function installScaleFixture(): void {
       const limit = Math.min(100, Number(q.get('limit') ?? 25) || 25);
       return { ...env, total, items: Array.from({ length: Math.max(0, Math.min(limit, total - offset)) }, (_, j) => statsRecord(metric, environment, offset + j)) };
     }
-    if (mode === 'none') return { ...env, runs: 0, distinctChanges: 0, environmentOrder: 'name', environments: [], services: [], servicesTotal: 0, buckets: [], environmentsBy: { owner: [], domain: [] } };
+    if (mode === 'none') return { ...env, runs: 0, distinctChanges: 0, environmentOrder: 'name', environments: [], services: [], servicesTotal: 0, buckets: [], environmentsBy: { owner: [], domain: [] }, leadTimeGroups: [] };
     const sOffset = Math.max(0, Number(q.get('servicesOffset') ?? 0) || 0), sLimit = Math.min(100, Number(q.get('servicesLimit') ?? 25) || 25);
     const restricted = mode === 'restricted';
     return {
       ...env, runs: 1180, distinctChanges: 860, environmentOrder: 'stages', environments: STATS_ENVS,
       totals: { breakingCaught: { distinct: 37, runs: 90 }, consumersProtected: { count: 120, unknown: 4, partial: 1 }, gates: STATS_GATES, environments: STATS_ENVS },
-      services: Array.from({ length: Math.max(0, Math.min(sLimit, 2000 - sOffset)) }, (_, j) => statsServiceRow(sOffset + j)), servicesTotal: 2000, environmentsBy: { owner: [], domain: [] },
+      services: Array.from({ length: Math.max(0, Math.min(sLimit, 2000 - sOffset)) }, (_, j) => statsServiceRow(sOffset + j)), servicesTotal: 2000, environmentsBy: { owner: [], domain: [] }, leadTimeGroups: [],
       buckets: statsBuckets(new Date(env.window.since), new Date(env.window.until), restricted),
       coverageNow: restricted ? { ...coverageOf(new Date(), false), services: 300, knowledge: { services: 300, described: 200, withGaps: 60, unknown: 40, notDeployed: 12 } } : coverageOf(new Date(), true),
     };

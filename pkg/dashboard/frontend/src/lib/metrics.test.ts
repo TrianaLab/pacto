@@ -19,7 +19,7 @@ const answer = (extra: Record<string, unknown> = {}): any => ({
     env('staging', [2, 10], { leadTime: { p50Seconds: 12_000, p90Seconds: 90_000, joined: 4, unjoined: 0 } }),
     env('production', [1, 30]),
   ],
-  services: [], servicesTotal: 0, totals: metrics(), environmentsBy: { owner: [], domain: [] },
+  services: [], servicesTotal: 0, totals: metrics(), environmentsBy: { owner: [], domain: [] }, leadTimeGroups: [],
   buckets: [
     { since: '2026-10-16T10:00:00Z', until: '2026-10-18T10:00:00Z', days: 2, partial: true },
     { since: '2026-10-18T10:00:00Z', until: '2026-10-25T10:00:00Z', days: 7, metrics: metrics() },

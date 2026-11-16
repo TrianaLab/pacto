@@ -65,9 +65,6 @@ var deadCodeAllowlist = map[string]string{
 	"pkg/signing.GetPublicKeyPem":     sigstoreKeypair,
 	"pkg/signing.GetSigningAlgorithm": sigstoreKeypair,
 
-	"pkg/runrecord/stats.LeadTimesIn": "caller lands in P3 of the same PR: the dashboard's pooled " +
-		"leadTimeGroups; remove this entry then",
-
 	"pkg/dashboard.GetStatus": "huma's StatusError: huma reads the HTTP status of a refusal a handler returns " +
 		"through that interface, never by name",
 
