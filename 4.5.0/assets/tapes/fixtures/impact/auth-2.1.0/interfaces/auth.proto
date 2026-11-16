@@ -1,0 +1,4 @@
+syntax = "proto3";
+package auth.v1;
+service Auth { rpc Verify(Token) returns (Token); }
+message Token { string value = 1; }

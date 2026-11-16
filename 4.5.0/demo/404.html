@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pacto Dashboard</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 24 24' fill='none' stroke='%23818cf8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 6 5 12 10 18'/%3E%3Cpath d='M14 6 19 12 14 18'/%3E%3Ccircle cx='12' cy='12' r='1.9' fill='%23818cf8' stroke='none'/%3E%3C/svg%3E" />
+  <!-- Before first paint, so the saved theme never flashes. A file, not inline,
+       so the Content-Security-Policy needs no inline script. -->
+  <script src="./theme.js"></script>
+  <script src="./tour.js?v=2be6094b1012"></script>
+  <script src="./tours.js?v=2be6094b1012"></script>
+  <script src="./boot.js?v=2be6094b1012"></script>
+  <script type="module" crossorigin src="./assets/index-Bv2rinBj.js"></script>
+  <link rel="modulepreload" crossorigin href="./assets/format-9hQKvi37.js">
+  <link rel="modulepreload" crossorigin href="./assets/api-CsmkzGYm.js">
+  <link rel="modulepreload" crossorigin href="./assets/IdentityBadge-DVzQAiam.js">
+  <link rel="modulepreload" crossorigin href="./assets/figure-oh-6dlPd.js">
+  <link rel="stylesheet" crossorigin href="./assets/IdentityBadge-CdlPQqyi.css">
+  <link rel="stylesheet" crossorigin href="./assets/index-CsdPdg2n.css">
+</head>
+<body>
+  <div id="app"></div>
+  <noscript>
+    <div style="max-width:40rem;margin:0 auto;padding:4rem 1.5rem;color:var(--c-text,#f1f5f9);font-family:system-ui,sans-serif;line-height:1.6">
+      <h1 style="font-size:1.5rem;margin:0 0 1rem">Pacto dashboard demo</h1>
+      <p>This demo has no backend. The Pacto engine is compiled to WebAssembly and runs inside this tab, so it needs JavaScript enabled. Nothing you do in it leaves your browser.</p>
+      <p><a href="../examples/dashboard-demo/" style="color:var(--c-accent,#818cf8)">Read what the demo shows</a> — the same tour in prose, no JavaScript required.</p>
+    </div>
+  </noscript>
+</body>
+</html>

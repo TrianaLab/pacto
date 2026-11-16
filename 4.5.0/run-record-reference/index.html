@@ -1,0 +1,5901 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Pacto tells you which services a change breaks before it ships, and checks what is actually running.">
+      
+      
+      
+        <link rel="canonical" href="https://pacto.run/4.5.0/run-record-reference/">
+      
+      
+        <link rel="prev" href="../publishing/">
+      
+      
+        <link rel="next" href="../dashboard-service-page/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../favicon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Run record reference - Pacto</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#run-record-reference" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+          <aside class="md-banner md-banner--warning">
+            <div class="md-banner__inner md-grid md-typeset">
+              
+  You are viewing an old version of these docs.
+  <a href="../.."><strong>Go to the latest version.</strong></a>
+
+            </div>
+            <script>var el=document.querySelector("[data-md-component=outdated]"),base=new URL("..",location),outdated=__md_get("__outdated",sessionStorage,base);!0===outdated&&el&&(el.hidden=!1)</script>
+          </aside>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Pacto" class="md-header__button md-logo" aria-label="Pacto" data-md-component="logo">
+      
+  <img src="../assets/images/logo.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Pacto
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Run record reference
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to system preference"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to system preference" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/TrianaLab/pacto" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    TrianaLab/pacto
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../why-pacto/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Get started
+
+        </a>
+      </li>
+    
+  
+
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../developers/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../integrations/kubernetes/delivery/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  How Pacto decides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../autonomy-reference/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../changelog/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Changelog
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Pacto" class="md-nav__button md-logo" aria-label="Pacto" data-md-component="logo">
+      
+  <img src="../assets/images/logo.svg" alt="logo">
+
+    </a>
+    Pacto
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/TrianaLab/pacto" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    TrianaLab/pacto
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Get started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Get started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_1" id="__nav_2_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What Pacto is
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    What Pacto is
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../why-pacto/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Why Pacto
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../autonomy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The autonomy ladder
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../manifesto/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Manifesto and GitlessOps
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../comparison/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How Pacto relates to other tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../glossary/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Glossary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_2" id="__nav_2_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Try it
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Try it
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/dashboard-demo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Live dashboard demo
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/demo-tour/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guided tour
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/compose-demo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Run it locally
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/kubernetes-demo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Try it on Kubernetes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_3" id="__nav_2_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pactify your first service
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Pactify your first service
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../bootstrap-contracts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Generate contracts from what you already have
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ci/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Put it in your repository
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pactify/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pactify a service
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pactify-decide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Approve or unblock a change
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../verify-a-record/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verify a record
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp-integration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Drive Pacto from an agent
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../examples/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../developers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    For developers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../platform-engineers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    For platform engineers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ask-your-organization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ask questions about your organization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../investigate-a-problem/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Investigate a problem with Mira
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../provision-infrastructure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Provision infrastructure through contracts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../golden-paths/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Create a service from a golden path
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../patterns/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Composition patterns
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../github-actions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CI with GitHub Actions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../measure-what-pacto-does/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Measure what Pacto does
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How Pacto decides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    How Pacto decides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/delivery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How delivery works
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../operational-graph/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operational graph
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../fleet-tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Fleet views
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../impact/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Impact analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../impact-consumers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Impact consumers and evidence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../impact-what-if/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ask what happens if
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../runtime-conformance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What runtime conformance checks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../runtime-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Run a command under Pacto
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../runtime-agent/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Watch a host with pacto agent
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../autonomy-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ladder reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../operational-graph-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operational graph reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../operational-graph-tallies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operational graph tallies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../platform-offerings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Platform offerings reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../offering-availability/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Offering availability and lifecycle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../golden-paths-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Golden paths reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_7" id="__nav_5_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    MCP reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp-delivery-tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP publish and delivery tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../publishing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Publish reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Run record reference
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Run record reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#turn-recording-on" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Turn recording on
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#who-can-read-records" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Who can read records
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Layout
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fields
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Fields">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#operation-records" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Operation records
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#coverage-records" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Coverage records
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#impact-gate-codes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Impact gate codes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#context-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Context fields
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#registries-without-native-referrers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Registries without native Referrers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#record-in-ci" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Record in CI
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#prune-records" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prune records
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-stats-answer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The stats answer
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The stats answer">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Metrics
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_10" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_10" id="__nav_5_10_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dashboard reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_10_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_10">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Dashboard reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dashboard-service-page/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The service page
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../service-changes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A service's changes and history
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/dashboard-authentication/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dashboard authentication
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/dashboard-access/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Who sees what in the dashboard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dashboard-docker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dashboard container
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_11" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_11" id="__nav_5_11_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Delivery reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_11_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_11">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Delivery reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/delivery-identity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Approvals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/delivery-agents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/delivery-records/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Signed records and history
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/delivery-record-keys/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Record keys
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/delivery-run-records/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Run records
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/delivery-setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Setup and gates
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/delivery-operations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plan, propose and approve
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/delivery-status/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Status, progress and lifecycle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/delivery-health/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Health checks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/delivery-evals/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Eval providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/delivery-reach/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Argo CD and several clusters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/delivery-security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_12" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../contract-reference/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contract reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5_12" id="__nav_5_12_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_12_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_12">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Contract reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contract-reference/sections/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contract sections
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contract-reference/configuration-and-policy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration and policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contract-reference/dependencies-and-state/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dependencies and state
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contract-reference/readiness/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Readiness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contract-reference/publish/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Publish
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contract-reference/checks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Checks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contract-reference/environments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Environments
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contract-reference/validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation layers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contract-reference/overrides/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overrides
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contract-reference/diff/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Change classification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../lockfile/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Lockfile
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pactoignore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Packaging ignore
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../evidence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Evidence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../provider-reports/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Provider reports
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugin development
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_19" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_19" id="__nav_5_19_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Kubernetes
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_19_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_19">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Kubernetes
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install the operator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart profile
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Kubernetes overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/limitations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Limitations and opt-in features
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/runtime-conformance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Runtime conformance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/evidence-server/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Evidence Server
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/upgrade/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Upgrade the operator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/gitops/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitOps promotion gates
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/crd-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CRD reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/helm-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Helm reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/rbac/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RBAC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/operator-configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operator configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/contract-bindings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contract bindings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/runtime-observations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Runtime observations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/field-coverage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Field coverage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/artifact-hub/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Published artifacts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Changelog
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../maintainers/releases-abandoned/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Abandoned releases
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#turn-recording-on" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Turn recording on
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#who-can-read-records" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Who can read records
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Layout
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fields
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Fields">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#operation-records" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Operation records
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#coverage-records" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Coverage records
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#impact-gate-codes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Impact gate codes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#context-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Context fields
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#registries-without-native-referrers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Registries without native Referrers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#record-in-ci" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Record in CI
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#prune-records" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prune records
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-stats-answer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The stats answer
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The stats answer">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Metrics
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+  <nav class="md-path" aria-label="Navigation" >
+    <ol class="md-path__list">
+      
+        
+  
+  
+    <li class="md-path__item">
+      <a href=".." class="md-path__link">
+        
+  <span class="md-ellipsis">
+    Home
+  </span>
+
+      </a>
+    </li>
+  
+
+      
+      
+        
+  
+  
+    
+    
+      <li class="md-path__item">
+        <a href="../autonomy-reference/" class="md-path__link">
+          
+  <span class="md-ellipsis">
+    Reference
+  </span>
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ol>
+  </nav>
+
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/TrianaLab/pacto/edit/main/docs/run-record-reference.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="run-record-reference">Run record reference<a class="headerlink" href="#run-record-reference" title="Anchor link">&para;</a></h1>
+<p>A run record is a small JSON document that <code>pacto diff</code>, <code>pacto impact</code> and
+<code>pacto publish</code> can leave behind in CI to count what Pacto catches. <a href="../measure-what-pacto-does/">Measure what Pacto does</a>
+shows how to turn recording on and read the totals. Records are
+unsigned statistics, never evidence: nothing in Pacto that validates, diffs,
+analyzes impact, publishes or delivers reads them. Only <code>pacto stats</code>, the
+read-only MCP tool <code>pacto_stats</code> and the dashboard's Metrics page read them
+back, to <a href="#the-stats-answer">total them</a>. Recording is opt-in and best effort. A problem with recording prints one
+warning line on stderr, and the exit code and stdout stay the same as a run
+without recording. MCP tools never record. <code>pacto impact</code> event answers
+(<code>--unavailable</code>, <code>--removed</code> and <code>--regressed</code>) and <code>pacto publish --plan</code>
+record nothing, and neither does a run that could not produce a result.</p>
+<h2 id="turn-recording-on">Turn recording on<a class="headerlink" href="#turn-recording-on" title="Anchor link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Environment variable</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--stats-registry</code></td>
+<td><code>PACTO_STATS_REGISTRY</code></td>
+<td>publishes the record to this repository, for example <code>ghcr.io/acme/pacto-stats</code></td>
+</tr>
+<tr>
+<td><code>--stats-file</code></td>
+<td><code>PACTO_STATS_FILE</code></td>
+<td>writes the record to this file, for a later <code>pacto stats publish</code></td>
+</tr>
+<tr>
+<td><code>--stats-context</code></td>
+<td>none</td>
+<td>adds the <a href="#context-fields">context fields</a> it names</td>
+</tr>
+</tbody>
+</table>
+<p>A flag takes precedence over its environment variable. The repository is never
+defaulted, and these settings are never read from <code>pacto.yaml</code>. Credentials and
+insecure registries come from the same settings every other registry command
+uses (<code>PACTO_INSECURE_REGISTRIES</code> lists registries reached over plain HTTP).
+An empty flag, such as <code>--stats-file=</code>, turns its environment variable off for
+that command. A file holds one record. <code>--stats-file</code>:</p>
+<ul>
+<li>replaces the record a file already holds, with a warning;</li>
+<li>writes an empty file like a missing one;</li>
+<li>refuses to overwrite a file that holds something other than a run record.</li>
+</ul>
+<p><code>PACTO_STATS_FILE</code> applies to every recording command in the job, so give each
+command its own file with <code>--stats-file</code> when a job runs more than one.</p>
+<p>Recording prints one of these lines on stderr:</p>
+<ul>
+<li><code>pacto: run record published to &lt;repo&gt;@&lt;digest&gt; (unsigned statistics)</code></li>
+<li><code>pacto: run record written to &lt;path&gt;</code></li>
+<li><code>pacto: warning: run record not published: &lt;reason&gt;</code></li>
+<li><code>pacto: warning: run record not written: &lt;reason&gt;</code></li>
+<li><code>pacto: warning: replaced the run record of &lt;kind&gt; &lt;service&gt; in &lt;path&gt;</code></li>
+</ul>
+<p>A <code>diff</code> or <code>impact</code> run whose bundle digest cannot be computed records nothing
+and says <code>run record not written: could not compute the bundle digest</code>.</p>
+<p><code>pacto stats publish &lt;file...&gt;</code> publishes record files to <code>--registry</code> (or
+<code>PACTO_STATS_REGISTRY</code>). It tries every file, prints the kind, service and id
+of each record it publishes, and exits <code>1</code> when any file could not be read,
+parsed or published. It rejects a record whose <code>id</code> does not match its kind,
+service and revisions.</p>
+<h2 id="who-can-read-records">Who can read records<a class="headerlink" href="#who-can-read-records" title="Anchor link">&para;</a></h2>
+<p>Anyone with pull access to the stats repository can list every recorded service
+name and its consumer counts with plain <code>oras discover</code>. That listing bypasses
+the restricted views of the dashboard and the fleet tools. Use a dedicated
+repository whose pull access matches who may see the whole fleet. A bundle
+repository is a poor fit, because its readers are usually every consumer of
+the service.</p>
+<p>The job that runs <code>pacto stats publish</code> vouches for the contents of each file
+with its own credentials. The <code>id</code> check stops a forged <code>id</code>, and nothing stops
+a forged service name or count. Publish only files written by trusted jobs, and
+never publish files from untrusted (fork) jobs into a repository others read.</p>
+<h2 id="layout">Layout<a class="headerlink" href="#layout" title="Anchor link">&para;</a></h2>
+<p>Each service has one anchor in the stats repository, and each record is an OCI
+referrer of that anchor. Records sit next to bundles and never inside them.</p>
+<table>
+<thead>
+<tr>
+<th>Part</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Anchor artifact type</td>
+<td><code>application/vnd.pacto.stats.v1</code></td>
+</tr>
+<tr>
+<td>Anchor layer</td>
+<td><code>application/vnd.pacto.stats.v1+json</code>, holding <code>{"stats":"&lt;service&gt;"}</code></td>
+</tr>
+<tr>
+<td>Anchor tag</td>
+<td><code>pacto-stats-&lt;hex sha256 of the service name&gt;</code></td>
+</tr>
+<tr>
+<td>Record artifact type</td>
+<td><code>application/vnd.pacto.run.v1</code></td>
+</tr>
+<tr>
+<td>Record layer</td>
+<td><code>application/vnd.pacto.run.v1+json</code>, holding the encoded record (at most 64 KiB)</td>
+</tr>
+<tr>
+<td>Record annotation</td>
+<td><code>dev.pacto.recorded-at</code>: the record's <code>recordedAt</code>, an unsigned ordering hint</td>
+</tr>
+</tbody>
+</table>
+<p>The tag keeps a registry that collects untagged manifests from deleting the
+anchor. The <code>pacto-stats-</code> prefix keeps Pacto's anchors apart from other tools'
+tags in a shared repository. Publishing the same record again changes nothing.</p>
+<h2 id="fields">Fields<a class="headerlink" href="#fields" title="Anchor link">&para;</a></h2>
+<p>Every record has <code>version</code>, <code>id</code>, <code>kind</code>, <code>service</code>, <code>pactoVersion</code> and
+<code>recordedAt</code>, and every record other than a coverage record has <code>outcome</code>. The other keys appear only where the table says.</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Type</th>
+<th>Present</th>
+<th>Holds</th>
+<th>Personal data</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>version</code></td>
+<td>string</td>
+<td>always</td>
+<td><code>pacto.trianalab.io/run-record/v1</code></td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>id</code></td>
+<td>string</td>
+<td>always</td>
+<td><code>sha256:</code> and the hex SHA-256 of <code>kind</code>, <code>service</code>, <code>oldRevision</code> and <code>newRevision</code> joined by vertical bars: the distinct-change key, so reruns of one change share it. On an <code>operation</code> record, the operation's Kubernetes UID</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>kind</code></td>
+<td>string</td>
+<td>always</td>
+<td><code>diff</code>, <code>impact</code> or <code>publish</code>, <code>operation</code> for an <a href="#operation-records">operation record</a> or <code>coverage</code> for a <a href="#coverage-records">coverage record</a></td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>service</code></td>
+<td>string</td>
+<td>always</td>
+<td>the contract's <code>service.name</code>; for <code>diff</code> and <code>impact</code>, the name in the new revision, so a renamed service records under its new name</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>oldRevision</code></td>
+<td>string</td>
+<td>when known</td>
+<td><code>diff</code> and <code>impact</code>: the old bundle's digest. <code>publish</code>: the highest published version below this one</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>newRevision</code></td>
+<td>string</td>
+<td>when known</td>
+<td><code>diff</code> and <code>impact</code>: the new bundle's digest. <code>publish</code>: the version being published</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>bundleDigest</code></td>
+<td>string</td>
+<td><code>publish</code>, when it did not fail</td>
+<td>the digest of the published bundle</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>deployDigest</code></td>
+<td>string</td>
+<td><code>publish</code>, when it did not fail</td>
+<td>the digest of the published deploy artifact</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>classification</code></td>
+<td>string</td>
+<td>when computed</td>
+<td><code>NON_BREAKING</code>, <code>POTENTIAL_BREAKING</code> or <code>BREAKING</code></td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>gate</code></td>
+<td>object</td>
+<td><code>impact</code>, refused <code>publish</code></td>
+<td>the gate the run reached</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>gate.verdict</code></td>
+<td>string</td>
+<td>with <code>gate</code></td>
+<td><code>impact</code>: <code>clear</code>, <code>blocked</code> or <code>unverified</code>. <code>publish</code>: <code>refused</code></td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>gate.reason</code></td>
+<td>string</td>
+<td>with <code>gate</code></td>
+<td><code>impact</code>: a <a href="#impact-gate-codes">gate code</a>. <code>publish</code>: the first failed check (<code>version</code>, <code>sign</code>, <code>refs</code>, <code>sbom</code>, <code>revision</code>, <code>validation</code> or <code>publish</code>), else <code>conflict</code> or <code>unreadable</code></td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>consumers</code></td>
+<td>object</td>
+<td><code>impact</code></td>
+<td>consumer counts of the change</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>consumers.incompatible</code></td>
+<td>integer</td>
+<td>with <code>consumers</code></td>
+<td>consumers whose declared range or required guarantee rejects the new version, running or not</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>consumers.unknown</code></td>
+<td>integer</td>
+<td>with <code>consumers</code></td>
+<td>consumers the evidence could not classify</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>consumers.compatible</code></td>
+<td>integer</td>
+<td>with <code>consumers</code></td>
+<td>consumers whose declared range accepts the new version; a <code>BREAKING</code> change can still break them</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>consumers.unclassified</code></td>
+<td>integer</td>
+<td>with <code>consumers</code></td>
+<td>consumers with no recognised verdict</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>consumers.blocking</code></td>
+<td>integer</td>
+<td>with <code>consumers</code></td>
+<td>consumers that hold the gate: incompatible and running on a known target</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>completeness</code></td>
+<td>string</td>
+<td><code>impact</code></td>
+<td><code>complete</code>, <code>partial</code> or <code>empty</code>: how complete the snapshot behind the counts was</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>asOf</code></td>
+<td>string</td>
+<td><code>impact</code></td>
+<td>the snapshot's time, RFC 3339 in UTC at full precision, equal to the <code>asOf</code> of the impact answer</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>outcome</code></td>
+<td>string</td>
+<td>except on a coverage record</td>
+<td><code>diff</code> and <code>impact</code>: <code>passed</code>, <code>failed</code> or <code>unverified</code>. <code>publish</code>: <code>published</code>, <code>unchanged</code>, <code>refused</code> or <code>failed</code></td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>pactoVersion</code></td>
+<td>string</td>
+<td>always</td>
+<td>the Pacto release that wrote the record, for example <code>4.6.0</code> or <code>dev</code>. It is distinct from the contract's <code>pactoVersion</code></td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>recordedAt</code></td>
+<td>string</td>
+<td>always</td>
+<td>when the record was written, RFC 3339 in UTC to the second</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>repository</code></td>
+<td>string</td>
+<td>when named</td>
+<td>see <a href="#context-fields">context fields</a></td>
+<td>only when listed in <code>--stats-context</code></td>
+</tr>
+<tr>
+<td><code>ciRunUrl</code></td>
+<td>string</td>
+<td>when named</td>
+<td>see <a href="#context-fields">context fields</a></td>
+<td>only when listed in <code>--stats-context</code></td>
+</tr>
+<tr>
+<td><code>environment</code></td>
+<td>string</td>
+<td>when named</td>
+<td>see <a href="#context-fields">context fields</a>; on an operation record, the environment its Stage delivers to</td>
+<td>only when listed in <code>--stats-context</code>; on an operation record, its Stage's environment</td>
+</tr>
+</tbody>
+</table>
+<p>The four consumer counts <code>incompatible</code>, <code>unknown</code>, <code>compatible</code> and
+<code>unclassified</code> split the consumers with no overlap, so a reader never has to
+subtract one count from another. The counts come from declared ranges and
+guarantees; none of them is observed runtime behaviour. An <code>unknown</code> consumer is
+never counted as safe. <code>blocking</code> is a subset of <code>incompatible</code>. Read the counts together with
+<code>completeness</code> and <code>asOf</code>: a count from a partial snapshot is a lower bound.</p>
+<p>A bundle digest is the digest of the content compared. With <code>--old-set</code>,
+<code>--new-set</code>, <code>--old-values</code> or <code>--new-values</code>, that content is the overridden
+bundle, so its digest names no published bundle.</p>
+<p>A record never holds a person's name, an email address, a token or any
+environment variable it does not name here.</p>
+<h3 id="operation-records">Operation records<a class="headerlink" href="#operation-records" title="Anchor link">&para;</a></h3>
+<p>The delivery promoter writes an <code>operation</code> record for each delivery operation
+it concludes. Its <code>id</code> is the operation's Kubernetes UID: a record published
+twice is two referrers with one <code>id</code>, which readers count once. Its <code>outcome</code> is the operation's outcome: <code>Succeeded</code>,
+<code>Failed</code>, <code>Errored</code>, <code>Cancelled</code>, <code>Expired</code>, <code>Rejected</code>, <code>Superseded</code> or
+<code>Witnessed</code>. An operation record never holds the CI-only keys above
+(<code>oldRevision</code> through <code>asOf</code>, <code>repository</code> and <code>ciRunUrl</code>), and a CI record
+never holds the keys below.</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Type</th>
+<th>Present</th>
+<th>Holds</th>
+<th>Personal data</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>type</code></td>
+<td>string</td>
+<td>always</td>
+<td>the last segment of the operation type, such as <code>promote</code> or <code>rollback</code></td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>verification</code></td>
+<td>string</td>
+<td>when set</td>
+<td><code>Verified</code>, <code>AcceptedUnknown</code> or <code>Unverified</code></td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>reason</code></td>
+<td>string</td>
+<td>when it is a plain code</td>
+<td>the outcome's machine code, such as <code>PlanStale</code></td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>actorClass</code></td>
+<td>string</td>
+<td>when set</td>
+<td><code>controller</code>, <code>agent</code>, <code>human</code> or <code>break-glass</code>, never a name</td>
+<td>the class, never a name</td>
+</tr>
+<tr>
+<td><code>delegated</code></td>
+<td>boolean</td>
+<td>when <code>true</code></td>
+<td>the operation named a person it acted for (<code>onBehalfOf</code> with a <code>user</code>); the person is never recorded</td>
+<td>whether a person was named, never who</td>
+</tr>
+<tr>
+<td><code>heldFor</code></td>
+<td>string</td>
+<td>when the operation was held</td>
+<td>the time from its last hold until it applied or, when it never applied, concluded, as a Go duration such as <code>14m0s</code>; it includes the waits after a person answered, on the Stage lock, a freeze and the apply</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>serviceDomain</code></td>
+<td>string</td>
+<td>when the Stage's service has one</td>
+<td>the domain of the Stage's service</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>stage</code></td>
+<td>object</td>
+<td>always</td>
+<td>the Stage the operation ran on</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>stage.namespace</code></td>
+<td>string</td>
+<td>always</td>
+<td>the Stage's namespace</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>stage.name</code></td>
+<td>string</td>
+<td>always</td>
+<td>the Stage's name</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>stage.cluster</code></td>
+<td>string</td>
+<td>always</td>
+<td>the cluster's id: its <code>kube-system</code> namespace UID</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>to</code></td>
+<td>string</td>
+<td>pointer operations, when a digest</td>
+<td>the digest the operation moves to</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>from</code></td>
+<td>string</td>
+<td>pointer operations, when a digest</td>
+<td>the digest the operation moves from</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>contract</code></td>
+<td>string</td>
+<td>when a gate cited one</td>
+<td>the contract digest a gate cited</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>gates</code></td>
+<td>array</td>
+<td>when gates ran</td>
+<td>one entry per gate result, in order</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>gates.gate</code></td>
+<td>string</td>
+<td>with <code>gates</code></td>
+<td>the gate id</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>gates.phase</code></td>
+<td>string</td>
+<td>with <code>gates</code></td>
+<td><code>pre</code> or <code>verify</code></td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>gates.result</code></td>
+<td>string</td>
+<td>with <code>gates</code></td>
+<td><code>Pass</code>, <code>Fail</code> or <code>Unknown</code></td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>startedAt</code></td>
+<td>string</td>
+<td>when admitted</td>
+<td>when the operation was admitted, RFC 3339</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>finishedAt</code></td>
+<td>string</td>
+<td>always</td>
+<td>when the operation concluded, RFC 3339</td>
+<td>none</td>
+</tr>
+</tbody>
+</table>
+<p><code>service</code> is the service the Stage declares. An operation record holds no
+actor, approver, note, message, citation or correlation id.</p>
+<h3 id="coverage-records">Coverage records<a class="headerlink" href="#coverage-records" title="Anchor link">&para;</a></h3>
+<p><code>pacto fleet status</code> writes a <code>coverage</code> record of the fleet snapshot it read:</p>
+<ul>
+<li>only when <code>--stats-registry</code> or <code>--stats-file</code> is on its command line; it
+  ignores <code>PACTO_STATS_REGISTRY</code> and <code>PACTO_STATS_FILE</code>;</li>
+<li>best effort, like the other commands: a failure prints a warning and leaves
+  the exit code unchanged;</li>
+<li>fleet-wide: its <code>service</code> is always <code>_fleet</code>, a name no contract can declare.
+  A run with <code>--namespace</code> writes none, and every scheduled run should read
+  the same sources, since readers take the newest record whatever read it;</li>
+<li>with an <code>id</code> over <code>coverage</code>, <code>_fleet</code>, an empty old revision and the
+  snapshot's <code>snapshotAsOf</code>, so one snapshot recorded twice counts once;</li>
+<li>with no <code>outcome</code>, CI-only key, <code>environment</code> or operation key;</li>
+<li>read as a level: readers take the newest coverage record in a window and
+  never sum them;</li>
+<li>hidden from a reader that may see only part of the fleet, and the answer
+  says so with <code>COVERAGE_OUTSIDE_YOUR_VIEW</code>.</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Type</th>
+<th>Present</th>
+<th>Holds</th>
+<th>Personal data</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>coverage</code></td>
+<td>object</td>
+<td>always</td>
+<td>the snapshot's coverage counters</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>coverage.services</code></td>
+<td>integer</td>
+<td>always</td>
+<td>services that are no golden path</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>coverage.uncontracted</code></td>
+<td>integer</td>
+<td>always</td>
+<td>callers the fleet observed with no contract</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>coverage.knowledge</code></td>
+<td>object</td>
+<td>when the snapshot carried a knowledge tally</td>
+<td>absent means unknown, never 0</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>coverage.knowledge.services</code></td>
+<td>integer</td>
+<td>with <code>knowledge</code></td>
+<td>services the tally partitions: <code>described</code> + <code>withGaps</code> + <code>unknown</code></td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>coverage.knowledge.described</code></td>
+<td>integer</td>
+<td>with <code>knowledge</code></td>
+<td>services whose contract and interface documents leave nothing out</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>coverage.knowledge.withGaps</code></td>
+<td>integer</td>
+<td>with <code>knowledge</code></td>
+<td>services with at least one knowledge gap</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>coverage.knowledge.unknown</code></td>
+<td>integer</td>
+<td>with <code>knowledge</code></td>
+<td>services whose knowledge Pacto cannot judge</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>coverage.knowledge.notDeployed</code></td>
+<td>integer</td>
+<td>with <code>knowledge</code></td>
+<td>services with gaps that run nowhere; unknown services are never counted here. The observed services are <code>knowledge.services</code> minus <code>knowledge.unknown</code> minus <code>knowledge.notDeployed</code>, with unknown services shown beside them</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>coverage.links</code></td>
+<td>object</td>
+<td>always</td>
+<td>operational targets by how they link to a contract</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>coverage.links.exact</code></td>
+<td>integer</td>
+<td>always</td>
+<td>targets linked exactly</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>coverage.links.inferred</code></td>
+<td>integer</td>
+<td>always</td>
+<td>targets linked by inference</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>coverage.links.ambiguous</code></td>
+<td>integer</td>
+<td>always</td>
+<td>targets that match more than one contract</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>coverage.links.unresolved</code></td>
+<td>integer</td>
+<td>always</td>
+<td>targets that match no contract</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>coverage.snapshotAsOf</code></td>
+<td>string</td>
+<td>always</td>
+<td>the snapshot's time, RFC 3339 in UTC; never after <code>recordedAt</code></td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>coverage.completeness</code></td>
+<td>string</td>
+<td>always</td>
+<td><code>complete</code> or <code>partial</code>; an empty snapshot is recorded as <code>partial</code></td>
+<td>none</td>
+</tr>
+</tbody>
+</table>
+<h3 id="impact-gate-codes">Impact gate codes<a class="headerlink" href="#impact-gate-codes" title="Anchor link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Code</th>
+<th>Verdict</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>CONSUMERS_INCOMPATIBLE</code></td>
+<td><code>blocked</code></td>
+</tr>
+<tr>
+<td><code>POLICY_REFERRERS_FAIL_RUNNING</code></td>
+<td><code>blocked</code></td>
+</tr>
+<tr>
+<td><code>POLICY_REFERRERS_FAIL_UNPLACED</code></td>
+<td><code>unverified</code></td>
+</tr>
+<tr>
+<td><code>POLICY_UNCHECKED</code></td>
+<td><code>unverified</code></td>
+</tr>
+<tr>
+<td><code>SERVICE_NOT_IN_FLEET</code></td>
+<td><code>unverified</code></td>
+</tr>
+<tr>
+<td><code>ANSWER_PARTIAL</code></td>
+<td><code>unverified</code></td>
+</tr>
+<tr>
+<td><code>CONSUMERS_UNCHECKED</code></td>
+<td><code>unverified</code></td>
+</tr>
+<tr>
+<td><code>NOT_BREAKING</code></td>
+<td><code>clear</code></td>
+</tr>
+<tr>
+<td><code>POTENTIAL_BREAKING</code></td>
+<td><code>clear</code></td>
+</tr>
+<tr>
+<td><code>NO_CONSUMERS</code></td>
+<td><code>clear</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="context-fields">Context fields<a class="headerlink" href="#context-fields" title="Anchor link">&para;</a></h2>
+<p><code>--stats-context</code> takes a comma-separated list of names. A bare name reads its
+value from the CI environment, and <code>name=value</code> gives the value explicitly. A
+name that is not listed stays out of the record. When a name appears twice, the
+last one wins. <code>--stats-context</code> has no environment variable, so pass it on each
+command. It has no effect unless <code>--stats-registry</code> or <code>--stats-file</code> is set.</p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Record key</th>
+<th>Value of a bare name</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>repository</code></td>
+<td><code>repository</code></td>
+<td><code>GITHUB_REPOSITORY</code>, else <code>CI_PROJECT_PATH</code></td>
+</tr>
+<tr>
+<td><code>run-url</code></td>
+<td><code>ciRunUrl</code></td>
+<td><code>$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID</code>, else <code>CI_JOB_URL</code></td>
+</tr>
+<tr>
+<td><code>environment</code></td>
+<td><code>environment</code></td>
+<td>none: write <code>environment=&lt;name&gt;</code></td>
+</tr>
+</tbody>
+</table>
+<p><code>run-url</code> keeps only an <code>http</code> or <code>https</code> URL with a host, and drops its query
+and fragment. A URL that carries credentials is left out. An unknown name, an
+item with no name, an empty value or a rejected URL is a warning, and the record
+is still written. A warning quotes only the name, never the value, because a
+value can hold a secret.</p>
+<h2 id="registries-without-native-referrers">Registries without native Referrers<a class="headerlink" href="#registries-without-native-referrers" title="Anchor link">&para;</a></h2>
+<p>GHCR and released versions of the CNCF <code>distribution</code> registry have no native
+Referrers API. On such a registry, run records fall back to the OCI referrers
+tag <code>sha256-&lt;anchor digest&gt;</code>, an index that lists the anchor's records. Signed
+delivery and evidence records never fall back. The fallback has two caveats:</p>
+<ul>
+<li>two records of one service published at the same moment can overwrite each
+  other's index update, which drops one record;</li>
+<li>the index grows with every record until the registry's manifest size limit,
+  after which publishing warns. <a href="#prune-records">Prune</a> old records to keep it
+  small.</li>
+</ul>
+<p>Each publish replaces the index and leaves the previous one untagged instead of
+deleting it, because GHCR and <code>distribution</code>'s default configuration refuse a
+manifest delete. A registry that collects untagged manifests removes them.</p>
+<h2 id="record-in-ci">Record in CI<a class="headerlink" href="#record-in-ci" title="Anchor link">&para;</a></h2>
+<p>Set <code>PACTO_STATS_REGISTRY</code> on a job that can push to the stats repository:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">jobs</span><span class="p">:</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">contract</span><span class="p">:</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span><span class="nt">runs-on</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ubuntu-latest</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">    </span><span class="nt">permissions</span><span class="p">:</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">      </span><span class="nt">contents</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">read</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">      </span><span class="nt">packages</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">write</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">    </span><span class="nt">env</span><span class="p">:</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">      </span><span class="nt">PACTO_STATS_REGISTRY</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghcr.io/acme/pacto-stats</span>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">    </span><span class="nt">steps</span><span class="p">:</span>
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">uses</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">actions/checkout@v5</span>
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">run</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pacto diff oci://ghcr.io/acme/payments:1.2.0 . --stats-context repository,run-url</span>
+</span></code></pre></div>
+<p>A job without write access writes the record to a file, and a later job in the
+same trusted repository publishes it:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">jobs</span><span class="p">:</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">impact</span><span class="p">:</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span><span class="nt">runs-on</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ubuntu-latest</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">    </span><span class="nt">permissions</span><span class="p">:</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">      </span><span class="nt">contents</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">read</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">    </span><span class="nt">steps</span><span class="p">:</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">uses</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">actions/checkout@v5</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">run</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pacto impact oci://ghcr.io/acme/payments:1.2.0 . --stats-file run-record.json</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">uses</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">actions/upload-artifact@v4</span>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">        </span><span class="nt">if</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">always()</span>
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">        </span><span class="nt">with</span><span class="p">:</span>
+</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="w">          </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">run-record</span>
+</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="w">          </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">run-record.json</span>
+</span><span id="__span-1-14"><a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="w">  </span><span class="nt">stats</span><span class="p">:</span>
+</span><span id="__span-1-15"><a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a><span class="w">    </span><span class="nt">needs</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">impact</span>
+</span><span id="__span-1-16"><a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="w">    </span><span class="nt">if</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">always()</span>
+</span><span id="__span-1-17"><a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a><span class="w">    </span><span class="nt">runs-on</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ubuntu-latest</span>
+</span><span id="__span-1-18"><a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a><span class="w">    </span><span class="nt">permissions</span><span class="p">:</span>
+</span><span id="__span-1-19"><a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a><span class="w">      </span><span class="nt">packages</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">write</span>
+</span><span id="__span-1-20"><a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a><span class="w">    </span><span class="nt">steps</span><span class="p">:</span>
+</span><span id="__span-1-21"><a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">uses</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">actions/download-artifact@v4</span>
+</span><span id="__span-1-22"><a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a><span class="w">        </span><span class="nt">with</span><span class="p">:</span>
+</span><span id="__span-1-23"><a id="__codelineno-1-23" name="__codelineno-1-23" href="#__codelineno-1-23"></a><span class="w">          </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">run-record</span>
+</span><span id="__span-1-24"><a id="__codelineno-1-24" name="__codelineno-1-24" href="#__codelineno-1-24"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">run</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pacto stats publish --registry ghcr.io/acme/pacto-stats run-record.json</span>
+</span></code></pre></div>
+<p><code>if: always()</code> keeps the record of a run that exited <code>1</code> or <code>2</code>.</p>
+<h2 id="prune-records">Prune records<a class="headerlink" href="#prune-records" title="Anchor link">&para;</a></h2>
+<p>Pacto does not delete records. List a service's records with <code>oras</code> and delete
+the ones you no longer need:</p>
+<div class="language-shell highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>oras<span class="w"> </span>discover<span class="w"> </span>registry.example.com/acme/pacto-stats:pacto-stats-<span class="k">$(</span><span class="nb">printf</span><span class="w"> </span>payments<span class="w"> </span><span class="p">|</span><span class="w"> </span>shasum<span class="w"> </span>-a<span class="w"> </span><span class="m">256</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>cut<span class="w"> </span>-d<span class="s1">' '</span><span class="w"> </span>-f1<span class="k">)</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>oras<span class="w"> </span>manifest<span class="w"> </span>delete<span class="w"> </span>registry.example.com/acme/pacto-stats@sha256:&lt;record<span class="w"> </span>digest&gt;
+</span></code></pre></div>
+<p>GHCR refuses a manifest delete through the registry API. Delete a record there
+as a package version, in the package settings on GitHub or with the
+<a href="https://docs.github.com/en/rest/packages/packages">REST API for packages</a>.</p>
+<h2 id="the-stats-answer">The stats answer<a class="headerlink" href="#the-stats-answer" title="Anchor link">&para;</a></h2>
+<p><code>pacto stats</code> and the MCP tool <code>pacto_stats</code> total the records in a stats
+repository for a window and give the same answer, from one aggregation.</p>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>MCP argument</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--registry</code></td>
+<td><code>registry</code>, over stdio only</td>
+<td><code>PACTO_STATS_REGISTRY</code>; for MCP, <code>--stats-read-registry</code> first</td>
+<td>the stats repository to read</td>
+</tr>
+<tr>
+<td><code>--since</code></td>
+<td><code>since</code></td>
+<td><code>30d</code></td>
+<td>start of the window: a duration such as <code>30d</code> or <code>12h</code>, a date or an RFC 3339 time</td>
+</tr>
+<tr>
+<td><code>--until</code></td>
+<td><code>until</code></td>
+<td>now</td>
+<td>end of the window, exclusive, in the same forms; a date leaves out that day</td>
+</tr>
+<tr>
+<td><code>--by</code></td>
+<td><code>by</code></td>
+<td>no groups</td>
+<td><code>service</code>, <code>owner</code>, <code>domain</code>, <code>repository</code> or <code>environment</code></td>
+</tr>
+<tr>
+<td><code>--service</code></td>
+<td><code>service</code></td>
+<td>every service</td>
+<td>totals one service: the contract's <code>service.name</code>, or a fleet service key (<code>domain/name</code>) when a fleet snapshot resolves it</td>
+</tr>
+<tr>
+<td><code>--kind</code>, repeatable</td>
+<td><code>kinds</code>, comma-separated</td>
+<td>every kind</td>
+<td>totals these kinds</td>
+</tr>
+</tbody>
+</table>
+<div class="language-shell highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>pacto<span class="w"> </span>stats<span class="w"> </span>--registry<span class="w"> </span>ghcr.io/acme/pacto-stats<span class="w"> </span>--since<span class="w"> </span>7d<span class="w"> </span>--by<span class="w"> </span>environment
+</span></code></pre></div>
+<p><code>--output-format json</code> prints the answer below. Text prints a table and, when
+the answer is not complete, its limitations on stderr. A missing or unreadable
+record is never a zero, and a window with no records prints one sentence
+instead of a table of zeros.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Holds</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>asOf</code></td>
+<td>when the answer was computed, UTC</td>
+</tr>
+<tr>
+<td><code>window</code></td>
+<td><code>since</code> (inclusive) and <code>until</code> (exclusive), UTC</td>
+</tr>
+<tr>
+<td><code>registry</code></td>
+<td>the stats repository read</td>
+</tr>
+<tr>
+<td><code>provenance</code></td>
+<td>always <code>unsigned statistics</code></td>
+</tr>
+<tr>
+<td><code>recordsRead</code></td>
+<td>records read, of any kind and in the window or out of it; skipped records are counted apart</td>
+</tr>
+<tr>
+<td><code>runs</code></td>
+<td>records in the window; records that share an <code>id</code> (retries and reruns of one change) count once, and the newest <code>recordedAt</code> (then the larger manifest digest) speaks</td>
+</tr>
+<tr>
+<td><code>distinctChanges</code></td>
+<td>distinct changes (<code>service</code>, <code>oldRevision</code>, <code>newRevision</code>) among <code>diff</code> and <code>impact</code> records in the window. A <code>publish</code> record names versions, so it counts in <code>runs</code> only</td>
+</tr>
+<tr>
+<td><code>skipped</code></td>
+<td><code>malformed</code> (not a valid record, attached to another service's anchor or dated more than 5 minutes in the future), <code>oversized</code> (manifest or layer over 64 KiB) and <code>unreadable</code> (listed but not served); left out of every number</td>
+</tr>
+<tr>
+<td><code>truncated</code></td>
+<td>the bound that cut the read (1000 records, or 64 pages of one listing), empty when the read is whole. The 1000 records count every record listed, in the window or out of it, and the services listed after the cut are not read at all. A read that takes over 30 seconds is an error</td>
+</tr>
+<tr>
+<td><code>hidden</code></td>
+<td><code>present</code>: whether records name services outside the caller's view; they are never counted</td>
+</tr>
+<tr>
+<td><code>completeness</code></td>
+<td><code>partial</code> when a record was skipped, the read was cut, records are outside the view, delivery was unavailable, the attribution is partial or a blocked change was judged on a partial snapshot; <code>empty</code> when the window holds no records; else <code>complete</code></td>
+</tr>
+<tr>
+<td><code>limitations</code></td>
+<td>a <code>code</code> and a <code>message</code> for each reason the answer is incomplete</td>
+</tr>
+<tr>
+<td><code>by</code></td>
+<td>what the groups are by</td>
+</tr>
+<tr>
+<td><code>attribution</code></td>
+<td>with <code>--by owner</code> or <code>--by domain</code>: <code>provenance</code> (always <code>inferred</code>), <code>asOf</code> and <code>snapshotId</code> of the fleet snapshot owner and domain were resolved from, and <code>partial</code> when that snapshot is partial</td>
+</tr>
+<tr>
+<td><code>totals</code></td>
+<td>the metrics over every record in the window; absent when there are none</td>
+</tr>
+<tr>
+<td><code>groups</code></td>
+<td><code>key</code>, <code>label</code> and <code>metrics</code> per group; a value no record names groups as <code>unknown</code>, <code>unowned</code> or <code>none</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="metrics">Metrics<a class="headerlink" href="#metrics" title="Anchor link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Definition</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>changes</code></td>
+<td>distinct changes among the <code>diff</code> and <code>impact</code> records; at zero no CI run was recorded, so <code>breakingCaught</code>, <code>consumersProtected</code> and <code>gates</code> measured nothing</td>
+</tr>
+<tr>
+<td><code>breakingCaught</code></td>
+<td><code>distinct</code>: changes with a <code>diff</code> or <code>impact</code> record classified <code>BREAKING</code>; <code>runs</code>: the records behind them, at most one per kind, since reruns of one change share an <code>id</code></td>
+</tr>
+<tr>
+<td><code>gates</code></td>
+<td><code>clear</code>, <code>blocked</code> and <code>unverified</code>: changes by the verdict of their newest <code>impact</code> record that carries one</td>
+</tr>
+<tr>
+<td><code>consumersProtected</code></td>
+<td><code>count</code>: <code>consumers.blocking</code> summed over changes whose newest gate is <code>blocked</code>; <code>unknown</code>: <code>consumers.unknown</code> over the same changes; <code>partial</code>: how many of them were judged on a partial fleet snapshot, which makes <code>count</code> a lower bound. A change no impact run judged adds nothing</td>
+</tr>
+<tr>
+<td><code>environments</code></td>
+<td>one entry per environment, alphabetical; names imply no promotion order</td>
+</tr>
+<tr>
+<td><code>environments.environment</code></td>
+<td>the record's <code>environment</code>, else an operation record's Stage name</td>
+</tr>
+<tr>
+<td><code>environments.source</code></td>
+<td><code>context</code> (the record's <code>environment</code>) or <code>stage</code> (the Stage name)</td>
+</tr>
+<tr>
+<td><code>environments.operations</code></td>
+<td>operation records of every type; a type not named below counts here and in no rate</td>
+</tr>
+<tr>
+<td><code>environments.held</code></td>
+<td>promote operations whose <code>heldFor</code> is more than zero, of promote operations; a <code>heldFor</code> that does not parse is not held</td>
+</tr>
+<tr>
+<td><code>environments.failed</code></td>
+<td>promote operations that ended <code>Failed</code> or <code>Errored</code>, of promote operations</td>
+</tr>
+<tr>
+<td><code>environments.rolledBack</code></td>
+<td><code>Succeeded</code> rollback operations, of <code>Succeeded</code> promote operations; the count can pass <code>of</code> when a rollback undoes a promotion from before the window</td>
+</tr>
+<tr>
+<td><code>environments.verificationFailed</code></td>
+<td>promote operations <code>Unverified</code>, of promote operations <code>Verified</code> or <code>Unverified</code></td>
+</tr>
+<tr>
+<td><code>environments.acceptedUnknown</code></td>
+<td>promote operations <code>AcceptedUnknown</code>, neither verified nor failed</td>
+</tr>
+<tr>
+<td><code>environments.leadTime</code></td>
+<td>from the earliest publish record's <code>recordedAt</code> to the first <code>Succeeded</code> and <code>Verified</code> promote per Stage whose <code>to</code> is its deploy digest (else whose <code>contract</code> is its bundle digest), within one service. A publish rerun never moves the start, and a digest first promoted to a Stage before the window adds no lead time. It holds the nearest-rank <code>p50Seconds</code> and <code>p90Seconds</code> and the <code>joined</code> and <code>unjoined</code> promotion counts. A promotion whose <code>finishedAt</code> does not parse is unjoined. With nothing joined there is no percentile and <code>unknown</code> is <code>true</code></td>
+</tr>
+<tr>
+<td>a rate (<code>held</code>, <code>failed</code>, <code>rolledBack</code>, <code>verificationFailed</code>)</td>
+<td><code>count</code> and <code>of</code>; with <code>of</code> at zero, <code>unknown</code> is <code>true</code> and no rate is given, though <code>count</code> still says how many records matched</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Limitation code</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>RUN_RECORDS_SKIPPED</code></td>
+<td>some records could not be read, and the message says how many are dated in the future</td>
+</tr>
+<tr>
+<td><code>RUN_RECORDS_TRUNCATED</code></td>
+<td>a bound cut the read; the message says how many services after the cut were not read at all</td>
+</tr>
+<tr>
+<td><code>NO_RUN_RECORDS</code></td>
+<td>the window holds no records: recording may be off for these jobs. When another limitation explains the zero, the message says only that no record you can count is in the window</td>
+</tr>
+<tr>
+<td><code>RUN_RECORDS_REPOSITORY_NOT_FOUND</code></td>
+<td>in place of <code>NO_RUN_RECORDS</code>: the stats repository does not exist or nothing was published to it yet</td>
+</tr>
+<tr>
+<td><code>NO_CI_OR_DELIVERY_RUN_RECORDS</code></td>
+<td>in place of <code>NO_RUN_RECORDS</code>: the window holds coverage records and no other record, so the answer has a coverage level and no totals</td>
+</tr>
+<tr>
+<td><code>CONSUMERS_FROM_PARTIAL_SNAPSHOT</code></td>
+<td>some blocked changes were judged on a partial fleet snapshot, so <code>consumersProtected</code> is a lower bound</td>
+</tr>
+<tr>
+<td><code>LEAD_TIME_UNJOINED</code></td>
+<td>some promotions have no publish record with their digest, so their lead time is unknown; the answer stays complete</td>
+</tr>
+<tr>
+<td><code>OUTSIDE_YOUR_VIEW</code></td>
+<td>some records name services outside your view and are left out of every number, or your view holds no service, so no record is read for you</td>
+</tr>
+<tr>
+<td><code>COVERAGE_OUTSIDE_YOUR_VIEW</code></td>
+<td>coverage records exist, or could not be checked, and are hidden from a reader who may see only part of the fleet</td>
+</tr>
+<tr>
+<td><code>DELIVERY_UNAVAILABLE_OVER_HTTP</code></td>
+<td>a signed-in HTTP caller whose identity the server could not exchange gets no operation records</td>
+</tr>
+<tr>
+<td><code>ATTRIBUTION_PARTIAL</code></td>
+<td>the fleet snapshot owner and domain come from is partial</td>
+</tr>
+</tbody>
+</table>
+<p>The CLI and a stdio MCP server act as you and see every record. An HTTP MCP
+server serves <code>pacto_stats</code> only when started with <code>--stats-read-registry</code>,
+and a signed-in caller sees only services in their view and operation records
+only where their own identity may list operations. For a signed-in caller the
+server reads only the records of the services in their view, so the bounds
+count only those.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../publishing/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Publish reference">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Publish reference
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../dashboard-service-page/" class="md-footer__link md-footer__link--next" aria-label="Next: The service page">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                The service page
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      MIT licensed — <a href="https://github.com/TrianaLab/pacto/blob/main/LICENSE">Copyright &copy; 2026 TrianaLab</a>
+    </div>
+  
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/TrianaLab/pacto" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["announce.dismiss", "content.action.edit", "content.code.annotate", "content.code.copy", "content.tabs.link", "content.tooltips", "navigation.footer", "navigation.indexes", "navigation.instant", "navigation.instant.progress", "navigation.path", "navigation.sections", "navigation.tabs", "navigation.tabs.sticky", "navigation.top", "navigation.tracking", "search.highlight", "search.share", "search.suggest", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"alias": true, "provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../javascripts/logo-spin.js"></script>
+      
+        <script src="../javascripts/version-selector.js"></script>
+      
+        <script src="../javascripts/skip-link.js"></script>
+      
+        <script src="../javascripts/aria-labels.js"></script>
+      
+        <script src="../javascripts/scrollable-focus.js"></script>
+      
+        <script src="../javascripts/mermaid.min.js" defer></script>
+      
+    
+  </body>
+</html>
