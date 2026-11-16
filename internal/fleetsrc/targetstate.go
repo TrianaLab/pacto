@@ -72,17 +72,11 @@ func (s *TargetStateFileSource) Collect(ctx context.Context) (*fleet.Collection,
 	if err != nil {
 		return nil, fmt.Errorf("target-state %s: %w", s.path, err)
 	}
-	if doc.SchemaVersion != TargetStateSchemaV1 && doc.SchemaVersion != TargetStateSchemaV2 {
-		return nil, fmt.Errorf("target-state %s: unsupported schemaVersion %q (want %q or %q)", s.path, doc.SchemaVersion, TargetStateSchemaV1, TargetStateSchemaV2)
-	}
-	if doc.SchemaVersion == TargetStateSchemaV1 && (doc.Provisioning != nil || doc.Usage != nil) {
-		return nil, fmt.Errorf("target-state %s: provisioning and usage need schemaVersion %q", s.path, TargetStateSchemaV2)
-	}
-	if len(doc.Targets) > maxTargetFixtures {
-		return nil, fmt.Errorf("target-state %s: %d targets exceeds the limit of %d", s.path, len(doc.Targets), maxTargetFixtures)
+	if err := doc.check(); err != nil {
+		return nil, fmt.Errorf("target-state %s: %w", s.path, err)
 	}
 
-	col := &fleet.Collection{}
+	col := &fleet.Collection{Cluster: doc.Cluster.toCluster()}
 	for i, t := range doc.Targets {
 		if reason := t.validate(); reason != "" {
 			col.Limitations = append(col.Limitations, fleet.Limitation{
@@ -144,6 +138,37 @@ type targetStateDoc struct {
 	Provisioning  []provisioningFixture `yaml:"provisioning,omitempty" json:"provisioning,omitempty"`
 	Usage         []usageFixture        `yaml:"usage,omitempty" json:"usage,omitempty"`
 	State         *stateFixture         `yaml:"state,omitempty" json:"state,omitempty"`
+	Cluster       *clusterFixture       `yaml:"cluster,omitempty" json:"cluster,omitempty"`
+}
+
+// check refuses a document this reader cannot carry whole.
+func (d *targetStateDoc) check() error {
+	switch {
+	case d.SchemaVersion != TargetStateSchemaV1 && d.SchemaVersion != TargetStateSchemaV2:
+		return fmt.Errorf("unsupported schemaVersion %q (want %q or %q)", d.SchemaVersion, TargetStateSchemaV1, TargetStateSchemaV2)
+	case d.SchemaVersion == TargetStateSchemaV1 && (d.Provisioning != nil || d.Usage != nil):
+		return fmt.Errorf("provisioning and usage need schemaVersion %q", TargetStateSchemaV2)
+	case len(d.Targets) > maxTargetFixtures:
+		return fmt.Errorf("%d targets exceeds the limit of %d", len(d.Targets), maxTargetFixtures)
+	case d.Cluster != nil && d.Cluster.ID == "":
+		return errors.New("cluster needs an id")
+	}
+	return nil
+}
+
+// clusterFixture is the cluster every target in the file is in. The id is the
+// identity and required; the name is display only.
+type clusterFixture struct {
+	ID   string `yaml:"id" json:"id"`
+	Name string `yaml:"name,omitempty" json:"name,omitempty"`
+}
+
+// toCluster is the cluster the file declares, nil when it declares none.
+func (c *clusterFixture) toCluster() *fleet.Cluster {
+	if c == nil {
+		return nil
+	}
+	return &fleet.Cluster{ID: c.ID, Name: c.Name, NameSource: fleet.ClusterNameFromFile}
 }
 
 // provisioningFixture is one provisioning report (v2): the state of what the

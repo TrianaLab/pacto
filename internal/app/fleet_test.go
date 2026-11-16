@@ -18,6 +18,7 @@ import (
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/kubecluster"
 )
 
 func writeLocalBundle(t *testing.T, dir, name string) {
@@ -337,6 +338,10 @@ func writeCacheBundle(t *testing.T, dir, rel string) {
 type fakeFleetK8sClient struct {
 	disc     *k8sclient.CRDDiscovery
 	listData []byte
+	// identity is the cluster identity; an empty id reads as Forbidden, the
+	// fallback the context-id tests rely on.
+	identity   kubecluster.Identity
+	gotContext string
 }
 
 func (f *fakeFleetK8sClient) DiscoverCRD(context.Context) (*k8sclient.CRDDiscovery, error) {
@@ -344,6 +349,13 @@ func (f *fakeFleetK8sClient) DiscoverCRD(context.Context) (*k8sclient.CRDDiscove
 }
 func (f *fakeFleetK8sClient) ListJSON(context.Context, k8sclient.CRDDiscovery, string) ([]byte, error) {
 	return f.listData, nil
+}
+func (f *fakeFleetK8sClient) ClusterIdentity(_ context.Context, contextName string) (kubecluster.Identity, error) {
+	f.gotContext = contextName
+	if f.identity.ID == "" {
+		return kubecluster.Identity{}, errors.New("reading the cluster id: forbidden")
+	}
+	return f.identity, nil
 }
 
 func TestService_Fleet_IncludeK8s(t *testing.T) {

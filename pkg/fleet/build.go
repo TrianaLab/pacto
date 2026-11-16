@@ -360,14 +360,20 @@ func rawClusterID(col *Collection, raw RawTarget) string {
 // kube-system UID fits.
 var validClusterIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,252}$`)
 
+// ValidClusterID reports whether id may name a cluster: what [Build] keeps from
+// an untrusted source. A kube-system UID fits.
+func ValidClusterID(id string) bool { return validClusterIDPattern.MatchString(id) }
+
 // clusterNameRank orders the declared name sources of reported names.
 var clusterNameRank = map[string]int{
 	ClusterNameFromNodeLabel: 4, ClusterNameFromContext: 3, ClusterNameFromFile: 2, ClusterNameFromUID: 1,
 }
 
-// validClusterName keeps a display name of at most 63 bytes of printable runes.
-func validClusterName(n string) bool {
-	return n != "" && len(n) <= 63 && utf8.ValidString(n) && !strings.ContainsFunc(n, func(r rune) bool { return !unicode.IsPrint(r) })
+// ValidClusterName reports whether [Build] keeps a reported cluster name: at
+// most 63 bytes of printable runes with a known name source.
+func ValidClusterName(name, nameSource string) bool {
+	return name != "" && len(name) <= 63 && utf8.ValidString(name) && clusterNameRank[nameSource] > 0 &&
+		!strings.ContainsFunc(name, func(r rune) bool { return !unicode.IsPrint(r) })
 }
 
 // clusterNameClaim is one source's claim on the name of a cluster.
@@ -398,7 +404,7 @@ func clusterSet(results []sourceResult, sources []Source) clusterIndex {
 		}
 		invalid := 0
 		for _, c := range sourceClusters(r.col) {
-			if !validClusterIDPattern.MatchString(c.ID) {
+			if !ValidClusterID(c.ID) {
 				invalid++
 				continue
 			}
@@ -443,7 +449,7 @@ func sourceClusters(col *Collection) []Cluster {
 // claimClusterName records src's claim on the name of c when it is valid and
 // outranks the claim already held.
 func claimClusterName(claims map[string]*clusterNameClaim, src Source, c Cluster) {
-	if !validClusterName(c.Name) || clusterNameRank[c.NameSource] == 0 {
+	if !ValidClusterName(c.Name, c.NameSource) {
 		return
 	}
 	claim := clusterNameClaim{name: c.Name, nameSource: c.NameSource, live: src.Kind() == SourceKindKubernetes}

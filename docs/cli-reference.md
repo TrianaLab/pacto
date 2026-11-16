@@ -894,12 +894,15 @@ pacto evidence serve [flags]
 **Flags:**
 
 ```
-  -h, --help[=true|false]       help for serve
-      --listen-address string   host:port to listen on (supersedes --port)
-      --port int                port to listen on (127.0.0.1); superseded by --listen-address (default 8686)
-      --producer stringArray    advertised trusted producer id (repeatable)
-      --subject stringArray     exact contract revision evidence is stored on: oci://<repo>@sha256:<digest> (repeatable, required)
-      --trust string            trust store: a public-key file or a directory of <keyId>.pub files
+      --cluster-id string            the kube-system namespace UID of the cluster this server runs in; the operator sets it
+      --cluster-name string          display name of that cluster (needs --cluster-id)
+      --cluster-name-source string   how the name was found: node-label, context, file or uid (needs --cluster-id)
+  -h, --help[=true|false]            help for serve
+      --listen-address string        host:port to listen on (supersedes --port)
+      --port int                     port to listen on (127.0.0.1); superseded by --listen-address (default 8686)
+      --producer stringArray         advertised trusted producer id (repeatable)
+      --subject stringArray          exact contract revision evidence is stored on: oci://<repo>@sha256:<digest> (repeatable, required)
+      --trust string                 trust store: a public-key file or a directory of <keyId>.pub files
 ```
 
 ### `pacto evidence sign`
