@@ -153,6 +153,56 @@ func TestRunRecordsHaveHonestUnknowns(t *testing.T) {
 	}
 }
 
+// TestRunRecordsDrawEveryChartState: the newest 30 days hold every state the
+// Metrics charts draw (#597): an unverified gate, a promotion into a chain-end
+// environment that joins its publish record, a rollback with no succeeded
+// promote beside it in its week, and an oldest bucket with no record at all.
+func TestRunRecordsDrawEveryChartState(t *testing.T) {
+	recs := runRecords(t, Now)
+	published := map[string]bool{}
+	for _, r := range recs {
+		if r.Kind == runrecord.KindPublish && r.DeployDigest != "" {
+			published[r.Service+" "+r.DeployDigest] = true
+		}
+	}
+	unverified, joinedEnd, quiet := false, false, true
+	// promotes[env][w] and rollbacks[env][w] count succeeded operations in week w.
+	promotes, rollbacks := map[string]map[int]int{}, map[string]map[int]int{}
+	for _, r := range recs {
+		age := Now.Sub(r.RecordedAt)
+		if age >= 30*day {
+			continue
+		}
+		quiet = quiet && age < 28*day
+		unverified = unverified || (r.Gate != nil && r.Gate.Verdict == runrecord.VerdictUnverified)
+		if r.Kind != runrecord.KindOperation || r.Outcome != string(delivery.Succeeded) {
+			continue
+		}
+		w := int(age / (7 * day))
+		count := map[string]map[string]map[int]int{"promote": promotes, "rollback": rollbacks}[r.Type]
+		if count == nil {
+			continue
+		}
+		if count[r.Environment] == nil {
+			count[r.Environment] = map[int]int{}
+		}
+		count[r.Environment][w]++
+		joinedEnd = joinedEnd || (r.Type == "promote" && slices.Contains([]string{Prod, "prod-eu", "prod-us"}, r.Environment) && published[r.Service+" "+r.To])
+	}
+	stray := false
+	for env, weeks := range rollbacks {
+		for w := range weeks {
+			stray = stray || promotes[env][w] == 0
+		}
+	}
+	for name, ok := range map[string]bool{"unverified gate": unverified, "joined promotion into a chain end": joinedEnd,
+		"rollback without a succeeded promote in its week": stray, "empty oldest bucket": quiet} {
+		if !ok {
+			t.Errorf("the newest 30 days hold no %s", name)
+		}
+	}
+}
+
 func TestRunRecordsCoverStagePaths(t *testing.T) {
 	seen := map[string]bool{}
 	for _, r := range runRecords(t, Now) {

@@ -364,7 +364,10 @@ func held(e StatsEvent, d time.Duration, by Persona) StatsEvent {
 // storyEvents are the newest 30 days: the payments story. Revision indexes
 // are the story versions in order (payments 2.3.0, 2.4.0, 2.4.1, 2.4.2, 2.4.3,
 // 3.0.0). orders' promotes have no publish record, so their lead time is
-// unknown; prod-us promotes once, so its other weeks have no rate.
+// unknown; prod-us promotes once, so its other weeks have no rate; pay-agent's
+// gate is unverified; test's newest week holds a rollback and no succeeded
+// promote, so its rollback rate has nothing to count; and the oldest two days
+// hold no record at all.
 func storyEvents() []StatsEvent {
 	refused := StatsEvent{At: ago(15, 10), Kind: runrecord.KindPublish, Service: "payments", From: 3, To: 4,
 		Classification: "BREAKING", Verdict: runrecord.VerdictRefused, Reason: "version"}
@@ -422,8 +425,10 @@ func storyEvents() []StatsEvent {
 		publishRun(ago(8, 10), "fraud", -1, 0),
 		promote(ago(8, 8), "fraud", Test, -1, 0),
 		promote(ago(7, 9), "fraud", Prod, -1, 0),
-		// pay-agent 1.1.0 swaps its model, fails its evals in test and is rolled back.
-		diffRun(ago(6, 10), "pay-agent", 0, 1, "NON_BREAKING"),
+		// pay-agent 1.1.0 swaps its model, fails its evals in test and is rolled back. A model
+		// swap may break its consumers, and none of them can be checked, so its gate is unverified.
+		diffRun(ago(6, 10), "pay-agent", 0, 1, "POTENTIAL_BREAKING"),
+		impactRun(ago(6, 10), "pay-agent", 0, 1, "POTENTIAL_BREAKING", runrecord.VerdictUnverified, "CONSUMERS_UNCHECKED", 0, 0),
 		publishRun(ago(6, 9), "pay-agent", 0, 1),
 		failedPromote(ago(6, 7), "pay-agent", Test, 0, 1, PayAgent),
 		rollback(ago(6, 6), "pay-agent", Test, 1, 0),
