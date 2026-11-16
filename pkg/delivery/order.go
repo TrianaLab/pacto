@@ -291,7 +291,7 @@ func acceptsWhatRunsHere(snap *fleet.FleetSnapshot, c *contract.Contract, provid
 		// is a Pacto running here, so revisions are what runs.
 		for _, k := range slices.Sorted(maps.Keys(snap.Revisions)) {
 			v := snap.Revisions[k].Version
-			if snap.Revisions[k].Service != dep.Name {
+			if snap.Revisions[k].Service != dep.Name || dep.NameFromRef && !readFrom(snap.Revisions[k], dep.Ref) {
 				continue
 			}
 			seen = true
@@ -313,6 +313,23 @@ func acceptsWhatRunsHere(snap *fleet.FleetSnapshot, c *contract.Contract, provid
 		}
 	}
 	return "", nil
+}
+
+// readFrom reports whether rev was read from the OCI repository ref names. A
+// name derived from a ref is a guess from its path, so it matches only the
+// provider published there, as the operational graph resolves it; a local ref
+// never matches.
+func readFrom(rev *fleet.ContractRevision, ref string) bool {
+	if !strings.HasPrefix(ref, contract.OCIScheme) {
+		return false
+	}
+	repo, _, _ := contract.SplitOCIRef(contract.TrimOCIScheme(ref))
+	for _, r := range []string{rev.RequestedRef, rev.ResolvedRef} {
+		if got, _, _ := contract.SplitOCIRef(contract.TrimOCIScheme(r)); got == repo {
+			return true
+		}
+	}
+	return false
 }
 
 // acceptsBoth reports whether a consumer contract's range on the provider
