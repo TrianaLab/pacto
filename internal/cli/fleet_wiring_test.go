@@ -92,18 +92,15 @@ func TestMCPFleetView(t *testing.T) {
 	d := defaultDeps()
 	d.clusterConfig = func() (*rest.Config, error) { return nil, errors.New("no kubeconfig") }
 	cmd := newMCPCommand(svc, "v", d)
-	if view, err := mcpFleetView(cmd, d); view != nil || err != nil {
+	if view := mcpFleetView(cmd, d); view != nil {
 		t.Fatal("a stdio server narrows nothing")
 	}
 	_ = cmd.Flags().Set("transport", "http")
-	if view, err := mcpFleetView(cmd, d); view != nil || err != nil {
+	if view := mcpFleetView(cmd, d); view != nil {
 		t.Fatal("an HTTP server without sign-in narrows nothing")
 	}
 	_ = cmd.Flags().Set("auth-issuer", "https://idp.example")
-	view, err := mcpFleetView(cmd, d)
-	if err != nil {
-		t.Fatal(err)
-	}
+	view := mcpFleetView(cmd, d)
 	// Even a snapshot with no namespace asks whether the caller reads the whole
 	// cluster: that decides the services known only from a registry.
 	if _, err := view(context.Background(), nil, fleet.NewQuery(&fleet.FleetSnapshot{})); !errors.Is(err, errNobodyReviewed) {

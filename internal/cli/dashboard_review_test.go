@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"slices"
 	"sync"
 	"testing"
@@ -135,16 +136,13 @@ func TestMCPViewerLocalUsesLocal(t *testing.T) {
 	d.dynamicFor = r.client()
 	cmd := newMCPCommand(app.NewService(nil, nil), "v", d)
 	_ = cmd.Flags().Set("review", reviewLocal)
-	if _, err := mcpFleetView(cmd, d); !errors.Is(err, errLocalReviewNeedsNamespace) {
+	if err := checkFleetOnlyFlags(cmd, true); !errors.Is(err, errLocalReviewNeedsNamespace) {
 		t.Fatalf("local without namespaces: %v", err)
 	}
 	_ = cmd.Flags().Set("namespace", "payments")
 	_ = cmd.Flags().Set("transport", "http")
 	_ = cmd.Flags().Set("auth-issuer", "https://idp.example")
-	view, err := mcpFleetView(cmd, d)
-	if err != nil {
-		t.Fatal(err)
-	}
+	view := mcpFleetView(cmd, d)
 	alice := context.WithValue(context.Background(), reviewedKey{}, reviewed{person: authn.Person{User: "alice"}})
 	if _, err := view(alice, nil, reviewFleet(t)); err != nil {
 		t.Fatal(err)
@@ -161,4 +159,14 @@ func TestMCPFleetRefusesBadReview(t *testing.T) {
 	wantErr(t, err, `--review must be cluster or local, not "bogus"`)
 	err = remoteCmd(t, defaultDeps(), "--fleet", "--local", "", "--review", reviewLocal)
 	expect(t, errors.Is(err, errLocalReviewNeedsNamespace), "local without namespaces: %v", err)
+}
+
+// TestMCPRefusesBadReviewBeforeBuilding: a bad --review is refused before
+// the first fleet build reads any source, and without --fleet too.
+func TestMCPRefusesBadReviewBeforeBuilding(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "missing.json")
+	err := remoteCmd(t, defaultDeps(), "--fleet", "--local", "", "--target-state", missing, "--review", "lcoal")
+	wantErr(t, err, `--review must be cluster or local, not "lcoal"`)
+	err = remoteCmd(t, defaultDeps(), "--delivery", "--review", "bogus")
+	expect(t, errors.Is(err, errReviewNeedsFleet), "--review without --fleet: %v", err)
 }

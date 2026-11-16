@@ -230,10 +230,7 @@ func buildFleetMode(cmd *cobra.Command, svc *app.Service, d deps) (*pactomcp.Fle
 	if err != nil {
 		return nil, err
 	}
-	view, err := mcpFleetView(cmd, d)
-	if err != nil {
-		return nil, err
-	}
+	view := mcpFleetView(cmd, d)
 	url, _ := cmd.Flags().GetString("dashboard-url")
 	// view is nil for an HTTP server without --auth-issuer too, so only the
 	// transport says whether the caller is this process's own user.
@@ -300,12 +297,19 @@ var errDashboardURLNeedsFleet = errors.New("--dashboard-url needs --fleet: only 
 // errStatsRegistryNeedsFleet: pacto_stats registers on the fleet server only.
 var errStatsRegistryNeedsFleet = errors.New("--stats-read-registry needs --fleet: pacto_stats is a fleet tool")
 
+// errReviewNeedsFleet: only the fleet tools review a caller's namespaces.
+var errReviewNeedsFleet = errors.New("--review needs --fleet: only the fleet tools review which namespaces a caller may read")
+
 // checkFleetOnlyFlags refuses a flag only the fleet tools read when the
-// server has none, so it is never silently ignored.
+// server has none, so it is never silently ignored, and checks --review
+// before any source is built.
 func checkFleetOnlyFlags(cmd *cobra.Command, fleetMode bool) error {
 	switch {
 	case fleetMode:
-		return nil
+		mode, _ := cmd.Flags().GetString("review")
+		return checkReview(mode, flagNamespaces(cmd))
+	case cmd.Flags().Changed("review"):
+		return errReviewNeedsFleet
 	case cmd.Flags().Changed("dashboard-url"):
 		return errDashboardURLNeedsFleet
 	case cmd.Flags().Changed("stats-read-registry"):
@@ -548,16 +552,14 @@ func mcpRegression(ctx context.Context, cmd *cobra.Command, d deps, ev impact.Ev
 // read, asked with this process's own credentials about the person the
 // apiserver reviewed for the request (remoteCaller). Other servers answer
 // from the whole snapshot, as their single local user would read it.
-func mcpFleetView(cmd *cobra.Command, d deps) (pactomcp.FleetView, error) {
+// checkFleetOnlyFlags already checked --review.
+func mcpFleetView(cmd *cobra.Command, d deps) pactomcp.FleetView {
 	transport, _ := cmd.Flags().GetString("transport")
 	issuer, _ := cmd.Flags().GetString("auth-issuer")
 	mode, _ := cmd.Flags().GetString("review")
 	namespaces := flagNamespaces(cmd)
-	if err := checkReview(mode, namespaces); err != nil {
-		return nil, err
-	}
 	if transport != "http" || issuer == "" {
-		return nil, nil
+		return nil
 	}
 	cluster, _ := d.clusterConfig()
 	viewer := clusterViewer(cluster, d.dynamicFor, mode, namespaces)
@@ -571,7 +573,7 @@ func mcpFleetView(cmd *cobra.Command, d deps) (pactomcp.FleetView, error) {
 			return nil, fmt.Errorf("checking your Kubernetes permissions failed: %w", err)
 		}
 		return r, nil
-	}, nil
+	}
 }
 
 // parseAuthFlags parses repeated name=value credential flags.
