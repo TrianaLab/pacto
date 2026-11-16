@@ -249,6 +249,14 @@ describe('environments and groups', () => {
     expect(attributionLine(answer(), 'owner')).toBe('');
   });
 
+  it('keeps a real domain named unknown apart from the unknown key, both labelled unknown by the engine', () => {
+    const st = answer({ environmentsBy: { owner: [], domain: [
+      { key: 'unknown', label: 'unknown', environments: [env('prod', [0, 1])] },
+      { key: '(unknown)', label: 'unknown', environments: [env('prod', [0, 2])] },
+    ] } });
+    expect(groupBy(st, 'domain').map((g) => [g.key, g.label, g.unknown])).toEqual([['unknown', 'unknown', false], ['(unknown)', 'Domain unknown', true]]);
+  });
+
   it('hides a group-by that yields one group', () => {
     const one = answer({ environments: [env('a', [0, 1], { depth: 0 }), env('b', [0, 1], { depth: 0 })] });
     expect(groupOptions(one)).toEqual([]);
