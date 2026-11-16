@@ -129,8 +129,8 @@ publish:
 - It marks a key `writeOnly` when its name holds password, secret, token, key,
   credential, private or dsn (any case), when it is read from a Secret or when
   its value is a URL with credentials.
-- Next steps name each manifest or ConfigMap in the folder that sets
-  such a key to a literal value, because the bundle publishes that file.
+- Next steps name each manifest or ConfigMap that sets such a key to a
+  literal value, because the bundle publishes that file.
 - A `--cluster` draft reads such a key from the Secret `<workload>-env`, which
   you create with `kubectl create secret generic --from-env-file`
   ([details](bootstrap-contracts.md#configuration-keys-and-sensitive-values)).
@@ -307,8 +307,8 @@ pacto init --cluster --namespace shop --out drafts --plan
 With the Pacto node agent running, the Services a workload calls become
 dependencies. When the Pactos describing `shop/payments` report 2.3.1 and 2.4.0,
 the draft proposes `^2.3.0` in a comment and keeps `compatibility: unknown`
-until you declare a range: until then, impact's verdict is unknown and a
-BREAKING change stays unverified. Without the agent, environment URLs name
+until you declare a range; until then, impact cannot verify a BREAKING
+change. Without the agent, environment URLs name
 dependencies. Drafts are
 never published, and an invalid one fails the command. The MCP tool
 `pacto_create` with `pactify: true` takes `paths`, `cluster` and `namespaces`,

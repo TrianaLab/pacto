@@ -29,9 +29,9 @@ work. Their replacements, `controller.probing` and
 `controller.metricsObservation`, default to `auto`, which turns each feature on
 only in namespaces labelled `pacto.trianalab.io/observe`.
 
-An upgrade that keeps the previous release's values renders the arguments it
-rendered before. Set the new key, or reset the values, to move to `auto`. The
-new key wins, and an explicit `auto` overrides a deprecated `true`:
+An upgrade that keeps the previous release's values renders the same
+arguments; set the new key, or reset the values, to move to `auto`. The
+new key wins, even `auto` over a deprecated `true`:
 
 ```yaml
 controller:
@@ -163,12 +163,9 @@ these before `helm upgrade`:
 
 ## Delivery approvers need update rights
 
-Delivery now tells people from agents by how they sign in and lets whoever
-may update a Stage's workload decide its held changes. Owner teams narrow
-who may answer only when `delivery.identities.teamGroupPrefix` is set, and
-`requireOwnerTeam` defaults to `false`. An upgrade that takes the new
-defaults turns team narrowing off unless you set `teamGroupPrefix` yourself.
-To keep the earlier behaviour, set `teamGroupPrefix: ""` and
+Whoever may update a Stage's workload decides its held changes. Owner
+teams narrow who may answer only when `delivery.identities.teamGroupPrefix` is
+set, and `requireOwnerTeam` defaults to `false`. To keep the earlier behaviour, set `teamGroupPrefix: ""` and
 `requireOwnerTeam: true` before you upgrade
 ([upgrading](delivery-identity.md#upgrading)).
 
@@ -209,9 +206,8 @@ The operator no longer reads Secrets across the cluster. It reads a pull
 secret in the release namespace, in each of `controller.watchNamespaces` and
 wherever `controller.secretGrants` names it. Any other pull secret sets
 `ContractValid=Unknown` with reason `PullSecretNotGranted`, and the condition
-message names the grant to add. The status stays `Unknown`, because the
-operator never read the contract. Before `helm upgrade`, list each pull secret
-outside the release namespace:
+message names the grant to add. Before `helm upgrade`, list the pull secrets
+in use:
 
 ```bash
 kubectl get pactos -A \
@@ -222,18 +218,17 @@ kubectl get pactos -A \
   `controller.secretGrants`.
 - A namespace-list install already reads pull secrets in each listed
   namespace. There the message points at the chart's watch Role and
-  RoleBinding in that namespace, which were removed or changed.
+  RoleBinding in that namespace.
 
-The operator no longer watches Secrets. It reads a rotated pull secret on the
-next check, within one check interval.
+A rotated pull secret is read within one check interval.
 
 `controller.watchNamespace` still works and joins `controller.watchNamespaces`,
-also in an upgrade that reuses the earlier release's values.
+also when an upgrade reuses earlier values.
 
 Moving from a cluster-wide install to a namespace list leaves the
-`pacto-dashboard` ClusterRole and ClusterRoleBinding behind, because the
+`pacto-dashboard` ClusterRole and ClusterRoleBinding behind: the
 operator may no longer delete them. The `helm upgrade` notes and a
-`StaleClusterRBAC` Warning event on the dashboard Deployment both report them.
+`StaleClusterRBAC` Warning event on the dashboard Deployment report them.
 Delete them:
 
 ```bash
