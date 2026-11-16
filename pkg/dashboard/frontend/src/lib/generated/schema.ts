@@ -2746,6 +2746,11 @@ export interface components {
             signer?: string;
         };
         "Fleet.ExternalConsumer": {
+            /**
+             * @description How the use is known: declared when any contract declares it, else observed in traces, else inferred from configuration
+             * @enum {string}
+             */
+            provenance: "declared" | "observed" | "inferred";
             /** @description Whether any of its declarations is required */
             required?: boolean;
             service: components["schemas"]["Fleet.EntityRef"];
@@ -2917,7 +2922,7 @@ export interface components {
             name: string;
             path: string[] | null;
             /** @enum {string} */
-            provenance: "declared" | "observed" | "declared+observed";
+            provenance: "declared" | "observed" | "declared+observed" | "inferred";
         };
         "Fleet.GraphResult": {
             aggregated: boolean;

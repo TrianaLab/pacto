@@ -206,8 +206,8 @@ func TestExternalDetail(t *testing.T) {
 		t.Fatalf("detail = %+v", d)
 	}
 	want := []ExternalConsumer{
-		{Service: q.serviceRef(NewServiceKey("billing")), Versions: []string{"v-stripe-api"}},
-		{Service: q.serviceRef(NewServiceKey("checkout")), Required: true, Versions: []string{"v-Stripe"}},
+		{Service: q.serviceRef(NewServiceKey("billing")), Provenance: ProvenanceDeclared, Versions: []string{"v-stripe-api"}},
+		{Service: q.serviceRef(NewServiceKey("checkout")), Provenance: ProvenanceDeclared, Required: true, Versions: []string{"v-Stripe"}},
 	}
 	if !reflect.DeepEqual(x.Consumers, want) {
 		t.Errorf("consumers = %+v", x.Consumers)

@@ -279,6 +279,9 @@ func (q *Query) Search(f SearchFilter) (*SearchResult, error) {
 		res.Services = append(res.Services, hitFromService(s))
 	}
 	res.Externals, res.ExternalsTotal = q.searchExternals(f.Text)
+	if f.Text != "" {
+		res.Meta = q.externalMeta() // the external systems matched may be incomplete
+	}
 	return res, nil
 }
 
@@ -688,8 +691,9 @@ type GraphNode struct {
 	Depth int          `json:"depth"`
 	Path  []ServiceKey `json:"path"`
 	// Provenance is how the edge that first reached the node is known: declared,
-	// observed or declared+observed.
-	Provenance string `json:"provenance" enum:"declared,observed,declared+observed"`
+	// observed or declared+observed, or inferred for a consumer of an external
+	// system known only from its configuration (never a gate's evidence).
+	Provenance string `json:"provenance" enum:"declared,observed,declared+observed,inferred"`
 }
 
 // GraphResult is a deterministic, cycle-safe traversal answer. Aggregated is true
@@ -745,7 +749,7 @@ func (q *Query) Graph(gq GraphQuery) (*GraphResult, error) {
 		return q.graphNeighbours(key, rootSvc, scopeRev, dir, gq.IncludeObserved)
 	})
 	res.Cycles = cycles
-	res.Edges, res.Unresolved = q.graphEdges(nodeSet, rootSvc, dir, scopeRev)
+	res.Edges, res.Unresolved = q.graphEdges(nodeSet, rootSvc, dir, scopeRev, gq.IncludeObserved)
 	return res, nil
 }
 
@@ -932,14 +936,15 @@ func (q *Query) resolveGraphScope(gq GraphQuery) (rootKey ServiceKey, scopeRev R
 // graphEdges collects the typed dependency and resolved configuration-reference
 // edges spanned by the traversal (root + reached nodes) and, separately, the
 // unresolved dependencies. Root edges honor the revision scope; downstream edges
-// are service-level.
-func (q *Query) graphEdges(nodeSet map[ServiceKey]bool, rootSvc ServiceKey, dir Direction, scopeRev RevisionKey) (edges, unresolved []Relationship) {
+// are service-level. An edge to an external system follows graphProvenance,
+// the rule the external graph draws its consumers by.
+func (q *Query) graphEdges(nodeSet map[ServiceKey]bool, rootSvc ServiceKey, dir Direction, scopeRev RevisionKey, includeObserved bool) (edges, unresolved []Relationship) {
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
 		if rel.Type != RelationshipDependency && !ConsumesEdge(rel) {
 			continue
 		}
-		if !edgeInScope(rel, nodeSet, rootSvc, dir, scopeRev) {
+		if !edgeInScope(rel, nodeSet, rootSvc, dir, scopeRev) || (rel.ToExternal != "" && !graphProvenance(rel.Provenance, includeObserved)) {
 			continue
 		}
 		edges = append(edges, rel)

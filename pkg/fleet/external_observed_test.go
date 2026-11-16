@@ -225,3 +225,28 @@ func mustCatalogFile(t *testing.T, entries string) *externalcatalog.File {
 	}
 	return f
 }
+
+// TestExternalEdgeKeepsObservedDifference: an observed edge to an external
+// keeps its verdict, so a trace-only call reads as observed, not expected, and
+// a declared one traces corroborate reads as matched.
+func TestExternalEdgeKeepsObservedDifference(t *testing.T) {
+	diff := func(snap *FleetSnapshot) string {
+		t.Helper()
+		nb, err := NewQuery(snap).Neighborhood(NeighborhoodQuery{Kind: KindExternal, Key: "stripe", Views: allViews()})
+		if err != nil || len(nb.Edges) != 1 {
+			t.Fatalf("neighborhood = %+v, %v", nb, err)
+		}
+		return nb.Edges[0].Difference
+	}
+	snap := observedExternalFleet(t, nil, []string{"checkout"}, ObservedEdge{From: "checkout", To: "api.stripe.com", Count: 1})
+	if d := diff(snap); d != DifferenceObservedNotExpected {
+		t.Errorf("trace-only difference = %q", d)
+	}
+	c := &contract.Contract{PactoVersion: "2.1", Service: contract.Service{Name: "checkout", Version: "1.0.0", Owner: contract.Owner{Team: "t"}},
+		Dependencies: []contract.Dependency{{Name: "stripe", External: true, Version: "2024-06-20"}}}
+	snap = buildObserved(t, nil, []RawRevision{{Bundle: &contract.Bundle{Contract: c, FS: fstest.MapFS{}}, Digest: "sha256:c"}},
+		[]ObservedEdge{{From: "checkout", To: "api.stripe.com", Count: 1}})
+	if d := diff(snap); d != DifferenceMatched {
+		t.Errorf("declared and observed difference = %q", d)
+	}
+}

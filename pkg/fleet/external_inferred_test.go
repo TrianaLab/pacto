@@ -156,14 +156,47 @@ func TestExternalEdgesStayOutOfServiceIndexes(t *testing.T) {
 			t.Errorf("%s of the stripe service = %+v, %v", dir, g, err)
 		}
 	}
-	// The external's graph draws the observed consumer only when asked, and the inferred one never.
-	g, _ := q.Graph(GraphQuery{Service: "external:stripe"})
-	if len(g.Nodes) != 0 || len(g.Edges) != 0 {
-		t.Errorf("declared graph of external:stripe = %+v", g)
+	// The external's graph draws the inferred consumer, labelled inferred, and
+	// the observed edge only when asked; the consumer's own graph draws the
+	// same edges by the same rule.
+	provs := func(g *GraphResult) []string {
+		var out []string
+		for _, e := range g.Edges {
+			if e.ToExternal == "stripe" {
+				out = append(out, e.Provenance)
+			}
+		}
+		slices.Sort(out)
+		return out
 	}
-	g, _ = q.Graph(GraphQuery{Service: "external:stripe", IncludeObserved: true})
-	if len(g.Nodes) != 1 || len(g.Edges) != 1 || g.Edges[0].Provenance != ProvenanceObserved {
-		t.Errorf("observed graph of external:stripe = %+v", g)
+	for _, obs := range []bool{false, true} {
+		want := []string{ProvenanceInferred}
+		if obs {
+			want = []string{ProvenanceInferred, ProvenanceObserved}
+		}
+		g, _ := q.Graph(GraphQuery{Service: "external:stripe", IncludeObserved: obs})
+		wantProv := map[bool]string{false: ProvenanceInferred, true: ProvenanceObserved}[obs]
+		if len(g.Nodes) != 1 || g.Nodes[0].Provenance != wantProv || !slices.Equal(provs(g), want) {
+			t.Errorf("graph of external:stripe (observed %v) = %+v", obs, g)
+		}
+		g, _ = q.Graph(GraphQuery{Service: "checkout", IncludeObserved: obs})
+		if !slices.Equal(provs(g), want) {
+			t.Errorf("graph of checkout (observed %v): stripe edges %v, want %v", obs, provs(g), want)
+		}
+	}
+}
+
+// TestExternalGraphInferredOnlyConsumer: an external known only by inference
+// draws its consumer, and its edges are a list, never null.
+func TestExternalGraphInferredOnlyConsumer(t *testing.T) {
+	snap := inferredFleet(t, []inferredSvc{{name: "checkout", ns: []string{"shop"}}}, stripeUses(), nil, nil)
+	g, err := NewQuery(snap).Graph(GraphQuery{Service: "external:stripe", Direction: DirectionDependents, IncludeObserved: true})
+	if err != nil || len(g.Nodes) != 1 || g.Nodes[0].Key != "checkout" || g.Nodes[0].Provenance != ProvenanceInferred || len(g.Edges) != 1 {
+		t.Fatalf("graph = %+v, %v", g, err)
+	}
+	b, _ := json.Marshal(g)
+	if strings.Contains(string(b), `"edges":null`) {
+		t.Errorf("edges null: %s", b)
 	}
 }
 
@@ -315,6 +348,19 @@ func TestExternalAnswerPartialWhenTargetUnreported(t *testing.T) {
 	if ex.Meta.Completeness != CompletenessPartial || err != nil || d.Meta.Completeness != CompletenessPartial || !hasLimitation(d.Meta.Limitations, LimitationExternalsUnreported) {
 		t.Errorf("explain %+v detail %+v, %v", ex.Meta, d, err)
 	}
+	// Every answer that lists the external or its consumers says so too.
+	g, _ := q.Graph(GraphQuery{Service: "external:stripe", Direction: DirectionDependents, IncludeObserved: true})
+	nb, _ := q.Neighborhood(NeighborhoodQuery{Kind: KindExternal, Key: "stripe", Views: allViews()})
+	el, _ := q.Entities(EntityFilter{Kinds: []EntityKind{KindExternal}})
+	sr, _ := q.Search(SearchFilter{Text: "stripe"})
+	for name, m := range map[string]Completeness{"graph": g.Meta.Completeness, "neighborhood": nb.Meta.Completeness, "entities": el.Meta.Completeness, "search": sr.Meta.Completeness} {
+		if m != CompletenessPartial {
+			t.Errorf("%s completeness = %s", name, m)
+		}
+	}
+	if !hasLimitation(nb.Meta.Limitations, LimitationExternalsUnreported) || !hasLimitation(el.Meta.Limitations, LimitationExternalsUnreported) {
+		t.Errorf("neighborhood %+v entities %+v", nb.Meta.Limitations, el.Meta.Limitations)
+	}
 	if partialOf(CompletenessEmpty) != CompletenessEmpty {
 		t.Error("empty stays empty")
 	}
@@ -329,5 +375,35 @@ func TestTargetsByScope(t *testing.T) {
 	}}
 	if got := targetsByScope(snap); len(got) != 1 || got[[2]string{"web", "shop"}] != "shop/kubernetes/a" {
 		t.Errorf("targets = %v", got)
+	}
+}
+
+// TestInferredUseIsNoDeclaredDependency: a service that declares nothing and
+// has inferred external uses keeps a declared dependency count of zero.
+func TestInferredUseIsNoDeclaredDependency(t *testing.T) {
+	q := NewQuery(inferredFleet(t, []inferredSvc{{name: "checkout", ns: []string{"shop"}}}, stripeUses(), nil, nil))
+	var sum ServiceSummary
+	q.tallyServiceEdges(&sum, "checkout")
+	if sum.DeclaredDependencies != 0 {
+		t.Errorf("declared dependencies = %d", sum.DeclaredDependencies)
+	}
+}
+
+// TestExternalConsumerProvenance: a consumer known only from traces or only
+// from configuration says so, and carries no declaration's required flag.
+func TestExternalConsumerProvenance(t *testing.T) {
+	svcs := []inferredSvc{{name: "checkout", ns: []string{"shop"}}, {name: "mailer", ns: []string{"shop"}}, {name: "billing", ns: []string{"shop"}, deps: []string{"stripe"}}}
+	snap := inferredFleet(t, svcs, stripeUses(), []ObservedEdge{{From: "mailer", To: "api.stripe.com", Count: 1}}, nil)
+	d, err := NewQuery(snap).EntityDetail(KindExternal, "stripe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, c := range d.External.Consumers {
+		got[c.Service.Key] = c.Provenance
+	}
+	want := map[string]string{"billing": ProvenanceDeclared, "checkout": ProvenanceInferred, "mailer": ProvenanceObserved}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("consumer provenance = %v", got)
 	}
 }
