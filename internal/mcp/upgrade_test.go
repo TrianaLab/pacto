@@ -73,16 +73,19 @@ func TestEditKeptRaiseFailsWithFinding(t *testing.T) {
 }
 
 func TestEditUnverifiedRaiseFails(t *testing.T) {
-	for name, pacto := range map[string]string{
-		"fails cross-field": orders23 + "dependencies:\n" +
+	for name, tc := range map[string]struct{ pacto, code string }{
+		"fails cross-field": {orders23 + "dependencies:\n" +
 			"  - {name: a, ref: oci://r/a:1.0.0, compatibility: ^1.0.0, required: true}\n" +
-			"  - {name: a, ref: oci://r/b:1.0.0, compatibility: ^1.0.0, required: true}\n",
-		"does not parse": "pactoVersion: \"2.3\"\nservice: [orders]\n",
+			"  - {name: a, ref: oci://r/b:1.0.0, compatibility: ^1.0.0, required: true}\n", "DUPLICATE_DEPENDENCY_NAME"},
+		"does not parse": {"pactoVersion: \"2.3\"\nservice: [orders]\n", "PARSE_ERROR"},
 	} {
 		t.Run(name, func(t *testing.T) {
+			pacto := tc.pacto
 			dir := writePacto(t, pacto)
 			_, err := Edit(context.Background(), nil, EditOptions{}, EditInput{Path: dir, Domain: strPtr("payments")})
-			if err == nil || !strings.Contains(err.Error(), validation.ErrUnverified.Error()) {
+			// The error names what already fails, since an MCP client gets no report.
+			if err == nil || !strings.Contains(err.Error(), validation.ErrUnverified.Error()) ||
+				!strings.Contains(err.Error(), "(first: "+tc.code) || !strings.Contains(err.Error(), "the contract as it is cannot be raised") {
 				t.Fatalf("err %v", err)
 			}
 			assertPacto(t, dir, pacto)

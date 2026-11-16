@@ -179,12 +179,12 @@ type EditInput struct {
 	Name    *string
 	Version *string
 	Owner   *string
-	// Domain sets service.domain and raises an older pactoVersion to 2.4.
-	// Every raise to 2.4 checks configuration refs strictly, so it fails
-	// when a ref cannot be resolved (see needsResolve).
+	// Domain sets service.domain and needs pactoVersion 2.4. A field that
+	// needs a newer version raises an older one only when that keeps the
+	// contract's meaning, and otherwise fails the edit (see raiseForEdit).
 	Domain *string
 	// Offering and Summary set service.offering and service.summary and
-	// raise an older pactoVersion to 2.4.
+	// need pactoVersion 2.4.
 	Offering *string
 	Summary  *string
 
@@ -200,11 +200,11 @@ type EditInput struct {
 	// no remaining environment names it.
 	RemoveEnvironments   []string
 	SetEnvironmentValues []EnvironmentValuesInput
-	// Lifecycle sets or clears service.lifecycle and raises an older
-	// pactoVersion to 2.4.
+	// Lifecycle sets or clears service.lifecycle; setting it needs
+	// pactoVersion 2.4.
 	Lifecycle *LifecycleInput
-	// Template sets or clears service.template and raises an older
-	// pactoVersion to 2.4. service.origin has no setter: only creation writes it.
+	// Template sets or clears service.template; setting it needs
+	// pactoVersion 2.4. service.origin has no setter: only creation writes it.
 	Template *TemplateInput
 
 	Workload                  *string
@@ -681,7 +681,7 @@ func (o fileOps) raiseForEdit(ctx context.Context, validate Validator, dir strin
 	up, err := contract.Upgrade(raw, minVersion, o.editCheck(ctx, validate, dir))
 	switch {
 	case err != nil:
-		return nil, "", fmt.Errorf("edited contract fails validation: raising pactoVersion to %q for this edit: %w", minVersion, err)
+		return nil, "", fmt.Errorf("this edit needs pactoVersion %q, and the contract as it is cannot be raised: %w; run pacto_check on it", minVersion, err)
 	case up.Kept != nil:
 		return nil, "", fmt.Errorf("edited contract fails validation: raising pactoVersion to %q for this edit would add %s at %s: %s", minVersion, up.Kept.Code, up.Kept.Path, up.Kept.Message)
 	}
@@ -699,7 +699,8 @@ func (o fileOps) editCheck(ctx context.Context, validate Validator, dir string) 
 	return func(raw []byte) ([]contract.ValidationError, []contract.ValidationWarning, error) {
 		c, err := contract.Parse(bytes.NewReader(raw))
 		if err != nil {
-			return []contract.ValidationError{{Code: "PARSE_ERROR", Message: err.Error()}}, nil, validation.ErrUnverified
+			e := contract.ValidationError{Code: "PARSE_ERROR", Message: err.Error()}
+			return []contract.ValidationError{e}, nil, validation.Unverified(e)
 		}
 		report, err := o.editedReport(ctx, validate, dir, o.buildBundleFSForValidation(dir, raw, c, nil), raw, c, true)
 		if err != nil {

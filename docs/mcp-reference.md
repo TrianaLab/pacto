@@ -134,7 +134,7 @@ server serves only `pacto_schema`.
 - `set_environment_values` merges values into environment files. Objects merge key by key and a `null` removes its key.
 - `lifecycle` sets `service.lifecycle` (`deprecated`, `sunset`, `successor`), and `{"clear": true}` removes it. Setting it raises `pactoVersion` to 2.4.
 - `template` sets [`service.template`](contract-reference/sections.md#golden-path-template), which makes the contract a golden path: `{"plugins": [...]}` replaces it, an empty `plugins` list writes `template: {}` and `{"clear": true}` removes it. Either raises `pactoVersion` to 2.4. No input sets `service.origin`: only creation from a golden path writes it.
-- A field that needs a newer `pactoVersion` raises it only when validation finds nothing new at that version, and `changes` reads `set pactoVersion to "2.4" (was "2.3")`. When the raise would add a finding, such as `ENVIRONMENT_VALUES_MISSING`, the edit fails with that finding and writes nothing.
+- A field that needs a newer `pactoVersion` raises it only when validation finds nothing new at that version, and `changes` reads `set pactoVersion to "2.4" (was "2.3")`. When the raise would add a finding, such as `ENVIRONMENT_VALUES_MISSING`, the edit fails with that finding and writes nothing. When the contract already fails validation, the edit fails naming its first error; run `pacto_check`.
 
 **Value edits are checked first.** Adding configuration references or environments, or setting environment values, writes only after `pacto_check` passes.
 
