@@ -390,8 +390,10 @@ export function installScaleFixture(): void {
       const pl = svc?.placement as Record<string, unknown> & { items?: Record<string, unknown>[] } | undefined;
       const changes = svc?.changes as Record<string, unknown> & { items?: Record<string, unknown>[] } | undefined;
       const entityKey = (doc.entity as { key?: string } | undefined)?.key;
-      // One declared dependency claim with no range declared (compatibility: unknown).
-      const firstRel = (svc?.relationships as { items?: { declaredClaims?: { items?: Record<string, unknown>[] } }[] } | undefined)?.items?.find((e) => e.declaredClaims?.items?.length);
+      // One dependency the service declares with no range (compatibility: unknown): the
+      // page shows the claims of the edges that leave it.
+      const firstRel = (svc?.relationships as { items?: { from?: { key?: string }; declaredClaims?: { items?: Record<string, unknown>[] } }[] } | undefined)?.items
+        ?.find((e) => e.from?.key === entityKey && e.declaredClaims?.items?.length);
       for (const c of firstRel?.declaredClaims?.items ?? []) { c.compatibility = 'unknown'; c.rangeStatus = 'unknown'; }
       if (pl && entityKey === 'storefront-web') {
         const tpl = (pl.items ?? []).find((it) => it.declaration) ?? {};
