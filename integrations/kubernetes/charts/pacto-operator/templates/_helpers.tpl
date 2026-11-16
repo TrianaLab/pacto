@@ -120,13 +120,24 @@ Controller arguments derived from values
 {{- if .Values.controller.stabilizationWindow }}
 - --stabilization-window={{ .Values.controller.stabilizationWindow }}
 {{- end }}
-{{- if .Values.controller.enableProbing }}
+{{- with include "pacto-operator.observeMode" (list .Values.controller.probing .Values.controller.enableProbing) }}
+{{- if eq . "legacy-on" }}
 - --enable-probing
+{{- else }}
+- --enable-probing={{ . }}
 {{- end }}
-{{- if .Values.controller.enableMetricsObservation }}
+{{- end }}
+{{- with include "pacto-operator.observeMode" (list .Values.controller.metricsObservation .Values.controller.enableMetricsObservation) }}
+{{- if eq . "legacy-on" }}
 - --enable-metrics-observation
+{{- else }}
+- --enable-metrics-observation={{ . }}
 {{- end }}
-{{- /* Kernel evidence follows the managed node agent: either switch turns it on. */}}
+{{- end }}
+{{- if .Values.controller.interfaceNameMatchDiscovery }}
+- --interface-name-match-discovery
+{{- end }}
+{{- /* Kernel evidence follows the managed node agent unless set on or "off". */}}
 {{- with .Values.controller.kernelEvidence }}
 {{- if include "pacto-operator.kernelEvidence" $ }}
 - --enable-kernel-evidence
@@ -146,6 +157,9 @@ Controller arguments derived from values
 {{- with .Values.nodeAgent }}
 {{- if .enabled }}
 - --enable-node-agent
+{{- with .image }}
+- --node-agent-image={{ . }}
+{{- end }}
 {{- range include "pacto-operator.imagePullSecrets.list" (dict "ctx" $ "values" $.Values) | fromYamlArray }}
 - --node-agent-image-pull-secret={{ .name }}
 {{- end }}
@@ -335,10 +349,42 @@ so it may never be the release namespace.
 {{- end }}
 
 {{/*
-Whether kernel evidence is on: either switch turns it on.
+Whether kernel evidence is on: on or true turns it on, "off" refuses it, and
+anything else (auto, false, absent) follows nodeAgent.enabled. false keeps its
+6.x meaning so an upgrade that reuses values renders the same arguments.
 */}}
 {{- define "pacto-operator.kernelEvidence" -}}
-{{- if or .Values.controller.kernelEvidence.enabled .Values.nodeAgent.enabled }}true{{ end }}
+{{- $v := .Values.controller.kernelEvidence.enabled }}
+{{- $s := ternary "" (toString $v) (kindIs "invalid" $v) }}
+{{- if or (eq $s "on") (eq $s "true") }}true
+{{- else if and (ne $s "off") .Values.nodeAgent.enabled }}true
+{{- end }}
+{{- end }}
+
+{{/*
+The mode of one observation feature (probing, metrics observation), from
+(list $new $legacy): the auto/on/off key and the deprecated boolean it replaces.
+Returns on, off, auto, legacy-on (the bare flag) or "" (no argument).
+An upgrade that reuses a 6.x release's values keeps that release's chart
+defaults, so the new key is absent and the legacy boolean present: an absent or
+empty new key renders exactly what the legacy key rendered (true -> legacy-on,
+false -> nothing), and with neither key set it is auto. An explicit new key
+always wins. Values files parse as YAML 1.1, so a bare on or off arrives as a
+bool: absence is tested with kindIs and every compare runs on toString.
+510-S7's profile extends this define.
+*/}}
+{{- define "pacto-operator.observeMode" -}}
+{{- $new := index . 0 }}
+{{- $legacy := index . 1 }}
+{{- $s := ternary "" (toString $new) (kindIs "invalid" $new) }}
+{{- if eq $s "" }}
+{{- if kindIs "invalid" $legacy }}auto
+{{- else if $legacy }}legacy-on
+{{- end }}
+{{- else if or (eq $s "on") (eq $s "true") }}on
+{{- else if or (eq $s "off") (eq $s "false") }}off
+{{- else if eq $s "auto" }}auto
+{{- end }}
 {{- end }}
 
 {{/*
@@ -550,4 +596,17 @@ granted by name.
 {{- end }}
 {{- end }}
 {{- end }}
+{{- end }}
+
+{{/*
+The observation RBAC switches: "metricsMonitors" when metrics observation is
+explicitly on (ServiceMonitor and PodMonitor reads), "namespaceGet" when probing
+or metrics is auto (the target namespace's pacto.trianalab.io/observe label,
+read by name). Returns a YAML dict.
+*/}}
+{{- define "pacto-operator.observeRBAC" -}}
+{{- $probing := include "pacto-operator.observeMode" (list .Values.controller.probing .Values.controller.enableProbing) }}
+{{- $metrics := include "pacto-operator.observeMode" (list .Values.controller.metricsObservation .Values.controller.enableMetricsObservation) }}
+metricsMonitors: {{ has $metrics (list "on" "legacy-on") }}
+namespaceGet: {{ or (eq $probing "auto") (eq $metrics "auto") }}
 {{- end }}

@@ -1,0 +1,106 @@
+# An upgrade that reuses a 6.x release's values keeps that release's chart
+# defaults: the new observation keys are absent and the deprecated ones hold
+# their old values. Each case pins the whole argument list captured from the
+# 6.x chart (bc2b948cd); never edit these lists to make a change pass.
+suite: upgrade with reused 6.x values
+templates:
+  - templates/deployment.yaml
+  - templates/clusterrole.yaml
+tests:
+  - it: should render the 6.x arguments for 6.x default values
+    template: templates/deployment.yaml
+    set: &reuse6x
+      controller.probing: null
+      controller.metricsObservation: null
+      controller.interfaceNameMatchDiscovery: null
+      nodeAgent.image: null
+      controller.enableProbing: false
+      controller.enableMetricsObservation: false
+      controller.kernelEvidence.enabled: false
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value:
+          - --leader-elect=true
+          - --health-probe-bind-address=:8081
+          - --metrics-bind-address=:8443
+          - --metrics-secure=true
+          - --node-agent-namespace=pacto-node-agent
+          - --enable-dashboard
+          - --dashboard-cpu-request=50m
+          - --dashboard-memory-request=128Mi
+          - --dashboard-memory-limit=512Mi
+          - --dashboard-allow-anonymous
+
+  - it: should render the 6.x arguments for 6.x values with nodeAgent.enabled
+    template: templates/deployment.yaml
+    set:
+      <<: *reuse6x
+      nodeAgent.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --enable-kernel-evidence
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value:
+          - --leader-elect=true
+          - --health-probe-bind-address=:8081
+          - --metrics-bind-address=:8443
+          - --metrics-secure=true
+          - --enable-kernel-evidence
+          - --caller-coverage-ignore-namespace=kube-flannel
+          - --caller-coverage-ignore-namespace=calico-system
+          - --caller-coverage-ignore-namespace=tigera-operator
+          - --node-agent-namespace=pacto-node-agent
+          - --enable-node-agent
+          - --node-agent-publish-interval=30s
+          - --node-agent-cpu-request=50m
+          - --node-agent-memory-request=64Mi
+          - --node-agent-cpu-limit=200m
+          - --node-agent-memory-limit=256Mi
+          - --enable-dashboard
+          - --dashboard-cpu-request=50m
+          - --dashboard-memory-request=128Mi
+          - --dashboard-memory-limit=512Mi
+          - --dashboard-allow-anonymous
+
+  - it: should render the 6.x arguments for 6.x values with enableProbing and enableMetricsObservation true
+    template: templates/deployment.yaml
+    set:
+      <<: *reuse6x
+      controller.enableProbing: true
+      controller.enableMetricsObservation: true
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value:
+          - --leader-elect=true
+          - --health-probe-bind-address=:8081
+          - --metrics-bind-address=:8443
+          - --metrics-secure=true
+          - --enable-probing
+          - --enable-metrics-observation
+          - --node-agent-namespace=pacto-node-agent
+          - --enable-dashboard
+          - --dashboard-cpu-request=50m
+          - --dashboard-memory-request=128Mi
+          - --dashboard-memory-limit=512Mi
+          - --dashboard-allow-anonymous
+
+  - it: should keep 6.x RBAC for 6.x default values
+    template: templates/clusterrole.yaml
+    set: *reuse6x
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [namespaces]
+            verbs: [get]
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [monitoring.coreos.com]
+            resources: [servicemonitors, podmonitors]
+            verbs: [get, list, watch]

@@ -105,6 +105,7 @@ type PactoReconciler struct {
 // +kubebuilder:rbac:groups=batch,resources=jobs;cronjobs,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get
 // +kubebuilder:rbac:groups=pacto.trianalab.io,resources=noderuntimeobservations,verbs=get;list;watch
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=httproutes,verbs=get;list;watch

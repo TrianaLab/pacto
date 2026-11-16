@@ -72,3 +72,68 @@ tests:
             resources: [namespaces]
             resourceNames: [kube-system]
             verbs: [get]
+
+  - it: should not grant monitor reads under auto
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [monitoring.coreos.com]
+            resources: [servicemonitors, podmonitors]
+            verbs: [get, list, watch]
+
+  - it: should grant monitor reads with metricsObservation on
+    set:
+      controller.metricsObservation: "on"
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [monitoring.coreos.com]
+            resources: [servicemonitors, podmonitors]
+            verbs: [get, list, watch]
+
+  - it: should drop monitor reads when metricsObservation is explicitly auto
+    set:
+      controller.metricsObservation: auto
+      controller.enableMetricsObservation: true
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [monitoring.coreos.com]
+            resources: [servicemonitors, podmonitors]
+            verbs: [get, list, watch]
+
+  - it: should grant namespace get only while a mode is auto (default)
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [namespaces]
+            verbs: [get]
+
+  - it: should grant namespace get only while a mode is auto (both on)
+    set:
+      controller.probing: "on"
+      controller.metricsObservation: "on"
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [namespaces]
+            verbs: [get]
+
+  - it: should grant namespace get only while a mode is auto (both off)
+    set:
+      controller.probing: "off"
+      controller.metricsObservation: "off"
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [namespaces]
+            verbs: [get]

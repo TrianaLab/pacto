@@ -314,9 +314,13 @@ SETS=(--set global.imageRegistry= --set image.repository="$OP_REPO" --set image.
       --set dashboard.enabled=false
       --set "insecureRegistries[0]=${REG_HOST}"
       --set nodeAgent.enabled=true --set nodeAgent.publishInterval=5s
-      --set controller.enableProbing=true --set controller.enableMetricsObservation=true
+      --set controller.metricsObservation=on
       --set controller.stabilizationWindow=20s)
 helm upgrade --install pacto-operator "$CHART" -n "$NS" "${SETS[@]}" --wait --timeout 240s
+# Probing stays at the chart default (auto): the namespace owner turns it on
+# here with the label, before any Pacto is applied (the operator does not watch
+# Namespaces, so a later label waits for the periodic requeue).
+kubectl label ns "$APP" pacto.trianalab.io/observe=probing --overwrite >/dev/null
 wait_ready pacto-operator
 eventually 40 kubectl -n "$AGENT_NS" get ds pacto-node-agent >/dev/null 2>&1 || fail "the operator never created the node agent DaemonSet"
 kubectl -n "$AGENT_NS" rollout status ds/pacto-node-agent --timeout=180s
@@ -495,6 +499,11 @@ R=80
 scenario "conforming-workload" "openapi + health + dependency + configuration + stateless service, all satisfied"
 expect_pacto conforming "$R" -status Compliant -no-findings -covered
 expect_pacto backend "$R" -status Compliant -no-findings -covered
+observe_label_named() {
+  kubectl -n "$APP" get pacto conforming -o jsonpath='{.status.conditions[?(@.type=="RuntimeObserved")].message}' \
+    | grep -q "namespace label pacto.trianalab.io/observe=probing"
+}
+eventually 40 observe_label_named || fail "RuntimeObserved never named the observe label"
 
 scenario "health-capability" "/healthz answers 200 (satisfied); /nope answers 404 (CAPABILITY_ABSENT with probing)"
 expect_pacto conforming 5 -forbid CAPABILITY_ABSENT -covered
@@ -663,7 +672,7 @@ expect_pacto conforming "$R" -status Compliant -no-findings
 
 scenario "agent-stopped-stale" "the agent is removed while kernel evidence stays on: listener evidence reads stale"
 helm upgrade pacto-operator "$CHART" -n "$NS" "${SETS[@]}" --set nodeAgent.enabled=false \
-  --set controller.kernelEvidence.enabled=true --wait --timeout 240s >/dev/null
+  --set controller.kernelEvidence.enabled=on --wait --timeout 240s >/dev/null
 expect_pacto conforming "$R" -status Unknown -expect EVIDENCE_STALE:unknown:interface/api
 # Disabling removes the agent namespace and everything in it; Kubernetes refuses
 # to re-create a namespace that is still terminating.

@@ -93,6 +93,9 @@ helm-template: ## Render chart templates and validate output.
 	! helm template pacto-operator charts/pacto-operator --set delivery.enabled=true --set delivery.identities.allowEmptyHumanGroups=true \
 		--api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy \
 		--set delivery.admissionPolicies.allowUnguarded=true > /dev/null 2>&1
+	@echo "==> Helm reads values as YAML 1.1: a bare on is true, a bare kernel evidence off is false and follows the node agent..."
+	helm template pacto-operator charts/pacto-operator -f charts/pacto-operator/tests/values/probing-bare-on.yaml | grep -q -- '- --enable-probing=on$$'
+	helm template pacto-operator charts/pacto-operator -f charts/pacto-operator/tests/values/kernel-bare-off.yaml | grep -q -- '- --enable-kernel-evidence$$'
 
 # The default render is byte-identical to the committed golden (versions
 # normalised, so a release bump does not move it), and turning delivery on
