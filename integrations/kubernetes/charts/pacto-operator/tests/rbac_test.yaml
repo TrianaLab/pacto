@@ -180,4 +180,3 @@ tests:
             resources: [namespaces]
             resourceNames: [kube-system]
             verbs: [get]
-
