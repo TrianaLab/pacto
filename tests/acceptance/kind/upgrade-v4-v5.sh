@@ -55,9 +55,18 @@ echo "== build the v6 operator image from the working tree (root Dockerfile) =="
 # fully supported config. The v6 image's baked-in dashboard image is a
 # non-pullable placeholder (the dashboard pod is harmless ImagePullBackOff — this
 # test asserts the operator + CR, never the dashboard), which keeps the build fast.
-docker build --provenance=false -f "$ROOT/integrations/kubernetes/Dockerfile" \
-  --build-arg VERSION="$NEW_TAG" --build-arg DASHBOARD_IMAGE="pacto-dashboard:disabled" \
-  -t "$NEW_IMG" "$ROOT"
+# In CI the operator image comes from the shared archive (PACTO_KIND_IMAGES, see
+# lib.sh build_operator_images) and is retagged: its baked-in dashboard image is
+# not loaded here either, and only the image name below is asserted.
+ARCHIVE_OP=""
+[ -z "${PACTO_KIND_IMAGES:-}" ] || ARCHIVE_OP="localhost:5001/pacto-operator/pacto-controller:$(release_version kubernetes)"
+if [ -n "$ARCHIVE_OP" ] && load_built_images "$ARCHIVE_OP"; then
+  docker tag "$ARCHIVE_OP" "$NEW_IMG"
+else
+  docker build --provenance=false -f "$ROOT/integrations/kubernetes/Dockerfile" \
+    --build-arg VERSION="$NEW_TAG" --build-arg DASHBOARD_IMAGE="pacto-dashboard:disabled" \
+    -t "$NEW_IMG" "$ROOT"
+fi
 
 echo "== package the v4 fixture chart (as 4.7.0) + the v6 chart (as 6.0.0) =="
 # The v4.7.0 release was cut from a 0.1.0 source with a package-time version

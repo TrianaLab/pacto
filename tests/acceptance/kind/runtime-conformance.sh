@@ -634,19 +634,32 @@ scenario "agent-failed" "the agent loses CAP_BPF, cannot attach, and reports Fai
 # returns to the broken revision because the operator's apply made the healthy one
 # the newest. Restarting the operator runs that apply now and starts a fresh
 # interval, so the break below holds until the scenario restores it itself.
+# Follow the leader Lease, not the newest pod: the Lease names the pod that runs
+# the reconciler and proves the hand-over happened. The newest-pod probe missed
+# about one run in 16 with nothing to show why, so a miss now prints the holder
+# and its log.
+operator_leader() { kubectl -n "$NS" get lease a4917283.pacto.io -o jsonpath='{.spec.holderIdentity}' 2>/dev/null; }
+OLD_LEADER="$(operator_leader)"
 kubectl -n "$NS" rollout restart deploy/pacto-operator >/dev/null
 wait_ready pacto-operator 120s >/dev/null
-# operator_synced_agent — the newest operator pod has applied the node agent.
+# operator_synced_agent — a new leader holds the Lease and has applied the node agent.
 operator_synced_agent() {
-  local pod log
-  pod="$(kubectl -n "$NS" get pods -l app.kubernetes.io/name=pacto-operator \
-    --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].metadata.name}')"
+  local holder pod log
+  holder="$(operator_leader)"
+  [ -n "$holder" ] && [ "$holder" != "$OLD_LEADER" ] || return 1
+  pod="${holder%%_*}"
   # Read the whole log first: piped into grep, which stops at the first match,
   # kubectl dies of SIGPIPE on a long log and pipefail turns the match into a miss.
   log="$(kubectl -n "$NS" logs "$pod" 2>/dev/null)" || return 1
   grep -q 'Node agent resources reconciled successfully' <<<"$log"
 }
-eventually 40 operator_synced_agent || miss "the restarted operator never applied the node agent"
+if ! eventually 40 operator_synced_agent; then
+  miss "the restarted operator never applied the node agent"
+  # What the next failure needs: who holds the Lease, and what that pod logged.
+  echo "  lease holder: '$(operator_leader)' (before the restart: '$OLD_LEADER')" >&2
+  holder="$(operator_leader)"
+  [ -n "$holder" ] && kubectl -n "$NS" logs "${holder%%_*}" --tail=40 >&2 2>&1 || true
+fi
 CAPS="$(kubectl -n "$AGENT_NS" get ds pacto-node-agent -o jsonpath='{.spec.template.spec.containers[0].securityContext.capabilities.add}')"
 NOBPF="$(printf '%s' "$CAPS" | tr -d '[]"' | tr ',' '\n' | grep -vx BPF | sed 's/.*/"&"/' | paste -sd, -)"
 kubectl -n "$AGENT_NS" patch ds pacto-node-agent --type=json \

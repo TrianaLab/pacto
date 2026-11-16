@@ -3,6 +3,7 @@ package architecture
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -214,6 +215,68 @@ func TestEveryDemoShardHasAJob(t *testing.T) {
 	}
 }
 
+// TestUIOnlyKeepsEveryShardThatLoadsTheBundle: a frontend-only change runs
+// delivery-demo.yml with ui-only, which excludes the shards that never open the
+// dashboard in Chromium. A shard whose beats reach `journeys` (directly or
+// through another function) loads the UI bundle, so excluding it lets a
+// frontend change skip the only live browser cover; keeping a shard that
+// never loads it wastes ten runner-minutes on every frontend PR.
+func TestUIOnlyKeepsEveryShardThatLoadsTheBundle(t *testing.T) {
+	sh := code(t, filepath.Join(kindDir(t), "delivery-demo.sh"))
+	starts := regexp.MustCompile(`(?m)^([a-z_0-9]+)\(\) \{`).FindAllStringSubmatchIndex(sh, -1)
+	bodies := map[string]string{}
+	for i, m := range starts {
+		end := len(sh)
+		if i+1 < len(starts) {
+			end = starts[i+1][0]
+		}
+		bodies[sh[m[2]:m[3]]] = sh[m[1]:end]
+	}
+	if _, ok := bodies["journeys"]; !ok {
+		t.Fatal("delivery-demo.sh defines no journeys(); the browser beats run some other way now")
+	}
+	loads := map[string]bool{"journeys": true}
+	for changed := true; changed; {
+		changed = false
+		for name, body := range bodies {
+			if loads[name] {
+				continue
+			}
+			for callee := range loads {
+				if regexp.MustCompile(`\b` + callee + `\b`).MatchString(body) {
+					loads[name], changed = true, true
+					break
+				}
+			}
+		}
+	}
+
+	_, after, _ := strings.Cut(sh, "\nSHARDS=\"")
+	list, _, _ := strings.Cut(after, "\"")
+	var want []string
+	for _, s := range strings.Fields(list) {
+		_, plan, _ := strings.Cut(sh, "\n    "+s+") echo \"")
+		plan, _, _ = strings.Cut(plan, "\"")
+		if !slices.ContainsFunc(strings.Fields(plan), func(b string) bool { return loads[b] }) {
+			want = append(want, s)
+		}
+	}
+
+	wf := code(t, filepath.Join(repoRoot(t), ".github", "workflows", "delivery-demo.yml"))
+	_, line, ok := strings.Cut(wf, "exclude: ${{ inputs.ui-only && fromJSON('")
+	if !ok {
+		t.Fatal("delivery-demo.yml's matrix has no `exclude: ${{ inputs.ui-only && fromJSON('[...]') ... }}`")
+	}
+	line, _, _ = strings.Cut(line, "'")
+	var got []string
+	for _, m := range regexp.MustCompile(`"shard":"([a-z]+)"`).FindAllStringSubmatch(line, -1) {
+		got = append(got, m[1])
+	}
+	if len(want) == 0 || !slices.Equal(got, want) {
+		t.Errorf("ui-only excludes %v; the shards whose beats never reach journeys (never load the UI bundle) are %v", got, want)
+	}
+}
+
 // TestDemoShardsPullNoThirdPartyImages: the demo's third-party images are
 // pulled once, by fetch_pinned in the images job, and every shard loads that
 // archive. A `docker pull` anywhere else in delivery-demo.sh is a shard pulling
@@ -317,5 +380,35 @@ func TestInClusterRegistrySupportsNativeReferrers(t *testing.T) {
 	pin, _, _ = strings.Cut(pin, `"`)
 	if !strings.Contains(pin, "@sha256:") || !strings.Contains(body, `PACTO_REGISTRY_IMAGE="`+pin+`"`) {
 		t.Errorf("PACTO_REGISTRY_IMAGE must be the Compose demo's digest-pinned registry %q", pin)
+	}
+}
+
+// TestKindShardsReuseTheDeliveryImages pins the one image build per run: the
+// ci-e2e-kind shards download delivery-images' archive (a failed download is
+// allowed, so the shards still run) and point PACTO_KIND_IMAGES at it, and
+// build_operator_images tries that archive before it builds. Lose any half and
+// every shard quietly goes back to building the operator and dashboard itself.
+func TestKindShardsReuseTheDeliveryImages(t *testing.T) {
+	wf := code(t, filepath.Join(repoRoot(t), ".github", "workflows", "ci.yml"))
+	_, job, ok := strings.Cut(wf, "\n  ci-e2e-kind:\n")
+	if !ok {
+		t.Fatal("no ci-e2e-kind job in .github/workflows/ci.yml")
+	}
+	job, _, _ = strings.Cut(job, "\n  delivery-images:\n")
+	for _, want := range []string{
+		"needs: [changes, delivery-images]",
+		"!cancelled()",
+		"continue-on-error: true",
+		"name: delivery-images",
+		`PACTO_KIND_IMAGES="$RUNNER_TEMP/delivery-images/delivery-images.tar"`,
+	} {
+		if !strings.Contains(job, want) {
+			t.Errorf("the ci-e2e-kind job lacks %q", want)
+		}
+	}
+	lib := code(t, filepath.Join(kindDir(t), "lib.sh"))
+	_, body, _ := strings.Cut(lib, "\nbuild_operator_images() {\n")
+	if !strings.HasPrefix(strings.TrimSpace(body), `load_built_images "$1" "$2" && return`) {
+		t.Error("lib.sh build_operator_images no longer tries the PACTO_KIND_IMAGES archive before building")
 	}
 }

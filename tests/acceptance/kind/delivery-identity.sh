@@ -534,9 +534,9 @@ identity_scenario() {
   identity_rbac_views
 
   # --- the dashboard: people act as themselves ---
-  # Automation stays out of the way: prod is frozen from phase 1, and nothing
-  # may move it while phase 4 runs.
-  kubectl -n prod patch stage payments --type merge -p '{"spec":{"auto":false}}' >/dev/null
+  # prod is frozen from phase 1, so automation stays out of the way until alice
+  # unfreezes it below; the agent's promote of F then has to outrank the promote
+  # the promoter raises on its own.
   local carol carol_at; carol_at="$(date +%s)"; carol="$(login carol)" || fail "carol could not sign in to the dashboard"
   out="$(dash "$carol" GET /api/delivery/caller)"
   jq -e --arg iss "$DEX_ISSUER" '.user | startswith($iss + "#")' <<<"${out#* }" >/dev/null || fail "caller: $out"
@@ -584,6 +584,16 @@ identity_scenario() {
   pass "over HTTP an agent gets propose and cancel, a person the read tools, nobody an approve tool"
   identity_mcp_composed "$agent_tools" "$person_tools"
 
+  # Unfrozen, prod promotes its candidate on its own. A promote supersedes an
+  # older one by (creationTimestamp, uid), and creationTimestamp has one-second
+  # resolution: proposing F in the second the promoter raised its own loses to
+  # it half the time. Wait for that promote, then start a new second.
+  auto_raised() {
+    kubectl -n prod get operations -o json | jq -e '[.items[] | select((.metadata.name | startswith("payments-auto-"))
+      and .status.phase != "Concluded")] | length > 0' >/dev/null
+  }
+  eventually 20 auto_raised || fail "unfrozen, prod never promoted its candidate on its own"
+  sleep 1
   # The agent proposes F (payments 2.0.0, which breaks checkout) on prod.
   local from; from="$(kubectl -n prod get stage payments -o jsonpath='{.status.pointer}')"
   # Naming nobody it acts for, it is refused before anything reaches the cluster.

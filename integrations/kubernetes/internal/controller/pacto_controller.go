@@ -685,18 +685,33 @@ func (r *PactoReconciler) finishReconciliation(ctx context.Context, pacto *pacto
 // the check interval. Reconcile is re-entered on every write to every watched
 // workload, so stamping lastReconciledAt unconditionally wrote the status on each
 // of those events. The heartbeat keeps lastReconciledAt within one check interval
-// of now, which is what delivery and the fleet read as a live operator.
+// of now, which is what delivery and the fleet read as a live operator. The
+// evidence times each finding carries are stamped at observation, so they are
+// left out of the comparison too and refresh with the heartbeat: compared, they
+// wrote the status on every reconcile that fell in a new second.
 func (r *PactoReconciler) writeStatus(ctx context.Context, pacto *pactov1alpha1.Pacto, prev *pactov1alpha1.PactoStatus) error {
 	pacto.Status.ObservedGeneration = pacto.Generation
 	now := metav1.Now()
 	if prev != nil && prev.LastReconciledAt != nil && now.Sub(prev.LastReconciledAt.Time) < r.requeueInterval(pacto)/2 {
 		pacto.Status.LastReconciledAt = prev.LastReconciledAt
-		if equality.Semantic.DeepEqual(&pacto.Status, prev) {
+		if equality.Semantic.DeepEqual(withoutEvidenceTimes(&pacto.Status), withoutEvidenceTimes(prev)) {
 			return nil
 		}
 	}
 	pacto.Status.LastReconciledAt = &now
 	return r.Status().Update(ctx, pacto)
+}
+
+// withoutEvidenceTimes is a copy of st with every finding's evidence times blanked.
+func withoutEvidenceTimes(st *pactov1alpha1.PactoStatus) *pactov1alpha1.PactoStatus {
+	st = st.DeepCopy()
+	for i := range st.Findings {
+		for j := range st.Findings[i].EvidenceRefs {
+			st.Findings[i].EvidenceRefs[j].ObservedAt = ""
+			st.Findings[i].EvidenceRefs[j].DetectedAt = ""
+		}
+	}
+	return st
 }
 
 func (r *PactoReconciler) requeueInterval(pacto *pactov1alpha1.Pacto) time.Duration {
