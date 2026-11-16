@@ -296,20 +296,10 @@ func (r *StageReconciler) witness(ctx context.Context, stage *dv1.Stage) error {
 	if _, err := delivery.ParseDigest(a.digest); err != nil || a.digest == stage.Status.Pointer {
 		return nil
 	}
-	// The cache can lag a write the promoter itself made. Only the apiserver's
-	// digest raises an override, and only against the stored pointer and lock.
-	if a, err = r.Cluster.freshApplier(ctx, stage.Namespace, stage.Spec.ApplyRef); err != nil {
-		return client.IgnoreNotFound(err)
+	stage, a, err = r.witnessFresh(ctx, stage)
+	if stage == nil {
+		return err
 	}
-	fresh := &dv1.Stage{}
-	if err := r.APIReader.Get(ctx, client.ObjectKeyFromObject(stage), fresh); err != nil {
-		return client.IgnoreNotFound(err)
-	}
-	if _, err := delivery.ParseDigest(a.digest); err != nil || a.digest == fresh.Status.Pointer ||
-		fresh.Status.Locks[delivery.FacetPointer] != "" || fresh.Status.Pointer == "" {
-		return nil
-	}
-	stage = fresh
 	spec := delivery.OperationSpec{
 		Type: delivery.TypeOverride, Stage: stage.Name, Facet: delivery.FacetPointer,
 		Params:    delivery.Params{From: stage.Status.Pointer, To: a.digest},
@@ -319,6 +309,26 @@ func (r *StageReconciler) witness(ctx context.Context, stage *dv1.Stage) error {
 		Witnessed: true,
 	}
 	return r.raise(ctx, stage, "witnessed", spec)
+}
+
+// witnessFresh reads the Stage and its applier again from the apiserver: the
+// cache can lag a write the promoter itself made. It returns them only while
+// the apiserver's digest still differs from the stored pointer and no
+// operation holds the pointer lock.
+func (r *StageReconciler) witnessFresh(ctx context.Context, stage *dv1.Stage) (*dv1.Stage, *applyRef, error) {
+	a, err := r.Cluster.freshApplier(ctx, stage.Namespace, stage.Spec.ApplyRef)
+	if err != nil {
+		return nil, nil, client.IgnoreNotFound(err)
+	}
+	fresh := &dv1.Stage{}
+	if err := r.APIReader.Get(ctx, client.ObjectKeyFromObject(stage), fresh); err != nil {
+		return nil, nil, client.IgnoreNotFound(err)
+	}
+	if _, err := delivery.ParseDigest(a.digest); err != nil || a.digest == fresh.Status.Pointer ||
+		fresh.Status.Locks[delivery.FacetPointer] != "" || fresh.Status.Pointer == "" {
+		return nil, nil, nil
+	}
+	return fresh, a, nil
 }
 
 // autoPromote raises a promote of the newest eligible candidate unless
@@ -360,47 +370,11 @@ func (r *StageReconciler) ready(ctx context.Context, stage *dv1.Stage) (*applyRe
 	if err != nil {
 		return nil, nil, err
 	}
-	blocked, a, err := r.applierReady(ctx, stage)
+	conds, err := r.readyConds(ctx, stage, want)
 	if err != nil {
 		return nil, nil, err
 	}
-	conds := []delivery.Condition{}
-	if a != nil {
-		med, err := r.Cluster.mediated(ctx, stage.Namespace, a)
-		if err != nil {
-			return nil, nil, err
-		}
-		conds = append(conds, med)
-	}
-	observing := delivery.CurrentLevel(stage.Spec, stage.Status) == delivery.LevelObserve
-	unlabelled := blocked != nil && blocked.Reason == reasonApplierUnlabelled
-	if blocked != nil && (!observing || !unlabelled) {
-		want = *blocked
-	}
-	if want.Status == statusTrue {
-		why, err := unguardedBy(ctx, r.Client, r.AdmissionPolicies)
-		if err != nil {
-			return nil, nil, err
-		}
-		if why != "" {
-			want = notReady(ReasonUnguarded, why+", so the promoter admits no operation and counts no approval")
-		}
-	}
-	if observing && want.Status == statusTrue {
-		want.Reason, want.Message = delivery.ReasonObservingGuarded, "the Stage observes, and the applyRef carries "+ApplyRefLabel+
-			", so GitOps cannot write the pointer until a person removes the label or the Stage leaves observe"
-		if unlabelled {
-			want.Reason, want.Message = delivery.ReasonObserving, "the Stage observes: GitOps owns the applyRef and Pacto plans what it would do"
-		}
-	}
-	conds = append(conds, want)
-	changed, cur := false, stage.Status.Conditions
-	for i := range conds {
-		conds[i].ObservedGeneration = stage.Generation
-		var c bool
-		cur, c = delivery.SetCondition(cur, conds[i], r.Now())
-		changed = changed || c
-	}
+	changed := condsChange(stage, conds, r.Now())
 	fresh := ""
 	if r.Freshness > 0 {
 		fresh = r.Freshness.String()
@@ -423,6 +397,60 @@ func (r *StageReconciler) ready(ctx context.Context, stage *dv1.Stage) (*applyRe
 	}
 	set(stage)
 	return cand, up, nil
+}
+
+// condsChange stamps conds with the Stage's generation and says whether
+// setting them changes its conditions.
+func condsChange(stage *dv1.Stage, conds []delivery.Condition, now time.Time) bool {
+	changed, cur := false, stage.Status.Conditions
+	for i := range conds {
+		conds[i].ObservedGeneration = stage.Generation
+		var c bool
+		cur, c = delivery.SetCondition(cur, conds[i], now)
+		changed = changed || c
+	}
+	return changed
+}
+
+// readyConds is the Stage's mediation condition, when its applier is
+// readable, and its Ready condition: want from the candidate source, unless
+// the applier blocks the Stage or admission does not guard, read as
+// observing while the Stage observes.
+func (r *StageReconciler) readyConds(ctx context.Context, stage *dv1.Stage, want delivery.Condition) ([]delivery.Condition, error) {
+	blocked, a, err := r.applierReady(ctx, stage)
+	if err != nil {
+		return nil, err
+	}
+	conds := []delivery.Condition{}
+	if a != nil {
+		med, err := r.Cluster.mediated(ctx, stage.Namespace, a)
+		if err != nil {
+			return nil, err
+		}
+		conds = append(conds, med)
+	}
+	observing := delivery.CurrentLevel(stage.Spec, stage.Status) == delivery.LevelObserve
+	unlabelled := blocked != nil && blocked.Reason == reasonApplierUnlabelled
+	if blocked != nil && (!observing || !unlabelled) {
+		want = *blocked
+	}
+	if want.Status == statusTrue {
+		why, err := unguardedBy(ctx, r.Client, r.AdmissionPolicies)
+		if err != nil {
+			return nil, err
+		}
+		if why != "" {
+			want = notReady(ReasonUnguarded, why+", so the promoter admits no operation and counts no approval")
+		}
+	}
+	if observing && want.Status == statusTrue {
+		want.Reason, want.Message = delivery.ReasonObservingGuarded, "the Stage observes, and the applyRef carries "+ApplyRefLabel+
+			", so GitOps cannot write the pointer until a person removes the label or the Stage leaves observe"
+		if unlabelled {
+			want.Reason, want.Message = delivery.ReasonObserving, "the Stage observes: GitOps owns the applyRef and Pacto plans what it would do"
+		}
+	}
+	return append(conds, want), nil
 }
 
 // candidateReady reads the Stage's candidate source and says whether it can
@@ -652,22 +680,16 @@ func (r *StageReconciler) freeze(ctx context.Context, stage *dv1.Stage, why stri
 func (r *StageReconciler) recheck(ctx context.Context, stage *dv1.Stage) error {
 	s, now := stage.Status, r.Now().UTC()
 	failed := slices.Contains(s.FailedDigests, s.Pointer)
-	if s.Frozen || s.LastOp == "" || s.Locks[delivery.FacetPointer] != "" ||
-		!failed && s.LastCheck != nil && s.LastCheck.Operation == s.LastOp && now.Before(parseOr(s.LastCheck.At).Add(delivery.RecheckInterval(stage.Spec))) {
+	if !recheckDue(stage, failed, now) {
 		return nil
 	}
 	ops, err := stageOps(ctx, r.Client, stage.Namespace, stage.Name)
 	if err != nil {
 		return err
 	}
-	var shipped *dv1.Operation
-	for _, o := range ops {
-		if o.Status.Phase != delivery.PhaseConcluded {
-			return nil // something is in flight; it owns the Stage
-		}
-		if string(o.UID) == s.LastOp {
-			shipped = &o
-		}
+	shipped, busy := shippedBy(ops, s.LastOp)
+	if busy {
+		return nil // something is in flight; it owns the Stage
 	}
 	if failed {
 		return r.reraise(ctx, stage, shipped, ops)
@@ -695,6 +717,32 @@ func (r *StageReconciler) recheck(ctx context.Context, stage *dv1.Stage) error {
 		return r.recordCheck(ctx, stage, check, now)
 	}
 	return r.recheckFailed(ctx, stage, shipped, check, f)
+}
+
+// recheckDue says the Stage's running version is due a re-check: nothing
+// holds or froze the Stage, and it failed or its last re-check is older than
+// the recheck interval.
+func recheckDue(stage *dv1.Stage, failed bool, now time.Time) bool {
+	s := stage.Status
+	if s.Frozen || s.LastOp == "" || s.Locks[delivery.FacetPointer] != "" {
+		return false
+	}
+	return failed || s.LastCheck == nil || s.LastCheck.Operation != s.LastOp ||
+		!now.Before(parseOr(s.LastCheck.At).Add(delivery.RecheckInterval(stage.Spec)))
+}
+
+// shippedBy finds the concluded operation lastOp among ops; busy says one of
+// ops is still in flight.
+func shippedBy(ops []dv1.Operation, lastOp string) (shipped *dv1.Operation, busy bool) {
+	for _, o := range ops {
+		if o.Status.Phase != delivery.PhaseConcluded {
+			return nil, true
+		}
+		if string(o.UID) == lastOp {
+			shipped = &o
+		}
+	}
+	return shipped, false
 }
 
 // recordCheck records check as the Stage's last re-check, unless the Stage
@@ -725,9 +773,8 @@ func (r *StageReconciler) recheckFailed(ctx context.Context, stage *dv1.Stage, s
 		return nil
 	}
 	why := "RecheckFailed: " + f.Gate + ": " + f.Message
-	cause, before := string(shipped.UID), shipped.Status.Pointer.Before
-	chosen := shipped.Spec.Type != delivery.TypePromote || fresh.Status.AutoHold
-	rollback := !chosen && !slices.Contains(fresh.Status.RolledBack, cause) && before != "" && !slices.Contains(fresh.Status.FailedDigests, before)
+	cause := string(shipped.UID)
+	chosen, rollback := recheckChoice(shipped, fresh.Status)
 	// The failure is recorded before the rollback is raised: raising takes the
 	// pointer lock, after which the Stage reads as moved and the record would be
 	// dropped. A rollback lost after the record is raised again by reraise.
@@ -759,24 +806,45 @@ func (r *StageReconciler) recheckFailed(ctx context.Context, stage *dv1.Stage, s
 		st.Status.Conditions, _ = delivery.SetCondition(st.Status.Conditions, watched(check, st.Generation), r.Now())
 		st.Status.FailedDigests = delivery.AddDigest(st.Status.FailedDigests, check.Digest, delivery.MaxFailedDigests)
 		st.Status.Verified = delivery.RemoveDigest(st.Status.Verified, check.Digest)
-		switch {
-		case shipped.Spec.Type == delivery.TypeRollback && shipped.Status.ActorClass == delivery.ClassController:
-			st.Status.Frozen, st.Status.FrozenReason = true, shipped.Name+": failed after release, and it is the promoter's own rollback, which is never undone automatically, so a person must decide: "+why
-		case chosen:
-			st.Status.Frozen, st.Status.FrozenReason = true, shipped.Name+": failed after release, and a person or agent chose this version, so a person must decide: "+why
-		case !rollback:
-			st.Status.Frozen, st.Status.FrozenReason = true, shipped.Name+": failed after release and cannot be rolled back automatically: "+why
-		default:
+		if rollback {
 			st.Status.RolledBack = delivery.AddDigest(st.Status.RolledBack, cause, delivery.MaxRolledBack)
 		}
-		if stepSquat != "" {
-			// The level stays where the failure happened: a person decides.
-			st.Status.Frozen, st.Status.FrozenReason = true, shipped.Name+": failed after release: "+why+", and "+stepSquat
+		if reason := recheckFreeze(shipped, chosen, rollback, why, stepSquat); reason != "" {
+			st.Status.Frozen, st.Status.FrozenReason = true, reason
 		}
 	}); err != nil || !wrote || !rollback {
 		return err
 	}
 	return r.raiseRollback(ctx, stage, shipped, why, f)
+}
+
+// recheckChoice says whether a person or agent chose shipped's version (a
+// rollback, or a promote on auto-hold) and whether its failure raises its one
+// bound rollback: nobody chose it, its cause had no rollback yet and the
+// version before it is known and never failed.
+func recheckChoice(shipped *dv1.Operation, st delivery.StageStatus) (chosen, rollback bool) {
+	before := shipped.Status.Pointer.Before
+	chosen = shipped.Spec.Type != delivery.TypePromote || st.AutoHold
+	return chosen, !chosen && !slices.Contains(st.RolledBack, string(shipped.UID)) && before != "" && !slices.Contains(st.FailedDigests, before)
+}
+
+// recheckFreeze is why a re-check's confirmed failure of shipped freezes the
+// Stage, or "" when its one bound rollback is raised instead. A rollback
+// requires that nobody chose the version, so the promoter's own rollback,
+// itself chosen, always freezes.
+func recheckFreeze(shipped *dv1.Operation, chosen, rollback bool, why, stepSquat string) string {
+	switch {
+	case stepSquat != "":
+		// The level stays where the failure happened: a person decides.
+		return shipped.Name + ": failed after release: " + why + ", and " + stepSquat
+	case shipped.Spec.Type == delivery.TypeRollback && shipped.Status.ActorClass == delivery.ClassController:
+		return shipped.Name + ": failed after release, and it is the promoter's own rollback, which is never undone automatically, so a person must decide: " + why
+	case chosen:
+		return shipped.Name + ": failed after release, and a person or agent chose this version, so a person must decide: " + why
+	case !rollback:
+		return shipped.Name + ": failed after release and cannot be rolled back automatically: " + why
+	}
+	return ""
 }
 
 // raiseRollback raises shipped's one bound rollback, or freezes the Stage when

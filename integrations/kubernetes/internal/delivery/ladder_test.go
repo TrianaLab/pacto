@@ -151,6 +151,50 @@ func TestShadowWouldHaveRefused(t *testing.T) {
 	}
 }
 
+// TestShadowReplanBesideACandidate: a refusal replanned once published sits
+// beside a new candidate's plan, and a replan that cannot read the candidate
+// source returns the error for a retry.
+func TestShadowReplanBesideACandidate(t *testing.T) {
+	ctx := context.Background()
+	e := observeEnv(t)
+	e.setStage(func(st *delivery.StageStatus) { st.Published = []string{dA} })
+	if err := e.reconcileStage("payments-prod"); err != nil {
+		t.Fatal(err)
+	}
+	e.apply(dC)
+	if err := e.reconcileStage("payments-prod"); err != nil {
+		t.Fatal(err)
+	}
+	dD := "sha256:" + strings.Repeat("d", 64) // a candidate nothing planned yet
+	e.setStage(func(st *delivery.StageStatus) { st.Published, st.Candidate = []string{dA, dB, dC, dD}, dD })
+	if err := e.st.shadow(ctx, e.getStage()); err != nil {
+		t.Fatal(err)
+	}
+	if c := shadowOf(e.getStage().Status, dC); c == nil || c.Predicted == delivery.PredictRejected || shadowOf(e.getStage().Status, dD) == nil {
+		t.Fatalf("the refusal is replanned beside the candidate: %+v", e.getStage().Status.Shadow)
+	}
+
+	broken := observeEnv(t)
+	broken.setStage(func(st *delivery.StageStatus) { st.Published = []string{dA} })
+	if err := broken.reconcileStage("payments-prod"); err != nil {
+		t.Fatal(err)
+	}
+	broken.apply(dC)
+	if err := broken.reconcileStage("payments-prod"); err != nil {
+		t.Fatal(err)
+	}
+	up := broken.getStage()
+	up.Spec.Candidates = delivery.Candidates{UpstreamStage: &delivery.StageRef{Name: "payments-test"}}
+	if err := broken.c.Update(ctx, up); err != nil {
+		t.Fatal(err)
+	}
+	broken.setStage(func(st *delivery.StageStatus) { st.Published, st.Candidate = []string{dA, dB, dC}, "" })
+	broken.fails["get/Stage/payments-test"] = true
+	if err := broken.st.shadow(ctx, broken.getStage()); err == nil {
+		t.Fatal("a replan's planning read error is returned")
+	}
+}
+
 // TestShadowVerify: once the verify window passed, the Stage's own checks run
 // on what GitOps applied. All-Pass marks it verified, and offered only when
 // published; Unknown writes nothing and is retried after the recheck
