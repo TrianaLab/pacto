@@ -34,8 +34,6 @@ const (
 	NameFromContext = "context"
 	// NameFromUID: Identify fell back to the first characters of the UID.
 	NameFromUID = "uid"
-	// NameFromFile: a target-state file declared the name.
-	NameFromFile = "file"
 )
 
 var (
