@@ -137,8 +137,8 @@ The operator's limits are listed in
 ## What you keep if you stop using Pacto
 
 Pacto invents three files:
-`pacto.yaml`, the `pacto.lock` that [`pacto lock`](https://pacto.run/latest/lockfile/) writes, and an
-optional [`.pactoignore`](https://pacto.run/latest/pactoignore/). Nothing outside Pacto reads any
+`pacto.yaml`, an optional [`.pactoignore`](https://pacto.run/latest/pactoignore/) and the
+`pacto.lock` that [`pacto lock`](https://pacto.run/latest/lockfile/) writes. Nothing outside Pacto reads any
 of them. In a cluster, the `Pacto` and delivery custom resources are Pacto's
 too. That is the whole of the lock-in. Everything those files wrap stays
 yours, and you can check that:
@@ -190,8 +190,8 @@ core makes no deployment decisions. The opt-in delivery component decides
 which version runs where and leaves applying it to Flux or Argo CD.
 
 [How Pacto relates to other tools](https://pacto.run/latest/comparison/)
-compares Pacto with nearby projects, with the criteria and a source for each
-row.
+compares Pacto with nearby projects, with the criteria, a source for each row
+and where each tool wins.
 
 ## Installation
 
