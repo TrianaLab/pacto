@@ -40,10 +40,13 @@ func DecodeDocument(raw []byte) *Document {
 // [Document], reading the YAML once for both.
 func ParseDocument(raw []byte) (*Contract, *Document, error) {
 	var root yaml.Node
-	if err := yaml.Unmarshal(raw, &root); err != nil || root.Kind == 0 {
+	if uerr := yaml.Unmarshal(raw, &root); uerr != nil || root.Kind == 0 {
 		// Let the strict decoder phrase the error (and the empty document).
 		c, err := parseStrict(raw)
-		return c, nil, err
+		if err != nil {
+			return nil, nil, err
+		}
+		return c, &Document{err: uerr}, nil
 	}
 	c, err := parseNode(&root, raw)
 	if err != nil {

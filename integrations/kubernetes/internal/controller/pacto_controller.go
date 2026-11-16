@@ -134,7 +134,7 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	// 3-5. Load the contract, apply overrides and validate the effective contract.
 	ec, failure := r.loadEffectiveContract(ctx, pacto)
 	if failure != nil {
-		return r.failReconciliation(ctx, pacto, failure.msg, failure.validation, prev, failure.status)
+		return r.failReconciliation(ctx, pacto, failure.msg, failure.validation, prev, failure.status, failure.reason)
 	}
 	effectiveContract := ec.effective.Contract
 
@@ -199,6 +199,7 @@ type loadFailure struct {
 	msg        string
 	validation *pactov1alpha1.ValidationResult
 	status     string
+	reason     string // the ContractValid reason of an Invalid status; empty is ReasonContractInvalid
 }
 
 // loadEffectiveContract resolves the pull secret, loads the contract, applies the configuration overrides
@@ -225,7 +226,7 @@ func (r *PactoReconciler) loadEffectiveContract(ctx context.Context, pacto *pact
 
 	loadResult, err := r.Loader.Load(ctx, ociRef, pacto.Spec.ContractRef.Inline, ociAuth)
 	if err != nil {
-		return nil, &loadFailure{msg: err.Error(), validation: invalidAt("", err), status: classifyLoadError(err)}
+		return nil, &loadFailure{msg: err.Error(), validation: invalidAt("", err), status: classifyLoadError(err), reason: loadErrorReason(err)}
 	}
 	// Recorded before validation, so an Invalid verdict is tied to its contract too.
 	pacto.Status.EvaluatedRevision = &pactov1alpha1.EvaluatedRevision{ContractDigest: loadResult.ResolvedDigest}
@@ -482,16 +483,17 @@ func (r *PactoReconciler) resetDerivedStatus(pacto *pactov1alpha1.Pacto) {
 }
 
 // failReconciliation handles the common pattern for contract-level failures with phase-classified status
-// (spec section 9.8): Invalid vs Unknown. The status parameter drives condition reason + summary.
+// (spec section 9.8): Invalid vs Unknown. The status parameter drives condition reason + summary;
+// reason, when set, names why an Invalid contract is invalid.
 // prev is the status persisted by the previous reconciliation; its contract status gates the
 // transition event (see emitContractStatusEvent) and the whole of it gates the write (see writeStatus).
-func (r *PactoReconciler) failReconciliation(ctx context.Context, pacto *pactov1alpha1.Pacto, msg string, valResult *pactov1alpha1.ValidationResult, prev *pactov1alpha1.PactoStatus, status string) (ctrl.Result, error) {
+func (r *PactoReconciler) failReconciliation(ctx context.Context, pacto *pactov1alpha1.Pacto, msg string, valResult *pactov1alpha1.ValidationResult, prev *pactov1alpha1.PactoStatus, status, reason string) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
 	switch status {
 	case pactov1alpha1.ContractStatusInvalid:
 		r.setCondition(pacto, pactov1alpha1.ConditionContractValid, metav1.ConditionFalse,
-			pactov1alpha1.ReasonContractInvalid, msg)
+			cmp.Or(reason, pactov1alpha1.ReasonContractInvalid), msg)
 		pacto.Status.Summary = &pactov1alpha1.Summary{ErrorCount: 1}
 		// The contract was loaded and judged invalid -> record the validation result.
 		pacto.Status.Validation = valResult
@@ -534,6 +536,16 @@ func (r *PactoReconciler) failReconciliation(ctx context.Context, pacto *pactov1
 // corrupt bundle, unsatisfiable constraint, any error pkg/oci grows later — is Invalid.
 // Listing the Invalid side too was a second closed enumeration the compiler could not
 // check, so a new transient type would have missed BOTH arms and still read Invalid.
+// loadErrorReason names a load failure the ContractValid condition reports with
+// its own reason: a contract that leaves its pactoVersion, service.name or
+// service.version implied is ContractUndeclared.
+func loadErrorReason(err error) string {
+	if errors.Is(err, contract.ErrUndeclaredContract) {
+		return pactov1alpha1.ReasonContractUndeclared
+	}
+	return ""
+}
+
 func classifyLoadError(err error) string {
 	var (
 		unreachable *oci.RegistryUnreachableError

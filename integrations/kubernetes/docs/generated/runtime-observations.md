@@ -152,6 +152,8 @@ A finding is one conclusion from the engine. Findings fall in two families. Conf
 | `POLICY_REF_CYCLE` | `ReferenceCycle` |
 | `POLICY_REF_UNRESOLVED` | `UnresolvedReference` |
 | `POLICY_VIOLATION` | `PolicyViolation` |
+| `PUBLISH_NEEDS_SERVICE_NAME` | `SchemaViolation` |
+| `PUBLISH_NEEDS_SERVICE_VERSION` | `InvalidVersion` |
 | `SCHEMA_ERROR` | `SchemaViolation` |
 | `SCHEMA_VIOLATION` | `SchemaViolation` |
 | `STATELESS_PERSISTENT_CONFLICT` | `StateMismatch` |

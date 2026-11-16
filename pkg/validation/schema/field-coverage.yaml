@@ -30,17 +30,21 @@ fields:
     runtime: not-applicable
     evidence: 'none: the field has no runtime counterpart'
     rule: parse rejects anything but "2.0", "2.1", "2.2", "2.3", "2.4" and "2.5" before any other layer runs; the
-      version selects the schema
+      version selects the schema; an absent version is the newest the CLI supports, and pack, push and publish write
+      it into the bundled pacto.yaml
     outcomes: PARSE_ERROR when unsupported
     limitations: 2.0, 2.1, 2.2, 2.3 and 2.4 have their own schemas without the fields later versions add; this
       inventory walks 2.5, the superset
     tests:
       unit:
       - pkg/contract/parse_test.go:TestParse_UnsupportedVersion
+      - pkg/contract/parse_test.go:TestParseImplicitVersionIsCurrent
+      - pkg/contract/pin_test.go:TestPinVersionAddsLine
       - pkg/validation/structural_test.go:TestValidateStructuralRaw_UnsupportedVersion_V10
       integration:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/valid
       - tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/invalid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/absent-is-current
       e2e: []
     values:
       '2.5':
@@ -62,47 +66,55 @@ fields:
     meaning: Identity block of the service the contract describes.
     runtime: not-applicable
     evidence: 'none: the field has no runtime counterpart'
-    rule: 'schema: object with name and version'
+    rule: 'schema: object with name and version; optional in 2.5, where an empty contract is valid'
     outcomes: PARSE_ERROR or SCHEMA_VIOLATION when malformed
     limitations: container only; its children carry the semantics
     tests:
       unit:
       - pkg/contract/parse_test.go:TestParse_ValidFull_Service
+      - pkg/validation/structural_test.go:TestValidateStructural_EmptyIsValid
       integration:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/service/valid
       - tests/integration/field_coverage_test.go:TestFieldCoverage/service/invalid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service/absent
       e2e: []
   service.name:
     meaning: DNS-style service name; the identity of the contract everywhere.
     runtime: static-only
     evidence: used as the subject name of service-scoped evidence (workload, persistence), never checked against a runtime
       name
-    rule: schema pattern
-    outcomes: SCHEMA_VIOLATION
+    rule: schema pattern; required before 2.5; in 2.5 it may be absent, pack, push and publish refuse an undeclared
+      one and readers of published bundles reject it
+    outcomes: SCHEMA_VIOLATION; PUBLISH_NEEDS_SERVICE_NAME when publishing without it
     limitations: the operator binds a runtime target by the Pacto CR, not by this name
     tests:
       unit:
-      - pkg/contract/parse_test.go:TestParse_MissingServiceName
+      - pkg/validation/structural_test.go:TestValidateStructural_V24StillRequiresName
+      - pkg/validation/structural_test.go:TestValidateStructural_ServiceOnlyNameIsValid
       - pkg/validation/evaluate_test.go:TestEvaluate_ServiceScopedMatchByServiceName
       integration:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/service.name/valid
       - tests/integration/field_coverage_test.go:TestFieldCoverage/service.name/invalid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.name/needs-2.5
       e2e: []
   service.version:
     meaning: Semantic version of this contract revision.
     runtime: static-only
     evidence: consumers read it from the provider's Pacto status as DependencyObservation.Version for their compatibility
       check
-    rule: 'cross-field: valid semver'
-    outcomes: INVALID_SEMVER
+    rule: 'cross-field: valid semver; required before 2.5; in 2.5 it may be absent and pack, push and publish refuse
+      an undeclared one'
+    outcomes: INVALID_SEMVER; PUBLISH_NEEDS_SERVICE_VERSION when publishing without it
     limitations: the running image version is never compared with it; it is the provider-side input of dependencies[].compatibility
     tests:
       unit:
       - pkg/validation/crossfield_test.go:TestValidateServiceVersion_InvalidSemver
       - pkg/validation/structural_test.go:TestValidateStructuralRaw_VersionMustBeOnePathComponent
+      - pkg/validation/crossfield_test.go:TestValidateServiceVersionEmptySkipped
       integration:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/service.version/valid
       - tests/integration/field_coverage_test.go:TestFieldCoverage/service.version/invalid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.version/needs-2.5
       e2e:
       - tests/acceptance/kind/runtime-conformance.sh:dependency-version-mismatch
   service.domain:

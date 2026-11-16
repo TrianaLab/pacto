@@ -1,6 +1,7 @@
 package validation
 
 import (
+	"cmp"
 	_ "embed"
 	"encoding/json"
 	"fmt"
@@ -99,13 +100,17 @@ func pactoVersionOf(data any) string {
 
 // ValidateStructural performs Layer 1 validation using JSON Schema.
 // It takes the generic (JSON-compatible) contract data, selects the schema that
-// matches the declared pactoVersion, and validates against it. An unrecognized
-// or missing pactoVersion is a hard error (fail closed) rather than silently
-// validating against an arbitrary schema.
+// matches the declared pactoVersion, and validates against it. An absent
+// pactoVersion is contract.Current() and an empty document is an empty object;
+// an unrecognized pactoVersion is a hard error (fail closed) rather than
+// silently validating against an arbitrary schema.
 func ValidateStructural(data any) ValidationResult {
 	var result ValidationResult
 
-	version := pactoVersionOf(data)
+	if data == nil {
+		data = map[string]any{}
+	}
+	version := cmp.Or(pactoVersionOf(data), contract.Current())
 	schema, ok := compiledSchemas[version]
 	if !ok {
 		result.AddError(

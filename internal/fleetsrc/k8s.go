@@ -118,6 +118,15 @@ func (s *K8sSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 	_ = json.Unmarshal(data, &raw)
 	col := &fleet.Collection{ObservedUndeclaredOnly: true}
 	for i, item := range list.Items {
+		if c := item.Status.Contract; c != nil && c.ServiceName == "" {
+			// The operator refuses a contract that does not declare its name, so
+			// a reconciled one without it is a record this source cannot place.
+			col.Limitations = append(col.Limitations, fleet.Limitation{
+				Code: fleet.LimitationSourceRecordInvalid, Source: s.id,
+				Message: "Pacto " + item.Metadata.Namespace + "/" + item.Metadata.Name + " reports a contract with no service name",
+			})
+			continue
+		}
 		t := s.targetFrom(item)
 		if v, ok := s.runtimeView(raw.Items[i], item, col); ok {
 			col.Observed = append(col.Observed, delivery.ObservedEdges(v)...)
@@ -174,9 +183,7 @@ func (s *K8sSource) targetFrom(item k8sItem) fleet.RawTarget {
 	if st.Contract != nil {
 		businessDomain = st.Contract.Domain
 		offering, summary = st.Contract.Offering, st.Contract.Summary
-		if st.Contract.ServiceName != "" {
-			service = st.Contract.ServiceName
-		}
+		service = st.Contract.ServiceName
 		resolvedRef = st.Contract.ResolvedRef
 		if st.Contract.Owner != nil {
 			owner = *st.Contract.Owner

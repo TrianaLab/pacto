@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"testing/fstest"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/override"
 )
 
@@ -808,5 +810,95 @@ func TestCopyFSWithReplace(t *testing.T) {
 	}
 	if string(data) != "readme" {
 		t.Errorf("expected readme, got %q", string(data))
+	}
+}
+
+func implicitBundle(t *testing.T, raw string) *contract.Bundle {
+	t.Helper()
+	c, err := contract.Parse(strings.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &contract.Bundle{Contract: c, RawYAML: []byte(raw), FS: fstest.MapFS{
+		"pacto.yaml":     {Data: []byte(raw)},
+		"docs/readme.md": {Data: []byte("# a")},
+	}}
+}
+
+func TestPublishablePinsVersion(t *testing.T) {
+	b, err := publishable(implicitBundle(t, "service:\n  name: a\n  version: 1.0.0\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := fs.ReadFile(b.FS, "pacto.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `pactoVersion: "` + contract.Current() + `"` + "\n"
+	if !strings.HasPrefix(string(data), want) || !strings.HasPrefix(string(b.RawYAML), want) {
+		t.Errorf("bundled pacto.yaml %q, raw %q", data, b.RawYAML)
+	}
+	if _, err := fs.ReadFile(b.FS, "docs/readme.md"); err != nil {
+		t.Errorf("the other bundle files are kept: %v", err)
+	}
+	if b.Contract.Service.Name != "a" {
+		t.Errorf("contract %+v", b.Contract)
+	}
+}
+
+func TestPublishableKeepsDeclaredVersion(t *testing.T) {
+	in := implicitBundle(t, "pactoVersion: \"2.0\"\nservice:\n  name: a\n  version: 1.0.0\n")
+	if b, err := publishable(in); err != nil || b != in {
+		t.Fatalf("got %v, %v", b, err)
+	}
+}
+
+func TestPublishablePinIsDeterministic(t *testing.T) {
+	var digests []string
+	for range 2 {
+		b, err := publishable(implicitBundle(t, "service:\n  name: a\n  version: 1.0.0\n"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		d, err := oci.BundleDigest(b)
+		if err != nil {
+			t.Fatal(err)
+		}
+		digests = append(digests, d)
+	}
+	if digests[0] != digests[1] {
+		t.Errorf("digests differ: %v", digests)
+	}
+}
+
+func TestPublishableRefusesMissingVersion(t *testing.T) {
+	_, err := publishable(implicitBundle(t, "service:\n  name: a\n"))
+	if !errors.Is(err, ErrPublishNeedsServiceVersion) || !strings.HasPrefix(err.Error(), "PUBLISH_NEEDS_SERVICE_VERSION") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestPublishableRefusesMissingName(t *testing.T) {
+	_, err := publishable(implicitBundle(t, "service:\n  version: 1.0.0\n"))
+	if !errors.Is(err, ErrPublishNeedsServiceName) || !strings.HasPrefix(err.Error(), "PUBLISH_NEEDS_SERVICE_NAME") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestPublishablePinFailures(t *testing.T) {
+	named := &contract.Contract{Service: contract.Service{Name: "a", Version: "1.0.0"}}
+	for raw, want := range map[string]string{
+		"[a]": "not a mapping",
+		"service: {name: a, version: 1.0.0}\nbogus: 1\n": "pinning pactoVersion",
+	} {
+		_, err := publishable(&contract.Bundle{Contract: named, RawYAML: []byte(raw), FS: fstest.MapFS{}})
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: got %v", raw, err)
+		}
+	}
+	b := implicitBundle(t, "service:\n  name: a\n  version: 1.0.0\n")
+	b.FS = &errFS{}
+	if _, err := publishable(b); err == nil || !strings.Contains(err.Error(), "pinned bundle FS") {
+		t.Errorf("got %v", err)
 	}
 }

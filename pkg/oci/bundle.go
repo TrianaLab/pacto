@@ -201,7 +201,9 @@ func imageToBundle(img v1.Image) (*contract.Bundle, error) {
 }
 
 // bundleFromFS reads and parses pacto.yaml from an extracted bundle filesystem
-// into a Bundle. Shared by imageToBundle and the on-disk cache loader.
+// into a Bundle. Shared by imageToBundle and the on-disk cache loader. A
+// published bundle declares its pactoVersion, service.name and
+// service.version; one that leaves any implied is refused.
 func bundleFromFS(fsys fs.FS) (*contract.Bundle, error) {
 	rawYAML, err := fs.ReadFile(fsys, "pacto.yaml")
 	if err != nil {
@@ -210,6 +212,9 @@ func bundleFromFS(fsys fs.FS) (*contract.Bundle, error) {
 	c, err := contract.Parse(bytes.NewReader(rawYAML))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse contract from bundle: %w", err)
+	}
+	if err := contract.RequireDeclared(c, rawYAML); err != nil {
+		return nil, fmt.Errorf("bundle pacto.yaml: %w", err)
 	}
 	return &contract.Bundle{Contract: c, RawYAML: rawYAML, FS: fsys}, nil
 }

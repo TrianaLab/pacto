@@ -171,26 +171,6 @@ func TestParse_ValidFull_Policies(t *testing.T) {
 	}
 }
 
-func TestParse_MissingPactoVersion(t *testing.T) {
-	f, err := os.Open("testdata/invalid_missing_version.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = f.Close() }()
-
-	_, err = contract.Parse(f)
-	if err == nil {
-		t.Fatal("expected error for missing pactoVersion")
-	}
-	pe, ok := err.(*contract.ParseError)
-	if !ok {
-		t.Fatalf("expected ParseError, got %T", err)
-	}
-	if pe.Path != "pactoVersion" {
-		t.Errorf("expected path pactoVersion, got %s", pe.Path)
-	}
-}
-
 func TestParse_UnsupportedVersion(t *testing.T) {
 	r := strings.NewReader(`
 pactoVersion: "1.0"
@@ -214,26 +194,6 @@ service:
 	}
 }
 
-func TestParse_MissingServiceName(t *testing.T) {
-	f, err := os.Open("testdata/invalid_missing_name.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = f.Close() }()
-
-	_, err = contract.Parse(f)
-	if err == nil {
-		t.Fatal("expected error for missing service.name")
-	}
-	pe, ok := err.(*contract.ParseError)
-	if !ok {
-		t.Fatalf("expected ParseError, got %T", err)
-	}
-	if pe.Path != "service.name" {
-		t.Errorf("expected path service.name, got %s", pe.Path)
-	}
-}
-
 func TestParse_InvalidYAML(t *testing.T) {
 	f, err := os.Open("testdata/invalid_yaml.yaml")
 	if err != nil {
@@ -247,25 +207,6 @@ func TestParse_InvalidYAML(t *testing.T) {
 	}
 	if _, ok := err.(*contract.ParseError); !ok {
 		t.Fatalf("expected ParseError, got %T", err)
-	}
-}
-
-func TestParse_MissingServiceVersion(t *testing.T) {
-	r := strings.NewReader(`
-pactoVersion: "2.0"
-service:
-  name: my-svc
-`)
-	_, err := contract.Parse(r)
-	if err == nil {
-		t.Fatal("expected error for missing service.version")
-	}
-	pe, ok := err.(*contract.ParseError)
-	if !ok {
-		t.Fatalf("expected ParseError, got %T", err)
-	}
-	if pe.Path != "service.version" {
-		t.Errorf("expected path service.version, got %s", pe.Path)
 	}
 }
 
@@ -538,5 +479,47 @@ service:
 	}
 	if o := c.Service.Origin; o == nil || o.Ref != "oci://ghcr.io/acme/paths/http-service:1.0.0" || o.Digest != "sha256:abc" {
 		t.Fatalf("origin: %+v", c.Service.Origin)
+	}
+}
+
+func TestParseEmptyDocument(t *testing.T) {
+	for _, doc := range []string{"", "\n", "# comment\n", "null\n"} {
+		c, err := contract.Parse(strings.NewReader(doc))
+		if err != nil {
+			t.Fatalf("%q: %v", doc, err)
+		}
+		if c.PactoVersion != contract.Current() || c.Service.Name != "" || c.Service.Version != "" {
+			t.Errorf("%q: got %+v", doc, c)
+		}
+	}
+}
+
+func TestParseImplicitVersionIsCurrent(t *testing.T) {
+	c, err := contract.Parse(strings.NewReader("service:\n  name: my-service\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.PactoVersion != contract.Current() || c.Service.Name != "my-service" || c.Service.Version != "" {
+		t.Errorf("got %+v", c)
+	}
+}
+
+func TestParseUnsupportedVersionStillFails(t *testing.T) {
+	_, err := contract.Parse(strings.NewReader(`pactoVersion: "9.9"`))
+	pe, ok := err.(*contract.ParseError)
+	if !ok || pe.Path != "pactoVersion" {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestParseDocumentEmpty(t *testing.T) {
+	for _, doc := range []string{"", "# only a comment\n", "null\n"} {
+		c, _, err := contract.ParseDocument([]byte(doc))
+		if err != nil {
+			t.Fatalf("%q: %v", doc, err)
+		}
+		if c.PactoVersion != contract.Current() {
+			t.Errorf("%q: pactoVersion %q", doc, c.PactoVersion)
+		}
 	}
 }

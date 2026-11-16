@@ -197,23 +197,42 @@ service:
 	}
 }
 
-func TestValidateStructural_MissingVersion_Unsupported(t *testing.T) {
-	result := ValidateStructural(map[string]any{"service": map[string]any{}})
-	if result.IsValid() {
-		t.Fatal("expected missing version to be invalid")
+func TestValidateStructural_EmptyIsValid(t *testing.T) {
+	for _, d := range []any{nil, map[string]any{}, map[string]any{"service": map[string]any{}}} {
+		if r := ValidateStructural(d); !r.IsValid() {
+			t.Errorf("%v: %v", d, r.Errors)
+		}
 	}
-	if result.Errors[0].Code != "UNSUPPORTED_PACTO_VERSION" {
-		t.Errorf("expected UNSUPPORTED_PACTO_VERSION, got %s", result.Errors[0].Code)
+	if r := ValidateStructuralRaw(nil); !r.IsValid() {
+		t.Errorf("zero bytes: %v", r.Errors)
 	}
 }
 
-func TestValidateStructural_NonMapData_Unsupported(t *testing.T) {
+func TestValidateStructural_ServiceOnlyNameIsValid(t *testing.T) {
+	if r := ValidateStructuralRaw([]byte("service:\n  name: payments\n")); !r.IsValid() {
+		t.Fatal(r.Errors)
+	}
+}
+
+func TestValidateStructural_V24StillRequiresName(t *testing.T) {
+	for _, d := range []map[string]any{
+		{"pactoVersion": "2.4", "service": map[string]any{"version": "1.0.0"}},
+		{"pactoVersion": "2.4", "service": map[string]any{"name": "svc"}},
+		{"pactoVersion": "2.4"},
+	} {
+		if r := ValidateStructural(d); r.IsValid() {
+			t.Errorf("%v: expected a SCHEMA_VIOLATION", d)
+		}
+	}
+}
+
+func TestValidateStructural_NonMapData_Invalid(t *testing.T) {
 	result := ValidateStructural([]any{"not", "a", "map"})
 	if result.IsValid() {
 		t.Fatal("expected non-map data to be invalid")
 	}
-	if result.Errors[0].Code != "UNSUPPORTED_PACTO_VERSION" {
-		t.Errorf("expected UNSUPPORTED_PACTO_VERSION, got %s", result.Errors[0].Code)
+	if result.Errors[0].Code != "SCHEMA_VIOLATION" {
+		t.Errorf("expected SCHEMA_VIOLATION, got %s", result.Errors[0].Code)
 	}
 }
 

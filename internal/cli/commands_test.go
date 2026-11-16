@@ -651,6 +651,26 @@ func TestRootCommand_CustomConfig(t *testing.T) {
 	}
 }
 
+// An empty pacto.yaml in the working directory is a valid contract, and viper
+// reads it as an empty config: `pacto version` still runs.
+func TestRootEmptyPactoYAMLInWorkingDir(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	root := cli.NewRootCommand(app.NewService(nil, nil), cli.VersionInfo{Version: "test"})
+	root.SetArgs([]string{"version"})
+	var out bytes.Buffer
+	root.SetOut(&out)
+	if err := root.Execute(); err != nil {
+		t.Fatalf("version beside an empty pacto.yaml: %v", err)
+	}
+	if !strings.Contains(out.String(), "test") {
+		t.Errorf("output %q", out.String())
+	}
+}
+
 type cliErrWriter struct{}
 
 func (cliErrWriter) Write([]byte) (int, error) { return 0, fmt.Errorf("write error") }

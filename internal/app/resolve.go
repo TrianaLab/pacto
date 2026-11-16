@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"testing/fstest"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/finding"
 	"github.com/trianalab/pacto/v4/pkg/graph"
 	"github.com/trianalab/pacto/v4/pkg/ignore"
 	"github.com/trianalab/pacto/v4/pkg/logging"
@@ -223,6 +225,9 @@ func loadAndValidateLocal(ctx context.Context, dir string, overrides override.Ov
 	}
 
 	logging.LoggerFromContext(ctx).Debug("local validation passed", "name", bundle.Contract.Service.Name, "version", bundle.Contract.Service.Version)
+	if bundle, err = publishable(bundle); err != nil {
+		return nil, nil, nil, err
+	}
 	return bundle.Contract, bundle.RawYAML, bundle.FS, nil
 }
 
@@ -253,7 +258,51 @@ func loadAndValidateFull(ctx context.Context, dir string, overrides override.Ove
 	}
 
 	logging.LoggerFromContext(ctx).Debug("validation passed", "name", bundle.Contract.Service.Name, "version", bundle.Contract.Service.Version)
+	if bundle, err = publishable(bundle); err != nil {
+		return nil, nil, nil, err
+	}
 	return bundle.Contract, bundle.RawYAML, bundle.FS, nil
+}
+
+// The errors pack, push and publish return for a contract that leaves its
+// identity undeclared, so a published bundle never carries an implied value.
+var (
+	ErrPublishNeedsServiceName = errors.New(string(finding.CodePublishNeedsServiceName) +
+		": service.name is not declared; declare it to publish: `service: {name: <name>}`")
+	ErrPublishNeedsServiceVersion = errors.New(string(finding.CodePublishNeedsServiceVersion) +
+		": service.version is not declared; declare it to publish: `service: {version: 1.0.0}`")
+)
+
+// publishable is the bundle pack, push and publish write: it refuses an
+// undeclared service.name or service.version and pins an absent pactoVersion
+// to contract.Current() in the bundled pacto.yaml, then re-parses the pinned
+// bytes to prove the root declares it.
+func publishable(b *contract.Bundle) (*contract.Bundle, error) {
+	if b.Contract.Service.Version == "" {
+		return nil, ErrPublishNeedsServiceVersion
+	}
+	if b.Contract.Service.Name == "" {
+		return nil, ErrPublishNeedsServiceName
+	}
+	raw, err := contract.PinVersion(b.RawYAML)
+	if err != nil {
+		return nil, err
+	}
+	if bytes.Equal(raw, b.RawYAML) {
+		return b, nil // pactoVersion already declared
+	}
+	c, _, err := contract.ParseDocument(raw)
+	if err == nil {
+		err = contract.RequireDeclared(c, raw)
+	}
+	if err != nil || c.PactoVersion != contract.Current() {
+		return nil, fmt.Errorf("pinning pactoVersion %s into pacto.yaml: %v", contract.Current(), err)
+	}
+	fsys, err := copyFSWithReplace(b.FS, DefaultContractPath, raw)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build the pinned bundle FS: %w", err)
+	}
+	return &contract.Bundle{Contract: c, RawYAML: raw, FS: fsys}, nil
 }
 
 // isOCIRef reports whether ref uses the oci:// scheme.

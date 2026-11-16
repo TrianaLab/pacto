@@ -8,10 +8,12 @@ import (
 const (
 	// Durable v2 codes (may occur for v2 Operational Contracts).
 	CodeUnsupportedPactoVersion        Code = "UNSUPPORTED_PACTO_VERSION"
-	CodeNeedsPacto21                   Code = "NEEDS_PACTO_2_1" // a 2.0 contract uses publish, checks, an external dependency or an mcp interface
-	CodeNeedsPacto22                   Code = "NEEDS_PACTO_2_2" // an older contract uses an interface lifecycle, compatibilityEpoch or guarantees, or dependency requires
-	CodeNeedsPacto23                   Code = "NEEDS_PACTO_2_3" // an older contract declares environments
-	CodeNeedsPacto24                   Code = "NEEDS_PACTO_2_4" // an older contract declares service.domain, service.offering, service.summary, service.lifecycle, service.template or service.origin, values or a configuration selector beside a configuration ref, or an environment's lifetime, expires or owner
+	CodeNeedsPacto21                   Code = "NEEDS_PACTO_2_1"               // a 2.0 contract uses publish, checks, an external dependency or an mcp interface
+	CodeNeedsPacto22                   Code = "NEEDS_PACTO_2_2"               // an older contract uses an interface lifecycle, compatibilityEpoch or guarantees, or dependency requires
+	CodeNeedsPacto23                   Code = "NEEDS_PACTO_2_3"               // an older contract declares environments
+	CodeNeedsPacto24                   Code = "NEEDS_PACTO_2_4"               // an older contract declares service.domain, service.offering, service.summary, service.lifecycle, service.template or service.origin, values or a configuration selector beside a configuration ref, or an environment's lifetime, expires or owner
+	CodePublishNeedsServiceName        Code = "PUBLISH_NEEDS_SERVICE_NAME"    // pack, push or publish of a contract that does not declare service.name
+	CodePublishNeedsServiceVersion     Code = "PUBLISH_NEEDS_SERVICE_VERSION" // pack, push or publish of a contract that does not declare service.version
 	CodeSchemaError                    Code = "SCHEMA_ERROR"
 	CodeSchemaViolation                Code = "SCHEMA_VIOLATION"
 	CodeYamlParseError                 Code = "YAML_PARSE_ERROR"
@@ -113,6 +115,8 @@ var registry = map[Code]codeMeta{
 	CodeNeedsPacto22:                   {CategoryInvalidVersion, SeverityError},
 	CodeNeedsPacto23:                   {CategoryInvalidVersion, SeverityError},
 	CodeNeedsPacto24:                   {CategoryInvalidVersion, SeverityError},
+	CodePublishNeedsServiceName:        {CategorySchemaViolation, SeverityError},
+	CodePublishNeedsServiceVersion:     {CategoryInvalidVersion, SeverityError},
 	CodeSchemaError:                    {CategorySchemaViolation, SeverityError},
 	CodeSchemaViolation:                {CategorySchemaViolation, SeverityError},
 	CodeYamlParseError:                 {CategorySchemaViolation, SeverityError},

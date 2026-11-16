@@ -706,6 +706,9 @@ func (o fileOps) edit(ctx context.Context, validate Validator, opts EditOptions,
 	if err := contract.DecodeYAML(rawYAML, &m); err != nil {
 		return nil, fmt.Errorf("failed to parse %s: %w", pactoPath, err)
 	}
+	if m == nil {
+		m = map[string]any{} // an empty contract
+	}
 
 	fromVersion, _ := m["pactoVersion"].(string)
 	files, changes, err := editFiles(dir, m, input)
@@ -1033,9 +1036,14 @@ func setServiceField(m, svc map[string]any, field, value, minVersion string) []s
 }
 
 // raiseVersion raises a pactoVersion older than minVersion to minVersion,
-// which keeps every older field, and returns the change it made.
+// which keeps every older field, and returns the change it made. An absent
+// pactoVersion is already the newest (contract.Current()), so it stays absent.
 func raiseVersion(m map[string]any, minVersion string) []string {
-	if v, _ := m["pactoVersion"].(string); slices.Index(contract.SupportedVersions, v) < slices.Index(contract.SupportedVersions, minVersion) {
+	v, declared := m["pactoVersion"].(string)
+	if !declared {
+		return nil
+	}
+	if slices.Index(contract.SupportedVersions, v) < slices.Index(contract.SupportedVersions, minVersion) {
 		m["pactoVersion"] = minVersion
 		return []string{fmt.Sprintf("set pactoVersion to %q", minVersion)}
 	}

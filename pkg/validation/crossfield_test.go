@@ -36,6 +36,26 @@ func TestValidateServiceVersion_InvalidSemver(t *testing.T) {
 	}
 }
 
+func TestValidateServiceVersionEmptySkipped(t *testing.T) {
+	c := validV20Contract()
+	c.Service.Version = ""
+	var result ValidationResult
+	validateServiceVersion(c, &result)
+	if !result.IsValid() {
+		t.Errorf("an undeclared version is not a semver error: %+v", result.Errors)
+	}
+}
+
+func TestValidateEmpty25ContractHasNoErrors(t *testing.T) {
+	c, err := contract.Parse(strings.NewReader(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := Validate(c, nil, fstest.MapFS{}); len(r.Errors) > 0 {
+		t.Fatalf("empty 2.5 contract: %+v", r.Errors)
+	}
+}
+
 func TestValidateServiceVersion_Valid(t *testing.T) {
 	c := validV20Contract()
 	c.Service.Version = "2.3.4"

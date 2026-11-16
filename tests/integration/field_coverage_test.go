@@ -93,6 +93,7 @@ var fieldCoverageCases = []fcCase{
 	valid("pactoVersion/valid"),
 	invalid("pactoVersion/invalid", parseError, set("pactoVersion", "1.0"), del("service.template"), del("service.origin")),
 	valid("pactoVersion=2.4", set("pactoVersion", "2.4")),
+	valid("pactoVersion/absent-is-current", del("pactoVersion")),
 	valid("pactoVersion=2.3", set("pactoVersion", "2.3"), del("environments.0.lifetime"), del("environments.0.expires"), del("environments.0.owner"), del("service.template"), del("service.origin"), del("service.lifecycle"), del("service.domain"), del("service.offering"), del("service.summary")),
 	valid("pactoVersion=2.2", set("pactoVersion", "2.2"), del("service.template"), del("service.origin"), del("service.lifecycle"), del("service.domain"), del("service.offering"), del("service.summary"), del("environments")),
 	valid("pactoVersion=2.1", set("pactoVersion", "2.1"), del("service.template"), del("service.origin"), del("service.lifecycle"), del("service.domain"), del("service.offering"), del("service.summary"), del("environments"), del("environments"), del("interfaces.0.lifecycle"), del("interfaces.0.guarantees"), del("interfaces.0.compatibilityEpoch"), del("dependencies.1.requires")),
@@ -100,10 +101,13 @@ var fieldCoverageCases = []fcCase{
 
 	valid("service/valid"),
 	invalid("service/invalid", parseError, set("service", "orders")),
+	valid("service/absent", del("service"), del("policies")), // the base policy requires a service
 	valid("service.name/valid", set("service.name", "orders-v2")),
 	invalid("service.name/invalid", schemaViolation, set("service.name", "Orders_Service")),
+	invalid("service.name/needs-2.5", schemaViolation, set("pactoVersion", "2.4"), del("service.name")), // only 2.5 may leave it out
 	valid("service.version/valid", set("service.version", "2.3.4-rc.1")),
 	invalid("service.version/invalid", "INVALID_SEMVER", set("service.version", "abc")),
+	invalid("service.version/needs-2.5", schemaViolation, set("pactoVersion", "2.4"), del("service.version")), // only 2.5 may leave it out
 	valid("service.domain/valid", set("service.domain", "payments")),
 	invalid("service.domain/invalid", schemaViolation, set("service.domain", "Pay Ments")),
 	invalid("service.domain/needs-2.4", needs24, set("pactoVersion", "2.3"), del("environments.0.lifetime"), del("environments.0.expires"), del("environments.0.owner"), del("service.template"), del("service.origin"), del("service.lifecycle"), del("service.offering"), del("service.summary")),

@@ -40,9 +40,17 @@ selector beside a configuration `ref`, reports `NEEDS_PACTO_2_4`: set
 `pactoVersion: "2.4"`.
 
 A contract that fails to **load**, because of malformed YAML, an unknown field or a
-`pactoVersion` other than `"2.0"`, `"2.1"`, `"2.2"`, `"2.3"` or `"2.4"`, fails before any layer runs and reports
+`pactoVersion` other than `"2.0"`, `"2.1"`, `"2.2"`, `"2.3"`, `"2.4"` or `"2.5"`, fails before any layer runs and reports
 `PARSE_ERROR`. Loading is the parse step that turns `pacto.yaml` into a
 contract. Validation starts once it succeeds.
+
+An absent `pactoVersion` reads as the newest version the CLI supports. In a
+`"2.5"` contract `service`, `service.name` and `service.version` may be absent
+too, so an empty `pacto.yaml` is valid. `pack`, `push` and `publish` write the
+version into the bundled `pacto.yaml` and refuse a contract that does not
+declare `service.version` (`PUBLISH_NEEDS_SERVICE_VERSION`) or `service.name`
+(`PUBLISH_NEEDS_SERVICE_NAME`). A bundle read from a registry, and an inline
+contract in a Pacto resource, must declare all three.
 
 ## Layer 2: Cross-field
 

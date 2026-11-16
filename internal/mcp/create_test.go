@@ -3136,3 +3136,38 @@ func TestCreateDomainRaisesVersion(t *testing.T) {
 		t.Fatalf("contract: %+v %v\n%s", c, err, data)
 	}
 }
+
+// An absent pactoVersion is already the newest, so an edit that needs 2.4 never
+// writes an older version into an implicit-version contract.
+func TestEditImplicitVersionNotDowngraded(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("service:\n  name: svc\n  version: 1.0.0\n"), 0o644)
+	result, err := Edit(context.Background(), nil, EditOptions{}, EditInput{Path: dir, Domain: strPtr("payments")})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if want := []string{`set domain to "payments"`}; !slices.Equal(result.Changes, want) {
+		t.Errorf("changes %v, want %v", result.Changes, want)
+	}
+	raw, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
+	if strings.Contains(string(raw), "pactoVersion") {
+		t.Fatalf("an implicit version was written: %s", raw)
+	}
+	c, err := contract.Parse(bytes.NewReader(raw))
+	if err != nil || c.PactoVersion != contract.Current() || c.Service.Domain != "payments" {
+		t.Fatalf("written contract %+v %v", c, err)
+	}
+}
+
+func TestEditEmptyContract(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), nil, 0o644)
+	if _, err := Edit(context.Background(), nil, EditOptions{}, EditInput{Path: dir, Domain: strPtr("payments")}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
+	c, err := contract.Parse(bytes.NewReader(raw))
+	if err != nil || c.PactoVersion != contract.Current() || c.Service.Domain != "payments" || strings.Contains(string(raw), "pactoVersion") {
+		t.Fatalf("written %q: %+v %v", raw, c, err)
+	}
+}

@@ -208,6 +208,9 @@ func validateOCIRef(ref, field, code string, result *ValidationResult) {
 }
 
 func validateServiceVersion(c *contract.Contract, result *ValidationResult) {
+	if c.Service.Version == "" {
+		return // not declared: only 2.5 schemas allow it, and publishing requires it
+	}
 	validateSemver(c.Service.Version, "service.version", "INVALID_SEMVER", result)
 }
 

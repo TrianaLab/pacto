@@ -2,6 +2,7 @@ package contract
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"slices"
@@ -17,8 +18,8 @@ var SupportedVersions = []string{"2.0", "2.1", "2.2", "2.3", "2.4", "2.5"}
 func Current() string { return SupportedVersions[len(SupportedVersions)-1] }
 
 // Parse deserializes a pacto.yaml from the given reader into a Contract.
-// It enforces syntactic correctness (field types, unknown-field rejection) and a
-// few required top-level fields (pactoVersion, service.name, service.version).
+// It enforces syntactic correctness (field types, unknown-field rejection). An
+// empty document is an empty contract, and an absent pactoVersion is Current().
 // The versions in SupportedVersions ("2.0" to "2.5") are supported; other
 // versions are rejected. 2.1 adds the publish and checks sections, external
 // dependencies and the mcp interface type, which validation refuses in a 2.0
@@ -29,7 +30,7 @@ func Parse(r io.Reader) (*Contract, error) {
 	var c Contract
 	decoder := yaml.NewDecoder(r)
 	decoder.KnownFields(true)
-	if err := decoder.Decode(&c); err != nil {
+	if err := decoder.Decode(&c); err != nil && !errors.Is(err, io.EOF) {
 		return nil, &ParseError{
 			Message: suggestFields(fmt.Sprintf("failed to parse YAML: %v", err)),
 			Err:     err,
@@ -43,33 +44,18 @@ func Parse(r io.Reader) (*Contract, error) {
 
 func parseStrict(raw []byte) (*Contract, error) { return Parse(bytes.NewReader(raw)) }
 
-// checkRequired enforces the top-level fields Parse requires.
+// checkRequired completes an absent pactoVersion to Current() and refuses an
+// unsupported one. service.name and service.version may be absent: a contract
+// may be empty, and publishing is where they are required.
 func checkRequired(c *Contract) error {
 	if c.PactoVersion == "" {
-		return &ParseError{
-			Path:    "pactoVersion",
-			Message: "pactoVersion is required",
-		}
+		c.PactoVersion = Current()
 	}
 
 	if !slices.Contains(SupportedVersions, c.PactoVersion) {
 		return &ParseError{
 			Path:    "pactoVersion",
 			Message: fmt.Sprintf("unsupported pactoVersion %q; supported: %s", c.PactoVersion, strings.Join(SupportedVersions, ", ")),
-		}
-	}
-
-	if c.Service.Name == "" {
-		return &ParseError{
-			Path:    "service.name",
-			Message: "service.name is required",
-		}
-	}
-
-	if c.Service.Version == "" {
-		return &ParseError{
-			Path:    "service.version",
-			Message: "service.version is required",
 		}
 	}
 	return nil

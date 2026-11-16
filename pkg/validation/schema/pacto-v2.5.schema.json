@@ -3,10 +3,6 @@
   "$id": "https://pacto.trianalab.com/schema/v2.5",
   "title": "Pacto Service Contract v2.5",
   "type": "object",
-  "required": [
-    "pactoVersion",
-    "service"
-  ],
   "additionalProperties": false,
   "properties": {
     "pactoVersion": {
@@ -14,27 +10,23 @@
       "enum": [
         "2.5"
       ],
-      "description": "The version of the Pacto contract specification this file conforms to."
+      "description": "The version of the Pacto contract specification this file conforms to. When absent, the contract is read as the newest version the CLI supports, and `pacto pack`, `pacto push` and `pacto publish` write that version into the bundled pacto.yaml."
     },
     "service": {
       "type": "object",
-      "description": "Identifies the service: its name, version and owner.",
-      "required": [
-        "name",
-        "version"
-      ],
+      "description": "Identifies the service: its name, version and owner. It may be absent: an empty pacto.yaml is a valid contract.",
       "additionalProperties": false,
       "properties": {
         "name": {
           "type": "string",
           "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$",
-          "description": "A unique, DNS-compatible identifier for the service (lowercase alphanumeric and hyphens)."
+          "description": "A unique, DNS-compatible identifier for the service (lowercase alphanumeric and hyphens). When absent, Pacto infers it from the bundle and publishing requires it to be declared."
         },
         "version": {
           "type": "string",
           "minLength": 1,
           "pattern": "^[a-zA-Z0-9]([a-zA-Z0-9._+-]*[a-zA-Z0-9])?$",
-          "description": "The current version of the service, typically following semantic versioning. It must begin and end with an alphanumeric character and may otherwise contain dots, hyphens, underscores and plus signs: every semver version qualifies, and the value stays safe as a single filesystem path component, which is where `pacto pack` interpolates it."
+          "description": "The current version of the service, typically following semantic versioning. It must begin and end with an alphanumeric character and may otherwise contain dots, hyphens, underscores and plus signs: every semver version qualifies, and the value stays safe as a single filesystem path component, which is where `pacto pack` interpolates it. When absent, the version is not declared: the contract validates, and publishing requires it."
         },
         "owner": {
           "type": "object",

@@ -29,8 +29,8 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | --- | --- | --- | --- | --- | --- |
 | `pactoVersion` | `not-applicable` | - | - | - | PARSE_ERROR when unsupported |
 | `service` | `not-applicable` | - | - | - | PARSE_ERROR or SCHEMA_VIOLATION when malformed |
-| `service.name` | `static-only` | - | - | - | SCHEMA_VIOLATION |
-| `service.version` | `static-only` | - | - | - | INVALID_SEMVER |
+| `service.name` | `static-only` | - | - | - | SCHEMA_VIOLATION; PUBLISH_NEEDS_SERVICE_NAME when publishing without it |
+| `service.version` | `static-only` | - | - | - | INVALID_SEMVER; PUBLISH_NEEDS_SERVICE_VERSION when publishing without it |
 | `service.domain` | `static-only` | - | - | - | NEEDS_PACTO_2_4 in an older contract; SCHEMA_VIOLATION for a value that is not a slug |
 | `service.offering` | `static-only` | - | - | - | NEEDS_PACTO_2_4 in an older contract; SCHEMA_VIOLATION for a value that is not a slug |
 | `service.summary` | `static-only` | - | - | - | NEEDS_PACTO_2_4 in an older contract; SCHEMA_VIOLATION for an empty, long or multi-line value |
@@ -194,10 +194,10 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Meaning | Contract format version; selects the JSON Schema the contract is validated against. |
 | Runtime | `not-applicable` |
 | Evidence | none: the field has no runtime counterpart |
-| Rule | parse rejects anything but "2.0", "2.1", "2.2", "2.3", "2.4" and "2.5" before any other layer runs; the version selects the schema |
+| Rule | parse rejects anything but "2.0", "2.1", "2.2", "2.3", "2.4" and "2.5" before any other layer runs; the version selects the schema; an absent version is the newest the CLI supports, and pack, push and publish write it into the bundled pacto.yaml |
 | Outcomes | PARSE_ERROR when unsupported |
 | Limitations | 2.0, 2.1, 2.2, 2.3 and 2.4 have their own schemas without the fields later versions add; this inventory walks 2.5, the superset |
-| Tests | unit: `pkg/contract/parse_test.go:TestParse_UnsupportedVersion`, `pkg/validation/structural_test.go:TestValidateStructuralRaw_UnsupportedVersion_V10`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/invalid` |
+| Tests | unit: `pkg/contract/parse_test.go:TestParse_UnsupportedVersion`, `pkg/contract/parse_test.go:TestParseImplicitVersionIsCurrent`, `pkg/contract/pin_test.go:TestPinVersionAddsLine`, `pkg/validation/structural_test.go:TestValidateStructuralRaw_UnsupportedVersion_V10`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/invalid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/absent-is-current` |
 
 | Value | Runtime | Meaning | Rule | Outcomes | Limitations | Tests |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -210,10 +210,10 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Meaning | Identity block of the service the contract describes. |
 | Runtime | `not-applicable` |
 | Evidence | none: the field has no runtime counterpart |
-| Rule | schema: object with name and version |
+| Rule | schema: object with name and version; optional in 2.5, where an empty contract is valid |
 | Outcomes | PARSE_ERROR or SCHEMA_VIOLATION when malformed |
 | Limitations | container only; its children carry the semantics |
-| Tests | unit: `pkg/contract/parse_test.go:TestParse_ValidFull_Service`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/service/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/service/invalid` |
+| Tests | unit: `pkg/contract/parse_test.go:TestParse_ValidFull_Service`, `pkg/validation/structural_test.go:TestValidateStructural_EmptyIsValid`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/service/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/service/invalid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/service/absent` |
 
 ### `service.name`
 
@@ -222,10 +222,10 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Meaning | DNS-style service name; the identity of the contract everywhere. |
 | Runtime | `static-only` |
 | Evidence | used as the subject name of service-scoped evidence (workload, persistence), never checked against a runtime name |
-| Rule | schema pattern |
-| Outcomes | SCHEMA_VIOLATION |
+| Rule | schema pattern; required before 2.5; in 2.5 it may be absent, pack, push and publish refuse an undeclared one and readers of published bundles reject it |
+| Outcomes | SCHEMA_VIOLATION; PUBLISH_NEEDS_SERVICE_NAME when publishing without it |
 | Limitations | the operator binds a runtime target by the Pacto CR, not by this name |
-| Tests | unit: `pkg/contract/parse_test.go:TestParse_MissingServiceName`, `pkg/validation/evaluate_test.go:TestEvaluate_ServiceScopedMatchByServiceName`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/service.name/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/service.name/invalid` |
+| Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V24StillRequiresName`, `pkg/validation/structural_test.go:TestValidateStructural_ServiceOnlyNameIsValid`, `pkg/validation/evaluate_test.go:TestEvaluate_ServiceScopedMatchByServiceName`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/service.name/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/service.name/invalid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/service.name/needs-2.5` |
 
 ### `service.version`
 
@@ -234,10 +234,10 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Meaning | Semantic version of this contract revision. |
 | Runtime | `static-only` |
 | Evidence | consumers read it from the provider's Pacto status as DependencyObservation.Version for their compatibility check |
-| Rule | cross-field: valid semver |
-| Outcomes | INVALID_SEMVER |
+| Rule | cross-field: valid semver; required before 2.5; in 2.5 it may be absent and pack, push and publish refuse an undeclared one |
+| Outcomes | INVALID_SEMVER; PUBLISH_NEEDS_SERVICE_VERSION when publishing without it |
 | Limitations | the running image version is never compared with it; it is the provider-side input of dependencies[].compatibility |
-| Tests | unit: `pkg/validation/crossfield_test.go:TestValidateServiceVersion_InvalidSemver`, `pkg/validation/structural_test.go:TestValidateStructuralRaw_VersionMustBeOnePathComponent`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/service.version/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/service.version/invalid`; e2e: `tests/acceptance/kind/runtime-conformance.sh:dependency-version-mismatch` |
+| Tests | unit: `pkg/validation/crossfield_test.go:TestValidateServiceVersion_InvalidSemver`, `pkg/validation/structural_test.go:TestValidateStructuralRaw_VersionMustBeOnePathComponent`, `pkg/validation/crossfield_test.go:TestValidateServiceVersionEmptySkipped`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/service.version/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/service.version/invalid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/service.version/needs-2.5`; e2e: `tests/acceptance/kind/runtime-conformance.sh:dependency-version-mismatch` |
 
 ### `service.domain`
 

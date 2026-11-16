@@ -15,6 +15,8 @@ func TestCategoryOf(t *testing.T) {
 		CodeNeedsPacto22:                 CategoryInvalidVersion,
 		CodeNeedsPacto23:                 CategoryInvalidVersion,
 		CodeNeedsPacto24:                 CategoryInvalidVersion,
+		CodePublishNeedsServiceName:      CategorySchemaViolation,
+		CodePublishNeedsServiceVersion:   CategoryInvalidVersion,
 		CodeDuplicateTemplatePlugin:      CategoryDuplicateName,
 		CodeInvalidOriginRef:             CategoryInvalidReference,
 		CodeConfigRefUnresolved:          CategoryUnresolvedReference,
