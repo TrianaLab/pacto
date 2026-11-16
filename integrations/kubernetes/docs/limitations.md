@@ -15,8 +15,10 @@ operator without it grants none of it.
 The operator does write to its own components. At chart defaults it manages the Pacto
 dashboard for you, which means creating a Deployment, Service, ServiceAccount,
 Secret, ClusterRole and ClusterRoleBinding of its own. The grants that allow that
-are broad enough to escalate privilege. [RBAC](rbac.md) has the full rule
-list and the flags that switch the managed components off.
+are broad enough to escalate privilege. With `controller.watchNamespaces` the
+chart renders the dashboard's namespaced Roles itself, and the operator creates
+a ClusterRole only for the dashboard's delivery views. [RBAC](rbac.md) has the
+full rule list and the flags that switch the managed components off.
 
 ## Observation boundaries
 
@@ -258,6 +260,22 @@ The referenced contract's lifecycle (`DEPENDENCY_SERVICE_DEPRECATED` and
 with no status field of their own. To read a service's own `service.lifecycle`,
 run [`pacto explain`](../../cli-reference.md#pacto-explain) or open the
 dashboard.
+
+## Secret-backed configuration evidence
+
+A configuration bound to a Secret is checked for existence only: the operator
+reads the Secret's metadata, never its data. It may read it in the release
+namespace, in each of `controller.watchNamespaces` and wherever
+`controller.secretGrants` names it as `namespace/name`. Anywhere else the
+configuration reads `OBSERVATION_UNSUPPORTED`, which makes the contract
+`Unknown`, and the finding names the grant to add. A cluster-wide install is
+told to list the Secret in `controller.secretGrants`. A namespace-list install
+is also told it can add the namespace to `controller.watchNamespaces`.
+
+A refused read never fails the collection: `RuntimeObserved` stays `True`, and
+the time the operator could not read the Secret never counts toward a later
+absence. The operator reads the Secret again on every check, so a new grant
+takes effect within one check interval.
 
 ## Delivery and private registries
 

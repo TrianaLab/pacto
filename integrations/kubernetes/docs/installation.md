@@ -10,7 +10,8 @@ the [published artifacts](artifact-hub.md) page; every value is on the
 
 ## Prerequisites
 
-- A Kubernetes cluster (the operator watches cluster-wide by default). The
+- A Kubernetes cluster, watched whole or as a list of namespaces
+  ([run with least privilege](least-privilege.md)). The
   chart declares no `kubeVersion` floor. The acceptance suite runs on whatever
   [kind](https://kind.sigs.k8s.io/) ships by default, so older clusters are
   untested. The chart still installs on them.
@@ -75,13 +76,13 @@ For an evaluation cluster, use the [quickstart profile](quickstart.md).
 helm install pacto-operator \
   oci://ghcr.io/trianalab/pacto/charts/pacto-operator \
   --namespace pacto-operator-system --create-namespace \
-  --set controller.watchNamespace=my-namespace \
+  --set 'controller.watchNamespaces={payments,ledger}' \
   --set metrics.serviceMonitor.enabled=true \
   --set dashboard.enabled=false
 ```
 
-- `controller.watchNamespace` watches one namespace only (empty means the
-  whole cluster).
+- `controller.watchNamespaces` watches only the listed namespaces (empty means
+  the whole cluster).
 - `metrics.serviceMonitor.enabled` creates a Prometheus `ServiceMonitor`.
 - `dashboard.enabled` turns the operator-managed dashboard on or off.
 - `dashboard.repositories` lists `oci://` references the dashboard reads
