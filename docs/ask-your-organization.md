@@ -46,9 +46,11 @@ Each fact says how Pacto knows it:
   operator.
 - **Inferred**: Pacto derived it. The word has three uses: a transitive
   consumer in `pacto_impact`, a target linked to a revision by tag or version
-  match and a relationship provenance reserved for future use.
+  match and an external use read from a workload's configuration or pod spec,
+  which never clears a gate.
 
-An edge carries `provenance` (`declared`, `observed` or `declared+observed`),
+An edge carries `provenance` (`declared`, `observed`, `declared+observed` or
+`inferred`),
 and a graph node says how the edge that first reached it was known. A runtime
 call no contract declares is listed under the `undeclared` attention category
 as `DEPENDENCY_UNDECLARED`, and a caller with no contract as

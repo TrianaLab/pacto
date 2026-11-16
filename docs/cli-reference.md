@@ -1138,7 +1138,7 @@ pacto fleet get [service] [flags]
 
 ### `pacto fleet graph`
 
-Traverse the operational graph from an explicit root. Give a service name to aggregate across its revisions, or --revision/--target to root an exact revision (never 'latest'). The walk also follows observed runtime calls, so services no contract connects appear too; each node reports its provenance (declared, observed or declared+observed).
+Traverse the operational graph from an explicit root. Give a service name to aggregate across its revisions, or --revision/--target to root an exact revision (never 'latest'). The walk also follows observed runtime calls, so services no contract connects appear too; each node reports its provenance (declared, observed or declared+observed, or inferred for an external system's consumer known only from its configuration).
 
 ```
 pacto fleet graph <service> [flags]
