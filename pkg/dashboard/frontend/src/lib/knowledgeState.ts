@@ -154,7 +154,7 @@ export function degradedSourceSummary(k: SnapshotKnowledge): string {
 }
 
 /** The namespaces a namespace-scoped fleet watches, and the ones it could not read. */
-export interface WatchedScope {
+interface WatchedScope {
   /** How many namespaces are watched, including any the reader may not see. */
   count: number;
   /** The watched namespaces the reader may see, sorted. */
@@ -168,7 +168,7 @@ interface LimitationLike { code?: string; source?: string; message?: string }
 
 /** The namespace a K8S_NAMESPACE_UNREADABLE limitation names, or ''.
  *  ponytail: read back from the backend's prose ("could not read namespace <ns>: ..."). */
-export function unreadableNamespace(l: LimitationLike | null | undefined): string {
+function unreadableNamespace(l: LimitationLike | null | undefined): string {
   if (l?.code !== 'K8S_NAMESPACE_UNREADABLE') return '';
   return /could not read namespace ([^:]+):/.exec(l.message ?? '')?.[1] ?? '';
 }
