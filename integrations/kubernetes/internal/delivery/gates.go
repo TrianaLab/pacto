@@ -44,7 +44,7 @@ func (c Cluster) revision(ctx context.Context, in delivery.GateInput) delivery.R
 	}
 	a, err := c.applier(ctx, stage.Namespace, stage.Spec.ApplyRef)
 	if err != nil {
-		return delivery.Revision{Err: "reading the apply OCIRepository: " + err.Error()}
+		return delivery.Revision{Err: "reading the applier: " + err.Error()}
 	}
 	return delivery.ResolveRevision(ctx, c.registryFor(a.src()), a.src().repo, in.Subjects[0])
 }
@@ -86,7 +86,7 @@ func (g clusterGate) Check(ctx context.Context, in delivery.GateInput, params ma
 func (c Cluster) contractCheck(ctx context.Context, stage *dv1.Stage, digest string) (delivery.ContractCheck, string) {
 	a, err := c.applier(ctx, stage.Namespace, stage.Spec.ApplyRef)
 	if err != nil {
-		return delivery.ContractCheck{}, "reading the apply OCIRepository: " + err.Error()
+		return delivery.ContractCheck{}, "reading the applier: " + err.Error()
 	}
 	ann, err := c.registryFor(a.src()).Annotations(ctx, a.src().repo+"@"+digest)
 	if err != nil {

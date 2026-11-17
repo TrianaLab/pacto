@@ -100,7 +100,7 @@ type planSources struct{ c Cluster }
 func (p planSources) Revisions(ctx context.Context, stage delivery.StageObject, from, to string) (delivery.Revision, delivery.Revision) {
 	a, err := p.c.applier(ctx, stage.Metadata.Namespace, stage.Spec.ApplyRef)
 	if err != nil {
-		why := "the apply OCIRepository: " + err.Error()
+		why := "the applier: " + err.Error()
 		return delivery.Revision{Digest: from, Err: why}, delivery.Revision{Digest: to, Err: why}
 	}
 	s := a.src()

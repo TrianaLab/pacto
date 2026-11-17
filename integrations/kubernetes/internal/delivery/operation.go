@@ -452,7 +452,7 @@ func (r *OperationReconciler) movePointer(ctx context.Context, op *dv1.Operation
 // running moves the pointer, writes it to the OCIRepository and waits for Flux.
 func (r *OperationReconciler) running(ctx context.Context, op *dv1.Operation, stage *dv1.Stage) (reconcile.Result, error) {
 	if r.passed(op.Status.Times.ExecutionDeadline) {
-		return r.finish(ctx, op, stage, conclusion{outcome: delivery.Errored, freeze: true, reason: "ExecutionDeadline: Flux did not confirm the version in time"})
+		return r.finish(ctx, op, stage, conclusion{outcome: delivery.Errored, freeze: true, reason: "ExecutionDeadline: the applier did not confirm the version in time"})
 	}
 	from, to := op.Spec.Params.From, op.Spec.Params.To
 	if !op.Status.Applied {
@@ -462,7 +462,7 @@ func (r *OperationReconciler) running(ctx context.Context, op *dv1.Operation, st
 	}
 	a, err := r.Cluster.freshApplier(ctx, op.Namespace, stage.Spec.ApplyRef)
 	if err != nil {
-		op.Status.Message = "reading the apply OCIRepository: " + err.Error()
+		op.Status.Message = "reading the applier: " + err.Error()
 		return r.save(ctx, op)
 	}
 	if cur := a.src().digest; cur != to {

@@ -759,7 +759,7 @@ func TestRunningFailures(t *testing.T) {
 			t.Fatalf("message %q", o.Status.Message)
 		}
 		_ = e.c.Delete(context.Background(), u)
-		if o := e.drive("p1"); !strings.Contains(o.Status.Message, "reading the apply OCIRepository") {
+		if o := e.drive("p1"); !strings.Contains(o.Status.Message, "reading the applier") {
 			t.Fatalf("message %q", o.Status.Message)
 		}
 	})
@@ -863,7 +863,7 @@ func TestVerdictUnknownReasons(t *testing.T) {
 		t.Fatal(m)
 	}
 	e.fails["get/OCIRepository"] = true
-	if m := check(); !strings.Contains(m, "reading the apply OCIRepository") {
+	if m := check(); !strings.Contains(m, "reading the applier") {
 		t.Fatal(m)
 	}
 	e.fails["get/Stage"] = true
@@ -1032,7 +1032,7 @@ func moveFirstCannotTell(t *testing.T, e *env, o *dv1.Operation) {
 	_ = e.c.Delete(context.Background(), ociRepo("checkout", "", "", false))
 	plan, err := e.op.plan(context.Background(), o, e.getStage())
 	must(t, err)
-	if m := plan.Order.MoveFirst[0]; m.Candidate != nil || !strings.Contains(m.Unknown, "the apply OCIRepository: ") {
+	if m := plan.Order.MoveFirst[0]; m.Candidate != nil || !strings.Contains(m.Unknown, "the applier: ") {
 		t.Fatalf("unreadable candidate source: %+v", m)
 	}
 	e.fails["list/Stage"] = true

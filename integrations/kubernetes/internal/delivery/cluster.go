@@ -394,7 +394,7 @@ func readyCondition(obj map[string]any) (status, reason, message string) {
 func (c Cluster) describe(ctx context.Context, stage delivery.StageObject, digest string) delivery.Revision {
 	a, err := c.applier(ctx, stage.Metadata.Namespace, stage.Spec.ApplyRef)
 	if err != nil {
-		return delivery.Revision{Digest: digest, Err: "the apply OCIRepository: " + err.Error()}
+		return delivery.Revision{Digest: digest, Err: "the applier: " + err.Error()}
 	}
 	return delivery.ResolveRevision(ctx, c.registryFor(a.src()), a.src().repo, digest)
 }

@@ -114,7 +114,7 @@ func TestPlanAndApprovalReadFailures(t *testing.T) {
 	}
 	// An unreadable OCIRepository is an unreadable contract: held for a person.
 	e.fails["get/OCIRepository"] = true
-	if o := e.drive("p1"); o.Status.Phase != delivery.PhaseHeld || !strings.Contains(o.Status.Question, "the apply OCIRepository") {
+	if o := e.drive("p1"); o.Status.Phase != delivery.PhaseHeld || !strings.Contains(o.Status.Question, "the applier") {
 		t.Fatalf("held: %s %q", o.Status.Phase, o.Status.Question)
 	}
 	delete(e.fails, "get/OCIRepository")
