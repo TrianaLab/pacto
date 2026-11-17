@@ -140,7 +140,7 @@ test.describe('WASM demo — product pages', () => {
   test('L18: a source navigates to a contributed entity', async ({ page }) => {
     await boot(page);
     await page.goto('/#/fleet/sources');
-    await expect(page.getByRole('heading', { name: 'Data sources' })).toBeVisible({ timeout: T });
+    await expect(page.getByRole('heading', { level: 1, name: 'Data sources' })).toBeVisible({ timeout: T });
     // The "local" source contributes the bundle services/revisions; open it (not the
     // partial edge-cluster source, which contributes nothing here).
     const local = page.locator('.lv-item a.entity-link', { hasText: 'local' }).first();

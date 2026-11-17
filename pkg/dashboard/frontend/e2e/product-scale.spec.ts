@@ -112,7 +112,7 @@ function installScaleInterceptor(): void {
         return { key: `team:${name}`, label: name, kind: 'team', services: 500 - i * 10, targets: 1000 - i * 20 };
       });
       doc.aggregate = {
-        matched: 25000,
+        matched: 25000, services: 25000,
         serviceCompliance: { compliant, nonCompliant, unknown, notEvaluated },
         ownership: { consistent, conflicting, unowned },
         byOwner: ownerRows,
