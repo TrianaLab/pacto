@@ -91,7 +91,12 @@ was seen and each source that saw it.
 - An inferred caller of a declared service is both an inferred edge and an
   uncontracted caller, so `BlockerMissingContract` still fires.
 - An end Pacto cannot resolve still raises `OBSERVED_IDENTITY_UNRESOLVED`, and
-  a call from a workload to itself is dropped.
+  a call from a workload to itself is dropped. In a snapshot of several
+  clusters, both `k8s:` ends of a call gain the cluster of the source that saw
+  it.
+- When impact reads trace edges, an inferred caller of the changed service is
+  never a consumer: the answer names it in an `OBSERVED_IDENTITY_UNRESOLVED`
+  limitation and stays partial.
 - `pacto fleet graph` and `pacto_fleet_graph` list these edges with their
   sources, and the dashboard graph draws them in the inferred style. The
   neighborhood shows them in the default expected and observed views.
@@ -103,7 +108,7 @@ was seen and each source that saw it.
 
 When a Pacto resource's target runs as a workload Pacto showed as an inferred
 service, that workload stops being one. Its observed calls resolve to the
-declared service from then on. When the workload's `creationTimestamp` is
+declared service from then on, even when no source lists the workload. When the workload's `creationTimestamp` is
 earlier than the Pacto's, the cluster shows the workload ran with no contract
 first, and the snapshot records a replacement in `replacements`: `from` the
 inferred key, `to` the declared service, `link: pacto-target`, the `target` and

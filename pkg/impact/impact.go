@@ -916,20 +916,23 @@ func resolveObservedEdges(snap *fleet.FleetSnapshot, edges []ObservedEdge, inclu
 	var lims []fleet.Limitation
 	seen := map[string]bool{}
 	addLim := func(name string, res fleet.ObservedResolution) bool {
-		reason := ""
+		what := ""
 		switch res {
-		case fleet.ObservedUnknown, fleet.ObservedInferred:
-			// An inferred service has no contract: it never corroborates.
-			reason = "unknown"
+		case fleet.ObservedUnknown:
+			what = "could not be mapped to a unique fleet service (unknown)"
+		case fleet.ObservedInferred:
+			// An inferred service has no contract: it never corroborates, and a
+			// caller no contract describes stays a limitation, never silence.
+			what = "is an inferred service no contract describes"
 		case fleet.ObservedAmbiguous:
-			reason = "ambiguous across domains"
+			what = "could not be mapped to a unique fleet service (ambiguous across domains)"
 		default:
 			return true
 		}
-		if !seen[reason+":"+name] {
-			seen[reason+":"+name] = true
+		if !seen[what+":"+name] {
+			seen[what+":"+name] = true
 			lims = append(lims, fleet.Limitation{Code: ObservedIdentityUnresolved, Source: limitationSource,
-				Message: "observed service " + name + " could not be mapped to a unique fleet service (" + reason + "); it does not corroborate or affect any domain-qualified service"})
+				Message: "observed service " + name + " " + what + "; it does not corroborate or affect any domain-qualified service"})
 		}
 		return false
 	}

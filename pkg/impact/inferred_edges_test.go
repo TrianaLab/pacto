@@ -77,6 +77,12 @@ func TestImpactTracesIgnoreInferredCaller(t *testing.T) {
 	if res.Gate == GateClear {
 		t.Errorf("a trace no contract explains cleared the gate: %s", res.GateReason)
 	}
+	if l := limitation(res, ObservedIdentityUnresolved); l == nil || !strings.Contains(l.Message, legacy+" is an inferred service no contract describes") {
+		t.Errorf("the inferred caller is not disclosed: %+v", l)
+	}
+	if res.Completeness != fleet.CompletenessPartial {
+		t.Errorf("completeness %s with a caller no contract describes", res.Completeness)
+	}
 }
 
 func TestImpactTracesFromReplacedWorkload(t *testing.T) {
