@@ -102,6 +102,48 @@ func (q *Query) providerCurrentRevision(s *ServiceRecord) *ContractRevision {
 	return newestReadable(q.revisionsOf(s))
 }
 
+// ProviderCurrentRevision is the current revision of the service key names,
+// read-only, by the rule of [Query.providerCurrentRevision]: the newest
+// revision a target runs, else the newest READABLE one. The unexported
+// currentRevision differs on the fallback, which takes the newest known
+// revision, readable or not. Nil for an unknown service or one with no
+// revision; the result's Contract may be nil when the running digest was never
+// read.
+func (q *Query) ProviderCurrentRevision(key ServiceKey) *ContractRevision {
+	s := q.snap.Services[key]
+	if s == nil {
+		return nil
+	}
+	return q.providerCurrentRevision(s)
+}
+
+// OwnerClaimCount is the number of distinct current owner claims of the service
+// key names (see [Query.ownerClaimsOf]): 0 unowned, 1 consistent, more a
+// conflict. 0 for an unknown service. It reads and never changes the snapshot.
+func (q *Query) OwnerClaimCount(key ServiceKey) int {
+	s := q.snap.Services[key]
+	if s == nil {
+		return 0
+	}
+	claims := q.ownerClaimsOf(s)
+	return claims.len()
+}
+
+// HasContractSource reports whether a contract speaks for the service key
+// names: it has a revision (valid or not) or a target whose source read the
+// contract the target runs. A service known from neither is inferred. False for
+// an unknown service. It reads and never changes the snapshot.
+func (q *Query) HasContractSource(key ServiceKey) bool {
+	s := q.snap.Services[key]
+	if s == nil {
+		return false
+	}
+	if len(s.Revisions) > 0 {
+		return true
+	}
+	return slices.ContainsFunc(s.Targets, func(tk TargetKey) bool { return q.snap.Targets[tk].domainKnown })
+}
+
 // applyOfferingFacts fills ref, an offering row, from f.
 func (q *Query) applyOfferingFacts(ref *EntityRef, f *offeringFacts, x *availIndex) {
 	ref.Owner = ownerLabel(f.owners.len(), f.owners.soleKey())

@@ -89,7 +89,7 @@ func (q *Query) resolveService(identifier string) (*ServiceRecord, error) {
 func (q *Query) Snapshot() *FleetSnapshot { return jsonClone(q.base) }
 
 // SnapshotForSerialization returns the internal snapshot pointer for a caller that
-// does nothing but serialize it. The snapshot is immutable once built -- the
+// does nothing but serialize it, or project it read-only, as pkg/backstage does. The snapshot is immutable once built -- the
 // manager builds a candidate off to the side and swaps the pointer, never mutating
 // a live one -- so a marshal needs no defensive copy, and on a fleet-sized snapshot
 // Snapshot()'s copy is a full marshal-plus-unmarshal round trip performed on a

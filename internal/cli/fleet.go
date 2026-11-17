@@ -128,6 +128,10 @@ func longRunning(opts app.FleetOptions) app.FleetOptions {
 	return opts
 }
 
+// fleetNow is the build clock fleetOptions hands every snapshot: nil in
+// production, so a build reads time.Now; tests pin it.
+var fleetNow func() time.Time
+
 func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 	local, _ := cmd.Flags().GetStringArray("local")
 	// --root is also `pacto mcp`'s catalog-server selector, where it is mutually
@@ -163,6 +167,7 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 		FreshnessWindow:    freshness,
 		ExternalCatalogRef: externalCatalog,
 		Provenance:         app.NewProvenanceChecker(),
+		Now:                fleetNow,
 	}
 }
 

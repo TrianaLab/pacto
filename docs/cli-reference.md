@@ -1003,6 +1003,59 @@ pacto explain [dir | oci://ref] [flags]
 
 ---
 
+## `pacto export`
+
+Write what Pacto knows in another tool's format
+
+```
+pacto export [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help[=true|false]   help for export
+```
+
+### `pacto export backstage`
+
+Write the services Pacto knows as one multi-document YAML file of Backstage catalog entities: a Component per service and a System per business domain. Every entity says how Pacto knows it (pacto.trianalab.io/provenance), when (as-of) and how completely (completeness); an inferred value never fills spec.owner or spec.system.
+
+The export reads the same sources as pacto fleet, except that it scans no local directory unless --local is set. When a source could not be read it writes nothing and exits 2, so a scheduled sync never drops the services that source holds; --allow-partial writes the file anyway.
+
+```
+pacto export backstage [flags]
+```
+
+**Examples:**
+
+```
+  pacto export backstage --oci ghcr.io/acme/payments --oci ghcr.io/acme/ledger > catalog/pacto-entities.yaml
+  pacto export backstage --root oci://ghcr.io/acme/platform --k8s -o catalog/pacto-entities.yaml
+```
+
+**Flags:**
+
+```
+      --allow-partial[=true|false]   write the file even when a source could not be read
+      --cache[=true|false]           include every bundle in the local OCI cache as an offline baseline revision
+      --evidence-url stringArray     base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
+      --external-catalog string      organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST (a tag is refused)
+      --freshness duration           mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
+  -h, --help[=true|false]            help for backstage
+      --k8s[=true|false]             include live Pacto CRs from the current Kubernetes cluster as targets
+      --local stringArray            local bundle root(s) to scan (repeatable; none unless set)
+      --mira-source stringArray      base URL of a Mira node whose service map supplies observed calls between services (repeatable)
+      --namespace string             namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)
+      --oci stringArray              registry reference to include as a published-baseline revision (repeatable)
+  -o, --output string                write the entities to this file instead of standard output
+      --root stringArray             contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
+      --target-state stringArray     offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
+      --traces stringArray           OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
+```
+
+---
+
 ## `pacto fleet`
 
 Compose contracts, contract revisions and operational targets from local bundles and ingested evidence into a versioned, navigable graph, then search, inspect, traverse and explain it. Every answer reports its as-of time and completeness.
