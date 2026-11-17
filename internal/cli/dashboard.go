@@ -111,6 +111,9 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			if err := app.CheckExternalCatalogRef(externalCatalog); err != nil {
 				return err
 			}
+			if err := app.CheckDetectedRef(v.GetString("dashboard.detected")); err != nil {
+				return err
+			}
 
 			cacheDir := v.GetString("cache-dir")
 			// Resolve cacheDir from the BundleStore when not explicitly set, so the

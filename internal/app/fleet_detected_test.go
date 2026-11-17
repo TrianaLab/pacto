@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -85,13 +86,30 @@ func TestFleetOptionsDetectedK8s(t *testing.T) {
 func TestFleetOptionsDetectedK8sClientError(t *testing.T) {
 	svc := detectedService(t)
 	svc.sys.newDynamic = func() (dynamic.Interface, error) { return nil, errors.New("loading kubeconfig: none") }
-	for _, ref := range []string{"k8s:pacto-system/pacto-operator-detected", "k8s:pacto-system", "k8s:/name"} {
-		snap, err := svc.Fleet(context.Background(), FleetOptions{Detected: ref})
-		if err != nil {
-			t.Fatal(err)
+	snap, err := svc.Fleet(context.Background(), FleetOptions{Detected: "k8s:pacto-system/pacto-operator-detected"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := detectionState(t, snap); st.Status != fleet.SourceUnavailable || !st.Advisory || st.Error == nil || st.Error.Code != "NO_CLUSTER" ||
+		snap.Completeness == fleet.CompletenessPartial {
+		t.Errorf("state %+v completeness %s", st, snap.Completeness)
+	}
+}
+
+// TestCheckDetectedRef: a k8s: ref that names no single ConfigMap is a usage
+// error, never an unavailable source; a file path passes.
+func TestCheckDetectedRef(t *testing.T) {
+	for _, ref := range []string{"k8s:pacto-system", "k8s:/name", "k8s:ns/", "k8s:ns/a/b"} {
+		if err := CheckDetectedRef(ref); err == nil || !strings.Contains(err.Error(), "k8s:<namespace>/<name>") {
+			t.Errorf("%s: err = %v", ref, err)
 		}
-		if st, _ := detectionState(t, snap); st.Status != fleet.SourceUnavailable || !st.Advisory || snap.Completeness == fleet.CompletenessPartial {
-			t.Errorf("%s: state %+v completeness %s", ref, st, snap.Completeness)
+		if _, err := detectedService(t).Fleet(context.Background(), FleetOptions{Detected: ref}); err == nil {
+			t.Errorf("%s: Fleet accepted it", ref)
+		}
+	}
+	for _, ref := range []string{"", "detected.json", "k8s:pacto-system/pacto-operator-detected"} {
+		if err := CheckDetectedRef(ref); err != nil {
+			t.Errorf("%s: err = %v", ref, err)
 		}
 	}
 }

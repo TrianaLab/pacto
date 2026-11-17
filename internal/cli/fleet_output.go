@@ -316,16 +316,19 @@ func printFleetStatus(cmd *cobra.Command, res *fleet.StatusResult, format string
 		for _, it := range res.Items {
 			_, _ = fmt.Fprintf(w, "  [%s] %s %s — %s\n", it.Code, it.Kind, it.Name, it.Reason)
 		}
-		printDetected(w, res.Providers)
+		printDetected(w, res.Providers, res.Meta.Sources)
 		warnPartial(cmd, res.Meta)
 		return nil
 	}, nil)
 }
 
 // printDetected prints the inferred provider rows, what the operator
-// detected, with each hint for a person to review; nothing when there are
-// none. Every row of one detection shares its asOf, so the first one is named.
-func printDetected(w io.Writer, rows []fleet.Provider) {
+// detected, with each status and first reason and each hint for a person to
+// review, then one line per advisory source that is not available, so a
+// detection Pacto could not read never reads as nothing detected. Every row
+// of one detection shares its asOf, so the first one is named.
+func printDetected(w io.Writer, rows []fleet.Provider, sources []fleet.SourceState) {
+	defer printAdvisorySources(w, sources)
 	header := false
 	for _, p := range rows {
 		if p.Provenance != fleet.ProvenanceInferred {
@@ -339,11 +342,36 @@ func printDetected(w io.Writer, rows []fleet.Provider) {
 			_, _ = fmt.Fprintf(w, "Detected (inferred, as of %s, nothing turned on):\n", asOf)
 			header = true
 		}
-		_, _ = fmt.Fprintf(w, "  %s: %s [%s]\n", p.Name, p.Evidence, p.Status)
+		status := string(p.Status)
+		if p.Status != fleet.SourceAvailable && len(p.Limitations) > 0 {
+			status += ": " + p.Limitations[0].Message
+		}
+		_, _ = fmt.Fprintf(w, "  %s: %s [%s]\n", p.Name, p.Evidence, status)
 		if p.Hint != "" {
 			_, _ = fmt.Fprintf(w, "    %s\n", p.Hint)
 		}
 	}
+}
+
+// printAdvisorySources prints one line per advisory source that is not
+// available, with its reason, and reports whether it printed any.
+func printAdvisorySources(w io.Writer, sources []fleet.SourceState) bool {
+	printed := false
+	for _, s := range sources {
+		if !s.Advisory || s.Status == fleet.SourceAvailable {
+			continue
+		}
+		state, reason := string(s.Status), ""
+		if s.Status == fleet.SourceUnavailable {
+			state = "not read"
+		}
+		if s.Error != nil {
+			reason = " (" + s.Error.Message + ")"
+		}
+		_, _ = fmt.Fprintf(w, "Detected: %s %s%s\n", s.ID, state, reason)
+		printed = true
+	}
+	return printed
 }
 
 func printFleetExplain(cmd *cobra.Command, res *fleet.ExplainResult, format string) error {

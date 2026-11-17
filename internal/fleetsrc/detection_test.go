@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -154,6 +155,8 @@ func TestDetectionK8sNotFoundIsUnavailable(t *testing.T) {
 func TestDetectionFailedSource(t *testing.T) {
 	s := NewDetectionFailedSource("detection", errors.New("loading kubeconfig: no configuration"))
 	assertUnavailable(t, collectDetection(t, s), "UNAVAILABLE")
+	noCluster := NewDetectionFailedSource("detection", fmt.Errorf("%w: loading kubeconfig", ErrDetectionNoCluster))
+	assertUnavailable(t, collectDetection(t, noCluster), "NO_CLUSTER")
 }
 
 func TestDetectionFilePermissionIsForbidden(t *testing.T) {

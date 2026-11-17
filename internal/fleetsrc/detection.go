@@ -34,6 +34,9 @@ type DetectionSource struct {
 var (
 	errDetectionInvalid = errors.New("invalid")
 	errDetectionForeign = errors.New("not written by the Pacto operator")
+	// ErrDetectionNoCluster marks a detection read that has no usable
+	// Kubernetes configuration to read the ConfigMap with.
+	ErrDetectionNoCluster = errors.New("no usable Kubernetes configuration")
 )
 
 // NewDetectionFileSource reads the Result in the file at path.
@@ -119,13 +122,16 @@ func writtenByOperator(obj *unstructured.Unstructured) bool {
 }
 
 // detectionError names why a Result could not be read, never with its raw
-// text: forbidden, not found, invalid or not written by the Pacto operator.
+// text: forbidden, not found, invalid, not written by the Pacto operator or
+// no usable Kubernetes configuration.
 func detectionError(err error) *fleet.SourceError {
 	switch {
 	case errors.Is(err, errDetectionInvalid):
 		return &fleet.SourceError{Code: "INVALID", Message: "invalid: the detection is unreadable or dated in the future"}
 	case errors.Is(err, errDetectionForeign):
 		return &fleet.SourceError{Code: "UNTRUSTED", Message: "not written by the Pacto operator"}
+	case errors.Is(err, ErrDetectionNoCluster):
+		return &fleet.SourceError{Code: "NO_CLUSTER", Message: "no usable Kubernetes configuration to read what the operator detected"}
 	case errors.Is(err, fs.ErrNotExist) || reasonClass(err) == "not found":
 		return &fleet.SourceError{Code: "NOT_FOUND", Message: "not found: the operator has not published detection yet"}
 	case errors.Is(err, fs.ErrPermission) || reasonClass(err) == "forbidden":

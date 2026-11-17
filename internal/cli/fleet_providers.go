@@ -33,7 +33,8 @@ func newFleetProvidersCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 func printFleetProviders(cmd *cobra.Command, res *fleet.ProvidersResult, format string) error {
 	return formatResult(cmd, format, res, func() error {
 		w := cmd.OutOrStdout()
-		if len(res.Providers) == 0 && res.KubernetesSources == 0 {
+		// A detection Pacto could not read is named instead of "nothing detected".
+		if !printAdvisorySources(w, res.Meta.Sources) && len(res.Providers) == 0 && res.KubernetesSources == 0 {
 			_, _ = fmt.Fprintln(w, "No providers detected: this view reads no Kubernetes cluster (add --k8s)")
 		}
 		if len(res.Providers) > 0 {

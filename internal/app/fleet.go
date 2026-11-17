@@ -149,6 +149,9 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 			sources = append(sources, liveK8sSources(ctx, contextName, client, opts.K8sNamespaces)...)
 		}
 	}
+	if err := CheckDetectedRef(opts.Detected); err != nil {
+		return nil, err
+	}
 	sources = append(sources, s.detectionSources(opts.Detected)...)
 	sources = append(sources, opts.extraSources...)
 	if err := checkSourceIDsAreUnique(sources); err != nil {
@@ -171,10 +174,24 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 	}, sources...)
 }
 
-// detectionSources is the advisory detection source of ref, none when ref is
-// empty: k8s:NS/NAME reads that ConfigMap, anything else is a file. A dynamic
-// client that cannot be built, or a k8s: ref without a name, is an
-// unavailable source.
+// CheckDetectedRef refuses a --detected k8s: reference that does not name
+// one ConfigMap as k8s:<namespace>/<name>. Any other value is a file, checked
+// when it is read.
+func CheckDetectedRef(ref string) error {
+	rest, ok := strings.CutPrefix(ref, "k8s:")
+	if !ok {
+		return nil
+	}
+	if ns, name, _ := strings.Cut(rest, "/"); ns == "" || name == "" || strings.Contains(name, "/") {
+		return fmt.Errorf("--detected %q is not k8s:<namespace>/<name>", ref)
+	}
+	return nil
+}
+
+// detectionSources is the advisory detection source of ref, checked by
+// [CheckDetectedRef], none when ref is empty: k8s:NS/NAME reads that
+// ConfigMap, anything else is a file. A dynamic client that cannot be built
+// is an unavailable source that says so.
 func (s *Service) detectionSources(ref string) []fleet.Source {
 	const id = "detection"
 	rest, ok := strings.CutPrefix(ref, "k8s:")
@@ -185,12 +202,9 @@ func (s *Service) detectionSources(ref string) []fleet.Source {
 		return []fleet.Source{fleetsrc.NewDetectionFileSource(id, ref, s.env().now)}
 	}
 	ns, name, _ := strings.Cut(rest, "/")
-	if ns == "" || name == "" {
-		return []fleet.Source{fleetsrc.NewDetectionFailedSource(id, fmt.Errorf("--detected %q is not k8s:<namespace>/<name>", ref))}
-	}
 	dyn, err := s.env().newDynamic()
 	if err != nil {
-		return []fleet.Source{fleetsrc.NewDetectionFailedSource(id, err)}
+		return []fleet.Source{fleetsrc.NewDetectionFailedSource(id, fmt.Errorf("%w: %w", fleetsrc.ErrDetectionNoCluster, err))}
 	}
 	return []fleet.Source{fleetsrc.NewDetectionK8sSource(id, dyn, ns, name, s.env().now)}
 }
