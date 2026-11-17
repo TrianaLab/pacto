@@ -276,6 +276,10 @@ kubectl get stage <stage> -n <namespace> -o jsonpath='{.status.applier}'
   Argo CD or Flux so it carries its labels, and check `completeness`.
 - `ApplierNotChartRef`: the HelmRelease takes its chart from `spec.chart`.
   Point `spec.chartRef` at an `OCIRepository`.
+- `ApplierUnreadable` on a HelmRelease Stage: the chart `OCIRepository` is
+  missing, outside the Stage's namespace or of another kind. The promoter
+  writes nothing until `spec.chartRef` names an `OCIRepository` in the
+  Stage's namespace.
 
 See [which manager applies a Stage](delivery-reach.md#which-manager-applies-a-stage).
 
