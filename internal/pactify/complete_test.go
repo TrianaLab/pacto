@@ -88,6 +88,21 @@ func TestInitCompletesNothingWhenAllDeclared(t *testing.T) {
 	}
 }
 
+// A folder that adds no value but holds a file Pacto cannot read keeps the
+// record for the finding and never says it completed 0 values.
+func TestInitFindingsOnlyCompletesNothing(t *testing.T) {
+	dir := writeTree(t, t.TempDir(), map[string]string{
+		"pacto.yaml": "pactoVersion: \"2.5\"\nservice: {name: p}\n",
+		"bad.yaml":   "a: [\n",
+	})
+	r, err := Init(context.Background(), Options{Dir: dir, Plan: true}, os.WriteFile)
+	if err != nil || r.Inferred == nil || len(r.Inferred.Fields) != 0 || len(r.Inferred.Findings) != 1 ||
+		!hasLine(r.Found, "pacto.yaml declares every value Pacto reads in this folder's manifests and specs, so Pacto infers nothing") ||
+		slices.ContainsFunc(r.Found, func(l string) bool { return strings.Contains(l, "completed 0") }) {
+		t.Fatalf("plan: %+v %v", r, err)
+	}
+}
+
 // Completion names each chart it read statically, as a new contract does.
 func TestInitCompletionNamesChartRead(t *testing.T) {
 	dir := writeTree(t, t.TempDir(), map[string]string{

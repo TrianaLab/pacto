@@ -410,7 +410,7 @@ func (p *planner) complete(c *contract.Contract) error {
 	}
 	p.r.Mode, p.r.Inferred = modeComplete, rec
 	p.discoveryLines()
-	if rec == nil {
+	if rec == nil || len(rec.Fields) == 0 { // a record of findings alone completes no value
 		p.found("pacto.yaml declares every value Pacto reads in this folder's manifests and specs, so Pacto infers nothing")
 		return nil
 	}
