@@ -1,0 +1,148 @@
+package contract
+
+import (
+	"bytes"
+	"cmp"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io/fs"
+	"regexp"
+	"slices"
+	"strings"
+
+	"gopkg.in/yaml.v3"
+)
+
+// InferredRecordFile is the bundle file that holds what Pacto completed for a
+// service: generated with the bundle, never committed and never part of
+// pacto.yaml.
+const InferredRecordFile = "pacto.inferred.yaml"
+
+// InferredRecordFormat is the only format value an inferred record carries.
+const InferredRecordFormat = "pacto.inferred/v1"
+
+// InferredRecord is what Pacto inferred from a service's folder beside its
+// declared contract, with the inputs it came from.
+type InferredRecord struct {
+	Format string         `json:"format" yaml:"format"`
+	Inputs InferredInputs `json:"inputs" yaml:"inputs"`
+	Fields []Inferred     `json:"fields" yaml:"fields"`
+}
+
+// InferredInputs names what a record was completed from: the commit (absent
+// when unknown), the Pacto that completed it, the discovery version and every
+// file a field cites, with its digest.
+type InferredInputs struct {
+	Commit    string               `json:"commit,omitempty" yaml:"commit,omitempty"`
+	Pacto     string               `json:"pacto" yaml:"pacto"`
+	Discovery string               `json:"discovery" yaml:"discovery"`
+	Sources   []InferredSourceFile `json:"sources" yaml:"sources"`
+}
+
+// InferredSourceFile is one bundle file a record cites, with its sha256.
+type InferredSourceFile struct {
+	Path   string `json:"path" yaml:"path"`
+	Digest string `json:"digest" yaml:"digest"`
+}
+
+var inferredDigestRE = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+
+// ParseInferredRecord decodes a record strictly: an unknown key, another
+// format, a field with no field name or source, a confidence other than likely
+// or possible, or a source without a sha256 digest is an error naming it.
+func ParseInferredRecord(data []byte) (*InferredRecord, error) {
+	var r InferredRecord
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(&r); err != nil {
+		return nil, fmt.Errorf("%s: %w", InferredRecordFile, err)
+	}
+	if r.Format != InferredRecordFormat {
+		return nil, fmt.Errorf("%s: format is %q, want %q", InferredRecordFile, r.Format, InferredRecordFormat)
+	}
+	for i, f := range r.Fields {
+		switch {
+		case f.Field == "":
+			return nil, fmt.Errorf("%s: fields[%d].field is empty", InferredRecordFile, i)
+		case f.Source == "":
+			return nil, fmt.Errorf("%s: fields[%d].source is empty", InferredRecordFile, i)
+		case f.Confidence != "likely" && f.Confidence != "possible":
+			return nil, fmt.Errorf("%s: fields[%d].confidence is %q, want likely or possible", InferredRecordFile, i, f.Confidence)
+		}
+	}
+	for i, s := range r.Inputs.Sources {
+		if !inferredDigestRE.MatchString(s.Digest) {
+			return nil, fmt.Errorf("%s: inputs.sources[%d].digest is %q, want sha256:<64 hex>", InferredRecordFile, i, s.Digest)
+		}
+	}
+	return &r, nil
+}
+
+// Marshal writes the record with its fields sorted by field then source and
+// its sources by path, and no timestamp, so the same inputs give the same bytes.
+func (r *InferredRecord) Marshal() []byte {
+	out := *r
+	out.Fields = slices.Clone(r.Fields)
+	slices.SortFunc(out.Fields, func(a, b Inferred) int {
+		return cmp.Or(strings.Compare(a.Field, b.Field), strings.Compare(a.Source, b.Source))
+	})
+	out.Inputs.Sources = slices.Clone(r.Inputs.Sources)
+	slices.SortFunc(out.Inputs.Sources, func(a, b InferredSourceFile) int { return strings.Compare(a.Path, b.Path) })
+	data, _ := yaml.Marshal(&out) // strings and slices of them always encode
+	return data
+}
+
+// ReadInferredRecord reads and parses the record in fsys: nil and no error
+// when fsys is nil or holds none.
+func ReadInferredRecord(fsys fs.FS) (*InferredRecord, error) {
+	if fsys == nil {
+		return nil, nil
+	}
+	data, err := fs.ReadFile(fsys, InferredRecordFile)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", InferredRecordFile, err)
+	}
+	return ParseInferredRecord(data)
+}
+
+// VerifyInferredRecord checks the record against the bundle it sits in: every
+// source exists in fsys with its digest (the record itself is never a source),
+// and every field cites a file the sources list. A stale or hand-edited record
+// fails here instead of reading as authoritative.
+func VerifyInferredRecord(fsys fs.FS, rec *InferredRecord) error {
+	listed := make(map[string]bool, len(rec.Inputs.Sources))
+	for i, s := range rec.Inputs.Sources {
+		if s.Path == InferredRecordFile {
+			return fmt.Errorf("inputs.sources[%d] cites %s itself", i, InferredRecordFile)
+		}
+		data, err := fs.ReadFile(fsys, s.Path)
+		if err != nil {
+			return fmt.Errorf("inputs.sources[%d]: %s is not in the bundle", i, s.Path)
+		}
+		sum := sha256.Sum256(data)
+		if got := "sha256:" + hex.EncodeToString(sum[:]); got != s.Digest {
+			return fmt.Errorf("inputs.sources[%d]: %s has digest %s, the record says %s", i, s.Path, got, s.Digest)
+		}
+		listed[s.Path] = true
+	}
+	for i, f := range rec.Fields {
+		if file := sourceFile(f.Source); !listed[file] {
+			return fmt.Errorf("fields[%d] (%s) cites %s, which inputs.sources does not list", i, f.Field, file)
+		}
+	}
+	return nil
+}
+
+// sourceFile is the file a "<path>:<line>" or "<path>" source names.
+func sourceFile(source string) string {
+	i := strings.LastIndexByte(source, ':')
+	if i < 0 || i == len(source)-1 || strings.Trim(source[i+1:], "0123456789") != "" {
+		return source
+	}
+	return source[:i]
+}

@@ -129,6 +129,7 @@ A finding is one conclusion from the engine. Findings fall in two families. Conf
 | `ENVIRONMENT_VALUES_INVALID` | `ConfigurationViolation` |
 | `ENVIRONMENT_VALUES_MISSING` | `MissingConfiguration` |
 | `FILE_NOT_FOUND` | `InvalidFile` |
+| `INFERRED_RECORD_INVALID` | `InvalidFile` |
 | `INTERFACE_ABSENT` | `RuntimeDrift` |
 | `INTERFACE_PROTOCOL_MISMATCH` | `RuntimeDrift` |
 | `INTERFACE_VISIBILITY_MISMATCH` | `RuntimeDrift` |

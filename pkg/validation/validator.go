@@ -130,9 +130,12 @@ func Merged(stages []Stage) ValidationResult {
 // resolution is delegated to resolvePolicies and configuration-ref resolution
 // to resolveRefs, the steps that differ between the local-only Validate and the
 // resolver-based ValidateWithResolver; now dates lifecycle warnings.
+// The structural layer also checks the bundle's inferred record.
 func runLayers(c *contract.Contract, doc *contract.Document, bundleFS fs.FS, resolvePolicies func() ([]ResolvedPolicy, ValidationResult), resolveRefs func() (ConfigRefs, ValidationResult), now time.Time) []Stage {
 	// Layer 1: Structural validation via JSON Schema.
-	structural := RanStage("structural", validateStructuralDoc(doc))
+	sr := validateStructuralDoc(doc)
+	inferredRecordStage(&sr, c, bundleFS)
+	structural := RanStage("structural", sr)
 	if structural.Status == StageFail {
 		return append([]Stage{structural}, SkippedStages("structural failed", "cross-field", "policy", "configuration-refs", "environments")...)
 	}

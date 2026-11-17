@@ -16,11 +16,14 @@ import (
 
 // Inferred is one value Pacto implied rather than read from pacto.yaml, with
 // where it came from: a "<path>:<line>" inside the bundle, "directory <name>"
-// or "this CLI".
+// or "this CLI". In an inferred record it also carries its confidence (likely
+// or possible) and the YAML that would declare it.
 type Inferred struct {
-	Field  string `json:"field"`
-	Value  string `json:"value"`
-	Source string `json:"source"`
+	Field      string `json:"field" yaml:"field"`
+	Value      string `json:"value" yaml:"value"`
+	Source     string `json:"source" yaml:"source"`
+	Confidence string `json:"confidence,omitempty" yaml:"confidence,omitempty"`
+	Declare    string `json:"declare,omitempty" yaml:"declare,omitempty"`
 }
 
 var (
