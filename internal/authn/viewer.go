@@ -117,13 +117,18 @@ type ResourceAttributes struct {
 // PactoResource is the resource every fleet answer is reviewed against.
 var PactoResource = ResourceAttributes{Group: "pacto.trianalab.io", Resource: "pactos"}
 
-// workloadResources maps the workload kind of an inferred service to the
-// resource a person must be allowed to list to see it.
+// workloadResources maps the workload kind of an inferred service, and the
+// GitOps kind its repository was read from, to the resource a person must be
+// allowed to list to see it.
 var workloadResources = map[string]ResourceAttributes{
-	"Deployment":  {Group: "apps", Resource: "deployments"},
-	"StatefulSet": {Group: "apps", Resource: "statefulsets"},
-	"DaemonSet":   {Group: "apps", Resource: "daemonsets"},
-	"CronJob":     {Group: "batch", Resource: "cronjobs"},
+	"Deployment":    {Group: "apps", Resource: "deployments"},
+	"StatefulSet":   {Group: "apps", Resource: "statefulsets"},
+	"DaemonSet":     {Group: "apps", Resource: "daemonsets"},
+	"CronJob":       {Group: "batch", Resource: "cronjobs"},
+	"Application":   {Group: "argoproj.io", Resource: "applications"},
+	"GitRepository": {Group: "source.toolkit.fluxcd.io", Resource: "gitrepositories"},
+	"Kustomization": {Group: "kustomize.toolkit.fluxcd.io", Resource: "kustomizations"},
+	"HelmRelease":   {Group: "helm.toolkit.fluxcd.io", Resource: "helmreleases"},
 }
 
 var sarResource = schema.GroupVersionResource{Group: "authorization.k8s.io", Version: "v1", Resource: "subjectaccessreviews"}

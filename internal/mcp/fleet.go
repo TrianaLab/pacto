@@ -51,7 +51,8 @@ const fleetInstructions = "Pacto also exposes READ-ONLY fleet tools over the ope
 	"with template=only lists golden paths, the starting points pacto_create takes as 'from' (over stdio, from pacto mcp --transport stdio); a " +
 	"golden path is never a consumer, so it is absent from impact and offering consumers. " +
 	"A service marked declaration: inferred is a workload no contract Pacto read describes (with workload.declarationUnverified, a contract Pacto could not read may describe it): " +
-	"it never satisfies a dependency or clears a gate, and pacto_fleet_graph and pacto_impact answer about it partial with SERVICE_INFERRED. Use " +
+	"it never satisfies a dependency or clears a gate, and pacto_fleet_graph and pacto_impact answer about it partial with SERVICE_INFERRED; " +
+	"workload.group says how the cluster groups it and from what. Use " +
 	"pacto_fleet_entities to list owners, business domains and offerings, pacto_fleet_entity " +
 	"for one of them and pacto_fleet_attention for what needs attention, most severe first. " +
 	"An attention item's nextAction names the operation that fixes it and the tool that makes it (edit-contract: " +

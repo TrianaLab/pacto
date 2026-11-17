@@ -1133,7 +1133,7 @@ pacto fleet entities [text] [flags]
       --environment string               with --kind target, targets in this environment (the delivery.pacto.trianalab.io/environment label); with --consumes and --phase, only the consumers whose status in that phase is in this environment
       --failed[=true|false]              with --kind offering, offerings with at least one failed provisioning request
       --gap string                       services whose contracts leave this out (no-summary, no-domain, no-interface-docs, no-readiness, not-deployed, unverified-capability), or unknown for those Pacto cannot judge
-      --group string                     inferred services the cluster groups under this key (rule/namespace/name, as pacto fleet entity prints it)
+      --group string                     inferred services the cluster groups under this key (rule/namespace/name: workload.group.key in pacto fleet entity --output-format json)
       --has-non-compliant[=true|false]   owners and domains with at least one non-compliant service only
   -h, --help[=true|false]                help for entities
       --kind string                      entity kind (service, revision, target, owner, source, domain, offering, external; empty lists services, owners, domains and offerings)
