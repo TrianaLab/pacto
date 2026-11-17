@@ -71,7 +71,8 @@ test.describe('WASM demo — external systems', () => {
     await expect(catalog).toContainText('embedded copy, signature unknown (the demo catalog is embedded in the demo; it is not signed).');
     await expect(page.getByTestId('external-name-only')).toHaveCount(0);
     const declared = page.locator('[data-testid="external-source"][data-provenance="declared"]');
-    await expect(declared.locator('[data-cell="where"]').filter({ hasText: '(name: model)' })).toHaveCount(1);
+    // support-assistant and pay-agent both declare "model"; the catalog joins them here.
+    await expect(declared.locator('[data-cell="where"]').filter({ hasText: '(name: model)' })).toHaveCount(2);
     await page.getByTestId('external-more-details').click();
     await expect(declared.locator('[data-cell="details"]').filter({ hasText: 'version hosted-llm/2026-06' })).toHaveCount(1);
     // Services hosts the list, so the trail runs through it as the nav does.
