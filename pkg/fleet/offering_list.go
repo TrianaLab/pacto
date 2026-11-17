@@ -131,8 +131,10 @@ func (q *Query) OwnerClaimCount(key ServiceKey) int {
 
 // HasContractSource reports whether a contract speaks for the service key
 // names: it has a revision (valid or not) or a target whose source read the
-// contract the target runs. A service known from neither is inferred. False for
-// an unknown service. It reads and never changes the snapshot.
+// contract the target runs (it read the domain field, or an owner, which only
+// a read contract carries: an operator on a status format older than the
+// domain field still reports one). A service known from neither is inferred.
+// False for an unknown service. It reads and never changes the snapshot.
 func (q *Query) HasContractSource(key ServiceKey) bool {
 	s := q.snap.Services[key]
 	if s == nil {
@@ -141,7 +143,10 @@ func (q *Query) HasContractSource(key ServiceKey) bool {
 	if len(s.Revisions) > 0 {
 		return true
 	}
-	return slices.ContainsFunc(s.Targets, func(tk TargetKey) bool { return q.snap.Targets[tk].domainKnown })
+	return slices.ContainsFunc(s.Targets, func(tk TargetKey) bool {
+		t := q.snap.Targets[tk]
+		return t.domainKnown || !t.Owner.IsEmpty()
+	})
 }
 
 // applyOfferingFacts fills ref, an offering row, from f.

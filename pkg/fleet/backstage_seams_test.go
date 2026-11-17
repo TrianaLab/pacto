@@ -36,6 +36,9 @@ func TestHasContractSourceSeam(t *testing.T) {
 	if !ownerProvenanceFleet(t, contract.Owner{}, read).HasContractSource(key) {
 		t.Error("a target whose source read the contract is a contract source")
 	}
+	if !ownerProvenanceFleet(t, contract.Owner{}, payTarget("a", contract.Owner{Team: "pay"})).HasContractSource(key) {
+		t.Error("a target reporting the owner of the contract it runs is a contract source, whatever its status format")
+	}
 	q := ownerProvenanceFleet(t, contract.Owner{}, payTarget("a", contract.Owner{}))
 	if q.HasContractSource(key) {
 		t.Error("a target with no read contract is no contract source")
