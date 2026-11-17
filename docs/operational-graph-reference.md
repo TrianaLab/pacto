@@ -43,6 +43,7 @@ compliance evidence that a source carries.
   its target, and the external answers that consume it read `partial`.
 - **Kubernetes workloads** (`--k8s`): workloads no Pacto resource targets join
   as [inferred services](operational-graph-inferred.md), `declaration: inferred`.
+  Both report [detected providers](operational-graph-providers.md).
 - **Ingested external evidence** (`--evidence-url <url>`): a running [Evidence
   Server](evidence.md)'s read-only contribution over HTTP, exposing a
   remote environment's signed `EvidenceSet` reports as operational targets.

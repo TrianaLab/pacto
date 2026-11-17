@@ -107,6 +107,11 @@ same facts in a `meta` envelope for a CI job to branch on, and
 and the [knowledge vocabulary](operational-graph.md#knowledge) behind
 `completeness`.
 
+### Detected providers
+
+`pacto fleet providers --k8s` lists the
+[providers Pacto detected](operational-graph-providers.md) in each cluster.
+
 ### Namespace scope
 
 A Kubernetes source that reads a list of namespaces (`--namespace
