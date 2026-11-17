@@ -289,6 +289,22 @@ const (
 	ProvenanceDeclaredObserved = ProvenanceDeclared + "+" + ProvenanceObserved
 )
 
+// OwnerProvenance says where ServiceRecord.Owner comes from. The precedence is
+// declared > attested > declared-via-target > inferred: a published revision's
+// owner wins, then an owner read from the repository at a commit a verified CI
+// identity signed, then the owner a target's observing source read from the
+// contract it runs. Owner never holds an inferred value, because approvals and
+// every ownership answer read it: inferred means no declared or attested owner
+// exists while an inferred one is held in a separate field, so Owner stays
+// empty. The inferred tier is set only together with the field that holds that
+// value.
+const (
+	OwnerProvenanceDeclared          = "declared"
+	OwnerProvenanceDeclaredViaTarget = "declared-via-target"
+	OwnerProvenanceAttested          = "attested"
+	OwnerProvenanceInferred          = "inferred"
+)
+
 // Reconciliation classifies a DECLARED dependency edge against the snapshot's
 // observation data. It is an explicit backend fact — never inferred from name
 // resolution or whether the provider happens to be deployed. Empty for
@@ -663,6 +679,10 @@ type ServiceRecord struct {
 	Labels       map[string]string  `json:"labels,omitempty"`
 	Status       string             `json:"status,omitempty"`
 	Sources      []string           `json:"sources,omitempty"`
+	// OwnerProvenance says where Owner comes from (see [OwnerProvenanceDeclared]
+	// for the classes and their precedence); empty when Owner is empty and no
+	// inferred owner exists. Owner never holds an inferred value.
+	OwnerProvenance string `json:"ownerProvenance,omitempty" enum:"declared,declared-via-target,attested,inferred"`
 	// OfferingProvenance says where Offering comes from: declared by a contract
 	// revision, or observed, reported only by the sources observing its targets.
 	OfferingProvenance string `json:"offeringProvenance,omitempty" enum:"declared,observed"`

@@ -124,9 +124,9 @@ func (s *Session) AuthTime() string { return s.authTime }
 // does not answer, the claim mapping names them.
 func (o *OIDC) person(ctx context.Context, raw string) (Person, bool) {
 	if o.cfg.Review != nil {
-		p, err := o.cfg.Review(ctx, raw)
-		if err == nil && p.User != "" {
-			return p, true
+		rv, err := o.cfg.Review(ctx, raw)
+		if err == nil && rv.Person.User != "" {
+			return rv.Person, true
 		}
 		slog.WarnContext(ctx, "the cluster did not say who a signed-in person is", "error", err)
 		return o.cfg.Claims.Person(raw), false

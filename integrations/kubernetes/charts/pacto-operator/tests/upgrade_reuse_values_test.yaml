@@ -1,7 +1,10 @@
 # An upgrade that reuses a 6.x release's values keeps that release's chart
 # defaults: the new observation keys are absent and the deprecated ones hold
 # their old values. Each case pins the whole argument list captured from the
-# 6.x chart (bc2b948cd); never edit these lists to make a change pass.
+# 6.x chart (bc2b948cd); never edit these lists to make a change pass. The one
+# deliberate edit: 510-S4 ends each list with --dashboard-token-login instead of
+# --dashboard-allow-anonymous, because a reused release now signs people in
+# (tokenSignIn is a new key, so the reused values never turn it off).
 suite: upgrade with reused 6.x values
 templates:
   - templates/deployment.yaml
@@ -17,6 +20,9 @@ tests:
       controller.enableProbing: false
       controller.enableMetricsObservation: false
       controller.kernelEvidence.enabled: false
+      dashboard.auth.allowAnonymous: true
+      dashboard.auth.tokenLogin.enabled: false
+      dashboard.auth.tokenSignIn: null
     asserts:
       - equal:
           path: spec.template.spec.containers[0].args
@@ -30,7 +36,7 @@ tests:
           - --dashboard-cpu-request=50m
           - --dashboard-memory-request=128Mi
           - --dashboard-memory-limit=512Mi
-          - --dashboard-allow-anonymous
+          - --dashboard-token-login
 
   - it: should render the 6.x arguments for 6.x values with nodeAgent.enabled
     template: templates/deployment.yaml
@@ -63,7 +69,7 @@ tests:
           - --dashboard-cpu-request=50m
           - --dashboard-memory-request=128Mi
           - --dashboard-memory-limit=512Mi
-          - --dashboard-allow-anonymous
+          - --dashboard-token-login
 
   - it: should render the 6.x arguments for 6.x values with enableProbing and enableMetricsObservation true
     template: templates/deployment.yaml
@@ -86,7 +92,7 @@ tests:
           - --dashboard-cpu-request=50m
           - --dashboard-memory-request=128Mi
           - --dashboard-memory-limit=512Mi
-          - --dashboard-allow-anonymous
+          - --dashboard-token-login
 
   - it: should keep 6.x RBAC for 6.x default values
     template: templates/clusterrole.yaml

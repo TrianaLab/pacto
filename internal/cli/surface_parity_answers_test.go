@@ -292,6 +292,16 @@ func TestSurfaceParityAnswers(t *testing.T) {
 	expect(t, strings.Contains(app, `"kind": "dependency"`) && strings.Contains(app, `"change": "added"`), "the fixture has no dependency change: %s", app)
 	// The Resources answer (#468) and the offering's adapters and unresolved
 	// uses (#463) are compared above: the fixture must hold them.
+	// The owner's provenance is compared above: the service answer must carry it.
+	var appDetail struct {
+		Service struct {
+			Ownership struct {
+				Provenance string `json:"provenance"`
+			} `json:"ownership"`
+		} `json:"service"`
+	}
+	expect(t, json.Unmarshal([]byte(app), &appDetail) == nil && appDetail.Service.Ownership.Provenance == fleet.OwnerProvenanceDeclared,
+		"the fixture's app answer lacks ownership.provenance: %s", app)
 	for _, want := range []string{`"consumedOfferings"`, `"consumption"`, `"state": "not-reported"`, `"providerOwner"`} {
 		expect(t, strings.Contains(app, want), "the fixture's app answer lacks %s: %s", want, app)
 	}

@@ -3,9 +3,12 @@ package authn
 import (
 	"context"
 	"crypto/subtle"
+	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 )
 
@@ -27,6 +30,10 @@ const launchCookie = "pacto-launch"
 // the session cookie must come with the session's CSRF header and a
 // same-origin Origin.
 //
+// A server-side reader (a Backstage backend) may instead send a Kubernetes
+// bearer token on each GET under /api/backstage/ (AcceptBearer): it reads as
+// the person the token names, with no session, cookie or CSRF.
+//
 // Open: shared with no sign-in configured. Nobody is identified, so it serves
 // no delivery data and no actions.
 type Dashboard struct {
@@ -35,6 +42,9 @@ type Dashboard struct {
 	open       bool
 	launch     string
 	launchCSRF string
+	// bearerReview checks the per-request bearer token of a server-side
+	// reader on /api/backstage/*; nil refuses every bearer read.
+	bearerReview TokenReview
 }
 
 // NewOpen is a shared dashboard without sign-in.
@@ -55,6 +65,15 @@ func NewLocal() *Dashboard { return &Dashboard{launch: random(32), launchCSRF: r
 // NewShared is shared mode, signing people in through o, t or both (either
 // may be nil, not both).
 func NewShared(o *OIDC, t *TokenLogin) *Dashboard { return &Dashboard{oidc: o, tokens: t} }
+
+// AcceptBearer lets server-side readers (a Backstage backend) send a
+// Kubernetes bearer token on each GET under /api/backstage/, checked with
+// review and narrowed by the caller's RBAC like any signed-in person. It
+// returns d.
+func (d *Dashboard) AcceptBearer(review TokenReview) *Dashboard {
+	d.bearerReview = review
+	return d
+}
 
 // Local reports whether this is local mode.
 func (d *Dashboard) Local() bool { return !d.SignsIn() && !d.open }
@@ -104,7 +123,8 @@ type State struct {
 	SignedIn bool
 	// CSRF is the token to send in CSRFHeader; empty when not signed in.
 	CSRF string
-	// Token is the bearer for the caller's own cluster requests (shared only).
+	// Token is the bearer for the caller's own cluster requests (shared only);
+	// empty for a sign-in link session, so its requests carry no credential.
 	Token string
 	// Person is who the cluster says the caller is: what the API server
 	// answered for the session's token, or for the kubeconfig in local mode.
@@ -116,6 +136,10 @@ type State struct {
 	// AuthTime is when the caller last logged in at the identity provider,
 	// as Unix seconds or RFC 3339, when known.
 	AuthTime string
+	// UID and Extra are what the TokenReview named for a sign-in link
+	// session, which holds no Token. Set for link sessions only.
+	UID   string
+	Extra map[string][]string
 }
 
 type stateKey struct{}
@@ -172,6 +196,11 @@ func (d *Dashboard) Middleware(next http.Handler) http.Handler {
 func delivery(path string) bool {
 	return strings.HasPrefix(path, "/api/delivery/") || path == "/api/session"
 }
+
+// bearerPath reports whether a path takes a bearer reader: under
+// /api/backstage/ and already clean, so no ".." walks it to another route
+// before the router cleans it.
+func bearerPath(p string) bool { return strings.HasPrefix(p, "/api/backstage/") && path.Clean(p) == p }
 
 func (d *Dashboard) local(w http.ResponseWriter, r *http.Request) (State, bool) {
 	if r.Method == http.MethodGet && r.URL.Query().Get("token") != "" {
@@ -258,22 +287,77 @@ func (d *Dashboard) sessionState(r *http.Request) State {
 	}
 	if d.tokens != nil {
 		if s, ok := d.tokens.session(r); ok {
-			return State{SignedIn: true, CSRF: s.csrf, Token: s.token, Person: s.person, Method: "token"}
+			st := State{SignedIn: true, CSRF: s.csrf, Person: s.person, Method: "token", AuthTime: s.authTime}
+			if s.bearer {
+				st.Token = s.token
+			} else { // a link session: its token is no credential, so nothing ever sends it
+				st.UID, st.Extra = s.uid, s.extra
+			}
+			return st
 		}
 	}
 	return State{}
 }
 
-// loginRequired answers 401 in the dashboard's refusal shape (status, code,
-// detail), so every view reads the same LoginRequired.
-func loginRequired(w http.ResponseWriter) {
+// refusal answers 401 in the dashboard's refusal shape (status, code,
+// detail), so every view reads the same refusal.
+func refusal(w http.ResponseWriter, code, detail string) {
+	b, _ := json.Marshal(struct {
+		Status int    `json:"status"`
+		Code   string `json:"code"`
+		Detail string `json:"detail"`
+	}{http.StatusUnauthorized, code, detail}) // ponytail: a struct of strings always marshals
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(http.StatusUnauthorized)
-	_, _ = w.Write([]byte(`{"status":401,"code":"LoginRequired","detail":"sign in to use this dashboard"}` + "\n"))
+	_, _ = w.Write(append(b, '\n'))
+}
+
+// loginRequired is the LoginRequired refusal every signed-out view reads.
+func loginRequired(w http.ResponseWriter) {
+	refusal(w, "LoginRequired", "sign in to use this dashboard")
+}
+
+// bearer answers a server-side reader's bearer token on a bearer path. handled
+// is false when the request is no bearer read, and the session rules apply.
+func (d *Dashboard) bearer(w http.ResponseWriter, r *http.Request) (st State, ok, handled bool) {
+	scheme, token, _ := strings.Cut(r.Header.Get("Authorization"), " ")
+	token = strings.TrimSpace(token)
+	if !bearerPath(r.URL.Path) || !strings.EqualFold(scheme, "Bearer") || token == "" { // the scheme is case-insensitive (RFC 9110)
+		return State{}, false, false
+	}
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, "a bearer reader only reads", http.StatusMethodNotAllowed)
+		return State{}, false, true
+	}
+	if d.bearerReview == nil {
+		refusal(w, "BearerRefused", "this dashboard checks no bearer tokens: bearer readers need token sign-in and a cluster to check tokens against")
+		return State{}, false, true
+	}
+	rv, err := d.bearerReview(r.Context(), token)
+	if err != nil || rv.Person.User == "" {
+		// The same cause token sign-in names (a missing tokenreviews grant
+		// included), never the token itself.
+		code, msg := "BearerRefused", refuseReviewed(rv, err, false)
+		var tr *TokenRefusal
+		if errors.As(err, &tr) {
+			code, msg = tr.Code, tr.Message
+		}
+		Refused(r.Context(), r, "dashboard refused a bearer reader", "reason", code+": "+msg)
+		refusal(w, code, msg)
+		return State{}, false, true
+	}
+	st = State{SignedIn: true, Person: rv.Person, Method: "bearer"}
+	if rv.Bearer { // a link (audience) review leaves Token empty: that token is no credential and never reaches the apiserver
+		st.Token = token
+	}
+	return st, true, true
 }
 
 func (d *Dashboard) shared(w http.ResponseWriter, r *http.Request) (State, bool) {
+	if st, ok, handled := d.bearer(w, r); handled {
+		return st, ok
+	}
 	_, hasCookie := r.Cookie(SessionCookie)
 	st := d.sessionState(r)
 	if !st.SignedIn && needsSession(r.URL.Path) {

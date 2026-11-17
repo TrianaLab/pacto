@@ -133,6 +133,13 @@ func (id *dashboardIdentity) delivery(r *http.Request) (dashboard.DeliveryAPI, e
 		if !st.SignedIn { // defence in depth: the sign-in gate turns a signed-out request away first
 			return nil, dashboard.Refuse(http.StatusUnauthorized, "LoginRequired", "sign in to see and act on delivery")
 		}
+		if linkSession(st) {
+			// ponytail: a link session sees no delivery view at all. Upgrade
+			// path: a preset subject on sharedClient (the reviewed identity)
+			// would serve it the shared Stage and Operation caches.
+			return nil, dashboard.Refuse(http.StatusForbidden, "SignInLinkReadsFleet",
+				"a sign-in link reads the fleet only: sign in with your identity provider or paste your own token to see delivery")
+		}
 		cfg, token = authn.RESTConfig(id.cluster, st.Token), st.Token
 		// The token, not the claim mapping's Person: tokens without the
 		// username claim all map to the one anonymous Person.

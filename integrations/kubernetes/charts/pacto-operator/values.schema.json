@@ -554,9 +554,17 @@
                 "maxAge": { "$ref": "#/$defs/optionalDuration" }
               }
             },
+            "tokenSignIn": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean" }
+              }
+            },
             "tokenLogin": {
               "type": "object",
               "additionalProperties": false,
+              "description": "Deprecated and ignored: use tokenSignIn.enabled.",
               "properties": {
                 "enabled": { "type": "boolean" }
               }

@@ -259,7 +259,7 @@ pacto dashboard [sources...] [flags]
       --session-idle-timeout duration     a session without a request for this long ends (default 1h)
       --session-max-age duration          a session ends this long after sign-in, renewed or not (default 12h)
       --stats-registry string             stats repository the Metrics page reads run records from (unsigned statistics; also PACTO_STATS_REGISTRY); a public repository is read anonymously, otherwise with the dashboard's registry credentials
-      --token-login[=true|false]          let people sign in by pasting a Kubernetes bearer token, for a cluster whose API server trusts no identity provider; a token session never decides on a held change (also PACTO_DASHBOARD_TOKEN_LOGIN)
+      --token-login[=true|false]          let people sign in with a Kubernetes token: a ServiceAccount token minted with --audience pacto-dashboard reads the fleet only, and a person's own token acts as them (also PACTO_DASHBOARD_TOKEN_LOGIN)
       --trace-source stringArray          named offline OTLP/JSON trace source as NAME=PATH, where NAME is its stable data-source identity (repeatable; also PACTO_DASHBOARD_TRACE_SOURCES)
       --traces stringArray                OTLP/JSON trace file to fold observed dependencies from (repeatable; also PACTO_DASHBOARD_TRACES)
 ```
@@ -1001,6 +1001,60 @@ pacto explain [dir | oci://ref] [flags]
 **What it covers.** The text output summarises identity, workload, state, capabilities, interfaces, dependencies and readiness. To read `configurations` and `policies`, use `pacto doc` or open `pacto.yaml`. `metadata` is carried by `--output-format json` only; the text output omits it.
 
 **Readiness output.** When the contract declares a `readiness` section (a `pactoVersion: "2.0"` feature), `explain` adds a Readiness block: the derived **Score**, the **Gate** result (`PASS`/`FAIL` with `score / minScore`), **Earned** and **Total Weight**, the partial credit multiplier, the assessment `expires` date with countdown (or an Expired state) and a per-check table showing each check's declared `status` (`done`/`partial`/`not-done`/`deferred`), `category`, weight, earned weight and `evidence`. The Readiness block also includes a revision-history table when `history[]` is present. `--output-format json` includes the same data plus `doneCount`, `partialCount`, `notDoneCount`, `deferredCount` and `expired` (boolean). Readiness status is time-dependent: the score is 0 when the current date is past the assessment-level `expires`.
+
+---
+
+## `pacto export`
+
+Write what Pacto knows in another tool's format
+
+```
+pacto export [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help[=true|false]   help for export
+```
+
+### `pacto export backstage`
+
+Write the services Pacto knows as one multi-document YAML file of Backstage catalog entities: a Component per service, an API per interface, a Resource per external system, a System per business domain and a stub Component, tagged pacto-observed, per observed caller with no contract. Every entity says how Pacto knows it (pacto.trianalab.io/provenance), when (as-of) and how completely (completeness); an inferred value never fills spec.owner, spec.system, spec.dependsOn or spec.consumesApis.
+
+The export reads the same sources as pacto fleet, except that it scans no local directory unless --local is set. When a source could not be read, or the fleet is empty, it writes nothing and exits 2, so a scheduled sync never drops the services that source holds; --allow-partial writes the file anyway. A --namespace scope whose namespaces were all read is not a failure: the file is written and each entity says partial.
+
+```
+pacto export backstage [flags]
+```
+
+**Examples:**
+
+```
+  pacto export backstage --oci ghcr.io/acme/payments --oci ghcr.io/acme/ledger > catalog/pacto-entities.yaml
+  pacto export backstage --root oci://ghcr.io/acme/platform --k8s -o catalog/pacto-entities.yaml
+```
+
+**Flags:**
+
+```
+      --allow-partial[=true|false]   write the file even when the fleet is partial or empty
+      --cache[=true|false]           include every bundle in the local OCI cache as an offline baseline revision
+      --detected string              add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
+      --evidence-url stringArray     base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
+      --external-catalog string      organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST (a tag is refused)
+      --freshness duration           mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
+  -h, --help[=true|false]            help for backstage
+      --k8s[=true|false]             include live Pacto CRs from the current Kubernetes cluster as targets
+      --local stringArray            local bundle root(s) to scan (repeatable; none unless set)
+      --mira-source stringArray      base URL of a Mira node whose service map supplies observed calls between services (repeatable)
+      --namespace string             namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)
+      --oci stringArray              registry reference to include as a published-baseline revision (repeatable)
+  -o, --output string                write the entities to this file instead of standard output
+      --root stringArray             contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
+      --target-state stringArray     offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
+      --traces stringArray           OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
+```
 
 ---
 

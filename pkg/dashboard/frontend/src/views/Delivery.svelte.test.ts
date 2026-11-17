@@ -1200,6 +1200,36 @@ describe('change detail', () => {
     }
   });
 
+  it('asks a token session with no identity provider for a fresh token or the command, keeping the choice', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    fns.operation.mockResolvedValue(heldOperation({ decisionFreshness: 600 }));
+    fns.session.mockResolvedValue(shared({ method: 'token', login: false, tokenLogin: true, caller: { ...human(['team-checkout']), authTime: String(now - 40 * 60) } }));
+    fns.decide.mockRejectedValue(new ApiError(401, 'your login is older than 10m0s: sign in again', 'FreshLoginRequired'));
+    fns.signOut.mockResolvedValue('');
+    const reload = vi.fn();
+    const orig = window.location;
+    Object.defineProperty(window, 'location', { configurable: true, value: { ...orig, hash: '#/delivery/changes/prod/op1', reload } });
+    try {
+      const { target, destroy } = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+      await settle();
+      (target.querySelector('[data-testid="decide-approve"]') as HTMLButtonElement).click();
+      await settle();
+      const dialog = target.querySelector('[data-testid="fresh-login"]') as HTMLDialogElement;
+      expect(text(dialog)).toContain('Log in again at your identity provider (a cached or refreshed token keeps the old sign-in time), then paste the new token. Or decide from the command line:');
+      expect(text(dialog)).toContain('pacto delivery approve -n prod op1 --decision approve');
+      const go = dialog.querySelector('[data-testid="fresh-login-go"]') as HTMLButtonElement;
+      expect(go.textContent).toBe('Sign out to paste a new token');
+      go.click();
+      await settle();
+      expect(fns.signOut).toHaveBeenCalled();
+      expect(reload).toHaveBeenCalled();
+      expect(JSON.parse(sessionStorage.getItem('pacto.delivery.pending')!)).toMatchObject({ namespace: 'prod', name: 'op1', decision: 'approve' });
+      destroy();
+    } finally {
+      Object.defineProperty(window, 'location', { configurable: true, value: orig });
+    }
+  });
+
   it('shows the kept decision after the fresh sign-in and sends it only on a click', async () => {
     fns.operation.mockResolvedValue(heldOperation());
     fns.decide.mockResolvedValue({ approval: 'op1-abc' });
@@ -1269,23 +1299,26 @@ describe('change detail', () => {
     destroy();
   });
 
-  it('offers no decision to a token session: a fresh identity provider sign-in, or the command where there is none', async () => {
-    fns.operation.mockResolvedValue(heldOperation({ actions: ['cancel'] }));
-    fns.session.mockResolvedValue(shared({ method: 'token', tokenLogin: true, caller: human(['team-checkout']) }));
+  it('tells a sign-in link session it reads the fleet only, and offers a person token session the decision', async () => {
+    fns.operation.mockRejectedValue(new ApiError(403, 'a sign-in link reads the fleet only: sign in with your identity provider or paste your own token to see delivery', 'SignInLinkReadsFleet'));
+    fns.session.mockResolvedValue(shared({ method: 'token', login: false, tokenLogin: true,
+      caller: { user: 'system:serviceaccount:pacto:pacto-viewer', class: 'agent', groups: ['system:serviceaccounts'] } }));
     let r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
     await settle();
+    expect(text(r.target)).toContain('A sign-in link reads the fleet only');
     expect(r.target.querySelector('[data-testid="decide-approve"]')).toBeNull();
-    const panel = r.target.querySelector('[data-testid="decision-panel"]') as HTMLElement;
-    expect(text(panel.querySelector('[data-testid="decide-token"]') as HTMLElement)).toContain('a token never decides. Sign in with your identity provider');
-    expect(panel.querySelector('a[href*="/auth/login"]')?.getAttribute('href')).toContain('fresh=1');
+    expect([...r.target.querySelectorAll('button')].some((b) => b.textContent?.includes('Retry'))).toBe(false);
     r.destroy();
 
     auth.loaded = false;
-    fns.session.mockResolvedValue(shared({ method: 'token', login: false, tokenLogin: true, caller: human(['team-checkout']) }));
+    fns.operation.mockReset();
+    fns.operation.mockResolvedValue(heldOperation({ actions: ['approve', 'reject', 'cancel'] }));
+    fns.session.mockResolvedValue(shared({ method: 'token', login: false, tokenLogin: true,
+      caller: { ...human(['team-checkout']), authTime: String(Math.floor(Date.now() / 1000)) } }));
     r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
     await settle();
-    expect(text(r.target.querySelector('[data-testid="decide-token"]') as HTMLElement)).toContain('Decide from the command line');
-    expect(text(r.target.querySelector('[data-testid="decision-panel"]') as HTMLElement)).toContain('pacto delivery approve -n prod op1 --decision approve');
+    expect(r.target.querySelector('[data-testid="decide-approve"]')).not.toBeNull();
+    expect(r.target.querySelector('[data-testid="decide-reject"]')).not.toBeNull();
     r.destroy();
   });
 
@@ -1314,6 +1347,17 @@ describe('change detail', () => {
     expect(text(r.target.querySelector('[data-testid="decide-no-auth-time"]') as HTMLElement)).toContain('Approving is not possible on this cluster');
     expect(r.target.querySelector('[data-testid="decide-approve"]')).toBeNull();
     r.destroy();
+    // A pasted token with no login time is the token's, never the cluster's.
+    auth.loaded = false;
+    fns.session.mockResolvedValue(shared({ method: 'token', tokenLogin: true, caller: { ...human(['team-checkout']), authTime: '' } }));
+    fns.operation.mockResolvedValueOnce(heldOperation({ actions: ['cancel'], decisionFreshness: 600 }));
+    r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    expect(text(r.target.querySelector('[data-testid="decide-no-auth-time"]') as HTMLElement)).toContain('This token does not say when you signed in');
+    expect(r.target.querySelector('[data-testid="decide-approve"]')).toBeNull();
+    r.destroy();
+    auth.loaded = false;
+    fns.session.mockResolvedValue(shared({ caller: { ...human(['team-checkout']), authTime: '' } }));
     // Where it does not, a missing login time is no reason given.
     r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
     await settle();

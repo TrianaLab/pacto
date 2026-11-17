@@ -51,6 +51,15 @@ describe('ResourceList', () => {
     done();
   });
 
+  it('marks a provider owner that comes from a running target', () => {
+    const uses = [{ ...catalog[0], providerOwner: { ...catalog[0].providerOwner, provenance: 'declared-via-target' } }];
+    const { target, done } = render({ uses });
+    const mark = target.querySelector('[data-testid="service-resource"] [data-testid="owner-provenance"]');
+    expect(mark?.querySelector('button')?.getAttribute('aria-label')).toBe('About owner provenance');
+    expect(target.querySelectorAll('[data-testid="owner-provenance"]').length).toBe(1);
+    done();
+  });
+
   it('says the owner is unknown and the resource has no offering when neither is known', () => {
     const { target, done } = render({ uses: [{ offering: '', consumer, provider: ref('service', 'email-provider'), via: 'dependency', provisioning: [] }] });
     const card = target.querySelector('[data-testid="service-resource"]')!;

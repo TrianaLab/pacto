@@ -318,3 +318,20 @@ func TestRefusalCarriesDiffers(t *testing.T) {
 	err = refusal(&app.PlanStaleError{})
 	expect(t, errors.As(err, &d) && d.Differs == "", "a real move names nothing: %v", err)
 }
+
+// A sign-in link session has no credential to act with: delivery refuses it
+// before any client is built.
+func TestLinkSessionDeliveryRefused(t *testing.T) {
+	v := viper.New()
+	v.Set("dashboard.token-login", true)
+	id := identityFor(t, v, "0.0.0.0", &rest.Config{Host: "https://k"})
+	built := false
+	id.newClient = func(*rest.Config) (dynamic.Interface, error) { built = true; return nil, errors.New("unexpected") }
+	id.state = func(context.Context) authn.State {
+		return authn.State{SignedIn: true, Method: "token", Person: authn.Person{User: "system:serviceaccount:pacto:pacto-viewer"}}
+	}
+	_, err := id.delivery(httptest.NewRequest(http.MethodGet, "/", nil))
+	var de *dashboard.DeliveryError
+	expect(t, errors.As(err, &de) && de.Status == http.StatusForbidden && de.Code == "SignInLinkReadsFleet" && !built,
+		"a link session reads the fleet only: %v built=%v", err, built)
+}

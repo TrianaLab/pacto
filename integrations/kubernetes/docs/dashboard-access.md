@@ -52,8 +52,9 @@ Without sign-in nothing is filtered. On loopback the dashboard reads the fleet
 as your kubeconfig user and shows all of it. A shared dashboard without sign-in
 shows everything its ServiceAccount reads to anyone who reaches it, so it
 starts only when you allow that: `pacto dashboard --allow-anonymous`, or the
-chart value `dashboard.auth.allowAnonymous` (`true` by default, with a warning
-in the install notes).
+chart values `dashboard.auth.tokenSignIn.enabled=false` and
+`dashboard.auth.allowAnonymous=true` together, with a warning in the install
+notes ([serve without sign-in](dashboard-authentication.md#serve-without-sign-in)).
 
 ## Metrics
 

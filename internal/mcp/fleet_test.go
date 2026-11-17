@@ -971,3 +971,12 @@ func TestFleetStatusProvidersRestricted(t *testing.T) {
 		t.Errorf("restricted status providers:\n%s", text)
 	}
 }
+
+func TestFleetGetDescribesOwnerProvenance(t *testing.T) {
+	d := fleetGetTool().Description
+	for _, want := range []string{"'ownerProvenance'", "declared-via-target", "attested", "inferred", "never fills 'owner'"} {
+		if !strings.Contains(d, want) {
+			t.Errorf("pacto_fleet_get description lacks %q: %s", want, d)
+		}
+	}
+}

@@ -19,13 +19,15 @@ To watch a list of namespaces instead of the whole cluster:
 helm install pacto oci://ghcr.io/trianalab/pacto/charts/pacto-operator \
   --namespace pacto-operator-system --create-namespace \
   --set 'controller.watchNamespaces={payments,ledger}'
-kubectl get clusterrole | grep pacto   # prints nothing
+kubectl get clusterrole | grep pacto   # pacto-pacto-operator-pacto-operator-system-dashboard-tokenreview
 ```
 
 The chart then renders a Role and a RoleBinding in each listed namespace for
-the operator and the dashboard, and no ClusterRole. Two features still need
-one: the node agent and the dashboard with delivery on, whose delivery views
-read across the cluster. The dashboard Overview starts with "Watching 2
+the operator, the dashboard and `pacto-viewer`, and one ClusterRole: the
+dashboard's `create tokenreviews` grant for token sign-in, which has no
+namespaced form and reveals only whose token the dashboard already holds.
+Two features need more: the node agent and the dashboard with delivery on,
+whose delivery views read across the cluster. The dashboard Overview starts with "Watching 2
 namespaces (ledger and payments)." Every fleet answer is `partial`, and a
 service in any other namespace is unknown.
 

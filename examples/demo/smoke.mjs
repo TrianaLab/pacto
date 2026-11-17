@@ -72,6 +72,17 @@ check("fleet snapshot is partial (an unavailable source is surfaced)",
   snap.completeness !== "complete" && (snap.sources || []).some((s) => s.status === "unavailable"),
   `completeness=${snap.completeness}`);
 
+// The Backstage route refuses with 503 while a source is unavailable, so
+// Backstage keeps the entities it has instead of orphaning that source's. The
+// demo fleet deliberately holds the unreachable edge-cluster, so this is the
+// honest answer the shipped artifact gives; the 200 path is pinned on the host
+// (TestDemoServesBackstageEntities) over a fleet whose sources are all whole.
+const backstage = call("GET", "/api/backstage/entities");
+check("GET /api/backstage/entities refuses while edge-cluster is unavailable",
+  backstage.status === 503 && backstage.contentType.startsWith("text/plain")
+    && backstage.body.includes("source edge-cluster is unavailable") && !backstage.body.includes("apiVersion:"),
+  `${backstage.status} ${backstage.contentType}`);
+
 const search = json(call("GET", "/api/fleet/services?text=payments"));
 check("fleet search finds payments-service", (search.services || []).some((s) => s.name === "payments-service"));
 const hit = (search.services || []).find((s) => s.name === "payments-service");

@@ -795,9 +795,9 @@ func TestHistoryAndOperation(t *testing.T) {
 		t.Fatalf("a change made on my behalf: %s", got)
 	}
 	f.ops[0].Spec.OnBehalfOf = nil
-	// A pasted token is offered no decision, since the decision would be refused.
+	// A person's token session is offered the decision like any session.
 	a.state = AuthState{SignedIn: true, Method: "token"}
-	if got := actions("held"); got != "cancel" {
+	if got := actions("held"); got != "approve,reject,cancel" {
 		t.Fatalf("a token session: %s", got)
 	}
 	a.state = AuthState{SignedIn: true}
@@ -977,12 +977,6 @@ func TestDecide(t *testing.T) {
 		}, http.StatusForbidden, "ApproveFromCLI"},
 		{"shared without login", func() string { return startDelivery(t, f, a.auth(false, false), true, nil) }, http.StatusForbidden, "LoginNotConfigured"},
 		{"signed out", func() string { a.state = AuthState{}; return base }, http.StatusUnauthorized, "LoginRequired"},
-		{"a pasted token", func() string { a.state = AuthState{SignedIn: true, Method: "token"}; return base }, http.StatusForbidden, "TokenCannotDecide"},
-		{"a pasted token where only tokens sign in", func() string {
-			au := a.auth(false, false)
-			au.TokenLogin = true
-			return startDelivery(t, f, au, true, nil)
-		}, http.StatusForbidden, "TokenCannotDecide"},
 		{"agent", func() string {
 			a.state = AuthState{SignedIn: true}
 			f.caller = person("acme:team-checkout", "pacto:agents")

@@ -247,10 +247,11 @@ INFO  Starting workers     {"controller": "pacto", "worker count": 1}
 INFO  dashboard  Dashboard resources reconciled successfully
 ```
 
-Open the dashboard by forwarding its Service; there is no Ingress by default:
+Forward its Service (no Ingress by default) and open the printed sign-in link:
 
 ```bash
-kubectl port-forward -n pacto-operator-system svc/pacto-dashboard 3000:3000
+kubectl port-forward -n pacto-operator-system svc/pacto-dashboard 3000:3000 &
+echo "http://127.0.0.1:3000/#token=$(kubectl -n pacto-operator-system create token pacto-viewer --audience pacto-dashboard --duration 10m)"
 ```
 
 Then read [what Pacto detects](detection.md).

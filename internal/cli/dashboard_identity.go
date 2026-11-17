@@ -63,9 +63,12 @@ func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, d d
 	id := baseDashboardIdentity(cluster, d, trust, v.GetString("dashboard.delivery-namespace"))
 	id.loginName = v.GetString("dashboard.oidc-display-name")
 	life := authn.Lifetime{Idle: v.GetDuration("dashboard.session-idle-timeout"), Max: v.GetDuration("dashboard.session-max-age")}
-	var review authn.TokenReview // nil: no cluster to ask who a token is
+	// nil: no cluster to ask who a token is. bearer names an ID token and
+	// builds its client per call, so a dashboard without token sign-in builds
+	// none at startup.
+	var bearer authn.TokenReview
 	if cluster != nil {
-		review = authn.SelfSubjectReview(cluster, d.dynamicFor)
+		bearer = authn.SelfSubjectReview(cluster, d.dynamicFor)
 	}
 	var o *authn.OIDC
 	if issuer := v.GetString("dashboard.oidc-issuer-url"); issuer != "" {
@@ -75,21 +78,28 @@ func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, d d
 		}
 		if o, err = authn.NewOIDC(authn.Config{IssuerURL: issuer, HTTPClient: client, ClientID: v.GetString("dashboard.oidc-client-id"),
 			ClientSecret: v.GetString("dashboard.oidc-client-secret"), RedirectURL: v.GetString("dashboard.oidc-redirect-url"),
-			ExtraScopes: splitList(v.GetStringSlice("dashboard.oidc-extra-scopes")), Lifetime: life, Review: review,
+			ExtraScopes: splitList(v.GetStringSlice("dashboard.oidc-extra-scopes")), Lifetime: life, Review: bearer,
 			Claims: claimsFlags(func(name string) string { return v.GetString("dashboard." + name) })}); err != nil {
 			return nil, err
 		}
 	}
 	var t *authn.TokenLogin
+	var review authn.TokenReview // nil: bearer readers come with token sign-in
 	if v.GetBool("dashboard.token-login") {
 		if cluster == nil {
 			return nil, errors.New("--token-login needs a cluster to check tokens against")
 		}
+		// review tells a sign-in link token from a person's pasted token.
+		own, oerr := sarClient(cluster, d.dynamicFor)
+		if oerr != nil {
+			return nil, oerr
+		}
+		review = authn.DashboardTokenReview(authn.AudienceReview(own, authn.DashboardAudience), bearer)
 		t = authn.NewTokenLogin(review, life)
 	}
 	switch {
 	case o != nil || t != nil:
-		id.auth = authn.NewShared(o, t)
+		id.auth = authn.NewShared(o, t).AcceptBearer(review)
 		id.viewer = clusterViewer(cluster, d.dynamicFor, mode, namespaces)
 	case isLoopback(host):
 		id.auth = authn.NewLocal()
@@ -121,7 +131,7 @@ func (id *dashboardIdentity) options(o *dashboard.Options) {
 			}
 			// User and Groups: who the fleet views are narrowed for.
 			return dashboard.AuthState{SignedIn: st.SignedIn, CSRF: st.CSRF, Name: tokenName(st.Token),
-				User: st.Person.User, Groups: st.Person.Groups, Method: st.Method, AuthTime: st.AuthTime}
+				User: st.Person.User, Groups: st.Person.Groups, Method: st.Method, AuthTime: st.AuthTime, FleetOnly: linkSession(st)}
 		}}
 	if id.viewer != nil {
 		o.View = id.view
@@ -221,12 +231,23 @@ func (id *dashboardIdentity) subject(ctx context.Context) (subject, error) {
 	if !st.SignedIn {
 		return subject{User: authn.Anonymous.User, Groups: authn.Anonymous.Groups}, nil
 	}
+	if linkSession(st) {
+		// The TokenReview named this identity at sign-in and on every recheck;
+		// a SelfSubjectReview without a token would name system:anonymous.
+		// Bearer sessions keep whoami, which carries uid and extra from their
+		// own token.
+		return subject{User: st.Person.User, UID: st.UID, Groups: st.Person.Groups, Extra: st.Extra}, nil
+	}
 	dyn, err := id.newClient(authn.RESTConfig(id.cluster, st.Token))
 	if err != nil {
 		return subject{}, err
 	}
 	return s.whoami(ctx, sharedClient{Interface: dyn, s: s, token: st.Token})
 }
+
+// linkSession reports a sign-in link session: a token session that holds no
+// apiserver credential, so it reads the fleet index and nothing else.
+func linkSession(st authn.State) bool { return st.Method == "token" && st.Token == "" }
 
 // errNoClusterToAsk: the fleet holds Kubernetes namespaces but the dashboard
 // has no cluster to ask who may read them.
@@ -276,14 +297,7 @@ func clusterViewer(cluster *rest.Config, newClient func(*rest.Config) (dynamic.I
 // clusterReview asks the cluster, with the dashboard's own credentials, what a
 // person may read: per namespace when mode is local, otherwise cluster-wide.
 func clusterReview(cluster *rest.Config, newClient func(*rest.Config) (dynamic.Interface, error), mode string) authn.Review {
-	var dyn dynamic.Interface
-	err := errNoClusterToAsk
-	if cluster != nil {
-		// client-go's default 5 a second made fifty people signing in at once wait ten seconds (see sarQPS).
-		cfg := rest.CopyConfig(cluster)
-		cfg.QPS, cfg.Burst = sarQPS, sarBurst
-		dyn, err = newClient(cfg)
-	}
+	dyn, err := sarClient(cluster, newClient)
 	if err != nil {
 		return func(context.Context, authn.Person, string, authn.ResourceAttributes) (bool, error) { return false, err }
 	}
@@ -291,6 +305,18 @@ func clusterReview(cluster *rest.Config, newClient func(*rest.Config) (dynamic.I
 		return authn.LocalSubjectAccessReview(dyn)
 	}
 	return authn.SubjectAccessReview(dyn)
+}
+
+// sarClient is the dashboard's own client for the reviews it asks for people
+// (SubjectAccessReview, TokenReview).
+func sarClient(cluster *rest.Config, newClient func(*rest.Config) (dynamic.Interface, error)) (dynamic.Interface, error) {
+	if cluster == nil {
+		return nil, errNoClusterToAsk
+	}
+	// client-go's default 5 a second made fifty people signing in at once wait ten seconds (see sarQPS).
+	cfg := rest.CopyConfig(cluster)
+	cfg.QPS, cfg.Burst = sarQPS, sarBurst
+	return newClient(cfg)
 }
 
 // tokenName is the person's name in an ID token the identity layer already

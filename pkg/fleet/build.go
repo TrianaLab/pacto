@@ -207,6 +207,15 @@ func computeSnapshotID(snap *FleetSnapshot) string {
 	// The catalogs are build inputs whose signature status changes as checks
 	// complete; what they classified is hashed through Externals.
 	clone.ExternalCatalogs = nil
+	// OwnerProvenance is derived from the revisions and targets already
+	// hashed, so it adds nothing to the identity; leaving it out keeps the
+	// ids of snapshots built before it existed.
+	clone.Services = make(map[ServiceKey]*ServiceRecord, len(snap.Services))
+	for k, s := range snap.Services {
+		cp := *s
+		cp.OwnerProvenance = ""
+		clone.Services[k] = &cp
+	}
 	data, err := json.Marshal(&clone)
 	if err != nil {
 		// The snapshot is composed of JSON-serializable domain types; a marshal
@@ -2217,6 +2226,12 @@ func deriveOwner(snap *FleetSnapshot, s *ServiceRecord) []Limitation {
 			s.Owner = r.Owner
 		}
 	}
+	if !s.Owner.IsEmpty() {
+		s.OwnerProvenance = OwnerProvenanceDeclared
+	}
+	// An attested owner (OwnerProvenanceAttested) slots in here: after the
+	// revisions, before the target fallback.
+	//
 	// No revision declares an owner (a fleet read only from Kubernetes has no
 	// revisions at all): fall back to the owner the observing sources read from
 	// the contract each target runs.
@@ -2225,6 +2240,9 @@ func deriveOwner(snap *FleetSnapshot, s *ServiceRecord) []Limitation {
 			if s.Owner.IsEmpty() {
 				s.Owner = snap.Targets[tk].Owner
 			}
+		}
+		if !s.Owner.IsEmpty() {
+			s.OwnerProvenance = OwnerProvenanceDeclaredViaTarget
 		}
 	}
 	return ownerConflict(snap, s)

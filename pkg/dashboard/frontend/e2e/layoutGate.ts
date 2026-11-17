@@ -915,6 +915,18 @@ export function installScaleFixture(): void {
       const added = extEdges(rel?.items, doc.entity as Record<string, unknown>).length;
       if (rel && added) { rel.count = (rel.count ?? 0) + added; if (typeof rel.total === 'number') rel.total += added; }
     }
+    // Every non-declared owner provenance beside the long owner names (516-S1): the
+    // service owner, each offering provider's owner and each resource provider's owner
+    // carry the owner-provenance mark, in turn.
+    if (route === '/api/fleet/entities/service' || route === '/api/fleet/entities/offering') {
+      const PROVENANCE = ['declared-via-target', 'attested', 'inferred'];
+      let n = 0;
+      const mark = (o: unknown) => { if (o && typeof o === 'object' && (o as Record<string, unknown>).declared) (o as Record<string, unknown>).provenance = PROVENANCE[n++ % PROVENANCE.length]; };
+      const svc = doc.service as Record<string, unknown> | undefined;
+      mark(svc?.ownership);
+      for (const u of (svc?.consumedOfferings as { items?: Record<string, unknown>[] } | undefined)?.items ?? []) mark(u.providerOwner);
+      for (const p of ((doc.offering as Record<string, unknown> | undefined)?.providers as { items?: Record<string, unknown>[] } | undefined)?.items ?? []) mark(p.ownership);
+    }
     walk(doc);
   };
 

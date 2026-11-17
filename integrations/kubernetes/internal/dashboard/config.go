@@ -154,7 +154,9 @@ type AuthConfig struct {
 	// dashboard's defaults.
 	SessionIdleTimeout time.Duration
 	SessionMaxAge      time.Duration
-	// TokenLogin lets people sign in by pasting a Kubernetes bearer token.
+	// TokenLogin lets people sign in with a Kubernetes token: a ServiceAccount
+	// token minted for the pacto-dashboard audience reads the fleet only, and a
+	// person's own token acts as them.
 	TokenLogin bool
 	// AllowAnonymous serves the dashboard without sign-in; everyone who
 	// reaches it reads what its ServiceAccount reads. Ignored with sign-in.

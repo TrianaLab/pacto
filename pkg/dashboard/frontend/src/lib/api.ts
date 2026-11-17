@@ -521,10 +521,12 @@ export const api = {
   /** The identity mode and the signed-in person, as the API server names them. */
   session: (): Promise<Session> => readSession(),
   /** Signs in with a pasted Kubernetes bearer token (POST /auth/token, outside the
-   *  API). The server checks it with the cluster and keeps it in the session. */
-  signInWithToken: async (token: string): Promise<void> => {
+   *  API). The server checks it with the cluster and keeps it in the session.
+   *  `link` says the token came from a sign-in link, which the server accepts
+   *  only as a token minted for the dashboard. */
+  signInWithToken: async (token: string, opts: { link?: boolean } = {}): Promise<void> => {
     const res = await dashboardFetch(new Request(new URL('/auth/token', location.origin), {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }),
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(opts.link ? { token, link: true } : { token }),
     }));
     if (!res.ok) throw new ApiError(res.status, ((await res.text()) || res.statusText).trim());
   },

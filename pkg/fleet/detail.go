@@ -64,6 +64,10 @@ type OwnershipInfo struct {
 	// ConflictReason says why the owners disagree, set only on a service whose
 	// current claims hold more than one owner (see [conflictReason]).
 	ConflictReason string `json:"conflictReason,omitempty" doc:"Why the owners disagree: targets run revisions that declare different owners, or two revisions of one version do. Empty when they agree"`
+	// Provenance is where a service's owner comes from
+	// ([ServiceRecord.OwnerProvenance]), set only on a service. A revision's
+	// owner is its own declaration and a target's is derived, so neither sets it.
+	Provenance string `json:"provenance,omitempty" enum:"declared,declared-via-target,attested,inferred"`
 }
 
 // RevisionIdentity describes how a revision (or a target's contract reference)
@@ -2250,6 +2254,7 @@ func (q *Query) entitiesFromSource(key string) []EntityRef {
 // older version names another owner, yields an empty preview.
 func serviceOwnership(snap *FleetSnapshot, s *ServiceRecord) *OwnershipInfo {
 	info := ownerInfo(s.Owner)
+	info.Provenance = s.OwnerProvenance
 	var conflicts []string
 	if claims := serviceOwnerClaims(snap, s); claims.len() > 1 {
 		// A conflict is a disagreement of IDENTITY, and it is spelled out with the

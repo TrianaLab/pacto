@@ -47,6 +47,7 @@ var excludedFromTUI = map[string]string{
 	"evidence sign":        "key material handling belongs at a shell prompt, not behind a keystroke",
 	"evidence verify":      "key material handling belongs at a shell prompt, not behind a keystroke",
 	"init":                 "scaffolds a new bundle; there is no fleet entity to select yet",
+	"export backstage":     "writes a catalog file, which belongs in a repository, not on a screen",
 	"pack":                 "a build step for pipelines, with no reading to do afterwards",
 	"publish":              "builds, signs and writes to a registry; a pipeline step, and the TUI never acts",
 	"otel observe":         "a long-running collector",

@@ -194,6 +194,7 @@ the note says where that answer lives instead.
 | Which versions of this offering exist? | `pacto fleet versions` | `pacto_fleet_versions` | `GET /api/fleet/versions` | |
 | What does a document in this revision say? | `pacto doc` | `pacto_fleet_revision_document` | `GET /api/fleet/revisions/document` | The CLI reads the bundle itself |
 | What is the whole read model? | `pacto fleet snapshot` | - | `GET /api/fleet/snapshot` | MCP answers through the fleet tools |
+| Which services should Backstage show? | `pacto export backstage` | - | `GET /api/backstage/entities` | YAML for a Backstage catalog location, outside the OpenAPI document; agents read the same services through the fleet tools |
 | Which consumers does this change affect? | `pacto impact` | `pacto_impact` | `GET /api/fleet/impact`, `POST /api/fleet/impact` | Over HTTP and on a shared dashboard, only revisions in your view |
 | What did Pacto catch and deliver? | `pacto stats` | `pacto_stats` | `GET /api/stats` | Unsigned statistics; the dashboard reads the repository `pacto dashboard --stats-registry` names |
 | Which run records are behind this number? | - | - | `GET /api/stats/records` | The Metrics page lists them; the CLI and MCP answer totals |

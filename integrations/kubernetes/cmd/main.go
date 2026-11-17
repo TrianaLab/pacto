@@ -216,7 +216,8 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 	fs.DurationVar(&o.dashboardAuth.SessionMaxAge, "dashboard-session-max-age", 0,
 		"A dashboard session ends this long after sign-in, renewed or not (0: 12h).")
 	fs.BoolVar(&o.dashboardAuth.TokenLogin, "dashboard-token-login", false,
-		"Let people sign in to the dashboard by pasting a Kubernetes bearer token; a token session never decides.")
+		"Let people sign in to the dashboard with a Kubernetes token; a ServiceAccount token minted for the "+
+			"pacto-dashboard audience reads the fleet only, and a person's own token acts as them.")
 	fs.BoolVar(&o.dashboardAuth.AllowAnonymous, "dashboard-allow-anonymous", false,
 		"Serve the dashboard without sign-in when neither an issuer nor token sign-in is set; "+
 			"everyone who reaches it reads what its ServiceAccount reads.")

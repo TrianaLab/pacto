@@ -1011,7 +1011,7 @@ describe('summarize', () => {
     const m = summarize(services);
     expect(m.byOwner[0].key).toBe('team:alpha');
     expect(m.byOwner[1].key).toBe('team:zebra');
-    // Sorted by the NAME a reader scans, so the `team:`/`dri:` prefix never decides
+    // Sorted by the NAME a reader scans, so the `team:`/`dri:` prefix never sets
     // the order.
     expect(m.byOwner.map((o) => o.label)).toEqual(['alpha', 'zebra']);
     expect(m.byCategory[0].category).toBe('aaa');

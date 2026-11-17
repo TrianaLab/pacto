@@ -33,6 +33,7 @@ import (
 // reason and more strictly: it is the leaf both the dashboard and the offline
 // exporter build on, so a k8s edge here would reach every consumer of either.
 var corePackages = []string{
+	"github.com/trianalab/pacto/v4/pkg/backstage/...",
 	"github.com/trianalab/pacto/v4/pkg/catalog/...",
 	"github.com/trianalab/pacto/v4/pkg/contract/...",
 	"github.com/trianalab/pacto/v4/pkg/contractview/...",

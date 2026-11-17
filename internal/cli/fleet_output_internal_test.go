@@ -649,3 +649,23 @@ func TestPrintServiceReplaces(t *testing.T) {
 	})
 	expect(t, !strings.Contains(plain, "replaced") && !strings.Contains(plain, "Replaces"), "a service that replaced nothing says it did:\n%s", plain)
 }
+
+// A target-only owner says where it comes from; a declared one prints bare.
+func TestFleetGetTextOwnerProvenance(t *testing.T) {
+	for prov, want := range map[string]string{
+		fleet.OwnerProvenanceDeclaredViaTarget: "Owner: pay (declared via target)\n",
+		fleet.OwnerProvenanceDeclared:          "Owner: pay\n",
+		"":                                     "Owner: pay\n",
+	} {
+		cmd := &cobra.Command{}
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		s := &fleet.ServiceRecord{Name: "payments", Owner: contract.Owner{Team: "pay"}, OwnerProvenance: prov}
+		if err := printFleetService(cmd, &fleet.ServiceView{Service: s}, "text"); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("%q: want %q in:\n%s", prov, want, out.String())
+		}
+	}
+}
