@@ -5,7 +5,7 @@ what it needs to run: its interfaces, dependencies, configuration, capabilities
 and readiness. This section is the field-by-field reference. An empty
 `pacto.yaml` is a valid contract; see [the smallest contract](#the-smallest-contract).
 
-The fields are split across [contract sections](sections.md), [configuration and policy](configuration-and-policy.md), [dependencies and state](dependencies-and-state.md), [readiness](readiness.md), [publish](publish.md), [checks](checks.md) and [environments](environments.md). The rules are in [validation layers](validation.md), [overrides](overrides.md) and [change classification](diff.md). This page covers the bundle layout all of them assume.
+The fields are split across [contract sections](sections.md), [configuration and policy](configuration-and-policy.md), [dependencies and state](dependencies-and-state.md), [readiness](readiness.md), [publish](publish.md), [delivery](delivery.md), [checks](checks.md) and [environments](environments.md). The rules are in [validation layers](validation.md), [overrides](overrides.md) and [change classification](diff.md). This page covers the bundle layout all of them assume.
 
 Each `interfaces`, `configurations` and `policies` entry points at a schema you already have: an OpenAPI document, an AsyncAPI event definition, a gRPC service descriptor or a JSON Schema. Every referenced file must parse as JSON or YAML; see [interface types](sections.md#interface-types).
 

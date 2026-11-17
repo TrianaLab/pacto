@@ -188,6 +188,24 @@ the replacement. Before `helm upgrade`:
 A promoter started without `--admission-policies` admits no operation and
 counts no approval.
 
+## Delivery grants Argo CD and Flux access by itself
+
+- `delivery.argocd.enabled` and `delivery.flux.enabled` now default to
+  `auto`.
+- An upgrade that takes the new chart's defaults, such as
+  `--reset-then-reuse-values`, on a cluster that serves Argo CD Applications
+  grants the promoter `patch` on Applications. Admission limits
+  that write to `spec.source.targetRevision` of Applications labelled
+  `delivery.pacto.trianalab.io/apply-ref`. Set `delivery.argocd.enabled=false`
+  to keep it off.
+- Flux access renders as before. On a cluster that serves Flux HelmReleases
+  the promoter also gains HelmRelease read, the `--flux-helm` flag and the
+  `applier-helmrelease` admission policy.
+- An upgrade that keeps the earlier chart's defaults keeps `enabled: false`
+  for Argo CD, and Flux access as it was.
+- `auto` reads the APIs at install and upgrade: run `helm upgrade` after you
+  install Argo CD or Flux.
+
 ## The dashboard serves without sign-in only when allowed
 
 A dashboard bound beyond loopback with neither OIDC sign-in nor token login now
