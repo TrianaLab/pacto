@@ -13,7 +13,8 @@ admission to `spec.source.targetRevision` of labelled Applications; set
 `delivery.argocd.enabled=false` to keep it off. Flux access renders as before,
 plus HelmRelease read, `--flux-helm` and the `applier-helmrelease` admission
 policy when the cluster serves Flux HelmReleases; the agent, approver and
-recorder roles gain HelmRelease `get` there too.
+recorder roles gain HelmRelease `get` there too, which includes inline Helm
+values.
 
 - The promoter reads, and never writes, the labels, annotations, field
   managers and owner references of each workload a Stage's Pactos report, and
@@ -22,7 +23,12 @@ recorder roles gain HelmRelease `get` there too.
   manager that contradicts `spec.applyRef` reads `Ready` `False`
   `ApplierConflict`; an unsupported or ambiguous manager, a workload without
   its applier's marks or an unreadable one reads `ApplierUnknown`, with the
-  reason a Kustomization could not be listed.
+  reason a Kustomization could not be read. So does a Pacto the operator has
+  not reconciled, or one that evaluated another workload than the Stage runs.
+  Detection reads a Kustomization outside the Stage namespace only when it
+  applies from the Stage's OCIRepository, and gives one fixed answer for any
+  other the workload's labels name. `status.applier.staleAt` is twice the
+  promoter's resync after `asOf`, so a longer `--resync` never reads stale.
 - The new `pacto.applier` promote gate fails on a conflict and is Unknown when
   Pacto cannot tell; both refuse the promote, and nobody can accept them.
 - `spec.applyRef.kind` accepts `HelmRelease`. The promoter writes the chart
