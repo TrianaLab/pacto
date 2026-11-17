@@ -6,13 +6,14 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
-// TestDemoHasInferredServices: the demo reads three workloads no contract
+// TestDemoHasInferredServices: the demo reads four workloads no contract
 // describes, and the kernel-style caller legacy-billing stays an uncontracted
 // caller of payments-service that links to its inferred entity.
 func TestDemoHasInferredServices(t *testing.T) {
 	snap := demoFleet(t)
 	want := map[string]string{
 		"k8s:shop/Deployment/legacy-billing":      "shop",
+		"k8s:shop/Deployment/billing-worker":      "shop",
 		"k8s:shop/CronJob/nightly-export":         "shop",
 		"k8s:observability/DaemonSet/log-shipper": "observability",
 	}

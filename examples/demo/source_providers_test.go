@@ -7,16 +7,17 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
-// TestDemoProviderRows: the demo cluster reports the two rows a real one
-// does, the Pacto CRD from the Kubernetes source and the workloads from the
-// workload source, and the workloads row counts what the demo itself holds:
-// the targets the cluster reports plus the inferred workloads. The detected
-// rows are TestDemoFleetHasDetectedRows's.
+// TestDemoProviderRows: the demo cluster reports the five rows a real one
+// does, the Pacto CRD from the Kubernetes source and the workloads, Argo CD,
+// Flux and Helm rows from the workload source, and the workloads row counts
+// what the demo itself holds: the targets the cluster reports plus the
+// inferred workloads. The detected rows are TestDemoFleetHasDetectedRows's;
+// the grouping rows' evidence is TestDemoGroups's.
 func TestDemoProviderRows(t *testing.T) {
 	snap := demoFleet(t)
 	reported := slices.DeleteFunc(slices.Clone(snap.Providers), func(p fleet.Provider) bool { return p.Source == "cluster-detection" })
-	if len(reported) != 2 {
-		t.Fatalf("providers = %+v, want 2 rows", reported)
+	if len(reported) != 5 {
+		t.Fatalf("providers = %+v, want 5 rows", reported)
 	}
 	rows := map[string]fleet.Provider{}
 	for _, p := range reported {
@@ -38,6 +39,11 @@ func TestDemoProviderRows(t *testing.T) {
 	for _, s := range snap.Services {
 		if s.Inferred() {
 			counts[s.Workload.Kind]++
+		}
+	}
+	for _, id := range []string{fleet.ProviderArgoCD, fleet.ProviderFlux, fleet.ProviderHelm} {
+		if _, ok := rows["k8s-production-workloads/"+id]; !ok {
+			t.Errorf("no %s row", id)
 		}
 	}
 	work, ok := rows["k8s-production-workloads/"+fleet.ProviderKubernetesWorkloads]

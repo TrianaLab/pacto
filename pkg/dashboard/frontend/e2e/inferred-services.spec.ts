@@ -8,7 +8,7 @@ import { appReady } from './ready';
 // each has its own page and the uncontracted caller on attention links to it.
 
 const T = 20_000;
-const INFERRED = 3;
+const INFERRED = 4;
 
 test.describe('WASM demo: inferred services', () => {
   test('the Overview segment counts them and lands on the Services list filtered to them', async ({ page }) => {
