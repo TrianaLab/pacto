@@ -616,3 +616,17 @@ func TestEditToolDescribesRefusedRaises(t *testing.T) {
 		}
 	}
 }
+
+// TestSchemaToolServesDeliveryApplier: pacto_schema serves the newest schema,
+// which carries delivery.applier and its values.
+func TestSchemaToolServesDeliveryApplier(t *testing.T) {
+	var parsed schemaResult
+	if err := json.Unmarshal([]byte(resultText(t, callTool(t, "pacto_schema", map[string]any{}))), &parsed); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"delivery"`, `"applier"`, `"argocd"`, `"flux"`} {
+		if !strings.Contains(parsed.JSONSchema, want) {
+			t.Errorf("schema lacks %s", want)
+		}
+	}
+}

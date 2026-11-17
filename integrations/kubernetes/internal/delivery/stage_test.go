@@ -8,6 +8,7 @@ See LICENSE file in the project root for full license text.
 package delivery
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"go/ast"
@@ -19,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -368,7 +370,8 @@ func TestNeverACandidateUnlessPublished(t *testing.T) {
 	e := newEnv(t, s, ociRepo("payments", dA, "latest@"+dA, false), verifiedRepo("payments-candidates", "latest@"+dB))
 	a, _ := e.st.Cluster.applier(context.Background(), ns, e.getStage().Spec.ApplyRef)
 	med, _ := e.st.Cluster.mediated(context.Background(), ns, a)
-	e.setStage(func(s *delivery.StageStatus) { s.Conditions = append(s.Conditions, med) })
+	ap, _ := e.st.nextApplier(context.Background(), e.getStage())
+	e.setStage(func(s *delivery.StageStatus) { s.Conditions, s.Applier = append(s.Conditions, med), &ap })
 	e.fails["status/Stage"] = true
 	if e.reconcileStage("payments-prod") == nil {
 		t.Fatal("a failed write of the published memory must surface")
@@ -537,7 +540,7 @@ func TestStageReadyApplier(t *testing.T) {
 	}
 	cases := []struct {
 		name    string
-		argo    bool
+		onArgo  bool
 		applier client.Object
 		reason  string
 	}{
@@ -557,7 +560,7 @@ func TestStageReadyApplier(t *testing.T) {
 	}
 	for _, c := range cases {
 		s := stageObj(dA)
-		if c.argo {
+		if c.onArgo {
 			s = argoStage(dA)
 		}
 		objs := []client.Object{s, verifiedRepo("payments-candidates", "latest@"+dB)}
@@ -673,17 +676,39 @@ func TestReadyReasonsMatchOperator(t *testing.T) {
 	for _, r := range []string{delivery.ReadyReasonUnguarded, delivery.ReadyReasonCandidateNotFound,
 		delivery.ReadyReasonCandidateUnverified, delivery.ReadyReasonUpstreamUntrusted, delivery.ReadyReasonUpstreamUnreadable,
 		delivery.ReadyReasonNoCandidateSource, delivery.ReadyReasonApplierUnreadable, delivery.ReadyReasonApplierUnlabelled,
-		delivery.ReadyReasonApplierMultiSource, delivery.ReadyReasonApplierNotOCI, delivery.ReadyReasonApplierNotAutomated} {
+		delivery.ReadyReasonApplierMultiSource, delivery.ReadyReasonApplierNotOCI, delivery.ReadyReasonApplierNotAutomated,
+		delivery.ReadyReasonApplierNotChartRef, delivery.ReadyReasonApplierConflict, delivery.ReadyReasonApplierUnknown} {
 		shared[r] = delivery.ReadyFix(r) != ""
 	}
 	// The reasons named by an identifier in the operator.
 	named := map[string]string{"ReasonUnguarded": ReasonUnguarded, "reasonApplierUnlabelled": reasonApplierUnlabelled}
+	// Every non-test file of the package: the applier kinds name their own
+	// reasons beside stage.go.
 	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, "stage.go", nil, 0)
+	files, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	calls := 0
+	for _, name := range files {
+		if strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, name, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		inspectNotReady(t, fset, f, named, shared, &calls)
+	}
+	if calls == 0 {
+		t.Fatal("no notReady call found in the package")
+	}
+}
+
+// inspectNotReady checks every notReady call in f names a shared Ready
+// reason, counting them in calls.
+func inspectNotReady(t *testing.T, fset *token.FileSet, f *ast.File, named map[string]string, shared map[string]bool, calls *int) {
+	t.Helper()
 	ast.Inspect(f, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok || len(call.Args) == 0 {
@@ -692,7 +717,7 @@ func TestReadyReasonsMatchOperator(t *testing.T) {
 		if id, ok := call.Fun.(*ast.Ident); !ok || id.Name != "notReady" {
 			return true
 		}
-		calls++
+		*calls++
 		at := fset.Position(call.Pos())
 		switch a := call.Args[0].(type) {
 		case *ast.SelectorExpr:
@@ -708,7 +733,94 @@ func TestReadyReasonsMatchOperator(t *testing.T) {
 		}
 		return true
 	})
-	if calls == 0 {
-		t.Fatal("no notReady call found in stage.go")
+}
+
+// readyWorld is a Flux Stage that is Ready but for who manages its workload:
+// a labelled apply OCIRepository, a verified candidate source and the
+// payments Pacto with workload d.
+func readyWorld(t *testing.T, d client.Object, objs ...client.Object) *env {
+	t.Helper()
+	return newEnv(t, append(objs, stageObj(dA), verifiedRepo("payments-candidates", "latest@"+dB), d,
+		pactoObj("payments", "payments", c1, "Compliant", 2), kustomization("payments", "payments", "True", "", "", ""))...)
+}
+
+// TestStageReadyApplierConflict: a workload another manager owns sets Ready
+// False ApplierConflict and status.applier; what keeps the applier itself
+// from taking a version is named first.
+func TestStageReadyApplierConflict(t *testing.T) {
+	e := readyWorld(t, argoDeployment("payments", 2, 2), ociRepo("payments", dA, "", false))
+	must(t, e.reconcileStage("payments-prod"))
+	st := e.getStage().Status
+	if r := conditionOf(st.Conditions, "Ready"); r == nil || r.Status != statusFalse || r.Reason != "ApplierConflict" ||
+		!strings.Contains(r.Message, "Argo CD Application prod/payments owns Deployment payments") {
+		t.Fatalf("conditions %+v", st.Conditions)
+	}
+	if st.Applier == nil || st.Applier.State != delivery.ApplierConflict || st.Applier.Manager != "argocd" {
+		t.Fatalf("status.applier %+v", st.Applier)
+	}
+	unlabelled := ociRepo("payments", dA, "", false)
+	unlabelled.SetLabels(nil)
+	e = readyWorld(t, argoDeployment("payments", 2, 2), unlabelled)
+	must(t, e.reconcileStage("payments-prod"))
+	if r := conditionOf(e.getStage().Status.Conditions, "Ready"); r == nil || r.Reason != "ApplierUnlabelled" {
+		t.Fatalf("the applier's own fault is named first: %+v", r)
+	}
+	// Adopted keeps the Stage Ready.
+	e = readyWorld(t, deployment("payments", 2, 2), ociRepo("payments", dA, "", false))
+	must(t, e.reconcileStage("payments-prod"))
+	if st := e.getStage().Status; conditionOf(st.Conditions, "Ready").Reason != "Ready" || st.Applier.State != delivery.ApplierAdopted {
+		t.Fatalf("adopted: %+v %+v", st.Conditions, st.Applier)
+	}
+}
+
+// TestStageReadyApplierUnknown: a workload without its applier's marks sets
+// Ready False ApplierUnknown.
+func TestStageReadyApplierUnknown(t *testing.T) {
+	d := deployment("payments", 2, 2)
+	d.Labels = nil
+	e := readyWorld(t, d, ociRepo("payments", dA, "", false))
+	must(t, e.reconcileStage("payments-prod"))
+	st := e.getStage().Status
+	if r := conditionOf(st.Conditions, "Ready"); r == nil || r.Status != statusFalse || r.Reason != "ApplierUnknown" ||
+		!strings.Contains(r.Message, "leaves no mark on Deployment payments") {
+		t.Fatalf("conditions %+v", st.Conditions)
+	}
+	if st.Applier == nil || st.Applier.State != delivery.ApplierUnknown {
+		t.Fatalf("status.applier %+v", st.Applier)
+	}
+}
+
+// TestStageWritesApplierOnlyOnChange: status.applier is written when what it
+// says changes, or once its asOf is older than the resync period; since
+// moves only with the result.
+func TestStageWritesApplierOnlyOnChange(t *testing.T) {
+	e := readyWorld(t, deployment("payments", 2, 2), ociRepo("payments", dA, "", false))
+	must(t, e.reconcileStage("payments-prod"))
+	first := e.getStage()
+	if first.Status.Applier == nil || first.Status.Applier.Since != "2026-10-20T10:00:00Z" || first.Status.Applier.AsOf != first.Status.Applier.Since {
+		t.Fatalf("first: %+v", first.Status.Applier)
+	}
+	e.now = e.now.Add(500 * time.Millisecond) // inside the resync period
+	must(t, e.reconcileStage("payments-prod"))
+	if s := e.getStage(); s.ResourceVersion != first.ResourceVersion {
+		t.Fatalf("an unchanged applier inside the resync period was written: %+v", s.Status.Applier)
+	}
+	e.now = e.now.Add(2 * time.Second) // past the resync period
+	must(t, e.reconcileStage("payments-prod"))
+	if a := e.getStage().Status.Applier; a.Since != first.Status.Applier.Since || a.AsOf != "2026-10-20T10:00:02Z" {
+		t.Fatalf("only asOf moves after the resync period: %+v", a)
+	}
+	// staleAt follows asOf by twice this promoter's resync, so a longer
+	// --resync never reads stale while it checks on schedule.
+	for _, a := range []*delivery.ApplierStatus{first.Status.Applier, e.getStage().Status.Applier} {
+		asOf, _ := time.Parse(time.RFC3339, a.AsOf)
+		if a.StaleAt != asOf.Add(2*cmp.Or(e.st.Resync, DefaultResync)).Format(time.RFC3339) || a.Stale(asOf.Add(cmp.Or(e.st.Resync, DefaultResync))) {
+			t.Fatalf("staleAt: %+v", a)
+		}
+	}
+	e.relabel(func(d *appsv1.Deployment) { d.Labels = nil })
+	must(t, e.reconcileStage("payments-prod"))
+	if a := e.getStage().Status.Applier; a.State != delivery.ApplierUnknown || a.Since != "2026-10-20T10:00:02Z" {
+		t.Fatalf("a new result moves since: %+v", a)
 	}
 }

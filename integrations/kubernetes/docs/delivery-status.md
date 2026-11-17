@@ -92,6 +92,9 @@ answer share the rule, so they cannot disagree.
 | `ApplierMultiSource` | Give the Argo CD Application one OCI `spec.source` instead of `spec.sources` |
 | `ApplierNotOCI` | Point the Application's `spec.source.repoURL` at an `oci://` repository |
 | `ApplierNotAutomated` | Set `spec.syncPolicy.automated` on the Application |
+| `ApplierConflict` | Point `spec.applyRef` at the manager `status.applier` names, or move the workloads to the Stage's applier |
+| `ApplierUnknown` | Deliver the workloads through Argo CD or Flux so they carry its labels, or let the promoter read them |
+| `ApplierNotChartRef` | Point the HelmRelease's `spec.chartRef` at an OCIRepository |
 
 ## What you may do
 

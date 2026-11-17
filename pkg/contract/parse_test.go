@@ -523,3 +523,14 @@ func TestParseDocumentEmpty(t *testing.T) {
 		}
 	}
 }
+
+// TestParseDelivery: delivery.applier reads into Contract.Delivery.
+func TestParseDelivery(t *testing.T) {
+	c, err := contract.Parse(strings.NewReader("pactoVersion: \"2.5\"\nservice: {name: p, version: 0.1.0}\ndelivery: {applier: argocd}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Delivery == nil || c.Delivery.Applier != contract.ApplierArgoCD {
+		t.Fatalf("delivery = %+v, want applier argocd", c.Delivery)
+	}
+}

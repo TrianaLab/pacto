@@ -26,10 +26,26 @@ type Contract struct {
 	Policies       []Policy        `yaml:"policies,omitempty" json:"policies,omitempty"`
 	Readiness      *Readiness      `yaml:"readiness,omitempty" json:"readiness,omitempty"`
 	Publish        *Publish        `yaml:"publish,omitempty" json:"publish,omitempty"`
+	Delivery       *Delivery       `yaml:"delivery,omitempty" json:"delivery,omitempty"`
 	Checks         []Check         `yaml:"checks,omitempty" json:"checks,omitempty"`
 	Metadata       map[string]any  `yaml:"metadata,omitempty" json:"metadata,omitempty"`
 	Extensions     map[string]any  `yaml:"extensions,omitempty" json:"extensions,omitempty"`
 }
+
+// Delivery says how the Pacto promoter delivers the service (pactoVersion 2.5).
+type Delivery struct {
+	// Applier names the manager that applies the service's workloads. auto,
+	// the default (also when empty), adopts the manager that already owns
+	// each workload; argocd or flux require that manager.
+	Applier string `yaml:"applier,omitempty" json:"applier,omitempty"`
+}
+
+// The values of Delivery.Applier.
+const (
+	ApplierAuto   = "auto"
+	ApplierArgoCD = "argocd"
+	ApplierFlux   = "flux"
+)
 
 // Break announces a deliberate breaking change to named consumers
 // (pactoVersion 2.5). It changes no interface; what it does to a gate is

@@ -38,15 +38,16 @@ Each one fails closed.
 | `cancel` | An agent cancels only an Operation it proposed. Once the pointer has moved, nobody cancels the Operation, and only the promoter or the namespace controller deletes it after it concludes. |
 | `approval` | An Approval's author is the user who creates it. Agents and ServiceAccounts may not approve. |
 | `pointer` | On a labelled Flux OCIRepository, only the promoter or break-glass changes `spec.ref.digest`. Only break-glass changes its URL, layer selector or ignore rules, or removes the label. |
-| `pointer-argocd` | The same rules for `spec.source.targetRevision` on a labelled Argo CD Application. Only break-glass changes its source, destination or project. Installed with `delivery.argocd.enabled`. |
+| `pointer-argocd` | The same rules for `spec.source.targetRevision` on a labelled Argo CD Application. Only break-glass changes its source, destination or project. Installed when `delivery.argocd.enabled` is `true`, or `auto` on a cluster that serves Applications. |
 | `applier` | On a labelled Flux Kustomization, only break-glass changes what it applies or removes the label. |
+| `applier-helmrelease` | On a labelled Flux HelmRelease, only break-glass changes its chart, chart source, values, post-renderers, target, service account or `suspend`, or removes the label. Installed when the promoter applies through HelmReleases (`delivery.flux.enabled` is `true`, or `auto` on a cluster that serves HelmReleases). |
 | `status` | Only the promoter writes the status of a Stage or an Operation, apart from the recorder's record fields and `system:masters`. A person may clear a Stage's `status.upstreamSeen`. |
 | `records` | Only the recorder writes record fields, and it writes nothing else. Installed with the recorder. |
-| `promoter-writes` | The promoter writes only to labelled pointers, and only their digest. `promoter-writes-argocd` does the same for the target revision of an Application. Installed with `delivery.argocd.enabled`. |
+| `promoter-writes` | The promoter writes only to labelled pointers, and only their digest. `promoter-writes-argocd` does the same for the target revision of an Application, installed with `pointer-argocd`. |
 
 Only break-glass, `system:masters`, the GitOps controllers in
 `delivery.admissionPolicies.gitopsUsers`, the namespace controller and the
-garbage collector create or delete a labelled pointer or Kustomization.
+garbage collector create or delete a labelled pointer, Kustomization or HelmRelease.
 
 ## When a policy is missing
 
@@ -85,6 +86,11 @@ must approve it can depend on who raised it. The types run different checks:
   an override and freezes the Stage.
 - No policy matches workloads or the Stage spec. RBAC alone limits
   `kubectl apply` on a Deployment.
+- The `-agent` and `-approver` roles may `get`, though not list, a Flux
+  HelmRelease or an Argo CD Application they can name, so a plan can find the
+  version source. That read includes inline Helm values. Bind these roles
+  with a RoleBinding in the Stage namespaces, and keep secrets in
+  `valuesFrom` rather than inline values.
 
 Close the rest with RBAC on workloads, Stages and pointer objects, and with
 your own admission on workloads.

@@ -58,7 +58,7 @@ func TestEvalGateReadsTheShippedSuite(t *testing.T) {
 		asked.Suite.Digest != "sha256:46f6697e1c211b6750b35512f33b92b69a700b74cda7e469e0bfd8ddd594b752" {
 		t.Fatalf("%+v asked %+v", v, asked)
 	}
-	for name, want := range map[string]string{"gone": "reading the Stage", lost.Name: "reading the apply OCIRepository"} {
+	for name, want := range map[string]string{"gone": "reading the Stage", lost.Name: "reading the applier"} {
 		in.Stage.Name = name
 		if v := gates["evals"].Check(context.Background(), in, nil); v.Result != delivery.Unknown || !strings.Contains(v.Message, want) {
 			t.Errorf("%s: %+v", name, v)

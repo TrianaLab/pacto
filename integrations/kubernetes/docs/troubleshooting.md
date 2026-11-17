@@ -257,6 +257,32 @@ kubectl -n pacto-operator-system logs deploy/pacto-operator | grep node-agent
   [Turn it on](runtime-conformance.md#turn-it-on) lists what each node
   needs.
 
+## A Stage's applier is not adopted
+
+The Stage's `status.applier` says which manager the promoter found on its
+workloads and why it disagrees with `spec.applyRef`:
+
+```bash
+kubectl get stage <stage> -n <namespace> -o jsonpath='{.status.applier}'
+```
+
+- `ApplierConflict`: another manager or another object owns a workload, such
+  as a plain Helm release or an Argo CD Application of the same name in the
+  Argo CD namespace. Point `spec.applyRef` at the manager `status.applier`
+  names, or move the workloads to the Stage's applier.
+- `ApplierUnknown`: Pacto could not tell. The workload carries no mark of the
+  Stage's applier, carries marks of two managers, belongs to a manager Pacto
+  does not support, or the promoter could not read it. Deliver it through
+  Argo CD or Flux so it carries its labels, and check `completeness`.
+- `ApplierNotChartRef`: the HelmRelease takes its chart from `spec.chart`.
+  Point `spec.chartRef` at an `OCIRepository`.
+- `ApplierUnreadable` on a HelmRelease Stage: the chart `OCIRepository` is
+  missing, outside the Stage's namespace or of another kind. The promoter
+  writes nothing until `spec.chartRef` names an `OCIRepository` in the
+  Stage's namespace.
+
+See [which manager applies a Stage](delivery-reach.md#which-manager-applies-a-stage).
+
 ## Delivery records are not written
 
 With the [recorder](delivery-records.md) on, every Stage carries a

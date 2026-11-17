@@ -1,0 +1,5 @@
+<<<<<<<< HEAD:pkg/dashboard/ui/assets/deliveryLinks.svelte-CN60Yc91.js
+import{tn as e}from"./format-VJfEHHY-.js";import{i as t}from"./api-vApU2XrK.js";import{Mr as n,ir as r}from"./index-CrdE2wCg.js";var i=e({names:null}),a=!1;function o(){a=!0,Promise.resolve().then(()=>t.fleetEntities({kinds:[`service`],limit:500})).then(e=>{e&&!e.truncated&&(i.names=new Set((e.entities??[]).flatMap(e=>[e.label,e.key])))}).catch(()=>{})}function s(e){return a||o(),i.names&&!i.names.has(e)?r({q:e}):n(e)}export{s as t};
+========
+import{Xt as e}from"./format-9hQKvi37.js";import{i as t}from"./api-C3DsrUf7.js";import{Pr as n,sr as r}from"./index-Byszes3W.js";var i=e({names:null}),a=!1;function o(){a=!0,Promise.resolve().then(()=>t.fleetEntities({kinds:[`service`],limit:500})).then(e=>{e&&!e.truncated&&(i.names=new Set((e.entities??[]).flatMap(e=>[e.label,e.key])))}).catch(()=>{})}function s(e){return a||o(),i.names&&!i.names.has(e)?r({q:e}):n(e)}export{s as t};
+>>>>>>>> feat/aw1-511-s1:pkg/dashboard/ui/assets/deliveryLinks.svelte-C2T74YZb.js

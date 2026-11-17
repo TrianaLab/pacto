@@ -19,9 +19,19 @@ serve the API.
 
 ## Install
 
-Delivery is the `pacto-operator` chart's `delivery` section, off by default. It needs Flux (source and kustomize controllers). Turn it on:
+Delivery is the `pacto-operator` chart's `delivery` section, off by default. Turn it on:
 
 --8<-- "integrations/kubernetes/docs/generated/_delivery-install-command.md"
+
+- `delivery.flux.enabled` and `delivery.argocd.enabled` default to `auto`: the
+  chart grants the promoter access to Flux and Argo CD when the cluster serves
+  their APIs at install or upgrade. Install Flux or Argo CD before Pacto, or
+  run `helm upgrade` after; with `helm template`, pass their APIs with
+  `--api-versions`. `true` or `false` decide regardless of the API.
+- The promoter moves versions through the manager that already applies each
+  workload ([which manager applies a Stage](delivery-reach.md#which-manager-applies-a-stage)).
+  The first Stage of a service needs Flux's source controller to verify new
+  versions.
 
 It needs no identity values: whoever may update a Stage's workload decides
 ([who may decide](delivery-identity.md#who-may-decide)).
@@ -104,7 +114,7 @@ on uninstall.
 
 ## How a change moves
 
-A **Stage** names the Flux `OCIRepository` that applies it, and its
+A **Stage** names the applier, such as a Flux `OCIRepository`, and its
 `status.pointer` is the digest it moved the environment to. Only the promoter
 moves it, and the only field it writes on an object it does not own is that
 repository's `spec.ref.digest`. Every change is an **Operation** whose spec
@@ -136,6 +146,10 @@ flowchart LR
   [environments](../../contract-reference/environments.md#environments-and-stages)
   but none named like the Stage's `spec.environment`, or values there that
   fail their schemas. A contract with no environments passes it.
+  `pacto.applier` refuses a promote while the Stage's
+  [`status.applier`](delivery-reach.md#which-manager-applies-a-stage) reads
+  `Conflict` or `Unknown`, or while the version's contract names a
+  `delivery.applier` the Stage does not apply through.
 - After: the Pacto contract check counts only when
   `status.evaluatedRevision` names this version's contract digest and the
   current workload generation. `Compliant` and `Warning` pass, `NonCompliant`

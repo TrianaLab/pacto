@@ -395,3 +395,44 @@ func TestDiffContract_ServiceLifecycle(t *testing.T) {
 		})
 	}
 }
+
+// TestDiffDeliveryApplier: delivery.applier changes are NonBreaking, and an
+// absent applier reads as auto.
+func TestDiffDeliveryApplier(t *testing.T) {
+	with := func(applier string) *contract.Contract {
+		c := minimalContract()
+		if applier != "-" {
+			c.Delivery = &contract.Delivery{Applier: applier}
+		}
+		return c
+	}
+	for _, tc := range []struct {
+		old, new string
+		want     ChangeType
+		none     bool
+	}{
+		{"-", "argocd", Added, false},
+		{"argocd", "flux", Modified, false},
+		{"flux", "-", Removed, false},
+		{"auto", "flux", Modified, false},
+		{"-", "auto", 0, true},
+		{"", "auto", 0, true},
+		{"auto", "-", 0, true},
+	} {
+		var got []Change
+		for _, c := range diffContract(with(tc.old), with(tc.new)) {
+			if c.Path == "delivery.applier" {
+				got = append(got, c)
+			}
+		}
+		if tc.none {
+			if len(got) != 0 {
+				t.Errorf("%q -> %q: changes %+v, want none", tc.old, tc.new, got)
+			}
+			continue
+		}
+		if len(got) != 1 || got[0].Type != tc.want || got[0].Classification != NonBreaking {
+			t.Errorf("%q -> %q: changes %+v, want one NonBreaking %s", tc.old, tc.new, got, tc.want)
+		}
+	}
+}

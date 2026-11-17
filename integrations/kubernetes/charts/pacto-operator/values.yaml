@@ -536,7 +536,7 @@ delivery:
     # -- How often an operation waiting on Flux, Pacto or a person is looked at (a Go duration)
     poll: 3s
     # -- How often a Stage is looked at when nothing it watches changed (a Go duration). A change to
-    # its operations, upstream Stage, OCIRepositories, Kustomizations or Application wakes it at once
+    # its operations, upstream Stage or the Flux or Argo CD objects the promoter watches wakes it at once
     resync: 1m
     # -- How many operations and Stages the promoter reconciles at once, so one slow health provider does not hold up the rest
     workers: 4
@@ -710,11 +710,22 @@ delivery:
         memory: 64Mi
 
   argocd:
-    # -- Let Stages name an Argo CD Application as their applier (`spec.applyRef.kind: Application`).
-    # Grants the promoter patch on `argoproj.io` Applications (it only sets `spec.source.targetRevision`,
-    # and the pointer admission policy holds it to that) and read access to the agent, approver and
-    # recorder roles. Off by default.
-    enabled: false
+    # -- (bool or `auto`) Let Stages name an Argo CD Application as their applier
+    # (`spec.applyRef.kind: Application`). Grants the promoter patch on `argoproj.io` Applications
+    # (it only sets `spec.source.targetRevision`, and the pointer admission policy holds it to that)
+    # and read access to the agent, approver and recorder roles. `auto` grants it when the cluster
+    # serves `argoproj.io/v1alpha1` Application at install or upgrade: install Argo CD first, or run
+    # `helm upgrade` after. `true` or `false` decide regardless of the API.
+    enabled: auto
+
+  flux:
+    # -- (bool or `auto`) Let Stages apply through Flux: an OCIRepository with a Kustomization, or
+    # a HelmRelease whose `spec.chartRef` names an OCIRepository. Grants the promoter patch on
+    # OCIRepositories (admission holds it to `spec.ref.digest`) and Kustomization read. `auto` grants
+    # it when the cluster serves `source.toolkit.fluxcd.io/v1` OCIRepository at install or upgrade,
+    # and adds HelmRelease read when it also serves `helm.toolkit.fluxcd.io/v2` HelmRelease. `true`
+    # grants both regardless of the API; `false` grants neither.
+    enabled: auto
 
   # -- Registry hosts (`host:port`) the promoter and the recorder reach over plain HTTP. An
   # OCIRepository with `spec.insecure: true` is read over HTTP anyway.

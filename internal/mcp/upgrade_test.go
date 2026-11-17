@@ -118,6 +118,8 @@ func TestEditMinVersionTable(t *testing.T) {
 		{"nothing", EditInput{Name: s}, ""},
 		{"undeclared range", EditInput{AddDependencies: []DependencyInput{{Name: "a", Ref: "oci://r/a"}}}, "2.5"},
 		{"explicit unknown", EditInput{AddDependencies: []DependencyInput{{Name: "a", Ref: "oci://r/a", Compatibility: contract.CompatibilityUnknown}}}, "2.5"},
+		{"applier", EditInput{Applier: s}, "2.5"},
+		{"applier clear", EditInput{Applier: strPtr("")}, ""},
 		{"domain", EditInput{Domain: s}, "2.4"},
 		{"offering", EditInput{Offering: s}, "2.4"},
 		{"summary", EditInput{Summary: s}, "2.4"},

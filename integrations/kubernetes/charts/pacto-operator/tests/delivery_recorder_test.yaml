@@ -11,6 +11,8 @@ set:
 capabilities:
   apiVersions:
     - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    # a cluster with Flux: delivery.flux.enabled defaults to auto
+    - source.toolkit.fluxcd.io/v1/OCIRepository
 tests:
   - it: is off by default and leaves the promoter alone
     asserts:
@@ -100,6 +102,23 @@ tests:
       - contains:
           path: rules
           content: {apiGroups: [delivery.pacto.trianalab.io], resources: [stages/status, operations/status], verbs: [get, update]}
+
+  - it: reads a HelmRelease Stage's applier when HelmReleases are served
+    set:
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: r/s
+      delivery.recorder.signing.kms: awskms:///alias/pacto
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+        - source.toolkit.fluxcd.io/v1/OCIRepository
+        - helm.toolkit.fluxcd.io/v2/HelmRelease
+    template: templates/delivery/recorder.yaml
+    documentSelector: {path: kind, value: ClusterRole}
+    asserts:
+      - contains:
+          path: rules
+          content: {apiGroups: [helm.toolkit.fluxcd.io], resources: [helmreleases], verbs: [get]}
 
   - it: signs with a KMS key or keyless
     set:

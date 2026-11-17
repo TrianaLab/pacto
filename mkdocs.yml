@@ -260,7 +260,7 @@ nav:
           - Status, progress and lifecycle: integrations/kubernetes/delivery-status.md
           - Health checks: integrations/kubernetes/delivery-health.md
           - Eval providers: integrations/kubernetes/delivery-evals.md
-          - Argo CD and several clusters: integrations/kubernetes/delivery-reach.md
+          - Appliers and several clusters: integrations/kubernetes/delivery-reach.md
           - Security model: integrations/kubernetes/delivery-security.md
       - Contract reference:
           - contract-reference/index.md
@@ -269,6 +269,7 @@ nav:
           - Dependencies and state: contract-reference/dependencies-and-state.md
           - Readiness: contract-reference/readiness.md
           - Publish: contract-reference/publish.md
+          - Delivery: contract-reference/delivery.md
           - Checks: contract-reference/checks.md
           - Environments: contract-reference/environments.md
           - Validation layers: contract-reference/validation.md

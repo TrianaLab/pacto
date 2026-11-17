@@ -33,6 +33,8 @@ var (
 	gvrApprovals     = schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "approvals"}
 	gvrOCIRepository = schema.GroupVersionResource{Group: "source.toolkit.fluxcd.io", Version: "v1", Resource: "ocirepositories"}
 	gvrKustomization = schema.GroupVersionResource{Group: "kustomize.toolkit.fluxcd.io", Version: "v1", Resource: "kustomizations"}
+	gvrHelmRelease   = schema.GroupVersionResource{Group: "helm.toolkit.fluxcd.io", Version: "v2", Resource: "helmreleases"}
+	gvrApplication   = schema.GroupVersionResource{Group: "argoproj.io", Version: "v1alpha1", Resource: "applications"}
 	gvrSelfAccess    = schema.GroupVersionResource{Group: "authorization.k8s.io", Version: "v1", Resource: "selfsubjectaccessreviews"}
 	gvrSelfRules     = schema.GroupVersionResource{Group: "authorization.k8s.io", Version: "v1", Resource: "selfsubjectrulesreviews"}
 	gvrNamespaces    = schema.GroupVersionResource{Version: "v1", Resource: "namespaces"}
@@ -588,8 +590,8 @@ func (d *Delivery) tagDigest(ctx context.Context, stage *delivery.StageObject, t
 	return resolved
 }
 
-// applyRegistry reads the Stage's OCIRepository: its repository and a registry
-// client that honours spec.insecure.
+// applyRegistry reads the repository the Stage's applier fetches from and a
+// registry client that honours spec.insecure.
 func (d *Delivery) applyRegistry(ctx context.Context, stage *delivery.StageObject) (string, DeliveryRegistry, error) {
 	repo, insecure, err := d.applyRepo(ctx, stage)
 	if err != nil {
@@ -598,12 +600,43 @@ func (d *Delivery) applyRegistry(ctx context.Context, stage *delivery.StageObjec
 	return repo, d.Registry(insecure...), nil
 }
 
-// applyRepo reads the Stage's OCIRepository: its repository, and its host
-// when spec.insecure says to reach it over plain HTTP.
+// applyRepo reads the repository the Stage's applier fetches versions from,
+// as the promoter does: the OCIRepository itself, an Argo CD Application's
+// spec.source.repoURL or the OCIRepository a HelmRelease's spec.chartRef
+// names in the Stage's namespace. The host comes back when spec.insecure says
+// to reach it over plain HTTP.
 func (d *Delivery) applyRepo(ctx context.Context, stage *delivery.StageObject) (string, []string, error) {
-	u, err := d.Dynamic.Resource(gvrOCIRepository).Namespace(stage.Metadata.Namespace).Get(ctx, stage.Spec.ApplyRef.Name, metav1.GetOptions{})
+	ns, ref := stage.Metadata.Namespace, stage.Spec.ApplyRef
+	switch ref.Kind {
+	case delivery.ApplierArgoCD:
+		u, err := d.Dynamic.Resource(gvrApplication).Namespace(ns).Get(ctx, ref.Name, metav1.GetOptions{})
+		if err != nil {
+			return "", nil, fmt.Errorf("reading the apply Application %s: %w", ref.Name, err)
+		}
+		url, _, _ := unstructured.NestedString(u.Object, "spec", "source", "repoURL")
+		return delivery.RepoFromURL(url), nil, nil
+	case delivery.ApplierHelmRelease:
+		u, err := d.Dynamic.Resource(gvrHelmRelease).Namespace(ns).Get(ctx, ref.Name, metav1.GetOptions{})
+		if err != nil {
+			return "", nil, fmt.Errorf("reading the apply HelmRelease %s: %w", ref.Name, err)
+		}
+		kind, _, _ := unstructured.NestedString(u.Object, "spec", "chartRef", "kind")
+		chart, _, _ := unstructured.NestedString(u.Object, "spec", "chartRef", "name")
+		chartNS, _, _ := unstructured.NestedString(u.Object, "spec", "chartRef", "namespace")
+		if kind != "OCIRepository" || chartNS != "" && chartNS != ns {
+			return "", nil, fmt.Errorf("the HelmRelease %s names no OCIRepository in the Stage namespace in spec.chartRef", ref.Name)
+		}
+		return d.ociRepo(ctx, ns, chart)
+	}
+	return d.ociRepo(ctx, ns, ref.Name)
+}
+
+// ociRepo reads the OCIRepository ns/name: its repository, and its host when
+// spec.insecure says to reach it over plain HTTP.
+func (d *Delivery) ociRepo(ctx context.Context, ns, name string) (string, []string, error) {
+	u, err := d.Dynamic.Resource(gvrOCIRepository).Namespace(ns).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
-		return "", nil, fmt.Errorf("reading the apply OCIRepository %s: %w", stage.Spec.ApplyRef.Name, err)
+		return "", nil, fmt.Errorf("reading the apply OCIRepository %s: %w", name, err)
 	}
 	url, _, _ := unstructured.NestedString(u.Object, "spec", "url")
 	insecure, _, _ := unstructured.NestedBool(u.Object, "spec", "insecure")

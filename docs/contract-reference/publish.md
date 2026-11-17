@@ -1,7 +1,8 @@
 # Publish
 
 `publish` says what a service publishes, where each artifact goes and how it
-is built. Only [`pacto publish`](../publishing.md) reads it. The other
+is built. Only [`pacto publish`](../publishing.md) reads it.
+[`delivery`](delivery.md) says how the promoter delivers what was published. The other
 sections are in [Contract sections](sections.md),
 [Configuration and policy](configuration-and-policy.md),
 [Dependencies and state](dependencies-and-state.md) and
@@ -54,4 +55,4 @@ Builders write to `$PACTO_OUT` and Pacto does all the pushing. It pushes every
 artifact to a new tag, signs each digest with Sigstore and stamps
 `org.opencontainers.image.version` and `org.opencontainers.image.revision` on
 each manifest it pushes. A chart can be published but cannot be the deploy
-artifact, because the promoter confirms a release only through Kustomizations.
+artifact: `deploy` names a `manifests` artifact.

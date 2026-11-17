@@ -3380,3 +3380,66 @@ func TestCheckSuggestsDeclaringNameAndVersion(t *testing.T) {
 		}
 	}
 }
+
+// TestEditSetsApplier: setting the applier on an older contract raises it to
+// 2.5 and writes the delivery section.
+func TestEditSetsApplier(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.1\"\nservice:\n  name: svc\n  version: 1.0.0\n"), 0o644)
+	result, err := Edit(context.Background(), nil, EditOptions{}, EditInput{Path: dir, Applier: strPtr("argocd")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{`set pactoVersion to "2.5" (was "2.1")`, "set delivery.applier to argocd"}; !slices.Equal(result.Changes, want) {
+		t.Errorf("changes %q, want %q", result.Changes, want)
+	}
+	if c := readContract(t, dir); c.PactoVersion != "2.5" || c.Delivery == nil || c.Delivery.Applier != contract.ApplierArgoCD {
+		t.Fatalf("written contract %+v", c)
+	}
+}
+
+// TestEditClearsApplier: an empty applier removes the delivery section and
+// raises nothing.
+func TestEditClearsApplier(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.5\"\nservice:\n  name: svc\n  version: 1.0.0\ndelivery:\n  applier: flux\n"), 0o644)
+	result, err := Edit(context.Background(), nil, EditOptions{}, EditInput{Path: dir, Applier: strPtr("")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"removed delivery"}; !slices.Equal(result.Changes, want) {
+		t.Errorf("changes %q, want %q", result.Changes, want)
+	}
+	if c := readContract(t, dir); c.Delivery != nil {
+		t.Fatalf("delivery kept: %+v", c.Delivery)
+	}
+}
+
+// TestEditClearsAbsentApplierReportsNothing: clearing the applier of a
+// contract without delivery changes nothing, so no change line says it did.
+func TestEditClearsAbsentApplierReportsNothing(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.1\"\nservice:\n  name: svc\n  version: 1.0.0\n"), 0o644)
+	result, err := Edit(context.Background(), nil, EditOptions{}, EditInput{Path: dir, Applier: strPtr(""), DryRun: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(result.Changes, "removed delivery") {
+		t.Errorf("changes %q report a removal that did not happen", result.Changes)
+	}
+}
+
+// TestEditRejectsUnknownApplier: a value outside the three fails before
+// anything is written, naming them.
+func TestEditRejectsUnknownApplier(t *testing.T) {
+	dir := t.TempDir()
+	before := []byte("pactoVersion: \"2.1\"\nservice:\n  name: svc\n  version: 1.0.0\n")
+	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), before, 0o644)
+	_, err := Edit(context.Background(), nil, EditOptions{}, EditInput{Path: dir, Applier: strPtr("kargo")})
+	if err == nil || !strings.Contains(err.Error(), "auto, argocd or flux") {
+		t.Fatalf("got %v, want the three appliers named", err)
+	}
+	if raw, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml")); !bytes.Equal(raw, before) {
+		t.Errorf("contract was written:\n%s", raw)
+	}
+}

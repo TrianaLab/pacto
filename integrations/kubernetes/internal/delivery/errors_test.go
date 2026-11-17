@@ -114,7 +114,7 @@ func TestPlanAndApprovalReadFailures(t *testing.T) {
 	}
 	// An unreadable OCIRepository is an unreadable contract: held for a person.
 	e.fails["get/OCIRepository"] = true
-	if o := e.drive("p1"); o.Status.Phase != delivery.PhaseHeld || !strings.Contains(o.Status.Question, "the apply OCIRepository") {
+	if o := e.drive("p1"); o.Status.Phase != delivery.PhaseHeld || !strings.Contains(o.Status.Question, "the applier") {
 		t.Fatalf("held: %s %q", o.Status.Phase, o.Status.Question)
 	}
 	delete(e.fails, "get/OCIRepository")
@@ -168,7 +168,7 @@ func TestLockDirectly(t *testing.T) {
 
 func TestFirstVersionFailureFreezes(t *testing.T) {
 	e := newEnv(t, stageObj(""), ociRepo("payments", "", "", false), deployment("payments", 2, 2),
-		pactoObj("payments", "payments", c1, "Compliant", 2))
+		pactoObj("payments", "payments", c1, "Compliant", 2), kustomization("payments", "payments", "True", "ReconciliationSucceeded", "", ""))
 	e.create(opObj("p1", delivery.TypePromote, "", dB, bot))
 	e.drive("p1")
 	e.drive("p1") // not fetched yet

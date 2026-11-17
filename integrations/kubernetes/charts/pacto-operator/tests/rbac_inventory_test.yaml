@@ -23,6 +23,8 @@ release:
 capabilities:
   apiVersions:
     - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    # a cluster with Flux: delivery.flux.enabled defaults to auto
+    - source.toolkit.fluxcd.io/v1/OCIRepository
 tests:
   - it: default renders no Secret rule in the ClusterRole
     template: templates/clusterrole.yaml

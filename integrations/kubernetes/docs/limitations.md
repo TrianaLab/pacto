@@ -306,6 +306,31 @@ namespace; the chart value stays yours to set. See
 [Pactify a service](../../pactify.md#4-connect-the-service-to-your-cluster) for
 the commands.
 
+## Delivery adopts Argo CD and Flux only
+
+The promoter moves versions only through
+[the manager that applies a Stage](delivery-reach.md#which-manager-applies-a-stage),
+and refuses a promote it cannot tie to that manager:
+
+- A workload owned by a manager Pacto does not support, such as an operator,
+  kapp, Rancher Fleet, Spinnaker, Skaffold, Terraform, Pulumi or a plain Helm
+  release, reads `Unknown` or `Conflict`. Moving it to Argo CD or Flux is
+  yours to do.
+- A workload without the marks of the Stage's applier reads `Unknown`: the
+  promoter needs positive evidence, and a manager missing from its
+  fingerprints looks like none.
+- Argo CD Applications with several sources (`spec.sources`) and HelmReleases
+  whose chart comes from `spec.chart` (a HelmChart) are not supported.
+- A HelmRelease's chart `OCIRepository` must be in the Stage's namespace.
+- An Argo CD Application in the Argo CD namespace never matches a Stage's
+  `applyRef`, which names an Application in the Stage's namespace.
+- Detection reads only the workloads a Pacto in the Stage's namespace
+  reports, so a Stage with no Pacto yet reads `Unmanaged`.
+- Detection reads a Kustomization outside the Stage's namespace only when it
+  applies from the Stage's OCIRepository. For any other one a workload's
+  labels name, it reads `Unknown` with the same message whether that
+  Kustomization exists or not.
+
 ## Delivery records have no outside witness
 
 The recorder does not send records to a transparency log such as Rekor. Your

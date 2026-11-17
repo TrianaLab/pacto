@@ -308,6 +308,7 @@ func printPlan(w io.Writer, p delivery.PlanAnswer) {
 	_, _ = fmt.Fprintf(w, "intent:    %s\n", p.IntentDigest)
 	_, _ = fmt.Fprintf(w, "change:    %s %s -> %s\n", p.Type, orNone([]string{p.From}), orNone([]string{p.To}))
 	_, _ = fmt.Fprintf(w, "predicted: %s\n", p.Predicted)
+	printPlanApplier(w, p)
 	for _, v := range p.Verdicts {
 		printVerdict(w, "  ", v)
 	}
@@ -322,6 +323,32 @@ func printPlan(w io.Writer, p delivery.PlanAnswer) {
 	for _, n := range p.Next {
 		_, _ = fmt.Fprintf(w, "next:      %s\n", n)
 	}
+}
+
+// printPlanApplier names a promote's applier from the pacto.applier citation,
+// keeping what the promoter observed, what the Stage declares and what the
+// contract says apart.
+func printPlanApplier(w io.Writer, p delivery.PlanAnswer) {
+	if p.Type != delivery.TypePromote {
+		return
+	}
+	i := slices.IndexFunc(p.Verdicts, func(v delivery.Verdict) bool { return v.Gate == delivery.GateApplier })
+	if i < 0 {
+		// The gate runs once pacto.published did not fail; before that, or
+		// on a refused plan, the applier is not judged.
+		if !slices.ContainsFunc(p.Verdicts, func(v delivery.Verdict) bool { return v.Gate == delivery.GatePublished && v.Result != delivery.Fail }) {
+			_, _ = fmt.Fprintln(w, "applier:   not judged: an earlier check stopped the plan")
+			return
+		}
+		_, _ = fmt.Fprintln(w, "applier:   not reported by the Stage status")
+		return
+	}
+	c := p.Verdicts[i].Citation
+	observed := c["observed"]
+	if c["state"] != "" {
+		observed += ", " + c["state"]
+	}
+	_, _ = fmt.Fprintf(w, "applier:   %s; declared %s; contract %s\n", observed, c["declared"], c["contract"])
 }
 
 // printPrecedent says what the records attached to the version say happened

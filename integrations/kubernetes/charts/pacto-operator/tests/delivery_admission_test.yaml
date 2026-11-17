@@ -448,3 +448,54 @@ tests:
           pattern: "^'delivery\\.pacto\\.trianalab\\.io/auth-time' in request\\.userInfo\\.extra &&"
       - notExists:
           path: 'spec.validations[?(@.message == "spec.authTime, when given, must be the login time in userInfo.extra[delivery.pacto.trianalab.io/auth-time]")]'
+
+  - it: should guard a labelled HelmRelease
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+        - source.toolkit.fluxcd.io/v1/OCIRepository
+        - helm.toolkit.fluxcd.io/v2/HelmRelease
+    set:
+      delivery.identities.allowEmptyHumanGroups: true
+    documentSelector:
+      path: spec.matchConstraints.resourceRules[0].resources[0]
+      value: helmreleases
+    asserts:
+      - isKind:
+          of: ValidatingAdmissionPolicy
+      - equal:
+          path: spec.matchConstraints.resourceRules[0].apiGroups
+          value: [helm.toolkit.fluxcd.io]
+      - equal:
+          path: spec.matchConstraints.resourceRules[0].resources
+          value: [helmreleases]
+      - equal:
+          path: spec.matchConstraints.objectSelector.matchExpressions[0].key
+          value: delivery.pacto.trianalab.io/apply-ref
+      - equal:
+          path: 'spec.variables[?(@.name == "guarded")].expression'
+          value: "['chartRef', 'chart', 'values', 'valuesFrom', 'postRenderers', 'targetNamespace', 'storageNamespace', 'serviceAccountName', 'kubeConfig', 'suspend']"
+      - matchRegex:
+          path: 'spec.validations[?(@.message == "chartRef, chart, values, valuesFrom, postRenderers, targetNamespace, storageNamespace, serviceAccountName, kubeConfig and suspend decide what the Pacto delivery pointer runs: only break-glass changes them")].expression'
+          pattern: "variables\\.guarded\\.all\\(f,"
+      - matchRegex:
+          path: 'spec.validations[?(@.message == "spec.chartRef.namespace names the chart source the Pacto delivery pointer runs: only break-glass changes it")].expression'
+          pattern: "object\\.spec\\.chartRef\\.namespace"
+
+  - it: should bind the applier-helmrelease policy with Deny when HelmReleases are served
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+        - source.toolkit.fluxcd.io/v1/OCIRepository
+        - helm.toolkit.fluxcd.io/v2/HelmRelease
+    set:
+      delivery.identities.allowEmptyHumanGroups: true
+    documentSelector:
+      path: spec.policyName
+      value: d-pacto-operator-delivery-applier-helmrelease
+    asserts:
+      - isKind:
+          of: ValidatingAdmissionPolicyBinding
+      - equal:
+          path: spec.validationActions
+          value: [Deny]

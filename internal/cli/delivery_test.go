@@ -717,3 +717,35 @@ func TestBlameOldRecordNotRecorded(t *testing.T) {
 		t.Fatalf("approvalCell = %q", got)
 	}
 }
+
+// TestPrintPlanApplierLine: a promote plan names its applier from the
+// pacto.applier citation, observed, declared and contract kept apart, or says
+// the promoter did not report one.
+func TestPrintPlanApplierLine(t *testing.T) {
+	var b strings.Builder
+	printPlan(&b, delivery.PlanAnswer{Plan: delivery.Plan{Type: delivery.TypePromote, Verdicts: []delivery.Verdict{{Gate: delivery.GateApplier,
+		Result: delivery.Pass, Citation: map[string]string{"observed": "Argo CD (Application payments, tracking annotation)",
+			"declared": "Application payments", "contract": "auto", "state": "Adopted"}}}}})
+	if want := "applier:   Argo CD (Application payments, tracking annotation), Adopted; declared Application payments; contract auto\n"; !strings.Contains(b.String(), want) {
+		t.Fatalf("want %q in\n%s", want, b.String())
+	}
+	b.Reset()
+	printPlan(&b, delivery.PlanAnswer{Plan: delivery.Plan{Type: delivery.TypePromote, Verdicts: []delivery.Verdict{{Gate: delivery.GatePublished, Result: delivery.Pass}}}})
+	if want := "applier:   not reported by the Stage status\n"; !strings.Contains(b.String(), want) {
+		t.Fatalf("want %q in\n%s", want, b.String())
+	}
+	// A plan that stopped at pacto.published, or was refused, never judged
+	// the applier: it names no cause it cannot know.
+	for _, vs := range [][]delivery.Verdict{{{Gate: delivery.GatePublished, Result: delivery.Fail}}, nil} {
+		b.Reset()
+		printPlan(&b, delivery.PlanAnswer{Plan: delivery.Plan{Type: delivery.TypePromote, Verdicts: vs}})
+		if want := "applier:   not judged: an earlier check stopped the plan\n"; !strings.Contains(b.String(), want) || strings.Contains(b.String(), "predates") {
+			t.Fatalf("want %q in\n%s", want, b.String())
+		}
+	}
+	b.Reset()
+	printPlan(&b, delivery.PlanAnswer{Plan: delivery.Plan{Type: delivery.TypeRollback}})
+	if strings.Contains(b.String(), "applier") {
+		t.Fatalf("a rollback has no applier gate:\n%s", b.String())
+	}
+}

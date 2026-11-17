@@ -139,7 +139,7 @@ func (s *RecordStore) list(ctx context.Context, anchor *place) (recs []stored, i
 // apply repository, the contract to names in its own repository and the
 // anchor. A digest the registry does not hold, or one that is not a digest
 // (a refusal can name anything), is skipped; any other failure is returned.
-func (s *RecordStore) locate(ctx context.Context, anchor *place, apply *applyRef, from, to string) (locations, error) {
+func (s *RecordStore) locate(ctx context.Context, anchor *place, apply *source, from, to string) (locations, error) {
 	l := locations{anchor: anchor}
 	if apply == nil {
 		return l, nil

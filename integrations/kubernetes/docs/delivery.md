@@ -152,7 +152,7 @@ None of these is required reading:
 - [Signed records and history](delivery-records.md): records, blame, undo and
   verification
 - [Record keys](delivery-record-keys.md): trust, key rotation and revocation
-- [Argo CD and several clusters](delivery-reach.md) (experimental)
+- [Appliers and several clusters](delivery-reach.md): Argo CD, Flux HelmRelease and Stages in other clusters
 - [Ladder reference](../../autonomy-reference.md): levels, proposals and blockers
 - [Publishing details](../../publishing.md) and the contract's
   [`publish` section](../../contract-reference/publish.md)

@@ -430,4 +430,30 @@ describe('ServiceDelivery', () => {
     expect(v.target.querySelector(`a[href="${deliveryPublishUrl({ service: 'orders' })}"]`)?.textContent).toContain('Published versions');
     v.destroy();
   });
+
+  it('shows the applier', async () => {
+    const asOf = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
+    environments.mockResolvedValue(answer([row({ applier: { state: 'Adopted', manager: 'argocd', completeness: 'complete', asOf,
+      display: 'Argo CD (Application payments, tracking annotation)' } })]));
+    const v = render({});
+    await settle();
+    const line = v.target.querySelector('[data-testid="service-delivery-applier"]') as HTMLElement;
+    expect(line.textContent).toContain('Applier: Argo CD (Application payments, tracking annotation) (as of ');
+    expect(line.querySelector('bdi')?.textContent).toBe('Argo CD (Application payments, tracking annotation)');
+    expect(line.classList.contains('sd-warn')).toBe(false);
+    v.destroy();
+  });
+
+  it('warns when the applier conflicts, in words, even when another Ready reason took precedence', async () => {
+    environments.mockResolvedValue(answer([row({ ready: 'False: CandidateUnverified', readyMessage: 'the candidate is not verified',
+      applier: { state: 'Conflict', manager: 'helm', completeness: 'complete', display: 'Helm (release payments, release annotations)',
+        message: 'Helm release payments owns Deployment payments' } })]));
+    const v = render({});
+    await settle();
+    expect(v.target.textContent).toContain('Cannot promote: The candidate is not verified.');
+    const line = v.target.querySelector('[data-testid="service-delivery-applier"]') as HTMLElement;
+    expect(line.textContent).toBe('Applier: Helm (release payments, release annotations), conflict: Helm release payments owns Deployment payments');
+    expect(line.classList.contains('sd-warn')).toBe(true);
+    v.destroy();
+  });
 });

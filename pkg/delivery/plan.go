@@ -333,7 +333,8 @@ func serviceTeam(in PlanInput) []string {
 // predict turns verdicts, floor and Stage state into the expected outcome.
 func predict(in PlanInput, p *Plan) Prediction {
 	for _, v := range p.Verdicts {
-		if v.Result == Fail {
+		// Nobody can accept an applier Pacto cannot tell: it rejects too.
+		if v.Result == Fail || v.Gate == GateApplier && v.Result != Pass {
 			return PredictRejected
 		}
 	}
@@ -352,15 +353,21 @@ func predict(in PlanInput, p *Plan) Prediction {
 	return PredictProceeds
 }
 
-// promoteGates runs pacto.published, pacto.diff and pacto.impact and derives
+// promoteGates runs pacto.published, pacto.applier, pacto.diff and pacto.impact and derives
 // the approval floor. A version pacto publish did not publish goes no further.
 func promoteGates(ctx context.Context, in PlanInput, p *Plan) {
 	pub := publishedGate(in)
 	p.Verdicts = append(p.Verdicts, pub)
-	switch pub.Result {
-	case Fail:
+	if pub.Result == Fail {
 		return
-	case Unknown:
+	}
+	// The applier is judged before a person is asked to accept an unknown
+	// publication: an applier that is not Pass rejects, and nobody can accept
+	// it by answering another question.
+	if !applierGate(in, p) {
+		return
+	}
+	if pub.Result == Unknown {
 		p.Floor = Floor{Human: true, Decision: AcceptUnknown}
 		p.Question = "Pacto cannot tell whether pacto publish published " + short(p.To) + ": " + pub.Message + ". Accept the unknown?"
 		return

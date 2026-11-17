@@ -24,7 +24,11 @@ func AnswerPlan(p Plan, class ActorClass, stage StageSpec) PlanAnswer {
 func PlanNext(p Plan, class ActorClass, stage StageSpec) []string {
 	switch p.Predicted {
 	case PredictRejected:
-		return []string{"Proposing this is refused and nothing changes: do what the failing verdict or the conflict says, then plan again."}
+		next := []string{"Proposing this is refused and nothing changes: do what the failing verdict or the conflict says, then plan again."}
+		if len(p.Conflicts) > 0 {
+			next = append(next, "The conflict: "+p.Conflicts[0])
+		}
+		return next
 	case PredictProceeds:
 		return []string{"Nobody needs to approve it: once proposed, the promoter makes this change."}
 	case PredictWaits:
