@@ -65,7 +65,8 @@ test.describe('WASM demo — a service with an empty contract', () => {
     });
     expect(all.newsletter).toContain('newsletter-service');
     // The overview counts golden paths apart; every other service, this one included, is in.
-    await expect(count).toHaveText(String(all.total - all.goldenPaths));
+    // With external systems declared the line reads "N: D declared, E external"; the first link is D.
+    await expect(count.locator('a').first()).toHaveText(new RegExp(`^${all.total - all.goldenPaths}( declared)?$`));
     expect(errors).toEqual([]);
   });
 });
