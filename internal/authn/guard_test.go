@@ -3,6 +3,7 @@ package authn
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -244,6 +245,8 @@ func (f *bearerFake) review(_ context.Context, token string) (Reviewed, error) {
 		return Reviewed{}, &TokenRefusal{Code: "TokenAudienceRequired", Message: "mint it with --audience pacto-dashboard"}
 	case "empty":
 		return Reviewed{}, nil
+	case "forbidden":
+		return Reviewed{}, fmt.Errorf("%w: grant create on tokenreviews.authentication.k8s.io", ErrTokenReviewForbidden)
 	}
 	return Reviewed{}, errors.New("Unauthorized")
 }
@@ -284,14 +287,37 @@ func TestBearerReaderNeverSetsACookie(t *testing.T) {
 func TestBearerReaderRefusedToken(t *testing.T) {
 	h := bearerDashboard(&bearerFake{}).Middleware(echo(&State{}))
 	for token, want := range map[string]string{
-		"bad":   `"code":"BearerRefused","detail":"the cluster did not accept this token"`,
-		"empty": `"code":"BearerRefused"`,
-		"noaud": `"code":"TokenAudienceRequired","detail":"mint it with --audience pacto-dashboard"`,
+		"bad":   `"code":"BearerRefused","detail":"the cluster did not accept this token: Unauthorized"`,
+		"empty": `"code":"BearerRefused","detail":"the cluster did not say who this token is"`,
+		// A dashboard that may not review tokens says so, not that the token is bad.
+		"forbidden": `"code":"BearerRefused","detail":"the dashboard may not review tokens: grant create on tokenreviews.authentication.k8s.io"`,
+		"noaud":     `"code":"TokenAudienceRequired","detail":"mint it with --audience pacto-dashboard"`,
 	} {
 		rec := serve(h, bearerReq(http.MethodGet, "/api/backstage/entities", token))
 		expect(t, rec.Code == http.StatusUnauthorized && strings.Contains(rec.Body.String(), want) &&
 			rec.Header().Get("Content-Type") == "application/json", "%s: %d %s", token, rec.Code, rec.Body)
 	}
+}
+
+// The auth scheme is case-insensitive, so a lowercase or uppercase Bearer is
+// still a bearer read.
+func TestBearerReaderSchemeIgnoresCase(t *testing.T) {
+	f := &bearerFake{}
+	for _, scheme := range []string{"bearer", "BEARER", "Bearer"} {
+		var got State
+		r := httptest.NewRequest(http.MethodGet, "https://dash.example/api/backstage/entities", nil)
+		r.Header.Set("Authorization", scheme+" good")
+		rec := serve(bearerDashboard(f).Middleware(echo(&got)), r)
+		expect(t, rec.Code == http.StatusTeapot && got.Method == "bearer" && got.Token == "good", "%s: %d %+v", scheme, rec.Code, got)
+	}
+}
+
+// The log names why the dashboard refused, the same cause the 401 gives.
+func TestBearerReaderRefusalLogNamesTheCause(t *testing.T) {
+	logs := &strings.Builder{}
+	h := bearerDashboard(&bearerFake{}).Middleware(echo(&State{}))
+	serve(h, logged(bearerReq(http.MethodGet, "/api/backstage/entities", "forbidden"), logs))
+	has(t, logs, "dashboard refused a bearer reader", "tokenreviews.authentication.k8s.io")
 }
 
 func TestBearerReaderRefusedTokenNotLogged(t *testing.T) {

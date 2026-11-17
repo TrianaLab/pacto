@@ -321,8 +321,9 @@ func loginRequired(w http.ResponseWriter) {
 // bearer answers a server-side reader's bearer token on a bearer path. handled
 // is false when the request is no bearer read, and the session rules apply.
 func (d *Dashboard) bearer(w http.ResponseWriter, r *http.Request) (st State, ok, handled bool) {
-	token, found := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-	if !bearerPath(r.URL.Path) || !found || token == "" {
+	scheme, token, _ := strings.Cut(r.Header.Get("Authorization"), " ")
+	token = strings.TrimSpace(token)
+	if !bearerPath(r.URL.Path) || !strings.EqualFold(scheme, "Bearer") || token == "" { // the scheme is case-insensitive (RFC 9110)
 		return State{}, false, false
 	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
@@ -335,7 +336,9 @@ func (d *Dashboard) bearer(w http.ResponseWriter, r *http.Request) (st State, ok
 	}
 	rv, err := d.bearerReview(r.Context(), token)
 	if err != nil || rv.Person.User == "" {
-		code, msg := "BearerRefused", "the cluster did not accept this token"
+		// The same cause token sign-in names (a missing tokenreviews grant
+		// included), never the token itself.
+		code, msg := "BearerRefused", refuseReviewed(rv, err, false)
 		var tr *TokenRefusal
 		if errors.As(err, &tr) {
 			code, msg = tr.Code, tr.Message
