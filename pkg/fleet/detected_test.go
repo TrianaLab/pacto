@@ -222,3 +222,25 @@ func TestProvidersListReportedBeforeInferred(t *testing.T) {
 		t.Errorf("order = %v, want %v", got, want)
 	}
 }
+
+// TestRestrictHidesDetectedClusterName: a restricted view that hides a
+// detected row's cluster hides it in the evidence and the mismatch
+// limitation too.
+func TestRestrictHidesDetectedClusterName(t *testing.T) {
+	metrics := detectedRow("metrics", "")
+	metrics.ClusterID, metrics.Cluster, metrics.Evidence = "uid-2", "prod-eu", "Prometheus Operator (from API discovery, cluster prod-eu)"
+	// The cloud row is cluster-wide, so the view narrows the rows.
+	cloud := detectedRow("cloud", ScopeCluster)
+	for name, sources := range map[string][]Source{
+		"no Kubernetes source": {detectedSource(SourceAvailable, metrics, cloud)},
+		"another cluster": {NewMemorySource("k8s", SourceKindKubernetes, &Collection{Cluster: clusterOf("uid-1", "staging", ClusterNameFromContext), Targets: []RawTarget{workload("team-a", "web")}}),
+			detectedSource(SourceAvailable, metrics, cloud)},
+	} {
+		r := NewQuery(buildProviders(t, sources...)).Restrict(readerOf("team-a"), nil)
+		p := providerByID(t, r.SnapshotForSerialization().Providers, "metrics")
+		if p.Cluster != "" || strings.Contains(p.Evidence, "prod-eu") || p.Evidence != "Prometheus Operator (from API discovery)" ||
+			slices.ContainsFunc(p.Limitations, func(l Limitation) bool { return strings.Contains(l.Message, "uid-2") }) {
+			t.Errorf("%s: %+v", name, p)
+		}
+	}
+}

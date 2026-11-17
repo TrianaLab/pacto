@@ -269,6 +269,7 @@ func restrictProviders(rows []Provider, hiddenNames []string, visible func(strin
 	out := make([]Provider, len(rows))
 	for i, p := range rows {
 		if !shown[p.Cluster] {
+			p.Evidence, p.Limitations = hideDetectedCluster(p)
 			p.Cluster = ""
 		}
 		p.Objects = slices.DeleteFunc(slices.Clone(p.Objects), func(o ProviderObject) bool { return !visible(o.Namespace) })
@@ -295,6 +296,17 @@ func restrictProviders(rows []Provider, hiddenNames []string, visible func(strin
 		out[i] = p
 	}
 	return out
+}
+
+// hideDetectedCluster is the evidence and limitations of p without the
+// cluster a detected row names: the evidence loses its ", cluster <name>"
+// and the cluster mismatch limitation goes.
+func hideDetectedCluster(p Provider) (string, []Limitation) {
+	if p.Provenance != ProvenanceInferred || p.Cluster == "" {
+		return p.Evidence, p.Limitations
+	}
+	return strings.Replace(p.Evidence, ", cluster "+p.Cluster+")", ")", 1),
+		slices.DeleteFunc(slices.Clone(p.Limitations), func(l Limitation) bool { return l.Code == LimitationDetectionClusterMismatch })
 }
 
 // redactDetected redacts a detected row p a reader visible says yes to may
