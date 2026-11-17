@@ -1899,6 +1899,31 @@ export const ROUTES: Route[] = [
   { name: 'revision entity, implicit contract', open: firstLink('#/fleet/revisions?service=newsletter-service', '/fleet/revisions/') },
   { name: 'service entity, implicit contract', hash: '#/fleet/services/newsletter-service' },
   {
+    // A collapsed PreviewSection mounts nothing and the gate skips closed disclosures:
+    // open the inferred block and its "N more" rows so the long key is measured.
+    name: 'service entity, implicit contract, inferred open',
+    open: async (page) => {
+      await page.goto('/#/fleet/services/newsletter-service');
+      const block = page.getByTestId('service-inferred');
+      await expect(block).toBeVisible({ timeout: 30_000 });
+      await block.locator('summary').first().click();
+      await block.locator('.ifl-more > summary').click();
+      await expect(block.locator('.ifl-more [data-testid="inferred-field"]').first()).toBeVisible();
+      await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+    },
+  },
+  {
+    name: 'revision entity, implicit contract, inferred more',
+    open: async (page) => {
+      await firstLink('#/fleet/revisions?service=newsletter-service', '/fleet/revisions/')(page);
+      const more = page.getByTestId('revision-inferred').locator('.ifl-more');
+      await expect(more).toBeAttached({ timeout: 30_000 });
+      await more.locator('> summary').click();
+      await expect(more.getByTestId('inferred-field').first()).toBeVisible();
+      await page.evaluate(() => window.scrollTo(0, 0));
+    },
+  },
+  {
     // The scale fixture's 2.5 rows (announced breaks, ports, a ref-named dependency
     // with no range) live in closed disclosures, which mount nothing: open them all.
     name: 'revision entity, 2.5 sections open',

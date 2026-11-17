@@ -67,7 +67,7 @@
     declared: 'Declared dependency, but no usable compatibility range.',
     observed: 'Runtime use observed in a window.',
     corroborated: 'Declared and observed evidence agree.',
-    inferred: 'Transitive effect reached through another affected service.',
+    inferred: 'Reached through another affected service, or named only by an inferred record.',
     unknown: 'Required evidence is incomplete or stale.',
   };
   // Every level, one (i) away on the column header, instead of a legend under the table.

@@ -1,0 +1,59 @@
+format: pacto.inferred/v1
+inputs:
+    pacto: demo
+    discovery: "1"
+    sources:
+        - path: deploy/deployment.yaml
+          digest: sha256:5b7d211439ba5b72fd6376abc080a33b39cee16d33c03a7b20c42e12fb9dde8c
+fields:
+    - field: capabilities[health]
+      value: GET /healthz (readinessProbe)
+      source: deploy/deployment.yaml:32
+      confidence: likely
+      declare: |
+        capabilities:
+          - type: health
+    - field: configuration.BATCH_SIZE
+      value: integer
+      source: deploy/deployment.yaml:28
+      confidence: likely
+      declare: '"BATCH_SIZE": {"type":"integer"}'
+    - field: configuration.NEWSLETTER_DIGEST_SCHEDULE_FOR_SUBSCRIBERS_WITHOUT_A_CONFIRMED_TIMEZONE_FALLBACK
+      value: string
+      source: deploy/deployment.yaml:30
+      confidence: likely
+      declare: '"NEWSLETTER_DIGEST_SCHEDULE_FOR_SUBSCRIBERS_WITHOUT_A_CONFIRMED_TIMEZONE_FALLBACK": {"type":"string"}'
+    - field: configuration.NOTIFICATION_URL
+      value: string
+      source: deploy/deployment.yaml:21
+      confidence: likely
+      declare: '"NOTIFICATION_URL": {"type":"string"}'
+    - field: configuration.SMTP_PASSWORD
+      value: string, writeOnly
+      source: deploy/deployment.yaml:23
+      confidence: likely
+      declare: '"SMTP_PASSWORD": {"description":"Read from the Secret smtp, whose values pacto init does not read.","type":"string","writeOnly":true}'
+    - field: dependencies[notification-worker]
+      value: notification-worker
+      source: deploy/deployment.yaml:21
+      confidence: likely
+      declare: |
+        dependencies:
+          - name: notification-worker
+            ref: <where the contract of notification-worker is published>
+            required: true
+            compatibility: unknown   # declare the versions of notification-worker this service accepts
+    - field: service.owner
+      value: growth
+      source: deploy/deployment.yaml:6
+      confidence: likely
+      declare: |
+        service:
+          owner:
+            team: growth
+    - field: workload
+      value: service (Deployment newsletter-service)
+      source: deploy/deployment.yaml:2
+      confidence: likely
+      declare: |
+        workload: service

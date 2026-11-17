@@ -2,9 +2,14 @@ package main
 
 import (
 	"os"
+	"path/filepath"
+	"reflect"
 	"slices"
 	"testing"
 	"testing/fstest"
+
+	"github.com/trianalab/pacto/v4/internal/discover"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 // bundlesFS loads the same bundles the wasm binary embeds. Bundles live in
@@ -103,5 +108,42 @@ func TestDemoFleetUndeclaredVersionRef(t *testing.T) {
 	}
 	if got := requestedRef("oci://demo.pacto.local/", "ledger", "1.0.0"); got != "oci://demo.pacto.local/ledger:1.0.0" {
 		t.Fatalf("declared version ref = %q", got)
+	}
+}
+
+// TestDemoInferredRecordMatchesCompletion pins the one committed inferred
+// record in the demo to what discovery gives for its folder. Only the fields
+// are compared: the inputs name the CLI version, which every release changes.
+func TestDemoInferredRecordMatchesCompletion(t *testing.T) {
+	src := filepath.Join("bundles", "newsletter-service")
+	dir := filepath.Join(t.TempDir(), "newsletter-service")
+	if err := os.CopyFS(dir, os.DirFS(src)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(dir, contract.InferredRecordFile)); err != nil {
+		t.Fatalf("the demo holds no committed record: %v", err)
+	}
+	f, err := os.Open(filepath.Join(dir, "pacto.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+	declared, err := contract.Parse(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := discover.Complete(dir, declared, contract.InferredInputs{})
+	if err != nil || got == nil {
+		t.Fatalf("Complete = %v, %v", got, err)
+	}
+	committed, err := contract.ReadInferredRecord(os.DirFS(src))
+	if err != nil || committed == nil {
+		t.Fatalf("committed record = %v, %v", committed, err)
+	}
+	if !reflect.DeepEqual(committed.Fields, got.Fields) {
+		t.Errorf("committed record fields differ from completion; regenerate it:\n%s", got.Marshal())
+	}
+	if err := contract.VerifyInferredRecord(os.DirFS(src), committed); err != nil {
+		t.Errorf("committed record does not match the bundle: %v", err)
 	}
 }

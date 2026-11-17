@@ -43,7 +43,7 @@ const (
 	ConfidenceDeclared     Confidence = "declared"     // declared dependency but no usable compatibility range
 	ConfidenceObserved     Confidence = "observed"     // runtime use observed in a window
 	ConfidenceCorroborated Confidence = "corroborated" // declared and observed agree
-	ConfidenceInferred     Confidence = "inferred"     // transitive effect through another affected service
+	ConfidenceInferred     Confidence = "inferred"     // transitive effect, or a consumer only an inferred record names
 	ConfidenceUnknown      Confidence = "unknown"      // required evidence is incomplete or stale
 )
 

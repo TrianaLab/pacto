@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: newsletter-service
+  labels:
+    team: growth
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: newsletter-service
+  template:
+    metadata:
+      labels:
+        app: newsletter-service
+    spec:
+      containers:
+        - name: newsletter-service
+          image: ghcr.io/trianalab/newsletter-service:0.1.0
+          env:
+            - name: NOTIFICATION_URL
+              value: http://notification-worker:8080
+            - name: SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: smtp
+                  key: password
+            - name: BATCH_SIZE
+              value: "200"
+            - name: NEWSLETTER_DIGEST_SCHEDULE_FOR_SUBSCRIBERS_WITHOUT_A_CONFIRMED_TIMEZONE_FALLBACK
+              value: UTC
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
