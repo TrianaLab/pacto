@@ -14,6 +14,21 @@ async function openMetrics(page: Page, hash = '#/metrics') {
   await expect(page.getByTestId('metrics-content')).toBeVisible({ timeout: T });
 }
 
+type Ratio = { count: number; of: number };
+type DemoStats = {
+  totals: { breakingCaught: { distinct: number }; gates: { clear: number; blocked: number; unverified: number } };
+  environments: ({ environment: string } & Record<string, Ratio | string>)[];
+  leadTimeGroups: { key: string; leadTime: { unknown?: boolean; joined: number } }[];
+  buckets: { metrics?: { environments: Record<string, Ratio | string>[] } }[];
+};
+
+/** The demo engine's own answer for the page's window, read through the page's serve. */
+const demoStats = (page: Page): Promise<DemoStats> => page.evaluate(async () => {
+  const w = window as unknown as { __pactoServe: (method: string, path: string, body: string | null) => Promise<{ body: string }> };
+  return JSON.parse((await w.__pactoServe('GET', '/api/stats', null)).body);
+});
+const fmt = (n: number) => n.toLocaleString('en-US');
+
 test('the demo records say what they are and when they were read', async ({ page }) => {
   await openMetrics(page);
   const strip = page.getByTestId('metrics-content').getByTestId('stats-strip').first();
@@ -21,12 +36,45 @@ test('the demo records say what they are and when they were read', async ({ page
   await expect(strip).toContainText(/as of /);
   const caught = page.getByTestId('metrics-tiles').locator('.mx-tile').first();
   await expect(caught).toContainText('Breaking changes caught');
-  await expect(caught.locator('a')).toHaveText('2');
+  const st = await demoStats(page);
+  await expect(caught.locator('a')).toHaveText(fmt(st.totals.breakingCaught.distinct));
+});
+
+test('the gates tile and its key read the demo\'s own verdicts, an unverified one among them', async ({ page }) => {
+  await openMetrics(page);
+  const { gates } = (await demoStats(page)).totals;
+  expect(gates.unverified).toBeGreaterThan(0);
+  const tile = page.getByTestId('metrics-tiles').locator('.mx-tile').filter({ hasText: 'Release gates' });
+  await expect(tile.locator('.mx-tile-value a')).toHaveText(fmt(gates.blocked));
+  await expect(tile.locator('.mx-tile-value small')).toHaveText(`blocked of ${fmt(gates.clear + gates.blocked + gates.unverified)}`);
+  const keys = page.getByTestId('metrics-gates').locator('.mx-key');
+  await expect(keys.filter({ hasText: 'Unverified' }).locator('b')).toHaveText(fmt(gates.unverified));
+  await expect(keys.filter({ hasText: 'Unverified' }).locator('i.dots')).toHaveCount(1);
+});
+
+test('the lead tile reads the joined promotions into the chain end, and a stray rollback never makes a rate', async ({ page }) => {
+  await openMetrics(page);
+  const st = await demoStats(page);
+  const end = st.leadTimeGroups.find((g) => g.key === 'chain-end');
+  expect(end && !end.leadTime.unknown && end.leadTime.joined).toBeTruthy();
+  const tile = page.getByTestId('metrics-tiles').locator('.mx-tile').nth(2);
+  await expect(tile.locator('.mx-tile-label')).toHaveText('Lead time to production');
+  await expect(tile.locator('.mx-tile-value')).not.toContainText('unknown');
+  // A week holds a rollback with no succeeded promote: its count never enters a rate,
+  // so no panel reads over 100%.
+  const stray = st.buckets.some((b) => (b.metrics?.environments ?? []).some((e) => { const r = e.rolledBack as Ratio; return r.of === 0 && r.count > 0; }));
+  expect(stray).toBe(true);
+  const pcts = (await page.getByTestId('metrics-env-panel').locator('.hb-value').allTextContents())
+    .flatMap((t) => [...t.matchAll(/\((\d+)%\)/g)].map((m) => Number(m[1])));
+  expect(pcts.length).toBeGreaterThan(0);
+  for (const p of pcts) expect(p).toBeLessThanOrEqual(100);
 });
 
 test('environments follow each Stage path: test before the prod-eu and prod-us fork', async ({ page }) => {
   await openMetrics(page);
-  const names = await page.locator('[data-testid="metrics-env-row"] th a').evaluateAll((as) => as.map((a) => a.getAttribute('title')));
+  const health = page.getByTestId('metrics-health');
+  await health.getByRole('button', { name: 'Show as table' }).click();
+  const names = await health.locator('table tbody th').evaluateAll((ths) => ths.map((th) => th.getAttribute('title')));
   for (const env of ['test', 'prod-eu', 'prod-us']) expect(names).toContain(env);
   expect(names.indexOf('test')).toBeLessThan(names.indexOf('prod-eu'));
   expect(names.indexOf('test')).toBeLessThan(names.indexOf('prod-us'));
@@ -35,11 +83,10 @@ test('environments follow each Stage path: test before the prod-eu and prod-us f
 test('unknowns stay unknown: an unjoined lead time is named and an empty week is hatched, never 0', async ({ page }) => {
   await openMetrics(page);
   await expect(page.getByText(/promotions? (has|have) no publish record with their digest, so their lead time is unknown/)).toBeVisible();
-  await expect(page.getByTestId('metrics-tiles').locator('.mx-tile').filter({ hasText: 'Lead time p50', has: page.locator('.mx-tile-sub', { hasText: /^test$/ }) })).toContainText('with no publish record');
-  const unknown = page.getByTestId('metrics-trend').first().locator('.hb-row').filter({ has: page.locator('.hb-value.hb-unknown') });
-  await expect(unknown.first()).toBeVisible();
-  await expect(unknown.first().locator('.hb-value')).not.toHaveText('0');
-  await expect(unknown.first().locator('.hb-fill')).toHaveClass(/hatch/);
+  // The weekly charts hatch a week with no records and never draw it as a 0 column.
+  const stopped = page.getByTestId('metrics-stopped');
+  await expect(stopped.locator('.cc-unknown').first()).toBeVisible();
+  await expect(stopped.locator('.cc-plate').first()).toHaveText(/^no (CI )?records$/);
 });
 
 test('history older than the story names revisions as text; a story revision opens its page', async ({ page }) => {

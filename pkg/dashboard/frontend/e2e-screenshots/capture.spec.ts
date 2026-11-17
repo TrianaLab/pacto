@@ -99,8 +99,16 @@ const SHOTS: { name: string; open: (page: Page) => Promise<void>; clip?: { x: nu
       await expect(p.getByTestId('history-at-row').first()).toBeVisible();
     },
   },
-  // Metrics: the demo's own run records, generated from the payments story.
-  { name: 'metrics', open: async (p) => { await go(p, '/#/metrics', 'Metrics'); await expect(p.getByTestId('metrics-tiles')).toBeVisible(); } },
+  // Metrics: the demo's own run records, generated from the payments story, drawn as
+  // charts: the headline tiles and, further down, the coverage line.
+  {
+    name: 'metrics',
+    open: async (p) => {
+      await go(p, '/#/metrics', 'Metrics');
+      await expect(p.getByTestId('metrics-tiles').locator('.mx-tile svg').first()).toBeVisible();
+      await expect(p.getByTestId('metrics-coverage-trend').locator('.lc-line').first()).toBeAttached();
+    },
+  },
   // External systems: the list, and llm-provider's page, joined through the demo
   // organization catalog, with its consumers and its provenance.
   { name: 'fleet-externals', open: async (p) => { await go(p, '/#/fleet/externals', 'External systems'); await expect(p.getByTestId('external-list')).toBeVisible(); } },

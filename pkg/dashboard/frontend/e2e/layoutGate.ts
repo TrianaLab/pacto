@@ -861,29 +861,201 @@ export function installScaleFixture(): void {
   // demo's own run records, #493 S5).
   const statsMode = () => { try { return sessionStorage.getItem('fixture.stats') ?? ''; } catch { return ''; } };
   // `restricted` serves what a signed-in reader with a narrow view gets: the hidden line,
-  // no coverage history. Unset serves the scale case: 60 environments with forks, a
-  // cycle and an unordered one, 2,000 services paged, names of 60 to 200 characters and
-  // 3 skipped records. Every count the page links says how many records it opens, and
-  // /api/stats/records answers exactly that many (figureLinkTotals checks it).
+  // no coverage history. Unset serves a recorded window at the size
+  // `sessionStorage['fixture.stats.envs']` picks, read on every call (#597): `5` a small
+  // ladder, `200` about 30 independent Stage chains, unset (`60`) the scale case: 60
+  // environments on a four-deep ladder with forks, a cycle and an unordered one, 2,000
+  // services paged, names of 60 to 200 characters and 3 skipped records. Topology
+  // fields follow the API's rules (upstream is the transitive closure, parents its
+  // reduction, depth the longest path, chain end a fed leaf). Every count the page links
+  // says how many records it opens, and /api/stats/records answers exactly that many
+  // (figureLinkTotals checks it).
+  const statsSize = () => { try { return sessionStorage.getItem('fixture.stats.envs') ?? '60'; } catch { return '60'; } };
   const STATS_DAYS: Record<string, number> = { '7d': 7, '30d': 30, '90d': 90 };
-  const ratio = (count: number, of: number) => (of ? { count, of } : { count: 0, of: 0, unknown: true });
-  const statsEnvName = (i: number) => longName(`stats-env-${i}`);
-  const STATS_ENVS = Array.from({ length: 60 }, (_, i) => {
-    const hot = i % 15 === 0; // only a few environments have something to list, so the link sweep stays short
-    return {
-      environment: statsEnvName(i), source: 'context', operations: 40 + i,
-      held: ratio(hot ? 3 : 0, 20), failed: ratio(hot ? 2 : 0, 20), rolledBack: i % 4 === 1 ? ratio(0, 0) : ratio(hot ? 1 : 0, 18),
-      verificationFailed: ratio(hot ? 1 : 0, 16), acceptedUnknown: i % 9,
-      leadTime: i % 3 ? { p50Seconds: 3_600 * (i + 1), p90Seconds: 9_000 * (i + 1), joined: 4, unjoined: 1 } : { joined: 0, unjoined: 2, unknown: true },
-      upstream: i === 0 ? [] : i % 10 === 5 ? [statsEnvName(i - 1), statsEnvName(i - 2)] : [statsEnvName(i - 1)],
-      ...(i === 58 ? { cycle: true } : {}), ...(i === 59 ? { unordered: true } : {}),
-    };
+  type Ratio = { count: number; of: number; unknown?: boolean };
+  type Lead = { p50Seconds?: number; p90Seconds?: number; joined: number; unjoined: number; unknown?: boolean };
+  type EnvMetrics = { environment: string; source: string; operations: number; held: Ratio; failed: Ratio; rolledBack: Ratio;
+    verificationFailed: Ratio; acceptedUnknown: number; leadTime: Lead };
+  type StatsEnv = EnvMetrics & { upstream: string[]; parents?: string[]; depth?: number; chainEnd?: boolean; cycle?: boolean; unordered?: boolean };
+  // A fleet: environments in Stage order, each one's direct upstream, and the owners and
+  // domains whose services it delivers.
+  type StatsFleet = { envs: StatsEnv[]; owners: Record<string, string[]>; domains: Record<string, string[]>; attributionPartial: boolean };
+  const RATES = ['held', 'failed', 'rolledBack', 'verificationFailed'] as const;
+  // A rate with nothing to take it over is unknown and keeps its count: a rollback with no
+  // succeeded promote in the window.
+  const ratio = (count: number, of: number): Ratio => (of ? { count, of } : { count, of: 0, unknown: true });
+  const lead = (p50h: number, p90h: number | null, joined: number, unjoined: number): Lead => (joined
+    ? { p50Seconds: Math.round(p50h * 3_600), ...(p90h == null ? {} : { p90Seconds: Math.round(p90h * 3_600) }), joined, unjoined }
+    : { joined: 0, unjoined, unknown: true });
+  const metricsOf = (environment: string, r: Record<(typeof RATES)[number], [number, number]>, acceptedUnknown: number, leadTime: Lead): EnvMetrics => ({
+    environment, source: 'context', operations: Math.max(...RATES.flatMap((k) => r[k])) + r.rolledBack[0] + 3, acceptedUnknown, leadTime,
+    held: ratio(...r.held), failed: ratio(...r.failed), rolledBack: ratio(...r.rolledBack), verificationFailed: ratio(...r.verificationFailed),
   });
-  const STATS_GATES = { clear: 400, blocked: 37, unverified: 12 };
-  const statsTotal = (metric: string, env: string): number => {
-    const rate = ['held', 'failed', 'rolledBack', 'verificationFailed'].includes(metric) ? metric as 'held' : '';
-    if (rate) return STATS_ENVS.filter((e) => !env || e.environment === env).reduce((n, e) => n + e[rate].count, 0);
-    return ({ breaking: 37, protected: STATS_GATES.blocked, ...STATS_GATES } as Record<string, number>)[metric] ?? 8;
+  // place sets upstream (the transitive closure of each environment's direct upstream),
+  // depth, parents and chain end with the API's rules (pkg/dashboard placeDepths).
+  const place = (envs: (EnvMetrics & { cycle?: boolean; unordered?: boolean })[], direct: Record<string, string[]>): StatsEnv[] => {
+    const up = new Map<string, string[]>();
+    const closure = (e: string): string[] => {
+      if (!up.has(e)) up.set(e, [...new Set((direct[e] ?? []).flatMap((p) => [p, ...closure(p)]))]);
+      return up.get(e)!;
+    };
+    const by = new Map(envs.map((e) => [e.environment, e]));
+    const fed = new Set(envs.flatMap((e) => closure(e.environment)));
+    const depth = new Map<string, number | undefined>();
+    const depthOf = (e: string): number | undefined => {
+      if (!depth.has(e)) {
+        const r = by.get(e)!;
+        const ds = closure(e).map(depthOf);
+        depth.set(e, r.cycle || r.unordered || ds.includes(undefined) ? undefined : Math.max(0, ...ds.map((d) => d! + 1)));
+      }
+      return depth.get(e);
+    };
+    return envs.map((e) => {
+      const upstream = closure(e.environment), d = depthOf(e.environment);
+      if (d === undefined) return { ...e, upstream };
+      const parents = upstream.filter((u) => !upstream.some((v) => closure(v).includes(u)));
+      return { ...e, upstream, depth: d, ...(parents.length ? { parents } : {}), ...(upstream.length && !fed.has(e.environment) ? { chainEnd: true } : {}) };
+    });
+  };
+  // 5: test feeds prod, prod feeds prod-eu and prod-us, and a preview environment stands
+  // alone. One rate counts a rollback with nothing to take it over, one is over 50%, one
+  // lead time joined no publish record, one has no p90 and one is 0s.
+  const smallFleet = (): StatsFleet => {
+    const rows = [
+      metricsOf('test', { held: [0, 6], failed: [1, 6], rolledBack: [0, 5], verificationFailed: [1, 5] }, 1, lead(0, 0, 0, 3)),
+      metricsOf('prod', { held: [1, 5], failed: [1, 5], rolledBack: [1, 4], verificationFailed: [1, 4] }, 0, lead(25, 54, 4, 1)),
+      metricsOf('prod-eu', { held: [1, 3], failed: [2, 3], rolledBack: [1, 3], verificationFailed: [1, 3] }, 0, lead(180, 216, 3, 0)),
+      metricsOf('prod-us', { held: [0, 2], failed: [0, 2], rolledBack: [1, 0], verificationFailed: [0, 2] }, 0, lead(181, null, 2, 0)),
+      metricsOf('preview-checkout', { held: [0, 2], failed: [0, 2], rolledBack: [0, 2], verificationFailed: [0, 2] }, 0, lead(0, 0, 2, 0)),
+    ];
+    return { envs: place(rows, { prod: ['test'], 'prod-eu': ['prod'], 'prod-us': ['prod'] }), attributionPartial: false,
+      owners: { test: ['payments'], prod: ['payments', 'checkout'], 'prod-eu': ['checkout'], 'prod-us': ['checkout'], 'preview-checkout': ['checkout'] },
+      domains: { test: ['commerce'], prod: ['commerce'], 'prod-eu': ['commerce'], 'prod-us': ['commerce'], 'preview-checkout': ['(none)'] } };
+  };
+  // 60: the long names, the `hot` pattern (only a few environments have something to
+  // list, so the link sweep stays short) and six rates with nothing to count, on a ladder
+  // of 8, 12, 16 and 22 environments where every tenth one has two parents; 58 is on a
+  // cycle and 59 is ordered both ways.
+  const statsEnvName = (i: number) => longName(`stats-env-${i}`);
+  const LADDER = [8, 12, 16, 22];
+  const NOTHING_TO_COUNT: [number, (typeof RATES)[number]][] = [[1, 'rolledBack'], [17, 'verificationFailed'], [29, 'rolledBack'], [41, 'verificationFailed'], [44, 'held'], [57, 'rolledBack']];
+  const scaleFleet = (): StatsFleet => {
+    const rows = Array.from({ length: 60 }, (_, i) => {
+      const hot = i % 15 === 0, r = NOTHING_TO_COUNT.find(([j]) => j === i)?.[1];
+      const m = metricsOf(statsEnvName(i), { held: [hot ? 3 : 0, 20], failed: [hot ? 2 : 0, 20], rolledBack: [hot ? 1 : 0, 18], verificationFailed: [hot ? 1 : 0, 16] },
+        i % 9, i % 3 ? lead(i + 1, 2.5 * (i + 1), 4, 1) : lead(0, 0, 0, 2));
+      if (r) m[r] = ratio(0, 0);
+      return { ...m, operations: 40 + i, ...(i === 58 ? { cycle: true } : {}), ...(i === 59 ? { unordered: true } : {}) };
+    });
+    const direct: Record<string, string[]> = {};
+    for (let d = 1, start = LADDER[0]; d < LADDER.length; start += LADDER[d], d++) {
+      const prev = start - LADDER[d - 1];
+      for (let j = 0; j < LADDER[d]; j++) {
+        const i = start + j, p = prev + (j % LADDER[d - 1]);
+        direct[statsEnvName(i)] = i % 10 === 5 ? [statsEnvName(p), statsEnvName(prev + ((j + 1) % LADDER[d - 1]))] : [statsEnvName(p)];
+      }
+    }
+    direct[statsEnvName(58)] = [statsEnvName(35)];
+    direct[statsEnvName(59)] = [statsEnvName(58)];
+    const TEAMS = ['payments', 'checkout', 'identity', 'search', 'ledger', 'notifications', 'platform', longName('stats-team')];
+    const DOMAINS = ['commerce', 'identity', 'discovery', 'finance', 'messaging', 'platform'];
+    const owners: Record<string, string[]> = {}, domains: Record<string, string[]> = {};
+    rows.forEach((e, i) => {
+      owners[e.environment] = i === 59 ? ['(unknown)'] : i % 7 === 2 ? [TEAMS[i % 8], TEAMS[(i + 3) % 8]] : [TEAMS[i % 8]];
+      domains[e.environment] = i === 58 ? ['(none)'] : i % 11 === 4 ? [DOMAINS[Math.floor(i / 10)], DOMAINS[(Math.floor(i / 10) + 1) % 6]] : [DOMAINS[Math.floor(i / 10)]];
+    });
+    return { envs: place(rows, direct), owners, domains, attributionPartial: false };
+  };
+  // 200: the mockup's generator, seeded: independent Stage chains of depth 2 to 5, each
+  // one team in one domain, the last hop fanning out to cells; a few environments also
+  // deliver a second team's services. The snapshot owners come from is partial.
+  const largeFleet = (): StatsFleet => {
+    let seed = 7;
+    const rnd = () => (seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296;
+    const ri = (a: number, b: number) => a + Math.floor(rnd() * (b - a + 1));
+    const teams = ['payments', 'checkout', 'identity', 'search', 'ledger', 'notifications', 'platform-observability', 'ml-features', 'catalog', 'fraud-signals', 'partner-gateway', 'data-lake-ingest'];
+    const doms = ['eu-central-1', 'eu-west-1', 'us-east-1', 'us-west-2', 'ap-southeast-1', 'internal-tools'];
+    const svc = ['api', 'web', 'worker', 'sso', 'risk-engine', 'settlement', 'indexer', 'scheduler', 'feature-store', 'webhooks'];
+    const stageNames = [['sandbox', 'dev'], ['integration', 'test', 'qa'], ['staging', 'preprod', 'perf'], ['canary', 'prod-shadow']];
+    const lead2 = [[0.5, 4], [3, 20], [12, 60], [40, 150], [100, 300]];
+    const rows: EnvMetrics[] = [], direct: Record<string, string[]> = {}, owners: Record<string, string[]> = {}, domains: Record<string, string[]> = {};
+    for (let c = 0; rows.length < 200; c++) {
+      const team = teams[c % 12], dom = doms[(c * 5) % 6], depth = 2 + ((c * 7) % 4), name = `${team}-${svc[c % 10]}`;
+      let prev = '';
+      for (let d = 0; d < depth; d++) {
+        const end = d === depth - 1, stage = end ? 'prod' : stageNames[d][c % stageNames[d].length], fan = end ? ri(1, 9) : 1;
+        for (let f = 0; f < fan && rows.length < 200; f++) {
+          const env = `${name}-${stage}-${dom}${fan > 1 ? `-cell-${String(f + 1).padStart(2, '0')}-${['blue', 'green'][f % 2]}` : ''}`;
+          const n = d === 0 ? ri(20, 80) : ri(3, 30), risk = rnd() * (end ? 0.35 : 0.22);
+          const rate = (): [number, number] => { const of = ri(Math.max(1, n - 5), n); return [Math.round(of * risk * rnd() * 1.6), of]; };
+          const [a, b] = lead2[d], p50 = a + rnd() * (b - a);
+          const i = rows.length;
+          rows.push(metricsOf(env, { held: rate(), failed: rate(), rolledBack: rate(), verificationFailed: rate() }, ri(0, 2),
+            lead(p50, p50 * (1.3 + rnd() * 1.4), i % 31 === 11 ? 0 : ri(1, 8), ri(0, 1))));
+          if (prev) direct[env] = [prev];
+          owners[env] = i % 25 === 3 ? [team, teams[(c + 1) % 12]] : [team];
+          domains[env] = [dom];
+          if (!end) prev = env;
+        }
+      }
+    }
+    for (let i = 7; i < 200; i += 17) rows[i][RATES[i % 4]] = ratio(0, 0); // nothing to count
+    return { envs: place(rows, direct), owners, domains, attributionPartial: true };
+  };
+  const FLEETS: Record<string, () => StatsFleet> = { '5': smallFleet, '60': scaleFleet, '200': largeFleet };
+  const fleetMemo = new Map<string, StatsFleet>();
+  const statsFleet = () => {
+    const size = FLEETS[statsSize()] ? statsSize() : '60';
+    if (!fleetMemo.has(size)) fleetMemo.set(size, FLEETS[size]());
+    return fleetMemo.get(size)!;
+  };
+  // Part k of n of a count, the remainder on the first parts, so the parts add up and a
+  // part of a rate never counts more than it is taken over.
+  const part = (v: number, k: number, n: number) => Math.floor(v / n) + (k < v % n ? 1 : 0);
+  const partOf = (e: EnvMetrics, k: number, n: number): EnvMetrics => {
+    const l = e.leadTime, joined = part(l.joined, k, n), unjoined = part(l.unjoined, k, n);
+    const out = { environment: e.environment, source: e.source, operations: part(e.operations, k, n), acceptedUnknown: part(e.acceptedUnknown, k, n),
+      leadTime: joined && l.p50Seconds !== undefined ? { ...l, joined, unjoined } : { joined: 0, unjoined, unknown: true } } as EnvMetrics;
+    for (const r of RATES) out[r] = ratio(part(e[r].count, k, n), part(e[r].of, k, n));
+    return out;
+  };
+  // ponytail: a fixture's pooled percentile weighs each environment's p50 and p90 by its
+  // joined promotions; the engine pools the real durations (stats.LeadTimesIn).
+  const pool = (ls: Lead[]): Lead => {
+    const known = ls.filter((l) => l.joined && l.p50Seconds !== undefined);
+    const unjoined = ls.reduce((n, l) => n + l.unjoined, 0), joined = known.reduce((n, l) => n + l.joined, 0);
+    if (!joined) return { joined: 0, unjoined, unknown: true };
+    const rank = (pick: (l: Lead) => number, p: number) => {
+      const v = known.flatMap((l) => Array<number>(l.joined).fill(pick(l))).sort((a, b) => a - b);
+      return v[Math.ceil(p * v.length) - 1];
+    };
+    return { p50Seconds: rank((l) => l.p50Seconds!, 0.5), p90Seconds: rank((l) => l.p90Seconds ?? l.p50Seconds!, 0.9), joined, unjoined };
+  };
+  const depthLabel = (d: number) => (d === 0 ? 'entry' : `hop ${d + 1}`);
+  const leadTimeGroups = (envs: StatsEnv[], buckets: Record<string, unknown>[]) => {
+    const ends = envs.filter((e) => e.chainEnd).map((e) => e.environment);
+    const groups: { key: string; label: string; depth?: number; members: string[] }[] = ends.length ? [{ key: 'chain-end', label: 'chain end', members: ends }] : [];
+    for (const d of [...new Set(envs.flatMap((e) => (e.depth === undefined ? [] : [e.depth])))].sort((a, b) => a - b)) {
+      groups.push({ key: `depth-${d}`, label: depthLabel(d), depth: d, members: envs.filter((e) => e.depth === d).map((e) => e.environment) });
+    }
+    if (!ends.length && envs.length) groups.push({ key: 'all', label: 'every environment', members: envs.map((e) => e.environment) });
+    return groups.map(({ members, ...g }) => {
+      const of = (es: EnvMetrics[]) => pool(es.filter((e) => members.includes(e.environment)).map((e) => e.leadTime));
+      return { ...g, environments: members.length, leadTime: of(envs),
+        buckets: buckets.map((b) => of(((b.metrics as { environments?: EnvMetrics[] } | undefined)?.environments) ?? [])) };
+    });
+  };
+  // environmentsBy: each owner's or domain's numbers per environment. An environment that
+  // delivers two groups' services splits its records between them.
+  const environmentsBy = (f: StatsFleet, of: Record<string, string[]>) => {
+    const groups = new Map<string, EnvMetrics[]>();
+    for (const e of f.envs) {
+      const keys = of[e.environment] ?? [];
+      keys.forEach((k, i) => { if (!groups.has(k)) groups.set(k, []); groups.get(k)!.push(partOf(e, i, keys.length)); });
+    }
+    const named = (k: string) => k.startsWith('(');
+    return [...groups].sort(([a], [b]) => Number(named(a)) - Number(named(b)) || a.localeCompare(b))
+      .map(([key, envs]) => ({ key, label: named(key) ? key.slice(1, -1) : key, environments: envs.sort((a, b) => a.environment.localeCompare(b.environment)) }));
   };
   const coverageOf = (asOf: Date, partial: boolean) => ({
     services: 2000, uncontracted: 14, knowledge: { services: 2000, described: 1240, withGaps: 560, unknown: 200, notDeployed: 90 },
@@ -897,29 +1069,49 @@ export function installScaleFixture(): void {
       ? [{ code: 'NO_RUN_RECORDS', message: 'no run records in this window: recording may be off for these jobs, or the window holds none' }]
       : [{ code: 'RUN_RECORDS_SKIPPED', message: '3 run records could not be counted: 1 malformed and 2 unreadable' },
           ...(restricted ? [{ code: 'OUTSIDE_YOUR_VIEW', message: 'some run records name services outside your view of the fleet and are left out of every number' },
-            { code: 'COVERAGE_OUTSIDE_YOUR_VIEW', message: 'coverage records count every service, so only a reader who can see every service sees them' }] : [])];
+            { code: 'COVERAGE_OUTSIDE_YOUR_VIEW', message: 'coverage records count every service, so only a reader who can see every service sees them' }] : []),
+          ...(statsFleet().attributionPartial ? [{ code: 'ATTRIBUTION_PARTIAL', message: 'the fleet snapshot owner and domain come from is partial; a service it misses groups as unknown' }] : [])];
     return {
       asOf: until.toISOString(), window: { since: since.toISOString(), until: until.toISOString() }, registry: 'ghcr.io/acme/pacto-stats',
       recordsRead: empty ? 0 : 1240, completeness: empty ? 'empty' : 'partial', provenance: 'unsigned statistics', truncated: '',
       skipped: empty ? { malformed: 0, oversized: 0, unreadable: 0 } : { malformed: 1, oversized: 0, unreadable: 2 }, hidden: { present: restricted }, limitations,
     };
   };
+  // The next-to-newest bucket holds no record (a gap: never 0); every other one holds
+  // its share of each environment's window numbers, so the buckets add up to the window.
   const statsBuckets = (since: Date, until: Date, restricted: boolean) => {
     const size = (until.getTime() - since.getTime()) <= 7 * 86_400_000 ? 86_400_000 : 7 * 86_400_000;
     const out: Record<string, unknown>[] = [];
+    const n = Math.ceil((until.getTime() - since.getTime()) / size) - 1, envs = statsFleet().envs;
     for (let end = until.getTime(), i = 0; end > since.getTime(); end -= size, i++) {
       const start = Math.max(since.getTime(), end - size);
       const b: Record<string, unknown> = { since: new Date(start).toISOString(), until: new Date(end).toISOString(), days: Math.ceil((end - start) / 86_400_000) };
       if (end - start < size) b.partial = true;
       if (i !== 1) {
+        const k = i ? i - 1 : 0;
         b.metrics = { breakingCaught: { distinct: 2 + (i % 5), runs: 5 + i }, consumersProtected: { count: 3 * (i % 4), unknown: i % 2, ...(i === 2 ? { partial: 1 } : {}) },
           gates: { clear: 30 + i, blocked: 2 + (i % 3), unverified: i % 2 },
-          environments: [{ ...STATS_ENVS[0], held: i === 3 ? ratio(0, 0) : ratio(i % 3, 6) }] };
+          environments: envs.map((e) => partOf(e, k, n)).filter((e) => e.operations) };
       }
-      if (!restricted && i !== 0) b.coverage = coverageOf(new Date(end - 3_600_000), i === 2);
+      // The gap week holds no coverage record either, so the coverage line breaks there.
+      if (!restricted && i !== 1) b.coverage = coverageOf(new Date(end - 3_600_000), i === 2);
       out.push(b);
     }
     return out.reverse();
+  };
+  // The window totals. One breaking change ran in two buckets and its gate cleared in
+  // both, so it counts once in the window and once in each bucket.
+  const windowTotals = (buckets: Record<string, unknown>[]) => {
+    const ms = buckets.flatMap((b) => (b.metrics ? [b.metrics as { breakingCaught: { distinct: number; runs: number }; gates: Record<string, number> }] : []));
+    const sum = (f: (m: (typeof ms)[number]) => number) => ms.reduce((n, m) => n + f(m), 0);
+    return { breakingCaught: { distinct: sum((m) => m.breakingCaught.distinct) - 1, runs: sum((m) => m.breakingCaught.runs) },
+      gates: { clear: sum((m) => m.gates.clear) - 1, blocked: sum((m) => m.gates.blocked), unverified: sum((m) => m.gates.unverified) } };
+  };
+  const statsTotal = (metric: string, env: string, query: string): number => {
+    const rate = (RATES as readonly string[]).includes(metric) ? metric as (typeof RATES)[number] : '';
+    if (rate) return statsFleet().envs.filter((e) => !env || e.environment === env).reduce((n, e) => n + e[rate].count, 0);
+    const e = statsEnvelope('', query), t = windowTotals(statsBuckets(new Date(e.window.since), new Date(e.window.until), false));
+    return ({ breaking: t.breakingCaught.distinct, protected: t.gates.blocked, ...t.gates } as Record<string, number>)[metric] ?? 8;
   };
   const statsServiceRow = (i: number) => {
     const metrics = { breakingCaught: { distinct: i % 4, runs: i % 9 }, consumersProtected: { count: i % 13, unknown: 0 }, gates: { clear: i % 20, blocked: i % 3, unverified: i % 2 } };
@@ -930,8 +1122,8 @@ export function installScaleFixture(): void {
     const digest = (k: string) => `sha256:${(hash(k).toString(16).padStart(8, '0')).repeat(8)}`;
     const recordedAt = new Date(Date.now() - (n + 1) * 3_600_000).toISOString();
     const id = `${metric}-${env}-${n}`;
-    if (['held', 'failed', 'rolledBack', 'verificationFailed', 'leadTime'].includes(metric)) {
-      const environment = env || STATS_ENVS[0].environment;
+    if ([...RATES, 'leadTime'].includes(metric)) {
+      const environment = env || statsFleet().envs[0].environment;
       return { record: { id, version: '1', pactoVersion: '4', kind: 'operation', type: metric === 'rolledBack' ? 'rollback' : 'promote', outcome: metric === 'held' ? 'Held' : 'Failed',
         service: n === 0 ? 'payments-service' : longName(`stats-svc-${n}`), environment, recordedAt },
         stage: { namespace: longName('stats-team-namespace'), name: longName(`stats-stage-${n}`), environment },
@@ -954,18 +1146,22 @@ export function installScaleFixture(): void {
     const offset = Math.max(0, Number(q.get('offset') ?? q.get('servicesOffset') ?? 0) || 0);
     if (route === '/api/stats/records') {
       const metric = q.get('metric') ?? '', environment = q.get('environment') ?? '';
-      const total = mode === 'none' ? 0 : statsTotal(metric, environment);
+      const total = mode === 'none' ? 0 : statsTotal(metric, environment, query);
       const limit = Math.min(100, Number(q.get('limit') ?? 25) || 25);
       return { ...env, total, items: Array.from({ length: Math.max(0, Math.min(limit, total - offset)) }, (_, j) => statsRecord(metric, environment, offset + j)) };
     }
-    if (mode === 'none') return { ...env, runs: 0, distinctChanges: 0, environmentOrder: 'name', environments: [], services: [], servicesTotal: 0, buckets: [] };
+    if (mode === 'none') return { ...env, runs: 0, distinctChanges: 0, environmentOrder: 'name', environments: [], services: [], servicesTotal: 0, buckets: [], environmentsBy: { owner: [], domain: [] }, leadTimeGroups: [] };
     const sOffset = Math.max(0, Number(q.get('servicesOffset') ?? 0) || 0), sLimit = Math.min(100, Number(q.get('servicesLimit') ?? 25) || 25);
-    const restricted = mode === 'restricted';
+    const restricted = mode === 'restricted', f = statsFleet();
+    const buckets = statsBuckets(new Date(env.window.since), new Date(env.window.until), restricted);
+    const totals = windowTotals(buckets);
+    const attribution = { provenance: 'inferred', asOf: env.asOf, snapshotId: 'fixture-snapshot', ...(f.attributionPartial ? { partial: true } : {}) };
     return {
-      ...env, runs: 1180, distinctChanges: 860, environmentOrder: 'stages', environments: STATS_ENVS,
-      totals: { breakingCaught: { distinct: 37, runs: 90 }, consumersProtected: { count: 120, unknown: 4, partial: 1 }, gates: STATS_GATES, environments: STATS_ENVS },
+      ...env, runs: 1180, distinctChanges: 860, environmentOrder: 'stages', environments: f.envs,
+      totals: { ...totals, consumersProtected: { count: 120, unknown: 4, partial: 1 }, environments: f.envs.map(({ upstream: _u, parents: _p, depth: _d, chainEnd: _c, cycle: _y, unordered: _o, ...m }) => m) },
       services: Array.from({ length: Math.max(0, Math.min(sLimit, 2000 - sOffset)) }, (_, j) => statsServiceRow(sOffset + j)), servicesTotal: 2000,
-      buckets: statsBuckets(new Date(env.window.since), new Date(env.window.until), restricted),
+      environmentsBy: { owner: environmentsBy(f, f.owners), domain: environmentsBy(f, f.domains), attribution },
+      leadTimeGroups: leadTimeGroups(f.envs, buckets), buckets,
       coverageNow: restricted ? { ...coverageOf(new Date(), false), services: 300, knowledge: { services: 300, described: 200, withGaps: 60, unknown: 40, notDeployed: 12 } } : coverageOf(new Date(), true),
     };
   };
@@ -1341,15 +1537,9 @@ export async function densityProblems(page: Page): Promise<string[]> {
   });
 }
 
-/**
- * figureLinkTotals follows every "List all N" and "N more" link of a figure (T3, G1 r5)
- * and reads the total of the list it lands on, from the `data-view-total` its pager
- * carries: "List all N" must land on N, "N more" on N plus the chips its lane names,
- * and a link that says how many it lists in `data-lists` (a phase station's "N
- * consumers", where the station's own count is of requests) on that N. A link that lands on no paged list (prose) fails too. It navigates, so call it last.
- */
-export async function figureLinkTotals(page: Page): Promise<string[]> {
-  const links = await page.evaluate(() => [...document.querySelectorAll<HTMLAnchorElement>('[data-fig] a')]
+/** figureLinks are the links figureLinkTotals follows, each with the total it must land on. */
+export async function figureLinks(page: Page): Promise<{ href: string; text: string; want: number }[]> {
+  return page.evaluate(() => [...document.querySelectorAll<HTMLAnchorElement>('[data-fig] a')]
     .filter((a) => a.getClientRects().length && (a.hasAttribute('data-lists') || /^(List all [\d,]+|[\d,]+ more)$/.test((a.textContent ?? '').trim())))
     .map((a) => {
       const t = (a.textContent ?? '').trim(), n = Number(t.replace(/[^\d]/g, ''));
@@ -1359,6 +1549,17 @@ export async function figureLinkTotals(page: Page): Promise<string[]> {
       const shown = lane ? [...lane.querySelectorAll('.chip')].filter((c) => c.getClientRects().length).length : 0;
       return { href: a.getAttribute('href') ?? '', text: t, want: t.startsWith('List all') ? n : n + shown };
     }));
+}
+
+/**
+ * figureLinkTotals follows every "List all N" and "N more" link of a figure (T3, G1 r5)
+ * and reads the total of the list it lands on, from the `data-view-total` its pager
+ * carries: "List all N" must land on N, "N more" on N plus the chips its lane names,
+ * and a link that says how many it lists in `data-lists` (a phase station's "N
+ * consumers", where the station's own count is of requests) on that N. A link that lands on no paged list (prose) fails too. It navigates, so call it last.
+ */
+export async function figureLinkTotals(page: Page): Promise<string[]> {
+  const links = await figureLinks(page);
   const out: string[] = [];
   for (const l of links) {
     await page.goto(`/${l.href}`);
@@ -1556,6 +1757,59 @@ const openMetrics = (mode: string) => async (page: Page) => {
 };
 
 /**
+ * Opens Metrics at one fixture size (#597): the recorded window over 5 or 200
+ * environments, a real navigation like openMetrics. The 60 case is the `metrics` route.
+ */
+export const openMetricsAt = (envs: '5' | '200') => async (page: Page) => {
+  await page.evaluate((n) => { sessionStorage.removeItem('fixture.stats'); sessionStorage.setItem('fixture.stats.envs', n); }, envs);
+  // The size in the path too, so a second size after a first one is a real navigation.
+  await page.goto(`/index.html?fixture=1&envs=${envs}#/metrics`);
+  await page.evaluate(() => (window as unknown as { __pactoReady?: Promise<unknown> }).__pactoReady);
+  await expect(page.getByTestId('metrics-tiles')).toBeVisible({ timeout: 30_000 });
+  const health = page.getByTestId('metrics-health');
+  if (envs === '5') {
+    await expect(health.getByTestId('metrics-env-panel')).toHaveCount(5);
+    return;
+  }
+  // 200: the depth filter row and collapsed groups with their pooled rows.
+  await expect(page.getByRole('group', { name: 'Filter by promotion depth' })).toBeVisible();
+  await expect(health.locator('tr.rung button[aria-expanded="false"]').first()).toBeVisible();
+};
+
+/**
+ * Opens Metrics at the default 60 environments: the heatmap, its groups collapsed, then
+ * the first group opened so its rows (long names) are laid out and checked too.
+ */
+const metricsSixty = async (page: Page) => {
+  await page.goto('/index.html?fixture=1#/metrics');
+  await page.evaluate(() => (window as unknown as { __pactoReady?: Promise<unknown> }).__pactoReady);
+  const health = page.getByTestId('metrics-health');
+  await expect(health.locator('.hm-scroll')).toBeVisible({ timeout: 30_000 });
+  await health.locator('tr.rung button').first().click();
+  await expect(health.locator('.hm tbody th[scope="row"]').first()).toBeVisible();
+  await page.evaluate(() => window.scrollTo(0, 0)); // the click scrolled the card into view; the gate reads from the top
+};
+
+/**
+ * Opens Metrics (60 environments) with every chart card shown as its table (#597), so the
+ * layout checks and figureLinkTotals run over the table views and their narrow form.
+ */
+const metricsTables = async (page: Page) => {
+  await page.goto('/index.html?fixture=1#/metrics');
+  await page.evaluate(() => (window as unknown as { __pactoReady?: Promise<unknown> }).__pactoReady);
+  const toggles = page.getByRole('button', { name: 'Show as table' });
+  await expect(toggles.first()).toBeVisible({ timeout: 30_000 });
+  const n = await toggles.count();
+  for (let i = 0; i < n; i++) await toggles.first().click();
+  // Every card shows its table; lead time shows two (per environment and per week).
+  await expect(toggles).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Show as chart' })).toHaveCount(n);
+  await expect(page.getByTestId('metrics-health').locator('.cc-table')).toBeVisible();
+  await expect(page.getByTestId('metrics-lead').locator('.cc-table')).toHaveCount(2);
+  await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+};
+
+/**
  * Opens Metrics over the browser demo's own run records (the fixture's `engine` mode),
  * a real navigation like openMetrics, and waits for the populated tiles and checkout's
  * prod-eu row, so an error page or the explainer cannot pass for the page.
@@ -1565,7 +1819,7 @@ const demoMetrics = (hash: string) => async (page: Page) => {
   await page.goto(`/index.html?fixture=1${hash}`);
   await page.evaluate(() => (window as unknown as { __pactoReady?: Promise<unknown> }).__pactoReady);
   await expect(page.getByTestId('metrics-tiles').locator('.mx-tile').first()).toBeVisible({ timeout: 30_000 });
-  await expect(page.locator('[data-testid="metrics-env-row"] th a[title="prod-eu"]')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId('metrics-health').getByText('prod-eu', { exact: true }).first()).toBeVisible({ timeout: 30_000 });
 };
 
 /** Opens a service created from a golden path, through the path's own created count. */
@@ -1940,9 +2194,12 @@ export const ROUTES: Route[] = [
   },
   { name: 'metrics off', open: openMetrics('off') },
   { name: 'metrics no records', open: openMetrics('none') },
-  { name: 'metrics', hash: '#/metrics' },
+  { name: 'metrics', open: metricsSixty },
   { name: 'metrics records', hash: '#/metrics?metric=blocked' },
   { name: 'metrics restricted', open: openMetrics('restricted') },
+  { name: 'metrics 5 environments', open: openMetricsAt('5') },
+  { name: 'metrics 200 environments', open: openMetricsAt('200') },
+  { name: 'metrics tables', open: metricsTables },
   { name: 'metrics (demo records)', open: demoMetrics('#/metrics') },
   { name: 'metrics (demo records, 90 days)', open: demoMetrics('#/metrics?window=90d') },
 ];

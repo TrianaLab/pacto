@@ -170,25 +170,31 @@ func environmentMetrics(entries, history []Entry) []EnvironmentMetrics {
 	return out
 }
 
-// leadTimes joins, per environment, the first Succeeded and Verified promote
-// of each digest per Stage to the earliest publish record of the same service
-// with that deploy digest, else with the operation's contract as its bundle
-// digest. history is every visible record, in the window or before it: a
-// promote among ops counts only when no earlier one in history promoted its
+// leadSample is one environment's joined leads in seconds and its count of
+// unjoined promotions.
+type leadSample struct {
+	leads    []int64
+	unjoined int
+}
+
+// leadDurations joins, per environment, the first Succeeded and Verified
+// promote of each digest per Stage to the earliest publish record of the same
+// service with that deploy digest, else with the operation's contract as its
+// bundle digest. history is every visible record, in the window or before it:
+// a promote among ops counts only when no earlier one in history promoted its
 // digest to its Stage, and a publish rerun never moves the start. A promotion
 // that joins nothing, or would lead by a negative or unparsable time, is
 // unjoined. This is the only D7-specific function.
-func leadTimes(ops, history []Entry) map[string]LeadTime {
-	type acc struct {
-		leads    []int64
-		unjoined int
-	}
-	byEnv := map[string]*acc{}
+func leadDurations(ops, history []Entry) map[string]*leadSample {
+	byEnv := map[string]*leadSample{}
 	for _, j := range joinPromotes(ops, history) {
-		env, _, _ := environmentOf(j.op.Record)
+		env, _, ok := environmentOf(j.op.Record)
+		if !ok {
+			continue
+		}
 		a := byEnv[env]
 		if a == nil {
-			a = &acc{}
+			a = &leadSample{}
 			byEnv[env] = a
 		}
 		if j.pub != nil {
@@ -197,10 +203,43 @@ func leadTimes(ops, history []Entry) map[string]LeadTime {
 			a.unjoined++
 		}
 	}
+	return byEnv
+}
+
+// leadTimeOf is the nearest-rank p50 and p90 of a sample; unknown when
+// nothing joined.
+func leadTimeOf(a leadSample) LeadTime {
+	slices.Sort(a.leads)
+	return LeadTime{P50Seconds: percentile(a.leads, 50), P90Seconds: percentile(a.leads, 90), Joined: len(a.leads), Unjoined: a.unjoined, Unknown: len(a.leads) == 0}
+}
+
+// leadTimes is the lead time per environment.
+func leadTimes(ops, history []Entry) map[string]LeadTime {
 	out := map[string]LeadTime{}
-	for env, a := range byEnv {
-		slices.Sort(a.leads)
-		out[env] = LeadTime{P50Seconds: percentile(a.leads, 50), P90Seconds: percentile(a.leads, 90), Joined: len(a.leads), Unjoined: a.unjoined, Unknown: len(a.leads) == 0}
+	for env, a := range leadDurations(ops, history) {
+		out[env] = leadTimeOf(*a)
+	}
+	return out
+}
+
+// LeadTimesIn is the lead time of each named group of environments: one
+// percentile over the pooled promotions of its environments, never a
+// percentile of percentiles. It selects and joins once, with the visibility,
+// window and history Aggregate uses, however many groups there are. A group
+// whose environments joined nothing is unknown. It does no I/O.
+func LeadTimesIn(set RecordSet, q Query, sc Scope, now time.Time, groups map[string][]string) map[string]LeadTime {
+	sel := selectRecords(set, q, sc, now)
+	byEnv := leadDurations(sel.inWindow, sel.history)
+	out := make(map[string]LeadTime, len(groups))
+	for key, names := range groups {
+		var pooled leadSample
+		for _, env := range names {
+			if a := byEnv[env]; a != nil {
+				pooled.leads = append(pooled.leads, a.leads...)
+				pooled.unjoined += a.unjoined
+			}
+		}
+		out[key] = leadTimeOf(pooled)
 	}
 	return out
 }

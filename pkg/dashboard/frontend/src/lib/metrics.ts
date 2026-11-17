@@ -1,17 +1,41 @@
 /**
- * The Metrics page model (#493): what each tile, trend and table row of the page says,
- * computed from one /api/stats answer. Pure, so the drawing and its caption come from
- * the same numbers. Unknown is never a number: a bucket with no records, a rate with
- * nothing to take it over and a lead time no promotion joined all say why instead.
+ * The Metrics page model (#493, #597): what each tile, chart, tooltip and table cell of
+ * the page says, computed from one /api/stats answer. Pure, so a drawing, its caption
+ * and its table view read the same numbers and can never disagree. Unknown is never a
+ * number: a bucket with no records, a rate with nothing to take it over and a lead time
+ * no promotion joined all say why instead. Percentiles are pooled by the server
+ * (leadTimeGroups); nothing here takes a percentile of percentiles.
  */
 import type { ProductStats } from './api.ts';
 import { metricsUrl } from './router.ts';
 import { countOf, formatCount } from './format.ts';
+import { formatDateTime } from './dateFormat.ts';
+import { durationText, niceMax } from './chart.ts';
 
 type Metrics = NonNullable<ProductStats['totals']>;
 type Bucket = NonNullable<ProductStats['buckets']>[number];
 type Environment = NonNullable<ProductStats['environments']>[number];
+type LeadGroup = NonNullable<ProductStats['leadTimeGroups']>[number];
+type LeadTime = Environment['leadTime'];
+/** The numbers a group's environment carries: an owner's or a domain's share, or the whole environment. */
+export type EnvMetrics = NonNullable<Metrics['environments']>[number];
 export type Ratio = Environment['held'];
+
+/** Adaptive thresholds (Decision 10). */
+export const SMALL_MULTIPLES_MAX = 8;
+export const COLLAPSE_ABOVE = 50;
+export const GROUP_TOP = 10;
+export const GROUP_PAGE = 20;
+export const LEAD_TOP = 10;
+export const LEAD_PAGE = 20;
+export const TABLE_PAGE = 10;
+/** The heatmap bins, least to worst; a real 0% is its own neutral cell, unknown is hatched. */
+export const BINS = [
+  { max: 0.10, label: 'up to 10%' },
+  { max: 0.20, label: '10 to 20%' },
+  { max: 0.35, label: '20 to 35%' },
+  { max: Infinity, label: 'over 35%' },
+] as const;
 
 /** The rates an environment carries, keyed by the metric that lists their records. */
 export const RATES = [
@@ -20,22 +44,7 @@ export const RATES = [
   { metric: 'rolledBack', label: 'Rolled back', field: 'rolledBack' },
   { metric: 'verificationFailed', label: 'Verification failed', field: 'verificationFailed' },
 ] as const;
-type RateField = (typeof RATES)[number]['field'];
-
-export interface Tile {
-  key: string;
-  label: string;
-  /** A second line under the label, such as the environment of a lead time: never clipped. */
-  sub?: string;
-  /** The number, or the word `unknown`. */
-  value: string;
-  unknown?: boolean;
-  detail?: string;
-  /** The records behind the number; absent when there are none to list. */
-  href?: string;
-  /** How many records `href` lists, for a link that says how many it opens. */
-  lists?: number;
-}
+export type RateField = (typeof RATES)[number]['field'];
 
 /** ratioText prints a rate as "3/41 (7%)", or `unknown` when there is nothing to take it
  *  over, with the records it still counted: "unknown (1 counted)". */
@@ -44,22 +53,10 @@ export function ratioText(r: Ratio | undefined): string {
   return `${formatCount(r.count)}/${formatCount(r.of)} (${Math.round((r.count / r.of) * 100)}%)`;
 }
 
-/** sumRate adds one rate across environments: each operation counts under one only. An
- *  environment that counted records with nothing to take them over (a rollback with no
- *  succeeded promote) makes the sum unknown, never a rate that leaves them out. */
-export function sumRate(envs: Pick<Environment, RateField>[] | null | undefined, field: RateField): Ratio {
-  let count = 0, of = 0, stray = false;
-  for (const e of envs ?? []) {
-    count += e[field].count;
-    of += e[field].of;
-    stray ||= !!e[field].unknown && e[field].count > 0;
-  }
-  return of && !stray ? { count, of } : { count, of, unknown: true };
-}
-
 /** noCI says a Metrics counted no diff or impact run: its CI numbers measured nothing. */
 export const noCI = (m: Pick<Metrics, 'changes'>) => m.changes === 0;
 export const NO_CI = 'no CI records';
+const NO_RECORDS = 'no records';
 
 /** protectedText prints a consumers-protected count, "12", or "12 or more" with how many
  *  are unknown when the count is a lower bound; `qualified` says to hatch it. */
@@ -70,118 +67,13 @@ export function protectedText(m: Pick<Metrics, 'changes' | 'consumersProtected'>
   return { text: [`${formatCount(p.count)} or more`, p.unknown ? `${formatCount(p.unknown)} unknown` : ''].filter(Boolean).join(', '), qualified: true };
 }
 
-/** duration prints seconds as the two largest units: "45s", "12m", "3h 20m", "2d 4h". */
-export function duration(seconds: number | null | undefined): string {
-  if (seconds == null) return 'unknown';
-  const units: [string, number][] = [['d', 86_400], ['h', 3_600], ['m', 60], ['s', 1]];
-  const parts: string[] = [];
-  let left = Math.max(0, Math.round(seconds));
-  for (const [u, n] of units) {
-    const v = Math.floor(left / n);
-    left -= v * n;
-    if (v || parts.length) parts.push(`${v}${u}`);
-    if (parts.length === 2) break;
-  }
-  return parts.filter((x) => !x.startsWith('0')).join(' ') || '0s';
-}
+const DAY_MS = 86_400_000;
+const day = (t: string | number) => new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
 
-/** The most lead-time tiles a page draws; the environments table holds every one. */
-export const LEAD_TILES = 4;
-
-/** tiles are the window's headline numbers, each linked to the records behind it. */
-export function tiles(st: ProductStats, window = ''): Tile[] {
-  const t = st.totals;
-  const w = window || undefined;
-  const link = (metric: string, n: number, environment?: string) =>
-    (n > 0 ? { href: metricsUrl({ window: w, metric, environment }), lists: n } : {});
-  if (!t) return [];
-  const g = t.gates;
-  const p = t.consumersProtected;
-  // With no diff or impact run in the window, the CI numbers measured nothing: unknown.
-  const ci = noCI(t)
-    ? [['breaking', 'Breaking changes caught'], ['protected', 'Consumers protected'], ['clear', 'Gates clear'], ['blocked', 'Gates blocked'], ['unverified', 'Gates unverified']]
-      .map(([key, label]): Tile => ({ key, label, value: 'unknown', unknown: true, detail: NO_CI }))
-    : [
-      { key: 'breaking', label: 'Breaking changes caught', value: formatCount(t.breakingCaught.distinct),
-        detail: countOf(t.breakingCaught.runs, 'run'), ...link('breaking', t.breakingCaught.distinct) },
-      { key: 'protected', label: 'Consumers protected', value: formatCount(p.count),
-        detail: [`by ${countOf(g.blocked, 'blocked change')}`, p.unknown ? `${formatCount(p.unknown)} unknown` : '', p.partial || p.unknown ? 'a lower bound' : '']
-          .filter(Boolean).join(', '),
-        ...link('protected', g.blocked) },
-      { key: 'clear', label: 'Gates clear', value: formatCount(g.clear), ...link('clear', g.clear) },
-      { key: 'blocked', label: 'Gates blocked', value: formatCount(g.blocked), ...link('blocked', g.blocked) },
-      { key: 'unverified', label: 'Gates unverified', value: formatCount(g.unverified), ...link('unverified', g.unverified) },
-    ];
-  const out: Tile[] = [...ci];
-  for (const r of RATES) {
-    const sum = sumRate(t.environments, r.field);
-    out.push({ key: r.metric, label: `${r.label} rate`, value: ratioText(sum), unknown: !!sum.unknown, ...link(r.metric, sum.count) });
-  }
-  const envs = st.environments ?? [];
-  // ponytail: the first few environments in promotion order get a tile; the table lists them all.
-  for (const e of envs.slice(0, LEAD_TILES)) {
-    const p50 = e.leadTime.p50Seconds;
-    out.push({ key: `lead:${e.environment}`, label: 'Lead time p50', sub: e.environment, value: duration(p50), unknown: p50 == null,
-      detail: e.leadTime.unjoined ? `${formatCount(e.leadTime.unjoined)} with no publish record` : undefined,
-      ...(e.leadTime.joined ? { href: metricsUrl({ window: w, metric: 'leadTime', environment: e.environment }) } : {}) });
-  }
-  return out;
-}
-
-/** The goal metrics drawn as trends, in page order. */
-export const TRENDS = [
-  { metric: 'breaking', title: 'Breaking changes caught' },
-  { metric: 'protected', title: 'Consumers protected' },
-  { metric: 'blocked', title: 'Gates blocked' },
-  ...RATES.map((r) => ({ metric: r.metric, title: `${r.label} promotions` })),
-] as const;
-
-export type UnknownReason = 'no-records' | 'no-denominator' | 'no-ci';
-const REASON_TEXT: Record<UnknownReason, string> = { 'no-records': 'no records', 'no-denominator': 'nothing to count', 'no-ci': NO_CI };
-
-export interface TrendRow {
-  label: string;
-  value: number;
-  unknown?: string;
-  reason?: UnknownReason;
-  hatch?: boolean;
-  /** The value as printed, when it says more than the number: "12 or more". */
-  display?: string;
-  /** The value is a lower bound. */
-  lowerBound?: boolean;
-}
-
-const day = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
-
-/** bucketLabel names a bucket: "3 Nov" for a day, "week of 3 Nov", or "2 days from 1 Nov" for a short one. */
+/** bucketLabel names a bucket for the records panel: "3 Nov", "week of 3 Nov" or "2 days from 1 Nov". */
 export function bucketLabel(b: Bucket, daily: boolean): string {
   if (b.partial) return `${countOf(b.days, 'day')} from ${day(b.since)}`;
   return daily ? day(b.since) : `week of ${day(b.since)}`;
-}
-
-const CI_METRICS = ['breaking', 'protected', 'blocked'];
-
-function valueOf(m: Metrics, metric: string): { value: number; reason?: UnknownReason; partial?: boolean; counted?: number } {
-  if (CI_METRICS.includes(metric) && noCI(m)) return { value: 0, reason: 'no-ci' };
-  switch (metric) {
-    case 'breaking': return { value: m.breakingCaught.distinct };
-    // Unknown consumers may be blocking ones: the count is a lower bound either way.
-    case 'protected': return { value: m.consumersProtected.count, partial: !!(m.consumersProtected.partial || m.consumersProtected.unknown) };
-    case 'blocked': return { value: m.gates.blocked };
-  }
-  const r = sumRate(m.environments, metric as RateField);
-  return r.unknown ? { value: 0, reason: 'no-denominator', counted: r.count } : { value: r.count };
-}
-
-/** windowTotal is a trend metric over the whole window, from the totals the tiles show,
- *  so a caption never adds per-bucket counts into a different number; null when the
- *  window measured nothing for it. */
-export function windowTotal(st: ProductStats, metric: string): { value: number; lowerBound?: boolean } | null {
-  const t = st.totals;
-  if (!t) return null;
-  const v = valueOf(t, metric);
-  if (v.reason === 'no-ci') return null;
-  return { value: v.reason ? v.counted ?? 0 : v.value, lowerBound: v.partial };
 }
 
 /** isDaily says whether the answer's buckets are days (a 7-day window) or weeks. */
@@ -189,75 +81,489 @@ export function isDaily(st: ProductStats): boolean {
   return (st.buckets ?? []).every((b) => b.days <= 1);
 }
 
-/** trend is one metric per bucket, oldest first; a bucket that cannot answer says why. */
-export function trend(st: ProductStats, metric: string): TrendRow[] {
-  const daily = isDaily(st);
-  return (st.buckets ?? []).map((b) => {
-    const label = bucketLabel(b, daily);
-    if (!b.metrics) return { label, value: 0, reason: 'no-records', unknown: REASON_TEXT['no-records'] };
-    const v = valueOf(b.metrics, metric);
-    if (v.reason) {
-      const text = v.counted ? `${formatCount(v.counted)} with no rate` : REASON_TEXT[v.reason];
-      return { label, value: 0, reason: v.reason, unknown: text };
-    }
-    return v.partial ? { label, value: v.value, hatch: true, lowerBound: true, display: `${formatCount(v.value)} or more` } : { label, value: v.value };
-  });
-}
-
-/** caption says in words what a trend draws: "Gates blocked per week: 8 over 30 days; 1 week had no records."
- *  The window figure is `total`, the number the tile shows, never a sum of the buckets: a
- *  change can count in two buckets and once in the window. */
-export function caption(title: string, rows: TrendRow[], daily: boolean, windowDays: number, total: ReturnType<typeof windowTotal>): string {
-  const unit = daily ? 'day' : 'week';
-  const of = (reason: UnknownReason) => rows.filter((r) => r.reason === reason).length;
-  const missing = of('no-records'), nothing = of('no-denominator'), noCi = of('no-ci');
-  const lower = rows.filter((r) => r.lowerBound).length;
-  const figure = total == null ? 'unknown' : `${formatCount(total.value)}${total.lowerBound ? ' or more' : ''}`;
-  return [
-    `${title} per ${unit}: ${figure} over ${countOf(windowDays, 'day')}`,
-    missing ? `${countOf(missing, unit)} had no records` : '',
-    noCi ? `${countOf(noCi, unit)} had no CI records` : '',
-    nothing ? `${countOf(nothing, unit)} had nothing to take the rate over` : '',
-    lower ? `${countOf(lower, unit)} ${lower === 1 ? 'is a lower bound' : 'are lower bounds'}` : '',
-  ].filter(Boolean).join('; ') + '.';
-}
-
-/** The coverage series drawn over time; unknown is its own hatched series, never folded
- *  into deployed or into a gap. */
-export const COVERAGE_SERIES = [
-  { key: 'services', title: 'Services' },
-  { key: 'described', title: 'Described services' },
-  { key: 'deployed', title: 'Deployed services' },
-  { key: 'unknown', title: 'Services Pacto cannot judge' },
-] as const;
-
-/** coverageTrend is one coverage series per bucket: the newest coverage snapshot of each,
- *  hatched when the snapshot was partial; a bucket with none says so. */
-export function coverageTrend(st: ProductStats, series: (typeof COVERAGE_SERIES)[number]['key']): TrendRow[] {
-  const daily = isDaily(st);
-  return (st.buckets ?? []).map((b) => {
-    const label = bucketLabel(b, daily);
-    const c = b.coverage;
-    if (!c) return { label, value: 0, unknown: 'no records' };
-    const partial = c.completeness !== 'complete';
-    if (series === 'services') return { label, value: c.services, hatch: partial };
-    const k = c.knowledge;
-    if (!k) return { label, value: 0, unknown: 'unknown' };
-    const value = { described: k.described, deployed: k.services - k.unknown - k.notDeployed, unknown: k.unknown }[series];
-    return { label, value, hatch: partial || series === 'unknown' };
-  });
-}
-
 /** windowDays is how many days the answer's window spans. */
 export function windowDays(st: ProductStats): number {
-  return Math.round((Date.parse(st.window.until) - Date.parse(st.window.since)) / 86_400_000);
+  return Math.round((Date.parse(st.window.until) - Date.parse(st.window.since)) / DAY_MS);
 }
 
-/** envTitle names the environments table by how its rows are ordered (SPEC 21). */
-export function envTitle(st: ProductStats): string {
-  return st.environmentOrder === 'stages'
-    ? 'Environments, in the order their Stages promote'
-    : 'Environments, listed by name: no Stage graph to order by';
+export interface BucketLabel { label: string; short: string; partial: boolean; days: number }
+
+/** buckets names each bucket on the time axis: "Week of 12 Oct", a short one "10 to 11 Oct
+ *  (2 days)", a day "3 Nov"; `short` is the axis tick. */
+export function buckets(st: ProductStats): BucketLabel[] {
+  return (st.buckets ?? []).map((b) => {
+    const short = day(b.since);
+    let label = short;
+    if (b.partial) {
+      const [a, z] = [short, day(Date.parse(b.since) + (b.days - 1) * DAY_MS)];
+      const [am, zm] = [a.split(' ')[1], z.split(' ')[1]];
+      label = `${am === zm ? a.split(' ')[0] : a} to ${z} (${countOf(b.days, 'day')})`;
+    } else if (b.days > 1) label = `Week of ${short}`;
+    return { label, short, partial: !!b.partial, days: b.days };
+  });
+}
+
+const unit = (st: ProductStats) => (isDaily(st) ? 'day' : 'week');
+
+/** unknownReasons says, per bucket, why it has no CI number: no records at all, or no diff
+ *  or impact run among them; null where it answers. */
+export function unknownReasons(st: ProductStats): (string | null)[] {
+  return (st.buckets ?? []).map((b) => (!b.metrics ? NO_RECORDS : noCI(b.metrics) ? NO_CI : null));
+}
+
+export type SeriesKey = 'breaking' | 'runs' | 'protected' | 'clear' | 'blocked' | 'unverified';
+const VALUE: Record<SeriesKey, (m: Metrics) => number> = {
+  breaking: (m) => m.breakingCaught.distinct,
+  runs: (m) => m.breakingCaught.runs,
+  protected: (m) => m.consumersProtected.count,
+  clear: (m) => m.gates.clear,
+  blocked: (m) => m.gates.blocked,
+  unverified: (m) => m.gates.unverified,
+};
+const lowerBound = (m: Metrics) => !!(m.consumersProtected.unknown || m.consumersProtected.partial);
+
+/** series is one CI number per bucket, null where unknownReasons gives a reason. `caps`
+ *  marks a consumers-protected count that is a lower bound (drawn with a hatched cap). */
+export function series(st: ProductStats, key: SeriesKey): { values: (number | null)[]; caps: boolean[] } {
+  const why = unknownReasons(st);
+  const bs = st.buckets ?? [];
+  return {
+    values: bs.map((b, i) => (why[i] ? null : VALUE[key](b.metrics!))),
+    caps: bs.map((b, i) => key === 'protected' && !why[i] && lowerBound(b.metrics!)),
+  };
+}
+
+/** depthLabel names a promotion depth by depth only, never by an environment's name (SPEC 21). */
+export function depthLabel(depth?: number | null): string {
+  if (depth == null) return 'Depth unknown';
+  return depth === 0 ? 'entry' : `hop ${depth + 1}`;
+}
+
+export type EnvRow = Omit<Environment, 'depth' | 'chainEnd' | 'parents'> & { depth: number | null; chainEnd: boolean; parents: string[] };
+
+/** environments are the answer's environments in Stage order, with depth, chain end and
+ *  direct parents always present (null depth: no readable Stage, a cycle or below one). */
+export function environments(st: ProductStats): EnvRow[] {
+  return (st.environments ?? []).map((e) => ({ ...e, depth: e.depth ?? null, chainEnd: !!e.chainEnd, parents: e.parents ?? [] }));
+}
+
+/** depthFilter is the promotion-depth row: how many environments sit at each known depth.
+ *  Null at or under SMALL_MULTIPLES_MAX environments, where every panel is drawn anyway,
+ *  and when no environment has a depth, where it would filter nothing. */
+export function depthFilter(st: ProductStats): { total: number; depths: { depth: number; label: string; count: number }[]; unknown: number } | null {
+  const envs = environments(st);
+  if (envs.length <= SMALL_MULTIPLES_MAX) return null;
+  const by = new Map<number, number>();
+  for (const e of envs) if (e.depth != null) by.set(e.depth, (by.get(e.depth) ?? 0) + 1);
+  const depths = [...by].sort(([a], [b]) => a - b).map(([depth, count]) => ({ depth, label: depthLabel(depth), count }));
+  if (!depths.length) return null;
+  return { total: envs.length, depths, unknown: envs.filter((e) => e.depth == null).length };
+}
+
+export type GroupBy = 'depth' | 'owner' | 'domain';
+export interface Group { key: string; label: string; unknown: boolean; envs: EnvMetrics[] }
+export const GROUP_WORD: Record<GroupBy, string> = { depth: 'Promotion depth', owner: 'Owner', domain: 'Domain' };
+
+/** The engine's placeholder keys, in parentheses so they never meet a real name. */
+function keyLabel(by: 'owner' | 'domain', key: string, label: string): string {
+  if (key === '(unknown)') return by === 'owner' ? 'Owner unknown' : 'Domain unknown';
+  if (key === '(unowned)') return 'No owner';
+  if (key === '(none)') return 'No domain';
+  return label || key;
+}
+
+/** groupBy files the environments under promotion depth (unknown last), or under each
+ *  owner or domain with that group's own numbers: an environment delivering three owners'
+ *  services sits under each, counting only theirs. `depth` keeps the environments at it. */
+export function groupBy(st: ProductStats, by: GroupBy, depth?: number | null): Group[] {
+  const envs = environments(st);
+  const at = depth == null ? null : new Set(envs.filter((e) => e.depth === depth).map((e) => e.environment));
+  const keep = (e: EnvMetrics) => !at || at.has(e.environment);
+  if (by !== 'depth') {
+    return (st.environmentsBy?.[by] ?? [])
+      .map((g) => ({ key: g.key, label: keyLabel(by, g.key, g.label), unknown: g.key.startsWith('('), envs: (g.environments ?? []).filter(keep) }))
+      .filter((g) => g.envs.length);
+  }
+  const depths = [...new Set(envs.map((e) => e.depth))].sort((a, b) => (a ?? Infinity) - (b ?? Infinity));
+  return depths
+    .map((d) => ({ key: d == null ? 'depth-unknown' : `depth-${d}`, label: depthLabel(d), unknown: d == null, envs: envs.filter((e) => e.depth === d && keep(e)) }))
+    .filter((g) => g.envs.length);
+}
+
+/** groupOptions are the group-bys worth offering: those that yield more than one group. */
+export function groupOptions(st: ProductStats): GroupBy[] {
+  return (['depth', 'owner', 'domain'] as const).filter((by) => groupBy(st, by).length > 1);
+}
+
+/** attributionLine says where owner or domain came from: inferred from a fleet snapshot. */
+export function attributionLine(st: ProductStats, by: 'owner' | 'domain'): string {
+  const a = st.environmentsBy?.attribution;
+  if (!a) return '';
+  return `${by} inferred from the fleet snapshot of ${formatDateTime(a.asOf)}${a.partial ? ', partial' : ''}`;
+}
+
+export interface Pooled extends Ratio { counted: number; excluded: number; strayCount: number }
+
+/** pooledRate adds one rate over environments that have something to take it over
+ *  (`of > 0`) only, so a stray count (a rollback with no succeeded promote) never enters
+ *  the numerator; unknown when none qualify. `excluded` and `strayCount` say what it left out. */
+export function pooledRate(envs: Pick<EnvMetrics, RateField>[] | null | undefined, field: RateField): Pooled {
+  let count = 0, of = 0, counted = 0, excluded = 0, strayCount = 0;
+  for (const e of envs ?? []) {
+    const r = e[field];
+    if (r.of > 0) { count += r.count; of += r.of; counted++; } else { excluded++; strayCount += r.count; }
+  }
+  return { count, of, counted, excluded, strayCount, ...(counted ? {} : { unknown: true }) };
+}
+
+const rate = (r: Ratio) => (r.of > 0 ? r.count / r.of : -1);
+
+/** worstEnvironment is the environment with the highest rate, ignoring rates with nothing to count. */
+export function worstEnvironment<E extends Pick<EnvMetrics, RateField | 'environment'>>(envs: E[], field: RateField): E | null {
+  let worst: E | null = null;
+  for (const e of envs) if (e[field].of > 0 && (!worst || rate(e[field]) > rate(worst[field]))) worst = e;
+  return worst;
+}
+
+/** smallMultipleDomain is the one rate scale every environment panel shares, so panels
+ *  compare: at least 50%, and above the largest known rate (a domain, never a clamp). */
+export function smallMultipleDomain(envs: Pick<EnvMetrics, RateField>[]): number {
+  const top = Math.max(0, ...envs.flatMap((e) => RATES.map((r) => rate(e[r.field]))));
+  return Math.max(0.5, top > 0 ? niceMax(top) : 0);
+}
+
+/** bin is a rate's heatmap bin, 1 to 4 (Decision 10). */
+export function bin(r: number): 1 | 2 | 3 | 4 {
+  return (BINS.findIndex((b) => r <= b.max) + 1) as 1 | 2 | 3 | 4;
+}
+
+/** cell is one RateGrid cell: a bin only when there is a count over something, so a real 0
+ *  is the neutral cell and nothing to count is the hatch. */
+export function cell(r: Ratio, foot = ''): { count: number; of: number; bin?: 1 | 2 | 3 | 4; foot: string } {
+  return { count: r.count, of: r.of, ...(r.of > 0 && r.count > 0 ? { bin: bin(r.count / r.of) } : {}), foot };
+}
+
+/** pooledFoot is a pooled group cell's tooltip foot: what it pooled over, what it left
+ *  out and the group's worst environment. */
+export function pooledFoot(p: Pooled, worst: EnvMetrics | null, field: RateField): string {
+  const n = p.counted + p.excluded;
+  return [
+    `pooled over ${formatCount(p.counted)} of ${countOf(n, 'environment')}`,
+    p.excluded ? `${formatCount(p.excluded)} had nothing to take the rate over${p.strayCount ? ` (${formatCount(p.strayCount)} counted)` : ''}` : '',
+    worst ? `Worst: ${worst.environment}, ${ratioText(worst[field])}` : '',
+  ].filter(Boolean).join('. ');
+}
+
+/** worstRate is an environment's highest known rate, -1 when none is known. */
+const worstRate = (e: EnvMetrics) => Math.max(...RATES.map((r) => rate(e[r.field])));
+const byWorst = (a: EnvMetrics, b: EnvMetrics) => worstRate(b) - worstRate(a);
+
+export interface HealthOptions { by: GroupBy; depth?: number | null; q?: string; sort: 'order' | 'worst'; collapsed: boolean }
+export type HealthGroup = Group & { pooled: Record<RateField, Pooled>; worst: Record<RateField, EnvMetrics | null> };
+
+/** healthGroups are the heatmap's groups: filtered by name, rows worst first when sorted
+ *  so or when groups start collapsed (they then show their worst first), each with its
+ *  pooled rate and worst environment per column. `shown` and `total` count distinct
+ *  environments, so an environment under three owners counts once. */
+export function healthGroups(st: ProductStats, { by, depth, q = '', sort, collapsed }: HealthOptions): { groups: HealthGroup[]; shown: number; total: number } {
+  const needle = q.trim().toLowerCase();
+  const groups = groupBy(st, by, depth).map((g) => {
+    const envs = g.envs.filter((e) => !needle || e.environment.toLowerCase().includes(needle));
+    if (sort === 'worst' || collapsed) envs.sort(byWorst);
+    const fields = RATES.map((r) => r.field);
+    return {
+      ...g, envs,
+      pooled: Object.fromEntries(fields.map((f) => [f, pooledRate(envs, f)])) as Record<RateField, Pooled>,
+      worst: Object.fromEntries(fields.map((f) => [f, worstEnvironment(envs, f)])) as Record<RateField, EnvMetrics | null>,
+    };
+  }).filter((g) => g.envs.length);
+  if (sort === 'worst' && by !== 'depth') groups.sort((a, b) => worstRate(b.envs[0]) - worstRate(a.envs[0]));
+  const distinct = (gs: { envs: EnvMetrics[] }[]) => new Set(gs.flatMap((g) => g.envs.map((e) => e.environment))).size;
+  return { groups, shown: distinct(groups), total: environments(st).length };
+}
+
+/** visibleParents are each placed environment's direct parents among the environments the
+ *  answer holds: the transitive upstream reduced over those rows, so an environment with no
+ *  record in the window never breaks a chain in two. */
+function visibleParents(envs: EnvRow[]): Map<string, string[]> {
+  const up = new Map(envs.map((e) => [e.environment, new Set(e.upstream ?? [])]));
+  return new Map(envs.map((e) => {
+    const vis = [...up.get(e.environment)!].filter((u) => up.has(u));
+    return [e.environment, vis.filter((u) => !vis.some((v) => v !== u && up.get(v)!.has(u)))];
+  }));
+}
+
+/** chainSummary says how many independent Stage chains the environments form and how
+ *  deep they run (levels from entry to end), from direct links among them only. */
+export function chainSummary(st: ProductStats): { chains: number; min: number; max: number } | null {
+  const envs = environments(st).filter((e) => e.depth != null);
+  if (!envs.length) return null;
+  const parents = visibleParents(envs);
+  const root = new Map(envs.map((e) => [e.environment, e.environment]));
+  const find = (x: string): string => (root.get(x) === x ? x : find(root.get(x)!));
+  for (const e of envs) for (const p of parents.get(e.environment)!) root.set(find(p), find(e.environment));
+  const deepest = new Map<string, number>();
+  for (const e of envs) deepest.set(find(e.environment), Math.max(deepest.get(find(e.environment)) ?? 0, e.depth! + 1));
+  const ds = [...deepest.values()];
+  return { chains: ds.length, min: Math.min(...ds), max: Math.max(...ds) };
+}
+
+/** ladder is the promotion strip of a small fleet: the environments on a chain, by depth.
+ *  An environment that neither feeds nor is fed stays out of it. */
+export function ladder(st: ProductStats): string[][] {
+  const envs = environments(st).filter((e) => e.depth != null);
+  const parents = visibleParents(envs);
+  const fed = new Set([...parents.values()].flat());
+  const on = envs.filter((e) => parents.get(e.environment)!.length || fed.has(e.environment));
+  const levels: string[][] = [];
+  for (const e of on) (levels[e.depth!] ??= []).push(e.environment);
+  return levels.filter(Boolean);
+}
+
+/** healthMode: one small panel per environment up to SMALL_MULTIPLES_MAX, then the heatmap. */
+export const healthMode = (n: number): 'multiples' | 'grid' => (n <= SMALL_MULTIPLES_MAX ? 'multiples' : 'grid');
+/** collapsedByDefault: heatmap groups start closed above COLLAPSE_ABOVE rows. */
+export const collapsedByDefault = (n: number) => n > COLLAPSE_ABOVE;
+
+export type LeadRow = { group: string } | { name: string; p50: number | null; p90: number | null; foot?: string };
+
+const unjoinedText = (n: number) => (n ? `${countOf(n, 'promotion')} with no publish record ${n === 1 ? 'is' : 'are'} left out` : '');
+const slowest = (a: EnvMetrics, b: EnvMetrics) => (b.leadTime.p50Seconds ?? -1) - (a.leadTime.p50Seconds ?? -1);
+
+/** lastPage is the last page of n rows at size per page, so a page kept while the rows
+ *  shrink (a filter, a depth, a window) never lands past the end. */
+export const lastPage = (n: number, size: number) => Math.max(0, Math.ceil(n / size) - 1);
+
+/** leadRows are the lead-time chart's rows: the LEAD_TOP slowest p50 over every group, or
+ *  every one paged at LEAD_PAGE, under their group headers, slowest first and unknown last.
+ *  `total` counts rows (an environment under two owners is two), `envs` distinct names. */
+export function leadRows(groups: Group[], { all = false, page = 0 } = {}): { rows: LeadRow[]; total: number; envs: number; from: number; to: number } {
+  // Groups are told apart by key: two owners can share one label.
+  const flat0 = groups.flatMap((g) => g.envs.map((e) => ({ k: g.key, g: g.label, e })));
+  const picked = all ? flat0 : [...flat0].sort((a, b) => slowest(a.e, b.e)).slice(0, LEAD_TOP);
+  const flat = groups.flatMap((g) => picked.filter((p) => p.k === g.key).sort((a, b) => slowest(a.e, b.e)));
+  const from = all ? Math.min(page, lastPage(flat.length, LEAD_PAGE)) * LEAD_PAGE : 0;
+  const shown = all ? flat.slice(from, from + LEAD_PAGE) : flat;
+  const rows: LeadRow[] = [];
+  let last: string | null = null;
+  for (const { k, g, e } of shown) {
+    if (k !== last) { rows.push({ group: g }); last = k; }
+    const foot = unjoinedText(e.leadTime.unjoined);
+    rows.push({ name: e.environment, p50: e.leadTime.p50Seconds ?? null, p90: e.leadTime.p50Seconds == null ? null : e.leadTime.p90Seconds ?? null, ...(foot ? { foot } : {}) });
+  }
+  return { rows, total: flat0.length, envs: new Set(flat0.map((p) => p.e.environment)).size, from: shown.length ? from + 1 : 0, to: from + shown.length };
+}
+
+/** leadGroup picks the pooled lead time the tile reads: a depth when filtered, else the
+ *  chain end, else every environment. */
+function leadGroup(st: ProductStats, depth?: number | null): LeadGroup | undefined {
+  const gs = st.leadTimeGroups ?? [];
+  if (depth != null) return gs.find((g) => g.key === `depth-${depth}`);
+  return gs.find((g) => g.key === 'chain-end') ?? gs.find((g) => g.key === 'all');
+}
+
+function leadTitle(st: ProductStats, depth?: number | null): string {
+  if (depth != null) return `Lead time to ${depthLabel(depth)}`;
+  return leadGroup(st)?.key === 'chain-end' ? 'Lead time to production' : 'Lead time to any environment';
+}
+
+export interface HeadlineOptions { window?: string; depth?: number | null }
+
+/** headline is the three tiles, from WINDOW totals only: a change with runs in two buckets
+ *  counts once here and in each bucket's column. Null when the window holds no record. */
+export function headline(st: ProductStats, { window, depth }: HeadlineOptions = {}) {
+  const t = st.totals;
+  if (!t) return null;
+  const w = window || undefined;
+  const d = depth == null ? undefined : String(depth);
+  const link = (metric: string, n: number, environment?: string) => (n > 0 ? { href: metricsUrl({ window: w, metric, environment, depth: d }), lists: n } : {});
+  const ci = !noCI(t);
+  const g = t.gates;
+  const breaking = {
+    value: ci ? formatCount(t.breakingCaught.distinct) : 'unknown', unknown: !ci,
+    protected: protectedText(t).text, protectedQualified: protectedText(t).qualified,
+    spark: series(st, 'breaking').values,
+    ...(ci ? link('breaking', t.breakingCaught.distinct) : {}),
+  };
+  const gates = {
+    value: ci ? formatCount(g.blocked) : 'unknown', unknown: !ci,
+    blocked: g.blocked, clear: g.clear, unverified: g.unverified, total: g.clear + g.blocked + g.unverified,
+    ...(ci ? link('blocked', g.blocked) : {}),
+  };
+  const lg = leadGroup(st, depth);
+  const lt = lg?.leadTime;
+  const known = lt?.p50Seconds != null;
+  // The records endpoint names one environment, so only a group of one links to exactly
+  // the promotions its value pools.
+  const members = lg ? leadMembers(st, lg) : [];
+  const lead = {
+    key: lg?.key ?? '', title: leadTitle(st, depth),
+    value: durationText(known ? lt!.p50Seconds : null), unknown: !known,
+    p90: durationText(known ? lt!.p90Seconds : null),
+    joined: lt?.joined ?? 0, environments: lg?.environments ?? 0,
+    sub: leadSub(st, lg),
+    spark: (lg?.buckets ?? []).map((b) => b.p50Seconds ?? null),
+    why: (lg?.buckets ?? []).map((b, i) => (b.p50Seconds != null || !st.buckets?.[i]?.metrics ? null : b.unjoined ? 'no promotion joined a publish record' : 'no promotion here')),
+    // No lists: the records list each joined promotion with its publish record, and
+    // promotions can share one publish, so no count is honest here.
+    ...(known && members.length === 1 ? { href: metricsUrl({ window: w, metric: 'leadTime', environment: members[0], depth: d }) } : {}),
+  };
+  return { breaking, gates, lead };
+}
+
+/** leadMembers are the environments a pooled lead-time group holds. */
+function leadMembers(st: ProductStats, lg: LeadGroup): string[] {
+  const envs = environments(st);
+  const keep = lg.key === 'chain-end' ? (e: EnvRow) => e.chainEnd : lg.key === 'all' ? () => true : (e: EnvRow) => e.depth === lg.depth;
+  return envs.filter(keep).map((e) => e.environment);
+}
+
+/** leadSub names the lead tile's basis (Decision 4): how many promotions into how many
+ *  environments, and what it cannot see. An environment with no known depth has no
+ *  readable Stage or sits on, or below, a cycle or a link it cannot read: either way it is
+ *  in no depth group. */
+function leadSub(st: ProductStats, lg: LeadGroup | undefined): string {
+  if (!lg || lg.leadTime.p50Seconds == null) return 'No promotion here joined a publish record, so the lead time is unknown.';
+  const noDepth = environments(st).filter((e) => e.depth == null).length;
+  const partialOrder = (st.limitations ?? []).some((l) => l.code === 'ENVIRONMENT_ORDER_UNKNOWN');
+  const where = { 'chain-end': ' at the end of their promotion chain', all: '' }[lg.key] ?? ` at ${lg.label}`;
+  const scope = lg.key !== 'all' && (st.hidden?.present || noDepth || partialOrder) ? ' of the Stages you can read' : '';
+  const out = `p50 of ${countOf(lg.leadTime.joined, 'promotion')} into ${countOf(lg.environments, 'environment')}${where}${scope}, p90 ${durationText(lg.leadTime.p90Seconds)}`;
+  return noDepth && lg.key !== 'all' ? `${out}; ${countOf(noDepth, 'environment')} with no known promotion depth ${noDepth === 1 ? 'is' : 'are'} left out` : out;
+}
+
+const COVERAGE_HIDDEN = 'COVERAGE_OUTSIDE_YOUR_VIEW';
+
+/** coverageSeries is coverage over time: Services observed (services the fleet saw, less
+ *  those it cannot judge and those not deployed) and Contracts described, null (a gap)
+ *  where a bucket has no snapshot or no knowledge. `foot` is the recorded count of
+ *  callers with no contract, never a subtraction. Null for a reader who cannot see every
+ *  service: coverage history counts them all. */
+export function coverageSeries(st: ProductStats) {
+  if ((st.limitations ?? []).some((l) => l.code === COVERAGE_HIDDEN)) return null;
+  const bs = st.buckets ?? [];
+  const partial = bs.map((b) => !!b.coverage && b.coverage.completeness !== 'complete');
+  const k = (b: Bucket) => b.coverage?.knowledge;
+  return {
+    series: [
+      { key: 'observed', label: 'Services observed', color: 'var(--chart-1)', values: bs.map((b) => (k(b) ? k(b)!.services - k(b)!.unknown - k(b)!.notDeployed : null)), partial },
+      { key: 'described', label: 'Contracts described', color: 'var(--chart-2)', values: bs.map((b) => (k(b) ? k(b)!.described : null)), partial },
+    ],
+    /** Services Pacto cannot judge, per bucket. */
+    unknown: bs.map((b) => k(b)?.unknown ?? null),
+    foot: bs.map((b) => (b.coverage ? `${countOf(b.coverage.uncontracted, 'caller')} observed with no contract` : '')),
+    /** Why a bucket draws no point, when it holds records: never "no records". */
+    why: bs.map((b) => (k(b) ? null : b.coverage ? 'coverage unknown' : b.metrics ? 'no coverage snapshot' : null)),
+  };
+}
+
+export interface Cell { text: string; unknown?: boolean; href?: string; lists?: number; title?: string }
+export interface Table { caption: string; head: string[]; rows: Cell[][] }
+export type ChartKey = 'stopped' | 'gates' | 'health' | 'lead' | 'coverage';
+export interface TableOptions { window?: string; depth?: number | null; by?: GroupBy }
+
+const num = (v: number | null | undefined, why = 'unknown'): Cell => (v == null ? { text: why, unknown: true } : { text: formatCount(v) });
+const dur = (v: number | null | undefined): Cell => (v == null ? { text: 'unknown', unknown: true } : { text: durationText(v) });
+const head = (text: string): Cell => ({ text, title: text });
+
+/** tableRows are each chart's table view: the exact numbers it draws, the reason where it
+ *  hatches, consumers protected in protectedText form and every countable rate linked to
+ *  its records. `lead` also gives the selected group per bucket (the tile sparkline). */
+export function tableRows(st: ProductStats, chart: ChartKey, { window, depth, by = 'depth' }: TableOptions = {}): Table[] {
+  const bl = buckets(st);
+  const why = unknownReasons(st);
+  const first = unit(st) === 'day' ? 'Day' : 'Week';
+  const perBucket = (caption: string, cols: string[], cells: (b: Bucket, i: number) => Cell[]): Table => ({
+    caption, head: [first, ...cols], rows: (st.buckets ?? []).map((b, i) => [head(bl[i].label), ...cells(b, i)]),
+  });
+  const ciCells = (i: number, n: number, cells: () => Cell[]) => (why[i] ? Array.from({ length: n }, () => num(null, why[i]!)) : cells());
+  switch (chart) {
+    case 'stopped':
+      return [perBucket('What Pacto stopped, per bucket', ['Breaking changes caught', 'Runs', 'Consumers protected'], (b, i) => ciCells(i, 3, () => {
+        const p = protectedText(b.metrics!);
+        return [num(b.metrics!.breakingCaught.distinct), num(b.metrics!.breakingCaught.runs), { text: p.text, ...(p.qualified ? { unknown: true } : {}) }];
+      }))];
+    case 'gates':
+      return [perBucket('Gate outcomes, per bucket', ['Clear', 'Blocked', 'Unverified'], (b, i) => ciCells(i, 3, () =>
+        [num(b.metrics!.gates.clear), num(b.metrics!.gates.blocked), num(b.metrics!.gates.unverified)]))];
+    case 'coverage': {
+      const c = coverageSeries(st);
+      if (!c) return [];
+      return [perBucket('Coverage, per bucket', ['Services observed', 'Contracts described', 'Pacto cannot judge', 'Callers with no contract'], (b, i) => {
+        if (!b.coverage) return Array.from({ length: 4 }, () => num(null, NO_RECORDS));
+        return [num(c.series[0].values[i]), num(c.series[1].values[i]), num(c.unknown[i]), num(b.coverage.uncontracted)];
+      })];
+    }
+    case 'health': {
+      const w = window || undefined;
+      // An owner's or a domain's count is its share of the environment's records: the
+      // records panel lists the whole environment, so only depth rows link.
+      const rateCell = (e: EnvMetrics, r: (typeof RATES)[number]): Cell => {
+        const v = e[r.field];
+        const text = ratioText(v);
+        return { text, ...(v.of ? {} : { unknown: true }), ...(by === 'depth' && v.count > 0 ? { href: metricsUrl({ window: w, metric: r.metric, environment: e.environment }), lists: v.count } : {}) };
+      };
+      return [{
+        caption: 'Delivery health by environment', head: ['Environment', GROUP_WORD[by], ...RATES.map((r) => r.label)],
+        rows: groupBy(st, by, depth).flatMap((g) => g.envs.map((e) => [head(e.environment), { text: g.label, ...(g.unknown ? { unknown: true } : {}) }, ...RATES.map((r) => rateCell(e, r))])),
+      }];
+    }
+    case 'lead': {
+      const lg = leadGroup(st, depth);
+      const w = window || undefined;
+      // The rows the chart draws: an owner's or a domain's own lead time, linked to records
+      // only by depth, where a row is the whole environment.
+      const p50 = (e: EnvMetrics): Cell => ({ ...dur(e.leadTime.p50Seconds),
+        ...(by === 'depth' && e.leadTime.joined ? { href: metricsUrl({ window: w, metric: 'leadTime', environment: e.environment }) } : {}) });
+      return [
+        { caption: 'Lead time by environment', head: ['Environment', GROUP_WORD[by], 'p50', 'p90', 'No publish record'],
+          rows: groupBy(st, by, depth).flatMap((g) => g.envs.map((e) => [head(e.environment), { text: g.label, ...(g.unknown ? { unknown: true } : {}) },
+            p50(e), dur(e.leadTime.p50Seconds == null ? null : e.leadTime.p90Seconds), num(e.leadTime.unjoined)])) },
+        perBucket(`${leadTitle(st, depth)} per ${unit(st)}`, ['p50', 'p90', 'Promotions joined'], (_, i) => {
+          const b: LeadTime | undefined = lg?.buckets?.[i];
+          return [dur(b?.p50Seconds), dur(b?.p50Seconds == null ? null : b?.p90Seconds), num(b?.joined ?? 0)];
+        }),
+      ];
+    }
+  }
+}
+
+/** caption says in words what a weekly chart draws, from the window totals the tiles use.
+ *  A change with runs in two buckets counts in each, so the buckets need not add up. */
+export function caption(st: ProductStats, chart: 'stopped' | 'gates'): string {
+  const u = unit(st);
+  const t = st.totals;
+  const figure = chart === 'stopped' ? 'breaking changes caught' : 'changes gated';
+  const days = countOf(windowDays(st), 'day');
+  const head = !t || noCI(t)
+    ? `${figure[0].toUpperCase()}${figure.slice(1)} over ${days}: ${t ? NO_CI : NO_RECORDS}`
+    : `${formatCount(chart === 'stopped' ? t.breakingCaught.distinct : t.gates.clear + t.gates.blocked + t.gates.unverified)} ${figure} over ${days}`;
+  const why = unknownReasons(st);
+  const missing = why.filter((r) => r === NO_RECORDS).length, noci = why.filter((r) => r === NO_CI).length;
+  const tail = [
+    `A change with runs in two ${u}s counts in each`,
+    missing ? `${countOf(missing, u)} had no records` : '',
+    noci ? `${countOf(noci, u)} had no CI records` : '',
+  ].filter(Boolean).join('; ');
+  return `${head}. ${tail}.`;
+}
+
+type Limitation = NonNullable<ProductStats['limitations']>[number];
+// What the provenance line ("3 skipped, cut at"), the hidden line and the coverage card
+// already say, so the note never repeats them.
+const SAID_ELSEWHERE = ['RUN_RECORDS_SKIPPED', 'RUN_RECORDS_TRUNCATED', 'OUTSIDE_YOUR_VIEW', COVERAGE_HIDDEN];
+// The note's order: what empties the page first, then what leaves a number unknown.
+const NOTE_FIRST = ['NO_RUN_RECORDS', 'NO_CI_OR_DELIVERY_RUN_RECORDS', 'LEAD_TIME_UNJOINED', 'CONSUMERS_FROM_PARTIAL_SNAPSHOT',
+  'ENVIRONMENT_ORDER_UNKNOWN', 'ATTRIBUTION_PARTIAL', 'DELIVERY_UNAVAILABLE_OVER_HTTP'];
+const rank = (code: string) => (NOTE_FIRST.includes(code) ? NOTE_FIRST.indexOf(code) : NOTE_FIRST.length);
+
+/** noteLimitations picks the one limitation the page's note line carries (the most
+ *  important one no other line says) and the rest for the list behind it; the coverage
+ *  card's own limitation is in neither. */
+export function noteLimitations(st: Pick<ProductStats, 'limitations'>): { note: Limitation | null; rest: Limitation[] } {
+  const all = (st.limitations ?? []).filter((l) => l.code !== COVERAGE_HIDDEN);
+  const note = all.filter((l) => !SAID_ELSEWHERE.includes(l.code)).sort((a, b) => rank(a.code) - rank(b.code))[0] ?? null;
+  return { note, rest: all.filter((l) => l !== note) };
 }
 
 /** hiddenLine says that records outside the reader's view exist; it never counts them. */

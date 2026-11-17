@@ -1,7 +1,10 @@
 package dashboard
 
 import (
+	"cmp"
 	"context"
+	"fmt"
+	"maps"
 	"net/http"
 	"slices"
 	"time"
@@ -100,6 +103,21 @@ type StatsEnvironment struct {
 	Upstream  []string `json:"upstream" doc:"Environments whose Stages feed a Stage here, as candidates.upstreamStage declares"`
 	Cycle     bool     `json:"cycle,omitempty" doc:"A Stage here is on a cycle of upstream links, so the environment is placed by name"`
 	Unordered bool     `json:"unordered,omitempty" doc:"Different services order this environment both ways, so it is placed by name"`
+	Depth     *int     `json:"depth,omitempty" doc:"Promotion depth from the Stages' upstream links, never from a name: 0 when nothing feeds the environment, else one more than the deepest environment that feeds it; absent when it has no readable Stage, is on, or below, a cycle or unordered environment, or a Stage here or upstream names an upstream Stage you cannot read"`
+	ChainEnd  bool     `json:"chainEnd,omitempty" doc:"True when the environment has a depth, is fed by another environment and feeds none: the end of its promotion chain"`
+	Parents   []string `json:"parents,omitempty" doc:"The environments that feed this one directly, of those in upstream; absent without a depth"`
+}
+
+// StatsLeadTimeGroup is the lead time pooled over a set of environments:
+// one percentile over all their promotions, never a percentile of
+// percentiles.
+type StatsLeadTimeGroup struct {
+	Key          string           `json:"key" doc:"chain-end: every chain-end environment; depth-<n>: every environment at that depth; all: every environment, given when none is a chain end"`
+	Label        string           `json:"label" doc:"Group label: chain end, entry, hop 2, hop 3 and so on, or every environment"`
+	Depth        *int             `json:"depth,omitempty" doc:"The depth of a depth-<n> group"`
+	Environments int              `json:"environments" doc:"Environments in the group"`
+	LeadTime     stats.LeadTime   `json:"leadTime" doc:"Lead time over the window; joined counts the promotions behind it"`
+	Buckets      []stats.LeadTime `json:"buckets" doc:"Lead time per bucket, aligned with buckets; unknown when a bucket has no joined promotion, never 0"`
 }
 
 // StatsLink is a link to a dashboard page.
@@ -120,12 +138,30 @@ type StatsServiceRow struct {
 // service rows and current coverage.
 type StatsAnswer struct {
 	stats.Stats
-	Buckets          []StatsBucket       `json:"buckets" doc:"The window per day (7d) or week (30d, 90d), oldest first, aligned back from now"`
-	EnvironmentOrder string              `json:"environmentOrder" enum:"stages,name" doc:"stages: environments follow the Stages' upstream links; name: no Stage graph to order by"`
-	Environments     []StatsEnvironment  `json:"environments" doc:"Delivery numbers per environment, in environmentOrder"`
-	Services         []StatsServiceRow   `json:"services" doc:"One page of per-service numbers"`
-	ServicesTotal    int                 `json:"servicesTotal" doc:"Service rows across every page"`
-	CoverageNow      *runrecord.Coverage `json:"coverageNow,omitempty" doc:"Coverage of the caller's current fleet snapshot; absent without a fleet"`
+	Buckets          []StatsBucket        `json:"buckets" doc:"The window per day (7d) or week (30d, 90d), oldest first, aligned back from now"`
+	EnvironmentOrder string               `json:"environmentOrder" enum:"stages,name" doc:"stages: environments follow the Stages' upstream links; name: no Stage graph to order by"`
+	Environments     []StatsEnvironment   `json:"environments" doc:"Delivery numbers per environment, in environmentOrder"`
+	Services         []StatsServiceRow    `json:"services" doc:"One page of per-service numbers"`
+	ServicesTotal    int                  `json:"servicesTotal" doc:"Service rows across every page"`
+	CoverageNow      *runrecord.Coverage  `json:"coverageNow,omitempty" doc:"Coverage of the caller's current fleet snapshot; absent without a fleet"`
+	EnvironmentsBy   StatsEnvironmentsBy  `json:"environmentsBy" doc:"Delivery numbers per environment of each owner and each domain, counting only that group's services"`
+	LeadTimeGroups   []StatsLeadTimeGroup `json:"leadTimeGroups" doc:"Lead time pooled over the chain-end environments and over each depth, or over every environment when none is a chain end; empty without environments"`
+}
+
+// StatsEnvironmentGroup is one owner's or domain's delivery numbers per
+// environment.
+type StatsEnvironmentGroup struct {
+	Key          string                     `json:"key" doc:"Group key: the owner or domain, or (unknown) for a service the fleet snapshot does not place, (unowned) for no owner and (none) for no domain"`
+	Label        string                     `json:"label" doc:"Group label"`
+	Environments []stats.EnvironmentMetrics `json:"environments" doc:"Delivery numbers per environment of the group's services, alphabetical; empty when they have no operation record"`
+}
+
+// StatsEnvironmentsBy is the window's delivery numbers per environment,
+// grouped by owner and by domain as pacto stats --by owner|domain groups them.
+type StatsEnvironmentsBy struct {
+	Owner       []StatsEnvironmentGroup `json:"owner" doc:"One group per owner, alphabetical, the groups no owner names last"`
+	Domain      []StatsEnvironmentGroup `json:"domain" doc:"One group per domain, alphabetical, the groups no domain names last"`
+	Attribution *stats.Attribution      `json:"attribution,omitempty" doc:"Where owner and domain came from; absent without a fleet snapshot"`
 }
 
 type statsOutput struct {
@@ -237,7 +273,7 @@ func (s *Server) statsScope(ctx context.Context, restricted bool) (stats.Scope, 
 	if !restricted {
 		sc := stats.Scope{}
 		if full != nil {
-			sc.Place = stats.FleetPlacement(full, nil)
+			sc.Place, sc.Snapshot = stats.FleetPlacement(full, nil), statsAttribution(full)
 		}
 		return sc, view, nil
 	}
@@ -247,9 +283,44 @@ func (s *Server) statsScope(ctx context.Context, restricted bool) (stats.Scope, 
 		if s.opts.View == nil {
 			narrowed = nil
 		}
-		sc.Place, sc.Names = stats.FleetPlacement(full, narrowed), stats.VisibleNames(view)
+		sc.Place, sc.Names, sc.Snapshot = stats.FleetPlacement(full, narrowed), stats.VisibleNames(view), statsAttribution(full)
 	}
 	return sc, view, nil
+}
+
+// statsAttribution is the fleet snapshot owner and domain are placed from,
+// as pacto stats and pacto_stats name it.
+func statsAttribution(q *fleet.Query) *stats.Attribution {
+	m := q.ProductMeta()
+	return &stats.Attribution{AsOf: m.AsOf, SnapshotID: m.SnapshotID, Partial: m.Completeness != fleet.CompletenessComplete}
+}
+
+// environmentsBy is the window's environments per owner and per domain from
+// the same records and scope as the answer (Decision 2), with the
+// limitation a partial snapshot adds.
+func environmentsBy(r *statsRead) (StatsEnvironmentsBy, *fleet.Limitation) {
+	out := StatsEnvironmentsBy{}
+	var partial *fleet.Limitation
+	for _, by := range []string{"owner", "domain"} {
+		st := stats.Aggregate(r.set, stats.Query{Window: r.window, By: by}, r.scope, r.now)
+		groups := []StatsEnvironmentGroup{}
+		for _, g := range st.Groups {
+			envs := g.Metrics.Environments
+			if envs == nil {
+				envs = []stats.EnvironmentMetrics{}
+			}
+			groups = append(groups, StatsEnvironmentGroup{Key: g.Key, Label: g.Label, Environments: envs})
+		}
+		if by == "owner" {
+			out.Owner = groups
+			continue
+		}
+		out.Domain, out.Attribution = groups, st.Attribution
+		if i := slices.IndexFunc(st.Limitations, func(l fleet.Limitation) bool { return l.Code == stats.LimitationAttributionPartial }); i >= 0 {
+			partial = &st.Limitations[i]
+		}
+	}
+	return out, partial
 }
 
 func (s *Server) getStats(ctx context.Context, in *statsInput) (*statsOutput, error) {
@@ -279,14 +350,22 @@ func (s *Server) getStats(ctx context.Context, in *statsInput) (*statsOutput, er
 	if st.Totals != nil {
 		envs = st.Totals.Environments
 	}
-	var why string
-	out.Body.Environments, out.Body.EnvironmentOrder, why = s.orderEnvironments(ctx, envs)
-	if why != "" {
+	var whys []string
+	out.Body.Environments, out.Body.EnvironmentOrder, whys = s.orderEnvironments(ctx, envs)
+	for _, why := range whys {
 		st.Limitations = append(st.Limitations, fleet.Limitation{Code: LimitationEnvironmentOrderUnknown, Message: why})
 	}
+	out.Body.LeadTimeGroups = leadTimeGroups(r, out.Body.Environments, out.Body.Buckets)
 	if r.view != nil {
 		c := stats.CoverageOf(r.view)
 		out.Body.CoverageNow = &c
+	}
+	var partial *fleet.Limitation
+	out.Body.EnvironmentsBy, partial = environmentsBy(r)
+	// The attribution qualifies only numbers that exist: an empty answer stays
+	// empty.
+	if partial != nil && st.Completeness != fleet.CompletenessEmpty {
+		st.Limitations, st.Completeness = append(st.Limitations, *partial), fleet.CompletenessPartial
 	}
 	out.Body.Stats = *st
 	return out, nil
@@ -337,14 +416,18 @@ func statsBuckets(w stats.Window) []StatsBucket {
 }
 
 // orderEnvironments puts envs in the promotion order of the Stages the caller
-// can read (SPEC 21); what that order does not hold follows by name, and why
-// says so.
-func (s *Server) orderEnvironments(ctx context.Context, envs []stats.EnvironmentMetrics) (out []StatsEnvironment, mode, why string) {
+// can read (SPEC 21); what that order does not hold follows by name, and whys
+// say so, as does a partial read of the Stages.
+func (s *Server) orderEnvironments(ctx context.Context, envs []stats.EnvironmentMetrics) (out []StatsEnvironment, mode string, whys []string) {
 	out = []StatsEnvironment{}
 	if len(envs) == 0 {
-		return out, "stages", "" // nothing to order, so no Stage to read
+		return out, "stages", nil // nothing to order, so no Stage to read
 	}
-	order, upstream, cycle, unordered, why := s.stageOrder(ctx)
+	g := s.stageOrder(ctx)
+	order, upstream, cycle, unordered, why := g.order, g.upstream, g.cycle, g.unordered, g.why
+	if g.partial {
+		whys = append(whys, "some Stages could not be read, so promotion depth and the ends of promotion chains are of the Stages you can read")
+	}
 	rank := map[string]int{}
 	for i, env := range order {
 		rank[env] = i
@@ -360,6 +443,11 @@ func (s *Server) orderEnvironments(ctx context.Context, envs []stats.Environment
 		}
 		out = append(out, row)
 	}
+	unplaced := maps.Clone(g.dangling)
+	for _, m := range []map[string]bool{cycle, unordered} {
+		maps.Copy(unplaced, m)
+	}
+	placeDepths(out, rank, upstream, unplaced)
 	// envs arrive in name order, so a stable sort keeps it for those the
 	// order does not hold, after those it does.
 	slices.SortStableFunc(out, func(a, b StatsEnvironment) int {
@@ -377,31 +465,159 @@ func (s *Server) orderEnvironments(ctx context.Context, envs []stats.Environment
 	})
 	switch {
 	case why != "":
-		return out, "name", why
+		return out, "name", append(whys, why)
 	case held == 0:
-		return out, "name", "no Stage you can read delivers to these environments, so they are listed by name"
+		return out, "name", append(whys, "no Stage you can read delivers to these environments, so they are listed by name")
 	case held < len(envs):
-		return out, "stages", "some environments have no Stage you can read, so they follow the others by name"
+		return out, "stages", append(whys, "some environments have no Stage you can read, so they follow the others by name")
 	}
-	return out, "stages", ""
+	return out, "stages", whys
 }
 
-// stageOrder is the promotion order of the Stages the caller can read, or
-// why there is none. A delivery read failure never fails the answer.
-func (s *Server) stageOrder(ctx context.Context) (order []string, upstream map[string][]string, cycle, unordered map[string]bool, why string) {
+// placeDepths sets each row's depth, direct parents and chain end from the
+// transitive upstream closure of the Stages the caller can read (Decision
+// 4), never from a name. A depth needs a readable Stage, no place in
+// unplaced (a cycle, an unordered link or an upstream Stage the caller cannot
+// read) and a depth for everything upstream.
+func placeDepths(rows []StatsEnvironment, rank map[string]int, upstream map[string][]string, unplaced map[string]bool) {
+	depth, seen := map[string]*int{}, map[string]bool{}
+	var depthOf func(string) *int
+	depthOf = func(e string) *int {
+		if seen[e] {
+			return depth[e]
+		}
+		// The closure of an environment off every cycle never holds itself,
+		// so the recursion ends.
+		seen[e] = true
+		if _, ok := rank[e]; !ok || unplaced[e] {
+			return nil
+		}
+		d := 0
+		for _, u := range upstream[e] {
+			du := depthOf(u)
+			if du == nil {
+				return nil
+			}
+			d = max(d, *du+1)
+		}
+		depth[e] = &d
+		return &d
+	}
+	fed, feeds := map[string]bool{}, map[string]map[string]bool{}
+	for e, up := range upstream {
+		feeds[e] = map[string]bool{}
+		for _, u := range up {
+			fed[u], feeds[e][u] = true, true
+		}
+	}
+	for i := range rows {
+		e := rows[i].Environment
+		if rows[i].Depth = depthOf(e); rows[i].Depth == nil {
+			continue
+		}
+		up := upstream[e]
+		rows[i].ChainEnd = len(up) > 0 && !fed[e]
+		for _, u := range up {
+			// u feeds e directly when it feeds e through no other upstream.
+			if !slices.ContainsFunc(up, func(v string) bool { return feeds[v][u] }) {
+				rows[i].Parents = append(rows[i].Parents, u)
+			}
+		}
+	}
+}
+
+// depthLabel names a depth by its place in the chain, never by a tier name.
+func depthLabel(d int) string {
+	if d == 0 {
+		return "entry"
+	}
+	return fmt.Sprintf("hop %d", d+1)
+}
+
+// leadTimeGroups pools lead time over the chain-end environments and over
+// each depth, or every environment when none is a chain end, with one
+// LeadTimesIn pass for the window and one per bucket (Decision 3).
+func leadTimeGroups(r *statsRead, envs []StatsEnvironment, buckets []StatsBucket) []StatsLeadTimeGroup {
+	var ends, all []string
+	byDepth := map[int][]string{}
+	for _, e := range envs {
+		all = append(all, e.Environment)
+		if e.ChainEnd {
+			ends = append(ends, e.Environment)
+		}
+		if e.Depth != nil {
+			byDepth[*e.Depth] = append(byDepth[*e.Depth], e.Environment)
+		}
+	}
+	out, members := []StatsLeadTimeGroup{}, map[string][]string{}
+	add := func(key, label string, depth *int, names []string) {
+		members[key] = names
+		out = append(out, StatsLeadTimeGroup{Key: key, Label: label, Depth: depth, Environments: len(names), Buckets: []stats.LeadTime{}})
+	}
+	if len(ends) > 0 {
+		add("chain-end", "chain end", nil, ends)
+	}
+	for _, d := range slices.Sorted(maps.Keys(byDepth)) {
+		add(fmt.Sprintf("depth-%d", d), depthLabel(d), &d, byDepth[d])
+	}
+	if len(ends) == 0 && len(all) > 0 {
+		add("all", "every environment", nil, all)
+	}
+	if len(out) == 0 {
+		return out
+	}
+	window := stats.LeadTimesIn(r.set, stats.Query{Window: r.window}, r.scope, r.now, members)
+	for i := range out {
+		out[i].LeadTime = window[out[i].Key]
+	}
+	for _, b := range buckets {
+		in := stats.LeadTimesIn(r.set, stats.Query{Window: stats.Window{Since: b.Since, Until: b.Until}}, r.scope, r.now, members)
+		for i := range out {
+			out[i].Buckets = append(out[i].Buckets, in[out[i].Key])
+		}
+	}
+	return out
+}
+
+// stageGraph is the promotion order of the Stages the caller can read, or
+// why there is none. dangling holds the environments of a readable Stage
+// whose upstreamStage is not among them: something feeds it that the caller
+// cannot see. partial says some namespace's Stages could not be read.
+type stageGraph struct {
+	order                      []string
+	upstream                   map[string][]string
+	cycle, unordered, dangling map[string]bool
+	partial                    bool
+	why                        string
+}
+
+// stageOrder reads the stageGraph. A delivery read failure never fails the
+// answer.
+func (s *Server) stageOrder(ctx context.Context) stageGraph {
 	if s.opts.Delivery == nil || s.authSummary(ctx).Mode == "open" {
-		return nil, nil, nil, nil, "this dashboard reads no delivery Stages, so environments are listed by name"
+		return stageGraph{why: "this dashboard reads no delivery Stages, so environments are listed by name"}
 	}
 	api, err := s.deliveryFor(ctx)
 	var stages []delivery.StageObject
+	var l Listing
 	if err == nil {
-		stages, _, _, err = s.lists(ctx, api, false)
+		stages, _, l, err = s.lists(ctx, api, false)
 	}
 	if err != nil {
-		return nil, nil, nil, nil, "the Stages could not be read, so environments are listed by name"
+		return stageGraph{why: "the Stages could not be read, so environments are listed by name"}
 	}
-	order, upstream, cycle, unordered = delivery.PromotionOrder(stages)
-	return order, upstream, cycle, unordered, ""
+	g := stageGraph{dangling: map[string]bool{}, partial: l.Completeness != "complete"}
+	g.order, g.upstream, g.cycle, g.unordered = delivery.PromotionOrder(stages)
+	read := map[string]bool{}
+	for _, st := range stages {
+		read[st.Metadata.Namespace+"/"+st.Metadata.Name] = true
+	}
+	for _, st := range stages {
+		if u := st.Spec.Candidates.UpstreamStage; u != nil && !read[cmp.Or(u.Namespace, st.Metadata.Namespace)+"/"+u.Name] {
+			g.dangling[st.Spec.Environment] = true
+		}
+	}
+	return g
 }
 
 // statsLinks resolves the names run records carry to dashboard links, from

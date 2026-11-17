@@ -12,6 +12,10 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
 // @ts-expect-error — Svelte components have no declaration files
 import DistributionBar from './DistributionBar.svelte';
+import ColumnChart from './ColumnChart.svelte';
+import LineChart from './LineChart.svelte';
+import { get } from 'svelte/store';
+import { tipLabel, tipState, hideTip, type TipModel } from '../../lib/chartTip.ts';
 
 let target: HTMLElement;
 let comp: ReturnType<typeof mount> | null = null;
@@ -346,6 +350,13 @@ describe('HorizontalBars', () => {
     expect(unk.querySelector('a')?.getAttribute('href')).toBe('#/metrics');
   });
 
+  it('lets panels that share one domain state the scale once, instead of in each panel', () => {
+    comp = mount(HorizontalBars, { target, props: { title: 'prod', items: [{ label: 'Held', value: 0.2, valueText: '1/5 (20%)' }], domainMax: 0.5, scaleText: '' } });
+    expect(target.querySelector('.hb-scale')).toBeNull();
+    expect(target.querySelector('.hb-value')?.textContent).toBe('1/5 (20%)');
+    expect((target.querySelector('.hb-fill') as HTMLElement).style.width).toBe('40%');
+  });
+
   it('states no scale and no all-zero line when every row is unknown', () => {
     comp = mount(HorizontalBars, { target, props: { title: 'Per week', items: [{ label: 'a', value: 0, unknown: 'no records' }] } });
     expect(target.querySelector('.hb-scale')).toBeNull();
@@ -498,5 +509,398 @@ describe('PostureBars', () => {
     comp = mount(PostureBars, { target, props: { summary: { ...posture, findings: {} } } });
     const titles = Array.from(target.querySelectorAll('.dist-title')).map((h) => h.textContent);
     expect(titles).not.toContain('Findings by severity');
+  });
+});
+
+// The column and line primitives of the Metrics page (#597): unknown is hatched and
+// never drawn as 0, a real 0 is a stub, every word is HTML and every bucket reads by
+// keyboard with the same words as its tooltip.
+const weeks = (n: number) => Array.from({ length: n }, (_, i) => ({ label: `Week ${i + 1}`, short: `W${i + 1}` }));
+const tipFor = (values: (number | null)[]) => (i: number): TipModel => ({ title: `Week ${i + 1}`, rows: [{ value: String(values[i]), label: 'caught' }] });
+const texts = (sel: string) => Array.from(target.querySelectorAll(sel)).map((e) => (e.textContent || '').trim());
+
+describe('ColumnChart', () => {
+  it('draws an all-unknown chart with its reason and never a 0', () => {
+    comp = mount(ColumnChart, { target, props: { buckets: weeks(3), series: [{ key: 'b', label: 'caught', values: [null, null, null] }], unknown: ['no records', 'no records', 'no CI records'] } });
+    flushSync();
+    const label = target.querySelector('.cc-labels')?.textContent || '';
+    expect(label).not.toMatch(/\b0\b/);
+    expect(target.querySelectorAll('.cc-stub')).toHaveLength(0);
+    expect(target.querySelectorAll('.cc-col')).toHaveLength(0);
+    const bands = target.querySelectorAll('.cc-unknown');
+    expect(bands).toHaveLength(3);
+    for (const b of Array.from(bands)) expect(b.childNodes).toHaveLength(0);
+    for (const hit of Array.from(target.querySelectorAll('.cc-hit'))) expect(hit.getAttribute('aria-label')).toMatch(/no (CI )?records.*Not counted as 0/);
+  });
+
+  it('puts the reason on an opaque plate when the band is wide enough', () => {
+    comp = mount(ColumnChart, { target, props: { buckets: weeks(2), series: [{ key: 'b', label: 'caught', values: [3, null] }], unknown: [null, 'no records'] } });
+    flushSync();
+    expect(texts('.cc-plate')).toEqual(['no records']);
+  });
+
+  it('draws a real 0 as a stub and says 0 in its tooltip', () => {
+    const values = [0, 4];
+    comp = mount(ColumnChart, { target, props: { buckets: weeks(2), series: [{ key: 'b', label: 'caught', values }], tipOf: tipFor(values) } });
+    flushSync();
+    expect(target.querySelectorAll('.cc-stub')).toHaveLength(1);
+    expect(target.querySelectorAll('.cc-col')).toHaveLength(1);
+    expect(target.querySelectorAll('.cc-hit')[0].getAttribute('aria-label')).toBe('Week 1, caught 0');
+  });
+
+  it('stacks segments in series order with a 2px surface gap', () => {
+    comp = mount(ColumnChart, { target, props: { buckets: weeks(1), series: [
+      { key: 'clear', label: 'Clear', color: 'var(--c-ok)', values: [6] },
+      { key: 'blocked', label: 'Blocked', color: 'var(--c-err)', values: [2] },
+      { key: 'unv', label: 'Unverified', texture: 'dots', values: [2] },
+    ] } });
+    const segs = Array.from(target.querySelectorAll('.cc-col')) as SVGElement[];
+    expect(segs.map((s) => s.getAttribute('data-series'))).toEqual(['clear', 'blocked', 'unv']);
+    expect(segs[2].getAttribute('fill')).toBe('url(#viz-dots)');
+    const box = (s: SVGElement) => ({ y: Number(s.getAttribute('data-y')), h: Number(s.getAttribute('data-h')) });
+    expect(box(segs[0]).y - (box(segs[1]).y + box(segs[1]).h)).toBeCloseTo(2);
+    expect(box(segs[1]).y - (box(segs[2]).y + box(segs[2]).h)).toBeCloseTo(2);
+  });
+
+  it('labels the peak and the last column only', () => {
+    comp = mount(ColumnChart, { target, props: { buckets: weeks(8), series: [{ key: 'b', label: 'caught', values: [1, 9, 2, 3, 2, 1, 4, 5] }] } });
+    flushSync();
+    expect(texts('.cc-val')).toEqual(['9', '5']);
+  });
+
+  it('makes every bucket a tab stop named with its tooltip text', () => {
+    const values = [2, 3, null];
+    comp = mount(ColumnChart, { target, props: { buckets: weeks(3), series: [{ key: 'b', label: 'caught', values }], unknown: [null, null, 'no records'], tipOf: tipFor(values) } });
+    flushSync();
+    const hits = Array.from(target.querySelectorAll('.cc-hit'));
+    expect(hits).toHaveLength(3);
+    hits.slice(0, 2).forEach((h, i) => {
+      expect(h.getAttribute('tabindex')).toBe('0');
+      expect(h.getAttribute('aria-label')).toBe(tipLabel(tipFor(values)(i)));
+    });
+  });
+
+  it('draws a hatched cap on a known column with unknown on top', () => {
+    comp = mount(ColumnChart, { target, props: { buckets: weeks(2), series: [{ key: 'p', label: 'protected', values: [3, 4] }], caps: [false, true] } });
+    flushSync();
+    expect(target.querySelectorAll('.cc-cap')).toHaveLength(1);
+  });
+
+  it('draws a cap on a 0 with unknown on top, so it never looks like a real 0', () => {
+    comp = mount(ColumnChart, { target, props: { buckets: weeks(2), series: [{ key: 'p', label: 'protected', values: [0, 0] }], caps: [true, false] } });
+    flushSync();
+    expect(target.querySelectorAll('.cc-stub')).toHaveLength(2);
+    expect(target.querySelectorAll('.cc-cap')).toHaveLength(1);
+  });
+
+  it('never prints half a count on the axis and formats large counts', () => {
+    const stack = (v: number) => [{ key: 'a', label: 'a', values: [v] }, { key: 'b', label: 'b', values: [0] }];
+    comp = mount(ColumnChart, { target, props: { buckets: weeks(1), series: stack(1) } });
+    flushSync();
+    expect(texts('.cc-y')).toEqual(['0', '1']);
+    unmount(comp);
+    comp = mount(ColumnChart, { target, props: { buckets: weeks(1), series: stack(1500) } });
+    flushSync();
+    expect(texts('.cc-y')).toEqual(['0', '800', '1,600']);
+  });
+
+  it('prints no axis text in compact mode', () => {
+    comp = mount(ColumnChart, { target, props: { compact: true, buckets: weeks(4), series: [{ key: 'b', label: 'caught', values: [1, 0, null, 3] }] } });
+    flushSync();
+    expect(target.querySelector('.cc-labels')).toBeNull();
+    expect(target.querySelectorAll('.cc-hit')).toHaveLength(4);
+  });
+});
+
+describe('LineChart', () => {
+  const series = (values: (number | null)[], partial?: boolean[]) => [{ key: 's', label: 'Services observed', color: 'var(--chart-1)', values, partial }];
+  afterEach(() => hideTip());
+
+  it('breaks the line at a missing value, never dropping it to 0', () => {
+    comp = mount(LineChart, { target, props: { buckets: weeks(5), series: series([3, 4, null, 5, 6]), label: 'Coverage' } });
+    flushSync();
+    const d = target.querySelector('.lc-line')?.getAttribute('d') || '';
+    expect(d.match(/M/g)).toHaveLength(2);
+  });
+
+  it('hatches a bucket where every series is missing', () => {
+    comp = mount(LineChart, { target, props: { buckets: weeks(3), series: [...series([3, null, 5]), { key: 'd', label: 'Described', color: 'var(--chart-2)', values: [1, null, 2] }], label: 'Coverage' } });
+    flushSync();
+    expect(target.querySelectorAll('.lc-unknown')).toHaveLength(1);
+  });
+
+  it('names a run of missing buckets once, with one band and one plate', () => {
+    comp = mount(LineChart, { target, props: { buckets: weeks(5), series: series([3, null, null, 5, 6]), label: 'Coverage' } });
+    flushSync();
+    expect(target.querySelectorAll('.lc-unknown')).toHaveLength(1);
+    expect(texts('.lc-plate')).toEqual(['no records']);
+  });
+
+  it('says why a bucket with records draws no point, and never half a count', () => {
+    comp = mount(LineChart, { target, props: { buckets: weeks(5), series: series([3, null, null, 5, 1]), unknown: [null, 'no coverage snapshot', null, null, null], label: 'Coverage' } });
+    flushSync();
+    expect(texts('.lc-plate')).toEqual(['no coverage snapshot']);
+    expect(texts('.lc-y')).toEqual(['0', '5']);
+    const hit = target.querySelector('.lc-hit') as SVGElement;
+    hit.dispatchEvent(new FocusEvent('focus'));
+    hit.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+    hit.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+    hit.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+    flushSync();
+    expect(get(tipState)?.model.rows[0].label).toBe('no coverage snapshot');
+  });
+
+  it('shows the tapped bucket on a touch tap and keeps it past pointerleave', () => {
+    comp = mount(LineChart, { target, props: { buckets: weeks(4), series: series([3, 8, 5, 2]), label: 'Coverage' } });
+    flushSync();
+    const hit = target.querySelector('.lc-hit') as SVGElement;
+    // jsdom: the hit rect is 0 wide, so any tap reads as the first bucket.
+    const ev = (type: string) => Object.assign(new MouseEvent(type, { clientX: 0, clientY: 0, bubbles: true }), { pointerType: 'touch' });
+    hit.dispatchEvent(ev('pointerup'));
+    hit.dispatchEvent(ev('pointerleave'));
+    flushSync();
+    expect(get(tipState)?.model.title).toBe('Week 1');
+  });
+
+  it('draws one y scale', () => {
+    comp = mount(LineChart, { target, props: { buckets: weeks(3), series: series([3, 8, 5]), label: 'Coverage' } });
+    flushSync();
+    expect(target.querySelectorAll('.lc-yaxis')).toHaveLength(1);
+  });
+
+  it('moves the crosshair with the arrow keys and updates the tooltip', () => {
+    comp = mount(LineChart, { target, props: { buckets: weeks(3), series: series([3, 8, 5]), label: 'Coverage per week; use arrow keys to read each week' } });
+    flushSync();
+    const hit = target.querySelector('.lc-hit') as SVGElement;
+    expect(hit.getAttribute('tabindex')).toBe('0');
+    expect(hit.getAttribute('aria-label')).toBe('Coverage per week; use arrow keys to read each week');
+    hit.dispatchEvent(new FocusEvent('focus'));
+    flushSync();
+    expect(get(tipState)?.model.title).toBe('Week 3');
+    hit.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+    flushSync();
+    expect(get(tipState)?.model.title).toBe('Week 2');
+    expect(get(tipState)?.model.rows[0].value).toBe('8');
+    expect(target.querySelector('.lc-cross')?.getAttribute('opacity')).toBe('1');
+    hit.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    flushSync();
+    expect(get(tipState)).toBeNull();
+  });
+
+  it('draws a partial point hollow and hatched', () => {
+    comp = mount(LineChart, { target, props: { buckets: weeks(3), series: series([3, 8, 5], [false, false, true]), label: 'Coverage' } });
+    flushSync();
+    const p = target.querySelectorAll('.lc-partial');
+    expect(p).toHaveLength(1);
+    expect(p[0].getAttribute('fill')).toBe('url(#viz-hatch)');
+  });
+});
+
+describe('HorizontalBars additions (#597)', () => {
+  const fill = (i: number) => (target.querySelectorAll('.hb-fill')[i] as HTMLElement).style.width;
+
+  it('takes a shared domain, so panels compare and a 0.6 rate draws longer than 0.5', () => {
+    comp = mount(HorizontalBars, { target, props: { title: 'prod', domainMax: 0.6, items: [
+      { label: 'Held', value: 0.5 }, { label: 'Failed', value: 0.6 },
+    ] } });
+    expect(fill(0)).toBe('83%');
+    expect(fill(1)).toBe('100%');
+  });
+
+  it('draws a rate under the shared domain shorter than the full track', () => {
+    comp = mount(HorizontalBars, { target, props: { title: 'prod', domainMax: 0.5, items: [{ label: 'Held', value: 0.2 }] } });
+    expect(fill(0)).toBe('40%');
+  });
+
+  it('prints valueText in place of the number and keeps a real 0 bar-less', () => {
+    comp = mount(HorizontalBars, { target, props: { title: 'prod', domainMax: 0.5, items: [
+      { label: 'Held', value: 0.2, valueText: '1/5 (20%)' }, { label: 'Failed', value: 0, valueText: '0/5 (0%)' },
+    ] } });
+    expect(texts('.hb-value')).toEqual(['1/5 (20%)', '0/5 (0%)']);
+    expect(fill(1)).toBe('0%');
+  });
+});
+
+describe('DistributionBar dots texture (#597)', () => {
+  it('draws an unverified bucket with the dot texture on its segment and its swatch', () => {
+    comp = mount(DistributionBar, { target, props: { title: 'Gates', segments: [
+      { label: 'Clear', value: 6, tone: 'ok' }, { label: 'Unverified', value: 2, texture: 'dots' },
+    ] } });
+    expect(target.querySelectorAll('.dist-seg.dots')).toHaveLength(1);
+    expect(target.querySelectorAll('.dist-swatch.dots')).toHaveLength(1);
+    expect(target.querySelectorAll('.hatch')).toHaveLength(0);
+  });
+});
+
+import RangeDots from './RangeDots.svelte';
+import RateGrid from './RateGrid.svelte';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { vi, beforeAll, afterAll } from 'vitest';
+
+describe('RangeDots', () => {
+  // elide.ts caches its measuring context on first use: give it a fixed-width font.
+  beforeAll(() => { vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ font: '', measureText: (s: string) => ({ width: [...s].length * 10 }) } as never); });
+  afterAll(() => vi.restoreAllMocks());
+  afterEach(() => hideTip());
+  const hitLabels = () => Array.from(target.querySelectorAll('.rd-hit')).map((h) => h.getAttribute('aria-label') || '');
+
+  it('draws an unjoined lead time as a hatched unknown row, never at the axis start', () => {
+    comp = mount(RangeDots, { target, props: { rows: [{ name: 'prod', p50: 3600, p90: 7200 }, { name: 'stage', p50: null, p90: null }] } });
+    flushSync();
+    expect(target.querySelectorAll('.rd-dot')).toHaveLength(1);
+    const band = target.querySelectorAll('.rd-unknown');
+    expect(band).toHaveLength(1);
+    expect(band[0].childNodes).toHaveLength(0);
+    expect(texts('.rd-plate')).toEqual(['unknown']);
+    expect(hitLabels()[1]).toContain('p50 unknown');
+  });
+
+  it('draws a 0s lead as a finite dot that says 0s, never unknown', () => {
+    comp = mount(RangeDots, { target, props: { rows: [{ name: 'prod', p50: 0, p90: 30 }, { name: 'stage', p50: 600, p90: 900 }] } });
+    flushSync();
+    const dots = Array.from(target.querySelectorAll('.rd-dot'));
+    expect(dots).toHaveLength(2);
+    for (const d of dots) expect(Number.isFinite(Number(d.getAttribute('cx')))).toBe(true);
+    expect(hitLabels()[0]).toContain('p50 0s');
+    expect(hitLabels()[0]).not.toContain('unknown');
+    expect(target.querySelectorAll('.rd-unknown')).toHaveLength(0);
+  });
+
+  it('draws no whisker for a missing p90 and says p90 unknown', () => {
+    comp = mount(RangeDots, { target, props: { rows: [{ name: 'prod', p50: 3600, p90: null }, { name: 'stage', p50: 60, p90: 120 }] } });
+    flushSync();
+    expect(target.querySelectorAll('.rd-whisker')).toHaveLength(1);
+    expect(hitLabels()[0]).toContain('p90 unknown');
+  });
+
+  it('renders group headers in the given order', () => {
+    comp = mount(RangeDots, { target, props: { rows: [
+      { group: 'hop 2' }, { name: 'a', p50: 60, p90: 90 }, { group: 'entry' }, { name: 'b', p50: 30, p90: 40 },
+    ] } });
+    flushSync();
+    expect(texts('.rd-group')).toEqual(['hop 2', 'entry']);
+    expect(target.querySelectorAll('.rd-hit')).toHaveLength(2);
+  });
+
+  it('elides a name longer than its column and keeps the whole name in title', () => {
+    const full = 'risk-us-eu-west-1-partner-feed-compliance';
+    const cw = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth');
+    const sw = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollWidth');
+    const rects = Element.prototype.getClientRects;
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get() { return this.classList.contains('fit') ? 200 : 0; } });
+    Object.defineProperty(Element.prototype, 'scrollWidth', { configurable: true, get() { return (this.textContent ?? '').length * 10; } });
+    Element.prototype.getClientRects = function () { return [{}] as unknown as DOMRectList; };
+    try {
+      comp = mount(RangeDots, { target, props: { rows: [{ name: full, p50: 60, p90: 90 }] } });
+      flushSync();
+      const label = target.querySelector('.rd-name') as HTMLElement;
+      expect(label.getAttribute('title')).toBe(full);
+      expect(label.querySelector('.fit')?.textContent).toContain('…');
+      expect(label.querySelector('.fit-full')?.textContent).toBe(full);
+    } finally {
+      if (cw) Object.defineProperty(HTMLElement.prototype, 'clientWidth', cw);
+      if (sw) Object.defineProperty(Element.prototype, 'scrollWidth', sw);
+      Element.prototype.getClientRects = rects;
+    }
+  });
+
+  it('gives every environment one focusable hit row with its tooltip words', () => {
+    comp = mount(RangeDots, { target, props: { rows: [{ name: 'prod', p50: 3600, p90: 7200, foot: '1 promotion with no publish record is left out' }] } });
+    flushSync();
+    const hit = target.querySelector('.rd-hit') as SVGElement;
+    expect(hit.getAttribute('tabindex')).toBe('0');
+    expect(hit.getAttribute('aria-label')).toBe('Lead time to prod, p50 1h, p90 2h, 1 promotion with no publish record is left out');
+  });
+});
+
+describe('RateGrid', () => {
+  const columns = [{ key: 'held', label: 'Held' }, { key: 'failed', label: 'Failed' }];
+  const cell = (count: number, of: number, bin?: 1 | 2 | 3 | 4) => ({ count, of, bin, foot: '' });
+  const group = (key: string, open: boolean, rows = [
+    { name: 'dev', cells: { held: cell(1, 10, 1), failed: cell(0, 10) } },
+    { name: 'test', cells: { held: cell(2, 0), failed: cell(4, 10, 3) } },
+  ]) => ({ key, label: key, title: `${key}, ${rows.length} environments`, count: rows.length, summary: { held: cell(3, 10, 3), failed: cell(4, 20, 2) }, rows, open });
+  const cells = () => Array.from(target.querySelectorAll('.cell')) as HTMLElement[];
+
+  it('hatches a rate with nothing to count, says unknown and keeps the count', () => {
+    comp = mount(RateGrid, { target, props: { columns, groups: [group('entry', true)] } });
+    flushSync();
+    const unk = target.querySelectorAll('.cell.unk');
+    expect(unk).toHaveLength(1);
+    expect(unk[0].textContent).toContain('unknown');
+    expect(unk[0].textContent).toContain('2 of 0');
+    const hatch = unk[0].querySelector('.hatch') as HTMLElement;
+    expect(hatch.childNodes).toHaveLength(0);
+  });
+
+  it('draws a real 0 as the zero cell, never hatched', () => {
+    comp = mount(RateGrid, { target, props: { columns, groups: [group('entry', true)] } });
+    flushSync();
+    const zero = target.querySelectorAll('.cell.zero');
+    expect(zero).toHaveLength(1);
+    expect(zero[0].querySelector('.hatch')).toBeNull();
+    expect(zero[0].textContent).toContain('0 of 10');
+  });
+
+  it('maps the bins onto the ordinal ramp', () => {
+    comp = mount(RateGrid, { target, props: { columns, groups: [group('entry', true)] } });
+    flushSync();
+    expect(target.querySelectorAll('.cell.b1')).toHaveLength(1);
+    expect(target.querySelectorAll('.cell.b3')).toHaveLength(2);
+    const css = readFileSync(join(process.cwd(), 'src/components/viz/RateGrid.svelte'), 'utf8');
+    for (const b of [1, 2, 3, 4]) expect(css).toMatch(new RegExp(`\\.b${b}\\s*\\{[^}]*var\\(--chart-hm-${b}\\)`));
+  });
+
+  it('renders a collapsed group as its summary row only and toggles by key', () => {
+    const ontoggle = vi.fn();
+    comp = mount(RateGrid, { target, props: { columns, groups: [group('hop 2', false)], ontoggle } });
+    flushSync();
+    expect(target.querySelectorAll('tbody th[scope="row"]')).toHaveLength(0);
+    const btn = target.querySelector('th[scope="rowgroup"] button') as HTMLButtonElement;
+    expect(btn.getAttribute('aria-expanded')).toBe('false');
+    btn.click();
+    expect(ontoggle).toHaveBeenCalledWith('hop 2');
+  });
+
+  it('is the only scroller, named and focusable', () => {
+    comp = mount(RateGrid, { target, props: { columns, groups: [group('entry', true)] } });
+    const sc = target.querySelector('.hm-scroll') as HTMLElement;
+    expect(sc.getAttribute('tabindex')).toBe('0');
+    expect(sc.getAttribute('role')).toBe('region');
+    expect(sc.getAttribute('aria-label')).toBe('Delivery health heatmap, scrolls in both directions');
+  });
+
+  it('keeps every cell a table cell and is one tab stop that arrows move', () => {
+    comp = mount(RateGrid, { target, props: { columns, groups: [group('entry', true)] } });
+    flushSync();
+    expect(Array.from(target.querySelectorAll('td')).filter((td) => td.hasAttribute('role'))).toEqual([]);
+    const stops = () => cells().filter((c) => c.getAttribute('tabindex') === '0');
+    expect(stops()).toHaveLength(1);
+    const first = stops()[0];
+    expect(first).toBe(cells()[0]);
+    first.focus();
+    first.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    expect(stops()).toEqual([cells()[1]]);
+    expect(document.activeElement).toBe(cells()[1]);
+    cells()[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    expect(stops()).toEqual([cells()[3]]);
+    cells()[3].dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
+    expect(stops()).toEqual([cells()[2]]);
+  });
+
+  it('pages a group locally with its own buttons, never a URL pager', () => {
+    const onclick = vi.fn();
+    comp = mount(RateGrid, { target, props: { columns, groups: [{ ...group('entry', true), more: { label: '1 to 2 of 40', actions: [{ label: 'Next', onclick }] } }] } });
+    flushSync();
+    expect(target.querySelector('[data-view-total]')).toBeNull();
+    (target.querySelector('tr.more button') as HTMLButtonElement).click();
+    expect(onclick).toHaveBeenCalled();
+    expect(target.querySelector('tr.more')?.textContent).toContain('1 to 2 of 40');
+  });
+
+  it('says so when no environment matches', () => {
+    comp = mount(RateGrid, { target, props: { columns, groups: [], emptyText: 'No environment matches this filter.' } });
+    expect(target.querySelector('.hm')?.textContent).toContain('No environment matches this filter.');
   });
 });
