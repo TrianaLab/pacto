@@ -25,6 +25,9 @@ const (
 const (
 	noMajority  = "no clear majority"
 	watchedOnly = "read only the watched namespaces"
+	// officialImages is Docker Hub's official images: nobody pushes there, so
+	// it is never proposed as a push target.
+	officialImages = "docker.io/library"
 )
 
 // Workload is one running workload: a controller owner (or a bare pod), its
@@ -71,10 +74,11 @@ func Registries(ws []Workload, sampled, clusterWide bool) Entry {
 	if sampled {
 		reasons = append(reasons, fmt.Sprintf("sampled the first %d running pods", MaxPods))
 	}
-	if majority(ranked[0], len(namespaces)) {
-		e.Hint = fitting("oci://" + ranked[0].name + "/<service>:<version>")
-	} else {
+	switch {
+	case !majority(ranked, len(namespaces)):
 		reasons = append(reasons, noMajority)
+	case ranked[0].name != officialImages:
+		e.Hint = fitting("oci://" + ranked[0].name + "/<service>:<version>")
 	}
 	if !clusterWide {
 		reasons = append(reasons, watchedOnly)
@@ -133,10 +137,13 @@ func (t tallies) ranked() []*tally {
 	})
 }
 
-// majority says top spans at least two namespaces and a strict majority of
-// the total counted.
-func majority(top *tally, total int) bool {
-	return len(top.ns) >= 2 && 2*len(top.ns) > total
+// majority says the top of ranked spans at least two namespaces and a strict
+// majority of the total counted, and leads the runner-up on namespaces: votes
+// are not exclusive (a pod running an app and a sidecar votes twice), so a tie
+// is no clear majority.
+func majority(ranked []*tally, total int) bool {
+	top := ranked[0]
+	return len(top.ns) >= 2 && 2*len(top.ns) > total && (len(ranked) == 1 || len(top.ns) > len(ranked[1].ns))
 }
 
 // fitting is hint, or nothing when it is longer than a reader keeps: a cut
@@ -150,14 +157,30 @@ func fitting(hint string) string {
 }
 
 // place keeps the namespaces and objects an entry's facts come from, or
-// marks it cluster-scoped when there are more than a reader keeps, so a
+// marks it cluster-scoped when there are more than a reader keeps (each
+// becomes one row object, capped at fleet.MaxProviderObjects), so a
 // restricted view never sees an entry whose cut list hides a namespace.
 func place(e *Entry, namespaces []string, objects []Object) {
-	if len(namespaces) > MaxNamed || len(objects) > MaxNamed {
+	if len(namespaces)+len(objects) > fleet.MaxProviderObjects {
 		e.Scope = fleet.ScopeCluster
 		return
 	}
 	e.Namespaces, e.Objects = namespaces, objects
+}
+
+// within places e's facts: on a cluster-wide read (watched nil) the entry is
+// cluster-scoped; on a namespace-list read it names namespaces and objects,
+// or every watched namespace when it found nothing to name, so "none found"
+// never speaks for a namespace a reader may not read.
+func within(e *Entry, watched, namespaces []string, objects []Object) {
+	if watched == nil {
+		e.Scope = fleet.ScopeCluster
+		return
+	}
+	if len(namespaces) == 0 && len(objects) == 0 {
+		namespaces = watched
+	}
+	place(e, namespaces, objects)
 }
 
 // partial is e, partial with reasons when there are any.

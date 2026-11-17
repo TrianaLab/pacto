@@ -52,9 +52,9 @@ func TestNoHintWithoutMajority(t *testing.T) {
 		"registry one namespace": Registries(workloads(3, "a", "ghcr.io/acme/app"), false, true),
 		"registry no majority": Registries(slices.Concat(workloads(1, "a", "ghcr.io/acme/app"), workloads(1, "b", "ghcr.io/acme/app"),
 			workloads(1, "c", "quay.io/x/y"), workloads(1, "d", "quay.io/z/y")), false, true),
-		"exposure one namespace": Exposure(true, nil, []Route{{Namespace: "a", ParentNamespace: "infra", ParentName: "gw"}}, nil),
+		"exposure one namespace": Exposure(true, nil, []Route{{Namespace: "a", ParentNamespace: "infra", ParentName: "gw"}}, nil, nil),
 		"exposure no majority": Exposure(false, nil, nil, []Ingress{{Namespace: "a", Class: "nginx"}, {Namespace: "b", Class: "nginx"},
-			{Namespace: "c", Class: "traefik"}, {Namespace: "d", Class: "haproxy"}}),
+			{Namespace: "c", Class: "traefik"}, {Namespace: "d", Class: "haproxy"}}, nil),
 	}
 	for name, e := range cases {
 		if e.Hint != "" || e.Completeness != Partial || !strings.Contains(e.Reason, "no clear majority") {
@@ -85,6 +85,73 @@ func TestRegistriesDockerHubLibrary(t *testing.T) {
 	e := Registries(slices.Concat(workloads(1, "a", "nginx"), workloads(1, "b", "nginx:1.27"), workloads(1, "c", "registry.local:5000/app")), false, true)
 	if e.Value != "docker.io/library" || !slices.Contains(e.Details, "registry.local:5000: 1 of 3 namespaces, 33% of workloads") {
 		t.Errorf("entry = %+v", e)
+	}
+}
+
+func TestRegistriesTieIsNoClearMajority(t *testing.T) {
+	// Every meshed pod runs the app and the sidecar: both candidates hold
+	// every namespace, so neither is a clear majority.
+	var ws []Workload
+	for i := range 4 {
+		ns := fmt.Sprintf("ns%d", i)
+		ws = append(ws, Workload{ID: ns, Namespace: ns, Images: []string{"cr.l5d.io/linkerd/proxy:2", "ghcr.io/acme/app:1"}})
+	}
+	if e := Registries(ws, false, true); e.Hint != "" || e.Completeness != Partial || e.Reason != noMajority {
+		t.Errorf("entry = %+v", e)
+	}
+	routes := []Route{{Namespace: "a", ParentNamespace: "x", ParentName: "one"}, {Namespace: "a", ParentNamespace: "y", ParentName: "two"},
+		{Namespace: "b", ParentNamespace: "x", ParentName: "one"}, {Namespace: "b", ParentNamespace: "y", ParentName: "two"}}
+	if e := Exposure(true, nil, routes, nil, nil); e.Hint != "" || e.Completeness != Partial {
+		t.Errorf("gateway tie = %+v", e)
+	}
+}
+
+func TestRegistriesOfficialImagesGetNoHint(t *testing.T) {
+	e := Registries(slices.Concat(workloads(1, "a", "redis"), workloads(1, "b", "postgres:16"), workloads(1, "c", "ghcr.io/acme/app")), false, true)
+	if e.Value != officialImages || e.Hint != "" || e.Completeness != Complete {
+		t.Errorf("entry = %+v", e)
+	}
+}
+
+func TestPlaceBoundIsWhatAReaderKeeps(t *testing.T) {
+	var ns []string
+	for i := range fleet.MaxProviderObjects {
+		ns = append(ns, fmt.Sprintf("ns%d", i))
+	}
+	var e Entry
+	if place(&e, ns, nil); e.Scope != "" || len(e.Namespaces) != fleet.MaxProviderObjects {
+		t.Errorf("at the bound = %+v", e)
+	}
+	e = Entry{}
+	if place(&e, ns, []Object{{Kind: "Gateway", Namespace: "ns0", Name: "gw"}}); e.Scope != fleet.ScopeCluster || e.Namespaces != nil || e.Objects != nil {
+		t.Errorf("over the bound = %+v", e)
+	}
+}
+
+func TestExposureAndSignInScope(t *testing.T) {
+	routes := []Route{{Namespace: "a", ParentNamespace: "infra", ParentName: "gw"}, {Namespace: "b", ParentNamespace: "infra", ParentName: "gw"}}
+	ingresses := []Ingress{{Namespace: "a", Class: "nginx"}, {Namespace: "b", Class: "nginx"}}
+	// Cluster-wide reads are cluster-scoped, "none found" included.
+	for name, e := range map[string]Entry{
+		"gateway": Exposure(true, nil, routes, nil, nil), "ingress": Exposure(false, nil, nil, ingresses, nil),
+		"exposure none": Exposure(false, nil, nil, nil, nil), "sign-in none": SignIn(false, nil, nil, nil),
+	} {
+		if e.Scope != fleet.ScopeCluster || e.Namespaces != nil || e.Objects != nil {
+			t.Errorf("cluster-wide %s = %+v", name, e)
+		}
+	}
+	watched := []string{"a", "b", "c"}
+	if e := Exposure(false, nil, nil, ingresses, watched); e.Scope != "" || !slices.Equal(e.Namespaces, []string{"a", "b"}) {
+		t.Errorf("scoped ingress = %+v", e)
+	}
+	if e := Exposure(true, nil, routes, nil, watched); !slices.Equal(e.Namespaces, []string{"a", "b", "infra"}) ||
+		!slices.Equal(e.Objects, []Object{{Kind: "Gateway", Namespace: "infra", Name: "gw"}}) {
+		t.Errorf("scoped gateway = %+v", e)
+	}
+	for name, e := range map[string]Entry{"exposure none": Exposure(false, nil, nil, nil, watched), "sign-in none": SignIn(false, nil, nil, watched)} {
+		if e.Scope != "" || !slices.Equal(e.Namespaces, watched) {
+			t.Errorf("scoped %s = %+v", name, e)
+		}
 	}
 }
 
@@ -214,8 +281,8 @@ func TestExposureGatewayHint(t *testing.T) {
 		{Namespace: "a", ParentNamespace: "infra", ParentName: "public"}, {Namespace: "b", ParentNamespace: "infra", ParentName: "public"},
 		{Namespace: "b", ParentNamespace: "infra", ParentName: "public"}, {Namespace: "c", ParentNamespace: "c", ParentName: "own"},
 	}
-	e := Exposure(true, nil, routes, []Ingress{{Namespace: "x", Class: "nginx"}})
-	if e.Value != "Gateway API" || e.Completeness != Complete || !slices.Equal(e.Namespaces, []string{"infra"}) ||
+	e := Exposure(true, nil, routes, []Ingress{{Namespace: "x", Class: "nginx"}}, []string{"a", "b", "c", "infra"})
+	if e.Value != "Gateway API" || e.Completeness != Complete || !slices.Equal(e.Namespaces, []string{"a", "b", "c", "infra"}) ||
 		!slices.Equal(e.Objects, []Object{{Kind: "Gateway", Namespace: "infra", Name: "public"}}) {
 		t.Fatalf("entry = %+v", e)
 	}
@@ -235,13 +302,13 @@ func TestExposureOneNamespaceCannotWin(t *testing.T) {
 	for _, ns := range []string{"a", "b"} {
 		routes = append(routes, Route{Namespace: ns, ParentNamespace: "infra", ParentName: "public"})
 	}
-	if e := Exposure(true, nil, routes, nil); !slices.Equal(e.Objects, []Object{{Kind: "Gateway", Namespace: "infra", Name: "public"}}) {
+	if e := Exposure(true, nil, routes, nil, []string{"tenant"}); !slices.Equal(e.Objects, []Object{{Kind: "Gateway", Namespace: "infra", Name: "public"}}) {
 		t.Errorf("objects = %+v", e.Objects)
 	}
 }
 
 func TestExposureIngressHint(t *testing.T) {
-	e := Exposure(false, nil, nil, []Ingress{{Namespace: "a", Class: "nginx"}, {Namespace: "b", Class: "nginx"}, {Namespace: "b"}})
+	e := Exposure(false, nil, nil, []Ingress{{Namespace: "a", Class: "nginx"}, {Namespace: "b", Class: "nginx"}, {Namespace: "b"}}, nil)
 	if e.Value != "Ingress class nginx" || e.Evidence != "in 2 of 2 namespaces" || e.Completeness != Complete {
 		t.Fatalf("entry = %+v", e)
 	}
@@ -252,14 +319,14 @@ func TestExposureIngressHint(t *testing.T) {
 		}
 	}
 	long := Exposure(true, nil, []Route{{Namespace: "a", ParentNamespace: "infra", ParentName: strings.Repeat("g", MaxRunes)},
-		{Namespace: "b", ParentNamespace: "infra", ParentName: strings.Repeat("g", MaxRunes)}}, nil)
+		{Namespace: "b", ParentNamespace: "infra", ParentName: strings.Repeat("g", MaxRunes)}}, nil, nil)
 	if long.Hint != "" || long.Completeness != Complete {
 		t.Errorf("a hint over the bound is printed: %+v", long)
 	}
 }
 
 func TestExposureNoneFound(t *testing.T) {
-	for _, e := range []Entry{Exposure(true, nil, nil, nil), Exposure(false, nil, nil, []Ingress{{Namespace: "a"}})} {
+	for _, e := range []Entry{Exposure(true, nil, nil, nil, nil), Exposure(false, nil, nil, []Ingress{{Namespace: "a"}}, nil)} {
 		if e.Value != "none found" || e.Completeness != Partial || e.Reason == "" {
 			t.Errorf("entry = %+v", e)
 		}
@@ -268,7 +335,7 @@ func TestExposureNoneFound(t *testing.T) {
 
 func TestServedErrorIsUnknown(t *testing.T) {
 	err := errors.New("forbidden")
-	for _, e := range []Entry{Metrics(true, err), SignIn(true, []string{"a/dex"}, err), Exposure(true, err, []Route{{Namespace: "a"}}, nil)} {
+	for _, e := range []Entry{Metrics(true, err), SignIn(true, []string{"a/dex"}, err, nil), Exposure(true, err, []Route{{Namespace: "a"}}, nil, nil)} {
 		if e.Completeness != Unknown || !strings.Contains(e.Reason, "forbidden") || e.Value != "" {
 			t.Errorf("entry = %+v", e)
 		}
@@ -285,15 +352,15 @@ func TestMetrics(t *testing.T) {
 }
 
 func TestSignInDexServiceNamesNamespace(t *testing.T) {
-	e := SignIn(false, []string{"auth/dex", "auth/dex-web", "bad"}, nil)
+	e := SignIn(false, []string{"auth/dex", "auth/dex-web", "bad"}, nil, nil)
 	if e.Value != "Dex" || e.Completeness != Complete || !slices.Equal(e.Namespaces, []string{"auth"}) || strings.Contains(e.Evidence, "auth") ||
 		!slices.Equal(e.Objects, []Object{{Kind: "Service", Namespace: "auth", Name: "dex"}, {Kind: "Service", Namespace: "auth", Name: "dex-web"}}) {
 		t.Errorf("entry = %+v", e)
 	}
-	if e := SignIn(true, nil, nil); e.Value != "Dex" || e.Evidence != "serves dex.coreos.com/v1" {
+	if e := SignIn(true, nil, nil, nil); e.Value != "Dex" || e.Evidence != "serves dex.coreos.com/v1" {
 		t.Errorf("served = %+v", e)
 	}
-	if e := SignIn(false, nil, nil); e.Value != "none found" || e.Completeness != Partial || e.Reason != "an identity provider outside the cluster is not visible" {
+	if e := SignIn(false, nil, nil, nil); e.Value != "none found" || e.Completeness != Partial || e.Reason != "an identity provider outside the cluster is not visible" {
 		t.Errorf("none = %+v", e)
 	}
 }

@@ -34,8 +34,9 @@ func Metrics(served bool, err error) Entry {
 
 // SignIn is Dex when its API is served or a Service labelled for it exists
 // (dexServices as namespace/name). None found is partial: an identity
-// provider outside the cluster is not visible from here.
-func SignIn(dexServed bool, dexServices []string, err error) Entry {
+// provider outside the cluster is not visible from here. watched names the
+// namespaces read; nil means every namespace was.
+func SignIn(dexServed bool, dexServices []string, err error, watched []string) Entry {
 	if err != nil {
 		return discoveryFailed("sign-in", err)
 	}
@@ -48,8 +49,10 @@ func SignIn(dexServed bool, dexServices []string, err error) Entry {
 		}
 	}
 	if !dexServed && len(objects) == 0 {
-		return Entry{Kind: "sign-in", Value: "none found", Evidence: "no Dex API or Service", Source: "API discovery and Services",
+		e := Entry{Kind: "sign-in", Value: "none found", Evidence: "no Dex API or Service", Source: "API discovery and Services",
 			Completeness: Partial, Reason: "an identity provider outside the cluster is not visible"}
+		within(&e, watched, nil, nil)
+		return e
 	}
 	var evidence []string
 	if dexServed {
@@ -67,12 +70,15 @@ func SignIn(dexServed bool, dexServices []string, err error) Entry {
 // attach to when the Gateway API is served, else the Ingress class used in
 // the most distinct namespaces (Ingresses without a class are not counted).
 // The hint is the chart's dashboard route keys, only on a clear majority.
-func Exposure(gatewayServed bool, gatewayErr error, routes []Route, ingresses []Ingress) Entry {
+// watched names the namespaces read; nil means every namespace was, and the
+// entry is then cluster-scoped: its counts cover namespaces a reader may not
+// read.
+func Exposure(gatewayServed bool, gatewayErr error, routes []Route, ingresses []Ingress, watched []string) Entry {
 	if gatewayErr != nil {
 		return discoveryFailed("exposure", gatewayErr)
 	}
 	if gatewayServed && len(routes) > 0 {
-		return gatewayEntry(routes)
+		return gatewayEntry(routes, watched)
 	}
 	t, namespaces := tallies{}, map[string]bool{}
 	for _, i := range ingresses {
@@ -82,13 +88,17 @@ func Exposure(gatewayServed bool, gatewayErr error, routes []Route, ingresses []
 		}
 	}
 	if len(t) == 0 {
-		return Entry{Kind: "exposure", Value: "none found", Source: "HTTPRoutes and Ingresses", Completeness: Partial,
+		e := Entry{Kind: "exposure", Value: "none found", Source: "HTTPRoutes and Ingresses", Completeness: Partial,
 			Reason: "no HTTPRoute on a served Gateway API and no Ingress with a class was found"}
+		within(&e, watched, nil, nil)
+		return e
 	}
-	top := t.ranked()[0]
+	ranked := t.ranked()
+	top := ranked[0]
 	e := Entry{Kind: "exposure", Value: "Ingress class " + top.name, Evidence: fmt.Sprintf("in %d of %d namespaces", len(top.ns), len(namespaces)),
 		Source: "Ingresses", Completeness: Complete}
-	if !majority(top, len(namespaces)) {
+	within(&e, watched, slices.Sorted(maps.Keys(namespaces)), nil)
+	if !majority(ranked, len(namespaces)) {
 		return partial(e, noMajority)
 	}
 	e.Hint = fitting("--set dashboard.ingress.enabled=true --set dashboard.ingress.className=" + top.name +
@@ -99,19 +109,23 @@ func Exposure(gatewayServed bool, gatewayErr error, routes []Route, ingresses []
 
 // gatewayEntry is the Gateway most route namespaces attach to. Its namespace
 // is named only in the hint, the namespaces and the objects, never in the
-// evidence, so a restricted view can redact it.
-func gatewayEntry(routes []Route) Entry {
+// evidence, so a restricted view can redact it. The route namespaces its
+// counts cover are named too.
+func gatewayEntry(routes []Route, watched []string) Entry {
 	t, namespaces := tallies{}, map[string]bool{}
 	for _, r := range routes {
 		t.add(r.ParentNamespace+"/"+r.ParentName, r.Namespace)
 		namespaces[r.Namespace] = true
 	}
-	top := t.ranked()[0]
+	ranked := t.ranked()
+	top := ranked[0]
 	ns, name, _ := strings.Cut(top.name, "/")
 	e := Entry{Kind: "exposure", Value: "Gateway API", Source: "HTTPRoutes", Completeness: Complete,
-		Evidence:   fmt.Sprintf("HTTPRoutes in %d of %d namespaces attach to the same Gateway", len(top.ns), len(namespaces)),
-		Namespaces: []string{ns}, Objects: []Object{{Kind: "Gateway", Namespace: ns, Name: name}}}
-	if !majority(top, len(namespaces)) {
+		Evidence: fmt.Sprintf("HTTPRoutes in %d of %d namespaces attach to the same Gateway", len(top.ns), len(namespaces))}
+	total := len(namespaces)
+	namespaces[ns] = true
+	within(&e, watched, slices.Sorted(maps.Keys(namespaces)), []Object{{Kind: "Gateway", Namespace: ns, Name: name}})
+	if !majority(ranked, total) {
 		return partial(e, noMajority)
 	}
 	e.Hint = fitting("--set dashboard.httpRoute.enabled=true --set dashboard.httpRoute.parentRefs[0].name=" + name +

@@ -215,7 +215,7 @@ func TestDetectorResultAllKinds(t *testing.T) {
 		"metrics": func(e detect.Entry) bool { return e.Value == "Prometheus Operator" },
 		"sign-in": func(e detect.Entry) bool { return e.Value == "Dex" && slices.Equal(e.Namespaces, []string{"auth"}) },
 		"exposure": func(e detect.Entry) bool {
-			return e.Value == "Gateway API" && strings.Contains(e.Hint, "parentRefs[0].namespace=infra")
+			return e.Value == "Gateway API" && strings.Contains(e.Hint, "parentRefs[0].namespace=infra") && e.Scope == fleet.ScopeCluster
 		},
 	} {
 		if e := entry(t, res, kind); !ok(e) {
@@ -274,6 +274,9 @@ func TestDetectorScopedListsWatchedNamespaces(t *testing.T) {
 		if e := entry(t, res, kind); e.Completeness != detect.Partial || !strings.Contains(e.Reason, "watched namespaces") {
 			t.Errorf("%s = %+v", kind, e)
 		}
+	}
+	if e := entry(t, res, "exposure"); e.Scope != "" || len(e.Namespaces) == 0 {
+		t.Errorf("exposure = %+v", e)
 	}
 }
 

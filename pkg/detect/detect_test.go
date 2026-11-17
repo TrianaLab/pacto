@@ -179,3 +179,32 @@ func TestProviderRowsCarryScopeAndCluster(t *testing.T) {
 		t.Errorf("exposure row = %+v", e)
 	}
 }
+
+// TestRestrictRedactsExposureRows: an exposure row counts namespaces, so a
+// viewer who may read only some of them sees it redacted: the Ingress row of
+// a cluster-wide read for a one-namespace viewer, and the Gateway row of a
+// namespace-list read for a viewer of the Gateway namespace alone.
+func TestRestrictRedactsExposureRows(t *testing.T) {
+	ingresses := []Ingress{{Namespace: "team-a", Class: "nginx"}, {Namespace: "team-b", Class: "nginx"}, {Namespace: "team-c", Class: "nginx"}}
+	routes := []Route{{Namespace: "team-a", ParentNamespace: "infra", ParentName: "public"}, {Namespace: "team-b", ParentNamespace: "infra", ParentName: "public"}}
+	for name, tc := range map[string]struct {
+		entry  Entry
+		reader string
+	}{
+		"ingress cluster-wide": {Exposure(false, nil, nil, ingresses, nil), "team-a"},
+		"gateway cluster-wide": {Exposure(true, nil, routes, nil, nil), "infra"},
+		"gateway watched":      {Exposure(true, nil, routes, nil, []string{"team-a", "team-b", "infra"}), "infra"},
+	} {
+		rows := ProviderRows(Result{AsOf: asOf, Entries: []Entry{tc.entry}}, "detection", asOf)
+		snap, err := fleet.Build(t.Context(), fleet.BuildOptions{Now: func() time.Time { return asOf }},
+			fleet.NewMemorySource("detection", fleet.SourceKindDetection, &fleet.Collection{Advisory: true, Providers: rows}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		reader := tc.reader
+		got := row(t, fleet.NewQuery(snap).Restrict(func(ns string) bool { return ns == reader }, nil).SnapshotForSerialization().Providers, "exposure")
+		if got.Hint != "" || strings.ContainsAny(got.Evidence, "0123456789") {
+			t.Errorf("%s: %+v", name, got)
+		}
+	}
+}

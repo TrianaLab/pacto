@@ -124,6 +124,10 @@ func (d *Detector) Sync(ctx context.Context) error {
 // detect reads the cluster and runs every rule.
 func (d *Detector) detect(ctx context.Context) detect.Result {
 	scoped := len(d.Namespaces) > 0
+	var watched []string // nil: every namespace is read
+	if scoped {
+		watched = d.Namespaces
+	}
 	res := detect.Result{AsOf: d.Now().UTC(), Cluster: d.Cluster, ClusterName: d.ClusterName, Namespaces: d.Namespaces}
 
 	ws, sampled, err := d.workloads(ctx)
@@ -144,7 +148,7 @@ func (d *Detector) detect(ctx context.Context) detect.Result {
 
 	dexServed, dexErr := d.Served(dexGV)
 	services, err := d.dexServices(ctx)
-	res.Entries = append(res.Entries, sampledEntry(detect.SignIn(dexServed, services, classed(errors.Join(dexErr, err))), scoped, scopedReason))
+	res.Entries = append(res.Entries, sampledEntry(detect.SignIn(dexServed, services, classed(errors.Join(dexErr, err)), watched), scoped, scopedReason))
 
 	gwServed, gwErr := d.Served(gatewayGV)
 	var routes []detect.Route
@@ -152,7 +156,7 @@ func (d *Detector) detect(ctx context.Context) detect.Result {
 		routes, gwErr = d.routes(ctx)
 	}
 	ingresses, err := d.ingresses(ctx)
-	res.Entries = append(res.Entries, sampledEntry(detect.Exposure(gwServed, classed(errors.Join(gwErr, err)), routes, ingresses), scoped, scopedReason))
+	res.Entries = append(res.Entries, sampledEntry(detect.Exposure(gwServed, classed(errors.Join(gwErr, err)), routes, ingresses, watched), scoped, scopedReason))
 	return res
 }
 
