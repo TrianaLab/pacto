@@ -46,6 +46,11 @@ const sigstoreKeypair = "a sign.Keypair method sigstore-go calls through that in
 // cover them, kept so a minor upgrade does not break importers.
 const runtimeBoundsV6 = "deprecated public API of the released k8s module v6.0, kept for source compatibility"
 
+// folderExternalsP3P4 marks the catalog matchers and the managed identity
+// whose readers land later in the same story; each phase that adds a
+// caller deletes its entry.
+const folderExternalsP3P4 = "first production caller lands in 508-S5 P3/P4"
+
 var deadCodeAllowlist = map[string]string{
 	// Every entry is "<pkg>.<Symbol>": reason.
 
@@ -64,6 +69,11 @@ var deadCodeAllowlist = map[string]string{
 	"pkg/signing.GetKeyAlgorithm":     sigstoreKeypair,
 	"pkg/signing.GetPublicKeyPem":     sigstoreKeypair,
 	"pkg/signing.GetSigningAlgorithm": sigstoreKeypair,
+
+	"pkg/externalcatalog.MatchSDK":        folderExternalsP3P4,
+	"pkg/externalcatalog.MatchTerraform":  folderExternalsP3P4,
+	"pkg/externalcatalog.MatchCrossplane": folderExternalsP3P4,
+	"pkg/externalid.Managed":              folderExternalsP3P4,
 
 	"pkg/dashboard.GetStatus": "huma's StatusError: huma reads the HTTP status of a refusal a handler returns " +
 		"through that interface, never by name",
