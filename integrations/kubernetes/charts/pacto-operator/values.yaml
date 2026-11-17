@@ -107,8 +107,9 @@ resources:
 
 controller:
   # -- Namespaces the controller and the managed dashboard watch. Empty means
-  # cluster-wide. With a list, the chart renders namespaced Roles only; fleet
-  # answers report the rest as unknown.
+  # cluster-wide. With a list, the chart renders namespaced Roles, plus the
+  # dashboard's TokenReview grant for token sign-in; fleet answers report the
+  # rest as unknown.
   watchNamespaces: []
   # -- Deprecated: use watchNamespaces. Merged into it.
   watchNamespace: ""
