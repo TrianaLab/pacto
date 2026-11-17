@@ -107,8 +107,9 @@ resources:
 
 controller:
   # -- Namespaces the controller and the managed dashboard watch. Empty means
-  # cluster-wide. With a list, the chart renders namespaced Roles only; fleet
-  # answers report the rest as unknown.
+  # cluster-wide. With a list, the chart renders namespaced Roles, plus the
+  # dashboard's TokenReview grant for token sign-in; fleet answers report the
+  # rest as unknown.
   watchNamespaces: []
   # -- Deprecated: use watchNamespaces. Merged into it.
   watchNamespace: ""
@@ -239,12 +240,13 @@ dashboard:
     #   - name: orders
     #     file: traces.json
     #     existingClaim: orders-trace-export
-  # Sign-in for the dashboard. With an issuer or token sign-in set, people
-  # sign in before the dashboard shows anything, and every view and action
-  # runs with what their own Kubernetes RBAC allows; the dashboard's
-  # ServiceAccount stays read-only and holds no impersonation right. The
-  # delivery views (`dashboard.delivery`) need sign-in. The cluster must
-  # trust the same issuer (structured authentication) with the same claim
+  # Sign-in for the dashboard. People sign in before the dashboard shows
+  # anything: by default with a Kubernetes token (NOTES prints a short-lived
+  # sign-in link), or with an issuer. A person's views and actions run with
+  # what their own Kubernetes RBAC allows; the dashboard's ServiceAccount
+  # stays read-only and holds no impersonation right. The delivery views
+  # (`dashboard.delivery`) need a person's sign-in. With an issuer, the
+  # cluster must trust it (structured authentication) with the same claim
   # mapping, and TLS must terminate in front of the dashboard because its
   # session cookie is Secure. See
   # https://pacto.run/latest/integrations/kubernetes/dashboard-authentication/
@@ -287,11 +289,11 @@ dashboard:
       idleTimeout: ""
       # -- A session ends this long after sign-in, renewed or not, as a Go duration such as `8h` (empty: `12h`)
       maxAge: ""
-    tokenLogin:
-      # -- Let people sign in by pasting a Kubernetes bearer token, for a cluster whose API server trusts no identity provider. The token stays in the server-side session and every request runs with it; a token session never decides on a held change
-      enabled: false
-    # -- Serve the dashboard without sign-in. Everyone who reaches it reads every service the dashboard's ServiceAccount reads. Ignored when sign-in is configured. With `false` and no sign-in the dashboard refuses to start
-    allowAnonymous: true
+    tokenSignIn:
+      # -- Let people sign in with a Kubernetes token. A ServiceAccount token minted with `--audience pacto-dashboard` reads the fleet only (NOTES prints one for `pacto-viewer`). A person's own token (an OIDC ID token, an EKS token) acts as them and may approve held changes. The chart grants the dashboard `create` on `tokenreviews` and creates the read-only `pacto-viewer` ServiceAccount
+      enabled: true
+    # -- Serve the dashboard without sign-in, only with tokenSignIn.enabled=false and no issuer. Everyone who reaches it reads every service the dashboard's ServiceAccount reads. With `false` and no sign-in the dashboard refuses to start
+    allowAnonymous: false
   # What the dashboard's delivery views read. They need sign-in
   # (`dashboard.auth`), because every delivery read and action runs with the
   # signed-in person's token.

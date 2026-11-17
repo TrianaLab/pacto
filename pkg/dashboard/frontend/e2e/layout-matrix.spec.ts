@@ -246,3 +246,52 @@ test('a revision the service never had renders not found', async ({ page }) => {
   await page.goto(`/#/fleet/revisions/${encodeURIComponent(ghost)}`);
   await rendersNotFound(page);
 });
+
+// The sign-in screen, signed out with token sign-in on. It has no sidebar and no shell,
+// so it stays out of ROUTES (every route there waits for the Operational Graph link): the
+// same viewports, both themes, the G1, touch and axe checks, without the shell checks.
+function signedOutTokenSession(): void {
+  type Serve = (method: string, path: string, body: string | null, headers?: Record<string, string>) => Promise<{ status: number; body: string; contentType: string }>;
+  let real: Serve | null = null;
+  const json = (status: number, v: unknown) => ({ status, body: JSON.stringify(v), contentType: 'application/json' });
+  const wrapped: Serve = async (method, path, body) => {
+    const route = path.split('?')[0];
+    if (route === '/api/session') return json(200, { mode: 'shared', login: false, tokenLogin: true, signedIn: false });
+    if (route.startsWith('/api/')) return json(401, { status: 401, code: 'LoginRequired', detail: 'sign in to use this dashboard' });
+    return (real as Serve)(method, path, body);
+  };
+  // The demo signs people in itself; the real sign-in screen needs the hook away.
+  Object.defineProperty(window, '__pactoSignIn', { configurable: true, get() { return undefined; }, set() {} });
+  Object.defineProperty(window, '__pactoServe', { configurable: true, get() { return real ? wrapped : undefined; }, set(v: Serve) { real = v; } });
+}
+const EXPIRED_LINK = `/#token=h.${Buffer.from(JSON.stringify({ exp: 1700000000 })).toString('base64url')}.s`;
+
+for (const [name, path, shown] of [['sign-in screen, token form', '/', 'token-sign-in'], ['sign-in, link expired', EXPIRED_LINK, 'sign-in-link-expired']] as const) {
+  for (const theme of ['dark', 'light'] as const) {
+    for (const g of GROUPS) {
+      test.describe(`sign-in layout (${theme}, ${g.name})`, () => {
+        test.use({ colorScheme: theme, hasTouch: g.touch, viewport: { width: 1280, height: 900 } });
+        test(name, async ({ page }) => {
+          test.setTimeout(FULL ? 600_000 : 120_000);
+          await page.addInitScript(signedOutTokenSession);
+          if (theme === 'light') await page.addInitScript(() => { try { localStorage.setItem('pacto-theme', 'light'); } catch { /* private mode */ } });
+          await page.goto(path);
+          await expect(page.getByTestId(shown)).toBeVisible({ timeout: 30_000 });
+          await gateMode(page);
+          const problems: string[] = [];
+          for (const [i, vp] of g.sizes.entries()) {
+            await atViewport(page, vp);
+            const at = `${vp[0]}x${vp[1]}`;
+            for (const p of await layoutProblems(page)) problems.push(`${at}: ${p}`);
+            for (const p of await touchProblems(page)) problems.push(`${at}: ${p}`);
+            if (i === 0) {
+              const axe = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
+              for (const v of axe.violations) problems.push(`${at}: axe ${v.id} on ${v.nodes.slice(0, 3).map((n) => n.target.join(' ')).join(', ')}`);
+            }
+          }
+          expect(problems, `${name} (${theme}, ${g.name})`).toEqual([]);
+        });
+      });
+    }
+  }
+}

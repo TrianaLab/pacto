@@ -2,7 +2,8 @@
 # seven renders, with its exact rules, roleRef and subjects. A new rule, verb,
 # subject or retargeted binding fails here; review it against the least-privilege
 # rules (no cluster-wide Secret read, a namespace list renders no ClusterRole
-# beyond the node agent and the dashboard's delivery half) before updating it.
+# beyond the node agent, the dashboard's delivery half and the dashboard's
+# TokenReview grant) before updating it.
 # TestRBACInventoryListsEveryRBACTemplate fails when a template that renders RBAC
 # is missing from templates below.
 suite: rbac inventory
@@ -17,6 +18,7 @@ templates:
   - templates/delivery/rbac.yaml
   - templates/delivery/recorder.yaml
   - templates/delivery/identities.yaml
+  - templates/dashboard-signin.yaml
 release:
   name: pacto-operator
   namespace: pacto-operator-system
@@ -2952,3 +2954,484 @@ tests:
     set: *id006
     asserts:
     - hasDocuments: {count: 0}
+
+  - it: 'default: every rule, roleRef and subject of dashboard-signin.yaml is pinned'
+    template: templates/dashboard-signin.yaml
+    asserts:
+    - hasDocuments: {count: 5}
+    - equal: {path: kind, value: ClusterRole}
+      documentIndex: 0
+    - equal: {path: metadata.name, value: pacto-operator-pacto-operator-system-dashboard-tokenreview}
+      documentIndex: 0
+    - notExists: {path: metadata.namespace}
+      documentIndex: 0
+    - equal:
+        path: rules
+        value:
+        - apiGroups: [authentication.k8s.io]
+          resources: [tokenreviews]
+          verbs: [create]
+      documentIndex: 0
+    - equal: {path: kind, value: ClusterRoleBinding}
+      documentIndex: 1
+    - equal: {path: metadata.name, value: pacto-operator-pacto-operator-system-dashboard-tokenreview}
+      documentIndex: 1
+    - equal:
+        path: roleRef
+        value: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: pacto-operator-pacto-operator-system-dashboard-tokenreview}
+      documentIndex: 1
+    - equal:
+        path: subjects
+        value:
+        - {kind: ServiceAccount, name: pacto-dashboard, namespace: pacto-operator-system}
+      documentIndex: 1
+    - equal: {path: kind, value: ClusterRole}
+      documentIndex: 3
+    - equal: {path: metadata.name, value: pacto-operator-viewer}
+      documentIndex: 3
+    - equal:
+        path: rules
+        value:
+        - apiGroups: [pacto.trianalab.io]
+          resources: [pactos, pactorevisions]
+          verbs: [get, list, watch]
+      documentIndex: 3
+    - equal: {path: kind, value: ClusterRoleBinding}
+      documentIndex: 4
+    - equal: {path: metadata.name, value: pacto-operator-viewer}
+      documentIndex: 4
+    - equal:
+        path: roleRef
+        value: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: pacto-operator-viewer}
+      documentIndex: 4
+    - equal:
+        path: subjects
+        value:
+        - {kind: ServiceAccount, name: pacto-viewer, namespace: pacto-operator-system}
+      documentIndex: 4
+  - it: 'watchNamespaces: every rule, roleRef and subject of dashboard-signin.yaml is pinned'
+    template: templates/dashboard-signin.yaml
+    set: *id001
+    asserts:
+    - hasDocuments: {count: 7}
+    - equal: {path: kind, value: ClusterRole}
+      documentIndex: 0
+    - equal: {path: metadata.name, value: pacto-operator-pacto-operator-system-dashboard-tokenreview}
+      documentIndex: 0
+    - notExists: {path: metadata.namespace}
+      documentIndex: 0
+    - equal:
+        path: rules
+        value:
+        - apiGroups: [authentication.k8s.io]
+          resources: [tokenreviews]
+          verbs: [create]
+      documentIndex: 0
+    - equal: {path: kind, value: ClusterRoleBinding}
+      documentIndex: 1
+    - equal: {path: metadata.name, value: pacto-operator-pacto-operator-system-dashboard-tokenreview}
+      documentIndex: 1
+    - equal:
+        path: roleRef
+        value: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: pacto-operator-pacto-operator-system-dashboard-tokenreview}
+      documentIndex: 1
+    - equal:
+        path: subjects
+        value:
+        - {kind: ServiceAccount, name: pacto-dashboard, namespace: pacto-operator-system}
+      documentIndex: 1
+    - equal: {path: kind, value: Role}
+      documentIndex: 3
+    - equal: {path: metadata.name, value: pacto-viewer}
+      documentIndex: 3
+    - equal: {path: metadata.namespace, value: ledger}
+      documentIndex: 3
+    - equal:
+        path: rules
+        value:
+        - apiGroups: [pacto.trianalab.io]
+          resources: [pactos, pactorevisions]
+          verbs: [get, list, watch]
+      documentIndex: 3
+    - equal: {path: kind, value: RoleBinding}
+      documentIndex: 4
+    - equal: {path: metadata.name, value: pacto-viewer}
+      documentIndex: 4
+    - equal: {path: metadata.namespace, value: ledger}
+      documentIndex: 4
+    - equal:
+        path: roleRef
+        value: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: pacto-viewer}
+      documentIndex: 4
+    - equal:
+        path: subjects
+        value:
+        - {kind: ServiceAccount, name: pacto-viewer, namespace: pacto-operator-system}
+      documentIndex: 4
+    - equal: {path: kind, value: Role}
+      documentIndex: 5
+    - equal: {path: metadata.name, value: pacto-viewer}
+      documentIndex: 5
+    - equal: {path: metadata.namespace, value: payments}
+      documentIndex: 5
+    - equal:
+        path: rules
+        value:
+        - apiGroups: [pacto.trianalab.io]
+          resources: [pactos, pactorevisions]
+          verbs: [get, list, watch]
+      documentIndex: 5
+    - equal: {path: kind, value: RoleBinding}
+      documentIndex: 6
+    - equal: {path: metadata.name, value: pacto-viewer}
+      documentIndex: 6
+    - equal: {path: metadata.namespace, value: payments}
+      documentIndex: 6
+    - equal:
+        path: roleRef
+        value: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: pacto-viewer}
+      documentIndex: 6
+    - equal:
+        path: subjects
+        value:
+        - {kind: ServiceAccount, name: pacto-viewer, namespace: pacto-operator-system}
+      documentIndex: 6
+  - it: 'watchNamespaces with the release namespace: every rule, roleRef and subject of dashboard-signin.yaml is pinned'
+    template: templates/dashboard-signin.yaml
+    set: *id002
+    asserts:
+    - hasDocuments: {count: 7}
+    - equal: {path: kind, value: ClusterRole}
+      documentIndex: 0
+    - equal: {path: metadata.name, value: pacto-operator-pacto-operator-system-dashboard-tokenreview}
+      documentIndex: 0
+    - notExists: {path: metadata.namespace}
+      documentIndex: 0
+    - equal:
+        path: rules
+        value:
+        - apiGroups: [authentication.k8s.io]
+          resources: [tokenreviews]
+          verbs: [create]
+      documentIndex: 0
+    - equal: {path: kind, value: ClusterRoleBinding}
+      documentIndex: 1
+    - equal: {path: metadata.name, value: pacto-operator-pacto-operator-system-dashboard-tokenreview}
+      documentIndex: 1
+    - equal:
+        path: roleRef
+        value: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: pacto-operator-pacto-operator-system-dashboard-tokenreview}
+      documentIndex: 1
+    - equal:
+        path: subjects
+        value:
+        - {kind: ServiceAccount, name: pacto-dashboard, namespace: pacto-operator-system}
+      documentIndex: 1
+    - equal: {path: kind, value: Role}
+      documentIndex: 3
+    - equal: {path: metadata.name, value: pacto-viewer}
+      documentIndex: 3
+    - equal: {path: metadata.namespace, value: pacto-operator-system}
+      documentIndex: 3
+    - equal:
+        path: rules
+        value:
+        - apiGroups: [pacto.trianalab.io]
+          resources: [pactos, pactorevisions]
+          verbs: [get, list, watch]
+      documentIndex: 3
+    - equal: {path: kind, value: RoleBinding}
+      documentIndex: 4
+    - equal: {path: metadata.name, value: pacto-viewer}
+      documentIndex: 4
+    - equal: {path: metadata.namespace, value: pacto-operator-system}
+      documentIndex: 4
+    - equal:
+        path: roleRef
+        value: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: pacto-viewer}
+      documentIndex: 4
+    - equal:
+        path: subjects
+        value:
+        - {kind: ServiceAccount, name: pacto-viewer, namespace: pacto-operator-system}
+      documentIndex: 4
+    - equal: {path: kind, value: Role}
+      documentIndex: 5
+    - equal: {path: metadata.name, value: pacto-viewer}
+      documentIndex: 5
+    - equal: {path: metadata.namespace, value: payments}
+      documentIndex: 5
+    - equal:
+        path: rules
+        value:
+        - apiGroups: [pacto.trianalab.io]
+          resources: [pactos, pactorevisions]
+          verbs: [get, list, watch]
+      documentIndex: 5
+    - equal: {path: kind, value: RoleBinding}
+      documentIndex: 6
+    - equal: {path: metadata.name, value: pacto-viewer}
+      documentIndex: 6
+    - equal: {path: metadata.namespace, value: payments}
+      documentIndex: 6
+    - equal:
+        path: roleRef
+        value: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: pacto-viewer}
+      documentIndex: 6
+    - equal:
+        path: subjects
+        value:
+        - {kind: ServiceAccount, name: pacto-viewer, namespace: pacto-operator-system}
+      documentIndex: 6
+  - it: 'delivery: every rule, roleRef and subject of dashboard-signin.yaml is pinned'
+    template: templates/dashboard-signin.yaml
+    set: *id003
+    asserts:
+    - hasDocuments: {count: 5}
+    - equal: {path: kind, value: ClusterRole}
+      documentIndex: 0
+    - equal: {path: metadata.name, value: pacto-operator-pacto-operator-system-dashboard-tokenreview}
+      documentIndex: 0
+    - notExists: {path: metadata.namespace}
+      documentIndex: 0
+    - equal:
+        path: rules
+        value:
+        - apiGroups: [authentication.k8s.io]
+          resources: [tokenreviews]
+          verbs: [create]
+      documentIndex: 0
+    - equal: {path: kind, value: ClusterRoleBinding}
+      documentIndex: 1
+    - equal: {path: metadata.name, value: pacto-operator-pacto-operator-system-dashboard-tokenreview}
+      documentIndex: 1
+    - equal:
+        path: roleRef
+        value: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: pacto-operator-pacto-operator-system-dashboard-tokenreview}
+      documentIndex: 1
+    - equal:
+        path: subjects
+        value:
+        - {kind: ServiceAccount, name: pacto-dashboard, namespace: pacto-operator-system}
+      documentIndex: 1
+    - equal: {path: kind, value: ClusterRole}
+      documentIndex: 3
+    - equal: {path: metadata.name, value: pacto-operator-viewer}
+      documentIndex: 3
+    - equal:
+        path: rules
+        value:
+        - apiGroups: [pacto.trianalab.io]
+          resources: [pactos, pactorevisions]
+          verbs: [get, list, watch]
+      documentIndex: 3
+    - equal: {path: kind, value: ClusterRoleBinding}
+      documentIndex: 4
+    - equal: {path: metadata.name, value: pacto-operator-viewer}
+      documentIndex: 4
+    - equal:
+        path: roleRef
+        value: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: pacto-operator-viewer}
+      documentIndex: 4
+    - equal:
+        path: subjects
+        value:
+        - {kind: ServiceAccount, name: pacto-viewer, namespace: pacto-operator-system}
+      documentIndex: 4
+  - it: 'watchNamespaces with delivery: every rule, roleRef and subject of dashboard-signin.yaml is pinned'
+    template: templates/dashboard-signin.yaml
+    set: *id004
+    asserts:
+    - hasDocuments: {count: 7}
+    - equal: {path: kind, value: ClusterRole}
+      documentIndex: 0
+    - equal: {path: metadata.name, value: pacto-operator-pacto-operator-system-dashboard-tokenreview}
+      documentIndex: 0
+    - notExists: {path: metadata.namespace}
+      documentIndex: 0
+    - equal:
+        path: rules
+        value:
+        - apiGroups: [authentication.k8s.io]
+          resources: [tokenreviews]
+          verbs: [create]
+      documentIndex: 0
+    - equal: {path: kind, value: ClusterRoleBinding}
+      documentIndex: 1
+    - equal: {path: metadata.name, value: pacto-operator-pacto-operator-system-dashboard-tokenreview}
+      documentIndex: 1
+    - equal:
+        path: roleRef
+        value: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: pacto-operator-pacto-operator-system-dashboard-tokenreview}
+      documentIndex: 1
+    - equal:
+        path: subjects
+        value:
+        - {kind: ServiceAccount, name: pacto-dashboard, namespace: pacto-operator-system}
+      documentIndex: 1
+    - equal: {path: kind, value: Role}
+      documentIndex: 3
+    - equal: {path: metadata.name, value: pacto-viewer}
+      documentIndex: 3
+    - equal: {path: metadata.namespace, value: ledger}
+      documentIndex: 3
+    - equal:
+        path: rules
+        value:
+        - apiGroups: [pacto.trianalab.io]
+          resources: [pactos, pactorevisions]
+          verbs: [get, list, watch]
+      documentIndex: 3
+    - equal: {path: kind, value: RoleBinding}
+      documentIndex: 4
+    - equal: {path: metadata.name, value: pacto-viewer}
+      documentIndex: 4
+    - equal: {path: metadata.namespace, value: ledger}
+      documentIndex: 4
+    - equal:
+        path: roleRef
+        value: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: pacto-viewer}
+      documentIndex: 4
+    - equal:
+        path: subjects
+        value:
+        - {kind: ServiceAccount, name: pacto-viewer, namespace: pacto-operator-system}
+      documentIndex: 4
+    - equal: {path: kind, value: Role}
+      documentIndex: 5
+    - equal: {path: metadata.name, value: pacto-viewer}
+      documentIndex: 5
+    - equal: {path: metadata.namespace, value: payments}
+      documentIndex: 5
+    - equal:
+        path: rules
+        value:
+        - apiGroups: [pacto.trianalab.io]
+          resources: [pactos, pactorevisions]
+          verbs: [get, list, watch]
+      documentIndex: 5
+    - equal: {path: kind, value: RoleBinding}
+      documentIndex: 6
+    - equal: {path: metadata.name, value: pacto-viewer}
+      documentIndex: 6
+    - equal: {path: metadata.namespace, value: payments}
+      documentIndex: 6
+    - equal:
+        path: roleRef
+        value: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: pacto-viewer}
+      documentIndex: 6
+    - equal:
+        path: subjects
+        value:
+        - {kind: ServiceAccount, name: pacto-viewer, namespace: pacto-operator-system}
+      documentIndex: 6
+  - it: 'nodeAgent: every rule, roleRef and subject of dashboard-signin.yaml is pinned'
+    template: templates/dashboard-signin.yaml
+    set: *id005
+    asserts:
+    - hasDocuments: {count: 5}
+    - equal: {path: kind, value: ClusterRole}
+      documentIndex: 0
+    - equal: {path: metadata.name, value: pacto-operator-pacto-operator-system-dashboard-tokenreview}
+      documentIndex: 0
+    - notExists: {path: metadata.namespace}
+      documentIndex: 0
+    - equal:
+        path: rules
+        value:
+        - apiGroups: [authentication.k8s.io]
+          resources: [tokenreviews]
+          verbs: [create]
+      documentIndex: 0
+    - equal: {path: kind, value: ClusterRoleBinding}
+      documentIndex: 1
+    - equal: {path: metadata.name, value: pacto-operator-pacto-operator-system-dashboard-tokenreview}
+      documentIndex: 1
+    - equal:
+        path: roleRef
+        value: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: pacto-operator-pacto-operator-system-dashboard-tokenreview}
+      documentIndex: 1
+    - equal:
+        path: subjects
+        value:
+        - {kind: ServiceAccount, name: pacto-dashboard, namespace: pacto-operator-system}
+      documentIndex: 1
+    - equal: {path: kind, value: ClusterRole}
+      documentIndex: 3
+    - equal: {path: metadata.name, value: pacto-operator-viewer}
+      documentIndex: 3
+    - equal:
+        path: rules
+        value:
+        - apiGroups: [pacto.trianalab.io]
+          resources: [pactos, pactorevisions]
+          verbs: [get, list, watch]
+      documentIndex: 3
+    - equal: {path: kind, value: ClusterRoleBinding}
+      documentIndex: 4
+    - equal: {path: metadata.name, value: pacto-operator-viewer}
+      documentIndex: 4
+    - equal:
+        path: roleRef
+        value: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: pacto-operator-viewer}
+      documentIndex: 4
+    - equal:
+        path: subjects
+        value:
+        - {kind: ServiceAccount, name: pacto-viewer, namespace: pacto-operator-system}
+      documentIndex: 4
+  - it: 'metrics observation: every rule, roleRef and subject of dashboard-signin.yaml is pinned'
+    template: templates/dashboard-signin.yaml
+    set: *id006
+    asserts:
+    - hasDocuments: {count: 5}
+    - equal: {path: kind, value: ClusterRole}
+      documentIndex: 0
+    - equal: {path: metadata.name, value: pacto-operator-pacto-operator-system-dashboard-tokenreview}
+      documentIndex: 0
+    - notExists: {path: metadata.namespace}
+      documentIndex: 0
+    - equal:
+        path: rules
+        value:
+        - apiGroups: [authentication.k8s.io]
+          resources: [tokenreviews]
+          verbs: [create]
+      documentIndex: 0
+    - equal: {path: kind, value: ClusterRoleBinding}
+      documentIndex: 1
+    - equal: {path: metadata.name, value: pacto-operator-pacto-operator-system-dashboard-tokenreview}
+      documentIndex: 1
+    - equal:
+        path: roleRef
+        value: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: pacto-operator-pacto-operator-system-dashboard-tokenreview}
+      documentIndex: 1
+    - equal:
+        path: subjects
+        value:
+        - {kind: ServiceAccount, name: pacto-dashboard, namespace: pacto-operator-system}
+      documentIndex: 1
+    - equal: {path: kind, value: ClusterRole}
+      documentIndex: 3
+    - equal: {path: metadata.name, value: pacto-operator-viewer}
+      documentIndex: 3
+    - equal:
+        path: rules
+        value:
+        - apiGroups: [pacto.trianalab.io]
+          resources: [pactos, pactorevisions]
+          verbs: [get, list, watch]
+      documentIndex: 3
+    - equal: {path: kind, value: ClusterRoleBinding}
+      documentIndex: 4
+    - equal: {path: metadata.name, value: pacto-operator-viewer}
+      documentIndex: 4
+    - equal:
+        path: roleRef
+        value: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: pacto-operator-viewer}
+      documentIndex: 4
+    - equal:
+        path: subjects
+        value:
+        - {kind: ServiceAccount, name: pacto-viewer, namespace: pacto-operator-system}
+      documentIndex: 4

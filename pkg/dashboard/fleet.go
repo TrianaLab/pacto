@@ -42,6 +42,9 @@ type capabilityAuth struct {
 	Hidden bool `json:"hidden" doc:"Some services are hidden because this caller's Kubernetes permissions do not let them read their namespace"`
 	// NothingVisible: every service is hidden, so the caller sees an empty fleet.
 	NothingVisible bool `json:"nothingVisible,omitempty" doc:"Every service is hidden because this caller's Kubernetes permissions let them read none of their namespaces"`
+	// FleetOnly: the cluster serves delivery and this session, from a sign-in
+	// link, reads the fleet only.
+	FleetOnly bool `json:"fleetOnly,omitempty" doc:"The cluster serves delivery and this session, from a sign-in link, reads the fleet only"`
 }
 
 // registerCapabilitiesOperation registers the always-on capabilities endpoint. It
@@ -73,10 +76,13 @@ func (s *Server) capabilities(ctx context.Context, _ *struct{}) (*capabilitiesOu
 		out.Body.Auth = capabilityAuth{Hidden: hidden, NothingVisible: hidden && len(q.SnapshotForSerialization().Services) == 0}
 		// A cluster that cannot be asked keeps the tab: its views then say
 		// the cluster is unreachable instead of hiding delivery. Where delivery
-		// is never served, the cluster is not asked at all.
+		// is never served, the cluster is not asked at all. A sign-in link
+		// session sees no Delivery, and is told why only where delivery is
+		// installed: its own sign-in would show it there.
 		if s.opts.Delivery != nil && a.Mode != "open" {
 			installed, err := s.deliveryInstalled(ctx)
-			out.Body.Delivery = installed || err != nil
+			out.Body.Delivery = (installed || err != nil) && !a.State.FleetOnly
+			out.Body.Auth.FleetOnly = installed && a.State.FleetOnly
 		}
 	}
 	out.Body.MiraURL = s.opts.MiraURL

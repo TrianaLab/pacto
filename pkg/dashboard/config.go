@@ -33,7 +33,7 @@ type DashboardConfig struct {
 	OIDCGroupsPrefix   string `json:"PACTO_DASHBOARD_OIDC_GROUPS_PREFIX,omitempty" doc:"Prefix the API server puts before every group; must match its claim mapping"`
 	SessionIdleTimeout string `json:"PACTO_DASHBOARD_SESSION_IDLE_TIMEOUT,omitempty" doc:"A session without a request for this long ends, as a Go duration (default 1h)"`
 	SessionMaxAge      string `json:"PACTO_DASHBOARD_SESSION_MAX_AGE,omitempty" doc:"A session ends this long after sign-in, as a Go duration (default 12h)"`
-	TokenLogin         bool   `json:"PACTO_DASHBOARD_TOKEN_LOGIN,omitempty" default:"false" doc:"Let people sign in by pasting a Kubernetes bearer token; a token session never decides"`
+	TokenLogin         bool   `json:"PACTO_DASHBOARD_TOKEN_LOGIN,omitempty" default:"false" doc:"Let people sign in with a Kubernetes token: a ServiceAccount token minted for the dashboard reads the fleet only, and a person's own token acts as them"`
 	AllowAnonymous     bool   `json:"PACTO_DASHBOARD_ALLOW_ANONYMOUS,omitempty" doc:"Serve beyond loopback without sign-in; everyone who reaches the address reads the whole fleet"`
 	Review             string `json:"PACTO_DASHBOARD_REVIEW,omitempty" default:"cluster" enum:"cluster,local" doc:"How signed-in people are reviewed: cluster asks once about every namespace and needs a ClusterRole; local asks in each PACTO_DASHBOARD_NAMESPACE only, and then services without a namespace show to nobody"`
 	DeliveryNamespace  string `json:"PACTO_DASHBOARD_DELIVERY_NAMESPACE,omitempty" default:"pacto-delivery" doc:"Namespace Pacto delivery runs in, whose published identity policy the dashboard reads"`

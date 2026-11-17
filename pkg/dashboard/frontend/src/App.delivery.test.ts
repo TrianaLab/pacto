@@ -58,6 +58,29 @@ describe('App — delivery gate', () => {
     destroy();
   });
 
+  it('tells a sign-in link session why only where the server says delivery is installed', async () => {
+    fns.session.mockResolvedValue({ mode: 'shared', tokenLogin: true, signedIn: true, method: 'token', user: 'system:serviceaccount:pacto:pacto-viewer' });
+    fns.capabilities.mockResolvedValue({ fleet: true, impact: true, observed: false, delivery: false, auth: { hidden: false } });
+    let r = await renderAt('#/delivery/inbox');
+    expect(r.target.querySelector('[data-testid="delivery-unavailable-reason"]')?.textContent).toContain('does not serve the delivery API');
+    r.destroy();
+    fns.capabilities.mockResolvedValue({ fleet: true, impact: true, observed: false, delivery: false, auth: { hidden: false, fleetOnly: true } });
+    r = await renderAt('#/delivery/inbox');
+    expect(r.target.querySelector('[data-testid="delivery-unavailable-reason"]')?.textContent).toContain('A sign-in link reads the fleet only');
+    r.destroy();
+  });
+
+  it('says a sign-in link opened while signed in was not used', async () => {
+    const { takeSignInLink } = await import('./lib/signInLink.ts');
+    takeSignInLink({ hash: '#token=t', pathname: '/', search: '' } as Location, { state: null, replaceState: () => {} } as unknown as History,
+      { sessionStorage: window.sessionStorage, addEventListener: () => {} } as unknown as Window);
+    fns.session.mockResolvedValue({ mode: 'shared', tokenLogin: true, signedIn: true, method: 'token', user: 'alice' });
+    fns.capabilities.mockResolvedValue({ fleet: true, impact: true, observed: false, delivery: false, auth: { hidden: false } });
+    const r = await renderAt('#/delivery/inbox');
+    expect(r.target.querySelector('[data-testid="sign-in-link-ignored"]')?.textContent).toContain('The sign-in link was not used: you are already signed in as alice. Sign out to use it.');
+    r.destroy();
+  });
+
   it('offers a retry when the capabilities probe fails, instead of loading for ever', async () => {
     fns.capabilities.mockRejectedValueOnce(new Error('down'))
       .mockResolvedValue({ fleet: true, impact: true, observed: false, delivery: true, auth: { hidden: false } });

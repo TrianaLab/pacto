@@ -77,8 +77,10 @@ type decideOutput struct {
 }
 
 // decisionSession refuses a decision this dashboard's sign-in cannot carry:
-// a local or sign-in-free dashboard, no session or a pasted token. cli is the
-// command that decides instead.
+// a local or sign-in-free dashboard or no session. cli is the command that
+// decides instead. A token session decides like any session: mayDecide
+// refuses ServiceAccounts as agents, and a sign-in link session never gets
+// here because its delivery API refuses it first.
 func (s *Server) decisionSession(ctx context.Context, cli string) error {
 	a := s.authSummary(ctx)
 	switch a.Mode {
@@ -88,21 +90,14 @@ func (s *Server) decisionSession(ctx context.Context, cli string) error {
 	case "open":
 		return Refuse(http.StatusForbidden, "LoginNotConfigured", "this dashboard has no sign-in, so it serves no decisions")
 	}
-	st := a.State
-	switch {
-	case !st.SignedIn: // defence in depth: the sign-in gate turns a signed-out request away first
+	if !a.State.SignedIn { // defence in depth: the sign-in gate turns a signed-out request away first
 		return Refuse(http.StatusUnauthorized, "LoginRequired", "sign in to decide")
-	case st.Method == "token" && a.Login:
-		return Refuse(http.StatusForbidden, "TokenCannotDecide",
-			"a pasted token never decides: sign in with your identity provider to decide, or run: "+cli)
-	case st.Method == "token":
-		return Refuse(http.StatusForbidden, "TokenCannotDecide",
-			"a pasted token never decides, and this dashboard offers no identity provider sign-in. Run: "+cli)
 	}
 	return nil
 }
 
-// deliveryDecide is the decision flow: local mode never decides; on a Stage
+// deliveryDecide is the decision flow, the same for an identity provider and
+// a person's token session: local mode never decides; on a Stage
 // that publishes a login freshness a decision needs an auth-time under
 // DecisionFreshnessFor it; and
 // the decision must be one the promoter counts (delivery.ApprovalRefusal):
@@ -136,7 +131,7 @@ func (s *Server) deliveryDecide(ctx context.Context, in *decideInput) (*decideOu
 		return nil, err
 	}
 	published := stage.Status.AuthFreshness
-	if err := s.mayDecide(caller, published); err != nil {
+	if err := s.mayDecide(caller, published, s.authSummary(ctx).State.Method == "token"); err != nil {
 		return nil, err
 	}
 	// The promoter's own rule: the dashboard records only a decision it counts.
@@ -167,8 +162,10 @@ func approvalOf(op *delivery.OperationObject, caller delivery.Caller, decision d
 // mayDecide refuses a caller the apiserver names an agent. On a Stage that
 // publishes a login freshness it also refuses a login that is unknown or
 // older than two thirds of that freshness (delivery.DecisionFreshnessFor), so
-// the promoter still counts it.
-func (s *Server) mayDecide(caller delivery.Caller, published string) error {
+// the promoter still counts it. An unknown login time of a pasted token is
+// the token's (static, EKS and kubeconfig tokens carry none), never proof
+// the cluster maps none.
+func (s *Server) mayDecide(caller delivery.Caller, published string, token bool) error {
 	at, ok := delivery.ParseAuthTime(caller.AuthTime)
 	window := delivery.DecisionFreshnessFor(published)
 	switch {
@@ -176,6 +173,9 @@ func (s *Server) mayDecide(caller delivery.Caller, published string) error {
 		return Refuse(http.StatusForbidden, "AgentsMayNotApprove", "agents cannot approve: the apiserver says "+caller.User+" is an agent")
 	case window == 0:
 		return nil
+	case caller.AuthTime == "" && token:
+		return Refuse(http.StatusForbidden, "AuthTimeUnavailable",
+			"this token does not say when you signed in, so it cannot approve on a Stage that asks for a recent sign-in: sign in with your identity provider")
 	case caller.AuthTime == "":
 		return Refuse(http.StatusForbidden, "AuthTimeUnavailable",
 			"this cluster does not map auth_time to userInfo.extra[delivery.pacto.trianalab.io/auth-time]; nobody can approve here")

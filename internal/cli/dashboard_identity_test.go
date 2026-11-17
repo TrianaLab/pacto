@@ -135,6 +135,48 @@ func TestDashboardTokenLoginIdentity(t *testing.T) {
 	expect(t, err == nil, "a token session reaches delivery as itself: %v", err)
 }
 
+// Token sign-in reviews a sign-in link token with the dashboard's own client,
+// for the dashboard's audience, and a dashboard that cannot build that client
+// does not start.
+func TestDashboardTokenLoginReviewsTheAudience(t *testing.T) {
+	v := viper.New()
+	v.Set("dashboard.token-login", true)
+	d := defaultDeps()
+	var asked *rest.Config
+	d.dynamicFor = func(c *rest.Config) (dynamic.Interface, error) {
+		asked = c
+		f := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())
+		f.PrependReactor("create", "tokenreviews", func(a k8stesting.Action) (bool, runtime.Object, error) {
+			obj := a.(k8stesting.CreateAction).GetObject().(*unstructured.Unstructured).DeepCopy()
+			obj.Object["status"] = map[string]any{"authenticated": true, "audiences": []any{authn.DashboardAudience},
+				"user": map[string]any{"username": "system:serviceaccount:pacto:pacto-viewer"}}
+			return true, obj, nil
+		})
+		f.PrependReactor("create", "selfsubjectreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
+			return true, nil, errors.New("Unauthorized") // an audience-only token is no bearer
+		})
+		return f, nil
+	}
+	cluster := &rest.Config{Host: "https://k", BearerToken: "dashboard"}
+	id, err := newDashboardIdentity(v, "0.0.0.0", cluster, d)
+	expect(t, err == nil && asked.BearerToken == "dashboard" && asked.QPS == sarQPS, "the review runs as the dashboard: %v %+v", err, asked)
+	r := httptest.NewRequest(http.MethodPost, "https://dash.example/auth/token", strings.NewReader(`{"token":"link","link":true}`))
+	r.Header.Set("Origin", "https://dash.example")
+	rec := httptest.NewRecorder()
+	id.auth.Routes().ServeHTTP(rec, r)
+	expect(t, rec.Code == http.StatusNoContent, "a link token signs in: %d %s", rec.Code, rec.Body)
+
+	d.dynamicFor = func(*rest.Config) (dynamic.Interface, error) { return nil, errors.New("bad config") }
+	_, err = newDashboardIdentity(v, "0.0.0.0", cluster, d)
+	expect(t, err != nil && strings.Contains(err.Error(), "bad config"), "no client to review tokens with: %v", err)
+
+	// Without token sign-in no client is built at startup: a kubeconfig that
+	// cannot build one still serves the local dashboard.
+	v.Set("dashboard.token-login", false)
+	id, err = newDashboardIdentity(v, "127.0.0.1", cluster, d)
+	expect(t, err == nil && id.auth.Local(), "a local dashboard builds no review client: %v", err)
+}
+
 func expect(t *testing.T, ok bool, format string, args ...any) {
 	t.Helper()
 	if !ok {
@@ -407,4 +449,65 @@ func TestDashboardOperationAccessReviewsOnlyFleetNamespaces(t *testing.T) {
 	}
 	_, err = id.operationAccess(full)(t.Context(), []string{"shop"})
 	expect(t, errors.Is(err, errOperationReview), "a person whose client cannot be built: %v", err)
+}
+
+// A sign-in link session holds no token, so its subject is the identity the
+// TokenReview named: no SelfSubjectReview is asked, and the SAR names the
+// ServiceAccount with its uid, groups and extra.
+func TestLinkSessionSubjectIsReviewedIdentity(t *testing.T) {
+	id, full, sars := operationAccessWorld(t)
+	ssrs := 0
+	id.newClient = func(cfg *rest.Config) (dynamic.Interface, error) {
+		c := fakeDelivery()
+		c.PrependReactor("create", "selfsubjectreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
+			ssrs++
+			return true, &unstructured.Unstructured{Object: map[string]any{"status": map[string]any{"userInfo": map[string]any{"username": "system:anonymous"}}}}, nil
+		})
+		c.PrependReactor("create", "subjectaccessreviews", func(a k8stesting.Action) (bool, runtime.Object, error) {
+			o := a.(k8stesting.CreateAction).GetObject().(*unstructured.Unstructured).DeepCopy()
+			spec, _, _ := unstructured.NestedMap(o.Object, "spec")
+			*sars = append(*sars, spec)
+			o.Object["status"] = map[string]any{"allowed": true}
+			return true, o, nil
+		})
+		return c, nil
+	}
+	viewer := authn.Person{User: "system:serviceaccount:pacto:pacto-viewer", Groups: []string{"system:serviceaccounts", "system:serviceaccounts:pacto"}}
+	id.state = func(context.Context) authn.State {
+		return authn.State{SignedIn: true, Method: "token", Person: viewer, UID: "sa-1", Extra: map[string][]string{"authentication.kubernetes.io/pod-name": {"p"}}}
+	}
+	visible, err := id.operationAccess(full)(t.Context(), []string{"shop"})
+	expect(t, err == nil && visible("shop") && ssrs == 0, "no SelfSubjectReview for a link session: %v %d", err, ssrs)
+	expect(t, len(*sars) == 1, "one review: %+v", *sars)
+	sar := (*sars)[0]
+	groups, _ := sar["groups"].([]any)
+	expect(t, sar["user"] == viewer.User && sar["uid"] == "sa-1" && len(groups) == 2 && sar["extra"] != nil,
+		"the SAR names the reviewed identity: %+v", sar)
+	var o dashboard.Options
+	id.options(&o)
+	st := o.Auth.State(httptest.NewRequest(http.MethodGet, "/", nil))
+	expect(t, st.FleetOnly && st.User == viewer.User, "a link session reads the fleet only: %+v", st)
+}
+
+// A bearer token session still asks its own SelfSubjectReview, whose uid and
+// extra reach the SAR, and it is no fleet-only session.
+func TestBearerTokenSessionSubjectAsksSelfSubjectReview(t *testing.T) {
+	id, full, sars := operationAccessWorld(t)
+	next, asked := id.newClient, ""
+	id.newClient = func(cfg *rest.Config) (dynamic.Interface, error) {
+		if cfg.BearerToken != "" {
+			asked = cfg.BearerToken
+		}
+		return next(cfg)
+	}
+	id.state = func(context.Context) authn.State {
+		return authn.State{SignedIn: true, Method: "token", Token: "alice-token", Person: authn.Person{User: "alice"}}
+	}
+	visible, err := id.operationAccess(full)(t.Context(), []string{"shop"})
+	expect(t, err == nil && visible("shop") && asked == "alice-token", "the session's own token asks who it is: %v %q", err, asked)
+	sar := (*sars)[0]
+	expect(t, sar["user"] == "alice" && sar["uid"] == "u-1" && sar["extra"] != nil, "uid and extra from the token: %+v", sar)
+	var o dashboard.Options
+	id.options(&o)
+	expect(t, !o.Auth.State(httptest.NewRequest(http.MethodGet, "/", nil)).FleetOnly, "a bearer session is not fleet-only")
 }

@@ -52,18 +52,24 @@ type Claims struct {
 	GroupsPrefix string
 }
 
-// Person reads a token the identity layer already verified the way the
-// cluster is told to map it. Any group starting with "system:" is dropped:
-// the apiserver never takes those from an OIDC token, so passing one an IdP
-// lets a user name (system:masters) would make the review answer for a group
-// the person does not hold. A token that names no username is Anonymous.
-func (c Claims) Person(token string) Person {
+// jwtClaims is a JWT's payload claims, unverified; nil for anything else.
+func jwtClaims(token string) map[string]json.RawMessage {
 	var raw map[string]json.RawMessage
 	if parts := strings.Split(token, "."); len(parts) == 3 {
 		if payload, err := base64.RawURLEncoding.DecodeString(parts[1]); err == nil {
 			_ = json.Unmarshal(payload, &raw) // a token without claims is nobody
 		}
 	}
+	return raw
+}
+
+// Person reads a token the identity layer already verified the way the
+// cluster is told to map it. Any group starting with "system:" is dropped:
+// the apiserver never takes those from an OIDC token, so passing one an IdP
+// lets a user name (system:masters) would make the review answer for a group
+// the person does not hold. A token that names no username is Anonymous.
+func (c Claims) Person(token string) Person {
+	raw := jwtClaims(token)
 	str := func(name string) string {
 		var v string
 		_ = json.Unmarshal(raw[name], &v) // a claim that is no string is no name

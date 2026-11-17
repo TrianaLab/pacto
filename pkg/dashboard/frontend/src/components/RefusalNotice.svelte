@@ -12,7 +12,7 @@
     AgentsMayNotApprove: 'Agents cannot approve.',
     CannotUpdateWorkload: 'Only people who may update this workload decide its changes.',
     ApproverUnverified: 'Pacto could not check whether you may update this workload.',
-    AuthTimeUnavailable: 'Nobody can approve on this cluster yet.',
+    AuthTimeUnavailable: 'Pacto does not know when you signed in, so you cannot approve here.',
     ApproveFromCLI: 'Decide from the command line on your own machine.',
     LoginNotConfigured: 'This dashboard has no sign-in, so it takes no decisions.',
     LoginRequired: 'Sign in first.',

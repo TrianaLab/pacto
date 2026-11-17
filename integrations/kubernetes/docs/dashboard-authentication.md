@@ -3,17 +3,21 @@
 A shared dashboard signs people in before it shows anything. Every view then
 follows that person's Kubernetes RBAC and every action runs as them:
 
-- **Reads come from a shared cache, filtered by your RBAC.** The dashboard
-  keeps one copy of the delivery Stages and Operations, read and watched with
-  its own ServiceAccount. Before it answers you from that copy, it asks the API
-  server (SubjectAccessReview) whether you may make the same list or get there,
-  so a namespace your RBAC denies stays out of every view, and a list across
-  every namespace needs your cluster-wide permission.
-- **Actions use your token.** Propose, approve, cancel, roll back and unfreeze
-  go to the API server with your own token, so RBAC and admission decide and
-  the audit log names you. The reads an action is built on use your token too.
-  The dashboard offers an action only where your RBAC allows it, with the same
-  10-second review as the reads.
+- **The fleet and the delivery lists come from shared caches, filtered by
+  your RBAC.** The dashboard keeps one copy of the fleet and one of the
+  delivery Stages and Operations, read and watched with its own
+  ServiceAccount. Before it answers you from either, it asks the API server
+  (SubjectAccessReview) whether you may make the same list or get there, so a
+  namespace your RBAC denies stays out of every view, and a list across every
+  namespace needs your cluster-wide permission. The caches are an index: they
+  decide what you see, never what you may do, and one copy scales where a copy
+  per person does not.
+- **Every other read and every action uses your token.** Propose, approve,
+  cancel, roll back and unfreeze go to the API server with your own token, so
+  RBAC and admission decide and the audit log names you. The reads an action
+  is built on, Approvals and workload access use your token too. The dashboard
+  offers an action only where your RBAC allows it, with the same 10-second
+  review as the reads.
 - **The fleet views** show only the namespaces you may read
   ([who sees what](dashboard-access.md)). A service known only from a registry
   belongs to no namespace, so only people who may list Pactos in every
@@ -23,10 +27,13 @@ follows that person's Kubernetes RBAC and every action runs as them:
   consumers counted. A [golden path](../../golden-paths.md) is seen the same
   way, with only its revisions that declare `service.template`; the services
   created from it that you may not read are counted, never named.
+- **A sign-in link reads the fleet only.** Its token is no credential for the
+  API server, so the session sees the fleet views its ServiceAccount's RBAC
+  allows, no Delivery tab and no action ([token sign-in](#token-sign-in)).
 
 The dashboard's ServiceAccount stays read-only: it may get, list and watch
-Stages and Operations and ask the API server what a person may read. There is
-no impersonation.
+Stages and Operations, ask the API server what a person may read and review
+whose token a sign-in link carries (TokenReview). There is no impersonation.
 
 ## How it works
 
@@ -35,10 +42,13 @@ no impersonation.
    they sign in; the page itself, `/health`, `/api/session` and `/auth/*`
    stay open.
 2. They sign in with your identity provider (OpenID Connect, authorization code
-   with PKCE) or, where you allow it, paste a Kubernetes bearer token.
+   with PKCE), paste a Kubernetes token or open the sign-in link the install
+   notes print.
 3. The dashboard keeps the tokens in a server-side session behind an
-   `HttpOnly`, `Secure` cookie. Browser JavaScript never sees a token.
-4. Each request uses the session's token. The API server says who it belongs
+   `HttpOnly`, `Secure` cookie. Browser JavaScript sees only a sign-in link's
+   token, which the page takes out of the address bar, posts once and drops.
+4. Each request uses the session's token; a sign-in link session reads only
+   the fleet views. The API server says who it belongs
    to and RBAC decides, exactly as for `kubectl`. The dashboard keeps each
    answer about the delivery objects you may read for 10 seconds and each
    answer about the namespaces the fleet views show for a minute, so a removed
@@ -48,8 +58,8 @@ no impersonation.
 
 On every page, the person button in the header opens who you are, your groups
 and **Sign out**.
-Approving a held change needs an identity provider sign-in, and a recent one
-where delivery asks for it
+Approving a held change needs your own identity, from your identity provider
+or your own token, and a recent sign-in where delivery asks for one
 ([a recent sign-in to decide](delivery-identity.md#a-recent-sign-in-to-decide)).
 The delivery views read their own settings under `dashboard.delivery`
 ([the dashboard's delivery settings](delivery-identity.md#the-dashboards-delivery-settings)).
@@ -85,8 +95,9 @@ dashboard:
     session:
       idleTimeout: 1h                 # empty: 1h
       maxAge: 12h                     # empty: 12h
-    tokenLogin:
-      enabled: false
+    tokenSignIn:
+      enabled: true                   # the default: token sign-in and the sign-in link
+    allowAnonymous: false             # the default
 ```
 
 For an evaluation cluster, the chart can bundle Dex and wire it for you
@@ -180,28 +191,73 @@ session.
 
 ## Token sign-in
 
-Set `tokenLogin.enabled: true` for a cluster whose API server trusts no
-identity provider you can use. The sign-in screen then takes any bearer token
-the API server accepts, such as a ServiceAccount token from
-`kubectl create token`. The dashboard checks it with a SelfSubjectReview,
-keeps it in the server-side session and checks it again every five minutes, so
-a token that expires or is revoked ends its session. A token session reads and
-acts with that token's RBAC and never decides on a held change: it proves no
-recent sign-in. Token sign-in works with or without `oidc`.
+Token sign-in is on by default (`dashboard.auth.tokenSignIn.enabled`; for a
+`pacto dashboard` you run yourself, `--token-login`). It works with or
+without `oidc`, and the sign-in screen takes two kinds of token:
 
-To get a token:
+- **A ServiceAccount token minted for the dashboard**
+  (`kubectl create token <service-account> -n <namespace> --audience pacto-dashboard`).
+  The dashboard checks it with a TokenReview for the `pacto-dashboard`
+  audience, which needs `create` on `tokenreviews`. The chart grants that to
+  the dashboard through the ClusterRole `<fullname>-<namespace>-dashboard-tokenreview`,
+  with `controller.watchNamespaces` too, because TokenReview has no namespaced
+  form. `<fullname>` is the release name when it contains `pacto-operator`,
+  `<release>-pacto-operator` otherwise, and `<namespace>` is the release
+  namespace. The session reads the fleet views as that ServiceAccount's RBAC
+  allows and never acts. A ServiceAccount token without the audience is
+  refused with `TokenAudienceRequired`, and the message prints the command.
+- **Your own token** (an OIDC ID token, an EKS token, a static token). The API
+  server checks it (SelfSubjectReview), and the session reads and acts as you.
+  You may approve held changes where [the approver rule](delivery-identity.md#who-may-decide)
+  allows you. A ServiceAccount never approves.
 
-- **For a ServiceAccount**, run `kubectl create token <service-account> -n <namespace>`.
-  Add `--duration` for a token that lasts longer than the default hour, up to
-  what the API server allows.
-- **For yourself with a static token** in your kubeconfig, run
+The dashboard keeps the token in the server-side session. The session ends
+when the token expires, so a sign-in link reads for its 10 minutes, and the
+dashboard checks the token again every five minutes, so a revoked token ends
+its session too.
+Where delivery asks for [a recent sign-in](delivery-identity.md#a-recent-sign-in-to-decide),
+only a token that carries its login time can approve: an OIDC ID token on a
+cluster that maps `auth_time`. Static and EKS tokens carry none.
+
+To get your own token:
+
+- **With a static token** in your kubeconfig, run
   `kubectl config view --raw --minify -o jsonpath='{.users[0].user.token}'`.
-- **For yourself on EKS**, run `aws eks get-token --cluster-name <cluster>`
-  and take its `status.token` field.
-- **For yourself on GKE**, run `gcloud auth print-access-token`.
+- **On EKS**, run `aws eks get-token --cluster-name <cluster>` and take its
+  `status.token` field.
+- **On GKE**, run `gcloud auth print-access-token`.
 
 Cloud provider tokens are short-lived, and the session ends when its token
 expires.
+
+### The sign-in link
+
+The install notes print a port-forward and a link to the dashboard:
+
+```bash
+kubectl -n <namespace> port-forward svc/pacto-dashboard 3000:3000
+TOKEN=$(kubectl -n <namespace> create token pacto-viewer --audience pacto-dashboard --duration 10m) && echo "http://127.0.0.1:3000/#token=$TOKEN"
+```
+
+The link carries a 10-minute token for `pacto-viewer`, a ServiceAccount the
+chart creates in the release namespace that may get, list and watch Pactos
+and PactoRevisions and nothing else: cluster-wide through the ClusterRole
+`<fullname>-viewer`, or a Role in each of `controller.watchNamespaces`.
+Minting its token needs `create` on `serviceaccounts/token` in the release
+namespace, which a namespace administrator has. The token sits after `#`, so
+the browser never sends it to a server and it reaches no access log or
+proxy. After 10 minutes the link says "link expired, run the command again".
+A link carries only a token minted for the dashboard: a link with any other
+token is refused with `SignInLinkNeedsDashboardToken`, so a link never opens
+a session that acts.
+
+### Serve without sign-in
+
+To turn token sign-in off, set `dashboard.auth.tokenSignIn.enabled=false`.
+With no issuer either, the dashboard then refuses to start unless you also set
+`dashboard.auth.allowAnonymous=true`. It then serves everyone who reaches it
+everything its ServiceAccount reads, and the install notes warn about it
+([without sign-in](dashboard-access.md#without-sign-in)).
 
 ## Identity providers
 

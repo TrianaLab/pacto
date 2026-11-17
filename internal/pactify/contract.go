@@ -482,7 +482,7 @@ func (p *planner) dependencyEntries(b *strings.Builder, bundles string) {
 // observedEntries writes the dependencies seen at runtime that the Pactos
 // describing their provider name, each with compatibility unknown: with a
 // range proposed from the lowest version those Pactos report in a comment,
-// or the reason none is. A person declares the range: a guess never decides
+// or the reason none is. A person declares the range: a guess never settles
 // who a change breaks. It prints what kept a range from being proposed for
 // every entry.
 func (p *planner) observedEntries(b *strings.Builder, bundles string) map[string]bool {

@@ -13,6 +13,9 @@
 
 {#if code === 'DeliveryNotInstalled'}
   <EmptyState title="Delivery is not installed" message={message} />
+{:else if code === 'SignInLinkReadsFleet'}
+  <!-- A sign-in link session: retrying never helps, signing in as yourself does. -->
+  <EmptyState title="A sign-in link reads the fleet only" message="Sign in with your identity provider or paste your own token to see delivery." />
 {:else if status === 403}
   <EmptyState error={true} title="The cluster refused" message={message} {onRetry} />
 {:else}

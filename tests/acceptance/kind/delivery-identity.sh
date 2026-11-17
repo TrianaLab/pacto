@@ -279,9 +279,12 @@ dash() {
 }
 csrf_of() { dash "$1" GET /api/session | cut -d' ' -f2- | jq -r .csrf; }
 login() { oidc dashboard -dashboard "$DASH_URL" -user "$1@example.com" -password password -jar "$IDP_DIR/jar-$1" "${@:2}"; }
-token_login() { # TOKEN — the session cookie a token sign-in sets, or the HTTP status
-  curl -s -D - -o /dev/null -X POST -H "Origin: $DASH_URL" -H 'Content-Type: application/json' \
-    -d "{\"token\":\"$1\"}" "$DASH_URL/auth/token" | tr -d '\r' |
+token_login() { # TOKEN [link] — the session cookie a token sign-in sets, or the HTTP
+  # status; the refusal's body stays in $IDP_DIR/token-body. With a second
+  # argument it posts {"link": true}, as the NOTES sign-in link does.
+  local link=""; [ -n "${2:-}" ] && link=',"link":true'
+  curl -s -D - -o "$IDP_DIR/token-body" -X POST -H "Origin: $DASH_URL" -H 'Content-Type: application/json' \
+    -d "{\"token\":\"$1\"$link}" "$DASH_URL/auth/token" | tr -d '\r' |
     sed -n -e 's/^HTTP\/[0-9.]* \(4[0-9][0-9]\).*/\1/p' -e 's/^[Ss]et-[Cc]ookie: __Host-pacto-session=\([^;]*\).*/\1/p'
 }
 
@@ -338,21 +341,33 @@ YAML
   done
   pass "signed in, erin sees only rbac-open's services and alice sees both; a visitor gets no fleet view at all"
 
-  # A pasted ServiceAccount token signs in like kubectl: its RBAC decides.
+  # A ServiceAccount signs in only with a token minted for the dashboard
+  # (TokenReview, audience pacto-dashboard); its RBAC decides what it reads, and
+  # the session reads the fleet only. The dashboard's ServiceAccount may create
+  # TokenReviews through the chart's grant (delivery.sh installs the chart with
+  # the dashboard on).
   kubectl -n rbac-open create serviceaccount rbac-viewer --dry-run=client -o yaml | kubectl apply -f - >/dev/null
   kubectl -n rbac-open create rolebinding rbac-viewer --role=pacto-viewer --serviceaccount=rbac-open:rbac-viewer \
     --dry-run=client -o yaml | kubectl apply -f - >/dev/null
   out="$(token_login not-a-token)"
   [ "$out" = 401 ] || fail "a token the cluster refuses signed in: $out"
-  local sa; sa="$(token_login "$(kubectl -n rbac-open create token rbac-viewer)")"
-  [ -n "$sa" ] && [ "${#sa}" -gt 3 ] || fail "a ServiceAccount token did not sign in: $sa"
+  out="$(token_login "$(kubectl -n rbac-open create token rbac-viewer)")"
+  if [ "$out" != 401 ] || ! grep -q -- "--audience pacto-dashboard" "$IDP_DIR/token-body"; then
+    fail "a ServiceAccount token minted for another audience signed in, or was not told to use --audience pacto-dashboard: $out $(cat "$IDP_DIR/token-body")"
+  fi
+  local sa; sa="$(token_login "$(kubectl -n rbac-open create token rbac-viewer --audience pacto-dashboard --duration 10m)" link)"
+  [ -n "$sa" ] && [ "${#sa}" -gt 3 ] || fail "a ServiceAccount token minted for the dashboard did not sign in: $sa $(cat "$IDP_DIR/token-body")"
   dash "$sa" GET /api/session | cut -d' ' -f2- |
     jq -e '.method == "token" and .user == "system:serviceaccount:rbac-open:rbac-viewer"' >/dev/null \
     || fail "the token session does not name the ServiceAccount: $(dash "$sa" GET /api/session)"
   [ "$(names "$sa")" = '["rbac-open-svc"]' ] || fail "the token session sees services outside rbac-open: $(names "$sa")"
+  dash "$sa" GET /api/capabilities | cut -d' ' -f2- | jq -e '.delivery == false' >/dev/null \
+    || fail "the sign-in link session is offered delivery: $(dash "$sa" GET /api/capabilities)"
   out="$(dash "$sa" POST /api/delivery/operations/prod/any/decision '{"decision":"approve"}' "$(csrf_of "$sa")")"
-  [ "${out%% *}" = 403 ] && grep -q TokenCannotDecide <<<"$out" || fail "a token session decided: $out"
-  pass "a pasted ServiceAccount token signs in, sees only what its RBAC reads and never decides"
+  if [ "${out%% *}" != 403 ] || ! grep -q SignInLinkReadsFleet <<<"$out"; then
+    fail "a sign-in link session reached delivery: $out"
+  fi
+  pass "a ServiceAccount token signs in only when minted for the dashboard, sees only what its RBAC reads and never reaches delivery"
 }
 
 # servers_up — wait for the dashboard and the MCP server in_node started; the
@@ -508,7 +523,9 @@ identity_scenario() {
     ans="$(kubectl auth can-i $v --as "$DSA" 2>/dev/null || true)"
     [[ "$ans" == yes ]] || fail "the dashboard's ServiceAccount may not $v for its shared cache: '$ans'"
   done
-  pass "the dashboard's ServiceAccount only reads Stages and Operations in delivery and cannot impersonate"
+  ans="$(kubectl auth can-i create tokenreviews.authentication.k8s.io --as "$DSA" 2>/dev/null || true)"
+  [[ "$ans" == yes ]] || fail "the dashboard's ServiceAccount may not create TokenReviews, so no sign-in link works: '$ans'"
+  pass "the dashboard's ServiceAccount only reads Stages and Operations in delivery, reviews tokens and cannot impersonate"
   kubectl -n "$NS" get deploy pacto-dashboard -o json | jq -e '.spec.template.spec.containers[0].env as $e |
       ($e | map(select(.name == "PACTO_DASHBOARD_OIDC_ISSUER_URL"))[0].value == "'"$DEX_ISSUER"'") and
       ($e | map(select(.name == "PACTO_DASHBOARD_OIDC_CLIENT_SECRET"))[0].valueFrom.secretKeyRef.name == "dashboard-oidc")' >/dev/null \
@@ -656,6 +673,32 @@ identity_scenario() {
   out="$(dash "$erin_s" POST /api/delivery/operations/prod/idp-f/decision '{"decision":"approve"}' "$(csrf_of "$erin_s")")"
   [ "${out%% *}" = 403 ] && grep -q CannotUpdateWorkload <<<"$out" && grep -q "cannot update deployments/payments in prod" <<<"$out" \
     || fail "erin decided without update rights: $out"
+  # A person's own pasted token is a bearer session that decides under the same
+  # rule as a sign-in through the identity provider (D6). frank, in no group,
+  # reads Stages and Operations in prod through a Role of his own and may update
+  # nothing there. His exchanged token carries no login time, and prod publishes
+  # a login freshness, so the rule refuses him with AuthTimeUnavailable before it
+  # reaches his update rights (unknown is never positive).
+  local frank_tok frank_user frank_s
+  frank_tok="$(kc_exchange "$(kc_person_token frank)")"
+  frank_user="$(whoami_json "$frank_tok" | jq -r .status.userInfo.username)"
+  kubectl -n prod create role delivery-reader --verb=get,list,watch \
+    --resource=operations.delivery.pacto.trianalab.io,stages.delivery.pacto.trianalab.io --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  kubectl -n prod create rolebinding delivery-reader-frank --role=delivery-reader --user="$frank_user" \
+    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  [ "$(kubectl auth can-i update deployments -n prod --as "$frank_user" 2>/dev/null || true)" = no ] \
+    || fail "frank may update deployments in prod"
+  frank_s="$(token_login "$frank_tok")"
+  [ "${#frank_s}" -gt 3 ] || fail "frank's own token did not sign in: $frank_s $(cat "$IDP_DIR/token-body")"
+  dash "$frank_s" GET /api/session | cut -d' ' -f2- | jq -e --arg u "$frank_user" '.method == "token" and .user == $u' >/dev/null \
+    || fail "frank's token session does not name him: $(dash "$frank_s" GET /api/session)"
+  # A refused decision changes nothing, so it is retried while his new Role reaches the reviews.
+  frank_decides() {
+    out="$(dash "$frank_s" POST /api/delivery/operations/prod/idp-f/decision '{"decision":"approve"}' "$(csrf_of "$frank_s")")"
+    [ "${out%% *}" = 403 ] && grep -q AuthTimeUnavailable <<<"$out"
+  }
+  eventually 10 frank_decides || fail "frank's token session was not refused by the approver rule: $out"
+  pass "a person's own token signs in as a bearer session and decides under the approver rule: frank, with no login time, is refused AuthTimeUnavailable"
   local uid digest
   uid="$(kubectl -n prod get operation idp-f -o jsonpath='{.metadata.uid}')"
   digest="$(kubectl -n prod get operation idp-f -o jsonpath='{.spec.intentDigest}')"
