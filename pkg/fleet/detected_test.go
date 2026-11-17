@@ -103,7 +103,7 @@ func TestAvailableAdvisorySourceIsCounted(t *testing.T) {
 func TestDetectionClusterMismatchIsNamed(t *testing.T) {
 	other, same := detectedRow("cloud", ScopeCluster), detectedRow("nodes", ScopeCluster)
 	other.ClusterID, other.Cluster = "uid-2", "uid-2"
-	same.ClusterID, same.Cluster = "uid-1", "uid-1"
+	same.ClusterID, same.Cluster, same.Evidence = "uid-1", "uid-1", "kernel 6.1 (from nodes, cluster uid-1)"
 	snap := buildProviders(t,
 		NewMemorySource("k8s", SourceKindKubernetes, &Collection{Cluster: clusterOf("uid-1", "prod", ClusterNameFromContext), Targets: []RawTarget{workload("team-a", "web")}}),
 		detectedSource(SourceAvailable, other, same))
@@ -113,7 +113,7 @@ func TestDetectionClusterMismatchIsNamed(t *testing.T) {
 	}) || cloud.Status != SourceStale {
 		t.Errorf("cloud row = %+v", cloud)
 	}
-	if nodes := providerByID(t, snap.Providers, "nodes"); nodes.Cluster != "prod" {
+	if nodes := providerByID(t, snap.Providers, "nodes"); nodes.Cluster != "prod" || nodes.Evidence != "kernel 6.1 (from nodes, cluster prod)" {
 		t.Errorf("a matching row is named by its cluster's name: %+v", nodes)
 	}
 	if clusterSourceStatus(t, snap, "detection") != SourceStale || snap.Completeness != CompletenessComplete {

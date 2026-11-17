@@ -39,12 +39,12 @@ var usedFor = map[string]string{
 func ProviderRows(res Result, source string, now time.Time) []fleet.Provider {
 	rows := make([]fleet.Provider, 0, len(res.Entries))
 	for _, e := range res.Entries {
-		asOf := res.AsOf
+		asOf, cluster := res.AsOf, cmp.Or(res.ClusterName, res.Cluster)
 		p := fleet.Provider{
-			ID: e.Kind, Name: rowName(e.Kind), Evidence: evidence(e, source, res.Cluster),
+			ID: e.Kind, Name: rowName(e.Kind), Evidence: evidence(e, source, cluster),
 			UsedFor: []string{cmp.Or(usedFor[e.Kind], "proposal; nothing is turned on")}, Status: status(e.Completeness, now.Sub(asOf)),
 			Provenance: fleet.ProvenanceInferred, AsOf: &asOf, Hint: e.Hint, Details: slices.Clone(e.Details),
-			Scope: e.Scope, Cluster: res.Cluster, ClusterID: res.Cluster,
+			Scope: e.Scope, Cluster: cluster, ClusterID: res.Cluster,
 		}
 		for _, ns := range e.Namespaces {
 			p.Objects = append(p.Objects, fleet.ProviderObject{Kind: "Namespace", Namespace: ns, Name: ns})

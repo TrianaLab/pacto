@@ -60,6 +60,9 @@ type Result struct {
 	AsOf          time.Time `json:"asOf"`
 	// Cluster is the id of the cluster the operator read.
 	Cluster string `json:"cluster,omitempty"`
+	// ClusterName is the cluster's display name, so a row read with no
+	// Kubernetes source to name the cluster still reads as a name.
+	ClusterName string `json:"clusterName,omitempty"`
 	// Namespaces is the watched scope of a namespace-list install, empty when
 	// the operator reads every namespace.
 	Namespaces []string `json:"namespaces,omitempty"`
@@ -136,7 +139,7 @@ func UnknownEntry(kind, reason string) Entry {
 
 // sanitize cleans every string of res and caps every list.
 func sanitize(res *Result) {
-	res.Cluster = clean(res.Cluster)
+	res.Cluster, res.ClusterName = clean(res.Cluster), clean(res.ClusterName)
 	res.Namespaces = cleanAll(res.Namespaces, MaxNamed)
 	res.Entries = capped(res.Entries, MaxEntries)
 	for i := range res.Entries {

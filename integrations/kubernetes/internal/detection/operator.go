@@ -27,9 +27,10 @@ func ForOperator(deployName, namespace string, watched []string, nodeAgentNS str
 	return &Detector{
 		Reader: r, Writer: w, Served: served,
 		Namespace: namespace, Name: deployName + "-detected", DeploymentName: deployName,
-		Namespaces: watched,
-		Skip:       []string{"kube-system", "kube-public", "kube-node-lease", namespace, nodeAgentNS},
-		Cluster:    ident.ID,
-		Now:        time.Now,
+		Namespaces:  watched,
+		Skip:        []string{"kube-system", "kube-public", "kube-node-lease", namespace, nodeAgentNS},
+		Cluster:     ident.ID,
+		ClusterName: ident.Name,
+		Now:         time.Now,
 	}
 }

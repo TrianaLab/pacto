@@ -72,9 +72,10 @@ type Detector struct {
 	// Namespaces is the watched scope of a namespace-list install, empty for
 	// cluster-wide; Skip are namespaces whose pods never vote.
 	Namespaces, Skip []string
-	Cluster          string
-	Now              func() time.Time
-	Interval         time.Duration
+	// Cluster and ClusterName are the id and display name of the cluster.
+	Cluster, ClusterName string
+	Now                  func() time.Time
+	Interval             time.Duration
 
 	owner       *metav1ac.OwnerReferenceApplyConfiguration
 	warnedOwner bool
@@ -123,7 +124,7 @@ func (d *Detector) Sync(ctx context.Context) error {
 // detect reads the cluster and runs every rule.
 func (d *Detector) detect(ctx context.Context) detect.Result {
 	scoped := len(d.Namespaces) > 0
-	res := detect.Result{AsOf: d.Now().UTC(), Cluster: d.Cluster, Namespaces: d.Namespaces}
+	res := detect.Result{AsOf: d.Now().UTC(), Cluster: d.Cluster, ClusterName: d.ClusterName, Namespaces: d.Namespaces}
 
 	ws, sampled, err := d.workloads(ctx)
 	res.Entries = append(res.Entries, or(err, "registry", func() detect.Entry { return detect.Registries(ws, sampled, !scoped) }))

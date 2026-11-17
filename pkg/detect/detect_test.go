@@ -168,6 +168,11 @@ func TestProviderRowsCarryScopeAndCluster(t *testing.T) {
 	if n.Scope != fleet.ScopeCluster || n.Cluster != "uid-1" || n.ClusterID != "uid-1" || !strings.HasSuffix(n.Evidence, "(from detection, cluster uid-1)") {
 		t.Errorf("nodes row = %+v", n)
 	}
+	// The operator's display name for the cluster reads instead of its id.
+	res.ClusterName = "kind-pacto"
+	if n := row(t, ProviderRows(res, "detection", asOf), "nodes"); n.Cluster != "kind-pacto" || n.ClusterID != "uid-1" || !strings.HasSuffix(n.Evidence, "(from detection, cluster kind-pacto)") {
+		t.Errorf("named nodes row = %+v", n)
+	}
 	e := row(t, rows, "exposure")
 	want := []fleet.ProviderObject{{Kind: "Namespace", Namespace: "infra", Name: "infra"}, {Kind: "Gateway", Namespace: "infra", Name: "public"}}
 	if e.Scope != "" || !slices.Equal(e.Objects, want) || strings.Contains(e.Evidence, "infra") {

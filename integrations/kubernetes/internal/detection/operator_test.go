@@ -22,7 +22,7 @@ func TestForOperatorNilWithoutDeploymentName(t *testing.T) {
 
 func TestForOperatorNamesAndSkips(t *testing.T) {
 	d := ForOperator(deploy, opNS, []string{"a"}, "agents", kubecluster.Identity{ID: "uid", Name: "prod"}, nil, nil, servedAll)
-	if d.Name != cmName || d.DeploymentName != deploy || d.Namespace != opNS || d.Cluster != "uid" || !slices.Equal(d.Namespaces, []string{"a"}) || d.Now == nil {
+	if d.Name != cmName || d.DeploymentName != deploy || d.Namespace != opNS || d.Cluster != "uid" || d.ClusterName != "prod" || !slices.Equal(d.Namespaces, []string{"a"}) || d.Now == nil {
 		t.Errorf("detector = %+v", d)
 	}
 	if want := []string{"kube-system", "kube-public", "kube-node-lease", opNS, "agents"}; !slices.Equal(d.Skip, want) {

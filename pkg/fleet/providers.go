@@ -110,10 +110,10 @@ func ingestProviders(snap *FleetSnapshot, sourceID string, col *Collection) {
 	}
 }
 
-// checkDetectedClusters names, on each row with a ClusterID, the cluster the
-// snapshot knows it by, or, when the snapshot holds clusters and none is that
-// one, adds LimitationDetectionClusterMismatch and makes its available source
-// stale. A snapshot with no cluster has nothing to compare with.
+// checkDetectedClusters names, on each row with a ClusterID and in its
+// evidence, the cluster the snapshot knows it by, or, when the snapshot holds
+// clusters and none is that one, adds LimitationDetectionClusterMismatch and
+// makes its available source stale. A snapshot with no cluster has nothing to compare with.
 func checkDetectedClusters(snap *FleetSnapshot) {
 	if len(snap.Clusters) == 0 {
 		return
@@ -124,7 +124,11 @@ func checkDetectedClusters(snap *FleetSnapshot) {
 			continue
 		}
 		if j := slices.IndexFunc(snap.Clusters, func(c ClusterRecord) bool { return c.ID == p.ClusterID }); j >= 0 {
-			p.Cluster = cmp.Or(snap.Clusters[j].Name, p.Cluster)
+			// The evidence says the cluster the way the rest of the answer does.
+			if name := snap.Clusters[j].Name; name != "" {
+				p.Evidence = strings.Replace(p.Evidence, "cluster "+p.Cluster+")", "cluster "+name+")", 1)
+				p.Cluster = name
+			}
 			continue
 		}
 		p.Limitations = append(p.Limitations, Limitation{Code: LimitationDetectionClusterMismatch, Source: p.Source,

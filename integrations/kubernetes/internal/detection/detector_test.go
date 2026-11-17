@@ -96,7 +96,7 @@ func newClient(funcs interceptor.Funcs, objs ...client.Object) client.WithWatch 
 func servedAll(string) (bool, error) { return true, nil }
 
 func newDetector(c client.WithWatch, served func(string) (bool, error), watched ...string) *Detector {
-	d := ForOperator(deploy, opNS, watched, "pacto-node-agent", kubecluster.Identity{ID: "cluster-uid"}, c, c, served)
+	d := ForOperator(deploy, opNS, watched, "pacto-node-agent", kubecluster.Identity{ID: "cluster-uid", Name: "kind-pacto"}, c, c, served)
 	d.Now = func() time.Time { return now }
 	return d
 }
@@ -203,7 +203,7 @@ func TestDetectorResultAllKinds(t *testing.T) {
 		t.Fatal(err)
 	}
 	cm, res := readResult(t, c)
-	if !res.AsOf.Equal(now) || res.Cluster != "cluster-uid" || len(res.Entries) != 6 || cm.Labels[detect.ManagedByLabel] != detect.ManagedBy {
+	if !res.AsOf.Equal(now) || res.Cluster != "cluster-uid" || res.ClusterName != "kind-pacto" || len(res.Entries) != 6 || cm.Labels[detect.ManagedByLabel] != detect.ManagedBy {
 		t.Fatalf("result = %+v", res)
 	}
 	for kind, ok := range map[string]func(detect.Entry) bool{
