@@ -557,7 +557,9 @@ export function installScaleFixture(): void {
         const firstDep = (rev.dependencies as { items?: { declaredClaims?: { items?: Record<string, unknown>[] } }[] } | undefined)?.items?.[0];
         for (const c of firstDep?.declaredClaims?.items ?? []) { c.compatibility = 'unknown'; c.nameFromRef = true; }
         for (const it of (rev.interfaces as { items?: Record<string, unknown>[] } | undefined)?.items ?? []) it.port = 65535;
-        rev.inferred = [{ field: 'service.name', value: longName('inferred-service-name'), source: `${longName('charts/deeply/nested/chart-folder')}/Chart.yaml:2`, provenance: 'inferred' }];
+        // The first row at its longest; the engine's other rows stay, so inferredTotal and the "more" rows still agree.
+        const longInferred = { field: 'service.name', value: longName('inferred-service-name'), source: `${longName('charts/deeply/nested/chart-folder')}/Chart.yaml:2`, provenance: 'inferred' };
+        rev.inferred = [longInferred, ...((rev.inferred as unknown[] | undefined) ?? []).slice(1)];
       }
     }
     if (route === '/api/fleet/entities/target') {
