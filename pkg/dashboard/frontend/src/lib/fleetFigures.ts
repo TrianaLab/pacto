@@ -146,6 +146,7 @@ const KIND_NOUN: Record<string, [string, string]> = {
   'evidence-http': ['evidence server', 'evidence servers'], local: ['local directory', 'local directories'],
   cache: ['bundle cache', 'bundle caches'], observation: ['observation file', 'observation files'],
   'target-state': ['target-state file', 'target-state files'], mira: ['Mira source', 'Mira sources'],
+  'kubernetes-workloads': ['Kubernetes workload reader', 'Kubernetes workload readers'],
 };
 
 /** sourceKindNoun names n sources of one kind ("Kubernetes clusters"); '' is the kinds folded together. */

@@ -426,6 +426,12 @@ func TestInferredEntityRefShape(t *testing.T) {
 	if r.Declaration != DeclarationInferred || r.Scope != "shop" || r.Secondary != "Deployment" || r.Image != "ghcr.io/acme/cart:1.4.2" || r.Label != cartName {
 		t.Errorf("ref %+v", r)
 	}
+	if r := q.serviceListRef(q.snap.Services[NewServiceKey(sweepName)], OriginCount{}); !r.DeclarationUnverified {
+		t.Error("the golden fleet reads no Pacto target, yet the ref is verified")
+	}
+	if r := serviceEntityRef(&ServiceRecord{Key: "y", Name: "y", Declaration: DeclarationInferred, Workload: &InferredWorkload{}}); r.DeclarationUnverified {
+		t.Error("a verified record reads unverified")
+	}
 	if r := q.serviceListRef(q.snap.Services[NewServiceKey(sweepName)], OriginCount{}); r.Image != "" {
 		t.Errorf("a workload with no image shows %q", r.Image)
 	}

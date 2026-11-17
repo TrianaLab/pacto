@@ -179,6 +179,9 @@ type EntityRef struct {
 	// in Secondary and, on list rows, its Image.
 	Declaration string `json:"declaration,omitempty" enum:"declared,inferred"`
 	Image       string `json:"image,omitempty" doc:"The image an inferred service runs, on list rows"`
+	// DeclarationUnverified marks an inferred service whose namespace's Pacto
+	// targets Pacto could not read, so a contract may describe it.
+	DeclarationUnverified bool `json:"declarationUnverified,omitempty" doc:"On an inferred service: Pacto could not read the Pacto targets of its namespace, so a contract may describe it"`
 	// NameInferred is where a SERVICE reference's name comes from when no
 	// revision declares it (see ServiceRecord.NameInferred).
 	NameInferred *contract.Inferred `json:"nameInferred,omitempty"`
@@ -356,7 +359,7 @@ func serviceEntityRef(s *ServiceRecord) EntityRef {
 		NameInferred: clonePtr(s.NameInferred), Declaration: cmp.Or(s.Declaration, DeclarationDeclared),
 	}
 	if s.Inferred() {
-		ref.Scope, ref.Secondary = s.Workload.Namespace, s.Workload.Kind
+		ref.Scope, ref.Secondary, ref.DeclarationUnverified = s.Workload.Namespace, s.Workload.Kind, s.Workload.DeclarationUnverified
 	}
 	return ref
 }

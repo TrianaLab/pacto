@@ -225,6 +225,9 @@
   <div class="ov-answer-block" id="ov-answer">
     {#if errorPoints.length}
       <p class="page-answer t-body" data-testid="overview-answer"><strong>Yes.</strong> {errorText}.{#if whereText}{' '}{whereText}{/if}</p>
+    {:else if totalServices === 0 && inferred > 0}
+      <!-- Only inferred services: no contract is checked, so no verdict either way. -->
+      <p class="page-answer t-body" role="status" data-testid="overview-answer"><strong>No contracts yet.</strong> Pacto sees <a href={fleetServicesUrl({ declaration: 'inferred' })}>{formatCount(inferred)} {inferred === 1 ? 'workload' : 'workloads'}</a> as inferred services; a contract lets it check them.</p>
     {:else if knowledge.incomplete}
       <!-- The banner right under it says what is missing, so the answer does not say it twice. -->
       <p class="page-answer t-body" data-testid="overview-answer"><strong>Nothing broken found.</strong></p>
@@ -253,10 +256,10 @@
   <LazyView load={loadTrustFigure} mode="overview" counts={overview.meta?.sourceCounts} meta={overview.meta} asOf={overview.meta?.asOf ? formatDate(overview.meta.asOf) : ''}
     stateHref={(st) => fleetSourcesUrl({ sourceHealth: st })}>
     {#snippet aside()}
-      {#if svcAgg}
+      {#if svcAgg && (svcAgg.services || !inferred)}
         <!-- The bar's in-segment counts repeat its legend, whose items are the links. -->
         <div data-nofilter><DistributionBar title="What the snapshot says about {formatCount(svcAgg.services ?? 0)} {svcAgg.services === 1 ? 'service' : 'services'}" level={2}
-          segments={svcCompliance} total={svcAgg.services ?? 0} emptyLabel="No services are tracked yet." /></div>
+          segments={svcCompliance} total={svcAgg.services ?? 0} emptyLabel="No declared services yet." /></div>
       {/if}
       <dl class="facts">
         {#if externals || hiddenExternals || inferred}
@@ -396,7 +399,7 @@
           scopeNote={`All ${formatCount(totalServices)} ${totalServices === 1 ? 'service' : 'services'} in the snapshot.`}
           segments={ownership}
           total={totalServices}
-          emptyLabel="No services are tracked yet, so there is no ownership picture."
+          emptyLabel="No declared services yet, so there is no ownership picture."
         />
         <DistributionBar
           title="Contract revision readiness"
@@ -418,7 +421,7 @@
         scopeNote={`All ${formatCount(contractKnowledge.services ?? totalServices)} ${(contractKnowledge.services ?? totalServices) === 1 ? 'service' : 'services'}, golden paths apart.`}
         segments={knowledgeSegs}
         total={contractKnowledge.services ?? totalServices}
-        emptyLabel="No services are tracked yet, so there is no knowledge picture."
+        emptyLabel="No declared services yet, so there is no knowledge picture."
       />
       {#if knowledgeCaption(contractKnowledge)}<p class="ov-caption t-body-2" data-testid="knowledge-caption">{knowledgeCaption(contractKnowledge)}</p>{/if}
       {#if gapRows.length}

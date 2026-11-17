@@ -129,6 +129,13 @@ describe('FleetOverview — operational landing (scenarios 1-5)', () => {
     await vi.waitFor(() => expect(target.querySelector('[data-testid="overview-services-line"]')).toBeTruthy());
     expect(target.querySelector('.empty-fleet')).toBeNull();
     expect(target.querySelector('[data-testid="overview-services-line"]')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('7: 0 declared, 7 inferred');
+    // No contract is checked, so the answer gives no verdict and no compliance bar
+    // speaks about zero services.
+    const answer = target.querySelector('[data-testid="overview-answer"]') as HTMLElement;
+    expect(answer.textContent?.replace(/\s+/g, ' ').trim()).toBe('No contracts yet. Pacto sees 7 workloads as inferred services; a contract lets it check them.');
+    expect(answer.querySelector('a')?.getAttribute('href')).toBe('#/fleet/services?declaration=inferred');
+    expect(target.textContent).not.toContain('Nothing is broken');
+    expect(target.textContent).not.toContain('No declared services yet.');
     unmount(component); document.body.removeChild(target);
   });
 
@@ -506,7 +513,7 @@ describe('FleetOverview — every band draws a complete population', () => {
     const { target, component } = mountView();
     await vi.waitFor(() => expect(target.querySelector('section[aria-labelledby="ov-org"]')).toBeTruthy());
     const org = sectionText(target, 'ov-org');
-    expect(org).toContain('No services are tracked yet');
+    expect(org).toContain('No declared services yet');
     expect(org).toContain('No contract revisions are tracked yet');
     unmount(component); document.body.removeChild(target);
   });

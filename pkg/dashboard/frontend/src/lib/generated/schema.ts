@@ -2643,6 +2643,8 @@ export interface components {
             created?: number;
             /** @enum {string} */
             declaration?: "declared" | "inferred";
+            /** @description On an inferred service: Pacto could not read the Pacto targets of its namespace, so a contract may describe it */
+            declarationUnverified?: boolean;
             domain?: string;
             environment?: string;
             explanation?: string;
@@ -5623,6 +5625,8 @@ export interface components {
             created?: number;
             /** @enum {string} */
             declaration?: "declared" | "inferred";
+            /** @description On an inferred service: Pacto could not read the Pacto targets of its namespace, so a contract may describe it */
+            declarationUnverified?: boolean;
             domain?: string;
             environment?: string;
             explanation?: string;

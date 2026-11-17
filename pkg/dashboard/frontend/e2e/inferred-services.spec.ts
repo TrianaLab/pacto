@@ -78,6 +78,29 @@ test.describe('WASM demo: inferred services', () => {
     await expect(mark).toHaveAttribute('aria-expanded', 'false');
   });
 
+  test('the filtered list states nothing positive about workloads with no contract', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await appReady(page, '/#/fleet/services?declaration=inferred');
+    await expect(page.getByTestId('services-answer')).toContainText(`${INFERRED} inferred services`, { timeout: T });
+    await expect(page.locator('body')).not.toContainText('Nothing failing');
+    await expect(page.locator('.sv-inventory')).toHaveCount(0);
+  });
+
+  test('on a phone a row mark opens its tip inside the viewport', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await appReady(page, '/#/fleet/services?declaration=inferred');
+    const row = page.locator('[data-testid="service-list"] li.sv-inferred', { hasText: 'legacy-billing' });
+    const mark = row.getByRole('button', { name: 'Inferred service: from its Deployment' });
+    await expect(mark).toBeVisible({ timeout: T });
+    await mark.click();
+    const note = row.getByRole('note');
+    await expect(note).toBeVisible();
+    const box = await note.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(390);
+  });
+
   test('the uncontracted caller on attention links to its inferred service', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await appReady(page, '/#/fleet/attention?category=undeclared');

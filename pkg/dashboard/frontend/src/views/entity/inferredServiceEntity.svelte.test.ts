@@ -94,11 +94,36 @@ describe('InferredServiceEntity', () => {
     expect(link.getAttribute('href')).toBe('#/fleet/services/payments');
   });
 
-  it('says what it did not see when no port or probe is declared', () => {
+  it('says what it did not read when no port or probe was read', () => {
     const t = render(inferredDetail({ workload: { source: 'k8s-workloads', namespace: 'shop', kind: 'CronJob', name: 'nightly' } }));
     const text = t.textContent || '';
-    expect(text).toContain('No ports are declared on this workload');
-    expect(text).toContain('No HTTP probes are declared on this workload');
+    expect(text).toContain('No ports read');
+    expect(text).toContain('No HTTP probe read on the main container');
+    expect(text).not.toContain('declared on this workload');
     expect(t.querySelectorAll('.prov-mark')).toHaveLength(0);
+  });
+
+  it('says a dropped value was read, never that none is declared', () => {
+    const t = render(inferredDetail({ workload: { source: 'k8s-workloads', namespace: 'shop', kind: 'Deployment', name: 'cart', dropped: ['image', 'ports[0]', 'probes[0]'] } }));
+    const text = t.textContent || '';
+    expect(text).toContain('The image was read but not shown (invalid value)');
+    expect(text).toContain('Ports were read but not shown (invalid value)');
+    expect(text).toContain('Probes were read but not shown (invalid value)');
+  });
+
+  it('never states no contract describes a workload whose declaration is unverified', () => {
+    const unverified = inferredDetail();
+    unverified.service.workload.declarationUnverified = true;
+    const id = render(unverified).querySelector('[data-testid="inferred-identity"]')?.textContent || '';
+    expect(id).toContain('Pacto could not read the Pacto targets in shop, so a contract may describe this workload.');
+    expect(id).not.toContain('No contract describes');
+    cleanup?.(); cleanup = null;
+    expect(render(inferredDetail()).querySelector('[data-testid="inferred-identity"]')?.textContent).toContain('No contract describes this workload.');
+  });
+
+  it('counts calls to hidden services instead of saying none were seen', () => {
+    const calls = render(inferredDetail({ callsObserved: true, hiddenDependencies: 2 })).querySelector('[data-testid="inferred-calls"]')?.textContent || '';
+    expect(calls).toContain('2 calls to services you cannot see');
+    expect(calls).not.toContain('No calls');
   });
 });

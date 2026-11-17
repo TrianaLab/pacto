@@ -252,7 +252,10 @@
   // ownership=unidentified lists; the Evidence fact is the provenance in words.
   const unidentified = $derived((agg?.ownership?.unowned ?? 0) + (agg?.ownership?.conflicting ?? 0) + (agg?.unidentifiedOwnership ?? 0));
   const evidence = $derived(provenance(list?.meta));
-  const matched = $derived(agg?.matched ?? 0);
+  // The declared services only: every tally below partitions them, and an inferred
+  // service has no contract, so it is no "unclassified" share of any of them.
+  const matched = $derived(agg?.services ?? 0);
+  const inferredMatched = $derived(agg?.inferredServices ?? 0);
   const scopeNote = $derived(anyFilter
     ? `All ${formatCount(matched)} matching ${matched === 1 ? 'service' : 'services'}, across every page.`
     : `All ${formatCount(matched)} ${matched === 1 ? 'service' : 'services'} in the snapshot.`);
@@ -295,7 +298,11 @@
   <PageHeader glyph="service" title="Services" count={list ? `${formatCount(total)} service${total === 1 ? '' : 's'}` : ''} asOf={list?.meta?.asOf} {revalidating} paging={view.paging}
     actions={[{ label: 'External systems the services declare', href: fleetExternalsUrl() }]} />
 
-  {#if state.kind === 'ready' && matched > 0}
+  {#if state.kind === 'ready' && matched === 0 && inferredMatched > 0}
+    <p class="page-answer t-body" data-testid="services-answer">
+      {formatCount(inferredMatched)} inferred {inferredMatched === 1 ? 'service' : 'services'}: no contract Pacto read describes {inferredMatched === 1 ? 'it' : 'them'}, so Pacto cannot tell {inferredMatched === 1 ? 'its' : 'their'} compliance or ownership.
+    </p>
+  {:else if state.kind === 'ready' && matched > 0}
     <p class="page-answer t-body" data-testid="services-answer">
       {#if svcAnswer}<strong>Needs someone:</strong> {svcAnswer}{:else}<strong>Nothing failing{knowledge.incomplete ? ' found' : ''}.</strong> No service here is known to break its contract or lack a clear owner.{/if}
     </p>
@@ -428,7 +435,7 @@
       scope={anyFilter ? `${formatCount(matched)} matching services` : `All ${formatCount(matched)} services`} compact={true}>
       {#snippet aside()}
         <dl class="facts">
-          <dt>Services</dt><dd><span data-nofilter>{formatCount(matched)}</span>{anyFilter ? ' matching these filters' : ' in the snapshot'}</dd>
+          <dt>Services</dt><dd><span data-nofilter>{formatCount(matched)}</span>{anyFilter ? ' matching these filters' : ' in the snapshot'}{#if inferredMatched}, and {formatCount(inferredMatched)} inferred{/if}</dd>
           <!-- Every service with no single canonical owner: unowned, disputed or owned by
                contacts alone, the population ownership=unidentified lists. -->
           <dt>No identified owner</dt><dd>{#if unidentified}<a href={urlWith({ ownership: 'unidentified' })}>{formatCount(unidentified)}</a>{:else}<span data-nofilter>0</span>{/if}</dd>
@@ -504,7 +511,7 @@
               <span class="pl-owner sv-image" title={ref.image || 'No image read'}><bdi>{ref.image || 'No image read'}</bdi></span>
               <span class="pl-num">inferred</span>
             </EntityLink>
-            <ProvenanceMark label={`Inferred service: from its ${ref.secondary || 'workload'}`} text={`Inferred from the ${ref.secondary || 'workload'} ${ref.label} in ${ref.scope || 'an unknown namespace'}: no contract describes it.`} />
+            <ProvenanceMark label={`Inferred service: from its ${ref.secondary || 'workload'}`} text={`Inferred from the ${ref.secondary || 'workload'} ${ref.label} in ${ref.scope || 'an unknown namespace'}: ${ref.declarationUnverified ? 'Pacto could not read the Pacto targets there, so a contract may describe it.' : 'no contract describes it.'}`} />
           {:else}
             <EntityLink {ref} showStatus={true} showKind={false}>
               <span class="pl-owner" title={ref.owner || 'No owner declared'}>{ref.owner || 'No owner declared'}</span>

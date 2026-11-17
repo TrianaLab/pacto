@@ -202,7 +202,7 @@ describe('FleetServicesView — product Services list (C / A3)', () => {
    * over every service the SAME filters select, with paging excluded.
    */
   const AGG = {
-    matched: 40,
+    matched: 40, services: 40,
     serviceCompliance: { compliant: 20, nonCompliant: 5, unknown: 3, notEvaluated: 12 },
     ownership: { consistent: 30, conflicting: 2, unowned: 8 },
     byOwner: [
@@ -235,7 +235,7 @@ describe('FleetServicesView — product Services list (C / A3)', () => {
   });
 
   it('says the aggregate follows the filters, and its buckets narrow the same query', async () => {
-    entitiesFn.mockResolvedValue(listResp([svc('a')], { total: 40, aggregate: { ...AGG, matched: 7 } }));
+    entitiesFn.mockResolvedValue(listResp([svc('a')], { total: 40, aggregate: { ...AGG, matched: 7, services: 7 } }));
     const { target, component } = mountView({ owner: 'team-a' });
     await vi.waitFor(() => expect(rows(target).length).toBe(1));
     expect(target.querySelector('#sv-inv-h')?.textContent).toBe('What these filters select');
@@ -309,7 +309,7 @@ describe('FleetServicesView — product Services list (C / A3)', () => {
   });
 
   it('draws no inventory when the filters select nothing to aggregate', async () => {
-    entitiesFn.mockResolvedValue(listResp([svc('a')], { total: 1, aggregate: { ...AGG, matched: 0 } }));
+    entitiesFn.mockResolvedValue(listResp([svc('a')], { total: 1, aggregate: { ...AGG, matched: 0, services: 0 } }));
     const { target, component } = mountView();
     await vi.waitFor(() => expect(rows(target).length).toBe(1));
     expect(target.querySelector('.sv-inventory')).toBeNull();
@@ -544,6 +544,38 @@ describe('FleetServicesView — inferred services (509-S1)', () => {
     expect(location.hash).toBe('#/fleet/services?status=Unknown');
     (target.querySelector('.chip-clear') as HTMLButtonElement).click();
     expect(location.hash).toBe('#/fleet/services');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('states nothing positive about a population of inferred services alone', async () => {
+    entitiesFn.mockResolvedValue(listResp([inferred], { total: 3, aggregate: { matched: 3, services: 0, inferredServices: 3, serviceCompliance: {}, ownership: {} } }));
+    const { target, component } = mountView({ declaration: 'inferred' });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="services-answer"]')).not.toBeNull());
+    const answer = target.querySelector('[data-testid="services-answer"]')?.textContent || '';
+    expect(answer).toContain('3 inferred services: no contract Pacto read describes them');
+    expect(target.textContent).not.toContain('Nothing failing');
+    expect(target.textContent).not.toContain('Unclassified');
+    expect(target.querySelector('.sv-inventory')).toBeNull();
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('divides the declared figures by the declared services, never the inferred ones', async () => {
+    entitiesFn.mockResolvedValue(listResp([svc('domain-a'), inferred], { total: 3, aggregate: {
+      matched: 3, services: 1, inferredServices: 2, serviceCompliance: { compliant: 1 }, ownership: { consistent: 1 } } }));
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="services-answer"]')).not.toBeNull());
+    expect(target.textContent).not.toContain('Unclassified');
+    expect(target.textContent).toContain('All 1 service in the snapshot.');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('says a contract may describe a row whose declaration is unverified', async () => {
+    entitiesFn.mockResolvedValue(listResp([{ ...inferred, declarationUnverified: true }], { total: 1 }));
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(rows(target).length).toBe(1));
+    const tip = rows(target)[0].querySelector('.prov-tip')?.textContent || '';
+    expect(tip).toContain('so a contract may describe it');
+    expect(tip).not.toContain('no contract describes');
     unmount(component); document.body.removeChild(target);
   });
 

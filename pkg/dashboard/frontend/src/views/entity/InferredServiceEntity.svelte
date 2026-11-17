@@ -18,6 +18,13 @@
   const calls = $derived(d.calls ?? { total: 0, count: 0, items: [] });
   const ports = $derived(w.ports ?? []);
   const probes = $derived(w.probes ?? []);
+  // Fields Pacto read but left out (a control character or past the bound): never
+  // "none declared".
+  const dropped = $derived(w.dropped ?? []);
+  const droppedAny = (field) => dropped.some((f) => f === field || f.startsWith(`${field}[`));
+  const hiddenCalls = $derived(d.hiddenDependencies || 0);
+  const callsEmpty = $derived(hiddenCalls ? `${hiddenCalls} ${hiddenCalls === 1 ? 'call' : 'calls'} to services you cannot see`
+    : d.callsObserved ? `No calls to declared services seen as of ${formatDateTime(detail.meta?.asOf)}` : 'Calls unknown: Pacto reads no traffic source here');
   const portWords = (p) => [p.port, p.name, p.protocol].filter(Boolean).join(' ');
   const probeWords = (p) => [p.path, p.port ? `port ${p.port}` : ''].filter(Boolean).join(' ') || 'no HTTP path';
   // Every value Pacto read, with its path, for the fold.
@@ -31,26 +38,27 @@
 
 <div class="inferred-entity" data-testid="inferred-workload">
   <p class="ie-ident t-body-2" data-testid="inferred-identity">
-    {#if w.cluster}Cluster <bdi>{w.cluster}</bdi>, {/if}namespace <bdi>{w.namespace}</bdi>, {w.kind}. Inferred from <bdi>{src}</bdi>{#if asOf}, as of {asOf}{/if}. No contract describes this workload.
+    {#if w.cluster}Cluster <bdi>{w.cluster}</bdi>, {/if}namespace <bdi>{w.namespace}</bdi>, {w.kind}. Inferred from <bdi>{src}</bdi>{#if asOf}, as of {asOf}{/if}. {#if w.declarationUnverified}Pacto could not read the Pacto targets in <bdi>{w.namespace}</bdi>, so a contract may describe this workload.{:else}No contract describes this workload.{/if}
   </p>
 
   <section class="ie-section" id="sec-workload" data-toc="Workload" aria-labelledby="ie-workload-h">
     <h2 id="ie-workload-h" class="t-section-title">Workload</h2>
     <dl class="facts ie-facts">
       <dt>Image</dt>
-      <dd>{#if w.image}<bdi class="ie-value" title={w.image.value} data-testid="inferred-image">{w.image.value}</bdi> <ProvenanceMark {...mark(w.image.from)} />{:else}<span class="t-meta">No image was read</span>{/if}</dd>
+      <dd>{#if w.image}<bdi class="ie-value" title={w.image.value} data-testid="inferred-image">{w.image.value}</bdi> <ProvenanceMark {...mark(w.image.from)} />{:else}<span class="t-meta">{droppedAny('image') ? 'The image was read but not shown (invalid value)' : 'No image was read'}</span>{/if}</dd>
       <dt>Ports</dt>
-      <dd>{#if ports.length}<span class="ie-list">{#each ports as p (p.from)}<span><bdi class="ie-value">{portWords(p)}</bdi></span>{/each}</span> <ProvenanceMark {...mark(ports.map((p) => p.from).join(', '))} />{:else}<span class="t-meta">No ports are declared on this workload</span>{/if}</dd>
+      <dd>{#if ports.length}<span class="ie-list">{#each ports as p (p.from)}<span><bdi class="ie-value">{portWords(p)}</bdi></span>{/each}</span> <ProvenanceMark {...mark(ports.map((p) => p.from).join(', '))} />{:else}<span class="t-meta">{droppedAny('ports') ? 'Ports were read but not shown (invalid value)' : 'No ports read'}</span>{/if}</dd>
       <dt>Probes</dt>
-      <dd>{#if probes.length}<span class="ie-list">{#each probes as p (p.from)}<span>{p.kind}: <bdi class="ie-value">{probeWords(p)}</bdi></span>{/each}</span> <ProvenanceMark {...mark(probes.map((p) => p.from).join(', '))} />{:else}<span class="t-meta">No HTTP probes are declared on this workload</span>{/if}</dd>
+      <dd>{#if probes.length}<span class="ie-list">{#each probes as p (p.from)}<span>{p.kind}: <bdi class="ie-value">{probeWords(p)}</bdi></span>{/each}</span> <ProvenanceMark {...mark(probes.map((p) => p.from).join(', '))} />{:else}<span class="t-meta">{droppedAny('probes') ? 'Probes were read but not shown (invalid value)' : 'No HTTP probe read on the main container'}</span>{/if}</dd>
     </dl>
   </section>
 
   <div data-testid="inferred-calls">
     <PreviewSection title="Calls" total={calls.total ?? 0} count={calls.count ?? 0} truncated={calls.truncated}
-      empty={d.callsObserved ? `No calls to declared services seen as of ${formatDateTime(detail.meta?.asOf)}` : 'Calls unknown: Pacto reads no traffic source here'}
+      empty={callsEmpty}
       help="The declared services this workload was seen calling. It has no contract, so each call is an uncontracted caller of that service.">
       <EntityRefList items={calls.items ?? []} showStatus={false} />
+      {#if hiddenCalls}<p class="t-meta ie-p">And {callsEmpty}.</p>{/if}
     </PreviewSection>
   </div>
 

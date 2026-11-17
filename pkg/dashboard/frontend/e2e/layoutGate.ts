@@ -209,7 +209,7 @@ export function installScaleFixture(): void {
       && !['text', 'ownerKey', 'owner', 'status', 'ownership', 'gap', 'lifecycle', 'businessDomain'].some((k) => q.get(k))) {
       page(doc, 12400);
       const ag = doc.aggregate as Record<string, unknown> | undefined;
-      if (ag) { ag.matched = 12400; ag.inferredServices = 12400; }
+      if (ag) { ag.matched = 12400; ag.services = 0; ag.inferredServices = 12400; }
       for (const r of (doc.entities as Record<string, unknown>[] | undefined) ?? []) {
         if (r.declaration === 'inferred') r.image = `registry.example.com/${longName(`inferred-image-${String(r.key)}`).replace(/[^a-z0-9-]/g, '')}@sha256:${'9f8e'.repeat(16)}`;
       }
