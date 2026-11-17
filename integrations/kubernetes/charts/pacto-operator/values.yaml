@@ -532,7 +532,7 @@ delivery:
     # -- How often an operation waiting on Flux, Pacto or a person is looked at (a Go duration)
     poll: 3s
     # -- How often a Stage is looked at when nothing it watches changed (a Go duration). A change to
-    # its operations, upstream Stage, OCIRepositories, Kustomizations or Application wakes it at once
+    # its operations, upstream Stage or the Flux or Argo CD objects the promoter watches wakes it at once
     resync: 1m
     # -- How many operations and Stages the promoter reconciles at once, so one slow health provider does not hold up the rest
     workers: 4

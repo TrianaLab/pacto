@@ -76,8 +76,8 @@ func runPromoter(args []string) error {
 			"so one slow health provider does not hold up the rest.")
 	poll := fs.Duration("poll", 3*time.Second, "How often an operation waiting on Flux, Pacto or a person is looked at.")
 	resync := fs.Duration("resync", delivery.DefaultResync,
-		"How often a Stage is looked at when nothing it watches (its operations, upstream Stage, OCIRepositories, "+
-			"Kustomizations and Application) changed.")
+		"How often a Stage is looked at when nothing it watches (its operations, upstream Stage and the Flux or "+
+			"Argo CD objects the promoter watches) changed.")
 	argocd := fs.Bool("argocd", false, "Stages may apply through Argo CD Applications: watch and cache them.")
 	flux := fs.Bool("flux", true, "Stages may apply through Flux OCIRepositories and Kustomizations: watch them.")
 	fluxHelm := fs.Bool("flux-helm", false, "Stages may apply through Flux HelmReleases: watch them.")
