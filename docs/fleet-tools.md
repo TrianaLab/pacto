@@ -47,8 +47,14 @@ consumer's [provisioning status](platform-offerings.md#provisioning-status).
 [external systems](external-catalog-reference.md) contracts name, and `get`,
 `graph` and `explain` take `external:<identity>`, such as `external:stripe`.
 
-`pacto fleet entities --declaration inferred --k8s` lists
-[inferred services](operational-graph-inferred.md):
+For [inferred services](operational-graph-inferred.md):
+
+- `pacto fleet entities --declaration inferred --k8s` lists them, as below;
+- `pacto fleet graph` lists the calls with no contract on one end as
+  `inferred` edges, with the sources that saw them;
+- `get` or `graph` on the key of an inferred service a contract
+  [took over](operational-graph-inferred.md#when-a-contract-takes-over)
+  first says which service replaced it.
 
 ```text
 2 of 2 entit(ies):

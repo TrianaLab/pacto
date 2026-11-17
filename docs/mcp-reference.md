@@ -240,6 +240,11 @@ or schema file already there as it is, listed in `kept`.
   `inferred`, which keeps only the services Pacto infers from Kubernetes
   workloads no contract describes, or `declared`, which leaves them out. Empty
   lists every service and marks the inferred ones `declaration: inferred`.
+- `pacto_fleet_graph` lists runtime calls with an inferred service on one end
+  in `edges` as `inferred`, and `pacto_fleet_get` and `pacto_fleet_graph`
+  answer the key of a
+  [replaced inferred service](operational-graph-inferred.md#when-a-contract-takes-over)
+  with the service that replaced it and `replacedFrom`.
 
 `pacto_create` and `pacto_edit` return `warnings` for a value that validates
 but is likely wrong, such as an owner written as `team/billing`.

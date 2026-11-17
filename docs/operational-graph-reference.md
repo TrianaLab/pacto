@@ -43,6 +43,9 @@ compliance evidence that a source carries.
   its target, and the external answers that consume it read `partial`.
 - **Kubernetes workloads** (`--k8s`): workloads no Pacto resource targets join
   as [inferred services](operational-graph-inferred.md), `declaration: inferred`.
+  A runtime call with an inferred service on one end joins as an `inferred`
+  edge in `inferredRelationships`, and a Pacto target that takes over one
+  records a replacement in `replacements`.
   Both report [detected providers](operational-graph-providers.md).
 - **Ingested external evidence** (`--evidence-url <url>`): a running [Evidence
   Server](evidence.md)'s read-only contribution over HTTP, exposing a
@@ -82,6 +85,8 @@ limitation per source.
 - An observed or inferred edge to an external system follows its caller: when
   the caller is hidden, the edge is dropped and counted among the external
   system's hidden consumers.
+- An inferred edge whose inferred end is hidden is dropped and that end counted
+  once, and a replacement shows only when both of its services do.
 
 ### What a target-state fixture looks like
 
@@ -175,8 +180,8 @@ I/O. A single snapshot serves concurrent queries.
 | Query | Answers |
 |-------|---------|
 | **search** | Which logical services match this filter (owner, label, status, compliance, capability, dependency, readiness). Bounded and deterministically ordered. |
-| **get** | Everything about one service (its owner, revisions, targets, declared dependencies, dependents, tools and skills) or one target. |
-| **graph** | Traverse dependencies or dependents from a service, direct or transitive, cycle-safe, with unresolved edges surfaced. Resolved [configuration references](#configuration-reference-consumers) count as dependencies. The CLI and MCP graph also follow observed-only edges, and each node's `provenance` (`declared`, `observed` or `declared+observed`) says how the edge that first reached it was known. Rooted at a revision or target, a dependencies traversal takes its first step over that revision's declared edges only; deeper steps are service-level and include observed edges. |
+| **get** | Everything about one service (its owner, revisions, targets, declared dependencies, dependents, tools and skills, and the inferred services it `replaces`) or one target. The key of a [replaced inferred service](operational-graph-inferred.md#when-a-contract-takes-over) answers with the service that replaced it and `replacedFrom`, as does **graph**. |
+| **graph** | Traverse dependencies or dependents from a service, direct or transitive, cycle-safe, with unresolved edges surfaced. Resolved [configuration references](#configuration-reference-consumers) count as dependencies. The CLI and MCP graph also follow observed-only edges, and each node's `provenance` (`declared`, `observed`, `declared+observed` or `inferred`) says how the edge that first reached it was known. `inferred` has two producers: an external system read from configuration, and a runtime call one of whose ends is an [inferred service](operational-graph-inferred.md#calls-with-no-contract-on-one-end). Inferred edges are listed in `edges` and never count as dependencies or consumers. Rooted at a revision or target, a dependencies traversal takes its first step over that revision's declared edges only; deeper steps are service-level and include observed edges. |
 | **status** | What needs attention, in the [attention categories](operational-graph-tallies.md#attention-categories). With no category selected it reports every category. `total` counts every match and `truncated` says the limit cut the list. |
 | **explain** | Deterministic, structured reasons for a subject's state. An agent can turn them into prose; Pacto itself embeds no model. |
 
