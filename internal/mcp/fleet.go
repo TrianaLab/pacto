@@ -394,7 +394,8 @@ func fleetStatusTool() *mcpsdk.Tool {
 			"undeclared runtime dependencies, running services that declare service.template (GOLDEN_PATH_DEPLOYED) and " +
 			"resources that failed to provision or report stale (category provisioning: PROVISIONING_FAILED, PROVISIONING_STALE; " +
 			"needs_attention includes them). 'total' and 'truncated' say whether the limit cut the list. With no category " +
-			"selected, including empty input, it reports every category. Read-only.",
+			"selected, including empty input, it reports every category. The answer's 'providers' lists what Pacto detected in each " +
+			"source (evidence, usedFor, status, limitations). Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"needs_attention":      {Type: "boolean", Description: "Report every attention category"},
 			"non_compliant":        {Type: "boolean", Description: "Non-compliant targets"},

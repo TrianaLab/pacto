@@ -1196,6 +1196,20 @@ pacto fleet overview [flags]
   -h, --help[=true|false]   help for overview
 ```
 
+### `pacto fleet providers`
+
+Lists what Pacto detected in each source it read: the evidence it found, what it uses each provider for and its status, with the limitations that make a row partial. A Kubernetes source Pacto could not read is listed as not read, never as nothing detected.
+
+```
+pacto fleet providers [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help[=true|false]   help for providers
+```
+
 ### `pacto fleet reconcile`
 
 Reconciles what the fleet's contracts declare against what runtime traces prove. Reports matched dependencies, declared-but-not-observed (dormant or unseen in the trace window, so possibly still in use) and observed-but-not-declared (shadow dependencies).

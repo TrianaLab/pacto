@@ -413,3 +413,15 @@ func TestStatusProvidersBounded(t *testing.T) {
 		t.Error("boundProviders sorted the snapshot's rows")
 	}
 }
+
+func TestQueryProviders(t *testing.T) {
+	q := providerFleet(t)
+	res := q.Providers()
+	if res.Meta.SchemaVersion != ProductSchemaVersion || res.Total != 3 || res.Truncated || len(res.Providers) != 3 || res.Providers[0].ID != "prometheus" {
+		t.Errorf("providers = %+v", res)
+	}
+	empty := NewQuery(buildProviders(t, NewMemorySource("local", "local", &Collection{}))).Providers()
+	if empty.Providers == nil || len(empty.Providers) != 0 || empty.Total != 0 {
+		t.Errorf("empty providers = %+v", empty)
+	}
+}

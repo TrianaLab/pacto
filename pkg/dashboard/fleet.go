@@ -158,6 +158,15 @@ func (s *Server) registerFleetOperations(api huma.API) {
 		Description: "Reports services and targets needing attention across every category.",
 		Tags:        []string{"Fleet"},
 	}, s.fleetStatus)
+
+	huma.Register(api, huma.Operation{
+		OperationID: "fleet-providers",
+		Method:      http.MethodGet,
+		Path:        "/api/fleet/providers",
+		Summary:     "Detected providers",
+		Description: "Lists what Pacto detected in each source: the evidence, what it uses each for and its status. Read-only.",
+		Tags:        []string{"Fleet"},
+	}, s.fleetProviders)
 }
 
 type fleetSnapshotOutput struct {
@@ -327,6 +336,18 @@ func (s *Server) fleetStatus(ctx context.Context, _ *struct{}) (*fleetStatusOutp
 		return nil, err
 	}
 	return &fleetStatusOutput{Body: q.Status(fleet.StatusQuery{NeedsAttention: true})}, nil
+}
+
+type fleetProvidersOutput struct {
+	Body *fleet.ProvidersResult
+}
+
+func (s *Server) fleetProviders(ctx context.Context, _ *struct{}) (*fleetProvidersOutput, error) {
+	q, err := s.fleetQuery(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &fleetProvidersOutput{Body: q.Providers()}, nil
 }
 
 // registerImpactOperation registers the read-only impact endpoint when a provider

@@ -492,6 +492,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/fleet/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Detected providers
+         * @description Lists what Pacto detected in each source: the evidence, what it uses each for and its status. Read-only.
+         */
+        get: operations["fleet-providers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/fleet/revisions/document": {
         parameters: {
             query?: never;
@@ -3717,6 +3737,17 @@ export interface components {
             kind: string;
             name: string;
             namespace?: string;
+        };
+        "Fleet.ProvidersResult": {
+            meta: components["schemas"]["Fleet.ProductMeta"];
+            /** @description At most 200 rows, least healthy first, then by source and id */
+            providers: components["schemas"]["Fleet.Provider"][] | null;
+            /**
+             * Format: int64
+             * @description How many rows the snapshot holds before the bound
+             */
+            total: number;
+            truncated?: boolean;
         };
         "Fleet.ProvisioningRecord": {
             /** Format: date-time */
@@ -8920,6 +8951,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProductOverview"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "fleet-providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Fleet.ProvidersResult"];
                 };
             };
             /** @description Error */

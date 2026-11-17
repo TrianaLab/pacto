@@ -173,6 +173,7 @@ the note says where that answer lives instead.
 | Which services match this text or filter? | `pacto fleet search` | `pacto_fleet_search` | `GET /api/fleet/services` | |
 | How is the fleet doing? | `pacto fleet status` | `pacto_fleet_status` | `GET /api/fleet/status` | |
 | How healthy is the organization and how much do we know? | `pacto fleet overview` | `pacto_fleet_overview` | `GET /api/fleet/overview` | |
+| What did Pacto detect in my cluster, and what does it use each for? | `pacto fleet providers` | `pacto_fleet_status` (`providers`) | `GET /api/fleet/providers` | No separate tool; the status answer carries the rows |
 | What is this service or target? | `pacto fleet get` | `pacto_fleet_get` | `GET /api/fleet/service`, `GET /api/fleet/target` | |
 | What is this service's dependency tree? | `pacto fleet graph` | `pacto_fleet_graph` | `GET /api/fleet/services/{name}/graph` | |
 | Why does Pacto say this? | `pacto fleet explain` | `pacto_fleet_explain` | - | The dashboard explains on its entity pages |

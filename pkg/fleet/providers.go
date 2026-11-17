@@ -231,3 +231,22 @@ func boundProviders(rows []Provider) ([]Provider, bool) {
 	}
 	return out[:MaxProviders], true
 }
+
+// ProvidersResult answers "what did Pacto detect": every provider row of the
+// query's snapshot, bounded, with the product meta that names each source,
+// the unavailable ones included.
+type ProvidersResult struct {
+	Meta      ProductMeta `json:"meta"`
+	Total     int         `json:"total" doc:"How many rows the snapshot holds before the bound"`
+	Truncated bool        `json:"truncated,omitempty"`
+	Providers []Provider  `json:"providers" doc:"At most 200 rows, least healthy first, then by source and id"`
+}
+
+// Providers lists the detected-provider rows of the query, least healthy first.
+func (q *Query) Providers() *ProvidersResult {
+	rows, truncated := boundProviders(q.snap.Providers)
+	if rows == nil {
+		rows = []Provider{}
+	}
+	return &ProvidersResult{Meta: q.productMeta(), Total: len(q.snap.Providers), Truncated: truncated, Providers: rows}
+}
