@@ -47,6 +47,61 @@ catalog:
 A Backstage instance that runs next to a checkout can use `type: file` with
 the path instead.
 
+## Serve entities from the dashboard
+
+A dashboard with a fleet serves `GET /api/backstage/entities`, the same YAML
+`pacto export backstage` writes over the same sources, with only what the
+reader may read. Backstage then needs no file and no sync job.
+
+On a dashboard with sign-in, the reader is a ServiceAccount: the chart's
+`pacto-viewer`, or one you bind to `get` and `list` on
+`pactos.pacto.trianalab.io`. Mint its token for the dashboard and rotate it
+before it expires:
+
+```bash
+kubectl -n pacto create token pacto-viewer --audience pacto-dashboard --duration 720h
+```
+
+A token minted without `--audience pacto-dashboard` is refused with
+`TokenAudienceRequired`. Backstage's url reader sends no `Authorization`
+header, so a Backstage proxy endpoint in `app-config.yaml` adds it:
+
+```yaml
+proxy:
+  endpoints:
+    /pacto:
+      target: http://pacto-dashboard.pacto.svc:3000
+      headers:
+        Authorization: Bearer ${PACTO_READER_TOKEN}
+      credentials: dangerously-allow-unauthenticated
+```
+
+Block `/api/proxy/pacto` at Backstage's ingress so only its own backend reads it.
+The catalog then reads the entities through that endpoint:
+
+```yaml
+backend:
+  reading:
+    allow:
+      - host: localhost:7007
+        paths: [/api/proxy/pacto/api/backstage/]
+catalog:
+  locations:
+    - type: url
+      target: http://localhost:7007/api/proxy/pacto/api/backstage/entities
+```
+
+Backstage shows the reader's scope to every Backstage user. A namespace-scoped
+reader sees no service known only from a registry, so a reader that should see
+the whole fleet needs a cluster-wide grant. Until per-cluster restriction
+lands, a namespace grant shows that namespace from
+every cluster the fleet reads; give the reader a grant you are willing to show
+for all clusters.
+
+Open and local dashboards serve the route without a token. Every failure
+answers non-2xx and never an empty catalog. While a source is unavailable
+the route answers 503 and Backstage keeps the entities it had.
+
 ## What each entity is
 
 | Pacto | Backstage entity |

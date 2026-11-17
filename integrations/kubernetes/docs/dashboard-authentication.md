@@ -259,6 +259,14 @@ With no issuer either, the dashboard then refuses to start unless you also set
 everything its ServiceAccount reads, and the install notes warn about it
 ([without sign-in](dashboard-access.md#without-sign-in)).
 
+## Bearer readers
+
+A server-side reader such as a Backstage backend may send
+`Authorization: Bearer <token>` on GET requests under `/api/backstage/`, and
+on no other path. The dashboard reviews the token like a pasted one, and the
+token's RBAC narrows the answer. No session or cookie is created; see
+[Serve entities from the dashboard](../../backstage.md#serve-entities-from-the-dashboard) for the reader setup.
+
 ## Identity providers
 
 | Provider | `issuerURL` | Claim mapping | Notes |
