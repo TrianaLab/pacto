@@ -483,7 +483,7 @@ func TestMapRestrictedViewNamesNoHidden(t *testing.T) {
 	if !strings.Contains(full, "vaultkeeper") {
 		t.Fatalf("the unrestricted export lacks the provider:\n%s", full)
 	}
-	view := fleet.NewQuery(snap).Restrict(func(ns string) bool { return ns == "shop" || ns == "" })
+	view := fleet.NewQuery(snap).Restrict(func(ns string) bool { return ns == "shop" || ns == "" }, nil)
 	es := Map(view)
 	if out := encode(t, es); strings.Contains(out, "vaultkeeper") {
 		t.Errorf("the restricted export names a hidden service:\n%s", out)
