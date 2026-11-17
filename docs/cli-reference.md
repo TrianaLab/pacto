@@ -1146,7 +1146,7 @@ pacto fleet get [service] [flags]
 
 ### `pacto fleet graph`
 
-Traverse the operational graph from an explicit root. Give a service name to aggregate across its revisions, or --revision/--target to root an exact revision (never 'latest'). The walk also follows observed runtime calls, so services no contract connects appear too; each node reports its provenance (declared, observed or declared+observed, or inferred for an external system's consumer known only from its configuration). Give external:&lt;identity&gt; to list the consumers of an external system (its only direction is dependents).
+Traverse the operational graph from an explicit root. Give a service name to aggregate across its revisions, or --revision/--target to root an exact revision (never 'latest'). The walk also follows observed runtime calls, so services no contract connects appear too; each node reports its provenance (declared, observed or declared+observed, or inferred for an external system's consumer known only from its configuration or a runtime call one of whose ends no contract describes). Those inferred calls are listed after the nodes with the sources that saw them, and a service asked for by the key of an inferred service it replaced says so first. Give external:&lt;identity&gt; to list the consumers of an external system (its only direction is dependents).
 
 ```
 pacto fleet graph <service> [flags]
