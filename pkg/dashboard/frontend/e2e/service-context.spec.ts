@@ -29,6 +29,22 @@ async function expectNoOverflow(page: Page, cells: Locator) {
 }
 
 test.describe('WASM demo — service context', () => {
+  // The demo builds its own fleet, so the page's own answer decides whether the owner
+  // value carries the provenance mark: exactly when it is set and not declared.
+  test('the owner value marks a provenance other than declared', async ({ page }) => {
+    await openPaymentsService(page);
+    await expect(page.getByTestId('service-owner')).toBeVisible();
+    const provenance = await page.evaluate(async () =>
+      ((await (await fetch('/api/fleet/entities/service?key=payments-service')).json()).service?.ownership?.provenance ?? '') as string);
+    const mark = page.getByTestId('service-owner').getByTestId('owner-provenance');
+    if (provenance && provenance !== 'declared') {
+      await expect(mark).toBeVisible();
+      await expect(mark.getByRole('button', { name: 'About owner provenance' })).toBeVisible();
+    } else {
+      await expect(mark).toHaveCount(0);
+    }
+  });
+
   test('the service page states every fact, including the missing ones', async ({ page }) => {
     await openPaymentsService(page);
 

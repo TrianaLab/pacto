@@ -145,6 +145,17 @@ func styledField(b *strings.Builder, label, value string) {
 	fmt.Fprintf(b, "  %s %s\n", dimStyle.Render(pad(label+":", 18)), value)
 }
 
+// OwnerProvenanceMark is the text suffix that says where a service's owner
+// comes from: empty for a declared or absent provenance, else
+// " (declared via target)", " (attested)" or " (inferred)". The CLI and the
+// TUI share it so the owner reads the same on both.
+func OwnerProvenanceMark(p string) string {
+	if p == "" || p == fleet.OwnerProvenanceDeclared {
+		return ""
+	}
+	return " (" + strings.ReplaceAll(p, "-", " ") + ")"
+}
+
 func section(b *strings.Builder, title string) {
 	b.WriteString("\n" + headerStyle.Render(title) + "\n")
 }
@@ -154,7 +165,7 @@ func section(b *strings.Builder, title string) {
 func renderServiceDetail(b *strings.Builder, service string, s *fleet.ServiceDetailData, c fleet.Completeness) {
 	field(b, "registry", s.Domain)
 	if s.Ownership != nil {
-		field(b, "owner", s.Ownership.Owner)
+		field(b, "owner", s.Ownership.Owner+OwnerProvenanceMark(s.Ownership.Provenance))
 	}
 	section(b, "Summary")
 	field(b, "revisions", fmt.Sprintf("%d (%d in use)", s.Summary.Revisions, s.Summary.RevisionsInUse))

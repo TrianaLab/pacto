@@ -8,7 +8,7 @@ import {
   attentionCategoryLabel, ATTENTION_CATEGORIES, GAP_WORDS,
   provenanceLabel, provenanceIsImplied,
   sourceHealthTallyParts, sourceHealthSentence,
-  collectorLabel, seenBy, splitEntryPoints, acceptsLabel, RANGE_NOT_DECLARED,
+  collectorLabel, seenBy, splitEntryPoints, acceptsLabel, RANGE_NOT_DECLARED, ownerProvenanceText,
 } from './entityLabels.ts';
 
 describe('acceptsLabel', () => {
@@ -264,5 +264,15 @@ describe('splitEntryPoints', () => {
     const { lead, secondary } = splitEntryPoints(eps);
     expect(lead.map((e) => e.category)).toEqual(['non-compliant', 'health']);
     expect(secondary.map((e) => e.category)).toEqual(['stale', 'knowledge']);
+  });
+});
+
+describe('ownerProvenanceText', () => {
+  it('says nothing for a declared or absent owner and a sentence for the rest', () => {
+    expect(ownerProvenanceText('declared')).toBe('');
+    expect(ownerProvenanceText(undefined)).toBe('');
+    expect(ownerProvenanceText('declared-via-target')).toBe('Declared by the contract a running target reports; no published revision of this service declares an owner');
+    expect(ownerProvenanceText('attested')).toBe('Read from the repository at the commit a verified CI identity signed; routes reviews, never clears a gate');
+    expect(ownerProvenanceText('inferred')).toBe('Inferred; Pacto never routes approvals or clears a gate on it');
   });
 });

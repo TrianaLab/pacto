@@ -77,6 +77,15 @@ describe('offering page', () => {
     done();
   });
 
+  it('marks a provider owner that comes from a running target', async () => {
+    const p = provider('platform-app-config', { ownership: { declared: true, owner: 'team:platform', ref: ref('owner', 'team:platform'), provenance: 'declared-via-target' } });
+    const { target, done } = await render(detail({ providers: preview([p, provider('platform-worker-config')]) }));
+    const cards = target.querySelectorAll('[data-testid="offering-provider"]');
+    expect(cards[0].querySelector('[data-testid="owner-provenance"] button')?.getAttribute('aria-label')).toBe('About owner provenance');
+    expect(cards[1].querySelector('[data-testid="owner-provenance"]')).toBeNull();
+    done();
+  });
+
   it('marks deprecated and past-sunset versions, says nothing of use it cannot see and counts the rest', async () => {
     const svc = ref('service', 'ghcr.io/acme/postgresql', 'postgresql');
     const v = (version: string, extra: Record<string, unknown> = {}) => ({ revision: ref('revision', `${svc.key}@sha256:${version}`, `postgresql ${version}`), version, ...extra });

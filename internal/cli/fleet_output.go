@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/trianalab/pacto/v4/internal/tui"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/finding"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -50,7 +51,7 @@ func printFleetService(cmd *cobra.Command, sv *fleet.ServiceView, format string)
 		w := cmd.OutOrStdout()
 		s := sv.Service
 		_, _ = fmt.Fprintf(w, "Service: %s%s\n", s.Name, nameInferredMark(s.NameInferred))
-		_, _ = fmt.Fprintf(w, "Owner: %s\n", orDash(s.Owner.DisplayString()))
+		_, _ = fmt.Fprintf(w, "Owner: %s%s\n", orDash(s.Owner.DisplayString()), tui.OwnerProvenanceMark(s.OwnerProvenance))
 		_, _ = fmt.Fprintf(w, "Status: %s\n", orDash(s.Status))
 		_, _ = fmt.Fprintf(w, "Sources: %v\n", s.Sources)
 		printRevisions(w, sv.Revisions)

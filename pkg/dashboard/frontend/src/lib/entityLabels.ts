@@ -143,6 +143,18 @@ export function knowledgeTone(level: string | undefined): Tone {
   }
 }
 
+// ownerProvenanceText is the tooltip sentence for where a service's owner comes from
+// (ServiceRecord.ownerProvenance, carried as ownership.provenance). A declared or absent
+// provenance says nothing: the plain owner value is the declaration.
+export function ownerProvenanceText(p: string | undefined): string {
+  switch (p) {
+    case 'declared-via-target': return 'Declared by the contract a running target reports; no published revision of this service declares an owner';
+    case 'attested': return 'Read from the repository at the commit a verified CI identity signed; routes reviews, never clears a gate';
+    case 'inferred': return 'Inferred; Pacto never routes approvals or clears a gate on it';
+    default: return '';
+  }
+}
+
 // ── relationship difference: see differenceLabel/differenceTone in lib/graphState.ts ──
 
 // provenanceLabel names where a relationship's knowledge came from. The wire enum

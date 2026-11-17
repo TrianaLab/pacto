@@ -278,7 +278,9 @@ func fleetGetTool() *mcpsdk.Tool {
 			"or an operational target (compliance, findings, coverage, freshness). A dependency's 'resolved' " +
 			"only says the provider exists in the fleet; its 'rangeStatus' (satisfied, unsatisfied, unknown) " +
 			"says whether the provider version satisfies the declared range. 'owner' has the same shape " +
-			"(team, dri, contacts) here and in pacto_fleet_search. Each revision's 'provenance' says whether its " +
+			"(team, dri, contacts) here and in pacto_fleet_search. A service's 'ownerProvenance' says where its owner " +
+			"comes from: declared (a revision), declared-via-target (the contract a target runs), attested or inferred; " +
+			"an inferred owner never fills 'owner'. Each revision's 'provenance' says whether its " +
 			"bundle signature verified against the signer its own contract declares (verified, unverified, " +
 			"unsigned, unknown) and lists its OCI referrers, when a registry source checked them; absent means " +
 			"no source checked. Give service as external:<identity> for an external system: its sources (each with " +
