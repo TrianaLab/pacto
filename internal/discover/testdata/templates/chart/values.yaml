@@ -1,0 +1,5 @@
+image:
+  repository: ghcr.io/acme/payments
+  tag: ""
+containerPorts:
+  http: 8443

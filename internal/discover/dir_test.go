@@ -167,8 +167,16 @@ func TestDirReadsTheWorkload(t *testing.T) {
 	}
 	w := sc.Workload
 	if w == nil || w.Name != "app" || w.Kind != "Deployment" || w.Team != "payments" || w.Image != "ghcr.io/acme/app:1.2.0" ||
-		!slices.Equal(w.Ports, []int{9901, 8080}) || *w.Probe != (Probe{Kind: "readiness", Path: "/healthz", Source: "k8s/app.yaml:16"}) {
+		*w.Probe != (Probe{Kind: "readiness", Path: "/healthz", Source: "k8s/app.yaml:16"}) {
 		t.Errorf("workload: %+v", w)
+	}
+	// Its container ports come from the line-aware manifest reader, which
+	// reads no manifest in a folder that is a chart.
+	r := readFixture(t, writeFiles(t, map[string]string{"k8s/app.yaml": appManifest}))
+	for _, port := range []string{"ports[8080]", "ports[9901]"} {
+		if f := field(t, r.Fields, port); !strings.HasPrefix(f.Source, "k8s/app.yaml:") {
+			t.Errorf("%s = %+v", port, f)
+		}
 	}
 }
 

@@ -52,7 +52,7 @@ func lineAt(t *testing.T, dir, source string) string {
 func TestCompleteFieldsAndSources(t *testing.T) {
 	rec := complete(t, completeDir, &contract.Contract{})
 	want := []string{"capabilities[health]", "configuration.API_TOKEN", "configuration.BILLING_URL", "configuration.CLIENT_SECRET", "configuration.DATABASE_URL",
-		"configuration.DB_PASSWORD", "configuration.PORT", "dependencies[billing]", "dependencies[db]", "interfaces[api]", "service.owner", "workload"}
+		"configuration.DB_PASSWORD", "configuration.PORT", "dependencies[billing]", "dependencies[db]", "image", "interfaces[api]", "service.owner", "workload"}
 	if got := fieldNames(rec); !slices.Equal(got, want) {
 		t.Fatalf("fields = %q, want %q", got, want)
 	}
@@ -66,6 +66,7 @@ func TestCompleteFieldsAndSources(t *testing.T) {
 		"configuration.PORT":          "name: PORT",
 		"dependencies[billing]":       "name: BILLING_URL",
 		"dependencies[db]":            "name: DATABASE_URL",
+		"image":                       "image: ghcr.io/acme/app:1.0.0",
 		"interfaces[api]":             "openapi: 3.1.0",
 		"service.owner":               "team: payments",
 		"workload":                    "kind: Deployment",
@@ -73,7 +74,8 @@ func TestCompleteFieldsAndSources(t *testing.T) {
 	values := map[string]string{"configuration.DB_PASSWORD": "string, writeOnly", "configuration.PORT": "integer", "dependencies[db]": "db",
 		"capabilities[health]": "GET /healthz (readinessProbe)", "service.owner": "payments", "workload": "service (Deployment app)"}
 	for _, f := range rec.Fields {
-		if f.Confidence != contract.ConfidenceLikely || f.Declare == "" {
+		// An image has no declaring snippet: a person accepts it (508-S7).
+		if f.Confidence != contract.ConfidenceLikely || (f.Declare == "") != (f.Field == "image") {
 			t.Errorf("%s: confidence %q, declare %q", f.Field, f.Confidence, f.Declare)
 		}
 		if got := lineAt(t, completeDir, f.Source); !strings.Contains(got, lines[f.Field]) {
@@ -95,7 +97,7 @@ func TestCompleteNeverTouchesDeclared(t *testing.T) {
 		Service:        contract.Service{Owner: contract.Owner{Team: "payments"}},
 	}
 	got := fieldNames(complete(t, completeDir, declared))
-	want := []string{"configuration.BILLING_URL", "configuration.CLIENT_SECRET", "configuration.DATABASE_URL"}
+	want := []string{"configuration.BILLING_URL", "configuration.CLIENT_SECRET", "configuration.DATABASE_URL", "image"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("fields = %q, want %q", got, want)
 	}

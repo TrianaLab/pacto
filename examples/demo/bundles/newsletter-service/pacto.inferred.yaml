@@ -43,6 +43,10 @@ fields:
             ref: <where the contract of notification-worker is published>
             required: true
             compatibility: unknown   # declare the versions of notification-worker this service accepts
+    - field: image
+      value: ghcr.io/trianalab/newsletter-service:0.1.0
+      source: deploy/deployment.yaml:19
+      confidence: likely
     - field: service.owner
       value: growth
       source: deploy/deployment.yaml:6

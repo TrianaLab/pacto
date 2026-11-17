@@ -41,14 +41,14 @@ func TestInitCompletesExistingContract(t *testing.T) {
 		fields = append(fields, f.Field)
 	}
 	want := []string{"capabilities[health]", "configuration.API_TOKEN", "configuration.BILLING_URL", "configuration.CLIENT_SECRET", "configuration.DATABASE_URL",
-		"configuration.DB_PASSWORD", "configuration.PORT", "dependencies[billing]", "dependencies[db]", "service.owner", "workload"}
+		"configuration.DB_PASSWORD", "configuration.PORT", "dependencies[billing]", "dependencies[db]", "image", "service.owner", "workload"}
 	if !slices.Equal(fields, want) {
 		t.Fatalf("fields = %q, want %q", fields, want)
 	}
 	if slices.ContainsFunc(r.Files, func(f File) bool { return f.Path == contract.InferredRecordFile }) {
 		t.Fatalf("the folder never gets the record: %+v", r.Files)
 	}
-	if !hasLine(r.Found, "pacto.yaml declares 1 of the values Pacto reads in this folder's manifests and specs; Pacto completed 11 in pacto.inferred.yaml, published with the bundle") {
+	if !hasLine(r.Found, "pacto.yaml declares 1 of the values Pacto reads in this folder's manifests and specs; Pacto completed 12 in pacto.inferred.yaml, published with the bundle") {
 		t.Fatalf("found: %q", r.Found)
 	}
 	if hasLine(r.Unknown, "pacto.yaml") {

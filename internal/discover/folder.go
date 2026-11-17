@@ -66,11 +66,13 @@ type entry struct {
 
 // Ranks: the folder scan Complete runs (the workload probe, the team label)
 // first, then each Dockerfile in dockerRank order, then a chart's values.yaml
-// and its values-<env>.yaml files.
+// and its values-<env>.yaml files, then its templates, then plain manifests.
 const (
 	rankScan       = 0
 	rankDockerfile = 1 << 20
 	rankChart      = 2 << 20
+	rankTemplate   = 3 << 20
+	rankManifest   = 4 << 20
 )
 
 // reader collects what one Read finds.
@@ -82,6 +84,7 @@ type reader struct {
 	specs       map[string][]spec     // by kind
 	chartFiles  map[string]*yaml.Node // the root of each Chart.yaml, Chart.lock and values file, by path
 	chartDeps   []contract.InferredChartDependency
+	templates   []string // the chart templates, read once the charts are known
 }
 
 // Read walks the folder once, regular files only, and hands each file to the
@@ -141,13 +144,8 @@ func (r *reader) file(p, name string) {
 		if data := r.read(p); data != nil {
 			r.keepChartFile(p, name, r.yamlDocs(p, data))
 		}
-	case (strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml")) && !r.inChartTemplates(p):
-		if data := r.read(p); data != nil {
-			if docs := r.yamlDocs(p, data); docs != nil {
-				r.keepChartFile(p, name, docs)
-				r.spec(p, data)
-			}
-		}
+	case strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml"):
+		r.yamlFile(p, name)
 	case strings.HasSuffix(name, ".json") || strings.HasSuffix(name, ".proto"):
 		if data := r.read(p); data != nil {
 			r.spec(p, data)
@@ -157,19 +155,40 @@ func (r *reader) file(p, name string) {
 	}
 }
 
-// inChartTemplates reports whether p sits in a Helm chart's templates, which
-// are not YAML until rendered.
-func (r *reader) inChartTemplates(p string) bool {
-	segs := strings.Split(p, "/")
-	for i, s := range segs[:len(segs)-1] {
-		if s != "templates" {
-			continue
-		}
-		if _, err := fs.Stat(r.in.Folder, path.Join(append(slices.Clone(segs[:i]), "Chart.yaml")...)); err == nil {
-			return true
+// yamlFile reads the YAML file p, named name: a chart's template is kept for
+// the template scan, since it is not YAML until rendered; any other file is
+// parsed for the Helm reader and the spec reader, and, outside a chart, for
+// the workloads it holds.
+func (r *reader) yamlFile(p, name string) {
+	chart, inChart := r.chartOf(p)
+	if inChart && strings.HasPrefix(p, path.Join(chart, "templates")+"/") {
+		r.templates = append(r.templates, p)
+		return
+	}
+	data := r.read(p)
+	if data == nil {
+		return
+	}
+	if docs := r.yamlDocs(p, data); docs != nil {
+		r.keepChartFile(p, name, docs)
+		r.spec(p, data)
+		if !inChart {
+			r.manifests(p, docs)
 		}
 	}
-	return false
+}
+
+// chartOf is the closest folder at or above p's that holds a Chart.yaml,
+// ok false when there is none.
+func (r *reader) chartOf(p string) (dir string, ok bool) {
+	for dir = path.Dir(p); ; dir = path.Dir(dir) {
+		if _, err := fs.Stat(r.in.Folder, path.Join(dir, "Chart.yaml")); err == nil {
+			return dir, true
+		}
+		if dir == "." {
+			return "", false
+		}
+	}
 }
 
 // read is the bytes of the regular file p, or nil and a finding.

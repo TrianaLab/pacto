@@ -1,0 +1,12 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+spec:
+  template:
+    spec:
+      containers:
+        - name: worker
+          image: {{ .Values.worker.image | default "s3cr3t-values" }}
+          ports:
+            - containerPort: {{ template "payments.port" . }}

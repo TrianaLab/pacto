@@ -40,6 +40,12 @@ func unresolvedPortMessage(source string) string {
 	return "EXPOSE at " + source + " names a port through a variable or a range, so it is not read"
 }
 
+// unresolvedTemplateMessage says the template line at source sets a value
+// through an expression Pacto does not resolve.
+func unresolvedTemplateMessage(source string) string {
+	return source + " sets a value through a template expression Pacto does not resolve without rendering the chart, so what it sets there is not read"
+}
+
 // truncatedMessage says discovery stopped after read files with left not read.
 func truncatedMessage(read, left int) string {
 	return fmt.Sprintf("discovery stopped after %d files; %d files were not read, so results are partial", read, left)

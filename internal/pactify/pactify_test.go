@@ -1427,3 +1427,21 @@ func TestPactifyFindsSpecAtAnyPath(t *testing.T) {
 		t.Fatalf("pacto.yaml:\n%s\nfound: %q", text, r.Found)
 	}
 }
+
+// TestPactifyPortUnknownFromDiscovery: the ports pacto init names when no
+// OpenAPI file describes them are the ones discovery found, from a
+// Dockerfile and the manifests alike, in numeric order.
+func TestPactifyPortUnknownFromDiscovery(t *testing.T) {
+	dir := writeTree(t, filepath.Join(t.TempDir(), "svc"), map[string]string{
+		"Dockerfile": "FROM alpine:3\nEXPOSE 10000\n",
+		"deploy.yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: svc}\n" +
+			"spec: {template: {spec: {containers: [{name: svc, image: ghcr.io/acme/svc:1.0.0, ports: [{containerPort: 9090}, {containerPort: 10000}]}]}}}\n",
+	})
+	r, err := Init(context.Background(), Options{Dir: dir, Plan: true}, os.WriteFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(r.Unknown, "interfaces: svc listens on port 9090, 10000, but no OpenAPI file describes it") {
+		t.Fatalf("unknown: %q", r.Unknown)
+	}
+}

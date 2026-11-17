@@ -42,6 +42,7 @@ func (r *reader) charts() {
 		}
 		r.chartDependencies(dir)
 		r.chartValues(dir)
+		r.chartTemplates(dir)
 	}
 }
 
@@ -101,7 +102,7 @@ func (r *reader) valuesImage(p string, values *yaml.Node) {
 		}
 	}
 	if value != "" {
-		r.addChart(p, at.Line, rankChart, "image", value, "")
+		r.addAt(p, at.Line, rankChart, "image", value, "")
 	}
 }
 
@@ -110,16 +111,16 @@ func (r *reader) valuesImage(p string, values *yaml.Node) {
 func (r *reader) valuesPorts(p string, values *yaml.Node) {
 	svc := contract.MapValue(values, "service")
 	for _, n := range []*yaml.Node{contract.MapValue(svc, "port"), contract.MapValue(svc, "targetPort"), contract.MapValue(values, "containerPort")} {
-		r.valuesPort(p, n, "")
+		r.port(p, rankChart, n, "")
 	}
 	for _, it := range items(contract.MapValue(values, "ports")) {
-		r.valuesPort(p, contract.MapValue(it, "containerPort"), scalar(contract.MapValue(it, "protocol")))
+		r.port(p, rankChart, contract.MapValue(it, "containerPort"), scalar(contract.MapValue(it, "protocol")))
 	}
 }
 
-// valuesPort is the port n sets over proto (tcp when empty), when n is a
-// number; a named port is not read.
-func (r *reader) valuesPort(p string, n *yaml.Node, proto string) {
+// port is the port n in the file p sets over proto (tcp when empty), when n
+// is a number; a named port is not read.
+func (r *reader) port(p string, rank int, n *yaml.Node, proto string) {
 	if n == nil || n.Tag != "!!int" {
 		return
 	}
@@ -127,7 +128,7 @@ func (r *reader) valuesPort(p string, n *yaml.Node, proto string) {
 		proto = "/" + proto
 	}
 	if port, proto, ok := exposedPort(n.Value + proto); ok {
-		r.addChart(p, n.Line, rankChart, fmt.Sprintf("ports[%d]", port), fmt.Sprintf("%d/%s", port, proto), "")
+		r.addAt(p, n.Line, rank, fmt.Sprintf("ports[%d]", port), fmt.Sprintf("%d/%s", port, proto), "")
 	}
 }
 
@@ -147,14 +148,20 @@ func (r *reader) valuesEnv(p string, rank int, values *yaml.Node) {
 		}
 		for _, name := range names {
 			if k := scalar(name); k != "" {
-				value, declare := configField(EnvVar{File: p, Name: k})
-				r.addChart(p, name.Line, rank, "configuration."+k, value, declare)
+				r.addKey(p, name.Line, rank, k)
 			}
 		}
 	}
 }
 
-func (r *reader) addChart(p string, line, rank int, field, value, declare string) {
+// addKey adds the configuration key k, set at line of the file p: its type,
+// never its value.
+func (r *reader) addKey(p string, line, rank int, k string) {
+	value, declare := configField(EnvVar{File: p, Name: k})
+	r.addAt(p, line, rank, "configuration."+k, value, declare)
+}
+
+func (r *reader) addAt(p string, line, rank int, field, value, declare string) {
 	r.add(entry{Inferred: contract.Inferred{Field: field, Value: value, Source: fmt.Sprintf("%s:%d", p, line), Confidence: contract.ConfidenceLikely, Declare: declare}, rank: rank, file: p})
 }
 

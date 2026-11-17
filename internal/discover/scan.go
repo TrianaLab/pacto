@@ -53,7 +53,6 @@ type Workload struct {
 	// KindSource and TeamSource are the "<path>:<line>" of its kind and of
 	// its team label.
 	KindSource, TeamSource string
-	Ports                  []int
 	Env                    []EnvVar
 	// Probe is the main container's first readiness, liveness or startup
 	// probe, nil when it has none.
@@ -279,12 +278,6 @@ func readWorkload(rel, kind, name string, doc map[string]any, src func(needle st
 		if i == main {
 			w.Image, _ = Dig(c, "image").(string)
 			w.Probe = readProbe(c, src)
-		}
-		ports, _ := Dig(c, "ports").([]any)
-		for _, port := range ports {
-			if n, ok := Dig(port, "containerPort").(int); ok {
-				w.Ports = append(w.Ports, n)
-			}
 		}
 		// envFrom first: an env entry of the same name wins, as in Kubernetes.
 		envFrom, _ := Dig(c, "envFrom").([]any)

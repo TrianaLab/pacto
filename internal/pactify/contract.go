@@ -133,6 +133,7 @@ func (p *planner) contract(ctx context.Context) error {
 		return err
 	}
 	p.openapi = discover.OpenAPIRef(reading.Fields)
+	p.ports = discoveredPorts(reading.Fields)
 	text := p.pactified()
 	files := p.environmentFiles()
 	if p.openapi != "" {
@@ -441,8 +442,8 @@ func (p *planner) pactified() string {
 	case p.openapi != "":
 		b.WriteString(discover.InterfaceYAML("api", "openapi", p.openapi))
 		p.found("API description %s", p.openapi)
-	case len(w.Ports) > 0:
-		p.unknown("interfaces: %s listens on port %s, but no OpenAPI file describes it", name, joinInts(w.Ports))
+	case len(p.ports) > 0:
+		p.unknown("interfaces: %s listens on port %s, but no OpenAPI file describes it", name, joinInts(p.ports))
 	default:
 		p.unknown("interfaces: nothing describes what %s serves", name)
 	}
@@ -990,6 +991,20 @@ func nonEmpty(s string) []string {
 		return nil
 	}
 	return []string{s}
+}
+
+// discoveredPorts are the container ports among the discovered fields, in
+// numeric order.
+func discoveredPorts(fields []contract.Inferred) []int {
+	var out []int
+	for _, f := range fields {
+		if n, ok := strings.CutPrefix(f.Field, "ports["); ok {
+			port, _ := strconv.Atoi(strings.TrimSuffix(n, "]")) // ponytail: discovery writes ports[<n>] only for a number
+			out = append(out, port)
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 func joinInts(ns []int) string {
