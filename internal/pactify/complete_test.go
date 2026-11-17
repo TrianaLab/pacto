@@ -59,6 +59,26 @@ func TestInitCompletesExistingContract(t *testing.T) {
 	}
 }
 
+// A contract that names no service completes under the name pacto init
+// reports (the workload's, app), never the folder's, so a folder named after
+// a host the service calls still lists that host in both places.
+func TestInitCompletionSelfIsReportedService(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "billing")
+	if err := os.CopyFS(dir, os.DirFS("../discover/testdata/complete")); err != nil {
+		t.Fatal(err)
+	}
+	writeTree(t, dir, map[string]string{"pacto.yaml": "pactoVersion: \"2.5\"\n"})
+	r, err := Init(context.Background(), Options{Dir: dir, Plan: true}, os.WriteFile)
+	if err != nil || r.Service != "app" || r.Inferred == nil {
+		t.Fatalf("plan: %+v %v", r, err)
+	}
+	inRecord := slices.ContainsFunc(r.Inferred.Fields, func(f contract.Inferred) bool { return f.Field == "dependencies[billing]" })
+	inResult := slices.ContainsFunc(r.Dependencies, func(f Finding) bool { return f.Name == "billing" })
+	if !inRecord || !inResult {
+		t.Fatalf("record %v, dependencies %v: %+v", inRecord, inResult, r.Dependencies)
+	}
+}
+
 // A folder whose contract declares everything it shows completes to nothing.
 func TestInitCompletesNothingWhenAllDeclared(t *testing.T) {
 	dir := writeTree(t, t.TempDir(), map[string]string{"pacto.yaml": "service: {name: p, version: 1.0.0}\n"})
@@ -93,8 +113,15 @@ func TestInitOlderContractNotCompleted(t *testing.T) {
 
 func TestInitClusterNeverCompletes(t *testing.T) {
 	dir := completeFixture(t, "pactoVersion: \"2.5\"\n"+completeContract)
-	r, err := Init(context.Background(), Options{Dir: dir, Plan: true, Inferred: []Inferred{{Name: "ledger", Where: "calls seen"}}}, os.WriteFile)
-	if err != nil || r.Inferred != nil || r.Mode == modeComplete || !hasLine(r.Next, "run pacto init "+dir+" without --cluster to complete it") {
-		t.Fatalf("plan: %+v %v", r, err)
+	// A cluster draft that saw no calls has no Inferred, so the cluster flag
+	// alone has to keep it from completing.
+	for name, opts := range map[string]Options{
+		"calls seen":    {Dir: dir, Plan: true, Inferred: []Inferred{{Name: "ledger", Where: "calls seen"}}},
+		"no calls seen": {Dir: dir, Plan: true, cluster: true},
+	} {
+		r, err := Init(context.Background(), opts, os.WriteFile)
+		if err != nil || r.Inferred != nil || r.Mode == modeComplete || !hasLine(r.Next, "run pacto init "+dir+" without --cluster to complete it") {
+			t.Fatalf("%s: %+v %v", name, r, err)
+		}
 	}
 }

@@ -310,7 +310,11 @@ func (p *planner) complete(c *contract.Contract) error {
 		return nil
 	}
 	in := contract.InferredInputs{Commit: p.opts.Commit, Pacto: p.opts.PactoVersion}
-	rec, err := discover.Complete(p.r.Dir, c, in)
+	// Complete leaves out the service itself under the name this run reports,
+	// so the record and Result.Dependencies agree when pacto.yaml names none.
+	named := *c
+	named.Service.Name = p.r.Service
+	rec, err := discover.Complete(p.r.Dir, &named, in)
 	if err != nil {
 		return fmt.Errorf("completing pacto.yaml: %w", err)
 	}
@@ -321,7 +325,7 @@ func (p *planner) complete(c *contract.Contract) error {
 	}
 	shown := len(rec.Fields)
 	// ponytail: the same files were read a moment ago; a second read that fails counts none as declared.
-	if all, _ := discover.Complete(p.r.Dir, &contract.Contract{Service: contract.Service{Name: c.Service.Name}}, in); all != nil {
+	if all, _ := discover.Complete(p.r.Dir, &contract.Contract{Service: contract.Service{Name: p.r.Service}}, in); all != nil {
 		shown = len(all.Fields)
 	}
 	p.found("pacto.yaml declares %d of the values this folder shows; Pacto completed %d in %s, published with the bundle", shown-len(rec.Fields), len(rec.Fields), contract.InferredRecordFile)
