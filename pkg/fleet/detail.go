@@ -410,6 +410,10 @@ type ServiceDetailData struct {
 	// Creation is the creation checklist derived for a service with an origin:
 	// each step is done only on evidence the fleet holds.
 	Creation []CreationStep `json:"creation,omitempty"`
+	// Workload, Calls and CallsObserved are set on an inferred service only.
+	Workload      *InferredWorkload `json:"workload,omitempty"`
+	Calls         RefPreview        `json:"calls" doc:"The declared services this inferred service was seen calling (observed, from uncontracted callers)"`
+	CallsObserved bool              `json:"callsObserved" doc:"True when an available source that reports observed calls covers this service's cluster; an empty calls list then means none were seen"`
 }
 
 // TemplateDetail is what a golden path offers to a person creating a service
@@ -1247,6 +1251,9 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 		return nil, err
 	}
 	s := view.Service
+	if s.Inferred() {
+		return q.inferredServiceDetail(s), nil
+	}
 	summary, inUse := q.serviceSummary(view)
 	var active []*ContractRevision
 	for _, r := range view.Revisions {
@@ -1301,6 +1308,7 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 		Template:           q.templateDetail(s),
 		Origin:             q.originDetail(s),
 		Creation:           q.creationChecklist(s, view, consumed),
+		Calls:              refPreview(nil),
 	}
 	return &EntityDetail{
 		Meta: q.productMetaWith(conflicts), Entity: self, Status: s.Status,
@@ -1454,7 +1462,7 @@ func (q *Query) ownerDetail(key string) (*EntityDetail, error) {
 		}
 	}
 	for sk, s := range q.snap.Services {
-		if !claimed[sk] {
+		if !claimed[sk] || s.Inferred() {
 			continue
 		}
 		if claims := q.ownerClaimsOf(s); !containsStr(claims.keys, key) {
@@ -1504,7 +1512,7 @@ func (q *Query) domainDetail(key string) (*EntityDetail, error) {
 	owners := map[string]bool{}
 	paths := 0
 	for _, s := range q.snap.Services {
-		if key == "" || s.BusinessDomain != key {
+		if key == "" || s.BusinessDomain != key || s.Inferred() {
 			continue
 		}
 		// A golden path is no part of the estate; it only keeps the page.
@@ -1563,7 +1571,7 @@ func (q *Query) offeringDetail(key string) (*EntityDetail, error) {
 	var providers []EntityRef
 	var records []*ServiceRecord
 	for _, s := range q.snap.Services {
-		if key != "" && s.Offering == key {
+		if key != "" && s.Offering == key && !s.Inferred() {
 			providers, records = append(providers, serviceEntityRef(s)), append(records, s)
 		}
 	}

@@ -59,6 +59,7 @@ func foldExternals(s *FleetSnapshot) (*FleetSnapshot, map[ExternalKey]*ExternalR
 		Message: fmt.Sprintf("%d external systems are folded into other egress; raise MaxExternalNodes if a real fleet hits it", other.Folded)})
 	sortSnapshotLimitations(&out)
 	out.Completeness = CompletenessPartial
+	out.workloadOnlyPartial = false
 	return &out, view, folded
 }
 

@@ -59,7 +59,7 @@ func reviewFleet(t *testing.T) *fleet.Query {
 
 func TestClusterReviewLocalUsesLocal(t *testing.T) {
 	r := &reviewRecorder{}
-	ok, err := clusterReview(&rest.Config{}, r.client(), reviewLocal)(context.Background(), authn.Anonymous, "payments")
+	ok, err := clusterReview(&rest.Config{}, r.client(), reviewLocal)(context.Background(), authn.Anonymous, "payments", authn.PactoResource)
 	if err != nil || !ok || !slices.Equal(r.asked, []string{"localsubjectaccessreviews/payments"}) {
 		t.Errorf("local review: %v %v, asked %v", ok, err, r.asked)
 	}

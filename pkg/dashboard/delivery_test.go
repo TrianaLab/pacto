@@ -1527,7 +1527,7 @@ func TestLabelsRevisionsRestricted(t *testing.T) {
 	auth := (&authed{state: AuthState{SignedIn: true}}).auth(false, true)
 	hide := func(hidden ...string) func(context.Context, *fleet.Query) (*fleet.Query, error) {
 		return func(_ context.Context, q *fleet.Query) (*fleet.Query, error) {
-			return q.Restrict(func(ns string) bool { return !slices.Contains(hidden, ns) }), nil
+			return q.Restrict(func(ns string) bool { return !slices.Contains(hidden, ns) }, nil), nil
 		}
 	}
 	for name, o := range map[string]Options{

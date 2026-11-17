@@ -122,6 +122,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	seenSourceIDs := map[string]bool{}
 	var observed []observedInput
 	var uses []sourcedUse
+	var inferred []inferredInput
 	undeclaredOnly := map[string]bool{}
 	// Sources are processed in declared order so composition is deterministic
 	// regardless of goroutine completion order.
@@ -146,7 +147,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 			})
 			continue
 		}
-		ingestCollection(snap, src, r.col, generatedAt, opts.FreshnessWindow, clusters, i)
+		inferred = append(inferred, ingestCollection(snap, src, r.col, generatedAt, opts.FreshnessWindow, clusters, i)...)
 		if r.col != nil {
 			undeclaredOnly[src.ID()] = r.col.ObservedUndeclaredOnly
 			observed = append(observed, observedEdgesOf(src.ID(), r.col, clusters)...)
@@ -162,6 +163,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	linkTargets(snap)
 	revalidateConfigRefs(snap)
 	aggregateServices(snap)
+	addInferredServices(snap, inferred)
 	resolveOrigins(snap)
 	cat := opts.ExternalCatalog
 	if cat == nil {
@@ -178,6 +180,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	matchProvisioning(snap)
 	matchUsage(snap)
 	snap.Completeness = classifyCompleteness(snap)
+	snap.workloadOnlyPartial = snap.Completeness == CompletenessPartial && completenessExcept(snap, SourceKindKubernetesWorkloads) != CompletenessPartial
 	snap.Limitations = append(snap.Limitations, degradedLimitations(snap)...)
 	if opts.DiscloseUncheckedFreshness && opts.FreshnessWindow == 0 && len(snap.Targets) > 0 {
 		snap.Limitations = append(snap.Limitations, Limitation{
@@ -383,7 +386,8 @@ func collectAll(ctx context.Context, opts BuildOptions, sources []Source) ([]sou
 
 // ingestCollection projects one successful source's records into the snapshot.
 // clusters is the snapshot's cluster index and i the source's position in it.
-func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time.Time, window time.Duration, clusters clusterIndex, i int) {
+// It returns the source's inferred services, bounded, for addInferredServices.
+func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time.Time, window time.Duration, clusters clusterIndex, i int) []inferredInput {
 	if col == nil {
 		col = &Collection{}
 	}
@@ -439,6 +443,8 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 	}
 	recordProblems = append(recordProblems, ingestProvisioning(snap, src, col.Provisioning, now)...)
 	recordProblems = append(recordProblems, ingestUsage(snap, src, col.Usage, now)...)
+	kept, capped := boundInferred(col, src.ID())
+	recordProblems = append(recordProblems, capped...)
 	// A source that reported record-level problems is partial: keep its usable
 	// records AND surface the problems. Canonicalization limitations (invalid finite
 	// values normalized at ingestion) are recorded on the target AND at the snapshot
@@ -448,6 +454,15 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 	st, stateLims := sourceStateFor(src, col, now, revCount, targetCount, len(recordProblems) > 0)
 	snap.Limitations = append(snap.Limitations, stateLims...)
 	snap.Sources = append(snap.Sources, st)
+	cluster := ""
+	if cl, ok := clusters.resolved[rawClusterID(col, RawTarget{})]; ok {
+		cluster = cl.ID
+	}
+	out := make([]inferredInput, len(kept))
+	for j, raw := range kept {
+		out[j] = inferredInput{source: src.ID(), cluster: cluster, raw: raw}
+	}
+	return out
 }
 
 // clusterIndex is what Build knows about the clusters of one snapshot, computed
@@ -636,7 +651,9 @@ func sourceClusters(col *Collection) []Cluster {
 // claimClusterName records src's claim on the name of c when it is valid and
 // outranks the claim already held.
 func claimClusterName(claims map[string]*clusterNameClaim, src Source, c Cluster) {
-	live, maxLen := src.Kind() == SourceKindKubernetes, 63
+	// Both Kubernetes sources read the cluster with this process's own
+	// credentials, so neither name is merely reported.
+	live, maxLen := src.Kind() == SourceKindKubernetes || src.Kind() == SourceKindKubernetesWorkloads, 63
 	if live {
 		maxLen = maxLiveClusterNameLen
 	}
@@ -1668,6 +1685,9 @@ func targetFrom(raw RawTarget, source string, now time.Time, window time.Duratio
 	if tc.invalid {
 		t.clusterInvalidFrom = []string{source}
 	}
+	if raw.Workload != nil {
+		t.workload = &WorkloadRef{Kind: raw.Workload.Kind, Name: raw.Workload.Name}
+	}
 	t.reportedDomains, t.domainKnown = reportedDomainsFrom(raw)
 	t.reportedOfferings, t.reportedSummaries = reportedValue(raw.Offering, validBusinessDomain), reportedValue(raw.Summary, validSummary)
 	var recordInvalid []Limitation
@@ -1963,6 +1983,7 @@ func aggregateServices(snap *FleetSnapshot) {
 	}
 	placed := targetPlacementKnown(snap)
 	for _, s := range snap.Services {
+		s.Declaration = DeclarationDeclared
 		s.Status = serviceStatus(snap, s)
 		s.NameInferred = nameInferred(snap, s)
 		snap.Limitations = append(snap.Limitations, deriveOwner(snap, s)...)
@@ -2509,6 +2530,7 @@ type callerKey struct {
 	caller    string
 	to        ServiceKey
 	ambiguous bool
+	entity    ServiceKey
 }
 
 // setUncontractedCallers lists the callers with no contract, sorted by the
@@ -2516,7 +2538,7 @@ type callerKey struct {
 func setUncontractedCallers(snap *FleetSnapshot, uncontracted map[callerKey]map[string]bool) {
 	for k, sources := range uncontracted {
 		snap.UncontractedCallers = append(snap.UncontractedCallers, UncontractedCaller{
-			Caller: k.caller, ToService: k.to, Sources: slices.Sorted(maps.Keys(sources)), Ambiguous: k.ambiguous,
+			Caller: k.caller, ToService: k.to, Sources: slices.Sorted(maps.Keys(sources)), Ambiguous: k.ambiguous, Entity: k.entity,
 		})
 	}
 	sort.Slice(snap.UncontractedCallers, func(i, j int) bool {
@@ -2573,6 +2595,7 @@ func foldObservedRelationships(snap *FleetSnapshot, observed []observedInput) {
 	if len(observed) == 0 {
 		return
 	}
+	snap.observingSources = observingSourcesOf(observed)
 	resolve := snap.ObservedNameResolver()
 	seenLim := map[string]bool{}
 	edges := map[observedEdgeKey]*observedEdgeAgg{}
@@ -2601,8 +2624,12 @@ func foldObservedRelationships(snap *FleetSnapshot, observed []observedInput) {
 		addObservedLimitation(snap, seenLim, oi.edge.To, toRes, oi.source)
 		if toRes == ObservedResolved && fromRes != ObservedResolved {
 			// A caller with no contract of a service with one is kept, not dropped:
-			// it is exactly the consumer a breaking change cannot rule out.
-			k := callerKey{oi.edge.From, toKey, fromRes == ObservedAmbiguous}
+			// it is exactly the consumer a breaking change cannot rule out. An
+			// inferred caller stays one, linked to its inferred service.
+			k := callerKey{caller: oi.edge.From, to: toKey, ambiguous: fromRes == ObservedAmbiguous}
+			if fromRes == ObservedInferred {
+				k.entity = fromKey
+			}
 			if uncontracted[k] == nil {
 				uncontracted[k] = map[string]bool{}
 			}
@@ -2731,7 +2758,9 @@ func mergeWindowP(dstFirst, dstLast **time.Time, first, last *time.Time) {
 func addObservedLimitation(snap *FleetSnapshot, seen map[string]bool, name string, res ObservedResolution, source string) {
 	reason := ""
 	switch res {
-	case ObservedUnknown:
+	case ObservedUnknown, ObservedInferred:
+		// An inferred endpoint keeps the unknown behaviour until edges
+		// between inferred services exist.
 		reason = "unknown"
 	case ObservedAmbiguous:
 		reason = "ambiguous across domains"
@@ -3272,11 +3301,13 @@ func lookupServiceInDomain(snap *FleetSnapshot, domain, name string) ServiceKey 
 	if name == "" {
 		return ""
 	}
-	if s := snap.Services[NewServiceKeyDomain(domain, name)]; s != nil {
+	// An inferred service is never a dependency provider: a dependency named
+	// like a workload stays unresolved.
+	if s := snap.Services[NewServiceKeyDomain(domain, name)]; s != nil && !s.Inferred() {
 		return s.Key
 	}
 	if stripped := strings.TrimSuffix(name, "-pacto"); stripped != name {
-		if s := snap.Services[NewServiceKeyDomain(domain, stripped)]; s != nil {
+		if s := snap.Services[NewServiceKeyDomain(domain, stripped)]; s != nil && !s.Inferred() {
 			return s.Key
 		}
 	}
@@ -3285,8 +3316,25 @@ func lookupServiceInDomain(snap *FleetSnapshot, domain, name string) ServiceKey 
 
 // classifyCompleteness derives snapshot completeness from source health.
 func classifyCompleteness(snap *FleetSnapshot) Completeness {
+	return completenessExcept(snap, "")
+}
+
+// ConsumerCompleteness is the completeness of what can name a consumer, for
+// impact and gate answers. A workload source reports only inferred services,
+// which are never consumers, so its health never makes such an answer
+// partial; its SOURCE_* limitations still say what it could not read. A
+// view partial for any other reason stays partial.
+func (s *FleetSnapshot) ConsumerCompleteness() Completeness {
+	if s.Completeness != CompletenessPartial || !s.workloadOnlyPartial {
+		return s.Completeness
+	}
+	return completenessExcept(s, SourceKindKubernetesWorkloads)
+}
+
+// completenessExcept is classifyCompleteness ignoring the sources of kind skip.
+func completenessExcept(snap *FleetSnapshot, skip string) Completeness {
 	for _, st := range snap.Sources {
-		if st.Status != SourceAvailable {
+		if st.Status != SourceAvailable && (skip == "" || st.Kind != skip) {
 			return CompletenessPartial
 		}
 	}

@@ -24,7 +24,7 @@ Present in every cluster-wide install, including one with every managed componen
 | `"" (core)` | `namespaces` | `get` | *not name-restricted* |
 | `"" (core)` | `pods` | `get`, `list`, `watch` | *not name-restricted* |
 | `"" (core)` | `services` | `get`, `list`, `watch` | *not name-restricted* |
-| `apps` | `deployments`, `replicasets`, `statefulsets` | `get`, `list`, `watch` | *not name-restricted* |
+| `apps` | `deployments`, `replicasets`, `statefulsets`, `daemonsets` | `get`, `list`, `watch` | *not name-restricted* |
 | `batch` | `cronjobs`, `jobs` | `get`, `list`, `watch` | *not name-restricted* |
 | `discovery.k8s.io` | `endpointslices` | `get`, `list`, `watch` | *not name-restricted* |
 | `gateway.networking.k8s.io` | `httproutes` | `get`, `list`, `watch` | *not name-restricted* |
@@ -113,7 +113,9 @@ Rendered with `--set 'controller.watchNamespaces={payments,ledger}'`. The chart 
 | API groups | Resources | Verbs | Limited to |
 | --- | --- | --- | --- |
 | `"" (core)` | `services` | `get`, `list`, `watch` | *not name-restricted* |
+| `apps` | `deployments`, `statefulsets`, `daemonsets` | `list` | *not name-restricted* |
 | `authorization.k8s.io` | `localsubjectaccessreviews` | `create` | *not name-restricted* |
+| `batch` | `cronjobs` | `list` | *not name-restricted* |
 | `pacto.trianalab.io` | `pactos`, `pactorevisions` | `get`, `list`, `watch` | *not name-restricted* |
 
 `pacto-operator-watch` (`Role` in each watched namespace):

@@ -41,6 +41,8 @@ compliance evidence that a source carries.
   join as `inferred` edges to external systems. A Pacto whose status predates
   them, reports incomplete coverage or is stale adds `EXTERNALS_UNREPORTED` to
   its target, and the external answers that consume it read `partial`.
+- **Kubernetes workloads** (`--k8s`): workloads no Pacto resource targets join
+  as [inferred services](operational-graph-inferred.md), `declaration: inferred`.
 - **Ingested external evidence** (`--evidence-url <url>`): a running [Evidence
   Server](evidence.md)'s read-only contribution over HTTP, exposing a
   remote environment's signed `EvidenceSet` reports as operational targets.

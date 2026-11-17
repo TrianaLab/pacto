@@ -145,7 +145,7 @@ func (q *Query) OfferingVersions(offering, provider, rng string) (*OfferingVersi
 	}
 	var providers []*ServiceRecord
 	for _, s := range q.snap.Services {
-		if offering != "" && s.Offering == offering {
+		if offering != "" && s.Offering == offering && !s.Inferred() {
 			providers = append(providers, s)
 		}
 	}

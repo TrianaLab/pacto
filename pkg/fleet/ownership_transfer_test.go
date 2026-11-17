@@ -170,7 +170,7 @@ func TestRestrictedOwnerTransfer(t *testing.T) {
 	if len(ownerConflictMessages(q)) != 1 {
 		t.Fatalf("full view conflicts = %v", ownerConflictMessages(q))
 	}
-	r := q.Restrict(func(ns string) bool { return ns != "secret" })
+	r := q.Restrict(func(ns string) bool { return ns != "secret" }, nil)
 	if m := ownerConflictMessages(r); len(m) != 0 {
 		t.Errorf("restricted view conflicts = %v", m)
 	}

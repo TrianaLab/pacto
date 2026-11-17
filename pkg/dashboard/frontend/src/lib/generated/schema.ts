@@ -2614,6 +2614,11 @@ export interface components {
             failedByOffering?: components["schemas"]["Fleet.TypeCount"][] | null;
             /** Format: int64 */
             failedOfferingsBeyond?: number;
+            /**
+             * Format: int64
+             * @description Matched services Pacto infers from workloads no contract describes; no other service tally counts them
+             */
+            inferredServices: number;
             knowledge: components["schemas"]["Fleet.KnowledgeTally"];
             /** Format: int64 */
             matched: number;
@@ -2674,6 +2679,10 @@ export interface components {
             consumers?: number;
             /** Format: int64 */
             created?: number;
+            /** @enum {string} */
+            declaration?: "declared" | "inferred";
+            /** @description On an inferred service: Pacto could not read the Pacto targets of its namespace, so a contract may describe it */
+            declarationUnverified?: boolean;
             domain?: string;
             environment?: string;
             explanation?: string;
@@ -2687,6 +2696,8 @@ export interface components {
             hiddenConsumers?: number;
             /** Format: int64 */
             hiddenProviders?: number;
+            /** @description The image an inferred service runs, on list rows */
+            image?: string;
             /**
              * @description On an external list row, how its consumers join it
              * @enum {string}
@@ -3070,6 +3081,22 @@ export interface components {
             source: string;
             value: string;
         };
+        "Fleet.InferredPort": {
+            /** @description The object path Pacto read the port from */
+            from: string;
+            name?: string;
+            /** Format: int64 */
+            port: number;
+            protocol?: string;
+        };
+        "Fleet.InferredProbe": {
+            /** @description The object path Pacto read the probe from */
+            from: string;
+            /** @enum {string} */
+            kind: "readiness" | "liveness" | "startup";
+            path?: string;
+            port?: string;
+        };
         "Fleet.InferredSource": {
             /** @description The digest of the catalog the source classified it with */
             catalog?: string;
@@ -3092,6 +3119,30 @@ export interface components {
             target?: string;
             /** @description The object and key it was found in, never a value */
             where?: string;
+        };
+        "Fleet.InferredValue": {
+            /** @description The object path Pacto read the value from */
+            from: string;
+            value: string;
+        };
+        "Fleet.InferredWorkload": {
+            /** @description The cluster id, whenever Pacto knows the source's cluster; the service name carries it only in a snapshot with several clusters */
+            cluster?: string;
+            /** @description Pacto could not read the Pacto targets of this namespace, so a contract may describe this workload (DECLARATION_UNVERIFIED) */
+            declarationUnverified?: boolean;
+            /** @description The fields Pacto read but left out because they held a control character or ran past their bound, such as image or ports[0] */
+            dropped?: string[] | null;
+            image?: components["schemas"]["Fleet.InferredValue"];
+            /** @description Deployment, StatefulSet, DaemonSet or CronJob */
+            kind: string;
+            name: string;
+            namespace: string;
+            /** Format: date-time */
+            observedAt?: string;
+            ports?: components["schemas"]["Fleet.InferredPort"][] | null;
+            probes?: components["schemas"]["Fleet.InferredProbe"][] | null;
+            /** @description The source that read the workload */
+            source: string;
         };
         "Fleet.InterfaceDeprecation": {
             deprecated: string;
@@ -3397,8 +3448,18 @@ export interface components {
              * @description The external systems only services the caller's permissions hide declare; never named
              */
             hiddenExternals?: number;
+            /**
+             * Format: int64
+             * @description Services Pacto infers from workloads no contract describes; counted apart from services
+             */
+            inferredServices: number;
             /** Format: int64 */
             inferredTargetLinks: number;
+            /**
+             * Format: int64
+             * @description Of inferredServices, those in a namespace whose Pacto targets Pacto could not read, so a contract may describe them
+             */
+            inferredUnverified?: number;
             /** Format: int64 */
             invalidGoldenPaths: number;
             /** Format: int64 */
@@ -3429,7 +3490,10 @@ export interface components {
             revisions: number;
             /** Format: int64 */
             scopes: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Services a contract revision or a Pacto target describes
+             */
             services: number;
             /** Format: int64 */
             servicesNeedingAttention: number;
@@ -3882,6 +3946,8 @@ export interface components {
         "Fleet.ServiceHit": {
             businessDomain?: string;
             businessDomainUnknown?: boolean;
+            /** @enum {string} */
+            declaration?: "declared" | "inferred";
             domain?: string;
             key: string;
             labels?: {
@@ -3910,6 +3976,11 @@ export interface components {
         "Fleet.ServiceRecord": {
             businessDomain?: string;
             businessDomainUnknown?: boolean;
+            /**
+             * @description declared when a contract revision or a Pacto target describes the service; inferred when Pacto only sees a workload no contract Pacto read describes; workload.declarationUnverified says Pacto could not read the Pacto targets there
+             * @enum {string}
+             */
+            declaration: "declared" | "inferred";
             domain?: string;
             /** Format: int64 */
             hiddenCreated?: number;
@@ -3937,6 +4008,7 @@ export interface components {
             summaryUnknown?: boolean;
             targets?: string[] | null;
             template?: boolean;
+            workload?: components["schemas"]["Fleet.InferredWorkload"];
         };
         "Fleet.ServiceSummary": {
             compliance: components["schemas"]["Fleet.ComplianceTally"];
@@ -4032,6 +4104,11 @@ export interface components {
         "Fleet.SourceState": {
             error?: components["schemas"]["Fleet.SourceError"];
             id: string;
+            /**
+             * Format: int64
+             * @description The inferred services this source reported, after the bound; a restricted view counts only the inferred services you may see
+             */
+            inferredCount?: number;
             kind: string;
             /** Format: date-time */
             lastSuccessfulSync?: string;
@@ -4170,6 +4247,8 @@ export interface components {
         "Fleet.UncontractedCaller": {
             ambiguous?: boolean;
             caller: string;
+            /** @description The inferred service this caller is, when Pacto sees its workload */
+            entity?: string;
             sources: string[] | null;
             toService: string;
         };
@@ -4732,7 +4811,7 @@ export interface components {
         MetricsOutputBody: {
             /**
              * Format: int64
-             * @description Number of known services
+             * @description Number of known services, inferred services included
              */
             serviceCount: number;
             /**
@@ -4816,6 +4895,8 @@ export interface components {
             valuesAreCurrent?: boolean;
         };
         ProductAttentionItem: {
+            /** @description The inferred service of an uncontracted caller, when Pacto sees its workload */
+            caller?: components["schemas"]["ProductRef"];
             /** @enum {string} */
             category: "non-compliant" | "invalid" | "health" | "provisioning" | "unknown" | "stale" | "unresolved" | "out-of-range" | "lifecycle" | "undeclared" | "golden-path" | "readiness" | "knowledge" | "unowned";
             code: string;
@@ -5580,6 +5661,10 @@ export interface components {
             consumers?: number;
             /** Format: int64 */
             created?: number;
+            /** @enum {string} */
+            declaration?: "declared" | "inferred";
+            /** @description On an inferred service: Pacto could not read the Pacto targets of its namespace, so a contract may describe it */
+            declarationUnverified?: boolean;
             domain?: string;
             environment?: string;
             explanation?: string;
@@ -5594,6 +5679,8 @@ export interface components {
             /** Format: int64 */
             hiddenProviders?: number;
             href: string;
+            /** @description The image an inferred service runs, on list rows */
+            image?: string;
             /**
              * @description On an external list row, how its consumers join it
              * @enum {string}
@@ -5738,6 +5825,10 @@ export interface components {
         };
         ProductServiceDetail: {
             activeRevisions: components["schemas"]["ProductRefPreview"];
+            /** @description The declared services this inferred service was seen calling (observed, from uncontracted callers) */
+            calls: components["schemas"]["ProductRefPreview"];
+            /** @description True when an available source that reports observed calls covers this service's cluster; an empty calls list then means none were seen */
+            callsObserved: boolean;
             capabilities: components["schemas"]["Fleet.StringsPreview"];
             /** @description Every declared change across the service's revisions, in version order (declared; times only from signed delivery records) */
             changes: components["schemas"]["ProductChangeHistoryPreview"];
@@ -5777,6 +5868,7 @@ export interface components {
             summary: components["schemas"]["Fleet.ServiceSummary"];
             template?: components["schemas"]["ProductTemplateDetail"];
             unresolvedDependencies: components["schemas"]["ProductUnresolvedDependenciesPreview"];
+            workload?: components["schemas"]["Fleet.InferredWorkload"];
         };
         ProductSourceDetail: {
             contributed: components["schemas"]["Fleet.SourceContribution"];
@@ -8583,6 +8675,8 @@ export interface operations {
                 service?: string;
                 /** @description Golden path filter for service and revision entities: only keeps the golden paths (services whose contract declares service.template and that run nowhere) and, with no kinds, lists services only; exclude leaves them and their revisions out. Absent lists every service, golden paths marked template */
                 template?: "only" | "exclude";
+                /** @description Declaration filter for service entities: inferred keeps only the services Pacto infers from workloads no contract describes and, with no kinds, lists services only; declared leaves them out. Absent lists every service, inferred ones marked */
+                declaration?: "declared" | "inferred";
                 /** @description Keeps the services whose declared origin resolves to this golden path, by canonical ServiceKey (service entities); (none) keeps those that declare no origin and (unresolved) those whose origin resolves to no golden path. A hidden, absent or non-golden-path key answers an empty list */
                 createdFrom?: string;
                 /** @description Keeps the owners and domains with at least one non-compliant service, counted as each row counts it (owner and domain entities) */
@@ -8884,6 +8978,8 @@ export interface operations {
                 source?: string;
                 /** @description Golden path filter: only keeps the golden paths, exclude leaves them out; absent lists every service, golden paths marked template */
                 template?: "only" | "exclude";
+                /** @description Declaration filter: inferred keeps only the services Pacto infers from workloads no contract describes, declared leaves them out; absent lists every service, inferred ones marked */
+                declaration?: "declared" | "inferred";
                 limit?: number;
                 offset?: number;
             };

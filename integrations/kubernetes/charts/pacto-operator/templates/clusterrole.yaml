@@ -55,8 +55,9 @@ rules:
     resources: [serviceentries]
     verbs: [get, list, watch]
   {{- end }}
+  # daemonsets: the dashboard ClusterRole the operator applies lists them, and Kubernetes lets it grant only what it holds.
   - apiGroups: [apps]
-    resources: [deployments, replicasets, statefulsets]
+    resources: [deployments, replicasets, statefulsets, daemonsets]
     verbs: [get, list, watch]
   - apiGroups: [batch]
     resources: [cronjobs, jobs]

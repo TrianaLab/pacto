@@ -296,7 +296,7 @@ func TestSurfaceParityAnswers(t *testing.T) {
 // aliceView narrows a fleet to the prod and staging namespaces: one Viewer
 // over a Review that lets alice read those two.
 func aliceView() func(context.Context, *fleet.Query) (*fleet.Query, error) {
-	viewer := authn.NewViewer(func(_ context.Context, p authn.Person, ns string) (bool, error) {
+	viewer := authn.NewViewer(func(_ context.Context, p authn.Person, ns string, _ authn.ResourceAttributes) (bool, error) {
 		return p.User == "alice" && (ns == "prod" || ns == "staging"), nil
 	})
 	return func(ctx context.Context, q *fleet.Query) (*fleet.Query, error) {

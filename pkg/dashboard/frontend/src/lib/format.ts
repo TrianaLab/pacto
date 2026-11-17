@@ -226,6 +226,7 @@ export function isReasonActionable(reason: string | undefined): boolean {
 
 const SOURCE_DESCRIPTIONS: Record<string, string> = {
   kubernetes: 'Kubernetes — live cluster runtime data',
+  'kubernetes-workloads': 'Kubernetes workloads — the workloads a cluster runs, read as inferred services',
   oci: 'OCI Registry — versioned contract bundles',
   local: 'Local — contracts from local filesystem',
   cache: 'Cache — offline baseline from a previously pulled bundle',

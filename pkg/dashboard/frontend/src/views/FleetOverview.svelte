@@ -108,7 +108,12 @@
   // are counted, never named.
   const externals = $derived(s.externals || 0);
   const hiddenExternals = $derived(s.hiddenExternals || 0);
-  const isEmptyFleet = $derived(!!overview && totalServices === 0 && goldenPaths === 0);
+  // The workloads no contract describes, counted apart too; the unverified ones sit
+  // where Pacto could not read the Pacto targets, so "no contract" is not certain there.
+  const inferred = $derived(s.inferredServices || 0);
+  const inferredUnverified = $derived(s.inferredUnverified || 0);
+  // A cluster that only runs inferred services is not an empty fleet.
+  const isEmptyFleet = $derived(!!overview && totalServices === 0 && inferred === 0 && goldenPaths === 0);
   // All-clear needs complete knowledge, zero attention AND a populated fleet.
   // A failing or unknown health check withholds it too, whatever the attention count.
   const health = $derived(s.operationalHealth ?? {});
@@ -220,6 +225,9 @@
   <div class="ov-answer-block" id="ov-answer">
     {#if errorPoints.length}
       <p class="page-answer t-body" data-testid="overview-answer"><strong>Yes.</strong> {errorText}.{#if whereText}{' '}{whereText}{/if}</p>
+    {:else if totalServices === 0 && inferred > 0}
+      <!-- Only inferred services: no contract is checked, so no verdict either way. -->
+      <p class="page-answer t-body" role="status" data-testid="overview-answer"><strong>No contracts yet.</strong> Pacto sees <a href={fleetServicesUrl({ declaration: 'inferred' })}>{formatCount(inferred)} {inferred === 1 ? 'workload' : 'workloads'}</a> as inferred services; a contract lets it check them.</p>
     {:else if knowledge.incomplete}
       <!-- The banner right under it says what is missing, so the answer does not say it twice. -->
       <p class="page-answer t-body" data-testid="overview-answer"><strong>Nothing broken found.</strong></p>
@@ -248,14 +256,15 @@
   <LazyView load={loadTrustFigure} mode="overview" counts={overview.meta?.sourceCounts} meta={overview.meta} asOf={overview.meta?.asOf ? formatDate(overview.meta.asOf) : ''}
     stateHref={(st) => fleetSourcesUrl({ sourceHealth: st })}>
     {#snippet aside()}
-      {#if svcAgg}
+      {#if svcAgg && (svcAgg.services || !inferred)}
         <!-- The bar's in-segment counts repeat its legend, whose items are the links. -->
         <div data-nofilter><DistributionBar title="What the snapshot says about {formatCount(svcAgg.services ?? 0)} {svcAgg.services === 1 ? 'service' : 'services'}" level={2}
-          segments={svcCompliance} total={svcAgg.services ?? 0} emptyLabel="No services are tracked yet." /></div>
+          segments={svcCompliance} total={svcAgg.services ?? 0} emptyLabel="No declared services yet." /></div>
       {/if}
       <dl class="facts">
-        {#if externals || hiddenExternals}
-          <dt>Services</dt><dd data-testid="overview-services-line">{formatCount(totalServices + externals)}: <a href={fleetServicesUrl()}>{formatCount(totalServices)} declared</a>, <a href={fleetExternalsUrl()} data-testid="overview-externals">{formatCount(externals)} external</a>{#if hiddenExternals}{' '}<span class="t-meta" title="External systems only services you cannot see declare">({formatCount(hiddenExternals)} hidden)</span>{/if}</dd>
+        {#if externals || hiddenExternals || inferred}
+          <!-- The parts add up to the headline: declared + inferred + external. -->
+          <dt>Services</dt><dd data-testid="overview-services-line">{formatCount(totalServices + inferred + externals)}: <a href={fleetServicesUrl({ declaration: 'declared' })}>{formatCount(totalServices)} declared</a>{#if inferred}, <a href={fleetServicesUrl({ declaration: 'inferred' })} data-testid="overview-inferred">{formatCount(inferred)} inferred</a>{#if inferredUnverified}{' '}<span class="t-meta" title="Pacto could not read the Pacto targets where these run, so a contract may describe them">({formatCount(inferredUnverified)} unverified)</span>{/if}{/if}{#if externals || hiddenExternals}, <a href={fleetExternalsUrl()} data-testid="overview-externals">{formatCount(externals)} external</a>{#if hiddenExternals}{' '}<span class="t-meta" title="External systems only services you cannot see declare">({formatCount(hiddenExternals)} hidden)</span>{/if}{/if}</dd>
         {:else}
           <dt>Services</dt><dd><a href={fleetServicesUrl()}>{formatCount(totalServices)}</a></dd>
         {/if}
@@ -390,7 +399,7 @@
           scopeNote={`All ${formatCount(totalServices)} ${totalServices === 1 ? 'service' : 'services'} in the snapshot.`}
           segments={ownership}
           total={totalServices}
-          emptyLabel="No services are tracked yet, so there is no ownership picture."
+          emptyLabel="No declared services yet, so there is no ownership picture."
         />
         <DistributionBar
           title="Contract revision readiness"
@@ -412,7 +421,7 @@
         scopeNote={`All ${formatCount(contractKnowledge.services ?? totalServices)} ${(contractKnowledge.services ?? totalServices) === 1 ? 'service' : 'services'}, golden paths apart.`}
         segments={knowledgeSegs}
         total={contractKnowledge.services ?? totalServices}
-        emptyLabel="No services are tracked yet, so there is no knowledge picture."
+        emptyLabel="No declared services yet, so there is no knowledge picture."
       />
       {#if knowledgeCaption(contractKnowledge)}<p class="ov-caption t-body-2" data-testid="knowledge-caption">{knowledgeCaption(contractKnowledge)}</p>{/if}
       {#if gapRows.length}
@@ -455,6 +464,7 @@
               <SeverityBadge severity={it.severity} />
               <EntityLink ref={it.entity} showStatus={false} />
               <span class="attn-reason">{it.summary || it.reason || it.label}</span>
+              {#if it.caller}<span class="attn-caller t-meta" data-testid="attention-caller">caller <EntityLink ref={it.caller} showStatus={false} showKind={false} /></span>{/if}
             </li>
           {/each}
         </ul>

@@ -48,7 +48,9 @@ const fleetInstructions = "Pacto also exposes READ-ONLY fleet tools over the ope
 	"places: a transitive consumer in pacto_impact, a target linked to a revision by tag or " +
 	"version match and an external use read from configuration (relationship and external source provenance). pacto_fleet_entities " +
 	"with template=only lists golden paths, the starting points pacto_create takes as 'from' (over stdio, from pacto mcp --transport stdio); a " +
-	"golden path is never a consumer, so it is absent from impact and offering consumers. Use " +
+	"golden path is never a consumer, so it is absent from impact and offering consumers. " +
+	"A service marked declaration: inferred is a workload no contract Pacto read describes (with workload.declarationUnverified, a contract Pacto could not read may describe it): " +
+	"it never satisfies a dependency or clears a gate, and pacto_fleet_graph and pacto_impact answer about it partial with SERVICE_INFERRED. Use " +
 	"pacto_fleet_entities to list owners, business domains and offerings, pacto_fleet_entity " +
 	"for one of them and pacto_fleet_attention for what needs attention, most severe first. " +
 	"An attention item's nextAction names the operation that fixes it and the tool that makes it (edit-contract: " +
@@ -219,6 +221,7 @@ func fleetSearchTool() *mcpsdk.Tool {
 			"ready":          {Type: "boolean", Description: "Only operationally ready services"},
 			"not_ready":      {Type: "boolean", Description: "Only services not operationally ready"},
 			"template":       {Type: "string", Description: "only: keep only golden paths (services whose contract declares service.template and that run nowhere); exclude: leave them out. Empty lists every service, golden paths marked 'template'", Enum: []string{fleet.TemplateOnly, fleet.TemplateExclude}},
+			"declaration":    {Type: "string", Description: "inferred: only services Pacto infers from workloads no contract describes; declared: leave them out. Empty lists every service, inferred ones marked 'declaration: inferred'", Enum: []string{fleet.DeclarationDeclared, fleet.DeclarationInferred}},
 			"label":          {Type: "array", Items: "string", Description: "Target labels as key=value; every pair must match one target of the service"},
 			"limit":          {Type: "integer", Description: "Maximum results (bounded)"},
 			"offset":         {Type: "integer", Description: "Number of results to skip, for paging"},
@@ -245,6 +248,7 @@ type fleetSearchArgs struct {
 	Ready          bool     `json:"ready"`
 	NotReady       bool     `json:"not_ready"`
 	Template       string   `json:"template"`
+	Declaration    string   `json:"declaration"`
 	Label          []string `json:"label"`
 	Limit          int      `json:"limit"`
 	Offset         int      `json:"offset"`
@@ -260,7 +264,7 @@ func fleetSearchHandler(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetSearchArgs, a
 			Text: a.Text, Owner: a.Owner, BusinessDomain: a.BusinessDomain, Offering: a.Offering, Status: a.Status, Compliance: a.Compliance,
 			Source: a.Source, Workload: a.Workload, Scope: a.Scope,
 			HasCapability: a.HasCapability, HasDependency: a.HasDependency,
-			ReadyOnly: a.Ready, NotReady: a.NotReady, Template: a.Template, Limit: a.Limit, Offset: a.Offset,
+			ReadyOnly: a.Ready, NotReady: a.NotReady, Template: a.Template, Declaration: a.Declaration, Limit: a.Limit, Offset: a.Offset,
 			Labels: labels,
 		})
 		if err != nil {
@@ -504,6 +508,7 @@ func fleetEntitiesTool() *mcpsdk.Tool {
 			"gap":               {Type: "string", Description: "Services whose contracts leave this out (not-deployed: run nowhere while every source reporting targets is complete; unverified-capability: an extension capability no evaluator verifies), or unknown for those whose knowledge Pacto cannot judge", Enum: fleet.GapFilterValues()},
 			"status":            {Type: "string", Description: "Canonical compliance status", Enum: fleet.CanonicalStatuses()},
 			"template":          {Type: "string", Description: "only: keep only golden paths and, with no kind, list services only; exclude: leave golden paths and their revisions out", Enum: []string{fleet.TemplateOnly, fleet.TemplateExclude}},
+			"declaration":       {Type: "string", Description: "inferred: keep only the services Pacto infers from workloads no contract describes and, with no kind, list services only; declared: leave them out. Empty lists every service, inferred ones marked", Enum: []string{fleet.DeclarationDeclared, fleet.DeclarationInferred}},
 			"created_from":      {Type: "string", Description: "Services created from this golden path, by service key; " + fleet.NoOrigin + " for no declared origin or " + fleet.UnresolvedOrigin + " for an origin that resolves to no golden path"},
 			"sort":              {Type: "string", Description: "Order: by name, least healthy first, owners with the most services first, owners and domains with the most non-compliant services first or with the highest share of them first, golden paths that created the most services first, offerings with the most consumers with a failed provisioning request or the most declared consumers first, or owners and domains with the most services that leave knowledge out first", Enum: []string{fleet.SortName, fleet.SortHealth, fleet.SortServices, fleet.SortNonCompliant, fleet.SortRate, fleet.SortCreated, fleet.SortFailed, fleet.SortConsumers, fleet.SortGaps}},
 			"has_non_compliant": {Type: "boolean", Description: "Owners and domains with at least one non-compliant service only"},
@@ -538,6 +543,7 @@ type fleetEntitiesArgs struct {
 	Gap             string `json:"gap"`
 	Status          string `json:"status"`
 	Template        string `json:"template"`
+	Declaration     string `json:"declaration"`
 	CreatedFrom     string `json:"created_from"`
 	Sort            string `json:"sort"`
 	HasNonCompliant bool   `json:"has_non_compliant"`
@@ -566,7 +572,7 @@ func fleetEntitiesHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[fleet
 		f := fleet.EntityFilter{
 			Text: a.Text, Owner: a.Owner, OwnerKey: a.OwnerKey, BusinessDomain: a.BusinessDomain,
 			Offering: a.Offering, Consumes: a.Consumes, Phase: a.Phase, Environment: a.Environment, Ownership: a.Ownership, Gap: a.Gap, Status: a.Status, Sort: a.Sort, Limit: a.Limit, Offset: a.Offset,
-			Template: a.Template, CreatedFrom: a.CreatedFrom,
+			Template: a.Template, Declaration: a.Declaration, CreatedFrom: a.CreatedFrom,
 			HasNonCompliant: a.HasNonCompliant, SourceKind: a.SourceKind, Lifecycle: a.Lifecycle, Failed: a.Failed,
 			Capability: a.Capability, Domain: a.Domain, Service: a.Service, Source: a.Source,
 			Scope: a.Scope, Readiness: a.Readiness, SourceHealth: a.SourceHealth, Class: a.Class,

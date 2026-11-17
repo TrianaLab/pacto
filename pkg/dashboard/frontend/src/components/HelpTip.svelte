@@ -9,7 +9,9 @@
   // What belongs here: a definition of a term the page uses ("Revision match",
   // "Uncontracted callers"). What does NOT: a warning, an uncertainty, or anything
   // actionable. Those are page content, and page content never hides behind a hover.
-  let { label = '', text = '', textClass = '' } = $props();
+  // glyph and ariaLabel let a caller (ProvenanceMark) reuse the same button with its own
+  // dot and accessible name; their defaults keep the "?" and "About <label>".
+  let { label = '', text = '', textClass = '', glyph = '?', ariaLabel = '' } = $props();
 
   let open = $state(false);
   let host = $state(null);
@@ -56,13 +58,14 @@
   <button
     type="button"
     class="help-btn"
-    aria-label={label ? `About ${label}` : 'About this'}
+    aria-label={ariaLabel || (label ? `About ${label}` : 'About this')}
     aria-expanded={open}
     aria-describedby={open ? id : undefined}
     onclick={openByClick}
     onfocus={() => show(false)}
     onblur={hide}
-  >?</button>
+    style:--help-glyph={glyph === '?' ? undefined : `'${glyph}'`}
+  >{glyph}</button>
   <!-- Always in the DOM, hidden until opened: the definition stays part of the page's
        text (search, copy, tests) without being on screen. -->
   <span class="help-body t-body-2 {textClass}" {id} role="note" hidden={!open}>{text}</span>
@@ -79,7 +82,7 @@
     background: none; border: 0; padding: 0; cursor: pointer; color: inherit;
   }
   .help-btn::before {
-    content: '?';
+    content: var(--help-glyph, '?');
     width: 16px; height: 16px; border-radius: var(--radius-pill);
     display: inline-flex; align-items: center; justify-content: center;
     border: 1px solid var(--c-border); background: var(--c-surface-inset);

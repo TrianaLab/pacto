@@ -22,6 +22,11 @@ import (
 // cluster. The dashboard's /api/sources pills use the same name.
 const SourceKindKubernetes = "kubernetes"
 
+// SourceKindKubernetesWorkloads is the Kind of a source reading the
+// Deployments, StatefulSets, DaemonSets and CronJobs of a cluster. It reports
+// inferred services and never a target.
+const SourceKindKubernetesWorkloads = "kubernetes-workloads"
+
 // SourceKindEvidenceHTTP and SourceKindTargetState are the Kinds of the
 // sources that report operational targets outside Kubernetes: the Evidence
 // Server and a target state file.
@@ -92,6 +97,27 @@ type Collection struct {
 	// system, kept apart from declared and observed ones and out of every
 	// index a gate reads: an inferred use never clears a gate.
 	ExternalUses []RawExternalUse
+	// InferredServices are workloads no contract describes. [Build] makes each
+	// an inferred service and never a target, so it never counts in
+	// compliance, link or target tallies. Their cluster is [Collection.Cluster].
+	InferredServices []RawInferredService
+}
+
+// RawInferredService is one workload a source read (Kind is Deployment,
+// StatefulSet, DaemonSet or CronJob): only its image, ports and probes, each
+// with the object path it was read from. It never carries environment values,
+// Secrets or ConfigMaps.
+type RawInferredService struct {
+	Namespace, Kind, Name string
+	Image                 *InferredValue
+	Ports                 []InferredPort
+	Probes                []InferredProbe
+	ObservedAt            *time.Time
+}
+
+// WorkloadRef names the workload a Kubernetes target runs as.
+type WorkloadRef struct {
+	Kind, Name string
 }
 
 // RawExternalUse is one external system a source recognized in the
@@ -221,6 +247,9 @@ type RawTarget struct {
 	// [Collection.Cluster]. Evidence records set it to the cluster that accepted
 	// them, so two servers listing one record report one cluster.
 	Cluster *Cluster
+	// Workload is the workload this target runs as, nil when the source does
+	// not know it. [Build] never infers a service from that workload.
+	Workload *WorkloadRef
 }
 
 // MemorySource is an in-memory [Source]. It is the substrate for tests, the

@@ -25,6 +25,7 @@
   import DomainEntity from './entity/DomainEntity.svelte';
   import OfferingEntity from './entity/OfferingEntity.svelte';
   import ExternalEntity from './entity/ExternalEntity.svelte';
+  import InferredServiceEntity from './entity/InferredServiceEntity.svelte';
 
   // The unified entity route for every kind. It resolves the
   // product entity-detail endpoint (NarrowedEntityDetail) -- never the raw snapshot --
@@ -89,6 +90,8 @@
   // this revision valid and ready. Kinds without a single question get none.
   const entityAnswer = $derived.by(() => {
     if (!detail) return null;
+    // An inferred service has no contract, so no posture: "nothing running" would be false.
+    if (detail.entity?.declaration === 'inferred') return null;
     if (detail.service) return postureAnswer(detail.service.summary, knowledge.incomplete, detail.service.ownership?.conflicts?.total ?? 0);
     if (detail.owner) return postureAnswer(detail.owner.summary, knowledge.incomplete);
     if (detail.domain) return postureAnswer(detail.domain.summary, knowledge.incomplete);
@@ -209,7 +212,9 @@
       <!-- One malformed record (a duplicate key, a field of the wrong shape) must cost
            this body, not the page: without a boundary it left the skeleton up for ever. -->
       <svelte:boundary>
-        {#if detail.service}
+        {#if detail.service && detail.entity?.declaration === 'inferred'}
+          <InferredServiceEntity {detail} />
+        {:else if detail.service}
           <ServiceEntity {detail} {deliveryState} {refreshTick} {miraURL} {changesQuery} />
         {:else if detail.revision}
           <RevisionEntity {detail} {deliveryState} {miraURL} {correlation} />

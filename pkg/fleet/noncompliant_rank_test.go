@@ -133,7 +133,7 @@ func TestNonCompliantRankings_RestrictedView(t *testing.T) {
 	for _, tg := range q.snap.Targets {
 		tg.Kind = SourceKindKubernetes
 	}
-	r := q.Restrict(func(ns string) bool { return ns == "shop" || ns == "" })
+	r := q.Restrict(func(ns string) bool { return ns == "shop" || ns == "" }, nil)
 
 	full := entityAggregateOf(t, q, EntityFilter{Kinds: []EntityKind{KindService}})
 	if full.ServiceCompliance.NonCompliant != 3 || full.NonCompliantOwners != 2 {

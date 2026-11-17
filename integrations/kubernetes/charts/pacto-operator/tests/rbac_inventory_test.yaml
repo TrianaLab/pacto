@@ -261,6 +261,37 @@ tests:
             resources: [localsubjectaccessreviews]
             verbs: [create]
 
+  - it: the dashboard reads workloads and no pods or Secrets
+    template: templates/watch-namespaces.yaml
+    set:
+      controller.watchNamespaces: [payments]
+    documentIndex: 2
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [apps]
+            resources: [deployments, statefulsets, daemonsets]
+            verbs: [list]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [batch]
+            resources: [cronjobs]
+            verbs: [list]
+      - notContains:
+          path: rules
+          content:
+            apiGroups: ['']
+            resources: [pods]
+          any: true
+      - notContains:
+          path: rules
+          content:
+            apiGroups: ['']
+            resources: [secrets]
+          any: true
+
   - it: watching the node agent namespace fails
     template: templates/watch-namespaces.yaml
     set:
@@ -341,7 +372,7 @@ tests:
           resources: [endpointslices]
           verbs: [get, list, watch]
         - apiGroups: [apps]
-          resources: [deployments, replicasets, statefulsets]
+          resources: [deployments, replicasets, statefulsets, daemonsets]
           verbs: [get, list, watch]
         - apiGroups: [batch]
           resources: [cronjobs, jobs]
@@ -749,6 +780,12 @@ tests:
         - apiGroups: ['']
           resources: [services]
           verbs: [get, list, watch]
+        - apiGroups: [apps]
+          resources: [deployments, statefulsets, daemonsets]
+          verbs: [list]
+        - apiGroups: [batch]
+          resources: [cronjobs]
+          verbs: [list]
         - apiGroups: [authorization.k8s.io]
           resources: [localsubjectaccessreviews]
           verbs: [create]
@@ -850,6 +887,12 @@ tests:
         - apiGroups: ['']
           resources: [services]
           verbs: [get, list, watch]
+        - apiGroups: [apps]
+          resources: [deployments, statefulsets, daemonsets]
+          verbs: [list]
+        - apiGroups: [batch]
+          resources: [cronjobs]
+          verbs: [list]
         - apiGroups: [authorization.k8s.io]
           resources: [localsubjectaccessreviews]
           verbs: [create]
@@ -1102,6 +1145,12 @@ tests:
         - apiGroups: ['']
           resources: [services]
           verbs: [get, list, watch]
+        - apiGroups: [apps]
+          resources: [deployments, statefulsets, daemonsets]
+          verbs: [list]
+        - apiGroups: [batch]
+          resources: [cronjobs]
+          verbs: [list]
         - apiGroups: [authorization.k8s.io]
           resources: [localsubjectaccessreviews]
           verbs: [create]
@@ -1203,6 +1252,12 @@ tests:
         - apiGroups: ['']
           resources: [services]
           verbs: [get, list, watch]
+        - apiGroups: [apps]
+          resources: [deployments, statefulsets, daemonsets]
+          verbs: [list]
+        - apiGroups: [batch]
+          resources: [cronjobs]
+          verbs: [list]
         - apiGroups: [authorization.k8s.io]
           resources: [localsubjectaccessreviews]
           verbs: [create]
@@ -1282,7 +1337,7 @@ tests:
           resources: [endpointslices]
           verbs: [get, list, watch]
         - apiGroups: [apps]
-          resources: [deployments, replicasets, statefulsets]
+          resources: [deployments, replicasets, statefulsets, daemonsets]
           verbs: [get, list, watch]
         - apiGroups: [batch]
           resources: [cronjobs, jobs]
@@ -2007,6 +2062,12 @@ tests:
         - apiGroups: ['']
           resources: [services]
           verbs: [get, list, watch]
+        - apiGroups: [apps]
+          resources: [deployments, statefulsets, daemonsets]
+          verbs: [list]
+        - apiGroups: [batch]
+          resources: [cronjobs]
+          verbs: [list]
         - apiGroups: [authorization.k8s.io]
           resources: [localsubjectaccessreviews]
           verbs: [create]
@@ -2108,6 +2169,12 @@ tests:
         - apiGroups: ['']
           resources: [services]
           verbs: [get, list, watch]
+        - apiGroups: [apps]
+          resources: [deployments, statefulsets, daemonsets]
+          verbs: [list]
+        - apiGroups: [batch]
+          resources: [cronjobs]
+          verbs: [list]
         - apiGroups: [authorization.k8s.io]
           resources: [localsubjectaccessreviews]
           verbs: [create]
@@ -2449,7 +2516,7 @@ tests:
           resources: [endpointslices]
           verbs: [get, list, watch]
         - apiGroups: [apps]
-          resources: [deployments, replicasets, statefulsets]
+          resources: [deployments, replicasets, statefulsets, daemonsets]
           verbs: [get, list, watch]
         - apiGroups: [batch]
           resources: [cronjobs, jobs]
@@ -2745,7 +2812,7 @@ tests:
           resources: [endpointslices]
           verbs: [get, list, watch]
         - apiGroups: [apps]
-          resources: [deployments, replicasets, statefulsets]
+          resources: [deployments, replicasets, statefulsets, daemonsets]
           verbs: [get, list, watch]
         - apiGroups: [batch]
           resources: [cronjobs, jobs]

@@ -62,7 +62,7 @@ func eventRequestErr(b impactRequest) error {
 // provided by none and answers as a missing one.
 func providesOffering(snap *fleet.FleetSnapshot, offering string) bool {
 	for _, svc := range snap.Services {
-		if svc.Offering == offering {
+		if svc.Offering == offering && !svc.Inferred() {
 			return true
 		}
 	}

@@ -37,6 +37,10 @@ type K8sClient interface {
 	DiscoverCRD(ctx context.Context) (*CRDDiscovery, error)
 	// ListJSON returns the raw JSON of all resources of the CRD DiscoverCRD found.
 	ListJSON(ctx context.Context, crd CRDDiscovery, namespace string) ([]byte, error)
+	// ListPage returns one page (at most listPageSize items) of gvr in
+	// namespace ("" for every namespace) as list JSON, starting at
+	// continueToken, and the token of the next page ("" after the last).
+	ListPage(ctx context.Context, gvr schema.GroupVersionResource, namespace, continueToken string) (data []byte, next string, err error)
 	// ClusterIdentity reads the cluster's id and a display name; contextName is
 	// the kubeconfig context, the name used when no node label names the cluster.
 	ClusterIdentity(ctx context.Context, contextName string) (kubecluster.Identity, error)
@@ -194,6 +198,18 @@ func (c *k8sGoClient) ListJSON(ctx context.Context, crd CRDDiscovery, namespace 
 		return nil, err
 	}
 	return json.Marshal(list)
+}
+
+// listPageSize bounds the items one ListPage call holds in memory.
+const listPageSize = 500
+
+func (c *k8sGoClient) ListPage(ctx context.Context, gvr schema.GroupVersionResource, namespace, continueToken string) ([]byte, string, error) {
+	list, err := c.dynamic.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{Limit: listPageSize, Continue: continueToken})
+	if err != nil {
+		return nil, "", err
+	}
+	data, err := json.Marshal(list)
+	return data, list.GetContinue(), err
 }
 
 func (c *k8sGoClient) ClusterIdentity(ctx context.Context, contextName string) (kubecluster.Identity, error) {

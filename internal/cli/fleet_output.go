@@ -23,6 +23,9 @@ func printFleetSearch(cmd *cobra.Command, res *fleet.SearchResult, format string
 				mark = " golden path"
 			}
 			mark += nameInferredMark(s.NameInferred)
+			if s.Declaration == fleet.DeclarationInferred {
+				mark += " " + fleet.DeclarationInferred
+			}
 			_, _ = fmt.Fprintf(w, "  %-28s %-12s owner=%-14s domain=%-12s offering=%-12s revs=%d targets=%d%s\n",
 				s.Name, orDash(s.Status), orDash(s.Owner.DisplayString()), orDash(s.BusinessDomain), orDash(s.Offering), s.RevisionCount, s.TargetCount, mark)
 		}
@@ -53,6 +56,9 @@ func printFleetService(cmd *cobra.Command, sv *fleet.ServiceView, format string)
 		_, _ = fmt.Fprintf(w, "Owner: %s\n", orDash(s.Owner.DisplayString()))
 		_, _ = fmt.Fprintf(w, "Status: %s\n", orDash(s.Status))
 		_, _ = fmt.Fprintf(w, "Sources: %v\n", s.Sources)
+		if s.Workload != nil {
+			_, _ = fmt.Fprintln(w, strings.Join(s.Workload.Lines(), "\n"))
+		}
 		printRevisions(w, sv.Revisions)
 		printServiceTargets(w, sv.Targets)
 		printServiceEdges(w, sv)

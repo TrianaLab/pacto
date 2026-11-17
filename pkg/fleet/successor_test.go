@@ -245,7 +245,7 @@ func TestSuccessorRestrictedNeverAbsent(t *testing.T) {
 	if _, why := q.successorRevision(q.snap.Services["pg"], "oci://reg/platform/pg-next:17.0.0"); why != "no revision of pg-next in this fleet matches it" {
 		t.Errorf("unrestricted reason = %q", why)
 	}
-	r := q.Restrict(func(ns string) bool { return ns != "data-next" })
+	r := q.Restrict(func(ns string) bool { return ns != "data-next" }, nil)
 	if _, why := r.successorRevision(r.snap.Services["pg"], "oci://reg/platform/pg-next:17.0.0"); why != "no service pg-next you may see in pg's registry domain is in this fleet" {
 		t.Errorf("reason = %q", why)
 	}
@@ -335,7 +335,7 @@ func TestLifecycleAttentionSuccessorOutOfRange(t *testing.T) {
 
 func TestSuccessorRestrictedProviderHidden(t *testing.T) {
 	q := lifecycleRangeFleet(t)
-	r := q.Restrict(func(ns string) bool { return ns != "secret" })
+	r := q.Restrict(func(ns string) bool { return ns != "secret" }, nil)
 	if r.snap.Services["pg"] != nil {
 		t.Fatal("the fixture hides pg")
 	}

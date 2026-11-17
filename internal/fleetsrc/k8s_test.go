@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"k8s.io/apimachinery/pkg/runtime/schema"
+
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
@@ -35,6 +37,12 @@ type fakeK8sClient struct {
 func (f *fakeK8sClient) DiscoverCRD(context.Context) (*k8sclient.CRDDiscovery, error) {
 	return f.disc, f.discErr
 }
+
+// ListPage reads as a cluster with no workloads.
+func (f *fakeK8sClient) ListPage(context.Context, schema.GroupVersionResource, string, string) ([]byte, string, error) {
+	return []byte(`{"items":[]}`), "", nil
+}
+
 func (f *fakeK8sClient) ListJSON(_ context.Context, crd k8sclient.CRDDiscovery, namespace string) ([]byte, error) {
 	f.gotResource, f.gotNS = crd.ResourceName, namespace
 	return f.listData, f.listErr
@@ -63,14 +71,50 @@ func TestK8sSource_Collect_DiscoverError(t *testing.T) {
 	}
 }
 
-func TestK8sSource_Collect_NotFound(t *testing.T) {
-	s := NewK8sSource("k8s", nil, &fakeK8sClient{disc: &k8sclient.CRDDiscovery{Found: false}}, nil)
+func TestK8sSourceCRDMissingSaysSo(t *testing.T) {
+	cluster := &fleet.Cluster{ID: "c1"}
+	s := NewK8sSource("k8s", cluster, &fakeK8sClient{disc: &k8sclient.CRDDiscovery{Found: false}}, nil)
 	col, err := s.Collect(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(col.Targets) != 0 {
-		t.Errorf("expected empty collection, got %d targets", len(col.Targets))
+	if len(col.Targets) != 0 || col.Cluster != cluster {
+		t.Errorf("collection = %+v, want no target in the cluster", col)
+	}
+	if len(col.Limitations) != 1 || col.Limitations[0].Code != fleet.LimitationPactoCRDNotInstalled || col.Limitations[0].Source != "k8s" {
+		t.Fatalf("limitations = %+v, want PACTO_CRD_NOT_INSTALLED", col.Limitations)
+	}
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Sources[0].Status != fleet.SourcePartial {
+		t.Errorf("state = %+v, want partial", snap.Sources[0])
+	}
+}
+
+func TestK8sTargetWorkloadRef(t *testing.T) {
+	list := `{"items":[
+		{"metadata":{"name":"a","namespace":"shop"},"spec":{"target":{"serviceName":"cart-svc","workloadRef":{"kind":"StatefulSet","name":"cart"}}},"status":{"contract":{"serviceName":"a"}}},
+		{"metadata":{"name":"b","namespace":"shop"},"spec":{"target":{"serviceName":"orders"}},"status":{"contract":{"serviceName":"b"}}},
+		{"metadata":{"name":"c","namespace":"shop"},"spec":{"target":{"serviceName":"svc","workloadRef":{"name":"worker"}}},"status":{"contract":{"serviceName":"c"}}},
+		{"metadata":{"name":"d","namespace":"shop"},"spec":{"target":{}},"status":{"contract":{"serviceName":"d"}}},
+		{"metadata":{"name":"e","namespace":"shop"},"status":{"contract":{"serviceName":"e"}}}]}`
+	col, err := NewK8sSource("k8s", nil, &fakeK8sClient{disc: &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"}, listData: []byte(list)}, nil).Collect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]*fleet.WorkloadRef{
+		"a": {Kind: "StatefulSet", Name: "cart"},
+		"b": {Kind: "Deployment", Name: "orders"},
+		"c": {Kind: "Deployment", Name: "worker"},
+		"d": nil,
+		"e": nil,
+	}
+	for _, tg := range col.Targets {
+		if !reflect.DeepEqual(tg.Workload, want[tg.Name]) {
+			t.Errorf("target %s workload = %+v, want %+v", tg.Name, tg.Workload, want[tg.Name])
+		}
 	}
 }
 
@@ -565,7 +609,7 @@ func TestK8sExternalUsesRestrictedByNamespace(t *testing.T) {
 	if v, err := fleet.NewQuery(snap).GetExternal("stripe"); err != nil || len(v.External.Consumers) != 2 {
 		t.Fatalf("unrestricted stripe = %+v, %v", v, err)
 	}
-	r := fleet.NewQuery(snap).Restrict(func(ns string) bool { return ns == "prod" })
+	r := fleet.NewQuery(snap).Restrict(func(ns string) bool { return ns == "prod" }, nil)
 	v, err := r.GetExternal("stripe")
 	if err != nil || len(v.External.Consumers) != 1 || v.External.HiddenConsumers != 1 {
 		t.Fatalf("restricted stripe = %+v, %v", v, err)

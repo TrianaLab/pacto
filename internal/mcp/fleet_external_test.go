@@ -57,7 +57,7 @@ func TestMCPFleetGetExternal(t *testing.T) {
 // found.
 func TestMCPFleetGetExternalRestricted(t *testing.T) {
 	view := func(_ context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
-		return q.Restrict(func(ns string) bool { return ns != "secretns" }), nil
+		return q.Restrict(func(ns string) bool { return ns != "secretns" }, nil), nil
 	}
 	server := mustNew("test", Authoring{}, Modes{Fleet: &FleetMode{Src: staticFleet(externalFleet(t)), Opts: FleetOptions{View: view}}})
 	res := callToolOn(t, server, "pacto_fleet_get", map[string]any{"service": "external:stripe"})
@@ -151,7 +151,7 @@ func TestFleetGetExternalInferredSources(t *testing.T) {
 
 func TestFleetGetExternalRestrictedCountsHidden(t *testing.T) {
 	view := func(_ context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
-		return q.Restrict(func(ns string) bool { return ns != "secretns" }), nil
+		return q.Restrict(func(ns string) bool { return ns != "secretns" }, nil), nil
 	}
 	server := mustNew("test", Authoring{}, Modes{Fleet: &FleetMode{Src: staticFleet(inferredExternalFleet(t)), Opts: FleetOptions{View: view}}})
 	for _, c := range []struct {

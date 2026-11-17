@@ -91,7 +91,7 @@ func fleetRows() []surfaceRow {
 	return slices.Concat(
 		alike("fleet entities", "pacto_fleet_entities", "GET /api/fleet/entities", "", "business-domain", "consumes", "created-from", "environment",
 			"has-non-compliant", "limit", "offering", "offset", "owner", "owner-key", "ownership", "phase", "sort", "source-kind", "status", "template",
-			"capability", "domain", "readiness", "scope", "service", "source", "source-health", "failed", "lifecycle", "gap", "class"),
+			"declaration", "capability", "domain", "readiness", "scope", "service", "source", "source-health", "failed", "lifecycle", "gap", "class"),
 		[]surfaceRow{
 			{"fleet entities --kind", "pacto_fleet_entities.kind", "GET /api/fleet/entities?kinds", "the route takes several kinds, the CLI and MCP one"},
 			{"fleet entities [text]", "pacto_fleet_entities.text", "GET /api/fleet/entities?text", ""},
@@ -104,7 +104,7 @@ func fleetRows() []surfaceRow {
 			{"", "", "GET /api/fleet/neighborhood?perspective", "the dashboard's graph switches perspective; the CLI and MCP walk the service perspective"},
 		},
 		alike("fleet neighborhood", "pacto_fleet_neighborhood", "GET /api/fleet/neighborhood", "", "depth", "direction", "max-edges", "max-nodes", "views"),
-		alike("fleet search", "pacto_fleet_search", "GET /api/fleet/services", "", "limit", "offset", "owner", "scope", "source", "status", "template"),
+		alike("fleet search", "pacto_fleet_search", "GET /api/fleet/services", "", "declaration", "limit", "offset", "owner", "scope", "source", "status", "template"),
 		[]surfaceRow{{"fleet search [text]", "pacto_fleet_search.text", "GET /api/fleet/services?text",
 			"the CLI and MCP also list the external systems the text names; the dashboard finds them through GET /api/fleet/entities?kinds=external&text"}},
 		alike("fleet search", "pacto_fleet_search", "", whySearchRoute, "business-domain", "compliance", "has-capability", "has-dependency", "not-ready", "offering", "ready", "workload"),

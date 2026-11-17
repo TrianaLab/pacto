@@ -1923,8 +1923,9 @@ rules:
   - apiGroups: [discovery.k8s.io]
     resources: [endpointslices]
     verbs: [get, list, watch]
+  # daemonsets: the dashboard ClusterRole the operator applies lists them, and Kubernetes lets it grant only what it holds.
   - apiGroups: [apps]
-    resources: [deployments, replicasets, statefulsets]
+    resources: [deployments, replicasets, statefulsets, daemonsets]
     verbs: [get, list, watch]
   - apiGroups: [batch]
     resources: [cronjobs, jobs]

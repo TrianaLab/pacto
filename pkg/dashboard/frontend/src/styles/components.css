@@ -355,7 +355,7 @@ select {
 }
 .source-dot + .source-dot { margin-left: 4px; }
 .source-dot:hover { transform: scale(1.2); }
-.source-dot-kubernetes { background: #3b82f6; }
+.source-dot-kubernetes, .source-dot-kubernetes-workloads { background: #3b82f6; }
 .source-dot-oci { background: #8b5cf6; }
 .source-dot-local { background: #f59e0b; }
 .source-dot-cache { background: #64748b; }
@@ -762,12 +762,16 @@ button.detail-card-header {
    the badge ends up flush against the container edge. Four class selectors on purpose —
    EntityLink's own scoped `.entity-link` compiles to (0,2,0) and would otherwise tie,
    leaving the outcome to stylesheet injection order. */
-.pl-list .pl-row > .entity-link:only-child {
+/* A marked row (.pl-row--marked) is one link followed by its provenance mark: the link
+   keeps the row's padding and grid as if it were alone. */
+.pl-list .pl-row > .entity-link:only-child,
+.pl-list .pl-row.pl-row--marked > .entity-link {
   display: flex; flex: 1; min-width: 0;
   padding: var(--sp-2) var(--sp-3);
 }
 /* outline-offset: 2px on a full-bleed row paints outside the container's radius. */
-.pl-list .pl-row > .entity-link:only-child:focus-visible { outline-offset: -2px; }
+.pl-list .pl-row > .entity-link:only-child:focus-visible,
+.pl-list .pl-row.pl-row--marked > .entity-link:focus-visible { outline-offset: -2px; }
 
 /* ── Pager ── */
 .pl-pager { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; margin-top: var(--sp-2); }
@@ -892,7 +896,8 @@ button.detail-card-header {
    join the link's grid through display: contents and take named areas, so a row
    missing a part leaves its cell empty instead of shifting the rest. Five classes
    beat the .pl-list row-link rule above. */
-.pl-list.pl-list--facts .pl-row > .entity-link:only-child {
+.pl-list.pl-list--facts .pl-row > .entity-link:only-child,
+.pl-list.pl-list--facts .pl-row.pl-row--marked > .entity-link {
   display: grid; align-items: center; column-gap: var(--sp-3); row-gap: var(--sp-1);
   grid-template-columns: minmax(0, 1fr) 9rem minmax(0, 10rem) minmax(0, 12rem) 8rem;
   grid-template-areas: "name status ctx owner num";
@@ -904,7 +909,8 @@ button.detail-card-header {
 .pl-list--facts .pl-owner { grid-area: owner; font-size: var(--text-xs); color: var(--c-text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pl-list--facts .pl-num { grid-area: num; font-size: var(--text-xs); color: var(--c-text-3); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 @media (max-width: 40rem) {
-  .pl-list.pl-list--facts .pl-row > .entity-link:only-child {
+  .pl-list.pl-list--facts .pl-row > .entity-link:only-child,
+  .pl-list.pl-list--facts .pl-row.pl-row--marked > .entity-link {
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas: "name status" "owner num" "ctx ctx";
   }

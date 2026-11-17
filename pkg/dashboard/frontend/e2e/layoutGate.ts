@@ -110,7 +110,7 @@ export function installScaleFixture(): void {
     // A narrowed list (a domain, an owner, a status, a service, an offering's consumers)
     // keeps the engine's total: the fixture leaves the tallies that link to it (an
     // offering's phases, the non-compliant rankings) alone.
-    const narrowed = ['businessDomain', 'service', 'consumes', 'ownerKey', 'owner', 'status', 'ownership', 'sourceHealth', 'text', 'createdFrom', 'failed', 'lifecycle', 'gap', 'class'].some((k) => q.get(k));
+    const narrowed = ['businessDomain', 'service', 'consumes', 'ownerKey', 'owner', 'status', 'ownership', 'sourceHealth', 'text', 'createdFrom', 'failed', 'lifecycle', 'gap', 'class', 'declaration'].some((k) => q.get(k));
     // The golden path list keeps the engine's paths: a fleet has a handful.
     if (route === '/api/fleet/entities' && Number(q.get('limit') || 25) > 1 && !narrowed && q.get('template') !== 'only') {
       const total = LIST_TOTAL[q.get('kinds') || ''];
@@ -203,8 +203,20 @@ export function installScaleFixture(): void {
         }
       }
     }
+    // The inferred population at fleet scale (509-S1): 12,400 workloads no contract
+    // describes, each row's image a digest reference with no break point.
+    if (route === '/api/fleet/entities' && q.get('declaration') === 'inferred' && Number(q.get('limit') || 25) > 1
+      && !['text', 'ownerKey', 'owner', 'status', 'ownership', 'gap', 'lifecycle', 'businessDomain'].some((k) => q.get(k))) {
+      page(doc, 12400);
+      const ag = doc.aggregate as Record<string, unknown> | undefined;
+      if (ag) { ag.matched = 12400; ag.services = 0; ag.inferredServices = 12400; }
+      for (const r of (doc.entities as Record<string, unknown>[] | undefined) ?? []) {
+        if (r.declaration === 'inferred') r.image = `registry.example.com/${longName(`inferred-image-${String(r.key)}`).replace(/[^a-z0-9-]/g, '')}@sha256:${'9f8e'.repeat(16)}`;
+      }
+    }
     if (route === '/api/fleet/overview') {
       const s = doc.summary as Record<string, unknown>;
+      s.inferredServices = 12400; s.inferredUnverified = 310;
       s.services = 5000; s.servicesNeedingAttention = 389; s.domains = 300;
       s.externals = 300; s.hiddenExternals = 12;
       s.ownership = { consistent: 3120, conflicting: 640, unowned: 1060, unknown: 180 };
@@ -251,6 +263,9 @@ export function installScaleFixture(): void {
         it.code = `${String(it.code || 'UNKNOWN')}_${'OBSERVATION_UNSUPPORTED_'.repeat(3)}CAUSE`;
         it.reason = longName(String(it.reason || 'reason'));
         it.nextAction = { verb: 'edit-contract', tool: 'pacto_edit', environment: longName('production-environment') };
+        // An inferred caller's name holds ':' and '/' with no break point; walk lengthens its label.
+        const caller = it.caller as Record<string, unknown> | undefined;
+        if (caller) caller.label = `${String(caller.label)}-${'reconciliation/'.repeat(8)}`;
       }
     }
     // Owner and domain rows with every count four digits.
@@ -824,6 +839,24 @@ export function installScaleFixture(): void {
       for (const ref of extEdges(doc.edges as Record<string, unknown>[] | undefined, focus?.ref as Record<string, unknown> | undefined)) {
         nodes?.push({ depth: 1, ref });
       }
+    }
+    // An inferred service at its longest: a 63-character namespace, a 253-character
+    // name, a digest image, 20 ports, three probes with long paths, a 200-character
+    // `from` path and calls at the detail preview bound (200), truncated.
+    if (route === '/api/fleet/entities/service' && (doc.entity as { declaration?: string } | undefined)?.declaration === 'inferred') {
+      const svc = doc.service as Record<string, unknown>;
+      const ns = 'paymentsproductionnortheuropewestonealphabravocharliedeltaecho1';
+      const name = `legacy-billing-${'reconciliation-settlement-ledger-export-'.repeat(7)}`.slice(0, 253);
+      const pod = `spec.template.spec.containers[name=${'billing-reconciliation-settlement-'.repeat(5)}]`.slice(0, 180);
+      const from = (leaf: string) => `${pod}.${leaf}`.padEnd(200, '-');
+      svc.workload = {
+        ...(svc.workload as object), namespace: ns, name,
+        image: { value: `registry.example.com/${'settlement-reconciliation/'.repeat(4)}legacy-billing@sha256:${'4f1c'.repeat(16)}`, from: from('image') },
+        ports: Array.from({ length: 20 }, (_, i) => ({ port: 8080 + i, name: `http-${'metrics'.repeat(2)}-${i}`, protocol: 'TCP', from: from(`ports[${i}].containerPort`) })),
+        probes: ['readiness', 'liveness', 'startup'].map((kind) => ({ kind, path: `/healthz/${'settlement-reconciliation/'.repeat(6)}${kind}`, port: 'http-metricsmetrics-0', from: from(`${kind}Probe`) })),
+      };
+      svc.calls = { total: 1200, count: 200, truncated: true,
+        items: Array.from({ length: 200 }, (_, i) => ({ kind: 'service', key: `load/call-${i}`, label: `call-${i}`, href: `/fleet/services/load%2Fcall-${i}` })) };
     }
     if (route === '/api/fleet/entities/service') {
       const rel = (doc.service as Record<string, unknown> | undefined)?.relationships as { items?: Record<string, unknown>[]; count?: number; total?: number } | undefined;
@@ -2213,6 +2246,18 @@ export const ROUTES: Route[] = [
   { name: 'metrics tables', open: metricsTables },
   { name: 'metrics (demo records)', open: demoMetrics('#/metrics') },
   { name: 'metrics (demo records, 90 days)', open: demoMetrics('#/metrics?window=90d') },
+  { name: 'services inferred filter', list: true, hash: '#/fleet/services?declaration=inferred' },
+  {
+    name: 'inferred entity legacy-billing',
+    open: async (page) => {
+      // The real href, so the double-encoded key is never written by hand.
+      await page.goto('/#/fleet/services?declaration=inferred');
+      const a = page.locator('main a[href*="/fleet/services/"][href*="legacy-billing"]').first();
+      await expect(a).toBeVisible({ timeout: 20_000 });
+      await page.goto(`/${await a.getAttribute('href')}`);
+      await expect(page.locator('[data-testid="inferred-workload"]')).toBeVisible({ timeout: 30_000 });
+    },
+  },
 ];
 
 /** Flips the sidebar with its "[" shortcut and returns the state it lands in. */

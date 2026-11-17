@@ -191,7 +191,7 @@ func (q *Query) withGaps(s *ServiceRecord) bool {
 // matchGap reports whether a SERVICE reference that is no golden path has the
 // gap kind, or for GapUnknown an unknown knowledge state.
 func (q *Query) matchGap(r EntityRef, want string) bool {
-	if r.Kind != KindService || r.Template {
+	if r.Kind != KindService || r.Template || r.Declaration == DeclarationInferred {
 		return false
 	}
 	gaps, cause := q.serviceKnowledge(q.snap.Services[ServiceKey(r.Key)])
@@ -241,7 +241,7 @@ var contractUnreadAlone = knowledgeItem{"Current contract unread", "Pacto could 
 func (q *Query) knowledgeAttention() []AttentionItem {
 	var out []AttentionItem
 	for _, s := range q.snap.Services {
-		if s.Template {
+		if s.Template || s.Inferred() {
 			continue
 		}
 		gaps, cause := q.serviceKnowledge(s)

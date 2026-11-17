@@ -304,7 +304,7 @@ func TestAvailabilityHiddenTargetsUnknown(t *testing.T) {
 	a.svc("pg", "postgresql")
 	a.target("pg", "pg-0", "db", "prod", time.Hour)
 	a.target("pg", "pg-1", "secret", "prod", time.Hour)
-	r := a.query().Restrict(func(ns string) bool { return ns != "secret" })
+	r := a.query().Restrict(func(ns string) bool { return ns != "secret" }, nil)
 	av := a.providerAvailability(r, "pg")
 	e := envOf(t, av, "prod")
 	wantState(t, e, AvailabilityUnknown, "unknown")
@@ -321,7 +321,7 @@ func TestAvailabilityRestrictedIsUnknown(t *testing.T) {
 	a.svc("pg", "postgresql")
 	tg := a.target("pg", "pg-0", "", "prod", time.Hour, absent())
 	tg.Kind, tg.Scope = SourceKindTargetState, ""
-	r := a.query().Restrict(func(ns string) bool { return ns != "" })
+	r := a.query().Restrict(func(ns string) bool { return ns != "" }, nil)
 	s := r.snap.Services["pg"]
 	if s == nil {
 		t.Fatal("the declared provider is hidden")
@@ -476,7 +476,7 @@ func restrictedOffering() *Query {
 	a.target("pg-ha", "ha-0", "secret", "prod", time.Hour)
 	a.svc("other", "hidden-only")
 	a.target("other", "o-0", "secret", "prod", time.Hour)
-	return a.query().Restrict(func(ns string) bool { return ns != "secret" })
+	return a.query().Restrict(func(ns string) bool { return ns != "secret" }, nil)
 }
 
 func TestOfferingAvailabilityHiddenProviderNeverUnavailable(t *testing.T) {
@@ -511,7 +511,7 @@ func TestAvailabilityHiddenConsumerReportPartial(t *testing.T) {
 	a.target("pg", "pg-0", "db", "prod", time.Hour)
 	a.dep("secret-app", "pg", "db")
 	a.target("secret-app", "s-0", "secret", "prod", time.Hour, unreachable("db"))
-	r := a.query().Restrict(func(ns string) bool { return ns != "secret" })
+	r := a.query().Restrict(func(ns string) bool { return ns != "secret" }, nil)
 	o := offeringData(t, r, "postgresql")
 	e := envOf(t, o.Providers.Items[0].Availability, "prod")
 	wantState(t, e, AvailabilityAvailable, ProvenanceObserved)
@@ -527,7 +527,7 @@ func TestAvailabilityHiddenConsumerReportPartial(t *testing.T) {
 	b.dep("c", "pg", "db")
 	b.target("c", "c-0", "apps", "prod", time.Hour, unreachable("db"))
 	b.target("c", "c-1", "secret", "prod", time.Hour)
-	r = b.query().Restrict(func(ns string) bool { return ns != "secret" })
+	r = b.query().Restrict(func(ns string) bool { return ns != "secret" }, nil)
 	if e := envOf(t, b.providerAvailability(r, "pg"), "prod"); !e.Partial || e.State != AvailabilityUnavailable {
 		t.Errorf("consumer with hidden targets: %+v", e)
 	}
@@ -676,7 +676,7 @@ func TestOfferingAvailabilityPartlyHiddenProviderNeverUnavailable(t *testing.T) 
 	a.target("pg", "pg-0", "a", "staging", time.Hour, absent())
 	a.target("pg-ha", "ha-0", "a", "prod", time.Hour)
 	a.target("pg-ha", "ha-1", "secret", "staging", time.Hour)
-	r := a.query().Restrict(func(ns string) bool { return ns != "secret" })
+	r := a.query().Restrict(func(ns string) bool { return ns != "secret" }, nil)
 	o := offeringData(t, r, "postgresql")
 	e := envOf(t, o.Availability, "staging")
 	wantState(t, e, AvailabilityUnknown, provenanceUnknown)
@@ -692,7 +692,7 @@ func TestAvailabilityHiddenTargetsLabel(t *testing.T) {
 	a.svc("pg", "postgresql")
 	tg := a.target("pg", "pg-0", "", "prod", time.Hour)
 	tg.Kind, tg.Scope = SourceKindTargetState, ""
-	r := a.query().Restrict(func(ns string) bool { return ns != "" })
+	r := a.query().Restrict(func(ns string) bool { return ns != "" }, nil)
 	e := a.providerAvailability(r, "pg").ByEnvironment[0]
 	if !e.TargetsHidden || e.label() != "(no target you may see)" || !strings.HasPrefix(e.Line(), "(no target you may see): unknown") {
 		t.Errorf("entry = %+v", e)

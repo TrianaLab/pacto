@@ -60,7 +60,7 @@ func shopOnly(ns string) bool { return ns == "shop" }
 
 func restrictedScope(t *testing.T) Scope {
 	full := statsFleet(t)
-	return Scope{Restricted: true, Place: FleetPlacement(full, full.Restrict(shopOnly)), OperationVisible: shopOnly}
+	return Scope{Restricted: true, Place: FleetPlacement(full, full.Restrict(shopOnly, nil)), OperationVisible: shopOnly}
 }
 
 func unrestrictedScope(t *testing.T) Scope {
@@ -213,7 +213,7 @@ func TestFleetPlacementResolvesEachNameOnce(t *testing.T) {
 // land on the visible service.
 func TestRestrictedBareNameSharedWithHiddenDomainIsHidden(t *testing.T) {
 	full := buildFleet(t, "")
-	sc := Scope{Restricted: true, Place: FleetPlacement(full, full.Restrict(shopOnly)), OperationVisible: shopOnly}
+	sc := Scope{Restricted: true, Place: FleetPlacement(full, full.Restrict(shopOnly, nil)), OperationVisible: shopOnly}
 	st := aggBy(set(breaking(diffOf("orders"))), "service", sc)
 	if st.Runs != 0 || !st.Hidden.Present {
 		t.Fatalf("answer = %+v", st)
@@ -240,7 +240,7 @@ func TestRestrictedBareNameSharedWithHiddenDomainIsHidden(t *testing.T) {
 // they are its own unreadable records, never records outside the view.
 func TestRestrictedVisibleServiceOnlySkippedIsSkipped(t *testing.T) {
 	full := statsFleet(t)
-	view := full.Restrict(shopOnly)
+	view := full.Restrict(shopOnly, nil)
 	sc := restrictedScope(t)
 	sc.Names = VisibleNames(view)
 	if want := []string{"catalog", "ghost", "orders"}; !reflect.DeepEqual(sc.Names, want) {
@@ -445,5 +445,17 @@ func TestOperationNamespacesSortedUnique(t *testing.T) {
 	got := OperationNamespaces(set(at("b"), at("a"), at("b"), at(""), noStage, diffOf("orders")))
 	if !reflect.DeepEqual(got, []string{"a", "b"}) {
 		t.Fatalf("namespaces = %v", got)
+	}
+}
+
+func TestVisibleNamesExcludesInferred(t *testing.T) {
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: func() time.Time { return fleetNow }},
+		fleet.NewMemorySource("k8s", fleet.SourceKindKubernetes, &fleet.Collection{Targets: []fleet.RawTarget{{Scope: "shop", Kind: "kubernetes", Name: "orders", Service: "orders"}}}),
+		fleet.NewMemorySource("k8s-workloads", fleet.SourceKindKubernetesWorkloads, &fleet.Collection{InferredServices: []fleet.RawInferredService{{Namespace: "shop", Kind: "Deployment", Name: "cart"}}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := VisibleNames(fleet.NewQuery(snap)); !reflect.DeepEqual(got, []string{"orders"}) {
+		t.Errorf("names = %v", got)
 	}
 }

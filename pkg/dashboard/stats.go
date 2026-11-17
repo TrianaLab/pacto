@@ -635,6 +635,9 @@ func newStatsLinks(view *fleet.Query) statsLinks {
 	}
 	snap := view.SnapshotForSerialization()
 	for key, svc := range snap.Services {
+		if svc.Inferred() {
+			continue // no run record names an inferred service
+		}
 		l.keys[svc.Name] = append(l.keys[svc.Name], key)
 		l.known[key] = true
 	}

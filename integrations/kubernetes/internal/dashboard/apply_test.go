@@ -198,6 +198,16 @@ func TestDashboardRoleReadsDeliveryOnly(t *testing.T) {
 				t.Errorf("the dashboard role reaches %q", g)
 			}
 		}
+		for _, res := range r.Resources {
+			if res == "pods" || res == "secrets" || res == "configmaps" {
+				t.Errorf("the dashboard role reads %s", res)
+			}
+		}
+		if slices.Equal(r.APIGroups, []string{"apps"}) || slices.Equal(r.APIGroups, []string{"batch"}) {
+			if !slices.Equal(r.Verbs, []string{"list"}) {
+				t.Errorf("the dashboard role may %v workloads %v; inferred services need list only", r.Verbs, r.Resources)
+			}
+		}
 		for _, v := range r.Verbs {
 			if v == "impersonate" || v == "*" || v == "create" || v == "update" || v == "patch" || v == "delete" {
 				t.Errorf("the dashboard role may %s", v)

@@ -223,7 +223,7 @@ function parseFleet(path: string, query: string): Route {
     // `domain` is the registry path; `businessDomain` is the business domain, with
     // `(none)` for the services that declare none.
     // `gap` keeps the services whose contracts leave that knowledge out.
-    for (const k of ['text', 'owner', 'ownerKey', 'ownership', 'gap', 'status', 'domain', 'businessDomain', 'capability', 'offering', 'consumes', 'phase', 'createdFrom', 'offset', 'limit', 'sort']) {
+    for (const k of ['text', 'owner', 'ownerKey', 'ownership', 'gap', 'status', 'domain', 'businessDomain', 'capability', 'offering', 'consumes', 'phase', 'createdFrom', 'declaration', 'offset', 'limit', 'sort']) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
@@ -494,7 +494,7 @@ function setPaging(qs: URLSearchParams, p: ListPaging) {
 // carrying them would be an inert URL filter.
 export function fleetServicesUrl(opts: {
   text?: string; owner?: string; ownerKey?: string; ownership?: string; gap?: string; status?: string; domain?: string;
-  businessDomain?: string; capability?: string; offering?: string; consumes?: string; phase?: string; createdFrom?: string; offset?: number;
+  businessDomain?: string; capability?: string; offering?: string; consumes?: string; phase?: string; createdFrom?: string; declaration?: string; offset?: number;
 } & ListPaging = {}): string {
   const qs = new URLSearchParams();
   if (opts.text) qs.set('text', opts.text);
@@ -520,6 +520,8 @@ export function fleetServicesUrl(opts: {
   if (opts.consumes && opts.phase) qs.set('phase', opts.phase);
   // createdFrom keeps the services whose declared origin is that golden path.
   if (opts.createdFrom) qs.set('createdFrom', opts.createdFrom);
+  // declaration keeps the declared or the inferred services; absent lists both.
+  if (opts.declaration) qs.set('declaration', opts.declaration);
   setPaging(qs, opts);
   const str = qs.toString();
   return str ? `#/fleet/services?${str}` : '#/fleet/services';

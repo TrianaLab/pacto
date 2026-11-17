@@ -1389,7 +1389,7 @@ func TestGetTargetAmbiguityOnlyListsVisibleTargets(t *testing.T) {
 	if _, err := q.GetTarget(legacy); !errors.As(err, &amb) {
 		t.Fatalf("unrestricted, the key names two clusters: %v", err)
 	}
-	v, err := q.Restrict(func(ns string) bool { return ns != "vault" }).GetTarget(legacy)
+	v, err := q.Restrict(func(ns string) bool { return ns != "vault" }, nil).GetTarget(legacy)
 	if err != nil {
 		t.Fatalf("the only visible candidate resolves: %v", err)
 	}

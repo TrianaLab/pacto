@@ -218,7 +218,7 @@ func TestRestrictedServiceWithHiddenTargetsIsNotNotDeployed(t *testing.T) {
 	if gaps, _ := knowledgeOf(t, q, "shop"); !slices.Equal(gaps, []string{GapNotDeployed}) {
 		t.Fatalf("unrestricted gaps = %v", gaps)
 	}
-	r := q.Restrict(func(ns string) bool { return ns != "" })
+	r := q.Restrict(func(ns string) bool { return ns != "" }, nil)
 	if r == q {
 		t.Fatal("the cluster-scope restriction hid nothing")
 	}

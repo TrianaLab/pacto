@@ -286,6 +286,7 @@ func newFleetSearchCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd.Flags().Bool("has-dependency", false, "only services declaring a dependency")
 	cmd.Flags().String("scope", "", "correlate to a target with this scope")
 	addTemplateFlag(cmd.Flags())
+	addDeclarationFlag(cmd)
 	cmd.Flags().Int("limit", 0, fmt.Sprintf("maximum results (0 = %d, capped at %d)", fleet.DefaultSearchLimit, fleet.MaxSearchLimit))
 	cmd.Flags().Int("offset", 0, "result offset for paging")
 
@@ -311,6 +312,7 @@ func searchFilterFromCmd(cmd *cobra.Command, text string) (fleet.SearchFilter, e
 	workload, _ := cmd.Flags().GetString("workload")
 	scope, _ := cmd.Flags().GetString("scope")
 	template, _ := cmd.Flags().GetString("template")
+	declaration, _ := cmd.Flags().GetString("declaration")
 	labels, _ := cmd.Flags().GetStringArray("label")
 	ready, _ := cmd.Flags().GetBool("ready")
 	notReady, _ := cmd.Flags().GetBool("not-ready")
@@ -322,7 +324,7 @@ func searchFilterFromCmd(cmd *cobra.Command, text string) (fleet.SearchFilter, e
 	return fleet.SearchFilter{
 		Text: text, Owner: owner, BusinessDomain: businessDomain, Offering: offering, Labels: parsed, Scope: scope, Status: status,
 		Compliance: compliance, Source: source, Workload: workload,
-		HasCapability: hasCap, HasDependency: hasDep, ReadyOnly: ready, NotReady: notReady, Template: template,
+		HasCapability: hasCap, HasDependency: hasDep, ReadyOnly: ready, NotReady: notReady, Template: template, Declaration: declaration,
 		Limit: limit, Offset: offset,
 	}, err
 }

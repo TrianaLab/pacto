@@ -711,7 +711,7 @@ func TestFleetEntitiesConsumes(t *testing.T) {
 // is never named.
 func TestFleetOfferingToolsAnswerFromTheView(t *testing.T) {
 	view := func(_ context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
-		return q.Restrict(func(ns string) bool { return ns != "secretns" }), nil
+		return q.Restrict(func(ns string) bool { return ns != "secretns" }, nil), nil
 	}
 	server := mustNew("test", Authoring{}, Modes{Fleet: &FleetMode{Src: staticFleet(offeringFleet(t)), Opts: FleetOptions{View: view}}})
 	for _, c := range []struct {
