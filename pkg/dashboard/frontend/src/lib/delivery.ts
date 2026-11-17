@@ -478,7 +478,7 @@ const GATE_LABELS: Record<string, string> = {
  */
 const APPLIER_STALE_MS = 2 * 60_000;
 
-export interface ApplierLine {
+interface ApplierLine {
   /** display is the one manager string every surface prints. */
   display: string;
   /** problem says in words why the Stage does not adopt it, else ''. */
