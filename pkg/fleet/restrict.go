@@ -181,6 +181,7 @@ func (q *Query) Restrict(visible func(namespace string) bool, workloadVisible fu
 	out.hiddenServices = hiddenSvc
 	out.templateEdges = restrictTemplateEdges(&out, s.templateEdges, hiddenSvc, dropped)
 	out.UncontractedCallers = restrictCallers(s, hiddenSvc, hiddenNS, restricted, hiddenDeps, hiddenDependents)
+	out.InferredRelationships = restrictInferredEdges(s.InferredRelationships, hiddenSvc, hiddenDeps, hiddenDependents)
 	out.hiddenDependents = hiddenDependents
 	out.hiddenReferrers = hiddenReferrers
 	origins, hiddenCreated := restrictOrigins(s, hiddenSvc)
@@ -196,6 +197,8 @@ func (q *Query) Restrict(visible func(namespace string) bool, workloadVisible fu
 	out.forwardDeps = restrictIndex(s.forwardDeps, keep, keep)
 	out.observedReverse = restrictIndex(s.observedReverse, keep, keep)
 	out.observedForward = restrictIndex(s.observedForward, keep, keep)
+	out.inferredReverse = restrictIndex(s.inferredReverse, keep, keep)
+	out.inferredForward = restrictIndex(s.inferredForward, keep, keep)
 	out.forwardDepsByRevision = restrictIndex(s.forwardDepsByRevision, func(k RevisionKey) bool { return out.Revisions[k] != nil }, keep)
 
 	recountSources(&out)
@@ -340,10 +343,45 @@ func restrictCallers(s *FleetSnapshot, hiddenSvc map[ServiceKey]bool, hiddenNS m
 		if dependents[c.ToService] == nil {
 			dependents[c.ToService] = map[ServiceKey]bool{}
 		}
-		// ponytail: a pseudo key only counted, never emitted, so a caller and a
-		// service of the same name count twice.
-		dependents[c.ToService][ServiceKey("caller:"+c.Caller)] = true
+		dependents[c.ToService][hiddenCallerKey(c)] = true
 		return true
+	})
+}
+
+// hiddenCallerKey is the key a hidden uncontracted caller counts by: its
+// inferred service, so its inferred edge to the same service counts it once.
+func hiddenCallerKey(c UncontractedCaller) ServiceKey {
+	if c.Entity != "" {
+		return c.Entity
+	}
+	// ponytail: a pseudo key only counted, never emitted, for a caller with
+	// no entity, so it and a service of the same name count twice.
+	return ServiceKey("caller:" + c.Caller)
+}
+
+// restrictInferredEdges is rels without the edges a hidden service ends. A
+// hidden caller counts in the visible callee's dependents and a hidden callee
+// in the visible caller's dependencies, both by the hidden end's key, so a
+// workload also counted as an uncontracted caller counts once. An external
+// end is never hidden; an edge from a hidden caller to one goes uncounted,
+// as its record drops the caller.
+func restrictInferredEdges(rels []Relationship, hiddenSvc map[ServiceKey]bool, deps, dependents map[ServiceKey]map[ServiceKey]bool) []Relationship {
+	count := func(m map[ServiceKey]map[ServiceKey]bool, at, other ServiceKey) {
+		if m[at] == nil {
+			m[at] = map[ServiceKey]bool{}
+		}
+		m[at][other] = true
+	}
+	return slices.DeleteFunc(slices.Clone(rels), func(rel Relationship) bool {
+		from, to := hiddenSvc[rel.FromService], hiddenSvc[rel.ToService]
+		switch {
+		case from && to:
+		case from && rel.ToService != "":
+			count(dependents, rel.ToService, rel.FromService)
+		case to:
+			count(deps, rel.FromService, rel.ToService)
+		}
+		return from || to
 	})
 }
 

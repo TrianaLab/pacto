@@ -119,33 +119,6 @@ func TestFoldInferredCallerCarriesEntity(t *testing.T) {
 	sameJSON(t, "uncontracted callers", without.snap.UncontractedCallers, with.snap.UncontractedCallers)
 }
 
-func TestFoldInferredCalleeKeepsUnknownBehaviour(t *testing.T) {
-	q := goldenWith(t, true, kernel(call("orders", cartName), call(sweepName, "k8s:shop/Deployment/gone")))
-	if len(q.snap.UncontractedCallers) != 0 {
-		t.Errorf("callers %+v", q.snap.UncontractedCallers)
-	}
-	for _, rel := range q.snap.Relationships {
-		if rel.Provenance == ProvenanceObserved {
-			t.Errorf("an edge to an inferred service %+v", rel)
-		}
-	}
-	for _, n := range []string{cartName, sweepName} {
-		if !limitationMentions(q.snap, LimitationObservedIdentityUnresolved, n+" could not be mapped") {
-			t.Errorf("no unknown limitation for %s: %+v", n, q.snap.Limitations)
-		}
-	}
-}
-
-func TestFoldInferredCallerOfExternalStaysUnknown(t *testing.T) {
-	q := goldenWith(t, true, kernel(call(cartName, "api.stripe.com")))
-	if !limitationMentions(q.snap, LimitationObservedIdentityUnresolved, cartName) {
-		t.Errorf("limitations %+v", q.snap.Limitations)
-	}
-	if len(q.snap.Relationships) != len(goldenWith(t, false).snap.Relationships) {
-		t.Error("an inferred caller of an external system made an edge")
-	}
-}
-
 // overviewFigures is every Overview figure that means declared services.
 func overviewFigures(o OverviewSummary) any {
 	return []any{o.Services, o.Ownership, o.Knowledge, o.KnowledgeItems, o.GoldenPaths, o.InvalidGoldenPaths, o.ByDomain, o.ServicesNeedingAttention}

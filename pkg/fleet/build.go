@@ -106,6 +106,8 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 		forwardDepsByRevision: map[RevisionKey][]ServiceKey{},
 		observedReverse:       map[ServiceKey][]ServiceKey{},
 		observedForward:       map[ServiceKey][]ServiceKey{},
+		inferredReverse:       map[ServiceKey][]ServiceKey{},
+		inferredForward:       map[ServiceKey][]ServiceKey{},
 		provisioningWindow:    opts.FreshnessWindow,
 		Clusters:              clusters.records,
 		clusterKeyed:          clusters.multi,
@@ -2582,6 +2584,36 @@ func (a *observedEdgeAgg) add(oi observedInput) {
 	mergeWindow(&st.FirstSeen, &st.LastSeen, oi.edge.FirstSeen, oi.edge.LastSeen)
 }
 
+// edgeFold aggregates observed edges by key, in first-seen order.
+type edgeFold struct {
+	edges map[observedEdgeKey]*observedEdgeAgg
+	order []observedEdgeKey
+}
+
+// count adds one raw observed edge to the aggregate of k.
+func (f *edgeFold) count(k observedEdgeKey, oi observedInput, match string) {
+	a := f.edges[k]
+	if a == nil {
+		if f.edges == nil {
+			f.edges = map[observedEdgeKey]*observedEdgeAgg{}
+		}
+		a = &observedEdgeAgg{bySource: map[string]*ObservedSourceStat{}, match: match}
+		f.edges[k] = a
+		f.order = append(f.order, k)
+	}
+	a.add(oi)
+}
+
+// emit calls fn for every aggregated edge, sorted by key.
+func (f *edgeFold) emit(snap *FleetSnapshot, fn func(*FleetSnapshot, observedEdgeKey, *observedEdgeAgg)) {
+	slices.SortFunc(f.order, func(a, b observedEdgeKey) int {
+		return cmp.Or(cmp.Compare(a.from, b.from), cmp.Compare(a.to, b.to), cmp.Compare(a.ext, b.ext))
+	})
+	for _, k := range f.order {
+		fn(snap, k, f.edges[k])
+	}
+}
+
 // foldObservedRelationships resolves runtime-observed edges to UNIQUE
 // domain-qualified services and folds resolved edges into the snapshot as observed
 // dependency relationships, summing counts for duplicate edges. An endpoint that
@@ -2592,7 +2624,10 @@ func (a *observedEdgeAgg) add(oi observedInput) {
 // is an observed edge to that system instead, kept out of every service index.
 // Resolved service edges also extend the SEPARATE observed adjacency indexes,
 // keeping the declared graph declared while making observed-only (shadow)
-// callers reachable in the operational graph.
+// callers reachable in the operational graph. An edge with an inferred end
+// and no unresolved one is an inferred relationship (see
+// emitInferredRelationship); an inferred caller of a declared service also
+// stays an uncontracted caller.
 func foldObservedRelationships(snap *FleetSnapshot, observed []observedInput) {
 	if len(observed) == 0 {
 		return
@@ -2600,17 +2635,7 @@ func foldObservedRelationships(snap *FleetSnapshot, observed []observedInput) {
 	snap.observingSources = observingSourcesOf(observed)
 	resolve := snap.ObservedNameResolver()
 	seenLim := map[string]bool{}
-	edges := map[observedEdgeKey]*observedEdgeAgg{}
-	var order []observedEdgeKey
-	count := func(k observedEdgeKey, oi observedInput, match string) {
-		a := edges[k]
-		if a == nil {
-			a = &observedEdgeAgg{bySource: map[string]*ObservedSourceStat{}, match: match}
-			edges[k] = a
-			order = append(order, k)
-		}
-		a.add(oi)
-	}
+	var edges, inferred edgeFold
 	uncontracted := map[callerKey]map[string]bool{}
 	for _, oi := range observed {
 		fromKey, fromRes := resolve(oi.edge.From)
@@ -2618,10 +2643,22 @@ func foldObservedRelationships(snap *FleetSnapshot, observed []observedInput) {
 		if m, ok := snap.observedExternalMatch(oi.edge.To, toRes); ok {
 			// An external callee is no unresolved service; an unresolved caller still is.
 			addObservedLimitation(snap, seenLim, oi.edge.From, fromRes, oi.source)
-			if fromRes == ObservedResolved {
-				count(observedEdgeKey{from: fromKey, ext: ExternalKey(m.Identity)}, oi, m.Kind)
+			k := observedEdgeKey{from: fromKey, ext: ExternalKey(m.Identity)}
+			switch fromRes {
+			case ObservedResolved:
+				edges.count(k, oi, m.Kind)
+			case ObservedInferred:
+				inferred.count(k, oi, m.Kind)
 			}
 			continue
+		}
+		if inferredEnds(fromRes, toRes) {
+			if fromKey != toKey {
+				inferred.count(observedEdgeKey{from: fromKey, to: toKey}, oi, "")
+			}
+			if toRes != ObservedResolved {
+				continue
+			}
 		}
 		addObservedLimitation(snap, seenLim, oi.edge.To, toRes, oi.source)
 		if toRes == ObservedResolved && fromRes != ObservedResolved {
@@ -2640,16 +2677,12 @@ func foldObservedRelationships(snap *FleetSnapshot, observed []observedInput) {
 		}
 		addObservedLimitation(snap, seenLim, oi.edge.From, fromRes, oi.source)
 		if fromRes == ObservedResolved && toRes == ObservedResolved {
-			count(observedEdgeKey{from: fromKey, to: toKey}, oi, "")
+			edges.count(observedEdgeKey{from: fromKey, to: toKey}, oi, "")
 		}
 	}
 	setUncontractedCallers(snap, uncontracted)
-	slices.SortFunc(order, func(a, b observedEdgeKey) int {
-		return cmp.Or(cmp.Compare(a.from, b.from), cmp.Compare(a.to, b.to), cmp.Compare(a.ext, b.ext))
-	})
-	for _, k := range order {
-		emitObservedRelationship(snap, k, edges[k])
-	}
+	edges.emit(snap, emitObservedRelationship)
+	inferred.emit(snap, emitInferredRelationship)
 }
 
 // emitObservedRelationship appends the observed relationship of one
@@ -2657,6 +2690,19 @@ func foldObservedRelationships(snap *FleetSnapshot, observed []observedInput) {
 // edge to an external system records its caller on the system's record
 // instead.
 func emitObservedRelationship(snap *FleetSnapshot, k observedEdgeKey, a *observedEdgeAgg) {
+	rel := aggregatedRelationship(k, a, ProvenanceObserved)
+	snap.Relationships = append(snap.Relationships, rel)
+	if k.ext != "" {
+		recordObservedExternal(snap, k.from, k.ext, a.match, ProvenanceObserved)
+		return
+	}
+	snap.observedForward[k.from] = appendUnique(snap.observedForward[k.from], k.to)
+	snap.observedReverse[k.to] = appendUnique(snap.observedReverse[k.to], k.from)
+}
+
+// aggregatedRelationship is the dependency relationship of one aggregated
+// runtime edge, with its per-source counts and window.
+func aggregatedRelationship(k observedEdgeKey, a *observedEdgeAgg, provenance string) Relationship {
 	sort.Strings(a.sources)
 	stats := make([]ObservedSourceStat, 0, len(a.sources))
 	var winFirst, winLast *time.Time
@@ -2671,19 +2717,12 @@ func emitObservedRelationship(snap *FleetSnapshot, k observedEdgeKey, a *observe
 	if len(a.sources) == 1 {
 		source = a.sources[0]
 	}
-	rel := Relationship{
+	return Relationship{
 		FromService: k.from, ToService: k.to, ToExternal: k.ext, Type: RelationshipDependency,
-		Provenance: ProvenanceObserved, Resolved: k.ext == "",
+		Provenance: provenance, Resolved: k.ext == "",
 		ObservedCount: a.total, Source: source,
 		ObservedSources: stats, FirstSeen: winFirst, LastSeen: winLast,
 	}
-	snap.Relationships = append(snap.Relationships, rel)
-	if k.ext != "" {
-		recordObservedExternal(snap, k.from, k.ext, a.match)
-		return
-	}
-	snap.observedForward[k.from] = appendUnique(snap.observedForward[k.from], k.to)
-	snap.observedReverse[k.to] = appendUnique(snap.observedReverse[k.to], k.from)
 }
 
 // reconcileDeclared classifies each declared dependency edge against the
@@ -2760,9 +2799,7 @@ func mergeWindowP(dstFirst, dstLast **time.Time, first, last *time.Time) {
 func addObservedLimitation(snap *FleetSnapshot, seen map[string]bool, name string, res ObservedResolution, source string) {
 	reason := ""
 	switch res {
-	case ObservedUnknown, ObservedInferred:
-		// An inferred endpoint keeps the unknown behaviour until edges
-		// between inferred services exist.
+	case ObservedUnknown:
 		reason = "unknown"
 	case ObservedAmbiguous:
 		reason = "ambiguous across domains"
@@ -3371,6 +3408,7 @@ func degradedLimitations(snap *FleetSnapshot) []Limitation {
 // sortSnapshot imposes deterministic ordering on every slice.
 func sortSnapshot(snap *FleetSnapshot) {
 	sortRelationships(snap.Relationships)
+	sortRelationships(snap.InferredRelationships)
 	sortRelationships(snap.templateEdges)
 	sort.Slice(snap.Sources, func(i, j int) bool { return snap.Sources[i].ID < snap.Sources[j].ID })
 	sortProvisioning(snap.Provisioning)

@@ -243,7 +243,10 @@ const (
 // Provenance distinguishes how a relationship became known: "declared" (from a
 // contract), "observed" (folded from runtime telemetry, see
 // foldObservedRelationships) or "inferred" (an external system a source
-// recognized in a service's configuration, see foldExternalUses). They are
+// recognized in a service's configuration, see foldExternalUses, or a runtime
+// call one of whose ends no contract describes: an inferred service, see
+// foldObservedRelationships; inferred service edges live in
+// InferredRelationships). They are
 // kept separate so neither an observed nor an inferred edge is conflated with
 // declared intent, and an inferred edge never enters an index a gate reads.
 const (
@@ -997,8 +1000,11 @@ func ConsumesEdge(rel Relationship) bool {
 // originates from a specific [ContractRevision] (FromRevision) of a logical
 // service (FromService) — never from "the service's latest revision". Declared,
 // observed and inferred edges are kept apart (see Provenance); an observed edge
-// is folded from runtime telemetry and carries ObservedCount/Source, and an
-// inferred edge to an external system carries InferredSources/Confidence.
+// is folded from runtime telemetry and carries ObservedCount/Source, an
+// inferred edge to an external system read from configuration carries
+// InferredSources/Confidence, and an inferred runtime call with an end no
+// contract describes carries ObservedCount/ObservedSources and lives in
+// [FleetSnapshot.InferredRelationships].
 type Relationship struct {
 	FromService      ServiceKey  `json:"fromService"`
 	FromRevision     RevisionKey `json:"fromRevision,omitempty"`
@@ -1225,9 +1231,14 @@ type FleetSnapshot struct {
 	Revisions     map[RevisionKey]*ContractRevision `json:"revisions"`
 	Targets       map[TargetKey]*TargetRecord       `json:"targets"`
 	Relationships []Relationship                    `json:"relationships"`
-	Sources       []SourceState                     `json:"sources"`
-	Completeness  Completeness                      `json:"completeness"`
-	Limitations   []Limitation                      `json:"limitations,omitempty"`
+	// InferredRelationships are runtime calls with at least one end no
+	// contract describes (an inferred service). They are kept out of
+	// Relationships and every index a gate, impact or reconciliation reads:
+	// an inferred edge never satisfies a dependency. Sorted like Relationships.
+	InferredRelationships []Relationship `json:"inferredRelationships,omitempty"`
+	Sources               []SourceState  `json:"sources"`
+	Completeness          Completeness   `json:"completeness"`
+	Limitations           []Limitation   `json:"limitations,omitempty"`
 	// Clusters are the clusters any source reported, sorted by id. Target keys
 	// carry a cluster component only when there are two or more.
 	Clusters []ClusterRecord `json:"clusters,omitempty"`
@@ -1293,7 +1304,7 @@ type FleetSnapshot struct {
 	hiddenConsumers map[ServiceKey]map[ServiceKey]bool
 	// hiddenDependents maps, in a restricted snapshot, a service to the hidden
 	// services that depend on or call it and its hidden uncontracted callers
-	// (as caller:<name> keys). Only counted.
+	// (by their inferred service key, else as caller:<name> keys). Only counted.
 	hiddenDependents map[ServiceKey]map[ServiceKey]bool
 	// hiddenReferrers maps, in a restricted snapshot, a service to the hidden
 	// services whose policy references resolve to it. Only counted.
@@ -1332,6 +1343,10 @@ type FleetSnapshot struct {
 	// callers can layer observed evidence on top rather than conflating the two.
 	observedReverse map[ServiceKey][]ServiceKey
 	observedForward map[ServiceKey][]ServiceKey
+	// inferredReverse/inferredForward are the adjacency of InferredRelationships
+	// between services, apart from the declared and observed indexes.
+	inferredReverse map[ServiceKey][]ServiceKey
+	inferredForward map[ServiceKey][]ServiceKey
 	// observingSources are the ids of the sources that reported at least one
 	// observed edge: an inferred service's calls are known only where one of
 	// them is available.

@@ -3052,6 +3052,7 @@ export interface components {
             };
             /** Format: date-time */
             generatedAt: string;
+            inferredRelationships?: components["schemas"]["Fleet.Relationship"][] | null;
             limitations?: components["schemas"]["Fleet.Limitation"][] | null;
             providers?: components["schemas"]["Fleet.Provider"][] | null;
             provisioning?: components["schemas"]["Fleet.ProvisioningRecord"][] | null;
