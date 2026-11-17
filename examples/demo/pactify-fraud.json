@@ -21,7 +21,8 @@
   ],
   "next": [
     "put the signing key at cosign.key: a cosign PEM private key, decrypted with COSIGN_PASSWORD",
-    "the publish section is for pacto publish only: for a contract that only describes fraud, run pacto init --describe-only instead (describe_only: true with pacto_create)"
+    "the publish section is for pacto publish only: for a contract that only describes fraud, run pacto init --describe-only instead (describe_only: true with pacto_create)",
+    "pacto.yaml declares pactoVersion 2.1, so pacto pack publishes none of what Pacto inferred: set pactoVersion: \"2.5\" to publish it in pacto.inferred.yaml"
   ],
   "files": [
     {
@@ -66,13 +67,6 @@
         "outranks": [
           "k8s/deployment.yaml:18"
         ]
-      },
-      {
-        "field": "workload",
-        "value": "service (Deployment fraud)",
-        "source": "k8s/deployment.yaml:2",
-        "confidence": "likely",
-        "declare": "workload: service\n"
       }
     ]
   }

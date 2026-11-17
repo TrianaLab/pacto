@@ -531,6 +531,9 @@ func printExplainInferred(w io.Writer, result *app.ExplainResult) {
 		if f.Class == contract.InferredClassOwnerFile {
 			line += "; read from an owner file, not verified"
 		}
+		if f.Confidence == contract.ConfidencePossible {
+			line += "; possible (a naming convention)"
+		}
 		if len(f.Outranks) > 0 {
 			line += "; outranks " + strings.Join(mapStrings(f.Outranks, explainSource), ", ")
 		}
@@ -577,15 +580,20 @@ func mapStrings(in []string, f func(string) string) []string {
 	return out
 }
 
-// printDiscoveryFindings prints what discovery recognized in the folder but
-// could not read, in the record's order: a truncation first.
+// printDiscoveryFindings prints what discovery could not read or choose in
+// the folder, in the record's order: a truncation first. A message that does
+// not name its source (a chart dependency) is prefixed with it.
 func printDiscoveryFindings(w io.Writer, result *app.ExplainResult) {
 	if len(result.InferredFindings) == 0 {
 		return
 	}
-	_, _ = fmt.Fprintln(w, "\nDiscovery findings (recognized, not read):")
+	_, _ = fmt.Fprintln(w, "\nDiscovery findings:")
 	for _, f := range result.InferredFindings {
-		_, _ = fmt.Fprintf(w, "  %s  %s\n", f.Code, f.Message)
+		msg := f.Message
+		if f.Source != "." && !strings.Contains(msg, f.Source) {
+			msg = explainSource(f.Source) + "  " + msg
+		}
+		_, _ = fmt.Fprintf(w, "  %s  %s\n", f.Code, msg)
 	}
 	if result.InferredFindingsDropped > 0 {
 		_, _ = fmt.Fprintf(w, "  and %d more\n", result.InferredFindingsDropped)

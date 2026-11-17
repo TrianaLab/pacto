@@ -180,9 +180,11 @@ type Result struct {
 	// Steps say how far creating from a golden path got, and what Pacto
 	// cannot tell yet.
 	Steps []fleet.CreationStep `json:"steps,omitempty"`
-	// Inferred is what the folder shows beyond the pacto.yaml it already
-	// holds, in complete mode: pacto pack and pacto publish put it in the
-	// bundle as pacto.inferred.yaml. The folder never gets the file.
+	// Inferred is what the folder shows beyond pacto.yaml: in complete mode
+	// beyond the one it holds, for a new contract beyond the one init plans
+	// to write. pacto pack and pacto publish put it in the bundle as
+	// pacto.inferred.yaml when pacto.yaml declares pactoVersion 2.5 (an older
+	// one says so in Next). The folder never gets the file.
 	Inferred *contract.InferredRecord `json:"inferred,omitempty"`
 }
 

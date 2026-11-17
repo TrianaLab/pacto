@@ -26,7 +26,10 @@ func createTool() *mcpsdk.Tool {
 			"Translates user intent (stores_data, data_survives_restart, etc.) into " +
 			"correct contract primitives. Scaffolds pacto.yaml plus interface and " +
 			"config files. Supports dry_run mode. With pactify it does what `pacto init` does " +
-			"to an existing service folder at path: reads its Dockerfile and Kubernetes manifests " +
+			"to an existing service folder at path: reads its Dockerfile, Kubernetes manifests, Helm charts (statically: no template is rendered and no dependency downloaded), " +
+			"Kustomize overlays, Compose files, OpenAPI, AsyncAPI and proto files at any path, catalog-info.yaml and in-repo Argo CD or Flux objects, " +
+			"and .github/CODEOWNERS, CODEOWNERS or docs/CODEOWNERS at the root of the enclosing Git repository, above path " +
+			"(see 'What Pacto reads from your folder' in the pactify docs) " +
 			"(the environment and ConfigMaps become a configuration schema of keys and types with no values, sensitive keys marked writeOnly; " +
 			"service URLs become dependencies, " +
 			"probes become a health check), plans the contract and, with delivery, the cluster pieces, " +
@@ -37,10 +40,13 @@ func createTool() *mcpsdk.Tool {
 			"pacto.yaml as commented dependency entries for a person to uncomment. " +
 			"The contract gets a publish section for pacto publish unless describe_only is set: " +
 			"set describe_only when you are asked to describe or document a service. " +
-			"On a folder that already holds pacto.yaml, pactify completes it without changing it and returns the inferred fields with their sources in 'inferred' " +
-			"(keys and types only, never a value), which pacto pack and pacto publish put in the bundle as pacto.inferred.yaml. " +
-			"Completion needs pactoVersion 2.5 (or none) and never runs with cluster: an older contract keeps mode 'pactify' with no 'inferred' " +
-			"and a Next step to raise pactoVersion, so no 'inferred' there means not completed, never nothing to add. " +
+			"pactify returns in 'inferred' what the folder shows beyond pacto.yaml, each field with its source, confidence (likely: a file states it; possible: a naming convention) " +
+			"and the sources it outranks (keys and types only, never a value), and in 'inferred.findings' what discovery could not read or choose " +
+			"(codes DISCOVERY_UNSUPPORTED_FILE, DISCOVERY_AMBIGUOUS, DISCOVERY_CHART_DEPENDENCY_UNLOCKED, DISCOVERY_UNREADABLE, DISCOVERY_UNRESOLVED, DISCOVERY_TRUNCATED, each with its source and message). " +
+			"On a folder that already holds pacto.yaml, pactify completes it without changing it; for a new contract 'inferred' is what the pacto.yaml it plans leaves out. " +
+			"pacto pack and pacto publish put 'inferred' in the bundle as pacto.inferred.yaml only when pacto.yaml declares pactoVersion 2.5: " +
+			"a new contract below 2.5 says so in Next. Completion needs pactoVersion 2.5 (or none) and never runs with cluster: an existing contract below 2.5 keeps mode 'pactify' with no 'inferred' " +
+			"and a Next step, so no 'inferred' there means not completed, never nothing to add. " +
 			"It only adds files; dry_run plans and writes nothing. For an AI agent, see pacto_schema. " +
 			"With from it creates the service from a golden path like `pacto init --from` (over stdio only): " +
 			"golden paths are listed by pacto mcp --fleet (pacto_fleet_entities template=only) or pacto fleet entities --template. " +
@@ -62,7 +68,7 @@ func createTool() *mcpsdk.Tool {
 			"config_properties":            {Type: "string", Description: "JSON array of config properties: [{name, type?, required?}]"},
 			"metadata":                     {Type: "string", Description: "JSON object of metadata key-value pairs"},
 			"dry_run":                      {Type: "boolean", Description: "If true, validate and return result without writing files"},
-			"pactify":                      {Type: "boolean", Description: "Read the existing service folder at path (Dockerfile, Kubernetes manifests) and plan its contract like `pacto init`; uses name, owner, path and dry_run, and ignores the intent arguments"},
+			"pactify":                      {Type: "boolean", Description: "Read the existing service folder at path (Dockerfile, Kubernetes manifests, Helm charts, Kustomize, Compose, interface specs, catalog-info.yaml, GitOps objects, and CODEOWNERS from the enclosing repository root) and plan its contract like `pacto init`; uses name, owner, path and dry_run, and ignores the intent arguments"},
 			"describe_only":                {Type: "boolean", Description: "With pactify: write a contract that only describes the service, with no publish section and no signing key. Use it when you are asked to describe or document a service; leave it off to also prepare pacto publish"},
 			"delivery":                     {Type: "boolean", Description: "With pactify or from: also plan the Pacto resource, a Stage per environment and its Flux OCIRepository and Kustomization (needs the publish section, so not with describe_only; with from, the golden path must publish manifests under publish.deploy)"},
 			"registry":                     {Type: "string", Description: "With pactify: where to publish, as host/path (default: read from the workload's image)"},

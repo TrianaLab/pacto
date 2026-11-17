@@ -77,3 +77,20 @@ func TestPactifyDiscoveryNoValueBytes(t *testing.T) {
 		}
 	}
 }
+
+// TestPactifyDescriptionNamesWhatItReads: an agent reading pacto_create
+// learns which files pactify reads, that CODEOWNERS comes from above path,
+// what the findings are and when 'inferred' is published.
+func TestPactifyDescriptionNamesWhatItReads(t *testing.T) {
+	tool := createTool()
+	for _, want := range []string{"Helm charts", "Kustomize", "Compose", "AsyncAPI", "catalog-info.yaml", "Argo CD or Flux",
+		"CODEOWNERS at the root of the enclosing Git repository, above path", "inferred.findings", "DISCOVERY_UNRESOLVED",
+		"for a new contract 'inferred' is what the pacto.yaml it plans leaves out", "only when pacto.yaml declares pactoVersion 2.5"} {
+		if !strings.Contains(tool.Description, want) {
+			t.Errorf("pacto_create description lacks %q", want)
+		}
+	}
+	if strings.Contains(tool.Description, "already holds pacto.yaml, pactify completes it without changing it and returns") {
+		t.Error("the description still ties 'inferred' to an existing pacto.yaml")
+	}
+}

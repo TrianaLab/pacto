@@ -15,10 +15,12 @@ func TestExplainShowsClassOutranksFindings(t *testing.T) {
 	cmd, buf := testCmd()
 	result := &app.ExplainResult{Name: "payments",
 		Inferred: []contract.Inferred{{Field: "service.owner", Value: "team team-payments", Source: "repository:.github/CODEOWNERS:4", Confidence: "likely",
-			Class: contract.InferredClassOwnerFile, Outranks: []string{"deploy/app.yaml:6"}}},
+			Class: contract.InferredClassOwnerFile, Outranks: []string{"deploy/app.yaml:6"}},
+			{Field: "environments[staging].file", Value: "chart/values-staging.yaml", Source: "chart/values-staging.yaml", Confidence: contract.ConfidencePossible}},
 		InferredFindings: []contract.InferredFinding{
 			{Code: contract.InferredFindingTruncated, Source: ".", Message: "discovery stopped after 5000 files; 3 files were not read, so results are partial"},
-			{Code: "DISCOVERY_CHART_DEPENDENCY_UNLOCKED", Source: "chart/Chart.yaml:9", Message: "chart dependency 'redis' has no Chart.lock digest, not read"}},
+			{Code: "DISCOVERY_CHART_DEPENDENCY_UNLOCKED", Source: "chart/Chart.yaml:9", Message: "chart dependency 'redis' has no Chart.lock digest, not read"},
+			{Code: "DISCOVERY_UNRESOLVED", Source: "Dockerfile:2", Message: "EXPOSE at Dockerfile:2 names a port through a variable or a range, so it is not read"}},
 		InferredFindingsDropped: 2}
 	if err := printExplainResult(cmd, result, "text"); err != nil {
 		t.Fatal(err)
@@ -26,8 +28,10 @@ func TestExplainShowsClassOutranksFindings(t *testing.T) {
 	out := buf.String()
 	for _, want := range []string{
 		"  service.owner  inferred  team team-payments  from .github/CODEOWNERS:4 (repository file, not in the bundle); read from an owner file, not verified; outranks deploy/app.yaml:6\n",
-		"\nDiscovery findings (recognized, not read):\n  DISCOVERY_TRUNCATED  discovery stopped after 5000 files; 3 files were not read, so results are partial\n" +
-			"  DISCOVERY_CHART_DEPENDENCY_UNLOCKED  chart dependency 'redis' has no Chart.lock digest, not read\n  and 2 more\n",
+		"\nDiscovery findings:\n  DISCOVERY_TRUNCATED  discovery stopped after 5000 files; 3 files were not read, so results are partial\n" +
+			"  DISCOVERY_CHART_DEPENDENCY_UNLOCKED  chart/Chart.yaml:9  chart dependency 'redis' has no Chart.lock digest, not read\n" +
+			"  DISCOVERY_UNRESOLVED  EXPOSE at Dockerfile:2 names a port through a variable or a range, so it is not read\n  and 2 more\n",
+		"  environments[staging].file  inferred  chart/values-staging.yaml  from chart/values-staging.yaml; possible (a naming convention)\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)
@@ -38,7 +42,7 @@ func TestExplainShowsClassOutranksFindings(t *testing.T) {
 	}
 	// Findings print with no inferred field too.
 	cmd, buf = testCmd()
-	if err := printExplainResult(cmd, &app.ExplainResult{Name: "payments", InferredFindings: result.InferredFindings[1:]}, "text"); err != nil {
+	if err := printExplainResult(cmd, &app.ExplainResult{Name: "payments", InferredFindings: result.InferredFindings[1:2]}, "text"); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(buf.String(), "Discovery findings") || strings.Contains(buf.String(), "Inferred (not part") {

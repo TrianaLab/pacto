@@ -151,6 +151,10 @@ publish:
   completes the contract and never changes it: what the folder adds goes into
   the [inferred record](contract-reference/inferred-record.md), published with
   the bundle, each value with its source.
+- For a new contract, `init` lists what the folder shows beyond the
+  `pacto.yaml` it writes. `pacto pack` publishes that record only once
+  `pacto.yaml` declares `pactoVersion: "2.5"`, and `init` says so under
+  **Next** when it writes an older version.
 - Each one shows only its host and port: a user name, password, path and
   query are stripped from a URL before anything reads it. A Secret's values
   are never read.
@@ -368,11 +372,11 @@ never into `pacto.yaml`.
 | Dockerfile | `Dockerfile`, `Dockerfile.*`, `*.Dockerfile` | ports from `EXPOSE`, `service.summary` from the `org.opencontainers.image.description` label, a health check from a localhost URL in `HEALTHCHECK` | the `HEALTHCHECK` command and the URL query | `DISCOVERY_UNRESOLVED` for a port set through a variable or a range |
 | OpenAPI, AsyncAPI and gRPC | any `.yaml`, `.yml`, `.json` or `.proto` file that parses as one | one interface per kind: `api`, `events` or `grpc` | GraphQL (`*.graphql`, `*.graphqls`, `*.gql`), which has no Pacto interface type, and package tool files such as `package-lock.json` | `DISCOVERY_AMBIGUOUS` when two files hold one kind, and no interface for that kind |
 | Helm chart | `Chart.yaml`, `Chart.lock`, `values.yaml`, `values-<env>.yaml` and `templates/*.yaml`, up to two folders deep | image, ports, configuration keys, environments and each locked dependency under `inputs.chartDependencies` | a configuration value; it never renders a template, downloads a dependency, opens a vendored `charts/*.tgz` or reads a subchart unpacked under `charts/` | `DISCOVERY_CHART_DEPENDENCY_UNLOCKED` for a dependency with no `Chart.lock` digest; `DISCOVERY_UNRESOLVED` once per template with an expression it does not resolve |
-| Kubernetes manifests | Deployment, StatefulSet, DaemonSet, Job and CronJob outside chart folders, so none when the folder is itself a chart | image, container ports and environment key names | an environment value | `DISCOVERY_UNREADABLE` for YAML that does not parse |
+| Kubernetes manifests | Deployment, StatefulSet, DaemonSet, Job and CronJob outside a chart's `templates/`, `charts/` and `crds/` folders | image, container ports and environment key names | an environment value | `DISCOVERY_UNREADABLE` for YAML that does not parse |
 | Kustomize | `kustomization.yaml` and its local `resources` | image from `images`, an environment per `overlays/<env>/` | remote resources and `helmCharts` | `DISCOVERY_UNSUPPORTED_FILE`, naming a remote resource without its credentials |
-| Compose | `compose.yaml` or `docker-compose.yaml` at the folder root | image, container ports and environment keys of the service named like yours, else of the only one | `include`, `extends` from another file, `env_file` and every environment value | `DISCOVERY_AMBIGUOUS` when it lists several services and none is named like yours |
+| Compose | `compose.yaml` or `docker-compose.yaml` at the folder root | image, container ports and environment keys of the service named like yours (the `service.name` in `pacto.yaml`, else the folder's name), else of the only one | `include`, `extends` from another file, `env_file` and every environment value | `DISCOVERY_AMBIGUOUS` when it lists several services and none is named like yours |
 | Owner files | `catalog-info.yaml` in the folder; `.github/CODEOWNERS`, `CODEOWNERS` or `docs/CODEOWNERS` at the repository root, the last rule that matches `pacto.yaml` | `service.owner` with the marker `class: ownerFile`, shown as "attested" by `pacto init`; from `catalog-info.yaml` also `service.domain` (`spec.system`) and dependencies (`spec.dependsOn`) | `spec.lifecycle`. The owner is unverified until a signed commit is checked, so it never routes a decision or clears a gate | `DISCOVERY_UNRESOLVED` for a CODEOWNERS rule with email owners only |
-| Environments | `environments/<env>.yaml`, Helm values files, overlays, and Argo CD `Application` and Flux `Kustomization` and `HelmRelease` objects in the folder | `environments[<env>].file`; a GitOps object confirms it | an Argo CD `ApplicationSet`, and the paths of a Flux object whose source is an OCI artifact, a bucket or a Helm repository, such as the `delivery/` files `pacto init` writes | `DISCOVERY_UNRESOLVED` for an invalid environment name or a path outside the folder |
+| Environments | `environments/<env>.yaml`, Helm values files, overlays, and Argo CD `Application` and Flux `Kustomization` and `HelmRelease` objects in the folder | `environments[<env>].file`; a GitOps object confirms it | an Argo CD `ApplicationSet`, and the paths of a Flux object whose source is an OCI artifact, a bucket or a Helm repository, such as the `delivery/` files `pacto init` writes | `DISCOVERY_UNRESOLVED` for an invalid environment name, or for a path outside the folder or one the folder does not hold (an Argo CD `Application` that deploys from another repository) |
 | Other formats | `helmfile.yaml`, `helmfile.yml`, `Tiltfile`, `*.jsonnet`, `*.libsonnet`, `*.cue` | nothing | the whole file, a program or a template for another tool | `DISCOVERY_UNSUPPORTED_FILE` |
 
 - When two files give one value, the more direct one wins and the record
@@ -389,8 +393,8 @@ never into `pacto.yaml`.
 | `DISCOVERY_UNSUPPORTED_FILE` | Pacto recognizes the file, or a part of it, and does not read it |
 | `DISCOVERY_AMBIGUOUS` | several files or services fit, so none is recorded |
 | `DISCOVERY_CHART_DEPENDENCY_UNLOCKED` | a chart dependency has no `Chart.lock` digest, so it is not read |
-| `DISCOVERY_UNREADABLE` | the file is over 1 MiB, is not valid YAML or is not a regular file |
-| `DISCOVERY_UNRESOLVED` | a template expression, an invalid environment name, a path outside the folder or a CODEOWNERS rule with email owners only |
+| `DISCOVERY_UNREADABLE` | the file is over 1 MiB, is not valid YAML, is not a regular file or has a `:` in its name |
+| `DISCOVERY_UNRESOLVED` | a template expression, an invalid environment name, a path outside the folder or missing from it, or a CODEOWNERS rule with email owners only |
 | `DISCOVERY_TRUNCATED` | discovery stopped after 5000 files, so results are partial; always listed first |
 
 ## What's next

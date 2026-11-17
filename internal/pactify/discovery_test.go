@@ -134,9 +134,45 @@ func TestPortNeverWrittenToInterfaces(t *testing.T) {
 
 // Findings past the record's bound are counted in Unknown.
 func TestPactifyDiscoveryFindingsDropped(t *testing.T) {
-	p := &planner{r: &Result{Inferred: &contract.InferredRecord{FindingsDropped: 3}}, sc: &discover.Scan{}}
-	p.discoveryLines()
-	if !slices.Equal(p.r.Unknown, []string{"and 3 more files discovery recognized but did not read"}) {
+	p := &planner{r: &Result{}, sc: &discover.Scan{}}
+	p.discoveryLines(&contract.InferredRecord{FindingsDropped: 3})
+	if !slices.Equal(p.r.Unknown, []string{"and 3 more discovery findings"}) {
 		t.Errorf("unknown %q", p.r.Unknown)
+	}
+}
+
+// A new contract's record holds only what the pacto.yaml init writes leaves
+// out: the owner it declares from the team label is not listed again, and a
+// contract below 2.5, which publishes no record, says so.
+func TestPactifyNewContractRecordAgainstPlanned(t *testing.T) {
+	dir := writeTree(t, filepath.Join(t.TempDir(), "fraud"), map[string]string{
+		"d.yaml":            "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: fraud, labels: {team: risk}}\nspec: {template: {spec: {containers: [{name: fraud, image: 'reg.example/fraud:1.0.0'}]}}}\n",
+		"catalog-info.yaml": "apiVersion: backstage.io/v1alpha1\nkind: Component\nmetadata: {name: fraud}\nspec: {owner: group:other-team}\n",
+	})
+	r, err := Init(context.Background(), Options{Dir: dir, Plan: true}, os.WriteFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(file(t, r, "pacto.yaml").Content, "team: risk") || r.Inferred == nil {
+		t.Fatalf("pacto.yaml:\n%s\nrecord %+v", file(t, r, "pacto.yaml").Content, r.Inferred)
+	}
+	if slices.ContainsFunc(r.Inferred.Fields, func(f contract.Inferred) bool { return f.Field == "service.owner" || f.Field == "workload" }) {
+		t.Errorf("the record lists what pacto.yaml declares: %+v", r.Inferred.Fields)
+	}
+	if !hasLine(r.Next, "pacto pack publishes none of what Pacto inferred") {
+		t.Errorf("next %q", r.Next)
+	}
+}
+
+// A pacto.yaml below 2.5 is not completed, yet its chart and what Pacto
+// could not read in the folder are still named.
+func TestPactifyOldContractStillNamesFolder(t *testing.T) {
+	dir := writeTree(t, fixtureDir(t, "discovery/payments"), map[string]string{"pacto.yaml": "pactoVersion: \"2.4\"\nservice: {name: payments, version: 1.0.0}\n"})
+	r, err := Init(context.Background(), Options{Dir: dir, Plan: true}, os.WriteFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Inferred != nil || !slices.Contains(r.Unknown, unlockedRedis) || !hasLine(r.Found, "Helm chart chart read statically") {
+		t.Errorf("found %q, unknown %q, record %+v", r.Found, r.Unknown, r.Inferred)
 	}
 }
