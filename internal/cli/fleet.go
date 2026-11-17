@@ -386,7 +386,10 @@ func newFleetGraphCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			"an exact revision (never 'latest'). The walk also follows observed " +
 			"runtime calls, so services no contract connects appear too; each node " +
 			"reports its provenance (declared, observed or declared+observed, or " +
-			"inferred for an external system's consumer known only from its configuration). Give " +
+			"inferred for an external system's consumer known only from its configuration " +
+			"or a runtime call one of whose ends no contract describes). Those inferred calls " +
+			"are listed after the nodes with the sources that saw them, and a service asked " +
+			"for by the key of an inferred service it replaced says so first. Give " +
 			"external:<identity> to list the consumers of an external system (its only direction is dependents).",
 		Args: cobra.MaximumNArgs(1),
 		// Same as `fleet get`: the candidates live in a snapshot too expensive to

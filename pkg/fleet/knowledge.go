@@ -3,7 +3,6 @@ package fleet
 import (
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 )
@@ -289,7 +288,7 @@ func (q *Query) replacedAttention() []AttentionItem {
 			Entity: serviceEntityRef(s), Service: string(s.Key), Label: from + " was replaced by " + s.Name,
 			Severity: severityInfo, Code: attentionInferredReplaced, Category: categoryKnowledge,
 			Summary:  "Inferred service taken over by a contract",
-			Reason:   "Pacto target " + string(r.Target) + " runs as " + from + ", which ran with no contract before the Pacto was created " + shortAge(age.Round(time.Minute)) + " ago",
+			Reason:   "Pacto target " + string(r.Target) + " runs as " + from + ", which ran with no contract before the Pacto was created " + Age(age) + " ago",
 			NextStep: "Check that " + s.Name + "'s contract describes what " + from + " was seen doing",
 		})
 	}

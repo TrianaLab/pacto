@@ -883,7 +883,8 @@ type GraphNode struct {
 	Path  []ServiceKey `json:"path"`
 	// Provenance is how the edge that first reached the node is known: declared,
 	// observed or declared+observed, or inferred for a consumer of an external
-	// system known only from its configuration (never a gate's evidence).
+	// system known only from its configuration or a runtime call one of whose
+	// ends no contract describes (never a gate's evidence).
 	Provenance string `json:"provenance" enum:"declared,observed,declared+observed,inferred"`
 	// NameInferred is where Name comes from when no revision declares it.
 	NameInferred *contract.Inferred `json:"nameInferred,omitempty"`
@@ -947,10 +948,9 @@ func (q *Query) Graph(gq GraphQuery) (*GraphResult, error) {
 	res.Cycles = cycles
 	res.Edges, res.Unresolved = q.graphEdges(nodeSet, rootSvc, dir, scopeRev, gq.IncludeObserved)
 	if s := q.snap.Services[rootSvc]; s != nil && s.Inferred() {
-		// ponytail: the graph draws no edge of an inferred service yet; 509-S4 adds its observed calls.
 		limitationFirst(&res.Meta, Limitation{
 			Code: LimitationServiceInferred, Source: s.Workload.Source,
-			Message: "no contract Pacto read describes " + s.Name + ", so the graph shows none of its dependencies or dependents; its observed calls are on its entity detail (pacto_fleet_entity)",
+			Message: "no contract Pacto read describes " + s.Name + ", so the graph knows none of its declared dependencies or dependents; with observed calls included it shows the calls sources saw, labelled inferred",
 		})
 	}
 	return res, nil
@@ -1023,7 +1023,8 @@ type graphStep struct {
 
 // graphNeighbours returns a node's neighbours in sorted key order. Declared
 // neighbours come from the dependency indexes; with observed set, observed
-// runtime calls are merged in. A revision- or target-rooted dependencies walk
+// runtime calls and inferred relationships (runtime calls with an end no
+// contract describes, labelled inferred) are merged in. A revision- or target-rooted dependencies walk
 // keeps its root declared-only: the root's declared edges are exact to that
 // revision and runtime observation is service-level, so merging it would claim
 // the revision makes calls no one saw it make. A dependents walk is
@@ -1044,11 +1045,19 @@ func (q *Query) graphNeighbours(key, rootSvc ServiceKey, scopeRev RevisionKey, d
 		prov[k] = ProvenanceDeclared
 	}
 	if observed {
-		for _, k := range q.adjacent(key, dir, false, true) {
+		for _, k := range q.adjacent(key, dir, false, true, false) {
 			if prov[k] == ProvenanceDeclared {
 				prov[k] = ProvenanceDeclaredObserved
 			} else {
 				prov[k] = ProvenanceObserved
+			}
+		}
+		// An inferred relationship has an end no contract describes, so it
+		// never shares a pair with a declared or observed edge; were it to, the
+		// stronger label wins.
+		for _, k := range q.adjacent(key, dir, false, false, true) {
+			if prov[k] == "" {
+				prov[k] = ProvenanceInferred
 			}
 		}
 	}
@@ -1154,6 +1163,18 @@ func (q *Query) resolveGraphScope(gq GraphQuery) (rootKey ServiceKey, scopeRev R
 // are service-level. An edge to an external system follows graphProvenance,
 // the rule the external graph draws its consumers by.
 func (q *Query) graphEdges(nodeSet map[ServiceKey]bool, rootSvc ServiceKey, dir Direction, scopeRev RevisionKey, includeObserved bool) (edges, unresolved []Relationship) {
+	// Inferred relationships are runtime calls, so they come with the observed
+	// ones only; impact's declared walk never sees them.
+	defer func() {
+		if !includeObserved {
+			return
+		}
+		for _, rel := range q.snap.InferredRelationships {
+			if edgeInScope(rel, nodeSet, rootSvc, dir, scopeRev) {
+				edges = append(edges, rel)
+			}
+		}
+	}()
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
 		if rel.Type != RelationshipDependency && !ConsumesEdge(rel) {

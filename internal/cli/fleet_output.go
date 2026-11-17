@@ -5,6 +5,7 @@ import (
 	"io"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -52,6 +53,7 @@ func printFleetService(cmd *cobra.Command, sv *fleet.ServiceView, format string)
 	return formatResult(cmd, format, sv, func() error {
 		w := cmd.OutOrStdout()
 		s := sv.Service
+		printReplacedFrom(w, sv.ReplacedFrom, sv.Meta.AsOf)
 		_, _ = fmt.Fprintf(w, "Service: %s%s\n", s.Name, nameInferredMark(s.NameInferred))
 		_, _ = fmt.Fprintf(w, "Owner: %s\n", orDash(s.Owner.DisplayString()))
 		_, _ = fmt.Fprintf(w, "Status: %s\n", orDash(s.Status))
@@ -59,12 +61,56 @@ func printFleetService(cmd *cobra.Command, sv *fleet.ServiceView, format string)
 		if s.Workload != nil {
 			_, _ = fmt.Fprintln(w, strings.Join(s.Workload.Lines(), "\n"))
 		}
+		for _, r := range sv.Replaces {
+			from, when := replacementWords(r, sv.Meta.AsOf)
+			_, _ = fmt.Fprintf(w, "Replaces %s %s\n", from, when)
+		}
+		if more := sv.ReplacesTotal - len(sv.Replaces); more > 0 {
+			_, _ = fmt.Fprintf(w, "  %d more\n", more)
+		}
 		printRevisions(w, sv.Revisions)
 		printServiceTargets(w, sv.Targets)
 		printServiceEdges(w, sv)
 		warnPartial(cmd, sv.Meta)
 		return nil
 	}, nil)
+}
+
+// printReplacedFrom says the answer is about the service that replaced the
+// inferred service asked for, when it is.
+func printReplacedFrom(w io.Writer, r *fleet.Replacement, asOf time.Time) {
+	if r != nil {
+		from, when := replacementWords(*r, asOf)
+		_, _ = fmt.Fprintf(w, "%s was replaced by %s %s\n", from, r.To, when)
+	}
+}
+
+// replacementWords are the name of the inferred service r replaced and
+// "<age> ago (linked by Pacto <namespace>/<name> target)".
+func replacementWords(r fleet.Replacement, asOf time.Time) (from, when string) {
+	_, from = fleet.ParseServiceKey(r.From)
+	_, scope, _, name, _ := fleet.ParseTargetKey(r.Target)
+	return from, fmt.Sprintf("%s ago (linked by Pacto %s/%s target)", fleet.Age(asOf.Sub(*r.At)), scope, name)
+}
+
+// printInferredEdges prints the graph's runtime-inferred edges: calls one of
+// whose ends no contract describes, with the sources that saw them.
+func printInferredEdges(w io.Writer, edges []fleet.Relationship) {
+	for _, e := range edges {
+		if e.Provenance != fleet.ProvenanceInferred || len(e.ObservedSources) == 0 {
+			continue
+		}
+		_, from := fleet.ParseServiceKey(e.FromService)
+		_, to := fleet.ParseServiceKey(e.ToService)
+		if e.ToExternal != "" {
+			to = fleet.ExternalSubjectPrefix + string(e.ToExternal)
+		}
+		sources := make([]string, len(e.ObservedSources))
+		for i, s := range e.ObservedSources {
+			sources[i] = s.Source
+		}
+		_, _ = fmt.Fprintf(w, "  %s -> %s  inferred (observed by %s)\n", from, to, strings.Join(sources, ", "))
+	}
 }
 
 func printRevisions(w io.Writer, revs []*fleet.ContractRevision) {
@@ -231,6 +277,7 @@ func printFleetTarget(cmd *cobra.Command, tv *fleet.TargetView, format string) e
 func printFleetGraph(cmd *cobra.Command, res *fleet.GraphResult, format string) error {
 	return formatResult(cmd, format, res, func() error {
 		w := cmd.OutOrStdout()
+		printReplacedFrom(w, res.ReplacedFrom, res.Meta.AsOf)
 		root := string(res.Root)
 		if res.External != "" {
 			root = fleet.ExternalSubjectPrefix + string(res.External)
@@ -247,6 +294,7 @@ func printFleetGraph(cmd *cobra.Command, res *fleet.GraphResult, format string) 
 		for _, n := range nodes {
 			_, _ = fmt.Fprintf(w, "  %*s%s (depth %d, %s)\n", n.Depth*2, "", n.Name, n.Depth, orDash(n.Provenance))
 		}
+		printInferredEdges(w, res.Edges)
 		for _, c := range res.Cycles {
 			_, _ = fmt.Fprintf(w, "  cycle: %v\n", c)
 		}

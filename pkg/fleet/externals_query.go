@@ -419,21 +419,25 @@ func (q *Query) externalNeighborhood(key string, bp boundedParams) (*Neighborhoo
 // keyed as the answer names the system, ordered by consumer then identity.
 func (q *Query) externalEdges(inScope func(ServiceKey) bool, only ExternalKey, views []KnowledgeView) []NeighborhoodEdge {
 	merged := map[string]*NeighborhoodEdge{}
-	for _, rel := range q.snap.Relationships {
-		to := only
-		if only == "" {
-			to = cmp.Or(rel.FoldedInto, rel.ToExternal)
+	// An inferred service's runtime calls to the system are inferred
+	// relationships, kept apart from the rest.
+	for _, rels := range [][]Relationship{q.snap.Relationships, q.snap.InferredRelationships} {
+		for _, rel := range rels {
+			to := only
+			if only == "" {
+				to = cmp.Or(rel.FoldedInto, rel.ToExternal)
+			}
+			if !externalEdge(rel, to) || !inScope(rel.FromService) {
+				continue
+			}
+			id := edgeID(string(rel.FromService), ExternalSubjectPrefix+string(to), RelationDependency)
+			e := merged[id]
+			if e == nil {
+				e = &NeighborhoodEdge{ID: id, Relation: RelationDependency, From: q.serviceRef(rel.FromService), To: externalEntityRef(q.externalRecord(to))}
+				merged[id] = e
+			}
+			q.foldRelationshipIntoEdge(e, rel)
 		}
-		if !externalEdge(rel, to) || !inScope(rel.FromService) {
-			continue
-		}
-		id := edgeID(string(rel.FromService), ExternalSubjectPrefix+string(to), RelationDependency)
-		e := merged[id]
-		if e == nil {
-			e = &NeighborhoodEdge{ID: id, Relation: RelationDependency, From: q.serviceRef(rel.FromService), To: externalEntityRef(q.externalRecord(to))}
-			merged[id] = e
-		}
-		q.foldRelationshipIntoEdge(e, rel)
 	}
 	out := make([]NeighborhoodEdge, 0, len(merged))
 	for _, id := range slices.Sorted(maps.Keys(merged)) {

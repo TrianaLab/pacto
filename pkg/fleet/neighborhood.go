@@ -236,10 +236,12 @@ type NeighborhoodEdge struct {
 	// service-scoped telemetry (see ObservationScope/ServiceCorroboration); only a
 	// genuine service-to-service edge or the target "runs" link is ever Observed.
 	Observed bool `json:"observed"`
-	// Inferred reports whether a source inferred this edge to an external
-	// system from the caller's configuration. It is shown only with the
-	// differences view, and an edge that is also declared or observed keeps
-	// that provenance label.
+	// Inferred reports whether the edge is inferred: a use of an external
+	// system read from the caller's configuration, shown only with the
+	// differences view, or a runtime call one of whose ends no contract
+	// describes, shown with the observed view too and carrying its count and
+	// sources. An edge that is also declared or observed keeps that provenance
+	// label.
 	Inferred bool `json:"inferred,omitempty"`
 	// Provenance is the combined provenance of the merged edge. edgeProvenance emits
 	// "declared+observed" when an edge is both, so the finite enum declares every
@@ -427,6 +429,8 @@ func projectEdgesForViews(edges []NeighborhoodEdge, views []KnowledgeView) {
 //     requested (expected or differences);
 //   - observed facts (Observed, ObservationSources, Count, first/last seen, Stale)
 //     survive only when an observed view is requested (observed or differences);
+//   - Inferred survives with the differences view, or with the observed view on a
+//     runtime-inferred edge (one some source saw);
 //   - comparison facts survive only when the differences view is requested: the edge
 //     Difference verdict, the fine-grained ServiceCorroboration / ObservationScope
 //     context, AND each nested DeclaredClaim's Reconciliation (a service-scoped
@@ -441,6 +445,7 @@ func projectEdgeForViews(e *NeighborhoodEdge, views []KnowledgeView) {
 	}
 	wantDeclared, wantObserved := knowledgeFromViews(views)
 	wantDifferences := viewsInclude(views, ViewDifferences)
+	keepInferred := wantDifferences || wantObserved && runtimeInferred(*e)
 	if !wantDeclared {
 		e.Expected = false
 		e.DeclaredClaims = DeclaredClaimsPreview{}
@@ -454,8 +459,8 @@ func projectEdgeForViews(e *NeighborhoodEdge, views []KnowledgeView) {
 		e.LastSeen = nil
 		e.Stale = false
 	}
+	e.Inferred = e.Inferred && keepInferred
 	if !wantDifferences {
-		e.Inferred = false
 		e.Difference = ""
 		e.ServiceCorroboration = ""
 		e.ObservationScope = ""
@@ -636,9 +641,11 @@ func ParseViews(s string) []KnowledgeView {
 
 // adjacent returns a node's neighbor service keys in the given direction. Only
 // the requested knowledge kinds are followed: declared adjacency is included when
-// wantDeclared, observed adjacency when wantObserved. This is what makes an
-// expected-only walk never reach a node that is only an observed neighbor.
-func (q *Query) adjacent(key ServiceKey, dir Direction, wantDeclared, wantObserved bool) []ServiceKey {
+// wantDeclared, observed adjacency when wantObserved and the adjacency of
+// inferred relationships (runtime calls with an end no contract describes) when
+// wantInferred. This is what makes an expected-only walk never reach a node that
+// is only an observed or inferred neighbor.
+func (q *Query) adjacent(key ServiceKey, dir Direction, wantDeclared, wantObserved, wantInferred bool) []ServiceKey {
 	seen := map[ServiceKey]bool{}
 	var out []ServiceKey
 	add := func(ks []ServiceKey) {
@@ -656,6 +663,9 @@ func (q *Query) adjacent(key ServiceKey, dir Direction, wantDeclared, wantObserv
 		if wantObserved {
 			add(q.snap.observedForward[key])
 		}
+		if wantInferred {
+			add(q.snap.inferredForward[key])
+		}
 	}
 	if dir == DirectionDependents || dir == DirectionBoth {
 		if wantDeclared {
@@ -663,6 +673,9 @@ func (q *Query) adjacent(key ServiceKey, dir Direction, wantDeclared, wantObserv
 		}
 		if wantObserved {
 			add(q.snap.observedReverse[key])
+		}
+		if wantInferred {
+			add(q.snap.inferredReverse[key])
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
@@ -687,7 +700,7 @@ func (q *Query) walkNeighborhood(root ServiceKey, dir Direction, maxDepth, maxNo
 	for d := 0; d < maxDepth && len(frontier) > 0; d++ {
 		var next []ServiceKey
 		for _, node := range frontier {
-			for _, nb := range q.adjacent(node, dir, wantDeclared, wantObserved) {
+			for _, nb := range q.adjacent(node, dir, wantDeclared, wantObserved, wantObserved) {
 				if reached[nb] {
 					continue
 				}
@@ -743,10 +756,10 @@ func (q *Query) neighborhoodNodes(root ServiceKey, depthOf map[ServiceKey]int, r
 // knowledge (and vice versa); a differences query (both flags) advertises either.
 func (q *Query) expansions(key ServiceKey, wantDeclared, wantObserved bool) []Direction {
 	var out []Direction
-	if len(q.adjacent(key, DirectionDependencies, wantDeclared, wantObserved)) > 0 {
+	if len(q.adjacent(key, DirectionDependencies, wantDeclared, wantObserved, wantObserved)) > 0 {
 		out = append(out, DirectionDependencies)
 	}
-	if len(q.adjacent(key, DirectionDependents, wantDeclared, wantObserved)) > 0 {
+	if len(q.adjacent(key, DirectionDependents, wantDeclared, wantObserved, wantObserved)) > 0 {
 		out = append(out, DirectionDependents)
 	}
 	return out
@@ -762,22 +775,25 @@ func (q *Query) neighborhoodEdges(depthOf map[ServiceKey]int, views []KnowledgeV
 	}
 	merged := map[edgeKey]*NeighborhoodEdge{}
 	var order []edgeKey
-	for i := range q.snap.Relationships {
-		rel := q.snap.Relationships[i]
-		if rel.ToService == "" || !inScope(rel.FromService) || !inScope(rel.ToService) {
-			continue
+	// Inferred relationships follow the declared and observed ones; an inferred
+	// edge to an external system is drawn by addExternalLeaves.
+	for _, rels := range [][]Relationship{q.snap.Relationships, q.snap.InferredRelationships} {
+		for _, rel := range rels {
+			if rel.ToService == "" || !inScope(rel.FromService) || !inScope(rel.ToService) {
+				continue
+			}
+			if rel.Type != RelationshipDependency && !ConsumesEdge(rel) {
+				continue
+			}
+			k := edgeKey{rel.FromService, rel.ToService, edgeRelation(rel)}
+			e := merged[k]
+			if e == nil {
+				e = q.newEdge(rel.FromService, rel.ToService, k.relation)
+				merged[k] = e
+				order = append(order, k)
+			}
+			q.foldRelationshipIntoEdge(e, rel)
 		}
-		if rel.Type != RelationshipDependency && !ConsumesEdge(rel) {
-			continue
-		}
-		k := edgeKey{rel.FromService, rel.ToService, edgeRelation(rel)}
-		e := merged[k]
-		if e == nil {
-			e = q.newEdge(rel.FromService, rel.ToService, k.relation)
-			merged[k] = e
-			order = append(order, k)
-		}
-		q.foldRelationshipIntoEdge(e, rel)
 	}
 	sort.Slice(order, func(i, j int) bool {
 		a, b := order[i], order[j]
@@ -944,17 +960,35 @@ func (q *Query) foldRelationshipIntoEdge(e *NeighborhoodEdge, rel Relationship) 
 		foldBehavior(e, rel)
 	case ProvenanceObserved:
 		e.Observed = true
-		e.Count += rel.ObservedCount
-		// Deep-copy the observed source stats so the returned edge never aliases the
-		// snapshot's per-source time pointers.
-		e.ObservationSources.Items = append(e.ObservationSources.Items, cloneObservedStats(rel.ObservedSources)...)
-		e.FirstSeen = earlier(e.FirstSeen, rel.FirstSeen)
-		e.LastSeen = later(e.LastSeen, rel.LastSeen)
-		e.Stale = e.Stale || q.observedStale(rel.LastSeen)
+		foldObservedFacts(e, rel, q.observedStale(rel.LastSeen))
 	case ProvenanceInferred:
 		e.Inferred = true
+		// A runtime-inferred relationship carries what its sources saw, but stays
+		// unobserved: no contract describes one end, so it has no
+		// declared-versus-observed verdict and keeps the inferred label.
+		if len(rel.ObservedSources) > 0 {
+			foldObservedFacts(e, rel, q.observedStale(rel.LastSeen))
+		}
 	}
 	e.Provenance = edgeProvenance(*e)
+}
+
+// foldObservedFacts adds what rel's sources saw (count, per-source stats and
+// window) to e. The per-source stats are deep-copied so the returned edge never
+// aliases the snapshot's per-source time pointers.
+func foldObservedFacts(e *NeighborhoodEdge, rel Relationship, stale bool) {
+	e.Count += rel.ObservedCount
+	e.ObservationSources.Items = append(e.ObservationSources.Items, cloneObservedStats(rel.ObservedSources)...)
+	e.FirstSeen = earlier(e.FirstSeen, rel.FirstSeen)
+	e.LastSeen = later(e.LastSeen, rel.LastSeen)
+	e.Stale = e.Stale || stale
+}
+
+// runtimeInferred reports whether e is an inferred edge some source saw at
+// runtime, which the observed view shows; an edge inferred from configuration
+// alone needs the differences view.
+func runtimeInferred(e NeighborhoodEdge) bool {
+	return e.Inferred && len(e.ObservationSources.Items) > 0
 }
 
 // cloneObservedStats deep-copies observed source stats, including their FirstSeen
@@ -993,8 +1027,8 @@ func (q *Query) observedStale(lastSeen *time.Time) bool {
 
 // edgeMatchesViews reports whether a merged edge should be included for the
 // requested views. Expected includes declared edges; observed includes observed
-// edges; differences includes any edge (so observed-only shadow edges and
-// inferred-only edges surface).
+// edges and runtime-inferred ones; differences includes any edge (so
+// observed-only shadow edges and configuration-inferred edges surface).
 func edgeMatchesViews(e NeighborhoodEdge, views []KnowledgeView) bool {
 	for _, v := range views {
 		switch v {
@@ -1003,7 +1037,7 @@ func edgeMatchesViews(e NeighborhoodEdge, views []KnowledgeView) bool {
 				return true
 			}
 		case ViewObserved:
-			if e.Observed {
+			if e.Observed || runtimeInferred(e) {
 				return true
 			}
 		case ViewDifferences:

@@ -550,7 +550,7 @@ func TestGraphAndExplainOfInferredServiceSayItIsInferred(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if g.Meta.Completeness != CompletenessPartial || g.Meta.Limitations[0].Code != LimitationServiceInferred || !strings.Contains(g.Meta.Limitations[0].Message, "pacto_fleet_entity") {
+	if g.Meta.Completeness != CompletenessPartial || g.Meta.Limitations[0].Code != LimitationServiceInferred || !strings.Contains(g.Meta.Limitations[0].Message, "labelled inferred") {
 		t.Errorf("graph meta %+v", g.Meta)
 	}
 	ex, err := q.Explain(cartName)

@@ -286,7 +286,9 @@ func fleetGetTool() *mcpsdk.Tool {
 			"bundle signature verified against the signer its own contract declares (verified, unverified, " +
 			"unsigned, unknown) and lists its OCI referrers, when a registry source checked them; absent means " +
 			"no source checked. Give service as external:<identity> for an external system: its sources (each with " +
-			"its provenance), consumers, the catalog entry that classified it and 'hiddenConsumers' you may not see. Read-only.",
+			"its provenance), consumers, the catalog entry that classified it and 'hiddenConsumers' you may not see. " +
+			"'replaces' lists the inferred services this service replaced when a Pacto target took over their workload; " +
+			"asked for by such an old key, the answer is the declared service with 'replacedFrom'. Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"service": {Type: "string", Description: "Logical service name, or external:<identity> for an external system"},
 			"target":  {Type: "string", Description: "Operational target key or name (use instead of service)"},
@@ -330,7 +332,9 @@ func fleetGraphTool() *mcpsdk.Tool {
 		Name: "pacto_fleet_graph",
 		Description: "Traverse fleet dependencies or dependents from a service. Cycle-safe. " +
 			"Reports reached nodes with depth, path and 'provenance' (how the edge that reached the node is known: " +
-			"declared, observed or declared+observed, or inferred for an external system's consumer known only from its configuration), cycles, unresolved dependencies and 'truncated'. " +
+			"declared, observed or declared+observed, or inferred for an external system's consumer known only from its configuration or a runtime call one of whose ends no contract describes), cycles, unresolved dependencies and 'truncated'. " +
+			"An inferred edge (provenance inferred, with 'observedSources') is a call sources saw where no contract describes one end: it never satisfies a dependency, never feeds an impact verdict and never clears a gate. " +
+			"A service asked for by the key of an inferred service it replaced answers as that service with 'replacedFrom' (from, to, the Pacto target and when). " +
 			"Edges to external systems are drawn whether declared, observed or inferred. " +
 			"Each edge carries 'provenance' and, for a declared edge, 'reconciliation'. " +
 			"A declared edge appears once per contract revision that declares it ('fromRevision'). " +
