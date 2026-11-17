@@ -137,7 +137,7 @@ spec:
   lifecycle: unknown
   owner: group:default/billing
   system: payments
-  definition: Defined by interfaces/openapi.yaml in ghcr.io%2Facme/payments@sha256:ghcr.io/acmepayments1.0.0. Read it with pacto pull.
+  definition: Defined by interfaces/openapi.yaml in revision ghcr.io%2Facme/payments@sha256:ghcr.io/acmepayments1.0.0.
 ---
 apiVersion: backstage.io/v1alpha1
 kind: Resource

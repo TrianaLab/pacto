@@ -3,6 +3,7 @@ package backstage
 import (
 	"cmp"
 	"slices"
+	"strings"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -98,7 +99,7 @@ func (e *exporter) apiEntities(s *fleet.ServiceRecord, comp Entity) []Entity {
 	if c == nil {
 		return nil
 	}
-	in := cmp.Or(r.ResolvedRef, string(r.Key))
+	where := definedIn(r)
 	out := make([]Entity, 0, len(c.Interfaces))
 	for _, i := range c.Interfaces {
 		a := entity(kindAPI, e.base.annotations(provenanceDeclared))
@@ -117,8 +118,23 @@ func (e *exporter) apiEntities(s *fleet.ServiceRecord, comp Entity) []Entity {
 		if i.Lifecycle != nil && i.Lifecycle.Deprecated != "" {
 			a.Spec.Lifecycle = "deprecated"
 		}
-		a.Spec.Definition = "Defined by " + i.Ref + " in " + in + ". Read it with pacto pull."
+		a.Spec.Definition = "Defined by " + i.Ref + " in " + where
 		out = append(out, a)
 	}
 	return out
+}
+
+// definedIn ends an API's definition: where the interface lives. A remote ref
+// is one pacto pull reads, with the oci:// scheme it requires. A revision read
+// from a local folder has no remote ref, so it names the revision key and no
+// pull instruction.
+func definedIn(r *fleet.ContractRevision) string {
+	ref := r.ResolvedRef
+	if ref == "" || strings.HasPrefix(ref, "file://") {
+		return "revision " + string(r.Key) + "."
+	}
+	if !strings.HasPrefix(ref, contract.OCIScheme) {
+		ref = contract.OCIScheme + ref
+	}
+	return ref + ". Read it with pacto pull."
 }

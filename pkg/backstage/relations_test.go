@@ -304,6 +304,21 @@ func TestAPIPerInterface(t *testing.T) {
 		}
 	}
 
+	// pacto pull only reads oci:// refs: a scheme-less remote ref gains it, and
+	// a local revision names its key with no pull instruction.
+	for ref, want := range map[string]string{
+		"ghcr.io/acme/pay@sha256:1":       "Defined by interfaces/rest.yaml in oci://ghcr.io/acme/pay@sha256:1. Read it with pacto pull.",
+		"oci://ghcr.io/acme/pay@sha256:1": "Defined by interfaces/rest.yaml in oci://ghcr.io/acme/pay@sha256:1. Read it with pacto pull.",
+		"":                                "Defined by interfaces/rest.yaml in revision " + string(rk("pay", "1.0.0")) + ".",
+	} {
+		h := newHand()
+		h.svc("pay", ct("pay", "1.0.0", iface("rest", "openapi")))
+		h.snap.Revisions[rk("pay", "1.0.0")].ResolvedRef = ref
+		if got := ofKind(h.es(), kindAPI)[0].Spec.Definition; got != want {
+			t.Errorf("ref %q: definition %q, want %q", ref, got, want)
+		}
+	}
+
 	unreadable := newHand()
 	unreadable.svc("pay", ct("pay", "1.0.0", iface("rest", "openapi")))
 	unreadable.run("pay", "1.0.0")
