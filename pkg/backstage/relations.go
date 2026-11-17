@@ -144,7 +144,10 @@ func (e *exporter) relations(s *fleet.ServiceRecord) relationInfo {
 			unresolved[[2]string{rel.Type, rel.To}] = true
 		}
 		for _, id := range e.consumedAPIs(rel) {
-			consumes[apiRef(e.apis[id])] = true
+			// A provider the file does not hold (a golden path) has no API name.
+			if n, ok := e.apis[id]; ok {
+				consumes[apiRef(n)] = true
+			}
 		}
 		ref := e.ref(rel)
 		switch {

@@ -369,6 +369,19 @@ func TestConsumesAPIsFromRequires(t *testing.T) {
 	}
 }
 
+// A golden path is never exported, so a dependency on one names no API: a
+// ref to it would be the dangling api:default/.
+func TestConsumesAPIsSkipsGoldenPathProvider(t *testing.T) {
+	h := newHand()
+	h.svc("pay", ct("pay", "1.0.0"))
+	h.svc("starter", ct("starter", "1.0.0", iface("rest", "openapi"))).Template = true
+	h.rel(dep("pay", "1.0.0", "starter", "", "rest"))
+	e := byKey(t, h.es(), "pay")
+	if len(e.Spec.ConsumesAPIs) != 0 || len(e.Spec.DependsOn) != 0 {
+		t.Errorf("consumesApis %v dependsOn %v, want none", e.Spec.ConsumesAPIs, e.Spec.DependsOn)
+	}
+}
+
 func TestObservedCallerStub(t *testing.T) {
 	h := newHand()
 	h.svc("a", ct("a", "1.0.0"))
