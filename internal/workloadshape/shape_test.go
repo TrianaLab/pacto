@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// LeakStrings are the strings of testdata/leak-deployment.json (the
+// LeakStrings are the strings of internal/testutil/testdata/leak-deployment.json (the
 // Decision 9 object) that must never be read.
 var leakStrings = []string{"DB_PASSWORD", "hunter2", "API_KEY", "billing-creds", "token", "billing-config", "s3cr3t-hdr", "s3cr3t-query", "s3cr3t-exec", "s3cr3t-arg", "last-applied"}
 
@@ -97,7 +97,7 @@ func TestReadWorkloadShapeJSONNumbers(t *testing.T) {
 // LeakObject is the Decision 9 object.
 func leakObject(t *testing.T) map[string]any {
 	t.Helper()
-	data, err := os.ReadFile("testdata/leak-deployment.json")
+	data, err := os.ReadFile("../testutil/testdata/leak-deployment.json")
 	if err != nil {
 		t.Fatal(err)
 	}

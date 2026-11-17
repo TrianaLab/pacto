@@ -245,12 +245,12 @@ func TestWorkloadSourceAllListsFail(t *testing.T) {
 }
 
 // leakStrings are the strings of the Decision 9 object
-// (internal/workloadshape/testdata/leak-deployment.json) that no answer may
+// (internal/testutil/testdata/leak-deployment.json) that no answer may
 // carry.
 var leakStrings = []string{"DB_PASSWORD", "hunter2", "API_KEY", "billing-creds", "token", "billing-config", "s3cr3t-hdr", "s3cr3t-query", "s3cr3t-exec", "s3cr3t-arg", "last-applied"}
 
 func TestWorkloadEnvNeverReachesSnapshot(t *testing.T) {
-	obj, err := os.ReadFile("../workloadshape/testdata/leak-deployment.json")
+	obj, err := os.ReadFile("../testutil/testdata/leak-deployment.json")
 	if err != nil {
 		t.Fatal(err)
 	}
