@@ -77,7 +77,7 @@ func TestMetaSourceNamespacesCapped(t *testing.T) {
 }
 
 func TestRestrictScrubsWatchedNamespaces(t *testing.T) {
-	s := scopedFleet(t).Restrict(func(ns string) bool { return ns == "payments" }).SnapshotForSerialization()
+	s := scopedFleet(t).Restrict(func(ns string) bool { return ns == "payments" }, nil).SnapshotForSerialization()
 	b, err := json.Marshal(struct {
 		Sources     []SourceState
 		Limitations []Limitation
@@ -96,13 +96,13 @@ func TestRestrictScrubsWatchedNamespaces(t *testing.T) {
 }
 
 func TestRestrictKeepsScopedLimitation(t *testing.T) {
-	s := scopedFleet(t).Restrict(func(ns string) bool { return ns == "payments" }).SnapshotForSerialization()
+	s := scopedFleet(t).Restrict(func(ns string) bool { return ns == "payments" }, nil).SnapshotForSerialization()
 	want := "source c1 watches 1 namespace you may read (payments) and 1 more; services in any other namespace are unknown"
 	if got := scopeMessages(s.Limitations, LimitationK8sNamespaceScoped); !slices.Equal(got, []string{want}) {
 		t.Errorf("scope = %q, want %q", got, want)
 	}
 
-	none := scopedFleet(t).Restrict(func(string) bool { return false }).SnapshotForSerialization()
+	none := scopedFleet(t).Restrict(func(string) bool { return false }, nil).SnapshotForSerialization()
 	want = "source c1 watches 2 namespaces you may not read; services in any other namespace are unknown"
 	if got := scopeMessages(none.Limitations, LimitationK8sNamespaceScoped); !slices.Equal(got, []string{want}) {
 		t.Errorf("scope = %q, want %q", got, want)
@@ -113,7 +113,7 @@ func TestRestrictKeepsScopedLimitation(t *testing.T) {
 }
 
 func TestRestrictKeepsReadableUnreadableNamespace(t *testing.T) {
-	s := scopedFleet(t).Restrict(func(ns string) bool { return ns != "ledger" && ns != "" }).SnapshotForSerialization()
+	s := scopedFleet(t).Restrict(func(ns string) bool { return ns != "ledger" && ns != "" }, nil).SnapshotForSerialization()
 	want := []string{"source c1 could not read namespace audit: forbidden"}
 	if got := scopeMessages(s.Limitations, LimitationK8sNamespaceUnreadable); !slices.Equal(got, want) {
 		t.Errorf("unreadable = %q, want %q", got, want)
@@ -122,7 +122,7 @@ func TestRestrictKeepsReadableUnreadableNamespace(t *testing.T) {
 
 func TestRestrictHidesWatchedNamespaceWithoutTargets(t *testing.T) {
 	q := scopedFleet(t)
-	if q.Restrict(func(ns string) bool { return ns == "payments" || ns == "audit" }) == q {
+	if q.Restrict(func(ns string) bool { return ns == "payments" || ns == "audit" }, nil) == q {
 		t.Error("hiding an empty watched namespace must restrict the answer")
 	}
 }
@@ -169,7 +169,7 @@ func TestRestrictRebuildsScopeWhenEveryWatchedNamespaceIsVisible(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := NewQuery(snap).Restrict(func(ns string) bool { return ns == "payments" }).SnapshotForSerialization()
+	s := NewQuery(snap).Restrict(func(ns string) bool { return ns == "payments" }, nil).SnapshotForSerialization()
 	want := []string{"source c1 watches 1 namespace (payments); services in any other namespace are unknown"}
 	if got := scopeMessages(s.Limitations, LimitationK8sNamespaceScoped); !slices.Equal(got, want) {
 		t.Errorf("scope = %q, want %q", got, want)
@@ -180,7 +180,7 @@ func TestRestrictRebuildsScopeWhenEveryWatchedNamespaceIsVisible(t *testing.T) {
 // namespaces gets no names and the total, and the field doc says that shape is
 // a scoped source, never every namespace.
 func TestRestrictHiddenAllReadsAsScoped(t *testing.T) {
-	s := scopedFleet(t).Restrict(func(string) bool { return false }).SnapshotForSerialization()
+	s := scopedFleet(t).Restrict(func(string) bool { return false }, nil).SnapshotForSerialization()
 	b, err := json.Marshal(s.Sources[0])
 	if err != nil {
 		t.Fatal(err)
@@ -202,7 +202,7 @@ func TestUnreadableNamespaceHiddenFromRestrictedReader(t *testing.T) {
 	for _, ns := range q.Namespaces() {
 		visible[ns] = true
 	}
-	s := q.Restrict(func(ns string) bool { return visible[ns] }).SnapshotForSerialization()
+	s := q.Restrict(func(ns string) bool { return visible[ns] }, nil).SnapshotForSerialization()
 	if got := scopeMessages(s.Limitations, LimitationK8sNamespaceUnreadable); len(got) != 0 {
 		t.Errorf("unreadable = %q, want none for a reader whose namespaces were reviewed", got)
 	}

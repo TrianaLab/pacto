@@ -56,17 +56,32 @@ func viewerFleet(t *testing.T, namespaces ...string) *fleet.Query {
 	return fleet.NewQuery(snap)
 }
 
+// reviews answers Pacto reviews with allow and workload reviews with
+// allowWorkload (nil refuses every one), recording each namespace a Pacto
+// review asked about in asked and every review as resource.group/namespace in
+// askedRes.
 type reviews struct {
-	mu    sync.Mutex
-	asked []string
-	allow func(p Person, ns string) (bool, error)
+	mu            sync.Mutex
+	asked         []string
+	askedRes      []string
+	allow         func(p Person, ns string) (bool, error)
+	allowWorkload func(p Person, ns string, res ResourceAttributes) (bool, error)
 }
 
-func (r *reviews) review(_ context.Context, p Person, ns string) (bool, error) {
+func (r *reviews) review(_ context.Context, p Person, ns string, res ResourceAttributes) (bool, error) {
 	r.mu.Lock()
-	r.asked = append(r.asked, ns)
+	r.askedRes = append(r.askedRes, res.Resource+"."+res.Group+"/"+ns)
+	if res == PactoResource {
+		r.asked = append(r.asked, ns)
+	}
 	r.mu.Unlock()
-	return r.allow(p, ns)
+	switch {
+	case res == PactoResource:
+		return r.allow(p, ns)
+	case r.allowWorkload == nil:
+		return false, nil
+	}
+	return r.allowWorkload(p, ns, res)
 }
 
 func services(q *fleet.Query) []string {
@@ -186,7 +201,7 @@ func TestViewerBoundsAndFailures(t *testing.T) {
 	q := viewerFleet(t, "a")
 	boom := errors.New("apiserver down")
 	fail := ""
-	v := NewViewer(func(_ context.Context, p Person, ns string) (bool, error) {
+	v := NewViewer(func(_ context.Context, p Person, ns string, _ ResourceAttributes) (bool, error) {
 		if ns == fail {
 			return false, boom
 		}
@@ -228,7 +243,7 @@ func TestSubjectAccessReview(t *testing.T) {
 		return true, obj, nil
 	})
 	review := SubjectAccessReview(c)
-	ok, err := review(context.Background(), Person{User: "u", Groups: []string{"g"}}, "shop")
+	ok, err := review(context.Background(), Person{User: "u", Groups: []string{"g"}}, "shop", PactoResource)
 	if err != nil || !ok {
 		t.Fatalf("shop: %v %v", ok, err)
 	}
@@ -236,13 +251,13 @@ func TestSubjectAccessReview(t *testing.T) {
 	if spec["user"] != "u" || spec["groups"].([]any)[0] != "g" || attrs["verb"] != "list" || attrs["resource"] != "pactos" || attrs["group"] != "pacto.trianalab.io" {
 		t.Errorf("spec = %+v", spec)
 	}
-	if ok, _ := review(context.Background(), Person{User: "u"}, "other"); ok {
+	if ok, _ := review(context.Background(), Person{User: "u"}, "other", PactoResource); ok {
 		t.Error("other namespace allowed")
 	}
 	c.PrependReactor("create", "subjectaccessreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
 		return true, nil, errors.New("forbidden")
 	})
-	if _, err := review(context.Background(), Person{User: "u"}, "shop"); err == nil {
+	if _, err := review(context.Background(), Person{User: "u"}, "shop", PactoResource); err == nil {
 		t.Error("a refused review is an error")
 	}
 }
@@ -315,7 +330,7 @@ func lsarClient(allowed func(ns string) bool) (*dynamicfake.FakeDynamicClient, *
 func TestLocalReviewPostsInNamespace(t *testing.T) {
 	c, seen := lsarClient(func(ns string) bool { return ns == "payments" })
 	review := LocalSubjectAccessReview(c)
-	ok, err := review(context.Background(), Person{User: "u", Groups: []string{"g"}}, "payments")
+	ok, err := review(context.Background(), Person{User: "u", Groups: []string{"g"}}, "payments", PactoResource)
 	if err != nil || !ok {
 		t.Fatalf("payments: %v %v", ok, err)
 	}
@@ -329,13 +344,13 @@ func TestLocalReviewPostsInNamespace(t *testing.T) {
 		t.Errorf("posted %s in %q: %+v", a.GetResource().Resource, a.GetNamespace(), obj.Object)
 	}
 	checkReviewSpec(t, obj, "payments")
-	if ok, _ := review(context.Background(), Person{User: "u"}, "ledger"); ok {
+	if ok, _ := review(context.Background(), Person{User: "u"}, "ledger", PactoResource); ok {
 		t.Error("ledger allowed")
 	}
 	c.PrependReactor("create", "localsubjectaccessreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
 		return true, nil, errors.New("forbidden")
 	})
-	if _, err := review(context.Background(), Person{User: "u"}, "payments"); err == nil {
+	if _, err := review(context.Background(), Person{User: "u"}, "payments", PactoResource); err == nil {
 		t.Error("a refused review is an error")
 	}
 }
@@ -355,7 +370,7 @@ func checkReviewSpec(t *testing.T, obj *unstructured.Unstructured, ns string) {
 // namespace at once has no namespaced form, so it is answered false unasked.
 func TestLocalReviewAnswersFalseForAllNamespaces(t *testing.T) {
 	c, seen := lsarClient(func(string) bool { return true })
-	ok, err := LocalSubjectAccessReview(c)(context.Background(), Person{User: "root"}, "")
+	ok, err := LocalSubjectAccessReview(c)(context.Background(), Person{User: "root"}, "", PactoResource)
 	if ok || err != nil || len(*seen) != 0 {
 		t.Errorf("all namespaces: %v %v, %d requests", ok, err, len(*seen))
 	}
@@ -431,7 +446,7 @@ func TestScopedViewerUnwatchedCallerDoesNotFailRequest(t *testing.T) {
 
 func TestScopedViewerFailedReviewIsError(t *testing.T) {
 	boom := errors.New(`localsubjectaccessreviews.authorization.k8s.io is forbidden: cannot create resource in the namespace "payments"`)
-	v := NewScopedViewer(func(context.Context, Person, string) (bool, error) { return false, boom }, []string{"payments"})
+	v := NewScopedViewer(func(context.Context, Person, string, ResourceAttributes) (bool, error) { return false, boom }, []string{"payments"})
 	_, err := v.Query(context.Background(), alice, viewerFleet(t, "payments"))
 	if !errors.Is(err, ErrReview) {
 		t.Errorf("a failed review in a watched namespace: %v", err)
@@ -477,5 +492,133 @@ func TestScopedViewerRestrictsToAllowed(t *testing.T) {
 	got, err := v.Query(context.Background(), alice, viewerFleet(t, "payments", "ledger", "other"))
 	if err != nil || !slices.Equal(services(got), []string{"svc-payments"}) {
 		t.Errorf("alice sees %v, %v", services(got), err)
+	}
+}
+
+// inferredFleet: svc-a runs in shop beside two inferred services, the cart
+// Deployment and the nightly CronJob.
+func inferredFleet(t *testing.T) *fleet.Query {
+	t.Helper()
+	k := fleet.SourceKindKubernetes
+	declared := fleet.NewMemorySource("k8s", k, &fleet.Collection{Targets: []fleet.RawTarget{{Scope: "shop", Kind: k, Name: "svc-a", Service: "svc-a"}}})
+	workloads := fleet.NewMemorySource("k8s-workloads", "kubernetes-workloads", &fleet.Collection{InferredServices: []fleet.RawInferredService{
+		{Namespace: "shop", Kind: "Deployment", Name: "cart"}, {Namespace: "shop", Kind: "CronJob", Name: "nightly"},
+	}})
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, declared, workloads)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fleet.NewQuery(snap)
+}
+
+// TestViewerAsksWorkloadReviewForInferred: Pacto read alone never shows an
+// inferred service. A person must also be allowed to list its workload kind
+// in its namespace, asked through SAR or, for a scoped viewer, LSAR, and a
+// cluster-wide Pacto reader sees the whole fleet only with cluster-wide read
+// of every such kind.
+func TestViewerAsksWorkloadReviewForInferred(t *testing.T) {
+	cart, nightly := "k8s:shop/Deployment/cart", "k8s:shop/CronJob/nightly"
+	noDeployments := func(_ Person, _ string, res ResourceAttributes) (bool, error) {
+		return res.Resource != "deployments", nil
+	}
+	q := inferredFleet(t)
+
+	r := &reviews{allow: func(_ Person, ns string) (bool, error) { return ns == "shop", nil }, allowWorkload: noDeployments}
+	v := NewViewer(r.review)
+	got, err := v.Query(context.Background(), alice, q)
+	if err != nil || !slices.Equal(services(got), []string{nightly, "svc-a"}) {
+		t.Fatalf("alice sees %v, %v", services(got), err)
+	}
+	for _, want := range []string{"pactos.pacto.trianalab.io/shop", "deployments.apps/shop", "cronjobs.batch/shop"} {
+		if !slices.Contains(r.askedRes, want) {
+			t.Errorf("asked %v, never %s", r.askedRes, want)
+		}
+	}
+	if slices.Contains(r.askedRes, "deployments.apps/") {
+		t.Errorf("asked %v about deployments everywhere for a namespace reader", r.askedRes)
+	}
+	asked := len(r.askedRes)
+	if _, err := v.Query(context.Background(), alice, q); err != nil || len(r.askedRes) != asked {
+		t.Errorf("answers are not cached per resource: %v, %v", r.askedRes, err)
+	}
+	checkClusterWideWorkloadReview(t, q, nightly)
+	checkScopedWorkloadReview(t, q, cart, nightly)
+}
+
+// checkClusterWideWorkloadReview: a cluster-wide Pacto reader sees all of q
+// only with cluster-wide read of every inferred workload kind.
+func checkClusterWideWorkloadReview(t *testing.T, q *fleet.Query, nightly string) {
+	t.Helper()
+	root := &reviews{allow: func(Person, string) (bool, error) { return true, nil }, allowWorkload: func(_ Person, ns string, res ResourceAttributes) (bool, error) {
+		return res.Resource == "cronjobs" && ns == "", nil
+	}}
+	got, err := NewViewer(root.review).Query(context.Background(), alice, q)
+	if err != nil || got == q || !slices.Equal(services(got), []string{nightly, "svc-a"}) {
+		t.Errorf("a cluster-wide Pacto reader without cluster-wide Deployment read sees %v, %v", services(got), err)
+	}
+	if !slices.Contains(root.askedRes, "deployments.apps/") || !slices.Contains(root.askedRes, "deployments.apps/shop") || slices.Contains(root.askedRes, "cronjobs.batch/shop") {
+		t.Errorf("asked %v", root.askedRes)
+	}
+	everything := &reviews{allow: func(Person, string) (bool, error) { return true, nil }, allowWorkload: func(Person, string, ResourceAttributes) (bool, error) { return true, nil }}
+	if got, err := NewViewer(everything.review).Query(context.Background(), alice, q); err != nil || got != q {
+		t.Errorf("a cluster-wide reader of everything gets a restricted view: %v", err)
+	}
+}
+
+// checkScopedWorkloadReview: a scoped viewer asks the workload review through
+// LSAR in the watched namespace.
+func checkScopedWorkloadReview(t *testing.T, q *fleet.Query, cart, nightly string) {
+	t.Helper()
+	c := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())
+	var seen []string
+	c.PrependReactor("create", "localsubjectaccessreviews", func(a k8stesting.Action) (bool, runtime.Object, error) {
+		obj := a.(k8stesting.CreateAction).GetObject().(*unstructured.Unstructured).DeepCopy()
+		res, _, _ := unstructured.NestedString(obj.Object, "spec", "resourceAttributes", "resource")
+		group, _, _ := unstructured.NestedString(obj.Object, "spec", "resourceAttributes", "group")
+		seen = append(seen, res+"."+group+"/"+obj.GetNamespace())
+		_ = unstructured.SetNestedField(obj.Object, res != "deployments", "status", "allowed")
+		return true, obj, nil
+	})
+	got, err := NewScopedViewer(LocalSubjectAccessReview(c), []string{"shop"}).Query(context.Background(), alice, q)
+	if err != nil || slices.Contains(services(got), cart) || !slices.Contains(services(got), nightly) {
+		t.Errorf("the scoped viewer shows %v, %v", services(got), err)
+	}
+	if !slices.Contains(seen, "deployments.apps/shop") || !slices.Contains(seen, "pactos.pacto.trianalab.io/shop") {
+		t.Errorf("the scoped viewer posted %v", seen)
+	}
+}
+
+// TestViewerWorkloadReviewEdges: a workload kind Pacto has no resource for is
+// never visible, even to a reader of everything, and a failed workload review
+// fails the answer as a failed Pacto review does.
+func TestViewerWorkloadReviewEdges(t *testing.T) {
+	workloads := fleet.NewMemorySource("k8s-workloads", "kubernetes-workloads", &fleet.Collection{InferredServices: []fleet.RawInferredService{
+		{Namespace: "shop", Kind: "Rollout", Name: "canary"}, {Namespace: "shop", Kind: "Deployment", Name: "cart"},
+	}})
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, workloads)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := fleet.NewQuery(snap)
+	yes := func(Person, string) (bool, error) { return true, nil }
+	everything := &reviews{allow: yes, allowWorkload: func(Person, string, ResourceAttributes) (bool, error) { return true, nil }}
+	got, err := NewViewer(everything.review).Query(context.Background(), alice, q)
+	if err != nil || !slices.Equal(services(got), []string{"k8s:shop/Deployment/cart"}) {
+		t.Errorf("a reader of everything sees %v, %v", services(got), err)
+	}
+	boom := errors.New("apiserver down")
+	for name, fail := range map[string]func(Person, string, ResourceAttributes) (bool, error){
+		"everywhere": func(Person, string, ResourceAttributes) (bool, error) { return false, boom },
+		"namespace": func(_ Person, ns string, _ ResourceAttributes) (bool, error) {
+			if ns == "" {
+				return false, nil
+			}
+			return false, boom
+		},
+	} {
+		r := &reviews{allow: yes, allowWorkload: fail}
+		if _, err := NewViewer(r.review).Query(context.Background(), alice, q); !errors.Is(err, ErrReview) {
+			t.Errorf("%s: a failed workload review is %v", name, err)
+		}
 	}
 }

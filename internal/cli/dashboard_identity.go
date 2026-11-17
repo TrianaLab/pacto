@@ -285,7 +285,7 @@ func clusterReview(cluster *rest.Config, newClient func(*rest.Config) (dynamic.I
 		dyn, err = newClient(cfg)
 	}
 	if err != nil {
-		return func(context.Context, authn.Person, string) (bool, error) { return false, err }
+		return func(context.Context, authn.Person, string, authn.ResourceAttributes) (bool, error) { return false, err }
 	}
 	if mode == reviewLocal {
 		return authn.LocalSubjectAccessReview(dyn)

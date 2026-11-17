@@ -565,7 +565,7 @@ func TestK8sExternalUsesRestrictedByNamespace(t *testing.T) {
 	if v, err := fleet.NewQuery(snap).GetExternal("stripe"); err != nil || len(v.External.Consumers) != 2 {
 		t.Fatalf("unrestricted stripe = %+v, %v", v, err)
 	}
-	r := fleet.NewQuery(snap).Restrict(func(ns string) bool { return ns == "prod" })
+	r := fleet.NewQuery(snap).Restrict(func(ns string) bool { return ns == "prod" }, nil)
 	v, err := r.GetExternal("stripe")
 	if err != nil || len(v.External.Consumers) != 1 || v.External.HiddenConsumers != 1 {
 		t.Fatalf("restricted stripe = %+v, %v", v, err)

@@ -310,7 +310,7 @@ func TestChangesRestrictedPartial(t *testing.T) {
 	tmpl.Service.Template = &contract.Template{}
 	q := changesQuery([]string{"v1.0.0", "v2.0.0"}, []*contract.Contract{secret, tmpl})
 	q.snap.Services["svc"].Template = true
-	r := q.Restrict(func(string) bool { return false })
+	r := q.Restrict(func(string) bool { return false }, nil)
 	h := r.serviceChanges(r.snap.Services["svc"])
 	checkChanges(t, changeText(h), []string{"v2.0.0 owner  present  ->team:a -"})
 	if h.Completeness != "partial" || h.CompletenessReason != historyPartialReason || !strings.Contains(h.Heading(), "partial: "+historyPartialReason) {

@@ -209,7 +209,7 @@ func TestLifecycleAttentionNewestConsumerRevisionSpeaks(t *testing.T) {
 }
 
 func TestLifecycleAttentionHiddenProviderSilent(t *testing.T) {
-	r := lifecycleRangeFleet(t).Restrict(func(ns string) bool { return ns != "secret" })
+	r := lifecycleRangeFleet(t).Restrict(func(ns string) bool { return ns != "secret" }, nil)
 	if items := lifecycleItems(t, r); len(items) != 0 {
 		t.Errorf("a hidden provider raised lifecycle items: %+v", items)
 	}

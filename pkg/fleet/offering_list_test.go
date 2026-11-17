@@ -154,7 +154,7 @@ func TestOfferingRowTargetsUnknownWhenHidden(t *testing.T) {
 	if r := offeringRows(t, a.query(), EntityFilter{})["postgresql"]; r.Targets != 2 || r.TargetsUnknown {
 		t.Errorf("full view row = %+v", r)
 	}
-	r := offeringRows(t, a.query().Restrict(func(ns string) bool { return ns != "secret" }), EntityFilter{})["postgresql"]
+	r := offeringRows(t, a.query().Restrict(func(ns string) bool { return ns != "secret" }, nil), EntityFilter{})["postgresql"]
 	if r.Targets != 0 || !r.TargetsUnknown {
 		t.Errorf("restricted row = %+v", r)
 	}
@@ -183,7 +183,7 @@ func TestOfferingRowRestricted(t *testing.T) {
 	a.dep("secret-job", "pg", "db")
 	a.target("secret-app", "s-0", "secret", "prod", time.Hour)
 	a.target("secret-job", "j-0", "secret", "prod", time.Hour)
-	r := a.query().Restrict(func(ns string) bool { return ns != "secret" })
+	r := a.query().Restrict(func(ns string) bool { return ns != "secret" }, nil)
 	row := offeringRows(t, r, EntityFilter{})["postgresql"]
 	if row.Consumers != 1 || row.HiddenConsumers != 2 {
 		t.Errorf("row = %+v", row)
@@ -415,7 +415,7 @@ func TestAggregateOfferingPhasesRestricted(t *testing.T) {
 	if agg := assertOfferingTallyMatchesDetail(t, q); agg.OfferingPhases.Failed != 1 {
 		t.Fatalf("unrestricted = %+v", agg.OfferingPhases)
 	}
-	r := q.Restrict(func(ns string) bool { return ns != "secret" })
+	r := q.Restrict(func(ns string) bool { return ns != "secret" }, nil)
 	agg := assertOfferingTallyMatchesDetail(t, r)
 	if agg.OfferingPhases.Failed != 0 || agg.OfferingPhases.Ready != 1 || len(agg.FailedByOffering) != 0 {
 		t.Errorf("restricted = %+v", agg)
