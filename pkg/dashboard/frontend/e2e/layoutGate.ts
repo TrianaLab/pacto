@@ -211,7 +211,12 @@ export function installScaleFixture(): void {
       const ag = doc.aggregate as Record<string, unknown> | undefined;
       if (ag) { ag.matched = 12400; ag.services = 0; ag.inferredServices = 12400; }
       for (const r of (doc.entities as Record<string, unknown>[] | undefined) ?? []) {
-        if (r.declaration === 'inferred') r.image = `registry.example.com/${longName(`inferred-image-${String(r.key)}`).replace(/[^a-z0-9-]/g, '')}@sha256:${'9f8e'.repeat(16)}`;
+        if (r.declaration !== 'inferred') continue;
+        r.image = `registry.example.com/${longName(`inferred-image-${String(r.key)}`).replace(/[^a-z0-9-]/g, '')}@sha256:${'9f8e'.repeat(16)}`;
+        // 509-S3: a 200-character group label and a 300-character repository URL.
+        const g = (r.group ?? { rule: 'argocd', namespace: 'shop', name: 'shop', from: 'annotation argocd.argoproj.io/tracking-id', key: 'argocd/shop/shop' }) as Record<string, unknown>;
+        r.group = { ...g, label: `Argo CD Application ${longName(`group-${String(r.key)}`)}`.padEnd(200, 'x').slice(0, 200) };
+        r.repository = `https://github.com/${longName(`repository-${String(r.key)}`)}`.padEnd(300, 'y').slice(0, 300);
       }
     }
     // Detected providers at scale (509-S2): 30 rows from 4 sources in 3 clusters, long
@@ -330,6 +335,15 @@ export function installScaleFixture(): void {
       delete x.catalog; delete rec.catalog;
       Object.assign(rec, { class: 'unclassified', joinedBy: 'normalized-name', consumersTotal: 120, sourcesTotal: 140, hiddenConsumers: 3 });
       x.foldedInto = 'other-egress';
+    }
+    // 509-S3: an inferred service's Group and Repository facts at their longest.
+    const groupWorkload = (doc.service as Record<string, Record<string, unknown>> | undefined)?.workload;
+    if (route === '/api/fleet/entities/service' && groupWorkload && (window as unknown as { __groupLongValues?: boolean }).__groupLongValues) {
+      const long = (seed: string, n: number) => `${seed}-${'segment/'.repeat(Math.ceil(n / 8))}`.slice(0, n);
+      groupWorkload.group = { ...(groupWorkload.group as Record<string, unknown>), label: long('Argo CD Application shop', 200), from: long('annotation argocd.argoproj.io/tracking-id', 300) };
+      groupWorkload.repositories = [0, 1, 2, 3, 4].map((i) => ({ url: long(`https://github.com/example/${i}`, 300), path: long(`deploy/${i}`, 300),
+        from: long(`Application argocd/shop spec.sources[${i}].repoURL`, 300), namespace: 'argocd', kind: 'Application' }));
+      groupWorkload.repositoryUnknown = long('the source is Helm chart', 300);
     }
     if (route === '/api/fleet/entities/offering') {
       const off = doc.offering as Record<string, Record<string, unknown>>;
@@ -1943,6 +1957,15 @@ const createdService = async (page: Page) => {
 
 // `list` marks list views, where L3 holds the list within 600px or the figure folds.
 export type Route = { name: string; hash?: string; list?: boolean; open?: (page: Page) => Promise<void> };
+// 509-S3: the grouped inferred service billing-worker, reached through its real href.
+async function openGroupedInferred(page: Page): Promise<void> {
+  await page.goto('/#/fleet/services?declaration=inferred&group=argocd%2Fshop%2Fshop');
+  const a = page.locator('main a[href*="/fleet/services/"][href*="billing-worker"]').first();
+  await expect(a).toBeVisible({ timeout: 20_000 });
+  await page.goto(`/${await a.getAttribute('href')}`);
+  await expect(page.locator('[data-testid="inferred-workload"]')).toBeVisible({ timeout: 30_000 });
+}
+
 export const ROUTES: Route[] = [
   { name: 'overview', hash: '#/fleet' },
   { name: 'overview watched namespaces', open: async (page) => { await page.addInitScript(() => { (window as unknown as { __scoped?: boolean }).__scoped = true; }); await page.goto('/#/fleet'); await page.reload(); } }, // reload: the init script only runs on a new document
@@ -2336,6 +2359,19 @@ export const ROUTES: Route[] = [
       await expect(a).toBeVisible({ timeout: 20_000 });
       await page.goto(`/${await a.getAttribute('href')}`);
       await expect(page.locator('[data-testid="inferred-workload"]')).toBeVisible({ timeout: 30_000 });
+    },
+  },
+  // 509-S3: the Services list filtered to one Argo CD Application, a grouped inferred
+  // service and its Group and Repository facts at their longest.
+  { name: 'services group filter', list: true, hash: '#/fleet/services?declaration=inferred&group=argocd%2Fshop%2Fshop' },
+  { name: 'inferred entity grouped', open: openGroupedInferred },
+  {
+    name: 'inferred entity long values',
+    open: async (page) => {
+      await page.addInitScript(() => { (window as unknown as { __groupLongValues?: boolean }).__groupLongValues = true; });
+      await openGroupedInferred(page);
+      await page.reload(); // the init script only runs on a new document
+      await expect(page.locator('[data-testid="inferred-repository"]')).toBeVisible({ timeout: 30_000 });
     },
   },
   // 509-S4: a runtime-inferred edge on the graph, the Replaces line and a replaced key.

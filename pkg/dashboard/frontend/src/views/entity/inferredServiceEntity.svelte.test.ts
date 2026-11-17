@@ -126,4 +126,67 @@ describe('InferredServiceEntity', () => {
     expect(calls).toContain('2 calls to services you cannot see');
     expect(calls).not.toContain('No calls');
   });
+
+  // 509-S3: how the cluster groups the workload and the repository its GitOps object names.
+  const ARGO = { rule: 'argocd', namespace: 'shop', name: 'cart', from: 'annotation argocd.argoproj.io/tracking-id', key: 'argocd/shop/cart', label: 'Argo CD Application shop/cart' };
+  const withWorkload = (patch: Record<string, unknown>) => {
+    const d = inferredDetail();
+    Object.assign(d.service.workload, patch);
+    return d;
+  };
+
+  it('shows the group with one mark naming the rule and where it was read, and links its services', () => {
+    const t = render(withWorkload({ group: ARGO }));
+    const row = t.querySelector('[data-testid="inferred-group"]') as HTMLElement;
+    expect(row.querySelector('bdi')?.textContent).toBe('Argo CD Application shop/cart');
+    expect(row.querySelector('.prov-tip')?.textContent).toBe('Grouped by Argo CD Application: read from annotation argocd.argoproj.io/tracking-id');
+    const link = row.querySelector('a') as HTMLAnchorElement;
+    expect(link.textContent).toBe('Services in this group');
+    expect(link.getAttribute('href')).toBe('#/fleet/services?declaration=inferred&group=argocd%2Fshop%2Fcart');
+  });
+
+  it('gives no group link to a workload grouped by itself, and says why an ambiguous one stays ungrouped', () => {
+    const own = { rule: 'workload', namespace: 'shop', name: 'Deployment/cart', from: 'no grouping label or annotation', key: 'workload/shop/Deployment/cart', label: 'This workload only' };
+    let row = render(withWorkload({ group: own })).querySelector('[data-testid="inferred-group"]') as HTMLElement;
+    expect(row.textContent).toContain('This workload only');
+    expect(row.querySelector('a')).toBeNull();
+    cleanup?.(); cleanup = null;
+    const why = 'label argocd.argoproj.io/instance names cart and annotation argocd.argoproj.io/tracking-id names checkout';
+    row = render(withWorkload({ group: { ...own, label: 'Ungrouped', ambiguous: why } })).querySelector('[data-testid="inferred-group"]') as HTMLElement;
+    expect(row.querySelector('bdi')?.textContent).toBe('Ungrouped');
+    expect(row.querySelector('.t-meta')?.textContent).toBe(why);
+    expect(row.querySelector('a')).toBeNull();
+  });
+
+  it('links an https repository, prints any other as text and keeps the path', () => {
+    const t = render(withWorkload({ group: ARGO, repositories: [
+      { url: 'https://github.com/acme/shop', path: 'deploy/cart', from: 'Application argocd/cart spec.source.repoURL', namespace: 'argocd', kind: 'Application' },
+      { url: 'github.com:acme/infra', from: 'Application argocd/cart spec.sources[1].repoURL', namespace: 'argocd', kind: 'Application' },
+    ] }));
+    const row = t.querySelector('[data-testid="inferred-repository"]') as HTMLElement;
+    const links = [...row.querySelectorAll('a')];
+    expect(links).toHaveLength(1);
+    expect(links[0].getAttribute('href')).toBe('https://github.com/acme/shop');
+    expect(links[0].getAttribute('rel')).toBe('noopener noreferrer');
+    expect(links[0].getAttribute('target')).toBe('_blank');
+    expect(row.textContent).toContain('github.com:acme/infra');
+    expect(row.textContent).toContain('path deploy/cart');
+    expect([...row.querySelectorAll('bdi')].every((b) => b.getAttribute('title'))).toBe(true);
+    expect(row.querySelector('.prov-tip')?.textContent).toBe('Read from Application argocd/cart spec.source.repoURL, Application argocd/cart spec.sources[1].repoURL');
+    expect(row.textContent).not.toContain('Repository unknown');
+    const fold = t.querySelector('[data-testid="inferred-paths"]')?.textContent || '';
+    expect(fold).toContain('annotation argocd.argoproj.io/tracking-id');
+    expect(fold).toContain('Application argocd/cart spec.sources[1].repoURL');
+  });
+
+  it('says why the repository is unknown, muted, and draws no repository row for a Helm release', () => {
+    const row = render(withWorkload({ group: ARGO, repositoryUnknown: 'Applications unreadable (forbidden)' })).querySelector('[data-testid="inferred-repository"]') as HTMLElement;
+    expect(row.querySelector('.t-meta')?.textContent).toBe('Repository unknown: Applications unreadable (forbidden)');
+    expect(row.querySelector('.prov-mark')).toBeNull();
+    cleanup?.(); cleanup = null;
+    const helm = { rule: 'helm', namespace: 'shop', name: 'exporter', from: 'annotations meta.helm.sh/release-name and release-namespace', key: 'helm/shop/exporter', label: 'Helm release shop/exporter' };
+    const t = render(withWorkload({ group: helm }));
+    expect(t.querySelector('[data-testid="inferred-group"]')).not.toBeNull();
+    expect(t.querySelector('[data-testid="inferred-repository"]')).toBeNull();
+  });
 });

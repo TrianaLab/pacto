@@ -484,6 +484,7 @@
       consumes={route.params.consumes || ''}
       createdFrom={route.params.createdFrom || ''}
       declaration={route.params.declaration || ''}
+      group={route.params.group || ''}
       phase={route.params.phase || ''}
       offset={route.params.offset || ''}
       limit={route.params.limit || ''}

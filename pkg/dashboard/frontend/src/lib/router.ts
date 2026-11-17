@@ -223,7 +223,7 @@ function parseFleet(path: string, query: string): Route {
     // `domain` is the registry path; `businessDomain` is the business domain, with
     // `(none)` for the services that declare none.
     // `gap` keeps the services whose contracts leave that knowledge out.
-    for (const k of ['text', 'owner', 'ownerKey', 'ownership', 'gap', 'status', 'domain', 'businessDomain', 'capability', 'offering', 'consumes', 'phase', 'createdFrom', 'declaration', 'offset', 'limit', 'sort']) {
+    for (const k of ['text', 'owner', 'ownerKey', 'ownership', 'gap', 'status', 'domain', 'businessDomain', 'capability', 'offering', 'consumes', 'phase', 'createdFrom', 'declaration', 'group', 'offset', 'limit', 'sort']) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
@@ -494,7 +494,7 @@ function setPaging(qs: URLSearchParams, p: ListPaging) {
 // carrying them would be an inert URL filter.
 export function fleetServicesUrl(opts: {
   text?: string; owner?: string; ownerKey?: string; ownership?: string; gap?: string; status?: string; domain?: string;
-  businessDomain?: string; capability?: string; offering?: string; consumes?: string; phase?: string; createdFrom?: string; declaration?: string; offset?: number;
+  businessDomain?: string; capability?: string; offering?: string; consumes?: string; phase?: string; createdFrom?: string; declaration?: string; group?: string; offset?: number;
 } & ListPaging = {}): string {
   const qs = new URLSearchParams();
   if (opts.text) qs.set('text', opts.text);
@@ -522,6 +522,8 @@ export function fleetServicesUrl(opts: {
   if (opts.createdFrom) qs.set('createdFrom', opts.createdFrom);
   // declaration keeps the declared or the inferred services; absent lists both.
   if (opts.declaration) qs.set('declaration', opts.declaration);
+  // group keeps the inferred services the cluster groups under one key (509-S3).
+  if (opts.group) qs.set('group', opts.group);
   setPaging(qs, opts);
   const str = qs.toString();
   return str ? `#/fleet/services?${str}` : '#/fleet/services';
