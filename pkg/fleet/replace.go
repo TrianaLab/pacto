@@ -32,10 +32,17 @@ func replaceInferred(snap *FleetSnapshot, inputs []inferredInput) []inferredInpu
 	targeting, unknown := targetsByWorkload(snap)
 	replaced := map[workloadKey]bool{}
 	for wk, keys := range targeting {
+		// A target of unknown cluster may run as this workload too: it
+		// joins the candidates, so another service's makes it ambiguous.
+		for tk, u := range unknown {
+			if u == (workloadKey{namespace: wk.namespace, kind: wk.kind, name: wk.name}) {
+				keys = append(keys, tk)
+			}
+		}
 		replaced[wk] = replaceWorkload(snap, wk, keys, byWorkload[wk])
 	}
 	for tk, wk := range unknown {
-		ambiguousCluster(snap, tk, wk, byWorkload, replaced)
+		ambiguousCluster(snap, tk, wk, byWorkload, targeting)
 	}
 	return slices.DeleteFunc(slices.Clone(inputs), func(in inferredInput) bool { return replaced[in.key(snap.clusterKeyed)] })
 }
@@ -89,18 +96,46 @@ func replaceWorkload(snap *FleetSnapshot, wk workloadKey, keys []TargetKey, ins 
 		ambiguousReplacement(snap, "Pacto targets of more than one service ("+strings.Join(names, ", ")+") run as workload "+name+", so it stays an inferred service")
 		return false
 	}
-	t := snap.Targets[keys[0]]
 	if snap.replacedNames == nil {
-		snap.replacedNames = map[string]ServiceKey{}
+		snap.replacedNames = map[string]replacedName{}
 	}
-	snap.replacedNames[name] = t.ServiceKey
+	snap.replacedNames[name] = replacedName{to: snap.Targets[keys[0]].ServiceKey, workload: wk}
+	t := earliestTarget(snap, keys)
 	created := earliestCreated(ins)
-	if created != nil && t.createdAt != nil && created.Before(*t.createdAt) {
+	if created != nil && t != nil && created.Add(minReplacementGap).Before(*t.createdAt) {
 		snap.Replacements = append(snap.Replacements, Replacement{
 			From: NewServiceKey(name), To: t.ServiceKey, Link: linkPactoTarget, Target: t.Key, At: copyTime(t.createdAt), workload: wk,
 		})
 	}
 	return true
+}
+
+// minReplacementGap is how much older than the Pacto a workload must be for a
+// replacement to be recorded: install tools create a Pacto seconds or minutes
+// after its workload (Helm applies custom resources last, Argo CD sync waves
+// wait for the Deployment), and that is a fresh install, not a takeover.
+//
+// ponytail: a fixed gap; an install whose Pacto lands more than ten minutes
+// after its workload still records one. Runtime evidence that the workload
+// ran uncontracted (an observed edge first seen before the Pacto) is the
+// upgrade path.
+const minReplacementGap = 10 * time.Minute
+
+// earliestTarget is the target among keys whose Pacto was created first, nil
+// when any of them has no known creation time: a contract may have described
+// the workload all along.
+func earliestTarget(snap *FleetSnapshot, keys []TargetKey) *TargetRecord {
+	var out *TargetRecord
+	for _, k := range keys {
+		t := snap.Targets[k]
+		if t.createdAt == nil {
+			return nil
+		}
+		if out == nil || t.createdAt.Before(*out.createdAt) {
+			out = t
+		}
+	}
+	return out
 }
 
 // earliestCreated is the earliest creation time any source reported for one
@@ -117,12 +152,13 @@ func earliestCreated(ins []inferredInput) *time.Time {
 
 // ambiguousCluster records that target tk names workload wk with no known
 // cluster, while inferred services run as a workload of that name in some
-// cluster: which one it runs as is unknown, so none is replaced. A workload
-// another target already replaced is no inferred service and is not named.
-func ambiguousCluster(snap *FleetSnapshot, tk TargetKey, wk workloadKey, byWorkload map[workloadKey][]inferredInput, replaced map[workloadKey]bool) {
+// cluster: which one it runs as is unknown, so none is replaced. A workload a
+// target of known cluster names was settled by [replaceWorkload], with tk
+// among its candidates, and is not named again.
+func ambiguousCluster(snap *FleetSnapshot, tk TargetKey, wk workloadKey, byWorkload map[workloadKey][]inferredInput, targeting map[workloadKey][]TargetKey) {
 	var names []string
 	for k := range byWorkload {
-		if !replaced[k] && k.namespace == wk.namespace && k.kind == wk.kind && k.name == wk.name {
+		if len(targeting[k]) == 0 && k.namespace == wk.namespace && k.kind == wk.kind && k.name == wk.name {
 			names = append(names, K8sCaller(k.cluster, k.namespace, k.kind, k.name))
 		}
 	}
@@ -140,13 +176,15 @@ func ambiguousReplacement(snap *FleetSnapshot, message string) {
 
 // restrictReplacements keeps the replacements whose declared service is
 // visible and whose workload hidden says the viewer may see, and the replaced
-// names of visible services.
+// names under the same rule.
 func restrictReplacements(out, s *FleetSnapshot, hiddenSvc map[ServiceKey]bool, hidden func(namespace, kind string) bool) {
 	out.Replacements = slices.DeleteFunc(slices.Clone(s.Replacements), func(r Replacement) bool {
 		return hiddenSvc[r.To] || hidden(r.workload.namespace, r.workload.kind)
 	})
 	out.replacedNames = maps.Clone(s.replacedNames)
-	maps.DeleteFunc(out.replacedNames, func(_ string, k ServiceKey) bool { return hiddenSvc[k] })
+	maps.DeleteFunc(out.replacedNames, func(_ string, r replacedName) bool {
+		return hiddenSvc[r.to] || hidden(r.workload.namespace, r.workload.kind)
+	})
 }
 
 // replacementHidden reports whether hidden hides the workload of some

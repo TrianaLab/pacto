@@ -140,8 +140,8 @@ func (s *FleetSnapshot) ObservedNameResolver() func(string) (ServiceKey, Observe
 		byName[svc.Name] = append(byName[svc.Name], k)
 	}
 	return func(name string) (ServiceKey, ObservedResolution) {
-		if k, ok := s.replacedNames[name]; ok {
-			return k, ObservedResolved
+		if r, ok := s.replacedNames[name]; ok {
+			return r.to, ObservedResolved
 		}
 		switch ks := byName[name]; len(ks) {
 		case 1:
@@ -155,6 +155,13 @@ func (s *FleetSnapshot) ObservedNameResolver() func(string) (ServiceKey, Observe
 			return "", ObservedAmbiguous
 		}
 	}
+}
+
+// replacedName is the declared service a replaced workload name resolves to,
+// and that workload, so a restricted view drops what it may not see.
+type replacedName struct {
+	to       ServiceKey
+	workload workloadKey
 }
 
 // indexUnescapedSlash returns the index of the first "/" (component escaping
@@ -1379,7 +1386,7 @@ type FleetSnapshot struct {
 	// replacedNames are the observed names of the workloads a Pacto target
 	// runs as, each mapped to the declared service of that target (see
 	// replaceInferred). ObservedNameResolver consults them first.
-	replacedNames map[string]ServiceKey
+	replacedNames map[string]replacedName
 	// observingSources are the ids of the sources that reported at least one
 	// observed edge: an inferred service's calls are known only where one of
 	// them is available.

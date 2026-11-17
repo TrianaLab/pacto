@@ -157,18 +157,70 @@ func TestReplaceResolvesTargetWithNoWorkloadSource(t *testing.T) {
 	}
 }
 
-func TestReplaceUnknownClusterSkipsReplacedWorkload(t *testing.T) {
+func TestReplaceUnknownClusterTargetOfAnotherServiceIsAmbiguous(t *testing.T) {
 	a, b := clusterOf(clusterA, "eu", ClusterNameFromContext), clusterOf(clusterB, "us", ClusterNameFromContext)
-	snap := buildClusterSnap(t,
-		workloadsSource("wa", a, cartWorkload(hoursAgo(72))),
-		NewMemorySource("ka", SourceKindKubernetes, &Collection{Cluster: a, Targets: []RawTarget{cartTarget("cart-svc", hoursAgo(1))}}),
-		NewMemorySource("kb", SourceKindKubernetes, &Collection{Cluster: b}),
-		NewMemorySource("k8s", SourceKindKubernetes, &Collection{Targets: []RawTarget{cartTarget("cart-other", hoursAgo(1))}}))
-	if len(snap.Replacements) != 1 {
-		t.Fatalf("replacements %+v", snap.Replacements)
+	for _, tc := range []struct {
+		other   string
+		replace int
+		lims    int
+	}{{"cart-svc", 1, 0}, {"cart-other", 0, 1}} {
+		unknown := cartTarget(tc.other, hoursAgo(1))
+		unknown.Name = "cart-unknown"
+		snap := buildClusterSnap(t,
+			workloadsSource("wa", a, cartWorkload(hoursAgo(72))),
+			NewMemorySource("ka", SourceKindKubernetes, &Collection{Cluster: a, Targets: []RawTarget{cartTarget("cart-svc", hoursAgo(1))}}),
+			NewMemorySource("kb", SourceKindKubernetes, &Collection{Cluster: b}),
+			NewMemorySource("k8s", SourceKindKubernetes, &Collection{Targets: []RawTarget{unknown}}))
+		if len(snap.Replacements) != tc.replace {
+			t.Errorf("%s: replacements %+v", tc.other, snap.Replacements)
+		}
+		if lims := limitationsWith(snap, LimitationInferredReplacementAmbiguous); len(lims) != tc.lims {
+			t.Errorf("%s: limitations %+v", tc.other, lims)
+		}
 	}
-	if lims := limitationsWith(snap, LimitationInferredReplacementAmbiguous); len(lims) != 0 {
-		t.Errorf("an already replaced workload is named as inferred: %+v", lims)
+}
+
+func TestReplaceNeedsAGapBeyondInstallOrder(t *testing.T) {
+	workloadAt := hoursAgo(72)
+	snap := replaceSnap(t, workloadAt, []RawTarget{cartTarget("cart-svc", new(workloadAt.Add(40*time.Second)))})
+	if len(snap.Replacements) != 0 {
+		t.Errorf("a Pacto created right after its workload records %+v", snap.Replacements)
+	}
+	if k, res := snap.ObservedNameResolver()(cartName); k != NewServiceKey("cart-svc") || res != ObservedResolved {
+		t.Errorf("resolved %s %v", k, res)
+	}
+}
+
+func TestReplaceComparesTheEarliestPactoOfTheService(t *testing.T) {
+	older := cartTarget("cart-svc", hoursAgo(100))
+	older.Name = "z-cart"
+	newer := cartTarget("cart-svc", hoursAgo(1))
+	newer.Name = "a-cart"
+	if snap := replaceSnap(t, hoursAgo(72), []RawTarget{newer, older}); len(snap.Replacements) != 0 {
+		t.Errorf("a workload a contract described since it was created records %+v", snap.Replacements)
+	}
+	unknown := cartTarget("cart-svc", nil)
+	unknown.Name = "z-cart"
+	if snap := replaceSnap(t, hoursAgo(72), []RawTarget{newer, unknown}); len(snap.Replacements) != 0 {
+		t.Errorf("a target of unknown creation time records %+v", snap.Replacements)
+	}
+}
+
+func TestReplacesNewestFirst(t *testing.T) {
+	cl := clusterOf(clusterA, "eu", ClusterNameFromContext)
+	ledgerTarget := cartTarget("cart-svc", hoursAgo(1))
+	ledgerTarget.Name, ledgerTarget.Workload = "ledger", &WorkloadRef{Kind: "StatefulSet", Name: "ledger"}
+	ledger := rawInferred("shop", "StatefulSet", "ledger")
+	ledger.CreatedAt = hoursAgo(90)
+	q := NewQuery(buildClusterSnap(t,
+		NewMemorySource("k8s", SourceKindKubernetes, &Collection{Cluster: cl, Targets: []RawTarget{cartTarget("cart-svc", hoursAgo(30)), ledgerTarget}}),
+		workloadsSource("w", cl, cartWorkload(hoursAgo(72)), ledger)))
+	v, err := q.GetService("cart-svc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.ReplacesTotal != 2 || v.Replaces[0].From != NewServiceKey(ledgerName) || !v.Replaces[0].At.Equal(*hoursAgo(1)) {
+		t.Errorf("replaces %+v", v.Replaces)
 	}
 }
 
@@ -201,6 +253,16 @@ func TestRestrictReplacementNeedsBothSides(t *testing.T) {
 	}
 	if _, res := r.snap.ObservedNameResolver()(cartName); res != ObservedUnknown {
 		t.Errorf("a replaced name resolves to a hidden service: %v", res)
+	}
+	// A service visible through another target keeps no name of a workload
+	// in a namespace, or of a kind, the viewer may not see.
+	front := cartTarget("cart-svc", hoursAgo(1))
+	front.Scope, front.Name = "web", "cart-web"
+	q = NewQuery(replaceSnap(t, hoursAgo(72), []RawTarget{cartTarget("cart-svc", hoursAgo(1)), front}))
+	for _, r := range []*Query{q.Restrict(func(ns string) bool { return ns != "shop" }, allKinds), q.Restrict(all, noDeployments)} {
+		if _, res := r.snap.ObservedNameResolver()(cartName); res != ObservedUnknown {
+			t.Errorf("a hidden workload's name resolves: %v", res)
+		}
 	}
 }
 

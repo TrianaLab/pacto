@@ -104,8 +104,8 @@ func (q *Query) resolveServiceOrReplaced(identifier string) (*ServiceRecord, *Re
 	return nil, nil, err
 }
 
-// replacesOf is the bounded list of the inferred services key replaced, and
-// how many there are.
+// replacesOf is the bounded list of the inferred services key replaced, the
+// newest first, and how many there are.
 func (q *Query) replacesOf(key ServiceKey) ([]Replacement, int) {
 	var out []Replacement
 	for _, r := range q.snap.Replacements {
@@ -114,6 +114,10 @@ func (q *Query) replacesOf(key ServiceKey) ([]Replacement, int) {
 			out = append(out, r)
 		}
 	}
+	slices.SortFunc(out, func(a, b Replacement) int {
+		at := func(r Replacement) time.Time { return *cmp.Or(r.At, new(time.Time)) }
+		return cmp.Or(at(b).Compare(at(a)), cmp.Compare(a.From, b.From))
+	})
 	shown, total, _ := boundSlice(out, MaxDetailPreview)
 	return shown, total
 }

@@ -63,7 +63,7 @@ type ExternalObservedSource struct {
 func (q *Query) externalEvidence(key ExternalKey, consumers []ServiceKey) ExternalEvidence {
 	var inf []ExternalInferredSource
 	var obs []ExternalObservedSource
-	for _, rel := range q.snap.Relationships {
+	for _, rel := range q.externalRels(true) {
 		if !externalEdge(rel, key) || !slices.Contains(consumers, rel.FromService) {
 			continue
 		}
@@ -249,12 +249,22 @@ func (q *Query) graphExternal(gq GraphQuery, key ExternalKey, maxNodes int) (*Gr
 	if res.Edges == nil {
 		res.Edges = []Relationship{}
 	}
-	for _, rel := range q.snap.Relationships {
+	for _, rel := range q.externalRels(gq.IncludeObserved) {
 		if externalEdge(rel, key) && nodeSet[rel.FromService] && graphProvenance(rel.Provenance, gq.IncludeObserved) {
 			res.Edges = append(res.Edges, rel)
 		}
 	}
 	return res, nil
+}
+
+// externalRels is the relationships an external answer reads: with
+// inferred, also the runtime calls of inferred services (InferredRelationships,
+// which a graph draws only with observed edges).
+func (q *Query) externalRels(inferred bool) []Relationship {
+	if !inferred {
+		return q.snap.Relationships
+	}
+	return slices.Concat(q.snap.Relationships, q.snap.InferredRelationships)
 }
 
 // graphProvenance reports whether a graph answer draws an edge to an
@@ -274,7 +284,7 @@ var provenanceRank = map[string]int{ProvenanceDeclared: 3, ProvenanceObserved: 2
 // labelled declared when any declares it, else observed, else inferred.
 func (q *Query) externalConsumerSteps(key ExternalKey, includeObserved bool) []graphStep {
 	prov := map[ServiceKey]string{}
-	for _, rel := range q.snap.Relationships {
+	for _, rel := range q.externalRels(includeObserved) {
 		if !externalEdge(rel, key) || !graphProvenance(rel.Provenance, includeObserved) {
 			continue
 		}

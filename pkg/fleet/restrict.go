@@ -68,7 +68,7 @@ type WorkloadScope struct {
 
 // InferredWorkloadScopes lists, sorted and unique, the (namespace, kind) pairs
 // of the snapshot's inferred services, of the workloads its replacements
-// replaced and of its provider counts: a count is
+// replaced or a Pacto target runs as, and of its provider counts: a count is
 // workload data too, so a caller must be allowed to list its kind to see it.
 func (q *Query) InferredWorkloadScopes() []WorkloadScope {
 	seen := map[WorkloadScope]bool{}
@@ -78,6 +78,9 @@ func (q *Query) InferredWorkloadScopes() []WorkloadScope {
 		}
 	}
 	for _, r := range q.snap.Replacements {
+		seen[WorkloadScope{r.workload.namespace, r.workload.kind}] = true
+	}
+	for _, r := range q.snap.replacedNames {
 		seen[WorkloadScope{r.workload.namespace, r.workload.kind}] = true
 	}
 	for _, p := range q.snap.Providers {

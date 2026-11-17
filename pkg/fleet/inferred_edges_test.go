@@ -196,3 +196,30 @@ func TestFoldQualifiesInferredCalleeAcrossClusters(t *testing.T) {
 		t.Errorf("a qualified callee stays unresolved: %+v", lims)
 	}
 }
+
+func TestExternalGraphAndEvidenceShowInferredCaller(t *testing.T) {
+	q := goldenWith(t, true, kernel(call(cartName, "api.stripe.com")))
+	cart := NewServiceKey(cartName)
+	g, err := q.Graph(GraphQuery{Service: "external:stripe", Direction: DirectionDependents, IncludeObserved: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(g.Nodes, func(n GraphNode) bool { return n.Key == cart }) ||
+		!slices.ContainsFunc(g.Edges, func(r Relationship) bool { return r.FromService == cart && r.Provenance == ProvenanceInferred }) {
+		t.Errorf("external graph nodes %+v edges %+v", g.Nodes, g.Edges)
+	}
+	declared, err := q.Graph(GraphQuery{Service: "external:stripe", Direction: DirectionDependents})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.ContainsFunc(declared.Nodes, func(n GraphNode) bool { return n.Key == cart }) {
+		t.Errorf("an inferred caller shows without observed edges: %+v", declared.Nodes)
+	}
+	ext, err := q.GetExternal("stripe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ext.ObservedSourcesTotal != 1 || ext.ObservedSources[0].Service != cart || ext.ObservedSources[0].Count != 3 {
+		t.Errorf("external evidence %+v", ext.ExternalEvidence)
+	}
+}

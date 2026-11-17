@@ -109,22 +109,25 @@ was seen and each source that saw it.
 When a Pacto resource's target runs as a workload Pacto showed as an inferred
 service, that workload stops being one. Its observed calls resolve to the
 declared service from then on, even when no source lists the workload. When the workload's `creationTimestamp` is
-earlier than the Pacto's, the cluster shows the workload ran with no contract
-first, and the snapshot records a replacement in `replacements`: `from` the
+more than 10 minutes earlier than that of every Pacto of the service that
+targets it, the cluster shows the workload ran with no contract first, and the
+snapshot records a replacement in `replacements`: `from` the
 inferred key, `to` the declared service, `link: pacto-target`, the `target` and
-`at`, when the Pacto was created. A Pacto created before its workload, or a
-missing creation time, records nothing. Pacto keeps no snapshot history, so a
+`at`, when the Pacto was created. A Pacto created before its workload, or
+within 10 minutes after it as an install that applies the Pacto last does, or
+a missing creation time, records nothing. Pacto keeps no snapshot history, so a
 Pacto deleted and created again records a fresh replacement.
 
-- The service answer and page list `replaces`. For 24 hours after `at`, an
+- The service answer and page list `replaces`, the newest first. For 24 hours after `at`, an
   `INFERRED_REPLACED` attention item in the `knowledge` category names the
   replacement, and the Overview knowledge tile counts it.
 - `pacto fleet get`, `pacto fleet graph`, their MCP tools and the dashboard
   entity page answer an old inferred key with the declared service and
   `replacedFrom`. Other queries answer not found for it, and impact adds
   `SUBJECT_REPLACED`.
-- When two declared services target the workload, or a target's cluster is
-  unknown in a snapshot of several clusters, nothing is merged: the workload
+- When two declared services target the workload (counting a target of
+  unknown cluster that names it), or a target's cluster is unknown in a
+  snapshot of several clusters, nothing is merged: the workload
   stays inferred and the answer carries `INFERRED_REPLACEMENT_AMBIGUOUS`.
 - A restricted view shows a replacement only when it shows both services.
 

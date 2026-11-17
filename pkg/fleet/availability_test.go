@@ -726,3 +726,9 @@ func TestRowProvenance(t *testing.T) {
 		t.Errorf("unknown = %s", got)
 	}
 }
+
+func TestAgeClampsNegative(t *testing.T) {
+	if got := Age(-2 * time.Minute); got != "0m" {
+		t.Errorf("Age(-2m) = %q", got)
+	}
+}
