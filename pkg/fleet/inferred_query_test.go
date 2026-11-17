@@ -5,6 +5,7 @@ import (
 	"errors"
 	"slices"
 	"testing"
+	"time"
 )
 
 const (
@@ -533,5 +534,37 @@ func TestObservedConsumersUnchangedWithInferredCaller(t *testing.T) {
 	sameJSON(t, "observed consumers", consumers(false), with)
 	if with.Total != 1 || with.Items[0].Caller != cartName || !with.Items[0].Uncontracted {
 		t.Errorf("rows %+v", with.Items)
+	}
+}
+
+func TestInferredLines(t *testing.T) {
+	w := &InferredWorkload{Source: "w", Cluster: "eu", Namespace: "shop", Kind: "Deployment", Name: "cart",
+		Image:  &InferredValue{Value: "reg/cart:1", From: "Deployment image"},
+		Ports:  []InferredPort{{Port: 8080, Name: "http", Protocol: "TCP", From: "Deployment port"}, {Port: 9090, From: "Deployment metrics"}},
+		Probes: []InferredProbe{{Kind: "readiness", Path: "/healthz", Port: "8080", From: "Deployment readiness"}, {Kind: "liveness", From: "Deployment liveness"}}}
+	want := []string{
+		"Workload: Deployment eu shop/cart",
+		"  image reg/cart:1 (from w: Deployment image)",
+		"  port 8080 http TCP (from w: Deployment port)",
+		"  port 9090 (from w: Deployment metrics)",
+		"  readiness probe /healthz port 8080 (from w: Deployment readiness)",
+		"  liveness probe (from w: Deployment liveness)",
+	}
+	if got := w.Lines(); !slices.Equal(got, want) {
+		t.Errorf("lines:\n%q\nwant\n%q", got, want)
+	}
+	asOf := time.Date(2026, 11, 17, 0, 0, 0, 0, time.UTC)
+	d := &ServiceDetailData{Workload: &InferredWorkload{Source: "w", Namespace: "shop", Kind: "CronJob", Name: "sweep"}}
+	if got := d.InferredLines(asOf); !slices.Equal(got, []string{"Workload: CronJob shop/sweep", "Calls unknown: Pacto reads no traffic source here"}) {
+		t.Errorf("unknown calls: %q", got)
+	}
+	d.CallsObserved = true
+	d.Limitations = attributedLimitationsPreview([]AttributedLimitation{{Limitation: Limitation{Code: LimitationDeclarationUnverified, Message: "m"}}})
+	if got := d.InferredLines(asOf); !slices.Equal(got[1:], []string{"No calls to declared services seen as of 2026-11-17T00:00:00Z", "  - [DECLARATION_UNVERIFIED] m"}) {
+		t.Errorf("no calls: %q", got)
+	}
+	d.Calls = RefPreview{Total: 3, Count: 1, Truncated: true, Items: []EntityRef{{Label: "orders"}}}
+	if got := d.InferredLines(asOf); !slices.Equal(got[1:4], []string{"Calls (3):", "  orders", "  2 more"}) {
+		t.Errorf("calls: %q", got)
 	}
 }

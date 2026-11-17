@@ -1230,6 +1230,7 @@ pacto fleet search [text] [flags]
 ```
       --business-domain string        filter by business domain, (none) for none or (unknown) for unknown
       --compliance string             filter to services with a target of this compliance
+      --declaration string            inferred keeps only the services Pacto infers from workloads no contract describes; declared leaves them out
       --has-capability[=true|false]   only services declaring a capability
       --has-dependency[=true|false]   only services declaring a dependency
   -h, --help[=true|false]             help for search

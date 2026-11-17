@@ -2,9 +2,11 @@ package fleet
 
 import (
 	"cmp"
+	"fmt"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -316,4 +318,57 @@ func (q *Query) inferredServiceDetail(s *ServiceRecord) *EntityDetail {
 		Calls: refPreview(calls), CallsObserved: observed,
 	}
 	return &EntityDetail{Meta: q.productMeta(), Entity: self, Service: data, Actions: []string{}}
+}
+
+// Lines renders an inferred workload as text for the CLI and the TUI: where
+// it runs, then its image, ports and probes, each with where Pacto read it.
+func (w *InferredWorkload) Lines() []string {
+	where := w.Namespace + "/" + w.Name
+	if w.Cluster != "" {
+		where = w.Cluster + " " + where
+	}
+	out := []string{"Workload: " + w.Kind + " " + where}
+	from := func(path string) string { return " (from " + w.Source + ": " + path + ")" }
+	if w.Image != nil {
+		out = append(out, "  image "+w.Image.Value+from(w.Image.From))
+	}
+	for _, p := range w.Ports {
+		out = append(out, "  port "+strings.Join(strings.Fields(strconv.Itoa(p.Port)+" "+p.Name+" "+p.Protocol), " ")+from(p.From))
+	}
+	for _, p := range w.Probes {
+		line := "  " + p.Kind + " probe"
+		if p.Path != "" {
+			line += " " + p.Path
+		}
+		if p.Port != "" {
+			line += " port " + p.Port
+		}
+		out = append(out, line+from(p.From))
+	}
+	return out
+}
+
+// InferredLines renders the detail of an inferred service as text for the
+// CLI and the TUI: its workload, the declared services it was seen calling,
+// or whether none were seen or calls are unknown, and its limitations.
+func (d *ServiceDetailData) InferredLines(asOf time.Time) []string {
+	out := d.Workload.Lines()
+	switch {
+	case d.Calls.Total > 0:
+		out = append(out, fmt.Sprintf("Calls (%d):", d.Calls.Total))
+		for _, c := range d.Calls.Items {
+			out = append(out, "  "+c.Label)
+		}
+		if d.Calls.Truncated {
+			out = append(out, fmt.Sprintf("  %d more", d.Calls.Total-d.Calls.Count))
+		}
+	case d.CallsObserved:
+		out = append(out, "No calls to declared services seen as of "+asOf.Format(time.RFC3339))
+	default:
+		out = append(out, "Calls unknown: Pacto reads no traffic source here")
+	}
+	for _, l := range d.Limitations.Items {
+		out = append(out, "  - ["+l.Limitation.Code+"] "+l.Limitation.Message)
+	}
+	return out
 }

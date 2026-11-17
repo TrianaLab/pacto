@@ -48,7 +48,8 @@ const fleetInstructions = "Pacto also exposes READ-ONLY fleet tools over the ope
 	"places: a transitive consumer in pacto_impact, a target linked to a revision by tag or " +
 	"version match and an external use read from configuration (relationship and external source provenance). pacto_fleet_entities " +
 	"with template=only lists golden paths, the starting points pacto_create takes as 'from' (over stdio, from pacto mcp --transport stdio); a " +
-	"golden path is never a consumer, so it is absent from impact and offering consumers. Use " +
+	"golden path is never a consumer, so it is absent from impact and offering consumers. " +
+	"A service marked declaration: inferred is a workload no contract describes: it never satisfies a dependency or clears a gate. Use " +
 	"pacto_fleet_entities to list owners, business domains and offerings, pacto_fleet_entity " +
 	"for one of them and pacto_fleet_attention for what needs attention, most severe first. " +
 	"An attention item's nextAction names the operation that fixes it and the tool that makes it (edit-contract: " +
@@ -219,6 +220,7 @@ func fleetSearchTool() *mcpsdk.Tool {
 			"ready":          {Type: "boolean", Description: "Only operationally ready services"},
 			"not_ready":      {Type: "boolean", Description: "Only services not operationally ready"},
 			"template":       {Type: "string", Description: "only: keep only golden paths (services whose contract declares service.template and that run nowhere); exclude: leave them out. Empty lists every service, golden paths marked 'template'", Enum: []string{fleet.TemplateOnly, fleet.TemplateExclude}},
+			"declaration":    {Type: "string", Description: "inferred: only services Pacto infers from workloads no contract describes; declared: leave them out. Empty lists every service, inferred ones marked 'declaration: inferred'", Enum: []string{fleet.DeclarationDeclared, fleet.DeclarationInferred}},
 			"label":          {Type: "array", Items: "string", Description: "Target labels as key=value; every pair must match one target of the service"},
 			"limit":          {Type: "integer", Description: "Maximum results (bounded)"},
 			"offset":         {Type: "integer", Description: "Number of results to skip, for paging"},
@@ -245,6 +247,7 @@ type fleetSearchArgs struct {
 	Ready          bool     `json:"ready"`
 	NotReady       bool     `json:"not_ready"`
 	Template       string   `json:"template"`
+	Declaration    string   `json:"declaration"`
 	Label          []string `json:"label"`
 	Limit          int      `json:"limit"`
 	Offset         int      `json:"offset"`
@@ -260,7 +263,7 @@ func fleetSearchHandler(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetSearchArgs, a
 			Text: a.Text, Owner: a.Owner, BusinessDomain: a.BusinessDomain, Offering: a.Offering, Status: a.Status, Compliance: a.Compliance,
 			Source: a.Source, Workload: a.Workload, Scope: a.Scope,
 			HasCapability: a.HasCapability, HasDependency: a.HasDependency,
-			ReadyOnly: a.Ready, NotReady: a.NotReady, Template: a.Template, Limit: a.Limit, Offset: a.Offset,
+			ReadyOnly: a.Ready, NotReady: a.NotReady, Template: a.Template, Declaration: a.Declaration, Limit: a.Limit, Offset: a.Offset,
 			Labels: labels,
 		})
 		if err != nil {

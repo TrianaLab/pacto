@@ -109,6 +109,7 @@ func fleetRows() []surfaceRow {
 			"the CLI and MCP also list the external systems the text names; the dashboard finds them through GET /api/fleet/entities?kinds=external&text"}},
 		alike("fleet search", "pacto_fleet_search", "", whySearchRoute, "business-domain", "compliance", "has-capability", "has-dependency", "not-ready", "offering", "ready", "workload"),
 		[]surfaceRow{{"fleet search --label", "pacto_fleet_search.label", "", whySearchRoute}},
+		[]surfaceRow{{"fleet search --declaration", "pacto_fleet_search.declaration", "", "the Services list filters by declaration through GET /api/fleet/entities?declaration"}},
 		alike("fleet status", "pacto_fleet_status", "", whyStatusRoute, "golden-path-deployed", "invalid", "lifecycle", "limit", "missing-readiness", "needs-attention",
 			"non-compliant", "stale", "undeclared", "unknown", "unowned", "unresolved-deps", "unsatisfied-ranges"),
 		alike("fleet status", "", "", "a coverage run record is a statistic a scheduled CLI job writes; MCP and the dashboard record nothing",

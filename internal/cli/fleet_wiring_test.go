@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"io"
@@ -417,6 +418,8 @@ type fakeClusterClient struct {
 	listJSON string
 	listErr  error
 	asked    []string
+	// workloads is the list body of a workload resource, by resource name.
+	workloads map[string]string
 }
 
 func (c *fakeClusterClient) DiscoverCRD(context.Context) (*k8sclient.CRDDiscovery, error) {
@@ -426,9 +429,9 @@ func (c *fakeClusterClient) ClusterIdentity(context.Context, string) (kubecluste
 	return kubecluster.Identity{}, errors.New("reading the cluster id: forbidden")
 }
 
-// ListPage reads as a cluster with no workloads.
-func (c *fakeClusterClient) ListPage(context.Context, schema.GroupVersionResource, string, string) ([]byte, string, error) {
-	return []byte(`{"items":[]}`), "", nil
+// ListPage reads the workloads of a resource, by default none.
+func (c *fakeClusterClient) ListPage(_ context.Context, gvr schema.GroupVersionResource, _, _ string) ([]byte, string, error) {
+	return []byte(cmp.Or(c.workloads[gvr.Resource], `{"items":[]}`)), "", nil
 }
 
 func (c *fakeClusterClient) ListJSON(_ context.Context, _ k8sclient.CRDDiscovery, ns string) ([]byte, error) {
