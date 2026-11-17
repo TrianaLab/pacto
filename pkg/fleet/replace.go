@@ -32,12 +32,10 @@ func replaceInferred(snap *FleetSnapshot, inputs []inferredInput) []inferredInpu
 	targeting, unknown := targetsByWorkload(snap)
 	replaced := map[workloadKey]bool{}
 	for wk, keys := range targeting {
-		if len(byWorkload[wk]) > 0 {
-			replaced[wk] = replaceWorkload(snap, wk, keys, byWorkload[wk])
-		}
+		replaced[wk] = replaceWorkload(snap, wk, keys, byWorkload[wk])
 	}
 	for tk, wk := range unknown {
-		ambiguousCluster(snap, tk, wk, byWorkload)
+		ambiguousCluster(snap, tk, wk, byWorkload, replaced)
 	}
 	return slices.DeleteFunc(slices.Clone(inputs), func(in inferredInput) bool { return replaced[in.key(snap.clusterKeyed)] })
 }
@@ -64,9 +62,11 @@ func targetsByWorkload(snap *FleetSnapshot) (targeting map[workloadKey][]TargetK
 	return targeting, unknown
 }
 
-// replaceWorkload hands one inferred workload to the one declared service
-// keys target, reporting whether it did. It leaves the workload inferred, with
-// a limitation, when the targets belong to more than one service.
+// replaceWorkload hands one workload to the one declared service keys
+// target, reporting whether it did. The workload's observed name resolves to
+// that service even when no source reported the workload (ins is empty). It
+// leaves the workload inferred, with a limitation, when the targets belong to
+// more than one service.
 //
 // ponytail: the workload's identity is not re-validated here; Kubernetes
 // object names hold no "/" or control character, so a targeted workload
@@ -79,6 +79,9 @@ func replaceWorkload(snap *FleetSnapshot, wk workloadKey, keys []TargetKey, ins 
 	}
 	name := K8sCaller(wk.cluster, wk.namespace, wk.kind, wk.name)
 	if len(services) > 1 {
+		if len(ins) == 0 {
+			return false
+		}
 		names := make([]string, 0, len(services))
 		for _, k := range slices.Sorted(maps.Keys(services)) {
 			names = append(names, string(k))
@@ -114,11 +117,12 @@ func earliestCreated(ins []inferredInput) *time.Time {
 
 // ambiguousCluster records that target tk names workload wk with no known
 // cluster, while inferred services run as a workload of that name in some
-// cluster: which one it runs as is unknown, so none is replaced.
-func ambiguousCluster(snap *FleetSnapshot, tk TargetKey, wk workloadKey, byWorkload map[workloadKey][]inferredInput) {
+// cluster: which one it runs as is unknown, so none is replaced. A workload
+// another target already replaced is no inferred service and is not named.
+func ambiguousCluster(snap *FleetSnapshot, tk TargetKey, wk workloadKey, byWorkload map[workloadKey][]inferredInput, replaced map[workloadKey]bool) {
 	var names []string
 	for k := range byWorkload {
-		if k.namespace == wk.namespace && k.kind == wk.kind && k.name == wk.name {
+		if !replaced[k] && k.namespace == wk.namespace && k.kind == wk.kind && k.name == wk.name {
 			names = append(names, K8sCaller(k.cluster, k.namespace, k.kind, k.name))
 		}
 	}

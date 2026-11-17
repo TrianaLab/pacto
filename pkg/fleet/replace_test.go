@@ -132,6 +132,43 @@ func TestReplaceNeedsOlderWorkload(t *testing.T) {
 		if k, res := snap.ObservedNameResolver()(cartName); k != NewServiceKey("cart-svc") || res != ObservedResolved {
 			t.Errorf("resolved %s %v", k, res)
 		}
+		for _, it := range attentionOf(t, NewQuery(snap), AttentionFilter{Category: categoryKnowledge}).Items {
+			if it.Code == attentionInferredReplaced {
+				t.Errorf("pacto at %v: attention %+v", pacto, it)
+			}
+		}
+	}
+}
+
+func TestReplaceResolvesTargetWithNoWorkloadSource(t *testing.T) {
+	cl := clusterOf(clusterA, "eu", ClusterNameFromContext)
+	snap := buildClusterSnap(t, NewMemorySource("k8s", SourceKindKubernetes, &Collection{Cluster: cl, Targets: []RawTarget{
+		cartTarget("cart-svc", hoursAgo(1)), cartTarget("pay-a", nil), cartTarget("pay-b", nil),
+	}}))
+	if len(snap.Replacements) != 0 || len(limitationsWith(snap, LimitationInferredReplacementAmbiguous)) != 0 {
+		t.Fatalf("replacements %+v limitations %+v", snap.Replacements, snap.Limitations)
+	}
+	if k, res := snap.ObservedNameResolver()(cartName); res != ObservedUnknown {
+		t.Errorf("a workload three services target resolved to %s %v", k, res)
+	}
+	one := buildClusterSnap(t, NewMemorySource("k8s", SourceKindKubernetes, &Collection{Cluster: cl, Targets: []RawTarget{cartTarget("cart-svc", hoursAgo(1))}}))
+	if k, res := one.ObservedNameResolver()(cartName); k != NewServiceKey("cart-svc") || res != ObservedResolved {
+		t.Errorf("resolved %s %v", k, res)
+	}
+}
+
+func TestReplaceUnknownClusterSkipsReplacedWorkload(t *testing.T) {
+	a, b := clusterOf(clusterA, "eu", ClusterNameFromContext), clusterOf(clusterB, "us", ClusterNameFromContext)
+	snap := buildClusterSnap(t,
+		workloadsSource("wa", a, cartWorkload(hoursAgo(72))),
+		NewMemorySource("ka", SourceKindKubernetes, &Collection{Cluster: a, Targets: []RawTarget{cartTarget("cart-svc", hoursAgo(1))}}),
+		NewMemorySource("kb", SourceKindKubernetes, &Collection{Cluster: b}),
+		NewMemorySource("k8s", SourceKindKubernetes, &Collection{Targets: []RawTarget{cartTarget("cart-other", hoursAgo(1))}}))
+	if len(snap.Replacements) != 1 {
+		t.Fatalf("replacements %+v", snap.Replacements)
+	}
+	if lims := limitationsWith(snap, LimitationInferredReplacementAmbiguous); len(lims) != 0 {
+		t.Errorf("an already replaced workload is named as inferred: %+v", lims)
 	}
 }
 

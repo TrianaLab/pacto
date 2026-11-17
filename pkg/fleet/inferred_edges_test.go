@@ -179,3 +179,20 @@ func TestRestrictInferredEdges(t *testing.T) {
 		t.Errorf("dependents %v deps %v", dependents, deps)
 	}
 }
+
+func TestFoldQualifiesInferredCalleeAcrossClusters(t *testing.T) {
+	a, b := clusterOf(clusterA, "eu", ClusterNameFromContext), clusterOf(clusterB, "us", ClusterNameFromContext)
+	cart, ledger := K8sCaller("", "shop", "Deployment", "cart"), K8sCaller("", "shop", "Deployment", "ledger")
+	snap := buildClusterSnap(t,
+		workloadsSource("wa", a, rawInferred("shop", "Deployment", "cart"), rawInferred("shop", "Deployment", "ledger")),
+		workloadsSource("wb", b),
+		NewMemorySource("hubble", "observation", &Collection{Cluster: a, Observed: []ObservedEdge{call(cart, ledger)}}))
+	from, to := K8sCaller(clusterA, "shop", "Deployment", "cart"), K8sCaller(clusterA, "shop", "Deployment", "ledger")
+	if len(snap.InferredRelationships) != 1 || snap.InferredRelationships[0].FromService != NewServiceKey(from) ||
+		snap.InferredRelationships[0].ToService != NewServiceKey(to) {
+		t.Fatalf("inferred relationships %+v", snap.InferredRelationships)
+	}
+	if lims := limitationsWith(snap, LimitationObservedIdentityUnresolved); len(lims) != 0 {
+		t.Errorf("a qualified callee stays unresolved: %+v", lims)
+	}
+}

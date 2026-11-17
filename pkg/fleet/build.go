@@ -499,15 +499,19 @@ type targetCluster struct {
 }
 
 // observedEdgesOf is the observed edges of one source. In a snapshot with several
-// clusters a k8s: caller of a source with a known cluster gains that cluster;
-// a caller the source already qualified is kept.
+// clusters a k8s: caller or callee of a source with a known cluster gains that
+// cluster; an end the source already qualified is kept.
 func observedEdgesOf(id string, col *Collection, c clusterIndex) []observedInput {
 	cl, known := c.resolved[rawClusterID(col, RawTarget{})]
+	qualify := func(end string) string {
+		if cluster, ns, kind, name, ok := ParseK8sCaller(end); ok && cluster == "" && known && c.multi {
+			return K8sCaller(cl.ID, ns, kind, name)
+		}
+		return end
+	}
 	out := make([]observedInput, 0, len(col.Observed))
 	for _, e := range col.Observed {
-		if cluster, ns, kind, name, ok := ParseK8sCaller(e.From); ok && cluster == "" && known && c.multi {
-			e.From = K8sCaller(cl.ID, ns, kind, name)
-		}
+		e.From, e.To = qualify(e.From), qualify(e.To)
 		out = append(out, observedInput{edge: e, source: id})
 	}
 	return out
