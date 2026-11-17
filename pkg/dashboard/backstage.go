@@ -22,7 +22,7 @@ func (s *Server) RegisterRawRoutes(mux *http.ServeMux) {
 // short of a whole view is a 503: Backstage reads a successful answer as the
 // full catalog and orphans every entity missing from it. Whether records are
 // missing is judged on the published snapshot before the reader's view
-// narrows it (see [backstage.Servable]), so a reader whose view holds nothing
+// narrows it (see [BackstageServable]), so a reader whose view holds nothing
 // of a whole fleet gets an empty 200.
 func (s *Server) backstageEntities(w http.ResponseWriter, r *http.Request) {
 	refuse := func(why string) {
@@ -37,7 +37,7 @@ func (s *Server) backstageEntities(w http.ResponseWriter, r *http.Request) {
 		refuse("the fleet snapshot is not available yet: " + err.Error())
 		return
 	}
-	if why, ok := backstage.Servable(base.SnapshotForSerialization()); !ok {
+	if why, ok := BackstageServable(base.SnapshotForSerialization()); !ok {
 		refuse(why + ", so Backstage keeps the entities it has")
 		return
 	}

@@ -12,6 +12,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/pkg/backstage"
+	"github.com/trianalab/pacto/v4/pkg/dashboard"
 )
 
 // newExportCommand builds `pacto export`, the parent of one subcommand per
@@ -65,7 +66,7 @@ func runExportBackstage(cmd *cobra.Command, svc *app.Service) error {
 		return err
 	}
 	warnProductPartial(cmd, q.ProductMeta())
-	if reason, ok := backstage.Servable(q.SnapshotForSerialization()); !ok {
+	if reason, ok := dashboard.BackstageServable(q.SnapshotForSerialization()); !ok {
 		if allow, _ := cmd.Flags().GetBool("allow-partial"); !allow {
 			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "error: "+reason+", so no file was written; pass --allow-partial to write it anyway")
 			return &ExitError{Code: 2}

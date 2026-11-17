@@ -1,4 +1,4 @@
-package backstage
+package dashboard
 
 import "github.com/trianalab/pacto/v4/pkg/fleet"
 
@@ -19,7 +19,7 @@ var notMissing = map[string]bool{
 	fleet.LimitationTargetFieldConflict:        true,
 }
 
-// Servable reports whether snap, the unrestricted snapshot, may replace the
+// BackstageServable reports whether snap, the unrestricted snapshot, may replace the
 // entities Backstage holds, and otherwise why not. Backstage reads a catalog
 // as whole and orphans every entity missing from it, so it is refused while
 // the organization catalog is unread, a source is unavailable, a source is
@@ -28,7 +28,7 @@ var notMissing = map[string]bool{
 // one rule `pacto export backstage` and the dashboard route share. Judge it
 // before any reader's restriction: a restricted view is always partial, and
 // its narrowing drops limitations by prose, so it cannot say what is missing.
-func Servable(snap *fleet.FleetSnapshot) (reason string, ok bool) {
+func BackstageServable(snap *fleet.FleetSnapshot) (reason string, ok bool) {
 	if snap.Completeness == fleet.CompletenessComplete {
 		return "", true
 	}

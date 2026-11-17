@@ -1,4 +1,4 @@
-package backstage
+package dashboard
 
 import (
 	"strings"
@@ -10,7 +10,7 @@ import (
 // A --namespace scope whose namespaces were all read is no outage, and
 // neither is a limitation that loses no record; an unreadable namespace, any
 // other degraded source or an empty fleet is. A stale source keeps its records.
-func TestServable(t *testing.T) {
+func TestBackstageServable(t *testing.T) {
 	svc := map[fleet.ServiceKey]*fleet.ServiceRecord{"pay": {Key: "pay"}}
 	k8s := func(st fleet.SourceStatus) fleet.SourceState {
 		return fleet.SourceState{ID: "k8s", Kind: fleet.SourceKindKubernetes, Status: st}
@@ -70,9 +70,9 @@ func TestServable(t *testing.T) {
 		{"scoped, external catalog unavailable", scopedWith(
 			fleet.Limitation{Code: fleet.LimitationExternalCatalogUnavailable, Source: "external-catalog"}), "source external-catalog is unavailable"},
 	} {
-		reason, ok := Servable(&tc.snap)
+		reason, ok := BackstageServable(&tc.snap)
 		if ok != (tc.reason == "") || !strings.Contains(reason, tc.reason) {
-			t.Errorf("%s: Servable = %q %v, want %q", tc.name, reason, ok, tc.reason)
+			t.Errorf("%s: BackstageServable = %q %v, want %q", tc.name, reason, ok, tc.reason)
 		}
 	}
 }
