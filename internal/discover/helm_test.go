@@ -207,6 +207,26 @@ func TestChartDeeperThanTwoIgnored(t *testing.T) {
 	}
 }
 
+// A subchart unpacked under the chart's charts/ folder is a dependency: its
+// image and ports never join the service's. A charts/ folder that is no
+// chart's holds charts of their own.
+func TestUnpackedSubchartIgnored(t *testing.T) {
+	r := readFixture(t, writeFiles(t, map[string]string{
+		"Chart.yaml":                "name: svc\n",
+		"values.yaml":               "image: ghcr.io/acme/svc:1\n",
+		"charts/redis/Chart.yaml":   "name: redis\n",
+		"charts/redis/values.yaml":  "image: redis:7\nservice:\n  port: 6379\n",
+		"other/charts/x/Chart.yaml": "name: x\n",
+	}))
+	if f := field(t, r.Fields, "image"); f.Value != "ghcr.io/acme/svc:1" || len(f.Outranks) != 0 || slices.ContainsFunc(r.Fields, func(f contract.Inferred) bool { return f.Field == "ports[6379]" }) {
+		t.Errorf("fields = %+v", r.Fields)
+	}
+	r = readFixture(t, writeFiles(t, map[string]string{"charts/api/Chart.yaml": "name: api\n", "charts/api/values.yaml": "image: ghcr.io/acme/api:1\n"}))
+	if f := field(t, r.Fields, "image"); f.Value != "ghcr.io/acme/api:1" {
+		t.Errorf("image = %+v", f)
+	}
+}
+
 func TestValuesKeysRespectDeclaredFilter(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.CopyFS(dir, os.DirFS(helmValuesDir)); err != nil {

@@ -66,13 +66,27 @@ func (r *reader) gitops(p string, docs []*yaml.Node) {
 		case "argoproj.io ApplicationSet":
 			r.find(CodeUnsupportedFile, at(p, kind.Line), unsupportedMessage(at(p, kind.Line), unsupportedApplicationSet))
 		case "kustomize.toolkit.fluxcd.io Kustomization":
-			r.gitopsPath(p, contract.MapValue(spec, "path"), "")
+			if fromGit(spec) {
+				r.gitopsPath(p, contract.MapValue(spec, "path"), "")
+			}
 		case "helm.toolkit.fluxcd.io HelmRelease":
-			for _, vf := range items(dig(spec, "chart", "spec", "valuesFiles")) {
-				r.gitopsPath(p, vf, "")
+			if chart := dig(spec, "chart", "spec"); fromGit(chart) {
+				for _, vf := range items(contract.MapValue(chart, "valuesFiles")) {
+					r.gitopsPath(p, vf, "")
+				}
 			}
 		}
 	}
+}
+
+// fromGit reports whether the Flux spec takes its files from a Git
+// repository, where its paths are repository paths. Another source (an
+// OCIRepository, such as the one pacto init writes under delivery/, a
+// Bucket or a HelmRepository) has paths inside an artifact, never in this
+// folder, so they are not read.
+func fromGit(spec *yaml.Node) bool {
+	kind := scalar(contract.MapValue(contract.MapValue(spec, "sourceRef"), "kind"))
+	return kind == "" || kind == "GitRepository"
 }
 
 // argoSource reads one source of the Argo CD Application in the file p: its

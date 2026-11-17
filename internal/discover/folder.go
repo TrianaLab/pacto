@@ -12,6 +12,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -54,6 +55,10 @@ type Reading struct {
 	FindingsDropped   int
 	ChartDependencies []contract.InferredChartDependency
 	entries           []entry // Fields before the merge, for Complete's
+	// ambiguousSpecs are the files of each DISCOVERY_AMBIGUOUS spec
+	// finding, by its source, so Complete drops the finding when the
+	// contract declares one of them.
+	ambiguousSpecs map[string][]string
 }
 
 // entry is one field a reader gives, its rank (lower outranks higher) and the
@@ -97,6 +102,7 @@ type reader struct {
 	findings    []contract.InferredFinding
 	dockerfiles []string
 	specs       map[string][]spec     // by kind
+	ambiguous   map[string][]string   // the files of each ambiguous spec finding, by its source
 	chartFiles  map[string]*yaml.Node // the root of each Chart.yaml, Chart.lock and values file, by path
 	chartDeps   []contract.InferredChartDependency
 	templates   []string // the chart templates, read once the charts are known
@@ -107,7 +113,7 @@ type reader struct {
 // finding, as is a file over 1 MiB or one that does not parse. Read never
 // fails; what it cannot read is a finding.
 func Read(in Input) Reading {
-	r := &reader{in: in, specs: map[string][]spec{}, chartFiles: map[string]*yaml.Node{}}
+	r := &reader{in: in, specs: map[string][]spec{}, chartFiles: map[string]*yaml.Node{}, ambiguous: map[string][]string{}}
 	walked, left := 0, 0
 	_ = fs.WalkDir(in.Folder, ".", func(p string, d fs.DirEntry, err error) error { //nolint:errcheck // the callback never fails
 		switch {
@@ -135,7 +141,7 @@ func Read(in Input) Reading {
 	r.interfaces()
 	r.charts()
 	r.codeowners()
-	out := Reading{entries: r.entries, ChartDependencies: r.chartDeps}
+	out := Reading{entries: r.entries, ChartDependencies: r.chartDeps, ambiguousSpecs: r.ambiguous}
 	out.Fields, _ = merge(r.entries)
 	slices.SortFunc(r.findings, func(a, b contract.InferredFinding) int {
 		return cmp.Or(strings.Compare(a.Code, b.Code), strings.Compare(a.Source, b.Source))
@@ -149,6 +155,16 @@ func Read(in Input) Reading {
 	}
 	out.Findings = r.findings
 	return out
+}
+
+// toolJSON are JSON files package tools write, never an interface spec, so
+// a lockfile over 1 MiB is no finding.
+// ponytail: the common names; the next one is one row.
+var toolJSON = map[string]bool{"package.json": true, "package-lock.json": true, "npm-shrinkwrap.json": true, "composer.json": true, "tsconfig.json": true}
+
+// specFile reports whether the file name may hold a JSON or proto spec.
+func specFile(name string) bool {
+	return strings.HasSuffix(name, ".proto") || (strings.HasSuffix(name, ".json") && !toolJSON[name])
 }
 
 // file hands the regular file p to the reader of its kind.
@@ -165,7 +181,7 @@ func (r *reader) file(p, name string) {
 		}
 	case strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml"):
 		r.yamlFile(p, name)
-	case strings.HasSuffix(name, ".json") || strings.HasSuffix(name, ".proto"):
+	case specFile(name):
 		if data := r.read(p); data != nil {
 			r.spec(p, data)
 		}
@@ -270,7 +286,7 @@ func (r *reader) find(code, source, message string) {
 func (r *reader) add(e entry) { r.entries = append(r.entries, e) }
 
 // merge keeps one field per field name: the entry of lowest rank (then
-// source) writes it and every other source goes, sorted, into its outranks.
+// file, then line) writes it and every other source goes, sorted, into its outranks.
 // cited is every file a kept field or an outranks entry names.
 func merge(entries []entry) (fields []contract.Inferred, cited map[string]bool) {
 	byField := map[string][]entry{}
@@ -280,7 +296,7 @@ func merge(entries []entry) (fields []contract.Inferred, cited map[string]bool) 
 	cited = map[string]bool{}
 	for _, name := range slices.Sorted(maps.Keys(byField)) {
 		group := byField[name]
-		slices.SortFunc(group, func(a, b entry) int { return cmp.Or(cmp.Compare(a.rank, b.rank), strings.Compare(a.Source, b.Source)) })
+		slices.SortFunc(group, func(a, b entry) int { return cmp.Or(cmp.Compare(a.rank, b.rank), sourceOrder(a.Source, b.Source)) })
 		f := group[0].Inferred
 		f.Outranks = nil
 		for _, o := range group[1:] {
@@ -289,11 +305,30 @@ func merge(entries []entry) (fields []contract.Inferred, cited map[string]bool) 
 			}
 			cited[o.file] = true
 		}
-		slices.Sort(f.Outranks)
+		slices.SortFunc(f.Outranks, sourceOrder)
 		cited[group[0].file] = true
 		fields = append(fields, f)
 	}
 	return fields, cited
+}
+
+// sourceOrder orders "<path>[:<line>]" sources by path, then by line as a
+// number, so line 7 of a file comes before its line 10.
+func sourceOrder(a, b string) int {
+	pa, la := splitLine(a)
+	pb, lb := splitLine(b)
+	return cmp.Or(strings.Compare(pa, pb), cmp.Compare(la, lb))
+}
+
+// splitLine is the path and the line of a "<path>[:<line>]" source, line 0
+// when it names none.
+func splitLine(s string) (string, int) {
+	if i := strings.LastIndexByte(s, ':'); i >= 0 {
+		if n, err := strconv.Atoi(s[i+1:]); err == nil {
+			return s[:i], n
+		}
+	}
+	return s, 0
 }
 
 // ReadDir reads the folder dir, inside the repository root repoDir: "" finds
@@ -316,12 +351,15 @@ func ReadDir(dir, repoDir string) (Reading, error) {
 	}
 	in := Input{Folder: ignore.FS(root.FS(), ign), FolderPath: ".", Name: filepath.Base(abs)}
 	if repo := repoFor(abs, repoDir); repo != abs {
+		rel, _ := filepath.Rel(repo, abs) // ponytail: both are absolute
+		if !filepath.IsLocal(rel) {
+			return Reading{}, fmt.Errorf("reading %s: it is outside the repository %s", dir, repo)
+		}
 		rr, err := os.OpenRoot(repo)
 		if err != nil {
 			return Reading{}, fmt.Errorf("reading the repository %s: %w", repo, err)
 		}
 		defer func() { _ = rr.Close() }()
-		rel, _ := filepath.Rel(repo, abs) // ponytail: repo is abs or one of its parents
 		in.Repo, in.FolderPath = rr.FS(), filepath.ToSlash(rel)
 	}
 	return Read(in), nil

@@ -50,6 +50,7 @@ func (r *reader) interfaces() {
 				paths = append(paths, s.path)
 			}
 			r.find(CodeAmbiguous, found[0].path, ambiguousSpecMessage(specLabels[kind], paths))
+			r.ambiguous[found[0].path] = paths
 			continue
 		}
 		s, name := found[0], specNames[kind]

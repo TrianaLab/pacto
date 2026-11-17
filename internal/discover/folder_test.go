@@ -171,8 +171,8 @@ func TestReadDirRoots(t *testing.T) {
 	if r, err := ReadDir(filepath.Join(dir, "svc"), dir); err != nil || len(r.Fields) != 0 {
 		t.Errorf("an ignored Dockerfile was read: %+v, %v", r, err)
 	}
-	if _, err := ReadDir(filepath.Join(dir, "svc"), filepath.Join(dir, "missing")); err == nil {
-		t.Error("a missing repository root read")
+	if _, err := ReadDir(filepath.Join(dir, "svc"), filepath.Join(dir, "missing")); err == nil || !strings.Contains(err.Error(), "outside the repository") {
+		t.Errorf("a folder outside the repository root read: %v", err)
 	}
 	if _, err := CompleteIn(filepath.Join(dir, "svc"), filepath.Join(dir, "missing"), nil, contract.InferredInputs{}); err == nil {
 		t.Error("CompleteIn read a missing repository root")
@@ -234,5 +234,17 @@ func TestDiscoveryRecordParses(t *testing.T) {
 		if _, err := contract.ParseInferredRecord(rec.Marshal()); err != nil {
 			t.Errorf("%s: %v", dir, err)
 		}
+	}
+}
+
+// One file that sets a field twice keeps its earlier line, by number: line 7
+// outranks line 10, and outranks list lines in number order.
+func TestMergeOrdersLinesByNumber(t *testing.T) {
+	e := func(src string) entry {
+		return entry{Inferred: contract.Inferred{Field: "ports[80]", Source: src}, rank: rankChart, file: "values.yaml"}
+	}
+	fields, _ := merge([]entry{e("values.yaml:10"), e("values.yaml:12"), e("values.yaml:7"), e("values.yaml:9")})
+	if got := fields[0]; got.Source != "values.yaml:7" || !slices.Equal(got.Outranks, []string{"values.yaml:9", "values.yaml:10", "values.yaml:12"}) {
+		t.Errorf("merged = %+v", got)
 	}
 }

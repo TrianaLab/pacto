@@ -50,3 +50,16 @@ func TestCodeownersSymlinkNotRead(t *testing.T) {
 		t.Errorf("owner = %v, findings = %+v", owner(r), r.Findings)
 	}
 }
+
+// A repository root Pacto cannot open, though the folder inside it opens, is
+// an error, never a read with no CODEOWNERS.
+func TestReadDirUnreadableRepository(t *testing.T) {
+	repo := writeFiles(t, map[string]string{"svc/Dockerfile": "FROM x\n"})
+	if err := os.Chmod(repo, 0o100); err != nil { // search, no read
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(repo, 0o755) })
+	if _, err := ReadDir(filepath.Join(repo, "svc"), repo); err == nil {
+		t.Error("an unreadable repository root read")
+	}
+}

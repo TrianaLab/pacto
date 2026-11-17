@@ -57,7 +57,10 @@ func CompleteIn(dir, repoDir string, declared *contract.Contract, in contract.In
 		}
 	}
 	fields, cited := merge(c.entries)
-	if len(fields) == 0 && len(reading.Findings) == 0 && len(reading.ChartDependencies) == 0 {
+	findings := slices.DeleteFunc(slices.Clone(reading.Findings), func(f contract.InferredFinding) bool {
+		return f.Code == CodeAmbiguous && slices.ContainsFunc(reading.ambiguousSpecs[f.Source], c.declaredRef)
+	})
+	if len(fields) == 0 && len(findings) == 0 && len(reading.ChartDependencies) == 0 {
 		return nil, nil
 	}
 	in.Discovery, in.ChartDependencies = Version, reading.ChartDependencies
@@ -65,7 +68,13 @@ func CompleteIn(dir, repoDir string, declared *contract.Contract, in contract.In
 		return nil, err
 	}
 	return &contract.InferredRecord{Format: contract.InferredRecordFormat, Inputs: in, Fields: fields,
-		Findings: reading.Findings, FindingsDropped: reading.FindingsDropped}, nil
+		Findings: findings, FindingsDropped: reading.FindingsDropped}, nil
+}
+
+// declaredRef reports whether a declared interface names the file p as its
+// ref: the contract already says which of several specs the service serves.
+func (c *completion) declaredRef(p string) bool {
+	return slices.ContainsFunc(c.d.Interfaces, func(i contract.Interface) bool { return i.Ref == p })
 }
 
 // readSource reads a cited file. Read read it a moment ago, so it fails only

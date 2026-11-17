@@ -186,3 +186,18 @@ func TestUnsupportedFileTable(t *testing.T) {
 		}
 	}
 }
+
+// A Flux object whose source is an artifact (the OCIRepository pacto init
+// writes under delivery/, or a Helm repository) names paths inside that
+// artifact: in a folder below the repository root they add no environment
+// and no finding.
+func TestFluxArtifactPathsNotRead(t *testing.T) {
+	repo := writeFiles(t, map[string]string{
+		"apps/payments/delivery/prod.yaml": "apiVersion: kustomize.toolkit.fluxcd.io/v1\nkind: Kustomization\nspec:\n  sourceRef: {kind: OCIRepository, name: payments}\n  path: ./\n",
+		"apps/payments/flux/release.yaml":  "apiVersion: helm.toolkit.fluxcd.io/v2\nkind: HelmRelease\nspec:\n  chart:\n    spec:\n      sourceRef: {kind: HelmRepository, name: charts}\n      valuesFiles: [values-prod.yaml]\n",
+	})
+	r := readRepoFixture(t, repo, "apps/payments")
+	if len(r.Findings) != 0 || len(envFields(r)) != 0 {
+		t.Errorf("findings = %+v, fields = %+v", r.Findings, r.Fields)
+	}
+}

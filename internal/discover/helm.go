@@ -33,17 +33,27 @@ func (r *reader) keepChartFile(p, name string, docs []*yaml.Node) {
 }
 
 // charts reads every chart at most maxChartDepth folders deep: the
-// dependencies Chart.lock pins and what its values files say.
+// dependencies Chart.lock pins and what its values files say. A subchart
+// unpacked under another chart's charts/ folder is that chart's dependency,
+// never the service, so it is not read.
 func (r *reader) charts() {
 	for _, p := range slices.Sorted(maps.Keys(r.chartFiles)) {
 		dir := path.Dir(p)
-		if path.Base(p) != "Chart.yaml" || (dir != "." && strings.Count(dir, "/") >= maxChartDepth) {
+		if path.Base(p) != "Chart.yaml" || (dir != "." && strings.Count(dir, "/") >= maxChartDepth) || r.subchart(dir) {
 			continue
 		}
 		r.chartDependencies(dir)
 		r.chartValues(dir)
 		r.chartTemplates(dir)
 	}
+}
+
+// subchart reports whether the chart in dir sits in the charts/ folder of
+// another chart.
+func (r *reader) subchart(dir string) bool {
+	parent := path.Dir(dir)
+	_, ok := r.chartFiles[path.Join(path.Dir(parent), "Chart.yaml")]
+	return path.Base(parent) == "charts" && ok
 }
 
 // chartDependencies is each dependency of the chart in dir that Chart.lock

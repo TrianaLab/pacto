@@ -188,3 +188,34 @@ func TestDiscoveredSpecsAreDiffable(t *testing.T) {
 		}
 	}
 }
+
+// A contract that declares one of several OpenAPI files has chosen: the
+// ambiguity is not reported. Declaring another file keeps it.
+func TestAmbiguousSpecDeclaredRefChoosesOne(t *testing.T) {
+	dir := writeFiles(t, map[string]string{
+		"api/openapi.v1.yaml": "openapi: 3.1.0\n",
+		"api/openapi.v2.yaml": "openapi: 3.1.0\n",
+	})
+	for ref, want := range map[string]int{"api/openapi.v2.yaml": 0, "other.yaml": 1} {
+		d := &contract.Contract{Interfaces: []contract.Interface{{Name: "public", Type: "openapi", Ref: ref}}}
+		rec, err := CompleteIn(dir, dir, d, contract.InferredInputs{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := 0
+		if rec != nil {
+			got = len(rec.Findings)
+		}
+		if got != want {
+			t.Errorf("ref %s: record %+v", ref, rec)
+		}
+	}
+}
+
+// A package lockfile is never a spec: over 1 MiB it is no finding.
+func TestToolJSONNotRead(t *testing.T) {
+	r := Read(Input{Folder: fstest.MapFS{"package-lock.json": {Data: make([]byte, maxFileSize+1)}, "big.json": {Data: make([]byte, maxFileSize+1)}}, FolderPath: "."})
+	if len(r.Findings) != 1 || r.Findings[0].Source != "big.json" {
+		t.Errorf("findings = %+v", r.Findings)
+	}
+}
