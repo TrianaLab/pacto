@@ -115,9 +115,14 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 	// One cluster, named from its kubeconfig context: every key keeps its 3-part
 	// form and the target page shows where the target runs.
 	prodCluster := &fleet.Cluster{ID: "5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11", Name: "production", NameSource: fleet.ClusterNameFromContext}
+	targets, inferred := demoTargets(src), demoInferredServices()
+	// Each cluster source says what it detected: the Data sources page lists
+	// the Pacto CRD and the workloads the cluster runs.
+	crdRow, workloadsRow := demoProviders(targets, inferred)
 	cluster := fleet.NewMemorySource("k8s-production", fleet.SourceKindKubernetes, &fleet.Collection{
 		Cluster:      prodCluster,
-		Targets:      demoTargets(src),
+		Providers:    []fleet.Provider{crdRow},
+		Targets:      targets,
 		Provisioning: demoProvisioning(src),
 		Usage:        demoUsage(src),
 		ExternalUses: demoExternalUses(demoNow()),
@@ -130,7 +135,8 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 	// inferred services, each value with the object path Pacto read it from.
 	workloads := fleet.NewMemorySource("k8s-production-workloads", fleet.SourceKindKubernetesWorkloads, &fleet.Collection{
 		Cluster:          prodCluster,
-		InferredServices: demoInferredServices(),
+		InferredServices: inferred,
+		Providers:        []fleet.Provider{workloadsRow},
 	})
 	// Telemetry is a second collector over the SAME estate: it corroborates the two
 	// targets it can see (agreeing on every identity-bearing field, so they merge
