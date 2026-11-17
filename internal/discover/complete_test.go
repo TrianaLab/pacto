@@ -66,6 +66,7 @@ func TestCompleteFieldsAndSources(t *testing.T) {
 		"configuration.PORT":          "name: PORT",
 		"dependencies[billing]":       "name: BILLING_URL",
 		"dependencies[db]":            "name: DATABASE_URL",
+		"interfaces[api]":             "openapi: 3.1.0",
 		"service.owner":               "team: payments",
 		"workload":                    "kind: Deployment",
 	}
@@ -74,12 +75,6 @@ func TestCompleteFieldsAndSources(t *testing.T) {
 	for _, f := range rec.Fields {
 		if f.Confidence != contract.ConfidenceLikely || f.Declare == "" {
 			t.Errorf("%s: confidence %q, declare %q", f.Field, f.Confidence, f.Declare)
-		}
-		if f.Field == "interfaces[api]" {
-			if f.Source != "api/openapi.yaml" {
-				t.Errorf("interfaces[api] source = %q", f.Source)
-			}
-			continue
 		}
 		if got := lineAt(t, completeDir, f.Source); !strings.Contains(got, lines[f.Field]) {
 			t.Errorf("%s: source %s reads %q, want it to hold %q", f.Field, f.Source, got, lines[f.Field])
@@ -214,14 +209,24 @@ func TestCompleteErrors(t *testing.T) {
 	if _, err := Complete(dir, nil, contract.InferredInputs{}); err == nil {
 		t.Error("an unreadable .pactoignore was not an error")
 	}
-	// A cited file that cannot be read has no digest.
+	// A repository root that cannot be opened stops the read.
 	dir = writeTree(t, t.TempDir(), map[string]string{"openapi.yaml": "openapi: 3.1.0\n"})
-	if err := os.Chmod(filepath.Join(dir, "openapi.yaml"), 0); err != nil {
-		t.Fatal(err)
+	if _, err := CompleteIn(dir, filepath.Join(t.TempDir(), "missing"), nil, contract.InferredInputs{}); err == nil {
+		t.Error("a missing repository root was not an error")
 	}
-	t.Cleanup(func() { _ = os.Chmod(filepath.Join(dir, "openapi.yaml"), 0o644) })
-	if _, err := Complete(dir, nil, contract.InferredInputs{}); err == nil {
-		t.Error("an unreadable cited file was not an error")
+	// A cited file that vanishes once read has no digest.
+	defer func(f func(string) ([]byte, error)) { readSource = f }(readSource)
+	readSource = func(string) ([]byte, error) { return nil, fs.ErrNotExist }
+	if _, err := Complete(completeDir, nil, contract.InferredInputs{}); err == nil {
+		t.Error("a cited file that vanished was not an error")
+	}
+	readSource = os.ReadFile
+	// A cited file that cannot be read has no digest, in the folder or in
+	// the repository.
+	for _, f := range []string{"missing.yaml", "repository:missing"} {
+		if _, err := citeSources(dir, dir, map[string]bool{f: true}); err == nil {
+			t.Errorf("%s: an unreadable cited file was not an error", f)
+		}
 	}
 }
 

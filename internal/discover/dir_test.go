@@ -136,9 +136,6 @@ func TestDirReadsTheFolder(t *testing.T) {
 	if sc.Dockerfile != "Dockerfile" || !slices.Equal(sc.Dockerfiles, []string{"Dockerfile", "build/Dockerfile.dev", "build/api.Dockerfile"}) {
 		t.Errorf("dockerfiles: %q %q", sc.Dockerfile, sc.Dockerfiles)
 	}
-	if sc.OpenAPI != "openapi.yaml" {
-		t.Errorf("openapi: %q", sc.OpenAPI)
-	}
 	if !slices.Equal(sc.Charts, []string{".", "chart", "chart2", "chart3", "chart4"}) {
 		t.Errorf("charts: %q", sc.Charts)
 	}

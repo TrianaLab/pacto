@@ -336,6 +336,7 @@ type planner struct {
 	pub             *contract.Publish
 	snap            *fleet.FleetSnapshot // the contracts in FleetRoots, nil when none were given
 	schema          string               // the configuration schema written, "" when none
+	openapi         string               // the OpenAPI file discovery found, "" when none
 	stages          []validation.Stage   // what validating a contract created from a golden path found
 	contractNew     bool
 	deliveryPlanned bool

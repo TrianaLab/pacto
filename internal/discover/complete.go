@@ -45,14 +45,13 @@ func CompleteIn(dir, repoDir string, declared *contract.Contract, in contract.In
 	if err != nil {
 		return nil, err
 	}
-	c := &completion{sc: sc, d: cmp.Or(declared, &contract.Contract{})}
+	c := &completion{sc: sc, d: cmp.Or(declared, &contract.Contract{}), api: OpenAPIRef(reading.Fields) != ""}
 	c.workload()
-	c.api()
 	c.health()
 	c.configuration(dir)
 	c.dependencies(cmp.Or(c.d.Service.Name, filepath.Base(dir)))
 	for _, e := range reading.entries {
-		if !c.declared(e.Field) {
+		if !c.declared(e.Inferred) {
 			c.entries = append(c.entries, e)
 		}
 	}
@@ -68,6 +67,10 @@ func CompleteIn(dir, repoDir string, declared *contract.Contract, in contract.In
 		Findings: reading.Findings, FindingsDropped: reading.FindingsDropped}, nil
 }
 
+// readSource reads a cited file. Read read it a moment ago, so it fails only
+// when the file changes underneath; tests make it fail.
+var readSource = os.ReadFile
+
 // citeSources is every file in cited with its digest: a folder path under
 // dir, or a "repository:<path>" under the repository root repoDir names (""
 // finds it, as ReadDir does).
@@ -79,7 +82,7 @@ func citeSources(dir, repoDir string, cited map[string]bool) ([]contract.Inferre
 			abs, _ := filepath.Abs(dir) // ponytail: ReadDir just made dir absolute
 			p = filepath.Join(repoFor(abs, repoDir), filepath.FromSlash(rel))
 		}
-		data, err := os.ReadFile(p)
+		data, err := readSource(p)
 		if err != nil {
 			return nil, fmt.Errorf("reading %s: %w", f, err)
 		}
@@ -111,6 +114,7 @@ func CompleteBundle(b *contract.Bundle, dir string, in contract.InferredInputs) 
 type completion struct {
 	sc      *Scan
 	d       *contract.Contract
+	api     bool // an OpenAPI file describes the api interface
 	entries []entry
 }
 
@@ -118,9 +122,15 @@ func (c *completion) add(field, value, file, source, declare string) {
 	c.entries = append(c.entries, entry{Inferred: contract.Inferred{Field: field, Value: value, Source: source, Confidence: contract.ConfidenceLikely, Declare: declare}, rank: rankScan, file: file})
 }
 
-// declared reports whether the contract declares the field a reader gives:
-// a health capability, a summary, or an interface on that port.
-func (c *completion) declared(field string) bool {
+// declared reports whether the contract declares the field f a reader
+// gives: a health capability, a summary, an interface with its name or its
+// ref, or an interface on that port.
+func (c *completion) declared(f contract.Inferred) bool {
+	field := f.Field
+	if name, ok := strings.CutPrefix(field, "interfaces["); ok {
+		_, ref, _ := strings.Cut(f.Value, " ")
+		return slices.ContainsFunc(c.d.Interfaces, func(i contract.Interface) bool { return i.Name+"]" == name || i.Ref == ref })
+	}
 	switch field {
 	case "capabilities[health]":
 		return slices.ContainsFunc(c.d.Capabilities, func(k contract.Capability) bool { return k.Type == "health" })
@@ -145,15 +155,6 @@ func (c *completion) workload() {
 	}
 }
 
-// api is the OpenAPI file, unless a declared interface already refers to it.
-func (c *completion) api() {
-	f := c.sc.OpenAPI
-	if f == "" || slices.ContainsFunc(c.d.Interfaces, func(i contract.Interface) bool { return i.Ref == f }) {
-		return
-	}
-	c.add("interfaces[api]", "openapi "+f, f, f, InterfaceYAML(f))
-}
-
 // health is the workload's probe, unless a health capability is declared.
 func (c *completion) health() {
 	w := c.sc.Workload
@@ -167,7 +168,7 @@ func (c *completion) health() {
 	if p != "" {
 		value = "GET " + p + " (" + value + ")"
 	}
-	c.add("capabilities[health]", value, w.File, w.Probe.Source, HealthYAML(p, c.sc.OpenAPI != ""))
+	c.add("capabilities[health]", value, w.File, w.Probe.Source, HealthYAML(p, c.api))
 }
 
 // configuration is each environment key no declared configuration lists, as

@@ -77,6 +77,7 @@ type reader struct {
 	entries     []entry
 	findings    []contract.InferredFinding
 	dockerfiles []string
+	specs       map[string][]spec // by kind
 }
 
 // Read walks the folder once, regular files only, and hands each file to the
@@ -84,7 +85,7 @@ type reader struct {
 // finding, as is a file over 1 MiB or one that does not parse. Read never
 // fails; what it cannot read is a finding.
 func Read(in Input) Reading {
-	r := &reader{in: in}
+	r := &reader{in: in, specs: map[string][]spec{}}
 	walked, left := 0, 0
 	_ = fs.WalkDir(in.Folder, ".", func(p string, d fs.DirEntry, err error) error { //nolint:errcheck // the callback never fails
 		switch {
@@ -109,6 +110,7 @@ func Read(in Input) Reading {
 		return nil
 	})
 	r.dockers()
+	r.interfaces()
 	out := Reading{entries: r.entries}
 	out.Fields, _ = merge(r.entries)
 	slices.SortFunc(r.findings, func(a, b contract.InferredFinding) int {
@@ -131,7 +133,15 @@ func (r *reader) file(p, name string) {
 	case name == "Dockerfile" || strings.HasPrefix(name, "Dockerfile.") || strings.HasSuffix(name, ".Dockerfile"):
 		r.dockerfiles = append(r.dockerfiles, p)
 	case (strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml")) && !r.inChartTemplates(p):
-		r.yamlDocs(p)
+		if data := r.read(p); data != nil && r.yamlDocs(p, data) != nil {
+			r.spec(p, data)
+		}
+	case strings.HasSuffix(name, ".json") || strings.HasSuffix(name, ".proto"):
+		if data := r.read(p); data != nil {
+			r.spec(p, data)
+		}
+	default:
+		r.unsupported(p, name)
 	}
 }
 
@@ -164,13 +174,10 @@ func (r *reader) read(p string) []byte {
 	return data
 }
 
-// yamlDocs is every document of the YAML file p, or nil and a finding when it
-// does not parse. The parser's error is never kept: it quotes the file.
-func (r *reader) yamlDocs(p string) []*yaml.Node {
-	data := r.read(p)
-	if data == nil {
-		return nil
-	}
+// yamlDocs is every document of data, the YAML file p, or nil and a finding
+// when it does not parse. The parser's error is never kept: it quotes the
+// file.
+func (r *reader) yamlDocs(p string, data []byte) []*yaml.Node {
 	var docs []*yaml.Node
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	for {

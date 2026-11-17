@@ -29,7 +29,6 @@ type Scan struct {
 	Services    map[string]bool // Kubernetes Services, by name
 	workloads   []*Workload
 	Workload    *Workload // the one the contract describes
-	OpenAPI     string
 	Charts      []string
 	Kustomize   []string // kustomization.yaml files among the manifests
 	ConfigMaps  map[string]ConfigMap
@@ -82,8 +81,6 @@ var WorkloadKinds = map[string]string{
 	"Deployment": "service", "StatefulSet": "service", "DaemonSet": "service",
 	"Job": "job", "CronJob": "scheduled",
 }
-
-var openapiRE = regexp.MustCompile(`^(openapi|swagger)\.(ya?ml|json)$`)
 
 // skipDirs are never read: tooling, dependencies and the cluster pieces
 // pacto init writes itself.
@@ -180,10 +177,6 @@ func (sc *Scan) file(p, rel, base string) {
 	case base == "Dockerfile" || strings.HasPrefix(base, "Dockerfile.") || strings.HasSuffix(base, ".Dockerfile"):
 		sc.Dockerfiles = append(sc.Dockerfiles, rel)
 	case base == "Chart.yaml": // its folder is a chart, recorded by Dir
-	case openapiRE.MatchString(base):
-		if sc.OpenAPI == "" || strings.Count(rel, "/") < strings.Count(sc.OpenAPI, "/") {
-			sc.OpenAPI = rel
-		}
 	case strings.HasSuffix(base, ".yaml") || strings.HasSuffix(base, ".yml"):
 		data, err := os.ReadFile(p)
 		if err == nil {

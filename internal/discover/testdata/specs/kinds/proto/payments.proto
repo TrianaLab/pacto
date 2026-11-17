@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package payments;
+
+service Payments {
+  rpc Charge (ChargeRequest) returns (ChargeReply);
+  rpc Refund (RefundRequest) returns (RefundReply);
+}
+
+message ChargeRequest {}
+message ChargeReply {}
+message RefundRequest {}
+message RefundReply {}

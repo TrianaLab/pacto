@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -401,10 +402,10 @@ func TestLocalIncompleteKeepsRevision(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("service: {name: app, version: 1.0.0}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chmod(filepath.Join(dir, "api", "openapi.yaml"), 0); err != nil {
+	if err := os.Chmod(filepath.Join(dir, "api"), 0); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = os.Chmod(filepath.Join(dir, "api", "openapi.yaml"), 0o644) })
+	t.Cleanup(func() { _ = os.Chmod(filepath.Join(dir, "api"), 0o755) })
 	rev, err := loadRevision(dir)
 	if !errors.Is(err, errIncomplete) || rev.Bundle == nil {
 		t.Fatalf("an unreadable cited file: %v %+v", err, rev)
@@ -413,8 +414,10 @@ func TestLocalIncompleteKeepsRevision(t *testing.T) {
 		t.Fatal("an incomplete revision serves a record")
 	}
 	col, err := NewLocalSource("local", root).Collect(context.Background())
-	if err != nil || len(col.Revisions) != 1 || len(col.Limitations) != 1 || col.Limitations[0].Code != fleet.LimitationInferredRecordUnreadable ||
-		!strings.Contains(col.Limitations[0].Message, "app/pacto.yaml: could not be completed") {
+	// The unreadable folder also leaves the source walk partial.
+	if err != nil || len(col.Revisions) != 1 || !slices.ContainsFunc(col.Limitations, func(l fleet.Limitation) bool {
+		return l.Code == fleet.LimitationInferredRecordUnreadable && strings.Contains(l.Message, "app/pacto.yaml: could not be completed")
+	}) {
 		t.Fatalf("collect: %v %+v", err, col)
 	}
 }

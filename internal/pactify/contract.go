@@ -128,10 +128,15 @@ func (p *planner) contract(ctx context.Context) error {
 		return nil
 	}
 	p.contractNew = true
+	reading, err := discover.ReadDir(p.r.Dir, "")
+	if err != nil {
+		return err
+	}
+	p.openapi = discover.OpenAPIRef(reading.Fields)
 	text := p.pactified()
 	files := p.environmentFiles()
-	if p.sc.OpenAPI != "" {
-		files[p.sc.OpenAPI] = "{}"
+	if p.openapi != "" {
+		files[p.openapi] = "{}"
 	}
 	if p.schema != "" {
 		files[configSchema] = p.schema
@@ -433,9 +438,9 @@ func (p *planner) pactified() string {
 		p.unknown("workload: no Kubernetes workload says whether %s is a service, a job or a scheduled job", name)
 	}
 	switch {
-	case sc.OpenAPI != "":
-		b.WriteString(discover.InterfaceYAML(sc.OpenAPI))
-		p.found("API description %s", sc.OpenAPI)
+	case p.openapi != "":
+		b.WriteString(discover.InterfaceYAML("api", "openapi", p.openapi))
+		p.found("API description %s", p.openapi)
 	case len(w.Ports) > 0:
 		p.unknown("interfaces: %s listens on port %s, but no OpenAPI file describes it", name, joinInts(w.Ports))
 	default:
@@ -449,7 +454,7 @@ func (p *planner) pactified() string {
 		bundles = registry + "/contracts"
 		p.found("contract bundles under %s, as the image %s already holds %s/%s", bundles, w.Image, registry, name)
 	}
-	p.health(&b, sc.OpenAPI != "")
+	p.health(&b, p.openapi != "")
 	p.dependencyEntries(&b, bundles)
 	p.externalEntries(&b)
 	p.configuration(&b)

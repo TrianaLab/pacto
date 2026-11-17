@@ -55,7 +55,7 @@ func TestExplainTextInferredAndDeclare(t *testing.T) {
 	out := buf.String()
 	for _, want := range []string{
 		"\nInferred (not part of the contract):\n",
-		"  interfaces[api]  inferred  openapi api/openapi.yaml  from api/openapi.yaml\n",
+		"  interfaces[api]  inferred  openapi api/openapi.yaml  from api/openapi.yaml:1\n",
 		"  workload  inferred  service (Deployment app)  from deploy/app.yaml:2\n",
 		"  dependencies[billing]  inferred  billing  from deploy/app.yaml:",
 	} {

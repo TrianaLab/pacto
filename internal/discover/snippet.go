@@ -27,9 +27,10 @@ func Quote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }
 
-// InterfaceYAML declares the api interface an OpenAPI file at ref describes.
-func InterfaceYAML(ref string) string {
-	return "interfaces:\n  - name: api\n    type: openapi\n    ref: " + Quote(ref) + "\n"
+// InterfaceYAML declares the interface name of type typ the spec at ref
+// describes.
+func InterfaceYAML(name, typ, ref string) string {
+	return "interfaces:\n  - name: " + name + "\n    type: " + typ + "\n    ref: " + Quote(ref) + "\n"
 }
 
 // HealthYAML declares a health capability, bound to the api interface at

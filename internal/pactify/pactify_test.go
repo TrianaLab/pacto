@@ -1409,3 +1409,21 @@ func TestDeliveryExistingContractSuggestsEnvironments(t *testing.T) {
 		t.Fatalf("every environment declared: %v", r.Next)
 	}
 }
+
+// TestPactifyFindsSpecAtAnyPath: the OpenAPI file a new contract names is the
+// one pacto diff reads, at any path and under any name (Northwind's
+// api/openapi.v1.yaml), never a file that only carries the name.
+func TestPactifyFindsSpecAtAnyPath(t *testing.T) {
+	dir := writeTree(t, t.TempDir(), map[string]string{
+		"Dockerfile":          "FROM scratch\n",
+		"api/openapi.v1.yaml": "openapi: 3.1.0\npaths: {}\n",
+		"openapi.yaml":        "title: not a spec\n",
+	})
+	r, err := Init(context.Background(), Options{Dir: dir, Name: "payments", Plan: true}, os.WriteFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := file(t, r, "pacto.yaml").Content; !strings.Contains(text, "    ref: api/openapi.v1.yaml\n") || !hasLine(r.Found, "API description api/openapi.v1.yaml") {
+		t.Fatalf("pacto.yaml:\n%s\nfound: %q", text, r.Found)
+	}
+}

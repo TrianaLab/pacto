@@ -102,17 +102,34 @@ func TestInitCompletionKeepsChartUnknown(t *testing.T) {
 	}
 }
 
-// A cited file that cannot be read is an error, never a partial record.
-func TestInitCompletionUnreadableSource(t *testing.T) {
-	dir := completeFixture(t, "service: {name: payments, version: 1.0.0}\n")
-	if err := os.Chmod(filepath.Join(dir, "api", "openapi.yaml"), 0); err != nil {
+// unreadableRepo is a folder named payments, holding files, in a repository
+// root Pacto finds but cannot open.
+func unreadableRepo(t *testing.T, files map[string]string) string {
+	t.Helper()
+	repo := t.TempDir()
+	dir := writeTree(t, filepath.Join(repo, "payments"), files)
+	if err := os.Mkdir(filepath.Join(repo, ".git"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.ReadFile(filepath.Join(dir, "api", "openapi.yaml")); err == nil {
-		t.Skip("running with permission to read every file")
+	if err := os.Chmod(repo, 0o300); err != nil {
+		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = os.Chmod(repo, 0o755) })
+	if _, err := os.ReadDir(repo); err == nil {
+		t.Skip("running with permission to read every folder")
+	}
+	return dir
+}
+
+// A folder Pacto cannot read is an error, never a partial record.
+func TestInitCompletionUnreadableSource(t *testing.T) {
+	dir := unreadableRepo(t, map[string]string{"pacto.yaml": "pactoVersion: \"2.5\"\n" + completeContract})
 	if _, err := Init(context.Background(), Options{Dir: dir, Plan: true}, os.WriteFile); err == nil || !strings.Contains(err.Error(), "completing pacto.yaml") {
 		t.Fatalf("err = %v", err)
+	}
+	dir = unreadableRepo(t, map[string]string{"Dockerfile": "FROM scratch\n"})
+	if _, err := Init(context.Background(), Options{Dir: dir, Plan: true}, os.WriteFile); err == nil || !strings.Contains(err.Error(), "repository") {
+		t.Fatalf("new contract: err = %v", err)
 	}
 }
 

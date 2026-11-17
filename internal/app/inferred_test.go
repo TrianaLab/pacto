@@ -185,10 +185,10 @@ func TestLocalReadCarriesRecord(t *testing.T) {
 // complete; a read keeps its declared bundle, with no record and a warning.
 func TestIncompleteFolder(t *testing.T) {
 	dir := completionFolder(t, "")
-	if err := os.Chmod(filepath.Join(dir, "api", "openapi.yaml"), 0); err != nil {
+	if err := os.Chmod(filepath.Join(dir, "api"), 0); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = os.Chmod(filepath.Join(dir, "api", "openapi.yaml"), 0o644) })
+	t.Cleanup(func() { _ = os.Chmod(filepath.Join(dir, "api"), 0o755) })
 	// Pack, push and publish refuse a folder Pacto cannot complete.
 	if _, err := loadLocalBundleNamed(dir, "app", override.Overrides{}, contract.InferredInputs{}); err == nil || !strings.Contains(err.Error(), "completing") {
 		t.Errorf("an unreadable cited file: %v", err)
@@ -220,10 +220,10 @@ func TestExplainLocalCarriesRecord(t *testing.T) {
 	if err != nil || len(res.Inferred) == 0 {
 		t.Fatalf("%v %+v", err, res)
 	}
-	if err := os.Chmod(filepath.Join(dir, "api", "openapi.yaml"), 0); err != nil {
+	if err := os.Chmod(filepath.Join(dir, "api"), 0); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = os.Chmod(filepath.Join(dir, "api", "openapi.yaml"), 0o644) })
+	t.Cleanup(func() { _ = os.Chmod(filepath.Join(dir, "api"), 0o755) })
 	if res, err := NewService(nil, nil).Explain(context.Background(), ExplainOptions{Path: dir}); err != nil || res.Name != "app" {
 		t.Fatalf("explain of an incomplete folder: %v %+v", err, res)
 	}
