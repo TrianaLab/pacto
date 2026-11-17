@@ -29,13 +29,21 @@ func newsletterRecord() []byte {
 }
 
 // recordOf is a valid record for recordManifest holding fields, each citing
-// deploy/app.yaml.
+// deploy/app.yaml; a "<path>:<line>" outranks entry naming a repository
+// file cites that file too.
 func recordOf(fields []contract.Inferred) []byte {
 	sum := sha256.Sum256([]byte(recordManifest))
 	rec := &contract.InferredRecord{Format: contract.InferredRecordFormat,
 		Inputs: contract.InferredInputs{Pacto: "4.6.0", Discovery: "1", Sources: []contract.InferredSourceFile{
 			{Path: "deploy/app.yaml", Digest: "sha256:" + hex.EncodeToString(sum[:])}}},
 		Fields: fields}
+	for _, f := range fields { // a repository file is cited, never in the bundle
+		for _, o := range f.Outranks {
+			if file := o[:strings.LastIndexByte(o, ':')]; strings.HasPrefix(file, "repository:") {
+				rec.Inputs.Sources = append(rec.Inputs.Sources, contract.InferredSourceFile{Path: file, Digest: "sha256:" + hex.EncodeToString(sum[:])})
+			}
+		}
+	}
 	return rec.Marshal()
 }
 

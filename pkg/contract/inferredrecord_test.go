@@ -142,6 +142,7 @@ func TestVerifyInferredRecord(t *testing.T) {
 		"missing":  {func(r *InferredRecord) { r.Inputs.Sources[0].Path = "gone.yaml" }, "not in the bundle"},
 		"digest":   {func(r *InferredRecord) { r.Inputs.Sources[1].Digest = digestOf("other") }, "has digest"},
 		"unlisted": {func(r *InferredRecord) { r.Fields[1].Source = "chart/values.yaml:3" }, "chart/values.yaml"},
+		"outranks": {func(r *InferredRecord) { r.Fields[1].Outranks = []string{"Dockerfile:4"} }, "cites Dockerfile"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

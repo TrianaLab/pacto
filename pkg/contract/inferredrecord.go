@@ -206,7 +206,8 @@ func ReadInferredRecord(fsys fs.FS) (*InferredRecord, error) {
 
 // VerifyInferredRecord checks the record against the bundle it sits in: every
 // source exists in fsys with its digest (the record itself is never a source),
-// and every field cites a file the sources list. A repository file outside
+// and every field cites, in its source and its outranks, files the sources
+// list. A repository file outside
 // the bundle (a "repository:" source) cannot be checked here: its digest only
 // tells two records' inputs apart. A stale or hand-edited record fails here
 // instead of reading as authoritative.
@@ -230,8 +231,10 @@ func VerifyInferredRecord(fsys fs.FS, rec *InferredRecord) error {
 		}
 	}
 	for i, f := range rec.Fields {
-		if file := sourceFile(f.Source); !listed[file] {
-			return fmt.Errorf("fields[%d] (%s) cites %s, which inputs.sources does not list", i, f.Field, file)
+		for _, src := range append([]string{f.Source}, f.Outranks...) {
+			if file := sourceFile(src); !listed[file] {
+				return fmt.Errorf("fields[%d] (%s) cites %s, which inputs.sources does not list", i, f.Field, file)
+			}
 		}
 	}
 	return nil
