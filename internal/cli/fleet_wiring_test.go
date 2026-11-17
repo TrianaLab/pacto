@@ -16,6 +16,7 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/viper"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/rest"
 
 	"github.com/trianalab/pacto/v4/internal/app"
@@ -424,6 +425,12 @@ func (c *fakeClusterClient) DiscoverCRD(context.Context) (*k8sclient.CRDDiscover
 func (c *fakeClusterClient) ClusterIdentity(context.Context, string) (kubecluster.Identity, error) {
 	return kubecluster.Identity{}, errors.New("reading the cluster id: forbidden")
 }
+
+// ListPage reads as a cluster with no workloads.
+func (c *fakeClusterClient) ListPage(context.Context, schema.GroupVersionResource, string, string) ([]byte, string, error) {
+	return []byte(`{"items":[]}`), "", nil
+}
+
 func (c *fakeClusterClient) ListJSON(_ context.Context, _ k8sclient.CRDDiscovery, ns string) ([]byte, error) {
 	c.asked = append(c.asked, ns)
 	if c.listErr != nil {

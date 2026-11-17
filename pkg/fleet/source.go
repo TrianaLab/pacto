@@ -22,6 +22,11 @@ import (
 // cluster. The dashboard's /api/sources pills use the same name.
 const SourceKindKubernetes = "kubernetes"
 
+// SourceKindKubernetesWorkloads is the Kind of a source reading the
+// Deployments, StatefulSets, DaemonSets and CronJobs of a cluster. It reports
+// inferred services and never a target.
+const SourceKindKubernetesWorkloads = "kubernetes-workloads"
+
 // SourceKindEvidenceHTTP and SourceKindTargetState are the Kinds of the
 // sources that report operational targets outside Kubernetes: the Evidence
 // Server and a target state file.

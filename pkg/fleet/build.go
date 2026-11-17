@@ -651,7 +651,9 @@ func sourceClusters(col *Collection) []Cluster {
 // claimClusterName records src's claim on the name of c when it is valid and
 // outranks the claim already held.
 func claimClusterName(claims map[string]*clusterNameClaim, src Source, c Cluster) {
-	live, maxLen := src.Kind() == SourceKindKubernetes, 63
+	// Both Kubernetes sources read the cluster with this process's own
+	// credentials, so neither name is merely reported.
+	live, maxLen := src.Kind() == SourceKindKubernetes || src.Kind() == SourceKindKubernetesWorkloads, 63
 	if live {
 		maxLen = maxLiveClusterNameLen
 	}

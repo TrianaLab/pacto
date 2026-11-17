@@ -27,6 +27,11 @@ func (f *nsFakeClient) DiscoverCRD(context.Context) (*k8sclient.CRDDiscovery, er
 	return &k8sclient.CRDDiscovery{Found: f.found, ResourceName: "pactos"}, nil
 }
 
+// ListPage reads as a cluster with no workloads.
+func (f *nsFakeClient) ListPage(context.Context, schema.GroupVersionResource, string, string) ([]byte, string, error) {
+	return []byte(`{"items":[]}`), "", nil
+}
+
 func (f *nsFakeClient) ListJSON(_ context.Context, _ k8sclient.CRDDiscovery, ns string) ([]byte, error) {
 	f.asked = append(f.asked, ns)
 	if err := f.errs[ns]; err != nil {

@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"k8s.io/apimachinery/pkg/runtime/schema"
+
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -342,11 +344,22 @@ type fakeFleetK8sClient struct {
 	// fallback the context-id tests rely on.
 	identity   kubecluster.Identity
 	gotContext string
+	// workloads is the list JSON of each workload resource; missing: none.
+	workloads map[string]string
 }
 
 func (f *fakeFleetK8sClient) DiscoverCRD(context.Context) (*k8sclient.CRDDiscovery, error) {
 	return f.disc, nil
 }
+
+// ListPage answers from workloads, else reads as a cluster with no workloads.
+func (f *fakeFleetK8sClient) ListPage(_ context.Context, gvr schema.GroupVersionResource, _, _ string) ([]byte, string, error) {
+	if l, ok := f.workloads[gvr.Resource]; ok {
+		return []byte(l), "", nil
+	}
+	return []byte(`{"items":[]}`), "", nil
+}
+
 func (f *fakeFleetK8sClient) ListJSON(context.Context, k8sclient.CRDDiscovery, string) ([]byte, error) {
 	return f.listData, nil
 }
@@ -473,5 +486,71 @@ func TestFleetRejectsBadMiraURL(t *testing.T) {
 	snap, err := NewService(nil, nil).Fleet(context.Background(), FleetOptions{MiraURLs: []string{"https://user:pw@mira.example"}})
 	if err == nil || snap != nil || strings.Contains(err.Error(), "pw") {
 		t.Fatalf("snap=%v err=%v, want no snapshot and an error without the password", snap, err)
+	}
+}
+
+func TestLiveK8sRegistersWorkloadSource(t *testing.T) {
+	svc := k8sService("eu-prod-ctx")
+	svc.sys.newK8s = func() (k8sclient.K8sClient, error) {
+		return &fakeFleetK8sClient{
+			disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
+			listData: []byte(`{"items":[]}`),
+			identity: kubecluster.Identity{ID: clusterA, Name: "eu-prod", NameSource: kubecluster.NameFromContext},
+		}, nil
+	}
+	snap, err := svc.Fleet(context.Background(), FleetOptions{IncludeK8s: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cr, wl := sourceState(snap, clusterA), sourceState(snap, clusterA+"-workloads")
+	if cr == nil || cr.Kind != fleet.SourceKindKubernetes || wl == nil || wl.Kind != fleet.SourceKindKubernetesWorkloads {
+		t.Fatalf("sources = %+v; want the Pacto and the workload source", snap.Sources)
+	}
+	if wl.Status != fleet.SourceAvailable || wl.InferredCount != 0 {
+		t.Errorf("workload source = %+v; want available with no inferred service", wl)
+	}
+	if len(snap.Clusters) != 1 || !slices.Equal(snap.Clusters[0].Sources, []string{clusterA, clusterA + "-workloads"}) || snap.Clusters[0].ReportedBy != "" {
+		t.Errorf("clusters = %+v; want one cluster both live sources read", snap.Clusters)
+	}
+}
+
+func TestUnreachableClusterMarksBothSourcesUnavailable(t *testing.T) {
+	svc := NewService(nil, nil)
+	svc.sys.newK8s = func() (k8sclient.K8sClient, error) { return nil, errors.New("no cluster") }
+	svc.sys.kubeContext = func() string { return "" }
+	snap, err := svc.Fleet(context.Background(), FleetOptions{IncludeK8s: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for id, kind := range map[string]string{"k8s": fleet.SourceKindKubernetes, "k8s-workloads": fleet.SourceKindKubernetesWorkloads} {
+		if st := sourceState(snap, id); st == nil || st.Kind != kind || st.Status != fleet.SourceUnavailable {
+			t.Errorf("source %s = %+v, want unavailable %s", id, st, kind)
+		}
+	}
+}
+
+func TestWorkloadOfDeclaredTargetNotInferred(t *testing.T) {
+	svc := k8sService("")
+	svc.sys.newK8s = func() (k8sclient.K8sClient, error) {
+		return &fakeFleetK8sClient{
+			disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
+			listData: []byte(`{"items":[{"metadata":{"name":"cart","namespace":"shop"},"spec":{"target":{"serviceName":"cart"}},"status":{"contractStatus":"Compliant","contract":{"serviceName":"cart"}}}]}`),
+			workloads: map[string]string{"deployments": `{"items":[
+				{"metadata":{"name":"cart","namespace":"shop"},"spec":{"template":{"spec":{"containers":[{"name":"cart","image":"cart:1"}]}}}},
+				{"metadata":{"name":"nightly","namespace":"shop"},"spec":{"template":{"spec":{"containers":[{"name":"nightly","image":"nightly:1"}]}}}}]}`},
+		}, nil
+	}
+	snap, err := svc.Fleet(context.Background(), FleetOptions{IncludeK8s: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var inferred []string
+	for _, s := range snap.Services {
+		if s.Inferred() {
+			inferred = append(inferred, s.Name)
+		}
+	}
+	if !slices.Equal(inferred, []string{"k8s:shop/Deployment/nightly"}) {
+		t.Errorf("inferred = %v, want only the workload no Pacto targets", inferred)
 	}
 }
