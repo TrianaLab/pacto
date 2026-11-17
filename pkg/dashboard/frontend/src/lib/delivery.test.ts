@@ -5,7 +5,7 @@ import {
   versionLabel, shortDigests, digestParts, sentence, timeLabel,
   verdictBadge, isBreaking, andList, reasonWords, verificationLabel, outcomeTone, reasonAfter, changeSummary, actorBadge, autonomyOf, unknownHelp, undoCause, UNKNOWN_DOCS,
   exceptParam, exceptList, offerLabel, checkText, watchText, progressStamp, isCommand, offerRequest, lifecycleWords,
-  causeText, historyWindow, windowSince, samePerson, classSourceLabel, accessSourceLabel,
+  causeText, historyWindow, windowSince, samePerson, classSourceLabel, accessSourceLabel, gateLabel, applierLine,
 } from './delivery.ts';
 import {
   parseHash, deliveryInboxUrl, deliveryEnvironmentsUrl, deliveryPublishUrl, deliveryAutonomyUrl, deliveryHistoryUrl, deliveryChangeUrl,
@@ -423,5 +423,27 @@ describe('classSourceLabel and accessSourceLabel', () => {
     expect(accessSourceLabel('')).toBe('not recorded');
     expect(accessSourceLabel(undefined)).toBe('not recorded');
     expect(accessSourceLabel('registry-policy')).toBe('registry-policy');
+  });
+});
+
+describe('applier', () => {
+  it('labels the pacto.applier gate', () => {
+    expect(gateLabel('pacto.applier')).toBe('Applier owns the workloads');
+  });
+
+  it('says the applier in one line: the manager, what is wrong in words, and when the promoter last looked', () => {
+    const now = Date.parse('2026-11-15T10:00:00Z');
+    expect(applierLine(undefined, now)).toBeNull();
+    const ok = applierLine({ state: 'Adopted', display: 'Argo CD (Application payments, tracking annotation)', asOf: '2026-11-15T09:59:30Z' }, now);
+    expect(ok).toEqual({ display: 'Argo CD (Application payments, tracking annotation)', problem: '', asOf: 'as of 2026-11-15 09:59 UTC', warn: false,
+      text: 'Applier: Argo CD (Application payments, tracking annotation) (as of 2026-11-15 09:59 UTC)' });
+    const bad = applierLine({ state: 'Conflict', display: 'Helm (release payments, release annotations)', message: 'Helm release payments owns Deployment payments',
+      asOf: '2026-11-15T09:50:00Z' }, now);
+    expect(bad?.warn).toBe(true);
+    expect(bad?.text).toBe('Applier: Helm (release payments, release annotations), conflict: Helm release payments owns Deployment payments ' +
+      '(as of 2026-11-15 09:50 UTC, stale: the promoter has not checked since)');
+    const stale = applierLine({ state: 'Unmanaged', display: 'unmanaged', asOf: '2026-11-15T09:50:00Z' }, now);
+    expect(stale?.warn).toBe(true);
+    expect(applierLine({ state: 'Unknown', manager: 'none', message: 'cannot tell' }, now)?.text).toBe('Applier: none, unknown: cannot tell');
   });
 });

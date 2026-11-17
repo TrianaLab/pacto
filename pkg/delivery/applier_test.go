@@ -350,3 +350,14 @@ func TestRowOfCarriesApplier(t *testing.T) {
 		t.Fatalf("no status: %+v", row.Applier)
 	}
 }
+
+// TestApplierStale: older than twice the default resync is stale; an
+// unreadable asOf is not.
+func TestApplierStale(t *testing.T) {
+	now := time.Date(2026, 11, 15, 10, 0, 0, 0, time.UTC)
+	for asOf, want := range map[string]bool{"2026-11-15T09:59:00Z": false, "2026-11-15T09:57:59Z": true, "": false, "yesterday": false} {
+		if got := (&ApplierStatus{AsOf: asOf}).Stale(now); got != want {
+			t.Errorf("asOf %q: stale %v, want %v", asOf, got, want)
+		}
+	}
+}

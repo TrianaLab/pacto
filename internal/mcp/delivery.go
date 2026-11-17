@@ -295,7 +295,8 @@ func registerDeliveryStatus(server *mcpsdk.Server, api DeliveryAPI, writes bool)
 		Annotations: readOnly(true),
 		Description: "Where each Stage of one service stands, as you can see it: the version and contract each runs, whether it is " +
 			"verified and still watched after release (the newest re-check with its verdicts and citations), its Ready condition with " +
-			"what fixes it, its candidate, frozen or auto-hold, changes waiting for a person, its level, and offers: each action " +
+			"what fixes it, the manager that applies each Stage's workloads (applier, observed, with evidence and asOf), " +
+			"which must read Adopted or Unmanaged for a promote, its candidate, frozen or auto-hold, changes waiting for a person, its level, and offers: each action " +
 			"(promote, unfreeze, freeze, undo) with whether you may ask for it and why. With why it also plans the promote of each " +
 			"candidate, not proposed, and says what holds it back. The answer carries asOf and completeness: a partial answer means " +
 			"Stages you cannot list may exist. Rows are in promotion order, from each Stage's spec.candidates, and each names its " +

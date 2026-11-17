@@ -34,6 +34,8 @@ function installDelivery(persona: Persona): void {
   const decided = () => S.getItem('mock.decided');
   const D1 = 'sha256:' + '1'.repeat(64);
   const D2 = 'sha256:' + '2'.repeat(64);
+  // The promoter checked each Stage's applier a moment ago.
+  const now = () => new Date().toISOString().replace(/\.\d+Z$/, 'Z');
   // A fresh sign-in is dated when it came back; every other one long ago.
   const signedAt = fresh() ? S.getItem('mock.fresh.at')! : '1792560000';
   const callers: Record<string, unknown> = {
@@ -91,7 +93,11 @@ function installDelivery(persona: Persona): void {
     if (route === '/api/delivery/environments') {
       return json(200, { ...listing, environments: [{ namespace: 'prod', stage: 'payments-prod', service: 'payments', environment: 'prod',
         pointer: D1, version: '1.4.0', verified: true, failed: false, frozen: false, autoHold: false, held: decided() ? 0 : 1, candidate: D2,
-        ready: 'True', actions: ['promote'], offers: [{ action: 'promote', available: true, to: D2, reason: 'promotes the candidate' }], level: 'advise', upstream: { kind: 'stage', namespace: 'test', stage: 'payments-test', environment: 'test' } }, { namespace: 'test', stage: 'payments-test', service: 'payments', environment: 'test',
+        ready: 'True', actions: ['promote'], offers: [{ action: 'promote', available: true, to: D2, reason: 'promotes the candidate' }], level: 'advise', upstream: { kind: 'stage', namespace: 'test', stage: 'payments-test', environment: 'test' },
+        applier: { manager: 'argocd', owner: 'Application prod/payments-prod', evidence: 'tracking annotation', state: 'Adopted', completeness: 'complete', asOf: now(),
+          display: 'Argo CD (Application payments-prod, tracking annotation)' } }, { namespace: 'test', stage: 'payments-test', service: 'payments', environment: 'test',
+        applier: { manager: 'helm', owner: 'Helm payments', evidence: 'release annotations', state: 'Conflict', completeness: 'complete', asOf: now(),
+          display: 'Helm (release payments, release annotations)', message: 'Helm release payments owns Deployment payments, and the Stage applies through OCIRepository test/payments-test' },
         pointer: D1, version: '1.4.0', verified: true, failed: false, frozen: false, autoHold: false, held: 0, ready: 'True: Observing', actions: [], offers: [{ action: 'promote', available: false, to: D2, reason: 'the Stage observes: GitOps owns the applyRef; propose an autonomy change to advise first' }], level: 'observe',
         shadow: [{ candidate: D2, predicted: 'Held', owners: ['team-checkout'], observedAt: '2026-10-21T09:00:00Z', verification: 'Verified' },
           { candidate: D1, predicted: 'Proceeds', observedAt: '2026-10-20T09:00:00Z', verification: 'Verified' }] }],
@@ -515,8 +521,23 @@ test.describe('Delivery views', () => {
     await page.keyboard.press('Escape');
     await expect(panel).toHaveCount(0);
   });
-});
 
+  test('each Stage names its applier, and one another manager owns warns in words', async ({ page }) => {
+    await as(page, 'carol');
+    await page.goto('/#/delivery/environments');
+    const board = page.getByTestId('environments-board');
+    const lines = board.getByTestId('env-applier');
+    await expect(lines.filter({ hasText: 'Applier: Argo CD (Application payments-prod, tracking annotation) (as of ' })).toHaveCount(1, { timeout: T });
+    const conflict = lines.filter({ hasText: 'Applier: Helm (release payments, release annotations), conflict: Helm release payments owns Deployment payments' });
+    await expect(conflict).toHaveCount(1);
+    await expect(conflict).toHaveClass(/ev-ready/);
+    await audit(page, 'environments with appliers');
+    await page.goto('/#/fleet/services/registry.example%252Fstory%2Fpayments');
+    const rows = page.getByTestId('service-delivery-applier');
+    await expect(rows.filter({ hasText: 'Applier: Argo CD (Application payments-prod, tracking annotation) (as of ' })).toHaveCount(1, { timeout: T });
+    await expect(rows.filter({ hasText: ', conflict: Helm release payments owns Deployment payments' })).toHaveClass(/sd-warn/);
+  });
+});
 
 test.describe('The path to autonomy', () => {
   test('shows the levels, proposes the next one through a plan and offers fixes to copy', async ({ page }) => {

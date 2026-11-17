@@ -235,6 +235,22 @@ func ownerOf(m workloadmanager.Manager) string {
 	return strings.TrimSpace(m.OwnerKind + " " + name)
 }
 
+// ApplierStaleAfter is twice the promoter's default resync: it rewrites
+// status.applier's asOf at least once per resync, so an older asOf means it
+// stopped checking.
+// ponytail: fixed to the default --resync (one minute); a promoter run with a
+// longer --resync reads stale early. Carry the period on the status if a team
+// sets one.
+const ApplierStaleAfter = 2 * time.Minute
+
+// Stale reports whether the promoter last checked longer than
+// ApplierStaleAfter before now. An unreadable asOf is not stale: the surfaces
+// print it as it is.
+func (a *ApplierStatus) Stale(now time.Time) bool {
+	t, err := time.Parse(time.RFC3339, a.AsOf)
+	return err == nil && now.Sub(t) > ApplierStaleAfter
+}
+
 // SameApplier reports whether a and b say the same thing: every field but
 // Since and AsOf.
 func SameApplier(a, b *ApplierStatus) bool {

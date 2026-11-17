@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -70,6 +71,7 @@ func printStatus(out io.Writer, s *delivery.ServiceStatus) {
 			cmp.Or(r.Level, "-"), offersCell(r.Offers))
 	}
 	_ = w.Flush()
+	printApplier(out, s.Stages, time.Now())
 	printNotOffered(out, s.Stages)
 	printNotReady(out, s.Stages)
 	for _, r := range s.Stages {
@@ -152,6 +154,49 @@ func offersCell(offers []delivery.Offer) string {
 		}
 	}
 	return cmp.Or(strings.Join(may, ", "), "-")
+}
+
+// printApplier says which manager applies each Stage's workloads: one line
+// when every Stage says the same, else one line per Stage. Nothing when no
+// Stage reports one.
+func printApplier(out io.Writer, rows []delivery.StageRow, now time.Time) {
+	if !slices.ContainsFunc(rows, func(r delivery.StageRow) bool { return r.Applier != nil }) {
+		return
+	}
+	if r := rows[0]; !slices.ContainsFunc(rows, func(x delivery.StageRow) bool { return applierText(x.Applier) != applierText(r.Applier) }) {
+		// The oldest observation speaks for all of them.
+		oldest := slices.MinFunc(rows, func(a, b delivery.StageRow) int { return strings.Compare(a.Applier.AsOf, b.Applier.AsOf) })
+		_, _ = fmt.Fprintf(out, "applier: %s%s\n", applierText(r.Applier), applierAsOf(oldest.Applier, now))
+		return
+	}
+	_, _ = fmt.Fprintln(out, "applier:")
+	for _, r := range rows {
+		_, _ = fmt.Fprintf(out, "  %s/%s: %s%s\n", r.Namespace, r.Stage, applierText(r.Applier), applierAsOf(r.Applier, now))
+	}
+}
+
+// applierText is the manager and, when the Stage does not adopt it, why.
+func applierText(a *delivery.ApplierStatus) string {
+	if a == nil {
+		return "not reported (the promoter predates applier detection)"
+	}
+	s := cmp.Or(a.Display, a.Manager, "not known")
+	if a.State == delivery.ApplierConflict || a.State == delivery.ApplierUnknown {
+		s += ", " + strings.ToLower(a.State) + ": " + a.Message
+	}
+	return s
+}
+
+// applierAsOf is when the promoter last checked, and a warning when that is
+// stale.
+func applierAsOf(a *delivery.ApplierStatus, now time.Time) string {
+	if a == nil || a.AsOf == "" {
+		return ""
+	}
+	if a.Stale(now) {
+		return " (as of " + a.AsOf + ", stale: the promoter has not checked since)"
+	}
+	return " (as of " + a.AsOf + ")"
 }
 
 // printNotOffered says why each action that is not offered is not.

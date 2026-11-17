@@ -4,7 +4,7 @@
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { deliveryHistoryUrl, deliveryEnvironmentsUrl, fleetEntityUrl } from '../lib/router.ts';
   import { deliveryServiceUrl } from '../lib/deliveryLinks.svelte.ts';
-  import { shortDigest, levelLabel, levelHelp, shadowLabel, heldButRan, timeLabel, sentence, andList, exceptList, exceptParam, offerLabel, offerRequest, checkText } from '../lib/delivery.ts';
+  import { shortDigest, levelLabel, levelHelp, shadowLabel, heldButRan, timeLabel, sentence, andList, exceptList, exceptParam, offerLabel, offerRequest, checkText, applierLine } from '../lib/delivery.ts';
   import { urlInt, limitParam } from '../lib/paging.ts';
   import { formatCount, countOf } from '../lib/format.ts';
   import Pager from '../components/Pager.svelte';
@@ -175,6 +175,7 @@
 
 {#snippet stack(svc, env)}
     {#each cell(svc, env) as r (r.namespace + '/' + r.stage)}
+      {@const applier = applierLine(r.applier)}
       <div class="ev-cell" data-testid="env-cell" data-stage={`${r.namespace}/${r.stage}`}>
         {#if cell(svc, env).length > 1}<span class="t-meta ev-stage">{r.namespace}/{r.stage}</span>{/if}
         <span class="ev-head">
@@ -193,6 +194,12 @@
         {#if notReady(r)}{@const why = `Cannot promote: ${sentence(r.readyMessage || r.ready.replace(/^\w+: /, ''))}`}<span class="t-meta ev-ready" title={why} tabindex="0">{why}</span>
           {#if r.readyFix}<span class="t-meta ev-fix">Fix: {sentence(r.readyFix)}</span>{/if}
         {:else if sourceProblem(r)}<!-- svelte-ignore a11y_no_noninteractive_tabindex (as above) --><span class="t-meta ev-ready" title={sourceProblem(r)} tabindex="0" data-testid="env-no-source">{sourceProblem(r)}</span>{/if}
+        {#if applier}
+          <!-- Who applies the workloads; a Conflict, Unknown or stale one warns in words, clamped as the Ready reason (svelte-ignore as above). -->
+          <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+          {#if applier.warn}<span class="t-meta ev-ready" title={applier.text} tabindex="0" data-testid="env-applier">Applier: <bdi>{applier.display}</bdi>{applier.problem ? `, ${applier.problem}` : ''}{applier.asOf ? ` (${applier.asOf})` : ''}</span>
+          {:else}<span class="t-meta ev-applier" data-testid="env-applier">Applier: <bdi>{applier.display}</bdi>{applier.asOf ? ` (${applier.asOf})` : ''}</span>{/if}
+        {/if}
         {#if r.lastCheck}<span class="t-meta" data-testid="env-check">{checkText(r.lastCheck)}</span>{/if}
         {#if r.offers?.length}
           <!-- Every offer: an available one plans, an unavailable one says why in words, never only in a tooltip. -->
@@ -476,7 +483,7 @@
   .ev-actions { display: flex; gap: var(--sp-1) var(--sp-3); flex-wrap: wrap; }
   .ev-offer { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-1); min-inline-size: 0; overflow-wrap: anywhere; }
   @media (pointer: coarse) { .ev-offer .btn { min-block-size: 44px; min-inline-size: 44px; } }
-  .ev-fix { overflow-wrap: anywhere; }
+  .ev-fix, .ev-applier { overflow-wrap: anywhere; }
   .ev-ready { color: var(--c-warn); display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   /* Two lines until a reader points at it or tabs to it; then the whole reason. */
   .ev-ready:hover, .ev-ready:focus-visible { -webkit-line-clamp: unset; line-clamp: none; }

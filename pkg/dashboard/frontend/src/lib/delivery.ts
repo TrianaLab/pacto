@@ -466,7 +466,44 @@ const GATE_LABELS: Record<string, string> = {
   'pacto.autonomy': 'Level change',
   'pacto.runtime': 'Runtime callers',
   'pacto.preempted': 'Superseded',
+  'pacto.applier': 'Applier owns the workloads',
 };
+
+// ── Who applies a Stage's workloads ─────────────────────────────────────────
+
+/**
+ * The promoter rewrites a Stage's applier asOf at least once per resync (a
+ * minute by default), so twice that means it stopped checking
+ * (delivery.ApplierStaleAfter).
+ */
+const APPLIER_STALE_MS = 2 * 60_000;
+
+export interface ApplierLine {
+  /** display is the one manager string every surface prints. */
+  display: string;
+  /** problem says in words why the Stage does not adopt it, else ''. */
+  problem: string;
+  /** asOf is when the promoter last looked, stale when it stopped, else ''. */
+  asOf: string;
+  warn: boolean;
+  text: string;
+}
+
+/**
+ * applierLine is a Stage's applier as one line says it, or null when the
+ * promoter reports none. Only Adopted and Unmanaged read as plain: Conflict
+ * and Unknown say why in visible words, and so does a stale observation.
+ */
+export function applierLine(a: { state?: string; display?: string; manager?: string; message?: string; asOf?: string } | null | undefined,
+  now = Date.now()): ApplierLine | null {
+  if (!a) return null;
+  const bad = a.state === 'Conflict' || a.state === 'Unknown';
+  const stale = !!a.asOf && now - Date.parse(a.asOf) > APPLIER_STALE_MS;
+  const display = a.display || a.manager || 'not known';
+  const problem = bad ? `${a.state!.toLowerCase()}: ${a.message ?? ''}` : '';
+  const asOf = a.asOf ? `as of ${timeLabel(a.asOf)}${stale ? ', stale: the promoter has not checked since' : ''}` : '';
+  return { display, problem, asOf, warn: bad || stale, text: `Applier: ${display}${problem ? `, ${problem}` : ''}${asOf ? ` (${asOf})` : ''}` };
+}
 
 /** gateLabel names a built-in check in plain words; a check the Stage names itself keeps its own name. */
 export function gateLabel(gate: string | undefined): string {

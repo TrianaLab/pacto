@@ -380,7 +380,15 @@ export function installScaleFixture(): void {
       }
       // The Stage rows' free text at its longest (the service page reads it per row);
       // keys, digests and hrefs stay the engine's.
-      for (const r of (doc.environments as Record<string, unknown>[] | undefined) ?? []) {
+      // Every row names its applier at its longest; every third one conflicts and the second
+      // reads unknown and stale, so the warning line is checked at scale too.
+      const fresh = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
+      for (const [i, r] of ((doc.environments as Record<string, unknown>[] | undefined) ?? []).entries()) {
+        const state = i % 3 === 2 ? 'Conflict' : i === 1 ? 'Unknown' : 'Adopted';
+        r.applier = { manager: state === 'Unknown' ? 'unsupported' : 'argocd', owner: longName(`Application ${String(r.namespace)}/${String(r.service)}`),
+          evidence: 'tracking annotation', display: longName(`Argo CD (Application ${String(r.service)}, tracking annotation)`), state,
+          message: state === 'Adopted' ? '' : longName(`${state} manager owns Deployment ${String(r.service)}`), completeness: 'complete',
+          asOf: state === 'Unknown' ? '2026-11-08T08:00:00Z' : fresh };
         if (q.get('service') && longName(String(r.service)) === q.get('service')) r.service = q.get('service');
         if (flags.__pactoLongPropose) {
           for (const k of ['namespace', 'stage', 'candidateVersion']) if (typeof r[k] === 'string' && r[k]) r[k] = longName(r[k] as string);

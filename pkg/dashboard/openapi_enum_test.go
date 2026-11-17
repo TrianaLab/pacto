@@ -5,6 +5,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/finding"
 	"github.com/trianalab/pacto/v4/pkg/runrecord/stats"
 )
@@ -194,6 +195,9 @@ func TestOpenAPI_EnumsOnSpecificFields(t *testing.T) {
 		{"Fleet.TargetRecord", "clusterNameSource", sortedSet("node-label", "context", "file", "uid")},
 		{"Fleet.TargetRecord", "clusterRelation", sortedSet("runs-in", "reported-through")},
 		{"ProductTargetDetail", "clusterRelation", sortedSet("runs-in", "reported-through")},
+		{"Delivery.ApplierStatus", "state", sortedSet(delivery.ApplierAdopted, delivery.ApplierUnmanaged, delivery.ApplierConflict, delivery.ApplierUnknown)},
+		{"Delivery.ApplierStatus", "manager", sortedSet("argocd", "flux", "helm", "unsupported", "ambiguous", "none")},
+		{"Delivery.ApplierStatus", "completeness", sortedSet("complete", "partial")},
 	}
 	for _, c := range cases {
 		got := schemaFieldEnum(t, doc, c.schema, c.field)

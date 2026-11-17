@@ -710,6 +710,29 @@ describe('board offers and links (B2)', () => {
     destroy();
   });
 
+  it('shows the applier on the board, and warns in words when it conflicts even when another Ready reason took precedence', async () => {
+    const asOf = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
+    fns.environments.mockResolvedValue({ ...listing, environments: [
+      { ...base, ready: 'False: CandidateUnverified', readyMessage: 'the candidate is not verified',
+        applier: { state: 'Conflict', manager: 'helm', completeness: 'complete', asOf, display: 'Helm (release payments, release annotations)',
+          message: 'Helm release payments owns Deployment payments' } },
+      { ...base, service: 'ledger', stage: 'led', applier: { state: 'Adopted', manager: 'argocd', completeness: 'complete', asOf,
+        display: 'Argo CD (Application ledger, tracking annotation)' } },
+    ] });
+    const { target, destroy } = render(DeliveryEnvironmentsView);
+    await settle();
+    const pay = target.querySelector('[data-testid="env-row-payments"] [data-testid="env-applier"]') as HTMLElement;
+    expect(pay.textContent).toContain('Applier: Helm (release payments, release annotations), conflict: Helm release payments owns Deployment payments (as of ');
+    expect(pay.classList.contains('ev-ready')).toBe(true);
+    expect(pay.getAttribute('tabindex')).toBe('0');
+    expect(text(target.querySelector('[data-testid="env-row-payments"]') as HTMLElement)).toContain('Cannot promote: The candidate is not verified.');
+    const led = target.querySelector('[data-testid="env-row-ledger"] [data-testid="env-applier"]') as HTMLElement;
+    expect(led.textContent).toContain('Applier: Argo CD (Application ledger, tracking annotation) (as of ');
+    expect(led.classList.contains('ev-ready')).toBe(false);
+    expect(led.querySelector('bdi')?.textContent).toBe('Argo CD (Application ledger, tracking annotation)');
+    destroy();
+  });
+
   // EnvMarkMatchesBoardMark: the board's dot is EnvMark, with the element, classes, name and fill the board drew inline before.
   it('draws each board dot with EnvMark, as the board drew it before (EnvMarkMatchesBoardMark)', async () => {
     // The fill the board's own .s-* rules declared before the swap.
