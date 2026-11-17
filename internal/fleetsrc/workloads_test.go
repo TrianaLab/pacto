@@ -277,3 +277,113 @@ func TestWorkloadEnvNeverReachesSnapshot(t *testing.T) {
 		}
 	}
 }
+
+// manyWorkloads is n workload objects in ns, joined as page items.
+func manyWorkloads(ns, prefix string, n int) string {
+	items := make([]string, n)
+	for i := range items {
+		items[i] = workloadJSON(ns, fmt.Sprintf("%s%d", prefix, i), "img:1")
+	}
+	return strings.Join(items, ",")
+}
+
+func TestWorkloadsRowCountsPerKind(t *testing.T) {
+	src := NewWorkloadSource("c1-workloads", &fleet.Cluster{ID: "c1", Name: "eu-prod"}, &workloadFake{pages: map[string][2]string{
+		"deployments||": {manyWorkloads("shop", "d", 400) + "," + manyWorkloads("ops", "o", 12)},
+		"daemonsets||":  {manyWorkloads("kube-system", "ds", 9)},
+		"cronjobs||":    {manyWorkloads("shop", "cj", 31)},
+	}}, nil)
+	snap := buildOne(t, src)
+	row := providerRow(snap, fleet.ProviderKubernetesWorkloads)
+	if row == nil {
+		t.Fatalf("providers = %+v, want the workloads row", snap.Providers)
+	}
+	if row.Evidence != "412 Deployments, 9 DaemonSets, 31 CronJobs" || row.Name != "Kubernetes workloads" || row.Status != fleet.SourceAvailable {
+		t.Errorf("row = %+v", row)
+	}
+	if !slices.Equal(row.UsedFor, []string{fleet.UseInferredServices}) || row.Source != "c1-workloads" || row.Cluster != "eu-prod" || len(row.Limitations) != 0 {
+		t.Errorf("row = %+v", row)
+	}
+	want := []fleet.ProviderCount{{Kind: "Deployment", Namespace: "shop", N: 400}, {Kind: "Deployment", Namespace: "ops", N: 12}, {Kind: "DaemonSet", Namespace: "kube-system", N: 9}, {Kind: "CronJob", Namespace: "shop", N: 31}}
+	if !slices.Equal(row.Counts, want) {
+		t.Errorf("counts = %+v, want %+v", row.Counts, want)
+	}
+	empty := buildOne(t, NewWorkloadSource("w", nil, &workloadFake{}, nil))
+	if r := providerRow(empty, fleet.ProviderKubernetesWorkloads); r == nil || r.Evidence != "no workloads found" || r.Counts == nil {
+		t.Errorf("an empty cluster row = %+v", r)
+	}
+}
+
+func TestWorkloadsRowUnreadableKindNotZero(t *testing.T) {
+	forbidden := apierrors.NewForbidden(schema.GroupResource{Group: "apps", Resource: "daemonsets"}, "", errors.New("denied"))
+	src := NewWorkloadSource("w", nil, &workloadFake{
+		pages: map[string][2]string{"deployments||": {workloadJSON("shop", "cart", "cart:1")}},
+		errs:  map[string]error{"daemonsets|": forbidden},
+	}, nil)
+	row := providerRow(buildOne(t, src), fleet.ProviderKubernetesWorkloads)
+	if row == nil || row.Evidence != "1 Deployment, DaemonSets unreadable" || row.Status != fleet.SourcePartial || !hasCode(row.Limitations, fleet.LimitationSourcePartial) {
+		t.Fatalf("row = %+v", row)
+	}
+	// Forbidden in one of two namespaces: the kind is counted where it was
+	// read, the row is partial and names the namespace it could not read.
+	scoped := NewWorkloadSource("w", nil, &workloadFake{
+		pages: map[string][2]string{"daemonsets|ops|": {workloadJSON("ops", "agent", "agent:1")}},
+		errs:  map[string]error{"daemonsets|shop": forbidden},
+	}, []string{"shop", "ops"})
+	row = providerRow(buildOne(t, scoped), fleet.ProviderKubernetesWorkloads)
+	if row == nil || row.Evidence != "1 DaemonSet" || row.Status != fleet.SourcePartial || !hasCode(row.Limitations, fleet.LimitationK8sNamespaceUnreadable) {
+		t.Fatalf("scoped row = %+v", row)
+	}
+}
+
+func TestWorkloadsListErrorIsNotEmpty(t *testing.T) {
+	errs := map[string]error{}
+	for _, r := range []string{"deployments", "statefulsets", "daemonsets", "cronjobs"} {
+		errs[r+"|"] = errors.New("connection refused")
+	}
+	snap := buildOne(t, NewWorkloadSource("w", nil, &workloadFake{errs: errs}, nil))
+	if len(snap.Providers) != 0 || snap.Sources[0].Status != fleet.SourceUnavailable {
+		t.Fatalf("providers %+v sources %+v; want no row and the source unavailable", snap.Providers, snap.Sources)
+	}
+	data, err := json.Marshal(snap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "no workloads found") {
+		t.Error("a cluster no list could read reads as empty")
+	}
+}
+
+func TestWorkloadsRowCapped(t *testing.T) {
+	src := NewWorkloadSource("w", nil, &workloadFake{pages: map[string][2]string{
+		"deployments||": {manyWorkloads("shop", "w", fleet.MaxInferredServices+1)},
+	}}, nil)
+	row := providerRow(buildOne(t, src), fleet.ProviderKubernetesWorkloads)
+	if row == nil || row.Status != fleet.SourcePartial || !hasCode(row.Limitations, fleet.LimitationInferredServicesCapped) {
+		t.Fatalf("capped row = %+v", row)
+	}
+}
+
+func TestProviderEvidenceNamesNoNamespace(t *testing.T) {
+	forbidden := apierrors.NewForbidden(schema.GroupResource{Group: "batch", Resource: "cronjobs"}, "", errors.New("denied"))
+	workloads := NewWorkloadSource("w", nil, &workloadFake{
+		pages: map[string][2]string{
+			"deployments|team-secret-x|": {workloadJSON("team-secret-x", "a", "a:1")},
+			"statefulsets|payments-y|":   {workloadJSON("payments-y", "b", "b:1")},
+		},
+		errs: map[string]error{"cronjobs|payments-y": forbidden},
+	}, []string{"team-secret-x", "payments-y"})
+	crd := NewK8sSource("k", nil, &nsFakeClient{found: true, lists: map[string]string{"team-secret-x": pactoIn("team-secret-x", "a")}, errs: map[string]error{"payments-y": errors.New("boom")}}, []string{"team-secret-x", "payments-y"})
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, workloads, crd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Providers) != 2 {
+		t.Fatalf("providers = %+v", snap.Providers)
+	}
+	for _, p := range snap.Providers {
+		if strings.Contains(p.Evidence, "team-secret-x") || strings.Contains(p.Evidence, "payments-y") {
+			t.Errorf("row %s evidence names a namespace: %q", p.ID, p.Evidence)
+		}
+	}
+}

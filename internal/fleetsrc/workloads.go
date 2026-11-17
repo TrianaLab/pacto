@@ -56,6 +56,7 @@ func (s *WorkloadSource) Collect(ctx context.Context) (*fleet.Collection, error)
 	now := time.Now()
 	var read []string
 	var listErr error
+	failed := map[string]int{} // failed lists per kind
 	for _, ns := range namespaces {
 		complete := true
 		for _, kind := range workloadshape.WorkloadKinds {
@@ -65,9 +66,11 @@ func (s *WorkloadSource) Collect(ctx context.Context) (*fleet.Collection, error)
 					Code: fleet.LimitationInferredServicesCapped, Source: s.id,
 					Message: "workloads past the bound of " + strconv.Itoa(fleet.MaxInferredServices) + " were not read; raise MaxInferredServices if a real cluster hits it",
 				})
+				col.Providers = []fleet.Provider{workloadsRow(col, failed, len(namespaces))}
 				return scoped(s.id, s.namespaces, col, read), nil
 			case err != nil:
 				listErr, complete = cmp.Or(listErr, err), false
+				failed[kind]++
 				col.Limitations = append(col.Limitations, kindUnreadable(s.id, ns, kind, err))
 			}
 		}
@@ -78,7 +81,36 @@ func (s *WorkloadSource) Collect(ctx context.Context) (*fleet.Collection, error)
 	if len(col.Limitations) == len(namespaces)*len(workloadshape.WorkloadKinds) {
 		return nil, listErr
 	}
+	col.Providers = []fleet.Provider{workloadsRow(col, failed, len(namespaces))}
 	return scoped(s.id, s.namespaces, col, read), nil
+}
+
+// workloadsRow is the Kubernetes workloads row of col: how many workloads of
+// each kind it read per namespace, and the kinds whose list failed in all
+// lists namespaces. pkg/fleet words the evidence. A failed list or the cap
+// makes the row partial with the limitations col holds so far, which name no
+// scope (scoped adds that after).
+func workloadsRow(col *fleet.Collection, failed map[string]int, lists int) fleet.Provider {
+	row := fleet.Provider{ID: fleet.ProviderKubernetesWorkloads, Name: "Kubernetes workloads", UsedFor: []string{fleet.UseInferredServices}, Counts: []fleet.ProviderCount{}}
+	at := map[[2]string]int{}
+	for _, in := range col.InferredServices {
+		key := [2]string{in.Kind, in.Namespace}
+		if i, ok := at[key]; ok {
+			row.Counts[i].N++
+			continue
+		}
+		at[key] = len(row.Counts)
+		row.Counts = append(row.Counts, fleet.ProviderCount{Kind: in.Kind, Namespace: in.Namespace, N: 1})
+	}
+	for _, kind := range workloadshape.WorkloadKinds {
+		if failed[kind] == lists {
+			row.UnreadableKinds = append(row.UnreadableKinds, kind)
+		}
+	}
+	if len(col.Limitations) > 0 {
+		row.Status, row.Limitations = fleet.SourcePartial, slices.Clone(col.Limitations)
+	}
+	return row
 }
 
 // kindUnreadable is the limitation of a failed list of kind in ns. Reading

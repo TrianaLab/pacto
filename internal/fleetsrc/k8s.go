@@ -109,9 +109,13 @@ func (s *K8sSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 		return nil, fmt.Errorf("discovering pacto crd: %w", err)
 	}
 	if !disc.Found {
-		return scoped(s.id, s.namespaces, &fleet.Collection{Cluster: s.cluster, Limitations: []fleet.Limitation{{
+		missing := fleet.Limitation{
 			Code: fleet.LimitationPactoCRDNotInstalled, Source: s.id,
 			Message: "the Pacto CRD is not installed in this cluster, so Pacto reads no declared target here; its workloads show as inferred services",
+		}
+		return scoped(s.id, s.namespaces, &fleet.Collection{Cluster: s.cluster, Limitations: []fleet.Limitation{missing}, Providers: []fleet.Provider{{
+			ID: fleet.ProviderPactoCRD, Name: "Pacto CRD", Evidence: "not installed", UsedFor: []string{fleet.UseDeclaredTargets},
+			Status: fleet.SourcePartial, Limitations: []fleet.Limitation{missing},
 		}}}, s.namespaces), nil
 	}
 	col := &fleet.Collection{ObservedUndeclaredOnly: true, Cluster: s.cluster}
@@ -136,7 +140,23 @@ func (s *K8sSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 	if len(read) == 0 {
 		return nil, listErr
 	}
+	col.Providers = append(col.Providers, crdServedRow(disc, col.Limitations))
 	return scoped(s.id, s.namespaces, col, read), nil
+}
+
+// crdServedRow is the Pacto CRD row of a served CRD. Its evidence carries no
+// count: the count is the source's targetCount, which a restricted view
+// recounts. Its status is left to the source; it keeps the unreadable
+// namespaces of lims.
+func crdServedRow(disc *k8sclient.CRDDiscovery, lims []fleet.Limitation) fleet.Provider {
+	return fleet.Provider{
+		ID: fleet.ProviderPactoCRD, Name: "Pacto CRD", Evidence: "served (" + k8sclient.PactoGroup + "/" + disc.Version + ")",
+		UsedFor: []string{fleet.UseDeclaredTargets},
+		Objects: []fleet.ProviderObject{{Kind: "CustomResourceDefinition", Name: disc.ResourceName + "." + k8sclient.PactoGroup}},
+		Limitations: slices.DeleteFunc(slices.Clone(lims), func(l fleet.Limitation) bool {
+			return l.Code != fleet.LimitationK8sNamespaceUnreadable
+		}),
+	}
 }
 
 // scoped declares col of source id partial with the namespaces read, and

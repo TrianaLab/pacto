@@ -554,3 +554,29 @@ func TestWorkloadOfDeclaredTargetNotInferred(t *testing.T) {
 		t.Errorf("inferred = %v, want only the workload no Pacto targets", inferred)
 	}
 }
+
+func TestFleetK8sProviderRows(t *testing.T) {
+	svc := NewService(nil, nil)
+	svc.sys.newK8s = func() (k8sclient.K8sClient, error) {
+		return &fakeFleetK8sClient{
+			disc:      &k8sclient.CRDDiscovery{Found: true, Version: "v1alpha1", ResourceName: "pactos"},
+			listData:  []byte(`{"items":[]}`),
+			identity:  kubecluster.Identity{ID: "uid-1", Name: "eu-prod", NameSource: kubecluster.NameFromContext},
+			workloads: map[string]string{"deployments": `{"items":[{"metadata":{"name":"cart","namespace":"shop"}}]}`},
+		}, nil
+	}
+	svc.sys.kubeContext = func() string { return "eu-prod" }
+	snap, err := svc.Fleet(context.Background(), FleetOptions{IncludeK8s: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{fleet.ProviderPactoCRD: "uid-1", fleet.ProviderKubernetesWorkloads: "uid-1" + workloadsSuffix}
+	if len(snap.Providers) != len(want) {
+		t.Fatalf("providers = %+v", snap.Providers)
+	}
+	for _, p := range snap.Providers {
+		if want[p.ID] != p.Source || p.Cluster != "eu-prod" {
+			t.Errorf("row %s from %q in cluster %q; want source %q in eu-prod", p.ID, p.Source, p.Cluster, want[p.ID])
+		}
+	}
+}

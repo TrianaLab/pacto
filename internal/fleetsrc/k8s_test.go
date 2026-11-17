@@ -676,3 +676,86 @@ func TestK8sSource_Collect_NamelessContractIsARecordGap(t *testing.T) {
 		t.Fatalf("limitations = %+v", col.Limitations)
 	}
 }
+
+// providerRow is the row of id the snapshot holds, nil when none.
+func providerRow(snap *fleet.FleetSnapshot, id string) *fleet.Provider {
+	if i := slices.IndexFunc(snap.Providers, func(p fleet.Provider) bool { return p.ID == id }); i >= 0 {
+		return &snap.Providers[i]
+	}
+	return nil
+}
+
+func hasCode(lims []fleet.Limitation, code string) bool {
+	return slices.ContainsFunc(lims, func(l fleet.Limitation) bool { return l.Code == code })
+}
+
+func TestK8sCRDRowServed(t *testing.T) {
+	src := NewK8sSource("prod", &fleet.Cluster{ID: "c1", Name: "eu-prod"}, &fakeK8sClient{disc: &k8sclient.CRDDiscovery{Found: true, Version: "v1alpha1", ResourceName: "pactos"}, listData: []byte(pactoIn("shop", "cart"))}, nil)
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := providerRow(snap, fleet.ProviderPactoCRD)
+	if row == nil {
+		t.Fatalf("providers = %+v, want the Pacto CRD row", snap.Providers)
+	}
+	// The evidence carries no count: the count is the source's targetCount,
+	// which a restricted view recounts (one target read, no "1" anywhere).
+	if row.Evidence != "served (pacto.trianalab.io/v1alpha1)" || row.Name != "Pacto CRD" {
+		t.Errorf("row = %+v", row)
+	}
+	if !slices.Equal(row.UsedFor, []string{fleet.UseDeclaredTargets}) || row.Status != fleet.SourceAvailable || row.Source != "prod" || row.Cluster != "eu-prod" {
+		t.Errorf("row = %+v", row)
+	}
+	if !slices.Equal(row.Objects, []fleet.ProviderObject{{Kind: "CustomResourceDefinition", Name: "pactos.pacto.trianalab.io"}}) || len(row.Limitations) != 0 {
+		t.Errorf("objects %+v limitations %+v", row.Objects, row.Limitations)
+	}
+}
+
+func TestK8sCRDRowNotInstalled(t *testing.T) {
+	src := NewK8sSource("prod", nil, &fakeK8sClient{disc: &k8sclient.CRDDiscovery{Found: false}}, nil)
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := providerRow(snap, fleet.ProviderPactoCRD)
+	if row == nil || row.Evidence != "not installed" || row.Status != fleet.SourcePartial || !hasCode(row.Limitations, fleet.LimitationPactoCRDNotInstalled) || len(row.Objects) != 0 {
+		t.Fatalf("row = %+v", row)
+	}
+}
+
+func TestK8sDiscoveryErrorIsNotNotInstalled(t *testing.T) {
+	src := NewK8sSource("prod", nil, &fakeK8sClient{discErr: errors.New("dial tcp: connection refused")}, nil)
+	if _, err := src.Collect(context.Background()); err == nil {
+		t.Fatal("an unreachable cluster collected without an error")
+	}
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Providers) != 0 || snap.Sources[0].Status != fleet.SourceUnavailable {
+		t.Fatalf("providers %+v sources %+v; want no row and the source unavailable", snap.Providers, snap.Sources)
+	}
+	data, err := json.Marshal(snap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "not installed") {
+		t.Error("an unreachable cluster reads as not installed")
+	}
+}
+
+func TestK8sCRDRowNamespaceList(t *testing.T) {
+	c := &nsFakeClient{found: true, errs: map[string]error{"ops": errors.New("boom")}}
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, NewK8sSource("c1", nil, c, []string{"shop", "ops"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := providerRow(snap, fleet.ProviderPactoCRD)
+	if row == nil || row.Status != fleet.SourcePartial || !hasCode(row.Limitations, fleet.LimitationProviderSourceDegraded) || !hasCode(row.Limitations, fleet.LimitationK8sNamespaceUnreadable) {
+		t.Fatalf("row = %+v; want partial through its source, with the unreadable namespace", row)
+	}
+	if hasCode(row.Limitations, fleet.LimitationK8sNamespaceScoped) {
+		t.Errorf("row repeats the scope limitation its source states: %+v", row.Limitations)
+	}
+}

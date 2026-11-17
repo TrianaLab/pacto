@@ -12,6 +12,19 @@ import (
 // and says why, or took the lower status of the source that reported it.
 const LimitationProviderSourceDegraded = "PROVIDER_SOURCE_DEGRADED"
 
+// Row ids and UsedFor values of the Kubernetes rows. An extender adds its own
+// beside them; UsedFor stays a free string list, never an enum.
+const (
+	// ProviderPactoCRD is the row of the Pacto CRD a Kubernetes source discovered.
+	ProviderPactoCRD = "pacto-crd"
+	// ProviderKubernetesWorkloads is the row of the workloads a workload source listed.
+	ProviderKubernetesWorkloads = "kubernetes-workloads"
+	// UseInferredServices: Pacto infers services from what the row read.
+	UseInferredServices = "inferred-services"
+	// UseDeclaredTargets: Pacto reads declared targets from what the row read.
+	UseDeclaredTargets = "declared-targets"
+)
+
 // A Provider is a system Pacto detected and read evidence from, never an
 // offering provider. A source reports its rows in [Collection.Providers]; ids
 // are per source, so every source may report a pacto-crd row.
@@ -87,7 +100,9 @@ func finalizeProviders(snap *FleetSnapshot) {
 	for i := range rows {
 		p := &rows[i]
 		src := state[p.Source]
-		status, _ := canonicalSourceStatus(cmp.Or(p.Status, src))
+		// A row that sets no status claims available, so taking its source's
+		// lower status is a downgrade that says why.
+		status, _ := canonicalSourceStatus(cmp.Or(p.Status, SourceAvailable))
 		switch {
 		case sourceHealthRank(src) < sourceHealthRank(status):
 			status = src
