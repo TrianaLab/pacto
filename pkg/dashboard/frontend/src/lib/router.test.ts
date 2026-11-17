@@ -880,3 +880,12 @@ describe('external-system routes', () => {
     expect(parseHash(fleetGraphFocusUrl('external', key))).toEqual({ view: 'fleet', params: { kind: 'external', sel: key } });
   });
 });
+
+describe('fleetServicesUrl declaration (509-S1)', () => {
+  it('carries the declaration filter and parses it back', () => {
+    const url = fleetServicesUrl({ declaration: 'inferred' });
+    expect(url).toBe('#/fleet/services?declaration=inferred');
+    expect(parseHash(url)).toEqual({ view: 'fleet-services', params: { declaration: 'inferred' } });
+    expect(fleetServicesUrl({ status: 'Unknown', declaration: '' })).toBe('#/fleet/services?status=Unknown');
+  });
+});

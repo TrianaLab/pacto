@@ -651,3 +651,39 @@ describe('offering detail keeps its adapters and unresolved uses', () => {
     unmount(component); target.remove();
   });
 });
+
+/**
+ * The inferred service page (509-S1) keeps everything Pacto read from the workload:
+ * the image, ports and probes with the path each came from (behind the collapsed
+ * fold), the declared services it calls and its sources.
+ */
+describe('inferred service detail keeps every value it read', () => {
+  beforeEach(() => detailFn.mockReset());
+
+  it('renders the image, ports, probes, every path, the calls and the source', async () => {
+    detailFn.mockResolvedValue({
+      meta,
+      entity: { kind: 'service', key: 'k8s:shop%2FDeployment%2Fcart', label: 'k8s:shop/Deployment/cart', declaration: 'inferred', scope: 'shop', secondary: 'Deployment' },
+      actions: [],
+      service: {
+        workload: {
+          source: 'k8s-workloads', namespace: 'shop', kind: 'Deployment', name: 'cart',
+          image: { value: 'ghcr.io/acme/cart:1.4.2', from: 'spec.template.spec.containers[name=cart].image' },
+          ports: [{ port: 8080, name: 'http', protocol: 'TCP', from: 'spec.template.spec.containers[name=cart].ports[0]' }],
+          probes: [{ kind: 'liveness', path: '/livez', port: '8080', from: 'spec.template.spec.containers[name=cart].livenessProbe' }],
+        },
+        calls: preview([{ kind: 'service', key: 'payments', label: 'payments', href: '/fleet/services/payments' }]), callsObserved: true,
+        sources: preview([{ kind: 'source', key: 'k8s-workloads', label: 'k8s-workloads' }]),
+        limitations: preview([]),
+      },
+    });
+    const { target, component } = await mountView('service', 'k8s:shop%2FDeployment%2Fcart');
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="inferred-workload"]')).toBeTruthy());
+    const text = target.textContent || '';
+    for (const fragment of ['ghcr.io/acme/cart:1.4.2', '8080 http TCP', 'liveness: /livez port 8080', 'payments', 'k8s-workloads',
+      'spec.template.spec.containers[name=cart].image', 'spec.template.spec.containers[name=cart].ports[0]', 'spec.template.spec.containers[name=cart].livenessProbe']) {
+      expect(text).toContain(fragment);
+    }
+    unmount(component); target.remove();
+  });
+});

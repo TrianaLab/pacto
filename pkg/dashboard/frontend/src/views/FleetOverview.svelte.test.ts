@@ -82,6 +82,72 @@ describe('FleetOverview — operational landing (scenarios 1-5)', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  it('adds the inferred segment so the parts add up to the headline, linking the inferred list', async () => {
+    const ov = baseOverview();
+    ov.summary.externals = 4;
+    ov.summary.inferredServices = 5;
+    overviewFn.mockResolvedValue(ov);
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="overview-services-line"]')).toBeTruthy());
+    const line = target.querySelector('[data-testid="overview-services-line"]') as HTMLElement;
+    expect(line.textContent?.replace(/\s+/g, ' ').trim()).toBe('12: 3 declared, 5 inferred, 4 external');
+    expect(line.querySelector('[data-testid="overview-inferred"]')?.getAttribute('href')).toBe('#/fleet/services?declaration=inferred');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('shows the services line for inferred services alone, with the unverified ones', async () => {
+    const ov = baseOverview();
+    ov.summary.inferredServices = 5;
+    ov.summary.inferredUnverified = 2;
+    overviewFn.mockResolvedValue(ov);
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="overview-services-line"]')).toBeTruthy());
+    const line = target.querySelector('[data-testid="overview-services-line"]') as HTMLElement;
+    expect(line.textContent?.replace(/\s+/g, ' ').trim()).toBe('8: 3 declared, 5 inferred (2 unverified)');
+    expect(line.querySelector('[data-testid="overview-externals"]')).toBeNull();
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('leaves a zero inferred segment out', async () => {
+    const ov = baseOverview();
+    ov.summary.externals = 4;
+    ov.summary.inferredServices = 0;
+    overviewFn.mockResolvedValue(ov);
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="overview-services-line"]')).toBeTruthy());
+    expect(target.querySelector('[data-testid="overview-inferred"]')).toBeNull();
+    expect(target.querySelector('[data-testid="overview-services-line"]')?.textContent).not.toContain('inferred');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('a cluster with only inferred services is not an empty fleet', async () => {
+    const ov = baseOverview();
+    ov.summary.services = 0;
+    ov.summary.inferredServices = 7;
+    overviewFn.mockResolvedValue(ov);
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="overview-services-line"]')).toBeTruthy());
+    expect(target.querySelector('.empty-fleet')).toBeNull();
+    expect(target.querySelector('[data-testid="overview-services-line"]')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('7: 0 declared, 7 inferred');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('links an uncontracted caller to its inferred service in the attention preview', async () => {
+    const ov = baseOverview();
+    ov.attention = { total: 1, count: 1, truncated: false, items: [{
+      entity: { kind: 'service', key: 'payments', label: 'payments', href: '/fleet/services/payments' },
+      caller: { kind: 'service', key: 'k8s:shop%2FDeployment%2Fcart', label: 'k8s:shop/Deployment/cart', href: '/fleet/services/k8s%3Ashop%252FDeployment%252Fcart', declaration: 'inferred' },
+      severity: 'info', category: 'undeclared', code: 'UNCONTRACTED_CALLER', summary: 'Caller with no contract',
+    }] };
+    overviewFn.mockResolvedValue(ov);
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="attention-caller"]')).toBeTruthy());
+    const a = target.querySelector('[data-testid="attention-caller"] a.entity-link') as HTMLAnchorElement;
+    expect(a.getAttribute('href')).toBe('#/fleet/services/k8s%3Ashop%252FDeployment%252Fcart');
+    expect(a.textContent).toContain('k8s:shop/Deployment/cart');
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('keeps the plain services count when no external system is declared', async () => {
     overviewFn.mockResolvedValue(baseOverview());
     const { target, component } = mountView();

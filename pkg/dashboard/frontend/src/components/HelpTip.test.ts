@@ -42,3 +42,33 @@ describe('HelpTip', () => {
     expect(body().hidden).toBe(true);
   });
 });
+
+describe('HelpTip glyph and accessible name', () => {
+  const mountWith = (props: Record<string, unknown>) => {
+    const target = document.createElement('div'); document.body.appendChild(target);
+    const c = mount(HelpTip, { target, props });
+    return { btn: target.querySelector('button') as HTMLButtonElement, done: () => { unmount(c); target.remove(); } };
+  };
+
+  it('keeps the ? glyph and About <label> by default, with no inline style', () => {
+    const { btn, done } = mountWith({ label: 'the dots', text: 'x' });
+    expect(btn.textContent).toBe('?');
+    expect(btn.getAttribute('aria-label')).toBe('About the dots');
+    expect(btn.hasAttribute('style')).toBe(false);
+    done();
+  });
+
+  it('says About this with no label', () => {
+    const { btn, done } = mountWith({ text: 'x' });
+    expect(btn.getAttribute('aria-label')).toBe('About this');
+    done();
+  });
+
+  it('honours glyph and ariaLabel', () => {
+    const { btn, done } = mountWith({ text: 'x', glyph: 'i', ariaLabel: 'Inferred service: from k8s-workloads' });
+    expect(btn.textContent).toBe('i');
+    expect(btn.getAttribute('aria-label')).toBe('Inferred service: from k8s-workloads');
+    expect(btn.style.getPropertyValue('--help-glyph')).toBe("'i'");
+    done();
+  });
+});

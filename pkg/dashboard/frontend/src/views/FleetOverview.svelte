@@ -108,7 +108,12 @@
   // are counted, never named.
   const externals = $derived(s.externals || 0);
   const hiddenExternals = $derived(s.hiddenExternals || 0);
-  const isEmptyFleet = $derived(!!overview && totalServices === 0 && goldenPaths === 0);
+  // The workloads no contract describes, counted apart too; the unverified ones sit
+  // where Pacto could not read the Pacto targets, so "no contract" is not certain there.
+  const inferred = $derived(s.inferredServices || 0);
+  const inferredUnverified = $derived(s.inferredUnverified || 0);
+  // A cluster that only runs inferred services is not an empty fleet.
+  const isEmptyFleet = $derived(!!overview && totalServices === 0 && inferred === 0 && goldenPaths === 0);
   // All-clear needs complete knowledge, zero attention AND a populated fleet.
   // A failing or unknown health check withholds it too, whatever the attention count.
   const health = $derived(s.operationalHealth ?? {});
@@ -254,8 +259,9 @@
           segments={svcCompliance} total={svcAgg.services ?? 0} emptyLabel="No services are tracked yet." /></div>
       {/if}
       <dl class="facts">
-        {#if externals || hiddenExternals}
-          <dt>Services</dt><dd data-testid="overview-services-line">{formatCount(totalServices + externals)}: <a href={fleetServicesUrl()}>{formatCount(totalServices)} declared</a>, <a href={fleetExternalsUrl()} data-testid="overview-externals">{formatCount(externals)} external</a>{#if hiddenExternals}{' '}<span class="t-meta" title="External systems only services you cannot see declare">({formatCount(hiddenExternals)} hidden)</span>{/if}</dd>
+        {#if externals || hiddenExternals || inferred}
+          <!-- The parts add up to the headline: declared + inferred + external. -->
+          <dt>Services</dt><dd data-testid="overview-services-line">{formatCount(totalServices + inferred + externals)}: <a href={fleetServicesUrl({ declaration: 'declared' })}>{formatCount(totalServices)} declared</a>{#if inferred}, <a href={fleetServicesUrl({ declaration: 'inferred' })} data-testid="overview-inferred">{formatCount(inferred)} inferred</a>{#if inferredUnverified}{' '}<span class="t-meta" title="Pacto could not read the Pacto targets where these run, so a contract may describe them">({formatCount(inferredUnverified)} unverified)</span>{/if}{/if}{#if externals || hiddenExternals}, <a href={fleetExternalsUrl()} data-testid="overview-externals">{formatCount(externals)} external</a>{#if hiddenExternals}{' '}<span class="t-meta" title="External systems only services you cannot see declare">({formatCount(hiddenExternals)} hidden)</span>{/if}{/if}</dd>
         {:else}
           <dt>Services</dt><dd><a href={fleetServicesUrl()}>{formatCount(totalServices)}</a></dd>
         {/if}
@@ -455,6 +461,7 @@
               <SeverityBadge severity={it.severity} />
               <EntityLink ref={it.entity} showStatus={false} />
               <span class="attn-reason">{it.summary || it.reason || it.label}</span>
+              {#if it.caller}<span class="attn-caller t-meta" data-testid="attention-caller">caller <EntityLink ref={it.caller} showStatus={false} showKind={false} /></span>{/if}
             </li>
           {/each}
         </ul>

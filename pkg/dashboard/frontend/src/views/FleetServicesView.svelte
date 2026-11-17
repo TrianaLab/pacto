@@ -29,6 +29,7 @@
   import LazyView from '../components/LazyView.svelte';
   import { loadPostureFigure } from '../lib/lazyFigures.ts';
   import { provenance } from '../lib/provenance.ts';
+  import ProvenanceMark from '../components/ProvenanceMark.svelte';
 
   // The product Services list. It is the canonical destination of
   // the backend EntryPointServices href (/fleet/services) and the primary Navbar
@@ -42,7 +43,7 @@
   // `team-a` finds `team-a-platform` too) and `ownerKey` is exact canonical IDENTITY.
   // The text box writes the first; picking a suggestion, or arriving from an owner
   // page or a per-owner ranking row, writes the second.
-  let { text = '', owner = '', ownerKey = '', ownership = '', gap = '', status = '', domain = '', businessDomain = '', capability = '', offering = '', consumes = '', phase = '', createdFrom = '', offset = '', limit = '', sort = '', refreshTick = 0 } = $props();
+  let { text = '', owner = '', ownerKey = '', ownership = '', gap = '', status = '', domain = '', businessDomain = '', capability = '', offering = '', consumes = '', phase = '', createdFrom = '', declaration = '', offset = '', limit = '', sort = '', refreshTick = 0 } = $props();
 
   const PAGE_SIZE = 25;
   // The created-from values that name no golden path (B5), in words.
@@ -51,7 +52,7 @@
   const pageLimit = $derived(urlInt(limit) || PAGE_SIZE);
   // Natural name order by default, so service-2 comes before service-10.
   const order = $derived(sort || 'name');
-  const anyFilter = $derived(!!(text || owner || ownerKey || ownership || gap || status || domain || businessDomain || capability || offering || consumes || phase || createdFrom));
+  const anyFilter = $derived(!!(text || owner || ownerKey || ownership || gap || status || domain || businessDomain || capability || offering || consumes || phase || createdFrom || declaration));
 
   // The search box is a local draft synced from the URL; it commits on submit so
   // typing does not spam browser history. It re-syncs when the URL text changes
@@ -81,6 +82,7 @@
     consumes: consumes || undefined,
     phase: (consumes && phase) || undefined,
     createdFrom: createdFrom || undefined,
+    declaration: declaration || undefined,
     // Golden paths have their own tab and stay out of the service population.
     template: 'exclude',
     offset: pageOffset || undefined,
@@ -93,9 +95,9 @@
   // retaining them across a filter change would be showing one query's answer under
   // another query's heading, so `list` is gated on the tag matching. A page turn is the
   // exception: the old page stays, under a "Loading another page" line, until the next lands.
-  const queryIdentity = $derived(`${text}@@${owner}@@${ownerKey}@@${ownership}@@${gap}@@${status}@@${domain}@@${businessDomain}@@${capability}@@${offering}@@${consumes}@@${phase}@@${createdFrom}@@${pageOffset}@@${pageLimit}@@${order}`);
+  const queryIdentity = $derived(`${text}@@${owner}@@${ownerKey}@@${ownership}@@${gap}@@${status}@@${domain}@@${businessDomain}@@${capability}@@${offering}@@${consumes}@@${phase}@@${createdFrom}@@${declaration}@@${pageOffset}@@${pageLimit}@@${order}`);
   // listIdentity is the same question without its page: a page turn keeps the rows.
-  const listIdentity = $derived(`${text}@@${owner}@@${ownerKey}@@${ownership}@@${gap}@@${status}@@${domain}@@${businessDomain}@@${capability}@@${offering}@@${consumes}@@${phase}@@${createdFrom}@@${order}`);
+  const listIdentity = $derived(`${text}@@${owner}@@${ownerKey}@@${ownership}@@${gap}@@${status}@@${domain}@@${businessDomain}@@${capability}@@${offering}@@${consumes}@@${phase}@@${createdFrom}@@${declaration}@@${order}`);
   $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity, listIdentity); });
   onDestroy(() => loader.destroy());
   function load() { loader.refresh(); }
@@ -129,6 +131,7 @@
       // A phase narrows one offering's consumers, so it goes with them.
       phase: patch.consumes === '' ? '' : patch.phase ?? phase,
       createdFrom: patch.createdFrom ?? createdFrom,
+      declaration: patch.declaration ?? declaration,
       offset: off,
       limit: limitParam(lim, limit, PAGE_SIZE),
       sort: (patch.sort ?? sort) || undefined,
@@ -174,6 +177,8 @@
 
   // The non-compliant owner ranking's remainder: no single canonical owner.
   const UNIDENTIFIED = 'No identified owner';
+  // Declared: a contract or a Pacto target describes it. Inferred: Pacto only sees its workload.
+  const DECLARATION_WORDS = { declared: 'Declared', inferred: 'Inferred' };
   const chips = $derived([
     text ? { key: 'text', label: 'Search', value: text } : null,
     ownerKey ? { key: 'ownerKey', label: 'Owner', value: ownerChipValue } : null,
@@ -190,6 +195,7 @@
     consumes && phase ? { key: 'phase', label: 'Provisioning phase', value: PHASE_WORDS[phase] ?? phase } : null,
     createdFrom ? { key: 'createdFrom', label: 'Created from', value: ORIGIN_WORDS[createdFrom] ?? createdFrom } : null,
     domain ? { key: 'domain', label: 'Registry', value: domain } : null,
+    declaration ? { key: 'declaration', label: 'Declaration', value: DECLARATION_WORDS[declaration] ?? declaration } : null,
   ].filter(Boolean));
 
   // The Domain box holds the domain's name, "No domain" for the (none) filter or
@@ -393,6 +399,13 @@
       </select>
     </label>
     <label class="sv-field">
+      <span>Declaration</span>
+      <select value={declaration} aria-label="Filter by declaration" onchange={(e) => apply({ declaration: e.currentTarget.value })}>
+        <option value="">All</option>
+        {#each Object.entries(DECLARATION_WORDS) as [v, w] (v)}<option value={v}>{w}</option>{/each}
+      </select>
+    </label>
+    <label class="sv-field">
       <span>Registry</span>
       <input class="input" type="text" value={domain} placeholder="exact registry path" aria-label="Filter by registry path"
         onchange={(e) => apply({ domain: e.currentTarget.value.trim() })} />
@@ -483,11 +496,21 @@
   {:else}
     <ul class="sv-list pl-list pl-list--facts" data-testid="service-list">
       {#each list.entities as ref (ref.kind + '::' + ref.key)}
-        <li class="sv-item pl-row" animate:flip={{ duration: dur(MOTION.row) }}>
-          <EntityLink {ref} showStatus={true} showKind={false}>
-            <span class="pl-owner" title={ref.owner || 'No owner declared'}>{ref.owner || 'No owner declared'}</span>
-            <span class="pl-num">{formatCount(ref.targets ?? 0)} {ref.targets === 1 ? 'target' : 'targets'}</span>
-          </EntityLink>
+        <!-- A workload no contract describes sits in the same list, muted, with the one
+             mark saying so. It has no owner or target, so its image takes those cells. -->
+        <li class="sv-item pl-row" class:pl-row--marked={ref.declaration === 'inferred'} class:sv-inferred={ref.declaration === 'inferred'} animate:flip={{ duration: dur(MOTION.row) }}>
+          {#if ref.declaration === 'inferred'}
+            <EntityLink {ref} showStatus={false} showKind={false}>
+              <span class="pl-owner sv-image" title={ref.image || 'No image read'}><bdi>{ref.image || 'No image read'}</bdi></span>
+              <span class="pl-num">inferred</span>
+            </EntityLink>
+            <ProvenanceMark label={`Inferred service: from its ${ref.secondary || 'workload'}`} text={`Inferred from the ${ref.secondary || 'workload'} ${ref.label} in ${ref.scope || 'an unknown namespace'}: no contract describes it.`} />
+          {:else}
+            <EntityLink {ref} showStatus={true} showKind={false}>
+              <span class="pl-owner" title={ref.owner || 'No owner declared'}>{ref.owner || 'No owner declared'}</span>
+              <span class="pl-num">{formatCount(ref.targets ?? 0)} {ref.targets === 1 ? 'target' : 'targets'}</span>
+            </EntityLink>
+          {/if}
         </li>
       {/each}
     </ul>
@@ -527,6 +550,10 @@
   .sv-inv-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: var(--sp-4); align-items: start; }
   .sv-more-count { color: var(--c-text-3); }
   .sv-inv-more[open] > .sv-inv-grid { margin-top: var(--sp-3); }
+  /* An inferred row is muted through the AA-safe text token, never a fade (axe fails faded text). */
+  .sv-inferred :global(.ei-label), .sv-inferred :global(.ei-context), .sv-inferred .pl-owner { color: var(--c-text-3); }
+  .sv-image { font-family: var(--font-mono); }
+  .sv-inferred > :global(.prov-mark) { margin-right: var(--sp-3); }
   /* The list, the row and the pager are the shared .pl-* rules in styles/components.css.
      The .sv-* names stay on the markup because the tests address rows by them. */
 </style>

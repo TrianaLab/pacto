@@ -17,6 +17,8 @@ vi.mock('../lib/api.ts', async (importOriginal) => {
 
 // @ts-expect-error — Svelte component has no declaration file
 import FleetServicesView from './FleetServicesView.svelte';
+// @ts-expect-error — a raw import has no declaration file
+import viewSource from './FleetServicesView.svelte?raw';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test fixture
 function listResp(entities: any[], opts: { total?: number; offset?: number; limit?: number; nextOffset?: number; partial?: boolean; aggregate?: any } = {}): any {
@@ -502,6 +504,66 @@ describe('FleetServicesView — order and page size', () => {
     order.value = 'name';
     order.dispatchEvent(new Event('change', { bubbles: true }));
     expect(location.hash).toBe('#/fleet/services?limit=50');
+    unmount(component); document.body.removeChild(target);
+  });
+});
+
+describe('FleetServicesView — inferred services (509-S1)', () => {
+  beforeEach(() => { entitiesFn.mockReset(); location.hash = ''; });
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test fixture
+  const inferred: any = {
+    kind: 'service', key: 'k8s:shop%2FDeployment%2Fcart', label: 'k8s:shop/Deployment/cart', declaration: 'inferred',
+    scope: 'shop', secondary: 'Deployment', image: 'ghcr.io/acme/cart@sha256:0123456789abcdef', href: '/fleet/services/k8s%3Ashop%252FDeployment%252Fcart',
+  };
+
+  it('the declaration select writes the URL and the backend query', async () => {
+    entitiesFn.mockResolvedValue(listResp([svc('domain-a')], { total: 1 }));
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(rows(target).length).toBe(1));
+    const sel = target.querySelector('select[aria-label="Filter by declaration"]') as HTMLSelectElement;
+    expect(Array.from(sel.options).map((o) => o.textContent)).toEqual(['All', 'Declared', 'Inferred']);
+    sel.value = 'inferred';
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(location.hash).toBe('#/fleet/services?declaration=inferred');
+    unmount(component); document.body.removeChild(target);
+    entitiesFn.mockResolvedValue(listResp([inferred], { total: 1 }));
+    const again = mountView({ declaration: 'inferred' });
+    await vi.waitFor(() => expect(rows(again.target).length).toBe(1));
+    expect(entitiesFn).toHaveBeenLastCalledWith(expect.objectContaining({ kinds: ['service'], declaration: 'inferred' }));
+    unmount(again.component); document.body.removeChild(again.target);
+  });
+
+  it('shows a declaration chip that its remove button and Clear drop', async () => {
+    entitiesFn.mockResolvedValue(listResp([inferred], { total: 1 }));
+    const { target, component } = mountView({ declaration: 'inferred', status: 'Unknown' });
+    await vi.waitFor(() => expect(rows(target).length).toBe(1));
+    const chip = Array.from(target.querySelectorAll('.chip')).find((c) => c.textContent?.includes('Declaration')) as HTMLElement;
+    expect(chip.textContent?.replace(/\s+/g, ' ').trim()).toBe('Declaration: Inferred ×');
+    (chip.querySelector('button') as HTMLButtonElement).click();
+    expect(location.hash).toBe('#/fleet/services?status=Unknown');
+    (target.querySelector('.chip-clear') as HTMLButtonElement).click();
+    expect(location.hash).toBe('#/fleet/services');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('mutes an inferred row through the text token, with its mark and its image', async () => {
+    entitiesFn.mockResolvedValue(listResp([svc('domain-a'), inferred], { total: 2 }));
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(rows(target).length).toBe(2));
+    const [declared, row] = rows(target) as HTMLElement[];
+    expect(declared.classList.contains('sv-inferred')).toBe(false);
+    expect(declared.querySelector('.prov-mark')).toBeNull();
+    expect(row.classList.contains('sv-inferred')).toBe(true);
+    expect(row.querySelector('.prov-mark button')?.getAttribute('aria-label')).toBe('Inferred service: from its Deployment');
+    const img = row.querySelector('.sv-image') as HTMLElement;
+    expect(img.getAttribute('title')).toBe('ghcr.io/acme/cart@sha256:0123456789abcdef');
+    expect(img.querySelector('bdi')?.textContent).toBe('ghcr.io/acme/cart@sha256:0123456789abcdef');
+    // The mark sits beside the link, never inside it (no button inside an anchor).
+    expect(row.querySelector('a.entity-link .prov-mark')).toBeNull();
+    // Muted by the text token and nothing else: a fade fails axe on text.
+    const muted = (viewSource as string).split('\n').find((l: string) => l.includes('.sv-inferred') && l.includes('.ei-label'));
+    expect(muted?.replace(/^[^{]*\{|\}\s*$/g, '').trim()).toBe('color: var(--c-text-3);');
     unmount(component); document.body.removeChild(target);
   });
 });
