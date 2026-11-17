@@ -18,10 +18,13 @@ format: pacto.inferred/v1
 inputs:
   commit: 4e1a9c0d...          # left out when the folder is not a git checkout
   pacto: 4.6.0                 # the Pacto that completed it
-  discovery: "1"               # raised when what Pacto reads from a folder changes
+  discovery: "2"               # raised when what Pacto reads from a folder changes
   sources:                     # every file a field cites, sorted by path
     - {path: deploy/app.yaml, digest: "sha256:..."}
     - {path: openapi/v1.yaml, digest: "sha256:..."}
+    - {path: "repository:.github/CODEOWNERS", digest: "sha256:..."}
+  chartDependencies:           # each chart dependency Chart.lock pins
+    - {chart: chart, name: redis, version: 19.0.1, repository: "https://charts.example", digest: "sha256:..."}
 fields:                        # sorted by field, then source
   - field: capabilities[health]
     value: GET /healthz (readinessProbe)
@@ -35,13 +38,49 @@ fields:                        # sorted by field, then source
     source: deploy/app.yaml:24
     confidence: likely
     declare: '"DB_PASSWORD": {"type":"string","writeOnly":true,"description":"..."}'
+  - field: ports[8080]
+    value: 8080/tcp
+    source: Dockerfile:12
+    confidence: likely
+    outranks: [deploy/app.yaml:18]
+  - field: service.owner
+    value: payments
+    source: catalog-info.yaml:7
+    confidence: likely
+    declare: |
+      service:
+        owner:
+          team: payments
+    class: ownerFile
+    outranks: ["repository:.github/CODEOWNERS:4"]
+findings:                      # what Pacto recognized and could not read
+  - code: DISCOVERY_CHART_DEPENDENCY_UNLOCKED
+    source: chart/Chart.yaml:9
+    message: chart dependency 'redis' has no Chart.lock digest, not read
 ```
 
 - `value` is a short summary for people. A configuration key carries its type
   only, never its value, and a dependency carries the host name only, never
   the URL.
 - `source` is `path:line`, or the path alone when the whole file counts, such
-  as an OpenAPI document.
+  as an OpenAPI document. A file at the repository root outside the folder,
+  only CODEOWNERS, is `repository:<path>:<line>`, relative to the repository
+  root. It is not in the bundle, so `inputs.sources` cites it with its digest
+  and a change to it changes the record.
+- `class: ownerFile` marks a `service.owner` read from CODEOWNERS or
+  `catalog-info.yaml`, the only value and the only field it goes on.
+  `pacto init` shows it as "attested". The marker only names the file: an
+  owner it marks is inferred, unverified, never routes a decision and never
+  clears a gate.
+- `outranks` lists, sorted, the other sources that gave the same field. The
+  ranks are in
+  [What Pacto reads from your folder](../pactify.md#what-pacto-reads-from-your-folder).
+- `findings` lists each file Pacto recognized and could not read, with a code,
+  a `path:line` and a fixed message that never quotes a value.
+  `DISCOVERY_TRUNCATED` comes first, then the rest by code and source. At most
+  100 are kept; `findingsDropped` counts the rest.
+- `inputs.chartDependencies` lists each chart dependency `Chart.lock` pins,
+  with the repository URL stripped of credentials. Pacto never downloads one.
 - `confidence` is `likely` (read from a file in the repository) or `possible`.
 - `declare` is the YAML to add to `pacto.yaml`. For a configuration key it is
   the property to add to the configuration's JSON Schema.
@@ -51,11 +90,16 @@ fields:                        # sorted by field, then source
 | Field | Read from | Recorded unless `pacto.yaml` |
 |---|---|---|
 | `workload` | The Kubernetes workload kind | declares `workload` |
-| `service.owner` | The workload's team label | declares `service.owner` |
-| `interfaces[api]` | An OpenAPI document | declares an interface whose `ref` is that file |
-| `capabilities[health]` | A readiness, liveness or startup probe | declares a `health` capability |
+| `service.owner` | `catalog-info.yaml`, CODEOWNERS or the workload's team label | declares `service.owner` |
+| `service.summary` | The Dockerfile's `org.opencontainers.image.description` label | declares `service.summary` |
+| `service.domain` | `spec.system` in `catalog-info.yaml` | declares `service.domain` |
+| `interfaces[api]`, `interfaces[events]`, `interfaces[grpc]` | An OpenAPI, AsyncAPI or gRPC file at any path | declares an interface of that name or whose `ref` is that file |
+| `ports[<n>]` | `EXPOSE`, a `containerPort`, Helm values or Compose `ports` | declares an interface on that `port`; a port reaches `interfaces[].port` only when a person declares it |
+| `image` | Helm values, Kustomize `images`, Compose or a manifest | is never compared |
+| `environments[<env>].file` | `environments/<env>.yaml`, a Helm values file or a Kustomize overlay, confirmed by an Argo CD or Flux object | declares an environment of that name |
+| `capabilities[health]` | A readiness, liveness or startup probe, else the Dockerfile `HEALTHCHECK` | declares a `health` capability |
 | `configuration.<KEY>` | Each environment key, ConfigMaps included | declares the key in a configuration's `values` or schema `properties`, or declares a configuration whose keys Pacto cannot list (a `ref`, or a schema it cannot read or that uses `allOf`, `anyOf`, `oneOf`, `$ref` or `patternProperties`) |
-| `dependencies[<name>]` | A service name inside the cluster in an environment value | declares a dependency of that name or `ref` |
+| `dependencies[<name>]` | A service name inside the cluster in an environment value, or `spec.dependsOn` in `catalog-info.yaml` | declares a dependency of that name or `ref` |
 
 ## When Pacto writes it
 

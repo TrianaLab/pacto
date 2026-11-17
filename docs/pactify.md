@@ -56,7 +56,8 @@ pacto init --delivery --plan
 ```
 
 `pacto init` reads what is already there, such as the Dockerfile and the
-Kubernetes files, and fills in a contract from it. It reads your registry from
+Kubernetes files ([the full list](#what-pacto-reads-from-your-folder)), and
+fills in a contract from it. It reads your registry from
 the image name in your Deployment; pass `--registry registry.example/acme` if it
 cannot, or if the image is a bare name such as `checkout`: a Docker Hub official
 image only Docker can push to. `--delivery` adds the cluster files of step 4, so
@@ -68,8 +69,7 @@ key's signatures out of the public
 [transparency log](glossary.md#transparency-log), add `--no-transparency-log`.
 
 The plan lists the services yours depends on, what Pacto could not work out,
-marked Unknown, and a **Next** list of what to do after. Unknown marks a
-question that Pacto leaves for you to answer.
+marked Unknown, and a **Next** list of what to do after.
 
 ## 2. Write the contract
 
@@ -175,15 +175,14 @@ publish:
   in the environment is named under Unknown. Names inside the cluster stay dependencies, and an IP
   address is never an external.
 
-Leave the long `command` line as it is. It copies your Kubernetes files with
-the image pinned to the digest this version built, in every manifest that runs
-it, and names any file it cannot rewrite. `k8s/deployment.yaml` stays as it is.
+Leave the long `command` line as it is: it copies your Kubernetes files with
+the image pinned to the digest this version built and names any file it cannot
+rewrite.
 
 Fill in what the plan marked Unknown, above all the dependencies: replace each
 `compatibility: unknown` with the versions yours accepts, such as `^2.0.0` for
 any 2.x. With that service's contract in `--fleet`, `init` reads its bundle and
-proposes one. This
-version range lets Pacto ask the right team about a change. Declare an OpenAPI
+proposes one. Declare an OpenAPI
 document under `interfaces` ([how](ci.md#declare-your-api-first)): Pacto sees
 API changes only there. Every field is in [Publish](contract-reference/publish.md)
 and [Dependencies](contract-reference/dependencies-and-state.md). For private
@@ -356,6 +355,43 @@ and only plans unless `dry_run` is false.
 [Generate contracts from what you already have](bootstrap-contracts.md#draft-from-a-running-cluster)
 lists the permissions `--cluster` needs and walks through a whole folder of
 services.
+
+## What Pacto reads from your folder
+
+`pacto init`, `pacto explain` and `pacto pack` read these files at any depth of
+the service folder. Each value goes into the
+[inferred record](contract-reference/inferred-record.md) with its `path:line`,
+never into `pacto.yaml`.
+
+| Format | Files | What it records | What it never reads | When it cannot read it |
+|---|---|---|---|---|
+| Dockerfile | `Dockerfile`, `Dockerfile.*`, `*.Dockerfile` | ports from `EXPOSE`, `service.summary` from the `org.opencontainers.image.description` label, a health check from a localhost URL in `HEALTHCHECK` | the `HEALTHCHECK` command and the URL query | `DISCOVERY_UNRESOLVED` for a port set through a variable or a range |
+| OpenAPI, AsyncAPI and gRPC | any `.yaml`, `.yml`, `.json` or `.proto` file that parses as one | one interface per kind: `api`, `events` or `grpc` | GraphQL (`*.graphql`, `*.graphqls`, `*.gql`), which has no Pacto interface type | `DISCOVERY_AMBIGUOUS` when two files hold one kind, and no interface for that kind |
+| Helm chart | `Chart.yaml`, `Chart.lock`, `values.yaml`, `values-<env>.yaml` and `templates/*.yaml`, up to two folders deep | image, ports, configuration keys, environments and each locked dependency under `inputs.chartDependencies` | a configuration value; it never renders a template, downloads a dependency or opens a vendored `charts/*.tgz` | `DISCOVERY_CHART_DEPENDENCY_UNLOCKED` for a dependency with no `Chart.lock` digest; `DISCOVERY_UNRESOLVED` once per template with an expression it does not resolve |
+| Kubernetes manifests | Deployment, StatefulSet, DaemonSet, Job and CronJob outside chart folders | image, container ports and environment key names | an environment value | `DISCOVERY_UNREADABLE` for YAML that does not parse |
+| Kustomize | `kustomization.yaml` and its local `resources` | image from `images`, an environment per `overlays/<env>/` | remote resources and `helmCharts` | `DISCOVERY_UNSUPPORTED_FILE`, naming a remote resource without its credentials |
+| Compose | `compose.yaml` or `docker-compose.yaml` at the folder root | image, container ports and environment keys of the service named like yours, else of the only one | `include`, `extends` from another file, `env_file` and every environment value | `DISCOVERY_AMBIGUOUS` when it lists several services and none is named like yours |
+| Owner files | `catalog-info.yaml` in the folder; `.github/CODEOWNERS`, `CODEOWNERS` or `docs/CODEOWNERS` at the repository root, the last rule that matches `pacto.yaml` | `service.owner` with the marker `class: ownerFile`, shown as "attested" by `pacto init`; from `catalog-info.yaml` also `service.domain` (`spec.system`) and dependencies (`spec.dependsOn`) | `spec.lifecycle`. The owner is unverified until a signed commit is checked, so it never routes a decision or clears a gate | `DISCOVERY_UNRESOLVED` for a CODEOWNERS rule with email owners only |
+| Environments | `environments/<env>.yaml`, Helm values files, overlays, and Argo CD `Application` and Flux `Kustomization` and `HelmRelease` objects in the folder | `environments[<env>].file`; a GitOps object confirms it | an Argo CD `ApplicationSet` | `DISCOVERY_UNRESOLVED` for an invalid environment name or a path outside the folder |
+| Other formats | `helmfile.yaml`, `helmfile.yml`, `Tiltfile`, `*.jsonnet`, `*.libsonnet`, `*.cue` | nothing | the whole file, a program or a template for another tool | `DISCOVERY_UNSUPPORTED_FILE` |
+
+- When two files give one value, the more direct one wins and the record
+  lists the others under `outranks`: for a port `EXPOSE`, then a manifest or
+  template, then Compose; for the owner `catalog-info.yaml`, then CODEOWNERS,
+  then the workload's team label.
+- A file over 1 MiB is never read, and a link, a FIFO or a device is never
+  opened.
+- A finding names the file and line, never a value. It changes no validation
+  result and no gate, and the record keeps at most 100.
+
+| Finding | Meaning |
+|---|---|
+| `DISCOVERY_UNSUPPORTED_FILE` | Pacto recognizes the file, or a part of it, and does not read it |
+| `DISCOVERY_AMBIGUOUS` | several files or services fit, so none is recorded |
+| `DISCOVERY_CHART_DEPENDENCY_UNLOCKED` | a chart dependency has no `Chart.lock` digest, so it is not read |
+| `DISCOVERY_UNREADABLE` | the file is over 1 MiB, is not valid YAML or is not a regular file |
+| `DISCOVERY_UNRESOLVED` | a template expression, an invalid environment name, a path outside the folder or a CODEOWNERS rule with email owners only |
+| `DISCOVERY_TRUNCATED` | discovery stopped after 5000 files, so results are partial; always listed first |
 
 ## What's next
 
