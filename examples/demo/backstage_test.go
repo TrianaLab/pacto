@@ -24,3 +24,19 @@ func TestDemoServesBackstageEntities(t *testing.T) {
 		t.Fatalf("got %d %q %q", rec.Code, rec.Header().Get("Content-Type"), body)
 	}
 }
+
+// TestDemoRefusesBackstageEntitiesWhileASourceIsDown: the shipped demo fleet
+// (the one app.wasm serves) holds the deliberately unreachable edge-cluster and
+// the truncated registry-mirror, so the route refuses with 503 and names a
+// source rather than publishing a catalog Backstage would orphan entities from.
+func TestDemoRefusesBackstageEntitiesWhileASourceIsDown(t *testing.T) {
+	q := fleet.NewQuery(demoFleet(t))
+	h := demoHandler(dashboard.Options{Fleet: func(context.Context) (*fleet.Query, error) { return q, nil }})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/backstage/entities", nil))
+	body := rec.Body.String()
+	if rec.Code != http.StatusServiceUnavailable || rec.Header().Get("Retry-After") != "30" ||
+		!strings.Contains(body, "source edge-cluster is unavailable") || strings.Contains(body, "apiVersion:") {
+		t.Fatalf("got %d %q %q", rec.Code, rec.Header().Get("Retry-After"), body)
+	}
+}
