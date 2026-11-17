@@ -72,6 +72,16 @@ check("fleet snapshot is partial (an unavailable source is surfaced)",
   snap.completeness !== "complete" && (snap.sources || []).some((s) => s.status === "unavailable"),
   `completeness=${snap.completeness}`);
 
+// The Backstage route serves the fleet as YAML, or refuses with 503 while a
+// source is unavailable, so Backstage never orphans that source's entities.
+const backstage = call("GET", "/api/backstage/entities");
+const downSource = (snap.sources || []).find((s) => s.status === "unavailable");
+check("GET /api/backstage/entities answers honestly",
+  downSource
+    ? backstage.status === 503 && backstage.body.includes(downSource.id) && !backstage.body.includes("apiVersion:")
+    : backstage.status === 200 && backstage.contentType.startsWith("application/yaml") && backstage.body.includes("kind: Component"),
+  `${backstage.status} ${backstage.contentType}`);
+
 const search = json(call("GET", "/api/fleet/services?text=payments"));
 check("fleet search finds payments-service", (search.services || []).some((s) => s.name === "payments-service"));
 const hit = (search.services || []).find((s) => s.name === "payments-service");

@@ -290,6 +290,7 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 	}
 	api := humago.New(mux, cfg)
 	s.RegisterOperations(api)
+	s.RegisterRawRoutes(mux)
 }
 
 // RegisterOperations registers every operation a LIVE dashboard host serves.

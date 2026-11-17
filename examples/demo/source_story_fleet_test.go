@@ -2,11 +2,9 @@ package main
 
 import (
 	"context"
-	"net/http"
 	"testing"
 	"time"
 
-	"github.com/danielgtaylor/huma/v2/adapters/humago"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -84,8 +82,7 @@ func rowsLinkRevisions(t *testing.T, d *demoDelivery, snap *fleet.FleetSnapshot)
 	q := fleet.NewQuery(snap)
 	opts := dashboard.Options{Fleet: func(context.Context) (*fleet.Query, error) { return q, nil }}
 	d.wire(&opts)
-	mux := http.NewServeMux()
-	dashboard.NewServer(opts).RegisterOperations(humago.New(mux, dashboard.APIConfig()))
+	mux := demoHandler(opts)
 	var out struct {
 		Environments []dashboard.EnvironmentRow `json:"environments"`
 	}
