@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -33,6 +34,7 @@ var (
 	gvrOCIRepository = schema.GroupVersionResource{Group: "source.toolkit.fluxcd.io", Version: "v1", Resource: "ocirepositories"}
 	gvrKustomization = schema.GroupVersionResource{Group: "kustomize.toolkit.fluxcd.io", Version: "v1", Resource: "kustomizations"}
 	gvrSelfAccess    = schema.GroupVersionResource{Group: "authorization.k8s.io", Version: "v1", Resource: "selfsubjectaccessreviews"}
+	gvrSelfRules     = schema.GroupVersionResource{Group: "authorization.k8s.io", Version: "v1", Resource: "selfsubjectrulesreviews"}
 	gvrNamespaces    = schema.GroupVersionResource{Version: "v1", Resource: "namespaces"}
 	gvrConfigMaps    = schema.GroupVersionResource{Version: "v1", Resource: "configmaps"}
 )
@@ -156,6 +158,71 @@ func (d *Delivery) WorkloadAccess(ctx context.Context, ns string, w delivery.Wor
 	}
 	a.At = d.Now().UTC().Format(time.RFC3339)
 	return a
+}
+
+// WorkloadAccessByNamespace is WorkloadAccess for many workloads: one
+// SelfSubjectRulesReview per namespace answers every workload there, so a
+// view that names hundreds of workloads asks once per namespace. Where the
+// rules may be incomplete (an authorizer that cannot list them, such as a
+// webhook) or the review fails, each workload is asked with WorkloadAccess.
+// ponytail: one lock across the review, per-namespace waiting if callers
+// ever ask many namespaces at once.
+func (d *Delivery) WorkloadAccessByNamespace() func(ctx context.Context, ns string, w delivery.WorkloadRef) delivery.WorkloadAccess {
+	var mu sync.Mutex
+	byNS := map[string][]resourceRule{}
+	return func(ctx context.Context, ns string, w delivery.WorkloadRef) delivery.WorkloadAccess {
+		mu.Lock()
+		rules, asked := byNS[ns]
+		if !asked {
+			rules = d.resourceRules(ctx, ns)
+			byNS[ns] = rules
+		}
+		mu.Unlock()
+		a, group := delivery.AccessFor(delivery.StageSpec{Workload: &w}, ns)
+		if rules == nil || a.Unverified != "" {
+			return d.WorkloadAccess(ctx, ns, w)
+		}
+		a.Source, a.At = delivery.AccessBySelfReview, d.Now().UTC().Format(time.RFC3339)
+		a.Allowed = slices.ContainsFunc(rules, func(r resourceRule) bool { return r.allows("update", group, a.Resource, a.Name) })
+		return a
+	}
+}
+
+// resourceRule is one RBAC rule a SelfSubjectRulesReview returns.
+type resourceRule struct {
+	Verbs         []string `json:"verbs"`
+	APIGroups     []string `json:"apiGroups"`
+	Resources     []string `json:"resources"`
+	ResourceNames []string `json:"resourceNames"`
+}
+
+// allows matches the way RBAC does: "*" matches any verb, group or
+// resource, and no resourceNames matches every name.
+func (r resourceRule) allows(verb, group, resource, name string) bool {
+	in := func(vs []string, v string) bool { return slices.Contains(vs, v) || slices.Contains(vs, "*") }
+	return in(r.Verbs, verb) && in(r.APIGroups, group) && in(r.Resources, resource) &&
+		(len(r.ResourceNames) == 0 || slices.Contains(r.ResourceNames, name))
+}
+
+// resourceRules are the caller's rules in ns, or nil when only a
+// SelfSubjectAccessReview can answer: the review failed, could not be
+// evaluated or may be incomplete.
+func (d *Delivery) resourceRules(ctx context.Context, ns string) []resourceRule {
+	out, err := d.Dynamic.Resource(gvrSelfRules).Create(ctx, &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "authorization.k8s.io/v1", "kind": "SelfSubjectRulesReview", "spec": map[string]any{"namespace": ns}}}, metav1.CreateOptions{})
+	if err != nil {
+		return nil
+	}
+	var st struct {
+		ResourceRules   []resourceRule `json:"resourceRules"`
+		Incomplete      bool           `json:"incomplete"`
+		EvaluationError string         `json:"evaluationError"`
+	}
+	if raw, ok := out.Object["status"].(map[string]any); !ok || runtime.DefaultUnstructuredConverter.FromUnstructured(raw, &st) != nil ||
+		st.Incomplete || st.EvaluationError != "" {
+		return nil
+	}
+	return append([]resourceRule{}, st.ResourceRules...) // never nil: nil means ask each workload
 }
 
 // classPolicy is the promoter's published ClassPolicy, or Policy when it is

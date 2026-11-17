@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -35,14 +36,14 @@ func PinVersion(raw []byte) ([]byte, error) {
 	}
 	switch {
 	case top == nil || (top.Tag == "!!null" && top.Value == ""):
-		return insertVersionLine(raw, bom, body, 0), nil
+		return insertVersionLine(bom, body, 0), nil
 	// A root tag or anchor (`--- !!map`, `&root`) sits on a line of its own
 	// that a text insert could split from its mapping, so it is re-encoded.
 	case top.Kind == yaml.MappingNode && top.Style&(yaml.FlowStyle|yaml.TaggedStyle) == 0 && top.Anchor == "":
 		if hasKey(top, "pactoVersion") {
 			return raw, nil
 		}
-		return insertVersionLine(raw, bom, body, top.Content[0].Column-1), nil
+		return insertVersionLine(bom, body, top.Content[0].Column-1), nil
 	case top.Kind == yaml.MappingNode:
 		if hasKey(top, "pactoVersion") {
 			return raw, nil
@@ -84,7 +85,7 @@ func newline(body []byte) string {
 // insertVersionLine inserts the pactoVersion line, indented by indent
 // columns, after the leading directives and document marker of body, or at the
 // top when there is none.
-func insertVersionLine(raw, bom, body []byte, indent int) []byte {
+func insertVersionLine(bom, body []byte, indent int) []byte {
 	nl := newline(body)
 	line := strings.Repeat(" ", indent) + `pactoVersion: "` + Current() + `"` + nl
 	at, off := 0, 0
@@ -102,11 +103,7 @@ func insertVersionLine(raw, bom, body []byte, indent int) []byte {
 	if at == len(body) && at > 0 && !strings.HasSuffix(string(body), "\n") {
 		line = nl + line
 	}
-	out := make([]byte, 0, len(raw)+len(line))
-	out = append(out, bom...)
-	out = append(out, body[:at]...)
-	out = append(out, line...)
-	return append(out, body[at:]...)
+	return slices.Concat(bom, body[:at], []byte(line), body[at:])
 }
 
 // reencode writes root back as YAML with the BOM and line endings of body.

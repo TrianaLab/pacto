@@ -258,6 +258,11 @@ Each was found here, and its effect is in the table above.
   each new person, so it offers promote and unfreeze only where their RBAC
   allows: 28 apiserver requests per request for fifty new auditors at once,
   214ms p95. A person's answers are then kept 10 seconds.
+- **The inbox asks one rules review per namespace holding a change** for
+  each new person, so it lists a held change only for someone who may update
+  its workload: about 67 apiserver requests per request for fifty new
+  auditors at once at 500 Stages, bounded by the namespaces, not the
+  workloads, at any size.
 - **A Stage's history still copies and converts its Operations** on each
   request: the hot Stage's 1,000 are 73k allocations per request, 192ms p95
   for fifty new auditors. Keeping every Operation converted, as the views

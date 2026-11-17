@@ -1441,7 +1441,7 @@ tests:
     template: templates/delivery/rbac.yaml
     set: *id003
     asserts:
-    - hasDocuments: {count: 7}
+    - hasDocuments: {count: 9}
     - equal: {path: kind, value: ClusterRole}
       documentIndex: 1
     - equal: {path: metadata.name, value: pacto-operator-delivery-promoter}
@@ -1472,6 +1472,9 @@ tests:
         - apiGroups: ['']
           resources: [events]
           verbs: [create, patch]
+        - apiGroups: [authorization.k8s.io]
+          resources: [subjectaccessreviews]
+          verbs: [create]
         - apiGroups: [kustomize.toolkit.fluxcd.io]
           resources: [kustomizations]
           verbs: [get, list, watch]
@@ -1588,6 +1591,35 @@ tests:
           resources: [pactos]
           verbs: [get, list]
       documentIndex: 6
+    - equal: {path: kind, value: ClusterRole}
+      documentIndex: 7
+    - equal: {path: metadata.name, value: pacto-operator-delivery-view}
+      documentIndex: 7
+    - notExists: {path: metadata.namespace}
+      documentIndex: 7
+    - equal:
+        path: rules
+        value:
+        - apiGroups: [delivery.pacto.trianalab.io]
+          resources: [stages, operations, approvals]
+          verbs: [get, list, watch]
+      documentIndex: 7
+    - equal: {path: kind, value: ClusterRole}
+      documentIndex: 8
+    - equal: {path: metadata.name, value: pacto-operator-delivery-edit}
+      documentIndex: 8
+    - notExists: {path: metadata.namespace}
+      documentIndex: 8
+    - equal:
+        path: rules
+        value:
+        - apiGroups: [delivery.pacto.trianalab.io]
+          resources: [approvals]
+          verbs: [create]
+        - apiGroups: [delivery.pacto.trianalab.io]
+          resources: [operations]
+          verbs: [create, delete]
+      documentIndex: 8
   - it: 'delivery: every rule, roleRef and subject of delivery/recorder.yaml is pinned'
     template: templates/delivery/recorder.yaml
     set: *id003
@@ -2071,7 +2103,7 @@ tests:
     template: templates/delivery/rbac.yaml
     set: *id004
     asserts:
-    - hasDocuments: {count: 7}
+    - hasDocuments: {count: 9}
     - equal: {path: kind, value: ClusterRole}
       documentIndex: 1
     - equal: {path: metadata.name, value: pacto-operator-delivery-promoter}
@@ -2102,6 +2134,9 @@ tests:
         - apiGroups: ['']
           resources: [events]
           verbs: [create, patch]
+        - apiGroups: [authorization.k8s.io]
+          resources: [subjectaccessreviews]
+          verbs: [create]
         - apiGroups: [kustomize.toolkit.fluxcd.io]
           resources: [kustomizations]
           verbs: [get, list, watch]
@@ -2218,6 +2253,35 @@ tests:
           resources: [pactos]
           verbs: [get, list]
       documentIndex: 6
+    - equal: {path: kind, value: ClusterRole}
+      documentIndex: 7
+    - equal: {path: metadata.name, value: pacto-operator-delivery-view}
+      documentIndex: 7
+    - notExists: {path: metadata.namespace}
+      documentIndex: 7
+    - equal:
+        path: rules
+        value:
+        - apiGroups: [delivery.pacto.trianalab.io]
+          resources: [stages, operations, approvals]
+          verbs: [get, list, watch]
+      documentIndex: 7
+    - equal: {path: kind, value: ClusterRole}
+      documentIndex: 8
+    - equal: {path: metadata.name, value: pacto-operator-delivery-edit}
+      documentIndex: 8
+    - notExists: {path: metadata.namespace}
+      documentIndex: 8
+    - equal:
+        path: rules
+        value:
+        - apiGroups: [delivery.pacto.trianalab.io]
+          resources: [approvals]
+          verbs: [create]
+        - apiGroups: [delivery.pacto.trianalab.io]
+          resources: [operations]
+          verbs: [create, delete]
+      documentIndex: 8
   - it: 'watchNamespaces with delivery: every rule, roleRef and subject of delivery/recorder.yaml is pinned'
     template: templates/delivery/recorder.yaml
     set: *id004
