@@ -32,7 +32,14 @@ policy when the cluster serves Flux HelmReleases.
   `pacto_edit` sets it and `pacto_schema` serves it.
 - `pacto delivery status`, `pacto delivery plan`, MCP `pacto_delivery_status`
   and the dashboard Delivery views print one applier line per service, with the
-  reason when the Stage does not adopt it.
+  reason when the Stage does not adopt it. `pacto delivery plan` and the
+  candidate list read versions from an Argo CD Application's or a
+  HelmRelease's repository, as the promoter does.
+- An Operation the promoter cannot read the applier for says
+  `reading the applier`, and a deadline says `the applier did not confirm`,
+  instead of naming an OCIRepository or Flux.
+- An `app.kubernetes.io/instance` label of `<namespace>_<app>` names the
+  Application in that namespace, as the tracking id does.
 - The delivery binary gains `--flux` (default `true`) and `--flux-helm`
   (default `false`). Go API: the new `pkg/workloadmanager` package (`Detect`,
   `Describe`), `delivery.AdoptApplier`, `delivery.ApplierStatus` and
