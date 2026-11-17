@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -192,5 +193,58 @@ func TestExportBackstageK8sScopeNotice(t *testing.T) {
 	}
 	if _, errOut, _ := execExport(t); strings.Contains(errOut, "Pacto CRs") {
 		t.Errorf("notice printed without --k8s: %q", errOut)
+	}
+}
+
+// TestExportBackstageDemoFleet exports the demo fleet: one Component per
+// non-template service, one System per known domain, and the excerpt in
+// docs/backstage.md is cut from this output (as-of normalized on both sides).
+func TestExportBackstageDemoFleet(t *testing.T) {
+	bundles := filepath.Join("..", "..", "examples", "demo", "bundles")
+	targets := filepath.Join("..", "..", "examples", "demo", "fleet-targets.yaml")
+	out, _, err := execExport(t, "--local", bundles, "--target-state", targets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap, err := app.NewService(nil, nil).Fleet(t.Context(), app.FleetOptions{LocalRoots: []string{bundles}, TargetStateFiles: []string{targets}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	services, domains := 0, map[string]bool{}
+	for _, s := range snap.Services {
+		if s.Template {
+			continue
+		}
+		services++
+		if s.BusinessDomain != "" && !s.BusinessDomainUnknown {
+			domains[s.BusinessDomain] = true
+		}
+	}
+	if got := strings.Count(out, "\nkind: Component\n"); got != services {
+		t.Errorf("Components = %d, want %d", got, services)
+	}
+	if got := strings.Count(out, "\nkind: System\n"); got != len(domains) {
+		t.Errorf("Systems = %d, want %d", got, len(domains))
+	}
+	doc, err := os.ReadFile(filepath.Join("..", "..", "docs", "backstage.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(doc), "## Who sees the file") {
+		t.Error(`docs/backstage.md lacks the "Who sees the file" section`)
+	}
+	_, block, ok := strings.Cut(string(doc), "## An exported Component")
+	if ok {
+		_, block, ok = strings.Cut(block, "```yaml\n")
+	}
+	if ok {
+		block, _, ok = strings.Cut(block, "```")
+	}
+	if !ok {
+		t.Fatal("docs/backstage.md lacks the exported Component YAML block")
+	}
+	asOf := regexp.MustCompile(`(pacto.trianalab.io/as-of: ).*`)
+	if norm := asOf.ReplaceAllString(block, "${1}T"); !strings.Contains(asOf.ReplaceAllString(out, "${1}T"), norm) {
+		t.Errorf("the docs excerpt is not in the demo export:\n%s", norm)
 	}
 }

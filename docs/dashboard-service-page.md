@@ -2,8 +2,7 @@
 
 Open a service in the dashboard to see everything Pacto knows about it on one
 page: who owns it, which contract it runs, what it depends on and where it runs.
-Every fact the page cannot establish is stated as missing, so an empty area
-always says why it is empty.
+An empty area always says why it is empty.
 
 ## What the page answers
 
@@ -23,11 +22,14 @@ exists and none of them names an owner. It reads **Owner unknown** when Pacto
 could not read any of the service's contracts and no operational target reports
 the contract it runs, so Pacto cannot tell whether an owner is declared. The
 fleet counts both cases as unowned, and both link to this service's `unowned`
-attention item. For an unknown owner that item says Pacto could not read the
-service's contracts and asks you to make one readable, not to declare an owner. A declared owner links to the revision that declares it, under
+attention item. For an unknown owner that item asks you to make one of the
+service's contracts readable. A declared owner links to the revision that declares it, under
 **Declared in**, where the owner's contacts are listed. The Contract fact links
 the newest revision in use, or the newest known revision when nothing runs the
 service.
+
+A mark after an owner no published revision declares, including a resource's
+provider owner, says in its tooltip where it comes from.
 
 ## Dependencies
 

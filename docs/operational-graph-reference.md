@@ -313,19 +313,20 @@ field named the owner**, written `kind:name`:
 
 The namespace is part of the identity, so `team:payments` and `dri:payments` are
 different owners, and only the name is shown on screen, with a `Team` / `DRI` badge
-where two owners would otherwise be indistinguishable. The separate free-text
-`owner` filter is a human search over team, DRI and contacts. It can match
-several owners at once.
+where two owners would otherwise be indistinguishable. The free-text `owner`
+filter searches team, DRI and contacts and can match several owners.
 
 `search` and `get` return `owner` in one shape, the contract's own
 `{team, dri, contacts}`, and leave it out when no contract declares one. The
 owner comes from the newest revision that declares one. A service known only
-from Kubernetes has no revisions, so its owner comes from the owner the
-operator read from the running contract (`status.contract.owner`). A service
+from Kubernetes takes the owner the operator read from the running contract (`status.contract.owner`). A service
 counts as `unowned`, in the ownership tally and in attention, only when no
 revision declares an owner and no source reports one. A service with no owner
 claim whose contract Pacto cannot read counts as `unknown` instead: the
 dashboard labels it Owner unknown and never No declared owner.
+
+`get` also returns `ownerProvenance`, where the owner comes from: `declared`,
+`declared-via-target`, `attested` or `inferred`.
 
 ## Business domains
 
