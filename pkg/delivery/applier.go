@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/workloadmanager"
 )
 
@@ -299,11 +298,10 @@ func SameApplier(a, b *ApplierStatus) bool {
 }
 
 // applierGate judges pacto.applier: Pass when the Stage's applier manages the
-// workloads (or there are none yet), Fail on a confirmed contradiction,
-// including the version's own delivery.applier, and Unknown when Pacto cannot
-// tell. A verdict other than Pass is also a plan conflict, since nobody can
-// accept a pointer another manager may overwrite. It reports whether the
-// promote may go on.
+// workloads (or there are none yet), Fail on a confirmed contradiction and
+// Unknown when Pacto cannot tell. A verdict other than Pass is also a plan
+// conflict, since nobody can accept a pointer another manager may overwrite.
+// It reports whether the promote may go on.
 func applierGate(in PlanInput, p *Plan) bool {
 	v, ok := applierVerdict(in)
 	if !ok {
@@ -320,24 +318,15 @@ func applierGate(in PlanInput, p *Plan) bool {
 }
 
 // applierVerdict is the pacto.applier verdict; false when there is nothing to
-// judge: no status.applier (a Stage an older promoter wrote) and no explicit
-// applier in the version's contract.
+// judge: no status.applier (a Stage an older promoter wrote).
 func applierVerdict(in PlanInput) (Verdict, bool) {
-	st, declared := in.Status.Applier, refKind(in.Stage.ApplyRef)
-	want := contractApplier(in.To)
-	v := Verdict{Gate: GateApplier, Phase: "pre", Citation: map[string]string{
-		"declared": declared + " " + in.Stage.ApplyRef.Name, "observed": "not reported", "contract": want}}
-	if st != nil {
-		v.Citation["observed"], v.Citation["state"] = cmp.Or(st.Display, st.Manager), st.State
-	}
-	if msg := contractContradicts(want, declared); msg != "" {
-		v.Result, v.Message = Fail, msg
-		return v, true
-	}
+	st := in.Status.Applier
 	if st == nil {
-		return v, false
+		return Verdict{}, false
 	}
-	v.Message = st.Message
+	v := Verdict{Gate: GateApplier, Phase: "pre", Message: st.Message, Citation: map[string]string{
+		"declared": refKind(in.Stage.ApplyRef) + " " + in.Stage.ApplyRef.Name,
+		"observed": cmp.Or(st.Display, st.Manager), "state": st.State}}
 	switch st.State {
 	case ApplierAdopted, ApplierUnmanaged:
 		v.Result = Pass
@@ -347,25 +336,4 @@ func applierVerdict(in PlanInput) (Verdict, bool) {
 		v.Result = Unknown
 	}
 	return v, true
-}
-
-// contractApplier is the version's delivery.applier, auto when unset or
-// unread.
-func contractApplier(r Revision) string {
-	if r.Bundle == nil || r.Bundle.Contract == nil || r.Bundle.Contract.Delivery == nil {
-		return contract.ApplierAuto
-	}
-	return cmp.Or(r.Bundle.Contract.Delivery.Applier, contract.ApplierAuto)
-}
-
-// contractContradicts says how an explicit delivery.applier contradicts the
-// Stage's applyRef kind, or "".
-func contractContradicts(want, kind string) string {
-	switch {
-	case want == contract.ApplierArgoCD && kind != ApplierArgoCD,
-		want == contract.ApplierFlux && kind == ApplierArgoCD:
-		return "the version's contract says delivery.applier " + want + ", and the Stage applies through " + kind +
-			": point spec.applyRef at the applier the contract names, or change delivery.applier"
-	}
-	return ""
 }

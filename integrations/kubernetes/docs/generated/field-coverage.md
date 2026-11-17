@@ -2422,9 +2422,9 @@ A runtime check never turns "could not look" into a violation. A check with no u
 
 | Value | Runtime | Meaning | Rule | Outcomes | Limitations | Tests |
 | --- | --- | --- | --- | --- | --- | --- |
-| `auto` | `partial` | adopt the manager that already owns each workload | - | - | - | unit: `pkg/validation/structural_test.go:TestDeliveryApplierValid`, `pkg/delivery/applier_test.go:TestApplierGateContractOverride`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/delivery.applier=auto`; e2e: `integrations/kubernetes/internal/delivery/detect_test.go:TestPromoteRejectedOnApplierConflict` |
-| `argocd` | `partial` | Argo CD applies the workloads | - | - | - | unit: `pkg/validation/structural_test.go:TestDeliveryApplierValid`, `pkg/delivery/applier_test.go:TestApplierGateContractOverride`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/delivery.applier=argocd`; e2e: `integrations/kubernetes/internal/delivery/detect_test.go:TestPromoteRejectedOnContractApplier` |
-| `flux` | `partial` | Flux applies the workloads | - | - | - | unit: `pkg/validation/structural_test.go:TestDeliveryApplierValid`, `pkg/delivery/applier_test.go:TestApplierGateContractOverride`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/delivery.applier=flux`; e2e: `integrations/kubernetes/internal/delivery/detect_test.go:TestPromoteRejectedOnContractApplier` |
+| `auto` | `partial` | adopt the manager that already owns each workload | - | - | - | unit: `pkg/validation/structural_test.go:TestDeliveryApplierValid`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/delivery.applier=auto`; e2e: `integrations/kubernetes/internal/delivery/detect_test.go:TestPromoteRejectedOnApplierConflict` |
+| `argocd` | `partial` | Argo CD applies the workloads | - | - | - | unit: `pkg/validation/structural_test.go:TestDeliveryApplierValid`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/delivery.applier=argocd`; e2e: `integrations/kubernetes/internal/delivery/detect_test.go:TestPromoteRejectedOnApplierConflict` |
+| `flux` | `partial` | Flux applies the workloads | - | - | - | unit: `pkg/validation/structural_test.go:TestDeliveryApplierValid`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/delivery.applier=flux`; e2e: `integrations/kubernetes/internal/delivery/detect_test.go:TestPromoteRejectedOnApplierConflict` |
 
 ### `checks`
 

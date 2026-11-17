@@ -3711,7 +3711,6 @@ fields:
         tests:
           unit:
           - pkg/validation/structural_test.go:TestDeliveryApplierValid
-          - pkg/delivery/applier_test.go:TestApplierGateContractOverride
           integration:
           - tests/integration/field_coverage_test.go:TestFieldCoverage/delivery.applier=auto
           e2e:
@@ -3722,22 +3721,20 @@ fields:
         tests:
           unit:
           - pkg/validation/structural_test.go:TestDeliveryApplierValid
-          - pkg/delivery/applier_test.go:TestApplierGateContractOverride
           integration:
           - tests/integration/field_coverage_test.go:TestFieldCoverage/delivery.applier=argocd
           e2e:
-          - integrations/kubernetes/internal/delivery/detect_test.go:TestPromoteRejectedOnContractApplier
+          - integrations/kubernetes/internal/delivery/detect_test.go:TestPromoteRejectedOnApplierConflict
       flux:
         meaning: Flux applies the workloads
         runtime: partial
         tests:
           unit:
           - pkg/validation/structural_test.go:TestDeliveryApplierValid
-          - pkg/delivery/applier_test.go:TestApplierGateContractOverride
           integration:
           - tests/integration/field_coverage_test.go:TestFieldCoverage/delivery.applier=flux
           e2e:
-          - integrations/kubernetes/internal/delivery/detect_test.go:TestPromoteRejectedOnContractApplier
+          - integrations/kubernetes/internal/delivery/detect_test.go:TestPromoteRejectedOnApplierConflict
   checks:
     meaning: Test or eval suites shipped with the version; a delivery gate hands one to a runner.
     runtime: static-only

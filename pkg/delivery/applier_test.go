@@ -1,11 +1,12 @@
 package delivery
 
 import (
+	"maps"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/workloadmanager"
 )
 
@@ -241,13 +242,10 @@ func TestSameApplierIgnoresTimes(t *testing.T) {
 }
 
 // applierPlan plans a promote that passes every other gate, with the Stage's
-// applyRef ref, status.applier st and the version's contract applier.
-func applierPlan(t *testing.T, ref ApplyRef, st *ApplierStatus, applier string) Plan {
+// applyRef ref and status.applier st.
+func applierPlan(t *testing.T, ref ApplyRef, st *ApplierStatus) Plan {
 	t.Helper()
 	from, to := rev(dA, c1, bundle("payments", "1.0.0")), rev(dB, c2, bundle("payments", "1.1.0"))
-	if applier != "" {
-		to.Bundle.Contract.Delivery = &contract.Delivery{Applier: applier}
-	}
 	snap, err := Snapshot(t.Context(), []PactoView{checkoutPacto("^1.0.0")}, nil, []Revision{from, to}, now)
 	if err != nil {
 		t.Fatal(err)
@@ -265,11 +263,11 @@ func applierOf(state string) *ApplierStatus {
 
 func TestApplierGateAdoptedPasses(t *testing.T) {
 	for _, state := range []string{ApplierAdopted, ApplierUnmanaged} {
-		p := applierPlan(t, argoRef, applierOf(state), "")
+		p := applierPlan(t, argoRef, applierOf(state))
 		v := verdict(t, p, GateApplier)
 		if v.Result != Pass || p.Predicted != PredictProceeds || len(p.Conflicts) != 0 || v.Phase != "pre" ||
 			v.Citation["declared"] != "Application payments" || v.Citation["observed"] != "Argo CD (Application payments/payments, tracking annotation)" ||
-			v.Citation["contract"] != "auto" || v.Citation["state"] != state {
+			v.Citation["state"] != state {
 			t.Fatalf("%s: %+v %+v", state, v, p)
 		}
 		if len(p.Verdicts) < 3 || p.Verdicts[1].Gate != GateApplier {
@@ -279,14 +277,14 @@ func TestApplierGateAdoptedPasses(t *testing.T) {
 }
 
 func TestApplierGateConflictRejects(t *testing.T) {
-	p := applierPlan(t, argoRef, applierOf(ApplierConflict), "")
+	p := applierPlan(t, argoRef, applierOf(ApplierConflict))
 	if v := verdict(t, p, GateApplier); v.Result != Fail || v.Message != "Conflict message" || p.Predicted != PredictRejected || len(p.Verdicts) != 2 {
 		t.Fatalf("conflict: %+v", p)
 	}
 }
 
 func TestApplierGateUnknownRejects(t *testing.T) {
-	p := applierPlan(t, argoRef, applierOf(ApplierUnknown), "")
+	p := applierPlan(t, argoRef, applierOf(ApplierUnknown))
 	if v := verdict(t, p, GateApplier); v.Result != Unknown || p.Predicted != PredictRejected || p.Floor.Human || p.Question != "" || len(p.Verdicts) != 2 {
 		t.Fatalf("unknown: %+v", p)
 	}
@@ -317,16 +315,16 @@ func TestApplierGateRunsBeforeAnUnknownPublication(t *testing.T) {
 }
 
 func TestApplierGateAppendsConflict(t *testing.T) {
-	if p := applierPlan(t, argoRef, applierOf(ApplierConflict), ""); len(p.Conflicts) != 1 || p.Conflicts[0] != "ApplierConflict: Conflict message" {
+	if p := applierPlan(t, argoRef, applierOf(ApplierConflict)); len(p.Conflicts) != 1 || p.Conflicts[0] != "ApplierConflict: Conflict message" {
 		t.Fatalf("fail: %q", p.Conflicts)
 	}
-	if p := applierPlan(t, argoRef, applierOf(ApplierUnknown), ""); len(p.Conflicts) != 1 || p.Conflicts[0] != "ApplierUnknown: Unknown message" {
+	if p := applierPlan(t, argoRef, applierOf(ApplierUnknown)); len(p.Conflicts) != 1 || p.Conflicts[0] != "ApplierUnknown: Unknown message" {
 		t.Fatalf("unknown: %q", p.Conflicts)
 	}
 }
 
 func TestProgressNamesApplierUnknown(t *testing.T) {
-	pl := applierPlan(t, argoRef, applierOf(ApplierUnknown), "")
+	pl := applierPlan(t, argoRef, applierOf(ApplierUnknown))
 	p := ProgressOf(ProgressInput{Stage: progStage(LevelAutonomous, nil), Plan: &PlanAnswer{Plan: pl}})
 	if r := reasonOf(p, "PlanRejected"); !strings.Contains(r.Message, "ApplierUnknown: Unknown message") || strings.Contains(r.Message, "a conflict") {
 		t.Errorf("progress: %+v", r)
@@ -336,30 +334,24 @@ func TestProgressNamesApplierUnknown(t *testing.T) {
 	}
 }
 
-func TestApplierGateContractOverride(t *testing.T) {
-	ociRef := ApplyRef{Name: "payments"}
-	p := applierPlan(t, ociRef, nil, contract.ApplierArgoCD)
-	v := verdict(t, p, GateApplier)
-	if v.Result != Fail || p.Predicted != PredictRejected || v.Citation["contract"] != "argocd" || v.Citation["observed"] != "not reported" ||
-		!strings.Contains(v.Message, "delivery.applier argocd") || !strings.HasPrefix(p.Conflicts[0], "ApplierConflict: ") {
-		t.Fatalf("argocd on an OCIRepository: %+v", p)
-	}
-	if v := verdict(t, applierPlan(t, argoRef, applierOf(ApplierAdopted), contract.ApplierFlux), GateApplier); v.Result != Fail {
-		t.Fatalf("flux on an Application: %+v", v)
-	}
-	hr := ApplyRef{Kind: ApplierHelmRelease, Name: "payments"}
-	if v := verdict(t, applierPlan(t, hr, applierOf(ApplierAdopted), contract.ApplierFlux), GateApplier); v.Result != Pass || v.Citation["contract"] != "flux" {
-		t.Fatalf("flux with a HelmRelease: %+v", v)
-	}
-	for _, applier := range []string{contract.ApplierAuto, ""} {
-		if v := verdict(t, applierPlan(t, ociRef, applierOf(ApplierConflict), applier), GateApplier); v.Result != Fail || v.Citation["contract"] != "auto" {
-			t.Fatalf("%q reads detection only: %+v", applier, v)
+// TestApplierGateCitesOnlyStageAndStatus: the verdict cites the Stage's
+// applyRef and what the promoter observed, nothing from the contract, and the
+// observed state alone decides.
+func TestApplierGateCitesOnlyStageAndStatus(t *testing.T) {
+	want := []string{"declared", "observed", "state"}
+	for _, state := range []string{ApplierAdopted, ApplierUnmanaged, ApplierConflict, ApplierUnknown} {
+		v := verdict(t, applierPlan(t, argoRef, applierOf(state)), GateApplier)
+		if got := slices.Sorted(maps.Keys(v.Citation)); !slices.Equal(got, want) {
+			t.Fatalf("%s: citation keys %v", state, got)
 		}
+	}
+	if v := verdict(t, applierPlan(t, ApplyRef{Name: "payments"}, applierOf(ApplierAdopted)), GateApplier); v.Result != Pass {
+		t.Fatalf("an adopted OCIRepository Stage passes: %+v", v)
 	}
 }
 
 func TestApplierGateNilStatusAddsNoVerdict(t *testing.T) {
-	p := applierPlan(t, argoRef, nil, "")
+	p := applierPlan(t, argoRef, nil)
 	for _, v := range p.Verdicts {
 		if v.Gate == GateApplier {
 			t.Fatalf("no status, no verdict: %+v", p.Verdicts)

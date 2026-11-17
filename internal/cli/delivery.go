@@ -326,8 +326,7 @@ func printPlan(w io.Writer, p delivery.PlanAnswer) {
 }
 
 // printPlanApplier names a promote's applier from the pacto.applier citation,
-// keeping what the promoter observed, what the Stage declares and what the
-// contract says apart.
+// keeping what the promoter observed and what the Stage declares apart.
 func printPlanApplier(w io.Writer, p delivery.PlanAnswer) {
 	if p.Type != delivery.TypePromote {
 		return
@@ -348,7 +347,7 @@ func printPlanApplier(w io.Writer, p delivery.PlanAnswer) {
 	if c["state"] != "" {
 		observed += ", " + c["state"]
 	}
-	_, _ = fmt.Fprintf(w, "applier:   %s; declared %s; contract %s\n", observed, c["declared"], c["contract"])
+	_, _ = fmt.Fprintf(w, "applier:   %s; declared %s\n", observed, c["declared"])
 }
 
 // printPrecedent says what the records attached to the version say happened
