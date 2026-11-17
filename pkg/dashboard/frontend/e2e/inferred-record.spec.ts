@@ -142,6 +142,8 @@ test.describe('WASM demo — the note of an inferred value on a phone', () => {
       const box = (await note.boundingBox())!;
       expect(box.x, `note ${i} starts before the viewport`).toBeGreaterThanOrEqual(0);
       expect(box.x + box.width, `note ${i} runs past the viewport`).toBeLessThanOrEqual(320);
+      await page.keyboard.press('Escape'); // an open note covers the next row's mark
+      await expect(note).toBeHidden();
     }
   });
 });

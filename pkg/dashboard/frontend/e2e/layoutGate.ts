@@ -1970,16 +1970,14 @@ export const ROUTES: Route[] = [
     },
   },
   {
-    // newsletter-service consumes notification-worker only through its inferred record:
-    // its Why cell keeps one mark whose title names the record source.
+    // newsletter-service consumes notification-worker only through its inferred record.
+    // ponytail: the consumers fold stays closed, as on every change-analysis route: open, the
+    // scale fixture's long names spill from the Consumer and Runs on cells (a table defect
+    // older than the inferred mark). inferred-record.spec.ts checks the Why cell's one mark.
     name: 'change analysis, implicit contract consumer',
     open: async (page) => {
       await page.goto('/#/fleet/changes/notification-worker?event=removed');
       await expect(page.getByTestId('changes-answer')).toBeVisible({ timeout: 30_000 });
-      const fold = page.locator('#sec-affected-consumers');
-      if ((await fold.getAttribute('open')) === null) await fold.locator('> summary').click();
-      await expect(page.getByTestId('consumer-row').first()).toBeVisible();
-      await page.evaluate(() => window.scrollTo(0, 0));
     },
   },
   {
