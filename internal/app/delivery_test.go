@@ -810,3 +810,46 @@ func TestSpecRefusesLongCorrelationID(t *testing.T) {
 	_, _, err := d.Plan(context.Background(), req)
 	wantErrContaining(t, err, "at most 128 printable ASCII")
 }
+
+// TestDeliveryApplyRepoFollowsTheApplier: the client reads versions from the
+// repository the Stage's applier fetches, as the promoter does, so a plan on
+// an Argo CD or HelmRelease Stage reads the same artifacts.
+func TestDeliveryApplyRepoFollowsTheApplier(t *testing.T) {
+	app := obj("argoproj.io/v1alpha1", "Application", "prod", "payments-app", map[string]any{
+		"spec": map[string]any{"source": map[string]any{"repoURL": "oci://reg.example/apps/payments-argo"}},
+	})
+	hr := func(name string, chartRef map[string]any) *unstructured.Unstructured {
+		return obj("helm.toolkit.fluxcd.io/v2", "HelmRelease", "prod", name, map[string]any{"spec": map[string]any{"chartRef": chartRef}})
+	}
+	chart := obj("source.toolkit.fluxcd.io/v1", "OCIRepository", "prod", "payments-chart", map[string]any{
+		"spec": map[string]any{"url": "oci://reg.example/charts/payments", "insecure": true},
+	})
+	d, _, _ := deliveryFixture(t, "alice", nil, nil, app, chart,
+		hr("payments", map[string]any{"kind": "OCIRepository", "name": "payments-chart"}),
+		hr("lost", map[string]any{"kind": "OCIRepository", "name": "gone"}),
+		hr("foreign", map[string]any{"kind": "OCIRepository", "name": "payments-chart", "namespace": "tenant-b"}),
+		hr("bucket", map[string]any{"kind": "Bucket", "name": "payments-chart"}))
+	ctx := context.Background()
+	stage := func(kind, name string) *delivery.StageObject {
+		s := &delivery.StageObject{}
+		s.Metadata.Namespace, s.Spec.ApplyRef = "prod", delivery.ApplyRef{Kind: kind, Name: name}
+		return s
+	}
+	if repo, hosts, err := d.applyRepo(ctx, stage(delivery.ApplierArgoCD, "payments-app")); err != nil || repo != "reg.example/apps/payments-argo" || hosts != nil {
+		t.Errorf("Application: %q %v %v", repo, hosts, err)
+	}
+	if repo, hosts, err := d.applyRepo(ctx, stage(delivery.ApplierHelmRelease, "payments")); err != nil || repo != "reg.example/charts/payments" || len(hosts) != 1 || hosts[0] != "reg.example" {
+		t.Errorf("HelmRelease: %q %v %v", repo, hosts, err)
+	}
+	for name, want := range map[string]string{
+		"missing app": "reading the apply Application", "missing": "reading the apply HelmRelease", "lost": "reading the apply OCIRepository gone",
+		"foreign": "names no OCIRepository in the Stage namespace", "bucket": "names no OCIRepository in the Stage namespace",
+	} {
+		kind := delivery.ApplierHelmRelease
+		if name == "missing app" {
+			kind = delivery.ApplierArgoCD
+		}
+		_, _, err := d.applyRepo(ctx, stage(kind, name))
+		wantErrContaining(t, err, want)
+	}
+}
