@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 // exportBundle writes a minimal bundle of service name under dir.
@@ -246,5 +247,102 @@ func TestExportBackstageDemoFleet(t *testing.T) {
 	asOf := regexp.MustCompile(`(pacto.trianalab.io/as-of: ).*`)
 	if norm := asOf.ReplaceAllString(block, "${1}T"); !strings.Contains(asOf.ReplaceAllString(out, "${1}T"), norm) {
 		t.Errorf("the docs excerpt is not in the demo export:\n%s", norm)
+	}
+}
+
+// A --namespace scope whose namespaces were all read is no outage; an
+// unreadable namespace, any other degraded source or an empty fleet is.
+func TestExportBackstageWritable(t *testing.T) {
+	svc := map[fleet.ServiceKey]*fleet.ServiceRecord{"pay": {Key: "pay"}}
+	k8s := func(st fleet.SourceStatus) fleet.SourceState {
+		return fleet.SourceState{ID: "k8s", Kind: fleet.SourceKindKubernetes, Status: st}
+	}
+	scope := fleet.NamespaceScopeLimitation("k8s", []string{"payments"}, 0)
+	derived := fleet.Limitation{Code: fleet.LimitationSourcePartial, Source: "k8s"}
+	for _, tc := range []struct {
+		name string
+		snap fleet.FleetSnapshot
+		want bool
+	}{
+		{"complete", fleet.FleetSnapshot{Completeness: fleet.CompletenessComplete}, true},
+		{"scoped, every namespace read", fleet.FleetSnapshot{
+			Completeness: fleet.CompletenessPartial, Services: svc,
+			Sources:     []fleet.SourceState{k8s(fleet.SourcePartial), {ID: "oci", Status: fleet.SourceAvailable}},
+			Limitations: []fleet.Limitation{scope, derived},
+		}, true},
+		{"scoped, a namespace unreadable", fleet.FleetSnapshot{
+			Completeness: fleet.CompletenessPartial, Services: svc,
+			Sources:     []fleet.SourceState{k8s(fleet.SourcePartial)},
+			Limitations: []fleet.Limitation{scope, derived, fleet.NamespaceUnreadableLimitation("k8s", "ledger", "forbidden")},
+		}, false},
+		{"scoped, another source unavailable", fleet.FleetSnapshot{
+			Completeness: fleet.CompletenessPartial, Services: svc,
+			Sources:     []fleet.SourceState{k8s(fleet.SourcePartial), {ID: "oci", Status: fleet.SourceUnavailable}},
+			Limitations: []fleet.Limitation{scope, derived},
+		}, false},
+		{"scoped, empty", fleet.FleetSnapshot{
+			Completeness: fleet.CompletenessPartial,
+			Sources:      []fleet.SourceState{k8s(fleet.SourcePartial)},
+			Limitations:  []fleet.Limitation{scope, derived},
+		}, false},
+		{"partial without scope", fleet.FleetSnapshot{
+			Completeness: fleet.CompletenessPartial, Services: svc,
+			Sources:     []fleet.SourceState{k8s(fleet.SourcePartial)},
+			Limitations: []fleet.Limitation{derived},
+		}, false},
+		{"scoped, external catalog unavailable", fleet.FleetSnapshot{
+			Completeness: fleet.CompletenessPartial, Services: svc,
+			Sources:     []fleet.SourceState{k8s(fleet.SourcePartial)},
+			Limitations: []fleet.Limitation{scope, derived, {Code: fleet.LimitationExternalCatalogUnavailable}},
+		}, false},
+	} {
+		if got := writable(&tc.snap); got != tc.want {
+			t.Errorf("%s: writable = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// A write that fails leaves the existing file as it was and no temp file.
+func TestExportBackstageWriteKeepsFileOnFailure(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "entities.yaml")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "keep"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFileAtomic(target, []byte("new")); err == nil {
+		t.Fatal("rename over a non-empty directory succeeded")
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 1 {
+		t.Errorf("left %v behind", entries)
+	}
+	file := filepath.Join(dir, "ok.yaml")
+	if err := os.WriteFile(file, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFileAtomic(file, []byte("new")); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(file); string(b) != "new" {
+		t.Errorf("file = %q", b)
+	}
+	if fi, _ := os.Stat(file); fi.Mode().Perm() != 0o644 {
+		t.Errorf("mode = %v", fi.Mode())
+	}
+	if err := writeFileAtomic(filepath.Join(dir, "missing", "f.yaml"), nil); err == nil {
+		t.Error("write into a missing directory succeeded")
+	}
+}
+
+// The help is all an agent reads: it names every kind the file holds and every
+// spec field an inferred value never fills.
+func TestExportBackstageHelpNamesEveryKind(t *testing.T) {
+	long := newExportBackstageCommand(app.NewService(nil, nil)).Long
+	for _, want := range []string{"API per interface", "Resource per external system", "pacto-observed", "spec.dependsOn", "spec.consumesApis", "fleet is empty"} {
+		if !strings.Contains(long, want) {
+			t.Errorf("help does not say %q", want)
+		}
 	}
 }

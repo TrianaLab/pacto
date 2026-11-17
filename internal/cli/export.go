@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -32,12 +33,15 @@ func newExportBackstageCommand(svc *app.Service) *cobra.Command {
 		Use:   "backstage",
 		Short: "Write the services Pacto knows as Backstage catalog entities",
 		Long: "Write the services Pacto knows as one multi-document YAML file of Backstage catalog entities: " +
-			"a Component per service and a System per business domain. Every entity says how Pacto knows it " +
-			"(pacto.trianalab.io/provenance), when (as-of) and how completely (completeness); an inferred value " +
-			"never fills spec.owner or spec.system.\n\n" +
+			"a Component per service, an API per interface, a Resource per external system, a System per business " +
+			"domain and a stub Component, tagged pacto-observed, per observed caller with no contract. Every entity " +
+			"says how Pacto knows it (pacto.trianalab.io/provenance), when (as-of) and how completely (completeness); " +
+			"an inferred value never fills spec.owner, spec.system, spec.dependsOn or spec.consumesApis.\n\n" +
 			"The export reads the same sources as pacto fleet, except that it scans no local directory unless " +
-			"--local is set. When a source could not be read it writes nothing and exits 2, so a scheduled sync " +
-			"never drops the services that source holds; --allow-partial writes the file anyway.",
+			"--local is set. When a source could not be read, or the fleet is empty, it writes nothing and exits 2, " +
+			"so a scheduled sync never drops the services that source holds; --allow-partial writes the file anyway. " +
+			"A --namespace scope whose namespaces were all read is not a failure: the file is written and each " +
+			"entity says partial.",
 		Example: "  pacto export backstage --oci ghcr.io/acme/payments --oci ghcr.io/acme/ledger > catalog/pacto-entities.yaml\n" +
 			"  pacto export backstage --root oci://ghcr.io/acme/platform --k8s -o catalog/pacto-entities.yaml",
 		Args: cobra.NoArgs,
@@ -48,7 +52,7 @@ func newExportBackstageCommand(svc *app.Service) *cobra.Command {
 	cmd.Flags().StringArray("local", nil, "local bundle root(s) to scan (repeatable; none unless set)")
 	addFleetSourceFlags(cmd.Flags())
 	cmd.Flags().StringP("output", "o", "", "write the entities to this file instead of standard output")
-	cmd.Flags().Bool("allow-partial", false, "write the file even when a source could not be read")
+	cmd.Flags().Bool("allow-partial", false, "write the file even when the fleet is partial or empty")
 	return cmd
 }
 
@@ -62,7 +66,7 @@ func runExportBackstage(cmd *cobra.Command, svc *app.Service) error {
 	}
 	meta := q.ProductMeta()
 	warnProductPartial(cmd, meta)
-	if allow, _ := cmd.Flags().GetBool("allow-partial"); meta.Completeness != fleet.CompletenessComplete && !allow {
+	if allow, _ := cmd.Flags().GetBool("allow-partial"); !allow && !writable(q.Snapshot()) {
 		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "error: the fleet is "+string(meta.Completeness)+
 			", so no file was written; pass --allow-partial to write it anyway")
 		return &ExitError{Code: 2}
@@ -79,7 +83,66 @@ func runExportBackstage(cmd *cobra.Command, svc *app.Service) error {
 	if path == "" {
 		return nil
 	}
-	return os.WriteFile(path, buf.Bytes(), 0o644)
+	return writeFileAtomic(path, buf.Bytes())
+}
+
+// writable reports whether snap may replace the file Backstage reads: it is
+// complete, or partial only because a Kubernetes source reads the namespace
+// list it was given and read every one of them. Any other degraded source, an
+// unreadable namespace, an unavailable external catalog or an empty fleet
+// would drop services, so it is refused. Mirrors fleet's classifyCompleteness.
+func writable(snap *fleet.FleetSnapshot) bool {
+	if snap.Completeness == fleet.CompletenessComplete {
+		return true
+	}
+	if len(snap.Services) == 0 && len(snap.Targets) == 0 {
+		return false
+	}
+	scoped := map[string]bool{}
+	for _, l := range snap.Limitations {
+		if l.Code == fleet.LimitationK8sNamespaceScoped {
+			scoped[l.Source] = true
+		}
+	}
+	for _, l := range snap.Limitations {
+		switch {
+		case l.Code == fleet.LimitationExternalCatalogUnavailable:
+			return false
+		// ponytail: a Kubernetes source never emits SOURCE_PARTIAL itself, so on
+		// a scoped source it is the one the build derives from the partial
+		// status; every real problem carries its own code.
+		case scoped[l.Source] && l.Code != fleet.LimitationK8sNamespaceScoped && l.Code != fleet.LimitationSourcePartial:
+			return false
+		}
+	}
+	for _, st := range snap.Sources {
+		if st.Status != fleet.SourceAvailable && (st.Status != fleet.SourcePartial || !scoped[st.ID]) {
+			return false
+		}
+	}
+	return true
+}
+
+// writeFileAtomic replaces path with data through a temporary file in the
+// same directory, so a failed write leaves the existing file as it was.
+func writeFileAtomic(path string, data []byte) error {
+	f, err := os.CreateTemp(filepath.Dir(path), ".pacto-export-*")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.Remove(f.Name()) }()
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Chmod(0o644); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), path)
 }
 
 // noteK8sScope says, with --k8s, which namespaces the export reads: everyone

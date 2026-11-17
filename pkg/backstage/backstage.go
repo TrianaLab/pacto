@@ -1,5 +1,7 @@
 // Package backstage maps a fleet view onto Backstage catalog entities: a
-// Component per service and a System per business domain. It is pure and
+// Component per service, an API per interface, a Resource per external system,
+// a System per business domain and a stub Component, tagged pacto-observed, per
+// observed caller with no contract. It is pure and
 // k8s-free, and it only reads the [fleet.Query] it is handed, so the CLI file
 // and any other caller mapping the same view produce the same bytes.
 //

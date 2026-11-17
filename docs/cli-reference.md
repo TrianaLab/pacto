@@ -1019,9 +1019,9 @@ pacto export [flags]
 
 ### `pacto export backstage`
 
-Write the services Pacto knows as one multi-document YAML file of Backstage catalog entities: a Component per service and a System per business domain. Every entity says how Pacto knows it (pacto.trianalab.io/provenance), when (as-of) and how completely (completeness); an inferred value never fills spec.owner or spec.system.
+Write the services Pacto knows as one multi-document YAML file of Backstage catalog entities: a Component per service, an API per interface, a Resource per external system, a System per business domain and a stub Component, tagged pacto-observed, per observed caller with no contract. Every entity says how Pacto knows it (pacto.trianalab.io/provenance), when (as-of) and how completely (completeness); an inferred value never fills spec.owner, spec.system, spec.dependsOn or spec.consumesApis.
 
-The export reads the same sources as pacto fleet, except that it scans no local directory unless --local is set. When a source could not be read it writes nothing and exits 2, so a scheduled sync never drops the services that source holds; --allow-partial writes the file anyway.
+The export reads the same sources as pacto fleet, except that it scans no local directory unless --local is set. When a source could not be read, or the fleet is empty, it writes nothing and exits 2, so a scheduled sync never drops the services that source holds; --allow-partial writes the file anyway. A --namespace scope whose namespaces were all read is not a failure: the file is written and each entity says partial.
 
 ```
 pacto export backstage [flags]
@@ -1037,7 +1037,7 @@ pacto export backstage [flags]
 **Flags:**
 
 ```
-      --allow-partial[=true|false]   write the file even when a source could not be read
+      --allow-partial[=true|false]   write the file even when the fleet is partial or empty
       --cache[=true|false]           include every bundle in the local OCI cache as an offline baseline revision
       --evidence-url stringArray     base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --external-catalog string      organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST (a tag is refused)

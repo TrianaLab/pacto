@@ -21,7 +21,9 @@ Run it as a scheduled sync job. When a source cannot be read, or the fleet is
 empty, the command writes nothing, leaves an existing `-o` file as it was and
 exits with code 2. A source outage would otherwise drop the services it holds
 and Backstage would orphan their entities. Pass `--allow-partial` to write the
-file anyway; each entity then says `partial`.
+file anyway; each entity then says `partial`. A `--namespace` scope whose
+namespaces were all read is not an outage: the command writes the file and each
+entity says `partial`, since services in other namespaces are unknown.
 
 ## Who sees the file
 
