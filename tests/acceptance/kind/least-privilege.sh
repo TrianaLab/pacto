@@ -16,17 +16,22 @@
 #      Secrets cluster-wide or read one in `default`, may read one in its own
 #      namespace; a pull secret in `default` sets PullSecretNotGranted with the
 #      cluster-wide hint (controller.secretGrants, never watchNamespaces).
+#      The operator writes pacto-operator-detected, owned by its Deployment,
+#      with kind as the cloud, and may list nodes.
 #   2. upgrade with controller.secretGrants naming that Secret: the reason
 #      leaves PullSecretNotGranted.
 #   3. upgrade to controller.watchNamespaces={lp-a}: NOTES prints the delete
 #      command for the old pacto-dashboard ClusterRole, the operator warns
-#      (StaleClusterRBAC) or prunes it, and after the documented delete no
-#      ClusterRole named pacto* is left.
-#   4. uninstall release 1 and the documented cleanup: nothing of it is left.
+#      (StaleClusterRBAC) or prunes it, after the documented delete no
+#      ClusterRole named pacto* is left, and NOTES prints what Pacto detected.
+#   4. uninstall release 1 and the documented cleanup: nothing of it is left,
+#      the detected ConfigMap included (garbage collected with the Deployment).
 #   5. fresh release 2 watching {lp-a,lp-b}: no ClusterRole or binding, a Pacto
 #      in lp-a gets a status and one in lp-c never does, the dashboard reviews
 #      locally and its overview is partial with the two namespaces named.
-#   6. uninstall release 2: nothing of it is left.
+#      Detection still writes its ConfigMap, with cloud unknown because the
+#      operator may not list nodes.
+#   6. uninstall release 2: nothing of it is left, the detected ConfigMap included.
 set -euo pipefail
 # shellcheck source=tests/acceptance/kind/lib.sh
 source "$(dirname "$0")/lib.sh"
@@ -123,6 +128,24 @@ $ref
 YAML
 }
 
+DETECTED=pacto-operator-detected # fullnameOverride + "-detected", what the operator writes
+SCOPED_NODES="with controller.watchNamespaces the operator may not list nodes"
+detected_json() { kubectl -n "$NS" get configmap "$DETECTED" -o jsonpath='{.data.detected\.json}' 2>/dev/null; }
+detected_written() { detected_json | jq -e '.entries | length > 0' >/dev/null 2>&1; }
+cloud_entry() { detected_json | jq -c '.entries[] | select(.kind == "cloud")'; }
+
+assert_detected() { # CLOUD_JQ — the ConfigMap exists, is the operator's and its cloud entry matches CLOUD_JQ
+  eventually 30 detected_written || fail "configmap/$DETECTED never appeared in $NS with entries"
+  local owner managed
+  owner="$(kubectl -n "$NS" get configmap "$DETECTED" -o jsonpath='{.metadata.ownerReferences[*].kind}/{.metadata.ownerReferences[*].name}')"
+  [ "$owner" = "Deployment/pacto-operator" ] || fail "configmap/$DETECTED is owned by '$owner', want Deployment/pacto-operator"
+  managed="$(kubectl -n "$NS" get configmap "$DETECTED" -o jsonpath='{.metadata.labels.app\.kubernetes\.io/managed-by}')"
+  [ "$managed" = "pacto-operator" ] || fail "configmap/$DETECTED is managed-by '$managed', want pacto-operator"
+  detected_json | jq -e ".entries[] | select(.kind == \"cloud\") | $1" >/dev/null ||
+    fail "the cloud entry does not match $1: $(cloud_entry)"
+  pass "configmap/$DETECTED is the operator's and reads cloud $(cloud_entry)"
+}
+
 count_pacto_clusterroles() { kubectl get clusterrole,clusterrolebinding -o name | grep -c '/pacto' || true; }
 
 assert_release_gone() { # RELEASE
@@ -146,6 +169,9 @@ DASH_AS="system:serviceaccount:$NS1:pacto-dashboard"
 [ "$(can_i get secrets "$OP_AS" -n default)" = "no" ] || fail "the operator may read Secrets in default"
 [ "$(can_i get secrets "$OP_AS" -n "$NS1")" = "yes" ] || fail "the operator may not read Secrets in its release namespace"
 pass "the operator may read Secrets in $NS1 only"
+assert_detected 'select(.value == "kind")'
+[ "$(can_i list nodes "$OP_AS")" = "yes" ] || fail "the cluster-wide operator may not list nodes (detection reads providerID and kernels)"
+pass "the operator may list nodes"
 wait_managed_ready pacto-dashboard >/dev/null || fail "dashboard Deployment not Ready"
 eventually 40 kubectl get clusterrole pacto-dashboard >/dev/null || fail "the cluster-wide dashboard never got its ClusterRole"
 [ "$(can_i list secrets "$DASH_AS" --all-namespaces)" = "no" ] || fail "the dashboard may list Secrets in every namespace"
@@ -195,12 +221,15 @@ pass "the operator warned StaleClusterRBAC or pruned the old ClusterRole"
 $STALE_DELETE --ignore-not-found >/dev/null
 [ "$(count_pacto_clusterroles)" = "0" ] || fail "after the documented delete these are left: $(kubectl get clusterrole,clusterrolebinding -o name | grep '/pacto')"
 pass "no ClusterRole or binding named pacto* after the documented delete"
+case "$out" in *"Pacto detected (inferred"*) pass "NOTES prints what Pacto detected" ;; *) echo "$out" >&2; fail "the upgrade NOTES do not print the detected block" ;; esac
 
 section "SCENARIO 4: uninstalling release 1 leaves nothing behind"
 helm uninstall "$R1" -n "$NS1" --wait >/dev/null
 $STALE_DELETE --ignore-not-found >/dev/null
 eventually 40 gone clusterrole pacto-dashboard || fail "clusterrole pacto-dashboard never went away"
 assert_release_gone "$R1"
+eventually 20 gone -n "$NS1" configmap "$DETECTED" || fail "configmap/$DETECTED outlived release $R1 by 60s"
+pass "configmap/$DETECTED went with release $R1"
 
 section "SCENARIO 5: a namespace-list install has no ClusterRole and reads only its namespaces"
 NS="$NS2"
@@ -218,6 +247,8 @@ OP_AS="system:serviceaccount:$NS2:$SA"
 [ "$(can_i get secrets "$OP_AS" -n lp-a)" = "yes" ] || fail "the scoped operator may not read Secrets in lp-a"
 [ "$(can_i get pactos.pacto.trianalab.io "$OP_AS" -n lp-c)" = "no" ] || fail "the scoped operator may read Pactos in lp-c"
 pass "the scoped operator reads lp-a and lp-b only"
+[ "$(can_i list nodes "$OP_AS")" = "no" ] || fail "the scoped operator may list nodes"
+assert_detected "select(.completeness == \"unknown\" and .reason == \"$SCOPED_NODES\")"
 apply_pacto lp-a lp-watched
 apply_pacto lp-c lp-unwatched
 eventually 20 has_status lp-a lp-watched || fail "the Pacto in watched lp-a never got a status"
@@ -247,6 +278,8 @@ kubectl -n lp-a delete pacto lp-watched --wait >/dev/null
 kubectl -n lp-c delete pacto lp-unwatched --wait >/dev/null
 helm uninstall "$R2" -n "$NS2" --wait >/dev/null
 assert_release_gone "$R2"
+eventually 20 gone -n "$NS2" configmap "$DETECTED" || fail "configmap/$DETECTED outlived release $R2 by 60s"
+pass "configmap/$DETECTED went with release $R2"
 
 echo
 echo "LEAST-PRIVILEGE E2E PASS"
