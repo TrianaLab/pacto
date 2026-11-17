@@ -342,16 +342,46 @@ func (r *Result) gate() (string, string) {
 		return GateUnverified, "the change is BREAKING and the answer is partial, so consumers Pacto cannot see may break" + r.unmetNote() + ". " +
 			"Fix the sources named in limitations and run the analysis again"
 	}
-	if len(r.Consumers) > 0 {
-		n := strconv.Itoa(len(r.Consumers)) + " consumers depend"
-		if len(r.Consumers) == 1 {
+	inferred := r.inferredOnlyConsumers()
+	if known := len(r.Consumers) - inferred; known > 0 {
+		n := strconv.Itoa(known) + " consumers depend"
+		if known == 1 {
 			n = "1 consumer depends"
 		}
 		return GateUnverified, "the change is BREAKING and " + n + " on " + r.Service +
 			", but none is shown to be both incompatible and running" + r.unmetNote() + ". Review each consumer, and add a source that knows where services run " +
-			"(for example --target-state) to tell deployed impact apart"
+			"(for example --target-state) to tell deployed impact apart" + inferredNote(inferred, ". ")
+	}
+	if inferred > 0 {
+		return GateUnverified, "the change is BREAKING and " + inferredNote(inferred, "")
 	}
 	return GateClear, "the change is BREAKING, but no service in the complete fleet snapshot depends on " + r.Service
+}
+
+// inferredOnlyConsumers counts the consumers only an inferred record names.
+func (r *Result) inferredOnlyConsumers() int {
+	n := 0
+	for _, c := range r.Consumers {
+		if c.Provenance == fleet.ProvenanceInferred {
+			n++
+		}
+	}
+	return n
+}
+
+// inferredNote says that n services may depend on the changed one by their
+// inferred records alone, whose compatibility no target state can show, and
+// how to make it checkable; "" when n is 0. lead goes before it.
+func inferredNote(n int, lead string) string {
+	switch n {
+	case 0:
+		return ""
+	case 1:
+		return lead + "1 service may depend on it, named only by its inferred record, so Pacto cannot check its compatibility: " +
+			"declare the dependency with a compatibility range in that service's pacto.yaml"
+	}
+	return lead + strconv.Itoa(n) + " services may depend on it, named only by their inferred records, so Pacto cannot check their compatibility: " +
+		"declare each dependency with a compatibility range in those services' pacto.yaml"
 }
 
 // blockingGate is the gate when a consumer is shown to break: blocked when one

@@ -42,11 +42,13 @@ const fleetInstructions = "Pacto also exposes READ-ONLY fleet tools over the ope
 	"means no current report, never a failure or success. " +
 	"Every fleet answer carries 'meta' (pacto_impact carries the same fields at the top level): " +
 	"cite asOf, snapshotId and sources, and list limitations when you answer. Each edge carries " +
-	"'provenance' (declared, observed, declared+observed or inferred: an external use read from a workload's configuration or pod spec, which never clears a gate) and a declared edge carries " +
+	"'provenance' (declared, observed, declared+observed or inferred: an external use read from a workload's configuration or pod spec, " +
+	"or a service dependency a revision's pacto.inferred.yaml names (inferredSources kind inferredRecord); neither ever clears a gate) and a declared edge carries " +
 	"'reconciliation'; each graph node says how it was reached. Say which kind each fact is: " +
-	"declared in a contract, observed at runtime or inferred. Pacto uses 'inferred' in three " +
+	"declared in a contract, observed at runtime or inferred. Pacto uses 'inferred' in four " +
 	"places: a transitive consumer in pacto_impact, a target linked to a revision by tag or " +
-	"version match and an external use read from configuration (relationship and external source provenance). pacto_fleet_entities " +
+	"version match, an external use read from configuration (relationship and external source provenance) " +
+	"and a service dependency only a revision's inferred record names (a direct consumer in pacto_impact, compatibility unknown). pacto_fleet_entities " +
 	"with template=only lists golden paths, the starting points pacto_create takes as 'from' (over stdio, from pacto mcp --transport stdio); a " +
 	"golden path is never a consumer, so it is absent from impact and offering consumers. Use " +
 	"pacto_fleet_entities to list owners, business domains and offerings, pacto_fleet_entity " +
@@ -326,7 +328,8 @@ func fleetGraphTool() *mcpsdk.Tool {
 		Name: "pacto_fleet_graph",
 		Description: "Traverse fleet dependencies or dependents from a service. Cycle-safe. " +
 			"Reports reached nodes with depth, path and 'provenance' (how the edge that reached the node is known: " +
-			"declared, observed or declared+observed, or inferred for an external system's consumer known only from its configuration), cycles, unresolved dependencies and 'truncated'. " +
+			"declared, observed or declared+observed, or inferred for an external system's consumer known only from its configuration " +
+			"or a service dependency only a revision's inferred record names), cycles, unresolved dependencies and 'truncated'. " +
 			"Edges to external systems are drawn whether declared, observed or inferred. " +
 			"Each edge carries 'provenance' and, for a declared edge, 'reconciliation'. " +
 			"A declared edge appears once per contract revision that declares it ('fromRevision'). " +

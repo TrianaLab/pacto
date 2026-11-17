@@ -42,7 +42,9 @@ func impactTool() *mcpsdk.Tool {
 			"changes, affected consumers (with confidence and compatibility verdict), active targets " +
 			"and owners to review. The answer ends in 'gate' (blocked, unverified or clear) and 'gateReason', " +
 			"the same gate `pacto impact` exits on (1, 2, 0): unverified means Pacto could not show the change " +
-			"is safe, never that it is. On a BREAKING change a compatible consumer only matches by range; read " +
+			"is safe, never that it is. A consumer at depth 1 with provenance and confidence 'inferred' (via 'inferred') is named only by " +
+			"its own inferred record, pacto.inferred.yaml: a direct consumer whose compatibilityVerdict is unknown, which never clears the gate. " +
+			"On a BREAKING change a compatible consumer only matches by range; read " +
 			"its 'note'. 'consumerTallies' counts every consumer by outcome (incompatible includes a consumer that refuses a " +
 			"required guarantee) and ranks their owners; state counts from it rather than by counting the list. Over stdio, when no fleet source holds the changed service, the new revision is added to the snapshot " +
 			"('newRevisionAdded'); on a server whose callers sign in it is not, and the answer says " +

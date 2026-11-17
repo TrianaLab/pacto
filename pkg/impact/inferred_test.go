@@ -69,6 +69,12 @@ func TestInferredOnlyConsumerNeverClears(t *testing.T) {
 	if res.Classification != "BREAKING" || res.Gate != GateUnverified {
 		t.Fatalf("classification %s, gate %s (%s)", res.Classification, res.Gate, res.GateReason)
 	}
+	// The reason never states the dependency as declared, and asks for the
+	// declaration no target state could replace.
+	if want := "the change is BREAKING and 1 service may depend on it, named only by its inferred record, so Pacto cannot check its compatibility: " +
+		"declare the dependency with a compatibility range in that service's pacto.yaml"; res.GateReason != want {
+		t.Errorf("reason = %q", res.GateReason)
+	}
 	wantInferredOnly(t, consumerNamed(t, res, "newsletter"))
 	// Without the record nothing depends on notification-worker, so the gate
 	// clears: the record is what keeps it from clearing.

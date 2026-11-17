@@ -170,3 +170,21 @@ func TestFleetGetExternalRestrictedCountsHidden(t *testing.T) {
 		}
 	}
 }
+
+// TestInferredRecordEdgesDescribed: the instructions and the graph and impact
+// tools name the service dependency an inferred record names, so an agent
+// never reports it as a configuration read or a transitive consumer.
+func TestInferredRecordEdgesDescribed(t *testing.T) {
+	for name, text := range map[string]string{
+		"instructions":      fleetInstructions,
+		"pacto_fleet_graph": fleetGraphTool().Description,
+		"pacto_impact":      impactTool().Description,
+	} {
+		if !strings.Contains(text, "inferred record") {
+			t.Errorf("%s does not name the inferred record", name)
+		}
+	}
+	if !strings.Contains(fleetInstructions, "Pacto uses 'inferred' in four places") || !strings.Contains(fleetInstructions, "inferredRecord") {
+		t.Error("the instructions miss the inferred record meaning of 'inferred'")
+	}
+}
