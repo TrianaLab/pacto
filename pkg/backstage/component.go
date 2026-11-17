@@ -21,14 +21,18 @@ var factualOwner = []string{fleet.OwnerProvenanceDeclared, fleet.OwnerProvenance
 // entities it provides.
 func (e *exporter) component(s *fleet.ServiceRecord) []Entity {
 	q := e.q
-	provenance := provenanceDeclared
-	if !q.HasContractSource(s.Key) {
-		provenance = provenanceInferred
+	// Declared when a contract was read, observed when only a running target
+	// shows the service exists, inferred when neither does.
+	provenance, tags := provenanceDeclared, []string(nil)
+	switch {
+	case q.HasContractSource(s.Key):
+	case len(s.Targets) > 0:
+		provenance, tags = fleet.ProvenanceObserved, []string{TagObserved}
+	default:
+		provenance, tags = provenanceInferred, []string{TagInferred}
 	}
 	c := entity(kindComp, e.base.annotations(provenance))
-	if provenance == provenanceInferred {
-		c.Metadata.Tags = []string{TagInferred}
-	}
+	c.Metadata.Tags = tags
 	ann := c.Metadata.Annotations
 	ann[AnnotationServiceKey] = string(s.Key)
 	name := e.components[s.Key]

@@ -96,7 +96,8 @@ it is listed in `pacto.trianalab.io/inferred-depends-on`.
 
 Backstage's catalog table cannot filter on annotations, so entities Pacto did
 not read from a contract also carry a tag: `pacto-inferred` on every inferred
-entity and `pacto-observed` on every stub. Filter them out of the catalog table
+entity, and `pacto-observed` on every stub and on a service Pacto only sees
+running, with no contract it could read. Filter them out of the catalog table
 with the tag picker. A stub whose name matched more than one contracted service
 adds `pacto.trianalab.io/caller-ambiguous: "true"` and is `partial`.
 

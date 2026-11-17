@@ -7,6 +7,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -357,6 +358,14 @@ func TestEntityProvenanceTable(t *testing.T) {
 	}
 	if _, has := byKey(t, es, "edge").Metadata.Annotations[AnnotationNameProvenance]; has {
 		t.Error("a declared name carries name provenance")
+	}
+
+	// A target whose contract was not read (no domain, no owner) shows the
+	// service runs: observed, never inferred.
+	unread := mapCols(t, &fleet.Collection{Targets: []fleet.RawTarget{target("checkout", "sha256:y", contract.Owner{})}})
+	if e := byKey(t, unread, "checkout"); e.Metadata.Annotations[AnnotationProvenance] != fleet.ProvenanceObserved ||
+		!slices.Equal(e.Metadata.Tags, []string{TagObserved}) {
+		t.Errorf("target-only service exported as %v tags %v, want observed", e.Metadata.Annotations, e.Metadata.Tags)
 	}
 
 	ghost := fleet.NewServiceKey("ghost")
