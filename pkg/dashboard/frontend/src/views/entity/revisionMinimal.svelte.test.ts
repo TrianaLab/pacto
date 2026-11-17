@@ -63,6 +63,16 @@ describe('RevisionEntity, minimal contract', () => {
     expect(target.querySelector('[data-testid="revision-inferred"]')!.textContent).toContain('Pacto could not read the inferred record');
   });
 
+  it('keeps the values a local read infers beside an unreadable record', () => {
+    comp = mount(RevisionEntity, { target, props: { detail: detail({ inferredUnreadable: true, inferred: [
+      { field: 'service.name', value: 'payments', source: 'chart/Chart.yaml:2', provenance: 'inferred' },
+    ] }) } });
+    const block = target.querySelector('[data-testid="revision-inferred"]')!;
+    expect(block.textContent).toContain('Pacto could not read the inferred record');
+    expect(block.querySelector('button[aria-label="About inferred service.name"]')).toBeTruthy();
+    expect(block.querySelector('[role="note"]')!.textContent).toContain('Source: chart/Chart.yaml:2.');
+  });
+
   it('shows the declared version and no inferred block for a declared contract', () => {
     comp = mount(RevisionEntity, { target, props: { detail: detail({ version: '1.2.0' }) } });
     expect(target.querySelector('[data-testid="revision-inferred"]')).toBeNull();

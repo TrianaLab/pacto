@@ -608,10 +608,12 @@
 
   <!-- What Pacto read from the service's folder for its current revision, kept apart
        from the contract: folded, because the declared sections above are what a reader
-       came for. The list owns the only disclosure for its rows (clip off). -->
+       came for. The list owns the only disclosure for its rows (clip off). An unreadable
+       record says so while folded: its values are unknown, never absent. -->
   {#if d.inferredFields?.total || d.inferredFields?.unreadable}
     <div class="se-wrap" data-testid="service-inferred">
       <PreviewSection title="Inferred by Pacto" collapsible open={false} clip={false} total={d.inferredFields.total} count={d.inferredFields.count ?? 0}
+        summary={d.inferredFields.unreadable ? 'Could not be read' : ''} tone={d.inferredFields.unreadable ? 'warn' : ''}
         empty="Pacto could not read the inferred record"
         help="Values Pacto read from the service's folder and keeps apart from the contract. Declare one to make it part of the contract.">
         <InferredFieldList items={d.inferredFields.items ?? []} total={d.inferredFields.total} unreadable={!!d.inferredFields.unreadable} />

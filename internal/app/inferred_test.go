@@ -179,6 +179,12 @@ func TestLocalReadCarriesRecord(t *testing.T) {
 	if records["resolveBundleAsWritten"].Inputs.Commit != commitA || records["loadLocalBundleNamed"].Inputs.Commit != "" {
 		t.Errorf("commits: %+v", records)
 	}
+}
+
+// TestIncompleteFolder: pack, push and publish refuse a folder Pacto cannot
+// complete; a read keeps its declared bundle, with no record and a warning.
+func TestIncompleteFolder(t *testing.T) {
+	dir := completionFolder(t, "")
 	if err := os.Chmod(filepath.Join(dir, "api", "openapi.yaml"), 0); err != nil {
 		t.Fatal(err)
 	}

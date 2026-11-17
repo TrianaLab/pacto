@@ -17,6 +17,7 @@ afterEach(() => { if (comp) { unmount(comp); comp = null; } document.body.remove
 
 const field = (i: number, extra = {}) => ({ field: `configuration.KEY_${i}`, value: 'string', source: `deploy/app.yaml:${i + 1}`, confidence: 'likely', provenance: 'inferred', ...extra });
 const render = (props: Record<string, unknown>) => { comp = mount(InferredFieldList, { target, props }); flushSync(); };
+const render0 = () => { if (comp) { unmount(comp); comp = null; } };
 const rows = () => [...target.querySelectorAll('[data-testid="inferred-field"]')] as HTMLElement[];
 const visible = (el: Element) => {
   const c = el.cloneNode(true) as Element;
@@ -64,13 +65,25 @@ describe('InferredFieldList', () => {
     const bdi = target.querySelector('code bdi')!;
     expect(bdi.textContent).toBe(key);
     // jsdom applies no component style, so the rule is read from the source.
-    expect(source).toMatch(/\.ifl-row code, \.ifl-value \{ overflow-wrap: anywhere; min-inline-size: 0; \}/);
+    expect(source).toMatch(/\.ifl-text code, \.ifl-value \{ overflow-wrap: anywhere; min-inline-size: 0; \}/);
   });
 
-  it('says the record could not be read and lists no row', () => {
-    render({ items: [field(0)], total: 1, unreadable: true });
+  it('says the record could not be read and keeps the rows a local read infers', () => {
+    render({ items: [field(0, { field: 'service.name', source: 'chart/Chart.yaml:2' })], total: 1, unreadable: true });
     expect(target.textContent).toContain('Pacto could not read the inferred record');
-    expect(rows().length).toBe(0);
+    expect(rows().length).toBe(1);
+    render0();
+    render({ items: [], total: 0, unreadable: true });
+    expect(target.textContent).toContain('Pacto could not read the inferred record');
+    expect(target.querySelectorAll('ul').length).toBe(0);
+  });
+
+  it('opens each row with its mark and keeps each row a touch target tall', () => {
+    render({ items: [field(0)], total: 1 });
+    expect(rows()[0].firstElementChild!.classList.contains('help')).toBe(true);
+    // jsdom applies no component style, so the rules are read from the source.
+    expect(source).toMatch(/\.ifl-row \{[^}]*min-block-size: var\(--touch-min\)/);
+    expect(source).toMatch(/@media \(pointer: coarse\) \{ \.ifl-row \{ min-block-size: 44px; \} \}/);
   });
 
   it('says how many fields the bounded list leaves out', () => {

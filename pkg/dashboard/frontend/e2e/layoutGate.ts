@@ -858,7 +858,10 @@ export function installScaleFixture(): void {
   // propose PlanStale with the fresh plan and no field that explains it.
   // ambiguousTarget answers the sentinel target key with the 409 a 3-part key that
   // names targets in more than one cluster gets: 6 candidates with long labels.
-  const flags = window as unknown as { __pactoLongPropose?: boolean; __pactoStalePropose?: boolean; __pactoAmbiguousTarget?: boolean };
+  // inferredUnreadable answers every service and revision as one whose inferred record
+  // Pacto could not read: the service has no record field, the revision keeps only the
+  // values a local read infers on its own (pactoVersion, service.name).
+  const flags = window as unknown as { __pactoLongPropose?: boolean; __pactoStalePropose?: boolean; __pactoAmbiguousTarget?: boolean; __pactoInferredUnreadable?: boolean };
   const shortOf = (v: unknown) => [...memo].find(([, l]) => l === v)?.[0] ?? v;
   const engineBody = (path: string, body: string | null): string | null => {
     if (!flags.__pactoLongPropose || !body || !/^\/api\/delivery\/(plan|operations)$/.test(path)) return body;
@@ -1178,6 +1181,16 @@ export function installScaleFixture(): void {
       coverageNow: restricted ? { ...coverageOf(new Date(), false), services: 300, knowledge: { services: 300, described: 200, withGaps: 60, unknown: 40, notDeployed: 12 } } : coverageOf(new Date(), true),
     };
   };
+  const unreadableRecord = (route: string, doc: Record<string, unknown>) => {
+    const svc = doc.service as Record<string, unknown> | undefined;
+    if (route === '/api/fleet/entities/service' && svc) svc.inferredFields = { items: [], count: 0, total: 0, truncated: false, unreadable: true };
+    const rev = doc.revision as Record<string, unknown> | undefined;
+    if (route === '/api/fleet/entities/revision' && rev) {
+      rev.inferred = ((rev.inferred as { field: string }[] | undefined) ?? []).filter((f) => f.field === 'pactoVersion' || f.field === 'service.name');
+      rev.inferredTotal = (rev.inferred as unknown[]).length;
+      rev.inferredUnreadable = true;
+    }
+  };
   const wrapped: Serve = async (method, path, body) => {
     body = engineBody(path, body);
     const route = path.split('?')[0];
@@ -1209,6 +1222,7 @@ export function installScaleFixture(): void {
     if (res.status !== 200 || !(res.contentType || '').includes('json')) return res;
     let doc: Record<string, unknown>;
     try { doc = JSON.parse(res.body); } catch { return res; }
+    if (flags.__pactoInferredUnreadable) unreadableRecord(route, doc);
     try { amend(method, path, doc, body); } catch (e) {
       // An override that throws would leave the route unscaled and the gate green:
       // layoutProblems reports it.
@@ -1260,6 +1274,12 @@ export async function layoutProblems(page: Page): Promise<string[]> {
 
     // Horizontal page scroll.
     const doc = document.documentElement;
+    // An open note (HelpTip) is clipped by html's overflow-x: clip, so one that runs past
+    // the viewport is cut with no way to read the rest.
+    for (const n of root.querySelectorAll('[role="note"]:not([hidden])')) {
+      const r = n.getBoundingClientRect();
+      if (r.width && (r.left < -1 || r.right > doc.clientWidth + 1)) out.push(`${say(n)} runs past the viewport (${Math.round(r.left)} to ${Math.round(r.right)} of ${doc.clientWidth}px)`);
+    }
     if (doc.scrollWidth > doc.clientWidth + 1) out.push(`the page scrolls sideways by ${doc.scrollWidth - doc.clientWidth}px`);
 
     // Text runs: one box per line of each visible text node, clipped by every ancestor
@@ -1922,6 +1942,43 @@ export const ROUTES: Route[] = [
       await expect(more).toBeAttached({ timeout: 30_000 });
       await more.locator('> summary').click();
       await expect(more.getByTestId('inferred-field').first()).toBeVisible();
+      await page.evaluate(() => window.scrollTo(0, 0));
+    },
+  },
+  {
+    // A record Pacto could not read: the folded block names it, and open it says so
+    // in one line, beside no record row.
+    name: 'service entity, implicit contract, inferred unreadable',
+    open: async (page) => {
+      await page.evaluate(() => { (window as unknown as { __pactoInferredUnreadable?: boolean }).__pactoInferredUnreadable = true; });
+      await page.goto('/#/fleet/services/newsletter-service');
+      const block = page.getByTestId('service-inferred');
+      await expect(block).toContainText('Could not be read', { timeout: 30_000 });
+      await block.locator('summary').first().click();
+      await expect(block).toContainText('Pacto could not read the inferred record');
+      await page.evaluate(() => window.scrollTo(0, 0));
+    },
+  },
+  {
+    // The revision keeps the values a local read infers under the unreadable line.
+    name: 'revision entity, implicit contract, inferred unreadable',
+    open: async (page) => {
+      await page.evaluate(() => { (window as unknown as { __pactoInferredUnreadable?: boolean }).__pactoInferredUnreadable = true; });
+      await firstLink('#/fleet/revisions?service=newsletter-service', '/fleet/revisions/')(page);
+      await expect(page.getByTestId('revision-inferred')).toContainText('Pacto could not read the inferred record', { timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0));
+    },
+  },
+  {
+    // newsletter-service consumes notification-worker only through its inferred record:
+    // its Why cell keeps one mark whose title names the record source.
+    name: 'change analysis, implicit contract consumer',
+    open: async (page) => {
+      await page.goto('/#/fleet/changes/notification-worker?event=removed');
+      await expect(page.getByTestId('changes-answer')).toBeVisible({ timeout: 30_000 });
+      const fold = page.locator('#sec-affected-consumers');
+      if ((await fold.getAttribute('open')) === null) await fold.locator('> summary').click();
+      await expect(page.getByTestId('consumer-row').first()).toBeVisible();
       await page.evaluate(() => window.scrollTo(0, 0));
     },
   },

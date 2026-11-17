@@ -358,11 +358,12 @@ func (r *Result) gate() (string, string) {
 	return GateClear, "the change is BREAKING, but no service in the complete fleet snapshot depends on " + r.Service
 }
 
-// inferredOnlyConsumers counts the consumers only an inferred record names.
+// inferredOnlyConsumers counts the consumers only an inferred record names:
+// inferred, and through a record (a transitive consumer is inferred too).
 func (r *Result) inferredOnlyConsumers() int {
 	n := 0
 	for _, c := range r.Consumers {
-		if c.Provenance == fleet.ProvenanceInferred {
+		if c.Provenance == fleet.ProvenanceInferred && slices.Contains(c.Via, fleet.ProvenanceInferred) {
 			n++
 		}
 	}
@@ -891,6 +892,8 @@ type consumerNode struct {
 	// inferred marks a consumer an inferred record names as a dependent of
 	// the changed service: it is listed, but never with a known verdict.
 	inferred bool
+	// inferredFrom is where those records were read, as their edges carry it.
+	inferredFrom []fleet.InferredSource
 }
 
 // resolvedObservedEdge is an observed caller→provider edge whose endpoints have
@@ -1035,6 +1038,7 @@ func unionConsumers(graph *fleet.GraphResult, changed fleet.ServiceKey, observed
 			cn = consumerNode{key: r.FromService, name: name, depth: 1, path: []fleet.ServiceKey{changed, r.FromService}}
 		}
 		cn.inferred = true
+		cn.inferredFrom = append(cn.inferredFrom, r.InferredSources...)
 		byKey[r.FromService] = cn
 	}
 	out := make([]consumerNode, 0, len(byKey))
@@ -1097,6 +1101,10 @@ func inferredOnly(c *AffectedConsumer, node consumerNode, backed bool) {
 		return
 	}
 	c.Via = append(c.Via, fleet.ProvenanceInferred)
+	for _, is := range node.inferredFrom {
+		c.Evidence = append(c.Evidence, Evidence{Kind: EvidenceInferredRecord, Source: is.Source, Provenance: fleet.ProvenanceInferred,
+			Message: "named by its inferred record, read from " + is.Where})
+	}
 	if !backed {
 		c.Provenance, c.Confidence, c.CompatibilityVerdict = fleet.ProvenanceInferred, ConfidenceInferred, CompatibilityUnknown
 	}

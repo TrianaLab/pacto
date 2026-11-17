@@ -747,7 +747,9 @@
               </thead>
               <tbody>
                 {#each consumers.items as c, ci (`${c.service?.key}:${ci}`)}
-                  {@const ev = c.evidence ?? []}
+                  {@const recordEv = (c.evidence ?? []).filter((e) => e.kind === 'inferred-record')}
+                  {@const ev = (c.evidence ?? []).filter((e) => e.kind !== 'inferred-record')}
+                  {@const inferredOnly = c.provenance === 'inferred' && !!c.via?.includes('inferred')}
                   {@const targets = c.targets ?? []}
                   <tr data-testid="consumer-row">
                     <td data-label="Consumer" class="consumer-cell">
@@ -774,12 +776,14 @@
                     {/if}
                     <td data-label="Why" class="why-cell">
                       <div class="cell-badges">
-                        {#each c.via ?? [] as v (v)}<span class="badge badge-neutral">{v.replace(/_/g, ' ')}</span>{/each}
-                        {#if c.provenance}<span class="badge badge-info">{c.provenance}</span>{/if}
+                        <!-- A consumer only an inferred record names keeps one mark, the confidence
+                             pill, whose title names the file the record read it from. -->
+                        {#each (c.via ?? []).filter((v) => !inferredOnly || v !== 'inferred') as v (v)}<span class="badge badge-neutral">{v.replace(/_/g, ' ')}</span>{/each}
+                        {#if c.provenance && !inferredOnly}<span class="badge badge-info">{c.provenance}</span>{/if}
                         <!-- Only a declared dependency is required or optional: an observed, uncontracted,
                              configuration or policy edge declares neither. -->
                         {#if c.direct && isEvent && c.via?.includes('dependency')}<span class="badge {c.required ? 'badge-err' : 'badge-warn'}" data-testid="consumer-requirement">{c.required ? 'required' : 'optional'}</span>{/if}
-                        <span class="pill" title={CONFIDENCE_EXPLAIN[c.confidence] || ''}>{c.confidence}</span>
+                        <span class="pill" title={[CONFIDENCE_EXPLAIN[c.confidence] || '', ...recordEv.map((e) => `Source: ${e.message}.`)].filter(Boolean).join(' ')}>{c.confidence}</span>
                       </div>
                       {#if ev.length}
                         <ul class="why-evidence">

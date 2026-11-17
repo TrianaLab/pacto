@@ -4400,17 +4400,17 @@ export interface components {
              */
             at?: string;
             /**
-             * @description What the fact is: an observed call to the changed service, a target the consumer runs on, a finding that the consumer cannot reach the changed service or the provider's declared lifecycle. Provisioning reports are in resources
+             * @description What the fact is: an observed call to the changed service, a target the consumer runs on, a finding that the consumer cannot reach the changed service, the provider's declared lifecycle or the consumer's inferred record naming the changed service. Provisioning reports are in resources
              * @enum {string}
              */
-            kind: "observed-call" | "target" | "unreachable" | "lifecycle";
+            kind: "observed-call" | "target" | "unreachable" | "lifecycle" | "inferred-record";
             /** @description The fact in plain words */
             message: string;
             /**
-             * @description Whether a contract declares the fact or a source observed it
+             * @description Whether a contract declares the fact, a source observed it or Pacto inferred it from the consumer's repository
              * @enum {string}
              */
-            provenance: "declared" | "observed";
+            provenance: "declared" | "observed" | "inferred";
             /** @description Where the fact comes from: the observation source id, the traces file or the target key */
             source?: string;
             /** @description The fact is older than 24h before the snapshot's asOf, or has no time, so it does not count as current */

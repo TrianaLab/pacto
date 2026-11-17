@@ -714,6 +714,10 @@ describe('service page: inferred by Pacto', () => {
   it('says the record could not be read', async () => {
     const { target, done } = await render(detail(fields(0, { unreadable: true })));
     const sec = fact(target, 'service-inferred')!.querySelector('details') as HTMLDetailsElement;
+    // Folded, the head already names the uncertainty: unknown, never absent.
+    expect(sec.open).toBe(false);
+    expect(text(sec.querySelector('summary')!)).toContain('Could not be read');
+    expect(sec.dataset.tone).toBe('warn');
     sec.open = true;
     sec.dispatchEvent(new Event('toggle'));
     flushSync();

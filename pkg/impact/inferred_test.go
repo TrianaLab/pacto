@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"reflect"
+	"slices"
 	"testing"
 	"testing/fstest"
 
@@ -61,6 +62,12 @@ func wantInferredOnly(t *testing.T, c AffectedConsumer) {
 	if c.Provenance != fleet.ProvenanceInferred || c.Confidence != ConfidenceInferred || c.CompatibilityVerdict != CompatibilityUnknown ||
 		!reflect.DeepEqual(c.Via, []string{fleet.ProvenanceInferred}) || !c.Direct {
 		t.Errorf("newsletter = %+v", c)
+	}
+	// The record source rides along, so a reader can find which file named it.
+	if !slices.ContainsFunc(c.Evidence, func(e Evidence) bool {
+		return e.Kind == EvidenceInferredRecord && e.Provenance == fleet.ProvenanceInferred && e.Message == "named by its inferred record, read from deploy/app.yaml:4"
+	}) {
+		t.Errorf("newsletter evidence = %+v", c.Evidence)
 	}
 }
 
