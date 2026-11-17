@@ -82,8 +82,13 @@ func walked(t *testing.T, fsys fs.FS) string {
 }
 
 func TestInferredUnchangedWhat(t *testing.T) {
+	// bundle holds the files sampleRecord cites, so its records verify.
 	bundle := func(pactoYAML string, rec *InferredRecord) *Bundle {
-		fsys := fstest.MapFS{"pacto.yaml": {Data: []byte(pactoYAML)}}
+		fsys := fstest.MapFS{
+			"pacto.yaml":      {Data: []byte(pactoYAML)},
+			"openapi/v1.yaml": {Data: []byte("openapi: 3.0.0\n")},
+			"deploy/app.yaml": {Data: []byte("kind: Deployment\n")},
+		}
 		if rec != nil {
 			fsys[InferredRecordFile] = &fstest.MapFile{Data: rec.Marshal()}
 		}
@@ -96,13 +101,15 @@ func TestInferredUnchangedWhat(t *testing.T) {
 		}
 		return string(data), err
 	}
-	rec := func(discovery, pacto, commit, digest string) *InferredRecord {
+	rec := func(discovery, pacto, commit string) *InferredRecord {
 		r := sampleRecord()
 		r.Inputs.Discovery, r.Inputs.Pacto, r.Inputs.Commit = discovery, pacto, commit
-		r.Inputs.Sources[0].Digest = digest
 		return r
 	}
-	a := digestOf("a")
+	moreSources := rec("1", "4.6.0", "")
+	moreSources.Inputs.Sources = append(moreSources.Inputs.Sources, InferredSourceFile{Path: "pacto.yaml", Digest: digestOf("x")})
+	forged := rec("1", "4.6.0", "")
+	forged.Inputs.Sources[0].Digest = digestOf("not the file")
 	cases := []struct {
 		name      string
 		prev      *Bundle
@@ -110,18 +117,22 @@ func TestInferredUnchangedWhat(t *testing.T) {
 		unchanged bool
 		what      string
 	}{
-		{"inputs differ", bundle("x", rec("1", "4.5.0", "4e1a9c0d0000", a)), bundle("x", rec("2", "4.6.0", "77c0b2e1111", a)), true,
+		{"inputs differ", bundle("x", rec("1", "4.5.0", "4e1a9c0d0000")), bundle("x", rec("2", "4.6.0", "77c0b2e1111")), true,
 			"discovery 1 -> 2, pacto 4.5.0 -> 4.6.0, commit 4e1a9c0 -> 77c0b2e"},
-		{"no commit before", bundle("x", rec("1", "4.6.0", "", a)), bundle("x", rec("1", "4.6.0", "abc", a)), true, "commit none -> abc"},
-		{"only fields", bundle("x", rec("1", "4.6.0", "", a)), bundle("x", func() *InferredRecord {
-			r := rec("1", "4.6.0", "", a)
+		{"no commit before", bundle("x", rec("1", "4.6.0", "")), bundle("x", rec("1", "4.6.0", "abc")), true, "commit none -> abc"},
+		{"only fields", bundle("x", rec("1", "4.6.0", "")), bundle("x", func() *InferredRecord {
+			r := rec("1", "4.6.0", "")
 			r.Fields = r.Fields[:1]
 			return r
 		}()), true, "fields"},
-		{"sources differ", bundle("x", rec("1", "4.6.0", "", a)), bundle("x", rec("1", "4.6.0", "", digestOf("b"))), false, "sources"},
-		{"no record before", bundle("x", nil), bundle("x", rec("1", "4.6.0", "", a)), false, "discovery none -> 1, pacto none -> 4.6.0, sources"},
-		{"declared differs", bundle("x", rec("1", "4.6.0", "", a)), bundle("y", rec("1", "4.6.0", "", a)), false, ""},
-		{"unreadable record", bundle("x", rec("1", "4.6.0", "", a)), &Bundle{Contract: &Contract{}, FS: fstest.MapFS{"pacto.yaml": {Data: []byte("x")}, InferredRecordFile: {Data: []byte("format: other\n")}}}, false, ""},
+		{"cited set differs", bundle("x", rec("1", "4.6.0", "")), bundle("x", moreSources), false, "sources"},
+		{"no record before", bundle("x", nil), bundle("x", rec("1", "4.6.0", "")), false, "discovery none -> 1, pacto none -> 4.6.0, sources"},
+		{"declared differs", bundle("x", rec("1", "4.6.0", "")), bundle("y", rec("1", "4.6.0", "")), false, ""},
+		{"unreadable record", bundle("x", rec("1", "4.6.0", "")), &Bundle{Contract: &Contract{}, FS: fstest.MapFS{"pacto.yaml": {Data: []byte("x")}, InferredRecordFile: {Data: []byte("format: other\n")}}}, false, ""},
+		// A record whose digests do not match its own bundle is stale or
+		// forged: never a record-only change, on either side.
+		{"forged record before", bundle("x", forged), bundle("x", rec("1", "4.6.0", "")), false, ""},
+		{"forged record after", bundle("x", rec("1", "4.6.0", "")), bundle("x", forged), false, ""},
 	}
 	for _, tc := range cases {
 		unchanged, what := InferredUnchanged(tc.prev, tc.next, digest)

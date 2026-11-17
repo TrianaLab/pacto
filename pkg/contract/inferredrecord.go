@@ -55,8 +55,9 @@ type InferredSourceFile struct {
 var inferredDigestRE = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
 // ParseInferredRecord decodes a record strictly: an unknown key, another
-// format, a field with no field name or source, a confidence other than likely
-// or possible, or a source without a sha256 digest is an error naming it.
+// format, a field with no field name or source, a field named twice, a
+// confidence other than likely or possible, or a source without a sha256
+// digest is an error naming it.
 func ParseInferredRecord(data []byte) (*InferredRecord, error) {
 	var r InferredRecord
 	dec := yaml.NewDecoder(bytes.NewReader(data))
@@ -67,8 +68,11 @@ func ParseInferredRecord(data []byte) (*InferredRecord, error) {
 	if r.Format != InferredRecordFormat {
 		return nil, fmt.Errorf("%s: format is %q, want %q", InferredRecordFile, r.Format, InferredRecordFormat)
 	}
+	seen := make(map[string]bool, len(r.Fields))
 	for i, f := range r.Fields {
 		switch {
+		case seen[f.Field]:
+			return nil, fmt.Errorf("%s: fields[%d].field %q is listed twice", InferredRecordFile, i, f.Field)
 		case f.Field == "":
 			return nil, fmt.Errorf("%s: fields[%d].field is empty", InferredRecordFile, i)
 		case f.Source == "":
@@ -76,6 +80,7 @@ func ParseInferredRecord(data []byte) (*InferredRecord, error) {
 		case f.Confidence != ConfidenceLikely && f.Confidence != "possible":
 			return nil, fmt.Errorf("%s: fields[%d].confidence is %q, want likely or possible", InferredRecordFile, i, f.Confidence)
 		}
+		seen[f.Field] = true
 	}
 	for i, s := range r.Inputs.Sources {
 		if !inferredDigestRE.MatchString(s.Digest) {
@@ -203,11 +208,15 @@ func (r recordFS) ReadDir(name string) ([]fs.DirEntry, error) {
 // inferred record with the same cited inputs, so it needs no republish. what
 // names the inputs that differ ("discovery 1 -> 2", "commit 4e1a9c0 ->
 // 77c0b2e") whenever the declared parts match, and is empty when they do not.
-// Both records are read from the bundles' files; digest computes a bundle's
-// digest, here over its files without the record.
+// Both records are read from the bundles' files and verified against them, so
+// a stale or forged record never reads as a record-only change; digest
+// computes a bundle's digest, here over its files without the record.
 func InferredUnchanged(prev, next *Bundle, digest func(*Bundle) (string, error)) (unchanged bool, what string) {
 	declared := func(b *Bundle) (string, *InferredRecord, error) {
 		rec, err := ReadInferredRecord(b.FS)
+		if err == nil && rec != nil {
+			err = VerifyInferredRecord(b.FS, rec)
+		}
 		if err != nil {
 			return "", nil, err
 		}

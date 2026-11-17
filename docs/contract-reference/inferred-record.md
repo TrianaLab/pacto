@@ -84,9 +84,13 @@ republished`). Pacto first checks that the tag is signed by the identity in
 `publish.sign`. An unsigned tag, or one signed by someone else, is a conflict
 that needs the next version.
 
-When the cited files changed but the declared contract did not, the plan asks
-for a patch version. A contract with `publish.artifacts` takes a patch on every
-new commit, because each artifact is built from that commit.
+The cited files are part of the bundle, so editing one changes the bundle and
+needs a new version. When the declared files match but the record cites a
+different set of files, for example after a newer Pacto reads more of the
+folder, the plan asks for a patch version. A record whose digests do not match
+its own bundle never counts as a record-only change. A contract with
+`publish.artifacts` takes a patch on every new commit, because each artifact is
+built from that commit.
 
 ## Reading it
 

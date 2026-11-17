@@ -163,7 +163,7 @@ func MakePlan(ctx context.Context, reg Registry, in Input) Plan {
 		st, why = Unreadable, "the bundle could not be packed: "+err.Error()
 	}
 	if st == Conflict {
-		st, why = inferredOnly(ctx, reg, ref, in.Bundle, p.Version, why)
+		st, why = inferredOnly(ctx, reg, Repo(pub.Bundle)+"@"+r.Digest, in.Bundle, p.Version, why)
 	}
 	bundle := item(BundleItem, BundleItem, ref, st, why, r)
 	if st == Absent {
@@ -191,8 +191,10 @@ func MakePlan(ctx context.Context, reg Registry, in Input) Plan {
 // adopt when only the inferred record differs and its cited inputs match, so
 // nothing is republished, and a conflict that asks for a patch when the
 // sources differ. Otherwise, or when the tag cannot be pulled, why stands.
-func inferredOnly(ctx context.Context, reg Registry, ref string, local *contract.Bundle, version, why string) (State, string) {
-	remote, err := reg.Pull(ctx, ref)
+// pinned is the digest the tag's Head returned, so the content compared is the
+// content adopted and verified, even when the tag moves meanwhile.
+func inferredOnly(ctx context.Context, reg Registry, pinned string, local *contract.Bundle, version, why string) (State, string) {
+	remote, err := reg.Pull(ctx, pinned)
 	if err != nil {
 		return Conflict, why
 	}

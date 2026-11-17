@@ -113,10 +113,61 @@ func TestPublishInferredOnlyWithArtifactsNotReady(t *testing.T) {
 func TestPublishPatchWhenSourcesDiffer(t *testing.T) {
 	host, reg := newRegistry(t)
 	ctx := context.Background()
-	pushBundle(t, reg, host, "1.0.0", recordBundle(host, "1.0.0", "1", "kind: Job\n", false))
+	// A valid remote record that cites one more file, as after a discovery
+	// change: the declared bytes match and only the cited set differs.
+	remote := recordBundle(host, "1.0.0", "1", deployYAML, false)
+	rec, _ := contract.ReadInferredRecord(remote.FS)
+	sum := sha256.Sum256(remote.RawYAML)
+	rec.Inputs.Sources = append(rec.Inputs.Sources, contract.InferredSourceFile{Path: "pacto.yaml", Digest: "sha256:" + hex.EncodeToString(sum[:])})
+	remote.FS.(fstest.MapFS)[contract.InferredRecordFile] = &fstest.MapFile{Data: rec.Marshal()}
+	pushBundle(t, reg, host, "1.0.0", remote)
 	p := MakePlan(ctx, reg, Input{Bundle: recordBundle(host, "1.0.0", "1", deployYAML, false), Revision: "abc123"})
 	it := bundleItem(p)
 	expect(t, it.State == Conflict && it.Reason == "only the inferred record changed since 1.0.0, so a patch is enough"+NextVersion, "bundle: %+v", it)
+}
+
+// TestPublishForgedRemoteRecordConflicts: a remote record whose digests do
+// not match its own bundle is never read as a record-only change.
+func TestPublishForgedRemoteRecordConflicts(t *testing.T) {
+	host, reg := newRegistry(t)
+	ctx := context.Background()
+	remote := pushBundle(t, reg, host, "1.0.0", recordBundle(host, "1.0.0", "1", "kind: Job\n", false))
+	it := bundleItem(MakePlan(ctx, reg, Input{Bundle: recordBundle(host, "1.0.0", "1", deployYAML, false), Revision: "abc123"}))
+	expect(t, it.State == Conflict && it.Reason == "the tag holds "+remote+", which this publish did not compute; it is never overwritten"+NextVersion, "bundle: %+v", it)
+}
+
+// TestPublishComparesTheDigestItAdopts: the tag moves between Head and Pull
+// to a bundle that matches the local one. The plan compares the manifest Head
+// returned, whose declared contract differs, so it stays a conflict.
+func TestPublishComparesTheDigestItAdopts(t *testing.T) {
+	host, reg := newRegistry(t)
+	ctx := context.Background()
+	old := recordBundle(host, "1.0.0", "0", deployYAML, false)
+	old.Contract.Workload = "job"
+	old.FS.(fstest.MapFS)["pacto.yaml"] = &fstest.MapFile{Data: append(old.RawYAML, "workload: job\n"...)}
+	oldDigest := pushBundle(t, reg, host, "1.0.0", old)
+	fake := recordBundle(host, "1.0.0", "0", deployYAML, false)
+	moving := &retagOnHead{Client: reg, t: t, host: host, fake: fake}
+	it := bundleItem(MakePlan(ctx, moving, Input{Bundle: recordBundle(host, "1.0.0", "1", deployYAML, false), Revision: "abc123"}))
+	expect(t, moving.moved && it.State == Conflict && it.Digest == oldDigest && strings.HasPrefix(it.Reason, "the tag holds "+oldDigest), "bundle: %+v", it)
+}
+
+// retagOnHead moves the bundle tag to fake right after answering its Head.
+type retagOnHead struct {
+	*Client
+	t     *testing.T
+	host  string
+	fake  *contract.Bundle
+	moved bool
+}
+
+func (r *retagOnHead) Head(ctx context.Context, ref string) (*Remote, error) {
+	got, err := r.Client.Head(ctx, ref)
+	if !r.moved && strings.HasSuffix(ref, "/pacto/payments:1.0.0") {
+		r.moved = true
+		pushBundle(r.t, r.Client, r.host, "1.0.0", r.fake)
+	}
+	return got, err
 }
 
 func TestPublishDeclaredChangeStillConflicts(t *testing.T) {

@@ -88,6 +88,7 @@ func TestParseInferredRecordRefuses(t *testing.T) {
 		"confidence":   {strings.Replace(good, "confidence: possible", "confidence: observed", 1), "fields[0].confidence"},
 		"digest":       {strings.Replace(good, "sha256:", "md5:", 1), "inputs.sources[0].digest"},
 		"empty":        {"", "pacto.inferred.yaml"},
+		"named twice":  {strings.Replace(good, "field: interfaces[api]", "field: configuration.DB_PASSWORD", 1), `fields[1].field "configuration.DB_PASSWORD" is listed twice`},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
