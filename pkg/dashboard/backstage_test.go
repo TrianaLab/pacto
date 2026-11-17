@@ -154,6 +154,15 @@ func TestBackstageEntitiesSourceUnavailableIs503(t *testing.T) {
 		State: &fleet.SourceState{Status: fleet.SourcePartial},
 	}))
 	assertRefused(t, backstageGet(t, Options{Fleet: fleetOf(unscoped)}, http.MethodGet), "dir", "partial")
+
+	// The organization catalog classifies external systems; unread, their
+	// Resources would vanish, as pacto export backstage also refuses.
+	lim := fleet.Limitation{Code: fleet.LimitationExternalCatalogUnavailable, Source: "external-catalog", Message: "the organization catalog could not be read"}
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{ExternalCatalogLimitations: []fleet.Limitation{lim}}, fleet.NewMemorySource("k8s", "kubernetes", &fleet.Collection{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRefused(t, backstageGet(t, Options{Fleet: fleetOf(fleet.NewQuery(snap))}, http.MethodGet), "external-catalog", "unavailable")
 }
 
 // TestBackstageEntitiesNamespaceScopedSourceIs200: a source partial only

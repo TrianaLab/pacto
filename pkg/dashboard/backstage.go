@@ -45,9 +45,15 @@ func (s *Server) backstageEntities(w http.ResponseWriter, r *http.Request) {
 
 // missingRecords names the first source of q whose records may be missing:
 // one that is unavailable, or partial for a reason other than reading a
-// declared namespace list. A stale source keeps its records.
+// declared namespace list, or an organization catalog that could not be read
+// (its external systems would vanish). A stale source keeps its records.
 func missingRecords(q *fleet.Query) (id, status string, ok bool) {
 	snap := q.SnapshotForSerialization()
+	for _, l := range snap.Limitations {
+		if l.Code == fleet.LimitationExternalCatalogUnavailable {
+			return l.Source, string(fleet.SourceUnavailable), true
+		}
+	}
 	for _, st := range snap.Sources {
 		if st.Status == fleet.SourceUnavailable || st.Status == fleet.SourcePartial && !onlyScoped(snap.Limitations, st.ID) {
 			return st.ID, string(st.Status), true
