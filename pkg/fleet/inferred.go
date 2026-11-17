@@ -289,11 +289,16 @@ func inferredLimitations(s *ServiceRecord) []Limitation {
 	return out
 }
 
-// observingSourcesOf is the ids of the sources that reported an observed edge.
+// observingSourcesOf is the ids of the sources that reported an observed edge
+// from a workload caller (a [K8sCaller]): only such a source can attribute a
+// call to an inferred service. A source naming callers by service.name, such
+// as OTLP or Mira, never can.
 func observingSourcesOf(observed []observedInput) map[string]bool {
 	out := map[string]bool{}
 	for _, oi := range observed {
-		out[oi.source] = true
+		if _, _, _, _, ok := ParseK8sCaller(oi.edge.From); ok {
+			out[oi.source] = true
+		}
 	}
 	return out
 }
@@ -341,6 +346,11 @@ func (q *Query) inferredServiceDetail(s *ServiceRecord) *EntityDetail {
 			sources = append(sources, sourceEntityRef(st))
 		}
 	}
+	if s.HiddenDependencies > 0 {
+		// A call to a service the viewer may not see was seen and hidden, so
+		// an empty list must not read as none seen.
+		observed = true
+	}
 	_, cfgs, pols := q.currentRevisionContent(nil)
 	data := &ServiceDetailData{
 		Domain: s.Domain, Capabilities: stringsPreview(nil), Sources: refPreview(sources),
@@ -353,6 +363,7 @@ func (q *Query) inferredServiceDetail(s *ServiceRecord) *EntityDetail {
 		Findings: attributedTargetFindingsPreview(nil), Evidence: evidencePreview(nil),
 		Limitations: attributedLimitationsPreview(lims), Workload: jsonClone(s.Workload),
 		Calls: refPreview(calls), CallsObserved: observed,
+		HiddenDependencies: s.HiddenDependencies, HiddenDependents: s.HiddenDependents,
 	}
 	return &EntityDetail{Meta: q.productMeta(), Entity: self, Service: data, Actions: []string{}}
 }
@@ -399,10 +410,14 @@ func (d *ServiceDetailData) InferredLines(asOf time.Time) []string {
 		if d.Calls.Truncated {
 			out = append(out, fmt.Sprintf("  %d more", d.Calls.Total-d.Calls.Count))
 		}
+	case d.HiddenDependencies > 0:
 	case d.CallsObserved:
 		out = append(out, "No calls to declared services seen as of "+asOf.Format(time.RFC3339))
 	default:
 		out = append(out, "Calls unknown: Pacto reads no traffic source here")
+	}
+	if d.HiddenDependencies > 0 {
+		out = append(out, fmt.Sprintf("Calls to services you cannot see: %d", d.HiddenDependencies))
 	}
 	for _, l := range d.Limitations.Items {
 		out = append(out, "  - ["+l.Limitation.Code+"] "+l.Limitation.Message)

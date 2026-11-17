@@ -265,3 +265,32 @@ func TestConsumerCompletenessIgnoresOnlyWorkloadSources(t *testing.T) {
 		t.Errorf("an unavailable Pacto source reads %s", c)
 	}
 }
+
+// A visible inferred service's call to a hidden service was seen, so its
+// detail counts it and never reads "none seen".
+func TestRestrictInferredDetailCountsHiddenCalls(t *testing.T) {
+	r := inferredRestrictFleet(t).Restrict(func(ns string) bool { return ns != "secret" }, everyWorkload)
+	d, err := r.EntityDetail(KindService, string(NewServiceKey(ledgerShop)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Service.HiddenDependencies != 1 || d.Service.Calls.Total != 0 {
+		t.Fatalf("hidden %d calls %+v", d.Service.HiddenDependencies, d.Service.Calls)
+	}
+	lines := strings.Join(d.Service.InferredLines(fixedNow()), "\n")
+	if strings.Contains(lines, "No calls") || strings.Contains(lines, "Calls unknown") || !strings.Contains(lines, "Calls to services you cannot see: 1") {
+		t.Errorf("lines:\n%s", lines)
+	}
+}
+
+func TestRestrictSaysWhyInferredIsHidden(t *testing.T) {
+	q := inferredRestrictFleet(t)
+	byKind := q.Restrict(everyNamespace, func(_, kind string) bool { return kind != "Deployment" }).SnapshotForSerialization()
+	if !limitationMentions(byKind, LimitationHiddenByPermissions, "may not list their workload kind") {
+		t.Errorf("no workload-kind reason: %+v", limitationsWith(byKind, LimitationHiddenByPermissions))
+	}
+	byNS := q.Restrict(func(ns string) bool { return ns != "ops" }, everyWorkload).SnapshotForSerialization()
+	if limitationMentions(byNS, LimitationHiddenByPermissions, "workload kind") {
+		t.Error("a namespace-hidden inferred service blames its workload kind")
+	}
+}

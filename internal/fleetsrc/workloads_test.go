@@ -225,6 +225,13 @@ func TestWorkloadSourceOneKindForbidden(t *testing.T) {
 	if st := buildOne(t, NewWorkloadSource("w", nil, unscoped, nil)).Sources[0]; st.Status != fleet.SourcePartial {
 		t.Errorf("one kind forbidden cluster-wide = %+v, want partial", st)
 	}
+	whole, err := NewWorkloadSource("w", nil, unscoped, nil).Collect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lims := limitationsOf(whole, fleet.LimitationSourcePartial); len(lims) != 1 || lims[0] != "source w could not list CronJobs in any namespace: forbidden" {
+		t.Errorf("cluster-wide limitation %v", lims)
+	}
 }
 
 func TestWorkloadSourceAllListsFail(t *testing.T) {

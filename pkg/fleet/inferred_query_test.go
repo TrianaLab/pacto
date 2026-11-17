@@ -205,8 +205,18 @@ func TestInferredDetailCallsUnknownWithoutObservedSource(t *testing.T) {
 	}) {
 		t.Errorf("calls %+v observed %v limitations %+v", d.Service.Calls, d.Service.CallsObserved, d.Service.Limitations)
 	}
-	// An available observer that saw no call of cart: none were seen.
+	// An observer that names callers by service.name can never see a
+	// workload's call: unknown, never none seen.
 	d, err = goldenWith(t, true, kernel(call("orders", "postgresql"))).EntityDetail(KindService, string(NewServiceKey(cartName)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Service.CallsObserved {
+		t.Error("a service.name observer reads as seeing workload calls")
+	}
+	// An available observer of workload callers that saw no call of cart:
+	// none were seen.
+	d, err = goldenWith(t, true, kernel(call(ledgerName, "postgresql"))).EntityDetail(KindService, string(NewServiceKey(cartName)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +228,7 @@ func TestInferredDetailCallsUnknownWithoutObservedSource(t *testing.T) {
 func TestInferredCallsObservedPerCluster(t *testing.T) {
 	eu, us := clusterOf(clusterA, "eu", ClusterNameFromContext), clusterOf(clusterB, "us", ClusterNameFromContext)
 	snap := buildClusterSnap(t,
-		NewMemorySource("kernel-eu", "observation", &Collection{Cluster: eu, Observed: []ObservedEdge{call("x", "y")}}),
+		NewMemorySource("kernel-eu", "observation", &Collection{Cluster: eu, Observed: []ObservedEdge{call("k8s:shop/Deployment/x", "y")}}),
 		workloadsSource("wa", eu, inferredCart()), workloadsSource("wb", us, inferredCart()))
 	q := NewQuery(snap)
 	if !q.callsObserved(&InferredWorkload{Cluster: clusterA}) || q.callsObserved(&InferredWorkload{Cluster: clusterB}) || q.callsObserved(&InferredWorkload{Cluster: "gone"}) {

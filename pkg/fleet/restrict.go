@@ -170,12 +170,24 @@ func (q *Query) Restrict(visible func(namespace string) bool, workloadVisible fu
 
 	restrictLimitations(&out, s.Limitations, append(hiddenNames, slices.Collect(maps.Keys(hiddenNS))...), restricted)
 	restrictScope(&out, visible)
-	out.Limitations = append(out.Limitations, Limitation{Code: LimitationHiddenByPermissions, Message: hiddenMessage})
+	out.Limitations = append(out.Limitations, Limitation{Code: LimitationHiddenByPermissions, Message: hiddenMessage + kindHiddenNote(s, hiddenSvc, hiddenNS)})
 	sortSnapshotLimitations(&out)
 	out.Completeness = CompletenessPartial
 	out.workloadOnlyPartial = false
 	out.SnapshotID = computeSnapshotID(&out)
 	return NewQuery(&out)
+}
+
+// kindHiddenNote is the sentence a restricted answer adds when it hides an
+// inferred service whose namespace the viewer may read: only workload read of
+// its kind is missing, so the namespace sentence alone would be wrong.
+func kindHiddenNote(s *FleetSnapshot, hiddenSvc map[ServiceKey]bool, hiddenNS map[string]bool) string {
+	for k := range hiddenSvc {
+		if svc := s.Services[k]; svc.Inferred() && !hiddenNS[svc.Workload.Namespace] {
+			return "; some inferred services are hidden because you may not list their workload kind"
+		}
+	}
+	return ""
 }
 
 // restrictReports keeps the provider reports a restricted view may hold.
@@ -329,6 +341,23 @@ func unresolvedCounts(limitations []Limitation) ([]Limitation, map[string]int) {
 	}), counts
 }
 
+// rebuiltLimitation reports whether restrictLimitations rebuilds l from what
+// a restricted view still holds rather than keeping it.
+func rebuiltLimitation(l Limitation) bool {
+	switch l.Code {
+	// A conflict lists values hidden targets may have reported.
+	case LimitationDomainConflict, LimitationOfferingConflict, LimitationOwnerConflict,
+		// A fleet-wide count of reports, counts of clusterless targets and
+		// per-source counts of inferred records.
+		LimitationProvisioningTruncated, LimitationUsageTruncated, LimitationClusterUnknown, LimitationClusterConflict, LimitationDeclarationUnverified:
+		return true
+	case LimitationSourceRecordInvalid:
+		// Per-source counts of records that may be hidden.
+		return strings.Contains(l.Message, clusterInvalidPhrase) || strings.Contains(l.Message, droppedFieldsPhrase)
+	}
+	return false
+}
+
 // restrictLimitations keeps the limitations that name nothing hidden and
 // rebuilds the domain, offering and owner conflicts from what out still holds.
 // With hideBare, each source's unresolved observed names become one count.
@@ -344,21 +373,7 @@ func restrictLimitations(out *FleetSnapshot, limitations []Limitation, hiddenNam
 	// visible namespaces. Structured subjects on Limitation would make it exact
 	// and linear.
 	out.Limitations = slices.DeleteFunc(limitations, func(l Limitation) bool {
-		// A conflict lists values hidden targets may have reported, so it is
-		// rebuilt from what out still holds below.
-		if l.Code == LimitationDomainConflict || l.Code == LimitationOfferingConflict || l.Code == LimitationOwnerConflict {
-			return true
-		}
-		// A fleet-wide count of reports; rebuilt below from the visible ones.
-		// Counts of clusterless targets; rebuilt below from the visible ones.
-		// Per-source counts of records that may be hidden; rebuilt below.
-		// Per-source counts of inferred records; rebuilt below from the visible ones.
-		if l.Code == LimitationProvisioningTruncated || l.Code == LimitationUsageTruncated || l.Code == LimitationClusterUnknown || l.Code == LimitationClusterConflict ||
-			l.Code == LimitationDeclarationUnverified ||
-			l.Code == LimitationSourceRecordInvalid && (strings.Contains(l.Message, clusterInvalidPhrase) || strings.Contains(l.Message, droppedFieldsPhrase)) {
-			return true
-		}
-		return slices.ContainsFunc(hiddenNames, func(n string) bool { return n != "" && strings.Contains(l.Message, n) })
+		return rebuiltLimitation(l) || slices.ContainsFunc(hiddenNames, func(n string) bool { return n != "" && strings.Contains(l.Message, n) })
 	})
 	for _, svc := range out.Services {
 		_, _, dc := businessDomainOf(out, svc)

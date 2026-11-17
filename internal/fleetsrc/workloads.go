@@ -68,7 +68,7 @@ func (s *WorkloadSource) Collect(ctx context.Context) (*fleet.Collection, error)
 				return scoped(s.id, s.namespaces, col, read), nil
 			case err != nil:
 				listErr, complete = cmp.Or(listErr, err), false
-				col.Limitations = append(col.Limitations, fleet.NamespaceUnreadableLimitation(s.id, ns, reasonClass(err)+" listing "+kind))
+				col.Limitations = append(col.Limitations, kindUnreadable(s.id, ns, kind, err))
 			}
 		}
 		if complete {
@@ -79,6 +79,15 @@ func (s *WorkloadSource) Collect(ctx context.Context) (*fleet.Collection, error)
 		return nil, listErr
 	}
 	return scoped(s.id, s.namespaces, col, read), nil
+}
+
+// kindUnreadable is the limitation of a failed list of kind in ns. Reading
+// every namespace (ns ""), it names the kind, never an empty namespace.
+func kindUnreadable(id, ns, kind string, err error) fleet.Limitation {
+	if ns != "" {
+		return fleet.NamespaceUnreadableLimitation(id, ns, reasonClass(err)+" listing "+kind)
+	}
+	return fleet.Limitation{Code: fleet.LimitationSourcePartial, Source: id, Message: "source " + id + " could not list " + kind + "s in any namespace: " + reasonClass(err)}
 }
 
 // listKind pages through the workloads of kind in ns into col.
