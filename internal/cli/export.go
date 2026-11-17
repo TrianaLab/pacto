@@ -12,7 +12,6 @@ import (
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/pkg/backstage"
-	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 // newExportCommand builds `pacto export`, the parent of one subcommand per
@@ -65,12 +64,12 @@ func runExportBackstage(cmd *cobra.Command, svc *app.Service) error {
 	if err != nil {
 		return err
 	}
-	meta := q.ProductMeta()
-	warnProductPartial(cmd, meta)
-	if allow, _ := cmd.Flags().GetBool("allow-partial"); !allow && !writable(q.Snapshot()) {
-		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "error: the fleet is "+string(meta.Completeness)+
-			", so no file was written; pass --allow-partial to write it anyway")
-		return &ExitError{Code: 2}
+	warnProductPartial(cmd, q.ProductMeta())
+	if reason, ok := backstage.Servable(q.SnapshotForSerialization()); !ok {
+		if allow, _ := cmd.Flags().GetBool("allow-partial"); !allow {
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "error: "+reason+", so no file was written; pass --allow-partial to write it anyway")
+			return &ExitError{Code: 2}
+		}
 	}
 	path, _ := cmd.Flags().GetString("output")
 	var buf bytes.Buffer
@@ -85,43 +84,6 @@ func runExportBackstage(cmd *cobra.Command, svc *app.Service) error {
 		return nil
 	}
 	return writeFileAtomic(path, buf.Bytes())
-}
-
-// writable reports whether snap may replace the file Backstage reads: it is
-// complete, or partial only because a Kubernetes source reads the namespace
-// list it was given and read every one of them. Any other degraded source, an
-// unreadable namespace, an unavailable external catalog or an empty fleet
-// would drop services, so it is refused. Mirrors fleet's classifyCompleteness.
-func writable(snap *fleet.FleetSnapshot) bool {
-	if snap.Completeness == fleet.CompletenessComplete {
-		return true
-	}
-	if len(snap.Services) == 0 && len(snap.Targets) == 0 {
-		return false
-	}
-	scoped := map[string]bool{}
-	for _, l := range snap.Limitations {
-		if l.Code == fleet.LimitationK8sNamespaceScoped {
-			scoped[l.Source] = true
-		}
-	}
-	for _, l := range snap.Limitations {
-		switch {
-		case l.Code == fleet.LimitationExternalCatalogUnavailable:
-			return false
-		// ponytail: a Kubernetes source never emits SOURCE_PARTIAL itself, so on
-		// a scoped source it is the one the build derives from the partial
-		// status; every real problem carries its own code.
-		case scoped[l.Source] && l.Code != fleet.LimitationK8sNamespaceScoped && l.Code != fleet.LimitationSourcePartial:
-			return false
-		}
-	}
-	for _, st := range snap.Sources {
-		if st.Status != fleet.SourceAvailable && (st.Status != fleet.SourcePartial || !scoped[st.ID]) {
-			return false
-		}
-	}
-	return true
 }
 
 // writeFileAtomic replaces path with data through a temporary file in the

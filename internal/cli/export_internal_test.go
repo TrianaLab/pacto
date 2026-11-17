@@ -137,6 +137,9 @@ func TestExportBackstagePartialFailsByDefault(t *testing.T) {
 		if b, _ := os.ReadFile(file); string(b) != "before\n" {
 			t.Errorf("%s: file changed to %q", name, b)
 		}
+		if name == "empty" && !strings.Contains(errOut, "error: the fleet is empty, so no file was written") {
+			t.Errorf("empty: stderr does not say why: %q", errOut)
+		}
 	}
 	if _, errOut, _ := execExport(t, "--local", exportBundle(t, t.TempDir(), "pay"), "--target-state", missing); !strings.Contains(errOut, "SOURCE_UNAVAILABLE") {
 		t.Errorf("stderr does not name the limitation: %q", errOut)
@@ -251,58 +254,6 @@ func TestExportBackstageDemoFleet(t *testing.T) {
 	asOf := regexp.MustCompile(`(pacto.trianalab.io/as-of: ).*`)
 	if norm := asOf.ReplaceAllString(block, "${1}T"); !strings.Contains(asOf.ReplaceAllString(out, "${1}T"), norm) {
 		t.Errorf("the docs excerpt is not in the demo export:\n%s", norm)
-	}
-}
-
-// A --namespace scope whose namespaces were all read is no outage; an
-// unreadable namespace, any other degraded source or an empty fleet is.
-func TestExportBackstageWritable(t *testing.T) {
-	svc := map[fleet.ServiceKey]*fleet.ServiceRecord{"pay": {Key: "pay"}}
-	k8s := func(st fleet.SourceStatus) fleet.SourceState {
-		return fleet.SourceState{ID: "k8s", Kind: fleet.SourceKindKubernetes, Status: st}
-	}
-	scope := fleet.NamespaceScopeLimitation("k8s", []string{"payments"}, 0)
-	derived := fleet.Limitation{Code: fleet.LimitationSourcePartial, Source: "k8s"}
-	for _, tc := range []struct {
-		name string
-		snap fleet.FleetSnapshot
-		want bool
-	}{
-		{"complete", fleet.FleetSnapshot{Completeness: fleet.CompletenessComplete}, true},
-		{"scoped, every namespace read", fleet.FleetSnapshot{
-			Completeness: fleet.CompletenessPartial, Services: svc,
-			Sources:     []fleet.SourceState{k8s(fleet.SourcePartial), {ID: "oci", Status: fleet.SourceAvailable}},
-			Limitations: []fleet.Limitation{scope, derived},
-		}, true},
-		{"scoped, a namespace unreadable", fleet.FleetSnapshot{
-			Completeness: fleet.CompletenessPartial, Services: svc,
-			Sources:     []fleet.SourceState{k8s(fleet.SourcePartial)},
-			Limitations: []fleet.Limitation{scope, derived, fleet.NamespaceUnreadableLimitation("k8s", "ledger", "forbidden")},
-		}, false},
-		{"scoped, another source unavailable", fleet.FleetSnapshot{
-			Completeness: fleet.CompletenessPartial, Services: svc,
-			Sources:     []fleet.SourceState{k8s(fleet.SourcePartial), {ID: "oci", Status: fleet.SourceUnavailable}},
-			Limitations: []fleet.Limitation{scope, derived},
-		}, false},
-		{"scoped, empty", fleet.FleetSnapshot{
-			Completeness: fleet.CompletenessPartial,
-			Sources:      []fleet.SourceState{k8s(fleet.SourcePartial)},
-			Limitations:  []fleet.Limitation{scope, derived},
-		}, false},
-		{"partial without scope", fleet.FleetSnapshot{
-			Completeness: fleet.CompletenessPartial, Services: svc,
-			Sources:     []fleet.SourceState{k8s(fleet.SourcePartial)},
-			Limitations: []fleet.Limitation{derived},
-		}, false},
-		{"scoped, external catalog unavailable", fleet.FleetSnapshot{
-			Completeness: fleet.CompletenessPartial, Services: svc,
-			Sources:     []fleet.SourceState{k8s(fleet.SourcePartial)},
-			Limitations: []fleet.Limitation{scope, derived, {Code: fleet.LimitationExternalCatalogUnavailable}},
-		}, false},
-	} {
-		if got := writable(&tc.snap); got != tc.want {
-			t.Errorf("%s: writable = %v, want %v", tc.name, got, tc.want)
-		}
 	}
 }
 

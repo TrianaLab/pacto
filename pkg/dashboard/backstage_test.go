@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -125,14 +126,94 @@ func TestBackstageEntitiesSnapshotUnavailable(t *testing.T) {
 	rec := backstageGet(t, Options{Fleet: func(context.Context) (*fleet.Query, error) {
 		return nil, errors.New("no snapshot yet")
 	}}, http.MethodGet)
-	assertRefused(t, rec)
+	assertRefused(t, rec, "the fleet snapshot is not available yet: no snapshot yet")
 }
 
+// A failed view names its own cause, never a snapshot still being built.
 func TestBackstageEntitiesViewFailure(t *testing.T) {
 	rec := backstageGet(t, Options{Fleet: fleetOf(viewQuery(t)), View: func(context.Context, *fleet.Query) (*fleet.Query, error) {
 		return nil, errors.New("apiserver down")
 	}}, http.MethodGet)
-	assertRefused(t, rec)
+	assertRefused(t, rec, "could not narrow the fleet to this reader: apiserver down")
+	if strings.Contains(rec.Body.String(), "not available yet") {
+		t.Errorf("a failed view reads as a missing snapshot: %q", rec.Body.String())
+	}
+}
+
+// restrictTo is a view that may read only the namespaces named.
+func restrictTo(nss ...string) func(context.Context, *fleet.Query) (*fleet.Query, error) {
+	return func(_ context.Context, q *fleet.Query) (*fleet.Query, error) {
+		return q.Restrict(func(ns string) bool { return slices.Contains(nss, ns) }), nil
+	}
+}
+
+// TestBackstageEntitiesRestrictedViewKeepsRefusals: whether records are
+// missing is judged before the reader's view narrows the fleet, which drops
+// limitations about namespaces the reader cannot see and any limitation whose
+// prose names a hidden name.
+func TestBackstageEntitiesRestrictedViewKeepsRefusals(t *testing.T) {
+	scoped := func(read []string, unreadable string) fleet.Source {
+		return fleet.NewMemorySource("k8s-b", "kubernetes", &fleet.Collection{
+			State: &fleet.SourceState{Status: fleet.SourcePartial, Namespaces: read, NamespacesTotal: len(read) + 1},
+			Limitations: []fleet.Limitation{
+				fleet.NamespaceScopeLimitation("k8s-b", read, 0),
+				fleet.NamespaceUnreadableLimitation("k8s-b", unreadable, "forbidden"),
+			},
+		})
+	}
+	// pay was never listed, so no view asks about it and Restrict drops its limitation.
+	never := sourcesQuery(t, scoped([]string{"shop"}, "pay"))
+	assertRefused(t, backstageGet(t, Options{Fleet: fleetOf(never), View: restrictTo("shop", "pay")}, http.MethodGet), "k8s-b", "partial")
+
+	// The hidden namespace payments is a prefix of the visible, unreadable payments-prod.
+	prefix := sourcesQuery(t, scoped([]string{"payments"}, "payments-prod"),
+		fleet.NewMemorySource("k8s-c", "kubernetes", &fleet.Collection{
+			Targets: []fleet.RawTarget{{Scope: "payments", Kind: fleet.SourceKindKubernetes, Name: "pay-svc", Service: "pay-svc"}},
+		}))
+	assertRefused(t, backstageGet(t, Options{Fleet: fleetOf(prefix), View: restrictTo("shop", "payments-prod")}, http.MethodGet), "k8s-b", "partial")
+
+	// The organization catalog's message says "default catalog"; hiding the default namespace must not hide it.
+	lim := fleet.Limitation{Code: fleet.LimitationExternalCatalogUnavailable, Source: "external-catalog",
+		Message: "The organization catalog oci://reg/catalog could not be read, so only the default catalog classified external systems: denied"}
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{ExternalCatalogLimitations: []fleet.Limitation{lim}}, fleet.NewMemorySource("k8s", "kubernetes", &fleet.Collection{
+		Targets: []fleet.RawTarget{
+			{Scope: "shop", Kind: fleet.SourceKindKubernetes, Name: "shop-svc", Service: "shop-svc"},
+			{Scope: "default", Kind: fleet.SourceKindKubernetes, Name: "web", Service: "web"},
+		},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRefused(t, backstageGet(t, Options{Fleet: fleetOf(fleet.NewQuery(snap)), View: restrictTo("shop")}, http.MethodGet), "external-catalog", "unavailable")
+}
+
+// TestBackstageEntitiesEmptyFleetIs503: a fleet whose sources answered and
+// hold nothing refuses, as pacto export backstage does, while a reader whose
+// view of a fleet that holds services is empty gets an empty 200.
+func TestBackstageEntitiesEmptyFleetIs503(t *testing.T) {
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("oci", "oci", &fleet.Collection{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Completeness != fleet.CompletenessEmpty {
+		t.Fatalf("completeness = %s, want empty", snap.Completeness)
+	}
+	assertRefused(t, backstageGet(t, Options{Fleet: fleetOf(fleet.NewQuery(snap))}, http.MethodGet), "the fleet is empty")
+}
+
+// TestBackstageEntitiesUnresolvedObservedIs200: a scoped source that observed
+// a call to a name the fleet does not hold has lost no record.
+func TestBackstageEntitiesUnresolvedObservedIs200(t *testing.T) {
+	q := sourcesQuery(t, fleet.NewMemorySource("k8s-b", "kubernetes", &fleet.Collection{
+		State: &fleet.SourceState{Status: fleet.SourcePartial, Namespaces: []string{"a"}, NamespacesTotal: 1},
+		Limitations: []fleet.Limitation{
+			fleet.NamespaceScopeLimitation("k8s-b", []string{"a"}, 0),
+			{Code: fleet.LimitationObservedIdentityUnresolved, Source: "k8s-b", Message: "observed service some-db could not be mapped"},
+		},
+	}))
+	if rec := backstageGet(t, Options{Fleet: fleetOf(q)}, http.MethodGet); rec.Code != http.StatusOK {
+		t.Fatalf("got %d %q, want 200", rec.Code, rec.Body.String())
+	}
 }
 
 // TestBackstageEntitiesSourceUnavailableIs503: a source whose records are

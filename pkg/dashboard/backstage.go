@@ -2,10 +2,10 @@ package dashboard
 
 import (
 	"bytes"
+	"errors"
 	"net/http"
 
 	"github.com/trianalab/pacto/v4/pkg/backstage"
-	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 // RegisterRawRoutes registers the routes huma cannot describe: today only GET
@@ -20,17 +20,30 @@ func (s *Server) RegisterRawRoutes(mux *http.ServeMux) {
 
 // backstageEntities serves the caller's view as Backstage entities. Anything
 // short of a whole view is a 503: Backstage reads a successful answer as the
-// full catalog and orphans every entity missing from it.
+// full catalog and orphans every entity missing from it. Whether records are
+// missing is judged on the published snapshot before the reader's view
+// narrows it (see [backstage.Servable]), so a reader whose view holds nothing
+// of a whole fleet gets an empty 200.
 func (s *Server) backstageEntities(w http.ResponseWriter, r *http.Request) {
-	q, err := s.fleetQuery(r.Context())
-	if err != nil {
+	refuse := func(why string) {
 		w.Header().Set("Retry-After", "30")
-		http.Error(w, "the fleet snapshot is not available yet: "+err.Error(), http.StatusServiceUnavailable)
+		http.Error(w, why, http.StatusServiceUnavailable)
+	}
+	base, err := s.opts.Fleet(r.Context())
+	if err == nil && base == nil {
+		err = errors.New("no snapshot was published")
+	}
+	if err != nil {
+		refuse("the fleet snapshot is not available yet: " + err.Error())
 		return
 	}
-	if id, status, ok := missingRecords(q); ok {
-		w.Header().Set("Retry-After", "30")
-		http.Error(w, "source "+id+" is "+status+", so Backstage keeps the entities it has", http.StatusServiceUnavailable)
+	if why, ok := backstage.Servable(base.SnapshotForSerialization()); !ok {
+		refuse(why + ", so Backstage keeps the entities it has")
+		return
+	}
+	q, err := s.view(r.Context(), base)
+	if err != nil {
+		refuse("could not narrow the fleet to this reader: " + err.Error())
 		return
 	}
 	// Buffered so a 200 is never a truncated catalog.
@@ -41,44 +54,4 @@ func (s *Server) backstageEntities(w http.ResponseWriter, r *http.Request) {
 	h.Set("Cache-Control", "private, no-store")
 	h.Set("Vary", "Authorization, Cookie")
 	_, _ = w.Write(buf.Bytes())
-}
-
-// missingRecords names the first source of q whose records may be missing:
-// one that is unavailable, or partial for a reason other than reading a
-// declared namespace list, or an organization catalog that could not be read
-// (its external systems would vanish). A stale source keeps its records.
-func missingRecords(q *fleet.Query) (id, status string, ok bool) {
-	snap := q.SnapshotForSerialization()
-	for _, l := range snap.Limitations {
-		if l.Code == fleet.LimitationExternalCatalogUnavailable {
-			return l.Source, string(fleet.SourceUnavailable), true
-		}
-	}
-	for _, st := range snap.Sources {
-		if st.Status == fleet.SourceUnavailable || st.Status == fleet.SourcePartial && !onlyScoped(snap.Limitations, st.ID) {
-			return st.ID, string(st.Status), true
-		}
-	}
-	return "", "", false
-}
-
-// onlyScoped reports whether source's only limitations are its namespace
-// scope and the SOURCE_PARTIAL that Build adds to every partial source.
-// ponytail: a SOURCE_PARTIAL a scoped source raised itself would pass too;
-// no Kubernetes source raises one today, it reports K8S_NAMESPACE_UNREADABLE.
-func onlyScoped(ls []fleet.Limitation, source string) bool {
-	scoped := false
-	for _, l := range ls {
-		if l.Source != source {
-			continue
-		}
-		switch l.Code {
-		case fleet.LimitationK8sNamespaceScoped:
-			scoped = true
-		case fleet.LimitationSourcePartial:
-		default:
-			return false
-		}
-	}
-	return scoped
 }
