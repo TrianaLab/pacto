@@ -147,6 +147,10 @@ publish:
   commented `inferred externals` block above. Nothing it infers becomes part
   of the contract until you uncomment an entry. A `--cluster` draft lists them
   the same way.
+- On a folder that already holds a `pactoVersion: "2.5"` `pacto.yaml`, `init`
+  completes the contract and never changes it: what the folder adds goes into
+  the [inferred record](contract-reference/inferred-record.md), published with
+  the bundle, each value with its source.
 - Each one shows only its host and port: a user name, password, path and
   query are stripped from a URL before anything reads it. A Secret's values
   are never read.
