@@ -22,6 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 
+	"github.com/trianalab/pacto/v4/internal/discover"
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
 	"github.com/trianalab/pacto/v4/internal/runtimewatch/kubesink"
 	"github.com/trianalab/pacto/v4/pkg/runtimefacts"
@@ -564,7 +565,7 @@ func (cl *cluster) peers(svc unstructured.Unstructured) []runtimefacts.Address {
 	ports, _, _ := unstructured.NestedSlice(svc.Object, "spec", "ports")
 	for _, ip := range ips {
 		for _, p := range ports {
-			if n, ok := dig(p, "port").(int64); ok && ip != "None" {
+			if n, ok := discover.Dig(p, "port").(int64); ok && ip != "None" {
 				out = append(out, runtimefacts.NewAddress(ip, int32(n)))
 			}
 		}
@@ -576,11 +577,11 @@ func (cl *cluster) peers(svc unstructured.Unstructured) []runtimefacts.Address {
 		eps, _, _ := unstructured.NestedSlice(s.Object, "endpoints")
 		sports, _, _ := unstructured.NestedSlice(s.Object, "ports")
 		for _, ep := range eps {
-			addrs, _ := dig(ep, "addresses").([]any)
+			addrs, _ := discover.Dig(ep, "addresses").([]any)
 			for _, a := range addrs {
 				for _, p := range sports {
 					ip, _ := a.(string)
-					if n, ok := dig(p, "port").(int64); ok {
+					if n, ok := discover.Dig(p, "port").(int64); ok {
 						out = append(out, runtimefacts.NewAddress(ip, int32(n)))
 					}
 				}
@@ -661,9 +662,8 @@ func secretEnv(w *unstructured.Unstructured, secret string, objects map[string]b
 	keys, urls := map[string]bool{}, map[string]bool{}
 	sensitiveEnv(lists, func(list int, container string, e map[string]any) {
 		k := e["name"].(string)
-		// The scan reads containers only (scan.go readWorkload).
-		sc := &scan{env: []envVar{{name: k, value: e["value"].(string)}}, objects: objects}
-		if d := sc.dependencies(w.GetName()); list == 0 && len(d) > 0 {
+		// The scan reads containers only (discover.readWorkload).
+		if d := discover.EnvDependencies([]discover.EnvVar{{Name: k, Value: e["value"].(string)}}, objects, w.GetName()); list == 0 && len(d) > 0 {
 			urls[k+" ("+d[0].Name+")"] = true
 		}
 		if split[k] {
@@ -693,7 +693,7 @@ func sensitiveEnv(lists [][]any, fn func(list int, container string, e map[strin
 				em, _ := e.(map[string]any)
 				key, _ := em["name"].(string)
 				value, _ := em["value"].(string)
-				if sensitiveLiteral(key, value) {
+				if discover.SensitiveLiteral(key, value) {
 					fn(i, name, em)
 				}
 			}

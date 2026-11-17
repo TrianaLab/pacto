@@ -1,4 +1,4 @@
-package pactify
+package discover
 
 import (
 	"bytes"
@@ -19,58 +19,59 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/ignore"
 )
 
-// scan is what a folder says about the service in it.
-type scan struct {
-	dockerfile  string   // the Dockerfile used, relative and slash-separated
-	dockerfiles []string // every Dockerfile found
-	manifests   []string // YAML files that hold Kubernetes objects
-	secrets     []string // YAML files holding a Secret's values, never published
+// Scan is what a folder says about the service in it.
+type Scan struct {
+	Dockerfile  string   // the Dockerfile used, relative and slash-separated
+	Dockerfiles []string // every Dockerfile found
+	Manifests   []string // YAML files that hold Kubernetes objects
+	Secrets     []string // YAML files holding a Secret's values, never published
 	objects     map[string]bool
-	services    map[string]bool // Kubernetes Services, by name
-	workloads   []*workload
-	workload    *workload // the one the contract describes
-	openapi     string
-	charts      []string
-	kustomize   []string // kustomization.yaml files among the manifests
-	configMaps  map[string]configMap
-	// env is the workload's environment, with every ConfigMap it reads
-	// expanded, and envNotes what of it could not be read.
-	env      []envVar
-	envNotes []string
+	Services    map[string]bool // Kubernetes Services, by name
+	workloads   []*Workload
+	Workload    *Workload // the one the contract describes
+	OpenAPI     string
+	Charts      []string
+	Kustomize   []string // kustomization.yaml files among the manifests
+	ConfigMaps  map[string]ConfigMap
+	// Env is the workload's environment, with every ConfigMap it reads
+	// expanded, and EnvNotes what of it could not be read.
+	Env      []EnvVar
+	EnvNotes []string
 	ign      *ignore.Matcher // .pactoignore: what it leaves out is not read
 }
 
-// configMap is a ConfigMap's data and the file it is in.
-type configMap struct {
+// ConfigMap is a ConfigMap's data and the file it is in.
+type ConfigMap struct {
 	file string
 	data map[string]string
 }
 
-// workload is a Deployment, StatefulSet, DaemonSet, Job or CronJob.
-type workload struct {
-	kind, name, file, image, team string
-	ports                         []int
-	env                           []envVar
-	// probe is the main container's first readiness, liveness or startup
+// Workload is a Deployment, StatefulSet, DaemonSet, Job or CronJob.
+type Workload struct {
+	Kind, Name, File, Image, Team string
+	Ports                         []int
+	Env                           []EnvVar
+	// Probe is the main container's first readiness, liveness or startup
 	// probe, nil when it has none.
-	probe *probe
+	Probe *Probe
 }
 
-// envVar is one environment variable. A ConfigMap or Secret it is read from
+// EnvVar is one environment variable. A ConfigMap or Secret it is read from
 // is named in from: "configmap" or "secret" with ref the object's name and
 // key the key, or no key when every key of the object is read (envFrom, with
 // name its prefix). secret marks a value that is never read.
-type envVar struct {
-	file, name, value string
-	from, ref, key    string
-	secret            bool
+type EnvVar struct {
+	File, Name, Value string
+	From, Ref, Key    string
+	Secret            bool
 }
 
-// probe is a container probe: which one, and the HTTP path it calls, empty
+// Probe is a container probe: which one, and the HTTP path it calls, empty
 // for a TCP, gRPC or exec probe.
-type probe struct{ kind, path string }
+type Probe struct{ Kind, Path string }
 
-var workloadKinds = map[string]string{
+// WorkloadKinds maps each workload kind to the contract workload it is.
+var WorkloadKinds = map[string]string{
 	"Deployment": "service", "StatefulSet": "service", "DaemonSet": "service",
 	"Job": "job", "CronJob": "scheduled",
 }
@@ -81,8 +82,10 @@ var openapiRE = regexp.MustCompile(`^(openapi|swagger)\.(ya?ml|json)$`)
 // pacto init writes itself.
 var skipDirs = map[string]bool{"node_modules": true, "vendor": true}
 
-func scanDir(dir string) (*scan, error) {
-	sc := &scan{objects: map[string]bool{}, services: map[string]bool{}, configMaps: map[string]configMap{}}
+// Dir reads what the folder dir says about the service in it. A folder that
+// does not exist yet reads as empty.
+func Dir(dir string) (*Scan, error) {
+	sc := &Scan{objects: map[string]bool{}, Services: map[string]bool{}, ConfigMaps: map[string]ConfigMap{}}
 	// What .pactoignore leaves out of the bundle is not read either.
 	ign, err := ignore.Load(os.DirFS(dir))
 	if err != nil {
@@ -113,18 +116,18 @@ func scanDir(dir string) (*scan, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading %s: %w", dir, err)
 	}
-	sort.SliceStable(sc.dockerfiles, func(i, j int) bool { return dockerRank(sc.dockerfiles[i]) < dockerRank(sc.dockerfiles[j]) })
-	if len(sc.dockerfiles) > 0 {
-		sc.dockerfile = sc.dockerfiles[0]
+	sort.SliceStable(sc.Dockerfiles, func(i, j int) bool { return dockerRank(sc.Dockerfiles[i]) < dockerRank(sc.Dockerfiles[j]) })
+	if len(sc.Dockerfiles) > 0 {
+		sc.Dockerfile = sc.Dockerfiles[0]
 	}
-	sc.workload = pickWorkload(sc.workloads, filepath.Base(dir))
+	sc.Workload = pickWorkload(sc.workloads, filepath.Base(dir))
 	sc.resolveEnv()
 	return sc, nil
 }
 
-// dir decides whether scanDir walks into a folder: fs.SkipDir to leave it
+// dir decides whether Dir walks into a folder: fs.SkipDir to leave it
 // out, nil to read it.
-func (sc *scan) dir(p, rel, name string) error {
+func (sc *Scan) dir(p, rel, name string) error {
 	if rel != "." && (strings.HasPrefix(name, ".") || skipDirs[name] || rel == "delivery") {
 		return fs.SkipDir
 	}
@@ -132,12 +135,12 @@ func (sc *scan) dir(p, rel, name string) error {
 	// chart folder is never read. When the folder itself is a chart,
 	// only its templates, subcharts and CRDs are left out.
 	if _, err := os.Stat(filepath.Join(p, "Chart.yaml")); err == nil {
-		sc.charts = append(sc.charts, rel)
+		sc.Charts = append(sc.Charts, rel)
 		if rel != "." {
 			return fs.SkipDir
 		}
 	}
-	if slices.Contains(sc.charts, ".") && (rel == "templates" || rel == "charts" || rel == "crds") {
+	if slices.Contains(sc.Charts, ".") && (rel == "templates" || rel == "charts" || rel == "crds") {
 		return fs.SkipDir
 	}
 	return nil
@@ -153,9 +156,9 @@ func dockerRank(p string) string {
 }
 
 // pickWorkload is the workload named like the folder, else the first.
-func pickWorkload(ws []*workload, base string) *workload {
+func pickWorkload(ws []*Workload, base string) *Workload {
 	for _, w := range ws {
-		if w.name == base {
+		if w.Name == base {
 			return w
 		}
 	}
@@ -165,14 +168,14 @@ func pickWorkload(ws []*workload, base string) *workload {
 	return nil
 }
 
-func (sc *scan) file(p, rel, base string) {
+func (sc *Scan) file(p, rel, base string) {
 	switch {
 	case base == "Dockerfile" || strings.HasPrefix(base, "Dockerfile.") || strings.HasSuffix(base, ".Dockerfile"):
-		sc.dockerfiles = append(sc.dockerfiles, rel)
-	case base == "Chart.yaml": // its folder is a chart, recorded by scanDir
+		sc.Dockerfiles = append(sc.Dockerfiles, rel)
+	case base == "Chart.yaml": // its folder is a chart, recorded by Dir
 	case openapiRE.MatchString(base):
-		if sc.openapi == "" || strings.Count(rel, "/") < strings.Count(sc.openapi, "/") {
-			sc.openapi = rel
+		if sc.OpenAPI == "" || strings.Count(rel, "/") < strings.Count(sc.OpenAPI, "/") {
+			sc.OpenAPI = rel
 		}
 	case strings.HasSuffix(base, ".yaml") || strings.HasSuffix(base, ".yml"):
 		data, err := os.ReadFile(p)
@@ -191,7 +194,7 @@ var toolGroups = map[string]bool{"backstage.io": true, "skaffold": true}
 
 // manifest reads every Kubernetes object in one YAML file. A file that is not
 // YAML, or holds no object with apiVersion and kind, is not a manifest.
-func (sc *scan) manifest(rel string, data []byte) {
+func (sc *Scan) manifest(rel string, data []byte) {
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	// A kustomization.yaml needs no apiVersion or kind; its secretGenerator
 	// holds a Secret's values as plainly as a Secret does.
@@ -213,24 +216,24 @@ func (sc *scan) manifest(rel string, data []byte) {
 			continue
 		}
 		found = true
-		name, _ := dig(doc, "metadata", "name").(string)
+		name, _ := Dig(doc, "metadata", "name").(string)
 		sc.objects[name] = true
-		sc.services[name] = sc.services[name] || kind == "Service"
+		sc.Services[name] = sc.Services[name] || kind == "Service"
 		kust = kust || kind == "Kustomization"
 		if kind == "ConfigMap" {
-			sc.configMaps[name] = configMap{file: rel, data: stringMap(doc["data"])}
+			sc.ConfigMaps[name] = ConfigMap{file: rel, data: stringMap(doc["data"])}
 		}
-		if _, ok := workloadKinds[kind]; ok {
+		if _, ok := WorkloadKinds[kind]; ok {
 			sc.workloads = append(sc.workloads, readWorkload(rel, kind, name, doc))
 		}
 	}
 	switch {
 	case secret:
-		sc.secrets = append(sc.secrets, rel)
+		sc.Secrets = append(sc.Secrets, rel)
 	case found:
-		sc.manifests = append(sc.manifests, rel)
+		sc.Manifests = append(sc.Manifests, rel)
 		if kust {
-			sc.kustomize = append(sc.kustomize, rel)
+			sc.Kustomize = append(sc.Kustomize, rel)
 		}
 	}
 }
@@ -244,68 +247,68 @@ func holdsSecret(kust bool, kind string, doc map[string]any) bool {
 	return kind == "Secret" && (doc["data"] != nil || doc["stringData"] != nil)
 }
 
-func readWorkload(rel, kind, name string, doc map[string]any) *workload {
-	w := &workload{kind: kind, name: name, file: rel}
-	w.team, _ = dig(doc, "metadata", "labels", "team").(string)
-	pod := dig(doc, "spec", "template", "spec")
+func readWorkload(rel, kind, name string, doc map[string]any) *Workload {
+	w := &Workload{Kind: kind, Name: name, File: rel}
+	w.Team, _ = Dig(doc, "metadata", "labels", "team").(string)
+	pod := Dig(doc, "spec", "template", "spec")
 	if kind == "CronJob" {
-		pod = dig(doc, "spec", "jobTemplate", "spec", "template", "spec")
+		pod = Dig(doc, "spec", "jobTemplate", "spec", "template", "spec")
 	}
-	containers, _ := dig(pod, "containers").([]any)
+	containers, _ := Dig(pod, "containers").([]any)
 	main := 0
 	for i, c := range containers {
-		if dig(c, "name") == name {
+		if Dig(c, "name") == name {
 			main = i
 		}
 	}
 	for i, c := range containers {
 		if i == main {
-			w.image, _ = dig(c, "image").(string)
-			w.probe = readProbe(c)
+			w.Image, _ = Dig(c, "image").(string)
+			w.Probe = readProbe(c)
 		}
-		ports, _ := dig(c, "ports").([]any)
+		ports, _ := Dig(c, "ports").([]any)
 		for _, port := range ports {
-			if n, ok := dig(port, "containerPort").(int); ok {
-				w.ports = append(w.ports, n)
+			if n, ok := Dig(port, "containerPort").(int); ok {
+				w.Ports = append(w.Ports, n)
 			}
 		}
 		// envFrom first: an env entry of the same name wins, as in Kubernetes.
-		envFrom, _ := dig(c, "envFrom").([]any)
+		envFrom, _ := Dig(c, "envFrom").([]any)
 		for _, e := range envFrom {
-			prefix, _ := dig(e, "prefix").(string)
-			if n, ok := dig(e, "configMapRef", "name").(string); ok {
-				w.env = append(w.env, envVar{file: rel, name: prefix, from: "configmap", ref: n})
-			} else if n, ok := dig(e, "secretRef", "name").(string); ok {
-				w.env = append(w.env, envVar{file: rel, name: prefix, from: "secret", ref: n, secret: true})
+			prefix, _ := Dig(e, "prefix").(string)
+			if n, ok := Dig(e, "configMapRef", "name").(string); ok {
+				w.Env = append(w.Env, EnvVar{File: rel, Name: prefix, From: "configmap", Ref: n})
+			} else if n, ok := Dig(e, "secretRef", "name").(string); ok {
+				w.Env = append(w.Env, EnvVar{File: rel, Name: prefix, From: "secret", Ref: n, Secret: true})
 			}
 		}
-		env, _ := dig(c, "env").([]any)
+		env, _ := Dig(c, "env").([]any)
 		for _, e := range env {
-			v := envVar{file: rel}
-			v.name, _ = dig(e, "name").(string)
-			v.value, _ = dig(e, "value").(string)
-			if n, ok := dig(e, "valueFrom", "configMapKeyRef", "name").(string); ok {
-				v.from, v.ref = "configmap", n
-				v.key, _ = dig(e, "valueFrom", "configMapKeyRef", "key").(string)
-			} else if n, ok := dig(e, "valueFrom", "secretKeyRef", "name").(string); ok {
-				v.from, v.ref, v.secret = "secret", n, true
-				v.key, _ = dig(e, "valueFrom", "secretKeyRef", "key").(string)
+			v := EnvVar{File: rel}
+			v.Name, _ = Dig(e, "name").(string)
+			v.Value, _ = Dig(e, "value").(string)
+			if n, ok := Dig(e, "valueFrom", "configMapKeyRef", "name").(string); ok {
+				v.From, v.Ref = "configmap", n
+				v.Key, _ = Dig(e, "valueFrom", "configMapKeyRef", "key").(string)
+			} else if n, ok := Dig(e, "valueFrom", "secretKeyRef", "name").(string); ok {
+				v.From, v.Ref, v.Secret = "secret", n, true
+				v.Key, _ = Dig(e, "valueFrom", "secretKeyRef", "key").(string)
 			}
-			w.env = append(w.env, v)
+			w.Env = append(w.Env, v)
 		}
 	}
 	return w
 }
 
 // readProbe is a container's first readiness, liveness or startup probe.
-func readProbe(c any) *probe {
+func readProbe(c any) *Probe {
 	for _, kind := range []string{"readiness", "liveness", "startup"} {
-		p := dig(c, kind+"Probe")
+		p := Dig(c, kind+"Probe")
 		if p == nil {
 			continue
 		}
-		path, _ := dig(p, "httpGet", "path").(string)
-		return &probe{kind: kind, path: path}
+		path, _ := Dig(p, "httpGet", "path").(string)
+		return &Probe{Kind: kind, Path: path}
 	}
 	return nil
 }
@@ -314,40 +317,40 @@ func readProbe(c any) *probe {
 // ConfigMap in the folder gets its value, and one whose ConfigMap or Secret
 // cannot be read is named in envNotes. A later variable of the same name
 // replaces an earlier one, keeping the earlier one's place.
-func (sc *scan) resolveEnv() {
-	if sc.workload == nil {
+func (sc *Scan) resolveEnv() {
+	if sc.Workload == nil {
 		return
 	}
 	at := map[string]int{}
-	add := func(v envVar) {
-		if i, ok := at[v.name]; ok {
-			sc.env[i] = v
+	add := func(v EnvVar) {
+		if i, ok := at[v.Name]; ok {
+			sc.Env[i] = v
 			return
 		}
-		at[v.name] = len(sc.env)
-		sc.env = append(sc.env, v)
+		at[v.Name] = len(sc.Env)
+		sc.Env = append(sc.Env, v)
 	}
-	for _, v := range sc.workload.env {
-		cm, found := sc.configMaps[v.ref]
+	for _, v := range sc.Workload.Env {
+		cm, found := sc.ConfigMaps[v.Ref]
 		switch {
-		case v.from == "secret" && v.key == "":
-			sc.envNotes = append(sc.envNotes, fmt.Sprintf("the environment %s reads from the Secret %s: its keys are not read, so they are not in the configuration schema", v.file, v.ref))
-		case v.from == "configmap" && !found:
-			sc.envNotes = append(sc.envNotes, fmt.Sprintf("the ConfigMap %s, which %s reads its environment from, is not in the folder, so its keys are not in the configuration schema", v.ref, v.file))
-			if v.key != "" {
+		case v.From == "secret" && v.Key == "":
+			sc.EnvNotes = append(sc.EnvNotes, fmt.Sprintf("the environment %s reads from the Secret %s: its keys are not read, so they are not in the configuration schema", v.File, v.Ref))
+		case v.From == "configmap" && !found:
+			sc.EnvNotes = append(sc.EnvNotes, fmt.Sprintf("the ConfigMap %s, which %s reads its environment from, is not in the folder, so its keys are not in the configuration schema", v.Ref, v.File))
+			if v.Key != "" {
 				add(v)
 			}
-		case v.from == "configmap" && v.key == "":
+		case v.From == "configmap" && v.Key == "":
 			keys := make([]string, 0, len(cm.data))
 			for k := range cm.data {
 				keys = append(keys, k)
 			}
 			sort.Strings(keys)
 			for _, k := range keys {
-				add(envVar{file: cm.file, name: v.name + k, value: cm.data[k], from: "configmap", ref: v.ref, key: k})
+				add(EnvVar{File: cm.file, Name: v.Name + k, Value: cm.data[k], From: "configmap", Ref: v.Ref, Key: k})
 			}
-		case v.from == "configmap":
-			v.file, v.value = cm.file, cm.data[v.key]
+		case v.From == "configmap":
+			v.File, v.Value = cm.file, cm.data[v.Key]
 			add(v)
 		default:
 			add(v)
@@ -367,8 +370,8 @@ func stringMap(v any) map[string]string {
 	return out
 }
 
-// dig walks nested maps.
-func dig(v any, keys ...string) any {
+// Dig walks nested maps.
+func Dig(v any, keys ...string) any {
 	for _, k := range keys {
 		m, _ := v.(map[string]any)
 		v = m[k]
@@ -376,19 +379,25 @@ func dig(v any, keys ...string) any {
 	return v
 }
 
+// Finding is a service found to depend on, or use, this one.
+type Finding struct {
+	Name  string `json:"name"`
+	Where string `json:"where"`
+}
+
 // hostRE reads the host of a URL or host:port. Only a bare name or a cluster
 // name (name.namespace.svc...) is another service; anything else with a dot is
 // outside the cluster.
 var hostRE = regexp.MustCompile(`^(?:([a-z][a-z0-9+.-]*)://)?(?:[^@/]*@)?([a-z0-9]([a-z0-9-]*[a-z0-9])?)((?:\.[a-z0-9-]+)*)(:[0-9]+)?(/.*)?$`)
 
-// dependencies are the services the workload's environment points at,
+// Dependencies are the services the workload's environment points at,
 // leaving out itself and anything its own manifests define. A dotted name
 // outside the cluster is left to externals.
-func (sc *scan) dependencies(self string) []Finding {
+func (sc *Scan) Dependencies(self string) []Finding {
 	out := []Finding{}
 	seen := map[string]bool{}
-	for _, e := range sc.env {
-		m := hostRE.FindStringSubmatch(e.value)
+	for _, e := range sc.Env {
+		m := hostRE.FindStringSubmatch(e.Value)
 		if m == nil || (m[1] == "" && m[5] == "") {
 			continue
 		}
@@ -400,14 +409,20 @@ func (sc *scan) dependencies(self string) []Finding {
 			continue
 		}
 		seen[host] = true
-		out = append(out, Finding{Name: host, Where: e.file + ", env " + e.name})
+		out = append(out, Finding{Name: host, Where: e.File + ", env " + e.Name})
 	}
 	return out
 }
 
-// imageRepo splits an image reference into its repository, with Docker Hub
+// EnvDependencies are the services env points at, leaving out self and every
+// object named in objects: Dependencies over a scan that holds only them.
+func EnvDependencies(env []EnvVar, objects map[string]bool, self string) []Finding {
+	return (&Scan{Env: env, objects: objects}).Dependencies(self)
+}
+
+// ImageRepo splits an image reference into its repository, with Docker Hub
 // spelled out, and its tag.
-func imageRepo(image string) (repo, tag string) {
+func ImageRepo(image string) (repo, tag string) {
 	if i := strings.Index(image, "@"); i >= 0 {
 		image = image[:i]
 	}

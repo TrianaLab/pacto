@@ -241,3 +241,20 @@ func TestCorePackagesHaveNoKubernetesOrIntegrationDeps(t *testing.T) {
 		}
 	}
 }
+
+// TestDiscoverReadsNoClusterOrRuntime keeps folder discovery a pure read of
+// the repository: what Pacto infers for a contract comes from files, never
+// from a cluster or runtime observation, so internal/discover reaches no
+// Kubernetes client, runtime watcher, fleet source or the pactify package
+// that drafts from a cluster.
+func TestDiscoverReadsNoClusterOrRuntime(t *testing.T) {
+	const mod = "github.com/trianalab/pacto/v4/"
+	forbidden := []string{"k8s.io/", "sigs.k8s.io/", mod + "internal/k8sclient", mod + "internal/runtimewatch", mod + "pkg/runtimefacts", mod + "internal/fleetsrc", mod + "internal/pactify"}
+	for _, dep := range deps(t, mod+"internal/discover") {
+		for _, bad := range forbidden {
+			if strings.HasPrefix(dep, bad) {
+				t.Errorf("boundary violation: internal/discover reaches %q; discovery reads the folder only", dep)
+			}
+		}
+	}
+}

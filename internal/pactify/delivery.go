@@ -11,6 +11,7 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"gopkg.in/yaml.v3"
 
+	"github.com/trianalab/pacto/v4/internal/discover"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
@@ -25,13 +26,13 @@ func (p *planner) delivery() {
 		return
 	}
 	name, kind, target := p.r.Service, "Deployment", p.r.Service
-	if w := p.sc.workload; w != nil {
-		kind, target = w.kind, w.name
+	if w := p.sc.Workload; w != nil {
+		kind, target = w.Kind, w.Name
 	}
 	// ponytail: only a Service named like the workload counts as its Service;
 	// read Service selectors if services name theirs differently.
 	service := ""
-	if p.sc.services[target] {
+	if p.sc.Services[target] {
 		service = "    serviceName: " + target + "\n"
 	}
 	p.deliveryPlanned = true
@@ -90,7 +91,7 @@ func (p *planner) delivery() {
 	if !p.contractNew && !p.shipsPactoResource() {
 		p.next(`ship delivery/pacto.yaml with every version: add to the manifests build: sed "s/@PACTO_VERSION@/$PACTO_VERSION/" delivery/pacto.yaml > "$PACTO_OUT"/pacto-resource.yaml`)
 	}
-	for _, k := range p.sc.kustomize {
+	for _, k := range p.sc.Kustomize {
 		p.next("%s decides what Flux applies: add pacto-resource.yaml to its resources", k)
 	}
 }
@@ -101,10 +102,10 @@ const applyRefLabel = "delivery.pacto.trianalab.io/apply-ref"
 // deployedTag is the version the workload runs, read from its image tag, or
 // "" when the tag is not a version.
 func (p *planner) deployedTag() string {
-	if p.sc.workload == nil {
+	if p.sc.Workload == nil {
 		return ""
 	}
-	_, tag := imageRepo(p.sc.workload.image)
+	_, tag := discover.ImageRepo(p.sc.Workload.Image)
 	v, err := semver.StrictNewVersion(strings.TrimPrefix(tag, "v"))
 	if err != nil {
 		return ""
@@ -145,7 +146,7 @@ func (p *planner) keptSource(env, want string) {
 			continue
 		}
 		got := "the registry"
-		if up, ok := dig(doc, "spec", "candidates", "upstreamStage").(map[string]any); ok {
+		if up, ok := discover.Dig(doc, "spec", "candidates", "upstreamStage").(map[string]any); ok {
 			ns, _ := up["namespace"].(string)
 			got = "the Stage in " + ns
 		}

@@ -23,6 +23,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/trianalab/pacto/v4/internal/discover"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -142,10 +143,7 @@ type File struct {
 }
 
 // Finding is a service found to depend on, or use, this one.
-type Finding struct {
-	Name  string `json:"name"`
-	Where string `json:"where"`
-}
+type Finding = discover.Finding
 
 // Result is the plan and, once applied, what was done.
 type Result struct {
@@ -219,7 +217,7 @@ func plan(ctx context.Context, opts Options) (*Result, error) {
 	if info, err := os.Stat(dir); err == nil && !info.IsDir() {
 		return nil, fmt.Errorf("%s is a file, not a folder", dir)
 	}
-	sc, err := scanDir(dir)
+	sc, err := discover.Dir(dir)
 	if err != nil {
 		return nil, err
 	}
@@ -236,7 +234,7 @@ func plan(ctx context.Context, opts Options) (*Result, error) {
 	switch {
 	case opts.Template != nil:
 		r.Mode = modeTemplate
-	case sc.dockerfile != "" || len(sc.manifests) > 0:
+	case sc.Dockerfile != "" || len(sc.Manifests) > 0:
 		r.Mode = modePactify
 	}
 	p := &planner{r: r, sc: sc, opts: opts, envs: envs}
@@ -301,9 +299,9 @@ func environments(opts Options) ([]string, error) {
 
 // serviceName is the caller's name, else the workload's, else the folder's
 // made DNS-safe.
-func serviceName(name string, sc *scan, dir string) (string, error) {
-	if name == "" && sc.workload != nil {
-		name = sc.workload.name
+func serviceName(name string, sc *discover.Scan, dir string) (string, error) {
+	if name == "" && sc.Workload != nil {
+		name = sc.Workload.Name
 	}
 	if name == "" {
 		abs, _ := filepath.Abs(dir) // ponytail: Abs fails only without a working directory
@@ -318,7 +316,7 @@ func serviceName(name string, sc *scan, dir string) (string, error) {
 // planner fills one Result.
 type planner struct {
 	r    *Result
-	sc   *scan
+	sc   *discover.Scan
 	opts Options
 	envs []string
 	// pub is the publish section written or found; the cluster pieces read it.

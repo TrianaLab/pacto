@@ -20,11 +20,11 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 
+	"github.com/trianalab/pacto/v4/internal/discover"
 	"github.com/trianalab/pacto/v4/internal/fleetsrc"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/ignore"
-	"github.com/trianalab/pacto/v4/pkg/schemax"
 	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
@@ -92,7 +92,7 @@ func (p *planner) contract(ctx context.Context) error {
 		return p.fromTemplate(ctx)
 	}
 	if p.r.Mode == modePactify {
-		p.r.Dependencies = p.sc.dependencies(p.r.Service)
+		p.r.Dependencies = p.sc.Dependencies(p.r.Service)
 		p.externals(p.r.Dir)
 	}
 	for _, d := range p.opts.Inferred {
@@ -105,7 +105,7 @@ func (p *planner) contract(ctx context.Context) error {
 		p.existing(data)
 		return nil
 	}
-	for _, c := range p.sc.charts {
+	for _, c := range p.sc.Charts {
 		p.unknown("the Helm chart in %s is not read: render it with helm template --include-crds %s %s > k8s/rendered.yaml and run pacto init again, "+
 			"or add the chart under publish.artifacts as a chart", c, p.r.Service, c)
 	}
@@ -126,8 +126,8 @@ func (p *planner) contract(ctx context.Context) error {
 	p.contractNew = true
 	text := p.pactified()
 	files := p.environmentFiles()
-	if p.sc.openapi != "" {
-		files[p.sc.openapi] = "{}"
+	if p.sc.OpenAPI != "" {
+		files[p.sc.OpenAPI] = "{}"
 	}
 	if p.schema != "" {
 		files[configSchema] = p.schema
@@ -322,10 +322,10 @@ func (p *planner) next(format string, a ...any) {
 // versionAndRegistry reads the version from the image tag and the registry
 // from the image (or --registry), naming placeholders in Unknown. imgRepo is
 // the image repository, "" when the image names none Pacto can push to.
-func (p *planner) versionAndRegistry(w *workload, name string) (version, registry, imgRepo string) {
+func (p *planner) versionAndRegistry(w *discover.Workload, name string) (version, registry, imgRepo string) {
 	tag := ""
-	if w.image != "" {
-		imgRepo, tag = imageRepo(w.image)
+	if w.Image != "" {
+		imgRepo, tag = discover.ImageRepo(w.Image)
 		if !refRE.MatchString("oci://" + imgRepo) {
 			imgRepo = ""
 		}
@@ -334,7 +334,7 @@ func (p *planner) versionAndRegistry(w *workload, name string) (version, registr
 	version = "0.1.0"
 	if v, err := semver.StrictNewVersion(strings.TrimPrefix(tag, "v")); err == nil {
 		version = v.String()
-		p.found("version %s, from the image tag in %s", version, w.file)
+		p.found("version %s, from the image tag in %s", version, w.File)
 	} else {
 		p.unknown("version: no image tag is a version (x.y.z), so 0.1.0 is a placeholder")
 	}
@@ -344,10 +344,10 @@ func (p *planner) versionAndRegistry(w *workload, name string) (version, registr
 	case registry != "":
 	case imgRepo != "" && !hubLibrary(imgRepo):
 		registry = strings.TrimSuffix(path.Dir(imgRepo), "/images")
-		p.found("registry %s, from the image %s", registry, w.image)
+		p.found("registry %s, from the image %s", registry, w.Image)
 	case imgRepo != "":
 		registry = "registry.example"
-		p.unknown("registry: the image %s is a Docker Hub official image, which only Docker publishes, so registry.example is a placeholder; pass --registry", w.image)
+		p.unknown("registry: the image %s is a Docker Hub official image, which only Docker publishes, so registry.example is a placeholder; pass --registry", w.Image)
 	default:
 		registry = "registry.example"
 		p.unknown("registry: no image says where %s is published, so registry.example is a placeholder; pass --registry", name)
@@ -362,16 +362,16 @@ func hubLibrary(repo string) bool { return strings.HasPrefix(repo, "docker.io/li
 // pactified writes the contract the folder describes. Every value it could
 // not read is left out or marked, and named in Unknown.
 func (p *planner) pactified() string {
-	sc, name, w := p.sc, p.r.Service, p.sc.workload
+	sc, name, w := p.sc, p.r.Service, p.sc.Workload
 	if w == nil {
-		w = &workload{}
+		w = &discover.Workload{}
 	} else {
-		p.found("%s %s in %s", w.kind, w.name, w.file)
+		p.found("%s %s in %s", w.Kind, w.Name, w.File)
 	}
 	version, registry, imgRepo := p.versionAndRegistry(w, name)
 
 	var b strings.Builder
-	files := strings.Join(append(nonEmpty(sc.dockerfile), sc.manifests...), ", ")
+	files := strings.Join(append(nonEmpty(sc.Dockerfile), sc.Manifests...), ", ")
 	next := "see what publishing would do: pacto publish --plan"
 	if p.opts.DescribeOnly {
 		next = "validate it: pacto validate"
@@ -379,23 +379,23 @@ func (p *planner) pactified() string {
 	fmt.Fprintf(&b, "# Written by pacto init from %s.\n# Check it, then %s\n", files, next)
 	fmt.Fprintf(&b, "pactoVersion: %q\nservice:\n  name: %s\n  version: %s\n", p.pactoVersion(), yq(name), yq(version))
 	team := p.opts.Owner
-	if team == "" && w.team != "" {
-		team = w.team
-		p.found("owner team %s, from the team label in %s", team, w.file)
+	if team == "" && w.Team != "" {
+		team = w.Team
+		p.found("owner team %s, from the team label in %s", team, w.File)
 	}
 	p.owner(&b, team, "no team label says who owns "+name)
 	p.domain(&b)
-	if kind, ok := workloadKinds[w.kind]; ok {
+	if kind, ok := discover.WorkloadKinds[w.Kind]; ok {
 		fmt.Fprintf(&b, "workload: %s\n", kind)
 	} else {
 		p.unknown("workload: no Kubernetes workload says whether %s is a service, a job or a scheduled job", name)
 	}
 	switch {
-	case sc.openapi != "":
-		fmt.Fprintf(&b, "interfaces:\n  - name: api\n    type: openapi\n    ref: %s\n", yq(sc.openapi))
-		p.found("API description %s", sc.openapi)
-	case len(w.ports) > 0:
-		p.unknown("interfaces: %s listens on port %s, but no OpenAPI file describes it", name, joinInts(w.ports))
+	case sc.OpenAPI != "":
+		fmt.Fprintf(&b, "interfaces:\n  - name: api\n    type: openapi\n    ref: %s\n", yq(sc.OpenAPI))
+		p.found("API description %s", sc.OpenAPI)
+	case len(w.Ports) > 0:
+		p.unknown("interfaces: %s listens on port %s, but no OpenAPI file describes it", name, joinInts(w.Ports))
 	default:
 		p.unknown("interfaces: nothing describes what %s serves", name)
 	}
@@ -405,9 +405,9 @@ func (p *planner) pactified() string {
 	bundles := registry
 	if imgRepo == registry+"/"+name {
 		bundles = registry + "/contracts"
-		p.found("contract bundles under %s, as the image %s already holds %s/%s", bundles, w.image, registry, name)
+		p.found("contract bundles under %s, as the image %s already holds %s/%s", bundles, w.Image, registry, name)
 	}
-	p.health(&b, sc.openapi != "")
+	p.health(&b, sc.OpenAPI != "")
 	p.dependencyEntries(&b, bundles)
 	p.externalEntries(&b)
 	p.configuration(&b)
@@ -417,7 +417,7 @@ func (p *planner) pactified() string {
 	}
 	p.publish(&b, bundles, registry, imgRepo)
 	p.publishOnlyNext()
-	for _, f := range sc.secrets {
+	for _, f := range sc.Secrets {
 		p.next("%s holds a Secret's values, so it is left out of the published manifests, which anyone who can pull them reads; "+
 			"supply it another way (a SealedSecret, an ExternalSecret or SOPS) and move any other objects in it to their own file", f)
 	}
@@ -428,11 +428,11 @@ func (p *planner) pactified() string {
 // to the api interface when the probe calls an HTTP path and an OpenAPI file
 // describes what the service serves.
 func (p *planner) health(b *strings.Builder, api bool) {
-	w := p.sc.workload
-	if w == nil || w.probe == nil {
+	w := p.sc.Workload
+	if w == nil || w.Probe == nil {
 		return
 	}
-	path := w.probe.path
+	path := w.Probe.Path
 	if !contract.ValidCapabilityPath(path) {
 		path = ""
 	}
@@ -440,12 +440,12 @@ func (p *planner) health(b *strings.Builder, api bool) {
 	switch {
 	case path != "" && api:
 		fmt.Fprintf(b, "    binding:\n      type: http\n      interface: api\n      path: %s\n", yq(path))
-		p.found("health check GET %s on api, from the %s probe in %s", path, w.probe.kind, w.file)
+		p.found("health check GET %s on api, from the %s probe in %s", path, w.Probe.Kind, w.File)
 	case path != "":
-		p.found("health check GET %s, from the %s probe in %s", path, w.probe.kind, w.file)
+		p.found("health check GET %s, from the %s probe in %s", path, w.Probe.Kind, w.File)
 		p.unknown("the interface that serves the health check GET %s: no OpenAPI file describes what %s serves, so the check is bound to none", path, p.r.Service)
 	default:
-		p.found("health check, from the %s probe in %s", w.probe.kind, w.file)
+		p.found("health check, from the %s probe in %s", w.Probe.Kind, w.File)
 	}
 }
 
@@ -606,23 +606,23 @@ const configSchema = "configuration/schema.json"
 // value. A key read from a Secret, whose name matches a sensitive pattern or
 // whose value is a URL with credentials is writeOnly.
 func (p *planner) configuration(b *strings.Builder) {
-	for _, n := range p.sc.envNotes {
+	for _, n := range p.sc.EnvNotes {
 		p.unknown("%s", n)
 	}
-	if len(p.sc.env) == 0 {
+	if len(p.sc.Env) == 0 {
 		return
 	}
 	props := map[string]map[string]any{}
 	var from, sensitive []string
-	literals := p.sc.literals()
-	for _, e := range p.sc.env {
-		prop := envProperty(e)
-		props[e.name] = prop
+	literals := p.sc.Literals()
+	for _, e := range p.sc.Env {
+		prop := discover.EnvProperty(e)
+		props[e.Name] = prop
 		if prop["writeOnly"] == true {
-			sensitive = append(sensitive, e.name)
+			sensitive = append(sensitive, e.Name)
 		}
-		if !slices.Contains(from, e.file) {
-			from = append(from, e.file)
+		if !slices.Contains(from, e.File) {
+			from = append(from, e.File)
 		}
 	}
 	data, _ := json.MarshalIndent(struct { // ponytail: a map of strings and scalars always marshals
@@ -632,7 +632,7 @@ func (p *planner) configuration(b *strings.Builder) {
 	}{"https://json-schema.org/draft/2020-12/schema", "object", props}, "", "  ")
 	p.schema = string(data) + "\n"
 	fmt.Fprintf(b, "configurations:\n  - name: env\n    schema: %s\n    required: true\n", configSchema)
-	p.found("%s: the %d environment variables %s reads, from %s, with their types and no values", configSchema, len(p.sc.env), p.r.Service, strings.Join(from, ", "))
+	p.found("%s: the %d environment variables %s reads, from %s, with their types and no values", configSchema, len(p.sc.Env), p.r.Service, strings.Join(from, ", "))
 	if len(sensitive) > 0 {
 		slices.Sort(sensitive)
 		p.found("sensitive keys, marked writeOnly: %s", strings.Join(sensitive, ", "))
@@ -646,34 +646,6 @@ func (p *planner) configuration(b *strings.Builder) {
 	}
 }
 
-// literals maps each folder file to the sensitive keys it sets to a literal
-// value for the workload: an inline env value or a key of a folder ConfigMap
-// the workload reads. It reads the environment before resolveEnv lets a later
-// variable replace an earlier one of the same name, because the earlier
-// literal is still in the file the bundle publishes.
-func (sc *scan) literals() map[string][]string {
-	out := map[string][]string{}
-	add := func(file, name, value string) {
-		if sensitiveLiteral(name, value) && !slices.Contains(out[file], name) {
-			out[file] = append(out[file], name)
-		}
-	}
-	for _, v := range sc.workload.env {
-		cm, found := sc.configMaps[v.ref]
-		switch {
-		case v.from == "configmap" && found && v.key == "":
-			for k, val := range cm.data {
-				add(cm.file, v.name+k, val)
-			}
-		case v.from == "configmap" && found:
-			add(cm.file, v.name, cm.data[v.key])
-		case v.from == "":
-			add(v.file, v.name, v.value)
-		}
-	}
-	return out
-}
-
 // literalValues is how a next step names the literal values of n keys, and
 // the pronoun that refers back to those keys.
 func literalValues(n int) (values, them string) {
@@ -683,61 +655,20 @@ func literalValues(n int) (values, them string) {
 	return "literal values", "them"
 }
 
-// envProperty is an environment variable's schema property: its key and
-// type, never its value.
-func envProperty(e envVar) map[string]any {
-	switch {
-	case e.secret:
-		return map[string]any{"type": "string", "writeOnly": true, "description": "Read from the Secret " + e.ref + ", whose values pacto init does not read."}
-	case schemax.SensitiveKey(e.name) || schemax.SensitiveValue(literal(e.value)):
-		return map[string]any{"type": "string", "writeOnly": true, "description": "Sensitive: pacto init does not copy its value."}
-	}
-	return map[string]any{"type": typeOf(e.value)}
-}
-
-// typeOf is an environment value's JSON Schema type: an integer, a boolean or
-// a string.
-func typeOf(v string) string {
-	if _, err := strconv.ParseInt(v, 10, 64); err == nil {
-		return "integer"
-	}
-	if v == "true" || v == "false" {
-		return "boolean"
-	}
-	return "string"
-}
-
-// varRef is a Kubernetes dependent-variable reference, $(NAME), which the
-// kubelet expands from another variable when it reads env[].value.
-var varRef = regexp.MustCompile(`\$\([A-Za-z_][A-Za-z0-9_.-]*\)`)
-
-// literal is the part of an env value the manifest itself sets: v less its
-// $(NAME) references, which hold no value of their own.
-func literal(v string) string {
-	return varRef.ReplaceAllString(v, "")
-}
-
-// sensitiveLiteral reports whether an env variable named name sets a literal
-// value that is sensitive, by name or as a URL with credentials.
-func sensitiveLiteral(name, value string) bool {
-	v := literal(value)
-	return v != "" && (schemax.SensitiveKey(name) || schemax.SensitiveValue(v))
-}
-
 // publish writes the publish section and keeps it for the cluster pieces.
 func (p *planner) publish(b *strings.Builder, bundles, registry, imgRepo string) {
 	sc, name := p.sc, p.r.Service
 	p.pub = &contract.Publish{Bundle: "oci://" + bundles + "/" + name, Sign: &contract.PublishSign{Key: signKey}}
 	fmt.Fprintf(b, "publish:\n  bundle: %s\n", p.pub.Bundle)
-	if len(sc.manifests) > 0 {
+	if len(sc.Manifests) > 0 {
 		p.pub.Deploy = "manifests"
 		b.WriteString("  deploy: manifests\n")
 	}
-	if sc.dockerfile != "" || len(sc.manifests) > 0 {
+	if sc.Dockerfile != "" || len(sc.Manifests) > 0 {
 		b.WriteString("  artifacts:\n")
 	}
 	pin := imgRepo
-	if df := sc.dockerfile; df != "" {
+	if df := sc.Dockerfile; df != "" {
 		if imgRepo == "" || hubLibrary(imgRepo) {
 			imgRepo = registry + "/images/" + name
 		}
@@ -746,11 +677,11 @@ func (p *planner) publish(b *strings.Builder, bundles, registry, imgRepo string)
 			fmt.Fprintf(b, "          file: %s\n", yq(df))
 		}
 		p.found("%s builds the image %s", df, imgRepo)
-		if len(sc.dockerfiles) > 1 {
-			p.unknown("several Dockerfiles (%s): pacto init used %s", strings.Join(sc.dockerfiles, ", "), df)
+		if len(sc.Dockerfiles) > 1 {
+			p.unknown("several Dockerfiles (%s): pacto init used %s", strings.Join(sc.Dockerfiles, ", "), df)
 		}
 	}
-	if len(sc.manifests) > 0 {
+	if len(sc.Manifests) > 0 {
 		cmd, kept := p.copyManifests()
 		cmd += p.pinImage(pin, imgRepo, kept)
 		if p.opts.Delivery {
@@ -779,12 +710,12 @@ func (p *planner) publish(b *strings.Builder, bundles, registry, imgRepo string)
 // image repository, "" when it names none Pacto can push to; built is the
 // image the Dockerfile builds; kept says the manifests keep their folders.
 func (p *planner) pinImage(pin, built string, kept bool) string {
-	w := p.sc.workload
-	if p.sc.dockerfile == "" || w == nil {
+	w := p.sc.Workload
+	if p.sc.Dockerfile == "" || w == nil {
 		return ""
 	}
-	if pin == "" || !imageRE.MatchString(w.image) {
-		p.next("%s does not deploy %s, the image the Dockerfile builds, so its image is published as written, not pinned to the one each version builds", w.file, built)
+	if pin == "" || !imageRE.MatchString(w.Image) {
+		p.next("%s does not deploy %s, the image the Dockerfile builds, so its image is published as written, not pinned to the one each version builds", w.File, built)
 		return ""
 	}
 	// The match is the whole value of an image: field, block or flow style,
@@ -793,19 +724,19 @@ func (p *planner) pinImage(pin, built string, kept bool) string {
 	// (a JSON manifest, say) is not pinned, and init says so; a build that
 	// pinned nothing, as the file changed since, fails rather than ship the
 	// tag unpinned.
-	img := strings.ReplaceAll(w.image, ".", `\.`)
+	img := strings.ReplaceAll(w.Image, ".", `\.`)
 	field := regexp.MustCompile(`(?m)(^|[{,\s])image:\s*["']?` + img + `["']?\s*([,}#]|$)`)
 	// named is any image field, YAML or JSON, that holds the image: a file
 	// that has one the match does not read is told it is not pinned; a file
 	// that only shares the text (a Service's name, a label) is not.
-	named := regexp.MustCompile(`image["']?\s*:\s*["']?` + regexp.QuoteMeta(w.image) + `(["'\s,}#]|$)`)
+	named := regexp.MustCompile(`image["']?\s*:\s*["']?` + regexp.QuoteMeta(w.Image) + `(["'\s,}#]|$)`)
 	var cmd string
 	var pinned []string
-	for _, m := range p.sc.manifests {
+	for _, m := range p.sc.Manifests {
 		raw, _ := os.ReadFile(filepath.Join(p.r.Dir, m))
 		if !field.Match(raw) {
 			if named.Match(raw) {
-				p.next("%s names %s in a form pacto init cannot rewrite (write it as `image: %s`), so its image is published as written, not pinned to the one each version builds", m, w.image, w.image)
+				p.next("%s names %s in a form pacto init cannot rewrite (write it as `image: %s`), so its image is published as written, not pinned to the one each version builds", m, w.Image, w.Image)
 			}
 			continue
 		}
@@ -816,7 +747,7 @@ func (p *planner) pinImage(pin, built string, kept bool) string {
 		pinned = append(pinned, m)
 		cmd += fmt.Sprintf(` && sed -E "s,(^|[{,[:space:]])(image:[[:space:]]*[\"']?)%s([\"']?[[:space:]]*([,}#]|$)),\1\2$PACTO_REF_API@$PACTO_DIGEST_API\3,g" %s > "$PACTO_OUT"/%s`+
 			` && { grep -qF "$PACTO_DIGEST_API" "$PACTO_OUT"/%s || { echo "pacto: no image: %s line to pin" >&2; exit 1; }; }`,
-			img, shq(m), shq(out), shq(out), w.image)
+			img, shq(m), shq(out), shq(out), w.Image)
 	}
 	if len(pinned) > 0 {
 		verb := "deploys"
@@ -836,8 +767,8 @@ func (p *planner) copyManifests() (string, bool) {
 	byDir := map[string][]string{}
 	var dirs, all []string
 	seen := map[string]bool{}
-	keep := len(p.sc.kustomize) > 0
-	for _, m := range p.sc.manifests {
+	keep := len(p.sc.Kustomize) > 0
+	for _, m := range p.sc.Manifests {
 		d := path.Dir(m)
 		if byDir[d] == nil {
 			dirs = append(dirs, d)
