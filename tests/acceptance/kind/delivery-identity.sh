@@ -560,11 +560,13 @@ identity_scenario() {
   # the Stages' registry would wait out its 5s timeout, retried per pull.
   local dns; dns="$(kubectl -n kube-system get svc kube-dns -o jsonpath='{.spec.clusterIP}')"
   printf 'search svc.cluster.local cluster.local\nnameserver %s\noptions ndots:5\n' "$dns" > "$IDP_DIR/resolv.conf"
-  in_node pacto-e2e-dashboard -e KUBECONFIG=/kube/config -e SSL_CERT_FILE=/ca/tls.crt -e HOME=/tmp -v "$IDP_DIR/resolv.conf:/etc/resolv.conf:ro" \
+  # The registry is plain HTTP: without it every contract pull fails, the oci
+  # source is partial and the Backstage route refuses the whole catalog.
+  in_node pacto-e2e-dashboard -e PACTO_INSECURE_REGISTRIES="$REG_HOST" -e KUBECONFIG=/kube/config -e SSL_CERT_FILE=/ca/tls.crt -e HOME=/tmp -v "$IDP_DIR/resolv.conf:/etc/resolv.conf:ro" \
     -e PACTO_DASHBOARD_OIDC_CLIENT_SECRET="$DASH_SECRET" -v "$dashkc:/kube/config:ro" -v "$IDP_DIR/tls.crt:/ca/tls.crt:ro" \
     "$DASH_IMG" dashboard --host 0.0.0.0 --port 3300 --oidc-issuer-url "$DEX_ISSUER" --oidc-client-id pacto-dashboard \
     --oidc-redirect-url "$DASH_URL/auth/callback" --oidc-extra-scopes audience:server:client_id:pacto-cli --token-login
-  in_node pacto-e2e-mcp -e KUBECONFIG=/kube/config -e SSL_CERT_FILE=/ca/tls.crt -e HOME=/tmp -v "$IDP_DIR/resolv.conf:/etc/resolv.conf:ro" \
+  in_node pacto-e2e-mcp -e PACTO_INSECURE_REGISTRIES="$REG_HOST" -e KUBECONFIG=/kube/config -e SSL_CERT_FILE=/ca/tls.crt -e HOME=/tmp -v "$IDP_DIR/resolv.conf:/etc/resolv.conf:ro" \
     -e PACTO_MCP_EXCHANGE_CLIENT_SECRET=mcp-secret -v "$dashkc:/kube/config:ro" -v "$IDP_DIR/tls.crt:/ca/tls.crt:ro" \
     "$DASH_IMG" mcp --fleet --k8s --delivery -t http --host 0.0.0.0 --port 8585 --auth-issuer "$KC_ISSUER" \
     --resource "$MCP_URL/mcp" --audience pacto-mcp --exchange-client-id pacto-mcp
