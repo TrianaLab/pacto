@@ -1342,6 +1342,7 @@ func revisionFrom(raw RawRevision, source string, now time.Time) (*ContractRevis
 	rev.Owner = rev.Contract.Service.Owner
 	var recLims []Limitation
 	rev.Record, recLims = inferredRecord(b.FS, c, source)
+	rev.recordUnreadable = len(recLims) > 0
 	lims = append(lims, recLims...)
 	// Validation needs the contract DOCUMENT, and RawYAML holds it only for a local
 	// read -- every bundle fetched from a registry carries the same document in its

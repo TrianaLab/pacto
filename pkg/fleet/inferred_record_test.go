@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -18,26 +20,33 @@ const recordManifest = "kind: Deployment\nmetadata:\n  name: newsletter\nspec:\n
 // notification-worker (a fleet service), db (no fleet service), newsletter
 // itself and one non-dependency field.
 func newsletterRecord() []byte {
+	return recordOf([]contract.Inferred{
+		{Field: "dependencies[notification-worker]", Value: "notification-worker", Source: "deploy/app.yaml:18", Confidence: contract.ConfidenceLikely},
+		{Field: "dependencies[db]", Value: "db", Source: "deploy/app.yaml:20", Confidence: contract.ConfidenceLikely},
+		{Field: "dependencies[newsletter]", Value: "newsletter", Source: "deploy/app.yaml:21", Confidence: contract.ConfidenceLikely},
+		{Field: "workload", Value: "service", Source: "deploy/app.yaml:1", Confidence: contract.ConfidenceLikely},
+	})
+}
+
+// recordOf is a valid record for recordManifest holding fields, each citing
+// deploy/app.yaml.
+func recordOf(fields []contract.Inferred) []byte {
 	sum := sha256.Sum256([]byte(recordManifest))
 	rec := &contract.InferredRecord{Format: contract.InferredRecordFormat,
 		Inputs: contract.InferredInputs{Pacto: "4.6.0", Discovery: "1", Sources: []contract.InferredSourceFile{
 			{Path: "deploy/app.yaml", Digest: "sha256:" + hex.EncodeToString(sum[:])}}},
-		Fields: []contract.Inferred{
-			{Field: "dependencies[notification-worker]", Value: "notification-worker", Source: "deploy/app.yaml:18", Confidence: contract.ConfidenceLikely},
-			{Field: "dependencies[db]", Value: "db", Source: "deploy/app.yaml:20", Confidence: contract.ConfidenceLikely},
-			{Field: "dependencies[newsletter]", Value: "newsletter", Source: "deploy/app.yaml:21", Confidence: contract.ConfidenceLikely},
-			{Field: "workload", Value: "service", Source: "deploy/app.yaml:1", Confidence: contract.ConfidenceLikely},
-		}}
+		Fields: fields}
 	return rec.Marshal()
 }
 
 // recordFleetOpts shapes the newsletter revision of recordFleet.
 type recordFleetOpts struct {
-	version  string // newsletter's pactoVersion
-	record   []byte // its pacto.inferred.yaml; nil for none
-	manifest string // deploy/app.yaml as the bundle holds it
-	declare  bool   // newsletter declares notification-worker too
-	observed bool   // newsletter calls notification-worker at runtime
+	version  string              // newsletter's pactoVersion
+	record   []byte              // its pacto.inferred.yaml; nil for none
+	manifest string              // deploy/app.yaml as the bundle holds it
+	declare  bool                // newsletter declares notification-worker too
+	observed bool                // newsletter calls notification-worker at runtime
+	inferred []contract.Inferred // what the local read implied (508-S1)
 }
 
 // recordFleet: newsletter runs in namespace news, notification-worker in shop.
@@ -55,7 +64,7 @@ func recordFleet(t *testing.T, o recordFleetOpts) *Query {
 	k := SourceKindKubernetes
 	col := &Collection{
 		Revisions: []RawRevision{
-			{Bundle: &contract.Bundle{Contract: news, FS: fsys}, Digest: "sha256:news"},
+			{Bundle: &contract.Bundle{Contract: news, FS: fsys, Inferred: o.inferred}, Digest: "sha256:news"},
 			{Bundle: &contract.Bundle{Contract: worker, FS: fstest.MapFS{}}, Digest: "sha256:worker"},
 		},
 		Targets: []RawTarget{
@@ -216,5 +225,87 @@ func TestRestrictHidesInferredEdgesOfHiddenServices(t *testing.T) {
 		if e.FromService == rNews {
 			t.Errorf("the restricted graph names the hidden consumer: %+v", e)
 		}
+	}
+}
+
+func newsletterDetail(t *testing.T, q *Query) (*ServiceDetailData, *RevisionDetailData) {
+	t.Helper()
+	sd, err := q.EntityDetail(KindService, string(rNews))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rd, err := q.EntityDetail(KindRevision, revKeyOf(t, q, "newsletter"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sd.Service, rd.Revision
+}
+
+func TestServiceDetailInferredFields(t *testing.T) {
+	fields := make([]contract.Inferred, 60)
+	for i := range fields {
+		fields[i] = contract.Inferred{Field: fmt.Sprintf("configuration.KEY_%02d", i), Value: "string", Source: "deploy/app.yaml:5", Confidence: contract.ConfidenceLikely}
+	}
+	o := validRecordOpts()
+	o.record = recordOf(fields)
+	sd, rd := newsletterDetail(t, recordFleet(t, o))
+	p := sd.InferredFields
+	if len(p.Items) != MaxInferredFields || p.Count != MaxInferredFields || p.Total != 60 || !p.Truncated || p.Unreadable {
+		t.Fatalf("service preview = count %d total %d truncated %v unreadable %v", p.Count, p.Total, p.Truncated, p.Unreadable)
+	}
+	want := InferredField{Field: "configuration.KEY_00", Value: "string", Source: "deploy/app.yaml:5", Confidence: "likely", Provenance: ProvenanceInferred}
+	if p.Items[0] != want {
+		t.Errorf("first item = %+v", p.Items[0])
+	}
+	if len(rd.Inferred) != MaxInferredFields || rd.InferredTotal != 60 {
+		t.Errorf("revision inferred = %d items, total %d", len(rd.Inferred), rd.InferredTotal)
+	}
+}
+
+// What the local read implied (508-S1) comes first, then the record. An
+// inferred service.name would collide with newsletter's target name and be
+// dropped, so the local-read entry here is the implied pactoVersion.
+func TestRevisionDetailInferredMergesRecord(t *testing.T) {
+	o := validRecordOpts()
+	o.inferred = []contract.Inferred{{Field: "pactoVersion", Value: "2.5", Source: "this CLI"}}
+	_, rd := newsletterDetail(t, recordFleet(t, o))
+	var got []string
+	for _, f := range rd.Inferred {
+		got = append(got, f.Field+"@"+f.Confidence)
+	}
+	want := []string{"pactoVersion@", "dependencies[db]@likely", "dependencies[newsletter]@likely", "dependencies[notification-worker]@likely", "workload@likely"}
+	if !reflect.DeepEqual(got, want) || rd.InferredTotal != 5 || rd.InferredUnreadable {
+		t.Errorf("inferred = %v total %d unreadable %v", got, rd.InferredTotal, rd.InferredUnreadable)
+	}
+}
+
+func TestServiceDetailNoRecordEmpty(t *testing.T) {
+	o := validRecordOpts()
+	o.record = nil
+	sd, rd := newsletterDetail(t, recordFleet(t, o))
+	if p := sd.InferredFields; p.Total != 0 || p.Count != 0 || p.Items == nil || len(p.Items) != 0 || p.Unreadable {
+		t.Errorf("preview = %+v", p)
+	}
+	if rd.Inferred != nil || rd.InferredTotal != 0 {
+		t.Errorf("revision inferred = %+v total %d", rd.Inferred, rd.InferredTotal)
+	}
+	b, err := json.Marshal(sd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"inferredFields":{"items":[],"count":0,"total":0,"truncated":false}`) {
+		t.Errorf("json lacks the empty inferredFields: %s", b)
+	}
+}
+
+func TestServiceDetailUnreadableRecord(t *testing.T) {
+	o := validRecordOpts()
+	o.record = []byte("format: nope\n")
+	sd, rd := newsletterDetail(t, recordFleet(t, o))
+	if p := sd.InferredFields; !p.Unreadable || p.Total != 0 || len(p.Items) != 0 {
+		t.Errorf("preview = %+v", p)
+	}
+	if !rd.InferredUnreadable || rd.Inferred != nil {
+		t.Errorf("revision unreadable %v inferred %+v", rd.InferredUnreadable, rd.Inferred)
 	}
 }

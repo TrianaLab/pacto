@@ -3066,11 +3066,26 @@ export interface components {
             unresolved?: components["schemas"]["Fleet.Relationship"][] | null;
         };
         "Fleet.InferredField": {
+            /**
+             * @description How sure the inference is, set for a field of the inferred record: likely when read from a file in the repository
+             * @enum {string}
+             */
+            confidence?: "likely" | "possible";
             field: string;
             /** @enum {string} */
             provenance: "inferred";
             source: string;
             value: string;
+        };
+        "Fleet.InferredPreview": {
+            /** Format: int64 */
+            count: number;
+            items: components["schemas"]["Fleet.InferredField"][] | null;
+            /** Format: int64 */
+            total: number;
+            truncated: boolean;
+            /** @description The revision ships a pacto.inferred.yaml Pacto could not read or verify */
+            unreadable?: boolean;
         };
         "Fleet.InferredSource": {
             /** @description The digest of the catalog the source classified it with */
@@ -5682,6 +5697,10 @@ export interface components {
             identity: components["schemas"]["Fleet.RevisionIdentity"];
             inferred?: components["schemas"]["Fleet.InferredField"][] | null;
             inferredTargets: components["schemas"]["ProductRefPreview"];
+            /** Format: int64 */
+            inferredTotal?: number;
+            /** @description The revision ships a pacto.inferred.yaml Pacto could not read or verify */
+            inferredUnreadable?: boolean;
             interfaces: components["schemas"]["Fleet.InterfacesPreview"];
             lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             limitations: components["schemas"]["Fleet.LimitationsPreview"];
@@ -5763,6 +5782,7 @@ export interface components {
              * @description At least this many resources this service uses come from providers you may not see; counted from your own contract and reports, never named
              */
             hiddenProviders?: number;
+            inferredFields: components["schemas"]["Fleet.InferredPreview"];
             inferredOfferings: components["schemas"]["ProductInferredOffering"][] | null;
             lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             limitations: components["schemas"]["ProductAttributedLimitationsPreview"];

@@ -720,6 +720,10 @@ type ContractRevision struct {
 	// LimitationRevisionDocConflict, and turns every document read into an explicit
 	// unavailable rather than an arbitrary, order-dependent winner.
 	docConflict string
+	// recordUnreadable says Build dropped this revision's pacto.inferred.yaml
+	// (LimitationInferredRecordUnreadable), so detail reads "unknown", never
+	// "nothing inferred".
+	recordUnreadable bool
 	// validated records that this revision's contract document was readable and
 	// was run through the validator at build time. Stored so status queries never
 	// dereference the build-only bundle after Build.
