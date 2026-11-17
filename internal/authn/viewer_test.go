@@ -622,3 +622,29 @@ func TestViewerWorkloadReviewEdges(t *testing.T) {
 		}
 	}
 }
+
+// TestViewerReviewsProviderCounts: a provider count is workload data. A
+// cluster-wide Pacto reader with no inferred service to review still gets the
+// count only when they may list its kind.
+func TestViewerReviewsProviderCounts(t *testing.T) {
+	k := fleet.SourceKindKubernetes
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("k8s", k, &fleet.Collection{
+		Targets:   []fleet.RawTarget{{Scope: "shop", Kind: k, Name: "svc-a", Service: "svc-a"}},
+		Providers: []fleet.Provider{{ID: fleet.ProviderKubernetesWorkloads, Counts: []fleet.ProviderCount{{Kind: "Deployment", Namespace: "shop", N: 40}}}},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := fleet.NewQuery(snap)
+	r := &reviews{allow: func(Person, string) (bool, error) { return true, nil }}
+	got, err := NewViewer(r.review).Query(context.Background(), alice, q)
+	if err != nil || got == q {
+		t.Fatalf("an unlisted workload kind kept the whole query: %v", err)
+	}
+	if ev := got.SnapshotForSerialization().Providers[0].Evidence; ev != "none you may see (+40 hidden by your permissions)" {
+		t.Errorf("evidence = %q", ev)
+	}
+	if !slices.Contains(r.askedRes, "deployments.apps/") {
+		t.Errorf("asked %v, never deployments everywhere", r.askedRes)
+	}
+}

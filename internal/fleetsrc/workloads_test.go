@@ -331,7 +331,7 @@ func TestWorkloadsRowUnreadableKindNotZero(t *testing.T) {
 		errs:  map[string]error{"daemonsets|shop": forbidden},
 	}, []string{"shop", "ops"})
 	row = providerRow(buildOne(t, scoped), fleet.ProviderKubernetesWorkloads)
-	if row == nil || row.Evidence != "1 DaemonSet" || row.Status != fleet.SourcePartial || !hasCode(row.Limitations, fleet.LimitationK8sNamespaceUnreadable) {
+	if row == nil || row.Evidence != "at least 1 DaemonSet (some unreadable)" || row.Status != fleet.SourcePartial || !hasCode(row.Limitations, fleet.LimitationK8sNamespaceUnreadable) {
 		t.Fatalf("scoped row = %+v", row)
 	}
 }
@@ -361,6 +361,10 @@ func TestWorkloadsRowCapped(t *testing.T) {
 	row := providerRow(buildOne(t, src), fleet.ProviderKubernetesWorkloads)
 	if row == nil || row.Status != fleet.SourcePartial || !hasCode(row.Limitations, fleet.LimitationInferredServicesCapped) {
 		t.Fatalf("capped row = %+v", row)
+	}
+	// The kinds the cap left unlisted read as unreadable, never as none.
+	if want := "at least 5000 Deployments (some unreadable), StatefulSets unreadable, DaemonSets unreadable, CronJobs unreadable"; row.Evidence != want {
+		t.Errorf("capped evidence = %q, want %q", row.Evidence, want)
 	}
 }
 

@@ -209,11 +209,12 @@ func TestWorkloadEvidence(t *testing.T) {
 		want       string
 	}{
 		{"order", map[string]int{"CronJob": 1, "Job": 2, "Deployment": 412, "Pod": 3, "StatefulSet": 0, "DaemonSet": 2}, nil, "412 Deployments, 2 DaemonSets, 1 CronJob, 2 Jobs, 3 Pods"},
-		{"unreadable", map[string]int{"Deployment": 1, "StatefulSet": 4}, []string{"CronJob", "StatefulSet"}, "1 Deployment, StatefulSets unreadable, CronJobs unreadable"},
+		{"unreadable", map[string]int{"Deployment": 1, "StatefulSet": 4}, []string{"CronJob", "StatefulSet"}, "1 Deployment, at least 4 StatefulSets (some unreadable), CronJobs unreadable"},
 		{"empty", map[string]int{"Deployment": 0, "CronJob": 0}, nil, "no workloads found"},
 		{"nothing", nil, nil, "no workloads found"},
 		{"one", map[string]int{"StatefulSet": 7}, nil, "7 StatefulSets"},
 		{"all unreadable", nil, []string{"Deployment"}, "Deployments unreadable"},
+		{"partly unreadable", map[string]int{"Deployment": 12, "DaemonSet": 1}, []string{"Deployment", "DaemonSet"}, "at least 12 Deployments (some unreadable), at least 1 DaemonSet (some unreadable)"},
 	} {
 		if got := WorkloadEvidence(tc.counts, tc.unreadable); got != tc.want {
 			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)
@@ -279,7 +280,7 @@ func TestRestrictProvidersKeepsRows(t *testing.T) {
 	if len(r.Providers) != 3 {
 		t.Fatalf("rows = %+v, want all three", r.Providers)
 	}
-	if q.Restrict(func(string) bool { return true }, nil) != q {
+	if q.Restrict(func(string) bool { return true }, anyKind) != q {
 		t.Error("a cluster-wide reader gets the same query")
 	}
 }
@@ -332,8 +333,8 @@ func TestRestrictProvidersRecountsEvidence(t *testing.T) {
 	if got := providerByID(t, q.SnapshotForSerialization().Providers, "kubernetes-workloads").Evidence; got != "8 Deployments, 1 CronJob" {
 		t.Fatalf("unrestricted evidence = %q", got)
 	}
-	r := q.Restrict(func(ns string) bool { return ns != "team-b" }, nil).SnapshotForSerialization()
-	if got := providerByID(t, r.Providers, "kubernetes-workloads").Evidence; got != "3 Deployments (+6 in namespaces hidden from you)" {
+	r := q.Restrict(func(ns string) bool { return ns != "team-b" }, anyKind).SnapshotForSerialization()
+	if got := providerByID(t, r.Providers, "kubernetes-workloads").Evidence; got != "3 Deployments (+6 hidden by your permissions)" {
 		t.Errorf("restricted evidence = %q", got)
 	}
 	crd := providerByID(t, r.Providers, "pacto-crd")
@@ -353,10 +354,10 @@ func TestRestrictProvidersDropsHiddenLimitations(t *testing.T) {
 			NamespaceUnreadableLimitation("k8s", "secret", "forbidden"),
 			NamespaceUnreadableLimitation("k8s", "a", "forbidden"),
 			{Code: "X", Message: "service hidden-svc misbehaves"},
-			{Code: LimitationProviderSourceDegraded, Source: "k8s", Message: "source k8s is partial; the counts cover only what it read"},
+			{Code: LimitationProviderSourceDegraded, Source: "k8s", Message: "source k8s is partial; this row covers only what it read"},
 		},
 	}}
-	got := restrictProviders(rows, []string{"hidden-svc", ""}, func(ns string) bool { return ns == "a" })
+	got := restrictProviders(rows, []string{"hidden-svc", ""}, func(ns string) bool { return ns == "a" }, anyKind, nil)
 	var codes []string
 	for _, l := range got[0].Limitations {
 		codes = append(codes, l.Code)
@@ -367,7 +368,7 @@ func TestRestrictProvidersDropsHiddenLimitations(t *testing.T) {
 	if len(rows[0].Limitations) != 5 {
 		t.Error("restrictProviders wrote its input")
 	}
-	if restrictProviders(nil, nil, func(string) bool { return true }) != nil {
+	if restrictProviders(nil, nil, func(string) bool { return true }, anyKind, nil) != nil {
 		t.Error("no rows stay no rows")
 	}
 }
@@ -377,7 +378,7 @@ func TestRestrictProvidersKeepsAReason(t *testing.T) {
 		{ID: "p", Source: "k8s", Status: SourcePartial, Limitations: []Limitation{NamespaceUnreadableLimitation("k8s", "secret", "forbidden")}},
 		{ID: "ok", Source: "k8s", Status: SourceAvailable, Limitations: []Limitation{NamespaceUnreadableLimitation("k8s", "secret", "forbidden")}},
 	}
-	got := restrictProviders(rows, nil, func(ns string) bool { return ns == "a" })
+	got := restrictProviders(rows, nil, func(ns string) bool { return ns == "a" }, anyKind, nil)
 	if len(got[0].Limitations) != 1 || got[0].Limitations[0].Code != LimitationProviderSourceDegraded ||
 		got[0].Limitations[0].Message != "source k8s reported this row as partial; the reason is hidden by your permissions" {
 		t.Errorf("partial row limitations = %+v, want one degraded reason", got[0].Limitations)
@@ -396,8 +397,9 @@ func TestRestrictProvidersMasksEvidenceNamingHidden(t *testing.T) {
 			t.Errorf("limitation names a hidden namespace: %+v", l)
 		}
 	}
-	if mon.Evidence != "hidden by your permissions" {
-		t.Errorf("evidence = %q, want masked: it names monitoring", mon.Evidence)
+	// The API group monitoring.coreos.com is not the namespace monitoring.
+	if mon.Evidence != "served (monitoring.coreos.com/v1)" {
+		t.Errorf("evidence = %q, want the API group kept", mon.Evidence)
 	}
 }
 
@@ -438,5 +440,77 @@ func TestQueryProviders(t *testing.T) {
 	empty := NewQuery(buildProviders(t, NewMemorySource("local", "local", &Collection{}))).Providers()
 	if empty.Providers == nil || len(empty.Providers) != 0 || empty.Total != 0 {
 		t.Errorf("empty providers = %+v", empty)
+	}
+}
+
+func anyKind(string, string) bool { return true }
+
+// A Pacto reader of a namespace who may not list a workload kind there loses
+// its count, and a nil workloadVisible keeps no count at all.
+func TestRestrictProvidersNeedsWorkloadList(t *testing.T) {
+	q := providerFleet(t)
+	if got := q.InferredWorkloadScopes(); !slices.Contains(got, WorkloadScope{"team-b", "CronJob"}) {
+		t.Fatalf("scopes = %+v, want the provider counts reviewed", got)
+	}
+	noDeploy := func(_, kind string) bool { return kind != "Deployment" }
+	r := q.Restrict(func(string) bool { return true }, noDeploy)
+	if r == q {
+		t.Fatal("a refused workload kind on a provider count must restrict")
+	}
+	snap := r.SnapshotForSerialization()
+	if got := providerByID(t, snap.Providers, "kubernetes-workloads").Evidence; got != "1 CronJob (+8 hidden by your permissions)" {
+		t.Errorf("evidence = %q", got)
+	}
+	if snap.Completeness != q.SnapshotForSerialization().Completeness || slices.ContainsFunc(snap.Limitations, func(l Limitation) bool { return l.Code == LimitationHiddenByPermissions }) {
+		t.Errorf("only a provider count narrowed, yet completeness %q limitations %+v", snap.Completeness, snap.Limitations)
+	}
+	none := q.Restrict(func(string) bool { return true }, nil).SnapshotForSerialization()
+	if got := providerByID(t, none.Providers, "kubernetes-workloads").Evidence; got != "none you may see (+9 hidden by your permissions)" {
+		t.Errorf("nil workloadVisible evidence = %q", got)
+	}
+}
+
+// A restricted reader of every namespace loses only the cluster-scoped CRD
+// object: the answer stays as complete and says nothing is hidden.
+func TestRestrictProvidersCRDObjectKeepsCompleteness(t *testing.T) {
+	q := providerFleet(t)
+	r := q.Restrict(func(ns string) bool { return ns != "" }, anyKind).SnapshotForSerialization()
+	if len(providerByID(t, r.Providers, "pacto-crd").Objects) != 0 {
+		t.Error("the CRD object reached a reader without cluster scope")
+	}
+	if r.Completeness != q.SnapshotForSerialization().Completeness || slices.ContainsFunc(r.Limitations, func(l Limitation) bool { return l.Code == LimitationHiddenByPermissions }) {
+		t.Errorf("completeness %q limitations %+v", r.Completeness, r.Limitations)
+	}
+}
+
+// A cluster no visible target carries is hidden everywhere, its name on a
+// provider row included.
+func TestRestrictProvidersHidesClusterName(t *testing.T) {
+	snap := buildProviders(t,
+		NewMemorySource("prod-eu", SourceKindKubernetes, &Collection{
+			Cluster: clusterOf(clusterA, "eu-prod", ClusterNameFromContext),
+			Targets: []RawTarget{workload("shop", "web")}, Providers: []Provider{crdRow()},
+		}),
+		NewMemorySource("secret", SourceKindKubernetes, &Collection{
+			Cluster: clusterOf(clusterB, "gov-secret", ClusterNameFromContext),
+			Targets: []RawTarget{workload("classified", "api")}, Providers: []Provider{crdRow()},
+		}),
+	)
+	r := NewQuery(snap).Restrict(func(ns string) bool { return ns == "shop" }, anyKind).SnapshotForSerialization()
+	got := map[string]string{}
+	for _, p := range r.Providers {
+		got[p.Source] = p.Cluster
+	}
+	if got["prod-eu"] != "eu-prod" || got["secret"] != "" {
+		t.Errorf("clusters = %v, want gov-secret blanked", got)
+	}
+}
+
+// Evidence a producer wrote is masked only when it names a hidden name whole.
+func TestRestrictProvidersMasksWholeNamesOnly(t *testing.T) {
+	rows := []Provider{crdRow(), {ID: "x", Status: SourceAvailable, Evidence: "reads pacto"}}
+	got := restrictProviders(rows, []string{"pacto"}, func(string) bool { return true }, anyKind, nil)
+	if got[0].Evidence != "served (pacto.trianalab.io/v1alpha1)" || got[1].Evidence != "hidden by your permissions" {
+		t.Errorf("evidence = %q, %q", got[0].Evidence, got[1].Evidence)
 	}
 }

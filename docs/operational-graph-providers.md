@@ -19,8 +19,9 @@ as `prod`) and its workload source (`prod-workloads`).
   Pacto uses it for declared targets.
 - **Kubernetes workloads**: how many Deployments, StatefulSets, DaemonSets and
   CronJobs the [workload source](operational-graph-inferred.md) listed. A kind
-  it could not list is `unreadable`, never 0. Pacto uses it for inferred
-  services.
+  it could not list is `unreadable`, never 0, and one it listed in only some
+  namespaces reads `at least 12 Deployments (some unreadable)`. Pacto uses it
+  for inferred services.
 
 ```bash
 $ pacto fleet providers --k8s
@@ -50,6 +51,8 @@ without a reason or when a restricted view hid every other reason.
 ## Restricted views
 
 A restricted view keeps every row. Objects in namespaces you cannot read and
-cluster-scoped objects are hidden, as are limitations that name them. Counts
-are recomputed from the namespaces you can read, with one hidden total, such
-as `12 Deployments (+30 in namespaces hidden from you)`.
+cluster-scoped objects are hidden, as are limitations that name them, and so is
+the name of a cluster where you can see no target. A count stays only where you
+can read the namespace and list the workload kind. The rest becomes one hidden
+total, such as `12 Deployments (+30 hidden by your permissions)`. Hiding
+objects or counts never makes the answer partial.

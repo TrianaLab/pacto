@@ -67,12 +67,18 @@ type WorkloadScope struct {
 }
 
 // InferredWorkloadScopes lists, sorted and unique, the (namespace, kind) pairs
-// of the snapshot's inferred services.
+// of the snapshot's inferred services and of its provider counts: a count is
+// workload data too, so a caller must be allowed to list its kind to see it.
 func (q *Query) InferredWorkloadScopes() []WorkloadScope {
 	seen := map[WorkloadScope]bool{}
 	for _, s := range q.snap.Services {
 		if s.Inferred() {
 			seen[WorkloadScope{s.Workload.Namespace, s.Workload.Kind}] = true
+		}
+	}
+	for _, p := range q.snap.Providers {
+		for _, c := range p.Counts {
+			seen[WorkloadScope{c.Namespace, c.Kind}] = true
 		}
 	}
 	return slices.SortedFunc(maps.Keys(seen), func(a, b WorkloadScope) int {
@@ -136,7 +142,15 @@ func (q *Query) Restrict(visible func(namespace string) bool, workloadVisible fu
 	restricted := !visible("")
 	hiddenSvc, offeringOnly := hiddenServices(s, hiddenNS, restricted, workloadVisible)
 	if len(hiddenNS) == 0 && len(hiddenSvc) == 0 && len(offeringOnly) == 0 && keepsEveryName(s, restricted) {
-		return q
+		if !providersNarrowed(s, visible, workloadVisible) {
+			return q
+		}
+		// Only provider rows narrow: they feed no answer's completeness, so
+		// the view stays as complete as q.
+		out := *s
+		out.Providers = restrictProviders(s.Providers, nil, visible, workloadVisible, s.Clusters)
+		out.SnapshotID = computeSnapshotID(&out)
+		return NewQuery(&out)
 	}
 
 	out := *s
@@ -189,7 +203,7 @@ func (q *Query) Restrict(visible func(namespace string) bool, workloadVisible fu
 	hiddenNames = append(hiddenNames, slices.Collect(maps.Keys(hiddenNS))...)
 	restrictLimitations(&out, s.Limitations, hiddenNames, restricted)
 	restrictScope(&out, visible)
-	out.Providers = restrictProviders(s.Providers, hiddenNames, visible)
+	out.Providers = restrictProviders(s.Providers, hiddenNames, visible, workloadVisible, out.Clusters)
 	out.Limitations = append(out.Limitations, Limitation{Code: LimitationHiddenByPermissions, Message: hiddenMessage + kindHiddenNote(s, hiddenSvc, hiddenNS)})
 	sortSnapshotLimitations(&out)
 	out.Completeness = CompletenessPartial
@@ -342,13 +356,11 @@ func bareCaller(c UncontractedCaller) bool {
 }
 
 // hasBareNames reports whether s holds a name with no namespace: a bare
-// caller, an unresolved observed name or a cluster-scoped provider object.
+// caller or an unresolved observed name. A cluster-scoped provider object is
+// left to providersNarrowed: it hides from a row, never from an answer.
 func hasBareNames(s *FleetSnapshot) bool {
 	return slices.ContainsFunc(s.UncontractedCallers, bareCaller) ||
-		slices.ContainsFunc(s.Limitations, func(l Limitation) bool { return l.Code == LimitationObservedIdentityUnresolved }) ||
-		slices.ContainsFunc(s.Providers, func(p Provider) bool {
-			return slices.ContainsFunc(p.Objects, func(o ProviderObject) bool { return o.Namespace == "" })
-		})
+		slices.ContainsFunc(s.Limitations, func(l Limitation) bool { return l.Code == LimitationObservedIdentityUnresolved })
 }
 
 // unresolvedCounts drops the unresolved observed names from limitations and

@@ -56,7 +56,7 @@ func (s *WorkloadSource) Collect(ctx context.Context) (*fleet.Collection, error)
 	now := time.Now()
 	var read []string
 	var listErr error
-	failed := map[string]int{} // failed lists per kind
+	listed := map[string]int{} // complete lists per kind
 	for _, ns := range namespaces {
 		complete := true
 		for _, kind := range workloadshape.WorkloadKinds {
@@ -66,12 +66,13 @@ func (s *WorkloadSource) Collect(ctx context.Context) (*fleet.Collection, error)
 					Code: fleet.LimitationInferredServicesCapped, Source: s.id,
 					Message: "workloads past the bound of " + strconv.Itoa(fleet.MaxInferredServices) + " were not read; raise MaxInferredServices if a real cluster hits it",
 				})
-				col.Providers = []fleet.Provider{workloadsRow(col, failed, len(namespaces))}
+				col.Providers = []fleet.Provider{workloadsRow(col, listed, len(namespaces))}
 				return scoped(s.id, s.namespaces, col, read), nil
 			case err != nil:
 				listErr, complete = cmp.Or(listErr, err), false
-				failed[kind]++
 				col.Limitations = append(col.Limitations, kindUnreadable(s.id, ns, kind, err))
+			default:
+				listed[kind]++
 			}
 		}
 		if complete {
@@ -81,16 +82,17 @@ func (s *WorkloadSource) Collect(ctx context.Context) (*fleet.Collection, error)
 	if len(col.Limitations) == len(namespaces)*len(workloadshape.WorkloadKinds) {
 		return nil, listErr
 	}
-	col.Providers = []fleet.Provider{workloadsRow(col, failed, len(namespaces))}
+	col.Providers = []fleet.Provider{workloadsRow(col, listed, len(namespaces))}
 	return scoped(s.id, s.namespaces, col, read), nil
 }
 
 // workloadsRow is the Kubernetes workloads row of col: how many workloads of
-// each kind it read per namespace, and the kinds whose list failed in all
-// lists namespaces. pkg/fleet words the evidence. A failed list or the cap
+// each kind it read per namespace, and the kinds not listed in full in all
+// lists namespaces: a list failed, or the cap stopped before it ended.
+// pkg/fleet words the evidence, so an unread kind is never read as none. A failed list or the cap
 // makes the row partial with the limitations col holds so far, which name no
 // scope (scoped adds that after).
-func workloadsRow(col *fleet.Collection, failed map[string]int, lists int) fleet.Provider {
+func workloadsRow(col *fleet.Collection, listed map[string]int, lists int) fleet.Provider {
 	row := fleet.Provider{ID: fleet.ProviderKubernetesWorkloads, Name: "Kubernetes workloads", UsedFor: []string{fleet.UseInferredServices}, Counts: []fleet.ProviderCount{}}
 	at := map[[2]string]int{}
 	for _, in := range col.InferredServices {
@@ -103,7 +105,7 @@ func workloadsRow(col *fleet.Collection, failed map[string]int, lists int) fleet
 		row.Counts = append(row.Counts, fleet.ProviderCount{Kind: in.Kind, Namespace: in.Namespace, N: 1})
 	}
 	for _, kind := range workloadshape.WorkloadKinds {
-		if failed[kind] == lists {
+		if listed[kind] < lists {
 			row.UnreadableKinds = append(row.UnreadableKinds, kind)
 		}
 	}

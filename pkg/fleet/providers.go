@@ -107,7 +107,7 @@ func finalizeProviders(snap *FleetSnapshot) {
 		case sourceHealthRank(src) < sourceHealthRank(status):
 			status = src
 			p.Limitations = append(p.Limitations, Limitation{Code: LimitationProviderSourceDegraded, Source: p.Source,
-				Message: "source " + p.Source + " is " + string(src) + "; the counts cover only what it read"})
+				Message: "source " + p.Source + " is " + string(src) + "; this row covers only what it read"})
 		case status != SourceAvailable && len(p.Limitations) == 0:
 			p.Limitations = append(p.Limitations, Limitation{Code: LimitationProviderSourceDegraded, Source: p.Source,
 				Message: "source " + p.Source + " reported this row as " + string(status) + " and gave no reason"})
@@ -142,8 +142,9 @@ var workloadKindOrder = []string{"Deployment", "StatefulSet", "DaemonSet", "Cron
 
 // WorkloadEvidence is the one wording of counted evidence: "412 Deployments,
 // 3 StatefulSets". A kind read with 0 is omitted, a kind that could not be
-// read is "<Kind>s unreadable" (never 0), and "no workloads found" means every
-// kind was read and held nothing.
+// read everywhere is "<Kind>s unreadable" (never 0), or "at least 12
+// Deployments (some unreadable)" when some were read, and "no workloads found"
+// means every kind was read and held nothing.
 func WorkloadEvidence(counts map[string]int, unreadable []string) string {
 	kinds := map[string]bool{}
 	for k := range counts {
@@ -161,12 +162,12 @@ func WorkloadEvidence(counts map[string]int, unreadable []string) string {
 	var parts []string
 	for _, k := range slices.SortedFunc(maps.Keys(kinds), func(a, b string) int { return cmp.Or(cmp.Compare(rank(a), rank(b)), cmp.Compare(a, b)) }) {
 		switch n := counts[k]; {
+		case slices.Contains(unreadable, k) && n > 0:
+			parts = append(parts, "at least "+kindCount(n, k)+" (some unreadable)")
 		case slices.Contains(unreadable, k):
 			parts = append(parts, k+"s unreadable")
-		case n == 1:
-			parts = append(parts, "1 "+k)
-		case n > 1:
-			parts = append(parts, strconv.Itoa(n)+" "+k+"s")
+		case n > 0:
+			parts = append(parts, kindCount(n, k))
 		}
 	}
 	if len(parts) == 0 {
@@ -175,41 +176,64 @@ func WorkloadEvidence(counts map[string]int, unreadable []string) string {
 	return strings.Join(parts, ", ")
 }
 
-// restrictProviders is rows as a reader visible says yes to sees them. Every
-// row stays; what changes is cloned. An object in a namespace the reader may
-// not read goes, a cluster-scoped one included unless visible("") says yes,
-// and ObjectsTotal keeps the count. Counts keep the visible namespaces and
-// Evidence is rendered again with one hidden total. A limitation restrictScope
-// would drop, or one that names a hidden name, goes; the degraded limitation
-// names no namespace and stays. A row that is not available and lost every
-// reason gets a degraded one, so it still says why. Evidence that still names
-// a hidden name is masked.
-func restrictProviders(rows []Provider, hiddenNames []string, visible func(string) bool) []Provider {
+// kindCount is "1 Deployment" or "n Deployments".
+func kindCount(n int, kind string) string {
+	if n == 1 {
+		return "1 " + kind
+	}
+	return strconv.Itoa(n) + " " + kind + "s"
+}
+
+// restrictProviders is rows as a reader visible and workloadVisible say yes
+// to sees them. Every row stays; what changes is cloned. An object in a
+// namespace the reader may not read goes, a cluster-scoped one included unless
+// visible("") says yes, and ObjectsTotal keeps the count. A count stays only
+// when the reader may read its namespace and list its kind there (a nil
+// workloadVisible keeps none), and Evidence is rendered again with one hidden
+// total. A cluster that clusters does not name goes from the row: the view
+// hides it everywhere else. A limitation restrictScope would drop, or one that
+// names a hidden name, goes; the degraded limitation names no namespace and
+// stays. A row that is not available and lost every reason gets a degraded
+// one, so it still says why. Evidence a producer wrote that names a hidden
+// name is masked; evidence rendered from counts names none.
+func restrictProviders(rows []Provider, hiddenNames []string, visible func(string) bool, workloadVisible func(namespace, kind string) bool, clusters []ClusterRecord) []Provider {
 	if rows == nil {
 		return nil
 	}
 	mentionsHidden := func(s string) bool {
 		return slices.ContainsFunc(hiddenNames, func(n string) bool { return n != "" && strings.Contains(s, n) })
 	}
+	shown := map[string]bool{}
+	for _, c := range clusters {
+		shown[c.ID], shown[c.Name] = true, true
+	}
 	out := make([]Provider, len(rows))
 	for i, p := range rows {
+		if !shown[p.Cluster] {
+			p.Cluster = ""
+		}
 		p.Objects = slices.DeleteFunc(slices.Clone(p.Objects), func(o ProviderObject) bool { return !visible(o.Namespace) })
 		if len(p.Objects) < len(rows[i].Objects) {
 			p.ObjectsTotal = cmp.Or(p.ObjectsTotal, len(rows[i].Objects))
 		}
 		hidden := 0
 		p.Counts = slices.DeleteFunc(slices.Clone(p.Counts), func(c ProviderCount) bool {
-			if visible(c.Namespace) {
+			if countVisible(c, visible, workloadVisible) {
 				return false
 			}
 			hidden += c.N
 			return true
 		})
-		if p.Counts != nil || p.UnreadableKinds != nil {
+		counted := p.Counts != nil || p.UnreadableKinds != nil
+		switch {
+		case counted && hidden > 0 && len(p.Counts) == 0 && len(p.UnreadableKinds) == 0:
+			p.Evidence = "none you may see (+" + strconv.Itoa(hidden) + " hidden by your permissions)"
+		case counted && hidden > 0:
+			p.Evidence = countsEvidence(p.Counts, p.UnreadableKinds) + " (+" + strconv.Itoa(hidden) + " hidden by your permissions)"
+		case counted:
 			p.Evidence = countsEvidence(p.Counts, p.UnreadableKinds)
-			if hidden > 0 {
-				p.Evidence += " (+" + strconv.Itoa(hidden) + " in namespaces hidden from you)"
-			}
+		case slices.ContainsFunc(hiddenNames, func(n string) bool { return mentionsWord(p.Evidence, n) }):
+			p.Evidence = "hidden by your permissions"
 		}
 		p.Limitations = slices.DeleteFunc(slices.Clone(p.Limitations), func(l Limitation) bool {
 			return l.Code != LimitationProviderSourceDegraded && (hiddenByScope(l, visible) || mentionsHidden(l.Message))
@@ -218,12 +242,46 @@ func restrictProviders(rows []Provider, hiddenNames []string, visible func(strin
 			p.Limitations = []Limitation{{Code: LimitationProviderSourceDegraded, Source: p.Source,
 				Message: "source " + p.Source + " reported this row as " + string(p.Status) + "; the reason is hidden by your permissions"}}
 		}
-		if mentionsHidden(p.Evidence) {
-			p.Evidence = "hidden by your permissions"
-		}
 		out[i] = p
 	}
 	return out
+}
+
+// mentionsWord reports whether s holds n as a whole name: not inside a longer
+// one, so a hidden namespace "pacto" leaves "pacto.trianalab.io" alone.
+func mentionsWord(s, n string) bool {
+	if n == "" {
+		return false
+	}
+	nameChar := func(b byte) bool {
+		return b == '-' || b == '.' || b == '_' || '0' <= b && b <= '9' || 'a' <= b && b <= 'z' || 'A' <= b && b <= 'Z'
+	}
+	for i := 0; ; {
+		j := strings.Index(s[i:], n)
+		if j < 0 {
+			return false
+		}
+		start, end := i+j, i+j+len(n)
+		if (start == 0 || !nameChar(s[start-1])) && (end == len(s) || !nameChar(s[end])) {
+			return true
+		}
+		i = start + 1
+	}
+}
+
+// countVisible reports whether a reader may see c: read its namespace and
+// list its kind there. A nil workloadVisible lists nothing.
+func countVisible(c ProviderCount, visible func(string) bool, workloadVisible func(namespace, kind string) bool) bool {
+	return visible(c.Namespace) && workloadVisible != nil && workloadVisible(c.Namespace, c.Kind)
+}
+
+// providersNarrowed reports whether a reader visible and workloadVisible say
+// yes to would lose an object or a count of some row of s.
+func providersNarrowed(s *FleetSnapshot, visible func(string) bool, workloadVisible func(namespace, kind string) bool) bool {
+	return slices.ContainsFunc(s.Providers, func(p Provider) bool {
+		return slices.ContainsFunc(p.Objects, func(o ProviderObject) bool { return !visible(o.Namespace) }) ||
+			slices.ContainsFunc(p.Counts, func(c ProviderCount) bool { return !countVisible(c, visible, workloadVisible) })
+	})
 }
 
 // boundProviders is a copy of rows, least healthy first then by source and
