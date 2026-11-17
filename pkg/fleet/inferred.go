@@ -3,6 +3,7 @@ package fleet
 import (
 	"cmp"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -65,11 +66,64 @@ func addInferredServices(snap *FleetSnapshot, inputs []inferredInput) {
 			mergeInferred(snap, existing, rec, in.source)
 			continue
 		}
+		rec.Workload.DeclarationUnverified = !verified(in.cluster, in.raw.Namespace)
 		snap.Services[rec.Key] = rec
-		if !verified(in.cluster, in.raw.Namespace) {
-			snap.Limitations = append(snap.Limitations, Limitation{
-				Code: LimitationDeclarationUnverified, Source: in.source, Message: unverifiedMessage(rec),
+	}
+	snap.Limitations = append(snap.Limitations, inferredSnapshotLimitations(snap)...)
+	countInferred(snap)
+}
+
+// droppedFieldsPhrase marks the per-source count of workloads whose fields
+// were left out, so a restricted view can rebuild it.
+const droppedFieldsPhrase = " held a control character or a value past its bound in their image, ports or probes"
+
+// inferredSnapshotLimitations is one DECLARATION_UNVERIFIED and one count of
+// dropped fields per source, from the state each inferred record carries:
+// one per record would fill every answer's bounded limitations.
+func inferredSnapshotLimitations(snap *FleetSnapshot) []Limitation {
+	unverified, namespaces, dropped := map[string]int{}, map[string]map[string]bool{}, map[string]int{}
+	for _, s := range snap.Services {
+		w := s.Workload
+		if w == nil {
+			continue
+		}
+		if w.DeclarationUnverified {
+			unverified[w.Source]++
+			if namespaces[w.Source] == nil {
+				namespaces[w.Source] = map[string]bool{}
+			}
+			namespaces[w.Source][w.Cluster+"/"+w.Namespace] = true
+		}
+		dropped[w.Source] += b2i(len(w.Dropped) > 0)
+	}
+	var out []Limitation
+	for _, src := range slices.Sorted(maps.Keys(unverified)) {
+		out = append(out, Limitation{
+			Code: LimitationDeclarationUnverified, Source: src,
+			Message: "Pacto could not read the Pacto targets where inferred services from source " + src + " run (services: " +
+				strconv.Itoa(unverified[src]) + ", namespaces: " + strconv.Itoa(len(namespaces[src])) + "), so a contract may describe them",
+		})
+	}
+	for _, src := range slices.Sorted(maps.Keys(dropped)) {
+		if dropped[src] > 0 {
+			out = append(out, Limitation{
+				Code: LimitationSourceRecordInvalid, Source: src,
+				Message: "workloads from source " + src + " (" + strconv.Itoa(dropped[src]) + ")" + droppedFieldsPhrase + "; those fields were left out",
 			})
+		}
+	}
+	return out
+}
+
+// countInferred sets each source's inferred count to the inferred records
+// that list it, so declared, invalid and merged workloads never count.
+func countInferred(snap *FleetSnapshot) {
+	for i := range snap.Sources {
+		snap.Sources[i].InferredCount = 0
+		for _, s := range snap.Services {
+			if s.Inferred() && slices.Contains(s.Sources, snap.Sources[i].ID) {
+				snap.Sources[i].InferredCount++
+			}
 		}
 	}
 }
@@ -94,6 +148,9 @@ func mergeInferred(snap *FleetSnapshot, existing, rec *ServiceRecord, source str
 		return
 	}
 	existing.Sources = appendUnique(existing.Sources, source)
+	for _, f := range rec.Workload.Dropped {
+		existing.Workload.Dropped = appendUnique(existing.Workload.Dropped, f)
+	}
 	if at := rec.Workload.ObservedAt; at != nil && (existing.Workload.ObservedAt == nil || at.After(*existing.Workload.ObservedAt)) {
 		existing.Workload.ObservedAt = at
 	}
@@ -149,7 +206,7 @@ func declarationVerified(snap *FleetSnapshot) func(cluster, namespace string) bo
 // inferredRecord is the inferred service of one input, or nil with a
 // limitation when its identity is invalid. It is the one gate every source
 // passes: an image, port or probe holding a control character or past its
-// bound is dropped with a limitation naming the field, never the value, and
+// bound is dropped and its field, never the value, recorded in Dropped, and
 // a probe path loses its query and fragment.
 func inferredRecord(in inferredInput, multi bool) (*ServiceRecord, []Limitation) {
 	r := in.raw
@@ -165,17 +222,11 @@ func inferredRecord(in inferredInput, multi bool) (*ServiceRecord, []Limitation)
 	}
 	name := K8sCaller(cluster, r.Namespace, r.Kind, r.Name)
 	w := &InferredWorkload{Source: in.source, Cluster: in.cluster, Namespace: r.Namespace, Kind: r.Kind, Name: r.Name, ObservedAt: copyTime(r.ObservedAt)}
-	var lims []Limitation
-	for _, field := range readShape(w, r) {
-		lims = append(lims, Limitation{
-			Code: LimitationSourceRecordInvalid, Source: in.source,
-			Message: "workload " + name + " " + field + " holds a control character or is too long; it was left out",
-		})
-	}
+	w.Dropped = readShape(w, r)
 	return &ServiceRecord{
 		Key: NewServiceKey(name), Name: name, Declaration: DeclarationInferred, Workload: w,
 		Sources: []string{in.source}, BusinessDomainUnknown: true, SummaryUnknown: true,
-	}, lims
+	}, nil
 }
 
 // readShape copies the image, ports and probes of r that pass cleanText into
@@ -218,38 +269,24 @@ func validWorkloadPart(v string) bool {
 	return v != "" && !strings.Contains(v, "/") && cleanText(v, 253)
 }
 
-// unverifiedMessage is the DECLARATION_UNVERIFIED message of an inferred
-// record; inferredLimitations finds the record's own limitation by it.
-func unverifiedMessage(s *ServiceRecord) string {
-	return "Pacto could not read Pacto targets in " + s.Workload.Namespace + "; a contract may describe " + s.Name
-}
-
-// inferredLimitations is the limitations Build recorded about one inferred
-// record: its DECLARATION_UNVERIFIED and the fields it dropped.
-func inferredLimitations(snap *FleetSnapshot, s *ServiceRecord) []Limitation {
+// inferredLimitations is the limitations of one inferred record, built from
+// the state it carries: its DECLARATION_UNVERIFIED and the fields it dropped.
+func inferredLimitations(s *ServiceRecord) []Limitation {
+	w := s.Workload
 	var out []Limitation
-	for _, l := range snap.Limitations {
-		if !slices.Contains(s.Sources, l.Source) {
-			continue
-		}
-		if l.Code == LimitationDeclarationUnverified && l.Message == unverifiedMessage(s) ||
-			l.Code == LimitationSourceRecordInvalid && strings.HasPrefix(l.Message, "workload "+s.Name+" ") {
-			out = append(out, l)
-		}
+	if w.DeclarationUnverified {
+		out = append(out, Limitation{
+			Code: LimitationDeclarationUnverified, Source: w.Source,
+			Message: "Pacto could not read Pacto targets in " + w.Namespace + "; a contract may describe " + s.Name,
+		})
+	}
+	for _, field := range w.Dropped {
+		out = append(out, Limitation{
+			Code: LimitationSourceRecordInvalid, Source: w.Source,
+			Message: "workload " + s.Name + " " + field + " holds a control character or is too long; it was left out",
+		})
 	}
 	return out
-}
-
-// inferredUnverified reports whether Build marked an inferred record
-// DECLARATION_UNVERIFIED.
-func inferredUnverified(snap *FleetSnapshot) func(*ServiceRecord) bool {
-	marked := map[string]bool{}
-	for _, l := range snap.Limitations {
-		if l.Code == LimitationDeclarationUnverified {
-			marked[l.Message] = true
-		}
-	}
-	return func(s *ServiceRecord) bool { return marked[unverifiedMessage(s)] }
 }
 
 // observingSourcesOf is the ids of the sources that reported an observed edge.
@@ -288,7 +325,7 @@ func (q *Query) inferredServiceDetail(s *ServiceRecord) *EntityDetail {
 		}
 	}
 	var lims []AttributedLimitation
-	for _, l := range inferredLimitations(q.snap, s) {
+	for _, l := range inferredLimitations(s) {
 		lims = append(lims, AttributedLimitation{Limitation: l})
 	}
 	observed := q.callsObserved(s.Workload)

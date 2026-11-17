@@ -3,6 +3,7 @@ package fleet
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"slices"
 	"strings"
@@ -204,5 +205,45 @@ func TestRestrictNilWorkloadVisibleHidesInferred(t *testing.T) {
 	}
 	if q := restrictFleet(t); q.Restrict(everyNamespace, nil) != q {
 		t.Error("a nil workload predicate restricted a fleet with no inferred service")
+	}
+}
+
+// A hidden namespace or name that is a substring of a visible inferred
+// service's must never clear its unverified mark or its dropped fields.
+func TestRestrictKeepsInferredStateUnderSubstringNames(t *testing.T) {
+	down := NewMemorySource("k8s", SourceKindKubernetes, nil)
+	down.err = errors.New("unreachable")
+	gw := rawInferred("payments-prod", "Deployment", "gw")
+	gw.Image = &InferredValue{Value: "bad\x1bimage", From: "spec.template.spec.containers[name=gw].image"}
+	q := NewQuery(buildClusterSnap(t, down, workloadsSource("k8s-workloads", nil, gw, rawInferred("payments", "Deployment", "x"))))
+	if ov := q.Overview().Summary; ov.InferredServices != 2 || ov.InferredUnverified != 2 {
+		t.Fatalf("full view %+v", ov)
+	}
+	r := q.Restrict(func(ns string) bool { return ns != "" && ns != "payments" }, everyWorkload)
+	if ov := r.Overview().Summary; ov.InferredServices != 1 || ov.InferredUnverified != 1 {
+		t.Errorf("restricted view %+v", ov)
+	}
+	d, err := r.EntityDetail(KindService, string(NewServiceKey("k8s:payments-prod/Deployment/gw")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var codes []string
+	for _, l := range d.Service.Limitations.Items {
+		codes = append(codes, l.Limitation.Code)
+	}
+	if !slices.Contains(codes, LimitationDeclarationUnverified) || !slices.Contains(codes, LimitationSourceRecordInvalid) {
+		t.Errorf("detail limitations %v", codes)
+	}
+	s := r.SnapshotForSerialization()
+	if !limitationMentions(s, LimitationDeclarationUnverified, "(services: 1, namespaces: 1)") || !limitationMentions(s, LimitationSourceRecordInvalid, "(1)") {
+		t.Errorf("snapshot limitations %+v", s.Limitations)
+	}
+}
+
+func TestInferredCountLeavesDeclaredWorkloadsOut(t *testing.T) {
+	snap := declaringSnap(t, WorkloadRef{Kind: "StatefulSet", Name: "ledger"}, clusterA,
+		rawInferred("shop", "StatefulSet", "ledger"), rawInferred("web", "StatefulSet", "ledger"), rawInferred("shop/x", "Deployment", "bad"))
+	if n := sourceState(t, snap, "k8s-workloads").InferredCount; n != 1 {
+		t.Errorf("count %d, want the one inferred record", n)
 	}
 }

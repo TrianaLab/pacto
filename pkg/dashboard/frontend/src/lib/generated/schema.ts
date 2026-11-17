@@ -3088,6 +3088,10 @@ export interface components {
         "Fleet.InferredWorkload": {
             /** @description The cluster id, whenever Pacto knows the source's cluster; the service name carries it only in a snapshot with several clusters */
             cluster?: string;
+            /** @description Pacto could not read the Pacto targets of this namespace, so a contract may describe this workload (DECLARATION_UNVERIFIED) */
+            declarationUnverified?: boolean;
+            /** @description The fields Pacto read but left out because they held a control character or ran past their bound, such as image or ports[0] */
+            dropped?: string[] | null;
             image?: components["schemas"]["Fleet.InferredValue"];
             /** @description Deployment, StatefulSet, DaemonSet or CronJob */
             kind: string;

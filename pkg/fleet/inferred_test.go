@@ -52,10 +52,16 @@ func limitationMentions(snap *FleetSnapshot, code, text string) bool {
 	return slices.ContainsFunc(limitationsWith(snap, code), func(l Limitation) bool { return strings.Contains(l.Message, text) })
 }
 
+func unverifiedRecord(snap *FleetSnapshot, name string) bool {
+	s := snap.Services[NewServiceKey(name)]
+	return s != nil && s.Workload.DeclarationUnverified
+}
+
 func checkCartWorkload(t *testing.T, w *InferredWorkload) {
 	t.Helper()
 	c := inferredCart()
-	want := &InferredWorkload{Source: "k8s-workloads", Namespace: "shop", Kind: "Deployment", Name: "cart", Image: c.Image, Ports: c.Ports, Probes: c.Probes, ObservedAt: c.ObservedAt}
+	// Whether the fixture verified the declaration is each test's to check.
+	want := &InferredWorkload{Source: "k8s-workloads", Namespace: "shop", Kind: "Deployment", Name: "cart", Image: c.Image, Ports: c.Ports, Probes: c.Probes, ObservedAt: c.ObservedAt, DeclarationUnverified: w.DeclarationUnverified}
 	if !reflect.DeepEqual(w, want) {
 		t.Errorf("workload %+v, want %+v", w, want)
 	}
@@ -213,7 +219,14 @@ func TestInferredRecordDropsControlAndOversized(t *testing.T) {
 			t.Errorf("an invalid identity was kept: %s", k)
 		}
 	}
-	for _, want := range []string{cartName + " image", cartName + " probes[0]", cartName + " ports[1]", "k8s:shop/Deployment/big image", "a workload with an invalid identity"} {
+	if !slices.Equal(s.Workload.Dropped, []string{"image", "ports[1]", "probes[0]"}) {
+		t.Errorf("dropped %v", s.Workload.Dropped)
+	}
+	if got := snap.Services[NewServiceKey("k8s:shop/Deployment/big")].Workload.Dropped; !slices.Equal(got, []string{"image"}) {
+		t.Errorf("big dropped %v", got)
+	}
+	// One count per source, never one limitation per record.
+	for _, want := range []string{"workloads from source k8s-workloads (2)", "a workload with an invalid identity"} {
 		if !limitationMentions(snap, LimitationSourceRecordInvalid, want) {
 			t.Errorf("no limitation names %q: %+v", want, limitationsWith(snap, LimitationSourceRecordInvalid))
 		}
@@ -248,17 +261,20 @@ func TestInferredUnderUnreadablePactosIsUnverified(t *testing.T) {
 	})
 	snap := buildClusterSnap(t, scoped, workloadsSource("k8s-workloads", nil, inferredCart(), front, far))
 	for _, n := range []string{cartName, "k8s:ops/Deployment/tool"} {
-		if !limitationMentions(snap, LimitationDeclarationUnverified, n) {
-			t.Errorf("%s is not unverified: %+v", n, limitationsWith(snap, LimitationDeclarationUnverified))
+		if !unverifiedRecord(snap, n) {
+			t.Errorf("%s is not unverified", n)
 		}
 	}
-	if limitationMentions(snap, LimitationDeclarationUnverified, "k8s:web/Deployment/front") {
+	if unverifiedRecord(snap, "k8s:web/Deployment/front") {
 		t.Error("a namespace the source read is unverified")
+	}
+	if !limitationMentions(snap, LimitationDeclarationUnverified, "(services: 2, namespaces: 2)") || len(limitationsWith(snap, LimitationDeclarationUnverified)) != 1 {
+		t.Errorf("want one count per source: %+v", limitationsWith(snap, LimitationDeclarationUnverified))
 	}
 	down := NewMemorySource("k8s", SourceKindKubernetes, nil)
 	down.err = errors.New("unreachable")
 	snap = buildClusterSnap(t, down, workloadsSource("k8s-workloads", nil, front))
-	if !limitationMentions(snap, LimitationDeclarationUnverified, "k8s:web/Deployment/front") {
+	if !unverifiedRecord(snap, "k8s:web/Deployment/front") {
 		t.Error("an unavailable Pacto source verified a declaration")
 	}
 	whole := NewMemorySource("k8s", SourceKindKubernetes, &Collection{})
@@ -273,10 +289,10 @@ func TestInferredUnverifiedMultiClusterMatchesCluster(t *testing.T) {
 		NewMemorySource("k8s", SourceKindKubernetes, &Collection{Cluster: clusterOf(clusterA, "eu", ClusterNameFromContext)}),
 		workloadsSource("wa", clusterOf(clusterA, "eu", ClusterNameFromContext), inferredCart()),
 		workloadsSource("wb", clusterOf(clusterB, "us", ClusterNameFromContext), inferredCart()))
-	if limitationMentions(snap, LimitationDeclarationUnverified, K8sCaller(clusterA, "shop", "Deployment", "cart")) {
+	if unverifiedRecord(snap, K8sCaller(clusterA, "shop", "Deployment", "cart")) {
 		t.Error("cluster A was read")
 	}
-	if !limitationMentions(snap, LimitationDeclarationUnverified, K8sCaller(clusterB, "shop", "Deployment", "cart")) {
+	if !unverifiedRecord(snap, K8sCaller(clusterB, "shop", "Deployment", "cart")) {
 		t.Error("cluster B was never read")
 	}
 }

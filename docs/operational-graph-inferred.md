@@ -23,14 +23,15 @@ template, `kube-system` included. Pacto reads no environment variable, Secret,
 ConfigMap, command, argument, header or annotation, and drops those values
 before anything is stored or served. It cuts a probe path at the first `?` or
 `#`, because probes often carry tokens there, and drops an image or a probe
-path that holds a control character or runs past 512 or 256 characters, with a
-`SOURCE_RECORD_INVALID` limitation naming the field.
+path that holds a control character or runs past 512 or 256 characters. The
+workload lists each such field in `dropped`, and one `SOURCE_RECORD_INVALID`
+limitation per source counts those workloads.
 
 | Limitation | Meaning |
 |---|---|
 | `PACTO_CRD_NOT_INSTALLED` | The cluster serves no Pacto CRD. The Kubernetes source reads no target and is partial; the workloads still show as inferred services |
 | `INFERRED_SERVICES_CAPPED` | A source reported more than 5000 workloads. The rest are left out and the source is partial |
-| `DECLARATION_UNVERIFIED` | Pacto could not read the Pacto resources of the inferred service's namespace, so a contract may describe it. The Overview counts these as `inferredUnverified` |
+| `DECLARATION_UNVERIFIED` | Pacto could not read the Pacto resources of the inferred service's namespace, so a contract may describe it. The service carries `declarationUnverified`, one limitation per source counts them and the Overview counts them as `inferredUnverified` |
 
 The check is conservative. A Kubernetes source that reads every namespace
 verifies its workloads only when it is `available`, so one invalid Pacto

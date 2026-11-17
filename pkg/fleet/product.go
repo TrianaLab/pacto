@@ -801,11 +801,10 @@ type Overview struct {
 func (q *Query) Overview() *Overview {
 	ov := &Overview{Meta: q.productMeta(), EntryPoints: []EntryPoint{}}
 	sum := &ov.Summary
-	unverified := inferredUnverified(q.snap)
 	for _, s := range q.snap.Services {
 		if s.Inferred() {
 			sum.InferredServices++
-			sum.InferredUnverified += b2i(unverified(s))
+			sum.InferredUnverified += b2i(s.Workload.DeclarationUnverified)
 			continue
 		}
 		if s.Template {

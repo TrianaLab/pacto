@@ -666,6 +666,10 @@ type InferredWorkload struct {
 	Ports      []InferredPort  `json:"ports,omitempty"`
 	Probes     []InferredProbe `json:"probes,omitempty"`
 	ObservedAt *time.Time      `json:"observedAt,omitempty"`
+	// DeclarationUnverified and Dropped live on the record, not only in a
+	// limitation's prose, so a restricted view can never lose them.
+	DeclarationUnverified bool     `json:"declarationUnverified,omitempty" doc:"Pacto could not read the Pacto targets of this namespace, so a contract may describe this workload (DECLARATION_UNVERIFIED)"`
+	Dropped               []string `json:"dropped,omitempty" doc:"The fields Pacto read but left out because they held a control character or ran past their bound, such as image or ports[0]"`
 }
 
 // InferredValue is one value read from a workload and the object path it was

@@ -351,8 +351,10 @@ func restrictLimitations(out *FleetSnapshot, limitations []Limitation, hiddenNam
 		// A fleet-wide count of reports; rebuilt below from the visible ones.
 		// Counts of clusterless targets; rebuilt below from the visible ones.
 		// Per-source counts of records that may be hidden; rebuilt below.
+		// Per-source counts of inferred records; rebuilt below from the visible ones.
 		if l.Code == LimitationProvisioningTruncated || l.Code == LimitationUsageTruncated || l.Code == LimitationClusterUnknown || l.Code == LimitationClusterConflict ||
-			l.Code == LimitationSourceRecordInvalid && strings.Contains(l.Message, clusterInvalidPhrase) {
+			l.Code == LimitationDeclarationUnverified ||
+			l.Code == LimitationSourceRecordInvalid && (strings.Contains(l.Message, clusterInvalidPhrase) || strings.Contains(l.Message, droppedFieldsPhrase)) {
 			return true
 		}
 		return slices.ContainsFunc(hiddenNames, func(n string) bool { return n != "" && strings.Contains(l.Message, n) })
@@ -366,6 +368,7 @@ func restrictLimitations(out *FleetSnapshot, limitations []Limitation, hiddenNam
 	out.Limitations = append(out.Limitations, droppedReports(out, out.usageDropped, LimitationUsageTruncated, "usage", MaxUsageRecords)...)
 	out.Limitations = append(out.Limitations, clusterUnknownOf(out)...)
 	out.Limitations = append(out.Limitations, clusterRecordProblemsOf(out)...)
+	out.Limitations = append(out.Limitations, inferredSnapshotLimitations(out)...)
 	for _, src := range slices.Sorted(maps.Keys(unresolved)) {
 		out.Limitations = append(out.Limitations, Limitation{
 			Code: LimitationObservedIdentityUnresolved, Source: src,
@@ -813,14 +816,10 @@ func restrictOffering(out *FleetSnapshot, s *ServiceRecord) {
 // service counts from what out still holds.
 func recountSources(out *FleetSnapshot) {
 	out.Sources = slices.Clone(out.Sources)
+	countInferred(out)
 	for i := range out.Sources {
 		id := out.Sources[i].ID
-		out.Sources[i].RevisionCount, out.Sources[i].TargetCount, out.Sources[i].InferredCount = 0, 0, 0
-		for _, s := range out.Services {
-			if s.Inferred() && slices.Contains(s.Sources, id) {
-				out.Sources[i].InferredCount++
-			}
-		}
+		out.Sources[i].RevisionCount, out.Sources[i].TargetCount = 0, 0
 		for _, r := range out.Revisions {
 			if slices.Contains(r.Sources, id) {
 				out.Sources[i].RevisionCount++

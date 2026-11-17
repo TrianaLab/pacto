@@ -451,7 +451,6 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 	snap.Limitations = append(snap.Limitations, col.Limitations...)
 	snap.Limitations = append(snap.Limitations, recordProblems...)
 	st, stateLims := sourceStateFor(src, col, now, revCount, targetCount, len(recordProblems) > 0)
-	st.InferredCount = len(kept)
 	snap.Limitations = append(snap.Limitations, stateLims...)
 	snap.Sources = append(snap.Sources, st)
 	cluster := ""
