@@ -46,6 +46,15 @@ in every namespace, but not every one of those kinds, gets a restricted view
 instead of the whole fleet. The dashboard asks these reviews the same way and
 caches them as long.
 
+The repository of an inferred service's group shows only if you may list the
+Argo CD Application or Flux object it was read from, in that object's
+namespace; otherwise it reads "hidden by your permissions". To read those
+objects the dashboard ServiceAccount holds `list` on `applications`,
+`kustomizations`, `helmreleases` and `gitrepositories`. That grant lets the
+dashboard and operator ServiceAccounts read inline Helm values
+(`spec.source.helm.values`, `spec.values`, `spec.postBuild.substitute`), which
+can hold credentials. Pacto decodes only the source and status fields it names.
+
 ## Without sign-in
 
 Without sign-in nothing is filtered. On loopback the dashboard reads the fleet

@@ -207,6 +207,10 @@ func TestDashboardClusterRoleInventory(t *testing.T) {
 		{APIGroups: []string{""}, Resources: []string{"services"}, Verbs: []string{"get", "list", "watch"}},
 		{APIGroups: []string{"apps"}, Resources: []string{"deployments", "statefulsets", "daemonsets"}, Verbs: []string{"list"}},
 		{APIGroups: []string{"batch"}, Resources: []string{"cronjobs"}, Verbs: []string{"list"}},
+		{APIGroups: []string{"argoproj.io"}, Resources: []string{"applications"}, Verbs: []string{"list"}},
+		{APIGroups: []string{"kustomize.toolkit.fluxcd.io"}, Resources: []string{"kustomizations"}, Verbs: []string{"list"}},
+		{APIGroups: []string{"helm.toolkit.fluxcd.io"}, Resources: []string{"helmreleases"}, Verbs: []string{"list"}},
+		{APIGroups: []string{"source.toolkit.fluxcd.io"}, Resources: []string{"gitrepositories"}, Verbs: []string{"list"}},
 	}, deliveryHalf...)
 	for _, tc := range []struct {
 		scoped bool

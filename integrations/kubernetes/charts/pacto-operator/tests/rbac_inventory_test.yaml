@@ -294,6 +294,80 @@ tests:
             resources: [secrets]
           any: true
 
+  # These list grants return whole objects, inline Helm values included
+  # (spec.source.helm.values, spec.values, spec.postBuild.substitute), which can
+  # hold credentials: Pacto decodes only the source and status fields it names.
+  - it: the dashboard lists GitOps objects and reads no Secrets
+    template: templates/watch-namespaces.yaml
+    set:
+      controller.watchNamespaces: [payments]
+    documentIndex: 2
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [argoproj.io]
+            resources: [applications]
+            verbs: [list]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [kustomize.toolkit.fluxcd.io]
+            resources: [kustomizations]
+            verbs: [list]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [helm.toolkit.fluxcd.io]
+            resources: [helmreleases]
+            verbs: [list]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [source.toolkit.fluxcd.io]
+            resources: [gitrepositories]
+            verbs: [list]
+      - notContains:
+          path: rules
+          content:
+            apiGroups: ['']
+            resources: [secrets]
+          any: true
+
+  - it: the operator holds the GitOps list grants of the dashboard ClusterRole and reads no Secrets cluster-wide
+    template: templates/clusterrole.yaml
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [argoproj.io]
+            resources: [applications]
+            verbs: [list]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [kustomize.toolkit.fluxcd.io]
+            resources: [kustomizations]
+            verbs: [list]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [helm.toolkit.fluxcd.io]
+            resources: [helmreleases]
+            verbs: [list]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [source.toolkit.fluxcd.io]
+            resources: [gitrepositories]
+            verbs: [list]
+      - notContains:
+          path: rules
+          content:
+            apiGroups: ['']
+            resources: [secrets]
+          any: true
+
   - it: watching the node agent namespace fails
     template: templates/watch-namespaces.yaml
     set:
@@ -379,6 +453,18 @@ tests:
         - apiGroups: [batch]
           resources: [cronjobs, jobs]
           verbs: [get, list, watch]
+        - apiGroups: [argoproj.io]
+          resources: [applications]
+          verbs: [list]
+        - apiGroups: [kustomize.toolkit.fluxcd.io]
+          resources: [kustomizations]
+          verbs: [list]
+        - apiGroups: [helm.toolkit.fluxcd.io]
+          resources: [helmreleases]
+          verbs: [list]
+        - apiGroups: [source.toolkit.fluxcd.io]
+          resources: [gitrepositories]
+          verbs: [list]
         - apiGroups: [pacto.trianalab.io]
           resources: [pactos]
           verbs: [create, delete, get, list, patch, update, watch]
@@ -807,6 +893,18 @@ tests:
         - apiGroups: [batch]
           resources: [cronjobs]
           verbs: [list]
+        - apiGroups: [argoproj.io]
+          resources: [applications]
+          verbs: [list]
+        - apiGroups: [kustomize.toolkit.fluxcd.io]
+          resources: [kustomizations]
+          verbs: [list]
+        - apiGroups: [helm.toolkit.fluxcd.io]
+          resources: [helmreleases]
+          verbs: [list]
+        - apiGroups: [source.toolkit.fluxcd.io]
+          resources: [gitrepositories]
+          verbs: [list]
         - apiGroups: [authorization.k8s.io]
           resources: [localsubjectaccessreviews]
           verbs: [create]
@@ -913,6 +1011,18 @@ tests:
           verbs: [list]
         - apiGroups: [batch]
           resources: [cronjobs]
+          verbs: [list]
+        - apiGroups: [argoproj.io]
+          resources: [applications]
+          verbs: [list]
+        - apiGroups: [kustomize.toolkit.fluxcd.io]
+          resources: [kustomizations]
+          verbs: [list]
+        - apiGroups: [helm.toolkit.fluxcd.io]
+          resources: [helmreleases]
+          verbs: [list]
+        - apiGroups: [source.toolkit.fluxcd.io]
+          resources: [gitrepositories]
           verbs: [list]
         - apiGroups: [authorization.k8s.io]
           resources: [localsubjectaccessreviews]
@@ -1180,6 +1290,18 @@ tests:
         - apiGroups: [batch]
           resources: [cronjobs]
           verbs: [list]
+        - apiGroups: [argoproj.io]
+          resources: [applications]
+          verbs: [list]
+        - apiGroups: [kustomize.toolkit.fluxcd.io]
+          resources: [kustomizations]
+          verbs: [list]
+        - apiGroups: [helm.toolkit.fluxcd.io]
+          resources: [helmreleases]
+          verbs: [list]
+        - apiGroups: [source.toolkit.fluxcd.io]
+          resources: [gitrepositories]
+          verbs: [list]
         - apiGroups: [authorization.k8s.io]
           resources: [localsubjectaccessreviews]
           verbs: [create]
@@ -1287,6 +1409,18 @@ tests:
         - apiGroups: [batch]
           resources: [cronjobs]
           verbs: [list]
+        - apiGroups: [argoproj.io]
+          resources: [applications]
+          verbs: [list]
+        - apiGroups: [kustomize.toolkit.fluxcd.io]
+          resources: [kustomizations]
+          verbs: [list]
+        - apiGroups: [helm.toolkit.fluxcd.io]
+          resources: [helmreleases]
+          verbs: [list]
+        - apiGroups: [source.toolkit.fluxcd.io]
+          resources: [gitrepositories]
+          verbs: [list]
         - apiGroups: [authorization.k8s.io]
           resources: [localsubjectaccessreviews]
           verbs: [create]
@@ -1371,6 +1505,18 @@ tests:
         - apiGroups: [batch]
           resources: [cronjobs, jobs]
           verbs: [get, list, watch]
+        - apiGroups: [argoproj.io]
+          resources: [applications]
+          verbs: [list]
+        - apiGroups: [kustomize.toolkit.fluxcd.io]
+          resources: [kustomizations]
+          verbs: [list]
+        - apiGroups: [helm.toolkit.fluxcd.io]
+          resources: [helmreleases]
+          verbs: [list]
+        - apiGroups: [source.toolkit.fluxcd.io]
+          resources: [gitrepositories]
+          verbs: [list]
         - apiGroups: [pacto.trianalab.io]
           resources: [pactos]
           verbs: [create, delete, get, list, patch, update, watch]
@@ -2116,6 +2262,18 @@ tests:
         - apiGroups: [batch]
           resources: [cronjobs]
           verbs: [list]
+        - apiGroups: [argoproj.io]
+          resources: [applications]
+          verbs: [list]
+        - apiGroups: [kustomize.toolkit.fluxcd.io]
+          resources: [kustomizations]
+          verbs: [list]
+        - apiGroups: [helm.toolkit.fluxcd.io]
+          resources: [helmreleases]
+          verbs: [list]
+        - apiGroups: [source.toolkit.fluxcd.io]
+          resources: [gitrepositories]
+          verbs: [list]
         - apiGroups: [authorization.k8s.io]
           resources: [localsubjectaccessreviews]
           verbs: [create]
@@ -2222,6 +2380,18 @@ tests:
           verbs: [list]
         - apiGroups: [batch]
           resources: [cronjobs]
+          verbs: [list]
+        - apiGroups: [argoproj.io]
+          resources: [applications]
+          verbs: [list]
+        - apiGroups: [kustomize.toolkit.fluxcd.io]
+          resources: [kustomizations]
+          verbs: [list]
+        - apiGroups: [helm.toolkit.fluxcd.io]
+          resources: [helmreleases]
+          verbs: [list]
+        - apiGroups: [source.toolkit.fluxcd.io]
+          resources: [gitrepositories]
           verbs: [list]
         - apiGroups: [authorization.k8s.io]
           resources: [localsubjectaccessreviews]
@@ -2569,6 +2739,18 @@ tests:
         - apiGroups: [batch]
           resources: [cronjobs, jobs]
           verbs: [get, list, watch]
+        - apiGroups: [argoproj.io]
+          resources: [applications]
+          verbs: [list]
+        - apiGroups: [kustomize.toolkit.fluxcd.io]
+          resources: [kustomizations]
+          verbs: [list]
+        - apiGroups: [helm.toolkit.fluxcd.io]
+          resources: [helmreleases]
+          verbs: [list]
+        - apiGroups: [source.toolkit.fluxcd.io]
+          resources: [gitrepositories]
+          verbs: [list]
         - apiGroups: [pacto.trianalab.io]
           resources: [pactos]
           verbs: [create, delete, get, list, patch, update, watch]
@@ -2876,6 +3058,18 @@ tests:
         - apiGroups: [batch]
           resources: [cronjobs, jobs]
           verbs: [get, list, watch]
+        - apiGroups: [argoproj.io]
+          resources: [applications]
+          verbs: [list]
+        - apiGroups: [kustomize.toolkit.fluxcd.io]
+          resources: [kustomizations]
+          verbs: [list]
+        - apiGroups: [helm.toolkit.fluxcd.io]
+          resources: [helmreleases]
+          verbs: [list]
+        - apiGroups: [source.toolkit.fluxcd.io]
+          resources: [gitrepositories]
+          verbs: [list]
         - apiGroups: [pacto.trianalab.io]
           resources: [pactos]
           verbs: [create, delete, get, list, patch, update, watch]

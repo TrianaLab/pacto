@@ -55,6 +55,23 @@ func clusterRoleAC(scoped bool) runtime.ApplyConfiguration {
 				WithAPIGroups("batch").
 				WithResources("cronjobs").
 				WithVerbs("list"),
+			// Service grouping and repository provenance: the dashboard lists the GitOps objects that group inferred services; it reads no Secret or Helm release.
+			rbacv1ac.PolicyRule().
+				WithAPIGroups("argoproj.io").
+				WithResources("applications").
+				WithVerbs("list"),
+			rbacv1ac.PolicyRule().
+				WithAPIGroups("kustomize.toolkit.fluxcd.io").
+				WithResources("kustomizations").
+				WithVerbs("list"),
+			rbacv1ac.PolicyRule().
+				WithAPIGroups("helm.toolkit.fluxcd.io").
+				WithResources("helmreleases").
+				WithVerbs("list"),
+			rbacv1ac.PolicyRule().
+				WithAPIGroups("source.toolkit.fluxcd.io").
+				WithResources("gitrepositories").
+				WithVerbs("list"),
 		)
 	}
 	return rbacv1ac.ClusterRole(Name).
