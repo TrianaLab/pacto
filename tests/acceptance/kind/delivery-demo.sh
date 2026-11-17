@@ -1444,8 +1444,12 @@ reach_cluster() {
     --set image.tag="$ver" --set image.pullPolicy=Never --set "insecureRegistries[0]=$REG_HOST" \
     --set delivery.enabled=true --set delivery.image.repository=localhost:5001/pacto-delivery --set-json "delivery.admissionPolicies.gitopsUsers=$GITOPS_USERS" \
     --set delivery.image.tag="$ver" --set delivery.image.pullPolicy=Never --set "delivery.insecureRegistries[0]=$REG_HOST" \
-    --set delivery.promoter.poll=2s --set delivery.argocd.enabled=true -f "$trust" --wait --timeout 240s >/dev/null \
+    --set delivery.promoter.poll=2s -f "$trust" --wait --timeout 240s >/dev/null \
     || fail "the pacto-operator chart did not roll out in prod-us"
+  # delivery.argocd.enabled is left on auto: Argo CD's Application API was
+  # served before the install, so the chart grants it with no value.
+  us kubectl -n pacto-delivery get deploy pacto-operator-delivery -o json | jq -e '[.spec.template.spec.containers[].args[]?] | index("--argocd")' >/dev/null \
+    || fail "the prod-us promoter runs without --argocd: delivery.argocd.enabled is auto and Argo CD was installed first"
 }
 
 # us_bg — reach_cluster in the background, while the first cluster plays the
@@ -1495,6 +1499,12 @@ YAML
   [ "$(us kubectl -n prod get deploy payments -o jsonpath='{.spec.template.metadata.labels.app\.kubernetes\.io/version}')" = 2.3.0 ] \
     || fail "prod-us does not run payments 2.3.0"
   pass "prod-us runs payments 2.3.0, the version prod verified, and Argo CD applied it"
+  # The Application lives in the Stage namespace (apps in any namespace), so
+  # its tracking id names prod_payments and the Stage adopts it.
+  us_adopted() { [ "$(us kubectl -n prod get stage payments -o jsonpath='{.status.applier.manager}/{.status.applier.state}/{.status.applier.owner}/{.status.applier.evidence}')" = \
+    "argocd/Adopted/Application prod/payments/tracking annotation" ]; }
+  eventually 30 us_adopted || fail "prod-us did not adopt Application prod/payments: $(us kubectl -n prod get stage payments -o jsonpath='{.status.applier}')"
+  pass "prod-us adopted Application prod/payments as the Stage's applier from its tracking annotation"
   [ -s "$DEMO/digests/payments-2.4.0" ] || fail "payments 2.4.0 never failed in prod: run 'make e2e-delivery-demo-story' first"
   local bad msg; bad="$(digest_of payments 2.4.0)"
   # reach reuses a running prod-us, and propose is a plain create: drop the last run's operation first.

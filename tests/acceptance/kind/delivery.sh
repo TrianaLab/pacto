@@ -2,14 +2,15 @@
 # Kind acceptance for Pacto delivery: phase 1 ("the core"), the promoter, the
 # Pacto contract check and Flux, running end to end on a local cluster; then
 # phase 2 ("health"), phase 3 ("publishing"), phase 5 ("ordering"), phase 4
-# ("dashboard and identity", in delivery-identity.sh), phase 6 ("records") and
-# phase 7 ("ladder", in delivery-ladder.sh), described where each starts below.
+# ("dashboard and identity", in delivery-identity.sh), phase 6 ("records"),
+# phase 7 ("ladder", in delivery-ladder.sh) and phase 8 ("appliers", in
+# delivery-appliers.sh), described where each starts below.
 # DELIVERY_SKIP_CORE=1, DELIVERY_SKIP_HEALTH=1, DELIVERY_SKIP_PUBLISH=1,
-# DELIVERY_SKIP_ORDER=1, DELIVERY_SKIP_IDENTITY=1, DELIVERY_SKIP_RECORDS=1 and
-# DELIVERY_SKIP_LADDER=1 skip those scenarios (the setup still runs); phase 4
-# needs phase 1, and phase 6 needs phases 1 and 3.
+# DELIVERY_SKIP_ORDER=1, DELIVERY_SKIP_IDENTITY=1, DELIVERY_SKIP_RECORDS=1,
+# DELIVERY_SKIP_LADDER=1 and DELIVERY_SKIP_APPLIERS=1 skip those scenarios (the
+# setup still runs); phase 4 needs phase 1, and phase 6 needs phases 1 and 3.
 #
-# DELIVERY_PHASES=core,health,publish,ordering,identity,records,ladder (any subset)
+# DELIVERY_PHASES=core,health,publish,ordering,identity,records,ladder,appliers (any subset)
 # runs only the named phases plus the ones they need, by setting the skip switch
 # of every other phase; CI runs one phase per shard. DELIVERY_DRY_RUN=1 prints
 # which phases would run and stops before touching Docker or a cluster.
@@ -100,7 +101,7 @@ KIND_POLL=1
 # Every version a phase ships waits on this scan, so the run keeps it short.
 CANDIDATE_INTERVAL=2s
 
-PHASES="core health publish ordering identity records ladder"
+PHASES="core health publish ordering identity records ladder appliers"
 # skip_var PHASE — the name of the phase's skip switch.
 skip_var() { echo "DELIVERY_SKIP_$(tr '[:lower:]' '[:upper:]' <<<"${1/ordering/order}")"; }
 if [ -n "${DELIVERY_PHASES:-}" ]; then
@@ -141,12 +142,12 @@ dump_delivery() {
   echo "--- stages + operations + approvals ---"
   kubectl get stages,operations,approvals -A -o yaml || true
   echo "--- flux ---"
-  kubectl get ocirepositories,kustomizations -A -o wide || true
+  kubectl get ocirepositories,kustomizations,helmreleases -A -o wide || true
   echo "--- logs deploy/pacto-operator-delivery ---"
   kubectl -n "$DNS" logs deploy/pacto-operator-delivery --tail=300 || true
   echo "--- logs deploy/pacto-operator-delivery-recorder ---"
   kubectl -n "$DNS" logs deploy/pacto-operator-delivery-recorder --tail=200 || true
-  for d in source-controller kustomize-controller; do
+  for d in source-controller kustomize-controller helm-controller; do
     echo "--- logs deploy/$d (flux-system) ---"
     kubectl -n flux-system logs "deploy/$d" --tail=100 || true
   done
@@ -293,6 +294,8 @@ infra "download the Flux $FLUX_VERSION install manifest" \
   curl -fsSL --retry 2 -o "$FLUX_INSTALL" "https://github.com/fluxcd/flux2/releases/download/${FLUX_VERSION}/install.yaml"
 [ "$(shasum -a 256 "$FLUX_INSTALL" | cut -d' ' -f1)" = "$FLUX_INSTALL_SHA256" ] \
   || fail "the Flux $FLUX_VERSION install manifest changed upstream: its checksum is not the pinned one"
+# The appliers phase waits on helm-controller too.
+phase_runs appliers && FLUX_IMAGES+=(ghcr.io/fluxcd/helm-controller:v1.6.4@sha256:8ff15409e46d354338045f483d58ca9cb35dffa2f87e4addd1f5eba1e6a9175f)
 for img in "${FLUX_IMAGES[@]}" "$PAUSE_IMG"; do pull_pinned "$img"; done
 FLUX_IMAGES=("${FLUX_IMAGES[@]%@*}")
 EXTRA_IMAGES=()
@@ -361,8 +364,10 @@ fi
 # installs the observing operator and delivery, once Flux's kinds exist.
 infra "install Flux" kubectl apply --server-side -f "$FLUX_INSTALL" >/dev/null
 kubectl -n flux-system scale deploy helm-controller --replicas=0 >/dev/null 2>&1 || true
-# delivery.flux.enabled is auto: Helm reads the served APIs, so the Flux kinds must be served first.
-infra "serve Flux's kinds" kubectl wait --for=condition=Established --timeout=60s crd/ocirepositories.source.toolkit.fluxcd.io crd/kustomizations.kustomize.toolkit.fluxcd.io >/dev/null
+# delivery.flux.enabled is auto: Helm reads the served APIs, so the Flux kinds
+# must be served first. The HelmRelease API turns on --flux-helm (the appliers phase).
+infra "serve Flux's kinds" kubectl wait --for=condition=Established --timeout=60s crd/ocirepositories.source.toolkit.fluxcd.io \
+  crd/kustomizations.kustomize.toolkit.fluxcd.io crd/helmreleases.helm.toolkit.fluxcd.io >/dev/null
 helm upgrade --install pacto-operator "$OP_CHART" -n "$NS" ${OP_HEALTH[@]+"${OP_HEALTH[@]}"} \
   ${DL_HEALTH[@]+"${DL_HEALTH[@]}"} ${DL_FRESH[@]+"${DL_FRESH[@]}"} \
   --set global.imageRegistry= --set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never \
@@ -746,6 +751,11 @@ YAML
 }
 
 # --- reading the cluster's state ---------------------------------------------
+# applier_is NS STAGE WANT — status.applier reads WANT, as
+# manager/state/owner/evidence.
+applier_is() {
+  [ "$(kubectl -n "$1" get stage "$2" -o jsonpath='{.status.applier.manager}/{.status.applier.state}/{.status.applier.owner}/{.status.applier.evidence}')" = "$3" ]
+}
 reconciled() { [ -n "$(kubectl -n "$1" get pacto "$2" -o jsonpath='{.status.contract.serviceName}' 2>/dev/null)" ]; }
 
 # Phase 1, the core. DELIVERY_SKIP_CORE=1 skips it; DELIVERY_PHASES=health runs the setup and phase 2 only.
@@ -821,6 +831,10 @@ climb test payments team-payments
 first prod payments team-payments "$A"
 climb prod payments team-payments
 pass "A verified in test and in prod; carol confirmed each raise, so both Stages are autonomous"
+# Flux's kustomize-controller applied payments from the Stage's own
+# OCIRepository, so the promoter adopts it as the Stage's applier.
+eventually 30 applier_is test payments "flux/Adopted/Kustomization test/payments/kustomize-controller labels" \
+  || fail "test/payments did not adopt its Kustomization: $(kubectl -n test get stage payments -o jsonpath='{.status.applier}')"
 
 section "items 1, 3 and 8: B (compatible) ships to production with no person, and a stale check never counts"
 # The operator is stopped before B ships, so the Pacto status still reports A's
@@ -2005,6 +2019,9 @@ phase_records() {
 # Phase 7 runs beside the others, in its own namespace.
 # shellcheck source=tests/acceptance/kind/delivery-ladder.sh
 source "$(dirname "$0")/delivery-ladder.sh"
+# Phase 8 runs beside the others, in its own namespaces.
+# shellcheck source=tests/acceptance/kind/delivery-appliers.sh
+source "$(dirname "$0")/delivery-appliers.sh"
 phase_audit() {
   records_audit
   stats_audit
