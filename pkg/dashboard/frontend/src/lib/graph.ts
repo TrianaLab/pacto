@@ -438,6 +438,7 @@ export const LEGEND_SELECTORS: Record<string, string> = {
   'state:expected-not-observed': 'edge[state = "expected-not-observed"]',
   'state:drift': 'edge[state = "drift"]',
   'state:insufficient': 'edge[state = "insufficient"]',
+  'state:inferred': 'edge[state = "inferred"]',
   'behavior:refused': 'edge[refused = 1]',
 };
 
@@ -777,6 +778,13 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered', edgeStyl
       selector: "edge[state='expected-not-observed']",
       // Projected, never observed: the figures' dashed wire (SPEC 2.1).
       style: { 'line-color': pal.info, 'target-arrow-color': pal.info, 'line-style': 'dashed', 'line-dash-pattern': [6, 5] },
+    },
+    {
+      // inferred: recognized in the caller's configuration, never declared or observed.
+      // The same projected wire as expected-not-observed (SPEC 2.1) in the dim tone;
+      // the legend and the edge list tell the two apart in words.
+      selector: "edge[state='inferred']",
+      style: { 'line-style': 'dashed', 'line-dash-pattern': [6, 5] },
     },
     {
       // drift (observed-not-expected): observed at runtime but never declared. The

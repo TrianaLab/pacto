@@ -549,15 +549,56 @@ func TestPrintFleet_MarksInferredName(t *testing.T) {
 // hidden consumers.
 func TestPrintExternalFoldsAndHides(t *testing.T) {
 	var b strings.Builder
-	printExternal(&b, fleet.ExternalRecord{Key: fleet.OtherEgress, Class: fleet.ClassOtherEgress, SourcesTotal: 3, Folded: 4, HiddenConsumers: 2}, "")
+	printExternal(&b, fleet.ExternalRecord{Key: fleet.OtherEgress, Class: fleet.ClassOtherEgress, SourcesTotal: 3, Folded: 4, HiddenConsumers: 2}, "", fleet.ExternalEvidence{})
 	printExternal(&b, fleet.ExternalRecord{Key: "x", Catalog: &fleet.ExternalCatalogMatch{Origin: "organization", Digest: "short", Entry: "x"},
-		Sources: []fleet.ExternalSource{{Service: "payments", Index: 2, Dependency: "x", Superseded: true}}}, fleet.OtherEgress)
-	for _, want := range []string{"payments pacto.yaml dependencies[2] (name: x, not in the newest revision)", "3 declarations in all, across every consumer revision", "folds    4 external systems", "hidden consumers 2", "folded into other-egress", "catalog  organization short entry x"} {
+		Sources: []fleet.ExternalSource{{Kind: fleet.ExternalSourceContract, Service: "payments", Index: 2, Dependency: "x", Superseded: true}}}, fleet.OtherEgress, fleet.ExternalEvidence{})
+	for _, want := range []string{"payments pacto.yaml dependencies[2] (name: x, not in the newest revision)", "3 sources in all, across every consumer revision", "folds    4 external systems", "hidden consumers 2", "folded into other-egress", "catalog  organization short entry x"} {
 		if !strings.Contains(b.String(), want) {
 			t.Errorf("lacks %q:\n%s", want, b.String())
 		}
 	}
 	if strings.Contains(b.String(), "joined by name") {
 		t.Errorf("the other-egress node reads as joined by name:\n%s", b.String())
+	}
+}
+
+func TestFleetEntityExternalPrintsInferredSources(t *testing.T) {
+	var buf bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&buf)
+	ext := &fleet.ExternalDetailData{
+		External: fleet.ExternalRecord{Key: "stripe", Class: "vendor-api", HiddenConsumers: 2, Sources: []fleet.ExternalSource{
+			{Kind: fleet.ExternalSourceContract, Service: "pay", Index: 1, Dependency: "stripe-api", Provenance: fleet.ProvenanceDeclared},
+			{Kind: fleet.ExternalSourcePodSpec, Service: "checkout", Provenance: fleet.ProvenanceInferred},
+		}},
+		Catalog: &fleet.ExternalCatalogRef{Origin: "default", Digest: "sha256:3e9a"},
+		ExternalEvidence: fleet.ExternalEvidence{
+			InferredSources: []fleet.ExternalInferredSource{
+				{Service: "checkout", InferredSource: fleet.InferredSource{Kind: "env", Where: "deployment/checkout env STRIPE_API_BASE", Host: "api.stripe.com", Confidence: "likely", Entry: "stripe"}},
+				{Service: "checkout", InferredSource: fleet.InferredSource{Kind: "secretKeyRef", Where: "deployment/checkout secretKeyRef stripe/KEY", Confidence: "possible"}},
+			},
+			InferredSourcesTotal: 5,
+			ObservedSources:      []fleet.ExternalObservedSource{{Service: "checkout", ObservedSourceStat: fleet.ObservedSourceStat{Source: "otel", Count: 4}}},
+			ObservedSourcesTotal: 1,
+		},
+	}
+	if err := printFleetEntity(cmd, &fleet.EntityDetail{Entity: fleet.EntityRef{Kind: fleet.KindExternal, Key: "stripe"}, External: ext}, "text"); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"stripe  external, vendor-api  (used by 0 consumers)\n",
+		"  sources  pay pacto.yaml dependencies[1] (name: stripe-api)\n",
+		"           checkout env deployment/checkout env STRIPE_API_BASE (inferred, likely)\n             -> api.stripe.com (host and port only)\n",
+		"           checkout secretKeyRef deployment/checkout secretKeyRef stripe/KEY (inferred, possible)\n",
+		"           checkout otel (observed, 4 calls)\n           3 more inferred sources\n",
+		"  catalog  none (",
+		"  hidden consumers 2\n",
+	} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("external text lacks %q:\n%s", want, buf.String())
+		}
+	}
+	if strings.Contains(buf.String(), "pod-spec") {
+		t.Errorf("a pod-spec source prints through its inferred evidence only:\n%s", buf.String())
 	}
 }

@@ -58,10 +58,20 @@ Each edge carries a **provenance** discriminator that records where the fact cam
 - **declared**: from a contract (`dependencies[]`, and config/policy `ref`s).
 - **observed**: seen in running traffic. Pacto keeps observed edges in their own
   adjacency index, so declared and observed answers stay separate.
-- **inferred**: deduced heuristically. Reserved for future use; Pacto produces none yet.
+- **inferred**: an external system a source recognized in a service's
+  configuration, such as the operator reading a workload's pod spec. The edge
+  lists each source under `inferredSources`, with what it read (`kind`,
+  `where`), the normalized `host`, `confidence`, the catalog `entry` and
+  digest and `observedAt`. It is kept out of every index that impact and a
+  gate read, so an inferred edge never clears a gate.
 - **declared+observed**: one edge backed by both. The neighborhood projection
   merges the two indexes for display and emits this combined value, so a consumer
   branching on provenance must handle all four.
+
+A neighborhood edge reads `inferred` only when nothing declared or observed
+backs it; `inferred: true` marks the inferred evidence either way. An
+inferred-only edge appears in the Differences view and has no `difference`
+value.
 
 The dashboard's Operational Graph draws each edge by what backs it: matched,
 expected but not observed, or observed but not expected.
@@ -259,7 +269,10 @@ consumers are affected, directly and transitively".
 Declared intent is half the picture; the other half is what traffic does.
 The **OTel observer** (`pacto otel observe <traces.json>`) is an offline analyzer:
 it reads an exported OTLP/JSON trace file and derives the caller-to-callee edges
-its outbound spans prove. A missing span is no proof that a dependency is absent, so the observer reports only edges it saw. It can also
+its outbound spans prove. A missing span is no proof that a dependency is absent, so the observer reports only edges it saw.
+The callee of a span is the first of these attributes it carries:
+`peer.service`, `rpc.service`, `server.address`, `net.peer.name`, `db.system`,
+`messaging.system` and `rpc.system`. It can also
 emit signable EvidenceSets (`pacto otel observe --evidence`) so observed
 dependencies travel the same [evidence protocol](evidence.md) as any
 other report.
@@ -269,9 +282,15 @@ Those observed edges meet the declared graph in three places:
 - **The snapshot itself**: `pacto fleet --traces <file>` and `pacto dashboard
   --traces` resolve each raw observed endpoint name to a **unique
   domain-qualified service** and fold resolved edges in as `observed`
-  relationships. A name that matches zero or more than one service stays
-  unresolved and becomes an `OBSERVED_IDENTITY_UNRESOLVED` limitation, so
-  observed traffic is always attributed to the right domain or to none.
+  relationships. A name no service carries goes through the
+  [external catalog](external-catalog-reference.md#matching): a catalog system
+  value or host, or a host of three or more labels with a public registrable
+  domain, becomes an `observed` edge to that external system. A name that
+  matches more than one service, and a name that is neither a service nor an
+  external system, stays unresolved and becomes an
+  `OBSERVED_IDENTITY_UNRESOLVED` limitation, so observed traffic is always
+  attributed to the right domain or to none. A service name always wins over
+  an external one.
 - **Reconciliation**: `pacto fleet reconcile --traces <file>` labels each
   dependency **matched**, **declared-not-observed** (dormant or unseen in the
   window) or **observed-not-declared** (a *shadow* dependency the contract

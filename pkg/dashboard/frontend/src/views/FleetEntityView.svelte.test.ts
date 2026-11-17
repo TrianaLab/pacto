@@ -463,6 +463,27 @@ describe('FleetEntityView — rich service page (D)', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  // An external system's page: its class, catalog, consumers and where it was recognized.
+  it('shows an external system with its catalog, consumers and sources', async () => {
+    detailFn.mockResolvedValue({
+      meta, entity: { kind: 'external', key: 'stripe', label: 'Stripe', href: '/fleet/externals/stripe' }, actions: ['open-graph'],
+      external: {
+        external: { key: 'stripe', label: 'Stripe', class: 'vendor-api', consumers: ['domain-a/checkout'], consumersTotal: 1, sourcesTotal: 0, sources: [],
+          catalog: { origin: 'default', digest: `sha256:${'3e9a'.repeat(16)}`, entry: 'stripe' } },
+        consumers: [{ service: { kind: 'service', key: 'domain-a/checkout', label: 'checkout', href: '/fleet/services/domain-a%2Fcheckout' }, required: true }],
+        catalog: { origin: 'default', digest: `sha256:${'3e9a'.repeat(16)}`, copy: 'embedded', signature: 'unknown' },
+        inferredSources: [{ service: 'domain-a/checkout', source: 'k8s', kind: 'env', where: 'deployment/checkout env STRIPE_API_BASE', host: 'api.stripe.com', confidence: 'likely' }],
+        inferredSourcesTotal: 1,
+      },
+    });
+    const { target, component } = await mountView('external', 'stripe');
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="external-source"]')).toBeTruthy());
+    expect(target.textContent).toContain('External system');
+    expect(target.querySelector('[data-testid="external-catalog"]')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('Default catalog sha256:3e9a3e9a, entry stripe: embedded copy, signature unknown.');
+    expect(target.querySelector('a[href="#/fleet/services/domain-a%2Fcheckout"]')).toBeTruthy();
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('breadcrumbs use the entity relationship (Overview > Services > payments)', async () => {
     detailFn.mockResolvedValue(serviceDetail());
     const { target, component } = await mountView('service', 'domain-a/payments');
@@ -1014,19 +1035,19 @@ describe('FleetEntityView — external system page', () => {
     expect(detailFn).toHaveBeenCalledWith('external', 'stripe');
     const rows = Array.from(target.querySelectorAll('[data-testid="external-consumers"] tbody tr'));
     expect(rows.map((r) => Array.from(r.children).map((c) => c.textContent?.trim()))).toEqual([['checkout', 'required', '2024-06'], ['billing', 'optional', 'none named']]);
-    expect(target.querySelector('[data-testid="external-hidden-consumers"]')?.textContent).toBe('1 more service you cannot see declares it.');
+    expect(target.querySelector('[data-testid="external-hidden-consumers"]')?.textContent).toBe('1 more service you cannot see declares, calls or uses it.');
     const cat = target.querySelector('[data-testid="external-catalog"]')?.textContent?.replace(/\s+/g, ' ').trim();
     expect(cat).toBe('Default catalog sha256:3e9a1b2c, entry stripe: embedded copy, signature unknown (the default catalog is checked only when a source already reads ghcr.io).');
-    openAll(target);
-    const sources = Array.from(target.querySelectorAll('[data-testid="external-sources"] li')).map((li) => li.textContent?.trim());
+    const sources = Array.from(target.querySelectorAll('[data-testid="external-source"]')).map((r) => [
+      r.getAttribute('data-provenance'), r.querySelector('[data-cell="service"] a')?.textContent?.trim(), r.querySelector('[data-cell="where"] bdi')?.textContent?.trim()]);
     expect(sources).toEqual([
-      'checkout pacto.yaml dependencies[0] (name: Stripe, version: 2024-06), declared',
-      'billing pacto.yaml dependencies[2] (name: stripe-api, not in the newest revision), declared',
+      ['declared', 'checkout', 'pacto.yaml dependencies[0] (name: Stripe)'],
+      ['declared', 'billing', 'pacto.yaml dependencies[2] (name: stripe-api, not in the newest revision)'],
     ]);
     expect(target.querySelector('[data-testid="external-name-only"]')).toBeNull();
     const crumbs = Array.from(target.querySelectorAll('nav a, nav span')).map((n) => n.textContent?.trim());
     expect(crumbs).toEqual(expect.arrayContaining(['Overview', 'Services', 'External systems', 'Stripe']));
-    expect(target.querySelector('.xe-caption')?.textContent).toContain('2 services declare this vendor API.');
+    expect(target.querySelector('.xe-caption')?.textContent).toContain('2 services declare, call or use this vendor API.');
     expect(target.querySelector('[data-testid="external-folded-into"]')).toBeNull();
     unmount(component); document.body.removeChild(target);
   });
@@ -1075,7 +1096,7 @@ describe('FleetEntityView — external system page', () => {
     detailFn.mockResolvedValue(externalDetail({ key: 'other-egress', label: 'Other egress', class: 'other-egress', folded: 12, consumersTotal: 3 }));
     const { target, component } = await mountView('external', 'other-egress');
     expect(target.querySelector('[data-testid="external-folded"]')?.textContent).toContain('This node folds 12 external systems');
-    expect(target.querySelector('.xe-caption')?.textContent).toContain('3 services declare the external systems this node folds');
+    expect(target.querySelector('.xe-caption')?.textContent).toContain('3 services declare, call or use the external systems this node folds');
     expect(target.querySelector('[data-testid="external-name-only"]')).toBeNull();
     unmount(component); document.body.removeChild(target);
   });

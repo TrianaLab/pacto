@@ -37,6 +37,7 @@ type scan struct {
 	// expanded, and envNotes what of it could not be read.
 	env      []envVar
 	envNotes []string
+	ign      *ignore.Matcher // .pactoignore: what it leaves out is not read
 }
 
 // configMap is a ConfigMap's data and the file it is in.
@@ -87,6 +88,7 @@ func scanDir(dir string) (*scan, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading %s: %w", filepath.Join(dir, ignore.IgnoreFileName), err)
 	}
+	sc.ign = ign
 	err = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
 		if errors.Is(err, fs.ErrNotExist) && p == dir {
 			return fs.SkipAll // a folder that is not there yet is empty
@@ -380,7 +382,8 @@ func dig(v any, keys ...string) any {
 var hostRE = regexp.MustCompile(`^(?:([a-z][a-z0-9+.-]*)://)?(?:[^@/]*@)?([a-z0-9]([a-z0-9-]*[a-z0-9])?)((?:\.[a-z0-9-]+)*)(:[0-9]+)?(/.*)?$`)
 
 // dependencies are the services the workload's environment points at,
-// leaving out itself and anything its own manifests define.
+// leaving out itself and anything its own manifests define. A dotted name
+// outside the cluster is left to externals.
 func (sc *scan) dependencies(self string) []Finding {
 	out := []Finding{}
 	seen := map[string]bool{}

@@ -4,7 +4,7 @@
   import BehaviorBadges from './BehaviorBadges.svelte';
   import RequirementList from './RequirementList.svelte';
   import { provenanceLabel, provenanceIsImplied, RANGE_NOT_DECLARED } from '../lib/entityLabels.ts';
-  import { corroborationLabel, corroborationTone, differenceLabel, differenceTone } from '../lib/graphState.ts';
+  import { corroborationLabel, corroborationTone, differenceLabel, differenceTone, edgeDifference } from '../lib/graphState.ts';
   import { shortDigest, formatCount } from '../lib/format.ts';
   import { formatDate } from '../lib/dateFormat.ts';
 
@@ -57,8 +57,8 @@
   // corroborated, so each scope is rendered in its own vocabulary. Same mapping the
   // graph drawer uses (lib/graphState.ts) -- never re-inferred from booleans.
   const scoped = (e) => !e.difference && !!e.serviceCorroboration;
-  const verdictLabel = (e) => (scoped(e) ? corroborationLabel(e.serviceCorroboration) : differenceLabel(e.difference));
-  const verdictTone = (e) => (scoped(e) ? corroborationTone(e.serviceCorroboration) : differenceTone(e.difference));
+  const verdictLabel = (e) => (scoped(e) ? corroborationLabel(e.serviceCorroboration) : differenceLabel(edgeDifference(e)));
+  const verdictTone = (e) => (scoped(e) ? corroborationTone(e.serviceCorroboration) : differenceTone(edgeDifference(e)));
 
   // The edge carries the worst guarantee status over its claims; the reason a check
   // could not run lives on the claim that could not be checked.

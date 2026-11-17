@@ -23,7 +23,6 @@
   import EntitySearch from './EntitySearch.svelte';
   import FleetOverview from './views/FleetOverview.svelte';
   import FleetServicesView from './views/FleetServicesView.svelte';
-  import FleetOfferingsView from './views/FleetOfferingsView.svelte';
   import FleetEntityListView from './views/FleetEntityListView.svelte';
   import FleetAttentionView from './views/FleetAttentionView.svelte';
   import LegacyEntityRedirect from './views/LegacyEntityRedirect.svelte';
@@ -40,6 +39,7 @@
   const loadOwnerDetailView = once(() => import('./views/OwnerDetailView.svelte'));
   const loadFleetGoldenPathsView = once(() => import('./views/FleetGoldenPathsView.svelte'));
   const loadFleetExternalsView = once(() => import('./views/FleetExternalsView.svelte'));
+  const loadFleetOfferingsView = once(() => import('./views/FleetOfferingsView.svelte'));
   const loadFleetMetricsView = once(() => import('./views/FleetMetricsView.svelte'));
   // Delivery views load on first use too: most visitors never open them.
   const loadDeliveryInboxView = once(() => import('./views/DeliveryInboxView.svelte'));
@@ -482,7 +482,7 @@
       limit={route.params.limit || ''} hasNonCompliant={route.params.hasNonCompliant || ''} ownerKey={route.params.ownerKey || ''}
       sort={route.params.sort || ''} {refreshTick} />
   {:else if route.view === 'fleet-offerings'}
-    <FleetOfferingsView text={route.params.text || ''} offset={route.params.offset || ''}
+    <LazyView load={loadFleetOfferingsView} text={route.params.text || ''} offset={route.params.offset || ''}
       limit={route.params.limit || ''} lifecycle={route.params.lifecycle || ''} failed={route.params.failed || ''}
       sort={route.params.sort || ''} {refreshTick} />
   {:else if route.view === 'fleet-externals'}

@@ -766,6 +766,59 @@ export function installScaleFixture(): void {
       }
       if (meta) meta.completeness = leaf ? 'complete' : 'partial';
     }
+    // An external system at fleet scale (517-S2): the engine answers for the demo's
+    // parcel-carrier and the page becomes `stripe` with 412 consumers (3 hidden), 300 of
+    // 1,284 inferred sources and 40 observed ones, every identity and `where` long.
+    if (route === '/api/fleet/entities/external' && q.get('key') === 'stripe') {
+      const ent = doc.entity as Record<string, unknown>;
+      const x = doc.external as Record<string, unknown>;
+      const rec = x.external as Record<string, unknown>;
+      Object.assign(ent, { key: 'stripe', label: longName('stripe'), href: '/fleet/externals/stripe' });
+      const svc = (i: number) => `domain-load/${longName(`external-consumer-${i}`)}`;
+      Object.assign(rec, { key: 'stripe', label: longName('stripe'), class: 'vendor-api', consumersTotal: 412, hiddenConsumers: 3,
+        catalog: { origin: 'organization', digest: `sha256:${'3e9a'.repeat(16)}`, entry: longName('stripe-entry') } });
+      x.consumers = Array.from({ length: 25 }, (_, i) => ({
+        service: { kind: 'service', key: svc(i), label: longName(`external-consumer-${i}`), href: `/fleet/services/${encodeURIComponent(svc(i))}` },
+        required: i % 2 === 0, versions: [longName(`api-version-${i}`)],
+      }));
+      const KINDS = ['env', 'configMap', 'secretKeyRef', 'secretRef', 'externalNameService', 'selectorlessService', 'serviceEntry'];
+      x.inferredSources = Array.from({ length: 300 }, (_, i) => ({
+        service: svc(i % 25), source: longName(`k8s-source-${i % 4}`), kind: KINDS[i % KINDS.length],
+        where: `deployment/${longName(`workload-${i}`)} env ${longName(`STRIPE_API_BASE_${i}`).toUpperCase()}`,
+        host: i % 3 ? `${longName(`api-${i}`)}.stripe.com:443` : '', confidence: i % 3 ? 'likely' : 'possible',
+        entry: i % 5 ? longName('stripe-entry') : undefined, catalog: `sha256:${'3e9a'.repeat(16)}`, observedAt: '2026-11-16T08:00:00Z',
+      }));
+      x.inferredSourcesTotal = 1284;
+      x.observedSources = Array.from({ length: 20 }, (_, i) => ({ service: svc(i), source: longName(`otel-${i}`), count: 1200 + i, firstSeen: '2026-11-01T08:00:00Z', lastSeen: '2026-11-16T08:00:00Z' }));
+      x.observedSourcesTotal = 40;
+    }
+    // Inferred and observed edges to external systems beside the declared ones, so the
+    // focused graph, its edge list and a service's relationships draw them.
+    const extEdges = (edges: Record<string, unknown>[] | undefined, self: Record<string, unknown> | undefined) => {
+      const tpl = edges?.[0];
+      if (!edges || !tpl || !self) return [];
+      const ext = (key: string) => ({ kind: 'external', key, label: longName(key), href: `/fleet/externals/${encodeURIComponent(key)}` });
+      const edge = (to: Record<string, unknown>, provenance: string, observed: boolean) => ({
+        ...tpl, id: `${self.key}->${to.key}`, href: String(to.href), from: self, to, provenance, inferred: provenance === 'inferred',
+        expected: false, observed, difference: observed ? 'observed-not-expected' : undefined, serviceCorroboration: undefined,
+        declaredClaims: { items: [], total: 0, count: 0, truncated: false },
+      });
+      const added = [edge(ext('stripe'), 'inferred', false), edge(ext('host/corp-legacy.co.uk'), 'observed', true)];
+      edges.push(...added);
+      return added.map((e) => e.to);
+    };
+    if (route === '/api/fleet/neighborhood') {
+      const nodes = doc.nodes as Record<string, unknown>[] | undefined;
+      const focus = nodes?.find((n) => n.focus) ?? nodes?.[0];
+      for (const ref of extEdges(doc.edges as Record<string, unknown>[] | undefined, focus?.ref as Record<string, unknown> | undefined)) {
+        nodes?.push({ depth: 1, ref });
+      }
+    }
+    if (route === '/api/fleet/entities/service') {
+      const rel = (doc.service as Record<string, unknown> | undefined)?.relationships as { items?: Record<string, unknown>[]; count?: number; total?: number } | undefined;
+      const added = extEdges(rel?.items, doc.entity as Record<string, unknown>).length;
+      if (rel && added) { rel.count = (rel.count ?? 0) + added; if (typeof rel.total === 'number') rel.total += added; }
+    }
     walk(doc);
   };
 
@@ -940,7 +993,10 @@ export function installScaleFixture(): void {
       return { status: 409, contentType: 'application/problem+json', body: JSON.stringify({ status: 409, title: 'Conflict',
         detail: 'this target key names targets in more than one cluster; choose one', errors }) };
     }
-    const res = await (real as Serve)(method, engineName(path), body);
+    // The demo has no `stripe`: its parcel-carrier answers, and amend renames it.
+    const asked = route === '/api/fleet/entities/external' && new URLSearchParams(path.split('?')[1] ?? '').get('key') === 'stripe'
+      ? path.replace('key=stripe', 'key=parcel-carrier') : engineName(path);
+    const res = await (real as Serve)(method, asked, body);
     if (res.status !== 200 || !(res.contentType || '').includes('json')) return res;
     let doc: Record<string, unknown>;
     try { doc = JSON.parse(res.body); } catch { return res; }
@@ -1646,6 +1702,7 @@ export const ROUTES: Route[] = [
   { name: 'external entity name only, hidden, folded and truncated', open: async (page) => { await page.addInitScript(() => { (window as unknown as { __externalStates?: boolean }).__externalStates = true; }); await page.goto('/#/fleet/externals/parcel-carrier'); await page.reload(); await expect(page.getByTestId('external-folded-into')).toBeVisible({ timeout: 30_000 }); } }, // reload: the init script only runs on a new document
   { name: 'graph external focus', hash: '#/fleet/graph/external/parcel-carrier' },
   { name: 'source entity', hash: '#/fleet/sources/edge-cluster' },
+  { name: 'external inferred sources', hash: '#/fleet/externals/stripe' },
   { name: 'golden paths', list: true, hash: '#/fleet/golden-paths' },
   { name: 'golden path entity', open: firstLink('#/fleet/golden-paths?sort=name', '/fleet/services/') },
   { name: 'service created from a golden path', open: createdService },

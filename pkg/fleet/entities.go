@@ -245,8 +245,12 @@ func (q *Query) Entities(f EntityFilter) (*EntityList, error) {
 	sortEntityList(filtered, f.Sort)
 
 	pg := Paginate(filtered, f.Limit, f.Offset, DefaultEntityLimit, MaxEntityLimit)
+	meta := q.productMetaWith(derived)
+	if want[KindExternal] {
+		meta = q.externalProductMeta(derived)
+	}
 	res := &EntityList{
-		Meta: q.productMetaWith(derived), Total: len(filtered), Count: len(pg.Items),
+		Meta: meta, Total: len(filtered), Count: len(pg.Items),
 		Limit: pg.Limit, Offset: pg.Offset, Truncated: pg.Truncated, NextOffset: pg.NextOffset, Entities: pg.Items,
 		Aggregate: q.aggregate(filtered, offerings),
 	}

@@ -44,8 +44,12 @@ literal value for one is named under next steps. A URL in the environment
 that names another service in the cluster becomes a dependency with
 compatibility unknown: with that service's contract in --fleet, its bundle and
 a proposed range from its version in a comment; without it, the comment says
-no range was proposed. A readiness, liveness or startup probe becomes a health
-check.
+no range was proposed. Vendors, managed services and legacy hosts that the
+environment and every chart's values.yaml name are listed under External,
+classified with the external catalog, and the likely ones are written as
+commented entries under dependencies for you to uncomment. Only their host and
+port are shown; a Secret gives its name and key names, never a value. A
+readiness, liveness or startup probe becomes a health check.
 
 Either contract also gets a publish section, for pacto publish, with its
 bundle under --registry (default: the workload's image registry, else the

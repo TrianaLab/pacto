@@ -33,6 +33,11 @@ rules:
   - apiGroups: [discovery.k8s.io]
     resources: [endpointslices]
     verbs: [get, list, watch]
+  {{- if include "pacto-operator.apiServed" (list $ "networking.istio.io/v1") }}
+  - apiGroups: [networking.istio.io]
+    resources: [serviceentries]
+    verbs: [get, list, watch]
+  {{- end }}
   - apiGroups: [apps]
     resources: [deployments, replicasets, statefulsets]
     verbs: [get, list, watch]

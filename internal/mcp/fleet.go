@@ -42,11 +42,11 @@ const fleetInstructions = "Pacto also exposes READ-ONLY fleet tools over the ope
 	"means no current report, never a failure or success. " +
 	"Every fleet answer carries 'meta' (pacto_impact carries the same fields at the top level): " +
 	"cite asOf, snapshotId and sources, and list limitations when you answer. Each edge carries " +
-	"'provenance' (declared, observed or declared+observed) and a declared edge carries " +
+	"'provenance' (declared, observed, declared+observed or inferred: an external use read from a workload's configuration or pod spec, which never clears a gate) and a declared edge carries " +
 	"'reconciliation'; each graph node says how it was reached. Say which kind each fact is: " +
 	"declared in a contract, observed at runtime or inferred. Pacto uses 'inferred' in three " +
 	"places: a transitive consumer in pacto_impact, a target linked to a revision by tag or " +
-	"version match and a relationship provenance reserved for future use. pacto_fleet_entities " +
+	"version match and an external use read from configuration (relationship and external source provenance). pacto_fleet_entities " +
 	"with template=only lists golden paths, the starting points pacto_create takes as 'from' (over stdio, from pacto mcp --transport stdio); a " +
 	"golden path is never a consumer, so it is absent from impact and offering consumers. Use " +
 	"pacto_fleet_entities to list owners, business domains and offerings, pacto_fleet_entity " +
@@ -326,7 +326,8 @@ func fleetGraphTool() *mcpsdk.Tool {
 		Name: "pacto_fleet_graph",
 		Description: "Traverse fleet dependencies or dependents from a service. Cycle-safe. " +
 			"Reports reached nodes with depth, path and 'provenance' (how the edge that reached the node is known: " +
-			"declared, observed or declared+observed), cycles, unresolved dependencies and 'truncated'. " +
+			"declared, observed or declared+observed, or inferred for an external system's consumer known only from its configuration), cycles, unresolved dependencies and 'truncated'. " +
+			"Edges to external systems are drawn whether declared, observed or inferred. " +
 			"Each edge carries 'provenance' and, for a declared edge, 'reconciliation'. " +
 			"A declared edge appears once per contract revision that declares it ('fromRevision'). " +
 			"Rooted at a revision or target, a dependencies traversal takes its first step over that revision's declared edges only; deeper steps are service-level and include observed edges. " +
@@ -767,7 +768,8 @@ func fleetNeighborhoodTool() *mcpsdk.Tool {
 		Name: "pacto_fleet_neighborhood",
 		Description: "Show the services around one service: who it depends on and who depends on it, to the " +
 			"requested depth, each with its owner and status. Edges say whether they are declared, observed or " +
-			"both; views defaults to expected,observed. hiddenDependents counts the services, or callers with no " +
+			"both; views defaults to expected,observed. An external use inferred from configuration and neither declared " +
+			"nor observed appears only with views=differences, with provenance inferred. hiddenDependents counts the services, or callers with no " +
 			"contract, that your permissions hide; pacto_fleet_attention with category=undeclared and service lists " +
 			"the callers with no contract. Use it " +
 			"to find the affected services and the teams that own them. Read-only.",

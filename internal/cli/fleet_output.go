@@ -123,20 +123,43 @@ func supersededNote(src fleet.ExternalSource) string {
 }
 
 // printExternal is the text of one external system: its identity line, the
-// sources that declare it and the catalog that classified it.
-func printExternal(w io.Writer, rec fleet.ExternalRecord, into fleet.ExternalKey) {
+// sources that declare, call or use it (an inferred one with its kind, where
+// it was found and the normalized host, never a value) and the catalog that
+// classified it.
+func printExternal(w io.Writer, rec fleet.ExternalRecord, into fleet.ExternalKey, ev fleet.ExternalEvidence) {
 	consumers := "consumers"
 	if rec.ConsumersTotal == 1 {
 		consumers = "consumer"
 	}
-	_, _ = fmt.Fprintf(w, "%s  external, %s  (declared by %d %s)\n", rec.Key, rec.Class, rec.ConsumersTotal, consumers)
+	_, _ = fmt.Fprintf(w, "%s  external, %s  (used by %d %s)\n", rec.Key, rec.Class, rec.ConsumersTotal, consumers)
 	label := "sources"
-	for _, src := range rec.Sources {
-		_, _ = fmt.Fprintf(w, "  %-7s  %s pacto.yaml dependencies[%d] (name: %s%s)\n", label, src.Service, src.Index, src.Dependency, supersededNote(src))
+	line := func(format string, a ...any) {
+		_, _ = fmt.Fprintf(w, "  %-7s  "+format+"\n", append([]any{label}, a...)...)
 		label = ""
 	}
+	for _, src := range rec.Sources {
+		// Observed and pod-spec sources print through their evidence below.
+		if src.Kind == fleet.ExternalSourceContract {
+			line("%s pacto.yaml dependencies[%d] (name: %s%s)", src.Service, src.Index, src.Dependency, supersededNote(src))
+		}
+	}
+	for _, s := range ev.InferredSources {
+		line("%s %s %s (inferred, %s)", s.Service, s.Kind, s.Where, s.Confidence)
+		if s.Host != "" {
+			line("  -> %s (host and port only)", s.Host)
+		}
+	}
+	for _, s := range ev.ObservedSources {
+		line("%s %s (observed, %d calls)", s.Service, s.Source, s.Count)
+	}
+	if more := ev.InferredSourcesTotal - len(ev.InferredSources); more > 0 {
+		line("%d more inferred sources", more)
+	}
+	if more := ev.ObservedSourcesTotal - len(ev.ObservedSources); more > 0 {
+		line("%d more observed sources", more)
+	}
 	if rec.SourcesTotal > len(rec.Sources) {
-		_, _ = fmt.Fprintf(w, "           %d declarations in all, across every consumer revision\n", rec.SourcesTotal)
+		_, _ = fmt.Fprintf(w, "           %d sources in all, across every consumer revision\n", rec.SourcesTotal)
 	}
 	if c := rec.Catalog; c != nil {
 		_, _ = fmt.Fprintf(w, "  catalog  %s %s entry %s\n", c.Origin, shortDigest(c.Digest), c.Entry)
@@ -164,7 +187,7 @@ func shortDigest(d string) string {
 
 func printFleetExternal(cmd *cobra.Command, ev *fleet.ExternalView, format string) error {
 	return formatResult(cmd, format, ev, func() error {
-		printExternal(cmd.OutOrStdout(), ev.External, ev.FoldedInto)
+		printExternal(cmd.OutOrStdout(), ev.External, ev.FoldedInto, ev.ExternalEvidence)
 		warnPartial(cmd, ev.Meta)
 		return nil
 	}, nil)

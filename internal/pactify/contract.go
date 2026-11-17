@@ -93,6 +93,7 @@ func (p *planner) contract(ctx context.Context) error {
 	}
 	if p.r.Mode == modePactify {
 		p.r.Dependencies = p.sc.dependencies(p.r.Service)
+		p.externals(p.r.Dir)
 	}
 	for _, d := range p.opts.Inferred {
 		if !slices.ContainsFunc(p.r.Dependencies, func(f Finding) bool { return f.Name == d.Name }) {
@@ -408,6 +409,7 @@ func (p *planner) pactified() string {
 	}
 	p.health(&b, sc.openapi != "")
 	p.dependencyEntries(&b, bundles)
+	p.externalEntries(&b)
 	p.configuration(&b)
 	p.environments(&b)
 	if p.opts.DescribeOnly {

@@ -882,7 +882,9 @@ const ObservedIdentityUnresolved = fleet.LimitationObservedIdentityUnresolved
 // more than one (across domains), is NOT silently assigned the default domain: the
 // edge is dropped from corroboration and a structured limitation is emitted, so
 // observed evidence can never corroborate or affect the wrong same-named service in
-// another domain. Returns nothing when observed evidence was not opted in.
+// another domain. A provider no service takes that names an external system
+// (see [fleet.FleetSnapshot.ObservedExternal]) is skipped with no limitation.
+// Returns nothing when observed evidence was not opted in.
 func resolveObservedEdges(snap *fleet.FleetSnapshot, edges []ObservedEdge, include bool) ([]resolvedObservedEdge, []fleet.Limitation) {
 	if !include || len(edges) == 0 {
 		return nil, nil
@@ -912,6 +914,12 @@ func resolveObservedEdges(snap *fleet.FleetSnapshot, edges []ObservedEdge, inclu
 		ck, cRes := resolve(e.Consumer)
 		pk, pRes := resolve(e.Provider)
 		cOK := addLim(e.Consumer, cRes)
+		if pRes == fleet.ObservedUnknown {
+			if _, ext := snap.ObservedExternal(e.Provider); ext {
+				// An external callee is never a consumer of a service, and no unresolved one.
+				continue
+			}
+		}
 		pOK := addLim(e.Provider, pRes)
 		if cOK && pOK {
 			out = append(out, resolvedObservedEdge{consumer: ck, provider: pk, source: tracesFileSource, count: e.Count,
@@ -924,12 +932,13 @@ func resolveObservedEdges(snap *fleet.FleetSnapshot, edges []ObservedEdge, inclu
 
 // snapshotObservedEdges extracts the observed dependency relationships Build
 // already folded into the snapshot. They are pre-resolved to domain-qualified
-// keys, so no re-resolution (and no default-domain risk) applies here.
+// keys, so no re-resolution (and no default-domain risk) applies here. An edge
+// to an external system never enters.
 func snapshotObservedEdges(snap *fleet.FleetSnapshot) []resolvedObservedEdge {
 	var out []resolvedObservedEdge
 	for _, r := range snap.Relationships {
 		// Observed runtime calls are dependency edges; a reference never makes one.
-		if r.Type == fleet.RelationshipDependency && r.Provenance == fleet.ProvenanceObserved && r.Resolved {
+		if r.Type == fleet.RelationshipDependency && r.Provenance == fleet.ProvenanceObserved && r.Resolved && r.ToExternal == "" {
 			out = append(out, resolvedObservedEdge{consumer: r.FromService, provider: r.ToService, source: observedSource(r),
 				count: r.ObservedCount, lastSeen: copyTime(r.LastSeen), stale: r.LastSeen != nil && staleAt(snap, r.LastSeen)})
 		}

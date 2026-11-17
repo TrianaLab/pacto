@@ -1268,3 +1268,69 @@ func TestAffectedConsumerNameInferred(t *testing.T) {
 		}
 	}
 }
+
+// A trace callee the catalog names is an external system: it is never a
+// consumer of a service, so it is skipped without an unresolved limitation.
+// An unknown caller of it still is one.
+func TestImpactTracesExternalCalleeNotUnresolved(t *testing.T) {
+	snap := buildChain(t)
+	edges := []ObservedEdge{
+		{Consumer: "api-gateway", Provider: "api.stripe.com"},
+		{Consumer: "ghost", Provider: "api.stripe.com"},
+	}
+	resolved, lims := resolveObservedEdges(snap, edges, true)
+	if len(resolved) != 0 {
+		t.Fatalf("resolved = %+v", resolved)
+	}
+	if len(lims) != 1 || !strings.Contains(lims[0].Message, "observed service ghost ") {
+		t.Fatalf("lims = %+v", lims)
+	}
+	snap.Relationships = append(snap.Relationships, fleet.Relationship{FromService: fleet.NewServiceKey("api-gateway"), ToExternal: "stripe",
+		Type: fleet.RelationshipDependency, Provenance: fleet.ProvenanceObserved, Resolved: true})
+	if got := snapshotObservedEdges(snap); len(got) != 0 {
+		t.Errorf("snapshot edges = %+v", got)
+	}
+}
+
+// TestImpactIgnoresInferredExternalEdges: inferred and observed edges to an
+// external system change no impact answer: an external is never a consumer.
+func TestImpactIgnoresInferredExternalEdges(t *testing.T) {
+	at := time.Now()
+	analyzeWith := func(uses []fleet.RawExternalUse, observed []fleet.ObservedEdge) *Result {
+		auth := svcContract("auth-service", "1.0.0", contract.Owner{Team: "platform"})
+		gateway := svcContract("api-gateway", "1.0.0", contract.Owner{Team: "gateway-team"},
+			contract.Dependency{Name: "auth-service", Ref: "ghcr.io/x/auth-service:1.0.0", Required: true, Compatibility: "^1.0.0"})
+		col := &fleet.Collection{
+			Revisions: []fleet.RawRevision{{Bundle: mkBundle(auth)}, {Bundle: mkBundle(gateway)}},
+			Targets: []fleet.RawTarget{
+				{Scope: "prod", Kind: "deployment", Name: "auth", Service: "auth-service", Compliance: fleet.StatusCompliant, EvidenceAt: &at},
+				{Scope: "prod", Kind: "deployment", Name: "gw", Service: "api-gateway", Compliance: fleet.StatusCompliant, EvidenceAt: &at},
+			},
+			ExternalUses: uses, Observed: observed,
+		}
+		snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: func() time.Time { return at }}, fleet.NewMemorySource("test", "memory", col))
+		if err != nil {
+			t.Fatal(err)
+		}
+		old := svcContract("auth-service", "1.0.0", contract.Owner{Team: "platform"})
+		old.Interfaces = []contract.Interface{{Name: "auth-api", Type: contract.InterfaceTypeGRPC, Ref: "auth.proto"}}
+		res := Analyze(context.Background(), old, svcContract("auth-service", "2.0.0", contract.Owner{Team: "platform"}), fstest.MapFS{}, fstest.MapFS{}, snap,
+			Options{IncludeObserved: true})
+		res.SnapshotID = ""
+		return res
+	}
+	uses := []fleet.RawExternalUse{
+		{Service: "api-gateway", Namespace: "prod", Identity: "stripe", Kind: "env", Confidence: "likely", Host: "api.stripe.com", Where: "deployment/gw env STRIPE"},
+		{Service: "auth-service", Namespace: "prod", Identity: "stripe", Kind: "secretKeyRef", Confidence: "possible", Where: "deployment/auth secretKeyRef s/STRIPE_KEY"},
+	}
+	observed := []fleet.ObservedEdge{{From: "auth-service", To: "api.stripe.com", Count: 2}}
+	without, with := analyzeWith(nil, nil), analyzeWith(uses, observed)
+	a, _ := json.Marshal(without)
+	b, _ := json.Marshal(with)
+	if string(a) != string(b) {
+		t.Errorf("impact changed:\nwithout %s\nwith    %s", a, b)
+	}
+	if strings.Contains(string(b), "stripe") {
+		t.Errorf("impact names the external: %s", b)
+	}
+}

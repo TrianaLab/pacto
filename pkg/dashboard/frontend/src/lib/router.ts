@@ -18,7 +18,7 @@ export interface Route {
     | 'fleet-offerings' // /fleet/offerings  platform-offering list
     | 'fleet-externals' // /fleet/externals  external-system list
     | 'fleet-golden-paths' // /fleet/golden-paths  golden path list
-    | 'fleet-entity'    // /fleet/<plural>/:key   unified entity detail
+    | 'fleet-entity'    // /fleet/<plural>/:key   unified entity detail (externals/:identity too)
     | 'fleet-entity-list'// /fleet/revisions|targets[?service=]  scoped inventory list
     | 'fleet-attention' // /fleet/attention  attention list
     // Delivery (only where the delivery component is installed).

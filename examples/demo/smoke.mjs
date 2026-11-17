@@ -87,6 +87,13 @@ const fstatus = json(call("GET", "/api/fleet/status"));
 check("fleet status surfaces the non-compliant orders target",
   (fstatus.items || []).some((i) => i.name.includes("orders-service") || i.code === "NON_COMPLIANT"));
 
+// notification-worker calls api.twilio.com and no contract declares it: the
+// catalog classifies the callee, so the twilio external exists from traces alone.
+const twilio = json(call("GET", "/api/fleet/entities/external?key=twilio"));
+const twilioSources = (twilio.external && twilio.external.external && twilio.external.external.sources) || [];
+check("the observed-only twilio external answers with an observed source and no other",
+  twilioSources.length > 0 && twilioSources.every((s) => s.kind === "observed"), JSON.stringify(twilioSources).slice(0, 200));
+
 // A pick a target detail key from the snapshot and fetch it.
 const someTargetKey = Object.keys(snap.targets || {})[0];
 const tdetail = json(call("GET", `/api/fleet/target?key=${encodeURIComponent(someTargetKey)}`));

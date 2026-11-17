@@ -178,10 +178,10 @@ func (spec Doc) Meta() (title, description string) {
 // sensitivePatterns are the parts of a key name that mark its value as
 // sensitive.
 // ponytail: substring match; KEYCLOAK_URL and MONKEY read as sensitive, which masks them in a summary or a diff and, in a pacto init --cluster draft, moves their literal into a Secret the owner creates. A word-boundary rule when a false positive hides or moves something a reader needs.
-var sensitivePatterns = []string{"password", "secret", "token", "key", "credential", "private", "dsn"}
+var sensitivePatterns = []string{"password", "passwd", "secret", "token", "key", "credential", "private", "dsn"}
 
 // SensitiveKey reports whether a configuration key's name, in any case,
-// contains one of the sensitive patterns: password, secret, token, key,
+// contains one of the sensitive patterns: password, passwd, secret, token, key,
 // credential, private or dsn.
 func SensitiveKey(name string) bool {
 	name = strings.ToLower(name)

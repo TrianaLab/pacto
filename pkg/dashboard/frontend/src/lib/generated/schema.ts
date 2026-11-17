@@ -2824,6 +2824,11 @@ export interface components {
             signer?: string;
         };
         "Fleet.ExternalConsumer": {
+            /**
+             * @description How the use is known: declared when any contract declares it, else observed in traces, else inferred from configuration
+             * @enum {string}
+             */
+            provenance: "declared" | "observed" | "inferred";
             /** @description Whether any of its declarations is required */
             required?: boolean;
             service: components["schemas"]["Fleet.EntityRef"];
@@ -2837,6 +2842,56 @@ export interface components {
             external: components["schemas"]["Fleet.ExternalRecord"];
             /** @description The other-egress node this answer folds it into */
             foldedInto?: string;
+            /** @description Where each source recognized it in a listed consumer's configuration */
+            inferredSources?: components["schemas"]["Fleet.ExternalInferredSource"][] | null;
+            /**
+             * Format: int64
+             * @description Every inferred source of the listed consumers
+             */
+            inferredSourcesTotal?: number;
+            /** @description Each trace source that saw a listed consumer call it */
+            observedSources?: components["schemas"]["Fleet.ExternalObservedSource"][] | null;
+            /**
+             * Format: int64
+             * @description Every observed source of the listed consumers
+             */
+            observedSourcesTotal?: number;
+        };
+        "Fleet.ExternalInferredSource": {
+            /** @description The digest of the catalog the source classified it with */
+            catalog?: string;
+            /** @enum {string} */
+            confidence: "likely" | "possible";
+            /** @description The catalog entry that classified it */
+            entry?: string;
+            /** @description The normalized host and port; empty when only a key name matched */
+            host?: string;
+            /** @description What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService or serviceEntry */
+            kind: string;
+            /**
+             * Format: date-time
+             * @description When the source last read it
+             */
+            observedAt?: string;
+            /** @description The consumer */
+            service: string;
+            /** @description The id of the source that reported it */
+            source: string;
+            /** @description The target the evidence was read on */
+            target?: string;
+            /** @description The object and key it was found in, never a value */
+            where?: string;
+        };
+        "Fleet.ExternalObservedSource": {
+            /** Format: int64 */
+            count: number;
+            /** Format: date-time */
+            firstSeen?: string;
+            /** Format: date-time */
+            lastSeen?: string;
+            /** @description The consumer */
+            service: string;
+            source: string;
         };
         "Fleet.ExternalRecord": {
             /** @description The aliases of the catalog entry that classified it */
@@ -2848,11 +2903,11 @@ export interface components {
              * @enum {string}
              */
             class: "vendor-api" | "managed-cloud" | "legacy" | "unclassified" | "other-egress";
-            /** @description The services that declare it */
+            /** @description The services that declare, call or use it */
             consumers: string[] | null;
             /**
              * Format: int64
-             * @description How many services declare it
+             * @description How many services declare, call or use it
              */
             consumersTotal: number;
             /**
@@ -2878,7 +2933,7 @@ export interface components {
             sources: components["schemas"]["Fleet.ExternalSource"][] | null;
             /**
              * Format: int64
-             * @description Every declaration, across every revision of every consumer
+             * @description Every declaration across every revision of every consumer, plus each observed or inferred source
              */
             sourcesTotal: number;
         };
@@ -2891,11 +2946,11 @@ export interface components {
              */
             index: number;
             /**
-             * @description Where the evidence comes from
+             * @description Where the evidence comes from: a contract's dependency, a call a trace source saw or a use inferred from a workload's pod spec
              * @enum {string}
              */
-            kind: "contract";
-            /** @description How the evidence was joined to the identity: identity, catalog-alias, host or normalized-name */
+            kind: "contract" | "observed" | "pod-spec";
+            /** @description How the evidence was joined to the identity: identity, catalog-alias, host, normalized-name, system (an OpenTelemetry system value) or keyName (a configuration key name only) */
             match: string;
             /** @enum {string} */
             provenance: "declared" | "observed" | "inferred";
@@ -2954,7 +3009,7 @@ export interface components {
             nameInferred?: components["schemas"]["Contract.Inferred"];
             path: string[] | null;
             /** @enum {string} */
-            provenance: "declared" | "observed" | "declared+observed";
+            provenance: "declared" | "observed" | "declared+observed" | "inferred";
         };
         "Fleet.GraphResult": {
             aggregated: boolean;
@@ -2976,6 +3031,29 @@ export interface components {
             provenance: "inferred";
             source: string;
             value: string;
+        };
+        "Fleet.InferredSource": {
+            /** @description The digest of the catalog the source classified it with */
+            catalog?: string;
+            /** @enum {string} */
+            confidence: "likely" | "possible";
+            /** @description The catalog entry that classified it */
+            entry?: string;
+            /** @description The normalized host and port; empty when only a key name matched */
+            host?: string;
+            /** @description What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService or serviceEntry */
+            kind: string;
+            /**
+             * Format: date-time
+             * @description When the source last read it
+             */
+            observedAt?: string;
+            /** @description The id of the source that reported it */
+            source: string;
+            /** @description The target the evidence was read on */
+            target?: string;
+            /** @description The object and key it was found in, never a value */
+            where?: string;
         };
         "Fleet.InterfaceDeprecation": {
             deprecated: string;
@@ -3616,6 +3694,11 @@ export interface components {
         };
         "Fleet.Relationship": {
             compatibility?: string;
+            /**
+             * @description The strongest confidence of the inferred sources: likely when a host or system value matched, possible when only a key name did
+             * @enum {string}
+             */
+            confidence?: "likely" | "possible";
             deprecatedInterfaces?: components["schemas"]["Fleet.InterfaceDeprecation"][] | null;
             external?: boolean;
             /** Format: date-time */
@@ -3628,6 +3711,8 @@ export interface components {
             /** @enum {string} */
             guaranteeStatus?: "met" | "unmet" | "unknown";
             hidden?: boolean;
+            /** @description Where each source recognized this external system in the caller's configuration; set only on an inferred edge */
+            inferredSources?: components["schemas"]["Fleet.InferredSource"][] | null;
             /** Format: date-time */
             lastSeen?: string;
             lockedDigest?: string;
@@ -3649,7 +3734,7 @@ export interface components {
             resolvedRevision?: string;
             source?: string;
             to: string;
-            /** @description The canonical identity of the external system this ref-less external dependency joins; resolved stays false because no fleet service delivers it */
+            /** @description The canonical identity of the external system this ref-less external dependency or observed call joins; resolved stays false because no fleet service delivers it */
             toExternal?: string;
             toService?: string;
             type: string;
@@ -4899,6 +4984,7 @@ export interface components {
             guaranteeStatus?: "met" | "unmet" | "unknown";
             href: string;
             id: string;
+            inferred?: boolean;
             /** Format: date-time */
             lastSeen?: string;
             /** @enum {string} */
@@ -4906,7 +4992,7 @@ export interface components {
             observationSources: components["schemas"]["Fleet.ObservationSourcesPreview"];
             observed: boolean;
             /** @enum {string} */
-            provenance: "declared" | "observed" | "declared+observed";
+            provenance: "declared" | "observed" | "declared+observed" | "inferred";
             providerLifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             /** @enum {string} */
             relation: "dependency" | "runs" | "configuration_reference";

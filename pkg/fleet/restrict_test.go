@@ -932,3 +932,61 @@ func TestRestrictHidesBreakConsumers(t *testing.T) {
 		t.Errorf("a hidden consumer is named: %s", raw)
 	}
 }
+
+// TestRestrictHidesExternalEdgeOfHiddenCaller: an inferred or observed edge
+// to an external system follows its caller, and evidence read on a hidden
+// target goes even when its service stays visible. What goes is counted.
+func TestRestrictHidesExternalEdgeOfHiddenCaller(t *testing.T) {
+	uses := []RawExternalUse{
+		{Service: "web", Namespace: "shop", Identity: "stripe", Kind: "env", Confidence: "likely", Host: "api.stripe.com", Where: "deployment/web env STRIPE"},
+		{Service: "vault", Namespace: "secret", Identity: "stripe", Kind: "env", Confidence: "likely", Host: "api.stripe.com", Where: "deployment/vault env STRIPE"},
+		{Service: "pay", Namespace: "secret", Identity: "stripe", Kind: "configMap", Confidence: "likely", Host: "api.stripe.com", Where: "configmap/pay-secret-ns STRIPE"},
+		{Service: "pay", Namespace: "shop", Identity: "twilio", Kind: "env", Confidence: "possible", Where: "deployment/pay env TWILIO_TOKEN"},
+		{Service: "pay", Namespace: "secret", Identity: "twilio", Kind: "env", Confidence: "likely", Host: "api.twilio.com", Where: "deployment/pay-secret env TWILIO"},
+	}
+	snap := inferredFleet(t, []inferredSvc{{name: "web", ns: []string{"shop"}}, {name: "vault", ns: []string{"secret"}}, {name: "pay", ns: []string{"shop", "secret"}}},
+		uses, []ObservedEdge{{From: "vault", To: "api.stripe.com", Count: 1}}, nil)
+	r := NewQuery(snap).Restrict(shopView)
+	checkRestrictedExternalEdges(t, r.snap.Relationships)
+	checkRestrictedExternals(t, r)
+}
+
+// checkRestrictedExternalEdges: under shopView no external edge comes from
+// vault, cites evidence of a secret target or rests on such evidence alone.
+func checkRestrictedExternalEdges(t *testing.T, rels []Relationship) {
+	t.Helper()
+	for _, rel := range rels {
+		if rel.FromService == "vault" {
+			t.Errorf("hidden caller's edge = %+v", rel)
+		}
+		for _, s := range rel.InferredSources {
+			if strings.Contains(s.Where, "secret") {
+				t.Errorf("evidence of a hidden target = %+v", s)
+			}
+		}
+		if rel.FromService == "pay" && rel.ToExternal == "twilio" && (len(rel.InferredSources) != 1 || rel.Confidence != "possible") {
+			t.Errorf("pay -> twilio = %+v", rel)
+		}
+		if rel.FromService == "pay" && rel.ToExternal == "stripe" {
+			t.Errorf("an edge only a hidden target evidences = %+v", rel)
+		}
+	}
+}
+
+// checkRestrictedExternals: what goes is counted, never named.
+func checkRestrictedExternals(t *testing.T, r *Query) {
+	t.Helper()
+	v, err := r.GetExternal("stripe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e := v.External; e.ConsumersTotal != 1 || e.HiddenConsumers != 2 || e.Consumers[0] != "web" {
+		t.Errorf("stripe = %+v", e)
+	}
+	if tw, _ := r.GetExternal("twilio"); tw.External.SourcesTotal != 1 || tw.External.HiddenConsumers != 0 {
+		t.Errorf("twilio = %+v", tw.External)
+	}
+	if b, _ := json.Marshal(r.Snapshot()); strings.Contains(string(b), "pay-secret") || strings.Contains(string(b), "deployment/vault") {
+		t.Errorf("restricted snapshot names hidden evidence: %s", b)
+	}
+}

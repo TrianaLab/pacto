@@ -90,6 +90,9 @@ type PactoReconciler struct {
 	// Scoped is true when the operator watches a namespace list. It picks the grant hint of a
 	// Secret the operator may not read: only a scoped install is told about controller.watchNamespaces.
 	Scoped bool
+	// ServiceEntries turns on the Istio ServiceEntry reader of status.externals; main sets it when the
+	// cluster serves networking.istio.io/v1 ServiceEntry at startup.
+	ServiceEntries bool
 }
 
 // +kubebuilder:rbac:groups=pacto.trianalab.io,resources=pactos,verbs=get;list;watch;create;update;patch;delete
@@ -101,6 +104,7 @@ type PactoReconciler struct {
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get,namespace=system
 // +kubebuilder:rbac:groups=discovery.k8s.io,resources=endpointslices,verbs=get;list;watch
+// +kubebuilder:rbac:groups=networking.istio.io,resources=serviceentries,verbs=get;list;watch
 // +kubebuilder:rbac:groups=apps,resources=deployments;statefulsets;replicasets,verbs=get;list;watch
 // +kubebuilder:rbac:groups=batch,resources=jobs;cronjobs,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
@@ -320,8 +324,12 @@ func (r *PactoReconciler) evaluateRuntime(ctx context.Context, pacto *pactov1alp
 		e.KernelCoverage = obs.KernelCoverage()
 	}
 	pacto.Status.ObservedCallers, pacto.Status.ObservedCallersCoverage = obs.ObservedCallers(pacto.Status.ObservedCallers)
-	if c := pacto.Status.ObservedCallersCoverage; c != nil {
-		c.RefreshSeconds = int32(r.requeueInterval(pacto) / time.Second)
+	pacto.Status.Externals, pacto.Status.ExternalsCoverage = obs.Externals()
+	pacto.Status.ExternalCatalog = observer.ExternalCatalog()
+	for _, c := range []*pactov1alpha1.CallerCoverage{pacto.Status.ObservedCallersCoverage, pacto.Status.ExternalsCoverage} {
+		if c != nil {
+			c.RefreshSeconds = int32(r.requeueInterval(pacto) / time.Second)
+		}
 	}
 
 	// Apply window updates (spec section 9.5): upsert by (Kind, Subject); nil resets the entry; windows for
@@ -397,6 +405,7 @@ func (r *PactoReconciler) buildCollectInput(pacto *pactov1alpha1.Pacto, ec *effe
 		CallerWindow:                      r.requeueInterval(pacto),
 		CallerIgnoreNamespaces:            r.CallerIgnoreNamespaces,
 		Scoped:                            r.Scoped,
+		ServiceEntries:                    r.ServiceEntries,
 	}
 }
 
@@ -492,6 +501,9 @@ func (r *PactoReconciler) resetDerivedStatus(pacto *pactov1alpha1.Pacto) {
 	pacto.Status.Findings = nil
 	pacto.Status.Capabilities = nil
 	pacto.Status.EvaluationCoverage = nil
+	pacto.Status.Externals = nil
+	pacto.Status.ExternalsCoverage = nil
+	pacto.Status.ExternalCatalog = ""
 	// Callers are kept for their FirstSeen; until a runtime evaluation rewrites them, a coverage that was
 	// reported reads unavailable, never as the complete list of an older evaluation. It keeps the refresh
 	// interval, so delivery reads it as not evaluated rather than as a status the operator stopped writing.

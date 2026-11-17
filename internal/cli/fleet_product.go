@@ -441,7 +441,7 @@ func printFleetEntity(cmd *cobra.Command, res *fleet.EntityDetail, format string
 			printRevisionPlace(w, res.Revision)
 		}
 		if res.External != nil {
-			printExternal(w, res.External.External, res.External.FoldedInto)
+			printExternal(w, res.External.External, res.External.FoldedInto, res.External.ExternalEvidence)
 		}
 		_, _ = fmt.Fprintln(w, "Run with --output-format json for the full detail")
 		warnProductPartial(cmd, res.Meta)

@@ -104,6 +104,11 @@ dependencies:               # one per service a URL in the environment names
     ref: oci://registry.example/acme/contracts/billing   # where its contract would be published
     required: true                              # yours cannot run without it
     compatibility: unknown   # no range proposed: no contract or running version of billing was read
+  # inferred externals: uncomment the ones this service calls and set the version
+  # - name: stripe  # k8s/deployment.yaml, env STRIPE_API_BASE (likely, catalog sha256:... (embedded), entry stripe)
+  #   external: true
+  #   required: true
+  #   version: <the API version you call>
 configurations:             # the environment, ConfigMaps included: keys and types, no values
   - name: env
     schema: configuration/schema.json
@@ -126,14 +131,45 @@ publish:
 
 - The configuration schema holds each key and its type, never a value, so it
   declares no defaults.
-- It marks a key `writeOnly` when its name holds password, secret, token, key,
-  credential, private or dsn (any case), when it is read from a Secret or when
+- It marks a key `writeOnly` when its name holds password, passwd, secret,
+  token, key, credential, private or dsn (any case), when it is read from a Secret or when
   its value is a URL with credentials.
 - Next steps name each manifest or ConfigMap that sets such a key to a
   literal value, because the bundle publishes that file.
 - A `--cluster` draft reads such a key from the Secret `<workload>-env`, which
   you create with `kubectl create secret generic --from-env-file`
   ([details](bootstrap-contracts.md#configuration-keys-and-sensitive-values)).
+
+### What pactify recognizes
+
+- `init` lists the vendors, managed services and legacy hosts your
+  configuration names under **External**, and writes the likely ones as the
+  commented `inferred externals` block above. Nothing it infers becomes part
+  of the contract until you uncomment an entry. A `--cluster` draft lists them
+  the same way.
+- Each one shows only its host and port: a user name, password, path and
+  query are stripped from a URL before anything reads it. A Secret's values
+  are never read.
+- The [external catalog](external-catalog-reference.md#matching) decides what
+  each host or key name belongs to, and `init` prints the digest of the
+  catalog it used.
+
+| Source | What is read | Confidence |
+|--------|--------------|------------|
+| Environment of the workload, ConfigMaps included | Each value with a scheme, a port or a key named like a host (`URL`, `HOST`, `ENDPOINT`, `BROKER` and similar), and each key name | `likely` for a host, `possible` for a key name alone |
+| `secretKeyRef` | The Secret name and key name, never the value | `possible` |
+| `envFrom` `secretRef` | The Secret name, never a key or value | `possible` |
+| Each chart's `values.yaml` | Every string value, read as data (templates are never rendered), and its key name | `likely` for a host, `possible` for a key name alone |
+
+- A value under a key named like a password, secret, token, key, credential,
+  private key or DSN is never parsed.
+- Only a `likely` external gets a commented entry. A `possible` one is named
+  under Unknown, such as
+  `k8s/deployment.yaml, env STRIPE_SECRET_KEY suggests stripe`.
+- A host no catalog entry names is grouped by its public registrable domain
+  (`host/corp-legacy.co.uk`) when it has three or more labels. Any other host
+  in the environment is named under Unknown. Names inside the cluster stay dependencies, and an IP
+  address is never an external.
 
 Leave the long `command` line as it is. It copies your Kubernetes files with
 the image pinned to the digest this version built, in every manifest that runs

@@ -34,7 +34,9 @@ Rules:
 - `other-egress` is reserved for the [cap](#the-cap) node.
 
 An identity carries no cluster: a vendor is the same system whichever cluster
-calls it.
+calls it. The operator reports a host that an `ExternalName` Service, a
+selectorless Service or a `ServiceEntry` names, and no catalog entry
+classifies, as `legacy`.
 
 ## How a declared external joins
 
@@ -92,9 +94,52 @@ entries:
 
 An alias, host or key pattern claimed by two entries of one file is an error.
 A file holds at most 2000 entries and 1 MiB. Pacto joins declared dependencies
-by `aliases` today; the other matchers are parsed and validated so a catalog
-written now keeps working when Pacto classifies hosts, SDK modules, key names
-and OpenTelemetry callees.
+by `aliases`. `hosts`, `keyPatterns` and `otel` classify what `pacto init`, the
+operator and trace sources recognize, as [Matching](#matching) describes.
+`sdkModules` is parsed and validated so a catalog written now keeps working when
+Pacto reads module manifests.
+
+## Matching
+
+`pacto init`, the operator and the fleet all classify through the same
+matcher.
+
+| Input | Rule | Confidence |
+|-------|------|------------|
+| A host | The longest catalog host rule wins, an exact host over a `*.` wildcard of the same length. An exact rule matches only that name, and `*.example.com` matches its subdomains and never `example.com` itself | `likely` |
+| A host no rule names | Three or more labels and a public registrable domain give `host/<registrable-domain>`. A two-label name matches only a catalog rule, because a namespace short form such as `orders.shop` reads like a vendor's domain | `likely` |
+| A configuration key name | Compared without case against the entries' key patterns, with `-` and `.` read as `_`, so the Secret name `stripe-credentials` reads like `STRIPE_CREDENTIALS` | `possible` |
+| An OpenTelemetry `db.system`, `messaging.system` or `rpc.system` value | Compared exactly, without case, against the entries' values. A protocol no entry claims, such as `grpc`, gives no match. The default catalog claims only values that name one managed service, such as `aws_sqs` or `dynamodb`, so a generic `postgresql` or `kafka` callee stays unresolved | `likely` |
+
+A configuration value is a host candidate only when it has a scheme
+(`https://`), a port or a key named like a host: one that contains `url`,
+`uri`, `host`, `endpoint`, `addr`, `address`, `server` or `broker`. A
+value that names no host can still match by its key name. `likely` means a
+host or a system value matched. `possible` means only a key name did, and
+nothing else confirms it.
+
+### Redaction
+
+The matcher reads a host and a port and nothing else:
+
+- A URL keeps only its host and port. The user name, password, path, query and
+  fragment are never read, so
+  `postgres://user:pass@db.xyz.rds.amazonaws.com:5432/app?password=x` shows as
+  `db.xyz.rds.amazonaws.com:5432`.
+- A value under a key that names a password, secret, token, key, credential,
+  private key or DSN is never parsed. Only its key name is matched. The rule
+  reads parts of a name, so a `DATABASE_DSN` or `KEYCLOAK_URL` value gives no
+  host either.
+- A Secret contributes its name and key names, never a value.
+- A comma-separated seed list, such as Kafka brokers, gives one host per entry,
+  and a `jdbc:` prefix is dropped.
+
+### Names that never match
+
+An IP address, a single label, `localhost`, a name with a `svc` label (such as
+`orders.shop.svc.corp.local`), a `*.cluster.local` name and a name with a label
+outside RFC 1123 give no match. In-cluster names stay dependencies on services.
+A value that does not parse gives no match, never part of the string.
 
 ## The default catalog
 
@@ -174,7 +219,10 @@ counting them all.
 A caller who cannot see a consumer never learns its name. An external system
 lists only visible consumers and counts the rest in `hiddenConsumers`, and its
 totals count visible data only. An external system that only hidden services
-declare is left out and counted in the Overview's `hiddenExternals`. The cap
+declare, call or use is left out and counted in the Overview's
+`hiddenExternals`. An observed or inferred edge follows its caller, and
+evidence read on a hidden target is dropped even when its service stays
+visible. The cap
 ranks on visible consumers, so two callers with the same view get the same
 answer.
 
@@ -184,6 +232,16 @@ answer.
 |---|---|
 | `EXTERNAL_CATALOG_UNAVAILABLE` | The organization catalog could not be pulled or is not a valid catalog |
 | `EXTERNAL_CAP` | An answer folds external systems into `other-egress` |
+| `EXTERNAL_USE_UNATTRIBUTED` | A source reported external uses of a service the snapshot does not hold, or with an invalid identity; they are dropped |
+| `EXTERNAL_CATALOG_MISMATCH` | A source classified external uses with a catalog other than the one the snapshot classifies with |
+| `EXTERNALS_UNREPORTED` | A target's source cannot say which external systems it uses (an older operator, partial coverage or a stale status) |
 
 ![The page of one external system: its consumers with each declared version, and the catalog entry and digest that classified it](assets/screenshots/dashboard-external-entity-light.png#only-light)
 ![The page of one external system: its consumers with each declared version, and the catalog entry and digest that classified it](assets/screenshots/dashboard-external-entity-dark.png#only-dark)
+
+## What's next
+
+- [Pactify a service](pactify.md#what-pactify-recognizes): the externals
+  `pacto init` finds in a folder
+- [Operational graph](operational-graph.md#relationships-declared-observed-inferred):
+  how observed and inferred edges to external systems join the graph

@@ -23,6 +23,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
 	"k8s.io/client-go/dynamic"
@@ -388,6 +389,7 @@ func main() {
 		KernelEvidenceStaleness:           o.kernelEvidenceStaleness,
 		CallerIgnoreNamespaces:            o.callerIgnoreNamespaces,
 		Scoped:                            len(o.namespaces) > 0,
+		ServiceEntries:                    servesServiceEntries(mgr),
 	}
 	if err := pactoReconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "Pacto")
@@ -427,6 +429,14 @@ func main() {
 // newManager builds the controller manager: metrics server, leader election, health probes and the cache.
 // No webhook server is configured: the operator registers no webhook, and controller-runtime only starts one
 // when something asks the manager for it.
+// servesServiceEntries reports whether the cluster serves Istio's networking.istio.io/v1 ServiceEntry at
+// startup. Without it the externals list reads no ServiceEntry and says so in its coverage.
+// ponytail: an Istio installed later is read after the operator restarts.
+func servesServiceEntries(mgr ctrl.Manager) bool {
+	_, err := mgr.GetRESTMapper().RESTMapping(schema.GroupKind{Group: "networking.istio.io", Kind: "ServiceEntry"}, "v1")
+	return err == nil
+}
+
 func newManager(o *options) (ctrl.Manager, error) {
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will

@@ -43,7 +43,7 @@ func TestFleetGetExternalText(t *testing.T) {
 		t.Fatalf("get: %v", err)
 	}
 	d := externalcatalog.Digest(externalcatalog.DefaultBytes())
-	want := "stripe  external, vendor-api  (declared by 2 consumers)\n" +
+	want := "stripe  external, vendor-api  (used by 2 consumers)\n" +
 		"  sources  checkout pacto.yaml dependencies[0] (name: Stripe)\n" +
 		"           pay-agent pacto.yaml dependencies[1] (name: stripe-api)\n" +
 		"  catalog  default " + d[:19] + "... entry stripe\n"
@@ -51,7 +51,7 @@ func TestFleetGetExternalText(t *testing.T) {
 		t.Errorf("get external text:\n%s\nwant:\n%s", out, want)
 	}
 	out, _, err = execFleet(t, "fleet", "get", "external:legacy-mq", "--local", root)
-	if err != nil || !strings.Contains(out, "(declared by 1 consumer)") || !strings.Contains(out, "catalog  none (joined by name)") {
+	if err != nil || !strings.Contains(out, "(used by 1 consumer)") || !strings.Contains(out, "catalog  none (joined by name)") {
 		t.Errorf("name-only external: %v\n%s", err, out)
 	}
 }

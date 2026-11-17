@@ -62,8 +62,8 @@ such as `catalog-info.yaml` and `skaffold.yaml`.
 ### Configuration keys and sensitive values
 
 Init reads the environment values to find types and dependencies and writes
-only keys and types. A key is sensitive when its name holds password, secret,
-token, key, credential, private or dsn in any case, when the workload reads it
+only keys and types. A key is sensitive when its name holds password, passwd,
+secret, token, key, credential, private or dsn in any case, when the workload reads it
 from a Secret or when its value is a URL with a password. A sensitive key is a
 `string` with `writeOnly: true` and a description. Schema summaries and schema
 diffs show its default and any other schema value as `(sensitive)`. A value

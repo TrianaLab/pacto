@@ -1586,6 +1586,35 @@ func TestPrintEnvironmentDifferences(t *testing.T) {
 	}
 }
 
+// TestInitPrintsExternals: a pactified folder lists the externals it names,
+// each with its class, where it was read and its confidence, a host as host
+// and port only, then the catalog; a folder that names none prints nothing.
+func TestInitPrintsExternals(t *testing.T) {
+	r := &app.InitResult{Dir: "checkout", Service: "checkout", Mode: "pactify", Catalog: "sha256:abc (embedded)",
+		Externals: []pactify.External{
+			{Identity: "aws/rds", Class: "managed-cloud", Confidence: "likely", Where: "k8s/configmap.yaml, env DATABASE_URL", Host: "db.xyz.rds.amazonaws.com"},
+			{Identity: "stripe", Class: "vendor-api", Confidence: "possible", Where: "k8s/deployment.yaml, secretRef stripe-credentials (Secret name only)"},
+		}}
+	var buf bytes.Buffer
+	printInitFindings(&buf, r)
+	want := `
+External
+  - aws/rds  managed-cloud  k8s/configmap.yaml, env DATABASE_URL  (likely)
+    -> db.xyz.rds.amazonaws.com (host and port only)
+  - stripe  vendor-api  k8s/deployment.yaml, secretRef stripe-credentials (Secret name only)  (possible)
+  - catalog sha256:abc (embedded)
+`
+	if !strings.Contains(buf.String(), want) {
+		t.Fatalf("output:\n%s", buf.String())
+	}
+	buf.Reset()
+	r.Externals = nil
+	printInitFindings(&buf, r)
+	if strings.Contains(buf.String(), "External") {
+		t.Fatalf("output without externals:\n%s", buf.String())
+	}
+}
+
 func TestDiffOutputNeverPrintsSensitiveDefault(t *testing.T) {
 	c := &contract.Contract{
 		PactoVersion:   "2.0",

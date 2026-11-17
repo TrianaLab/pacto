@@ -111,6 +111,7 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 	}
 	restrictRevalidation(&out, append(slices.Clone(s.Relationships), s.templateEdges...), hiddenSvc, dropped)
 	hiddenDeps, hiddenDependents, hiddenConsumers, hiddenReferrers := restrictRelationships(&out, s.Relationships, hiddenSvc, dropped)
+	restrictInferredEvidence(&out)
 	out.hiddenConsumers = hiddenConsumers
 	out.hiddenServices = hiddenSvc
 	out.templateEdges = restrictTemplateEdges(&out, s.templateEdges, hiddenSvc, dropped)

@@ -24,6 +24,7 @@ import (
 	"strings"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/override"
 	"github.com/trianalab/pacto/v4/pkg/plugin"
@@ -71,6 +72,9 @@ type Options struct {
 	// Template creates the contract from a golden path. It needs Owner and
 	// refuses Delivery, FleetRoots and Inferred.
 	Template *Template
+	// Catalog classifies the externals the folder names. Nil is the embedded
+	// default catalog.
+	Catalog *externalcatalog.Catalog
 }
 
 // Template is the golden path a service is created from, already read and,
@@ -156,6 +160,12 @@ type Result struct {
 	Found        []string  `json:"found"`
 	Dependencies []Finding `json:"dependencies"`
 	Consumers    []Finding `json:"consumers"`
+	// Externals are the systems outside the cluster the folder names, each
+	// with where it was read and the host and port at most.
+	Externals []External `json:"externals"`
+	// Catalog is the digest of the catalog Externals were classified with,
+	// with " (embedded)" for the copy compiled into this binary.
+	Catalog string `json:"catalog,omitempty"`
 	// Unknown is what Pacto could not establish. It is never guessed.
 	Unknown []string `json:"unknown"`
 	// Next is what a person still has to do.
@@ -222,7 +232,7 @@ func plan(ctx context.Context, opts Options) (*Result, error) {
 		return nil, err
 	}
 	r := &Result{Dir: dir, Path: filepath.Join(dir, "pacto.yaml"), Service: name, Mode: modeBlank,
-		Found: []string{}, Dependencies: []Finding{}, Consumers: []Finding{}, Unknown: []string{}, Next: []string{}, Files: []File{}}
+		Found: []string{}, Dependencies: []Finding{}, Consumers: []Finding{}, Externals: []External{}, Unknown: []string{}, Next: []string{}, Files: []File{}}
 	switch {
 	case opts.Template != nil:
 		r.Mode = modeTemplate

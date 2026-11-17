@@ -67,6 +67,9 @@ export function fleetEntityBreadcrumbs(detail: any): Crumb[] {
       return [root, { label: 'Owners', href: fleetOwnersUrl() }, { label: e.label || e.key || 'owner' }];
     case 'source':
       return [root, { label: 'Data sources', href: fleetSourcesUrl() }, { label: e.label || e.key || 'source' }];
+    // ponytail: no Externals list page yet, so an external sits under Overview.
+    case 'external':
+      return [root, { label: e.label || e.key || 'external system' }];
     default:
       return [root, { label: e.label || e.key || 'entity' }];
   }

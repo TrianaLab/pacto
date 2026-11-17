@@ -31,6 +31,10 @@ func createTool() *mcpsdk.Tool {
 			"service URLs become dependencies, " +
 			"probes become a health check), plans the contract and, with delivery, the cluster pieces, " +
 			"and returns what it found, the dependencies and consumers found, what is Unknown and what to do next. " +
+			"The vendors, managed services and legacy hosts the environment and chart values.yaml name come back in 'externals' " +
+			"(identity, class, confidence, where, host and port only, never a value): they are inferred proposals, not dependencies, " +
+			"classified by the 'catalog' digest (suffixed ' (embedded)' for the built-in copy), and the likely ones are written into " +
+			"pacto.yaml as commented dependency entries for a person to uncomment. " +
 			"The contract gets a publish section for pacto publish unless describe_only is set: " +
 			"set describe_only when you are asked to describe or document a service. " +
 			"It only adds files; dry_run plans and writes nothing. For an AI agent, see pacto_schema. " +

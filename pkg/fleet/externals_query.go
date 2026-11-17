@@ -15,10 +15,12 @@ const (
 	ReasonExternalDeclared     = "EXTERNAL_DECLARED"
 	ReasonExternalCatalogMatch = "EXTERNAL_CATALOG_MATCH"
 	ReasonExternalNameOnly     = "EXTERNAL_NAME_ONLY"
+	ReasonExternalObserved     = "EXTERNAL_OBSERVED"
+	ReasonExternalInferred     = "EXTERNAL_INFERRED"
 	// ReasonExternalUnclassified is a record no catalog entry classifies whose
 	// consumers still join through a declared identity or a host's domain.
 	ReasonExternalUnclassified = "EXTERNAL_UNCLASSIFIED"
-	// ReasonExternalSourcesTruncated says the declared reasons list only some
+	// ReasonExternalSourcesTruncated says the reasons list only some
 	// consumers, or that permissions hide some.
 	ReasonExternalSourcesTruncated = "EXTERNAL_SOURCES_TRUNCATED"
 )
@@ -31,6 +33,55 @@ type ExternalView struct {
 	Catalog  *ExternalCatalogRef `json:"catalog,omitempty" doc:"The catalog that classified it, with its digest and signature"`
 	// FoldedInto is the node the answer folds it into, when it does.
 	FoldedInto ExternalKey `json:"foldedInto,omitempty" doc:"The other-egress node this answer folds it into"`
+	ExternalEvidence
+}
+
+// ExternalEvidence is where each source recognized or saw an external
+// system, for the consumers an answer lists: each list holds at most
+// MaxExternalSources entries and its total counts them all.
+type ExternalEvidence struct {
+	InferredSources      []ExternalInferredSource `json:"inferredSources,omitempty" doc:"Where each source recognized it in a listed consumer's configuration"`
+	InferredSourcesTotal int                      `json:"inferredSourcesTotal,omitempty" doc:"Every inferred source of the listed consumers"`
+	ObservedSources      []ExternalObservedSource `json:"observedSources,omitempty" doc:"Each trace source that saw a listed consumer call it"`
+	ObservedSourcesTotal int                      `json:"observedSourcesTotal,omitempty" doc:"Every observed source of the listed consumers"`
+}
+
+// ExternalInferredSource is one inferred source and the consumer it names.
+type ExternalInferredSource struct {
+	Service ServiceKey `json:"service" doc:"The consumer"`
+	InferredSource
+}
+
+// ExternalObservedSource is one trace source's calls from a consumer.
+type ExternalObservedSource struct {
+	Service ServiceKey `json:"service" doc:"The consumer"`
+	ObservedSourceStat
+}
+
+// externalEvidence is the inferred and observed evidence of the edges from
+// consumers to the external system key, bounded. Nil lists when none.
+func (q *Query) externalEvidence(key ExternalKey, consumers []ServiceKey) ExternalEvidence {
+	var inf []ExternalInferredSource
+	var obs []ExternalObservedSource
+	for _, rel := range q.snap.Relationships {
+		if !externalEdge(rel, key) || !slices.Contains(consumers, rel.FromService) {
+			continue
+		}
+		for _, s := range rel.InferredSources {
+			inf = append(inf, ExternalInferredSource{Service: rel.FromService, InferredSource: s})
+		}
+		for _, s := range rel.ObservedSources {
+			obs = append(obs, ExternalObservedSource{Service: rel.FromService, ObservedSourceStat: s})
+		}
+	}
+	var ev ExternalEvidence
+	if len(inf) > 0 {
+		ev.InferredSources, ev.InferredSourcesTotal, _ = boundSlice(inf, MaxExternalSources)
+	}
+	if len(obs) > 0 {
+		ev.ObservedSources, ev.ObservedSourcesTotal, _ = boundSlice(obs, MaxExternalSources)
+	}
+	return ev
 }
 
 // GetExternal returns one external system by identity, with or without the
@@ -41,7 +92,45 @@ func (q *Query) GetExternal(key string) (*ExternalView, error) {
 	if err != nil {
 		return nil, err
 	}
-	return jsonClone(&ExternalView{Meta: q.meta(), External: boundExternal(rec), Catalog: q.externalCatalogRef(rec), FoldedInto: into}), nil
+	b := boundExternal(rec)
+	return jsonClone(&ExternalView{Meta: q.externalMeta(), External: b, Catalog: q.externalCatalogRef(rec), FoldedInto: into,
+		ExternalEvidence: q.externalEvidence(rec.Key, b.Consumers)}), nil
+}
+
+// externalsUnreported is the limitation an external answer carries when a
+// visible target cannot say which external systems it uses: any of them may
+// be a consumer it does not list. Nil when every target reports.
+func (q *Query) externalsUnreported() []Limitation {
+	n := 0
+	for _, t := range q.snap.Targets {
+		if slices.ContainsFunc(t.Limitations, func(l Limitation) bool { return l.Code == LimitationExternalsUnreported }) {
+			n++
+		}
+	}
+	if n == 0 {
+		return nil
+	}
+	return []Limitation{{Code: LimitationExternalsUnreported, Source: "fleet",
+		Message: fmt.Sprintf("%d targets do not report the external systems they use, so the consumers listed may be incomplete", n)}}
+}
+
+// externalMeta is meta for an external answer: partial, citing
+// externalsUnreported, when a visible target does not report its externals.
+func (q *Query) externalMeta() Meta {
+	m := q.meta()
+	if derived := q.externalsUnreported(); derived != nil {
+		m.Limitations, m.LimitationsTruncated = BoundLimitations(append(derived, cloneLimitations(q.snap.Limitations)...))
+		m.Completeness = partialOf(m.Completeness)
+	}
+	return m
+}
+
+// partialOf is c lowered to partial when it claimed complete.
+func partialOf(c Completeness) Completeness {
+	if c == CompletenessComplete {
+		return CompletenessPartial
+	}
+	return c
 }
 
 // explainExternal lists one reason per source, the catalog match or the
@@ -52,21 +141,19 @@ func (q *Query) explainExternal(key string) (*ExplainResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	res := &ExplainResult{Meta: q.meta(), Subject: ExternalSubjectPrefix + string(rec.Key), Kind: string(KindExternal), Status: StatusUnknown, Reasons: []Reason{}}
+	res := &ExplainResult{Meta: q.externalMeta(), Subject: ExternalSubjectPrefix + string(rec.Key), Kind: string(KindExternal), Status: StatusUnknown, Reasons: []Reason{}}
 	b := boundExternal(rec)
 	for _, src := range b.Sources {
-		msg := fmt.Sprintf("declared by %s dependencies[%d] (name: %s", src.Service, src.Index, src.Dependency)
-		if src.Version != "" {
-			msg += ", version: " + src.Version
+		if src.Kind != ExternalSourcePodSpec {
+			res.Reasons = append(res.Reasons, externalSourceReason(src))
 		}
-		if src.Superseded {
-			msg += ", not in the newest revision"
-		}
-		res.Reasons = append(res.Reasons, Reason{Code: ReasonExternalDeclared, Message: msg + ")", Assertion: &AssertionRef{Kind: "dependency", Name: src.Dependency}})
+	}
+	for _, src := range q.externalEvidence(rec.Key, b.Consumers).InferredSources {
+		res.Reasons = append(res.Reasons, inferredSourceReason(src))
 	}
 	if more := rec.ConsumersTotal - len(b.Consumers); more > 0 || rec.HiddenConsumers > 0 {
 		res.Reasons = append(res.Reasons, Reason{Code: ReasonExternalSourcesTruncated, Message: fmt.Sprintf(
-			"%d of %d consumers (%d declarations) are listed; %d more are not, and %d consumers are hidden by your permissions; pacto fleet get counts them",
+			"%d of %d consumers (%d sources) are listed; %d more are not, and %d consumers are hidden by your permissions; pacto fleet get counts them",
 			len(b.Consumers), rec.ConsumersTotal, rec.SourcesTotal, more, rec.HiddenConsumers)})
 	}
 	switch {
@@ -89,6 +176,34 @@ func (q *Query) explainExternal(key string) (*ExplainResult, error) {
 	}
 	sortReasons(res.Reasons)
 	return res, nil
+}
+
+// externalSourceReason explains one declared or observed piece of evidence.
+func externalSourceReason(src ExternalSource) Reason {
+	if src.Kind == ExternalSourceObserved {
+		return Reason{Code: ReasonExternalObserved, Message: fmt.Sprintf("observed %s calling it (matched by %s)", src.Service, src.Match)}
+	}
+	msg := fmt.Sprintf("declared by %s dependencies[%d] (name: %s", src.Service, src.Index, src.Dependency)
+	if src.Version != "" {
+		msg += ", version: " + src.Version
+	}
+	if src.Superseded {
+		msg += ", not in the newest revision"
+	}
+	return Reason{Code: ReasonExternalDeclared, Message: msg + ")", Assertion: &AssertionRef{Kind: "dependency", Name: src.Dependency}}
+}
+
+// inferredSourceReason explains where one source recognized it: the kind
+// and the object and key, never a value, then the confidence, the
+// normalized host, the catalog entry and the target.
+func inferredSourceReason(src ExternalInferredSource) Reason {
+	msg := fmt.Sprintf("inferred from %s %s of %s (%s", src.Kind, src.Where, src.Service, src.Confidence)
+	for _, kv := range [][2]string{{"host", src.Host}, {"entry", src.Entry}, {"target", string(src.Target)}} {
+		if kv[1] != "" {
+			msg += ", " + kv[0] + " " + kv[1]
+		}
+	}
+	return Reason{Code: ReasonExternalInferred, Message: msg + ")"}
 }
 
 // externalEdge reports whether rel is a declared dependency on the external
@@ -118,14 +233,11 @@ func (q *Query) graphExternal(gq GraphQuery, key ExternalKey, maxNodes int) (*Gr
 	}
 	key = rec.Key
 	root := ServiceKey(ExternalSubjectPrefix + string(key))
-	res := &GraphResult{Meta: q.meta(), External: key, Direction: DirectionDependents, Nodes: []GraphNode{}}
+	res := &GraphResult{Meta: q.externalMeta(), External: key, Direction: DirectionDependents, Nodes: []GraphNode{}}
+	steps := q.externalConsumerSteps(key, gq.IncludeObserved)
 	nodeSet, cycles := q.walkGraph(res, root, gq, maxNodes, func(k ServiceKey) []graphStep {
 		if k != root {
 			return q.graphNeighbours(k, root, "", DirectionDependents, gq.IncludeObserved)
-		}
-		steps := make([]graphStep, len(rec.Consumers))
-		for i, c := range rec.Consumers {
-			steps[i] = graphStep{Key: c, Provenance: ProvenanceDeclared}
 		}
 		return steps
 	})
@@ -133,13 +245,48 @@ func (q *Query) graphExternal(gq GraphQuery, key ExternalKey, maxNodes int) (*Gr
 	for _, c := range cycles {
 		res.Cycles = append(res.Cycles, c[1:])
 	}
-	res.Edges, res.Unresolved = q.graphEdges(nodeSet, root, DirectionDependents, "")
+	res.Edges, res.Unresolved = q.graphEdges(nodeSet, root, DirectionDependents, "", gq.IncludeObserved)
+	if res.Edges == nil {
+		res.Edges = []Relationship{}
+	}
 	for _, rel := range q.snap.Relationships {
-		if externalEdge(rel, key) && nodeSet[rel.FromService] {
+		if externalEdge(rel, key) && nodeSet[rel.FromService] && graphProvenance(rel.Provenance, gq.IncludeObserved) {
 			res.Edges = append(res.Edges, rel)
 		}
 	}
 	return res, nil
+}
+
+// graphProvenance reports whether a graph answer draws an edge to an
+// external system of provenance p: declared and inferred always (inferred
+// labelled so, never a gate's evidence), observed when asked for. A service
+// graph and an external graph draw the same edges.
+func graphProvenance(p string, includeObserved bool) bool {
+	return p == ProvenanceDeclared || p == ProvenanceInferred || (includeObserved && p == ProvenanceObserved)
+}
+
+// provenanceRank orders the labels a consumer step can take: declared wins,
+// then observed, then inferred.
+var provenanceRank = map[string]int{ProvenanceDeclared: 3, ProvenanceObserved: 2, ProvenanceInferred: 1}
+
+// externalConsumerSteps are the first steps of a graph walk from external
+// system key: each consumer an edge the graph draws reaches, in key order,
+// labelled declared when any declares it, else observed, else inferred.
+func (q *Query) externalConsumerSteps(key ExternalKey, includeObserved bool) []graphStep {
+	prov := map[ServiceKey]string{}
+	for _, rel := range q.snap.Relationships {
+		if !externalEdge(rel, key) || !graphProvenance(rel.Provenance, includeObserved) {
+			continue
+		}
+		if provenanceRank[rel.Provenance] > provenanceRank[prov[rel.FromService]] {
+			prov[rel.FromService] = rel.Provenance
+		}
+	}
+	steps := make([]graphStep, 0, len(prov))
+	for _, c := range slices.Sorted(maps.Keys(prov)) {
+		steps = append(steps, graphStep{Key: c, Provenance: prov[c]})
+	}
+	return steps
 }
 
 // searchExternals is at most MaxSearchExternals external systems whose
@@ -158,11 +305,14 @@ func (q *Query) searchExternals(text string) ([]EntityRef, int) {
 	return shown, total
 }
 
-// ExternalConsumer is one service that declares an external system.
+// ExternalConsumer is one service that declares, calls or uses an external
+// system. Required and Versions come from declarations only, so they mean
+// something only when Provenance is declared.
 type ExternalConsumer struct {
-	Service  EntityRef `json:"service"`
-	Required bool      `json:"required,omitempty" doc:"Whether any of its declarations is required"`
-	Versions []string  `json:"versions,omitempty" doc:"The free-text versions its declarations name, sorted"`
+	Service    EntityRef `json:"service"`
+	Provenance string    `json:"provenance" enum:"declared,observed,inferred" doc:"How the use is known: declared when any contract declares it, else observed in traces, else inferred from configuration"`
+	Required   bool      `json:"required,omitempty" doc:"Whether any of its declarations is required"`
+	Versions   []string  `json:"versions,omitempty" doc:"The free-text versions its declarations name, sorted"`
 }
 
 // ExternalDetailData is the external-kind payload: the record, bounded, its
@@ -172,6 +322,7 @@ type ExternalDetailData struct {
 	Consumers  []ExternalConsumer  `json:"consumers"`
 	Catalog    *ExternalCatalogRef `json:"catalog,omitempty" doc:"The catalog that classified it, with its digest and signature"`
 	FoldedInto ExternalKey         `json:"foldedInto,omitempty" doc:"The other-egress node this answer folds it into"`
+	ExternalEvidence
 }
 
 // externalDetail is one external system's page.
@@ -181,11 +332,15 @@ func (q *Query) externalDetail(key string) (*EntityDetail, error) {
 		return nil, err
 	}
 	b := boundExternal(rec)
-	data := &ExternalDetailData{External: b, Consumers: []ExternalConsumer{}, Catalog: q.externalCatalogRef(rec), FoldedInto: into}
+	data := &ExternalDetailData{External: b, Consumers: []ExternalConsumer{}, Catalog: q.externalCatalogRef(rec), FoldedInto: into,
+		ExternalEvidence: q.externalEvidence(rec.Key, b.Consumers)}
 	for _, c := range b.Consumers {
 		ec := ExternalConsumer{Service: q.serviceRef(c)}
 		for _, src := range b.Sources {
 			if src.Service == c {
+				if provenanceRank[src.Provenance] > provenanceRank[ec.Provenance] {
+					ec.Provenance = src.Provenance
+				}
 				ec.Required = ec.Required || src.Required
 				if src.Version != "" && !slices.Contains(ec.Versions, src.Version) {
 					ec.Versions = append(ec.Versions, src.Version)
@@ -196,7 +351,19 @@ func (q *Query) externalDetail(key string) (*EntityDetail, error) {
 		data.Consumers = append(data.Consumers, ec)
 	}
 	ref := externalEntityRef(rec)
-	return &EntityDetail{Meta: q.productMeta(), Entity: ref, Status: ref.Status, External: data}, nil
+	return &EntityDetail{Meta: q.externalProductMeta(nil), Entity: ref, Status: ref.Status, External: data}, nil
+}
+
+// externalProductMeta is productMetaWith(derived) for an answer that lists
+// external systems or their consumers: partial, citing externalsUnreported,
+// when a visible target does not report its externals.
+func (q *Query) externalProductMeta(derived []Limitation) ProductMeta {
+	unreported := q.externalsUnreported()
+	meta := q.productMetaWith(append(unreported, derived...))
+	if unreported != nil {
+		meta.Completeness = partialOf(meta.Completeness)
+	}
+	return meta
 }
 
 // externalNeighborhood focuses an external system: its consumers at depth 1,
@@ -208,19 +375,29 @@ func (q *Query) externalNeighborhood(key string, bp boundedParams) (*Neighborhoo
 	}
 	focus := externalEntityRef(rec)
 	res := &Neighborhood{
-		Meta: q.productMeta(), Perspective: PerspectiveService, RequestedFocus: focus, FocusService: focus,
+		Meta: q.externalProductMeta(nil), Perspective: PerspectiveService, RequestedFocus: focus, FocusService: focus,
 		Direction: bp.dir, Depth: bp.depth, EffectiveDepth: 1, Views: bp.views, MaxNodes: bp.maxNodes, MaxEdges: bp.maxEdges,
 		Nodes: []NeighborhoodNode{{Ref: focus, Focus: true, Status: focus.Status}}, Edges: []NeighborhoodEdge{},
 		Limitations: limitationsPreview(nil), TotalNodes: 1,
 	}
-	if declared, _ := knowledgeFromViews(bp.views); !declared || bp.dir == DirectionDependencies {
+	if bp.dir == DirectionDependencies {
 		return res, nil
 	}
-	res.TotalNodes += len(rec.Consumers)
-	// Only drawn consumers get an edge, so no edge names a node the answer
-	// leaves out.
-	drawn := map[ServiceKey]bool{}
+	consumers := map[ServiceKey]bool{}
 	for _, c := range rec.Consumers {
+		consumers[c] = true
+	}
+	// The consumers drawn are those an edge in the requested views reaches.
+	edges := q.externalEdges(func(k ServiceKey) bool { return consumers[k] }, rec.Key, bp.views)
+	var shown []ServiceKey
+	for _, e := range edges {
+		if c := ServiceKey(e.From.Key); !slices.Contains(shown, c) {
+			shown = append(shown, c)
+		}
+	}
+	res.TotalNodes += len(shown)
+	drawn := map[ServiceKey]bool{}
+	for _, c := range shown {
 		if len(res.Nodes) >= bp.maxNodes {
 			res.Truncated = true
 			break
@@ -229,16 +406,18 @@ func (q *Query) externalNeighborhood(key string, bp boundedParams) (*Neighborhoo
 		ref := q.serviceRef(c)
 		res.Nodes = append(res.Nodes, NeighborhoodNode{Ref: ref, Depth: 1, Status: ref.Status, Owner: q.snap.Services[c].Owner.DisplayString()})
 	}
-	edges := q.externalEdges(func(k ServiceKey) bool { return drawn[k] }, rec.Key)
+	// Only drawn consumers keep an edge, so no edge names a node the answer
+	// leaves out.
+	edges = slices.DeleteFunc(edges, func(e NeighborhoodEdge) bool { return !drawn[ServiceKey(e.From.Key)] })
 	res.Edges, res.TruncatedEdges = boundEdges(edges, bp.maxEdges)
 	res.Truncated = res.Truncated || res.TruncatedEdges
 	return res, nil
 }
 
-// externalEdges is one declared edge per in-scope consumer and external
-// system it names (only that one, when only is set), keyed as the answer
-// names the system, ordered by consumer then identity.
-func (q *Query) externalEdges(inScope func(ServiceKey) bool, only ExternalKey) []NeighborhoodEdge {
+// externalEdges is one merged edge per in-scope consumer and external
+// system it names (only that one, when only is set) that matches views,
+// keyed as the answer names the system, ordered by consumer then identity.
+func (q *Query) externalEdges(inScope func(ServiceKey) bool, only ExternalKey, views []KnowledgeView) []NeighborhoodEdge {
 	merged := map[string]*NeighborhoodEdge{}
 	for _, rel := range q.snap.Relationships {
 		to := only
@@ -259,9 +438,16 @@ func (q *Query) externalEdges(inScope func(ServiceKey) bool, only ExternalKey) [
 	out := make([]NeighborhoodEdge, 0, len(merged))
 	for _, id := range slices.Sorted(maps.Keys(merged)) {
 		e := merged[id]
+		if !edgeMatchesViews(*e, views) {
+			continue
+		}
 		finalizeEdge(e)
-		// Pacto observes no external system here, so no verdict compares.
-		e.Difference = ""
+		// Declared-only and inferred-only edges have nothing observed to
+		// compare with; an observed one keeps its verdict (observed, not
+		// expected, or matched).
+		if !e.Observed {
+			e.Difference = ""
+		}
 		out = append(out, *e)
 	}
 	return out
@@ -276,13 +462,13 @@ func boundEdges(edges []NeighborhoodEdge, max int) ([]NeighborhoodEdge, bool) {
 }
 
 // addExternalLeaves adds to a service neighborhood the external systems its
-// walked services declare, as leaf nodes one hop past their consumer, and the
-// edges to them. Both count against the answer's node and edge caps.
+// walked services declare, call or use, as leaf nodes one hop past their
+// consumer, and the edges to them. Both count against the answer's node and edge caps.
 func (q *Query) addExternalLeaves(res *Neighborhood, depthOf map[ServiceKey]int, bp boundedParams) {
-	if declared, _ := knowledgeFromViews(bp.views); !declared || bp.dir == DirectionDependents {
+	if bp.dir == DirectionDependents {
 		return
 	}
-	edges := q.externalEdges(func(k ServiceKey) bool { _, ok := depthOf[k]; return ok }, "")
+	edges := q.externalEdges(func(k ServiceKey) bool { _, ok := depthOf[k]; return ok }, "", bp.views)
 	leafDepth := map[string]int{}
 	var leaves []string
 	for _, e := range edges {

@@ -186,7 +186,10 @@ func (s *K8sSource) collectList(data []byte, resource string, col *fleet.Collect
 		t := s.targetFrom(item)
 		if v, ok := s.runtimeView(raw.Items[i], item, col); ok {
 			col.Observed = append(col.Observed, delivery.ObservedEdges(v)...)
-			t.Limitations = s.callerLimitations(v, t.ReconciledAt)
+			col.ExternalUses = append(col.ExternalUses, delivery.ExternalUses(v, t.ReconciledAt)...)
+			t.Limitations = s.runtimeLimitations(v, t.ReconciledAt)
+		} else if c := item.Status.Contract; c != nil && c.ServiceName != "" {
+			t.Limitations = unreadableLimitations(s.id, c.ServiceName)
 		}
 		col.Targets = append(col.Targets, t)
 	}
@@ -201,7 +204,7 @@ func (s *K8sSource) collectList(data []byte, resource string, col *fleet.Collect
 
 // LimitationPactoStatusUnreadable marks a Pacto whose runtime observation (its
 // observed callers and their coverage) does not decode. Its target is still
-// collected; only its runtime calls are missing.
+// collected; its runtime calls and the external systems it uses are missing.
 const LimitationPactoStatusUnreadable = "PACTO_STATUS_UNREADABLE"
 
 // runtimeView decodes what the operator's runtime observation wrote into a
@@ -215,16 +218,29 @@ func (s *K8sSource) runtimeView(raw json.RawMessage, item k8sItem, col *fleet.Co
 	if err := json.Unmarshal(raw, &v); err != nil {
 		col.Limitations = append(col.Limitations, fleet.Limitation{
 			Code: LimitationPactoStatusUnreadable, Source: s.id,
-			Message: "the runtime observation of Pacto " + item.Metadata.Namespace + "/" + item.Metadata.Name + " could not be read; its runtime calls are missing",
+			Message: "the runtime observation of Pacto " + item.Metadata.Namespace + "/" + item.Metadata.Name + " could not be read; its runtime calls and the external systems it uses are missing",
 		})
 		return v, false
 	}
 	return v, true
 }
 
-// callerLimitations is [delivery.CallerLimitations], attributed to this source.
-func (s *K8sSource) callerLimitations(v delivery.PactoView, reconciled *time.Time) []fleet.Limitation {
-	lims := delivery.CallerLimitations(v, reconciled, time.Now())
+// unreadableLimitations are the target limitations of a reconciled Pacto
+// whose status does not decode: neither its callers nor the external systems
+// it uses can be ruled out, so no answer reads its silence as "none".
+func unreadableLimitations(source, service string) []fleet.Limitation {
+	why := ": the operator's status for it could not be read (status-unreadable)"
+	return []fleet.Limitation{
+		{Code: delivery.LimitationCallersUnseen, Source: source, Message: "runtime callers of " + service + " cannot be ruled out" + why},
+		{Code: fleet.LimitationExternalsUnreported, Source: source, Message: "the external systems " + service + " uses cannot be ruled out" + why},
+	}
+}
+
+// runtimeLimitations are [delivery.CallerLimitations] and
+// [delivery.ExternalLimitations], attributed to this source.
+func (s *K8sSource) runtimeLimitations(v delivery.PactoView, reconciled *time.Time) []fleet.Limitation {
+	now := time.Now()
+	lims := append(delivery.CallerLimitations(v, reconciled, now), delivery.ExternalLimitations(v, reconciled, now)...)
 	for i := range lims {
 		lims[i].Source = s.id
 	}

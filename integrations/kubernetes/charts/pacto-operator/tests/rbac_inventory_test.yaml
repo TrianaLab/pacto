@@ -268,6 +268,39 @@ tests:
       - failedTemplate:
           errorPattern: must not hold the node agent namespace
 
+  # The pinned renders below run without the Istio API: these two add the
+  # ServiceEntry read the externals list needs when the cluster serves it.
+  - it: the Istio API adds the ServiceEntry read to the ClusterRole
+    template: templates/clusterrole.yaml
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+        - networking.istio.io/v1
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [networking.istio.io]
+            resources: [serviceentries]
+            verbs: [get, list, watch]
+
+  - it: the Istio API adds the ServiceEntry read to each watch Role
+    template: templates/watch-namespaces.yaml
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+        - networking.istio.io/v1
+    set:
+      controller.watchNamespaces: [payments]
+    documentIndex: 0
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [networking.istio.io]
+            resources: [serviceentries]
+            verbs: [get, list, watch]
+
   # Every binding's roleRef and subjects are pinned: the per-render cases below.
   - it: 'default: every rule, roleRef and subject of clusterrole.yaml is pinned'
     template: templates/clusterrole.yaml

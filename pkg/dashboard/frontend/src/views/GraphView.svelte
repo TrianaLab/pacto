@@ -3,7 +3,7 @@
   import { api, ApiError, SchemaCompatibilityError } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import {
-    graphStateFromParams, hasFocus, toggleView, differenceLabel, differenceTone,
+    graphStateFromParams, hasFocus, toggleView, differenceLabel, differenceTone, edgeDifference,
     differenceDescription, relationLabel, neighborhoodIsEmpty, MAX_DEPTH,
     defaultPerspectiveForKind, availablePerspectives, revisionLinkAuthoritative,
     perspectiveSupportsDepth, corroborationLabel, corroborationTone, serviceScopedCaveat,
@@ -221,6 +221,7 @@
       { key: 'state:expected-not-observed', label: 'Expected, not observed', cls: 'lg-edge lg-eno' },
       { key: 'state:drift', label: 'Observed, not expected', cls: 'lg-edge lg-drift' },
       { key: 'state:insufficient', label: 'Insufficient evidence', cls: 'lg-edge lg-insufficient' },
+      { key: 'state:inferred', label: 'Inferred from configuration', cls: 'lg-edge lg-inferred' },
     ] },
     { title: 'Behavior', items: [
       { key: 'behavior:refused', label: 'Refuses a required guarantee', cls: 'lg-edge lg-refused' },
@@ -679,8 +680,8 @@
                       <span class="gv-endpoint">{e.from.label || e.from.key}</span>
                       <span class="gv-rel" data-testid="edge-relation">{relationLabel(e.relation)}</span>
                       <span class="gv-endpoint">{e.to.label || e.to.key}</span>
-                      {#if e.relation !== 'runs' && e.difference}
-                        <span class="gv-diff" data-testid="edge-difference"><IdentityBadge label={differenceLabel(e.difference)} tone={differenceTone(e.difference)} title={differenceDescription(e.difference)} /></span>
+                      {#if e.relation !== 'runs' && edgeDifference(e)}
+                        <span class="gv-diff" data-testid="edge-difference"><IdentityBadge label={differenceLabel(edgeDifference(e))} tone={differenceTone(edgeDifference(e))} title={differenceDescription(edgeDifference(e))} /></span>
                       {:else if e.relation !== 'runs' && e.serviceCorroboration}
                         <span class="gv-diff" data-testid="edge-corroboration"><IdentityBadge label={corroborationLabel(e.serviceCorroboration)} tone={corroborationTone(e.serviceCorroboration)} /></span>
                       {/if}
@@ -747,9 +748,9 @@
               {#if selected.edge.relation === 'configuration_reference'}
                 <p class="gv-ddesc" data-testid="edge-reference-note">Declared configuration reference. It makes no runtime calls, so observation does not apply to it.</p>
               {/if}
-              {#if selected.edge.difference}
-                <p class="gv-drow"><span class="gv-k">Difference</span> <IdentityBadge label={differenceLabel(selected.edge.difference)} tone={differenceTone(selected.edge.difference)} /></p>
-                <p class="gv-ddesc">{differenceDescription(selected.edge.difference)}</p>
+              {#if edgeDifference(selected.edge)}
+                <p class="gv-drow"><span class="gv-k">Difference</span> <IdentityBadge label={differenceLabel(edgeDifference(selected.edge))} tone={differenceTone(edgeDifference(selected.edge))} /></p>
+                <p class="gv-ddesc">{differenceDescription(edgeDifference(selected.edge))}</p>
               {:else if selected.edge.serviceCorroboration}
                 <p class="gv-drow"><span class="gv-k">Corroboration</span> <IdentityBadge label={corroborationLabel(selected.edge.serviceCorroboration)} tone={corroborationTone(selected.edge.serviceCorroboration)} /></p>
                 <p class="gv-ddesc" data-testid="edge-scope-caveat">{serviceScopedCaveat(gs.perspective)}</p>
@@ -870,6 +871,7 @@
   .lg-eno { border-top-style: dashed; border-top-color: var(--c-info); }
   .lg-drift { border-top-width: 3px; border-top-color: var(--c-warn); }
   .lg-insufficient { border-top-style: dotted; border-top-color: var(--c-neutral); }
+  .lg-inferred { border-top-style: dashed; }
   .lg-refused { border-top-width: 3px; border-top-color: var(--c-err); }
   .gv-behavior { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-2); }
 

@@ -230,7 +230,7 @@ func TestExplainExternalSaysWhatItLeavesOut(t *testing.T) {
 			declared++
 		}
 	}
-	want := "50 of 55 consumers (55 declarations) are listed; 5 more are not, and 1 consumers are hidden by your permissions; pacto fleet get counts them"
+	want := "50 of 55 consumers (55 sources) are listed; 5 more are not, and 1 consumers are hidden by your permissions; pacto fleet get counts them"
 	if declared != MaxExternalSources || len(truncated) != 1 || truncated[0] != want {
 		t.Fatalf("declared %d, truncated %q", declared, truncated)
 	}

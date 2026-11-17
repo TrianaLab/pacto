@@ -90,11 +90,16 @@ func restrictExternal(out *FleetSnapshot, rec *ExternalRecord) *ExternalRecord {
 	r := *rec
 	r.Sources = nil
 	kept := map[ServiceKey]bool{}
+	// An inferred use counts once per source, so one dropped with its
+	// target leaves its consumer's count too.
+	droppedUses := map[ServiceKey]int{}
 	for _, src := range rec.Sources {
 		if out.Services[src.Service] != nil && (src.Revision == "" || out.Revisions[src.Revision] != nil) &&
 			(src.Target == "" || out.Targets[src.Target] != nil) {
 			r.Sources = append(r.Sources, src)
 			kept[src.Service] = true
+		} else if src.Kind == ExternalSourcePodSpec {
+			droppedUses[src.Service]++
 		}
 	}
 	if len(r.Sources) == 0 {
@@ -103,7 +108,7 @@ func restrictExternal(out *FleetSnapshot, rec *ExternalRecord) *ExternalRecord {
 	r.declarations = map[ServiceKey]int{}
 	for c, n := range rec.declarations {
 		if kept[c] {
-			r.declarations[c] = n
+			r.declarations[c] = n - droppedUses[c]
 		}
 	}
 	r.hidden = maps.Clone(rec.hidden)

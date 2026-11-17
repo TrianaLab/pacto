@@ -82,6 +82,10 @@ func TestPactoStatusFillsTheDeliveryReadContract(t *testing.T) {
 	p.Status.EvaluatedRevision.KernelCoverage = "Complete"
 	p.Status.ObservedCallers = []pactov1alpha1.ObservedCaller{{Namespace: "pay", Kind: "Deployment", Name: "legacy", Source: "ebpf"}}
 	p.Status.ObservedCallersCoverage = &pactov1alpha1.CallerCoverage{State: "partial", Reason: "stale-node", RefreshSeconds: 300}
+	ext := pactov1alpha1.ExternalStatus{Identity: "stripe", Class: "vendor-api", Confidence: "likely", Kind: "env", Where: "deployment/pay env STRIPE", Host: "api.stripe.com", Entry: "stripe"}
+	p.Status.Externals = []pactov1alpha1.ExternalStatus{ext}
+	p.Status.ExternalsCoverage = &pactov1alpha1.CallerCoverage{State: "partial", Reason: "truncated", RefreshSeconds: 300}
+	p.Status.ExternalCatalog = "sha256:c (embedded)"
 	p.Status.Findings = append(p.Status.Findings, pactov1alpha1.FindingStatus{Code: "DEPENDENCY_UNDECLARED", Severity: "warning",
 		Category: "RuntimeDrift", Subject: "dependency/fraud", Message: "m",
 		EvidenceRefs: []pactov1alpha1.EvidenceRefStatus{{Source: "k8s", ObservedAt: "t", Collector: "ebpf", DetectedAt: "2026-10-20T10:00:00Z"}}})
@@ -100,7 +104,10 @@ func TestPactoStatusFillsTheDeliveryReadContract(t *testing.T) {
 		s.EvaluatedRevision.Workload.UID != "w-1" || s.EvaluatedRevision.Workload.Generation != 3 ||
 		s.EvaluatedRevision.KernelCoverage != "Complete" || !hasKernelFinding(s.Findings) ||
 		len(s.ObservedCallers) != 1 || s.ObservedCallers[0] != (delivery.ObservedCallerView{Namespace: "pay", Kind: "Deployment", Name: "legacy", Source: "ebpf"}) ||
-		s.ObservedCallersCoverage == nil || *s.ObservedCallersCoverage != (delivery.CallerCoverageView{State: "partial", Reason: "stale-node", RefreshSeconds: 300}) {
+		s.ObservedCallersCoverage == nil || *s.ObservedCallersCoverage != (delivery.CallerCoverageView{State: "partial", Reason: "stale-node", RefreshSeconds: 300}) ||
+		len(s.Externals) != 1 || s.Externals[0] != (delivery.ExternalView{Identity: ext.Identity, Class: ext.Class, Confidence: ext.Confidence, Kind: ext.Kind, Where: ext.Where, Host: ext.Host, Entry: ext.Entry}) ||
+		s.ExternalsCoverage == nil || *s.ExternalsCoverage != (delivery.CallerCoverageView{State: "partial", Reason: "truncated", RefreshSeconds: 300}) ||
+		s.ExternalCatalog != "sha256:c (embedded)" {
 		t.Fatalf("the delivery read contract lost a field: %+v", v)
 	}
 }
@@ -162,7 +169,7 @@ func TestStatusCarriesGuaranteesToDelivery(t *testing.T) {
 	}
 	// The status says it records guarantees, so delivery reads a missing one
 	// as none offered rather than unknown.
-	if v.Status.StatusFormat != delivery.StatusFormatDomain {
-		t.Fatalf("statusFormat = %d, want %d", v.Status.StatusFormat, delivery.StatusFormatDomain)
+	if v.Status.StatusFormat < delivery.StatusFormatExternals {
+		t.Fatalf("statusFormat = %d, want at least %d", v.Status.StatusFormat, delivery.StatusFormatExternals)
 	}
 }

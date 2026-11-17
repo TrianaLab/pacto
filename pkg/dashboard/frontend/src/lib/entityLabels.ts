@@ -153,6 +153,7 @@ export function provenanceLabel(p: string | undefined): string {
     case 'declared': return 'Expected';
     case 'observed': return 'Observed';
     case 'declared+observed': return 'Expected and observed';
+    case 'inferred': return 'Inferred';
     default: return p || '';
   }
 }
@@ -167,9 +168,10 @@ const IMPLIED_PROVENANCE: Record<string, string> = {
   matched: 'declared+observed',
   'expected-not-observed': 'declared',
   'observed-not-expected': 'observed',
+  inferred: 'inferred',
 };
 export function provenanceIsImplied(difference: string | undefined, provenance: string | undefined): boolean {
-  return !!provenance && IMPLIED_PROVENANCE[difference || ''] === provenance;
+  return !!provenance && IMPLIED_PROVENANCE[difference || provenance] === provenance;
 }
 
 // ── attention categories ─────────────────────────────────────────────────────

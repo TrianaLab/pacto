@@ -70,9 +70,10 @@ test.describe('WASM demo — external systems', () => {
     await expect(catalog).toContainText('entry llm-provider');
     await expect(catalog).toContainText('embedded copy, signature unknown (the demo catalog is embedded in the demo; it is not signed).');
     await expect(page.getByTestId('external-name-only')).toHaveCount(0);
-    const sources = page.getByTestId('external-sources');
-    await sources.locator('summary').click();
-    await expect(sources).toContainText('(name: model, version: hosted-llm/2026-06), declared');
+    const declared = page.locator('[data-testid="external-source"][data-provenance="declared"]');
+    await expect(declared.locator('[data-cell="where"]').filter({ hasText: '(name: model)' })).toHaveCount(1);
+    await page.getByTestId('external-more-details').click();
+    await expect(declared.locator('[data-cell="details"]').filter({ hasText: 'version hosted-llm/2026-06' })).toHaveCount(1);
     // Services hosts the list, so the trail runs through it as the nav does.
     await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText(/Services.*External systems/);
     expect(await noSideScroll(page)).toBe(true);
