@@ -168,7 +168,7 @@ func TestLockDirectly(t *testing.T) {
 
 func TestFirstVersionFailureFreezes(t *testing.T) {
 	e := newEnv(t, stageObj(""), ociRepo("payments", "", "", false), deployment("payments", 2, 2),
-		pactoObj("payments", "payments", c1, "Compliant", 2))
+		pactoObj("payments", "payments", c1, "Compliant", 2), kustomization("payments", "payments", "True", "ReconciliationSucceeded", "", ""))
 	e.create(opObj("p1", delivery.TypePromote, "", dB, bot))
 	e.drive("p1")
 	e.drive("p1") // not fetched yet

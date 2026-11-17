@@ -26,6 +26,7 @@ const RecordFinalizer = "delivery.pacto.trianalab.io/record"
 // +kubebuilder:printcolumn:name="Env",type=string,JSONPath=`.spec.environment`
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
 // +kubebuilder:printcolumn:name="Level",type=string,JSONPath=`.status.level`
+// +kubebuilder:printcolumn:name="Applier",type=string,JSONPath=`.status.applier.manager`
 // +kubebuilder:printcolumn:name="Pointer",type=string,JSONPath=`.status.pointer`
 // +kubebuilder:printcolumn:name="Frozen",type=boolean,JSONPath=`.status.frozen`
 // +kubebuilder:printcolumn:name="Hold",type=boolean,JSONPath=`.status.autoHold`

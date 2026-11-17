@@ -353,9 +353,29 @@ func pactoObj(name, service, contractDigest, status string, gen int64, deps ...m
 	return u
 }
 
+// deployment is a workload Kustomization payments applies: it carries the
+// kustomize-controller labels, so the Stage's Flux applier reads Adopted.
 func deployment(name string, gen, observed int64) *appsv1.Deployment {
-	return &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name, UID: types.UID("w-" + name), Generation: gen},
+	return &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name, UID: types.UID("w-" + name), Generation: gen,
+		Labels: map[string]string{"kustomize.toolkit.fluxcd.io/name": "payments", "kustomize.toolkit.fluxcd.io/namespace": ns}},
 		Status: appsv1.DeploymentStatus{ObservedGeneration: observed}}
+}
+
+// argoDeployment is a workload Application payments in the Stage namespace
+// applies: it carries that Application's tracking id.
+func argoDeployment(name string, gen, observed int64) *appsv1.Deployment {
+	d := deployment(name, gen, observed)
+	d.Labels = nil
+	d.Annotations = map[string]string{"argocd.argoproj.io/tracking-id": ns + "_payments:apps/Deployment:" + ns + "/" + name}
+	return d
+}
+
+// helmDeployment is a workload HelmRelease payments applies: it carries the
+// helm-controller labels.
+func helmDeployment(name string, gen, observed int64) *appsv1.Deployment {
+	d := deployment(name, gen, observed)
+	d.Labels = map[string]string{"helm.toolkit.fluxcd.io/name": "payments", "helm.toolkit.fluxcd.io/namespace": ns}
+	return d
 }
 
 func opObj(name, typ, from, to string, actor string, groups ...string) *dv1.Operation {

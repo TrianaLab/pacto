@@ -115,7 +115,7 @@ func TestHelmReleaseRefusesCrossNamespaceChart(t *testing.T) {
 	foreign := chartRepo(dA)
 	foreign.SetNamespace("other")
 	e := newEnv(t, hrStage(dA), hr, foreign, verifiedRepo("payments-candidates", "latest@"+dB),
-		deployment("payments", 2, 2), pactoObj("payments", "payments", c1, "Compliant", 2))
+		helmDeployment("payments", 2, 2), pactoObj("payments", "payments", c1, "Compliant", 2))
 	if err := e.reconcileStage("payments-prod"); err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +188,7 @@ func TestHelmReleaseApplied(t *testing.T) {
 // that digest.
 func TestHelmReleasePromoteShipsAndVerifies(t *testing.T) {
 	e := newEnv(t, hrStage(dA), helmReleaseObj("True", "", dA, dA), chartRepo(dA),
-		deployment("payments", 2, 2), pactoObj("payments", "payments", c1, "Compliant", 2))
+		helmDeployment("payments", 2, 2), pactoObj("payments", "payments", c1, "Compliant", 2))
 	e.create(hrOp(dA, dB))
 	o := e.drive("p1")
 	if o.Status.Phase != delivery.PhaseRunning || e.ociDigest("payments-chart") != dB || e.chart().GetAnnotations()["reconcile.fluxcd.io/requestedAt"] == "" {
@@ -214,7 +214,7 @@ func TestHelmReleasePromoteShipsAndVerifies(t *testing.T) {
 // back on the chart source.
 func TestHelmReleaseRollsBack(t *testing.T) {
 	e := newEnv(t, hrStage(dA), helmReleaseObj("True", "", dA, dA), chartRepo(dA),
-		deployment("payments", 2, 2), pactoObj("payments", "payments", c1, "Compliant", 2))
+		helmDeployment("payments", 2, 2), pactoObj("payments", "payments", c1, "Compliant", 2))
 	e.create(hrOp(dA, dB))
 	e.drive("p1")
 	e.setHR(helmReleaseObj("False", "UpgradeFailed", dA, dB))
@@ -268,7 +268,7 @@ func TestHelmReleaseMediated(t *testing.T) {
 		_ = unstructured.SetNestedField(o, map[string]any{"password": "s3cr3t"}, "spec", "values")
 	})
 	e := newEnv(t, hrStage(dA), secret, chartRepo(dA), verifiedRepo("payments-candidates", "latest@"+dB),
-		deployment("payments", 2, 2), pactoObj("payments", "payments", c1, "Compliant", 2))
+		helmDeployment("payments", 2, 2), pactoObj("payments", "payments", c1, "Compliant", 2))
 	if err := e.reconcileStage("payments-prod"); err != nil {
 		t.Fatal(err)
 	}

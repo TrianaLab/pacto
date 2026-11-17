@@ -371,15 +371,13 @@ func (r *StageReconciler) ready(ctx context.Context, stage *dv1.Stage) (*source,
 	if err != nil {
 		return nil, nil, err
 	}
-	conds, err := r.readyConds(ctx, stage, want)
+	applier, write := r.nextApplier(ctx, stage)
+	conds, err := r.readyConds(ctx, stage, want, applier)
 	if err != nil {
 		return nil, nil, err
 	}
-	changed := condsChange(stage, conds, r.Now())
-	fresh := ""
-	if r.Freshness > 0 {
-		fresh = r.Freshness.String()
-	}
+	changed := condsChange(stage, conds, r.Now()) || write
+	fresh := r.authFreshness()
 	seen := up != nil && up.Stream.ID != "" && (up.Stream.ID != stage.Status.UpstreamSeen.Stream || up.Stream.Seq > stage.Status.UpstreamSeen.Seq)
 	if !changed && !seen && stage.Status.ObservedGeneration == stage.Generation && stage.Status.AuthFreshness == fresh {
 		return cand, up, nil
@@ -389,6 +387,9 @@ func (r *StageReconciler) ready(ctx context.Context, stage *dv1.Stage) (*source,
 			s.Status.Conditions, _ = delivery.SetCondition(s.Status.Conditions, c, r.Now())
 		}
 		s.Status.ObservedGeneration, s.Status.AuthFreshness = stage.Generation, fresh
+		if write {
+			s.Status.Applier = &applier
+		}
 		if seen {
 			s.Status.UpstreamSeen = delivery.RecordMark{Stream: up.Stream.ID, Seq: up.Stream.Seq, Record: up.Stream.Head}
 		}
@@ -398,6 +399,49 @@ func (r *StageReconciler) ready(ctx context.Context, stage *dv1.Stage) (*source,
 	}
 	set(stage)
 	return cand, up, nil
+}
+
+// authFreshness is the login freshness the Stage publishes, empty when no
+// login is too old.
+func (r *StageReconciler) authFreshness() string {
+	if r.Freshness > 0 {
+		return r.Freshness.String()
+	}
+	return ""
+}
+
+// nextApplier detects who manages the Stage's workloads and says whether
+// status.applier must be written: when the result changed (since and asOf
+// both move), or when the shown result is older than the resync period (only
+// asOf moves). Status writes stay bounded to one per resync per Stage.
+func (r *StageReconciler) nextApplier(ctx context.Context, stage *dv1.Stage) (delivery.ApplierStatus, bool) {
+	now := r.Now()
+	st, old := r.Cluster.detectApplier(ctx, stage, now), stage.Status.Applier
+	if !delivery.SameApplier(old, &st) {
+		return st, true
+	}
+	st.Since = old.Since
+	if asOf, err := time.Parse(time.RFC3339, old.AsOf); err == nil && now.Sub(asOf) < cmp.Or(r.Resync, DefaultResync) {
+		st.AsOf = old.AsOf
+		return st, false
+	}
+	return st, true
+}
+
+// applierBlocks is the Ready condition of a detection that keeps the Stage
+// from promoting, nil when it does not: another manager owns a workload, or
+// Pacto cannot tell who does.
+func applierBlocks(st delivery.ApplierStatus) *delivery.Condition {
+	var c delivery.Condition
+	switch st.State {
+	case delivery.ApplierConflict:
+		c = notReady(delivery.ReadyReasonApplierConflict, st.Message)
+	case delivery.ApplierUnknown:
+		c = notReady(delivery.ReadyReasonApplierUnknown, st.Message)
+	default:
+		return nil
+	}
+	return &c
 }
 
 // condsChange stamps conds with the Stage's generation and says whether
@@ -415,12 +459,16 @@ func condsChange(stage *dv1.Stage, conds []delivery.Condition, now time.Time) bo
 
 // readyConds is the Stage's mediation condition, when its applier is
 // readable, and its Ready condition: want from the candidate source, unless
-// the applier blocks the Stage or admission does not guard, read as
+// the applier blocks the Stage, the detected manager of its workloads
+// (applier) contradicts it or cannot be told, or admission does not guard, read as
 // observing while the Stage observes.
-func (r *StageReconciler) readyConds(ctx context.Context, stage *dv1.Stage, want delivery.Condition) ([]delivery.Condition, error) {
+func (r *StageReconciler) readyConds(ctx context.Context, stage *dv1.Stage, want delivery.Condition, applier delivery.ApplierStatus) ([]delivery.Condition, error) {
 	blocked, a, err := r.applierReady(ctx, stage)
 	if err != nil {
 		return nil, err
+	}
+	if blocked == nil {
+		blocked = applierBlocks(applier)
 	}
 	conds := []delivery.Condition{}
 	if a != nil {

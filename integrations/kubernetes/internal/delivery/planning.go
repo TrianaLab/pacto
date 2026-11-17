@@ -27,6 +27,8 @@ func planRefusal(p delivery.Plan) string {
 		switch {
 		case v.Result == delivery.Fail && v.Gate == delivery.GatePublished:
 			return notPublished + v.Message
+		case v.Result == delivery.Fail && v.Gate == delivery.GateApplier:
+			return "ApplierConflict: " + v.Message
 		case v.Result == delivery.Fail:
 			return "GateFailed: " + v.Gate + ": " + v.Message
 		}
@@ -78,6 +80,12 @@ func (r *OperationReconciler) planOn(ctx context.Context, op *dv1.Operation, sta
 		return delivery.Plan{}, err
 	}
 	in.RequireOwnerTeam, in.Gates = r.Policy.RequireOwnerTeam, r.Gates
+	if op.Spec.Type == delivery.TypePromote {
+		// The promoter never plans a promote on a stale detection: the
+		// workloads may have changed hands since the Stage last reconciled.
+		st := r.Cluster.detectApplier(ctx, stage, r.now())
+		in.Status.Applier = &st
+	}
 	return delivery.PlanFor(ctx, in), nil
 }
 

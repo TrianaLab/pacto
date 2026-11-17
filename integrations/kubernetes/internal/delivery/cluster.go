@@ -57,6 +57,10 @@ type Cluster struct {
 	Cache client.Reader
 	// CacheApplications says Cache holds the Argo CD Applications too.
 	CacheApplications bool
+	// NoFlux says Stages apply through no Flux OCIRepository or
+	// Kustomization: the promoter neither watches nor reads them. It is
+	// inverted so the zero value keeps Flux.
+	NoFlux bool
 	// FluxHelm says the promoter watches Flux HelmReleases, so Cache holds
 	// them too.
 	FluxHelm bool

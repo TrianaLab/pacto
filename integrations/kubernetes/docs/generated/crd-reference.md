@@ -251,6 +251,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | Env | string | `.spec.environment` |
 | Ready | string | `.status.conditions[?(@.type=="Ready")].status` |
 | Level | string | `.status.level` |
+| Applier | string | `.status.applier.manager` |
 | Pointer | string | `.status.pointer` |
 | Frozen | boolean | `.status.frozen` |
 | Hold | boolean | `.status.autoHold` |

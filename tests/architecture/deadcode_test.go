@@ -65,10 +65,6 @@ var deadCodeAllowlist = map[string]string{
 	"pkg/signing.GetPublicKeyPem":     sigstoreKeypair,
 	"pkg/signing.GetSigningAlgorithm": sigstoreKeypair,
 
-	"pkg/workloadmanager.Detect": "511-S1 lands in phases: P1 ships the detection on its own and P6 " +
-		"gives it its production caller (the operator's detectApplier). Remove this entry with that " +
-		"commit; the stale-entry check fails until then",
-
 	"pkg/dashboard.GetStatus": "huma's StatusError: huma reads the HTTP status of a refusal a handler returns " +
 		"through that interface, never by name",
 

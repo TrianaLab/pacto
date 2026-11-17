@@ -52,7 +52,7 @@ func TestStaleCacheNeverWitnesses(t *testing.T) {
 // freezes the operation as a foreign writer nor stops the pointer write.
 func TestStaleCacheShipsOnLiveDigest(t *testing.T) {
 	e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
-	e.staleCache(ociRepo("payments", dC, "latest@"+dC, true))
+	e.staleCache(ociRepo("payments", dC, "latest@"+dC, true), kustomization("payments", "payments", "True", "", "latest@"+dA, "latest@"+dA))
 	e.drive("p1")
 	if d := e.ociDigest("payments"); d != dB {
 		t.Fatalf("the pointer write was skipped: %s", d)

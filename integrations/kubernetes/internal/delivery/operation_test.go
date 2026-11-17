@@ -966,7 +966,7 @@ func moveFirstWorld(t *testing.T, checkoutNS string) *env {
 	checkout := pactoObj("checkout", "checkout", c3, "Compliant", 1,
 		map[string]any{"name": "payments", "ref": "oci://reg.example/pactos/payments", "compatibility": "^1.0.0"})
 	checkout.SetNamespace(checkoutNS)
-	e := newEnv(t, stageObj(dA), ociRepo("payments", dA, "latest@"+dA, true), deployment("payments", 2, 2),
+	e := newEnv(t, stageObj(dA), ociRepo("payments", dA, "latest@"+dA, true), deployment("payments", 2, 2), kustomization("payments", "payments", "True", "ReconciliationSucceeded", "", ""),
 		pactoObj("payments", "payments", c1, "Compliant", 2), checkoutProd, checkoutTest, ociRepo("checkout", "", "", false), checkout,
 		opObj("p1", delivery.TypePromote, dA, dC, bot))
 	e.reg.contracts[dX] = "oci://reg.example/pactos/checkout@" + c2
@@ -1001,6 +1001,9 @@ func TestBlockedPromoteSaysWhatMovesFirst(t *testing.T) {
 	e = moveFirstWorld(t, "test")
 	_ = e.c.Create(context.Background(), placed)
 	e.fails["list/Kustomization"] = true
+	// No payments workload, so the applier gate has nothing to judge: an
+	// unlistable Kustomization would read its applier Unknown and reject.
+	_ = e.c.Delete(context.Background(), deployment("payments", 2, 2))
 	op := opObj("p1", delivery.TypePromote, dA, dC, bot)
 	op.Status.ActorClass = delivery.ClassAgent
 	if p, err := e.op.plan(context.Background(), op, e.getStage()); err != nil || p.Predicted != delivery.PredictHeld {
@@ -1047,7 +1050,7 @@ func TestEveryAskedTeamApproves(t *testing.T) {
 		return pactoObj(name, name, digest, "Compliant", 1,
 			map[string]any{"name": "payments", "ref": "oci://reg.example/pactos/payments", "compatibility": "^1.0.0"})
 	}
-	e := newEnv(t, stageObj(dA), ociRepo("payments", dA, "latest@"+dA, true), deployment("payments", 2, 2),
+	e := newEnv(t, stageObj(dA), ociRepo("payments", dA, "latest@"+dA, true), deployment("payments", 2, 2), kustomization("payments", "payments", "True", "ReconciliationSucceeded", "", ""),
 		pactoObj("payments", "payments", c1, "Compliant", 2), consumer("checkout", c3), consumer("orders", c2),
 		opObj("p1", delivery.TypePromote, dA, dC, bot))
 	o := e.drive("p1")
@@ -1079,7 +1082,7 @@ func consumerOf(name, digest, rng string) *unstructured.Unstructured {
 // A re-plan that rejects, errs or holds on something Pacto cannot see leaves
 // the hold as it is.
 func TestHeldOrderIsRefreshed(t *testing.T) {
-	e := newEnv(t, stageObj(dA), ociRepo("payments", dA, "latest@"+dA, true), deployment("payments", 2, 2),
+	e := newEnv(t, stageObj(dA), ociRepo("payments", dA, "latest@"+dA, true), deployment("payments", 2, 2), kustomization("payments", "payments", "True", "ReconciliationSucceeded", "", ""),
 		pactoObj("payments", "payments", c1, "Compliant", 2), consumerOf("checkout", c3, "^1.0.0"), consumerOf("orders", c2, "^1.0.0"),
 		opObj("p1", delivery.TypePromote, dA, dC, bot))
 	ctx := context.Background()
@@ -1155,7 +1158,7 @@ func heldOrderAfterCheckoutMoved(ctx context.Context, t *testing.T, e *env) {
 // TestHeldRejectSurvivesAPlanFailure: a re-plan that cannot read its inputs
 // does not hold back a human Reject, which needs no plan.
 func TestHeldRejectSurvivesAPlanFailure(t *testing.T) {
-	e := newEnv(t, stageObj(dA), ociRepo("payments", dA, "latest@"+dA, true), deployment("payments", 2, 2),
+	e := newEnv(t, stageObj(dA), ociRepo("payments", dA, "latest@"+dA, true), deployment("payments", 2, 2), kustomization("payments", "payments", "True", "ReconciliationSucceeded", "", ""),
 		pactoObj("payments", "payments", c1, "Compliant", 2),
 		pactoObj("checkout", "checkout", c3, "Compliant", 1,
 			map[string]any{"name": "payments", "ref": "oci://reg.example/pactos/payments", "compatibility": "^1.0.0"}),
@@ -1189,7 +1192,7 @@ func TestHeldOrderGoesMoot(t *testing.T) {
 		return pactoObj("checkout", "checkout", c3, "Compliant", 1,
 			map[string]any{"name": "payments", "ref": "oci://reg.example/pactos/payments", "compatibility": rng})
 	}
-	e := newEnv(t, stageObj(dA), ociRepo("payments", dA, "latest@"+dA, true), deployment("payments", 2, 2),
+	e := newEnv(t, stageObj(dA), ociRepo("payments", dA, "latest@"+dA, true), deployment("payments", 2, 2), kustomization("payments", "payments", "True", "ReconciliationSucceeded", "", ""),
 		pactoObj("payments", "payments", c1, "Compliant", 2), checkout("^1.0.0"), opObj("p1", delivery.TypePromote, dA, dC, bot))
 	ctx := context.Background()
 	if o := e.drive("p1"); o.Status.Phase != delivery.PhaseHeld || o.Status.Plan.Order == nil {

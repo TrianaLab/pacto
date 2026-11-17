@@ -46,7 +46,8 @@ func approvalUID(obj client.Object) []string { return []string{obj.(*dv1.Approva
 
 // SetupWithManager registers the stage reconciler. A Stage reconciles when
 // something it reads changes: its operations, its upstream Stage, its apply
-// and candidate OCIRepositories, the Kustomizations that apply them and, when
+// and candidate OCIRepositories and the Kustomizations that apply them (unless
+// Cluster.NoFlux) and, when
 // Cluster.CacheApplications, its Application or, when Cluster.FluxHelm, its
 // HelmRelease. A Flux kind whose CRD is not
 // installed when the promoter starts is not watched. Resync reconciles every
@@ -71,8 +72,10 @@ func (r *StageReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		u.SetGroupVersionKind(gvk)
 		b.Watches(u, handler.EnqueueRequestsFromMapFunc(r.stagesReading(keys)))
 	}
-	watch(gvkOCIRepository, ociRepositoryKeys)
-	watch(schema.GroupVersionKind{Group: gvkKustomization.Group, Version: gvkKustomization.Version, Kind: "Kustomization"}, kustomizationKeys)
+	if !r.Cluster.NoFlux {
+		watch(gvkOCIRepository, ociRepositoryKeys)
+		watch(schema.GroupVersionKind{Group: gvkKustomization.Group, Version: gvkKustomization.Version, Kind: "Kustomization"}, kustomizationKeys)
+	}
 	if r.Cluster.CacheApplications {
 		watch(gvkApplication, applicationKeys)
 	}

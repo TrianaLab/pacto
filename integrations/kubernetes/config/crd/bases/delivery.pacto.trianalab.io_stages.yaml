@@ -29,6 +29,9 @@ spec:
     - jsonPath: .status.level
       name: Level
       type: string
+    - jsonPath: .status.applier.manager
+      name: Applier
+      type: string
     - jsonPath: .status.pointer
       name: Pointer
       type: string

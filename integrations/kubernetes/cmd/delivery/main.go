@@ -79,6 +79,8 @@ func runPromoter(args []string) error {
 		"How often a Stage is looked at when nothing it watches (its operations, upstream Stage, OCIRepositories, "+
 			"Kustomizations and Application) changed.")
 	argocd := fs.Bool("argocd", false, "Stages may apply through Argo CD Applications: watch and cache them.")
+	flux := fs.Bool("flux", true, "Stages may apply through Flux OCIRepositories and Kustomizations: watch them.")
+	fluxHelm := fs.Bool("flux-helm", false, "Stages may apply through Flux HelmReleases: watch them.")
 	qps := fs.Float64("kube-api-qps", 50, "The apiserver requests per second the promoter's client may make.")
 	burst := fs.Int("kube-api-burst", 100, "The apiserver requests the promoter's client may burst above kube-api-qps.")
 	authFreshness := fs.Duration("auth-freshness", 0,
@@ -138,6 +140,7 @@ func runPromoter(args []string) error {
 		return err
 	}
 	cluster := delivery.Cluster{Client: mgr.GetClient(), Cache: mgr.GetCache(), CacheApplications: *argocd,
+		NoFlux: !*flux, FluxHelm: *fluxHelm,
 		Registry: func(hosts ...string) core.Registry {
 			return oci.NewClient(keychain, oci.WithInsecureRegistries(slices.Concat(insecure, hosts)...))
 		}}
