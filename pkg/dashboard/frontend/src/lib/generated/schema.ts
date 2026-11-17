@@ -3033,6 +3033,7 @@ export interface components {
             /** Format: date-time */
             generatedAt: string;
             limitations?: components["schemas"]["Fleet.Limitation"][] | null;
+            providers?: components["schemas"]["Fleet.Provider"][] | null;
             provisioning?: components["schemas"]["Fleet.ProvisioningRecord"][] | null;
             relationships: components["schemas"]["Fleet.Relationship"][] | null;
             revisions: {
@@ -3689,6 +3690,34 @@ export interface components {
             kind?: string;
             name?: string;
         };
+        "Fleet.Provider": {
+            /** @description The display name of the cluster the source read, when it reads one */
+            cluster?: string;
+            /** @description What Pacto found. It never names a namespace or a namespaced object; those go in objects */
+            evidence: string;
+            /** @description Stable id of the row within its source, for example pacto-crd or kubernetes-workloads */
+            id: string;
+            limitations?: components["schemas"]["Fleet.Limitation"][] | null;
+            name: string;
+            /** @description The objects the evidence names, at most 20 */
+            objects?: components["schemas"]["Fleet.ProviderObject"][] | null;
+            /**
+             * Format: int64
+             * @description How many objects the row had before the cap or your permissions narrowed it
+             */
+            objectsTotal?: number;
+            /** @description The id of the source that detected it */
+            source: string;
+            /** @enum {string} */
+            status: "available" | "partial" | "stale" | "unavailable";
+            /** @description What Pacto uses it for, for example inferred-services or declared-targets */
+            usedFor: string[] | null;
+        };
+        "Fleet.ProviderObject": {
+            kind: string;
+            name: string;
+            namespace?: string;
+        };
         "Fleet.ProvisioningRecord": {
             /** Format: date-time */
             acceptedAt?: string;
@@ -4143,6 +4172,9 @@ export interface components {
         "Fleet.StatusResult": {
             items: components["schemas"]["Fleet.StatusItem"][] | null;
             meta: components["schemas"]["Fleet.Meta"];
+            /** @description What Pacto detected in each source, with evidence, what it uses each for and its status */
+            providers?: components["schemas"]["Fleet.Provider"][] | null;
+            providersTruncated?: boolean;
             /** Format: int64 */
             total: number;
             truncated?: boolean;

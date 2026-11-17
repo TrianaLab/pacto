@@ -21,6 +21,11 @@ const (
 	// MaxSourceNamespaces caps the namespaces one source carries in a meta;
 	// NamespacesTotal keeps the full count.
 	MaxSourceNamespaces = 64
+	// MaxProviders caps the detected-provider rows one answer carries.
+	MaxProviders = 200
+	// MaxProviderObjects caps the objects one provider row names;
+	// ObjectsTotal keeps the count.
+	MaxProviderObjects = 20
 )
 
 // MaxGraphNodes caps the nodes one graph traversal answer carries. The walk itself

@@ -207,3 +207,20 @@ func TestUnreadableNamespaceHiddenFromRestrictedReader(t *testing.T) {
 		t.Errorf("unreadable = %q, want none for a reader whose namespaces were reviewed", got)
 	}
 }
+
+func TestHiddenByScope(t *testing.T) {
+	visible := func(ns string) bool { return ns == "a" }
+	for _, tc := range []struct {
+		l    Limitation
+		want bool
+	}{
+		{NamespaceScopeLimitation("k8s", []string{"a"}, 0), true},
+		{NamespaceUnreadableLimitation("k8s", "b", "forbidden"), true},
+		{NamespaceUnreadableLimitation("k8s", "a", "forbidden"), false},
+		{Limitation{Code: "X", Message: "b"}, false},
+	} {
+		if got := hiddenByScope(tc.l, visible); got != tc.want {
+			t.Errorf("hiddenByScope(%+v) = %v, want %v", tc.l, got, tc.want)
+		}
+	}
+}

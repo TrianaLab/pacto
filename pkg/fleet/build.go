@@ -179,6 +179,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	reconcileDeclared(snap, undeclaredOnly)
 	matchProvisioning(snap)
 	matchUsage(snap)
+	finalizeProviders(snap)
 	snap.Completeness = classifyCompleteness(snap)
 	snap.workloadOnlyPartial = snap.Completeness == CompletenessPartial && completenessExcept(snap, SourceKindKubernetesWorkloads) != CompletenessPartial
 	snap.Limitations = append(snap.Limitations, degradedLimitations(snap)...)
@@ -454,6 +455,7 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 	st, stateLims := sourceStateFor(src, col, now, revCount, targetCount, len(recordProblems) > 0)
 	snap.Limitations = append(snap.Limitations, stateLims...)
 	snap.Sources = append(snap.Sources, st)
+	ingestProviders(snap, src.ID(), col)
 	cluster := ""
 	if cl, ok := clusters.resolved[rawClusterID(col, RawTarget{})]; ok {
 		cluster = cl.ID

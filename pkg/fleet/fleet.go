@@ -1252,6 +1252,9 @@ type FleetSnapshot struct {
 	// ExternalCatalogs are the catalogs that classified Externals, the
 	// default first.
 	ExternalCatalogs []ExternalCatalogRef `json:"externalCatalogs,omitempty"`
+	// Providers are what each source detected and read evidence from, sorted
+	// by source then id. They never change completeness or any source state.
+	Providers []Provider `json:"providers,omitempty"`
 
 	// templateEdges are the declared dependency and reference edges of the
 	// golden paths (see deriveTemplate). They are kept out of Relationships and

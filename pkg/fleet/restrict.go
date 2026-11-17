@@ -38,7 +38,25 @@ func (q *Query) Namespaces() []string {
 		}
 	}
 	scopeNamespaces(q.snap, seen)
+	providerNamespaces(q.snap.Providers, seen)
 	return slices.Sorted(maps.Keys(seen))
+}
+
+// providerNamespaces adds the namespace of every provider object and count:
+// one seen only on a provider row must still be reviewed.
+func providerNamespaces(rows []Provider, seen map[string]bool) {
+	for _, p := range rows {
+		for _, o := range p.Objects {
+			if o.Namespace != "" {
+				seen[o.Namespace] = true
+			}
+		}
+		for _, c := range p.Counts {
+			if c.Namespace != "" {
+				seen[c.Namespace] = true
+			}
+		}
+	}
 }
 
 // WorkloadScope is one namespace and workload kind that holds inferred
@@ -168,8 +186,10 @@ func (q *Query) Restrict(visible func(namespace string) bool, workloadVisible fu
 
 	recountSources(&out)
 
-	restrictLimitations(&out, s.Limitations, append(hiddenNames, slices.Collect(maps.Keys(hiddenNS))...), restricted)
+	hiddenNames = append(hiddenNames, slices.Collect(maps.Keys(hiddenNS))...)
+	restrictLimitations(&out, s.Limitations, hiddenNames, restricted)
 	restrictScope(&out, visible)
+	out.Providers = restrictProviders(s.Providers, hiddenNames, visible)
 	out.Limitations = append(out.Limitations, Limitation{Code: LimitationHiddenByPermissions, Message: hiddenMessage + kindHiddenNote(s, hiddenSvc, hiddenNS)})
 	sortSnapshotLimitations(&out)
 	out.Completeness = CompletenessPartial
@@ -321,11 +341,14 @@ func bareCaller(c UncontractedCaller) bool {
 	return !ok
 }
 
-// hasBareNames reports whether s holds a name with no namespace: a bare caller
-// or an unresolved observed name.
+// hasBareNames reports whether s holds a name with no namespace: a bare
+// caller, an unresolved observed name or a cluster-scoped provider object.
 func hasBareNames(s *FleetSnapshot) bool {
 	return slices.ContainsFunc(s.UncontractedCallers, bareCaller) ||
-		slices.ContainsFunc(s.Limitations, func(l Limitation) bool { return l.Code == LimitationObservedIdentityUnresolved })
+		slices.ContainsFunc(s.Limitations, func(l Limitation) bool { return l.Code == LimitationObservedIdentityUnresolved }) ||
+		slices.ContainsFunc(s.Providers, func(p Provider) bool {
+			return slices.ContainsFunc(p.Objects, func(o ProviderObject) bool { return o.Namespace == "" })
+		})
 }
 
 // unresolvedCounts drops the unresolved observed names from limitations and

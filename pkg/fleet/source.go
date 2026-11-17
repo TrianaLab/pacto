@@ -101,6 +101,10 @@ type Collection struct {
 	// an inferred service and never a target, so it never counts in
 	// compliance, link or target tallies. Their cluster is [Collection.Cluster].
 	InferredServices []RawInferredService
+	// Providers are rows describing what this source detected and read;
+	// Build copies them, fills Source and Cluster and never lets a row claim
+	// better health than the source.
+	Providers []Provider
 }
 
 // RawInferredService is one workload a source read (Kind is Deployment,

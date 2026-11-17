@@ -1175,6 +1175,9 @@ type StatusResult struct {
 	Total     int          `json:"total"`
 	Truncated bool         `json:"truncated,omitempty"`
 	Items     []StatusItem `json:"items"`
+	// Providers are at most MaxProviders rows, least healthy first.
+	Providers          []Provider `json:"providers,omitempty" doc:"What Pacto detected in each source, with evidence, what it uses each for and its status"`
+	ProvidersTruncated bool       `json:"providersTruncated,omitempty"`
 }
 
 // Status reports the entities needing attention in the selected categories. It is
@@ -1257,7 +1260,8 @@ func (q *Query) Status(sq StatusQuery) *StatusResult {
 	if total > limit {
 		items = items[:limit]
 	}
-	return &StatusResult{Meta: q.meta(), Total: total, Truncated: total > limit, Items: items}
+	providers, providersTruncated := boundProviders(q.snap.Providers)
+	return &StatusResult{Meta: q.meta(), Total: total, Truncated: total > limit, Items: items, Providers: providers, ProvidersTruncated: providersTruncated}
 }
 
 // AssertionRef identifies the declared assertion a reason is about.
