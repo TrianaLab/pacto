@@ -976,7 +976,9 @@ func applyEdits(m map[string]any, input EditInput) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		changes = append(changes, change)
+		if change != "" {
+			changes = append(changes, change)
+		}
 	}
 	if hasStateEdits(input) {
 		changes = append(changes, applyStateEdits(m, input)...)
@@ -997,10 +999,14 @@ func applyEdits(m map[string]any, input EditInput) ([]string, error) {
 }
 
 // setApplier sets delivery.applier to applier, or removes the delivery
-// section when applier is "", and returns the change line.
+// section when applier is "", and returns the change line, "" when nothing
+// changed.
 func setApplier(m map[string]any, applier string) (string, error) {
 	switch applier {
 	case "":
+		if _, ok := m["delivery"]; !ok {
+			return "", nil
+		}
 		delete(m, "delivery")
 		return "removed delivery", nil
 	case contract.ApplierAuto, contract.ApplierArgoCD, contract.ApplierFlux:

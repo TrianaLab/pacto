@@ -730,9 +730,18 @@ func TestPrintPlanApplierLine(t *testing.T) {
 		t.Fatalf("want %q in\n%s", want, b.String())
 	}
 	b.Reset()
-	printPlan(&b, delivery.PlanAnswer{Plan: delivery.Plan{Type: delivery.TypePromote}})
-	if want := "applier:   not reported (the promoter predates applier detection)\n"; !strings.Contains(b.String(), want) {
+	printPlan(&b, delivery.PlanAnswer{Plan: delivery.Plan{Type: delivery.TypePromote, Verdicts: []delivery.Verdict{{Gate: delivery.GatePublished, Result: delivery.Pass}}}})
+	if want := "applier:   not reported by the Stage status\n"; !strings.Contains(b.String(), want) {
 		t.Fatalf("want %q in\n%s", want, b.String())
+	}
+	// A plan that stopped at pacto.published, or was refused, never judged
+	// the applier: it names no cause it cannot know.
+	for _, vs := range [][]delivery.Verdict{{{Gate: delivery.GatePublished, Result: delivery.Fail}}, nil} {
+		b.Reset()
+		printPlan(&b, delivery.PlanAnswer{Plan: delivery.Plan{Type: delivery.TypePromote, Verdicts: vs}})
+		if want := "applier:   not judged: an earlier check stopped the plan\n"; !strings.Contains(b.String(), want) || strings.Contains(b.String(), "predates") {
+			t.Fatalf("want %q in\n%s", want, b.String())
+		}
 	}
 	b.Reset()
 	printPlan(&b, delivery.PlanAnswer{Plan: delivery.Plan{Type: delivery.TypeRollback}})

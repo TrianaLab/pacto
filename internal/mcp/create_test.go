@@ -3381,6 +3381,20 @@ func TestEditClearsApplier(t *testing.T) {
 	}
 }
 
+// TestEditClearsAbsentApplierReportsNothing: clearing the applier of a
+// contract without delivery changes nothing, so no change line says it did.
+func TestEditClearsAbsentApplierReportsNothing(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.1\"\nservice:\n  name: svc\n  version: 1.0.0\n"), 0o644)
+	result, err := Edit(context.Background(), nil, EditOptions{}, EditInput{Path: dir, Applier: strPtr(""), DryRun: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(result.Changes, "removed delivery") {
+		t.Errorf("changes %q report a removal that did not happen", result.Changes)
+	}
+}
+
 // TestEditRejectsUnknownApplier: a value outside the three fails before
 // anything is written, naming them.
 func TestEditRejectsUnknownApplier(t *testing.T) {

@@ -334,7 +334,13 @@ func printPlanApplier(w io.Writer, p delivery.PlanAnswer) {
 	}
 	i := slices.IndexFunc(p.Verdicts, func(v delivery.Verdict) bool { return v.Gate == delivery.GateApplier })
 	if i < 0 {
-		_, _ = fmt.Fprintln(w, "applier:   not reported (the promoter predates applier detection)")
+		// The gate runs once pacto.published did not fail; before that, or
+		// on a refused plan, the applier is not judged.
+		if !slices.ContainsFunc(p.Verdicts, func(v delivery.Verdict) bool { return v.Gate == delivery.GatePublished && v.Result != delivery.Fail }) {
+			_, _ = fmt.Fprintln(w, "applier:   not judged: an earlier check stopped the plan")
+			return
+		}
+		_, _ = fmt.Fprintln(w, "applier:   not reported by the Stage status")
 		return
 	}
 	c := p.Verdicts[i].Citation
