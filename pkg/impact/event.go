@@ -262,7 +262,7 @@ func newEventResult(snap *fleet.FleetSnapshot, q *fleet.Query, ev *Event, name s
 	meta := q.ProductMeta()
 	return &Result{
 		SchemaVersion: SchemaVersion, SnapshotID: snap.SnapshotID, AsOf: snap.GeneratedAt, Service: name, Event: ev,
-		Completeness: snap.Completeness, Limitations: append([]fleet.Limitation(nil), snap.Limitations...),
+		Completeness: snap.ConsumerCompleteness(), Limitations: append([]fleet.Limitation(nil), snap.Limitations...),
 		Consumers: []AffectedConsumer{}, Sources: meta.Sources, SourcesTruncated: meta.SourcesTruncated,
 	}
 }

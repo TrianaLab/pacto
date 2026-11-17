@@ -2,6 +2,8 @@ package impact
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"reflect"
 	"slices"
 	"testing"
@@ -71,5 +73,45 @@ func TestOfferingProvidersSkipInferred(t *testing.T) {
 	}
 	if got := offeringProviders(snap, ""); len(got) != 0 {
 		t.Errorf("an inferred service provides an offering: %v", got)
+	}
+}
+
+// downWorkloads is a workload source whose every list failed.
+type downWorkloads struct{}
+
+func (downWorkloads) ID() string   { return "k8s-workloads" }
+func (downWorkloads) Kind() string { return fleet.SourceKindKubernetesWorkloads }
+func (downWorkloads) Collect(context.Context) (*fleet.Collection, error) {
+	return nil, errors.New("forbidden listing deployments")
+}
+
+// A workload source reports no consumer, so its failure or its cap never
+// turns a BREAKING change nobody depends on from clear to unverified.
+func TestImpactIgnoresWorkloadSourceHealth(t *testing.T) {
+	capped := make([]fleet.RawInferredService, fleet.MaxInferredServices+1)
+	for i := range capped {
+		capped[i] = fleet.RawInferredService{Namespace: "pay", Kind: "Deployment", Name: fmt.Sprintf("w%d", i)}
+	}
+	old := svcContract("auth-service", "1.0.0", contract.Owner{})
+	old.Interfaces = []contract.Interface{{Name: "auth-api", Type: contract.InterfaceTypeGRPC, Ref: "auth.proto"}}
+	for name, wl := range map[string]fleet.Source{
+		"unavailable": downWorkloads{},
+		"capped":      fleet.NewMemorySource("k8s-workloads", fleet.SourceKindKubernetesWorkloads, &fleet.Collection{InferredServices: capped}),
+	} {
+		snap, err := fleet.Build(context.Background(), fleet.BuildOptions{},
+			fleet.NewMemorySource("k8s", "kubernetes", &fleet.Collection{Revisions: []fleet.RawRevision{{Bundle: mkBundle(old)}}}), wl)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if snap.Completeness != fleet.CompletenessPartial {
+			t.Fatalf("%s: the snapshot reads %s", name, snap.Completeness)
+		}
+		res := Analyze(context.Background(), old, svcContract("auth-service", "2.0.0", contract.Owner{}), fstest.MapFS{}, fstest.MapFS{}, snap, Options{})
+		if res.Classification != "BREAKING" || res.Gate != GateClear || res.Completeness != fleet.CompletenessComplete {
+			t.Errorf("%s: %s gate %s completeness %s: %s", name, res.Classification, res.Gate, res.Completeness, res.GateReason)
+		}
+		if limitation(res, fleet.LimitationSourceUnavailable) == nil && limitation(res, fleet.LimitationInferredServicesCapped) == nil {
+			t.Errorf("%s: the workload source's limitation is gone: %+v", name, res.Limitations)
+		}
 	}
 }

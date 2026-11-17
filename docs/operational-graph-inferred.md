@@ -56,6 +56,9 @@ and its status is empty.
 - An inferred service never satisfies a dependency, never counts as a consumer
   in impact and never clears a gate or a promotion. A dependency named exactly
   like one stays unresolved.
+- A workload source reports no consumer, so when it is unavailable or capped
+  the snapshot reads partial but impact and promotion answers do not; its
+  limitation still shows.
 - An inferred caller of a declared service stays an uncontracted caller, so
   `BlockerMissingContract` still fires. The caller carries the inferred
   service's key in `entity` and its `UNCONTRACTED_CALLER` attention item in

@@ -612,7 +612,7 @@ func analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 		OldVersion:       old.Service.Version,
 		NewVersion:       new.Service.Version,
 		Classification:   d.Classification.String(),
-		Completeness:     snap.Completeness,
+		Completeness:     snap.ConsumerCompleteness(),
 		Limitations:      append([]fleet.Limitation(nil), snap.Limitations...),
 		Consumers:        []AffectedConsumer{},
 		Sources:          meta.Sources,

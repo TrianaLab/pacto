@@ -247,3 +247,21 @@ func TestInferredCountLeavesDeclaredWorkloadsOut(t *testing.T) {
 		t.Errorf("count %d, want the one inferred record", n)
 	}
 }
+
+func TestConsumerCompletenessIgnoresOnlyWorkloadSources(t *testing.T) {
+	down := NewMemorySource("k8s-workloads", SourceKindKubernetesWorkloads, nil)
+	down.err = errors.New("forbidden")
+	snap := buildClusterSnap(t, NewMemorySource("k8s", SourceKindKubernetes, &Collection{Targets: []RawTarget{workload("shop", "web")}}), down)
+	if snap.Completeness != CompletenessPartial || snap.ConsumerCompleteness() != CompletenessComplete {
+		t.Errorf("snapshot %s consumers %s", snap.Completeness, snap.ConsumerCompleteness())
+	}
+	r := NewQuery(snap).Restrict(func(ns string) bool { return ns != "shop" }, everyWorkload).SnapshotForSerialization()
+	if r.ConsumerCompleteness() != CompletenessPartial {
+		t.Error("a restricted view reads complete")
+	}
+	downCR := NewMemorySource("k8s", SourceKindKubernetes, nil)
+	downCR.err = errors.New("unreachable")
+	if c := buildClusterSnap(t, downCR).ConsumerCompleteness(); c != CompletenessPartial {
+		t.Errorf("an unavailable Pacto source reads %s", c)
+	}
+}

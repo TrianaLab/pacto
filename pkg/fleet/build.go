@@ -3315,8 +3315,26 @@ func lookupServiceInDomain(snap *FleetSnapshot, domain, name string) ServiceKey 
 
 // classifyCompleteness derives snapshot completeness from source health.
 func classifyCompleteness(snap *FleetSnapshot) Completeness {
+	return completenessExcept(snap, "")
+}
+
+// ConsumerCompleteness is the completeness of what can name a consumer, for
+// impact and gate answers. A workload source reports only inferred services,
+// which are never consumers, so its health never makes such an answer
+// partial; its SOURCE_* limitations still say what it could not read. A
+// restricted view stays partial.
+func (s *FleetSnapshot) ConsumerCompleteness() Completeness {
+	if s.Completeness != CompletenessPartial ||
+		slices.ContainsFunc(s.Limitations, func(l Limitation) bool { return l.Code == LimitationHiddenByPermissions }) {
+		return s.Completeness
+	}
+	return completenessExcept(s, SourceKindKubernetesWorkloads)
+}
+
+// completenessExcept is classifyCompleteness ignoring the sources of kind skip.
+func completenessExcept(snap *FleetSnapshot, skip string) Completeness {
 	for _, st := range snap.Sources {
-		if st.Status != SourceAvailable {
+		if st.Status != SourceAvailable && (skip == "" || st.Kind != skip) {
 			return CompletenessPartial
 		}
 	}
