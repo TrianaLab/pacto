@@ -4,7 +4,10 @@
   "metadata": {
     "name": "billing",
     "namespace": "shop",
+    "labels": {"example.com/secret-label": "hunter2-label"},
     "annotations": {
+      "argocd.argoproj.io/tracking-id": "shop_billing:apps/Deployment:shop/billing",
+      "example.com/note": "hunter2-note",
       "kubectl.kubernetes.io/last-applied-configuration": "{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"billing\",\"env\":[{\"name\":\"DB_PASSWORD\",\"value\":\"hunter2\"}]}]}}}}"
     },
     "managedFields": [

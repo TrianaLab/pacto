@@ -33,6 +33,11 @@ const (
 	UseInferredServices = "inferred-services"
 	// UseDeclaredTargets: Pacto reads declared targets from what the row read.
 	UseDeclaredTargets = "declared-targets"
+	// ProviderHelm is the row of the Helm releases a workload source grouped
+	// workloads by, read from their release annotations.
+	ProviderHelm = "helm"
+	// UseServiceGrouping: Pacto groups inferred services by what the row read.
+	UseServiceGrouping = "service-grouping"
 )
 
 // A Provider is a system Pacto detected and read evidence from, never an

@@ -13,6 +13,7 @@ import (
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
 	"github.com/trianalab/pacto/v4/internal/workloadshape"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/workloadmanager"
 )
 
 // WorkloadSource is a live [fleet.Source] over the Deployments, StatefulSets,
@@ -66,7 +67,7 @@ func (s *WorkloadSource) Collect(ctx context.Context) (*fleet.Collection, error)
 					Code: fleet.LimitationInferredServicesCapped, Source: s.id,
 					Message: "workloads past the bound of " + strconv.Itoa(fleet.MaxInferredServices) + " were not read; raise MaxInferredServices if a real cluster hits it",
 				})
-				col.Providers = []fleet.Provider{workloadsRow(col, listed, len(namespaces))}
+				col.Providers = providerRows(col, listed, len(namespaces))
 				return scoped(s.id, s.namespaces, col, read), nil
 			case err != nil:
 				listErr, complete = cmp.Or(listErr, err), false
@@ -82,8 +83,18 @@ func (s *WorkloadSource) Collect(ctx context.Context) (*fleet.Collection, error)
 	if len(col.Limitations) == len(namespaces)*len(workloadshape.WorkloadKinds) {
 		return nil, listErr
 	}
-	col.Providers = []fleet.Provider{workloadsRow(col, listed, len(namespaces))}
+	col.Providers = providerRows(col, listed, len(namespaces))
 	return scoped(s.id, s.namespaces, col, read), nil
+}
+
+// providerRows are the rows of col: the Kubernetes workloads row, then the
+// Helm row when a workload is grouped by a Helm release.
+func providerRows(col *fleet.Collection, listed map[string]int, lists int) []fleet.Provider {
+	rows := []fleet.Provider{workloadsRow(col, listed, lists)}
+	if row, ok := helmRow(col.InferredServices); ok {
+		rows = append(rows, row)
+	}
+	return rows
 }
 
 // workloadsRow is the Kubernetes workloads row of col: how many workloads of
@@ -160,7 +171,8 @@ func inferredService(kind string, item map[string]any, now time.Time) fleet.RawI
 	ns, _ := meta["namespace"].(string)
 	shape := workloadshape.ReadWorkloadShape(kind, name, item)
 	created, _ := meta["creationTimestamp"].(string)
-	in := fleet.RawInferredService{Namespace: ns, Kind: kind, Name: name, ObservedAt: &now, CreatedAt: parseK8sTime(created)}
+	in := fleet.RawInferredService{Namespace: ns, Kind: kind, Name: name, ObservedAt: &now, CreatedAt: parseK8sTime(created),
+		Group: toFleetGroup(workloadmanager.Group(groupingObject(k8sclient.WorkloadGVRs[kind], kind, ns, name, meta)))}
 	if shape.Image != "" {
 		in.Image = &fleet.InferredValue{Value: shape.Image, From: kind + " " + shape.ImageFrom}
 	}
