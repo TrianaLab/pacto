@@ -797,15 +797,18 @@ export function installScaleFixture(): void {
     const extEdges = (edges: Record<string, unknown>[] | undefined, self: Record<string, unknown> | undefined) => {
       const tpl = edges?.[0];
       if (!edges || !tpl || !self) return [];
-      const ext = (key: string) => ({ kind: 'external', key, label: longName(key), href: `/fleet/externals/${encodeURIComponent(key)}` });
+      // walk lengthens every label once per object it visits: each reference is its own
+      // object, never `self` or a node's ref shared, or the page's own label grows three
+      // times and the delivery lookups (engineName) can no longer map it back.
+      const ext = (key: string) => ({ kind: 'external', key, label: key, href: `/fleet/externals/${encodeURIComponent(key)}` });
       const edge = (to: Record<string, unknown>, provenance: string, observed: boolean) => ({
-        ...tpl, id: `${self.key}->${to.key}`, href: String(to.href), from: self, to, provenance, inferred: provenance === 'inferred',
+        ...tpl, id: `${self.key}->${to.key}`, href: String(to.href), from: { ...self }, to, provenance, inferred: provenance === 'inferred',
         expected: false, observed, difference: observed ? 'observed-not-expected' : undefined, serviceCorroboration: undefined,
         declaredClaims: { items: [], total: 0, count: 0, truncated: false },
       });
       const added = [edge(ext('stripe'), 'inferred', false), edge(ext('host/corp-legacy.co.uk'), 'observed', true)];
       edges.push(...added);
-      return added.map((e) => e.to);
+      return added.map((e) => ({ ...e.to }));
     };
     if (route === '/api/fleet/neighborhood') {
       const nodes = doc.nodes as Record<string, unknown>[] | undefined;
