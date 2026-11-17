@@ -90,11 +90,12 @@ func (r *StageReconciler) shadowPlans(ctx context.Context, stage *dv1.Stage, d, 
 		}
 		add = append(add, e)
 	}
-	// A plan refused only because the candidate source had not verified the
-	// version yet is replanned once it has: Flux may store the applied
-	// version a moment before it verifies the same digest on the candidates.
+	// A plan refused only for something that was not there yet is replanned
+	// once it is: Flux may store the applied version a moment before it
+	// verifies the same digest on the candidates, and the Stage and its Pacto
+	// may arrive before the operator reconciles that Pacto.
 	for _, x := range st.Shadow {
-		if !stalePublished(x, st.Published) || slices.ContainsFunc(add, func(e delivery.Shadow) bool { return e.Candidate == x.Candidate }) {
+		if !staleRefusal(x, st) || slices.ContainsFunc(add, func(e delivery.Shadow) bool { return e.Candidate == x.Candidate }) {
 			continue
 		}
 		e, err := r.wouldHave(ctx, stage, r.shadowSpec(stage, x.From, x.Candidate), now)
@@ -115,7 +116,7 @@ func keepShadow(s *dv1.Stage, add []delivery.Shadow, d string, now time.Time) {
 	fresh := slices.DeleteFunc(slices.Clone(add), func(e delivery.Shadow) bool {
 		return slices.ContainsFunc(s.Status.Shadow, func(x delivery.Shadow) bool {
 			return x.Candidate == e.Candidate && (x.IntentDigest == e.IntentDigest || x.ObservedAt != "") &&
-				!stalePublished(x, s.Status.Published)
+				!staleRefusal(x, s.Status)
 		})
 	})
 	kept := slices.DeleteFunc(slices.Clone(s.Status.Shadow), func(x delivery.Shadow) bool {
@@ -153,11 +154,20 @@ func planned(s delivery.Shadow, spec delivery.OperationSpec) bool {
 	return s.Candidate == spec.Params.To && (s.IntentDigest == spec.IntentDigest || s.ObservedAt != "")
 }
 
-// stalePublished says s was refused only by the published gate and the
-// candidate source has since verified its version.
-func stalePublished(s delivery.Shadow, published []string) bool {
-	return s.Predicted == delivery.PredictRejected && strings.HasPrefix(s.Question, notPublished) &&
-		slices.Contains(published, s.Candidate)
+// staleRefusal says s was refused only for something that has since
+// changed: the published gate, and the candidate source has verified its
+// version since; or applier detection could not tell, and it now can.
+func staleRefusal(s delivery.Shadow, st delivery.StageStatus) bool {
+	if s.Predicted != delivery.PredictRejected {
+		return false
+	}
+	switch {
+	case strings.HasPrefix(s.Question, notPublished):
+		return slices.Contains(st.Published, s.Candidate)
+	case strings.HasPrefix(s.Question, applierUnknown):
+		return st.Applier != nil && (st.Applier.State == delivery.ApplierAdopted || st.Applier.State == delivery.ApplierUnmanaged)
+	}
+	return false
 }
 
 // wouldHave plans the promote from to on the Stage as a fully automatic

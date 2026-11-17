@@ -840,10 +840,15 @@ story_pactify() {
   kubectl apply -f "$dir/delivery/test.yaml" -f "$dir/delivery/prod.yaml" >/dev/null
   # Both Stages start on observe: Flux applies the tag, and Pacto only notes
   # what it would have done with each version it saw.
+  # The first plan may refuse on an applier Pacto could not tell yet (the
+  # fraud Pacto not reconciled); the Stage replans it once detection can.
+  local want; want="$(expect pactify Predicted | jq -r .)"
   shadowed() { [ -n "$(kubectl -n test get stage fraud -o json | jq -r --arg d "$d" '.status.shadow // [] | map(select(.candidate == $d and .observedAt != null)) | .[0].predicted // empty')" ]; }
+  settled() { [ "$(kubectl -n test get stage fraud -o json | jq -r --arg d "$d" '.status.shadow // [] | map(select(.candidate == $d)) | .[0].predicted // empty')" = "$want" ]; }
   eventually 120 shadowed || fail "fraud's test Stage noted nothing about 1.0.0: $(kubectl -n test get stage fraud -o jsonpath='{.status.conditions}')"
   same pactify "level" "$(kubectl -n test get stage fraud -o jsonpath='{.status.level}')" observe
-  same pactify "predicted" "$(kubectl -n test get stage fraud -o json | jq -r --arg d "$d" '.status.shadow | map(select(.candidate == $d)) | .[0].predicted')" "$(expect pactify Predicted | jq -r .)"
+  eventually 30 settled || true # same reports the drift
+  same pactify "predicted" "$(kubectl -n test get stage fraud -o json | jq -r --arg d "$d" '.status.shadow | map(select(.candidate == $d)) | .[0].predicted')" "$want"
   eventually 60 kubectl -n test get pacto fraud >/dev/null 2>&1 || fail "pacto init --delivery wrote no Pacto resource for fraud in test"
   local img; img="$(kubectl -n test get deploy fraud -o jsonpath='{.spec.template.spec.containers[0].image}')"
   [[ "$img" == "${REG_HOST}/story/images/fraud@sha256:"* ]] || fail "fraud runs $img in test, not the image pacto publish built, pinned by digest"

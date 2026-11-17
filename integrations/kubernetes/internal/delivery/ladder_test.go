@@ -165,6 +165,36 @@ func TestShadowWouldHaveRefused(t *testing.T) {
 	}
 }
 
+// TestShadowReplansAnUnknownApplier: a plan refused because applier
+// detection could not tell yet (the Pacto not reconciled) is replanned once
+// detection can, and kept while it still cannot.
+func TestShadowReplansAnUnknownApplier(t *testing.T) {
+	ctx := context.Background()
+	e := observeEnv(t)
+	e.setStage(func(st *delivery.StageStatus) { st.Published = []string{dA, dB} })
+	must(t, e.reconcileStage("payments-prod"))
+	refuse := func(state string) {
+		e.setStage(func(st *delivery.StageStatus) {
+			i := slices.IndexFunc(st.Shadow, func(s delivery.Shadow) bool { return s.Candidate == dB })
+			st.Shadow[i].Predicted, st.Shadow[i].Question = delivery.PredictRejected, applierUnknown+"Pacto could not read Pacto payments"
+			st.Applier = &delivery.ApplierStatus{State: state, Completeness: "complete"}
+		})
+	}
+	refuse(delivery.ApplierUnknown)
+	must(t, e.st.shadow(ctx, e.getStage()))
+	if b := shadowOf(e.getStage().Status, dB); b == nil || b.Predicted != delivery.PredictRejected {
+		t.Fatalf("a refusal is kept while detection still cannot tell: %+v", b)
+	}
+	refuse(delivery.ApplierAdopted)
+	must(t, e.st.shadow(ctx, e.getStage()))
+	if b := shadowOf(e.getStage().Status, dB); b == nil || b.Predicted == delivery.PredictRejected {
+		t.Fatalf("a refusal only for an unknown applier is replanned once detection can tell: %+v", b)
+	}
+	if staleRefusal(delivery.Shadow{Predicted: delivery.PredictRejected, Question: "GateFailed: pacto.verify: failed"}, e.getStage().Status) {
+		t.Fatal("a refusal by a failed gate is never replanned")
+	}
+}
+
 // TestShadowReplanBesideACandidate: a refusal replanned once published sits
 // beside a new candidate's plan, and a replan that cannot read the candidate
 // source returns the error for a retry.

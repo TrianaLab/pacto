@@ -22,6 +22,9 @@ import (
 // notPublished starts the refusal of a version the published gate failed.
 const notPublished = "NotPublished: "
 
+// applierUnknown starts the refusal of a plan whose applier Pacto could not tell.
+const applierUnknown = "ApplierUnknown: "
+
 func planRefusal(p delivery.Plan) string {
 	for _, v := range p.Verdicts {
 		switch {
