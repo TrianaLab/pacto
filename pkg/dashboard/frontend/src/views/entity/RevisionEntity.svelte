@@ -73,7 +73,7 @@
       if (ask.digest === id.digest) offers = { rows, match: promotes(artifact) };
     });
   });
-  const findingsSummary = (p) => (p.truncated ? 'discovery stopped after 5000 files; results are partial' : `${formatCount(p.total)} ${p.total === 1 ? 'file' : 'files'} not read`);
+  const findingsSummary = (p) => (p.truncated ? 'discovery stopped after 5000 files; results are partial' : `${formatCount(p.total)} ${p.total === 1 ? 'discovery finding' : 'discovery findings'}`);
   const breaksHidden = (n) => (n ? `${n === 1 ? '1 consumer' : `${formatCount(n)} consumers`} hidden by your Kubernetes permissions.` : 'No consumer you may see.');
   const historyHref = $derived(d.service?.key ? fleetEntityListUrl('revision', { service: d.service.key }) : '');
 
@@ -167,11 +167,12 @@
       <span class="re-k">Inferred</span>
       <InferredFieldList items={d.inferred ?? []} total={d.inferredTotal ?? 0} unreadable={!!d.inferredUnreadable} />
       {#if d.discoveryFindings?.total}
-        <!-- Files discovery recognized but did not read: inspection detail, so closed. -->
+        <!-- What discovery could not read or choose: inspection detail, so closed. One line
+             can raise two findings, so rows are keyed by position. -->
         <details class="re-findings disclosure" data-testid="revision-discovery-findings">
           <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span>{findingsSummary(d.discoveryFindings)}</summary>
           <ul class="re-findings-list t-meta">
-            {#each d.discoveryFindings.items ?? [] as f (`${f.code}:${f.source}`)}
+            {#each d.discoveryFindings.items ?? [] as f, i (i)}
               <li><code>{f.code}</code> <bdi class="re-path" title={f.source}>{f.source}</bdi> {f.message}</li>
             {/each}
           </ul>

@@ -24,7 +24,9 @@
   const note = (f) => `Inferred, not declared. Source: ${where(f.source)}.`
     + (f.confidence ? ` Confidence: ${f.confidence}.` : '')
     + (f.class === 'ownerFile' ? ` Read from ${where(f.source)}; not verified; never clears a gate.` : '')
-    + (f.outranks?.length ? ` Outranks ${f.outranks.map(where).join(', ')}.` : '');
+    + (f.outranks?.length ? ` Outranks ${f.outranks.map(where).join(', ')}${more(f)}.` : '');
+  // The server lists the first outranked sources and counts them all.
+  const more = (f) => (f.outranksTotal > f.outranks.length ? ` and ${formatCount(f.outranksTotal - f.outranks.length)} more` : '');
 </script>
 
 {#snippet row(f)}

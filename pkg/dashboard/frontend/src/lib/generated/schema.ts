@@ -3091,8 +3091,13 @@ export interface components {
              */
             confidence?: "likely" | "possible";
             field: string;
-            /** @description Lower-ranked sources that gave the same field */
+            /** @description Lower-ranked sources that gave the same field, at most MaxOutranks */
             outranks?: string[] | null;
+            /**
+             * Format: int64
+             * @description Every lower-ranked source, set when outranks lists only the first MaxOutranks
+             */
+            outranksTotal?: number;
             /** @enum {string} */
             provenance: "inferred";
             source: string;

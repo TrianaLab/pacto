@@ -34,7 +34,7 @@ describe('RevisionEntity, discovery findings', () => {
     render({ inferred: [{ field: 'ports[8080]', value: '8080/tcp', source: 'Dockerfile:4', provenance: 'inferred' }], discoveryFindings: { items: [finding(0)], total: 1 } });
     const d = box()!;
     expect(d.open).toBe(false);
-    expect(d.querySelector('summary')!.textContent).toContain('1 file not read');
+    expect(d.querySelector('summary')!.textContent).toContain('1 discovery finding');
     d.open = true;
     flushSync();
     expect(d.open).toBe(true);
@@ -49,7 +49,7 @@ describe('RevisionEntity, discovery findings', () => {
     render({ discoveryFindings: { items: Array.from({ length: 20 }, (_, i) => finding(i)), total: 100 } });
     const d = box()!;
     expect(d.querySelectorAll('li').length).toBe(20);
-    expect(d.querySelector('summary')!.textContent).toContain('100 files not read');
+    expect(d.querySelector('summary')!.textContent).toContain('100 discovery findings');
     expect(d.textContent).toContain('and 80 more');
   });
 
@@ -64,8 +64,14 @@ describe('RevisionEntity, discovery findings', () => {
   it('renders the section for findings with no inferred field', () => {
     render({ inferred: [], discoveryFindings: { items: [finding(0), finding(1)], total: 2 } });
     expect(target.querySelector('[data-testid="revision-inferred"]')).toBeTruthy();
-    expect(box()!.querySelector('summary')!.textContent).toContain('2 files not read');
+    expect(box()!.querySelector('summary')!.textContent).toContain('2 discovery findings');
     expect(target.querySelectorAll('[data-testid="inferred-field"]').length).toBe(0);
+  });
+
+  it('lists two findings of one line, with the same code and source', () => {
+    const twice = { code: 'DISCOVERY_UNRESOLVED', source: 'Dockerfile:5', message: 'EXPOSE at Dockerfile:5 names a port through a variable or a range, so it is not read' };
+    render({ discoveryFindings: { items: [twice, { ...twice }], total: 2 } });
+    expect(box()!.querySelectorAll('li').length).toBe(2);
   });
 
   it('renders no section with neither inferred fields nor findings', () => {
@@ -78,6 +84,6 @@ describe('RevisionEntity, discovery findings', () => {
     render({ discoveryFindings: { items: [{ code: 'DISCOVERY_TRUNCATED', source: '.', message: 'discovery stopped' }, finding(0)], total: 2, truncated: true } });
     const s = box()!.querySelector('summary')!.textContent!;
     expect(s).toContain('discovery stopped after 5000 files; results are partial');
-    expect(s).not.toContain('files not read');
+    expect(s).not.toContain('discovery findings');
   });
 });

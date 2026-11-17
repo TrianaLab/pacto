@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { appReady } from './ready';
+import { installScaleFixture } from './layoutGate';
 
 // The demo's newsletter-service declares nothing; its pacto.inferred.yaml holds what
 // Pacto read from the folder: the port its Dockerfile exposes, the owner its
@@ -56,10 +57,41 @@ test.describe('WASM demo — a service whose folder Pacto reads', () => {
 
     const findings = page.getByTestId('revision-discovery-findings');
     await expect(findings).not.toHaveAttribute('open', /.*/);
-    await expect(findings.locator('summary')).toContainText('1 file not read');
+    await expect(findings.locator('summary')).toContainText('1 discovery finding');
     await findings.locator('summary').click();
     await expect(findings).toContainText("chart dependency 'redis' has no Chart.lock digest, not read");
     await expect(findings).toContainText('chart/Chart.yaml:5');
     expect(errors).toEqual([]);
+  });
+});
+
+// The scale fixture appends an owner-file row whose note lists three long outranked
+// paths. On a phone that note stays inside the viewport and inside its own box: a
+// path with no break point wraps anywhere rather than being cut by html's clip.
+test.describe('WASM demo — an owner note with long paths on a phone', () => {
+  test.use({ viewport: { width: 1280, height: 900 } });
+
+  test('the note fits the viewport and wraps its paths', async ({ page }) => {
+    await page.addInitScript(installScaleFixture);
+    await appReady(page);
+    await page.goto('/#/fleet/revisions?service=newsletter-service');
+    const link = page.locator('main a[href*="/fleet/revisions/"]').first();
+    await expect(link).toBeVisible({ timeout: T });
+    await page.goto(`/${await link.getAttribute('href')}`);
+    await page.setViewportSize({ width: 320, height: 700 }); // appReady needs the wide nav
+    const more = page.getByTestId('revision-inferred').locator('.ifl-more');
+    await expect(more).toBeAttached({ timeout: T });
+    await more.locator('> summary').click();
+    await more.getByRole('button', { name: 'About inferred service.owner' }).last().click();
+    const n = more.locator('[role="note"]:not([hidden])');
+    await expect(n).toContainText('Outranks');
+    const box = await n.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return { left: r.left, right: r.right, vw: document.documentElement.clientWidth, spill: el.scrollWidth - el.clientWidth, wrap: getComputedStyle(el).overflowWrap };
+    });
+    expect(box.left).toBeGreaterThanOrEqual(-1);
+    expect(box.right).toBeLessThanOrEqual(box.vw + 1);
+    expect(box.spill).toBeLessThanOrEqual(1);
+    expect(box.wrap).toBe('anywhere');
   });
 });

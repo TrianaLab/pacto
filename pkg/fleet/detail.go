@@ -477,12 +477,18 @@ type InferredField struct {
 	Source     string   `json:"source"`
 	Confidence string   `json:"confidence,omitempty" enum:"likely,possible" doc:"How sure the inference is, set for a field of the inferred record: likely when a file states it, possible when only a convention suggests it"`
 	Class      string   `json:"class,omitempty" enum:"ownerFile" doc:"ownerFile: read from CODEOWNERS or catalog-info.yaml; not verified; never clears a gate"`
-	Outranks   []string `json:"outranks,omitempty" doc:"Lower-ranked sources that gave the same field"`
-	Provenance string   `json:"provenance" enum:"inferred"`
+	Outranks   []string `json:"outranks,omitempty" doc:"Lower-ranked sources that gave the same field, at most MaxOutranks"`
+	// OutranksTotal counts every outranked source when Outranks was bounded.
+	OutranksTotal int    `json:"outranksTotal,omitempty" doc:"Every lower-ranked source, set when outranks lists only the first MaxOutranks"`
+	Provenance    string `json:"provenance" enum:"inferred"`
 }
 
-// MaxInferredFields bounds the inferred fields a service or revision detail lists.
-const MaxInferredFields = 50
+// MaxInferredFields bounds the inferred fields a service or revision detail
+// lists, and MaxOutranks the outranked sources each lists.
+const (
+	MaxInferredFields = 50
+	MaxOutranks       = 10
+)
 
 // InferredPreview is a bounded list of inferred fields. Unreadable says the
 // revision ships an inferred record Pacto could not read, so the empty list
@@ -510,8 +516,12 @@ func inferredFields(inf []contract.Inferred, rec *contract.InferredRecord) ([]In
 	all, total, _ := boundSlice(all, MaxInferredFields)
 	var out []InferredField
 	for _, i := range all {
-		out = append(out, InferredField{Field: i.Field, Value: i.Value, Source: i.Source, Confidence: i.Confidence,
-			Class: i.Class, Outranks: slices.Clone(i.Outranks), Provenance: ProvenanceInferred})
+		f := InferredField{Field: i.Field, Value: i.Value, Source: i.Source, Confidence: i.Confidence,
+			Class: i.Class, Outranks: slices.Clone(i.Outranks), Provenance: ProvenanceInferred}
+		if len(f.Outranks) > MaxOutranks {
+			f.OutranksTotal, f.Outranks = len(f.Outranks), f.Outranks[:MaxOutranks]
+		}
+		out = append(out, f)
 	}
 	return out, total
 }

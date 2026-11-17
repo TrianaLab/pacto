@@ -100,6 +100,11 @@ describe('InferredFieldList', () => {
     expect(target.querySelectorAll('.tag').length).toBe(0);
   });
 
+  it('counts the outranked sources the server left out', () => {
+    render({ items: [field(0, { outranks: ['a.yaml:1', 'b.yaml:2'], outranksTotal: 299 })], total: 1 });
+    expect(target.querySelector('[role="note"]')!.textContent).toContain('Outranks a.yaml:1, b.yaml:2 and 297 more.');
+  });
+
   it('says a repository source is a repository file outside the bundle', () => {
     render({ items: [field(0, { field: 'service.owner', source: 'repository:.github/CODEOWNERS:4', class: 'ownerFile' })], total: 1 });
     const note = target.querySelector('[role="note"]')!.textContent!;
