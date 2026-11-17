@@ -10,6 +10,7 @@ package delivery
 import (
 	"context"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -19,6 +20,7 @@ import (
 
 	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 // shadow runs only while the Stage observes. It remembers what GitOps'
@@ -49,14 +51,15 @@ func (r *StageReconciler) shadow(ctx context.Context, stage *dv1.Stage) error {
 	if stage.Status.ObservedRevision != nil {
 		old = stage.Status.ObservedRevision.Digest
 	}
-	add, err := r.shadowPlans(ctx, stage, d, old, now)
+	reconciled := slices.ContainsFunc(stage.Status.Shadow, heldUnreconciled) && r.pactosReconciled(ctx)
+	add, err := r.shadowPlans(ctx, stage, d, old, reconciled, now)
 	if err != nil {
 		return err
 	}
 	if len(add) == 0 && d == old {
 		return r.shadowVerify(ctx, stage, now)
 	}
-	set := func(s *dv1.Stage) { keepShadow(s, add, d, now) }
+	set := func(s *dv1.Stage) { keepShadow(s, add, d, reconciled, now) }
 	if err := r.updateStatus(ctx, stage, set); err != nil {
 		return err
 	}
@@ -66,8 +69,9 @@ func (r *StageReconciler) shadow(ctx context.Context, stage *dv1.Stage) error {
 
 // shadowPlans plans the Stage's candidate and what GitOps applied (d), each
 // unless it is what ran before (old) or already planned, and replans a plan
-// the published gate refused once the candidate source verified its version.
-func (r *StageReconciler) shadowPlans(ctx context.Context, stage *dv1.Stage, d, old string, now time.Time) ([]delivery.Shadow, error) {
+// the published gate refused once the candidate source verified its version,
+// or held only for an unreconciled Pacto once every Pacto is (reconciled).
+func (r *StageReconciler) shadowPlans(ctx context.Context, stage *dv1.Stage, d, old string, reconciled bool, now time.Time) ([]delivery.Shadow, error) {
 	st := stage.Status
 	var add []delivery.Shadow
 	for _, to := range []string{st.Candidate, d} {
@@ -93,9 +97,10 @@ func (r *StageReconciler) shadowPlans(ctx context.Context, stage *dv1.Stage, d, 
 	// A plan refused only for something that was not there yet is replanned
 	// once it is: Flux may store the applied version a moment before it
 	// verifies the same digest on the candidates, and the Stage and its Pacto
-	// may arrive before the operator reconciles that Pacto.
+	// may arrive before the operator reconciles that Pacto (or another one,
+	// which leaves the graph partial).
 	for _, x := range st.Shadow {
-		if !staleRefusal(x, st) || slices.ContainsFunc(add, func(e delivery.Shadow) bool { return e.Candidate == x.Candidate }) {
+		if !staleRefusal(x, st, reconciled) || slices.ContainsFunc(add, func(e delivery.Shadow) bool { return e.Candidate == x.Candidate }) {
 			continue
 		}
 		e, err := r.wouldHave(ctx, stage, r.shadowSpec(stage, x.From, x.Candidate), now)
@@ -112,11 +117,11 @@ func (r *StageReconciler) shadowPlans(ctx context.Context, stage *dv1.Stage, d, 
 // entry per candidate. Another reconcile of a stale read may have planned it
 // already; a new plan for a Stage spec or a running version that changed
 // replaces an entry that has not run yet.
-func keepShadow(s *dv1.Stage, add []delivery.Shadow, d string, now time.Time) {
+func keepShadow(s *dv1.Stage, add []delivery.Shadow, d string, reconciled bool, now time.Time) {
 	fresh := slices.DeleteFunc(slices.Clone(add), func(e delivery.Shadow) bool {
 		return slices.ContainsFunc(s.Status.Shadow, func(x delivery.Shadow) bool {
 			return x.Candidate == e.Candidate && (x.IntentDigest == e.IntentDigest || x.ObservedAt != "") &&
-				!staleRefusal(x, s.Status)
+				!staleRefusal(x, s.Status, reconciled)
 		})
 	})
 	kept := slices.DeleteFunc(slices.Clone(s.Status.Shadow), func(x delivery.Shadow) bool {
@@ -154,10 +159,15 @@ func planned(s delivery.Shadow, spec delivery.OperationSpec) bool {
 	return s.Candidate == spec.Params.To && (s.IntentDigest == spec.IntentDigest || s.ObservedAt != "")
 }
 
-// staleRefusal says s was refused only for something that has since
+// staleRefusal says s was refused or held only for something that has since
 // changed: the published gate, and the candidate source has verified its
-// version since; or applier detection could not tell, and it now can.
-func staleRefusal(s delivery.Shadow, st delivery.StageStatus) bool {
+// version since; applier detection could not tell, and it now can; or a
+// Pacto had no reconciled contract yet, and every Pacto now has (reconciled).
+// A plan held for anything else stays as it was.
+func staleRefusal(s delivery.Shadow, st delivery.StageStatus, reconciled bool) bool {
+	if s.Predicted == delivery.PredictHeld {
+		return reconciled && heldUnreconciled(s)
+	}
 	if s.Predicted != delivery.PredictRejected {
 		return false
 	}
@@ -168,6 +178,37 @@ func staleRefusal(s delivery.Shadow, st delivery.StageStatus) bool {
 		return st.Applier != nil && (st.Applier.State == delivery.ApplierAdopted || st.Applier.State == delivery.ApplierUnmanaged)
 	}
 	return false
+}
+
+// heldPartial matches the impact gate's question (pkg/delivery impactGate)
+// when a partial graph is all it could not see, and captures the codes that
+// made it partial: any other doubt is joined to it with "; ".
+var heldPartial = regexp.MustCompile(`^Pacto cannot see enough to clear [^:;]*: the operational graph is partial \(([A-Z_, ]+)\)\. Accept the unknown\?`)
+
+// unreconciledCodes are the limitations an unreconciled Pacto leaves: its own,
+// the source it makes partial and the observed evidence absent that a partial
+// graph lists beside them (it does not make the graph partial on its own).
+var unreconciledCodes = []string{"PACTO_NOT_RECONCILED", fleet.LimitationSourcePartial, "OBSERVED_EVIDENCE_ABSENT"}
+
+// heldUnreconciled says s is held only because a Pacto had no reconciled
+// contract when it was planned.
+func heldUnreconciled(s delivery.Shadow) bool {
+	m := heldPartial.FindStringSubmatch(s.Question)
+	if s.Predicted != delivery.PredictHeld || s.Decision != delivery.AcceptUnknown || m == nil {
+		return false
+	}
+	codes := strings.Split(m[1], ", ")
+	return slices.Contains(codes, unreconciledCodes[0]) &&
+		!slices.ContainsFunc(codes, func(c string) bool { return !slices.Contains(unreconciledCodes, c) })
+}
+
+// pactosReconciled says every Pacto carries a reconciled contract, so the
+// snapshot no longer reports PACTO_NOT_RECONCILED. A failed list says no.
+func (r *StageReconciler) pactosReconciled(ctx context.Context) bool {
+	ps, err := r.Cluster.pactos(ctx)
+	return err == nil && !slices.ContainsFunc(ps, func(p delivery.PactoView) bool {
+		return p.Status.Contract == nil || p.Status.Contract.ServiceName == ""
+	})
 }
 
 // wouldHave plans the promote from to on the Stage as a fully automatic
