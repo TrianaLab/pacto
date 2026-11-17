@@ -164,7 +164,7 @@ func (p *planner) verify() string {
 	s := p.pub.Sign
 	if s != nil && s.Keyless && s.Identity != "" && s.Issuer != "" {
 		return fmt.Sprintf("  verify:\n    provider: cosign\n    matchOIDCIdentity:\n      - issuer: %s\n        subject: %s\n",
-			yq("^"+regexp.QuoteMeta(s.Issuer)+"$"), yq("^"+regexp.QuoteMeta(s.Identity)+"$"))
+			discover.Quote("^"+regexp.QuoteMeta(s.Issuer)+"$"), discover.Quote("^"+regexp.QuoteMeta(s.Identity)+"$"))
 	}
 	if s == nil || s.Keyless {
 		p.unknown("who publishes %s: the contract names no signing key or keyless identity, so the Stages cannot tell its versions from anyone else's and promote nothing until publish.sign says", p.r.Service)

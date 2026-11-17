@@ -855,11 +855,6 @@ func TestApplyFailures(t *testing.T) {
 }
 
 func TestHelpers(t *testing.T) {
-	for in, want := range map[string]string{"risk": "risk", "1.0.0": "1.0.0", "1.0": "'1.0'", "yes": "'yes'", "it's": "'it''s'"} {
-		if got := yq(in); got != want {
-			t.Errorf("yq(%q) = %q, want %q", in, got, want)
-		}
-	}
 	if refRepo("oci://r.io/a/b:1.0.0") != "r.io/a/b" || refRepo("oci://r.io:5000/a@sha256:x") != "r.io:5000/a" {
 		t.Error("refRepo")
 	}

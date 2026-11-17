@@ -23,6 +23,10 @@ const InferredRecordFile = "pacto.inferred.yaml"
 // InferredRecordFormat is the only format value an inferred record carries.
 const InferredRecordFormat = "pacto.inferred/v1"
 
+// ConfidenceLikely marks an inferred value read from a file in the
+// repository. "observed" stays reserved for runtime evidence.
+const ConfidenceLikely = "likely"
+
 // InferredRecord is what Pacto inferred from a service's folder beside its
 // declared contract, with the inputs it came from.
 type InferredRecord struct {
@@ -68,7 +72,7 @@ func ParseInferredRecord(data []byte) (*InferredRecord, error) {
 			return nil, fmt.Errorf("%s: fields[%d].field is empty", InferredRecordFile, i)
 		case f.Source == "":
 			return nil, fmt.Errorf("%s: fields[%d].source is empty", InferredRecordFile, i)
-		case f.Confidence != "likely" && f.Confidence != "possible":
+		case f.Confidence != ConfidenceLikely && f.Confidence != "possible":
 			return nil, fmt.Errorf("%s: fields[%d].confidence is %q, want likely or possible", InferredRecordFile, i, f.Confidence)
 		}
 	}

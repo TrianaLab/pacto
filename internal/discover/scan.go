@@ -37,20 +37,25 @@ type Scan struct {
 	// expanded, and EnvNotes what of it could not be read.
 	Env      []EnvVar
 	EnvNotes []string
-	ign      *ignore.Matcher // .pactoignore: what it leaves out is not read
+	ign      *ignore.Matcher   // .pactoignore: what it leaves out is not read
+	files    map[string][]byte // every YAML file read, by path, for source lines
 }
 
 // ConfigMap is a ConfigMap's data and the file it is in.
 type ConfigMap struct {
 	file string
+	line int // where its document starts
 	data map[string]string
 }
 
 // Workload is a Deployment, StatefulSet, DaemonSet, Job or CronJob.
 type Workload struct {
 	Kind, Name, File, Image, Team string
-	Ports                         []int
-	Env                           []EnvVar
+	// KindSource and TeamSource are the "<path>:<line>" of its kind and of
+	// its team label.
+	KindSource, TeamSource string
+	Ports                  []int
+	Env                    []EnvVar
 	// Probe is the main container's first readiness, liveness or startup
 	// probe, nil when it has none.
 	Probe *Probe
@@ -59,16 +64,18 @@ type Workload struct {
 // EnvVar is one environment variable. A ConfigMap or Secret it is read from
 // is named in from: "configmap" or "secret" with ref the object's name and
 // key the key, or no key when every key of the object is read (envFrom, with
-// name its prefix). secret marks a value that is never read.
+// name its prefix). secret marks a value that is never read. Source is the
+// "<path>:<line>" that sets it.
 type EnvVar struct {
 	File, Name, Value string
 	From, Ref, Key    string
 	Secret            bool
+	Source            string
 }
 
 // Probe is a container probe: which one, and the HTTP path it calls, empty
-// for a TCP, gRPC or exec probe.
-type Probe struct{ Kind, Path string }
+// for a TCP, gRPC or exec probe, and the "<path>:<line>" that declares it.
+type Probe struct{ Kind, Path, Source string }
 
 // WorkloadKinds maps each workload kind to the contract workload it is.
 var WorkloadKinds = map[string]string{
@@ -85,7 +92,7 @@ var skipDirs = map[string]bool{"node_modules": true, "vendor": true}
 // Dir reads what the folder dir says about the service in it. A folder that
 // does not exist yet reads as empty.
 func Dir(dir string) (*Scan, error) {
-	sc := &Scan{objects: map[string]bool{}, Services: map[string]bool{}, ConfigMaps: map[string]ConfigMap{}}
+	sc := &Scan{objects: map[string]bool{}, Services: map[string]bool{}, ConfigMaps: map[string]ConfigMap{}, files: map[string][]byte{}}
 	// What .pactoignore leaves out of the bundle is not read either.
 	ign, err := ignore.Load(os.DirFS(dir))
 	if err != nil {
@@ -195,20 +202,21 @@ var toolGroups = map[string]bool{"backstage.io": true, "skaffold": true}
 // manifest reads every Kubernetes object in one YAML file. A file that is not
 // YAML, or holds no object with apiVersion and kind, is not a manifest.
 func (sc *Scan) manifest(rel string, data []byte) {
+	sc.files[rel] = data
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	// A kustomization.yaml needs no apiVersion or kind; its secretGenerator
 	// holds a Secret's values as plainly as a Secret does.
 	kust := path.Base(rel) == "kustomization.yaml"
 	found, secret := kust, false
 	for {
-		var doc map[string]any
-		err := dec.Decode(&doc)
+		doc, line, err := nextDoc(dec)
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
 			return
 		}
+		src := func(needle string) string { return sc.source(rel, line, needle) }
 		kind, _ := doc["kind"].(string)
 		secret = secret || holdsSecret(kust, kind, doc)
 		api, ok := doc["apiVersion"].(string)
@@ -221,10 +229,10 @@ func (sc *Scan) manifest(rel string, data []byte) {
 		sc.Services[name] = sc.Services[name] || kind == "Service"
 		kust = kust || kind == "Kustomization"
 		if kind == "ConfigMap" {
-			sc.ConfigMaps[name] = ConfigMap{file: rel, data: stringMap(doc["data"])}
+			sc.ConfigMaps[name] = ConfigMap{file: rel, line: line, data: stringMap(doc["data"])}
 		}
 		if _, ok := WorkloadKinds[kind]; ok {
-			sc.workloads = append(sc.workloads, readWorkload(rel, kind, name, doc))
+			sc.workloads = append(sc.workloads, readWorkload(rel, kind, name, doc, src))
 		}
 	}
 	switch {
@@ -238,6 +246,18 @@ func (sc *Scan) manifest(rel string, data []byte) {
 	}
 }
 
+// nextDoc decodes the next YAML document, through a node for the line it
+// starts at.
+func nextDoc(dec *yaml.Decoder) (map[string]any, int, error) {
+	var node yaml.Node
+	var doc map[string]any
+	if err := dec.Decode(&node); err != nil {
+		return nil, 0, err
+	}
+	err := node.Decode(&doc)
+	return doc, node.Line, err
+}
+
 // holdsSecret reports whether doc holds a Secret's values: a Secret with data,
 // or a kustomization's secretGenerator.
 func holdsSecret(kust bool, kind string, doc map[string]any) bool {
@@ -247,8 +267,9 @@ func holdsSecret(kust bool, kind string, doc map[string]any) bool {
 	return kind == "Secret" && (doc["data"] != nil || doc["stringData"] != nil)
 }
 
-func readWorkload(rel, kind, name string, doc map[string]any) *Workload {
-	w := &Workload{Kind: kind, Name: name, File: rel}
+// readWorkload reads one workload document; src is the source of a needle in it.
+func readWorkload(rel, kind, name string, doc map[string]any, src func(needle string) string) *Workload {
+	w := &Workload{Kind: kind, Name: name, File: rel, KindSource: src("kind: " + kind), TeamSource: src("team:")}
 	w.Team, _ = Dig(doc, "metadata", "labels", "team").(string)
 	pod := Dig(doc, "spec", "template", "spec")
 	if kind == "CronJob" {
@@ -264,7 +285,7 @@ func readWorkload(rel, kind, name string, doc map[string]any) *Workload {
 	for i, c := range containers {
 		if i == main {
 			w.Image, _ = Dig(c, "image").(string)
-			w.Probe = readProbe(c)
+			w.Probe = readProbe(c, src)
 		}
 		ports, _ := Dig(c, "ports").([]any)
 		for _, port := range ports {
@@ -286,6 +307,7 @@ func readWorkload(rel, kind, name string, doc map[string]any) *Workload {
 		for _, e := range env {
 			v := EnvVar{File: rel}
 			v.Name, _ = Dig(e, "name").(string)
+			v.Source = src("name: " + v.Name)
 			v.Value, _ = Dig(e, "value").(string)
 			if n, ok := Dig(e, "valueFrom", "configMapKeyRef", "name").(string); ok {
 				v.From, v.Ref = "configmap", n
@@ -301,14 +323,14 @@ func readWorkload(rel, kind, name string, doc map[string]any) *Workload {
 }
 
 // readProbe is a container's first readiness, liveness or startup probe.
-func readProbe(c any) *Probe {
+func readProbe(c any, src func(needle string) string) *Probe {
 	for _, kind := range []string{"readiness", "liveness", "startup"} {
 		p := Dig(c, kind+"Probe")
 		if p == nil {
 			continue
 		}
 		path, _ := Dig(p, "httpGet", "path").(string)
-		return &Probe{Kind: kind, Path: path}
+		return &Probe{Kind: kind, Path: path, Source: src(kind + "Probe:")}
 	}
 	return nil
 }
@@ -347,15 +369,27 @@ func (sc *Scan) resolveEnv() {
 			}
 			sort.Strings(keys)
 			for _, k := range keys {
-				add(EnvVar{File: cm.file, Name: v.Name + k, Value: cm.data[k], From: "configmap", Ref: v.Ref, Key: k})
+				add(EnvVar{File: cm.file, Name: v.Name + k, Value: cm.data[k], From: "configmap", Ref: v.Ref, Key: k, Source: sc.source(cm.file, cm.line, k+":")})
 			}
 		case v.From == "configmap":
-			v.File, v.Value = cm.file, cm.data[v.Key]
+			v.File, v.Value, v.Source = cm.file, cm.data[v.Key], sc.source(cm.file, cm.line, v.Key+":")
 			add(v)
 		default:
 			add(v)
 		}
 	}
+}
+
+// source is "<file>:<n>" for the first line n at or after line from that
+// holds needle, else the bare file.
+// ponytail: first textual match; a yaml.Node walk when one file repeats a key across documents.
+func (sc *Scan) source(file string, from int, needle string) string {
+	for i, l := range strings.Split(string(sc.files[file]), "\n") {
+		if i+1 >= from && strings.Contains(l, needle) {
+			return fmt.Sprintf("%s:%d", file, i+1)
+		}
+	}
+	return file
 }
 
 // stringMap is a YAML mapping's string values.
@@ -394,7 +428,13 @@ var hostRE = regexp.MustCompile(`^(?:([a-z][a-z0-9+.-]*)://)?(?:[^@/]*@)?([a-z0-
 // leaving out itself and anything its own manifests define. A dotted name
 // outside the cluster is left to externals.
 func (sc *Scan) Dependencies(self string) []Finding {
-	out := []Finding{}
+	out, _ := sc.dependencies(self)
+	return out
+}
+
+// dependencies are Dependencies and, for each, the variable that names it.
+func (sc *Scan) dependencies(self string) ([]Finding, []EnvVar) {
+	out, from := []Finding{}, []EnvVar{}
 	seen := map[string]bool{}
 	for _, e := range sc.Env {
 		m := hostRE.FindStringSubmatch(e.Value)
@@ -410,8 +450,9 @@ func (sc *Scan) Dependencies(self string) []Finding {
 		}
 		seen[host] = true
 		out = append(out, Finding{Name: host, Where: e.File + ", env " + e.Name})
+		from = append(from, e)
 	}
-	return out
+	return out, from
 }
 
 // EnvDependencies are the services env points at, leaving out self and every

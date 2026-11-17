@@ -170,7 +170,7 @@ func TestDirReadsTheWorkload(t *testing.T) {
 	}
 	w := sc.Workload
 	if w == nil || w.Name != "app" || w.Kind != "Deployment" || w.Team != "payments" || w.Image != "ghcr.io/acme/app:1.2.0" ||
-		!slices.Equal(w.Ports, []int{9901, 8080}) || *w.Probe != (Probe{Kind: "readiness", Path: "/healthz"}) {
+		!slices.Equal(w.Ports, []int{9901, 8080}) || *w.Probe != (Probe{Kind: "readiness", Path: "/healthz", Source: "k8s/app.yaml:16"}) {
 		t.Errorf("workload: %+v", w)
 	}
 }

@@ -188,7 +188,7 @@ func (p *planner) environments(b *strings.Builder) {
 func (p *planner) blank() string {
 	name := p.r.Service
 	var b strings.Builder
-	fmt.Fprintf(&b, "pactoVersion: %q\nservice:\n  name: %s\n  version: 0.1.0\n", p.pactoVersion(), yq(name))
+	fmt.Fprintf(&b, "pactoVersion: %q\nservice:\n  name: %s\n  version: 0.1.0\n", p.pactoVersion(), discover.Quote(name))
 	p.owner(&b, p.opts.Owner, "no team was given")
 	p.domain(&b)
 	b.WriteString(blankBody)
@@ -234,7 +234,7 @@ func (p *planner) owner(b *strings.Builder, team, why string) {
 		p.unknown("owner: %s; pass --owner", why)
 		return
 	}
-	fmt.Fprintf(b, "  owner:\n    team: %s\n", yq(team))
+	fmt.Fprintf(b, "  owner:\n    team: %s\n", discover.Quote(team))
 	if hint := OwnerHint(team); hint != "" {
 		p.next("%s", hint)
 	}
@@ -243,7 +243,7 @@ func (p *planner) owner(b *strings.Builder, team, why string) {
 // domain writes service.domain when the caller gave one.
 func (p *planner) domain(b *strings.Builder) {
 	if p.opts.Domain != "" {
-		fmt.Fprintf(b, "  domain: %s\n", yq(p.opts.Domain))
+		fmt.Fprintf(b, "  domain: %s\n", discover.Quote(p.opts.Domain))
 	}
 }
 
@@ -377,7 +377,7 @@ func (p *planner) pactified() string {
 		next = "validate it: pacto validate"
 	}
 	fmt.Fprintf(&b, "# Written by pacto init from %s.\n# Check it, then %s\n", files, next)
-	fmt.Fprintf(&b, "pactoVersion: %q\nservice:\n  name: %s\n  version: %s\n", p.pactoVersion(), yq(name), yq(version))
+	fmt.Fprintf(&b, "pactoVersion: %q\nservice:\n  name: %s\n  version: %s\n", p.pactoVersion(), discover.Quote(name), discover.Quote(version))
 	team := p.opts.Owner
 	if team == "" && w.Team != "" {
 		team = w.Team
@@ -392,7 +392,7 @@ func (p *planner) pactified() string {
 	}
 	switch {
 	case sc.OpenAPI != "":
-		fmt.Fprintf(&b, "interfaces:\n  - name: api\n    type: openapi\n    ref: %s\n", yq(sc.OpenAPI))
+		b.WriteString(discover.InterfaceYAML(sc.OpenAPI))
 		p.found("API description %s", sc.OpenAPI)
 	case len(w.Ports) > 0:
 		p.unknown("interfaces: %s listens on port %s, but no OpenAPI file describes it", name, joinInts(w.Ports))
@@ -436,10 +436,9 @@ func (p *planner) health(b *strings.Builder, api bool) {
 	if !contract.ValidCapabilityPath(path) {
 		path = ""
 	}
-	b.WriteString("capabilities:\n  - type: health\n")
+	b.WriteString(discover.HealthYAML(path, api))
 	switch {
 	case path != "" && api:
-		fmt.Fprintf(b, "    binding:\n      type: http\n      interface: api\n      path: %s\n", yq(path))
 		p.found("health check GET %s on api, from the %s probe in %s", path, w.Probe.Kind, w.File)
 	case path != "":
 		p.found("health check GET %s, from the %s probe in %s", path, w.Probe.Kind, w.File)
@@ -538,7 +537,7 @@ func (p *planner) unproposed(b *strings.Builder, d Inferred, services, bundles s
 // writeDependency writes one dependency with compatibility unknown and
 // comment after it.
 func writeDependency(b *strings.Builder, name, ref, comment string) {
-	fmt.Fprintf(b, "  - name: %s\n    ref: %s\n    required: true\n    compatibility: %s   # %s\n", name, ref, contract.CompatibilityUnknown, comment)
+	b.WriteString(discover.DependencyYAML(name, ref, comment))
 }
 
 // undeclared says, under Unknown and next, that pacto.yaml leaves the range
@@ -672,9 +671,9 @@ func (p *planner) publish(b *strings.Builder, bundles, registry, imgRepo string)
 		if imgRepo == "" || hubLibrary(imgRepo) {
 			imgRepo = registry + "/images/" + name
 		}
-		fmt.Fprintf(b, "    - name: api\n      type: image\n      ref: oci://%s\n      build:\n        dockerfile:\n          context: %s\n", imgRepo, yq(path.Dir(df)))
+		fmt.Fprintf(b, "    - name: api\n      type: image\n      ref: oci://%s\n      build:\n        dockerfile:\n          context: %s\n", imgRepo, discover.Quote(path.Dir(df)))
 		if path.Base(df) != "Dockerfile" {
-			fmt.Fprintf(b, "          file: %s\n", yq(df))
+			fmt.Fprintf(b, "          file: %s\n", discover.Quote(df))
 		}
 		p.found("%s builds the image %s", df, imgRepo)
 		if len(sc.Dockerfiles) > 1 {
@@ -689,7 +688,7 @@ func (p *planner) publish(b *strings.Builder, bundles, registry, imgRepo string)
 		}
 		ref := "oci://" + registry + "/deploy/" + name
 		p.pub.Artifacts = append(p.pub.Artifacts, contract.PublishArtifact{Name: "manifests", Type: contract.ArtifactManifests, Ref: ref})
-		fmt.Fprintf(b, "    - name: manifests\n      type: manifests\n      ref: %s\n      build:\n        command: [sh, -c, %s]\n", ref, yq(cmd))
+		fmt.Fprintf(b, "    - name: manifests\n      type: manifests\n      ref: %s\n      build:\n        command: [sh, -c, %s]\n", ref, discover.Quote(cmd))
 	}
 	fmt.Fprintf(b, "  sign:\n    key: %s\n", signKey)
 	if p.opts.NoTransparencyLog {
@@ -928,22 +927,7 @@ var (
 	safeRE = regexp.MustCompile(`^[A-Za-z0-9._/-]+$`)
 	// imageRE is an image reference with nothing sh or sed would read.
 	imageRE = regexp.MustCompile(`^[A-Za-z0-9._/:@-]+$`)
-	// plainRE starts with a letter, a dot or a slash, or is x.y.z, so YAML
-	// never reads it as a number.
-	plainRE = regexp.MustCompile(`^([A-Za-z./][A-Za-z0-9._/-]*|[0-9]+\.[0-9]+\.[0-9]+[A-Za-z0-9._+-]*)$`)
 )
-
-// yq writes s as a YAML string: plain when YAML reads it back as that same
-// string, else single-quoted.
-func yq(s string) string {
-	if plainRE.MatchString(s) && !yamlWords[strings.ToLower(s)] {
-		return s
-	}
-	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
-}
-
-// yamlWords read as booleans or null when plain.
-var yamlWords = map[string]bool{"true": true, "false": true, "yes": true, "no": true, "on": true, "off": true, "null": true, "y": true, "n": true}
 
 // shq quotes s for sh when it needs it.
 func shq(s string) string {
