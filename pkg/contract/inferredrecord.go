@@ -206,13 +206,19 @@ func ReadInferredRecord(fsys fs.FS) (*InferredRecord, error) {
 
 // VerifyInferredRecord checks the record against the bundle it sits in: every
 // source exists in fsys with its digest (the record itself is never a source),
-// and every field cites a file the sources list. A stale or hand-edited record
-// fails here instead of reading as authoritative.
+// and every field cites a file the sources list. A repository file outside
+// the bundle (a "repository:" source) cannot be checked here: its digest only
+// tells two records' inputs apart. A stale or hand-edited record fails here
+// instead of reading as authoritative.
 func VerifyInferredRecord(fsys fs.FS, rec *InferredRecord) error {
 	listed := make(map[string]bool, len(rec.Inputs.Sources))
 	for i, s := range rec.Inputs.Sources {
 		if s.Path == InferredRecordFile {
 			return fmt.Errorf("inputs.sources[%d] cites %s itself", i, InferredRecordFile)
+		}
+		listed[s.Path] = true
+		if strings.HasPrefix(s.Path, repositoryPrefix) {
+			continue
 		}
 		data, err := fs.ReadFile(fsys, s.Path)
 		if err != nil {
@@ -222,7 +228,6 @@ func VerifyInferredRecord(fsys fs.FS, rec *InferredRecord) error {
 		if got := "sha256:" + hex.EncodeToString(sum[:]); got != s.Digest {
 			return fmt.Errorf("inputs.sources[%d]: %s has digest %s, the record says %s", i, s.Path, got, s.Digest)
 		}
-		listed[s.Path] = true
 	}
 	for i, f := range rec.Fields {
 		if file := sourceFile(f.Source); !listed[file] {

@@ -37,3 +37,16 @@ func TestDiscoverySkipsSymlinkAndFIFO(t *testing.T) {
 		t.Fatal("discovery opened the FIFO")
 	}
 }
+
+func TestCodeownersSymlinkNotRead(t *testing.T) {
+	outside := writeFiles(t, map[string]string{"owners": "* @acme/evil\n"})
+	repo := writeFiles(t, map[string]string{".github/README": "", "CODEOWNERS": "* @acme/a\n", "services/payments/README": ""})
+	if err := os.Symlink(filepath.Join(outside, "owners"), filepath.Join(repo, ".github", "CODEOWNERS")); err != nil {
+		t.Fatal(err)
+	}
+	r := readIn(t, repo, "services/payments")
+	want := []contract.InferredFinding{{Code: CodeUnreadable, Source: "repository:.github/CODEOWNERS", Message: "repository:.github/CODEOWNERS is not a regular file, so it is not read"}}
+	if owner(r) != nil || !slices.Equal(r.Findings, want) {
+		t.Errorf("owner = %v, findings = %+v", owner(r), r.Findings)
+	}
+}

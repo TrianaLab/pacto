@@ -1,0 +1,12 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payments
+  labels:
+    team: payments-squad
+spec:
+  template:
+    spec:
+      containers:
+        - name: payments
+          image: ghcr.io/acme/payments:1.0.0

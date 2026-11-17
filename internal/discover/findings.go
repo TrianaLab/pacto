@@ -46,6 +46,18 @@ func unresolvedTemplateMessage(source string) string {
 	return source + " sets a value through a template expression Pacto does not resolve without rendering the chart, so what it sets there is not read"
 }
 
+// emailOwnersMessage says the CODEOWNERS rule at source names its owners by
+// email only.
+func emailOwnersMessage(source string) string {
+	return source + " names owners by email only, which Pacto cannot read as a team or a person, so no owner is read"
+}
+
+// unresolvedSystemMessage says the catalog line at source names a system
+// that does not make a domain.
+func unresolvedSystemMessage(source string) string {
+	return source + " names a system that is not a valid domain, so it is not read"
+}
+
 // truncatedMessage says discovery stopped after read files with left not read.
 func truncatedMessage(read, left int) string {
 	return fmt.Sprintf("discovery stopped after %d files; %d files were not read, so results are partial", read, left)

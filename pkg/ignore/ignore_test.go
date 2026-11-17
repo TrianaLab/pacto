@@ -36,3 +36,34 @@ func TestMatcherIgnored(t *testing.T) {
 		})
 	}
 }
+
+func TestMatchesAnchored(t *testing.T) {
+	for _, tt := range []struct {
+		pattern, path string
+		isDir, want   bool
+	}{
+		{"/services/payments", "services/payments", true, true},
+		{"/services/payments", "x/services/payments", true, false},
+		{"services/payments", "services/payments", true, true},
+		{"*", "services/payments/pacto.yaml", false, true},
+		{"services/*", "services/payments/pacto.yaml", false, false},
+		{"*.yaml", "a/pacto.yaml", false, true},
+		{"!*.yaml", "a/pacto.yaml", false, false},
+		{"# comment", "a", false, false},
+		{"", "a", false, false},
+	} {
+		if got := Matches(tt.pattern, tt.path, tt.isDir); got != tt.want {
+			t.Errorf("Matches(%q, %q, %v) = %v, want %v", tt.pattern, tt.path, tt.isDir, got, tt.want)
+		}
+	}
+}
+
+func TestMatchesDirOnly(t *testing.T) {
+	if !Matches("apps/", "x/apps", true) || Matches("apps/", "x/apps", false) {
+		t.Error("a dir-only pattern matches only a directory")
+	}
+	// No default pattern applies.
+	if Matches("x", ".git", true) {
+		t.Error("a default pattern applied")
+	}
+}

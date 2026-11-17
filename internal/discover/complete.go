@@ -124,13 +124,17 @@ type completion struct {
 }
 
 func (c *completion) add(field, value, file, source, declare string) {
-	c.entries = append(c.entries, entry{Inferred: contract.Inferred{Field: field, Value: value, Source: source, Confidence: contract.ConfidenceLikely, Declare: declare}, rank: rankScan, file: file})
+	c.addRanked(rankScan, field, value, file, source, declare)
+}
+
+func (c *completion) addRanked(rank int, field, value, file, source, declare string) {
+	c.entries = append(c.entries, entry{Inferred: contract.Inferred{Field: field, Value: value, Source: source, Confidence: contract.ConfidenceLikely, Declare: declare}, rank: rank, file: file})
 }
 
 // declared reports whether the contract declares the field f a reader
-// gives: a health capability, a summary, an interface with its name or its
-// ref, an interface on that port, or a configuration key (any, when the
-// declared keys cannot be listed).
+// gives: a health capability, a summary, an owner, a domain, a dependency,
+// an interface with its name or its ref, an interface on that port, or a
+// configuration key (any, when the declared keys cannot be listed).
 func (c *completion) declared(f contract.Inferred) bool {
 	field := f.Field
 	if key, ok := strings.CutPrefix(field, "configuration."); ok {
@@ -140,7 +144,14 @@ func (c *completion) declared(f contract.Inferred) bool {
 		_, ref, _ := strings.Cut(f.Value, " ")
 		return slices.ContainsFunc(c.d.Interfaces, func(i contract.Interface) bool { return i.Name+"]" == name || i.Ref == ref })
 	}
+	if name, ok := strings.CutPrefix(field, "dependencies["); ok {
+		return declaredDependency(c.d, strings.TrimSuffix(name, "]"))
+	}
 	switch field {
+	case "service.owner":
+		return !c.d.Service.Owner.IsEmpty()
+	case "service.domain":
+		return c.d.Service.Domain != ""
 	case "capabilities[health]":
 		return slices.ContainsFunc(c.d.Capabilities, func(k contract.Capability) bool { return k.Type == "health" })
 	case "service.summary":
@@ -160,7 +171,8 @@ func (c *completion) workload() {
 		c.add("workload", fmt.Sprintf("%s (%s %s)", kind, w.Kind, w.Name), w.File, w.KindSource, "workload: "+kind+"\n")
 	}
 	if w.Team != "" && c.d.Service.Owner.IsEmpty() {
-		c.add("service.owner", w.Team, w.File, w.TeamSource, "service:\n  owner:\n    team: "+Quote(w.Team)+"\n")
+		value, declare := ownerYAML(w.Team, false)
+		c.addRanked(rankTeamLabel, "service.owner", value, w.File, w.TeamSource, declare)
 	}
 }
 

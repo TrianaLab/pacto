@@ -68,7 +68,8 @@ type entry struct {
 // first, then each Dockerfile in dockerRank order, then a chart's values.yaml
 // and its values-<env>.yaml files, then its templates, then a kustomization's
 // images, then a Compose service's image and environment keys, then plain
-// manifests, then a Compose service's ports.
+// manifests, then a Compose service's ports. An owner ranks apart: the
+// catalog file, then CODEOWNERS, then the workload's team label.
 const (
 	rankScan        = 0
 	rankDockerfile  = 1 << 20
@@ -78,6 +79,9 @@ const (
 	rankCompose     = 5 << 20
 	rankManifest    = 6 << 20
 	rankComposePort = 7 << 20
+	rankCatalog     = 8 << 20
+	rankCodeowners  = 9 << 20
+	rankTeamLabel   = 10 << 20
 )
 
 // reader collects what one Read finds.
@@ -124,6 +128,7 @@ func Read(in Input) Reading {
 	r.dockers()
 	r.interfaces()
 	r.charts()
+	r.codeowners()
 	out := Reading{entries: r.entries, ChartDependencies: r.chartDeps}
 	out.Fields, _ = merge(r.entries)
 	slices.SortFunc(r.findings, func(a, b contract.InferredFinding) int {
@@ -185,7 +190,8 @@ func (r *reader) yamlFile(p, name string) {
 }
 
 // tool reads the first document of the file p, named name, when it is a
-// kustomization or, at the folder root, a Compose file. yamlDocs gives docs
+// kustomization or, at the folder root, a Compose file or the Backstage
+// catalog file. yamlDocs gives docs
 // at least one document, each with a root, as manifests relies on.
 func (r *reader) tool(p, name string, docs []*yaml.Node) {
 	switch root := docs[0].Content[0]; {
@@ -193,6 +199,8 @@ func (r *reader) tool(p, name string, docs []*yaml.Node) {
 		r.kustomization(p, root)
 	case composeFiles[p]:
 		r.compose(p, root)
+	case p == catalogFile:
+		r.catalog(p, docs)
 	}
 }
 
@@ -210,14 +218,18 @@ func (r *reader) chartOf(p string) (dir string, ok bool) {
 }
 
 // read is the bytes of the regular file p, or nil and a finding.
-func (r *reader) read(p string) []byte {
-	if info, err := fs.Stat(r.in.Folder, p); err == nil && info.Size() > maxFileSize {
-		r.find(CodeUnreadable, p, unreadableMessage(p, unreadableTooLarge))
+func (r *reader) read(p string) []byte { return r.readIn(r.in.Folder, p, p) }
+
+// readIn is the bytes of the regular file p in fsys, or nil and a finding
+// citing it as source.
+func (r *reader) readIn(fsys fs.FS, p, source string) []byte {
+	if info, err := fs.Stat(fsys, p); err == nil && info.Size() > maxFileSize {
+		r.find(CodeUnreadable, source, unreadableMessage(source, unreadableTooLarge))
 		return nil
 	}
-	data, ok := contract.ReadBounded(r.in.Folder, p)
+	data, ok := contract.ReadBounded(fsys, p)
 	if !ok {
-		r.find(CodeUnreadable, p, unreadableMessage(p, unreadableFailed))
+		r.find(CodeUnreadable, source, unreadableMessage(source, unreadableFailed))
 		return nil
 	}
 	return data

@@ -127,6 +127,13 @@ func TestVerifyInferredRecord(t *testing.T) {
 	if err := VerifyInferredRecord(bundle, sampleRecord()); err != nil {
 		t.Fatal(err)
 	}
+	// A repository file outside the bundle is cited, never looked up in it.
+	owners := sampleRecord()
+	owners.Inputs.Sources = append(owners.Inputs.Sources, InferredSourceFile{Path: "repository:.github/CODEOWNERS", Digest: digestOf("* @acme/a\n")})
+	owners.Fields = append(owners.Fields, Inferred{Field: "service.owner", Value: "acme/a", Source: "repository:.github/CODEOWNERS:1", Confidence: ConfidenceLikely, Class: InferredClassOwnerFile})
+	if err := VerifyInferredRecord(bundle, owners); err != nil {
+		t.Fatal(err)
+	}
 	cases := map[string]struct {
 		edit func(*InferredRecord)
 		want string

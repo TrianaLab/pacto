@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -868,4 +870,23 @@ func TestBumpCheckInferredOnlyNeedsPatch(t *testing.T) {
 	if !ch.Passed || p.Baseline != "1.4.2" || p.RequiredBump != diff.BumpPatch || p.Classification != "NON_BREAKING" {
 		t.Fatalf("inferred-only patch: %+v %+v", ch, p)
 	}
+}
+
+// TestCodeownersChangeIsNotIdentical: two bundles whose records differ only
+// in the digest of the CODEOWNERS file they cite, outside the bundle, are a
+// record change that needs a patch, never the same bundle.
+func TestCodeownersChangeIsNotIdentical(t *testing.T) {
+	host, reg := newRegistry(t)
+	ctx := context.Background()
+	withOwners := func(text string) *contract.Bundle {
+		b := recordBundle(host, "1.0.0", "2", deployYAML, false)
+		rec, _ := contract.ReadInferredRecord(b.FS)
+		sum := sha256.Sum256([]byte(text))
+		rec.Inputs.Sources = append(rec.Inputs.Sources, contract.InferredSourceFile{Path: "repository:.github/CODEOWNERS", Digest: "sha256:" + hex.EncodeToString(sum[:])})
+		b.FS.(fstest.MapFS)[contract.InferredRecordFile] = &fstest.MapFile{Data: rec.Marshal()}
+		return b
+	}
+	pushBundle(t, reg, host, "1.0.0", withOwners("* @acme/a\n"))
+	it := bundleItem(MakePlan(ctx, reg, Input{Bundle: withOwners("* @acme/b\n"), Revision: "abc123"}))
+	expect(t, it.State == Conflict && it.Reason == "only the inferred record changed since 1.0.0, so a patch is enough"+NextVersion, "bundle: %+v", it)
 }

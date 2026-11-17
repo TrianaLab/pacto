@@ -1445,3 +1445,24 @@ func TestPactifyPortUnknownFromDiscovery(t *testing.T) {
 		t.Fatalf("unknown: %q", r.Unknown)
 	}
 }
+
+// TestPactifiedKeepsTeamLabelOwner: a new contract's owner is the workload's
+// team label, whatever CODEOWNERS or catalog-info.yaml say; they reach only
+// the inferred record.
+func TestPactifiedKeepsTeamLabelOwner(t *testing.T) {
+	repo := writeTree(t, filepath.Join(t.TempDir(), "repo"), map[string]string{
+		".git/HEAD":                       "ref: refs/heads/main\n",
+		".github/CODEOWNERS":              "* @acme/owners\n",
+		"payments/catalog-info.yaml":      "apiVersion: backstage.io/v1alpha1\nkind: Component\nmetadata: {name: payments}\nspec: {owner: group:catalog-team}\n",
+		"payments/Dockerfile":             "FROM alpine:3.20\n",
+		"payments/deploy/deployment.yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: payments\n  labels: {team: shop}\nspec: {template: {spec: {containers: [{name: payments, image: payments:1}]}}}\n",
+	})
+	r, err := Init(context.Background(), Options{Dir: filepath.Join(repo, "payments"), Plan: true}, os.WriteFile)
+	if err != nil || r.Mode != modePactify {
+		t.Fatalf("plan: %+v %v", r, err)
+	}
+	c, err := contract.Parse(strings.NewReader(file(t, r, "pacto.yaml").Content))
+	if err != nil || c.Service.Owner.Team != "shop" || c.Service.Owner.DRI != "" {
+		t.Fatalf("owner: %+v %v", c.Service.Owner, err)
+	}
+}
