@@ -98,6 +98,11 @@ func TestDetectArgoInstanceLabelNeedsArgoManager(t *testing.T) {
 	check(t, Detect(with(labels, nil, "argocd-controller")), Manager{
 		Name: ArgoCD, Product: "Argo CD", OwnerKind: "Application", OwnerName: "payments", Evidence: "instance label",
 	})
+	// An Application outside the Argo CD namespace labels its workloads
+	// `<appNamespace>_<app>`, as it writes the tracking id.
+	check(t, Detect(with(map[string]string{instanceLabel: "staging_payments"}, nil, "argocd-controller")), Manager{
+		Name: ArgoCD, Product: "Argo CD", OwnerKind: "Application", OwnerNamespace: "staging", OwnerName: "payments", Evidence: "instance label",
+	})
 }
 
 func TestDetectFluxKustomization(t *testing.T) {

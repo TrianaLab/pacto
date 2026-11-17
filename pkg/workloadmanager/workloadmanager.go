@@ -148,11 +148,19 @@ func argoTracking(o Object) (Manager, bool) {
 	if group != o.Group || kind != o.Kind || ns != o.Namespace || name != o.Name {
 		return Manager{Name: Unsupported, Product: "Argo CD", Evidence: "tracking id of another object"}, true
 	}
-	if appNs, appName, found := strings.Cut(app, "_"); found {
-		m.OwnerNamespace, app = sanitize(appNs), appName
-	}
-	m.OwnerName, m.Evidence = sanitize(app), "tracking annotation"
+	m.OwnerNamespace, m.OwnerName = argoApp(app)
+	m.Evidence = "tracking annotation"
 	return m, true
+}
+
+// argoApp splits Argo CD's application instance name: `<appNamespace>_<app>`
+// for an Application outside the Argo CD namespace, a plain `<app>` (namespace
+// "") for one inside it. The tracking id and the instance label both carry it.
+func argoApp(instance string) (namespace, name string) {
+	if ns, app, found := strings.Cut(instance, "_"); found {
+		return sanitize(ns), sanitize(app)
+	}
+	return "", sanitize(instance)
 }
 
 func fluxHelmRelease(o Object) (Manager, bool) {
@@ -196,7 +204,8 @@ func argoInstance(o Object) (Manager, bool) {
 	if !ok || manager(o, isArgo) == "" {
 		return Manager{}, false
 	}
-	return Manager{Name: ArgoCD, Product: "Argo CD", OwnerKind: "Application", OwnerName: sanitize(app), Evidence: "instance label"}, true
+	ns, name := argoApp(app)
+	return Manager{Name: ArgoCD, Product: "Argo CD", OwnerKind: "Application", OwnerNamespace: ns, OwnerName: name, Evidence: "instance label"}, true
 }
 
 var marks = []struct{ key, product, evidence string }{
