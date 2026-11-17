@@ -133,4 +133,9 @@ func TestEventOnReplacedKeyDisclosesAlias(t *testing.T) {
 	if consumerNamed(t, res, "api-gateway").Service == "" {
 		t.Errorf("consumers %+v", res.Consumers)
 	}
+	// The successor's inferred name still holds the gate.
+	snap.Services[fleet.NewServiceKey("auth-service")].NameInferred = &contract.Inferred{Field: "service.name", Value: "auth-service", Source: "chart/Chart.yaml:2"}
+	if res := event(snap, EventUnavailable, string(fleet.NewServiceKey(legacy))); limitation(res, LimitationServiceNameInferred) == nil {
+		t.Errorf("no %s in %+v", LimitationServiceNameInferred, res.Limitations)
+	}
 }

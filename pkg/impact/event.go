@@ -236,6 +236,7 @@ func analyzeEvent(snap *fleet.FleetSnapshot, opts Options) *Result {
 	}
 	if graph.ReplacedFrom != nil {
 		subject = graph.Root // SUBJECT_REPLACED discloses it
+		res.noteNameInferred(snap, subject)
 	}
 	observed := res.eventObserved(snap, opts)
 	res.eventFor(snap, q, subject, graph, observed)

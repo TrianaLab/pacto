@@ -123,8 +123,9 @@ Pacto deleted and created again records a fresh replacement.
   replacement, and the Overview knowledge tile counts it.
 - `pacto fleet get`, `pacto fleet graph`, their MCP tools and the dashboard
   entity page answer an old inferred key with the declared service and
-  `replacedFrom`. Other queries answer not found for it, and impact adds
-  `SUBJECT_REPLACED`.
+  `replacedFrom`. `pacto impact --event` and `pacto_impact` answer for the
+  declared service and add `SUBJECT_REPLACED`. Other queries, the dashboard's
+  impact event among them, answer not found for it.
 - When two declared services target the workload (counting a target of
   unknown cluster that names it), or a target's cluster is unknown in a
   snapshot of several clusters, nothing is merged: the workload

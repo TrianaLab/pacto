@@ -206,8 +206,9 @@ func (s *Service) ImpactEvent(ctx context.Context, opts ImpactEventOptions) (*im
 // ImpactEventOnSnapshot answers the event over snap, an already-built
 // snapshot (the one on screen, or the caller's view). opts.Fleet is ignored.
 // A bare service name resolves to the one service of that name; a name
-// several domains share is refused with their keys, and a name the snapshot
-// does not hold answers SERVICE_NOT_IN_FLEET.
+// several domains share is refused with their keys, a name the snapshot
+// does not hold answers SERVICE_NOT_IN_FLEET, and the key of a replaced
+// inferred service answers for its successor with SUBJECT_REPLACED.
 func (s *Service) ImpactEventOnSnapshot(ctx context.Context, opts ImpactEventOptions, snap *fleet.FleetSnapshot) (*impact.Result, error) {
 	observed, err := observedEdgesFromTraces(opts.Traces)
 	if err != nil {
@@ -215,7 +216,11 @@ func (s *Service) ImpactEventOnSnapshot(ctx context.Context, opts ImpactEventOpt
 	}
 	ev := opts.Event
 	if ev.Service != "" { // an offering event names none: impact resolves its providers
-		if view, err := fleet.NewQuery(snap).GetService(ev.Service); err == nil {
+		if view, err := fleet.NewQuery(snap).GetService(ev.Service); err == nil && view.ReplacedFrom != nil {
+			// The old key of a replaced inferred service: impact follows it
+			// itself and adds SUBJECT_REPLACED, never renaming it silently.
+			ev.Service = string(view.ReplacedFrom.From)
+		} else if err == nil {
 			ev.Service = string(view.Service.Key)
 		} else if amb := (*fleet.AmbiguousError)(nil); errors.As(err, &amb) {
 			return nil, err
