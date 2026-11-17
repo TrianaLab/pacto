@@ -165,6 +165,14 @@ func TestDashboardTokenLoginReviewsTheAudience(t *testing.T) {
 	rec := httptest.NewRecorder()
 	id.auth.Routes().ServeHTTP(rec, r)
 	expect(t, rec.Code == http.StatusNoContent, "a link token signs in: %d %s", rec.Code, rec.Body)
+	// A bearer reader on /api/backstage/ goes through the same reviewer.
+	var st authn.State
+	br := httptest.NewRequest(http.MethodGet, "https://dash.example/api/backstage/entities", nil)
+	br.Header.Set("Authorization", "Bearer link")
+	rec = httptest.NewRecorder()
+	id.auth.Middleware(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { st = authn.StateFrom(r.Context()) })).ServeHTTP(rec, br)
+	expect(t, st.Method == "bearer" && st.Person.User == "system:serviceaccount:pacto:pacto-viewer" && st.Token == "",
+		"a bearer reader is reviewed by the token sign-in's reviewer: %d %+v", rec.Code, st)
 
 	d.dynamicFor = func(*rest.Config) (dynamic.Interface, error) { return nil, errors.New("bad config") }
 	_, err = newDashboardIdentity(v, "0.0.0.0", cluster, d)

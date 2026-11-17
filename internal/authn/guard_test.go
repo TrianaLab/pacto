@@ -1,11 +1,13 @@
 package authn
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"k8s.io/client-go/rest"
 )
@@ -195,7 +197,8 @@ func TestSharedModeGatesTheAPI(t *testing.T) {
 		"/api/fleet/status": http.StatusUnauthorized, "/api/fleet/product/services": http.StatusUnauthorized,
 		"/api/capabilities": http.StatusUnauthorized, "/api/sources": http.StatusUnauthorized,
 		"/api/refresh": http.StatusUnauthorized, "/api/delivery/stages": http.StatusUnauthorized, "/metrics": http.StatusUnauthorized,
-		"/health": http.StatusTeapot, "/api/session": http.StatusTeapot, "/auth/login": http.StatusTeapot,
+		"/api/backstage/entities": http.StatusUnauthorized, "/health": http.StatusTeapot,
+		"/api/session": http.StatusTeapot, "/auth/login": http.StatusTeapot,
 		"/": http.StatusTeapot, "/assets/index.js": http.StatusTeapot,
 	} {
 		out := get(path, false)
@@ -223,4 +226,132 @@ func TestLinkSessionCarriesNoBearer(t *testing.T) {
 	c := RESTConfig(own, st.Token)
 	expect(t, c.BearerToken == "" && c.BearerTokenFile == "" && c.Username == "" && c.CertData == nil && c.KeyData == nil && c.Host == own.Host,
 		"a link session's client is anonymous: %+v", c)
+}
+
+// bearerFake is a TokenReview that counts its calls: good is a credential,
+// link a dashboard-audience token, noaud a typed refusal, empty a review
+// naming nobody, anything else a plain error.
+type bearerFake struct{ calls int }
+
+func (f *bearerFake) review(_ context.Context, token string) (Reviewed, error) {
+	f.calls++
+	switch token {
+	case "good":
+		return Reviewed{Person: Person{User: "system:serviceaccount:pacto:backstage"}, Bearer: true}, nil
+	case "link":
+		return Reviewed{Person: Person{User: "system:serviceaccount:pacto:pacto-viewer"}}, nil
+	case "noaud":
+		return Reviewed{}, &TokenRefusal{Code: "TokenAudienceRequired", Message: "mint it with --audience pacto-dashboard"}
+	case "empty":
+		return Reviewed{}, nil
+	}
+	return Reviewed{}, errors.New("Unauthorized")
+}
+
+// bearerDashboard is shared mode (token sign-in only) accepting bearer readers.
+func bearerDashboard(f *bearerFake) *Dashboard {
+	return NewShared(nil, NewTokenLogin(f.review, Lifetime{Idle: time.Minute, Max: time.Hour})).AcceptBearer(f.review)
+}
+
+func bearerReq(method, path, token string) *http.Request {
+	r := httptest.NewRequest(method, "https://dash.example"+path, nil)
+	r.Header.Set("Authorization", "Bearer "+token)
+	return r
+}
+
+func TestBearerReaderReadsBackstage(t *testing.T) {
+	f := &bearerFake{}
+	for _, m := range []string{http.MethodGet, http.MethodHead} {
+		var got State
+		rec := serve(bearerDashboard(f).Middleware(echo(&got)), bearerReq(m, "/api/backstage/entities", "good"))
+		expect(t, rec.Code == http.StatusTeapot, "%s: %d", m, rec.Code)
+		expect(t, got.SignedIn && got.Person.User == "system:serviceaccount:pacto:backstage" && got.Method == "bearer" &&
+			got.Token == "good" && got.CSRF == "", "%s state %+v", m, got)
+	}
+}
+
+func TestBearerReaderLinkReviewCarriesNoToken(t *testing.T) {
+	var got State
+	serve(bearerDashboard(&bearerFake{}).Middleware(echo(&got)), bearerReq(http.MethodGet, "/api/backstage/entities", "link"))
+	expect(t, got.SignedIn && got.Person.User == "system:serviceaccount:pacto:pacto-viewer" && got.Token == "", "link state %+v", got)
+}
+
+func TestBearerReaderNeverSetsACookie(t *testing.T) {
+	rec := serve(bearerDashboard(&bearerFake{}).Middleware(echo(&State{})), bearerReq(http.MethodGet, "/api/backstage/entities", "good"))
+	expect(t, rec.Header().Get("Set-Cookie") == "", "a bearer read set %q", rec.Header().Get("Set-Cookie"))
+}
+
+func TestBearerReaderRefusedToken(t *testing.T) {
+	h := bearerDashboard(&bearerFake{}).Middleware(echo(&State{}))
+	for token, want := range map[string]string{
+		"bad":   `"code":"BearerRefused","detail":"the cluster did not accept this token"`,
+		"empty": `"code":"BearerRefused"`,
+		"noaud": `"code":"TokenAudienceRequired","detail":"mint it with --audience pacto-dashboard"`,
+	} {
+		rec := serve(h, bearerReq(http.MethodGet, "/api/backstage/entities", token))
+		expect(t, rec.Code == http.StatusUnauthorized && strings.Contains(rec.Body.String(), want) &&
+			rec.Header().Get("Content-Type") == "application/json", "%s: %d %s", token, rec.Code, rec.Body)
+	}
+}
+
+func TestBearerReaderRefusedTokenNotLogged(t *testing.T) {
+	logs := &strings.Builder{}
+	h := bearerDashboard(&bearerFake{}).Middleware(echo(&State{}))
+	serve(h, logged(bearerReq(http.MethodGet, "/api/backstage/entities", "s3cr3t-token"), logs))
+	expect(t, !strings.Contains(logs.String(), "s3cr3t-token"), "the log carries the token:\n%s", logs)
+	has(t, logs, "dashboard refused a bearer reader", "reason=", "path=/api/backstage/entities")
+}
+
+func TestBearerReaderOnlyOnBackstagePaths(t *testing.T) {
+	f := &bearerFake{}
+	var got State
+	h := bearerDashboard(f).Middleware(echo(&got))
+	for _, p := range []string{"/api/fleet/snapshot", "/api/delivery/stages", "/api/capabilities", "/metrics"} {
+		rec := serve(h, bearerReq(http.MethodGet, p, "good"))
+		expect(t, rec.Code == http.StatusUnauthorized && strings.Contains(rec.Body.String(), "LoginRequired"), "%s: %d %s", p, rec.Code, rec.Body)
+	}
+	rec := serve(h, bearerReq(http.MethodGet, "/api/session", "good"))
+	expect(t, rec.Code == http.StatusTeapot && !got.SignedIn && got.Method == "", "/api/session with a bearer: %d %+v", rec.Code, got)
+	expect(t, f.calls == 0, "the reviewer was called %d times", f.calls)
+}
+
+func TestBearerReaderCannotTraverse(t *testing.T) {
+	f := &bearerFake{}
+	h := bearerDashboard(f).Middleware(echo(&State{}))
+	for _, p := range []string{"/api/backstage/../fleet/snapshot", "/api/backstage/entities/../../fleet/services", "/api/backstage/%2e%2e/fleet/snapshot"} {
+		rec := serve(h, bearerReq(http.MethodGet, p, "good"))
+		expect(t, rec.Code == http.StatusUnauthorized && strings.Contains(rec.Body.String(), "LoginRequired"), "%s: %d %s", p, rec.Code, rec.Body)
+	}
+	expect(t, f.calls == 0, "the reviewer was called %d times", f.calls)
+}
+
+func TestBearerReaderReadsOnly(t *testing.T) {
+	f := &bearerFake{}
+	h := bearerDashboard(f).Middleware(echo(&State{}))
+	for _, m := range []string{http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete} {
+		rec := serve(h, bearerReq(m, "/api/backstage/entities", "good"))
+		expect(t, rec.Code == http.StatusMethodNotAllowed, "%s: %d", m, rec.Code)
+	}
+	expect(t, f.calls == 0, "the reviewer was called %d times", f.calls)
+}
+
+func TestBearerReaderWithoutReviewer(t *testing.T) {
+	tl := NewTokenLogin((&bearerFake{}).review, Lifetime{Idle: time.Minute, Max: time.Hour})
+	for name, d := range map[string]*Dashboard{"no AcceptBearer": NewShared(nil, tl), "AcceptBearer(nil)": NewShared(nil, tl).AcceptBearer(nil)} {
+		rec := serve(d.Middleware(echo(&State{})), bearerReq(http.MethodGet, "/api/backstage/entities", "good"))
+		expect(t, rec.Code == http.StatusUnauthorized && strings.Contains(rec.Body.String(), "a cluster to check tokens against"),
+			"%s: %d %s", name, rec.Code, rec.Body)
+	}
+}
+
+func TestBearerIgnoredInOpenAndLocal(t *testing.T) {
+	f := &bearerFake{}
+	for name, d := range map[string]*Dashboard{"open": NewOpen().AcceptBearer(f.review), "local": NewLocal().AcceptBearer(f.review)} {
+		var got State
+		r := bearerReq(http.MethodGet, "/api/backstage/entities", "garbage")
+		r.Host = "127.0.0.1:3000"
+		rec := serve(d.Middleware(echo(&got)), r)
+		expect(t, rec.Code == http.StatusTeapot && got.Method == "", "%s: %d %+v", name, rec.Code, got)
+	}
+	expect(t, f.calls == 0, "the reviewer was called %d times", f.calls)
 }

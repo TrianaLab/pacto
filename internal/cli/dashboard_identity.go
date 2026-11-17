@@ -84,6 +84,7 @@ func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, d d
 		}
 	}
 	var t *authn.TokenLogin
+	var review authn.TokenReview // nil: bearer readers come with token sign-in
 	if v.GetBool("dashboard.token-login") {
 		if cluster == nil {
 			return nil, errors.New("--token-login needs a cluster to check tokens against")
@@ -93,11 +94,12 @@ func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, d d
 		if oerr != nil {
 			return nil, oerr
 		}
-		t = authn.NewTokenLogin(authn.DashboardTokenReview(authn.AudienceReview(own, authn.DashboardAudience), bearer), life)
+		review = authn.DashboardTokenReview(authn.AudienceReview(own, authn.DashboardAudience), bearer)
+		t = authn.NewTokenLogin(review, life)
 	}
 	switch {
 	case o != nil || t != nil:
-		id.auth = authn.NewShared(o, t)
+		id.auth = authn.NewShared(o, t).AcceptBearer(review)
 		id.viewer = clusterViewer(cluster, d.dynamicFor, mode, namespaces)
 	case isLoopback(host):
 		id.auth = authn.NewLocal()
