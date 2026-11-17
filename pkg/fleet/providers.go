@@ -181,8 +181,9 @@ func WorkloadEvidence(counts map[string]int, unreadable []string) string {
 // and ObjectsTotal keeps the count. Counts keep the visible namespaces and
 // Evidence is rendered again with one hidden total. A limitation restrictScope
 // would drop, or one that names a hidden name, goes; the degraded limitation
-// names no namespace and stays. Evidence that still names a hidden name is
-// masked.
+// names no namespace and stays. A row that is not available and lost every
+// reason gets a degraded one, so it still says why. Evidence that still names
+// a hidden name is masked.
 func restrictProviders(rows []Provider, hiddenNames []string, visible func(string) bool) []Provider {
 	if rows == nil {
 		return nil
@@ -213,6 +214,10 @@ func restrictProviders(rows []Provider, hiddenNames []string, visible func(strin
 		p.Limitations = slices.DeleteFunc(slices.Clone(p.Limitations), func(l Limitation) bool {
 			return l.Code != LimitationProviderSourceDegraded && (hiddenByScope(l, visible) || mentionsHidden(l.Message))
 		})
+		if p.Status != SourceAvailable && len(p.Limitations) == 0 {
+			p.Limitations = []Limitation{{Code: LimitationProviderSourceDegraded, Source: p.Source,
+				Message: "source " + p.Source + " reported this row as " + string(p.Status) + "; the reason is hidden by your permissions"}}
+		}
 		if mentionsHidden(p.Evidence) {
 			p.Evidence = "hidden by your permissions"
 		}

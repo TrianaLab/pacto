@@ -372,6 +372,21 @@ func TestRestrictProvidersDropsHiddenLimitations(t *testing.T) {
 	}
 }
 
+func TestRestrictProvidersKeepsAReason(t *testing.T) {
+	rows := []Provider{
+		{ID: "p", Source: "k8s", Status: SourcePartial, Limitations: []Limitation{NamespaceUnreadableLimitation("k8s", "secret", "forbidden")}},
+		{ID: "ok", Source: "k8s", Status: SourceAvailable, Limitations: []Limitation{NamespaceUnreadableLimitation("k8s", "secret", "forbidden")}},
+	}
+	got := restrictProviders(rows, nil, func(ns string) bool { return ns == "a" })
+	if len(got[0].Limitations) != 1 || got[0].Limitations[0].Code != LimitationProviderSourceDegraded ||
+		got[0].Limitations[0].Message != "source k8s reported this row as partial; the reason is hidden by your permissions" {
+		t.Errorf("partial row limitations = %+v, want one degraded reason", got[0].Limitations)
+	}
+	if len(got[1].Limitations) != 0 {
+		t.Errorf("an available row needs no reason: %+v", got[1].Limitations)
+	}
+}
+
 func TestRestrictProvidersMasksEvidenceNamingHidden(t *testing.T) {
 	q := providerFleet(t)
 	r := q.Restrict(func(ns string) bool { return ns != "monitoring" }, nil).SnapshotForSerialization()

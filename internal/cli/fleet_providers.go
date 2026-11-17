@@ -94,8 +94,8 @@ func providerUsedFor(p fleet.Provider) string {
 	if p.Status == fleet.SourceAvailable {
 		return out
 	}
-	// Build gives every non-available row a reason; a restricted view may
-	// drop it, so the status still prints alone.
+	// Build and Restrict give every non-available row a reason; a row built
+	// any other way still prints its status alone.
 	if len(p.Limitations) == 0 {
 		return out + " (" + string(p.Status) + ")"
 	}
