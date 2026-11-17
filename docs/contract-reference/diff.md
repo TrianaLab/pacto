@@ -176,6 +176,7 @@ capability's `binding.interface` or `binding.path` produces no change.
 | `dependencies.required` | Modified | POTENTIAL_BREAKING |
 | `dependencies.requires` | Added / Modified | POTENTIAL_BREAKING |
 | `dependencies.requires` | Removed | NON_BREAKING |
+| `dependencies.identity` | Added / Removed / Modified | NON_BREAKING |
 
 ## Breaks
 

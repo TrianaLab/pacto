@@ -236,6 +236,7 @@ pacto dashboard [sources...] [flags]
       --cors-origin string                explicit cross-origin allowed to call the API (default: same-origin only)
       --delivery-namespace string         namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer (default "pacto-delivery")
       --delivery-trust string             the trust config delivery records are verified with, so History reads signed records (the recorder's PEM public key or a YAML trust config; default $PACTO_DELIVERY_TRUST)
+      --external-catalog string           organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST; a tag is refused (also PACTO_DASHBOARD_EXTERNAL_CATALOG)
   -h, --help[=true|false]                 help for dashboard
       --host string                       bind address for the dashboard server (default "127.0.0.1")
       --mira-source stringArray           base URL of a Mira node whose service map supplies observed calls between services (repeatable; also PACTO_DASHBOARD_MIRA_SOURCES)
@@ -1015,6 +1016,7 @@ pacto fleet [flags]
 ```
       --cache[=true|false]         include every bundle in the local OCI cache as an offline baseline revision
       --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
+      --external-catalog string    organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST (a tag is refused)
       --freshness duration         mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]          help for fleet
       --k8s[=true|false]           include live Pacto CRs from the current Kubernetes cluster as targets
@@ -1042,7 +1044,7 @@ pacto fleet attention [flags]
       --category string           attention category
   -h, --help[=true|false]         help for attention
       --key string                items about the entity with this exact key
-      --kind string               items about entities of this kind (service, revision, target, owner, source, domain, offering)
+      --kind string               items about entities of this kind (service, revision, target, owner, source, domain, offering, external)
       --limit int                 maximum results (0 = 200, capped at 500)
       --offset int                result offset for paging
       --owner string              free-text owner search over team, DRI and contacts
@@ -1067,6 +1069,7 @@ pacto fleet entities [text] [flags]
 ```
       --business-domain string           exact business domain, (none) for none or (unknown) for unknown
       --capability string                services whose revisions declare this capability key, such as health or acme.io/cost
+      --class string                     with --kind external, external systems of this class (vendor-api, managed-cloud, legacy, unclassified, other-egress)
       --consumes string                  services that depend on or reference a provider of this platform offering
       --created-from string              services created from this golden path, by key; (none) for no declared origin or (unresolved) for an origin that resolves to no golden path
       --domain string                    exact registry path, the domain part of a service key
@@ -1075,7 +1078,7 @@ pacto fleet entities [text] [flags]
       --gap string                       services whose contracts leave this out (no-summary, no-domain, no-interface-docs, no-readiness, not-deployed, unverified-capability), or unknown for those Pacto cannot judge
       --has-non-compliant[=true|false]   owners and domains with at least one non-compliant service only
   -h, --help[=true|false]                help for entities
-      --kind string                      entity kind (service, revision, target, owner, source, domain, offering; empty lists services, owners, domains and offerings)
+      --kind string                      entity kind (service, revision, target, owner, source, domain, offering, external; empty lists services, owners, domains and offerings)
       --lifecycle string                 offerings whose worst provider lifecycle (each provider's newest revision a target runs, else its newest readable one), or services whose newest revision, is deprecated or sunset
       --limit int                        maximum results (0 = 100, capped at 500)
       --offering string                  services that provide this platform offering, and the offering itself
@@ -1113,7 +1116,7 @@ pacto fleet entity <kind> <key> [flags]
 
 ### `pacto fleet explain`
 
-Explain the deterministic reasons for a service or target state
+Explain the deterministic reasons for a service or target state. Give external:&lt;identity&gt; to list the sources that declare an external system and the catalog entry that classified it.
 
 ```
 pacto fleet explain <subject> [flags]
@@ -1127,7 +1130,7 @@ pacto fleet explain <subject> [flags]
 
 ### `pacto fleet get`
 
-Inspect a logical service or an operational target
+Inspect a logical service by name, an external system by external:&lt;identity&gt; (a vendor, managed service or legacy host no Pacto contract describes) or an operational target with --target.
 
 ```
 pacto fleet get [service] [flags]
@@ -1142,7 +1145,7 @@ pacto fleet get [service] [flags]
 
 ### `pacto fleet graph`
 
-Traverse the operational graph from an explicit root. Give a service name to aggregate across its revisions, or --revision/--target to root an exact revision (never 'latest'). The walk also follows observed runtime calls, so services no contract connects appear too; each node reports its provenance (declared, observed or declared+observed).
+Traverse the operational graph from an explicit root. Give a service name to aggregate across its revisions, or --revision/--target to root an exact revision (never 'latest'). The walk also follows observed runtime calls, so services no contract connects appear too; each node reports its provenance (declared, observed or declared+observed). Give external:&lt;identity&gt; to list the consumers of an external system (its only direction is dependents).
 
 ```
 pacto fleet graph <service> [flags]
@@ -1151,7 +1154,7 @@ pacto fleet graph <service> [flags]
 **Flags:**
 
 ```
-      --direction string          traversal direction (dependencies, dependents) (default "dependencies")
+      --direction string          traversal direction (dependencies, dependents); unset means dependencies, or dependents for an external: root
   -h, --help[=true|false]         help for graph
       --max-depth int             maximum transitive depth (0 = unlimited)
       --revision string           root an exact contract revision key
@@ -1215,7 +1218,7 @@ pacto fleet reconcile [flags]
 
 ### `pacto fleet search`
 
-Search logical services in the fleet
+Search logical services in the fleet. A search on text alone, first page, also lists up to 20 external systems whose identity, label or alias holds the text; any other filter or --offset lists none.
 
 ```
 pacto fleet search [text] [flags]
@@ -1411,6 +1414,7 @@ pacto impact <old> <new> | --unavailable <service> | --removed <service> | --reg
 ```
       --cache[=true|false]              include every bundle in the local OCI cache as an offline baseline revision
       --evidence-url stringArray        base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
+      --external-catalog string         organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST (a tag is refused)
       --freshness duration              mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]               help for impact
       --include-observed[=true|false]   let observed (runtime) relationships raise consumer confidence
@@ -1725,6 +1729,7 @@ pacto mcp [bundle-ref] [flags]
       --evidence-url stringArray      base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --exchange-audience string      with --fleet or --delivery over HTTP with --auth-issuer: the audience to exchange for, one the apiserver accepts (default "pacto-cli")
       --exchange-client-id string     with --fleet or --delivery over HTTP with --auth-issuer: the server's own OAuth client, which exchanges each caller's token for the cluster (RFC 8693); its secret comes from PACTO_MCP_EXCHANGE_CLIENT_SECRET
+      --external-catalog string       organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST (a tag is refused)
       --fleet[=true|false]            expose read-only operational-graph (fleet) query tools
       --freshness duration            mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]             help for mcp
@@ -2050,6 +2055,7 @@ pacto stats [flags]
       --by string                  group the numbers by service, owner, domain, repository, environment
       --cache[=true|false]         include every bundle in the local OCI cache as an offline baseline revision
       --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
+      --external-catalog string    organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST (a tag is refused)
       --freshness duration         mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]          help for stats
       --k8s[=true|false]           include live Pacto CRs from the current Kubernetes cluster as targets
@@ -2110,6 +2116,7 @@ pacto tui [flags]
 ```
       --cache[=true|false]         include every bundle in the local OCI cache as an offline baseline revision
       --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
+      --external-catalog string    organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST (a tag is refused)
       --freshness duration         mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]          help for tui
       --k8s[=true|false]           include live Pacto CRs from the current Kubernetes cluster as targets

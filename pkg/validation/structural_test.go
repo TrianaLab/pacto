@@ -1124,3 +1124,33 @@ func TestRefValuesAllowed(t *testing.T) {
 		}
 	}
 }
+
+// TestIdentityNeeds25: identity on a dependency is pactoVersion 2.5; an older
+// contract gets one NEEDS_PACTO_2_5 at the dependency's index and every other
+// error keeps its index.
+func TestIdentityNeeds25(t *testing.T) {
+	plain := map[string]any{"name": "a", "required": true, "external": true}
+	named := map[string]any{"name": "b", "required": true, "external": true, "version": "v1", "identity": "stripe"}
+	data := map[string]any{"pactoVersion": "2.4", "service": map[string]any{"name": "svc", "version": "1.0.0"}, "dependencies": []any{plain, named}}
+	r := ValidateStructural(data)
+	var codes []string
+	for _, e := range r.Errors {
+		codes = append(codes, e.Path+" "+e.Code)
+	}
+	if !slices.Contains(codes, "dependencies.1.identity NEEDS_PACTO_2_5") || slices.ContainsFunc(codes, func(s string) bool {
+		return strings.HasPrefix(s, "dependencies.1") && s != "dependencies.1.identity NEEDS_PACTO_2_5"
+	}) {
+		t.Fatalf("errors = %v, want NEEDS_PACTO_2_5 at dependencies.1.identity and nothing else on that item", codes)
+	}
+	if named["identity"] != "stripe" {
+		t.Fatal("the caller's data was changed")
+	}
+	plain["version"] = "v1"
+	if r := ValidateStructural(data); len(r.Errors) != 1 || !strings.Contains(r.Errors[0].Message, `set pactoVersion: "2.5"`) {
+		t.Fatalf("errors = %+v", r.Errors)
+	}
+	data["pactoVersion"] = "2.5"
+	if r := ValidateStructural(data); !r.IsValid() {
+		t.Fatalf("2.5 identity: %v", r.Errors)
+	}
+}

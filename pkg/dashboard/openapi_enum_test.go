@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/trianalab/pacto/v4/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/runrecord/stats"
 )
 
@@ -124,7 +125,7 @@ func TestOpenAPI_FiniteEnums(t *testing.T) {
 		name string
 		want []string
 	}{
-		{"entity kind", sortedSet("service", "revision", "target", "owner", "source", "domain", "offering")},
+		{"entity kind", sortedSet("service", "revision", "target", "owner", "source", "domain", "offering", "external")},
 		{"source health", sortedSet("available", "partial", "stale", "unavailable")},
 		{"identity class", sortedSet("exact", "missing-digest", "mutable", "no-ref", "local", "malformed", "digest-mismatch")},
 		{"link state", sortedSet("exact", "inferred", "ambiguous", "unresolved")},
@@ -177,7 +178,7 @@ func TestOpenAPI_EnumsOnSpecificFields(t *testing.T) {
 		{"ProductTargetDetail", "linkState", sortedSet("exact", "inferred", "ambiguous", "unresolved")},
 		{"Fleet.SourceState", "status", sortedSet("available", "partial", "stale", "unavailable")},
 		{"ProductSourceDetail", "health", sortedSet("available", "partial", "stale", "unavailable")},
-		{"ProductRef", "kind", sortedSet("service", "revision", "target", "owner", "source", "domain", "offering")},
+		{"ProductRef", "kind", sortedSet("service", "revision", "target", "owner", "source", "domain", "offering", "external")},
 		{"ProductOfferingUse", "via", sortedSet("dependency", "configuration_reference", "policy_reference")},
 		{"ProductEdge", "difference", sortedSet("matched", "expected-not-observed", "observed-not-expected", "insufficient")},
 		// provenance is a merged-edge value: edgeProvenance can emit the combined
@@ -225,6 +226,9 @@ func queryParamEnum(t *testing.T, doc map[string]any, path, name string) []strin
 			continue
 		}
 		schema, _ := pm["schema"].(map[string]any)
+		if items, ok := schema["items"].(map[string]any); ok {
+			schema = items // an array parameter enumerates its items
+		}
 		vals, _ := schema["enum"].([]any)
 		out := []string{}
 		for _, v := range vals {
@@ -254,5 +258,24 @@ func TestStatsMetricEnumMatchesRunrecord(t *testing.T) {
 		if got := queryParamEnum(t, doc, path, "window"); !equalStrs(got, []string{"7d", "30d", "90d"}) {
 			t.Errorf("%s window enum = %v", path, got)
 		}
+	}
+}
+
+// TestEntitiesKindsEnumMatchesEntityKinds: the entities kinds parameter
+// accepts exactly the kinds the fleet knows.
+func TestEntitiesKindsEnumMatchesEntityKinds(t *testing.T) {
+	raw, err := ExportOpenAPI()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if got := queryParamEnum(t, doc, "/api/fleet/entities", "kinds"); !equalStrs(got, fleet.EntityKinds()) {
+		t.Errorf("kinds enum = %v, want fleet.EntityKinds() %v", got, fleet.EntityKinds())
+	}
+	if got := queryParamEnum(t, doc, "/api/fleet/entities", "class"); !equalStrs(got, fleet.ExternalClasses()) {
+		t.Errorf("class enum = %v, want fleet.ExternalClasses() %v", got, fleet.ExternalClasses())
 	}
 }

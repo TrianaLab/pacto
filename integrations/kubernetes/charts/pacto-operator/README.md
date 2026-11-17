@@ -248,6 +248,7 @@ The chart and the controller image are signed keyless with Sigstore. [Published 
 | dashboard.delivery.trust.configMap | string | `""` | A ConfigMap in the operator namespace holding the trust config the dashboard verifies delivery records with (the recorder's PEM public key or a YAML trust config), so History verifies signed records. Empty: History shows records unverified |
 | dashboard.delivery.trust.key | string | `"trust.yaml"` | The key of the trust config in that ConfigMap |
 | dashboard.enabled | bool | `true` | Enable the operator-managed dashboard deployment. The dashboard image is controlled by the operator and derived from the bundled Pacto library version. It is not user-configurable. |
+| dashboard.externalCatalog | string | `""` | Organization external catalog merged over Pacto's default, as oci://REPOSITORY@sha256:DIGEST. The dashboard reads it with the dashboard's OCI credentials. Empty uses only the default catalog. |
 | dashboard.httpRoute.enabled | bool | `false` | Enable Gateway API HTTPRoute for the dashboard |
 | dashboard.httpRoute.hostnames | list | `[]` | Hostnames for the HTTPRoute |
 | dashboard.httpRoute.parentRefs | list | `[]` | Parent gateway references |

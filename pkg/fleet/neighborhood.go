@@ -496,6 +496,9 @@ func boundNeighborhoodParams(nq NeighborhoodQuery) (boundedParams, error) {
 // serviceNeighborhood is the logical-service projection (Perspective service): every
 // node is a service and every edge is a service-to-service declared/observed edge.
 func (q *Query) serviceNeighborhood(kind EntityKind, key string, bp boundedParams) (*Neighborhood, error) {
+	if kind == KindExternal {
+		return q.externalNeighborhood(key, bp)
+	}
 	root, requested, focusService, revState, err := q.resolveNeighborhoodFocus(kind, key)
 	if err != nil {
 		return nil, err
@@ -515,6 +518,7 @@ func (q *Query) serviceNeighborhood(kind EntityKind, key string, bp boundedParam
 		TruncatedEdges:         truncatedEdges,
 		TotalNodes:             totalNodes,
 	}
+	q.addExternalLeaves(res, nodeDepth, bp)
 	return res, nil
 }
 
@@ -863,7 +867,8 @@ func (q *Query) unresolvedNeighborhoodDeps(depthOf map[ServiceKey]int, wantDecla
 		rel := q.snap.Relationships[i]
 		// Dependencies only: an unresolved configuration reference is reported on
 		// the contract's own configurations.
-		if rel.Type != RelationshipDependency || rel.Provenance != ProvenanceDeclared || rel.ToService != "" || rel.Hidden {
+		// A joined external is not unresolved: it names its external system.
+		if rel.Type != RelationshipDependency || rel.Provenance != ProvenanceDeclared || rel.ToService != "" || rel.ToExternal != "" || rel.Hidden {
 			continue
 		}
 		if _, ok := depthOf[rel.FromService]; !ok {

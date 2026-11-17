@@ -360,6 +360,11 @@ type Dependency struct {
 	Compatibility string `yaml:"compatibility,omitempty" json:"compatibility,omitempty"`
 	External      bool   `yaml:"external,omitempty" json:"external,omitempty"`
 	Version       string `yaml:"version,omitempty" json:"version,omitempty"`
+	// Identity is the canonical identity of the external system this
+	// dependency calls (pactoVersion 2.5), for example "stripe" or
+	// "host/corp-legacy.example". Only on an external dependency with no Ref,
+	// and needed only when Name is not an alias the external catalog knows.
+	Identity string `yaml:"identity,omitempty" json:"identity,omitempty"`
 	// Requires is the behavior this service relies on from the provider's
 	// interfaces (pactoVersion 2.2); see [Unmet].
 	Requires []Requirement `yaml:"requires,omitempty" json:"requires,omitempty"`

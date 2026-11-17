@@ -143,11 +143,12 @@ Check what ships with each release artifact before you rely on a signature:
 | `ghcr.io/trianalab/pacto/charts/pacto-operator` | Cosign signature (keyless) |
 | `ghcr.io/trianalab/pacto/delivery` | Cosign signature (keyless) and SLSA build provenance |
 | `ghcr.io/trianalab/pacto/dashboard` | Cosign signature (keyless) and SLSA build provenance |
+| `ghcr.io/trianalab/pacto/external-catalog` | Cosign signature (keyless) |
 | CLI binaries on the GitHub release | `checksums.txt` (SHA-256), an SPDX SBOM and SLSA build provenance. **No Cosign signature.** |
 | `ghcr.io/trianalab/pacto/dashboard-contract` | Nothing. **Unsigned.** |
 | The demo contract bundles (`ghcr.io/trianalab/pacto/<service>`) | Nothing. **Unsigned.** |
 
-The release workflow signs the three images and the chart with [Cosign](https://docs.sigstore.dev/cosign/) "keyless" signing: the signature is tied to the GitHub workflow that built the image, so you store no key. Verifying it proves *who built it*:
+The release workflow signs the three images, the chart and the default external catalog with [Cosign](https://docs.sigstore.dev/cosign/) "keyless" signing: the signature is tied to the GitHub workflow that built the image, so you store no key. Verifying it proves *who built it*:
 
 ```bash
 cosign verify \

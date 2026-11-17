@@ -208,6 +208,9 @@ func (q *Query) resolveRevisionFocus(kind EntityKind, key string) (*ContractRevi
 func (q *Query) expandRevisionDeps(rev *ContractRevision, d int, b *projectionBuilder, wantDeclared bool, bySource, byProvider map[RevisionKey][]Relationship, seen map[RevisionKey]bool, unresolved *[]UnresolvedDependency) []*ContractRevision {
 	var next []*ContractRevision
 	for _, rel := range bySource[rev.Key] {
+		if rel.ToExternal != "" {
+			continue // a joined external names its external system: not unresolved
+		}
 		if rel.ToService == "" {
 			*unresolved = append(*unresolved, unresolvedDep(revisionEntityRef(rev), rel))
 			continue
@@ -423,6 +426,9 @@ func (q *Query) resolveTargetFocus(kind EntityKind, key string) (*TargetView, er
 // is surfaced, not dropped. Observation stays service-scoped (dependencyEdge).
 func (q *Query) addTargetRevisionDeps(tRef EntityRef, linked *ContractRevision, bySource map[RevisionKey][]Relationship, b *projectionBuilder, unresolved *[]UnresolvedDependency) {
 	for _, rel := range bySource[linked.Key] {
+		if rel.ToExternal != "" {
+			continue // a joined external names its external system: not unresolved
+		}
 		if rel.ToService == "" {
 			*unresolved = append(*unresolved, unresolvedDep(tRef, rel))
 			continue

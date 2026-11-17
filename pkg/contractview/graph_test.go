@@ -140,8 +140,8 @@ func TestBuildGlobalGraph_ExternalNode(t *testing.T) {
 	if externalNode == nil {
 		t.Fatal("external node not found")
 	}
-	if externalNode.Status != "external" {
-		t.Errorf("expected status 'external', got %q", externalNode.Status)
+	if externalNode.Status != StatusUnresolvedNode {
+		t.Errorf("expected status %q, got %q", StatusUnresolvedNode, externalNode.Status)
 	}
 }
 
@@ -342,7 +342,7 @@ func TestBuildGlobalGraph_NonOCIRefReason(t *testing.T) {
 
 	var extNode *GraphNodeData
 	for i := range graph.Nodes {
-		if graph.Nodes[i].Status == "external" {
+		if graph.Nodes[i].Status == StatusUnresolvedNode {
 			extNode = &graph.Nodes[i]
 			break
 		}
@@ -384,7 +384,7 @@ func TestBuildGlobalGraph_WithReasonFn(t *testing.T) {
 
 	reasons := make(map[string]string) // id -> reason
 	for _, n := range graph.Nodes {
-		if n.Status == "external" {
+		if n.Status == StatusUnresolvedNode {
 			reasons[n.ID] = n.Reason
 		}
 	}
@@ -654,8 +654,8 @@ func TestBuildGlobalGraph_ExternalWithoutRef(t *testing.T) {
 		"agent": {Service: Service{Name: "agent"}, Dependencies: []DependencyInfo{{Name: "model", External: true, Version: "v1", Required: true}}},
 	}
 	graph := buildGlobalGraph(services, index, nil)
-	if len(graph.Nodes) != 2 || graph.Nodes[0].ID != "model" || graph.Nodes[0].Version != "v1" || graph.Nodes[0].Status != "external" ||
-		graph.Nodes[1].Edges[0].TargetID != "model" {
+	if len(graph.Nodes) != 2 || graph.Nodes[0].ID != "external:model" || graph.Nodes[0].Version != "v1" || graph.Nodes[0].Status != StatusExternalNode ||
+		graph.Nodes[0].Reason != "" || graph.Nodes[1].Edges[0].TargetID != "external:model" {
 		t.Fatalf("graph = %+v", graph)
 	}
 }
@@ -677,12 +677,107 @@ func TestBuildGlobalGraph_ExternalWithoutRefNeverResolvesByName(t *testing.T) {
 		switch graph.Nodes[i].ID {
 		case "agent":
 			agent = &graph.Nodes[i]
-		case "model (external)":
+		case "external:model":
 			ext = &graph.Nodes[i]
 		}
 	}
 	if agent == nil || ext == nil || ext.Status != "external" || ext.Version != "v1" || ext.ServiceName != "model" ||
-		agent.Edges[0].TargetID != "model (external)" || agent.Edges[0].Resolved {
+		agent.Edges[0].TargetID != "external:model" || agent.Edges[0].Resolved {
 		t.Fatalf("graph = %+v", graph)
+	}
+}
+
+// TestGraphExternalKeyedByIdentity: two consumers that spell the same vendor
+// differently meet on one node keyed by its canonical identity, labelled from
+// the default catalog.
+func TestGraphExternalKeyedByIdentity(t *testing.T) {
+	services := []Service{{Name: "a"}, {Name: "b"}}
+	index := map[string]*ServiceDetails{
+		"a": {Service: Service{Name: "a"}, Dependencies: []DependencyInfo{{Name: "Stripe", External: true}}},
+		"b": {Service: Service{Name: "b"}, Dependencies: []DependencyInfo{{Name: "stripe-api", External: true}}},
+	}
+	graph := buildGlobalGraph(services, index, nil)
+	var ext []GraphNodeData
+	for _, n := range graph.Nodes {
+		if n.Status == StatusExternalNode {
+			ext = append(ext, n)
+		}
+	}
+	if len(ext) != 1 || ext[0].ID != "external:stripe" || ext[0].ServiceName != "Stripe" {
+		t.Fatalf("external nodes = %+v", ext)
+	}
+	for _, n := range graph.Nodes[1:] {
+		if n.Status != StatusExternalNode && (len(n.Edges) != 1 || n.Edges[0].TargetID != "external:stripe") {
+			t.Fatalf("edges of %s = %+v", n.ID, n.Edges)
+		}
+	}
+}
+
+// TestGraphExternalIdentityOverridesName: a 2.5 dependencies[].identity keys
+// the node, as it keys the fleet's External entity.
+func TestGraphExternalIdentityOverridesName(t *testing.T) {
+	c := &contract.Contract{Dependencies: []contract.Dependency{{Name: "orders-db", External: true, Identity: "aws/rds/1/eu-west-1/orders"}}}
+	services := []Service{{Name: "a"}}
+	index := map[string]*ServiceDetails{"a": {Service: Service{Name: "a"}, Dependencies: depsFromContract(c)}}
+	graph := buildGlobalGraph(services, index, nil)
+	if graph.Nodes[0].ID != "external:aws/rds/1/eu-west-1/orders" || graph.Nodes[0].ServiceName != "orders-db" {
+		t.Fatalf("graph = %+v", graph)
+	}
+}
+
+// TestGraphExternalUnnameableKeepsName: a name that normalizes to nothing
+// still draws one external node, keyed by the name as declared.
+func TestGraphExternalUnnameableKeepsName(t *testing.T) {
+	services := []Service{{Name: "a"}}
+	index := map[string]*ServiceDetails{"a": {Service: Service{Name: "a"}, Dependencies: []DependencyInfo{{Name: "---", External: true}}}}
+	graph := buildGlobalGraph(services, index, nil)
+	if graph.Nodes[0].ID != "external:---" || graph.Nodes[0].Status != StatusExternalNode {
+		t.Fatalf("graph = %+v", graph)
+	}
+}
+
+// TestGraphExternalNeverClashesWithService: a service and an external system
+// that share a name are two nodes.
+func TestGraphExternalNeverClashesWithService(t *testing.T) {
+	services := []Service{{Name: "a"}, {Name: "stripe"}}
+	index := map[string]*ServiceDetails{
+		"a":      {Service: Service{Name: "a"}, Dependencies: []DependencyInfo{{Name: "stripe", External: true}}},
+		"stripe": {Service: Service{Name: "stripe"}},
+	}
+	graph := buildGlobalGraph(services, index, nil)
+	ids := map[string]string{}
+	for _, n := range graph.Nodes {
+		ids[n.ID] = n.Status
+	}
+	if len(ids) != 3 || ids["stripe"] == StatusExternalNode || ids["external:stripe"] != StatusExternalNode {
+		t.Fatalf("nodes = %+v", ids)
+	}
+}
+
+// TestGraphNonOCIRefIsUnresolved: a ref Pacto cannot fetch is an unresolved
+// ref, never an external system.
+func TestGraphNonOCIRefIsUnresolved(t *testing.T) {
+	services := []Service{{Name: "a"}}
+	index := map[string]*ServiceDetails{"a": {Service: Service{Name: "a"}, Dependencies: []DependencyInfo{{Name: "pg", Ref: "postgres"}}}}
+	graph := buildGlobalGraph(services, index, nil)
+	n := graph.Nodes[0]
+	if n.ID != "postgres" || n.Status != StatusUnresolvedNode || n.Reason != "non_oci_ref" {
+		t.Fatalf("node = %+v", n)
+	}
+}
+
+// TestGraphUnresolvedConfigRefIsUnresolved: a config or policy ref with no
+// contract in the index is unresolved too.
+func TestGraphUnresolvedConfigRefIsUnresolved(t *testing.T) {
+	services := []Service{{Name: "a"}}
+	index := map[string]*ServiceDetails{"a": {Service: Service{Name: "a"},
+		Configurations: []ConfigurationInfo{{Ref: "oci://r.example/cfg:1"}}, Policies: []PolicyInfo{{Ref: "pol"}}}}
+	graph := buildGlobalGraph(services, index, nil)
+	got := map[string]GraphNodeData{}
+	for _, n := range graph.Nodes {
+		got[n.ID] = n
+	}
+	if got["cfg"].Status != StatusUnresolvedNode || got["pol"].Status != StatusUnresolvedNode || got["pol"].Reason != "non_oci_ref" {
+		t.Fatalf("nodes = %+v", got)
 	}
 }

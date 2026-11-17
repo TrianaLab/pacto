@@ -161,8 +161,23 @@ export function breakableIdentifierHtml(s: string): string {
 
 // ── Dependency resolution reason helpers ──
 
+/**
+ * A legacy graph node that is no contract in the fleet: an `external` system (a
+ * dependency with no ref, keyed by its canonical identity) or an `unresolved` ref
+ * (the node's reason says why). Neither has a service page to open.
+ */
+export function isOffContract(status: string | undefined): boolean {
+  return status === 'external' || status === 'unresolved';
+}
+
+/** offContractReason is the key the reason helpers below read for such a node. */
+export function offContractReason(node: { status?: string; reason?: string }): string | undefined {
+  return node.status === 'external' ? 'external' : node.reason;
+}
+
 const REASON_LABELS: Record<string, string> = {
-  non_oci_ref: 'External',
+  external: 'External system',
+  non_oci_ref: 'Unresolved ref',
   auth_failed: 'Auth required',
   no_semver_tags: 'No versions',
   not_found: 'Not found',
@@ -171,7 +186,8 @@ const REASON_LABELS: Record<string, string> = {
 };
 
 const REASON_TOOLTIPS: Record<string, string> = {
-  non_oci_ref: 'A dependency outside OCI with no contract of its own',
+  external: 'A system no Pacto contract describes, joined by its canonical identity',
+  non_oci_ref: 'The ref is not an oci:// reference, so Pacto cannot fetch its contract',
   auth_failed: 'Registry authentication failed. Run `pacto login` or check your credentials.',
   no_semver_tags: 'OCI repository found but contains no valid semver tags',
   not_found: 'OCI artifact not found in the registry',
@@ -180,6 +196,7 @@ const REASON_TOOLTIPS: Record<string, string> = {
 };
 
 const REASON_BADGE_CLASSES: Record<string, string> = {
+  external: 'badge-neutral',
   non_oci_ref: 'badge-neutral',
   auth_failed: 'badge-err',
   no_semver_tags: 'badge-warn',
@@ -189,13 +206,13 @@ const REASON_BADGE_CLASSES: Record<string, string> = {
 };
 
 export function reasonLabel(reason: string | undefined): string {
-  if (!reason) return 'External';
-  return REASON_LABELS[reason] || 'External';
+  if (!reason) return 'Unresolved ref';
+  return REASON_LABELS[reason] || 'Unresolved ref';
 }
 
 export function reasonTooltip(reason: string | undefined): string {
-  if (!reason) return 'External dependency';
-  return REASON_TOOLTIPS[reason] || 'External dependency';
+  if (!reason) return 'Pacto could not resolve this ref to a contract';
+  return REASON_TOOLTIPS[reason] || 'Pacto could not resolve this ref to a contract';
 }
 
 export function reasonBadgeClass(reason: string | undefined): string {

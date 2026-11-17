@@ -13,7 +13,7 @@ import { wrapWideRanks } from './layout.ts';
 // motion.ts, not chartkit.ts: chartkit imports d3 at module scope, and the graph chunk
 // has no business pulling a charting library in for one media query.
 import { MOTION, prefersReducedMotion } from './motion.ts';
-import { statusTone } from './format.ts';
+import { statusTone, isOffContract } from './format.ts';
 import { LANE_CAP } from './neighborhoodGraph.ts';
 import { KIND_GLYPH } from './figure.ts';
 
@@ -70,8 +70,9 @@ export interface GraphNode {
   // kind distinguishes what a node represents so the renderer can style it and the
   // viewer is never misled about the layer: 'target' is a deployed instance,
   // 'service' is a logical service (incl. a dependency-service aggregate in the
-  // target perspective), 'revision' is a content-addressed revision. Absent = service.
-  kind?: 'service' | 'revision' | 'target';
+  // target perspective), 'revision' is a content-addressed revision, 'external' a
+  // system no contract describes. Absent = service.
+  kind?: 'service' | 'revision' | 'target' | 'external';
   edges?: GraphEdge[];
   /** Hops from the focus (0 = the focus), when the answer says; it seeds the layout in
    *  rings so a large neighborhood reads outward from its subject. */
@@ -223,7 +224,7 @@ export function buildVersionSubgraph(detail: VersionDetail, services: FleetEntry
     nodes.push({
       id: depName,
       serviceName: depName,
-      status: svc?.contractStatus || 'external',
+      status: svc?.contractStatus || (dep.ref ? 'unresolved' : 'external'),
       version: svc?.version || '',
       edges: [],
     });
@@ -383,7 +384,7 @@ export function buildElements(graphData: GraphData, focusId?: string): ElementDe
         status: n.status,
         reason: n.reason || '',
         kind: n.kind || 'service',
-        external: n.status === 'external' ? 1 : 0,
+        external: isOffContract(n.status) ? 1 : 0,
         isFocus: isFocusNode(n, focusId) ? 1 : 0,
       },
     });
@@ -429,6 +430,7 @@ export const LEGEND_SELECTORS: Record<string, string> = {
   'kind:group': 'node[group = 1]',
   'kind:revision': 'node[kind = "revision"]',
   'kind:target': 'node[kind = "target"]',
+  'kind:external': 'node[kind = "external"]',
   'rel:dependency': 'edge[etype = "dependency"]',
   'rel:runs': 'edge[etype = "runs"]',
   'rel:reference': 'edge[etype = "reference"]',
@@ -645,7 +647,7 @@ export const spaced = (s: string) => [...s].join('\u200A');
 
 /** Border/status color for a node, theme-aware and reason-aware for externals. */
 function nodeColor(pal: Palette, status: string, reason: string): string {
-  if (status === 'external') return (pal as any)[REASON_TO_PAL[reason]] || pal.neutral;
+  if (isOffContract(status)) return (pal as any)[REASON_TO_PAL[reason]] || pal.neutral;
   return pal[statusTone(status)] || pal.neutral;
 }
 
@@ -719,6 +721,18 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered', edgeStyl
       // the legend swatch, so it is distinguishable from a logical service (solid
       // border) without relying on color.
       selector: "node[kind='revision']",
+      style: { 'border-style': 'dashed' },
+    },
+    {
+      // An external system of the operational graph is a dashed hexagon: a shape no
+      // fleet entity takes, with no compliance tone (Pacto observes no health for it).
+      selector: "node[kind='external']",
+      style: { shape: 'hexagon', 'border-style': 'dashed', 'border-color': pal.neutral, 'border-width': 1.5 },
+    },
+    {
+      // An external system reads as a dashed ring, matching its legend swatch, so it is
+      // never mistaken for an unresolved ref (a solid ring in its reason's colour).
+      selector: "node[status='external']",
       style: { 'border-style': 'dashed' },
     },
     {

@@ -368,6 +368,32 @@ func TestDeploymentRepositoriesEnv(t *testing.T) {
 	}
 }
 
+func externalCatalogEnv(cfg Config) (string, bool) {
+	deploy := deploymentAC(cfg).(*appsv1ac.DeploymentApplyConfiguration)
+	for _, env := range deploy.Spec.Template.Spec.Containers[0].Env {
+		if *env.Name == "PACTO_DASHBOARD_EXTERNAL_CATALOG" {
+			return *env.Value, true
+		}
+	}
+	return "", false
+}
+
+// The dashboard strips oci:// from the catalog reference itself, so the
+// operator passes it verbatim.
+func TestApplySetsExternalCatalogEnv(t *testing.T) {
+	ref := "oci://ghcr.io/acme/catalog@sha256:" + strings.Repeat("a", 64)
+	got, set := externalCatalogEnv(Config{Enabled: true, Image: "img:v1", Namespace: "test-ns", ExternalCatalog: ref})
+	if !set || got != ref {
+		t.Errorf("PACTO_DASHBOARD_EXTERNAL_CATALOG=%q (set %v), want %q", got, set, ref)
+	}
+}
+
+func TestApplyOmitsEmptyExternalCatalog(t *testing.T) {
+	if got, set := externalCatalogEnv(Config{Enabled: true, Image: "img:v1", Namespace: "test-ns"}); set {
+		t.Errorf("PACTO_DASHBOARD_EXTERNAL_CATALOG=%q is set without a catalog", got)
+	}
+}
+
 func TestServiceAC_WithOwnerRef(t *testing.T) {
 	cfg := Config{
 		Enabled:   true,

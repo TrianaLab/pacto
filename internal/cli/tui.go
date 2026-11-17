@@ -55,7 +55,7 @@ func newTUICommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command {
 			ctx := logging.WithLogger(cmd.Context(), logging.New(io.Discard, false))
 			return d.runTUI(ctx, tui.Options{
 				Svc:   svc,
-				Fleet: fleetOptions(cmd),
+				Fleet: longRunning(fleetOptions(cmd)),
 				// The yanked line has to resolve the snapshot on screen, not one
 				// rebuilt from the defaults, so it carries the source flags verbatim.
 				SourceArgs: fleetSourceArgs(cmd),

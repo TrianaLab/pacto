@@ -3,7 +3,7 @@ import {
   PRODUCT_SCHEMA_VERSION, SchemaCompatibilityError, ApiError, ApiContractError,
   narrowEntityDetail, isServiceDetail, isTargetDetail,
 } from './api.ts';
-import type { ProductEntityDetail } from './api.ts';
+import type { ProductEntityDetail, ExternalEntityDetail } from './api.ts';
 
 // The facade routes every call through the generated openapi-fetch client, which
 // builds a Request and hands it to the single transport seam (dashboardFetch),
@@ -190,11 +190,17 @@ describe('entity-detail runtime narrowing', () => {
   // A broad response as the wire allows it; narrowEntityDetail enforces the invariant.
   const raw = (o: Record<string, unknown>): ProductEntityDetail => ({ meta, ...o } as unknown as ProductEntityDetail);
 
-  it('accepts a valid instance for each of the six kinds', () => {
-    for (const kind of ['service', 'revision', 'target', 'owner', 'source', 'domain'] as const) {
+  it('accepts a valid instance for each kind', () => {
+    for (const kind of ['service', 'revision', 'target', 'owner', 'source', 'domain', 'offering', 'external'] as const) {
       const d = narrowEntityDetail(raw({ entity: { kind }, [kind]: {} }));
       expect(d.entity.kind).toBe(kind);
     }
+  });
+
+  it('narrows an external system to its external payload', () => {
+    const d = narrowEntityDetail(raw({ entity: { kind: 'external', key: 'stripe' }, external: { external: { key: 'stripe' }, consumers: [] } }));
+    expect((d as ExternalEntityDetail).external.external.key).toBe('stripe');
+    expect(() => narrowEntityDetail(raw({ entity: { kind: 'external' }, offering: {} }))).toThrow(ApiContractError);
   });
 
   it('rejects a service kind with a missing service payload', () => {

@@ -1,0 +1,278 @@
+package externalcatalog
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/trianalab/pacto/v4/pkg/externalid"
+)
+
+func mustParse(t *testing.T, y string) *File {
+	t.Helper()
+	f, err := ParseFile([]byte(y))
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	return f
+}
+
+func validateErr(t *testing.T, y string) string {
+	t.Helper()
+	err := mustParse(t, y).Validate()
+	if err == nil {
+		t.Fatalf("Validate() = nil for:\n%s", y)
+	}
+	return err.Error()
+}
+
+func wantContains(t *testing.T, got string, wants ...string) {
+	t.Helper()
+	for _, w := range wants {
+		if !strings.Contains(got, w) {
+			t.Errorf("%q does not mention %q", got, w)
+		}
+	}
+}
+
+const head = "apiVersion: catalog.pacto.trianalab.io/v1\nentries:\n"
+
+func TestDefaultCatalogValid(t *testing.T) {
+	f, err := load(defaultBytes)
+	if err != nil {
+		t.Fatalf("embedded default catalog: %v", err)
+	}
+	c := Default()
+	if c.Len() != len(f.Entries) || c.Len() < 24 {
+		t.Fatalf("Default().Len() = %d, file entries %d", c.Len(), len(f.Entries))
+	}
+	e, ref, ok := c.Entry("stripe")
+	if !ok || e.Class != ClassVendorAPI || ref.Origin != OriginDefault || ref.Copy != CopyEmbedded ||
+		ref.Signature != SignatureUnknown || ref.Digest != DefaultDigest() || ref.Repository != DefaultRepository {
+		t.Fatalf("Entry(stripe) = %+v %+v %v", e, ref, ok)
+	}
+	if _, _, ok := c.Entry("nope"); ok {
+		t.Fatal("Entry(nope) found")
+	}
+	if string(DefaultBytes()) != string(defaultBytes) {
+		t.Fatal("DefaultBytes differs from the embedded bytes")
+	}
+}
+
+func TestParseFileErrors(t *testing.T) {
+	if _, err := ParseFile(nil); err == nil || !strings.Contains(err.Error(), "empty") {
+		t.Errorf("empty: %v", err)
+	}
+	if _, err := ParseFile(make([]byte, MaxFileBytes+1)); err == nil || !strings.Contains(err.Error(), "limit") {
+		t.Errorf("oversize: %v", err)
+	}
+	if _, err := ParseFile([]byte("entries: [")); err == nil {
+		t.Error("bad yaml accepted")
+	}
+}
+
+func TestValidateRejectsUnknownKey(t *testing.T) {
+	for _, y := range []string{
+		head + "  - identity: stripe\n    class: vendor-api\n    color: blue\n",
+		head + "publish:\n  sign: true\n",
+	} {
+		if _, err := ParseFile([]byte(y)); err == nil || !strings.Contains(err.Error(), "not found") {
+			t.Errorf("ParseFile accepted an unknown key: %v\n%s", err, y)
+		}
+	}
+}
+
+func TestValidateRejectsAPIVersionClassAndIdentity(t *testing.T) {
+	got := validateErr(t, "apiVersion: v0\nentries:\n  - identity: Stripe\n    class: saas\n  - identity: other-egress\n    class: legacy\n    aliases: [\" \"]\n")
+	wantContains(t, got, "apiVersion", "entries[0].identity", "entries[0].class", "entries[1].identity", "reserved identity", "entries[1].aliases: empty alias")
+}
+
+func TestValidateDuplicateClaims(t *testing.T) {
+	got := validateErr(t, head+
+		"  - identity: stripe\n    class: vendor-api\n    aliases: [stripe]\n    hosts: [api.stripe.com]\n    keyPatterns: [STRIPE_*]\n"+
+		"  - identity: stripe\n    class: vendor-api\n"+
+		"  - identity: other\n    class: vendor-api\n    aliases: [Stripe]\n    hosts: [api.stripe.com]\n    keyPatterns: [STRIPE_*]\n")
+	wantContains(t, got,
+		"entries[1].identity: \"stripe\" duplicates entries[0]",
+		"entries[2].aliases: \"Stripe\" is already claimed by entries[0]",
+		"entries[2].hosts",
+		"entries[2].keyPatterns")
+}
+
+func TestValidateManagedCloudTwoSegments(t *testing.T) {
+	got := validateErr(t, head+"  - identity: aws/rds/1/eu-west-1/db\n    class: managed-cloud\n  - identity: aws\n    class: managed-cloud\n")
+	wantContains(t, got, "entries[0].identity: a managed-cloud", "entries[1].identity: a managed-cloud")
+	if err := mustParse(t, head+"  - identity: aws/rds\n    class: managed-cloud\n").Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestValidateKeyPatternForm(t *testing.T) {
+	got := validateErr(t, head+"  - identity: x\n    class: legacy\n    keyPatterns: [stripe_*, \"A**\", \"*A\", A*B]\n    hosts: [API.example.com, \"*.*.example.com\", \"*.example.com\"]\n")
+	for _, bad := range []string{`"stripe_*"`, `"A**"`, `"*A"`, `"A*B"`, `"API.example.com"`, `"*.*.example.com"`} {
+		wantContains(t, got, bad)
+	}
+	if strings.Contains(got, `"*.example.com" must`) {
+		t.Errorf("a valid host pattern was refused: %s", got)
+	}
+}
+
+func TestValidateTooManyEntries(t *testing.T) {
+	f := &File{APIVersion: APIVersion, Entries: make([]Entry, MaxEntries+1)}
+	wantContains(t, f.Validate().Error(), "over the limit")
+}
+
+const mergeDef = head +
+	"  - identity: stripe\n    class: vendor-api\n    aliases: [stripe, payments]\n    hosts: [api.stripe.com, pay.example.com]\n    keyPatterns: [STRIPE_*, PAY_*]\n" +
+	"  - identity: twilio\n    class: vendor-api\n    label: Twilio\n"
+
+func TestMergeOrgReplacesEntry(t *testing.T) {
+	org := mustParse(t, head+"  - identity: twilio\n    class: legacy\n    label: Our Twilio\n  - identity: corp/mq\n    class: legacy\n")
+	orgRef := Ref{Origin: OriginOrganization, Digest: "sha256:org"}
+	c := Merge(mustParse(t, mergeDef), DefaultRef(), org, &orgRef)
+	if c.Len() != 3 {
+		t.Fatalf("Len() = %d, want 3", c.Len())
+	}
+	e, ref, ok := c.Entry("twilio")
+	if !ok || e.Label != "Our Twilio" || e.Class != ClassLegacy || ref.Origin != OriginOrganization {
+		t.Fatalf("Entry(twilio) = %+v %+v", e, ref)
+	}
+	if _, ref, _ := c.Entry("stripe"); ref.Origin != OriginDefault {
+		t.Fatalf("stripe origin = %q", ref.Origin)
+	}
+}
+
+func TestMergeOrgClaimWins(t *testing.T) {
+	org := mustParse(t, head+"  - identity: corp/pay\n    class: legacy\n    aliases: [Payments]\n    hosts: [pay.example.com]\n    keyPatterns: [PAY_*]\n")
+	c := Merge(mustParse(t, mergeDef), DefaultRef(), org, &Ref{Origin: OriginOrganization})
+	e, _, _ := c.Entry("stripe")
+	if strings.Join(e.Aliases, ",") != "stripe" || strings.Join(e.Hosts, ",") != "api.stripe.com" || strings.Join(e.KeyPatterns, ",") != "STRIPE_*" {
+		t.Fatalf("default stripe kept an organization claim: %+v", e)
+	}
+	o, _, _ := c.Entry(externalid.ID("corp/pay"))
+	if strings.Join(o.Aliases, ",") != "Payments" {
+		t.Fatalf("organization entry = %+v", o)
+	}
+}
+
+func TestRefsAreCopies(t *testing.T) {
+	c := Merge(mustParse(t, mergeDef), DefaultRef(), mustParse(t, head), &Ref{Origin: OriginOrganization})
+	refs := c.Refs()
+	if len(refs) != 2 || refs[0].Origin != OriginDefault || refs[1].Origin != OriginOrganization {
+		t.Fatalf("Refs() = %+v", refs)
+	}
+	refs[0].Origin = "mutated"
+	if c.Refs()[0].Origin != OriginDefault {
+		t.Fatal("Refs() exposed the catalog's slice")
+	}
+	if got := Merge(mustParse(t, mergeDef), DefaultRef(), nil, nil).Refs(); len(got) != 1 {
+		t.Fatalf("Refs() without an extension = %+v", got)
+	}
+}
+
+func TestMustLoadPanicsOnInvalidBytes(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("mustLoad accepted an invalid catalog")
+		}
+	}()
+	mustLoad([]byte("apiVersion: v0\n"))
+}
+
+func TestAssemble(t *testing.T) {
+	def := DefaultRef()
+	def.Reason = "checked"
+	c, err := Assemble(def, nil, Ref{})
+	if err != nil || c.Len() != Default().Len() || c.Refs()[0].Reason != "checked" || len(c.Refs()) != 1 {
+		t.Fatalf("Assemble(nil) = %+v, %v", c, err)
+	}
+	org := Ref{Origin: OriginOrganization, Digest: "sha256:org"}
+	c, err = Assemble(def, []byte("apiVersion: catalog.pacto.trianalab.io/v1\nentries:\n  - identity: corp/mq\n    class: legacy\n    aliases: [legacy-mq]\n"), org)
+	if err != nil || c.Len() != Default().Len()+1 || c.Refs()[1] != org {
+		t.Fatalf("Assemble(org) = %+v, %v", c, err)
+	}
+	if e, _, ok := c.ResolveDeclared("legacy-mq"); !ok || e.Identity != "corp/mq" {
+		t.Fatalf("legacy-mq = %+v %v", e, ok)
+	}
+	if _, err := Assemble(def, []byte("apiVersion: v0\n"), org); err == nil {
+		t.Fatal("Assemble accepted an invalid organization catalog")
+	}
+}
+
+func TestResolveDeclaredAliasCaseInsensitive(t *testing.T) {
+	c := Merge(mustParse(t, mergeDef), DefaultRef(), nil, nil)
+	e, ref, ok := c.ResolveDeclared("  STRIPE ")
+	if !ok || e.Identity != "stripe" || ref.Origin != OriginDefault {
+		t.Fatalf("ResolveDeclared(STRIPE) = %+v %+v %v", e, ref, ok)
+	}
+	if _, _, ok := c.ResolveDeclared("legacy-mq"); ok {
+		t.Fatal("an unknown name must not resolve")
+	}
+}
+
+func TestResolveDeclaredOrganizationFirst(t *testing.T) {
+	org := mustParse(t, head+"  - identity: corp/pay\n    class: legacy\n    aliases: [Stripe]\n")
+	c := Merge(mustParse(t, mergeDef), DefaultRef(), org, &Ref{Origin: OriginOrganization, Digest: "sha256:org"})
+	e, ref, ok := c.ResolveDeclared("stripe")
+	if !ok || e.Identity != "corp/pay" || ref.Digest != "sha256:org" {
+		t.Fatalf("ResolveDeclared(stripe) = %+v %+v %v", e, ref, ok)
+	}
+}
+
+func TestDeclaredIdentity(t *testing.T) {
+	c := Merge(mustParse(t, mergeDef), DefaultRef(), nil, nil)
+	for name, want := range map[string]struct {
+		id    externalid.ID
+		match string
+	}{
+		"Stripe":               {"stripe", MatchCatalogAlias},
+		"mq.corp-legacy.co.uk": {"host/corp-legacy.co.uk", MatchHost},
+		"Legacy_MQ":            {"legacy-mq", MatchNormalizedName},
+	} {
+		id, match, err := DeclaredIdentity(c, "", name)
+		if err != nil || id != want.id || match != want.match {
+			t.Errorf("DeclaredIdentity(%q) = %q, %q, %v; want %q, %q", name, id, match, err, want.id, want.match)
+		}
+	}
+	for _, name := range []string{"日本語", "other-egress"} {
+		if id, _, err := DeclaredIdentity(c, "", name); err == nil {
+			t.Errorf("DeclaredIdentity(%q) = %q, want an error", name, id)
+		}
+	}
+	if id, match, err := DeclaredIdentity(c, "host/corp-legacy.example", "Stripe"); err != nil || id != "host/corp-legacy.example" || match != MatchIdentity {
+		t.Errorf("a declared identity wins over an alias: %q, %q, %v", id, match, err)
+	}
+	if id, match, _ := DeclaredIdentity(c, "Not An Identity", "Stripe"); id != "stripe" || match != MatchCatalogAlias {
+		t.Errorf("an identity that does not parse falls back to the name: %q, %q", id, match)
+	}
+}
+
+func TestDeclaredIdentityNormalizedAlias(t *testing.T) {
+	c := Merge(mustParse(t, head+"  - identity: stripe\n    class: vendor-api\n    aliases: [stripe, stripe-api]\n"), DefaultRef(), nil, nil)
+	if id, match, err := DeclaredIdentity(c, "", "Stripe API"); err != nil || id != "stripe" || match != MatchCatalogAlias {
+		t.Fatalf("a name that normalizes to an alias joins its entry: %q, %q, %v", id, match, err)
+	}
+}
+
+func TestAliasWithSpacesStillTakenByOrganization(t *testing.T) {
+	org := mustParse(t, head+"  - identity: acme-payments\n    class: vendor-api\n    aliases: [\" stripe\"]\n")
+	c := Merge(mustParse(t, mergeDef), DefaultRef(), org, &Ref{Origin: OriginOrganization})
+	if e, _, ok := c.ResolveDeclared("stripe"); !ok || e.Identity != "acme-payments" {
+		t.Fatalf("the organization alias \" stripe\" must win over the default \"stripe\": %+v", e)
+	}
+	got := validateErr(t, head+"  - identity: a\n    class: vendor-api\n    aliases: [stripe]\n  - identity: b\n    class: vendor-api\n    aliases: [\" stripe\"]\n")
+	wantContains(t, got, "entries[1].aliases")
+}
+
+func TestEntryManagedResourceTakesProviderServiceEntry(t *testing.T) {
+	c := Merge(mustParse(t, head+"  - identity: aws/rds\n    class: managed-cloud\n    label: Amazon RDS\n  - identity: corp/mq\n    class: legacy\n"), DefaultRef(), nil, nil)
+	e, _, ok := c.Entry("aws/rds/123456789012/eu-west-1/orders-db")
+	if !ok || e.Identity != "aws/rds" || e.Label != "Amazon RDS" {
+		t.Fatalf("a managed resource takes aws/rds: %+v, %v", e, ok)
+	}
+	if _, _, ok := c.Entry("corp/mq/a/b/c"); ok {
+		t.Fatal("only a managed-cloud entry classifies a managed resource")
+	}
+	if _, _, ok := c.Entry("aws/rds/x"); ok {
+		t.Fatal("only a five-segment identity is a managed resource")
+	}
+}

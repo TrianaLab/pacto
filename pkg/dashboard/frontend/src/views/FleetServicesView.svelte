@@ -6,7 +6,7 @@
   import { statusLabel, STATUS_FILTER_OPTIONS } from '../lib/format.ts';
   import { businessDomainLabel, GAP_WORDS, NO_DOMAIN, UNKNOWN_DOMAIN } from '../lib/entityLabels.ts';
   import { ownerKeyLabel, ownerKeyKind } from '../lib/owners.ts';
-  import { fleetOverviewUrl, fleetServicesUrl, fleetOwnersUrl, hashForHref, fleetEntityUrl } from '../lib/router.ts';
+  import { fleetOverviewUrl, fleetServicesUrl, fleetOwnersUrl, fleetExternalsUrl, hashForHref, fleetEntityUrl } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import EntityCombobox from '../components/EntityCombobox.svelte';
   import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
@@ -285,7 +285,9 @@
 
 <div class="product-page">
   <Breadcrumbs trail={[{ label: 'Overview', href: fleetOverviewUrl() }, { label: 'Services' }]} />
-  <PageHeader glyph="service" title="Services" count={list ? `${formatCount(total)} service${total === 1 ? '' : 's'}` : ''} asOf={list?.meta?.asOf} {revalidating} paging={view.paging} />
+  <!-- The Services nav item hosts the external systems list, so its header links there. -->
+  <PageHeader glyph="service" title="Services" count={list ? `${formatCount(total)} service${total === 1 ? '' : 's'}` : ''} asOf={list?.meta?.asOf} {revalidating} paging={view.paging}
+    actions={[{ label: 'External systems the services declare', href: fleetExternalsUrl() }]} />
 
   {#if state.kind === 'ready' && matched > 0}
     <p class="page-answer t-body" data-testid="services-answer">

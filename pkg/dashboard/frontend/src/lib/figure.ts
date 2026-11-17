@@ -211,6 +211,9 @@ export const KIND_GLYPH = {
   owner: 'M12 11 A3.5 3.5 0 1 0 12 4 A3.5 3.5 0 1 0 12 11 Z M5 20 C5 15.5 19 15.5 19 20',
   domain: 'M4 4 H11 V11 H4 Z M13 4 H20 V11 H13 Z M4 13 H11 V20 H4 Z M13 13 H20 V20 H13 Z',
   offering: 'M3 9 L12 4 L21 9 L12 14 Z M6 11 V17 L12 20 L18 17 V11',
+  // A flat-topped hexagon with an arrow leaving it: a system outside the fleet. The
+  // service glyph is a pointed-top hexagon, so the two never read as one.
+  external: 'M7 4 H17 L21.5 12 L17 20 H7 L2.5 12 Z M8.5 12 H15.5 M12.5 9 L15.5 12 L12.5 15',
   'golden-path': 'M4 20 C8 20 8 12 12 12 C16 12 16 4 20 4 M17 4 H20 V7',
   source: 'M12 20 V12 M12 12 A3 3 0 1 0 12 6 A3 3 0 1 0 12 12 Z M6 4 A9 9 0 0 0 6 14 M18 4 A9 9 0 0 1 18 14',
   environment: 'M3 18 H21 M5 18 V10 L12 6 L19 10 V18 M10 18 V13 H14 V18',

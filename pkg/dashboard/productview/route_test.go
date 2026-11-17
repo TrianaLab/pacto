@@ -27,3 +27,9 @@ func TestChangesHref(t *testing.T) {
 		t.Fatalf("new only = %q", h)
 	}
 }
+
+func TestEntityRouteExternal(t *testing.T) {
+	if got := Entity(fleet.KindExternal, "aws/rds/123456789012/eu-west-1/orders-db"); got != "/fleet/externals/aws%2Frds%2F123456789012%2Feu-west-1%2Forders-db" {
+		t.Errorf("external href = %q", got)
+	}
+}

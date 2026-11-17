@@ -11,6 +11,7 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/externalid"
 	"github.com/trianalab/pacto/v4/pkg/finding"
 	"github.com/trianalab/pacto/v4/pkg/graph"
 	"gopkg.in/yaml.v3"
@@ -475,6 +476,10 @@ func validateDependencyForm(i int, dep contract.Dependency, result *ValidationRe
 	switch {
 	case dep.Name == "":
 		result.AddError(base+".name", string(finding.CodeDependencyNameRequired), "a dependency needs a name, or a ref Pacto derives the name from: set name, or set ref to its contract")
+	case dep.Identity != "" && (!dep.External || dep.Ref != ""):
+		result.AddError(base+".identity", "IDENTITY_WITHOUT_EXTERNAL", fmt.Sprintf("dependency %q: identity names an external system with no contract: set external: true and drop ref, or drop identity", dep.Name))
+	case dep.Identity != "" && identityErr(dep.Identity) != nil:
+		result.AddError(base+".identity", "INVALID_EXTERNAL_IDENTITY", fmt.Sprintf("dependency %q: %v", dep.Name, identityErr(dep.Identity)))
 	case dep.Ref == "" && !dep.External:
 		result.AddError(base+".ref", "DEPENDENCY_REF_REQUIRED", fmt.Sprintf("dependency %q has no ref: set ref to its contract (for a contract not published yet, the repository it will be published at, with the versions you accept in compatibility), or, if this Pacto system does not deliver it, set external: true and the version you run against", dep.Name))
 	case dep.Ref == "" && dep.Version == "":
@@ -487,6 +492,12 @@ func validateDependencyForm(i int, dep contract.Dependency, result *ValidationRe
 		return true
 	}
 	return false
+}
+
+// identityErr is why id is not a canonical external identity, or nil.
+func identityErr(id string) error {
+	_, err := externalid.Parse(id)
+	return err
 }
 
 func validateDependencyRefs(c *contract.Contract, result *ValidationResult) {

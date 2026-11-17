@@ -3,6 +3,7 @@ package fleet
 import (
 	"cmp"
 	"fmt"
+	"reflect"
 	"slices"
 	"sort"
 	"strings"
@@ -30,11 +31,25 @@ const (
 // would make the index grow with the documentation in the fleet. It performs no
 // network I/O either.
 type Query struct {
+	// snap is what answers read: base itself, or a shallow copy of it that
+	// folds the external systems beyond MaxExternalNodes (see foldExternals).
 	snap *FleetSnapshot
+	// base is the snapshot as built, which Snapshot and Restrict read.
+	base *FleetSnapshot
+	// externals are the external systems answers name, keyed by identity, and
+	// folded the identities they fold into OtherEgress.
+	externals map[ExternalKey]*ExternalRecord
+	folded    map[ExternalKey]bool
 }
 
-// NewQuery wraps a snapshot in a query view.
-func NewQuery(s *FleetSnapshot) *Query { return &Query{snap: s} }
+// NewQuery wraps a snapshot in a query view. It projects the external
+// systems once, after any restriction, so the fold ranks on what the viewer
+// may see.
+func NewQuery(s *FleetSnapshot) *Query {
+	q := &Query{base: s}
+	q.snap, q.externals, q.folded = foldExternals(s)
+	return q
+}
 
 // resolveService resolves a user-supplied identifier to exactly one service.
 // An exact canonical key (qualified "domain/name" or a bare default-domain name)
@@ -71,7 +86,7 @@ func (q *Query) resolveService(identifier string) (*ServiceRecord, error) {
 // returns the internal snapshot pointer, so a caller cannot mutate shared state;
 // the copy carries data only (its private query indexes are not rebuilt, so it
 // is for reading/serializing, not for constructing a new Query).
-func (q *Query) Snapshot() *FleetSnapshot { return jsonClone(q.snap) }
+func (q *Query) Snapshot() *FleetSnapshot { return jsonClone(q.base) }
 
 // SnapshotForSerialization returns the internal snapshot pointer for a caller that
 // does nothing but serialize it. The snapshot is immutable once built -- the
@@ -80,7 +95,7 @@ func (q *Query) Snapshot() *FleetSnapshot { return jsonClone(q.snap) }
 // Snapshot()'s copy is a full marshal-plus-unmarshal round trip performed on a
 // value that is about to be marshalled again. Any caller that might RETAIN or
 // mutate the result must use Snapshot() instead.
-func (q *Query) SnapshotForSerialization() *FleetSnapshot { return q.snap }
+func (q *Query) SnapshotForSerialization() *FleetSnapshot { return q.base }
 
 // SnapshotID returns the snapshot's content identity without copying.
 func (q *Query) SnapshotID() string { return q.snap.SnapshotID }
@@ -111,6 +126,9 @@ type Meta struct {
 	// the one dishonest field in a completeness envelope.
 	LimitationsTruncated bool `json:"limitationsTruncated,omitempty"`
 	SourcesTruncated     bool `json:"sourcesTruncated,omitempty"`
+	// ExternalCatalogs are the catalogs that classified external systems, with
+	// their digest and how far their signature was checked.
+	ExternalCatalogs []ExternalCatalogRef `json:"externalCatalogs,omitempty"`
 }
 
 // meta applies the SAME hard caps as productMeta. Limitations are emitted per
@@ -131,6 +149,7 @@ func (q *Query) meta() Meta {
 		Sources:              srcs,
 		LimitationsTruncated: limTrunc,
 		SourcesTruncated:     srcTrunc,
+		ExternalCatalogs:     slices.Clone(q.snap.ExternalCatalogs),
 	}
 }
 
@@ -269,6 +288,13 @@ type SearchResult struct {
 	Total    int          `json:"total"`
 	Count    int          `json:"count"`
 	Services []ServiceHit `json:"services"`
+	// Externals are, for a search on text alone (no other filter, first
+	// page), at most MaxSearchExternals external systems whose identity,
+	// label or alias holds the text; ExternalsTotal counts every match. An
+	// external has no owner, status or compliance, so any other filter, or a
+	// later page, lists none.
+	Externals      []EntityRef `json:"externals,omitempty" doc:"For a search on text alone (no other filter, first page), the external systems whose identity, label or alias holds the text, bounded"`
+	ExternalsTotal int         `json:"externalsTotal,omitempty" doc:"How many external systems match the text"`
 }
 
 // Search returns logical services matching the filter, deterministically sorted
@@ -290,7 +316,21 @@ func (q *Query) Search(f SearchFilter) (*SearchResult, error) {
 	for _, s := range pg.Items {
 		res.Services = append(res.Services, hitFromService(s))
 	}
+	if textOnly(f) {
+		res.Externals, res.ExternalsTotal = q.searchExternals(f.Text)
+	}
 	return res, nil
+}
+
+// textOnly reports whether f filters on text alone, on the first page: the
+// only search an external system can answer.
+func textOnly(f SearchFilter) bool {
+	rest := f
+	rest.Text, rest.Limit = "", 0
+	if len(rest.Labels) == 0 {
+		rest.Labels = nil
+	}
+	return reflect.DeepEqual(rest, SearchFilter{})
 }
 
 // validateSearchFilter rejects malformed filter values with a typed error.
@@ -801,8 +841,11 @@ type GraphNode struct {
 // when the query was service-scoped over more than one revision (so edges are a
 // union across revisions rather than a single revision's exact graph).
 type GraphResult struct {
-	Meta       Meta           `json:"meta"`
-	Root       ServiceKey     `json:"root"`
+	Meta Meta       `json:"meta"`
+	Root ServiceKey `json:"root"`
+	// External is the external system a graph rooted at one walks the
+	// consumers of; Root is then empty.
+	External   ExternalKey    `json:"external,omitempty" doc:"The external system a graph rooted at external:<identity> walks the consumers of; root is then empty"`
 	Revision   RevisionKey    `json:"revision,omitempty"`
 	Aggregated bool           `json:"aggregated"`
 	Direction  Direction      `json:"direction"`
@@ -834,29 +877,40 @@ func (q *Query) Graph(gq GraphQuery) (*GraphResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	if key, ok := ParseExternalSubject(gq.Service); ok && gq.Target == "" && gq.Revision == "" {
+		return q.graphExternal(gq, key, maxNodes)
+	}
 	rootSvc, scopeRev, aggregated, err := q.resolveGraphScope(gq)
 	if err != nil {
 		return nil, err
 	}
 
 	res := &GraphResult{Meta: q.meta(), Root: rootSvc, Revision: scopeRev, Aggregated: aggregated, Direction: dir, Nodes: []GraphNode{}}
-	neighbors := func(key ServiceKey) []graphStep {
+	nodeSet, cycles := q.walkGraph(res, rootSvc, gq, maxNodes, func(key ServiceKey) []graphStep {
 		return q.graphNeighbours(key, rootSvc, scopeRev, dir, gq.IncludeObserved)
-	}
+	})
+	res.Cycles = cycles
+	res.Edges, res.Unresolved = q.graphEdges(nodeSet, rootSvc, dir, scopeRev)
+	return res, nil
+}
 
+// walkGraph is the breadth-first walk of [Query.Graph] from root over
+// neighbors: it appends every reached node to res (marking it truncated at
+// maxNodes) and returns the reached set and the cycles.
+func (q *Query) walkGraph(res *GraphResult, root ServiceKey, gq GraphQuery, maxNodes int, neighbors func(ServiceKey) []graphStep) (map[ServiceKey]bool, [][]ServiceKey) {
 	// expanded is the set of nodes whose neighbors the walk follows: the root, and
 	// with Transitive every reached node above MaxDepth. The cycle pass below
 	// follows exactly the same set.
-	expanded := map[ServiceKey]bool{rootSvc: true}
+	expanded := map[ServiceKey]bool{root: true}
 	nodeSet := map[ServiceKey]bool{}
-	queue := []GraphNode{{Key: rootSvc, Depth: 0, Path: []ServiceKey{rootSvc}}}
+	queue := []GraphNode{{Key: root, Depth: 0, Path: []ServiceKey{root}}}
 bfs:
 	for len(queue) > 0 {
 		cur := queue[0]
 		queue = queue[1:]
 		for _, step := range neighbors(cur.Key) {
 			next := step.Key
-			if next == rootSvc || nodeSet[next] {
+			if next == root || nodeSet[next] {
 				continue // already reached at a depth no greater than this one
 			}
 			// The cap is charged before the node is admitted. Neighbors are in sorted
@@ -880,7 +934,7 @@ bfs:
 		}
 	}
 
-	res.Cycles = graphCycles(rootSvc, func(key ServiceKey) []ServiceKey {
+	cycles := graphCycles(root, func(key ServiceKey) []ServiceKey {
 		steps := neighbors(key)
 		keys := make([]ServiceKey, len(steps))
 		for i, s := range steps {
@@ -888,8 +942,7 @@ bfs:
 		}
 		return keys
 	}, expanded)
-	res.Edges, res.Unresolved = q.graphEdges(nodeSet, rootSvc, dir, scopeRev)
-	return res, nil
+	return nodeSet, cycles
 }
 
 // graphStep is one neighbour of a graph node and how the edge to it is known.
@@ -1038,7 +1091,8 @@ func (q *Query) graphEdges(nodeSet map[ServiceKey]bool, rootSvc ServiceKey, dir 
 			continue
 		}
 		edges = append(edges, rel)
-		if !rel.Resolved {
+		// A joined external is not a gap: no fleet service is expected.
+		if !rel.Resolved && rel.ToExternal == "" {
 			unresolved = append(unresolved, rel)
 		}
 	}
@@ -1205,10 +1259,14 @@ type ExplainResult struct {
 	Reasons []Reason `json:"reasons"`
 }
 
-// Explain produces deterministic reasons for a subject's state. The subject is
-// resolved as a service name first, then a target key/name. It never asserts
-// absence or compliance beyond the observed evidence.
+// Explain produces deterministic reasons for a subject's state. A subject
+// with the external: prefix is an external system; any other is resolved as a
+// service name first, then a target key/name. It never asserts absence or
+// compliance beyond the observed evidence.
 func (q *Query) Explain(subject string) (*ExplainResult, error) {
+	if _, ok := ParseExternalSubject(subject); ok {
+		return q.explainExternal(subject)
+	}
 	s, serr := q.resolveService(subject)
 	if serr == nil {
 		return q.explainService(s), nil

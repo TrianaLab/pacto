@@ -122,6 +122,8 @@ type EntityFilter struct {
 	// Failed keeps the OFFERING rows with at least one failed provisioning
 	// request.
 	Failed bool
+	// Class keeps the EXTERNAL systems of this class (see [ExternalClasses]).
+	Class string
 	// Sort orders the answer: "" by kind then key, SortName by label in natural
 	// order (target-2 before target-10), SortHealth least healthy first, then by
 	// name. Paging walks the sorted answer, so every page agrees with the order.
@@ -149,7 +151,7 @@ const (
 	// SortFailed puts the offerings with the most consumers with a failed
 	// provisioning request first, then by name.
 	SortFailed = "failed"
-	// SortConsumers puts the offerings with the most declared consumers first,
+	// SortConsumers puts the offerings and external systems with the most declared consumers first,
 	// then by name.
 	SortConsumers = "consumers"
 	// SortGaps puts the owners and domains with the most services that leave
@@ -199,6 +201,9 @@ type EntityList struct {
 	Truncated  bool        `json:"truncated"`
 	NextOffset *int        `json:"nextOffset,omitempty"`
 	Entities   []EntityRef `json:"entities"`
+	// Hidden counts, when external systems are listed, those only services
+	// the caller's permissions hide declare. They are never named.
+	Hidden int `json:"hidden,omitempty" doc:"When external systems are listed, how many only hidden services declare; never named"`
 	// Aggregate tallies everything the filter matched, not this page. It is what
 	// makes a filtered list page able to say something true about the whole match
 	// instead of about its first 25 rows.
@@ -240,11 +245,15 @@ func (q *Query) Entities(f EntityFilter) (*EntityList, error) {
 	sortEntityList(filtered, f.Sort)
 
 	pg := Paginate(filtered, f.Limit, f.Offset, DefaultEntityLimit, MaxEntityLimit)
-	return &EntityList{
+	res := &EntityList{
 		Meta: q.productMetaWith(derived), Total: len(filtered), Count: len(pg.Items),
 		Limit: pg.Limit, Offset: pg.Offset, Truncated: pg.Truncated, NextOffset: pg.NextOffset, Entities: pg.Items,
 		Aggregate: q.aggregate(filtered, offerings),
-	}, nil
+	}
+	if want[KindExternal] {
+		res.Hidden = q.snap.hiddenExternals
+	}
+	return res, nil
 }
 
 // sortEntityList orders a filtered answer by the requested [EntityFilter.Sort],
@@ -450,6 +459,7 @@ func validateEntityFilter(f EntityFilter) error {
 		{"createdFrom", f.CreatedFrom, "not a service key, (none) or (unresolved)", validCreatedFrom},
 		{"phase", f.Phase, "not a provisioning phase (requested, provisioning, ready, failed, deleting, unknown)", validPhaseBucket},
 		{"lifecycle", f.Lifecycle, "not a lifecycle filter (deprecated, sunset)", validLifecycleFilter},
+		{"class", f.Class, "not an external class (" + strings.Join(ExternalClasses(), ", ") + ")", validExternalClass},
 	}); err != nil {
 		return err
 	}
@@ -546,6 +556,7 @@ func validateFilterCombos(f EntityFilter) error {
 		{"gap", f.Gap, []EntityKind{KindService}},
 		{"readiness", f.Readiness, []EntityKind{KindRevision}},
 		{"lifecycle", f.Lifecycle, []EntityKind{KindService, KindOffering}},
+		{"class", f.Class, []EntityKind{KindExternal}},
 	} {
 		if err := appliesTo(c.field, c.value, c.kinds...); err != nil {
 			return err
@@ -555,7 +566,7 @@ func validateFilterCombos(f EntityFilter) error {
 }
 
 // kindSet returns the set of requested kinds. An empty request means every kind
-// but KindDomain and KindOffering: they came later and are returned only when asked for, so a
+// but KindDomain, KindOffering and KindExternal: they came later and are returned only when asked for, so a
 // kind-less query keeps the answer it always had.
 func kindSet(kinds []EntityKind) map[EntityKind]bool {
 	if len(kinds) == 0 {
@@ -603,6 +614,11 @@ func (q *Query) candidateRefs(want map[EntityKind]bool) ([]EntityRef, map[string
 		var rows []EntityRef
 		rows, offerings = q.offeringListRefs()
 		refs = append(refs, rows...)
+	}
+	if want[KindExternal] {
+		for _, rec := range q.externals {
+			refs = append(refs, externalListRef(rec))
+		}
 	}
 	return refs, offerings
 }
@@ -759,7 +775,7 @@ func (q *Query) owners() []string {
 // need a snapshot lookup (text, owner, source) stay here.
 func (q *Query) entityMatches(r EntityRef, f EntityFilter, x crossKind) bool {
 	return matchScalarFields(r, f) &&
-		matchEntityText(r, f.Text) &&
+		q.matchEntityTextOrClass(r, f) &&
 		(f.Owner == "" || q.entityOwnedBy(r, f.Owner)) &&
 		(f.OwnerKey == "" || q.entityOwnedByKey(r, f.OwnerKey, x)) &&
 		(f.Source == "" || q.entityFromSource(r, f.Source)) &&
@@ -767,6 +783,16 @@ func (q *Query) entityMatches(r EntityRef, f EntityFilter, x crossKind) bool {
 		(f.Readiness == "" || q.matchReadinessState(r, f.Readiness)) &&
 		q.matchGoldenPath(r, f) &&
 		q.matchOrganization(r, f, x)
+}
+
+// matchEntityTextOrClass applies the text filter: an external system also matches by a
+// catalog alias. The class filter keeps the external systems of that class.
+func (q *Query) matchEntityTextOrClass(r EntityRef, f EntityFilter) bool {
+	if r.Kind != KindExternal {
+		return f.Class == "" && matchEntityText(r, f.Text)
+	}
+	return (f.Text == "" || externalTextMatches(q.externals[ExternalKey(r.Key)], f.Text)) &&
+		(f.Class == "" || r.Secondary == f.Class)
 }
 
 // matchGoldenPath applies the template and created-from filters.

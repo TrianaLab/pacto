@@ -43,6 +43,12 @@
       "tag": "4.5.0",
       "version": "4.5.0"
     },
+    "external-catalog": {
+      "artifactKind": "oci-image",
+      "coordinate": "ghcr.io/trianalab/pacto/external-catalog",
+      "tag": "4.5.0",
+      "version": "4.5.0"
+    },
     "k8s-docs": {
       "artifactKind": "docs",
       "coordinate": "mkdocs:integrations/kubernetes",

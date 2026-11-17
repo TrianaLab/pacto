@@ -94,6 +94,10 @@ type DependencyInput struct {
 	// no ref it needs Version, the free-text version it runs against.
 	External bool   `json:"external,omitempty"`
 	Version  string `json:"version,omitempty"`
+	// Identity names the external system an external dependency with no
+	// ref joins in the fleet, when its name is not an alias the external
+	// catalog knows. It needs pactoVersion 2.5.
+	Identity string `json:"identity,omitempty"`
 }
 
 // ConfigurationRefInput describes a configuration reference to add: a
@@ -579,10 +583,15 @@ func buildDependenciesList(inputs []DependencyInput) []any {
 
 // dependencyEntry is one dependencies[] entry. An external dependency with no
 // ref carries its version instead of a ref and a range. A dependency given no
-// range is written with compatibility unknown, never a guessed range.
+// range is written with compatibility unknown, never a guessed range. An
+// identity is written as given, so validation, not this tool, judges it.
 func dependencyEntry(dep DependencyInput) map[string]any {
 	if dep.Ref == "" && dep.External {
-		return map[string]any{"name": dep.Name, "external": true, "version": dep.Version, "required": dep.Required}
+		entry := map[string]any{"name": dep.Name, "external": true, "version": dep.Version, "required": dep.Required}
+		if dep.Identity != "" {
+			entry["identity"] = dep.Identity
+		}
+		return entry
 	}
 	compat := dep.Compatibility
 	if compat == "" {
@@ -596,6 +605,9 @@ func dependencyEntry(dep DependencyInput) map[string]any {
 	}
 	if dep.External {
 		entry["external"] = true
+	}
+	if dep.Identity != "" {
+		entry["identity"] = dep.Identity // validation refuses it beside a ref
 	}
 	return entry
 }
@@ -630,12 +642,18 @@ func hasExternal(deps []DependencyInput) bool {
 	return slices.ContainsFunc(deps, func(d DependencyInput) bool { return d.External })
 }
 
+// hasIdentity reports whether deps names an external identity, which needs
+// pactoVersion 2.5.
+func hasIdentity(deps []DependencyInput) bool {
+	return slices.ContainsFunc(deps, func(d DependencyInput) bool { return d.Identity != "" })
+}
+
 // createMinVersion is the pactoVersion a new contract is written with: the
 // oldest that has every field input sets. A new contract has no earlier
 // meaning to keep, so it is never raised through contract.Upgrade.
 func createMinVersion(input CreateInput) string {
 	switch {
-	case len(undeclaredRanges(input.Dependencies)) > 0:
+	case len(undeclaredRanges(input.Dependencies)) > 0, hasIdentity(input.Dependencies):
 		return "2.5"
 	case input.Domain != "":
 		return "2.4"
@@ -649,7 +667,7 @@ func createMinVersion(input CreateInput) string {
 // or "" when any version has them. Removing a field needs no newer version.
 func editMinVersion(input EditInput) string {
 	switch {
-	case len(undeclaredRanges(input.AddDependencies)) > 0:
+	case len(undeclaredRanges(input.AddDependencies)) > 0, hasIdentity(input.AddDependencies):
 		return "2.5"
 	case needs24(input):
 		return "2.4"

@@ -76,6 +76,7 @@ print("\n".join(sorted(m.signed_coordinates())))
 		"ghcr.io/trianalab/pacto/charts/pacto-operator",
 		"ghcr.io/trianalab/pacto/dashboard",
 		"ghcr.io/trianalab/pacto/delivery",
+		"ghcr.io/trianalab/pacto/external-catalog",
 		"ghcr.io/trianalab/pacto/operator",
 	}
 	if strings.Join(got, " ") != strings.Join(want, " ") {

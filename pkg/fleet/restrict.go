@@ -74,7 +74,7 @@ func callerNamespace(c UncontractedCaller) (string, bool) {
 // is counted into its hidden dependents. Restrict returns q when nothing is
 // hidden.
 func (q *Query) Restrict(visible func(namespace string) bool) *Query {
-	s := q.snap
+	s := q.base
 	hiddenNS := map[string]bool{}
 	for _, ns := range q.Namespaces() {
 		if !visible(ns) {
@@ -119,6 +119,7 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 	out.hiddenReferrers = hiddenReferrers
 	origins, hiddenCreated := restrictOrigins(s, hiddenSvc)
 	hiddenNames = append(hiddenNames, restrictServices(&out, s.Services, hiddenSvc, hiddenCounts{hiddenDeps, hiddenDependents, hiddenReferrers}, origins, hiddenCreated)...)
+	restrictExternals(&out, s)
 	out.targetsHidden = targetsHidden(&out, s.Services, offeringOnly)
 	out.hiddenProviders = hiddenProviders(&out, s.Services, hiddenSvc)
 	out.hiddenProviderMatch = hiddenProviderMatch(s, out.hiddenProviders, hiddenSvc)

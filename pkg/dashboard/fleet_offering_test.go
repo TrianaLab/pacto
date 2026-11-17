@@ -234,7 +234,7 @@ func TestFleetEntitiesDescriptionsNameOfferings(t *testing.T) {
 	}
 	for path, want := range map[string]string{
 		"/api/fleet/entities":        "platform offerings",
-		"/api/fleet/entities/{kind}": "domain or offering",
+		"/api/fleet/entities/{kind}": "domain, offering or external",
 	} {
 		if d := doc.Paths[path]["get"].Description; !strings.Contains(d, want) {
 			t.Errorf("%s description %q lacks %q", path, d, want)
@@ -242,5 +242,25 @@ func TestFleetEntitiesDescriptionsNameOfferings(t *testing.T) {
 	}
 	if d := doc.Paths["/api/fleet/impact"]["post"].Description; !strings.Contains(d, "offeringKey") {
 		t.Errorf("impact description %q lacks offeringKey", d)
+	}
+}
+
+// TestProductEntities_ClassWithoutKindsListsExternals: class applies only to
+// external systems, so without kinds the route lists them, as the CLI and
+// MCP do, instead of rejecting the filter.
+func TestProductEntities_ClassWithoutKindsListsExternals(t *testing.T) {
+	q := offeringDashboardQuery(t)
+	base, cancel := startFleetTestServer(t, func(context.Context) (*fleet.Query, error) { return q, nil }, nil)
+	defer cancel()
+
+	var all ProductEntityList
+	getJSON(t, base+"/api/fleet/entities?kinds=external", http.StatusOK, &all)
+	if all.Total != 1 {
+		t.Fatalf("externals = %+v", all.Entities)
+	}
+	var list ProductEntityList
+	getJSON(t, base+"/api/fleet/entities?class="+all.Entities[0].Secondary, http.StatusOK, &list)
+	if list.Total != 1 || list.Entities[0].Kind != fleet.KindExternal {
+		t.Errorf("class without kinds = %+v", list.Entities)
 	}
 }

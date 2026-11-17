@@ -248,7 +248,7 @@ func buildFleetMode(cmd *cobra.Command, svc *app.Service, d deps) (*pactomcp.Fle
 // reads the snapshot as this process, so the server scans the working
 // directory's bundles only when --local says so; stdio keeps `--local .`.
 func mcpFleetOptions(cmd *cobra.Command) app.FleetOptions {
-	fopts := fleetOptions(cmd)
+	fopts := longRunning(fleetOptions(cmd))
 	if transport, _ := cmd.Flags().GetString("transport"); transport != "stdio" && !cmd.Flags().Changed("local") {
 		fopts.LocalRoots = nil
 	}

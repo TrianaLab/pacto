@@ -43,7 +43,8 @@ func newFleetEntitiesCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	f.String("kind", "", "entity kind (service, revision, target, owner, source, domain, offering; empty lists services, owners, domains and offerings)")
+	f.String("kind", "", "entity kind (service, revision, target, owner, source, domain, offering, external; empty lists services, owners, domains and offerings)")
+	f.String("class", "", "with --kind external, external systems of this class ("+strings.Join(fleet.ExternalClasses(), ", ")+")")
 	f.String("owner", "", "free-text owner search over team, DRI and contacts")
 	f.String("owner-key", "", "exact owner key, such as team:platform or dri:alice")
 	f.String("business-domain", "", "exact business domain, "+fleet.NoBusinessDomain+" for none or "+fleet.UnknownBusinessDomain+" for unknown")
@@ -71,6 +72,7 @@ func newFleetEntitiesCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	f.Int("limit", 0, fmt.Sprintf("maximum results (0 = %d, capped at %d)", fleet.DefaultEntityLimit, fleet.MaxEntityLimit))
 	f.Int("offset", 0, "result offset for paging")
 	_ = cmd.RegisterFlagCompletionFunc("kind", staticCompletions(fleet.EntityKinds()...))
+	_ = cmd.RegisterFlagCompletionFunc("class", staticCompletions(fleet.ExternalClasses()...))
 	_ = cmd.RegisterFlagCompletionFunc("readiness", staticCompletions("passing", "below-threshold", "expired", "not-declared"))
 	_ = cmd.RegisterFlagCompletionFunc("source-health", staticCompletions("available", "partial", "stale", "unavailable", "incomplete"))
 	_ = cmd.RegisterFlagCompletionFunc("ownership", staticCompletions(fleet.OwnershipConsistent, fleet.OwnershipConflicting, fleet.OwnershipUnowned, fleet.OwnershipUnknown, fleet.OwnershipUnidentified))
@@ -134,7 +136,7 @@ func entityFilterFromCmd(cmd *cobra.Command, text string) fleet.EntityFilter {
 		Template: get("template"), CreatedFrom: get("created-from"),
 		HasNonCompliant: nc, SourceKind: get("source-kind"), Lifecycle: get("lifecycle"), Failed: failed, Limit: limit, Offset: offset,
 		Capability: get("capability"), Domain: get("domain"), Service: get("service"), Source: get("source"),
-		Scope: get("scope"), Readiness: get("readiness"), SourceHealth: get("source-health"),
+		Scope: get("scope"), Readiness: get("readiness"), SourceHealth: get("source-health"), Class: get("class"),
 	}
 	f.Kinds = fleet.ListKinds(get("kind"), f)
 	return f
@@ -150,7 +152,7 @@ func addTemplateFlag(f *pflag.FlagSet) {
 func newFleetEntityCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "entity <kind> <key>",
-		Short: "Inspect one service, revision, target, owner, source, business domain or offering",
+		Short: "Inspect one service, revision, target, owner, source, business domain, offering or external system",
 		Long: "Inspect one entity. For a service, --reached also reads, with your cluster credentials, when each change's " +
 			"revision first reached each Stage you may read, from delivery history. A --local fleet keys revisions by " +
 			"content, so their changes match no delivery record.",
@@ -437,6 +439,9 @@ func printFleetEntity(cmd *cobra.Command, res *fleet.EntityDetail, format string
 		}
 		if res.Revision != nil {
 			printRevisionPlace(w, res.Revision)
+		}
+		if res.External != nil {
+			printExternal(w, res.External.External, res.External.FoldedInto)
 		}
 		_, _ = fmt.Fprintln(w, "Run with --output-format json for the full detail")
 		warnProductPartial(cmd, res.Meta)

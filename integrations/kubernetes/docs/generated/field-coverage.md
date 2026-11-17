@@ -18,7 +18,7 @@ The page is generated from `pkg/validation/schema/field-coverage.yaml`. `pkg/val
 | --- | --- | --- |
 | `verified` | A runtime fact can both satisfy and contradict the declaration. | 4 |
 | `partial` | A runtime fact exists, but some values or environments stay unverified. | 16 |
-| `static-only` | Checked by `pacto validate` only; nothing at runtime reads it. | 130 |
+| `static-only` | Checked by `pacto validate` only; nothing at runtime reads it. | 131 |
 | `not-applicable` | Identity, container or open object with nothing to verify. | 14 |
 
 A runtime check never turns "could not look" into a violation. A check with no usable fact is listed in `status.evaluationCoverage.unverified` and leaves the contract status unchanged.
@@ -121,6 +121,7 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | `dependencies[].requires[].idempotent` | `static-only` | - | - | - | SCHEMA_VIOLATION when not a boolean; GUARANTEE_UNMET when the provider offers less |
 | `dependencies[].requires[].timeout` | `static-only` | - | - | - | SCHEMA_VIOLATION when not a duration; GUARANTEE_UNMET when the provider offers less |
 | `dependencies[].version` | `static-only` | - | - | - | EXTERNAL_VERSION_REQUIRED, VERSION_WITH_REF, COMPATIBILITY_WITHOUT_REF |
+| `dependencies[].identity` | `static-only` | - | - | - | IDENTITY_WITHOUT_EXTERNAL, INVALID_EXTERNAL_IDENTITY, NEEDS_PACTO_2_5 before 2.5 |
 | `breaks` | `static-only` | - | - | - | SCHEMA_VIOLATION, NEEDS_PACTO_2_5 |
 | `breaks[]` | `static-only` | - | - | - | SCHEMA_VIOLATION, PARSE_ERROR |
 | `breaks[].consumers` | `static-only` | - | - | - | SCHEMA_VIOLATION, DUPLICATE_BREAK_CONSUMER, BREAK_NAMES_SELF |
@@ -1474,6 +1475,18 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Outcomes | EXTERNAL_VERSION_REQUIRED, VERSION_WITH_REF, COMPATIBILITY_WITHOUT_REF |
 | Limitations | shown in the graph and in diffs only; compatibility can never be confirmed |
 | Tests | unit: `pkg/validation/crossfield_test.go:TestValidateDependencyForm`, `pkg/diff/dependency_test.go:TestDiffDependencies_External`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].version/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].version/invalid` |
+
+### `dependencies[].identity`
+
+| Key | Value |
+| --- | --- |
+| Meaning | Canonical identity of the external system a dependency with no ref calls, when its name is not a catalog alias. |
+| Runtime | `static-only` |
+| Evidence | identity only; joins the fleet External node |
+| Rule | schema: identity pattern, pactoVersion 2.5; cross-field: only on an external dependency with no ref, and it must parse as an identity (other-egress is reserved); diff: any change is non-breaking |
+| Outcomes | IDENTITY_WITHOUT_EXTERNAL, INVALID_EXTERNAL_IDENTITY, NEEDS_PACTO_2_5 before 2.5 |
+| Limitations | Pacto never observes the external system here; the identity only names the node consumers join |
+| Tests | unit: `pkg/validation/crossfield_test.go:TestIdentityWithoutExternal`, `pkg/validation/crossfield_test.go:TestIdentityWithRef`, `pkg/validation/crossfield_test.go:TestIdentityInvalid`, `pkg/validation/crossfield_test.go:TestIdentityReserved`, `pkg/validation/crossfield_test.go:TestIdentityValid`, `pkg/validation/structural_test.go:TestIdentityNeeds25`, `pkg/diff/dependency_test.go:TestDiffDependencyIdentityNonBreaking`, `pkg/fleet/external_test.go:TestJoinIdentityOverridesAlias`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].identity/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].identity/invalid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].identity/with-ref`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].identity/needs-2.5` |
 
 ### `breaks`
 

@@ -229,6 +229,10 @@ func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 		}
 		env = append(env, corev1ac.EnvVar().WithName("PACTO_DASHBOARD_REPO").WithValue(strings.Join(repos, ",")))
 	}
+	if cfg.ExternalCatalog != "" {
+		// Passed verbatim: the dashboard strips oci:// from it itself.
+		env = append(env, corev1ac.EnvVar().WithName("PACTO_DASHBOARD_EXTERNAL_CATALOG").WithValue(cfg.ExternalCatalog))
+	}
 	if obs := cfg.ObservationEnv(); obs != "" {
 		env = append(env, corev1ac.EnvVar().WithName(ObservationEnvVar).WithValue(obs))
 	}

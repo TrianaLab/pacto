@@ -4,7 +4,7 @@ import {
   readinessUrl, fleetUrl,
   hashForHref, fleetOverviewUrl, fleetServicesUrl, fleetOwnersUrl, fleetSourcesUrl,
   fleetEntityUrl, fleetGraphFocusUrl, fleetAttentionUrl, fleetChangesUrl,
-  legacyRedirectTarget, replaceHash, fleetEntityListUrl, fleetGoldenPathsUrl, fleetOfferingsUrl, serviceChangesUrl,
+  legacyRedirectTarget, replaceHash, fleetEntityListUrl, fleetGoldenPathsUrl, fleetOfferingsUrl, fleetExternalsUrl, serviceChangesUrl,
   deliveryHistoryUrl, metricsUrl,
 } from './router.ts';
 
@@ -852,5 +852,25 @@ describe('metrics route', () => {
 
   it('is never redirected on a Fleet host', () => {
     expect(legacyRedirectTarget('#/metrics?window=7d')).toBeNull();
+  });
+});
+
+describe('external-system routes', () => {
+  it('parses and serialises the class filter of the Externals list', () => {
+    const url = fleetExternalsUrl({ text: 'pay', class: 'vendor-api', offset: 25, sort: 'consumers' });
+    expect(url).toBe('#/fleet/externals?text=pay&class=vendor-api&offset=25&sort=consumers');
+    expect(parseHash(url)).toEqual({ view: 'fleet-externals', params: { text: 'pay', class: 'vendor-api', offset: '25', sort: 'consumers' } });
+    expect(fleetExternalsUrl()).toBe('#/fleet/externals');
+    expect(fleetEntityListUrl('external')).toBe('#/fleet/externals');
+  });
+
+  it('round-trips an identity that holds slashes', () => {
+    const key = 'aws/rds/123456789012/eu-west-1/orders-db';
+    const url = fleetEntityUrl('external', key);
+    expect(url).toBe('#/fleet/externals/aws%2Frds%2F123456789012%2Feu-west-1%2Forders-db');
+    expect(parseHash(url)).toEqual({ view: 'fleet-entity', params: { kind: 'external', key } });
+    // An unescaped href the backend may build parses to the same key.
+    expect(parseHash(`#/fleet/externals/${key}`).params).toEqual({ kind: 'external', key });
+    expect(parseHash(fleetGraphFocusUrl('external', key))).toEqual({ view: 'fleet', params: { kind: 'external', sel: key } });
   });
 });

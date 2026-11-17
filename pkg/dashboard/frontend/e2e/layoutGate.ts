@@ -42,7 +42,7 @@ export function installScaleFixture(): void {
     memo.set(s, out);
     return out;
   };
-  const ENTITY_KINDS = new Set(['service', 'revision', 'target', 'owner', 'domain', 'source', 'offering']);
+  const ENTITY_KINDS = new Set(['service', 'revision', 'target', 'owner', 'domain', 'source', 'offering', 'external']);
   // Every entity reference carries its display label beside its key: lengthen the label,
   // keep the key. Owner names printed beside a service are lengthened the same way, and
   // so are the context bits a reference shows beside its name (its domain, its parent
@@ -80,7 +80,7 @@ export function installScaleFixture(): void {
     doc.truncated = offset + count < total;
     if (doc.truncated) doc.nextOffset = offset + count;
   };
-  const LIST_TOTAL: Record<string, number> = { service: 5000, owner: 300, domain: 300, source: 50, offering: 2400 };
+  const LIST_TOTAL: Record<string, number> = { service: 5000, owner: 300, domain: 300, source: 50, offering: 2400, external: 300 };
   // The Offerings figure at fleet scale (B3): requests in the thousands across 2,400
   // offerings, the three with most failed consumers named (the backend's bound) and 37
   // more, so the failed list holds 40 offerings.
@@ -110,7 +110,7 @@ export function installScaleFixture(): void {
     // A narrowed list (a domain, an owner, a status, a service, an offering's consumers)
     // keeps the engine's total: the fixture leaves the tallies that link to it (an
     // offering's phases, the non-compliant rankings) alone.
-    const narrowed = ['businessDomain', 'service', 'consumes', 'ownerKey', 'owner', 'status', 'ownership', 'sourceHealth', 'text', 'createdFrom', 'failed', 'lifecycle', 'gap'].some((k) => q.get(k));
+    const narrowed = ['businessDomain', 'service', 'consumes', 'ownerKey', 'owner', 'status', 'ownership', 'sourceHealth', 'text', 'createdFrom', 'failed', 'lifecycle', 'gap', 'class'].some((k) => q.get(k));
     // The golden path list keeps the engine's paths: a fleet has a handful.
     if (route === '/api/fleet/entities' && Number(q.get('limit') || 25) > 1 && !narrowed && q.get('template') !== 'only') {
       const total = LIST_TOTAL[q.get('kinds') || ''];
@@ -206,6 +206,7 @@ export function installScaleFixture(): void {
     if (route === '/api/fleet/overview') {
       const s = doc.summary as Record<string, unknown>;
       s.services = 5000; s.servicesNeedingAttention = 389; s.domains = 300;
+      s.externals = 300; s.hiddenExternals = 12;
       s.ownership = { consistent: 3120, conflicting: 640, unowned: 1060, unknown: 180 };
       s.degradedSources = 2; s.staleSources = 2; s.unavailableSources = 2;
       // The health and knowledge bands and the domain table at fleet scale: every
@@ -268,6 +269,21 @@ export function installScaleFixture(): void {
           unresolvedDependencies: 1200, undeclaredDependencies: 1400,
         });
       }
+    }
+    // The external list's hidden line: systems only services you cannot see declare.
+    if (route === '/api/fleet/entities' && q.get('kinds') === 'external' && !narrowed) doc.hidden = 12;
+    // 'external entity name only, hidden, folded and truncated': the states a demo
+    // external (every one catalog-joined) never reaches. Behind a flag so the plain
+    // external entity route keeps the engine's answer.
+    if (route === '/api/fleet/entities/external' && (window as unknown as { __externalStates?: boolean }).__externalStates) {
+      const x = doc.external as Record<string, unknown>;
+      const rec = x.external as Record<string, unknown>;
+      const c0 = (x.consumers as Record<string, unknown>[])[0];
+      const svc = c0.service as Record<string, unknown>;
+      x.consumers = Array.from({ length: 50 }, (_, i) => ({ ...c0, service: { ...svc, key: `${svc.key}-c${i}`, label: longName(`consumer-${i}`), href: `${svc.href}-c${i}` } }));
+      delete x.catalog; delete rec.catalog;
+      Object.assign(rec, { class: 'unclassified', joinedBy: 'normalized-name', consumersTotal: 120, sourcesTotal: 140, hiddenConsumers: 3 });
+      x.foldedInto = 'other-egress';
     }
     if (route === '/api/fleet/entities/offering') {
       const off = doc.offering as Record<string, Record<string, unknown>>;
@@ -1624,6 +1640,11 @@ export const ROUTES: Route[] = [
       await page.evaluate(() => window.scrollTo(0, 0)); // the fill scrolled the input into view; the gate reads from the top
     },
   },
+  { name: 'externals', list: true, hash: '#/fleet/externals' },
+  { name: 'externals vendor', list: true, hash: '#/fleet/externals?class=vendor-api' },
+  { name: 'external entity', hash: '#/fleet/externals/parcel-carrier' },
+  { name: 'external entity name only, hidden, folded and truncated', open: async (page) => { await page.addInitScript(() => { (window as unknown as { __externalStates?: boolean }).__externalStates = true; }); await page.goto('/#/fleet/externals/parcel-carrier'); await page.reload(); await expect(page.getByTestId('external-folded-into')).toBeVisible({ timeout: 30_000 }); } }, // reload: the init script only runs on a new document
+  { name: 'graph external focus', hash: '#/fleet/graph/external/parcel-carrier' },
   { name: 'source entity', hash: '#/fleet/sources/edge-cluster' },
   { name: 'golden paths', list: true, hash: '#/fleet/golden-paths' },
   { name: 'golden path entity', open: firstLink('#/fleet/golden-paths?sort=name', '/fleet/services/') },

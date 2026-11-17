@@ -8,6 +8,7 @@ import (
 	"github.com/trianalab/pacto/v4/examples/story"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/evidence"
+	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
 	"github.com/trianalab/pacto/v4/pkg/finding"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
@@ -149,8 +150,18 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 			Error:  &fleet.SourceError{Code: fleet.LimitationSourceUnavailable, Message: "edge cluster unreachable"},
 		},
 	})
+	// The organization extension is embedded, so the demo reports it unsigned
+	// rather than inventing a verification it never ran.
+	cat, err := externalcatalog.Assemble(externalcatalog.DefaultRef(), demoExternalCatalog, externalcatalog.Ref{
+		Origin: externalcatalog.OriginOrganization, Repository: "demo (embedded)", Digest: externalcatalog.Digest(demoExternalCatalog),
+		Copy: externalcatalog.CopyEmbedded, Signature: externalcatalog.SignatureUnknown,
+		Reason: "the demo catalog is embedded in the demo; it is not signed",
+	})
+	if err != nil {
+		return nil, nil, err
+	}
 	snap, err := fleet.Build(context.Background(),
-		fleet.BuildOptions{Now: demoNow, FreshnessWindow: 24 * time.Hour},
+		fleet.BuildOptions{Now: demoNow, FreshnessWindow: 24 * time.Hour, ExternalCatalog: cat},
 		fleet.NewMemorySource("local", "local", col), partnerRegistrySource, storySource, cluster, telemetry, mirror, unavailable)
 	if err != nil {
 		return nil, nil, err

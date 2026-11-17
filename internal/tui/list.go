@@ -65,7 +65,7 @@ const servicesKindIx = 1
 func (l *listScreen) kinds() []fleet.EntityKind {
 	return []fleet.EntityKind{
 		"", fleet.KindService, fleet.KindRevision,
-		fleet.KindTarget, fleet.KindOwner, fleet.KindDomain, fleet.KindOffering, fleet.KindSource,
+		fleet.KindTarget, fleet.KindOwner, fleet.KindDomain, fleet.KindOffering, fleet.KindExternal, fleet.KindSource,
 	}
 }
 

@@ -2088,6 +2088,31 @@ fields:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].version/valid
       - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].version/invalid
       e2e: []
+  dependencies[].identity:
+    meaning: Canonical identity of the external system a dependency with no ref calls, when its name is not a catalog
+      alias.
+    runtime: static-only
+    evidence: identity only; joins the fleet External node
+    rule: 'schema: identity pattern, pactoVersion 2.5; cross-field: only on an external dependency with no ref, and it
+      must parse as an identity (other-egress is reserved); diff: any change is non-breaking'
+    outcomes: IDENTITY_WITHOUT_EXTERNAL, INVALID_EXTERNAL_IDENTITY, NEEDS_PACTO_2_5 before 2.5
+    limitations: Pacto never observes the external system here; the identity only names the node consumers join
+    tests:
+      unit:
+      - pkg/validation/crossfield_test.go:TestIdentityWithoutExternal
+      - pkg/validation/crossfield_test.go:TestIdentityWithRef
+      - pkg/validation/crossfield_test.go:TestIdentityInvalid
+      - pkg/validation/crossfield_test.go:TestIdentityReserved
+      - pkg/validation/crossfield_test.go:TestIdentityValid
+      - pkg/validation/structural_test.go:TestIdentityNeeds25
+      - pkg/diff/dependency_test.go:TestDiffDependencyIdentityNonBreaking
+      - pkg/fleet/external_test.go:TestJoinIdentityOverridesAlias
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].identity/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].identity/invalid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].identity/with-ref
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].identity/needs-2.5
+      e2e: []
   breaks:
     meaning: Deliberate breaking changes this version announces to named consumers.
     runtime: static-only

@@ -71,6 +71,14 @@ describe('buildCommands — capability-aware views (Part 1: one destination per 
    * cannot contain a passing revision: typing "readiness" showed only the failures and
    * called them readiness.
    */
+  // External systems have no sidebar item (Services hosts them), so the palette is a door.
+  it('finds the external systems by the words a user types', () => {
+    for (const q of ['external', 'vendor', 'third party']) {
+      const views = buildCommands(q, [], true).find((g) => g.label === 'Views')?.items || [];
+      expect(views.map((v) => [v.label, v.href])).toEqual([['External systems', '#/fleet/externals']]);
+    }
+  });
+
   it('sends Readiness to the whole revision population, not to the failure backlog', () => {
     const views = buildCommands('readiness', [], true).find((g) => g.label === 'Views')?.items || [];
     expect(views.map((v) => [v.label, v.href])).toEqual([['Readiness', '#/fleet/revisions']]);

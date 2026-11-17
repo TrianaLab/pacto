@@ -831,6 +831,7 @@ describe('responsive by construction', () => {
     'views/FleetEntityListView.svelte: min-width: 220px',
     'views/FleetEntityListView.svelte: min-width: 180px',
     'views/FleetOfferingsView.svelte: min-width: 220px',
+    'views/FleetExternalsView.svelte: min-width: 220px',
     'views/ServiceListView.svelte: min-width: 220px',
   ];
   const AUTO_TRACK_REVIEWED = [

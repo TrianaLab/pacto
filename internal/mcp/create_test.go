@@ -2942,6 +2942,40 @@ func TestExternalDependencies(t *testing.T) {
 	}
 }
 
+// TestExternalDependencyIdentity: identity on an external dependency with no
+// ref is written as given and raises the contract to 2.5, which validates; on
+// a dependency with a ref validation refuses it.
+func TestExternalDependencyIdentity(t *testing.T) {
+	stripe := []DependencyInput{{Name: "payments-api", External: true, Version: "2024-06-20", Identity: "stripe"}}
+	dir := filepath.Join(t.TempDir(), "shop")
+	if _, err := Create(CreateInput{Name: "shop", Path: dir, Dependencies: stripe}); err != nil {
+		t.Fatal(err)
+	}
+	if y := readPactoYAML(t, dir); !strings.Contains(y, "identity: stripe") || !strings.Contains(y, `pactoVersion: "2.5"`) {
+		t.Fatalf("created:\n%s", y)
+	}
+	if res, err := Check(context.Background(), nil, dir, nil); err != nil || !res.Valid {
+		t.Fatalf("created: %v %+v", err, res)
+	}
+
+	dir = testutil.WriteTestBundle(t)
+	ed, err := Edit(context.Background(), nil, EditOptions{}, EditInput{Path: dir, AddDependencies: stripe})
+	if err != nil || !containsStr(ed.Changes, `set pactoVersion to "2.5" (was "2.0")`) {
+		t.Fatalf("edit: %v %+v", err, ed)
+	}
+	if res, err := Check(context.Background(), nil, dir, nil); err != nil || !res.Valid {
+		t.Fatalf("edited: %v %+v", err, res)
+	}
+
+	if e := dependencyEntry(DependencyInput{Ref: "oci://r/a:1", External: true, Identity: "stripe"}); e["identity"] != "stripe" {
+		t.Errorf("identity beside a ref is written for validation to refuse: %v", e)
+	}
+	dir = filepath.Join(t.TempDir(), "bad")
+	if _, err := Create(CreateInput{Name: "bad", Path: dir, Dependencies: []DependencyInput{{Name: "x", Ref: "oci://ghcr.io/acme/x-pacto:1.0.0", Compatibility: "^1.0.0", External: true, Identity: "stripe"}}}); err == nil || !strings.Contains(err.Error(), "identity") {
+		t.Errorf("identity beside a ref: %v", err)
+	}
+}
+
 func TestDependencyEntry(t *testing.T) {
 	if e := dependencyEntry(DependencyInput{Name: "model", External: true, Version: "v1"}); e["ref"] != nil || e["compatibility"] != nil || e["version"] != "v1" || e["external"] != true {
 		t.Errorf("external, no ref: %v", e)

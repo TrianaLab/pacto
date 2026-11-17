@@ -192,7 +192,7 @@ func names(m map[string]bool) []string {
 func TestReleaseDAGSelection(t *testing.T) {
 	dag, publisher := loadReleaseDAG(t)
 
-	core := []string{"core", "cli", "dashboard-image", "dashboard-contract-bundle", "demo-bundles", "demo-compose"}
+	core := []string{"core", "cli", "dashboard-image", "dashboard-contract-bundle", "demo-bundles", "demo-compose", "external-catalog"}
 	k8s := []string{"k8s-module", "operator-image", "operator-chart", "delivery-image", "k8s-docs"}
 	k8sPublishers := []string{"k8s-module", "operator-image", "operator-chart", "delivery-image"}
 

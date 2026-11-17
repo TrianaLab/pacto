@@ -418,6 +418,7 @@ func depsFromContract(c *contract.Contract) []DependencyInfo {
 			External:             dep.External,
 			CompatibilityUnknown: dep.Compatibility == contract.CompatibilityUnknown,
 			Version:              dep.Version,
+			identity:             dep.Identity,
 		}
 		d.Requires = dep.Requires
 		if len(dep.Requires) > 0 {

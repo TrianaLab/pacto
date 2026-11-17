@@ -414,6 +414,30 @@ tests:
           path: spec.template.spec.containers[0].args[*]
           pattern: "--dashboard-repositories"
 
+  - it: should pass the organization external catalog
+    set:
+      dashboard.enabled: true
+      dashboard.externalCatalog: oci://ghcr.io/acme/catalog@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-external-catalog=oci://ghcr.io/acme/catalog@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+  - it: should pass no external catalog by default
+    set:
+      dashboard.enabled: true
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: "--dashboard-external-catalog"
+
+  - it: should refuse an external catalog pinned by tag
+    set:
+      dashboard.enabled: true
+      dashboard.externalCatalog: oci://ghcr.io/acme/catalog:1
+    asserts:
+      - failedTemplate: {}
+
   - it: should refuse a dashboard repository without oci://
     set:
       dashboard.enabled: true

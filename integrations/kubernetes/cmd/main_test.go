@@ -104,3 +104,16 @@ func TestStrayArgumentIsRefused(t *testing.T) {
 		t.Fatalf("the equals form must parse cleanly: %v", err)
 	}
 }
+
+func TestDashboardExternalCatalogFlag(t *testing.T) {
+	ref := "oci://ghcr.io/acme/catalog@sha256:" + strings.Repeat("a", 64)
+	fs := flag.NewFlagSet("t", flag.ContinueOnError)
+	o := &options{}
+	bindFlags(fs, o)
+	if err := fs.Parse([]string{"--dashboard-external-catalog=" + ref}); err != nil {
+		t.Fatal(err)
+	}
+	if o.dashboardExternalCatalog != ref {
+		t.Errorf("dashboardExternalCatalog = %q, want %q", o.dashboardExternalCatalog, ref)
+	}
+}

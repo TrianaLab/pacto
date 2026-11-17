@@ -64,6 +64,9 @@ const svcCount = Object.keys(snap.services || {}).length;
 check("fleet snapshot has all demo services", svcCount >= 7, `${svcCount} services`);
 check("fleet snapshot has a snapshotId", typeof snap.snapshotId === "string" && snap.snapshotId.length > 0);
 check("fleet snapshot has operational targets", Object.keys(snap.targets || {}).length >= 7);
+// The demo organization catalog joins two consumers' "model" on one external system.
+const sharedExternals = Object.values(snap.externals || {}).filter((e) => (e.consumers || []).length >= 2);
+check("an external system joins two consumers", sharedExternals.length >= 1, sharedExternals.map((e) => e.key).join(","));
 // A deliberately-unavailable secondary source makes the snapshot partial.
 check("fleet snapshot is partial (an unavailable source is surfaced)",
   snap.completeness !== "complete" && (snap.sources || []).some((s) => s.status === "unavailable"),

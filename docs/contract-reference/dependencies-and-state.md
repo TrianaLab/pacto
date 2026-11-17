@@ -21,6 +21,7 @@ Declares dependencies on other services via their Pacto contracts.
 | `compatibility` | string | With `ref` | Non-empty. Valid semver constraint, or `unknown` in 2.5. See [Unknown compatibility](#unknown-compatibility) |
 | `external` | boolean | No | `true` when something outside this Pacto system delivers the dependency. Needs `pactoVersion: "2.1"` |
 | `version` | string | Only for `external` without `ref` | The version it runs against, as free text |
+| `identity` | string | No | Only for `external` without `ref`. The canonical identity of the external system. See [Name an external system](#name-an-external-system). Needs `pactoVersion: "2.5"` |
 | `requires` | list | No | Guarantees this service relies on from the provider. See [Required guarantees](#required-guarantees). Needs `pactoVersion: "2.2"` |
 
 !!! note
@@ -80,23 +81,19 @@ dependencies:
 
 `pacto validate` reads the provider contract and reports every unmet guarantee
 in one run as `GUARANTEE_UNMET`, naming both services, the guarantee and both
-values. It is an error on a required dependency and a warning on an optional
-one. When Pacto cannot read the provider contract, nothing confirms the
-requirement, so validation warns with `GUARANTEE_UNVERIFIED` and reports the
-`guarantees` stage as `SKIP` with a reason naming the dependency. The stage
-passes only when every requirement was checked. `pacto publish` and
-`pacto push` run the same check: an unmet guarantee of a required dependency
-refuses them, and a warning is shown in their output. `pacto pack` builds an
-archive offline and does not fetch providers. `pacto graph`
-marks each refused edge. [`pacto impact`](../impact.md) lists the consumers
-whose requirement a change breaks and blocks the release when one of them runs.
+values: an error on a required dependency, a warning on an optional one. When
+Pacto cannot read the provider contract, validation warns with
+`GUARANTEE_UNVERIFIED` and reports the `guarantees` stage as `SKIP`, naming the
+dependency. `pacto publish` and `pacto push` run the same check and refuse an
+unmet guarantee of a required dependency. `pacto pack` works offline and fetches
+no providers. `pacto graph` marks each refused edge.
+[`pacto impact`](../impact.md) lists the consumers whose requirement a change
+breaks and blocks the release when one of them runs.
 [Delivery](../integrations/kubernetes/delivery.md) holds a promote that leaves
-a consumer's required guarantee unmet for that consumer's team, wherever the
-consumer runs. A Pacto status an older operator wrote records no guarantees or
-`requires`, so delivery reads it as unknown until the new operator reconciles
-it: a requirement on that provider is not refused, and a breaking or possibly
-breaking change to one of its providers waits for a person to accept the
-unknown.
+a consumer's required guarantee unmet, wherever the consumer runs. A status an
+older operator wrote records no guarantees, so delivery reads it as unknown
+until the new operator reconciles it: a breaking or possibly breaking change to
+such a provider waits for a person to accept the unknown.
 
 ### External dependencies
 
@@ -125,6 +122,30 @@ that relies on it is Unknown and never passes. A dependency with no `ref` and no
 `external: true` fails validation with `DEPENDENCY_REF_REQUIRED`. An external
 dependency with no `ref` and no `version` fails with `EXTERNAL_VERSION_REQUIRED`.
 
+### Name an external system
+
+Each ref-less external dependency joins one graph node per external system. A
+catalog alias joins its entry (`stripe-api` joins `stripe`); any other name
+gets a node of its own. When the name says what the dependency does,
+set `identity` to the system it calls:
+
+```yaml
+pactoVersion: "2.5"
+dependencies:
+  - name: payments-provider
+    external: true
+    version: "2024-06-20"
+    required: true
+    identity: stripe             # or host/corp-legacy.example
+```
+
+An identity is lower-case path segments: a vendor (`stripe`),
+`host/<registrable-domain>` or `<provider>/<service>/<account>/<region>/<id>`
+(`aws/rds/123456789012/eu-west-1/orders-db`). It needs `external: true` and no
+`ref` (`IDENTITY_WITHOUT_EXTERNAL`). An unparseable identity or the reserved
+`other-egress` fails with `INVALID_EXTERNAL_IDENTITY`. Changing it is never
+breaking. See the [external catalog reference](../external-catalog-reference.md).
+
 ### A dependency whose contract is not published yet
 
 For a service your Pacto system delivers whose contract nobody has published
@@ -139,9 +160,9 @@ dependencies:
     required: true
 ```
 
-The contract validates. Until `ledger` publishes, Pacto lists the dependency
-as unresolved, so the gap stays visible. With `external: true` and a `version`
-in its place, compatibility stays Unknown for good.
+The contract validates. Until `ledger` publishes, Pacto lists it as
+unresolved, so the gap stays visible. With `external: true` and a `version`
+instead, compatibility stays Unknown for good.
 
 ### Dependency reference schemes
 
@@ -152,7 +173,7 @@ in its place, compatibility stays Unknown for good.
 | `file://` | `file://../shared-db` | Local filesystem path |
 | *(bare path)* | `../shared-db` | Local filesystem path (shorthand for `file://`) |
 
-When an `oci://` reference omits the tag, pacto queries the registry for available tags and selects the highest semver version that satisfies the `compatibility` constraint. For example, with `compatibility: "^2.0.0"` and available tags `1.0.0`, `2.0.0`, `2.3.0`, `3.0.0`, pacto resolves to `2.3.0`. Pacto caches tag listings in memory for the duration of the command, so dependencies that point to the same repository share one registry query.
+When an `oci://` reference omits the tag, Pacto picks the highest semver tag that satisfies `compatibility`: with `^2.0.0` and tags `1.0.0`, `2.0.0`, `2.3.0` and `3.0.0` it resolves to `2.3.0`. Tag listings are cached for the duration of the command, so dependencies on the same repository share one registry query.
 
 !!! warning "`compatibility` applies only to untagged references"
     Pacto reads the constraint **only** when the reference omits its tag. A `ref`
@@ -167,9 +188,8 @@ When an `oci://` reference omits the tag, pacto queries the registry for availab
         compatibility: "^2.0.0"                    # … which this does not satisfy
     ```
 
-    Pinning and constraining are separate decisions. If you pin, the pin wins.
-    Keep `compatibility` accurate anyway, because consumers and the
-    [lockfile](../lockfile.md) read it as your declared range.
+    If you pin, the pin wins. Keep `compatibility` accurate anyway: consumers
+    and the [lockfile](../lockfile.md) read it as your declared range.
 
     At runtime the Kubernetes operator does check the range: when the provider
     runs under its own Pacto resource, the contract version it reports outside
@@ -242,7 +262,7 @@ workload: service
 
 ## `state`
 
-Top-level section declaring how the service manages state. Optional: a minimal contract, such as a lightweight dependency declaration, can omit it. The contract tells the platform whether the service needs persistent storage or a stable network identity.
+Top-level section declaring how the service manages state. Optional: a minimal contract can omit it. The contract tells the platform whether the service needs persistent storage or a stable network identity.
 
 | Field | Type | Required | Enum values |
 |-------|------|----------|-------------|

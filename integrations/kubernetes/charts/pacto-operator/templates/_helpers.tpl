@@ -277,6 +277,9 @@ Controller arguments derived from values
 {{- with .Values.dashboard.repositories }}
 - --dashboard-repositories={{ join "," . }}
 {{- end }}
+{{- with .Values.dashboard.externalCatalog }}
+- --dashboard-external-catalog={{ . }}
+{{- end }}
 {{- with .Values.dashboard.delivery }}
 {{- with include "pacto-operator.dashboardDeliveryNamespace" $ }}
 - --dashboard-delivery-namespace={{ . }}

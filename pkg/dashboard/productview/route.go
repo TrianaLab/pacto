@@ -34,6 +34,8 @@ func Entity(kind fleet.EntityKind, key string) string {
 		return routeEntity("domains", key)
 	case fleet.KindOffering:
 		return routeEntity("offerings", key)
+	case fleet.KindExternal:
+		return routeEntity("externals", key)
 	default:
 		return Root
 	}

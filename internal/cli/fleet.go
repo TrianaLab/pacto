@@ -55,7 +55,7 @@ func newFleetCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder)
 // present, which is how a command keeps a deliberately narrowed spelling (`pacto
 // impact --traces` takes one document and reads it itself) or its own help text
 // (`pacto mcp --root` selects a catalog, not a snapshot closure) without having
-// to restate the other nine.
+// to restate the rest.
 func addFleetSourceFlags(f *pflag.FlagSet) {
 	shared := pflag.NewFlagSet("fleet-source", pflag.ContinueOnError)
 	shared.StringArray("local", []string{"."}, "local bundle root(s) to scan (repeatable)")
@@ -69,6 +69,7 @@ func addFleetSourceFlags(f *pflag.FlagSet) {
 	shared.Bool("k8s", false, "include live Pacto CRs from the current Kubernetes cluster as targets")
 	shared.String("namespace", "", "namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)")
 	shared.Duration("freshness", fleet.RecentEvidenceWindow, "mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so)")
+	shared.String("external-catalog", "", "organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST (a tag is refused)")
 	f.AddFlagSet(shared)
 }
 
@@ -78,7 +79,7 @@ func addFleetSourceFlags(f *pflag.FlagSet) {
 func fleetFlagNames() []string {
 	return []string{
 		"local", "root", "target-state", "evidence-url", "mira-source", "traces", "oci",
-		"cache", "k8s", "namespace", "freshness",
+		"cache", "k8s", "namespace", "freshness", "external-catalog",
 	}
 }
 
@@ -120,6 +121,13 @@ func fleetSourceArgs(cmd *cobra.Command) []string {
 // commands do that on purpose (`pacto impact` and `pacto fleet reconcile` each
 // take a single --traces document and read it themselves), and
 // TestSharedFleetFlagTypesAreConsistent fails any third one that appears.
+// longRunning marks opts as a process that builds again later (see
+// [app.FleetOptions.LongRunning]).
+func longRunning(opts app.FleetOptions) app.FleetOptions {
+	opts.LongRunning = true
+	return opts
+}
+
 func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 	local, _ := cmd.Flags().GetStringArray("local")
 	// --root is also `pacto mcp`'s catalog-server selector, where it is mutually
@@ -140,6 +148,7 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 	noCache, _ := cmd.Flags().GetBool("no-cache")
 	includeK8s, _ := cmd.Flags().GetBool("k8s")
 	freshness, _ := cmd.Flags().GetDuration("freshness")
+	externalCatalog, _ := cmd.Flags().GetString("external-catalog")
 	return app.FleetOptions{
 		LocalRoots:         local,
 		CatalogRoots:       roots,
@@ -152,6 +161,7 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 		IncludeK8s:         includeK8s,
 		K8sNamespaces:      flagNamespaces(cmd),
 		FreshnessWindow:    freshness,
+		ExternalCatalogRef: externalCatalog,
 		Provenance:         app.NewProvenanceChecker(),
 	}
 }
@@ -232,7 +242,10 @@ func newFleetSearchCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "search [text]",
 		Short: "Search logical services in the fleet",
-		Args:  cobra.MaximumNArgs(1),
+		Long: "Search logical services in the fleet. A search on text alone, first page, also " +
+			"lists up to 20 external systems whose identity, label or alias holds the text; " +
+			"any other filter or --offset lists none.",
+		Args: cobra.MaximumNArgs(1),
 		// Free text matched against the fleet, never a path — the same reason its
 		// three siblings give. Without this the shell falls back to filenames and
 		// offers the working directory as if it were a search term.
@@ -317,8 +330,10 @@ func searchFilterFromCmd(cmd *cobra.Command, text string) (fleet.SearchFilter, e
 func newFleetGetCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "get [service]",
-		Short: "Inspect a logical service or an operational target",
-		Args:  cobra.MaximumNArgs(1),
+		Short: "Inspect a logical service, an external system or an operational target",
+		Long: "Inspect a logical service by name, an external system by external:<identity> " +
+			"(a vendor, managed service or legacy host no Pacto contract describes) or an operational target with --target.",
+		Args: cobra.MaximumNArgs(1),
 		// A service key comes from the snapshot, and building one at tab time would
 		// reach k8s, a registry or the disk cache while the reader holds tab. No
 		// candidates is the honest answer; falling back to filenames is not, because
@@ -339,7 +354,14 @@ func newFleetGetCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			}
 			name := optionalArg(args)
 			if name == "" {
-				return fmt.Errorf("provide a service name or --target")
+				return fmt.Errorf("provide a service name, external:<identity> or --target")
+			}
+			if _, ok := fleet.ParseExternalSubject(name); ok {
+				ev, err := q.GetExternal(name)
+				if err != nil {
+					return err
+				}
+				return printFleetExternal(cmd, ev, v.GetString(outputFormatKey))
 			}
 			sv, err := q.GetService(name)
 			if err != nil {
@@ -360,7 +382,8 @@ func newFleetGraphCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			"name to aggregate across its revisions, or --revision/--target to root " +
 			"an exact revision (never 'latest'). The walk also follows observed " +
 			"runtime calls, so services no contract connects appear too; each node " +
-			"reports its provenance (declared, observed or declared+observed).",
+			"reports its provenance (declared, observed or declared+observed). Give " +
+			"external:<identity> to list the consumers of an external system (its only direction is dependents).",
 		Args: cobra.MaximumNArgs(1),
 		// Same as `fleet get`: the candidates live in a snapshot too expensive to
 		// build at the prompt, and this positional is never a path.
@@ -386,7 +409,7 @@ func newFleetGraphCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			return printFleetGraph(cmd, res, v.GetString(outputFormatKey))
 		},
 	}
-	cmd.Flags().String("direction", "dependencies", "traversal direction (dependencies, dependents)")
+	cmd.Flags().String("direction", "", "traversal direction (dependencies, dependents); unset means dependencies, or dependents for an external: root")
 	cmd.Flags().Bool("transitive", false, "traverse transitively (cycle-safe)")
 	cmd.Flags().Int("max-depth", 0, "maximum transitive depth (0 = unlimited)")
 	cmd.Flags().String("revision", "", "root an exact contract revision key")
@@ -471,7 +494,9 @@ func newFleetExplainCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	return &cobra.Command{
 		Use:   "explain <subject>",
 		Short: "Explain the deterministic reasons for a service or target state",
-		Args:  cobra.ExactArgs(1),
+		Long: "Explain the deterministic reasons for a service or target state. Give external:<identity> " +
+			"to list the sources that declare an external system and the catalog entry that classified it.",
+		Args: cobra.ExactArgs(1),
 		// Same as `fleet get`: the subject resolves to a service or a target, both
 		// of which only a snapshot knows, and neither of which is ever a path.
 		ValidArgsFunction: noCompletions,
