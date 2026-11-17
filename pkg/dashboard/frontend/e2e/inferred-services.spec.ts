@@ -87,8 +87,10 @@ test.describe('WASM demo: inferred services', () => {
   });
 
   test('on a phone a row mark opens its tip inside the viewport', async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
+    // Ready at desktop width, where the nav link appReady waits on is on screen.
+    await page.setViewportSize({ width: 1280, height: 800 });
     await appReady(page, '/#/fleet/services?declaration=inferred');
+    await page.setViewportSize({ width: 390, height: 844 });
     const row = page.locator('[data-testid="service-list"] li.sv-inferred', { hasText: 'legacy-billing' });
     const mark = row.getByRole('button', { name: 'Inferred service: from its Deployment' });
     await expect(mark).toBeVisible({ timeout: T });
