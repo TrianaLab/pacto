@@ -56,6 +56,14 @@ It moves a Stage's pointer only through Operations. Admission lets it write
 only spec.ref.digest, and only on an OCIRepository labelled
 delivery.pacto.trianalab.io/apply-ref=<stage>, the label that also protects the
 pointer from everyone else.
+{{- if and (include "pacto-operator.delivery.argocd" .) (eq (toString .Values.delivery.argocd.enabled) "auto") }}
+
+This cluster serves Argo CD Applications, so delivery.argocd.enabled=auto grants
+the promoter patch on Applications. Admission limits that write to
+spec.source.targetRevision of Applications labelled
+delivery.pacto.trianalab.io/apply-ref. An upgrade without --reuse-values on a
+cluster with Argo CD grants it too. Set delivery.argocd.enabled=false to keep it off.
+{{- end }}
 
 Agents run as their own ServiceAccounts: bind {{ include "pacto-operator.delivery.fullname" . }}-agent
 to them. People who may update a workload (the built-in edit or admin role in its namespace)

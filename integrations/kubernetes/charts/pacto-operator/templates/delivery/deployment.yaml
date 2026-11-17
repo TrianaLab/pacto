@@ -49,12 +49,21 @@ spec:
             - --auth-freshness={{ .Values.delivery.promoter.authFreshness | default "0" }}
             - --controller-user={{ include "pacto-operator.delivery.controllerUser" . }}
             - --identities=/etc/pacto/identities/policy.json
-            {{- if .Values.delivery.argocd.enabled }}
+            {{- $argocd := include "pacto-operator.delivery.argocd" . }}
+            {{- $fluxHelm := include "pacto-operator.delivery.fluxHelm" . }}
+            {{- if $argocd }}
             - --argocd
+            {{- end }}
+            {{- if not (include "pacto-operator.delivery.flux" .) }}
+            - --flux=false
+            {{- end }}
+            {{- if $fluxHelm }}
+            - --flux-helm
             {{- end }}
             {{- $fullname := include "pacto-operator.delivery.fullname" . }}
             {{- $policies := list "operation" "cancel" "approval" "pointer" "applier" "promoter-writes" "status" }}
-            {{- if .Values.delivery.argocd.enabled }}{{ $policies = concat $policies (list "pointer-argocd" "promoter-writes-argocd") }}{{ end }}
+            {{- if $argocd }}{{ $policies = concat $policies (list "pointer-argocd" "promoter-writes-argocd") }}{{ end }}
+            {{- if $fluxHelm }}{{ $policies = append $policies "applier-helmrelease" }}{{ end }}
             {{- if .Values.delivery.recorder.enabled }}{{ $policies = append $policies "records" }}{{ end }}
             - --admission-policies={{ range $i, $p := $policies }}{{ if $i }},{{ end }}{{ $fullname }}-{{ $p }}{{ end }}
             {{- if .Values.delivery.recorder.enabled }}

@@ -1,0 +1,349 @@
+# delivery.argocd.enabled and delivery.flux.enabled default to auto: the chart
+# grants Argo CD or Flux access when the cluster serves their API at install or
+# upgrade, and true or false decide regardless of the API.
+suite: delivery applier auto
+templates:
+  - templates/delivery/deployment.yaml
+  - templates/delivery/rbac.yaml
+  - templates/delivery/admission.yaml
+  - templates/delivery/identities.yaml
+release:
+  name: d
+  namespace: pacto-system
+set:
+  delivery.enabled: true
+  delivery.identities.allowEmptyHumanGroups: true
+capabilities:
+  majorVersion: 1
+  minorVersion: 30
+  apiVersions:
+    - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+tests:
+  - it: should grant Argo CD access under auto when Applications are served
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+        - argoproj.io/v1alpha1/Application
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --argocd
+        template: templates/delivery/deployment.yaml
+      - contains:
+          path: rules
+          content:
+            apiGroups: [argoproj.io]
+            resources: [applications]
+            verbs: [get, list, watch, patch]
+        template: templates/delivery/rbac.yaml
+        # the promoter ClusterRole (its binding shares the name)
+        documentIndex: 1
+
+  - it: should not grant Argo CD access under auto without the API
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --argocd
+        template: templates/delivery/deployment.yaml
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [argoproj.io]
+            resources: [applications]
+            verbs: [get, list, watch, patch]
+        template: templates/delivery/rbac.yaml
+        # the promoter ClusterRole (its binding shares the name)
+        documentIndex: 1
+
+  - it: should grant Flux access under auto when OCIRepositories are served
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+        - source.toolkit.fluxcd.io/v1/OCIRepository
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --flux=false
+        template: templates/delivery/deployment.yaml
+      - contains:
+          path: rules
+          content:
+            apiGroups: [source.toolkit.fluxcd.io]
+            resources: [ocirepositories]
+            verbs: [get, list, watch, patch]
+        template: templates/delivery/rbac.yaml
+        # the promoter ClusterRole (its binding shares the name)
+        documentIndex: 1
+      - contains:
+          path: rules
+          content:
+            apiGroups: [kustomize.toolkit.fluxcd.io]
+            resources: [kustomizations]
+            verbs: [get, list, watch]
+        template: templates/delivery/rbac.yaml
+        # the promoter ClusterRole (its binding shares the name)
+        documentIndex: 1
+      - contains:
+          path: rules
+          content:
+            apiGroups: [source.toolkit.fluxcd.io]
+            resources: [ocirepositories]
+            verbs: [get]
+        template: templates/delivery/rbac.yaml
+        documentSelector:
+          path: metadata.name
+          value: d-pacto-operator-delivery-agent
+
+  - it: should render --flux=false under auto without Flux
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --flux=false
+        template: templates/delivery/deployment.yaml
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --flux-helm
+        template: templates/delivery/deployment.yaml
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [source.toolkit.fluxcd.io]
+            resources: [ocirepositories]
+            verbs: [get, list, watch, patch]
+        template: templates/delivery/rbac.yaml
+        # the promoter ClusterRole (its binding shares the name)
+        documentIndex: 1
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [kustomize.toolkit.fluxcd.io]
+            resources: [kustomizations]
+            verbs: [list]
+        template: templates/delivery/rbac.yaml
+        documentSelector:
+          path: metadata.name
+          value: d-pacto-operator-delivery-agent
+
+  - it: should grant HelmRelease read and --flux-helm when HelmReleases are served
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+        - source.toolkit.fluxcd.io/v1/OCIRepository
+        - helm.toolkit.fluxcd.io/v2/HelmRelease
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --flux-helm
+        template: templates/delivery/deployment.yaml
+      - contains:
+          path: rules
+          content:
+            apiGroups: [helm.toolkit.fluxcd.io]
+            resources: [helmreleases]
+            verbs: [get, list, watch]
+        template: templates/delivery/rbac.yaml
+        # the promoter ClusterRole (its binding shares the name)
+        documentIndex: 1
+      - containsDocument:
+          kind: ValidatingAdmissionPolicy
+          apiVersion: admissionregistration.k8s.io/v1
+          name: d-pacto-operator-delivery-applier-helmrelease
+          any: true
+        template: templates/delivery/admission.yaml
+
+  - it: should not grant HelmRelease read under auto without the HelmRelease API
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+        - source.toolkit.fluxcd.io/v1/OCIRepository
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --flux-helm
+        template: templates/delivery/deployment.yaml
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [helm.toolkit.fluxcd.io]
+            resources: [helmreleases]
+            verbs: [get, list, watch]
+        template: templates/delivery/rbac.yaml
+        # the promoter ClusterRole (its binding shares the name)
+        documentIndex: 1
+
+  - it: should honour explicit true without the API
+    set:
+      delivery.argocd.enabled: true
+      delivery.flux.enabled: true
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --argocd
+        template: templates/delivery/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --flux-helm
+        template: templates/delivery/deployment.yaml
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --flux=false
+        template: templates/delivery/deployment.yaml
+      - contains:
+          path: rules
+          content:
+            apiGroups: [argoproj.io]
+            resources: [applications]
+            verbs: [get, list, watch, patch]
+        template: templates/delivery/rbac.yaml
+        # the promoter ClusterRole (its binding shares the name)
+        documentIndex: 1
+      - contains:
+          path: rules
+          content:
+            apiGroups: [source.toolkit.fluxcd.io]
+            resources: [ocirepositories]
+            verbs: [get, list, watch, patch]
+        template: templates/delivery/rbac.yaml
+        # the promoter ClusterRole (its binding shares the name)
+        documentIndex: 1
+      - contains:
+          path: rules
+          content:
+            apiGroups: [helm.toolkit.fluxcd.io]
+            resources: [helmreleases]
+            verbs: [get, list, watch]
+        template: templates/delivery/rbac.yaml
+        # the promoter ClusterRole (its binding shares the name)
+        documentIndex: 1
+
+  - it: should honour explicit false with the API
+    set:
+      delivery.argocd.enabled: false
+      delivery.flux.enabled: false
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+        - argoproj.io/v1alpha1/Application
+        - source.toolkit.fluxcd.io/v1/OCIRepository
+        - helm.toolkit.fluxcd.io/v2/HelmRelease
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --argocd
+        template: templates/delivery/deployment.yaml
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --flux-helm
+        template: templates/delivery/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --flux=false
+        template: templates/delivery/deployment.yaml
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [argoproj.io]
+            resources: [applications]
+            verbs: [get, list, watch, patch]
+        template: templates/delivery/rbac.yaml
+        # the promoter ClusterRole (its binding shares the name)
+        documentIndex: 1
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [source.toolkit.fluxcd.io]
+            resources: [ocirepositories]
+            verbs: [get, list, watch, patch]
+        template: templates/delivery/rbac.yaml
+        # the promoter ClusterRole (its binding shares the name)
+        documentIndex: 1
+
+  # The Argo CD patch rule and the policy bounding it to targetRevision come
+  # from one helper: they render together or not at all.
+  - it: should never render the Argo CD patch rule without promoter-writes-argocd (auto, with the API)
+    capabilities:
+      apiVersions: &argoAPI
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+        - argoproj.io/v1alpha1/Application
+    asserts: &argoTogether
+      - contains:
+          path: rules
+          content:
+            apiGroups: [argoproj.io]
+            resources: [applications]
+            verbs: [get, list, watch, patch]
+        template: templates/delivery/rbac.yaml
+        # the promoter ClusterRole (its binding shares the name)
+        documentIndex: 1
+      - containsDocument:
+          kind: ValidatingAdmissionPolicy
+          apiVersion: admissionregistration.k8s.io/v1
+          name: d-pacto-operator-delivery-promoter-writes-argocd
+          any: true
+        template: templates/delivery/admission.yaml
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[-1:]
+          pattern: d-pacto-operator-delivery-promoter-writes-argocd
+        template: templates/delivery/deployment.yaml
+
+  - it: should never render the Argo CD patch rule without promoter-writes-argocd (true, with the API)
+    set:
+      delivery.argocd.enabled: true
+    capabilities:
+      apiVersions: *argoAPI
+    asserts: *argoTogether
+
+  - it: should never render the Argo CD patch rule without promoter-writes-argocd (true, without the API)
+    set:
+      delivery.argocd.enabled: true
+    capabilities:
+      apiVersions: &noArgoAPI
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    asserts: *argoTogether
+
+  - it: should never render the Argo CD patch rule without promoter-writes-argocd (auto, without the API)
+    capabilities:
+      apiVersions: *noArgoAPI
+    asserts: &argoNeither
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [argoproj.io]
+            resources: [applications]
+            verbs: [get, list, watch, patch]
+        template: templates/delivery/rbac.yaml
+        # the promoter ClusterRole (its binding shares the name)
+        documentIndex: 1
+      - containsDocument:
+          kind: ValidatingAdmissionPolicy
+          apiVersion: admissionregistration.k8s.io/v1
+          name: d-pacto-operator-delivery-promoter-writes-argocd
+        not: true
+        template: templates/delivery/admission.yaml
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[-1:]
+          pattern: promoter-writes-argocd
+        template: templates/delivery/deployment.yaml
+
+  - it: should never render the Argo CD patch rule without promoter-writes-argocd (false, with the API)
+    set:
+      delivery.argocd.enabled: false
+    capabilities:
+      apiVersions: *argoAPI
+    asserts: *argoNeither
+
+  - it: should never render the Argo CD patch rule without promoter-writes-argocd (false, without the API)
+    set:
+      delivery.argocd.enabled: false
+    capabilities:
+      apiVersions: *noArgoAPI
+    asserts: *argoNeither

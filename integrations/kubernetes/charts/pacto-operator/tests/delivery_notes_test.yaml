@@ -54,3 +54,17 @@ tests:
     asserts:
       - notMatchRegexRaw:
           pattern: the dashboard serves without sign-in
+
+  - it: says auto granted Argo CD access and names the off switch
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+        - argoproj.io/v1alpha1/Application
+    asserts:
+      - matchRegexRaw:
+          pattern: An upgrade without --reuse-values on a\scluster with Argo CD grants it too\. Set delivery\.argocd\.enabled=false to keep it off\.
+
+  - it: says nothing about Argo CD when it decides explicitly or the API is absent
+    asserts:
+      - notMatchRegexRaw:
+          pattern: delivery\.argocd\.enabled=auto grants

@@ -1227,7 +1227,16 @@
           "additionalProperties": false,
           "properties": {
             "enabled": {
-              "type": "boolean"
+              "enum": ["auto", true, false]
+            }
+          }
+        },
+        "flux": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "enum": ["auto", true, false]
             }
           }
         },

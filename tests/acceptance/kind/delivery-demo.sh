@@ -542,6 +542,8 @@ cmd_up() {
   done
   infra "install Flux" kubectl apply --server-side -f "$flux" >/dev/null
   kubectl -n flux-system scale deploy helm-controller --replicas=0 >/dev/null 2>&1 || true
+  # delivery.flux.enabled is auto: Helm reads the served APIs, so the Flux kinds must be served first.
+  infra "serve Flux's kinds" kubectl wait --for=condition=Established --timeout=60s crd/ocirepositories.source.toolkit.fluxcd.io crd/kustomizations.kustomize.toolkit.fluxcd.io >/dev/null
   helm upgrade --install pacto-operator "$op_chart" -n "$NS" --set nodeAgent.enabled=true --set nodeAgent.publishInterval=5s \
     --set global.imageRegistry= --set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never \
     --set "insecureRegistries[0]=$REG_HOST" \

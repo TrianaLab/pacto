@@ -610,3 +610,11 @@ read by name). Returns a YAML dict.
 metricsMonitors: {{ has $metrics (list "on" "legacy-on") }}
 namespaceGet: {{ or (eq $probing "auto") (eq $metrics "auto") }}
 {{- end }}
+
+{{/*
+Whether the cluster serves an API at install or upgrade: (list $ "<group/version[/Kind]>")
+renders "true" or nothing. helm template sees only what --api-versions names.
+*/}}
+{{- define "pacto-operator.apiServed" -}}
+{{- if (index . 0).Capabilities.APIVersions.Has (index . 1) }}true{{- end }}
+{{- end }}

@@ -8,6 +8,8 @@ set:
 capabilities:
   apiVersions:
     - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    # a cluster with Flux: delivery.flux.enabled defaults to auto
+    - source.toolkit.fluxcd.io/v1/OCIRepository
 tests:
   - it: runs the promoter subcommand with the derived controller identity
     template: templates/delivery/deployment.yaml
@@ -531,3 +533,22 @@ tests:
             resourceNames: [kube-system]
             verbs: [get]
         documentIndex: 1
+
+  - it: should list applier-helmrelease in the promoter's policies when HelmReleases are served
+    capabilities:
+      majorVersion: 1
+      minorVersion: 30
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+        - source.toolkit.fluxcd.io/v1/OCIRepository
+        - helm.toolkit.fluxcd.io/v2/HelmRelease
+    template: templates/delivery/deployment.yaml
+    release:
+      name: d
+      namespace: pacto-system
+    set:
+      delivery.identities.allowEmptyHumanGroups: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --admission-policies=d-pacto-operator-delivery-operation,d-pacto-operator-delivery-cancel,d-pacto-operator-delivery-approval,d-pacto-operator-delivery-pointer,d-pacto-operator-delivery-applier,d-pacto-operator-delivery-promoter-writes,d-pacto-operator-delivery-status,d-pacto-operator-delivery-applier-helmrelease
