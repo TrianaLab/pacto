@@ -269,7 +269,7 @@ func TestUsageRestrictedToVisibleConsumers(t *testing.T) {
 	snap := usageSnap(t, 0, base, []RawUsage{usageReport(), usageReport(billing)})
 	// An orphaned usage report alone makes Restrict rebuild the view.
 	snap.Usage = append(snap.Usage, UsageRecord{ServiceKey: NewServiceKeyDomain(acme, "ghost"), Service: "ghost", Producer: "ghost-adapter"})
-	if keepsEveryName(snap, false) {
+	if keepsEveryName(snap, false, func(string, string) bool { return false }) {
 		t.Error("an orphaned usage report reads as visible")
 	}
 	r := NewQuery(snap).Restrict(func(ns string) bool { return ns != "secret" }, nil)

@@ -117,6 +117,9 @@ type RawInferredService struct {
 	Ports                 []InferredPort
 	Probes                []InferredProbe
 	ObservedAt            *time.Time
+	// CreatedAt is when the workload was created (its
+	// metadata.creationTimestamp), nil when the source does not know it.
+	CreatedAt *time.Time
 }
 
 // WorkloadRef names the workload a Kubernetes target runs as.
@@ -254,6 +257,9 @@ type RawTarget struct {
 	// Workload is the workload this target runs as, nil when the source does
 	// not know it. [Build] never infers a service from that workload.
 	Workload *WorkloadRef
+	// CreatedAt is when the declaration that produced this target was
+	// created (a Pacto's metadata.creationTimestamp), nil when unknown.
+	CreatedAt *time.Time
 }
 
 // MemorySource is an in-memory [Source]. It is the substrate for tests, the

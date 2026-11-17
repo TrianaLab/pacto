@@ -3057,6 +3057,7 @@ export interface components {
             providers?: components["schemas"]["Fleet.Provider"][] | null;
             provisioning?: components["schemas"]["Fleet.ProvisioningRecord"][] | null;
             relationships: components["schemas"]["Fleet.Relationship"][] | null;
+            replacements?: components["schemas"]["Fleet.Replacement"][] | null;
             revisions: {
                 [key: string]: components["schemas"]["Fleet.ContractRevision"];
             };
@@ -3915,6 +3916,24 @@ export interface components {
             type: string;
             unmet?: components["schemas"]["Contract.Mismatch"][] | null;
             version?: string;
+        };
+        "Fleet.Replacement": {
+            /**
+             * Format: date-time
+             * @description When the Pacto that links them was created.
+             */
+            at: string | null;
+            /** @description The key of the inferred service that was replaced. */
+            from: string;
+            /**
+             * @description How the two are linked: pacto-target when a Pacto target runs as the workload.
+             * @enum {string}
+             */
+            link: "pacto-target";
+            /** @description The Pacto target that runs as the workload. */
+            target?: string;
+            /** @description The key of the declared service that replaced it. */
+            to: string;
         };
         "Fleet.ResourceConsumption": {
             /** Format: date-time */

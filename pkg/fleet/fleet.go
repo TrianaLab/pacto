@@ -91,6 +91,22 @@ func ParseServiceKey(k ServiceKey) (domain, name string) {
 	return "", unescapeKeyPart(s)
 }
 
+// Replacement records that a declared service took over a service Pacto
+// inferred from a workload, as the cluster showed it: the workload existed
+// before the declaration that links them.
+type Replacement struct {
+	From ServiceKey `json:"from" doc:"The key of the inferred service that was replaced."`
+	To   ServiceKey `json:"to" doc:"The key of the declared service that replaced it."`
+	Link string     `json:"link" enum:"pacto-target" doc:"How the two are linked: pacto-target when a Pacto target runs as the workload."`
+	// Target is the target that links them.
+	Target TargetKey `json:"target,omitempty" doc:"The Pacto target that runs as the workload."`
+	// At is never nil on a recorded replacement.
+	At *time.Time `json:"at" doc:"When the Pacto that links them was created."`
+	// workload is the replaced workload, which Restrict checks like an
+	// inferred service.
+	workload workloadKey
+}
+
 // ObservedResolution classifies how a raw observed (e.g. OpenTelemetry
 // service.name) name mapped onto the fleet's domain-qualified identities.
 type ObservedResolution int
@@ -114,7 +130,8 @@ const (
 // services is never coerced to the default domain — the resolution status says so
 // and the returned key is only valid when [ObservedResolved] or
 // [ObservedInferred]. The name index is
-// built once, so repeated resolution is O(1). This is the single place observed
+// built once, so repeated resolution is O(1). The name of a workload a Pacto
+// target runs as resolves to that target's declared service. This is the single place observed
 // telemetry crosses into Pacto identity, so observed evidence can never
 // corroborate or affect a same-named service in another domain.
 func (s *FleetSnapshot) ObservedNameResolver() func(string) (ServiceKey, ObservedResolution) {
@@ -123,6 +140,9 @@ func (s *FleetSnapshot) ObservedNameResolver() func(string) (ServiceKey, Observe
 		byName[svc.Name] = append(byName[svc.Name], k)
 	}
 	return func(name string) (ServiceKey, ObservedResolution) {
+		if k, ok := s.replacedNames[name]; ok {
+			return k, ObservedResolved
+		}
 		switch ks := byName[name]; len(ks) {
 		case 1:
 			if s.Services[ks[0]].Inferred() {
@@ -363,9 +383,13 @@ const (
 	// one service name and at least one only inferred it. Build drops every
 	// inferred claimant, so a guessed name never joins another service.
 	LimitationServiceNameCollision = "SERVICE_NAME_COLLISION"
-	LimitationDuplicateSourceID    = "DUPLICATE_SOURCE_ID"
-	LimitationRevisionUnresolved   = "REVISION_IDENTITY_UNRESOLVED"
-	LimitationRevisionAmbiguous    = "REVISION_LINK_AMBIGUOUS"
+	// LimitationInferredReplacementAmbiguous: a Pacto target names a workload
+	// Pacto infers a service from, but more than one declared service targets
+	// it or the target's cluster is unknown, so the inferred service stays.
+	LimitationInferredReplacementAmbiguous = "INFERRED_REPLACEMENT_AMBIGUOUS"
+	LimitationDuplicateSourceID            = "DUPLICATE_SOURCE_ID"
+	LimitationRevisionUnresolved           = "REVISION_IDENTITY_UNRESOLVED"
+	LimitationRevisionAmbiguous            = "REVISION_LINK_AMBIGUOUS"
 	// LimitationRevisionDocConflict: two sources contributed the same immutable
 	// revision but disagree about its documents (a different set of paths, or the
 	// same path with different content). There is no honest way to pick a winner —
@@ -964,6 +988,8 @@ type TargetRecord struct {
 	// workload is the workload the target runs as, when its source knows it;
 	// Build never infers a service from it.
 	workload *WorkloadRef
+	// createdAt is when the declaration behind the target was created.
+	createdAt *time.Time
 }
 
 // DisplayName returns a human-readable "scope/kind/name" for a target, with
@@ -1236,9 +1262,12 @@ type FleetSnapshot struct {
 	// Relationships and every index a gate, impact or reconciliation reads:
 	// an inferred edge never satisfies a dependency. Sorted like Relationships.
 	InferredRelationships []Relationship `json:"inferredRelationships,omitempty"`
-	Sources               []SourceState  `json:"sources"`
-	Completeness          Completeness   `json:"completeness"`
-	Limitations           []Limitation   `json:"limitations,omitempty"`
+	// Replacements are the inferred services a declared service took over,
+	// sorted by From.
+	Replacements []Replacement `json:"replacements,omitempty"`
+	Sources      []SourceState `json:"sources"`
+	Completeness Completeness  `json:"completeness"`
+	Limitations  []Limitation  `json:"limitations,omitempty"`
 	// Clusters are the clusters any source reported, sorted by id. Target keys
 	// carry a cluster component only when there are two or more.
 	Clusters []ClusterRecord `json:"clusters,omitempty"`
@@ -1347,6 +1376,10 @@ type FleetSnapshot struct {
 	// between services, apart from the declared and observed indexes.
 	inferredReverse map[ServiceKey][]ServiceKey
 	inferredForward map[ServiceKey][]ServiceKey
+	// replacedNames are the observed names of the workloads a Pacto target
+	// runs as, each mapped to the declared service of that target (see
+	// replaceInferred). ObservedNameResolver consults them first.
+	replacedNames map[string]ServiceKey
 	// observingSources are the ids of the sources that reported at least one
 	// observed edge: an inferred service's calls are known only where one of
 	// them is available.

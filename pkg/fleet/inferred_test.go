@@ -311,10 +311,14 @@ func TestInferredDuplicateAcrossSourcesMerges(t *testing.T) {
 	newer.ObservedAt = &at
 	older := inferredCart()
 	older.ObservedAt = nil
+	older.Image = &InferredValue{Value: "bad\x1b", From: "image"}
 	snap := buildClusterSnap(t, workloadsSource("a", nil, inferredCart()), workloadsSource("b", nil, newer), workloadsSource("c", nil, older))
 	s := snap.Services[NewServiceKey(cartName)]
 	if !slices.Equal(s.Sources, []string{"a", "b", "c"}) || !s.Workload.ObservedAt.Equal(at) {
 		t.Errorf("merged %+v %v", s.Sources, s.Workload.ObservedAt)
+	}
+	if !slices.Equal(s.Workload.Dropped, []string{"image"}) {
+		t.Errorf("dropped %v", s.Workload.Dropped)
 	}
 }
 

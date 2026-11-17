@@ -45,18 +45,13 @@ func boundInferred(col *Collection, source string) ([]RawInferredService, []Limi
 	}}
 }
 
-// addInferredServices makes each input an inferred service, unless a Pacto
-// target runs as its workload. Two sources reporting one workload merge into
-// one record. It runs after aggregateServices, so it never meets a service it
-// would aggregate.
+// addInferredServices makes each input an inferred service (replaceInferred
+// already removed those a Pacto target runs as). Two sources reporting one
+// workload merge into one record. It runs after aggregateServices, so it never
+// meets a service it would aggregate.
 func addInferredServices(snap *FleetSnapshot, inputs []inferredInput) {
-	declared := declaredWorkloads(snap)
 	verified := declarationVerified(snap)
 	for _, in := range inputs {
-		key := in.key(snap.clusterKeyed)
-		if _, ok := declared[key]; ok {
-			continue
-		}
 		rec, lims := inferredRecord(in, snap.clusterKeyed)
 		snap.Limitations = append(snap.Limitations, lims...)
 		if rec == nil {
@@ -154,23 +149,6 @@ func mergeInferred(snap *FleetSnapshot, existing, rec *ServiceRecord, source str
 	if at := rec.Workload.ObservedAt; at != nil && (existing.Workload.ObservedAt == nil || at.After(*existing.Workload.ObservedAt)) {
 		existing.Workload.ObservedAt = at
 	}
-}
-
-// declaredWorkloads is the workloads Pacto targets run as, keyed like an
-// inferred input, with the target that runs as each.
-func declaredWorkloads(snap *FleetSnapshot) map[workloadKey]TargetKey {
-	out := map[workloadKey]TargetKey{}
-	for k, t := range snap.Targets {
-		if t.workload == nil {
-			continue
-		}
-		wk := workloadKey{namespace: t.Scope, kind: t.workload.Kind, name: t.workload.Name}
-		if snap.clusterKeyed {
-			wk.cluster = t.Cluster
-		}
-		out[wk] = k
-	}
-	return out
 }
 
 // declarationVerified reports whether a Kubernetes source read the Pacto

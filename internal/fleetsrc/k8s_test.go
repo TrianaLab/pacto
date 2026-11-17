@@ -118,6 +118,37 @@ func TestK8sTargetWorkloadRef(t *testing.T) {
 	}
 }
 
+func TestK8sTargetCarriesWorkloadAndCreatedAt(t *testing.T) {
+	list := `{"items":[
+		{"metadata":{"name":"a","namespace":"shop","creationTimestamp":"2026-07-29T11:00:00Z"},"spec":{"target":{"serviceName":"cart"}},"status":{"contract":{"serviceName":"a"}}},
+		{"metadata":{"name":"b","namespace":"shop"},"status":{"contract":{"serviceName":"b"}}}]}`
+	col, err := NewK8sSource("k8s", nil, &fakeK8sClient{disc: &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"}, listData: []byte(list)}, nil).Collect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	created := time.Date(2026, 7, 29, 11, 0, 0, 0, time.UTC)
+	for _, tg := range col.Targets {
+		switch tg.Name {
+		case "a":
+			if !reflect.DeepEqual(tg.Workload, &fleet.WorkloadRef{Kind: "Deployment", Name: "cart"}) || tg.CreatedAt == nil || !tg.CreatedAt.Equal(created) {
+				t.Errorf("target a = %+v created %v", tg.Workload, tg.CreatedAt)
+			}
+		default:
+			if tg.CreatedAt != nil {
+				t.Errorf("target %s created %v, want unknown", tg.Name, tg.CreatedAt)
+			}
+		}
+	}
+	w := `{"metadata":{"name":"cart","namespace":"shop","creationTimestamp":"2026-07-26T12:00:00Z"}}`
+	wcol, err := NewWorkloadSource("", nil, &workloadFake{pages: map[string][2]string{"deployments||": {w}}}, nil).Collect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if at := wcol.InferredServices[0].CreatedAt; at == nil || !at.Equal(time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)) {
+		t.Errorf("workload created %v", at)
+	}
+}
+
 func TestK8sSource_Collect_ListError(t *testing.T) {
 	s := NewK8sSource("k8s", nil, &fakeK8sClient{
 		disc:    &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},

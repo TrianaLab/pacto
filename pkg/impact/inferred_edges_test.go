@@ -77,3 +77,23 @@ func TestImpactTracesIgnoreInferredCaller(t *testing.T) {
 		t.Errorf("a trace no contract explains cleared the gate: %s", res.GateReason)
 	}
 }
+
+func TestImpactTracesFromReplacedWorkload(t *testing.T) {
+	revs := []fleet.RawRevision{{Bundle: mkBundle(svcContract("auth-service", "1.0.0", contract.Owner{Team: "platform"}))}, gwRev(authDep)}
+	gw := fleet.RawTarget{Scope: "pay", Kind: "kubernetes", Name: "api-gateway", Service: "api-gateway", Workload: &fleet.WorkloadRef{Kind: "Deployment", Name: "legacy"}}
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: func() time.Time { return evidenceNow }},
+		fleet.NewMemorySource("test", "memory", &fleet.Collection{Revisions: revs, Targets: []fleet.RawTarget{gw}}), legacyWorkloads())
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := analyzeAuth(snap, Options{IncludeObserved: true, ObservedEdges: []ObservedEdge{{Consumer: legacy, Provider: "auth-service"}}})
+	if l := limitation(res, ObservedIdentityUnresolved); l != nil {
+		t.Errorf("the replaced workload is unresolved: %s", l.Message)
+	}
+	if slices.ContainsFunc(res.Consumers, func(c AffectedConsumer) bool { return c.Service == legacy || c.Uncontracted }) {
+		t.Errorf("the replaced workload is an uncontracted consumer: %+v", res.Consumers)
+	}
+	if gwc := consumerNamed(t, res, "api-gateway"); gwc.Service == "" {
+		t.Errorf("consumers %+v", res.Consumers)
+	}
+}

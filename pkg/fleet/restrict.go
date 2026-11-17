@@ -67,7 +67,8 @@ type WorkloadScope struct {
 }
 
 // InferredWorkloadScopes lists, sorted and unique, the (namespace, kind) pairs
-// of the snapshot's inferred services and of its provider counts: a count is
+// of the snapshot's inferred services, of the workloads its replacements
+// replaced and of its provider counts: a count is
 // workload data too, so a caller must be allowed to list its kind to see it.
 func (q *Query) InferredWorkloadScopes() []WorkloadScope {
 	seen := map[WorkloadScope]bool{}
@@ -75,6 +76,9 @@ func (q *Query) InferredWorkloadScopes() []WorkloadScope {
 		if s.Inferred() {
 			seen[WorkloadScope{s.Workload.Namespace, s.Workload.Kind}] = true
 		}
+	}
+	for _, r := range q.snap.Replacements {
+		seen[WorkloadScope{r.workload.namespace, r.workload.kind}] = true
 	}
 	for _, p := range q.snap.Providers {
 		for _, c := range p.Counts {
@@ -129,7 +133,9 @@ func callerNamespace(c UncontractedCaller) (string, bool) {
 // of an inferred service are workload data. A nil workloadVisible hides every
 // inferred service. A hidden inferred service is counted like any other, on
 // the declared service it calls, and a visible one counts the hidden services
-// it calls. Restrict returns q when nothing is hidden.
+// it calls. A replacement shows only when its declared service and the
+// workload it replaced are both visible. Restrict returns q when nothing is
+// hidden.
 func (q *Query) Restrict(visible func(namespace string) bool, workloadVisible func(namespace, kind string) bool) *Query {
 	s := q.base
 	hiddenNS := map[string]bool{}
@@ -141,7 +147,7 @@ func (q *Query) Restrict(visible func(namespace string) bool, workloadVisible fu
 	hideUnreadable(s, visible, hiddenNS)
 	restricted := !visible("")
 	hiddenSvc, offeringOnly := hiddenServices(s, hiddenNS, restricted, workloadVisible)
-	if len(hiddenNS) == 0 && len(hiddenSvc) == 0 && len(offeringOnly) == 0 && keepsEveryName(s, restricted) {
+	if len(hiddenNS) == 0 && len(hiddenSvc) == 0 && len(offeringOnly) == 0 && keepsEveryName(s, restricted, workloadHidden(hiddenNS, workloadVisible)) {
 		if !providersNarrowed(s, visible, workloadVisible) {
 			return q
 		}
@@ -182,6 +188,7 @@ func (q *Query) Restrict(visible func(namespace string) bool, workloadVisible fu
 	out.templateEdges = restrictTemplateEdges(&out, s.templateEdges, hiddenSvc, dropped)
 	out.UncontractedCallers = restrictCallers(s, hiddenSvc, hiddenNS, restricted, hiddenDeps, hiddenDependents)
 	out.InferredRelationships = restrictInferredEdges(s.InferredRelationships, hiddenSvc, hiddenDeps, hiddenDependents)
+	restrictReplacements(&out, s, hiddenSvc, workloadHidden(hiddenNS, workloadVisible))
 	out.hiddenDependents = hiddenDependents
 	out.hiddenReferrers = hiddenReferrers
 	origins, hiddenCreated := restrictOrigins(s, hiddenSvc)
@@ -300,9 +307,11 @@ func targetsHidden(out *FleetSnapshot, services map[ServiceKey]*ServiceRecord, o
 }
 
 // keepsEveryName reports whether a caller restricted or not may see every
-// name with no namespace and every provisioning and usage report of s.
-func keepsEveryName(s *FleetSnapshot, restricted bool) bool {
-	return (!restricted || !hasBareNames(s)) && provisioningVisible(s)
+// name with no namespace, every provisioning and usage report of s and every
+// workload its replacements replaced (hidden says which workloads they may
+// not see).
+func keepsEveryName(s *FleetSnapshot, restricted bool, hidden func(namespace, kind string) bool) bool {
+	return (!restricted || !hasBareNames(s)) && provisioningVisible(s) && !replacementHidden(s, hidden)
 }
 
 // provisioningVisible reports whether every provisioning and usage report of
@@ -544,6 +553,15 @@ func droppedReports(out *FleetSnapshot, dropped map[ServiceKey]int, code, what s
 		"%d %s reports about the services you can see were dropped: the fleet holds more than the limit of %d", n, what, limit)}}
 }
 
+// workloadHidden reports whether the viewer may not see the workloads of a
+// kind in a namespace: an inferred service's or a replaced one's. It is the
+// one place workload visibility is decided.
+func workloadHidden(hiddenNS map[string]bool, workloadVisible func(namespace, kind string) bool) func(namespace, kind string) bool {
+	return func(namespace, kind string) bool {
+		return hiddenNS[namespace] || workloadVisible == nil || !workloadVisible(namespace, kind)
+	}
+}
+
 // kubeTarget reports whether t is a Kubernetes target with a namespace, the
 // only kind a caller's permissions decide.
 func kubeTarget(t *TargetRecord) bool { return t.Kind == SourceKindKubernetes && t.Scope != "" }
@@ -559,7 +577,7 @@ func hiddenServices(s *FleetSnapshot, hiddenNS map[string]bool, hideUnscoped boo
 	placed := kubePlacementKnown(s)
 	for k, svc := range s.Services {
 		if svc.Inferred() {
-			if w := svc.Workload; hiddenNS[w.Namespace] || workloadVisible == nil || !workloadVisible(w.Namespace, w.Kind) {
+			if workloadHidden(hiddenNS, workloadVisible)(svc.Workload.Namespace, svc.Workload.Kind) {
 				hiddenSvc[k] = true
 			}
 			continue

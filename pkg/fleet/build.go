@@ -163,6 +163,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	markClusterConflicts(snap, clusters, sources)
 	boundTargetLabels(snap)
 	linkTargets(snap)
+	inferred = replaceInferred(snap, inferred)
 	revalidateConfigRefs(snap)
 	aggregateServices(snap)
 	addInferredServices(snap, inferred)
@@ -1692,6 +1693,7 @@ func targetFrom(raw RawTarget, source string, now time.Time, window time.Duratio
 	if raw.Workload != nil {
 		t.workload = &WorkloadRef{Kind: raw.Workload.Kind, Name: raw.Workload.Name}
 	}
+	t.createdAt = copyTime(raw.CreatedAt)
 	t.reportedDomains, t.domainKnown = reportedDomainsFrom(raw)
 	t.reportedOfferings, t.reportedSummaries = reportedValue(raw.Offering, validBusinessDomain), reportedValue(raw.Summary, validSummary)
 	var recordInvalid []Limitation
@@ -3409,6 +3411,7 @@ func degradedLimitations(snap *FleetSnapshot) []Limitation {
 func sortSnapshot(snap *FleetSnapshot) {
 	sortRelationships(snap.Relationships)
 	sortRelationships(snap.InferredRelationships)
+	slices.SortFunc(snap.Replacements, func(a, b Replacement) int { return cmp.Compare(a.From, b.From) })
 	sortRelationships(snap.templateEdges)
 	sort.Slice(snap.Sources, func(i, j int) bool { return snap.Sources[i].ID < snap.Sources[j].ID })
 	sortProvisioning(snap.Provisioning)

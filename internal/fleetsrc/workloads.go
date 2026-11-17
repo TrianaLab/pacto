@@ -159,7 +159,8 @@ func inferredService(kind string, item map[string]any, now time.Time) fleet.RawI
 	name, _ := meta["name"].(string)
 	ns, _ := meta["namespace"].(string)
 	shape := workloadshape.ReadWorkloadShape(kind, name, item)
-	in := fleet.RawInferredService{Namespace: ns, Kind: kind, Name: name, ObservedAt: &now}
+	created, _ := meta["creationTimestamp"].(string)
+	in := fleet.RawInferredService{Namespace: ns, Kind: kind, Name: name, ObservedAt: &now, CreatedAt: parseK8sTime(created)}
 	if shape.Image != "" {
 		in.Image = &fleet.InferredValue{Value: shape.Image, From: kind + " " + shape.ImageFrom}
 	}

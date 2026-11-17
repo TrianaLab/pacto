@@ -321,6 +321,7 @@ func (s *K8sSource) targetFrom(item k8sItem) fleet.RawTarget {
 		ObservedRuntime:     st.ObservedRuntime,
 		EvidenceAt:          observed,
 		ReconciledAt:        observed,
+		CreatedAt:           parseK8sTime(item.Metadata.CreationTimestamp),
 	}
 	if tg := item.Spec.Target; tg != nil {
 		// The CRD's documented default: the workload is the Deployment named
@@ -421,9 +422,10 @@ type k8sSpec struct {
 }
 
 type k8sMetadata struct {
-	Name      string            `json:"name"`
-	Namespace string            `json:"namespace"`
-	Labels    map[string]string `json:"labels"`
+	Name              string            `json:"name"`
+	Namespace         string            `json:"namespace"`
+	Labels            map[string]string `json:"labels"`
+	CreationTimestamp string            `json:"creationTimestamp"`
 }
 
 type k8sStatus struct {
