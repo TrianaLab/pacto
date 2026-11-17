@@ -124,10 +124,14 @@ func (c *completion) health() {
 	c.add("capabilities[health]", value, w.File, w.Probe.Source, HealthYAML(p, c.sc.OpenAPI != ""))
 }
 
-// configuration is each environment key no declared local schema holds, as
-// its key and type.
+// configuration is each environment key no declared configuration lists, as
+// its key and type. When a declared configuration's keys cannot be listed,
+// whether a key is declared is unknown, so no key is inferred.
 func (c *completion) configuration(dir string) {
-	declared := declaredConfigKeys(dir, c.d)
+	declared, listed := declaredConfigKeys(dir, c.d)
+	if !listed {
+		return
+	}
 	for _, e := range c.sc.Env {
 		if declared[e.Name] {
 			continue
@@ -142,21 +146,36 @@ func (c *completion) configuration(dir string) {
 	}
 }
 
-// declaredConfigKeys are the properties of every declared configuration's
-// local schema; one that cannot be read declares none.
-func declaredConfigKeys(dir string, d *contract.Contract) map[string]bool {
-	out := map[string]bool{}
+// declaredConfigKeys are the keys every declared configuration lists: its
+// values and its local schema's top-level properties. listed is false when
+// one cannot be listed: a ref, a schema Pacto cannot read, or one that builds
+// its keys through a composing keyword.
+func declaredConfigKeys(dir string, d *contract.Contract) (keys map[string]bool, listed bool) {
+	keys = map[string]bool{}
 	for _, cfg := range d.Configurations {
-		data, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(cfg.Schema)))
-		if cfg.Schema == "" || err != nil {
-			continue
+		for k := range cfg.Values {
+			keys[k] = true
 		}
-		for _, p := range schemax.Properties(data, cfg.Schema) {
-			out[p.Key] = true
+		if cfg.Schema == "" { // a ref: its keys live in another contract
+			return nil, false
+		}
+		data, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(cfg.Schema)))
+		if err != nil {
+			return nil, false
+		}
+		spec, err := schemax.Parse(data, cfg.Schema)
+		if err != nil || slices.ContainsFunc(composingKeywords, func(k string) bool { return spec[k] != nil }) {
+			return nil, false
+		}
+		for _, p := range spec.Properties() {
+			keys[p.Key] = true
 		}
 	}
-	return out
+	return keys, true
 }
+
+// composingKeywords build a schema's keys somewhere its properties do not list.
+var composingKeywords = []string{"allOf", "anyOf", "oneOf", "$ref", "patternProperties"}
 
 // dependencies are the services the environment points at, each named by
 // its host alone, never by the value that holds it.

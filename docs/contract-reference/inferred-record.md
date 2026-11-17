@@ -54,7 +54,7 @@ fields:                        # sorted by field, then source
 | `service.owner` | The workload's team label | declares `service.owner` |
 | `interfaces[api]` | An OpenAPI document | declares an interface whose `ref` is that file |
 | `capabilities[health]` | A readiness, liveness or startup probe | declares a `health` capability |
-| `configuration.<KEY>` | Each environment key, ConfigMaps included | declares the key in a configuration schema |
+| `configuration.<KEY>` | Each environment key, ConfigMaps included | declares the key in a configuration's `values` or schema `properties`, or declares a configuration whose keys Pacto cannot list (a `ref`, or a schema it cannot read or that uses `allOf`, `anyOf`, `oneOf`, `$ref` or `patternProperties`) |
 | `dependencies[<name>]` | A service name inside the cluster in an environment value | declares a dependency of that name or `ref` |
 
 ## When Pacto writes it

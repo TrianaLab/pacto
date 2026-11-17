@@ -94,15 +94,43 @@ func TestCompleteNeverTouchesDeclared(t *testing.T) {
 	declared := &contract.Contract{
 		Workload:       "service",
 		Interfaces:     []contract.Interface{{Name: "http", Type: "openapi", Ref: "api/openapi.yaml"}},
-		Configurations: []contract.Configuration{{Name: "env", Schema: "configuration/schema.json"}, {Name: "missing", Schema: "nope.json"}, {Name: "shared", Ref: "oci://r.io/cfg"}},
+		Configurations: []contract.Configuration{{Name: "env", Schema: "configuration/schema.json", Values: map[string]any{"API_TOKEN": "x"}}},
 		Dependencies:   []contract.Dependency{{Name: "billing"}, {Name: "database", Ref: "oci://r.io/team/db:1.0.0"}},
 		Capabilities:   []contract.Capability{{Type: "metrics"}, {Type: "health"}},
 		Service:        contract.Service{Owner: contract.Owner{Team: "payments"}},
 	}
 	got := fieldNames(complete(t, completeDir, declared))
-	want := []string{"configuration.API_TOKEN", "configuration.BILLING_URL", "configuration.CLIENT_SECRET", "configuration.DATABASE_URL"}
+	want := []string{"configuration.BILLING_URL", "configuration.CLIENT_SECRET", "configuration.DATABASE_URL"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("fields = %q, want %q", got, want)
+	}
+}
+
+// TestCompleteUnlistedConfigurationInfersNoKey: a configuration whose keys
+// Pacto cannot list may declare any key, so no configuration key is inferred
+// rather than one reading as not declared.
+func TestCompleteUnlistedConfigurationInfersNoKey(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.CopyFS(dir, os.DirFS(completeDir)); err != nil {
+		t.Fatal(err)
+	}
+	writeTree(t, dir, map[string]string{
+		"allof.json":   `{"allOf": [{"properties": {"PORT": {"type": "integer"}}}]}`,
+		"broken.json":  `{`,
+		"pattern.json": `{"patternProperties": {"^DB_": {"type": "string"}}}`,
+	})
+	for name, cfg := range map[string]contract.Configuration{
+		"ref":        {Name: "base", Ref: "oci://reg/platform/base-config", Values: map[string]any{"PORT": 8080}},
+		"unreadable": {Name: "env", Schema: "nope.json"},
+		"broken":     {Name: "env", Schema: "broken.json"},
+		"allOf":      {Name: "env", Schema: "allof.json"},
+		"pattern":    {Name: "env", Schema: "pattern.json"},
+	} {
+		for _, f := range complete(t, dir, &contract.Contract{Configurations: []contract.Configuration{cfg}}).Fields {
+			if strings.HasPrefix(f.Field, "configuration.") {
+				t.Errorf("%s: inferred %s", name, f.Field)
+			}
+		}
 	}
 }
 
