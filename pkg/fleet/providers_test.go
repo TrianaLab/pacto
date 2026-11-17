@@ -3,6 +3,7 @@ package fleet
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"slices"
 	"strconv"
@@ -512,5 +513,24 @@ func TestRestrictProvidersMasksWholeNamesOnly(t *testing.T) {
 	got := restrictProviders(rows, []string{"pacto"}, func(string) bool { return true }, anyKind, nil)
 	if got[0].Evidence != "served (pacto.trianalab.io/v1alpha1)" || got[1].Evidence != "hidden by your permissions" {
 		t.Errorf("evidence = %q, %q", got[0].Evidence, got[1].Evidence)
+	}
+}
+
+// The Kubernetes facts come from every source: a healthy cluster the bounded
+// meta cut still counts, and every unread one is counted.
+func TestQueryProvidersKubernetesFactsUnbounded(t *testing.T) {
+	sources := []Source{NewMemorySource("k8s", SourceKindKubernetes, &Collection{Providers: []Provider{crdRow()}})}
+	for i := range MaxMetaSources + 10 {
+		sources = append(sources, NewFailingSource("down-"+strconv.Itoa(100+i), SourceKindKubernetesWorkloads, errors.New("refused")))
+	}
+	res := NewQuery(buildProviders(t, sources...)).Providers()
+	if !res.Meta.SourcesTruncated || slices.ContainsFunc(res.Meta.Sources, func(s SourceState) bool { return s.ID == "k8s" }) {
+		t.Fatalf("fixture: the healthy source must fall past the meta bound")
+	}
+	if res.KubernetesSources != MaxMetaSources+11 || res.NotReadTotal != MaxMetaSources+10 || len(res.NotRead) != MaxMetaSources {
+		t.Errorf("kubernetes %d not read %d of %d", res.KubernetesSources, len(res.NotRead), res.NotReadTotal)
+	}
+	if none := NewQuery(buildProviders(t, NewMemorySource("local", "local", &Collection{}))).Providers(); none.KubernetesSources != 0 || none.NotRead == nil {
+		t.Errorf("no kubernetes source = %+v", none)
 	}
 }

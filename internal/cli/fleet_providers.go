@@ -33,8 +33,7 @@ func newFleetProvidersCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 func printFleetProviders(cmd *cobra.Command, res *fleet.ProvidersResult, format string) error {
 	return formatResult(cmd, format, res, func() error {
 		w := cmd.OutOrStdout()
-		k8s, unread := kubernetesSources(res.Meta.Sources)
-		if len(res.Providers) == 0 && !k8s {
+		if len(res.Providers) == 0 && res.KubernetesSources == 0 {
 			_, _ = fmt.Fprintln(w, "No providers detected: this view reads no Kubernetes cluster (add --k8s)")
 		}
 		if len(res.Providers) > 0 {
@@ -56,12 +55,15 @@ func printFleetProviders(cmd *cobra.Command, res *fleet.ProvidersResult, format 
 			}
 			_ = tw.Flush()
 		}
-		for _, s := range unread {
+		for _, s := range res.NotRead {
 			reason := ""
 			if s.Error != nil {
 				reason = " (" + s.Error.Message + ")"
 			}
 			_, _ = fmt.Fprintf(w, "%s  not read%s\n", s.ID, reason)
+		}
+		if more := res.NotReadTotal - len(res.NotRead); more > 0 {
+			_, _ = fmt.Fprintf(w, "... %d more not read\n", more)
 		}
 		if res.Truncated {
 			_, _ = fmt.Fprintf(w, "... %d of %d rows shown\n", len(res.Providers), res.Total)
@@ -69,22 +71,6 @@ func printFleetProviders(cmd *cobra.Command, res *fleet.ProvidersResult, format 
 		warnProductPartial(cmd, res.Meta)
 		return nil
 	}, nil)
-}
-
-// kubernetesSources reports whether the answer read any Kubernetes source and
-// lists the ones it could not read.
-func kubernetesSources(sources []fleet.SourceState) (bool, []fleet.SourceState) {
-	read, unread := false, []fleet.SourceState(nil)
-	for _, s := range sources {
-		if s.Kind != fleet.SourceKindKubernetes && s.Kind != fleet.SourceKindKubernetesWorkloads {
-			continue
-		}
-		read = true
-		if s.Status == fleet.SourceUnavailable {
-			unread = append(unread, s)
-		}
-	}
-	return read, unread
 }
 
 // providerUsedFor is the USED FOR cell: the tokens with spaces, then the

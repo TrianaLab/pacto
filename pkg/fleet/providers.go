@@ -224,17 +224,7 @@ func restrictProviders(rows []Provider, hiddenNames []string, visible func(strin
 			hidden += c.N
 			return true
 		})
-		counted := p.Counts != nil || p.UnreadableKinds != nil
-		switch {
-		case counted && hidden > 0 && len(p.Counts) == 0 && len(p.UnreadableKinds) == 0:
-			p.Evidence = "none you may see (+" + strconv.Itoa(hidden) + " hidden by your permissions)"
-		case counted && hidden > 0:
-			p.Evidence = countsEvidence(p.Counts, p.UnreadableKinds) + " (+" + strconv.Itoa(hidden) + " hidden by your permissions)"
-		case counted:
-			p.Evidence = countsEvidence(p.Counts, p.UnreadableKinds)
-		case slices.ContainsFunc(hiddenNames, func(n string) bool { return mentionsWord(p.Evidence, n) }):
-			p.Evidence = "hidden by your permissions"
-		}
+		p.Evidence = restrictedEvidence(p, hidden, hiddenNames)
 		p.Limitations = slices.DeleteFunc(slices.Clone(p.Limitations), func(l Limitation) bool {
 			return l.Code != LimitationProviderSourceDegraded && (hiddenByScope(l, visible) || mentionsHidden(l.Message))
 		})
@@ -247,14 +237,30 @@ func restrictProviders(rows []Provider, hiddenNames []string, visible func(strin
 	return out
 }
 
+// restrictedEvidence is the evidence of p, already narrowed, with hidden
+// counts left out: counted evidence is rendered again with the hidden total,
+// and evidence a producer wrote is masked when it names a hidden name.
+func restrictedEvidence(p Provider, hidden int, hiddenNames []string) string {
+	suffix := " (+" + strconv.Itoa(hidden) + " hidden by your permissions)"
+	switch {
+	case p.Counts == nil && p.UnreadableKinds == nil:
+		if slices.ContainsFunc(hiddenNames, func(n string) bool { return mentionsWord(p.Evidence, n) }) {
+			return "hidden by your permissions"
+		}
+		return p.Evidence
+	case hidden == 0:
+		return countsEvidence(p.Counts, p.UnreadableKinds)
+	case len(p.Counts) == 0 && len(p.UnreadableKinds) == 0:
+		return "none you may see" + suffix
+	}
+	return countsEvidence(p.Counts, p.UnreadableKinds) + suffix
+}
+
 // mentionsWord reports whether s holds n as a whole name: not inside a longer
 // one, so a hidden namespace "pacto" leaves "pacto.trianalab.io" alone.
 func mentionsWord(s, n string) bool {
 	if n == "" {
 		return false
-	}
-	nameChar := func(b byte) bool {
-		return b == '-' || b == '.' || b == '_' || '0' <= b && b <= '9' || 'a' <= b && b <= 'z' || 'A' <= b && b <= 'Z'
 	}
 	for i := 0; ; {
 		j := strings.Index(s[i:], n)
@@ -262,11 +268,16 @@ func mentionsWord(s, n string) bool {
 			return false
 		}
 		start, end := i+j, i+j+len(n)
-		if (start == 0 || !nameChar(s[start-1])) && (end == len(s) || !nameChar(s[end])) {
+		if (start == 0 || !nameByte(s[start-1])) && (end == len(s) || !nameByte(s[end])) {
 			return true
 		}
 		i = start + 1
 	}
+}
+
+// nameByte reports whether b may appear inside a Kubernetes or service name.
+func nameByte(b byte) bool {
+	return strings.IndexByte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._", b) >= 0
 }
 
 // countVisible reports whether a reader may see c: read its namespace and
@@ -296,13 +307,16 @@ func boundProviders(rows []Provider) ([]Provider, bool) {
 }
 
 // ProvidersResult answers "what did Pacto detect": every provider row of the
-// query's snapshot, bounded, with the product meta that names each source,
-// the unavailable ones included.
+// query's snapshot, bounded, with the product meta that names each source.
+// The Kubernetes facts come from every source, never from the bounded meta.
 type ProvidersResult struct {
-	Meta      ProductMeta `json:"meta"`
-	Total     int         `json:"total" doc:"How many rows the snapshot holds before the bound"`
-	Truncated bool        `json:"truncated,omitempty"`
-	Providers []Provider  `json:"providers" doc:"At most 200 rows, least healthy first, then by source and id"`
+	Meta              ProductMeta   `json:"meta"`
+	Total             int           `json:"total" doc:"How many rows the snapshot holds before the bound"`
+	Truncated         bool          `json:"truncated,omitempty"`
+	Providers         []Provider    `json:"providers" doc:"At most 200 rows, least healthy first, then by source and id"`
+	KubernetesSources int           `json:"kubernetesSources" doc:"How many Kubernetes and workload sources the view reads, the unavailable ones included"`
+	NotRead           []SourceState `json:"notRead" doc:"The Kubernetes and workload sources Pacto could not read, at most 50"`
+	NotReadTotal      int           `json:"notReadTotal" doc:"How many Kubernetes and workload sources Pacto could not read before the bound"`
 }
 
 // Providers lists the detected-provider rows of the query, least healthy first.
@@ -311,5 +325,19 @@ func (q *Query) Providers() *ProvidersResult {
 	if rows == nil {
 		rows = []Provider{}
 	}
-	return &ProvidersResult{Meta: q.productMeta(), Total: len(q.snap.Providers), Truncated: truncated, Providers: rows}
+	res := &ProvidersResult{Meta: q.productMeta(), Total: len(q.snap.Providers), Truncated: truncated, Providers: rows, NotRead: []SourceState{}}
+	for _, st := range q.snap.Sources {
+		if st.Kind != SourceKindKubernetes && st.Kind != SourceKindKubernetesWorkloads {
+			continue
+		}
+		res.KubernetesSources++
+		if st.Status == SourceUnavailable {
+			res.NotReadTotal++
+			if len(res.NotRead) < MaxMetaSources {
+				res.NotRead = append(res.NotRead, st)
+			}
+		}
+	}
+	res.NotRead = cloneSources(res.NotRead)
+	return res
 }

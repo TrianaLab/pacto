@@ -3739,7 +3739,19 @@ export interface components {
             namespace?: string;
         };
         "Fleet.ProvidersResult": {
+            /**
+             * Format: int64
+             * @description How many Kubernetes and workload sources the view reads, the unavailable ones included
+             */
+            kubernetesSources: number;
             meta: components["schemas"]["Fleet.ProductMeta"];
+            /** @description The Kubernetes and workload sources Pacto could not read, at most 50 */
+            notRead: components["schemas"]["Fleet.SourceState"][] | null;
+            /**
+             * Format: int64
+             * @description How many Kubernetes and workload sources Pacto could not read before the bound
+             */
+            notReadTotal: number;
             /** @description At most 200 rows, least healthy first, then by source and id */
             providers: components["schemas"]["Fleet.Provider"][] | null;
             /**

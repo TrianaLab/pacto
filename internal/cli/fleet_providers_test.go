@@ -133,3 +133,10 @@ func TestFleetProvidersParity(t *testing.T) {
 	}
 	sameOnSurfaces(t, "providers", map[string]string{"cli": providers("cli", out.String()), "mcp": providers("mcp", status), "dashboard": providers("dashboard", route)})
 }
+
+// The CLI reads the Kubernetes facts from the answer, never from the bounded
+// meta, and says how many unread sources it did not list.
+func TestFleetProvidersNotReadBeyondBound(t *testing.T) {
+	out, _ := providersText(t, &fleet.ProvidersResult{KubernetesSources: 3, NotReadTotal: 3, NotRead: []fleet.SourceState{{ID: "a", Status: fleet.SourceUnavailable}}})
+	expect(t, strings.Contains(out, "a  not read") && strings.Contains(out, "... 2 more not read") && !strings.Contains(out, "No providers detected"), "not read:\n%s", out)
+}
