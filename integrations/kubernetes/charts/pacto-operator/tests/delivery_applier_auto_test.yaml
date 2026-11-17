@@ -157,6 +157,24 @@ tests:
           any: true
         template: templates/delivery/admission.yaml
 
+  - it: should let agents read a HelmRelease Stage's applier when HelmReleases are served
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+        - source.toolkit.fluxcd.io/v1/OCIRepository
+        - helm.toolkit.fluxcd.io/v2/HelmRelease
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [helm.toolkit.fluxcd.io]
+            resources: [helmreleases]
+            verbs: [get]
+        template: templates/delivery/rbac.yaml
+        documentSelector:
+          path: metadata.name
+          value: d-pacto-operator-delivery-agent
+
   - it: should not grant HelmRelease read under auto without the HelmRelease API
     capabilities:
       apiVersions:

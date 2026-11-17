@@ -189,13 +189,19 @@ served, so a release reused without that API renders what it rendered.
 {{- end }}
 
 {{/*
-Read access to what a Stage points at: the OCIRepositories with Flux, and the
-Argo CD Applications with Argo CD.
+Read access to what a Stage points at: the OCIRepositories with Flux, the
+HelmReleases with HelmRelease delivery (their chart source is an
+OCIRepository) and the Argo CD Applications with Argo CD.
 */}}
 {{- define "pacto-operator.delivery.rbac.pointerReadRules" -}}
 {{- if include "pacto-operator.delivery.flux" . }}
 - apiGroups: [source.toolkit.fluxcd.io]
   resources: [ocirepositories]
+  verbs: [get]
+{{- end }}
+{{- if include "pacto-operator.delivery.fluxHelm" . }}
+- apiGroups: [helm.toolkit.fluxcd.io]
+  resources: [helmreleases]
   verbs: [get]
 {{- end }}
 {{- if include "pacto-operator.delivery.argocd" . }}
