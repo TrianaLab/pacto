@@ -1814,8 +1814,13 @@ eventually 20 ready_is "$P" billing False/Unguarded \
 kubectl patch validatingadmissionpolicybinding pacto-operator-delivery-pointer --type merge -p '{"spec":{"validationActions":["Deny"]}}' >/dev/null
 eventually 20 ready_is "$P" billing True/Ready || fail "the Stage is not Ready again once the binding denies"
 pass "a Stage is Ready=False with Unguarded while the pointer binding only warns"
-# The applier exists and is labelled, so Ready names the candidate.
-kubectl -n "$M" apply -f - >/dev/null <<YAML
+# The applier exists and is labelled, so Ready names the candidate. The Stage
+# lives in its own namespace: in $M Kustomization billing already applies
+# Deployment billing from another OCIRepository, which Ready reports first as
+# ApplierConflict.
+ANY=publish-anyone
+kubectl create namespace "$ANY" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+kubectl -n "$ANY" apply -f - >/dev/null <<YAML
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: OCIRepository
 metadata: {name: billing-anyone}
@@ -1839,9 +1844,9 @@ spec:
   startLevel: advise
   gates: {impact: {declaredConsumersOnly: true}}
 YAML
-eventually 20 ready_is "$M" billing-anyone False/CandidateUnverified \
-  || fail "a Stage whose candidate sets no spec.verify is not reported: $(kubectl -n "$M" get stage billing-anyone -o jsonpath='{.status.conditions}')"
-[ -z "$(kubectl -n "$M" get stage billing-anyone -o jsonpath='{.status.published}')" ] || fail "an unverified candidate was recorded as published"
+eventually 20 ready_is "$ANY" billing-anyone False/CandidateUnverified \
+  || fail "a Stage whose candidate sets no spec.verify is not reported: $(kubectl -n "$ANY" get stage billing-anyone -o jsonpath='{.status.conditions}')"
+[ -z "$(kubectl -n "$ANY" get stage billing-anyone -o jsonpath='{.status.published}')" ] || fail "an unverified candidate was recorded as published"
 pass "a Stage whose candidate OCIRepository sets no spec.verify is Ready=False with CandidateUnverified and records nothing"
 share P M FOREIGN
 echo "DELIVERY PUBLISH PASS"
