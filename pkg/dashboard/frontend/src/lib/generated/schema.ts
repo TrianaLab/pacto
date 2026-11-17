@@ -3742,14 +3742,6 @@ export interface components {
              */
             result: "Pass" | "Fail" | "Unknown";
         };
-        "Fleet.RefPreview": {
-            /** Format: int64 */
-            count: number;
-            items: components["schemas"]["Fleet.EntityRef"][] | null;
-            /** Format: int64 */
-            total: number;
-            truncated: boolean;
-        };
         "Fleet.ReferrersPreview": {
             /** Format: int64 */
             count: number;
@@ -4860,7 +4852,7 @@ export interface components {
         };
         ProductAttentionItem: {
             /** @description The inferred service of an uncontracted caller, when Pacto sees its workload */
-            caller?: components["schemas"]["Fleet.EntityRef"];
+            caller?: components["schemas"]["ProductRef"];
             /** @enum {string} */
             category: "non-compliant" | "invalid" | "health" | "provisioning" | "unknown" | "stale" | "unresolved" | "out-of-range" | "lifecycle" | "undeclared" | "golden-path" | "readiness" | "knowledge" | "unowned";
             code: string;
@@ -5788,7 +5780,7 @@ export interface components {
         ProductServiceDetail: {
             activeRevisions: components["schemas"]["ProductRefPreview"];
             /** @description The declared services this inferred service was seen calling (observed, from uncontracted callers) */
-            calls: components["schemas"]["Fleet.RefPreview"];
+            calls: components["schemas"]["ProductRefPreview"];
             /** @description True when an available source that reports observed calls covers this service's cluster; an empty calls list then means none were seen */
             callsObserved: boolean;
             capabilities: components["schemas"]["Fleet.StringsPreview"];
@@ -8940,6 +8932,8 @@ export interface operations {
                 source?: string;
                 /** @description Golden path filter: only keeps the golden paths, exclude leaves them out; absent lists every service, golden paths marked template */
                 template?: "only" | "exclude";
+                /** @description Declaration filter: inferred keeps only the services Pacto infers from workloads no contract describes, declared leaves them out; absent lists every service, inferred ones marked */
+                declaration?: "declared" | "inferred";
                 limit?: number;
                 offset?: number;
             };

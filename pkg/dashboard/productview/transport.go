@@ -84,11 +84,12 @@ func productEvidencePreview(p fleet.EvidencePreview) ProductEvidencePreview {
 // ProductAttentionItem is a navigable attention row.
 type ProductAttentionItem struct {
 	fleet.AttentionItem
-	Entity ProductRef `json:"entity"`
+	Entity ProductRef  `json:"entity"`
+	Caller *ProductRef `json:"caller,omitempty" doc:"The inferred service of an uncontracted caller, when Pacto sees its workload"`
 }
 
 func productAttentionItem(it fleet.AttentionItem) ProductAttentionItem {
-	return ProductAttentionItem{AttentionItem: it, Entity: Ref(it.Entity)}
+	return ProductAttentionItem{AttentionItem: it, Entity: Ref(it.Entity), Caller: RefPtr(it.Caller)}
 }
 
 // ProductAttentionPreview is a bounded preview of attention items.
@@ -411,6 +412,7 @@ type ProductServiceDetail struct {
 	Limitations            ProductAttributedLimitationsPreview  `json:"limitations"`
 	Template               *ProductTemplateDetail               `json:"template,omitempty"`
 	Origin                 *ProductOriginDetail                 `json:"origin,omitempty"`
+	Calls                  ProductRefPreview                    `json:"calls" doc:"The declared services this inferred service was seen calling (observed, from uncontracted callers)"`
 }
 
 // ProductTemplateDetail is a golden path detail whose requirements and created
@@ -476,6 +478,7 @@ func toProductServiceDetail(d *fleet.ServiceDetailData) *ProductServiceDetail {
 		Limitations:            productAttributedLimitationsPreview(d.Limitations),
 		Template:               productTemplateDetail(d.Template),
 		Origin:                 productOriginDetail(d.Origin),
+		Calls:                  RefPreview(d.Calls),
 	}
 }
 
