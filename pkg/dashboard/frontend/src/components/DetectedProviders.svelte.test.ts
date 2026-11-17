@@ -26,13 +26,15 @@ const row = (id: string, over: Record<string, any> = {}) => ({
 const resp = (providers: any[], sources: Src[] = [k8s('k8s')]) => ({
   meta: { schemaVersion: 'pacto.dev/fleet-product/v1', completeness: 'complete', sources, sourceCounts: { total: sources.length } },
   total: providers.length, providers,
+  kubernetesSources: sources.filter((s) => s.kind.startsWith('kubernetes')).length,
+  notRead: sources.filter((s) => s.kind.startsWith('kubernetes') && s.status === 'unavailable'),
 });
 
 let mounted: { target: HTMLElement; component: unknown } | null = null;
-function render() {
+function render(props: { refreshTick: number } = { refreshTick: 0 }) {
   const target = document.createElement('div');
   document.body.appendChild(target);
-  const component = mount(DetectedProviders, { target, props: { refreshTick: 0 } });
+  const component = mount(DetectedProviders, { target, props });
   mounted = { target, component };
   return target;
 }
@@ -171,5 +173,40 @@ describe('DetectedProviders', () => {
     await vi.waitFor(() => expect(t.querySelectorAll('[data-testid="provider-not-read"]')).toHaveLength(2));
     expect(text(block(t))).not.toContain('No providers detected');
     expect(rows(t)).toHaveLength(0);
+  });
+
+  it('keeps the rows and says a refresh failed when a poll fails over data on hand', async () => {
+    providersFn.mockResolvedValue(resp([row('a')]));
+    const props = $state({ refreshTick: 0 });
+    const t = render(props);
+    await vi.waitFor(() => expect(rows(t)).toHaveLength(1));
+    providersFn.mockRejectedValue(new Error('blip'));
+    props.refreshTick = 1;
+    await vi.waitFor(() => expect(t.querySelector('[data-testid="stale-refresh"]')).toBeTruthy());
+    expect(rows(t)).toHaveLength(1);
+    expect(text(block(t))).not.toContain('Could not load the detected providers');
+  });
+
+  it('renders the rows the API returned even when no Kubernetes source is configured', async () => {
+    providersFn.mockResolvedValue({ ...resp([row('registry')], [{ id: 'oci', kind: 'oci', status: 'available' }]) });
+    const t = render();
+    await vi.waitFor(() => expect(rows(t)).toHaveLength(1));
+    expect(text(block(t))).not.toContain('No providers detected');
+  });
+
+  it('counts unread sources past the bound from notReadTotal', async () => {
+    const down = Array.from({ length: 3 }, (_, i) => k8s(`edge-${i}`, 'unavailable', 'timeout'));
+    providersFn.mockResolvedValue({ ...resp([row('a')], [k8s('k8s'), ...down]), notReadTotal: 60 });
+    const t = render();
+    await vi.waitFor(() => expect(rows(t)).toHaveLength(1));
+    expect(text(t.querySelector('[data-testid="providers-not-read-more"]'))).toBe('+57 more not read');
+    expect(t.querySelector('.dp-unread')?.classList.contains('t-meta')).toBe(false);
+  });
+
+  it('says when the server cut the list', async () => {
+    providersFn.mockResolvedValue({ ...resp(Array.from({ length: 7 }, (_, i) => row(`p${i}`))), total: 260, truncated: true });
+    const t = render();
+    await vi.waitFor(() => expect(rows(t)).toHaveLength(5));
+    expect(text(t.querySelector('[data-testid="providers-truncated"]'))).toBe('Showing 7 of 260 detected providers, least healthy first.');
   });
 });

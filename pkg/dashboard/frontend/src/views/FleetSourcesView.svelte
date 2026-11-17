@@ -133,6 +133,8 @@
 
   <DetectedProviders {refreshTick} />
 
+  <!-- Ends the Detected providers section in the heading outline without a visible block. -->
+  <h2 class="visually-hidden" data-testid="sources-inventory-title">All data sources</h2>
   <div class="lv-filters">
     <form class="lv-search" onsubmit={submitSearch} role="search">
       <input class="input" type="search" bind:value={textDraft} placeholder="Search data sources..." aria-label="Search data sources" />

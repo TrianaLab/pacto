@@ -24,7 +24,7 @@ import FleetSourcesView from './FleetSourcesView.svelte';
 // Data sources mounts the Detected providers block: every test gets a two-row answer.
 providersFn.mockResolvedValue({
   meta: { schemaVersion: 'pacto.dev/fleet-product/v1', completeness: 'complete', sources: [{ id: 'k8s', kind: 'kubernetes', status: 'available' }] },
-  total: 2,
+  total: 2, kubernetesSources: 1, notRead: [], notReadTotal: 0,
   providers: [
     { id: 'pacto-crd', source: 'k8s', name: 'Pacto CRD', evidence: 'served (pacto.trianalab.io/v1alpha1)', usedFor: ['declared-targets'], status: 'available' },
     { id: 'kubernetes-workloads', source: 'k8s', name: 'Kubernetes workloads', evidence: '2 Deployments', usedFor: ['inferred-services'], status: 'available' },
@@ -454,6 +454,11 @@ describe('FleetSourcesView (G)', () => {
     await vi.waitFor(() => expect(target.querySelectorAll('[data-testid="provider-row"]')).toHaveLength(2));
     expect(target.querySelectorAll('[data-testid="detected-providers"]')).toHaveLength(1);
     expect(providersFn).toHaveBeenCalledTimes(1);
+    // The inventory has its own heading, so it never reads as part of the providers.
+    const h2s = [...target.querySelectorAll('h2')].map((h) => h.textContent?.trim());
+    expect(h2s.indexOf('All data sources')).toBe(h2s.indexOf('Detected providers') + 1);
+    const inventory = target.querySelector('[data-testid="sources-inventory-title"]') as HTMLElement;
+    expect(inventory.compareDocumentPosition(target.querySelector('.lv-filters')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     unmount(component); document.body.removeChild(target);
   });
 
