@@ -51,7 +51,7 @@ func printFleetProviders(cmd *cobra.Command, res *fleet.ProvidersResult, format 
 				if many {
 					_, _ = fmt.Fprintf(tw, "%s\t", p.Cluster)
 				}
-				_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\n", p.Name, p.Evidence, providerUsedFor(p))
+				_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\n", providerName(p), p.Evidence, providerUsedFor(p))
 			}
 			_ = tw.Flush()
 		}
@@ -76,7 +76,12 @@ func printFleetProviders(cmd *cobra.Command, res *fleet.ProvidersResult, format 
 // providerUsedFor is the USED FOR cell: the tokens with spaces, then the
 // status and its first reason when the row is not available.
 func providerUsedFor(p fleet.Provider) string {
-	out := strings.ReplaceAll(strings.Join(p.UsedFor, ", "), "-", " ")
+	out := strings.Join(p.UsedFor, ", ")
+	// A detected row's UsedFor is a sentence ("sign-in" keeps its hyphen);
+	// a reported row's are tokens.
+	if p.Provenance != fleet.ProvenanceInferred {
+		out = strings.ReplaceAll(out, "-", " ")
+	}
 	if p.Status == fleet.SourceAvailable {
 		return out
 	}
@@ -86,4 +91,12 @@ func providerUsedFor(p fleet.Provider) string {
 		return out + " (" + string(p.Status) + ")"
 	}
 	return out + fmt.Sprintf(" (%s: %s)", p.Status, p.Limitations[0].Message)
+}
+
+// providerName is the PROVIDER cell: the name, marked when Pacto detected it.
+func providerName(p fleet.Provider) string {
+	if p.Provenance == fleet.ProvenanceInferred {
+		return p.Name + " (inferred)"
+	}
+	return p.Name
 }

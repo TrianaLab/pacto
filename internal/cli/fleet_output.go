@@ -316,9 +316,34 @@ func printFleetStatus(cmd *cobra.Command, res *fleet.StatusResult, format string
 		for _, it := range res.Items {
 			_, _ = fmt.Fprintf(w, "  [%s] %s %s — %s\n", it.Code, it.Kind, it.Name, it.Reason)
 		}
+		printDetected(w, res.Providers)
 		warnPartial(cmd, res.Meta)
 		return nil
 	}, nil)
+}
+
+// printDetected prints the inferred provider rows, what the operator
+// detected, with each hint for a person to review; nothing when there are
+// none. Every row of one detection shares its asOf, so the first one is named.
+func printDetected(w io.Writer, rows []fleet.Provider) {
+	header := false
+	for _, p := range rows {
+		if p.Provenance != fleet.ProvenanceInferred {
+			continue
+		}
+		if !header {
+			asOf := "unknown"
+			if p.AsOf != nil {
+				asOf = p.AsOf.UTC().Format(time.RFC3339)
+			}
+			_, _ = fmt.Fprintf(w, "Detected (inferred, as of %s, nothing turned on):\n", asOf)
+			header = true
+		}
+		_, _ = fmt.Fprintf(w, "  %s: %s [%s]\n", p.Name, p.Evidence, p.Status)
+		if p.Hint != "" {
+			_, _ = fmt.Fprintf(w, "    %s\n", p.Hint)
+		}
+	}
 }
 
 func printFleetExplain(cmd *cobra.Command, res *fleet.ExplainResult, format string) error {

@@ -44,9 +44,10 @@ const fleetInstructions = "Pacto also exposes READ-ONLY fleet tools over the ope
 	"cite asOf, snapshotId and sources, and list limitations when you answer. Each edge carries " +
 	"'provenance' (declared, observed, declared+observed or inferred: an external use read from a workload's configuration or pod spec, which never clears a gate) and a declared edge carries " +
 	"'reconciliation'; each graph node says how it was reached. Say which kind each fact is: " +
-	"declared in a contract, observed at runtime or inferred. Pacto uses 'inferred' in three " +
+	"declared in a contract, observed at runtime or inferred. Pacto uses 'inferred' in four " +
 	"places: a transitive consumer in pacto_impact, a target linked to a revision by tag or " +
-	"version match and an external use read from configuration (relationship and external source provenance). pacto_fleet_entities " +
+	"version match, an external use read from configuration (relationship and external source provenance) " +
+	"and a detected provider row in pacto_fleet_status providers. pacto_fleet_entities " +
 	"with template=only lists golden paths, the starting points pacto_create takes as 'from' (over stdio, from pacto mcp --transport stdio); a " +
 	"golden path is never a consumer, so it is absent from impact and offering consumers. " +
 	"A service marked declaration: inferred is a workload no contract Pacto read describes (with workload.declarationUnverified, a contract Pacto could not read may describe it): " +
@@ -399,7 +400,9 @@ func fleetStatusTool() *mcpsdk.Tool {
 			"resources that failed to provision or report stale (category provisioning: PROVISIONING_FAILED, PROVISIONING_STALE; " +
 			"needs_attention includes them). 'total' and 'truncated' say whether the limit cut the list. With no category " +
 			"selected, including empty input, it reports every category. The answer's 'providers' lists what Pacto detected in each " +
-			"source (evidence, usedFor, status, limitations). Read-only.",
+			"source (evidence, usedFor, status, limitations). providers includes what the operator detected (registry, cloud, " +
+			"sign-in, exposure, metrics and nodes) with provenance inferred and asOf; nothing detected is turned on, and a " +
+			"detected value never clears a gate. Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"needs_attention":      {Type: "boolean", Description: "Report every attention category"},
 			"non_compliant":        {Type: "boolean", Description: "Non-compliant targets"},
@@ -439,13 +442,19 @@ type fleetStatusArgs struct {
 
 func fleetStatusHandler(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetStatusArgs, any] {
 	return func(_ context.Context, _ *mcpsdk.CallToolRequest, a fleetStatusArgs) (*mcpsdk.CallToolResult, any, error) {
-		r, err := jsonResult(q.Status(fleet.StatusQuery{
+		res := q.Status(fleet.StatusQuery{
 			NeedsAttention: a.NeedsAttention, NonCompliant: a.NonCompliant,
 			Unknown: a.Unknown, Invalid: a.Invalid,
 			StaleEvidence: a.Stale, MissingReadiness: a.MissingReadiness,
 			UnresolvedDeps: a.UnresolvedDeps, UnsatisfiedRanges: a.UnsatisfiedRanges, Lifecycle: a.Lifecycle,
 			Unowned: a.Unowned, Undeclared: a.Undeclared, GoldenPathDeployed: a.GoldenPathDeployed, Limit: a.Limit,
-		}))
+		})
+		// An agent gets no ready-to-paste hint: a person reviews it on the CLI
+		// or the dashboard. Providers is a copy, so the snapshot keeps it.
+		for i := range res.Providers {
+			res.Providers[i].Hint = ""
+		}
+		r, err := jsonResult(res)
 		return r, nil, err
 	}
 }
