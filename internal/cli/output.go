@@ -503,9 +503,59 @@ func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format st
 		if result.Readiness != nil {
 			printReadiness(w, result.Readiness)
 		}
+		printExplainInferred(w, result)
 
 		return nil
 	}, nil)
+}
+
+// printExplainInferred prints what the inferred record holds, apart from the
+// declared contract: one line per field with its source, then the YAML that
+// would declare them, each top-level key once, and the configuration keys as
+// one JSON object for the configuration schema's properties.
+func printExplainInferred(w io.Writer, result *app.ExplainResult) {
+	if !result.InferredUnreadable && len(result.Inferred) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintln(w, "\nInferred (not part of the contract):")
+	if result.InferredUnreadable {
+		_, _ = fmt.Fprintln(w, "  Pacto could not read the inferred record")
+		return
+	}
+	var heads []string
+	bodies := map[string]string{}
+	var config []string
+	for _, f := range result.Inferred {
+		line := fmt.Sprintf("  %s  inferred  %s  from %s", f.Field, f.Value, f.Source)
+		if strings.HasPrefix(f.Field, "configuration.") {
+			config = append(config, f.Declare)
+			if strings.HasSuffix(f.Value, "writeOnly") {
+				line += " (value not read)"
+			}
+		} else if f.Declare != "" {
+			head, body, _ := strings.Cut(f.Declare, "\n")
+			if _, seen := bodies[head]; !seen {
+				heads = append(heads, head)
+			}
+			bodies[head] += body
+		}
+		_, _ = fmt.Fprintln(w, line)
+	}
+	if len(heads) > 0 {
+		_, _ = fmt.Fprintln(w, "\nTo declare in pacto.yaml:")
+		for _, head := range heads {
+			_, _ = fmt.Fprint(w, indent("  ", head+"\n"+bodies[head]))
+		}
+	}
+	if len(config) > 0 {
+		_, _ = fmt.Fprintln(w, "\nTo declare in the configuration schema, under properties:")
+		_, _ = fmt.Fprintf(w, "  {%s}\n", strings.Join(config, ", "))
+	}
+}
+
+// indent prefixes every line of text with prefix.
+func indent(prefix, text string) string {
+	return prefix + strings.ReplaceAll(strings.TrimSuffix(text, "\n"), "\n", "\n"+prefix) + "\n"
 }
 
 // printExplainGoldenPath prints the golden path marker and the declared

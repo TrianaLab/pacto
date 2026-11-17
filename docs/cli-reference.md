@@ -974,7 +974,7 @@ pacto evidence verify <envelope.json> [flags]
 
 ## `pacto explain`
 
-Parses a pacto.yaml in the given directory (or oci:// reference) and produces a human-readable summary of the service contract. Each configuration lists its effective values per environment: its inline values with that environment's file merged on top. With two or more environments it also lists the values they disagree on, for every environment or the ones --environments names.
+Parses a pacto.yaml in the given directory (or oci:// reference) and produces a human-readable summary of the service contract. Each configuration lists its effective values per environment: its inline values with that environment's file merged on top. With two or more environments it also lists the values they disagree on, for every environment or the ones --environments names. Last it lists what Pacto inferred from the service's folder, apart from the contract, each value with its source and the YAML that would declare it.
 
 ```
 pacto explain [dir | oci://ref] [flags]

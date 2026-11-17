@@ -13,7 +13,8 @@ func newExplainCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		Short: "Human-readable contract summary",
 		Long: "Parses a pacto.yaml in the given directory (or oci:// reference) and produces a human-readable summary of the service contract. " +
 			"Each configuration lists its effective values per environment: its inline values with that environment's file merged on top. " +
-			"With two or more environments it also lists the values they disagree on, for every environment or the ones --environments names.",
+			"With two or more environments it also lists the values they disagree on, for every environment or the ones --environments names. " +
+			"Last it lists what Pacto inferred from the service's folder, apart from the contract, each value with its source and the YAML that would declare it.",
 		Example: "  pacto explain my-service\n" +
 			"  pacto explain oci://ghcr.io/acme/orders@sha256:<digest> --output-format json\n" +
 			"  pacto explain my-service --environments test,production",

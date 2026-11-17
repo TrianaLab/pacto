@@ -63,6 +63,13 @@ type ExplainResult struct {
 	EnvironmentDifferencesError string            `json:"environmentDifferencesError,omitempty"`
 	Readiness                   *ExplainReadiness `json:"readiness,omitempty"`
 	Metadata                    map[string]any    `json:"metadata,omitempty"`
+	// Inferred is what the bundle's inferred record holds: what Pacto
+	// completed from the service's folder, each field with its source and the
+	// YAML that would declare it. Never part of the contract.
+	Inferred []contract.Inferred `json:"inferred,omitempty"`
+	// InferredUnreadable is set when a pactoVersion 2.5 bundle ships a record
+	// Pacto could not read or verify: what it infers is unknown, not absent.
+	InferredUnreadable bool `json:"inferredUnreadable,omitempty"`
 	// AsOf is the RFC 3339 time of the explain, the time an environment's
 	// expires is compared with.
 	AsOf string `json:"asOf"`
@@ -284,6 +291,8 @@ func (s *Service) Explain(ctx context.Context, opts ExplainOptions) (*ExplainRes
 		return nil, err
 	}
 
+	result.Inferred, result.InferredUnreadable = explainInferred(bundle)
+
 	if eval := readiness.Evaluate(c.Readiness, s.env().now()); eval != nil {
 		er := &ExplainReadiness{
 			Score:         eval.Score,
@@ -361,6 +370,24 @@ func explainConfigurations(c *contract.Contract, bundleFS fs.FS) ([]ExplainConfi
 		out = append(out, ec)
 	}
 	return out, nil
+}
+
+// explainInferred reads the bundle's inferred record, as a fleet build does:
+// ignored before pactoVersion 2.5, and unreadable when it does not parse or
+// does not match the files it cites. A local read serves the record it just
+// completed, so both kinds of reference read it the same way.
+func explainInferred(b *contract.Bundle) ([]contract.Inferred, bool) {
+	if validation.InferredRecordNeedsRaise(b.Contract.PactoVersion) {
+		return nil, false
+	}
+	rec, err := contract.ReadInferredRecord(b.FS)
+	if err == nil && rec != nil {
+		err = contract.VerifyInferredRecord(b.FS, rec)
+	}
+	if err != nil || rec == nil {
+		return nil, err != nil
+	}
+	return rec.Fields, false
 }
 
 // explainDifferences compares the named environments, or every declared one,
