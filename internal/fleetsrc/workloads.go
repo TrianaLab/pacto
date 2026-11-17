@@ -50,10 +50,7 @@ var errCapped = errors.New("inferred services capped")
 // unavailable. Past [fleet.MaxInferredServices] it stops reading and says so.
 func (s *WorkloadSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 	col := &fleet.Collection{Cluster: s.cluster}
-	namespaces := s.namespaces
-	if len(namespaces) == 0 {
-		namespaces = []string{""}
-	}
+	namespaces := readNamespaces(s.namespaces)
 	now := time.Now()
 	var read []string
 	var listErr error
@@ -67,7 +64,7 @@ func (s *WorkloadSource) Collect(ctx context.Context) (*fleet.Collection, error)
 					Code: fleet.LimitationInferredServicesCapped, Source: s.id,
 					Message: "workloads past the bound of " + strconv.Itoa(fleet.MaxInferredServices) + " were not read; raise MaxInferredServices if a real cluster hits it",
 				})
-				col.Providers = providerRows(col, listed, len(namespaces))
+				col.Providers = s.providerRows(ctx, col, listed, len(namespaces))
 				return scoped(s.id, s.namespaces, col, read), nil
 			case err != nil:
 				listErr, complete = cmp.Or(listErr, err), false
@@ -83,18 +80,39 @@ func (s *WorkloadSource) Collect(ctx context.Context) (*fleet.Collection, error)
 	if len(col.Limitations) == len(namespaces)*len(workloadshape.WorkloadKinds) {
 		return nil, listErr
 	}
-	col.Providers = providerRows(col, listed, len(namespaces))
+	col.Providers = s.providerRows(ctx, col, listed, len(namespaces))
 	return scoped(s.id, s.namespaces, col, read), nil
 }
 
-// providerRows are the rows of col: the Kubernetes workloads row, then the
-// Helm row when a workload is grouped by a Helm release.
-func providerRows(col *fleet.Collection, listed map[string]int, lists int) []fleet.Provider {
+// readNamespaces are the namespaces to list: the configured ones, or "" for
+// all of them at once.
+func readNamespaces(namespaces []string) []string {
+	if len(namespaces) == 0 {
+		return []string{""}
+	}
+	return namespaces
+}
+
+// providerRows are the rows of col: the Kubernetes workloads row, the Helm
+// row when a workload is grouped by a Helm release, then the Argo CD and
+// Flux rows. On the way it names the repository behind each Argo CD or Flux
+// group, or why it could not. A failed discovery or GitOps list stays on the
+// rows and records and never on col, so the workloads row and the source's
+// health do not change.
+func (s *WorkloadSource) providerRows(ctx context.Context, col *fleet.Collection, listed map[string]int, lists int) []fleet.Provider {
 	rows := []fleet.Provider{workloadsRow(col, listed, lists)}
 	if row, ok := helmRow(col.InferredServices); ok {
 		rows = append(rows, row)
 	}
-	return rows
+	idx, gitops := discoveryFailedIndex(s.namespaces), []fleet.Provider(nil)
+	if versions, err := s.client.PreferredVersions(ctx, gitopsGroups()...); err == nil {
+		idx, gitops = s.readGitOps(ctx, versions)
+	}
+	for i := range col.InferredServices {
+		in := &col.InferredServices[i]
+		in.Group, in.Repositories, in.RepositoryUnknown = idx.resolveGroup(*in)
+	}
+	return append(rows, gitops...)
 }
 
 // workloadsRow is the Kubernetes workloads row of col: how many workloads of
@@ -132,7 +150,7 @@ func kindUnreadable(id, ns, kind string, err error) fleet.Limitation {
 	if ns != "" {
 		return fleet.NamespaceUnreadableLimitation(id, ns, reasonClass(err)+" listing "+kind)
 	}
-	return fleet.Limitation{Code: fleet.LimitationSourcePartial, Source: id, Message: "source " + id + " could not list " + kind + "s in any namespace: " + reasonClass(err)}
+	return fleet.Limitation{Code: fleet.LimitationSourcePartial, Source: id, Message: "source " + id + " could not list " + fleet.PluralKind(kind) + " in any namespace: " + reasonClass(err)}
 }
 
 // listKind pages through the workloads of kind in ns into col.

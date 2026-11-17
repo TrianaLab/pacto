@@ -2,7 +2,9 @@ package k8sclient
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"testing"
@@ -645,5 +647,43 @@ func TestServed(t *testing.T) {
 	b.discovery = func(*rest.Config) (discovery.DiscoveryInterface, error) { return nil, fmt.Errorf("no") }
 	if ok, err := b.served(&rest.Config{}, "x/v1"); ok || err == nil {
 		t.Fatal("no discovery client is an error")
+	}
+}
+
+// groupsDiscovery serves a fixed group list, or err.
+type groupsDiscovery struct {
+	fakediscovery.FakeDiscovery
+	groups []metav1.APIGroup
+	err    error
+}
+
+func (d *groupsDiscovery) ServerGroups() (*metav1.APIGroupList, error) {
+	return &metav1.APIGroupList{Groups: d.groups}, d.err
+}
+
+func TestPreferredVersions(t *testing.T) {
+	v := func(vs ...string) []metav1.GroupVersionForDiscovery {
+		var out []metav1.GroupVersionForDiscovery
+		for _, x := range vs {
+			out = append(out, metav1.GroupVersionForDiscovery{Version: x})
+		}
+		return out
+	}
+	disc := &groupsDiscovery{groups: []metav1.APIGroup{
+		{Name: "helm.toolkit.fluxcd.io", PreferredVersion: metav1.GroupVersionForDiscovery{Version: "v2"}, Versions: v("v2beta2", "v2")},
+		{Name: "argoproj.io", Versions: v("v1alpha1")},
+		{Name: "apps", PreferredVersion: metav1.GroupVersionForDiscovery{Version: "v1"}},
+		{Name: "empty.example.com"},
+	}}
+	got, err := (&k8sGoClient{discovery: disc}).PreferredVersions(context.Background(), "helm.toolkit.fluxcd.io", "argoproj.io", "source.toolkit.fluxcd.io", "empty.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := map[string]string{"helm.toolkit.fluxcd.io": "v2", "argoproj.io": "v1alpha1"}; !maps.Equal(got, want) {
+		t.Errorf("versions = %v, want %v", got, want)
+	}
+	disc.err = errors.New("unreachable")
+	if _, err := (&k8sGoClient{discovery: disc}).PreferredVersions(context.Background(), "argoproj.io"); err == nil {
+		t.Error("a discovery error read as no group served")
 	}
 }

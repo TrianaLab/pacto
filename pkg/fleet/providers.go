@@ -38,6 +38,15 @@ const (
 	ProviderHelm = "helm"
 	// UseServiceGrouping: Pacto groups inferred services by what the row read.
 	UseServiceGrouping = "service-grouping"
+	// ProviderArgoCD is the row of the Argo CD Applications a workload source
+	// listed to name the repository behind a group.
+	ProviderArgoCD = "argocd"
+	// ProviderFlux is the row of the Flux Kustomizations, HelmReleases and
+	// GitRepositories a workload source listed for the same reason.
+	ProviderFlux = "flux"
+	// UseRepositoryProvenance: Pacto names the repository a group deploys
+	// from out of what the row read.
+	UseRepositoryProvenance = "repository-provenance"
 )
 
 // A Provider is a system Pacto detected and read evidence from, never an
@@ -230,11 +239,11 @@ func WorkloadEvidence(counts map[string]int, unreadable []string) string {
 		case slices.Contains(unreadable, k) && n > 0:
 			parts = append(parts, "at least "+kindCount(n, k)+" (some unreadable)")
 		case slices.Contains(unreadable, k):
-			parts = append(parts, pluralKind(k)+" unreadable")
+			parts = append(parts, PluralKind(k)+" unreadable")
 		case n > 0:
 			parts = append(parts, kindCount(n, k))
 		case rank(k) == len(workloadKindOrder):
-			none = append(none, pluralKind(k))
+			none = append(none, PluralKind(k))
 		}
 	}
 	switch {
@@ -251,11 +260,11 @@ func kindCount(n int, kind string) string {
 	if n == 1 {
 		return "1 " + kind
 	}
-	return strconv.Itoa(n) + " " + pluralKind(kind)
+	return strconv.Itoa(n) + " " + PluralKind(kind)
 }
 
-// pluralKind is the plural of a kind: "GitRepositories", "Deployments".
-func pluralKind(k string) string {
+// PluralKind is the one plural of a kind: "GitRepositories", "Deployments".
+func PluralKind(k string) string {
 	if strings.HasSuffix(k, "y") && len(k) > 1 && !strings.ContainsRune("aeiouAEIOU", rune(k[len(k)-2])) {
 		return k[:len(k)-1] + "ies"
 	}

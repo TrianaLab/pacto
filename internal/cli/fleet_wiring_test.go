@@ -422,6 +422,10 @@ type fakeClusterClient struct {
 	workloads map[string]string
 }
 
+func (c *fakeClusterClient) PreferredVersions(context.Context, ...string) (map[string]string, error) {
+	return nil, nil
+}
+
 func (c *fakeClusterClient) DiscoverCRD(context.Context) (*k8sclient.CRDDiscovery, error) {
 	return &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"}, nil
 }
