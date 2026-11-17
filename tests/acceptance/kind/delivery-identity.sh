@@ -352,8 +352,9 @@ YAML
   out="$(token_login not-a-token)"
   [ "$out" = 401 ] || fail "a token the cluster refuses signed in: $out"
   out="$(token_login "$(kubectl -n rbac-open create token rbac-viewer)")"
-  [ "$out" = 401 ] && grep -q -- "--audience pacto-dashboard" "$IDP_DIR/token-body" \
-    || fail "a ServiceAccount token minted for another audience signed in, or was not told to use --audience pacto-dashboard: $out $(cat "$IDP_DIR/token-body")"
+  if [ "$out" != 401 ] || ! grep -q -- "--audience pacto-dashboard" "$IDP_DIR/token-body"; then
+    fail "a ServiceAccount token minted for another audience signed in, or was not told to use --audience pacto-dashboard: $out $(cat "$IDP_DIR/token-body")"
+  fi
   local sa; sa="$(token_login "$(kubectl -n rbac-open create token rbac-viewer --audience pacto-dashboard --duration 10m)" link)"
   [ -n "$sa" ] && [ "${#sa}" -gt 3 ] || fail "a ServiceAccount token minted for the dashboard did not sign in: $sa $(cat "$IDP_DIR/token-body")"
   dash "$sa" GET /api/session | cut -d' ' -f2- |
@@ -363,7 +364,9 @@ YAML
   dash "$sa" GET /api/capabilities | cut -d' ' -f2- | jq -e '.delivery == false' >/dev/null \
     || fail "the sign-in link session is offered delivery: $(dash "$sa" GET /api/capabilities)"
   out="$(dash "$sa" POST /api/delivery/operations/prod/any/decision '{"decision":"approve"}' "$(csrf_of "$sa")")"
-  [ "${out%% *}" = 403 ] && grep -q SignInLinkReadsFleet <<<"$out" || fail "a sign-in link session reached delivery: $out"
+  if [ "${out%% *}" != 403 ] || ! grep -q SignInLinkReadsFleet <<<"$out"; then
+    fail "a sign-in link session reached delivery: $out"
+  fi
   pass "a ServiceAccount token signs in only when minted for the dashboard, sees only what its RBAC reads and never reaches delivery"
 }
 
