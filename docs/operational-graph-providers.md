@@ -12,7 +12,8 @@ same rows. Each row carries `id`, `source`, `cluster`, `name`, `evidence`,
 `usedFor`, `status` and `limitations`, plus `objects` and `objectsTotal` when
 the evidence names objects. The evidence never names a namespace.
 
-A Kubernetes source reports two rows:
+Each cluster reports two rows, from two sources: the Kubernetes source (such
+as `prod`) and its workload source (`prod-workloads`).
 
 - **Pacto CRD**: `served (pacto.trianalab.io/v1alpha1)` or `not installed`.
   Pacto uses it for declared targets.
@@ -29,8 +30,10 @@ Kubernetes workloads  412 Deployments, DaemonSets unreadable, 31 CronJobs  infer
 ```
 
 With two or more clusters the table gains a leading `CLUSTER` column. With no
-Kubernetes source it prints `No providers detected: this view reads no
-Kubernetes cluster (add --k8s)`.
+Kubernetes source or workload source it prints `No providers detected: this
+view reads no Kubernetes cluster (add --k8s)`. When no source reported a service or
+a target, the answer's completeness is `empty`, so the CLI also prints
+`warning: answer is empty` on stderr while it still lists the rows.
 
 ## Not read and not installed
 
@@ -40,8 +43,9 @@ refused)`. Only a cluster that answered without the Pacto CRD says `not
 installed`.
 
 A row is never healthier than its source. A row that is not available always
-carries a limitation that says why, such as `PROVIDER_SOURCE_DEGRADED` when the
-source itself is partial or stale.
+carries a limitation that says why. `PROVIDER_SOURCE_DEGRADED` says so when the
+source itself is partial or stale, when the source marked the row partial
+without a reason or when a restricted view hid every other reason.
 
 ## Restricted views
 
