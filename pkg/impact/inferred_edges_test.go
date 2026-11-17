@@ -4,6 +4,7 @@ import (
 	"context"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -94,6 +95,36 @@ func TestImpactTracesFromReplacedWorkload(t *testing.T) {
 		t.Errorf("the replaced workload is an uncontracted consumer: %+v", res.Consumers)
 	}
 	if gwc := consumerNamed(t, res, "api-gateway"); gwc.Service == "" {
+		t.Errorf("consumers %+v", res.Consumers)
+	}
+}
+
+func TestEventOnReplacedKeyDisclosesAlias(t *testing.T) {
+	created, pacto := evidenceNow.Add(-72*time.Hour), evidenceNow.Add(-time.Hour)
+	revs := []fleet.RawRevision{{Bundle: mkBundle(svcContract("auth-service", "1.0.0", contract.Owner{Team: "platform"}))}, gwRev(authDep)}
+	auth := fleet.RawTarget{Scope: "pay", Kind: "kubernetes", Name: "auth-service", Service: "auth-service", Workload: &fleet.WorkloadRef{Kind: "Deployment", Name: "legacy"}, CreatedAt: &pacto}
+	w := fleet.NewMemorySource("k8s-workloads", fleet.SourceKindKubernetesWorkloads, &fleet.Collection{
+		InferredServices: []fleet.RawInferredService{{Namespace: "pay", Kind: "Deployment", Name: "legacy", CreatedAt: &created}},
+	})
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: func() time.Time { return evidenceNow }},
+		fleet.NewMemorySource("test", "memory", &fleet.Collection{Revisions: revs, Targets: []fleet.RawTarget{auth}}), w)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Replacements) != 1 {
+		t.Fatalf("replacements %+v", snap.Replacements)
+	}
+	res := event(snap, EventUnavailable, string(fleet.NewServiceKey(legacy)))
+	l := limitation(res, LimitationSubjectReplaced)
+	if l == nil {
+		t.Fatalf("no %s in %+v", LimitationSubjectReplaced, res.Limitations)
+	}
+	for _, want := range []string{legacy, "auth-service", "pay/kubernetes/auth-service"} {
+		if !strings.Contains(l.Message, want) {
+			t.Errorf("message %q lacks %q", l.Message, want)
+		}
+	}
+	if consumerNamed(t, res, "api-gateway").Service == "" {
 		t.Errorf("consumers %+v", res.Consumers)
 	}
 }

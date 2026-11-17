@@ -787,6 +787,13 @@ func (r *Result) dependents(snap *fleet.FleetSnapshot, q *fleet.Query, key fleet
 				"-node cap; the consumer list is a prefix of the blast radius, not the whole of it",
 		})
 	}
+	if rp := graph.ReplacedFrom; rp != nil {
+		_, from := fleet.ParseServiceKey(rp.From)
+		r.Limitations = append(r.Limitations, fleet.Limitation{
+			Code: LimitationSubjectReplaced, Source: limitationSource,
+			Message: from + " was replaced by " + string(rp.To) + " (linked by Pacto target " + string(rp.Target) + "), so this answer is about " + string(rp.To),
+		})
+	}
 	r.noteUnresolvedRefs(snap, graph.Root, withPolicy)
 	return graph
 }
@@ -887,6 +894,10 @@ type resolvedObservedEdge struct {
 // OTel service name could not be mapped to exactly one fleet service. It aliases
 // the fleet code so the pipeline reports one stable code end to end.
 const ObservedIdentityUnresolved = fleet.LimitationObservedIdentityUnresolved
+
+// LimitationSubjectReplaced discloses that the subject named an inferred
+// service a declared service replaced, and the answer is about the latter.
+const LimitationSubjectReplaced = "SUBJECT_REPLACED"
 
 // resolveObservedEdges maps raw observed (OTel) endpoint names to UNIQUE
 // domain-qualified ServiceKeys via the snapshot. A name matching no service, or

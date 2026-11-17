@@ -234,6 +234,9 @@ func analyzeEvent(snap *fleet.FleetSnapshot, opts Options) *Result {
 	if graph == nil {
 		return res
 	}
+	if graph.ReplacedFrom != nil {
+		subject = graph.Root // SUBJECT_REPLACED discloses it
+	}
 	observed := res.eventObserved(snap, opts)
 	res.eventFor(snap, q, subject, graph, observed)
 	res.collectOwnersAndTargets(snap, subject)

@@ -414,6 +414,8 @@ type ServiceDetailData struct {
 	Workload      *InferredWorkload `json:"workload,omitempty"`
 	Calls         RefPreview        `json:"calls" doc:"The declared services this inferred service was seen calling (observed, from uncontracted callers)"`
 	CallsObserved bool              `json:"callsObserved" doc:"True when an available source that reports observed calls covers this service's cluster; an empty calls list then means none were seen"`
+	Replaces      []Replacement     `json:"replaces,omitempty" doc:"The inferred services this service replaced, at most 200"`
+	ReplacesTotal int               `json:"replacesTotal,omitempty" doc:"How many inferred services this service replaced"`
 }
 
 // TemplateDetail is what a golden path offers to a person creating a service
@@ -1204,6 +1206,9 @@ type EntityDetail struct {
 	Offering *OfferingDetailData `json:"offering,omitempty"`
 	External *ExternalDetailData `json:"external,omitempty"`
 	Actions  []string            `json:"actions,omitempty"`
+	// ReplacedFrom is set when a service was asked for by the key of an
+	// inferred service it replaced.
+	ReplacedFrom *Replacement `json:"replacedFrom,omitempty" doc:"Set when the service was asked for by the key of an inferred service it replaced: that replacement"`
 }
 
 // EntityDetail returns the unified detail envelope for one entity, deep-cloned so
@@ -1309,10 +1314,12 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 		Origin:             q.originDetail(s),
 		Creation:           q.creationChecklist(s, view, consumed),
 		Calls:              refPreview(nil),
+		Replaces:           view.Replaces,
+		ReplacesTotal:      view.ReplacesTotal,
 	}
 	return &EntityDetail{
 		Meta: q.productMetaWith(conflicts), Entity: self, Status: s.Status,
-		Service: data, Actions: []string{"open-graph", "compare", "impact"},
+		Service: data, Actions: []string{"open-graph", "compare", "impact"}, ReplacedFrom: view.ReplacedFrom,
 	}, nil
 }
 

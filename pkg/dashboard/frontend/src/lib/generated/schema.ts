@@ -3092,6 +3092,8 @@ export interface components {
             external?: string;
             meta: components["schemas"]["Fleet.Meta"];
             nodes: components["schemas"]["Fleet.GraphNode"][] | null;
+            /** @description Set when the root was asked for by the key of an inferred service it replaced: that replacement */
+            replacedFrom?: components["schemas"]["Fleet.Replacement"];
             revision?: string;
             root: string;
             truncated?: boolean;
@@ -4137,6 +4139,15 @@ export interface components {
             dependencies: components["schemas"]["Fleet.Relationship"][] | null;
             dependents: string[] | null;
             meta: components["schemas"]["Fleet.Meta"];
+            /** @description Set when the service was asked for by the key of an inferred service it replaced: that replacement */
+            replacedFrom?: components["schemas"]["Fleet.Replacement"];
+            /** @description The inferred services this service replaced, at most 200 */
+            replaces?: components["schemas"]["Fleet.Replacement"][] | null;
+            /**
+             * Format: int64
+             * @description How many inferred services this service replaced
+             */
+            replacesTotal?: number;
             revisions: components["schemas"]["Fleet.ContractRevision"][] | null;
             service: components["schemas"]["Fleet.ServiceRecord"];
             targets: components["schemas"]["Fleet.TargetRecord"][] | null;
@@ -5223,6 +5234,8 @@ export interface components {
             meta: components["schemas"]["Fleet.ProductMeta"];
             offering?: components["schemas"]["ProductOfferingDetail"];
             owner?: components["schemas"]["ProductOwnerDetail"];
+            /** @description Set when the service was asked for by the key of an inferred service it replaced: that replacement */
+            replacedFrom?: components["schemas"]["Fleet.Replacement"];
             revision?: components["schemas"]["ProductRevisionDetail"];
             service?: components["schemas"]["ProductServiceDetail"];
             source?: components["schemas"]["ProductSourceDetail"];
@@ -5957,6 +5970,13 @@ export interface components {
             policies: components["schemas"]["ProductPoliciesPreview"];
             referencedBy: components["schemas"]["ProductRefPreview"];
             relationships: components["schemas"]["ProductRelationshipsPreview"];
+            /** @description The inferred services this service replaced, at most 200 */
+            replaces?: components["schemas"]["Fleet.Replacement"][] | null;
+            /**
+             * Format: int64
+             * @description How many inferred services this service replaced
+             */
+            replacesTotal?: number;
             revisions: components["schemas"]["ProductRefPreview"];
             signatures: components["schemas"]["ProductRevisionSignaturesPreview"];
             sources: components["schemas"]["ProductRefPreview"];

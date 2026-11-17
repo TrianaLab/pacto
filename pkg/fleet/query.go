@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"reflect"
 	"slices"
@@ -80,6 +81,41 @@ func (q *Query) resolveService(identifier string) (*ServiceRecord, error) {
 		sort.Strings(keys)
 		return nil, &AmbiguousError{Kind: "service", ID: identifier, Matches: keys}
 	}
+}
+
+// resolveServiceOrReplaced is resolveService that, when identifier names no
+// service, follows a visible [Replacement] from the inferred service it names
+// to the declared service that replaced it, and returns that replacement. Only
+// the service, graph and entity-detail lookups follow it, each answer carrying
+// replacedFrom; every other lookup stays exact.
+func (q *Query) resolveServiceOrReplaced(identifier string) (*ServiceRecord, *Replacement, error) {
+	s, err := q.resolveService(identifier)
+	var nf *NotFoundError
+	if !errors.As(err, &nf) {
+		return s, nil, err
+	}
+	for _, r := range q.snap.Replacements {
+		if _, name := ParseServiceKey(r.From); string(r.From) == identifier || name == identifier {
+			// Restrict keeps only replacements of visible services.
+			r.At = copyTime(r.At)
+			return q.snap.Services[r.To], &r, nil
+		}
+	}
+	return nil, nil, err
+}
+
+// replacesOf is the bounded list of the inferred services key replaced, and
+// how many there are.
+func (q *Query) replacesOf(key ServiceKey) ([]Replacement, int) {
+	var out []Replacement
+	for _, r := range q.snap.Replacements {
+		if r.To == key {
+			r.At = copyTime(r.At)
+			out = append(out, r)
+		}
+	}
+	shown, total, _ := boundSlice(out, MaxDetailPreview)
+	return shown, total
 }
 
 // Snapshot returns a deep copy of the snapshot for serialization. It never
@@ -617,17 +653,23 @@ type ServiceView struct {
 	Dependencies []Relationship         `json:"dependencies"`
 	Dependents   []ServiceKey           `json:"dependents"`
 	Capabilities []RevisionCapabilities `json:"capabilities,omitempty"`
+	// ReplacedFrom is set when the service was asked for by the key of an
+	// inferred service it replaced.
+	ReplacedFrom  *Replacement  `json:"replacedFrom,omitempty" doc:"Set when the service was asked for by the key of an inferred service it replaced: that replacement"`
+	Replaces      []Replacement `json:"replaces,omitempty" doc:"The inferred services this service replaced, at most 200"`
+	ReplacesTotal int           `json:"replacesTotal,omitempty" doc:"How many inferred services this service replaced"`
 }
 
 // GetService returns the logical service, its revisions and targets, its declared
 // dependency edges (across all revisions), its dependents, and per-revision tools
 // and skills. It returns a [NotFoundError] when the service is absent.
 func (q *Query) GetService(name string) (*ServiceView, error) {
-	s, err := q.resolveService(name)
+	s, replaced, err := q.resolveServiceOrReplaced(name)
 	if err != nil {
 		return nil, err
 	}
-	view := &ServiceView{Meta: q.meta(), Service: cloneService(s), Dependencies: []Relationship{}}
+	view := &ServiceView{Meta: q.meta(), Service: cloneService(s), Dependencies: []Relationship{}, ReplacedFrom: replaced}
+	view.Replaces, view.ReplacesTotal = q.replacesOf(s.Key)
 	for _, rk := range s.Revisions {
 		rev := cloneRevision(q.snap.Revisions[rk])
 		view.Revisions = append(view.Revisions, rev)
@@ -867,6 +909,9 @@ type GraphResult struct {
 	// is then a deterministic prefix of the reachable graph, not the whole of it,
 	// and a consumer that reads it as complete would understate a blast radius.
 	Truncated bool `json:"truncated,omitempty"`
+	// ReplacedFrom is set when the root was asked for by the key of an
+	// inferred service it replaced.
+	ReplacedFrom *Replacement `json:"replacedFrom,omitempty" doc:"Set when the root was asked for by the key of an inferred service it replaced: that replacement"`
 }
 
 // Graph traverses dependencies or dependents from an explicit root. It returns
@@ -890,12 +935,12 @@ func (q *Query) Graph(gq GraphQuery) (*GraphResult, error) {
 	if key, ok := ParseExternalSubject(gq.Service); ok && gq.Target == "" && gq.Revision == "" {
 		return q.graphExternal(gq, key, maxNodes)
 	}
-	rootSvc, scopeRev, aggregated, err := q.resolveGraphScope(gq)
+	rootSvc, scopeRev, aggregated, replaced, err := q.resolveGraphScope(gq)
 	if err != nil {
 		return nil, err
 	}
 
-	res := &GraphResult{Meta: q.meta(), Root: rootSvc, Revision: scopeRev, Aggregated: aggregated, Direction: dir, Nodes: []GraphNode{}}
+	res := &GraphResult{Meta: q.meta(), Root: rootSvc, Revision: scopeRev, Aggregated: aggregated, Direction: dir, Nodes: []GraphNode{}, ReplacedFrom: replaced}
 	nodeSet, cycles := q.walkGraph(res, rootSvc, gq, maxNodes, func(key ServiceKey) []graphStep {
 		return q.graphNeighbours(key, rootSvc, scopeRev, dir, gq.IncludeObserved)
 	})
@@ -1078,27 +1123,28 @@ func validateDirection(d Direction) (Direction, error) {
 }
 
 // resolveGraphScope determines the root service, the scoping revision (empty for
-// an aggregated service query) and whether the answer aggregates revisions.
-func (q *Query) resolveGraphScope(gq GraphQuery) (rootKey ServiceKey, scopeRev RevisionKey, aggregated bool, err error) {
+// an aggregated service query), whether the answer aggregates revisions and the
+// replacement followed when the service was asked for by a replaced key.
+func (q *Query) resolveGraphScope(gq GraphQuery) (rootKey ServiceKey, scopeRev RevisionKey, aggregated bool, replaced *Replacement, err error) {
 	switch {
 	case gq.Target != "":
 		tv, e := q.GetTarget(gq.Target)
 		if e != nil {
-			return "", "", false, e
+			return "", "", false, nil, e
 		}
-		return tv.Target.ServiceKey, tv.Target.ContractRevision, false, nil
+		return tv.Target.ServiceKey, tv.Target.ContractRevision, false, nil, nil
 	case gq.Revision != "":
 		rev := q.snap.Revisions[gq.Revision]
 		if rev == nil {
-			return "", "", false, &NotFoundError{Kind: "revision", ID: string(gq.Revision)}
+			return "", "", false, nil, &NotFoundError{Kind: "revision", ID: string(gq.Revision)}
 		}
-		return rev.ServiceKey, gq.Revision, false, nil
+		return rev.ServiceKey, gq.Revision, false, nil, nil
 	default:
-		s, err := q.resolveService(gq.Service)
+		s, replaced, err := q.resolveServiceOrReplaced(gq.Service)
 		if err != nil {
-			return "", "", false, err
+			return "", "", false, nil, err
 		}
-		return s.Key, "", len(s.Revisions) > 1, nil
+		return s.Key, "", len(s.Revisions) > 1, replaced, nil
 	}
 }
 
