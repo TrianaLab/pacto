@@ -2528,6 +2528,7 @@ type callerKey struct {
 	caller    string
 	to        ServiceKey
 	ambiguous bool
+	entity    ServiceKey
 }
 
 // setUncontractedCallers lists the callers with no contract, sorted by the
@@ -2535,7 +2536,7 @@ type callerKey struct {
 func setUncontractedCallers(snap *FleetSnapshot, uncontracted map[callerKey]map[string]bool) {
 	for k, sources := range uncontracted {
 		snap.UncontractedCallers = append(snap.UncontractedCallers, UncontractedCaller{
-			Caller: k.caller, ToService: k.to, Sources: slices.Sorted(maps.Keys(sources)), Ambiguous: k.ambiguous,
+			Caller: k.caller, ToService: k.to, Sources: slices.Sorted(maps.Keys(sources)), Ambiguous: k.ambiguous, Entity: k.entity,
 		})
 	}
 	sort.Slice(snap.UncontractedCallers, func(i, j int) bool {
@@ -2592,6 +2593,7 @@ func foldObservedRelationships(snap *FleetSnapshot, observed []observedInput) {
 	if len(observed) == 0 {
 		return
 	}
+	snap.observingSources = observingSourcesOf(observed)
 	resolve := snap.ObservedNameResolver()
 	seenLim := map[string]bool{}
 	edges := map[observedEdgeKey]*observedEdgeAgg{}
@@ -2620,8 +2622,12 @@ func foldObservedRelationships(snap *FleetSnapshot, observed []observedInput) {
 		addObservedLimitation(snap, seenLim, oi.edge.To, toRes, oi.source)
 		if toRes == ObservedResolved && fromRes != ObservedResolved {
 			// A caller with no contract of a service with one is kept, not dropped:
-			// it is exactly the consumer a breaking change cannot rule out.
-			k := callerKey{oi.edge.From, toKey, fromRes == ObservedAmbiguous}
+			// it is exactly the consumer a breaking change cannot rule out. An
+			// inferred caller stays one, linked to its inferred service.
+			k := callerKey{caller: oi.edge.From, to: toKey, ambiguous: fromRes == ObservedAmbiguous}
+			if fromRes == ObservedInferred {
+				k.entity = fromKey
+			}
 			if uncontracted[k] == nil {
 				uncontracted[k] = map[string]bool{}
 			}
@@ -2750,7 +2756,9 @@ func mergeWindowP(dstFirst, dstLast **time.Time, first, last *time.Time) {
 func addObservedLimitation(snap *FleetSnapshot, seen map[string]bool, name string, res ObservedResolution, source string) {
 	reason := ""
 	switch res {
-	case ObservedUnknown:
+	case ObservedUnknown, ObservedInferred:
+		// An inferred endpoint keeps the unknown behaviour until edges
+		// between inferred services exist.
 		reason = "unknown"
 	case ObservedAmbiguous:
 		reason = "ambiguous across domains"

@@ -1072,6 +1072,7 @@ pacto fleet entities [text] [flags]
       --class string                     with --kind external, external systems of this class (vendor-api, managed-cloud, legacy, unclassified, other-egress)
       --consumes string                  services that depend on or reference a provider of this platform offering
       --created-from string              services created from this golden path, by key; (none) for no declared origin or (unresolved) for an origin that resolves to no golden path
+      --declaration string               inferred keeps only the services Pacto infers from workloads no contract describes; declared leaves them out
       --domain string                    exact registry path, the domain part of a service key
       --environment string               with --kind target, targets in this environment (the delivery.pacto.trianalab.io/environment label); with --consumes and --phase, only the consumers whose status in that phase is in this environment
       --failed[=true|false]              with --kind offering, offerings with at least one failed provisioning request

@@ -251,6 +251,7 @@ type SearchFilter struct {
 	ReadyOnly      bool              // operationally ready (correlated to target when a target predicate is set)
 	NotReady       bool              // not operationally ready (correlated likewise)
 	Template       string            // TemplateOnly keeps only golden paths, TemplateExclude leaves them out
+	Declaration    string            // DeclarationInferred keeps only inferred services, DeclarationDeclared leaves them out
 	Limit          int               // 0 → DefaultSearchLimit, capped at MaxSearchLimit
 	Offset         int
 }
@@ -280,6 +281,9 @@ type ServiceHit struct {
 	Template bool `json:"template,omitempty"`
 	// NameInferred is where Name comes from when no revision declares it.
 	NameInferred *contract.Inferred `json:"nameInferred,omitempty"`
+	// Declaration says whether a contract describes the service (see
+	// ServiceRecord.Declaration).
+	Declaration string `json:"declaration,omitempty" enum:"declared,inferred"`
 }
 
 // SearchResult is a bounded page of service hits.
@@ -345,6 +349,7 @@ func validateSearchFilter(f SearchFilter) error {
 		{"status", f.Status, "not a canonical status", ValidStatus},
 		{"compliance", f.Compliance, "not a canonical status", ValidStatus},
 		{"template", f.Template, "not a template filter (only, exclude)", validTemplateFilter},
+		{"declaration", f.Declaration, "not a declaration (declared, inferred)", validDeclarationFilter},
 	})
 }
 
@@ -392,7 +397,7 @@ func hitFromService(s *ServiceRecord) ServiceHit {
 		Offering: s.Offering, Summary: s.Summary, Owner: cloneOwner(s.Owner), Status: s.Status,
 		RevisionCount: len(s.Revisions), TargetCount: len(s.Targets),
 		Sources: append([]string(nil), s.Sources...), Labels: cloneStringMap(s.Labels), Template: s.Template,
-		NameInferred: clonePtr(s.NameInferred),
+		NameInferred: clonePtr(s.NameInferred), Declaration: cmp.Or(s.Declaration, DeclarationDeclared),
 	}
 }
 
@@ -421,6 +426,7 @@ func (q *Query) serviceMatches(s *ServiceRecord, f SearchFilter) bool {
 		matchEq(f.Status, s.Status),
 		matchEq(f.Offering, s.Offering),
 		templateMatches(f.Template, s.Template),
+		declarationMatches(f.Declaration, EntityRef{Declaration: s.Declaration}),
 		matchSource(s, f.Source),
 		q.anyRevisionWorkload(s, f.Workload),
 		q.anyRevisionHasCapability(s, f.HasCapability),

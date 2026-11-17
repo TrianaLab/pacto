@@ -7,6 +7,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 // inferredInput is one workload a source reported, with the cluster its
@@ -64,8 +66,7 @@ func addInferredServices(snap *FleetSnapshot, inputs []inferredInput) {
 		snap.Services[rec.Key] = rec
 		if !verified(in.cluster, in.raw.Namespace) {
 			snap.Limitations = append(snap.Limitations, Limitation{
-				Code: LimitationDeclarationUnverified, Source: in.source,
-				Message: "Pacto could not read Pacto targets in " + in.raw.Namespace + "; a contract may describe " + rec.Name,
+				Code: LimitationDeclarationUnverified, Source: in.source, Message: unverifiedMessage(rec),
 			})
 		}
 	}
@@ -213,4 +214,106 @@ func cleanText(v string, limit int) bool {
 // validWorkloadPart reports whether v may be one part of a [K8sCaller] name.
 func validWorkloadPart(v string) bool {
 	return v != "" && !strings.Contains(v, "/") && cleanText(v, 253)
+}
+
+// unverifiedMessage is the DECLARATION_UNVERIFIED message of an inferred
+// record; inferredLimitations finds the record's own limitation by it.
+func unverifiedMessage(s *ServiceRecord) string {
+	return "Pacto could not read Pacto targets in " + s.Workload.Namespace + "; a contract may describe " + s.Name
+}
+
+// inferredLimitations is the limitations Build recorded about one inferred
+// record: its DECLARATION_UNVERIFIED and the fields it dropped.
+func inferredLimitations(snap *FleetSnapshot, s *ServiceRecord) []Limitation {
+	var out []Limitation
+	for _, l := range snap.Limitations {
+		if !slices.Contains(s.Sources, l.Source) {
+			continue
+		}
+		if l.Code == LimitationDeclarationUnverified && l.Message == unverifiedMessage(s) ||
+			l.Code == LimitationSourceRecordInvalid && strings.HasPrefix(l.Message, "workload "+s.Name+" ") {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// inferredUnverified reports whether Build marked an inferred record
+// DECLARATION_UNVERIFIED.
+func inferredUnverified(snap *FleetSnapshot) func(*ServiceRecord) bool {
+	marked := map[string]bool{}
+	for _, l := range snap.Limitations {
+		if l.Code == LimitationDeclarationUnverified {
+			marked[l.Message] = true
+		}
+	}
+	return func(s *ServiceRecord) bool { return marked[unverifiedMessage(s)] }
+}
+
+// observingSourcesOf is the ids of the sources that reported an observed edge.
+func observingSourcesOf(observed []observedInput) map[string]bool {
+	out := map[string]bool{}
+	for _, oi := range observed {
+		out[oi.source] = true
+	}
+	return out
+}
+
+// callsObserved reports whether an available source that reports observed
+// calls covers the cluster of an inferred workload: only then does an empty
+// calls list mean none were seen.
+func (q *Query) callsObserved(w *InferredWorkload) bool {
+	covers := func(string) bool { return true }
+	if len(q.snap.Clusters) > 1 {
+		i := slices.IndexFunc(q.snap.Clusters, func(c ClusterRecord) bool { return c.ID == w.Cluster })
+		covers = func(id string) bool { return i >= 0 && slices.Contains(q.snap.Clusters[i].Sources, id) }
+	}
+	return slices.ContainsFunc(q.snap.Sources, func(st SourceState) bool {
+		return q.snap.observingSources[st.ID] && st.Status == SourceAvailable && covers(st.ID)
+	})
+}
+
+// inferredServiceDetail is the detail of an inferred service: what Pacto read
+// from its workload, the declared services it was seen calling and where it
+// read them. It has no revision, ownership, placement or neighborhood, so
+// every such preview is empty.
+func (q *Query) inferredServiceDetail(s *ServiceRecord) *EntityDetail {
+	self := serviceEntityRef(s)
+	var calls []EntityRef
+	for _, c := range q.snap.UncontractedCallers {
+		if c.Entity == s.Key && q.snap.Services[c.ToService] != nil {
+			calls = append(calls, q.serviceRef(c.ToService))
+		}
+	}
+	var lims []AttributedLimitation
+	for _, l := range inferredLimitations(q.snap, s) {
+		lims = append(lims, AttributedLimitation{Limitation: l})
+	}
+	observed := q.callsObserved(s.Workload)
+	if !observed {
+		lims = append(lims, AttributedLimitation{Limitation: Limitation{
+			Code: LimitationEvidenceMissing, Source: s.Workload.Source,
+			Message: "no traffic source is read, so the calls of " + s.Name + " are unknown",
+		}})
+	}
+	var sources []EntityRef
+	for _, st := range q.snap.Sources {
+		if slices.Contains(s.Sources, st.ID) {
+			sources = append(sources, sourceEntityRef(st))
+		}
+	}
+	_, cfgs, pols := q.currentRevisionContent(nil)
+	data := &ServiceDetailData{
+		Domain: s.Domain, Capabilities: stringsPreview(nil), Sources: refPreview(sources),
+		UnresolvedDependencies: unresolvedDependencyItems(self, nil), ConsumedOfferings: offeringUsesPreview(nil),
+		InferredOfferings: []InferredOffering{}, Policies: pols, Configurations: cfgs,
+		Revisions: refPreview(nil), ActiveRevisions: refPreview(nil), Signatures: revisionSignatures(nil),
+		Deployments: refPreview(nil), Dependencies: refPreview(nil), Dependents: refPreview(nil), ReferencedBy: refPreview(nil),
+		Placement: PlacementPreview{Items: []EnvironmentPlacement{}, Differences: []validation.EnvironmentDifference{}},
+		Changes:   q.serviceChanges(s), Relationships: relationshipsPreview(nil),
+		Findings: attributedTargetFindingsPreview(nil), Evidence: evidencePreview(nil),
+		Limitations: attributedLimitationsPreview(lims), Workload: jsonClone(s.Workload),
+		Calls: refPreview(calls), CallsObserved: observed,
+	}
+	return &EntityDetail{Meta: q.productMeta(), Entity: self, Service: data, Actions: []string{}}
 }

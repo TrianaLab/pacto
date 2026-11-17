@@ -896,7 +896,8 @@ func resolveObservedEdges(snap *fleet.FleetSnapshot, edges []ObservedEdge, inclu
 	addLim := func(name string, res fleet.ObservedResolution) bool {
 		reason := ""
 		switch res {
-		case fleet.ObservedUnknown:
+		case fleet.ObservedUnknown, fleet.ObservedInferred:
+			// An inferred service has no contract: it never corroborates.
 			reason = "unknown"
 		case fleet.ObservedAmbiguous:
 			reason = "ambiguous across domains"

@@ -91,7 +91,7 @@ func fleetRows() []surfaceRow {
 	return slices.Concat(
 		alike("fleet entities", "pacto_fleet_entities", "GET /api/fleet/entities", "", "business-domain", "consumes", "created-from", "environment",
 			"has-non-compliant", "limit", "offering", "offset", "owner", "owner-key", "ownership", "phase", "sort", "source-kind", "status", "template",
-			"capability", "domain", "readiness", "scope", "service", "source", "source-health", "failed", "lifecycle", "gap", "class"),
+			"declaration", "capability", "domain", "readiness", "scope", "service", "source", "source-health", "failed", "lifecycle", "gap", "class"),
 		[]surfaceRow{
 			{"fleet entities --kind", "pacto_fleet_entities.kind", "GET /api/fleet/entities?kinds", "the route takes several kinds, the CLI and MCP one"},
 			{"fleet entities [text]", "pacto_fleet_entities.text", "GET /api/fleet/entities?text", ""},

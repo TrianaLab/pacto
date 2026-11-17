@@ -447,3 +447,15 @@ func TestOperationNamespacesSortedUnique(t *testing.T) {
 		t.Fatalf("namespaces = %v", got)
 	}
 }
+
+func TestVisibleNamesExcludesInferred(t *testing.T) {
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: func() time.Time { return fleetNow }},
+		fleet.NewMemorySource("k8s", fleet.SourceKindKubernetes, &fleet.Collection{Targets: []fleet.RawTarget{{Scope: "shop", Kind: "kubernetes", Name: "orders", Service: "orders"}}}),
+		fleet.NewMemorySource("k8s-workloads", "kubernetes-workloads", &fleet.Collection{InferredServices: []fleet.RawInferredService{{Namespace: "shop", Kind: "Deployment", Name: "cart"}}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := VisibleNames(fleet.NewQuery(snap)); !reflect.DeepEqual(got, []string{"orders"}) {
+		t.Errorf("names = %v", got)
+	}
+}

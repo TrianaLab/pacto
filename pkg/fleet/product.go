@@ -61,7 +61,7 @@ func ProductKinds() []string {
 
 // ListKinds are the kinds a listing that names one kind (the CLI and MCP)
 // asks for: kind when set; otherwise the one kind its filter applies to
-// (services for template only, revisions for readiness, targets for scope,
+// (services for template only or inferred, revisions for readiness, targets for scope,
 // sources for sourceKind or sourceHealth, external systems for class); nil, the kind set every surface
 // lists by default, when it names a service, domain or source, so the listing
 // holds that service's revisions and targets as the dashboard's does; else the
@@ -70,7 +70,7 @@ func ListKinds(kind string, f EntityFilter) []EntityKind {
 	switch {
 	case kind != "":
 		return []EntityKind{EntityKind(kind)}
-	case f.Template == TemplateOnly:
+	case f.Template == TemplateOnly || f.Declaration == DeclarationInferred:
 		return []EntityKind{KindService}
 	case f.Readiness != "":
 		return []EntityKind{KindRevision}
@@ -174,6 +174,11 @@ type EntityRef struct {
 	// not-checked when no source that read it checks signatures.
 	Template bool `json:"template,omitempty"`
 	Created  int  `json:"created,omitempty"`
+	// Declaration is set on SERVICE references (see ServiceRecord.Declaration).
+	// An inferred reference carries its namespace in Scope, its workload kind
+	// in Secondary and, on list rows, its Image.
+	Declaration string `json:"declaration,omitempty" enum:"declared,inferred"`
+	Image       string `json:"image,omitempty" doc:"The image an inferred service runs, on list rows"`
 	// NameInferred is where a SERVICE reference's name comes from when no
 	// revision declares it (see ServiceRecord.NameInferred).
 	NameInferred *contract.Inferred `json:"nameInferred,omitempty"`
@@ -344,12 +349,16 @@ func (q *Query) ProductMeta() ProductMeta { return q.productMeta() }
 
 // serviceEntityRef builds a route-neutral reference to a logical service.
 func serviceEntityRef(s *ServiceRecord) EntityRef {
-	return EntityRef{
+	ref := EntityRef{
 		Kind: KindService, Key: string(s.Key), Label: s.Name, Secondary: s.Domain,
 		Status: s.Status, Domain: s.Domain, BusinessDomain: s.BusinessDomain, BusinessDomainUnknown: s.BusinessDomainUnknown,
 		Offering: s.Offering, Summary: s.Summary, OfferingProvenance: s.OfferingProvenance, Template: s.Template,
-		NameInferred: clonePtr(s.NameInferred),
+		NameInferred: clonePtr(s.NameInferred), Declaration: cmp.Or(s.Declaration, DeclarationDeclared),
 	}
+	if s.Inferred() {
+		ref.Scope, ref.Secondary = s.Workload.Namespace, s.Workload.Kind
+	}
+	return ref
 }
 
 // ServiceRef is serviceEntityRef for callers outside the package.
@@ -484,7 +493,7 @@ func OfferingRef(snap *FleetSnapshot, name string) EntityRef {
 // name declares it and ProvenanceObserved otherwise.
 func offeringProvenance(snap *FleetSnapshot, name string) string {
 	for _, s := range snap.Services {
-		if s.Offering == name && s.OfferingProvenance == ProvenanceDeclared {
+		if s.Offering == name && s.OfferingProvenance == ProvenanceDeclared && !s.Inferred() {
 			return ProvenanceDeclared
 		}
 	}
@@ -503,7 +512,13 @@ func sourceEntityRef(st SourceState) EntityRef {
 // clickable entry point in [Overview.EntryPoints]: a count is
 // never a passive number.
 type OverviewSummary struct {
-	Services int `json:"services"`
+	// Services counts the declared services; InferredServices the services
+	// Pacto infers from workloads no contract describes, and
+	// InferredUnverified those of them in a namespace whose Pacto targets
+	// Pacto could not read.
+	Services           int `json:"services" doc:"Services a contract revision or a Pacto target describes"`
+	InferredServices   int `json:"inferredServices" doc:"Services Pacto infers from workloads no contract describes; counted apart from services"`
+	InferredUnverified int `json:"inferredUnverified,omitempty" doc:"Of inferredServices, those in a namespace whose Pacto targets Pacto could not read, so a contract may describe them"`
 	// Externals counts the external systems the services declare, one per
 	// canonical identity (none is folded here); HiddenExternals those only
 	// services the caller's permissions hide declare, never named.
@@ -627,7 +642,7 @@ func (q *Query) tallyDomains(sum *OverviewSummary) {
 	}
 	by := map[row]*DomainTally{}
 	for _, s := range q.snap.Services {
-		if s.Template {
+		if s.Template || s.Inferred() {
 			continue
 		}
 		k := row{s.BusinessDomain, s.BusinessDomainUnknown}
@@ -786,7 +801,13 @@ type Overview struct {
 func (q *Query) Overview() *Overview {
 	ov := &Overview{Meta: q.productMeta(), EntryPoints: []EntryPoint{}}
 	sum := &ov.Summary
+	unverified := inferredUnverified(q.snap)
 	for _, s := range q.snap.Services {
+		if s.Inferred() {
+			sum.InferredServices++
+			sum.InferredUnverified += b2i(unverified(s))
+			continue
+		}
 		if s.Template {
 			sum.GoldenPaths++
 			sum.InvalidGoldenPaths += b2i(s.Status == StatusInvalid)
@@ -1004,6 +1025,9 @@ type AttentionItem struct {
 	// same statement. It is inferred from the item's code: a suggestion that
 	// grants nothing.
 	NextAction *NextAction `json:"nextAction,omitempty" doc:"NextStep as an operation an existing tool makes. Pacto infers it from the item's code; it grants nothing, and the edit decides"`
+	// Caller is the inferred service an uncontracted caller is; Entity and
+	// Service stay on the service it calls.
+	Caller *EntityRef `json:"caller,omitempty" doc:"The inferred service of an uncontracted caller, when Pacto sees its workload"`
 }
 
 // NextAction names the operation that fixes an attention item: a verb and the
@@ -1240,6 +1264,10 @@ func (q *Query) undeclaredAttention() []AttentionItem {
 			Reason:   c.Caller + " calls " + to + " and no contract describes " + c.Caller,
 			NextStep: "Give " + c.Caller + " a contract, or find out why it calls " + to,
 		}
+		if s := q.snap.Services[c.Entity]; s != nil {
+			ref := serviceEntityRef(s)
+			it.Caller = &ref
+		}
 		if c.Ambiguous {
 			it.Summary = "Caller matches more than one service"
 			it.Reason = c.Caller + " matches more than one service, so Pacto cannot tell which one calls " + to
@@ -1258,7 +1286,7 @@ func (q *Query) undeclaredAttention() []AttentionItem {
 func (q *Query) unownedAttention() []AttentionItem {
 	var out []AttentionItem
 	for _, s := range q.snap.Services {
-		if b, _ := q.ownershipBucket(s); b != OwnershipUnowned {
+		if b, _ := q.ownershipBucket(s); b != OwnershipUnowned || s.Inferred() {
 			continue
 		}
 		out = append(out, AttentionItem{

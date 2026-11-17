@@ -209,7 +209,7 @@ func restrictRevisions(s *FleetSnapshot, hiddenSvc, offeringOnly map[ServiceKey]
 // target to the view. out.Services must already be restricted.
 func targetsHidden(out *FleetSnapshot, services map[ServiceKey]*ServiceRecord, offeringOnly map[ServiceKey]bool) map[ServiceKey]bool {
 	for k, svc := range out.Services {
-		if len(svc.Targets) != len(services[k].Targets) {
+		if !svc.Inferred() && len(svc.Targets) != len(services[k].Targets) {
 			offeringOnly[k] = true
 		}
 	}
@@ -643,7 +643,7 @@ func restrictOrigins(s *FleetSnapshot, hiddenSvc map[ServiceKey]bool) (map[Servi
 	for k, svc := range s.Services {
 		o := svc.Origin
 		switch {
-		case o == nil || o.GoldenPath == "" || hiddenSvc[k] == hiddenSvc[o.GoldenPath]:
+		case o == nil || svc.Inferred() || o.GoldenPath == "" || hiddenSvc[k] == hiddenSvc[o.GoldenPath]:
 		case hiddenSvc[k]:
 			hiddenCreated[o.GoldenPath]++
 		default:

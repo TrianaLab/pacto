@@ -211,7 +211,7 @@ func (s *Server) deliveryAutonomy(ctx context.Context, in *autonomyInput) (*auto
 	if q := s.publishedQuery(ctx); q != nil {
 		snap := q.SnapshotForSerialization()
 		callers = uncontractedOf(snap)
-		out.Body.Contracted = &ContractShare{Services: len(snap.Services), UncontractedCallers: distinctCallers(callers)}
+		out.Body.Contracted = &ContractShare{Services: declaredServices(snap), UncontractedCallers: distinctCallers(callers)}
 	}
 	b := &out.Body
 	b.Listing = l
@@ -368,4 +368,16 @@ func fixFor(kind, subject, service string, have *BlockerFix) *BlockerFix {
 		return have
 	}
 	return have
+}
+
+// declaredServices counts the services a contract describes: an inferred
+// service has none.
+func declaredServices(snap *fleet.FleetSnapshot) int {
+	n := 0
+	for _, svc := range snap.Services {
+		if !svc.Inferred() {
+			n++
+		}
+	}
+	return n
 }

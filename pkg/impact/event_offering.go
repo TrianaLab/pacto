@@ -80,7 +80,7 @@ func (r *Result) partial(code, message string) *Result {
 func offeringProviders(snap *fleet.FleetSnapshot, offering string) []fleet.ServiceKey {
 	var out []fleet.ServiceKey
 	for k, s := range snap.Services {
-		if s.Offering == offering {
+		if s.Offering == offering && !s.Inferred() {
 			out = append(out, k)
 		}
 	}

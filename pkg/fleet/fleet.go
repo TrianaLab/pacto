@@ -103,12 +103,17 @@ const (
 	// ObservedAmbiguous: the name matched more than one service (same name in
 	// different domains) — it cannot be attributed to a single domain.
 	ObservedAmbiguous
+	// ObservedInferred: the name matched exactly one service, and Pacto only
+	// infers it from a workload no contract describes. The key is valid, but the
+	// service is never a contracted endpoint: a caller stays uncontracted.
+	ObservedInferred
 )
 
 // ObservedNameResolver returns a resolver that maps a raw observed service name
 // to its UNIQUE domain-qualified [ServiceKey]. A name matching zero or multiple
 // services is never coerced to the default domain — the resolution status says so
-// and the returned key is only valid when [ObservedResolved]. The name index is
+// and the returned key is only valid when [ObservedResolved] or
+// [ObservedInferred]. The name index is
 // built once, so repeated resolution is O(1). This is the single place observed
 // telemetry crosses into Pacto identity, so observed evidence can never
 // corroborate or affect a same-named service in another domain.
@@ -120,6 +125,9 @@ func (s *FleetSnapshot) ObservedNameResolver() func(string) (ServiceKey, Observe
 	return func(name string) (ServiceKey, ObservedResolution) {
 		switch ks := byName[name]; len(ks) {
 		case 1:
+			if s.Services[ks[0]].Inferred() {
+				return ks[0], ObservedInferred
+			}
 			return ks[0], ObservedResolved
 		case 0:
 			return "", ObservedUnknown
@@ -1313,6 +1321,10 @@ type FleetSnapshot struct {
 	// callers can layer observed evidence on top rather than conflating the two.
 	observedReverse map[ServiceKey][]ServiceKey
 	observedForward map[ServiceKey][]ServiceKey
+	// observingSources are the ids of the sources that reported at least one
+	// observed edge: an inferred service's calls are known only where one of
+	// them is available.
+	observingSources map[string]bool
 }
 
 // ProvisioningRecord is one validated provisioning report (see
@@ -1378,6 +1390,9 @@ type UncontractedCaller struct {
 	Sources   []string   `json:"sources"`
 	// Ambiguous is set when the caller name matched more than one service.
 	Ambiguous bool `json:"ambiguous,omitempty"`
+	// Entity is the inferred service this caller is, when Pacto sees its
+	// workload. The caller stays uncontracted.
+	Entity ServiceKey `json:"entity,omitempty" doc:"The inferred service this caller is, when Pacto sees its workload"`
 }
 
 // K8sCaller is the identity of a Kubernetes workload with no contract:

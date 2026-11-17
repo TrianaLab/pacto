@@ -320,13 +320,16 @@ const maxOwnerRanking = 10
 type EntityAggregate struct {
 	// Matched repeats EntityList.Total so a consumer holding only the aggregate
 	// still has the whole it divides.
-	Matched   int `json:"matched"`
-	Services  int `json:"services"`
-	Revisions int `json:"revisions"`
-	Targets   int `json:"targets"`
-	Owners    int `json:"owners"`
-	Sources   int `json:"sources"`
-	Domains   int `json:"domains"`
+	Matched int `json:"matched"`
+	// Services counts the declared services; every service tally partitions
+	// them. InferredServices counts the inferred ones apart.
+	Services         int `json:"services"`
+	InferredServices int `json:"inferredServices" doc:"Matched services Pacto infers from workloads no contract describes; no other service tally counts them"`
+	Revisions        int `json:"revisions"`
+	Targets          int `json:"targets"`
+	Owners           int `json:"owners"`
+	Sources          int `json:"sources"`
+	Domains          int `json:"domains"`
 	// ServiceCompliance partitions Services and TargetCompliance partitions Targets.
 	// They are kept apart rather than summed: a service status is a roll-up of its
 	// targets, so adding the two would count the same operational reality twice.
@@ -611,6 +614,10 @@ func (q *Query) aggregate(refs []EntityRef, offerings map[string]*offeringFacts)
 	for _, r := range refs {
 		switch r.Kind {
 		case KindService:
+			if r.Declaration == DeclarationInferred {
+				agg.InferredServices++
+				continue
+			}
 			agg.Services++
 			s := q.snap.Services[ServiceKey(r.Key)]
 			agg.ServiceCompliance.addStale(s.Status, q.restsOnStale(s))
