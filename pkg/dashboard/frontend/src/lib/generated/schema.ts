@@ -2904,6 +2904,8 @@ export interface components {
             revision?: string;
             /** @description The consumer */
             service: string;
+            /** @description A newer revision of the consumer no longer declares it at this position */
+            superseded?: boolean;
             /** @description The target the evidence was observed on; empty for a contract source */
             target?: string;
             /** @description The free-text version the dependency declares */

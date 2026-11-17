@@ -20,7 +20,7 @@
   const plural = (n, one, many) => `${formatCount(n)} ${n === 1 ? one : many}`;
   const ORIGIN = { default: 'Default catalog', organization: 'Organization catalog' };
   const signatureWords = (c) => (c.signature === 'verified' ? `signature verified${c.signer ? ` (${c.signer})` : ''}` : `signature ${c.signature || 'unknown'}`);
-  const sourceLine = (s) => `${labelOf.get(s.service) || s.service} pacto.yaml dependencies[${s.index}] (name: ${s.dependency}${s.version ? `, version: ${s.version}` : ''})`;
+  const sourceLine = (s) => `${labelOf.get(s.service) || s.service} pacto.yaml dependencies[${s.index}] (name: ${s.dependency}${s.version ? `, version: ${s.version}` : ''}${s.superseded ? ', not in the newest revision' : ''})`;
 </script>
 
 <div class="external-entity">

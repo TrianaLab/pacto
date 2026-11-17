@@ -310,6 +310,26 @@ func TestExternalSourcesPerConsumer(t *testing.T) {
 	}
 }
 
+func TestExternalSourceSupersededByNewerRevision(t *testing.T) {
+	snap := externalSnap(t, BuildOptions{},
+		extContract("payments", "1.0.0", extDep("legacy-mq")), extContract("payments", "2.0.0"),
+		extContract("billing", "1.0.0", extDep("legacy-mq")))
+	rec := snap.Externals["legacy-mq"]
+	if rec == nil || len(rec.Sources) != 2 {
+		t.Fatalf("legacy-mq = %+v", rec)
+	}
+	if rec.Sources[0].Service != NewServiceKey("billing") || rec.Sources[0].Superseded {
+		t.Errorf("billing's only revision declares it: %+v", rec.Sources[0])
+	}
+	if rec.Sources[1].Service != NewServiceKey("payments") || !rec.Sources[1].Superseded {
+		t.Errorf("payments 2.0.0 dropped it, so 1.0.0's source is superseded: %+v", rec.Sources[1])
+	}
+	res, err := NewQuery(snap).Explain("external:legacy-mq")
+	if err != nil || !strings.Contains(res.Reasons[1].Message, "not in the newest revision") {
+		t.Errorf("explain = %+v, %v", res, err)
+	}
+}
+
 func TestExternalEveryConsumerKeepsASource(t *testing.T) {
 	var cs []*contract.Contract
 	for i := range 60 {

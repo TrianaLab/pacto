@@ -424,7 +424,11 @@ func renderExternalDetail(b *strings.Builder, e *fleet.ExternalDetailData) {
 	}
 	section(b, fmt.Sprintf("Sources (%d)", r.SourcesTotal))
 	for _, src := range r.Sources {
-		b.WriteString(safeText(fmt.Sprintf("  %s pacto.yaml dependencies[%d] (name: %s, %s)", src.Service, src.Index, src.Dependency, src.Provenance)) + "\n")
+		note := ""
+		if src.Superseded {
+			note = ", not in the newest revision"
+		}
+		b.WriteString(safeText(fmt.Sprintf("  %s pacto.yaml dependencies[%d] (name: %s, %s%s)", src.Service, src.Index, src.Dependency, src.Provenance, note)) + "\n")
 	}
 	section(b, "Catalog")
 	switch c := r.Catalog; {

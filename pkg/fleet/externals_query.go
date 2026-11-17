@@ -59,6 +59,9 @@ func (q *Query) explainExternal(key string) (*ExplainResult, error) {
 		if src.Version != "" {
 			msg += ", version: " + src.Version
 		}
+		if src.Superseded {
+			msg += ", not in the newest revision"
+		}
 		res.Reasons = append(res.Reasons, Reason{Code: ReasonExternalDeclared, Message: msg + ")", Assertion: &AssertionRef{Kind: "dependency", Name: src.Dependency}})
 	}
 	if more := rec.ConsumersTotal - len(b.Consumers); more > 0 || rec.HiddenConsumers > 0 {

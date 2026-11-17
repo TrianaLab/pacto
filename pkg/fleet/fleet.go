@@ -1044,6 +1044,10 @@ type ExternalSource struct {
 	Required   bool      `json:"required,omitempty"`
 	Provenance string    `json:"provenance" enum:"declared,observed,inferred"`
 	Match      string    `json:"match" doc:"How the evidence was joined to the identity: identity, catalog-alias, host or normalized-name"`
+	// Superseded says the consumer has a newer revision that no longer
+	// declares the dependency at this position, so the declaration may be
+	// history rather than what the service runs today.
+	Superseded bool `json:"superseded,omitempty" doc:"A newer revision of the consumer no longer declares it at this position"`
 }
 
 // ExternalCatalogMatch names the catalog entry that classified an external system.

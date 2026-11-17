@@ -809,11 +809,13 @@ func TestRevisionDetailShowsBehindVersion(t *testing.T) {
 func TestTUIExternalDetail(t *testing.T) {
 	rec := fleet.ExternalRecord{
 		Key: "stripe", Class: "vendor-api", ConsumersTotal: 2, SourcesTotal: 2, HiddenConsumers: 1,
-		Sources: []fleet.ExternalSource{{Service: "checkout", Index: 0, Dependency: "Stripe", Provenance: "declared"}},
+		Sources: []fleet.ExternalSource{{Service: "checkout", Index: 0, Dependency: "Stripe", Provenance: "declared"},
+			{Service: "payments", Index: 1, Dependency: "stripe", Provenance: "declared", Superseded: true}},
 		Catalog: &fleet.ExternalCatalogMatch{Origin: "default", Digest: "sha256:abc", Entry: "stripe"},
 	}
 	out := renderDetail(&fleet.EntityDetail{External: &fleet.ExternalDetailData{External: rec, FoldedInto: fleet.OtherEgress}})
-	for _, want := range []string{"vendor-api", "1 you may not see", "other-egress", "Sources (2)", "checkout pacto.yaml dependencies[0] (name: Stripe, declared)", "Catalog", "sha256:abc"} {
+	for _, want := range []string{"vendor-api", "1 you may not see", "other-egress", "Sources (2)", "checkout pacto.yaml dependencies[0] (name: Stripe, declared)",
+		"payments pacto.yaml dependencies[1] (name: stripe, declared, not in the newest revision)", "Catalog", "sha256:abc"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("external detail lacks %q:\n%s", want, out)
 		}

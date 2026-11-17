@@ -2834,8 +2834,22 @@ func externalRecord(snap *FleetSnapshot, cat *externalcatalog.Catalog, key Exter
 // fills its totals. It never bounds a record: answers do.
 func finalizeExternals(snap *FleetSnapshot) {
 	for _, rec := range snap.Externals {
+		for i := range rec.Sources {
+			rec.Sources[i].Superseded = supersededSource(snap, rec.Sources[i])
+		}
 		finalizeExternal(rec)
 	}
+}
+
+// supersededSource reports whether the consumer has a revision newer than the
+// one src comes from. src is from the newest revision declaring it at its
+// position, so any newer revision no longer does.
+func supersededSource(snap *FleetSnapshot, src ExternalSource) bool {
+	rev := snap.Revisions[src.Revision]
+	return slices.ContainsFunc(snap.Services[src.Service].Revisions, func(k RevisionKey) bool {
+		r := snap.Revisions[k]
+		return r != nil && lessRevisionChrono(rev, r)
+	})
 }
 
 // joinStrength orders matches strongest first.

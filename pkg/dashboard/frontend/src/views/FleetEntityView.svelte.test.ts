@@ -1004,7 +1004,7 @@ describe('FleetEntityView — external system page', () => {
       catalog: { origin: 'default', digest: DIGEST, entry: 'stripe' },
       sources: [
         { kind: 'contract', service: 'checkout', index: 0, dependency: 'Stripe', version: '2024-06', required: true, provenance: 'declared', match: 'catalog-alias' },
-        { kind: 'contract', service: 'billing', index: 2, dependency: 'stripe-api', provenance: 'declared', match: 'catalog-alias' },
+        { kind: 'contract', service: 'billing', index: 2, dependency: 'stripe-api', provenance: 'declared', match: 'catalog-alias', superseded: true },
       ],
     }, {
       consumers: [{ service: svc('checkout'), required: true, versions: ['2024-06'] }, { service: svc('billing') }],
@@ -1021,7 +1021,7 @@ describe('FleetEntityView — external system page', () => {
     const sources = Array.from(target.querySelectorAll('[data-testid="external-sources"] li')).map((li) => li.textContent?.trim());
     expect(sources).toEqual([
       'checkout pacto.yaml dependencies[0] (name: Stripe, version: 2024-06), declared',
-      'billing pacto.yaml dependencies[2] (name: stripe-api), declared',
+      'billing pacto.yaml dependencies[2] (name: stripe-api, not in the newest revision), declared',
     ]);
     expect(target.querySelector('[data-testid="external-name-only"]')).toBeNull();
     const crumbs = Array.from(target.querySelectorAll('nav a, nav span')).map((n) => n.textContent?.trim());

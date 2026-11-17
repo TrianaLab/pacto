@@ -114,6 +114,14 @@ func edgeResolution(d fleet.Relationship) string {
 	return fmt.Sprintf("resolved=%t", d.Resolved)
 }
 
+// supersededNote marks a source whose consumer's newest revision dropped it.
+func supersededNote(src fleet.ExternalSource) string {
+	if src.Superseded {
+		return ", not in the newest revision"
+	}
+	return ""
+}
+
 // printExternal is the text of one external system: its identity line, the
 // sources that declare it and the catalog that classified it.
 func printExternal(w io.Writer, rec fleet.ExternalRecord, into fleet.ExternalKey) {
@@ -124,7 +132,7 @@ func printExternal(w io.Writer, rec fleet.ExternalRecord, into fleet.ExternalKey
 	_, _ = fmt.Fprintf(w, "%s  external, %s  (declared by %d %s)\n", rec.Key, rec.Class, rec.ConsumersTotal, consumers)
 	label := "sources"
 	for _, src := range rec.Sources {
-		_, _ = fmt.Fprintf(w, "  %-7s  %s pacto.yaml dependencies[%d] (name: %s)\n", label, src.Service, src.Index, src.Dependency)
+		_, _ = fmt.Fprintf(w, "  %-7s  %s pacto.yaml dependencies[%d] (name: %s%s)\n", label, src.Service, src.Index, src.Dependency, supersededNote(src))
 		label = ""
 	}
 	if rec.SourcesTotal > len(rec.Sources) {

@@ -388,7 +388,7 @@ covers identities, the join order and catalogs.
 |---|---|
 | Relationship | `toExternal` names the identity and `resolved` stays `false`, because no fleet service delivers it. It never gets `rangeStatus` or `resolvedRevision` and never counts in impact, dependents or delivery |
 | Snapshot | `externals`, one record per identity, and `externalCatalogs`, the catalogs used with `digest`, `origin`, `copy`, `signature` and `reason`; every answer's meta repeats `externalCatalogs` |
-| Record | `key`, `label`, `class`, `aliases`, `sources` (one per consumer and dependency position, each with `provenance` and `match`), `sourcesTotal`, `catalog` (origin, digest and entry; absent when no entry classifies it), `joinedBy` (`identity`, `catalog-alias`, `host` or `normalized-name`), `consumers`, `consumersTotal`, `hiddenConsumers` |
+| Record | `key`, `label`, `class`, `aliases`, `sources` (one per consumer and dependency position, each with `provenance`, `match` and `superseded` when a newer consumer revision no longer declares it), `sourcesTotal`, `catalog` (origin, digest and entry; absent when no entry classifies it), `joinedBy` (`identity`, `catalog-alias`, `host` or `normalized-name`), `consumers`, `consumersTotal`, `hiddenConsumers` |
 | Entities | `--kind external` (MCP `kind: external`) lists them, `--class` keeps one class; the default listing leaves them out |
 | Get | `pacto fleet get external:<identity>` and `pacto_fleet_get` with `service: external:<identity>` |
 | Search | A search on text alone, first page, adds up to 20 matching `externals`, by identity, label or alias, with `externalsTotal`; any other filter or a later page lists none |

@@ -550,8 +550,9 @@ func TestPrintFleet_MarksInferredName(t *testing.T) {
 func TestPrintExternalFoldsAndHides(t *testing.T) {
 	var b strings.Builder
 	printExternal(&b, fleet.ExternalRecord{Key: fleet.OtherEgress, Class: fleet.ClassOtherEgress, SourcesTotal: 3, Folded: 4, HiddenConsumers: 2}, "")
-	printExternal(&b, fleet.ExternalRecord{Key: "x", Catalog: &fleet.ExternalCatalogMatch{Origin: "organization", Digest: "short", Entry: "x"}}, fleet.OtherEgress)
-	for _, want := range []string{"3 declarations in all, across every consumer revision", "folds    4 external systems", "hidden consumers 2", "folded into other-egress", "catalog  organization short entry x"} {
+	printExternal(&b, fleet.ExternalRecord{Key: "x", Catalog: &fleet.ExternalCatalogMatch{Origin: "organization", Digest: "short", Entry: "x"},
+		Sources: []fleet.ExternalSource{{Service: "payments", Index: 2, Dependency: "x", Superseded: true}}}, fleet.OtherEgress)
+	for _, want := range []string{"payments pacto.yaml dependencies[2] (name: x, not in the newest revision)", "3 declarations in all, across every consumer revision", "folds    4 external systems", "hidden consumers 2", "folded into other-egress", "catalog  organization short entry x"} {
 		if !strings.Contains(b.String(), want) {
 			t.Errorf("lacks %q:\n%s", want, b.String())
 		}
