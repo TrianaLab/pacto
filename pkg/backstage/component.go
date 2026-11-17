@@ -2,6 +2,7 @@ package backstage
 
 import (
 	"slices"
+	"strconv"
 
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
@@ -16,32 +17,50 @@ const (
 // inferred owner never fills it.
 var factualOwner = []string{fleet.OwnerProvenanceDeclared, fleet.OwnerProvenanceDeclaredViaTarget, fleet.OwnerProvenanceAttested}
 
-// component is the Component entity named name for service s.
-func component(q *fleet.Query, s *fleet.ServiceRecord, name string, base baseAnnotations, systemNames map[string]string) Entity {
+// component is the Component entity of service s followed by the API
+// entities it provides.
+func (e *exporter) component(s *fleet.ServiceRecord) []Entity {
+	q := e.q
 	provenance := provenanceDeclared
 	if !q.HasContractSource(s.Key) {
 		provenance = provenanceInferred
 	}
-	e := entity(kindComp, base.annotations(provenance))
+	c := entity(kindComp, e.base.annotations(provenance))
 	if provenance == provenanceInferred {
-		e.Metadata.Tags = []string{TagInferred}
+		c.Metadata.Tags = []string{TagInferred}
 	}
-	ann := e.Metadata.Annotations
+	ann := c.Metadata.Annotations
 	ann[AnnotationServiceKey] = string(s.Key)
-	e.Metadata.Name = name
+	name := e.components[s.Key]
+	c.Metadata.Name = name
 	if name != s.Name {
-		e.Metadata.Title = s.Name
+		c.Metadata.Title = s.Name
 	}
-	e.Metadata.Description = s.Summary
-	e.Spec.Type = "service"
-	e.Spec.Lifecycle = lifecycle(q, s)
-	e.Spec.Owner = owner(q, s, ann)
-	e.Spec.System = system(s, ann, systemNames)
+	c.Metadata.Description = s.Summary
+	c.Spec.Type = "service"
+	c.Spec.Lifecycle = lifecycle(q, s)
+	c.Spec.Owner = owner(q, s, ann)
+	c.Spec.System = system(s, ann, e.systems)
 	if s.NameInferred != nil {
 		ann[AnnotationNameProvenance] = provenanceInferred
 		ann[AnnotationNameSource] = s.NameInferred.Source
 	}
-	return e
+	rels := e.relations(s)
+	rels.annotate(ann)
+	c.Spec.DependsOn, c.Spec.ConsumesAPIs = rels.dependsOn, rels.consumes
+	hidden := s.HiddenDependencies + s.HiddenDependents
+	if hidden > 0 {
+		ann[AnnotationHiddenRelations] = strconv.Itoa(hidden)
+	}
+	if hidden > 0 || rels.unresolved > 0 || ann[AnnotationOwnerConflict] != "" {
+		ann[AnnotationCompleteness] = string(fleet.CompletenessPartial)
+	}
+	apis := e.apiEntities(s, c)
+	for _, a := range apis {
+		c.Spec.ProvidesAPIs = append(c.Spec.ProvidesAPIs, apiRef(a.Metadata.Name))
+	}
+	slices.Sort(c.Spec.ProvidesAPIs)
+	return append([]Entity{c}, apis...)
 }
 
 // lifecycle is `deprecated` when the service's current revision declares

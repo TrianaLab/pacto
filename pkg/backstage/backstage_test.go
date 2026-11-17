@@ -273,7 +273,7 @@ func TestOwnerConflictExportsUnknown(t *testing.T) {
 		target("pay", "sha256:b", contract.Owner{Team: "ops"}),
 	}})
 	e := byKey(t, es, "pay")
-	if e.Spec.Owner != unknown || e.Metadata.Annotations[AnnotationOwnerConflict] != "true" {
+	if e.Spec.Owner != unknown || e.Metadata.Annotations[AnnotationOwnerConflict] != "true" || e.Metadata.Annotations[AnnotationCompleteness] != "partial" {
 		t.Errorf("owner %q annotations %v", e.Spec.Owner, e.Metadata.Annotations)
 	}
 }
@@ -393,17 +393,40 @@ func TestAsOfIsSnapshotTime(t *testing.T) {
 }
 
 // goldenSources is the golden fleet in two sources: a suffixed collision, a
-// deprecated service, an unknown owner and a System.
+// deprecated service, an unknown owner, a System, an interface a dependency
+// requires, a declared and observed external, an inferred external, an
+// observed call and an uncontracted caller.
 func goldenSources() []*fleet.Collection {
+	checkout := rev("ghcr.io/acme", "checkout", "2.1.0", team("commerce"), bizDomain("commerce"), deprecated, func(c *contract.Contract) {
+		c.Service.Summary = "Takes the order and the money"
+		c.Dependencies = []contract.Dependency{
+			{Name: "payments", Required: true, Requires: []contract.Requirement{{Interface: "rest"}}},
+			{Name: "stripe", External: true, Version: "2024-06-20"},
+		}
+	})
+	at := fixed.Add(-time.Hour)
+	running := target("checkout", checkout.Digest, contract.Owner{})
+	running.Domain = "ghcr.io/acme"
 	return []*fleet.Collection{
-		{Revisions: []fleet.RawRevision{
-			rev("ghcr.io/acme", "payments", "1.0.0", team("billing"), bizDomain("payments")),
-			rev("ghcr.io/acme", "checkout", "2.1.0", team("commerce"), bizDomain("commerce"), deprecated, func(c *contract.Contract) {
-				c.Service.Summary = "Takes the order and the money"
-			}),
-			rev("ghcr.io/acme", "legacy", "0.9.0", team("acme/billing")),
-		}},
-		{Revisions: []fleet.RawRevision{rev("ghcr.io/other", "payments", "3.0.0")}},
+		{
+			Revisions: []fleet.RawRevision{
+				rev("ghcr.io/acme", "payments", "1.0.0", team("billing"), bizDomain("payments"), func(c *contract.Contract) {
+					c.Interfaces = []contract.Interface{{Name: "rest", Type: "openapi", Ref: "interfaces/openapi.yaml"}}
+				}),
+				checkout,
+				rev("ghcr.io/acme", "legacy", "0.9.0", team("acme/billing")),
+			},
+			Targets: []fleet.RawTarget{running},
+			ExternalUses: []fleet.RawExternalUse{{Service: "checkout", Domain: "ghcr.io/acme", Namespace: "shop", Identity: "host/legacy-mq.example",
+				Kind: "env", Where: "deployment/checkout env MQ_URL", Host: "mq.legacy-mq.example", Confidence: "likely"}},
+		},
+		{
+			Revisions: []fleet.RawRevision{rev("ghcr.io/other", "payments", "3.0.0")},
+			Observed: []fleet.ObservedEdge{
+				{From: "k8s:shop/Deployment/legacy-billing", To: "checkout", Count: 3, LastSeen: at},
+				{From: "checkout", To: "api.stripe.com", Count: 2, FirstSeen: at, LastSeen: at},
+			},
+		},
 	}
 }
 

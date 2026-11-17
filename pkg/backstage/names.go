@@ -109,13 +109,19 @@ func escalate(names []string, level []int) bool {
 }
 
 // componentNames names one Component per service, by service name, told apart
-// by service key.
-func componentNames(services []*fleet.ServiceRecord) []string {
-	reqs := make([]nameRequest, len(services))
-	for i, s := range services {
-		reqs[i] = nameRequest{base: s.Name, identity: string(s.Key)}
+// by service key, and one stub Component per caller with no contract. A stub
+// is always suffixed with its caller identity, so it never takes a service's
+// plain name.
+func componentNames(services []*fleet.ServiceRecord, callers []callerGroup) (svc, stubs []string) {
+	reqs := make([]nameRequest, 0, len(services)+len(callers))
+	for _, s := range services {
+		reqs = append(reqs, nameRequest{base: s.Name, identity: string(s.Key)})
 	}
-	return assignNames(reqs, sha256Hex)
+	for _, c := range callers {
+		reqs = append(reqs, nameRequest{base: c.base(), identity: c.caller, force: true})
+	}
+	names := assignNames(reqs, sha256Hex)
+	return names[:len(services)], names[len(services):]
 }
 
 // ownerRef is the Backstage ref of an owner: a team is a Group and a DRI a

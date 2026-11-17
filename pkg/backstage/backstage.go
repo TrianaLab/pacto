@@ -33,17 +33,33 @@ const (
 	AnnotationBusinessDomain  = "pacto.trianalab.io/business-domain"
 	AnnotationNameProvenance  = "pacto.trianalab.io/name-provenance"
 	AnnotationNameSource      = "pacto.trianalab.io/name-source"
+	// AnnotationRelationProvenance lists every spec.dependsOn ref as
+	// <ref>=<provenance>, with @<last seen> on an observed one.
+	AnnotationRelationProvenance = "pacto.trianalab.io/relation-provenance"
+	// AnnotationInferredDependsOn lists the refs only an inferred edge names;
+	// they never enter spec.
+	AnnotationInferredDependsOn    = "pacto.trianalab.io/inferred-depends-on"
+	AnnotationHiddenRelations      = "pacto.trianalab.io/hidden-relations"
+	AnnotationUnresolvedDependency = "pacto.trianalab.io/unresolved-dependencies"
+	AnnotationExternalKey          = "pacto.trianalab.io/external-key"
+	AnnotationCaller               = "pacto.trianalab.io/caller"
+	AnnotationCallerAmbiguous      = "pacto.trianalab.io/caller-ambiguous"
 )
 
 // TagInferred marks an entity Pacto inferred, in a field the Backstage catalog
 // can filter on (it neither shows nor filters annotations).
 const TagInferred = "pacto-inferred"
 
+// TagObserved marks a stub Component Pacto knows only from observed calls.
+const TagObserved = "pacto-observed"
+
 const (
 	apiVersion = "backstage.io/v1alpha1"
 	unknown    = "unknown"
 	kindSystem = "System"
 	kindComp   = "Component"
+	kindAPI    = "API"
+	kindRes    = "Resource"
 )
 
 // Entity is one Backstage catalog entity.
@@ -77,20 +93,49 @@ type Spec struct {
 }
 
 // kindOrder is the order kinds are written in.
-var kindOrder = map[string]int{kindSystem: 0, kindComp: 1}
+var kindOrder = map[string]int{kindSystem: 0, kindComp: 1, kindAPI: 2, kindRes: 3}
+
+// exporter holds one export's view and the names every entity is referred to
+// by, so each entity can name the others it relates to.
+type exporter struct {
+	q          *fleet.Query
+	snap       *fleet.FleetSnapshot
+	base       baseAnnotations
+	systems    map[string]string
+	components map[fleet.ServiceKey]string
+	apis       map[apiID]string
+	resources  map[fleet.ExternalKey]string
+	// edges are the relationships from each service, indexed once.
+	edges map[fleet.ServiceKey][]*fleet.Relationship
+	// inUse are each service's in-use revisions (see inUseRevisions).
+	inUse map[fleet.ServiceKey]map[fleet.RevisionKey]bool
+}
 
 // Map projects the view q onto Backstage entities, sorted by kind then name.
 // It reads q's snapshot and never retains or changes it.
 func Map(q *fleet.Query) []Entity {
 	snap := q.SnapshotForSerialization()
-	base := baseAnnotations{
+	e := &exporter{q: q, snap: snap, base: baseAnnotations{
 		asOf:         q.ProductMeta().AsOf.UTC().Format(time.RFC3339),
 		completeness: string(snap.Completeness),
-	}
+	}}
 	services := exportedServices(snap)
-	systemNames, out := systems(services, base)
-	for i, name := range componentNames(services) {
-		out = append(out, component(q, services[i], name, base, systemNames))
+	callers := callerGroups(snap)
+	e.index(services)
+	var out []Entity
+	e.systems, out = systems(services, e.base)
+	names, stubNames := componentNames(services, callers)
+	e.components = make(map[fleet.ServiceKey]string, len(services))
+	for i, s := range services {
+		e.components[s.Key] = names[i]
+	}
+	e.apis = e.apiNames(services)
+	out = append(out, e.resourceEntities()...)
+	for _, s := range services {
+		out = append(out, e.component(s)...)
+	}
+	for i, c := range callers {
+		out = append(out, e.stub(c, stubNames[i]))
 	}
 	slices.SortFunc(out, func(a, b Entity) int {
 		return cmp.Or(cmp.Compare(kindOrder[a.Kind], kindOrder[b.Kind]), cmp.Compare(a.Metadata.Name, b.Metadata.Name))
@@ -117,7 +162,7 @@ type baseAnnotations struct {
 }
 
 // annotations starts an entity's annotations with its provenance, as-of and
-// completeness.
+// the snapshot's completeness.
 func (b baseAnnotations) annotations(provenance string) map[string]string {
 	return map[string]string{
 		AnnotationProvenance:   provenance,
