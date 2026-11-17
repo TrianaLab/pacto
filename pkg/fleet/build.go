@@ -199,6 +199,15 @@ func computeSnapshotID(snap *FleetSnapshot) string {
 	// The catalogs are build inputs whose signature status changes as checks
 	// complete; what they classified is hashed through Externals.
 	clone.ExternalCatalogs = nil
+	// OwnerProvenance is derived from the revisions and targets already
+	// hashed, so it adds nothing to the identity; leaving it out keeps the
+	// ids of snapshots built before it existed.
+	clone.Services = make(map[ServiceKey]*ServiceRecord, len(snap.Services))
+	for k, s := range snap.Services {
+		cp := *s
+		cp.OwnerProvenance = ""
+		clone.Services[k] = &cp
+	}
 	data, err := json.Marshal(&clone)
 	if err != nil {
 		// The snapshot is composed of JSON-serializable domain types; a marshal
