@@ -85,6 +85,11 @@ func TestDetectApplierFluxKustomization(t *testing.T) {
 	e.fails["get/Kustomization"] = true
 	wantApplier(t, e.detect(stageObj(dA)), delivery.ApplierUnknown, "flux", "partial", "Kustomization prod/payments")
 	e.fails["get/Kustomization"] = false
+	// A Kustomization whose sourceRef does not decode is unread too.
+	bad := kustomization("payments", "payments", "True", "", "", "")
+	must(t, unstructured.SetNestedField(bad.Object, "payments", "spec", "sourceRef"))
+	odd := newEnv(t, deployment("payments", 2, 2), pactoObj("payments", "payments", c1, "Compliant", 2), bad)
+	wantApplier(t, odd.detect(stageObj(dA)), delivery.ApplierUnknown, "flux", "partial", "Kustomization prod/payments")
 	// A pointer decision rests on the Kustomization's sourceRef, so it is
 	// read live, never through the cache, which can lag a repoint.
 	e.st.Cluster.Cache = interceptor.NewClient(e.c, interceptor.Funcs{List: func(context.Context, client.WithWatch, client.ObjectList, ...client.ListOption) error {
@@ -153,6 +158,11 @@ func TestDetectApplierUnevaluatedPactoIsUnknown(t *testing.T) {
 	invalid := pactoObj("broken", "broken", c1, "Invalid", 2)
 	delete(invalid.Object["status"].(map[string]any), "contract")
 	e = newEnv(t, invalid)
+	wantApplier(t, e.detect(stageObj(dA)), delivery.ApplierUnmanaged, "none", "complete", "no workload to check yet")
+	// A Pacto that evaluated a revision naming no workload leaves nothing to check.
+	noWorkload := pactoObj("payments", "payments", c1, "Compliant", 2)
+	noWorkload.Object["status"].(map[string]any)["evaluatedRevision"].(map[string]any)["workload"] = map[string]any{}
+	e = newEnv(t, noWorkload)
 	wantApplier(t, e.detect(stageObj(dA)), delivery.ApplierUnmanaged, "none", "complete", "no workload to check yet")
 }
 

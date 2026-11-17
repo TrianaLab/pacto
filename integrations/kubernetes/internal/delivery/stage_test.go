@@ -370,7 +370,7 @@ func TestNeverACandidateUnlessPublished(t *testing.T) {
 	e := newEnv(t, s, ociRepo("payments", dA, "latest@"+dA, false), verifiedRepo("payments-candidates", "latest@"+dB))
 	a, _ := e.st.Cluster.applier(context.Background(), ns, e.getStage().Spec.ApplyRef)
 	med, _ := e.st.Cluster.mediated(context.Background(), ns, a)
-	ap := e.st.Cluster.detectApplier(context.Background(), e.getStage(), e.now)
+	ap, _ := e.st.nextApplier(context.Background(), e.getStage())
 	e.setStage(func(s *delivery.StageStatus) { s.Conditions, s.Applier = append(s.Conditions, med), &ap })
 	e.fails["status/Stage"] = true
 	if e.reconcileStage("payments-prod") == nil {
