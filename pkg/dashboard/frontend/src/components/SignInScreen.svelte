@@ -15,10 +15,15 @@
   let token = $state('');
   let busy = $state(false);
   let error = $state('');
-  // Read once: the link's token is handed over a single time.
+  // Read once: the link's token is handed over a single time. A dashboard
+  // without token sign-in has nowhere to post it, and a link the command
+  // printed without a token has nothing to post: both are said, nothing is sent.
   const link = consumeSignInLink();
-  let linkExpired = $state(!!link?.expired);
-  if (link && !link.expired) {
+  const linkNotice = !link ? ''
+    : !session.data?.tokenLogin ? `This dashboard takes no sign-in links: sign in with ${session.data?.loginName || 'OIDC'}.`
+    : !link.token ? 'the sign-in link carried no token: run the command again' : '';
+  let linkExpired = $state(!linkNotice && !!link?.expired);
+  if (link && !linkNotice && !link.expired) {
     busy = true;
     api.signInWithToken(link.token, { link: true })
       .then(() => { history.replaceState(null, '', location.pathname + fleetOverviewUrl()); location.reload(); })
@@ -47,6 +52,7 @@
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="32" height="32" aria-hidden="true"><path d="M10 6 5 12 10 18"/><path d="M14 6 19 12 14 18"/><circle cx="12" cy="12" r="1.9" fill="currentColor" stroke="none"/></svg>
     Pacto
   </h1>
+  {#if linkNotice}<p class="signin-err" role="alert" data-testid="sign-in-link-notice">{linkNotice}</p>{/if}
   {#if s?.login !== false}<SignInLink hash={hash || fleetOverviewUrl()}>Sign in with {s?.loginName || 'OIDC'}</SignInLink>{/if}
   {#if s?.tokenLogin}
     <form class="signin-token" onsubmit={signInWithToken} data-testid="token-sign-in">

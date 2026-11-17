@@ -72,4 +72,12 @@ describe('sign-in link', () => {
     expect(sessionStorage.getItem('pacto.signInLink')).toBeNull();
     expect(consumeSignInLink()).toEqual({ token: 'xyz', expired: false });
   });
+
+  it('hands over a link that carried no token as an empty one, so the screen can say so', () => {
+    const f = fake('#token=');
+    takeSignInLink(f.loc, f.hist, f.win);
+    expect(f.calls).toEqual(['/']);
+    expect(consumeSignInLink()).toEqual({ token: '', expired: false });
+    expect(consumeSignInLink()).toBeNull();
+  });
 });

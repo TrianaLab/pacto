@@ -11,7 +11,7 @@ function strip(loc: Location, hist: History): boolean {
   if (!loc.hash.startsWith(PREFIX)) return false;
   const token = loc.hash.slice(PREFIX.length);
   hist.replaceState(hist.state, '', loc.pathname + loc.search);
-  if (token) pending = token;
+  pending = token; // empty: the command that printed the link minted no token
   return true;
 }
 
@@ -27,7 +27,7 @@ export function takeSignInLink(loc: Location = location, hist: History = history
   strip(loc, hist);
   win.addEventListener('hashchange', () => {
     if (!strip(loc, hist)) return;
-    if (pending) win.sessionStorage.setItem(KEY, pending);
+    if (pending !== null) win.sessionStorage.setItem(KEY, pending);
     loc.reload();
   });
 }
@@ -43,9 +43,9 @@ export function jwtExpired(token: string, now = Date.now()): boolean {
   }
 }
 
-/** The token a sign-in link carried, once; then null. */
+/** The token a sign-in link carried (empty when it carried none), once; then null. */
 export function consumeSignInLink(): { token: string; expired: boolean } | null {
-  if (!pending) return null;
+  if (pending === null) return null;
   const token = pending;
   pending = null;
   return { token, expired: jwtExpired(token) };

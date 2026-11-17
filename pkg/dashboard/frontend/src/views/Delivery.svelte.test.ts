@@ -1192,10 +1192,10 @@ describe('change detail', () => {
       (target.querySelector('[data-testid="decide-approve"]') as HTMLButtonElement).click();
       await settle();
       const dialog = target.querySelector('[data-testid="fresh-login"]') as HTMLDialogElement;
-      expect(text(dialog)).toContain('Sign in again with a fresh token, or decide from the command line:');
+      expect(text(dialog)).toContain('Log in again at your identity provider (a cached or refreshed token keeps the old sign-in time), then paste the new token. Or decide from the command line:');
       expect(text(dialog)).toContain('pacto delivery approve -n prod op1 --decision approve');
       const go = dialog.querySelector('[data-testid="fresh-login-go"]') as HTMLButtonElement;
-      expect(go.textContent).toBe('Sign in again with a fresh token');
+      expect(go.textContent).toBe('Sign out to paste a new token');
       go.click();
       await settle();
       expect(fns.signOut).toHaveBeenCalled();
@@ -1324,6 +1324,17 @@ describe('change detail', () => {
     expect(text(r.target.querySelector('[data-testid="decide-no-auth-time"]') as HTMLElement)).toContain('Approving is not possible on this cluster');
     expect(r.target.querySelector('[data-testid="decide-approve"]')).toBeNull();
     r.destroy();
+    // A pasted token with no login time is the token's, never the cluster's.
+    auth.loaded = false;
+    fns.session.mockResolvedValue(shared({ method: 'token', tokenLogin: true, caller: { ...human(['team-checkout']), authTime: '' } }));
+    fns.operation.mockResolvedValueOnce(heldOperation({ actions: ['cancel'], decisionFreshness: 600 }));
+    r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    expect(text(r.target.querySelector('[data-testid="decide-no-auth-time"]') as HTMLElement)).toContain('This token does not say when you signed in');
+    expect(r.target.querySelector('[data-testid="decide-approve"]')).toBeNull();
+    r.destroy();
+    auth.loaded = false;
+    fns.session.mockResolvedValue(shared({ caller: { ...human(['team-checkout']), authTime: '' } }));
     // Where it does not, a missing login time is no reason given.
     r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
     await settle();

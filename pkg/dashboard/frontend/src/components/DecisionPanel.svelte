@@ -217,11 +217,11 @@
           <h2 id="dp-fresh-title" class="t-section-title">Sign in again to decide</h2>
           <p id="dp-fresh-why">{staleLine || needs} Your choice and note are kept, and nothing is sent until you confirm it when you come back.</p>
           {#if freshToken}
-            <p>Sign in again with a fresh token, or decide from the command line:</p>
+            <p>Log in again at your identity provider (a cached or refreshed token keeps the old sign-in time), then paste the new token. Or decide from the command line:</p>
             <CopyableIdentifier value={cliDecision(ns, name, needsFresh.decision)} label="command" />
           {/if}
           <div class="dp-fresh-actions">
-            <button type="button" class="btn btn-primary" data-testid="fresh-login-go" onclick={signInAgain}>{freshToken ? 'Sign in again with a fresh token' : `Sign in again to ${verb(needsFresh.decision)}`}</button>
+            <button type="button" class="btn btn-primary" data-testid="fresh-login-go" onclick={signInAgain}>{freshToken ? 'Sign out to paste a new token' : `Sign in again to ${verb(needsFresh.decision)}`}</button>
             <button type="button" class="btn" onclick={closeDialog}>Cancel</button>
           </div>
         </dialog>
@@ -266,7 +266,9 @@
     {:else if caller?.class === 'agent' || caller?.class === 'controller'}
       <p class="t-body-2" data-testid="decide-agent">The cluster says you are an agent (<bdi>{me().user}</bdi>), and agents cannot approve.</p>
     {:else if freshness > 0 && cannotApproveHere(caller)}
-      <p class="t-body-2" data-testid="decide-no-auth-time">Approving is not possible on this cluster: it does not report when you signed in. <a class="dp-link" href={APPROVING_DOCS} target="_blank" rel="noopener noreferrer">Where approving works</a></p>
+      <p class="t-body-2" data-testid="decide-no-auth-time">{s?.method === 'token'
+        ? 'This token does not say when you signed in, and this Stage asks for a recent sign-in. Sign in with your identity provider to approve.'
+        : 'Approving is not possible on this cluster: it does not report when you signed in.'} <a class="dp-link" href={APPROVING_DOCS} target="_blank" rel="noopener noreferrer">Where approving works</a></p>
     {:else if decisionRefusal === 'CannotUpdateWorkload'}
       <p class="t-body-2" data-testid="decide-no-access">You cannot update this workload, and only people who may update it decide its changes.</p>
     {:else if decisionRefusal === 'ApproverUnverified'}

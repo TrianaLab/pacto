@@ -101,8 +101,14 @@ func TestCapabilitiesHideDeliveryForFleetOnly(t *testing.T) {
 	au.TokenLogin = true
 	base := startDelivery(t, &fakeDelivery{caller: person()}, au, true, nil)
 	_, caps := call(t, http.MethodGet, base+"/api/capabilities", nil)
-	expect(t, caps["delivery"] == false, "a link session sees no Delivery: %v", caps)
+	expect(t, caps["delivery"] == false && caps["auth"].(map[string]any)["fleetOnly"] == true, "a link session sees no Delivery, and why: %v", caps)
 	a.state = AuthState{SignedIn: true, Method: "token", User: "alice"}
 	_, caps = call(t, http.MethodGet, base+"/api/capabilities", nil)
-	expect(t, caps["delivery"] == true, "a bearer token session keeps Delivery: %v", caps)
+	expect(t, caps["delivery"] == true && caps["auth"].(map[string]any)["fleetOnly"] == nil, "a bearer token session keeps Delivery: %v", caps)
+	// Where delivery is not installed, a link session is never told its own
+	// sign-in would show it.
+	a.state = AuthState{SignedIn: true, Method: "token", User: "system:serviceaccount:pacto:pacto-viewer", FleetOnly: true}
+	base = startDelivery(t, &fakeDelivery{caller: person()}, au, false, nil)
+	_, caps = call(t, http.MethodGet, base+"/api/capabilities", nil)
+	expect(t, caps["delivery"] == false && caps["auth"].(map[string]any)["fleetOnly"] == nil, "no delivery installed: %v", caps)
 }

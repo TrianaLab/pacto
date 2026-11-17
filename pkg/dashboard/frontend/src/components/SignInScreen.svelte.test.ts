@@ -76,6 +76,21 @@ describe('SignInScreen sign-in link', () => {
     expect(reload).not.toHaveBeenCalled();
   });
 
+  it('says a link that carried no token carried none and posts nothing', () => {
+    openLink('');
+    show();
+    expect(document.body.querySelector('[data-testid="sign-in-link-notice"]')?.textContent).toBe('the sign-in link carried no token: run the command again');
+    expect(tokenFn).not.toHaveBeenCalled();
+  });
+
+  it('says a dashboard without token sign-in takes no links, and posts nothing', () => {
+    auth.data = { mode: 'shared', login: true, loginName: 'Okta', tokenLogin: false, signedIn: false } as typeof auth.data;
+    openLink(jwt(now - 60));
+    show();
+    expect(document.body.querySelector('[data-testid="sign-in-link-notice"]')?.textContent).toBe('This dashboard takes no sign-in links: sign in with Okta.');
+    expect(tokenFn).not.toHaveBeenCalled();
+  });
+
   it('posts a pasted token without the link flag', async () => {
     tokenFn.mockResolvedValue(undefined);
     show();

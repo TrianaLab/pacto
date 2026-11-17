@@ -195,8 +195,8 @@ function installDelivery(persona: Persona): void {
     }
     if (route === '/api/capabilities') {
       const doc = JSON.parse((await (real as Serve)(method, path, body)).body);
-      // A sign-in link session's capabilities hide Delivery, as the server's do.
-      return json(200, { ...doc, delivery: persona !== 'token', miraURL: 'https://mira.example', auth: { hidden: false } });
+      // A sign-in link session's capabilities hide Delivery and say why, as the server's do where delivery is installed.
+      return json(200, { ...doc, delivery: persona !== 'token', miraURL: 'https://mira.example', auth: { hidden: false, ...(persona === 'token' ? { fleetOnly: true } : {}) } });
     }
     if (route === '/api/session' || route.startsWith('/api/delivery/')) return delivery(method, route, body);
     return (real as Serve)(method, path, body);

@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
@@ -47,6 +48,9 @@ func TestDecideTokenSessionUnknownAuthTimeOnFreshStage(t *testing.T) {
 	code, out := tokenDecide(t, f)
 	expect(t, code == http.StatusForbidden && out["code"] == "AuthTimeUnavailable" && len(f.approved) == 0,
 		"a token without a login time on a freshness Stage: %d %v", code, out)
+	detail, _ := out["detail"].(string)
+	expect(t, strings.Contains(detail, "this token does not say when you signed in") && strings.Contains(detail, "sign in with your identity provider") &&
+		!strings.Contains(detail, "nobody can approve"), "the token is named, never the cluster: %s", detail)
 }
 
 // A session that may not decide is offered no decision, and the change view
