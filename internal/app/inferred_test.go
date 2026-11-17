@@ -15,6 +15,7 @@ import (
 	"github.com/trianalab/pacto/v4/internal/discover"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/lock"
+	"github.com/trianalab/pacto/v4/pkg/logging"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/override"
 	"github.com/trianalab/pacto/v4/pkg/publish"
@@ -167,40 +168,58 @@ func TestLocalReadCarriesRecord(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	records := map[string]*contract.InferredRecord{}
 	for name, b := range map[string]*contract.Bundle{"loadLocalBundleNamed": named, "resolveBundleAsWritten": resolved} {
-		data, err := fs.ReadFile(b.FS, contract.InferredRecordFile)
-		if b.Record == nil || err != nil || string(data) != string(b.Record.Marshal()) {
-			t.Errorf("%s: record %v, file %v", name, b.Record, err)
+		rec, err := contract.ReadInferredRecord(b.FS)
+		if rec == nil || err != nil {
+			t.Fatalf("%s: record %v, %v", name, rec, err)
 		}
+		records[name] = rec
 	}
-	if resolved.Record.Inputs.Commit != commitA || named.Record.Inputs.Commit != "" {
-		t.Errorf("commits: resolved %q named %q", resolved.Record.Inputs.Commit, named.Record.Inputs.Commit)
+	if records["resolveBundleAsWritten"].Inputs.Commit != commitA || records["loadLocalBundleNamed"].Inputs.Commit != "" {
+		t.Errorf("commits: %+v", records)
 	}
 	if err := os.Chmod(filepath.Join(dir, "api", "openapi.yaml"), 0); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(filepath.Join(dir, "api", "openapi.yaml"), 0o644) })
+	// Pack, push and publish refuse a folder Pacto cannot complete.
 	if _, err := loadLocalBundleNamed(dir, "app", override.Overrides{}, contract.InferredInputs{}); err == nil || !strings.Contains(err.Error(), "completing") {
 		t.Errorf("an unreadable cited file: %v", err)
 	}
-	if _, err := NewService(nil, nil).ResolveBundle(context.Background(), dir); err == nil {
-		t.Error("an unreadable cited file read as complete")
+	if _, err := NewService(nil, nil).Pack(context.Background(), PackOptions{Path: dir, Output: filepath.Join(t.TempDir(), "b.tar.gz")}); err == nil || !strings.Contains(err.Error(), "completing") {
+		t.Errorf("pack of an incomplete folder: %v", err)
+	}
+	// A read keeps the declared bundle, with no record and a warning.
+	var logs bytes.Buffer
+	ctx := logging.WithLogger(context.Background(), logging.New(&logs, false))
+	b, err := NewService(nil, nil).ResolveBundle(ctx, dir)
+	if err != nil || b.Contract.Service.Name != "app" || !strings.Contains(logs.String(), "its inferred values are unknown, not absent") {
+		t.Fatalf("read of an incomplete folder: %v %q", err, logs.String())
+	}
+	if _, err := fs.Stat(b.FS, contract.InferredRecordFile); err == nil {
+		t.Error("an incomplete read serves a record")
+	}
+	if b, err := loadLocalBundle(dir); err != nil || b == nil {
+		t.Errorf("a local dependency Pacto cannot complete: %v", err)
 	}
 }
 
 // TestExplainLocalCarriesRecord: explain reads a local folder through the
-// completing read, so it fails with it and sees what it sees.
+// completing read and sees what it sees; a folder it cannot complete still
+// explains its declared contract.
 func TestExplainLocalCarriesRecord(t *testing.T) {
 	dir := completionFolder(t, "")
-	if _, err := NewService(nil, nil).Explain(context.Background(), ExplainOptions{Path: dir}); err != nil {
-		t.Fatal(err)
+	res, err := NewService(nil, nil).Explain(context.Background(), ExplainOptions{Path: dir})
+	if err != nil || len(res.Inferred) == 0 {
+		t.Fatalf("%v %+v", err, res)
 	}
 	if err := os.Chmod(filepath.Join(dir, "api", "openapi.yaml"), 0); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(filepath.Join(dir, "api", "openapi.yaml"), 0o644) })
-	if _, err := NewService(nil, nil).Explain(context.Background(), ExplainOptions{Path: dir}); err == nil || !strings.Contains(err.Error(), "completing") {
-		t.Fatalf("explain did not complete the folder: %v", err)
+	if res, err := NewService(nil, nil).Explain(context.Background(), ExplainOptions{Path: dir}); err != nil || res.Name != "app" {
+		t.Fatalf("explain of an incomplete folder: %v %+v", err, res)
 	}
 }
 

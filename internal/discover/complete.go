@@ -54,22 +54,19 @@ func Complete(dir string, declared *contract.Contract, in contract.InferredInput
 	return &contract.InferredRecord{Format: contract.InferredRecordFormat, Inputs: in, Fields: c.fields}, nil
 }
 
-// CompleteBundle attaches to b, read from the folder dir, what Complete
-// infers: b.Record, and b.FS serving it as pacto.inferred.yaml in place of
-// any copy the folder holds (none when nothing is inferred). A contract
-// before pactoVersion 2.5 is left as read.
+// CompleteBundle overlays on b, read from the folder dir, what Complete
+// infers: b.FS serves it as pacto.inferred.yaml in place of any copy the
+// folder holds (none when nothing is inferred, or when completion fails, so a
+// stale copy never reads as computed). A contract before pactoVersion 2.5 is
+// left as read.
 func CompleteBundle(b *contract.Bundle, dir string, in contract.InferredInputs) error {
 	if validation.InferredRecordNeedsRaise(b.Contract.PactoVersion) {
 		return nil
 	}
 	rec, err := Complete(dir, b.Contract, in)
-	if err != nil {
-		return err
-	}
-	b.Record = rec
-	if rec == nil {
+	if err != nil || rec == nil {
 		b.FS = contract.WithoutInferredRecord(b.FS)
-		return nil
+		return err
 	}
 	b.FS = contract.WithInferredRecord(b.FS, rec.Marshal())
 	return nil

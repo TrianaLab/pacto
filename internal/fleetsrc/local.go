@@ -15,6 +15,7 @@ package fleetsrc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -78,6 +79,15 @@ func (s *LocalSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 			return nil
 		}
 		rev, loadErr := loadRevision(filepath.Dir(p))
+		if errors.Is(loadErr, errIncomplete) {
+			// Inference only adds: the declared revision stays, and its
+			// inferred dependencies are unknown, which makes the answer partial.
+			col.Limitations = append(col.Limitations, fleet.Limitation{
+				Code: fleet.LimitationInferredRecordUnreadable, Source: s.id,
+				Message: "bundle at " + relPathSafe(s.root, p) + ": " + loadErr.Error() + "; its inferred dependencies are unknown, not absent",
+			})
+			loadErr = nil
+		}
 		if loadErr != nil {
 			// A broken contract must not vanish as if it never existed: keep
 			// scanning, keep the good bundles, and surface the failure so the
@@ -157,17 +167,22 @@ func loadRevision(dir string) (fleet.RawRevision, error) {
 		return fleet.RawRevision{}, fmt.Errorf("no service.name declared and none could be inferred")
 	}
 	rev := fleet.RawRevision{Bundle: b, RequestedRef: "file://" + dir, Document: doc}
-	if h, err := lock.HashFS(fsys); err == nil {
+	// Without any record copy the folder holds, as every local hash reads, so
+	// the folder's identity never moves with the record.
+	if h, err := lock.HashFS(contract.WithoutInferredRecord(fsys)); err == nil {
 		rev.Digest = h
-	}
-	// After the digest, so the folder's identity never moves with the record.
-	// No commit: a fleet read of many folders resolves no git.
-	if err := discover.CompleteBundle(b, dir, contract.InferredInputs{}); err != nil {
-		return fleet.RawRevision{}, fmt.Errorf("complete pacto.yaml: %w", err)
 	}
 	if info, err := os.Stat(filepath.Join(dir, "pacto.yaml")); err == nil {
 		t := info.ModTime()
 		rev.FetchedAt = &t
 	}
+	// No commit: a fleet read of many folders resolves no git.
+	if err := discover.CompleteBundle(b, dir, contract.InferredInputs{}); err != nil {
+		return rev, fmt.Errorf("%w: %w", errIncomplete, err)
+	}
 	return rev, nil
 }
+
+// errIncomplete marks a revision loadRevision read but could not complete: it
+// is kept as declared, with no inferred record.
+var errIncomplete = errors.New("could not be completed")

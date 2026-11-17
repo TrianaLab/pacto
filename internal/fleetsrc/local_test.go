@@ -360,7 +360,7 @@ func TestLoadRevision_NamelessIsAnError(t *testing.T) {
 }
 
 // TestLocalReadCarriesRecord: a local revision carries its inferred record,
-// and its digest is the folder's, without the record.
+// and its digest is the folder's without any record, a folder copy included.
 func TestLocalReadCarriesRecord(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.CopyFS(dir, os.DirFS(filepath.Join("..", "discover", "testdata", "complete"))); err != nil {
@@ -377,17 +377,44 @@ func TestLocalReadCarriesRecord(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rev.Bundle.Record == nil || rev.Bundle.Record.Inputs.Commit != "" || rev.Digest != folder {
-		t.Fatalf("record %+v digest %s, folder %s", rev.Bundle.Record, rev.Digest, folder)
+	rec, err := contract.ReadInferredRecord(rev.Bundle.FS)
+	if err != nil || rec == nil || rec.Inputs.Commit != "" || rev.Digest != folder {
+		t.Fatalf("record %+v %v digest %s, folder %s", rec, err, rev.Digest, folder)
 	}
-	if _, err := fs.Stat(rev.Bundle.FS, contract.InferredRecordFile); err != nil {
-		t.Fatalf("the bundle does not serve the record: %v", err)
+	// A record copy in the folder never moves its identity.
+	if err := os.WriteFile(filepath.Join(dir, contract.InferredRecordFile), []byte("stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if withCopy, err := loadRevision(dir); err != nil || withCopy.Digest != folder {
+		t.Fatalf("with a folder copy: %v digest %s, folder %s", err, withCopy.Digest, folder)
+	}
+}
+
+// TestLocalIncompleteKeepsRevision: a folder Pacto cannot complete keeps its
+// declared revision, with no record and a limitation that makes it partial.
+func TestLocalIncompleteKeepsRevision(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "app")
+	if err := os.CopyFS(dir, os.DirFS(filepath.Join("..", "discover", "testdata", "complete"))); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("service: {name: app, version: 1.0.0}\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 	if err := os.Chmod(filepath.Join(dir, "api", "openapi.yaml"), 0); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(filepath.Join(dir, "api", "openapi.yaml"), 0o644) })
-	if _, err := loadRevision(dir); err == nil || !strings.Contains(err.Error(), "complete") {
-		t.Fatalf("an unreadable cited file: %v", err)
+	rev, err := loadRevision(dir)
+	if !errors.Is(err, errIncomplete) || rev.Bundle == nil {
+		t.Fatalf("an unreadable cited file: %v %+v", err, rev)
+	}
+	if _, serr := fs.Stat(rev.Bundle.FS, contract.InferredRecordFile); serr == nil {
+		t.Fatal("an incomplete revision serves a record")
+	}
+	col, err := NewLocalSource("local", root).Collect(context.Background())
+	if err != nil || len(col.Revisions) != 1 || len(col.Limitations) != 1 || col.Limitations[0].Code != fleet.LimitationInferredRecordUnreadable ||
+		!strings.Contains(col.Limitations[0].Message, "app/pacto.yaml: could not be completed") {
+		t.Fatalf("collect: %v %+v", err, col)
 	}
 }

@@ -230,31 +230,37 @@ func TestCompleteBundle(t *testing.T) {
 	// Before 2.5 the bundle stays as read, a folder copy included.
 	old := writeTree(t, t.TempDir(), map[string]string{"openapi.yaml": "openapi: 3.1.0\n", contract.InferredRecordFile: "stale"})
 	b := bundleOf(old, "2.4")
-	if err := CompleteBundle(b, old, contract.InferredInputs{}); err != nil || b.Record != nil {
-		t.Fatalf("2.4: %v %+v", err, b.Record)
+	if err := CompleteBundle(b, old, contract.InferredInputs{}); err != nil {
+		t.Fatalf("2.4: %v", err)
 	}
 	if data, _ := fs.ReadFile(b.FS, contract.InferredRecordFile); string(data) != "stale" {
 		t.Fatalf("2.4 record = %q", data)
 	}
 	// From 2.5 (absent is this CLI's) the record is computed and served.
 	b = bundleOf(old, "")
-	if err := CompleteBundle(b, old, contract.InferredInputs{Pacto: "4.6.0"}); err != nil || b.Record == nil {
-		t.Fatalf("2.5: %v %+v", err, b.Record)
+	if err := CompleteBundle(b, old, contract.InferredInputs{Pacto: "4.6.0"}); err != nil {
+		t.Fatalf("2.5: %v", err)
 	}
-	if data, _ := fs.ReadFile(b.FS, contract.InferredRecordFile); !bytes.Equal(data, b.Record.Marshal()) {
+	want, _ := Complete(old, b.Contract, contract.InferredInputs{Pacto: "4.6.0"})
+	if data, _ := fs.ReadFile(b.FS, contract.InferredRecordFile); want == nil || !bytes.Equal(data, want.Marshal()) {
 		t.Fatalf("served %q", data)
 	}
 	// Nothing inferred hides the folder copy.
 	empty := writeTree(t, t.TempDir(), map[string]string{contract.InferredRecordFile: "stale"})
 	b = bundleOf(empty, "2.5")
-	if err := CompleteBundle(b, empty, contract.InferredInputs{}); err != nil || b.Record != nil {
-		t.Fatalf("nothing inferred: %v %+v", err, b.Record)
+	if err := CompleteBundle(b, empty, contract.InferredInputs{}); err != nil {
+		t.Fatalf("nothing inferred: %v", err)
 	}
 	if _, err := fs.Stat(b.FS, contract.InferredRecordFile); err == nil {
 		t.Fatal("the stale copy is still served")
 	}
-	bad := writeTree(t, t.TempDir(), map[string]string{".pactoignore/x": ""})
-	if err := CompleteBundle(bundleOf(bad, "2.5"), bad, contract.InferredInputs{}); err == nil {
+	// A folder Pacto cannot complete is an error, and its copy is hidden too.
+	bad := writeTree(t, t.TempDir(), map[string]string{".pactoignore/x": "", contract.InferredRecordFile: "stale"})
+	b = bundleOf(bad, "2.5")
+	if err := CompleteBundle(b, bad, contract.InferredInputs{}); err == nil {
 		t.Fatal("an unreadable folder was not an error")
+	}
+	if _, err := fs.Stat(b.FS, contract.InferredRecordFile); err == nil {
+		t.Fatal("a failed completion still serves the stale copy")
 	}
 }

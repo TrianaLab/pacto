@@ -139,6 +139,7 @@ func (s *Service) resolveImpactPair(ctx context.Context, opts ImpactOptions) (ol
 	logging.LoggerFromContext(ctx).Debug("resolving new revision", "path", opts.NewPath)
 	if opts.NewDirName != "" && !graph.ParseDependencyRef(opts.NewPath).IsOCI() {
 		newBundle, err = loadLocalBundleNamed(graph.ParseDependencyRef(opts.NewPath).Location, opts.NewDirName, opts.NewOverrides, contract.InferredInputs{})
+		err = readIncomplete(ctx, err)
 	} else {
 		newBundle, err = s.resolveBundleWithOverrides(ctx, opts.NewPath, opts.NewOverrides)
 	}

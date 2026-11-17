@@ -14,9 +14,6 @@ type Bundle struct {
 	// Inferred lists the values a local read implied rather than read from
 	// pacto.yaml, with their sources. Complete fills it.
 	Inferred []Inferred
-	// Record is what completion inferred from the bundle's folder; never part
-	// of the declared contract.
-	Record *InferredRecord
 }
 
 // Complete records what a local read of the bundle implies: an absent

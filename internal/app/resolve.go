@@ -50,8 +50,8 @@ func resolveLocalPath(dir string) (filePath, bundleDir string, err error) {
 }
 
 // loadLocalBundle reads a local contract directory, parses pacto.yaml, and
-// returns a completed Bundle with Contract, RawYAML, FS, Inferred and Record
-// populated. The record names no commit: its callers hash the bundle without
+// returns a completed Bundle with Contract, RawYAML, FS (serving the inferred
+// record) and Inferred populated. The record names no commit: its callers hash the bundle without
 // it or read its fields.
 func loadLocalBundle(dir string) (*contract.Bundle, error) {
 	return loadLocalBundleWithOverrides(dir, override.Overrides{})
@@ -60,8 +60,14 @@ func loadLocalBundle(dir string) (*contract.Bundle, error) {
 // loadLocalBundleWithOverrides reads a local contract directory, applies the
 // overrides and then completes the final contract, so what it records as
 // inferred always describes the bytes the bundle holds.
+// A folder Pacto cannot complete is read as declared: these reads load local
+// dependencies, whose inferred record nothing here reports.
 func loadLocalBundleWithOverrides(dir string, overrides override.Overrides) (*contract.Bundle, error) {
-	return loadLocalBundleNamed(dir, dirBase(dir), overrides, contract.InferredInputs{})
+	b, err := loadLocalBundleNamed(dir, dirBase(dir), overrides, contract.InferredInputs{})
+	if errors.Is(err, errIncomplete) {
+		err = nil
+	}
+	return b, err
 }
 
 // loadLocalBundleNamed is loadLocalBundleWithOverrides completing with
@@ -79,13 +85,29 @@ func loadLocalBundleNamed(dir, dirName string, overrides override.Overrides, in 
 }
 
 // completeLocal completes a bundle read from the folder dir: what it implies
-// (pactoVersion, service.name from dirName) and the inferred record.
+// (pactoVersion, service.name from dirName) and the inferred record. When
+// discovery fails the bundle stays as declared, with no record, and the error
+// wraps errIncomplete: pack, push and publish refuse it, a read keeps the
+// bundle (readIncomplete).
 func completeLocal(b *contract.Bundle, dir, dirName string, in contract.InferredInputs) error {
 	b.Complete(dirName)
 	if err := discover.CompleteBundle(b, dir, in); err != nil {
-		return fmt.Errorf("completing %s: %w", dir, err)
+		return fmt.Errorf("%w %s: %w", errIncomplete, dir, err)
 	}
 	return nil
+}
+
+// errIncomplete marks a local bundle Pacto read but could not complete.
+var errIncomplete = errors.New("completing")
+
+// readIncomplete lets a read keep a bundle Pacto could not complete, since
+// inference only adds: it warns that the inferred values are unknown.
+func readIncomplete(ctx context.Context, err error) error {
+	if errors.Is(err, errIncomplete) {
+		logging.LoggerFromContext(ctx).Warn(err.Error() + "; its inferred values are unknown, not absent")
+		return nil
+	}
+	return err
 }
 
 // localInputs are the inferred record inputs of a local read of dir: this
@@ -198,9 +220,8 @@ func (s *Service) resolveBundleAsWritten(ctx context.Context, ref string, overri
 		return nil, nil, err
 	}
 	if !parsed.IsOCI() {
-		if err := completeLocal(bundle, parsed.Location, dirBase(parsed.Location), s.localInputs(parsed.Location, "")); err != nil {
-			return nil, nil, err
-		}
+		// completeLocal fails only with errIncomplete, which a read keeps.
+		_ = readIncomplete(ctx, completeLocal(bundle, parsed.Location, dirBase(parsed.Location), s.localInputs(parsed.Location, "")))
 	}
 	return bundle, asWritten, nil
 }
