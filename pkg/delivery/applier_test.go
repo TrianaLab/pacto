@@ -84,6 +84,11 @@ func TestAdoptApplierFluxKustomization(t *testing.T) {
 	wantState(t, "missing", adopt(ref, nil, kustomizationOwner("flux-system", "payments")), ApplierUnknown,
 		"Pacto could not read Kustomization flux-system/payments")
 	wantState(t, "argo applyRef", adopt(argoRef, agree, kustomizationOwner("flux-system", "payments")), ApplierConflict, "Kustomization")
+	unlisted := ApplierInput{Namespace: "payments", Ref: ref, Now: applierNow,
+		Unread:  []string{"the Kustomizations: the promoter runs with --flux=false"},
+		Targets: []ApplierTarget{{Workload: "Deployment w0", Manager: kustomizationOwner("flux-system", "payments")}}}
+	wantState(t, "unlisted names the cause", AdoptApplier(unlisted), ApplierUnknown,
+		"Pacto could not read Kustomization flux-system/payments, which manages Deployment w0 (the Kustomizations: the promoter runs with --flux=false)")
 }
 
 func TestAdoptApplierHelmRelease(t *testing.T) {

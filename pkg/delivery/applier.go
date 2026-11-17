@@ -193,7 +193,11 @@ func adoptFluxKustomization(in ApplierInput, t ApplierTarget) targetVerdict {
 		return k.Metadata.Namespace == m.OwnerNamespace && k.Metadata.Name == m.OwnerName
 	})
 	if i < 0 {
-		return targetVerdict{ApplierUnknown, "Pacto could not read Kustomization " + m.OwnerNamespace + "/" + m.OwnerName + ", which manages " + t.Workload}
+		msg := "Pacto could not read Kustomization " + m.OwnerNamespace + "/" + m.OwnerName + ", which manages " + t.Workload
+		if len(in.Unread) > 0 {
+			msg += " (" + strings.Join(in.Unread, "; ") + ")"
+		}
+		return targetVerdict{ApplierUnknown, msg}
 	}
 	src := in.Kustomizations[i].Spec.SourceRef
 	srcNS := cmp.Or(src.Namespace, m.OwnerNamespace)
