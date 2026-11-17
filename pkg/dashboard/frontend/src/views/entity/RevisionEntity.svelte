@@ -18,6 +18,7 @@
   import EnvironmentList from '../../components/EnvironmentList.svelte';
   import PolicyList from '../../components/PolicyList.svelte';
   import ConfigurationList from '../../components/ConfigurationList.svelte';
+  import InferredFieldList from '../../components/InferredFieldList.svelte';
   import BundleProvenance from '../../components/BundleProvenance.svelte';
   import { lifecycleText, stageBadge } from '../../lib/behavior.ts';
   import { joinAnd } from '../../lib/answers.ts';
@@ -157,18 +158,13 @@
     {/if}
   </section>
 
-  {#if d.inferred?.length}
-    <!-- What the contract left out and Pacto implied (pactoVersion 2.5), each value with
-         where it came from: an inferred value is never shown as a declared one. -->
-    <section class="re-facts" data-testid="revision-inferred" aria-label="Inferred">
+  {#if d.inferred?.length || d.inferredUnreadable}
+    <!-- What the contract left out and Pacto implied (pactoVersion 2.5): muted rows, each
+         with one mark whose note says where it came from, so an inferred value is never
+         shown as a declared one. -->
+    <section class="re-inferred" data-testid="revision-inferred" aria-label="Inferred">
       <span class="re-k">Inferred</span>
-      {#each d.inferred as f (f.field)}
-        <div class="re-fact re-inferred">
-          <code>{f.field}</code><span>{f.value}</span>
-          <IdentityBadge label="inferred" title={`Not declared in the contract; read from ${f.source}`} />
-          <span class="re-src">inferred from {f.source}</span>
-        </div>
-      {/each}
+      <InferredFieldList items={d.inferred ?? []} total={d.inferredTotal ?? 0} unreadable={!!d.inferredUnreadable} />
     </section>
   {/if}
 
@@ -647,8 +643,7 @@
   .ri-ref { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
   .ri-note { margin: 0; font-size: var(--text-sm); color: var(--c-text-3); }
   .ri-port { font-family: var(--font-mono, monospace); font-size: var(--text-sm); color: var(--c-text-2); }
-  .re-inferred code { font-size: var(--text-sm); }
-  .re-src { font-size: var(--text-sm); color: var(--c-text-3); overflow-wrap: anywhere; min-width: 0; }
+  .re-inferred { display: flex; flex-direction: column; gap: var(--sp-2); min-inline-size: 0; }
   .re-breaks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
   .re-breaks li { display: flex; gap: var(--sp-2); align-items: baseline; flex-wrap: wrap; font-size: var(--text-sm); min-width: 0; }
   .rb-reason { color: var(--c-text-2); overflow-wrap: anywhere; min-width: 0; }

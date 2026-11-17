@@ -20,6 +20,7 @@
   import DistributionBar from '../../components/viz/DistributionBar.svelte';
   import PolicyList from '../../components/PolicyList.svelte';
   import ConfigurationList from '../../components/ConfigurationList.svelte';
+  import InferredFieldList from '../../components/InferredFieldList.svelte';
   import LifecycleBadge from '../../components/LifecycleBadge.svelte';
   import ResourceList from '../../components/ResourceList.svelte';
   import CopyableIdentifier from '../../components/CopyableIdentifier.svelte';
@@ -604,6 +605,19 @@
       </PreviewSection>
     </div>
   </div>
+
+  <!-- What Pacto read from the service's folder for its current revision, kept apart
+       from the contract: folded, because the declared sections above are what a reader
+       came for. The list owns the only disclosure for its rows (clip off). -->
+  {#if d.inferredFields?.total || d.inferredFields?.unreadable}
+    <div class="se-wrap" data-testid="service-inferred">
+      <PreviewSection title="Inferred by Pacto" collapsible open={false} clip={false} total={d.inferredFields.total} count={d.inferredFields.count ?? 0}
+        empty="Pacto could not read the inferred record"
+        help="Values Pacto read from the service's folder and keeps apart from the contract. Declare one to make it part of the contract.">
+        <InferredFieldList items={d.inferredFields.items ?? []} total={d.inferredFields.total} unreadable={!!d.inferredFields.unreadable} />
+      </PreviewSection>
+    </div>
+  {/if}
 
   <!-- This is an overview page, so its sections stay open: traffic, dependencies,
        dependents and evidence are read here, not opened one by one. Limitations stay
