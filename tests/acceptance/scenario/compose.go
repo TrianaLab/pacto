@@ -104,6 +104,13 @@ const (
 //go:embed seed.sh
 var seedScript string
 
+// composeDetected is what the demo cluster's operator detected, a copy of
+// examples/demo/detected.json so both demos show the same rows. The seed
+// stamps it at seed time into the state volume the dashboard reads.
+//
+//go:embed detected.json
+var composeDetected string
+
 // The container-side paths of the state volume. It is mounted at the image's
 // HOME, which exists in the image and is owned by the non-root user: a named
 // volume at a path the image does NOT have is created root-owned, and the
@@ -307,6 +314,7 @@ func (s Scenario) Compose(opts ComposeOptions) ([]byte, error) {
 				"PACTO_DEMO_STATS_TIMES":      ComposeStatsTimes,
 				"PACTO_DEMO_STATS_BASE_EPOCH": strconv.FormatInt(story.Now.Unix(), 10),
 				"PACTO_DEMO_STATS_REPO":       ComposeStatsRepo,
+				"PACTO_DEMO_DETECTED":         ComposeArtifactMount + "/detected.json",
 			},
 			DependsOn: map[string]composeDep{
 				// The registry needs no healthcheck of its own: the seed's first push
@@ -403,7 +411,7 @@ func (s Scenario) composeInputs() (seed, dashboard []composeInput, subjects []st
 		return nil, nil, nil, nil, err
 	}
 	seedFiles := map[string]string{"plan.tsv": string(plan), "seed.sh": seedScript,
-		"stats/records.jsonl": records, "stats/times.tsv": times}
+		"stats/records.jsonl": records, "stats/times.tsv": times, "detected.json": composeDetected}
 	for rel, body := range files {
 		seedFiles[rel] = body
 	}
@@ -544,6 +552,9 @@ func (s Scenario) composeDashboardArgs() ([]string, error) {
 		}
 		args = append(args, "--trace-source", src.ID+"="+ComposeArtifactMount+"/"+src.ID+".json")
 	}
+	// The Data sources page lists what the demo cluster detected, as the seed
+	// stamped it.
+	args = append(args, "--detected", composeStateMount+"/detected.json")
 	// The Metrics page reads the run records the seed published (CI records
 	// only: the Compose demo runs no delivery).
 	args = append(args, "--stats-registry", ComposeStatsRepo)

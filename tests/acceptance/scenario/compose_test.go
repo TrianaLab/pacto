@@ -1,6 +1,7 @@
 package scenario
 
 import (
+	"encoding/json"
 	"fmt"
 	"maps"
 	"os"
@@ -1155,5 +1156,86 @@ func TestComposeDashboardReadsStats(t *testing.T) {
 	}
 	if !strings.Contains(cmd, "--allow-anonymous") {
 		t.Errorf("the dashboard lost --allow-anonymous: %s", cmd)
+	}
+}
+
+// The dashboard reads the detection the seed wrote to the state volume.
+func TestComposeDashboardReadsDetected(t *testing.T) {
+	args, err := OperationalGraph.composeDashboardArgs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cmd := strings.Join(args, " "); !strings.Contains(cmd, "--detected /home/pacto/detected.json") {
+		t.Errorf("the dashboard does not read the seeded detection: %s", cmd)
+	}
+}
+
+// The detection travels inline into the seed, which refreshes its asOf.
+func TestComposeSeedCarriesDetected(t *testing.T) {
+	f := composeFileOf(t, OperationalGraph)
+	if got := inlineConfig(t, f, "detected.json"); got != composeDetected {
+		t.Error("the carried detection is not the embedded fixture")
+	}
+	seed := composeSvc(t, f, "seed")
+	env, _ := seed["environment"].(map[string]any)
+	if env["PACTO_DEMO_DETECTED"] != ComposeArtifactMount+"/detected.json" {
+		t.Errorf("seed PACTO_DEMO_DETECTED = %v", env["PACTO_DEMO_DETECTED"])
+	}
+	var mounted bool
+	declared, _ := seed["configs"].([]any)
+	for _, v := range declared {
+		m, _ := v.(map[string]any)
+		mounted = mounted || (m["source"] == "detected.json" && m["target"] == ComposeArtifactMount+"/detected.json")
+	}
+	if !mounted {
+		t.Error("the seed does not mount the detected.json config")
+	}
+}
+
+// The Compose demo shows the same detection as the WASM demo.
+func TestComposeDetectedFixtureMatchesDemo(t *testing.T) {
+	demo, err := os.ReadFile("../../../examples/demo/detected.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(demo) != composeDetected {
+		t.Error("tests/acceptance/scenario/detected.json differs from examples/demo/detected.json")
+	}
+}
+
+// The seed writes the detection to the state volume stamped at seed time, so
+// the dashboard does not read it as stale.
+func TestSeedRefreshesDetectedAsOf(t *testing.T) {
+	head, _, _ := strings.Cut(seedScript, "plan_kind() {")
+	start := strings.Index(seedScript, `if [ -n "${PACTO_DEMO_DETECTED:-}" ]; then`)
+	end := strings.Index(seedScript, `if [ -n "${PACTO_DEMO_STATS:-}" ]; then`)
+	if start < 0 || end < start {
+		t.Fatal("seed.sh has no detection section before its run-record section")
+	}
+	dir, in := t.TempDir(), filepath.Join(t.TempDir(), "detected.json")
+	if err := os.WriteFile(in, []byte(composeDetected), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("sh", "-c", head+seedScript[start:end]) //nolint:gosec // the embedded seed script
+	cmd.Env = append(os.Environ(), "HOME="+dir, "PACTO_DEMO_DETECTED="+in,
+		"PACTO_DEMO_PLAN=/dev/null", "PACTO_DEMO_PUBLISH_TO=x", "PACTO_DEMO_EVIDENCE_URL=x", "PACTO_DEMO_KEYS=x")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	body, err := os.ReadFile(filepath.Join(dir, "detected.json")) //nolint:gosec // a test temp file
+	if err != nil {
+		t.Fatal(err)
+	}
+	var res struct {
+		AsOf time.Time `json:"asOf"`
+	}
+	if err := json.Unmarshal(body, &res); err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(res.AsOf); d < -time.Minute || d > time.Minute {
+		t.Errorf("the seeded detection is %v old, want seed time", d)
+	}
+	if strings.Replace(string(body), res.AsOf.Format(time.RFC3339), "2026-11-16T09:00:00Z", 1) != composeDetected {
+		t.Error("the seed changed more than asOf")
 	}
 }
