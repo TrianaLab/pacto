@@ -41,9 +41,8 @@ const (
 	// name, or values that fail their configuration schemas.
 	GateEnvironment = "pacto.environment"
 	// GateApplier refuses a promote while the Stage's applier is not the
-	// manager that owns the workloads it delivers (status.applier), or the
-	// version's contract names another applier: Pacto never writes a pointer
-	// another manager may overwrite.
+	// manager that owns the workloads it delivers (status.applier): Pacto
+	// never writes a pointer another manager may overwrite.
 	GateApplier = "pacto.applier"
 	// GateAutonomy judges a change of level.
 	GateAutonomy = "pacto.autonomy"

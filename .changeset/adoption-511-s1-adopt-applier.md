@@ -35,9 +35,6 @@ values.
   digest to the OCIRepository the HelmRelease's `spec.chartRef` names, in the
   Stage's namespace, and counts a move applied once the HelmRelease is Ready at
   that digest. `spec.chart` reads `ApplierNotChartRef`.
-- Contracts on pactoVersion 2.5 may set `delivery.applier` to `auto`, `argocd`
-  or `flux`; an older contract with it fails with `NEEDS_PACTO_2_5`.
-  `pacto_edit` sets it and `pacto_schema` serves it.
 - `pacto delivery status`, `pacto delivery plan`, MCP `pacto_delivery_status`
   and the dashboard Delivery views print one applier line per service, with the
   reason when the Stage does not adopt it. `pacto delivery plan` and the

@@ -1,6 +1,7 @@
 package contract_test
 
 import (
+	"errors"
 	"os"
 	"reflect"
 	"strings"
@@ -524,13 +525,24 @@ func TestParseDocumentEmpty(t *testing.T) {
 	}
 }
 
-// TestParseDelivery: delivery.applier reads into Contract.Delivery.
-func TestParseDelivery(t *testing.T) {
-	c, err := contract.Parse(strings.NewReader("pactoVersion: \"2.5\"\nservice: {name: p, version: 0.1.0}\ndelivery: {applier: argocd}\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if c.Delivery == nil || c.Delivery.Applier != contract.ApplierArgoCD {
-		t.Fatalf("delivery = %+v, want applier argocd", c.Delivery)
+// TestParseRejectsRemovedDelivery: delivery left pactoVersion 2.5 before its
+// release, so Parse and ParseDocument refuse it at every version with a hint.
+func TestParseRejectsRemovedDelivery(t *testing.T) {
+	for _, v := range []string{contract.Current(), contract.SupportedVersions[len(contract.SupportedVersions)-2]} {
+		doc := "pactoVersion: \"" + v + "\"\nservice: {name: p, version: 0.1.0}\ndelivery: {applier: argocd}\n"
+		_, err := contract.Parse(strings.NewReader(doc))
+		var pe *contract.ParseError
+		if !errors.As(err, &pe) {
+			t.Fatalf("%s: err = %v, want *ParseError", v, err)
+		}
+		for _, want := range []string{"field delivery not found in type contract.Contract", "the Stage's spec.applyRef names the applier"} {
+			if !strings.Contains(pe.Error(), want) {
+				t.Errorf("%s: %q lacks %q", v, pe.Error(), want)
+			}
+		}
+		_, _, derr := contract.ParseDocument([]byte(doc))
+		if derr == nil || derr.Error() != err.Error() {
+			t.Errorf("%s: ParseDocument err = %v, want %v", v, derr, err)
+		}
 	}
 }

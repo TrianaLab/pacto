@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -617,16 +618,37 @@ func TestEditToolDescribesRefusedRaises(t *testing.T) {
 	}
 }
 
-// TestSchemaToolServesDeliveryApplier: pacto_schema serves the newest schema,
-// which carries delivery.applier and its values.
-func TestSchemaToolServesDeliveryApplier(t *testing.T) {
+// TestSchemaToolServesNoDeliverySection: delivery left pactoVersion 2.5 before
+// its release, so the newest schema has no top-level delivery property.
+func TestSchemaToolServesNoDeliverySection(t *testing.T) {
 	var parsed schemaResult
 	if err := json.Unmarshal([]byte(resultText(t, callTool(t, "pacto_schema", map[string]any{}))), &parsed); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"delivery"`, `"applier"`, `"argocd"`, `"flux"`} {
-		if !strings.Contains(parsed.JSONSchema, want) {
-			t.Errorf("schema lacks %s", want)
-		}
+	var schema struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	if err := json.Unmarshal([]byte(parsed.JSONSchema), &schema); err != nil || len(schema.Properties) == 0 {
+		t.Fatalf("schema properties: %v", err)
+	}
+	if _, ok := schema.Properties["delivery"]; ok {
+		t.Error("schema still serves a top-level delivery section")
+	}
+}
+
+// TestEditRefusesApplierArgument: an agent that still sends applier is
+// refused by the tool schema and nothing is written.
+func TestEditRefusesApplierArgument(t *testing.T) {
+	dir := t.TempDir()
+	before := []byte("pactoVersion: \"2.5\"\nservice:\n  name: svc\n  version: 1.0.0\n")
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), before, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result := callTool(t, "pacto_edit", map[string]any{"path": dir, "applier": "argocd"})
+	if !result.IsError || !strings.Contains(resultText(t, result), "applier") {
+		t.Errorf("result = %+v, want an error naming applier", result)
+	}
+	if raw, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml")); !bytes.Equal(raw, before) {
+		t.Errorf("contract was written:\n%s", raw)
 	}
 }

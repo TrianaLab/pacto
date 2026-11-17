@@ -316,7 +316,6 @@ func editTool() *mcpsdk.Tool {
 			"add_policy_refs":              {Type: "string", Description: "JSON array of policy references to add: [{name?, ref}]"},
 			"remove_dependencies":          {Type: "string", Description: "JSON array of dependency refs to remove: [\"ref1\", \"ref2\"]; an external dependency with no ref is removed by name"},
 			"workload":                     {Type: "string", Description: "New workload type", Enum: []string{"service", "job", "scheduled"}},
-			"applier":                      {Type: "string", Description: "The manager that applies the service's workloads: auto (the default) adopts the manager that already owns each workload, argocd or flux require that manager. Sets delivery.applier; needs pactoVersion 2.5. An empty string removes the delivery section"},
 			"stores_data":                  {Type: "boolean", Description: "Whether the service stores data"},
 			"data_survives_restart":        {Type: "boolean", Description: "Whether data must survive pod restarts"},
 			"data_shared_across_instances": {Type: "boolean", Description: "Whether data is shared across instances"},
@@ -352,7 +351,6 @@ type editArgs struct {
 	AddDependencies           string  `json:"add_dependencies"`
 	RemoveDependencies        string  `json:"remove_dependencies"`
 	Workload                  *string `json:"workload"`
-	Applier                   *string `json:"applier"`
 	StoresData                *bool   `json:"stores_data"`
 	DataSurvivesRestart       *bool   `json:"data_survives_restart"`
 	DataSharedAcrossInstances *bool   `json:"data_shared_across_instances"`
@@ -374,7 +372,6 @@ func editHandler(validate Validator, opts EditOptions) mcpsdk.ToolHandlerFor[edi
 			Offering:                  args.Offering,
 			Summary:                   args.Summary,
 			Workload:                  args.Workload,
-			Applier:                   args.Applier,
 			StoresData:                args.StoresData,
 			DataSurvivesRestart:       args.DataSurvivesRestart,
 			DataSharedAcrossInstances: args.DataSharedAcrossInstances,
