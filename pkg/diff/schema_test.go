@@ -673,3 +673,16 @@ func TestSchemaDiffRedactsSensitiveValueAnywhere(t *testing.T) {
 		t.Errorf("non-sensitive def redacted: %+v", c)
 	}
 }
+
+// TestValueEqualNonStringKeys: a mapping with a key encoding/json cannot
+// marshal falls back to the YAML comparison. Go 1.27 marshals integer keys
+// under an interface, so the test uses float keys (`{1.5: ok}` is legal YAML).
+func TestValueEqualNonStringKeys(t *testing.T) {
+	a := map[string]any{"example": map[any]any{1.5: "ok"}}
+	if !valueEqual(a, map[string]any{"example": map[any]any{1.5: "ok"}}) {
+		t.Error("equal non-string-key mappings differ")
+	}
+	if valueEqual(a, map[string]any{"example": map[any]any{1.5: "created"}}) {
+		t.Error("different non-string-key mappings are equal")
+	}
+}

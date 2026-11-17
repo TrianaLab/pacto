@@ -923,8 +923,8 @@ func toStringSlice(arr []any) []string {
 // valueEqual reports whether two decoded documents are identical. It compares
 // JSON encodings, which is the cheap answer for the string-keyed data a JSON
 // decoder produces, but encoding/json cannot marshal the
-// map[interface{}]interface{} yaml.v3 decodes any mapping with a non-string key
-// into (`example: {200: ok}` is legal YAML). Treating that failure as equality
+// map[interface{}]interface{} yaml.v3 decodes a mapping with a float or bool key
+// into (`example: {1.5: ok}` is legal YAML). Treating that failure as equality
 // dropped whole response diffs, so it falls back to the encoding that can
 // represent the value instead of guessing.
 func valueEqual(a, b any) bool {
