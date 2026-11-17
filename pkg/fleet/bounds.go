@@ -41,6 +41,19 @@ const MaxExternalNodes = 200
 // for one external system; ConsumersTotal and SourcesTotal keep the counts.
 const MaxExternalSources = 50
 
+// MaxInferredServices caps the inferred services one source contributes.
+// Past it the rest are not read and the source is partial
+// (LimitationInferredServicesCapped). Raise it here if a real cluster hits it.
+const MaxInferredServices = 5000
+
+// MaxInferredImageRunes and MaxInferredPathRunes bound the image and probe
+// path of an inferred service: anyone who may create a workload writes them
+// and the apiserver bounds neither, so a longer value is dropped.
+const (
+	MaxInferredImageRunes = 512
+	MaxInferredPathRunes  = 256
+)
+
 // MaxSearchExternals caps the external systems a search lists.
 const MaxSearchExternals = 20
 

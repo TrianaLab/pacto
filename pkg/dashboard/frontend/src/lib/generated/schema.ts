@@ -3032,6 +3032,22 @@ export interface components {
             source: string;
             value: string;
         };
+        "Fleet.InferredPort": {
+            /** @description The object path Pacto read the port from */
+            from: string;
+            name?: string;
+            /** Format: int64 */
+            port: number;
+            protocol?: string;
+        };
+        "Fleet.InferredProbe": {
+            /** @description The object path Pacto read the probe from */
+            from: string;
+            /** @enum {string} */
+            kind: "readiness" | "liveness" | "startup";
+            path?: string;
+            port?: string;
+        };
         "Fleet.InferredSource": {
             /** @description The digest of the catalog the source classified it with */
             catalog?: string;
@@ -3054,6 +3070,26 @@ export interface components {
             target?: string;
             /** @description The object and key it was found in, never a value */
             where?: string;
+        };
+        "Fleet.InferredValue": {
+            /** @description The object path Pacto read the value from */
+            from: string;
+            value: string;
+        };
+        "Fleet.InferredWorkload": {
+            /** @description The cluster id, in a snapshot with several clusters */
+            cluster?: string;
+            image?: components["schemas"]["Fleet.InferredValue"];
+            /** @description Deployment, StatefulSet, DaemonSet or CronJob */
+            kind: string;
+            name: string;
+            namespace: string;
+            /** Format: date-time */
+            observedAt?: string;
+            ports?: components["schemas"]["Fleet.InferredPort"][] | null;
+            probes?: components["schemas"]["Fleet.InferredProbe"][] | null;
+            /** @description The source that read the workload */
+            source: string;
         };
         "Fleet.InterfaceDeprecation": {
             deprecated: string;
@@ -3872,6 +3908,11 @@ export interface components {
         "Fleet.ServiceRecord": {
             businessDomain?: string;
             businessDomainUnknown?: boolean;
+            /**
+             * @description declared when a contract revision or a Pacto target describes the service; inferred when Pacto only sees a workload no contract describes
+             * @enum {string}
+             */
+            declaration: "declared" | "inferred";
             domain?: string;
             /** Format: int64 */
             hiddenCreated?: number;
@@ -3899,6 +3940,7 @@ export interface components {
             summaryUnknown?: boolean;
             targets?: string[] | null;
             template?: boolean;
+            workload?: components["schemas"]["Fleet.InferredWorkload"];
         };
         "Fleet.ServiceSummary": {
             compliance: components["schemas"]["Fleet.ComplianceTally"];
@@ -3994,6 +4036,11 @@ export interface components {
         "Fleet.SourceState": {
             error?: components["schemas"]["Fleet.SourceError"];
             id: string;
+            /**
+             * Format: int64
+             * @description The inferred services this source reported
+             */
+            inferredCount?: number;
             kind: string;
             /** Format: date-time */
             lastSuccessfulSync?: string;

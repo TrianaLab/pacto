@@ -334,6 +334,16 @@ const (
 	LimitationRangeUnsatisfied    = "DEPENDENCY_RANGE_UNSATISFIED"
 	LimitationEvidenceMissing     = "EVIDENCE_MISSING"
 	LimitationSourceRecordInvalid = "SOURCE_RECORD_INVALID"
+	// LimitationPactoCRDNotInstalled: the cluster serves no Pacto CRD, so a
+	// Kubernetes source reads no declared target there; its workloads show as
+	// inferred services.
+	LimitationPactoCRDNotInstalled = "PACTO_CRD_NOT_INSTALLED"
+	// LimitationInferredServicesCapped: a source reported more than
+	// MaxInferredServices workloads; the rest were not read.
+	LimitationInferredServicesCapped = "INFERRED_SERVICES_CAPPED"
+	// LimitationDeclarationUnverified: Pacto could not read the Pacto targets
+	// of an inferred service's namespace, so a contract may describe it.
+	LimitationDeclarationUnverified = "DECLARATION_UNVERIFIED"
 	// LimitationServiceNameCollision: two or more folders or references claim
 	// one service name and at least one only inferred it. Build drops every
 	// inferred claimant, so a guessed name never joins another service.
@@ -518,6 +528,7 @@ type SourceState struct {
 	TargetCount        int          `json:"targetCount"`
 	Namespaces         []string     `json:"namespaces,omitempty" doc:"The namespaces a Kubernetes source read that you may see. Empty with no namespacesTotal means every namespace; empty with namespacesTotal above 0 means every namespace it read is hidden from you. Anything in another namespace is unknown."`
 	NamespacesTotal    int          `json:"namespacesTotal,omitempty" doc:"How many namespaces the source read, when Namespaces is capped or restricted. Above 0, the source reads a list of namespaces, never every namespace."`
+	InferredCount      int          `json:"inferredCount,omitempty" doc:"The inferred services this source reported"`
 }
 
 // ToolSummary is a bounded projection of an agent-invocable tool derived from a
@@ -558,6 +569,12 @@ type Coverage struct {
 	Evaluated int `json:"evaluated"`
 	Required  int `json:"required"`
 }
+
+// Declaration values of a [ServiceRecord].
+const (
+	DeclarationDeclared = "declared"
+	DeclarationInferred = "inferred"
+)
 
 // ServiceRecord is a stable logical service. It references its revisions and
 // targets by key rather than copying them, and only carries an aggregate Status
@@ -619,6 +636,52 @@ type ServiceRecord struct {
 	// the caller's permissions hide. They are never named. Zero outside a
 	// restricted answer.
 	HiddenCreated int `json:"hiddenCreated,omitempty"`
+	// Declaration says whether a contract describes the service.
+	Declaration string `json:"declaration" enum:"declared,inferred" doc:"declared when a contract revision or a Pacto target describes the service; inferred when Pacto only sees a workload no contract describes"`
+	// Workload is what Pacto read from the workload of an inferred service.
+	Workload *InferredWorkload `json:"workload,omitempty"`
+}
+
+// Inferred reports whether Pacto only sees a workload of the service and no
+// contract describes it. A record with no Declaration reads as declared.
+func (s *ServiceRecord) Inferred() bool { return s.Declaration == DeclarationInferred }
+
+// InferredWorkload is the workload an inferred service is: where it runs and
+// the image, ports and probes Pacto read, each with the object path it read.
+type InferredWorkload struct {
+	Source     string          `json:"source" doc:"The source that read the workload"`
+	Cluster    string          `json:"cluster,omitempty" doc:"The cluster id, in a snapshot with several clusters"`
+	Namespace  string          `json:"namespace"`
+	Kind       string          `json:"kind" doc:"Deployment, StatefulSet, DaemonSet or CronJob"`
+	Name       string          `json:"name"`
+	Image      *InferredValue  `json:"image,omitempty"`
+	Ports      []InferredPort  `json:"ports,omitempty"`
+	Probes     []InferredProbe `json:"probes,omitempty"`
+	ObservedAt *time.Time      `json:"observedAt,omitempty"`
+}
+
+// InferredValue is one value read from a workload and the object path it was
+// read from.
+type InferredValue struct {
+	Value string `json:"value"`
+	From  string `json:"from" doc:"The object path Pacto read the value from"`
+}
+
+// InferredPort is one container port read from a workload.
+type InferredPort struct {
+	Port     int    `json:"port"`
+	Name     string `json:"name,omitempty"`
+	Protocol string `json:"protocol,omitempty"`
+	From     string `json:"from" doc:"The object path Pacto read the port from"`
+}
+
+// InferredProbe is one HTTP probe read from a workload: its path (without a
+// query or fragment) and port.
+type InferredProbe struct {
+	Kind string `json:"kind" enum:"readiness,liveness,startup"`
+	Path string `json:"path,omitempty"`
+	Port string `json:"port,omitempty"`
+	From string `json:"from" doc:"The object path Pacto read the probe from"`
 }
 
 // ServiceOrigin is a service's declared service.origin and what it resolves to:
@@ -879,6 +942,9 @@ type TargetRecord struct {
 	// another evidence source names for the same record; Restrict rebuilds
 	// their limitations from them.
 	clusterInvalidFrom, clusterConflictFrom []string
+	// workload is the workload the target runs as, when its source knows it;
+	// Build never infers a service from it.
+	workload *WorkloadRef
 }
 
 // DisplayName returns a human-readable "scope/kind/name" for a target, with

@@ -122,6 +122,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	seenSourceIDs := map[string]bool{}
 	var observed []observedInput
 	var uses []sourcedUse
+	var inferred []inferredInput
 	undeclaredOnly := map[string]bool{}
 	// Sources are processed in declared order so composition is deterministic
 	// regardless of goroutine completion order.
@@ -146,7 +147,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 			})
 			continue
 		}
-		ingestCollection(snap, src, r.col, generatedAt, opts.FreshnessWindow, clusters, i)
+		inferred = append(inferred, ingestCollection(snap, src, r.col, generatedAt, opts.FreshnessWindow, clusters, i)...)
 		if r.col != nil {
 			undeclaredOnly[src.ID()] = r.col.ObservedUndeclaredOnly
 			observed = append(observed, observedEdgesOf(src.ID(), r.col, clusters)...)
@@ -162,6 +163,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	linkTargets(snap)
 	revalidateConfigRefs(snap)
 	aggregateServices(snap)
+	addInferredServices(snap, inferred)
 	resolveOrigins(snap)
 	cat := opts.ExternalCatalog
 	if cat == nil {
@@ -383,7 +385,8 @@ func collectAll(ctx context.Context, opts BuildOptions, sources []Source) ([]sou
 
 // ingestCollection projects one successful source's records into the snapshot.
 // clusters is the snapshot's cluster index and i the source's position in it.
-func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time.Time, window time.Duration, clusters clusterIndex, i int) {
+// It returns the source's inferred services, bounded, for addInferredServices.
+func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time.Time, window time.Duration, clusters clusterIndex, i int) []inferredInput {
 	if col == nil {
 		col = &Collection{}
 	}
@@ -439,6 +442,8 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 	}
 	recordProblems = append(recordProblems, ingestProvisioning(snap, src, col.Provisioning, now)...)
 	recordProblems = append(recordProblems, ingestUsage(snap, src, col.Usage, now)...)
+	kept, capped := boundInferred(col, src.ID())
+	recordProblems = append(recordProblems, capped...)
 	// A source that reported record-level problems is partial: keep its usable
 	// records AND surface the problems. Canonicalization limitations (invalid finite
 	// values normalized at ingestion) are recorded on the target AND at the snapshot
@@ -446,8 +451,18 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 	snap.Limitations = append(snap.Limitations, col.Limitations...)
 	snap.Limitations = append(snap.Limitations, recordProblems...)
 	st, stateLims := sourceStateFor(src, col, now, revCount, targetCount, len(recordProblems) > 0)
+	st.InferredCount = len(kept)
 	snap.Limitations = append(snap.Limitations, stateLims...)
 	snap.Sources = append(snap.Sources, st)
+	cluster := ""
+	if cl, ok := clusters.resolved[rawClusterID(col, RawTarget{})]; ok {
+		cluster = cl.ID
+	}
+	out := make([]inferredInput, len(kept))
+	for j, raw := range kept {
+		out[j] = inferredInput{source: src.ID(), cluster: cluster, raw: raw}
+	}
+	return out
 }
 
 // clusterIndex is what Build knows about the clusters of one snapshot, computed
@@ -1668,6 +1683,9 @@ func targetFrom(raw RawTarget, source string, now time.Time, window time.Duratio
 	if tc.invalid {
 		t.clusterInvalidFrom = []string{source}
 	}
+	if raw.Workload != nil {
+		t.workload = &WorkloadRef{Kind: raw.Workload.Kind, Name: raw.Workload.Name}
+	}
 	t.reportedDomains, t.domainKnown = reportedDomainsFrom(raw)
 	t.reportedOfferings, t.reportedSummaries = reportedValue(raw.Offering, validBusinessDomain), reportedValue(raw.Summary, validSummary)
 	var recordInvalid []Limitation
@@ -1963,6 +1981,7 @@ func aggregateServices(snap *FleetSnapshot) {
 	}
 	placed := targetPlacementKnown(snap)
 	for _, s := range snap.Services {
+		s.Declaration = DeclarationDeclared
 		s.Status = serviceStatus(snap, s)
 		s.NameInferred = nameInferred(snap, s)
 		snap.Limitations = append(snap.Limitations, deriveOwner(snap, s)...)
@@ -3272,11 +3291,13 @@ func lookupServiceInDomain(snap *FleetSnapshot, domain, name string) ServiceKey 
 	if name == "" {
 		return ""
 	}
-	if s := snap.Services[NewServiceKeyDomain(domain, name)]; s != nil {
+	// An inferred service is never a dependency provider: a dependency named
+	// like a workload stays unresolved.
+	if s := snap.Services[NewServiceKeyDomain(domain, name)]; s != nil && !s.Inferred() {
 		return s.Key
 	}
 	if stripped := strings.TrimSuffix(name, "-pacto"); stripped != name {
-		if s := snap.Services[NewServiceKeyDomain(domain, stripped)]; s != nil {
+		if s := snap.Services[NewServiceKeyDomain(domain, stripped)]; s != nil && !s.Inferred() {
 			return s.Key
 		}
 	}

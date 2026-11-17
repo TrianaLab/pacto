@@ -1,7 +1,7 @@
 {
   "chain-regressed": {
     "schemaVersion": "pacto.dev/impact/v1",
-    "snapshotId": "sha256:ae008c27bd8bc2d5a7741bb72a572c91b74e28f18ad2a1b3f48060d56f0f999b",
+    "snapshotId": "sha256:4d2a062d8053f1846efbb145ea29761353c22a1c30ddb270df46c85b3dfa84c5",
     "asOf": "2026-11-10T12:00:00Z",
     "service": "auth-service",
     "classification": "",
@@ -148,7 +148,7 @@
   },
   "chain-removed": {
     "schemaVersion": "pacto.dev/impact/v1",
-    "snapshotId": "sha256:ae008c27bd8bc2d5a7741bb72a572c91b74e28f18ad2a1b3f48060d56f0f999b",
+    "snapshotId": "sha256:4d2a062d8053f1846efbb145ea29761353c22a1c30ddb270df46c85b3dfa84c5",
     "asOf": "2026-11-10T12:00:00Z",
     "service": "auth-service",
     "classification": "",
@@ -296,7 +296,7 @@
   },
   "chain-unavailable": {
     "schemaVersion": "pacto.dev/impact/v1",
-    "snapshotId": "sha256:ae008c27bd8bc2d5a7741bb72a572c91b74e28f18ad2a1b3f48060d56f0f999b",
+    "snapshotId": "sha256:4d2a062d8053f1846efbb145ea29761353c22a1c30ddb270df46c85b3dfa84c5",
     "asOf": "2026-11-10T12:00:00Z",
     "service": "auth-service",
     "classification": "",
@@ -444,7 +444,7 @@
   },
   "observed-unavailable": {
     "schemaVersion": "pacto.dev/impact/v1",
-    "snapshotId": "sha256:7a7e9c06884aa3448224f9fe8279706dd0c376951d1aef5005b392321da83cff",
+    "snapshotId": "sha256:36b24106d3a38b96db8a9dbbb1860c94321b0950af0e0b444f4338dfde0d94a8",
     "asOf": "2026-11-10T12:00:00Z",
     "service": "auth-service",
     "classification": "",
@@ -657,7 +657,7 @@
   },
   "pg-removed": {
     "schemaVersion": "pacto.dev/impact/v1",
-    "snapshotId": "sha256:41b7edbbc49ac055f0d1f69aa6ece2109582b0b10125938e3631227c3eacdfbc",
+    "snapshotId": "sha256:e304b028679593f6a15f5c1f4d344a2e060a7770937089b97d0062fdeccc4b24",
     "asOf": "2026-11-10T12:00:00Z",
     "service": "postgresql",
     "classification": "",
@@ -806,7 +806,7 @@
   },
   "policy-removed": {
     "schemaVersion": "pacto.dev/impact/v1",
-    "snapshotId": "sha256:59ac8e681d0b28636d614bdb3eece07d5af60480aa7c20de5546ebd48dbf16df",
+    "snapshotId": "sha256:48704bc515547e87e874b065dc680b70ec1ecaffa90febc72304ab59c2b124d9",
     "asOf": "2026-11-10T12:00:00Z",
     "service": "policy",
     "classification": "",
