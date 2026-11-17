@@ -1,0 +1,2 @@
+# Follow the `# shellcheck source=` directives the scripts already carry.
+external-sources=true
