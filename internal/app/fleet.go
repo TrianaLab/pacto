@@ -109,8 +109,9 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 	for i, path := range opts.TargetStateFiles {
 		sources = append(sources, fleetsrc.NewTargetStateFileSource(sourceID("target-state", i, len(opts.TargetStateFiles)), path))
 	}
+	// A malformed --detected ref is a usage error, refused before any read.
 	remote, err := httpSources(opts)
-	if err != nil {
+	if err := errors.Join(err, CheckDetectedRef(opts.Detected)); err != nil {
 		return nil, err
 	}
 	sources = append(sources, remote...)
@@ -148,9 +149,6 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 		} else {
 			sources = append(sources, liveK8sSources(ctx, contextName, client, opts.K8sNamespaces)...)
 		}
-	}
-	if err := CheckDetectedRef(opts.Detected); err != nil {
-		return nil, err
 	}
 	sources = append(sources, s.detectionSources(opts.Detected)...)
 	sources = append(sources, opts.extraSources...)

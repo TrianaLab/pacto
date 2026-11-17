@@ -108,10 +108,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 				}
 			}
 			externalCatalog := v.GetString("dashboard.external-catalog")
-			if err := app.CheckExternalCatalogRef(externalCatalog); err != nil {
-				return err
-			}
-			if err := app.CheckDetectedRef(v.GetString("dashboard.detected")); err != nil {
+			if err := errors.Join(app.CheckExternalCatalogRef(externalCatalog), app.CheckDetectedRef(v.GetString("dashboard.detected"))); err != nil {
 				return err
 			}
 
