@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -111,10 +112,11 @@ func TestDemoFleetUndeclaredVersionRef(t *testing.T) {
 	}
 }
 
-// TestDemoInferredRecordMatchesCompletion pins the one committed inferred
-// record in the demo to what discovery gives for its folder. Only the fields
-// are compared: the inputs name the CLI version, which every release changes.
-func TestDemoInferredRecordMatchesCompletion(t *testing.T) {
+// newsletterCompletion is what discovery gives for the demo's newsletter-service
+// folder, read with no committed record and as its own repository: never
+// RepoRoot, which would find the pacto checkout.
+func newsletterCompletion(t *testing.T) *contract.InferredRecord {
+	t.Helper()
 	src := filepath.Join("bundles", "newsletter-service")
 	dir := filepath.Join(t.TempDir(), "newsletter-service")
 	if err := os.CopyFS(dir, os.DirFS(src)); err != nil {
@@ -132,18 +134,71 @@ func TestDemoInferredRecordMatchesCompletion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := discover.Complete(dir, declared, contract.InferredInputs{})
+	got, err := discover.CompleteIn(dir, dir, declared, contract.InferredInputs{})
 	if err != nil || got == nil {
-		t.Fatalf("Complete = %v, %v", got, err)
+		t.Fatalf("CompleteIn = %v, %v", got, err)
 	}
+	return got
+}
+
+// TestDemoInferredRecordMatchesCompletion pins the one committed inferred
+// record in the demo to what discovery gives for its folder. Only the fields
+// and findings are compared: the inputs name the CLI version, which every
+// release changes.
+func TestDemoInferredRecordMatchesCompletion(t *testing.T) {
+	src := filepath.Join("bundles", "newsletter-service")
+	got := newsletterCompletion(t)
 	committed, err := contract.ReadInferredRecord(os.DirFS(src))
 	if err != nil || committed == nil {
 		t.Fatalf("committed record = %v, %v", committed, err)
 	}
-	if !reflect.DeepEqual(committed.Fields, got.Fields) {
-		t.Errorf("committed record fields differ from completion; regenerate it:\n%s", got.Marshal())
+	if !reflect.DeepEqual(committed.Fields, got.Fields) || !reflect.DeepEqual(committed.Findings, got.Findings) {
+		t.Errorf("committed record differs from completion; regenerate it:\n%s", got.Marshal())
 	}
 	if err := contract.VerifyInferredRecord(os.DirFS(src), committed); err != nil {
 		t.Errorf("committed record does not match the bundle: %v", err)
+	}
+}
+
+// TestDemoNewsletterDiscovery pins what the demo shows of a folder Pacto
+// reads: the port the Dockerfile exposes, one owner read from the catalog file
+// that outranks CODEOWNERS and the team label, the environments its values
+// files name, the OpenAPI file at any path and the unlocked chart dependency,
+// and never a value of the chart's env.
+func TestDemoNewsletterDiscovery(t *testing.T) {
+	got := newsletterCompletion(t)
+	field := func(name string) contract.Inferred {
+		t.Helper()
+		i := slices.IndexFunc(got.Fields, func(f contract.Inferred) bool { return f.Field == name })
+		if i < 0 {
+			t.Fatalf("no %s in\n%s", name, got.Marshal())
+		}
+		return got.Fields[i]
+	}
+	if f := field("ports[8080]"); f.Source != "Dockerfile:12" {
+		t.Errorf("ports[8080] = %+v, want source Dockerfile:12", f)
+	}
+	owner := field("service.owner")
+	if owner.Source != "catalog-info.yaml:7" || owner.Class != contract.InferredClassOwnerFile || owner.Value != "team-growth" {
+		t.Errorf("service.owner = %+v", owner)
+	}
+	if want := []string{"CODEOWNERS:4", "deploy/deployment.yaml:6"}; !slices.Equal(owner.Outranks, want) {
+		t.Errorf("service.owner outranks %v, want %v", owner.Outranks, want)
+	}
+	for _, env := range []string{"staging", "production"} {
+		if f := field("environments[" + env + "].file"); f.Source != "chart/values-"+env+".yaml" || f.Confidence != contract.ConfidencePossible {
+			t.Errorf("environments[%s].file = %+v", env, f)
+		}
+	}
+	if f := field("interfaces[api]"); f.Value != "openapi api/openapi.v1.yaml" {
+		t.Errorf("interfaces[api] = %+v", f)
+	}
+	if !slices.ContainsFunc(got.Findings, func(f contract.InferredFinding) bool {
+		return f.Code == discover.CodeChartDependencyUnlocked && strings.Contains(f.Message, "'redis'")
+	}) {
+		t.Errorf("no unlocked redis finding in %+v", got.Findings)
+	}
+	if out := string(got.Marshal()); strings.Contains(out, "demo-placeholder-password") {
+		t.Errorf("the record holds the SMTP_PASSWORD value:\n%s", out)
 	}
 }

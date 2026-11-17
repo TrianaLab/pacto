@@ -1,0 +1,11 @@
+openapi: 3.1.0
+info:
+  title: newsletter-service
+  version: 0.1.0
+paths:
+  /subscriptions:
+    post:
+      summary: Subscribe an address to the newsletter
+      responses:
+        "201":
+          description: Subscribed

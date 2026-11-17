@@ -560,6 +560,17 @@ export function installScaleFixture(): void {
         // The first row at its longest; the engine's other rows stay, so inferredTotal and the "more" rows still agree.
         const longInferred = { field: 'service.name', value: longName('inferred-service-name'), source: `${longName('charts/deeply/nested/chart-folder')}/Chart.yaml:2`, provenance: 'inferred' };
         rev.inferred = [longInferred, ...((rev.inferred as unknown[] | undefined) ?? []).slice(1)];
+        // Discovery at its longest: an owner read from an owner file that outranks three
+        // long sources, and 20 findings of 100 (truncation first) with long sources.
+        const longSource = (s: string) => `${longName(`deeply/nested/${s}`)}/${s}`;
+        (rev.inferred as unknown[]).push({ field: 'service.owner', value: longName('team-growth'), source: `${longSource('catalog-info.yaml')}:7`,
+          provenance: 'inferred', confidence: 'likely', class: 'ownerFile',
+          outranks: [`repository:${longSource('CODEOWNERS')}:4`, `${longSource('deployment.yaml')}:6`, `${longSource('values.yaml')}:12`] });
+        rev.inferredTotal = Math.max(Number(rev.inferredTotal ?? 0), (rev.inferred as unknown[]).length);
+        rev.discoveryFindings = { total: 100, truncated: true, items: [
+          { code: 'DISCOVERY_TRUNCATED', source: '.', message: 'discovery stopped after 5000 files; 4000 files were not read, so results are partial' },
+          ...Array.from({ length: 19 }, (_, i) => ({ code: 'DISCOVERY_UNSUPPORTED_FILE', source: longSource(`helmfile-${i}.yaml`), message: longName(`helmfile-${i}.yaml is not read: a format Pacto does not read`) })),
+        ] };
       }
     }
     if (route === '/api/fleet/entities/target') {
@@ -2295,6 +2306,16 @@ export const ROUTES: Route[] = [
   { name: 'metrics tables', open: metricsTables },
   { name: 'metrics (demo records)', open: demoMetrics('#/metrics') },
   { name: 'metrics (demo records, 90 days)', open: demoMetrics('#/metrics?window=90d') },
+  {
+    name: 'revision entity, discovery findings open',
+    open: async (page) => {
+      await firstLink('#/fleet/revisions?service=newsletter-service', '/fleet/revisions/')(page);
+      const d = page.getByTestId('revision-discovery-findings');
+      await expect(d).toBeAttached({ timeout: 30_000 });
+      await d.evaluate((el) => { (el as HTMLDetailsElement).open = true; });
+      await page.evaluate(() => window.scrollTo(0, 0));
+    },
+  },
 ];
 
 /** Flips the sidebar with its "[" shortcut and returns the state it lands in. */
