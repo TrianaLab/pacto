@@ -209,8 +209,10 @@ without `oidc`, and the sign-in screen takes two kinds of token:
   You may approve held changes where [the approver rule](delivery-identity.md#who-may-decide)
   allows you. A ServiceAccount never approves.
 
-The dashboard keeps the token in the server-side session and checks it again
-every five minutes, so a token that expires or is revoked ends its session.
+The dashboard keeps the token in the server-side session. The session ends
+when the token expires, so a sign-in link reads for its 10 minutes, and the
+dashboard checks the token again every five minutes, so a revoked token ends
+its session too.
 Where delivery asks for [a recent sign-in](delivery-identity.md#a-recent-sign-in-to-decide),
 only a token that carries its login time can approve: an OIDC ID token on a
 cluster that maps `auth_time`. Static and EKS tokens carry none.

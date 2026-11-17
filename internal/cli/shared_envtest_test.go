@@ -253,4 +253,8 @@ func TestTokenSignInAgainstAPIServer(t *testing.T) {
 	rec, _ = signIn(routes(ann.token), `{"token":"`+linkToken+`","link":true}`)
 	expect(t, rec.Code == http.StatusUnauthorized && strings.Contains(rec.Body.String(), "create on tokenreviews"),
 		"a dashboard that may not review tokens names the right: %d %s", rec.Code, rec.Body)
+	rec, _ = signIn(routes(ann.token), `{"token":"`+defaultToken+`"}`)
+	expect(t, rec.Code == http.StatusUnauthorized && strings.Contains(rec.Body.String(), "create on tokenreviews") &&
+		!strings.Contains(rec.Body.String(), "TokenAudienceRequired"),
+		"a ServiceAccount token it could not review for the audience names the right, not a new token: %d %s", rec.Code, rec.Body)
 }

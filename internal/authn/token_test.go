@@ -2,6 +2,7 @@ package authn
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -373,6 +374,11 @@ func TestTokenLoginReviewForbiddenNamesTheRight(t *testing.T) {
 	d, _ := dashboardRoutes(Reviewed{}, errReviewDenied, Reviewed{}, errors.New("Unauthorized"))
 	rec := signIn(d, `{"token":"t"}`)
 	expect(t, rec.Code == http.StatusUnauthorized && strings.Contains(rec.Body.String(), "create on tokenreviews"), "the missing right is the cause: %s", rec.Body)
+	d, tl := dashboardRoutes(Reviewed{}, errReviewDenied, Reviewed{Person: viewerSA}, nil)
+	rec = signIn(d, `{"token":"t"}`)
+	expect(t, rec.Code == http.StatusUnauthorized && strings.Contains(rec.Body.String(), "create on tokenreviews") &&
+		!strings.Contains(rec.Body.String(), "TokenAudienceRequired") && len(tl.sessions) == 0,
+		"a ServiceAccount the dashboard could not review for the audience: the missing right, not a new token: %s", rec.Body)
 	d, _ = dashboardRoutes(Reviewed{}, errReviewDenied, Reviewed{Person: personAnn}, nil)
 	rec = signIn(d, `{"token":"t"}`)
 	expect(t, rec.Code == http.StatusNoContent && stateOf(t, d, rec).Token == "t", "a person's token never needed the right: %d %s", rec.Code, rec.Body)
@@ -417,4 +423,31 @@ func TestTokenRecheckEndsOnKindChange(t *testing.T) {
 	now = now.Add(tokenRecheck + time.Second)
 	_, ok := tl.session(withCookie(c))
 	expect(t, !ok, "a link session whose token now reads as a bearer ends")
+}
+
+func TestTokenSessionEndsAtTokenExpiry(t *testing.T) {
+	now := time.Unix(1_000_000, 0)
+	jwt := func(claims string) string {
+		return "h." + base64.RawURLEncoding.EncodeToString([]byte(claims)) + ".s"
+	}
+	tl := NewTokenLogin(func(context.Context, string) (Reviewed, error) {
+		return Reviewed{Person: viewerSA}, nil
+	}, Lifetime{Idle: time.Hour, Max: 10 * time.Hour})
+	tl.now = func() time.Time { return now }
+	login := func(token string) *http.Cookie {
+		return cookieNamed(t, serve(http.HandlerFunc(tl.Login), tokenPost(`{"token":"`+token+`","link":true}`, "https://dash.example")), SessionCookie)
+	}
+	c := login(jwt(`{"exp":1000600}`))
+	now = now.Add(4 * time.Minute)
+	_, ok := tl.session(withCookie(c))
+	expect(t, ok, "a link reads until its token expires")
+	now = now.Add(6 * time.Minute)
+	_, ok = tl.session(withCookie(c))
+	expect(t, !ok && len(tl.sessions) == 0, "a link session ends when its token's exp passes, before the next recheck")
+	for _, token := range []string{jwt(`{"sub":"x"}`), jwt(`{"exp":"soon"}`), "opaque"} {
+		c = login(token)
+		now = now.Add(time.Minute)
+		_, ok = tl.session(withCookie(c))
+		expect(t, ok, "a token with no readable exp lives by the recheck alone: %s", token)
+	}
 }

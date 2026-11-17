@@ -131,6 +131,8 @@ func bearerReview(ctx context.Context, bearer TokenReview, token string, aerr er
 		return Reviewed{}, aerr
 	case err != nil:
 		return Reviewed{}, err
+	case isServiceAccount(r.Person.User) && errors.Is(aerr, ErrTokenReviewForbidden):
+		return Reviewed{}, aerr // the dashboard could not check the audience, so minting another token would not help
 	case isServiceAccount(r.Person.User):
 		ns, name := serviceAccountName(r.Person.User)
 		return Reviewed{}, &TokenRefusal{Code: "TokenAudienceRequired", Message: "a ServiceAccount signs in only with a token minted for the dashboard: " +
@@ -234,6 +236,19 @@ type tokenSession struct {
 	extra map[string][]string
 	// checked is when the API server last accepted the token.
 	checked time.Time
+	// expires is the token's exp claim, zero when it has none: the session
+	// ends there, without waiting for the next recheck.
+	expires time.Time
+}
+
+// tokenExpiry reads a JWT's exp claim, unverified: the review already
+// accepted the token, and an expiry only ever ends a session sooner.
+func tokenExpiry(token string) time.Time {
+	var exp float64
+	if json.Unmarshal(jwtClaims(token)["exp"], &exp) != nil || exp <= 0 {
+		return time.Time{}
+	}
+	return time.Unix(int64(exp), 0)
 }
 
 // tokenRecheck is how often a session's token is shown to the API server
@@ -282,7 +297,7 @@ func (t *TokenLogin) Login(w http.ResponseWriter, r *http.Request) {
 	}
 	now := t.now()
 	s := &tokenSession{token: token, csrf: random(32), person: rv.Person, created: now, seen: now, checked: now,
-		bearer: rv.Bearer, authTime: rv.AuthTime, uid: rv.UID, extra: rv.Extra}
+		bearer: rv.Bearer, authTime: rv.AuthTime, uid: rv.UID, extra: rv.Extra, expires: tokenExpiry(token)}
 	id := random(32)
 	t.mu.Lock()
 	if c, err := r.Cookie(SessionCookie); err == nil {
@@ -316,8 +331,9 @@ func refuseReviewed(rv Reviewed, err error, link bool) string {
 	return ""
 }
 
-// session returns the request's live token session. Every tokenRecheck the
-// API server is asked again, and a token it no longer accepts as the same
+// session returns the request's live token session. A session ends when its
+// token's exp passes (so a 10-minute sign-in link reads for 10 minutes). Every
+// tokenRecheck the API server is asked again, and a token it no longer accepts as the same
 // user, or as the same kind of session, ends the session.
 func (t *TokenLogin) session(r *http.Request) (tokenSession, bool) {
 	c, err := r.Cookie(SessionCookie)
@@ -331,7 +347,7 @@ func (t *TokenLogin) session(r *http.Request) (tokenSession, bool) {
 	case !ok:
 		t.mu.Unlock()
 		return tokenSession{}, false
-	case t.lifetime.expired(s.created, s.seen, now):
+	case t.lifetime.expired(s.created, s.seen, now) || (!s.expires.IsZero() && !now.Before(s.expires)):
 		delete(t.sessions, c.Value)
 		t.mu.Unlock()
 		return tokenSession{}, false
