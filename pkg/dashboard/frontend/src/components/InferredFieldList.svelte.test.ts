@@ -91,4 +91,26 @@ describe('InferredFieldList', () => {
     expect(target.querySelector('summary')!.textContent).toContain('55 more');
     expect(target.textContent).toContain('Showing 50 of 60.');
   });
+  it('names the owner file and the outranked sources in the note and adds no chip', () => {
+    render({ items: [field(0, { field: 'service.owner', value: 'team acme/team-payments', source: 'catalog-info.yaml:9', class: 'ownerFile', outranks: ['repository:.github/CODEOWNERS:4', 'deploy/deployment.yaml:7'] })], total: 1 });
+    const note = target.querySelector('[role="note"]')!.textContent!;
+    expect(note).toContain('Read from catalog-info.yaml:9; not verified; never clears a gate.');
+    expect(note).toContain('Outranks .github/CODEOWNERS:4 (repository file, not in the bundle), deploy/deployment.yaml:7.');
+    expect(rows()[0].children.length).toBe(2);
+    expect(target.querySelectorAll('.tag').length).toBe(0);
+  });
+
+  it('says a repository source is a repository file outside the bundle', () => {
+    render({ items: [field(0, { field: 'service.owner', source: 'repository:.github/CODEOWNERS:4', class: 'ownerFile' })], total: 1 });
+    const note = target.querySelector('[role="note"]')!.textContent!;
+    expect(note).toContain('Source: .github/CODEOWNERS:4 (repository file, not in the bundle).');
+    expect(note).not.toContain('repository:');
+  });
+
+  it('says nothing about an owner file or outranks on a plain row', () => {
+    render({ items: [field(0)], total: 1 });
+    const note = target.querySelector('[role="note"]')!.textContent!;
+    expect(note).not.toContain('not verified');
+    expect(note).not.toContain('Outranks');
+  });
 });

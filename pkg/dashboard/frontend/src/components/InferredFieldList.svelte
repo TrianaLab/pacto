@@ -17,7 +17,14 @@
   const shown = $derived(items.slice(0, limit));
   const rest = $derived(items.slice(limit));
   const all = $derived(Math.max(total, items.length));
-  const note = (f) => `Inferred, not declared. Source: ${f.source}.${f.confidence ? ` Confidence: ${f.confidence}.` : ''}`;
+  // A `repository:` source is a file read from the repository root, outside the folder
+  // and the bundle (only CODEOWNERS). An ownerFile row is an owner read from CODEOWNERS
+  // or catalog-info.yaml: a source marker, never a trust word.
+  const where = (s) => (s.startsWith('repository:') ? `${s.slice('repository:'.length)} (repository file, not in the bundle)` : s);
+  const note = (f) => `Inferred, not declared. Source: ${where(f.source)}.`
+    + (f.confidence ? ` Confidence: ${f.confidence}.` : '')
+    + (f.class === 'ownerFile' ? ` Read from ${where(f.source)}; not verified; never clears a gate.` : '')
+    + (f.outranks?.length ? ` Outranks ${f.outranks.map(where).join(', ')}.` : '');
 </script>
 
 {#snippet row(f)}
