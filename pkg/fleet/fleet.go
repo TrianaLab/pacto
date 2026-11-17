@@ -235,7 +235,8 @@ const (
 // Provenance distinguishes how a relationship became known: "declared" (from a
 // contract), "observed" (folded from runtime telemetry, see
 // foldObservedRelationships) or "inferred" (an external system a source
-// recognized in a service's configuration, see foldExternalUses). They are
+// recognized in a service's configuration, see foldExternalUses, or a service
+// dependency a revision's inferred record names, see revisionInferredEdges). They are
 // kept separate so neither an observed nor an inferred edge is conflated with
 // declared intent, and an inferred edge never enters an index a gate reads.
 const (
@@ -423,6 +424,11 @@ const (
 	// configured could not be read, so external systems it would classify are
 	// joined by name only. It makes the answer partial.
 	LimitationExternalCatalogUnavailable = "EXTERNAL_CATALOG_UNAVAILABLE"
+	// LimitationInferredRecordUnreadable: a revision at pactoVersion 2.5 or
+	// later ships a pacto.inferred.yaml that cannot be parsed or whose cited
+	// files do not match the bundle, so its inferred dependencies are unknown,
+	// not absent. It makes the answer partial.
+	LimitationInferredRecordUnreadable = "INFERRED_RECORD_UNREADABLE"
 	// LimitationExternalCap: the answer names MaxExternalNodes external
 	// systems and folds the least-consumed rest into one other-egress node.
 	// It makes the answer partial.
@@ -650,10 +656,14 @@ type ContractRevision struct {
 	Contract     *contract.Contract `json:"contract,omitempty"`
 	// Inferred lists what a local read implied rather than read from the
 	// contract (an absent pactoVersion, an inferred service.name), with sources.
-	Inferred   []contract.Inferred `json:"inferred,omitempty"`
-	Readiness  *readiness.Result   `json:"readiness,omitempty"`
-	Validation []finding.Finding   `json:"validation,omitempty"`
-	Valid      bool                `json:"valid"`
+	Inferred []contract.Inferred `json:"inferred,omitempty"`
+	// Record is the bundle's pacto.inferred.yaml, read only for a revision at
+	// pactoVersion 2.5 or later whose cited files match the bundle. Its
+	// dependencies project as inferred relationships; detail exposes its fields.
+	Record     *contract.InferredRecord `json:"-"`
+	Readiness  *readiness.Result        `json:"readiness,omitempty"`
+	Validation []finding.Finding        `json:"validation,omitempty"`
+	Valid      bool                     `json:"valid"`
 	// Stages is how each stage of the validation run ended. Empty when the
 	// contract document could not be read, so nothing was validated.
 	Stages []ValidationStage `json:"stages,omitempty"`
@@ -916,7 +926,8 @@ func ConsumesEdge(rel Relationship) bool {
 // service (FromService) — never from "the service's latest revision". Declared,
 // observed and inferred edges are kept apart (see Provenance); an observed edge
 // is folded from runtime telemetry and carries ObservedCount/Source, and an
-// inferred edge to an external system carries InferredSources/Confidence.
+// inferred edge (to an external system, or to a service a revision's inferred
+// record names) carries InferredSources/Confidence.
 type Relationship struct {
 	FromService      ServiceKey  `json:"fromService"`
 	FromRevision     RevisionKey `json:"fromRevision,omitempty"`
@@ -995,9 +1006,9 @@ type Relationship struct {
 	// offline sample keeps its old window.
 	FirstSeen *time.Time `json:"firstSeen,omitempty"`
 	LastSeen  *time.Time `json:"lastSeen,omitempty"`
-	// InferredSources is the per-source evidence of an inferred edge to an
-	// external system, sorted. Empty for declared and observed edges.
-	InferredSources []InferredSource `json:"inferredSources,omitempty" doc:"Where each source recognized this external system in the caller's configuration; set only on an inferred edge"`
+	// InferredSources is the per-source evidence of an inferred edge, sorted.
+	// Empty for declared and observed edges.
+	InferredSources []InferredSource `json:"inferredSources,omitempty" doc:"Where each source recognized this external system or service in the caller's configuration or inferred record; set only on an inferred edge"`
 	// Confidence is the strongest confidence of an inferred edge's sources.
 	Confidence string `json:"confidence,omitempty" enum:"likely,possible" doc:"The strongest confidence of the inferred sources: likely when a host or system value matched, possible when only a key name did"`
 }
@@ -1010,7 +1021,7 @@ type InferredSource struct {
 	// Target is the target the evidence was read on, when the source names
 	// one this snapshot holds; a restricted view drops evidence of a hidden one.
 	Target     TargetKey  `json:"target,omitempty" doc:"The target the evidence was read on"`
-	Kind       string     `json:"kind" doc:"What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService or serviceEntry"`
+	Kind       string     `json:"kind" doc:"What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService, serviceEntry or inferredRecord (a dependency the revision's pacto.inferred.yaml names)"`
 	Where      string     `json:"where,omitempty" doc:"The object and key it was found in, never a value"`
 	Host       string     `json:"host,omitempty" doc:"The normalized host and port; empty when only a key name matched"`
 	Confidence string     `json:"confidence" enum:"likely,possible"`

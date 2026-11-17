@@ -875,8 +875,9 @@ func declaredBy(snap *fleet.FleetSnapshot, name, bundle string) []Finding {
 	seen := map[Finding]bool{}
 	for _, rel := range snap.Relationships {
 		from, to := snap.Services[rel.FromService], snap.Services[rel.ToService]
-		// Dependencies only: these suggest runtime dependencies to declare.
-		if rel.Type != fleet.RelationshipDependency || from == nil || from.Name == name {
+		// Dependencies only: these suggest runtime dependencies to declare. An
+		// inferred edge is no declaration, so it never reads "declares".
+		if rel.Type != fleet.RelationshipDependency || rel.Provenance == fleet.ProvenanceInferred || from == nil || from.Name == name {
 			continue
 		}
 		// The ref matches even when nothing in snap resolves it, where rel.To

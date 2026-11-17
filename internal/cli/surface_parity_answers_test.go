@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -457,4 +458,50 @@ func TestCapabilitiesKeysMatchDashboard(t *testing.T) {
 		caller, _ := mcp["caller"].(map[string]any)
 		expect(t, (installed != "") == (caller["classAsOf"] != nil), "installed=%q: classAsOf says when the class was read: %s", installed, m)
 	}
+}
+
+// TestSurfaceParityImpactInferredConsumer: CLI pacto impact and MCP
+// pacto_impact read one local fleet whose newsletter names
+// notification-worker only through its inferred record, and give the same
+// consumer row: provenance and confidence inferred, verdict unknown.
+func TestSurfaceParityImpactInferredConsumer(t *testing.T) {
+	root := t.TempDir()
+	contractFile := func(dir, body string) string {
+		mustWriteFile(t, filepath.Join(dir, "pacto.yaml"), "pactoVersion: \"2.5\"\nservice:\n"+body+"workload: service\n"+parityState)
+		return dir
+	}
+	contractFile(filepath.Join(root, "notification-worker"), "  name: notification-worker\n  version: \"1.0.0\"\n")
+	contractFile(filepath.Join(root, "newsletter"), "  name: newsletter\n  version: \"1.0.0\"\n")
+	mustWriteFile(t, filepath.Join(root, "newsletter", "deploy", "app.yaml"), "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: newsletter\nspec:\n  template:\n    spec:\n"+
+		"      containers:\n        - name: app\n          env:\n            - name: WORKER_URL\n              value: http://notification-worker:8080\n")
+	dep := "dependencies:\n  - name: mailer\n    ref: oci://ghcr.io/acme/mailer\n    compatibility: \"^1.0.0\"\n"
+	oldDir := contractFile(filepath.Join(t.TempDir(), "notification-worker"), "  name: notification-worker\n  version: \"1.0.0\"\n"+dep)
+	newDir := contractFile(filepath.Join(t.TempDir(), "notification-worker"), "  name: notification-worker\n  version: \"2.0.0\"\n")
+
+	flags := []string{"--local", root}
+	plain, _, _ := paritySurfaces(t, flags)
+	m, isErr := callText(t, plain, "pacto_impact", map[string]any{"old_ref": oldDir, "new_ref": newDir})
+	expect(t, !isErr, "pacto_impact: %s", m)
+	row := func(what, body string) map[string]any {
+		var res struct {
+			Gate      string           `json:"gate"`
+			Consumers []map[string]any `json:"consumers"`
+		}
+		expect(t, json.Unmarshal([]byte(body), &res) == nil, "%s: %s", what, body)
+		expect(t, res.Gate == "unverified" && len(res.Consumers) == 1, "%s: gate %s consumers %v", what, res.Gate, res.Consumers)
+		return res.Consumers[0]
+	}
+	t.Setenv("PACTO_NO_UPDATE_CHECK", "1")
+	cmd := newRootCommand(app.NewService(nil, nil), VersionInfo{Version: "test"}, defaultDeps())
+	cmd.SetArgs(append([]string{"impact", oldDir, newDir, "--output-format", "json"}, flags...))
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(io.Discard)
+	var exit *ExitError
+	err := cmd.Execute()
+	expect(t, errors.As(err, &exit) && exit.Code == 2, "pacto impact: %v", err) // unverified exits 2
+	cli, mcp := row("cli", out.String()), row("mcp", m)
+	expect(t, reflect.DeepEqual(cli, mcp), "cli %v\nmcp %v", cli, mcp)
+	expect(t, cli["service"] == "newsletter" && cli["provenance"] == "inferred" && cli["confidence"] == "inferred" && cli["compatibilityVerdict"] == "unknown",
+		"newsletter row = %v", cli)
 }

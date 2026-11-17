@@ -64,7 +64,7 @@ type ProductConsumer struct {
 	// Provenance, Via, Required, Uncontracted and Evidence are the consumer's
 	// [AffectedConsumer] facts.
 	Provenance   string     `json:"provenance" doc:"Where the consumer is known from: declared, observed, declared+observed or inferred"`
-	Via          []string   `json:"via,omitempty" doc:"The edge types that make this service a consumer: dependency, configuration_reference, policy_reference or observed"`
+	Via          []string   `json:"via,omitempty" doc:"The edge types that make this service a consumer: dependency, configuration_reference, policy_reference, observed or inferred (named by the consumer's inferred record, never with a known verdict)"`
 	Required     bool       `json:"required,omitempty" doc:"The consumer declares its dependency on the changed service as required"`
 	Uncontracted bool       `json:"uncontracted,omitempty" doc:"A runtime caller no contract describes: its service reference names no page"`
 	Evidence     []Evidence `json:"evidence,omitempty" doc:"The facts behind this consumer and their age, newest first"`

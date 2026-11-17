@@ -2906,7 +2906,7 @@ export interface components {
             entry?: string;
             /** @description The normalized host and port; empty when only a key name matched */
             host?: string;
-            /** @description What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService or serviceEntry */
+            /** @description What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService, serviceEntry or inferredRecord (a dependency the revision's pacto.inferred.yaml names) */
             kind: string;
             /**
              * Format: date-time
@@ -3081,7 +3081,7 @@ export interface components {
             entry?: string;
             /** @description The normalized host and port; empty when only a key name matched */
             host?: string;
-            /** @description What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService or serviceEntry */
+            /** @description What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService, serviceEntry or inferredRecord (a dependency the revision's pacto.inferred.yaml names) */
             kind: string;
             /**
              * Format: date-time
@@ -3751,7 +3751,7 @@ export interface components {
             /** @enum {string} */
             guaranteeStatus?: "met" | "unmet" | "unknown";
             hidden?: boolean;
-            /** @description Where each source recognized this external system in the caller's configuration; set only on an inferred edge */
+            /** @description Where each source recognized this external system or service in the caller's configuration or inferred record; set only on an inferred edge */
             inferredSources?: components["schemas"]["Fleet.InferredSource"][] | null;
             /** Format: date-time */
             lastSeen?: string;
@@ -4338,7 +4338,7 @@ export interface components {
             targets?: string[] | null;
             uncontracted?: boolean;
             unmet?: components["schemas"]["Contract.Mismatch"][] | null;
-            /** @description The edge types that make this service a consumer: dependency, configuration_reference, policy_reference or observed */
+            /** @description The edge types that make this service a consumer: dependency, configuration_reference, policy_reference, observed or inferred (named by the consumer's inferred record, never with a known verdict) */
             via?: string[] | null;
         };
         "Impact.ChangesPreview": {
@@ -5267,7 +5267,7 @@ export interface components {
             /** @description A runtime caller no contract describes: its service reference names no page */
             uncontracted?: boolean;
             unmet?: components["schemas"]["Contract.Mismatch"][] | null;
-            /** @description The edge types that make this service a consumer: dependency, configuration_reference, policy_reference or observed */
+            /** @description The edge types that make this service a consumer: dependency, configuration_reference, policy_reference, observed or inferred (named by the consumer's inferred record, never with a known verdict) */
             via?: string[] | null;
         };
         ProductImpactConsumersPage: {
