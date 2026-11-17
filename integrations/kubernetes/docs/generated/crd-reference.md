@@ -167,7 +167,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.pointer.before` | `string` | no |  |  |  |
 | `status.policy` | `object` | no |  |  | Policy is the Stage spec the operation concluded under, taken when it concluded, so its record says what governed it however late it is written. |
 | `status.policy.applyRef` | `object` | yes |  |  | ApplyRef is the object the promoter points at a version: a Flux OCIRepository (it sets spec.ref.digest) or an Argo CD Application (it sets spec.source.targetRevision). Nothing else is ever written on it. |
-| `status.policy.applyRef.kind` | `string` | no |  | `OCIRepository`, `Application` | Kind is OCIRepository (Flux, the default) or Application (Argo CD, with an OCI source and automated sync). |
+| `status.policy.applyRef.kind` | `string` | no |  | `OCIRepository`, `Application`, `HelmRelease` | Kind is OCIRepository (Flux, the default), Application (Argo CD, with an OCI source and automated sync) or HelmRelease (Flux: the promoter writes the chart digest on the OCIRepository its spec.chartRef names). |
 | `status.policy.applyRef.name` | `string` | yes |  |  |  |
 | `status.policy.approval` | `object` | no |  |  | ApprovalPolicy can only raise the approval floor, never lower it. |
 | `status.policy.approval.always` | `boolean` | no |  |  | Always holds every promote for a human, whatever the contracts say. |
@@ -262,7 +262,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | --- | --- | --- | --- | --- | --- |
 | `spec` | `object` | yes |  |  | StageSpec is one service in one environment. |
 | `spec.applyRef` | `object` | yes |  |  | ApplyRef is the object the promoter points at a version: a Flux OCIRepository (it sets spec.ref.digest) or an Argo CD Application (it sets spec.source.targetRevision). Nothing else is ever written on it. |
-| `spec.applyRef.kind` | `string` | no |  | `OCIRepository`, `Application` | Kind is OCIRepository (Flux, the default) or Application (Argo CD, with an OCI source and automated sync). |
+| `spec.applyRef.kind` | `string` | no |  | `OCIRepository`, `Application`, `HelmRelease` | Kind is OCIRepository (Flux, the default), Application (Argo CD, with an OCI source and automated sync) or HelmRelease (Flux: the promoter writes the chart digest on the OCIRepository its spec.chartRef names). |
 | `spec.applyRef.name` | `string` | yes |  |  |  |
 | `spec.approval` | `object` | no |  |  | ApprovalPolicy can only raise the approval floor, never lower it. |
 | `spec.approval.always` | `boolean` | no |  |  | Always holds every promote for a human, whatever the contracts say. |
@@ -304,6 +304,17 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `spec.workload.kind` | `string` | yes |  |  | Kind is the workload kind, such as Deployment or StatefulSet. |
 | `spec.workload.name` | `string` | yes |  |  |  |
 | `status` | `object` | no |  |  | StageStatus is written by the promoter's operation and stage reconcilers and by the recorder (Stream.Head, Stream.Anchor and RecordStoreReady), each through a compare-and-swap on the Stage's resourceVersion. |
+| `status.applier` | `object` | no |  |  | Applier is who manages the workloads the Stage delivers, against spec.applyRef. Written by the promoter's stage reconciler; observed. since is when this result was first seen, asOf the last observation. |
+| `status.applier.asOf` | `string` | no |  |  | AsOf is the last observation (RFC 3339). |
+| `status.applier.completeness` | `string` | yes |  | `complete`, `partial` |  |
+| `status.applier.display` | `string` | no |  |  | Display is the one line every surface prints for the manager. |
+| `status.applier.evidence` | `string` | no |  |  | Evidence is what on the workload names the manager. |
+| `status.applier.manager` | `string` | no |  | `argocd`, `flux`, `helm`, `unsupported`, `ambiguous`, `none` | Manager is the detected manager. Both Flux kinds read flux; Owner names the kind. |
+| `status.applier.message` | `string` | no |  |  |  |
+| `status.applier.owner` | `string` | no |  |  | Owner is the object that manages the workloads ("Application payments/payments"). |
+| `status.applier.since` | `string` | no |  |  | Since is when this result was first seen (RFC 3339). |
+| `status.applier.state` | `string` | yes |  | `Adopted`, `Unmanaged`, `Conflict`, `Unknown` |  |
+| `status.applier.workloads` | `[]string` | no |  |  | Workloads are the workloads checked ("Deployment payments"). |
 | `status.authFreshness` | `string` | no |  |  | AuthFreshness is how old a login the promoter accepts on an approval (a Go duration). Clients ask for a fresh login with a margin under it (DecisionFreshnessFor). Empty: no login is too old, and a person decides with the session they have. |
 | `status.autoHold` | `boolean` | no |  |  | AutoHold stops auto-promotion after a person or agent rolled back or promoted back to a version the Stage already verified. |
 | `status.candidate` | `string` | no |  |  | Candidate is the newest eligible candidate the stage reconciler saw. |

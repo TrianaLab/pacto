@@ -40,6 +40,11 @@ const (
 	// environments but does not back the Stage's: no environment of its
 	// name, or values that fail their configuration schemas.
 	GateEnvironment = "pacto.environment"
+	// GateApplier refuses a promote while the Stage's applier is not the
+	// manager that owns the workloads it delivers (status.applier), or the
+	// version's contract names another applier: Pacto never writes a pointer
+	// another manager may overwrite.
+	GateApplier = "pacto.applier"
 	// GateAutonomy judges a change of level.
 	GateAutonomy = "pacto.autonomy"
 )
@@ -106,9 +111,9 @@ var tier0 = []OperationType{
 		Description:       "Move the Stage pointer to a new digest. The only way to ship a version.",
 		Params:            []string{"from", "to"},
 		Raisers:           []ActorClass{ClassAgent, ClassHuman, ClassController},
-		PreGates:          []string{GatePublished, GateDiff, GateImpact, GateSuites, GateEnvironment},
+		PreGates:          []string{GatePublished, GateApplier, GateDiff, GateImpact, GateSuites, GateEnvironment},
 		VerifyGates:       []string{GateContract},
-		ApprovalFloor:     "pkg/impact: no person when no consumer is incompatible or unknown, the analysis is complete and the version to roll back to is verified; an incompatible consumer, or one whose required guarantee the version does not meet, asks its owners; a version whose contract declares environments but none for the Stage's spec.environment, or values there that fail their schemas, asks the service's team; anything Pacto cannot see, a suite a Stage check runs that the version does not ship or environment values Pacto cannot check, asks a person to accept the unknown; with spec.records.required, an agent or promoter promote asks a person while the Stage's records are not being written",
+		ApprovalFloor:     "pkg/impact: no person when no consumer is incompatible or unknown, the analysis is complete and the version to roll back to is verified; an incompatible consumer, or one whose required guarantee the version does not meet, asks its owners; a version whose contract declares environments but none for the Stage's spec.environment, or values there that fail their schemas, asks the service's team; anything Pacto cannot see, a suite a Stage check runs that the version does not ship or environment values Pacto cannot check, asks a person to accept the unknown; with spec.records.required, an agent or promoter promote asks a person while the Stage's records are not being written; a workload another manager owns, or whose manager Pacto cannot tell (pacto.applier), refuses the promote, and nobody can accept it",
 		Inverse:           TypeRollback,
 		Cancellable:       "until the pointer moves",
 		ApprovalDeadline:  defaultApprovalDeadline,

@@ -1382,6 +1382,36 @@ export interface components {
             groups?: string[] | null;
             user: string;
         };
+        "Delivery.ApplierStatus": {
+            /** @description The last observation (RFC 3339) */
+            asOf?: string;
+            /**
+             * @description partial when a workload or the Pacto list could not be read
+             * @enum {string}
+             */
+            completeness: "complete" | "partial";
+            /** @description The one line every surface prints for the manager */
+            display?: string;
+            /** @description What on the workload names its manager, such as tracking annotation */
+            evidence?: string;
+            /**
+             * @description The detected manager; both Flux kinds read flux and owner names the kind. Empty when no workload could be read
+             * @enum {string}
+             */
+            manager?: "argocd" | "flux" | "helm" | "unsupported" | "ambiguous" | "none";
+            message?: string;
+            /** @description The object that manages the workloads, such as Application payments/payments */
+            owner?: string;
+            /** @description When this result was first seen (RFC 3339) */
+            since?: string;
+            /**
+             * @description Adopted when the Stage's applier manages every workload; Unmanaged when there is no workload yet; Conflict when another manager or object owns one; Unknown when Pacto cannot tell. Only Adopted and Unmanaged let a promote through
+             * @enum {string}
+             */
+            state: "Adopted" | "Unmanaged" | "Conflict" | "Unknown";
+            /** @description The workloads checked, such as Deployment payments */
+            workloads?: string[] | null;
+        };
         "Delivery.ApplyRef": {
             kind?: string;
             name: string;
@@ -2136,6 +2166,8 @@ export interface components {
         EnvironmentRow: {
             /** @description What the caller's class may ask for here: promote, unfreeze */
             actions: string[] | null;
+            /** @description Who manages the workloads the Stage delivers, as the promoter observed it against spec.applyRef (status.applier); absent when the promoter has not reported it */
+            applier?: components["schemas"]["Delivery.ApplierStatus"];
             autoHold: boolean;
             /** @description The newest eligible candidate */
             candidate?: string;

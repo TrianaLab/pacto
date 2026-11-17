@@ -68,6 +68,8 @@ type StageRow struct {
 	Progress    *Progress     `json:"progress,omitempty" doc:"Why the Stage can or cannot move to its newest candidate; set by pacto delivery status --why and pacto_delivery_status why"`
 
 	SourceRevision string `json:"sourceRevision,omitempty" doc:"The source revision pacto publish stamped on the running artifact (org.opencontainers.image.revision). An annotation, not signed"`
+
+	Applier *ApplierStatus `json:"applier,omitempty" doc:"Who manages the workloads the Stage delivers, as the promoter observed it against spec.applyRef (status.applier); absent when the promoter has not reported it"`
 }
 
 // Watch is the Watched condition as a row shows it.
@@ -136,7 +138,7 @@ func RowOf(st StageObject, in RowInput) StageRow {
 		Environment: st.Spec.Environment, Pointer: ss.Pointer, Verified: slices.Contains(ss.Verified, ss.Pointer),
 		Failed: slices.Contains(ss.FailedDigests, ss.Pointer), Frozen: ss.Frozen, FrozenReason: ss.FrozenReason, AutoHold: ss.AutoHold,
 		Held: in.Held, HeldUnknown: in.HeldUnknown, Candidate: ss.Candidate, Level: string(ss.Level), Actions: []string{},
-		State: StageState(st, in.Held, in.HeldUnknown)}
+		State: StageState(st, in.Held, in.HeldUnknown), Applier: ss.Applier}
 	if ss.Pointer != "" {
 		run := in.Read[ss.Pointer]
 		row.Version, row.ContractRef, row.SourceRevision = run.Version, run.Contract, run.Source
