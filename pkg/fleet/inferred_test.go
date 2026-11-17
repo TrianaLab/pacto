@@ -61,7 +61,8 @@ func checkCartWorkload(t *testing.T, w *InferredWorkload) {
 	t.Helper()
 	c := inferredCart()
 	// Whether the fixture verified the declaration is each test's to check.
-	want := &InferredWorkload{Source: "k8s-workloads", Namespace: "shop", Kind: "Deployment", Name: "cart", Image: c.Image, Ports: c.Ports, Probes: c.Probes, ObservedAt: c.ObservedAt, DeclarationUnverified: w.DeclarationUnverified}
+	want := &InferredWorkload{Source: "k8s-workloads", Namespace: "shop", Kind: "Deployment", Name: "cart", Image: c.Image, Ports: c.Ports, Probes: c.Probes, ObservedAt: c.ObservedAt, DeclarationUnverified: w.DeclarationUnverified,
+		Group: &InferredGroup{Rule: "workload", Namespace: "shop", Name: "Deployment/cart", From: "no grouping label or annotation", Key: "workload/shop/Deployment/cart", Label: "This workload only"}}
 	if !reflect.DeepEqual(w, want) {
 		t.Errorf("workload %+v, want %+v", w, want)
 	}

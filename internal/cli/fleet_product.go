@@ -57,6 +57,7 @@ func newFleetEntitiesCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	f.String("status", "", "canonical compliance status")
 	addTemplateFlag(f)
 	addDeclarationFlag(cmd)
+	f.String("group", "", "inferred services the cluster groups under this key (rule/namespace/name, as pacto fleet entity prints it)")
 	f.String("created-from", "", "services created from this golden path, by key; "+fleet.NoOrigin+" for no declared origin or "+fleet.UnresolvedOrigin+" for an origin that resolves to no golden path")
 	f.String("sort", "", "order: name, health (least healthy first; owners and domains by non-compliant, failing, unknown, stale and gap services), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most consumers with a failed provisioning request first), consumers (offerings with the most declared consumers first) or gaps (owners and domains with the most services that leave knowledge out first)")
 	f.Bool("has-non-compliant", false, "owners and domains with at least one non-compliant service only")
@@ -135,7 +136,7 @@ func entityFilterFromCmd(cmd *cobra.Command, text string) fleet.EntityFilter {
 	f := fleet.EntityFilter{
 		Text: text, Owner: get("owner"), OwnerKey: get("owner-key"), BusinessDomain: get("business-domain"),
 		Offering: get("offering"), Consumes: get("consumes"), Phase: get("phase"), Environment: get("environment"), Ownership: get("ownership"), Gap: get("gap"), Status: get("status"), Sort: get("sort"),
-		Template: get("template"), Declaration: get("declaration"), CreatedFrom: get("created-from"),
+		Template: get("template"), Declaration: get("declaration"), Group: get("group"), CreatedFrom: get("created-from"),
 		HasNonCompliant: nc, SourceKind: get("source-kind"), Lifecycle: get("lifecycle"), Failed: failed, Limit: limit, Offset: offset,
 		Capability: get("capability"), Domain: get("domain"), Service: get("service"), Source: get("source"),
 		Scope: get("scope"), Readiness: get("readiness"), SourceHealth: get("source-health"), Class: get("class"),

@@ -70,7 +70,7 @@ func ListKinds(kind string, f EntityFilter) []EntityKind {
 	switch {
 	case kind != "":
 		return []EntityKind{EntityKind(kind)}
-	case f.Template == TemplateOnly || f.Declaration == DeclarationInferred:
+	case f.Template == TemplateOnly || f.Declaration == DeclarationInferred || f.Group != "":
 		return []EntityKind{KindService}
 	case f.Readiness != "":
 		return []EntityKind{KindRevision}
@@ -177,8 +177,10 @@ type EntityRef struct {
 	// Declaration is set on SERVICE references (see ServiceRecord.Declaration).
 	// An inferred reference carries its namespace in Scope, its workload kind
 	// in Secondary and, on list rows, its Image.
-	Declaration string `json:"declaration,omitempty" enum:"declared,inferred"`
-	Image       string `json:"image,omitempty" doc:"The image an inferred service runs, on list rows"`
+	Declaration string         `json:"declaration,omitempty" enum:"declared,inferred"`
+	Image       string         `json:"image,omitempty" doc:"The image an inferred service runs, on list rows"`
+	Group       *InferredGroup `json:"group,omitempty" doc:"How the cluster groups an inferred service, on list rows"`
+	Repository  string         `json:"repository,omitempty" doc:"The first repository URL of an inferred service's group, on list rows"`
 	// DeclarationUnverified marks an inferred service whose namespace's Pacto
 	// targets Pacto could not read, so a contract may describe it.
 	DeclarationUnverified bool `json:"declarationUnverified,omitempty" doc:"On an inferred service: Pacto could not read the Pacto targets of its namespace, so a contract may describe it"`

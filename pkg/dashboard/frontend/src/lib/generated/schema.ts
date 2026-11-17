@@ -2710,6 +2710,8 @@ export interface components {
             failingHealth?: number;
             /** Format: date-time */
             fetchedAt?: string;
+            /** @description How the cluster groups an inferred service, on list rows */
+            group?: components["schemas"]["Fleet.InferredGroup"];
             /** Format: int64 */
             hiddenConsumers?: number;
             /** Format: int64 */
@@ -2737,6 +2739,8 @@ export interface components {
             owned?: number;
             owner?: string;
             parentService?: string;
+            /** @description The first repository URL of an inferred service's group, on list rows */
+            repository?: string;
             scope?: string;
             secondary?: string;
             /** Format: int64 */
@@ -3104,6 +3108,24 @@ export interface components {
             source: string;
             value: string;
         };
+        "Fleet.InferredGroup": {
+            /** @description Why the workload stays ungrouped: two groups of one rule claim it (SERVICE_GROUP_AMBIGUOUS) */
+            ambiguous?: string;
+            /** @description The labels, annotations or field manager Pacto read the group from */
+            from: string;
+            /** @description rule/namespace/name, prefixed with the cluster in a snapshot with several clusters; the entities group filter takes it */
+            key: string;
+            /** @description The group in words, for example Argo CD Application shop/cart */
+            label: string;
+            name: string;
+            /** @description The namespace of the owning object, as the workload's own metadata names it; empty for an Argo CD Application in the Argo CD namespace */
+            namespace?: string;
+            /**
+             * @description The rule that matched, in precedence order: Argo CD Application, Flux Kustomization or HelmRelease, Helm release, app.kubernetes.io/part-of, app.kubernetes.io/instance, else the workload itself
+             * @enum {string}
+             */
+            rule: "argocd" | "flux-kustomization" | "flux-helmrelease" | "helm" | "part-of" | "instance" | "workload";
+        };
         "Fleet.InferredPort": {
             /** @description The object path Pacto read the port from */
             from: string;
@@ -3119,6 +3141,21 @@ export interface components {
             kind: "readiness" | "liveness" | "startup";
             path?: string;
             port?: string;
+        };
+        "Fleet.InferredRepository": {
+            /** @description The object and field Pacto read it from, for example Application argocd/cart spec.source.repoURL */
+            from: string;
+            /**
+             * @description The kind of that object; a restricted view keeps the repository only for a viewer whom Kubernetes lets list this kind in this namespace
+             * @enum {string}
+             */
+            kind: "Application" | "GitRepository" | "Kustomization" | "HelmRelease";
+            /** @description The namespace of the GitOps object Pacto read it from */
+            namespace: string;
+            /** @description The folder the object deploys from, when it names one */
+            path?: string;
+            /** @description Without credentials, query or fragment */
+            url: string;
         };
         "Fleet.InferredSource": {
             /** @description The digest of the catalog the source classified it with */
@@ -3155,6 +3192,7 @@ export interface components {
             declarationUnverified?: boolean;
             /** @description The fields Pacto read but left out because they held a control character or ran past their bound, such as image or ports[0] */
             dropped?: string[] | null;
+            group?: components["schemas"]["Fleet.InferredGroup"];
             image?: components["schemas"]["Fleet.InferredValue"];
             /** @description Deployment, StatefulSet, DaemonSet or CronJob */
             kind: string;
@@ -3164,6 +3202,9 @@ export interface components {
             observedAt?: string;
             ports?: components["schemas"]["Fleet.InferredPort"][] | null;
             probes?: components["schemas"]["Fleet.InferredProbe"][] | null;
+            repositories?: components["schemas"]["Fleet.InferredRepository"][] | null;
+            /** @description Why Pacto could not read the repository of a group that names one, for example Applications unreadable (forbidden) */
+            repositoryUnknown?: string;
             /** @description The source that read the workload */
             source: string;
         };
@@ -5802,6 +5843,8 @@ export interface components {
             failingHealth?: number;
             /** Format: date-time */
             fetchedAt?: string;
+            /** @description How the cluster groups an inferred service, on list rows */
+            group?: components["schemas"]["Fleet.InferredGroup"];
             /** Format: int64 */
             hiddenConsumers?: number;
             /** Format: int64 */
@@ -5830,6 +5873,8 @@ export interface components {
             owned?: number;
             owner?: string;
             parentService?: string;
+            /** @description The first repository URL of an inferred service's group, on list rows */
+            repository?: string;
             scope?: string;
             secondary?: string;
             /** Format: int64 */
@@ -8812,6 +8857,8 @@ export interface operations {
                 template?: "only" | "exclude";
                 /** @description Declaration filter for service entities: inferred keeps only the services Pacto infers from workloads no contract describes and, with no kinds, lists services only; declared leaves them out. Absent lists every service, inferred ones marked */
                 declaration?: "declared" | "inferred";
+                /** @description Group filter for inferred service entities: the workload.group.key of an inferred service; with no kinds it lists services only */
+                group?: string;
                 /** @description Keeps the services whose declared origin resolves to this golden path, by canonical ServiceKey (service entities); (none) keeps those that declare no origin and (unresolved) those whose origin resolves to no golden path. A hidden, absent or non-golden-path key answers an empty list */
                 createdFrom?: string;
                 /** @description Keeps the owners and domains with at least one non-compliant service, counted as each row counts it (owner and domain entities) */

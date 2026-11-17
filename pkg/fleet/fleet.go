@@ -404,6 +404,9 @@ const (
 	// no contract describes, so who depends on it is unknown and only its
 	// observed calls are known.
 	LimitationServiceInferred = "SERVICE_INFERRED"
+	// LimitationServiceGroupAmbiguous: two groups of one rule claim an
+	// inferred service's workload, so it stays ungrouped; Pacto never merges.
+	LimitationServiceGroupAmbiguous = "SERVICE_GROUP_AMBIGUOUS"
 	// LimitationServiceNameCollision: two or more folders or references claim
 	// one service name and at least one only inferred it. Build drops every
 	// inferred claimant, so a guessed name never joins another service.
@@ -735,6 +738,33 @@ type InferredWorkload struct {
 	// limitation's prose, so a restricted view can never lose them.
 	DeclarationUnverified bool     `json:"declarationUnverified,omitempty" doc:"Pacto could not read the Pacto targets of this namespace, so a contract may describe this workload (DECLARATION_UNVERIFIED)"`
 	Dropped               []string `json:"dropped,omitempty" doc:"The fields Pacto read but left out because they held a control character or ran past their bound, such as image or ports[0]"`
+	// Group is how the cluster already groups the workload; every inferred
+	// record carries one. It is the workload's own words and never verified.
+	Group *InferredGroup `json:"group,omitempty"`
+	// Repositories are the source repositories a GitOps object names for the
+	// group, at most MaxInferredRepositories.
+	Repositories      []InferredRepository `json:"repositories,omitempty"`
+	RepositoryUnknown string               `json:"repositoryUnknown,omitempty" doc:"Why Pacto could not read the repository of a group that names one, for example Applications unreadable (forbidden)"`
+}
+
+// InferredGroup is how the cluster already groups an inferred service's workload.
+type InferredGroup struct {
+	Rule      string `json:"rule" enum:"argocd,flux-kustomization,flux-helmrelease,helm,part-of,instance,workload" doc:"The rule that matched, in precedence order: Argo CD Application, Flux Kustomization or HelmRelease, Helm release, app.kubernetes.io/part-of, app.kubernetes.io/instance, else the workload itself"`
+	Namespace string `json:"namespace,omitempty" doc:"The namespace of the owning object, as the workload's own metadata names it; empty for an Argo CD Application in the Argo CD namespace"`
+	Name      string `json:"name"`
+	From      string `json:"from" doc:"The labels, annotations or field manager Pacto read the group from"`
+	Key       string `json:"key" doc:"rule/namespace/name, prefixed with the cluster in a snapshot with several clusters; the entities group filter takes it"`
+	Label     string `json:"label" doc:"The group in words, for example Argo CD Application shop/cart"`
+	Ambiguous string `json:"ambiguous,omitempty" doc:"Why the workload stays ungrouped: two groups of one rule claim it (SERVICE_GROUP_AMBIGUOUS)"`
+}
+
+// InferredRepository is a source repository a GitOps object names for the group.
+type InferredRepository struct {
+	URL       string `json:"url" doc:"Without credentials, query or fragment"`
+	Path      string `json:"path,omitempty" doc:"The folder the object deploys from, when it names one"`
+	From      string `json:"from" doc:"The object and field Pacto read it from, for example Application argocd/cart spec.source.repoURL"`
+	Namespace string `json:"namespace" doc:"The namespace of the GitOps object Pacto read it from"`
+	Kind      string `json:"kind" enum:"Application,GitRepository,Kustomization,HelmRelease" doc:"The kind of that object; a restricted view keeps the repository only for a viewer whom Kubernetes lets list this kind in this namespace"`
 }
 
 // InferredValue is one value read from a workload and the object path it was

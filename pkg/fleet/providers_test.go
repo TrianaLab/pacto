@@ -534,3 +534,53 @@ func TestQueryProvidersKubernetesFactsUnbounded(t *testing.T) {
 		t.Errorf("no kubernetes source = %+v", none)
 	}
 }
+
+func TestWorkloadEvidenceZeroKinds(t *testing.T) {
+	for _, tc := range []struct {
+		counts     map[string]int
+		unreadable []string
+		want       string
+	}{
+		{map[string]int{"Application": 0}, nil, "no Applications found"},
+		{map[string]int{"Kustomization": 0, "HelmRelease": 0}, nil, "no HelmReleases or Kustomizations found"},
+		{map[string]int{}, nil, "no workloads found"},
+		{map[string]int{"Deployment": 0}, nil, "no workloads found"},
+		{map[string]int{"GitRepository": 2, "Kustomization": 0}, nil, "2 GitRepositories"},
+		{map[string]int{"Gateway": 2}, nil, "2 Gateways"},
+		{nil, []string{"GitRepository"}, "GitRepositories unreadable"},
+		{map[string]int{"GitRepository": 0}, nil, "no GitRepositories found"},
+		{map[string]int{"Deployment": 412, "CronJob": 31}, nil, "412 Deployments, 31 CronJobs"},
+	} {
+		if got := WorkloadEvidence(tc.counts, tc.unreadable); got != tc.want {
+			t.Errorf("%v %v: %q, want %q", tc.counts, tc.unreadable, got, tc.want)
+		}
+	}
+}
+
+func TestRestrictProvidersKeepsZeroCounts(t *testing.T) {
+	argo := func(counts ...ProviderCount) Provider {
+		return Provider{ID: "argocd", Name: "Argo CD", Source: "k8s", Status: SourceAvailable, Counts: counts}
+	}
+	noArgo := func(ns string) bool { return ns != "argocd" }
+	rows := restrictProviders([]Provider{argo(ProviderCount{"Application", "", 0}, ProviderCount{"Application", "argocd", 3})}, nil, noArgo, everyWorkload, nil)
+	if got := rows[0]; got.Evidence != "3 Applications in namespaces hidden from you" || len(got.Counts) != 1 || got.Counts[0].N != 0 {
+		t.Errorf("hidden-only row %+v", got)
+	}
+	rows = restrictProviders([]Provider{argo(ProviderCount{"Application", "", 0})}, nil, noArgo, everyWorkload, nil)
+	if got := rows[0]; got.Evidence != "no Applications found" || len(got.Counts) != 1 {
+		t.Errorf("empty row %+v", got)
+	}
+	rows = restrictProviders([]Provider{argo(ProviderCount{"Application", "", 0}, ProviderCount{"Application", "argocd", 3}, ProviderCount{"Application", "shop", 1})}, nil, noArgo, everyWorkload, nil)
+	if got := rows[0].Evidence; got != "1 Application (+3 hidden by your permissions)" {
+		t.Errorf("partly hidden evidence %q", got)
+	}
+	unread := argo(ProviderCount{"Application", "", 0}, ProviderCount{"Application", "argocd", 3})
+	unread.UnreadableKinds = []string{"Application"}
+	if got := restrictProviders([]Provider{unread}, nil, noArgo, everyWorkload, nil)[0].Evidence; got != "Applications unreadable (+3 hidden by your permissions)" {
+		t.Errorf("unreadable evidence %q", got)
+	}
+	snap := buildProviders(t, NewMemorySource("k8s", SourceKindKubernetes, &Collection{Providers: []Provider{argo(ProviderCount{"Application", "", 0})}}))
+	if got := NewQuery(snap).InferredWorkloadScopes(); len(got) != 0 {
+		t.Errorf("a zero count asks for review: %v", got)
+	}
+}

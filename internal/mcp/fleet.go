@@ -525,6 +525,7 @@ func fleetEntitiesTool() *mcpsdk.Tool {
 			"status":            {Type: "string", Description: "Canonical compliance status", Enum: fleet.CanonicalStatuses()},
 			"template":          {Type: "string", Description: "only: keep only golden paths and, with no kind, list services only; exclude: leave golden paths and their revisions out", Enum: []string{fleet.TemplateOnly, fleet.TemplateExclude}},
 			"declaration":       {Type: "string", Description: "inferred: keep only the services Pacto infers from workloads no contract describes and, with no kind, list services only; declared: leave them out. Empty lists every service, inferred ones marked", Enum: []string{fleet.DeclarationDeclared, fleet.DeclarationInferred}},
+			"group":             {Type: "string", Description: "Keep the inferred services the cluster groups under this key (workload.group.key on an inferred service)"},
 			"created_from":      {Type: "string", Description: "Services created from this golden path, by service key; " + fleet.NoOrigin + " for no declared origin or " + fleet.UnresolvedOrigin + " for an origin that resolves to no golden path"},
 			"sort":              {Type: "string", Description: "Order: by name, least healthy first, owners with the most services first, owners and domains with the most non-compliant services first or with the highest share of them first, golden paths that created the most services first, offerings with the most consumers with a failed provisioning request or the most declared consumers first, or owners and domains with the most services that leave knowledge out first", Enum: []string{fleet.SortName, fleet.SortHealth, fleet.SortServices, fleet.SortNonCompliant, fleet.SortRate, fleet.SortCreated, fleet.SortFailed, fleet.SortConsumers, fleet.SortGaps}},
 			"has_non_compliant": {Type: "boolean", Description: "Owners and domains with at least one non-compliant service only"},
@@ -560,6 +561,7 @@ type fleetEntitiesArgs struct {
 	Status          string `json:"status"`
 	Template        string `json:"template"`
 	Declaration     string `json:"declaration"`
+	Group           string `json:"group"`
 	CreatedFrom     string `json:"created_from"`
 	Sort            string `json:"sort"`
 	HasNonCompliant bool   `json:"has_non_compliant"`
@@ -588,7 +590,7 @@ func fleetEntitiesHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[fleet
 		f := fleet.EntityFilter{
 			Text: a.Text, Owner: a.Owner, OwnerKey: a.OwnerKey, BusinessDomain: a.BusinessDomain,
 			Offering: a.Offering, Consumes: a.Consumes, Phase: a.Phase, Environment: a.Environment, Ownership: a.Ownership, Gap: a.Gap, Status: a.Status, Sort: a.Sort, Limit: a.Limit, Offset: a.Offset,
-			Template: a.Template, Declaration: a.Declaration, CreatedFrom: a.CreatedFrom,
+			Template: a.Template, Declaration: a.Declaration, Group: a.Group, CreatedFrom: a.CreatedFrom,
 			HasNonCompliant: a.HasNonCompliant, SourceKind: a.SourceKind, Lifecycle: a.Lifecycle, Failed: a.Failed,
 			Capability: a.Capability, Domain: a.Domain, Service: a.Service, Source: a.Source,
 			Scope: a.Scope, Readiness: a.Readiness, SourceHealth: a.SourceHealth, Class: a.Class,

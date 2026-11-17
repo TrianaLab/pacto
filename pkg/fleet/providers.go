@@ -202,8 +202,9 @@ var workloadKindOrder = []string{"Deployment", "StatefulSet", "DaemonSet", "Cron
 // WorkloadEvidence is the one wording of counted evidence: "412 Deployments,
 // 3 StatefulSets". A kind read with 0 is omitted, a kind that could not be
 // read everywhere is "<Kind>s unreadable" (never 0), or "at least 12
-// Deployments (some unreadable)" when some were read, and "no workloads found"
-// means every kind was read and held nothing.
+// Deployments (some unreadable)" when some were read. When every kind was read
+// and held nothing it says "no GitRepositories or Kustomizations found", or
+// "no workloads found" when it names no kind other than the workload kinds.
 func WorkloadEvidence(counts map[string]int, unreadable []string) string {
 	kinds := map[string]bool{}
 	for k := range counts {
@@ -218,21 +219,26 @@ func WorkloadEvidence(counts map[string]int, unreadable []string) string {
 		}
 		return len(workloadKindOrder)
 	}
-	var parts []string
+	var parts, none []string
 	for _, k := range slices.SortedFunc(maps.Keys(kinds), func(a, b string) int { return cmp.Or(cmp.Compare(rank(a), rank(b)), cmp.Compare(a, b)) }) {
 		switch n := counts[k]; {
 		case slices.Contains(unreadable, k) && n > 0:
 			parts = append(parts, "at least "+kindCount(n, k)+" (some unreadable)")
 		case slices.Contains(unreadable, k):
-			parts = append(parts, k+"s unreadable")
+			parts = append(parts, pluralKind(k)+" unreadable")
 		case n > 0:
 			parts = append(parts, kindCount(n, k))
+		case rank(k) == len(workloadKindOrder):
+			none = append(none, pluralKind(k))
 		}
 	}
-	if len(parts) == 0 {
-		return "no workloads found"
+	switch {
+	case len(parts) > 0:
+		return strings.Join(parts, ", ")
+	case len(none) > 0:
+		return "no " + strings.Join(none, " or ") + " found"
 	}
-	return strings.Join(parts, ", ")
+	return "no workloads found"
 }
 
 // kindCount is "1 Deployment" or "n Deployments".
@@ -240,7 +246,15 @@ func kindCount(n int, kind string) string {
 	if n == 1 {
 		return "1 " + kind
 	}
-	return strconv.Itoa(n) + " " + kind + "s"
+	return strconv.Itoa(n) + " " + pluralKind(kind)
+}
+
+// pluralKind is the plural of a kind: "GitRepositories", "Deployments".
+func pluralKind(k string) string {
+	if strings.HasSuffix(k, "y") && len(k) > 1 && !strings.ContainsRune("aeiouAEIOU", rune(k[len(k)-2])) {
+		return k[:len(k)-1] + "ies"
+	}
+	return k + "s"
 }
 
 // restrictProviders is rows as a reader visible and workloadVisible say yes
@@ -276,12 +290,12 @@ func restrictProviders(rows []Provider, hiddenNames []string, visible func(strin
 		if len(p.Objects) < len(rows[i].Objects) {
 			p.ObjectsTotal = cmp.Or(p.ObjectsTotal, len(rows[i].Objects))
 		}
-		hidden := 0
+		hidden := map[string]int{}
 		p.Counts = slices.DeleteFunc(slices.Clone(p.Counts), func(c ProviderCount) bool {
 			if countVisible(c, visible, workloadVisible) {
 				return false
 			}
-			hidden += c.N
+			hidden[c.Kind] += c.N
 			return true
 		})
 		p.Evidence = restrictedEvidence(p, hidden, hiddenNames)
@@ -333,21 +347,30 @@ func detectedNarrowed(p Provider, visible func(string) bool) bool {
 	return p.Provenance == ProvenanceInferred && !visible("") && (p.Scope == ScopeCluster || p.ObjectsTotal > len(p.Objects))
 }
 
-// restrictedEvidence is the evidence of p, already narrowed, with hidden
-// counts left out: counted evidence is rendered again with the hidden total,
-// and evidence a producer wrote is masked when it names a hidden name.
-func restrictedEvidence(p Provider, hidden int, hiddenNames []string) string {
-	suffix := " (+" + strconv.Itoa(hidden) + " hidden by your permissions)"
+// restrictedEvidence is the evidence of p, already narrowed, with the counts
+// hidden per kind left out: counted evidence is rendered again with the hidden
+// total, and evidence a producer wrote is masked when it names a hidden name.
+// A row left with only zero counts says how many are hidden instead of none
+// found, so it never says both.
+func restrictedEvidence(p Provider, hidden map[string]int, hiddenNames []string) string {
+	total := 0
+	for _, n := range hidden {
+		total += n
+	}
+	suffix := " (+" + strconv.Itoa(total) + " hidden by your permissions)"
 	switch {
 	case p.Counts == nil && p.UnreadableKinds == nil:
 		if slices.ContainsFunc(hiddenNames, func(n string) bool { return mentionsWord(p.Evidence, n) }) {
 			return "hidden by your permissions"
 		}
 		return p.Evidence
-	case hidden == 0:
+	case total == 0:
 		return countsEvidence(p.Counts, p.UnreadableKinds)
-	case len(p.Counts) == 0 && len(p.UnreadableKinds) == 0:
+	case len(p.UnreadableKinds) > 0:
+	case len(p.Counts) == 0:
 		return "none you may see" + suffix
+	case !slices.ContainsFunc(p.Counts, func(c ProviderCount) bool { return c.N > 0 }):
+		return WorkloadEvidence(hidden, nil) + " in namespaces hidden from you"
 	}
 	return countsEvidence(p.Counts, p.UnreadableKinds) + suffix
 }
@@ -376,10 +399,11 @@ func nameByte(b byte) bool {
 	return strings.IndexByte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._", b) >= 0
 }
 
-// countVisible reports whether a reader may see c: read its namespace and
-// list its kind there. A nil workloadVisible lists nothing.
+// countVisible reports whether a reader may see c: a zero count discloses
+// nothing, any other needs read of its namespace and list of its kind there.
+// A nil workloadVisible lists nothing.
 func countVisible(c ProviderCount, visible func(string) bool, workloadVisible func(namespace, kind string) bool) bool {
-	return visible(c.Namespace) && workloadVisible != nil && workloadVisible(c.Namespace, c.Kind)
+	return c.N == 0 || visible(c.Namespace) && workloadVisible != nil && workloadVisible(c.Namespace, c.Kind)
 }
 
 // providersNarrowed reports whether a reader visible and workloadVisible say
