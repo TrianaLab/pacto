@@ -950,8 +950,10 @@ spec:
                   description: DependencyInfo describes a declared dependency.
                   properties:
                     compatibility:
-                      description: Compatibility is the semver constraint for the
-                        dependency.
+                      description: |-
+                        Compatibility is the semver constraint for the dependency, or unknown
+                        when the versions that work are not known yet; unknown is never counted
+                        as compatible.
                       type: string
                     external:
                       description: |-
@@ -1097,6 +1099,107 @@ spec:
                 - evaluated
                 - required
                 type: object
+              externalCatalog:
+                description: |-
+                  ExternalCatalog is the digest of the external catalog externals were
+                  classified with, followed by " (embedded)" for the copy compiled into
+                  the operator.
+                type: string
+              externals:
+                description: |-
+                  Externals are the systems outside the cluster that the target
+                  workload's pod spec names: env names and values, the ConfigMap keys it
+                  references, Secret and Secret key names (never a Secret value) and the
+                  ExternalName Services, selectorless Services and Istio ServiceEntries
+                  of its own namespace it points at. Each entry carries the normalized
+                  host and port at most. Capped at 50, sorted by identity, kind and where.
+                items:
+                  description: |-
+                    ExternalStatus is one external system the target workload names. It never
+                    holds the value it was read from: Host is the host and port at most, and
+                    Where names an object and a key.
+                  properties:
+                    class:
+                      enum:
+                      - vendor-api
+                      - managed-cloud
+                      - legacy
+                      - unclassified
+                      type: string
+                    confidence:
+                      description: |-
+                        Confidence is likely when a host matched and possible when only a key
+                        name did.
+                      enum:
+                      - likely
+                      - possible
+                      type: string
+                    entry:
+                      description: Entry is the catalog entry that matched, empty
+                        for an unclassified host.
+                      type: string
+                    host:
+                      type: string
+                    identity:
+                      description: |-
+                        Identity is the external's canonical identity (stripe,
+                        aws/rds/<account>/<region>/<id>, host/<registrable-domain>).
+                      type: string
+                    kind:
+                      description: Kind is where in the pod spec or the namespace
+                        the external was named.
+                      enum:
+                      - env
+                      - configMap
+                      - secretKeyRef
+                      - secretRef
+                      - externalNameService
+                      - selectorlessService
+                      - serviceEntry
+                      type: string
+                    where:
+                      description: Where names the object and key that name the external,
+                        never a value.
+                      type: string
+                  required:
+                  - class
+                  - confidence
+                  - identity
+                  - kind
+                  - where
+                  type: object
+                maxItems: 50
+                type: array
+              externalsCoverage:
+                description: |-
+                  ExternalsCoverage says whether externals can be trusted as complete:
+                  partial or unavailable means a missing external is unknown, not absent.
+                  The reason is pod-spec-unavailable (the target workload could not be
+                  read), configmap-unreadable (a ConfigMap the pod spec references could
+                  not be read), serviceentry-reader-off (the cluster serves no Istio
+                  ServiceEntry API), serviceentry-unreadable (the ServiceEntries could
+                  not be listed), object-host-unclassified (a Service or ServiceEntry
+                  names a host that gives no identity, such as one under a private
+                  suffix) or truncated (more than 50 externals).
+                properties:
+                  reason:
+                    type: string
+                  refreshSeconds:
+                    description: |-
+                      RefreshSeconds is how often the operator rewrites this status. A reader
+                      treats a status not reconciled within twice that as stale, so an operator
+                      that stopped never leaves a complete coverage in place.
+                    format: int32
+                    type: integer
+                  state:
+                    enum:
+                    - complete
+                    - partial
+                    - unavailable
+                    type: string
+                required:
+                - state
+                type: object
               findings:
                 description: |-
                   Findings is the list of typed conclusions from the Pacto engine.
@@ -1233,6 +1336,13 @@ spec:
                     name:
                       description: Name is the interface name.
                       type: string
+                    port:
+                      description: Port is the port the interface declares it listens
+                        on.
+                      format: int32
+                      maximum: 65535
+                      minimum: 1
+                      type: integer
                     ref:
                       description: Ref is the bundle-relative path to the interface
                         specification file.
@@ -1668,7 +1778,9 @@ spec:
                   StatusFormat is the layout this status is written in. Format 1 records
                   interface guarantees and dependency requirements. Format 2 also records
                   the contract's business domain in contract.domain, so its absence there
-                  means the contract declares none. A status without a format, or with an
+                  means the contract declares none. Format 3 also records the external
+                  systems the target workload names in externals, with externalsCoverage
+                  saying how far that list can be trusted. A status without a format, or with an
                   older one, was written by an older operator, so readers treat what it
                   would record as unknown until the operator reconciles the Pacto again.
                 format: int32
@@ -1770,16 +1882,18 @@ metadata:
     app.kubernetes.io/instance: pacto-operator
     app.kubernetes.io/version: "VERSION"
     app.kubernetes.io/managed-by: Helm
+# With controller.watchNamespaces every namespaced read moves to the Roles in
+# watch-namespaces.yaml: only the node agent half and the dashboard's delivery
+# half stay here, and neither renders without its feature.
 rules:
-  # Core controller permissions
+  # Core controller permissions. No Secret is read cluster-wide: pull secrets
+  # and Secret-backed configurations are read where role.yaml,
+  # watch-namespaces.yaml and secret-grants.yaml grant them.
   - apiGroups: [""]
     resources: [events]
     verbs: [create, patch]
   - apiGroups: [""]
     resources: [services]
-    verbs: [get, list, watch]
-  - apiGroups: [""]
-    resources: [secrets]
     verbs: [get, list, watch]
   # ConfigMap-backed configuration collection (required-configurations dimension).
   # Read through the manager's cache, whose informer needs list and watch to sync.
@@ -1842,6 +1956,19 @@ rules:
     resources: [clusterroles, clusterrolebindings]
     verbs: [get, delete]
     resourceNames: [pacto-dashboard]
+  # The operator reads the cluster id, the kube-system namespace UID, at start:
+  # it names the cluster in Evidence Server reports, and the managed dashboard
+  # ClusterRole grants the same read. A namespace list without the dashboard's
+  # delivery half leaves the cluster id unknown.
+  - apiGroups: [""]
+    resources: [namespaces]
+    resourceNames: [kube-system]
+    verbs: [get]
+  # auto reads the target namespace's pacto.trianalab.io/observe label, by
+  # name, uncached; names and labels only.
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get]
   # Dashboard lifecycle management, cluster-scoped half: the ClusterRole and
   # binding that let the dashboard read Pactos across namespaces.
   - apiGroups: [rbac.authorization.k8s.io]
@@ -1966,6 +2093,13 @@ rules:
     resources: [serviceaccounts]
     verbs: [get, delete]
     resourceNames: [pacto-node-agent]
+  # Pull secrets and Secret-backed configurations of Pactos in the release
+  # namespace, and the dashboard's OCI credentials. get only, read through the
+  # uncached API reader: no Secret is listed or watched, so no informer holds
+  # Secret values.
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get]
   # Dashboard lifecycle: its ServiceAccount, Service, merged OCI credentials
   # Secret and Deployment.
   - apiGroups: [""]
@@ -2116,6 +2250,8 @@ spec:
             - --health-probe-bind-address=:8081
             - --metrics-bind-address=:8443
             - --metrics-secure=true
+            - --enable-probing=auto
+            - --enable-metrics-observation=auto
             - --node-agent-namespace=pacto-node-agent
             - --enable-dashboard
             - --dashboard-cpu-request=50m

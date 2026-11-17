@@ -740,3 +740,25 @@ func TestCountReadyEndpointsForService(t *testing.T) {
 		})
 	}
 }
+
+// TestDependencyCompatibilityUnknownIsUnverified pins that compatibility:
+// unknown never picks a target: with several the dependency stays ambiguous
+// (EVIDENCE_INSUFFICIENT), and the only target is reported for Evaluate,
+// which reads an unknown range as unverified, never satisfied.
+func TestDependencyCompatibilityUnknownIsUnverified(t *testing.T) {
+	v1 := kPacto("payments-v1", "payments-v1", "payments", "1.4.0", "registry/payments:1.4.0")
+	v2 := kPacto("payments-v2", "payments-v2", "payments", "2.0.0", "registry/payments:2.0.0")
+	dep := contract.Dependency{Name: "payments", Ref: "oci://registry/payments", Compatibility: contract.CompatibilityUnknown}
+	c := fake.NewClientBuilder().WithScheme(kernelScheme()).WithObjects(v1, v2).Build()
+	if got, ambig, err := New(c).resolveDependencyToSibling(context.Background(), kNS, dep); err != nil || !ambig || got != nil {
+		t.Fatalf("two targets: got %+v ambiguous=%v err=%v, want ambiguous", got, ambig, err)
+	}
+	c = fake.NewClientBuilder().WithScheme(kernelScheme()).WithObjects(v2).Build()
+	got, ambig, err := New(c).resolveDependencyToSibling(context.Background(), kNS, dep)
+	if err != nil || ambig || got == nil || got.serviceName != "payments-v2" {
+		t.Fatalf("one target: got %+v ambiguous=%v err=%v, want payments-v2", got, ambig, err)
+	}
+	if _, err := contract.ParseRange(dep.Compatibility); err == nil {
+		t.Fatal("unknown parses as a range, so Evaluate would judge it")
+	}
+}

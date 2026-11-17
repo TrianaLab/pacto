@@ -93,10 +93,15 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `spec.witnessed` | `boolean` | no |  |  | Witnessed marks an override the promoter raised for an edit it saw but did not make. Only the promoter may set it. |
 | `status` | `object` | no |  |  | OperationStatus is written only by the promoter. |
 | `status.actorClass` | `string` | no |  |  | ActorClass is who raised an operation, as the promoter classifies the apiserver identity. It is derived, never asserted by the client. |
+| `status.actorClassifiedBy` | `string` | no |  |  | ActorClassifiedBy is how the actor's class was decided. |
 | `status.applied` | `boolean` | no |  |  | Applied is true once the pointer moved for this operation. |
 | `status.approvals` | `[]object` | no |  |  |  |
+| `status.approvals[].access` | `string` | no |  |  | Access is what let the approver decide, such as "update deployments/checkout in payments". |
+| `status.approvals[].accessAt` | `string` | no |  |  | AccessAt is when Access was answered (RFC 3339). |
+| `status.approvals[].accessSource` | `string` | no |  |  | AccessSource is who answered Access: subject-access-review or self-subject-access-review. |
 | `status.approvals[].authTime` | `string` | no |  |  |  |
 | `status.approvals[].by` | `string` | yes |  |  |  |
+| `status.approvals[].classifiedBy` | `string` | no |  |  | ClassifiedBy is how the approver was classified as a person. |
 | `status.approvals[].decision` | `string` | yes |  |  | Decision is what a human approval says. |
 | `status.approvals[].name` | `string` | yes |  |  |  |
 | `status.approvals[].note` | `string` | no |  |  |  |
@@ -162,7 +167,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.pointer.before` | `string` | no |  |  |  |
 | `status.policy` | `object` | no |  |  | Policy is the Stage spec the operation concluded under, taken when it concluded, so its record says what governed it however late it is written. |
 | `status.policy.applyRef` | `object` | yes |  |  | ApplyRef is the object the promoter points at a version: a Flux OCIRepository (it sets spec.ref.digest) or an Argo CD Application (it sets spec.source.targetRevision). Nothing else is ever written on it. |
-| `status.policy.applyRef.kind` | `string` | no |  | `OCIRepository`, `Application` | Kind is OCIRepository (Flux, the default) or Application (Argo CD, with an OCI source and automated sync). |
+| `status.policy.applyRef.kind` | `string` | no |  | `OCIRepository`, `Application`, `HelmRelease` | Kind is OCIRepository (Flux, the default), Application (Argo CD, with an OCI source and automated sync) or HelmRelease (Flux: the promoter writes the chart digest on the OCIRepository its spec.chartRef names). |
 | `status.policy.applyRef.name` | `string` | yes |  |  |  |
 | `status.policy.approval` | `object` | no |  |  | ApprovalPolicy can only raise the approval floor, never lower it. |
 | `status.policy.approval.always` | `boolean` | no |  |  | Always holds every promote for a human, whatever the contracts say. |
@@ -246,6 +251,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | Env | string | `.spec.environment` |
 | Ready | string | `.status.conditions[?(@.type=="Ready")].status` |
 | Level | string | `.status.level` |
+| Applier | string | `.status.applier.manager` |
 | Pointer | string | `.status.pointer` |
 | Frozen | boolean | `.status.frozen` |
 | Hold | boolean | `.status.autoHold` |
@@ -257,7 +263,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | --- | --- | --- | --- | --- | --- |
 | `spec` | `object` | yes |  |  | StageSpec is one service in one environment. |
 | `spec.applyRef` | `object` | yes |  |  | ApplyRef is the object the promoter points at a version: a Flux OCIRepository (it sets spec.ref.digest) or an Argo CD Application (it sets spec.source.targetRevision). Nothing else is ever written on it. |
-| `spec.applyRef.kind` | `string` | no |  | `OCIRepository`, `Application` | Kind is OCIRepository (Flux, the default) or Application (Argo CD, with an OCI source and automated sync). |
+| `spec.applyRef.kind` | `string` | no |  | `OCIRepository`, `Application`, `HelmRelease` | Kind is OCIRepository (Flux, the default), Application (Argo CD, with an OCI source and automated sync) or HelmRelease (Flux: the promoter writes the chart digest on the OCIRepository its spec.chartRef names). |
 | `spec.applyRef.name` | `string` | yes |  |  |  |
 | `spec.approval` | `object` | no |  |  | ApprovalPolicy can only raise the approval floor, never lower it. |
 | `spec.approval.always` | `boolean` | no |  |  | Always holds every promote for a human, whatever the contracts say. |
@@ -299,6 +305,18 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `spec.workload.kind` | `string` | yes |  |  | Kind is the workload kind, such as Deployment or StatefulSet. |
 | `spec.workload.name` | `string` | yes |  |  |  |
 | `status` | `object` | no |  |  | StageStatus is written by the promoter's operation and stage reconcilers and by the recorder (Stream.Head, Stream.Anchor and RecordStoreReady), each through a compare-and-swap on the Stage's resourceVersion. |
+| `status.applier` | `object` | no |  |  | Applier is who manages the workloads the Stage delivers, against spec.applyRef. Written by the promoter's stage reconciler; observed. since is when this result was first seen, asOf the last observation. |
+| `status.applier.asOf` | `string` | no |  |  | AsOf is the last observation (RFC 3339). |
+| `status.applier.completeness` | `string` | yes |  | `complete`, `partial` |  |
+| `status.applier.display` | `string` | no |  |  | Display is the one line every surface prints for the manager. |
+| `status.applier.evidence` | `string` | no |  |  | Evidence is what on the workload names the manager. |
+| `status.applier.manager` | `string` | no |  | `argocd`, `flux`, `helm`, `unsupported`, `ambiguous`, `none` | Manager is the detected manager. Both Flux kinds read flux; Owner names the kind. |
+| `status.applier.message` | `string` | no |  |  |  |
+| `status.applier.owner` | `string` | no |  |  | Owner is the object that manages the workloads ("Application payments/payments"). |
+| `status.applier.since` | `string` | no |  |  | Since is when this result was first seen (RFC 3339). |
+| `status.applier.staleAt` | `string` | no |  |  | StaleAt is when asOf turns stale (RFC 3339): twice the promoter's resync after asOf, since it rewrites asOf at least once per resync. |
+| `status.applier.state` | `string` | yes |  | `Adopted`, `Unmanaged`, `Conflict`, `Unknown` |  |
+| `status.applier.workloads` | `[]string` | no |  |  | Workloads are the workloads checked ("Deployment payments"). |
 | `status.authFreshness` | `string` | no |  |  | AuthFreshness is how old a login the promoter accepts on an approval (a Go duration). Clients ask for a fresh login with a margin under it (DecisionFreshnessFor). Empty: no login is too old, and a person decides with the session they have. |
 | `status.autoHold` | `boolean` | no |  |  | AutoHold stops auto-promotion after a person or agent rolled back or promoted back to a version the Stage already verified. |
 | `status.candidate` | `string` | no |  |  | Candidate is the newest eligible candidate the stage reconciler saw. |
@@ -561,7 +579,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.contractVersion` | `string` | no |  |  | ContractVersion is the version from the parsed contract. Kept for backward compatibility and simple access via JSONPath. |
 | `status.currentRevision` | `string` | no |  |  | CurrentRevision is the name of the active PactoRevision. |
 | `status.dependencies` | `[]object` | no |  |  | Dependencies lists the declared dependencies from the contract. |
-| `status.dependencies[].compatibility` | `string` | no |  |  | Compatibility is the semver constraint for the dependency. |
+| `status.dependencies[].compatibility` | `string` | no |  |  | Compatibility is the semver constraint for the dependency, or unknown when the versions that work are not known yet; unknown is never counted as compatible. |
 | `status.dependencies[].external` | `boolean` | no |  |  | External marks a dependency this Pacto system does not run, such as a managed database or a hosted model. |
 | `status.dependencies[].name` | `string` | yes |  |  | Name is the dependency name (required, unique within contract). |
 | `status.dependencies[].ref` | `string` | no |  |  | Ref is the dependency reference (OCI URI). Empty for an external dependency that has no contract. |
@@ -588,6 +606,19 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.evaluationCoverage.evaluated` | `integer` | yes |  |  | Evaluated is the number of required assertions with a conclusive (Observed) observation. |
 | `status.evaluationCoverage.required` | `integer` | yes |  |  | Required is the total number of required assertions the contract declares. |
 | `status.evaluationCoverage.unverified` | `[]string` | no |  |  | Unverified lists, sorted, the contract paths of declared facets that have a runtime check but no usable fact this time (for example interfaces[name=api].type with probing off). Metadata only: it never changes the contract status. |
+| `status.externalCatalog` | `string` | no |  |  | ExternalCatalog is the digest of the external catalog externals were classified with, followed by " (embedded)" for the copy compiled into the operator. |
+| `status.externals` | `[]object` | no |  |  | Externals are the systems outside the cluster that the target workload's pod spec names: env names and values, the ConfigMap keys it references, Secret and Secret key names (never a Secret value) and the ExternalName Services, selectorless Services and Istio ServiceEntries of its own namespace it points at. Each entry carries the normalized host and port at most. Capped at 50, sorted by identity, kind and where. |
+| `status.externals[].class` | `string` | yes |  | `vendor-api`, `managed-cloud`, `legacy`, `unclassified` |  |
+| `status.externals[].confidence` | `string` | yes |  | `likely`, `possible` | Confidence is likely when a host matched and possible when only a key name did. |
+| `status.externals[].entry` | `string` | no |  |  | Entry is the catalog entry that matched, empty for an unclassified host. |
+| `status.externals[].host` | `string` | no |  |  |  |
+| `status.externals[].identity` | `string` | yes |  |  | Identity is the external's canonical identity (stripe, aws/rds/&lt;account&gt;/&lt;region&gt;/&lt;id&gt;, host/&lt;registrable-domain&gt;). |
+| `status.externals[].kind` | `string` | yes |  | `env`, `configMap`, `secretKeyRef`, `secretRef`, `externalNameService`, `selectorlessService`, `serviceEntry` | Kind is where in the pod spec or the namespace the external was named. |
+| `status.externals[].where` | `string` | yes |  |  | Where names the object and key that name the external, never a value. |
+| `status.externalsCoverage` | `object` | no |  |  | ExternalsCoverage says whether externals can be trusted as complete: partial or unavailable means a missing external is unknown, not absent. The reason is pod-spec-unavailable (the target workload could not be read), configmap-unreadable (a ConfigMap the pod spec references could not be read), serviceentry-reader-off (the cluster serves no Istio ServiceEntry API), serviceentry-unreadable (the ServiceEntries could not be listed), object-host-unclassified (a Service or ServiceEntry names a host that gives no identity, such as one under a private suffix) or truncated (more than 50 externals). |
+| `status.externalsCoverage.reason` | `string` | no |  |  |  |
+| `status.externalsCoverage.refreshSeconds` | `integer` | no |  |  | RefreshSeconds is how often the operator rewrites this status. A reader treats a status not reconciled within twice that as stale, so an operator that stopped never leaves a complete coverage in place. |
+| `status.externalsCoverage.state` | `string` | yes |  | `complete`, `partial`, `unavailable` |  |
 | `status.findings` | `[]object` | no |  |  | Findings is the list of typed conclusions from the Pacto engine. Includes both contract-only findings (structural/semantic) and evidence-based findings (runtime drift). |
 | `status.findings[].category` | `string` | yes |  |  | Category groups related codes (e.g. RuntimeDrift, PolicyViolation). |
 | `status.findings[].code` | `string` | yes |  |  | Code is the stable finding identifier (e.g. WORKLOAD_MISMATCH). |
@@ -615,6 +646,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.interfaces[].lifecycle.successor` | `string` | no |  |  | Successor names the interface that replaces this one, or holds an absolute URL when the replacement lives in another service. |
 | `status.interfaces[].lifecycle.sunset` | `string` | no |  |  | Sunset is the date the interface is removed (YYYY-MM-DD). |
 | `status.interfaces[].name` | `string` | yes |  |  | Name is the interface name. |
+| `status.interfaces[].port` | `integer` | no |  |  | Port is the port the interface declares it listens on. |
 | `status.interfaces[].ref` | `string` | no |  |  | Ref is the bundle-relative path to the interface specification file. |
 | `status.interfaces[].type` | `string` | yes |  | `openapi`, `asyncapi`, `grpc`, `mcp` | Type is the interface type: openapi, asyncapi, grpc or mcp. |
 | `status.interfaces[].visibility` | `string` | no |  |  | Visibility is the declared visibility: public or internal. |
@@ -693,7 +725,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.resources.workload.exists` | `boolean` | yes |  |  | Exists indicates whether the resource was found in the cluster. |
 | `status.resources.workload.kind` | `string` | no |  |  | Kind of the resource (only set for workloads). |
 | `status.resources.workload.name` | `string` | yes |  |  | Name of the resource. |
-| `status.statusFormat` | `integer` | no |  |  | StatusFormat is the layout this status is written in. Format 1 records interface guarantees and dependency requirements. Format 2 also records the contract's business domain in contract.domain, so its absence there means the contract declares none. A status without a format, or with an older one, was written by an older operator, so readers treat what it would record as unknown until the operator reconciles the Pacto again. |
+| `status.statusFormat` | `integer` | no |  |  | StatusFormat is the layout this status is written in. Format 1 records interface guarantees and dependency requirements. Format 2 also records the contract's business domain in contract.domain, so its absence there means the contract declares none. Format 3 also records the external systems the target workload names in externals, with externalsCoverage saying how far that list can be trusted. A status without a format, or with an older one, was written by an older operator, so readers treat what it would record as unknown until the operator reconciles the Pacto again. |
 | `status.summary` | `object` | no |  |  | Summary provides severity-based finding counts. |
 | `status.summary.errorCount` | `integer` | yes |  |  | ErrorCount is the number of error-severity findings. |
 | `status.summary.infoCount` | `integer` | yes |  |  | InfoCount is the number of info-severity findings. |

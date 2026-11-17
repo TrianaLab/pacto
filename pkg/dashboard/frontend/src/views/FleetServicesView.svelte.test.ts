@@ -64,6 +64,15 @@ describe('FleetServicesView — product Services list (C / A3)', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  it('links to the external systems list it hosts from its header', async () => {
+    entitiesFn.mockResolvedValue(listResp([svc('domain-a')], { total: 1 }));
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(rows(target).length).toBe(1));
+    const a = Array.from(target.querySelectorAll('.page-hd-action')).find((n) => n.textContent === 'External systems the services declare');
+    expect(a?.getAttribute('href')).toBe('#/fleet/externals');
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('rows navigate through the canonical ProductRef href', async () => {
     entitiesFn.mockResolvedValue(listResp([svc('domain-a')], { total: 1 }));
     const { target, component } = mountView();

@@ -1,10 +1,10 @@
 <script>
   import { onDestroy } from 'svelte';
-  import { api } from '../lib/api.ts';
+  import { api, ApiError } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { decideViewState, snapshotKnowledge } from '../lib/knowledgeState.ts';
   import { kindLabel } from '../lib/entityLabels.ts';
-  import { fleetOverviewUrl, fleetGraphFocusUrl, fleetChangesUrl, hashForHref } from '../lib/router.ts';
+  import { fleetOverviewUrl, fleetGraphFocusUrl, fleetChangesUrl, fleetEntityUrl, hashForHref, replaceHash } from '../lib/router.ts';
   import { fleetEntityBreadcrumbs } from '../lib/breadcrumbs.ts';
   import { postureAnswer, revisionAnswer } from '../lib/answers.ts';
   import { currentEntity } from '../lib/currentEntity.svelte.ts';
@@ -15,6 +15,7 @@
   import CopyableIdentifier from '../components/CopyableIdentifier.svelte';
   import ProductEmptyState from '../components/ProductEmptyState.svelte';
   import EmptyState from '../components/EmptyState.svelte';
+  import TargetKeyChooser from '../components/TargetKeyChooser.svelte';
   import StaleRefreshNotice from '../components/StaleRefreshNotice.svelte';
   import ServiceEntity from './entity/ServiceEntity.svelte';
   import RevisionEntity from './entity/RevisionEntity.svelte';
@@ -23,6 +24,7 @@
   import SourceEntity from './entity/SourceEntity.svelte';
   import DomainEntity from './entity/DomainEntity.svelte';
   import OfferingEntity from './entity/OfferingEntity.svelte';
+  import ExternalEntity from './entity/ExternalEntity.svelte';
 
   // The unified entity route for every kind. It resolves the
   // product entity-detail endpoint (NarrowedEntityDetail) -- never the raw snapshot --
@@ -52,6 +54,25 @@
   function load() { loader.refresh(); }
 
   const detail = $derived(loader.dataTag === identity ? loader.data : null);
+  // The query of the current address (a correlationID the investigation carries),
+  // kept when the page moves to another key of the same question.
+  function currentQuery() {
+    const i = location.hash.indexOf('?');
+    return i < 0 ? '' : location.hash.slice(i);
+  }
+  // A legacy 3-part target key, or a cluster-qualified key in a single-cluster
+  // snapshot, resolves to one target whose canonical key differs: put the canonical
+  // href in the address bar without a new history entry, so a shared link is the real one.
+  $effect(() => {
+    if (kind === 'target' && detail?.entity?.key && detail.entity.key !== entityKey) {
+      replaceHash((detail.entity.href ? hashForHref(detail.entity.href) : fleetEntityUrl('target', detail.entity.key)) + currentQuery());
+    }
+  });
+  // A target key that does not name one target for certain never resolves to a
+  // guess: the server answers 409 with its reason and the candidates, and the reader chooses.
+  const candidates = $derived(
+    kind === 'target' && loader.error instanceof ApiError && loader.error.status === 409 ? loader.error.candidates : [],
+  );
   const knowledge = $derived(snapshotKnowledge(detail?.meta));
   const state = $derived(decideViewState({
     loading: loader.loading, error: loader.error, itemCount: detail ? 1 : 0, knowledge,
@@ -143,7 +164,9 @@
     subtitle={detail?.entity?.summary || ''}
   />
 
-  {#if state.kind !== 'ready'}
+  {#if state.kind !== 'ready' && candidates.length}
+    <TargetKeyChooser message={loader.error?.message ?? ''} {candidates} hrefFor={(key) => fleetEntityUrl('target', key) + currentQuery()} />
+  {:else if state.kind !== 'ready'}
     <ProductEmptyState {state} noun={kindLabel(kind).toLowerCase()} onRetry={load} />
   {:else}
     <!-- An entity page is a dozen titled sections deep. The shared navigator lists the
@@ -200,6 +223,8 @@
           <DomainEntity {detail} />
         {:else if detail.offering}
           <OfferingEntity {detail} />
+        {:else if detail.external}
+          <ExternalEntity {detail} />
         {/if}
         {#snippet failed(err, reset)}
           <EmptyState error title={`Couldn’t show this ${kindLabel(kind).toLowerCase()}`} message="Part of its record could not be drawn. Refresh to try again." onRetry={reset} />

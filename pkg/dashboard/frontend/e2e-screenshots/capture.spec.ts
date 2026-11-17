@@ -109,6 +109,10 @@ const SHOTS: { name: string; open: (page: Page) => Promise<void>; clip?: { x: nu
       await expect(p.getByTestId('metrics-coverage-trend').locator('.lc-line').first()).toBeAttached();
     },
   },
+  // External systems: the list, and llm-provider's page, joined through the demo
+  // organization catalog, with its consumers and its provenance.
+  { name: 'fleet-externals', open: async (p) => { await go(p, '/#/fleet/externals', 'External systems'); await expect(p.getByTestId('external-list')).toBeVisible(); } },
+  { name: 'external-entity', open: async (p) => { await go(p, '/#/fleet/externals/llm-provider', 'Hosted LLM provider'); await expect(p.getByTestId('external-catalog')).toBeVisible(); } },
 ];
 
 async function finish(page: Page) {

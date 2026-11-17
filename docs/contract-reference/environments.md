@@ -234,6 +234,7 @@ web-1.5.0 is invalid
 PASS load
 SKIP lock               no pacto.lock
 PASS structural
+  INFO  [CONTRACT_BEHIND] pactoVersion: pactoVersion "2.3" is behind "2.5"; fix the errors this run reports before Pacto can tell whether raising pactoVersion keeps its meaning
 PASS cross-field
 PASS policy
 SKIP configuration-refs no configuration references

@@ -1,0 +1,147 @@
+# An upgrade that reuses a 6.x release's values keeps its delivery RBAC and
+# promoter arguments: 6.x has delivery.argocd.enabled set and no delivery.flux
+# key. helm-unittest always merges the chart's own values.yaml, so each case
+# sets delivery.flux to null to model the absent key. The expected lists were
+# captured from the chart before delivery.flux existed (c9636640b); never edit
+# them to make a change pass.
+suite: delivery upgrade with reused 6.x values
+templates:
+  - templates/delivery/rbac.yaml
+  - templates/delivery/deployment.yaml
+  - templates/delivery/identities.yaml
+release:
+  name: t
+  namespace: default
+capabilities:
+  apiVersions:
+    - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    - source.toolkit.fluxcd.io/v1/OCIRepository
+tests:
+  - it: should render the 6.x promoter rules and arguments for 6.x values without the HelmRelease API
+    set:
+      delivery.enabled: true
+      delivery.identities.allowEmptyHumanGroups: true
+      delivery.argocd.enabled: false
+      delivery.flux: null
+    asserts:
+      - equal:
+          path: rules
+          value:
+            - {apiGroups: [delivery.pacto.trianalab.io], resources: [stages], verbs: [get, list, watch]}
+            - {apiGroups: [delivery.pacto.trianalab.io], resources: [approvals], verbs: [get, list, watch, patch]}
+            - {apiGroups: [delivery.pacto.trianalab.io], resources: [operations], verbs: [get, list, watch, create, update, patch]}
+            - {apiGroups: [delivery.pacto.trianalab.io], resources: [stages/status, operations/status], verbs: [get, update, patch]}
+            - {apiGroups: [admissionregistration.k8s.io], resources: [validatingadmissionpolicies, validatingadmissionpolicybindings], verbs: [get, list, watch]}
+            - {apiGroups: [source.toolkit.fluxcd.io], resources: [ocirepositories], verbs: [get, list, watch, patch]}
+            - {apiGroups: [""], resources: [events], verbs: [create, patch]}
+            - {apiGroups: [authorization.k8s.io], resources: [subjectaccessreviews], verbs: [create]}
+            - {apiGroups: [kustomize.toolkit.fluxcd.io], resources: [kustomizations], verbs: [get, list, watch]}
+            - {apiGroups: [pacto.trianalab.io], resources: [pactos], verbs: [get, list, watch]}
+            - {apiGroups: [apps], resources: [deployments, statefulsets, replicasets, daemonsets], verbs: [get]}
+            - {apiGroups: [batch], resources: [jobs, cronjobs], verbs: [get]}
+            - {apiGroups: [""], resources: [namespaces], resourceNames: [kube-system], verbs: [get]}
+        template: templates/delivery/rbac.yaml
+        # the promoter ClusterRole (its binding shares the name)
+        documentIndex: 1
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value:
+            - promoter
+            - --leader-elect=true
+            - --poll=3s
+            - --resync=1m
+            - --workers=4
+            - --auth-freshness=0
+            - --controller-user=system:serviceaccount:pacto-delivery:t-pacto-operator-delivery
+            - --identities=/etc/pacto/identities/policy.json
+            - --admission-policies=t-pacto-operator-delivery-operation,t-pacto-operator-delivery-cancel,t-pacto-operator-delivery-approval,t-pacto-operator-delivery-pointer,t-pacto-operator-delivery-applier,t-pacto-operator-delivery-promoter-writes,t-pacto-operator-delivery-status
+        template: templates/delivery/deployment.yaml
+
+  - it: should render the 6.x promoter rules and arguments for 6.x values with argocd.enabled
+    set:
+      delivery.enabled: true
+      delivery.identities.allowEmptyHumanGroups: true
+      delivery.argocd.enabled: true
+      delivery.flux: null
+    asserts:
+      - equal:
+          path: rules
+          value:
+            - {apiGroups: [delivery.pacto.trianalab.io], resources: [stages], verbs: [get, list, watch]}
+            - {apiGroups: [delivery.pacto.trianalab.io], resources: [approvals], verbs: [get, list, watch, patch]}
+            - {apiGroups: [delivery.pacto.trianalab.io], resources: [operations], verbs: [get, list, watch, create, update, patch]}
+            - {apiGroups: [delivery.pacto.trianalab.io], resources: [stages/status, operations/status], verbs: [get, update, patch]}
+            - {apiGroups: [admissionregistration.k8s.io], resources: [validatingadmissionpolicies, validatingadmissionpolicybindings], verbs: [get, list, watch]}
+            - {apiGroups: [source.toolkit.fluxcd.io], resources: [ocirepositories], verbs: [get, list, watch, patch]}
+            - {apiGroups: [""], resources: [events], verbs: [create, patch]}
+            - {apiGroups: [authorization.k8s.io], resources: [subjectaccessreviews], verbs: [create]}
+            - {apiGroups: [argoproj.io], resources: [applications], verbs: [get, list, watch, patch]}
+            - {apiGroups: [kustomize.toolkit.fluxcd.io], resources: [kustomizations], verbs: [get, list, watch]}
+            - {apiGroups: [pacto.trianalab.io], resources: [pactos], verbs: [get, list, watch]}
+            - {apiGroups: [apps], resources: [deployments, statefulsets, replicasets, daemonsets], verbs: [get]}
+            - {apiGroups: [batch], resources: [jobs, cronjobs], verbs: [get]}
+            - {apiGroups: [""], resources: [namespaces], resourceNames: [kube-system], verbs: [get]}
+        template: templates/delivery/rbac.yaml
+        # the promoter ClusterRole (its binding shares the name)
+        documentIndex: 1
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value:
+            - promoter
+            - --leader-elect=true
+            - --poll=3s
+            - --resync=1m
+            - --workers=4
+            - --auth-freshness=0
+            - --controller-user=system:serviceaccount:pacto-delivery:t-pacto-operator-delivery
+            - --identities=/etc/pacto/identities/policy.json
+            - --argocd
+            - --admission-policies=t-pacto-operator-delivery-operation,t-pacto-operator-delivery-cancel,t-pacto-operator-delivery-approval,t-pacto-operator-delivery-pointer,t-pacto-operator-delivery-applier,t-pacto-operator-delivery-promoter-writes,t-pacto-operator-delivery-status,t-pacto-operator-delivery-pointer-argocd,t-pacto-operator-delivery-promoter-writes-argocd
+        template: templates/delivery/deployment.yaml
+
+  - it: should add only the HelmRelease read rule, --flux-helm and the applier-helmrelease policy to 6.x values when HelmReleases are served
+    set:
+      delivery.enabled: true
+      delivery.identities.allowEmptyHumanGroups: true
+      delivery.argocd.enabled: false
+      delivery.flux: null
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+        - source.toolkit.fluxcd.io/v1/OCIRepository
+        - helm.toolkit.fluxcd.io/v2/HelmRelease
+    asserts:
+      - equal:
+          path: rules
+          value:
+            - {apiGroups: [delivery.pacto.trianalab.io], resources: [stages], verbs: [get, list, watch]}
+            - {apiGroups: [delivery.pacto.trianalab.io], resources: [approvals], verbs: [get, list, watch, patch]}
+            - {apiGroups: [delivery.pacto.trianalab.io], resources: [operations], verbs: [get, list, watch, create, update, patch]}
+            - {apiGroups: [delivery.pacto.trianalab.io], resources: [stages/status, operations/status], verbs: [get, update, patch]}
+            - {apiGroups: [admissionregistration.k8s.io], resources: [validatingadmissionpolicies, validatingadmissionpolicybindings], verbs: [get, list, watch]}
+            - {apiGroups: [source.toolkit.fluxcd.io], resources: [ocirepositories], verbs: [get, list, watch, patch]}
+            - {apiGroups: [""], resources: [events], verbs: [create, patch]}
+            - {apiGroups: [authorization.k8s.io], resources: [subjectaccessreviews], verbs: [create]}
+            - {apiGroups: [kustomize.toolkit.fluxcd.io], resources: [kustomizations], verbs: [get, list, watch]}
+            - {apiGroups: [helm.toolkit.fluxcd.io], resources: [helmreleases], verbs: [get, list, watch]}
+            - {apiGroups: [pacto.trianalab.io], resources: [pactos], verbs: [get, list, watch]}
+            - {apiGroups: [apps], resources: [deployments, statefulsets, replicasets, daemonsets], verbs: [get]}
+            - {apiGroups: [batch], resources: [jobs, cronjobs], verbs: [get]}
+            - {apiGroups: [""], resources: [namespaces], resourceNames: [kube-system], verbs: [get]}
+        template: templates/delivery/rbac.yaml
+        # the promoter ClusterRole (its binding shares the name)
+        documentIndex: 1
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value:
+            - promoter
+            - --leader-elect=true
+            - --poll=3s
+            - --resync=1m
+            - --workers=4
+            - --auth-freshness=0
+            - --controller-user=system:serviceaccount:pacto-delivery:t-pacto-operator-delivery
+            - --identities=/etc/pacto/identities/policy.json
+            - --flux-helm
+            - --admission-policies=t-pacto-operator-delivery-operation,t-pacto-operator-delivery-cancel,t-pacto-operator-delivery-approval,t-pacto-operator-delivery-pointer,t-pacto-operator-delivery-applier,t-pacto-operator-delivery-promoter-writes,t-pacto-operator-delivery-status,t-pacto-operator-delivery-applier-helmrelease
+        template: templates/delivery/deployment.yaml

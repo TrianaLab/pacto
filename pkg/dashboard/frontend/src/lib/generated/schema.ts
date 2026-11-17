@@ -73,7 +73,7 @@ export interface paths {
         };
         /**
          * Who delivery says I am
-         * @description The caller as the API server names them, their actor class (human, agent, break-glass or controller), when they last logged in and whether a question that names no team has nobody who may answer it.
+         * @description The caller as the API server names them, their actor class (human, agent, break-glass or controller) and how it was decided, when they last logged in, whether a question that names no team has nobody who may answer it and whether owner teams narrow who may answer.
          */
         get: operations["delivery-caller"];
         put?: never;
@@ -133,7 +133,7 @@ export interface paths {
         };
         /**
          * What waits on me
-         * @description Held operations whose question names one of the caller's teams, with the decision asked and the affected services; frozen Stages of the caller's services and the Errored operations on them.
+         * @description Held operations whose decision by the caller the promoter would count: the caller may update the Stage's workload and, when owner teams narrow who may answer, is in a team the question names (break-glass also gets those that name no team), with the decision asked and the affected services; a change whose update rights could not be checked marks the answer partial. Also the frozen Stages of the caller's services (every frozen Stage they can read when owner teams do not narrow) and the Errored operations on them.
          */
         get: operations["delivery-inbox"];
         put?: never;
@@ -417,7 +417,7 @@ export interface paths {
         };
         /**
          * Entity detail
-         * @description Returns one entity's strongly typed, discriminated detail (service, revision, target, owner, source, domain or offering), keyed by the query-param key so a key containing a slash is transported safely.
+         * @description Returns one entity's strongly typed, discriminated detail (service, revision, target, owner, source, domain, offering or external), keyed by the query-param key so a key containing a slash is transported safely.
          */
         get: operations["fleet-entity-detail"];
         put?: never;
@@ -1050,12 +1050,23 @@ export interface components {
             count: number;
             kind: string;
         };
+        BreakInfo: {
+            consumers: string[] | null;
+            expires?: string;
+            reason: string;
+        };
         CallerOutputBody: {
             authTime?: string;
             class: string;
+            /** @description How the class was decided: controller, break-glass-group, service-account, agent-group, outside-human-groups, system-user or user */
+            classSource?: string;
             groups?: string[] | null;
+            /** @description Why the published delivery identity policy could not be read; while set, class, requireOwnerTeam and teamNarrowing are the defaults and may not be the promoter's, and no decision is offered */
+            policyError?: string;
             /** @description A question that names no team has nobody who may answer it; only break-glass can override */
             requireOwnerTeam: boolean;
+            /** @description Owner teams narrow who may answer; off, whoever may update the Stage's workload answers. Only the defaults while policyError is set */
+            teamNarrowing: boolean;
             user: string;
         };
         CancelOutputBody: {
@@ -1110,6 +1121,11 @@ export interface components {
             values?: components["schemas"]["Schemax.Property"][] | null;
             valuesAreCurrent?: boolean;
         };
+        "Contract.Break": {
+            consumers: string[] | null;
+            expires?: string;
+            reason: string;
+        };
         "Contract.Capability": {
             binding?: components["schemas"]["Contract.CapabilityBinding"];
             ref?: string;
@@ -1135,9 +1151,11 @@ export interface components {
             };
         };
         "Contract.Contract": {
+            breaks?: components["schemas"]["Contract.Break"][] | null;
             capabilities?: components["schemas"]["Contract.Capability"][] | null;
             checks?: components["schemas"]["Contract.Check"][] | null;
             configurations?: components["schemas"]["Contract.Configuration"][] | null;
+            delivery?: components["schemas"]["Contract.Delivery"];
             dependencies?: components["schemas"]["Contract.Dependency"][] | null;
             environments?: components["schemas"]["Contract.Environment"][] | null;
             extensions?: {
@@ -1155,10 +1173,15 @@ export interface components {
             state?: components["schemas"]["Contract.State"];
             workload?: string;
         };
+        "Contract.Delivery": {
+            applier?: string;
+        };
         "Contract.Dependency": {
             compatibility?: string;
             external?: boolean;
+            identity?: string;
             name: string;
+            nameFromRef?: boolean;
             ref?: string;
             required: boolean;
             requires?: components["schemas"]["Contract.Requirement"][] | null;
@@ -1185,12 +1208,19 @@ export interface components {
             retention?: string;
             timeout?: string;
         };
+        "Contract.Inferred": {
+            field: string;
+            source: string;
+            value: string;
+        };
         "Contract.Interface": {
             /** Format: int64 */
             compatibilityEpoch?: number;
             guarantees?: components["schemas"]["Contract.Guarantees"];
             lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             name: string;
+            /** Format: int64 */
+            port?: number;
             ref: string;
             type: string;
             visibility?: string;
@@ -1353,6 +1383,38 @@ export interface components {
             groups?: string[] | null;
             user: string;
         };
+        "Delivery.ApplierStatus": {
+            /** @description The last observation (RFC 3339) */
+            asOf?: string;
+            /**
+             * @description partial when a workload or the Pacto list could not be read
+             * @enum {string}
+             */
+            completeness: "complete" | "partial";
+            /** @description The one line every surface prints for the manager */
+            display?: string;
+            /** @description What on the workload names its manager, such as tracking annotation */
+            evidence?: string;
+            /**
+             * @description The detected manager; both Flux kinds read flux and owner names the kind. Empty when no workload could be read
+             * @enum {string}
+             */
+            manager?: "argocd" | "flux" | "helm" | "unsupported" | "ambiguous" | "none";
+            message?: string;
+            /** @description The object that manages the workloads, such as Application payments/payments */
+            owner?: string;
+            /** @description When this result was first seen (RFC 3339) */
+            since?: string;
+            /** @description When asOf turns stale (RFC 3339): twice the promoter's resync after asOf. A later observation means the promoter stopped checking */
+            staleAt?: string;
+            /**
+             * @description Adopted when the Stage's applier manages every workload; Unmanaged when there is no workload yet; Conflict when another manager or object owns one; Unknown when Pacto cannot tell. Only Adopted and Unmanaged let a promote through
+             * @enum {string}
+             */
+            state: "Adopted" | "Unmanaged" | "Conflict" | "Unknown";
+            /** @description The workloads checked, such as Deployment payments */
+            workloads?: string[] | null;
+        };
         "Delivery.ApplyRef": {
             kind?: string;
             name: string;
@@ -1361,8 +1423,12 @@ export interface components {
             always?: boolean;
         };
         "Delivery.ApprovalRecord": {
+            access?: string;
+            accessAt?: string;
+            accessSource?: string;
             authTime?: string;
             by: string;
+            classifiedBy?: string;
             decision: string;
             name: string;
             note?: string;
@@ -1463,6 +1529,7 @@ export interface components {
         "Delivery.HistoryEntry": {
             actor: string;
             actorClass?: string;
+            actorClassifiedBy?: string;
             applied?: string;
             approvals: components["schemas"]["Delivery.RecordApproval"][] | null;
             cause?: components["schemas"]["Delivery.Cause"];
@@ -1509,6 +1576,7 @@ export interface components {
         "Delivery.LifecycleEvent": {
             actor: string;
             actorClass?: string;
+            actorClassifiedBy?: string;
             applied?: string;
             approvals: components["schemas"]["Delivery.RecordApproval"][] | null;
             cause?: components["schemas"]["Delivery.Cause"];
@@ -1622,6 +1690,7 @@ export interface components {
         };
         "Delivery.OperationStatus": {
             actorClass?: string;
+            actorClassifiedBy?: string;
             applied?: boolean;
             approvals?: components["schemas"]["Delivery.ApprovalRecord"][] | null;
             approvedTeams?: string[] | null;
@@ -1740,8 +1809,12 @@ export interface components {
             verdicts?: components["schemas"]["Delivery.Verdict"][] | null;
         };
         "Delivery.RecordApproval": {
+            access?: string;
+            accessAt?: string;
+            accessSource?: string;
             authTime?: string;
             by: string;
+            classifiedBy?: string;
             decision: string;
             intentDigest: string;
             note?: string;
@@ -1988,6 +2061,7 @@ export interface components {
         };
         DependencyInfo: {
             compatibility?: string;
+            compatibilityUnknown?: boolean;
             deprecatedInterfaces?: components["schemas"]["Fleet.InterfaceDeprecation"][] | null;
             driftStatus?: string;
             external?: boolean;
@@ -1997,6 +2071,7 @@ export interface components {
             lockedDigest?: string;
             lockedVersion?: string;
             name: string;
+            nameFromRef?: boolean;
             ref: string;
             required: boolean;
             requires?: components["schemas"]["Contract.Requirement"][] | null;
@@ -2094,6 +2169,8 @@ export interface components {
         EnvironmentRow: {
             /** @description What the caller's class may ask for here: promote, unfreeze */
             actions: string[] | null;
+            /** @description Who manages the workloads the Stage delivers, as the promoter observed it against spec.applyRef (status.applier); absent when the promoter has not reported it */
+            applier?: components["schemas"]["Delivery.ApplierStatus"];
             autoHold: boolean;
             /** @description The newest eligible candidate */
             candidate?: string;
@@ -2196,6 +2273,7 @@ export interface components {
         };
         ExplanationStatusStruct: {
             actorClass?: string;
+            actorClassifiedBy?: string;
             message?: string;
             outcome?: string;
             phase: string;
@@ -2303,6 +2381,34 @@ export interface components {
             /** @description The record's signature was checked against a trust config: a signed move */
             verified: boolean;
         };
+        "Fleet.Cluster": {
+            /** @description The kube-system namespace UID: the identity of the cluster. */
+            id: string;
+            /** @description A display name for the cluster; never an identity. */
+            name?: string;
+            /**
+             * @description How the name was found: a node label, the kubeconfig context name, a target state file or the first characters of the UID.
+             * @enum {string}
+             */
+            nameSource?: "node-label" | "context" | "file" | "uid";
+            /** @description The source that reported the name; empty when this process read it itself. */
+            reportedBy?: string;
+        };
+        "Fleet.ClusterRecord": {
+            /** @description The kube-system namespace UID: the identity of the cluster. */
+            id: string;
+            /** @description A display name for the cluster; never an identity. */
+            name?: string;
+            /**
+             * @description How the name was found: a node label, the kubeconfig context name, a target state file or the first characters of the UID.
+             * @enum {string}
+             */
+            nameSource?: "node-label" | "context" | "file" | "uid";
+            /** @description The source that reported the name; empty when this process read it itself. */
+            reportedBy?: string;
+            /** @description Every source that reported this cluster id. */
+            sources: string[] | null;
+        };
         "Fleet.ComplianceTally": {
             /** Format: int64 */
             compliant: number;
@@ -2367,6 +2473,7 @@ export interface components {
             environments?: components["schemas"]["Fleet.EnvironmentResult"][] | null;
             /** Format: date-time */
             fetchedAt?: string;
+            inferred?: components["schemas"]["Contract.Inferred"][] | null;
             key: string;
             lock?: components["schemas"]["Lock.Lock"];
             metadata: components["schemas"]["Fleet.RuntimePreview"];
@@ -2410,6 +2517,7 @@ export interface components {
             guaranteeStatus?: "met" | "unmet" | "unknown";
             lockedDigest?: string;
             lockedVersion?: string;
+            nameFromRef?: boolean;
             /** @enum {string} */
             rangeStatus?: "satisfied" | "unsatisfied" | "unknown";
             reconciliation?: string;
@@ -2560,6 +2668,8 @@ export interface components {
             availabilityProvenance?: "observed" | "inferred" | "unknown";
             businessDomain?: string;
             businessDomainUnknown?: boolean;
+            /** @description On an external list row, the catalog entry that joined it; empty when no catalog entry classifies it */
+            catalogEntry?: string;
             /** Format: int64 */
             consumers?: number;
             /** Format: int64 */
@@ -2577,12 +2687,18 @@ export interface components {
             hiddenConsumers?: number;
             /** Format: int64 */
             hiddenProviders?: number;
+            /**
+             * @description On an external list row, how its consumers join it
+             * @enum {string}
+             */
+            joinedBy?: "identity" | "catalog-alias" | "host" | "normalized-name";
             key: string;
             /** @enum {string} */
-            kind: "service" | "revision" | "target" | "owner" | "source" | "domain" | "offering";
+            kind: "service" | "revision" | "target" | "owner" | "source" | "domain" | "offering" | "external";
             label: string;
             /** @enum {string} */
             lifecycle?: "supported" | "deprecated" | "sunset" | "unknown";
+            nameInferred?: components["schemas"]["Contract.Inferred"];
             /** Format: int64 */
             nonCompliant?: number;
             offering?: string;
@@ -2720,6 +2836,174 @@ export interface components {
             /** Format: int64 */
             withoutEvidence: number;
         };
+        "Fleet.ExternalCatalogMatch": {
+            /** @description The digest of the catalog artifact */
+            digest: string;
+            /** @description The identity of the catalog entry */
+            entry: string;
+            /** @enum {string} */
+            origin: "default" | "organization";
+        };
+        "Fleet.ExternalCatalogRef": {
+            /**
+             * @description registry when the bytes in use are the registry artifact at this digest (pulled, or the embedded copy matched against the signed artifact), embedded when the copy compiled into this binary is used unchecked
+             * @enum {string}
+             */
+            copy: "registry" | "embedded";
+            /** @description The digest of the catalog artifact; the recorded input whichever copy was read */
+            digest: string;
+            /** @enum {string} */
+            origin: "default" | "organization";
+            /** @description Why the signature reads as it does */
+            reason?: string;
+            repository?: string;
+            /** @enum {string} */
+            signature: "verified" | "unverified" | "unsigned" | "unknown";
+            signer?: string;
+        };
+        "Fleet.ExternalConsumer": {
+            /**
+             * @description How the use is known: declared when any contract declares it, else observed in traces, else inferred from configuration
+             * @enum {string}
+             */
+            provenance: "declared" | "observed" | "inferred";
+            /** @description Whether any of its declarations is required */
+            required?: boolean;
+            service: components["schemas"]["Fleet.EntityRef"];
+            /** @description The free-text versions its declarations name, sorted */
+            versions?: string[] | null;
+        };
+        "Fleet.ExternalDetailData": {
+            /** @description The catalog that classified it, with its digest and signature */
+            catalog?: components["schemas"]["Fleet.ExternalCatalogRef"];
+            consumers: components["schemas"]["Fleet.ExternalConsumer"][] | null;
+            external: components["schemas"]["Fleet.ExternalRecord"];
+            /** @description The other-egress node this answer folds it into */
+            foldedInto?: string;
+            /** @description Where each source recognized it in a listed consumer's configuration */
+            inferredSources?: components["schemas"]["Fleet.ExternalInferredSource"][] | null;
+            /**
+             * Format: int64
+             * @description Every inferred source of the listed consumers
+             */
+            inferredSourcesTotal?: number;
+            /** @description Each trace source that saw a listed consumer call it */
+            observedSources?: components["schemas"]["Fleet.ExternalObservedSource"][] | null;
+            /**
+             * Format: int64
+             * @description Every observed source of the listed consumers
+             */
+            observedSourcesTotal?: number;
+        };
+        "Fleet.ExternalInferredSource": {
+            /** @description The digest of the catalog the source classified it with */
+            catalog?: string;
+            /** @enum {string} */
+            confidence: "likely" | "possible";
+            /** @description The catalog entry that classified it */
+            entry?: string;
+            /** @description The normalized host and port; empty when only a key name matched */
+            host?: string;
+            /** @description What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService or serviceEntry */
+            kind: string;
+            /**
+             * Format: date-time
+             * @description When the source last read it
+             */
+            observedAt?: string;
+            /** @description The consumer */
+            service: string;
+            /** @description The id of the source that reported it */
+            source: string;
+            /** @description The target the evidence was read on */
+            target?: string;
+            /** @description The object and key it was found in, never a value */
+            where?: string;
+        };
+        "Fleet.ExternalObservedSource": {
+            /** Format: int64 */
+            count: number;
+            /** Format: date-time */
+            firstSeen?: string;
+            /** Format: date-time */
+            lastSeen?: string;
+            /** @description The consumer */
+            service: string;
+            source: string;
+        };
+        "Fleet.ExternalRecord": {
+            /** @description The aliases of the catalog entry that classified it */
+            aliases?: string[] | null;
+            /** @description The catalog entry that classified it; absent when no catalog entry classifies it */
+            catalog?: components["schemas"]["Fleet.ExternalCatalogMatch"];
+            /**
+             * @description The catalog class, unclassified when no catalog entry names it
+             * @enum {string}
+             */
+            class: "vendor-api" | "managed-cloud" | "legacy" | "unclassified" | "other-egress";
+            /** @description The services that declare, call or use it */
+            consumers: string[] | null;
+            /**
+             * Format: int64
+             * @description How many services declare, call or use it
+             */
+            consumersTotal: number;
+            /**
+             * Format: int64
+             * @description On the other-egress node, how many external systems it folds
+             */
+            folded?: number;
+            /**
+             * Format: int64
+             * @description How many consumers the caller's permissions hide
+             */
+            hiddenConsumers?: number;
+            /**
+             * @description How its consumers join it, the strongest match among its sources: identity, catalog-alias, host or normalized-name (joined by name only)
+             * @enum {string}
+             */
+            joinedBy?: "identity" | "catalog-alias" | "host" | "normalized-name";
+            /** @description The canonical identity */
+            key: string;
+            /** @description The catalog label, else the name the first visible consumer, by service key, declared */
+            label: string;
+            /** @description The evidence that names this external system, one per consumer and dependency position, each with its own provenance */
+            sources: components["schemas"]["Fleet.ExternalSource"][] | null;
+            /**
+             * Format: int64
+             * @description Every declaration across every revision of every consumer, plus each observed or inferred source
+             */
+            sourcesTotal: number;
+        };
+        "Fleet.ExternalSource": {
+            /** @description The declared dependency name */
+            dependency?: string;
+            /**
+             * Format: int64
+             * @description The position of the dependency in the contract's dependencies
+             */
+            index: number;
+            /**
+             * @description Where the evidence comes from: a contract's dependency, a call a trace source saw or a use inferred from a workload's pod spec
+             * @enum {string}
+             */
+            kind: "contract" | "observed" | "pod-spec";
+            /** @description How the evidence was joined to the identity: identity, catalog-alias, host, normalized-name, system (an OpenTelemetry system value) or keyName (a configuration key name only) */
+            match: string;
+            /** @enum {string} */
+            provenance: "declared" | "observed" | "inferred";
+            required?: boolean;
+            /** @description The newest consumer revision that declares it */
+            revision?: string;
+            /** @description The consumer */
+            service: string;
+            /** @description A newer revision of the consumer no longer declares it at this position */
+            superseded?: boolean;
+            /** @description The target the evidence was observed on; empty for a contract source */
+            target?: string;
+            /** @description The free-text version the dependency declares */
+            version?: string;
+        };
         "Fleet.FindingsPreview": {
             /** Format: int64 */
             count: number;
@@ -2729,7 +3013,12 @@ export interface components {
             truncated: boolean;
         };
         "Fleet.FleetSnapshot": {
+            clusters?: components["schemas"]["Fleet.ClusterRecord"][] | null;
             completeness: string;
+            externalCatalogs?: components["schemas"]["Fleet.ExternalCatalogRef"][] | null;
+            externals?: {
+                [key: string]: components["schemas"]["Fleet.ExternalRecord"];
+            };
             /** Format: date-time */
             generatedAt: string;
             limitations?: components["schemas"]["Fleet.Limitation"][] | null;
@@ -2755,21 +3044,54 @@ export interface components {
             depth: number;
             key: string;
             name: string;
+            nameInferred?: components["schemas"]["Contract.Inferred"];
             path: string[] | null;
             /** @enum {string} */
-            provenance: "declared" | "observed" | "declared+observed";
+            provenance: "declared" | "observed" | "declared+observed" | "inferred";
         };
         "Fleet.GraphResult": {
             aggregated: boolean;
             cycles?: (string[] | null)[] | null;
             direction: string;
             edges: components["schemas"]["Fleet.Relationship"][] | null;
+            /** @description The external system a graph rooted at external:<identity> walks the consumers of; root is then empty */
+            external?: string;
             meta: components["schemas"]["Fleet.Meta"];
             nodes: components["schemas"]["Fleet.GraphNode"][] | null;
             revision?: string;
             root: string;
             truncated?: boolean;
             unresolved?: components["schemas"]["Fleet.Relationship"][] | null;
+        };
+        "Fleet.InferredField": {
+            field: string;
+            /** @enum {string} */
+            provenance: "inferred";
+            source: string;
+            value: string;
+        };
+        "Fleet.InferredSource": {
+            /** @description The digest of the catalog the source classified it with */
+            catalog?: string;
+            /** @enum {string} */
+            confidence: "likely" | "possible";
+            /** @description The catalog entry that classified it */
+            entry?: string;
+            /** @description The normalized host and port; empty when only a key name matched */
+            host?: string;
+            /** @description What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService or serviceEntry */
+            kind: string;
+            /**
+             * Format: date-time
+             * @description When the source last read it
+             */
+            observedAt?: string;
+            /** @description The id of the source that reported it */
+            source: string;
+            /** @description The target the evidence was read on */
+            target?: string;
+            /** @description The object and key it was found in, never a value */
+            where?: string;
         };
         "Fleet.InterfaceDeprecation": {
             deprecated: string;
@@ -2785,6 +3107,8 @@ export interface components {
             name: string;
             operations: components["schemas"]["Fleet.ToolsPreview"];
             operationsKnown: boolean;
+            /** Format: int64 */
+            port?: number;
             ref?: string;
             type?: string;
             visibility?: string;
@@ -2907,6 +3231,7 @@ export interface components {
             /** Format: date-time */
             asOf: string;
             completeness: string;
+            externalCatalogs?: components["schemas"]["Fleet.ExternalCatalogRef"][] | null;
             limitations?: components["schemas"]["Fleet.Limitation"][] | null;
             limitationsTruncated?: boolean;
             schemaVersion: string;
@@ -3060,8 +3385,18 @@ export interface components {
             evidence: components["schemas"]["Fleet.EvidenceWindow"];
             /** Format: int64 */
             exactTargetLinks: number;
+            /**
+             * Format: int64
+             * @description The external systems the services declare, one per canonical identity
+             */
+            externals: number;
             /** Format: int64 */
             goldenPaths: number;
+            /**
+             * Format: int64
+             * @description The external systems only services the caller's permissions hide declare; never named
+             */
+            hiddenExternals?: number;
             /** Format: int64 */
             inferredTargetLinks: number;
             /** Format: int64 */
@@ -3251,6 +3586,7 @@ export interface components {
             /** Format: date-time */
             asOf: string;
             completeness: string;
+            externalCatalogs?: components["schemas"]["Fleet.ExternalCatalogRef"][] | null;
             limitations?: components["schemas"]["Fleet.Limitation"][] | null;
             limitationsTruncated?: boolean;
             schemaVersion: string;
@@ -3396,20 +3732,30 @@ export interface components {
         };
         "Fleet.Relationship": {
             compatibility?: string;
+            /**
+             * @description The strongest confidence of the inferred sources: likely when a host or system value matched, possible when only a key name did
+             * @enum {string}
+             */
+            confidence?: "likely" | "possible";
             deprecatedInterfaces?: components["schemas"]["Fleet.InterfaceDeprecation"][] | null;
             external?: boolean;
             /** Format: date-time */
             firstSeen?: string;
+            /** @description On an answer that folds external systems, the other-egress node toExternal is folded into; toExternal keeps the real identity */
+            foldedInto?: string;
             fromRevision?: string;
             fromService: string;
             guaranteeReason?: string;
             /** @enum {string} */
             guaranteeStatus?: "met" | "unmet" | "unknown";
             hidden?: boolean;
+            /** @description Where each source recognized this external system in the caller's configuration; set only on an inferred edge */
+            inferredSources?: components["schemas"]["Fleet.InferredSource"][] | null;
             /** Format: date-time */
             lastSeen?: string;
             lockedDigest?: string;
             lockedVersion?: string;
+            nameFromRef?: boolean;
             /** Format: int64 */
             observedCount?: number;
             observedSources?: components["schemas"]["Fleet.ObservedSourceStat"][] | null;
@@ -3426,6 +3772,8 @@ export interface components {
             resolvedRevision?: string;
             source?: string;
             to: string;
+            /** @description The canonical identity of the external system this ref-less external dependency or observed call joins; resolved stays false because no fleet service delivers it */
+            toExternal?: string;
             toService?: string;
             type: string;
             unmet?: components["schemas"]["Contract.Mismatch"][] | null;
@@ -3519,6 +3867,13 @@ export interface components {
         "Fleet.SearchResult": {
             /** Format: int64 */
             count: number;
+            /** @description For a search on text alone (no other filter, first page), the external systems whose identity, label or alias holds the text, bounded */
+            externals?: components["schemas"]["Fleet.EntityRef"][] | null;
+            /**
+             * Format: int64
+             * @description How many external systems match the text
+             */
+            externalsTotal?: number;
             meta: components["schemas"]["Fleet.Meta"];
             services: components["schemas"]["Fleet.ServiceHit"][] | null;
             /** Format: int64 */
@@ -3533,6 +3888,7 @@ export interface components {
                 [key: string]: string;
             };
             name: string;
+            nameInferred?: components["schemas"]["Contract.Inferred"];
             offering?: string;
             owner?: components["schemas"]["Contract.Owner"];
             /** Format: int64 */
@@ -3568,6 +3924,7 @@ export interface components {
                 [key: string]: string;
             };
             name: string;
+            nameInferred?: components["schemas"]["Contract.Inferred"];
             offering?: string;
             /** @enum {string} */
             offeringProvenance?: "declared" | "observed";
@@ -3678,6 +4035,13 @@ export interface components {
             kind: string;
             /** Format: date-time */
             lastSuccessfulSync?: string;
+            /** @description The namespaces a Kubernetes source read that you may see. Empty with no namespacesTotal means every namespace; empty with namespacesTotal above 0 means every namespace it read is hidden from you. Anything in another namespace is unknown. */
+            namespaces?: string[] | null;
+            /**
+             * Format: int64
+             * @description How many namespaces the source read, when Namespaces is capped or restricted. Above 0, the source reads a list of namespaces, never every namespace.
+             */
+            namespacesTotal?: number;
             /** Format: date-time */
             observedAt?: string;
             /** Format: int64 */
@@ -3724,6 +4088,22 @@ export interface components {
         "Fleet.TargetRecord": {
             businessDomain?: string;
             businessDomainUnknown?: boolean;
+            /** @description The kube-system UID of the cluster that reported this target. */
+            cluster?: string;
+            /** @description A display name for the cluster; never an identity. */
+            clusterName?: string;
+            /** @description The source that reported the cluster name; empty when this process read it itself. */
+            clusterNameReportedBy?: string;
+            /**
+             * @description How the cluster name was found.
+             * @enum {string}
+             */
+            clusterNameSource?: "node-label" | "context" | "file" | "uid";
+            /**
+             * @description runs-in when a Kubernetes source read the target in the cluster; reported-through when the cluster only reported it.
+             * @enum {string}
+             */
+            clusterRelation?: "runs-in" | "reported-through";
             compliance: string;
             contractRevision?: string;
             coverage?: components["schemas"]["Fleet.Coverage"];
@@ -3936,6 +4316,7 @@ export interface components {
             effect?: "breaks" | "may-degrade" | "unknown";
             /** @description The facts behind this consumer and their age: its targets, observed calls and unreachable findings, newest first */
             evidence?: components["schemas"]["Impact.Evidence"][] | null;
+            nameInferred?: components["schemas"]["Contract.Inferred"];
             note?: string;
             owner?: string;
             /** @description The canonical owner key (for example team:shop). Group or link by it; owner is the display label */
@@ -4189,10 +4570,10 @@ export interface components {
             /** @description Errored operations of the caller's services whose Stage is still frozen */
             errored: components["schemas"]["InboxItem"][] | null;
             erroredPage: components["schemas"]["Page"];
-            /** @description Frozen Stages of the caller's services */
+            /** @description Frozen Stages of the caller's services; when owner teams do not narrow who may answer, every frozen Stage the caller can read */
             frozen: components["schemas"]["EnvironmentRow"][] | null;
             frozenPage: components["schemas"]["Page"];
-            /** @description Held operations whose question names one of the caller's teams; for break-glass also those that name no team */
+            /** @description Held operations whose decision by the caller the promoter would count: the caller is a person who may update the Stage's workload and, when owner teams narrow who may answer, is in a team the question names; for break-glass also those that name no team. A change whose update rights could not be checked is left out and marks the answer partial */
             held: components["schemas"]["InboxItem"][] | null;
             heldPage: components["schemas"]["Page"];
             /**
@@ -4223,6 +4604,8 @@ export interface components {
             hasContractFile?: boolean;
             lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             name: string;
+            /** Format: int64 */
+            port?: number;
             type: string;
             visibility?: string;
         };
@@ -4378,6 +4761,8 @@ export interface components {
              * @description How old a login may be to decide, in seconds (delivery.DecisionFreshnessFor the Stage's status.authFreshness); absent when any signed-in session decides
              */
             decisionFreshness?: number;
+            /** @description On a held change that offers the caller no decision, why: the code the promoter would refuse it with (CannotUpdateWorkload, ApproverUnverified, NotYourTeam, OwnChange and so on), FreshLoginRequired when the cluster reports no login time, NoApprovalRights when the caller may not create Approvals, PolicyUnknown when the published identity policy could not be read, or DecisionsNotServed when this session may not decide; absent when a decision is offered or the change is not held */
+            decisionRefusal?: string;
             /** @description The environment the Stage delivers to (its spec.environment); absent when the Stage could not be read */
             environment?: string;
             explanation: components["schemas"]["Delivery.Explanation"];
@@ -4515,6 +4900,22 @@ export interface components {
              */
             total: number;
         };
+        ProductBreakItem: {
+            consumer: string;
+            expires?: string;
+            reason: string;
+            service?: components["schemas"]["ProductRef"];
+        };
+        ProductBreaksPreview: {
+            /** Format: int64 */
+            count: number;
+            /** Format: int64 */
+            hidden?: number;
+            items: components["schemas"]["ProductBreakItem"][] | null;
+            /** Format: int64 */
+            total: number;
+            truncated: boolean;
+        };
         ProductChangeEvent: {
             /**
              * @description present: declared by the oldest revision this answer holds, or the first after one it could not read (declared since at least that revision). For a finding, added: it appeared, removed: it resolved, changed: the readiness score crossed its minimum
@@ -4621,6 +5022,7 @@ export interface components {
             guaranteeStatus?: "met" | "unmet" | "unknown";
             href: string;
             id: string;
+            inferred?: boolean;
             /** Format: date-time */
             lastSeen?: string;
             /** @enum {string} */
@@ -4628,7 +5030,7 @@ export interface components {
             observationSources: components["schemas"]["Fleet.ObservationSourcesPreview"];
             observed: boolean;
             /** @enum {string} */
-            provenance: "declared" | "observed" | "declared+observed";
+            provenance: "declared" | "observed" | "declared+observed" | "inferred";
             providerLifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             /** @enum {string} */
             relation: "dependency" | "runs" | "configuration_reference";
@@ -4641,6 +5043,7 @@ export interface components {
             actions?: string[] | null;
             domain?: components["schemas"]["ProductDomainDetail"];
             entity: components["schemas"]["ProductRef"];
+            external?: components["schemas"]["Fleet.ExternalDetailData"];
             meta: components["schemas"]["Fleet.ProductMeta"];
             offering?: components["schemas"]["ProductOfferingDetail"];
             owner?: components["schemas"]["ProductOwnerDetail"];
@@ -4655,6 +5058,11 @@ export interface components {
             /** Format: int64 */
             count: number;
             entities: components["schemas"]["ProductRef"][] | null;
+            /**
+             * Format: int64
+             * @description When external systems are listed, how many only hidden services declare; never named
+             */
+            hidden?: number;
             /** Format: int64 */
             limit: number;
             meta: components["schemas"]["Fleet.ProductMeta"];
@@ -5166,6 +5574,8 @@ export interface components {
             availabilityProvenance?: "observed" | "inferred" | "unknown";
             businessDomain?: string;
             businessDomainUnknown?: boolean;
+            /** @description On an external list row, the catalog entry that joined it; empty when no catalog entry classifies it */
+            catalogEntry?: string;
             /** Format: int64 */
             consumers?: number;
             /** Format: int64 */
@@ -5184,12 +5594,18 @@ export interface components {
             /** Format: int64 */
             hiddenProviders?: number;
             href: string;
+            /**
+             * @description On an external list row, how its consumers join it
+             * @enum {string}
+             */
+            joinedBy?: "identity" | "catalog-alias" | "host" | "normalized-name";
             key: string;
             /** @enum {string} */
-            kind: "service" | "revision" | "target" | "owner" | "source" | "domain" | "offering";
+            kind: "service" | "revision" | "target" | "owner" | "source" | "domain" | "offering" | "external";
             label: string;
             /** @enum {string} */
             lifecycle?: "supported" | "deprecated" | "sunset" | "unknown";
+            nameInferred?: components["schemas"]["Contract.Inferred"];
             /** Format: int64 */
             nonCompliant?: number;
             offering?: string;
@@ -5251,6 +5667,7 @@ export interface components {
             values: components["schemas"]["Fleet.RuntimePreview"];
         };
         ProductRevisionDetail: {
+            breaks: components["schemas"]["ProductBreaksPreview"];
             capabilities: components["schemas"]["Fleet.CapabilitiesPreview"];
             configurations: components["schemas"]["ProductConfigurationsPreview"];
             current?: boolean;
@@ -5261,6 +5678,7 @@ export interface components {
             evidenceSources: components["schemas"]["ProductRefPreview"];
             exactTargets: components["schemas"]["ProductRefPreview"];
             identity: components["schemas"]["Fleet.RevisionIdentity"];
+            inferred?: components["schemas"]["Fleet.InferredField"][] | null;
             inferredTargets: components["schemas"]["ProductRefPreview"];
             interfaces: components["schemas"]["Fleet.InterfacesPreview"];
             lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
@@ -5269,6 +5687,10 @@ export interface components {
             next?: components["schemas"]["ProductRef"];
             ownership?: components["schemas"]["ProductOwnership"];
             pactoVersion?: string;
+            /** @description The latest pactoVersion known to the Pacto that served this answer, set when this revision declares an older or unknown one */
+            pactoVersionCurrent?: string;
+            /** @description The revision declares a pactoVersion the Pacto that served this answer does not know */
+            pactoVersionUnknown?: boolean;
             policies: components["schemas"]["ProductPoliciesPreview"];
             /** Format: int64 */
             position: number;
@@ -5381,6 +5803,13 @@ export interface components {
             revision?: components["schemas"]["ProductRef"];
         };
         ProductTargetDetail: {
+            /** @description The cluster that reported this target, with how its name was found and who reported the name; absent when no source reported one */
+            cluster?: components["schemas"]["Fleet.Cluster"];
+            /**
+             * @description runs-in when a Kubernetes source read the target in this cluster; reported-through when the cluster only reported or accepted it (evidence, target-state files)
+             * @enum {string}
+             */
+            clusterRelation?: "runs-in" | "reported-through";
             /** @enum {string} */
             compliance: "Compliant" | "NonCompliant" | "Unknown" | "Warning" | "Invalid" | "Reference" | "NotEvaluated";
             coverage?: components["schemas"]["Fleet.Coverage"];
@@ -5435,6 +5864,7 @@ export interface components {
         ProductUnresolvedDependency: {
             external?: boolean;
             from: components["schemas"]["ProductRef"];
+            nameFromRef?: boolean;
             reason?: string;
             ref: string;
             requestedRef?: string;
@@ -5883,6 +6313,7 @@ export interface components {
             value: string;
         };
         ServiceDetails: {
+            breaks?: components["schemas"]["BreakInfo"][] | null;
             capabilities?: components["schemas"]["CapabilityInfo"][] | null;
             compliance?: components["schemas"]["ComplianceInfo"];
             configurations?: components["schemas"]["ConfigurationInfo"][] | null;
@@ -5905,6 +6336,7 @@ export interface components {
                 [key: string]: string;
             };
             name: string;
+            nameInferredFrom?: string;
             namespace?: string;
             observedRuntime?: components["schemas"]["ObservedRuntime"];
             offering?: string;
@@ -8115,8 +8547,8 @@ export interface operations {
         parameters: {
             query?: {
                 text?: string;
-                /** @description Comma-separated entity kinds; an unknown or empty kind is rejected. A domain is a business domain (service.domain). An offering is a platform offering (service.offering) */
-                kinds?: ("service" | "revision" | "target" | "owner" | "source" | "domain" | "offering")[] | null;
+                /** @description Comma-separated entity kinds; an unknown or empty kind is rejected. A domain is a business domain (service.domain). An offering is a platform offering (service.offering). An external is a system no Pacto contract describes, keyed by its canonical identity */
+                kinds?: ("service" | "revision" | "target" | "owner" | "source" | "domain" | "offering" | "external")[] | null;
                 /** @description Free-text owner SEARCH: case-insensitive substring over team, DRI and contacts */
                 owner?: string;
                 /** @description Exact canonical owner IDENTITY, namespaced as team:NAME or dri:NAME, exactly as canonical owner links carry it. A bare owner name matches nothing */
@@ -8161,7 +8593,9 @@ export interface operations {
                 lifecycle?: "deprecated" | "sunset";
                 /** @description Keeps the offerings with at least one failed provisioning request (offering entities) */
                 failed?: boolean;
-                /** @description Order: name (natural, so 2 before 10), health (least healthy first; owners and domains by non-compliant, failing, unknown, stale and gap services), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most consumers with a failed provisioning request first), consumers (offerings with the most declared consumers first) or gaps (owners and domains with the most services that leave knowledge out first); absent orders by kind then key */
+                /** @description Keeps the external systems of this class (external entities) */
+                class?: "vendor-api" | "managed-cloud" | "legacy" | "unclassified" | "other-egress";
+                /** @description Order: name (natural, so 2 before 10), health (least healthy first; owners and domains by non-compliant, failing, unknown, stale and gap services), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most consumers with a failed provisioning request first), consumers (offerings and external systems with the most declared consumers first) or gaps (owners and domains with the most services that leave knowledge out first); absent orders by kind then key */
                 sort?: "name" | "health" | "services" | "nonCompliant" | "rate" | "created" | "failed" | "consumers" | "gaps";
                 /** @description Max entities to return (negatives rejected; excessive values capped) */
                 limit?: number;
@@ -8203,7 +8637,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description Entity kind: service, revision, target, owner, source, domain or offering */
+                /** @description Entity kind: service, revision, target, owner, source, domain, offering or external */
                 kind: string;
             };
             cookie?: never;

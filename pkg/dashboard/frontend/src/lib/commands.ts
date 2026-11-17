@@ -1,7 +1,7 @@
 /** Pure command-list builder for the ⌘K palette. No runes — unit-testable. */
 import {
   serviceUrl, ownerUrl, graphUrl, ownersUrl, readinessUrl, compareDiffUrl,
-  fleetOverviewUrl, fleetServicesUrl, fleetUrl, fleetOwnersUrl, fleetSourcesUrl, fleetDomainsUrl, fleetOfferingsUrl, fleetGoldenPathsUrl,
+  fleetOverviewUrl, fleetServicesUrl, fleetUrl, fleetOwnersUrl, fleetSourcesUrl, fleetDomainsUrl, fleetOfferingsUrl, fleetExternalsUrl, fleetGoldenPathsUrl,
   fleetAttentionUrl, fleetChangesUrl, fleetEntityListUrl,
   deliveryInboxUrl, deliveryEnvironmentsUrl, deliveryAutonomyUrl, deliveryHistoryUrl, deliveryPublishUrl,
 } from './router';
@@ -71,6 +71,8 @@ const METRICS: Command = {
 const FLEET_TAIL: Command[] = [
   { kind: 'view', label: 'Operational graph', hint: SYSTEM, href: fleetUrl() },
   { kind: 'view', label: 'Data sources', hint: SYSTEM, href: fleetSourcesUrl() },
+  // No sidebar item of its own (Services hosts it), so it follows the sidebar's destinations.
+  { kind: 'view', label: 'External systems', hint: ORG, href: fleetExternalsUrl(), keywords: ['external', 'vendor', 'third party'] },
   { kind: 'view', label: 'Readiness', href: fleetEntityListUrl('revision'), keywords: ['contract revisions', 'assessment'] },
 ];
 

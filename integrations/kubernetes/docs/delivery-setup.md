@@ -19,14 +19,22 @@ serve the API.
 
 ## Install
 
-Delivery is the `pacto-operator` chart's `delivery` section, off by default. It needs Flux (source and kustomize controllers). Turn it on:
+Delivery is the `pacto-operator` chart's `delivery` section, off by default. Turn it on:
 
 --8<-- "integrations/kubernetes/docs/generated/_delivery-install-command.md"
 
-Replace `staff` with the group your people are in: anyone outside it counts as
-an agent, which may propose but never approve. The chart refuses an empty
-`humanGroups` unless you set `delivery.identities.allowEmptyHumanGroups=true`
-(see [identities](delivery-identity.md)).
+- `delivery.flux.enabled` and `delivery.argocd.enabled` default to `auto`: the
+  chart grants the promoter access to Flux and Argo CD when the cluster serves
+  their APIs at install or upgrade. Install Flux or Argo CD before Pacto, or
+  run `helm upgrade` after; with `helm template`, pass their APIs with
+  `--api-versions`. `true` or `false` decide regardless of the API.
+- The promoter moves versions through the manager that already applies each
+  workload ([which manager applies a Stage](delivery-reach.md#which-manager-applies-a-stage)).
+  The first Stage of a service needs Flux's source controller to verify new
+  versions.
+
+It needs no identity values: whoever may update a Stage's workload decides
+([who may decide](delivery-identity.md#who-may-decide)).
 
 If you set `crds.install=false` to manage the CRDs yourself, apply the
 delivery CRDs before you turn delivery on. The promoter and the recorder do not
@@ -36,11 +44,12 @@ start without them:
 
 This needs Helm 3.14 or later. Delivery runs in `delivery.namespace`
 (`pacto-delivery`, never the release or node agent namespace), where the operator holds no
-role, so it cannot act as the promoter. It still reads every Secret: prefer
-KMS or keyless recorder signing. Set `delivery.createNamespace=false` to
+role, so it cannot act as the promoter. It reads its Secrets only when
+[watched or granted](least-privilege.md): prefer KMS or keyless recorder
+signing. Set `delivery.createNamespace=false` to
 create the namespace, with the recorder key, yourself. Bind
-`pacto-operator-delivery-agent` to agents and
-`pacto-operator-delivery-approver` to approvers. The image is
+`pacto-operator-delivery-agent` to agents. People with `edit` or `admin` in a
+namespace may already decide there. The image is
 [signed](artifact-hub.md).
 
 The admission policies make the actor of an Operation and the person behind
@@ -85,7 +94,8 @@ recorder's their own Service, ServiceMonitor and
 | `pacto_delivery_stats_dropped_total` | [run records](delivery-run-records.md) not published, by `reason`: `queue-full`, `namespace-full` (one namespace already holds a quarter of the queue), `publish-failed` (logged with the operation, and the record in flight when the promoter stops), `no-stage` (the operation had no Stage, so no service to file it under) or `shutdown` (still queued, or concluded, after the promoter began to stop). Every reason reads 0 from startup. A `shutdown` drop is counted by a process about to exit, so its lasting trace is the promoter's log line `run records not published at shutdown` |
 
 The promoter emits a Kubernetes Event on an operation when it waits on a person
-(`Held`) and when it concludes (its outcome). It emits one on a Stage when it
+(`Held`, with `TeamNarrowingOff` while owner teams do not narrow who may
+answer) and when it concludes (its outcome). It emits one on a Stage when it
 raises a rollback (`RollbackRaised`), freezes (`Frozen`) or stops being watched
 (`RecheckUnknown`, `RecheckFailed`).
 It emits `EnvironmentCreated` on a Stage the first time it reconciles it, with
@@ -104,7 +114,7 @@ on uninstall.
 
 ## How a change moves
 
-A **Stage** names the Flux `OCIRepository` that applies it, and its
+A **Stage** names the applier, such as a Flux `OCIRepository`, and its
 `status.pointer` is the digest it moved the environment to. Only the promoter
 moves it, and the only field it writes on an object it does not own is that
 repository's `spec.ref.digest`. Every change is an **Operation** whose spec
@@ -136,6 +146,10 @@ flowchart LR
   [environments](../../contract-reference/environments.md#environments-and-stages)
   but none named like the Stage's `spec.environment`, or values there that
   fail their schemas. A contract with no environments passes it.
+  `pacto.applier` refuses a promote while the Stage's
+  [`status.applier`](delivery-reach.md#which-manager-applies-a-stage) reads
+  `Conflict` or `Unknown`, or while the version's contract names a
+  `delivery.applier` the Stage does not apply through.
 - After: the Pacto contract check counts only when
   `status.evaluatedRevision` names this version's contract digest and the
   current workload generation. `Compliant` and `Warning` pass, `NonCompliant`

@@ -346,10 +346,7 @@ var namespaceName = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$`)
 func fixFor(kind, subject, service string, have *BlockerFix) *BlockerFix {
 	switch kind {
 	case "missing-contract":
-		ns := ""
-		if rest, ok := strings.CutPrefix(subject, "k8s:"); ok {
-			ns, _, _ = strings.Cut(rest, "/")
-		}
+		_, ns, _, _, _ := fleet.ParseK8sCaller(subject)
 		cmd := "pacto init --cluster --out ./pacto-drafts"
 		// The caller name comes from telemetry, so only a Kubernetes namespace
 		// name reaches the shell command a person copies.

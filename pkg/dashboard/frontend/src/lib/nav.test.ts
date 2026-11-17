@@ -21,9 +21,16 @@ describe('navCurrent: the item a page belongs to agrees with its breadcrumb trai
   it.each([
     ['service', 'services'], ['revision', 'services'], ['target', 'services'], ['owner', 'owners'],
     ['domain', 'domains'], ['offering', 'offerings'], ['golden-path', 'golden-paths'], ['source', 'sources'],
+    ['external', 'services'],
   ])('a %s entity page sits under %s', (kind, key) => {
     const lit = navGroups({ fleet: true }).flatMap((g) => g.items).filter((i) => navCurrent(i, 'fleet-entity', kind));
     expect(lit.map((i) => [i.key, navCurrent(i, 'fleet-entity', kind)])).toEqual([[key, 'true']]);
+  });
+
+  it('marks Services "true" on the external-system list it hosts, and adds no sidebar item', () => {
+    const lit = navGroups({ fleet: true }).flatMap((g) => g.items).filter((i) => navCurrent(i, 'fleet-externals', ''));
+    expect(lit.map((i) => [i.key, navCurrent(i, 'fleet-externals', '')])).toEqual([['services', 'true']]);
+    expect(navGroups({ fleet: true }).flatMap((g) => g.items).some((i) => /external/i.test(i.label))).toBe(false);
   });
 
   it('marks Delivery "true" on a Delivery tab other than the inbox', () => {
@@ -70,7 +77,7 @@ describe('navGroups', () => {
     const i = views.findIndex((v) => v.label === 'Change analysis');
     expect(views[i + 1]).toMatchObject({ label: 'Delivery inbox', hint: 'Change and delivery' });
     expect(buildCommands('organization', [], true)[0].items.map((v) => v.label))
-      .toEqual(['Services', 'Owners', 'Domains', 'Offerings', 'Golden paths']);
+      .toEqual(['Services', 'Owners', 'Domains', 'Offerings', 'Golden paths', 'External systems']);
   });
 });
 

@@ -21,14 +21,15 @@ type NeighborhoodLike = Partial<Pick<ProductNeighborhood, 'nodes' | 'edges'>>;
 // one state per legend item, so every legend item is a real visual distinction. It is
 // DERIVED from the backend-authoritative difference (service projection) or
 // serviceCorroboration (fine-grained projection), never re-inferred from booleans.
-export type EdgeVisualState = '' | 'matched' | 'expected-not-observed' | 'drift' | 'insufficient';
+export type EdgeVisualState = '' | 'matched' | 'expected-not-observed' | 'drift' | 'insufficient' | 'inferred';
 
 /** edgeState collapses the backend edge verdict into the canvas visual vocabulary. A
  *  service-projection edge carries `difference`; a fine-grained (revision/target) edge
  *  carries `serviceCorroboration`. Both map to the SAME visual states (the drawer keeps
  *  the precise wording). An edge with neither (an expected-only view) has no state and
- *  renders as a plain declared edge. */
-export function edgeState(e: { difference?: string; serviceCorroboration?: string }): EdgeVisualState {
+ *  renders as a plain declared edge. An edge only inferred from configuration has
+ *  neither and is 'inferred'. */
+export function edgeState(e: { difference?: string; serviceCorroboration?: string; provenance?: string }): EdgeVisualState {
   switch (e.difference) {
     case 'matched': return 'matched';
     case 'observed-not-expected': return 'drift';
@@ -40,7 +41,7 @@ export function edgeState(e: { difference?: string; serviceCorroboration?: strin
     case 'expected-not-observed': return 'expected-not-observed';
     case 'insufficient': return 'insufficient';
   }
-  return '';
+  return e.provenance === 'inferred' ? 'inferred' : '';
 }
 
 /** cyEdgeId reproduces the Cytoscape edge id that buildElements assigns, so a canvas
@@ -58,9 +59,15 @@ function edgeType(relation: string): string {
   return relation === 'configuration_reference' ? 'reference' : 'dependency';
 }
 
-/** nodeKind narrows a backend entity kind to the three kinds the graph renders. */
-function nodeKind(kind: string): 'service' | 'revision' | 'target' {
-  return kind === 'revision' || kind === 'target' ? kind : 'service';
+/** nodeKind narrows a backend entity kind to the four kinds the graph renders. */
+function nodeKind(kind: string): 'service' | 'revision' | 'target' | 'external' {
+  return kind === 'revision' || kind === 'target' || kind === 'external' ? kind : 'service';
+}
+
+/** graphNodeId is a node's canvas id: its key, prefixed for an external system, whose
+ *  identity can equal a service key (a service and an external both called stripe). */
+export function graphNodeId(ref: { kind?: string; key: string }): string {
+  return ref.kind === 'external' ? `external:${ref.key}` : ref.key;
 }
 
 /** neighborhoodToGraph adapts a ProductNeighborhood into GraphData: one GraphNode per
@@ -76,9 +83,10 @@ export function neighborhoodToGraph(nb: NeighborhoodLike | null | undefined): Gr
     const version = n.ref.kind === 'revision' ? n.ref.version || '' : '';
     const label = n.ref.label || n.ref.key;
     const g: GraphNode = {
-      id: n.ref.key,
+      id: graphNodeId(n.ref),
       serviceName: version && label.endsWith(` ${version}`) ? label.slice(0, -version.length - 1) : label,
       ...(version ? { version } : {}),
+      ...(n.ref.nameInferred ? { nameInferred: n.ref.nameInferred.source } : {}),
       status: n.status || n.ref.status || 'Unknown',
       kind: nodeKind(n.ref.kind),
       edges: [],
@@ -89,14 +97,14 @@ export function neighborhoodToGraph(nb: NeighborhoodLike | null | undefined): Gr
     byKey.set(g.id, g);
   }
   for (const e of nb?.edges ?? []) {
-    const src = byKey.get(e.from.key);
-    if (!src || !byKey.has(e.to.key)) continue;
+    const src = byKey.get(graphNodeId(e.from));
+    if (!src || !byKey.has(graphNodeId(e.to))) continue;
     // Carry the backend reconciliation state (difference for a service edge, service
     // corroboration for a fine-grained one) into a single visual state the canvas
     // renders as a real distinction. The drawer keeps the precise, scoped wording.
     const state = edgeState(e);
     const edge: GraphEdge = {
-      targetId: e.to.key,
+      targetId: graphNodeId(e.to),
       type: edgeType(e.relation),
       edgeState: state || undefined,
       driftStatus: state === 'drift' ? 'drift' : undefined,
@@ -125,7 +133,7 @@ export function topoSignature(gd: GraphData): string {
  *  never left stale. Deterministic (sorted). */
 export function presentationSignature(gd: GraphData): string {
   const ns = gd.nodes
-    .map((n) => `${n.id}:${n.status}:${n.kind || 'service'}:${n.serviceName}:${n.version || ''}`)
+    .map((n) => `${n.id}:${n.status}:${n.kind || 'service'}:${n.serviceName}:${n.version || ''}:${n.nameInferred || ''}`)
     .sort().join(',');
   const es = gd.nodes
     .flatMap((n) => (n.edges || []).map((e) => `${n.id}>${e.targetId}:${e.type || 'dependency'}:${e.edgeState || ''}:${e.refused ? 'refused' : ''}:${e.label || ''}`))

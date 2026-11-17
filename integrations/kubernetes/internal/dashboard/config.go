@@ -32,9 +32,9 @@ type Config struct {
 	// Always set to the operator's own namespace.
 	Namespace string
 
-	// WatchNamespace restricts the dashboard's observation scope to a single namespace.
-	// Empty means cluster-wide (all namespaces). Inherited from the controller's --watch-namespace flag.
-	WatchNamespace string
+	// WatchNamespaces restricts the dashboard's observation scope to these namespaces.
+	// Empty means cluster-wide (all namespaces). Inherited from the controller's --watch-namespaces flag.
+	WatchNamespaces []string
 
 	// OCISecrets is an optional list of Secret names (in the operator namespace) containing
 	// OCI registry credentials. Supports Opaque and kubernetes.io/dockerconfigjson secrets.
@@ -70,6 +70,11 @@ type Config struct {
 	// contracts it discovers from Pacto resources, such as golden paths, which
 	// are never deployed and so have no Pacto resource to discover them from.
 	Repositories []string
+
+	// ExternalCatalog is the organization external catalog the dashboard
+	// merges over Pacto's default, as oci://REPOSITORY@sha256:DIGEST. Empty
+	// uses only the default catalog.
+	ExternalCatalog string
 
 	// Observation declares offline OTLP/JSON trace files to mount read-only into
 	// the dashboard, each under a stable Data Source name. Pacto reads exactly the
@@ -191,4 +196,11 @@ func (c Config) Validate() error {
 		return fmt.Errorf("the dashboard's issuer CA bundle comes from a ConfigMap or a Secret, not both")
 	}
 	return c.validateObservation()
+}
+
+// needsClusterRole reports whether the dashboard needs a ClusterRole: it watches the whole cluster,
+// or it reads delivery objects, whose shared informer is cluster-wide. A dashboard scoped to a
+// namespace list without delivery gets its namespaced Roles from the chart instead.
+func (c Config) needsClusterRole() bool {
+	return len(c.WatchNamespaces) == 0 || c.DeliveryNamespace != ""
 }

@@ -3,11 +3,15 @@ package controller
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
+	"io/fs"
 	"maps"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -89,6 +93,12 @@ func readRoles(t *testing.T, path string, strip bool) []rbacDoc {
 	if strip {
 		data = chartDirective.ReplaceAll(data, nil)
 	}
+	return parseRoles(t, path, data)
+}
+
+// parseRoles parses every ClusterRole and Role document of data.
+func parseRoles(t *testing.T, path string, data []byte) []rbacDoc {
+	t.Helper()
 	var docs []rbacDoc
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	for {
@@ -186,4 +196,184 @@ func TestGrants_ResourceNames(t *testing.T) {
 			t.Errorf("names %v: got %v, want %v", tc.names, got, tc.want)
 		}
 	}
+}
+
+const chartTemplates = "../../charts/pacto-operator/templates/"
+
+// rbacTemplate matches a template that renders a Role, a ClusterRole or a binding.
+var rbacTemplate = regexp.MustCompile(`kind: (Cluster)?Role|include "pacto-operator.binding"`)
+
+// rbacTemplates lists every chart template that renders RBAC, relative to the templates directory. Helm
+// partials (a base name starting with "_") render no document and are skipped.
+func rbacTemplates(t *testing.T) []string {
+	t.Helper()
+	var out []string
+	err := filepath.WalkDir(chartTemplates, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || strings.HasPrefix(d.Name(), "_") || filepath.Ext(path) != ".yaml" {
+			return err
+		}
+		data, err := os.ReadFile(path)
+		if err == nil && rbacTemplate.Match(data) {
+			rel, _ := filepath.Rel(chartTemplates, path)
+			out = append(out, filepath.ToSlash(rel))
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatalf("walk %s: %v", chartTemplates, err)
+	}
+	return out
+}
+
+// inventoryAssert is one helm-unittest assertion of tests/rbac_inventory_test.yaml.
+type inventoryAssert struct {
+	Equal *struct {
+		Path  string `yaml:"path"`
+		Value any    `yaml:"value"`
+	} `yaml:"equal"`
+	DocumentIndex *int `yaml:"documentIndex"`
+}
+
+// inventory is tests/rbac_inventory_test.yaml.
+type inventory struct {
+	Templates []string `yaml:"templates"`
+	Tests     []struct {
+		It       string            `yaml:"it"`
+		Template string            `yaml:"template"`
+		Asserts  []inventoryAssert `yaml:"asserts"`
+	} `yaml:"tests"`
+}
+
+// TestRBACInventoryListsEveryRBACTemplate keeps tests/rbac_inventory_test.yaml complete: every template
+// that renders a Role, a ClusterRole or a binding is in its templates, and in each render every binding's
+// roleRef names a role the chart renders in that render (never a built-in role such as edit or admin).
+func TestRBACInventoryListsEveryRBACTemplate(t *testing.T) {
+	data, err := os.ReadFile("../../charts/pacto-operator/tests/rbac_inventory_test.yaml")
+	if err != nil {
+		t.Fatalf("read the inventory: %v", err)
+	}
+	var inv inventory
+	if err := yaml.Unmarshal(data, &inv); err != nil {
+		t.Fatalf("parse the inventory: %v", err)
+	}
+	found := rbacTemplates(t)
+	if len(found) == 0 {
+		t.Fatal("no chart template renders RBAC")
+	}
+	for _, tpl := range found {
+		if !slices.Contains(inv.Templates, "templates/"+tpl) {
+			t.Errorf("templates/%s renders RBAC and is missing from tests/rbac_inventory_test.yaml", tpl)
+		}
+	}
+	for render, docs := range inventoryDocs(inv) {
+		roles := map[string]bool{}
+		for _, d := range docs {
+			if d["kind"] == "Role" || d["kind"] == "ClusterRole" {
+				roles[fmt.Sprint(d["kind"], "/", d["metadata.name"])] = true
+			}
+		}
+		for _, d := range docs {
+			ref, ok := d["roleRef"].(map[string]any)
+			if !ok {
+				continue
+			}
+			if !roles[fmt.Sprint(ref["kind"], "/", ref["name"])] {
+				t.Errorf("%s: %s %v binds %s %v, which the chart does not render", render, d["kind"], d["metadata.name"], ref["kind"], ref["name"])
+			}
+		}
+	}
+}
+
+// inventoryDocs groups the pinned documents of the per-render inventory cases ("<render>: every rule ...")
+// by render: each document is the map of the paths its equal assertions pin.
+func inventoryDocs(inv inventory) map[string][]map[string]any {
+	out := map[string][]map[string]any{}
+	for _, tc := range inv.Tests {
+		render, _, ok := strings.Cut(tc.It, ": every rule")
+		if !ok {
+			continue
+		}
+		byIndex := map[string]map[string]any{}
+		for _, a := range tc.Asserts {
+			if a.Equal == nil || a.DocumentIndex == nil {
+				continue
+			}
+			key := tc.Template + "#" + fmt.Sprint(*a.DocumentIndex)
+			if byIndex[key] == nil {
+				byIndex[key] = map[string]any{}
+				out[render] = append(out[render], byIndex[key])
+			}
+			byIndex[key][a.Equal.Path] = a.Equal.Value
+		}
+	}
+	return out
+}
+
+// TestNoClusterRoleGrantsSecrets fails on any ClusterRole rule naming Secrets in any template, read with
+// every feature on: Secrets are read only where a namespaced Role grants them.
+func TestNoClusterRoleGrantsSecrets(t *testing.T) {
+	checked := 0
+	for _, tpl := range rbacTemplates(t) {
+		data, err := os.ReadFile(chartTemplates + tpl)
+		if err != nil {
+			t.Fatalf("read %s: %v", tpl, err)
+		}
+		// Only the ClusterRole documents are read: the others hold templating that is no YAML once stripped.
+		for doc := range strings.SplitSeq(string(inlineRuleIncludes(t, data)), "\n---") {
+			if !strings.Contains(doc, "kind: ClusterRole\n") {
+				continue
+			}
+			for _, d := range parseRoles(t, tpl, chartDirective.ReplaceAll([]byte(doc), nil)) {
+				checked++
+				for _, r := range d.Rules {
+					if slices.Contains(r.Resources, "secrets") {
+						t.Errorf("%s: a ClusterRole grants %v on secrets", tpl, r.Verbs)
+					}
+				}
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no ClusterRole was checked")
+	}
+}
+
+// ruleInclude is a whole-line include of a named template, indented with nindent: how the chart pulls
+// shared rules into a role.
+var ruleInclude = regexp.MustCompile(`(?m)^\s*\{\{-? include "([^"]+)".*\| nindent (\d+) \}\}$`)
+
+// chartDefine is one named template of a chart partial.
+var chartDefine = regexp.MustCompile(`(?s)\{\{- define "([^"]+)" -\}\}\n(.*?)\n\{\{- end \}\}`)
+
+// inlineRuleIncludes replaces each whole-line include in data with the named template's body, indented as
+// the include asks, so the rules a role pulls from a partial are read too.
+func inlineRuleIncludes(t *testing.T, data []byte) []byte {
+	t.Helper()
+	defines := map[string]string{}
+	partials, err := filepath.Glob(chartTemplates + "*/_*.tpl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	top, _ := filepath.Glob(chartTemplates + "_*.tpl")
+	for _, p := range append(top, partials...) {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatalf("read %s: %v", p, err)
+		}
+		for _, m := range chartDefine.FindAllStringSubmatch(string(b), -1) {
+			defines[m[1]] = m[2]
+		}
+	}
+	for range 3 {
+		data = ruleInclude.ReplaceAllFunc(data, func(line []byte) []byte {
+			m := ruleInclude.FindSubmatch(line)
+			body, ok := defines[string(m[1])]
+			if !ok {
+				return line
+			}
+			pad := strings.Repeat(" ", int(m[2][0]-'0'))
+			return []byte(pad + strings.ReplaceAll(body, "\n", "\n"+pad))
+		})
+	}
+	return data
 }

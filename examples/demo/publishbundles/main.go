@@ -43,17 +43,16 @@ import (
 )
 
 func main() {
-	if err := run(); err != nil {
+	if err := run(os.Args[1:], os.Stdout, os.Stderr); err != nil {
 		fmt.Fprintln(os.Stderr, "publishbundles:", err)
 		os.Exit(1)
 	}
 }
 
-func run() error {
+func run(args []string, stdout, stderr io.Writer) error {
 	// --print-digests: compute each bundle's deterministic OCI digest locally and
 	// print "<svc>:<version> <digest>" WITHOUT pushing. The demo publisher uses this
 	// for a byte-exact absent/identical/conflict gate before touching the registry.
-	args := os.Args[1:]
 	if len(args) == 3 && args[0] == "--seed-cache" {
 		return seedCache(args[1], args[2])
 	}
@@ -89,12 +88,19 @@ func run() error {
 		}
 		name := b.Contract.Service.Name
 		version := b.Contract.Service.Version
+		// A contract with no declared service.version is not publishable (pacto
+		// publish refuses it too). The skip goes to stderr: publish-demo-bundles.sh
+		// reads stdout as "<tag> <digest>" lines.
+		if version == "" {
+			_, _ = fmt.Fprintf(stderr, "skipped: %s (no declared version, not publishable)\n", filepath.Base(dir))
+			continue
+		}
 		if printOnly {
 			d, err := bundleDigest(b)
 			if err != nil {
 				return fmt.Errorf("digest %s: %w", dir, err)
 			}
-			fmt.Printf("%s:%s %s\n", name, version, d)
+			_, _ = fmt.Fprintf(stdout, "%s:%s %s\n", name, version, d)
 			continue
 		}
 		// Client.Push takes a bare registry ref (no oci:// scheme), matching what
@@ -104,7 +110,7 @@ func run() error {
 		if err != nil {
 			return fmt.Errorf("push %s: %w", ref, err)
 		}
-		fmt.Printf("%s:%s %s\n", name, version, digest)
+		_, _ = fmt.Fprintf(stdout, "%s:%s %s\n", name, version, digest)
 	}
 	return nil
 }

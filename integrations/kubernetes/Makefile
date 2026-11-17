@@ -233,7 +233,7 @@ docs-generate: ## Regenerate this integration's reference docs from real sources
 helm-lint: ## Lint the Helm charts.
 	helm lint charts/pacto-operator
 	@# helm lint takes no --api-versions; skipCapabilityCheck skips only the cluster check, the policies still render.
-	helm lint charts/pacto-operator --set delivery.enabled=true --set delivery.admissionPolicies.skipCapabilityCheck=true --set delivery.identities.allowEmptyHumanGroups=true
+	helm lint charts/pacto-operator --set delivery.enabled=true --set delivery.admissionPolicies.skipCapabilityCheck=true
 	helm lint charts/pacto-operator -f charts/pacto-operator/values-quickstart.yaml --set delivery.admissionPolicies.skipCapabilityCheck=true
 
 HELM_RELEASE ?= pacto-operator

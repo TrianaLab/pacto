@@ -8,7 +8,7 @@
 
 Controller flags and their exact defaults are captured from the operator's real `--help` output.
 
-**One dash or two makes no difference.** The table shows the single-dash spelling because that is how Go's `flag` package prints and reports flags, and other pages write `--enable-metrics-observation`. The parser accepts both forms identically: `--enable-metrics-observation=x` and `-enable-metrics-observation=x` produce the same `invalid boolean value "x" for -enable-metrics-observation` error. Neither spelling is more correct.
+**One dash or two makes no difference.** The table shows the single-dash spelling because that is how Go's `flag` package prints and reports flags, and other pages write `--enable-kernel-evidence`. The parser accepts both forms identically: `--enable-kernel-evidence=x` and `-enable-kernel-evidence=x` produce the same `invalid boolean value "x" for -enable-kernel-evidence` error. Neither spelling is more correct.
 
 **Two different defaults can apply to the same flag.** The Default column below is the *binary's* default -- what you get running the controller with no arguments. The Helm chart renders its own fixed argument list, so where a chart value exists it decides, and its default may differ. `-enable-dashboard` is the one that catches people out: the binary defaults it off, the chart's `dashboard.enabled` defaults it on, and a chart install therefore runs the managed dashboard. See the [Helm reference](helm-reference.md) for the values and their defaults.
 
@@ -25,6 +25,7 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-dashboard-delivery-namespace` | `string` |  | chart value | Namespace Pacto delivery runs in, whose published identity policy the dashboard reads; empty means pacto-delivery. |
 | `-dashboard-delivery-trust-configmap` | `string` |  | chart value | ConfigMap in the operator namespace holding the trust config the dashboard verifies delivery records with, so History reads signed records. |
 | `-dashboard-delivery-trust-key` | `string` | `trust.yaml` | chart value | Key of the trust config in that ConfigMap. |
+| `-dashboard-external-catalog` | `string` |  | chart value | Organization external catalog the dashboard merges over Pacto's default, as oci://REPOSITORY@sha256:DIGEST. |
 | `-dashboard-memory-limit` | `string` |  | chart value | Memory limit for the dashboard container. Empty uses the built-in default. |
 | `-dashboard-memory-request` | `string` |  | chart value | Memory request for the dashboard container. Empty uses the built-in default. |
 | `-dashboard-mira-url` | `string` |  | chart value | Mira's address, to link the dashboard's health-check citations. |
@@ -54,9 +55,9 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-enable-evidence-server` | `bool` |  | chart value | Enable the managed Pacto Evidence Server deployment. Disabled by default. |
 | `-enable-http2` | `bool` |  | no | If set, HTTP/2 will be enabled for the metrics server |
 | `-enable-kernel-evidence` | `bool` |  | chart value | Merge the node agent's kernel observations (NodeRuntimeObservation objects) into interface and dependency evidence. Off by default; when off, evidence comes from the Kubernetes API only. |
-| `-enable-metrics-observation` | `bool` |  | chart value | Enable full metrics observation (discovery + active probe). When disabled, metrics dimension returns Unsupported. |
+| `-enable-metrics-observation` | `=mode` |  | chart value | Metrics observation (discovery and active probe), written =mode: on, off or auto. auto observes metrics only in namespaces labelled pacto.trianalab.io/observe with metrics. The bare flag means on. Off by default; when off, metrics read Unsupported. |
 | `-enable-node-agent` | `bool` |  | chart value | Enable the managed node agent DaemonSet, which observes TCP socket state with eBPF on every node and publishes it as NodeRuntimeObservation objects. Disabled by default. |
-| `-enable-probing` | `bool` |  | chart value | Enable active in-cluster probing: health capability endpoints over HTTP (Tier A) and the wire protocol of each present interface. Off by default; when off, health uses passive readiness-probe and EndpointSlice signals only and interface protocols read unverified. |
+| `-enable-probing` | `=mode` |  | chart value | Active in-cluster probing (health endpoints over HTTP and each present interface's wire protocol), written =mode: on, off or auto. auto probes only in namespaces labelled pacto.trianalab.io/observe with probing. The bare flag means on. Off by default; when off, health uses passive readiness-probe and EndpointSlice signals only and interface protocols read unverified. |
 | `-evidence-cpu-limit` | `string` |  | chart value | CPU limit for the Evidence Server container. Empty uses the built-in default. |
 | `-evidence-cpu-request` | `string` |  | chart value | CPU request for the Evidence Server container. Empty uses the built-in default. |
 | `-evidence-credentials-secret` | `string` |  | chart value | Optional: name of an existing kubernetes.io/dockerconfigjson Secret with contract-registry credentials, mounted read-only. Empty means anonymous or in-cluster registry access. |
@@ -66,7 +67,7 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-evidence-trust-config-key` | `string` |  | chart value | Optional: key of the trust Secret holding a structured trust config (pacto.dev/evidence-trust/v1, a .yaml key). Set it to grant per-key allowlists such as ResourceProvisioned. Empty trusts every *.pub key in the Secret. |
 | `-evidence-trust-secret` | `string` |  | chart value | Name of a Secret of trusted producer public keys, mounted read-only. Required when the Evidence Server is enabled. |
 | `-health-probe-bind-address` | `string` | `:8081` | always on | The address the probe endpoint binds to. |
-| `-interface-name-match-discovery` | `bool` |  | no | Enable resolving an unbound interface's Service port by matching a Service port whose name equals the interface name (positive availability assist only; never produces an absent or error result). |
+| `-interface-name-match-discovery` | `bool` |  | chart value | Enable resolving an unbound interface's Service port by matching a Service port whose name equals the interface name (positive availability assist only; never produces an absent or error result). |
 | `-kernel-evidence-namespace` | `string` |  | chart value | Namespace the node agent publishes NodeRuntimeObservation objects and heartbeat Leases to. Empty uses --node-agent-namespace. |
 | `-kernel-evidence-staleness` | `duration` |  | chart value | How old a node's heartbeat (its Lease renewal, or the observation's lastPublished without a Lease) may be before its evidence reads stale. 0 uses three times the publish interval the node agent reports. |
 | `-kubeconfig` | `string` |  | no | Paths to a kubeconfig. Only required if out-of-cluster. |
@@ -78,7 +79,7 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-metrics-secure` | `bool` |  | chart value | If set, the metrics endpoint is served securely via HTTPS. Use --metrics-secure=true to enable HTTPS. |
 | `-node-agent-cpu-limit` | `string` |  | chart value | CPU limit for the node agent container. Empty uses the built-in default. |
 | `-node-agent-cpu-request` | `string` |  | chart value | CPU request for the node agent container. Empty uses the built-in default. |
-| `-node-agent-image` | `string` |  | no | Image the node agent runs pacto agent from. Empty uses the dashboard image this binary was built with, the runtime image the Evidence Server runs too. |
+| `-node-agent-image` | `string` |  | chart value | Image the node agent runs pacto agent from. Empty uses the dashboard image this binary was built with, the runtime image the Evidence Server runs too. |
 | `-node-agent-image-pull-secret` | `value` |  | chart value | Secret the node agent's ServiceAccount pulls its image with (repeatable). |
 | `-node-agent-memory-limit` | `string` |  | chart value | Memory limit for the node agent container. Empty uses the built-in default. |
 | `-node-agent-memory-request` | `string` |  | chart value | Memory request for the node agent container. Empty uses the built-in default. |
@@ -86,7 +87,8 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-node-agent-publish-interval` | `duration` | `30s` | chart value | How often each node agent publishes its node's NodeRuntimeObservation. |
 | `-stabilization-window` | `duration` | `2m0s` | chart value | The stabilization window duration for compliance assertions before they trigger a false condition. Assertions must remain unsatisfied for this entire window before being considered a failure. |
 | `-version` | `bool` |  | no | Print version information and exit. |
-| `-watch-namespace` | `string` |  | chart value | Restrict the controller to watch a single namespace. Empty (default) means cluster-wide. The dashboard inherits this scope automatically. |
+| `-watch-namespace` | `string` |  | no | Deprecated: use --watch-namespaces. Merged into the --watch-namespaces list. |
+| `-watch-namespaces` | `string` |  | chart value | Restrict the controller and the managed dashboard to these namespaces (comma-separated). Empty (default) means cluster-wide. |
 | `-zap-devel` | `bool` |  | no | Development Mode defaults(encoder=consoleEncoder,logLevel=Debug,stackTraceLevel=Warn). Production Mode defaults(encoder=jsonEncoder,logLevel=Info,stackTraceLevel=Error) |
 | `-zap-encoder` | `value` |  | no | Zap log encoding (one of 'json' or 'console') |
 | `-zap-log-level` | `value` |  | no | Zap Level to configure the verbosity of logging. Can be one of 'debug', 'info', 'error', 'panic' or any integer value > 0 which corresponds to custom debug levels of increasing verbosity |

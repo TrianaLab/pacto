@@ -25,12 +25,11 @@ import (
 	"github.com/google/go-containerregistry/pkg/authn"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/dynamic"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -41,6 +40,7 @@ import (
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/runstats"
 	core "github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
+	"github.com/trianalab/pacto/v4/pkg/kubecluster"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 	"github.com/trianalab/pacto/v4/pkg/signing"
@@ -76,9 +76,11 @@ func runPromoter(args []string) error {
 			"so one slow health provider does not hold up the rest.")
 	poll := fs.Duration("poll", 3*time.Second, "How often an operation waiting on Flux, Pacto or a person is looked at.")
 	resync := fs.Duration("resync", delivery.DefaultResync,
-		"How often a Stage is looked at when nothing it watches (its operations, upstream Stage, OCIRepositories, "+
-			"Kustomizations and Application) changed.")
+		"How often a Stage is looked at when nothing it watches (its operations, upstream Stage and the Flux or "+
+			"Argo CD objects the promoter watches) changed.")
 	argocd := fs.Bool("argocd", false, "Stages may apply through Argo CD Applications: watch and cache them.")
+	flux := fs.Bool("flux", true, "Stages may apply through Flux OCIRepositories and Kustomizations: watch them.")
+	fluxHelm := fs.Bool("flux-helm", false, "Stages may apply through Flux HelmReleases: watch them.")
 	qps := fs.Float64("kube-api-qps", 50, "The apiserver requests per second the promoter's client may make.")
 	burst := fs.Int("kube-api-burst", 100, "The apiserver requests the promoter's client may burst above kube-api-qps.")
 	authFreshness := fs.Duration("auth-freshness", 0,
@@ -123,7 +125,7 @@ func runPromoter(args []string) error {
 		return err
 	}
 
-	clusterID, err := readClusterID(mgr)
+	clusterID, err := kubeClusterID(mgr)
 	if err != nil {
 		return err
 	}
@@ -138,6 +140,7 @@ func runPromoter(args []string) error {
 		return err
 	}
 	cluster := delivery.Cluster{Client: mgr.GetClient(), Cache: mgr.GetCache(), CacheApplications: *argocd,
+		NoFlux: !*flux, FluxHelm: *fluxHelm,
 		Registry: func(hosts ...string) core.Registry {
 			return oci.NewClient(keychain, oci.WithInsecureRegistries(slices.Concat(insecure, hosts)...))
 		}}
@@ -250,7 +253,7 @@ func runRecorder(args []string) error {
 	if err != nil {
 		return err
 	}
-	clusterID, err := readClusterID(mgr)
+	clusterID, err := kubeClusterID(mgr)
 	if err != nil {
 		return err
 	}
@@ -304,14 +307,14 @@ func newManager(metricsAddr, probeAddr string, leaderElect bool, id string,
 	})
 }
 
-// readClusterID reads the cluster half of every stream id: the kube-system
+// kubeClusterID reads the cluster half of every stream id: the kube-system
 // namespace uid.
-func readClusterID(mgr ctrl.Manager) (string, error) {
-	kubeSystem := &corev1.Namespace{}
-	if err := mgr.GetAPIReader().Get(context.Background(), client.ObjectKey{Name: "kube-system"}, kubeSystem); err != nil {
-		return "", fmt.Errorf("reading the cluster id: %w", err)
+func kubeClusterID(mgr ctrl.Manager) (string, error) {
+	dyn, err := dynamic.NewForConfig(mgr.GetConfig())
+	if err != nil {
+		return "", err
 	}
-	return string(kubeSystem.UID), nil
+	return kubecluster.ID(context.Background(), dyn)
 }
 
 // upstreamReader reads what a Stage in another cluster verified from its

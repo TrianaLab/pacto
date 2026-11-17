@@ -463,6 +463,27 @@ describe('FleetEntityView — rich service page (D)', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  // An external system's page: its class, catalog, consumers and where it was recognized.
+  it('shows an external system with its catalog, consumers and sources', async () => {
+    detailFn.mockResolvedValue({
+      meta, entity: { kind: 'external', key: 'stripe', label: 'Stripe', href: '/fleet/externals/stripe' }, actions: ['open-graph'],
+      external: {
+        external: { key: 'stripe', label: 'Stripe', class: 'vendor-api', consumers: ['domain-a/checkout'], consumersTotal: 1, sourcesTotal: 0, sources: [],
+          catalog: { origin: 'default', digest: `sha256:${'3e9a'.repeat(16)}`, entry: 'stripe' } },
+        consumers: [{ service: { kind: 'service', key: 'domain-a/checkout', label: 'checkout', href: '/fleet/services/domain-a%2Fcheckout' }, required: true }],
+        catalog: { origin: 'default', digest: `sha256:${'3e9a'.repeat(16)}`, copy: 'embedded', signature: 'unknown' },
+        inferredSources: [{ service: 'domain-a/checkout', source: 'k8s', kind: 'env', where: 'deployment/checkout env STRIPE_API_BASE', host: 'api.stripe.com', confidence: 'likely' }],
+        inferredSourcesTotal: 1,
+      },
+    });
+    const { target, component } = await mountView('external', 'stripe');
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="external-source"]')).toBeTruthy());
+    expect(target.textContent).toContain('External system');
+    expect(target.querySelector('[data-testid="external-catalog"]')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('Default catalog sha256:3e9a3e9a, entry stripe: embedded copy, signature unknown.');
+    expect(target.querySelector('a[href="#/fleet/services/domain-a%2Fcheckout"]')).toBeTruthy();
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('breadcrumbs use the entity relationship (Overview > Services > payments)', async () => {
     detailFn.mockResolvedValue(serviceDetail());
     const { target, component } = await mountView('service', 'domain-a/payments');
@@ -549,6 +570,29 @@ describe('FleetEntityView — rich revision page (E)', () => {
     const labels = Array.from(target.querySelectorAll('.re-k')).map((n) => n.textContent);
     expect(labels).toContain('Pacto version');
     expect(labels).not.toContain('pactoVersion');
+  });
+
+  it('says when a revision declares a pactoVersion behind or unknown to this Pacto', async () => {
+    const render = async (patch: Record<string, unknown>) => {
+      const d = revisionDetail();
+      Object.assign(d.revision, { pactoVersion: '2.0' }, patch);
+      detailFn.mockResolvedValue(d);
+      const { target, component } = await mountView('revision', 'domain-a/payments@2.1.0');
+      await vi.waitFor(() => expect(target.textContent).toContain('2.0'));
+      const text = target.textContent || '';
+      unmount(component); document.body.removeChild(target);
+      return text;
+    };
+    const behind = await render({ pactoVersionCurrent: '2.5' });
+    expect(behind).toContain('behind 2.5');
+    expect(behind).toContain('This revision declares pactoVersion 2.0. The latest version this Pacto knows is 2.5.');
+    const unknown = await render({ pactoVersion: '9.9', pactoVersionCurrent: '2.5', pactoVersionUnknown: true });
+    expect(unknown).toContain('unknown version');
+    expect(unknown).toContain('This revision declares pactoVersion 9.9, which this Pacto does not know. The latest version it knows is 2.5.');
+    expect(unknown).not.toContain('behind 2.5');
+    const current = await render({});
+    expect(current).not.toContain('behind');
+    expect(current).not.toContain('unknown version');
   });
 
   it('links the owner from a revision, the same as from its service', async () => {
@@ -878,6 +922,182 @@ describe('FleetEntityView — owner and source pages (G)', () => {
     const text = (target.textContent || '').replace(/\s+/g, ' ');
     expect(text).not.toContain('200 of 200');
     expect(text).toContain('Showing 200. More exist; total unknown.');
+    unmount(component); document.body.removeChild(target);
+  });
+});
+
+describe('FleetEntityView — cluster-qualified target keys', () => {
+  // A block body: a function returned from beforeEach is a cleanup hook, and the mock would run again after the test.
+  beforeEach(() => { detailFn.mockReset(); location.hash = ''; });
+
+  it('replaces a legacy or forward key with the canonical href, without a new history entry', async () => {
+    location.hash = '#/fleet/targets/c1%2Fprod%2Fk8s%2Fapp';
+    const replace = vi.spyOn(history, 'replaceState');
+    const push = vi.spyOn(history, 'pushState');
+    detailFn.mockResolvedValue(targetDetail());
+    const { target, component } = await mountView('target', 'c1/prod/k8s/app');
+    await vi.waitFor(() => expect(replace).toHaveBeenCalledWith(null, '', '#/fleet/targets/prod%2Fk8s%2Fapp'));
+    expect(push).not.toHaveBeenCalled();
+    replace.mockRestore(); push.mockRestore();
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('keeps the correlation id of the address when it replaces the key', async () => {
+    location.hash = '#/fleet/targets/c1%2Fprod%2Fk8s%2Fapp?correlationID=INC-42';
+    const replace = vi.spyOn(history, 'replaceState');
+    detailFn.mockResolvedValue(targetDetail());
+    const { target, component } = await mountView('target', 'c1/prod/k8s/app');
+    await vi.waitFor(() => expect(replace).toHaveBeenCalledWith(null, '', '#/fleet/targets/prod%2Fk8s%2Fapp?correlationID=INC-42'));
+    replace.mockRestore();
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('leaves the location alone when the requested key is the canonical one', async () => {
+    const replace = vi.spyOn(history, 'replaceState');
+    detailFn.mockResolvedValue(targetDetail());
+    const { target, component } = await mountView('target', 'prod/k8s/app');
+    expect(replace).not.toHaveBeenCalled();
+    replace.mockRestore();
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('offers a chooser when a target key names targets in more than one cluster', async () => {
+    const { ApiError } = await import('../lib/api.ts');
+    const err = new ApiError(409, 'this target key names targets in more than one cluster; choose one');
+    err.candidates = [
+      { key: 'c1/prod/k8s/app', label: 'eu-prod / prod / app' },
+      { key: 'c2/prod/k8s/app', label: 'us-prod / prod / app' },
+    ];
+    detailFn.mockRejectedValue(err);
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const component = mount(FleetEntityView, { target, props: { kind: 'target', entityKey: 'prod/k8s/app', refreshTick: 0 } });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="target-key-chooser"]')).toBeTruthy());
+    const chooser = target.querySelector('[data-testid="target-key-chooser"]') as HTMLElement;
+    expect(chooser.textContent).toContain('This target key names targets in more than one cluster; choose one.');
+    const links = [...chooser.querySelectorAll('a')];
+    expect(links.map((a) => a.getAttribute('href'))).toEqual(['#/fleet/targets/c1%2Fprod%2Fk8s%2Fapp', '#/fleet/targets/c2%2Fprod%2Fk8s%2Fapp']);
+    expect(links[0].textContent).toContain('eu-prod / prod / app');
+    expect(links[0].querySelector('bdi')?.textContent).toBe('c1/prod/k8s/app');
+    expect(target.querySelector('h1')).toBeTruthy();
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('chooser links open each candidate, the clusterless one included, and keep the correlation id', async () => {
+    location.hash = '#/fleet/targets/prod%2Fk8s%2Fapp?correlationID=INC-42';
+    const { ApiError } = await import('../lib/api.ts');
+    const err = new ApiError(409, 'this target key matches one target, but a source is incomplete and may hold the same target in another cluster; choose one');
+    err.candidates = [{ key: '_/prod/k8s/app', label: 'prod/k8s/app (cluster unknown)' }];
+    detailFn.mockRejectedValue(err);
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const component = mount(FleetEntityView, { target, props: { kind: 'target', entityKey: 'prod/k8s/app', refreshTick: 0 } });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="target-key-chooser"]')).toBeTruthy());
+    const chooser = target.querySelector('[data-testid="target-key-chooser"]') as HTMLElement;
+    expect(chooser.textContent).toContain('a source is incomplete');
+    expect([...chooser.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual(['#/fleet/targets/_%2Fprod%2Fk8s%2Fapp?correlationID=INC-42']);
+    unmount(component); document.body.removeChild(target);
+  });
+});
+
+describe('FleetEntityView — external system page', () => {
+  beforeEach(() => detailFn.mockReset());
+  const DIGEST = 'sha256:3e9a1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcd';
+  const svc = (name: string) => ({ kind: 'service', key: name, label: name, href: `/fleet/services/${name}` });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test fixture
+  function externalDetail(record: Record<string, any>, extra: Record<string, any> = {}): any {
+    return {
+      meta,
+      entity: { kind: 'external', key: record.key, label: record.label, secondary: record.class, status: 'unknown', href: `/fleet/externals/${record.key}` },
+      status: 'unknown',
+      actions: ['open-graph'],
+      external: {
+        external: { sources: [], sourcesTotal: 0, consumers: [], consumersTotal: 0, ...record },
+        consumers: [],
+        ...extra,
+      },
+    };
+  }
+
+  it('lists the consumers and a provenance panel with every source and the catalog', async () => {
+    detailFn.mockResolvedValue(externalDetail({
+      key: 'stripe', label: 'Stripe', class: 'vendor-api', consumersTotal: 2, sourcesTotal: 2, hiddenConsumers: 1,
+      catalog: { origin: 'default', digest: DIGEST, entry: 'stripe' },
+      sources: [
+        { kind: 'contract', service: 'checkout', index: 0, dependency: 'Stripe', version: '2024-06', required: true, provenance: 'declared', match: 'catalog-alias' },
+        { kind: 'contract', service: 'billing', index: 2, dependency: 'stripe-api', provenance: 'declared', match: 'catalog-alias', superseded: true },
+      ],
+    }, {
+      consumers: [{ service: svc('checkout'), required: true, versions: ['2024-06'] }, { service: svc('billing') }],
+      catalog: { origin: 'default', digest: DIGEST, copy: 'embedded', signature: 'unknown', reason: 'the default catalog is checked only when a source already reads ghcr.io' },
+    }));
+    const { target, component } = await mountView('external', 'stripe');
+    expect(detailFn).toHaveBeenCalledWith('external', 'stripe');
+    const rows = Array.from(target.querySelectorAll('[data-testid="external-consumers"] tbody tr'));
+    expect(rows.map((r) => Array.from(r.children).map((c) => c.textContent?.trim()))).toEqual([['checkout', 'required', '2024-06'], ['billing', 'optional', 'none named']]);
+    expect(target.querySelector('[data-testid="external-hidden-consumers"]')?.textContent).toBe('1 more service you cannot see declares, calls or uses it.');
+    const cat = target.querySelector('[data-testid="external-catalog"]')?.textContent?.replace(/\s+/g, ' ').trim();
+    expect(cat).toBe('Default catalog sha256:3e9a1b2c, entry stripe: embedded copy, signature unknown (the default catalog is checked only when a source already reads ghcr.io).');
+    const sources = Array.from(target.querySelectorAll('[data-testid="external-source"]')).map((r) => [
+      r.getAttribute('data-provenance'), r.querySelector('[data-cell="service"] a')?.textContent?.trim(), r.querySelector('[data-cell="where"] bdi')?.textContent?.trim()]);
+    expect(sources).toEqual([
+      ['declared', 'checkout', 'pacto.yaml dependencies[0] (name: Stripe)'],
+      ['declared', 'billing', 'pacto.yaml dependencies[2] (name: stripe-api, not in the newest revision)'],
+    ]);
+    expect(target.querySelector('[data-testid="external-name-only"]')).toBeNull();
+    const crumbs = Array.from(target.querySelectorAll('nav a, nav span')).map((n) => n.textContent?.trim());
+    expect(crumbs).toEqual(expect.arrayContaining(['Overview', 'Services', 'External systems', 'Stripe']));
+    expect(target.querySelector('.xe-caption')?.textContent).toContain('2 services declare, call or use this vendor API.');
+    expect(target.querySelector('[data-testid="external-folded-into"]')).toBeNull();
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('says a system joined by name only does not join other spellings', async () => {
+    detailFn.mockResolvedValue(externalDetail({ key: 'parcel-carrier', label: 'parcel-carrier', class: 'unclassified', consumersTotal: 1 },
+      { consumers: [{ service: svc('carrier-gateway'), required: true }] }));
+    const { target, component } = await mountView('external', 'parcel-carrier');
+    expect(target.querySelector('[data-testid="external-name-only"]')?.textContent).toBe('Joined by name only: consumers that spell it differently do not join.');
+    expect(target.querySelector('[data-testid="external-catalog"]')).toBeNull();
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('words the join from how its consumers join it, never "name only" for an identity or a host', async () => {
+    for (const [joinedBy, want] of [
+      ['identity', 'Joined by the identity its consumers declare; no catalog entry classifies it.'],
+      ['host', 'Joined by its registrable domain; no catalog entry classifies it.'],
+    ]) {
+      detailFn.mockResolvedValue(externalDetail({ key: 'k', label: 'k', class: 'unclassified', consumersTotal: 1, joinedBy }));
+      const { target, component } = await mountView('external', 'k');
+      expect(target.querySelector('[data-testid="external-name-only"]')?.textContent).toBe(want);
+      expect(target.querySelector('.xe-caption')?.textContent).toContain('this external system');
+      unmount(component); document.body.removeChild(target);
+    }
+  });
+
+  it('says a verified default catalog is the embedded copy matching the signed artifact, not a registry read', async () => {
+    detailFn.mockResolvedValue(externalDetail({ key: 'stripe', label: 'Stripe', class: 'vendor-api', consumersTotal: 1, catalog: { origin: 'default', digest: DIGEST, entry: 'stripe' } },
+      { catalog: { origin: 'default', digest: DIGEST, copy: 'registry', signature: 'verified', signer: 'release' } }));
+    const { target, component } = await mountView('external', 'stripe');
+    const cat = target.querySelector('[data-testid="external-catalog"]')?.textContent?.replace(/\s+/g, ' ').trim();
+    expect(cat).toContain('embedded copy, matches the signed registry artifact, signature verified (release)');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('says when this answer folds the system into other egress', async () => {
+    detailFn.mockResolvedValue(externalDetail({ key: 'legacy-ftp', label: 'legacy-ftp', class: 'unclassified', consumersTotal: 1 }, { foldedInto: 'other-egress' }));
+    const { target, component } = await mountView('external', 'legacy-ftp');
+    const note = target.querySelector('[data-testid="external-folded-into"]');
+    expect(note?.textContent).toContain('This answer folds it into Other egress');
+    expect(note?.querySelector('a')?.getAttribute('href')).toBe('#/fleet/externals/other-egress');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('explains the other-egress node and how many systems it folds', async () => {
+    detailFn.mockResolvedValue(externalDetail({ key: 'other-egress', label: 'Other egress', class: 'other-egress', folded: 12, consumersTotal: 3 }));
+    const { target, component } = await mountView('external', 'other-egress');
+    expect(target.querySelector('[data-testid="external-folded"]')?.textContent).toContain('This node folds 12 external systems');
+    expect(target.querySelector('.xe-caption')?.textContent).toContain('3 services declare, call or use the external systems this node folds');
+    expect(target.querySelector('[data-testid="external-name-only"]')).toBeNull();
     unmount(component); document.body.removeChild(target);
   });
 });

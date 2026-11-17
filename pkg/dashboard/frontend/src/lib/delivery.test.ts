@@ -5,7 +5,7 @@ import {
   versionLabel, shortDigests, digestParts, sentence, timeLabel,
   verdictBadge, isBreaking, andList, reasonWords, verificationLabel, outcomeTone, reasonAfter, changeSummary, actorBadge, autonomyOf, unknownHelp, undoCause, UNKNOWN_DOCS,
   exceptParam, exceptList, offerLabel, checkText, watchText, progressStamp, isCommand, offerRequest, lifecycleWords,
-  causeText, historyWindow, windowSince, samePerson,
+  causeText, historyWindow, windowSince, samePerson, classSourceLabel, accessSourceLabel, gateLabel, applierLine, serverNow,
 } from './delivery.ts';
 import {
   parseHash, deliveryInboxUrl, deliveryEnvironmentsUrl, deliveryPublishUrl, deliveryAutonomyUrl, deliveryHistoryUrl, deliveryChangeUrl,
@@ -401,5 +401,70 @@ describe('history filters (B3)', () => {
     expect(historyWindow('2026-11-10T12:00:00Z', '', '1', now)).toBe('custom');
     expect(windowSince('7d', now)).toBe('2026-11-04T12:00:00Z');
     expect(windowSince('all', now)).toBeUndefined();
+  });
+});
+
+describe('classSourceLabel and accessSourceLabel', () => {
+  it('names how an actor was classified, and says when a record does not', () => {
+    expect(classSourceLabel('service-account')).toBe('service account');
+    expect(classSourceLabel('agent-group')).toBe('agent group');
+    expect(classSourceLabel('outside-human-groups')).toBe('outside humanGroups');
+    expect(classSourceLabel('break-glass-group')).toBe('break-glass group');
+    expect(classSourceLabel('controller')).toBe('the promoter');
+    expect(classSourceLabel('system-user')).toBe('system user');
+    expect(classSourceLabel('user')).toBe('signed-in user');
+    expect(classSourceLabel('')).toBe('classification not recorded');
+    expect(classSourceLabel(undefined)).toBe('classification not recorded');
+    expect(classSourceLabel('later')).toBe('later');
+  });
+  it('names who checked the access, and says when a record does not', () => {
+    expect(accessSourceLabel('subject-access-review')).toBe('checked by the promoter');
+    expect(accessSourceLabel('self-subject-access-review')).toBe("checked with the caller's own credentials");
+    expect(accessSourceLabel('')).toBe('not recorded');
+    expect(accessSourceLabel(undefined)).toBe('not recorded');
+    expect(accessSourceLabel('registry-policy')).toBe('registry-policy');
+  });
+});
+
+describe('applier', () => {
+  it('labels the pacto.applier gate', () => {
+    expect(gateLabel('pacto.applier')).toBe('Applier owns the workloads');
+  });
+
+  it('says the applier in one line: the manager, what is wrong in words, and when the promoter last looked', () => {
+    const now = Date.parse('2026-11-15T10:00:00Z');
+    expect(applierLine(undefined, now)).toBeNull();
+    const ok = applierLine({ state: 'Adopted', display: 'Argo CD (Application payments, tracking annotation)', asOf: '2026-11-15T09:59:30Z' }, now);
+    expect(ok).toEqual({ display: 'Argo CD (Application payments, tracking annotation)', problem: '', asOf: 'as of 2026-11-15 09:59 UTC', warn: false,
+      text: 'Applier: Argo CD (Application payments, tracking annotation) (as of 2026-11-15 09:59 UTC)' });
+    const bad = applierLine({ state: 'Conflict', display: 'Helm (release payments, release annotations)', message: 'Helm release payments owns Deployment payments',
+      asOf: '2026-11-15T09:50:00Z' }, now);
+    expect(bad?.warn).toBe(true);
+    expect(bad?.text).toBe('Applier: Helm (release payments, release annotations), conflict: Helm release payments owns Deployment payments ' +
+      '(as of 2026-11-15 09:50 UTC, stale: the promoter has not checked since)');
+    const stale = applierLine({ state: 'Unmanaged', display: 'unmanaged', asOf: '2026-11-15T09:50:00Z' }, now);
+    expect(stale?.warn).toBe(true);
+    expect(applierLine({ state: 'Unknown', manager: 'none', message: 'cannot tell' }, now)?.text).toBe('Applier: none, unknown: cannot tell');
+  });
+
+  it('judges staleness by the promoter\'s staleAt and the server clock', () => {
+    const now = serverNow('2026-11-15T10:00:00Z');
+    expect(now).toBe(Date.parse('2026-11-15T10:00:00Z'));
+    // --resync=5m: an asOf four minutes old is fresh until its staleAt.
+    expect(applierLine({ state: 'Adopted', display: 'd', asOf: '2026-11-15T09:56:00Z', staleAt: '2026-11-15T10:06:00Z' }, now)?.warn).toBe(false);
+    expect(applierLine({ state: 'Adopted', display: 'd', asOf: '2026-11-15T09:56:00Z', staleAt: '2026-11-15T09:58:00Z' }, now)?.warn).toBe(true);
+    expect(serverNow(undefined)).toBeGreaterThan(0);
+  });
+
+  it('does not repeat the problem when the applier is the Ready reason', () => {
+    const now = Date.parse('2026-11-15T10:00:00Z');
+    const a = { state: 'Conflict', display: 'Helm (release payments)', message: 'Helm release payments owns Deployment payments', asOf: '2026-11-15T09:59:30Z' };
+    for (const ready of ['False: ApplierConflict', 'False: ApplierUnknown']) {
+      const line = applierLine(a, now, ready);
+      expect(line?.problem).toBe('');
+      expect(line?.text).not.toContain('owns Deployment payments');
+      expect(line?.warn).toBe(true);
+    }
+    expect(applierLine(a, now, 'False: CandidateUnverified')?.problem).toBe('conflict: Helm release payments owns Deployment payments');
   });
 });

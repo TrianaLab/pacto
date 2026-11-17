@@ -117,13 +117,15 @@ const schemaVocabulary = "bundle vocabulary mirrored by a JSON Schema enum; pinn
 
 // runtimeDispatched are methods the standard library calls through an
 // interface it discovers by reflection, never by name. errors.Is walks Unwrap,
-// fmt prints through Error and String, encoding/json consults MarshalJSON.
+// fmt prints through Error and String, encoding/json consults MarshalJSON,
+// flag parses a bare --name as true when the Value has IsBoolFlag.
 // Nothing in this repo will ever name them at a call site, so "no production
 // caller" is their normal state rather than evidence of death.
 var runtimeDispatched = map[string]bool{
 	"Error": true, "Unwrap": true, "Is": true, "As": true, "String": true,
 	"MarshalJSON": true, "UnmarshalJSON": true,
 	"MarshalYAML": true, "UnmarshalYAML": true,
+	"IsBoolFlag": true,
 }
 
 type decl struct {

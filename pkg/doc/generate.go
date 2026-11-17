@@ -139,8 +139,20 @@ func sectionTitles(d *contractview.ServiceDetails) []string {
 	return titles
 }
 
+// versionLabel is "v<version>", or says the contract declares none.
+func versionLabel(v string) string {
+	if v == "" {
+		return "version not declared"
+	}
+	return "v" + v
+}
+
 func writeSnapshotSummary(b *strings.Builder, d *contractview.ServiceDetails) {
-	fmt.Fprintf(b, "**%s** `v%s`", d.Name, d.Version)
+	fmt.Fprintf(b, "**%s**", d.Name)
+	if d.NameInferredFrom != "" {
+		fmt.Fprintf(b, " (name inferred from %s)", d.NameInferredFrom)
+	}
+	fmt.Fprintf(b, " `%s`", versionLabel(d.Version))
 	if d.ContractStatus != "" {
 		fmt.Fprintf(b, " · status `%s`", d.ContractStatus)
 	}
@@ -428,7 +440,7 @@ func buildIfaceLabel(iface contract.Interface, c *contract.Contract) string {
 
 func writeServiceSubgraph(b *strings.Builder, c *contract.Contract, hasExternal bool) {
 	svcID := sanitizeMermaidID(c.Service.Name)
-	fmt.Fprintf(b, "  subgraph %s[\"%s v%s\"]\n", svcID, c.Service.Name, c.Service.Version)
+	fmt.Fprintf(b, "  subgraph %s[\"%s %s\"]\n", svcID, c.Service.Name, versionLabel(c.Service.Version))
 	fmt.Fprintln(b, "    direction TB")
 	hasInnerNodes := false
 	if c.State != nil {

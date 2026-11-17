@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -1346,5 +1347,21 @@ func TestExtractTar_RejectsInvalidNames(t *testing.T) {
 		if _, err := extractTar(&buf); err == nil || !strings.Contains(err.Error(), "invalid path") {
 			t.Errorf("%s: expected an invalid path error, got %v", n, err)
 		}
+	}
+}
+
+func TestBundleFromFSRejectsUndeclaredContract(t *testing.T) {
+	for name, raw := range map[string]string{
+		"empty":           "",
+		"no pactoVersion": "service:\n  name: a\n  version: 1.0.0\n",
+		"no name":         "pactoVersion: \"2.5\"\nservice:\n  version: 1.0.0\n",
+	} {
+		_, err := bundleFromFS(fstest.MapFS{"pacto.yaml": {Data: []byte(raw)}})
+		if !errors.Is(err, contract.ErrUndeclaredContract) {
+			t.Errorf("%s: got %v", name, err)
+		}
+	}
+	if _, err := bundleFromFS(fstest.MapFS{"pacto.yaml": {Data: []byte("pactoVersion: \"2.5\"\nservice:\n  name: a\n  version: 1.0.0\n")}}); err != nil {
+		t.Errorf("declared: %v", err)
 	}
 }

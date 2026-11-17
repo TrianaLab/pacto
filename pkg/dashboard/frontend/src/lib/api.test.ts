@@ -3,7 +3,7 @@ import {
   PRODUCT_SCHEMA_VERSION, SchemaCompatibilityError, ApiError, ApiContractError,
   narrowEntityDetail, isServiceDetail, isTargetDetail,
 } from './api.ts';
-import type { ProductEntityDetail } from './api.ts';
+import type { ProductEntityDetail, ExternalEntityDetail } from './api.ts';
 
 // The facade routes every call through the generated openapi-fetch client, which
 // builds a Request and hands it to the single transport seam (dashboardFetch),
@@ -190,11 +190,17 @@ describe('entity-detail runtime narrowing', () => {
   // A broad response as the wire allows it; narrowEntityDetail enforces the invariant.
   const raw = (o: Record<string, unknown>): ProductEntityDetail => ({ meta, ...o } as unknown as ProductEntityDetail);
 
-  it('accepts a valid instance for each of the six kinds', () => {
-    for (const kind of ['service', 'revision', 'target', 'owner', 'source', 'domain'] as const) {
+  it('accepts a valid instance for each kind', () => {
+    for (const kind of ['service', 'revision', 'target', 'owner', 'source', 'domain', 'offering', 'external'] as const) {
       const d = narrowEntityDetail(raw({ entity: { kind }, [kind]: {} }));
       expect(d.entity.kind).toBe(kind);
     }
+  });
+
+  it('narrows an external system to its external payload', () => {
+    const d = narrowEntityDetail(raw({ entity: { kind: 'external', key: 'stripe' }, external: { external: { key: 'stripe' }, consumers: [] } }));
+    expect((d as ExternalEntityDetail).external.external.key).toBe('stripe');
+    expect(() => narrowEntityDetail(raw({ entity: { kind: 'external' }, offering: {} }))).toThrow(ApiContractError);
   });
 
   it('rejects a service kind with a missing service payload', () => {
@@ -428,6 +434,22 @@ describe('delivery endpoints', () => {
     mockFetch.mockResolvedValue(new Response('missing or wrong X-Pacto-CSRF header', { status: 403 }));
     const plain = await api.deliveryInbox().catch((e) => e);
     expect([plain.status, plain.code, plain.message]).toEqual([403, '', 'missing or wrong X-Pacto-CSRF header']);
+  });
+
+  it('carries the candidates of a target key that names targets in more than one cluster', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ status: 409, title: 'Conflict', detail: 'choose one', errors: [
+      { location: 'candidates', value: 'c1/prod/k8s/app', message: 'eu-prod / prod / app' },
+      { location: 'body.key', value: 'ignored', message: 'not a candidate' },
+      { location: 'candidates', value: 'c2/prod/k8s/app', message: 'us-prod / prod / app' },
+    ] }, 409));
+    const err = await api.fleetEntityDetail('target', 'prod/k8s/app').catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect([err.status, err.candidates]).toEqual([409, [
+      { key: 'c1/prod/k8s/app', label: 'eu-prod / prod / app' },
+      { key: 'c2/prod/k8s/app', label: 'us-prod / prod / app' },
+    ]]);
+    mockFetch.mockResolvedValue(jsonResponse({ status: 404, detail: 'not found' }, 404));
+    expect((await api.fleetEntityDetail('target', 'x').catch((e) => e)).candidates).toEqual([]);
   });
 
   it('carries differs on a PlanStale answer', async () => {

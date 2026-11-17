@@ -205,6 +205,8 @@ type DeclaredClaim struct {
 	// RangeStatus is whether the provider version satisfies this revision's
 	// declared range (see Relationship.RangeStatus).
 	RangeStatus string `json:"rangeStatus,omitempty" enum:"satisfied,unsatisfied,unknown"`
+	// NameFromRef marks a dependency whose name was derived from its ref.
+	NameFromRef bool `json:"nameFromRef,omitempty"`
 	// DependencyBehavior is what this revision's dependency requires of the
 	// provider's behavior and whether the provider meets it.
 	DependencyBehavior
@@ -234,10 +236,16 @@ type NeighborhoodEdge struct {
 	// service-scoped telemetry (see ObservationScope/ServiceCorroboration); only a
 	// genuine service-to-service edge or the target "runs" link is ever Observed.
 	Observed bool `json:"observed"`
+	// Inferred reports whether a source inferred this edge to an external
+	// system from the caller's configuration. It is shown only with the
+	// differences view, and an edge that is also declared or observed keeps
+	// that provenance label.
+	Inferred bool `json:"inferred,omitempty"`
 	// Provenance is the combined provenance of the merged edge. edgeProvenance emits
-	// "declared+observed" when an edge is both, so the finite enum declares all three
-	// values (never just the two singletons), matching what the runtime can emit.
-	Provenance string `json:"provenance" enum:"declared,observed,declared+observed"`
+	// "declared+observed" when an edge is both, so the finite enum declares every
+	// value the runtime can emit; "inferred" names an edge only inferred, whose
+	// Difference stays empty because declared-versus-observed has no verdict for it.
+	Provenance string `json:"provenance" enum:"declared,observed,declared+observed,inferred"`
 	Difference string `json:"difference,omitempty" enum:"matched,expected-not-observed,observed-not-expected,insufficient"`
 	// ObservationScope names the granularity at which this edge's observation or
 	// corroboration applies (service or target); empty when there is no observation.
@@ -295,13 +303,15 @@ type UnresolvedDependency struct {
 	// resolving is expected; Version is the free-text version it declares.
 	External bool   `json:"external,omitempty"`
 	Version  string `json:"version,omitempty"`
+	// NameFromRef marks a Ref (the dependency name) derived from RequestedRef.
+	NameFromRef bool `json:"nameFromRef,omitempty"`
 }
 
 // unresolvedDep is the unresolved-dependency row for rel, attributed to from.
 func unresolvedDep(from EntityRef, rel Relationship) UnresolvedDependency {
 	return UnresolvedDependency{
 		From: from, Ref: rel.To, SourceRevision: rel.FromRevision, RequestedRef: rel.RequestedRef,
-		Reason: rel.Reason, External: rel.External, Version: rel.Version,
+		Reason: rel.Reason, External: rel.External, Version: rel.Version, NameFromRef: rel.NameFromRef,
 	}
 }
 
@@ -445,6 +455,7 @@ func projectEdgeForViews(e *NeighborhoodEdge, views []KnowledgeView) {
 		e.Stale = false
 	}
 	if !wantDifferences {
+		e.Inferred = false
 		e.Difference = ""
 		e.ServiceCorroboration = ""
 		e.ObservationScope = ""
@@ -492,6 +503,9 @@ func boundNeighborhoodParams(nq NeighborhoodQuery) (boundedParams, error) {
 // serviceNeighborhood is the logical-service projection (Perspective service): every
 // node is a service and every edge is a service-to-service declared/observed edge.
 func (q *Query) serviceNeighborhood(kind EntityKind, key string, bp boundedParams) (*Neighborhood, error) {
+	if kind == KindExternal {
+		return q.externalNeighborhood(key, bp)
+	}
 	root, requested, focusService, revState, err := q.resolveNeighborhoodFocus(kind, key)
 	if err != nil {
 		return nil, err
@@ -511,6 +525,7 @@ func (q *Query) serviceNeighborhood(kind EntityKind, key string, bp boundedParam
 		TruncatedEdges:         truncatedEdges,
 		TotalNodes:             totalNodes,
 	}
+	q.addExternalLeaves(res, nodeDepth, bp)
 	return res, nil
 }
 
@@ -826,8 +841,10 @@ func edgeDifference(e NeighborhoodEdge) string {
 	if e.Relation == RelationConfigurationReference {
 		return ""
 	}
-	// Every merged edge has at least one of Expected/Observed, so !Expected implies
-	// observed-only.
+	// An inferred-only edge has no declared-versus-observed verdict.
+	if !e.Expected && !e.Observed {
+		return ""
+	}
 	if !e.Expected {
 		return DifferenceObservedNotExpected
 	}
@@ -859,7 +876,8 @@ func (q *Query) unresolvedNeighborhoodDeps(depthOf map[ServiceKey]int, wantDecla
 		rel := q.snap.Relationships[i]
 		// Dependencies only: an unresolved configuration reference is reported on
 		// the contract's own configurations.
-		if rel.Type != RelationshipDependency || rel.Provenance != ProvenanceDeclared || rel.ToService != "" || rel.Hidden {
+		// A joined external is not unresolved: it names its external system.
+		if rel.Type != RelationshipDependency || rel.Provenance != ProvenanceDeclared || rel.ToService != "" || rel.ToExternal != "" || rel.Hidden {
 			continue
 		}
 		if _, ok := depthOf[rel.FromService]; !ok {
@@ -933,6 +951,8 @@ func (q *Query) foldRelationshipIntoEdge(e *NeighborhoodEdge, rel Relationship) 
 		e.FirstSeen = earlier(e.FirstSeen, rel.FirstSeen)
 		e.LastSeen = later(e.LastSeen, rel.LastSeen)
 		e.Stale = e.Stale || q.observedStale(rel.LastSeen)
+	case ProvenanceInferred:
+		e.Inferred = true
 	}
 	e.Provenance = edgeProvenance(*e)
 }
@@ -958,6 +978,8 @@ func edgeProvenance(e NeighborhoodEdge) string {
 		return ProvenanceDeclaredObserved
 	case e.Observed:
 		return ProvenanceObserved
+	case e.Inferred && !e.Expected:
+		return ProvenanceInferred
 	default:
 		return ProvenanceDeclared
 	}
@@ -971,7 +993,8 @@ func (q *Query) observedStale(lastSeen *time.Time) bool {
 
 // edgeMatchesViews reports whether a merged edge should be included for the
 // requested views. Expected includes declared edges; observed includes observed
-// edges; differences includes any edge (so observed-only shadow edges surface).
+// edges; differences includes any edge (so observed-only shadow edges and
+// inferred-only edges surface).
 func edgeMatchesViews(e NeighborhoodEdge, views []KnowledgeView) bool {
 	for _, v := range views {
 		switch v {
@@ -984,7 +1007,7 @@ func edgeMatchesViews(e NeighborhoodEdge, views []KnowledgeView) bool {
 				return true
 			}
 		case ViewDifferences:
-			if e.Expected || e.Observed {
+			if e.Expected || e.Observed || e.Inferred {
 				return true
 			}
 		}

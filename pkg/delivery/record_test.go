@@ -252,3 +252,60 @@ func TestOpenRecordRefusesMalformed(t *testing.T) {
 		}
 	}
 }
+
+// TestRecordCarriesClassificationAndAccess: the record keeps how the actor
+// and each approver were classified and what let the approver decide.
+func TestRecordCarriesClassificationAndAccess(t *testing.T) {
+	in := recordInput()
+	in.Operation.Status.ActorClassifiedBy = ClassByServiceAccount
+	a := &in.Operation.Status.Approvals[0]
+	a.ClassifiedBy, a.Access, a.AccessSource, a.AccessAt = ClassByUser, "update deployments/checkout in payments", "subject-access-review", "2026-11-15T10:00:00Z"
+	b, _ := json.Marshal(NewOperationRecord(in).Predicate)
+	var p struct {
+		Actor     map[string]any   `json:"actor"`
+		Approvals []map[string]any `json:"approvals"`
+	}
+	if err := json.Unmarshal(b, &p); err != nil {
+		t.Fatal(err)
+	}
+	if p.Actor["classifiedBy"] != "service-account" {
+		t.Errorf("actor: %v", p.Actor)
+	}
+	want := map[string]string{"classifiedBy": "user", "access": "update deployments/checkout in payments",
+		"accessSource": "subject-access-review", "accessAt": "2026-11-15T10:00:00Z"}
+	for k, v := range want {
+		if p.Approvals[0][k] != v {
+			t.Errorf("approvals[0].%s = %v, want %s", k, p.Approvals[0][k], v)
+		}
+	}
+	e := RecordEntry(StoredRecord{Statement: NewOperationRecord(in)})
+	if e.ActorClassifiedBy != ClassByServiceAccount || e.Approvals[0].Access != want["access"] {
+		t.Errorf("history line: %+v", e)
+	}
+	op := in.Operation
+	if s := StatusEntry(op); s.ActorClassifiedBy != ClassByServiceAccount || s.Approvals[0].ClassifiedBy != ClassByUser ||
+		s.Approvals[0].AccessSource != "subject-access-review" || s.Approvals[0].AccessAt != want["accessAt"] {
+		t.Errorf("status line: %+v", s)
+	}
+	if x := ExplainOperation(&op, nil); x.Status.ActorClassifiedBy != ClassByServiceAccount {
+		t.Errorf("explanation: %+v", x.Status)
+	}
+}
+
+// TestOldRecordWithoutClassification: a record written before the fields
+// existed opens on the strict path with every source empty.
+func TestOldRecordWithoutClassification(t *testing.T) {
+	st := NewOperationRecord(recordInput())
+	b, _, err := SignRecord(t.Context(), plainSigner{}, st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if payload, _ := json.Marshal(st); strings.Contains(string(payload), "classifiedBy") || strings.Contains(string(payload), "access") {
+		t.Fatal("an unclassified record carries the new keys")
+	}
+	got, _, err := OpenRecord(b, accept)
+	if err != nil || got.Predicate.Actor.ClassifiedBy != "" || got.Predicate.Approvals[0].ClassifiedBy != "" ||
+		got.Predicate.Approvals[0].Access != "" || got.Predicate.Approvals[0].AccessAt != "" {
+		t.Fatalf("old record: %+v %v", got.Predicate, err)
+	}
+}

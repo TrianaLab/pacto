@@ -542,10 +542,12 @@ cmd_up() {
   done
   infra "install Flux" kubectl apply --server-side -f "$flux" >/dev/null
   kubectl -n flux-system scale deploy helm-controller --replicas=0 >/dev/null 2>&1 || true
+  # delivery.flux.enabled is auto: Helm reads the served APIs, so the Flux kinds must be served first.
+  infra "serve Flux's kinds" kubectl wait --for=condition=Established --timeout=60s crd/ocirepositories.source.toolkit.fluxcd.io crd/kustomizations.kustomize.toolkit.fluxcd.io >/dev/null
   helm upgrade --install pacto-operator "$op_chart" -n "$NS" --set nodeAgent.enabled=true --set nodeAgent.publishInterval=5s \
     --set global.imageRegistry= --set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never \
     --set "insecureRegistries[0]=$REG_HOST" \
-    --set delivery.enabled=true --set delivery.createNamespace=false --set delivery.identities.allowEmptyHumanGroups=true --set-json "delivery.admissionPolicies.gitopsUsers=$GITOPS_USERS" \
+    --set delivery.enabled=true --set delivery.createNamespace=false --set-json "delivery.admissionPolicies.gitopsUsers=$GITOPS_USERS" \
     --set delivery.image.repository="$DL_REPO" --set delivery.image.tag="$VER" --set delivery.image.pullPolicy=Never \
     --set "delivery.insecureRegistries[0]=$REG_HOST" --set delivery.promoter.poll=2s --set delivery.identities.teamGroupPrefix=team- \
     --set-json "delivery.gates.providers=$providers" \
@@ -566,11 +568,29 @@ cmd_up() {
   kubectl -n "$NS" rollout status deploy/eval-runner --timeout=120s >/dev/null || fail "the eval runner did not roll out"
   pass "installed: registry, operator and node agent, Flux, promoter and recorder, Mira, span generator, eval runner"
 
-  section "who may do what: pay-agent proposes, team members approve"
+  section "who may do what: pay-agent proposes, team members who may update the workload approve"
   kubectl -n agents create serviceaccount pay-agent --dry-run=client -o yaml | kubectl apply -f - >/dev/null
   kubectl create clusterrolebinding demo-agents --clusterrole=pacto-operator-delivery-agent \
     --serviceaccount=agents:pay-agent --group=pacto:agents --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-  kubectl create clusterrolebinding demo-approvers --clusterrole=pacto-operator-delivery-approver \
+  # People hold the built-in edit role where examples/story's MayUpdate says
+  # they may update workloads (alice on team-payments and carol on team-orders
+  # in test and prod; dana is only ever named by pay-agent, so she holds
+  # nothing): the chart aggregates Approval and Operation creation into edit,
+  # and the promoter counts an approval only from someone who may update the
+  # Stage's workload. This run sets teamGroupPrefix, so owner teams narrow who
+  # answers on top of that: alice is refused NotYourTeam where only team
+  # orders is asked. Planning reads every contract, Kustomization and
+  # OCIRepository it names cluster-wide, which edit does not carry.
+  local g n
+  for g in team-payments team-orders team-checkout; do
+    for n in test prod; do
+      kubectl -n "$n" create rolebinding "$g-edit" --clusterrole=edit --group="$g" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+    done
+  done
+  kubectl create clusterrole demo-planner --verb=get,list \
+    --resource=pactos.pacto.trianalab.io,kustomizations.kustomize.toolkit.fluxcd.io,ocirepositories.source.toolkit.fluxcd.io \
+    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  kubectl create clusterrolebinding demo-planners --clusterrole=demo-planner \
     --group=team-payments --group=team-orders --group=team-checkout --dry-run=client -o yaml | kubectl apply -f - >/dev/null
   # contract-readers (dave) may read contracts and nothing of delivery: the
   # dashboard shows them the fleet with every delivery time hidden.
@@ -820,10 +840,15 @@ story_pactify() {
   kubectl apply -f "$dir/delivery/test.yaml" -f "$dir/delivery/prod.yaml" >/dev/null
   # Both Stages start on observe: Flux applies the tag, and Pacto only notes
   # what it would have done with each version it saw.
+  # The first plan may refuse on an applier Pacto could not tell yet (the
+  # fraud Pacto not reconciled); the Stage replans it once detection can.
+  local want; want="$(expect pactify Predicted | jq -r .)"
   shadowed() { [ -n "$(kubectl -n test get stage fraud -o json | jq -r --arg d "$d" '.status.shadow // [] | map(select(.candidate == $d and .observedAt != null)) | .[0].predicted // empty')" ]; }
+  settled() { [ "$(kubectl -n test get stage fraud -o json | jq -r --arg d "$d" '.status.shadow // [] | map(select(.candidate == $d)) | .[0].predicted // empty')" = "$want" ]; }
   eventually 120 shadowed || fail "fraud's test Stage noted nothing about 1.0.0: $(kubectl -n test get stage fraud -o jsonpath='{.status.conditions}')"
   same pactify "level" "$(kubectl -n test get stage fraud -o jsonpath='{.status.level}')" observe
-  same pactify "predicted" "$(kubectl -n test get stage fraud -o json | jq -r --arg d "$d" '.status.shadow | map(select(.candidate == $d)) | .[0].predicted')" "$(expect pactify Predicted | jq -r .)"
+  eventually 30 settled || true # same reports the drift
+  same pactify "predicted" "$(kubectl -n test get stage fraud -o json | jq -r --arg d "$d" '.status.shadow | map(select(.candidate == $d)) | .[0].predicted')" "$want"
   eventually 60 kubectl -n test get pacto fraud >/dev/null 2>&1 || fail "pacto init --delivery wrote no Pacto resource for fraud in test"
   local img; img="$(kubectl -n test get deploy fraud -o jsonpath='{.spec.template.spec.containers[0].image}')"
   [[ "$img" == "${REG_HOST}/story/images/fraud@sha256:"* ]] || fail "fraud runs $img in test, not the image pacto publish built, pinned by digest"
@@ -1422,10 +1447,14 @@ reach_cluster() {
     '{delivery: {promoter: {upstreamTrust: ({keys: [{name: "prod-recorder", publicKey: $k, streams: [$s, $eu]}]} | tojson)}}}' > "$trust"
   us helm upgrade --install pacto-operator "$op_chart" -n "$NS" --set global.imageRegistry= --set image.repository=localhost:5001/pacto-operator/pacto-controller \
     --set image.tag="$ver" --set image.pullPolicy=Never --set "insecureRegistries[0]=$REG_HOST" \
-    --set delivery.enabled=true --set delivery.identities.allowEmptyHumanGroups=true --set delivery.image.repository=localhost:5001/pacto-delivery --set-json "delivery.admissionPolicies.gitopsUsers=$GITOPS_USERS" \
+    --set delivery.enabled=true --set delivery.image.repository=localhost:5001/pacto-delivery --set-json "delivery.admissionPolicies.gitopsUsers=$GITOPS_USERS" \
     --set delivery.image.tag="$ver" --set delivery.image.pullPolicy=Never --set "delivery.insecureRegistries[0]=$REG_HOST" \
-    --set delivery.promoter.poll=2s --set delivery.argocd.enabled=true -f "$trust" --wait --timeout 240s >/dev/null \
+    --set delivery.promoter.poll=2s -f "$trust" --wait --timeout 240s >/dev/null \
     || fail "the pacto-operator chart did not roll out in prod-us"
+  # delivery.argocd.enabled is left on auto: Argo CD's Application API was
+  # served before the install, so the chart grants it with no value.
+  us kubectl -n pacto-delivery get deploy pacto-operator-delivery -o json | jq -e '[.spec.template.spec.containers[].args[]?] | index("--argocd")' >/dev/null \
+    || fail "the prod-us promoter runs without --argocd: delivery.argocd.enabled is auto and Argo CD was installed first"
 }
 
 # us_bg — reach_cluster in the background, while the first cluster plays the
@@ -1475,6 +1504,12 @@ YAML
   [ "$(us kubectl -n prod get deploy payments -o jsonpath='{.spec.template.metadata.labels.app\.kubernetes\.io/version}')" = 2.3.0 ] \
     || fail "prod-us does not run payments 2.3.0"
   pass "prod-us runs payments 2.3.0, the version prod verified, and Argo CD applied it"
+  # The Application lives in the Stage namespace (apps in any namespace), so
+  # its tracking id names prod_payments and the Stage adopts it.
+  us_adopted() { [ "$(us kubectl -n prod get stage payments -o jsonpath='{.status.applier.manager}/{.status.applier.state}/{.status.applier.owner}/{.status.applier.evidence}')" = \
+    "argocd/Adopted/Application prod/payments/tracking annotation" ]; }
+  eventually 30 us_adopted || fail "prod-us did not adopt Application prod/payments: $(us kubectl -n prod get stage payments -o jsonpath='{.status.applier}')"
+  pass "prod-us adopted Application prod/payments as the Stage's applier from its tracking annotation"
   [ -s "$DEMO/digests/payments-2.4.0" ] || fail "payments 2.4.0 never failed in prod: run 'make e2e-delivery-demo-story' first"
   local bad msg; bad="$(digest_of payments 2.4.0)"
   # reach reuses a running prod-us, and propose is a plain create: drop the last run's operation first.
@@ -1506,6 +1541,8 @@ reach_freeze() {
   if ! kubectl -n prod-eu get operation "$fz" >/dev/null 2>&1; then
     section "prod-eu: a re-check fails on the promoter's own rollback, so the Stage freezes"
     kubectl create namespace prod-eu --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+    # alice moves and later unfreezes prod-eu: payments' team may update it.
+    kubectl -n prod-eu create rolebinding team-payments-edit --clusterrole=edit --group=team-payments --dry-run=client -o yaml | kubectl apply -f - >/dev/null
     kubectl -n prod-eu create secret generic cosign-pub --from-file=cosign.pub="$KEYS/cosign.pub" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
     # prod-eu advises, so payments' team moves it.
     environment payments prod-eu upstream false "$(payments_gates prod-eu 10s | grep -v pacto.runtime)"

@@ -2,9 +2,11 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -1581,5 +1583,134 @@ func TestPrintEnvironmentDifferences(t *testing.T) {
 		"\nDifferences between a, b (1):\n  x\n    a  3\n    b  not set\n"
 	if got := buf.String(); got != want {
 		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+// TestInitPrintsExternals: a pactified folder lists the externals it names,
+// each with its class, where it was read and its confidence, a host as host
+// and port only, then the catalog; a folder that names none prints nothing.
+func TestInitPrintsExternals(t *testing.T) {
+	r := &app.InitResult{Dir: "checkout", Service: "checkout", Mode: "pactify", Catalog: "sha256:abc (embedded)",
+		Externals: []pactify.External{
+			{Identity: "aws/rds", Class: "managed-cloud", Confidence: "likely", Where: "k8s/configmap.yaml, env DATABASE_URL", Host: "db.xyz.rds.amazonaws.com"},
+			{Identity: "stripe", Class: "vendor-api", Confidence: "possible", Where: "k8s/deployment.yaml, secretRef stripe-credentials (Secret name only)"},
+		}}
+	var buf bytes.Buffer
+	printInitFindings(&buf, r)
+	want := `
+External
+  - aws/rds  managed-cloud  k8s/configmap.yaml, env DATABASE_URL  (likely)
+    -> db.xyz.rds.amazonaws.com (host and port only)
+  - stripe  vendor-api  k8s/deployment.yaml, secretRef stripe-credentials (Secret name only)  (possible)
+  - catalog sha256:abc (embedded)
+`
+	if !strings.Contains(buf.String(), want) {
+		t.Fatalf("output:\n%s", buf.String())
+	}
+	buf.Reset()
+	r.Externals = nil
+	printInitFindings(&buf, r)
+	if strings.Contains(buf.String(), "External") {
+		t.Fatalf("output without externals:\n%s", buf.String())
+	}
+}
+
+func TestDiffOutputNeverPrintsSensitiveDefault(t *testing.T) {
+	c := &contract.Contract{
+		PactoVersion:   "2.0",
+		Service:        contract.Service{Name: "svc", Version: "1.0.0"},
+		Configurations: []contract.Configuration{{Name: "default", Schema: "configuration/schema.json"}},
+	}
+	oldFS := fstest.MapFS{"configuration/schema.json": &fstest.MapFile{Data: []byte(
+		`{"type":"object","properties":{"DB_PASSWORD":{"type":"string","default":"hunter2"}}}`)}}
+	newFS := fstest.MapFS{"configuration/schema.json": &fstest.MapFile{Data: []byte(
+		`{"type":"object","properties":{"DB_PASSWORD":{"type":"string","writeOnly":true}}}`)}}
+	d := diff.Compare(context.Background(), c, c, oldFS, newFS)
+	result := &app.DiffResult{Classification: d.Classification.String(), Changes: d.Changes}
+
+	for _, format := range outputFormats {
+		cmd, buf := testCmd()
+		if err := printDiffResult(cmd, result, format); err != nil {
+			t.Fatalf("%s: %v", format, err)
+		}
+		out := buf.String()
+		if !strings.Contains(out, "schema.properties.DB_PASSWORD.default") {
+			t.Errorf("%s: change path missing: %s", format, out)
+		}
+		if strings.Contains(out, "hunter2") {
+			t.Errorf("%s output leaks the value: %s", format, out)
+		}
+	}
+}
+
+func TestPrintValidateImpliedClause(t *testing.T) {
+	loaded := []validation.Stage{{Name: "load", Status: validation.StagePass}}
+	tests := []struct {
+		name   string
+		result *app.ValidateResult
+		want   string
+	}{
+		{"implied", &app.ValidateResult{Path: "/tmp/n", Valid: true, Stages: loaded, Inferred: []contract.Inferred{
+			{Field: "pactoVersion", Value: "2.5", Source: "this CLI"},
+			{Field: "service.name", Value: "payments", Source: "chart/Chart.yaml:2"},
+		}, VersionDeclared: new(false)}, "/tmp/n is valid (pactoVersion 2.5 from this CLI, service.name payments from chart/Chart.yaml:2, service.version not declared)\n"},
+		{"fully declared", &app.ValidateResult{Path: "svc", Valid: true, Stages: loaded, VersionDeclared: new(true)}, "svc is valid\n"},
+		{"load failed", &app.ValidateResult{Path: "svc", Stages: []validation.Stage{{Name: "load", Status: validation.StageFail}}}, "svc is invalid\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd, buf := testCmd()
+			if err := printValidateResult(cmd, tt.result, "text"); err != nil {
+				t.Fatal(err)
+			}
+			if got, _, _ := strings.Cut(buf.String(), "\n"); got+"\n" != tt.want {
+				t.Fatalf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPrintExplainResultUndeclaredVersion(t *testing.T) {
+	cmd, buf := testCmd()
+	if err := printExplainResult(cmd, &app.ExplainResult{Name: "svc", PactoVersion: "2.5"}, "text"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(buf.String(), "Service: svc (version not declared)\n") {
+		t.Fatalf("got %q", buf.String())
+	}
+}
+
+func TestPrintExplainResult_PortAndBreaks(t *testing.T) {
+	cmd, buf := testCmd()
+	result := &app.ExplainResult{
+		Name: "payments", Version: "2.0.0",
+		Interfaces: []app.ExplainInterface{{Name: "api", Type: "openapi", Ref: "openapi.yaml", Port: 8080}},
+		Breaks: []contract.Break{
+			{Consumers: []string{"reports", "billing"}, Reason: "drops /v1", Expires: "2026-12-14"},
+			{Consumers: []string{"audit"}, Reason: "renames a field"},
+		},
+	}
+	if err := printExplainResult(cmd, result, "text"); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	for _, want := range []string{"  - api (openapi: openapi.yaml, port 8080)\n", "\nBreaks (2):\n", "  - reports, billing: drops /v1, expires 2026-12-14\n", "  - audit: renames a field\n"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in %q", want, out)
+		}
+	}
+}
+
+func TestPrintDependenciesUndeclaredRange(t *testing.T) {
+	var buf bytes.Buffer
+	printExplainDependencies(&buf, []app.ExplainDependency{
+		{Name: "ledger", Ref: "oci://reg.io/ledger", Compatibility: contract.CompatibilityUnknown, Required: true},
+		{Name: "fraud", Ref: "oci://reg.io/fraud", Compatibility: "^1.2.0"},
+	})
+	out := buf.String()
+	for _, want := range []string{"ledger: oci://reg.io/ledger (range not declared, required)", "fraud: oci://reg.io/fraud (^1.2.0, optional)"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
 	}
 }

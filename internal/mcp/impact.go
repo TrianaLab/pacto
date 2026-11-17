@@ -17,7 +17,11 @@ type ImpactRequest struct {
 	OldRef, NewRef string
 	// Domain qualifies the changed service when NewRef is a local path that
 	// names no registry; empty derives it from NewRef.
-	Domain          string
+	Domain string
+	// NewDirName is the folder name NewRef's service.name is inferred from
+	// when NewRef is a staged copy of that folder (an edit); empty uses
+	// NewRef's own folder.
+	NewDirName      string
 	IncludeObserved bool
 	TracesPath      string
 	Event           *impact.Event

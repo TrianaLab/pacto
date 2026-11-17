@@ -1,4 +1,5 @@
 /** Derive node-drawer content from in-memory fleet + graph data. Pure. */
+import { isOffContract } from './format.ts';
 
 export interface DrawerDep {
   name: string;
@@ -48,6 +49,6 @@ export function nodeDrawerData(name: string, services: any[], graphData: any): D
     sources: svc?.sources || (svc?.source ? [svc.source] : []),
     dependencies,
     dependents,
-    external: node.status === 'external',
+    external: isOffContract(node.status),
   };
 }

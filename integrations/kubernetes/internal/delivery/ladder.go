@@ -14,8 +14,6 @@ import (
 	"strings"
 	"time"
 
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -38,20 +36,39 @@ func (r *StageReconciler) shadow(ctx context.Context, stage *dv1.Stage) error {
 	// Live: what GitOps applied is verified and remembered as such.
 	a, err := r.Cluster.freshApplier(ctx, stage.Namespace, stage.Spec.ApplyRef)
 	switch {
-	case apierrors.IsNotFound(err) || apierrors.IsForbidden(err) || meta.IsNoMatchError(err):
+	case readyNamesIt(err):
 		return nil // ready names it (applierReady)
 	case err != nil:
 		return err
 	}
-	d := delivery.RevisionDigest(a.revision)
+	d := delivery.RevisionDigest(a.src().revision)
 	if _, err := delivery.ParseDigest(d); err != nil {
 		return nil // nothing known runs: the proposal says no-observed-digest
 	}
-	st, now := stage.Status, r.Now().UTC()
-	old := ""
-	if st.ObservedRevision != nil {
-		old = st.ObservedRevision.Digest
+	now, old := r.Now().UTC(), ""
+	if stage.Status.ObservedRevision != nil {
+		old = stage.Status.ObservedRevision.Digest
 	}
+	add, err := r.shadowPlans(ctx, stage, d, old, now)
+	if err != nil {
+		return err
+	}
+	if len(add) == 0 && d == old {
+		return r.shadowVerify(ctx, stage, now)
+	}
+	set := func(s *dv1.Stage) { keepShadow(s, add, d, now) }
+	if err := r.updateStatus(ctx, stage, set); err != nil {
+		return err
+	}
+	set(stage)
+	return nil
+}
+
+// shadowPlans plans the Stage's candidate and what GitOps applied (d), each
+// unless it is what ran before (old) or already planned, and replans a plan
+// the published gate refused once the candidate source verified its version.
+func (r *StageReconciler) shadowPlans(ctx context.Context, stage *dv1.Stage, d, old string, now time.Time) ([]delivery.Shadow, error) {
+	st := stage.Status
 	var add []delivery.Shadow
 	for _, to := range []string{st.Candidate, d} {
 		if to == "" || to == old {
@@ -69,56 +86,52 @@ func (r *StageReconciler) shadow(ctx context.Context, stage *dv1.Stage) error {
 		}
 		e, err := r.wouldHave(ctx, stage, spec, now)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		add = append(add, e)
 	}
-	// A plan refused only because the candidate source had not verified the
-	// version yet is replanned once it has: Flux may store the applied
-	// version a moment before it verifies the same digest on the candidates.
+	// A plan refused only for something that was not there yet is replanned
+	// once it is: Flux may store the applied version a moment before it
+	// verifies the same digest on the candidates, and the Stage and its Pacto
+	// may arrive before the operator reconciles that Pacto.
 	for _, x := range st.Shadow {
-		if !stalePublished(x, st.Published) || slices.ContainsFunc(add, func(e delivery.Shadow) bool { return e.Candidate == x.Candidate }) {
+		if !staleRefusal(x, st) || slices.ContainsFunc(add, func(e delivery.Shadow) bool { return e.Candidate == x.Candidate }) {
 			continue
 		}
 		e, err := r.wouldHave(ctx, stage, r.shadowSpec(stage, x.From, x.Candidate), now)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		e.ObservedAt, e.Verification = x.ObservedAt, x.Verification
 		add = append(add, e)
 	}
-	if len(add) == 0 && d == old {
-		return r.shadowVerify(ctx, stage, now)
-	}
-	set := func(s *dv1.Stage) {
-		// One entry per candidate. Another reconcile of a stale read may have
-		// planned it already; a new plan for a Stage spec or a running version
-		// that changed replaces an entry that has not run yet.
-		fresh := slices.DeleteFunc(slices.Clone(add), func(e delivery.Shadow) bool {
-			return slices.ContainsFunc(s.Status.Shadow, func(x delivery.Shadow) bool {
-				return x.Candidate == e.Candidate && (x.IntentDigest == e.IntentDigest || x.ObservedAt != "") &&
-					!stalePublished(x, s.Status.Published)
-			})
+	return add, nil
+}
+
+// keepShadow stores the plans add and what GitOps applied (d) on s: one
+// entry per candidate. Another reconcile of a stale read may have planned it
+// already; a new plan for a Stage spec or a running version that changed
+// replaces an entry that has not run yet.
+func keepShadow(s *dv1.Stage, add []delivery.Shadow, d string, now time.Time) {
+	fresh := slices.DeleteFunc(slices.Clone(add), func(e delivery.Shadow) bool {
+		return slices.ContainsFunc(s.Status.Shadow, func(x delivery.Shadow) bool {
+			return x.Candidate == e.Candidate && (x.IntentDigest == e.IntentDigest || x.ObservedAt != "") &&
+				!staleRefusal(x, s.Status)
 		})
-		kept := slices.DeleteFunc(slices.Clone(s.Status.Shadow), func(x delivery.Shadow) bool {
-			return slices.ContainsFunc(fresh, func(e delivery.Shadow) bool { return e.Candidate == x.Candidate })
-		})
-		s.Status.Shadow = append(fresh, kept...)
-		s.Status.Shadow = s.Status.Shadow[:min(len(s.Status.Shadow), delivery.MaxShadow)]
-		if s.Status.ObservedRevision == nil || s.Status.ObservedRevision.Digest != d {
-			s.Status.ObservedRevision = &delivery.ObservedRevision{Digest: d, Since: ts(now)}
-		}
-		for i := range s.Status.Shadow {
-			if s.Status.Shadow[i].Candidate == d && s.Status.Shadow[i].ObservedAt == "" {
-				s.Status.Shadow[i].ObservedAt = s.Status.ObservedRevision.Since
-			}
+	})
+	kept := slices.DeleteFunc(slices.Clone(s.Status.Shadow), func(x delivery.Shadow) bool {
+		return slices.ContainsFunc(fresh, func(e delivery.Shadow) bool { return e.Candidate == x.Candidate })
+	})
+	s.Status.Shadow = append(fresh, kept...)
+	s.Status.Shadow = s.Status.Shadow[:min(len(s.Status.Shadow), delivery.MaxShadow)]
+	if s.Status.ObservedRevision == nil || s.Status.ObservedRevision.Digest != d {
+		s.Status.ObservedRevision = &delivery.ObservedRevision{Digest: d, Since: ts(now)}
+	}
+	for i := range s.Status.Shadow {
+		if s.Status.Shadow[i].Candidate == d && s.Status.Shadow[i].ObservedAt == "" {
+			s.Status.Shadow[i].ObservedAt = s.Status.ObservedRevision.Since
 		}
 	}
-	if err := r.updateStatus(ctx, stage, set); err != nil {
-		return err
-	}
-	set(stage)
-	return nil
 }
 
 // shadowSpec is the promote from to that the shadow plans, under the Stage
@@ -141,11 +154,20 @@ func planned(s delivery.Shadow, spec delivery.OperationSpec) bool {
 	return s.Candidate == spec.Params.To && (s.IntentDigest == spec.IntentDigest || s.ObservedAt != "")
 }
 
-// stalePublished says s was refused only by the published gate and the
-// candidate source has since verified its version.
-func stalePublished(s delivery.Shadow, published []string) bool {
-	return s.Predicted == delivery.PredictRejected && strings.HasPrefix(s.Question, notPublished) &&
-		slices.Contains(published, s.Candidate)
+// staleRefusal says s was refused only for something that has since
+// changed: the published gate, and the candidate source has verified its
+// version since; or applier detection could not tell, and it now can.
+func staleRefusal(s delivery.Shadow, st delivery.StageStatus) bool {
+	if s.Predicted != delivery.PredictRejected {
+		return false
+	}
+	switch {
+	case strings.HasPrefix(s.Question, notPublished):
+		return slices.Contains(st.Published, s.Candidate)
+	case strings.HasPrefix(s.Question, applierUnknown):
+		return st.Applier != nil && (st.Applier.State == delivery.ApplierAdopted || st.Applier.State == delivery.ApplierUnmanaged)
+	}
+	return false
 }
 
 // wouldHave plans the promote from to on the Stage as a fully automatic

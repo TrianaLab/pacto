@@ -426,7 +426,7 @@ func perfDashboard(t testing.TB, cp *controlPlane, cnt *counter, q *atomic.Point
 			return authn.State{SignedIn: tok != "", Token: tok, Person: authn.Claims{}.Person(tok)}
 		},
 		revisions: map[string]delivery.Revision{}, reads: newReadCache()}
-	id.viewer = authn.NewViewer(clusterReview(cp.config(perfDashboardSA.token, 0), newClient))
+	id.viewer = authn.NewViewer(clusterReview(cp.config(perfDashboardSA.token, 0), newClient, reviewCluster))
 	o := dashboard.Options{UI: fstest.MapFS{}, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Fleet:     func(context.Context) (*fleet.Query, error) { return q.Load(), nil },
 		Published: func() *fleet.Query { return q.Load() },
@@ -676,7 +676,9 @@ const perfP95 = time.Second
 
 // perfMaxAPI is apiserver requests per dashboard request, by view.
 var perfMaxAPI = map[string]float64{
-	"inbox": 8,
+	// Each new person asks once per namespace holding a change whether they
+	// may update its workloads (a rules review, not one review per workload).
+	"inbox": 100,
 	// Each new person asks once per namespace shown whether they may promote there.
 	"environments":        45,
 	"environments?env&q":  21,

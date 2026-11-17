@@ -53,6 +53,9 @@ type Source interface {
 type Collection struct {
 	Revisions []RawRevision
 	Targets   []RawTarget
+	// Cluster is the cluster of every target this source reports, nil when the
+	// source does not know it. A [RawTarget.Cluster] overrides it.
+	Cluster *Cluster
 	// State, when non-nil, overrides Build's derived source state. Use it to
 	// report a source that succeeded but is stale or partial. Its ID/Kind are
 	// filled from the source if left blank.
@@ -83,6 +86,27 @@ type Collection struct {
 	// configuration reference or dependency asked for. It is never a target
 	// and never changes compliance.
 	Usage []RawUsage
+	// ExternalUses are the external systems a source infers a service uses
+	// from its configuration (the operator reads them from the workload's pod
+	// spec). [Build] turns them into inferred relationships to the external
+	// system, kept apart from declared and observed ones and out of every
+	// index a gate reads: an inferred use never clears a gate.
+	ExternalUses []RawExternalUse
+}
+
+// RawExternalUse is one external system a source recognized in the
+// configuration of the service (Service, Domain) running in Namespace.
+// Identity is the external identity it was classified as, by the catalog
+// whose digest is Catalog; Kind says where it was found (env, configMap,
+// secretKeyRef, secretRef, externalNameService, selectorlessService or
+// serviceEntry) and Where names the object and key, never a value. Host is
+// the normalized host and port, empty when only a key name matched.
+type RawExternalUse struct {
+	Service, Domain, Namespace string
+	Identity, Class            string
+	Confidence, Kind, Where    string
+	Host, Entry, Catalog       string
+	ObservedAt                 *time.Time
 }
 
 // RawProvisioning is one provider report about the resource a consumer
@@ -193,6 +217,10 @@ type RawTarget struct {
 	EvidenceAt      *time.Time
 	ReconciledAt    *time.Time
 	Limitations     []Limitation
+	// Cluster is the cluster of this one record, overriding
+	// [Collection.Cluster]. Evidence records set it to the cluster that accepted
+	// them, so two servers listing one record report one cluster.
+	Cluster *Cluster
 }
 
 // MemorySource is an in-memory [Source]. It is the substrate for tests, the

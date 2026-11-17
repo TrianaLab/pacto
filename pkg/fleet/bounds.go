@@ -18,6 +18,9 @@ const (
 	MaxMetaSources = 50
 	// MaxMetaLimitations caps the limitations carried in a product answer's meta.
 	MaxMetaLimitations = 100
+	// MaxSourceNamespaces caps the namespaces one source carries in a meta;
+	// NamespacesTotal keeps the full count.
+	MaxSourceNamespaces = 64
 )
 
 // MaxGraphNodes caps the nodes one graph traversal answer carries. The walk itself
@@ -27,6 +30,19 @@ const (
 // than a per-level limit, and it is deliberately generous: a realistic dependency
 // closure is orders of magnitude under it.
 const MaxGraphNodes = 500
+
+// MaxExternalNodes caps the external systems one answer names (decision D4).
+// Beyond it the least-consumed fold into one other-egress node and the answer
+// is partial (LimitationExternalCap). It is per installation, with no chart
+// value: raise it here if a real fleet hits it.
+const MaxExternalNodes = 200
+
+// MaxExternalSources caps the consumers, and their sources, one answer lists
+// for one external system; ConsumersTotal and SourcesTotal keep the counts.
+const MaxExternalSources = 50
+
+// MaxSearchExternals caps the external systems a search lists.
+const MaxSearchExternals = 20
 
 // sourceHealthRank orders source statuses most-relevant (least healthy) first,
 // so that when the meta's source list is truncated the sources that matter -
@@ -44,10 +60,17 @@ func sourceHealthRank(s SourceStatus) int {
 	}
 }
 
-// boundSources caps a (already-cloned) source slice at MaxMetaSources. Under the
+// boundSources caps a (already-cloned) source slice at MaxMetaSources, and each
+// source's namespaces at MaxSourceNamespaces. Under the
 // cap the slice is returned verbatim in its stable snapshot order; over the cap
 // the unhealthy sources are kept first and truncation is reported.
 func boundSources(ss []SourceState) ([]SourceState, bool) {
+	for i := range ss {
+		if n := len(ss[i].Namespaces); n > MaxSourceNamespaces {
+			ss[i].NamespacesTotal = max(ss[i].NamespacesTotal, n)
+			ss[i].Namespaces = ss[i].Namespaces[:MaxSourceNamespaces]
+		}
+	}
 	if len(ss) <= MaxMetaSources {
 		return ss, false
 	}
@@ -64,17 +87,35 @@ func boundSources(ss []SourceState) ([]SourceState, bool) {
 // cap; a second, differently-sized bound in another package is how two answers
 // from one snapshot start disagreeing about how much they left out.
 //
-// HIDDEN_BY_PERMISSIONS is about the whole answer, not one entity, so the cap
-// never drops it: past the cap it takes the last kept place.
+// HIDDEN_BY_PERMISSIONS and the namespace scope limitations are about the
+// whole answer, not one entity, so the cap never drops them: past the cap
+// they take the last kept places, in order.
 func BoundLimitations(ls []Limitation) ([]Limitation, bool) {
 	if len(ls) <= MaxMetaLimitations {
 		return ls, false
 	}
-	kept := ls[:MaxMetaLimitations:MaxMetaLimitations]
-	if i := slices.IndexFunc(ls, isHidden); i >= MaxMetaLimitations {
-		kept = append(slices.Clone(kept[:MaxMetaLimitations-1]), ls[i])
+	whole := min(MaxMetaLimitations, len(slices.DeleteFunc(slices.Clone(ls), func(l Limitation) bool { return !keptPastCap(l) })))
+	rest := MaxMetaLimitations - whole
+	kept := make([]Limitation, 0, MaxMetaLimitations)
+	for _, l := range ls {
+		switch {
+		case keptPastCap(l) && whole > 0:
+			whole--
+		case !keptPastCap(l) && rest > 0:
+			rest--
+		default:
+			continue
+		}
+		kept = append(kept, l)
 	}
 	return kept, true
 }
 
-func isHidden(l Limitation) bool { return l.Code == LimitationHiddenByPermissions }
+// keptPastCap says whether l is about the whole answer and survives the cap.
+func keptPastCap(l Limitation) bool {
+	switch l.Code {
+	case LimitationHiddenByPermissions, LimitationK8sNamespaceScoped, LimitationK8sNamespaceUnreadable:
+		return true
+	}
+	return false
+}

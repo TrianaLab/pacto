@@ -160,7 +160,7 @@ describe('buildVersionSubgraph', () => {
   const services = [
     { name: 'payments', contractStatus: 'Compliant', version: '2.0.0' },
     { name: 'fraud-service', contractStatus: 'Warning', version: '1.3.0' },
-    // postgresql intentionally absent from the fleet -> external
+    // postgresql intentionally absent from the fleet -> an unresolved ref
   ];
 
   it('roots the graph at the selected version with edges to its deps', () => {
@@ -171,13 +171,13 @@ describe('buildVersionSubgraph', () => {
     expect(g.nodes).toHaveLength(3);
   });
 
-  it('labels known deps from the fleet and unknown deps as external', () => {
+  it('labels known deps from the fleet and unknown refs as unresolved', () => {
     const g = buildVersionSubgraph(detail, services, '2.0.0');
     const fraud = g.nodes.find((n) => n.id === 'fraud-service')!;
     expect(fraud.status).toBe('Warning');
     expect(fraud.version).toBe('1.3.0');
     const pg = g.nodes.find((n) => n.id === 'postgresql')!;
-    expect(pg.status).toBe('external');
+    expect(pg.status).toBe('unresolved');
     expect(pg.version).toBe('');
   });
 
@@ -194,6 +194,11 @@ describe('buildVersionSubgraph', () => {
     expect(g.nodes.map((n) => n.id)).toEqual(['svc', 'dep']);
     const root = g.nodes[0];
     expect(root.edges!.filter((e) => e.targetId === 'svc')).toHaveLength(0);
+  });
+
+  it('labels a dependency with no ref as an external system', () => {
+    const g = buildVersionSubgraph({ name: 'svc', dependencies: [{ name: 'stripe' }] }, [], '1.0.0');
+    expect(g.nodes[1].status).toBe('external');
   });
 
   it('handles a service with no dependencies', () => {
@@ -234,6 +239,8 @@ describe('buildElements', () => {
     expect(root.data.isFocus).toBe(1);
     const x = els.find((e) => e.data.id === 'x')!;
     expect(x.data.external).toBe(1);
+    const [u] = buildElements({ nodes: [{ id: 'u', serviceName: 'u', status: 'unresolved', edges: [] }] });
+    expect(u.data.external).toBe(1);
     expect(x.data.reason).toBe('auth_failed');
   });
 
@@ -321,13 +328,16 @@ describe('renderGraph (Cytoscape)', () => {
         { targetId: 'dri', edgeState: 'drift' },
         { targetId: 'ins', edgeState: 'insufficient', refused: true },
         { targetId: 'dep', type: 'reference' },
+        { targetId: 'inf', edgeState: 'inferred' },
       ] },
       { id: 'rev', serviceName: 'svc', status: 'Compliant', kind: 'revision', edges: [] },
       { id: 'tgt', serviceName: 'svc', status: 'Compliant', kind: 'target', edges: [{ targetId: 'rev', type: 'runs' }] },
+      { id: 'external:stripe', serviceName: 'Stripe', status: 'unknown', kind: 'external', edges: [] },
       { id: 'dep', serviceName: 'dep', status: 'Compliant', kind: 'service', edges: [] },
       { id: 'eno', serviceName: 'eno', status: 'Compliant', kind: 'service', edges: [] },
       { id: 'dri', serviceName: 'dri', status: 'Compliant', kind: 'service', edges: [] },
       { id: 'ins', serviceName: 'ins', status: 'Compliant', kind: 'service', edges: [] },
+      { id: 'inf', serviceName: 'inf', status: 'Compliant', kind: 'service', edges: [] },
       { id: 'group:team', serviceName: 'team', status: 'group', kind: 'service', group: 3, edges: [] },
       { id: 'lane:used-by', serviceName: 'Used by (1)', status: 'lane', kind: 'service', lane: true, side: 1, edges: [] },
     ] };
@@ -588,6 +598,18 @@ describe('renderGraph in lanes (headless)', () => {
 });
 
 describe('cyStylesheet', () => {
+  // An external system is a shape no fleet entity takes, with no compliance tone.
+  it('draws an external system as a dashed neutral hexagon', () => {
+    const pal = { surface: '#fff', text: '#000', textDim: '#666', border: '#ccc', ok: '#0a0', warn: '#aa0', err: '#a00', info: '#00a', neutral: '#888', accent: '#05f', fontSans: 'Inter', fontDisplay: 'Serif', radius: 6 };
+    const cy = cytoscape({
+      headless: true, styleEnabled: true, style: cyStylesheet(pal, 'force', 'visible'),
+      elements: [{ data: { id: 'external:stripe', label: 'Stripe', status: 'unknown', kind: 'external', group: 0, lane: 0 } }],
+    });
+    const x = cy.getElementById('external:stripe');
+    expect([x.style('shape'), x.style('border-style'), x.style('border-color')]).toEqual(['hexagon', 'dashed', 'rgb(136,136,136)']);
+    cy.destroy();
+  });
+
   // The canvas speaks the rest of the dashboard's visual language: hairline borders in
   // the status tone, the body's type, the kind glyph, the page's focus ring and lane
   // names set as section labels rather than headings.
@@ -651,6 +673,22 @@ describe('cyStylesheet', () => {
     expect(cy.getElementById('e').style('line-style')).toBe('dashed');
     expect(String(cy.getElementById('e').style('line-dash-pattern'))).toBe('6 5');
     expect(cy.getElementById('i').style('line-style')).toBe('dotted');
+    cy.destroy();
+  });
+  // An inferred edge shares the projected wire (SPEC 2.1); words tell the two apart.
+  it('draws an inferred edge with the projected dash', () => {
+    const pal = { surface: '#fff', text: '#000', textDim: '#666', border: '#ccc', ok: '#0a0', warn: '#aa0', err: '#a00', info: '#00a', neutral: '#888', accent: '#05f' };
+    const cy = cytoscape({
+      headless: true, styleEnabled: true, style: cyStylesheet(pal, 'force'),
+      elements: [
+        { data: { id: 'a' } }, { data: { id: 'b' } },
+        { data: { id: 'e', source: 'b', target: 'a', state: 'expected-not-observed' } },
+        { data: { id: 'n', source: 'a', target: 'b', state: 'inferred' } },
+      ],
+    });
+    expect(cy.getElementById('n').style('line-style')).toBe(cy.getElementById('e').style('line-style'));
+    expect(String(cy.getElementById('n').style('line-dash-pattern'))).toBe(String(cy.getElementById('e').style('line-dash-pattern')));
+    expect(LEGEND_SELECTORS['state:inferred']).toBe('edge[state = "inferred"]');
     cy.destroy();
   });
 });

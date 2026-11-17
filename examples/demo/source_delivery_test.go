@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"maps"
@@ -760,5 +761,90 @@ func TestDemoReplanHeldAsAgent(t *testing.T) {
 	got, _ := d.Get(t.Context(), story.Prod, op.Metadata.Name)
 	if got.Spec.OnBehalfOf == nil || got.Spec.OnBehalfOf.User != story.Dana.User || !slices.Equal(got.Status.Plan.Floor.Owners, []string{"orders"}) {
 		t.Fatalf("replanned: %+v %+v", got.Spec.OnBehalfOf, got.Status.Plan.Floor)
+	}
+}
+
+// TestDemoApproverWithoutRights: a person of an asked team who may not
+// update the workload is refused, as the dashboard refuses dana on prod.
+func TestDemoApproverWithoutRights(t *testing.T) {
+	d, h := demoServer(t)
+	op, _ := storyHeld(t, d, h)
+	op.Spec.OnBehalfOf = &delivery.Principal{User: "someone@example.com"}
+	dana := d.callerOf(story.Dana)
+	dana.Groups = []string{"team-orders", "team-checkout"}
+	access := d.accessOf(story.Dana, story.Prod, d.stage(story.Prod, "payments").Spec.WorkloadOf())
+	if code := answerRefusalOf(&op, dana, access); code != "CannotUpdateWorkload" {
+		t.Fatalf("dana on prod: %q", code)
+	}
+	if a := d.accessOf(story.Dana, story.Test, delivery.WorkloadRef{Kind: "Deployment", Name: "payments"}); !a.Allowed || a.Source != delivery.AccessBySelfReview {
+		t.Fatalf("dana on test: %+v", a)
+	}
+	if a := d.accessOf(story.Alice, story.Prod, delivery.WorkloadRef{Kind: "Rollout", Name: "payments"}); a.Unverified == "" {
+		t.Fatalf("an unknown kind: %+v", a)
+	}
+}
+
+// answerRefusalOf is the code the dashboard's answerRefusal gives.
+func answerRefusalOf(op *delivery.OperationObject, c delivery.Caller, access delivery.WorkloadAccess) string {
+	a := delivery.ApprovalSpec{OperationUID: op.Metadata.UID, IntentDigest: op.Spec.IntentDigest, Decision: delivery.Approve, By: c.User, Groups: c.Groups}
+	code, _ := delivery.ApprovalRefusal(op.Spec, op.Status, op.Metadata.UID, a, time.Now(), c.Policy, 0, access)
+	return code
+}
+
+// TestDemoApprovalRecordsAccess: a decision keeps how its author was
+// classified and the access that let them decide.
+func TestDemoApprovalRecordsAccess(t *testing.T) {
+	d, h := demoServer(t)
+	op, decide := storyHeld(t, d, h)
+	storyApproved(t, d, h, decide)
+	got, _ := d.Get(t.Context(), story.Prod, op.Metadata.Name)
+	a := got.Status.Approvals[len(got.Status.Approvals)-1]
+	if a.ClassifiedBy != delivery.ClassByUser || a.Access != "update deployments/payments in prod" ||
+		a.AccessSource != delivery.AccessBySelfReview || a.AccessAt == "" {
+		t.Fatalf("approval: %+v", a)
+	}
+	if w := d.WorkloadAccess(t.Context(), story.Prod, delivery.WorkloadRef{Kind: "Deployment", Name: "payments"}); !w.Allowed {
+		t.Fatalf("the persona may update payments in prod: %+v", w)
+	}
+	if got.Status.ActorClass != delivery.ClassAgent || got.Status.ActorClassifiedBy != delivery.ClassByServiceAccount {
+		t.Fatalf("the asker's classification is recorded: %s %q", got.Status.ActorClass, got.Status.ActorClassifiedBy)
+	}
+}
+
+// TestDemoStagesCarryApplier: every demo Stage reports the manager that
+// applies it, adopted, with a fresh asOf: payments through Argo CD
+// Applications, the other services through Flux OCIRepositories.
+func TestDemoStagesCarryApplier(t *testing.T) {
+	d, h := demoServer(t)
+	stages, _ := d.Stages(t.Context(), "")
+	for _, st := range stages {
+		id, a := st.Metadata.Namespace+"/"+st.Metadata.Name, st.Status.Applier
+		if a == nil {
+			t.Fatalf("%s reports no applier", id)
+		}
+		if a.State != delivery.ApplierAdopted || a.Stale(time.Now()) {
+			t.Errorf("%s: applier %+v", id, *a)
+		}
+		wantKind, wantManager := delivery.ApplierFlux, "flux"
+		if st.Spec.Service.Name == "payments" {
+			wantKind, wantManager = delivery.ApplierArgoCD, "argocd"
+		}
+		if cmp.Or(st.Spec.ApplyRef.Kind, delivery.ApplierFlux) != wantKind || a.Manager != wantManager {
+			t.Errorf("%s: applyRef kind %q, manager %q", id, st.Spec.ApplyRef.Kind, a.Manager)
+		}
+	}
+	for svc, want := range map[string]string{"payments": "Argo CD (Application prod/payments, tracking annotation)",
+		"orders": "Flux (Kustomization prod/orders, kustomize-controller labels)"} {
+		if r := rowOf(t, environments(t, h, svc), story.Prod, svc); r.Applier == nil || r.Applier.Display != want {
+			t.Errorf("%s: dashboard row applier %+v, want %q", svc, r.Applier, want)
+		}
+	}
+	ops, _ := d.Operations(t.Context(), story.Test)
+	if !slices.ContainsFunc(ops, func(o delivery.OperationObject) bool {
+		return o.Status.Plan != nil && slices.ContainsFunc(o.Status.Plan.Verdicts, func(v delivery.Verdict) bool {
+			return v.Gate == delivery.GateApplier && v.Result == delivery.Pass
+		})
+	}) {
+		t.Error("no demo plan carries a Pass pacto.applier verdict")
 	}
 }

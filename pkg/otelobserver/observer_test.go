@@ -233,3 +233,19 @@ func TestObserve_EndToEndAndParseError(t *testing.T) {
 		t.Fatal("expected parse error")
 	}
 }
+
+// rpc.system is the last callee key: it names a callee only when nothing
+// more specific does.
+func TestCalleeRPCSystemLast(t *testing.T) {
+	trace := `{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"api"}}]},
+	  "scopeSpans":[{"spans":[
+	    {"kind":3,"attributes":[{"key":"rpc.system","value":{"stringValue":"aws-api"}}]},
+	    {"kind":3,"attributes":[{"key":"rpc.system","value":{"stringValue":"grpc"}},{"key":"rpc.service","value":{"stringValue":"orders"}}]}
+	  ]}]}]}`
+	td, _ := ParseTraces([]byte(trace))
+	got := DependencyEdges(td)
+	want := []Edge{{From: "api", To: "aws-api", Count: 1}, {From: "api", To: "orders", Count: 1}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("edges = %+v, want %+v", got, want)
+	}
+}

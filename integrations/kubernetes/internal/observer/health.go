@@ -72,8 +72,11 @@ func (o *Observer) observeHealthDim(ctx context.Context, input CollectInput, cap
 
 	// Tier A: active in-cluster probe (opt-in via EnableProbing — SSRF surface). When disabled, leave the
 	// zero-value (Reachable=false) result so handleHealthProbeResult routes straight to passive Tier-B.
+	// The probe never follows a namespace-chosen name out of its selector-backed Services (same guard as
+	// interfaces.go): a namespace label can turn probing on, an ExternalName's CNAME or a selector-less
+	// Service's hand-written endpoints must not choose what the operator dials.
 	var result probe.Result
-	if input.EnableProbing {
+	if input.EnableProbing && svc.Spec.Type != corev1.ServiceTypeExternalName && len(svc.Spec.Selector) > 0 {
 		// SSRF-safe URL via probe.URL — INV-6.
 		result = o.prober.Probe(ctx, probeURL(input.ServiceName, input.Namespace, boundPort.Port, cap.Binding.Path))
 	}

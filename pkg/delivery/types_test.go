@@ -158,7 +158,7 @@ func TestPlanGatesKeepsOnlyEvalProviders(t *testing.T) {
 }
 
 func TestInTeams(t *testing.T) {
-	pol := ClassPolicy{TeamGroupPrefix: "acme:"}
+	pol := ClassPolicy{TeamGroupPrefix: "acme:", TeamNarrowing: true}
 	cases := []struct {
 		groups, teams []string
 		want          bool
@@ -174,13 +174,13 @@ func TestInTeams(t *testing.T) {
 			t.Errorf("InTeams(%v, %v) = %v", c.groups, c.teams, got)
 		}
 	}
-	if (ClassPolicy{}).InTeams([]string{"team-checkout"}, []string{"checkout"}) {
+	if (ClassPolicy{TeamNarrowing: true}).InTeams([]string{"team-checkout"}, []string{"checkout"}) {
 		t.Error("with no prefix only the exact name counts")
 	}
-	if !(ClassPolicy{}).InTeams([]string{"team-checkout"}, []string{"team-checkout"}) {
+	if !(ClassPolicy{TeamNarrowing: true}).InTeams([]string{"team-checkout"}, []string{"team-checkout"}) {
 		t.Error("with no prefix the exact name counts")
 	}
-	if (ClassPolicy{}).InTeams([]string{"system:authenticated"}, []string{"system:authenticated"}) {
+	if (ClassPolicy{TeamNarrowing: true}).InTeams([]string{"system:authenticated"}, []string{"system:authenticated"}) {
 		t.Error("a system: group every user carries is never a team")
 	}
 }
@@ -324,7 +324,91 @@ func TestParseClassPolicy(t *testing.T) {
 	if _, err := ParseClassPolicy([]byte("{")); err == nil {
 		t.Fatal("a broken policy is an error")
 	}
-	if d := DefaultClassPolicy(); !d.RequireOwnerTeam || d.AgentGroups[0] != "pacto:agents" || d.BreakGlassGroups[0] != "pacto:break-glass" {
+	if d := DefaultClassPolicy(); d.RequireOwnerTeam || d.AgentGroups[0] != "pacto:agents" || d.BreakGlassGroups[0] != "pacto:break-glass" {
 		t.Fatalf("defaults: %+v", d)
+	}
+}
+
+// TestParseClassPolicyOlderPublisherNarrows: a chart from before narrowing
+// was opt-in always published teamGroupPrefix and never teamNarrowing, and
+// its promoter always narrows; the chart now writes neither or both.
+func TestParseClassPolicyOlderPublisherNarrows(t *testing.T) {
+	for in, want := range map[string]bool{
+		`{"teamGroupPrefix":"","requireOwnerTeam":true}`:                         true,
+		`{"teamGroupPrefix":"acme:","teamNarrowing":true}`:                       true,
+		`{"teamGroupPrefix":"","teamNarrowing":false}`:                           false,
+		`{"agentGroups":["pacto:agents"],"requireOwnerTeam":false}`:              false,
+		`{"breakGlassGroups":["sre"],"teamNarrowing":true,"teamGroupPrefix":""}`: true,
+	} {
+		if p, err := ParseClassPolicy([]byte(in)); err != nil || p.TeamNarrowing != want {
+			t.Errorf("%s: narrowing %v, want %v (%v)", in, p.TeamNarrowing, want, err)
+		}
+	}
+}
+
+// TestClassifyBySources: every class says where it came from, and nobody
+// who signs in as a system: user or unauthenticated is a person.
+func TestClassifyBySources(t *testing.T) {
+	pol := ClassPolicy{ControllerUser: "system:serviceaccount:pacto:promoter", AgentGroups: []string{"pacto:agents"}, BreakGlassGroups: []string{"pacto:break-glass"}}
+	staff := pol
+	staff.HumanGroups = []string{"staff"}
+	for _, c := range []struct {
+		name   string
+		pol    ClassPolicy
+		id     Identity
+		class  ActorClass
+		source ClassSource
+	}{
+		{"promoter", pol, Identity{User: pol.ControllerUser}, ClassController, ClassByController},
+		{"break-glass", pol, Identity{User: "ops", Groups: []string{"pacto:break-glass"}}, ClassBreakGlass, ClassByBreakGlassGroup},
+		{"service account", pol, Identity{User: "system:serviceaccount:ci:ci-bot"}, ClassAgent, ClassByServiceAccount},
+		{"oidc agent", pol, Identity{User: "https://idp#bot", Groups: []string{"pacto:agents"}}, ClassAgent, ClassByAgentGroup},
+		{"outside human groups", staff, Identity{User: "dana@example.com", Groups: []string{"devs"}}, ClassAgent, ClassByOutsideHumanGroups},
+		{"oidc person", pol, Identity{User: "dana@example.com", Groups: []string{"devs"}}, ClassHuman, ClassByUser},
+		{"x509 admin", pol, Identity{User: "kubernetes-admin", Groups: []string{"kubeadm:cluster-admins", "system:authenticated"}}, ClassHuman, ClassByUser},
+		{"scheduler", pol, Identity{User: "system:kube-scheduler"}, ClassAgent, ClassBySystemUser},
+		{"node", pol, Identity{User: "system:node:kind-worker", Groups: []string{"system:nodes"}}, ClassAgent, ClassBySystemUser},
+		{"anonymous", pol, Identity{User: "system:anonymous"}, ClassAgent, ClassBySystemUser},
+		{"unauthenticated", pol, Identity{User: "alice", Groups: []string{"system:unauthenticated"}}, ClassAgent, ClassBySystemUser},
+	} {
+		class, source := c.pol.ClassifyBy(c.id)
+		if class != c.class || source != c.source {
+			t.Errorf("%s: ClassifyBy = %s/%s, want %s/%s", c.name, class, source, c.class, c.source)
+		}
+		if got := c.pol.Classify(c.id); got != class {
+			t.Errorf("%s: Classify = %s, ClassifyBy says %s", c.name, got, class)
+		}
+		if c.source == ClassBySystemUser && c.pol.IsHuman(c.id) {
+			t.Errorf("%s: a system user is a person", c.name)
+		}
+	}
+}
+
+// TestInTeamsNarrowing: owner teams narrow who may answer only when the
+// policy says so.
+func TestInTeamsNarrowing(t *testing.T) {
+	off := ClassPolicy{TeamGroupPrefix: "acme:"}
+	if !off.InTeams([]string{"devs"}, []string{"checkout"}) || !off.InTeams(nil, []string{"checkout"}) {
+		t.Error("with narrowing off any groups answer a named team")
+	}
+	if !off.InTeams(nil, nil) || (ClassPolicy{RequireOwnerTeam: true}).InTeams([]string{"devs"}, nil) {
+		t.Error("with no team named the answer is !RequireOwnerTeam")
+	}
+	on := ClassPolicy{TeamGroupPrefix: "acme:", TeamNarrowing: true}
+	if !on.InTeams([]string{"acme:checkout"}, []string{"checkout"}) || on.InTeams([]string{"checkout"}, []string{"checkout"}) {
+		t.Error("with a prefix only the prefixed group counts")
+	}
+	exact := ClassPolicy{TeamNarrowing: true}
+	if !exact.InTeams([]string{"checkout"}, []string{"checkout"}) || exact.InTeams([]string{"devs"}, []string{"checkout"}) {
+		t.Error("with no prefix only the exact name counts")
+	}
+	if exact.InTeams([]string{"system:authenticated"}, []string{"system:authenticated"}) {
+		t.Error("a system: group is never a team")
+	}
+}
+
+func TestDefaultPolicyRequiresNoTeam(t *testing.T) {
+	if d := DefaultClassPolicy(); d.RequireOwnerTeam || d.TeamNarrowing {
+		t.Fatalf("defaults narrow or require a team: %+v", d)
 	}
 }

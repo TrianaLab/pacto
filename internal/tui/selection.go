@@ -110,7 +110,7 @@ func resolveSelection(c *Context, ref fleet.EntityRef) (Selection, error) {
 		Version: ref.Version, ParentService: ref.ParentService,
 	}
 	switch ref.Kind {
-	case fleet.KindOwner, fleet.KindSource, fleet.KindDomain, fleet.KindOffering:
+	case fleet.KindOwner, fleet.KindSource, fleet.KindDomain, fleet.KindOffering, fleet.KindExternal:
 		return sel, nil
 	}
 	det, err := requireDetail(c.Query.EntityDetail(ref.Kind, ref.Key))

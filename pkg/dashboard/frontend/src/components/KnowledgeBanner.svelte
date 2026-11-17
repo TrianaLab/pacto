@@ -1,6 +1,6 @@
 <script>
   import { knowledgeTone } from '../lib/entityLabels.ts';
-  import { degradedSourceSummary } from '../lib/knowledgeState.ts';
+  import { degradedSourceSummary, watchedScope, scopeLabels, hiddenScope } from '../lib/knowledgeState.ts';
   import { joinAnd } from '../lib/answers.ts';
 
   // "What we could not see" is the same caveat on every product surface, and it was
@@ -27,6 +27,11 @@
     return ids.length > 4 ? [...ids.slice(0, 3), `${ids.length - 3} more`] : ids;
   });
 
+  // A fleet read from a namespace list says so first: "Watching 2 namespaces (ledger
+  // and payments)." Everything outside those namespaces is unknown, never empty.
+  const scope = $derived(watchedScope(sources));
+  const scopeShown = $derived(scopeLabels(scope.names, scope.count));
+
   // Why the snapshot is short. A per-source count where there is one; otherwise the
   // reason is not in the source list at all -- either the snapshot declared itself
   // partial, or no meta arrived to declare anything.
@@ -38,9 +43,13 @@
   );
 </script>
 
-{#if knowledge.incomplete}
+{#if knowledge.incomplete || scope.count}
   <div class="knowledge tone-{tone || knowledgeTone(knowledge.level)}" role="status" data-testid={testid}>
-    <strong>The fleet snapshot is missing data.</strong>
+    {#if scope.count}
+      <strong data-testid="watched-scope" title={scope.names.length ? joinAnd(scope.names) : hiddenScope(scope.count)}>Watching {scope.count} {scope.count === 1 ? 'namespace' : 'namespaces'} ({#each scopeShown as n, i}{i === 0 ? '' : i === scopeShown.length - 1 ? ' and ' : ', '}{#if scope.names.includes(n)}<bdi>{n}</bdi>{:else}{n}{/if}{/each}).</strong>
+    {:else}
+      <strong>The fleet snapshot is missing data.</strong>
+    {/if}
     {cause}{#if names.length}{' '}({joinAnd(names)}){/if}, so this {noun} may be incomplete.
   </div>
 {/if}
@@ -57,4 +66,6 @@
     background: var(--c-hatch) left / 6px 100% no-repeat, var(--c-neutral-bg);
     border-color: var(--c-neutral); padding-inline-start: calc(var(--sp-3) + 6px);
   }
+  /* A 63-character namespace with no hyphen has no break point of its own. */
+  .knowledge bdi { overflow-wrap: anywhere; }
 </style>

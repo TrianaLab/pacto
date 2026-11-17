@@ -20,7 +20,9 @@ type operationOutput struct {
 		Explanation *delivery.Explanation     `json:"explanation"`
 		Operation   *delivery.OperationObject `json:"operation"`
 		Actions     []string                  `json:"actions" doc:"What the caller may ask for: approve, reject, accept-unknown, cancel, rollback"`
-		Level       string                    `json:"level,omitempty" doc:"The Stage's level now: observe, advise, auto-nonbreaking or autonomous"`
+		// DecisionRefusal says why a held change offers the caller no decision.
+		DecisionRefusal string `json:"decisionRefusal,omitempty" doc:"On a held change that offers the caller no decision, why: the code the promoter would refuse it with (CannotUpdateWorkload, ApproverUnverified, NotYourTeam, OwnChange and so on), FreshLoginRequired when the cluster reports no login time, NoApprovalRights when the caller may not create Approvals, PolicyUnknown when the published identity policy could not be read, or DecisionsNotServed when this session may not decide; absent when a decision is offered or the change is not held"`
+		Level           string `json:"level,omitempty" doc:"The Stage's level now: observe, advise, auto-nonbreaking or autonomous"`
 		// DecisionFreshness is how old a login may be to decide on this
 		// change, in seconds; zero or absent when the Stage asks no fresh login.
 		DecisionFreshness int                    `json:"decisionFreshness,omitempty" doc:"How old a login may be to decide, in seconds (delivery.DecisionFreshnessFor the Stage's status.authFreshness); absent when any signed-in session decides"`
@@ -54,15 +56,17 @@ func (s *Server) deliveryOperation(ctx context.Context, in *operationInput) (*op
 	out := &operationOutput{}
 	out.Body.Explanation, out.Body.Operation = e, op
 	published := ""
+	var listed []delivery.StageObject
 	stage, err := api.Stage(ctx, in.Namespace, op.Spec.Stage)
 	if err == nil {
+		listed = []delivery.StageObject{*stage}
 		out.Body.Level, published = ladderOf(*stage).Level, stage.Status.AuthFreshness
 		out.Body.Upstream, out.Body.Environment = upstreamOf(ctx, api, stage, s.opts.DeliveryNamespace), stage.Spec.Environment
 	} else {
 		stage = nil
 	}
 	out.Body.DecisionFreshness = int(delivery.DecisionFreshnessFor(published).Seconds())
-	out.Body.Actions = s.actions(ctx, api, op, e.Stage, caller, published)
+	out.Body.Actions, out.Body.DecisionRefusal = s.actions(ctx, api, op, e.Stage, caller, published, delivery.AccessMemo(listed, api.WorkloadAccess))
 	if st := op.Status; st.Phase == delivery.PhaseConcluded && st.Pointer.After != "" {
 		// ponytail: one history read per concluded change shown; the live
 		// host's record stream read is what it costs.
@@ -107,13 +111,17 @@ func undoneBy(entries []delivery.HistoryEntry, name, after, finished string) *de
 
 // actions are what the UI offers on an operation. They only hide what the
 // caller cannot do, as the promoter's rules and the caller's own RBAC say;
-// the apiserver and the promoter still decide.
-func (s *Server) actions(ctx context.Context, api DeliveryAPI, op *delivery.OperationObject, stage delivery.StageNow, caller delivery.Caller, published string) []string {
-	acts := []string{}
-	st := op.Status
+// the apiserver and the promoter still decide. access is asked only for a
+// held change, and refusal says why a held change offers no decision.
+func (s *Server) actions(ctx context.Context, api DeliveryAPI, op *delivery.OperationObject, stage delivery.StageNow, caller delivery.Caller, published string,
+	access delivery.StageAccess) (acts []string, refusal string) {
+	acts = []string{}
 	may := func(verb, resource string) bool { return mayIn(ctx, api, verb, resource)(op.Metadata.Namespace) }
-	if d := inboxItem(*op).Decision; st.Phase == delivery.PhaseHeld && s.decisionsServed(ctx) && mayOffer(op, caller, d, published) && may("create", "approvals") {
-		acts = append(acts, string(d), string(delivery.Reject))
+	if op.Status.Phase == delivery.PhaseHeld {
+		d := inboxItem(*op).Decision
+		if refusal = s.decisionRefusal(ctx, op, caller, d, published, access, may); refusal == "" {
+			acts = append(acts, string(d), string(delivery.Reject))
+		}
 	}
 	if cancellable(op, caller) && may("delete", "operations") {
 		acts = append(acts, "cancel")
@@ -121,7 +129,32 @@ func (s *Server) actions(ctx context.Context, api DeliveryAPI, op *delivery.Oper
 	if rollbackable(op, stage, caller) && may("create", "operations") {
 		acts = append(acts, "rollback")
 	}
-	return acts
+	return acts, refusal
+}
+
+// decisionRefusal is why caller is offered no decision d on the held op, as
+// a code, or "" when it is offered: the session may not decide, the promoter
+// would not count it, the cluster reports no login time where one is needed,
+// or the caller may not create Approvals.
+func (s *Server) decisionRefusal(ctx context.Context, op *delivery.OperationObject, caller delivery.Caller, d delivery.Decision, published string,
+	access delivery.StageAccess, may func(verb, resource string) bool) string {
+	switch {
+	case !s.decisionsServed(ctx):
+		return "DecisionsNotServed"
+	case caller.PolicyErr != "":
+		// The defaults may not be the promoter's rules: offer nothing.
+		return "PolicyUnknown"
+	}
+	if code := answerRefusal(op, caller, d, func() delivery.WorkloadAccess { return access(ctx, op.Metadata.Namespace, op.Spec.Stage) }); code != "" {
+		return code
+	}
+	if !freshOK(caller, published) {
+		return "FreshLoginRequired"
+	}
+	if !may("create", "approvals") {
+		return "NoApprovalRights"
+	}
+	return ""
 }
 
 // cancellable: op has not concluded or applied, and caller may cancel it.
@@ -155,20 +188,21 @@ func mayIn(ctx context.Context, api DeliveryAPI, verb, resource string) func(ns 
 	}
 }
 
-// mayOffer: the promoter would count caller's decision on op, apart from how
-// old their login is (deciding asks for a fresh one). Where the Stage
-// publishes a login freshness, a cluster that reports no login time
-// (userInfo.extra[delivery.pacto.trianalab.io/auth-time]) counts nobody's, so
-// it offers nothing.
-func mayOffer(op *delivery.OperationObject, caller delivery.Caller, decision delivery.Decision, published string) bool {
-	return (caller.AuthTime != "" || delivery.PublishedFreshness(published) == 0) && answerRefusal(op, caller, decision) == ""
+// freshOK: how old caller's login is can count (deciding asks for a fresh
+// one). Where the Stage publishes a login freshness, a cluster that reports
+// no login time (userInfo.extra[delivery.pacto.trianalab.io/auth-time])
+// counts nobody's, so it offers nothing.
+func freshOK(caller delivery.Caller, published string) bool {
+	return caller.AuthTime != "" || delivery.PublishedFreshness(published) == 0
 }
 
 // answerRefusal is why the promoter would not count caller's decision on op
-// as a code, apart from how old their login is; "" when it would.
-func answerRefusal(op *delivery.OperationObject, caller delivery.Caller, decision delivery.Decision) string {
+// as a code, apart from how old their login is; "" when it would. access
+// asks whether caller may update the workload of op's Stage, only when every
+// other check passes.
+func answerRefusal(op *delivery.OperationObject, caller delivery.Caller, decision delivery.Decision, access func() delivery.WorkloadAccess) string {
 	// Freshness zero: how old the login is does not count here.
-	code, _ := delivery.ApprovalRefusal(op.Spec, op.Status, op.Metadata.UID, approvalOf(op, caller, decision), time.Now(), caller.Policy, 0)
+	code, _, _ := delivery.ApprovalRefusalAsking(op.Spec, op.Status, op.Metadata.UID, approvalOf(op, caller, decision), time.Now(), caller.Policy, 0, access)
 	return code
 }
 

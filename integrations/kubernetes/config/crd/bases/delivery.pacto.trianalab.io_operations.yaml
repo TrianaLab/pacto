@@ -195,6 +195,9 @@ spec:
                   ActorClass is who raised an operation, as the promoter classifies the
                   apiserver identity. It is derived, never asserted by the client.
                 type: string
+              actorClassifiedBy:
+                description: ActorClassifiedBy is how the actor's class was decided.
+                type: string
               applied:
                 description: Applied is true once the pointer moved for this operation.
                 type: boolean
@@ -202,9 +205,26 @@ spec:
                 items:
                   description: ApprovalRecord is an approval the promoter consumed.
                   properties:
+                    access:
+                      description: |-
+                        Access is what let the approver decide, such as
+                        "update deployments/checkout in payments".
+                      type: string
+                    accessAt:
+                      description: AccessAt is when Access was answered (RFC 3339).
+                      type: string
+                    accessSource:
+                      description: |-
+                        AccessSource is who answered Access: subject-access-review or
+                        self-subject-access-review.
+                      type: string
                     authTime:
                       type: string
                     by:
+                      type: string
+                    classifiedBy:
+                      description: ClassifiedBy is how the approver was classified
+                        as a person.
                       type: string
                     decision:
                       description: Decision is what a human approval says.
@@ -499,11 +519,13 @@ spec:
                     properties:
                       kind:
                         description: |-
-                          Kind is OCIRepository (Flux, the default) or Application (Argo CD, with
-                          an OCI source and automated sync).
+                          Kind is OCIRepository (Flux, the default), Application (Argo CD, with
+                          an OCI source and automated sync) or HelmRelease (Flux: the promoter
+                          writes the chart digest on the OCIRepository its spec.chartRef names).
                         enum:
                         - OCIRepository
                         - Application
+                        - HelmRelease
                         type: string
                       name:
                         type: string

@@ -113,7 +113,7 @@ func TestDeliveryRecordVerbs(t *testing.T) {
 		{"text", append([]string{"history"}, stage...), false, []string{"from records, partial", "no signature was checked"}},
 		{"text", append([]string{"history", "--trust", wrong}, stage...), false, []string{"unreadable: sha256:", "problem: the head", "from records, partial"}},
 		{"text", append([]string{"blame", "--trust", trust}, stage...), false, []string{"version:   " + cliA, "change:    seq 1 ship (promote)",
-			"asked by:  bot (agent)", "for:       carol (asserted)", "why:       ship it", "decided:   alice approve fine",
+			"asked by:  bot (agent, classification not recorded)", "for:       carol (asserted)", "why:       ship it", "decided:   alice approve (classification not recorded) fine",
 			"pacto.contract", "from records, complete"}},
 		{"json", append([]string{"blame", "--trust", trust}, stage...), false, []string{`"onBehalfOf": "carol"`}},
 		{"text", append([]string{"record", "verify", "--trust", trust}, stage...), false, []string{"seq 1", "ship", "(unguarded: actor and approvers not checked by admission)", "cosign verify-blob-attestation"}},
@@ -214,7 +214,7 @@ func TestRecordGetText(t *testing.T) {
 		{"text", []string{"record", "get", id, "-n", "prod", "--stage", "payments-prod", "--trust", trust}, false, []string{
 			"record " + id + " seq 1 (operation), read from the signed record in the registry, verified with trust config sha256:",
 			"operation ship: promote none -> " + cliA + ", Succeeded/Verified\n", "asked by bot (agent)\n", "for carol (asserted)\n",
-			"why: ship it\n", "applied -, finished 2026-10-21T10:00:00Z\n", "decided: alice approve fine\n",
+			"why: ship it\n", "applied -, finished 2026-10-21T10:00:00Z\n", "decided: alice approve (classification not recorded) fine\n",
 			"  pacto.contract           Pass     compliant\n      re-run: read contractStatus", "as of "}},
 		{"text", []string{"record", "get", id, "-n", "prod", "--stage", "payments-prod"}, false, []string{"its signature was not checked"}},
 		{"json", []string{"record", "get", id, "-n", "prod", "--stage", "payments-prod", "--trust", trust}, false, []string{`"verified": true`, `"rerun"`}},

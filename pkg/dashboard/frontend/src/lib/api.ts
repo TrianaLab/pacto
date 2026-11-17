@@ -27,6 +27,9 @@ export class ApiError extends Error {
   /** On PlanStale, the bound field that alone explains the difference
    *  (reason, on-behalf-of person, both, or cause); empty when something else moved. */
   differs: string;
+  /** On a 409 for a target key that names targets in more than one cluster, the
+   *  cluster-qualified keys to choose from, each with its label; empty otherwise. */
+  candidates: { key: string; label: string }[] = [];
   constructor(status: number, message: string, code = '', plan?: DeliveryPlan, differs = '') {
     super(message);
     this.status = status;
@@ -196,6 +199,7 @@ export type ServiceEntityDetail = Detail & {
   source?: never;
   domain?: never;
   offering?: never;
+  external?: never;
 };
 export type RevisionEntityDetail = Detail & {
   entity: DetailEntity & { kind: 'revision' };
@@ -206,6 +210,7 @@ export type RevisionEntityDetail = Detail & {
   source?: never;
   domain?: never;
   offering?: never;
+  external?: never;
 };
 export type TargetEntityDetail = Detail & {
   entity: DetailEntity & { kind: 'target' };
@@ -216,6 +221,7 @@ export type TargetEntityDetail = Detail & {
   source?: never;
   domain?: never;
   offering?: never;
+  external?: never;
 };
 export type OwnerEntityDetail = Detail & {
   entity: DetailEntity & { kind: 'owner' };
@@ -226,6 +232,7 @@ export type OwnerEntityDetail = Detail & {
   source?: never;
   domain?: never;
   offering?: never;
+  external?: never;
 };
 export type SourceEntityDetail = Detail & {
   entity: DetailEntity & { kind: 'source' };
@@ -236,6 +243,7 @@ export type SourceEntityDetail = Detail & {
   owner?: never;
   domain?: never;
   offering?: never;
+  external?: never;
 };
 export type DomainEntityDetail = Detail & {
   entity: DetailEntity & { kind: 'domain' };
@@ -246,6 +254,7 @@ export type DomainEntityDetail = Detail & {
   owner?: never;
   source?: never;
   offering?: never;
+  external?: never;
 };
 export type OfferingEntityDetail = Detail & {
   entity: DetailEntity & { kind: 'offering' };
@@ -256,6 +265,18 @@ export type OfferingEntityDetail = Detail & {
   owner?: never;
   source?: never;
   domain?: never;
+  external?: never;
+};
+export type ExternalEntityDetail = Detail & {
+  entity: DetailEntity & { kind: 'external' };
+  external: NonNullable<Detail['external']>;
+  service?: never;
+  revision?: never;
+  target?: never;
+  owner?: never;
+  source?: never;
+  domain?: never;
+  offering?: never;
 };
 
 /** NarrowedEntityDetail is the discriminated view of a ProductEntityDetail. */
@@ -266,7 +287,8 @@ export type NarrowedEntityDetail =
   | OwnerEntityDetail
   | SourceEntityDetail
   | DomainEntityDetail
-  | OfferingEntityDetail;
+  | OfferingEntityDetail
+  | ExternalEntityDetail;
 
 export const isServiceDetail = (d: ProductEntityDetail): d is ServiceEntityDetail =>
   d.entity?.kind === 'service';
@@ -285,7 +307,7 @@ export const isOfferingDetail = (d: ProductEntityDetail): d is OfferingEntityDet
 
 // DETAIL_KINDS is the closed set of entity-detail payload discriminants; it doubles
 // as the payload-field names (each kind's payload lives under the same key).
-const DETAIL_KINDS = ['service', 'revision', 'target', 'owner', 'source', 'domain', 'offering'] as const;
+const DETAIL_KINDS = ['service', 'revision', 'target', 'owner', 'source', 'domain', 'offering', 'external'] as const;
 
 /**
  * narrowEntityDetail validates the runtime invariant the generated broad shape
@@ -332,6 +354,16 @@ function errorCode(error: unknown): { code: string; plan?: DeliveryPlan; differs
   return { code: '' };
 }
 
+// errorCandidates reads the problem-details entries a 409 for an ambiguous target key
+// carries: one {location: 'candidates', value: <key>, message: <label>} per target.
+function errorCandidates(error: unknown): { key: string; label: string }[] {
+  const errs = (error as { errors?: { location?: string; value?: unknown; message?: string }[] } | null)?.errors;
+  if (!Array.isArray(errs)) return [];
+  return errs
+    .filter((e) => e?.location === 'candidates' && typeof e.value === 'string')
+    .map((e) => ({ key: e.value as string, label: e.message ?? '' }));
+}
+
 function errorMessage(error: unknown, response: Response): string {
   if (error && typeof error === 'object') {
     const e = error as { detail?: string; title?: string };
@@ -347,7 +379,9 @@ async function unwrap<T>(p: Promise<FetchResult<T>>): Promise<T> {
   const { data, error, response } = await p;
   if (!response.ok || error !== undefined) {
     const { code, plan, differs } = errorCode(error);
-    throw new ApiError(response.status, errorMessage(error, response), code, plan, differs);
+    const err = new ApiError(response.status, errorMessage(error, response), code, plan, differs);
+    err.candidates = errorCandidates(error);
+    throw err;
   }
   return (data ?? null) as T;
 }

@@ -25,6 +25,9 @@ const (
 	ReadyReasonApplierMultiSource  = "ApplierMultiSource"
 	ReadyReasonApplierNotOCI       = "ApplierNotOCI"
 	ReadyReasonApplierNotAutomated = "ApplierNotAutomated"
+	ReadyReasonApplierConflict     = "ApplierConflict"
+	ReadyReasonApplierUnknown      = "ApplierUnknown"
+	ReadyReasonApplierNotChartRef  = "ApplierNotChartRef"
 )
 
 var readyFixes = map[string]string{
@@ -41,6 +44,11 @@ var readyFixes = map[string]string{
 	ReadyReasonApplierMultiSource:  "give the Argo CD Application one OCI spec.source instead of spec.sources",
 	ReadyReasonApplierNotOCI:       "point the Argo CD Application's spec.source.repoURL at an oci:// repository",
 	ReadyReasonApplierNotAutomated: "set spec.syncPolicy.automated on the Argo CD Application",
+	ReadyReasonApplierConflict: "point spec.applyRef at the manager status.applier names, or move the workloads to the Stage's applier; " +
+		"Pacto never takes a workload from another manager on its own",
+	ReadyReasonApplierUnknown: "deliver the workloads through Argo CD or Flux so they carry its labels, or let the promoter read them; " +
+		"status.applier says what Pacto saw",
+	ReadyReasonApplierNotChartRef: "point the HelmRelease's spec.chartRef at an OCIRepository; a HelmChart pins a version, never a digest",
 }
 
 // ReadyFix is the change that clears a Ready reason, or "" for a reason it

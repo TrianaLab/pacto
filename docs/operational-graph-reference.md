@@ -32,7 +32,15 @@ compliance evidence that a source carries.
   compliance, findings, coverage and observed runtime. The operator also
   reports runtime calls no contract declares and callers with no contract,
   which join the graph as `observed`. It reports only undeclared calls, so
-  this observation alone leaves every declared edge `insufficient`.
+  this observation alone leaves every declared edge `insufficient`. The
+  source id is the cluster UID when the source can read the `kube-system`
+  namespace, otherwise the context name. With more than one cluster, target
+  keys gain a cluster component; see
+  [Clusters and target keys](operational-graph-clusters.md).
+  The externals the operator reads from a workload's pod spec (`status.externals`)
+  join as `inferred` edges to external systems. A Pacto whose status predates
+  them, reports incomplete coverage or is stale adds `EXTERNALS_UNREPORTED` to
+  its target, and the external answers that consume it read `partial`.
 - **Ingested external evidence** (`--evidence-url <url>`): a running [Evidence
   Server](evidence.md)'s read-only contribution over HTTP, exposing a
   remote environment's signed `EvidenceSet` reports as operational targets.
@@ -63,6 +71,15 @@ caller with no namespace, from any source, and each unresolved observed name,
 counting them in `hiddenDependents` and one `OBSERVED_IDENTITY_UNRESOLVED`
 limitation per source.
 
+- A declared external dependency is `matched` when an observed call maps to
+  the same identity through the
+  [external catalog](external-catalog-reference.md#matching).
+- Only a name that matches more than one service, or that is neither a
+  service nor an external system, is unresolved.
+- An observed or inferred edge to an external system follows its caller: when
+  the caller is hidden, the edge is dropped and counted among the external
+  system's hidden consumers.
+
 ### What a target-state fixture looks like
 
 `--target-state` is the only source you author yourself: a single YAML or JSON
@@ -73,6 +90,9 @@ or any other `schemaVersion`.
 
 ```yaml
 schemaVersion: pacto.dev/fleet-targets/v1
+cluster:                             # optional: the cluster of every target
+  id: 9f1c4e2a-5b7d-4c1e-8a3f-2d6b0e9c7a41   # required in the block: kube-system UID
+  name: eu-prod                      # a display name
 targets:
   - service: orders-service          # required: the service this target runs
     name: commerce/orders-service    # required: unique within the scope
@@ -193,21 +213,20 @@ carries a `meta` envelope, here from
 ```
 
 `schemaVersion` is the compatibility contract to branch on and `snapshotId` the
-content digest that proves two answers came from the same system view. On this
-envelope `count` is how many rows the page carries and `total` the whole matched
-population. Match on `key`, the canonical identity, because `name` can repeat
-across domains. A bounded preview nested in a `get` answer is the
-exception: it omits `total` when the walk was itself bounded, so an absent
-`total` means "we stopped counting".
+content digest that proves two answers share one system view. `count` is the
+rows on this page and `total` the whole matched population. Match on `key`,
+because `name` can repeat across domains. A bounded preview nested in a `get`
+answer omits `total` when its walk was bounded: an absent `total` means "we
+stopped counting".
 
 Beside the rows, answers carry tallies over the complete matched population,
 computed before paging. The [tallies reference](operational-graph-tallies.md)
 lists them, the knowledge-gap filters and the attention categories.
 
-`get`, `graph` and `explain` name a single subject and carry no envelope: a
-missing subject is a *failure*. `pacto fleet get ghost` exits 1
-with `service "ghost" not found in the fleet snapshot` on stderr. These answers have no `meta` and so no `completeness`. Read `completeness` from
-`search` before you treat a subject miss as an absence.
+`get`, `graph` and `explain` name a single subject and carry no envelope, so
+no `completeness`: a missing subject is a *failure*. `pacto fleet get ghost`
+exits 1 with `service "ghost" not found in the fleet snapshot` on stderr. Read
+`completeness` from `search` before you treat a miss as an absence.
 
 ### Where a service runs
 
@@ -261,7 +280,7 @@ version the fleet holds satisfies the consumer's `compatibility` range:
 | `satisfied` | Every revision of the provider in the fleet (or the one `pacto.lock` pins) is inside the range. |
 | `unsatisfied` | None is. `status` reports it as `DEPENDENCY_RANGE_UNSATISFIED` in the `out-of-range` category. |
 | `unknown` | The range or a version cannot be read as semver, the provider has no revision in the fleet, or its revisions disagree. |
-| *absent* | The dependency declares no range or is unresolved. |
+| *absent* | The dependency declares no range, is unresolved or joins an [external system](#external-systems), which is never ranged. |
 
 A consumer that asks for `ledger ^2.0.0` while the fleet holds `ledger 1.6.2`
 is resolved and unsatisfied.
@@ -371,3 +390,23 @@ See the [platform offerings reference](platform-offerings.md) and
 
 The `capability` filter and facet count each declared capability by its key:
 `health`, `metrics` or, for an extension, its ref, such as `acme.io/cost`.
+
+## External systems
+
+A ref-less `external: true` dependency joins an entity of kind `external`, one
+per canonical identity. The [external catalog reference](external-catalog-reference.md)
+covers identities, the join order and catalogs.
+
+| Surface | Behaviour |
+|---|---|
+| Relationship | `toExternal` names the identity and `resolved` stays `false`, because no fleet service delivers it. It never gets `rangeStatus` or `resolvedRevision` and never counts in impact, dependents or delivery |
+| Snapshot | `externals`, one record per identity, and `externalCatalogs`, the catalogs used with `digest`, `origin`, `copy`, `signature` and `reason`; every answer's meta repeats `externalCatalogs` |
+| Record | `key`, `label`, `class`, `aliases`, `sources` (one per consumer and dependency position, each with `provenance`, `match` and `superseded` when a newer consumer revision no longer declares it), `sourcesTotal`, `catalog` (origin, digest and entry; absent when no entry classifies it), `joinedBy` (`identity`, `catalog-alias`, `host` or `normalized-name`), `consumers`, `consumersTotal`, `hiddenConsumers` |
+| Entities | `--kind external` (MCP `kind: external`) lists them, `--class` keeps one class; the default listing leaves them out |
+| Get | `pacto fleet get external:<identity>` and `pacto_fleet_get` with `service: external:<identity>` |
+| Search | A search on text alone, first page, adds up to 20 matching `externals`, by identity, label or alias, with `externalsTotal`; any other filter or a later page lists none |
+| Explain | `EXTERNAL_DECLARED` per source, then `EXTERNAL_CATALOG_MATCH`, `EXTERNAL_UNCLASSIFIED` (joined by identity or host) or `EXTERNAL_NAME_ONLY`, `EXTERNAL_SOURCES_TRUNCATED` when consumers are cut or hidden, and `EXTERNAL_CAP` when folded; status is always `Unknown` |
+| Graph | Rooted at `external:<identity>`, it walks the consumers and their dependents (an unset direction means `dependents`); an explicit `direction: dependencies` is an invalid query |
+| Neighborhood | External systems are leaves beside the services that declare them; focusing one shows its consumers |
+| Overview | `externals` and `hiddenExternals` |
+| Cap | An answer that names more than 200 external systems folds the rest into `other-egress` and is partial with `EXTERNAL_CAP`; see [the cap](external-catalog-reference.md#the-cap) |

@@ -519,3 +519,28 @@ func TestProductEntities_TemplateFilters(t *testing.T) {
 	expectStatus(t, base+"/api/fleet/entities?template=bogus", http.StatusUnprocessableEntity)
 	expectStatus(t, base+"/api/fleet/services?template=bogus", http.StatusUnprocessableEntity)
 }
+
+func TestFleetExternalAPIInferredSources(t *testing.T) {
+	col := &fleet.Collection{
+		Revisions: []fleet.RawRevision{{Digest: "sha256:checkout", Bundle: &contract.Bundle{Contract: &contract.Contract{
+			PactoVersion: "2.4", Workload: contract.WorkloadService, Service: contract.Service{Name: "checkout", Version: "1.0.0"}}}}},
+		Targets: []fleet.RawTarget{{Scope: "shop", Kind: fleet.SourceKindKubernetes, Name: "checkout", Service: "checkout", Digest: "sha256:checkout"}},
+		ExternalUses: []fleet.RawExternalUse{{Service: "checkout", Namespace: "shop", Identity: "stripe", Confidence: "likely",
+			Kind: "configMap", Where: "deployment/checkout configMap payments/STRIPE_URL", Host: "api.stripe.com:443", Entry: "stripe"}},
+		Observed: []fleet.ObservedEdge{{From: "checkout", To: "api.stripe.com", Count: 2}},
+	}
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("k8s", fleet.SourceKindKubernetes, col))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := fleet.NewQuery(snap)
+	base, cancel := startFleetTestServer(t, func(context.Context) (*fleet.Query, error) { return q, nil }, nil)
+	defer cancel()
+	var det fleet.EntityDetail
+	getJSON(t, base+"/api/fleet/entities/external?key=stripe", http.StatusOK, &det)
+	ev := det.External.ExternalEvidence
+	if len(ev.InferredSources) != 1 || ev.InferredSources[0].Kind != "configMap" || ev.InferredSources[0].Host != "api.stripe.com:443" ||
+		ev.InferredSources[0].Service != "checkout" || len(ev.ObservedSources) != 1 || ev.ObservedSources[0].Count != 2 {
+		t.Errorf("external evidence over the wire = %+v", ev)
+	}
+}

@@ -91,9 +91,10 @@ type RecordIntent struct {
 
 // RecordActor is who asked, as the apiserver named them.
 type RecordActor struct {
-	Class      ActorClass  `json:"class,omitempty"`
-	User       string      `json:"user"`
-	OnBehalfOf *OnBehalfOf `json:"onBehalfOf,omitempty"`
+	Class        ActorClass  `json:"class,omitempty"`
+	ClassifiedBy ClassSource `json:"classifiedBy,omitempty"`
+	User         string      `json:"user"`
+	OnBehalfOf   *OnBehalfOf `json:"onBehalfOf,omitempty"`
 }
 
 // OnBehalfOf is the person an agent said it acted for. It is asserted, never
@@ -111,6 +112,15 @@ type RecordApproval struct {
 	IntentDigest string   `json:"intentDigest"`
 	AuthTime     string   `json:"authTime,omitempty"`
 	Note         string   `json:"note,omitempty"`
+	// ClassifiedBy is how the approver was classified; empty in a record
+	// from an earlier promoter.
+	ClassifiedBy ClassSource `json:"classifiedBy,omitempty"`
+	// Access is what let the approver decide ("update deployments/checkout
+	// in payments"), AccessSource who answered it (subject-access-review or
+	// self-subject-access-review) and AccessAt when (RFC 3339).
+	Access       string `json:"access,omitempty"`
+	AccessSource string `json:"accessSource,omitempty"`
+	AccessAt     string `json:"accessAt,omitempty"`
 }
 
 // RecordOutcome is how the operation ended.
@@ -184,7 +194,7 @@ func NewOperationRecord(in RecordInput) Statement {
 		Kind:     RecordOperation,
 		Intent:   intent(in),
 		Policy:   &in.Stage.Spec,
-		Actor:    &RecordActor{Class: st.ActorClass, User: spec.Actor.User},
+		Actor:    &RecordActor{Class: st.ActorClass, ClassifiedBy: st.ActorClassifiedBy, User: spec.Actor.User},
 		Verdicts: st.Verdicts,
 		Outcome: &RecordOutcome{Result: st.Outcome, Verification: st.Verification, Reason: st.Reason,
 			Message: st.Message, Pointer: st.Pointer},
@@ -208,8 +218,9 @@ func NewOperationRecord(in RecordInput) Statement {
 		p.Actor.OnBehalfOf = &OnBehalfOf{User: spec.OnBehalfOf.User, Asserted: true}
 	}
 	for _, a := range st.Approvals {
-		p.Approvals = append(p.Approvals, RecordApproval{By: a.By, Decision: a.Decision, Operation: op.Metadata.UID,
-			IntentDigest: in.Approvals[a.Name].IntentDigest, AuthTime: a.AuthTime, Note: a.Note})
+		r := approvalOf(a, op.Metadata.UID)
+		r.IntentDigest = in.Approvals[a.Name].IntentDigest
+		p.Approvals = append(p.Approvals, r)
 	}
 	return statement(in.Subjects, p)
 }
@@ -310,3 +321,9 @@ var secretPattern = regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY-----` +
 	`|eyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}` +
 	`|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{20}|xox[abprs]-[A-Za-z0-9-]{10,}` +
 	`|(?i:password|passwd|secret|token|api[_-]?key)"?\s*[:=]\s*"?[^\s",}]{4,}`)
+
+// approvalOf is a consumed approval of operation uid as a record approval.
+func approvalOf(a ApprovalRecord, uid string) RecordApproval {
+	return RecordApproval{By: a.By, Decision: a.Decision, Operation: uid, AuthTime: a.AuthTime, Note: a.Note,
+		ClassifiedBy: a.ClassifiedBy, Access: a.Access, AccessSource: a.AccessSource, AccessAt: a.AccessAt}
+}

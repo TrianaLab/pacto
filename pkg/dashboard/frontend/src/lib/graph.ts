@@ -13,7 +13,7 @@ import { wrapWideRanks } from './layout.ts';
 // motion.ts, not chartkit.ts: chartkit imports d3 at module scope, and the graph chunk
 // has no business pulling a charting library in for one media query.
 import { MOTION, prefersReducedMotion } from './motion.ts';
-import { statusTone } from './format.ts';
+import { statusTone, isOffContract } from './format.ts';
 import { LANE_CAP } from './neighborhoodGraph.ts';
 import { KIND_GLYPH } from './figure.ts';
 
@@ -64,12 +64,15 @@ export interface GraphNode {
   serviceName: string;
   status: string;
   version?: string;
+  /** Where a service name no revision declares was inferred from (pactoVersion 2.5). */
+  nameInferred?: string;
   reason?: string;    // why unresolved: non_oci_ref, auth_failed, no_semver_tags, not_found, discovering
   // kind distinguishes what a node represents so the renderer can style it and the
   // viewer is never misled about the layer: 'target' is a deployed instance,
   // 'service' is a logical service (incl. a dependency-service aggregate in the
-  // target perspective), 'revision' is a content-addressed revision. Absent = service.
-  kind?: 'service' | 'revision' | 'target';
+  // target perspective), 'revision' is a content-addressed revision, 'external' a
+  // system no contract describes. Absent = service.
+  kind?: 'service' | 'revision' | 'target' | 'external';
   edges?: GraphEdge[];
   /** Hops from the focus (0 = the focus), when the answer says; it seeds the layout in
    *  rings so a large neighborhood reads outward from its subject. */
@@ -92,11 +95,15 @@ export interface GraphData {
 }
 
 /** fullName is the whole name a node's label may cut, for its hover title. */
-export function fullName(node: { id: string; serviceName?: string; version?: string; group?: number; owner?: string }): string {
+export function fullName(node: { id: string; serviceName?: string; version?: string; group?: number; owner?: string; nameInferred?: string }): string {
   const raw = node.serviceName || node.id;
   if (node.group) return `${node.owner || raw}: ${node.group} entities. Select to show them.`;
+  if (node.nameInferred) return `${raw} (name inferred from ${node.nameInferred})`;
   return node.version ? `${raw} ${node.version}` : raw;
 }
+
+/** subLine is a label's second line: the version, or that the name is only inferred. */
+const subLine = (node: { version?: string; nameInferred?: string }) => node.version || (node.nameInferred ? 'inferred name' : '');
 
 // Characters per label line: what fits a NODE_W box at 14px, and the wider focus box.
 const LINE = 17;
@@ -129,9 +136,9 @@ export function fitLines(raw: string, per: number, max = 0): string[] {
 
 /** Computes the displayed label lines for a node: the name, cut at the end, and the
  *  version on its own line. The focus is never cut: it wraps in a wider box. */
-export function nodeLabel(node: { id: string; serviceName?: string; version?: string }, focus = false): { name: string; version: string } {
+export function nodeLabel(node: { id: string; serviceName?: string; version?: string; nameInferred?: string }, focus = false): { name: string; version: string } {
   const raw = node.serviceName || node.id;
-  const name = focus ? fitLines(raw, FOCUS_LINE).join('\n') : fitLines(raw, LINE, node.version ? 1 : 2).join('\n');
+  const name = focus ? fitLines(raw, FOCUS_LINE).join('\n') : fitLines(raw, LINE, subLine(node) ? 1 : 2).join('\n');
   return { name, version: node.version || '' };
 }
 
@@ -145,7 +152,7 @@ const isFocusNode = (n: { id: string; serviceName?: string }, focusId?: string) 
  */
 export function graphLabels(nodes: GraphNode[], focusId?: string): Map<string, string> {
   const out = new Map<string, string>();
-  const text = (n: GraphNode, name: string) => (n.version ? `${name}\n${n.version}` : name);
+  const text = (n: GraphNode, name: string) => (subLine(n) ? `${name}\n${subLine(n)}` : name);
   const by = new Map<string, GraphNode[]>();
   for (const n of nodes) {
     const l = text(n, nodeLabel(n, isFocusNode(n, focusId)).name);
@@ -159,7 +166,7 @@ export function graphLabels(nodes: GraphNode[], focusId?: string): Map<string, s
       const raw = raws[i];
       // Where this name parts from the closest other one, rounded back to a word break.
       const d = Math.max(...raws.filter((_, j) => j !== i && raws[j] !== raw).map((o) => { let k = 0; while (o[k] === raw[k]) k++; return k; }));
-      const max = n.version ? 1 : 2;
+      const max = subLine(n) ? 1 : 2;
       let from = Math.max(0, ...['-', '_', '.', '/', ' '].map((c) => raw.lastIndexOf(c, d - 1) + 1));
       // A word too long to show whole starts just before the difference instead, so the
       // cut at the end can never reach it.
@@ -217,7 +224,7 @@ export function buildVersionSubgraph(detail: VersionDetail, services: FleetEntry
     nodes.push({
       id: depName,
       serviceName: depName,
-      status: svc?.contractStatus || 'external',
+      status: svc?.contractStatus || (dep.ref ? 'unresolved' : 'external'),
       version: svc?.version || '',
       edges: [],
     });
@@ -377,7 +384,7 @@ export function buildElements(graphData: GraphData, focusId?: string): ElementDe
         status: n.status,
         reason: n.reason || '',
         kind: n.kind || 'service',
-        external: n.status === 'external' ? 1 : 0,
+        external: isOffContract(n.status) ? 1 : 0,
         isFocus: isFocusNode(n, focusId) ? 1 : 0,
       },
     });
@@ -423,6 +430,7 @@ export const LEGEND_SELECTORS: Record<string, string> = {
   'kind:group': 'node[group = 1]',
   'kind:revision': 'node[kind = "revision"]',
   'kind:target': 'node[kind = "target"]',
+  'kind:external': 'node[kind = "external"]',
   'rel:dependency': 'edge[etype = "dependency"]',
   'rel:runs': 'edge[etype = "runs"]',
   'rel:reference': 'edge[etype = "reference"]',
@@ -430,6 +438,7 @@ export const LEGEND_SELECTORS: Record<string, string> = {
   'state:expected-not-observed': 'edge[state = "expected-not-observed"]',
   'state:drift': 'edge[state = "drift"]',
   'state:insufficient': 'edge[state = "insufficient"]',
+  'state:inferred': 'edge[state = "inferred"]',
   'behavior:refused': 'edge[refused = 1]',
 };
 
@@ -639,7 +648,7 @@ export const spaced = (s: string) => [...s].join('\u200A');
 
 /** Border/status color for a node, theme-aware and reason-aware for externals. */
 function nodeColor(pal: Palette, status: string, reason: string): string {
-  if (status === 'external') return (pal as any)[REASON_TO_PAL[reason]] || pal.neutral;
+  if (isOffContract(status)) return (pal as any)[REASON_TO_PAL[reason]] || pal.neutral;
   return pal[statusTone(status)] || pal.neutral;
 }
 
@@ -716,6 +725,18 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered', edgeStyl
       style: { 'border-style': 'dashed' },
     },
     {
+      // An external system of the operational graph is a dashed hexagon: a shape no
+      // fleet entity takes, with no compliance tone (Pacto observes no health for it).
+      selector: "node[kind='external']",
+      style: { shape: 'hexagon', 'border-style': 'dashed', 'border-color': pal.neutral, 'border-width': 1.5 },
+    },
+    {
+      // An external system reads as a dashed ring, matching its legend swatch, so it is
+      // never mistaken for an unresolved ref (a solid ring in its reason's colour).
+      selector: "node[status='external']",
+      style: { 'border-style': 'dashed' },
+    },
+    {
       selector: 'edge',
       style: {
         // Layered = the dependency TREE: orthogonal taxi edges flowing top→down with
@@ -757,6 +778,13 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered', edgeStyl
       selector: "edge[state='expected-not-observed']",
       // Projected, never observed: the figures' dashed wire (SPEC 2.1).
       style: { 'line-color': pal.info, 'target-arrow-color': pal.info, 'line-style': 'dashed', 'line-dash-pattern': [6, 5] },
+    },
+    {
+      // inferred: recognized in the caller's configuration, never declared or observed.
+      // The same projected wire as expected-not-observed (SPEC 2.1) in the dim tone;
+      // the legend and the edge list tell the two apart in words.
+      selector: "edge[state='inferred']",
+      style: { 'line-style': 'dashed', 'line-dash-pattern': [6, 5] },
     },
     {
       // drift (observed-not-expected): observed at runtime but never declared. The

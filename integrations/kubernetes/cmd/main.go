@@ -22,14 +22,13 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	appsv1 "k8s.io/api/apps/v1"
-	coordinationv1 "k8s.io/api/coordination/v1"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
+	"k8s.io/client-go/dynamic"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -44,6 +43,8 @@ import (
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/nodeagent"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/observer"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/scope"
+	"github.com/trianalab/pacto/v4/pkg/kubecluster"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -80,19 +81,22 @@ type options struct {
 	secureMetrics                                    bool
 	enableHTTP2                                      bool
 	showVersion                                      bool
-	watchNamespace                                   string
+	watchNamespace                                   string // deprecated --watch-namespace, merged into namespaces
+	watchNamespacesRaw                               string
+	namespaces                                       []string
 
-	enableDashboard        bool
-	dashboardOCISecrets    string
-	dashboardResources     component.Resources
-	dashboardObservation   []dashboard.ObservationSource
-	dashboardAuth          dashboard.AuthConfig
-	dashboardExtraScopes   string
-	dashboardMiraURL       string
-	dashboardStatsRegistry string
-	dashboardDeliveryNS    string
-	dashboardDeliveryTrust dashboard.KeyRef
-	dashboardRepositories  []string
+	enableDashboard          bool
+	dashboardOCISecrets      string
+	dashboardResources       component.Resources
+	dashboardObservation     []dashboard.ObservationSource
+	dashboardAuth            dashboard.AuthConfig
+	dashboardExtraScopes     string
+	dashboardMiraURL         string
+	dashboardStatsRegistry   string
+	dashboardDeliveryNS      string
+	dashboardDeliveryTrust   dashboard.KeyRef
+	dashboardRepositories    []string
+	dashboardExternalCatalog string
 
 	enableEvidence            bool
 	evidenceTrustSecret       string
@@ -102,8 +106,8 @@ type options struct {
 	evidenceResources         component.Resources
 
 	stabilizationWindow               time.Duration
-	enableMetricsObservation          bool
-	enableProbing                     bool
+	metricsObservation                observer.Mode
+	probing                           observer.Mode
 	enableInterfaceNameMatchDiscovery bool
 	enableKernelEvidence              bool
 	kernelEvidenceNamespace           string
@@ -138,9 +142,11 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 		"If set, HTTP/2 will be enabled for the metrics server")
 	fs.BoolVar(&o.enableDashboard, "enable-dashboard", false,
 		"Enable the managed Pacto dashboard deployment. Disabled by default.")
+	fs.StringVar(&o.watchNamespacesRaw, "watch-namespaces", "",
+		"Restrict the controller and the managed dashboard to these namespaces (comma-separated). "+
+			"Empty (default) means cluster-wide.")
 	fs.StringVar(&o.watchNamespace, "watch-namespace", "",
-		"Restrict the controller to watch a single namespace. Empty (default) means cluster-wide. "+
-			"The dashboard inherits this scope automatically.")
+		"Deprecated: use --watch-namespaces. Merged into the --watch-namespaces list.")
 	fs.StringVar(&o.dashboardOCISecrets, "dashboard-oci-secrets", "",
 		"Optional: comma-separated list of Secret names in the operator namespace for OCI registry credentials. "+
 			"Supports Opaque (registry + token, or registry + username + password) and kubernetes.io/dockerconfigjson "+
@@ -184,6 +190,8 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 			o.dashboardRepositories = append(o.dashboardRepositories, strings.Split(v, ",")...)
 			return nil
 		})
+	fs.StringVar(&o.dashboardExternalCatalog, "dashboard-external-catalog", "",
+		"Organization external catalog the dashboard merges over Pacto's default, as oci://REPOSITORY@sha256:DIGEST.")
 	fs.StringVar(&o.dashboardAuth.ClientID, "dashboard-oidc-client-id", "", "The dashboard's OpenID Connect client id.")
 	fs.StringVar(&o.dashboardAuth.RedirectURL, "dashboard-oidc-redirect-url", "",
 		"The dashboard's /auth/callback as browsers reach it; TLS must terminate in front of it.")
@@ -242,11 +250,15 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 	fs.DurationVar(&o.stabilizationWindow, "stabilization-window", 2*time.Minute,
 		"The stabilization window duration for compliance assertions before they trigger a false condition. "+
 			"Assertions must remain unsatisfied for this entire window before being considered a failure.")
-	fs.BoolVar(&o.enableMetricsObservation, "enable-metrics-observation", false,
-		"Enable full metrics observation (discovery + active probe). When disabled, metrics dimension returns Unsupported.")
-	fs.BoolVar(&o.enableProbing, "enable-probing", false,
-		"Enable active in-cluster probing: health capability endpoints over HTTP (Tier A) and the wire protocol "+
-			"of each present interface. Off by default; when off, health uses passive readiness-probe and "+
+	fs.Var(&o.metricsObservation, "enable-metrics-observation",
+		"Metrics observation (discovery and active probe), written `=mode`: on, off or auto. auto observes metrics only in "+
+			"namespaces labelled pacto.trianalab.io/observe with metrics. The bare flag means on. Off by default; "+
+			"when off, metrics read Unsupported.")
+	fs.Var(&o.probing, "enable-probing",
+		"Active in-cluster probing (health endpoints over HTTP and each present interface's wire protocol), "+
+			"written `=mode`: "+
+			"on, off or auto. auto probes only in namespaces labelled pacto.trianalab.io/observe with probing. "+
+			"The bare flag means on. Off by default; when off, health uses passive readiness-probe and "+
 			"EndpointSlice signals only and interface protocols read unverified.")
 	fs.BoolVar(&o.enableInterfaceNameMatchDiscovery, "interface-name-match-discovery", false,
 		"Enable resolving an unbound interface's Service port by matching a Service port whose name equals "+
@@ -305,12 +317,27 @@ func bindResourceFlags(fs *flag.FlagSet, rc *component.Resources, prefix, contai
 	}
 }
 
+// noStrayArgs refuses positional arguments. Boolean-style flags never take the next argument as their
+// value, so `--enable-probing off` reads as on and parsing stops at "off", silently dropping every later
+// flag.
+func noStrayArgs(fs *flag.FlagSet) error {
+	if fs.NArg() > 0 {
+		return fmt.Errorf("unexpected argument %q: write a flag value after an equals sign, as in "+
+			"--enable-probing=off", fs.Arg(0))
+	}
+	return nil
+}
+
 func main() {
 	// Production logging by default: JSON, info level, no stack traces on warnings. --zap-devel turns on the
 	// development encoder.
 	o := options{zap: zap.Options{Development: false}}
 	bindFlags(flag.CommandLine, &o)
 	flag.Parse()
+	if err := noStrayArgs(flag.CommandLine); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
 
 	if o.showVersion {
 		fmt.Printf("pacto-operator %s (commit: %s, built: %s)\n", version, gitCommit, buildDate)
@@ -319,6 +346,10 @@ func main() {
 	}
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&o.zap)))
+	o.namespaces = scope.Namespaces(o.watchNamespacesRaw, o.watchNamespace)
+	if o.watchNamespace != "" {
+		setupLog.Info("--watch-namespace is deprecated; use --watch-namespaces")
+	}
 
 	setupLog.Info("Starting pacto-operator",
 		"version", version,
@@ -350,13 +381,15 @@ func main() {
 		Recorder:                          mgr.GetEventRecorderFor("pacto-controller"),
 		Loader:                            loader.New(),
 		StabilizationWindow:               o.stabilizationWindow,
-		EnableMetricsObservation:          o.enableMetricsObservation,
-		EnableProbing:                     o.enableProbing,
+		MetricsObservation:                o.metricsObservation,
+		Probing:                           o.probing,
 		EnableInterfaceNameMatchDiscovery: o.enableInterfaceNameMatchDiscovery,
 		KernelEvidence:                    o.enableKernelEvidence,
 		KernelEvidenceNamespace:           o.kernelEvidenceNamespace,
 		KernelEvidenceStaleness:           o.kernelEvidenceStaleness,
 		CallerIgnoreNamespaces:            o.callerIgnoreNamespaces,
+		Scoped:                            len(o.namespaces) > 0,
+		ServiceEntries:                    servesServiceEntries(mgr),
 	}
 	if err := pactoReconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "Pacto")
@@ -396,6 +429,14 @@ func main() {
 // newManager builds the controller manager: metrics server, leader election, health probes and the cache.
 // No webhook server is configured: the operator registers no webhook, and controller-runtime only starts one
 // when something asks the manager for it.
+// servesServiceEntries reports whether the cluster serves Istio's networking.istio.io/v1 ServiceEntry at
+// startup. Without it the externals list reads no ServiceEntry and says so in its coverage.
+// ponytail: an Istio installed later is read after the operator restarts.
+func servesServiceEntries(mgr ctrl.Manager) bool {
+	_, err := mgr.GetRESTMapper().RESTMapping(schema.GroupKind{Group: "networking.istio.io", Kind: "ServiceEntry"}, "v1")
+	return err == nil
+}
+
 func newManager(o *options) (ctrl.Manager, error) {
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
@@ -461,38 +502,12 @@ func newManager(o *options) (ctrl.Manager, error) {
 		// LeaderElectionReleaseOnCancel: true,
 	}
 
-	mgrOpts.Cache = cacheOptions(o)
-	if o.watchNamespace != "" {
-		setupLog.Info("Watching single namespace", "namespace", o.watchNamespace)
+	mgrOpts.Cache = scope.CacheOptions(o.namespaces, o.kernelEvidenceNamespace, o.enableKernelEvidence)
+	if len(o.namespaces) > 0 {
+		setupLog.Info("Watching namespaces", "namespaces", o.namespaces)
 	}
 
 	return ctrl.NewManager(ctrl.GetConfigOrDie(), mgrOpts)
-}
-
-// cacheOptions scopes the manager's cache. Pods are cached only for the kernel merge, which reads a handful
-// of their fields: the transform drops the rest (managedFields included) before they reach the cache. The
-// node agent's observations and heartbeat Leases are read in the kernel evidence namespace only, whatever
-// --watch-namespace says: a cluster-wide Lease informer would cache every controller's leader election.
-// --watch-namespace restricts everything else to that one namespace.
-func cacheOptions(o *options) cache.Options {
-	opts := cache.Options{
-		ByObject: map[client.Object]cache.ByObject{
-			&corev1.Pod{}: {Transform: observer.TrimPod},
-		},
-	}
-	// A ByObject entry makes the manager resolve the kind at startup, so registering the
-	// node agent kinds only with kernel evidence on keeps an operator that has it off
-	// starting even where the NodeRuntimeObservation CRD was never applied (helm upgrade
-	// installs no new CRDs).
-	if o.enableKernelEvidence {
-		kernel := cache.ByObject{Namespaces: map[string]cache.Config{o.kernelEvidenceNamespace: {}}}
-		opts.ByObject[&pactov1alpha1.NodeRuntimeObservation{}] = kernel
-		opts.ByObject[&coordinationv1.Lease{}] = kernel
-	}
-	if o.watchNamespace != "" {
-		opts.DefaultNamespaces = map[string]cache.Config{o.watchNamespace: {}}
-	}
-	return opts
 }
 
 // addComponents validates the dashboard, Evidence Server and node agent configurations and registers each
@@ -529,7 +544,7 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string) error {
 		Enabled:            o.enableDashboard,
 		Image:              dashboardImage,
 		Namespace:          namespace,
-		WatchNamespace:     o.watchNamespace,
+		WatchNamespaces:    o.namespaces,
 		OCISecrets:         parsedOCISecrets,
 		OwnerRef:           ownerRef,
 		EvidenceSourceURL:  evidenceSourceURL,
@@ -542,6 +557,7 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string) error {
 		StatsRegistry:      o.dashboardStatsRegistry,
 		DeliveryTrust:      o.dashboardDeliveryTrust,
 		Repositories:       o.dashboardRepositories,
+		ExternalCatalog:    o.dashboardExternalCatalog,
 	}
 	if o.dashboardExtraScopes != "" {
 		dashCfg.Auth.ExtraScopes = strings.Split(o.dashboardExtraScopes, ",")
@@ -557,11 +573,15 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string) error {
 		APIReader: mgr.GetAPIReader(),
 		Scheme:    mgr.GetScheme(),
 		Config:    dashCfg,
+		//nolint:staticcheck // TODO: migrate to mgr.GetEventRecorder()
+		Recorder: mgr.GetEventRecorderFor("pacto-dashboard"),
 	}); err != nil {
 		return fmt.Errorf("failed to add dashboard reconciler: %w", err)
 	}
 
+	// The cluster id names the cluster in Evidence Server reports; read once.
 	evidenceCfg := evidence.Config{
+		Cluster:            readClusterIdentity(mgr),
 		Enabled:            o.enableEvidence,
 		Image:              dashboardImage, // the runtime image runs `pacto evidence serve`
 		Namespace:          namespace,
@@ -637,4 +657,19 @@ func operatorOwnerRef(mgr ctrl.Manager, namespace string) *metav1ac.OwnerReferen
 		WithKind("Deployment").
 		WithName(operatorDeploy.Name).
 		WithUID(operatorDeploy.UID)
+}
+
+// readClusterIdentity reads the cluster id (the kube-system namespace UID) and
+// a display name. A failure is logged and leaves the identity empty: Evidence
+// Server reports then carry no cluster.
+func readClusterIdentity(mgr ctrl.Manager) kubecluster.Identity {
+	dyn, err := dynamic.NewForConfig(mgr.GetConfig())
+	if err == nil {
+		var ident kubecluster.Identity
+		if ident, err = kubecluster.Identify(context.Background(), dyn, ""); err == nil {
+			return ident
+		}
+	}
+	setupLog.Info("the cluster id could not be read; Evidence Server reports carry no cluster", "error", err)
+	return kubecluster.Identity{}
 }

@@ -1,25 +1,121 @@
-# Delivery reference: Argo CD and several clusters
+# Delivery reference: appliers and several clusters
 
-[Pacto delivery](delivery.md) applies versions through Flux by default. This
-page covers the two other set-ups: a Stage applied by Argo CD, and a Stage
-that follows a Stage in another cluster.
+[Pacto delivery](delivery.md) never applies a version itself. It moves the
+version through the manager that already applies the service's workloads:
+a Flux Kustomization, a Flux HelmRelease or an Argo CD Application. This page
+covers how the promoter finds that manager, the HelmRelease and Argo CD
+set-ups, and a Stage that follows a Stage in another cluster.
 
 !!! warning "Experimental"
-    Both set-ups are experimental, within an Alpha component: they may change
-    more than the rest of delivery. Every pull request that changes delivery
-    runs each of them live once, in the delivery demo; Flux runs in every
-    delivery scenario.
+    HelmRelease, Argo CD and several clusters are experimental, within an Alpha
+    component: they may change more than the rest of delivery. Every pull
+    request that changes delivery runs each of them live once; Flux
+    Kustomizations run in every delivery scenario.
+
+## Which manager applies a Stage
+
+The promoter reads, and never writes, the workloads each Pacto in the Stage's
+namespace reports for the service, and names the manager of each one. The
+first match wins:
+
+1. An `argocd.argoproj.io/tracking-id` annotation that names this object:
+   Argo CD, with the Application from the id.
+2. `helm.toolkit.fluxcd.io/name` and `/namespace` labels: a Flux HelmRelease.
+3. `kustomize.toolkit.fluxcd.io/name` and `/namespace` labels: a Flux
+   Kustomization.
+4. `meta.helm.sh/release-name` and `/release-namespace` annotations: a plain
+   Helm release.
+5. An `app.kubernetes.io/instance` label written by an `argocd` field manager:
+   Argo CD.
+6. A controller owner reference, kapp, Rancher Fleet, Spinnaker, Skaffold,
+   Terraform or Pulumi: a manager Pacto does not support.
+
+Marks of two different managers read as ambiguous. The Stage records the
+result in `status.applier`, with the evidence, `asOf` and `completeness`, and
+compares it with its `spec.applyRef`:
+
+| State | Means | A promote |
+|---|---|---|
+| `Adopted` | The Stage's applier manages every workload | goes ahead |
+| `Unmanaged` | No Pacto reports a workload yet, or the workload it reports does not exist yet | goes ahead |
+| `Conflict` | Another manager or another object owns a workload, a plain Helm release owns it, or the workloads disagree | is refused; `Ready` is `False` with `ApplierConflict` |
+| `Unknown` | A workload carries no mark of the Stage's applier, an unsupported or ambiguous manager owns it, Pacto could not read it, a Pacto is not reconciled yet or evaluated another workload than the Stage runs, or a Kustomization in another namespace does not apply from the Stage's OCIRepository | is refused; `Ready` is `False` with `ApplierUnknown` |
+
+Nobody can accept a `Conflict` or an `Unknown`: Pacto never writes a pointer
+another manager may overwrite, and moving a workload is yours to do.
+
+- `pacto delivery status`, `pacto_delivery_status` and the dashboard print
+  one line, such as
+  `applier: Argo CD (Application payments, tracking annotation) (as of 2026-11-15T09:59:00Z)`,
+  with the reason when the Stage does not adopt it and a warning when the
+  promoter stopped checking.
+- `pacto delivery plan` keeps what the promoter observed apart from what the
+  Stage declares and what the contract says.
+- A contract on pactoVersion 2.5 can require a manager with
+  [`delivery.applier`](../../contract-reference/delivery.md).
+
+## Apply through a Flux HelmRelease
+
+A Stage can apply through a Flux `HelmRelease` whose `spec.chartRef` names an
+`OCIRepository`. The promoter writes the chart digest to that repository's
+`spec.ref.digest`, and a move counts as applied once the HelmRelease is
+`Ready` at that digest. A failed release of the digest fails the promote and
+starts the usual rollback.
+
+```yaml
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: payments-chart
+  namespace: prod
+  labels: {delivery.pacto.trianalab.io/apply-ref: payments}
+spec:
+  url: oci://registry/charts/payments
+  interval: 1m
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: payments
+  namespace: prod
+  labels: {delivery.pacto.trianalab.io/apply-ref: payments}
+spec:
+  interval: 1m
+  serviceAccountName: payments-deployer
+  chartRef: {kind: OCIRepository, name: payments-chart}
+---
+apiVersion: delivery.pacto.trianalab.io/v1alpha1
+kind: Stage
+metadata: {name: payments, namespace: prod}
+spec:
+  service: {name: payments}
+  environment: prod
+  applyRef: {kind: HelmRelease, name: payments}
+  candidates:
+    upstreamStage: {name: payments, namespace: test}
+```
+
+- Both objects carry the `apply-ref` label set to the Stage's name, and the
+  chart repository lives in the Stage's namespace. A `chartRef` to another
+  namespace reads `ApplierUnreadable`, and the promoter never writes to it.
+- A HelmRelease that takes its chart from `spec.chart`, a HelmChart, reads
+  `ApplierNotChartRef`: a HelmChart pins a version, never a digest.
+- `values`, `valuesFrom` or `postRenderers` set the Stage's `Mediated`
+  condition `False` (`ApplierOverrides`), and no `serviceAccountName` sets it
+  `False` (`ApplierUnscoped`). The message names the fields, never their
+  values.
+- An admission policy keeps the chart source, values, service account and
+  `suspend` of a labelled HelmRelease to break-glass.
+- The chart grants HelmRelease read when Flux access is on and the cluster
+  serves `helm.toolkit.fluxcd.io/v2` HelmRelease.
 
 ## Apply through Argo CD
 
 A Stage can point at an Argo CD `Application` instead of a Flux
-`OCIRepository`. Turn it on in the operator chart's delivery section:
-
-```yaml
-delivery:
-  argocd:
-    enabled: true
-```
+`OCIRepository`. The chart grants the promoter access by itself: under the
+default `delivery.argocd.enabled: auto` it does when the cluster serves Argo CD
+Applications at install or upgrade, so install Argo CD first or run
+`helm upgrade` after. Set `true` or `false` to decide regardless of the API.
 
 This gives the promoter `patch` on Argo CD Applications and adds an admission
 policy. On a labelled Application only the promoter or break-glass may change
@@ -30,7 +126,8 @@ The Application must:
 - live in the Stage's namespace. Argo CD calls this
   [Applications in any namespace](https://argo-cd.readthedocs.io/en/stable/operator-manual/app-any-namespace/).
   Add the namespace to `application.namespaces` and to the project's
-  `sourceNamespaces`.
+  `sourceNamespaces`. An Application of the same name in the Argo CD
+  namespace is a different object, so its workloads read `Conflict`.
 - have one OCI source (`spec.source.repoURL: oci://…`), not `spec.sources`, and
   set no Kustomize images, patches or components, Helm parameters, values or
   value files, or plugin. Otherwise the Stage's `Mediated` condition is

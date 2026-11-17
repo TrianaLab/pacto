@@ -68,6 +68,28 @@ function mountView() {
 describe('FleetOverview — operational landing (scenarios 1-5)', () => {
   beforeEach(() => { overviewFn.mockReset(); entitiesFn.mockReset(); });
 
+  it('splits the services line into declared and external, linking the external systems', async () => {
+    const ov = baseOverview();
+    ov.summary.externals = 4;
+    ov.summary.hiddenExternals = 2;
+    overviewFn.mockResolvedValue(ov);
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="overview-services-line"]')).toBeTruthy());
+    const line = target.querySelector('[data-testid="overview-services-line"]') as HTMLElement;
+    expect(line.textContent?.replace(/\s+/g, ' ').trim()).toBe('7: 3 declared, 4 external (2 hidden)');
+    expect(line.querySelector('[data-testid="overview-externals"]')?.getAttribute('href')).toBe('#/fleet/externals');
+    expect(line.querySelector('[title]')?.getAttribute('title')).toBe('External systems only services you cannot see declare');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('keeps the plain services count when no external system is declared', async () => {
+    overviewFn.mockResolvedValue(baseOverview());
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="trust-figure"] .fig-aside dl.facts')).toBeTruthy());
+    expect(target.querySelector('[data-testid="overview-services-line"]')).toBeNull();
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('answers the trust figure with one compliance bar whose legend lists each bucket, and explains how Pacto knows on request', async () => {
     overviewFn.mockResolvedValue(baseOverview(true));
     entitiesFn.mockResolvedValue({ meta: baseOverview(true).meta, total: 3, count: 0, entities: [], aggregate: { services: 3, serviceCompliance: { compliant: 2, nonCompliant: 1 } } });

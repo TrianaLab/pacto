@@ -12,6 +12,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -285,40 +286,50 @@ func (r *StageReconciler) witness(ctx context.Context, stage *dv1.Stage) error {
 	}
 	a, err := r.Cluster.applier(ctx, stage.Namespace, stage.Spec.ApplyRef)
 	switch {
-	case apierrors.IsNotFound(err) || apierrors.IsForbidden(err) || meta.IsNoMatchError(err):
+	case readyNamesIt(err):
 		return nil // ready names it (applierReady)
 	case err != nil:
 		return err
 	}
-	if delivery.CurrentLevel(stage.Spec, stage.Status) == delivery.LevelObserve && !labelled(a.obj) {
+	if delivery.CurrentLevel(stage.Spec, stage.Status) == delivery.LevelObserve && !labelled(a.object()) {
 		return nil // observing an unguarded applyRef: GitOps moves it
 	}
-	if _, err := delivery.ParseDigest(a.digest); err != nil || a.digest == stage.Status.Pointer {
+	if _, err := delivery.ParseDigest(a.src().digest); err != nil || a.src().digest == stage.Status.Pointer {
 		return nil
 	}
-	// The cache can lag a write the promoter itself made. Only the apiserver's
-	// digest raises an override, and only against the stored pointer and lock.
-	if a, err = r.Cluster.freshApplier(ctx, stage.Namespace, stage.Spec.ApplyRef); err != nil {
-		return client.IgnoreNotFound(err)
+	stage, a, err = r.witnessFresh(ctx, stage)
+	if stage == nil {
+		return err
 	}
-	fresh := &dv1.Stage{}
-	if err := r.APIReader.Get(ctx, client.ObjectKeyFromObject(stage), fresh); err != nil {
-		return client.IgnoreNotFound(err)
-	}
-	if _, err := delivery.ParseDigest(a.digest); err != nil || a.digest == fresh.Status.Pointer ||
-		fresh.Status.Locks[delivery.FacetPointer] != "" || fresh.Status.Pointer == "" {
-		return nil
-	}
-	stage = fresh
 	spec := delivery.OperationSpec{
 		Type: delivery.TypeOverride, Stage: stage.Name, Facet: delivery.FacetPointer,
-		Params:    delivery.Params{From: stage.Status.Pointer, To: a.digest},
-		Reason:    "witnessed: " + a.field() + " was edited outside Pacto",
+		Params:    delivery.Params{From: stage.Status.Pointer, To: a.src().digest},
+		Reason:    "witnessed: " + a.target() + " was edited outside Pacto",
 		Actor:     delivery.Actor{User: r.Policy.ControllerUser},
 		Cause:     &delivery.Cause{Reason: "pointer edited outside Pacto (editor: unknown)"},
 		Witnessed: true,
 	}
 	return r.raise(ctx, stage, "witnessed", spec)
+}
+
+// witnessFresh reads the Stage and its applier again from the apiserver: the
+// cache can lag a write the promoter itself made. It returns them only while
+// the apiserver's digest still differs from the stored pointer and no
+// operation holds the pointer lock.
+func (r *StageReconciler) witnessFresh(ctx context.Context, stage *dv1.Stage) (*dv1.Stage, applier, error) {
+	a, err := r.Cluster.freshApplier(ctx, stage.Namespace, stage.Spec.ApplyRef)
+	if err != nil {
+		return nil, nil, client.IgnoreNotFound(err)
+	}
+	fresh := &dv1.Stage{}
+	if err := r.APIReader.Get(ctx, client.ObjectKeyFromObject(stage), fresh); err != nil {
+		return nil, nil, client.IgnoreNotFound(err)
+	}
+	if _, err := delivery.ParseDigest(a.src().digest); err != nil || a.src().digest == fresh.Status.Pointer ||
+		fresh.Status.Locks[delivery.FacetPointer] != "" || fresh.Status.Pointer == "" {
+		return nil, nil, nil
+	}
+	return fresh, a, nil
 }
 
 // autoPromote raises a promote of the newest eligible candidate unless
@@ -355,20 +366,118 @@ func (r *StageReconciler) autoPromote(ctx context.Context, stage *dv1.Stage) err
 // cannot write and nothing is admitted while admission does not guard. It
 // also remembers the newest upstream record read, which the next read must
 // extend.
-func (r *StageReconciler) ready(ctx context.Context, stage *dv1.Stage) (*applyRef, *delivery.StageStatus, error) {
+func (r *StageReconciler) ready(ctx context.Context, stage *dv1.Stage) (*source, *delivery.StageStatus, error) {
 	cand, up, want, err := r.candidateReady(ctx, stage)
 	if err != nil {
 		return nil, nil, err
 	}
-	blocked, a, err := r.applierReady(ctx, stage)
+	applier, write := r.nextApplier(ctx, stage)
+	conds, err := r.readyConds(ctx, stage, want, applier)
 	if err != nil {
 		return nil, nil, err
+	}
+	changed := condsChange(stage, conds, r.Now()) || write
+	fresh := r.authFreshness()
+	seen := up != nil && up.Stream.ID != "" && (up.Stream.ID != stage.Status.UpstreamSeen.Stream || up.Stream.Seq > stage.Status.UpstreamSeen.Seq)
+	if !changed && !seen && stage.Status.ObservedGeneration == stage.Generation && stage.Status.AuthFreshness == fresh {
+		return cand, up, nil
+	}
+	set := func(s *dv1.Stage) {
+		for _, c := range conds {
+			s.Status.Conditions, _ = delivery.SetCondition(s.Status.Conditions, c, r.Now())
+		}
+		s.Status.ObservedGeneration, s.Status.AuthFreshness = stage.Generation, fresh
+		if write {
+			s.Status.Applier = &applier
+		}
+		if seen {
+			s.Status.UpstreamSeen = delivery.RecordMark{Stream: up.Stream.ID, Seq: up.Stream.Seq, Record: up.Stream.Head}
+		}
+	}
+	if err := r.updateStatus(ctx, stage, set); err != nil {
+		return nil, nil, err
+	}
+	set(stage)
+	return cand, up, nil
+}
+
+// authFreshness is the login freshness the Stage publishes, empty when no
+// login is too old.
+func (r *StageReconciler) authFreshness() string {
+	if r.Freshness > 0 {
+		return r.Freshness.String()
+	}
+	return ""
+}
+
+// nextApplier detects who manages the Stage's workloads and says whether
+// status.applier must be written: when the result changed (since and asOf
+// both move), or when the shown result is older than the resync period (only
+// asOf moves). Status writes stay bounded to one per resync per Stage. staleAt
+// is twice the resync after asOf, so every surface judges staleness by this
+// promoter's own period.
+func (r *StageReconciler) nextApplier(ctx context.Context, stage *dv1.Stage) (delivery.ApplierStatus, bool) {
+	now, resync := r.Now(), cmp.Or(r.Resync, DefaultResync)
+	st, old := r.Cluster.detectApplier(ctx, stage, now), stage.Status.Applier
+	st.StaleAt = now.Add(2 * resync).UTC().Format(time.RFC3339)
+	if !delivery.SameApplier(old, &st) {
+		return st, true
+	}
+	st.Since = old.Since
+	if asOf, err := time.Parse(time.RFC3339, old.AsOf); err == nil && now.Sub(asOf) < resync && old.StaleAt != "" {
+		st.AsOf, st.StaleAt = old.AsOf, old.StaleAt
+		return st, false
+	}
+	return st, true
+}
+
+// applierBlocks is the Ready condition of a detection that keeps the Stage
+// from promoting, nil when it does not: another manager owns a workload, or
+// Pacto cannot tell who does.
+func applierBlocks(st delivery.ApplierStatus) *delivery.Condition {
+	var c delivery.Condition
+	switch st.State {
+	case delivery.ApplierConflict:
+		c = notReady(delivery.ReadyReasonApplierConflict, st.Message)
+	case delivery.ApplierUnknown:
+		c = notReady(delivery.ReadyReasonApplierUnknown, st.Message)
+	default:
+		return nil
+	}
+	return &c
+}
+
+// condsChange stamps conds with the Stage's generation and says whether
+// setting them changes its conditions.
+func condsChange(stage *dv1.Stage, conds []delivery.Condition, now time.Time) bool {
+	changed, cur := false, stage.Status.Conditions
+	for i := range conds {
+		conds[i].ObservedGeneration = stage.Generation
+		var c bool
+		cur, c = delivery.SetCondition(cur, conds[i], now)
+		changed = changed || c
+	}
+	return changed
+}
+
+// readyConds is the Stage's mediation condition, when its applier is
+// readable, and its Ready condition: want from the candidate source, unless
+// the applier blocks the Stage, the detected manager of its workloads
+// (applier) contradicts it or cannot be told, or admission does not guard, read as
+// observing while the Stage observes.
+func (r *StageReconciler) readyConds(ctx context.Context, stage *dv1.Stage, want delivery.Condition, applier delivery.ApplierStatus) ([]delivery.Condition, error) {
+	blocked, a, err := r.applierReady(ctx, stage)
+	if err != nil {
+		return nil, err
+	}
+	if blocked == nil {
+		blocked = applierBlocks(applier)
 	}
 	conds := []delivery.Condition{}
 	if a != nil {
 		med, err := r.Cluster.mediated(ctx, stage.Namespace, a)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		conds = append(conds, med)
 	}
@@ -380,7 +489,7 @@ func (r *StageReconciler) ready(ctx context.Context, stage *dv1.Stage) (*applyRe
 	if want.Status == statusTrue {
 		why, err := unguardedBy(ctx, r.Client, r.AdmissionPolicies)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		if why != "" {
 			want = notReady(ReasonUnguarded, why+", so the promoter admits no operation and counts no approval")
@@ -393,47 +502,18 @@ func (r *StageReconciler) ready(ctx context.Context, stage *dv1.Stage) (*applyRe
 			want.Reason, want.Message = delivery.ReasonObserving, "the Stage observes: GitOps owns the applyRef and Pacto plans what it would do"
 		}
 	}
-	conds = append(conds, want)
-	changed, cur := false, stage.Status.Conditions
-	for i := range conds {
-		conds[i].ObservedGeneration = stage.Generation
-		var c bool
-		cur, c = delivery.SetCondition(cur, conds[i], r.Now())
-		changed = changed || c
-	}
-	fresh := ""
-	if r.Freshness > 0 {
-		fresh = r.Freshness.String()
-	}
-	seen := up != nil && up.Stream.ID != "" && (up.Stream.ID != stage.Status.UpstreamSeen.Stream || up.Stream.Seq > stage.Status.UpstreamSeen.Seq)
-	if !changed && !seen && stage.Status.ObservedGeneration == stage.Generation && stage.Status.AuthFreshness == fresh {
-		return cand, up, nil
-	}
-	set := func(s *dv1.Stage) {
-		for _, c := range conds {
-			s.Status.Conditions, _ = delivery.SetCondition(s.Status.Conditions, c, r.Now())
-		}
-		s.Status.ObservedGeneration, s.Status.AuthFreshness = stage.Generation, fresh
-		if seen {
-			s.Status.UpstreamSeen = delivery.RecordMark{Stream: up.Stream.ID, Seq: up.Stream.Seq, Record: up.Stream.Head}
-		}
-	}
-	if err := r.updateStatus(ctx, stage, set); err != nil {
-		return nil, nil, err
-	}
-	set(stage)
-	return cand, up, nil
+	return append(conds, want), nil
 }
 
 // candidateReady reads the Stage's candidate source and says whether it can
 // offer anything: the candidate OCIRepository, what the upstream in another
 // cluster offers, and the Ready condition.
-func (r *StageReconciler) candidateReady(ctx context.Context, stage *dv1.Stage) (*applyRef, *delivery.StageStatus, delivery.Condition, error) {
+func (r *StageReconciler) candidateReady(ctx context.Context, stage *dv1.Stage) (*source, *delivery.StageStatus, delivery.Condition, error) {
 	want := delivery.Condition{Type: conditionReady, Status: statusTrue, Reason: conditionReady, Message: "the Stage can promote published versions"}
 	c := stage.Spec.Candidates
 	switch {
 	case c.OCIRepositoryRef != nil:
-		a, err := ociRepository(ctx, r.Cluster.cached(false), stage.Namespace, c.OCIRepositoryRef.Name)
+		a, err := ociRepository(ctx, r.Cluster.cached(delivery.ApplierFlux), stage.Namespace, c.OCIRepositoryRef.Name)
 		switch {
 		case apierrors.IsNotFound(err):
 			want = notReady(delivery.ReadyReasonCandidateNotFound, "the candidate OCIRepository "+c.OCIRepositoryRef.Name+" does not exist")
@@ -489,7 +569,7 @@ func (r *StageReconciler) remote(ctx context.Context, stage *dv1.Stage) (*delive
 // policy then refuses every promoter write), its label names another Stage
 // or, on Argo CD, it has no single
 // OCI spec.source or no automated sync (the promoter never runs a sync).
-func (r *StageReconciler) applierReady(ctx context.Context, stage *dv1.Stage) (*delivery.Condition, *applyRef, error) {
+func (r *StageReconciler) applierReady(ctx context.Context, stage *dv1.Stage) (*delivery.Condition, applier, error) {
 	ref := stage.Spec.ApplyRef
 	kind := ref.Kind
 	if kind == "" {
@@ -497,7 +577,10 @@ func (r *StageReconciler) applierReady(ctx context.Context, stage *dv1.Stage) (*
 	}
 	what := "the " + kind + " " + ref.Name
 	a, err := r.Cluster.applier(ctx, stage.Namespace, ref)
+	var refused *refusedApplier
 	switch {
+	case errors.As(err, &refused):
+		return &refused.ready, nil, nil
 	case apierrors.IsNotFound(err) || apierrors.IsForbidden(err):
 		c := notReady(delivery.ReadyReasonApplierUnreadable, what+" the Stage applies through cannot be read: "+err.Error())
 		return &c, nil, nil
@@ -508,18 +591,31 @@ func (r *StageReconciler) applierReady(ctx context.Context, stage *dv1.Stage) (*
 		return nil, nil, err
 	}
 	var c delivery.Condition
+	switch o := a.object(); {
+	case !labelled(o):
+		c = notReady(reasonApplierUnlabelled, what+" has no "+ApplyRefLabel+" label, so admission refuses every version the promoter writes to it")
+	case o.GetLabels()[ApplyRefLabel] != stage.Name:
+		// Another Stage could drive the same pointer otherwise.
+		c = notReady(reasonApplierUnlabelled, what+" is labelled "+ApplyRefLabel+"="+o.GetLabels()[ApplyRefLabel]+
+			", not "+stage.Name+": the label names the one Stage that applies through it")
+	default:
+		return a.notReady(what), a, nil
+	}
+	return &c, a, nil
+}
+
+// notReady is nil: a labelled OCIRepository takes any version by digest.
+func (fluxApplier) notReady(string) *delivery.Condition { return nil }
+
+// notReady says why the Application cannot take a version: it has no single
+// OCI spec.source or no automated sync (the promoter never runs a sync). It
+// lives here so TestReadyReasonsMatchOperator checks its reasons.
+func (a argoApplier) notReady(what string) *delivery.Condition {
+	var c delivery.Condition
 	_, multi, _ := unstructured.NestedFieldNoCopy(a.obj.Object, "spec", "sources")
 	url, _, _ := unstructured.NestedString(a.obj.Object, "spec", "source", "repoURL")
 	_, automated, _ := unstructured.NestedFieldNoCopy(a.obj.Object, "spec", "syncPolicy", "automated")
 	switch {
-	case !labelled(a.obj):
-		c = notReady(reasonApplierUnlabelled, what+" has no "+ApplyRefLabel+" label, so admission refuses every version the promoter writes to it")
-	case a.obj.GetLabels()[ApplyRefLabel] != stage.Name:
-		// Another Stage could drive the same pointer otherwise.
-		c = notReady(reasonApplierUnlabelled, what+" is labelled "+ApplyRefLabel+"="+a.obj.GetLabels()[ApplyRefLabel]+
-			", not "+stage.Name+": the label names the one Stage that applies through it")
-	case !a.argo:
-		return nil, a, nil
 	case multi:
 		c = notReady(delivery.ReadyReasonApplierMultiSource, what+" sets spec.sources; the promoter writes only the one OCI spec.source")
 	case !strings.HasPrefix(url, "oci://"):
@@ -527,14 +623,21 @@ func (r *StageReconciler) applierReady(ctx context.Context, stage *dv1.Stage) (*
 	case !automated:
 		c = notReady(delivery.ReadyReasonApplierNotAutomated, what+" sets no spec.syncPolicy.automated; the promoter never runs a sync, so a version it writes is never applied")
 	default:
-		return nil, a, nil
+		return nil
 	}
-	return &c, a, nil
+	return &c
 }
 
 // reasonApplierUnlabelled is the Ready reason of an applyRef without
 // ApplyRefLabel, which is no fault while the Stage observes.
 const reasonApplierUnlabelled = delivery.ReadyReasonApplierUnlabelled
+
+// readyNamesIt reports whether err is a failed applier read applierReady
+// names on Ready: missing, forbidden, a kind the cluster lacks or refused.
+func readyNamesIt(err error) bool {
+	var refused *refusedApplier
+	return apierrors.IsNotFound(err) || apierrors.IsForbidden(err) || meta.IsNoMatchError(err) || errors.As(err, &refused)
+}
 
 func labelled(o *unstructured.Unstructured) bool {
 	_, ok := o.GetLabels()[ApplyRefLabel]
@@ -549,7 +652,7 @@ func notReady(reason, msg string) delivery.Condition {
 // Flux verified its signature: a version pacto publish published. The
 // pacto.published gate admits only remembered digests, so a version Flux
 // verified earlier can still be proposed after the tag moved on.
-func (r *StageReconciler) recordPublished(ctx context.Context, stage *dv1.Stage, a *applyRef) error {
+func (r *StageReconciler) recordPublished(ctx context.Context, stage *dv1.Stage, a *source) error {
 	if a == nil {
 		return nil
 	}
@@ -585,7 +688,7 @@ func (r *StageReconciler) candidate(ctx context.Context, stage *dv1.Stage, remot
 	c := stage.Spec.Candidates
 	switch {
 	case c.OCIRepositoryRef != nil:
-		a, err := ociRepository(ctx, r.Cluster.cached(false), stage.Namespace, c.OCIRepositoryRef.Name)
+		a, err := ociRepository(ctx, r.Cluster.cached(delivery.ApplierFlux), stage.Namespace, c.OCIRepositoryRef.Name)
 		if err != nil {
 			return "", client.IgnoreNotFound(err)
 		}
@@ -652,22 +755,16 @@ func (r *StageReconciler) freeze(ctx context.Context, stage *dv1.Stage, why stri
 func (r *StageReconciler) recheck(ctx context.Context, stage *dv1.Stage) error {
 	s, now := stage.Status, r.Now().UTC()
 	failed := slices.Contains(s.FailedDigests, s.Pointer)
-	if s.Frozen || s.LastOp == "" || s.Locks[delivery.FacetPointer] != "" ||
-		!failed && s.LastCheck != nil && s.LastCheck.Operation == s.LastOp && now.Before(parseOr(s.LastCheck.At).Add(delivery.RecheckInterval(stage.Spec))) {
+	if !recheckDue(stage, failed, now) {
 		return nil
 	}
 	ops, err := stageOps(ctx, r.Client, stage.Namespace, stage.Name)
 	if err != nil {
 		return err
 	}
-	var shipped *dv1.Operation
-	for _, o := range ops {
-		if o.Status.Phase != delivery.PhaseConcluded {
-			return nil // something is in flight; it owns the Stage
-		}
-		if string(o.UID) == s.LastOp {
-			shipped = &o
-		}
+	shipped, busy := shippedBy(ops, s.LastOp)
+	if busy {
+		return nil // something is in flight; it owns the Stage
 	}
 	if failed {
 		return r.reraise(ctx, stage, shipped, ops)
@@ -695,6 +792,32 @@ func (r *StageReconciler) recheck(ctx context.Context, stage *dv1.Stage) error {
 		return r.recordCheck(ctx, stage, check, now)
 	}
 	return r.recheckFailed(ctx, stage, shipped, check, f)
+}
+
+// recheckDue says the Stage's running version is due a re-check: nothing
+// holds or froze the Stage, and it failed or its last re-check is older than
+// the recheck interval.
+func recheckDue(stage *dv1.Stage, failed bool, now time.Time) bool {
+	s := stage.Status
+	if s.Frozen || s.LastOp == "" || s.Locks[delivery.FacetPointer] != "" {
+		return false
+	}
+	return failed || s.LastCheck == nil || s.LastCheck.Operation != s.LastOp ||
+		!now.Before(parseOr(s.LastCheck.At).Add(delivery.RecheckInterval(stage.Spec)))
+}
+
+// shippedBy finds the concluded operation lastOp among ops; busy says one of
+// ops is still in flight.
+func shippedBy(ops []dv1.Operation, lastOp string) (shipped *dv1.Operation, busy bool) {
+	for _, o := range ops {
+		if o.Status.Phase != delivery.PhaseConcluded {
+			return nil, true
+		}
+		if string(o.UID) == lastOp {
+			shipped = &o
+		}
+	}
+	return shipped, false
 }
 
 // recordCheck records check as the Stage's last re-check, unless the Stage
@@ -725,9 +848,8 @@ func (r *StageReconciler) recheckFailed(ctx context.Context, stage *dv1.Stage, s
 		return nil
 	}
 	why := "RecheckFailed: " + f.Gate + ": " + f.Message
-	cause, before := string(shipped.UID), shipped.Status.Pointer.Before
-	chosen := shipped.Spec.Type != delivery.TypePromote || fresh.Status.AutoHold
-	rollback := !chosen && !slices.Contains(fresh.Status.RolledBack, cause) && before != "" && !slices.Contains(fresh.Status.FailedDigests, before)
+	cause := string(shipped.UID)
+	chosen, rollback := recheckChoice(shipped, fresh.Status)
 	// The failure is recorded before the rollback is raised: raising takes the
 	// pointer lock, after which the Stage reads as moved and the record would be
 	// dropped. A rollback lost after the record is raised again by reraise.
@@ -759,24 +881,45 @@ func (r *StageReconciler) recheckFailed(ctx context.Context, stage *dv1.Stage, s
 		st.Status.Conditions, _ = delivery.SetCondition(st.Status.Conditions, watched(check, st.Generation), r.Now())
 		st.Status.FailedDigests = delivery.AddDigest(st.Status.FailedDigests, check.Digest, delivery.MaxFailedDigests)
 		st.Status.Verified = delivery.RemoveDigest(st.Status.Verified, check.Digest)
-		switch {
-		case shipped.Spec.Type == delivery.TypeRollback && shipped.Status.ActorClass == delivery.ClassController:
-			st.Status.Frozen, st.Status.FrozenReason = true, shipped.Name+": failed after release, and it is the promoter's own rollback, which is never undone automatically, so a person must decide: "+why
-		case chosen:
-			st.Status.Frozen, st.Status.FrozenReason = true, shipped.Name+": failed after release, and a person or agent chose this version, so a person must decide: "+why
-		case !rollback:
-			st.Status.Frozen, st.Status.FrozenReason = true, shipped.Name+": failed after release and cannot be rolled back automatically: "+why
-		default:
+		if rollback {
 			st.Status.RolledBack = delivery.AddDigest(st.Status.RolledBack, cause, delivery.MaxRolledBack)
 		}
-		if stepSquat != "" {
-			// The level stays where the failure happened: a person decides.
-			st.Status.Frozen, st.Status.FrozenReason = true, shipped.Name+": failed after release: "+why+", and "+stepSquat
+		if reason := recheckFreeze(shipped, chosen, rollback, why, stepSquat); reason != "" {
+			st.Status.Frozen, st.Status.FrozenReason = true, reason
 		}
 	}); err != nil || !wrote || !rollback {
 		return err
 	}
 	return r.raiseRollback(ctx, stage, shipped, why, f)
+}
+
+// recheckChoice says whether a person or agent chose shipped's version (a
+// rollback, or a promote on auto-hold) and whether its failure raises its one
+// bound rollback: nobody chose it, its cause had no rollback yet and the
+// version before it is known and never failed.
+func recheckChoice(shipped *dv1.Operation, st delivery.StageStatus) (chosen, rollback bool) {
+	before := shipped.Status.Pointer.Before
+	chosen = shipped.Spec.Type != delivery.TypePromote || st.AutoHold
+	return chosen, !chosen && !slices.Contains(st.RolledBack, string(shipped.UID)) && before != "" && !slices.Contains(st.FailedDigests, before)
+}
+
+// recheckFreeze is why a re-check's confirmed failure of shipped freezes the
+// Stage, or "" when its one bound rollback is raised instead. A rollback
+// requires that nobody chose the version, so the promoter's own rollback,
+// itself chosen, always freezes.
+func recheckFreeze(shipped *dv1.Operation, chosen, rollback bool, why, stepSquat string) string {
+	switch {
+	case stepSquat != "":
+		// The level stays where the failure happened: a person decides.
+		return shipped.Name + ": failed after release: " + why + ", and " + stepSquat
+	case shipped.Spec.Type == delivery.TypeRollback && shipped.Status.ActorClass == delivery.ClassController:
+		return shipped.Name + ": failed after release, and it is the promoter's own rollback, which is never undone automatically, so a person must decide: " + why
+	case chosen:
+		return shipped.Name + ": failed after release, and a person or agent chose this version, so a person must decide: " + why
+	case !rollback:
+		return shipped.Name + ": failed after release and cannot be rolled back automatically: " + why
+	}
+	return ""
 }
 
 // raiseRollback raises shipped's one bound rollback, or freezes the Stage when

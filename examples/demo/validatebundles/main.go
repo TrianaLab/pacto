@@ -30,6 +30,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/graph"
+	"github.com/trianalab/pacto/v4/pkg/ignore"
 	"github.com/trianalab/pacto/v4/pkg/semver"
 	"github.com/trianalab/pacto/v4/pkg/validation"
 )
@@ -160,6 +161,12 @@ func buildIndex(roots ...string) (index, error) {
 		if err != nil {
 			return fmt.Errorf("parse %s: %w", p, err)
 		}
+		dirFS := os.DirFS(dir)
+		matcher, err := ignore.Load(dirFS)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", filepath.Join(dir, ignore.IgnoreFileName), err)
+		}
+		(&contract.Bundle{Contract: c, RawYAML: raw, FS: ignore.FS(dirFS, matcher)}).Complete(filepath.Base(dir))
 		name, ver := c.Service.Name, c.Service.Version
 		if idx[name] == nil {
 			idx[name] = map[string]*svcVersion{}

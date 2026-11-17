@@ -4,6 +4,7 @@
   import { formatRelative, formatDateTime } from '../../lib/dateFormat.ts';
   import { PHASE_WORDS, phaseTone, adapterLine } from '../../lib/provisioning.ts';
   import { successorBadge } from '../../lib/behavior.ts';
+  import { acceptsLabel } from '../../lib/entityLabels.ts';
   import { inService } from '../../lib/identityContext.ts';
   import EntityLink from '../../components/EntityLink.svelte';
   import IdentityBadge from '../../components/IdentityBadge.svelte';
@@ -139,7 +140,7 @@
           <!-- Arrow side: the provider's compliance is not what this row is about. -->
           <EntityLink ref={u.provider} showStatus={false} showKind={false} />
           <IdentityBadge label={VIA[u.via] ?? u.via} tone="neutral" />
-          {#if u.rangeStatus}<IdentityBadge label={u.rangeStatus} tone={RANGE_TONE[u.rangeStatus] ?? 'neutral'} title={u.compatibility ? `Accepts ${u.compatibility}` : ''} describe />{/if}
+          {#if u.rangeStatus}<IdentityBadge label={u.rangeStatus} tone={RANGE_TONE[u.rangeStatus] ?? 'neutral'} title={acceptsLabel(u.compatibility)} describe />{/if}
           <LifecycleBadge lifecycle={u.providerLifecycle} detail={false} />
           {#if sb}<IdentityBadge label={sb.label} tone={sb.tone} title={sb.title} describe />{/if}
           {#if lb}<IdentityBadge label={lb.label} tone={lb.tone} title={lb.title} describe />{/if}

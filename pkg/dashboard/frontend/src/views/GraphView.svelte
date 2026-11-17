@@ -3,13 +3,13 @@
   import { api, ApiError, SchemaCompatibilityError } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import {
-    graphStateFromParams, hasFocus, toggleView, differenceLabel, differenceTone,
+    graphStateFromParams, hasFocus, toggleView, differenceLabel, differenceTone, edgeDifference,
     differenceDescription, relationLabel, neighborhoodIsEmpty, MAX_DEPTH,
     defaultPerspectiveForKind, availablePerspectives, revisionLinkAuthoritative,
     perspectiveSupportsDepth, corroborationLabel, corroborationTone, serviceScopedCaveat,
     canonicalFocusForPerspective, projectionFocusMismatch, nextMaxNodes, maxEdgesFor,
   } from '../lib/graphState.ts';
-  import { cyEdgeId, neighborhoodToGraph, laneGraph, GROUP_PREFIX, LANE_CAP, GROUP_THRESHOLD as GROUP_LIMIT, OTHER_TEAMS } from '../lib/neighborhoodGraph.ts';
+  import { cyEdgeId, graphNodeId, neighborhoodToGraph, laneGraph, GROUP_PREFIX, LANE_CAP, GROUP_THRESHOLD as GROUP_LIMIT, OTHER_TEAMS } from '../lib/neighborhoodGraph.ts';
   import { abbreviateDigests, formatCount, countOf, statusTone } from '../lib/format.ts';
   import { graphQueryKey } from '../lib/graphSpatial.ts';
   import { snapshotKnowledge } from '../lib/knowledgeState.ts';
@@ -27,10 +27,11 @@
   import BehaviorBadges from '../components/BehaviorBadges.svelte';
   import RequirementList from '../components/RequirementList.svelte';
   import HelpTip from '../components/HelpTip.svelte';
-  import { kindLabelPlural } from '../lib/entityLabels.ts';
+  import { kindLabelPlural, RANGE_NOT_DECLARED } from '../lib/entityLabels.ts';
   import LimitationsList from '../components/LimitationsList.svelte';
   import NeighborhoodGraph from '../NeighborhoodGraph.svelte';
   import EmptyState from '../components/EmptyState.svelte';
+  import TargetKeyChooser from '../components/TargetKeyChooser.svelte';
 
   // The product Operational Graph. With no focus it shows a DISCOVERY state
   // (search only) and loads NO neighborhood and NO FleetSnapshot -- never a whole-fleet
@@ -101,6 +102,9 @@
   const loading = $derived(focused && loader.loading);
   const notFound = $derived(focused && !shown && loader.error instanceof ApiError && loader.error.status === 404);
   const error = $derived(focused ? loader.error : null);
+  // A target key that does not name one target for certain: the server lists the
+  // candidates (409) and the reader chooses one to focus, keeping the graph's state.
+  const candidates = $derived(error instanceof ApiError && error.status === 409 ? error.candidates : []);
   const knowledge = $derived(snapshotKnowledge(shown?.meta));
   const focusRef = $derived(shown?.requestedFocus ?? null);
   const focusNode = $derived((shown?.nodes || []).find((n) => n.focus) || null);
@@ -142,7 +146,7 @@
     if (!node) return;
     rememberOpener();
     selected.kind = 'node'; selected.node = node; selected.edge = null;
-    if (pin) controls?.focusNode(node.ref.key);
+    if (pin) controls?.focusNode(graphNodeId(node.ref));
   }
   function selectEdge(edge) { if (edge) { rememberOpener(); selected.kind = 'edge'; selected.edge = edge; selected.node = null; } }
   function closeDrawer() {
@@ -166,7 +170,7 @@
   function selectNodeById(id) {
     // A team's folded node opens the team instead of a drawer.
     if (id?.startsWith(GROUP_PREFIX)) { openGroup(id); return; }
-    selectNode((shown?.nodes || []).find((n) => n.ref.key === id), { pin: false });
+    selectNode((shown?.nodes || []).find((n) => graphNodeId(n.ref) === id), { pin: false });
   }
 
   // ── folding a large neighborhood by team ─────────────────────────────────────
@@ -186,7 +190,7 @@
     // The one edge a group draws stands for many relationships: selecting it opens the group.
     const g = (grouped?.groups ?? []).find((x) => cyId?.startsWith(`${x.id}→`) || cyId?.includes(`→${x.id}:`));
     if (g) { openGroup(g.id); return; }
-    selectEdge((shown?.edges || []).find((e) => cyEdgeId(e.from.key, e.to.key, e.relation) === cyId));
+    selectEdge((shown?.edges || []).find((e) => cyEdgeId(graphNodeId(e.from), graphNodeId(e.to), e.relation) === cyId));
   }
 
   // ── graph controls (ephemeral fit/zoom, wired from the canvas) ───────────────
@@ -205,6 +209,7 @@
       { key: 'kind:revision', label: 'Revision', cls: 'lg-node lg-revision' },
       { key: 'kind:target', label: 'Operational target', cls: 'lg-node lg-target' },
       { key: 'kind:group', label: 'A team (grouped)', cls: 'lg-node lg-team' },
+      { key: 'kind:external', label: 'External system', cls: 'lg-node lg-external' },
     ] },
     { title: 'Relationship', items: [
       { key: 'rel:dependency', label: 'Depends on', cls: 'lg-edge lg-dep' },
@@ -216,6 +221,7 @@
       { key: 'state:expected-not-observed', label: 'Expected, not observed', cls: 'lg-edge lg-eno' },
       { key: 'state:drift', label: 'Observed, not expected', cls: 'lg-edge lg-drift' },
       { key: 'state:insufficient', label: 'Insufficient evidence', cls: 'lg-edge lg-insufficient' },
+      { key: 'state:inferred', label: 'Inferred from configuration', cls: 'lg-edge lg-inferred' },
     ] },
     { title: 'Behavior', items: [
       { key: 'behavior:refused', label: 'Refuses a required guarantee', cls: 'lg-edge lg-refused' },
@@ -284,6 +290,7 @@
   const focusSentence = $derived.by(() => {
     if (!problems) return '';
     const name = focusRef?.label || focusRef?.key || gs.key;
+    if (focusRef?.kind === 'external') return `${name} is an external system: no contract describes it, so Pacto checks none.`;
     if (focusTone === 'err') return `${name} breaks its contract.`;
     if (focusTone === 'ok') return `${name} meets its contract.`;
     return focusNode?.status ? `${name} has no confirmed contract result yet.` : '';
@@ -546,6 +553,8 @@
           <h2>Nothing found for “{gs.key}”</h2>
           <a class="btn" href={fleetGraphDiscoveryUrl()}>Search again</a>
         </div>
+      {:else if candidates.length}
+        <TargetKeyChooser message={error.message} {candidates} hrefFor={(key) => fleetGraphFocusUrl('target', key, gs)} />
       {:else}
         <EmptyState error title="Couldn’t load the graph" message={error instanceof Error ? error.message : String(error)} onRetry={() => loader.refresh()} />
       {/if}
@@ -611,7 +620,7 @@
             <p class="gv-status" data-testid="graph-empty">No {gs.direction === 'both' ? 'related entities' : gs.direction} known under these views.</p>
           {:else}
             <!-- Primary: the visual Cytoscape topology. -->
-            <NeighborhoodGraph neighborhood={shown} graph={grouped?.graph} focusKey={focusRef?.key || ''} {queryKey} onSelectNode={selectNodeById} onSelectEdge={selectEdgeByCyId} oncontrols={onControls} />
+            <NeighborhoodGraph neighborhood={shown} graph={grouped?.graph} focusKey={focusRef ? graphNodeId(focusRef) : ''} {queryKey} onSelectNode={selectNodeById} onSelectEdge={selectEdgeByCyId} oncontrols={onControls} />
 
             <!-- Legend, and the canvas's filter: every item is a REAL canvas distinction.
                  Node kinds are shapes/borders; edge relation and reconciliation state are
@@ -647,7 +656,7 @@
             <details class="gv-textalt disclosure" data-testid="graph-textalt">
               <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span>Relationships (text)</summary>
               <ul class="gv-nodes" aria-label="Graph nodes">
-                {#each shown.nodes as n (n.ref.key)}
+                {#each shown.nodes as n (graphNodeId(n.ref))}
                   <li>
                     <button
                       type="button" class="gv-textbtn"
@@ -671,8 +680,8 @@
                       <span class="gv-endpoint">{e.from.label || e.from.key}</span>
                       <span class="gv-rel" data-testid="edge-relation">{relationLabel(e.relation)}</span>
                       <span class="gv-endpoint">{e.to.label || e.to.key}</span>
-                      {#if e.relation !== 'runs' && e.difference}
-                        <span class="gv-diff" data-testid="edge-difference"><IdentityBadge label={differenceLabel(e.difference)} tone={differenceTone(e.difference)} title={differenceDescription(e.difference)} /></span>
+                      {#if e.relation !== 'runs' && edgeDifference(e)}
+                        <span class="gv-diff" data-testid="edge-difference"><IdentityBadge label={differenceLabel(edgeDifference(e))} tone={differenceTone(edgeDifference(e))} title={differenceDescription(edgeDifference(e))} /></span>
                       {:else if e.relation !== 'runs' && e.serviceCorroboration}
                         <span class="gv-diff" data-testid="edge-corroboration"><IdentityBadge label={corroborationLabel(e.serviceCorroboration)} tone={corroborationTone(e.serviceCorroboration)} /></span>
                       {/if}
@@ -739,9 +748,9 @@
               {#if selected.edge.relation === 'configuration_reference'}
                 <p class="gv-ddesc" data-testid="edge-reference-note">Declared configuration reference. It makes no runtime calls, so observation does not apply to it.</p>
               {/if}
-              {#if selected.edge.difference}
-                <p class="gv-drow"><span class="gv-k">Difference</span> <IdentityBadge label={differenceLabel(selected.edge.difference)} tone={differenceTone(selected.edge.difference)} /></p>
-                <p class="gv-ddesc">{differenceDescription(selected.edge.difference)}</p>
+              {#if edgeDifference(selected.edge)}
+                <p class="gv-drow"><span class="gv-k">Difference</span> <IdentityBadge label={differenceLabel(edgeDifference(selected.edge))} tone={differenceTone(edgeDifference(selected.edge))} /></p>
+                <p class="gv-ddesc">{differenceDescription(edgeDifference(selected.edge))}</p>
               {:else if selected.edge.serviceCorroboration}
                 <p class="gv-drow"><span class="gv-k">Corroboration</span> <IdentityBadge label={corroborationLabel(selected.edge.serviceCorroboration)} tone={corroborationTone(selected.edge.serviceCorroboration)} /></p>
                 <p class="gv-ddesc" data-testid="edge-scope-caveat">{serviceScopedCaveat(gs.perspective)}</p>
@@ -762,7 +771,7 @@
                            prints a canonical revision key. A 64-hex digest has no break
                            opportunity, so printed whole it also sets this panel's
                            minimum width and pushes the panel off the screen. -->
-                      <li title={c.sourceRevision || undefined}>{abbreviateDigests(c.sourceRevision) || 'a revision'}{#if c.compatibility}{' · '}<code>{c.compatibility}</code>{/if}{#if c.reconciliation}{' · '}{c.reconciliation}{/if}</li>
+                      <li title={c.sourceRevision || undefined}>{abbreviateDigests(c.sourceRevision) || 'a revision'}{#if c.compatibility === 'unknown'}{' · '}{RANGE_NOT_DECLARED}{:else if c.compatibility}{' · '}<code>{c.compatibility}</code>{/if}{#if c.reconciliation}{' · '}{c.reconciliation}{/if}</li>
                     {/each}
                   </ul>
                   {#if selected.edge.declaredClaims.items.length > claimsShown}
@@ -844,6 +853,11 @@
   .lg-revision { border-radius: 3px; border-style: dashed; }
   .lg-team { border-radius: 3px; border-style: double; border-width: 3px; }
   .lg-target { border-radius: 50%; }
+  /* The canvas's dashed hexagon, drawn as a mask so the dashes follow its six sides. */
+  .lg-external {
+    border: none; background: var(--c-text-3);
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 12'%3E%3Cpath d='M4 1 H12 L15 6 L12 11 H4 L1 6 Z' fill='none' stroke='%23000' stroke-width='1.5' stroke-dasharray='2 1.5'/%3E%3C/svg%3E") center / contain no-repeat;
+  }
   .lg-group { color: var(--c-text-3); margin-left: var(--sp-2); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .lg-group:first-child { margin-left: 0; }
   .lg-edge { width: 22px; height: 0; border-top: 2px solid var(--c-text-3); }
@@ -857,6 +871,7 @@
   .lg-eno { border-top-style: dashed; border-top-color: var(--c-info); }
   .lg-drift { border-top-width: 3px; border-top-color: var(--c-warn); }
   .lg-insufficient { border-top-style: dotted; border-top-color: var(--c-neutral); }
+  .lg-inferred { border-top-style: dashed; }
   .lg-refused { border-top-width: 3px; border-top-color: var(--c-err); }
   .gv-behavior { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-2); }
 

@@ -52,7 +52,7 @@ const D1 = 'sha256:' + '1'.repeat(64);
 const D2 = 'sha256:' + '2'.repeat(64);
 const listing = { asOf: '2026-10-21T10:00:00Z', completeness: 'complete' };
 const human = (groups: string[]) => ({ user: 'https://idp#carol', class: 'human', groups, authTime: '1792560000' });
-const shared = (over = {}) => ({ mode: 'shared', login: true, signedIn: true, csrf: 'c', caller: human(['team-checkout']), ...over });
+const shared = (over = {}) => ({ mode: 'shared', login: true, signedIn: true, csrf: 'c', caller: human(['team-checkout']), teamNarrowing: true, ...over });
 
 async function settle() {
   for (let i = 0; i < 6; i++) { await tick(); await Promise.resolve(); }
@@ -107,7 +107,7 @@ describe('inbox', () => {
     const held = target.querySelector('[data-testid="inbox-held"]')!;
     expect(text(held as HTMLElement)).toContain('Breaks checkout');
     expect(text(held as HTMLElement)).not.toContain('checkout accepts only 1.x: ship?');
-    expect(text(held as HTMLElement)).toContain('team-checkout may answer');
+    expect(text(held as HTMLElement)).toContain('People of team-checkout who may update this workload may answer');
     expect(held.querySelector('a.btn-primary')?.textContent).toBe('Decide');
     expect(held.querySelector('.badge')).toBeNull();
     expect(text(target.querySelector('[data-testid="inbox-answer"]') as HTMLElement).trim()).toBe('1 change waits for team-checkout to decide. 1 failed and 1 frozen.');
@@ -710,6 +710,29 @@ describe('board offers and links (B2)', () => {
     destroy();
   });
 
+  it('shows the applier on the board, and warns in words when it conflicts even when another Ready reason took precedence', async () => {
+    const asOf = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
+    fns.environments.mockResolvedValue({ ...listing, environments: [
+      { ...base, ready: 'False: CandidateUnverified', readyMessage: 'the candidate is not verified',
+        applier: { state: 'Conflict', manager: 'helm', completeness: 'complete', asOf, display: 'Helm (release payments, release annotations)',
+          message: 'Helm release payments owns Deployment payments' } },
+      { ...base, service: 'ledger', stage: 'led', applier: { state: 'Adopted', manager: 'argocd', completeness: 'complete', asOf,
+        display: 'Argo CD (Application ledger, tracking annotation)' } },
+    ] });
+    const { target, destroy } = render(DeliveryEnvironmentsView);
+    await settle();
+    const pay = target.querySelector('[data-testid="env-row-payments"] [data-testid="env-applier"]') as HTMLElement;
+    expect(pay.textContent).toContain('Applier: Helm (release payments, release annotations), conflict: Helm release payments owns Deployment payments (as of ');
+    expect(pay.classList.contains('ev-ready')).toBe(true);
+    expect(pay.getAttribute('tabindex')).toBe('0');
+    expect(text(target.querySelector('[data-testid="env-row-payments"]') as HTMLElement)).toContain('Cannot promote: The candidate is not verified.');
+    const led = target.querySelector('[data-testid="env-row-ledger"] [data-testid="env-applier"]') as HTMLElement;
+    expect(led.textContent).toContain('Applier: Argo CD (Application ledger, tracking annotation) (as of ');
+    expect(led.classList.contains('ev-ready')).toBe(false);
+    expect(led.querySelector('bdi')?.textContent).toBe('Argo CD (Application ledger, tracking annotation)');
+    destroy();
+  });
+
   // EnvMarkMatchesBoardMark: the board's dot is EnvMark, with the element, classes, name and fill the board drew inline before.
   it('draws each board dot with EnvMark, as the board drew it before (EnvMarkMatchesBoardMark)', async () => {
     // The fill the board's own .s-* rules declared before the swap.
@@ -962,7 +985,7 @@ describe('change detail', () => {
     await settle();
     // Held, the title is the question: here it already shipped, so it asks to keep it.
     expect(target.querySelector('h1')?.textContent).toBe('Keep 222222222222 on prod/pay?');
-    expect(text(target)).toContain('agent-bot Agent, for erin');
+    expect(text(target)).toContain('agent-bot Agent (classification not recorded), for erin');
     expect(target.querySelector('[data-testid="actor-badge"]')?.className).toContain('badge');
     // One sentence with only the parts it has: no raw type id, no empty fields.
     expect(target.querySelector('.page-hd-sub')?.textContent).toBe('Promote pay in prod from 111111111111 to 222222222222 waits for a person.');
@@ -1278,7 +1301,7 @@ describe('change detail', () => {
     fns.session.mockResolvedValue(shared({ caller: { user: 'robot', class: 'agent', groups: ['pacto:agents'] } }));
     r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
     await settle();
-    expect(text(r.target.querySelector('[data-testid="decide-agent"]') as HTMLElement)).toContain('agents may not decide');
+    expect(text(r.target.querySelector('[data-testid="decide-agent"]') as HTMLElement)).toContain('agents cannot approve');
     r.destroy();
 
     // Where the Stage asks for a recent sign-in, a person on a cluster that
@@ -1336,6 +1359,88 @@ describe('change detail', () => {
     r.destroy();
   });
 
+  it('names the dashboard\'s headline for the default approver refusals and keeps the server\'s words behind Details', async () => {
+    for (const [code, msg, head] of [
+      ['CannotUpdateWorkload', 'you cannot update deployments/payments in prod', 'Only people who may update this workload decide its changes.'],
+      ['ApproverUnverified', 'Pacto could not ask whether you may update deployments/payments in prod: timeout', 'Pacto could not check whether you may update this workload.'],
+      ['AgentsMayNotApprove', 'agents cannot approve: robot is a service account', 'Agents cannot approve.'],
+    ]) {
+      auth.loaded = false;
+      fns.session.mockResolvedValue(shared());
+      fns.operation.mockResolvedValue(heldOperation());
+      fns.decide.mockRejectedValue(new ApiError(403, msg, code));
+      const r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+      await settle();
+      r.target.querySelector<HTMLButtonElement>('[data-testid="decide-reject"]')!.click();
+      await settle();
+      const refusal = r.target.querySelector('[data-testid="refusal"]')!;
+      expect(refusal.getAttribute('data-code')).toBe(code);
+      expect(text(refusal.querySelector('.rn-head') as HTMLElement)).toBe(head);
+      const more = refusal.querySelector('details') as HTMLDetailsElement;
+      expect(more.open).toBe(false);
+      expect(text(more)).toContain(msg);
+      r.destroy();
+    }
+  });
+
+  it('says why no decision is offered from the server\'s code, never a guess', async () => {
+    // Narrowing on: a member of the asked team who may not update the workload.
+    fns.session.mockResolvedValue(shared({ caller: human(['team-checkout']) }));
+    const cases: [string, string, string][] = [
+      ['CannotUpdateWorkload', 'decide-no-access', 'You cannot update this workload, and only people who may update it decide its changes.'],
+      ['ApproverUnverified', 'decide-unverified', 'Pacto could not check whether you may update this workload'],
+      ['NoApprovalRights', 'decide-no-rights', 'Your Kubernetes RBAC does not let you create Approvals in prod.'],
+      ['PolicyUnknown', 'decide-policy', 'Pacto could not read the delivery identity policy'],
+    ];
+    for (const [code, id, line] of cases) {
+      auth.loaded = false;
+      fns.operation.mockResolvedValue({ ...heldOperation({ actions: ['cancel'] }), decisionRefusal: code });
+      const r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+      await settle();
+      expect(text(r.target.querySelector(`[data-testid="${id}"]`) as HTMLElement)).toContain(line);
+      expect(r.target.querySelector('[data-testid="decide-not-team"]')).toBeNull();
+      expect(text(r.target.querySelector('[data-testid="decision-who"]') as HTMLElement)).toBe('Only people of team-checkout who may update this workload may answer');
+      r.destroy();
+    }
+  });
+
+  it('says whoever may update the workload answers when owner teams do not narrow it', async () => {
+    fns.session.mockResolvedValue(shared({ caller: human([]), teamNarrowing: false }));
+    fns.operation.mockResolvedValue(heldOperation({ actions: ['cancel'] }));
+    let r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    expect(text(r.target.querySelector('[data-testid="decision-who"]') as HTMLElement)).toBe('People who may update this workload may answer; asked of team-checkout');
+    expect(text(r.target.querySelector('[data-testid="decide-rule"]') as HTMLElement)).toContain('Only people who may update this workload may answer this question.');
+    expect(r.target.querySelector('[data-testid="decide-not-team"]')).toBeNull();
+    r.destroy();
+
+    auth.loaded = false;
+    fns.operation.mockResolvedValue(heldOperation());
+    r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    expect(text(r.target.querySelector('[data-testid="decision-who"]') as HTMLElement)).toBe('You can answer.');
+    r.destroy();
+
+    auth.loaded = false;
+    const ownerless = heldOperation({ actions: ['cancel'] });
+    ownerless.operation.status.plan.floor.owners = [];
+    fns.operation.mockResolvedValue(ownerless);
+    r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    expect(text(r.target.querySelector('[data-testid="decision-who"]') as HTMLElement)).toBe('People who may update this workload may answer.');
+    r.destroy();
+
+    auth.loaded = false;
+    fns.inbox.mockResolvedValue({ ...listing, frozen: [], errored: [], held: [
+      { namespace: 'prod', name: 'op1', stage: 'pay', type: 'delivery.pacto.trianalab.io/promote', to: D2, phase: 'Held', decision: 'approve', owners: ['team-checkout'] },
+      { namespace: 'prod', name: 'op2', stage: 'pay', type: 'delivery.pacto.trianalab.io/promote', to: D1, phase: 'Held', decision: 'approve' }] });
+    r = render(DeliveryInboxView);
+    await settle();
+    const who = [...r.target.querySelectorAll('.dl-who')].map((w) => text(w as HTMLElement).trim());
+    expect(who).toEqual(['People who may update this workload may answer; asked of team-checkout', 'People who may update this workload may answer']);
+    r.destroy();
+  });
+
   it('tells an ownerless held change apart under the owner-team rule: break-glass only, else any person', async () => {
     const ownerless = () => {
       const op = heldOperation({ actions: ['cancel'] });
@@ -1358,7 +1463,7 @@ describe('change detail', () => {
     fns.session.mockResolvedValue(shared());
     r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
     await settle();
-    expect(text(r.target.querySelector('[data-testid="decision-panel"]') as HTMLElement)).toContain('Any person may answer.');
+    expect(text(r.target.querySelector('[data-testid="decision-panel"]') as HTMLElement)).toContain('People who may update this workload may answer.');
     r.destroy();
 
     auth.loaded = false;
@@ -1395,7 +1500,7 @@ describe('change detail', () => {
     fns.session.mockResolvedValue(shared());
     r = render(DeliveryInboxView);
     await settle();
-    expect(text(r.target.querySelector('[data-testid="inbox-held"]') as HTMLElement)).toContain('Any person');
+    expect(text(r.target.querySelector('[data-testid="inbox-held"]') as HTMLElement)).toContain('People who may update this workload may answer');
     r.destroy();
   });
 
@@ -2039,7 +2144,7 @@ describe('history blame and undo', () => {
     expect(fns.blame).toHaveBeenCalledWith('prod', 'pay');
     const panel = target.querySelector('[data-testid="blame-panel"]') as HTMLElement;
     expect(text(panel)).toContain('Who put 3.0.0 here');
-    expect(text(panel.querySelector('[data-testid="blame-change"]') as HTMLElement)).toContain('Promote by agents/pay-agent Agent, for erin ⧉, from 2.4.0, finished 2026-10-21 11:00 UTC. Why: “ship the fix”.');
+    expect(text(panel.querySelector('[data-testid="blame-change"]') as HTMLElement)).toContain('Promote by agents/pay-agent Agent (classification not recorded), for erin ⧉, from 2.4.0, finished 2026-10-21 11:00 UTC. Why: “ship the fix”.');
     expect(text(panel)).toContain('Approve by Carol Diaz ⧉');
     expect(text(panel.querySelector('[data-testid="blame-verdicts"]') as HTMLElement)).toContain('pacto.diff');
     expect(text(panel.querySelector('[data-testid="blame-source"]') as HTMLElement).trim()).toBe('Read from its signed record. The newest change that moved the Stage to sha256:222222222222.');
@@ -2047,6 +2152,35 @@ describe('history blame and undo', () => {
     await settle();
     expect(target.querySelector('[data-testid="blame-panel"]')).toBeNull();
     expect(document.activeElement).toBe(blameBtn);
+    destroy();
+  });
+
+  it('says how the asker and each approver were classified and what let the approver decide', async () => {
+    fns.history.mockResolvedValue(history());
+    fns.blame.mockResolvedValueOnce({ stage: { name: 'pay', pointer: D2 }, digest: D2, asOf: listing.asOf, completeness: 'complete', source: 'records', note: 'n',
+      change: { operation: 'op1', type: 'delivery.pacto.trianalab.io/promote', to: D2, actor: 'ci-bot', actorClass: 'agent', actorClassifiedBy: 'service-account' },
+      approvals: [{ by: 'dana', decision: 'approve', operation: 'u', classifiedBy: 'user', access: 'update deployments/payments in prod',
+        accessSource: 'self-subject-access-review', accessAt: '2026-11-15T10:00:00Z' }] });
+    fns.blame.mockResolvedValueOnce({ stage: { name: 'pay', pointer: D2 }, digest: D2, asOf: listing.asOf, completeness: 'complete', source: 'records', note: 'n',
+      change: { operation: 'op1', type: 'delivery.pacto.trianalab.io/promote', to: D2, actor: 'bob', actorClass: 'human' },
+      approvals: [{ by: 'erin', decision: 'approve', operation: 'u' }] });
+    const { target, destroy } = render(DeliveryHistoryView, { namespace: 'prod', stage: 'pay' });
+    await settle();
+    const open = async () => {
+      const sec = target.querySelector('section[aria-label="History of prod/pay"]') as HTMLElement;
+      ([...sec.querySelectorAll('button')].find((b) => b.textContent?.startsWith('Who put')) as HTMLButtonElement).click();
+      await settle();
+      return target.querySelector('[data-testid="blame-panel"]') as HTMLElement;
+    };
+    let panel = await open();
+    expect(text(panel.querySelector('[data-testid="actor-source"]') as HTMLElement).trim()).toBe('(service account)');
+    expect(text(panel.querySelector('[data-testid="approval-access"]') as HTMLElement).trim())
+      .toBe("signed-in user; may update deployments/payments in prod, checked with the caller's own credentials at 2026-11-15 10:00 UTC");
+    ([...panel.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Close') as HTMLButtonElement).click();
+    await settle();
+    panel = await open();
+    expect(text(panel.querySelector('[data-testid="actor-source"]') as HTMLElement).trim()).toBe('(classification not recorded)');
+    expect(text(panel.querySelector('[data-testid="approval-access"]') as HTMLElement).trim()).toBe('classification not recorded');
     destroy();
   });
 

@@ -68,6 +68,8 @@ type StageRow struct {
 	Progress    *Progress     `json:"progress,omitempty" doc:"Why the Stage can or cannot move to its newest candidate; set by pacto delivery status --why and pacto_delivery_status why"`
 
 	SourceRevision string `json:"sourceRevision,omitempty" doc:"The source revision pacto publish stamped on the running artifact (org.opencontainers.image.revision). An annotation, not signed"`
+
+	Applier *ApplierStatus `json:"applier,omitempty" doc:"Who manages the workloads the Stage delivers, as the promoter observed it against spec.applyRef (status.applier); absent when the promoter has not reported it"`
 }
 
 // Watch is the Watched condition as a row shows it.
@@ -136,7 +138,7 @@ func RowOf(st StageObject, in RowInput) StageRow {
 		Environment: st.Spec.Environment, Pointer: ss.Pointer, Verified: slices.Contains(ss.Verified, ss.Pointer),
 		Failed: slices.Contains(ss.FailedDigests, ss.Pointer), Frozen: ss.Frozen, FrozenReason: ss.FrozenReason, AutoHold: ss.AutoHold,
 		Held: in.Held, HeldUnknown: in.HeldUnknown, Candidate: ss.Candidate, Level: string(ss.Level), Actions: []string{},
-		State: StageState(st, in.Held, in.HeldUnknown)}
+		State: StageState(st, in.Held, in.HeldUnknown), Applier: ss.Applier}
 	if ss.Pointer != "" {
 		run := in.Read[ss.Pointer]
 		row.Version, row.ContractRef, row.SourceRevision = run.Version, run.Contract, run.Source
@@ -259,8 +261,9 @@ func promoteRefusal(st StageObject, class ActorClass, row *StageRow, ready *Cond
 	return ""
 }
 
-// unfreezeOffer mirrors the promoter's admission rule for an unfreeze
-// (unfreezeRefusal), so no surface offers one it would refuse.
+// unfreezeOffer mirrors the promoter's team rule for an unfreeze
+// (unfreezeRefusal); NarrowUnfreeze adds its update rights, so no surface
+// offers one it would refuse.
 func unfreezeOffer(caller Caller, running Described) Offer {
 	o := Offer{Action: "unfreeze"}
 	switch {
@@ -287,7 +290,8 @@ func freezeOffer(class ActorClass, pointer, version string) Offer {
 	return Offer{Action: "freeze", Available: true, Reason: "freezes the Stage on " + cmp.Or(version, short(pointer))}
 }
 
-// mayUnfreeze is the promoter's admission rule for an unfreeze: a person
+// mayUnfreeze is the promoter's team rule for an unfreeze (the update
+// rights it also needs are NarrowUnfreeze's): a person
 // unfreezes only a Stage whose running contract names their team
 // (Policy.InTeams); with no team named or readable, anyone, or nobody with
 // RequireOwnerTeam. Every other class the type lets raise one may.
@@ -489,6 +493,38 @@ type CanCreate func(ctx context.Context, ns string) (bool, error)
 // "operations", ns), over an access check that takes a verb and a resource.
 func CreateOperations(can func(ctx context.Context, verb, resource, ns string) (bool, error)) CanCreate {
 	return func(ctx context.Context, ns string) (bool, error) { return can(ctx, "create", "operations", ns) }
+}
+
+// NarrowUnfreeze makes an available unfreeze offer unavailable for a person
+// who may not update the Stage's workload, or when nobody could ask: the
+// promoter refuses a person's unfreeze then (unfreezeRefusal). Every other
+// class is untouched.
+func NarrowUnfreeze(ctx context.Context, rows []*StageRow, class ActorClass, access StageAccess) {
+	if class != ClassHuman {
+		return
+	}
+	for _, r := range rows {
+		i := slices.IndexFunc(r.Offers, func(o Offer) bool { return o.Action == "unfreeze" && o.Available })
+		if i < 0 {
+			continue
+		}
+		if why := unfreezeAccessWhy(access(ctx, r.Namespace, r.Stage)); why != "" {
+			r.Offers[i].Available, r.Offers[i].Reason = false, why
+			r.Actions = slices.DeleteFunc(r.Actions, func(a string) bool { return a == "unfreeze" })
+		}
+	}
+}
+
+// unfreezeAccessWhy is why a person may not unfreeze for want of update
+// rights, or "".
+func unfreezeAccessWhy(a WorkloadAccess) string {
+	switch {
+	case a.Unverified != "":
+		return "Pacto could not check whether you may " + a.Phrase() + " (" + a.Unverified + "), and only someone who may unfreezes it"
+	case !a.Allowed:
+		return "you cannot " + a.Phrase() + ", and only someone who may unfreezes it; break-glass can"
+	}
+	return ""
 }
 
 // NarrowOffers asks, once per namespace with something available and

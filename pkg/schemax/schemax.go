@@ -12,6 +12,8 @@ package schemax
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -19,7 +21,8 @@ import (
 )
 
 // Property is a flattened entry from a JSON Schema or a configuration values
-// map, suitable for display.
+// map, suitable for display. A writeOnly schema property, and every property
+// under a writeOnly object, has the Value (sensitive) and never its default.
 type Property struct {
 	Key   string `json:"key"`
 	Value string `json:"value"`
@@ -69,13 +72,14 @@ func (spec Doc) Properties() []Property {
 		return nil
 	}
 	var out []Property
-	flattenProps("", props, &out)
+	flattenProps("", props, false, &out)
 	return out
 }
 
 // flattenProps recursively walks JSON Schema properties, producing Property
-// entries. Nested objects use dot-notation (e.g. "cors.enabled").
-func flattenProps(prefix string, props map[string]any, out *[]Property) {
+// entries. Nested objects use dot-notation (e.g. "cors.enabled"). masked is
+// true under a writeOnly object, whose children inherit the mask.
+func flattenProps(prefix string, props map[string]any, masked bool, out *[]Property) {
 	keys := make([]string, 0, len(props))
 	for k := range props {
 		keys = append(keys, k)
@@ -91,26 +95,33 @@ func flattenProps(prefix string, props map[string]any, out *[]Property) {
 		if !ok {
 			continue
 		}
+		m := masked || propRaw["writeOnly"] == true
 		// If this property is an object with sub-properties, recurse.
 		if subType, _ := propRaw["type"].(string); subType == "object" {
-			if subPropsRaw, ok := propRaw["properties"]; ok {
-				if subProps, ok := subPropsRaw.(map[string]any); ok {
-					flattenProps(fullKey, subProps, out)
-					continue
-				}
+			if subProps, ok := propRaw["properties"].(map[string]any); ok {
+				flattenProps(fullKey, subProps, m, out)
+				continue
 			}
 		}
-		p := Property{Key: fullKey}
-		if t, ok := propRaw["type"].(string); ok {
-			p.Type = t
-		}
-		if def, ok := propRaw["default"]; ok {
-			p.Value = fmt.Sprintf("%v", def)
-		} else {
-			p.Value = "(any)"
-		}
-		*out = append(*out, p)
+		*out = append(*out, leaf(fullKey, propRaw, m))
 	}
+}
+
+// Sensitive is the value every summary and diff shows for a writeOnly or
+// sensitive key, in place of its default or value.
+const Sensitive = "(sensitive)"
+
+// leaf is the Property of one schema property: its default, (any) without
+// one, or (sensitive) when masked.
+func leaf(key string, propRaw map[string]any, masked bool) Property {
+	p := Property{Key: key, Value: "(any)"}
+	p.Type, _ = propRaw["type"].(string)
+	if def, ok := propRaw["default"]; masked {
+		p.Value = Sensitive
+	} else if ok {
+		p.Value = fmt.Sprintf("%v", def)
+	}
+	return p
 }
 
 // Values flattens a configuration values map into sorted Property entries,
@@ -162,4 +173,52 @@ func (spec Doc) Meta() (title, description string) {
 		description = d
 	}
 	return title, description
+}
+
+// sensitivePatterns are the parts of a key name that mark its value as
+// sensitive.
+// ponytail: substring match; KEYCLOAK_URL and MONKEY read as sensitive, which masks them in a summary or a diff and, in a pacto init --cluster draft, moves their literal into a Secret the owner creates. A word-boundary rule when a false positive hides or moves something a reader needs.
+var sensitivePatterns = []string{"password", "passwd", "secret", "token", "key", "credential", "private", "dsn"}
+
+// SensitiveKey reports whether a configuration key's name, in any case,
+// contains one of the sensitive patterns: password, passwd, secret, token, key,
+// credential, private or dsn.
+func SensitiveKey(name string) bool {
+	name = strings.ToLower(name)
+	for _, p := range sensitivePatterns {
+		if strings.Contains(name, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// credRE is a URL, or a scheme-less user:password@host, whose userinfo holds
+// a password, read from the raw text when url.Parse rejects the value: a
+// password with an unescaped %, /, ?, # or space.
+// ponytail: mailto:user@example.com matches the scheme-less form, which only masks it.
+var credRE = regexp.MustCompile(`^(?:[A-Za-z][A-Za-z0-9+.-]*://[^@/]*:[^@]+|[^@/:\s]+:[^@/\s]+)@`)
+
+// SensitiveValue reports whether a value is a URL that carries a credential:
+// a non-empty password in its userinfo, or a query parameter with a sensitive
+// name. A value url.Parse rejects, or reads as an opaque scheme:rest, is read
+// with credRE instead, so a malformed password still counts. It never returns
+// the value.
+func SensitiveValue(v string) bool {
+	u, err := url.Parse(v)
+	if err != nil || u.Opaque != "" {
+		return credRE.MatchString(v)
+	}
+	if u.Scheme == "" {
+		return false
+	}
+	if p, ok := u.User.Password(); ok && p != "" {
+		return true
+	}
+	for k := range u.Query() {
+		if SensitiveKey(k) {
+			return true
+		}
+	}
+	return false
 }

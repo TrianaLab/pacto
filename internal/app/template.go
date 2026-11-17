@@ -120,7 +120,7 @@ func dirTemplate(from, absFrom, absTarget string) (*pactify.Template, error) {
 	}
 	digest, _ := lock.HashFS(fsys) // ponytail: a MapFS reads every file it holds
 	ref := localRef(absFrom, absTarget)
-	if c.Publish != nil && c.Publish.Bundle != "" {
+	if c.Publish != nil && c.Publish.Bundle != "" && c.Service.Version != "" {
 		ref = c.Publish.Bundle + ":" + c.Service.Version
 	}
 	return &pactify.Template{FS: fsys, Ref: ref, Digest: digest,

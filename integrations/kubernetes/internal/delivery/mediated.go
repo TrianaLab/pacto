@@ -37,31 +37,30 @@ var argoOverrides = [][]string{
 }
 
 // mediated is the Mediated condition for the Stage applying through a.
-func (c Cluster) mediated(ctx context.Context, ns string, a *applyRef) (delivery.Condition, error) {
-	yes := delivery.Condition{Type: ConditionMediated, Status: statusTrue, Reason: "PointerOnly",
-		Message: "only the pointer decides what runs, and admission guards it"}
-	no := func(reason, msg string) delivery.Condition {
-		return delivery.Condition{Type: ConditionMediated, Status: statusFalse, Reason: reason,
-			Message: msg + ", so the pointer is not all that decides what runs and records name only the pointer"}
+func (c Cluster) mediated(ctx context.Context, ns string, a applier) (delivery.Condition, error) {
+	if o := a.object(); !labelled(o) {
+		return notMediated("ApplyRefUnguarded", "the apply object "+o.GetName()+" has no "+ApplyRefLabel+" label, so admission does not guard its pointer"), nil
 	}
-	if !labelled(a.obj) {
-		return no("ApplyRefUnguarded", "the apply object "+a.obj.GetName()+" has no "+ApplyRefLabel+" label, so admission does not guard its pointer"), nil
+	return a.mediated(ctx, c, ns)
+}
+
+func (a argoApplier) mediated(context.Context, Cluster, string) (delivery.Condition, error) {
+	if s, _, _ := unstructured.NestedSlice(a.obj.Object, "spec", "sources"); len(s) > 0 {
+		return notMediated("SeveralSources", "Application "+a.obj.GetName()+" sets spec.sources"), nil
 	}
-	if ignore, _, _ := unstructured.NestedString(a.obj.Object, "spec", "ignore"); !a.argo && ignore != "" {
-		return no("ApplierOverrides", "OCIRepository "+a.obj.GetName()+" sets spec.ignore, which leaves files of the version out"), nil
+	if set := setPaths(a.obj.Object, []string{"spec", "source"}, argoOverrides); len(set) > 0 {
+		return notMediated("ApplierOverrides", "Application "+a.obj.GetName()+" sets "+strings.Join(set, ", ")), nil
 	}
-	if a.argo {
-		if s, _, _ := unstructured.NestedSlice(a.obj.Object, "spec", "sources"); len(s) > 0 {
-			return no("SeveralSources", "Application "+a.obj.GetName()+" sets spec.sources"), nil
-		}
-		if set := setPaths(a.obj.Object, []string{"spec", "source"}, argoOverrides); len(set) > 0 {
-			return no("ApplierOverrides", "Application "+a.obj.GetName()+" sets "+strings.Join(set, ", ")), nil
-		}
-		return yes, nil
+	return pointerOnly, nil
+}
+
+func (a fluxApplier) mediated(ctx context.Context, c Cluster, ns string) (delivery.Condition, error) {
+	if ignore, _, _ := unstructured.NestedString(a.obj.Object, "spec", "ignore"); ignore != "" {
+		return notMediated("ApplierOverrides", "OCIRepository "+a.obj.GetName()+" sets spec.ignore, which leaves files of the version out"), nil
 	}
 	list := &unstructured.UnstructuredList{}
 	list.SetGroupVersionKind(gvkKustomization)
-	if err := c.cached(false).List(ctx, list); err != nil {
+	if err := c.cached(delivery.ApplierFlux).List(ctx, list); err != nil {
 		return delivery.Condition{}, err
 	}
 	var appliers []unstructured.Unstructured
@@ -72,33 +71,50 @@ func (c Cluster) mediated(ctx context.Context, ns string, a *applyRef) (delivery
 	}
 	switch len(appliers) {
 	case 0:
-		return no("NoApplier", "no Kustomization applies OCIRepository "+a.obj.GetName()), nil
+		return notMediated("NoApplier", "no Kustomization applies OCIRepository "+a.obj.GetName()), nil
 	case 1:
 	default:
 		names := make([]string, len(appliers))
 		for i, k := range appliers {
 			names[i] = k.GetNamespace() + "/" + k.GetName()
 		}
-		return no("SeveralAppliers", "Kustomizations "+strings.Join(names, " and ")+" all apply OCIRepository "+a.obj.GetName()), nil
+		return notMediated("SeveralAppliers", "Kustomizations "+strings.Join(names, " and ")+" all apply OCIRepository "+a.obj.GetName()), nil
 	}
-	k := appliers[0]
-	if !labelled(&k) {
-		return no("ApplierUnguarded", "Kustomization "+k.GetName()+" has no "+ApplyRefLabel+" label, so admission does not guard its sourceRef, path, images or patches"), nil
+	return kustomizationMediated(&appliers[0]), nil
+}
+
+// pointerOnly is the Mediated condition of a Stage whose pointer alone
+// decides what runs.
+var pointerOnly = delivery.Condition{Type: ConditionMediated, Status: statusTrue, Reason: "PointerOnly",
+	Message: "only the pointer decides what runs, and admission guards it"}
+
+// notMediated is the Mediated condition of a Stage where something besides
+// the pointer decides what runs.
+func notMediated(reason, msg string) delivery.Condition {
+	return delivery.Condition{Type: ConditionMediated, Status: statusFalse, Reason: reason,
+		Message: msg + ", so the pointer is not all that decides what runs and records name only the pointer"}
+}
+
+// kustomizationMediated is the Mediated condition for the one Kustomization
+// k that applies the Stage's OCIRepository.
+func kustomizationMediated(k *unstructured.Unstructured) delivery.Condition {
+	if !labelled(k) {
+		return notMediated("ApplierUnguarded", "Kustomization "+k.GetName()+" has no "+ApplyRefLabel+" label, so admission does not guard its sourceRef, path, images or patches")
 	}
 	if sa, _, _ := unstructured.NestedString(k.Object, "spec", "serviceAccountName"); sa == "" {
 		// A version can then carry a ClusterRoleBinding and have it applied:
 		// an auto level judges the contract, never the manifests.
-		return no("ApplierUnscoped", "Kustomization "+k.GetName()+" sets no serviceAccountName, so Flux applies each version with "+
-			"kustomize-controller's own rights (cluster-admin in a default install) and a version can grant itself anything"), nil
+		return notMediated("ApplierUnscoped", "Kustomization "+k.GetName()+" sets no serviceAccountName, so Flux applies each version with "+
+			"kustomize-controller's own rights (cluster-admin in a default install) and a version can grant itself anything")
 	}
 	paths := make([][]string, len(kustomizationOverrides))
 	for i, f := range kustomizationOverrides {
 		paths[i] = []string{f}
 	}
 	if set := setPaths(k.Object, []string{"spec"}, paths); len(set) > 0 {
-		return no("ApplierOverrides", "Kustomization "+k.GetName()+" sets "+strings.Join(set, ", ")), nil
+		return notMediated("ApplierOverrides", "Kustomization "+k.GetName()+" sets "+strings.Join(set, ", "))
 	}
-	return yes, nil
+	return pointerOnly
 }
 
 // setPaths names the paths under base that obj sets to something non-empty.

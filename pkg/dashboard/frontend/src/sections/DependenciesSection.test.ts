@@ -15,16 +15,28 @@ describe('DependenciesSection — lock and drift rendering', () => {
     document.body.appendChild(target);
   });
 
-  it('says Resolving until the fleet list arrives, then External only for what it lacks', () => {
+  it('says Resolving until the fleet list arrives, then Unresolved ref only for what it lacks', () => {
     const dependencies = [{ name: 'dep-a', ref: 'oci://x/dep-a:1', required: true }];
     const c1 = mount(DependenciesSection, { target, props: { name: 's', dependencies, services: [] } });
     expect(target.querySelector('[data-testid="dep-resolving"]')).toBeTruthy();
     unmount(c1);
     const c2 = mount(DependenciesSection, { target, props: { name: 's', dependencies, services: [{ name: 's' }] } });
     expect(target.querySelector('[data-testid="dep-resolving"]')).toBeNull();
-    expect(target.textContent).toContain('External');
+    expect(target.textContent).toContain('Unresolved ref');
     unmount(c2);
     document.body.removeChild(target);
+  });
+
+  it('names a dependency with no ref an external system, never the service that shares its name', () => {
+    const dependencies = [{ name: 'stripe', ref: '', external: true, required: true }];
+    const c = mount(DependenciesSection, { target, props: { name: 's', dependencies, services: [{ name: 'stripe' }] } });
+    expect(target.querySelector('a[href*="stripe"]')).toBeNull();
+    expect(target.textContent).toContain('External system');
+    unmount(c);
+    const c2 = mount(DependenciesSection, { target, props: { name: 's', dependencies, services: [] } });
+    expect(target.querySelector('[data-testid="dep-resolving"]')).toBeNull();
+    expect(target.textContent).toContain('External system');
+    unmount(c2);
   });
 
   it('renders pinned cell with both lockedVersion and lockedDigest', () => {
@@ -208,6 +220,18 @@ describe('DependenciesSection — lock and drift rendering', () => {
     const driftBadge = lockCell?.querySelector('.badge');
     expect(driftBadge).toBeNull();
 
+    unmount(component);
+    document.body.removeChild(target);
+  });
+
+  it('names compatibility unknown as a range not declared, never as a range', () => {
+    const component = mount(DependenciesSection, {
+      target,
+      props: { name: 'test-service', dependencies: [{ name: 'ledger', ref: 'oci://ghcr.io/org/ledger', required: true, compatibility: 'unknown' }] },
+    });
+    const cells = target.querySelectorAll('tbody td');
+    expect(cells[3].textContent?.trim()).toBe('Range not declared');
+    expect(target.textContent).not.toMatch(/accepts\s+unknown/i);
     unmount(component);
     document.body.removeChild(target);
   });

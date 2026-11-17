@@ -18,6 +18,7 @@ import (
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
+	authorizationv1 "k8s.io/api/authorization/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -98,6 +99,12 @@ type env struct {
 	now    time.Time
 	fails  fails
 	health *fakeHealth
+	// rights answers each SubjectAccessReview by user: absent allows.
+	rights map[string]bool
+	// evalError is the evaluation error every refused review carries.
+	evalError string
+	// reviews are the SubjectAccessReviews the promoter asked, in order.
+	reviews []authorizationv1.SubjectAccessReviewSpec
 	// mu guards fails and reg.hosts: RunChecks runs the gates concurrently.
 	mu sync.Mutex
 }
@@ -139,7 +146,7 @@ func newScheme() *runtime.Scheme {
 	s := runtime.NewScheme()
 	_ = clientgoscheme.AddToScheme(s)
 	_ = dv1.AddToScheme(s)
-	for _, gvk := range []schema.GroupVersionKind{gvkOCI, gvkKs, gvkPacto, gvkApplication} {
+	for _, gvk := range []schema.GroupVersionKind{gvkOCI, gvkKs, gvkPacto, gvkApplication, gvkHelmRelease} {
 		s.AddKnownTypeWithName(gvk, &unstructured.Unstructured{})
 		s.AddKnownTypeWithName(gvk.GroupVersion().WithKind(gvk.Kind+"List"), &unstructured.UnstructuredList{})
 	}
@@ -155,7 +162,7 @@ func kindOf(obj runtime.Object) string {
 
 func newEnv(t *testing.T, objs ...client.Object) *env {
 	t.Helper()
-	e := &env{t: t, now: time.Date(2026, 10, 20, 10, 0, 0, 0, time.UTC), fails: fails{}}
+	e := &env{t: t, now: time.Date(2026, 10, 20, 10, 0, 0, 0, time.UTC), fails: fails{}, rights: map[string]bool{}}
 	e.reg = &fakeRegistry{
 		contracts: map[string]string{dA: contractRef(c1), dB: contractRef(c2), dC: contractRef(c3)},
 		bundles:   map[string]*contract.Bundle{contractRef(c1): bundle("1.0.0"), contractRef(c2): bundle("1.1.0"), contractRef(c3): bundle("2.0.0")},
@@ -191,6 +198,20 @@ func newEnv(t *testing.T, objs ...client.Object) *env {
 				if err := fail("create", obj); err != nil {
 					return err
 				}
+				if sar, ok := obj.(*authorizationv1.SubjectAccessReview); ok {
+					if e.failing("create/SubjectAccessReview") {
+						return errors.New("injected review failure")
+					}
+					e.mu.Lock()
+					defer e.mu.Unlock()
+					e.reviews = append(e.reviews, sar.Spec)
+					allowed, ok := e.rights[sar.Spec.User]
+					sar.Status.Allowed = allowed || !ok
+					if !sar.Status.Allowed {
+						sar.Status.EvaluationError = e.evalError
+					}
+					return nil
+				}
 				if obj.GetUID() == "" { // the apiserver assigns one; the fake client does not
 					obj.SetUID(types.UID("uid-" + obj.GetName()))
 				}
@@ -221,7 +242,7 @@ func newEnv(t *testing.T, objs ...client.Object) *env {
 		e.reg.hosts = hosts
 		return e.reg
 	}}
-	policy := delivery.ClassPolicy{ControllerUser: promoterSA, AgentGroups: []string{"pacto:agents"}, BreakGlassGroups: []string{"pacto:break-glass"}}
+	policy := delivery.ClassPolicy{ControllerUser: promoterSA, AgentGroups: []string{"pacto:agents"}, BreakGlassGroups: []string{"pacto:break-glass"}, TeamNarrowing: true}
 	clock := func() time.Time { return e.now }
 	guarded := []string{"pd-operation"}
 	e.health = &fakeHealth{result: delivery.Pass}
@@ -286,6 +307,31 @@ func kustomization(name, source, ready, reason, applied, attempted string) *unst
 	return u
 }
 
+// helmReleaseObj is a labelled Flux HelmRelease run as its own service
+// account, taking its chart from OCIRepository payments-chart, with the given
+// Ready status, the chart digest it last released and the one it last
+// attempted.
+func helmReleaseObj(ready, reason, released, attempted string) *unstructured.Unstructured {
+	u := &unstructured.Unstructured{Object: map[string]any{
+		"metadata": map[string]any{"namespace": ns, "name": "payments", "labels": map[string]any{ApplyRefLabel: "payments-prod"}},
+		"spec": map[string]any{"chartRef": map[string]any{"kind": "OCIRepository", "name": "payments-chart"},
+			"serviceAccountName": "payments-deployer"},
+		"status": map[string]any{
+			"history":                     []any{map[string]any{"ociDigest": released, "status": "deployed"}},
+			"lastAttemptedRevisionDigest": attempted,
+			"conditions":                  []any{map[string]any{"type": "Ready", "status": ready, "reason": reason, "message": "m"}},
+		},
+	}}
+	u.SetGroupVersionKind(gvkHelmRelease)
+	return u
+}
+
+// chartRepo is the labelled chart OCIRepository of helmReleaseObj, pinned to
+// digest and fetched at it.
+func chartRepo(digest string) *unstructured.Unstructured {
+	return ociRepo("payments-chart", digest, "latest@"+digest, false)
+}
+
 func pactoObj(name, service, contractDigest, status string, gen int64, deps ...map[string]any) *unstructured.Unstructured {
 	depList := make([]any, 0, len(deps))
 	for _, d := range deps {
@@ -307,9 +353,29 @@ func pactoObj(name, service, contractDigest, status string, gen int64, deps ...m
 	return u
 }
 
+// deployment is a workload Kustomization payments applies: it carries the
+// kustomize-controller labels, so the Stage's Flux applier reads Adopted.
 func deployment(name string, gen, observed int64) *appsv1.Deployment {
-	return &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name, UID: types.UID("w-" + name), Generation: gen},
+	return &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name, UID: types.UID("w-" + name), Generation: gen,
+		Labels: map[string]string{"kustomize.toolkit.fluxcd.io/name": "payments", "kustomize.toolkit.fluxcd.io/namespace": ns}},
 		Status: appsv1.DeploymentStatus{ObservedGeneration: observed}}
+}
+
+// argoDeployment is a workload Application payments in the Stage namespace
+// applies: it carries that Application's tracking id.
+func argoDeployment(name string, gen, observed int64) *appsv1.Deployment {
+	d := deployment(name, gen, observed)
+	d.Labels = nil
+	d.Annotations = map[string]string{"argocd.argoproj.io/tracking-id": ns + "_payments:apps/Deployment:" + ns + "/" + name}
+	return d
+}
+
+// helmDeployment is a workload HelmRelease payments applies: it carries the
+// helm-controller labels.
+func helmDeployment(name string, gen, observed int64) *appsv1.Deployment {
+	d := deployment(name, gen, observed)
+	d.Labels = map[string]string{"helm.toolkit.fluxcd.io/name": "payments", "helm.toolkit.fluxcd.io/namespace": ns}
+	return d
 }
 
 func opObj(name, typ, from, to string, actor string, groups ...string) *dv1.Operation {

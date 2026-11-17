@@ -37,6 +37,17 @@ type Store struct {
 	// machinery this phase exists to delete. The deployment pins one replica with
 	// a Recreate strategy instead.
 	commit sync.Mutex
+
+	// cluster is the id of the cluster this server runs in, stamped on every
+	// record it accepts.
+	cluster string
+}
+
+// WithCluster stamps id, the cluster this server runs in, on every record the
+// store commits.
+func (s *Store) WithCluster(id string) *Store {
+	s.cluster = id
+	return s
 }
 
 // NewStore opens one repository per configured subject. Construction performs no
@@ -207,6 +218,7 @@ func (s *Store) Commit(ctx context.Context, rec evidenceingest.Record) error {
 		return err
 	}
 
+	rec.Cluster = s.cluster
 	art, err := BuildArtifact(rec, subj, sr.descriptor())
 	if err != nil {
 		return fmt.Errorf("%w: %w", evidenceingest.ErrStoreWrite, err)

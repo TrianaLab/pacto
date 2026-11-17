@@ -260,6 +260,21 @@ describe('GraphView — product Operational Graph', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  it('names an inferred-only edge in words, in the legend and the edge list', async () => {
+    const base = neighborhood();
+    neighborhoodFn.mockResolvedValue(neighborhood({ edges: [...base.edges,
+      { id: 'domain-a/web|domain-a/api|dependency|inferred', relation: 'dependency', from: ref('service', 'domain-a/web', 'web'), to: ref('service', 'domain-a/api', 'api'), expected: false, observed: false, inferred: true, provenance: 'inferred', declaredClaims: { total: 0, count: 0, truncated: false, items: [] }, observationSources: { total: 0, count: 0, truncated: false, items: [] } },
+    ] }));
+    const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
+    await vi.waitFor(() => expect(q(target, '[data-testid="graph-edges"]')).toBeTruthy());
+    const legend = qa(target, '[data-testid="graph-legend-toggle"]').map((b) => b.textContent || '');
+    expect(legend.some((t) => /Inferred from configuration/.test(t))).toBe(true);
+    expect(legend.some((t) => /Expected, not observed/.test(t))).toBe(true);
+    const diffs = qa(target, '[data-testid="edge-difference"]').map((b) => b.textContent || '');
+    expect(diffs.some((t) => /Inferred from configuration/.test(t))).toBe(true);
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('keeps an unresolved declared dependency and backend truncation + partial knowledge visible', async () => {
     const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
     await vi.waitFor(() => expect(q(target, '[data-testid="neighborhood-canvas"]')).toBeTruthy());
@@ -655,6 +670,20 @@ describe('GraphView — product Operational Graph', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  it('names a claim with compatibility unknown as a range not declared, never as a range', async () => {
+    const base = neighborhood();
+    const undeclared = { ...base.edges[0], declaredClaims: { total: 1, count: 1, truncated: false, items: [{ sourceRevision: 'domain-a/web@sha256:1', compatibility: 'unknown' }] } };
+    neighborhoodFn.mockResolvedValue(neighborhood({ edges: [undeclared, base.edges[1]] }));
+    const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
+    await vi.waitFor(() => expect(q(target, '[data-testid="graph-edge"]')).toBeTruthy());
+    (qa(target, '[data-testid="graph-edge"]')[0] as HTMLButtonElement).click();
+    flushSync();
+    const claim = q(target, '[data-testid="graph-drawer"] .gv-claims li')!;
+    expect(claim.textContent).toContain('Range not declared');
+    expect(claim.querySelector('code')).toBeNull();
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('names a refused guarantee and a deprecated interface on the edge, in the list and the drawer', async () => {
     const base = neighborhood();
     const refused = {
@@ -736,6 +765,24 @@ describe('GraphView — product Operational Graph', () => {
     await vi.waitFor(() => expect(q(target, '[data-testid="graph-not-found"]')).toBeTruthy());
     expect(q(target, '[data-testid="graph-not-found"]')?.textContent).toContain('Nothing found for “nope”');
     expect(q(target, '[data-testid="graph-not-found"] a')?.getAttribute('href')).toBe('#/fleet/graph');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('a target focus key that names more than one cluster offers the candidates to focus', async () => {
+    const err = new ApiError(409, 'this target key names targets in more than one cluster; choose one');
+    err.candidates = [
+      { key: 'c1/prod/k8s/app', label: 'eu-prod / prod / app' },
+      { key: '_/prod/k8s/app', label: 'prod/k8s/app (cluster unknown)' },
+    ];
+    neighborhoodFn.mockRejectedValue(err);
+    const { target, component } = mountView({ kind: 'target', sel: 'prod/k8s/app' });
+    await vi.waitFor(() => expect(q(target, '[data-testid="target-key-chooser"]')).toBeTruthy());
+    const chooser = q(target, '[data-testid="target-key-chooser"]') as HTMLElement;
+    expect(chooser.textContent).toContain('This target key names targets in more than one cluster; choose one.');
+    expect([...chooser.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual([
+      '#/fleet/graph/target/c1%2Fprod%2Fk8s%2Fapp', '#/fleet/graph/target/_%2Fprod%2Fk8s%2Fapp',
+    ]);
+    expect(target.textContent).not.toContain('Couldn’t load the graph');
     unmount(component); document.body.removeChild(target);
   });
 

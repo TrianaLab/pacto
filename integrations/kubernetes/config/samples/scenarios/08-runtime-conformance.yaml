@@ -9,7 +9,7 @@
 #
 # Needs the operator installed with the node agent and probing on:
 #   helm upgrade --install pacto-operator <chart> -n pacto-system \
-#     --set nodeAgent.enabled=true --set controller.enableProbing=true
+#     --set nodeAgent.enabled=true --set controller.probing=on
 # Without the node agent the same Pacto reconciles Compliant: nothing else can
 # tell a socket that is open from one that is not.
 ---

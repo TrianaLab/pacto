@@ -748,6 +748,9 @@ func gateCases() []gateCase {
 			code: GateCodeConsumersUnchecked, r: Result{Classification: "BREAKING", Service: "api", NewVersion: "2.0.0", Completeness: fleet.CompletenessComplete, Consumers: []AffectedConsumer{refused}}},
 		{name: "refused guarantee, partial", gate: GateUnverified, reason: "may break. api 2.0.0 does not meet a guarantee required by web. Fix the sources",
 			code: GateCodeAnswerPartial, r: Result{Classification: "BREAKING", Service: "api", NewVersion: "2.0.0", Completeness: fleet.CompletenessPartial, Consumers: []AffectedConsumer{refused}}},
+		{name: "name inferred", gate: GateUnverified, reason: "the change is BREAKING, but service.name is inferred from chart/Chart.yaml:2; declare it", code: GateCodeServiceNameInferred,
+			r: Result{Classification: "BREAKING", Service: "api", Completeness: fleet.CompletenessComplete,
+				Limitations: []fleet.Limitation{{Code: LimitationServiceNameInferred, Message: "service.name is inferred from chart/Chart.yaml:2; declare it so Pacto can find its consumers"}}}},
 		{name: "nobody depends", gate: GateClear, reason: "no service in the complete fleet snapshot depends on api", code: GateCodeNoConsumers,
 			r: Result{Classification: "BREAKING", Service: "api", Completeness: fleet.CompletenessComplete}},
 		{name: "policy running", gate: GateBlocked, reason: "on known targets: ref", code: GateCodePolicyReferrersFailRunning,
@@ -982,6 +985,31 @@ func TestImpactConfigRefConsumer(t *testing.T) {
 	}
 }
 
+// A dependency named only by a ref that did not resolve may consume the changed
+// service: a BREAKING change on it never clears, it stays unverified.
+func TestUnresolvedDerivedNameDependencyKeepsGateUnverified(t *testing.T) {
+	for _, ref := range []string{"file://../payments", "oci://ghcr.io/acme/payments"} {
+		old := svcContract("payments", "1.0.0", contract.Owner{Team: "pay"})
+		old.Interfaces = []contract.Interface{{Name: "api", Type: contract.InterfaceTypeGRPC, Ref: "api.proto"}}
+		orders := svcContract("orders", "1.0.0", contract.Owner{Team: "ord"},
+			contract.Dependency{Name: "payments", Ref: ref, Compatibility: "^1.0.0", Required: true, NameFromRef: true})
+		orders.PactoVersion = "2.5"
+		col := &fleet.Collection{Revisions: []fleet.RawRevision{
+			{Bundle: mkBundle(old), RequestedRef: "file:///r/payments"},
+			{Bundle: mkBundle(orders), RequestedRef: "file:///r/orders"},
+		}}
+		snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("local", "local", col))
+		if err != nil {
+			t.Fatal(err)
+		}
+		res := Analyze(context.Background(), old, svcContract("payments", "2.0.0", contract.Owner{Team: "pay"}), nil, nil, snap, Options{})
+		if res.Classification != "BREAKING" || res.Gate != GateUnverified || res.Completeness != fleet.CompletenessPartial ||
+			!hasCode(res.Limitations, "DERIVED_NAME_CONSUMERS_UNRESOLVED") {
+			t.Errorf("%s: %s gate %s (%s), limitations %+v", ref, res.Classification, res.Gate, res.GateReason, res.Limitations)
+		}
+	}
+}
+
 // An unresolved configuration reference names the changed service by its last
 // path segment when the provider came from a directory or the ref is relative,
 // so the gate never clears with that consumer unseen.
@@ -1123,5 +1151,186 @@ func TestImpactLeavesGoldenPathsOut(t *testing.T) {
 				t.Errorf("classification %s, consumers %v, want %v", res.Classification, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestDerivedDependencyNameNeverContractual: a consumer whose dependency name is
+// derived from a ref at another repository shares the provider's name but never
+// becomes a contractual consumer of it.
+func TestDerivedDependencyNameNeverContractual(t *testing.T) {
+	auth := svcContract("auth-service", "1.0.0", contract.Owner{Team: "platform"})
+	caller := svcContract("caller", "1.0.0", contract.Owner{Team: "team-c"},
+		contract.Dependency{Name: "auth-service", NameFromRef: true, Ref: "oci://ghcr.io/other-org/auth-service", Compatibility: "^1.0.0", Required: true})
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("oci", "oci", &fleet.Collection{
+		Revisions: []fleet.RawRevision{
+			{Bundle: mkBundle(auth), Domain: "ghcr.io/acme", RequestedRef: "oci://ghcr.io/acme/auth-service:1.0.0"},
+			{Bundle: mkBundle(caller), Domain: "ghcr.io/acme", RequestedRef: "oci://ghcr.io/acme/caller:1.0.0"},
+		}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := Analyze(context.Background(), auth, svcContract("auth-service", "2.0.0", contract.Owner{Team: "platform"}), fstest.MapFS{}, fstest.MapFS{}, snap, Options{})
+	for _, c := range res.Consumers {
+		if c.Service == "caller" && c.Confidence == ConfidenceContractual {
+			t.Fatalf("caller graded contractual over a name derived from a foreign ref: %+v", c)
+		}
+	}
+}
+
+// unknownRangeSnap is auth-service with one direct consumer, api-gateway,
+// whose range on it is compatibility: unknown and which runs on a fresh target.
+func unknownRangeSnap(t *testing.T) *fleet.FleetSnapshot {
+	t.Helper()
+	auth := svcContract("auth-service", "1.0.0", contract.Owner{Team: "platform"})
+	gateway := svcContract("api-gateway", "1.0.0", contract.Owner{Team: "gateway-team"},
+		contract.Dependency{Name: "auth-service", Ref: "ghcr.io/x/auth-service:1.0.0", Required: true, Compatibility: contract.CompatibilityUnknown})
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("test", "memory", &fleet.Collection{
+		Revisions: []fleet.RawRevision{{Bundle: mkBundle(auth)}, {Bundle: mkBundle(gateway)}},
+		Targets: []fleet.RawTarget{
+			{Scope: "prod", Kind: "deployment", Name: "gw", Service: "api-gateway", Compliance: fleet.StatusCompliant, EvidenceAt: fresh()},
+		},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return snap
+}
+
+// analyzeUnknownRange removes auth-service's interface (BREAKING) over
+// unknownRangeSnap.
+func analyzeUnknownRange(t *testing.T) *Result {
+	t.Helper()
+	old := svcContract("auth-service", "1.0.0", contract.Owner{Team: "platform"})
+	old.Interfaces = []contract.Interface{{Name: "auth-api", Type: contract.InterfaceTypeGRPC, Ref: "auth.proto"}}
+	newC := svcContract("auth-service", "2.0.0", contract.Owner{Team: "platform"})
+	return Analyze(context.Background(), old, newC, fstest.MapFS{}, fstest.MapFS{}, unknownRangeSnap(t), Options{})
+}
+
+func TestImpactUnknownRangeNeverClears(t *testing.T) {
+	res := analyzeUnknownRange(t)
+	if res.Classification != "BREAKING" || res.Completeness != fleet.CompletenessComplete {
+		t.Fatalf("classification %s, completeness %s", res.Classification, res.Completeness)
+	}
+	if res.Gate != GateUnverified {
+		t.Fatalf("gate = %s (%s), want unverified: an unknown range is never shown safe nor incompatible", res.Gate, res.GateReason)
+	}
+}
+
+func TestImpactUnknownRangeVerdictUnknown(t *testing.T) {
+	res := analyzeUnknownRange(t)
+	if len(res.Consumers) != 1 || res.Consumers[0].CompatibilityVerdict != CompatibilityUnknown {
+		t.Fatalf("consumers = %+v, want one with an unknown verdict", res.Consumers)
+	}
+}
+
+func TestImpactUnknownRangeConfidenceDeclared(t *testing.T) {
+	res := analyzeUnknownRange(t)
+	if len(res.Consumers) != 1 || res.Consumers[0].Confidence != ConfidenceDeclared {
+		t.Fatalf("consumers = %+v, want declared confidence, never contractual", res.Consumers)
+	}
+}
+
+func TestImpactInferredNameNeverClears(t *testing.T) {
+	snap := unknownRangeSnap(t)
+	old := svcContract("auth-service", "1.0.0", contract.Owner{})
+	old.Interfaces = []contract.Interface{{Name: "auth-api", Type: contract.InterfaceTypeGRPC, Ref: "auth.proto"}}
+	newC := svcContract("auth-service", "2.0.0", contract.Owner{})
+	// Nobody depends on api-gateway: the gate would clear on a declared name.
+	old.Service.Name, newC.Service.Name = "api-gateway", "api-gateway"
+	res := Analyze(context.Background(), old, newC, fstest.MapFS{}, fstest.MapFS{}, snap, Options{NameInferredFrom: "directory api-gateway"})
+	if res.Gate != GateUnverified || res.GateCode() != GateCodeServiceNameInferred || !strings.Contains(res.GateReason, "inferred from directory api-gateway") {
+		t.Fatalf("gate = %s %s (%s), want unverified SERVICE_NAME_INFERRED", res.Gate, res.GateCode(), res.GateReason)
+	}
+	if !hasCode(res.Limitations, LimitationServiceNameInferred) {
+		t.Fatalf("limitations = %+v", res.Limitations)
+	}
+}
+
+func TestAffectedConsumerNameInferred(t *testing.T) {
+	auth := svcContract("auth-service", "1.0.0", contract.Owner{Team: "platform"})
+	gateway := svcContract("api-gateway", "1.0.0", contract.Owner{},
+		contract.Dependency{Name: "auth-service", Ref: "ghcr.io/x/auth-service:1.0.0", Required: true, Compatibility: "^1.0.0"})
+	gwBundle := mkBundle(gateway)
+	gwBundle.Inferred = []contract.Inferred{{Field: "service.name", Value: "api-gateway", Source: "chart/Chart.yaml:2"}}
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("test", "memory", &fleet.Collection{
+		Revisions: []fleet.RawRevision{{Bundle: mkBundle(auth)}, {Bundle: gwBundle}},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := Analyze(context.Background(), auth, svcContract("auth-service", "1.1.0", contract.Owner{Team: "platform"}), fstest.MapFS{}, fstest.MapFS{}, snap, Options{})
+	if len(res.Consumers) != 1 || res.Consumers[0].NameInferred == nil || res.Consumers[0].NameInferred.Source != "chart/Chart.yaml:2" {
+		t.Fatalf("consumers = %+v", res.Consumers)
+	}
+	for _, s := range snap.Services {
+		if s.Name == "api-gateway" && s.NameInferred == res.Consumers[0].NameInferred {
+			t.Fatal("the consumer aliases the snapshot")
+		}
+	}
+}
+
+// A trace callee the catalog names is an external system: it is never a
+// consumer of a service, so it is skipped without an unresolved limitation.
+// An unknown caller of it still is one.
+func TestImpactTracesExternalCalleeNotUnresolved(t *testing.T) {
+	snap := buildChain(t)
+	edges := []ObservedEdge{
+		{Consumer: "api-gateway", Provider: "api.stripe.com"},
+		{Consumer: "ghost", Provider: "api.stripe.com"},
+	}
+	resolved, lims := resolveObservedEdges(snap, edges, true)
+	if len(resolved) != 0 {
+		t.Fatalf("resolved = %+v", resolved)
+	}
+	if len(lims) != 1 || !strings.Contains(lims[0].Message, "observed service ghost ") {
+		t.Fatalf("lims = %+v", lims)
+	}
+	snap.Relationships = append(snap.Relationships, fleet.Relationship{FromService: fleet.NewServiceKey("api-gateway"), ToExternal: "stripe",
+		Type: fleet.RelationshipDependency, Provenance: fleet.ProvenanceObserved, Resolved: true})
+	if got := snapshotObservedEdges(snap); len(got) != 0 {
+		t.Errorf("snapshot edges = %+v", got)
+	}
+}
+
+// TestImpactIgnoresInferredExternalEdges: inferred and observed edges to an
+// external system change no impact answer: an external is never a consumer.
+func TestImpactIgnoresInferredExternalEdges(t *testing.T) {
+	at := time.Now()
+	analyzeWith := func(uses []fleet.RawExternalUse, observed []fleet.ObservedEdge) *Result {
+		auth := svcContract("auth-service", "1.0.0", contract.Owner{Team: "platform"})
+		gateway := svcContract("api-gateway", "1.0.0", contract.Owner{Team: "gateway-team"},
+			contract.Dependency{Name: "auth-service", Ref: "ghcr.io/x/auth-service:1.0.0", Required: true, Compatibility: "^1.0.0"})
+		col := &fleet.Collection{
+			Revisions: []fleet.RawRevision{{Bundle: mkBundle(auth)}, {Bundle: mkBundle(gateway)}},
+			Targets: []fleet.RawTarget{
+				{Scope: "prod", Kind: "deployment", Name: "auth", Service: "auth-service", Compliance: fleet.StatusCompliant, EvidenceAt: &at},
+				{Scope: "prod", Kind: "deployment", Name: "gw", Service: "api-gateway", Compliance: fleet.StatusCompliant, EvidenceAt: &at},
+			},
+			ExternalUses: uses, Observed: observed,
+		}
+		snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: func() time.Time { return at }}, fleet.NewMemorySource("test", "memory", col))
+		if err != nil {
+			t.Fatal(err)
+		}
+		old := svcContract("auth-service", "1.0.0", contract.Owner{Team: "platform"})
+		old.Interfaces = []contract.Interface{{Name: "auth-api", Type: contract.InterfaceTypeGRPC, Ref: "auth.proto"}}
+		res := Analyze(context.Background(), old, svcContract("auth-service", "2.0.0", contract.Owner{Team: "platform"}), fstest.MapFS{}, fstest.MapFS{}, snap,
+			Options{IncludeObserved: true})
+		res.SnapshotID = ""
+		return res
+	}
+	uses := []fleet.RawExternalUse{
+		{Service: "api-gateway", Namespace: "prod", Identity: "stripe", Kind: "env", Confidence: "likely", Host: "api.stripe.com", Where: "deployment/gw env STRIPE"},
+		{Service: "auth-service", Namespace: "prod", Identity: "stripe", Kind: "secretKeyRef", Confidence: "possible", Where: "deployment/auth secretKeyRef s/STRIPE_KEY"},
+	}
+	observed := []fleet.ObservedEdge{{From: "auth-service", To: "api.stripe.com", Count: 2}}
+	without, with := analyzeWith(nil, nil), analyzeWith(uses, observed)
+	a, _ := json.Marshal(without)
+	b, _ := json.Marshal(with)
+	if string(a) != string(b) {
+		t.Errorf("impact changed:\nwithout %s\nwith    %s", a, b)
+	}
+	if strings.Contains(string(b), "stripe") {
+		t.Errorf("impact names the external: %s", b)
 	}
 }

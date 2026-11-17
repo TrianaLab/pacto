@@ -112,6 +112,7 @@ func printInitFindings(w io.Writer, r *app.InitResult) {
 		section("Found", r.Found)
 		section("Depends on", findings(r.Dependencies))
 		section("Used by", findings(r.Consumers))
+		section("External", externalLines(r))
 	case "template":
 		section("Found", r.Found)
 	}
@@ -125,6 +126,24 @@ func printInitFindings(w io.Writer, r *app.InitResult) {
 		}
 	}
 	section("Already there, left as it is", kept)
+}
+
+// externalLines are the systems outside the cluster the folder names, each
+// with its class, where it was read and how sure the match is, then the
+// catalog they were classified with. A host is printed as host and port only.
+func externalLines(r *app.InitResult) []string {
+	if len(r.Externals) == 0 {
+		return nil
+	}
+	var out []string
+	for _, e := range r.Externals {
+		l := fmt.Sprintf("%s  %s  %s  (%s)", e.Identity, e.Class, e.Where, e.Confidence)
+		if e.Host != "" {
+			l += "\n    -> " + e.Host + " (host and port only)"
+		}
+		out = append(out, l)
+	}
+	return append(out, "catalog "+r.Catalog)
 }
 
 // printCreationSteps prints how far creating from a golden path got under

@@ -25,6 +25,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/diff"
+	"github.com/trianalab/pacto/v4/pkg/workloadmanager"
 )
 
 // The browser demo's delivery: an in-memory dashboard.DeliveryAPI over the
@@ -149,6 +150,9 @@ func stageKey(ns, name string) string { return ns + "/" + name }
 func newStage(service, env string) *delivery.StageObject {
 	s := &delivery.StageObject{Metadata: delivery.ObjectMeta{Name: service, Namespace: env, UID: "stage-" + env + "-" + service}}
 	s.Spec = delivery.StageSpec{Service: delivery.ServiceRef{Name: service}, Environment: env, ApplyRef: delivery.ApplyRef{Name: service}}
+	if service == "payments" { // payments ships through Argo CD; every other service through Flux
+		s.Spec.ApplyRef.Kind = delivery.ApplierArgoCD
+	}
 	s.Spec.Gates.Impact.DeclaredConsumersOnly = true // every service in the story has a contract
 	s.Spec.Gates.Verify.Checks = story.Checks(service, env)
 	// Most simulated Stages have already climbed the autonomy ladder, so the
@@ -238,6 +242,37 @@ func (d *demoDelivery) ownPaths() {
 	d.stages = append(d.stages, audit, notify)
 }
 
+// detectAppliers writes every Stage's status.applier, as the stage reconciler
+// does before the promoter plans.
+func (d *demoDelivery) detectAppliers(at time.Time) {
+	for _, s := range d.stages {
+		s.Status.Applier = adoptedApplier(s, at)
+	}
+}
+
+// adoptedApplier is the status.applier the promoter's detection writes on s
+// at at: its Deployment carries the marks of the Stage's own applier, an Argo
+// CD tracking id naming the Stage's Application or the labels of a
+// Kustomization that applies the Stage's OCIRepository. AdoptApplier judges
+// them, so the state follows the applyRef by construction.
+func adoptedApplier(s *delivery.StageObject, at time.Time) *delivery.ApplierStatus {
+	ns, svc := s.Metadata.Namespace, s.Spec.Service.Name
+	o := workloadmanager.Object{Group: "apps", Kind: "Deployment", Namespace: ns, Name: svc}
+	in := delivery.ApplierInput{Namespace: ns, Service: svc, Ref: s.Spec.ApplyRef, Now: at}
+	if s.Spec.ApplyRef.Kind == delivery.ApplierArgoCD {
+		o.Annotations = map[string]string{"argocd.argoproj.io/tracking-id": ns + "_" + s.Spec.ApplyRef.Name + ":apps/Deployment:" + ns + "/" + svc}
+	} else {
+		o.Labels = map[string]string{"kustomize.toolkit.fluxcd.io/name": svc, "kustomize.toolkit.fluxcd.io/namespace": ns}
+		var k delivery.KustomizationView
+		k.Metadata.Namespace, k.Metadata.Name = ns, svc
+		k.Spec.SourceRef.Kind, k.Spec.SourceRef.Name = delivery.ApplierFlux, s.Spec.ApplyRef.Name
+		in.Kustomizations = []delivery.KustomizationView{k}
+	}
+	in.Targets = []delivery.ApplierTarget{{Workload: "Deployment " + svc, Manager: workloadmanager.Detect(o)}}
+	a := delivery.AdoptApplier(in)
+	return &a
+}
+
 // demoCorrelation is the change ticket B1's promote to prod carries, so the
 // history's correlation filter has a change to find.
 const demoCorrelation = "CHG-2041"
@@ -285,6 +320,7 @@ func (d *demoDelivery) replay(start time.Time) error {
 		}
 	}
 	d.ownPaths()
+	d.detectAppliers(start)
 	// Placed before the story starts.
 	for _, p := range []struct{ svc, env, v string }{
 		{"payments", story.Test, "2.3.0"}, {"payments", story.Prod, "2.3.0"},
@@ -731,7 +767,9 @@ func (d *demoDelivery) propose(req delivery.Request, actor story.Persona) (*deli
 	t := d.clock()
 	o := &delivery.OperationObject{Metadata: delivery.ObjectMeta{Namespace: req.Namespace, UID: fmt.Sprintf("op-%d", d.n),
 		Name: fmt.Sprintf("%s-%s-%d", req.Stage, strings.TrimPrefix(spec.Type, "delivery.pacto.trianalab.io/"), d.n), CreationTimestamp: stamp(t)}, Spec: spec}
-	o.Status.ActorClass, o.Status.Plan, o.Status.Verdicts, o.Status.Times.Admitted = actor.Class(), &p, p.Verdicts, stamp(t)
+	// Classified as the promoter's admission does, so the record says how.
+	o.Status.ActorClass, o.Status.ActorClassifiedBy = story.Policy.ClassifyBy(delivery.Identity{User: actor.User, Groups: actor.Groups})
+	o.Status.Plan, o.Status.Verdicts, o.Status.Times.Admitted = &p, p.Verdicts, stamp(t)
 	d.ops = append(d.ops, o)
 	switch p.Predicted {
 	case delivery.PredictRejected:
@@ -1013,7 +1051,17 @@ func inNamespace[T any](all []T, ns string, nsOf func(*T) string) []T {
 func (d *demoDelivery) Stages(_ context.Context, ns string) ([]delivery.StageObject, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return inNamespace(d.snapshot().stages, ns, func(s *delivery.StageObject) string { return s.Metadata.Namespace }), nil
+	out := inNamespace(d.snapshot().stages, ns, func(s *delivery.StageObject) string { return s.Metadata.Namespace })
+	// The promoter re-detects every resync and rewrites asOf, so the demo's
+	// applier is as fresh as the read.
+	for i := range out {
+		if a := out[i].Status.Applier; a != nil {
+			c := *a
+			c.AsOf = stamp(d.now())
+			out[i].Status.Applier = &c
+		}
+	}
+	return out, nil
 }
 
 func (d *demoDelivery) Operations(_ context.Context, ns string) ([]delivery.OperationObject, error) {
@@ -1178,7 +1226,10 @@ func (d *demoDelivery) decide(o *delivery.OperationObject, c delivery.Caller, de
 	approval := fmt.Sprintf("%s-approval-%d", name, d.n)
 	d.approvals[approval] = delivery.ApprovalSpec{Operation: name, OperationUID: o.Metadata.UID, IntentDigest: o.Spec.IntentDigest,
 		Decision: decision, Note: note, By: c.User, AuthTime: c.AuthTime, Groups: c.Groups}
-	o.Status.Approvals = append(o.Status.Approvals, delivery.ApprovalRecord{Name: approval, By: c.User, Decision: decision, Note: note, AuthTime: c.AuthTime})
+	access := d.accessOf(personaOf(c.User), o.Metadata.Namespace, d.stage(o.Metadata.Namespace, o.Spec.Stage).Spec.WorkloadOf())
+	_, by := c.Policy.ClassifyBy(c.Identity)
+	o.Status.Approvals = append(o.Status.Approvals, delivery.ApprovalRecord{Name: approval, By: c.User, Decision: decision, Note: note, AuthTime: c.AuthTime,
+		ClassifiedBy: by, Access: access.Phrase(), AccessSource: access.Source, AccessAt: access.At})
 	var owners []string
 	if o.Status.Plan != nil {
 		owners = o.Status.Plan.Floor.Owners
@@ -1261,8 +1312,32 @@ func (d *demoDelivery) wire(opts *dashboard.Options) {
 //go:embed pactify-fraud.json
 var pactifyPlan string
 
-// Can: the demo has no RBAC, so every persona may ask for anything; the
-// promoter's own rules still shape what is offered.
+// WorkloadAccess answers a SelfSubjectAccessReview for the persona from
+// story.MayUpdate, the rights the kind demo binds.
+func (d *demoDelivery) WorkloadAccess(_ context.Context, ns string, w delivery.WorkloadRef) delivery.WorkloadAccess {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.accessOf(personas[d.persona], ns, w)
+}
+
+// accessOf is what a SelfSubjectAccessReview answers for p on w in ns, as
+// of the demo's clock (not advanced).
+func (d *demoDelivery) accessOf(p story.Persona, ns string, w delivery.WorkloadRef) delivery.WorkloadAccess {
+	a, _ := delivery.AccessFor(delivery.StageSpec{Workload: &w}, ns)
+	if a.Unverified != "" {
+		return a
+	}
+	at := d.at
+	if at.IsZero() {
+		at = d.now()
+	}
+	a.Allowed, a.Source, a.At = story.MayUpdate(p, ns), delivery.AccessBySelfReview, stamp(at)
+	return a
+}
+
+// Can: the demo has no RBAC on delivery objects, so every persona may ask
+// for anything; the promoter's own rules and the update rights of
+// WorkloadAccess still shape what is offered.
 func (d *demoDelivery) Can(context.Context, string, string, string) (bool, error) { return true, nil }
 
 // StageNamespaces: everyone reads every Stage cluster-wide here, so the

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -32,7 +33,10 @@ var (
 	gvrApprovals     = schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "approvals"}
 	gvrOCIRepository = schema.GroupVersionResource{Group: "source.toolkit.fluxcd.io", Version: "v1", Resource: "ocirepositories"}
 	gvrKustomization = schema.GroupVersionResource{Group: "kustomize.toolkit.fluxcd.io", Version: "v1", Resource: "kustomizations"}
+	gvrHelmRelease   = schema.GroupVersionResource{Group: "helm.toolkit.fluxcd.io", Version: "v2", Resource: "helmreleases"}
+	gvrApplication   = schema.GroupVersionResource{Group: "argoproj.io", Version: "v1alpha1", Resource: "applications"}
 	gvrSelfAccess    = schema.GroupVersionResource{Group: "authorization.k8s.io", Version: "v1", Resource: "selfsubjectaccessreviews"}
+	gvrSelfRules     = schema.GroupVersionResource{Group: "authorization.k8s.io", Version: "v1", Resource: "selfsubjectrulesreviews"}
 	gvrNamespaces    = schema.GroupVersionResource{Version: "v1", Resource: "namespaces"}
 	gvrConfigMaps    = schema.GroupVersionResource{Version: "v1", Resource: "configmaps"}
 )
@@ -104,7 +108,7 @@ func (d *Delivery) WhoAmI(ctx context.Context) (Caller, error) {
 				": pass --delivery-namespace with the namespace the chart's delivery.namespace names"
 		}
 	}
-	c.Class = c.Policy.Classify(c.Identity)
+	c.Class, c.ClassSource = c.Policy.ClassifyBy(c.Identity)
 	if v := extra[authn.AuthTimeExtra]; len(v) > 0 {
 		c.AuthTime = v[0]
 	}
@@ -125,6 +129,102 @@ func (d *Delivery) Can(ctx context.Context, verb, resource, ns string) (bool, er
 	}
 	allowed, _, _ := unstructured.NestedBool(out.Object, "status", "allowed")
 	return allowed, nil
+}
+
+// WorkloadAccess asks the apiserver whether the caller may update w in ns,
+// the default approver rule: a SelfSubjectAccessReview with the caller's own
+// credentials. A review that fails, one the authorizers could not evaluate,
+// or a kind with no resource, is unverified, never allowed.
+func (d *Delivery) WorkloadAccess(ctx context.Context, ns string, w delivery.WorkloadRef) delivery.WorkloadAccess {
+	a, group := delivery.AccessFor(delivery.StageSpec{Workload: &w}, ns)
+	if a.Unverified != "" {
+		return a
+	}
+	a.Source = delivery.AccessBySelfReview
+	review := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "authorization.k8s.io/v1", "kind": "SelfSubjectAccessReview",
+		"spec": map[string]any{"resourceAttributes": map[string]any{
+			"namespace": ns, "verb": "update", "group": group, "resource": a.Resource, "name": a.Name}},
+	}}
+	out, err := d.Dynamic.Resource(gvrSelfAccess).Create(ctx, review, metav1.CreateOptions{})
+	if err != nil {
+		a.Unverified = "the SelfSubjectAccessReview failed: " + err.Error()
+		return a
+	}
+	a.Allowed, _, _ = unstructured.NestedBool(out.Object, "status", "allowed")
+	// An authorizer that errored may have allowed: a refusal that carries an
+	// evaluation error is no answer.
+	if e, _, _ := unstructured.NestedString(out.Object, "status", "evaluationError"); !a.Allowed && e != "" {
+		a.Unverified = "the SelfSubjectAccessReview could not be evaluated: " + e
+		return a
+	}
+	a.At = d.Now().UTC().Format(time.RFC3339)
+	return a
+}
+
+// WorkloadAccessByNamespace is WorkloadAccess for many workloads: one
+// SelfSubjectRulesReview per namespace answers every workload there, so a
+// view that names hundreds of workloads asks once per namespace. Where the
+// rules may be incomplete (an authorizer that cannot list them, such as a
+// webhook) or the review fails, each workload is asked with WorkloadAccess.
+// ponytail: one lock across the review, per-namespace waiting if callers
+// ever ask many namespaces at once.
+func (d *Delivery) WorkloadAccessByNamespace() func(ctx context.Context, ns string, w delivery.WorkloadRef) delivery.WorkloadAccess {
+	var mu sync.Mutex
+	byNS := map[string][]resourceRule{}
+	return func(ctx context.Context, ns string, w delivery.WorkloadRef) delivery.WorkloadAccess {
+		mu.Lock()
+		rules, asked := byNS[ns]
+		if !asked {
+			rules = d.resourceRules(ctx, ns)
+			byNS[ns] = rules
+		}
+		mu.Unlock()
+		a, group := delivery.AccessFor(delivery.StageSpec{Workload: &w}, ns)
+		if rules == nil || a.Unverified != "" {
+			return d.WorkloadAccess(ctx, ns, w)
+		}
+		a.Source, a.At = delivery.AccessBySelfReview, d.Now().UTC().Format(time.RFC3339)
+		a.Allowed = slices.ContainsFunc(rules, func(r resourceRule) bool { return r.allows("update", group, a.Resource, a.Name) })
+		return a
+	}
+}
+
+// resourceRule is one RBAC rule a SelfSubjectRulesReview returns.
+type resourceRule struct {
+	Verbs         []string `json:"verbs"`
+	APIGroups     []string `json:"apiGroups"`
+	Resources     []string `json:"resources"`
+	ResourceNames []string `json:"resourceNames"`
+}
+
+// allows matches the way RBAC does: "*" matches any verb, group or
+// resource, and no resourceNames matches every name.
+func (r resourceRule) allows(verb, group, resource, name string) bool {
+	in := func(vs []string, v string) bool { return slices.Contains(vs, v) || slices.Contains(vs, "*") }
+	return in(r.Verbs, verb) && in(r.APIGroups, group) && in(r.Resources, resource) &&
+		(len(r.ResourceNames) == 0 || slices.Contains(r.ResourceNames, name))
+}
+
+// resourceRules are the caller's rules in ns, or nil when only a
+// SelfSubjectAccessReview can answer: the review failed, could not be
+// evaluated or may be incomplete.
+func (d *Delivery) resourceRules(ctx context.Context, ns string) []resourceRule {
+	out, err := d.Dynamic.Resource(gvrSelfRules).Create(ctx, &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "authorization.k8s.io/v1", "kind": "SelfSubjectRulesReview", "spec": map[string]any{"namespace": ns}}}, metav1.CreateOptions{})
+	if err != nil {
+		return nil
+	}
+	var st struct {
+		ResourceRules   []resourceRule `json:"resourceRules"`
+		Incomplete      bool           `json:"incomplete"`
+		EvaluationError string         `json:"evaluationError"`
+	}
+	if raw, ok := out.Object["status"].(map[string]any); !ok || runtime.DefaultUnstructuredConverter.FromUnstructured(raw, &st) != nil ||
+		st.Incomplete || st.EvaluationError != "" {
+		return nil
+	}
+	return append([]resourceRule{}, st.ResourceRules...) // never nil: nil means ask each workload
 }
 
 // classPolicy is the promoter's published ClassPolicy, or Policy when it is
@@ -268,7 +368,7 @@ func (e *PlanStaleError) Error() string {
 }
 
 // PrincipalError is the client's own refusal of an agent proposal that names
-// no person it acts for, itself, a service account or the promoter: the
+// no person it acts for, itself, a service account, a system user or the promoter: the
 // promoter would reject it, so it never reaches the cluster.
 type PrincipalError struct{ Code, Agent, Why string }
 
@@ -490,8 +590,8 @@ func (d *Delivery) tagDigest(ctx context.Context, stage *delivery.StageObject, t
 	return resolved
 }
 
-// applyRegistry reads the Stage's OCIRepository: its repository and a registry
-// client that honours spec.insecure.
+// applyRegistry reads the repository the Stage's applier fetches from and a
+// registry client that honours spec.insecure.
 func (d *Delivery) applyRegistry(ctx context.Context, stage *delivery.StageObject) (string, DeliveryRegistry, error) {
 	repo, insecure, err := d.applyRepo(ctx, stage)
 	if err != nil {
@@ -500,12 +600,43 @@ func (d *Delivery) applyRegistry(ctx context.Context, stage *delivery.StageObjec
 	return repo, d.Registry(insecure...), nil
 }
 
-// applyRepo reads the Stage's OCIRepository: its repository, and its host
-// when spec.insecure says to reach it over plain HTTP.
+// applyRepo reads the repository the Stage's applier fetches versions from,
+// as the promoter does: the OCIRepository itself, an Argo CD Application's
+// spec.source.repoURL or the OCIRepository a HelmRelease's spec.chartRef
+// names in the Stage's namespace. The host comes back when spec.insecure says
+// to reach it over plain HTTP.
 func (d *Delivery) applyRepo(ctx context.Context, stage *delivery.StageObject) (string, []string, error) {
-	u, err := d.Dynamic.Resource(gvrOCIRepository).Namespace(stage.Metadata.Namespace).Get(ctx, stage.Spec.ApplyRef.Name, metav1.GetOptions{})
+	ns, ref := stage.Metadata.Namespace, stage.Spec.ApplyRef
+	switch ref.Kind {
+	case delivery.ApplierArgoCD:
+		u, err := d.Dynamic.Resource(gvrApplication).Namespace(ns).Get(ctx, ref.Name, metav1.GetOptions{})
+		if err != nil {
+			return "", nil, fmt.Errorf("reading the apply Application %s: %w", ref.Name, err)
+		}
+		url, _, _ := unstructured.NestedString(u.Object, "spec", "source", "repoURL")
+		return delivery.RepoFromURL(url), nil, nil
+	case delivery.ApplierHelmRelease:
+		u, err := d.Dynamic.Resource(gvrHelmRelease).Namespace(ns).Get(ctx, ref.Name, metav1.GetOptions{})
+		if err != nil {
+			return "", nil, fmt.Errorf("reading the apply HelmRelease %s: %w", ref.Name, err)
+		}
+		kind, _, _ := unstructured.NestedString(u.Object, "spec", "chartRef", "kind")
+		chart, _, _ := unstructured.NestedString(u.Object, "spec", "chartRef", "name")
+		chartNS, _, _ := unstructured.NestedString(u.Object, "spec", "chartRef", "namespace")
+		if kind != "OCIRepository" || chartNS != "" && chartNS != ns {
+			return "", nil, fmt.Errorf("the HelmRelease %s names no OCIRepository in the Stage namespace in spec.chartRef", ref.Name)
+		}
+		return d.ociRepo(ctx, ns, chart)
+	}
+	return d.ociRepo(ctx, ns, ref.Name)
+}
+
+// ociRepo reads the OCIRepository ns/name: its repository, and its host when
+// spec.insecure says to reach it over plain HTTP.
+func (d *Delivery) ociRepo(ctx context.Context, ns, name string) (string, []string, error) {
+	u, err := d.Dynamic.Resource(gvrOCIRepository).Namespace(ns).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
-		return "", nil, fmt.Errorf("reading the apply OCIRepository %s: %w", stage.Spec.ApplyRef.Name, err)
+		return "", nil, fmt.Errorf("reading the apply OCIRepository %s: %w", name, err)
 	}
 	url, _, _ := unstructured.NestedString(u.Object, "spec", "url")
 	insecure, _, _ := unstructured.NestedBool(u.Object, "spec", "insecure")
@@ -602,8 +733,9 @@ func (d *Delivery) Freshness(ctx context.Context, ns, name string) (time.Duratio
 }
 
 // Approve records a person's decision on one operation, bound to its uid and
-// intent digest. Only a person may: admission refuses agents. Where the Stage
-// publishes a login freshness, the login must be that recent too.
+// intent digest. Only a person who may update the Stage's workload may:
+// admission refuses agents and the promoter counts nobody else. Where the
+// Stage publishes a login freshness, the login must be that recent too.
 func (d *Delivery) Approve(ctx context.Context, ns, name string, decision delivery.Decision, note string) (string, error) {
 	op, err := d.Get(ctx, ns, name)
 	if err != nil {
@@ -614,7 +746,7 @@ func (d *Delivery) Approve(ctx context.Context, ns, name string, decision delive
 		return "", err
 	}
 	if caller.Class == delivery.ClassAgent {
-		return "", errors.New("agents may not approve: Pacto delivery asks a person, and there is no approve tool for agents")
+		return "", errors.New("agents cannot approve: Pacto delivery asks a person, and there is no approve tool for agents")
 	}
 	// A Stage it cannot read leaves the login freshness unknown: refuse rather
 	// than record a decision the promoter may not count.
@@ -629,7 +761,12 @@ func (d *Delivery) Approve(ctx context.Context, ns, name string, decision delive
 	}
 	spec := delivery.ApprovalSpec{Operation: name, OperationUID: op.Metadata.UID, IntentDigest: op.Spec.IntentDigest,
 		Decision: decision, Note: note, By: caller.User, AuthTime: caller.AuthTime, Groups: caller.Groups}
-	if ok, why := delivery.ApprovalEligible(op.Spec, op.Status, op.Metadata.UID, spec, d.Now(), caller.Policy, freshness); !ok {
+	access := d.WorkloadAccess(ctx, ns, st.Spec.WorkloadOf())
+	switch code, why := delivery.ApprovalRefusal(op.Spec, op.Status, op.Metadata.UID, spec, d.Now(), caller.Policy, freshness, access); code {
+	case "":
+	case "CannotUpdateWorkload":
+		return "", errors.New("you cannot " + access.Phrase() + ", and only people who may update the workload decide its changes; no decision was recorded")
+	default:
 		return "", errors.New("the promoter would not count this decision, so none was recorded: " + why)
 	}
 	obj := &unstructured.Unstructured{Object: map[string]any{

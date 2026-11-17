@@ -120,7 +120,7 @@ func TestEdit_ConfigurationRefOps(t *testing.T) {
 			name:    "values raise to 2.4",
 			pacto:   orders23,
 			input:   EditInput{AddConfigurationRefs: []ConfigurationRefInput{{Name: "db", Ref: "../pg", Required: true, Values: map[string]any{"size": "small"}}}},
-			changes: []string{`set pactoVersion to "2.4"`, `added configuration reference "db"`},
+			changes: []string{`set pactoVersion to "2.4" (was "2.3")`, `added configuration reference "db"`},
 			check: func(t *testing.T, dir string) {
 				c := readContract(t, dir)
 				if c.PactoVersion != "2.4" || !reflect.DeepEqual(c.Configurations[0].Values, map[string]any{"size": "small"}) {
@@ -132,7 +132,7 @@ func TestEdit_ConfigurationRefOps(t *testing.T) {
 			name:    "selector raises to 2.4",
 			pacto:   orders23,
 			input:   EditInput{AddConfigurationRefs: []ConfigurationRefInput{{Ref: "../pg", Configuration: "provisioning", Values: map[string]any{"size": "large"}}}},
-			changes: []string{`set pactoVersion to "2.4"`, `added configuration reference "pg"`},
+			changes: []string{`set pactoVersion to "2.4" (was "2.3")`, `added configuration reference "pg"`},
 			check: func(t *testing.T, dir string) {
 				if cfg := readContract(t, dir).Configurations[0]; cfg.ProviderConfiguration != "provisioning" || cfg.Name != "pg" {
 					t.Errorf("configuration %+v", cfg)
@@ -183,7 +183,7 @@ func TestEdit_EnvironmentOps(t *testing.T) {
 			name:    "add environment creates its file and raises to 2.3",
 			pacto:   "pactoVersion: \"2.0\"\nservice: {name: orders, version: 1.0.0}\n",
 			input:   EditInput{AddEnvironments: []EnvironmentInput{{Name: "prod"}, {Name: "dev", File: "envs/dev.yaml"}}},
-			changes: []string{`set pactoVersion to "2.3"`, `added environment "prod" (environments/prod.yaml)`, `added environment "dev" (envs/dev.yaml)`},
+			changes: []string{`set pactoVersion to "2.3" (was "2.0")`, `added environment "prod" (environments/prod.yaml)`, `added environment "dev" (envs/dev.yaml)`},
 			check: func(t *testing.T, dir string) {
 				for _, rel := range []string{"environments/prod.yaml", "envs/dev.yaml"} {
 					if raw, err := os.ReadFile(filepath.Join(dir, rel)); err != nil || string(raw) != "{}\n" {
@@ -256,7 +256,7 @@ func TestEdit_LifecycleOps(t *testing.T) {
 			name:    "lifecycle set raises to 2.4",
 			pacto:   orders23,
 			input:   EditInput{Lifecycle: &LifecycleInput{Deprecated: "2026-01-01", Sunset: "2026-06-01", Successor: "oci://ghcr.io/acme/orders-v2"}},
-			changes: []string{`set pactoVersion to "2.4"`, "set service lifecycle to deprecated 2026-01-01, sunset 2026-06-01, successor oci://ghcr.io/acme/orders-v2"},
+			changes: []string{`set pactoVersion to "2.4" (was "2.3")`, "set service lifecycle to deprecated 2026-01-01, sunset 2026-06-01, successor oci://ghcr.io/acme/orders-v2"},
 			check: func(t *testing.T, dir string) {
 				want := &contract.InterfaceLifecycle{Deprecated: "2026-01-01", Sunset: "2026-06-01", Successor: "oci://ghcr.io/acme/orders-v2"}
 				if c := readContract(t, dir); !reflect.DeepEqual(c.Service.Lifecycle, want) {
@@ -344,7 +344,7 @@ func TestEdit_DryRunWritesNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{`set pactoVersion to "2.4"`, "set service lifecycle to deprecated 2026-01-01", `added configuration reference "db"`,
+	want := []string{`set pactoVersion to "2.4" (was "2.3")`, "set service lifecycle to deprecated 2026-01-01", `added configuration reference "db"`,
 		`added environment "prod" (environments/prod.yaml)`, `set values for configuration "db" in environment "prod"`}
 	if !slices.Equal(result.Changes, want) {
 		t.Errorf("changes %q, want %q", result.Changes, want)
@@ -644,7 +644,7 @@ func TestAddEnvironmentWithLifetimeRaisesTo24(t *testing.T) {
 			{Name: "pr-482", Lifetime: contract.EnvironmentTemporary, Expires: "2026-11-20T00:00:00Z", Owner: owner},
 			{Name: "prod", Lifetime: contract.EnvironmentPersistent},
 		}},
-		changes: []string{`set pactoVersion to "2.4"`, `added environment "pr-482" (environments/pr-482.yaml), temporary until 2026-11-20T00:00:00Z, owner perf`,
+		changes: []string{`set pactoVersion to "2.4" (was "2.3")`, `added environment "pr-482" (environments/pr-482.yaml), temporary until 2026-11-20T00:00:00Z, owner perf`,
 			`added environment "prod" (environments/prod.yaml), persistent`},
 		check: func(t *testing.T, dir string) {
 			want := []contract.Environment{
@@ -659,7 +659,7 @@ func TestAddEnvironmentWithLifetimeRaisesTo24(t *testing.T) {
 		name:    "no declared field stays at 2.3",
 		pacto:   "pactoVersion: \"2.0\"\nservice: {name: orders, version: 1.0.0}\n",
 		input:   EditInput{AddEnvironments: []EnvironmentInput{{Name: "prod"}}},
-		changes: []string{`set pactoVersion to "2.3"`, `added environment "prod" (environments/prod.yaml)`},
+		changes: []string{`set pactoVersion to "2.3" (was "2.0")`, `added environment "prod" (environments/prod.yaml)`},
 		check: func(t *testing.T, dir string) {
 			if c := readContract(t, dir); c.PactoVersion != "2.3" {
 				t.Errorf("pactoVersion %s", c.PactoVersion)

@@ -19,6 +19,7 @@ import (
 	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 // applyConfigurationOverrides creates a shallow copy of the contract with configuration
@@ -43,7 +44,7 @@ func applyConfigurationOverrides(c *contract.Contract, overrides *pactov1alpha1.
 	// Validate all override names exist before applying any. Before 2.4 a configuration that takes
 	// its schema by ref carries no values, so an override of one is refused in those words instead
 	// of an opaque schema violation.
-	before24 := slices.Index(contract.SupportedVersions, c.PactoVersion) < slices.Index(contract.SupportedVersions, "2.4")
+	before24 := !validation.RefValuesAllowed(c.PactoVersion)
 	for _, ov := range overrides.Configurations {
 		idx, ok := configByName[ov.Name]
 		if !ok {

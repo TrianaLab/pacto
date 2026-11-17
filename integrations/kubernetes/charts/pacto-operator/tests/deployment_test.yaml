@@ -60,34 +60,67 @@ tests:
           path: spec.template.spec.containers[0].args
           content: "--enable-dashboard"
 
-  - it: should not include watch-namespace by default (cluster-wide)
+  - it: should not include watch-namespaces by default (cluster-wide)
     asserts:
-      - notContains:
-          path: spec.template.spec.containers[0].args
-          content: "--watch-namespace="
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--watch-namespace
         any: true
 
-  - it: should include watch-namespace when set
+  - it: should include watch-namespaces when set
+    set:
+      controller.watchNamespaces: [production]
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--watch-namespaces=production"
+
+  - it: keeps the deprecated watchNamespace alias
     set:
       controller.watchNamespace: production
     asserts:
       - contains:
           path: spec.template.spec.containers[0].args
+          content: "--watch-namespaces=production"
+      - notContains:
+          path: spec.template.spec.containers[0].args
           content: "--watch-namespace=production"
 
-  - it: should not enable probing, metrics observation or kernel evidence by default
+  - it: merges watchNamespace into watchNamespaces
+    set:
+      controller.watchNamespaces: [payments, ledger]
+      controller.watchNamespace: payments
     asserts:
-      - notContains:
+      - contains:
           path: spec.template.spec.containers[0].args
-          content: "--enable-probing"
-      - notContains:
+          content: "--watch-namespaces=ledger,payments"
+
+  - it: reuse-values without watchNamespaces renders --watch-namespaces=x
+    set:
+      controller.watchNamespaces: null
+      controller.secretGrants: null
+      controller.watchNamespace: x
+    asserts:
+      - contains:
           path: spec.template.spec.containers[0].args
-          content: "--enable-metrics-observation"
+          content: "--watch-namespaces=x"
+
+  - it: should render auto for probing and metrics and no kernel evidence by default
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--enable-probing=auto"
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--enable-metrics-observation=auto"
       - notContains:
           path: spec.template.spec.containers[0].args
           content: "--enable-kernel-evidence"
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: "--interface-name-match-discovery"
 
-  - it: should pass the observation feature flags when enabled
+  - it: should keep the legacy flags for enableProbing and enableMetricsObservation true
     set:
       controller.enableProbing: true
       controller.enableMetricsObservation: true
@@ -98,6 +131,128 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].args
           content: "--enable-metrics-observation"
+
+  - it: should honour an explicit auto over a legacy true
+    set:
+      controller.probing: auto
+      controller.enableProbing: true
+      controller.metricsObservation: auto
+      controller.enableMetricsObservation: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--enable-probing=auto"
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: "--enable-probing"
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--enable-metrics-observation=auto"
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: "--enable-metrics-observation"
+
+  - it: should render on and off for true and false
+    set:
+      controller.probing: true
+      controller.metricsObservation: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--enable-probing=on"
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--enable-metrics-observation=off"
+
+  - it: should render on and off as given
+    set:
+      controller.probing: "off"
+      controller.metricsObservation: "on"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--enable-probing=off"
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--enable-metrics-observation=on"
+
+  - it: should render on for a bare YAML on
+    values:
+      - values/probing-bare-on.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--enable-probing=on"
+
+  - it: should let probing on win over a legacy false
+    set:
+      controller.probing: "on"
+      controller.enableProbing: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--enable-probing=on"
+
+  - it: should pass --interface-name-match-discovery when enabled
+    set:
+      controller.interfaceNameMatchDiscovery: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--interface-name-match-discovery"
+
+  - it: should pass --node-agent-image when set
+    set:
+      nodeAgent.enabled: true
+      nodeAgent.image: registry.example.com/pacto/runtime:1.2.3
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--node-agent-image=registry.example.com/pacto/runtime:1.2.3"
+
+  - it: should not pass --node-agent-image without the node agent
+    set:
+      nodeAgent.image: registry.example.com/pacto/runtime:1.2.3
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: "--node-agent-image=registry.example.com/pacto/runtime:1.2.3"
+
+  - it: should follow the node agent under auto
+    set:
+      nodeAgent.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--enable-kernel-evidence"
+
+  - it: should refuse kernel evidence with "off" even with the node agent
+    set:
+      controller.kernelEvidence.enabled: "off"
+      nodeAgent.enabled: true
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: "--enable-kernel-evidence"
+
+  # Helm parses a bare off as false (YAML 1.1); helm-unittest reads values files
+  # as YAML 1.2, so the file itself is checked by make helm-template.
+  - it: should follow the node agent for a bare YAML off
+    set:
+      controller.kernelEvidence.enabled: false
+      nodeAgent.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--enable-kernel-evidence"
+
+  - it: should enable kernel evidence with on alone
+    set:
+      controller.kernelEvidence.enabled: "on"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--enable-kernel-evidence"
 
   - it: should enable kernel evidence with the operator-namespace default
     set:
@@ -258,6 +413,30 @@ tests:
       - notMatchRegex:
           path: spec.template.spec.containers[0].args[*]
           pattern: "--dashboard-repositories"
+
+  - it: should pass the organization external catalog
+    set:
+      dashboard.enabled: true
+      dashboard.externalCatalog: oci://ghcr.io/acme/catalog@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-external-catalog=oci://ghcr.io/acme/catalog@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+  - it: should pass no external catalog by default
+    set:
+      dashboard.enabled: true
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: "--dashboard-external-catalog"
+
+  - it: should refuse an external catalog pinned by tag
+    set:
+      dashboard.enabled: true
+      dashboard.externalCatalog: oci://ghcr.io/acme/catalog:1
+    asserts:
+      - failedTemplate: {}
 
   - it: should refuse a dashboard repository without oci://
     set:

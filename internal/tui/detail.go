@@ -114,6 +114,8 @@ func renderDetail(d *fleet.EntityDetail) string {
 		renderDomainDetail(&b, d.Domain)
 	case d.Offering != nil:
 		renderOfferingDetail(&b, d.Offering)
+	case d.External != nil:
+		renderExternalDetail(&b, d.External)
 	default:
 		return warnStyle.Render("the fleet returned a detail envelope with no payload")
 	}
@@ -275,7 +277,7 @@ func renderOriginDetail(b *strings.Builder, o *fleet.OriginDetail, steps []fleet
 func renderRevisionDetail(b *strings.Builder, r *fleet.RevisionDetailData) {
 	field(b, "service", r.Service.Label)
 	field(b, "version", r.Version)
-	field(b, "pacto version", r.PactoVersion)
+	field(b, "pacto version", r.PactoVersionText())
 	field(b, "lifecycle", strings.TrimPrefix(lifecycleText(r.Lifecycle), ", "))
 	field(b, "valid", fmt.Sprintf("%t", r.Valid))
 	field(b, "workload", r.Workload)
@@ -405,6 +407,40 @@ func renderDomainDetail(b *strings.Builder, d *fleet.DomainDetailData) {
 	field(b, "owners", fmt.Sprintf("%d", d.Owners.Total))
 	field(b, "no owner", fmt.Sprintf("%d", d.Ownership.Unowned))
 	renderOwnerDetail(b, &fleet.OwnerDetailData{Summary: d.Summary, Services: d.Services, Attention: d.Attention})
+}
+
+// renderExternalDetail draws an external system as the CLI prints it: its
+// class and consumers, the sources that declare it and the catalog entry that
+// classified it.
+func renderExternalDetail(b *strings.Builder, e *fleet.ExternalDetailData) {
+	r := e.External
+	field(b, "class", r.Class)
+	field(b, "consumers", fmt.Sprintf("%d", r.ConsumersTotal))
+	if r.HiddenConsumers > 0 {
+		field(b, "hidden consumers", fmt.Sprintf("%d you may not see", r.HiddenConsumers))
+	}
+	if e.FoldedInto != "" {
+		field(b, "folded into", string(e.FoldedInto))
+	}
+	section(b, fmt.Sprintf("Sources (%d)", r.SourcesTotal))
+	for _, src := range r.Sources {
+		note := ""
+		if src.Superseded {
+			note = ", not in the newest revision"
+		}
+		b.WriteString(safeText(fmt.Sprintf("  %s pacto.yaml dependencies[%d] (name: %s, %s%s)", src.Service, src.Index, src.Dependency, src.Provenance, note)) + "\n")
+	}
+	section(b, "Catalog")
+	switch c := r.Catalog; {
+	case c != nil:
+		field(b, "entry", c.Entry)
+		field(b, "origin", c.Origin)
+		field(b, "digest", c.Digest)
+	case r.Folded > 0:
+		field(b, "folds", fmt.Sprintf("%d external systems", r.Folded))
+	default:
+		b.WriteString("  none (" + r.JoinWords() + ")\n")
+	}
 }
 
 // renderOfferingDetail lists an offering's availability, the services that

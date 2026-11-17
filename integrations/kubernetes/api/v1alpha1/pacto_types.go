@@ -391,6 +391,12 @@ type InterfaceInfo struct {
 	// +optional
 	Visibility string `json:"visibility,omitempty"`
 
+	// Port is the port the interface declares it listens on.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	// +optional
+	Port int32 `json:"port,omitempty"`
+
 	// Lifecycle is the retirement schedule of a deprecated interface. Absent
 	// for an interface that is not deprecated.
 	// +optional
@@ -522,7 +528,9 @@ type DependencyInfo struct {
 	// Required indicates whether this dependency is mandatory.
 	Required bool `json:"required"`
 
-	// Compatibility is the semver constraint for the dependency.
+	// Compatibility is the semver constraint for the dependency, or unknown
+	// when the versions that work are not known yet; unknown is never counted
+	// as compatible.
 	// +optional
 	Compatibility string `json:"compatibility,omitempty"`
 
@@ -768,7 +776,7 @@ type EvaluatedWorkload struct {
 }
 
 // PactoStatusFormat is the StatusFormat this operator writes.
-const PactoStatusFormat = 2
+const PactoStatusFormat = 3
 
 // PactoStatus defines the observed state of Pacto.
 // All contract data is exposed as structured fields so external consumers
@@ -777,7 +785,9 @@ type PactoStatus struct {
 	// StatusFormat is the layout this status is written in. Format 1 records
 	// interface guarantees and dependency requirements. Format 2 also records
 	// the contract's business domain in contract.domain, so its absence there
-	// means the contract declares none. A status without a format, or with an
+	// means the contract declares none. Format 3 also records the external
+	// systems the target workload names in externals, with externalsCoverage
+	// saying how far that list can be trusted. A status without a format, or with an
 	// older one, was written by an older operator, so readers treat what it
 	// would record as unknown until the operator reconciles the Pacto again.
 	// +optional
@@ -899,6 +909,34 @@ type PactoStatus struct {
 	// +optional
 	ObservedCallersCoverage *CallerCoverage `json:"observedCallersCoverage,omitempty"`
 
+	// Externals are the systems outside the cluster that the target
+	// workload's pod spec names: env names and values, the ConfigMap keys it
+	// references, Secret and Secret key names (never a Secret value) and the
+	// ExternalName Services, selectorless Services and Istio ServiceEntries
+	// of its own namespace it points at. Each entry carries the normalized
+	// host and port at most. Capped at 50, sorted by identity, kind and where.
+	// +kubebuilder:validation:MaxItems=50
+	// +optional
+	Externals []ExternalStatus `json:"externals,omitempty"`
+
+	// ExternalsCoverage says whether externals can be trusted as complete:
+	// partial or unavailable means a missing external is unknown, not absent.
+	// The reason is pod-spec-unavailable (the target workload could not be
+	// read), configmap-unreadable (a ConfigMap the pod spec references could
+	// not be read), serviceentry-reader-off (the cluster serves no Istio
+	// ServiceEntry API), serviceentry-unreadable (the ServiceEntries could
+	// not be listed), object-host-unclassified (a Service or ServiceEntry
+	// names a host that gives no identity, such as one under a private
+	// suffix) or truncated (more than 50 externals).
+	// +optional
+	ExternalsCoverage *CallerCoverage `json:"externalsCoverage,omitempty"`
+
+	// ExternalCatalog is the digest of the external catalog externals were
+	// classified with, followed by " (embedded)" for the copy compiled into
+	// the operator.
+	// +optional
+	ExternalCatalog string `json:"externalCatalog,omitempty"`
+
 	// CurrentRevision is the name of the active PactoRevision.
 	// +optional
 	CurrentRevision string `json:"currentRevision,omitempty"`
@@ -928,6 +966,42 @@ type ObservedCaller struct {
 	// not change on every reconcile.
 	FirstSeen metav1.Time `json:"firstSeen"`
 }
+
+// ExternalStatus is one external system the target workload names. It never
+// holds the value it was read from: Host is the host and port at most, and
+// Where names an object and a key.
+type ExternalStatus struct {
+	// Identity is the external's canonical identity (stripe,
+	// aws/rds/<account>/<region>/<id>, host/<registrable-domain>).
+	Identity string `json:"identity"`
+	// +kubebuilder:validation:Enum=vendor-api;managed-cloud;legacy;unclassified
+	Class string `json:"class"`
+	// Confidence is likely when a host matched and possible when only a key
+	// name did.
+	// +kubebuilder:validation:Enum=likely;possible
+	Confidence string `json:"confidence"`
+	// Kind is where in the pod spec or the namespace the external was named.
+	// +kubebuilder:validation:Enum=env;configMap;secretKeyRef;secretRef;externalNameService;selectorlessService;serviceEntry
+	Kind string `json:"kind"`
+	// Where names the object and key that name the external, never a value.
+	Where string `json:"where"`
+	// +optional
+	Host string `json:"host,omitempty"`
+	// Entry is the catalog entry that matched, empty for an unclassified host.
+	// +optional
+	Entry string `json:"entry,omitempty"`
+}
+
+// External kinds.
+const (
+	ExternalKindEnv                 = "env"
+	ExternalKindConfigMap           = "configMap"
+	ExternalKindSecretKeyRef        = "secretKeyRef"
+	ExternalKindSecretRef           = "secretRef"
+	ExternalKindExternalNameService = "externalNameService"
+	ExternalKindSelectorlessService = "selectorlessService"
+	ExternalKindServiceEntry        = "serviceEntry"
+)
 
 // Caller coverage states.
 const (

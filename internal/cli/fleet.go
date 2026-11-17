@@ -55,7 +55,7 @@ func newFleetCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder)
 // present, which is how a command keeps a deliberately narrowed spelling (`pacto
 // impact --traces` takes one document and reads it itself) or its own help text
 // (`pacto mcp --root` selects a catalog, not a snapshot closure) without having
-// to restate the other nine.
+// to restate the rest.
 func addFleetSourceFlags(f *pflag.FlagSet) {
 	shared := pflag.NewFlagSet("fleet-source", pflag.ContinueOnError)
 	shared.StringArray("local", []string{"."}, "local bundle root(s) to scan (repeatable)")
@@ -67,8 +67,9 @@ func addFleetSourceFlags(f *pflag.FlagSet) {
 	shared.StringArray("oci", nil, "registry reference to include as a published-baseline revision (repeatable)")
 	shared.Bool("cache", false, "include every bundle in the local OCI cache as an offline baseline revision")
 	shared.Bool("k8s", false, "include live Pacto CRs from the current Kubernetes cluster as targets")
-	shared.String("namespace", "", "namespace to read Pacto CRs from with --k8s (empty = all namespaces)")
+	shared.String("namespace", "", "namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)")
 	shared.Duration("freshness", fleet.RecentEvidenceWindow, "mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so)")
+	shared.String("external-catalog", "", "organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST (a tag is refused)")
 	f.AddFlagSet(shared)
 }
 
@@ -78,7 +79,7 @@ func addFleetSourceFlags(f *pflag.FlagSet) {
 func fleetFlagNames() []string {
 	return []string{
 		"local", "root", "target-state", "evidence-url", "mira-source", "traces", "oci",
-		"cache", "k8s", "namespace", "freshness",
+		"cache", "k8s", "namespace", "freshness", "external-catalog",
 	}
 }
 
@@ -120,6 +121,13 @@ func fleetSourceArgs(cmd *cobra.Command) []string {
 // commands do that on purpose (`pacto impact` and `pacto fleet reconcile` each
 // take a single --traces document and read it themselves), and
 // TestSharedFleetFlagTypesAreConsistent fails any third one that appears.
+// longRunning marks opts as a process that builds again later (see
+// [app.FleetOptions.LongRunning]).
+func longRunning(opts app.FleetOptions) app.FleetOptions {
+	opts.LongRunning = true
+	return opts
+}
+
 func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 	local, _ := cmd.Flags().GetStringArray("local")
 	// --root is also `pacto mcp`'s catalog-server selector, where it is mutually
@@ -139,8 +147,8 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 	// onto the flag, so this one read covers all three.
 	noCache, _ := cmd.Flags().GetBool("no-cache")
 	includeK8s, _ := cmd.Flags().GetBool("k8s")
-	namespace, _ := cmd.Flags().GetString("namespace")
 	freshness, _ := cmd.Flags().GetDuration("freshness")
+	externalCatalog, _ := cmd.Flags().GetString("external-catalog")
 	return app.FleetOptions{
 		LocalRoots:         local,
 		CatalogRoots:       roots,
@@ -151,10 +159,45 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 		OCIRefs:            ociRefs,
 		IncludeCache:       includeCache && !noCache,
 		IncludeK8s:         includeK8s,
-		K8sNamespace:       namespace,
+		K8sNamespaces:      flagNamespaces(cmd),
 		FreshnessWindow:    freshness,
+		ExternalCatalogRef: externalCatalog,
 		Provenance:         app.NewProvenanceChecker(),
 	}
+}
+
+// flagNamespaces is the --namespace list of cmd; empty when unset or
+// undeclared.
+func flagNamespaces(cmd *cobra.Command) []string {
+	ns, _ := cmd.Flags().GetString("namespace")
+	return splitNamespaces(ns)
+}
+
+// splitNamespaces reads a comma-separated namespace list: trimmed, sorted,
+// deduplicated, empty entries dropped. One value is a list of one.
+func splitNamespaces(s string) []string {
+	var out []string
+	for ns := range strings.SplitSeq(s, ",") {
+		if ns = strings.TrimSpace(ns); ns != "" {
+			out = append(out, ns)
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
+// deliveryNarrowing is the namespace delivery reads are narrowed to: the one
+// namespace of list, or "" (every namespace) for none or several. Delivery
+// reads list one namespace or all of them, and always run with the reader's
+// own token, so this is a convenience and never an authorization boundary:
+// a list of several namespaces reads delivery everywhere the reader may.
+// --delivery-namespace names where the identity policy is published and never
+// narrows them.
+func deliveryNarrowing(list []string) string {
+	if len(list) == 1 {
+		return list[0]
+	}
+	return ""
 }
 
 // buildQuery assembles the snapshot and returns a pure query over it.
@@ -183,8 +226,15 @@ func warnPartial(cmd *cobra.Command, m fleet.Meta) {
 	}
 	w := cmd.ErrOrStderr()
 	_, _ = fmt.Fprintf(w, "warning: answer is %s (as of %s)\n", m.Completeness, m.AsOf.Format(time.RFC3339))
+	// Text drops the per-source split, so two sources reporting one problem
+	// (a name collision across two --local roots) would print it twice.
+	seen := map[string]bool{}
 	for _, l := range m.Limitations {
-		_, _ = fmt.Fprintf(w, "  - [%s] %s\n", l.Code, l.Message)
+		line := fmt.Sprintf("  - [%s] %s\n", l.Code, l.Message)
+		if !seen[line] {
+			seen[line] = true
+			_, _ = fmt.Fprint(w, line)
+		}
 	}
 }
 
@@ -192,7 +242,10 @@ func newFleetSearchCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "search [text]",
 		Short: "Search logical services in the fleet",
-		Args:  cobra.MaximumNArgs(1),
+		Long: "Search logical services in the fleet. A search on text alone, first page, also " +
+			"lists up to 20 external systems whose identity, label or alias holds the text; " +
+			"any other filter or --offset lists none.",
+		Args: cobra.MaximumNArgs(1),
 		// Free text matched against the fleet, never a path — the same reason its
 		// three siblings give. Without this the shell falls back to filenames and
 		// offers the working directory as if it were a search term.
@@ -277,8 +330,10 @@ func searchFilterFromCmd(cmd *cobra.Command, text string) (fleet.SearchFilter, e
 func newFleetGetCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "get [service]",
-		Short: "Inspect a logical service or an operational target",
-		Args:  cobra.MaximumNArgs(1),
+		Short: "Inspect a logical service, an external system or an operational target",
+		Long: "Inspect a logical service by name, an external system by external:<identity> " +
+			"(a vendor, managed service or legacy host no Pacto contract describes) or an operational target with --target.",
+		Args: cobra.MaximumNArgs(1),
 		// A service key comes from the snapshot, and building one at tab time would
 		// reach k8s, a registry or the disk cache while the reader holds tab. No
 		// candidates is the honest answer; falling back to filenames is not, because
@@ -299,7 +354,14 @@ func newFleetGetCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			}
 			name := optionalArg(args)
 			if name == "" {
-				return fmt.Errorf("provide a service name or --target")
+				return fmt.Errorf("provide a service name, external:<identity> or --target")
+			}
+			if _, ok := fleet.ParseExternalSubject(name); ok {
+				ev, err := q.GetExternal(name)
+				if err != nil {
+					return err
+				}
+				return printFleetExternal(cmd, ev, v.GetString(outputFormatKey))
 			}
 			sv, err := q.GetService(name)
 			if err != nil {
@@ -320,7 +382,9 @@ func newFleetGraphCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			"name to aggregate across its revisions, or --revision/--target to root " +
 			"an exact revision (never 'latest'). The walk also follows observed " +
 			"runtime calls, so services no contract connects appear too; each node " +
-			"reports its provenance (declared, observed or declared+observed).",
+			"reports its provenance (declared, observed or declared+observed, or " +
+			"inferred for an external system's consumer known only from its configuration). Give " +
+			"external:<identity> to list the consumers of an external system (its only direction is dependents).",
 		Args: cobra.MaximumNArgs(1),
 		// Same as `fleet get`: the candidates live in a snapshot too expensive to
 		// build at the prompt, and this positional is never a path.
@@ -346,7 +410,7 @@ func newFleetGraphCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			return printFleetGraph(cmd, res, v.GetString(outputFormatKey))
 		},
 	}
-	cmd.Flags().String("direction", "dependencies", "traversal direction (dependencies, dependents)")
+	cmd.Flags().String("direction", "", "traversal direction (dependencies, dependents); unset means dependencies, or dependents for an external: root")
 	cmd.Flags().Bool("transitive", false, "traverse transitively (cycle-safe)")
 	cmd.Flags().Int("max-depth", 0, "maximum transitive depth (0 = unlimited)")
 	cmd.Flags().String("revision", "", "root an exact contract revision key")
@@ -431,7 +495,9 @@ func newFleetExplainCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	return &cobra.Command{
 		Use:   "explain <subject>",
 		Short: "Explain the deterministic reasons for a service or target state",
-		Args:  cobra.ExactArgs(1),
+		Long: "Explain the deterministic reasons for a service or target state. Give external:<identity> " +
+			"to list the sources that declare an external system and the catalog entry that classified it.",
+		Args: cobra.ExactArgs(1),
 		// Same as `fleet get`: the subject resolves to a service or a target, both
 		// of which only a snapshot knows, and neither of which is ever a path.
 		ValidArgsFunction: noCompletions,

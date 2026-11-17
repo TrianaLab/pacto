@@ -56,7 +56,7 @@ and `PlanStale` names the one that differs when it can tell.
 - `on_behalf_of` on plan and propose: the person an agent acts for, as the
   Kubernetes username the cluster authenticates them as, asserted and never
   verified. An agent must name one when it proposes, never itself,
-  a service account or the promoter, and that person may not approve the
+  a service account, a system user or the promoter, and that person may not approve the
   change ([agents](integrations/kubernetes/delivery-agents.md#an-agent-names-the-person-it-acts-for)).
   Planning needs none.
 - `correlation_id` on plan and propose: a ticket or incident id of at most 128

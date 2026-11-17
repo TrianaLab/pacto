@@ -444,6 +444,22 @@ func TestRestrictKeepsNamespacedCallers(t *testing.T) {
 	}
 }
 
+// TestRestrictHidesMalformedK8sCallers: a k8s: caller that does not parse
+// names no namespace a permission check can read, so even a viewer who may read
+// the cluster scope sees only a count, never the name.
+func TestRestrictHidesMalformedK8sCallers(t *testing.T) {
+	q := bareCallerFleet(t, ObservedEdge{From: "k8s:hidden/Deployment/x/y/z", To: "payments", Count: 1}, ObservedEdge{From: "k8s:shop/x", To: "payments", Count: 1})
+	s := q.Restrict(func(ns string) bool { return ns != "hidden" }).SnapshotForSerialization()
+	for _, name := range callerNames(s) {
+		if strings.HasPrefix(name, "k8s:") {
+			t.Errorf("restricted callers = %v, want no malformed k8s caller", callerNames(s))
+		}
+	}
+	if pay := s.Services[NewServiceKey("payments")]; pay.HiddenDependents != 3 {
+		t.Errorf("payments hidden dependents = %d, want ledger and both malformed callers counted", pay.HiddenDependents)
+	}
+}
+
 // TestRestrictHidesCallersInNamespacesWithoutTargets: a k8s caller in a
 // namespace no target runs in is still a namespace the viewer's permissions
 // decide, so the viewer is asked about it and, refused, sees only a count.
@@ -877,5 +893,100 @@ func TestRestrictedEstateCounts(t *testing.T) {
 	raw, _ := json.Marshal(r.Overview())
 	if strings.Contains(string(raw), "secret-app") {
 		t.Error("the restricted overview names the hidden target")
+	}
+}
+
+func TestRestrictHidesBreakConsumers(t *testing.T) {
+	mk := func(name string) *contract.Contract {
+		return &contract.Contract{PactoVersion: "2.5", Service: contract.Service{Name: name, Version: "1.0.0"}}
+	}
+	web := mk("web")
+	web.Breaks = []contract.Break{{Consumers: []string{"api", "lone", "ghost"}, Reason: "drops /v1"}}
+	k := SourceKindKubernetes
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("k8s", "kubernetes", &Collection{
+		Revisions: []RawRevision{
+			{Bundle: &contract.Bundle{Contract: web, FS: fstest.MapFS{}}, Digest: "sha256:web"},
+			{Bundle: &contract.Bundle{Contract: mk("api"), FS: fstest.MapFS{}}, Digest: "sha256:api"},
+			{Bundle: &contract.Bundle{Contract: mk("lone"), FS: fstest.MapFS{}}, Digest: "sha256:lone"},
+		},
+		Targets: []RawTarget{
+			{Scope: "shop", Kind: k, Name: "web", Service: "web", Compliance: StatusCompliant},
+			{Scope: "secret", Kind: k, Name: "api", Service: "api", Compliance: StatusCompliant},
+			{Scope: "shop", Kind: k, Name: "lone", Service: "lone", Compliance: StatusCompliant},
+		},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := NewQuery(snap).Restrict(func(ns string) bool { return ns == "shop" || ns == "" })
+	d, err := r.EntityDetail(KindRevision, revKeyOf(t, r, "web"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := d.Revision.Breaks
+	if b.Total != 3 || b.Hidden != 1 || b.Count != 2 || b.Items[0].Consumer != "lone" || b.Items[0].Service == nil || b.Items[1].Consumer != "ghost" || b.Items[1].Service != nil {
+		t.Fatalf("breaks = %+v", b)
+	}
+	raw, _ := json.Marshal(b)
+	if strings.Contains(string(raw), "api") {
+		t.Errorf("a hidden consumer is named: %s", raw)
+	}
+}
+
+// TestRestrictHidesExternalEdgeOfHiddenCaller: an inferred or observed edge
+// to an external system follows its caller, and evidence read on a hidden
+// target goes even when its service stays visible. What goes is counted.
+func TestRestrictHidesExternalEdgeOfHiddenCaller(t *testing.T) {
+	uses := []RawExternalUse{
+		{Service: "web", Namespace: "shop", Identity: "stripe", Kind: "env", Confidence: "likely", Host: "api.stripe.com", Where: "deployment/web env STRIPE"},
+		{Service: "vault", Namespace: "secret", Identity: "stripe", Kind: "env", Confidence: "likely", Host: "api.stripe.com", Where: "deployment/vault env STRIPE"},
+		{Service: "pay", Namespace: "secret", Identity: "stripe", Kind: "configMap", Confidence: "likely", Host: "api.stripe.com", Where: "configmap/pay-secret-ns STRIPE"},
+		{Service: "pay", Namespace: "shop", Identity: "twilio", Kind: "env", Confidence: "possible", Where: "deployment/pay env TWILIO_TOKEN"},
+		{Service: "pay", Namespace: "secret", Identity: "twilio", Kind: "env", Confidence: "likely", Host: "api.twilio.com", Where: "deployment/pay-secret env TWILIO"},
+	}
+	snap := inferredFleet(t, []inferredSvc{{name: "web", ns: []string{"shop"}}, {name: "vault", ns: []string{"secret"}}, {name: "pay", ns: []string{"shop", "secret"}}},
+		uses, []ObservedEdge{{From: "vault", To: "api.stripe.com", Count: 1}}, nil)
+	r := NewQuery(snap).Restrict(shopView)
+	checkRestrictedExternalEdges(t, r.snap.Relationships)
+	checkRestrictedExternals(t, r)
+}
+
+// checkRestrictedExternalEdges: under shopView no external edge comes from
+// vault, cites evidence of a secret target or rests on such evidence alone.
+func checkRestrictedExternalEdges(t *testing.T, rels []Relationship) {
+	t.Helper()
+	for _, rel := range rels {
+		if rel.FromService == "vault" {
+			t.Errorf("hidden caller's edge = %+v", rel)
+		}
+		for _, s := range rel.InferredSources {
+			if strings.Contains(s.Where, "secret") {
+				t.Errorf("evidence of a hidden target = %+v", s)
+			}
+		}
+		if rel.FromService == "pay" && rel.ToExternal == "twilio" && (len(rel.InferredSources) != 1 || rel.Confidence != "possible") {
+			t.Errorf("pay -> twilio = %+v", rel)
+		}
+		if rel.FromService == "pay" && rel.ToExternal == "stripe" {
+			t.Errorf("an edge only a hidden target evidences = %+v", rel)
+		}
+	}
+}
+
+// checkRestrictedExternals: what goes is counted, never named.
+func checkRestrictedExternals(t *testing.T, r *Query) {
+	t.Helper()
+	v, err := r.GetExternal("stripe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e := v.External; e.ConsumersTotal != 1 || e.HiddenConsumers != 2 || e.Consumers[0] != "web" {
+		t.Errorf("stripe = %+v", e)
+	}
+	if tw, _ := r.GetExternal("twilio"); tw.External.SourcesTotal != 1 || tw.External.HiddenConsumers != 0 {
+		t.Errorf("twilio = %+v", tw.External)
+	}
+	if b, _ := json.Marshal(r.Snapshot()); strings.Contains(string(b), "pay-secret") || strings.Contains(string(b), "deployment/vault") {
+		t.Errorf("restricted snapshot names hidden evidence: %s", b)
 	}
 }

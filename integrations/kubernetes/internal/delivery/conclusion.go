@@ -47,53 +47,7 @@ func (r *OperationReconciler) finish(ctx context.Context, op *dv1.Operation, sta
 			return reconcile.Result{}, err
 		}
 		if err := r.casStage(ctx, stage, func(s *dv1.Stage) error {
-			// Decided on the fresh Stage: a verdict reached on a cached one
-			// never concludes an operation whose lock was taken meanwhile.
-			taken := op.Status.Applied && preempted(op, s)
-			if s.Status.Locks[op.Spec.Facet] == string(op.UID) {
-				delete(s.Status.Locks, op.Spec.Facet)
-			}
-			// ponytail: a re-conclusion snapshots the policy again, so a Stage
-			// edit inside the seconds between a failed write and its retry
-			// lands in the record; store the spec in Concluded if that matters.
-			spec := s.Spec
-			op.Status.Policy, op.Status.StageUID = &spec, string(s.UID)
-			if done := concludedOn(s.Status, op.UID); done != nil {
-				// This operation took its seq and its status write failed.
-				op.Status.Seq, c = done.Seq, conclusion{outcome: done.Outcome, verification: done.Verification, reason: done.Reason}
-				return nil
-			}
-			if taken && !c.preempted {
-				c = preemptedBy
-			}
-			if op.Spec.Type == delivery.TypeAutonomy && c.outcome == delivery.Succeeded {
-				if why := delivery.LevelRefusal(op.Spec, s.Spec, s.Status); why != "" {
-					c = conclusion{outcome: delivery.Rejected, reason: why}
-				}
-			}
-			before := s.Status.Pointer
-			s.Status.Stream.Seq++
-			op.Status.Seq = s.Status.Stream.Seq
-			done := delivery.Concluded{UID: string(op.UID), Seq: op.Status.Seq, Outcome: c.outcome, Verification: c.verification, Reason: c.reason,
-				Type: op.Spec.Type, Person: len(op.Status.Approvals) > 0 || op.Status.ActorClass == delivery.ClassHuman,
-				ClearedBreaking: delivery.ClearedBreaking(op.Status.Plan)}
-			if op.Status.ActorClass == delivery.ClassController {
-				done.Cause = causeOp(op) // only the promoter's own cause excuses what follows
-			}
-			s.Status.Stream.Concluded = append(s.Status.Stream.Concluded, done)
-			s.Status.Stream.Concluded = s.Status.Stream.Concluded[max(0, len(s.Status.Stream.Concluded)-delivery.MaxConcluded):]
-			delivery.ApplyEffects(&s.Status, op.Name, string(op.UID), op.Spec, op.Status,
-				delivery.Conclusion{Outcome: c.outcome, Verification: c.verification, Reason: c.reason, Freeze: c.freeze})
-			if op.Spec.Type == delivery.TypeAutonomy {
-				// Leaving observe adopts the pointer; the record shows it.
-				op.Status.Pointer = delivery.PointerChange{}
-				if s.Status.Pointer != before {
-					op.Status.Pointer = delivery.PointerChange{Before: before, After: s.Status.Pointer}
-				}
-			}
-			if squat != "" {
-				s.Status.Frozen, s.Status.FrozenReason = true, op.Name+": "+squat
-			}
+			c = concludeOn(s, op, c, squat)
 			return nil
 		}); err != nil {
 			return reconcile.Result{}, err
@@ -113,6 +67,62 @@ func (r *OperationReconciler) finish(ctx context.Context, op *dv1.Operation, sta
 	event(r.Events, op, c.outcome != delivery.Succeeded && c.outcome != delivery.Cancelled, string(c.outcome), c.reason)
 	r.heldChecks.Delete(op.UID)
 	return reconcile.Result{RequeueAfter: immediately}, nil
+}
+
+// concludeOn concludes op on the fresh Stage s and returns the conclusion
+// it took: it releases op's lock, assigns the stream seq and applies the
+// freeze, auto-hold and digest memories. An operation that took its seq
+// already keeps the conclusion it had; one a rollback or override took over
+// concludes Preempted; a level change the Stage no longer allows is refused.
+func concludeOn(s *dv1.Stage, op *dv1.Operation, c conclusion, squat string) conclusion {
+	// Decided on the fresh Stage: a verdict reached on a cached one
+	// never concludes an operation whose lock was taken meanwhile.
+	taken := op.Status.Applied && preempted(op, s)
+	if s.Status.Locks[op.Spec.Facet] == string(op.UID) {
+		delete(s.Status.Locks, op.Spec.Facet)
+	}
+	// ponytail: a re-conclusion snapshots the policy again, so a Stage
+	// edit inside the seconds between a failed write and its retry
+	// lands in the record; store the spec in Concluded if that matters.
+	spec := s.Spec
+	op.Status.Policy, op.Status.StageUID = &spec, string(s.UID)
+	if done := concludedOn(s.Status, op.UID); done != nil {
+		// This operation took its seq and its status write failed.
+		op.Status.Seq, c = done.Seq, conclusion{outcome: done.Outcome, verification: done.Verification, reason: done.Reason}
+		return c
+	}
+	if taken && !c.preempted {
+		c = preemptedBy
+	}
+	if op.Spec.Type == delivery.TypeAutonomy && c.outcome == delivery.Succeeded {
+		if why := delivery.LevelRefusal(op.Spec, s.Spec, s.Status); why != "" {
+			c = conclusion{outcome: delivery.Rejected, reason: why}
+		}
+	}
+	before := s.Status.Pointer
+	s.Status.Stream.Seq++
+	op.Status.Seq = s.Status.Stream.Seq
+	done := delivery.Concluded{UID: string(op.UID), Seq: op.Status.Seq, Outcome: c.outcome, Verification: c.verification, Reason: c.reason,
+		Type: op.Spec.Type, Person: len(op.Status.Approvals) > 0 || op.Status.ActorClass == delivery.ClassHuman,
+		ClearedBreaking: delivery.ClearedBreaking(op.Status.Plan)}
+	if op.Status.ActorClass == delivery.ClassController {
+		done.Cause = causeOp(op) // only the promoter's own cause excuses what follows
+	}
+	s.Status.Stream.Concluded = append(s.Status.Stream.Concluded, done)
+	s.Status.Stream.Concluded = s.Status.Stream.Concluded[max(0, len(s.Status.Stream.Concluded)-delivery.MaxConcluded):]
+	delivery.ApplyEffects(&s.Status, op.Name, string(op.UID), op.Spec, op.Status,
+		delivery.Conclusion{Outcome: c.outcome, Verification: c.verification, Reason: c.reason, Freeze: c.freeze})
+	if op.Spec.Type == delivery.TypeAutonomy {
+		// Leaving observe adopts the pointer; the record shows it.
+		op.Status.Pointer = delivery.PointerChange{}
+		if s.Status.Pointer != before {
+			op.Status.Pointer = delivery.PointerChange{Before: before, After: s.Status.Pointer}
+		}
+	}
+	if squat != "" {
+		s.Status.Frozen, s.Status.FrozenReason = true, op.Name+": "+squat
+	}
+	return c
 }
 
 // raiseOnFailure raises what a failed promote owes before it concludes: its

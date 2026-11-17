@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"maps"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -22,6 +23,7 @@ type stubDelivery struct {
 	cancels []string
 	of      delivery.ServiceRef
 	status  delivery.StatusQuery
+	rows    []delivery.StageRow
 }
 
 // stubEntries are a change that finished at ten and one with no time.
@@ -142,7 +144,7 @@ func (s *stubDelivery) Status(_ context.Context, q delivery.StatusQuery) (*deliv
 		return nil, s.err
 	}
 	s.status = q
-	return &delivery.ServiceStatus{Service: q.Service, Note: "in promotion order"}, nil
+	return &delivery.ServiceStatus{Service: q.Service, Note: "in promotion order", Stages: s.rows}, nil
 }
 
 func deliveryToolNames(t *testing.T, server *mcpsdk.Server) []string {
@@ -539,6 +541,39 @@ func TestDeliveryStatusTool(t *testing.T) {
 	}
 }
 
+// TestDeliveryStatusToolCarriesApplier: each row names the manager that
+// applies the Stage's workloads, observed, with evidence and asOf, and the
+// description says so.
+func TestDeliveryStatusToolCarriesApplier(t *testing.T) {
+	api := &stubDelivery{rows: []delivery.StageRow{{Namespace: "prod", Stage: "payments-prod", Applier: &delivery.ApplierStatus{
+		Manager: "argocd", Owner: "Application prod/payments", Evidence: "tracking annotation", State: delivery.ApplierAdopted,
+		Display: "Argo CD (Application payments, tracking annotation)", AsOf: "2026-11-15T10:00:00Z", Completeness: "complete"}}}}
+	var got delivery.ServiceStatus
+	decode(t, callToolOn(t, mustNew("v", Authoring{}, Modes{Delivery: &DeliveryMode{API: api, Writes: false}}), "pacto_delivery_status",
+		map[string]any{"service": "payments"}), &got)
+	if len(got.Stages) != 1 || got.Stages[0].Applier == nil || !delivery.SameApplier(got.Stages[0].Applier, api.rows[0].Applier) || got.Stages[0].Applier.AsOf != "2026-11-15T10:00:00Z" {
+		t.Fatalf("rows: %+v", got.Stages)
+	}
+	ctx := context.Background()
+	t1, t2 := mcpsdk.NewInMemoryTransports()
+	if _, err := mustNew("v", Authoring{}, Modes{Delivery: &DeliveryMode{API: api, Writes: false}}).Connect(ctx, t1, nil); err != nil {
+		t.Fatal(err)
+	}
+	s, err := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "c", Version: "1"}, nil).Connect(ctx, t2, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	tools, err := s.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := slices.IndexFunc(tools.Tools, func(x *mcpsdk.Tool) bool { return x.Name == "pacto_delivery_status" })
+	if i < 0 || !strings.Contains(tools.Tools[i].Description, "the manager that applies each Stage's workloads (applier, observed, with evidence and asOf)") {
+		t.Fatal("the description does not name the applier")
+	}
+}
+
 func TestRecordGetTool(t *testing.T) {
 	api := &stubDelivery{}
 	server := mustNew("v", Authoring{}, Modes{Delivery: &DeliveryMode{API: api, Writes: false}})
@@ -601,7 +636,7 @@ func TestDeliveryRequestArgsCorrelationID(t *testing.T) {
 // incident.
 func TestDeliveryInstructionsNamePrincipalAndCorrelation(t *testing.T) {
 	for _, want := range []string{
-		"names the person it acts for in on_behalf_of, as the Kubernetes username the cluster authenticates them as, never itself, a service account or the promoter",
+		"names the person it acts for in on_behalf_of, as the Kubernetes username the cluster authenticates them as, never itself, a service account, a system user or the promoter",
 		"that person may not approve the change, and planning needs no person",
 		"Pass correlation_id on plan and propose",
 		"it never changes the intent digest",

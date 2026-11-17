@@ -84,6 +84,14 @@ be decided*: a verdict about this contract. Elsewhere in Pacto, `unknown` descri
 of the world an **answer** saw (see
 [Knowledge](../../operational-graph.md#knowledge)). The two are separate fields.
 
+The operator also lists in `status.externals` the systems outside the cluster
+that the target workload names: vendors, managed services and legacy hosts. It
+reads the pod spec's env names and values, its Secret names and `secretKeyRef`
+key names and the ConfigMap keys the pod spec references by env. It never reads
+a Secret, and each entry carries a host and port at most.
+`status.externalsCoverage` says when that list may be incomplete; see
+[Observation boundaries](limitations.md#observation-boundaries).
+
 Alongside the status the operator exports five Prometheus gauges. The names,
 labels and the scrape permission you have to grant yourself are in
 [Scraping the metrics](installation.md#scraping-the-metrics).

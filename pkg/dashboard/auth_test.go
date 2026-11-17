@@ -70,7 +70,7 @@ func TestDeliveryCaller(t *testing.T) {
 	code, c := call(t, http.MethodGet, base+"/api/delivery/caller", nil)
 	expect(t, code == http.StatusOK && c["user"] == "https://idp#carol" && c["class"] == "human" && c["authTime"] != nil && c["requireOwnerTeam"] == false,
 		"caller %d %v", code, c)
-	f.policy = &delivery.ClassPolicy{RequireOwnerTeam: true}
+	f.policy = &delivery.ClassPolicy{RequireOwnerTeam: true, TeamNarrowing: true}
 	_, c = call(t, http.MethodGet, base+"/api/delivery/caller", nil)
 	expect(t, c["requireOwnerTeam"] == true, "the caller says when an ownerless question is nobody's: %v", c)
 	f.callerErr = Refuse(http.StatusServiceUnavailable, "ClusterUnreachable", "apiserver down")
@@ -78,4 +78,17 @@ func TestDeliveryCaller(t *testing.T) {
 	expect(t, code == http.StatusServiceUnavailable && c["code"] == "ClusterUnreachable", "a WhoAmI failure is the refusal: %d %v", code, c)
 	code, c = call(t, http.MethodGet, startDelivery(t, f, a.auth(false, true), false, nil)+"/api/delivery/caller", nil)
 	expect(t, code == http.StatusNotFound && c["code"] == "DeliveryNotInstalled", "not installed: %d %v", code, c)
+}
+
+// TestCallerReportsTeamNarrowing: the caller says whether owner teams narrow
+// who may answer, so the copy can say who may.
+func TestCallerReportsTeamNarrowing(t *testing.T) {
+	a := &authed{state: AuthState{SignedIn: true}}
+	f := &fakeDelivery{caller: person("acme:team-payments")}
+	base := startDelivery(t, f, a.auth(false, true), true, nil)
+	_, c := call(t, http.MethodGet, base+"/api/delivery/caller", nil)
+	expect(t, c["teamNarrowing"] == true, "narrowing on is reported: %v", c)
+	f.policy = &delivery.ClassPolicy{}
+	_, c = call(t, http.MethodGet, base+"/api/delivery/caller", nil)
+	expect(t, c["teamNarrowing"] == false, "narrowing off is reported: %v", c)
 }

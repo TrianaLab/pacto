@@ -114,19 +114,30 @@ Controller arguments derived from values
 {{- else }}
 - --metrics-bind-address=0
 {{- end }}
-{{- if .Values.controller.watchNamespace }}
-- --watch-namespace={{ .Values.controller.watchNamespace }}
+{{- if or .Values.controller.watchNamespaces .Values.controller.watchNamespace }}
+- --watch-namespaces={{ include "pacto-operator.watchNamespaces" . | fromYamlArray | join "," }}
 {{- end }}
 {{- if .Values.controller.stabilizationWindow }}
 - --stabilization-window={{ .Values.controller.stabilizationWindow }}
 {{- end }}
-{{- if .Values.controller.enableProbing }}
+{{- with include "pacto-operator.observeMode" (list .Values.controller.probing .Values.controller.enableProbing) }}
+{{- if eq . "legacy-on" }}
 - --enable-probing
+{{- else }}
+- --enable-probing={{ . }}
 {{- end }}
-{{- if .Values.controller.enableMetricsObservation }}
+{{- end }}
+{{- with include "pacto-operator.observeMode" (list .Values.controller.metricsObservation .Values.controller.enableMetricsObservation) }}
+{{- if eq . "legacy-on" }}
 - --enable-metrics-observation
+{{- else }}
+- --enable-metrics-observation={{ . }}
 {{- end }}
-{{- /* Kernel evidence follows the managed node agent: either switch turns it on. */}}
+{{- end }}
+{{- if .Values.controller.interfaceNameMatchDiscovery }}
+- --interface-name-match-discovery
+{{- end }}
+{{- /* Kernel evidence follows the managed node agent unless set on or "off". */}}
 {{- with .Values.controller.kernelEvidence }}
 {{- if include "pacto-operator.kernelEvidence" $ }}
 - --enable-kernel-evidence
@@ -146,6 +157,9 @@ Controller arguments derived from values
 {{- with .Values.nodeAgent }}
 {{- if .enabled }}
 - --enable-node-agent
+{{- with .image }}
+- --node-agent-image={{ . }}
+{{- end }}
 {{- range include "pacto-operator.imagePullSecrets.list" (dict "ctx" $ "values" $.Values) | fromYamlArray }}
 - --node-agent-image-pull-secret={{ .name }}
 {{- end }}
@@ -263,8 +277,11 @@ Controller arguments derived from values
 {{- with .Values.dashboard.repositories }}
 - --dashboard-repositories={{ join "," . }}
 {{- end }}
+{{- with .Values.dashboard.externalCatalog }}
+- --dashboard-external-catalog={{ . }}
+{{- end }}
 {{- with .Values.dashboard.delivery }}
-{{- with (.namespace | default (ternary $.Values.delivery.namespace "" $.Values.delivery.enabled)) }}
+{{- with include "pacto-operator.dashboardDeliveryNamespace" $ }}
 - --dashboard-delivery-namespace={{ . }}
 {{- end }}
 {{- with .trust }}
@@ -335,10 +352,42 @@ so it may never be the release namespace.
 {{- end }}
 
 {{/*
-Whether kernel evidence is on: either switch turns it on.
+Whether kernel evidence is on: on or true turns it on, "off" refuses it, and
+anything else (auto, false, absent) follows nodeAgent.enabled. false keeps its
+6.x meaning so an upgrade that reuses values renders the same arguments.
 */}}
 {{- define "pacto-operator.kernelEvidence" -}}
-{{- if or .Values.controller.kernelEvidence.enabled .Values.nodeAgent.enabled }}true{{ end }}
+{{- $v := .Values.controller.kernelEvidence.enabled }}
+{{- $s := ternary "" (toString $v) (kindIs "invalid" $v) }}
+{{- if or (eq $s "on") (eq $s "true") }}true
+{{- else if and (ne $s "off") .Values.nodeAgent.enabled }}true
+{{- end }}
+{{- end }}
+
+{{/*
+The mode of one observation feature (probing, metrics observation), from
+(list $new $legacy): the auto/on/off key and the deprecated boolean it replaces.
+Returns on, off, auto, legacy-on (the bare flag) or "" (no argument).
+An upgrade that reuses a 6.x release's values keeps that release's chart
+defaults, so the new key is absent and the legacy boolean present: an absent or
+empty new key renders exactly what the legacy key rendered (true -> legacy-on,
+false -> nothing), and with neither key set it is auto. An explicit new key
+always wins. Values files parse as YAML 1.1, so a bare on or off arrives as a
+bool: absence is tested with kindIs and every compare runs on toString.
+510-S7's profile extends this define.
+*/}}
+{{- define "pacto-operator.observeMode" -}}
+{{- $new := index . 0 }}
+{{- $legacy := index . 1 }}
+{{- $s := ternary "" (toString $new) (kindIs "invalid" $new) }}
+{{- if eq $s "" }}
+{{- if kindIs "invalid" $legacy }}auto
+{{- else if $legacy }}legacy-on
+{{- end }}
+{{- else if or (eq $s "on") (eq $s "true") }}on
+{{- else if or (eq $s "off") (eq $s "false") }}off
+{{- else if eq $s "auto" }}auto
+{{- end }}
 {{- end }}
 
 {{/*
@@ -471,4 +520,104 @@ affinity:
 tolerations:
   {{- toYaml . | nindent 2 }}
 {{- end }}
+{{- end }}
+
+{{/*
+The cluster's identity: the kube-system Namespace, whose UID names the
+cluster in operations and records.
+*/}}
+{{- define "pacto-operator.rbac.clusterIdentityRule" -}}
+- apiGroups: [""]
+  resources: [namespaces]
+  resourceNames: [kube-system]
+  verbs: [get]
+{{- end }}
+
+{{/*
+The namespaces the controller and the managed dashboard watch, as a YAML list:
+controller.watchNamespaces with the deprecated controller.watchNamespace merged
+in, empties dropped, sorted. The default list guards keep a --reuse-values
+upgrade from a release without the key rendering. Empty means cluster-wide.
+*/}}
+{{- define "pacto-operator.watchNamespaces" -}}
+{{- $list := concat (default list .Values.controller.watchNamespaces) (list .Values.controller.watchNamespace) | compact | uniq | sortAlpha }}
+{{- range $list }}
+{{- if eq . $.Values.nodeAgent.namespace }}
+{{- fail (printf "controller.watchNamespaces must not hold the node agent namespace %s: the operator already holds its own rules there" .) }}
+{{- end }}
+{{- end }}
+{{- toYaml $list }}
+{{- end }}
+
+{{/*
+The Secrets granted by name, as a YAML list of {namespace, name}, from
+controller.secretGrants (namespace/name).
+*/}}
+{{- define "pacto-operator.secretGrants" -}}
+{{- $out := list }}
+{{- range default list .Values.controller.secretGrants | uniq }}
+{{- $parts := splitList "/" . }}
+{{- $out = append $out (dict "namespace" (index $parts 0) "name" (index $parts 1)) }}
+{{- end }}
+{{- toYaml $out }}
+{{- end }}
+
+{{/*
+The namespace the managed dashboard reads delivery objects in, or nothing:
+dashboard.delivery.namespace, else delivery.namespace when delivery is on.
+*/}}
+{{- define "pacto-operator.dashboardDeliveryNamespace" -}}
+{{- with .Values.dashboard.delivery }}
+{{- .namespace | default (ternary $.Values.delivery.namespace "" $.Values.delivery.enabled) }}
+{{- end }}
+{{- end }}
+
+{{/*
+Whether a cluster-scoped need remains, so the ClusterRole renders: no
+namespace list, the node agent, or the dashboard with delivery on.
+*/}}
+{{- define "pacto-operator.clusterScoped" -}}
+{{- if or (not (include "pacto-operator.watchNamespaces" . | fromYamlArray)) .Values.nodeAgent.enabled (and .Values.dashboard.enabled (include "pacto-operator.dashboardDeliveryNamespace" .)) }}true{{ end }}
+{{- end }}
+
+{{/*
+Why the operator may read the recorder's Ed25519 key Secret, or nothing: the
+delivery namespace is the release namespace, is watched, or the key is
+granted by name.
+*/}}
+{{- define "pacto-operator.delivery.operatorReadsKey" -}}
+{{- $ns := .Values.delivery.namespace }}
+{{- $name := .Values.delivery.recorder.signing.ed25519.secretName }}
+{{- if eq $ns .Release.Namespace }}
+{{- printf "%s is the release namespace" $ns }}
+{{- else if has $ns (include "pacto-operator.watchNamespaces" . | fromYamlArray) }}
+{{- printf "%s is in controller.watchNamespaces" $ns }}
+{{- else }}
+{{- range include "pacto-operator.secretGrants" . | fromYamlArray }}
+{{- if and (eq .namespace $ns) (eq .name $name) }}
+{{- printf "controller.secretGrants names %s/%s" $ns $name }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
+The observation RBAC switches: "metricsMonitors" when metrics observation is
+explicitly on (ServiceMonitor and PodMonitor reads), "namespaceGet" when probing
+or metrics is auto (the target namespace's pacto.trianalab.io/observe label,
+read by name). Returns a YAML dict.
+*/}}
+{{- define "pacto-operator.observeRBAC" -}}
+{{- $probing := include "pacto-operator.observeMode" (list .Values.controller.probing .Values.controller.enableProbing) }}
+{{- $metrics := include "pacto-operator.observeMode" (list .Values.controller.metricsObservation .Values.controller.enableMetricsObservation) }}
+metricsMonitors: {{ has $metrics (list "on" "legacy-on") }}
+namespaceGet: {{ or (eq $probing "auto") (eq $metrics "auto") }}
+{{- end }}
+
+{{/*
+Whether the cluster serves an API at install or upgrade: (list $ "<group/version[/Kind]>")
+renders "true" or nothing. helm template sees only what --api-versions names.
+*/}}
+{{- define "pacto-operator.apiServed" -}}
+{{- if (index . 0).Capabilities.APIVersions.Has (index . 1) }}true{{- end }}
 {{- end }}

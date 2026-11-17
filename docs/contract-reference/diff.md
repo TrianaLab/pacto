@@ -68,6 +68,8 @@ modification. `service` carries identity only, so the contract has no `image` or
 | `interfaces.guarantees.weakened` | Modified | **BREAKING** |
 | `interfaces.guarantees.strengthened` | Modified | NON_BREAKING |
 | `interfaces.compatibilityEpoch` | Modified (raised or lowered) | **BREAKING** |
+| `interfaces.port` | Added / Removed | NON_BREAKING |
+| `interfaces.port` | Modified | POTENTIAL_BREAKING |
 
 Interfaces are keyed by `name`. The `type` enum is `openapi`/`asyncapi`/`grpc`/`mcp`, and the spec pointer is `ref`. Deprecating an interface changes nothing a
 consumer calls, so it is a notice. An earlier sunset shortens the time consumers
@@ -169,9 +171,26 @@ capability's `binding.interface` or `binding.path` produces no change.
 | `dependencies` | Removed | **BREAKING** |
 | `dependencies.ref` | Modified | POTENTIAL_BREAKING |
 | `dependencies.compatibility` | Modified | POTENTIAL_BREAKING |
+| `dependencies.compatibility.declared` | Modified (from `unknown` to a range) | NON_BREAKING |
+| `dependencies.compatibility.unknown` | Modified (from a range to `unknown`) | POTENTIAL_BREAKING |
 | `dependencies.required` | Modified | POTENTIAL_BREAKING |
 | `dependencies.requires` | Added / Modified | POTENTIAL_BREAKING |
 | `dependencies.requires` | Removed | NON_BREAKING |
+| `dependencies.identity` | Added / Removed / Modified | NON_BREAKING |
+
+## Breaks
+
+| Field | Change | Classification |
+|-------|--------|----------------|
+| `breaks` | Added / Removed | NON_BREAKING |
+| `breaks.reason` | Modified | NON_BREAKING |
+| `breaks.expires` | Added / Modified / Removed | NON_BREAKING |
+
+## Delivery
+
+| Field | Change | Classification |
+|-------|--------|----------------|
+| `delivery.applier` | Added / Modified / Removed (absent equals `auto`) | NON_BREAKING |
 
 ## OpenAPI
 

@@ -18,6 +18,7 @@ import (
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -975,5 +976,210 @@ func TestConfigMapAgainstResolvedRefSchema(t *testing.T) {
 				t.Errorf("present=%v conformant=%v, want present and conformant=%v", val.Present, val.Conformant, tc.wantConform)
 			}
 		})
+	}
+}
+
+// secretInput is one required configuration bound to Secret app-secret in namespace payments.
+func secretInput(scoped bool, windows map[string]*metav1.Time, now time.Time) CollectInput {
+	cfg := contract.Configuration{Name: "app", Required: true, Schema: schemaPath}
+	return CollectInput{
+		Namespace:           "payments",
+		ServiceName:         "test-service",
+		Contract:            &contract.Contract{Service: contract.Service{Name: "test"}, Configurations: []contract.Configuration{cfg}},
+		BundleFS:            fstest.MapFS{},
+		ConfigBindings:      []unversioned.ConfigBinding{{Configuration: "app", Kind: "Secret", Name: "app-secret"}},
+		StabilizationWindow: 2 * time.Minute,
+		ObservationWindows:  windows,
+		Now:                 now,
+		Scoped:              scoped,
+	}
+}
+
+// secretReader is a Secret reader: Forbidden while denied, NotFound otherwise, or the Secret when present.
+type secretReader struct {
+	denied, present bool
+	gets            int
+}
+
+func (r *secretReader) Get(_ context.Context, key client.ObjectKey, obj client.Object, _ ...client.GetOption) error {
+	r.gets++
+	gr := corev1.Resource("secrets")
+	switch {
+	case r.denied:
+		return apierrors.NewForbidden(gr, key.Name, errors.New("no grant"))
+	case r.present:
+		obj.SetName(key.Name)
+		obj.SetNamespace(key.Namespace)
+		return nil
+	}
+	return apierrors.NewNotFound(gr, key.Name)
+}
+
+func (r *secretReader) List(context.Context, client.ObjectList, ...client.ListOption) error {
+	return errors.New("the configuration observer never lists Secrets")
+}
+
+// noSecretClient is a cached client that fails the test on any Secret read.
+func noSecretClient(t *testing.T) client.Client {
+	t.Helper()
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	_ = unversioned.AddToScheme(scheme)
+	return fake.NewClientBuilder().WithScheme(scheme).WithInterceptorFuncs(interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			if obj.GetObjectKind().GroupVersionKind().Kind == "Secret" {
+				t.Errorf("Secret %s read through the cached client", key)
+			}
+			if _, ok := obj.(*corev1.Secret); ok {
+				t.Errorf("typed Secret %s read through the cached client", key)
+			}
+			return c.Get(ctx, key, obj, opts...)
+		},
+	}).Build()
+}
+
+func secretObservation(t *testing.T, o *Observer, input CollectInput) (evidence.Observation, []ObservationWindowUpdate) {
+	t.Helper()
+	observations, updates := o.observeConfigurationsDim(context.Background(), input, evidence.Provenance{Collector: "test"}, input.Now)
+	if len(observations) != 1 {
+		t.Fatalf("expected 1 observation, got %d", len(observations))
+	}
+	return observations[0], updates
+}
+
+func TestSecretConfigurationForbiddenIsUnsupported(t *testing.T) {
+	o := New(noSecretClient(t)).WithReader(&secretReader{denied: true})
+	got, _ := secretObservation(t, o, secretInput(false, nil, time.Now()))
+	if got.Outcome != evidence.Unsupported {
+		t.Fatalf("outcome = %v, want Unsupported (unknown, never satisfied)", got.Outcome)
+	}
+	if got.Detail == "" {
+		t.Fatal("a Forbidden read must say which grant is missing")
+	}
+}
+
+func TestGrantHintClusterWideNamesSecretGrants(t *testing.T) {
+	o := New(noSecretClient(t)).WithReader(&secretReader{denied: true})
+	got, _ := secretObservation(t, o, secretInput(false, nil, time.Now()))
+	want := "the operator may not read Secret payments/app-secret; list payments/app-secret in controller.secretGrants"
+	if got.Detail != want {
+		t.Fatalf("detail = %q, want %q", got.Detail, want)
+	}
+	if strings.Contains(got.Detail, "watchNamespaces") {
+		t.Fatal("a cluster-wide install is never told to narrow its whole fleet")
+	}
+}
+
+func TestGrantHintScopedNamesWatchNamespaces(t *testing.T) {
+	o := New(noSecretClient(t)).WithReader(&secretReader{denied: true})
+	got, _ := secretObservation(t, o, secretInput(true, nil, time.Now()))
+	want := "the operator may not read Secret payments/app-secret although it watches payments; check the chart's watch Role and RoleBinding in payments or list payments/app-secret in controller.secretGrants"
+	if got.Detail != want {
+		t.Fatalf("detail = %q, want %q", got.Detail, want)
+	}
+}
+
+// A name too long for the bounded Detail still reads Unsupported; only the hint is dropped.
+func TestGrantHintTooLongDropsDetail(t *testing.T) {
+	o := New(noSecretClient(t)).WithReader(&secretReader{denied: true})
+	input := secretInput(false, nil, time.Now())
+	input.ConfigBindings[0].Name = strings.Repeat("s", 253)
+	got, _ := secretObservation(t, o, input)
+	if got.Outcome != evidence.Unsupported || got.Detail != "" {
+		t.Fatalf("got outcome %v detail %q, want Unsupported without detail", got.Outcome, got.Detail)
+	}
+}
+
+func TestSecretConfigurationForbiddenDoesNotFailCollection(t *testing.T) {
+	o := New(noSecretClient(t)).WithReader(&secretReader{denied: true})
+	set, _, err := o.Collect(context.Background(), secretInput(false, nil, time.Now()))
+	if err != nil {
+		t.Fatalf("a missing grant is how the operator is installed, not a failed collection: %v", err)
+	}
+	if len(o.run.failures) != 0 {
+		t.Fatalf("failures recorded: %v", o.run.failures)
+	}
+	for _, obs := range set.Observations {
+		if obs.Kind == evidence.ConfigurationPresent && obs.Outcome != evidence.Unsupported {
+			t.Fatalf("configuration outcome = %v, want Unsupported", obs.Outcome)
+		}
+	}
+}
+
+func TestSecretConfigurationForbiddenResetsWindow(t *testing.T) {
+	reader := &secretReader{}
+	o := New(noSecretClient(t)).WithReader(reader)
+	start := time.Now()
+	windows := map[string]*metav1.Time{}
+	apply := func(updates []ObservationWindowUpdate) {
+		for _, u := range updates {
+			if u.FirstObservedNegativeAt == nil {
+				delete(windows, u.Kind+"/"+u.Subject)
+			} else {
+				windows[u.Kind+"/"+u.Subject] = u.FirstObservedNegativeAt
+			}
+		}
+	}
+
+	// NotFound opens a window.
+	_, updates := secretObservation(t, o, secretInput(false, windows, start))
+	apply(updates)
+	if windows["configuration/app"] == nil {
+		t.Fatal("NotFound must open a window")
+	}
+
+	// Forbidden: the period the operator could not observe never counts toward ABSENT.
+	reader.denied = true
+	_, updates = secretObservation(t, o, secretInput(false, windows, start.Add(time.Minute)))
+	apply(updates)
+	if windows["configuration/app"] != nil {
+		t.Fatal("a Forbidden read must reset the window")
+	}
+
+	// Grant restored, still NotFound past the old window: a fresh window, never CONFIGURATION_ABSENT.
+	reader.denied = false
+	got, updates := secretObservation(t, o, secretInput(false, windows, start.Add(5*time.Minute)))
+	apply(updates)
+	if got.Outcome == evidence.Observed {
+		t.Fatal("the window counted a period the operator could not observe")
+	}
+	if w := windows["configuration/app"]; w == nil || !w.Time.Equal(start.Add(5*time.Minute)) {
+		t.Fatalf("expected a fresh window at the restored read, got %v", w)
+	}
+}
+
+func TestSecretConfigurationReadsUncached(t *testing.T) {
+	reader := &secretReader{present: true}
+	o := New(noSecretClient(t)).WithReader(reader)
+	got, _ := secretObservation(t, o, secretInput(false, nil, time.Now()))
+	if got.Outcome != evidence.Insufficient {
+		t.Fatalf("outcome = %v, want Insufficient (existence established)", got.Outcome)
+	}
+	if reader.gets != 1 {
+		t.Fatalf("reader served %d Secret reads, want 1", reader.gets)
+	}
+}
+
+func TestSecretConfigurationNilReaderUsesClient(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "payments", Name: "app-secret"}},
+	).Build()
+	o := &Observer{client: c, run: newCollectRun()}
+	got, _ := secretObservation(t, o, secretInput(false, nil, time.Now()))
+	if got.Outcome != evidence.Insufficient {
+		t.Fatalf("outcome = %v, want Insufficient through the client", got.Outcome)
+	}
+}
+
+func TestSecretConfigurationNotFoundStillWindowed(t *testing.T) {
+	o := New(noSecretClient(t)).WithReader(&secretReader{})
+	got, updates := secretObservation(t, o, secretInput(false, map[string]*metav1.Time{}, time.Now()))
+	if got.Outcome != evidence.Insufficient {
+		t.Fatalf("outcome = %v, want Insufficient within the window", got.Outcome)
+	}
+	if len(updates) != 1 || updates[0].FirstObservedNegativeAt == nil {
+		t.Fatalf("NotFound must open a window, got %+v", updates)
 	}
 }

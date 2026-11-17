@@ -38,4 +38,19 @@ describe('GraphPanel', () => {
     expect(target.querySelector('.graph-legend')).toBeNull();
     unmount(c);
   });
+
+  it('tells external systems apart from unresolved refs in the legend', () => {
+    const c = mount(GraphPanel, {
+      target,
+      props: { graphData: { nodes: [{ id: 'a', serviceName: 'a', status: 'ok', edges: [] }] }, showLegend: true },
+    });
+    const ext = target.querySelector('[data-legend="external"]')!;
+    const unres = target.querySelector('[data-legend="unresolved"]')!;
+    expect(ext.textContent?.trim()).toBe('External system');
+    expect(unres.textContent?.trim()).toBe('Unresolved ref');
+    expect(ext.querySelector('.legend-dot-ring')).not.toBeNull();
+    expect(unres.querySelector('.legend-dot-ring')).toBeNull();
+    expect([...target.querySelectorAll('.legend-item')].some((i) => i.textContent?.trim() === 'External')).toBe(false);
+    unmount(c);
+  });
 });

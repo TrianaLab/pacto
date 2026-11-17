@@ -140,6 +140,17 @@ func TestClassify_Completeness(t *testing.T) {
 		// Capabilities
 		{"capabilities", Added, NonBreaking},
 		{"capabilities", Removed, PotentialBreaking},
+
+		// Interface port and announced breaks (2.5)
+		{"interfaces.port", Added, NonBreaking},
+		{"interfaces.port", Removed, NonBreaking},
+		{"interfaces.port", Modified, PotentialBreaking},
+		{"breaks", Added, NonBreaking},
+		{"breaks", Removed, NonBreaking},
+		{"breaks.reason", Modified, NonBreaking},
+		{"breaks.expires", Added, NonBreaking},
+		{"breaks.expires", Modified, NonBreaking},
+		{"breaks.expires", Removed, NonBreaking},
 	}
 	for _, tt := range tests {
 		t.Run(tt.path+"_"+tt.ct.String(), func(t *testing.T) {
@@ -171,6 +182,8 @@ func TestClassify_UnlistedTransitionsFallThrough(t *testing.T) {
 		{"openapi.request-body", Modified},
 		{"openapi.responses", Modified},
 		{"asyncapi.channels", Modified},
+		// A declared port moving is the default: consumers may dial the old one.
+		{"interfaces.port", Modified},
 		// And any path the table has never heard of.
 		{"unknown.path", Modified},
 	}

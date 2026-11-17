@@ -2,6 +2,7 @@ package validation
 
 import (
 	"io/fs"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -33,6 +34,26 @@ func TestValidateServiceVersion_InvalidSemver(t *testing.T) {
 	}
 	if !hasErrorCode(result, "INVALID_SEMVER") {
 		t.Errorf("expected INVALID_SEMVER, got %+v", result.Errors)
+	}
+}
+
+func TestValidateServiceVersionEmptySkipped(t *testing.T) {
+	c := validV20Contract()
+	c.Service.Version = ""
+	var result ValidationResult
+	validateServiceVersion(c, &result)
+	if !result.IsValid() {
+		t.Errorf("an undeclared version is not a semver error: %+v", result.Errors)
+	}
+}
+
+func TestValidateEmpty25ContractHasNoErrors(t *testing.T) {
+	c, err := contract.Parse(strings.NewReader(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := Validate(c, nil, fstest.MapFS{}); len(r.Errors) > 0 {
+		t.Fatalf("empty 2.5 contract: %+v", r.Errors)
 	}
 }
 
@@ -1257,5 +1278,147 @@ func TestEnvironmentLifetimeChecks(t *testing.T) {
 				t.Fatalf("got %+v", result.Errors)
 			}
 		})
+	}
+}
+
+func TestDependencyNameRequiredWithoutRef(t *testing.T) {
+	c := validV20Contract()
+	c.Dependencies = []contract.Dependency{{External: true, Version: "2025-01"}}
+	var result ValidationResult
+	validateDependencyRefs(c, &result)
+	if !hasErrorCode(result, "DEPENDENCY_NAME_REQUIRED") || len(result.Errors) != 1 || result.Errors[0].Path != "dependencies[0].name" {
+		t.Errorf("want one DEPENDENCY_NAME_REQUIRED on dependencies[0].name, got %+v", result.Errors)
+	}
+}
+
+func TestCompatibilityUnknownValid(t *testing.T) {
+	c := validV20Contract()
+	c.Dependencies = []contract.Dependency{{Name: "cache", Ref: "oci://ghcr.io/acme/redis@sha256:" + strings.Repeat("a", 64), Compatibility: contract.CompatibilityUnknown}}
+	var result ValidationResult
+	validateDependencyRefs(c, &result)
+	if !result.IsValid() {
+		t.Errorf("compatibility: unknown with a ref is valid, got %+v", result.Errors)
+	}
+}
+
+func TestCompatibilityUnknownWithoutRefRejected(t *testing.T) {
+	c := validV20Contract()
+	c.Dependencies = []contract.Dependency{{Name: "cache", External: true, Version: "7", Compatibility: contract.CompatibilityUnknown}}
+	var result ValidationResult
+	validateDependencyRefs(c, &result)
+	if !hasErrorCode(result, "COMPATIBILITY_WITHOUT_REF") {
+		t.Errorf("expected COMPATIBILITY_WITHOUT_REF, got %+v", result.Errors)
+	}
+}
+
+func breakCodes(c *contract.Contract) []string {
+	var r ValidationResult
+	validateBreaks(c, &r)
+	var out []string
+	for _, e := range r.Errors {
+		out = append(out, e.Path+" "+e.Code)
+	}
+	return out
+}
+
+func TestBreaksDuplicateConsumer(t *testing.T) {
+	c := validV20Contract()
+	c.Breaks = []contract.Break{{Consumers: []string{"reports", "billing"}, Reason: "x"}, {Consumers: []string{"audit", "reports"}, Reason: "y"}}
+	if got, want := breakCodes(c), []string{"breaks[1].consumers[1] DUPLICATE_BREAK_CONSUMER"}; !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestBreaksNamesSelf(t *testing.T) {
+	c := validV20Contract()
+	c.Breaks = []contract.Break{{Consumers: []string{"reports", c.Service.Name}, Reason: "x"}}
+	if got, want := breakCodes(c), []string{"breaks[0].consumers[1] BREAK_NAMES_SELF"}; !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestBreaksInvalidExpires(t *testing.T) {
+	c := validV20Contract()
+	c.Breaks = []contract.Break{{Consumers: []string{"reports"}, Reason: "x", Expires: "2026-2-30"}}
+	if got, want := breakCodes(c), []string{"breaks[0].expires INVALID_BREAK_EXPIRES"}; !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestBreaksValid(t *testing.T) {
+	c := validV20Contract()
+	c.Breaks = []contract.Break{{Consumers: []string{"reports"}, Reason: "x", Expires: "2026-12-14"}, {Consumers: []string{"billing"}, Reason: "y"}}
+	if got := breakCodes(c); len(got) != 0 {
+		t.Fatalf("got %v, want none", got)
+	}
+	// ValidateCrossField runs it.
+	c.Breaks[1].Consumers = []string{"reports"}
+	if r := ValidateCrossField(c, nil); !hasErrorCode(r, "DUPLICATE_BREAK_CONSUMER") {
+		t.Fatalf("ValidateCrossField: %+v", r.Errors)
+	}
+}
+
+// identityErrors is what validateDependencyRefs reports for dep as
+// "path code" lines.
+func identityErrors(dep contract.Dependency) []string {
+	c := validV20Contract()
+	c.Dependencies = []contract.Dependency{dep}
+	var r ValidationResult
+	validateDependencyRefs(c, &r)
+	var got []string
+	for _, e := range r.Errors {
+		got = append(got, e.Path+" "+e.Code)
+	}
+	return got
+}
+
+func TestIdentityWithoutExternal(t *testing.T) {
+	got := identityErrors(contract.Dependency{Name: "pay", Identity: "stripe", Version: "v1"})
+	if !slices.Equal(got, []string{"dependencies[0].identity IDENTITY_WITHOUT_EXTERNAL"}) {
+		t.Fatalf("got %v", got)
+	}
+}
+
+func TestIdentityWithRef(t *testing.T) {
+	got := identityErrors(contract.Dependency{Name: "pay", External: true, Identity: "stripe", Ref: "oci://r/pay:1.0.0", Compatibility: "^1.0.0"})
+	if !slices.Equal(got, []string{"dependencies[0].identity IDENTITY_WITHOUT_EXTERNAL"}) {
+		t.Fatalf("got %v", got)
+	}
+}
+
+func TestIdentityInvalid(t *testing.T) {
+	for _, id := range []string{"a..b", "host/a/b", "Stripe", "a//b"} {
+		got := identityErrors(contract.Dependency{Name: "pay", External: true, Version: "v1", Identity: id})
+		if !slices.Equal(got, []string{"dependencies[0].identity INVALID_EXTERNAL_IDENTITY"}) {
+			t.Errorf("%q: got %v", id, got)
+		}
+	}
+}
+
+func TestIdentityReserved(t *testing.T) {
+	c := validV20Contract()
+	c.Dependencies = []contract.Dependency{{Name: "pay", External: true, Version: "v1", Identity: "other-egress"}}
+	var r ValidationResult
+	validateDependencyRefs(c, &r)
+	if len(r.Errors) != 1 || r.Errors[0].Code != "INVALID_EXTERNAL_IDENTITY" || !strings.Contains(r.Errors[0].Message, "reserved") {
+		t.Fatalf("got %+v", r.Errors)
+	}
+}
+
+func TestIdentityValid(t *testing.T) {
+	for _, id := range []string{"stripe", "host/corp-legacy.example", "aws/rds/123456789012/eu-west-1/orders-db"} {
+		if got := identityErrors(contract.Dependency{Name: "pay", External: true, Version: "v1", Identity: id}); len(got) != 0 {
+			t.Errorf("%q: got %v", id, got)
+		}
+	}
+	// The 2.5 schema takes it on an external dependency.
+	data := map[string]any{"pactoVersion": "2.5", "service": map[string]any{"name": "svc", "version": "1.0.0"},
+		"dependencies": []any{map[string]any{"name": "pay", "external": true, "version": "v1", "identity": "aws/rds/123456789012/eu-west-1/orders-db"}}}
+	if r := ValidateStructural(data); !r.IsValid() {
+		t.Fatalf("2.5 identity: %v", r.Errors)
+	}
+	data["dependencies"].([]any)[0].(map[string]any)["identity"] = "Stripe"
+	if r := ValidateStructural(data); r.IsValid() {
+		t.Fatal("the 2.5 schema took an upper-case identity")
 	}
 }

@@ -46,6 +46,10 @@ const (
 	KindDomain EntityKind = "domain"
 	// KindOffering is a platform offering (service.offering), keyed by its slug.
 	KindOffering EntityKind = "offering"
+	// KindExternal is an external system no contract describes (a vendor API,
+	// a managed cloud resource or a legacy host), keyed by its canonical
+	// identity. It is listed only when asked for.
+	KindExternal EntityKind = "external"
 )
 
 // ProductKinds are the kinds the entities listing answers by default:
@@ -58,7 +62,7 @@ func ProductKinds() []string {
 // ListKinds are the kinds a listing that names one kind (the CLI and MCP)
 // asks for: kind when set; otherwise the one kind its filter applies to
 // (services for template only, revisions for readiness, targets for scope,
-// sources for sourceKind or sourceHealth); nil, the kind set every surface
+// sources for sourceKind or sourceHealth, external systems for class); nil, the kind set every surface
 // lists by default, when it names a service, domain or source, so the listing
 // holds that service's revisions and targets as the dashboard's does; else the
 // ProductKinds.
@@ -74,6 +78,8 @@ func ListKinds(kind string, f EntityFilter) []EntityKind {
 		return []EntityKind{KindTarget}
 	case f.SourceKind != "" || f.SourceHealth != "":
 		return []EntityKind{KindSource}
+	case f.Class != "":
+		return []EntityKind{KindExternal}
 	case f.Service != "" || f.Domain != "" || f.Source != "":
 		return nil
 	}
@@ -88,14 +94,14 @@ func ListKinds(kind string, f EntityFilter) []EntityKind {
 func EntityKinds() []string {
 	return []string{
 		string(KindService), string(KindRevision), string(KindTarget), string(KindOwner),
-		string(KindSource), string(KindDomain), string(KindOffering),
+		string(KindSource), string(KindDomain), string(KindOffering), string(KindExternal),
 	}
 }
 
 // validEntityKind reports whether k is a known entity kind.
 func validEntityKind(k EntityKind) bool {
 	switch k {
-	case KindService, KindRevision, KindTarget, KindOwner, KindSource, KindDomain, KindOffering:
+	case KindService, KindRevision, KindTarget, KindOwner, KindSource, KindDomain, KindOffering, KindExternal:
 		return true
 	default:
 		return false
@@ -109,7 +115,7 @@ func validEntityKind(k EntityKind) bool {
 // product transport adds a canonical href from the canonical key (ADR-2). Human
 // labels are primary; the raw Key is secondary copyable metadata.
 type EntityRef struct {
-	Kind      EntityKind `json:"kind" enum:"service,revision,target,owner,source,domain,offering"`
+	Kind      EntityKind `json:"kind" enum:"service,revision,target,owner,source,domain,offering,external"`
 	Key       string     `json:"key"`
 	Label     string     `json:"label"`
 	Secondary string     `json:"secondary,omitempty"`
@@ -166,9 +172,12 @@ type EntityRef struct {
 	// the signature status of its newest readable revision: checked against the
 	// signer its own contract declares, never against a trust config, and
 	// not-checked when no source that read it checks signatures.
-	Template  bool   `json:"template,omitempty"`
-	Created   int    `json:"created,omitempty"`
-	Signature string `json:"signature,omitempty" enum:"verified,unverified,unsigned,unknown,not-checked"`
+	Template bool `json:"template,omitempty"`
+	Created  int  `json:"created,omitempty"`
+	// NameInferred is where a SERVICE reference's name comes from when no
+	// revision declares it (see ServiceRecord.NameInferred).
+	NameInferred *contract.Inferred `json:"nameInferred,omitempty"`
+	Signature    string             `json:"signature,omitempty" enum:"verified,unverified,unsigned,unknown,not-checked"`
 	// NonCompliant counts the NonCompliant services of an OWNER or DOMAIN
 	// reference, set only on list answers: every service of a domain, and only
 	// the services an owner owns outright (Owned), the ones the non-compliant
@@ -207,7 +216,8 @@ type EntityRef struct {
 	AvailabilityProvenance string            `json:"availabilityProvenance,omitempty" enum:"observed,inferred,unknown"`
 	// Consumers counts the distinct services with a declared use of any
 	// provider; HiddenConsumers the consumers the viewer may not see, which
-	// makes Consumers and FailedRequests lower bounds.
+	// makes Consumers and FailedRequests lower bounds. An EXTERNAL list row
+	// carries Consumers alone: the visible services that declare it.
 	Consumers       int `json:"consumers,omitempty"`
 	HiddenConsumers int `json:"hiddenConsumers,omitempty"`
 	// FailedRequests counts the distinct consumers with a failed provisioning
@@ -216,6 +226,12 @@ type EntityRef struct {
 	// TargetsUnknown says the viewer cannot see every target of a provider, or
 	// a target source is incomplete: Targets is then 0 and means unknown.
 	TargetsUnknown bool `json:"targetsUnknown,omitempty"`
+	// CatalogEntry is, on an EXTERNAL list row, the catalog entry that joined
+	// it; empty when no catalog entry classifies it.
+	CatalogEntry string `json:"catalogEntry,omitempty" doc:"On an external list row, the catalog entry that joined it; empty when no catalog entry classifies it"`
+	// JoinedBy is, on an EXTERNAL list row, how its consumers join it (see
+	// [ExternalRecord.JoinedBy]).
+	JoinedBy string `json:"joinedBy,omitempty" enum:"identity,catalog-alias,host,normalized-name" doc:"On an external list row, how its consumers join it"`
 }
 
 // SourceCounts is the fleet's source population tallied by health, over EVERY
@@ -293,6 +309,9 @@ type ProductMeta struct {
 	// LimitationsTruncated reports that the snapshot has more limitations than the
 	// meta carries (capped at MaxMetaLimitations).
 	LimitationsTruncated bool `json:"limitationsTruncated,omitempty"`
+	// ExternalCatalogs are the catalogs that classified external systems, with
+	// their digest and how far their signature was checked.
+	ExternalCatalogs []ExternalCatalogRef `json:"externalCatalogs,omitempty"`
 }
 
 func (q *Query) productMeta() ProductMeta { return q.productMetaWith(nil) }
@@ -315,6 +334,7 @@ func (q *Query) productMetaWith(derived []Limitation) ProductMeta {
 		SourcesTruncated:     srcTrunc,
 		Limitations:          lims,
 		LimitationsTruncated: limTrunc,
+		ExternalCatalogs:     slices.Clone(q.snap.ExternalCatalogs),
 	}
 }
 
@@ -328,6 +348,7 @@ func serviceEntityRef(s *ServiceRecord) EntityRef {
 		Kind: KindService, Key: string(s.Key), Label: s.Name, Secondary: s.Domain,
 		Status: s.Status, Domain: s.Domain, BusinessDomain: s.BusinessDomain, BusinessDomainUnknown: s.BusinessDomainUnknown,
 		Offering: s.Offering, Summary: s.Summary, OfferingProvenance: s.OfferingProvenance, Template: s.Template,
+		NameInferred: clonePtr(s.NameInferred),
 	}
 }
 
@@ -482,7 +503,12 @@ func sourceEntityRef(st SourceState) EntityRef {
 // clickable entry point in [Overview.EntryPoints]: a count is
 // never a passive number.
 type OverviewSummary struct {
-	Services                 int `json:"services"`
+	Services int `json:"services"`
+	// Externals counts the external systems the services declare, one per
+	// canonical identity (none is folded here); HiddenExternals those only
+	// services the caller's permissions hide declare, never named.
+	Externals                int `json:"externals" doc:"The external systems the services declare, one per canonical identity"`
+	HiddenExternals          int `json:"hiddenExternals,omitempty" doc:"The external systems only services the caller's permissions hide declare; never named"`
 	ServicesNeedingAttention int `json:"servicesNeedingAttention"`
 	// GoldenPaths counts the golden paths, which every other count leaves out:
 	// a golden path is a starting point for services, never one of them.
@@ -771,6 +797,7 @@ func (q *Query) Overview() *Overview {
 		sum.Knowledge.add(q.serviceKnowledge(s))
 	}
 	sum.KnowledgeItems = len(q.knowledgeAttention())
+	sum.Externals, sum.HiddenExternals = len(q.snap.Externals), q.snap.hiddenExternals
 
 	var recent []EvidenceItem
 	for _, r := range q.snap.Revisions {

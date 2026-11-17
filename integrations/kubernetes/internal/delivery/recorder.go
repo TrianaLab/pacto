@@ -208,11 +208,38 @@ func (r *Recorder) pending(ctx context.Context, stage *dv1.Stage) ([]item, error
 		return nil, err
 	}
 	stream := stage.Status.Stream
-	held := map[int64]bool{}
-	exists := map[string]bool{}
-	var items []item
-	for i := range list.Items {
-		op := &list.Items[i]
+	items, held, exists := owedOps(list.Items, stage)
+	// The promoter takes the seq on the Stage before it writes the
+	// operation's status: that seq is late, not gone.
+	for _, c := range stream.Concluded {
+		if c.Seq > stream.RecordedSeq && !held[c.Seq] && exists[c.UID] {
+			held[c.Seq] = true
+			items = append(items, item{seq: c.Seq, wait: true})
+		}
+	}
+	gaps := map[int64]bool{}
+	for seq := stream.RecordedSeq + 1; seq <= stream.Seq; seq++ {
+		if !held[seq] {
+			gaps[seq] = true
+			items = append(items, item{seq: seq})
+		}
+	}
+	r.trackGaps(stream.ID, stage.UID, gaps)
+	// Leftovers go first, in the order the old Stage numbered them.
+	slices.SortStableFunc(items, func(a, b item) int {
+		return cmp.Or(cmp.Compare(rank(b.leftover), rank(a.leftover)), cmp.Compare(a.seq, b.seq))
+	})
+	return items, nil
+}
+
+// owedOps lists the records the Stage's concluded operations ops still owe,
+// and a leftover for every operation an older Stage of the same name
+// numbered that keeps the record finalizer. held is every seq of this Stage
+// an operation holds; exists is the UID of every operation of the Stage.
+func owedOps(ops []dv1.Operation, stage *dv1.Stage) (items []item, held map[int64]bool, exists map[string]bool) {
+	held, exists = map[int64]bool{}, map[string]bool{}
+	for i := range ops {
+		op := &ops[i]
 		if op.Spec.Stage != stage.Name {
 			continue
 		}
@@ -229,32 +256,22 @@ func (r *Recorder) pending(ctx context.Context, stage *dv1.Stage) ([]item, error
 		held[op.Status.Seq] = true
 		// The finalizer is not proof the record is owed: admission may be
 		// off, or someone removed it. A seq after recordedSeq always is.
-		if op.Status.Seq > stream.RecordedSeq || controllerutil.ContainsFinalizer(op, dv1.RecordFinalizer) {
+		if op.Status.Seq > stage.Status.Stream.RecordedSeq || controllerutil.ContainsFinalizer(op, dv1.RecordFinalizer) {
 			items = append(items, item{seq: op.Status.Seq, op: op})
 		}
 	}
-	// The promoter takes the seq on the Stage before it writes the
-	// operation's status: that seq is late, not gone.
-	for _, c := range stream.Concluded {
-		if c.Seq > stream.RecordedSeq && !held[c.Seq] && exists[c.UID] {
-			held[c.Seq] = true
-			items = append(items, item{seq: c.Seq, wait: true})
-		}
-	}
-	gaps := map[int64]bool{}
-	for seq := stream.RecordedSeq + 1; seq <= stream.Seq; seq++ {
-		if !held[seq] {
-			gaps[seq] = true
-			items = append(items, item{seq: seq})
-		}
-	}
-	// A seq that is no longer a gap of this Stage forgets when it was first
-	// missed, so a later miss of it starts its grace over. Every gap starts
-	// its grace now, not when the records before it are written, so N gaps
-	// wait one grace, not N.
+	return items, held, exists
+}
+
+// trackGaps remembers when each of the Stage's gaps was first missed. A seq
+// that is no longer a gap of this Stage forgets when it was first missed, so
+// a later miss of it starts its grace over. Every gap starts its grace now,
+// not when the records before it are written, so N gaps wait one grace, not N.
+func (r *Recorder) trackGaps(stream string, stage types.UID, gaps map[int64]bool) {
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	for k := range r.missing {
-		if k.stream == stream.ID && (k.stage != stage.UID || !gaps[k.seq]) {
+		if k.stream == stream && (k.stage != stage || !gaps[k.seq]) {
 			delete(r.missing, k)
 		}
 	}
@@ -262,17 +279,11 @@ func (r *Recorder) pending(ctx context.Context, stage *dv1.Stage) ([]item, error
 		r.missing = map[gapKey]time.Time{}
 	}
 	for seq := range gaps {
-		k := gapKey{stream: stream.ID, stage: stage.UID, seq: seq}
+		k := gapKey{stream: stream, stage: stage, seq: seq}
 		if _, seen := r.missing[k]; !seen {
 			r.missing[k] = r.Now()
 		}
 	}
-	r.mu.Unlock()
-	// Leftovers go first, in the order the old Stage numbered them.
-	slices.SortStableFunc(items, func(a, b item) int {
-		return cmp.Or(cmp.Compare(rank(b.leftover), rank(a.leftover)), cmp.Compare(a.seq, b.seq))
-	})
-	return items, nil
 }
 
 func rank(leftover bool) int {
@@ -463,12 +474,15 @@ func (w *writer) write(ctx context.Context, op *dv1.Operation) (*stored, error) 
 	if err != nil {
 		return nil, err
 	}
-	apply, err := w.Cluster.applier(ctx, w.stage.Namespace, w.stage.Spec.ApplyRef)
+	a, err := w.Cluster.applier(ctx, w.stage.Namespace, w.stage.Spec.ApplyRef)
+	var apply *source // nil: records still go on the anchor
+	var refused *refusedApplier
 	switch {
-	case apierrors.IsNotFound(err):
-		apply = nil // records still go on the anchor
+	case apierrors.IsNotFound(err) || errors.As(err, &refused):
 	case err != nil:
 		return nil, err
+	default:
+		apply = a.src()
 	}
 	l, err := w.Store.locate(ctx, w.anchor, apply, op.Spec.Params.From, op.Spec.Params.To)
 	if err != nil {

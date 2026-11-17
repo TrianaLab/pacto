@@ -104,6 +104,14 @@ func deliveryFixture(t *testing.T, user string, groups []string, extra map[strin
 	lists := map[schema.GroupVersionResource]string{gvrStages: "StageList", gvrOperations: "OperationList", gvrApprovals: "ApprovalList",
 		k8sclient.PactosGVR: "PactoList", gvrOCIRepository: "OCIRepositoryList", gvrKustomization: "KustomizationList", gvrNamespaces: "NamespaceList"}
 	c := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), lists, all...)
+	// The caller may update every workload unless a test says otherwise.
+	c.PrependReactor("create", "selfsubjectaccessreviews", func(a k8stesting.Action) (bool, runtime.Object, error) {
+		attrs, _, _ := unstructured.NestedMap(a.(k8stesting.CreateAction).GetObject().(*unstructured.Unstructured).Object, "spec", "resourceAttributes")
+		if attrs["verb"] != "update" {
+			return false, nil, nil
+		}
+		return true, &unstructured.Unstructured{Object: map[string]any{"status": map[string]any{"allowed": true}}}, nil
+	})
 	c.PrependReactor("create", "selfsubjectreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
 		gs := make([]any, 0, len(groups))
 		for _, g := range groups {
@@ -533,7 +541,7 @@ func TestDeliveryApproveRefusals(t *testing.T) {
 	}
 	d, _, _ := deliveryFixture(t, "system:serviceaccount:agents:bot", nil, nil, op)
 	_, err := d.Approve(ctx, "prod", "p1", delivery.Approve, "")
-	wantErrContaining(t, err, "agents may not approve")
+	wantErrContaining(t, err, "agents cannot approve")
 	d, _ = fixture("bob", nil, op)
 	if f, err := d.Freshness(ctx, "prod", "p1"); err != nil || f != 15*time.Minute {
 		t.Fatalf("freshness: %s %v", f, err)
@@ -801,4 +809,47 @@ func TestSpecRefusesLongCorrelationID(t *testing.T) {
 	req := delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB, CorrelationID: strings.Repeat("x", 129)}
 	_, _, err := d.Plan(context.Background(), req)
 	wantErrContaining(t, err, "at most 128 printable ASCII")
+}
+
+// TestDeliveryApplyRepoFollowsTheApplier: the client reads versions from the
+// repository the Stage's applier fetches, as the promoter does, so a plan on
+// an Argo CD or HelmRelease Stage reads the same artifacts.
+func TestDeliveryApplyRepoFollowsTheApplier(t *testing.T) {
+	app := obj("argoproj.io/v1alpha1", "Application", "prod", "payments-app", map[string]any{
+		"spec": map[string]any{"source": map[string]any{"repoURL": "oci://reg.example/apps/payments-argo"}},
+	})
+	hr := func(name string, chartRef map[string]any) *unstructured.Unstructured {
+		return obj("helm.toolkit.fluxcd.io/v2", "HelmRelease", "prod", name, map[string]any{"spec": map[string]any{"chartRef": chartRef}})
+	}
+	chart := obj("source.toolkit.fluxcd.io/v1", "OCIRepository", "prod", "payments-chart", map[string]any{
+		"spec": map[string]any{"url": "oci://reg.example/charts/payments", "insecure": true},
+	})
+	d, _, _ := deliveryFixture(t, "alice", nil, nil, app, chart,
+		hr("payments", map[string]any{"kind": "OCIRepository", "name": "payments-chart"}),
+		hr("lost", map[string]any{"kind": "OCIRepository", "name": "gone"}),
+		hr("foreign", map[string]any{"kind": "OCIRepository", "name": "payments-chart", "namespace": "tenant-b"}),
+		hr("bucket", map[string]any{"kind": "Bucket", "name": "payments-chart"}))
+	ctx := context.Background()
+	stage := func(kind, name string) *delivery.StageObject {
+		s := &delivery.StageObject{}
+		s.Metadata.Namespace, s.Spec.ApplyRef = "prod", delivery.ApplyRef{Kind: kind, Name: name}
+		return s
+	}
+	if repo, hosts, err := d.applyRepo(ctx, stage(delivery.ApplierArgoCD, "payments-app")); err != nil || repo != "reg.example/apps/payments-argo" || hosts != nil {
+		t.Errorf("Application: %q %v %v", repo, hosts, err)
+	}
+	if repo, hosts, err := d.applyRepo(ctx, stage(delivery.ApplierHelmRelease, "payments")); err != nil || repo != "reg.example/charts/payments" || len(hosts) != 1 || hosts[0] != "reg.example" {
+		t.Errorf("HelmRelease: %q %v %v", repo, hosts, err)
+	}
+	for name, want := range map[string]string{
+		"missing app": "reading the apply Application", "missing": "reading the apply HelmRelease", "lost": "reading the apply OCIRepository gone",
+		"foreign": "names no OCIRepository in the Stage namespace", "bucket": "names no OCIRepository in the Stage namespace",
+	} {
+		kind := delivery.ApplierHelmRelease
+		if name == "missing app" {
+			kind = delivery.ApplierArgoCD
+		}
+		_, _, err := d.applyRepo(ctx, stage(kind, name))
+		wantErrContaining(t, err, want)
+	}
 }

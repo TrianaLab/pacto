@@ -37,9 +37,8 @@ longer bound); `status.record.refused` says why. It keeps none of what the
 operation did, so `record verify` reports it as a problem, and a Stage in
 another cluster that follows the stream offers nothing from then on: the
 stand-in could be the failure that marks a version failed. The follower's
-`Ready` message names the stand-in's record id. A person of the team that owns
-the service checks what the operation did upstream, then acknowledges that one
-stand-in on the follower:
+`Ready` message names the stand-in's record id. A person checks what the
+operation did upstream, then acknowledges that one stand-in on the follower:
 
 ```bash
 pacto delivery propose -n prod --stage payments --type acknowledge \
@@ -49,8 +48,8 @@ pacto delivery propose -n prod --stage payments --type acknowledge \
 The acknowledge takes effect at once and is recorded like any other
 operation, with who asked, the record id and the reason. The follower then
 skips that stand-in and offers versions again; any other stand-in still stops
-it. Only a person of that team or break-glass may acknowledge, never an agent
-or the promoter, and a reason is required. When nothing runs on the follower
+it. Only break-glass or a person who may update the follower's workload (and,
+with team narrowing, of the service's team) may acknowledge, with a reason. When nothing runs on the follower
 yet, or what runs names no team or cannot be read, only break-glass may
 acknowledge, whatever `requireOwnerTeam` says. Break-glass can still move the
 follower with an override instead. A **gap** record marks a

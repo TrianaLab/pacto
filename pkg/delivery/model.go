@@ -113,14 +113,18 @@ type LocalRef struct {
 const (
 	ApplierFlux   = "OCIRepository"
 	ApplierArgoCD = "Application"
+	// ApplierHelmRelease is a Flux HelmRelease whose spec.chartRef names an
+	// OCIRepository in the Stage namespace.
+	ApplierHelmRelease = "HelmRelease"
 )
 
 // ApplyRef names the Stage's applier object, in the Stage's namespace.
 type ApplyRef struct {
-	// Kind is OCIRepository (Flux, the default) or Application (Argo CD, with
-	// an OCI source and automated sync).
+	// Kind is OCIRepository (Flux, the default), Application (Argo CD, with
+	// an OCI source and automated sync) or HelmRelease (Flux: the promoter
+	// writes the chart digest on the OCIRepository its spec.chartRef names).
 	// +optional
-	// +kubebuilder:validation:Enum=OCIRepository;Application
+	// +kubebuilder:validation:Enum=OCIRepository;Application;HelmRelease
 	Kind string `json:"kind,omitempty"`
 	Name string `json:"name"`
 }
@@ -527,6 +531,11 @@ type StageStatus struct {
 	// +listType=map
 	// +listMapKey=type
 	Conditions []Condition `json:"conditions,omitempty"`
+	// Applier is who manages the workloads the Stage delivers, against
+	// spec.applyRef. Written by the promoter's stage reconciler; observed.
+	// since is when this result was first seen, asOf the last observation.
+	// +optional
+	Applier *ApplierStatus `json:"applier,omitempty"`
 	// UpstreamSeen is the newest record this Stage read from the upstream
 	// stream it follows (candidates.upstreamRecords). A later read that ends
 	// before it, or holds another record at its seq, offers nothing, so
@@ -839,6 +848,20 @@ type ApprovalRecord struct {
 	Note string `json:"note,omitempty"`
 	// +optional
 	AuthTime string `json:"authTime,omitempty"`
+	// ClassifiedBy is how the approver was classified as a person.
+	// +optional
+	ClassifiedBy ClassSource `json:"classifiedBy,omitempty"`
+	// Access is what let the approver decide, such as
+	// "update deployments/checkout in payments".
+	// +optional
+	Access string `json:"access,omitempty"`
+	// AccessSource is who answered Access: subject-access-review or
+	// self-subject-access-review.
+	// +optional
+	AccessSource string `json:"accessSource,omitempty"`
+	// AccessAt is when Access was answered (RFC 3339).
+	// +optional
+	AccessAt string `json:"accessAt,omitempty"`
 }
 
 // PointerChange is the pointer before and after an operation.
@@ -897,6 +920,9 @@ type OperationStatus struct {
 	Question string `json:"question,omitempty"`
 	// +optional
 	ActorClass ActorClass `json:"actorClass,omitempty"`
+	// ActorClassifiedBy is how the actor's class was decided.
+	// +optional
+	ActorClassifiedBy ClassSource `json:"actorClassifiedBy,omitempty"`
 	// +optional
 	Plan *Plan `json:"plan,omitempty"`
 	// +optional

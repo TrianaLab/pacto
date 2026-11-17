@@ -16,8 +16,9 @@ export interface Route {
     | 'fleet-sources'   // /fleet/sources    product source list
     | 'fleet-domains'   // /fleet/domains    business-domain list
     | 'fleet-offerings' // /fleet/offerings  platform-offering list
+    | 'fleet-externals' // /fleet/externals  external-system list
     | 'fleet-golden-paths' // /fleet/golden-paths  golden path list
-    | 'fleet-entity'    // /fleet/<plural>/:key   unified entity detail
+    | 'fleet-entity'    // /fleet/<plural>/:key   unified entity detail (externals/:identity too)
     | 'fleet-entity-list'// /fleet/revisions|targets[?service=]  scoped inventory list
     | 'fleet-attention' // /fleet/attention  attention list
     // Delivery (only where the delivery component is installed).
@@ -35,10 +36,10 @@ export interface Route {
 // plural segment; the product entity-detail facade takes the singular kind. These
 // two maps are the ONE place the frontend translates between them.
 const KIND_PLURAL: Record<string, string> = {
-  service: 'services', revision: 'revisions', target: 'targets', owner: 'owners', source: 'sources', domain: 'domains', offering: 'offerings',
+  service: 'services', revision: 'revisions', target: 'targets', owner: 'owners', source: 'sources', domain: 'domains', offering: 'offerings', external: 'externals',
 };
 const PLURAL_KIND: Record<string, string> = {
-  services: 'service', revisions: 'revision', targets: 'target', owners: 'owner', sources: 'source', domains: 'domain', offerings: 'offering',
+  services: 'service', revisions: 'revision', targets: 'target', owners: 'owner', sources: 'source', domains: 'domain', offerings: 'offering', externals: 'external',
 };
 
 export function parseHash(hash: string | null | undefined): Route {
@@ -251,6 +252,9 @@ function parseFleet(path: string, query: string): Route {
     return { view: 'fleet-entity-list', params };
   }
 
+  // The external-system list narrows by class.
+  if (rest === 'externals') return { view: 'fleet-externals', params: pick(query, ['text', 'class', 'offset', 'limit', 'sort']) };
+
   // Bare /fleet/owners and /fleet/sources are the product owner/source LISTS. They
   // must be matched before the entity-detail regex (which needs a trailing key).
   if (rest === 'owners' || rest === 'sources' || rest === 'domains' || rest === 'offerings' || rest === 'golden-paths') {
@@ -269,7 +273,7 @@ function parseFleet(path: string, query: string): Route {
     return { view: views[rest], params };
   }
 
-  const ent = rest.match(/^(services|revisions|targets|owners|sources|domains|offerings)\/(.+)$/);
+  const ent = rest.match(/^(services|revisions|targets|owners|sources|domains|offerings|externals)\/(.+)$/);
   if (ent) {
     // correlationID is the ticket or incident id an investigation carries into the
     // operations its page plans (the same key the delivery history filters by).
@@ -556,6 +560,16 @@ export function fleetOfferingsUrl(opts: { text?: string; lifecycle?: string; fai
   return str ? `#/fleet/offerings?${str}` : '#/fleet/offerings';
 }
 
+// fleetExternalsUrl builds the external-system list route, narrowed by class.
+export function fleetExternalsUrl(opts: { text?: string; class?: string } & ListPaging = {}): string {
+  const qs = new URLSearchParams();
+  if (opts.text) qs.set('text', opts.text);
+  if (opts.class) qs.set('class', opts.class);
+  setPaging(qs, opts);
+  const str = qs.toString();
+  return str ? `#/fleet/externals?${str}` : '#/fleet/externals';
+}
+
 // fleetGoldenPathsUrl builds the Golden paths list route: services whose contract
 // declares service.template and that run nowhere.
 export function fleetGoldenPathsUrl(opts: { text?: string } & ListPaging = {}): string {
@@ -585,7 +599,7 @@ export function fleetEntityListUrl(kind: string, opts: {
   service?: string; text?: string; status?: string; scope?: string; readiness?: string; environment?: string;
 } & ListPaging = {}): string {
   if (kind !== 'revision' && kind !== 'target') {
-    const lists: Record<string, () => string> = { owner: fleetOwnersUrl, source: fleetSourcesUrl, domain: fleetDomainsUrl, offering: fleetOfferingsUrl };
+    const lists: Record<string, () => string> = { owner: fleetOwnersUrl, source: fleetSourcesUrl, domain: fleetDomainsUrl, offering: fleetOfferingsUrl, external: fleetExternalsUrl };
     return (lists[kind] ?? fleetServicesUrl)();
   }
   const qs = new URLSearchParams();

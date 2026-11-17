@@ -4,6 +4,7 @@
   import { identityContext, primaryLabel } from '../lib/identityContext.ts';
   import EntityStatusBadge from './EntityStatusBadge.svelte';
   import CopyableIdentifier from './CopyableIdentifier.svelte';
+  import IdentityBadge from './IdentityBadge.svelte';
 
   // Renders enough identity to DISAMBIGUATE an entity from same-named entities in
   // other domains/scopes: kind, human label, and the qualifying
@@ -32,6 +33,9 @@
 <span class="entity-identity">
   {#if showKind}<span class="ei-kind">{kindLabel(ref.kind)}</span>{/if}
   <span class="ei-label" title={primary}><bdi>{primary}</bdi></span>
+  <!-- A service whose name no revision declares (pactoVersion 2.5): the name is a
+       guess from the folder, so it says so and where it came from wherever it shows. -->
+  {#if ref.nameInferred}<span data-testid="name-inferred"><IdentityBadge label="inferred name" title={`Name inferred from ${ref.nameInferred.source}`} describe /></span>{/if}
   {#if showStatus}<span class="ei-status"><EntityStatusBadge kind={ref.kind} status={ref.status} /></span>{/if}
   {#if context.length}
     <span class="ei-context">

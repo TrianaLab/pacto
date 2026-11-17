@@ -28,7 +28,8 @@ const (
 
 // calleeKeys is the attribute precedence for identifying a span's callee, from
 // most explicit (an intentional peer service name) to least. The first present
-// non-empty value wins.
+// non-empty value wins. rpc.system (aws-api, grpc) is last: it names only the
+// protocol, so it is the callee only of a span that says nothing else.
 var calleeKeys = []string{
 	"peer.service",
 	"rpc.service",
@@ -36,6 +37,7 @@ var calleeKeys = []string{
 	"net.peer.name",
 	"db.system",
 	"messaging.system",
+	"rpc.system",
 }
 
 // TracesData is the subset of the OTLP/JSON trace payload the observer reads.

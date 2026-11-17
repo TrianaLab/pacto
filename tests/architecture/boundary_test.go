@@ -41,6 +41,8 @@ var corePackages = []string{
 	"github.com/trianalab/pacto/v4/pkg/evidence/...",
 	"github.com/trianalab/pacto/v4/pkg/evidenceenvelope/...",
 	"github.com/trianalab/pacto/v4/pkg/evidenceingest/...",
+	"github.com/trianalab/pacto/v4/pkg/externalcatalog/...",
+	"github.com/trianalab/pacto/v4/pkg/externalid/...",
 	"github.com/trianalab/pacto/v4/pkg/finding/...",
 	"github.com/trianalab/pacto/v4/pkg/fleet/...",
 	"github.com/trianalab/pacto/v4/pkg/graph/...",
@@ -56,6 +58,7 @@ var corePackages = []string{
 	"github.com/trianalab/pacto/v4/pkg/schemax/...",
 	"github.com/trianalab/pacto/v4/pkg/semver/...",
 	"github.com/trianalab/pacto/v4/pkg/validation/...",
+	"github.com/trianalab/pacto/v4/pkg/workloadmanager/...",
 }
 
 // forbiddenPrefixes are import-path prefixes a core package may never reach.

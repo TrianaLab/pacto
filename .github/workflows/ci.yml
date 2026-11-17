@@ -76,13 +76,17 @@ jobs:
               - 'pkg/catalog/**'
               - 'pkg/contract/**'
               - 'pkg/delivery/**'
+              - 'pkg/workloadmanager/**'
               - 'pkg/deliveryrecord/**'
               - 'pkg/diff/**'
               - 'pkg/evidence/**'
+              - 'pkg/externalcatalog/**'
+              - 'pkg/externalid/**'
               - 'pkg/finding/**'
               - 'pkg/fleet/**'
               - 'pkg/graph/**'
               - 'pkg/impact/**'
+              - 'pkg/kubecluster/**'
               - 'pkg/lock/**'
               - 'pkg/logging/**'
               - 'pkg/oci/**'
@@ -159,13 +163,17 @@ jobs:
               - 'pkg/catalog/**'
               - 'pkg/contract/**'
               - 'pkg/delivery/**'
+              - 'pkg/workloadmanager/**'
               - 'pkg/deliveryrecord/**'
               - 'pkg/diff/**'
               - 'pkg/evidence/**'
+              - 'pkg/externalcatalog/**'
+              - 'pkg/externalid/**'
               - 'pkg/finding/**'
               - 'pkg/fleet/**'
               - 'pkg/graph/**'
               - 'pkg/impact/**'
+              - 'pkg/kubecluster/**'
               - 'pkg/lock/**'
               - 'pkg/logging/**'
               - 'pkg/oci/**'
@@ -195,7 +203,9 @@ jobs:
               - 'integrations/kubernetes/charts/pacto-operator/templates/crds.yaml'
               - 'integrations/kubernetes/charts/pacto-operator/files/crds/delivery.*'
               - 'pkg/delivery/**'
+              - 'pkg/workloadmanager/**'
               - 'pkg/deliveryrecord/**'
+              - 'pkg/kubecluster/**'
               - 'pkg/ocireferrer/**'
               - 'pkg/runrecord/**'
               - 'pkg/signing/**'
@@ -230,6 +240,7 @@ jobs:
             perf:
               - 'pkg/dashboard/**'
               - 'pkg/delivery/**'
+              - 'pkg/workloadmanager/**'
               - 'pkg/fleet/**'
               - 'internal/app/**'
               - 'internal/authn/**'
@@ -464,7 +475,7 @@ jobs:
       fail-fast: false
       matrix:
         # delivery runs in its own sharded job below (ci-e2e-kind-delivery).
-        scenario: [reconcile, dashboard, upgrade, evidence, operational-graph, observation, gitops-flux, gitops-argocd, runtime-conformance]
+        scenario: [reconcile, dashboard, upgrade, evidence, operational-graph, observation, gitops-flux, gitops-argocd, runtime-conformance, least-privilege]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -563,7 +574,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        phase: [core, health, publish, ordering, identity, records, ladder]
+        phase: [core, health, publish, ordering, identity, records, ladder, appliers]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7

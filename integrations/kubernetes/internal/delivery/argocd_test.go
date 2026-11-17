@@ -67,7 +67,7 @@ func (e *env) setApp(u *unstructured.Unstructured) {
 // confirms the move once the Application is Synced and Healthy at that digest.
 func TestArgoCDPromoteShipsAndVerifies(t *testing.T) {
 	e := newEnv(t, argoStage(dA), argoApp(dA, dA, "Synced", "Healthy"),
-		deployment("payments", 2, 2), pactoObj("payments", "payments", c1, "Compliant", 2))
+		argoDeployment("payments", 2, 2), pactoObj("payments", "payments", c1, "Compliant", 2))
 	e.create(argoOp(dA, dB))
 	o := e.drive("p1")
 	target, _, _ := unstructured.NestedString(e.app().Object, "spec", "source", "targetRevision")

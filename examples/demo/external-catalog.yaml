@@ -1,0 +1,15 @@
+# The demo organization's external catalog: an extension merged over the
+# default catalog. A real installation publishes this file as an OCI artifact
+# pinned by digest; the demo embeds it, so it carries no signature.
+#
+# In this demo organization, a dependency named model means its hosted LLM provider.
+apiVersion: catalog.pacto.trianalab.io/v1
+entries:
+  - identity: parcel-carrier
+    class: vendor-api
+    label: Parcel carrier
+    aliases: [parcel-carrier, carrier-api]
+  - identity: llm-provider
+    class: vendor-api
+    label: Hosted LLM provider
+    aliases: [model, hosted-llm]

@@ -19,6 +19,8 @@ import (
 
 	"github.com/trianalab/pacto/v4/internal/pactify"
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/ignore"
 	"github.com/trianalab/pacto/v4/pkg/validation"
 	"gopkg.in/yaml.v3"
 )
@@ -92,6 +94,10 @@ type DependencyInput struct {
 	// no ref it needs Version, the free-text version it runs against.
 	External bool   `json:"external,omitempty"`
 	Version  string `json:"version,omitempty"`
+	// Identity names the external system an external dependency with no
+	// ref joins in the fleet, when its name is not an alias the external
+	// catalog knows. It needs pactoVersion 2.5.
+	Identity string `json:"identity,omitempty"`
 }
 
 // ConfigurationRefInput describes a configuration reference to add: a
@@ -177,12 +183,12 @@ type EditInput struct {
 	Name    *string
 	Version *string
 	Owner   *string
-	// Domain sets service.domain and raises an older pactoVersion to 2.4.
-	// Every raise to 2.4 checks configuration refs strictly, so it fails
-	// when a ref cannot be resolved (see needsResolve).
+	// Domain sets service.domain and needs pactoVersion 2.4. A field that
+	// needs a newer version raises an older one only when that keeps the
+	// contract's meaning, and otherwise fails the edit (see raiseForEdit).
 	Domain *string
 	// Offering and Summary set service.offering and service.summary and
-	// raise an older pactoVersion to 2.4.
+	// need pactoVersion 2.4.
 	Offering *string
 	Summary  *string
 
@@ -198,14 +204,17 @@ type EditInput struct {
 	// no remaining environment names it.
 	RemoveEnvironments   []string
 	SetEnvironmentValues []EnvironmentValuesInput
-	// Lifecycle sets or clears service.lifecycle and raises an older
-	// pactoVersion to 2.4.
+	// Lifecycle sets or clears service.lifecycle; setting it needs
+	// pactoVersion 2.4.
 	Lifecycle *LifecycleInput
-	// Template sets or clears service.template and raises an older
-	// pactoVersion to 2.4. service.origin has no setter: only creation writes it.
+	// Template sets or clears service.template; setting it needs
+	// pactoVersion 2.4. service.origin has no setter: only creation writes it.
 	Template *TemplateInput
 
-	Workload                  *string
+	Workload *string
+	// Applier sets delivery.applier (auto, argocd or flux), which needs
+	// pactoVersion 2.5; "" removes the delivery section.
+	Applier                   *string
 	StoresData                *bool
 	DataSurvivesRestart       *bool
 	DataSharedAcrossInstances *bool
@@ -256,6 +265,9 @@ type CheckResult struct {
 	// EnvironmentDifferencesError says why the environments could not be
 	// compared when none were named.
 	EnvironmentDifferencesError string `json:"environmentDifferencesError,omitempty"`
+	// Inferred lists what the contract implies rather than declares (an
+	// absent pactoVersion, a service.name read from the folder), with sources.
+	Inferred []contract.Inferred `json:"inferred,omitempty"`
 }
 
 // ContractSummary provides a high-level overview of a contract.
@@ -477,12 +489,12 @@ func boolOrFalse(p *bool) bool {
 
 func buildCreateMap(input CreateInput) map[string]any {
 	m := map[string]any{
-		"pactoVersion": "2.0",
 		"service": map[string]any{
 			"name":    input.Name,
 			"version": defaultVersion(input.Version),
 		},
 	}
+	m["pactoVersion"] = createMinVersion(input)
 
 	svc := m["service"].(map[string]any)
 	if input.Owner != "" {
@@ -495,7 +507,6 @@ func buildCreateMap(input CreateInput) map[string]any {
 
 	if len(input.Dependencies) > 0 {
 		m["dependencies"] = buildDependenciesList(input.Dependencies)
-		needs21(m, input.Dependencies)
 	}
 
 	workload := input.Workload
@@ -528,7 +539,6 @@ func buildCreateMap(input CreateInput) map[string]any {
 
 	if input.Domain != "" {
 		svc["domain"] = input.Domain
-		raiseVersion(m, "2.4")
 	}
 
 	return m
@@ -575,31 +585,150 @@ func buildDependenciesList(inputs []DependencyInput) []any {
 }
 
 // dependencyEntry is one dependencies[] entry. An external dependency with no
-// ref carries its version instead of a ref and a range.
+// ref carries its version instead of a ref and a range. A dependency given no
+// range is written with compatibility unknown, never a guessed range. An
+// identity is written as given, so validation, not this tool, judges it.
 func dependencyEntry(dep DependencyInput) map[string]any {
 	if dep.Ref == "" && dep.External {
-		return map[string]any{"name": dep.Name, "external": true, "version": dep.Version, "required": dep.Required}
+		entry := map[string]any{"name": dep.Name, "external": true, "version": dep.Version, "required": dep.Required}
+		if dep.Identity != "" {
+			entry["identity"] = dep.Identity
+		}
+		return entry
+	}
+	compat := dep.Compatibility
+	if compat == "" {
+		compat = contract.CompatibilityUnknown
 	}
 	entry := map[string]any{
 		"name":          dependencyName(dep),
 		"ref":           dep.Ref,
-		"compatibility": defaultCompatibility(dep.Compatibility),
+		"compatibility": compat,
 		"required":      dep.Required, // mandatory in v2 schema; emit true AND false
 	}
 	if dep.External {
 		entry["external"] = true
 	}
+	if dep.Identity != "" {
+		entry["identity"] = dep.Identity // validation refuses it beside a ref
+	}
 	return entry
 }
 
-// needs21 sets pactoVersion 2.1 when an external dependency is declared:
-// 2.0 has no external dependencies, and 2.1 keeps every 2.0 field.
-func needs21(m map[string]any, deps []DependencyInput) bool {
-	if m["pactoVersion"] != "2.0" || !slices.ContainsFunc(deps, func(d DependencyInput) bool { return d.External }) {
-		return false
+// undeclaredRanges returns, in input order, the names of the dependencies
+// dependencyEntry writes with compatibility unknown: those given no range or
+// given unknown. Each needs pactoVersion 2.5.
+func undeclaredRanges(inputs []DependencyInput) []string {
+	var names []string
+	for _, dep := range inputs {
+		if dep.Ref == "" && dep.External {
+			continue
+		}
+		if dep.Compatibility == "" || dep.Compatibility == contract.CompatibilityUnknown {
+			names = append(names, dependencyName(dep))
+		}
 	}
-	m["pactoVersion"] = "2.1"
-	return true
+	return names
+}
+
+// undeclaredRange is what pacto_create and pacto_edit say about a dependency
+// written with compatibility unknown.
+func undeclaredRange(name string) string {
+	return "compatibility of " + name + " is unknown: no range was given, so impact cannot tell whether a " + name +
+		" change breaks this service: its verdict is unknown, and a BREAKING change to " + name +
+		" stays unverified; set the versions this service accepts"
+}
+
+// hasExternal reports whether deps declares an external dependency, which
+// needs pactoVersion 2.1.
+func hasExternal(deps []DependencyInput) bool {
+	return slices.ContainsFunc(deps, func(d DependencyInput) bool { return d.External })
+}
+
+// hasIdentity reports whether deps names an external identity, which needs
+// pactoVersion 2.5.
+func hasIdentity(deps []DependencyInput) bool {
+	return slices.ContainsFunc(deps, func(d DependencyInput) bool { return d.Identity != "" })
+}
+
+// createMinVersion is the pactoVersion a new contract is written with: the
+// oldest that has every field input sets. A new contract has no earlier
+// meaning to keep, so it is never raised through contract.Upgrade.
+func createMinVersion(input CreateInput) string {
+	switch {
+	case len(undeclaredRanges(input.Dependencies)) > 0, hasIdentity(input.Dependencies):
+		return "2.5"
+	case input.Domain != "":
+		return "2.4"
+	case hasExternal(input.Dependencies):
+		return "2.1"
+	}
+	return "2.0"
+}
+
+// editMinVersion is the oldest pactoVersion that has every field input sets,
+// or "" when any version has them. Removing a field needs no newer version.
+func editMinVersion(input EditInput) string {
+	switch {
+	case len(undeclaredRanges(input.AddDependencies)) > 0, hasIdentity(input.AddDependencies), input.Applier != nil && *input.Applier != "":
+		return "2.5"
+	case needs24(input):
+		return "2.4"
+	case len(input.AddEnvironments) > 0:
+		return "2.3"
+	case hasExternal(input.AddDependencies):
+		return "2.1"
+	}
+	return ""
+}
+
+// needs24 reports whether input sets a field pactoVersion 2.4 added.
+func needs24(input EditInput) bool {
+	return input.Domain != nil || input.Offering != nil || input.Summary != nil ||
+		(input.Lifecycle != nil && !input.Lifecycle.Clear) || (input.Template != nil && !input.Template.Clear) ||
+		slices.ContainsFunc(input.AddConfigurationRefs, func(in ConfigurationRefInput) bool { return in.Configuration != "" || len(in.Values) > 0 }) ||
+		slices.ContainsFunc(input.AddEnvironments, func(in EnvironmentInput) bool { return in.Lifetime != "" || in.Expires != "" || in.Owner != nil })
+}
+
+// raiseForEdit raises raw's pactoVersion to the version input needs through
+// contract.Upgrade, judged by editCheck, and returns the raised bytes with
+// the change line, "" when nothing was raised. A raise that would change
+// what the contract means, or that the check cannot judge, fails the edit.
+func (o fileOps) raiseForEdit(ctx context.Context, validate Validator, dir string, raw []byte, input EditInput) ([]byte, string, error) {
+	minVersion := editMinVersion(input)
+	if minVersion == "" {
+		return raw, "", nil
+	}
+	up, err := contract.Upgrade(raw, minVersion, o.editCheck(ctx, validate, dir))
+	switch {
+	case err != nil:
+		return nil, "", fmt.Errorf("this edit needs pactoVersion %q, and the contract as it is cannot be raised: %w; run pacto_check on it", minVersion, err)
+	case up.Kept != nil:
+		return nil, "", fmt.Errorf("edited contract fails validation: raising pactoVersion to %q for this edit would add %s at %s: %s", minVersion, up.Kept.Code, up.Kept.Path, up.Kept.Message)
+	}
+	return up.Raw, up.Change(), nil
+}
+
+// editCheck is the contract.UpgradeCheck of an edit: the validation an edited
+// contract must pass (see editedReport, with resolution), run on raw as the
+// pacto.yaml of the bundle in dir.
+// ponytail: through ValidationReport a behind original also gets
+// CONTRACT_BEHIND, whose own Upgrade costs two more validation runs; the
+// multiset ignores it (the raised run is current). Pass a skip flag to the
+// validator if edit latency matters.
+func (o fileOps) editCheck(ctx context.Context, validate Validator, dir string) contract.UpgradeCheck {
+	return func(raw []byte) ([]contract.ValidationError, []contract.ValidationWarning, error) {
+		c, err := contract.Parse(bytes.NewReader(raw))
+		if err != nil {
+			e := contract.ValidationError{Code: "PARSE_ERROR", Message: err.Error()}
+			return []contract.ValidationError{e}, nil, validation.Unverified(e)
+		}
+		report, err := o.editedReport(ctx, validate, dir, o.buildBundleFSForValidation(dir, raw, c, nil), raw, c, true)
+		if err != nil {
+			return nil, nil, err
+		}
+		return validation.UpgradeFindings(report.Stages)
+	}
 }
 
 // --- Edit ---
@@ -612,22 +741,40 @@ func needs21(m map[string]any, deps []DependencyInput) bool {
 // resolver, so a ref the contract depends on fails closed with
 // CONFIG_REF_UNRESOLVED.
 func (o fileOps) validateEdited(ctx context.Context, validate Validator, dir string, bundleFS fstest.MapFS, yamlBytes []byte, c *contract.Contract, resolve bool) error {
-	result := validation.Validate(c, yamlBytes, bundleFS)
-	if result.IsValid() && resolve {
-		if validate == nil {
-			_, result = validation.ResolveConfigRefs(ctx, c, bundleFS, validation.ConfigRefOptions{Strict: true})
-		} else {
-			report, err := o.validateStaged(ctx, validate, dir, bundleFS)
-			if err != nil {
-				return err
-			}
-			result = report.ValidationResult
-		}
+	report, err := o.editedReport(ctx, validate, dir, bundleFS, yamlBytes, c, resolve)
+	if err != nil {
+		return err
 	}
-	if !result.IsValid() {
-		return fmt.Errorf("edited contract fails validation: %s: %s", result.Errors[0].Code, result.Errors[0].Message)
+	if !report.IsValid() {
+		return fmt.Errorf("edited contract fails validation: %s: %s", report.Errors[0].Code, report.Errors[0].Message)
 	}
 	return nil
+}
+
+// editedReport is the validation validateEdited judges: the local layers,
+// then, when they pass and resolve is set, validate over the staged bundle
+// (or strict resolution with no resolver when validate is nil). Every stage
+// it ran is in Stages; a stage that never ran is absent, and the local
+// failure that stopped it is an error.
+func (o fileOps) editedReport(ctx context.Context, validate Validator, dir string, bundleFS fstest.MapFS, yamlBytes []byte, c *contract.Contract, resolve bool) (validation.Report, error) {
+	local := validation.Validate(c, yamlBytes, bundleFS)
+	stages := []validation.Stage{validation.RanStage("local", local)}
+	switch {
+	case !local.IsValid() || !resolve:
+	case validate == nil:
+		_, r := validation.ResolveConfigRefs(ctx, c, bundleFS, validation.ConfigRefOptions{Strict: true})
+		stages = append(stages, validation.RanStage("configuration-refs", r))
+	default:
+		report, err := o.validateStaged(ctx, validate, dir, bundleFS)
+		if err != nil {
+			return validation.Report{}, err
+		}
+		if report.Stages == nil { // a Validator that reports no stages is one stage
+			report.Stages = []validation.Stage{validation.RanStage("validate", report.ValidationResult)}
+		}
+		return report, nil
+	}
+	return validation.Report{ValidationResult: validation.Merged(stages), Stages: stages}, nil
 }
 
 // validateStaged runs validate on bundleFS staged beside dir (see stage) and
@@ -668,14 +815,14 @@ func (o fileOps) stage(dir string, bundleFS fstest.MapFS) (string, error) {
 // resolution depends on: a configuration ref, an environment (its file may
 // already hold values), environment values, or a dependency of c, the edited
 // contract, while it references a configuration (the dependency's range is
-// checked against the resolved provider). Raising pactoVersion to 2.4 from
-// fromVersion counts too while c references a configuration: 2.4 checks refs
-// strictly, so a ref that only warned before can fail. Only a resolved schema
-// can check those, so removals and other edits keep the local check.
-func needsResolve(input EditInput, c *contract.Contract, fromVersion string) bool {
+// checked against the resolved provider). A raised pactoVersion counts too
+// while c references a configuration: a newer version can check refs more
+// strictly. Only a resolved schema can check those, so removals and other
+// edits keep the local check.
+func needsResolve(input EditInput, c *contract.Contract, raised bool) bool {
 	hasRef := slices.ContainsFunc(c.Configurations, func(cfg contract.Configuration) bool { return cfg.Ref != "" })
 	return len(input.AddConfigurationRefs) > 0 || len(input.AddEnvironments) > 0 || len(input.SetEnvironmentValues) > 0 ||
-		(hasRef && (len(input.AddDependencies) > 0 || (fromVersion != "2.4" && c.PactoVersion == "2.4")))
+		(hasRef && (len(input.AddDependencies) > 0 || raised))
 }
 
 // Edit modifies an existing pacto contract. validate is the check pacto_check
@@ -698,6 +845,11 @@ func (o fileOps) edit(ctx context.Context, validate Validator, opts EditOptions,
 		return nil, fmt.Errorf("failed to read %s: %w", pactoPath, err)
 	}
 
+	rawYAML, raise, err := o.raiseForEdit(ctx, validate, dir, rawYAML, input)
+	if err != nil {
+		return nil, err
+	}
+
 	// contract.DecodeYAML, not yaml.Unmarshal: an unquoted date scalar
 	// (readiness.expires, readiness.history[].date — what `pacto init` scaffolds)
 	// would otherwise decode to time.Time and be written back as RFC3339, which
@@ -706,11 +858,16 @@ func (o fileOps) edit(ctx context.Context, validate Validator, opts EditOptions,
 	if err := contract.DecodeYAML(rawYAML, &m); err != nil {
 		return nil, fmt.Errorf("failed to parse %s: %w", pactoPath, err)
 	}
+	if m == nil {
+		m = map[string]any{} // an empty contract
+	}
 
-	fromVersion, _ := m["pactoVersion"].(string)
 	files, changes, err := editFiles(dir, m, input)
 	if err != nil {
 		return nil, err
+	}
+	if raise != "" {
+		changes = append([]string{raise}, changes...)
 	}
 
 	yamlBytes, err := o.marshalContract(m)
@@ -725,7 +882,7 @@ func (o fileOps) edit(ctx context.Context, validate Validator, opts EditOptions,
 	}
 
 	bundleFS := o.buildBundleFSForValidation(dir, yamlBytes, c, files)
-	if err := o.validateEdited(ctx, validate, dir, bundleFS, yamlBytes, c, needsResolve(input, c, fromVersion)); err != nil {
+	if err := o.validateEdited(ctx, validate, dir, bundleFS, yamlBytes, c, needsResolve(input, c, raise != "")); err != nil {
 		return nil, err
 	}
 
@@ -832,6 +989,15 @@ func applyEdits(m map[string]any, input EditInput) ([]string, error) {
 		m["workload"] = *input.Workload
 		changes = append(changes, fmt.Sprintf("set workload to %q", *input.Workload))
 	}
+	if input.Applier != nil {
+		change, err := setApplier(m, *input.Applier)
+		if err != nil {
+			return nil, err
+		}
+		if change != "" {
+			changes = append(changes, change)
+		}
+	}
 	if hasStateEdits(input) {
 		changes = append(changes, applyStateEdits(m, input)...)
 	}
@@ -848,6 +1014,24 @@ func applyEdits(m map[string]any, input EditInput) ([]string, error) {
 	}
 
 	return changes, nil
+}
+
+// setApplier sets delivery.applier to applier, or removes the delivery
+// section when applier is "", and returns the change line, "" when nothing
+// changed.
+func setApplier(m map[string]any, applier string) (string, error) {
+	switch applier {
+	case "":
+		if _, ok := m["delivery"]; !ok {
+			return "", nil
+		}
+		delete(m, "delivery")
+		return "removed delivery", nil
+	case contract.ApplierAuto, contract.ApplierArgoCD, contract.ApplierFlux:
+		m["delivery"] = map[string]any{"applier": applier}
+		return "set delivery.applier to " + applier, nil
+	}
+	return "", fmt.Errorf("applier %q is not one of auto, argocd or flux", applier)
 }
 
 // applyReferenceEdits applies the configuration-reference, policy-reference
@@ -888,44 +1072,43 @@ func applyServiceEdits(m map[string]any, input EditInput) []string {
 		changes = append(changes, fmt.Sprintf("set owner to %q", *input.Owner))
 	}
 	if input.Domain != nil {
-		changes = append(changes, setServiceField(m, svc, "domain", *input.Domain, "2.4")...)
+		changes = append(changes, setServiceField(svc, "domain", *input.Domain))
 	}
 	if input.Offering != nil {
-		changes = append(changes, setServiceField(m, svc, "offering", *input.Offering, "2.4")...)
+		changes = append(changes, setServiceField(svc, "offering", *input.Offering))
 	}
 	if input.Summary != nil {
-		changes = append(changes, setServiceField(m, svc, "summary", *input.Summary, "2.4")...)
+		changes = append(changes, setServiceField(svc, "summary", *input.Summary))
 	}
 	if input.Lifecycle != nil {
-		changes = append(changes, setLifecycle(m, svc, *input.Lifecycle)...)
+		changes = append(changes, setLifecycle(svc, *input.Lifecycle))
 	}
 	if input.Template != nil {
-		changes = append(changes, setTemplate(m, svc, *input.Template)...)
+		changes = append(changes, setTemplate(svc, *input.Template))
 	}
 	return changes
 }
 
-// setTemplate sets service.template, raising an older pactoVersion to 2.4, or
-// removes it when in.Clear is set. No plugins writes template: {}.
-func setTemplate(m, svc map[string]any, in TemplateInput) []string {
+// setTemplate sets service.template, or removes it when in.Clear is set. No
+// plugins writes template: {}.
+func setTemplate(svc map[string]any, in TemplateInput) string {
 	if in.Clear {
 		delete(svc, "template")
-		return []string{"removed service template"}
+		return "removed service template"
 	}
 	svc["template"] = contract.Template{Plugins: in.Plugins}
-	return append(raiseVersion(m, "2.4"), fmt.Sprintf("set service template with %d plugins", len(in.Plugins)))
+	return fmt.Sprintf("set service template with %d plugins", len(in.Plugins))
 }
 
-// setLifecycle sets service.lifecycle, raising an older pactoVersion to 2.4,
-// or removes it when in.Clear is set.
-func setLifecycle(m, svc map[string]any, in LifecycleInput) []string {
+// setLifecycle sets service.lifecycle, or removes it when in.Clear is set.
+func setLifecycle(svc map[string]any, in LifecycleInput) string {
 	if in.Clear {
 		delete(svc, "lifecycle")
-		return []string{"removed service lifecycle"}
+		return "removed service lifecycle"
 	}
 	lc := contract.InterfaceLifecycle{Deprecated: in.Deprecated, Sunset: in.Sunset, Successor: in.Successor}
 	svc["lifecycle"] = lc
-	return append(raiseVersion(m, "2.4"), "set service lifecycle to "+lc.String())
+	return "set service lifecycle to " + lc.String()
 }
 
 func removeInterfaces(m map[string]any, names []string) []string {
@@ -1017,33 +1200,19 @@ func addDependencies(m map[string]any, inputs []DependencyInput) []string {
 		changes = append(changes, fmt.Sprintf("added dependency %q", entry["name"]))
 	}
 	m["dependencies"] = deps
-	if needs21(m, inputs) {
-		changes = append(changes, `set pactoVersion "2.1" for the external dependency`)
+	for _, name := range undeclaredRanges(inputs) {
+		changes = append(changes, undeclaredRange(name))
 	}
 	return changes
 }
 
-// setServiceField sets service.<field> and, in a contract older than
-// pactoVersion minVersion, raises pactoVersion to minVersion, which keeps
-// every older field.
-func setServiceField(m, svc map[string]any, field, value, minVersion string) []string {
-	changes := raiseVersion(m, minVersion)
+// setServiceField sets service.<field>.
+func setServiceField(svc map[string]any, field, value string) string {
 	svc[field] = value
-	return append(changes, fmt.Sprintf("set %s to %q", field, value))
+	return fmt.Sprintf("set %s to %q", field, value)
 }
 
-// raiseVersion raises a pactoVersion older than minVersion to minVersion,
-// which keeps every older field, and returns the change it made.
-func raiseVersion(m map[string]any, minVersion string) []string {
-	if v, _ := m["pactoVersion"].(string); slices.Index(contract.SupportedVersions, v) < slices.Index(contract.SupportedVersions, minVersion) {
-		m["pactoVersion"] = minVersion
-		return []string{fmt.Sprintf("set pactoVersion to %q", minVersion)}
-	}
-	return nil
-}
-
-// addConfigurationRefs appends a configurations[] entry for each reference. A
-// provider configuration selector or values raise pactoVersion to 2.4.
+// addConfigurationRefs appends a configurations[] entry for each reference.
 func addConfigurationRefs(m map[string]any, inputs []ConfigurationRefInput) []string {
 	if len(inputs) == 0 {
 		return nil
@@ -1053,9 +1222,6 @@ func addConfigurationRefs(m map[string]any, inputs []ConfigurationRefInput) []st
 	for _, in := range inputs {
 		name := dependencyName(DependencyInput{Name: in.Name, Ref: in.Ref})
 		entry := map[string]any{"name": name, "ref": in.Ref, "required": in.Required}
-		if in.Configuration != "" || len(in.Values) > 0 {
-			changes = append(changes, raiseVersion(m, "2.4")...)
-		}
 		if in.Configuration != "" {
 			entry["configuration"] = in.Configuration
 		}
@@ -1123,18 +1289,13 @@ func declaredEnvironments(m map[string]any) []contract.Environment {
 }
 
 // addEnvironments declares each environment, its file defaulting to
-// environments/<name>.yaml, and raises an older pactoVersion to 2.3, or to
-// 2.4 when one sets lifetime, expires or owner.
+// environments/<name>.yaml.
 func addEnvironments(m map[string]any, inputs []EnvironmentInput) ([]string, error) {
 	if len(inputs) == 0 {
 		return nil, nil
 	}
 	list, _ := m["environments"].([]any)
-	minVersion := "2.3"
-	if slices.ContainsFunc(inputs, func(in EnvironmentInput) bool { return in.Lifetime != "" || in.Expires != "" || in.Owner != nil }) {
-		minVersion = "2.4"
-	}
-	changes := raiseVersion(m, minVersion)
+	var changes []string
 	for _, in := range inputs {
 		if slices.ContainsFunc(declaredEnvironments(m), func(e contract.Environment) bool { return e.Name == in.Name }) {
 			return nil, fmt.Errorf("environment %q is already declared", in.Name)
@@ -1485,6 +1646,14 @@ func (o fileOps) check(ctx context.Context, validate Validator, path string, env
 		return result, nil
 	}
 
+	matcher, err := ignore.Load(o.dirFS(dir))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read %s: %w", ignore.IgnoreFileName, err)
+	}
+	abs, _ := filepath.Abs(dir) // ponytail: fails only without a working directory
+	bundle := &contract.Bundle{Contract: c, RawYAML: rawYAML, FS: ignore.FS(o.dirFS(dir), matcher)}
+	bundle.Complete(filepath.Base(abs))
+
 	var vr validation.Report
 	if validate != nil {
 		if vr, err = validate(ctx, dir); err != nil {
@@ -1496,10 +1665,11 @@ func (o fileOps) check(ctx context.Context, validate Validator, path string, env
 	}
 
 	cr := &CheckResult{
-		Valid:   vr.IsValid(),
-		Summary: summarizeContract(c),
-		Stages:  vr.Stages,
-		Next:    vr.Next,
+		Valid:    vr.IsValid(),
+		Summary:  summarizeContract(c),
+		Stages:   vr.Stages,
+		Next:     vr.Next,
+		Inferred: bundle.Inferred,
 	}
 
 	for _, e := range vr.Errors {
@@ -1520,7 +1690,7 @@ func (o fileOps) check(ctx context.Context, validate Validator, path string, env
 		})
 	}
 
-	cr.Suggestions = buildSuggestions(c, o.dirFS(dir), vr.IsValid())
+	cr.Suggestions = buildSuggestions(c, o.dirFS(dir), vr.IsValid(), bundle.Inferred, vr.Warnings)
 
 	rows, err := validation.EnvironmentDifferences(c, o.dirFS(dir), envs)
 	switch {
@@ -1541,7 +1711,7 @@ func (o fileOps) check(ctx context.Context, validate Validator, path string, env
 // in: the newest schema's order.
 var topLevelKeyOrder = []string{
 	"pactoVersion", "service", "interfaces", "configurations", "environments",
-	"policies", "dependencies", "state", "workload", "capabilities", "readiness", "publish", "checks", "metadata", "extensions",
+	"policies", "dependencies", "breaks", "state", "workload", "capabilities", "readiness", "publish", "delivery", "checks", "metadata", "extensions",
 }
 
 // marshalContract writes m with its top-level keys in topLevelKeyOrder, then
@@ -2038,13 +2208,40 @@ func assessSections(c *contract.Contract) map[string]string {
 
 // --- Suggestions ---
 
-// buildSuggestions is what to improve in a valid contract c, whose bundle
-// files bundleFS holds.
-func buildSuggestions(c *contract.Contract, bundleFS fs.FS, valid bool) []Suggestion {
-	var suggestions []Suggestion
+// behindSuggestions says a contract is behind the current pactoVersion, even
+// when it is invalid. No tool raises the version alone: pacto_edit raises it
+// when a field needs it.
+func behindSuggestions(warnings []contract.ValidationWarning) []Suggestion {
+	var out []Suggestion
+	for _, w := range warnings {
+		if w.Code == string(finding.CodeContractBehind) {
+			out = append(out, Suggestion{Message: w.Message})
+		}
+	}
+	return out
+}
 
+// buildSuggestions is what to improve in a valid contract c, whose bundle
+// files bundleFS holds, after what warnings say about any contract (see
+// behindSuggestions).
+func buildSuggestions(c *contract.Contract, bundleFS fs.FS, valid bool, inferred []contract.Inferred, warnings []contract.ValidationWarning) []Suggestion {
+	suggestions := behindSuggestions(warnings)
 	if !valid {
-		return nil
+		return suggestions
+	}
+
+	if inf, ok := (&contract.Bundle{Inferred: inferred}).NameInferred(); ok {
+		suggestions = append(suggestions, Suggestion{
+			Message:  fmt.Sprintf("service.name %s is inferred from %s. Declare service.name to publish.", inf.Value, inf.Source),
+			ToolCall: &ToolCall{Tool: "pacto_edit", Params: map[string]any{"name": inf.Value}},
+		})
+	}
+
+	if c.Service.Version == "" {
+		suggestions = append(suggestions, Suggestion{
+			Message:  "service.version is not declared; pacto publish needs one.",
+			ToolCall: &ToolCall{Tool: "pacto_edit", Params: map[string]any{"version": "0.1.0"}},
+		})
 	}
 
 	if len(c.Interfaces) == 0 {
@@ -2163,13 +2360,6 @@ func defaultVersion(v string) string {
 	return v
 }
 
-func defaultCompatibility(compat string) string {
-	if compat != "" {
-		return compat
-	}
-	return "^1.0.0"
-}
-
 func collectDerived(input CreateInput, h descriptionHints) []string {
 	var derived []string
 
@@ -2189,6 +2379,9 @@ func collectDerived(input CreateInput, h descriptionHints) []string {
 		if h.isScheduled {
 			derived = append(derived, "inferred scheduled workload from description")
 		}
+	}
+	for _, name := range undeclaredRanges(input.Dependencies) {
+		derived = append(derived, undeclaredRange(name))
 	}
 
 	return derived

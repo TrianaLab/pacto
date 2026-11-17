@@ -32,7 +32,7 @@ The following variables configure the dashboard when set (see also [Dashboard Co
 | `PACTO_DASHBOARD_REPO` | *(positional args)* | **Comma**-separated OCI repositories, used only when no positional `oci://` argument is given |
 | `PACTO_DASHBOARD_HOST` | `--host` | Bind address (default: `127.0.0.1`) |
 | `PACTO_DASHBOARD_PORT` | `--port` | HTTP port (default: `3000`) |
-| `PACTO_DASHBOARD_NAMESPACE` | `--namespace` | Kubernetes namespace filter (empty = all) |
+| `PACTO_DASHBOARD_NAMESPACE` | `--namespace` | Kubernetes namespaces to read, comma-separated (empty = all) |
 | `PACTO_DASHBOARD_CORS_ORIGIN` | `--cors-origin` | One explicit origin allowed to call the API. Unset means same-origin only. |
 | `PACTO_DASHBOARD_TRACES` | `--traces` | OTLP/JSON trace files to fold observed dependencies from |
 | `PACTO_DASHBOARD_MIRA_SOURCES` | `--mira-source` | Space-separated Mira base URLs whose service map supplies observed calls |

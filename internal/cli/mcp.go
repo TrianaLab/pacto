@@ -19,7 +19,6 @@ import (
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 	"github.com/trianalab/pacto/v4/internal/app"
-	"github.com/trianalab/pacto/v4/internal/authn"
 	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
 	"github.com/trianalab/pacto/v4/pkg/capability"
 	"github.com/trianalab/pacto/v4/pkg/catalog"
@@ -135,6 +134,7 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 	cmd.Flags().String("host", "127.0.0.1", "bind address for HTTP transport; beyond loopback it needs --auth-issuer, and on loopback without it every request carries the bearer printed at launch")
 	cmd.Flags().String("auth-issuer", "", "OpenID issuer whose bearer tokens every HTTP request must carry")
 	cmd.Flags().String("resource", "", "with --auth-issuer: this endpoint's URL as clients reach it, served as protected-resource metadata (RFC 9728)")
+	cmd.Flags().String("review", reviewCluster, "with --fleet over HTTP with --auth-issuer: "+reviewUsage)
 	cmd.Flags().String("audience", "", "with --auth-issuer: the audience incoming tokens must carry (default --resource)")
 	cmd.Flags().String("exchange-client-id", "", "with --fleet or --delivery over HTTP with --auth-issuer: the server's own OAuth client, which exchanges each caller's token for the cluster "+
 		"(RFC 8693); its secret comes from PACTO_MCP_EXCHANGE_CLIENT_SECRET")
@@ -248,7 +248,7 @@ func buildFleetMode(cmd *cobra.Command, svc *app.Service, d deps) (*pactomcp.Fle
 // reads the snapshot as this process, so the server scans the working
 // directory's bundles only when --local says so; stdio keeps `--local .`.
 func mcpFleetOptions(cmd *cobra.Command) app.FleetOptions {
-	fopts := fleetOptions(cmd)
+	fopts := longRunning(fleetOptions(cmd))
 	if transport, _ := cmd.Flags().GetString("transport"); transport != "stdio" && !cmd.Flags().Changed("local") {
 		fopts.LocalRoots = nil
 	}
@@ -297,12 +297,19 @@ var errDashboardURLNeedsFleet = errors.New("--dashboard-url needs --fleet: only 
 // errStatsRegistryNeedsFleet: pacto_stats registers on the fleet server only.
 var errStatsRegistryNeedsFleet = errors.New("--stats-read-registry needs --fleet: pacto_stats is a fleet tool")
 
+// errReviewNeedsFleet: only the fleet tools review a caller's namespaces.
+var errReviewNeedsFleet = errors.New("--review needs --fleet: only the fleet tools review which namespaces a caller may read")
+
 // checkFleetOnlyFlags refuses a flag only the fleet tools read when the
-// server has none, so it is never silently ignored.
+// server has none, so it is never silently ignored, and checks --review
+// before any source is built.
 func checkFleetOnlyFlags(cmd *cobra.Command, fleetMode bool) error {
 	switch {
 	case fleetMode:
-		return nil
+		mode, _ := cmd.Flags().GetString("review")
+		return checkReview(mode, flagNamespaces(cmd))
+	case cmd.Flags().Changed("review"):
+		return errReviewNeedsFleet
 	case cmd.Flags().Changed("dashboard-url"):
 		return errDashboardURLNeedsFleet
 	case cmd.Flags().Changed("stats-read-registry"):
@@ -348,17 +355,9 @@ func buildDeliveryMode(cmd *cobra.Command, d deps, fm *pactomcp.FleetMode) (*pac
 	}
 	cluster, _ := d.clusterConfig() // nil: delivery reads skip discovery and cannot list namespaces
 	id := baseDashboardIdentity(cluster, d, c.Trust, c.PolicyNamespace)
-	reads := mcpDeliveryReads(id, fm, fleetNamespace(cmd))
+	reads := mcpDeliveryReads(id, fm, deliveryNarrowing(flagNamespaces(cmd)))
 	return &pactomcp.DeliveryMode{API: mcpDelivery{c}, Writes: caller.Class == delivery.ClassAgent, Caller: caller,
 		Reads: reads(c, ""), CallerAt: time.Now(), Installed: id.installedProbe()}, nil
-}
-
-// fleetNamespace is the fleet --namespace, the only namespace delivery reads
-// cover when set, as on the dashboard. --delivery-namespace names where the
-// identity policy is published and never narrows them.
-func fleetNamespace(cmd *cobra.Command) string {
-	ns, _ := cmd.Flags().GetString("namespace")
-	return ns
 }
 
 // mcpDelivery adapts app.Delivery to the MCP tools' interface.
@@ -510,7 +509,7 @@ func mcpImpactProvider(cmd *cobra.Command, svc *app.Service, d deps, addMissing,
 			}
 			return svc.ImpactEventOnSnapshot(ctx, opts, snap)
 		}
-		opts := app.ImpactOptions{OldPath: req.OldRef, NewPath: req.NewRef, Domain: req.Domain, Fleet: fopts, IncludeObserved: req.IncludeObserved, Traces: traces}
+		opts := app.ImpactOptions{OldPath: req.OldRef, NewPath: req.NewRef, NewDirName: req.NewDirName, Domain: req.Domain, Fleet: fopts, IncludeObserved: req.IncludeObserved, Traces: traces}
 		return svc.ImpactOnSnapshot(ctx, opts, snap, addMissing)
 	}
 }
@@ -553,14 +552,17 @@ func mcpRegression(ctx context.Context, cmd *cobra.Command, d deps, ev impact.Ev
 // read, asked with this process's own credentials about the person the
 // apiserver reviewed for the request (remoteCaller). Other servers answer
 // from the whole snapshot, as their single local user would read it.
+// checkFleetOnlyFlags already checked --review.
 func mcpFleetView(cmd *cobra.Command, d deps) pactomcp.FleetView {
 	transport, _ := cmd.Flags().GetString("transport")
 	issuer, _ := cmd.Flags().GetString("auth-issuer")
+	mode, _ := cmd.Flags().GetString("review")
+	namespaces := flagNamespaces(cmd)
 	if transport != "http" || issuer == "" {
 		return nil
 	}
 	cluster, _ := d.clusterConfig()
-	viewer := authn.NewViewer(clusterReview(cluster, d.dynamicFor))
+	viewer := clusterViewer(cluster, d.dynamicFor, mode, namespaces)
 	return func(ctx context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
 		p, ok := personFrom(ctx)
 		if !ok {

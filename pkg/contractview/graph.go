@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
 	depgraph "github.com/trianalab/pacto/v4/pkg/graph"
 )
 
@@ -29,6 +30,19 @@ type CrossReferences struct {
 	References   []CrossReference `json:"references"`
 	ReferencedBy []CrossReference `json:"referencedBy"`
 }
+
+// Statuses of a graph node that is not a contract in the index.
+const (
+	// StatusExternalNode is a system no Pacto contract describes, declared
+	// as a dependency with no ref and keyed by its canonical identity.
+	StatusExternalNode = "external"
+	// StatusUnresolvedNode is a ref Pacto could not resolve to a contract;
+	// GraphNodeData.Reason says why.
+	StatusUnresolvedNode = "unresolved"
+)
+
+// externalPrefix keys an external node apart from every service name.
+const externalPrefix = "external:"
 
 // GraphNodeData is a flat representation of a graph node for the D3 visualization.
 type GraphNodeData struct {
@@ -110,13 +124,14 @@ func buildGlobalGraph(services []Service, index map[string]*ServiceDetails, reas
 				depName := resolveServiceName(extractServiceNameFromRef(dep.Ref), index)
 				targetID := depName
 				_, resolved := index[depName]
+				target := GraphNodeData{ID: targetID, ServiceName: depName, Status: StatusUnresolvedNode, Version: dep.Version}
 				if dep.Ref == "" {
 					// An external dependency with no contract never resolves by
 					// name: a fleet service that shares it is a different thing.
-					depName, targetID, resolved = dep.Name, dep.Name, false
-					if _, clash := index[dep.Name]; clash {
-						targetID = dep.Name + " (external)"
-					}
+					target = externalNode(dep)
+					depName, targetID, resolved = target.ServiceName, target.ID, false
+				} else if !resolved {
+					target.Reason = unresolvedReason(dep.Ref, reasonFn)
 				}
 				node.Edges = append(node.Edges, GraphEdgeData{
 					TargetID:      targetID,
@@ -130,16 +145,9 @@ func buildGlobalGraph(services []Service, index map[string]*ServiceDetails, reas
 					DriftStatus:   dep.DriftStatus,
 				})
 
-				// Add unresolved dependency targets as external nodes.
 				if !resolved && !nodeSet[targetID] {
 					nodeSet[targetID] = true
-					graph.Nodes = append(graph.Nodes, GraphNodeData{
-						ID:          targetID,
-						ServiceName: depName,
-						Status:      "external",
-						Version:     dep.Version,
-						Reason:      unresolvedReason(dep.Ref, reasonFn),
-					})
+					graph.Nodes = append(graph.Nodes, target)
 				}
 			}
 
@@ -164,7 +172,7 @@ func buildGlobalGraph(services []Service, index map[string]*ServiceDetails, reas
 					graph.Nodes = append(graph.Nodes, GraphNodeData{
 						ID:          refName,
 						ServiceName: refName,
-						Status:      "external",
+						Status:      StatusUnresolvedNode,
 						Reason:      unresolvedReason(ref, reasonFn),
 					})
 				}
@@ -182,6 +190,25 @@ func buildGlobalGraph(services []Service, index map[string]*ServiceDetails, reas
 	}
 
 	return graph
+}
+
+// externalNode is the node of a dependency with no contract reference: keyed
+// external:<identity> so it never clashes with a service name, and named after
+// its catalog entry when one has an alias for it. The legacy views read only
+// the embedded default catalog: they have no organization catalog to merge.
+// A name that cannot be normalized keeps its declared spelling as the key.
+func externalNode(dep DependencyInfo) GraphNodeData {
+	n := GraphNodeData{ID: externalPrefix + dep.Name, ServiceName: dep.Name, Status: StatusExternalNode, Version: dep.Version}
+	cat := externalcatalog.Default()
+	id, _, err := externalcatalog.DeclaredIdentity(cat, dep.identity, dep.Name)
+	if err != nil {
+		return n
+	}
+	n.ID = externalPrefix + string(id)
+	if e, _, ok := cat.Entry(id); ok && e.Identity == id && e.Label != "" {
+		n.ServiceName = e.Label
+	}
+	return n
 }
 
 // unresolvedReason classifies why a dependency ref could not be resolved.

@@ -1,10 +1,12 @@
 package pactify
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -127,9 +129,10 @@ func (cl *cluster) draft(ctx context.Context, w unstructured.Unstructured, base 
 	writeFile func(string, []byte, os.FileMode) error) (*Result, error) {
 	dir := filepath.Join(out, w.GetNamespace(), w.GetName())
 	scanned, write := dir, writeFile
-	f := File{Path: "manifests.yaml", Action: Add, Content: cl.manifests(w)}
+	content, keys, urls := cl.manifests(w)
+	f := File{Path: "manifests.yaml", Action: Add, Content: content}
 	if _, err := os.Stat(filepath.Join(dir, f.Path)); err == nil {
-		f = File{Path: f.Path, Action: Keep}
+		f, keys, urls = File{Path: f.Path, Action: Keep}, nil, nil
 	} else {
 		if base.Plan {
 			tmp, err := os.MkdirTemp("", "pacto-init-cluster-")
@@ -154,6 +157,17 @@ func (cl *cluster) draft(ctx context.Context, w unstructured.Unstructured, base 
 	}
 	r.Dir, r.Path = dir, filepath.Join(dir, "pacto.yaml")
 	r.Files = append([]File{f}, r.Files...)
+	if len(keys) > 0 {
+		secret := w.GetName() + "-env"
+		values, them := literalValues(len(keys))
+		r.Next = append(r.Next, fmt.Sprintf("manifests.yaml: the cluster sets %s to %s; the draft reads %s from the Secret %s instead, "+
+			"so no value reaches the bundle. Before you apply it, create that Secret from a file of KEY=value lines: "+
+			"kubectl -n %s create secret generic %s --from-env-file=<file>", strings.Join(keys, ", "), values, them, secret, w.GetNamespace(), secret))
+	}
+	if len(urls) > 0 {
+		r.Next = append(r.Next, fmt.Sprintf("manifests.yaml: %s held a URL naming the service in brackets, which the draft now reads from a Secret, so the draft does not list "+
+			"that service as a dependency: add it under dependencies", strings.Join(urls, ", ")))
+	}
 	if !cl.observed {
 		r.Unknown = append(r.Unknown, "dependencies seen at runtime: the cluster holds no node runtime observations, so no calls were seen")
 	}
@@ -306,7 +320,7 @@ func (cl *cluster) described() map[string]bool {
 }
 
 // inferred maps each workload, as ns/Kind/name, to the services its pods
-// called since since.
+// called since since. Services that resolve to one contract are merged.
 func (cl *cluster) inferred(since time.Time) map[string][]Inferred {
 	pods := map[string]unstructured.Unstructured{}
 	for _, p := range cl.pods {
@@ -322,35 +336,206 @@ func (cl *cluster) inferred(since time.Time) map[string][]Inferred {
 				continue // not a pod read here, or the service calling itself
 			}
 			w := cl.owner(pod)
-			if !slices.ContainsFunc(out[w], func(d Inferred) bool { return d.Name == dep.Name }) {
-				out[w] = append(out[w], dep)
-			}
+			out[w] = mergeInferred(out[w], dep)
+		}
+	}
+	for _, list := range out {
+		for i := range list {
+			finishInferred(&list[i])
 		}
 	}
 	return out
 }
 
-// provider is the dependency a call to svc is on: pinned to the contract
-// version the Pacto describing svc runs, else only named.
+// mergeInferred adds d to list: an entry with d's name takes d's Services,
+// refs and versions. finishInferred settles what the merged entry proposes.
+func mergeInferred(list []Inferred, d Inferred) []Inferred {
+	i := slices.IndexFunc(list, func(e Inferred) bool { return e.Name == d.Name })
+	if i < 0 {
+		return append(list, d)
+	}
+	e := &list[i]
+	if !slices.ContainsFunc(d.services, func(s string) bool { return !slices.Contains(e.services, s) }) {
+		return list // another pod of the workload calling Services already merged
+	}
+	e.services = union(e.services, d.services)
+	e.Where = callsSeen(e.services)
+	e.refs, e.withRef, e.described = union(e.refs, d.refs), union(e.withRef, d.withRef), union(e.described, d.described)
+	for _, u := range d.Unknown {
+		if !slices.Contains(e.Unknown, u) {
+			e.Unknown = append(e.Unknown, u)
+		}
+	}
+	e.conflict = e.conflict || d.conflict
+	e.Versions = slices.Concat(e.Versions, d.Versions)
+	return list
+}
+
+// finishInferred settles a merged entry: its versions when every Service
+// whose Pactos name a contract names the same one, else none and one note
+// naming each ref. A proposal names a called Service no Pacto describes.
+func finishInferred(e *Inferred) {
+	if len(e.refs) > 1 {
+		e.Unknown = append(e.Unknown, fmt.Sprintf("the version of %s to propose a range from: %s name different contracts (%s), so no range is proposed",
+			e.Name, theServices(e.withRef), joinAnd(e.refs)))
+		e.conflict = true
+	}
+	if len(e.refs) > 0 {
+		e.Ref = e.refs[0]
+	}
+	if e.conflict {
+		e.Versions = nil
+		return
+	}
+	e.Versions = ascending(e.Versions)
+	if len(e.Versions) == 0 {
+		return
+	}
+	for _, s := range e.services {
+		if !slices.Contains(e.withRef, s) {
+			e.Unknown = append(e.Unknown, fmt.Sprintf("the version of %s: no reconciled Pacto describing it names a contract, so the proposal comes only from the Pactos describing %s",
+				s, theServices(e.described)))
+		}
+	}
+}
+
+// union is the sorted, distinct union of a and b.
+func union(a, b []string) []string {
+	out := slices.Concat(a, b)
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
+// callsSeen is where a dependency was found: the Services, as ns/name, its
+// calls were seen to.
+func callsSeen(services []string) string {
+	return "calls seen to " + theServices(services)
+}
+
+// theServices names services as "the Service a" or "the Services a and b",
+// "" when there are none.
+func theServices(services []string) string {
+	switch len(services) {
+	case 0:
+		return ""
+	case 1:
+		return "the Service " + services[0]
+	}
+	return "the Services " + joinAnd(services)
+}
+
+// joinAnd joins parts as "a, b and c".
+func joinAnd(parts []string) string {
+	if len(parts) < 2 {
+		return strings.Join(parts, "")
+	}
+	return strings.Join(parts[:len(parts)-1], ", ") + " and " + parts[len(parts)-1]
+}
+
+// ascending sorts semver versions ascending and drops repeats and anything
+// that is not a version.
+func ascending(versions []string) []string {
+	vs := make([]*semver.Version, 0, len(versions))
+	for _, s := range versions {
+		if v, err := semver.StrictNewVersion(s); err == nil {
+			vs = append(vs, v)
+		}
+	}
+	slices.SortFunc(vs, func(a, b *semver.Version) int { return a.Compare(b) })
+	vs = slices.CompactFunc(vs, func(a, b *semver.Version) bool { return a.Equal(b) })
+	out := make([]string, len(vs))
+	for i, v := range vs {
+		out[i] = v.String()
+	}
+	return out
+}
+
+// description is what one reconciled Pacto says about the Service it
+// describes: name is "" when its status names no contract, version is ""
+// when it reports no usable one.
+type description struct {
+	version, name, ref, pacto string
+}
+
+// provider is the dependency a call to svc is on, with every contract
+// version the reconciled Pactos describing svc report, when they agree on
+// one contract. A Pacto whose status is not reconciled with its spec, or
+// that reports no usable version, adds a note and no version; one with a
+// ref still has to agree on it.
 func (cl *cluster) provider(svc unstructured.Unstructured) Inferred {
-	d := Inferred{Name: svc.GetName(), Where: "calls seen to the Service " + svc.GetNamespace() + "/" + svc.GetName()}
+	svcID := svc.GetNamespace() + "/" + svc.GetName()
+	d := Inferred{Name: svc.GetName(), Where: callsSeen([]string{svcID}), services: []string{svcID}}
+	var found []description
 	for _, p := range cl.pactos {
 		target, _, _ := unstructured.NestedString(p.Object, "spec", "target", "serviceName")
 		if p.GetNamespace() != svc.GetNamespace() || target != svc.GetName() {
 			continue
 		}
+		pacto := p.GetNamespace() + "/" + p.GetName()
+		note := "the version of " + svcID + " that Pacto " + pacto + " describes: "
+		if og, _, _ := unstructured.NestedInt64(p.Object, "status", "observedGeneration"); og != p.GetGeneration() {
+			d.Unknown = append(d.Unknown, note+"its status is not reconciled with its spec, so no range is proposed from it")
+			continue
+		}
+		f := description{pacto: pacto}
 		if n, _, _ := unstructured.NestedString(p.Object, "status", "contract", "serviceName"); nameRE.MatchString(n) {
-			d.Name = n
+			f.name = n
 		}
 		version, _, _ := unstructured.NestedString(p.Object, "status", "contract", "version")
 		ref, _, _ := unstructured.NestedString(p.Object, "status", "contract", "resolvedRef")
 		if ref == "" {
 			ref, _, _ = unstructured.NestedString(p.Object, "spec", "contractRef", "oci")
 		}
-		ref = "oci://" + refRepo(ref)
-		if v, err := semver.StrictNewVersion(version); err == nil && refRE.MatchString(ref) {
-			d.Version, d.Ref = v.String(), ref
+		f.ref = "oci://" + refRepo(ref)
+		if v, err := semver.StrictNewVersion(version); err == nil {
+			f.version = v.String()
 		}
+		switch {
+		case !refRE.MatchString(f.ref):
+			d.Unknown = append(d.Unknown, note+"its status and spec name no usable contract ref, so no range is proposed from it")
+			continue
+		case f.version == "":
+			d.Unknown = append(d.Unknown, note+"its status reports no contract version, so no range is proposed from it")
+		}
+		found = append(found, f)
+	}
+	return fromPactos(d, found)
+}
+
+// fromPactos completes d from the Pactos describing its Service: their
+// versions when they agree on one contract, else the first contract by ref
+// and a note naming each one.
+func fromPactos(d Inferred, found []description) Inferred {
+	if len(found) == 0 {
+		return d
+	}
+	slices.SortFunc(found, func(a, b description) int {
+		return cmp.Or(cmp.Compare(a.ref, b.ref), cmp.Compare(a.name, b.name), cmp.Compare(a.pacto, b.pacto))
+	})
+	d.Ref, d.refs, d.withRef = found[0].ref, []string{found[0].ref}, d.services
+	var names []string
+	for _, f := range found {
+		if f.name != "" && !slices.Contains(names, f.name) {
+			names = append(names, f.name)
+		}
+	}
+	if len(names) > 0 {
+		d.Name = names[0]
+	}
+	if found[0].ref != found[len(found)-1].ref || len(names) > 1 {
+		var each []string
+		for _, f := range found {
+			each = append(each, cmp.Or(f.name, "an unnamed contract")+" at "+f.ref+" in Pacto "+f.pacto)
+		}
+		d.Unknown = append(d.Unknown, "the version of "+d.services[0]+" to propose a range from: the Pactos describing it name different contracts ("+joinAnd(each)+"), so no range is proposed")
+		d.conflict = true
+		return d
+	}
+	for _, f := range found {
+		d.Versions = append(d.Versions, f.version)
+	}
+	if d.Versions = ascending(d.Versions); len(d.Versions) > 0 {
+		d.described = d.services
 	}
 	return d
 }
@@ -419,20 +604,101 @@ func selects(sel, labels map[string]string) bool {
 }
 
 // manifests is the workload and the Services that select its pods, as
-// manifests a folder holds: no namespace, status or server-set fields.
-func (cl *cluster) manifests(w unstructured.Unstructured) string {
-	labels, _, _ := unstructured.NestedStringMap(w.Object, "spec", "template", "metadata", "labels")
-	if w.GetKind() == "CronJob" {
-		labels, _, _ = unstructured.NestedStringMap(w.Object, "spec", "jobTemplate", "spec", "template", "metadata", "labels")
+// manifests a folder holds: no namespace, status or server-set fields. A
+// sensitive literal in the workload's environment reads from the Secret
+// <name>-env instead; it returns that Secret's keys and the rewritten
+// variables whose URL named a dependency (secretEnv). w is never changed.
+func (cl *cluster) manifests(w unstructured.Unstructured) (string, []string, []string) {
+	c := w.DeepCopy()
+	labels, _, _ := unstructured.NestedStringMap(c.Object, "spec", "template", "metadata", "labels")
+	if c.GetKind() == "CronJob" {
+		labels, _, _ = unstructured.NestedStringMap(c.Object, "spec", "jobTemplate", "spec", "template", "metadata", "labels")
 	}
-	docs := []string{plain(w)}
+	var services []unstructured.Unstructured
+	objects := map[string]bool{w.GetName(): true}
 	for _, s := range cl.services {
 		sel, _, _ := unstructured.NestedStringMap(s.Object, "spec", "selector")
 		if s.GetNamespace() == w.GetNamespace() && selects(sel, labels) {
-			docs = append(docs, plain(s))
+			services, objects[s.GetName()] = append(services, s), true
 		}
 	}
-	return strings.Join(docs, "---\n")
+	keys, urls := secretEnv(c, w.GetName()+"-env", objects)
+	docs := []string{plain(*c)}
+	for _, s := range services {
+		docs = append(docs, plain(s))
+	}
+	return strings.Join(docs, "---\n"), keys, urls
+}
+
+// secretEnv rewrites every env entry of w's containers and initContainers
+// whose literal value is sensitive, by name or as a URL with credentials, to
+// read the key of the same name from the Secret secret. A name set to
+// different literals in two containers reads <container>.<name>, so the two
+// never share one value. It returns the Secret's keys and, for each rewritten
+// container variable the scan would have read a dependency from, "NAME
+// (service)", both sorted; objects are the names the draft defines, which the
+// scan never reads as a dependency. The values are compared in memory and
+// never kept.
+// ponytail: args and command literals stay as they are; 513-S2 strips them.
+func secretEnv(w *unstructured.Unstructured, secret string, objects map[string]bool) ([]string, []string) {
+	pod := []string{"spec", "template", "spec"}
+	if w.GetKind() == "CronJob" {
+		pod = []string{"spec", "jobTemplate", "spec", "template", "spec"}
+	}
+	fields := []string{"containers", "initContainers"}
+	lists := make([][]any, len(fields))
+	for i, f := range fields {
+		lists[i], _, _ = unstructured.NestedSlice(w.Object, slices.Concat(pod, []string{f})...)
+	}
+	seen, split := map[string]string{}, map[string]bool{}
+	sensitiveEnv(lists, func(_ int, _ string, e map[string]any) {
+		name, value := e["name"].(string), e["value"].(string)
+		if v, ok := seen[name]; ok && v != value {
+			split[name] = true
+		}
+		seen[name] = value
+	})
+	keys, urls := map[string]bool{}, map[string]bool{}
+	sensitiveEnv(lists, func(list int, container string, e map[string]any) {
+		k := e["name"].(string)
+		// The scan reads containers only (scan.go readWorkload).
+		sc := &scan{env: []envVar{{name: k, value: e["value"].(string)}}, objects: objects}
+		if d := sc.dependencies(w.GetName()); list == 0 && len(d) > 0 {
+			urls[k+" ("+d[0].Name+")"] = true
+		}
+		if split[k] {
+			k = container + "." + k
+		}
+		delete(e, "value")
+		e["valueFrom"] = map[string]any{"secretKeyRef": map[string]any{"name": secret, "key": k}}
+		keys[k] = true
+	})
+	for i, f := range fields {
+		if lists[i] != nil {
+			_ = unstructured.SetNestedSlice(w.Object, lists[i], slices.Concat(pod, []string{f})...) // ponytail: the path held a slice a moment ago
+		}
+	}
+	return slices.Sorted(maps.Keys(keys)), slices.Sorted(maps.Keys(urls))
+}
+
+// sensitiveEnv calls fn with each env entry whose literal value is sensitive,
+// with the index of its list in lists and its container's name.
+func sensitiveEnv(lists [][]any, fn func(list int, container string, e map[string]any)) {
+	for i, list := range lists {
+		for _, c := range list {
+			cm, _ := c.(map[string]any)
+			name, _ := cm["name"].(string)
+			envs, _ := cm["env"].([]any)
+			for _, e := range envs {
+				em, _ := e.(map[string]any)
+				key, _ := em["name"].(string)
+				value, _ := em["value"].(string)
+				if sensitiveLiteral(key, value) {
+					fn(i, name, em)
+				}
+			}
+		}
+	}
 }
 
 // plain is o as a manifest: apiVersion, kind, name, labels and spec, less

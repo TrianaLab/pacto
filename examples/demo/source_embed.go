@@ -4,6 +4,7 @@
 package main
 
 import (
+	_ "embed"
 	"fmt"
 	"io/fs"
 	"path"
@@ -15,6 +16,13 @@ import (
 )
 
 const contractFile = "pacto.yaml"
+
+// demoExternalCatalog is the demo organization's external catalog extension.
+// It names the demo's ref-less external dependencies, so consumers that spell
+// one differently join one external system.
+//
+//go:embed external-catalog.yaml
+var demoExternalCatalog []byte
 
 // versionEntry is one parsed contract version held in memory.
 type versionEntry struct {
@@ -67,6 +75,8 @@ func NewEmbedSource(fsys fs.FS) (*EmbedSource, error) {
 		if err != nil {
 			return nil
 		}
+		b := &contract.Bundle{Contract: c, RawYAML: raw, FS: sub}
+		b.Complete(path.Base(path.Dir(p)))
 		name, ver := c.Service.Name, c.Service.Version
 		if s.byName[name] == nil {
 			s.byName[name] = make(map[string]*versionEntry)
@@ -76,7 +86,7 @@ func NewEmbedSource(fsys fs.FS) (*EmbedSource, error) {
 		// lock only where a reference must resolve (catalog-service 1.3.0 to
 		// postgresql 16.1.0); the fleet build reads it from the bundle FS.
 		s.byName[name][ver] = &versionEntry{
-			bundle: &contract.Bundle{Contract: c, RawYAML: raw, FS: sub},
+			bundle: b,
 			doc:    doc,
 			hash:   strings.TrimPrefix(h, "sha256:"),
 		}
@@ -91,4 +101,13 @@ func NewEmbedSource(fsys fs.FS) (*EmbedSource, error) {
 	}
 	sort.Strings(s.names)
 	return s, nil
+}
+
+// requestedRef is the tag a revision is requested under. A contract with no
+// declared service.version has no tag, so its ref is the bare repository.
+func requestedRef(registry, name, ver string) string {
+	if ver == "" {
+		return registry + name
+	}
+	return registry + name + ":" + ver
 }

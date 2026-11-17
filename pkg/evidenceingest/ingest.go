@@ -190,6 +190,10 @@ type Record struct {
 	Service string `json:"service"`
 	Domain  string `json:"domain,omitempty"`
 	Digest  string `json:"digest,omitempty"`
+	// Cluster is the id of the cluster whose server accepted the record, empty
+	// when unknown. It lives beside the payload (an OCI manifest annotation),
+	// never in it, so a server that predates it still reads the record.
+	Cluster string `json:"-"`
 }
 
 // Store durably persists accepted records. Commit is the acceptance authority:
@@ -466,6 +470,14 @@ type Handler struct {
 	// maxTargets and maxFindings bound GET /targets; NewHandler sets
 	// maxSourceTargets and maxFindingsPerTarget.
 	maxTargets, maxFindings int
+	// cluster is the cluster this server runs in, echoed on GET /targets.
+	cluster *ClusterDTO
+}
+
+// WithCluster sets the cluster this server runs in, echoed on GET /targets.
+func (h *Handler) WithCluster(c *ClusterDTO) *Handler {
+	h.cluster = c
+	return h
 }
 
 // NewHandler returns an HTTP handler for the accept pipeline. producers is the
@@ -565,6 +577,12 @@ const TargetsSchemaVersionProvisioning = "pacto.dev/evidence-source/v3"
 // against a server with none, and refuses a body it would misread.
 const TargetsSchemaVersionUsage = "pacto.dev/evidence-source/v4"
 
+// TargetsSchemaVersionCluster is v4 plus the server cluster and each target's
+// accepting cluster. The server writes it only when the response names a
+// cluster, so a v4 reader keeps working against a server with none, and refuses
+// a body it would misread.
+const TargetsSchemaVersionCluster = "pacto.dev/evidence-source/v5"
+
 // maxFindingsPerTarget bounds the findings projected per target so one pathological
 // target cannot blow the response body even under the target-count bound.
 const maxFindingsPerTarget = 500
@@ -630,6 +648,15 @@ type TargetDTO struct {
 	ContractRef   string              `json:"contractRef,omitempty"`
 	EvidenceAt    time.Time           `json:"evidenceAt"`
 	AcceptedAt    time.Time           `json:"acceptedAt"`
+	// Cluster is the id of the cluster whose server accepted the record.
+	Cluster string `json:"cluster,omitempty"`
+}
+
+// ClusterDTO is the cluster an Evidence Server runs in, as its operator set it.
+type ClusterDTO struct {
+	ID         string `json:"id"`
+	Name       string `json:"name,omitempty"`
+	NameSource string `json:"nameSource,omitempty"`
 }
 
 // ProvisioningDTO is one provider-reported provisioning observation: the state
@@ -690,6 +717,7 @@ type TargetsResponse struct {
 	Targets       []TargetDTO       `json:"targets"`
 	Provisioning  []ProvisioningDTO `json:"provisioning,omitempty"`
 	Usage         []UsageDTO        `json:"usage,omitempty"`
+	Cluster       *ClusterDTO       `json:"cluster,omitempty"`
 }
 
 // handleTargets serves the versioned, bounded, read-only evidence-source DTO. It
@@ -710,7 +738,9 @@ func (h *Handler) handleTargets(w http.ResponseWriter, r *http.Request) {
 		GeneratedAt:   time.Now().UTC(),
 		Health:        res.Health,
 		Targets:       []TargetDTO{},
+		Cluster:       h.cluster,
 	}
+	clustered := h.cluster != nil
 	// Targets and provider-reported observations share one budget, so provider
 	// reports cannot grow the response past the bound targets alone respect.
 	budget := h.maxTargets
@@ -724,9 +754,12 @@ func (h *Handler) handleTargets(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		out.Targets = append(out.Targets, h.targetDTO(rec, &out.Truncated))
+		clustered = clustered || rec.Cluster != ""
 		budget--
 	}
 	switch {
+	case clustered:
+		out.SchemaVersion = TargetsSchemaVersionCluster
 	case len(out.Usage) > 0:
 		out.SchemaVersion = TargetsSchemaVersionUsage
 	case len(out.Provisioning) > 0:
@@ -755,6 +788,7 @@ func (h *Handler) targetDTO(rec Record, truncated *bool) TargetDTO {
 		ContractRef:   es.ContractRef,
 		EvidenceAt:    es.ObservedAt,
 		AcceptedAt:    rec.AcceptedAt,
+		Cluster:       rec.Cluster,
 	}
 }
 

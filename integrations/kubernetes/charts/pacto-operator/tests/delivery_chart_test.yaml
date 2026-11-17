@@ -13,8 +13,6 @@ templates:
 release:
   name: d
   namespace: pacto-system
-set:
-  delivery.identities.allowEmptyHumanGroups: true
 tests:
   - it: renders no promoter by default
     template: templates/delivery/deployment.yaml

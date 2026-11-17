@@ -2,20 +2,25 @@ suite: rbac tests
 templates:
   - templates/clusterrole.yaml
 tests:
-  - it: should create a ClusterRole
-    asserts:
-      - isKind:
-          of: ClusterRole
-
-  - it: should include dashboard RBAC by default
+  - it: should read Istio ServiceEntries when the cluster serves them
+    capabilities:
+      apiVersions: [networking.istio.io/v1]
     asserts:
       - contains:
           path: rules
           content:
-            apiGroups: [rbac.authorization.k8s.io]
-            resources: [clusterroles, clusterrolebindings]
-            verbs: [create, delete, get, list, patch, update, watch]
-        any: true
+            apiGroups: [networking.istio.io]
+            resources: [serviceentries]
+            verbs: [get, list, watch]
+
+  - it: should not read Istio ServiceEntries without the Istio API
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [networking.istio.io]
+            resources: [serviceentries]
+            verbs: [get, list, watch]
 
   - it: should not include dashboard RBAC when dashboard is disabled
     set:
@@ -29,24 +34,6 @@ tests:
             verbs: [create, delete, get, list, patch, update, watch]
         any: true
 
-  - it: should let the operator grant the dashboard SubjectAccessReview
-    asserts:
-      - contains:
-          path: rules
-          content:
-            apiGroups: [authorization.k8s.io]
-            resources: [subjectaccessreviews]
-            verbs: [create]
-
-  - it: should let the operator grant the dashboard read-only Stages and Operations
-    asserts:
-      - contains:
-          path: rules
-          content:
-            apiGroups: [delivery.pacto.trianalab.io]
-            resources: [stages, operations]
-            verbs: [get, list, watch]
-
   - it: should not read Stages and Operations when the dashboard is disabled
     set:
       dashboard.enabled: false
@@ -57,15 +44,6 @@ tests:
             apiGroups: [delivery.pacto.trianalab.io]
             resources: [stages, operations]
             verbs: [get, list, watch]
-
-  - it: should let the operator grant the dashboard namespace list
-    asserts:
-      - contains:
-          path: rules
-          content:
-            apiGroups: [""]
-            resources: [namespaces]
-            verbs: [list]
 
   - it: should not list namespaces when the dashboard is disabled
     set:
@@ -102,43 +80,20 @@ tests:
             resourceNames: [pacto-dashboard]
         any: true
 
-  - it: should let the cached client list and watch configmaps
+  - it: the operator ClusterRole reads the kube-system namespace by name with delivery off
+    set:
+      delivery.enabled: false
+      dashboard.enabled: false
     asserts:
       - contains:
           path: rules
           content:
             apiGroups: [""]
-            resources: [configmaps]
-            verbs: [get, list, watch]
+            resources: [namespaces]
+            resourceNames: [kube-system]
+            verbs: [get]
 
-  - it: should always grant the kernel evidence and exposure reads
-    asserts:
-      - contains:
-          path: rules
-          content:
-            apiGroups: [""]
-            resources: [pods]
-            verbs: [get, list, watch]
-      - contains:
-          path: rules
-          content:
-            apiGroups: [pacto.trianalab.io]
-            resources: [noderuntimeobservations]
-            verbs: [delete, get, list, watch]
-      - contains:
-          path: rules
-          content:
-            apiGroups: [networking.k8s.io]
-            resources: [ingresses]
-            verbs: [get, list, watch]
-      - contains:
-          path: rules
-          content:
-            apiGroups: [gateway.networking.k8s.io]
-            resources: [httproutes]
-            verbs: [get, list, watch]
-
-  - it: should grant monitor reads only with metrics observation
+  - it: should not grant monitor reads under auto
     asserts:
       - notContains:
           path: rules
@@ -147,9 +102,9 @@ tests:
             resources: [servicemonitors, podmonitors]
             verbs: [get, list, watch]
 
-  - it: should grant monitor reads when metrics observation is enabled
+  - it: should grant monitor reads with metricsObservation on
     set:
-      controller.enableMetricsObservation: true
+      controller.metricsObservation: "on"
     asserts:
       - contains:
           path: rules
@@ -157,3 +112,48 @@ tests:
             apiGroups: [monitoring.coreos.com]
             resources: [servicemonitors, podmonitors]
             verbs: [get, list, watch]
+
+  - it: should drop monitor reads when metricsObservation is explicitly auto
+    set:
+      controller.metricsObservation: auto
+      controller.enableMetricsObservation: true
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [monitoring.coreos.com]
+            resources: [servicemonitors, podmonitors]
+            verbs: [get, list, watch]
+
+  - it: should grant namespace get only while a mode is auto (default)
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [namespaces]
+            verbs: [get]
+
+  - it: should grant namespace get only while a mode is auto (both on)
+    set:
+      controller.probing: "on"
+      controller.metricsObservation: "on"
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [namespaces]
+            verbs: [get]
+
+  - it: should grant namespace get only while a mode is auto (both off)
+    set:
+      controller.probing: "off"
+      controller.metricsObservation: "off"
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [namespaces]
+            verbs: [get]

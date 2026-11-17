@@ -1,0 +1,44 @@
+suite: notes
+templates:
+  - templates/NOTES.txt
+release:
+  name: pacto-operator
+  namespace: pacto-operator-system
+  upgrade: true
+tests:
+  - it: names the stale pacto-dashboard ClusterRole on an upgrade to a namespace list
+    set:
+      controller.watchNamespaces: [payments]
+    kubernetesProvider:
+      scheme:
+        "rbac.authorization.k8s.io/v1/ClusterRole":
+          gvr: {group: rbac.authorization.k8s.io, version: v1, resource: clusterroles}
+          namespaced: false
+      objects:
+        - kind: ClusterRole
+          apiVersion: rbac.authorization.k8s.io/v1
+          metadata: {name: pacto-dashboard}
+    asserts:
+      - matchRegexRaw:
+          pattern: "kubectl delete clusterrole,clusterrolebinding pacto-dashboard"
+
+  - it: says nothing when no pacto-dashboard ClusterRole is left
+    set:
+      controller.watchNamespaces: [payments]
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "kubectl delete clusterrole"
+
+  - it: says nothing in cluster-wide mode
+    kubernetesProvider:
+      scheme:
+        "rbac.authorization.k8s.io/v1/ClusterRole":
+          gvr: {group: rbac.authorization.k8s.io, version: v1, resource: clusterroles}
+          namespaced: false
+      objects:
+        - kind: ClusterRole
+          apiVersion: rbac.authorization.k8s.io/v1
+          metadata: {name: pacto-dashboard}
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "kubectl delete clusterrole"

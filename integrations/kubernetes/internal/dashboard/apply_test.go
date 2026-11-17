@@ -69,33 +69,6 @@ func TestDeploymentAC_WithOwnerRef(t *testing.T) {
 	}
 }
 
-func TestDeploymentAC_WithWatchNamespace(t *testing.T) {
-	cfg := Config{
-		Enabled:        true,
-		Image:          "img:v1",
-		Namespace:      "test-ns",
-		WatchNamespace: "production",
-	}
-	ac := deploymentAC(cfg)
-	deploy, ok := ac.(*appsv1ac.DeploymentApplyConfiguration)
-	if !ok {
-		t.Fatalf("expected *DeploymentApplyConfiguration, got %T", ac)
-	}
-	container := deploy.Spec.Template.Spec.Containers[0]
-	var found bool
-	for _, env := range container.Env {
-		if *env.Name == "PACTO_DASHBOARD_NAMESPACE" {
-			found = true
-			if *env.Value != "production" {
-				t.Errorf("expected PACTO_DASHBOARD_NAMESPACE=production, got %q", *env.Value)
-			}
-		}
-	}
-	if !found {
-		t.Error("expected PACTO_DASHBOARD_NAMESPACE env var, the one the dashboard reads")
-	}
-}
-
 func TestDeploymentAC_Auth(t *testing.T) {
 	cfg := Config{Enabled: true, Image: "img:v1", Namespace: "ns", MiraURL: "http://mira:8080",
 		Auth: AuthConfig{IssuerURL: "https://idp", ClientID: "pacto-dashboard", RedirectURL: "https://dash/auth/callback",
@@ -201,7 +174,7 @@ func TestDeploymentAC_AuthVolumes(t *testing.T) {
 // asking the apiserver what a signed-in person may read; it lists namespaces
 // only to know whom to ask.
 func TestDashboardRoleReadsDeliveryOnly(t *testing.T) {
-	role := clusterRoleAC().(*rbacv1ac.ClusterRoleApplyConfiguration)
+	role := clusterRoleAC(false).(*rbacv1ac.ClusterRoleApplyConfiguration)
 	sar, reads := false, false
 	for _, r := range role.Rules {
 		if slices.Equal(r.APIGroups, []string{"authorization.k8s.io"}) && slices.Equal(r.Resources, []string{"subjectaccessreviews"}) &&
@@ -216,8 +189,9 @@ func TestDashboardRoleReadsDeliveryOnly(t *testing.T) {
 			}
 			continue
 		}
-		if slices.Equal(r.APIGroups, []string{""}) && slices.Equal(r.Resources, []string{"namespaces"}) && !slices.Equal(r.Verbs, []string{"list"}) {
-			t.Errorf("the dashboard role may %v namespaces", r.Verbs)
+		if slices.Equal(r.APIGroups, []string{""}) && slices.Equal(r.Resources, []string{"namespaces"}) && !slices.Equal(r.Verbs, []string{"list"}) &&
+			(!slices.Equal(r.Verbs, []string{"get"}) || !slices.Equal(r.ResourceNames, []string{"kube-system"})) {
+			t.Errorf("the dashboard role may %v namespaces %v", r.Verbs, r.ResourceNames)
 		}
 		for _, g := range r.APIGroups {
 			if g == "*" {
@@ -235,6 +209,30 @@ func TestDashboardRoleReadsDeliveryOnly(t *testing.T) {
 	}
 	if !reads {
 		t.Error("the dashboard role cannot fill its shared cache of Stages and Operations")
+	}
+}
+
+// TestDashboardClusterRoleReadsClusterIdentity: the dashboard's live source
+// names its cluster by the kube-system namespace UID, so the role reads that
+// one namespace by name and keeps listing namespace names as before.
+func TestDashboardClusterRoleReadsClusterIdentity(t *testing.T) {
+	role := clusterRoleAC(false).(*rbacv1ac.ClusterRoleApplyConfiguration)
+	var gets, lists int
+	for _, r := range role.Rules {
+		if !slices.Equal(r.APIGroups, []string{""}) || !slices.Equal(r.Resources, []string{"namespaces"}) {
+			continue
+		}
+		switch {
+		case slices.Equal(r.Verbs, []string{"get"}) && slices.Equal(r.ResourceNames, []string{"kube-system"}):
+			gets++
+		case slices.Equal(r.Verbs, []string{"list"}) && len(r.ResourceNames) == 0:
+			lists++
+		default:
+			t.Errorf("unexpected namespaces rule: verbs %v names %v", r.Verbs, r.ResourceNames)
+		}
+	}
+	if gets != 1 || lists != 1 {
+		t.Errorf("want one kube-system get rule and one list rule, got %d and %d", gets, lists)
 	}
 }
 
@@ -367,6 +365,32 @@ func TestDeploymentRepositoriesEnv(t *testing.T) {
 				t.Errorf("PACTO_DASHBOARD_REPO=%q (set %v), want %q (set %v)", got, set, tc.want, tc.set)
 			}
 		})
+	}
+}
+
+func externalCatalogEnv(cfg Config) (string, bool) {
+	deploy := deploymentAC(cfg).(*appsv1ac.DeploymentApplyConfiguration)
+	for _, env := range deploy.Spec.Template.Spec.Containers[0].Env {
+		if *env.Name == "PACTO_DASHBOARD_EXTERNAL_CATALOG" {
+			return *env.Value, true
+		}
+	}
+	return "", false
+}
+
+// The dashboard strips oci:// from the catalog reference itself, so the
+// operator passes it verbatim.
+func TestApplySetsExternalCatalogEnv(t *testing.T) {
+	ref := "oci://ghcr.io/acme/catalog@sha256:" + strings.Repeat("a", 64)
+	got, set := externalCatalogEnv(Config{Enabled: true, Image: "img:v1", Namespace: "test-ns", ExternalCatalog: ref})
+	if !set || got != ref {
+		t.Errorf("PACTO_DASHBOARD_EXTERNAL_CATALOG=%q (set %v), want %q", got, set, ref)
+	}
+}
+
+func TestApplyOmitsEmptyExternalCatalog(t *testing.T) {
+	if got, set := externalCatalogEnv(Config{Enabled: true, Image: "img:v1", Namespace: "test-ns"}); set {
+		t.Errorf("PACTO_DASHBOARD_EXTERNAL_CATALOG=%q is set without a catalog", got)
 	}
 }
 

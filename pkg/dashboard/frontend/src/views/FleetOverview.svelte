@@ -4,7 +4,7 @@
   import { formatCount } from '../lib/format.ts';
   import { snapshotKnowledge, decideViewState, allClearAllowed } from '../lib/knowledgeState.ts';
   import { splitEntryPoints, businessDomainLabel, UNKNOWN_DOMAIN, NO_DOMAIN, GAP_WORDS } from '../lib/entityLabels.ts';
-  import { fleetAttentionUrl, fleetSourcesUrl, fleetServicesUrl, fleetOwnersUrl, fleetEntityListUrl, fleetDomainsUrl, fleetEntityUrl, fleetGoldenPathsUrl } from '../lib/router.ts';
+  import { fleetAttentionUrl, fleetSourcesUrl, fleetServicesUrl, fleetOwnersUrl, fleetEntityListUrl, fleetDomainsUrl, fleetEntityUrl, fleetGoldenPathsUrl, fleetExternalsUrl } from '../lib/router.ts';
   import { ownershipSegments, ownershipHrefs, readinessSegments, complianceSegments, statusHrefs, healthSegments, knowledgeSegments, KNOWLEDGE_GAPS } from '../lib/distributions.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { formatDateTime, formatDate } from '../lib/dateFormat.ts';
@@ -103,6 +103,11 @@
   // count on this page.
   const goldenPaths = $derived(s.goldenPaths || 0);
   const invalidGoldenPaths = $derived(s.invalidGoldenPaths || 0);
+  // The external systems the services declare, counted apart from the declared services
+  // (509-S1 inserts the inferred ones between them); those only hidden services declare
+  // are counted, never named.
+  const externals = $derived(s.externals || 0);
+  const hiddenExternals = $derived(s.hiddenExternals || 0);
   const isEmptyFleet = $derived(!!overview && totalServices === 0 && goldenPaths === 0);
   // All-clear needs complete knowledge, zero attention AND a populated fleet.
   // A failing or unknown health check withholds it too, whatever the attention count.
@@ -249,7 +254,11 @@
           segments={svcCompliance} total={svcAgg.services ?? 0} emptyLabel="No services are tracked yet." /></div>
       {/if}
       <dl class="facts">
-        <dt>Services</dt><dd><a href={fleetServicesUrl()}>{formatCount(totalServices)}</a></dd>
+        {#if externals || hiddenExternals}
+          <dt>Services</dt><dd data-testid="overview-services-line">{formatCount(totalServices + externals)}: <a href={fleetServicesUrl()}>{formatCount(totalServices)} declared</a>, <a href={fleetExternalsUrl()} data-testid="overview-externals">{formatCount(externals)} external</a>{#if hiddenExternals}{' '}<span class="t-meta" title="External systems only services you cannot see declare">({formatCount(hiddenExternals)} hidden)</span>{/if}</dd>
+        {:else}
+          <dt>Services</dt><dd><a href={fleetServicesUrl()}>{formatCount(totalServices)}</a></dd>
+        {/if}
         <dt>Revisions</dt><dd><a href={fleetEntityListUrl('revision')}>{formatCount(totalRevisions)}</a></dd>
         <dt>Targets</dt><dd><a href={fleetEntityListUrl('target')}>{formatCount(totalTargets)}</a></dd>
       </dl>
@@ -429,7 +438,7 @@
       </div>
       <!-- The trust figure at the top of the page counts the sources by state (one
            carrier per fact, L3); this section names them, least healthy first. -->
-      <SourceHealth sources={overview.meta?.sources || []} truncated={overview.meta?.sourcesTruncated} />
+      <SourceHealth sources={overview.meta?.sources || []} truncated={overview.meta?.sourcesTruncated} limitations={overview.meta?.limitations || []} />
     </section>
 
     <section class="ov-section" id="sec-attention" data-toc="Needs attention" aria-labelledby="ov-attention">

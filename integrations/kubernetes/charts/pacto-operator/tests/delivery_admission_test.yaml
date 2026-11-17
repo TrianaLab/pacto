@@ -6,7 +6,6 @@ release:
   namespace: pacto-system
 set:
   delivery.enabled: true
-  delivery.identities.allowEmptyHumanGroups: true
 capabilities:
   apiVersions:
     - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
@@ -55,14 +54,14 @@ tests:
       apiVersions:
         - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
     documentSelector:
-      path: 'spec.validations[?(@.message == "an agent must name the person it acts for in spec.onBehalfOf, a person other than itself and never a service account or the promoter: that person may not approve the change")].message'
-      value: "an agent must name the person it acts for in spec.onBehalfOf, a person other than itself and never a service account or the promoter: that person may not approve the change"
+      path: 'spec.validations[?(@.message == "an agent must name the person it acts for in spec.onBehalfOf, a person other than itself and never a service account, a system user or the promoter: that person may not approve the change")].message'
+      value: "an agent must name the person it acts for in spec.onBehalfOf, a person other than itself and never a service account, a system user or the promoter: that person may not approve the change"
     asserts:
       - equal:
-          path: 'spec.validations[?(@.message == "an agent must name the person it acts for in spec.onBehalfOf, a person other than itself and never a service account or the promoter: that person may not approve the change")].expression'
-          value: "!variables.agent || variables.breakGlass || request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-operator-delivery' || (has(object.spec.onBehalfOf) && size(object.spec.onBehalfOf.user.trim()) > 0 && object.spec.onBehalfOf.user.trim().lowerAscii() != request.userInfo.username.trim().lowerAscii() && !object.spec.onBehalfOf.user.trim().startsWith('system:serviceaccount:') && object.spec.onBehalfOf.user.trim().lowerAscii() != 'system:serviceaccount:pacto-delivery:d-pacto-operator-delivery'.lowerAscii())"
+          path: 'spec.validations[?(@.message == "an agent must name the person it acts for in spec.onBehalfOf, a person other than itself and never a service account, a system user or the promoter: that person may not approve the change")].expression'
+          value: "!variables.agent || variables.breakGlass || request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-operator-delivery' || (has(object.spec.onBehalfOf) && size(object.spec.onBehalfOf.user.trim()) > 0 && object.spec.onBehalfOf.user.trim().lowerAscii() != request.userInfo.username.trim().lowerAscii() && !object.spec.onBehalfOf.user.trim().startsWith('system:') && object.spec.onBehalfOf.user.trim().lowerAscii() != 'system:serviceaccount:pacto-delivery:d-pacto-operator-delivery'.lowerAscii())"
       - equal:
-          path: 'spec.validations[?(@.message == "an agent must name the person it acts for in spec.onBehalfOf, a person other than itself and never a service account or the promoter: that person may not approve the change")].reason'
+          path: 'spec.validations[?(@.message == "an agent must name the person it acts for in spec.onBehalfOf, a person other than itself and never a service account, a system user or the promoter: that person may not approve the change")].reason'
           value: Forbidden
 
   - it: lets only the promoter set witnessed
@@ -140,21 +139,21 @@ tests:
     asserts:
       - equal:
           path: 'spec.validations[?(@.message == "an agent may cancel only an operation it proposed itself; a person or break-glass cancels the rest")].expression'
-          value: "oldObject.spec.actor.user == request.userInfo.username || request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-operator-delivery' || request.userInfo.username == 'system:serviceaccount:kube-system:namespace-controller' || request.userInfo.groups.exists(g, g in ['pacto:break-glass']) || !(request.userInfo.username.startsWith('system:serviceaccount:') || request.userInfo.groups.exists(g, g in ['pacto:agents']))"
+          value: "oldObject.spec.actor.user == request.userInfo.username || request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-operator-delivery' || request.userInfo.username == 'system:serviceaccount:kube-system:namespace-controller' || request.userInfo.groups.exists(g, g in ['pacto:break-glass']) || !(request.userInfo.username.startsWith('system:') || 'system:unauthenticated' in request.userInfo.groups || request.userInfo.groups.exists(g, g in ['pacto:agents']))"
       - matchRegex:
           path: 'spec.validations[?(@.message == "the pointer moved for this operation, so it can no longer be cancelled (roll it back instead), and once it concludes only the promoter or the namespace controller removes it: re-checks, rollbacks and the Stage''s history cite it")].expression'
           pattern: "oldObject.status.phase == 'Concluded' && request.userInfo.username in \\['system:serviceaccount:pacto-delivery:d-pacto-operator-delivery', 'system:serviceaccount:kube-system:namespace-controller'\\]"
 
-  - it: refuses approvals from agents and service accounts
+  - it: refuses approvals from agents, service accounts and system users
     capabilities:
       apiVersions:
         - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
     documentSelector:
-      path: 'spec.validations[?(@.message == "agents and service accounts may not approve")].message'
-      value: "agents and service accounts may not approve"
+      path: 'spec.validations[?(@.message == "agents cannot approve: service accounts, system users and members of agentGroups are agents")].message'
+      value: "agents cannot approve: service accounts, system users and members of agentGroups are agents"
     asserts:
       - matchRegex:
-          path: 'spec.validations[?(@.message == "agents and service accounts may not approve")].expression'
+          path: 'spec.validations[?(@.message == "agents cannot approve: service accounts, system users and members of agentGroups are agents")].expression'
           pattern: "g in \\['pacto:agents'\\]"
 
   - it: counts nobody outside identities.humanGroups as a person
@@ -165,11 +164,11 @@ tests:
       delivery.identities.humanGroups: [staff]
     asserts:
       - matchRegex:
-          path: 'spec.validations[?(@.message == "agents and service accounts may not approve")].expression'
+          path: 'spec.validations[?(@.message == "agents cannot approve: service accounts, system users and members of agentGroups are agents")].expression'
           pattern: "!request.userInfo.groups.exists\\(g, g in \\['staff'\\]\\)\\)$"
         documentSelector:
-          path: 'spec.validations[?(@.message == "agents and service accounts may not approve")].message'
-          value: "agents and service accounts may not approve"
+          path: 'spec.validations[?(@.message == "agents cannot approve: service accounts, system users and members of agentGroups are agents")].message'
+          value: "agents cannot approve: service accounts, system users and members of agentGroups are agents"
       - matchRegex:
           path: 'spec.validations[?(@.message == "an agent may cancel only an operation it proposed itself; a person or break-glass cancels the rest")].expression'
           pattern: "!request.userInfo.groups.exists\\(g, g in \\['staff'\\]\\)\\)$"
@@ -189,11 +188,11 @@ tests:
         - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
     asserts:
       - notMatchRegex:
-          path: 'spec.validations[?(@.message == "agents and service accounts may not approve")].expression'
+          path: 'spec.validations[?(@.message == "agents cannot approve: service accounts, system users and members of agentGroups are agents")].expression'
           pattern: "!request.userInfo.groups.exists"
         documentSelector:
-          path: 'spec.validations[?(@.message == "agents and service accounts may not approve")].message'
-          value: "agents and service accounts may not approve"
+          path: 'spec.validations[?(@.message == "agents cannot approve: service accounts, system users and members of agentGroups are agents")].message'
+          value: "agents cannot approve: service accounts, system users and members of agentGroups are agents"
 
   - it: binds an approval's groups to the approving user's groups
     capabilities:
@@ -449,3 +448,54 @@ tests:
           pattern: "^'delivery\\.pacto\\.trianalab\\.io/auth-time' in request\\.userInfo\\.extra &&"
       - notExists:
           path: 'spec.validations[?(@.message == "spec.authTime, when given, must be the login time in userInfo.extra[delivery.pacto.trianalab.io/auth-time]")]'
+
+  - it: should guard a labelled HelmRelease
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+        - source.toolkit.fluxcd.io/v1/OCIRepository
+        - helm.toolkit.fluxcd.io/v2/HelmRelease
+    set:
+      delivery.identities.allowEmptyHumanGroups: true
+    documentSelector:
+      path: spec.matchConstraints.resourceRules[0].resources[0]
+      value: helmreleases
+    asserts:
+      - isKind:
+          of: ValidatingAdmissionPolicy
+      - equal:
+          path: spec.matchConstraints.resourceRules[0].apiGroups
+          value: [helm.toolkit.fluxcd.io]
+      - equal:
+          path: spec.matchConstraints.resourceRules[0].resources
+          value: [helmreleases]
+      - equal:
+          path: spec.matchConstraints.objectSelector.matchExpressions[0].key
+          value: delivery.pacto.trianalab.io/apply-ref
+      - equal:
+          path: 'spec.variables[?(@.name == "guarded")].expression'
+          value: "['chartRef', 'chart', 'values', 'valuesFrom', 'postRenderers', 'targetNamespace', 'storageNamespace', 'serviceAccountName', 'kubeConfig', 'suspend']"
+      - matchRegex:
+          path: 'spec.validations[?(@.message == "chartRef, chart, values, valuesFrom, postRenderers, targetNamespace, storageNamespace, serviceAccountName, kubeConfig and suspend decide what the Pacto delivery pointer runs: only break-glass changes them")].expression'
+          pattern: "variables\\.guarded\\.all\\(f,"
+      - matchRegex:
+          path: 'spec.validations[?(@.message == "spec.chartRef.namespace names the chart source the Pacto delivery pointer runs: only break-glass changes it")].expression'
+          pattern: "object\\.spec\\.chartRef\\.namespace"
+
+  - it: should bind the applier-helmrelease policy with Deny when HelmReleases are served
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+        - source.toolkit.fluxcd.io/v1/OCIRepository
+        - helm.toolkit.fluxcd.io/v2/HelmRelease
+    set:
+      delivery.identities.allowEmptyHumanGroups: true
+    documentSelector:
+      path: spec.policyName
+      value: d-pacto-operator-delivery-applier-helmrelease
+    asserts:
+      - isKind:
+          of: ValidatingAdmissionPolicyBinding
+      - equal:
+          path: spec.validationActions
+          value: [Deny]

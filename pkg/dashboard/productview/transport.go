@@ -540,12 +540,34 @@ func productPoliciesPreview(p fleet.PoliciesPreview) ProductPoliciesPreview {
 	return ProductPoliciesPreview{PoliciesPreview: p, Items: items}
 }
 
+// ProductBreakItem is an announced break row whose consumer service, when the
+// fleet holds it, is navigable.
+type ProductBreakItem struct {
+	fleet.BreakItem
+	Service *ProductRef `json:"service,omitempty"`
+}
+
+// ProductBreaksPreview is BreaksPreview with navigable consumers.
+type ProductBreaksPreview struct {
+	fleet.BreaksPreview
+	Items []ProductBreakItem `json:"items"`
+}
+
+func productBreaksPreview(p fleet.BreaksPreview) ProductBreaksPreview {
+	items := make([]ProductBreakItem, len(p.Items))
+	for i, b := range p.Items {
+		items[i] = ProductBreakItem{BreakItem: b, Service: RefPtr(b.Service)}
+	}
+	return ProductBreaksPreview{BreaksPreview: p, Items: items}
+}
+
 // ProductRevisionDetail is the navigable revision-kind detail payload.
 type ProductRevisionDetail struct {
 	fleet.RevisionDetailData
 	Service         ProductRef                   `json:"service"`
 	Configurations  ProductConfigurationsPreview `json:"configurations"`
 	Policies        ProductPoliciesPreview       `json:"policies"`
+	Breaks          ProductBreaksPreview         `json:"breaks"`
 	Dependencies    ProductRelationshipsPreview  `json:"dependencies"`
 	ExactTargets    ProductRefPreview            `json:"exactTargets"`
 	InferredTargets ProductRefPreview            `json:"inferredTargets"`
@@ -561,6 +583,7 @@ func toProductRevisionDetail(d *fleet.RevisionDetailData) *ProductRevisionDetail
 		Service:            Ref(d.Service),
 		Configurations:     productConfigurationsPreview(d.Configurations),
 		Policies:           productPoliciesPreview(d.Policies),
+		Breaks:             productBreaksPreview(d.Breaks),
 		Dependencies:       productRelationshipsPreview(d.Dependencies),
 		ExactTargets:       RefPreview(d.ExactTargets),
 		InferredTargets:    RefPreview(d.InferredTargets),

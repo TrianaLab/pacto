@@ -12,6 +12,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/pkg/evidence"
+	"github.com/trianalab/pacto/v4/pkg/evidenceingest"
 )
 
 // newEvidenceCommand builds the `pacto evidence` command group: produce, verify,
@@ -200,6 +201,11 @@ func newEvidenceServeCommand(svc *app.Service, _ *viper.Viper) *cobra.Command {
 			opts.TrustPath, _ = cmd.Flags().GetString("trust")
 			opts.Subjects, _ = cmd.Flags().GetStringArray("subject")
 			opts.Producers, _ = cmd.Flags().GetStringArray("producer")
+			cluster, err := serveClusterFlags(cmd)
+			if err != nil {
+				return err
+			}
+			opts.Cluster = cluster
 			addr := listenAddress(cmd)
 			ln, err := net.Listen("tcp", addr)
 			if err != nil {
@@ -214,9 +220,26 @@ func newEvidenceServeCommand(svc *app.Service, _ *viper.Viper) *cobra.Command {
 	cmd.Flags().String("trust", "", "trust store: a public-key file or a directory of <keyId>.pub files")
 	cmd.Flags().StringArray("subject", nil, "exact contract revision evidence is stored on: oci://<repo>@sha256:<digest> (repeatable, required)")
 	cmd.Flags().StringArray("producer", nil, "advertised trusted producer id (repeatable)")
+	cmd.Flags().String("cluster-id", "", "the kube-system namespace UID of the cluster this server runs in; the operator sets it")
+	cmd.Flags().String("cluster-name", "", "display name of that cluster (needs --cluster-id)")
+	cmd.Flags().String("cluster-name-source", "", "how the name was found: node-label, context, file or uid (needs --cluster-id)")
 	_ = cmd.MarkFlagRequired("trust")
 	_ = cmd.MarkFlagRequired("subject")
 	return cmd
+}
+
+// serveClusterFlags reads the --cluster-* flags; nil when --cluster-id is unset.
+func serveClusterFlags(cmd *cobra.Command) (*evidenceingest.ClusterDTO, error) {
+	id, _ := cmd.Flags().GetString("cluster-id")
+	name, _ := cmd.Flags().GetString("cluster-name")
+	source, _ := cmd.Flags().GetString("cluster-name-source")
+	switch {
+	case id != "":
+		return &evidenceingest.ClusterDTO{ID: id, Name: name, NameSource: source}, nil
+	case name != "" || source != "":
+		return nil, fmt.Errorf("--cluster-name and --cluster-name-source need --cluster-id")
+	}
+	return nil, nil
 }
 
 // listenAddress resolves the serve bind address: --listen-address wins; else

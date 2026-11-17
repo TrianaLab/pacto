@@ -25,7 +25,7 @@
   // createEntitySuggest -- the same mechanics the inline Services comboboxes use, so
   // the A4 stale-request race is fixed once rather than once per search surface.
   // Every kind by name: a kind-less query leaves out domains and offerings, which came later.
-  const suggest = createEntitySuggest({ kinds: ['service', 'revision', 'target', 'owner', 'source', 'domain', 'offering'], limit: 25 });
+  const suggest = createEntitySuggest({ kinds: ['service', 'revision', 'target', 'owner', 'source', 'domain', 'offering', 'external'], limit: 25 });
   // Grouped by kind, in the order each kind first appears (so the best match's group still
   // leads), with one heading and count per group instead of a kind chip on every row.
   // Keyboard order is the grouped order, so arrows walk the list as it reads.

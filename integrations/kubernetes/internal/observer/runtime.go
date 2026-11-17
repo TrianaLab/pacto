@@ -120,6 +120,13 @@ type CollectInput struct {
 	// CallerIgnoreNamespaces are namespaces, besides the cluster's own and the node agent's, whose host-network
 	// pods are taken not to call workloads, so they leave caller coverage complete.
 	CallerIgnoreNamespaces []string
+	// Scoped is true when the operator watches a namespace list: the grant hint of a Secret it may
+	// not read then names controller.watchNamespaces. A cluster-wide install is only told about
+	// controller.secretGrants, so it is never asked to narrow its whole fleet.
+	Scoped bool
+	// ServiceEntries turns on the Istio ServiceEntry reader of the externals list: the operator found the
+	// networking.istio.io/v1 ServiceEntry API at startup.
+	ServiceEntries bool
 
 	// kernel is the per-reconcile kernel view Collect loads; nil when kernel evidence is off.
 	kernel *kernelView
@@ -179,6 +186,10 @@ func probeURL(serviceName, namespace string, port int32, path string) string {
 // Observer is the k8s Collector.
 type Observer struct {
 	client client.Client
+	// reader serves the Secret metadata reads uncached: a cached read would start a Secret informer
+	// that needs list and watch, which a namespaced or name-scoped grant does not give. Nil reads
+	// through client.
+	reader client.Reader
 	prober endpointProber
 	// run is the memo of the Collect in progress (or the last one), nil before the first. Dimensions
 	// called on their own work without it: every read then goes to the client.
@@ -205,10 +216,13 @@ type collectRun struct {
 	// callers and callerCoverage are what observeCallers found, as of now.
 	callers        []unversioned.ObservedCaller
 	callerCoverage *unversioned.CallerCoverage
-	now            time.Time
-	monitors       map[string]*monitorList
-	failures       []error
-	seen           map[string]bool
+	// externals and externalsCoverage are what observeExternals found.
+	externals         []unversioned.ExternalStatus
+	externalsCoverage unversioned.CallerCoverage
+	now               time.Time
+	monitors          map[string]*monitorList
+	failures          []error
+	seen              map[string]bool
 }
 
 func newCollectRun() *collectRun {
@@ -233,8 +247,15 @@ func (o *Observer) fail(dimension string, err error) {
 func New(c client.Client) *Observer {
 	return &Observer{
 		client: c,
+		reader: c,
 		prober: probe.New(5 * time.Second),
 	}
+}
+
+// WithReader sets the uncached reader Secret metadata is read through.
+func (o *Observer) WithReader(r client.Reader) *Observer {
+	o.reader = r
+	return o
 }
 
 // Collect implements the new per-dimension collection driven by the contract. Spec section 9.1. The error
@@ -316,6 +337,7 @@ func (o *Observer) Collect(ctx context.Context, input CollectInput) (evidence.Ev
 	observations = append(observations, o.observeUndeclaredPeers(ctx, input, now)...)
 	o.run.now = now
 	o.run.callers, o.run.callerCoverage = o.observeCallers(ctx, input, now)
+	o.run.externals, o.run.externalsCoverage = o.observeExternals(ctx, input)
 
 	log := logf.FromContext(ctx)
 	for _, err := range o.run.failures {

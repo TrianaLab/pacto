@@ -28,12 +28,16 @@ func diffDependencies(old, new *contract.Contract) []Change {
 				name+": "+oldDep.Ref, name+": "+newDep.Ref))
 		}
 		if oldDep.Compatibility != newDep.Compatibility {
-			changes = append(changes, newChange("dependencies.compatibility", Modified,
+			changes = append(changes, newChange(compatibilityPath(oldDep.Compatibility, newDep.Compatibility), Modified,
 				name+": "+oldDep.Compatibility, name+": "+newDep.Compatibility))
 		}
 		if oldDep.Version != newDep.Version {
 			changes = append(changes, newChange("dependencies.version", strChangeType(oldDep.Version, newDep.Version),
 				name+": "+oldDep.Version, name+": "+newDep.Version))
+		}
+		if oldDep.Identity != newDep.Identity {
+			changes = append(changes, newChange("dependencies.identity", strChangeType(oldDep.Identity, newDep.Identity),
+				name+": "+oldDep.Identity, name+": "+newDep.Identity))
 		}
 		if oldDep.External != newDep.External {
 			changes = append(changes, newChange("dependencies.external", Modified,
@@ -54,6 +58,19 @@ func diffDependencies(old, new *contract.Contract) []Change {
 	}
 
 	return changes
+}
+
+// compatibilityPath names a changed compatibility: declaring a range where it
+// was unknown (dependencies.compatibility.declared), giving one up for unknown
+// (dependencies.compatibility.unknown), or moving one range to another.
+func compatibilityPath(old, new string) string {
+	switch {
+	case old == contract.CompatibilityUnknown:
+		return "dependencies.compatibility.declared"
+	case new == contract.CompatibilityUnknown:
+		return "dependencies.compatibility.unknown"
+	}
+	return "dependencies.compatibility"
 }
 
 func indexDeps(deps []contract.Dependency) map[string]contract.Dependency {

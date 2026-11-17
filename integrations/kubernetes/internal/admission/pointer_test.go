@@ -29,6 +29,12 @@ func kustomization(name string) *unstructured.Unstructured {
 		"serviceAccountName": "payments-deployer"})
 }
 
+func helmRelease(name string) *unstructured.Unstructured {
+	return obj("helm.toolkit.fluxcd.io/v2", "HelmRelease", name, labelled, map[string]any{
+		"chartRef":           map[string]any{"kind": "OCIRepository", "name": "payments", "namespace": ns},
+		"serviceAccountName": "payments-deployer"})
+}
+
 func argoApp(name string) *unstructured.Unstructured {
 	return obj("argoproj.io/v1alpha1", "Application", name, labelled, map[string]any{
 		"project":     "payments",
@@ -41,7 +47,7 @@ func argoApp(name string) *unstructured.Unstructured {
 func TestPointerCreateAndDelete(t *testing.T) {
 	ctx := context.Background()
 	const msg = "only break-glass or the GitOps controller creates or deletes"
-	for _, mk := range []func(string) *unstructured.Unstructured{ociRepo, kustomization, argoApp} {
+	for _, mk := range []func(string) *unstructured.Unstructured{ociRepo, kustomization, helmRelease, argoApp} {
 		denied(t, as("alice").Create(ctx, mk(uniq("p"))), msg)
 		mine := mustCreate(t, as(fluxUser), mk(uniq("p")))
 		denied(t, as("alice").Delete(ctx, mine), msg)
@@ -57,7 +63,8 @@ func TestPointerCreateAndDelete(t *testing.T) {
 
 // Every field that decides what runs is guarded on update: OCIRepository
 // spec.ignore, the Kustomization's account, cluster, suspension and
-// decryption, the Application's destination and project.
+// decryption, the HelmRelease's chart source and values, the Application's
+// destination and project.
 func TestPointerGuardsWhatRuns(t *testing.T) {
 	ctx := context.Background()
 	for name, c := range map[string]struct {
@@ -70,6 +77,8 @@ func TestPointerGuardsWhatRuns(t *testing.T) {
 		"kubeConfig":         {kustomization, func(s map[string]any) { s["kubeConfig"] = map[string]any{"secretRef": map[string]any{"name": "x"}} }, "decide what the Pacto delivery pointer runs"},
 		"suspend":            {kustomization, func(s map[string]any) { s["suspend"] = true }, "decide what the Pacto delivery pointer runs"},
 		"decryption":         {kustomization, func(s map[string]any) { s["decryption"] = map[string]any{"provider": "sops"} }, "decide what the Pacto delivery pointer runs"},
+		"chartRef.namespace": {helmRelease, func(s map[string]any) { s["chartRef"].(map[string]any)["namespace"] = "tenant-b" }, "the Pacto delivery pointer runs"},
+		"values":             {helmRelease, func(s map[string]any) { s["values"] = map[string]any{"replicas": 3} }, "decide what the Pacto delivery pointer runs"},
 		"destination":        {argoApp, func(s map[string]any) { s["destination"] = map[string]any{"server": "https://elsewhere"} }, "decide what the Pacto delivery pointer runs"},
 		"project":            {argoApp, func(s map[string]any) { s["project"] = "default" }, "decide what the Pacto delivery pointer runs"},
 	} {

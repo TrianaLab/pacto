@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"embed"
+	"fmt"
 	"io"
 	"io/fs"
 	"net/http"
@@ -14,8 +15,10 @@ import (
 	"time"
 
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/runrecord/stats"
 )
 
@@ -155,5 +158,24 @@ func serve(_ js.Value, args []js.Value) any {
 		"status":      res.StatusCode,
 		"body":        string(out),
 		"contentType": res.Header.Get("Content-Type"),
+	}
+}
+
+// demoImpactProvider returns the impact provider the demo wires into the
+// dashboard. It analyzes against the snapshot the dashboard hands it, the SAME
+// published snapshot the Operational Graph serves (so snapshotIds match, section 2.2), resolving the two revisions from the
+// in-memory ref index. Observed edges are folded into that snapshot by
+// buildDemoFleet, so include-observed is a real capability driven by the SAME
+// pipeline the Operational Graph uses (surfacing a shadow consumer), not a placebo
+// and not a second, divergent source of observed data.
+func demoImpactProvider(byRef map[string]*contract.Bundle) func(context.Context, *fleet.FleetSnapshot, string, string, bool) (*impact.Result, error) {
+	return func(ctx context.Context, snap *fleet.FleetSnapshot, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
+		oldB, newB := byRef[oldRef], byRef[newRef]
+		if oldB == nil || newB == nil {
+			return nil, fmt.Errorf("unknown revision reference (old=%q new=%q)", oldRef, newRef)
+		}
+		return impact.Analyze(ctx, oldB.Contract, newB.Contract, oldB.FS, newB.FS, snap, impact.Options{
+			IncludeObserved: includeObserved,
+		}), nil
 	}
 }

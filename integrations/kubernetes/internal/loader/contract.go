@@ -202,5 +202,10 @@ func loadInline(yaml string) (*LoadResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse inline contract: %w", err)
 	}
+	// An inline contract never went through publish, so it is checked rather
+	// than trusted to declare its identity.
+	if err := contract.RequireDeclared(c, raw); err != nil {
+		return nil, fmt.Errorf("inline contract: %w", err)
+	}
 	return &LoadResult{Contract: c, RawYAML: raw, BundleFS: nil}, nil
 }

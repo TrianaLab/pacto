@@ -13,6 +13,8 @@ import {
   sourceTooltip,
   formatDiffValue,
   reasonLabel,
+  isOffContract,
+  offContractReason,
   reasonTooltip,
   reasonBadgeClass,
   isReasonActionable,
@@ -218,26 +220,28 @@ describe('formatDiffValue', () => {
 });
 
 describe('reasonLabel', () => {
-  it('returns External for non_oci_ref', () => expect(reasonLabel('non_oci_ref')).toBe('External'));
+  it('returns Unresolved ref for non_oci_ref', () => expect(reasonLabel('non_oci_ref')).toBe('Unresolved ref'));
+  it('returns External system for external', () => expect(reasonLabel('external')).toBe('External system'));
   it('returns Auth required for auth_failed', () => expect(reasonLabel('auth_failed')).toBe('Auth required'));
   it('returns No versions for no_semver_tags', () => expect(reasonLabel('no_semver_tags')).toBe('No versions'));
   it('returns Not found for not_found', () => expect(reasonLabel('not_found')).toBe('Not found'));
   it('returns Unreachable for pull_failed', () => expect(reasonLabel('pull_failed')).toBe('Unreachable'));
   it('returns Discovering… for discovering', () => expect(reasonLabel('discovering')).toBe('Discovering…'));
-  it('returns External for undefined', () => expect(reasonLabel(undefined)).toBe('External'));
-  it('returns External for empty string', () => expect(reasonLabel('')).toBe('External'));
-  it('returns External for unknown reason', () => expect(reasonLabel('something_else')).toBe('External'));
+  it('returns Unresolved ref for undefined', () => expect(reasonLabel(undefined)).toBe('Unresolved ref'));
+  it('returns Unresolved ref for empty string', () => expect(reasonLabel('')).toBe('Unresolved ref'));
+  it('returns Unresolved ref for unknown reason', () => expect(reasonLabel('something_else')).toBe('Unresolved ref'));
 });
 
 describe('reasonTooltip', () => {
-  it('returns non-OCI tooltip', () => expect(reasonTooltip('non_oci_ref')).toContain('outside OCI'));
+  it('returns non-OCI tooltip', () => expect(reasonTooltip('non_oci_ref')).toContain('not an oci:// reference'));
+  it('returns external tooltip', () => expect(reasonTooltip('external')).toContain('canonical identity'));
   it('returns auth tooltip', () => expect(reasonTooltip('auth_failed')).toContain('authentication'));
   it('returns no semver tooltip', () => expect(reasonTooltip('no_semver_tags')).toContain('semver'));
   it('returns not found tooltip', () => expect(reasonTooltip('not_found')).toContain('found'));
   it('returns pull failed tooltip', () => expect(reasonTooltip('pull_failed')).toContain('unreachable'));
   it('returns discovering tooltip', () => expect(reasonTooltip('discovering')).toContain('discovery'));
-  it('returns fallback for undefined', () => expect(reasonTooltip(undefined)).toBe('External dependency'));
-  it('returns fallback for unknown reason', () => expect(reasonTooltip('xyz')).toBe('External dependency'));
+  it('returns fallback for undefined', () => expect(reasonTooltip(undefined)).toContain('could not resolve'));
+  it('returns fallback for unknown reason', () => expect(reasonTooltip('xyz')).toContain('could not resolve'));
 });
 
 describe('reasonBadgeClass', () => {
@@ -249,6 +253,19 @@ describe('reasonBadgeClass', () => {
   it('returns badge-info for discovering', () => expect(reasonBadgeClass('discovering')).toBe('badge-info'));
   it('returns badge-neutral for undefined', () => expect(reasonBadgeClass(undefined)).toBe('badge-neutral'));
   it('returns badge-neutral for unknown reason', () => expect(reasonBadgeClass('other')).toBe('badge-neutral'));
+});
+
+describe('isOffContract', () => {
+  it('is true for external and unresolved nodes', () => {
+    expect(isOffContract('external')).toBe(true);
+    expect(isOffContract('unresolved')).toBe(true);
+    expect(isOffContract('Compliant')).toBe(false);
+    expect(isOffContract(undefined)).toBe(false);
+  });
+  it('reads external nodes as external and others by their reason', () => {
+    expect(offContractReason({ status: 'external', reason: 'x' })).toBe('external');
+    expect(offContractReason({ status: 'unresolved', reason: 'non_oci_ref' })).toBe('non_oci_ref');
+  });
 });
 
 describe('isReasonActionable', () => {

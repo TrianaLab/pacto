@@ -1,19 +1,25 @@
+{{- if include "pacto-operator.clusterScoped" . }}
+{{- $scoped := not (empty (include "pacto-operator.watchNamespaces" . | fromYamlArray)) }}
+{{- $dashboard := and .Values.dashboard.enabled (or (not $scoped) (include "pacto-operator.dashboardDeliveryNamespace" .)) }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: {{ include "pacto-operator.fullname" . }}-manager
   labels:
     {{- include "pacto-operator.labels" . | nindent 4 }}
+# With controller.watchNamespaces every namespaced read moves to the Roles in
+# watch-namespaces.yaml: only the node agent half and the dashboard's delivery
+# half stay here, and neither renders without its feature.
 rules:
-  # Core controller permissions
+  {{- if not $scoped }}
+  # Core controller permissions. No Secret is read cluster-wide: pull secrets
+  # and Secret-backed configurations are read where role.yaml,
+  # watch-namespaces.yaml and secret-grants.yaml grant them.
   - apiGroups: [""]
     resources: [events]
     verbs: [create, patch]
   - apiGroups: [""]
     resources: [services]
-    verbs: [get, list, watch]
-  - apiGroups: [""]
-    resources: [secrets]
     verbs: [get, list, watch]
   # ConfigMap-backed configuration collection (required-configurations dimension).
   # Read through the manager's cache, whose informer needs list and watch to sync.
@@ -43,6 +49,12 @@ rules:
   - apiGroups: [discovery.k8s.io]
     resources: [endpointslices]
     verbs: [get, list, watch]
+  {{- if include "pacto-operator.apiServed" (list $ "networking.istio.io/v1") }}
+  # Istio ServiceEntries that list a host the target workload names (externals).
+  - apiGroups: [networking.istio.io]
+    resources: [serviceentries]
+    verbs: [get, list, watch]
+  {{- end }}
   - apiGroups: [apps]
     resources: [deployments, replicasets, statefulsets]
     verbs: [get, list, watch]
@@ -76,6 +88,15 @@ rules:
     resources: [clusterroles, clusterrolebindings]
     verbs: [get, delete]
     resourceNames: [pacto-dashboard]
+  {{- end }}
+  {{- if or (not $scoped) $dashboard }}
+  # The operator reads the cluster id, the kube-system namespace UID, at start:
+  # it names the cluster in Evidence Server reports, and the managed dashboard
+  # ClusterRole grants the same read. A namespace list without the dashboard's
+  # delivery half leaves the cluster id unknown.
+  {{- include "pacto-operator.rbac.clusterIdentityRule" . | nindent 2 }}
+  {{- end }}
+  {{- if not $scoped }}
   {{- if include "pacto-operator.kernelEvidence" . }}
   # The node agent's heartbeat: one Lease per node, read through the cache in
   # the kernel evidence namespace only (the cache never starts a cluster-wide
@@ -84,13 +105,22 @@ rules:
     resources: [leases]
     verbs: [get, list, watch]
   {{- end }}
-  {{- if .Values.controller.enableMetricsObservation }}
+  {{- $observe := include "pacto-operator.observeRBAC" . | fromYaml }}
+  {{- if $observe.metricsMonitors }}
   # Metrics capability discovery through Prometheus Operator monitors.
   - apiGroups: [monitoring.coreos.com]
     resources: [servicemonitors, podmonitors]
     verbs: [get, list, watch]
   {{- end }}
-  {{- if .Values.dashboard.enabled }}
+  {{- if $observe.namespaceGet }}
+  # auto reads the target namespace's pacto.trianalab.io/observe label, by
+  # name, uncached; names and labels only.
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get]
+  {{- end }}
+  {{- end }}
+  {{- if $dashboard }}
   # Dashboard lifecycle management, cluster-scoped half: the ClusterRole and
   # binding that let the dashboard read Pactos across namespaces.
   - apiGroups: [rbac.authorization.k8s.io]
@@ -130,3 +160,4 @@ rules:
     resourceNames:
       - {{ include "pacto-operator.nodeAgentNamespace" . }}
   {{- end }}
+{{- end }}

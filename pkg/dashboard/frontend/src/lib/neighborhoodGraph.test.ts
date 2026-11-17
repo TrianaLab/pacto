@@ -6,8 +6,9 @@
  * node the backend did not return.
  */
 import { describe, it, expect } from 'vitest';
-import { neighborhoodToGraph, cyEdgeId, edgeState, topoSignature, presentationSignature, laneGraph, sidesOf, GROUP_THRESHOLD, MAX_GROUPS_PER_SIDE, LANE_CAP } from './neighborhoodGraph.ts';
+import { neighborhoodToGraph, graphNodeId, cyEdgeId, edgeState, topoSignature, presentationSignature, laneGraph, sidesOf, GROUP_THRESHOLD, MAX_GROUPS_PER_SIDE, LANE_CAP } from './neighborhoodGraph.ts';
 import type { GraphData } from './graph.ts';
+import { graphLabels, fullName } from './graph.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const ref = (kind: string, key: string, label?: string, status?: string): any => ({ kind, key, label: label ?? key, status });
@@ -44,6 +45,18 @@ describe('neighborhoodToGraph', () => {
     expect(kindOf('domain-a/web@sha256:1')).toBe('revision');
     expect(kindOf('domain-a/api')).toBe('service');
     expect(kindOf('team-a')).toBe('service'); // owner falls back to a service-shaped node
+  });
+
+  // An external identity can equal a service key: its node id is prefixed so the two
+  // stay two nodes, and the edge to it still lands.
+  it('keeps an external system apart from a service with the same key', () => {
+    const gd = neighborhoodToGraph({ nodes: [
+      { ref: { kind: 'service', key: 'stripe', label: 'stripe' }, status: 'Compliant', focus: true },
+      { ref: { kind: 'external', key: 'stripe', label: 'Stripe' }, status: 'unknown' },
+    ], edges: [{ from: { kind: 'service', key: 'stripe' }, to: { kind: 'external', key: 'stripe' }, relation: 'dependency' }] } as never);
+    expect(gd.nodes.map((n) => [n.id, n.kind])).toEqual([['stripe', 'service'], ['external:stripe', 'external']]);
+    expect(gd.nodes[0].edges).toEqual([expect.objectContaining({ targetId: 'external:stripe' })]);
+    expect(graphNodeId({ kind: 'external', key: 'aws/rds' })).toBe('external:aws/rds');
   });
 
   it('maps dependency and runs to distinct edge types and attaches edges to the source', () => {
@@ -120,6 +133,10 @@ describe('edgeState (backend verdict -> visual vocabulary, never re-inferred)', 
   it('prefers an edge-scope difference over service corroboration and defaults to none', () => {
     expect(edgeState({ difference: 'matched', serviceCorroboration: 'insufficient' })).toBe('matched');
     expect(edgeState({})).toBe('');
+  });
+  it('marks an edge only inferred from configuration, and lets a verdict win', () => {
+    expect(edgeState({ provenance: 'inferred' })).toBe('inferred');
+    expect(edgeState({ provenance: 'inferred', difference: 'matched' })).toBe('matched');
   });
 });
 
@@ -380,5 +397,16 @@ describe('refused guarantees on the canvas', () => {
     expect(out.nodes.filter((n) => n.parent === 'lane:depends-on').map((n) => n.id)).toContain(`n${LANE_CAP + 3}`);
     const folded = out.nodes.find((n) => n.id === 'lane:depends-on')!.edges!.find((e) => e.targetId === 'group:depends-on:team-b')!;
     expect(folded).toMatchObject({ refused: true, edgeState: 'matched', label: 'refused (2)' });
+  });
+});
+
+describe('neighborhoodToGraph — an inferred service name', () => {
+  it('labels the node as an inferred name and says where it came from on hover', () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const nb: any = { nodes: [{ ref: { ...ref('service', 'd/payments', 'payments'), nameInferred: { field: 'service.name', value: 'payments', source: 'chart/Chart.yaml:2' } } }], edges: [] };
+    const [n] = neighborhoodToGraph(nb).nodes;
+    expect(n.nameInferred).toBe('chart/Chart.yaml:2');
+    expect(graphLabels([n]).get('d/payments')).toBe('payments\ninferred name');
+    expect(fullName(n)).toBe('payments (name inferred from chart/Chart.yaml:2)');
   });
 });

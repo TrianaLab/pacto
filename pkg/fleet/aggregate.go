@@ -1009,7 +1009,8 @@ func (q *Query) tallyServiceEdges(sum *ServiceSummary, key ServiceKey) {
 		if rel.FromService != key || rel.Type != RelationshipDependency {
 			continue
 		}
-		if rel.Provenance == ProvenanceObserved {
+		// Observed and inferred edges are no declaration.
+		if rel.Provenance != ProvenanceDeclared {
 			continue
 		}
 		tallyDeclaredEdge(sum, *rel, depKey(*rel), seen, unresolved, unsatisfied)

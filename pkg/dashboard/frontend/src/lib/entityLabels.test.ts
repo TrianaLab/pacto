@@ -8,8 +8,16 @@ import {
   attentionCategoryLabel, ATTENTION_CATEGORIES, GAP_WORDS,
   provenanceLabel, provenanceIsImplied,
   sourceHealthTallyParts, sourceHealthSentence,
-  collectorLabel, seenBy, splitEntryPoints,
+  collectorLabel, seenBy, splitEntryPoints, acceptsLabel, RANGE_NOT_DECLARED,
 } from './entityLabels.ts';
+
+describe('acceptsLabel', () => {
+  it('names an undeclared range one way and never as a range', () => {
+    expect(acceptsLabel('unknown')).toBe(RANGE_NOT_DECLARED);
+    expect(acceptsLabel('^1.0.0')).toBe('Accepts ^1.0.0');
+    expect(acceptsLabel('')).toBe('');
+  });
+});
 import { statusLabel } from './format.ts';
 
 describe('kindLabel', () => {
@@ -17,6 +25,7 @@ describe('kindLabel', () => {
     expect(kindLabel('service')).toBe('Service');
     expect(kindLabel('revision')).toBe('Revision');
     expect(kindLabel('owner')).toBe('Owner');
+    expect(kindLabel('external')).toBe('External system');
   });
 
   // Pacto observes where a revision runs; it never deploys anything. Calling a target a
@@ -124,6 +133,10 @@ describe('relationship provenance', () => {
     expect(provenanceLabel('declared')).toBe('Expected');
     expect(provenanceLabel('observed')).toBe('Observed');
     expect(provenanceLabel('declared+observed')).toBe('Expected and observed');
+    expect(provenanceLabel('inferred')).toBe('Inferred');
+    // An inferred-only edge already reads "Inferred from configuration": no second chip.
+    expect(provenanceIsImplied(undefined, 'inferred')).toBe(true);
+    expect(provenanceIsImplied(undefined, 'declared')).toBe(false);
     expect(provenanceLabel('declared+observed')).not.toMatch(/\+/);
   });
 

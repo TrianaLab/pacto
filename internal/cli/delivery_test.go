@@ -91,6 +91,8 @@ func deliveryDeps(user string, dynErr error) deps {
 					"verdicts": []any{map[string]any{"gate": "pacto.diff", "phase": "pre", "result": "Pass", "citation": map[string]any{"query": "{}", "runnerBundle": "SIGNED-ANSWER"}},
 						map[string]any{"gate": "x", "phase": "pre", "result": "Pass"}}}}),
 		)
+		// The caller may update every workload unless a test says otherwise.
+		c.PrependReactor("create", "selfsubjectaccessreviews", mayUpdateWorkloads)
 		c.PrependReactor("create", "selfsubjectreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
 			return true, &unstructured.Unstructured{Object: map[string]any{"status": map[string]any{"userInfo": map[string]any{
 				"username": user, "groups": []any{"team-payments"},
@@ -438,7 +440,7 @@ func TestDeliveryCommandWriteVerbs(t *testing.T) {
 		{"text", append(propose, "--intent-digest", "sha256:old"), true, []string{"PlanStale"}},
 		{"text", []string{"cancel", "-n", "prod", "held"}, false, []string{"cancel requested for prod/held"}},
 		{"text", []string{"cancel", "-n", "prod", "gone"}, true, nil},
-		{"text", []string{"approve", "-n", "prod", "held", "--oidc-issuer-url", "https://idp"}, true, []string{"agents may not approve"}},
+		{"text", []string{"approve", "-n", "prod", "held", "--oidc-issuer-url", "https://idp"}, true, []string{"agents cannot approve"}},
 	})
 	checkDeliveryRuns(t, approveDeps("alice", nil), []deliveryRun{
 		{"text", []string{"approve", "-n", "prod", "held", "--decision", "accept-unknown", "--note", "ok", "--oidc-issuer-url", "https://idp"}, false,
@@ -652,5 +654,98 @@ func TestRequestFromCorrelationID(t *testing.T) {
 	req, err := requestFrom(cmd, "prod")
 	if err != nil || req.CorrelationID != "CHG-2041" {
 		t.Fatalf("request %+v, err %v", req, err)
+	}
+}
+
+// mayUpdateWorkloads allows every SelfSubjectAccessReview that asks to
+// update a workload and leaves the rest to the next reactor.
+func mayUpdateWorkloads(a k8stesting.Action) (bool, runtime.Object, error) {
+	attrs, _, _ := unstructured.NestedMap(a.(k8stesting.CreateAction).GetObject().(*unstructured.Unstructured).Object, "spec", "resourceAttributes")
+	if attrs["verb"] != "update" {
+		return false, nil, nil
+	}
+	return true, &unstructured.Unstructured{Object: map[string]any{"status": map[string]any{"allowed": true}}}, nil
+}
+
+// TestActorCellShowsSource: a history actor says how it was classified.
+func TestActorCellShowsSource(t *testing.T) {
+	for _, c := range []struct {
+		e    delivery.HistoryEntry
+		want string
+	}{
+		{delivery.HistoryEntry{Actor: "ci-bot", ActorClass: delivery.ClassAgent, ActorClassifiedBy: delivery.ClassByServiceAccount}, "ci-bot (agent, service account)"},
+		{delivery.HistoryEntry{Actor: "dana", ActorClass: delivery.ClassHuman, ActorClassifiedBy: delivery.ClassByUser}, "dana (human, signed-in user)"},
+		{delivery.HistoryEntry{Actor: "dana", ActorClass: delivery.ClassHuman}, "dana (human)"},
+	} {
+		if got := actorCell(c.e); got != c.want {
+			t.Fatalf("actorCell(%+v) = %q, want %q", c.e, got, c.want)
+		}
+	}
+}
+
+// TestBlameShowsAccess: who asked says how they were classified, and each
+// decision says what let the person decide, who checked it and when.
+func TestBlameShowsAccess(t *testing.T) {
+	e := delivery.HistoryEntry{Actor: "ci-bot", ActorClass: delivery.ClassAgent, ActorClassifiedBy: delivery.ClassByServiceAccount}
+	a := delivery.RecordApproval{By: "dana", Decision: delivery.Approve, Note: "fine", ClassifiedBy: delivery.ClassByUser,
+		Access: "update deployments/checkout in payments", AccessSource: "subject-access-review", AccessAt: "2026-11-15T10:00:00Z"}
+	if got := classCell(e.ActorClass, e.ActorClassifiedBy); got != "agent, service account" {
+		t.Fatalf("classCell = %q", got)
+	}
+	want := "dana approve (signed-in user; may update deployments/checkout in payments, checked by the promoter at 2026-11-15T10:00:00Z) fine"
+	if got := approvalCell(a); got != want {
+		t.Fatalf("approvalCell = %q\nwant %q", got, want)
+	}
+	a.AccessSource = "self-subject-access-review"
+	if got := approvalCell(a); !strings.Contains(got, "checked with the caller's own credentials at") {
+		t.Fatalf("self review: %q", got)
+	}
+	a.Access = ""
+	if got := approvalCell(a); got != "dana approve (signed-in user; access not recorded) fine" {
+		t.Fatalf("no access: %q", got)
+	}
+}
+
+// TestBlameOldRecordNotRecorded: a record from an earlier promoter guesses
+// nothing.
+func TestBlameOldRecordNotRecorded(t *testing.T) {
+	if got := classCell(delivery.ClassAgent, ""); got != "agent, classification not recorded" {
+		t.Fatalf("classCell = %q", got)
+	}
+	a := delivery.RecordApproval{By: "alice", Decision: delivery.Approve, Note: "fine"}
+	if got := approvalCell(a); got != "alice approve (classification not recorded) fine" {
+		t.Fatalf("approvalCell = %q", got)
+	}
+}
+
+// TestPrintPlanApplierLine: a promote plan names its applier from the
+// pacto.applier citation, observed, declared and contract kept apart, or says
+// the promoter did not report one.
+func TestPrintPlanApplierLine(t *testing.T) {
+	var b strings.Builder
+	printPlan(&b, delivery.PlanAnswer{Plan: delivery.Plan{Type: delivery.TypePromote, Verdicts: []delivery.Verdict{{Gate: delivery.GateApplier,
+		Result: delivery.Pass, Citation: map[string]string{"observed": "Argo CD (Application payments, tracking annotation)",
+			"declared": "Application payments", "contract": "auto", "state": "Adopted"}}}}})
+	if want := "applier:   Argo CD (Application payments, tracking annotation), Adopted; declared Application payments; contract auto\n"; !strings.Contains(b.String(), want) {
+		t.Fatalf("want %q in\n%s", want, b.String())
+	}
+	b.Reset()
+	printPlan(&b, delivery.PlanAnswer{Plan: delivery.Plan{Type: delivery.TypePromote, Verdicts: []delivery.Verdict{{Gate: delivery.GatePublished, Result: delivery.Pass}}}})
+	if want := "applier:   not reported by the Stage status\n"; !strings.Contains(b.String(), want) {
+		t.Fatalf("want %q in\n%s", want, b.String())
+	}
+	// A plan that stopped at pacto.published, or was refused, never judged
+	// the applier: it names no cause it cannot know.
+	for _, vs := range [][]delivery.Verdict{{{Gate: delivery.GatePublished, Result: delivery.Fail}}, nil} {
+		b.Reset()
+		printPlan(&b, delivery.PlanAnswer{Plan: delivery.Plan{Type: delivery.TypePromote, Verdicts: vs}})
+		if want := "applier:   not judged: an earlier check stopped the plan\n"; !strings.Contains(b.String(), want) || strings.Contains(b.String(), "predates") {
+			t.Fatalf("want %q in\n%s", want, b.String())
+		}
+	}
+	b.Reset()
+	printPlan(&b, delivery.PlanAnswer{Plan: delivery.Plan{Type: delivery.TypeRollback}})
+	if strings.Contains(b.String(), "applier") {
+		t.Fatalf("a rollback has no applier gate:\n%s", b.String())
 	}
 }

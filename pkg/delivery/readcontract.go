@@ -40,6 +40,12 @@ const StatusFormatGuarantees = 1
 // contract declares none; on an older one the domain is unknown.
 const StatusFormatDomain = 2
 
+// StatusFormatExternals is the first statusFormat that records the external
+// systems the target workload names (status.externals) and how far that list
+// can be trusted (status.externalsCoverage). On an older status which
+// external systems the workload uses is unknown.
+const StatusFormatExternals = 3
+
 // PactoStatusView is the part of Pacto.status the promoter reads.
 type PactoStatusView struct {
 	// StatusFormat is the layout the operator wrote the status in (see
@@ -61,6 +67,27 @@ type PactoStatusView struct {
 	// ObservedCallersCoverage says whether ObservedCallers is complete; nil
 	// when runtime observation is not configured for this Pacto.
 	ObservedCallersCoverage *CallerCoverageView `json:"observedCallersCoverage"`
+	// Externals are the systems outside the cluster that the target
+	// workload's pod spec names (status format 3).
+	Externals []ExternalView `json:"externals"`
+	// ExternalsCoverage says whether Externals is complete; nil on an older
+	// status or one the operator could not evaluate.
+	ExternalsCoverage *CallerCoverageView `json:"externalsCoverage"`
+	// ExternalCatalog is the digest of the catalog Externals were classified
+	// with, followed by " (embedded)" for the copy compiled into the operator.
+	ExternalCatalog string `json:"externalCatalog"`
+}
+
+// ExternalView is one Pacto.status.externals entry. Where names an object
+// and a key and Host is a normalized host: the status carries no value.
+type ExternalView struct {
+	Identity   string `json:"identity"`
+	Class      string `json:"class"`
+	Confidence string `json:"confidence"`
+	Kind       string `json:"kind"`
+	Where      string `json:"where"`
+	Host       string `json:"host"`
+	Entry      string `json:"entry"`
 }
 
 // ObservedCallerView is one Pacto.status.observedCallers entry.
@@ -192,11 +219,15 @@ func Snapshot(ctx context.Context, pactos []PactoView, listErr error, sides []Re
 			Scope: p.Metadata.Namespace, Kind: fleet.SourceKindKubernetes, Name: p.Metadata.Name,
 			Service: c.ServiceName, Domain: rev.Domain, ResolvedRef: c.ResolvedRef, Digest: digest,
 			Compliance: p.Status.ContractStatus, EvidenceAt: reconciled, ReconciledAt: reconciled,
-			Limitations: CallerLimitations(p, reconciled, now),
+			Limitations: append(CallerLimitations(p, reconciled, now), ExternalLimitations(p, reconciled, now)...),
 		})
 		col.Observed = append(col.Observed, ObservedEdges(p)...)
+		col.ExternalUses = append(col.ExternalUses, ExternalUses(p, reconciled)...)
 	}
 	src := fleet.NewMemorySource(SnapshotSourceID, fleet.SourceKindKubernetes, col)
+	// No ExternalCatalog: Build classifies with externalcatalog.Default(), the
+	// catalog the operator compiles in, so its digest is the snapshot's catalog
+	// ref that EXTERNAL_CATALOG_MISMATCH compares each status against.
 	return fleet.Build(ctx, fleet.BuildOptions{Now: func() time.Time { return now }}, src)
 }
 
@@ -216,36 +247,100 @@ func CallerLimitations(p PactoView, reconciled *time.Time, now time.Time) []flee
 		return nil
 	}
 	state, reason := cov.State, cov.Reason
-	if reconciled == nil || cov.RefreshSeconds <= 0 || now.Sub(*reconciled) > 2*time.Duration(cov.RefreshSeconds)*time.Second {
+	if staleStatus(reconciled, cov.RefreshSeconds, now) {
 		state, reason = "unavailable", "stale-status"
 	}
 	if state == "complete" {
 		return nil
 	}
 	return []fleet.Limitation{{Code: LimitationCallersUnseen, Source: SnapshotSourceID,
-		Message: "runtime callers of " + p.Status.Contract.ServiceName + " cannot be ruled out: " +
-			cmp.Or(coverageReasons[reason], "the operator reported "+reason) + " (coverage: " + state + ", " + reason + ")"}}
+		Message: "runtime callers of " + p.Status.Contract.ServiceName + " cannot be ruled out: " + coverageWhy(state, reason)}}
 }
 
-// coverageReasons says in plain words what each caller-coverage reason the
-// operator writes (internal/observer observeCallers, and not-evaluated from
-// the controller's resetDerivedStatus) means for the person
+// staleStatus reports whether a coverage the operator should rewrite every
+// refreshSeconds is older than twice that: an operator that stopped would
+// otherwise leave a complete coverage in place forever.
+func staleStatus(reconciled *time.Time, refreshSeconds int32, now time.Time) bool {
+	return reconciled == nil || refreshSeconds <= 0 || now.Sub(*reconciled) > 2*time.Duration(refreshSeconds)*time.Second
+}
+
+// coverageWhy is a coverage reason in plain words, citing state and slug.
+func coverageWhy(state, reason string) string {
+	return cmp.Or(coverageReasons[reason], "the operator reported "+reason) + " (coverage: " + state + ", " + reason + ")"
+}
+
+// ExternalUses are the external systems a Pacto's status says its target
+// workload names, one use per status.externals entry, classified with the
+// catalog status.externalCatalog names and observed when the operator last
+// reconciled. p must carry status.contract.
+func ExternalUses(p PactoView, reconciled *time.Time) []fleet.RawExternalUse {
+	c := p.Status.Contract
+	catalog := strings.TrimSuffix(p.Status.ExternalCatalog, " (embedded)")
+	var out []fleet.RawExternalUse
+	for _, e := range p.Status.Externals {
+		out = append(out, fleet.RawExternalUse{
+			Service: c.ServiceName, Domain: contract.OCIDomain(c.ResolvedRef), Namespace: p.Metadata.Namespace,
+			Identity: e.Identity, Class: e.Class, Confidence: e.Confidence, Kind: e.Kind, Where: e.Where,
+			Host: e.Host, Entry: e.Entry, Catalog: catalog, ObservedAt: reconciled,
+		})
+	}
+	return out
+}
+
+// ExternalLimitations says when the external systems a Pacto's target uses
+// cannot be listed in full: an older operator's status, a status format 3
+// with no coverage, a coverage that is not complete or one gone stale (the
+// rule of [CallerLimitations]). It stays on the target, so the rest of the
+// snapshot stays complete, while every external answer turns partial. p must
+// carry status.contract.
+func ExternalLimitations(p PactoView, reconciled *time.Time, now time.Time) []fleet.Limitation {
+	state, reason := externalsCoverage(p.Status, reconciled, now)
+	if state == "complete" {
+		return nil
+	}
+	return []fleet.Limitation{{Code: fleet.LimitationExternalsUnreported, Source: SnapshotSourceID,
+		Message: "the external systems " + p.Status.Contract.ServiceName + " uses cannot be ruled out: " + coverageWhy(state, reason)}}
+}
+
+// externalsCoverage is the state and reason of a status's externals list.
+func externalsCoverage(s PactoStatusView, reconciled *time.Time, now time.Time) (state, reason string) {
+	cov := s.ExternalsCoverage
+	switch {
+	case s.StatusFormat < StatusFormatExternals:
+		return "unavailable", "status-format"
+	case cov == nil:
+		return "unavailable", "not-evaluated"
+	case staleStatus(reconciled, cov.RefreshSeconds, now):
+		return "unavailable", "stale-status"
+	}
+	return cov.State, cov.Reason
+}
+
+// coverageReasons says in plain words what each coverage reason the operator
+// writes (internal/observer observeCallers and observeExternals, and
+// not-evaluated from the controller's resetDerivedStatus) means for the person
 // asked to approve. The slug stays in the message as the citation.
 var coverageReasons = map[string]string{
-	"shared-netns":          "a pod on the host network can call it and the node agent cannot tell which one",
-	"stale-node":            "a node agent has not reported recently",
-	"collection-failed":     "a node agent failed to collect connections",
-	"degraded-node":         "a node agent is not fully running",
-	"truncated":             "there were more connections or callers than the operator keeps",
-	"node-without-agent":    "a node runs pods but has no node agent",
-	"unresolved-caller":     "a caller could not be matched to a pod and its owner",
-	"agent-data-unreadable": "the operator could not read the node agent reports",
-	"no-agent-data":         "no node agent has reported",
-	"service-unreadable":    "the operator could not read the Service",
-	"pods-unreadable":       "the operator could not read the pods",
-	"pactos-unreadable":     "the operator could not read the Pactos",
-	"not-evaluated":         "the operator could not evaluate this Pacto's runtime evidence",
-	"stale-status":          "the operator has not updated this status recently",
+	"shared-netns":             "a pod on the host network can call it and the node agent cannot tell which one",
+	"stale-node":               "a node agent has not reported recently",
+	"collection-failed":        "a node agent failed to collect connections",
+	"degraded-node":            "a node agent is not fully running",
+	"truncated":                "there were more entries than the operator keeps",
+	"node-without-agent":       "a node runs pods but has no node agent",
+	"unresolved-caller":        "a caller could not be matched to a pod and its owner",
+	"agent-data-unreadable":    "the operator could not read the node agent reports",
+	"no-agent-data":            "no node agent has reported",
+	"service-unreadable":       "the operator could not read the Service",
+	"pods-unreadable":          "the operator could not read the pods",
+	"pactos-unreadable":        "the operator could not read the Pactos",
+	"not-evaluated":            "the operator could not evaluate this Pacto's runtime evidence",
+	"stale-status":             "the operator has not updated this status recently",
+	"status-format":            "the operator that wrote this status does not report external systems",
+	"pod-spec-unavailable":     "the operator could not read the workload's pod spec",
+	"configmap-unreadable":     "the operator could not read a ConfigMap the pod spec references",
+	"serviceentry-reader-off":  "the cluster serves no Istio ServiceEntries API, so the operator cannot read Istio ServiceEntries",
+	"serviceentry-unreadable":  "the operator could not read the Istio ServiceEntries",
+	"object-host-unclassified": "a Service or ServiceEntry names a host outside the cluster that gives no identity, such as one under a private suffix",
 }
 
 // InitClusterCommand is the command a hold prints to draft a contract for an
@@ -292,13 +387,14 @@ func callersUnseen(snap *fleet.FleetSnapshot, service fleet.ServiceKey) []string
 
 // callerNamespace is the namespace in a CallerName.
 func callerNamespace(caller string) string {
-	ns, _, _ := strings.Cut(strings.TrimPrefix(caller, "k8s:"), "/")
+	_, ns, _, _, _ := fleet.ParseK8sCaller(caller)
 	return ns
 }
 
-// CallerName is the identity of a workload with no contract.
+// CallerName is the identity of a workload with no contract. Delivery plans
+// over one cluster, so it carries none (see [fleet.K8sCaller]).
 func CallerName(namespace, kind, name string) string {
-	return "k8s:" + namespace + "/" + kind + "/" + name
+	return fleet.K8sCaller("", namespace, kind, name)
 }
 
 // revisionFromStatus rebuilds the declared part of a contract (service, owner,

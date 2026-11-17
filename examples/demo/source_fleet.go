@@ -1,26 +1,24 @@
-//go:build js && wasm
-
 package main
 
 import (
 	"context"
-	"fmt"
 	"maps"
 	"time"
 
 	"github.com/trianalab/pacto/v4/examples/story"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/evidence"
+	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
 	"github.com/trianalab/pacto/v4/pkg/finding"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
-	"github.com/trianalab/pacto/v4/pkg/impact"
 )
 
 // This file builds the in-memory operational graph (fleet) and impact provider
 // the WASM demo wires into the dashboard, entirely from the embedded bundles plus
 // deterministic operational targets — so the Operational Graph and Impact pages
 // are useful the moment the demo opens, with no server and no OCI registry.
-// It is wasm-only (see the build tag): the host build never compiles it.
+// It builds on the host too, so `go test` checks the demo fleet; the impact
+// provider and the wiring stay in main_wasm.go.
 
 // demoRegistry is the synthetic registry the demo's revision refs live under. The
 // refs are immutable digest refs so they satisfy the same identity rules the real
@@ -66,7 +64,7 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 				ref := registry + name + "@sha256:" + entry.hash
 				out = append(out, fleet.RawRevision{
 					Bundle:       entry.bundle,
-					RequestedRef: registry + name + ":" + ver,
+					RequestedRef: requestedRef(registry, name, ver),
 					ResolvedRef:  ref,
 					Digest:       "sha256:" + entry.hash,
 					Document:     entry.doc,
@@ -114,19 +112,27 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 
 	// The cluster collector reports what is running; the registry above reports what
 	// was declared. Keeping them apart is what lets a target say which source saw it.
+	// One cluster, named from its kubeconfig context: every key keeps its 3-part
+	// form and the target page shows where the target runs.
+	prodCluster := &fleet.Cluster{ID: "5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11", Name: "production", NameSource: fleet.ClusterNameFromContext}
 	cluster := fleet.NewMemorySource("k8s-production", fleet.SourceKindKubernetes, &fleet.Collection{
+		Cluster:      prodCluster,
 		Targets:      demoTargets(src),
 		Provisioning: demoProvisioning(src),
 		Usage:        demoUsage(src),
+		ExternalUses: demoExternalUses(demoNow()),
 	})
 	// Telemetry is a second collector over the SAME estate: it corroborates the two
 	// targets it can see (agreeing on every identity-bearing field, so they merge
 	// instead of quarantining) and contributes the observed call edges. That is how a
 	// target ends up with two sources, which is the only way the provenance block on
 	// the target page shows anything worth reading.
+	// It observes the same estate, so it reports the same cluster: a clusterless
+	// contribution merged into a clustered target would make that target partial.
 	telemetry := fleet.NewMemorySource("otel-traces", "observation", &fleet.Collection{
+		Cluster:  prodCluster,
 		Targets:  demoCorroboratedTargets(),
-		Observed: demoObservedEdges(),
+		Observed: demoObservedEdges(demoNow()),
 	})
 	// A registry mirror that answered, but not with everything it holds: partial is a
 	// third source state, distinct from available and unavailable, and the source
@@ -145,32 +151,23 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 			Error:  &fleet.SourceError{Code: fleet.LimitationSourceUnavailable, Message: "edge cluster unreachable"},
 		},
 	})
+	// The organization extension is embedded, so the demo reports it unsigned
+	// rather than inventing a verification it never ran.
+	cat, err := externalcatalog.Assemble(externalcatalog.DefaultRef(), demoExternalCatalog, externalcatalog.Ref{
+		Origin: externalcatalog.OriginOrganization, Repository: "demo (embedded)", Digest: externalcatalog.Digest(demoExternalCatalog),
+		Copy: externalcatalog.CopyEmbedded, Signature: externalcatalog.SignatureUnknown,
+		Reason: "the demo catalog is embedded in the demo; it is not signed",
+	})
+	if err != nil {
+		return nil, nil, err
+	}
 	snap, err := fleet.Build(context.Background(),
-		fleet.BuildOptions{Now: demoNow, FreshnessWindow: 24 * time.Hour},
+		fleet.BuildOptions{Now: demoNow, FreshnessWindow: 24 * time.Hour, ExternalCatalog: cat},
 		fleet.NewMemorySource("local", "local", col), partnerRegistrySource, storySource, cluster, telemetry, mirror, unavailable)
 	if err != nil {
 		return nil, nil, err
 	}
 	return snap, byRef, nil
-}
-
-// demoImpactProvider returns the impact provider the demo wires into the
-// dashboard. It analyzes against the snapshot the dashboard hands it, the SAME
-// published snapshot the Operational Graph serves (so snapshotIds match, section 2.2), resolving the two revisions from the
-// in-memory ref index. Observed edges are folded into that snapshot by
-// buildDemoFleet, so include-observed is a real capability driven by the SAME
-// pipeline the Operational Graph uses (surfacing a shadow consumer), not a placebo
-// and not a second, divergent source of observed data.
-func demoImpactProvider(byRef map[string]*contract.Bundle) func(context.Context, *fleet.FleetSnapshot, string, string, bool) (*impact.Result, error) {
-	return func(ctx context.Context, snap *fleet.FleetSnapshot, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
-		oldB, newB := byRef[oldRef], byRef[newRef]
-		if oldB == nil || newB == nil {
-			return nil, fmt.Errorf("unknown revision reference (old=%q new=%q)", oldRef, newRef)
-		}
-		return impact.Analyze(ctx, oldB.Contract, newB.Contract, oldB.FS, newB.FS, snap, impact.Options{
-			IncludeObserved: includeObserved,
-		}), nil
-	}
 }
 
 // demoTargets are deterministic operational targets covering the range of states
@@ -454,22 +451,5 @@ func demoCorroboratedTargets() []fleet.RawTarget {
 	return []fleet.RawTarget{
 		{Scope: "prod", Kind: "Deployment", Name: "payments-service", Service: "payments-service", EvidenceAt: at(seen)},
 		{Scope: "prod", Kind: "Deployment", Name: "orders-service", Service: "orders-service", EvidenceAt: at(seen)},
-	}
-}
-
-// demoObservedEdges are embedded observed caller→provider edges Build folds into
-// the snapshot as domain-qualified observed relationships. audit-log is observed
-// calling payments-service WITHOUT declaring it — an observed-only (shadow)
-// dependency; orders-service→payments-service corroborates a declared dependency;
-// reporting-api reads postgresql directly without declaring any use of the
-// offering, so the postgresql page lists it as an undeclared caller.
-// They surface in the Operational Graph's Observed layer and, when include-observed
-// is enabled, in impact.
-func demoObservedEdges() []fleet.ObservedEdge {
-	return []fleet.ObservedEdge{
-		{From: "audit-log", To: "payments-service", Count: 12},
-		{From: "orders-service", To: "payments-service", Count: 340},
-		// Seen 20 minutes before the demo loaded, so the page reads it as current.
-		{From: "reporting-api", To: "postgresql", Count: 57, FirstSeen: demoNow().Add(-6 * time.Hour), LastSeen: demoNow().Add(-20 * time.Minute)},
 	}
 }

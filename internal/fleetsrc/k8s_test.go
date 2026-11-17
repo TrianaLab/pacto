@@ -2,6 +2,7 @@ package fleetsrc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -14,8 +15,10 @@ import (
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
 	"github.com/trianalab/pacto/v4/pkg/finding"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/kubecluster"
 	"github.com/trianalab/pacto/v4/pkg/readiness"
 )
 
@@ -36,29 +39,32 @@ func (f *fakeK8sClient) ListJSON(_ context.Context, crd k8sclient.CRDDiscovery, 
 	f.gotResource, f.gotNS = crd.ResourceName, namespace
 	return f.listData, f.listErr
 }
+func (f *fakeK8sClient) ClusterIdentity(context.Context, string) (kubecluster.Identity, error) {
+	return kubecluster.Identity{}, errors.New("the source never reads the identity")
+}
 
 func TestK8sSource_IDKind_Default(t *testing.T) {
-	s := NewK8sSource("", &fakeK8sClient{}, "")
+	s := NewK8sSource("", nil, &fakeK8sClient{}, nil)
 	if s.ID() != "k8s" {
 		t.Errorf("default ID = %q, want k8s", s.ID())
 	}
 	if s.Kind() != "kubernetes" {
 		t.Errorf("Kind = %q, want kubernetes", s.Kind())
 	}
-	if got := NewK8sSource("prod", nil, "").ID(); got != "prod" {
+	if got := NewK8sSource("prod", nil, nil, nil).ID(); got != "prod" {
 		t.Errorf("ID = %q, want prod", got)
 	}
 }
 
 func TestK8sSource_Collect_DiscoverError(t *testing.T) {
-	s := NewK8sSource("k8s", &fakeK8sClient{discErr: errors.New("unreachable")}, "")
+	s := NewK8sSource("k8s", nil, &fakeK8sClient{discErr: errors.New("unreachable")}, nil)
 	if _, err := s.Collect(context.Background()); err == nil {
 		t.Fatal("expected error")
 	}
 }
 
 func TestK8sSource_Collect_NotFound(t *testing.T) {
-	s := NewK8sSource("k8s", &fakeK8sClient{disc: &k8sclient.CRDDiscovery{Found: false}}, "")
+	s := NewK8sSource("k8s", nil, &fakeK8sClient{disc: &k8sclient.CRDDiscovery{Found: false}}, nil)
 	col, err := s.Collect(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -69,20 +75,20 @@ func TestK8sSource_Collect_NotFound(t *testing.T) {
 }
 
 func TestK8sSource_Collect_ListError(t *testing.T) {
-	s := NewK8sSource("k8s", &fakeK8sClient{
+	s := NewK8sSource("k8s", nil, &fakeK8sClient{
 		disc:    &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
 		listErr: errors.New("list failed"),
-	}, "")
+	}, nil)
 	if _, err := s.Collect(context.Background()); err == nil {
 		t.Fatal("expected error")
 	}
 }
 
 func TestK8sSource_Collect_InvalidJSON(t *testing.T) {
-	s := NewK8sSource("k8s", &fakeK8sClient{
+	s := NewK8sSource("k8s", nil, &fakeK8sClient{
 		disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
 		listData: []byte("{not json"),
-	}, "")
+	}, nil)
 	if _, err := s.Collect(context.Background()); err == nil {
 		t.Fatal("expected decode error")
 	}
@@ -106,10 +112,10 @@ func TestK8sSource_Collect_FullMapping(t *testing.T) {
 	    }
 	  }
 	]}`
-	s := NewK8sSource("prod-cluster", &fakeK8sClient{
+	s := NewK8sSource("prod-cluster", nil, &fakeK8sClient{
 		disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
 		listData: []byte(list),
-	}, "")
+	}, nil)
 	col, err := s.Collect(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -128,6 +134,11 @@ func TestK8sSource_Collect_FullMapping(t *testing.T) {
 		t.Fatalf("evidenceAt = %v, want the reconcile time %v", tg.EvidenceAt, reconciled)
 	}
 	tg.ReconciledAt, tg.EvidenceAt = nil, nil // asserted above; nil out so DeepEqual is location-agnostic
+	// The status has no statusFormat, so it cannot say which externals payments uses.
+	if len(tg.Limitations) != 1 || tg.Limitations[0].Code != fleet.LimitationExternalsUnreported {
+		t.Fatalf("limitations = %+v", tg.Limitations)
+	}
+	tg.Limitations = nil
 	want := fleet.RawTarget{
 		Scope: "prod",
 		// Domain is derived from the resolved ref's registry+org, correlating this
@@ -176,10 +187,10 @@ func TestK8sSource_Collect_Readiness(t *testing.T) {
 	      "weight":10,"earnedWeight":10,"excluded":false}]
 	  }
 	}}]}`
-	s := NewK8sSource("prod-cluster", &fakeK8sClient{
+	s := NewK8sSource("prod-cluster", nil, &fakeK8sClient{
 		disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
 		listData: []byte(list),
-	}, "")
+	}, nil)
 	col, err := s.Collect(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -204,10 +215,10 @@ func TestK8sSource_Collect_MinimalItem(t *testing.T) {
 	// No contract block, no coverage, no findings, no timestamp: service falls
 	// back to the CR name and optional fields stay zero.
 	list := `{"items":[{"metadata":{"name":"orphan","namespace":"default"},"status":{"contractStatus":"Unknown"}}]}`
-	s := NewK8sSource("k8s", &fakeK8sClient{
+	s := NewK8sSource("k8s", nil, &fakeK8sClient{
 		disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
 		listData: []byte(list),
-	}, "")
+	}, nil)
 	col, err := s.Collect(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -223,7 +234,7 @@ func TestK8sSource_Collect_MinimalItem(t *testing.T) {
 
 func TestContractRefs_NoCRD(t *testing.T) {
 	// An absent CRD is a readable cluster that declares nothing, not a failure.
-	refs, err := ContractRefs(context.Background(), &fakeK8sClient{disc: &k8sclient.CRDDiscovery{Found: false}}, "")
+	refs, err := ContractRefs(context.Background(), &fakeK8sClient{disc: &k8sclient.CRDDiscovery{Found: false}}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -233,7 +244,7 @@ func TestContractRefs_NoCRD(t *testing.T) {
 }
 
 func TestContractRefs_DiscoverError(t *testing.T) {
-	_, err := ContractRefs(context.Background(), &fakeK8sClient{discErr: errors.New("unreachable")}, "")
+	_, err := ContractRefs(context.Background(), &fakeK8sClient{discErr: errors.New("unreachable")}, nil)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -244,7 +255,7 @@ func TestContractRefs_NoCRs(t *testing.T) {
 		disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
 		listData: []byte(`{"items":[]}`),
 	}
-	refs, err := ContractRefs(context.Background(), fake, "team-a")
+	refs, err := ContractRefs(context.Background(), fake, []string{"team-a"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -262,17 +273,17 @@ func TestContractRefs_NoCRs(t *testing.T) {
 // it once, and a CR the operator has not resolved yet contributes nothing.
 func TestContractRefs_RefsAndRepos(t *testing.T) {
 	list := `{"items":[
-	  {"metadata":{"name":"tagged"},"status":{"contract":{"resolvedRef":"ghcr.io/x/payments:1.2.0"}}},
-	  {"metadata":{"name":"pinned"},"status":{"contract":{"resolvedRef":"ghcr.io/x/payments:1.3.0@sha256:abcd"}}},
-	  {"metadata":{"name":"bare"},"status":{"contract":{"resolvedRef":"ghcr.io/x/orders"}}},
-	  {"metadata":{"name":"ported"},"status":{"contract":{"resolvedRef":"localhost:5000/dev/svc:2.0.0"}}},
-	  {"metadata":{"name":"unresolved"},"status":{"contract":{"resolvedRef":""}}},
+	  {"metadata":{"name":"tagged"},"status":{"contract":{"serviceName":"svc","resolvedRef":"ghcr.io/x/payments:1.2.0"}}},
+	  {"metadata":{"name":"pinned"},"status":{"contract":{"serviceName":"svc","resolvedRef":"ghcr.io/x/payments:1.3.0@sha256:abcd"}}},
+	  {"metadata":{"name":"bare"},"status":{"contract":{"serviceName":"svc","resolvedRef":"ghcr.io/x/orders"}}},
+	  {"metadata":{"name":"ported"},"status":{"contract":{"serviceName":"svc","resolvedRef":"localhost:5000/dev/svc:2.0.0"}}},
+	  {"metadata":{"name":"unresolved"},"status":{"contract":{"serviceName":"svc","resolvedRef":""}}},
 	  {"metadata":{"name":"nocontract"},"status":{"contractStatus":"Unknown"}}
 	]}`
 	refs, err := ContractRefs(context.Background(), &fakeK8sClient{
 		disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
 		listData: []byte(list),
-	}, "")
+	}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -349,10 +360,10 @@ func TestK8sSource_ReconciledEvidenceIsEvidence(t *testing.T) {
 	    "lastReconciledAt":"2026-07-29T10:00:00Z"
 	  }
 	}]}`
-	src := NewK8sSource("prod-cluster", &fakeK8sClient{
+	src := NewK8sSource("prod-cluster", nil, &fakeK8sClient{
 		disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
 		listData: []byte(list),
-	}, "")
+	}, nil)
 	col, err := src.Collect(context.Background())
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
@@ -411,10 +422,10 @@ func TestK8sSource_BusinessDomainKnownOnlyFromDomainFormat(t *testing.T) {
 		{"domain format, no contract", item(delivery.StatusFormatDomain, ""), false},
 	}
 	for _, c := range cases {
-		s := NewK8sSource("c", &fakeK8sClient{
+		s := NewK8sSource("c", nil, &fakeK8sClient{
 			disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
 			listData: []byte(`{"items":[` + c.item + `]}`),
-		}, "")
+		}, nil)
 		col, err := s.Collect(context.Background())
 		if err != nil {
 			t.Fatal(err)
@@ -428,10 +439,10 @@ func TestK8sSource_BusinessDomainKnownOnlyFromDomainFormat(t *testing.T) {
 // collectList runs Collect over a fake list.
 func collectList(t *testing.T, list string) *fleet.Collection {
 	t.Helper()
-	col, err := NewK8sSource("prod-cluster", &fakeK8sClient{
+	col, err := NewK8sSource("prod-cluster", nil, &fakeK8sClient{
 		disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
 		listData: []byte(list),
-	}, "").Collect(context.Background())
+	}, nil).Collect(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -462,6 +473,7 @@ func TestK8sSourceCallerCoverageLimitation(t *testing.T) {
 	fresh := time.Now().UTC().Format(time.RFC3339)
 	item := func(name, state string) string {
 		return `{"metadata":{"name":"` + name + `","namespace":"prod"},"status":{"lastReconciledAt":"` + fresh + `",
+		  "statusFormat":3,"externalsCoverage":{"state":"complete","refreshSeconds":30},
 		  "contract":{"serviceName":"` + name + `"},
 		  "observedCallersCoverage":{"state":"` + state + `","reason":"stale-node","refreshSeconds":30}}}`
 	}
@@ -487,7 +499,136 @@ func TestK8sSourceObservedDecodeIsLenient(t *testing.T) {
 	if len(col.Observed) != 1 || col.Observed[0].To != "payments" {
 		t.Fatalf("observed = %+v", col.Observed)
 	}
-	if len(col.Limitations) != 1 || col.Limitations[0].Code != LimitationPactoStatusUnreadable || !strings.Contains(col.Limitations[0].Message, "prod/broken") {
+	if len(col.Limitations) != 1 || col.Limitations[0].Code != LimitationPactoStatusUnreadable || !strings.Contains(col.Limitations[0].Message, "prod/broken") ||
+		!strings.Contains(col.Limitations[0].Message, "external systems") {
+		t.Fatalf("limitations = %+v", col.Limitations)
+	}
+	// The unreadable target says its callers and externals cannot be ruled out,
+	// so an external answer turns partial; the readable one says nothing.
+	var codes []string
+	for _, l := range col.Targets[0].Limitations {
+		codes = append(codes, l.Code)
+	}
+	if !slices.Equal(codes, []string{delivery.LimitationCallersUnseen, fleet.LimitationExternalsUnreported}) {
+		t.Fatalf("broken target limitations = %+v", col.Targets[0].Limitations)
+	}
+}
+
+// externalsItem is a reconciled Pacto at status format 3 in namespace ns,
+// reporting externals (a JSON array) with a fresh complete coverage.
+func externalsItem(service, ns, externals string) string {
+	fresh := time.Now().UTC().Format(time.RFC3339)
+	return `{"metadata":{"name":"` + service + `","namespace":"` + ns + `"},"status":{"statusFormat":3,"lastReconciledAt":"` + fresh + `",
+	  "contract":{"serviceName":"` + service + `","resolvedRef":"oci://reg.example/pactos/` + service + `@sha256:` + strings.Repeat("a", 64) + `"},
+	  "externalCatalog":"` + externalcatalog.DefaultDigest() + ` (embedded)",
+	  "externalsCoverage":{"state":"complete","refreshSeconds":30},
+	  "externals":` + externals + `}}`
+}
+
+const stripeExternal = `[{"identity":"stripe","class":"vendor-api","confidence":"likely","kind":"env",
+  "where":"deployment/payments env STRIPE_API_BASE","host":"api.stripe.com","entry":"stripe"}]`
+
+func TestK8sSourceCollectsExternalUses(t *testing.T) {
+	col := collectList(t, `{"items":[`+externalsItem("payments", "prod", stripeExternal)+`,
+	  {"metadata":{"name":"old","namespace":"prod"},"status":{"contract":{"serviceName":"old"}}}]}`)
+	if len(col.ExternalUses) != 1 {
+		t.Fatalf("uses = %+v", col.ExternalUses)
+	}
+	u := col.ExternalUses[0]
+	if u.Service != "payments" || u.Namespace != "prod" || u.Domain != "reg.example/pactos" || u.Identity != "stripe" ||
+		u.Kind != "env" || u.Host != "api.stripe.com" || u.Catalog != externalcatalog.DefaultDigest() || u.ObservedAt == nil {
+		t.Fatalf("use = %+v", u)
+	}
+	if col.Targets[0].Limitations != nil {
+		t.Fatalf("a complete report adds no limitation: %+v", col.Targets[0].Limitations)
+	}
+	lims := col.Targets[1].Limitations
+	if len(lims) != 1 || lims[0].Code != fleet.LimitationExternalsUnreported || lims[0].Source != "prod-cluster" || !strings.Contains(lims[0].Message, "status-format") {
+		t.Fatalf("an older operator's status = %+v", lims)
+	}
+}
+
+// buildK8s builds a snapshot from one Kubernetes source over list.
+func buildK8s(t *testing.T, list string) *fleet.FleetSnapshot {
+	t.Helper()
+	src := NewK8sSource("prod-cluster", nil, &fakeK8sClient{disc: &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"}, listData: []byte(list)}, nil)
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return snap
+}
+
+func TestK8sExternalUsesRestrictedByNamespace(t *testing.T) {
+	vault := strings.ReplaceAll(stripeExternal, "deployment/payments", "deployment/vault")
+	snap := buildK8s(t, `{"items":[`+externalsItem("payments", "prod", stripeExternal)+`,`+externalsItem("vault", "secret", vault)+`]}`)
+	if v, err := fleet.NewQuery(snap).GetExternal("stripe"); err != nil || len(v.External.Consumers) != 2 {
+		t.Fatalf("unrestricted stripe = %+v, %v", v, err)
+	}
+	r := fleet.NewQuery(snap).Restrict(func(ns string) bool { return ns == "prod" })
+	v, err := r.GetExternal("stripe")
+	if err != nil || len(v.External.Consumers) != 1 || v.External.HiddenConsumers != 1 {
+		t.Fatalf("restricted stripe = %+v, %v", v, err)
+	}
+	b, _ := json.Marshal(v)
+	if strings.Contains(string(b), "vault") {
+		t.Fatalf("the restricted answer names the hidden caller: %s", b)
+	}
+}
+
+// TestSnapshotJSONCarriesNoCredential: a status built from what the operator
+// reports for a credential URL, a JWT and a dotted password (plus fields no
+// operator writes, carrying the raw values) yields a snapshot holding the
+// normalized host only.
+func TestSnapshotJSONCarriesNoCredential(t *testing.T) {
+	const credURL = "postgres://user:pass@db.xyz.rds.amazonaws.com/app?password=x"
+	const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.c2lnbmF0dXJl"
+	cat := externalcatalog.Default()
+	if len(cat.Classify(jwt, "API_TOKEN")) != 0 || len(cat.Classify("s3cr3t.v4lue", "auth.password")) != 0 {
+		t.Fatal("a value under a secret-like key is never classified")
+	}
+	var entries []map[string]string
+	for kind, where := range map[string]string{"env": "deployment/payments env DATABASE_URL", "configMap": "configmap/settings DB_URL"} {
+		for _, m := range cat.Classify(credURL, "DATABASE_URL") {
+			entries = append(entries, map[string]string{"identity": string(m.Identity), "class": m.Class, "confidence": m.Confidence,
+				"kind": kind, "where": where, "host": m.Host, "entry": m.Entry, "value": credURL, "token": jwt, "password": "s3cr3t.v4lue"})
+		}
+	}
+	ext, _ := json.Marshal(entries)
+	snap := buildK8s(t, `{"items":[`+externalsItem("payments", "prod", string(ext))+`]}`)
+	b, _ := json.Marshal(snap)
+	if !strings.Contains(string(b), "db.xyz.rds.amazonaws.com") {
+		t.Fatalf("the snapshot lost the host: %s", b)
+	}
+	for _, bad := range []string{"user:", "pass@", "/app", "password=", "?password", jwt, "s3cr3t"} {
+		if strings.Contains(string(b), bad) {
+			t.Errorf("snapshot carries %q", bad)
+		}
+	}
+}
+
+// A reconciled contract with no service name cannot come from the operator, which
+// refuses one; the source reports the record instead of guessing the CR name.
+// The item becomes no target, so Restrict never learns its namespace: the
+// message must name neither the namespace nor the Pacto.
+func TestK8sSource_Collect_NamelessContractIsARecordGap(t *testing.T) {
+	list := `{"items":[
+	  {"metadata":{"name":"nameless","namespace":"prod"},"status":{"contract":{"serviceName":"","resolvedRef":"ghcr.io/x/a:1.0.0"}}},
+	  {"metadata":{"name":"payments","namespace":"prod"},"status":{"contract":{"serviceName":"payments"}}}
+	]}`
+	col, err := NewK8sSource("prod", nil, &fakeK8sClient{
+		disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
+		listData: []byte(list),
+	}, nil).Collect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(col.Targets) != 1 || col.Targets[0].Service != "payments" {
+		t.Fatalf("targets = %+v", col.Targets)
+	}
+	if len(col.Limitations) != 1 || col.Limitations[0].Code != fleet.LimitationSourceRecordInvalid ||
+		strings.Contains(col.Limitations[0].Message, "prod") || strings.Contains(col.Limitations[0].Message, "nameless") ||
+		!strings.Contains(col.Limitations[0].Message, "1 Pacto(s)") {
 		t.Fatalf("limitations = %+v", col.Limitations)
 	}
 }

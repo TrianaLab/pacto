@@ -675,3 +675,54 @@ func TestEvaluateIgnoresResourceProvisioned(t *testing.T) {
 		}
 	}
 }
+
+func TestVersionVerdictUnknownIsUnverified(t *testing.T) {
+	for _, v := range []string{"1.0.0", ""} {
+		if got := versionVerdict(contract.CompatibilityUnknown, v); got != verdictUnverified {
+			t.Errorf("versionVerdict(unknown, %q) = %v, want unverified", v, got)
+		}
+	}
+}
+
+func TestUnknownMessageAppendsDetail(t *testing.T) {
+	const detail = "the operator may not read Secret payments/app; list payments/app in controller.secretGrants"
+	o, err := evidence.NewUnobservedDetail(evidence.ConfigurationPresent, sr("configuration", "app"), evidence.Unsupported, prov(), detail)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := contract.Contract{
+		Service:        contract.Service{Name: "orders", Version: "1.0.0"},
+		Configurations: []contract.Configuration{{Name: "app", Schema: "s.json", Required: true}},
+	}
+	fs, _ := Evaluate(c, es(o))
+	var got []finding.Finding
+	for _, f := range fs {
+		if f.Code == finding.CodeObservationUnsupported {
+			got = append(got, f)
+		}
+	}
+	if len(got) != 1 || got[0].Severity != finding.SeverityUnknown {
+		t.Fatalf("want one Unknown OBSERVATION_UNSUPPORTED, got %v", fs)
+	}
+	if want := `configuration "app" cannot be observed in this environment: ` + detail; got[0].Message != want {
+		t.Fatalf("message %q, want %q", got[0].Message, want)
+	}
+}
+
+func TestUnknownMessageWithoutDetailUnchanged(t *testing.T) {
+	c := contract.Contract{
+		Service:        contract.Service{Name: "orders", Version: "1.0.0"},
+		Configurations: []contract.Configuration{{Name: "app", Schema: "s.json", Required: true}},
+	}
+	fs, _ := Evaluate(c, es(unobs(t, evidence.ConfigurationPresent, "configuration", "app", evidence.Unsupported)))
+	want := unknownMessage(finding.CodeObservationUnsupported, "configuration", "app")
+	for _, f := range fs {
+		if f.Code == finding.CodeObservationUnsupported {
+			if f.Message != want {
+				t.Fatalf("message = %q, want %q", f.Message, want)
+			}
+			return
+		}
+	}
+	t.Fatalf("no OBSERVATION_UNSUPPORTED finding in %v", fs)
+}

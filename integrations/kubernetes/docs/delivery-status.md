@@ -70,7 +70,7 @@ Reason codes: `NotReady`, `ReadyUnknown`, `StatusStale`, `NoCandidate`, `Frozen`
 `Held`, `InFlight`, `Level`, `OpsUnknown`, `PolicyUnknown`, `NotPermitted`,
 `RBACUnknown`, `PlanRejected`, `PlanHeld`, `PlanWaits` and `PlanUnknown`. A fix
 prints a command only when you may run it: the approve command only for a
-person of the operation's owner teams who did not ask for it, the unfreeze
+person who may answer and did not ask for it, the unfreeze
 command only for someone admission lets unfreeze and never an approve
 command for an agent.
 
@@ -92,6 +92,9 @@ answer share the rule, so they cannot disagree.
 | `ApplierMultiSource` | Give the Argo CD Application one OCI `spec.source` instead of `spec.sources` |
 | `ApplierNotOCI` | Point the Application's `spec.source.repoURL` at an `oci://` repository |
 | `ApplierNotAutomated` | Set `spec.syncPolicy.automated` on the Application |
+| `ApplierConflict` | Point `spec.applyRef` at the manager `status.applier` names, or move the workloads to the Stage's applier |
+| `ApplierUnknown` | Deliver the workloads through Argo CD or Flux so they carry its labels, or let the promoter read them |
+| `ApplierNotChartRef` | Point the HelmRelease's `spec.chartRef` at an OCIRepository |
 
 ## What you may do
 

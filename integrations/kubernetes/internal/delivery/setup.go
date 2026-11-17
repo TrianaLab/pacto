@@ -46,8 +46,10 @@ func approvalUID(obj client.Object) []string { return []string{obj.(*dv1.Approva
 
 // SetupWithManager registers the stage reconciler. A Stage reconciles when
 // something it reads changes: its operations, its upstream Stage, its apply
-// and candidate OCIRepositories, the Kustomizations that apply them and, when
-// Cluster.CacheApplications, its Application. A Flux kind whose CRD is not
+// and candidate OCIRepositories and the Kustomizations that apply them (unless
+// Cluster.NoFlux) and, when
+// Cluster.CacheApplications, its Application or, when Cluster.FluxHelm, its
+// HelmRelease. A Flux kind whose CRD is not
 // installed when the promoter starts is not watched. Resync reconciles every
 // Stage anyway, for what no watch covers.
 func (r *StageReconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -70,10 +72,17 @@ func (r *StageReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		u.SetGroupVersionKind(gvk)
 		b.Watches(u, handler.EnqueueRequestsFromMapFunc(r.stagesReading(keys)))
 	}
-	watch(gvkOCIRepository, ociRepositoryKeys)
-	watch(schema.GroupVersionKind{Group: gvkKustomization.Group, Version: gvkKustomization.Version, Kind: "Kustomization"}, kustomizationKeys)
+	if !r.Cluster.NoFlux {
+		watch(gvkOCIRepository, ociRepositoryKeys)
+		watch(schema.GroupVersionKind{Group: gvkKustomization.Group, Version: gvkKustomization.Version, Kind: "Kustomization"}, kustomizationKeys)
+	}
 	if r.Cluster.CacheApplications {
 		watch(gvkApplication, applicationKeys)
+	}
+	// ponytail: the HelmRelease's chart OCIRepository is not indexed; helm-controller
+	// updates the HelmRelease when its chart changes, and Resync covers the rest.
+	if r.Cluster.FluxHelm {
+		watch(gvkHelmRelease, helmReleaseKeys)
 	}
 	return b.Complete(r)
 }
@@ -87,8 +96,8 @@ func refKey(ns, kind, name string) string { return ns + "/" + kind + "/" + name 
 
 func stageRefKeys(obj client.Object) []string {
 	s := obj.(*dv1.Stage)
-	kind := delivery.ApplierArgoCD
-	if s.Spec.ApplyRef.Kind != delivery.ApplierArgoCD {
+	kind := s.Spec.ApplyRef.Kind
+	if kind != delivery.ApplierArgoCD && kind != delivery.ApplierHelmRelease {
 		kind = kindOCIRepository
 	}
 	keys := []string{refKey(s.Namespace, kind, s.Spec.ApplyRef.Name)}
@@ -138,6 +147,10 @@ func applicationKeys(o client.Object) []string {
 	return []string{refKey(o.GetNamespace(), delivery.ApplierArgoCD, o.GetName())}
 }
 
+func helmReleaseKeys(o client.Object) []string {
+	return []string{refKey(o.GetNamespace(), delivery.ApplierHelmRelease, o.GetName())}
+}
+
 // stagesReading wakes every Stage that reads one of the objects keys names.
 func (r *StageReconciler) stagesReading(keys func(client.Object) []string) handler.MapFunc {
 	return func(ctx context.Context, obj client.Object) []reconcile.Request {
@@ -167,7 +180,7 @@ func operationToStage(_ context.Context, obj client.Object) []reconcile.Request 
 
 // registryFor returns a registry client for the apply repository, reaching it
 // over plain HTTP when the OCIRepository says so.
-func (c Cluster) registryFor(a *applyRef) delivery.Registry {
+func (c Cluster) registryFor(a *source) delivery.Registry {
 	if a.insecure {
 		return c.Registry(a.host())
 	}

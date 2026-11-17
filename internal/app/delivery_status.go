@@ -70,8 +70,10 @@ func (d *Delivery) Status(ctx context.Context, q delivery.StatusQuery) (*deliver
 		rows[i] = &out.Stages[i]
 	}
 	delivery.NarrowOffers(ctx, rows, delivery.CreateOperations(d.Can))
+	access := delivery.AccessMemo(stages, d.WorkloadAccess)
+	delivery.NarrowUnfreeze(ctx, rows, caller.Class, access)
 	if q.Why {
-		note += d.whyAll(ctx, caller, stages, out.Stages, ops, opsErr, read, asOf)
+		note += d.whyAll(ctx, caller, stages, out.Stages, ops, opsErr, read, asOf, access)
 	}
 	if len(out.Unreadable) > 0 {
 		out.Completeness = "partial"
@@ -180,7 +182,7 @@ func bundleVersion(r delivery.Revision) string {
 // whyAll sets Progress on the first statusWhyLimit rows; the note it returns
 // names the rest.
 func (d *Delivery) whyAll(ctx context.Context, caller Caller, stages []delivery.StageObject, rows []delivery.StageRow,
-	ops map[string][]delivery.OperationObject, opsErr map[string]error, read map[string]delivery.Described, asOf string) string {
+	ops map[string][]delivery.OperationObject, opsErr map[string]error, read map[string]delivery.Described, asOf string, access delivery.StageAccess) string {
 	n := min(len(stages), statusWhyLimit)
 	var g errgroup.Group
 	g.SetLimit(auditParallel)
@@ -196,6 +198,7 @@ func (d *Delivery) whyAll(ctx context.Context, caller Caller, stages []delivery.
 					pin.Ops = append(pin.Ops, o)
 				}
 			}
+			pin.Access = delivery.PersonAccess(ctx, caller, st, pin.Ops, access)
 			rows[i].Progress = new(d.progressOf(ctx, pin))
 			return nil
 		})

@@ -1,0 +1,562 @@
+package release
+
+import (
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strings"
+	"testing"
+
+	"gopkg.in/yaml.v3"
+)
+
+// The release attests SLSA build provenance for every CLI binary,
+// checksums.txt and the index of every image it publishes with
+// actions/attest-build-provenance, and only when its own release.yml@main
+// attestation over the transaction's source commit does not verify yet. The
+// image builds write no BuildKit provenance, so each index carries one
+// statement, signed. provenanceProblems is the one checker every test and bite case
+// below calls, so the bite cases prove the same rules the real file passes.
+
+const attestAction = "actions/attest-build-provenance@"
+
+var attestPin = regexp.MustCompile(`actions/attest-build-provenance@([0-9a-f]{40})\b`)
+
+const publishedDigest = "${{ steps.publish.outputs.digest }}"
+
+// imageSubjects maps each image merge job to the subject-name it attests.
+// dashboard-image sets no IMAGE_REPO, so its coordinate is a literal.
+var imageSubjects = map[string]string{
+	"dashboard-image": "ghcr.io/trianalab/pacto/dashboard",
+	"operator-image":  "${{ env.IMAGE_REPO }}",
+	"delivery-image":  "${{ env.IMAGE_REPO }}",
+}
+
+func releaseWorkflowBytes(t *testing.T) []byte {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(repoRoot(t), ".github", "workflows", "release.yml"))
+	if err != nil {
+		t.Fatalf("read release.yml: %v", err)
+	}
+	return b
+}
+
+func provenanceProblems(src []byte) []string {
+	var doc struct {
+		Jobs map[string]wfJob `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(src, &doc); err != nil {
+		return []string{"parse release.yml: " + err.Error()}
+	}
+	var out []string
+	job, ok := doc.Jobs["release"]
+	if !ok {
+		return []string{"release.yml has no release job"}
+	}
+	out = append(out, writePermProblems("release", job, "contents", "id-token", "attestations")...)
+	out = append(out, cliAttestProblems(job.Steps)...)
+	for name, subject := range imageSubjects {
+		out = append(out, imageAttestProblems(name, doc.Jobs[name], subject)...)
+		out = append(out, buildProvenanceProblems(name+"-build", doc.Jobs[name+"-build"])...)
+	}
+	for name, j := range doc.Jobs {
+		if j.Uses != "" {
+			out = append(out, fmt.Sprintf("%s: a reusable workflow (uses: %s) breaks the skip-safe DAG", name, j.Uses))
+		}
+		_, attests := imageSubjects[name]
+		if _, ok := j.Permissions["attestations"]; ok != (attests || name == "release") {
+			out = append(out, fmt.Sprintf("%s: attestations permission belongs only to release and the image merge jobs", name))
+		}
+		if _, ok := j.Permissions["artifact-metadata"]; ok {
+			out = append(out, name+": artifact-metadata permission is not needed (create-storage-record: false)")
+		}
+	}
+	return out
+}
+
+// imageAttestProblems checks that an image merge job records the digest the
+// adapter printed, probes for its own attestation of that index and attests it.
+func imageAttestProblems(name string, job wfJob, subject string) []string {
+	out := writePermProblems(name, job, "packages", "id-token", "attestations")
+	publish, probe, attest := -1, -1, -1
+	for i, s := range job.Steps {
+		switch {
+		case s.ID == "publish":
+			publish = i
+		case s.ID == "attested":
+			probe = i
+		case strings.HasPrefix(s.Uses, attestAction):
+			attest = i
+		}
+	}
+	if publish < 0 || probe < 0 || attest < 0 {
+		return append(out, fmt.Sprintf("%s: needs a publish step, a probe and an attest step (got %d %d %d)", name, publish, probe, attest))
+	}
+	if publish > probe || probe > attest {
+		out = append(out, fmt.Sprintf("%s: order must be publish < probe < attest, got %d %d %d", name, publish, probe, attest))
+	}
+	out = append(out, publishProblems(name, job.Steps[publish])...)
+	p := job.Steps[probe]
+	out = append(out, probeProblems(name, p, `gh attestation verify "oci://`, "/tmp/digests", "attestation-manifest")...)
+	if p.Env["DIGEST"] != publishedDigest || p.Env["REPO"] != subject {
+		out = append(out, fmt.Sprintf("%s: the probe must read DIGEST %s and REPO %s", name, publishedDigest, subject))
+	}
+	out = append(out, imageAttestStepProblems(name, job.Steps[attest], subject)...)
+	if repo, _ := job.Env["IMAGE_REPO"].(string); strings.Contains(subject, "IMAGE_REPO") && !strings.HasPrefix(repo, "ghcr.io/trianalab/pacto/") {
+		out = append(out, fmt.Sprintf("%s: job env IMAGE_REPO must name a ghcr.io/trianalab/pacto/ coordinate, got %q", name, repo))
+	}
+	return out
+}
+
+func writePermProblems(name string, job wfJob, perms ...string) []string {
+	var out []string
+	for _, p := range perms {
+		if job.Permissions[p] != "write" {
+			out = append(out, fmt.Sprintf("%s: permission %s: write is missing", name, p))
+		}
+	}
+	return out
+}
+
+func imageAttestStepProblems(name string, a wfStep, subject string) []string {
+	var out []string
+	if !attestPin.MatchString(a.Uses) {
+		out = append(out, name+": attest step is not pinned to a 40-hex commit: "+a.Uses)
+	}
+	out = append(out, gatedOnProbe(name, a)...)
+	want := map[string]string{"subject-name": subject, "subject-digest": publishedDigest, "push-to-registry": "true", "create-storage-record": "false"}
+	for k, v := range want {
+		if got := fmt.Sprint(a.With[k]); got != v {
+			out = append(out, fmt.Sprintf("%s: attest %s must be %q, got %q", name, k, v, got))
+		}
+	}
+	return out
+}
+
+// publishProblems holds the merge step to the digest the adapter recorded:
+// never a second read of the mutable tag.
+func publishProblems(name string, s wfStep) []string {
+	var out []string
+	for _, w := range []string{`printf '%s\n' "$out"`, `echo "digest=$digest" >> "$GITHUB_OUTPUT"`} {
+		if !strings.Contains(s.Run, w) {
+			out = append(out, fmt.Sprintf("%s: the publish step does not contain %q", name, w))
+		}
+	}
+	if strings.Contains(s.Run, `crane digest "$REF"`) {
+		out = append(out, name+": the publish step re-reads the tag with crane digest")
+	}
+	for _, line := range strings.Split(s.Run, "\n") {
+		if strings.Contains(line, "cosign sign --") && !strings.Contains(line, `"${REF}@${digest}"`) {
+			out = append(out, name+": cosign must sign the recorded digest ${REF}@${digest}")
+		}
+	}
+	return out
+}
+
+func buildProvenanceProblems(name string, job wfJob) []string {
+	for _, s := range job.Steps {
+		if strings.Contains(s.Run, "docker buildx build") {
+			if !strings.Contains(s.Run, "--provenance=false") {
+				return []string{name + ": docker buildx build must pass --provenance=false (the merge job attests the index and compares its children to the platform manifests this build recorded)"}
+			}
+			return nil
+		}
+	}
+	return []string{name + ": no docker buildx build step"}
+}
+
+// cliAttestProblems checks the probe, the attest step and their order inside
+// the release job.
+func cliAttestProblems(steps []wfStep) []string {
+	var out []string
+	build, probe, attest, finalize := -1, -1, -1, -1
+	for i, s := range steps {
+		switch {
+		case strings.HasPrefix(s.Name, "Build reproducible binaries"):
+			build = i
+		case s.ID == "attested":
+			probe = i
+		case strings.HasPrefix(s.Uses, attestAction):
+			attest = i
+		case strings.Contains(s.Run, "finalize-release.sh"):
+			finalize = i
+		}
+	}
+	if probe < 0 {
+		return append(out, "release: no probe step (id: attested)")
+	}
+	if attest < 0 {
+		return append(out, "release: no actions/attest-build-provenance step")
+	}
+	if build < 0 || build > probe || probe > attest || attest > finalize {
+		out = append(out, fmt.Sprintf("release: order must be build < probe < attest < finalize, got %d %d %d %d", build, probe, attest, finalize))
+	}
+	out = append(out, probeProblems("release", steps[probe], "dist/pacto_*", "dist/checksums.txt")...)
+	a := steps[attest]
+	if !attestPin.MatchString(a.Uses) {
+		out = append(out, "release: attest step is not pinned to a 40-hex commit: "+a.Uses)
+	}
+	out = append(out, gatedOnProbe("release", a)...)
+	subj, _ := a.With["subject-path"].(string)
+	if got := strings.Fields(subj); strings.Join(got, " ") != "dist/pacto_* dist/checksums.txt" {
+		out = append(out, fmt.Sprintf("release: subject-path must be exactly dist/pacto_* and dist/checksums.txt, got %q", got))
+	}
+	return out
+}
+
+// probeProblems holds every probe to the signer-bound verify a reviewer runs,
+// plus the two guards that refuse to sign a false ref or build commit.
+func probeProblems(job string, s wfStep, mustName ...string) []string {
+	var out []string
+	if s.ContinueOnError != nil {
+		out = append(out, job+": the probe must not set continue-on-error")
+	}
+	want := append([]string{
+		"gh attestation verify",
+		"--cert-identity",
+		"release.yml@refs/heads/main",
+		"--source-digest",
+		`test "$GITHUB_REF" = refs/heads/main`,
+		`test "$GITHUB_SHA" = "$SRC"`,
+	}, mustName...)
+	for _, w := range want {
+		if !strings.Contains(s.Run, w) {
+			out = append(out, fmt.Sprintf("%s: the probe does not contain %q", job, w))
+		}
+	}
+	if strings.Contains(s.Run, "/attestations/") {
+		out = append(out, job+": the probe counts stored attestations instead of verifying its own")
+	}
+	return out
+}
+
+func gatedOnProbe(job string, s wfStep) []string {
+	var out []string
+	if strings.TrimSpace(s.If) != "steps.attested.outputs.need == 'true'" {
+		out = append(out, fmt.Sprintf("%s: attest step must run only when steps.attested.outputs.need == 'true', got %q", job, s.If))
+	}
+	if s.ContinueOnError != nil {
+		out = append(out, job+": the attest step must not set continue-on-error")
+	}
+	return out
+}
+
+func TestReleaseJobAttestsEveryBinaryAndTheChecksums(t *testing.T) {
+	for _, p := range provenanceProblems(releaseWorkflowBytes(t)) {
+		t.Error(p)
+	}
+}
+
+func TestImageJobsAttestTheIndexTheyPublish(t *testing.T) {
+	jobs := workflowJobs(t, repoRoot(t), "release.yml")
+	for name, subject := range imageSubjects {
+		for _, p := range imageAttestProblems(name, jobs[name], subject) {
+			t.Error(p)
+		}
+	}
+}
+
+func TestImageBuildsWriteNoBuildKitProvenance(t *testing.T) {
+	jobs := workflowJobs(t, repoRoot(t), "release.yml")
+	for name := range imageSubjects {
+		for _, p := range buildProvenanceProblems(name+"-build", jobs[name+"-build"]) {
+			t.Error(p)
+		}
+	}
+}
+
+func TestAttestationsPermissionOnlyWhereAttested(t *testing.T) {
+	var got []string
+	for name, j := range workflowJobs(t, repoRoot(t), "release.yml") {
+		if _, ok := j.Permissions["attestations"]; ok {
+			got = append(got, name)
+		}
+		if _, ok := j.Permissions["artifact-metadata"]; ok {
+			t.Errorf("%s holds artifact-metadata; create-storage-record is off", name)
+		}
+	}
+	sort.Strings(got)
+	if want := "dashboard-image delivery-image operator-image release"; strings.Join(got, " ") != want {
+		t.Errorf("attestations permission on %v, want exactly %s", got, want)
+	}
+}
+
+func TestEveryAttestStepIsGatedOnTheProbe(t *testing.T) {
+	jobs := workflowJobs(t, repoRoot(t), "release.yml")
+	n := 0
+	for name, j := range jobs {
+		for i, s := range j.Steps {
+			if !strings.HasPrefix(s.Uses, attestAction) {
+				continue
+			}
+			n++
+			if i == 0 || j.Steps[i-1].ID != "attested" {
+				t.Errorf("%s: the step before %q must be the probe (id: attested)", name, s.Name)
+			}
+			for _, p := range gatedOnProbe(name, s) {
+				t.Error(p)
+			}
+		}
+	}
+	if n != 1+len(imageSubjects) {
+		t.Fatalf("release.yml has %d attest steps after alias expansion, want the CLI one and one per image", n)
+	}
+}
+
+func TestAttestPinsAreCommitShasAndIdentical(t *testing.T) {
+	pins := map[string]bool{}
+	for _, w := range loadWorkflows(t, repoRoot(t)) {
+		for _, line := range strings.Split(w.text, "\n") {
+			if !strings.Contains(line, attestAction) {
+				continue
+			}
+			m := attestPin.FindStringSubmatch(line)
+			if m == nil {
+				t.Errorf("%s: %s is not pinned to a 40-hex commit", w.name, strings.TrimSpace(line))
+				continue
+			}
+			pins[m[1]] = true
+		}
+	}
+	if len(pins) > 1 {
+		t.Errorf("actions/attest-build-provenance is pinned to %d different commits; use one", len(pins))
+	}
+}
+
+func TestOnlyTheReleaseWorkflowAttests(t *testing.T) {
+	attest := regexp.MustCompile(`uses:\s*actions/attest(-build-provenance)?@`)
+	for _, w := range loadWorkflows(t, repoRoot(t)) {
+		if w.name != "release.yml" && attest.MatchString(w.text) {
+			t.Errorf("%s attests; only release.yml signs build provenance", w.name)
+		}
+	}
+}
+
+func TestReleaseWorkflowHasNoReusableWorkflow(t *testing.T) {
+	for name, j := range workflowJobs(t, repoRoot(t), "release.yml") {
+		if j.Uses != "" {
+			t.Errorf("%s calls the reusable workflow %s; a skipped reusable workflow poisons the DAG", name, j.Uses)
+		}
+	}
+}
+
+var jobHeader = regexp.MustCompile(`(?m)^  [A-Za-z0-9_-]+:\s*$`)
+
+// jobSpan returns the byte range of one job's text, from its header to the
+// next job header, so a mutation lands in that job whatever order the jobs
+// are in and whichever other job carries the same strings.
+func jobSpan(t *testing.T, src, job string) (int, int) {
+	t.Helper()
+	i := strings.Index(src, "\n  "+job+":\n")
+	if i < 0 {
+		t.Fatalf("release.yml has no job %s", job)
+	}
+	i++
+	end := len(src)
+	if m := jobHeader.FindStringIndex(src[i+1:]); m != nil {
+		end = i + 1 + m[0]
+	}
+	return i, end
+}
+
+// stepBlock returns the text of the step whose first line contains marker.
+func stepBlock(t *testing.T, section, marker string) string {
+	t.Helper()
+	i := strings.Index(section, marker)
+	if i < 0 {
+		t.Fatalf("no step with %q", marker)
+	}
+	start := strings.LastIndex(section[:i], "\n") + 1
+	end := strings.Index(section[start+1:], "\n      - ")
+	if end < 0 {
+		t.Fatalf("step %q is the last one", marker)
+	}
+	return section[start : start+1+end+1]
+}
+
+func TestTheProvenanceGateBites(t *testing.T) {
+	const attestName = "- name: Attest SLSA build provenance for the binaries and checksums"
+	replace := func(old, new string) func(*testing.T, string) string {
+		return func(t *testing.T, s string) string { return strings.Replace(s, old, new, 1) }
+	}
+	dropLines := func(re string) func(*testing.T, string) string {
+		return func(t *testing.T, s string) string { return regexp.MustCompile(re).ReplaceAllString(s, "") }
+	}
+	const shaGuard = `            test "$GITHUB_SHA" = "$SRC" || { echo "::error::provenance would name $GITHUB_SHA but the bytes were built from $SRC; refusing to sign a false build commit"; exit 1; }` + "\n"
+	// Each bite mutates only the text of its job (see jobSpan).
+	cases := []struct {
+		name, job string
+		mutate    func(*testing.T, string) string
+	}{
+		{"delete the attest step", "release", func(t *testing.T, s string) string {
+			return strings.Replace(s, stepBlock(t, s, attestName), "", 1)
+		}},
+		{"drop attestations: write", "release", replace("      attestations: write\n", "")},
+		{"move the attest step after finalize", "release", func(t *testing.T, s string) string {
+			blk := stepBlock(t, s, attestName)
+			s = strings.Replace(s, blk, "", 1)
+			fin := "run: bash release/orchestrator/finalize-release.sh \"$TAG\" \"$SRC\"\n"
+			return strings.Replace(s, fin, fin+blk, 1)
+		}},
+		{"gate the attest step on always()", "release", replace("if: steps.attested.outputs.need == 'true'", "if: always()")},
+		{"add continue-on-error", "release", replace("if: steps.attested.outputs.need == 'true'\n", "if: steps.attested.outputs.need == 'true'\n        continue-on-error: true\n")},
+		{"drop the checksums subject", "release", replace("            dist/checksums.txt\n", "")},
+		{"pin by tag", "release", func(t *testing.T, s string) string {
+			return attestPin.ReplaceAllString(s, "actions/attest-build-provenance@v4")
+		}},
+		{"delete the --cert-identity line", "release", dropLines(`(?m)^\s+--cert-identity .*\n`)},
+		{"drop the ref from the identity", "release", replace("release.yml@refs/heads/main", "release.yml")},
+		{"delete --source-digest", "release", replace(`--source-digest "$SRC" `, "")},
+		{"delete the GITHUB_REF guard", "release", dropLines(`(?m)^\s+test "\$GITHUB_REF".*\n`)},
+		{"delete the GITHUB_SHA guard", "release", dropLines(`(?m)^\s+test "\$GITHUB_SHA".*\n`)},
+		{"count stored attestations instead of verifying", "release", func(t *testing.T, s string) string {
+			blk := stepBlock(t, s, "- name: Check for a verified provenance attestation")
+			i := strings.Index(blk, "        run: |\n")
+			count := "        run: |\n" +
+				"          n=$(gh api \"repos/$GITHUB_REPOSITORY/attestations/sha256:x\" --jq '.attestations | length')\n" +
+				"          echo \"need=$([ \"$n\" = 0 ] && echo true || echo false)\" >> \"$GITHUB_OUTPUT\"\n"
+			return strings.Replace(s, blk, blk[:i]+count, 1)
+		}},
+		{"drop --provenance=false from the shared build", "operator-image-build", replace("--provenance=false \\\n", "")},
+		{"drop push-to-registry", "operator-image", replace("          push-to-registry: true\n", "")},
+		{"drop attestations: write from dashboard-image", "dashboard-image", replace("      attestations: write\n", "")},
+		{"add attestations: write to operator-image-build", "operator-image-build", replace("      packages: write\n", "      packages: write\n      attestations: write\n")},
+		{"remove id: publish", "dashboard-image", replace("        id: publish\n", "")},
+		{"swap the dashboard subject-name literal", "dashboard-image", replace("subject-name: ghcr.io/trianalab/pacto/dashboard", "subject-name: ${{ env.IMAGE_REPO }}")},
+		{"drop IMAGE_REPO from delivery-image", "delivery-image", replace("      IMAGE_REPO: ghcr.io/trianalab/pacto/delivery\n", "")},
+		{"delete the child-set check from the shared probe", "operator-image", dropLines(`(?m)^.*find /tmp/digests.*\n`)},
+		{"restore crane digest in the shared merge", "operator-image", replace(`"${REF}@${digest}"`, `"${REF}@$(crane digest "$REF")"`)},
+		{"delete the GITHUB_SHA guard from the dashboard probe", "dashboard-image", replace(shaGuard, "")},
+	}
+	src := string(releaseWorkflowBytes(t))
+	if p := provenanceProblems([]byte(src)); len(p) != 0 {
+		t.Fatalf("the real release.yml already fails: %v", p)
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			i, j := jobSpan(t, src, c.job)
+			section := c.mutate(t, src[i:j])
+			if section == src[i:j] {
+				t.Fatal("the mutation changed nothing")
+			}
+			if len(provenanceProblems([]byte(src[:i]+section+src[j:]))) == 0 {
+				t.Error("provenanceProblems accepts the mutated workflow")
+			}
+		})
+	}
+}
+
+// dryRunSubjectProblems ties the dry run's subject check to the release job's
+// attest step: release.yml attests exactly dist/pacto_* and dist/checksums.txt,
+// and dry-run.sh checks those same files after build-cli.sh.
+func dryRunSubjectProblems(releaseYML, dryRun []byte) []string {
+	var doc struct {
+		Jobs map[string]wfJob `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(releaseYML, &doc); err != nil {
+		return []string{"parse release.yml: " + err.Error()}
+	}
+	var out []string
+	subjects := map[string]bool{}
+	for _, s := range doc.Jobs["release"].Steps {
+		if !strings.HasPrefix(s.Uses, attestAction) {
+			continue
+		}
+		p, _ := s.With["subject-path"].(string)
+		for _, l := range strings.Split(p, "\n") {
+			if l = strings.TrimSpace(l); l != "" {
+				subjects[strings.TrimPrefix(l, "dist/")] = true
+			}
+		}
+	}
+	if len(subjects) != 2 || !subjects["pacto_*"] || !subjects["checksums.txt"] {
+		out = append(out, fmt.Sprintf("release attest subjects must be exactly {pacto_*, checksums.txt}, got %v", subjects))
+	}
+	d := string(dryRun)
+	for _, want := range []string{"attest: skipped in the dry run", "'pacto_*'", "/checksums.txt"} {
+		if !strings.Contains(d, want) {
+			out = append(out, "dry-run.sh does not contain "+want)
+		}
+	}
+	return out
+}
+
+func TestDryRunSkipsAttestationExplicitly(t *testing.T) {
+	rel := string(releaseWorkflowBytes(t))
+	dry := readFile(t, repoRoot(t), "release", "orchestrator", "dry-run.sh")
+	if p := dryRunSubjectProblems([]byte(rel), []byte(dry)); len(p) > 0 {
+		t.Fatalf("the real files fail: %v", p)
+	}
+	bites := []struct{ name, rel, dry string }{
+		{"attest the SBOM too", strings.Replace(rel, "            dist/checksums.txt\n", "            dist/checksums.txt\n            dist/pacto-sbom.spdx.json\n", 1), dry},
+		{"drop the checksums subject", strings.Replace(rel, "            dist/checksums.txt\n", "", 1), dry},
+		{"drop the pacto_* check from the dry run", rel, strings.ReplaceAll(dry, "'pacto_*'", "'x'")},
+	}
+	for _, b := range bites {
+		t.Run(b.name, func(t *testing.T) {
+			if b.rel == rel && b.dry == dry {
+				t.Fatal("the mutation changed nothing")
+			}
+			if len(dryRunSubjectProblems([]byte(b.rel), []byte(b.dry))) == 0 {
+				t.Error("dryRunSubjectProblems accepts the mutated files")
+			}
+		})
+	}
+}
+
+// TestPublishDigestParsesEveryAdapterOutcome runs each image merge step's real
+// digest extraction over every success line publish-oci-unit.sh prints. The
+// resume line ends in "(skip)", so a parse anchored at the end of the line
+// read nothing there and failed every re-run of an already-recorded unit.
+func TestPublishDigestParsesEveryAdapterOutcome(t *testing.T) {
+	root := repoRoot(t)
+	adapter, err := os.ReadFile(filepath.Join(root, "release", "orchestrator", "publish-oci-unit.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The templates must stay the adapter's own lines, so a reworded line fails here first.
+	templates := []string{
+		`$UNIT: already recorded ($recorded) -> $state (skip)`,
+		`$UNIT: published + recorded ($d)`,
+		`$UNIT: identical -> recorded + skip ($d)`,
+		`$UNIT: adopt (provenance matched this transaction) -> recorded ($d)`,
+	}
+	if n := strings.Count(string(adapter), "\n    echo \"$UNIT: ") + strings.Count(string(adapter), "\n  echo \"$UNIT: "); n != len(templates) {
+		t.Errorf("publish-oci-unit.sh prints %d success lines, the test covers %d", n, len(templates))
+	}
+	want := "sha256:" + strings.Repeat("ab", 32)
+	jobs := workflowJobs(t, root, "release.yml")
+	for name := range imageSubjects {
+		var extract string
+		for _, s := range jobs[name].Steps {
+			if s.ID != "publish" {
+				continue
+			}
+			for _, line := range strings.Split(s.Run, "\n") {
+				if strings.HasPrefix(strings.TrimSpace(line), `digest="$(`) {
+					extract = strings.TrimSpace(line)
+				}
+			}
+		}
+		if extract == "" {
+			t.Errorf("%s: the publish step has no digest=\"$(...)\" line", name)
+			continue
+		}
+		for _, tpl := range templates {
+			if !strings.Contains(string(adapter), `echo "`+tpl+`"`) {
+				t.Errorf("publish-oci-unit.sh no longer prints %q", tpl)
+			}
+			r := strings.NewReplacer("$UNIT", name, "$recorded", want, "$d", want, "$state", "identical")
+			out := "noise (sha256:" + strings.Repeat("cd", 32) + ")\n" + r.Replace(tpl)
+			cmd := exec.Command("bash", "-c", extract+`; printf '%s' "$digest"`)
+			cmd.Env = append(os.Environ(), "out="+out)
+			got, err := cmd.Output()
+			if err != nil || string(got) != want {
+				t.Errorf("%s: %q parsed %q (err %v), want %q", name, r.Replace(tpl), got, err, want)
+			}
+		}
+	}
+}

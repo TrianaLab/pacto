@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  graphStateFromParams, hasFocus, toggleView, differenceLabel, differenceTone,
+  graphStateFromParams, hasFocus, toggleView, differenceLabel, differenceTone, edgeDifference,
   differenceDescription, relationLabel, neighborhoodIsEmpty, DEFAULT_VIEWS, MAX_DEPTH,
   defaultPerspectiveForKind, availablePerspectives, revisionLinkAuthoritative,
   perspectiveSupportsDepth, corroborationLabel, corroborationTone, serviceScopedCaveat,
@@ -96,6 +96,14 @@ describe('difference vocabulary (backend-authoritative, never color-only)', () =
     expect(differenceDescription('insufficient')).toMatch(/no observation data/i);
     // expected-not-observed is explicitly NOT proof of being unused.
     expect(differenceDescription('expected-not-observed')).toMatch(/may still be in use/i);
+  });
+  // An inferred-only edge has no difference on the wire; it reads as inferred, never blank.
+  it('labels an inferred-only edge instead of a blank difference', () => {
+    expect(differenceLabel(edgeDifference({ provenance: 'inferred' }))).toBe('Inferred from configuration');
+    expect(differenceDescription(edgeDifference({ provenance: 'inferred' }))).toMatch(/configuration/);
+    expect(differenceTone(edgeDifference({ provenance: 'inferred' }))).toBe('neutral');
+    expect(edgeDifference({ provenance: 'declared+observed', difference: 'matched' })).toBe('matched');
+    expect(edgeDifference({ provenance: 'declared' })).toBeUndefined();
   });
   it('observed-not-expected is a distinct, warned difference', () => {
     expect(differenceLabel('observed-not-expected')).toBe('Observed, not expected');

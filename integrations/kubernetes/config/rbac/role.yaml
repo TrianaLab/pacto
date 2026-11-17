@@ -26,7 +26,16 @@ rules:
   resources:
   - namespaces
   verbs:
+  - get
   - list
+- apiGroups:
+  - ""
+  resourceNames:
+  - kube-system
+  resources:
+  - namespaces
+  verbs:
+  - get
 - apiGroups:
   - ""
   resourceNames:
@@ -42,13 +51,6 @@ rules:
   - nodes
   verbs:
   - get
-- apiGroups:
-  - ""
-  resources:
-  - secrets
-  verbs:
-  - get
-  - watch
 - apiGroups:
   - apps
   resources:
@@ -103,6 +105,14 @@ rules:
   - gateway.networking.k8s.io
   resources:
   - httproutes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - networking.istio.io
+  resources:
+  - serviceentries
   verbs:
   - get
   - list

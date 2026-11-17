@@ -3,7 +3,7 @@
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { deliveryHistoryUrl, deliveryEnvironmentsUrl, deliveryInboxUrl, deliveryAutonomyUrl, deliveryPublishUrl, deliveryChangeUrl, fleetEntityUrl } from '../lib/router.ts';
-  import { shortDigest, sentence, exceptParam, levelLabel, levelHelp, checkText, watchText, timeLabel, andList, typeLabel, progressStamp, isCommand } from '../lib/delivery.ts';
+  import { shortDigest, sentence, exceptParam, levelLabel, levelHelp, checkText, watchText, timeLabel, andList, typeLabel, progressStamp, isCommand, applierLine, serverNow } from '../lib/delivery.ts';
   import { completenessClass, completenessLabel } from '../lib/format.ts';
   import { sourceProblem, upstreamText } from '../lib/envFigure.ts';
   import EnvMark from './figure/EnvMark.svelte';
@@ -111,6 +111,7 @@
     {@const source = upstreamText(r)}
     {@const last = lastOf.get(keyOf(r))}
     {@const why = whys[keyOf(r)]}
+    {@const applier = applierLine(r.applier, serverNow(data?.asOf), r.ready)}
     <div class="sd-row" data-testid="service-delivery-row">
       <div class="sd-head">
         <bdi class="sd-env">{r.environment}</bdi>
@@ -137,6 +138,8 @@
           <p class="t-meta sd-line sd-warn">Cannot promote: {sentence(r.readyMessage || r.ready.replace(/^\w+: /, ''))}</p>
           {#if r.readyFix}<p class="t-meta sd-line">Fix: {sentence(r.readyFix)}</p>{/if}
         {:else if problem}<p class="t-meta sd-line sd-warn" data-testid="env-no-source">{problem}</p>{/if}
+        <!-- Who applies the workloads: a Conflict or Unknown says why here even when another Ready reason took precedence. -->
+        {#if applier}<p class="t-meta sd-line" class:sd-warn={applier.warn} data-testid="service-delivery-applier"><span>Applier: <bdi>{applier.display}</bdi>{applier.problem ? `, ${applier.problem}` : ''}{applier.asOf ? ` (${applier.asOf})` : ''}</span></p>{/if}
         {#if domain && !r.domain}<p class="sd-line"><span class="t-meta sd-nodomain" data-testid="service-delivery-nodomain" title={NO_DOMAIN}>Stage names no domain<span class="visually-hidden">: {NO_DOMAIN}</span></span></p>{/if}
         {#if r.candidate || r.candidateVersion}<p class="t-meta sd-line">Candidate {r.candidateVersion || shortDigest(r.candidate)}</p>{/if}
         {#if r.lastCheck}

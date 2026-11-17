@@ -112,7 +112,10 @@ every client (CLI, MCP server, dashboard) reads from the published ConfigMap.
 */}}
 {{- define "pacto-operator.delivery.identitiesJSON" -}}
 {{- $i := .Values.delivery.identities -}}
-{{- $p := dict "agentGroups" $i.agentGroups "breakGlassGroups" $i.breakGlassGroups "teamGroupPrefix" $i.teamGroupPrefix "requireOwnerTeam" $i.requireOwnerTeam "humanGroups" ($i.humanGroups | default list) -}}
+{{- $p := dict "agentGroups" $i.agentGroups "breakGlassGroups" $i.breakGlassGroups "requireOwnerTeam" $i.requireOwnerTeam "humanGroups" ($i.humanGroups | default list) -}}
+{{- /* Owner teams narrow who may answer only once teamGroupPrefix is set, even
+to "" (the exact group T). Unset, whoever may update the Stage's workload answers. */ -}}
+{{- if not (kindIs "invalid" $i.teamGroupPrefix) }}{{ $_ := set $p "teamGroupPrefix" $i.teamGroupPrefix }}{{ $_ := set $p "teamNarrowing" true }}{{ end -}}
 {{- /* Each gate provider's type, never its URL or signers: a client plans with them. */ -}}
 {{- $types := dict -}}
 {{- range .Values.delivery.gates.providers }}{{ $_ := set $types .name .type }}{{ end -}}
@@ -140,29 +143,72 @@ second Namespace of the same name.
 {{- end }}
 
 {{/*
-Read access to what a Stage points at: the OCIRepositories, and the Argo CD
-Applications with delivery.argocd.enabled.
+An applier switch: (list $ $value "<group/version/Kind>" $legacyDefault)
+renders "true" or nothing. true and false decide; "auto" follows the served
+API; an absent key (a release upgraded with --reuse-values from a chart
+without it) keeps $legacyDefault, what that chart rendered.
 */}}
-{{- define "pacto-operator.delivery.rbac.pointerReadRules" -}}
-- apiGroups: [source.toolkit.fluxcd.io]
-  resources: [ocirepositories]
-  verbs: [get]
-{{- if .Values.delivery.argocd.enabled }}
-- apiGroups: [argoproj.io]
-  resources: [applications]
-  verbs: [get]
+{{- define "pacto-operator.delivery.applierAPI" -}}
+{{- $value := index . 1 }}
+{{- if kindIs "invalid" $value }}
+{{- if index . 3 }}true{{ end }}
+{{- else if eq (toString $value) "auto" }}
+{{- include "pacto-operator.apiServed" (list (index . 0) (index . 2)) }}
+{{- else if $value }}true
 {{- end }}
 {{- end }}
 
 {{/*
-The cluster's identity: the kube-system Namespace, whose UID names the
-cluster in operations and records.
+Stages may apply through Argo CD Applications: "true" or nothing. The
+Application patch rule, --argocd and the two policies bounding the write all
+follow this one helper.
 */}}
-{{- define "pacto-operator.delivery.rbac.clusterIdentityRule" -}}
-- apiGroups: [""]
-  resources: [namespaces]
-  resourceNames: [kube-system]
+{{- define "pacto-operator.delivery.argocd" -}}
+{{- include "pacto-operator.delivery.applierAPI" (list . (dig "argocd" "enabled" nil .Values.delivery) "argoproj.io/v1alpha1/Application" false) }}
+{{- end }}
+
+{{/*
+Stages may apply through Flux OCIRepositories and Kustomizations: "true" or
+nothing. An absent delivery.flux keeps the Flux access every earlier chart
+rendered.
+*/}}
+{{- define "pacto-operator.delivery.flux" -}}
+{{- include "pacto-operator.delivery.applierAPI" (list . (dig "flux" "enabled" nil .Values.delivery) "source.toolkit.fluxcd.io/v1/OCIRepository" true) }}
+{{- end }}
+
+{{/*
+Stages may apply through Flux HelmReleases: "true" or nothing. On with
+delivery.flux.enabled literally true, or with Flux on and the HelmRelease API
+served, so a release reused without that API renders what it rendered.
+*/}}
+{{- define "pacto-operator.delivery.fluxHelm" -}}
+{{- $v := dig "flux" "enabled" nil .Values.delivery }}
+{{- if and (kindIs "bool" $v) $v }}true
+{{- else if and (include "pacto-operator.delivery.flux" .) (include "pacto-operator.apiServed" (list . "helm.toolkit.fluxcd.io/v2/HelmRelease")) }}true
+{{- end }}
+{{- end }}
+
+{{/*
+Read access to what a Stage points at: the OCIRepositories with Flux, the
+HelmReleases with HelmRelease delivery (their chart source is an
+OCIRepository) and the Argo CD Applications with Argo CD.
+*/}}
+{{- define "pacto-operator.delivery.rbac.pointerReadRules" -}}
+{{- if include "pacto-operator.delivery.flux" . }}
+- apiGroups: [source.toolkit.fluxcd.io]
+  resources: [ocirepositories]
   verbs: [get]
+{{- end }}
+{{- if include "pacto-operator.delivery.fluxHelm" . }}
+- apiGroups: [helm.toolkit.fluxcd.io]
+  resources: [helmreleases]
+  verbs: [get]
+{{- end }}
+{{- if include "pacto-operator.delivery.argocd" . }}
+- apiGroups: [argoproj.io]
+  resources: [applications]
+  verbs: [get]
+{{- end }}
 {{- end }}
 
 {{/*
@@ -186,10 +232,12 @@ planning needs. (dict "ctx" $ "approver" true) adds creating Approvals.
   resources: [stages, approvals]
   verbs: [get, list, watch]
 {{- end }}
-{{ include "pacto-operator.delivery.rbac.pointerReadRules" .ctx }}
+{{- include "pacto-operator.delivery.rbac.pointerReadRules" .ctx }}
+{{- if include "pacto-operator.delivery.flux" .ctx }}
 - apiGroups: [kustomize.toolkit.fluxcd.io]
   resources: [kustomizations]
   verbs: [list]
+{{- end }}
 - apiGroups: [pacto.trianalab.io]
   resources: [pactos]
   verbs: [get, list]

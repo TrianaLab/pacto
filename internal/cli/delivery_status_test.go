@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -116,4 +117,46 @@ func TestDeliveryStatusCells(t *testing.T) {
 	if !strings.HasPrefix(cliB, "sha256:") {
 		t.Fatal(cliB)
 	}
+}
+
+// TestDeliveryStatusApplierLine: one applier line when every Stage says the
+// same, one line per Stage when they differ, a reason in words when a Stage
+// does not adopt its applier, a stale warning when the promoter stopped
+// checking, and the field in JSON.
+func TestDeliveryStatusApplierLine(t *testing.T) {
+	now := time.Date(2026, 11, 15, 10, 0, 0, 0, time.UTC)
+	argo := func(asOf string) *delivery.ApplierStatus {
+		return &delivery.ApplierStatus{Manager: "argocd", State: delivery.ApplierAdopted, AsOf: asOf,
+			Display: "Argo CD (Application payments, tracking annotation)"}
+	}
+	rows := []delivery.StageRow{{Namespace: "dev", Stage: "p-dev", Applier: argo("2026-11-15T09:59:30Z")},
+		{Namespace: "prod", Stage: "p-prod", Applier: argo("2026-11-15T09:59:00Z")}}
+	var b strings.Builder
+	printApplier(&b, rows, now)
+	if want := "applier: Argo CD (Application payments, tracking annotation) (as of 2026-11-15T09:59:00Z)\n"; b.String() != want {
+		t.Fatalf("uniform: got %q, want %q", b.String(), want)
+	}
+	rows[1].Applier = &delivery.ApplierStatus{Manager: "helm", State: delivery.ApplierConflict, AsOf: "2026-11-15T09:50:00Z",
+		Display: "Helm (release payments, release annotations)", Message: "Helm release payments owns Deployment payments"}
+	rows = append(rows, delivery.StageRow{Namespace: "qa", Stage: "p-qa"})
+	b.Reset()
+	printApplier(&b, rows, now)
+	if want := "applier:\n" +
+		"  dev/p-dev: Argo CD (Application payments, tracking annotation) (as of 2026-11-15T09:59:30Z)\n" +
+		"  prod/p-prod: Helm (release payments, release annotations), conflict: Helm release payments owns Deployment payments " +
+		"(as of 2026-11-15T09:50:00Z, stale: the promoter has not checked since)\n" +
+		"  qa/p-qa: not reported (the promoter predates applier detection)\n"; b.String() != want {
+		t.Fatalf("per Stage: got %q, want %q", b.String(), want)
+	}
+	b.Reset()
+	printApplier(&b, []delivery.StageRow{{Namespace: "qa", Stage: "p-qa"}}, now)
+	if b.String() != "" {
+		t.Fatalf("no Stage reports an applier: %q", b.String())
+	}
+	withApplier := statusDeps(map[string]any{"applier": map[string]any{"manager": "argocd", "state": "Adopted", "completeness": "complete",
+		"display": "Argo CD (Application payments, tracking annotation)", "asOf": "2026-11-15T09:59:00Z"}})
+	checkDeliveryRuns(t, withApplier, []deliveryRun{
+		{"text", []string{"status", "--service", "payments"}, false, []string{"\napplier: Argo CD (Application payments, tracking annotation) (as of 2026-11-15T09:59:00Z"}},
+		{"json", []string{"status", "--service", "payments"}, false, []string{`"applier": {`, `"display": "Argo CD (Application payments, tracking annotation)"`}},
+	})
 }

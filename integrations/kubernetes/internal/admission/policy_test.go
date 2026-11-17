@@ -82,6 +82,20 @@ spec:
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
+metadata: {name: helmreleases.helm.toolkit.fluxcd.io}
+spec:
+  group: helm.toolkit.fluxcd.io
+  names: {kind: HelmRelease, plural: helmreleases, singular: helmrelease, listKind: HelmReleaseList}
+  scope: Namespaced
+  versions:
+  - name: v2
+    served: true
+    storage: true
+    subresources: {status: {}}
+    schema: {openAPIV3Schema: {type: object, x-kubernetes-preserve-unknown-fields: true}}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
 metadata: {name: applications.argoproj.io}
 spec:
   group: argoproj.io
@@ -159,7 +173,8 @@ func newestAssets() string {
 }
 
 // setup grants every user write access, renders the chart's admission
-// policies (Argo CD and the recorder on) and waits until they deny.
+// policies (Argo CD, Flux HelmReleases and the recorder on) and waits until
+// they deny.
 func setup() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -168,7 +183,7 @@ func setup() error {
 	}
 	cmd := exec.CommandContext(ctx, "helm", "template", "d", filepath.Join("..", "..", "charts", "pacto-operator"),
 		"-n", "pacto-system", "-s", "templates/delivery/admission.yaml",
-		"--set", "delivery.enabled=true", "--set", "delivery.argocd.enabled=true", "--set", "delivery.identities.allowEmptyHumanGroups=true",
+		"--set", "delivery.enabled=true", "--set", "delivery.argocd.enabled=true", "--set", "delivery.flux.enabled=true",
 		"--set", "delivery.recorder.enabled=true", "--set", "delivery.recorder.streamsRepository=reg.example/streams",
 		"--set", "delivery.recorder.signing.kms=awskms://k",
 		"--api-versions", "admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy")

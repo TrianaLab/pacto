@@ -24,7 +24,9 @@ each one's `reason` is a fixed identifier you can match on:
 | `ContractValid` | `True` | `Parsed` | The contract loaded and passed validation. |
 | `ContractValid` | `True` | `ReferenceOnly` | Same, and the contract declares no `spec.target`, so nothing further is observed. |
 | `ContractValid` | `False` | `Invalid` | The contract loaded and is structurally wrong. `status.validation` names the errors. |
+| `ContractValid` | `False` | `ContractUndeclared` | The contract does not declare its `pactoVersion`, `service.name` or `service.version`. A bundle in a registry or an inline contract must declare all three: `pacto publish` writes the version and refuses a contract without the other two. |
 | `ContractValid` | `Unknown` | `Unavailable` | The contract could not be **obtained** -- registry unreachable, auth rejected, tag not found. Validity is undetermined, so `status.validation` is deliberately left empty. |
+| `ContractValid` | `Unknown` | `PullSecretNotGranted` | The operator may not read the pull secret. The message names the grant to add: `controller.secretGrants` or, for a namespace-list install, the chart's watch Role and RoleBinding in that namespace ([Upgrade](upgrade.md#pull-secrets-outside-granted-namespaces)). |
 | `RuntimeObserved` | `True` | `Found` | Runtime evidence was collected. |
 | `RuntimeObserved` | `False` | `ObservationFailed` | A cluster query errored. The message carries the API error. |
 | `ReadinessSatisfied` | `True` | `Satisfied` | `score >= minScore`. |
@@ -110,11 +112,12 @@ is good for is age: an `observedAt` that stopped advancing while
 `metadata.generation` moved on is a leftover from a reconcile that no longer
 runs.
 
-To re-observe, nudge the resource. Any update enqueues a reconcile, and the
-annotation key is arbitrary:
+To re-observe, nudge the Pacto's target Service. Any update to it enqueues a
+reconcile, and the annotation key is arbitrary. An annotation on the Pacto
+itself does not, because only a spec change reconciles a Pacto:
 
 ```bash
-kubectl annotate pacto <name> reconcile-requested-at="$(date -u +%FT%TZ)" --overwrite
+kubectl annotate service <target> reconcile-requested-at="$(date -u +%FT%TZ)" --overwrite
 ```
 
 For observations that must outlive the reconcile that made them, such as an
@@ -129,8 +132,9 @@ finding code says why:
 - **`EVIDENCE_MISSING`**: nothing was collected. The target may not exist yet,
   or `spec.target.serviceName` does not match a real Service.
 - **`OBSERVATION_UNSUPPORTED`**: the dimension cannot be observed here: an
-  `ExternalName` dependency, or a metrics capability while
-  `--enable-metrics-observation` is off.
+  `ExternalName` dependency, or a metrics capability while metrics
+  observation is off for the namespace (chart value
+  `controller.metricsObservation`, flag `--enable-metrics-observation`).
 - **`COLLECTION_FAILED`**: the cluster query errored, or the node agent
   could not load its kernel program. Check the `RuntimeObserved` condition and
   the operator logs.
@@ -180,11 +184,26 @@ Add a `spec.target` to enable runtime observation.
 
 ## Metrics or health always `Unknown`
 
-The metrics dimension returns `Unsupported` unless `--enable-metrics-observation`
-is set, and active health probing requires `--enable-probing`. The chart sets
-them through `controller.enableMetricsObservation` and
-`controller.enableProbing`; see
-[Opt-in features](limitations.md#opt-in-features).
+The metrics dimension returns `Unsupported` unless metrics observation is on
+for the namespace, and active health probing needs probing on. The chart sets
+them through `controller.metricsObservation` and `controller.probing`, which
+default to `auto`; see [Opt-in features](limitations.md#opt-in-features).
+
+The `RuntimeObserved` condition message ends with where each setting came
+from:
+
+- `probing off (--enable-probing=auto, namespace has no pacto.trianalab.io/observe label)`
+  means label the namespace (`kubectl label ns NAMESPACE
+  pacto.trianalab.io/observe=probing`) or set `controller.probing=on`. The
+  operator does not watch namespaces: it reads the label at each Pacto's next
+  check (`spec.checkIntervalSeconds`, default 5 minutes). To apply it now,
+  annotate the target Service as in
+  [Evidence is not stored](#chasing-the-evidence-behind-a-finding).
+- `namespace label unreadable: forbidden` or `not found` means the operator
+  may not read the namespace; check the `namespaces get` grant in
+  [RBAC](rbac.md). The condition stays `True`.
+- `namespace label unreadable: timeout` or `unavailable` with the condition
+  `False` is a transient read failure; the next reconcile retries it.
 
 With probing off, health falls back to the workload, which needs an **`httpGet`
 readiness probe** on the container behind the health capability's port plus a
@@ -201,7 +220,7 @@ answer is `EVIDENCE_INSUFFICIENT`.
 If the logs show forbidden errors reading Services, workloads or EndpointSlices,
 confirm the operator's `ClusterRole` is installed. See [RBAC](rbac.md). The chart
 adds read access to `ServiceMonitor` and `PodMonitor` only when
-`controller.enableMetricsObservation` is on. If you set the controller flag by
+`controller.metricsObservation` is `on`. If you set the controller flag by
 hand instead, grant that access yourself, as
 [Opt-in features](limitations.md#opt-in-features) shows.
 
@@ -237,6 +256,32 @@ kubectl -n pacto-operator-system logs deploy/pacto-operator | grep node-agent
   RLIMIT_MEMLOCK is too low for its maps.
   [Turn it on](runtime-conformance.md#turn-it-on) lists what each node
   needs.
+
+## A Stage's applier is not adopted
+
+The Stage's `status.applier` says which manager the promoter found on its
+workloads and why it disagrees with `spec.applyRef`:
+
+```bash
+kubectl get stage <stage> -n <namespace> -o jsonpath='{.status.applier}'
+```
+
+- `ApplierConflict`: another manager or another object owns a workload, such
+  as a plain Helm release or an Argo CD Application of the same name in the
+  Argo CD namespace. Point `spec.applyRef` at the manager `status.applier`
+  names, or move the workloads to the Stage's applier.
+- `ApplierUnknown`: Pacto could not tell. The workload carries no mark of the
+  Stage's applier, carries marks of two managers, belongs to a manager Pacto
+  does not support, or the promoter could not read it. Deliver it through
+  Argo CD or Flux so it carries its labels, and check `completeness`.
+- `ApplierNotChartRef`: the HelmRelease takes its chart from `spec.chart`.
+  Point `spec.chartRef` at an `OCIRepository`.
+- `ApplierUnreadable` on a HelmRelease Stage: the chart `OCIRepository` is
+  missing, outside the Stage's namespace or of another kind. The promoter
+  writes nothing until `spec.chartRef` names an `OCIRepository` in the
+  Stage's namespace.
+
+See [which manager applies a Stage](delivery-reach.md#which-manager-applies-a-stage).
 
 ## Delivery records are not written
 

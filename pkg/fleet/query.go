@@ -1,7 +1,9 @@
 package fleet
 
 import (
+	"cmp"
 	"fmt"
+	"reflect"
 	"slices"
 	"sort"
 	"strings"
@@ -29,11 +31,25 @@ const (
 // would make the index grow with the documentation in the fleet. It performs no
 // network I/O either.
 type Query struct {
+	// snap is what answers read: base itself, or a shallow copy of it that
+	// folds the external systems beyond MaxExternalNodes (see foldExternals).
 	snap *FleetSnapshot
+	// base is the snapshot as built, which Snapshot and Restrict read.
+	base *FleetSnapshot
+	// externals are the external systems answers name, keyed by identity, and
+	// folded the identities they fold into OtherEgress.
+	externals map[ExternalKey]*ExternalRecord
+	folded    map[ExternalKey]bool
 }
 
-// NewQuery wraps a snapshot in a query view.
-func NewQuery(s *FleetSnapshot) *Query { return &Query{snap: s} }
+// NewQuery wraps a snapshot in a query view. It projects the external
+// systems once, after any restriction, so the fold ranks on what the viewer
+// may see.
+func NewQuery(s *FleetSnapshot) *Query {
+	q := &Query{base: s}
+	q.snap, q.externals, q.folded = foldExternals(s)
+	return q
+}
 
 // resolveService resolves a user-supplied identifier to exactly one service.
 // An exact canonical key (qualified "domain/name" or a bare default-domain name)
@@ -70,7 +86,7 @@ func (q *Query) resolveService(identifier string) (*ServiceRecord, error) {
 // returns the internal snapshot pointer, so a caller cannot mutate shared state;
 // the copy carries data only (its private query indexes are not rebuilt, so it
 // is for reading/serializing, not for constructing a new Query).
-func (q *Query) Snapshot() *FleetSnapshot { return jsonClone(q.snap) }
+func (q *Query) Snapshot() *FleetSnapshot { return jsonClone(q.base) }
 
 // SnapshotForSerialization returns the internal snapshot pointer for a caller that
 // does nothing but serialize it. The snapshot is immutable once built -- the
@@ -79,7 +95,7 @@ func (q *Query) Snapshot() *FleetSnapshot { return jsonClone(q.snap) }
 // Snapshot()'s copy is a full marshal-plus-unmarshal round trip performed on a
 // value that is about to be marshalled again. Any caller that might RETAIN or
 // mutate the result must use Snapshot() instead.
-func (q *Query) SnapshotForSerialization() *FleetSnapshot { return q.snap }
+func (q *Query) SnapshotForSerialization() *FleetSnapshot { return q.base }
 
 // SnapshotID returns the snapshot's content identity without copying.
 func (q *Query) SnapshotID() string { return q.snap.SnapshotID }
@@ -110,6 +126,9 @@ type Meta struct {
 	// the one dishonest field in a completeness envelope.
 	LimitationsTruncated bool `json:"limitationsTruncated,omitempty"`
 	SourcesTruncated     bool `json:"sourcesTruncated,omitempty"`
+	// ExternalCatalogs are the catalogs that classified external systems, with
+	// their digest and how far their signature was checked.
+	ExternalCatalogs []ExternalCatalogRef `json:"externalCatalogs,omitempty"`
 }
 
 // meta applies the SAME hard caps as productMeta. Limitations are emitted per
@@ -130,6 +149,7 @@ func (q *Query) meta() Meta {
 		Sources:              srcs,
 		LimitationsTruncated: limTrunc,
 		SourcesTruncated:     srcTrunc,
+		ExternalCatalogs:     slices.Clone(q.snap.ExternalCatalogs),
 	}
 }
 
@@ -154,6 +174,34 @@ type AmbiguousError struct {
 
 func (e *AmbiguousError) Error() string {
 	return fmt.Sprintf("%s %q is ambiguous: matches %s", e.Kind, e.ID, strings.Join(e.Matches, ", "))
+}
+
+// TargetKeyAmbiguousError is returned when a target key does not name one
+// target for certain: a 3-part key that names targets in more than one
+// cluster, one that matches a single target while a source is incomplete, or a
+// 4-part key whose only match has no known cluster. Candidates are the targets
+// the caller may see, sorted by key, each labelled for a person to choose from;
+// every candidate key resolves on its own.
+type TargetKeyAmbiguousError struct {
+	Key        string
+	Candidates []EntityRef
+	// Reason says why the key does not resolve, for a person; empty means the
+	// key names targets in more than one cluster.
+	Reason string
+}
+
+// Message is Reason, or the several-clusters reason when Reason is empty.
+func (e *TargetKeyAmbiguousError) Message() string {
+	return cmp.Or(e.Reason, "this target key names targets in more than one cluster; choose one")
+}
+
+func (e *TargetKeyAmbiguousError) Error() string {
+	var b strings.Builder
+	b.WriteString("ambiguous target key: " + e.Message() + "; candidates:")
+	for _, c := range e.Candidates {
+		b.WriteString("\n  " + c.Label + "   " + c.Key)
+	}
+	return b.String()
 }
 
 // ParseLabels reads key=value pairs into SearchFilter.Labels. A pair with no
@@ -230,6 +278,8 @@ type ServiceHit struct {
 	Labels        map[string]string `json:"labels,omitempty"`
 	// Template marks a golden path (see ServiceRecord.Template).
 	Template bool `json:"template,omitempty"`
+	// NameInferred is where Name comes from when no revision declares it.
+	NameInferred *contract.Inferred `json:"nameInferred,omitempty"`
 }
 
 // SearchResult is a bounded page of service hits.
@@ -238,6 +288,13 @@ type SearchResult struct {
 	Total    int          `json:"total"`
 	Count    int          `json:"count"`
 	Services []ServiceHit `json:"services"`
+	// Externals are, for a search on text alone (no other filter, first
+	// page), at most MaxSearchExternals external systems whose identity,
+	// label or alias holds the text; ExternalsTotal counts every match. An
+	// external has no owner, status or compliance, so any other filter, or a
+	// later page, lists none.
+	Externals      []EntityRef `json:"externals,omitempty" doc:"For a search on text alone (no other filter, first page), the external systems whose identity, label or alias holds the text, bounded"`
+	ExternalsTotal int         `json:"externalsTotal,omitempty" doc:"How many external systems match the text"`
 }
 
 // Search returns logical services matching the filter, deterministically sorted
@@ -259,7 +316,24 @@ func (q *Query) Search(f SearchFilter) (*SearchResult, error) {
 	for _, s := range pg.Items {
 		res.Services = append(res.Services, hitFromService(s))
 	}
+	if textOnly(f) {
+		res.Externals, res.ExternalsTotal = q.searchExternals(f.Text)
+		if f.Text != "" {
+			res.Meta = q.externalMeta() // the external systems matched may be incomplete
+		}
+	}
 	return res, nil
+}
+
+// textOnly reports whether f filters on text alone, on the first page: the
+// only search an external system can answer.
+func textOnly(f SearchFilter) bool {
+	rest := f
+	rest.Text, rest.Limit = "", 0
+	if len(rest.Labels) == 0 {
+		rest.Labels = nil
+	}
+	return reflect.DeepEqual(rest, SearchFilter{})
 }
 
 // validateSearchFilter rejects malformed filter values with a typed error.
@@ -318,6 +392,7 @@ func hitFromService(s *ServiceRecord) ServiceHit {
 		Offering: s.Offering, Summary: s.Summary, Owner: cloneOwner(s.Owner), Status: s.Status,
 		RevisionCount: len(s.Revisions), TargetCount: len(s.Targets),
 		Sources: append([]string(nil), s.Sources...), Labels: cloneStringMap(s.Labels), Template: s.Template,
+		NameInferred: clonePtr(s.NameInferred),
 	}
 }
 
@@ -584,8 +659,17 @@ type TargetView struct {
 
 // GetTarget returns a target by exact key, or (failing that) by unique name. It
 // returns a [NotFoundError] when nothing matches and an [AmbiguousError] when a
-// name matches more than one target.
+// name matches more than one target. A key in the other cluster form resolves
+// first (see resolveTargetKey): a 3-part key that names targets in several
+// clusters returns a [TargetKeyAmbiguousError]. The answer always carries the
+// canonical key.
 func (q *Query) GetTarget(id string) (*TargetView, error) {
+	if t, err := q.resolveTargetKey(id); t != nil || err != nil {
+		if err != nil {
+			return nil, err
+		}
+		return q.targetView(t), nil
+	}
 	if t := q.snap.Targets[TargetKey(id)]; t != nil {
 		return q.targetView(t), nil
 	}
@@ -608,6 +692,88 @@ func (q *Query) GetTarget(id string) (*TargetView, error) {
 		sort.Strings(keys)
 		return nil, &AmbiguousError{Kind: "target", ID: id, Matches: keys}
 	}
+}
+
+// resolveTargetKey resolves a key whose cluster form differs from the
+// snapshot's. In a snapshot keyed by cluster, a 3-part key gathers every
+// target with that scope, kind and name, clustered or not (see
+// resolveLegacyKey). In a snapshot that is not, a 4-part key resolves to the
+// 3-part target in that cluster (see resolveForwardKey). It returns nil, nil
+// when neither applies. It reads only q's snapshot, so a restricted viewer's
+// candidates are targets it may see.
+func (q *Query) resolveTargetKey(id string) (*TargetRecord, error) {
+	cluster, scope, kind, name, ok := ParseTargetKey(TargetKey(id))
+	switch {
+	case !ok:
+		return nil, nil
+	case cluster == "" && q.snap.clusterKeyed:
+		return q.resolveLegacyKey(id, scope, kind, name)
+	case cluster != "" && !q.snap.clusterKeyed:
+		return q.resolveForwardKey(id, cluster, scope, kind, name)
+	}
+	return nil, nil
+}
+
+// resolveLegacyKey resolves a 3-part key in a snapshot keyed by cluster: one
+// match resolves while every source is available; several matches, or one
+// while a source is incomplete, are a [TargetKeyAmbiguousError].
+func (q *Query) resolveLegacyKey(id, scope, kind, name string) (*TargetRecord, error) {
+	var matches []*TargetRecord
+	for _, t := range q.snap.Targets {
+		if t.Scope == scope && t.Kind == kind && t.Name == name {
+			matches = append(matches, t)
+		}
+	}
+	switch {
+	case len(matches) > 1:
+		return nil, targetKeyAmbiguous(id, "", matches)
+	case len(matches) == 1 && q.sourcesIncomplete():
+		// A source that failed or listed only part of its records may hold
+		// this name in another cluster, so one match is not proof of one.
+		return nil, targetKeyAmbiguous(id, "this target key matches one target, but a source is incomplete and may hold the same target in another cluster; choose one", matches)
+	case len(matches) == 1:
+		return matches[0], nil
+	}
+	return nil, nil
+}
+
+// resolveForwardKey resolves a 4-part key in a snapshot that is not keyed by
+// cluster to the 3-part target in that cluster, or to the clusterless one for
+// [UnknownClusterKeyPart]. A clusterless target under a real cluster's key
+// may or may not be in that cluster, so it is a [TargetKeyAmbiguousError]
+// with that one candidate.
+func (q *Query) resolveForwardKey(id, cluster, scope, kind, name string) (*TargetRecord, error) {
+	t := q.snap.Targets[NewTargetKey(scope, kind, name)]
+	switch {
+	case t == nil:
+		return nil, nil
+	case t.Cluster == cluster, t.Cluster == "" && cluster == UnknownClusterKeyPart:
+		return t, nil
+	case t.Cluster == "":
+		return nil, targetKeyAmbiguous(id, "the target with this name has no known cluster, so it may not be in the cluster this key names; choose it only if it is", []*TargetRecord{t})
+	}
+	return nil, nil
+}
+
+// sourcesIncomplete reports whether any source is not fully available.
+func (q *Query) sourcesIncomplete() bool {
+	return slices.ContainsFunc(q.snap.Sources, func(s SourceState) bool { return s.Status != SourceAvailable })
+}
+
+// targetKeyAmbiguous lists matches as the candidates of key, sorted by key,
+// with reason (see [TargetKeyAmbiguousError.Reason]). A clusterless candidate
+// says its cluster is unknown.
+func targetKeyAmbiguous(key, reason string, matches []*TargetRecord) *TargetKeyAmbiguousError {
+	e := &TargetKeyAmbiguousError{Key: key, Reason: reason}
+	for _, t := range matches {
+		ref := targetEntityRef(t)
+		if t.Cluster == "" {
+			ref.Label += " (cluster unknown)"
+		}
+		e.Candidates = append(e.Candidates, ref)
+	}
+	sort.Slice(e.Candidates, func(a, b int) bool { return e.Candidates[a].Key < e.Candidates[b].Key })
+	return e
 }
 
 func (q *Query) targetView(t *TargetRecord) *TargetView {
@@ -668,16 +834,22 @@ type GraphNode struct {
 	Depth int          `json:"depth"`
 	Path  []ServiceKey `json:"path"`
 	// Provenance is how the edge that first reached the node is known: declared,
-	// observed or declared+observed.
-	Provenance string `json:"provenance" enum:"declared,observed,declared+observed"`
+	// observed or declared+observed, or inferred for a consumer of an external
+	// system known only from its configuration (never a gate's evidence).
+	Provenance string `json:"provenance" enum:"declared,observed,declared+observed,inferred"`
+	// NameInferred is where Name comes from when no revision declares it.
+	NameInferred *contract.Inferred `json:"nameInferred,omitempty"`
 }
 
 // GraphResult is a deterministic, cycle-safe traversal answer. Aggregated is true
 // when the query was service-scoped over more than one revision (so edges are a
 // union across revisions rather than a single revision's exact graph).
 type GraphResult struct {
-	Meta       Meta           `json:"meta"`
-	Root       ServiceKey     `json:"root"`
+	Meta Meta       `json:"meta"`
+	Root ServiceKey `json:"root"`
+	// External is the external system a graph rooted at one walks the
+	// consumers of; Root is then empty.
+	External   ExternalKey    `json:"external,omitempty" doc:"The external system a graph rooted at external:<identity> walks the consumers of; root is then empty"`
 	Revision   RevisionKey    `json:"revision,omitempty"`
 	Aggregated bool           `json:"aggregated"`
 	Direction  Direction      `json:"direction"`
@@ -709,29 +881,40 @@ func (q *Query) Graph(gq GraphQuery) (*GraphResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	if key, ok := ParseExternalSubject(gq.Service); ok && gq.Target == "" && gq.Revision == "" {
+		return q.graphExternal(gq, key, maxNodes)
+	}
 	rootSvc, scopeRev, aggregated, err := q.resolveGraphScope(gq)
 	if err != nil {
 		return nil, err
 	}
 
 	res := &GraphResult{Meta: q.meta(), Root: rootSvc, Revision: scopeRev, Aggregated: aggregated, Direction: dir, Nodes: []GraphNode{}}
-	neighbors := func(key ServiceKey) []graphStep {
+	nodeSet, cycles := q.walkGraph(res, rootSvc, gq, maxNodes, func(key ServiceKey) []graphStep {
 		return q.graphNeighbours(key, rootSvc, scopeRev, dir, gq.IncludeObserved)
-	}
+	})
+	res.Cycles = cycles
+	res.Edges, res.Unresolved = q.graphEdges(nodeSet, rootSvc, dir, scopeRev, gq.IncludeObserved)
+	return res, nil
+}
 
+// walkGraph is the breadth-first walk of [Query.Graph] from root over
+// neighbors: it appends every reached node to res (marking it truncated at
+// maxNodes) and returns the reached set and the cycles.
+func (q *Query) walkGraph(res *GraphResult, root ServiceKey, gq GraphQuery, maxNodes int, neighbors func(ServiceKey) []graphStep) (map[ServiceKey]bool, [][]ServiceKey) {
 	// expanded is the set of nodes whose neighbors the walk follows: the root, and
 	// with Transitive every reached node above MaxDepth. The cycle pass below
 	// follows exactly the same set.
-	expanded := map[ServiceKey]bool{rootSvc: true}
+	expanded := map[ServiceKey]bool{root: true}
 	nodeSet := map[ServiceKey]bool{}
-	queue := []GraphNode{{Key: rootSvc, Depth: 0, Path: []ServiceKey{rootSvc}}}
+	queue := []GraphNode{{Key: root, Depth: 0, Path: []ServiceKey{root}}}
 bfs:
 	for len(queue) > 0 {
 		cur := queue[0]
 		queue = queue[1:]
 		for _, step := range neighbors(cur.Key) {
 			next := step.Key
-			if next == rootSvc || nodeSet[next] {
+			if next == root || nodeSet[next] {
 				continue // already reached at a depth no greater than this one
 			}
 			// The cap is charged before the node is admitted. Neighbors are in sorted
@@ -744,6 +927,9 @@ bfs:
 			nodeSet[next] = true
 			_, name := ParseServiceKey(next)
 			n := GraphNode{Key: next, Name: name, Depth: cur.Depth + 1, Path: append(append([]ServiceKey(nil), cur.Path...), next), Provenance: step.Provenance}
+			if s := q.snap.Services[next]; s != nil {
+				n.NameInferred = clonePtr(s.NameInferred)
+			}
 			res.Nodes = append(res.Nodes, n)
 			if gq.Transitive && (gq.MaxDepth == 0 || n.Depth < gq.MaxDepth) {
 				expanded[next] = true
@@ -752,7 +938,7 @@ bfs:
 		}
 	}
 
-	res.Cycles = graphCycles(rootSvc, func(key ServiceKey) []ServiceKey {
+	cycles := graphCycles(root, func(key ServiceKey) []ServiceKey {
 		steps := neighbors(key)
 		keys := make([]ServiceKey, len(steps))
 		for i, s := range steps {
@@ -760,8 +946,7 @@ bfs:
 		}
 		return keys
 	}, expanded)
-	res.Edges, res.Unresolved = q.graphEdges(nodeSet, rootSvc, dir, scopeRev)
-	return res, nil
+	return nodeSet, cycles
 }
 
 // graphStep is one neighbour of a graph node and how the edge to it is known.
@@ -899,18 +1084,20 @@ func (q *Query) resolveGraphScope(gq GraphQuery) (rootKey ServiceKey, scopeRev R
 // graphEdges collects the typed dependency and resolved configuration-reference
 // edges spanned by the traversal (root + reached nodes) and, separately, the
 // unresolved dependencies. Root edges honor the revision scope; downstream edges
-// are service-level.
-func (q *Query) graphEdges(nodeSet map[ServiceKey]bool, rootSvc ServiceKey, dir Direction, scopeRev RevisionKey) (edges, unresolved []Relationship) {
+// are service-level. An edge to an external system follows graphProvenance,
+// the rule the external graph draws its consumers by.
+func (q *Query) graphEdges(nodeSet map[ServiceKey]bool, rootSvc ServiceKey, dir Direction, scopeRev RevisionKey, includeObserved bool) (edges, unresolved []Relationship) {
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
 		if rel.Type != RelationshipDependency && !ConsumesEdge(rel) {
 			continue
 		}
-		if !edgeInScope(rel, nodeSet, rootSvc, dir, scopeRev) {
+		if !edgeInScope(rel, nodeSet, rootSvc, dir, scopeRev) || (rel.ToExternal != "" && !graphProvenance(rel.Provenance, includeObserved)) {
 			continue
 		}
 		edges = append(edges, rel)
-		if !rel.Resolved {
+		// A joined external is not a gap: no fleet service is expected.
+		if !rel.Resolved && rel.ToExternal == "" {
 			unresolved = append(unresolved, rel)
 		}
 	}
@@ -1077,10 +1264,14 @@ type ExplainResult struct {
 	Reasons []Reason `json:"reasons"`
 }
 
-// Explain produces deterministic reasons for a subject's state. The subject is
-// resolved as a service name first, then a target key/name. It never asserts
-// absence or compliance beyond the observed evidence.
+// Explain produces deterministic reasons for a subject's state. A subject
+// with the external: prefix is an external system; any other is resolved as a
+// service name first, then a target key/name. It never asserts absence or
+// compliance beyond the observed evidence.
 func (q *Query) Explain(subject string) (*ExplainResult, error) {
+	if _, ok := ParseExternalSubject(subject); ok {
+		return q.explainExternal(subject)
+	}
 	s, serr := q.resolveService(subject)
 	if serr == nil {
 		return q.explainService(s), nil

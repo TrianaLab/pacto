@@ -1,6 +1,7 @@
 package validation
 
 import (
+	"cmp"
 	_ "embed"
 	"encoding/json"
 	"fmt"
@@ -30,15 +31,18 @@ var schemaV23Bytes []byte
 //go:embed schema/pacto-v2.4.schema.json
 var schemaV24Bytes []byte
 
+//go:embed schema/pacto-v2.5.schema.json
+var schemaV25Bytes []byte
+
 // SchemaBytes returns the raw embedded JSON Schema bytes of the newest version
-// (2.4, a superset of 2.3, 2.2, 2.1 and 2.0). The doc package
+// (contract.Current(), a superset of every older one). The doc package
 // extracts field descriptions from it.
-func SchemaBytes() []byte { return schemaV24Bytes }
+func SchemaBytes() []byte { return schemaBytes[contract.Current()] }
 
 // schemaBytes is the embedded JSON Schema of each pactoVersion. The versions
 // supported are contract.SupportedVersions; init panics on one without a
 // schema here.
-var schemaBytes = map[string][]byte{"2.0": schemaV20Bytes, "2.1": schemaV21Bytes, "2.2": schemaV22Bytes, "2.3": schemaV23Bytes, "2.4": schemaV24Bytes}
+var schemaBytes = map[string][]byte{"2.0": schemaV20Bytes, "2.1": schemaV21Bytes, "2.2": schemaV22Bytes, "2.3": schemaV23Bytes, "2.4": schemaV24Bytes, "2.5": schemaV25Bytes}
 
 // compiledSchemas maps each supported pactoVersion to its compiled JSON Schema.
 var compiledSchemas = map[string]*jsonschema.Schema{}
@@ -96,13 +100,17 @@ func pactoVersionOf(data any) string {
 
 // ValidateStructural performs Layer 1 validation using JSON Schema.
 // It takes the generic (JSON-compatible) contract data, selects the schema that
-// matches the declared pactoVersion, and validates against it. An unrecognized
-// or missing pactoVersion is a hard error (fail closed) rather than silently
-// validating against an arbitrary schema.
+// matches the declared pactoVersion, and validates against it. An absent
+// pactoVersion is contract.Current() and an empty document is an empty object;
+// an unrecognized pactoVersion is a hard error (fail closed) rather than
+// silently validating against an arbitrary schema.
 func ValidateStructural(data any) ValidationResult {
 	var result ValidationResult
 
-	version := pactoVersionOf(data)
+	if data == nil {
+		data = map[string]any{}
+	}
+	version := cmp.Or(pactoVersionOf(data), contract.Current())
 	schema, ok := compiledSchemas[version]
 	if !ok {
 		result.AddError(
@@ -114,6 +122,9 @@ func ValidateStructural(data any) ValidationResult {
 	}
 
 	var mcp []int
+	if olderThan(version, "2.5") {
+		data = needs25(&result, data)
+	}
 	if olderThan(version, "2.4") {
 		data = needs24(&result, data)
 	}
@@ -142,6 +153,17 @@ func ValidateStructural(data any) ValidationResult {
 		})
 	}
 	return result
+}
+
+// RefValuesAllowed reports whether a contract at version lets a configuration
+// that takes its schema by ref carry values, and checks that configuration as
+// needed: from pactoVersion 2.4. An unknown version is refused.
+func RefValuesAllowed(version string) bool { return !olderThan(version, "2.4") }
+
+// PublishNeedsRaise reports whether a contract at version must raise
+// pactoVersion before it may declare publish: a known version before 2.1.
+func PublishNeedsRaise(version string) bool {
+	return contract.Known(version) && olderThan(version, "2.1")
 }
 
 // olderThan reports whether the supported pactoVersion version comes before
@@ -187,27 +209,59 @@ func needsServiceFields(result *ValidationResult, data any, fields ...string) an
 func needs24(result *ValidationResult, data any) any {
 	data = needsServiceFields(result, data, "domain", "offering", "summary", "lifecycle", "template", "origin")
 	m, _ := data.(map[string]any) // an older pactoVersion was read from it
-	m = needs24Items(result, m, "configurations", func(im map[string]any) []needs24Key {
+	m = needsItems(result, m, "2.4", finding.CodeNeedsPacto24, "configurations", func(im map[string]any) []needsKey {
 		_, ref := im["ref"]
-		return []needs24Key{{"values", "values beside a ref need ", ref}, {"configuration", "a configuration selector needs ", true}}
+		return []needsKey{{"values", "values beside a ref need ", ref, nil}, {"configuration", "a configuration selector needs ", true, nil}}
 	})
-	return needs24Items(result, m, "environments", func(map[string]any) []needs24Key {
-		return []needs24Key{{"lifetime", "lifetime on an environment needs ", true}, {"expires", "expires on an environment needs ", true}, {"owner", "owner on an environment needs ", true}}
+	return needsItems(result, m, "2.4", finding.CodeNeedsPacto24, "environments", func(map[string]any) []needsKey {
+		return []needsKey{{"lifetime", "lifetime on an environment needs ", true, nil}, {"expires", "expires on an environment needs ", true, nil}, {"owner", "owner on an environment needs ", true, nil}}
 	})
 }
 
-// needs24Key is one key an item of a 2.4 array may only hold in 2.4, the
-// start of its message, and whether it counts on that item at all.
-type needs24Key struct {
-	key, what string
-	applies   bool
+// needs25 records a NEEDS_PACTO_2_5 error for each part only pactoVersion 2.5
+// has (compatibility: unknown or identity on a dependency, a port on an
+// interface and the breaks and delivery sections) in an older contract, in place of the older schema's generic
+// error, and returns data without it for that schema to check the rest. Every
+// dependency and interface stays in place so its other errors keep their index.
+func needs25(result *ValidationResult, data any) any {
+	m, _ := data.(map[string]any) // an older pactoVersion was read from it
+	if _, ok := m["breaks"]; ok {
+		result.AddError("breaks", string(finding.CodeNeedsPacto25), `breaks need pactoVersion "2.5"; set pactoVersion: "2.5", which keeps every older field`)
+		m = maps.Clone(m)
+		delete(m, "breaks")
+	}
+	if _, ok := m["delivery"]; ok {
+		result.AddError("delivery", string(finding.CodeNeedsPacto25), `delivery needs pactoVersion "2.5"; set pactoVersion: "2.5", which keeps every older field`)
+		m = maps.Clone(m)
+		delete(m, "delivery")
+	}
+	m = needsItems(result, m, "2.5", finding.CodeNeedsPacto25, "interfaces", func(map[string]any) []needsKey {
+		return []needsKey{{"port", "port on an interface needs ", true, nil}}
+	})
+	return needsItems(result, m, "2.5", finding.CodeNeedsPacto25, "dependencies", func(im map[string]any) []needsKey {
+		// 2.0 requires compatibility, and 2.1 to 2.4 require it beside a ref: a
+		// range every older schema accepts stands in, so no generic error joins.
+		return []needsKey{{"compatibility", "compatibility: unknown needs ", im["compatibility"] == contract.CompatibilityUnknown, "*"},
+			{"identity", "identity on a dependency needs ", true, nil}}
+	})
 }
 
-// needs24Items records NEEDS_PACTO_2_4 for each 2.4-only key keys names on an
-// item of the array m[section] and returns m with those keys removed, every
-// item kept at its index. Without the array m is returned as is.
-func needs24Items(result *ValidationResult, m map[string]any, section string, keys func(map[string]any) []needs24Key) map[string]any {
-	const fix = `pactoVersion "2.4"; set pactoVersion: "2.4", which keeps every older field`
+// needsKey is one key an item of an array may only hold from a later
+// pactoVersion on, the start of its message, whether it counts on that item at
+// all and, when the older schema requires the key, the value that stands in
+// for it (nil removes the key).
+type needsKey struct {
+	key, what   string
+	applies     bool
+	placeholder any
+}
+
+// needsItems records code for each key keys names on an item of the array
+// m[section] that only pactoVersion version allows, and returns m with those
+// keys removed, every item kept at its index. Without the array m is returned
+// as is.
+func needsItems(result *ValidationResult, m map[string]any, version string, code finding.Code, section string, keys func(map[string]any) []needsKey) map[string]any {
+	fix := fmt.Sprintf("pactoVersion %q; set pactoVersion: %q, which keeps every older field", version, version)
 	items, ok := m[section].([]any)
 	if !ok {
 		return m
@@ -219,9 +273,13 @@ func needs24Items(result *ValidationResult, m map[string]any, section string, ke
 			if _, has := im[k.key]; !has || !k.applies {
 				continue
 			}
-			result.AddError(fmt.Sprintf("%s.%d.%s", section, i, k.key), string(finding.CodeNeedsPacto24), k.what+fix)
+			result.AddError(fmt.Sprintf("%s.%d.%s", section, i, k.key), string(code), k.what+fix)
 			im = maps.Clone(im)
-			delete(im, k.key)
+			if k.placeholder != nil {
+				im[k.key] = k.placeholder
+			} else {
+				delete(im, k.key)
+			}
 			kept[i] = im
 		}
 	}

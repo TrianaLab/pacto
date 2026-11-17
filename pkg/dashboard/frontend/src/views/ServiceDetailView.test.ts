@@ -13,6 +13,7 @@ describe('ServiceDetailView — section defaults', () => {
     const o = defaultOpenSections();
     expect(o.overview).toBe(true);
     expect(o.interfaces).toBe(true);
+    expect(o.breaks).toBe(false);
     expect(o.dependencies).toBe(false);
     expect(o.config).toBe(false);
     expect(o.environments).toBe(false);
@@ -57,7 +58,7 @@ describe('ServiceDetailView — every listed section is on the page', () => {
     view.match(new RegExp(`<([A-Z]\\w+)[^<]{0,400}?id="section-${id}"`))?.[1];
 
   it('finds the section list', () => {
-    expect(ids).toHaveLength(12);
+    expect(ids).toHaveLength(13);
     expect(ids).toContain('sbom');
   });
 

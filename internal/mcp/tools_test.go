@@ -572,7 +572,7 @@ func TestEditToolEnvironmentDescriptions(t *testing.T) {
 		return p["description"].(string)
 	}
 	add := desc("add_environments")
-	for _, want := range []string{"lifetime?", "expires?", "owner?", "Raises pactoVersion to 2.3, or to 2.4 with lifetime, expires or owner"} {
+	for _, want := range []string{"lifetime?", "expires?", "owner?", "Needs pactoVersion 2.3, or 2.4 with lifetime, expires or owner"} {
 		if !strings.Contains(add, want) {
 			t.Errorf("add_environments does not say %q: %s", want, add)
 		}
@@ -582,5 +582,51 @@ func TestEditToolEnvironmentDescriptions(t *testing.T) {
 	}
 	if env := createTool().InputSchema.(map[string]any)["properties"].(map[string]any)["environments"].(map[string]any)["description"].(string); !strings.Contains(env, "declared in pacto.yaml with an empty values file") {
 		t.Errorf("pacto_create environments: %s", env)
+	}
+}
+
+func TestSchemaDescribesMinimalContract(t *testing.T) {
+	var parsed schemaResult
+	if err := json.Unmarshal([]byte(resultText(t, callTool(t, "pacto_schema", map[string]any{}))), &parsed); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"an empty pacto.yaml is valid", "names the service from its folder", "compatibility: unknown is never counted as compatible"} {
+		if !strings.Contains(parsed.Description, want) {
+			t.Errorf("description lacks %q: %s", want, parsed.Description)
+		}
+	}
+	var schema struct {
+		ID string `json:"$id"`
+	}
+	if err := json.Unmarshal([]byte(parsed.JSONSchema), &schema); err != nil || !strings.HasSuffix(schema.ID, "v2.5") {
+		t.Errorf("schema $id = %q, %v", schema.ID, err)
+	}
+}
+
+// A raise can be refused, so no description promises one and the tool says
+// when it fails.
+func TestEditToolDescribesRefusedRaises(t *testing.T) {
+	tool := editTool()
+	if !strings.Contains(tool.Description, "otherwise the edit fails naming the finding the raise would add") {
+		t.Errorf("description: %s", tool.Description)
+	}
+	for name, p := range tool.InputSchema.(map[string]any)["properties"].(map[string]any) {
+		if d := p.(map[string]any)["description"].(string); strings.Contains(d, "raise") {
+			t.Errorf("%s promises a raise: %s", name, d)
+		}
+	}
+}
+
+// TestSchemaToolServesDeliveryApplier: pacto_schema serves the newest schema,
+// which carries delivery.applier and its values.
+func TestSchemaToolServesDeliveryApplier(t *testing.T) {
+	var parsed schemaResult
+	if err := json.Unmarshal([]byte(resultText(t, callTool(t, "pacto_schema", map[string]any{}))), &parsed); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"delivery"`, `"applier"`, `"argocd"`, `"flux"`} {
+		if !strings.Contains(parsed.JSONSchema, want) {
+			t.Errorf("schema lacks %s", want)
+		}
 	}
 }

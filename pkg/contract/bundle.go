@@ -11,6 +11,36 @@ type Bundle struct {
 	Contract *Contract
 	RawYAML  []byte // Original YAML bytes; populated for local reads.
 	FS       fs.FS
+	// Inferred lists the values a local read implied rather than read from
+	// pacto.yaml, with their sources. Complete fills it.
+	Inferred []Inferred
+}
+
+// Complete records what a local read of the bundle implies: an absent
+// pactoVersion is this CLI's, and an absent service.name is inferred from the
+// bundle's files or, failing those, dirName. Call it once, on the final
+// contract.
+func (b *Bundle) Complete(dirName string) {
+	if raw, _ := b.Raw(); !declaresVersion(raw) { // unreadable declares nothing
+		b.Inferred = append(b.Inferred, Inferred{Field: "pactoVersion", Value: Current(), Source: "this CLI"})
+	}
+	if b.Contract.Service.Name != "" {
+		return
+	}
+	if inf, ok := InferName(b.FS, dirName); ok {
+		b.Contract.Service.Name = inf.Value
+		b.Inferred = append(b.Inferred, inf)
+	}
+}
+
+// NameInferred returns the inferred service.name entry, if any.
+func (b *Bundle) NameInferred() (Inferred, bool) {
+	for _, inf := range b.Inferred {
+		if inf.Field == "service.name" {
+			return inf, true
+		}
+	}
+	return Inferred{}, false
 }
 
 // Raw returns the bundle's contract document as bytes.

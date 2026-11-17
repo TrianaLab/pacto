@@ -194,3 +194,11 @@ func TestOwnerFromTargets(t *testing.T) {
 		t.Error("targets reporting two owners must raise OWNER_CONFLICT")
 	}
 }
+
+func TestCheckRangeUnknownCompatibility(t *testing.T) {
+	for _, v := range []string{"1.0.0", "99.0.0", ""} {
+		if got := CheckRange(contract.CompatibilityUnknown, v); got != RangeUnknown {
+			t.Errorf("CheckRange(unknown, %q) = %q, want unknown", v, got)
+		}
+	}
+}

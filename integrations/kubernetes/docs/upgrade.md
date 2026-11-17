@@ -16,11 +16,31 @@ The currently published chart:
 !!! warning "An upgrade reverts hand-patched controller flags"
     `helm upgrade` rebuilds the Deployment's `args` from the chart, so a flag
     you patched in by hand disappears without an error. Set opt-in features
-    through chart values such as `controller.enableProbing`,
-    `controller.enableMetricsObservation` and `nodeAgent.enabled`, which
-    survive an upgrade. A flag with no chart value, such as name-match
-    discovery, has to be patched again after every upgrade; see
+    through chart values such as `controller.probing`,
+    `controller.metricsObservation`, `controller.interfaceNameMatchDiscovery`
+    and `nodeAgent.enabled`, which survive an upgrade. Each operator flag
+    has a chart value or a documented reason to stay off the chart; see
     [Limitations: opt-in features](limitations.md#opt-in-features).
+
+## Deprecated observation keys
+
+`controller.enableProbing` and `controller.enableMetricsObservation` still
+work. Their replacements, `controller.probing` and
+`controller.metricsObservation`, default to `auto`, which turns each feature on
+only in namespaces labelled `pacto.trianalab.io/observe`.
+
+An upgrade that keeps the previous release's values renders the same
+arguments; set the new key, or reset the values, to move to `auto`. The
+new key wins, even `auto` over a deprecated `true`:
+
+```yaml
+controller:
+  enableProbing: true   # deprecated, ignored once probing is set
+  probing: auto
+```
+
+`controller.kernelEvidence.enabled: false` still follows `nodeAgent.enabled`;
+the quoted `"off"` refuses kernel evidence while the node agent runs.
 
 ## Hand older CRDs to Helm
 
@@ -141,6 +161,14 @@ these before `helm upgrade`:
 - **Kernel evidence namespace.** `controller.kernelEvidence.namespace`
   defaults to the agent namespace instead of the operator's.
 
+## Delivery approvers need update rights
+
+Whoever may update a Stage's workload decides its held changes. Owner
+teams narrow who may answer only when `delivery.identities.teamGroupPrefix` is
+set, and `requireOwnerTeam` defaults to `false`. To keep the earlier behaviour, set `teamGroupPrefix: ""` and
+`requireOwnerTeam: true` before you upgrade
+([upgrading](delivery-identity.md#upgrading)).
+
 ## Delivery always installs its admission policies
 
 Delivery no longer runs without its admission policies. The chart refuses
@@ -160,6 +188,24 @@ the replacement. Before `helm upgrade`:
 A promoter started without `--admission-policies` admits no operation and
 counts no approval.
 
+## Delivery grants Argo CD and Flux access by itself
+
+- `delivery.argocd.enabled` and `delivery.flux.enabled` now default to
+  `auto`.
+- An upgrade that takes the new chart's defaults, such as
+  `--reset-then-reuse-values`, on a cluster that serves Argo CD Applications
+  grants the promoter `patch` on Applications. Admission limits
+  that write to `spec.source.targetRevision` of Applications labelled
+  `delivery.pacto.trianalab.io/apply-ref`. Set `delivery.argocd.enabled=false`
+  to keep it off.
+- Flux access renders as before. On a cluster that serves Flux HelmReleases
+  the promoter also gains HelmRelease read, the `--flux-helm` flag and the
+  `applier-helmrelease` admission policy.
+- An upgrade that keeps the earlier chart's defaults keeps `enabled: false`
+  for Argo CD, and Flux access as it was.
+- `auto` reads the APIs at install and upgrade: run `helm upgrade` after you
+  install Argo CD or Flux.
+
 ## The dashboard serves without sign-in only when allowed
 
 A dashboard bound beyond loopback with neither OIDC sign-in nor token login now
@@ -171,6 +217,41 @@ An upgrade that reuses the values of a release without the key keeps the
 dashboard serving anonymously: the chart passes the flag unless the value is
 `false`. A dashboard you run yourself needs `--allow-anonymous` or
 `PACTO_DASHBOARD_ALLOW_ANONYMOUS=true`.
+
+## Pull secrets outside granted namespaces
+
+The operator no longer reads Secrets across the cluster. It reads a pull
+secret in the release namespace, in each of `controller.watchNamespaces` and
+wherever `controller.secretGrants` names it. Any other pull secret sets
+`ContractValid=Unknown` with reason `PullSecretNotGranted`, and the condition
+message names the grant to add. Before `helm upgrade`, list the pull secrets
+in use:
+
+```bash
+kubectl get pactos -A \
+  -o jsonpath='{range .items[*]}{.metadata.namespace}/{.spec.contractRef.pullSecretRef}{"\n"}{end}'
+```
+
+- A cluster-wide install lists each one as `namespace/name` in
+  `controller.secretGrants`.
+- A namespace-list install already reads pull secrets in each listed
+  namespace. There the message points at the chart's watch Role and
+  RoleBinding in that namespace.
+
+A rotated pull secret is read within one check interval.
+
+`controller.watchNamespace` still works and joins `controller.watchNamespaces`,
+also when an upgrade reuses earlier values.
+
+Moving from a cluster-wide install to a namespace list leaves the
+`pacto-dashboard` ClusterRole and ClusterRoleBinding behind: the
+operator may no longer delete them. The `helm upgrade` notes and a
+`StaleClusterRBAC` Warning event on the dashboard Deployment report them.
+Delete them:
+
+```bash
+kubectl delete clusterrole,clusterrolebinding pacto-dashboard
+```
 
 ## Rolling back
 

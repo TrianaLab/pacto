@@ -7,10 +7,11 @@ release:
   namespace: pacto-system
 set:
   delivery.enabled: true
-  delivery.identities.allowEmptyHumanGroups: true
 capabilities:
   apiVersions:
     - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    # a cluster with Flux: delivery.flux.enabled defaults to auto
+    - source.toolkit.fluxcd.io/v1/OCIRepository
 tests:
   - it: renders no stats flag by default
     template: templates/delivery/deployment.yaml

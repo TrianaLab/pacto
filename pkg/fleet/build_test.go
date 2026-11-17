@@ -625,7 +625,7 @@ func TestLockFrom_ValidLockFile(t *testing.T) {
 // -------------------- targetFrom --------------------
 
 func TestTargetFrom_DefaultComplianceUnknown_MissingEvidence(t *testing.T) {
-	tgt, _ := targetFrom(RawTarget{Scope: "prod", Kind: "k8s", Name: "web", Service: "web-svc"}, "k8s", fixedNow(), time.Hour)
+	tgt, _ := targetFrom(RawTarget{Scope: "prod", Kind: "k8s", Name: "web", Service: "web-svc"}, "k8s", fixedNow(), time.Hour, targetCluster{})
 	if tgt.Compliance != StatusUnknown {
 		t.Errorf("empty compliance → Unknown, got %q", tgt.Compliance)
 	}
@@ -640,7 +640,7 @@ func TestTargetFrom_DefaultComplianceUnknown_MissingEvidence(t *testing.T) {
 func TestTargetFrom_Stale(t *testing.T) {
 	old := fixedNow().Add(-2 * time.Hour)
 	tgt, _ := targetFrom(RawTarget{Name: "w", Service: "s", Compliance: StatusCompliant, EvidenceAt: &old,
-		Limitations: []Limitation{{Code: "PRE", Message: "supplied"}}}, "k8s", fixedNow(), time.Hour)
+		Limitations: []Limitation{{Code: "PRE", Message: "supplied"}}}, "k8s", fixedNow(), time.Hour, targetCluster{})
 	if !tgt.Stale {
 		t.Error("evidence older than window → stale")
 	}
@@ -654,7 +654,7 @@ func TestTargetFrom_Stale(t *testing.T) {
 
 func TestTargetFrom_FreshCompliant(t *testing.T) {
 	recent := fixedNow().Add(-1 * time.Minute)
-	tgt, _ := targetFrom(RawTarget{Name: "w", Service: "s", Compliance: StatusCompliant, EvidenceAt: &recent}, "k8s", fixedNow(), time.Hour)
+	tgt, _ := targetFrom(RawTarget{Name: "w", Service: "s", Compliance: StatusCompliant, EvidenceAt: &recent}, "k8s", fixedNow(), time.Hour, targetCluster{})
 	if tgt.Stale {
 		t.Error("fresh evidence → not stale")
 	}
@@ -665,7 +665,7 @@ func TestTargetFrom_FreshCompliant(t *testing.T) {
 
 func TestTargetFrom_WindowDisabled(t *testing.T) {
 	old := fixedNow().Add(-1000 * time.Hour)
-	tgt, _ := targetFrom(RawTarget{Name: "w", Service: "s", Compliance: StatusCompliant, EvidenceAt: &old}, "k8s", fixedNow(), 0)
+	tgt, _ := targetFrom(RawTarget{Name: "w", Service: "s", Compliance: StatusCompliant, EvidenceAt: &old}, "k8s", fixedNow(), 0, targetCluster{})
 	if tgt.Stale {
 		t.Error("window=0 disables staleness")
 	}
@@ -1785,7 +1785,7 @@ func TestBuildRelationships_NilContractSkipped(t *testing.T) {
 		reverseDeps:           map[ServiceKey][]ServiceKey{},
 		forwardDepsByRevision: map[RevisionKey][]ServiceKey{},
 	}
-	buildRelationships(snap)
+	buildRelationships(snap, nil)
 	if len(snap.Relationships) != 0 {
 		t.Errorf("nil-contract revision must produce no edges, got %+v", snap.Relationships)
 	}
@@ -2287,5 +2287,67 @@ func TestBuildNoDisclosureWithWindow(t *testing.T) {
 	snap := freshnessSnap(t, BuildOptions{DiscloseUncheckedFreshness: true, FreshnessWindow: RecentEvidenceWindow}, false)
 	if hasLimitation(snap.Limitations, LimitationFreshnessNotEvaluated) {
 		t.Error("a window was set, so freshness was checked")
+	}
+}
+
+func TestServiceRecordNameInferred(t *testing.T) {
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("local", "local", &Collection{Revisions: []RawRevision{
+		inferredRev("payments", "/r/payments", "chart/Chart.yaml:2"), declaredRev("billing", "1.0.0", "sha256:b"),
+	}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := NewQuery(snap)
+	byName := map[string]*ServiceRecord{}
+	for _, s := range snap.Services {
+		byName[s.Name] = s
+	}
+	pay := byName["payments"]
+	if pay.NameInferred == nil || pay.NameInferred.Source != "chart/Chart.yaml:2" || byName["billing"].NameInferred != nil {
+		t.Fatalf("payments = %+v", pay.NameInferred)
+	}
+	res, err := q.Search(SearchFilter{Text: "payments"})
+	if err != nil || len(res.Services) != 1 || res.Services[0].NameInferred == nil || res.Services[0].NameInferred == pay.NameInferred {
+		t.Fatalf("search = %+v, %v: the hit carries a copy", res, err)
+	}
+	if ref := ServiceRef(pay); ref.NameInferred == nil || ref.NameInferred.Value != "payments" {
+		t.Errorf("service ref = %+v", ref)
+	}
+}
+
+// TestServiceRecordNameInferredOneDeclared: one declared revision makes the
+// name declared.
+func TestServiceRecordNameInferredOneDeclared(t *testing.T) {
+	s := &ServiceRecord{Revisions: []RevisionKey{"b", "a"}}
+	hand := &FleetSnapshot{Revisions: map[RevisionKey]*ContractRevision{
+		"a": {Inferred: []contract.Inferred{{Field: "service.name", Value: "x", Source: "directory x"}}},
+		"b": {Inferred: []contract.Inferred{{Field: "service.name", Value: "x", Source: "chart/Chart.yaml:2"}}},
+	}}
+	if got := nameInferred(hand, s); got == nil || got.Source != "directory x" {
+		t.Fatalf("all inferred = %+v, want the smallest revision key's", got)
+	}
+	hand.Revisions["b"].Inferred = []contract.Inferred{{Field: "pactoVersion", Value: "2.5", Source: "this CLI"}}
+	if got := nameInferred(hand, s); got != nil {
+		t.Fatalf("one declared = %+v, want nil", got)
+	}
+	if got := nameInferred(hand, &ServiceRecord{}); got != nil {
+		t.Fatalf("no revision = %+v, want nil", got)
+	}
+}
+
+func TestGraphNodeNameInferred(t *testing.T) {
+	cons := inferredRev("reports", "/r/reports", "directory reports")
+	cons.Bundle.Contract.Dependencies = []contract.Dependency{{Name: "payments", Ref: "oci://ghcr.io/acme/payments", Compatibility: "^1.0.0", Required: true}}
+	pay := RawRevision{Bundle: &contract.Bundle{Contract: &contract.Contract{PactoVersion: "2.5", Service: contract.Service{Name: "payments", Version: "1.0.0"}}, FS: fstest.MapFS{}}, RequestedRef: "file:///r/payments"}
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("local", "local", &Collection{Revisions: []RawRevision{cons, pay}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, err := NewQuery(snap).Graph(GraphQuery{Service: "payments", Direction: DirectionDependents})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(g.Nodes) != 1 || g.Nodes[0].NameInferred == nil || g.Nodes[0].NameInferred.Source != "directory reports" {
+		t.Fatalf("nodes = %+v", g.Nodes)
 	}
 }

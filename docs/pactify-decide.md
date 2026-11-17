@@ -114,20 +114,17 @@ below, one click away.
 
 Three things, all set up once by your cluster admin:
 
-1. **A role.** Your Kubernetes user or group needs the approver role, and
-   your group must be the owner team written in the contract of the service
-   you are asked about: for a breaking change, the consumer that would break;
-   otherwise, the service whose version or level is moving.
-   Ask your admin for a binding like this one, for the team `payments`:
-
-   ```bash
-   kubectl create clusterrolebinding payments-approvers \
-     --clusterrole=pacto-operator-delivery-approver --group=payments
-   ```
-
-2. **The people group.** If your admin named the groups people are in when
-   turning delivery on (`humanGroups`), your login must be in one. Anyone
-   outside them is treated like an AI agent and can never approve.
+1. **Update rights on the workload.** You may decide a change when you may
+   update the Stage's workload, such as the `checkout` Deployment in
+   `payments`. The built-in `edit` or `admin` role in that namespace gives
+   it, and lets you create the Approval. If your admin narrowed answers to
+   owner teams (`teamGroupPrefix`), your group must also be the owner team
+   written in the contract of the service you are asked about: for a
+   breaking change, the consumer that would break; otherwise, the service
+   whose version or level is moving.
+2. **A person's sign-in.** A service account, any other `system:` user and
+   a member of an agent group count as AI agents and can never approve.
+   Every other sign-in is a person.
 3. **A recent company login, if your admin asks for one.** By default you
    decide with the sign-in you have. If your admin sets
    `delivery.promoter.authFreshness`
@@ -161,10 +158,11 @@ pacto delivery propose -n prod --stage payments --type unfreeze --reason "fixed 
 
 An unfreeze takes effect at once and needs nobody else, even though the
 command is `propose`. It also clears `HOLD`, so run it on a Stage that is on hold even when
-`FROZEN` shows `false`. It needs the approver role but no fresh login, and
-only the team that owns the service (the owner team in the contract running on
-the Stage) or break-glass may unfreeze it: a person of another team is refused
-with `NotYourTeam`, even with a cluster-wide approver binding. In the dashboard, the
+`FROZEN` shows `false`. It needs update rights on the Stage's workload but no
+fresh login: without them you are refused with `CannotUpdateWorkload`. With
+answers narrowed to owner teams, only the team that owns the service (the
+owner team in the contract running on the Stage) or break-glass may unfreeze
+it, and a person of another team is refused with `NotYourTeam`. In the dashboard, the
 **Stages** view has an **Unfreeze** button on each frozen Stage, shown
 only to the people the same rule lets unfreeze it.
 

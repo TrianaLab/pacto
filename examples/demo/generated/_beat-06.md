@@ -12,6 +12,6 @@ Changes (6):
   [NON_BREAKING] asyncapi.channels[payment.failed] (added): channel payment.failed added [+ payment.failed]
   [NON_BREAKING] openapi.paths[/refunds].methods[POST].request-body.content.application/json.schema.properties.amount.description (modified): openapi.paths[/refunds].methods[POST].request-body.content.application/json.schema.properties.amount.description changed [Refund amount in cents (partial refund if less than charge) -> Refund amount in cents]
   [NON_BREAKING] openapi.paths[/webhooks/stripe] (added): API path /webhooks/stripe added [+ /webhooks/stripe]
-  [POTENTIAL_BREAKING] schema.properties.WEBHOOK_SECRET (added): schema.properties.WEBHOOK_SECRET added [+ map[description:Stripe webhook signing secret for signature verification type:string]]
+  [POTENTIAL_BREAKING] schema.properties.WEBHOOK_SECRET (added): schema.properties.WEBHOOK_SECRET added [+ (sensitive)]
   [NON_BREAKING] configurations[app].values.WEBHOOK_SECRET (added): configurations[app].values.WEBHOOK_SECRET added [+ ${STRIPE_WEBHOOK_SECRET}]
 ```

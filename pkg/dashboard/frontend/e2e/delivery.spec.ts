@@ -22,7 +22,7 @@ const T = 30_000;
 // machine starve each other into blank pages that prove nothing about delivery.
 test.describe.configure({ mode: 'default' });
 
-type Persona = 'carol' | 'alice' | 'robot' | 'local' | 'signed-out' | 'token';
+type Persona = 'carol' | 'alice' | 'dana' | 'robot' | 'local' | 'signed-out' | 'token';
 
 function installDelivery(persona: Persona): void {
   interface ServeResult { status: number; body: string; contentType: string }
@@ -34,11 +34,16 @@ function installDelivery(persona: Persona): void {
   const decided = () => S.getItem('mock.decided');
   const D1 = 'sha256:' + '1'.repeat(64);
   const D2 = 'sha256:' + '2'.repeat(64);
+  // The promoter checked each Stage's applier a moment ago.
+  const now = () => new Date().toISOString().replace(/\.\d+Z$/, 'Z');
   // A fresh sign-in is dated when it came back; every other one long ago.
   const signedAt = fresh() ? S.getItem('mock.fresh.at')! : '1792560000';
   const callers: Record<string, unknown> = {
     carol: { user: 'https://idp#carol', class: 'human', groups: ['team-checkout', 'system:authenticated'], authTime: signedAt },
     alice: { user: 'https://idp#alice', class: 'human', groups: ['team-payments'], authTime: '1792560000' },
+    // dana is in no team, signed in a moment ago, on a cluster where owner teams do not
+    // narrow who may answer: the decision is hers if she may update the workload.
+    dana: { user: 'https://idp#dana', class: 'human', groups: ['system:authenticated'], authTime: String(Math.floor(Date.now() / 1000)) },
     robot: { user: 'https://idp#robot', class: 'agent', groups: ['pacto:agents'] },
     local: { user: 'kind-admin', class: 'human', groups: ['system:masters'] },
     token: { user: 'system:serviceaccount:shop:viewer', class: 'human', groups: ['team-checkout', 'system:serviceaccounts'], authTime: '1792560000' },
@@ -47,7 +52,7 @@ function installDelivery(persona: Persona): void {
   // mock.ended: the session ended (expired, or signed out in another tab) while a page was open.
   const signedOut = () => persona === 'signed-out' || S.getItem('mock.ended') === '1' || (persona === 'token' && !document.cookie.includes('mock-token=1'));
   const caller = callers[persona] as { groups: string[]; class: string } | undefined;
-  const mayDecide = persona === 'carol';
+  const mayDecide = persona === 'carol' || persona === 'dana';
   const listing = { asOf: '2026-10-21T10:00:00Z', completeness: 'complete' };
   const plan = { intentDigest: 'sha256:intent', type: 'delivery.pacto.trianalab.io/promote', from: D1, to: D2, predicted: 'Held',
     question: 'payments 2.0.0 removes a field checkout reads. Ship it?',
@@ -78,9 +83,9 @@ function installDelivery(persona: Persona): void {
         csrf: 't', ...(caller as object) });
     }
     if (signedOut()) return json(401, { status: 401, code: 'LoginRequired', detail: 'sign in to use this dashboard' });
-    if (route === '/api/delivery/caller') return caller ? json(200, { ...caller, requireOwnerTeam: false }) : json(503, { status: 503, code: 'ClusterUnreachable', detail: 'no caller' });
+    if (route === '/api/delivery/caller') return caller ? json(200, { ...caller, requireOwnerTeam: false, teamNarrowing: persona !== 'dana' }) : json(503, { status: 503, code: 'ClusterUnreachable', detail: 'no caller' });
     if (route === '/api/delivery/inbox') {
-      const waits = !decided() && !!caller?.groups.includes('team-checkout');
+      const waits = !decided() && (persona === 'dana' || !!caller?.groups.includes('team-checkout'));
       return json(200, { ...listing, byEnvironment: waits ? [{ environment: 'prod', held: 1, errored: 0, frozen: 0, upstream: ['test'] }] : [], held: !waits ? [] : [{
         namespace: 'prod', name: 'op1', stage: 'payments-prod', type: 'delivery.pacto.trianalab.io/promote', from: D1, to: D2, phase: 'Held',
         question: plan.question, decision: 'approve', owners: ['team-checkout'], consumers: ['checkout'], order: plan.order }], frozen: [], errored: [] });
@@ -88,8 +93,14 @@ function installDelivery(persona: Persona): void {
     if (route === '/api/delivery/environments') {
       return json(200, { ...listing, environments: [{ namespace: 'prod', stage: 'payments-prod', service: 'payments', environment: 'prod',
         pointer: D1, version: '1.4.0', verified: true, failed: false, frozen: false, autoHold: false, held: decided() ? 0 : 1, candidate: D2,
-        ready: 'True', actions: ['promote'], offers: [{ action: 'promote', available: true, to: D2, reason: 'promotes the candidate' }], level: 'advise', upstream: { kind: 'stage', namespace: 'test', stage: 'payments-test', environment: 'test' } }, { namespace: 'test', stage: 'payments-test', service: 'payments', environment: 'test',
-        pointer: D1, version: '1.4.0', verified: true, failed: false, frozen: false, autoHold: false, held: 0, ready: 'True: Observing', actions: [], offers: [{ action: 'promote', available: false, to: D2, reason: 'the Stage observes: GitOps owns the applyRef; propose an autonomy change to advise first' }], level: 'observe',
+        ready: 'True', actions: ['promote'], offers: [{ action: 'promote', available: true, to: D2, reason: 'promotes the candidate' }], level: 'advise', upstream: { kind: 'stage', namespace: 'test', stage: 'payments-test', environment: 'test' },
+        applier: { manager: 'argocd', owner: 'Application prod/payments-prod', evidence: 'tracking annotation', state: 'Adopted', completeness: 'complete', asOf: now(),
+          display: 'Argo CD (Application payments-prod, tracking annotation)' } }, { namespace: 'test', stage: 'payments-test', service: 'payments', environment: 'test',
+        applier: { manager: 'helm', owner: 'Helm payments', evidence: 'release annotations', state: 'Conflict', completeness: 'complete', asOf: now(),
+          display: 'Helm (release payments, release annotations)', message: 'Helm release payments owns Deployment payments, and the Stage applies through OCIRepository test/payments-test' },
+        // The applier is itself the Ready reason, as the promoter writes it: ready and readyMessage carry its message.
+        pointer: D1, version: '1.4.0', verified: true, failed: false, frozen: false, autoHold: false, held: 0, ready: 'False: ApplierConflict',
+        readyMessage: 'Helm release payments owns Deployment payments, and the Stage applies through OCIRepository test/payments-test', actions: [], offers: [{ action: 'promote', available: false, to: D2, reason: 'the Stage observes: GitOps owns the applyRef; propose an autonomy change to advise first' }], level: 'observe',
         shadow: [{ candidate: D2, predicted: 'Held', owners: ['team-checkout'], observedAt: '2026-10-21T09:00:00Z', verification: 'Verified' },
           { candidate: D1, predicted: 'Proceeds', observedAt: '2026-10-20T09:00:00Z', verification: 'Verified' }] }],
         // The server lists the environments the way changes travel, as environmentsListed does.
@@ -161,6 +172,7 @@ function installDelivery(persona: Persona): void {
     if (route === '/api/delivery/plan' && method === 'POST') return json(200, plan);
     if (route === '/api/delivery/operations/prod/op1/decision' && method === 'POST') {
       if (persona === 'local') return json(403, { status: 403, code: 'ApproveFromCLI', detail: 'a local dashboard never decides' });
+      if (persona === 'dana') return json(403, { status: 403, code: 'CannotUpdateWorkload', detail: 'you cannot update deployments/payments in prod' });
       if (!fresh()) return json(401, { status: 401, code: 'FreshLoginRequired', detail: 'your login is older than 10m0s: sign in again' });
       if (!mayDecide) return json(403, { status: 403, code: 'NotYourTeam', detail: 'only [team-checkout] may answer this question' });
       S.setItem('mock.decided', 'op1-approve-x7k2');
@@ -334,10 +346,26 @@ test.describe('Delivery views', () => {
     await expect(page.getByTestId('decision-panel').getByRole('button')).toHaveCount(0);
   });
 
-  test('an agent is told agents may not decide', async ({ page }) => {
+  test('an agent is told agents cannot approve', async ({ page }) => {
     await as(page, 'robot');
     await page.goto('/#/delivery/changes/prod/op1');
-    await expect(page.getByTestId('decide-agent')).toContainText('agents may not decide', { timeout: T });
+    await expect(page.getByTestId('decide-agent')).toContainText('agents cannot approve', { timeout: T });
+  });
+
+  test('without team narrowing whoever may update the workload answers, and a person without update rights is told why', async ({ page }) => {
+    await as(page, 'dana');
+    await page.goto('/#/delivery/inbox');
+    const held = page.getByTestId('inbox-held');
+    await expect(held).toContainText('People who may update this workload may answer; asked of team-checkout', { timeout: T });
+    await held.locator('a[href="#/delivery/changes/prod/op1"]').first().click();
+    const panel = page.getByTestId('decision-panel');
+    await expect(panel.getByTestId('decision-who')).toHaveText('You can answer.', { timeout: T });
+    await panel.getByTestId('decide-reject').click();
+    const refusal = page.locator('[data-testid=refusal][data-code=CannotUpdateWorkload]');
+    await expect(refusal).toContainText('Only people who may update this workload decide its changes.', { timeout: T });
+    await refusal.getByText('Details').click();
+    await expect(refusal).toContainText('you cannot update deployments/payments in prod');
+    await audit(page, 'a refused decision without update rights');
   });
 
   test('a local dashboard shows the command that decides', async ({ page }) => {
@@ -495,8 +523,30 @@ test.describe('Delivery views', () => {
     await page.keyboard.press('Escape');
     await expect(panel).toHaveCount(0);
   });
-});
 
+  test('each Stage names its applier, and one another manager owns warns in words', async ({ page }) => {
+    await as(page, 'carol');
+    await page.goto('/#/delivery/environments');
+    const board = page.getByTestId('environments-board');
+    const lines = board.getByTestId('env-applier');
+    await expect(lines.filter({ hasText: 'Applier: Argo CD (Application payments-prod, tracking annotation) (as of ' })).toHaveCount(1, { timeout: T });
+    const conflict = lines.filter({ hasText: 'Applier: Helm (release payments, release annotations) (as of ' });
+    await expect(conflict).toHaveCount(1);
+    await expect(conflict).toHaveClass(/ev-ready/);
+    // The applier is the Ready reason: its message is said once, on the Cannot promote line.
+    const cell = board.locator('[data-stage="test/payments-test"]');
+    await expect(cell).toContainText('Cannot promote: Helm release payments owns Deployment payments');
+    expect((await cell.innerText()).split('owns Deployment payments').length - 1).toBe(1);
+    await audit(page, 'environments with appliers');
+    await page.goto('/#/fleet/services/registry.example%252Fstory%2Fpayments');
+    const rows = page.getByTestId('service-delivery-applier');
+    await expect(rows.filter({ hasText: 'Applier: Argo CD (Application payments-prod, tracking annotation) (as of ' })).toHaveCount(1, { timeout: T });
+    const warn = rows.filter({ hasText: 'Applier: Helm (release payments, release annotations) (as of ' });
+    await expect(warn).toHaveClass(/sd-warn/);
+    const row = page.getByTestId('service-delivery-row').filter({ has: warn });
+    expect((await row.innerText()).split('owns Deployment payments').length - 1).toBe(1);
+  });
+});
 
 test.describe('The path to autonomy', () => {
   test('shows the levels, proposes the next one through a plan and offers fixes to copy', async ({ page }) => {

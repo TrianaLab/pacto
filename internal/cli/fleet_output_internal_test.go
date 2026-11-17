@@ -251,7 +251,7 @@ func TestPrintRevisionPlace(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.SetOut(&buf)
 	rev := &fleet.RevisionDetailData{
-		Position: 1, Revisions: 4, Current: true, ServiceTargets: 11,
+		Position: 1, Revisions: 4, Current: true, ServiceTargets: 11, PactoVersion: "2.3", PactoVersionCurrent: "2.5",
 		ExactTargets: fleet.RefPreview{Total: 6}, InferredTargets: fleet.RefPreview{Total: 2},
 		EvidenceSourceCounts: fleet.SourceCounts{Total: 3, Available: 2, Stale: 1},
 	}
@@ -260,6 +260,7 @@ func TestPrintRevisionPlace(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Position: 1 of 4 revisions, newest first, current\n",
+		"Pacto version: 2.3 (behind 2.5)\n",
 		"Targets: 8 of the service's 11 run this revision (6 exact, 2 inferred)\n",
 		"Evidence sources: 3 (2 available, 0 partial, 1 stale, 0 unavailable)\n",
 	} {
@@ -271,6 +272,9 @@ func TestPrintRevisionPlace(t *testing.T) {
 	printRevisionPlace(&buf, &fleet.RevisionDetailData{Position: 2, Revisions: 4})
 	if !strings.Contains(buf.String(), "Position: 2 of 4 revisions, newest first\n") {
 		t.Errorf("a revision that is not current says so: %q", buf.String())
+	}
+	if strings.Contains(buf.String(), "Pacto version") {
+		t.Errorf("a revision with no pactoVersion prints none: %q", buf.String())
 	}
 }
 
@@ -509,5 +513,92 @@ func TestOverviewPrinterEdges(t *testing.T) {
 	var buf bytes.Buffer
 	if printOverviewDomains(&buf, nil); buf.Len() != 0 {
 		t.Errorf("no domain prints a table: %q", buf.String())
+	}
+}
+
+// An inferred name keeps its source in text output, as in JSON and the dashboard.
+func TestPrintFleet_MarksInferredName(t *testing.T) {
+	inf := &contract.Inferred{Field: "service.name", Value: "payments", Source: "chart/Chart.yaml:2"}
+	cmd := &cobra.Command{}
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	res := &fleet.SearchResult{Total: 2, Count: 2, Services: []fleet.ServiceHit{{Name: "payments", NameInferred: inf}, {Name: "orders"}}}
+	if err := printFleetSearch(cmd, res, "text"); err != nil {
+		t.Fatal(err)
+	}
+	if err := printFleetService(cmd, &fleet.ServiceView{Service: &fleet.ServiceRecord{Name: "payments", NameInferred: inf}}, "text"); err != nil {
+		t.Fatal(err)
+	}
+	for line := range strings.Lines(out.String()) {
+		if strings.Contains(line, "orders") && strings.Contains(line, "inferred") {
+			t.Errorf("declared row marked: %q", line)
+		}
+	}
+	for _, want := range []string{"payments", "Service: payments (name inferred from chart/Chart.yaml:2)"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("text lacks %q:\n%s", want, out.String())
+		}
+	}
+	if strings.Count(out.String(), "(name inferred from chart/Chart.yaml:2)") != 2 {
+		t.Errorf("want the mark on the search row and the Service line:\n%s", out.String())
+	}
+}
+
+// TestPrintExternalFoldsAndHides covers the lines a plain external lacks: more
+// declarations than listed, the other-egress node, a folded identity and
+// hidden consumers.
+func TestPrintExternalFoldsAndHides(t *testing.T) {
+	var b strings.Builder
+	printExternal(&b, fleet.ExternalRecord{Key: fleet.OtherEgress, Class: fleet.ClassOtherEgress, SourcesTotal: 3, Folded: 4, HiddenConsumers: 2}, "", fleet.ExternalEvidence{})
+	printExternal(&b, fleet.ExternalRecord{Key: "x", Catalog: &fleet.ExternalCatalogMatch{Origin: "organization", Digest: "short", Entry: "x"},
+		Sources: []fleet.ExternalSource{{Kind: fleet.ExternalSourceContract, Service: "payments", Index: 2, Dependency: "x", Superseded: true}}}, fleet.OtherEgress, fleet.ExternalEvidence{})
+	for _, want := range []string{"payments pacto.yaml dependencies[2] (name: x, not in the newest revision)", "3 sources in all, across every consumer revision", "folds    4 external systems", "hidden consumers 2", "folded into other-egress", "catalog  organization short entry x"} {
+		if !strings.Contains(b.String(), want) {
+			t.Errorf("lacks %q:\n%s", want, b.String())
+		}
+	}
+	if strings.Contains(b.String(), "joined by name") {
+		t.Errorf("the other-egress node reads as joined by name:\n%s", b.String())
+	}
+}
+
+func TestFleetEntityExternalPrintsInferredSources(t *testing.T) {
+	var buf bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&buf)
+	ext := &fleet.ExternalDetailData{
+		External: fleet.ExternalRecord{Key: "stripe", Class: "vendor-api", HiddenConsumers: 2, Sources: []fleet.ExternalSource{
+			{Kind: fleet.ExternalSourceContract, Service: "pay", Index: 1, Dependency: "stripe-api", Provenance: fleet.ProvenanceDeclared},
+			{Kind: fleet.ExternalSourcePodSpec, Service: "checkout", Provenance: fleet.ProvenanceInferred},
+		}},
+		Catalog: &fleet.ExternalCatalogRef{Origin: "default", Digest: "sha256:3e9a"},
+		ExternalEvidence: fleet.ExternalEvidence{
+			InferredSources: []fleet.ExternalInferredSource{
+				{Service: "checkout", InferredSource: fleet.InferredSource{Kind: "env", Where: "deployment/checkout env STRIPE_API_BASE", Host: "api.stripe.com", Confidence: "likely", Entry: "stripe"}},
+				{Service: "checkout", InferredSource: fleet.InferredSource{Kind: "secretKeyRef", Where: "deployment/checkout secretKeyRef stripe/KEY", Confidence: "possible"}},
+			},
+			InferredSourcesTotal: 5,
+			ObservedSources:      []fleet.ExternalObservedSource{{Service: "checkout", ObservedSourceStat: fleet.ObservedSourceStat{Source: "otel", Count: 4}}},
+			ObservedSourcesTotal: 1,
+		},
+	}
+	if err := printFleetEntity(cmd, &fleet.EntityDetail{Entity: fleet.EntityRef{Kind: fleet.KindExternal, Key: "stripe"}, External: ext}, "text"); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"stripe  external, vendor-api  (used by 0 consumers)\n",
+		"  sources  pay pacto.yaml dependencies[1] (name: stripe-api)\n",
+		"           checkout env deployment/checkout env STRIPE_API_BASE (inferred, likely)\n             -> api.stripe.com (host and port only)\n",
+		"           checkout secretKeyRef deployment/checkout secretKeyRef stripe/KEY (inferred, possible)\n",
+		"           checkout otel (observed, 4 calls)\n           3 more inferred sources\n",
+		"  catalog  none (",
+		"  hidden consumers 2\n",
+	} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("external text lacks %q:\n%s", want, buf.String())
+		}
+	}
+	if strings.Contains(buf.String(), "pod-spec") {
+		t.Errorf("a pod-spec source prints through its inferred evidence only:\n%s", buf.String())
 	}
 }

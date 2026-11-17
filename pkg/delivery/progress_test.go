@@ -1,6 +1,7 @@
 package delivery
 
 import (
+	"context"
 	"slices"
 	"strings"
 	"testing"
@@ -118,7 +119,7 @@ func TestProgressOf(t *testing.T) {
 			in: ProgressInput{Stage: progStage(LevelAutonomous, func(s *StageStatus) { s.Candidate = rowRun })}},
 		{name: "frozen with a held promote", state: "blocked", codes: []string{"Frozen", "Held", "PlanHeld"}, auto: "frozen",
 			in: ProgressInput{Stage: progStage(LevelAutonomous, func(s *StageStatus) { s.Frozen, s.FrozenReason = true, "Errored" }),
-				Caller: person, Team: "team-payments", Ops: []OperationObject{heldOp("op-1", "team-checkout")},
+				Caller: person, Team: "team-payments", Access: &allowed, Ops: []OperationObject{heldOp("op-1", "team-checkout")},
 				Plan: progPlan(PredictHeld, func(p *Plan) { p.Question = "Approve?"; p.Conflicts = []string{"StageFrozen: Errored"} })},
 			fix: map[string]string{"Frozen": "--type unfreeze"}},
 		{name: "auto-hold on advise", state: "can-promote", codes: []string{"AutoHold", "Level"}, auto: "advise",
@@ -233,8 +234,8 @@ func TestProgressOfMessages(t *testing.T) {
 	accept := heldOp("op-3", "team-payments")
 	accept.Status.Plan.Floor.Decision = AcceptUnknown
 	held := ProgressOf(ProgressInput{Stage: progStage(LevelAdvise, nil), Caller: rowCaller(ClassHuman, "acme:team-payments"),
-		Ops: []OperationObject{accept}, Plan: progPlan(PredictHeld, nil)})
-	if r := reasonOf(held, "Held"); !strings.Contains(r.Message, "op-3 waits for accept-unknown from a person of team-payments: Approve the break?") ||
+		Ops: []OperationObject{accept}, Access: &allowed, Plan: progPlan(PredictHeld, nil)})
+	if r := reasonOf(held, "Held"); !strings.Contains(r.Message, "op-3 waits for accept-unknown from a person of team-payments who may update deployments/payments in prod: Approve the break?") ||
 		r.Fix != "pacto delivery approve -n prod op-3 --decision accept-unknown" {
 		t.Errorf("accept-unknown: %+v", r)
 	}
@@ -242,7 +243,7 @@ func TestProgressOfMessages(t *testing.T) {
 	noPlan.Status.Plan, noPlan.Status.Question = nil, ""
 	held = ProgressOf(ProgressInput{Stage: progStage(LevelAdvise, nil), Caller: rowCaller(ClassHuman), Ops: []OperationObject{noPlan},
 		Plan: progPlan(PredictHeld, nil)})
-	if r := reasonOf(held, "Held"); r.Message != "op-4 waits for approve from any person except the one who asked or the one it is on behalf of" {
+	if r := reasonOf(held, "Held"); r.Message != "op-4 waits for approve from any person who may update deployments/payments in prod, except the one who asked or the one it is on behalf of" {
 		t.Errorf("held with no plan: %+v", r)
 	}
 }
@@ -256,7 +257,7 @@ func TestProgressOfAgentGetsNoApproveCommand(t *testing.T) {
 	if anyCommand(p, "approve") || anyCommand(p, "propose -n prod --stage payments --type unfreeze") {
 		t.Fatalf("an agent got a command it cannot run: %+v", p.Reasons)
 	}
-	if r := reasonOf(p, "Held"); r.Fix != "a person of team-payments approves it themselves; you cannot answer it" {
+	if r := reasonOf(p, "Held"); r.Fix != "a person of team-payments who may update deployments/payments in prod approves it themselves; you cannot answer it" {
 		t.Errorf("agent held fix %q", r.Fix)
 	}
 }
@@ -299,11 +300,11 @@ func TestProgressOfUnfreezeFixNeedsTeam(t *testing.T) {
 		t.Errorf("outside the team: %+v", r)
 	}
 	no := false
-	rbac := ProgressOf(ProgressInput{Stage: frozen, Caller: rowCaller(ClassHuman, "acme:team-payments"), Team: "team-payments", MayCreate: &no, Plan: progPlan(PredictHeld, nil)})
+	rbac := ProgressOf(ProgressInput{Stage: frozen, Caller: rowCaller(ClassHuman, "acme:team-payments"), Team: "team-payments", MayCreate: &no, Access: &allowed, Plan: progPlan(PredictHeld, nil)})
 	if r := reasonOf(rbac, "Frozen"); r.Fix != "you may unfreeze it once your Kubernetes RBAC lets you create Operations in prod" {
 		t.Errorf("in the team, RBAC refuses: %+v", r)
 	}
-	in := ProgressOf(ProgressInput{Stage: frozen, Caller: rowCaller(ClassHuman, "acme:team-payments"), Team: "team-payments", Plan: progPlan(PredictHeld, nil)})
+	in := ProgressOf(ProgressInput{Stage: frozen, Caller: rowCaller(ClassHuman, "acme:team-payments"), Team: "team-payments", Access: &allowed, Plan: progPlan(PredictHeld, nil)})
 	if r := reasonOf(in, "Frozen"); r.Fix != `pacto delivery propose -n prod --stage payments --type unfreeze --reason "<why>"` {
 		t.Errorf("in the team: %+v", r)
 	}
@@ -314,10 +315,10 @@ func TestProgressOfApproveOnlyForOwner(t *testing.T) {
 	ask := func(user string, groups ...string) Progress {
 		c := rowCaller(ClassHuman, groups...)
 		c.User = user
-		return ProgressOf(ProgressInput{Stage: progStage(LevelAdvise, nil), Caller: c, Ops: []OperationObject{op}, Plan: progPlan(PredictHeld, nil)})
+		return ProgressOf(ProgressInput{Stage: progStage(LevelAdvise, nil), Caller: c, Ops: []OperationObject{op}, Access: &allowed, Plan: progPlan(PredictHeld, nil)})
 	}
 	for _, p := range []Progress{ask("alice", "acme:team-ledger"), ask("bob", "acme:team-payments"), ask("dana", "acme:team-payments"), ask(" Dana", "acme:team-payments")} {
-		if anyCommand(p, "approve") || reasonOf(p, "Held").Fix != "a person of team-payments decides it" {
+		if anyCommand(p, "approve") || reasonOf(p, "Held").Fix != "a person of team-payments who may update deployments/payments in prod decides it" {
 			t.Errorf("not an owner, the asker or the person it is on behalf of: %+v", reasonOf(p, "Held"))
 		}
 	}
@@ -358,9 +359,9 @@ func TestProgressOfRBACDenied(t *testing.T) {
 	if failed.State != "unknown" || !strings.Contains(reasonOf(failed, "RBACUnknown").Message, "timeout") || anyCommand(failed, "propose") {
 		t.Errorf("review failed: %+v", failed)
 	}
-	allowed := ProgressOf(ProgressInput{Stage: st, Caller: person, Team: "team-payments", MayCreate: &yes, Plan: progPlan(PredictProceeds, nil)})
-	if allowed.State != "can-promote" || !anyCommand(allowed, "propose") {
-		t.Errorf("allowed: %+v", allowed)
+	ok := ProgressOf(ProgressInput{Stage: st, Caller: person, Team: "team-payments", MayCreate: &yes, Access: &allowed, Plan: progPlan(PredictProceeds, nil)})
+	if ok.State != "can-promote" || !anyCommand(ok, "propose") {
+		t.Errorf("allowed: %+v", ok)
 	}
 }
 
@@ -378,6 +379,89 @@ func TestProgressPlanRequest(t *testing.T) {
 	} {
 		if _, ok := ProgressPlanRequest(st); ok {
 			t.Errorf("%s: planned", name)
+		}
+	}
+}
+
+// TestUnfreezeFixNeedsAccess: a person gets the unfreeze command only with
+// update rights on the workload; an access not asked, denied or unverified
+// names none.
+func TestUnfreezeFixNeedsAccess(t *testing.T) {
+	frozen := progStage(LevelAdvise, func(s *StageStatus) { s.Frozen = true })
+	denied, unverified := allowed, allowed
+	denied.Allowed = false
+	unverified.Unverified = "timeout"
+	for _, c := range []struct {
+		access *WorkloadAccess
+		fix    string
+	}{
+		{nil, "a person who may update the workload, or break-glass, unfreezes it"},
+		{&denied, "you cannot update deployments/payments in payments"},
+		{&unverified, "Pacto could not check whether you may update deployments/payments in payments"},
+		{&allowed, "--type unfreeze"},
+	} {
+		p := ProgressOf(ProgressInput{Stage: frozen, Caller: rowCaller(ClassHuman, "acme:team-payments"), Team: "team-payments", Access: c.access, Plan: progPlan(PredictHeld, nil)})
+		f := reasonOf(p, "Frozen").Fix
+		if !strings.Contains(f, c.fix) || c.access != &allowed && anyCommand(p, "propose -n prod --stage payments --type unfreeze") {
+			t.Errorf("%+v: %q", c.access, f)
+		}
+	}
+	bg := ProgressOf(ProgressInput{Stage: frozen, Caller: rowCaller(ClassBreakGlass), Plan: progPlan(PredictHeld, nil)})
+	if !anyCommand(bg, "propose -n prod --stage payments --type unfreeze") {
+		t.Errorf("break-glass needs no access: %+v", bg.Reasons)
+	}
+}
+
+// TestPersonAccessAskedForAFrozenOrHeldPerson: only a person on a frozen or
+// auto-held Stage, or one with a held change, is asked.
+func TestPersonAccessAskedForAFrozenOrHeldPerson(t *testing.T) {
+	asked := 0
+	access := func(context.Context, string, string) WorkloadAccess { asked++; return allowed }
+	frozen := progStage(LevelAdvise, func(s *StageStatus) { s.Frozen = true })
+	autoHeld := progStage(LevelAdvise, func(s *StageStatus) { s.AutoHold = true })
+	if a := PersonAccess(context.Background(), rowCaller(ClassHuman), frozen, nil, access); a == nil || !a.Allowed {
+		t.Fatalf("frozen: %+v", a)
+	}
+	if PersonAccess(context.Background(), rowCaller(ClassHuman), autoHeld, nil, access) == nil || asked != 2 {
+		t.Fatal("auto-hold")
+	}
+	if PersonAccess(context.Background(), rowCaller(ClassHuman), progStage(LevelAdvise, nil), []OperationObject{heldOp("op-1")}, access) == nil || asked != 3 {
+		t.Fatal("a held change")
+	}
+	done := heldOp("op-2")
+	done.Status.Phase = PhaseConcluded
+	if PersonAccess(context.Background(), rowCaller(ClassAgent), frozen, nil, access) != nil ||
+		PersonAccess(context.Background(), rowCaller(ClassHuman), progStage(LevelAdvise, nil), []OperationObject{done}, access) != nil || asked != 3 {
+		t.Fatal("an agent, or a Stage that runs with nothing held, is not asked")
+	}
+}
+
+// TestProgressOfApproveNeedsUpdateRights: the approve command goes only to a
+// person who may update the workload; with narrowing off the teams only
+// route the question and update rights decide.
+func TestProgressOfApproveNeedsUpdateRights(t *testing.T) {
+	op := heldOp("op-1", "team-payments")
+	c := rowCaller(ClassHuman, "acme:team-search")
+	c.Policy.TeamNarrowing = false
+	ask := func(a *WorkloadAccess) *ProgressReason {
+		return reasonOf(ProgressOf(ProgressInput{Stage: progStage(LevelAdvise, nil), Caller: c, Ops: []OperationObject{op}, Access: a, Plan: progPlan(PredictHeld, nil)}), "Held")
+	}
+	denied := allowed
+	denied.Allowed = false
+	failed := allowed
+	failed.Unverified = "timeout"
+	for _, cse := range []struct {
+		access *WorkloadAccess
+		fix    string
+	}{
+		{&allowed, "pacto delivery approve -n prod op-1"},
+		{&denied, "you cannot update deployments/payments in payments, and only someone who may decides it"},
+		{&failed, "Pacto could not check whether you may update deployments/payments in payments (timeout), and only someone who may decides it"},
+		{nil, "a person who may update deployments/payments in prod decides it"},
+	} {
+		r := ask(cse.access)
+		if r.Fix != cse.fix || !strings.HasPrefix(r.Message, "op-1 waits for approve from a person who may update deployments/payments in prod (asked of team-payments)") {
+			t.Errorf("%+v: %+v", cse.access, r)
 		}
 	}
 }

@@ -46,7 +46,7 @@ func (s *Server) registerProductOperations(api huma.API) {
 	huma.Register(api, huma.Operation{
 		OperationID: "fleet-entity-detail", Method: http.MethodGet, Path: "/api/fleet/entities/{kind}",
 		Summary: "Entity detail", Tags: []string{"Fleet"},
-		Description: "Returns one entity's strongly typed, discriminated detail (service, revision, target, owner, source, domain or offering), keyed by the query-param key so a key containing a slash is transported safely.",
+		Description: "Returns one entity's strongly typed, discriminated detail (service, revision, target, owner, source, domain, offering or external), keyed by the query-param key so a key containing a slash is transported safely.",
 	}, s.fleetEntityDetail)
 
 	huma.Register(api, huma.Operation{
@@ -88,7 +88,7 @@ func (s *Server) fleetOverview(ctx context.Context, _ *struct{}) (*fleetOverview
 
 type fleetEntitiesInput struct {
 	Text            string   `query:"text"`
-	Kinds           []string `query:"kinds" enum:"service,revision,target,owner,source,domain,offering" doc:"Comma-separated entity kinds; an unknown or empty kind is rejected. A domain is a business domain (service.domain). An offering is a platform offering (service.offering)"`
+	Kinds           []string `query:"kinds" enum:"service,revision,target,owner,source,domain,offering,external" doc:"Comma-separated entity kinds; an unknown or empty kind is rejected. A domain is a business domain (service.domain). An offering is a platform offering (service.offering). An external is a system no Pacto contract describes, keyed by its canonical identity"`
 	Owner           string   `query:"owner" doc:"Free-text owner SEARCH: case-insensitive substring over team, DRI and contacts"`
 	OwnerKey        string   `query:"ownerKey" doc:"Exact canonical owner IDENTITY, namespaced as team:NAME or dri:NAME, exactly as canonical owner links carry it. A bare owner name matches nothing"`
 	Domain          string   `query:"domain" doc:"Exact registry path (the domain part of the canonical service key), shown as Registry"`
@@ -112,7 +112,8 @@ type fleetEntitiesInput struct {
 	SourceKind      string   `query:"sourceKind" doc:"Exact source kind (oci, kubernetes, evidence-http, ...) for source entities"`
 	Lifecycle       string   `query:"lifecycle" enum:"deprecated,sunset" doc:"Keeps the entities whose provider lifecycle is deprecated or past its sunset: offering entities by the worst provider lifecycle (each provider's newest revision a target runs, else its newest readable one), service entities by their newest revision"`
 	Failed          bool     `query:"failed" doc:"Keeps the offerings with at least one failed provisioning request (offering entities)"`
-	Sort            string   `query:"sort" enum:"name,health,services,nonCompliant,rate,created,failed,consumers,gaps" doc:"Order: name (natural, so 2 before 10), health (least healthy first; owners and domains by non-compliant, failing, unknown, stale and gap services), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most consumers with a failed provisioning request first), consumers (offerings with the most declared consumers first) or gaps (owners and domains with the most services that leave knowledge out first); absent orders by kind then key"`
+	Class           string   `query:"class" enum:"vendor-api,managed-cloud,legacy,unclassified,other-egress" doc:"Keeps the external systems of this class (external entities)"`
+	Sort            string   `query:"sort" enum:"name,health,services,nonCompliant,rate,created,failed,consumers,gaps" doc:"Order: name (natural, so 2 before 10), health (least healthy first; owners and domains by non-compliant, failing, unknown, stale and gap services), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most consumers with a failed provisioning request first), consumers (offerings and external systems with the most declared consumers first) or gaps (owners and domains with the most services that leave knowledge out first); absent orders by kind then key"`
 	Limit           int      `query:"limit" minimum:"0" doc:"Max entities to return (negatives rejected; excessive values capped)"`
 	Offset          int      `query:"offset" minimum:"0"`
 }
@@ -125,14 +126,19 @@ func (s *Server) fleetEntities(ctx context.Context, in *fleetEntitiesInput) (*fl
 		return nil, err
 	}
 	kinds := in.Kinds
-	if len(kinds) == 0 && in.Template == fleet.TemplateOnly {
+	switch {
+	case len(kinds) > 0:
+	case in.Template == fleet.TemplateOnly:
 		kinds = []string{string(fleet.KindService)}
+	case in.Class != "":
+		// class applies only to external systems, as on the CLI and MCP.
+		kinds = []string{string(fleet.KindExternal)}
 	}
 	res, err := q.Entities(fleet.EntityFilter{
 		Text: in.Text, Kinds: entityKinds(kinds), Owner: in.Owner, OwnerKey: in.OwnerKey, Domain: in.Domain,
 		BusinessDomain: in.BusinessDomain, Environment: in.Environment, Capability: in.Capability, Offering: in.Offering, Consumes: in.Consumes, Phase: in.Phase,
 		Scope: in.Scope, Status: in.Status, SourceHealth: in.SourceHealth, SourceKind: in.SourceKind, Source: in.Source,
-		HasNonCompliant: in.HasNonCompliant, Lifecycle: in.Lifecycle, Failed: in.Failed,
+		HasNonCompliant: in.HasNonCompliant, Lifecycle: in.Lifecycle, Failed: in.Failed, Class: in.Class,
 		Ownership: in.Ownership, Gap: in.Gap, Readiness: in.Readiness,
 		Service: in.Service, Template: in.Template, CreatedFrom: in.CreatedFrom, Sort: in.Sort, Limit: in.Limit, Offset: in.Offset,
 	})
@@ -167,7 +173,7 @@ func (s *Server) fleetVersions(ctx context.Context, in *fleetVersionsInput) (*fl
 }
 
 type fleetEntityDetailInput struct {
-	Kind string `path:"kind" doc:"Entity kind: service, revision, target, owner, source, domain or offering"`
+	Kind string `path:"kind" doc:"Entity kind: service, revision, target, owner, source, domain, offering or external"`
 	Key  string `query:"key" required:"true" doc:"Canonical entity key (a slash-bearing key is transported safely as a query param)"`
 	// Reached reads delivery as the caller; the answer is never cached.
 	Reached bool `query:"reached" doc:"For a service: also read, as you, when each change reached a Stage, from delivery history (changes.times says how)"`
@@ -414,11 +420,15 @@ func (s *Server) fleetImpactPost(ctx context.Context, in *fleetImpactPostInput) 
 
 // productQueryError maps a product-query error to HTTP: absent → 404, a document
 // that exists but cannot be served → 422 carrying the exact reason, everything
-// else (invalid filter, ambiguous key) → 422 with an actionable message.
+// else (invalid filter, ambiguous name) → 422 with an actionable message. A 3-part
+// target key that names targets in several clusters → 409 with the candidates.
 func productQueryError(err error) error {
 	var nf *fleet.NotFoundError
 	if errors.As(err, &nf) {
 		return huma.Error404NotFound("not found", err)
+	}
+	if amb := ambiguousTargetKey(err); amb != nil {
+		return amb
 	}
 	// The document is listed but its body is oversized, unreadable or not text.
 	// That is an explicit failure with its own explanation, never empty content.

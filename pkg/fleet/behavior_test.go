@@ -243,6 +243,12 @@ func TestDeclaredClaimCarriesRangeStatus(t *testing.T) {
 	}
 }
 
+func TestDeclaredClaimCarriesNameFromRef(t *testing.T) {
+	if !declaredClaim(Relationship{NameFromRef: true}).NameFromRef {
+		t.Error("NameFromRef dropped from the declared claim")
+	}
+}
+
 // lifecycleFleet: pg 1.0.0 and 2.0.0 provide postgresql, each with its own
 // service lifecycle; app 1.0.0 pins pg 1.0.0 in its lock and app 2.0.0 does
 // not; cache depends on redis, which declares no lifecycle. pg runs in the
@@ -342,5 +348,37 @@ func TestRestrictHidesProviderLifecycle(t *testing.T) {
 	r := lifecycleFleet(t).Restrict(func(ns string) bool { return ns != "secret" })
 	if rel := lifecycleRel(t, r, "app", "2.0.0"); !rel.Hidden || rel.ProviderLifecycle != nil {
 		t.Errorf("the hidden provider's lifecycle reaches its consumer: %+v", rel)
+	}
+}
+
+func TestReachableRevisionsUnknownRangeReachesAll(t *testing.T) {
+	q := behaviorFleet(t)
+	rel := behaviorOf(t, q, "any")
+	rel.Compatibility = contract.CompatibilityUnknown
+	if revs := reachableRevisions(q.snap, rel); len(revs) != 2 {
+		t.Errorf("compatibility: unknown narrows nothing, so both events revisions are reachable, got %d", len(revs))
+	}
+}
+
+// Unknown never suppresses a negative: a deprecated interface still surfaces
+// for a consumer whose range is compatibility: unknown.
+func TestProviderDeprecationsUnknownRange(t *testing.T) {
+	events := &contract.Contract{PactoVersion: "2.5", Service: contract.Service{Name: "events", Version: "1.0.0"},
+		Interfaces: []contract.Interface{{Name: "orders", Type: "asyncapi", Lifecycle: &contract.InterfaceLifecycle{Deprecated: "2026-01-01"}}}}
+	consumer := &contract.Contract{PactoVersion: "2.5", Service: contract.Service{Name: "billing", Version: "1.0.0"},
+		Dependencies: []contract.Dependency{{Name: "events", Ref: "oci://ghcr.io/acme/events", Compatibility: contract.CompatibilityUnknown, Required: true}}}
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("local", "local", &Collection{Revisions: []RawRevision{
+		{Bundle: &contract.Bundle{Contract: events, FS: fstest.MapFS{}}, Digest: "sha256:events"},
+		{Bundle: &contract.Bundle{Contract: consumer, FS: fstest.MapFS{}}, Digest: "sha256:billing"},
+	}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := behaviorOf(t, NewQuery(snap), "billing")
+	if d := r.DeprecatedInterfaces; len(d) != 1 || d[0].Interface != "orders" {
+		t.Errorf("deprecations = %+v, want orders", d)
+	}
+	if r.RangeStatus != RangeUnknown {
+		t.Errorf("range status = %q, want unknown", r.RangeStatus)
 	}
 }

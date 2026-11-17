@@ -56,6 +56,10 @@ func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, d d
 	if err != nil {
 		return nil, err
 	}
+	mode, namespaces := v.GetString("dashboard.review"), splitNamespaces(v.GetString("dashboard.namespace"))
+	if err := checkReview(mode, namespaces); err != nil {
+		return nil, err
+	}
 	id := baseDashboardIdentity(cluster, d, trust, v.GetString("dashboard.delivery-namespace"))
 	id.loginName = v.GetString("dashboard.oidc-display-name")
 	life := authn.Lifetime{Idle: v.GetDuration("dashboard.session-idle-timeout"), Max: v.GetDuration("dashboard.session-max-age")}
@@ -86,7 +90,7 @@ func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, d d
 	switch {
 	case o != nil || t != nil:
 		id.auth = authn.NewShared(o, t)
-		id.viewer = authn.NewViewer(clusterReview(cluster, d.dynamicFor))
+		id.viewer = clusterViewer(cluster, d.dynamicFor, mode, namespaces)
 	case isLoopback(host):
 		id.auth = authn.NewLocal()
 	case v.GetBool("dashboard.allow-anonymous"):
@@ -228,9 +232,50 @@ func (id *dashboardIdentity) subject(ctx context.Context) (subject, error) {
 // has no cluster to ask who may read them.
 var errNoClusterToAsk = errors.New("the dashboard has no cluster to ask who may read which namespace")
 
+// The review modes of --review: cluster asks one cluster-scoped review about
+// every namespace at once first (it needs a ClusterRole); local asks a
+// LocalSubjectAccessReview in each watched namespace only (a namespaced Role
+// grants it), and nobody then reads a service without a namespace.
+const (
+	reviewCluster = "cluster"
+	reviewLocal   = "local"
+)
+
+// reviewUsage is the --review help of the dashboard and the MCP server.
+const reviewUsage = "how people are reviewed: cluster asks once about every namespace and needs a ClusterRole; " +
+	"local asks in each --namespace only, which a namespaced Role grants, and then services without a namespace show to nobody"
+
+// errLocalReviewNeedsNamespace: a local review only asks in named namespaces.
+var errLocalReviewNeedsNamespace = errors.New("--review=local needs --namespace")
+
+// checkReview refuses a review mode it does not know, and a local review
+// with no namespace to ask in. Empty is the cluster review.
+func checkReview(mode string, namespaces []string) error {
+	switch mode {
+	case "", reviewCluster:
+		return nil
+	case reviewLocal:
+		if len(namespaces) == 0 {
+			return errLocalReviewNeedsNamespace
+		}
+		return nil
+	}
+	return fmt.Errorf("--review must be %s or %s, not %q", reviewCluster, reviewLocal, mode)
+}
+
+// clusterViewer narrows answers to what each person may read, reviewed in
+// the namespaces list only when mode is local (checkReview passed).
+func clusterViewer(cluster *rest.Config, newClient func(*rest.Config) (dynamic.Interface, error), mode string, namespaces []string) *authn.Viewer {
+	review := clusterReview(cluster, newClient, mode)
+	if mode == reviewLocal {
+		return authn.NewScopedViewer(review, namespaces)
+	}
+	return authn.NewViewer(review)
+}
+
 // clusterReview asks the cluster, with the dashboard's own credentials, what a
-// person may read.
-func clusterReview(cluster *rest.Config, newClient func(*rest.Config) (dynamic.Interface, error)) authn.Review {
+// person may read: per namespace when mode is local, otherwise cluster-wide.
+func clusterReview(cluster *rest.Config, newClient func(*rest.Config) (dynamic.Interface, error), mode string) authn.Review {
 	var dyn dynamic.Interface
 	err := errNoClusterToAsk
 	if cluster != nil {
@@ -241,6 +286,9 @@ func clusterReview(cluster *rest.Config, newClient func(*rest.Config) (dynamic.I
 	}
 	if err != nil {
 		return func(context.Context, authn.Person, string) (bool, error) { return false, err }
+	}
+	if mode == reviewLocal {
+		return authn.LocalSubjectAccessReview(dyn)
 	}
 	return authn.SubjectAccessReview(dyn)
 }

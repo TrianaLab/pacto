@@ -8,10 +8,11 @@ release:
   namespace: pacto-system
 set:
   delivery.enabled: true
-  delivery.identities.allowEmptyHumanGroups: true
 capabilities:
   apiVersions:
     - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    # a cluster with Flux: delivery.flux.enabled defaults to auto
+    - source.toolkit.fluxcd.io/v1/OCIRepository
 tests:
   - it: is off by default and leaves the promoter alone
     asserts:
@@ -101,6 +102,23 @@ tests:
       - contains:
           path: rules
           content: {apiGroups: [delivery.pacto.trianalab.io], resources: [stages/status, operations/status], verbs: [get, update]}
+
+  - it: reads a HelmRelease Stage's applier when HelmReleases are served
+    set:
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: r/s
+      delivery.recorder.signing.kms: awskms:///alias/pacto
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+        - source.toolkit.fluxcd.io/v1/OCIRepository
+        - helm.toolkit.fluxcd.io/v2/HelmRelease
+    template: templates/delivery/recorder.yaml
+    documentSelector: {path: kind, value: ClusterRole}
+    asserts:
+      - contains:
+          path: rules
+          content: {apiGroups: [helm.toolkit.fluxcd.io], resources: [helmreleases], verbs: [get]}
 
   - it: signs with a KMS key or keyless
     set:
@@ -208,15 +226,46 @@ tests:
       - failedTemplate:
           errorPattern: exactly one
 
-  - it: refuses an Ed25519 key in a Secret without saying yes to the operator reading it
+  - it: default install accepts the key
     set:
       delivery.recorder.enabled: true
       delivery.recorder.streamsRepository: r/s
       delivery.recorder.signing.ed25519.secretName: s
     template: templates/delivery/recorder.yaml
     asserts:
+      - notFailedTemplate: {}
+
+  - it: watching the delivery namespace refuses an operator-readable key
+    set:
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: r/s
+      delivery.recorder.signing.ed25519.secretName: s
+      controller.watchNamespaces: [payments, pacto-delivery]
+    template: templates/delivery/recorder.yaml
+    asserts:
       - failedTemplate:
-          errorPattern: allowOperatorReadableKey=true
+          errorPattern: "may read \\(pacto-delivery is in controller.watchNamespaces\\).*allowOperatorReadableKey=true"
+
+  - it: granting the key by name refuses an operator-readable key
+    set:
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: r/s
+      delivery.recorder.signing.ed25519.secretName: s
+      controller.secretGrants: [pacto-delivery/s]
+    template: templates/delivery/recorder.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: "controller.secretGrants names pacto-delivery/s"
+
+  - it: granting another Secret in the delivery namespace accepts the key
+    set:
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: r/s
+      delivery.recorder.signing.ed25519.secretName: s
+      controller.secretGrants: [pacto-delivery/other]
+    template: templates/delivery/recorder.yaml
+    asserts:
+      - notFailedTemplate: {}
 
   - it: refuses a recorder that shares the promoter's ServiceAccount by default
     set:
@@ -355,3 +404,20 @@ tests:
           path: spec.groups[0].rules[1].expr
           value: absent(up{job="d-pacto-operator-delivery-recorder-metrics"} == 1)
         documentSelector: {path: kind, value: PrometheusRule}
+
+  - it: the delivery recorder role keeps the cluster identity rule
+    set:
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: registry.example/pacto/streams
+      delivery.recorder.signing.ed25519.secretName: recorder-key
+      delivery.recorder.signing.allowOperatorReadableKey: true
+    template: templates/delivery/recorder.yaml
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [namespaces]
+            resourceNames: [kube-system]
+            verbs: [get]
+        documentSelector: {path: kind, value: ClusterRole}

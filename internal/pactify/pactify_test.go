@@ -363,8 +363,9 @@ func runManifestsBuild(t *testing.T, dir string, command []string) {
 
 // TestDependenciesFromEnvironment: a workload's environment names the
 // services it calls. Its own Services, itself, localhost and anything outside
-// the cluster are not dependencies; each one found is declared once, with a
-// placeholder range its comment names, and its accepted versions are Unknown.
+// the cluster are not dependencies; each one found is declared once, with
+// compatibility unknown and a comment saying no range is proposed, and its
+// accepted versions are Unknown.
 func TestDependenciesFromEnvironment(t *testing.T) {
 	dir := writeTree(t, t.TempDir(), map[string]string{
 		"Dockerfile":         "FROM scratch\n",
@@ -407,7 +408,7 @@ metadata: {name: db}
 		t.Fatalf("dependencies: %+v", r.Dependencies)
 	}
 	text := file(t, r, "pacto.yaml").Content
-	for _, s := range []string{"  - name: payments\n    ref: oci://ghcr.io/acme/contracts/payments\n    required: true\n    compatibility: '^1.0.0'\n",
+	for _, s := range []string{"  - name: payments\n    ref: oci://ghcr.io/acme/contracts/payments\n    required: true\n    compatibility: unknown   # no range proposed: no contract or running version of payments was read\n",
 		"  # from deploy/app.yaml, env PAYMENTS_URL\n  # no contract for payments was read", "version: 1.9.0", "team: shop", "ref: oci://ghcr.io/acme/checkout\n",
 		"bundle: oci://ghcr.io/acme/contracts/checkout\n",
 		`command: [sh, -c, 'cp deploy/app.yaml "$PACTO_OUT"/ && sed -E "s,(^|[{,[:space:]])(image:[[:space:]]*[\"'']?)ghcr\.io/acme/checkout:v1\.9\.0([\"'']?[[:space:]]*([,}#]|$)),\1\2$PACTO_REF_API@$PACTO_DIGEST_API\3,g" deploy/app.yaml > "$PACTO_OUT"/app.yaml && { grep -qF "$PACTO_DIGEST_API" "$PACTO_OUT"/app.yaml || { echo "pacto: no image: ghcr.io/acme/checkout:v1.9.0 line to pin" >&2; exit 1; }; }']`, "from Dockerfile, deploy/app.yaml.\n"} {
@@ -696,6 +697,20 @@ func TestDeliveryWithoutManifests(t *testing.T) {
 	dir = writeTree(t, t.TempDir(), map[string]string{"pacto.yaml": "not: [a contract"})
 	if r, _ := Init(context.Background(), Options{Dir: dir, Plan: true}, os.WriteFile); !hasLine(r.Unknown, "pacto.yaml could not be read") {
 		t.Fatalf("unknown: %v", r.Unknown)
+	}
+}
+
+// An empty pacto.yaml declares no name: the plan keeps the folder's, and the
+// hint never downgrades a contract whose implicit version is current.
+func TestExistingEmptyContractKeepsTheFolderName(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "orders")
+	writeTree(t, dir, map[string]string{"pacto.yaml": ""})
+	r, err := Init(context.Background(), Options{Dir: dir, Plan: true}, os.WriteFile)
+	if err != nil || r.Service != "orders" {
+		t.Fatalf("service = %q, err = %v", r.Service, err)
+	}
+	if hasLine(r.Next, "pactoVersion") || !hasLine(r.Next, "no publish section") {
+		t.Fatalf("next: %v", r.Next)
 	}
 }
 
@@ -1367,7 +1382,7 @@ func checkDeclaredEnvironments(t *testing.T, r *Result, version string, envs ...
 
 // TestDeliveryDeclaresEnvironments: --delivery declares each --env in the
 // contract init writes, blank or read from the folder, with an empty values
-// file, at 2.3 or 2.4 with a domain.
+// file, at 2.3 or 2.4 with a domain, or 2.5 when it writes a dependency.
 func TestDeliveryDeclaresEnvironments(t *testing.T) {
 	r, _ := planBlank(t, Options{Delivery: true, Environments: []string{"test", "pr-1"}})
 	checkDeclaredEnvironments(t, r, "2.3", "test", "pr-1")
@@ -1383,7 +1398,7 @@ func TestDeliveryDeclaresEnvironments(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	checkDeclaredEnvironments(t, r, "2.4", "dev")
+	checkDeclaredEnvironments(t, r, "2.5", "dev")
 }
 
 // TestDeliveryExistingContractSuggestsEnvironments: a contract already there

@@ -32,6 +32,8 @@ type Service struct {
 
 	// sys holds the side effects the methods reach for; read it through env.
 	sys sysDeps
+	// catalogs remembers the external catalog checks and pulls across builds.
+	catalogs catalogLoader
 }
 
 // sysDeps are the clock, filesystem, entropy and network the Service touches. A

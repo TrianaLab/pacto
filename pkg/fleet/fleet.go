@@ -39,6 +39,8 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/evidence"
+	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
+	"github.com/trianalab/pacto/v4/pkg/externalid"
 	"github.com/trianalab/pacto/v4/pkg/finding"
 	"github.com/trianalab/pacto/v4/pkg/lock"
 	"github.com/trianalab/pacto/v4/pkg/readiness"
@@ -147,9 +149,50 @@ func NewRevisionKey(serviceKey ServiceKey, contentID string) RevisionKey {
 // forge a component boundary) and the three components are joined with "/". The
 // encoding is canonical (see the round-trip test); a separate human display string
 // is available via [TargetRecord.DisplayName]. Two distinct (scope,kind,name)
-// triples can never map to the same key.
+// triples can never map to the same key. [NewClusterTargetKey] adds a leading
+// cluster component, and [ParseTargetKey] decodes either form.
 func NewTargetKey(scope, kind, name string) TargetKey {
 	return TargetKey(escapeKeyPart(scope) + "/" + escapeKeyPart(kind) + "/" + escapeKeyPart(name))
+}
+
+// UnknownClusterKeyPart is the cluster component of a target with no known
+// cluster in a snapshot that holds more than one cluster. [ValidClusterID]
+// never accepts it, so it can never name a real cluster, and the target keeps a
+// key of its own: its 3-part key gathers every cluster's namesake.
+const UnknownClusterKeyPart = "_"
+
+// NewClusterTargetKey builds the key of a target in a snapshot that holds more
+// than one cluster: the escaped cluster id, "/", then [NewTargetKey]. An empty
+// cluster yields the 3-part [NewTargetKey], so a snapshot with zero or one
+// cluster keeps today's keys.
+func NewClusterTargetKey(cluster, scope, kind, name string) TargetKey {
+	if cluster == "" {
+		return NewTargetKey(scope, kind, name)
+	}
+	return TargetKey(escapeKeyPart(cluster) + "/" + string(NewTargetKey(scope, kind, name)))
+}
+
+// ParseTargetKey decodes a target key built by [NewTargetKey] (cluster "") or
+// [NewClusterTargetKey]. It accepts exactly 3 or 4 canonically escaped
+// components and rejects a 4-part key with an empty cluster component, which
+// [NewClusterTargetKey] never emits.
+func ParseTargetKey(k TargetKey) (cluster, scope, kind, name string, ok bool) {
+	parts := strings.Split(string(k), "/")
+	if len(parts) != 3 && len(parts) != 4 {
+		return "", "", "", "", false
+	}
+	for _, p := range parts {
+		if escapeKeyPart(unescapeKeyPart(p)) != p {
+			return "", "", "", "", false
+		}
+	}
+	if len(parts) == 4 {
+		if parts[0] == "" {
+			return "", "", "", "", false
+		}
+		cluster, parts = unescapeKeyPart(parts[0]), parts[1:]
+	}
+	return cluster, unescapeKeyPart(parts[0]), unescapeKeyPart(parts[1]), unescapeKeyPart(parts[2]), true
 }
 
 // escapeKeyPart percent-encodes "%" first (so encoding is unambiguous) then "/".
@@ -189,11 +232,12 @@ const (
 	SourceUnavailable SourceStatus = "unavailable"
 )
 
-// Provenance distinguishes how a relationship became known. "declared" (from a
-// contract) and "observed" (folded from runtime telemetry, see
-// foldObservedRelationships) are both produced today and kept separate so an
-// observed edge is never conflated with declared intent; "inferred" is reserved
-// for a future heuristic graph and is not produced yet.
+// Provenance distinguishes how a relationship became known: "declared" (from a
+// contract), "observed" (folded from runtime telemetry, see
+// foldObservedRelationships) or "inferred" (an external system a source
+// recognized in a service's configuration, see foldExternalUses). They are
+// kept separate so neither an observed nor an inferred edge is conflated with
+// declared intent, and an inferred edge never enters an index a gate reads.
 const (
 	ProvenanceDeclared = "declared"
 	ProvenanceObserved = "observed"
@@ -278,15 +322,25 @@ const (
 	LimitationSourceUnavailable   = "SOURCE_UNAVAILABLE"
 	LimitationSourceStale         = "SOURCE_STALE"
 	LimitationSourcePartial       = "SOURCE_PARTIAL"
-	LimitationUnresolvedDep       = "UNRESOLVED_DEPENDENCY"
+	// LimitationK8sNamespaceScoped: a Kubernetes source reads a list of
+	// namespaces, so a service in any other namespace is unknown.
+	LimitationK8sNamespaceScoped = "K8S_NAMESPACE_SCOPED"
+	// LimitationK8sNamespaceUnreadable: a namespace a Kubernetes source was told
+	// to read could not be read; what runs there is unknown.
+	LimitationK8sNamespaceUnreadable = "K8S_NAMESPACE_UNREADABLE"
+	LimitationUnresolvedDep          = "UNRESOLVED_DEPENDENCY"
 	// LimitationRangeUnsatisfied: a declared dependency resolves to a provider
 	// whose version in the fleet is outside the consumer's compatibility range.
 	LimitationRangeUnsatisfied    = "DEPENDENCY_RANGE_UNSATISFIED"
 	LimitationEvidenceMissing     = "EVIDENCE_MISSING"
 	LimitationSourceRecordInvalid = "SOURCE_RECORD_INVALID"
-	LimitationDuplicateSourceID   = "DUPLICATE_SOURCE_ID"
-	LimitationRevisionUnresolved  = "REVISION_IDENTITY_UNRESOLVED"
-	LimitationRevisionAmbiguous   = "REVISION_LINK_AMBIGUOUS"
+	// LimitationServiceNameCollision: two or more folders or references claim
+	// one service name and at least one only inferred it. Build drops every
+	// inferred claimant, so a guessed name never joins another service.
+	LimitationServiceNameCollision = "SERVICE_NAME_COLLISION"
+	LimitationDuplicateSourceID    = "DUPLICATE_SOURCE_ID"
+	LimitationRevisionUnresolved   = "REVISION_IDENTITY_UNRESOLVED"
+	LimitationRevisionAmbiguous    = "REVISION_LINK_AMBIGUOUS"
 	// LimitationRevisionDocConflict: two sources contributed the same immutable
 	// revision but disagree about its documents (a different set of paths, or the
 	// same path with different content). There is no honest way to pick a winner —
@@ -365,7 +419,76 @@ const (
 	// and no target is marked stale. Stale counts read zero because they were not
 	// computed. It does not change completeness, which states source health.
 	LimitationFreshnessNotEvaluated = "FRESHNESS_NOT_EVALUATED"
+	// LimitationExternalCatalogUnavailable: an external catalog the caller
+	// configured could not be read, so external systems it would classify are
+	// joined by name only. It makes the answer partial.
+	LimitationExternalCatalogUnavailable = "EXTERNAL_CATALOG_UNAVAILABLE"
+	// LimitationExternalCap: the answer names MaxExternalNodes external
+	// systems and folds the least-consumed rest into one other-egress node.
+	// It makes the answer partial.
+	LimitationExternalCap = "EXTERNAL_CAP"
+	// LimitationClusterUnknown: targets carry no cluster id while another source
+	// names a cluster, so they cannot be told apart from another cluster's
+	// targets. In a snapshot with several clusters, or when such a target merged
+	// into a clustered one, the source that delivered them is partial; otherwise
+	// the limitation is informational.
+	LimitationClusterUnknown = "CLUSTER_UNKNOWN"
+	// LimitationClusterConflict: two evidence sources report one record (same
+	// producer, subject and times) as accepted in two different clusters. Both
+	// targets are kept and the later source is partial.
+	LimitationClusterConflict = "CLUSTER_CONFLICT"
+	// LimitationExternalUseUnattributed: a source reported external uses of
+	// a service this snapshot does not hold, or with an identity that is not
+	// one; they were dropped.
+	LimitationExternalUseUnattributed = "EXTERNAL_USE_UNATTRIBUTED"
+	// LimitationExternalCatalogMismatch: a source classified external uses
+	// with a catalog other than the one this snapshot classifies with, so
+	// one external system may join evidence from two catalog versions.
+	LimitationExternalCatalogMismatch = "EXTERNAL_CATALOG_MISMATCH"
+	// LimitationExternalsUnreported: a target's source cannot say which
+	// external systems it uses (an older operator, partial coverage or a
+	// stale status), so no external answer can rule it out as a consumer.
+	LimitationExternalsUnreported = "EXTERNALS_UNREPORTED"
 )
+
+// Cluster name sources: how a [Cluster] name was found. They mirror the values
+// of pkg/kubecluster, which pkg/fleet cannot import. The live Kubernetes source
+// sets node-label, context or uid; a target state file sets file.
+const (
+	ClusterNameFromNodeLabel = "node-label"
+	ClusterNameFromContext   = "context"
+	ClusterNameFromFile      = "file"
+	ClusterNameFromUID       = "uid"
+)
+
+// Cluster relations of a target (see [TargetRecord.ClusterRelation]).
+const (
+	// ClusterRelationRunsIn: a Kubernetes source read the target in the cluster.
+	ClusterRelationRunsIn = "runs-in"
+	// ClusterRelationReportedThrough: the cluster only reported the target, such
+	// as the cluster whose Evidence Server accepted its evidence.
+	ClusterRelationReportedThrough = "reported-through"
+)
+
+// Cluster identifies one Kubernetes cluster a source reads or reports from.
+type Cluster struct {
+	// ID is the kube-system namespace UID: the cluster identity.
+	ID string `json:"id" doc:"The kube-system namespace UID: the identity of the cluster."`
+	// Name is a display name only, never an identity.
+	Name string `json:"name,omitempty" doc:"A display name for the cluster; never an identity."`
+	// NameSource says how Name was found.
+	NameSource string `json:"nameSource,omitempty" enum:"node-label,context,file,uid" doc:"How the name was found: a node label, the kubeconfig context name, a target state file or the first characters of the UID."`
+	// ReportedBy is the id of the source that reported Name, empty when this
+	// process read the name itself.
+	ReportedBy string `json:"reportedBy,omitempty" doc:"The source that reported the name; empty when this process read it itself."`
+}
+
+// ClusterRecord is one cluster a snapshot knows, with every source that
+// reported its id.
+type ClusterRecord struct {
+	Cluster
+	Sources []string `json:"sources" doc:"Every source that reported this cluster id."`
+}
 
 // Limitation is a structured, machine-readable reason an answer is incomplete.
 // Prose lives in Message; agents branch on Code.
@@ -393,6 +516,8 @@ type SourceState struct {
 	Error              *SourceError `json:"error,omitempty"`
 	RevisionCount      int          `json:"revisionCount"`
 	TargetCount        int          `json:"targetCount"`
+	Namespaces         []string     `json:"namespaces,omitempty" doc:"The namespaces a Kubernetes source read that you may see. Empty with no namespacesTotal means every namespace; empty with namespacesTotal above 0 means every namespace it read is hidden from you. Anything in another namespace is unknown."`
+	NamespacesTotal    int          `json:"namespacesTotal,omitempty" doc:"How many namespaces the source read, when Namespaces is capped or restricted. Above 0, the source reads a list of namespaces, never every namespace."`
 }
 
 // ToolSummary is a bounded projection of an agent-invocable tool derived from a
@@ -457,14 +582,17 @@ type ServiceRecord struct {
 	// SummaryUnknown says an empty Summary is not a known absence: the sources
 	// report different summaries, or no revision was read and no source reports
 	// one. Like BusinessDomainUnknown, unknown is never "declares none".
-	SummaryUnknown bool              `json:"summaryUnknown,omitempty"`
-	Name           string            `json:"name"`
-	Owner          contract.Owner    `json:"owner,omitzero"`
-	Revisions      []RevisionKey     `json:"revisions,omitempty"`
-	Targets        []TargetKey       `json:"targets,omitempty"`
-	Labels         map[string]string `json:"labels,omitempty"`
-	Status         string            `json:"status,omitempty"`
-	Sources        []string          `json:"sources,omitempty"`
+	SummaryUnknown bool   `json:"summaryUnknown,omitempty"`
+	Name           string `json:"name"`
+	// NameInferred is where Name comes from when no revision declares it:
+	// every revision of the service inferred it from its folder.
+	NameInferred *contract.Inferred `json:"nameInferred,omitempty"`
+	Owner        contract.Owner     `json:"owner,omitzero"`
+	Revisions    []RevisionKey      `json:"revisions,omitempty"`
+	Targets      []TargetKey        `json:"targets,omitempty"`
+	Labels       map[string]string  `json:"labels,omitempty"`
+	Status       string             `json:"status,omitempty"`
+	Sources      []string           `json:"sources,omitempty"`
 	// OfferingProvenance says where Offering comes from: declared by a contract
 	// revision, or observed, reported only by the sources observing its targets.
 	OfferingProvenance string `json:"offeringProvenance,omitempty" enum:"declared,observed"`
@@ -520,9 +648,12 @@ type ContractRevision struct {
 	Digest       string             `json:"digest,omitempty"`
 	Owner        contract.Owner     `json:"owner,omitempty"`
 	Contract     *contract.Contract `json:"contract,omitempty"`
-	Readiness    *readiness.Result  `json:"readiness,omitempty"`
-	Validation   []finding.Finding  `json:"validation,omitempty"`
-	Valid        bool               `json:"valid"`
+	// Inferred lists what a local read implied rather than read from the
+	// contract (an absent pactoVersion, an inferred service.name), with sources.
+	Inferred   []contract.Inferred `json:"inferred,omitempty"`
+	Readiness  *readiness.Result   `json:"readiness,omitempty"`
+	Validation []finding.Finding   `json:"validation,omitempty"`
+	Valid      bool                `json:"valid"`
 	// Stages is how each stage of the validation run ended. Empty when the
 	// contract document could not be read, so nothing was validated.
 	Stages []ValidationStage `json:"stages,omitempty"`
@@ -708,8 +839,18 @@ type TargetRecord struct {
 	// The record is kept visible with its conflict limitations but is NOT treated
 	// as authoritative (it does not drive service aggregate status), so source
 	// order can never silently pick an identity.
-	Quarantined bool         `json:"quarantined,omitempty"`
-	Limitations []Limitation `json:"limitations,omitempty"`
+	Quarantined bool `json:"quarantined,omitempty"`
+	// Cluster is the kube-system UID of the cluster that reported this target;
+	// empty when no source names one. ClusterName is display only,
+	// ClusterNameSource says how it was found and ClusterNameReportedBy which
+	// source reported it (empty when this process read it). ClusterRelation says
+	// whether the target runs in the cluster or was only reported through it.
+	Cluster               string       `json:"cluster,omitempty" doc:"The kube-system UID of the cluster that reported this target."`
+	ClusterName           string       `json:"clusterName,omitempty" doc:"A display name for the cluster; never an identity."`
+	ClusterNameSource     string       `json:"clusterNameSource,omitempty" enum:"node-label,context,file,uid" doc:"How the cluster name was found."`
+	ClusterNameReportedBy string       `json:"clusterNameReportedBy,omitempty" doc:"The source that reported the cluster name; empty when this process read it itself."`
+	ClusterRelation       string       `json:"clusterRelation,omitempty" enum:"runs-in,reported-through" doc:"runs-in when a Kubernetes source read the target in the cluster; reported-through when the cluster only reported it."`
+	Limitations           []Limitation `json:"limitations,omitempty"`
 	// labels is the bounded projection of Labels, computed once by boundTargetLabels
 	// after ingestion. Labels itself has to stay a raw map because TargetQuery filters
 	// on it, so this is the only way the detail path can honor the same
@@ -729,12 +870,26 @@ type TargetRecord struct {
 	// environmentConflict: sources disagree on the TargetEnvironmentLabel, so the
 	// label is dropped from Labels and Environment stays empty.
 	environmentConflict bool
+	// clusterUnknownFrom are the sources that delivered this target with no
+	// known cluster while the snapshot knew one; Restrict rebuilds
+	// CLUSTER_UNKNOWN from them.
+	clusterUnknownFrom []string
+	// clusterInvalidFrom are the sources that named an invalid cluster id for
+	// this target, and clusterConflictFrom those that reported it in a cluster
+	// another evidence source names for the same record; Restrict rebuilds
+	// their limitations from them.
+	clusterInvalidFrom, clusterConflictFrom []string
 }
 
 // DisplayName returns a human-readable "scope/kind/name" for a target, with
-// components unescaped. Unlike the canonical Key it is lossy (a name containing
-// "/" is shown verbatim) and must not be used as an identity.
+// components unescaped. A target whose key carries a cluster and whose cluster
+// has a name reads "cluster / scope / name". Unlike the canonical Key it is
+// lossy (a name containing "/" is shown verbatim) and must not be used as an
+// identity.
 func (t *TargetRecord) DisplayName() string {
+	if cluster, _, _, _, ok := ParseTargetKey(t.Key); ok && cluster != "" && t.ClusterName != "" {
+		return t.ClusterName + " / " + t.Scope + " / " + t.Name
+	}
 	return strings.Join([]string{t.Scope, t.Kind, t.Name}, "/")
 }
 
@@ -758,10 +913,10 @@ func ConsumesEdge(rel Relationship) bool {
 
 // Relationship is a directed, revision-scoped graph edge. A declared edge
 // originates from a specific [ContractRevision] (FromRevision) of a logical
-// service (FromService) — never from "the service's latest revision". Declared
-// and observed edges are both produced today (see Provenance); an observed edge
-// is folded from runtime telemetry and carries ObservedCount/Source. Inferred
-// edges are reserved and not produced yet.
+// service (FromService) — never from "the service's latest revision". Declared,
+// observed and inferred edges are kept apart (see Provenance); an observed edge
+// is folded from runtime telemetry and carries ObservedCount/Source, and an
+// inferred edge to an external system carries InferredSources/Confidence.
 type Relationship struct {
 	FromService      ServiceKey  `json:"fromService"`
 	FromRevision     RevisionKey `json:"fromRevision,omitempty"`
@@ -783,6 +938,10 @@ type Relationship struct {
 	LockedDigest   string `json:"lockedDigest,omitempty"`
 	LockedVersion  string `json:"lockedVersion,omitempty"`
 	Reason         string `json:"reason,omitempty"`
+	// NameFromRef marks a declared dependency whose name the contract does not
+	// declare: it was derived from the ref, so it resolves only to a service
+	// published at that repository.
+	NameFromRef bool `json:"nameFromRef,omitempty"`
 	// RangeStatus, for a resolved declared dependency with a compatibility range,
 	// says whether the provider version the fleet holds satisfies that range:
 	// satisfied, unsatisfied or unknown (a range or version semver cannot read, or
@@ -795,6 +954,14 @@ type Relationship struct {
 	// is the free-text version an external dependency with no ref declares.
 	External bool   `json:"external,omitempty"`
 	Version  string `json:"version,omitempty"`
+	// ToExternal is the external system a ref-less external dependency or an
+	// observed call joins (see [ExternalRecord]). Resolved stays false: no
+	// fleet service delivers it.
+	ToExternal ExternalKey `json:"toExternal,omitempty" doc:"The canonical identity of the external system this ref-less external dependency or observed call joins; resolved stays false because no fleet service delivers it"`
+	// FoldedInto is set only on an answer: the other-egress node ToExternal is
+	// folded into when the answer names more than MaxExternalNodes external
+	// systems. ToExternal keeps the real identity.
+	FoldedInto ExternalKey `json:"foldedInto,omitempty" doc:"On an answer that folds external systems, the other-egress node toExternal is folded into; toExternal keeps the real identity"`
 	// DependencyBehavior is what a declared dependency requires of its
 	// provider's behavior and whether the provider meets it (pactoVersion 2.2).
 	DependencyBehavior
@@ -828,11 +995,130 @@ type Relationship struct {
 	// offline sample keeps its old window.
 	FirstSeen *time.Time `json:"firstSeen,omitempty"`
 	LastSeen  *time.Time `json:"lastSeen,omitempty"`
+	// InferredSources is the per-source evidence of an inferred edge to an
+	// external system, sorted. Empty for declared and observed edges.
+	InferredSources []InferredSource `json:"inferredSources,omitempty" doc:"Where each source recognized this external system in the caller's configuration; set only on an inferred edge"`
+	// Confidence is the strongest confidence of an inferred edge's sources.
+	Confidence string `json:"confidence,omitempty" enum:"likely,possible" doc:"The strongest confidence of the inferred sources: likely when a host or system value matched, possible when only a key name did"`
+}
+
+// InferredSource is one source's evidence for an inferred edge: the kind of
+// object it read, where (an object and a key, never a value), the normalized
+// host, the catalog entry and digest it was classified by and when.
+type InferredSource struct {
+	Source string `json:"source" doc:"The id of the source that reported it"`
+	// Target is the target the evidence was read on, when the source names
+	// one this snapshot holds; a restricted view drops evidence of a hidden one.
+	Target     TargetKey  `json:"target,omitempty" doc:"The target the evidence was read on"`
+	Kind       string     `json:"kind" doc:"What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService or serviceEntry"`
+	Where      string     `json:"where,omitempty" doc:"The object and key it was found in, never a value"`
+	Host       string     `json:"host,omitempty" doc:"The normalized host and port; empty when only a key name matched"`
+	Confidence string     `json:"confidence" enum:"likely,possible"`
+	Entry      string     `json:"entry,omitempty" doc:"The catalog entry that classified it"`
+	Catalog    string     `json:"catalog,omitempty" doc:"The digest of the catalog the source classified it with"`
+	ObservedAt *time.Time `json:"observedAt,omitempty" doc:"When the source last read it"`
+}
+
+// ExternalKey is the canonical identity of an external system, an
+// externalid.ID: "stripe", "aws/rds/<account>/<region>/<id>" or
+// "host/<registrable-domain>".
+type ExternalKey string
+
+// OtherEgress is the node an answer folds the external systems beyond
+// MaxExternalNodes into. No identity can take it (externalid.Parse refuses it).
+const OtherEgress ExternalKey = externalid.Reserved
+
+// ClassOtherEgress is the class of the OtherEgress node.
+const ClassOtherEgress = "other-egress"
+
+// The kinds of an [ExternalSource].
+const (
+	// ExternalSourceContract is a dependency a contract declares.
+	ExternalSourceContract = "contract"
+	// ExternalSourceObserved is a runtime call a trace source saw.
+	ExternalSourceObserved = "observed"
+	// ExternalSourcePodSpec is a use a source inferred from a workload's pod
+	// spec (see [RawExternalUse]).
+	ExternalSourcePodSpec = "pod-spec"
+)
+
+// ExternalRecord is one external system: a vendor API, a managed cloud
+// resource or a legacy host that no contract in the fleet describes. Pacto
+// never delivers, observes the health of or checks a version range against an
+// external system: it never clears a gate.
+type ExternalRecord struct {
+	Key   ExternalKey `json:"key" doc:"The canonical identity"`
+	Label string      `json:"label" doc:"The catalog label, else the name the first visible consumer, by service key, declared"`
+	Class string      `json:"class" enum:"vendor-api,managed-cloud,legacy,unclassified,other-egress" doc:"The catalog class, unclassified when no catalog entry names it"`
+	// Aliases are the catalog entry's aliases, so a search finds it by any.
+	Aliases []string `json:"aliases,omitempty" doc:"The aliases of the catalog entry that classified it"`
+	// Sources is the evidence, one per consumer and declaring position, each
+	// with its own provenance. SourcesTotal counts every declaration and every
+	// observed or inferred source.
+	Sources      []ExternalSource      `json:"sources" doc:"The evidence that names this external system, one per consumer and dependency position, each with its own provenance"`
+	SourcesTotal int                   `json:"sourcesTotal" doc:"Every declaration across every revision of every consumer, plus each observed or inferred source"`
+	Catalog      *ExternalCatalogMatch `json:"catalog,omitempty" doc:"The catalog entry that classified it; absent when no catalog entry classifies it"`
+	Consumers    []ServiceKey          `json:"consumers" doc:"The services that declare, call or use it"`
+	// ConsumersTotal counts Consumers before an answer bounds them.
+	ConsumersTotal  int `json:"consumersTotal" doc:"How many services declare, call or use it"`
+	HiddenConsumers int `json:"hiddenConsumers,omitempty" doc:"How many consumers the caller's permissions hide"`
+	Folded          int `json:"folded,omitempty" doc:"On the other-egress node, how many external systems it folds"`
+	// JoinedBy is the strongest match among the visible sources: identity,
+	// catalog-alias, host, then normalized-name.
+	JoinedBy string `json:"joinedBy,omitempty" enum:"identity,catalog-alias,host,normalized-name" doc:"How its consumers join it, the strongest match among its sources: identity, catalog-alias, host or normalized-name (joined by name only)"`
+	// declarations counts, per consumer, the revisions that declare it plus
+	// each observed or inferred source.
+	declarations map[ServiceKey]int
+	// catalogLabel is the label its catalog entry (or the fold) gives it;
+	// empty, the label comes from the visible sources, so a restricted view
+	// never shows a name only a hidden consumer declared.
+	catalogLabel string
+	// hidden is the consumers a restriction hid, so a fold counts each once.
+	hidden map[ServiceKey]bool
+}
+
+// ExternalSource is one piece of evidence that names an external system.
+type ExternalSource struct {
+	Kind     string      `json:"kind" enum:"contract,observed,pod-spec" doc:"Where the evidence comes from: a contract's dependency, a call a trace source saw or a use inferred from a workload's pod spec"`
+	Service  ServiceKey  `json:"service" doc:"The consumer"`
+	Revision RevisionKey `json:"revision,omitempty" doc:"The newest consumer revision that declares it"`
+	// Target is empty for a contract source.
+	Target     TargetKey `json:"target,omitempty" doc:"The target the evidence was observed on; empty for a contract source"`
+	Dependency string    `json:"dependency,omitempty" doc:"The declared dependency name"`
+	Index      int       `json:"index" doc:"The position of the dependency in the contract's dependencies"`
+	Version    string    `json:"version,omitempty" doc:"The free-text version the dependency declares"`
+	Required   bool      `json:"required,omitempty"`
+	Provenance string    `json:"provenance" enum:"declared,observed,inferred"`
+	Match      string    `json:"match" doc:"How the evidence was joined to the identity: identity, catalog-alias, host, normalized-name, system (an OpenTelemetry system value) or keyName (a configuration key name only)"`
+	// Superseded says the consumer has a newer revision that no longer
+	// declares the dependency at this position, so the declaration may be
+	// history rather than what the service runs today.
+	Superseded bool `json:"superseded,omitempty" doc:"A newer revision of the consumer no longer declares it at this position"`
+}
+
+// ExternalCatalogMatch names the catalog entry that classified an external system.
+type ExternalCatalogMatch struct {
+	Origin string `json:"origin" enum:"default,organization"`
+	Digest string `json:"digest" doc:"The digest of the catalog artifact"`
+	Entry  string `json:"entry" doc:"The identity of the catalog entry"`
+}
+
+// ExternalCatalogRef records one catalog a snapshot classified external
+// systems with (see [externalcatalog.Ref]).
+type ExternalCatalogRef struct {
+	Origin     string `json:"origin" enum:"default,organization"`
+	Repository string `json:"repository,omitempty"`
+	Digest     string `json:"digest" doc:"The digest of the catalog artifact; the recorded input whichever copy was read"`
+	Copy       string `json:"copy" enum:"registry,embedded" doc:"registry when the bytes in use are the registry artifact at this digest (pulled, or the embedded copy matched against the signed artifact), embedded when the copy compiled into this binary is used unchecked"`
+	Signature  string `json:"signature" enum:"verified,unverified,unsigned,unknown"`
+	Signer     string `json:"signer,omitempty"`
+	Reason     string `json:"reason,omitempty" doc:"Why the signature reads as it does"`
 }
 
 // missing reports whether a declared dependency failed to resolve in a way
-// worth reporting: an external one is not expected in the fleet.
-func (r Relationship) missing() bool { return !r.Resolved && !r.External }
+// worth reporting: an external one is not expected in the fleet, and an
+// observed call to an external system resolves to that system.
+func (r Relationship) missing() bool { return !r.Resolved && !r.External && r.ToExternal == "" }
 
 // ObservedSourceStat is one observation source's contribution to an observed
 // relationship: the calls it witnessed and the window it saw them in.
@@ -860,6 +1146,12 @@ type FleetSnapshot struct {
 	Sources       []SourceState                     `json:"sources"`
 	Completeness  Completeness                      `json:"completeness"`
 	Limitations   []Limitation                      `json:"limitations,omitempty"`
+	// Clusters are the clusters any source reported, sorted by id. Target keys
+	// carry a cluster component only when there are two or more.
+	Clusters []ClusterRecord `json:"clusters,omitempty"`
+	// clusterKeyed: Build keyed targets by cluster (two or more clusters). It
+	// survives Restrict, which may leave one cluster visible under 4-part keys.
+	clusterKeyed bool
 	// UncontractedCallers are observed callers with no contract of a service
 	// that has one. Sorted by (ToService, Caller).
 	UncontractedCallers []UncontractedCaller `json:"uncontractedCallers,omitempty"`
@@ -872,6 +1164,12 @@ type FleetSnapshot struct {
 	// Each carries whether it was signed and whether it is stale; a reader
 	// shows its figures as trusted only through [ResourceConsumption].
 	Usage []UsageRecord `json:"usage,omitempty"`
+	// Externals are the external systems the fleet's contracts name, one
+	// record per canonical identity.
+	Externals map[ExternalKey]*ExternalRecord `json:"externals,omitempty"`
+	// ExternalCatalogs are the catalogs that classified Externals, the
+	// default first.
+	ExternalCatalogs []ExternalCatalogRef `json:"externalCatalogs,omitempty"`
 
 	// templateEdges are the declared dependency and reference edges of the
 	// golden paths (see deriveTemplate). They are kept out of Relationships and
@@ -879,6 +1177,10 @@ type FleetSnapshot struct {
 	// dependents, offering consumers and attention never count it. Readers of a
 	// revision's own references read both lists through declaredEdges.
 	templateEdges []Relationship
+
+	// catalog is the external catalog the snapshot was built with (see
+	// [FleetSnapshot.ObservedExternal]); nil means the embedded default.
+	catalog *externalcatalog.Catalog
 
 	// provisioningWindow is BuildOptions.FreshnessWindow: a provisioning report
 	// older than it (RecentEvidenceWindow when zero) is stale.
@@ -898,6 +1200,9 @@ type FleetSnapshot struct {
 	// revisionsHidden holds, in a restricted snapshot, the visible services
 	// that lost a revision to the view (a golden path visible only as one).
 	revisionsHidden map[ServiceKey]bool
+	// hiddenServices holds, in a restricted snapshot, the services the view
+	// hides, so a name that resolves to one is counted and never shown.
+	hiddenServices map[ServiceKey]bool
 	// hiddenConsumers maps, in a restricted snapshot, a provider to the hidden
 	// services with a declared, resolved [ConsumesEdge] to it. Only counted.
 	hiddenConsumers map[ServiceKey]map[ServiceKey]bool
@@ -911,6 +1216,9 @@ type FleetSnapshot struct {
 	// hiddenProviders counts, in a restricted snapshot, the hidden providers
 	// of each offering that keeps a visible provider. Only counted.
 	hiddenProviders map[string]int
+	// hiddenExternals counts, in a restricted snapshot, the external systems
+	// only hidden services name. They are never named.
+	hiddenExternals int
 	// hiddenUnresolvedRefs holds, in a restricted snapshot, the declared,
 	// unresolved references of the services the view hides, so counts of
 	// unresolved uses stay honest. Never serialized and never named.
@@ -994,14 +1302,42 @@ type UsageRecord struct {
 
 // UncontractedCaller is a runtime caller no contract describes, of a service
 // that has one. Caller is the raw observed identity, for example
-// "k8s:payments/Deployment/legacy-billing"; the k8s: prefix keeps it from ever
-// resolving to a contracted service by accident.
+// "k8s:payments/Deployment/legacy-billing" (see [K8sCaller]); in a snapshot
+// with several clusters a Kubernetes caller carries its cluster first:
+// "k8s:<clusterUID>/payments/Deployment/legacy-billing". The k8s: prefix keeps
+// it from ever resolving to a contracted service by accident.
 type UncontractedCaller struct {
 	Caller    string     `json:"caller"`
 	ToService ServiceKey `json:"toService"`
 	Sources   []string   `json:"sources"`
 	// Ambiguous is set when the caller name matched more than one service.
 	Ambiguous bool `json:"ambiguous,omitempty"`
+}
+
+// K8sCaller is the identity of a Kubernetes workload with no contract:
+// "k8s:" then the escaped cluster id and "/" when cluster is set, then
+// namespace/kind/name. Namespace and object names are RFC 1123 and a kind is
+// alphanumeric, so the part count tells the two forms apart.
+func K8sCaller(cluster, namespace, kind, name string) string {
+	c := namespace + "/" + kind + "/" + name
+	if cluster != "" {
+		c = escapeKeyPart(cluster) + "/" + c
+	}
+	return "k8s:" + c
+}
+
+// ParseK8sCaller decodes a [K8sCaller] string. ok is false for any other
+// caller, and for a k8s: caller with neither 3 nor 4 parts.
+func ParseK8sCaller(s string) (cluster, namespace, kind, name string, ok bool) {
+	rest, k8s := strings.CutPrefix(s, "k8s:")
+	parts := strings.Split(rest, "/")
+	if !k8s || len(parts) < 3 || len(parts) > 4 {
+		return "", "", "", "", false
+	}
+	if len(parts) == 4 {
+		cluster, parts = unescapeKeyPart(parts[0]), parts[1:]
+	}
+	return cluster, parts[0], parts[1], parts[2], true
 }
 
 // Service returns the logical service record by name, or nil.

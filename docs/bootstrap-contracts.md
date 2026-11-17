@@ -43,20 +43,38 @@ jq -r '.results[] | .service as $s | .unknown[] | "\($s): \(.)"' plan.json
 | `Dockerfile` (or `Dockerfile.*`, `*.Dockerfile`) | an image artifact under `publish.artifacts`, built from the Dockerfile |
 | Kubernetes YAML with a Deployment, StatefulSet, DaemonSet, Job or CronJob | `service.name` from the workload, `service.version` from the image tag, the registry from the image, `workload` and a manifests artifact that copies the YAML files |
 | The `team` label on the workload | `service.owner.team` |
-| The workload's environment, with the ConfigMaps in the folder that it reads | a configuration schema at `configuration/schema.json`, each value as its default |
-| An environment value that names another in-cluster service | `dependencies`, with the range from that service's contract in `--fleet`, or the placeholder `^1.0.0` |
+| The workload's environment, with the ConfigMaps in the folder that it reads | a configuration schema at `configuration/schema.json` with each key and its type, no values; sensitive keys are `writeOnly` |
+| An environment value that names another in-cluster service | `dependencies`, each with `compatibility: unknown` and, from that service's contract in `--fleet`, a proposed range in a comment |
 | A readiness, liveness or startup probe | a `health` capability |
 | A file named exactly `openapi` or `swagger`, with a `.yaml`, `.yml` or `.json` extension | one `openapi` interface |
 | `kustomization.yaml` | the manifests artifact keeps the folder layout, and init asks you to set the Kustomization's `spec.path` |
 
 Init reads only these. A file such as `api/openapi.v1.yaml` is missed, and
-state stays for you to write. A placeholder range is named in a comment above
-the dependency and under `unknown`.
+state stays for you to write. Every dependency range is a proposal: init writes
+`compatibility: unknown` with the proposal in a comment, and the dependency is
+named under `unknown`.
 
 Init skips the files and folders that the service's
 [`.pactoignore`](pactoignore.md) lists. It also skips every folder that holds a
 `Chart.yaml`, and documents in the `backstage.io` and `skaffold` API groups,
 such as `catalog-info.yaml` and `skaffold.yaml`.
+
+### Configuration keys and sensitive values
+
+Init reads the environment values to find types and dependencies and writes
+only keys and types. A key is sensitive when its name holds password, passwd,
+secret, token, key, credential, private or dsn in any case, when the workload reads it
+from a Secret or when its value is a URL with a password. A sensitive key is a
+`string` with `writeOnly: true` and a description. Schema summaries and schema
+diffs show its default and any other schema value as `(sensitive)`. A value
+you declare under `configurations[].values` or in an environment file is shown
+as written, so keep secrets out of it. Init never reads the values of a Secret.
+
+When a manifest or ConfigMap in the folder sets a sensitive key to a literal
+value, init names the file and the key under next steps. The bundle publishes
+that file to anyone who can pull it, so read the key from a Secret instead.
+Init keeps a `configuration/schema.json` that is already there: remove any
+default that holds a secret and publish a new version.
 
 ## 2. Prepare the folders init cannot read
 
@@ -132,8 +150,10 @@ Work through the `unknown` list of each service.
 - **Configuration.** Init's schema lists the environment only. `schema-infer`
   writes a JSON Schema from a config file
   ([For developers](developers.md#2-infer-schemas-from-your-code-optional)).
-- **Dependencies.** Replace each placeholder `compatibility` with the versions
-  the service accepts.
+- **Dependencies.** Replace each `compatibility: unknown` with the versions the
+  service accepts. Until you do, impact cannot tell whether a change to that
+  dependency breaks the service: its verdict is unknown, and a BREAKING change
+  to the dependency stays unverified.
 
 Then check every contract and see who declares each service:
 
@@ -158,9 +178,20 @@ on them. It needs that permission even when the Pacto CRDs are not installed.
 Each draft holds a `manifests.yaml` with the workload and its Services as the
 cluster returns them, without namespace, uid or status. It also holds a
 `pacto.yaml` and a `.pactoignore`. `--plan` writes nothing. A workload that a
-Pacto targets is skipped.
+Pacto targets is skipped. A container environment variable that sets a
+sensitive key to a literal value is read in the draft from the Secret
+`<name>-env`; create it before you apply the draft with
+`kubectl -n <ns> create secret generic <name>-env --from-env-file=<file>`, from
+a file of `KEY=value` lines. When such a value is a URL, the draft no longer
+lists the service it names as a dependency, and next steps ask you to add it.
 
-Without the [node agent](runtime-agent.md), dependencies come only from
+### Dependencies of a draft
+
+With the [node agent](runtime-agent.md), the Services a workload's pods were
+seen calling become dependencies with `compatibility: unknown`. Each gets a
+proposed range from the lowest version the reconciled Pactos describing the
+called Service report, and none when those Pactos disagree on the contract.
+Without the agent, dependencies come only from
 environment values, as in a folder. The draft holds no ConfigMaps, so each one
 the workload reads is named under `unknown` and its keys stay out of the
 configuration schema. A value such as `host:6443` matches whether or not `host`
