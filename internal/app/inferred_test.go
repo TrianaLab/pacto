@@ -263,3 +263,52 @@ func TestPublishRecordCommitMatchesRevision(t *testing.T) {
 		})
 	}
 }
+
+// TestPushFromAnotherCommitIsUnchanged: pushing the same content from a new
+// commit changes only the record's inputs, so push stays a no-op success.
+func TestPushFromAnotherCommitIsUnchanged(t *testing.T) {
+	dir := completionFolder(t, `pactoVersion: "2.5"`+"\n")
+	writeGit(t, dir, map[string]string{"HEAD": commitA + "\n"})
+	var first *contract.Bundle
+	svc := NewService(&mockBundleStore{
+		ResolveFn: func(context.Context, string) (string, error) { return "", &oci.ArtifactNotFoundError{} },
+		PushFn: func(_ context.Context, _ string, b *contract.Bundle) (string, error) {
+			first = b
+			return oci.BundleDigest(b)
+		},
+	}, nil)
+	pushed, err := svc.Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/app", Path: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeGit(t, dir, map[string]string{"HEAD": commitB + "\n"})
+	var pulled string
+	svc.BundleStore = &mockBundleStore{
+		ResolveFn: func(context.Context, string) (string, error) { return pushed.Digest, nil },
+		PullFn: func(_ context.Context, ref string) (*contract.Bundle, error) {
+			pulled = ref
+			return first, nil
+		},
+		PushFn: func(context.Context, string, *contract.Bundle) (string, error) {
+			t.Fatal("an inferred-only change writes nothing")
+			return "", nil
+		},
+	}
+	res, err := svc.Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/app", Path: dir})
+	if err != nil || !res.Unchanged || res.Digest != pushed.Digest || pulled != "ghcr.io/acme/app@"+pushed.Digest {
+		t.Fatalf("%+v %v pulled %q", res, err, pulled)
+	}
+}
+
+func TestRefRepo(t *testing.T) {
+	for ref, want := range map[string]string{
+		"ghcr.io/acme/app:1.0.0":        "ghcr.io/acme/app",
+		"ghcr.io/acme/app@sha256:ab":    "ghcr.io/acme/app",
+		"localhost:5000/acme/app":       "localhost:5000/acme/app",
+		"localhost:5000/acme/app:1.0.0": "localhost:5000/acme/app",
+	} {
+		if got := refRepo(ref); got != want {
+			t.Errorf("refRepo(%q) = %q, want %q", ref, got, want)
+		}
+	}
+}

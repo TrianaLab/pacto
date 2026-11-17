@@ -338,15 +338,22 @@ func TestPush_OverridesPersistInBundle(t *testing.T) {
 
 func TestPush_AlreadyExists(t *testing.T) {
 	dir := writeTestBundle(t)
+	other := &contract.Bundle{Contract: &contract.Contract{}, FS: fstest.MapFS{"pacto.yaml": {Data: []byte("other")}}}
 	store := &mockBundleStore{
 		ResolveFn: func(_ context.Context, _ string) (string, error) {
 			return "sha256:existingdigest", nil
 		},
+		PullFn: func(context.Context, string) (*contract.Bundle, error) { return other, nil },
 	}
 	svc := NewService(store, nil)
 	_, err := svc.Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/svc:1.0.0", Path: dir})
 	if err == nil {
 		t.Fatal("expected error when artifact already exists")
+	}
+	// A tag that cannot be pulled keeps the conflict.
+	store.PullFn = func(context.Context, string) (*contract.Bundle, error) { return nil, errors.New("pull") }
+	if _, perr := svc.Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/svc:1.0.0", Path: dir}); !errors.Is(perr, ErrArtifactAlreadyExists) {
+		t.Fatalf("unpullable: %v", perr)
 	}
 	if !errors.Is(err, ErrArtifactAlreadyExists) {
 		t.Errorf("expected ErrArtifactAlreadyExists, got: %v", err)
