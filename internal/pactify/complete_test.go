@@ -48,7 +48,7 @@ func TestInitCompletesExistingContract(t *testing.T) {
 	if slices.ContainsFunc(r.Files, func(f File) bool { return f.Path == contract.InferredRecordFile }) {
 		t.Fatalf("the folder never gets the record: %+v", r.Files)
 	}
-	if !hasLine(r.Found, "pacto.yaml declares 1 of the values this folder shows; Pacto completed 11 in pacto.inferred.yaml, published with the bundle") {
+	if !hasLine(r.Found, "pacto.yaml declares 1 of the values Pacto reads in this folder's manifests and specs; Pacto completed 11 in pacto.inferred.yaml, published with the bundle") {
 		t.Fatalf("found: %q", r.Found)
 	}
 	if hasLine(r.Unknown, "pacto.yaml") {
@@ -83,7 +83,21 @@ func TestInitCompletionSelfIsReportedService(t *testing.T) {
 func TestInitCompletesNothingWhenAllDeclared(t *testing.T) {
 	dir := writeTree(t, t.TempDir(), map[string]string{"pacto.yaml": "service: {name: p, version: 1.0.0}\n"})
 	r, err := Init(context.Background(), Options{Dir: dir, Plan: true}, os.WriteFile)
-	if err != nil || r.Mode != modeComplete || r.Inferred != nil || !hasLine(r.Found, "pacto.yaml declares every value this folder shows, so Pacto infers nothing") {
+	if err != nil || r.Mode != modeComplete || r.Inferred != nil || !hasLine(r.Found, "pacto.yaml declares every value Pacto reads in this folder's manifests and specs, so Pacto infers nothing") {
+		t.Fatalf("plan: %+v %v", r, err)
+	}
+}
+
+// A chart Pacto does not read stays an unknown in completion mode, so a
+// contract over an unrendered chart never reads as declaring everything.
+func TestInitCompletionKeepsChartUnknown(t *testing.T) {
+	dir := writeTree(t, t.TempDir(), map[string]string{
+		"pacto.yaml":                      "pactoVersion: \"2.5\"\nservice: {name: p}\n",
+		"chart/Chart.yaml":                "apiVersion: v2\nname: p\nversion: 1.0.0\n",
+		"chart/templates/deployment.yaml": "kind: Deployment\nmetadata: {name: p}\n",
+	})
+	r, err := Init(context.Background(), Options{Dir: dir, Plan: true}, os.WriteFile)
+	if err != nil || r.Mode != modeComplete || !slices.ContainsFunc(r.Unknown, func(u string) bool { return strings.HasPrefix(u, "the Helm chart in chart is not read") }) {
 		t.Fatalf("plan: %+v %v", r, err)
 	}
 }

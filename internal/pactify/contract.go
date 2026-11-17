@@ -100,16 +100,18 @@ func (p *planner) contract(ctx context.Context) error {
 			p.r.Dependencies = append(p.r.Dependencies, Finding{Name: d.Name, Where: d.Where})
 		}
 	}
+	// Before completion too: a chart Pacto does not read is unknown, never
+	// counted as declared.
+	for _, c := range p.sc.Charts {
+		p.unknown("the Helm chart in %s is not read: render it with helm template --include-crds %s %s > k8s/rendered.yaml and run pacto init again, "+
+			"or add the chart under publish.artifacts as a chart", c, p.r.Service, c)
+	}
 	if data, err := os.ReadFile(p.r.Path); err == nil {
 		p.r.Files = append(p.r.Files, File{Path: "pacto.yaml", Action: Keep})
 		if c := p.existing(data); c != nil {
 			return p.complete(c)
 		}
 		return nil
-	}
-	for _, c := range p.sc.Charts {
-		p.unknown("the Helm chart in %s is not read: render it with helm template --include-crds %s %s > k8s/rendered.yaml and run pacto init again, "+
-			"or add the chart under publish.artifacts as a chart", c, p.r.Service, c)
 	}
 	if p.r.Mode == modeBlank {
 		openapi := fmt.Sprintf(blankOpenAPI, p.r.Service)
@@ -320,7 +322,7 @@ func (p *planner) complete(c *contract.Contract) error {
 	}
 	p.r.Mode, p.r.Inferred = modeComplete, rec
 	if rec == nil {
-		p.found("pacto.yaml declares every value this folder shows, so Pacto infers nothing")
+		p.found("pacto.yaml declares every value Pacto reads in this folder's manifests and specs, so Pacto infers nothing")
 		return nil
 	}
 	shown := len(rec.Fields)
@@ -328,7 +330,7 @@ func (p *planner) complete(c *contract.Contract) error {
 	if all, _ := discover.Complete(p.r.Dir, &contract.Contract{Service: contract.Service{Name: p.r.Service}}, in); all != nil {
 		shown = len(all.Fields)
 	}
-	p.found("pacto.yaml declares %d of the values this folder shows; Pacto completed %d in %s, published with the bundle", shown-len(rec.Fields), len(rec.Fields), contract.InferredRecordFile)
+	p.found("pacto.yaml declares %d of the values Pacto reads in this folder's manifests and specs; Pacto completed %d in %s, published with the bundle", shown-len(rec.Fields), len(rec.Fields), contract.InferredRecordFile)
 	return nil
 }
 

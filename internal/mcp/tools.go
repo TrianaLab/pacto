@@ -39,6 +39,8 @@ func createTool() *mcpsdk.Tool {
 			"set describe_only when you are asked to describe or document a service. " +
 			"On a folder that already holds pacto.yaml, pactify completes it without changing it and returns the inferred fields with their sources in 'inferred' " +
 			"(keys and types only, never a value), which pacto pack and pacto publish put in the bundle as pacto.inferred.yaml. " +
+			"Completion needs pactoVersion 2.5 (or none) and never runs with cluster: an older contract keeps mode 'pactify' with no 'inferred' " +
+			"and a Next step to raise pactoVersion, so no 'inferred' there means not completed, never nothing to add. " +
 			"It only adds files; dry_run plans and writes nothing. For an AI agent, see pacto_schema. " +
 			"With from it creates the service from a golden path like `pacto init --from` (over stdio only): " +
 			"golden paths are listed by pacto mcp --fleet (pacto_fleet_entities template=only) or pacto fleet entities --template. " +

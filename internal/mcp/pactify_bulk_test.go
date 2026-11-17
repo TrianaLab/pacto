@@ -252,7 +252,7 @@ func TestCreateTool_CompletionParity(t *testing.T) {
 			t.Errorf("the result holds %q", v)
 		}
 	}
-	if !strings.Contains(createTool().Description, "completes it without changing it") {
+	if d := createTool().Description; !strings.Contains(d, "completes it without changing it") || !strings.Contains(d, "Completion needs pactoVersion 2.5 (or none) and never runs with cluster") {
 		t.Fatal("the description does not say pactify completes an existing contract")
 	}
 }

@@ -51,8 +51,10 @@ classified with the external catalog, and the likely ones are written as
 commented entries under dependencies for you to uncomment. Only their host and
 port are shown; a Secret gives its name and key names, never a value. A
 readiness, liveness or startup probe becomes a health check. A folder that
-already holds pacto.yaml is completed: Pacto never changes it and lists what
-the folder adds, which pacto pack and pacto publish put in pacto.inferred.yaml.
+already holds pacto.yaml at pactoVersion 2.5 (or none) is completed, never
+with --cluster: Pacto never changes it and lists what the folder adds, which
+pacto pack and pacto publish put in pacto.inferred.yaml. An older pacto.yaml
+is not completed, and the plan says to raise its pactoVersion.
 
 Either contract also gets a publish section, for pacto publish, with its
 bundle under --registry (default: the workload's image registry, else the
