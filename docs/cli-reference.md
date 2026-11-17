@@ -1165,7 +1165,7 @@ pacto fleet graph <service> [flags]
 
 ### `pacto fleet neighborhood`
 
-Shows who a service depends on and who depends on it, to the requested depth, each with its owner and status, then the edges between them: each says whether a contract declares it, telemetry observed it or both, and how the two compare. The service is a name, or its key when the name is used in more than one domain.
+Shows who a service depends on and who depends on it, to the requested depth, each with its owner and status, then the edges between them: each says whether a contract declares it, telemetry observed it or both, and how the two compare. A runtime call one of whose ends no contract describes is listed as inferred, with the sources that saw it, and never satisfies a dependency. The service is a name, or its key when the name is used in more than one domain.
 
 ```
 pacto fleet neighborhood <service> [flags]

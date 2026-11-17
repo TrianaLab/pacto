@@ -91,7 +91,8 @@ func newFleetNeighborhoodCommand(svc *app.Service, v *viper.Viper) *cobra.Comman
 		Short: "Show the services around one service, with their owners",
 		Long: "Shows who a service depends on and who depends on it, to the requested depth, each with its owner " +
 			"and status, then the edges between them: each says whether a contract declares it, telemetry observed it " +
-			"or both, and how the two compare. The service is a name, or its key when the name is used in more than one domain.",
+			"or both, and how the two compare. A runtime call one of whose ends no contract describes is listed as inferred, " +
+			"with the sources that saw it, and never satisfies a dependency. The service is a name, or its key when the name is used in more than one domain.",
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: noCompletions,
 		RunE: func(cmd *cobra.Command, args []string) error {

@@ -852,6 +852,21 @@ func TestFleetEntityToolDescribesResources(t *testing.T) {
 	}
 }
 
+// The entity and neighborhood tools describe replaced services and the
+// runtime-inferred edges the default views now show.
+func TestFleetToolsDescribeInferredEdgesAndReplacements(t *testing.T) {
+	for d, wants := range map[string][]string{
+		fleetEntityTool().Description:       {"'replaces'", "'replacesTotal'", "'replacedFrom'"},
+		fleetNeighborhoodTool().Description: {"default views with provenance inferred", "never satisfies a"},
+	} {
+		for _, want := range wants {
+			if !strings.Contains(d, want) {
+				t.Errorf("description lacks %s", want)
+			}
+		}
+	}
+}
+
 // The attention and status tools name the provisioning category and its codes.
 func TestFleetAttentionToolDescribesProvisioning(t *testing.T) {
 	for _, d := range []string{fleetAttentionTool().Description, fleetStatusTool().Description} {

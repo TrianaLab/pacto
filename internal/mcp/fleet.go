@@ -634,6 +634,8 @@ func fleetEntityTool() *mcpsdk.Tool {
 			"reports disagree, 'conflict' names the producers and no figures are given; " +
 			"'not-reported' means no provider reports usage or cost to Pacto. Pacto never sums or converts a cost. A resource's provisioning phase is its lifecycle, never the service's health. " +
 			"The service's 'hiddenProviders' says at least that many resources come from providers you may not see. " +
+			"A service carries 'replaces' and 'replacesTotal', the inferred services it replaced when a Pacto target took over " +
+			"their workload, newest first; asked for by such an old key, the answer is the declared service with 'replacedFrom'. " +
 			fleet.ResourceActionsNote + " Hidden services are only counted, in the hidden fields. Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"kind": {Type: "string", Description: "Entity kind", Enum: fleet.EntityKinds()},
@@ -780,7 +782,9 @@ func fleetNeighborhoodTool() *mcpsdk.Tool {
 		Description: "Show the services around one service: who it depends on and who depends on it, to the " +
 			"requested depth, each with its owner and status. Edges say whether they are declared, observed or " +
 			"both; views defaults to expected,observed. An external use inferred from configuration and neither declared " +
-			"nor observed appears only with views=differences, with provenance inferred. hiddenDependents counts the services, or callers with no " +
+			"nor observed appears only with views=differences, with provenance inferred. A runtime call one of whose ends no contract " +
+			"describes appears in the default views with provenance inferred and the sources that saw it; it never satisfies a " +
+			"dependency. hiddenDependents counts the services, or callers with no " +
 			"contract, that your permissions hide; pacto_fleet_attention with category=undeclared and service lists " +
 			"the callers with no contract. Use it " +
 			"to find the affected services and the teams that own them. Read-only.",
