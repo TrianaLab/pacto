@@ -264,7 +264,10 @@ everything its ServiceAccount reads, and the install notes warn about it
 A server-side reader such as a Backstage backend may send
 `Authorization: Bearer <token>` on GET requests under `/api/backstage/`, and
 on no other path. The dashboard reviews the token like a pasted one, and the
-token's RBAC narrows the answer. No session or cookie is created; see
+token's RBAC narrows the answer. Bearer readers need token sign-in, which is
+on by default, and a ServiceAccount token minted with `--audience
+pacto-dashboard`; with token sign-in off, every bearer read is refused. No
+session or cookie is created; see
 [Serve entities from the dashboard](../../backstage.md#serve-entities-from-the-dashboard) for the reader setup.
 
 ## Identity providers

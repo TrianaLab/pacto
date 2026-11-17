@@ -51,7 +51,7 @@ the path instead.
 
 A dashboard with a fleet serves `GET /api/backstage/entities`, the same YAML
 `pacto export backstage` writes over the same sources, with only what the
-reader may read. Backstage then needs no file and no sync job.
+reader may read, so Backstage needs no file or sync job.
 
 On a dashboard with sign-in, the reader is a ServiceAccount: the chart's
 `pacto-viewer`, or one you bind to `get` and `list` on
@@ -99,8 +99,11 @@ every cluster the fleet reads; give the reader a grant you are willing to show
 for all clusters.
 
 Open and local dashboards serve the route without a token. Every failure
-answers non-2xx and never an empty catalog. While a source is unavailable
-the route answers 503 and Backstage keeps the entities it had.
+answers non-2xx and never an empty catalog. While a source is unavailable or
+missing records the route answers 503 naming that source, and Backstage keeps
+the entities it had. The [browser demo](examples/demo-tour.md) answers 503 on
+purpose: its `edge-cluster` source is down. On a laptop, a partial bundle cache
+or an unreachable cluster does the same; try `--no-cache` or another kubeconfig.
 
 ## What each entity is
 
