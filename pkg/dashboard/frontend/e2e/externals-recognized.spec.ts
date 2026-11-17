@@ -36,7 +36,7 @@ test.describe('WASM demo — externals recognized from traces and configuration'
     const legend = page.getByTestId('graph-legend');
     await expect(legend).toBeVisible({ timeout: T });
     await expect(legend.getByRole('button', { name: 'Observed, not expected' })).toBeVisible();
-    await expect(legend.getByRole('button', { name: 'Inferred from configuration' })).toBeVisible();
+    await expect(legend.getByRole('button', { name: 'Inferred: one end has no contract, or read from configuration' })).toBeVisible();
 
     await page.getByTestId('graph-textalt').locator('summary').click();
     const inferred = page.getByTestId('graph-edge').filter({ hasText: /stripe/i });

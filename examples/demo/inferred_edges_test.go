@@ -16,6 +16,7 @@ func TestDemoInferredEdges(t *testing.T) {
 	want := map[[2]fleet.ServiceKey]bool{
 		{export, billing}: true,
 		{export, fleet.NewServiceKey("search-indexer")}:    true,
+		{export, fleet.NewServiceKey("event-bus")}:         true,
 		{billing, fleet.NewServiceKey("payments-service")}: true,
 	}
 	for _, r := range snap.InferredRelationships {

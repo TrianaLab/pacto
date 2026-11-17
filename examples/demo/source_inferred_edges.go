@@ -8,14 +8,17 @@ import (
 
 // demoInferredEdges are calls the kernel observer saw from nightly-export, a
 // CronJob no contract describes: to legacy-billing, another workload with no
-// contract, and to the declared search-indexer, which it feeds. Each end with
-// no contract is named by its workload, so the graph shows both calls as
-// inferred edges.
+// contract, to the declared search-indexer, which it feeds, and to event-bus,
+// a provider of the messaging offering, whose page then lists it as an
+// uncontracted caller linked to its inferred service. Each end with no
+// contract is named by its workload, so the graph shows the calls as inferred
+// edges.
 func demoInferredEdges(now time.Time) []fleet.ObservedEdge {
 	export := fleet.K8sCaller("", "shop", "CronJob", "nightly-export")
 	return []fleet.ObservedEdge{
 		{From: export, To: fleet.K8sCaller("", "shop", "Deployment", "legacy-billing"), Count: 24, FirstSeen: now.Add(-26 * time.Hour), LastSeen: now.Add(-2 * time.Hour)},
 		{From: export, To: "search-indexer", Count: 6, FirstSeen: now.Add(-26 * time.Hour), LastSeen: now.Add(-2 * time.Hour)},
+		{From: export, To: "event-bus", Count: 12, FirstSeen: now.Add(-26 * time.Hour), LastSeen: now.Add(-2 * time.Hour)},
 	}
 }
 

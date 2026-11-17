@@ -878,6 +878,17 @@ export function installScaleFixture(): void {
       svc.calls = { total: 1200, count: 200, truncated: true,
         items: Array.from({ length: 200 }, (_, i) => ({ kind: 'service', key: `load/call-${i}`, label: `call-${i}`, href: `/fleet/services/load%2Fcall-${i}` })) };
     }
+    // A replacement at its longest (509-S4): a cluster-qualified inferred key with a
+    // 63-character namespace and a 253-character name, on the Replaces line and on the
+    // notice a replaced key shows.
+    if (route === '/api/fleet/entities/service') {
+      const longKey = `k8s:cluster-${'a1b2'.repeat(9)}%2F${'paymentsproductionnortheuropewestonealphabravocharliedeltaecho1'}%2FDeployment%2F${'experiments-settlement-reconciliation-'.repeat(7)}`.slice(0, 340);
+      const svc = doc.service as Record<string, unknown> | undefined;
+      const reps = svc?.replaces as Record<string, unknown>[] | undefined;
+      if (reps?.length) { reps[0] = { ...reps[0], from: longKey, target: `${'prod-'.repeat(12)}/Deployment/${'experiment-service-'.repeat(8)}` }; svc!.replacesTotal = 1200; }
+      const rf = doc.replacedFrom as Record<string, unknown> | undefined;
+      if (rf) doc.replacedFrom = { ...rf, from: longKey, target: `${'prod-'.repeat(12)}/Deployment/${'experiment-service-'.repeat(8)}` };
+    }
     if (route === '/api/fleet/entities/service') {
       const rel = (doc.service as Record<string, unknown> | undefined)?.relationships as { items?: Record<string, unknown>[]; count?: number; total?: number } | undefined;
       const added = extEdges(rel?.items, doc.entity as Record<string, unknown>).length;
@@ -2279,6 +2290,10 @@ export const ROUTES: Route[] = [
       await expect(page.locator('[data-testid="inferred-workload"]')).toBeVisible({ timeout: 30_000 });
     },
   },
+  // 509-S4: a runtime-inferred edge on the graph, the Replaces line and a replaced key.
+  { name: 'graph inferred edges', hash: '#/fleet/graph/service/search-indexer' },
+  { name: 'service replaced inferred', hash: '#/fleet/services/experiment-service' },
+  { name: 'replaced inferred key', hash: `#/fleet/services/${encodeURIComponent('k8s:prod%2FDeployment%2Fexperiments')}` },
 ];
 
 /** Flips the sidebar with its "[" shortcut and returns the state it lands in. */

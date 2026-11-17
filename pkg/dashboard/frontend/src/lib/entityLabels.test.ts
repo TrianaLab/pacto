@@ -8,7 +8,7 @@ import {
   attentionCategoryLabel, ATTENTION_CATEGORIES, GAP_WORDS,
   provenanceLabel, provenanceIsImplied,
   sourceHealthTallyParts, sourceHealthSentence,
-  collectorLabel, seenBy, splitEntryPoints, acceptsLabel, RANGE_NOT_DECLARED,
+  collectorLabel, seenBy, splitEntryPoints, acceptsLabel, RANGE_NOT_DECLARED, serviceKeyName,
 } from './entityLabels.ts';
 
 describe('acceptsLabel', () => {
@@ -134,7 +134,7 @@ describe('relationship provenance', () => {
     expect(provenanceLabel('observed')).toBe('Observed');
     expect(provenanceLabel('declared+observed')).toBe('Expected and observed');
     expect(provenanceLabel('inferred')).toBe('Inferred');
-    // An inferred-only edge already reads "Inferred from configuration": no second chip.
+    // An inferred-only edge already reads as inferred in its difference: no second chip.
     expect(provenanceIsImplied(undefined, 'inferred')).toBe(true);
     expect(provenanceIsImplied(undefined, 'declared')).toBe(false);
     expect(provenanceLabel('declared+observed')).not.toMatch(/\+/);
@@ -264,5 +264,13 @@ describe('splitEntryPoints', () => {
     const { lead, secondary } = splitEntryPoints(eps);
     expect(lead.map((e) => e.category)).toEqual(['non-compliant', 'health']);
     expect(secondary.map((e) => e.category)).toEqual(['stale', 'knowledge']);
+  });
+});
+
+describe('serviceKeyName', () => {
+  it('reads the name inside a service key the way the backend parses it', () => {
+    expect(serviceKeyName('k8s:prod%2FDeployment%2Fexperiments')).toBe('k8s:prod/Deployment/experiments');
+    expect(serviceKeyName('acme/k8s:shop%2FCronJob%2Fa%252Fb')).toBe('k8s:shop/CronJob/a%2Fb');
+    expect(serviceKeyName('payments-service')).toBe('payments-service');
   });
 });

@@ -201,8 +201,9 @@
     <ul class="oe-uses" data-testid="observed-consumers">
       {#each observed.items ?? [] as o, oi (`${o.consumer?.key ?? o.caller}:${o.provider?.key}:${oi}`)}
         <li data-testid="observed-consumer">
-          {#if o.uncontracted || !o.consumer}<bdi class="oe-name" title={o.caller}>{o.caller ?? o.consumer?.label}</bdi><IdentityBadge label="uncontracted" tone="neutral" title="No contract describes this caller" describe />
-          {:else}<EntityLink ref={o.consumer} showKind={false} />{/if}
+          <!-- An uncontracted caller links to the inferred service behind it when there is one. -->
+          {#if o.consumer}<EntityLink ref={o.consumer} showKind={false} />{:else}<bdi class="oe-name" title={o.caller}>{o.caller}</bdi>{/if}
+          {#if o.uncontracted}<IdentityBadge label="uncontracted" tone="neutral" title="No contract describes this caller" describe />{/if}
           <span class="oe-arrow" aria-hidden="true">→</span><span class="visually-hidden">calls</span>
           <!-- Arrow side: the provider's compliance is not what this row is about. -->
           <EntityLink ref={o.provider} showStatus={false} showKind={false} />

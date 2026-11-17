@@ -3,7 +3,8 @@
   import { api, ApiError } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { decideViewState, snapshotKnowledge } from '../lib/knowledgeState.ts';
-  import { kindLabel } from '../lib/entityLabels.ts';
+  import { kindLabel, serviceKeyName } from '../lib/entityLabels.ts';
+  import { formatRelative } from '../lib/dateFormat.ts';
   import { fleetOverviewUrl, fleetGraphFocusUrl, fleetChangesUrl, fleetEntityUrl, hashForHref, replaceHash } from '../lib/router.ts';
   import { fleetEntityBreadcrumbs } from '../lib/breadcrumbs.ts';
   import { postureAnswer, revisionAnswer } from '../lib/answers.ts';
@@ -99,6 +100,11 @@
     return null;
   });
 
+  // Asked for by the key of an inferred service a contract took over: the answer is the
+  // declared service, and the page says so once instead of renaming the question.
+  const replacedFrom = $derived(detail?.replacedFrom);
+  const replacedAge = $derived(replacedFrom?.at ? ` ${formatRelative(replacedFrom.at, Date.parse(detail?.meta?.asOf ?? '') || Date.now())}` : '');
+
   // Entity-relationship breadcrumbs from canonical DTO refs; a minimal
   // trail while loading/erroring.
   const trail = $derived(
@@ -183,6 +189,9 @@
       {#if entityAnswer}
         <p class="page-answer t-body ev-answer tone-{entityAnswer.tone}" data-testid="entity-answer"><strong>{entityAnswer.lead}</strong> {entityAnswer.rest}</p>
       {/if}
+      {#if replacedFrom}
+        <p class="ev-replaced t-body-2" data-testid="entity-replaced-from"><bdi title={serviceKeyName(replacedFrom.from)}>{serviceKeyName(replacedFrom.from)}</bdi> was replaced by {detail.entity?.label || replacedFrom.to}{replacedAge}{replacedFrom.target ? `, linked by Pacto ${replacedFrom.target}` : ''}</p>
+      {/if}
       <!-- Uncertainty and failed refreshes come FIRST and are never collapsible: they
            qualify everything below them, so a reader who stops after the first screen
            must still have seen them. -->
@@ -250,6 +259,7 @@
      page header is still waiting for the request. The column layout comes from the
      shared `.page-toc-main`; only the tighter section rhythm is this page's own. */
   .ev-body { gap: var(--sp-4); }
+  .ev-replaced { margin: 0; color: var(--c-text-2); overflow-wrap: anywhere; }
   /* Look and behaviour come from the shared .disclosure class in styles/components.css. */
   .ev-key { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
   .ev-key-label { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
