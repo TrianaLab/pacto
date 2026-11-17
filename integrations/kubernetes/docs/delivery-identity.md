@@ -174,15 +174,15 @@ dashboard:
 `trust` is the trust config the CLI reads
 ([trust and key rotation](delivery-record-keys.md#trust-and-key-rotation)).
 The dashboard's ServiceAccount gains nothing in delivery and cannot
-impersonate. A dashboard on loopback without sign-in never decides, because
-any process on your machine could do it as you; it shows the
-`pacto delivery approve` command instead.
+impersonate. A dashboard on loopback without sign-in shows the
+`pacto delivery approve` command instead of deciding, because any process on
+your machine could do it as you.
 
 ## Follow delivery in the dashboard
 
 The **Delivery** tab ([what it shows](delivery.md#where-you-follow-it))
-appears only where the cluster serves the delivery API and the dashboard knows
-who you are. Every action shows the plan first, and the fresh plan if anything
+appears only where the cluster serves the delivery API and the dashboard holds
+your own credentials. Every action shows the plan first, and the fresh plan if anything
 moved since. When you may not list delivery objects across the cluster, the
 views say they may be incomplete.
 
@@ -193,7 +193,7 @@ Whoever [may decide](#who-may-decide) answers it, and only owner team members
 when team narrowing is on. A person decides with the sign-in they
 have. The dashboard and `pacto delivery approve` check a decision with the
 promoter's own rule, asking with your own credentials, before they record it, and refuse one it would not count,
-saying why. Agents are refused, and so is a pasted token in the dashboard.
+saying why. Agents are refused, ServiceAccount tokens included; a person's pasted token decides.
 
 ### A recent sign-in to decide
 

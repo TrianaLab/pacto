@@ -188,17 +188,29 @@ the replacement. Before `helm upgrade`:
 A promoter started without `--admission-policies` admits no operation and
 counts no approval.
 
-## The dashboard serves without sign-in only when allowed
+## The dashboard asks people to sign in
 
-A dashboard bound beyond loopback with neither OIDC sign-in nor token login now
-refuses to start unless anonymous access is allowed. The chart value
-`dashboard.auth.allowAnonymous` allows it and defaults to `true`, so a default
-install keeps serving everyone who reaches it, with a warning in the install
-notes. Set it to `false` to make an install without sign-in refuse to start.
-An upgrade that reuses the values of a release without the key keeps the
-dashboard serving anonymously: the chart passes the flag unless the value is
-`false`. A dashboard you run yourself needs `--allow-anonymous` or
-`PACTO_DASHBOARD_ALLOW_ANONYMOUS=true`.
+After every upgrade, one that reuses the earlier release's values included,
+the dashboard asks people to sign in
+([token sign-in](dashboard-authentication.md#token-sign-in)):
+
+- The new value `dashboard.auth.tokenSignIn.enabled` defaults to `true`, and
+  no earlier release has it, so reused values keep it on.
+- `dashboard.auth.allowAnonymous` defaults to `false`. To keep serving
+  without sign-in, set `dashboard.auth.tokenSignIn.enabled=false` and
+  `dashboard.auth.allowAnonymous=true`. The install notes say so when the
+  previous release served without sign-in.
+- The earlier value that turned token sign-in on is deprecated and ignored.
+  It still validates, so reused values keep working.
+- A ServiceAccount token signs in only when minted with
+  `--audience pacto-dashboard`, and its session reads the fleet only. A
+  person's own token signs in as before and may now approve.
+- The dashboard's ServiceAccount gains `create` on `tokenreviews` through the
+  ClusterRole `<release>-dashboard-tokenreview`, also with
+  `controller.watchNamespaces`.
+
+A dashboard you run yourself beyond loopback still needs `--token-login`,
+`--oidc-issuer-url` or `--allow-anonymous`.
 
 ## Pull secrets outside granted namespaces
 

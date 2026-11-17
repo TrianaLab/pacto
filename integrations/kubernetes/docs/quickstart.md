@@ -39,8 +39,9 @@ can set that; kind takes it at cluster creation. The API server also accepts
 only an `https` issuer, so the bundled Dex needs TLS first. Until then, a Dex
 sign-in completes and every request is refused, so use
 [token sign-in](dashboard-authentication.md#token-sign-in), which the profile
-turns on. A token session decides on no held change, so approve with
-`pacto delivery approve` ([approve or unblock a change](../../pactify-decide.md)).
+turns on. The `pacto-viewer` link the install notes print reads the fleet
+only. To approve, paste your own token or use `pacto delivery approve`
+([approve or unblock a change](../../pactify-decide.md)).
 
 ## Health and metrics checks
 
