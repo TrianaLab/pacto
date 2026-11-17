@@ -1,0 +1,21 @@
+services:
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    environment:
+      REDIS_PASSWORD: hunter2
+  payments:
+    image: ghcr.io/acme/payments:1.4.0
+    ports:
+      - "8080"
+      - "9000:80"
+      - "127.0.0.1:5353:53/udp"
+      - target: 7000
+        published: 17000
+        protocol: tcp
+      - 8000-8010:8000-8010
+    environment:
+      - DB_PASSWORD=hunter2
+      - LOG_LEVEL
+    env_file: .env

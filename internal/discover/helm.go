@@ -121,14 +121,19 @@ func (r *reader) valuesPorts(p string, values *yaml.Node) {
 // port is the port n in the file p sets over proto (tcp when empty), when n
 // is a number; a named port is not read.
 func (r *reader) port(p string, rank int, n *yaml.Node, proto string) {
-	if n == nil || n.Tag != "!!int" {
-		return
+	if n != nil && n.Tag == "!!int" {
+		r.portAt(p, n.Line, rank, n.Value, proto)
 	}
+}
+
+// portAt is the port num, set at line of the file p over proto (tcp when
+// empty), when num is one.
+func (r *reader) portAt(p string, line, rank int, num, proto string) {
 	if proto != "" {
 		proto = "/" + proto
 	}
-	if port, proto, ok := exposedPort(n.Value + proto); ok {
-		r.addAt(p, n.Line, rank, fmt.Sprintf("ports[%d]", port), fmt.Sprintf("%d/%s", port, proto), "")
+	if port, proto, ok := exposedPort(num + proto); ok {
+		r.addAt(p, line, rank, fmt.Sprintf("ports[%d]", port), fmt.Sprintf("%d/%s", port, proto), "")
 	}
 }
 

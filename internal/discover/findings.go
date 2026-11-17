@@ -72,7 +72,32 @@ var unsupportedFiles = map[string]string{
 	"*.gql":      unsupportedGraphQL,
 }
 
-const unsupportedGraphQL = "GraphQL is not a Pacto interface type"
+// Why a file, or a part of one, is not read.
+const (
+	unsupportedGraphQL        = "GraphQL is not a Pacto interface type"
+	unsupportedHelmCharts     = "Kustomize helmCharts are rendered by Helm, which Pacto does not run"
+	unsupportedComposeInclude = "Compose include names files Pacto does not follow"
+	unsupportedComposeExtends = "Compose extends from another file, which Pacto does not follow"
+	unsupportedComposeEnvFile = "Compose env_file holds values, which Pacto never reads"
+)
+
+// remoteResourceMessage says the kustomization line at source names the
+// remote resource ref, without its credentials.
+func remoteResourceMessage(source, ref string) string {
+	return source + " names the remote Kustomize resource " + ref + "; Pacto reads only files in the folder, so it is not read"
+}
+
+// unresolvedResourceMessage says the kustomization line at source names a
+// resource Pacto cannot read in the folder.
+func unresolvedResourceMessage(source string) string {
+	return source + " names a Kustomize resource outside the folder or missing from it, so it is not read"
+}
+
+// ambiguousNamesMessage says source lists several what, names, and none is
+// named like the service, so none is read.
+func ambiguousNamesMessage(source, what string, names []string) string {
+	return fmt.Sprintf("%s lists %d %s: %s; none is named like this service, so none is read", source, len(names), what, strings.Join(names, ", "))
+}
 
 // unsupported is a finding when the file p, named name, is one Pacto
 // recognizes but does not read.

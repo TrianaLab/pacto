@@ -66,13 +66,18 @@ type entry struct {
 
 // Ranks: the folder scan Complete runs (the workload probe, the team label)
 // first, then each Dockerfile in dockerRank order, then a chart's values.yaml
-// and its values-<env>.yaml files, then its templates, then plain manifests.
+// and its values-<env>.yaml files, then its templates, then a kustomization's
+// images, then a Compose service's image and environment keys, then plain
+// manifests, then a Compose service's ports.
 const (
-	rankScan       = 0
-	rankDockerfile = 1 << 20
-	rankChart      = 2 << 20
-	rankTemplate   = 3 << 20
-	rankManifest   = 4 << 20
+	rankScan        = 0
+	rankDockerfile  = 1 << 20
+	rankChart       = 2 << 20
+	rankTemplate    = 3 << 20
+	rankKustomize   = 4 << 20
+	rankCompose     = 5 << 20
+	rankManifest    = 6 << 20
+	rankComposePort = 7 << 20
 )
 
 // reader collects what one Read finds.
@@ -174,7 +179,20 @@ func (r *reader) yamlFile(p, name string) {
 		r.spec(p, data)
 		if !inChart {
 			r.manifests(p, docs)
+			r.tool(p, name, docs)
 		}
+	}
+}
+
+// tool reads the first document of the file p, named name, when it is a
+// kustomization or, at the folder root, a Compose file. yamlDocs gives docs
+// at least one document, each with a root, as manifests relies on.
+func (r *reader) tool(p, name string, docs []*yaml.Node) {
+	switch root := docs[0].Content[0]; {
+	case name == "kustomization.yaml" || name == "kustomization.yml":
+		r.kustomization(p, root)
+	case composeFiles[p]:
+		r.compose(p, root)
 	}
 }
 

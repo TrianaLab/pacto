@@ -40,4 +40,12 @@ func TestDiscoveryNeverRecordsURLCredentials(t *testing.T) {
 	if out := rec.Marshal(); bytes.Contains(out, []byte("tok3n")) || bytes.Contains(out, []byte("user")) {
 		t.Errorf("the record holds a credential:\n%s", out)
 	}
+	// A remote Kustomize resource is named without its userinfo or query.
+	rec, err = CompleteIn(kustomizeDir, kustomizeDir, nil, contract.InferredInputs{Pacto: "4.6.0"})
+	if err != nil || rec == nil {
+		t.Fatalf("record = %+v, %v", rec, err)
+	}
+	if out := rec.Marshal(); bytes.Contains(out, []byte("tok3n")) || bytes.Contains(out, []byte("oauth2")) || bytes.Contains(out, []byte("ref=x")) {
+		t.Errorf("the record holds a credential:\n%s", out)
+	}
 }
