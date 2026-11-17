@@ -207,7 +207,10 @@ type EditInput struct {
 	// pactoVersion 2.4. service.origin has no setter: only creation writes it.
 	Template *TemplateInput
 
-	Workload                  *string
+	Workload *string
+	// Applier sets delivery.applier (auto, argocd or flux), which needs
+	// pactoVersion 2.5; "" removes the delivery section.
+	Applier                   *string
 	StoresData                *bool
 	DataSurvivesRestart       *bool
 	DataSharedAcrossInstances *bool
@@ -649,7 +652,7 @@ func createMinVersion(input CreateInput) string {
 // or "" when any version has them. Removing a field needs no newer version.
 func editMinVersion(input EditInput) string {
 	switch {
-	case len(undeclaredRanges(input.AddDependencies)) > 0:
+	case len(undeclaredRanges(input.AddDependencies)) > 0, input.Applier != nil && *input.Applier != "":
 		return "2.5"
 	case needs24(input):
 		return "2.4"
@@ -968,6 +971,13 @@ func applyEdits(m map[string]any, input EditInput) ([]string, error) {
 		m["workload"] = *input.Workload
 		changes = append(changes, fmt.Sprintf("set workload to %q", *input.Workload))
 	}
+	if input.Applier != nil {
+		change, err := setApplier(m, *input.Applier)
+		if err != nil {
+			return nil, err
+		}
+		changes = append(changes, change)
+	}
 	if hasStateEdits(input) {
 		changes = append(changes, applyStateEdits(m, input)...)
 	}
@@ -984,6 +994,20 @@ func applyEdits(m map[string]any, input EditInput) ([]string, error) {
 	}
 
 	return changes, nil
+}
+
+// setApplier sets delivery.applier to applier, or removes the delivery
+// section when applier is "", and returns the change line.
+func setApplier(m map[string]any, applier string) (string, error) {
+	switch applier {
+	case "":
+		delete(m, "delivery")
+		return "removed delivery", nil
+	case contract.ApplierAuto, contract.ApplierArgoCD, contract.ApplierFlux:
+		m["delivery"] = map[string]any{"applier": applier}
+		return "set delivery.applier to " + applier, nil
+	}
+	return "", fmt.Errorf("applier %q is not one of auto, argocd or flux", applier)
 }
 
 // applyReferenceEdits applies the configuration-reference, policy-reference
@@ -1663,7 +1687,7 @@ func (o fileOps) check(ctx context.Context, validate Validator, path string, env
 // in: the newest schema's order.
 var topLevelKeyOrder = []string{
 	"pactoVersion", "service", "interfaces", "configurations", "environments",
-	"policies", "dependencies", "breaks", "state", "workload", "capabilities", "readiness", "publish", "checks", "metadata", "extensions",
+	"policies", "dependencies", "breaks", "state", "workload", "capabilities", "readiness", "publish", "delivery", "checks", "metadata", "extensions",
 }
 
 // marshalContract writes m with its top-level keys in topLevelKeyOrder, then

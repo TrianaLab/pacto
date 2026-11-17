@@ -3625,6 +3625,70 @@ fields:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.transparencyLog/valid
       - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.transparencyLog/invalid
       e2e: []
+  delivery:
+    meaning: How the Pacto promoter delivers the service.
+    runtime: not-applicable
+    evidence: 'none: a container for applier'
+    rule: 'schema: object with applier only; pactoVersion 2.5'
+    outcomes: PARSE_ERROR when not an object; NEEDS_PACTO_2_5 below 2.5
+    limitations: read by the promoter only
+    tests:
+      unit:
+      - pkg/contract/parse_test.go:TestParseDelivery
+      - pkg/validation/structural_test.go:TestDeliveryApplierNeeds25
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/delivery/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/delivery/invalid
+      e2e: []
+  delivery.applier:
+    meaning: The manager that applies the service's workloads; auto adopts the manager that already owns each
+      workload.
+    runtime: static-only
+    evidence: 'none yet: the promoter does not read it'
+    rule: 'schema: auto, argocd or flux, default auto; pactoVersion 2.5; diff: every change is non-breaking and
+      absent equals auto'
+    outcomes: SCHEMA_VIOLATION, NEEDS_PACTO_2_5
+    limitations: built-in arrives with the built-in applier
+    tests:
+      unit:
+      - pkg/validation/structural_test.go:TestDeliveryApplierValid
+      - pkg/validation/structural_test.go:TestDeliveryApplierInvalidValue
+      - pkg/validation/structural_test.go:TestDeliveryApplierNeeds25
+      - pkg/diff/contract_test.go:TestDiffDeliveryApplier
+      - internal/mcp/create_test.go:TestEditSetsApplier
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/delivery.applier/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/delivery.applier/invalid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/delivery.applier/needs-2.5
+      e2e: []
+    values:
+      auto:
+        meaning: adopt the manager that already owns each workload
+        runtime: static-only
+        tests:
+          unit:
+          - pkg/validation/structural_test.go:TestDeliveryApplierValid
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/delivery.applier=auto
+          e2e: []
+      argocd:
+        meaning: Argo CD applies the workloads
+        runtime: static-only
+        tests:
+          unit:
+          - pkg/validation/structural_test.go:TestDeliveryApplierValid
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/delivery.applier=argocd
+          e2e: []
+      flux:
+        meaning: Flux applies the workloads
+        runtime: static-only
+        tests:
+          unit:
+          - pkg/validation/structural_test.go:TestDeliveryApplierValid
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/delivery.applier=flux
+          e2e: []
   checks:
     meaning: Test or eval suites shipped with the version; a delivery gate hands one to a runner.
     runtime: static-only

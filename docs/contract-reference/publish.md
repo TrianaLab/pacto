@@ -1,7 +1,8 @@
 # Publish
 
 `publish` says what a service publishes, where each artifact goes and how it
-is built. Only [`pacto publish`](../publishing.md) reads it. The other
+is built. Only [`pacto publish`](../publishing.md) reads it. `delivery` says
+how the promoter delivers what was published. The other
 sections are in [Contract sections](sections.md),
 [Configuration and policy](configuration-and-policy.md),
 [Dependencies and state](dependencies-and-state.md) and
@@ -55,3 +56,19 @@ artifact to a new tag, signs each digest with Sigstore and stamps
 `org.opencontainers.image.version` and `org.opencontainers.image.revision` on
 each manifest it pushes. A chart can be published but cannot be the deploy
 artifact, because the promoter confirms a release only through Kustomizations.
+
+## `delivery`
+
+Optional. Needs `pactoVersion: "2.5"`: an older contract with a `delivery`
+section fails validation with `NEEDS_PACTO_2_5`. The promoter reads it.
+
+```yaml
+pactoVersion: "2.5"
+service: {name: payments, version: 2.4.0}
+delivery:
+  applier: argocd  # auto (the default), argocd or flux
+```
+
+| Field | Meaning |
+|---|---|
+| `applier` | The manager that applies the service's workloads. `auto`, the default, adopts the manager that already owns each workload. `argocd` or `flux` require that manager, and the promoter refuses a Stage that applies through another one. Every change to it is non-breaking |

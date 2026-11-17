@@ -185,6 +185,12 @@ capability's `binding.interface` or `binding.path` produces no change.
 | `breaks.reason` | Modified | NON_BREAKING |
 | `breaks.expires` | Added / Modified / Removed | NON_BREAKING |
 
+## Delivery
+
+| Field | Change | Classification |
+|-------|--------|----------------|
+| `delivery.applier` | Added / Modified / Removed (absent equals `auto`) | NON_BREAKING |
+
 ## OpenAPI
 
 `pacto diff` performs deep comparison of referenced OpenAPI specs, detecting changes at the path, method, parameter, request body and response level.

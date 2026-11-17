@@ -556,6 +556,15 @@ var fieldCoverageCases = []fcCase{
 	valid("publish.sign.transparencyLog/valid", del("publish.sign.transparencyLog")),
 	invalid("publish.sign.transparencyLog/invalid", parseError, set("publish.sign.transparencyLog", 3)),
 
+	valid("delivery/valid", set("delivery", map[string]any{})),
+	invalid("delivery/invalid", parseError, set("delivery", "argocd")),
+	valid("delivery.applier/valid", set("delivery", map[string]any{"applier": "argocd"})),
+	invalid("delivery.applier/invalid", schemaViolation, set("delivery", map[string]any{"applier": "kargo"})),
+	invalid("delivery.applier/needs-2.5", needs25, set("pactoVersion", "2.4"), del("interfaces.0.port"), del("breaks"), set("delivery", map[string]any{"applier": "argocd"})),
+	valid("delivery.applier=auto", set("delivery", map[string]any{"applier": "auto"})),
+	valid("delivery.applier=argocd", set("delivery", map[string]any{"applier": "argocd"})),
+	valid("delivery.applier=flux", set("delivery", map[string]any{"applier": "flux"})),
+
 	valid("checks/valid", del("checks")),
 	invalid("checks/invalid", parseError, set("checks", "evals")),
 	invalid("checks/invalid-2.0", needs21, set("pactoVersion", "2.0"), del("interfaces.0.port"), del("breaks"), del("service.template"), del("service.origin"), del("service.lifecycle"), del("service.domain"), del("service.offering"), del("service.summary"), del("publish")),

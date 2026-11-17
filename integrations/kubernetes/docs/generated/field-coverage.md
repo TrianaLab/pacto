@@ -18,8 +18,8 @@ The page is generated from `pkg/validation/schema/field-coverage.yaml`. `pkg/val
 | --- | --- | --- |
 | `verified` | A runtime fact can both satisfy and contradict the declaration. | 4 |
 | `partial` | A runtime fact exists, but some values or environments stay unverified. | 16 |
-| `static-only` | Checked by `pacto validate` only; nothing at runtime reads it. | 130 |
-| `not-applicable` | Identity, container or open object with nothing to verify. | 14 |
+| `static-only` | Checked by `pacto validate` only; nothing at runtime reads it. | 131 |
+| `not-applicable` | Identity, container or open object with nothing to verify. | 15 |
 
 A runtime check never turns "could not look" into a violation. A check with no usable fact is listed in `status.evaluationCoverage.unverified` and leaves the contract status unchanged.
 
@@ -185,6 +185,8 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | `publish.sign.key` | `static-only` | - | - | - | SCHEMA_VIOLATION |
 | `publish.sign.kms` | `static-only` | - | - | - | SCHEMA_VIOLATION |
 | `publish.sign.transparencyLog` | `static-only` | - | - | - | PARSE_ERROR when not a boolean |
+| `delivery` | `not-applicable` | - | - | - | PARSE_ERROR when not an object; NEEDS_PACTO_2_5 below 2.5 |
+| `delivery.applier` | `static-only` | - | - | - | SCHEMA_VIOLATION, NEEDS_PACTO_2_5 |
 | `checks` | `static-only` | - | - | - | PARSE_ERROR when not a list; NEEDS_PACTO_2_1 under 2.0 |
 | `checks[]` | `static-only` | - | - | - | SCHEMA_VIOLATION, DUPLICATE_CHECK_NAME |
 | `checks[].name` | `static-only` | - | - | - | SCHEMA_VIOLATION, DUPLICATE_CHECK_NAME |
@@ -2374,6 +2376,36 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Outcomes | PARSE_ERROR when not a boolean |
 | Limitations | false is for private registries; keyless signing needs the log |
 | Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V21Publish`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.transparencyLog/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.transparencyLog/invalid` |
+
+### `delivery`
+
+| Key | Value |
+| --- | --- |
+| Meaning | How the Pacto promoter delivers the service. |
+| Runtime | `not-applicable` |
+| Evidence | none: a container for applier |
+| Rule | schema: object with applier only; pactoVersion 2.5 |
+| Outcomes | PARSE_ERROR when not an object; NEEDS_PACTO_2_5 below 2.5 |
+| Limitations | read by the promoter only |
+| Tests | unit: `pkg/contract/parse_test.go:TestParseDelivery`, `pkg/validation/structural_test.go:TestDeliveryApplierNeeds25`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/delivery/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/delivery/invalid` |
+
+### `delivery.applier`
+
+| Key | Value |
+| --- | --- |
+| Meaning | The manager that applies the service's workloads; auto adopts the manager that already owns each workload. |
+| Runtime | `static-only` |
+| Evidence | none yet: the promoter does not read it |
+| Rule | schema: auto, argocd or flux, default auto; pactoVersion 2.5; diff: every change is non-breaking and absent equals auto |
+| Outcomes | SCHEMA_VIOLATION, NEEDS_PACTO_2_5 |
+| Limitations | built-in arrives with the built-in applier |
+| Tests | unit: `pkg/validation/structural_test.go:TestDeliveryApplierValid`, `pkg/validation/structural_test.go:TestDeliveryApplierInvalidValue`, `pkg/validation/structural_test.go:TestDeliveryApplierNeeds25`, `pkg/diff/contract_test.go:TestDiffDeliveryApplier`, `internal/mcp/create_test.go:TestEditSetsApplier`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/delivery.applier/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/delivery.applier/invalid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/delivery.applier/needs-2.5` |
+
+| Value | Runtime | Meaning | Rule | Outcomes | Limitations | Tests |
+| --- | --- | --- | --- | --- | --- | --- |
+| `auto` | `static-only` | adopt the manager that already owns each workload | - | - | - | unit: `pkg/validation/structural_test.go:TestDeliveryApplierValid`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/delivery.applier=auto` |
+| `argocd` | `static-only` | Argo CD applies the workloads | - | - | - | unit: `pkg/validation/structural_test.go:TestDeliveryApplierValid`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/delivery.applier=argocd` |
+| `flux` | `static-only` | Flux applies the workloads | - | - | - | unit: `pkg/validation/structural_test.go:TestDeliveryApplierValid`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/delivery.applier=flux` |
 
 ### `checks`
 
