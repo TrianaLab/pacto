@@ -152,6 +152,9 @@ func TestDashboardTokenLoginReviewsTheAudience(t *testing.T) {
 				"user": map[string]any{"username": "system:serviceaccount:pacto:pacto-viewer"}}
 			return true, obj, nil
 		})
+		f.PrependReactor("create", "selfsubjectreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
+			return true, nil, errors.New("Unauthorized") // an audience-only token is no bearer
+		})
 		return f, nil
 	}
 	cluster := &rest.Config{Host: "https://k", BearerToken: "dashboard"}
@@ -166,6 +169,12 @@ func TestDashboardTokenLoginReviewsTheAudience(t *testing.T) {
 	d.dynamicFor = func(*rest.Config) (dynamic.Interface, error) { return nil, errors.New("bad config") }
 	_, err = newDashboardIdentity(v, "0.0.0.0", cluster, d)
 	expect(t, err != nil && strings.Contains(err.Error(), "bad config"), "no client to review tokens with: %v", err)
+
+	// Without token sign-in no client is built at startup: a kubeconfig that
+	// cannot build one still serves the local dashboard.
+	v.Set("dashboard.token-login", false)
+	id, err = newDashboardIdentity(v, "127.0.0.1", cluster, d)
+	expect(t, err == nil && id.auth.Local(), "a local dashboard builds no review client: %v", err)
 }
 
 func expect(t *testing.T, ok bool, format string, args ...any) {

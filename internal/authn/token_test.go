@@ -1,6 +1,7 @@
 package authn
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -21,6 +22,8 @@ import (
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/rest"
 	k8stesting "k8s.io/client-go/testing"
+
+	"github.com/trianalab/pacto/v4/pkg/logging"
 )
 
 func TestClaimsPerson(t *testing.T) {
@@ -348,7 +351,7 @@ func stateOf(t *testing.T, d *Dashboard, rec *httptest.ResponseRecorder) State {
 var (
 	viewerSA        = Person{User: "system:serviceaccount:shop:viewer", Groups: []string{"system:serviceaccounts"}}
 	personAnn       = Person{User: "oidc:ann", Groups: []string{"team-a"}}
-	errNotAudience  = errors.New("the token was not minted for audience pacto-dashboard")
+	errNotAudience  = fmt.Errorf("%w: the token was not minted for audience pacto-dashboard", errNotForAudience)
 	errReviewDenied = fmt.Errorf("%w: grant create on tokenreviews.authentication.k8s.io", ErrTokenReviewForbidden)
 )
 
@@ -367,7 +370,37 @@ func TestTokenLoginReviewErrorSignsNobodyIn(t *testing.T) {
 		"a ServiceAccount whose audience review failed signs nobody in: %d %s", rec.Code, rec.Body)
 	d, _ = dashboardRoutes(Reviewed{}, errors.New("timeout"), Reviewed{}, errors.New("Unauthorized"))
 	rec = signIn(d, `{"token":"t"}`)
-	expect(t, rec.Code == http.StatusUnauthorized && strings.Contains(rec.Body.String(), "the cluster did not accept this token: Unauthorized"), "both fail: %s", rec.Body)
+	expect(t, rec.Code == http.StatusUnauthorized && strings.Contains(rec.Body.String(), "the dashboard could not review this token: timeout"),
+		"a review that never answered is reported as such, never as a rejected token: %s", rec.Body)
+	d, _ = dashboardRoutes(Reviewed{}, errNotAudience, Reviewed{}, errors.New("Unauthorized"))
+	rec = signIn(d, `{"token":"t"}`)
+	expect(t, rec.Code == http.StatusUnauthorized && strings.Contains(rec.Body.String(), "the cluster did not accept this token: Unauthorized"), "both refuse: %s", rec.Body)
+	d, _ = dashboardRoutes(Reviewed{Person: personAnn}, nil, Reviewed{}, errors.New("Unauthorized"))
+	rec = signIn(d, `{"token":"t"}`)
+	expect(t, rec.Code == http.StatusUnauthorized && strings.Contains(rec.Body.String(), "the cluster did not accept this token: Unauthorized"),
+		"a person only the audience review names holds no bearer: %s", rec.Body)
+}
+
+// A sign-in link the audience review refuses reports the review's reason.
+func TestTokenLoginLinkReportsTheAudienceReason(t *testing.T) {
+	expired := fmt.Errorf("%w: the token is not valid for audience pacto-dashboard: token has expired", errNotForAudience)
+	d, _ := dashboardRoutes(Reviewed{}, expired, Reviewed{}, errors.New("Unauthorized"))
+	rec := signIn(d, `{"token":"t","link":true}`)
+	expect(t, rec.Code == http.StatusUnauthorized &&
+		strings.Contains(rec.Body.String(), "the sign-in link was not accepted: the token is not valid for audience pacto-dashboard: token has expired"),
+		"an expired link: %s", rec.Body)
+}
+
+// A person's token never reaches a TokenReview body: the bearer check names
+// them first.
+func TestTokenLoginPersonTokenSkipsTheTokenReview(t *testing.T) {
+	asked := 0
+	review := DashboardTokenReview(
+		func(context.Context, string) (Reviewed, error) { asked++; return Reviewed{}, errNotAudience },
+		func(context.Context, string) (Reviewed, error) { return Reviewed{Person: personAnn}, nil })
+	tl := NewTokenLogin(review, Lifetime{Idle: time.Minute, Max: time.Hour})
+	rec := signIn(NewShared(nil, tl), `{"token":"static"}`)
+	expect(t, rec.Code == http.StatusNoContent && asked == 0, "a person signs in with no TokenReview: %d %d", rec.Code, asked)
 }
 
 func TestTokenLoginReviewForbiddenNamesTheRight(t *testing.T) {
@@ -423,6 +456,24 @@ func TestTokenRecheckEndsOnKindChange(t *testing.T) {
 	now = now.Add(tokenRecheck + time.Second)
 	_, ok := tl.session(withCookie(c))
 	expect(t, !ok, "a link session whose token now reads as a bearer ends")
+}
+
+// A recheck the dashboard could not run ends the session and logs that cause.
+func TestTokenRecheckLogsTheCause(t *testing.T) {
+	now := time.Unix(1_000_000, 0)
+	aerr := error(nil)
+	review := DashboardTokenReview(
+		func(context.Context, string) (Reviewed, error) { return Reviewed{Person: viewerSA}, aerr },
+		func(context.Context, string) (Reviewed, error) { return Reviewed{}, errors.New("Unauthorized") })
+	tl := NewTokenLogin(review, Lifetime{Idle: time.Hour, Max: 10 * time.Hour})
+	tl.now = func() time.Time { return now }
+	c := cookieNamed(t, serve(http.HandlerFunc(tl.Login), tokenPost(`{"token":"t","link":true}`, "https://dash.example")), SessionCookie)
+	aerr = errors.New("context deadline exceeded")
+	now = now.Add(tokenRecheck + time.Second)
+	var log bytes.Buffer
+	r := withCookie(c)
+	_, ok := tl.session(r.WithContext(logging.WithLogger(r.Context(), logging.New(&log, false))))
+	expect(t, !ok && strings.Contains(log.String(), "the dashboard could not review this token: context deadline exceeded"), "the logged cause: %s", log.String())
 }
 
 func TestTokenSessionEndsAtTokenExpiry(t *testing.T) {

@@ -50,6 +50,11 @@ type AudienceCheck func(ctx context.Context, token string) (Reviewed, error)
 // ErrTokenReviewForbidden is the dashboard lacking the right to review tokens.
 var ErrTokenReviewForbidden = errors.New("the dashboard may not review tokens")
 
+// errNotForAudience is a TokenReview that answered: the token is not valid
+// for the audience. Any other audience-review error means the dashboard could
+// not review the token at all.
+var errNotForAudience = errors.New("not valid for the dashboard")
+
 // TokenRefusal is a token the API server accepts that the dashboard still
 // refuses, with a code the sign-in screen shows inside the message.
 type TokenRefusal struct{ Code, Message string }
@@ -95,52 +100,62 @@ func AudienceReview(own dynamic.Interface, audience string) AudienceCheck {
 		st := r.Status
 		switch {
 		case !st.Authenticated:
-			return Reviewed{}, fmt.Errorf("the token is not valid for audience %s: %s", audience, st.Error)
+			return Reviewed{}, fmt.Errorf("%w: the token is not valid for audience %s: %s", errNotForAudience, audience, st.Error)
 		case !slices.Contains(st.Audiences, audience):
-			return Reviewed{}, fmt.Errorf("the token was not minted for audience %s", audience)
+			return Reviewed{}, fmt.Errorf("%w: the token was not minted for audience %s", errNotForAudience, audience)
 		}
 		return Reviewed{Person: Person{User: st.User.Username, Groups: st.User.Groups}, UID: st.User.UID, Extra: st.User.Extra}, nil
 	}
 }
 
 // DashboardTokenReview tells a link token from a person's token with what the
-// API server says alone. A ServiceAccount token audience authenticates is a
-// link token, never sent to the API server (Bearer false). Any other token
-// must be a bearer the API server accepts, for someone other than a
-// ServiceAccount: a ServiceAccount signs in only with a token minted for the
-// dashboard. A failed audience review never falls back to the bearer path for
-// a ServiceAccount.
+// API server says alone. The API server's own bearer check runs first, so a
+// person's token is never copied into a TokenReview body (an audit policy that
+// logs request bodies would keep it). A ServiceAccount, whether the API server
+// accepts its token as a bearer or not, signs in only when the audience
+// review authenticates it: a link session, never sent to the API server
+// (Bearer false). A failed audience review never falls back to the bearer path
+// for a ServiceAccount.
 func DashboardTokenReview(audience AudienceCheck, bearer TokenReview) TokenReview {
 	return func(ctx context.Context, token string) (Reviewed, error) {
+		r, berr := bearer(ctx, token)
+		if berr == nil && !isServiceAccount(r.Person.User) {
+			r.Bearer = true
+			return r, nil
+		}
 		link, aerr := audience(ctx, token)
 		if aerr == nil && isServiceAccount(link.Person.User) {
 			link.Bearer, link.AuthTime = false, ""
 			return link, nil
 		}
-		return bearerReview(ctx, bearer, token, aerr)
+		return refusedReview(r, berr, aerr)
 	}
 }
 
-// bearerReview is DashboardTokenReview's bearer path. When the API server
-// refuses the token and the dashboard may not review tokens, the missing
-// right is the cause reported: an audience-only token always fails here.
-func bearerReview(ctx context.Context, bearer TokenReview, token string, aerr error) (Reviewed, error) {
-	r, err := bearer(ctx, token)
+// refusedReview is why a token neither a person's bearer nor a link signs
+// nobody in. When the dashboard may not review tokens, the missing right is
+// the cause reported: an audience-only token always fails the bearer check.
+func refusedReview(r Reviewed, berr, aerr error) (Reviewed, error) {
 	switch {
-	case err != nil && errors.Is(aerr, ErrTokenReviewForbidden):
+	case errors.Is(aerr, ErrTokenReviewForbidden):
 		return Reviewed{}, aerr
-	case err != nil:
-		return Reviewed{}, err
-	case isServiceAccount(r.Person.User) && errors.Is(aerr, ErrTokenReviewForbidden):
-		return Reviewed{}, aerr // the dashboard could not check the audience, so minting another token would not help
-	case isServiceAccount(r.Person.User):
-		ns, name := serviceAccountName(r.Person.User)
-		return Reviewed{}, &TokenRefusal{Code: "TokenAudienceRequired", Message: "a ServiceAccount signs in only with a token minted for the dashboard: " +
-			"kubectl create token " + name + " -n " + ns + " --audience " + DashboardAudience}
+	case berr != nil && aerr != nil:
+		return Reviewed{}, &notAccepted{bearer: berr, audience: aerr}
+	case berr != nil:
+		return Reviewed{}, berr // the audience review named someone who is no ServiceAccount
+	case aerr != nil && !errors.Is(aerr, errNotForAudience):
+		return Reviewed{}, &notAccepted{bearer: errors.New("the dashboard could not check its audience"), audience: aerr}
 	}
-	r.Bearer = true
-	return r, nil
+	ns, name := serviceAccountName(r.Person.User)
+	return Reviewed{}, &TokenRefusal{Code: "TokenAudienceRequired", Message: "a ServiceAccount signs in only with a token minted for the dashboard: " +
+		"kubectl create token " + name + " -n " + ns + " --audience " + DashboardAudience}
 }
+
+// notAccepted is a token the bearer check and the audience review both
+// refused, with both answers: a sign-in link reports the audience review's.
+type notAccepted struct{ bearer, audience error }
+
+func (e *notAccepted) Error() string { return e.bearer.Error() }
 
 const serviceAccountPrefix = "system:serviceaccount:"
 
@@ -317,9 +332,14 @@ func (t *TokenLogin) Login(w http.ResponseWriter, r *http.Request) {
 // refuseReviewed says why a reviewed token signs nobody in, or "".
 func refuseReviewed(rv Reviewed, err error, link bool) string {
 	var refusal *TokenRefusal
+	var both *notAccepted
 	switch {
 	case errors.As(err, &refusal) || errors.Is(err, ErrTokenReviewForbidden):
 		return err.Error()
+	case errors.As(err, &both) && !errors.Is(both.audience, errNotForAudience):
+		return "the dashboard could not review this token: " + both.audience.Error()
+	case errors.As(err, &both) && link:
+		return "the sign-in link was not accepted: " + strings.TrimPrefix(both.audience.Error(), errNotForAudience.Error()+": ")
 	case err != nil:
 		return "the cluster did not accept this token: " + err.Error()
 	case rv.Person.User == "":
@@ -359,7 +379,11 @@ func (t *TokenLogin) session(r *http.Request) (tokenSession, bool) {
 		return cp, true
 	}
 	if rv, err := t.review(r.Context(), cp.token); err != nil || rv.Person.User != cp.person.User || rv.Bearer != cp.bearer {
-		Refused(r.Context(), r, "dashboard ended a token session", "reason", "the cluster no longer accepts its token")
+		why := "the cluster names another user or another kind of session for its token"
+		if err != nil {
+			why = refuseReviewed(rv, err, !cp.bearer)
+		}
+		Refused(r.Context(), r, "dashboard ended a token session", "reason", why)
 		t.mu.Lock()
 		delete(t.sessions, c.Value)
 		t.mu.Unlock()

@@ -63,16 +63,12 @@ func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, d d
 	id := baseDashboardIdentity(cluster, d, trust, v.GetString("dashboard.delivery-namespace"))
 	id.loginName = v.GetString("dashboard.oidc-display-name")
 	life := authn.Lifetime{Idle: v.GetDuration("dashboard.session-idle-timeout"), Max: v.GetDuration("dashboard.session-max-age")}
-	// nil: no cluster to ask who a token is. bearer names an ID token; review
-	// tells a sign-in link token from a person's pasted token.
-	var bearer, review authn.TokenReview
+	// nil: no cluster to ask who a token is. bearer names an ID token and
+	// builds its client per call, so a dashboard without token sign-in builds
+	// none at startup.
+	var bearer authn.TokenReview
 	if cluster != nil {
-		own, oerr := sarClient(cluster, d.dynamicFor)
-		if oerr != nil {
-			return nil, oerr
-		}
 		bearer = authn.SelfSubjectReview(cluster, d.dynamicFor)
-		review = authn.DashboardTokenReview(authn.AudienceReview(own, authn.DashboardAudience), bearer)
 	}
 	var o *authn.OIDC
 	if issuer := v.GetString("dashboard.oidc-issuer-url"); issuer != "" {
@@ -92,7 +88,12 @@ func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, d d
 		if cluster == nil {
 			return nil, errors.New("--token-login needs a cluster to check tokens against")
 		}
-		t = authn.NewTokenLogin(review, life)
+		// review tells a sign-in link token from a person's pasted token.
+		own, oerr := sarClient(cluster, d.dynamicFor)
+		if oerr != nil {
+			return nil, oerr
+		}
+		t = authn.NewTokenLogin(authn.DashboardTokenReview(authn.AudienceReview(own, authn.DashboardAudience), bearer), life)
 	}
 	switch {
 	case o != nil || t != nil:
