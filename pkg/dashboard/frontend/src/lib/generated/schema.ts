@@ -3772,7 +3772,7 @@ export interface components {
              * @description How many Kubernetes and workload sources Pacto could not read before the bound
              */
             notReadTotal: number;
-            /** @description At most 200 rows, least healthy first, then by source and id */
+            /** @description At most 200 rows, reported before inferred, least healthy first, then by source and id */
             providers: components["schemas"]["Fleet.Provider"][] | null;
             /**
              * Format: int64

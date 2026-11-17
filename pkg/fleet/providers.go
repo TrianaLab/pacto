@@ -380,11 +380,20 @@ func providersNarrowed(s *FleetSnapshot, visible func(string) bool, workloadVisi
 	})
 }
 
-// boundProviders is a copy of rows, least healthy first then by source and
-// id, capped at MaxProviders.
+// boundProviders is a copy of rows, the rows a source reported before the
+// inferred ones, each least healthy first then by source and id, capped at
+// MaxProviders.
 func boundProviders(rows []Provider) ([]Provider, bool) {
 	out := slices.Clone(rows)
-	slices.SortStableFunc(out, func(a, b Provider) int { return cmp.Compare(sourceHealthRank(a.Status), sourceHealthRank(b.Status)) })
+	inferred := func(p Provider) int {
+		if p.Provenance == ProvenanceInferred {
+			return 1
+		}
+		return 0
+	}
+	slices.SortStableFunc(out, func(a, b Provider) int {
+		return cmp.Or(cmp.Compare(inferred(a), inferred(b)), cmp.Compare(sourceHealthRank(a.Status), sourceHealthRank(b.Status)))
+	})
 	if len(out) <= MaxProviders {
 		return out, false
 	}
@@ -398,13 +407,14 @@ type ProvidersResult struct {
 	Meta              ProductMeta   `json:"meta"`
 	Total             int           `json:"total" doc:"How many rows the snapshot holds before the bound"`
 	Truncated         bool          `json:"truncated,omitempty"`
-	Providers         []Provider    `json:"providers" doc:"At most 200 rows, least healthy first, then by source and id"`
+	Providers         []Provider    `json:"providers" doc:"At most 200 rows, reported before inferred, least healthy first, then by source and id"`
 	KubernetesSources int           `json:"kubernetesSources" doc:"How many Kubernetes and workload sources the view reads, the unavailable ones included"`
 	NotRead           []SourceState `json:"notRead" doc:"The Kubernetes and workload sources Pacto could not read, at most 50"`
 	NotReadTotal      int           `json:"notReadTotal" doc:"How many Kubernetes and workload sources Pacto could not read before the bound"`
 }
 
-// Providers lists the detected-provider rows of the query, least healthy first.
+// Providers lists the detected-provider rows of the query, reported before
+// inferred and least healthy first.
 func (q *Query) Providers() *ProvidersResult {
 	rows, truncated := boundProviders(q.snap.Providers)
 	if rows == nil {

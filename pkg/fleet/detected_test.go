@@ -199,3 +199,22 @@ func TestRestrictRedactsCappedDetectedRow(t *testing.T) {
 		t.Error("a capped detected row must be redacted for a restricted reader")
 	}
 }
+
+// TestProvidersListReportedBeforeInferred: a reported row comes before every
+// inferred one, even a healthier one, so a guess never pushes a fact behind
+// Show all; each group stays least healthy first.
+func TestProvidersListReportedBeforeInferred(t *testing.T) {
+	stale := detectedRow("nodes", ScopeCluster)
+	stale.Status = SourceUnavailable
+	rows, _ := boundProviders([]Provider{
+		detectedRow("cloud", ScopeCluster), stale,
+		{ID: "crd", Status: SourceAvailable}, {ID: "workloads", Status: SourcePartial},
+	})
+	var got []string
+	for _, p := range rows {
+		got = append(got, p.ID)
+	}
+	if want := []string{"workloads", "crd", "nodes", "cloud"}; !slices.Equal(got, want) {
+		t.Errorf("order = %v, want %v", got, want)
+	}
+}

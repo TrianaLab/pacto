@@ -1246,7 +1246,8 @@ type StatusResult struct {
 	Total     int          `json:"total"`
 	Truncated bool         `json:"truncated,omitempty"`
 	Items     []StatusItem `json:"items"`
-	// Providers are at most MaxProviders rows, least healthy first.
+	// Providers are at most MaxProviders rows, reported before inferred and
+	// least healthy first.
 	Providers          []Provider `json:"providers,omitempty" doc:"What Pacto detected in each source, with evidence, what it uses each for and its status"`
 	ProvidersTruncated bool       `json:"providersTruncated,omitempty"`
 }

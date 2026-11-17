@@ -207,7 +207,7 @@ describe('DetectedProviders', () => {
     providersFn.mockResolvedValue({ ...resp(Array.from({ length: 7 }, (_, i) => row(`p${i}`))), total: 260, truncated: true });
     const t = render();
     await vi.waitFor(() => expect(rows(t)).toHaveLength(5));
-    expect(text(t.querySelector('[data-testid="providers-truncated"]'))).toBe('Showing 7 of 260 detected providers, least healthy first.');
+    expect(text(t.querySelector('[data-testid="providers-truncated"]'))).toBe('Showing 7 of 260 detected providers, reported before inferred, least healthy first.');
   });
   describe('inferred rows (510-S5)', () => {
     const AS_OF = new Date(Date.now() - 4 * 60_000).toISOString();

@@ -100,7 +100,7 @@
       <p class="t-meta" data-testid="providers-inferred-hidden">{formatCount(inferredCount)} inferred provider{inferredCount === 1 ? '' : 's'} hidden.</p>
     {/if}
     {#if all.length && loader.data.truncated}
-      <p class="t-meta" data-testid="providers-truncated">Showing {formatCount(all.length)} of {formatCount(loader.data.total)} detected providers, least healthy first.</p>
+      <p class="t-meta" data-testid="providers-truncated">Showing {formatCount(all.length)} of {formatCount(loader.data.total)} detected providers, reported before inferred, least healthy first.</p>
     {/if}
     {#if notRead.length}
       <ul class="dp-unread">
