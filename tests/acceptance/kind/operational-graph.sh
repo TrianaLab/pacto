@@ -222,6 +222,7 @@ echo "== declared services: the projected Pacto CRs, resolved FROM THE REGISTRY 
 # reconcile NonCompliant.
 kubectl create namespace "$DEMO_NS" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 workloads=()
+deployments=() # the Deployment each workload's Pacto targets, by index
 statuses=() # the status each workload must reconcile to, by index
 while IFS=$'\t' read -r service deployment port mode extra; do
   [ -n "$service" ] && [ -n "$deployment" ] && [ -n "$port" ] && [ -n "$mode" ] && [ -z "${extra:-}" ] \
@@ -238,6 +239,7 @@ while IFS=$'\t' read -r service deployment port mode extra; do
   [ "$port" = 0 ] \
     || kubectl -n "$DEMO_NS" expose deployment "$deployment" --name="$deployment" --port="$port" >/dev/null 2>&1 || true
   workloads+=("$service")
+  deployments+=("$deployment")
 done < <(plan_records workload)
 [ "${#workloads[@]}" -gt 0 ] || fail "the plan declares no workload to reconcile"
 kubectl apply -f "$CRS" >/dev/null
@@ -310,6 +312,24 @@ curl -fsS "http://127.0.0.1:8080/api/fleet/snapshot" \
   | jq -e --arg u "$CLUSTER_UID" 'any(.sources[]; .kind == "kubernetes" and .id == $u)' >/dev/null \
   && pass "the dashboard's live source is keyed by the cluster UID" \
   || fail "the dashboard's live source is not keyed by cluster $CLUSTER_UID"
+
+# Inferred services: a Deployment no Pacto targets shows as an inferred service
+# (the dashboard lists workloads with its own list-only grant), and a Deployment
+# a Pacto targets never does.
+kubectl -n "$DEMO_NS" create deployment untracked \
+  --image=registry.k8s.io/pause:3.9@sha256:7031c1b283388d2c2e09b57badb803c05ebed362dc88d84b480cc47f72a21097 >/dev/null 2>&1 || true
+inferred_named() { # DEPLOYMENT — prints the inferred service entities for it in DEMO_NS
+  curl -fsS "http://127.0.0.1:8080/api/fleet/entities?declaration=inferred&kinds=service&text=$1" \
+    | jq -c --arg ns "$DEMO_NS" --arg d "$1" \
+      '[.entities[] | select(.declaration == "inferred" and .scope == $ns and .secondary == "Deployment" and (.label | endswith("/Deployment/" + $d)))]'
+}
+untracked_inferred() { [ "$(inferred_named untracked | jq length)" = 1 ]; }
+eventually 40 untracked_inferred \
+  && pass "a Deployment no Pacto targets shows as an inferred service" \
+  || fail "the Deployment $DEMO_NS/untracked never showed as an inferred service: $(inferred_named untracked)"
+[ "$(inferred_named "${deployments[0]}" | jq length)" = 0 ] \
+  && pass "a Deployment a Pacto targets is never inferred" \
+  || fail "the targeted Deployment ${deployments[0]} shows as an inferred service"
 
 # Browser acceptance: drive the LIVE dashboard in Chromium via Playwright, proving
 # the real frontend bundle + real HTTP API + real operator data render together —

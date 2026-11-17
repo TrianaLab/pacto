@@ -46,6 +46,15 @@ func clusterRoleAC(scoped bool) runtime.ApplyConfiguration {
 				WithAPIGroups("").
 				WithResources("services").
 				WithVerbs("get", "list", "watch"),
+			// Inferred services: the dashboard lists every workload; it never reads a Pod or a Secret and drops env values before anything is stored.
+			rbacv1ac.PolicyRule().
+				WithAPIGroups("apps").
+				WithResources("deployments", "statefulsets", "daemonsets").
+				WithVerbs("list"),
+			rbacv1ac.PolicyRule().
+				WithAPIGroups("batch").
+				WithResources("cronjobs").
+				WithVerbs("list"),
 		)
 	}
 	return rbacv1ac.ClusterRole(Name).

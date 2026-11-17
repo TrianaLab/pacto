@@ -29,6 +29,12 @@ read across the cluster. The dashboard Overview starts with "Watching 2
 namespaces (ledger and payments)." Every fleet answer is `partial`, and a
 service in any other namespace is unknown.
 
+In both install modes the dashboard lists Deployments, StatefulSets,
+DaemonSets and CronJobs, with `list` only, to show them as inferred services.
+Listing them lets its ServiceAccount read the inline environment values in
+their pod templates. Pacto drops those values before anything is stored or
+served.
+
 A namespace-list install cannot read the `kube-system` namespace, so it
 reports no cluster id. The live source keeps its context name, and a snapshot
 with several clusters marks it `CLUSTER_UNKNOWN`.

@@ -205,6 +205,8 @@ func TestDashboardClusterRoleInventory(t *testing.T) {
 	full := append([]rbacv1.PolicyRule{
 		{APIGroups: []string{"pacto.trianalab.io"}, Resources: []string{"pactos", "pactorevisions"}, Verbs: []string{"get", "list", "watch"}},
 		{APIGroups: []string{""}, Resources: []string{"services"}, Verbs: []string{"get", "list", "watch"}},
+		{APIGroups: []string{"apps"}, Resources: []string{"deployments", "statefulsets", "daemonsets"}, Verbs: []string{"list"}},
+		{APIGroups: []string{"batch"}, Resources: []string{"cronjobs"}, Verbs: []string{"list"}},
 	}, deliveryHalf...)
 	for _, tc := range []struct {
 		scoped bool

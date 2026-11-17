@@ -150,6 +150,18 @@ wait_managed_ready pacto-dashboard >/dev/null || fail "dashboard Deployment not 
 eventually 40 kubectl get clusterrole pacto-dashboard >/dev/null || fail "the cluster-wide dashboard never got its ClusterRole"
 [ "$(can_i list secrets "$DASH_AS" --all-namespaces)" = "no" ] || fail "the dashboard may list Secrets in every namespace"
 pass "the dashboard may not list Secrets in any namespace"
+# Inferred services: the dashboard lists the four workload kinds, list only,
+# and never reads pods or Secrets.
+for res in deployments.apps statefulsets.apps daemonsets.apps cronjobs.batch; do
+  [ "$(can_i list "$res" "$DASH_AS" --all-namespaces)" = "yes" ] || fail "the dashboard may not list $res in every namespace"
+  for verb in get watch; do
+    [ "$(can_i "$verb" "$res" "$DASH_AS" --all-namespaces)" = "no" ] || fail "the dashboard may $verb $res; inferred services need list only"
+  done
+done
+for res in pods secrets; do
+  [ "$(can_i get "$res" "$DASH_AS" --all-namespaces)" = "no" ] || fail "the dashboard may get $res"
+done
+pass "the dashboard may list workloads, never get or watch them, and reads no pods or Secrets"
 apply_pacto default lp-pull missing-grant
 eventually 20 reason_is default lp-pull PullSecretNotGranted || fail "lp-pull never reached PullSecretNotGranted (reason '$(condition default lp-pull reason)')"
 [ "$(pacto_status default lp-pull)" = "Unknown" ] || fail "lp-pull contractStatus=$(pacto_status default lp-pull), want Unknown"
