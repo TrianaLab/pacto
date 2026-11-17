@@ -188,6 +188,9 @@ describe('changeTypeClass', () => {
 });
 
 describe('sourceTooltip', () => {
+  it('names cluster detection', () => {
+    expect(sourceTooltip('detection')).toContain('Cluster detection');
+  });
   it('returns description for known sources', () => {
     expect(sourceTooltip('kubernetes')).toContain('Kubernetes');
     expect(sourceTooltip('oci')).toContain('OCI');

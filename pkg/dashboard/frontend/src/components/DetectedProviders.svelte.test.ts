@@ -209,4 +209,117 @@ describe('DetectedProviders', () => {
     await vi.waitFor(() => expect(rows(t)).toHaveLength(5));
     expect(text(t.querySelector('[data-testid="providers-truncated"]'))).toBe('Showing 7 of 260 detected providers, least healthy first.');
   });
+  describe('inferred rows (510-S5)', () => {
+    const AS_OF = new Date(Date.now() - 4 * 60_000).toISOString();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test fixture
+    const inferred = (id: string, over: Record<string, any> = {}) => row(id, {
+      source: 'cluster-detection', provenance: 'inferred', asOf: AS_OF, name: 'Registry',
+      evidence: 'ghcr.io/acme in 9 of 11 namespaces, 87% of workloads', usedFor: ['delivery'],
+      hint: 'oci://ghcr.io/acme/<service>:<version>', details: ['ghcr.io/acme 87%', 'docker.io/library 13%'], ...over,
+    });
+    beforeEach(() => { location.hash = '#/fleet/sources'; });
+    afterEach(() => { location.hash = ''; });
+
+    it('marks inferred rows with a tooltip naming source, age and completeness', async () => {
+      providersFn.mockResolvedValue(resp([inferred('registry', { status: 'partial' }), row('pacto-crd')]));
+      const t = render();
+      await vi.waitFor(() => expect(rows(t)).toHaveLength(2));
+      const [r, plain] = rows(t);
+      expect(r.querySelector('.prov-mark button')?.getAttribute('aria-label')).toBe('Inferred: from cluster-detection');
+      expect(text(r.querySelector('.prov-tip'))).toBe('Inferred from cluster-detection, as of 4 minutes ago, partial. Nothing was turned on.');
+      expect(plain.querySelector('.prov-mark')).toBeNull();
+    });
+
+    it('names an unavailable inferred row as unknown and an available one as complete', async () => {
+      providersFn.mockResolvedValue(resp([inferred('a', { status: 'unavailable' }), inferred('b')]));
+      const t = render();
+      await vi.waitFor(() => expect(rows(t)).toHaveLength(2));
+      expect(text(rows(t)[0].querySelector('.prov-tip'))).toContain(', unknown.');
+      expect(text(rows(t)[1].querySelector('.prov-tip'))).toContain(', complete.');
+    });
+
+    it('mutes inferred rows', async () => {
+      providersFn.mockResolvedValue(resp([inferred('registry'), row('pacto-crd')]));
+      const t = render();
+      await vi.waitFor(() => expect(rows(t)).toHaveLength(2));
+      expect(rows(t)[0].classList.contains('dp-inferred')).toBe(true);
+      expect(rows(t)[1].classList.contains('dp-inferred')).toBe(false);
+    });
+
+    it('toggle hides inferred rows and writes inferred=0', async () => {
+      providersFn.mockResolvedValue(resp([inferred('registry'), row('pacto-crd')]));
+      const t = render();
+      await vi.waitFor(() => expect(rows(t)).toHaveLength(2));
+      const box = t.querySelector('[data-testid="providers-inferred-toggle"] input') as HTMLInputElement;
+      expect(box.checked).toBe(true);
+      box.click();
+      expect(location.hash).toBe('#/fleet/sources?inferred=0');
+      window.dispatchEvent(new HashChangeEvent('hashchange')); flushSync();
+      expect(rows(t)).toHaveLength(1);
+      expect(text(rows(t)[0])).toContain('pacto-crd');
+      expect(text(t.querySelector('[data-testid="providers-inferred-hidden"]'))).toBe('1 inferred provider hidden.');
+      (t.querySelector('[data-testid="providers-inferred-toggle"] input') as HTMLInputElement).click();
+      expect(location.hash).toBe('#/fleet/sources');
+    });
+
+    it('inferred=0 in location.hash hides inferred rows on mount', async () => {
+      location.hash = '#/fleet/sources?inferred=0';
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+      providersFn.mockResolvedValue(resp([inferred('registry'), row('pacto-crd')]));
+      const t = render();
+      await vi.waitFor(() => expect(rows(t)).toHaveLength(1));
+      expect((t.querySelector('[data-testid="providers-inferred-toggle"] input') as HTMLInputElement).checked).toBe(false);
+    });
+
+    it('offers no toggle when no row is inferred', async () => {
+      providersFn.mockResolvedValue(resp([row('pacto-crd')]));
+      const t = render();
+      await vi.waitFor(() => expect(rows(t)).toHaveLength(1));
+      expect(t.querySelector('[data-testid="providers-inferred-toggle"]')).toBeNull();
+    });
+
+    it('details stay collapsed until opened', async () => {
+      providersFn.mockResolvedValue(resp([inferred('registry', { status: 'partial', limitations: [{ code: 'DETECTION_REGISTRY_PARTIAL', message: 'no clear majority' }] })]));
+      const t = render();
+      await vi.waitFor(() => expect(rows(t)).toHaveLength(1));
+      const d = rows(t)[0].querySelectorAll('details');
+      // One disclosure per row: the reasons, the details and the hint together.
+      expect(d).toHaveLength(1);
+      expect(d[0].open).toBe(false);
+      expect(text(d[0].querySelector('summary'))).toBe('More details');
+      expect(text(d[0])).toContain('no clear majority');
+      expect(text(d[0])).toContain('docker.io/library 13%');
+    });
+
+    it('hint copies the exact command', async () => {
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+      providersFn.mockResolvedValue(resp([inferred('registry')]));
+      const t = render();
+      await vi.waitFor(() => expect(rows(t)).toHaveLength(1));
+      (rows(t)[0].querySelector('.copyable-btn') as HTMLButtonElement).click();
+      expect(writeText).toHaveBeenCalledWith('oci://ghcr.io/acme/<service>:<version>');
+    });
+
+    it('a redacted row shows no hint', async () => {
+      providersFn.mockResolvedValue(resp([inferred('registry', { evidence: 'Registry found in a namespace you cannot read', hint: undefined, details: undefined })]));
+      const t = render();
+      await vi.waitFor(() => expect(rows(t)).toHaveLength(1));
+      expect(rows(t)[0].querySelector('.copyable')).toBeNull();
+      expect(rows(t)[0].querySelector('details')).toBeNull();
+      expect(text(rows(t)[0])).toContain('Registry found in a namespace you cannot read');
+    });
+
+    it('adds no block', async () => {
+      providersFn.mockResolvedValue(resp([row('pacto-crd')]));
+      let t = render();
+      await vi.waitFor(() => expect(rows(t)).toHaveLength(1));
+      const before = [t.querySelectorAll('section').length, t.querySelectorAll('h2, h3').length];
+      unmount(mounted!.component as never); mounted!.target.remove(); mounted = null;
+      providersFn.mockResolvedValue(resp([inferred('registry'), row('pacto-crd')]));
+      t = render();
+      await vi.waitFor(() => expect(rows(t)).toHaveLength(2));
+      expect([t.querySelectorAll('section').length, t.querySelectorAll('h2, h3').length]).toEqual(before);
+    });
+  });
 });

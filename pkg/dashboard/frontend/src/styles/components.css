@@ -364,6 +364,7 @@ select {
 .source-dot-evidence-ingest { background: #ec4899; }
 .source-dot-observation { background: #22c55e; }
 .source-dot-catalog { background: #a16207; }
+.source-dot-detection { background: #0891b2; }
 
 /* ─── Tooltip ─── */
 [data-tip] {

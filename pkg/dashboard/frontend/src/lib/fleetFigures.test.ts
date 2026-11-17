@@ -158,6 +158,8 @@ describe('sourcesModel kind tallies (S2 r5)', () => {
   });
   it('names a kind in words, one or many', () => {
     expect(sourceKindNoun('oci', 1)).toBe('OCI registry');
+    expect(sourceKindNoun('detection', 1)).toBe('cluster detection');
+    expect(sourceKindNoun('detection', 2)).toBe('cluster detections');
     expect(sourceKindNoun('target-state', 2)).toBe('target-state files');
     expect(sourceKindNoun('kubernetes-workloads', 4)).toBe('Kubernetes workload readers');
     expect(sourceKindNoun('acme', 2)).toBe('acme sources');

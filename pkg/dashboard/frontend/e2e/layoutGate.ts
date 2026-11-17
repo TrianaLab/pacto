@@ -227,6 +227,17 @@ export function installScaleFixture(): void {
         objectsTotal: 40,
         limitations: i < 2 ? [{ code: 'PROVIDER_SOURCE_DEGRADED', source: `k8s-${i % 4}`, message: longName(`source-k8s-${i}-is-partial-the-counts-cover-only-what-it-read`) }] : undefined,
       }));
+      // Six of them the operator inferred (510-S5): 200-character values, five details,
+      // a long hint, and one redacted for a viewer who cannot read its namespace.
+      const pad = (s: string) => (s + '-' + 'x'.repeat(200)).slice(0, 200);
+      for (let i = 2; i < 8; i++) {
+        const r = (doc.providers as Record<string, unknown>[])[i];
+        Object.assign(r, { source: 'cluster-detection', provenance: 'inferred', asOf: new Date(Date.now() - 4 * 60_000).toISOString(), status: i === 3 ? 'partial' : 'available',
+          evidence: pad(`registry-${i}.example.com/${longName(`team-${i}`)} in 9 of 11 namespaces, 87% of workloads`),
+          details: Array.from({ length: 5 }, (_, j) => pad(`candidate-${j}.example.com/${longName(`detail-${i}-${j}`)}`)),
+          hint: `--set dashboard.httpRoute.enabled=true --set dashboard.httpRoute.parentRefs[0].name=${longName(`gateway-${i}`)} --set dashboard.httpRoute.parentRefs[0].namespace=${longName(`infra-${i}`)}` });
+        if (i === 7) Object.assign(r, { evidence: 'Registry found in a namespace you cannot read', hint: undefined, details: undefined, objects: undefined, objectsTotal: 3 });
+      }
       doc.total = 30;
       const meta = doc.meta as Record<string, unknown>;
       meta.sources = [...((meta.sources as unknown[] | undefined) ?? []), ...Array.from({ length: 6 }, (_, i) => ({
@@ -1937,6 +1948,21 @@ export const ROUTES: Route[] = [
   { name: 'services whose owner is unknown', list: true, hash: '#/fleet/services?ownership=unknown' },
   { name: 'incomplete sources', list: true, hash: '#/fleet/sources?sourceHealth=incomplete' },
   { name: 'sources, detected providers expanded', list: true, open: async (page) => { await page.goto('/#/fleet/sources'); await page.locator('[data-testid=detected-providers]').getByRole('button', { name: /Show all/ }).click(); await page.locator('[data-testid=detected-providers] details').first().evaluate((d) => { (d as HTMLDetailsElement).open = true; }); await page.evaluate(() => window.scrollTo(0, 0)); } }, // the click scrolled the block into view; the gate reads from the top
+  {
+    // Every inferred row's More details open (510-S5): the long details, the hint and its
+    // copy button are measured where the gate looks.
+    name: 'sources, detected details open', list: true,
+    open: async (page) => {
+      await page.goto('/#/fleet/sources');
+      const block = page.locator('[data-testid=detected-providers]');
+      await block.getByRole('button', { name: /Show all/ }).click();
+      const more = block.locator('.dp-inferred details');
+      await expect(more.first()).toBeAttached({ timeout: 30_000 });
+      await more.evaluateAll((ds) => { for (const d of ds) (d as HTMLDetailsElement).open = true; });
+      await expect(block.locator('.dp-inferred details:not([open])')).toHaveCount(0);
+      await page.evaluate(() => window.scrollTo(0, 0)); // the click scrolled the block into view; the gate reads from the top
+    },
+  },
   { name: 'domains by health', list: true, hash: '#/fleet/domains?sort=health' },
   { name: 'owners by gaps', list: true, hash: '#/fleet/owners?sort=gaps' },
   { name: 'attention lifecycle', list: true, hash: '#/fleet/attention?category=lifecycle' },

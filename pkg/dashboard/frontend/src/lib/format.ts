@@ -236,6 +236,7 @@ const SOURCE_DESCRIPTIONS: Record<string, string> = {
   observation: 'Observation — recorded calls between services',
   catalog: 'Catalog — contracts discovered in a registry',
   mira: 'Mira — calls between services seen in its trace store',
+  detection: 'Cluster detection — what the operator inferred the cluster provides',
 };
 
 export function sourceTooltip(src: string): string {

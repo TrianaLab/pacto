@@ -6,7 +6,11 @@
   import { fleetEntityUrl, fleetSourcesUrl } from '../lib/router.ts';
   import { cap } from '../lib/cap.svelte.ts';
   import { formatCount } from '../lib/format.ts';
+  import { formatRelative } from '../lib/dateFormat.ts';
+  import { hashParam, setHashParams } from '../lib/hashQuery.svelte.ts';
   import ShowAll from './ShowAll.svelte';
+  import ProvenanceMark from './ProvenanceMark.svelte';
+  import CopyableIdentifier from './CopyableIdentifier.svelte';
   import StaleRefreshNotice from './StaleRefreshNotice.svelte';
 
   // What Pacto found in the clusters it reads (509-S2): per row the provider, the
@@ -22,16 +26,34 @@
   onDestroy(() => loader.destroy());
 
   const NOT_READ_LINES = 3;
-  const rows = $derived(loader.data?.providers ?? []);
+  const all = $derived(loader.data?.providers ?? []);
+  // Rows the operator inferred (510-S5) are muted, carry one provenance mark and can be
+  // hidden with one toggle kept in the URL as inferred=0; on is the default.
+  const isInferred = (r) => r.provenance === 'inferred';
+  const inferredCount = $derived(all.filter(isInferred).length);
+  const showInferred = $derived(hashParam('inferred') !== '0');
+  const rows = $derived(showInferred ? all : all.filter((r) => !isInferred(r)));
+  // The row status is the completeness the operator reported, then its age.
+  const COMPLETENESS = { available: 'complete', partial: 'partial', unavailable: 'unknown', stale: 'stale' };
+  const markText = (r) => [`Inferred from ${r.source}`, r.asOf && `as of ${formatRelative(r.asOf)}`, COMPLETENESS[r.status] ?? r.status].filter(Boolean).join(', ') + '. Nothing was turned on.';
   const notRead = $derived(loader.data?.notRead ?? []);
   const notReadTotal = $derived(loader.data?.notReadTotal ?? notRead.length);
   const clustered = $derived(new Set(rows.map((r) => r.cluster).filter(Boolean)).size > 1);
   const list = cap(5);
   const words = (t) => t.replaceAll('-', ' ');
+  const why = (r) => r.status !== 'available' && r.limitations?.length;
 </script>
 
 <section class="dp" data-testid="detected-providers" aria-labelledby="dp-title">
-  <h2 id="dp-title" class="t-subsection-title">Detected providers</h2>
+  <div class="dp-head">
+    <h2 id="dp-title" class="t-subsection-title">Detected providers</h2>
+    {#if inferredCount}
+      <label class="dp-toggle t-meta" data-testid="providers-inferred-toggle">
+        <input type="checkbox" checked={showInferred} onchange={(e) => setHashParams({ inferred: e.currentTarget.checked ? null : '0' })} />
+        Inferred
+      </label>
+    {/if}
+  </div>
   {#if !loader.data && loader.error}
     <p class="t-meta" role="alert">Could not load the detected providers. <button type="button" class="btn btn-sm" onclick={() => loader.refresh()}>Retry</button></p>
   {:else if !loader.data}
@@ -44,16 +66,26 @@
     {#if rows.length}
       <ul class="dp-list">
         {#each list.slice(rows) as r (`${r.source}/${r.id}`)}
-          <li class="dp-row" data-testid="provider-row">
+          <li class="dp-row" class:dp-inferred={isInferred(r)} data-testid="provider-row">
             <span class="dp-name">
               <span class="dp-dot tone-{sourceHealthTone(r.status)}" aria-hidden="true"></span>
               <span class:visually-hidden={r.status === 'available'} class="dp-status">{sourceHealthLabel(r.status)}</span>
               {#if clustered && r.cluster}<bdi class="dp-cluster" title={r.cluster}>{r.cluster}</bdi>{/if}
               <bdi class="dp-trunc" title={r.name}>{r.name}</bdi>
+              {#if isInferred(r)}<ProvenanceMark label={`Inferred: from ${r.source}`} text={markText(r)} />{/if}
             </span>
             <bdi class="dp-trunc dp-evidence" title={r.evidence}>{r.evidence}</bdi>
             <span class="dp-used">{(r.usedFor ?? []).map(words).join(', ')}</span>
-            {#if r.status !== 'available' && r.limitations?.length}
+            {#if isInferred(r)}
+              {#if r.hint || r.details?.length || why(r)}
+                <details class="disclosure dp-why">
+                  <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span>More details</summary>
+                  {#if why(r)}<ul class="t-meta">{#each r.limitations as l}<li>{l.message}</li>{/each}</ul>{/if}
+                  {#if r.details?.length}<ul class="t-meta">{#each r.details as d}<li><bdi>{d}</bdi></li>{/each}</ul>{/if}
+                  {#if r.hint}<p class="dp-hint t-meta">Proposal to review: <CopyableIdentifier value={r.hint} label="command" /></p>{/if}
+                </details>
+              {/if}
+            {:else if why(r)}
               <details class="disclosure dp-why">
                 <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span>Why {sourceHealthLabel(r.status).toLowerCase()}</summary>
                 <ul class="t-meta">{#each r.limitations as l}<li>{l.message}</li>{/each}</ul>
@@ -63,9 +95,12 @@
         {/each}
       </ul>
       <ShowAll cap={list} total={rows.length} noun="providers" testid="providers-show-all" />
-      {#if loader.data.truncated}
-        <p class="t-meta" data-testid="providers-truncated">Showing {formatCount(rows.length)} of {formatCount(loader.data.total)} detected providers, least healthy first.</p>
-      {/if}
+    {/if}
+    {#if !showInferred && inferredCount}
+      <p class="t-meta" data-testid="providers-inferred-hidden">{formatCount(inferredCount)} inferred provider{inferredCount === 1 ? '' : 's'} hidden.</p>
+    {/if}
+    {#if all.length && loader.data.truncated}
+      <p class="t-meta" data-testid="providers-truncated">Showing {formatCount(all.length)} of {formatCount(loader.data.total)} detected providers, least healthy first.</p>
     {/if}
     {#if notRead.length}
       <ul class="dp-unread">
@@ -81,6 +116,13 @@
 </section>
 
 <style>
+  .dp-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--sp-1) var(--sp-3); }
+  .dp-toggle { display: inline-flex; align-items: center; gap: var(--sp-1); cursor: pointer; }
+  @media (pointer: coarse) { .dp-toggle { min-block-size: 44px; } }
+  /* Inferred rows read quieter than what a source reported directly. */
+  .dp-inferred .dp-name { font-weight: 500; }
+  .dp-inferred .dp-evidence, .dp-inferred .dp-used { color: var(--c-text-3); }
+  .dp-hint { margin: var(--sp-1) 0 0; overflow-wrap: anywhere; }
   .dp { display: flex; flex-direction: column; gap: var(--sp-2); min-inline-size: 0; }
   /* A stacked block per row on a narrow container, three columns on a wide one
      (SPEC 24.2): the container decides, never the viewport. */
