@@ -37,9 +37,9 @@ compares it with its `spec.applyRef`:
 | State | Means | A promote |
 |---|---|---|
 | `Adopted` | The Stage's applier manages every workload | goes ahead |
-| `Unmanaged` | No Pacto reports a workload yet | goes ahead |
+| `Unmanaged` | No Pacto reports a workload yet, or the workload it reports does not exist yet | goes ahead |
 | `Conflict` | Another manager or another object owns a workload, a plain Helm release owns it, or the workloads disagree | is refused; `Ready` is `False` with `ApplierConflict` |
-| `Unknown` | A workload carries no mark of the Stage's applier, an unsupported or ambiguous manager owns it, or Pacto could not read it | is refused; `Ready` is `False` with `ApplierUnknown` |
+| `Unknown` | A workload carries no mark of the Stage's applier, an unsupported or ambiguous manager owns it, Pacto could not read it, a Pacto is not reconciled yet or evaluated another workload than the Stage runs, or a Kustomization in another namespace does not apply from the Stage's OCIRepository | is refused; `Ready` is `False` with `ApplierUnknown` |
 
 Nobody can accept a `Conflict` or an `Unknown`: Pacto never writes a pointer
 another manager may overwrite, and moving a workload is yours to do.

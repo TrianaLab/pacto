@@ -314,6 +314,10 @@ and refuses a promote it cannot tie to that manager:
   `applyRef`, which names an Application in the Stage's namespace.
 - Detection reads only the workloads a Pacto in the Stage's namespace
   reports, so a Stage with no Pacto yet reads `Unmanaged`.
+- Detection reads a Kustomization outside the Stage's namespace only when it
+  applies from the Stage's OCIRepository. For any other one a workload's
+  labels name, it reads `Unknown` with the same message whether that
+  Kustomization exists or not.
 
 ## Delivery records have no outside witness
 
