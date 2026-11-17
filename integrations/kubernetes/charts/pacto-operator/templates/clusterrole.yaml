@@ -98,6 +98,12 @@ rules:
   {{- include "pacto-operator.rbac.clusterIdentityRule" . | nindent 2 }}
   {{- end }}
   {{- if not $scoped }}
+  # Detection reads each node's providerID, labels and kernel to propose the
+  # cloud and the node kernels in <fullname>-detected. It writes nothing on
+  # nodes, and with controller.watchNamespaces this rule is not rendered.
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [list]
   {{- if include "pacto-operator.kernelEvidence" . }}
   # The node agent's heartbeat: one Lease per node, read through the cache in
   # the kernel evidence namespace only (the cache never starts a cluster-wide

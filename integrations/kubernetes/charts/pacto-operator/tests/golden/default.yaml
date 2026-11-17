@@ -1965,6 +1965,12 @@ rules:
     resources: [namespaces]
     resourceNames: [kube-system]
     verbs: [get]
+  # Detection reads each node's providerID, labels and kernel to propose the
+  # cloud and the node kernels in <fullname>-detected. It writes nothing on
+  # nodes, and with controller.watchNamespaces this rule is not rendered.
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [list]
   # auto reads the target namespace's pacto.trianalab.io/observe label, by
   # name, uncached; names and labels only.
   - apiGroups: [""]

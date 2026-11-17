@@ -23,13 +23,6 @@ rules:
   - patch
 - apiGroups:
   - ""
-  resources:
-  - namespaces
-  verbs:
-  - get
-  - list
-- apiGroups:
-  - ""
   resourceNames:
   - kube-system
   resources:
@@ -48,9 +41,11 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - namespaces
   - nodes
   verbs:
   - get
+  - list
 - apiGroups:
   - apps
   resources:

@@ -22,6 +22,7 @@ Present in every cluster-wide install, including one with every managed componen
 | `"" (core)` | `events` | `create`, `patch` | *not name-restricted* |
 | `"" (core)` | `namespaces` | `get` | `kube-system` |
 | `"" (core)` | `namespaces` | `get` | *not name-restricted* |
+| `"" (core)` | `nodes` | `list` | *not name-restricted* |
 | `"" (core)` | `pods` | `get`, `list`, `watch` | *not name-restricted* |
 | `"" (core)` | `services` | `get`, `list`, `watch` | *not name-restricted* |
 | `apps` | `deployments`, `replicasets`, `statefulsets`, `daemonsets` | `get`, `list`, `watch` | *not name-restricted* |

@@ -10,6 +10,7 @@ package detect
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -105,6 +106,36 @@ func Decode(data []byte) (Result, error) {
 	if major, _, _ := strings.Cut(res.SchemaVersion, "."); major != SchemaVersion {
 		return Result{}, fmt.Errorf("detection schema version %q is not %s", clean(res.SchemaVersion), SchemaVersion)
 	}
+	sanitize(&res)
+	return res, nil
+}
+
+// Encode writes res as the operator stores it: entries sorted by kind and
+// every string cleaned the way [Decode] cleans it. A list longer than its
+// bound is an error, so the operator never writes what a reader would cut.
+func Encode(res Result) ([]byte, error) {
+	if len(res.Entries) > MaxEntries {
+		return nil, fmt.Errorf("detection has %d entries, more than %d", len(res.Entries), MaxEntries)
+	}
+	for _, e := range res.Entries {
+		if len(e.Details) > MaxDetails || len(e.Namespaces) > MaxNamed || len(e.Objects) > MaxNamed {
+			return nil, fmt.Errorf("detection entry %q names more than its bounds allow", e.Kind)
+		}
+	}
+	res.SchemaVersion = SchemaVersion
+	res.Entries = slices.Clone(res.Entries)
+	slices.SortStableFunc(res.Entries, func(a, b Entry) int { return strings.Compare(a.Kind, b.Kind) })
+	sanitize(&res)
+	return json.Marshal(res)
+}
+
+// UnknownEntry is an entry of kind that could not be read, and why.
+func UnknownEntry(kind, reason string) Entry {
+	return Entry{Kind: kind, Completeness: Unknown, Reason: reason}
+}
+
+// sanitize cleans every string of res and caps every list.
+func sanitize(res *Result) {
 	res.Cluster = clean(res.Cluster)
 	res.Namespaces = cleanAll(res.Namespaces, MaxNamed)
 	res.Entries = capped(res.Entries, MaxEntries)
@@ -121,7 +152,6 @@ func Decode(data []byte) (Result, error) {
 			o.Kind, o.Namespace, o.Name = clean(o.Kind), clean(o.Namespace), clean(o.Name)
 		}
 	}
-	return res, nil
 }
 
 // capped is s with at most n elements.
