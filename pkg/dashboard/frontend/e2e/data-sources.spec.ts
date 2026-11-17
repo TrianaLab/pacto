@@ -144,6 +144,24 @@ test.describe('overview to inventory to source and back', () => {
   });
 });
 
+test.describe('the inventory says what Pacto detected', () => {
+  test('one Detected providers block lists the demo cluster rows, and no destination was added', async ({ page }) => {
+    await boot(page, '#/fleet/sources');
+    const block = page.getByTestId('detected-providers');
+    await expect(block.getByRole('heading', { level: 2, name: 'Detected providers' })).toBeVisible();
+    const rows = block.getByTestId('provider-row');
+    await expect(rows).toHaveCount(2);
+    await expect(block).toContainText('Pacto CRD');
+    await expect(block).toContainText('Kubernetes workloads');
+    // Two rows fit: nothing to expand, and no cluster is unread in the demo.
+    await expect(block.getByRole('button', { name: /Show all/ })).toHaveCount(0);
+    await expect(block.getByTestId('provider-not-read')).toHaveCount(0);
+    // The block lives inside Data sources: the primary navigation gained no entry.
+    const primary = page.getByRole('navigation', { name: 'Primary' }).first();
+    await expect(primary.getByRole('link', { name: /provider/i })).toHaveCount(0);
+  });
+});
+
 test.describe('a source page answers about itself', () => {
   test('an available source is never told it is unavailable by the fleet caveat', async ({ page }) => {
     // The demo snapshot is partial BECAUSE edge-cluster is down. `local` is not.

@@ -21,6 +21,7 @@
   import { MOTION, dur } from '../lib/motion.ts';
   import { formatDate } from '../lib/dateFormat.ts';
   import LazyView from '../components/LazyView.svelte';
+  import DetectedProviders from '../components/DetectedProviders.svelte';
   import { loadTrustFigure } from '../lib/lazyFigures.ts';
 
   // The product Sources list: source discovery through
@@ -129,6 +130,8 @@
       {/snippet}
     </LazyView>
   {/if}
+
+  <DetectedProviders {refreshTick} />
 
   <div class="lv-filters">
     <form class="lv-search" onsubmit={submitSearch} role="search">

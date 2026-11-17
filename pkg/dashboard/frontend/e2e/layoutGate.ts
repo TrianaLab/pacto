@@ -214,6 +214,26 @@ export function installScaleFixture(): void {
         if (r.declaration === 'inferred') r.image = `registry.example.com/${longName(`inferred-image-${String(r.key)}`).replace(/[^a-z0-9-]/g, '')}@sha256:${'9f8e'.repeat(16)}`;
       }
     }
+    // Detected providers at scale (509-S2): 30 rows from 4 sources in 3 clusters, long
+    // names and evidence, 20 objects, two partial rows with reasons, and 6 Kubernetes
+    // sources Pacto could not read, with ids and errors of 60 to 200 characters.
+    if (route === '/api/fleet/providers') {
+      const clusters = ['prod', 'staging', 'edge'].map((c) => longName(`cluster-${c}`));
+      doc.providers = Array.from({ length: 30 }, (_, i) => ({
+        id: `provider-${i}`, source: `k8s-${i % 4}`, cluster: clusters[i % 3], name: longName(`provider-name-${i}`),
+        evidence: longName(`evidence-${i}-served-pacto-trianalab-io-v1alpha1`), usedFor: ['inferred-services', 'declared-targets'],
+        status: i < 2 ? 'partial' : 'available',
+        objects: Array.from({ length: 20 }, (_, j) => ({ kind: 'Deployment', namespace: `ns-${j}`, name: longName(`object-${i}-${j}`) })),
+        objectsTotal: 40,
+        limitations: i < 2 ? [{ code: 'PROVIDER_SOURCE_DEGRADED', source: `k8s-${i % 4}`, message: longName(`source-k8s-${i}-is-partial-the-counts-cover-only-what-it-read`) }] : undefined,
+      }));
+      doc.total = 30;
+      const meta = doc.meta as Record<string, unknown>;
+      meta.sources = [...((meta.sources as unknown[] | undefined) ?? []), ...Array.from({ length: 6 }, (_, i) => ({
+        id: longName(`unreadable-cluster-${i}`), kind: 'kubernetes', status: 'unavailable', revisionCount: 0, targetCount: 0,
+        error: { code: 'Unavailable', message: longName(`dial-tcp-connection-refused-while-reading-cluster-${i}`) },
+      }))];
+    }
     if (route === '/api/fleet/overview') {
       const s = doc.summary as Record<string, unknown>;
       s.inferredServices = 12400; s.inferredUnverified = 310;
@@ -1895,6 +1915,7 @@ export const ROUTES: Route[] = [
   { name: 'services with a knowledge gap', list: true, hash: '#/fleet/services?gap=no-summary' },
   { name: 'services whose owner is unknown', list: true, hash: '#/fleet/services?ownership=unknown' },
   { name: 'incomplete sources', list: true, hash: '#/fleet/sources?sourceHealth=incomplete' },
+  { name: 'sources, detected providers expanded', list: true, open: async (page) => { await page.goto('/#/fleet/sources'); await page.locator('[data-testid=detected-providers]').getByRole('button', { name: /Show all/ }).click(); await page.locator('[data-testid=detected-providers] details').first().evaluate((d) => { (d as HTMLDetailsElement).open = true; }); await page.evaluate(() => window.scrollTo(0, 0)); } }, // the click scrolled the block into view; the gate reads from the top
   { name: 'domains by health', list: true, hash: '#/fleet/domains?sort=health' },
   { name: 'owners by gaps', list: true, hash: '#/fleet/owners?sort=gaps' },
   { name: 'attention lifecycle', list: true, hash: '#/fleet/attention?category=lifecycle' },

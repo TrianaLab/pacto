@@ -7,16 +7,29 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
 
-const { entitiesFn } = vi.hoisted(() => ({ entitiesFn: vi.fn() }));
+const { entitiesFn, providersFn } = vi.hoisted(() => ({ entitiesFn: vi.fn(), providersFn: vi.fn() }));
 vi.mock('../lib/api.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/api.ts')>();
-  return { ...actual, api: { fleetEntities: (...a: unknown[]) => entitiesFn(...a) } };
+  return { ...actual, api: {
+    fleetEntities: (...a: unknown[]) => entitiesFn(...a),
+    fleetProviders: (...a: unknown[]) => providersFn(...a),
+  } };
 });
 
 // @ts-expect-error — Svelte component has no declaration file
 import FleetOwnersView from './FleetOwnersView.svelte';
 // @ts-expect-error — Svelte component has no declaration file
 import FleetSourcesView from './FleetSourcesView.svelte';
+
+// Data sources mounts the Detected providers block: every test gets a two-row answer.
+providersFn.mockResolvedValue({
+  meta: { schemaVersion: 'pacto.dev/fleet-product/v1', completeness: 'complete', sources: [{ id: 'k8s', kind: 'kubernetes', status: 'available' }] },
+  total: 2,
+  providers: [
+    { id: 'pacto-crd', source: 'k8s', name: 'Pacto CRD', evidence: 'served (pacto.trianalab.io/v1alpha1)', usedFor: ['declared-targets'], status: 'available' },
+    { id: 'kubernetes-workloads', source: 'k8s', name: 'Kubernetes workloads', evidence: '2 Deployments', usedFor: ['inferred-services'], status: 'available' },
+  ],
+});
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test fixture
 function listResp(entities: any[], opts: { total?: number; offset?: number; nextOffset?: number; aggregate?: any } = {}): any {
@@ -431,6 +444,18 @@ describe('FleetOwnersView — the ownership summary has its own state', () => {
 
 describe('FleetSourcesView (G)', () => {
   beforeEach(() => { entitiesFn.mockReset(); location.hash = ''; });
+
+  it('mounts the Detected providers block once', async () => {
+    providersFn.mockClear();
+    entitiesFn.mockResolvedValue(listResp([
+      { kind: 'source', key: 'kubernetes', label: 'kubernetes', status: 'available', href: '/fleet/sources/kubernetes' },
+    ], { total: 1 }));
+    const { target, component } = mountView(FleetSourcesView);
+    await vi.waitFor(() => expect(target.querySelectorAll('[data-testid="provider-row"]')).toHaveLength(2));
+    expect(target.querySelectorAll('[data-testid="detected-providers"]')).toHaveLength(1);
+    expect(providersFn).toHaveBeenCalledTimes(1);
+    unmount(component); document.body.removeChild(target);
+  });
 
   it('consumes entities?kinds=source and lists sources with status', async () => {
     entitiesFn.mockResolvedValue(listResp([
