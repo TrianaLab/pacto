@@ -3,8 +3,11 @@ package diff
 import (
 	"encoding/json"
 	"math"
+	"strings"
 	"testing"
 	"testing/fstest"
+
+	"github.com/trianalab/pacto/v4/pkg/schemax"
 )
 
 func TestDiffSchema_BothFSNil(t *testing.T) {
@@ -521,5 +524,152 @@ func TestResponseHeaderCap_MatchesTheHeadersMap(t *testing.T) {
 	}
 	if got := classifySchemaChange(dirResponse, resp+".content.application/json.schema.properties.headers.properties.b", false, Removed, "a", nil); got != Breaking {
 		t.Errorf("body property named headers: got %s", got)
+	}
+}
+
+func redactionDiff(t *testing.T, oldSchema, newSchema string) []Change {
+	t.Helper()
+	return diffSchema("schema.json", "schema.json",
+		fstest.MapFS{"schema.json": &fstest.MapFile{Data: []byte(oldSchema)}},
+		fstest.MapFS{"schema.json": &fstest.MapFile{Data: []byte(newSchema)}})
+}
+
+func changeAt(t *testing.T, changes []Change, path string) Change {
+	t.Helper()
+	for _, c := range changes {
+		if c.Path == path {
+			return c
+		}
+	}
+	t.Fatalf("no change at %s in %+v", path, changes)
+	return Change{}
+}
+
+func assertNoLeak(t *testing.T, changes []Change, secret string) {
+	t.Helper()
+	b, err := json.Marshal(changes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), secret) {
+		t.Errorf("diff leaks %q: %s", secret, b)
+	}
+}
+
+func TestSchemaDiffRedactsSensitiveDefault(t *testing.T) {
+	changes := redactionDiff(t,
+		`{"type":"object","properties":{"DB_PASSWORD":{"type":"string","default":"hunter2"},"PORT":{"type":"integer","default":8080}}}`,
+		`{"type":"object","properties":{"DB_PASSWORD":{"type":"string","writeOnly":true},"PORT":{"type":"integer","default":9090}}}`)
+	c := changeAt(t, changes, "schema.properties.DB_PASSWORD.default")
+	if c.Type != Removed || c.OldValue != schemax.Sensitive || c.NewValue != nil {
+		t.Errorf("sensitive default change = %+v", c)
+	}
+	if c.Classification != PotentialBreaking || !strings.Contains(c.Reason, "schema.properties.DB_PASSWORD.default") {
+		t.Errorf("classification or reason lost: %+v", c)
+	}
+	if w := changeAt(t, changes, "schema.properties.DB_PASSWORD.writeOnly"); w.NewValue != schemax.Sensitive {
+		t.Errorf("writeOnly change not redacted: %+v", w)
+	}
+	if p := changeAt(t, changes, "schema.properties.PORT.default"); p.OldValue != float64(8080) || p.NewValue != float64(9090) {
+		t.Errorf("non-sensitive default redacted: %+v", p)
+	}
+	assertNoLeak(t, changes, "hunter2")
+}
+
+func TestSchemaDiffRedactsSensitiveDefault_NewPropertiesObject(t *testing.T) {
+	changes := redactionDiff(t, `{"type":"object"}`,
+		`{"type":"object","properties":{"API_TOKEN":{"type":"string","default":"s3cr3t"}}}`)
+	if c := changeAt(t, changes, "schema.properties"); c.Type != Added || c.NewValue != schemax.Sensitive {
+		t.Errorf("ancestor change not redacted: %+v", c)
+	}
+	assertNoLeak(t, changes, "s3cr3t")
+}
+
+func TestSchemaDiffRedactsSensitiveDefault_PropertyAdded(t *testing.T) {
+	changes := redactionDiff(t, `{"type":"object","properties":{}}`,
+		`{"type":"object","properties":{"API_TOKEN":{"type":"string","default":"s3cr3t"}}}`)
+	if c := changeAt(t, changes, "schema.properties.API_TOKEN"); c.NewValue != schemax.Sensitive {
+		t.Errorf("added sensitive property not redacted: %+v", c)
+	}
+	assertNoLeak(t, changes, "s3cr3t")
+}
+
+func TestSchemaDiffRedactsSensitiveDefault_WriteOnlyParent(t *testing.T) {
+	changes := redactionDiff(t,
+		`{"type":"object","properties":{"db":{"type":"object","writeOnly":true,"properties":{"url":{"type":"string","default":"pg://a:old@h"}}}}}`,
+		`{"type":"object","properties":{"db":{"type":"object","writeOnly":true,"properties":{"url":{"type":"string","default":"pg://a:new@h"}}}}}`)
+	if c := changeAt(t, changes, "schema.properties.db.properties.url.default"); c.OldValue != schemax.Sensitive || c.NewValue != schemax.Sensitive {
+		t.Errorf("child of writeOnly object not redacted: %+v", c)
+	}
+	assertNoLeak(t, changes, "old@h")
+	assertNoLeak(t, changes, "new@h")
+}
+
+func TestSchemaDiffRedactsSensitiveDefault_Composition(t *testing.T) {
+	changes := redactionDiff(t,
+		`{"allOf":[{"properties":{"SECRET_KEY":{"type":"string","default":"aaa"}}}]}`,
+		`{"allOf":[{"properties":{"SECRET_KEY":{"type":"string","default":"bbb"}}}]}`)
+	if c := changeAt(t, changes, "schema.allOf[0].properties.SECRET_KEY.default"); c.OldValue != schemax.Sensitive || c.NewValue != schemax.Sensitive {
+		t.Errorf("composed sensitive key not redacted: %+v", c)
+	}
+}
+
+func TestSchemaDiffRedactsSensitiveDefault_ArrayEntries(t *testing.T) {
+	changes := redactionDiff(t,
+		`{"properties":{"DB_PASSWORD":{"examples":["hunter2"],"enum":["a[b"],"anyOf":[{"type":"string"}]},"MODE":{"enum":["fast"]}}}`,
+		`{"properties":{"DB_PASSWORD":{"writeOnly":true,"examples":["hunter3"],"enum":["c[d"],"anyOf":[{"type":"string"},{"type":"null"}]},"MODE":{"enum":["slow"]}}}`)
+	for _, s := range []string{"hunter2", "hunter3", "a[b", "c[d"} {
+		assertNoLeak(t, changes, s)
+	}
+	if c := changeAt(t, changes, "schema.properties.DB_PASSWORD.examples[(sensitive)]"); c.Reason != "schema.properties.DB_PASSWORD.examples (sensitive) added" &&
+		c.Reason != "schema.properties.DB_PASSWORD.examples (sensitive) removed" {
+		t.Errorf("array entry reason = %q", c.Reason)
+	}
+	if c := changeAt(t, changes, "schema.properties.DB_PASSWORD.anyOf[1]"); c.Reason != "schema.properties.DB_PASSWORD.anyOf[1] added" {
+		t.Errorf("positional entry reason = %q", c.Reason)
+	}
+	changeAt(t, changes, "schema.properties.MODE.enum[fast]")
+}
+
+// TestSchemaDiffRedactsSensitiveValueAnywhere: a sensitive value outside a
+// sensitive property's own subtree is redacted too: an ancestor's default
+// that holds a writeOnly child, a writeOnly $defs entry, a definition a
+// sensitive property reaches through $ref (chained), a writeOnly node under
+// items or additionalProperties, and a credential URL default removed by hand
+// with no writeOnly on either side.
+func TestSchemaDiffRedactsSensitiveValueAnywhere(t *testing.T) {
+	for _, tc := range []struct{ name, old, new, secret string }{
+		{"root default", `{"default":{"DB_PASSWORD":"old1"},"properties":{"DB_PASSWORD":{"writeOnly":true}}}`,
+			`{"default":{"DB_PASSWORD":"new1"},"properties":{"DB_PASSWORD":{"writeOnly":true}}}`, "old1"},
+		{"object default", `{"properties":{"db":{"type":"object","default":{"password":"old2"},"properties":{"password":{"writeOnly":true}}}}}`,
+			`{"properties":{"db":{"type":"object","default":{"password":"new2"},"properties":{"password":{"writeOnly":true}}}}}`, "new2"},
+		{"writeOnly def", `{"$defs":{"S":{"writeOnly":true,"default":"old3"}},"properties":{"cred":{"$ref":"#/$defs/S"}}}`,
+			`{"$defs":{"S":{"writeOnly":true,"default":"new3"}},"properties":{"cred":{"$ref":"#/$defs/S"}}}`, "old3"},
+		{"ref chain", `{"$defs":{"pw":{"$ref":"#/$defs/raw"},"raw":{"default":"old4"},"a~b/c":{"default":"x"}},"properties":{"DB_PASSWORD":{"$ref":"#/$defs/pw"},"X_KEY":{"$ref":"#/$defs/a~0b~1c"},"Y_KEY":{"$ref":"#/$defs/missing/x"},"Z_KEY":{"$ref":"#/$defs/pw"}}}`,
+			`{"$defs":{"pw":{"$ref":"#/$defs/raw"},"raw":{"default":"new4"},"a~b/c":{"default":"x"}},"properties":{"DB_PASSWORD":{"$ref":"#/$defs/pw"},"X_KEY":{"$ref":"#/$defs/a~0b~1c"},"Y_KEY":{"$ref":"#/$defs/missing/x"},"Z_KEY":{"$ref":"#/$defs/pw"}}}`, "new4"},
+		{"items", `{"properties":{"list":{"items":{"writeOnly":true,"default":"old5"}}}}`, `{"properties":{"list":{"items":{"writeOnly":true,"default":"new5"}}}}`, "old5"},
+		{"additionalProperties", `{"additionalProperties":{"writeOnly":true,"default":"old6"}}`, `{"additionalProperties":{"writeOnly":true,"default":"new6"}}`, "new6"},
+		{"credential default", `{"properties":{"DATABASE_URL":{"type":"string","default":"postgres://app:hunter2@db/x"}}}`,
+			`{"properties":{"DATABASE_URL":{"type":"string"}}}`, "hunter2"},
+		{"credential examples", `{"properties":{"URL":{"examples":[{"u":"postgres://app:hunter7@db/x"}]}}}`, `{"properties":{"URL":{}}}`, "hunter7"},
+		{"array ref", `{"anyOf":[{"default":"old8"}],"properties":{"API_TOKEN":{"$ref":"#/anyOf/0"},"B_TOKEN":{"$ref":"#/anyOf/9"},"C_TOKEN":{"$ref":"#/anyOf/x"},"D_TOKEN":{"$ref":"#/anyOf/0/default/x"}}}`,
+			`{"anyOf":[{"default":"new8"}],"properties":{"API_TOKEN":{"$ref":"#/anyOf/0"},"B_TOKEN":{"$ref":"#/anyOf/9"},"C_TOKEN":{"$ref":"#/anyOf/x"},"D_TOKEN":{"$ref":"#/anyOf/0/default/x"}}}`, "old8"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			changes := redactionDiff(t, tc.old, tc.new)
+			if len(changes) == 0 {
+				t.Fatal("no change")
+			}
+			assertNoLeak(t, changes, tc.secret)
+		})
+	}
+	// A value with no sensitive property anywhere near it stays readable.
+	changes := redactionDiff(t, `{"properties":{"MODE":{"default":"fast"},"db":{"$ref":"#/$defs/d"}},"$defs":{"d":{"default":"a"}}}`,
+		`{"properties":{"MODE":{"default":"slow"},"db":{"$ref":"#/$defs/d"}},"$defs":{"d":{"default":"b"}}}`)
+	if c := changeAt(t, changes, "schema.properties.MODE.default"); c.NewValue != "slow" {
+		t.Errorf("non-sensitive default redacted: %+v", c)
+	}
+	if c := changeAt(t, changes, "schema.$defs.d.default"); c.NewValue != "b" {
+		t.Errorf("non-sensitive def redacted: %+v", c)
 	}
 }

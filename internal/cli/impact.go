@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/runrecord"
@@ -345,6 +346,9 @@ func printImpactConsumer(w io.Writer, result *impact.Result, c impact.AffectedCo
 		scope = "direct"
 	}
 	verdict := "compat=" + c.CompatibilityVerdict
+	if c.Compatibility == contract.CompatibilityUnknown {
+		verdict += " (" + contract.RangeLabel(c.Compatibility) + ")"
+	}
 	if c.Effect != "" {
 		verdict = "effect=" + c.Effect
 	}

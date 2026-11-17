@@ -15,13 +15,13 @@ import (
 // own bound, so a wedged runner fails in minutes and says where.
 func TestEveryCIJobHasATimeout(t *testing.T) {
 	root := repoRoot(t)
-	for _, file := range []string{"ci.yml", "delivery-demo.yml"} {
+	for _, file := range []string{"ci.yml", "delivery-demo.yml", "layout-full.yml"} {
 		jobs := workflowJobs(t, root, file)
 		for _, name := range slices.Sorted(maps.Keys(jobs)) {
 			// A job that calls a reusable workflow cannot set a timeout; the
 			// called workflow's jobs carry theirs, and this test reads them.
 			if u := jobs[name].Uses; u != "" {
-				if !slices.Contains([]string{"ci.yml", "delivery-demo.yml"}, strings.TrimPrefix(u, "./.github/workflows/")) {
+				if !slices.Contains([]string{"ci.yml", "delivery-demo.yml", "layout-full.yml"}, strings.TrimPrefix(u, "./.github/workflows/")) {
 					t.Errorf("%s job %q calls %s, whose job timeouts this test does not read", file, name, u)
 				}
 				continue
@@ -41,7 +41,7 @@ func TestEveryCIJobHasATimeout(t *testing.T) {
 func TestJobTimeoutsCoverTheirStepTimeouts(t *testing.T) {
 	const setup = 5 // checkout, toolchain setup and other steps without a bound
 	root := repoRoot(t)
-	for _, file := range []string{"ci.yml", "delivery-demo.yml"} {
+	for _, file := range []string{"ci.yml", "delivery-demo.yml", "layout-full.yml"} {
 		jobs := workflowJobs(t, root, file)
 		for _, name := range slices.Sorted(maps.Keys(jobs)) {
 			job, ok := jobs[name].TimeoutMinutes.(int)

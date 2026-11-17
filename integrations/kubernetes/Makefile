@@ -325,9 +325,12 @@ HELM_UNITTEST ?= $(LOCALBIN)/helm-unittest
 KUSTOMIZE_VERSION ?= v5.8.1
 CONTROLLER_TOOLS_VERSION ?= v0.20.1
 
+# The exact controller-runtime tag, which tools/setup-envtest (its own module) carries
+# too. Not the release-X.Y branch: on 2026-11-16 `go install ...@release-0.25` began
+# resolving to the parent module, which has no such package, and every envtest job broke.
 ENVTEST_VERSION ?= $(shell v='$(call gomodver,sigs.k8s.io/controller-runtime)'; \
   [ -n "$$v" ] || { echo "Set ENVTEST_VERSION manually (controller-runtime replace has no tag)" >&2; exit 1; }; \
-  printf '%s\n' "$$v" | sed -E 's/^v?([0-9]+)\.([0-9]+).*/release-\1.\2/')
+  printf '%s\n' "$$v")
 
 ENVTEST_K8S_VERSION ?= $(shell v='$(call gomodver,k8s.io/api)'; \
   [ -n "$$v" ] || { echo "Set ENVTEST_K8S_VERSION manually (k8s.io/api replace has no tag)" >&2; exit 1; }; \

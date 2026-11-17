@@ -418,6 +418,30 @@ func TestAcceptsWhatRunsHere(t *testing.T) {
 	}
 }
 
+// A name derived from a ref matches only the shipping published at that
+// repository, never this environment's own shipping by name.
+func TestAcceptsWhatRunsHereDerivedName(t *testing.T) {
+	in, pactos := ordersWorld(nil)
+	pactos = append(pactos, runningPacto("orders-prod", "shipping", "1.4.0"))
+	s, err := Snapshot(context.Background(), keep(EnvironmentPactos(pactos, in.Stages, appliedHere(in.Stages), nil, "prod")), nil, nil, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreign := contract.Dependency{Name: "shipping", Ref: "oci://ghcr.io/other-org/shipping", Compatibility: "^1.0.0", Required: true, NameFromRef: true}
+	if _, err := acceptsWhatRunsHere(s, bundle("orders", "1.9.0", foreign).Contract, "payments"); err == nil ||
+		!strings.Contains(err.Error(), "Pacto sees no shipping running here") {
+		t.Fatalf("a derived name matched another repository's shipping: %v", err)
+	}
+	for _, r := range s.Revisions {
+		if r.Service == "shipping" {
+			r.ResolvedRef = "oci://ghcr.io/other-org/shipping@sha256:s"
+		}
+	}
+	if why, err := acceptsWhatRunsHere(s, bundle("orders", "1.9.0", foreign).Contract, "payments"); why != "" || err != nil {
+		t.Fatalf("the shipping published at the ref: %q %v", why, err)
+	}
+}
+
 func TestOrderNeverMovesTheConsumerBack(t *testing.T) {
 	// orders 1.7.0 never depended on payments, but prod runs 1.8.0: moving
 	// 1.7.0 "first" would roll orders back, so it is no candidate.
@@ -607,5 +631,39 @@ func TestStatusCarriesExternal(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("no relationship to stock")
+	}
+}
+
+// Each reader of a range refuses compatibility: unknown by name: no version is
+// known to work, so it never admits a candidate.
+func TestDeliveryUnknownRangeHolds(t *testing.T) {
+	const want = "is not declared (compatibility: unknown), so Pacto cannot tell whether"
+	unknown := contract.CompatibilityUnknown
+
+	in, pactos := ordersWorld(map[string]*contract.Bundle{o1: bundle("orders", "1.8.5", paymentsDep(unknown))})
+	if m := onlyMove(t, orderPlan(t, in, pactos, payments2, payments3)); m.Candidate != nil ||
+		!strings.Contains(m.Unknown, "its range on payments "+want+" payments 3.0.0 works") {
+		t.Errorf("acceptsBoth: %+v", m)
+	}
+
+	in, pactos = ordersWorld(nil)
+	pactos = append(pactos, runningPacto("orders-prod", "shipping", "1.4.0"))
+	s, err := Snapshot(context.Background(), keep(EnvironmentPactos(pactos, in.Stages, appliedHere(in.Stages), nil, "prod")), nil, nil, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := acceptsWhatRunsHere(s, bundle("orders", "1.9.0", shippingDep(unknown, true)).Contract, "payments"); err == nil ||
+		!strings.Contains(err.Error(), "its range on shipping "+want+" the shipping running here works") {
+		t.Errorf("acceptsWhatRunsHere: %v", err)
+	}
+
+	in, pactos = ordersWorld(map[string]*contract.Bundle{
+		o2: bundle("orders", "2.0.0", paymentsDep(">=2.0.0 <4.0.0")),
+		o1: bundle("orders", "1.9.0", paymentsDep(">=2.0.0 <4.0.0")),
+	})
+	withCheckout := append(slices.Clone(pactos), dependentPacto("prod", "checkout", "1.0.0", unknown))
+	if m := onlyMove(t, orderPlan(t, in, withCheckout, payments2, payments3)); m.Candidate != nil ||
+		!strings.Contains(m.Unknown, "the range checkout 1.0.0 holds on orders "+want) {
+		t.Errorf("acceptedHere: %+v", m)
 	}
 }

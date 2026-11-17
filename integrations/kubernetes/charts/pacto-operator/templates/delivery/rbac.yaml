@@ -65,7 +65,7 @@ rules:
   - apiGroups: [batch]
     resources: [jobs, cronjobs]
     verbs: [get]
-  {{- include "pacto-operator.delivery.rbac.clusterIdentityRule" . | nindent 2 }}
+  {{- include "pacto-operator.rbac.clusterIdentityRule" . | nindent 2 }}
 ---
 {{ include "pacto-operator.binding" (dict "kind" "ClusterRoleBinding" "name" (printf "%s-promoter" (include "pacto-operator.delivery.fullname" .)) "labels" (include "pacto-operator.delivery.labels" (dict "ctx" . "component" "delivery-promoter")) "serviceAccount" (include "pacto-operator.delivery.serviceAccountName" .) "serviceAccountNamespace" (include "pacto-operator.delivery.namespace" .)) }}
 ---

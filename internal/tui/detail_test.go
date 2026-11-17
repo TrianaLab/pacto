@@ -795,3 +795,11 @@ func TestRenderDetailForAnOfferingAdapters(t *testing.T) {
 		t.Errorf("an adapter slug with an escape is not neutralized:\n%q", out)
 	}
 }
+
+func TestRevisionDetailShowsBehindVersion(t *testing.T) {
+	var b strings.Builder
+	renderRevisionDetail(&b, &fleet.RevisionDetailData{PactoVersion: "2.3", PactoVersionCurrent: "2.5"})
+	if !strings.Contains(b.String(), "2.3 (behind 2.5)") {
+		t.Errorf("revision detail misses the behind version:\n%s", b.String())
+	}
+}

@@ -5,6 +5,7 @@
       overview: true,
       sources: false,
       interfaces: true,
+      breaks: false,
       capabilities: false,
       dependencies: false,
       config: false,
@@ -44,6 +45,7 @@
 
   import OverviewSection from '../sections/OverviewSection.svelte';
   import InterfacesSection from '../sections/InterfacesSection.svelte';
+  import BreaksSection from '../sections/BreaksSection.svelte';
   import CapabilitiesSection from '../sections/CapabilitiesSection.svelte';
   import DependenciesSection from '../sections/DependenciesSection.svelte';
   import ConfigSection from '../sections/ConfigSection.svelte';
@@ -77,6 +79,7 @@
   // per-section state of its own.
   const DOMAIN_SECTIONS = [
     { id: 'interfaces', label: 'Interfaces' },
+    { id: 'breaks', label: 'Announced breaks' },
     { id: 'capabilities', label: 'Agent Capabilities' },
     { id: 'dependencies', label: 'Dependencies' },
     { id: 'config', label: 'Configurations' },
@@ -440,6 +443,8 @@
        falls back to a "None declared" placeholder, so the contents list above
        never offers a heading that is not on the page. -->
   <InterfacesSection id="section-interfaces" interfaces={detail.interfaces || []} bind:open={openSections.interfaces} />
+
+  <BreaksSection id="section-breaks" breaks={detail.breaks || []} {services} bind:open={openSections.breaks} />
 
   <CapabilitiesSection id="section-capabilities" capabilities={detail.capabilities || []} skills={detail.skills || []} bind:open={openSections.capabilities} />
 

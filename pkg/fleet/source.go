@@ -53,6 +53,9 @@ type Source interface {
 type Collection struct {
 	Revisions []RawRevision
 	Targets   []RawTarget
+	// Cluster is the cluster of every target this source reports, nil when the
+	// source does not know it. A [RawTarget.Cluster] overrides it.
+	Cluster *Cluster
 	// State, when non-nil, overrides Build's derived source state. Use it to
 	// report a source that succeeded but is stale or partial. Its ID/Kind are
 	// filled from the source if left blank.
@@ -193,6 +196,10 @@ type RawTarget struct {
 	EvidenceAt      *time.Time
 	ReconciledAt    *time.Time
 	Limitations     []Limitation
+	// Cluster is the cluster of this one record, overriding
+	// [Collection.Cluster]. Evidence records set it to the cluster that accepted
+	// them, so two servers listing one record report one cluster.
+	Cluster *Cluster
 }
 
 // MemorySource is an in-memory [Source]. It is the substrate for tests, the

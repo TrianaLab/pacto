@@ -37,6 +37,7 @@ func diffInterfaces(old, new *contract.Contract, oldFS, newFS fs.FS) []Change {
 
 		changes = append(changes, diffGuarantees(name, oldIface.Guarantees, newIface.Guarantees)...)
 		changes = append(changes, diffEpoch(name, oldIface.CompatibilityEpoch, newIface.CompatibilityEpoch)...)
+		changes = append(changes, diffPort(name, oldIface.Port, newIface.Port)...)
 
 		// Diff spec ref (renamed from Contract in v1)
 		if oldIface.Ref != newIface.Ref {
@@ -133,6 +134,24 @@ func diffEpoch(name string, o, n int) []Change {
 		c.Reason = fmt.Sprintf("interface %s: compatibilityEpoch lowered from %d to %d: an epoch only goes up, and consumers that adapted to the higher one break", name, o, n)
 	}
 	return []Change{c}
+}
+
+// diffPort reports a changed port declaration on interface name (0 is not
+// declared). Declaring or dropping it changes no listener; moving it may
+// strand consumers that dial the old one.
+func diffPort(name string, o, n int) []Change {
+	if o == n {
+		return nil
+	}
+	var ov, nv any = fmt.Sprintf("%s: %d", name, o), fmt.Sprintf("%s: %d", name, n)
+	ct := Modified
+	switch {
+	case o == 0:
+		ct, ov = Added, nil
+	case n == 0:
+		ct, nv = Removed, nil
+	}
+	return []Change{newChange("interfaces.port", ct, ov, nv)}
 }
 
 // diffConfiguration compares configuration slices by name and delegates to JSON Schema diff.

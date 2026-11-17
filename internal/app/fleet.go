@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/trianalab/pacto/v4/internal/fleetsrc"
+	"github.com/trianalab/pacto/v4/internal/k8sclient"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 )
@@ -67,8 +69,8 @@ type FleetOptions struct {
 	// Kubernetes cluster as targets. An unreachable cluster surfaces as an
 	// unavailable-source limitation rather than a build failure.
 	IncludeK8s bool
-	// K8sNamespace scopes the live Kubernetes source; empty means all namespaces.
-	K8sNamespace    string
+	// K8sNamespaces scopes the live Kubernetes source; empty means all namespaces.
+	K8sNamespaces   []string
 	FreshnessWindow time.Duration
 	Concurrency     int
 	// DisallowPartial makes a single source failure fatal instead of yielding a
@@ -123,17 +125,15 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 		}
 	}
 	if opts.IncludeK8s {
-		id := s.env().kubeContext()
-		if id == "" {
-			id = "k8s"
-		}
+		contextName := s.env().kubeContext()
+		id := cmp.Or(contextName, "k8s")
 		client, err := s.env().newK8s()
 		if err != nil {
 			// An unreachable cluster (no kubeconfig, no API server) surfaces as an
 			// unavailable source, consistent with the other source kinds.
 			sources = append(sources, fleet.NewFailingSource(id, fleet.SourceKindKubernetes, err))
 		} else {
-			sources = append(sources, fleetsrc.NewK8sSource(id, client, opts.K8sNamespace))
+			sources = append(sources, liveK8sSource(ctx, contextName, client, opts.K8sNamespaces))
 		}
 	}
 	sources = append(sources, opts.extraSources...)
@@ -149,6 +149,18 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 		// planner's own build leaves this false.
 		DiscloseUncheckedFreshness: true,
 	}, sources...)
+}
+
+// liveK8sSource names the live source by its cluster UID when the cluster
+// identity can be read, so two contexts on one cluster are one source. When it
+// cannot be read (no get on namespaces/kube-system) the source keeps the
+// context name ("k8s" without one) and reports no cluster.
+func liveK8sSource(ctx context.Context, contextName string, client k8sclient.K8sClient, namespaces []string) *fleetsrc.K8sSource {
+	ident, err := client.ClusterIdentity(ctx, contextName)
+	if err != nil {
+		return fleetsrc.NewK8sSource(contextName, nil, client, namespaces)
+	}
+	return fleetsrc.NewK8sSource(ident.ID, &fleet.Cluster{ID: ident.ID, Name: ident.Name, NameSource: ident.NameSource}, client, namespaces)
 }
 
 // checkSourceIDsAreUnique refuses to build a snapshot whose sources do not have

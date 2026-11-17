@@ -18,7 +18,7 @@ The page is generated from `pkg/validation/schema/field-coverage.yaml`. `pkg/val
 | --- | --- | --- |
 | `verified` | A runtime fact can both satisfy and contradict the declaration. | 4 |
 | `partial` | A runtime fact exists, but some values or environments stay unverified. | 16 |
-| `static-only` | Checked by `pacto validate` only; nothing at runtime reads it. | 123 |
+| `static-only` | Checked by `pacto validate` only; nothing at runtime reads it. | 130 |
 | `not-applicable` | Identity, container or open object with nothing to verify. | 14 |
 
 A runtime check never turns "could not look" into a violation. A check with no usable fact is listed in `status.evaluationCoverage.unverified` and leaves the contract status unchanged.
@@ -29,8 +29,8 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | --- | --- | --- | --- | --- | --- |
 | `pactoVersion` | `not-applicable` | - | - | - | PARSE_ERROR when unsupported |
 | `service` | `not-applicable` | - | - | - | PARSE_ERROR or SCHEMA_VIOLATION when malformed |
-| `service.name` | `static-only` | - | - | - | SCHEMA_VIOLATION |
-| `service.version` | `static-only` | - | - | - | INVALID_SEMVER |
+| `service.name` | `static-only` | - | - | - | SCHEMA_VIOLATION; PUBLISH_NEEDS_SERVICE_NAME when publishing without it |
+| `service.version` | `static-only` | - | - | - | INVALID_SEMVER; PUBLISH_NEEDS_SERVICE_VERSION when publishing without it |
 | `service.domain` | `static-only` | - | - | - | NEEDS_PACTO_2_4 in an older contract; SCHEMA_VIOLATION for a value that is not a slug |
 | `service.offering` | `static-only` | - | - | - | NEEDS_PACTO_2_4 in an older contract; SCHEMA_VIOLATION for a value that is not a slug |
 | `service.summary` | `static-only` | - | - | - | NEEDS_PACTO_2_4 in an older contract; SCHEMA_VIOLATION for an empty, long or multi-line value |
@@ -69,13 +69,14 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | `interfaces[].guarantees.idempotent` | `static-only` | - | - | - | SCHEMA_VIOLATION when not a boolean |
 | `interfaces[].guarantees.timeout` | `static-only` | - | - | - | SCHEMA_VIOLATION when not a duration |
 | `interfaces[].compatibilityEpoch` | `static-only` | - | - | - | SCHEMA_VIOLATION, NEEDS_PACTO_2_2 |
+| `interfaces[].port` | `static-only` | - | - | - | SCHEMA_VIOLATION, NEEDS_PACTO_2_5 |
 | `interfaces[].visibility` | `partial` | `partial` | `unverified` | `unverified` | Compliant; INTERFACE_VISIBILITY_MISMATCH (error); listed in evaluationCoverage.unverified otherwise; SCHEMA_VIOLATION statically |
 | `interfaces[].lifecycle` | `static-only` | - | - | - | SCHEMA_VIOLATION; NEEDS_PACTO_2_2 under 2.0 and 2.1; DEPENDENCY_INTERFACE_DEPRECATED or DEPENDENCY_INTERFACE_SUNSET (warnings) for a consumer |
 | `interfaces[].lifecycle.deprecated` | `static-only` | - | - | - | SCHEMA_VIOLATION, INVALID_INTERFACE_LIFECYCLE |
 | `interfaces[].lifecycle.sunset` | `static-only` | - | - | - | INVALID_INTERFACE_LIFECYCLE; DEPENDENCY_INTERFACE_SUNSET (warning) for a consumer from that date on |
 | `interfaces[].lifecycle.successor` | `static-only` | - | - | - | INTERFACE_SUCCESSOR_UNKNOWN |
 | `configurations` | `not-applicable` | - | - | - | PARSE_ERROR when not a list |
-| `configurations[]` | `partial` | `partial` | `unverified` | `unverified` | Compliant; CONFIGURATION_ABSENT or CONFIGURATION_MISMATCH (error, warning when optional); OBSERVATION_UNSUPPORTED when a required one is unbound; DUPLICATE_CONFIGURATION_NAME statically |
+| `configurations[]` | `partial` | `partial` | `unverified` | `unverified` | Compliant; CONFIGURATION_ABSENT or CONFIGURATION_MISMATCH (error, warning when optional); OBSERVATION_UNSUPPORTED when a required one is unbound; OBSERVATION_UNSUPPORTED with the missing grant when the operator may not read the bound Secret; DUPLICATE_CONFIGURATION_NAME statically |
 | `configurations[].name` | `not-applicable` | - | - | - | SCHEMA_VIOLATION, DUPLICATE_CONFIGURATION_NAME |
 | `configurations[].schema` | `verified` | `verified` | `unverified` | `unverified` | Compliant or CONFIGURATION_MISMATCH; FILE_NOT_FOUND, INVALID_CONFIG_JSON, INVALID_CONFIG_SCHEMA statically |
 | `configurations[].ref` | `partial` | `partial` | `unverified` | `unverified` | INVALID_CONFIG_REF; CONFIG_REF_UNRESOLVED (validate) or CONFIG_REF_UNVERIFIED (fleet, delivery, operator); CONFIG_REF_AMBIGUOUS; CONFIG_REF_UNKNOWN_CONFIGURATION; CONFIG_REF_CYCLE; CONFIG_REF_VERSION_OUTSIDE_RANGE; at runtime Compliant or CONFIGURATION_MISMATCH for a bound ConfigMap, Insufficient when the ref could not be resolved |
@@ -104,10 +105,10 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | `policies[].target` | `static-only` | - | - | - | SCHEMA_VIOLATION |
 | `dependencies` | `not-applicable` | - | - | - | PARSE_ERROR when not a list |
 | `dependencies[]` | `verified` | `verified` | `verified` | `partial` | Compliant; DEPENDENCY_UNREACHABLE (error, warning when optional); OBSERVATION_UNSUPPORTED when the provider is not a Pacto target; DEPENDENCY_UNDECLARED (warning) for reachable peers no entry names |
-| `dependencies[].name` | `not-applicable` | - | - | - | SCHEMA_VIOLATION, DUPLICATE_DEPENDENCY_NAME |
+| `dependencies[].name` | `not-applicable` | - | - | - | SCHEMA_VIOLATION before 2.5, DEPENDENCY_NAME_REQUIRED with neither name nor ref, DUPLICATE_DEPENDENCY_NAME |
 | `dependencies[].ref` | `partial` | `partial` | `unverified` | `unverified` | OBSERVATION_UNSUPPORTED when no sibling matches; INVALID_OCI_REF and TAG_NOT_DIGEST (warning) statically; DEPENDENCY_REF_REQUIRED when missing on a dependency that is not external |
-| `dependencies[].required` | `partial` | `partial` | `partial` | `partial` | DEPENDENCY_UNREACHABLE or DEPENDENCY_VERSION_MISMATCH as warning when optional; SCHEMA_VIOLATION when omitted |
-| `dependencies[].compatibility` | `partial` | `partial` | `unverified` | `unverified` | Compliant; DEPENDENCY_VERSION_MISMATCH (error, warning when optional); listed in evaluationCoverage.unverified otherwise; INVALID_COMPATIBILITY statically |
+| `dependencies[].required` | `partial` | `partial` | `partial` | `partial` | DEPENDENCY_UNREACHABLE or DEPENDENCY_VERSION_MISMATCH as warning when optional; SCHEMA_VIOLATION when omitted before 2.5, where absent means true |
+| `dependencies[].compatibility` | `partial` | `partial` | `unverified` | `unverified` | Compliant; DEPENDENCY_VERSION_MISMATCH (error, warning when optional); listed in evaluationCoverage.unverified otherwise; INVALID_COMPATIBILITY statically; NEEDS_PACTO_2_5 for unknown under 2.0 to 2.4 |
 | `dependencies[].external` | `static-only` | - | - | - | DEPENDENCY_REF_REQUIRED; NEEDS_PACTO_2_1 under 2.0 |
 | `dependencies[].requires` | `static-only` | - | - | - | GUARANTEE_UNMET, an error on a required dependency and a warning on an optional one; GUARANTEE_UNVERIFIED, a warning, when the provider bundle cannot be read; NEEDS_PACTO_2_2 under 2.0 and 2.1 |
 | `dependencies[].requires[]` | `static-only` | - | - | - | PARSE_ERROR when not an object; GUARANTEE_UNMET, an error on a required dependency and a warning on an optional one; GUARANTEE_UNVERIFIED, a warning, when the provider bundle cannot be read |
@@ -120,6 +121,12 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | `dependencies[].requires[].idempotent` | `static-only` | - | - | - | SCHEMA_VIOLATION when not a boolean; GUARANTEE_UNMET when the provider offers less |
 | `dependencies[].requires[].timeout` | `static-only` | - | - | - | SCHEMA_VIOLATION when not a duration; GUARANTEE_UNMET when the provider offers less |
 | `dependencies[].version` | `static-only` | - | - | - | EXTERNAL_VERSION_REQUIRED, VERSION_WITH_REF, COMPATIBILITY_WITHOUT_REF |
+| `breaks` | `static-only` | - | - | - | SCHEMA_VIOLATION, NEEDS_PACTO_2_5 |
+| `breaks[]` | `static-only` | - | - | - | SCHEMA_VIOLATION, PARSE_ERROR |
+| `breaks[].consumers` | `static-only` | - | - | - | SCHEMA_VIOLATION, DUPLICATE_BREAK_CONSUMER, BREAK_NAMES_SELF |
+| `breaks[].consumers[]` | `static-only` | - | - | - | SCHEMA_VIOLATION |
+| `breaks[].reason` | `static-only` | - | - | - | SCHEMA_VIOLATION |
+| `breaks[].expires` | `static-only` | - | - | - | INVALID_BREAK_EXPIRES |
 | `state` | `not-applicable` | - | - | - | PARSE_ERROR when not an object |
 | `state.type` | `static-only` | - | - | - | SCHEMA_VIOLATION |
 | `state.persistence` | `not-applicable` | - | - | - | SCHEMA_VIOLATION when missing |
@@ -194,14 +201,14 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Meaning | Contract format version; selects the JSON Schema the contract is validated against. |
 | Runtime | `not-applicable` |
 | Evidence | none: the field has no runtime counterpart |
-| Rule | parse rejects anything but "2.0", "2.1", "2.2", "2.3" and "2.4" before any other layer runs; the version selects the schema |
+| Rule | parse rejects anything but "2.0", "2.1", "2.2", "2.3", "2.4" and "2.5" before any other layer runs; the version selects the schema; an absent version is the newest the CLI supports, and pack, push and publish write it into the bundled pacto.yaml |
 | Outcomes | PARSE_ERROR when unsupported |
-| Limitations | 2.0, 2.1, 2.2 and 2.3 have their own schemas without the fields later versions add; this inventory walks 2.4, the superset |
-| Tests | unit: `pkg/contract/parse_test.go:TestParse_UnsupportedVersion`, `pkg/validation/structural_test.go:TestValidateStructuralRaw_UnsupportedVersion_V10`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/invalid` |
+| Limitations | 2.0, 2.1, 2.2, 2.3 and 2.4 have their own schemas without the fields later versions add; this inventory walks 2.5, the superset |
+| Tests | unit: `pkg/contract/parse_test.go:TestParse_UnsupportedVersion`, `pkg/contract/parse_test.go:TestParseImplicitVersionIsCurrent`, `pkg/contract/pin_test.go:TestPinVersionAddsLine`, `pkg/validation/structural_test.go:TestValidateStructuralRaw_UnsupportedVersion_V10`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/invalid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/absent-is-current` |
 
 | Value | Runtime | Meaning | Rule | Outcomes | Limitations | Tests |
 | --- | --- | --- | --- | --- | --- | --- |
-| `2.4` | `static-only` | the newest Operational Contract format; 2.0, 2.1, 2.2 and 2.3 contracts keep working unchanged | - | - | - | unit: `pkg/validation/structural_test.go:TestPactoVersion24`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.4`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.3`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.2`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.1`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.0` |
+| `2.5` | `static-only` | the newest Operational Contract format; 2.0, 2.1, 2.2, 2.3 and 2.4 contracts keep working unchanged | - | - | - | unit: `pkg/validation/structural_test.go:TestValidateStructural_V25AcceptsV24Body`, `pkg/validation/structural_test.go:TestPactoVersion24`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.4`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.3`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.2`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.1`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.0` |
 
 ### `service`
 
@@ -210,10 +217,10 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Meaning | Identity block of the service the contract describes. |
 | Runtime | `not-applicable` |
 | Evidence | none: the field has no runtime counterpart |
-| Rule | schema: object with name and version |
+| Rule | schema: object with name and version; optional in 2.5, where an empty contract is valid |
 | Outcomes | PARSE_ERROR or SCHEMA_VIOLATION when malformed |
 | Limitations | container only; its children carry the semantics |
-| Tests | unit: `pkg/contract/parse_test.go:TestParse_ValidFull_Service`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/service/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/service/invalid` |
+| Tests | unit: `pkg/contract/parse_test.go:TestParse_ValidFull_Service`, `pkg/validation/structural_test.go:TestValidateStructural_EmptyIsValid`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/service/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/service/invalid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/service/absent` |
 
 ### `service.name`
 
@@ -222,10 +229,10 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Meaning | DNS-style service name; the identity of the contract everywhere. |
 | Runtime | `static-only` |
 | Evidence | used as the subject name of service-scoped evidence (workload, persistence), never checked against a runtime name |
-| Rule | schema pattern |
-| Outcomes | SCHEMA_VIOLATION |
+| Rule | schema pattern; required before 2.5; in 2.5 it may be absent, pack, push and publish refuse an undeclared one and readers of published bundles reject it |
+| Outcomes | SCHEMA_VIOLATION; PUBLISH_NEEDS_SERVICE_NAME when publishing without it |
 | Limitations | the operator binds a runtime target by the Pacto CR, not by this name |
-| Tests | unit: `pkg/contract/parse_test.go:TestParse_MissingServiceName`, `pkg/validation/evaluate_test.go:TestEvaluate_ServiceScopedMatchByServiceName`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/service.name/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/service.name/invalid` |
+| Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V24StillRequiresName`, `pkg/validation/structural_test.go:TestValidateStructural_ServiceOnlyNameIsValid`, `pkg/validation/evaluate_test.go:TestEvaluate_ServiceScopedMatchByServiceName`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/service.name/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/service.name/invalid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/service.name/needs-2.5` |
 
 ### `service.version`
 
@@ -234,10 +241,10 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Meaning | Semantic version of this contract revision. |
 | Runtime | `static-only` |
 | Evidence | consumers read it from the provider's Pacto status as DependencyObservation.Version for their compatibility check |
-| Rule | cross-field: valid semver |
-| Outcomes | INVALID_SEMVER |
+| Rule | cross-field: valid semver; required before 2.5; in 2.5 it may be absent and pack, push and publish refuse an undeclared one |
+| Outcomes | INVALID_SEMVER; PUBLISH_NEEDS_SERVICE_VERSION when publishing without it |
 | Limitations | the running image version is never compared with it; it is the provider-side input of dependencies[].compatibility |
-| Tests | unit: `pkg/validation/crossfield_test.go:TestValidateServiceVersion_InvalidSemver`, `pkg/validation/structural_test.go:TestValidateStructuralRaw_VersionMustBeOnePathComponent`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/service.version/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/service.version/invalid`; e2e: `tests/acceptance/kind/runtime-conformance.sh:dependency-version-mismatch` |
+| Tests | unit: `pkg/validation/crossfield_test.go:TestValidateServiceVersion_InvalidSemver`, `pkg/validation/structural_test.go:TestValidateStructuralRaw_VersionMustBeOnePathComponent`, `pkg/validation/crossfield_test.go:TestValidateServiceVersionEmptySkipped`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/service.version/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/service.version/invalid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/service.version/needs-2.5`; e2e: `tests/acceptance/kind/runtime-conformance.sh:dependency-version-mismatch` |
 
 ### `service.domain`
 
@@ -600,7 +607,7 @@ A runtime check never turns "could not look" into a violation. A check with no u
 
 | Platform | Evidence | Why | Tests |
 | --- | --- | --- | --- |
-| Kubernetes (the operator with its node agent) | `partial` | protocol probe on the Service port with controller.enableProbing; tls and asyncapi stay unverified | the e2e scenarios above |
+| Kubernetes (the operator with its node agent) | `partial` | protocol probe on the Service port with controller.probing (or the namespace label pacto.trianalab.io/observe=probing); tls and asyncapi stay unverified | the e2e scenarios above |
 | `pacto agent` (a Docker host or a server) | `partial` | protocol probe on the bound port with --enable-probing; tls and asyncapi stay unverified | `internal/runtimewatch/evalsink/sink_test.go:TestEvaluate_Compliant` |
 | `pacto run` (one wrapped command) | `partial` | protocol probe on --host at the bound port with --enable-probing; tls and asyncapi stay unverified | `internal/runtimewatch/evalsink/sink_test.go:TestEvaluate_Compliant` |
 
@@ -745,6 +752,18 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Limitations | validation sees one contract, so a lowered epoch is caught by pacto diff only |
 | Tests | unit: `pkg/validation/structural_test.go:TestNeeds22Epoch`, `pkg/diff/interfaces_test.go:TestDiffInterfaces_CompatibilityEpoch`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].compatibilityEpoch/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].compatibilityEpoch/invalid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].compatibilityEpoch/needs-2.2` |
 
+### `interfaces[].port`
+
+| Key | Value |
+| --- | --- |
+| Meaning | The port the interface listens on; absent means not declared. |
+| Runtime | `static-only` |
+| Evidence | none: comparing it with observed container ports is later runtime work |
+| Rule | schema: integer from 1 to 65535, pactoVersion 2.5; several interfaces may share one port; diff: declared or dropped is non-breaking, moved is potentially breaking |
+| Outcomes | SCHEMA_VIOLATION, NEEDS_PACTO_2_5 |
+| Limitations | a declared port is not yet compared with the ports the workload listens on |
+| Tests | unit: `pkg/validation/structural_test.go:TestPortRange`, `pkg/validation/structural_test.go:TestNeeds25Port`, `pkg/diff/interfaces_test.go:TestDiffPortModifiedPotentialBreaking`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].port/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].port/invalid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].port/needs-2.5` |
+
 ### `interfaces[].visibility`
 
 | Key | Value |
@@ -836,7 +855,7 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Runtime | `partial` |
 | Evidence | ConfigurationPresent from the bound ConfigMap or Secret key (spec.target.configBindings) |
 | Rule | absent contradicts; present but failing the declared schema contradicts |
-| Outcomes | Compliant; CONFIGURATION_ABSENT or CONFIGURATION_MISMATCH (error, warning when optional); OBSERVATION_UNSUPPORTED when a required one is unbound; DUPLICATE_CONFIGURATION_NAME statically |
+| Outcomes | Compliant; CONFIGURATION_ABSENT or CONFIGURATION_MISMATCH (error, warning when optional); OBSERVATION_UNSUPPORTED when a required one is unbound; OBSERVATION_UNSUPPORTED with the missing grant when the operator may not read the bound Secret; DUPLICATE_CONFIGURATION_NAME statically |
 | Limitations | needs a configBinding; environment variables set directly on the pod are not read |
 | Tests | unit: `pkg/validation/evaluate_test.go:TestEvaluate_ContradictionPerDimension`, `pkg/validation/crossfield_test.go:TestValidateConfigurationNamesUnique_Duplicate`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/configurations[]/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/configurations[]/invalid`; e2e: `tests/acceptance/kind/runtime-conformance.sh:configuration-absent`, `tests/acceptance/kind/runtime-conformance.sh:configuration-mismatch`, `tests/acceptance/kind/runtime-conformance.sh:configuration-optional` |
 
@@ -1239,10 +1258,10 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Meaning | Dependency identifier; subject of its evidence. |
 | Runtime | `not-applicable` |
 | Evidence | identity only; the runtime check lives on dependencies[] |
-| Rule | schema: required; cross-field: unique |
-| Outcomes | SCHEMA_VIOLATION, DUPLICATE_DEPENDENCY_NAME |
-| Limitations | the provider is found by ref, not by name |
-| Tests | unit: `pkg/contract/contract_test.go:TestDependency_NameField`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].name/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].name/invalid` |
+| Rule | schema: required before 2.5; 2.5 derives it from the last path segment of ref when absent; cross-field: unique, and present or derivable |
+| Outcomes | SCHEMA_VIOLATION before 2.5, DEPENDENCY_NAME_REQUIRED with neither name nor ref, DUPLICATE_DEPENDENCY_NAME |
+| Limitations | the provider is found by ref, not by name; a name derived from ref resolves only to a service published at that repository |
+| Tests | unit: `pkg/contract/contract_test.go:TestDependency_NameField`, `pkg/contract/contract_test.go:TestDependencyNameFromRef`, `pkg/validation/crossfield_test.go:TestDependencyNameRequiredWithoutRef`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].name/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].name/from-ref`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].name/invalid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].name/needs-2.5` |
 
 ### `dependencies[].ref`
 
@@ -1270,9 +1289,9 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Runtime | `partial` |
 | Evidence | decides the severity axis of the dependency evidence |
 | Rule | required: a gap is Unknown and a contradiction an error; optional: a gap is silent and a contradiction a warning |
-| Outcomes | DEPENDENCY_UNREACHABLE or DEPENDENCY_VERSION_MISMATCH as warning when optional; SCHEMA_VIOLATION when omitted |
+| Outcomes | DEPENDENCY_UNREACHABLE or DEPENDENCY_VERSION_MISMATCH as warning when optional; SCHEMA_VIOLATION when omitted before 2.5, where absent means true |
 | Limitations | none beyond the parent |
-| Tests | unit: `pkg/validation/evaluate_test.go:TestEvaluate_OptionalDependency`, `pkg/validation/schema_binding_test.go:TestSchema_DependencyMissingRequired_Rejected`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].required/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].required/invalid`; e2e: `tests/acceptance/kind/runtime-conformance.sh:dependency-optional-warning` |
+| Tests | unit: `pkg/validation/evaluate_test.go:TestEvaluate_OptionalDependency`, `pkg/validation/schema_binding_test.go:TestSchema_DependencyMissingRequired_Rejected`, `pkg/contract/contract_test.go:TestDependencyRequiredDefaultsTrue`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].required/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].required/absent-is-true`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].required/invalid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].required/needs-2.5`; e2e: `tests/acceptance/kind/runtime-conformance.sh:dependency-optional-warning` |
 
 | Platform | Evidence | Why | Tests |
 | --- | --- | --- | --- |
@@ -1284,13 +1303,13 @@ A runtime check never turns "could not look" into a violation. A check with no u
 
 | Key | Value |
 | --- | --- |
-| Meaning | Semver range of provider versions this service accepts. |
+| Meaning | Semver range of provider versions this service accepts, or unknown when the versions that work are not known yet. |
 | Runtime | `partial` |
 | Evidence | DependencyObservation.Version: the provider Pacto's status.contract.version; when several targets match the ref, the only one inside the range is the target (none or several is Insufficient) |
-| Rule | a version inside the range satisfies; outside contradicts; an unknown or non-semver version is unverified |
-| Outcomes | Compliant; DEPENDENCY_VERSION_MISMATCH (error, warning when optional); listed in evaluationCoverage.unverified otherwise; INVALID_COMPATIBILITY statically |
+| Rule | a version inside the range satisfies; outside contradicts; an unknown or non-semver version is unverified; compatibility unknown (pactoVersion 2.5) is valid and never counted as compatible, so it is always unverified |
+| Outcomes | Compliant; DEPENDENCY_VERSION_MISMATCH (error, warning when optional); listed in evaluationCoverage.unverified otherwise; INVALID_COMPATIBILITY statically; NEEDS_PACTO_2_5 for unknown under 2.0 to 2.4 |
 | Limitations | the provider's contract version is trusted as its deployed version; judged only when the dependency is Observed |
-| Tests | unit: `pkg/validation/evaluate_test.go:TestEvaluate_DependencyCompatibilityFacet`, `pkg/validation/crossfield_test.go:TestValidateDependencyRefs_InvalidCompatibility`, `integrations/kubernetes/internal/observer/regressions_test.go:TestDependency_VersionTieBreak`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].compatibility/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].compatibility/invalid`; e2e: `tests/acceptance/kind/runtime-conformance.sh:dependency-version-mismatch` |
+| Tests | unit: `pkg/validation/evaluate_test.go:TestEvaluate_DependencyCompatibilityFacet`, `pkg/validation/crossfield_test.go:TestValidateDependencyRefs_InvalidCompatibility`, `pkg/validation/crossfield_test.go:TestCompatibilityUnknownValid`, `pkg/validation/structural_test.go:TestNeeds25CompatibilityUnknown`, `pkg/validation/evaluate_test.go:TestVersionVerdictUnknownIsUnverified`, `integrations/kubernetes/internal/observer/regressions_test.go:TestDependency_VersionTieBreak`, `integrations/kubernetes/internal/observer/dependencies_test.go:TestDependencyCompatibilityUnknownIsUnverified`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].compatibility/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].compatibility/invalid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].compatibility/unknown`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].compatibility/needs-2.5`; e2e: `tests/acceptance/kind/runtime-conformance.sh:dependency-version-mismatch` |
 
 | Platform | Evidence | Why | Tests |
 | --- | --- | --- | --- |
@@ -1455,6 +1474,78 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Outcomes | EXTERNAL_VERSION_REQUIRED, VERSION_WITH_REF, COMPATIBILITY_WITHOUT_REF |
 | Limitations | shown in the graph and in diffs only; compatibility can never be confirmed |
 | Tests | unit: `pkg/validation/crossfield_test.go:TestValidateDependencyForm`, `pkg/diff/dependency_test.go:TestDiffDependencies_External`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].version/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].version/invalid` |
+
+### `breaks`
+
+| Key | Value |
+| --- | --- |
+| Meaning | Deliberate breaking changes this version announces to named consumers. |
+| Runtime | `static-only` |
+| Evidence | none: an announcement has no runtime counterpart |
+| Rule | schema: non-empty list, pactoVersion 2.5; diff: every change is non-breaking |
+| Outcomes | SCHEMA_VIOLATION, NEEDS_PACTO_2_5 |
+| Limitations | what an announced break does to a gate is decided by the gate, not by validation |
+| Tests | unit: `pkg/validation/structural_test.go:TestNeeds25Breaks`, `pkg/diff/breaks_test.go:TestDiffBreaksAddedRemoved`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/breaks/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/breaks/invalid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/breaks/needs-2.5` |
+
+### `breaks[]`
+
+| Key | Value |
+| --- | --- |
+| Meaning | One announcement, naming the consumers it affects, why and until when. |
+| Runtime | `static-only` |
+| Evidence | none: an announcement has no runtime counterpart |
+| Rule | schema: consumers and reason required, expires optional, nothing else; diff: keyed by its sorted consumers |
+| Outcomes | SCHEMA_VIOLATION, PARSE_ERROR |
+| Limitations | what an announced break does to a gate is decided by the gate, not by validation |
+| Tests | unit: `pkg/diff/breaks_test.go:TestDiffBreaksKeyIgnoresConsumerOrder`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/breaks[]/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/breaks[]/invalid` |
+
+### `breaks[].consumers`
+
+| Key | Value |
+| --- | --- |
+| Meaning | The services the break affects, by service name. |
+| Runtime | `static-only` |
+| Evidence | none: identity only |
+| Rule | schema: non-empty, unique; cross-field: a consumer appears in one entry at most and never names the service itself |
+| Outcomes | SCHEMA_VIOLATION, DUPLICATE_BREAK_CONSUMER, BREAK_NAMES_SELF |
+| Limitations | a consumer name is not checked against the fleet |
+| Tests | unit: `pkg/validation/crossfield_test.go:TestBreaksDuplicateConsumer`, `pkg/validation/crossfield_test.go:TestBreaksNamesSelf`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/breaks[].consumers/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/breaks[].consumers/invalid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/breaks[].consumers/duplicate`, `tests/integration/field_coverage_test.go:TestFieldCoverage/breaks[].consumers/self` |
+
+### `breaks[].consumers[]`
+
+| Key | Value |
+| --- | --- |
+| Meaning | One consumer, by service name. |
+| Runtime | `static-only` |
+| Evidence | none: identity only |
+| Rule | schema: the service-name pattern |
+| Outcomes | SCHEMA_VIOLATION |
+| Limitations | a consumer name is not checked against the fleet |
+| Tests | unit: `pkg/validation/structural_test.go:TestNeeds25Breaks`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/breaks[].consumers[]/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/breaks[].consumers[]/invalid` |
+
+### `breaks[].reason`
+
+| Key | Value |
+| --- | --- |
+| Meaning | Why the break is needed and what the consumers change. |
+| Runtime | `static-only` |
+| Evidence | none: free text |
+| Rule | schema: required non-empty string; diff: a changed reason is non-breaking |
+| Outcomes | SCHEMA_VIOLATION |
+| Limitations | what an announced break does to a gate is decided by the gate, not by validation |
+| Tests | unit: `pkg/diff/breaks_test.go:TestDiffBreaksReasonAndExpires`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/breaks[].reason/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/breaks[].reason/invalid` |
+
+### `breaks[].expires`
+
+| Key | Value |
+| --- | --- |
+| Meaning | Date the announcement stops applying. |
+| Runtime | `static-only` |
+| Evidence | none: the field has no runtime counterpart |
+| Rule | cross-field: canonical YYYY-MM-DD date (the schema format is not asserted); diff: non-breaking |
+| Outcomes | INVALID_BREAK_EXPIRES |
+| Limitations | what an announced break does to a gate is decided by the gate, not by validation |
+| Tests | unit: `pkg/validation/crossfield_test.go:TestBreaksInvalidExpires`, `pkg/diff/breaks_test.go:TestDiffBreaksReasonAndExpires`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/breaks[].expires/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/breaks[].expires/invalid` |
 
 ### `state`
 

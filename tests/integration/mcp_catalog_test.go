@@ -465,7 +465,7 @@ func TestMCPFleetDemoSurface(t *testing.T) {
 		"--traces", demoTraces)
 	defer func() { _ = session.Close() }()
 
-	// pacto_fleet_search returns all 40 services, the golden path, the second provider and the security scanning offering included
+	// pacto_fleet_search returns all 41 services, the empty newsletter-service contract, the golden path, the second provider and the security scanning offering included
 	searchRes, err := session.CallTool(ctx, &mcpsdk.CallToolParams{
 		Name:      "pacto_fleet_search",
 		Arguments: map[string]any{},
@@ -482,8 +482,8 @@ func TestMCPFleetDemoSurface(t *testing.T) {
 	if err := json.Unmarshal([]byte(searchText), &searchResp); err != nil {
 		t.Fatalf("decode search response: %v\npayload:\n%s", err, searchText)
 	}
-	if got := len(searchResp.Services); got != 40 {
-		t.Errorf("pacto_fleet_search returned %d services, want 40", got)
+	if got := len(searchResp.Services); got != 41 {
+		t.Errorf("pacto_fleet_search returned %d services, want 41", got)
 	}
 
 	// pacto_fleet_status with needs_attention returns the NonCompliant and Unknown targets

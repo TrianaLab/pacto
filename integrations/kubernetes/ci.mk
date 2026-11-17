@@ -19,7 +19,12 @@ ci-test: envtest setup-envtest
 	fi
 	@echo "    total coverage: 100.0%"
 
-ci-chart: crd-sync-check helm-deps-check helm-lint helm-template helm-golden helm-unittest helm-schema helm-docs-check docs-generate-check
+ci-chart: crd-sync-check helm-deps-check helm-lint helm-template helm-golden helm-unittest helm-schema helm-docs-check docs-generate-check chart-flags-check
+
+.PHONY: chart-flags-check
+chart-flags-check: ## Every operator flag has a chart value or a written reason.
+	@echo "==> Checking every operator flag has a chart value..."
+	CGO_ENABLED=0 go test ./cmd -run 'TestEveryOperatorFlagHasAChartValue|TestChartlessFlagsHaveReasons' -count=1
 
 # The chart renders copies of the generated CRDs. helm-golden cannot see a
 # stale delivery copy, because delivery is off by default.
@@ -77,6 +82,15 @@ helm-template: ## Render chart templates and validate output.
 	@echo "==> Rendering the quickstart profile (bundled zot and Dex)..."
 	helm template pacto-operator charts/pacto-operator -n pacto-operator-system -f charts/pacto-operator/values-quickstart.yaml \
 		--api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy > /dev/null
+	@echo "==> Rendering with a namespace list, with it plus delivery, and with a Secret granted by name..."
+	helm template pacto-operator charts/pacto-operator --set 'controller.watchNamespaces={payments,ledger}' > /dev/null
+	helm template pacto-operator charts/pacto-operator --set 'controller.watchNamespaces={payments,ledger}' \
+		--set delivery.enabled=true \
+		--api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy > /dev/null
+	helm template pacto-operator charts/pacto-operator --set 'controller.secretGrants={payments/regcred}' > /dev/null
+	@echo "==> The schema refuses an invalid namespace, and watching the node agent namespace fails..."
+	! helm template pacto-operator charts/pacto-operator --set 'controller.watchNamespaces={Bad_NS}' > /dev/null 2>&1
+	! helm template pacto-operator charts/pacto-operator --set 'controller.watchNamespaces={pacto-node-agent}' > /dev/null 2>&1
 	@echo "==> Delivery renders with no identity values, and the deprecated allowEmptyHumanGroups changes nothing..."
 	diff <(helm template pacto-operator charts/pacto-operator --set delivery.enabled=true \
 		--api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy) \
@@ -86,6 +100,9 @@ helm-template: ## Render chart templates and validate output.
 	! helm template pacto-operator charts/pacto-operator --set delivery.enabled=true \
 		--api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy \
 		--set delivery.admissionPolicies.allowUnguarded=true > /dev/null 2>&1
+	@echo "==> Helm reads values as YAML 1.1: a bare on is true, a bare kernel evidence off is false and follows the node agent..."
+	helm template pacto-operator charts/pacto-operator -f charts/pacto-operator/tests/values/probing-bare-on.yaml | grep -q -- '- --enable-probing=on$$'
+	helm template pacto-operator charts/pacto-operator -f charts/pacto-operator/tests/values/kernel-bare-off.yaml | grep -q -- '- --enable-kernel-evidence$$'
 
 # The default render is byte-identical to the committed golden (versions
 # normalised, so a release bump does not move it), and turning delivery on

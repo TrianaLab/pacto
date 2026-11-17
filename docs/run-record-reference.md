@@ -214,6 +214,7 @@ actor, approver, note, message, citation or correlation id.
 | `POLICY_REFERRERS_FAIL_UNPLACED` | `unverified` |
 | `POLICY_UNCHECKED` | `unverified` |
 | `SERVICE_NOT_IN_FLEET` | `unverified` |
+| `SERVICE_NAME_INFERRED` | `unverified` |
 | `ANSWER_PARTIAL` | `unverified` |
 | `CONSUMERS_UNCHECKED` | `unverified` |
 | `NOT_BREAKING` | `clear` |

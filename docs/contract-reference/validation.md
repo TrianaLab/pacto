@@ -18,7 +18,7 @@ nothing.
 
 ## Layer 1: Structural (JSON Schema)
 
-Validates against the embedded schema of the contract's version, `pacto-v2.0.schema.json`, `pacto-v2.1.schema.json`, `pacto-v2.2.schema.json`, `pacto-v2.3.schema.json` or `pacto-v2.4.schema.json`:
+Validates against the embedded schema of the contract's version, `pacto-v2.0.schema.json`, `pacto-v2.1.schema.json`, `pacto-v2.2.schema.json`, `pacto-v2.3.schema.json`, `pacto-v2.4.schema.json` or `pacto-v2.5.schema.json`:
 
 - Field types match
 - Required fields are present (including the mandatory `required` on `configurations[]` and `dependencies[]`)
@@ -27,22 +27,55 @@ Validates against the embedded schema of the contract's version, `pacto-v2.0.sch
 - Discriminated shapes hold: a `configurations[]` entry has exactly one of `schema` or `ref`, a `capabilities[]` `extension` requires a namespaced `ref` and `health` or `metrics` sets no `ref`
 - State invariants hold (`stateless` requires `ephemeral` durability)
 
-Structural failures report `SCHEMA_VIOLATION`. A `"2.0"` contract that uses
-`publish`, `checks`, an external dependency or an `mcp` interface reports `NEEDS_PACTO_2_1` for each
-instead: set `pactoVersion: "2.1"`, which keeps every 2.0 field. A `"2.0"` or
-`"2.1"` contract that uses an interface `lifecycle`, `compatibilityEpoch` or
-`guarantees` or a dependency `requires` reports `NEEDS_PACTO_2_2` for each: set
-`pactoVersion: "2.2"`. A `"2.0"`, `"2.1"` or `"2.2"` contract that declares
-`environments` reports `NEEDS_PACTO_2_3`: set `pactoVersion: "2.3"`. A `"2.0"`
-to `"2.3"` contract that sets `service.domain`, `service.offering`,
-`service.summary`, `service.lifecycle`, `service.template` or `service.origin`, or puts `values` or a `configuration`
-selector beside a configuration `ref`, reports `NEEDS_PACTO_2_4`: set
-`pactoVersion: "2.4"`.
+Structural failures report `SCHEMA_VIOLATION`. A field a later version adds,
+in an older contract, reports that version's code for each use instead: set
+`pactoVersion` to that version, which keeps every older field.
+
+| Field | Version | Code |
+|---|---|---|
+| `publish`, `checks`, an external dependency, an `mcp` interface | `"2.1"` | `NEEDS_PACTO_2_1` |
+| An interface `lifecycle`, `compatibilityEpoch` or `guarantees`, a dependency `requires` | `"2.2"` | `NEEDS_PACTO_2_2` |
+| `environments` | `"2.3"` | `NEEDS_PACTO_2_3` |
+| `service.domain`, `service.offering`, `service.summary`, `service.lifecycle`, `service.template`, `service.origin`, `values` or a `configuration` selector beside a configuration `ref` | `"2.4"` | `NEEDS_PACTO_2_4` |
+| A dependency `compatibility: unknown`, an interface `port`, `breaks` | `"2.5"` | `NEEDS_PACTO_2_5` |
+| No field: the contract declares a `pactoVersion` older than the CLI's newest | any older 2.x | `CONTRACT_BEHIND` (info, never fails `pacto validate`) |
+
+- `pacto validate` and `pacto_check` report `CONTRACT_BEHIND` on the
+  structural stage, in `warnings`, with `valid` and the exit code unchanged.
+- Its message says what raising `pactoVersion` does. Validation checks the
+  `pacto.yaml` you wrote, without `-f` or `--set` values, again at the newest
+  version. The message says the raise keeps what the contract means, or names
+  the finding it would add (usually `ENVIRONMENT_VALUES_MISSING`, because from
+  `"2.4"` a required configuration taken by `ref` has its defaults checked) or
+  says to fix the errors the run reports before Pacto can tell.
+- When raising a contract older than `"2.4"` that takes a configuration by
+  `ref` adds no finding, the message says the operator then also accepts
+  `ContractOverrides` values for those configurations.
+- The fleet revision detail (`pacto fleet entity`, `pacto_fleet_entity`, the
+  TUI and the dashboard revision page) shows the declared `pactoVersion` as
+  `2.3 (behind 2.5)`. In JSON, `pactoVersionCurrent` is the newest version the
+  Pacto that answered knows, and `pactoVersionUnknown` marks a version it does
+  not know.
+- A 1.x contract follows
+  [MIGRATION.md](https://github.com/TrianaLab/pacto/blob/main/MIGRATION.md)
+  and is never raised automatically.
 
 A contract that fails to **load**, because of malformed YAML, an unknown field or a
-`pactoVersion` other than `"2.0"`, `"2.1"`, `"2.2"`, `"2.3"` or `"2.4"`, fails before any layer runs and reports
+`pactoVersion` other than `"2.0"`, `"2.1"`, `"2.2"`, `"2.3"`, `"2.4"` or `"2.5"`, fails before any layer runs and reports
 `PARSE_ERROR`. Loading is the parse step that turns `pacto.yaml` into a
 contract. Validation starts once it succeeds.
+
+An absent `pactoVersion` reads as the newest version the CLI supports. In a
+`"2.5"` contract `service`, `service.name` and `service.version` may be absent
+too, so an empty `pacto.yaml` is valid. `pack`, `push` and `publish` write the
+version into the bundled `pacto.yaml` and refuse a contract that does not
+declare `service.version` (`PUBLISH_NEEDS_SERVICE_VERSION`) or `service.name`
+(`PUBLISH_NEEDS_SERVICE_NAME`). A bundle read from a registry, and an inline
+contract in a Pacto resource, must declare all three.
+
+The operational graph drops an inferred name another service also claims
+(`SERVICE_NAME_COLLISION`). `pacto impact` keeps a breaking change to a
+contract with an inferred name `unverified` (`SERVICE_NAME_INFERRED`).
 
 ## Layer 2: Cross-field
 
@@ -71,6 +104,7 @@ Validates semantic references and consistency:
 | `capabilities[].binding.interface` matches a declared interface | `CAPABILITY_INTERFACE_UNKNOWN` |
 | `capabilities[].binding.path` is a safe application path | `CAPABILITY_PATH_INVALID` |
 | OCI dependency refs (`oci://`) are valid OCI references | `INVALID_OCI_REF` |
+| A dependency has a `name`, or a `ref` its name is derived from | `DEPENDENCY_NAME_REQUIRED` |
 | A dependency without `ref` is `external` | `DEPENDENCY_REF_REQUIRED` |
 | An external dependency without `ref` has a `version` | `EXTERNAL_VERSION_REQUIRED` |
 | `compatibility` appears only with `ref`, and `version` only without it | `COMPATIBILITY_WITHOUT_REF`, `VERSION_WITH_REF` |
@@ -95,6 +129,9 @@ Validates semantic references and consistency:
 | `readiness.claims[].description` (when present) has non-whitespace content | `EMPTY_READINESS_DESCRIPTION` |
 | `readiness.expires` is a strict `YYYY-MM-DD` date | `INVALID_READINESS_EXPIRES` |
 | `readiness.history[].{date,version,author,description}` are valid/non-blank | `INVALID_READINESS_REVISION` |
+| A consumer appears in one `breaks[]` entry at most | `DUPLICATE_BREAK_CONSUMER` |
+| `breaks[].consumers` never names the service itself | `BREAK_NAMES_SELF` |
+| `breaks[].expires` is a strict `YYYY-MM-DD` date | `INVALID_BREAK_EXPIRES` |
 
 This table lists the codes you can see. Layer 1 rejects the contract first and
 reports `SCHEMA_VIOLATION` wherever the JSON Schema already constrains a field. That covers the interface and capability `type` enums, a non-empty

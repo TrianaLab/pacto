@@ -25,13 +25,13 @@ serve beyond loopback unless `PACTO_DASHBOARD_ALLOW_ANONYMOUS=true` allows it.
 # Run with OCI registry sources
 docker run -p 127.0.0.1:3000:3000 -e PACTO_DASHBOARD_ALLOW_ANONYMOUS=true \
   -e PACTO_DASHBOARD_REPO=ghcr.io/org/svc-a,ghcr.io/org/svc-b \
-  ghcr.io/trianalab/pacto/dashboard:4.4.2
+  ghcr.io/trianalab/pacto/dashboard:4.5.0
 
 # Run with registry authentication
 docker run -p 127.0.0.1:3000:3000 -e PACTO_DASHBOARD_ALLOW_ANONYMOUS=true \
   -e PACTO_DASHBOARD_REPO=ghcr.io/org/svc-a \
   -e PACTO_REGISTRY_TOKEN=ghp_xxx \
-  ghcr.io/trianalab/pacto/dashboard:4.4.2
+  ghcr.io/trianalab/pacto/dashboard:4.5.0
 ```
 
 To build the image from a checkout instead, `make docker-build` and
@@ -43,12 +43,13 @@ To build the image from a checkout instead, `make docker-build` and
 |---|---|---|
 | `PACTO_DASHBOARD_HOST` | Bind address for the server | `0.0.0.0` (in image), `127.0.0.1` (CLI) |
 | `PACTO_DASHBOARD_PORT` | HTTP server port | `3000` |
-| `PACTO_DASHBOARD_NAMESPACE` | Kubernetes namespace filter (empty = all) | `""` |
+| `PACTO_DASHBOARD_NAMESPACE` | Kubernetes namespaces to read, comma-separated (empty = all) | `""` |
 | `PACTO_DASHBOARD_REPO` | Comma-separated OCI repositories to scan | `""` |
 | `PACTO_DASHBOARD_CORS_ORIGIN` | Trusted cross-origin allowed to call the API | `""` (same-origin only) |
 | `PACTO_DASHBOARD_TRACES` | Offline OTLP/JSON trace exports to fold observed dependencies from. **Space-separated** list of paths | `""` |
 | `PACTO_DASHBOARD_OIDC_ISSUER_URL` | Identity provider people sign in with before the dashboard shows anything; every view then follows their Kubernetes RBAC (also `_CLIENT_ID`, `_CLIENT_SECRET`, `_REDIRECT_URL`, `_EXTRA_SCOPES`, `_DISPLAY_NAME` for the provider's name on the sign-in button and the claim mapping, see [dashboard authentication](integrations/kubernetes/dashboard-authentication.md)) | `""` (no sign-in) |
 | `PACTO_DASHBOARD_ALLOW_ANONYMOUS` | `true` serves beyond loopback without sign-in, to everyone who reaches the address; without it such a dashboard refuses to start | `false` |
+| `PACTO_DASHBOARD_REVIEW` | `local` reviews signed-in people with a LocalSubjectAccessReview in each `PACTO_DASHBOARD_NAMESPACE` only, which a namespaced Role grants; services without a namespace then show to nobody. `cluster` asks once about every namespace and needs a ClusterRole | `cluster` |
 | `PACTO_DASHBOARD_TOKEN_LOGIN` | `true` lets people sign in by pasting a Kubernetes bearer token | `false` |
 | `PACTO_DASHBOARD_SESSION_IDLE_TIMEOUT`, `PACTO_DASHBOARD_SESSION_MAX_AGE` | How long a session lasts idle and in all | `1h`, `12h` |
 | `PACTO_DASHBOARD_MIRA_SOURCES` | Mira base URLs whose service map supplies observed calls. **Space-separated** list | `""` |
@@ -109,12 +110,12 @@ automatically, with no kubeconfig mount:
 docker run -p 127.0.0.1:3000:3000 -e PACTO_DASHBOARD_ALLOW_ANONYMOUS=true \
   -v ~/.kube/config:/home/pacto/.kube/config:ro \
   -e PACTO_DASHBOARD_NAMESPACE=production \
-  ghcr.io/trianalab/pacto/dashboard:4.4.2
+  ghcr.io/trianalab/pacto/dashboard:4.5.0
 
 # local: a contract directory
 docker run -p 127.0.0.1:3000:3000 -e PACTO_DASHBOARD_ALLOW_ANONYMOUS=true \
   -v /path/to/contracts:/data:ro \
-  ghcr.io/trianalab/pacto/dashboard:4.4.2 dashboard /data
+  ghcr.io/trianalab/pacto/dashboard:4.5.0 dashboard /data
 ```
 
 ## Operational Endpoints
@@ -180,7 +181,7 @@ spec:
     spec:
       containers:
         - name: dashboard
-          image: ghcr.io/trianalab/pacto/dashboard:4.4.2
+          image: ghcr.io/trianalab/pacto/dashboard:4.5.0
           ports:
             - containerPort: 3000
           env:

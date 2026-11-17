@@ -34,8 +34,9 @@ start without them:
 
 This needs Helm 3.14 or later. Delivery runs in `delivery.namespace`
 (`pacto-delivery`, never the release or node agent namespace), where the operator holds no
-role, so it cannot act as the promoter. It still reads every Secret: prefer
-KMS or keyless recorder signing. Set `delivery.createNamespace=false` to
+role, so it cannot act as the promoter. It reads its Secrets only when
+[watched or granted](least-privilege.md): prefer KMS or keyless recorder
+signing. Set `delivery.createNamespace=false` to
 create the namespace, with the recorder key, yourself. Bind
 `pacto-operator-delivery-agent` to agents. People with `edit` or `admin` in a
 namespace may already decide there. The image is

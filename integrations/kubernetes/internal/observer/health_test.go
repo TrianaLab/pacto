@@ -1937,3 +1937,48 @@ func TestObserveHealthDim_ProbingDisabled_SkipsActiveProbe(t *testing.T) {
 		t.Fatalf("expected Insufficient (active probe skipped, Tier-B absent), got %s", obs.Outcome)
 	}
 }
+
+// A namespace label can turn probing on, so the probe never follows a namespace-chosen name: an
+// ExternalName Service (its CNAME) and a selector-less Service (hand-written endpoints) get no Tier-A probe.
+func TestHealthNoActiveProbeForExternalNameOrSelectorless(t *testing.T) {
+	ports := []corev1.ServicePort{{Name: "http", Port: 8080, TargetPort: intstr.FromInt32(8080)}}
+	for _, tc := range []struct {
+		name      string
+		spec      corev1.ServiceSpec
+		wantProbe bool
+	}{
+		{"external name", corev1.ServiceSpec{Type: corev1.ServiceTypeExternalName, ExternalName: "db.internal", Ports: ports}, false},
+		{"selector-less", corev1.ServiceSpec{Ports: ports}, false},
+		{"selector-backed", corev1.ServiceSpec{Selector: map[string]string{"app": "test"}, Ports: ports}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "test-svc", Namespace: "default"}, Spec: tc.spec}
+			prober := &fakeMetricsProber{result: probe.Result{Reachable: true, StatusCode: 200}}
+			o := &Observer{client: fake.NewClientBuilder().WithObjects(svc).Build(), prober: prober}
+			cap := contract.Capability{
+				Type:    contract.CapabilityHealth,
+				Binding: &contract.CapabilityBinding{Type: contract.CapabilityBindingHTTP, Interface: "api", Path: "/health"},
+			}
+			input := CollectInput{
+				Namespace:           "default",
+				ServiceName:         "test-svc",
+				WorkloadName:        "test-deploy",
+				WorkloadKind:        "Deployment",
+				Contract:            &contract.Contract{Service: contract.Service{Name: "test"}},
+				InterfaceBindings:   []InterfaceBinding{{Interface: "api", ServicePort: intstr.FromInt32(8080)}},
+				StabilizationWindow: 2 * time.Minute,
+				ObservationWindows:  make(map[string]*metav1.Time),
+				Now:                 time.Now(),
+				EnableProbing:       true,
+			}
+			obs, _ := o.observeHealthDim(context.Background(), input, cap, evidence.Provenance{Collector: "k8s-observer"}, input.Now)
+			if probed := prober.result.URL != ""; probed != tc.wantProbe {
+				t.Fatalf("probed = %v, want %v", probed, tc.wantProbe)
+			}
+			// Without a probe the result is Tier B, which here has no workload: never the prober's 200.
+			if !tc.wantProbe && obs.Outcome == evidence.Observed {
+				t.Errorf("outcome %s: a skipped probe must route to Tier B", obs.Outcome)
+			}
+		})
+	}
+}

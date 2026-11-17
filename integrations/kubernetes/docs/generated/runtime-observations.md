@@ -96,6 +96,7 @@ A finding is one conclusion from the engine. Findings fall in two families. Conf
 
 | Code | Category |
 | --- | --- |
+| `BREAK_NAMES_SELF` | `InvalidReference` |
 | `CAPABILITY_ABSENT` | `RuntimeDrift` |
 | `CAPABILITY_INTERFACE_UNKNOWN` | `InvalidCapability` |
 | `CAPABILITY_PATH_INVALID` | `InvalidCapability` |
@@ -108,8 +109,10 @@ A finding is one conclusion from the engine. Findings fall in two families. Conf
 | `CONFIG_REF_UNRESOLVED` | `UnresolvedReference` |
 | `CONFIG_REF_VERSION_OUTSIDE_RANGE` | `InvalidReference` |
 | `CONFIG_VALUES_VALIDATION_FAILED` | `ConfigurationViolation` |
+| `DEPENDENCY_NAME_REQUIRED` | `InvalidDependency` |
 | `DEPENDENCY_UNREACHABLE` | `RuntimeDrift` |
 | `DEPENDENCY_VERSION_MISMATCH` | `RuntimeDrift` |
+| `DUPLICATE_BREAK_CONSUMER` | `DuplicateName` |
 | `DUPLICATE_CAPABILITY` | `DuplicateName` |
 | `DUPLICATE_CONFIGURATION_NAME` | `DuplicateName` |
 | `DUPLICATE_DEPENDENCY_NAME` | `DuplicateName` |
@@ -129,6 +132,7 @@ A finding is one conclusion from the engine. Findings fall in two families. Conf
 | `INTERFACE_ABSENT` | `RuntimeDrift` |
 | `INTERFACE_PROTOCOL_MISMATCH` | `RuntimeDrift` |
 | `INTERFACE_VISIBILITY_MISMATCH` | `RuntimeDrift` |
+| `INVALID_BREAK_EXPIRES` | `SchemaViolation` |
 | `INVALID_COMPATIBILITY` | `InvalidDependency` |
 | `INVALID_CONFIG_JSON` | `InvalidFile` |
 | `INVALID_CONFIG_REF` | `InvalidReference` |
@@ -147,11 +151,14 @@ A finding is one conclusion from the engine. Findings fall in two families. Conf
 | `NEEDS_PACTO_2_2` | `InvalidVersion` |
 | `NEEDS_PACTO_2_3` | `InvalidVersion` |
 | `NEEDS_PACTO_2_4` | `InvalidVersion` |
+| `NEEDS_PACTO_2_5` | `InvalidVersion` |
 | `PERSISTENCE_MISMATCH` | `RuntimeDrift` |
 | `POLICY_ENFORCEMENT_ERROR` | `PolicyViolation` |
 | `POLICY_REF_CYCLE` | `ReferenceCycle` |
 | `POLICY_REF_UNRESOLVED` | `UnresolvedReference` |
 | `POLICY_VIOLATION` | `PolicyViolation` |
+| `PUBLISH_NEEDS_SERVICE_NAME` | `SchemaViolation` |
+| `PUBLISH_NEEDS_SERVICE_VERSION` | `InvalidVersion` |
 | `SCHEMA_ERROR` | `SchemaViolation` |
 | `SCHEMA_VIOLATION` | `SchemaViolation` |
 | `STATELESS_PERSISTENT_CONFLICT` | `StateMismatch` |
@@ -185,3 +192,9 @@ A finding is one conclusion from the engine. Findings fall in two families. Conf
 | `EVIDENCE_STALE` | `Inconclusive` |
 | `HEALTH_FAILING` | `Inconclusive` |
 | `OBSERVATION_UNSUPPORTED` | `Inconclusive` |
+
+### Severity `info`
+
+| Code | Category |
+| --- | --- |
+| `CONTRACT_BEHIND` | `OutdatedVersion` |

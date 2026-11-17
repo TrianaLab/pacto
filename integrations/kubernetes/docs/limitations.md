@@ -15,8 +15,10 @@ operator without it grants none of it.
 The operator does write to its own components. At chart defaults it manages the Pacto
 dashboard for you, which means creating a Deployment, Service, ServiceAccount,
 Secret, ClusterRole and ClusterRoleBinding of its own. The grants that allow that
-are broad enough to escalate privilege. [RBAC](rbac.md) has the full rule
-list and the flags that switch the managed components off.
+are broad enough to escalate privilege. With `controller.watchNamespaces` the
+chart renders the dashboard's namespaced Roles itself, and the operator creates
+a ClusterRole only for the dashboard's delivery views. [RBAC](rbac.md) has the
+full rule list and the flags that switch the managed components off.
 
 ## Observation boundaries
 
@@ -37,42 +39,39 @@ never `NonCompliant`. That happens for:
 
 ## Opt-in features
 
-Some observation is off by default because it costs cluster calls or opens an
-in-cluster request surface:
+Some observation runs only where someone turns it on, because it costs cluster
+calls or opens an in-cluster request surface:
 
-- **Metrics observation** requires `--enable-metrics-observation`; otherwise the
-  metrics dimension returns `Unsupported`.
-- **Active health probing** requires `--enable-probing`: the operator issues an
-  in-cluster HTTP GET against the health capability's own port and path. Without
-  it, health falls back to what the cluster already knows: an `httpGet`
-  readiness probe on the container behind that port, plus a Ready EndpointSlice
-  endpoint. That observes the workload rather than the declared endpoint. The
-  flag help and the [observation reference](runtime-observations.md) call these
-  two *Tier A* and *Tier B*; nothing the operator reports uses those labels.
-- **Interface name-match discovery** requires `--interface-name-match-discovery`
-  and only ever assists positive availability -- it never produces an absent or
-  error result.
+- **Metrics observation** turns on with `controller.metricsObservation` (flag
+  `--enable-metrics-observation`); otherwise the metrics dimension returns
+  `Unsupported`.
+- **Active health probing** turns on with `controller.probing` (flag
+  `--enable-probing`): the operator issues an in-cluster HTTP GET against the
+  health capability's own port and path. Without it, health falls back to what
+  the cluster already knows: an `httpGet` readiness probe on the container
+  behind that port, plus a Ready EndpointSlice endpoint. That observes the
+  workload rather than the declared endpoint. The flag help and the
+  [observation reference](runtime-observations.md) call these two *Tier A* and
+  *Tier B*; nothing the operator reports uses those labels. The probe only
+  follows Services with a selector: an ExternalName or selector-less Service
+  falls back to Tier B.
+- **Interface name-match discovery** turns on with
+  `controller.interfaceNameMatchDiscovery` (flag
+  `--interface-name-match-discovery`) and only ever assists positive
+  availability -- it never produces an absent or error result.
 
 See [Operator configuration](operator-configuration.md) for these flags.
 
-The chart exposes the first two as `controller.enableProbing` and
-`controller.enableMetricsObservation`; the second also grants read access to
-ServiceMonitors and PodMonitors. Name-match discovery has no chart value.
+Probing and metrics observation take `auto`, `on` or `off` and default to
+`auto`. Under `auto` each feature runs only in namespaces whose owner labels
+them `pacto.trianalab.io/observe` with `probing`, `metrics` or
+`probing.metrics`; an unreadable or unlabelled namespace stays off, and the
+`RuntimeObserved` condition names the reason. `on` runs the feature in every
+namespace. Only `controller.metricsObservation=on` grants read access to
+ServiceMonitors and PodMonitors, so a namespace opted in by label gets
+annotation, named-port and contract discovery only.
 
-!!! warning "Name-match discovery needs a manual patch"
-    The chart renders a fixed argument list with no `extraArgs` value, so the
-    only way to turn `--interface-name-match-discovery` on is to add it to the
-    running Deployment yourself:
-
-    ```bash
-    kubectl patch deployment pacto-operator -n pacto-operator-system \
-      --type=json \
-      -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--interface-name-match-discovery"}]'
-    ```
-
-    **This does not survive `helm upgrade`.** Helm re-renders `args` and the
-    flag disappears silently. Re-apply the patch after every upgrade.
-
+!!! note "Metrics observation without the chart"
     An operator installed without the chart needs its own grant for
     `--enable-metrics-observation`. Add a separate ClusterRole, never a patch of
     `manager-role`, whose rules are an atomic list a strategic merge would wipe:
@@ -258,6 +257,23 @@ The referenced contract's lifecycle (`DEPENDENCY_SERVICE_DEPRECATED` and
 with no status field of their own. To read a service's own `service.lifecycle`,
 run [`pacto explain`](../../cli-reference.md#pacto-explain) or open the
 dashboard.
+
+## Secret-backed configuration evidence
+
+A configuration bound to a Secret is checked for existence only: the operator
+reads the Secret's metadata, never its data. It may read it in the release
+namespace, in each of `controller.watchNamespaces` and wherever
+`controller.secretGrants` names it as `namespace/name`. Anywhere else the
+configuration reads `OBSERVATION_UNSUPPORTED`, which makes the contract
+`Unknown`, and the finding names the grant to add. A cluster-wide install is
+told to list the Secret in `controller.secretGrants`. A namespace-list install
+reads Secrets in every listed namespace, so it is told to check the chart's
+watch Role and RoleBinding in that namespace.
+
+A refused read never fails the collection: `RuntimeObserved` stays `True`, and
+the time the operator could not read the Secret never counts toward a later
+absence. The operator reads the Secret again on every check, so a new grant
+takes effect within one check interval.
 
 ## Delivery and private registries
 

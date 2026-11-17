@@ -34,7 +34,7 @@ login is needed; against a private registry, `docker login <registry>` first.
 Resolve the release you want to the digest it published, then run that digest:
 
 ```sh
-DEMO=$(docker manifest inspect -v ghcr.io/trianalab/pacto/demo:4.4.2 \
+DEMO=$(docker manifest inspect -v ghcr.io/trianalab/pacto/demo:4.5.0 \
   | sed -n 's/.*"digest": "\(sha256:[a-f0-9]*\)".*/\1/p' | head -1)
 
 docker compose -f "oci://ghcr.io/trianalab/pacto/demo@$DEMO" \
@@ -55,9 +55,9 @@ Then open <http://localhost:8080/#/fleet>.
 ## What you get
 
 The demo has four services. `checkout` has two published revisions, and 1.1.0
-drops an API path 1.0.0 exposed. `orders` declares `checkout` and is observed calling it, declares
+drops an API path 1.0.0 exposed. `orders` declares `checkout` and is seen calling it, declares
 `payments` and is never seen calling it. `payments` reaches the fleet as signed
-evidence from a remote environment; `checkout` is observed calling it with no
+evidence from a remote environment; `checkout` is seen calling it with no
 contract declaring so.
 
 The three edges show one of each on purpose: matched, declared but never

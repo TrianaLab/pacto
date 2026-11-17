@@ -7,22 +7,25 @@
 # Helm reference
 
 - **Chart**: `pacto-operator`
-- **Chart version**: `6.4.1`
-- **App version**: `6.4.1`
+- **Chart version**: `6.5.0`
+- **App version**: `6.5.0`
 
 Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come from the chart's `# --` value annotations.
 
 | Key | Default | Description |
 | --- | --- | --- |
 | `affinity` | `{}` | Affinity rules for the controller pod |
-| `controller.enableMetricsObservation` | `false` | Observe the metrics capability (ServiceMonitor, PodMonitor, annotation or named-port discovery plus an active scrape). Also grants read access to ServiceMonitors and PodMonitors. Off by default; when off, metrics read unsupported. |
-| `controller.enableProbing` | `false` | Actively probe in-cluster endpoints: the health capability over HTTP and the wire protocol of each present interface. Off by default; when off, health uses passive readiness-probe and EndpointSlice signals only and interface protocols read unverified. |
+| `controller.interfaceNameMatchDiscovery` | `false` | Resolve an unbound interface's Service port by matching a Service port whose name equals the interface name. A positive availability assist only: it never produces an absent or error result. |
 | `controller.kernelEvidence.callerIgnoreNamespaces` | `null` | Extra namespaces whose host-network pods are taken not to call workloads. The node agent cannot tell a host-network pod's calls from the node's own, so any such pod makes a Service's caller coverage partial, except in kube-system, kube-public, kube-node-lease and the node agent's namespace. The default lists the Flannel and Calico namespaces. Keep only namespaces that exist on your cluster and that you control: anyone who can create a listed namespace can call your services from a host-network pod there unseen. |
-| `controller.kernelEvidence.enabled` | `false` | Merge the node agent's kernel observations (NodeRuntimeObservation objects) into interface and dependency evidence. Needs the node agent running; off by default, so evidence comes from the Kubernetes API only. Kernel evidence is on whenever this OR nodeAgent.enabled is true: a managed agent whose observations nobody merges would be pure cost. Set this alone only for an agent you run yourself. |
+| `controller.kernelEvidence.enabled` | `auto` | Merge the node agent's kernel observations (NodeRuntimeObservation objects) into interface and dependency evidence. Needs the node agent running. Takes auto, on or "off" (quoted: a bare off is YAML false). auto follows nodeAgent.enabled: a managed agent whose observations nobody merges would be pure cost. Set on alone only for an agent you run yourself; "off" refuses it even with the node agent. false keeps meaning auto. |
 | `controller.kernelEvidence.namespace` | `""` | Namespace the node agent publishes to. Empty uses nodeAgent.namespace. |
 | `controller.kernelEvidence.staleness` | `""` | How old a node's heartbeat may be before its evidence reads stale. Empty uses three times the node agent's publish interval. Accepts a Go duration (e.g. "2m"). |
+| `controller.metricsObservation` | `""` | Observe the metrics capability (annotation, named-port or contract discovery plus an active scrape). Takes auto, on or off; true and false still mean on and off. Empty means auto, and an explicit auto also overrides the deprecated enableMetricsObservation set to true. auto turns it on only in namespaces whose owner labels them pacto.trianalab.io/observe=metrics (or probing.metrics). ServiceMonitor and PodMonitor discovery and the read access it needs come with on only. When off, metrics read unsupported. |
+| `controller.probing` | `""` | Actively probe in-cluster endpoints: the health capability over HTTP and the wire protocol of each present interface. Takes auto, on or off; true and false still mean on and off. Empty means auto, and an explicit auto also overrides the deprecated enableProbing set to true. auto turns probing on only in namespaces whose owner labels them pacto.trianalab.io/observe=probing (or probing.metrics). When off, health uses passive readiness-probe and EndpointSlice signals only and interface protocols read unverified. |
+| `controller.secretGrants` | `[]` | Secrets outside the release namespace and watchNamespaces the operator may read, as namespace/name: pull secrets and Secrets that back a contract configuration. Each gets a Role limited to that Secret. |
 | `controller.stabilizationWindow` | `""` | Stabilization window: how long a sustained NEGATIVE observation must persist before it converts to a confirmed violation (a transient blip reads Unknown meanwhile). Empty string uses the controller default (2m). Accepts a Go duration (e.g. "30s", "5m"). |
-| `controller.watchNamespace` | `""` | Restrict the controller's observation scope to a single namespace. Empty string (default) means cluster-wide: the controller watches all namespaces. The dashboard inherits this scope automatically. |
+| `controller.watchNamespace` | `""` | Deprecated: use watchNamespaces. Merged into it. |
+| `controller.watchNamespaces` | `[]` | Namespaces the controller and the managed dashboard watch. Empty means cluster-wide. With a list, the chart renders namespaced Roles only; fleet answers report the rest as unknown. |
 | `crds.install` | `true` | Install and upgrade the CRDs with the chart, the delivery CRDs too when `delivery.enabled`. They are kept on helm uninstall. Only one release in a cluster can own them: every other release, for example one per watched namespace, sets false. Set false to manage them yourself, for example from a separate GitOps source; the operator and delivery need them before they start |
 | `dashboard.auth.allowAnonymous` | `true` | Serve the dashboard without sign-in. Everyone who reaches it reads every service the dashboard's ServiceAccount reads. Ignored when sign-in is configured. With `false` and no sign-in the dashboard refuses to start |
 | `dashboard.auth.oidc.caBundle.configMap` | `""` | A ConfigMap in the operator namespace holding the PEM certificates of the CAs that sign the issuer's certificate (corporate or self-signed), trusted on top of the image's public roots |
@@ -118,7 +121,7 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `delivery.recorder.serviceAccount.annotations` | `{}` | Annotations to add to the recorder's ServiceAccount (workload identity for KMS or keyless) |
 | `delivery.recorder.serviceAccount.create` | `true` | Create a ServiceAccount for the recorder |
 | `delivery.recorder.serviceAccount.name` | `""` | Name override (defaults to `<fullname>-delivery-recorder`) |
-| `delivery.recorder.signing.allowOperatorReadableKey` | `false` | Say yes to an Ed25519 key in a Secret. The operator reads every Secret in the cluster, so it can read this key too and the recorder is not its only holder. The chart refuses `ed25519.secretName` unless this is true. Prefer KMS or keyless signing |
+| `delivery.recorder.signing.allowOperatorReadableKey` | `false` | Say yes to an Ed25519 key in a Secret the operator may read. The operator reads Secrets in the release namespace, in each of `controller.watchNamespaces` and the ones `controller.secretGrants` names, so the chart refuses `ed25519.secretName` unless this is true when `delivery.namespace` is the release namespace, is watched, or the key is granted by name: the recorder would not be the key's only holder. Prefer KMS or keyless signing |
 | `delivery.recorder.signing.ed25519.generate` | `false` | Generate that Secret at install, with a new Ed25519 key kept across upgrades (for evaluation) |
 | `delivery.recorder.signing.ed25519.key` | `key.pem` | The key in that Secret |
 | `delivery.recorder.signing.ed25519.secretName` | `""` | A Secret holding a PKCS#8 PEM Ed25519 private key (for kind and tests) |
@@ -190,6 +193,7 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `metrics.serviceMonitor.scrapeTimeout` | `""` | Scrape timeout |
 | `nameOverride` | `""` | Override the chart name |
 | `nodeAgent.enabled` | `false` | Deploy the node agent DaemonSet. Off by default. |
+| `nodeAgent.image` | `""` | Full image reference of the node agent. Empty uses the runtime image the operator was built with. |
 | `nodeAgent.namespace` | `pacto-node-agent` | Dedicated namespace the agents run and publish in. The chart creates it and labels it privileged for Pod Security; it must not be the release namespace and must not exist outside this release. |
 | `nodeAgent.publishInterval` | `30s` | How often each agent publishes its node's observation. A Go duration; kernel evidence reads stale after three intervals unless controller.kernelEvidence.staleness says otherwise. |
 | `nodeAgent.resources.limits.cpu` | `200m` | CPU limit for the node agent container |

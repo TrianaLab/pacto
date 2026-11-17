@@ -94,6 +94,8 @@ func jobsOf(t *testing.T, text string) map[string]string {
 	return out
 }
 
+var provenanceShaGuard = regexp.MustCompile(`(?m)^\s*test "\$GITHUB_SHA" = "\$SRC" \|\|.*$`)
+
 func TestReleaseJobsBuildTransactionSourceSha(t *testing.T) {
 	root := repoRoot(t)
 	b, err := os.ReadFile(filepath.Join(root, ".github", "workflows", "release.yml"))
@@ -129,6 +131,9 @@ func TestReleaseJobsBuildTransactionSourceSha(t *testing.T) {
 		if exemptSha[name] {
 			continue
 		}
+		// The provenance guard reads GITHUB_SHA only to refuse signing when it
+		// differs from the source commit; it stamps nothing.
+		block = provenanceShaGuard.ReplaceAllString(block, "")
 		for _, tok := range []string{"github.sha", "GITHUB_SHA"} {
 			if strings.Contains(block, tok) {
 				t.Errorf("job %q references %q — released-artifact metadata must use needs.detect.outputs.source_sha, not the dispatch commit", name, tok)

@@ -75,13 +75,13 @@ answer carries the as-of time and the completeness of the sources behind it.`,
   # Custom port
   pacto dashboard --port 9090
 
-  # Specify Kubernetes namespace (default: all namespaces)
-  pacto dashboard --namespace production`,
+  # Read only some Kubernetes namespaces (default: all namespaces)
+  pacto dashboard --namespace payments,ledger`,
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			host := v.GetString("dashboard.host")
 			port := v.GetInt("dashboard.port")
-			namespace := v.GetString("dashboard.namespace")
+			namespaces := splitNamespaces(v.GetString("dashboard.namespace"))
 			noCache := v.GetBool("no-cache")
 			corsOrigin := v.GetString("dashboard.cors-origin")
 			traces := v.GetStringSlice("dashboard.traces")
@@ -130,7 +130,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 				miraURLs:    miraURLs,
 			}
 
-			fopts := dashboardFleetOptions(dir, repos, namespace, observation, det)
+			fopts := dashboardFleetOptions(dir, repos, namespaces, observation, det)
 			configured := configuredSources(fopts)
 			if len(configured) == 0 {
 				return fmt.Errorf("no data sources detected: no pacto.yaml in %s, no oci:// argument, no cached bundles and no Kubernetes configuration", dir)
@@ -140,7 +140,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			// atomically-refreshed view of the whole fleet, rather than rebuilding
 			// per request. The dashboard is a CONSUMER of the reusable fleet layer:
 			// graph, freshness and completeness semantics live there, once.
-			discover := clusterContractRefs(cluster, namespace)
+			discover := clusterContractRefs(cluster, namespaces)
 			cacheUse := cacheLifecycle{
 				permitted:    !noCache,
 				baseline:     fopts.IncludeCache,
@@ -177,7 +177,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 				Refresh:    mgr.Refresh,
 				MiraURL:    v.GetString("dashboard.mira-url"),
 
-				DeliveryNamespace: namespace,
+				DeliveryNamespace: deliveryNarrowing(namespaces),
 			}
 			opts.Stats, opts.StatsRegistry = dashboardStats(cmd, svc)
 			identity.options(&opts)
@@ -199,7 +199,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 
 	cmd.Flags().String("host", "127.0.0.1", "bind address for the dashboard server")
 	cmd.Flags().Int("port", 3000, "port for the dashboard server")
-	cmd.Flags().String("namespace", "", "Kubernetes namespace (empty = all namespaces)")
+	cmd.Flags().String("namespace", "", "Kubernetes namespaces to read, comma-separated (empty = all namespaces); delivery reads narrow to it only when it names one")
 	cmd.Flags().String("cors-origin", "", "explicit cross-origin allowed to call the API (default: same-origin only)")
 	cmd.Flags().StringArray("traces", nil, "OTLP/JSON trace file to fold observed dependencies from (repeatable; also PACTO_DASHBOARD_TRACES)")
 	cmd.Flags().StringArray("trace-source", nil, "named offline OTLP/JSON trace source as NAME=PATH, where NAME is its stable data-source identity (repeatable; also PACTO_DASHBOARD_TRACE_SOURCES)")
@@ -216,6 +216,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	cmd.Flags().Duration("session-max-age", 0, "a session ends this long after sign-in, renewed or not (default 12h)")
 	cmd.Flags().Bool("token-login", false, "let people sign in by pasting a Kubernetes bearer token, for a cluster whose API server trusts no identity provider; a token session never decides on a held change (also PACTO_DASHBOARD_TOKEN_LOGIN)")
 	cmd.Flags().Bool("allow-anonymous", false, "serve beyond loopback without sign-in: everyone who reaches the address reads the whole fleet (also PACTO_DASHBOARD_ALLOW_ANONYMOUS)")
+	cmd.Flags().String("review", reviewCluster, reviewUsage+" (also PACTO_DASHBOARD_REVIEW)")
 	cmd.Flags().String("mira-url", "", "Mira's address, to link health-check citations and open a service in Mira")
 	// Not bound to viper, which also reads ./pacto.yaml, the contract.
 	cmd.Flags().String("stats-registry", "", "stats repository the Metrics page reads run records from (unsigned statistics; also PACTO_STATS_REGISTRY); "+
@@ -234,7 +235,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	_ = v.BindPFlag("dashboard.mira-sources", cmd.Flags().Lookup("mira-source"))
 	for _, f := range []string{"oidc-issuer-url", "oidc-client-id", "oidc-redirect-url", "oidc-display-name", "oidc-extra-scopes", "oidc-ca-file", "oidc-internal-issuer-url",
 		"oidc-username-claim", "oidc-username-prefix", "oidc-groups-claim", "oidc-groups-prefix",
-		"session-idle-timeout", "session-max-age", "token-login", "allow-anonymous", "mira-url", "delivery-namespace", "delivery-trust"} {
+		"session-idle-timeout", "session-max-age", "token-login", "allow-anonymous", "review", "mira-url", "delivery-namespace", "delivery-trust"} {
 		_ = v.BindPFlag("dashboard."+f, cmd.Flags().Lookup(f))
 	}
 	// A secret never goes on a command line, where any process can read it.
@@ -518,12 +519,12 @@ func observationSources(traces, named []string) ([]app.ObservationSourceSpec, er
 // Both fold into one revision key, and the merge keeps the first arrival's
 // requested ref, so ascending order would record every pinned target as having
 // requested a bare repository. Reversing puts the exact ref first.
-func clusterContractRefs(client k8sclient.K8sClient, namespace string) func(context.Context) []string {
+func clusterContractRefs(client k8sclient.K8sClient, namespaces []string) func(context.Context) []string {
 	if client == nil {
 		return nil
 	}
 	return func(ctx context.Context) []string {
-		refs, err := fleetsrc.ContractRefs(ctx, client, namespace)
+		refs, err := fleetsrc.ContractRefs(ctx, client, namespaces)
 		if err != nil {
 			return nil
 		}
@@ -607,7 +608,7 @@ func withClusterContractRefs(ctx context.Context, opts app.FleetOptions, discove
 // dashboardFleetOptions builds fleet source options from everything the
 // dashboard detected, so the operational-graph endpoints span the whole fleet
 // rather than the local root alone.
-func dashboardFleetOptions(dir string, repos []string, namespace string, observation []app.ObservationSourceSpec, det dashboardSources) app.FleetOptions {
+func dashboardFleetOptions(dir string, repos []string, namespaces []string, observation []app.ObservationSourceSpec, det dashboardSources) app.FleetOptions {
 	// Recency is one horizon per product surface, not one per code path. The
 	// overview already calls evidence older than [fleet.RecentEvidenceWindow] not
 	// recent; leaving the build's window at zero disabled staleness classification
@@ -639,7 +640,7 @@ func dashboardFleetOptions(dir string, repos []string, namespace string, observa
 	}
 	if det.cluster != nil {
 		fopts.IncludeK8s = true
-		fopts.K8sNamespace = namespace
+		fopts.K8sNamespaces = namespaces
 	}
 	// An operator-wired dashboard learns its managed Evidence Server via env; when
 	// set, consume its read-only contribution. Unset means no evidence source

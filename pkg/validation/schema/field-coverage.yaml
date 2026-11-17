@@ -1,4 +1,4 @@
-# Field coverage inventory for the Pacto v2.4 contract schema (2.3 plus the 2.4 additions).
+# Field coverage inventory for the Pacto v2.5 contract schema (2.4 plus the 2.5 additions).
 #
 # One entry per schema path (dotted, [] for array items) and, under values, one per
 # enum value. pkg/validation/fieldcoverage_test.go walks the schema and fails when a
@@ -29,27 +29,33 @@ fields:
     meaning: Contract format version; selects the JSON Schema the contract is validated against.
     runtime: not-applicable
     evidence: 'none: the field has no runtime counterpart'
-    rule: parse rejects anything but "2.0", "2.1", "2.2", "2.3" and "2.4" before any other layer runs; the version
-      selects the schema
+    rule: parse rejects anything but "2.0", "2.1", "2.2", "2.3", "2.4" and "2.5" before any other layer runs; the
+      version selects the schema; an absent version is the newest the CLI supports, and pack, push and publish write
+      it into the bundled pacto.yaml
     outcomes: PARSE_ERROR when unsupported
-    limitations: 2.0, 2.1, 2.2 and 2.3 have their own schemas without the fields later versions add; this inventory
-      walks 2.4, the superset
+    limitations: 2.0, 2.1, 2.2, 2.3 and 2.4 have their own schemas without the fields later versions add; this
+      inventory walks 2.5, the superset
     tests:
       unit:
       - pkg/contract/parse_test.go:TestParse_UnsupportedVersion
+      - pkg/contract/parse_test.go:TestParseImplicitVersionIsCurrent
+      - pkg/contract/pin_test.go:TestPinVersionAddsLine
       - pkg/validation/structural_test.go:TestValidateStructuralRaw_UnsupportedVersion_V10
       integration:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/valid
       - tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/invalid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/absent-is-current
       e2e: []
     values:
-      '2.4':
-        meaning: the newest Operational Contract format; 2.0, 2.1, 2.2 and 2.3 contracts keep working unchanged
+      '2.5':
+        meaning: the newest Operational Contract format; 2.0, 2.1, 2.2, 2.3 and 2.4 contracts keep working unchanged
         runtime: static-only
         tests:
           unit:
+          - pkg/validation/structural_test.go:TestValidateStructural_V25AcceptsV24Body
           - pkg/validation/structural_test.go:TestPactoVersion24
           integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/valid
           - tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.4
           - tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.3
           - tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.2
@@ -60,47 +66,55 @@ fields:
     meaning: Identity block of the service the contract describes.
     runtime: not-applicable
     evidence: 'none: the field has no runtime counterpart'
-    rule: 'schema: object with name and version'
+    rule: 'schema: object with name and version; optional in 2.5, where an empty contract is valid'
     outcomes: PARSE_ERROR or SCHEMA_VIOLATION when malformed
     limitations: container only; its children carry the semantics
     tests:
       unit:
       - pkg/contract/parse_test.go:TestParse_ValidFull_Service
+      - pkg/validation/structural_test.go:TestValidateStructural_EmptyIsValid
       integration:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/service/valid
       - tests/integration/field_coverage_test.go:TestFieldCoverage/service/invalid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service/absent
       e2e: []
   service.name:
     meaning: DNS-style service name; the identity of the contract everywhere.
     runtime: static-only
     evidence: used as the subject name of service-scoped evidence (workload, persistence), never checked against a runtime
       name
-    rule: schema pattern
-    outcomes: SCHEMA_VIOLATION
+    rule: schema pattern; required before 2.5; in 2.5 it may be absent, pack, push and publish refuse an undeclared
+      one and readers of published bundles reject it
+    outcomes: SCHEMA_VIOLATION; PUBLISH_NEEDS_SERVICE_NAME when publishing without it
     limitations: the operator binds a runtime target by the Pacto CR, not by this name
     tests:
       unit:
-      - pkg/contract/parse_test.go:TestParse_MissingServiceName
+      - pkg/validation/structural_test.go:TestValidateStructural_V24StillRequiresName
+      - pkg/validation/structural_test.go:TestValidateStructural_ServiceOnlyNameIsValid
       - pkg/validation/evaluate_test.go:TestEvaluate_ServiceScopedMatchByServiceName
       integration:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/service.name/valid
       - tests/integration/field_coverage_test.go:TestFieldCoverage/service.name/invalid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.name/needs-2.5
       e2e: []
   service.version:
     meaning: Semantic version of this contract revision.
     runtime: static-only
     evidence: consumers read it from the provider's Pacto status as DependencyObservation.Version for their compatibility
       check
-    rule: 'cross-field: valid semver'
-    outcomes: INVALID_SEMVER
+    rule: 'cross-field: valid semver; required before 2.5; in 2.5 it may be absent and pack, push and publish refuse
+      an undeclared one'
+    outcomes: INVALID_SEMVER; PUBLISH_NEEDS_SERVICE_VERSION when publishing without it
     limitations: the running image version is never compared with it; it is the provider-side input of dependencies[].compatibility
     tests:
       unit:
       - pkg/validation/crossfield_test.go:TestValidateServiceVersion_InvalidSemver
       - pkg/validation/structural_test.go:TestValidateStructuralRaw_VersionMustBeOnePathComponent
+      - pkg/validation/crossfield_test.go:TestValidateServiceVersionEmptySkipped
       integration:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/service.version/valid
       - tests/integration/field_coverage_test.go:TestFieldCoverage/service.version/invalid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.version/needs-2.5
       e2e:
       - tests/acceptance/kind/runtime-conformance.sh:dependency-version-mismatch
   service.domain:
@@ -642,7 +656,7 @@ fields:
     platforms:
       kubernetes:
         evidence: partial
-        reason: 'protocol probe on the Service port with controller.enableProbing; tls and asyncapi stay unverified'
+        reason: 'protocol probe on the Service port with controller.probing (or the namespace label pacto.trianalab.io/observe=probing); tls and asyncapi stay unverified'
       agent:
         evidence: partial
         reason: 'protocol probe on the bound port with --enable-probing; tls and asyncapi stay unverified'
@@ -907,6 +921,23 @@ fields:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].compatibilityEpoch/invalid
       - tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].compatibilityEpoch/needs-2.2
       e2e: []
+  interfaces[].port:
+    meaning: The port the interface listens on; absent means not declared.
+    runtime: static-only
+    evidence: 'none: comparing it with observed container ports is later runtime work'
+    rule: 'schema: integer from 1 to 65535, pactoVersion 2.5; several interfaces may share one port; diff: declared or dropped is non-breaking, moved is potentially breaking'
+    outcomes: SCHEMA_VIOLATION, NEEDS_PACTO_2_5
+    limitations: a declared port is not yet compared with the ports the workload listens on
+    tests:
+      unit:
+      - pkg/validation/structural_test.go:TestPortRange
+      - pkg/validation/structural_test.go:TestNeeds25Port
+      - pkg/diff/interfaces_test.go:TestDiffPortModifiedPotentialBreaking
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].port/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].port/invalid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].port/needs-2.5
+      e2e: []
   interfaces[].visibility:
     meaning: Intended audience of the interface; omitted means internal (the schema default, applied by the engine).
     runtime: partial
@@ -1055,7 +1086,8 @@ fields:
     evidence: ConfigurationPresent from the bound ConfigMap or Secret key (spec.target.configBindings)
     rule: absent contradicts; present but failing the declared schema contradicts
     outcomes: Compliant; CONFIGURATION_ABSENT or CONFIGURATION_MISMATCH (error, warning when optional); OBSERVATION_UNSUPPORTED
-      when a required one is unbound; DUPLICATE_CONFIGURATION_NAME statically
+      when a required one is unbound; OBSERVATION_UNSUPPORTED with the missing grant when the operator may not read the
+      bound Secret; DUPLICATE_CONFIGURATION_NAME statically
     limitations: needs a configBinding; environment variables set directly on the pod are not read
     tests:
       unit:
@@ -1714,15 +1746,21 @@ fields:
     meaning: Dependency identifier; subject of its evidence.
     runtime: not-applicable
     evidence: identity only; the runtime check lives on dependencies[]
-    rule: 'schema: required; cross-field: unique'
-    outcomes: SCHEMA_VIOLATION, DUPLICATE_DEPENDENCY_NAME
-    limitations: the provider is found by ref, not by name
+    rule: 'schema: required before 2.5; 2.5 derives it from the last path segment of ref when absent; cross-field:
+      unique, and present or derivable'
+    outcomes: SCHEMA_VIOLATION before 2.5, DEPENDENCY_NAME_REQUIRED with neither name nor ref, DUPLICATE_DEPENDENCY_NAME
+    limitations: the provider is found by ref, not by name; a name derived from ref resolves only to a service published
+      at that repository
     tests:
       unit:
       - pkg/contract/contract_test.go:TestDependency_NameField
+      - pkg/contract/contract_test.go:TestDependencyNameFromRef
+      - pkg/validation/crossfield_test.go:TestDependencyNameRequiredWithoutRef
       integration:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].name/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].name/from-ref
       - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].name/invalid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].name/needs-2.5
       e2e: []
   dependencies[].ref:
     meaning: Reference to the provider's contract bundle.
@@ -1757,15 +1795,19 @@ fields:
     runtime: partial
     evidence: decides the severity axis of the dependency evidence
     rule: 'required: a gap is Unknown and a contradiction an error; optional: a gap is silent and a contradiction a warning'
-    outcomes: DEPENDENCY_UNREACHABLE or DEPENDENCY_VERSION_MISMATCH as warning when optional; SCHEMA_VIOLATION when omitted
+    outcomes: DEPENDENCY_UNREACHABLE or DEPENDENCY_VERSION_MISMATCH as warning when optional; SCHEMA_VIOLATION when
+      omitted before 2.5, where absent means true
     limitations: none beyond the parent
     tests:
       unit:
       - pkg/validation/evaluate_test.go:TestEvaluate_OptionalDependency
       - pkg/validation/schema_binding_test.go:TestSchema_DependencyMissingRequired_Rejected
+      - pkg/contract/contract_test.go:TestDependencyRequiredDefaultsTrue
       integration:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].required/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].required/absent-is-true
       - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].required/invalid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].required/needs-2.5
       e2e:
       - tests/acceptance/kind/runtime-conformance.sh:dependency-optional-warning
     platforms:
@@ -1783,22 +1825,30 @@ fields:
         tests:
         - tests/acceptance/local/runtime-run.sh:run-ebpf-dependency-refused
   dependencies[].compatibility:
-    meaning: Semver range of provider versions this service accepts.
+    meaning: Semver range of provider versions this service accepts, or unknown when the versions that work are not known
+      yet.
     runtime: partial
     evidence: 'DependencyObservation.Version: the provider Pacto''s status.contract.version; when several targets match the
       ref, the only one inside the range is the target (none or several is Insufficient)'
-    rule: a version inside the range satisfies; outside contradicts; an unknown or non-semver version is unverified
+    rule: a version inside the range satisfies; outside contradicts; an unknown or non-semver version is unverified;
+      compatibility unknown (pactoVersion 2.5) is valid and never counted as compatible, so it is always unverified
     outcomes: Compliant; DEPENDENCY_VERSION_MISMATCH (error, warning when optional); listed in evaluationCoverage.unverified
-      otherwise; INVALID_COMPATIBILITY statically
+      otherwise; INVALID_COMPATIBILITY statically; NEEDS_PACTO_2_5 for unknown under 2.0 to 2.4
     limitations: the provider's contract version is trusted as its deployed version; judged only when the dependency is Observed
     tests:
       unit:
       - pkg/validation/evaluate_test.go:TestEvaluate_DependencyCompatibilityFacet
       - pkg/validation/crossfield_test.go:TestValidateDependencyRefs_InvalidCompatibility
+      - pkg/validation/crossfield_test.go:TestCompatibilityUnknownValid
+      - pkg/validation/structural_test.go:TestNeeds25CompatibilityUnknown
+      - pkg/validation/evaluate_test.go:TestVersionVerdictUnknownIsUnverified
       - integrations/kubernetes/internal/observer/regressions_test.go:TestDependency_VersionTieBreak
+      - integrations/kubernetes/internal/observer/dependencies_test.go:TestDependencyCompatibilityUnknownIsUnverified
       integration:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].compatibility/valid
       - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].compatibility/invalid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].compatibility/unknown
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].compatibility/needs-2.5
       e2e:
       - tests/acceptance/kind/runtime-conformance.sh:dependency-version-mismatch
     platforms:
@@ -2037,6 +2087,96 @@ fields:
       integration:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].version/valid
       - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].version/invalid
+      e2e: []
+  breaks:
+    meaning: Deliberate breaking changes this version announces to named consumers.
+    runtime: static-only
+    evidence: 'none: an announcement has no runtime counterpart'
+    rule: 'schema: non-empty list, pactoVersion 2.5; diff: every change is non-breaking'
+    outcomes: SCHEMA_VIOLATION, NEEDS_PACTO_2_5
+    limitations: what an announced break does to a gate is decided by the gate, not by validation
+    tests:
+      unit:
+      - pkg/validation/structural_test.go:TestNeeds25Breaks
+      - pkg/diff/breaks_test.go:TestDiffBreaksAddedRemoved
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/breaks/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/breaks/invalid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/breaks/needs-2.5
+      e2e: []
+  breaks[]:
+    meaning: One announcement, naming the consumers it affects, why and until when.
+    runtime: static-only
+    evidence: 'none: an announcement has no runtime counterpart'
+    rule: 'schema: consumers and reason required, expires optional, nothing else; diff: keyed by its sorted consumers'
+    outcomes: SCHEMA_VIOLATION, PARSE_ERROR
+    limitations: what an announced break does to a gate is decided by the gate, not by validation
+    tests:
+      unit:
+      - pkg/diff/breaks_test.go:TestDiffBreaksKeyIgnoresConsumerOrder
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/breaks[]/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/breaks[]/invalid
+      e2e: []
+  breaks[].consumers:
+    meaning: The services the break affects, by service name.
+    runtime: static-only
+    evidence: 'none: identity only'
+    rule: 'schema: non-empty, unique; cross-field: a consumer appears in one entry at most and never names the service itself'
+    outcomes: SCHEMA_VIOLATION, DUPLICATE_BREAK_CONSUMER, BREAK_NAMES_SELF
+    limitations: a consumer name is not checked against the fleet
+    tests:
+      unit:
+      - pkg/validation/crossfield_test.go:TestBreaksDuplicateConsumer
+      - pkg/validation/crossfield_test.go:TestBreaksNamesSelf
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/breaks[].consumers/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/breaks[].consumers/invalid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/breaks[].consumers/duplicate
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/breaks[].consumers/self
+      e2e: []
+  breaks[].consumers[]:
+    meaning: One consumer, by service name.
+    runtime: static-only
+    evidence: 'none: identity only'
+    rule: 'schema: the service-name pattern'
+    outcomes: SCHEMA_VIOLATION
+    limitations: a consumer name is not checked against the fleet
+    tests:
+      unit:
+      - pkg/validation/structural_test.go:TestNeeds25Breaks
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/breaks[].consumers[]/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/breaks[].consumers[]/invalid
+      e2e: []
+  breaks[].reason:
+    meaning: Why the break is needed and what the consumers change.
+    runtime: static-only
+    evidence: 'none: free text'
+    rule: 'schema: required non-empty string; diff: a changed reason is non-breaking'
+    outcomes: SCHEMA_VIOLATION
+    limitations: what an announced break does to a gate is decided by the gate, not by validation
+    tests:
+      unit:
+      - pkg/diff/breaks_test.go:TestDiffBreaksReasonAndExpires
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/breaks[].reason/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/breaks[].reason/invalid
+      e2e: []
+  breaks[].expires:
+    meaning: Date the announcement stops applying.
+    runtime: static-only
+    evidence: 'none: the field has no runtime counterpart'
+    rule: 'cross-field: canonical YYYY-MM-DD date (the schema format is not asserted); diff: non-breaking'
+    outcomes: INVALID_BREAK_EXPIRES
+    limitations: what an announced break does to a gate is decided by the gate, not by validation
+    tests:
+      unit:
+      - pkg/validation/crossfield_test.go:TestBreaksInvalidExpires
+      - pkg/diff/breaks_test.go:TestDiffBreaksReasonAndExpires
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/breaks[].expires/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/breaks[].expires/invalid
       e2e: []
   state:
     meaning: How the service holds state.

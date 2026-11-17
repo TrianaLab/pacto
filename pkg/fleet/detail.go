@@ -463,6 +463,71 @@ type OriginDetail struct {
 	Reason     string     `json:"reason,omitempty"`
 }
 
+// InferredField is one value a local read implied rather than read from the
+// contract, with where it came from: a "<path>:<line>" in the bundle,
+// "directory <name>" or "this CLI".
+type InferredField struct {
+	Field      string `json:"field"`
+	Value      string `json:"value"`
+	Source     string `json:"source"`
+	Provenance string `json:"provenance" enum:"inferred"`
+}
+
+func inferredFields(inf []contract.Inferred) []InferredField {
+	var out []InferredField
+	for _, i := range inf {
+		out = append(out, InferredField{Field: i.Field, Value: i.Value, Source: i.Source, Provenance: ProvenanceInferred})
+	}
+	return out
+}
+
+// MaxBreaks bounds the announced break rows of a revision detail.
+const MaxBreaks = 20
+
+// BreakItem is one consumer an announced break names, with the break's reason
+// and expiry. Service is set when the fleet holds a service of that name.
+type BreakItem struct {
+	Consumer string     `json:"consumer"`
+	Service  *EntityRef `json:"service,omitempty"`
+	Reason   string     `json:"reason"`
+	Expires  string     `json:"expires,omitempty"`
+}
+
+// BreaksPreview is a bounded preview of the consumers a revision's announced
+// breaks name. Total counts every named consumer; Hidden counts those the
+// caller's permissions hide, which are never named and never in Items.
+type BreaksPreview struct {
+	Total     int         `json:"total"`
+	Count     int         `json:"count"`
+	Truncated bool        `json:"truncated"`
+	Hidden    int         `json:"hidden,omitempty"`
+	Items     []BreakItem `json:"items"`
+}
+
+// breaksPreview is one row per consumer rev's breaks name, resolved in the
+// revision's domain.
+func (q *Query) breaksPreview(rev *ContractRevision) BreaksPreview {
+	var p BreaksPreview
+	var rows []BreakItem
+	for _, b := range rev.Contract.Breaks {
+		for _, name := range b.Consumers {
+			p.Total++
+			if q.snap.hiddenServices[NewServiceKeyDomain(rev.Domain, name)] {
+				p.Hidden++
+				continue
+			}
+			row := BreakItem{Consumer: name, Reason: b.Reason, Expires: b.Expires}
+			if k := lookupServiceInDomain(q.snap, rev.Domain, name); k != "" {
+				row.Service = new(serviceEntityRef(q.snap.Services[k]))
+			}
+			rows = append(rows, row)
+		}
+	}
+	p.Items, _, p.Truncated = boundSlice(rows, MaxBreaks)
+	p.Count = len(p.Items)
+	return p
+}
+
 // RevisionDetailData is the revision-kind payload: parent service, immutable
 // identity/content and provenance, validation, readiness, the DECLARED
 // interfaces/configurations/policies/capabilities/state/workload themselves
@@ -472,6 +537,15 @@ type RevisionDetailData struct {
 	Service      EntityRef `json:"service"`
 	Version      string    `json:"version,omitempty"`
 	PactoVersion string    `json:"pactoVersion,omitempty"`
+	// PactoVersionCurrent and PactoVersionUnknown compare the declared
+	// pactoVersion with the versions the answering Pacto knows, so two Pactos
+	// of different releases can answer differently.
+	PactoVersionCurrent string `json:"pactoVersionCurrent,omitempty" doc:"The latest pactoVersion known to the Pacto that served this answer, set when this revision declares an older or unknown one"`
+	PactoVersionUnknown bool   `json:"pactoVersionUnknown,omitempty" doc:"The revision declares a pactoVersion the Pacto that served this answer does not know"`
+	// Inferred lists what a local read implied rather than read from the
+	// contract (an absent pactoVersion, an inferred service.name), each with
+	// its source. It is empty for a published revision.
+	Inferred []InferredField `json:"inferred,omitempty"`
 	// Lifecycle is the service lifecycle (pactoVersion 2.4) the revision declares.
 	Lifecycle  *contract.InterfaceLifecycle `json:"lifecycle,omitempty"`
 	Identity   RevisionIdentity             `json:"identity"`
@@ -483,8 +557,11 @@ type RevisionDetailData struct {
 	// when the contract document was never validated.
 	Stages []ValidationStage `json:"stages"`
 	// Environments is each declared environment and the check of its values.
-	Environments   EnvironmentsPreview   `json:"environments"`
-	Interfaces     InterfacesPreview     `json:"interfaces"`
+	Environments EnvironmentsPreview `json:"environments"`
+	Interfaces   InterfacesPreview   `json:"interfaces"`
+	// Breaks is the deliberate breaking changes the revision announces
+	// (pactoVersion 2.5), one row per named consumer.
+	Breaks         BreaksPreview         `json:"breaks"`
 	Configurations ConfigurationsPreview `json:"configurations"`
 	Policies       PoliciesPreview       `json:"policies"`
 	Capabilities   CapabilitiesPreview   `json:"capabilities"`
@@ -567,6 +644,10 @@ type TargetDetailData struct {
 	Ownership            *OwnershipInfo       `json:"ownership,omitempty"`
 	Limitations          LimitationsPreview   `json:"limitations"`
 	Environment          TargetEnvironment    `json:"environment"`
+	// Cluster is the cluster that reported this target and ClusterRelation how
+	// (see [TargetRecord.ClusterRelation]); both absent when no source named one.
+	Cluster         *Cluster `json:"cluster,omitempty" doc:"The cluster that reported this target, with how its name was found and who reported the name; absent when no source reported one"`
+	ClusterRelation string   `json:"clusterRelation,omitempty" enum:"runs-in,reported-through" doc:"runs-in when a Kubernetes source read the target in this cluster; reported-through when the cluster only reported or accepted it (evidence, target-state files)"`
 }
 
 // TargetEnvironment is the environment a target runs in, read from the
@@ -1252,6 +1333,8 @@ func (q *Query) revisionDetail(key string) (*EntityDetail, error) {
 		Environments:         environmentsPreview(MarkExpired(rev.Environments, q.snap.GeneratedAt)),
 		Capabilities:         capabilitiesPreview(rev.Contract.Capabilities),
 		Interfaces:           interfacesPreview(rev.Contract.Interfaces, rev.Tools, rev.SpecsRead, q.snap.GeneratedAt),
+		Breaks:               q.breaksPreview(rev),
+		Inferred:             inferredFields(rev.Inferred),
 		Workload:             rev.Contract.Workload,
 		State:                stateSummary(rev.Contract.State),
 		Dependencies:         relationshipsPreview(q.revisionEdges(rev.Key)),
@@ -1272,6 +1355,7 @@ func (q *Query) revisionDetail(key string) (*EntityDetail, error) {
 		EvidenceSourceCounts: evidenceCounts,
 		Ownership:            revisionOwnership(rev),
 	}
+	data.PactoVersionCurrent, data.PactoVersionUnknown = pactoVersionStatus(rev.PactoVersion)
 	return &EntityDetail{
 		Meta: q.productMeta(), Entity: revisionEntityRef(rev), Status: revisionStatus(rev),
 		Revision: data, Actions: []string{"open-graph", "compare", "impact"},
@@ -1310,6 +1394,10 @@ func (q *Query) targetDetail(key string) (*EntityDetail, error) {
 		// TargetRecord.ObservedRuntime); the product query reads that precomputed
 		// projection in O(bound), never re-flattening an arbitrarily wide raw map.
 		ObservedRuntime: t.ObservedRuntime,
+		ClusterRelation: t.ClusterRelation,
+	}
+	if t.Cluster != "" {
+		data.Cluster = &Cluster{ID: t.Cluster, Name: t.ClusterName, NameSource: t.ClusterNameSource, ReportedBy: t.ClusterNameReportedBy}
 	}
 	if t.ContractRevision != "" {
 		if rev := q.snap.Revisions[t.ContractRevision]; rev != nil {
@@ -2355,4 +2443,32 @@ func revisionStatus(r *ContractRevision) string {
 		return StatusInvalid
 	}
 	return ""
+}
+
+// PactoVersionText is the declared pactoVersion with the answering Pacto's
+// view of it: behind its latest version, or unknown to it.
+func (r *RevisionDetailData) PactoVersionText() string {
+	switch {
+	case r.PactoVersionUnknown:
+		return fmt.Sprintf("%s (unknown to this Pacto, latest %s)", r.PactoVersion, r.PactoVersionCurrent)
+	case r.PactoVersionCurrent != "":
+		return fmt.Sprintf("%s (behind %s)", r.PactoVersion, r.PactoVersionCurrent)
+	}
+	return r.PactoVersion
+}
+
+// pactoVersionStatus returns this Pacto's latest pactoVersion when v is older
+// or unknown to it, and whether v is unknown. An empty v reads as neither: the
+// contract left it out and the reader implies the current one.
+func pactoVersionStatus(v string) (current string, unknown bool) {
+	if v == "" {
+		return "", false
+	}
+	if !contract.Known(v) {
+		return contract.Current(), true
+	}
+	if cur, behind := contract.Behind(v); behind {
+		return cur, false
+	}
+	return "", false
 }

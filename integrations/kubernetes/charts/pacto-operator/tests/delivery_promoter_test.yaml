@@ -519,3 +519,15 @@ tests:
       - notContains:
           path: spec.template.spec.containers[0].env
           content: {name: SSL_CERT_FILE, value: /etc/pacto/ca/ca.crt}
+
+  - it: the delivery promoter role keeps the cluster identity rule
+    template: templates/delivery/rbac.yaml
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [namespaces]
+            resourceNames: [kube-system]
+            verbs: [get]
+        documentIndex: 1

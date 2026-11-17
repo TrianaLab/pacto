@@ -89,10 +89,7 @@ func loadFieldCoverage(t *testing.T) map[string]fcEntry {
 // are leaves.
 func schemaFieldPaths(t *testing.T) (paths []string, enums map[string][]string) {
 	t.Helper()
-	data, err := os.ReadFile("schema/pacto-v2.4.schema.json")
-	if err != nil {
-		t.Fatal(err)
-	}
+	data := SchemaBytes()
 	var root map[string]any
 	if err := json.Unmarshal(data, &root); err != nil {
 		t.Fatal(err)
@@ -309,10 +306,7 @@ func TestFieldCoverage_ReferencedTestsExist(t *testing.T) {
 // the shape of service.owner, so the two subtrees, descriptions removed, are
 // equal and cannot drift.
 func TestEnvironmentOwnerSchemaMatchesServiceOwner(t *testing.T) {
-	data, err := os.ReadFile("schema/pacto-v2.4.schema.json")
-	if err != nil {
-		t.Fatal(err)
-	}
+	data := SchemaBytes()
 	var root map[string]any
 	if err := json.Unmarshal(data, &root); err != nil {
 		t.Fatal(err)

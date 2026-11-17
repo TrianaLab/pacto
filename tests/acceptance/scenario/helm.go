@@ -49,7 +49,8 @@ func (s Scenario) HelmValues() ([]string, error) {
 }
 
 // HelmRuntimeValues turns on the chart's runtime conformance when the scenario
-// declares a deaf workload: the node agent DaemonSet, protocol probing, and a
+// declares a deaf workload: the node agent DaemonSet, protocol probing on in every
+// namespace (controller.probing=on, so no namespace label is needed), and a
 // publish interval and stabilization window short enough for a run to see the
 // negative within minutes instead of the production defaults. Nothing when no
 // workload is deaf, because nothing would then be owed.
@@ -64,7 +65,7 @@ func (s Scenario) HelmRuntimeValues() []string {
 	return []string{
 		"nodeAgent.enabled=true",
 		"nodeAgent.publishInterval=" + RuntimePublishInterval,
-		"controller.enableProbing=true",
+		"controller.probing=on",
 		"controller.stabilizationWindow=" + RuntimeStabilizationWindow,
 	}
 }

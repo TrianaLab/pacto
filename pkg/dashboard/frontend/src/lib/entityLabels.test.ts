@@ -8,8 +8,16 @@ import {
   attentionCategoryLabel, ATTENTION_CATEGORIES, GAP_WORDS,
   provenanceLabel, provenanceIsImplied,
   sourceHealthTallyParts, sourceHealthSentence,
-  collectorLabel, seenBy, splitEntryPoints,
+  collectorLabel, seenBy, splitEntryPoints, acceptsLabel, RANGE_NOT_DECLARED,
 } from './entityLabels.ts';
+
+describe('acceptsLabel', () => {
+  it('names an undeclared range one way and never as a range', () => {
+    expect(acceptsLabel('unknown')).toBe(RANGE_NOT_DECLARED);
+    expect(acceptsLabel('^1.0.0')).toBe('Accepts ^1.0.0');
+    expect(acceptsLabel('')).toBe('');
+  });
+});
 import { statusLabel } from './format.ts';
 
 describe('kindLabel', () => {

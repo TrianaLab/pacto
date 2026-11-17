@@ -21,6 +21,10 @@ on:
         description: The caller's artifact holding delivery.sh's saved images; empty builds them here.
         type: string
         default: ''
+      ui-only:
+        description: Run only the shards that load the UI bundle (ci.yml sets it for a frontend-only change).
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -72,6 +76,11 @@ jobs:
       fail-fast: false
       matrix:
         shard: [story, browser, rollback, reach, freeze, agent]
+        # Only browser and agent drive the dashboard in Chromium (the journeys
+        # beat); the rest reach it through its API at most, so a frontend-only
+        # change cannot move them. TestUIOnlyKeepsEveryShardThatLoadsTheBundle
+        # derives this list from delivery-demo.sh.
+        exclude: ${{ inputs.ui-only && fromJSON('[{"shard":"story"},{"shard":"rollback"},{"shard":"reach"},{"shard":"freeze"}]') || fromJSON('[]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7

@@ -232,11 +232,11 @@ func TestDashboardIdentityView(t *testing.T) {
 }
 
 func TestClusterReview(t *testing.T) {
-	if _, err := clusterReview(nil, nil)(context.Background(), authn.Anonymous, "a"); !errors.Is(err, errNoClusterToAsk) {
+	if _, err := clusterReview(nil, nil, reviewCluster)(context.Background(), authn.Anonymous, "a"); !errors.Is(err, errNoClusterToAsk) {
 		t.Errorf("no cluster: %v", err)
 	}
 	broken := errors.New("bad config")
-	if _, err := clusterReview(&rest.Config{}, func(*rest.Config) (dynamic.Interface, error) { return nil, broken })(context.Background(), authn.Anonymous, "a"); !errors.Is(err, broken) {
+	if _, err := clusterReview(&rest.Config{}, func(*rest.Config) (dynamic.Interface, error) { return nil, broken }, reviewCluster)(context.Background(), authn.Anonymous, "a"); !errors.Is(err, broken) {
 		t.Errorf("no client: %v", err)
 	}
 	c := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())
@@ -245,7 +245,7 @@ func TestClusterReview(t *testing.T) {
 		_ = unstructured.SetNestedField(obj.Object, true, "status", "allowed")
 		return true, obj, nil
 	})
-	ok, err := clusterReview(&rest.Config{}, func(*rest.Config) (dynamic.Interface, error) { return c, nil })(context.Background(), authn.Anonymous, "a")
+	ok, err := clusterReview(&rest.Config{}, func(*rest.Config) (dynamic.Interface, error) { return c, nil }, reviewCluster)(context.Background(), authn.Anonymous, "a")
 	if err != nil || !ok {
 		t.Errorf("review through the cluster: %v %v", ok, err)
 	}

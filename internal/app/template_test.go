@@ -98,6 +98,19 @@ func TestResolveTemplate_Directory(t *testing.T) {
 	}
 }
 
+// TestResolveTemplate_UndeclaredVersion: an undeclared version has no
+// published coordinate, so the ref stays local.
+func TestResolveTemplate_UndeclaredVersion(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "gift-cards")
+	unversioned := writeGoldenPath(t, "")
+	if err := os.WriteFile(filepath.Join(unversioned, "pacto.yaml"), []byte(strings.Replace(goldenPathYAML, "  version: 1.0.0\n", "", 1)+"publish:\n  bundle: oci://ghcr.io/acme/paths/http-service\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if tpl, err := (&Service{}).resolveTemplate(t.Context(), unversioned, target, nil); err != nil || strings.HasPrefix(tpl.Ref, "oci://") {
+		t.Fatalf("unversioned coordinate: %+v %v", tpl, err)
+	}
+}
+
 // TestDirTemplateErrors: a directory with no contract, an unreadable
 // .pactoignore or an unreadable file is refused.
 func TestDirTemplateErrors(t *testing.T) {

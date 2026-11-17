@@ -64,6 +64,8 @@ export interface GraphNode {
   serviceName: string;
   status: string;
   version?: string;
+  /** Where a service name no revision declares was inferred from (pactoVersion 2.5). */
+  nameInferred?: string;
   reason?: string;    // why unresolved: non_oci_ref, auth_failed, no_semver_tags, not_found, discovering
   // kind distinguishes what a node represents so the renderer can style it and the
   // viewer is never misled about the layer: 'target' is a deployed instance,
@@ -92,11 +94,15 @@ export interface GraphData {
 }
 
 /** fullName is the whole name a node's label may cut, for its hover title. */
-export function fullName(node: { id: string; serviceName?: string; version?: string; group?: number; owner?: string }): string {
+export function fullName(node: { id: string; serviceName?: string; version?: string; group?: number; owner?: string; nameInferred?: string }): string {
   const raw = node.serviceName || node.id;
   if (node.group) return `${node.owner || raw}: ${node.group} entities. Select to show them.`;
+  if (node.nameInferred) return `${raw} (name inferred from ${node.nameInferred})`;
   return node.version ? `${raw} ${node.version}` : raw;
 }
+
+/** subLine is a label's second line: the version, or that the name is only inferred. */
+const subLine = (node: { version?: string; nameInferred?: string }) => node.version || (node.nameInferred ? 'inferred name' : '');
 
 // Characters per label line: what fits a NODE_W box at 14px, and the wider focus box.
 const LINE = 17;
@@ -129,9 +135,9 @@ export function fitLines(raw: string, per: number, max = 0): string[] {
 
 /** Computes the displayed label lines for a node: the name, cut at the end, and the
  *  version on its own line. The focus is never cut: it wraps in a wider box. */
-export function nodeLabel(node: { id: string; serviceName?: string; version?: string }, focus = false): { name: string; version: string } {
+export function nodeLabel(node: { id: string; serviceName?: string; version?: string; nameInferred?: string }, focus = false): { name: string; version: string } {
   const raw = node.serviceName || node.id;
-  const name = focus ? fitLines(raw, FOCUS_LINE).join('\n') : fitLines(raw, LINE, node.version ? 1 : 2).join('\n');
+  const name = focus ? fitLines(raw, FOCUS_LINE).join('\n') : fitLines(raw, LINE, subLine(node) ? 1 : 2).join('\n');
   return { name, version: node.version || '' };
 }
 
@@ -145,7 +151,7 @@ const isFocusNode = (n: { id: string; serviceName?: string }, focusId?: string) 
  */
 export function graphLabels(nodes: GraphNode[], focusId?: string): Map<string, string> {
   const out = new Map<string, string>();
-  const text = (n: GraphNode, name: string) => (n.version ? `${name}\n${n.version}` : name);
+  const text = (n: GraphNode, name: string) => (subLine(n) ? `${name}\n${subLine(n)}` : name);
   const by = new Map<string, GraphNode[]>();
   for (const n of nodes) {
     const l = text(n, nodeLabel(n, isFocusNode(n, focusId)).name);
@@ -159,7 +165,7 @@ export function graphLabels(nodes: GraphNode[], focusId?: string): Map<string, s
       const raw = raws[i];
       // Where this name parts from the closest other one, rounded back to a word break.
       const d = Math.max(...raws.filter((_, j) => j !== i && raws[j] !== raw).map((o) => { let k = 0; while (o[k] === raw[k]) k++; return k; }));
-      const max = n.version ? 1 : 2;
+      const max = subLine(n) ? 1 : 2;
       let from = Math.max(0, ...['-', '_', '.', '/', ' '].map((c) => raw.lastIndexOf(c, d - 1) + 1));
       // A word too long to show whole starts just before the difference instead, so the
       // cut at the end can never reach it.

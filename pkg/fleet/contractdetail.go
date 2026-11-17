@@ -30,10 +30,12 @@ import (
 // interface has no operations" from "this interface's document was never read",
 // so an empty Operations list is never presented as evidence of absence.
 type InterfaceSummary struct {
-	Name            string       `json:"name"`
-	Type            string       `json:"type,omitempty"`
-	Ref             string       `json:"ref,omitempty"`
-	Visibility      string       `json:"visibility,omitempty"`
+	Name       string `json:"name"`
+	Type       string `json:"type,omitempty"`
+	Ref        string `json:"ref,omitempty"`
+	Visibility string `json:"visibility,omitempty"`
+	// Port is the port the interface declares it listens on (pactoVersion 2.5).
+	Port            int          `json:"port,omitempty"`
 	OperationsKnown bool         `json:"operationsKnown"`
 	Operations      ToolsPreview `json:"operations"`
 	// Lifecycle is the interface's retirement schedule, nil when it is not
@@ -331,7 +333,7 @@ func interfacesPreview(ifaces []contract.Interface, tools []ToolSummary, specsRe
 	items := make([]InterfaceSummary, 0, len(src))
 	for _, i := range src {
 		items = append(items, InterfaceSummary{
-			Name: i.Name, Type: i.Type, Ref: i.Ref, Visibility: i.Visibility,
+			Name: i.Name, Type: i.Type, Ref: i.Ref, Visibility: i.Visibility, Port: i.Port,
 			OperationsKnown: read[i.Name], Operations: toolsPreview(byIface[i.Name]),
 			Lifecycle: clonePtr(i.Lifecycle), Guarantees: clonePtr(i.Guarantees), CompatibilityEpoch: i.CompatibilityEpoch,
 		})

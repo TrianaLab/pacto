@@ -18,7 +18,8 @@ const LimitationHiddenByPermissions = "HIDDEN_BY_PERMISSIONS"
 const hiddenMessage = "some services are hidden because Kubernetes permissions do not let you read their namespace"
 
 // Namespaces lists, sorted, the namespaces the snapshot's Kubernetes targets
-// and k8s uncontracted callers run in: the ones a caller's permissions decide.
+// and k8s uncontracted callers run in, and the namespaces its Kubernetes
+// sources were told to read: the ones a caller's permissions decide.
 func (q *Query) Namespaces() []string {
 	seen := map[string]bool{}
 	for _, t := range q.snap.Targets {
@@ -31,15 +32,15 @@ func (q *Query) Namespaces() []string {
 			seen[ns] = true
 		}
 	}
+	scopeNamespaces(q.snap, seen)
 	return slices.Sorted(maps.Keys(seen))
 }
 
-// callerNamespace is the namespace of a k8s caller, false for a caller with
-// no namespace.
+// callerNamespace is the namespace of a k8s caller (see [ParseK8sCaller]),
+// false for a caller with no namespace.
 func callerNamespace(c UncontractedCaller) (string, bool) {
-	rest, k8s := strings.CutPrefix(c.Caller, "k8s:")
-	ns, _, _ := strings.Cut(rest, "/")
-	return ns, k8s
+	_, ns, _, _, ok := ParseK8sCaller(c.Caller)
+	return ns, ok
 }
 
 // Restrict is the snapshot as a caller who may read only the namespaces
@@ -80,6 +81,7 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 			hiddenNS[ns] = true
 		}
 	}
+	hideUnreadable(s, visible, hiddenNS)
 	restricted := !visible("")
 	hiddenSvc, offeringOnly := hiddenServices(s, hiddenNS, restricted)
 	if len(hiddenNS) == 0 && len(hiddenSvc) == 0 && len(offeringOnly) == 0 && keepsEveryName(s, restricted) {
@@ -96,6 +98,7 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 		}
 		out.Targets[k] = t
 	}
+	out.Clusters = restrictClusters(s.Clusters, out.Targets)
 	out.Revisions = restrictRevisions(s, hiddenSvc, offeringOnly)
 	// The older revisions a golden path visible only as one drops are hidden
 	// like a hidden service's: nothing visible may resolve to or name them.
@@ -109,6 +112,7 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 	restrictRevalidation(&out, append(slices.Clone(s.Relationships), s.templateEdges...), hiddenSvc, dropped)
 	hiddenDeps, hiddenDependents, hiddenConsumers, hiddenReferrers := restrictRelationships(&out, s.Relationships, hiddenSvc, dropped)
 	out.hiddenConsumers = hiddenConsumers
+	out.hiddenServices = hiddenSvc
 	out.templateEdges = restrictTemplateEdges(&out, s.templateEdges, hiddenSvc, dropped)
 	out.UncontractedCallers = restrictCallers(s, hiddenSvc, hiddenNS, restricted, hiddenDependents)
 	out.hiddenDependents = hiddenDependents
@@ -130,6 +134,7 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 	recountSources(&out)
 
 	restrictLimitations(&out, s.Limitations, append(hiddenNames, slices.Collect(maps.Keys(hiddenNS))...), restricted)
+	restrictScope(&out, visible)
 	out.Limitations = append(out.Limitations, Limitation{Code: LimitationHiddenByPermissions, Message: hiddenMessage})
 	sortSnapshotLimitations(&out)
 	out.Completeness = CompletenessPartial
@@ -225,8 +230,9 @@ func provisioningVisible(s *FleetSnapshot) bool {
 // restrictCallers is s's uncontracted callers without those of a hidden
 // service, those in a hidden namespace and those a hidden service shares a name
 // with: such a caller may be that service's call, and its ambiguity counts it.
-// With hideBare, every caller with no namespace goes. Each caller removed from
-// a visible service is counted into its dependents.
+// With hideBare, every caller with no namespace goes. A k8s: caller that does
+// not parse names a namespace no permission check can read, so it always goes.
+// Each caller removed from a visible service is counted into its dependents.
 func restrictCallers(s *FleetSnapshot, hiddenSvc map[ServiceKey]bool, hiddenNS map[string]bool, hideBare bool, dependents map[ServiceKey]map[ServiceKey]bool) []UncontractedCaller {
 	hiddenNames := map[string]bool{}
 	for k := range hiddenSvc {
@@ -237,7 +243,8 @@ func restrictCallers(s *FleetSnapshot, hiddenSvc map[ServiceKey]bool, hiddenNS m
 			return true
 		}
 		ns, k8s := callerNamespace(c)
-		if (k8s && !hiddenNS[ns]) || (!k8s && !hideBare && !hiddenNames[c.Caller]) {
+		malformed := !k8s && strings.HasPrefix(c.Caller, "k8s:")
+		if (k8s && !hiddenNS[ns]) || (!k8s && !malformed && !hideBare && !hiddenNames[c.Caller]) {
 			return false
 		}
 		if dependents[c.ToService] == nil {
@@ -251,8 +258,12 @@ func restrictCallers(s *FleetSnapshot, hiddenSvc map[ServiceKey]bool, hiddenNS m
 }
 
 // bareCaller reports whether c carries no namespace to check permissions
-// against: any caller outside Kubernetes, whatever source observed it.
-func bareCaller(c UncontractedCaller) bool { return !strings.HasPrefix(c.Caller, "k8s:") }
+// against: any caller outside Kubernetes, whatever source observed it, and a
+// k8s: caller that does not parse.
+func bareCaller(c UncontractedCaller) bool {
+	_, ok := callerNamespace(c)
+	return !ok
+}
 
 // hasBareNames reports whether s holds a name with no namespace: a bare caller
 // or an unresolved observed name.
@@ -295,7 +306,10 @@ func restrictLimitations(out *FleetSnapshot, limitations []Limitation, hiddenNam
 			return true
 		}
 		// A fleet-wide count of reports; rebuilt below from the visible ones.
-		if l.Code == LimitationProvisioningTruncated || l.Code == LimitationUsageTruncated {
+		// Counts of clusterless targets; rebuilt below from the visible ones.
+		// Per-source counts of records that may be hidden; rebuilt below.
+		if l.Code == LimitationProvisioningTruncated || l.Code == LimitationUsageTruncated || l.Code == LimitationClusterUnknown || l.Code == LimitationClusterConflict ||
+			l.Code == LimitationSourceRecordInvalid && strings.Contains(l.Message, clusterInvalidPhrase) {
 			return true
 		}
 		return slices.ContainsFunc(hiddenNames, func(n string) bool { return n != "" && strings.Contains(l.Message, n) })
@@ -307,12 +321,77 @@ func restrictLimitations(out *FleetSnapshot, limitations []Limitation, hiddenNam
 	}
 	out.Limitations = append(out.Limitations, droppedReports(out, out.provisioningDropped, LimitationProvisioningTruncated, "provisioning", MaxProvisioningRecords)...)
 	out.Limitations = append(out.Limitations, droppedReports(out, out.usageDropped, LimitationUsageTruncated, "usage", MaxUsageRecords)...)
+	out.Limitations = append(out.Limitations, clusterUnknownOf(out)...)
+	out.Limitations = append(out.Limitations, clusterRecordProblemsOf(out)...)
 	for _, src := range slices.Sorted(maps.Keys(unresolved)) {
 		out.Limitations = append(out.Limitations, Limitation{
 			Code: LimitationObservedIdentityUnresolved, Source: src,
 			Message: strconv.Itoa(unresolved[src]) + " names observed by " + src + " are not shown: they carry no namespace to check permissions against",
 		})
 	}
+}
+
+// restrictClusters is the clusters some target of targets carries.
+func restrictClusters(clusters []ClusterRecord, targets map[TargetKey]*TargetRecord) []ClusterRecord {
+	carried := map[string]bool{}
+	for _, t := range targets {
+		carried[t.Cluster] = true
+	}
+	return slices.DeleteFunc(slices.Clone(clusters), func(c ClusterRecord) bool { return !carried[c.ID] })
+}
+
+// clusterUnknownOf rebuilds CLUSTER_UNKNOWN from the targets out holds, by
+// the rule Build applies: with several clusters one per source that delivered
+// a clusterless target; with one, one per source whose clusterless targets
+// merged into clustered ones, or a single informational count when none did.
+func clusterUnknownOf(out *FleetSnapshot) []Limitation {
+	counts, merged, clusterName, total := map[string]int{}, map[string][]string{}, "", 0
+	for k, t := range out.Targets {
+		for _, src := range t.clusterUnknownFrom {
+			counts[src]++
+			total++
+			if t.Cluster != "" {
+				merged[src], clusterName = append(merged[src], string(k)), t.ClusterName
+			}
+		}
+	}
+	var lims []Limitation
+	switch {
+	case out.clusterKeyed:
+		for _, src := range slices.Sorted(maps.Keys(counts)) {
+			lims = append(lims, clusterUnknownMulti(src, counts[src]))
+		}
+	case len(merged) > 0:
+		for _, src := range slices.Sorted(maps.Keys(merged)) {
+			lims = append(lims, clusterUnknownMerged(src, clusterName, slices.Sorted(slices.Values(merged[src]))))
+		}
+	case total > 0:
+		lims = append(lims, clusterUnknownInfo(total))
+	}
+	return lims
+}
+
+// clusterRecordProblemsOf rebuilds CLUSTER_CONFLICT and the invalid cluster
+// id SOURCE_RECORD_INVALID from the targets out holds, one per source that
+// reported a visible affected target.
+func clusterRecordProblemsOf(out *FleetSnapshot) []Limitation {
+	conflicts, invalid := map[string]int{}, map[string]int{}
+	for _, t := range out.Targets {
+		for _, src := range t.clusterConflictFrom {
+			conflicts[src]++
+		}
+		for _, src := range t.clusterInvalidFrom {
+			invalid[src]++
+		}
+	}
+	var lims []Limitation
+	for _, src := range slices.Sorted(maps.Keys(conflicts)) {
+		lims = append(lims, clusterConflict(src, conflicts[src]))
+	}
+	for _, src := range slices.Sorted(maps.Keys(invalid)) {
+		lims = append(lims, clusterInvalid(src, strconv.Itoa(invalid[src])+" on targets you can see"))
+	}
+	return lims
 }
 
 // droppedReports is the truncation limitation (code) of a restricted view:

@@ -173,8 +173,10 @@ func writeConfigurationRefs(b *strings.Builder, entries []ConsumeConfiguration, 
 // value, its minimum (numbers) or the empty value of its type; a line comments
 // the type, the allowed values and the default. A property no candidate fits
 // is left out of values, listed in missing and written as a comment asking for
-// a value. It is all empty when the schema cannot be parsed or requires
-// nothing.
+// a value. A property that is writeOnly or holds a writeOnly node takes
+// neither its default nor an enum value, since either can hold that node's
+// value, and its comment says sensitive instead. It is all empty when the schema
+// cannot be parsed or requires nothing.
 func valuesSkeleton(schema []byte, path string) (values map[string]any, missing []string, block string) {
 	doc, err := schemax.Parse(schema, path)
 	required, _ := doc["required"].([]any)
@@ -193,10 +195,14 @@ func valuesSkeleton(schema []byte, path string) (values map[string]any, missing 
 		typ := schemaType(prop["type"])
 		enum, _ := prop["enum"].([]any)
 		def, hasDef := prop["default"]
+		mark := ""
+		if holdsWriteOnly(prop) {
+			enum, def, hasDef, mark = nil, nil, false, ", sensitive"
+		}
 		value, ok := skeletonValue(prop, typ, enum, def, hasDef)
 		if !ok {
 			missing = append(missing, key)
-			fmt.Fprintf(&lines, "      # %s: %s, set a value\n", yamlKey(key), strings.TrimSpace("required "+typ))
+			fmt.Fprintf(&lines, "      # %s: %s%s, set a value\n", yamlKey(key), strings.TrimSpace("required "+typ), mark)
 			continue
 		}
 		values[key] = value
@@ -211,7 +217,7 @@ func valuesSkeleton(schema []byte, path string) (values map[string]any, missing 
 		if hasDef {
 			comment += ", default " + plainValue(def)
 		}
-		fmt.Fprintf(&lines, "      %s: %s # %s\n", yamlKey(key), jsonValue(value), comment)
+		fmt.Fprintf(&lines, "      %s: %s # %s%s\n", yamlKey(key), jsonValue(value), comment, mark)
 	}
 	head := "    values:\n"
 	if len(values) == 0 {
@@ -219,6 +225,26 @@ func valuesSkeleton(schema []byte, path string) (values map[string]any, missing 
 		head = "    values: {}\n"
 	}
 	return values, missing, head + lines.String()
+}
+
+// holdsWriteOnly reports whether node, or any schema node under it, is
+// writeOnly.
+// ponytail: a $ref is not followed, so a writeOnly definition it names stays unseen; resolve local refs when a consume schema uses them.
+func holdsWriteOnly(node any) bool {
+	switch t := node.(type) {
+	case map[string]any:
+		if t["writeOnly"] == true {
+			return true
+		}
+		for _, v := range t {
+			if holdsWriteOnly(v) {
+				return true
+			}
+		}
+	case []any:
+		return slices.ContainsFunc(t, holdsWriteOnly)
+	}
+	return false
 }
 
 // skeletonValue is the first candidate value prop accepts: def, the first enum

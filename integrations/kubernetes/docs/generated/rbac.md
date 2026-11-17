@@ -6,7 +6,7 @@
 
 # RBAC
 
-Every table below is rendered from the Helm chart itself, so it is the permission set an install actually creates. The chart creates one cluster-scoped `ClusterRole` (`pacto-operator-manager`) bound to the controller's ServiceAccount for what has to be cluster-wide, a `Role` (`pacto-operator-manager`) in the release namespace for the managed components that run there, a second one of the same name in the node agent's namespace when the agent is on, and a `Role` (`pacto-operator-leader-election`) for leader election. The tables render the release namespace as `pacto-operator-system`.
+Every table below is rendered from the Helm chart itself, so it is the permission set an install actually creates. A cluster-wide install (the default) creates a `ClusterRole` (`pacto-operator-manager`) bound to the controller's ServiceAccount for what has to be cluster-wide; with `controller.watchNamespaces` set, it is replaced by namespaced Roles. Every install creates a `Role` (`pacto-operator-manager`) in the release namespace for the managed components that run there, a second one of the same name in the node agent's namespace when the agent is on, and a `Role` (`pacto-operator-leader-election`) for leader election. The tables render the release namespace as `pacto-operator-system`.
 
 !!! note
 
@@ -14,14 +14,15 @@ Every table below is rendered from the Helm chart itself, so it is the permissio
 
 ## Always granted (`pacto-operator-manager`)
 
-Present in every install, including one with every managed component disabled. Workloads and their wiring are read-only; the writes are on Pacto's own resources, on events, and on the specific named objects a previous install may have created (so the operator can clean them up after you disable a component).
+Present in every cluster-wide install, including one with every managed component disabled. Workloads and their wiring are read-only; the writes are on Pacto's own resources, on events, and on the specific named objects a previous install may have created (so the operator can clean them up after you disable a component).
 
 | API groups | Resources | Verbs | Limited to |
 | --- | --- | --- | --- |
 | `"" (core)` | `configmaps` | `get`, `list`, `watch` | *not name-restricted* |
 | `"" (core)` | `events` | `create`, `patch` | *not name-restricted* |
+| `"" (core)` | `namespaces` | `get` | `kube-system` |
+| `"" (core)` | `namespaces` | `get` | *not name-restricted* |
 | `"" (core)` | `pods` | `get`, `list`, `watch` | *not name-restricted* |
-| `"" (core)` | `secrets` | `get`, `list`, `watch` | *not name-restricted* |
 | `"" (core)` | `services` | `get`, `list`, `watch` | *not name-restricted* |
 | `apps` | `deployments`, `replicasets`, `statefulsets` | `get`, `list`, `watch` | *not name-restricted* |
 | `batch` | `cronjobs`, `jobs` | `get`, `list`, `watch` | *not name-restricted* |
@@ -36,21 +37,18 @@ Present in every install, including one with every managed component disabled. W
 | `pacto.trianalab.io` | `pactos/status` | `get`, `patch`, `update` | *not name-restricted* |
 | `rbac.authorization.k8s.io` | `clusterroles`, `clusterrolebindings` | `delete`, `get` | `pacto-dashboard` |
 
-!!! warning "Why the operator can read Secrets in every namespace"
+No ClusterRole grants Secrets. The operator reads a pull Secret or a Secret that backs a configuration with `get` in the release namespace and in each of `controller.watchNamespaces`, and anywhere else only the Secrets `controller.secretGrants` names (`namespace/name`), each through a Role limited to that Secret.
 
-    `spec.contractRef.pullSecretRef` names a Secret **in the Pacto's own namespace**, and a `Pacto` can be created in any namespace, so the read cannot be scoped to one. `get` resolves those registry credentials when a contract is pulled; `list` and `watch` back the Secret informer that re-reconciles a Pacto when its pull Secret changes.
-
-    **`controller.watchNamespace` does not narrow this.** It restricts what the controller reconciles; the ClusterRole is created unconditionally and grants the same cluster-wide read either way.
-
-    What does limit the blast radius is binding each credential to its host: give an Opaque pull Secret a `registry` key and the operator refuses to send it anywhere else, so a contract cannot redirect pull traffic to an attacker-controlled registry to exfiltrate the token. Beyond that, treat cluster-wide Secret read as the cost of the operator and install it on a cluster where that is acceptable.
+The `namespaces` `get` rule limited to `kube-system` reads the cluster id. The one with no name reads the `pacto.trianalab.io/observe` label of a target's namespace, names and labels only, and is granted only while `controller.probing` or `controller.metricsObservation` is `auto` (the default). With `controller.watchNamespaces` each watched namespace's Role carries it instead.
 
 ## Always granted in the release namespace (`pacto-operator-manager` Role)
 
-The teardown half of the managed components: `get` and `delete` on the fixed names a previous install may have created there, the node agent's included (releases before the dedicated agent namespace ran it in the release namespace).
+The teardown half of the managed components: `get` and `delete` on the fixed names a previous install may have created there, the node agent's included (releases before the dedicated agent namespace ran it in the release namespace). The one `secrets` `get` rule with no name reads pull Secrets and Secrets that back a configuration in the release namespace.
 
 | API groups | Resources | Verbs | Limited to |
 | --- | --- | --- | --- |
 | `"" (core)` | `secrets` | `delete`, `get` | `pacto-dashboard-oci-creds` |
+| `"" (core)` | `secrets` | `get` | *not name-restricted* |
 | `"" (core)` | `serviceaccounts` | `delete`, `get` | `pacto-node-agent` |
 | `"" (core)` | `serviceaccounts`, `services` | `delete`, `get` | `pacto-dashboard` |
 | `"" (core)` | `services` | `delete`, `get` | `pacto-evidence` |
@@ -85,7 +83,7 @@ Their namespaced half is granted by the release namespace's `pacto-operator-mana
 
 ## Additionally granted with the node agent (`nodeAgent.enabled`)
 
-The agent runs in its own namespace (`pacto-node-agent` by default), which the chart creates with the privileged Pod Security level. Cluster-wide, the operator gains a node read (the orphan prune), a read and relabel of that one namespace by name, and a read of the agents' heartbeat Leases (also granted when `controller.kernelEvidence.enabled` is on alone):
+The agent runs in its own namespace (`pacto-node-agent` by default), which the chart creates with the privileged Pod Security level. Cluster-wide, the operator gains a node read (the orphan prune), a read and relabel of that one namespace by name, and a read of the agents' heartbeat Leases (also granted when `controller.kernelEvidence.enabled` is `on`):
 
 | API groups | Resources | Verbs | Limited to |
 | --- | --- | --- | --- |
@@ -106,6 +104,37 @@ Everything it creates for the agent is granted by the `pacto-operator-manager` R
 
 Where the API serves `ValidatingAdmissionPolicy`, the chart also renders one that lets each agent write only the observation and Lease named after the node in its token, which RBAC cannot express.
 
+## With controller.watchNamespaces
+
+Rendered with `--set 'controller.watchNamespaces={payments,ledger}'`. The chart creates no ClusterRole and no ClusterRoleBinding; the node agent and the dashboard's delivery reads, when on, keep only their cluster-scoped rules. Each watched namespace gets these Roles:
+
+`pacto-dashboard-watch` (`Role` in each watched namespace):
+
+| API groups | Resources | Verbs | Limited to |
+| --- | --- | --- | --- |
+| `"" (core)` | `services` | `get`, `list`, `watch` | *not name-restricted* |
+| `authorization.k8s.io` | `localsubjectaccessreviews` | `create` | *not name-restricted* |
+| `pacto.trianalab.io` | `pactos`, `pactorevisions` | `get`, `list`, `watch` | *not name-restricted* |
+
+`pacto-operator-watch` (`Role` in each watched namespace):
+
+| API groups | Resources | Verbs | Limited to |
+| --- | --- | --- | --- |
+| `"" (core)` | `configmaps`, `pods`, `services` | `get`, `list`, `watch` | *not name-restricted* |
+| `"" (core)` | `events` | `create`, `patch` | *not name-restricted* |
+| `"" (core)` | `namespaces` | `get` | *not name-restricted* |
+| `"" (core)` | `secrets` | `get` | *not name-restricted* |
+| `apps` | `deployments`, `replicasets`, `statefulsets` | `get`, `list`, `watch` | *not name-restricted* |
+| `batch` | `cronjobs`, `jobs` | `get`, `list`, `watch` | *not name-restricted* |
+| `discovery.k8s.io` | `endpointslices` | `get`, `list`, `watch` | *not name-restricted* |
+| `gateway.networking.k8s.io` | `httproutes` | `get`, `list`, `watch` | *not name-restricted* |
+| `networking.k8s.io` | `ingresses` | `get`, `list`, `watch` | *not name-restricted* |
+| `pacto.trianalab.io` | `pactorevisions` | `create`, `get`, `list`, `watch` | *not name-restricted* |
+| `pacto.trianalab.io` | `pactorevisions/status` | `get`, `patch`, `update` | *not name-restricted* |
+| `pacto.trianalab.io` | `pactos` | `create`, `delete`, `get`, `list`, `patch`, `update`, `watch` | *not name-restricted* |
+| `pacto.trianalab.io` | `pactos/finalizers` | `update` | *not name-restricted* |
+| `pacto.trianalab.io` | `pactos/status` | `get`, `patch`, `update` | *not name-restricted* |
+
 ## Namespaced Role (`pacto-operator-leader-election`)
 
 Created in the release namespace and bound to the same ServiceAccount. Used only for the controller-runtime leader election lease.
@@ -118,7 +147,7 @@ Created in the release namespace and bound to the same ServiceAccount. Used only
 
 ## Optional: metrics-observation ClusterRole
 
-Needed alongside the base role when `--enable-metrics-observation` is set. It is a separate `ClusterRole` (`metrics-observation-role`), never a patch of the base role, so the base grants are untouched. The Helm chart grants the same rules itself when `controller.enableMetricsObservation` is on; apply the two objects yourself only for an operator installed without the chart. [Opt-in features](limitations.md#opt-in-features) has the YAML and the caveats.
+Needed alongside the base role when `--enable-metrics-observation` is set. It is a separate `ClusterRole` (`metrics-observation-role`), never a patch of the base role, so the base grants are untouched. The Helm chart grants the same rules itself when `controller.metricsObservation` is `on`; apply the two objects yourself only for an operator installed without the chart. [Opt-in features](limitations.md#opt-in-features) has the YAML and the caveats.
 
 | API groups | Resources | Verbs | Limited to |
 | --- | --- | --- | --- |

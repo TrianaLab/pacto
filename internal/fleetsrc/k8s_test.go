@@ -16,6 +16,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/finding"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/kubecluster"
 	"github.com/trianalab/pacto/v4/pkg/readiness"
 )
 
@@ -36,29 +37,32 @@ func (f *fakeK8sClient) ListJSON(_ context.Context, crd k8sclient.CRDDiscovery, 
 	f.gotResource, f.gotNS = crd.ResourceName, namespace
 	return f.listData, f.listErr
 }
+func (f *fakeK8sClient) ClusterIdentity(context.Context, string) (kubecluster.Identity, error) {
+	return kubecluster.Identity{}, errors.New("the source never reads the identity")
+}
 
 func TestK8sSource_IDKind_Default(t *testing.T) {
-	s := NewK8sSource("", &fakeK8sClient{}, "")
+	s := NewK8sSource("", nil, &fakeK8sClient{}, nil)
 	if s.ID() != "k8s" {
 		t.Errorf("default ID = %q, want k8s", s.ID())
 	}
 	if s.Kind() != "kubernetes" {
 		t.Errorf("Kind = %q, want kubernetes", s.Kind())
 	}
-	if got := NewK8sSource("prod", nil, "").ID(); got != "prod" {
+	if got := NewK8sSource("prod", nil, nil, nil).ID(); got != "prod" {
 		t.Errorf("ID = %q, want prod", got)
 	}
 }
 
 func TestK8sSource_Collect_DiscoverError(t *testing.T) {
-	s := NewK8sSource("k8s", &fakeK8sClient{discErr: errors.New("unreachable")}, "")
+	s := NewK8sSource("k8s", nil, &fakeK8sClient{discErr: errors.New("unreachable")}, nil)
 	if _, err := s.Collect(context.Background()); err == nil {
 		t.Fatal("expected error")
 	}
 }
 
 func TestK8sSource_Collect_NotFound(t *testing.T) {
-	s := NewK8sSource("k8s", &fakeK8sClient{disc: &k8sclient.CRDDiscovery{Found: false}}, "")
+	s := NewK8sSource("k8s", nil, &fakeK8sClient{disc: &k8sclient.CRDDiscovery{Found: false}}, nil)
 	col, err := s.Collect(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -69,20 +73,20 @@ func TestK8sSource_Collect_NotFound(t *testing.T) {
 }
 
 func TestK8sSource_Collect_ListError(t *testing.T) {
-	s := NewK8sSource("k8s", &fakeK8sClient{
+	s := NewK8sSource("k8s", nil, &fakeK8sClient{
 		disc:    &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
 		listErr: errors.New("list failed"),
-	}, "")
+	}, nil)
 	if _, err := s.Collect(context.Background()); err == nil {
 		t.Fatal("expected error")
 	}
 }
 
 func TestK8sSource_Collect_InvalidJSON(t *testing.T) {
-	s := NewK8sSource("k8s", &fakeK8sClient{
+	s := NewK8sSource("k8s", nil, &fakeK8sClient{
 		disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
 		listData: []byte("{not json"),
-	}, "")
+	}, nil)
 	if _, err := s.Collect(context.Background()); err == nil {
 		t.Fatal("expected decode error")
 	}
@@ -106,10 +110,10 @@ func TestK8sSource_Collect_FullMapping(t *testing.T) {
 	    }
 	  }
 	]}`
-	s := NewK8sSource("prod-cluster", &fakeK8sClient{
+	s := NewK8sSource("prod-cluster", nil, &fakeK8sClient{
 		disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
 		listData: []byte(list),
-	}, "")
+	}, nil)
 	col, err := s.Collect(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -176,10 +180,10 @@ func TestK8sSource_Collect_Readiness(t *testing.T) {
 	      "weight":10,"earnedWeight":10,"excluded":false}]
 	  }
 	}}]}`
-	s := NewK8sSource("prod-cluster", &fakeK8sClient{
+	s := NewK8sSource("prod-cluster", nil, &fakeK8sClient{
 		disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
 		listData: []byte(list),
-	}, "")
+	}, nil)
 	col, err := s.Collect(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -204,10 +208,10 @@ func TestK8sSource_Collect_MinimalItem(t *testing.T) {
 	// No contract block, no coverage, no findings, no timestamp: service falls
 	// back to the CR name and optional fields stay zero.
 	list := `{"items":[{"metadata":{"name":"orphan","namespace":"default"},"status":{"contractStatus":"Unknown"}}]}`
-	s := NewK8sSource("k8s", &fakeK8sClient{
+	s := NewK8sSource("k8s", nil, &fakeK8sClient{
 		disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
 		listData: []byte(list),
-	}, "")
+	}, nil)
 	col, err := s.Collect(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -223,7 +227,7 @@ func TestK8sSource_Collect_MinimalItem(t *testing.T) {
 
 func TestContractRefs_NoCRD(t *testing.T) {
 	// An absent CRD is a readable cluster that declares nothing, not a failure.
-	refs, err := ContractRefs(context.Background(), &fakeK8sClient{disc: &k8sclient.CRDDiscovery{Found: false}}, "")
+	refs, err := ContractRefs(context.Background(), &fakeK8sClient{disc: &k8sclient.CRDDiscovery{Found: false}}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -233,7 +237,7 @@ func TestContractRefs_NoCRD(t *testing.T) {
 }
 
 func TestContractRefs_DiscoverError(t *testing.T) {
-	_, err := ContractRefs(context.Background(), &fakeK8sClient{discErr: errors.New("unreachable")}, "")
+	_, err := ContractRefs(context.Background(), &fakeK8sClient{discErr: errors.New("unreachable")}, nil)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -244,7 +248,7 @@ func TestContractRefs_NoCRs(t *testing.T) {
 		disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
 		listData: []byte(`{"items":[]}`),
 	}
-	refs, err := ContractRefs(context.Background(), fake, "team-a")
+	refs, err := ContractRefs(context.Background(), fake, []string{"team-a"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -262,17 +266,17 @@ func TestContractRefs_NoCRs(t *testing.T) {
 // it once, and a CR the operator has not resolved yet contributes nothing.
 func TestContractRefs_RefsAndRepos(t *testing.T) {
 	list := `{"items":[
-	  {"metadata":{"name":"tagged"},"status":{"contract":{"resolvedRef":"ghcr.io/x/payments:1.2.0"}}},
-	  {"metadata":{"name":"pinned"},"status":{"contract":{"resolvedRef":"ghcr.io/x/payments:1.3.0@sha256:abcd"}}},
-	  {"metadata":{"name":"bare"},"status":{"contract":{"resolvedRef":"ghcr.io/x/orders"}}},
-	  {"metadata":{"name":"ported"},"status":{"contract":{"resolvedRef":"localhost:5000/dev/svc:2.0.0"}}},
-	  {"metadata":{"name":"unresolved"},"status":{"contract":{"resolvedRef":""}}},
+	  {"metadata":{"name":"tagged"},"status":{"contract":{"serviceName":"svc","resolvedRef":"ghcr.io/x/payments:1.2.0"}}},
+	  {"metadata":{"name":"pinned"},"status":{"contract":{"serviceName":"svc","resolvedRef":"ghcr.io/x/payments:1.3.0@sha256:abcd"}}},
+	  {"metadata":{"name":"bare"},"status":{"contract":{"serviceName":"svc","resolvedRef":"ghcr.io/x/orders"}}},
+	  {"metadata":{"name":"ported"},"status":{"contract":{"serviceName":"svc","resolvedRef":"localhost:5000/dev/svc:2.0.0"}}},
+	  {"metadata":{"name":"unresolved"},"status":{"contract":{"serviceName":"svc","resolvedRef":""}}},
 	  {"metadata":{"name":"nocontract"},"status":{"contractStatus":"Unknown"}}
 	]}`
 	refs, err := ContractRefs(context.Background(), &fakeK8sClient{
 		disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
 		listData: []byte(list),
-	}, "")
+	}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -349,10 +353,10 @@ func TestK8sSource_ReconciledEvidenceIsEvidence(t *testing.T) {
 	    "lastReconciledAt":"2026-07-29T10:00:00Z"
 	  }
 	}]}`
-	src := NewK8sSource("prod-cluster", &fakeK8sClient{
+	src := NewK8sSource("prod-cluster", nil, &fakeK8sClient{
 		disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
 		listData: []byte(list),
-	}, "")
+	}, nil)
 	col, err := src.Collect(context.Background())
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
@@ -411,10 +415,10 @@ func TestK8sSource_BusinessDomainKnownOnlyFromDomainFormat(t *testing.T) {
 		{"domain format, no contract", item(delivery.StatusFormatDomain, ""), false},
 	}
 	for _, c := range cases {
-		s := NewK8sSource("c", &fakeK8sClient{
+		s := NewK8sSource("c", nil, &fakeK8sClient{
 			disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
 			listData: []byte(`{"items":[` + c.item + `]}`),
-		}, "")
+		}, nil)
 		col, err := s.Collect(context.Background())
 		if err != nil {
 			t.Fatal(err)
@@ -428,10 +432,10 @@ func TestK8sSource_BusinessDomainKnownOnlyFromDomainFormat(t *testing.T) {
 // collectList runs Collect over a fake list.
 func collectList(t *testing.T, list string) *fleet.Collection {
 	t.Helper()
-	col, err := NewK8sSource("prod-cluster", &fakeK8sClient{
+	col, err := NewK8sSource("prod-cluster", nil, &fakeK8sClient{
 		disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
 		listData: []byte(list),
-	}, "").Collect(context.Background())
+	}, nil).Collect(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -488,6 +492,32 @@ func TestK8sSourceObservedDecodeIsLenient(t *testing.T) {
 		t.Fatalf("observed = %+v", col.Observed)
 	}
 	if len(col.Limitations) != 1 || col.Limitations[0].Code != LimitationPactoStatusUnreadable || !strings.Contains(col.Limitations[0].Message, "prod/broken") {
+		t.Fatalf("limitations = %+v", col.Limitations)
+	}
+}
+
+// A reconciled contract with no service name cannot come from the operator, which
+// refuses one; the source reports the record instead of guessing the CR name.
+// The item becomes no target, so Restrict never learns its namespace: the
+// message must name neither the namespace nor the Pacto.
+func TestK8sSource_Collect_NamelessContractIsARecordGap(t *testing.T) {
+	list := `{"items":[
+	  {"metadata":{"name":"nameless","namespace":"prod"},"status":{"contract":{"serviceName":"","resolvedRef":"ghcr.io/x/a:1.0.0"}}},
+	  {"metadata":{"name":"payments","namespace":"prod"},"status":{"contract":{"serviceName":"payments"}}}
+	]}`
+	col, err := NewK8sSource("prod", nil, &fakeK8sClient{
+		disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
+		listData: []byte(list),
+	}, nil).Collect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(col.Targets) != 1 || col.Targets[0].Service != "payments" {
+		t.Fatalf("targets = %+v", col.Targets)
+	}
+	if len(col.Limitations) != 1 || col.Limitations[0].Code != fleet.LimitationSourceRecordInvalid ||
+		strings.Contains(col.Limitations[0].Message, "prod") || strings.Contains(col.Limitations[0].Message, "nameless") ||
+		!strings.Contains(col.Limitations[0].Message, "1 Pacto(s)") {
 		t.Fatalf("limitations = %+v", col.Limitations)
 	}
 }

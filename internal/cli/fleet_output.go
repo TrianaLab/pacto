@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/finding"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
@@ -21,6 +22,7 @@ func printFleetSearch(cmd *cobra.Command, res *fleet.SearchResult, format string
 			if s.Template {
 				mark = " golden path"
 			}
+			mark += nameInferredMark(s.NameInferred)
 			_, _ = fmt.Fprintf(w, "  %-28s %-12s owner=%-14s domain=%-12s offering=%-12s revs=%d targets=%d%s\n",
 				s.Name, orDash(s.Status), orDash(s.Owner.DisplayString()), orDash(s.BusinessDomain), orDash(s.Offering), s.RevisionCount, s.TargetCount, mark)
 		}
@@ -29,11 +31,19 @@ func printFleetSearch(cmd *cobra.Command, res *fleet.SearchResult, format string
 	}, nil)
 }
 
+// nameInferredMark keeps an inferred name's provenance in text output.
+func nameInferredMark(inf *contract.Inferred) string {
+	if inf == nil {
+		return ""
+	}
+	return " (name inferred from " + inf.Source + ")"
+}
+
 func printFleetService(cmd *cobra.Command, sv *fleet.ServiceView, format string) error {
 	return formatResult(cmd, format, sv, func() error {
 		w := cmd.OutOrStdout()
 		s := sv.Service
-		_, _ = fmt.Fprintf(w, "Service: %s\n", s.Name)
+		_, _ = fmt.Fprintf(w, "Service: %s%s\n", s.Name, nameInferredMark(s.NameInferred))
 		_, _ = fmt.Fprintf(w, "Owner: %s\n", orDash(s.Owner.DisplayString()))
 		_, _ = fmt.Fprintf(w, "Status: %s\n", orDash(s.Status))
 		_, _ = fmt.Fprintf(w, "Sources: %v\n", s.Sources)

@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -8,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"maps"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"slices"
@@ -81,6 +83,8 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	if err != nil {
 		return nil, err
 	}
+	dropNameCollisions(results, sources)
+	clusters := clusterSet(results, sources)
 
 	snap := &FleetSnapshot{
 		SchemaVersion:         SchemaVersion,
@@ -94,6 +98,8 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 		observedReverse:       map[ServiceKey][]ServiceKey{},
 		observedForward:       map[ServiceKey][]ServiceKey{},
 		provisioningWindow:    opts.FreshnessWindow,
+		Clusters:              clusters.records,
+		clusterKeyed:          clusters.multi,
 	}
 
 	// Zero configured sources is NOT the same as "every source was available and
@@ -130,15 +136,15 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 			})
 			continue
 		}
-		ingestCollection(snap, src, r.col, generatedAt, opts.FreshnessWindow)
+		ingestCollection(snap, src, r.col, generatedAt, opts.FreshnessWindow, clusters, i)
 		if r.col != nil {
 			undeclaredOnly[src.ID()] = r.col.ObservedUndeclaredOnly
-			for _, e := range r.col.Observed {
-				observed = append(observed, observedInput{edge: e, source: src.ID()})
-			}
+			observed = append(observed, observedEdgesOf(src.ID(), r.col, clusters)...)
 		}
 	}
 
+	clusterMergeLimitations(snap, clusters)
+	markClusterConflicts(snap, clusters, sources)
 	boundTargetLabels(snap)
 	linkTargets(snap)
 	revalidateConfigRefs(snap)
@@ -177,6 +183,134 @@ func computeSnapshotID(snap *FleetSnapshot) string {
 	}
 	sum := sha256.Sum256(data)
 	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// dropNameCollisions removes, across every source, each revision whose
+// service.name was only inferred and is claimed by another folder or
+// reference, before service keys are formed, so a guessed name never joins
+// another service and inherits its targets or consumers. Each source that loses
+// a revision gets one SERVICE_NAME_COLLISION limitation per name, which makes
+// it partial. A source's own Collection is never mutated: it may be reused.
+func dropNameCollisions(results []sourceResult, sources []Source) {
+	var claims []contract.NameClaim
+	seen := map[[2]string]bool{} // name, bundle of an inferred claim already made
+	for i, r := range results {
+		for _, c := range nameClaims(sources[i].ID(), r.col) {
+			// One bundle read by two sources (overlapping roots, a catalog root
+			// inside --local) is one claimant, not two competing ones.
+			if c.Inferred && c.Bundle != "" {
+				if seen[[2]string{c.Name, c.Bundle}] {
+					continue
+				}
+				seen[[2]string{c.Name, c.Bundle}] = true
+			}
+			claims = append(claims, c.NameClaim)
+		}
+	}
+	collided := map[string]string{} // name -> limitation message
+	for _, c := range contract.NameCollisions(claims) {
+		var who []string
+		for _, cl := range c.Claims {
+			who = append(who, cl.Dir+" ("+cl.Source+")")
+		}
+		collided[c.Name] = "service name " + c.Name + " is claimed by " + strings.Join(who, ", ") +
+			"; the inferred claims are left out: declare service.name to keep them"
+	}
+	if len(collided) == 0 {
+		return
+	}
+	for i := range results {
+		if col := results[i].col; col != nil {
+			results[i].col = withoutInferredClaims(col, sources[i].ID(), collided)
+		}
+	}
+}
+
+// digestClaim is a name claim and the identity of the bundle making it.
+type digestClaim struct {
+	contract.NameClaim
+	Bundle string
+}
+
+// bundleIdentity is the folder a local revision was read from, made absolute,
+// or the digest of a published one. Two folders with identical content are
+// two bundles, so a local identity is never a digest.
+func bundleIdentity(rev RawRevision) string {
+	ref := cmp.Or(rev.ResolvedRef, rev.RequestedRef)
+	if strings.Contains(ref, "://") && !strings.HasPrefix(ref, "file://") {
+		return rev.Digest
+	}
+	dir := strings.TrimPrefix(ref, "file://")
+	if dir == "" {
+		return ""
+	}
+	if abs, err := filepath.Abs(dir); err == nil {
+		return abs
+	}
+	return dir
+}
+
+// nameClaims is one claim per revision of col, plus one declared claim per
+// target that names a service: a target-only name (target state, an inline
+// Pacto) is a service an inferred name must not join and inherit targets from.
+// ponytail: provisioning and usage records name a consumer revision by digest,
+// so they are not claims; add them if one ever names a service without one.
+func nameClaims(sourceID string, col *Collection) []digestClaim {
+	var claims []digestClaim
+	for _, rev := range collectionRevisions(col) {
+		claim := digestClaim{contract.NameClaim{Dir: sourceID + " " + cmp.Or(rev.ResolvedRef, rev.RequestedRef), Name: rev.Bundle.Contract.Service.Name, Source: "declared"}, bundleIdentity(rev)}
+		if inf, ok := rev.Bundle.NameInferred(); ok {
+			claim.Source, claim.Inferred = inf.Source, true
+		}
+		claims = append(claims, claim)
+	}
+	if col != nil {
+		for _, t := range col.Targets {
+			if t.Service != "" {
+				claims = append(claims, digestClaim{NameClaim: contract.NameClaim{
+					Dir: sourceID + " target " + t.Scope + "/" + t.Kind + "/" + t.Name, Name: t.Service, Source: "declared"}})
+			}
+		}
+	}
+	return claims
+}
+
+// collectionRevisions is col's revisions that carry a contract.
+func collectionRevisions(col *Collection) []RawRevision {
+	if col == nil {
+		return nil
+	}
+	var out []RawRevision
+	for _, rev := range col.Revisions {
+		if rev.Bundle != nil && rev.Bundle.Contract != nil {
+			out = append(out, rev)
+		}
+	}
+	return out
+}
+
+// withoutInferredClaims is a copy of col without the inferred claimants of the
+// collided names, plus one limitation per name it lost.
+func withoutInferredClaims(col *Collection, sourceID string, collided map[string]string) *Collection {
+	cp := *col
+	lost := map[string]bool{}
+	cp.Revisions = slices.DeleteFunc(slices.Clone(col.Revisions), func(rev RawRevision) bool {
+		if rev.Bundle == nil || rev.Bundle.Contract == nil {
+			return false
+		}
+		name := rev.Bundle.Contract.Service.Name
+		_, inferred := rev.Bundle.NameInferred()
+		_, hit := collided[name]
+		lost[name] = lost[name] || hit && inferred
+		return hit && inferred
+	})
+	cp.Limitations = slices.Clone(col.Limitations)
+	for _, name := range slices.Sorted(maps.Keys(lost)) {
+		if lost[name] {
+			cp.Limitations = append(cp.Limitations, Limitation{Code: LimitationServiceNameCollision, Source: sourceID, Message: collided[name]})
+		}
+	}
+	return &cp
 }
 
 // sourceResult is one source's collection outcome.
@@ -223,7 +357,8 @@ func collectAll(ctx context.Context, opts BuildOptions, sources []Source) ([]sou
 }
 
 // ingestCollection projects one successful source's records into the snapshot.
-func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time.Time, window time.Duration) {
+// clusters is the snapshot's cluster index and i the source's position in it.
+func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time.Time, window time.Duration, clusters clusterIndex, i int) {
 	if col == nil {
 		col = &Collection{}
 	}
@@ -241,7 +376,7 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 	// declared second would attribute partiality by ingestion order. Those
 	// limitations are still reported at snapshot level, where they belong to the
 	// disagreement rather than to a source.
-	var recordProblems []Limitation
+	recordProblems := slices.Clone(clusters.problems[i])
 	for _, raw := range col.Revisions {
 		rev, lims := revisionFrom(raw, src.ID(), now)
 		if rev == nil {
@@ -266,7 +401,7 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 		revCount++
 	}
 	for _, raw := range col.Targets {
-		tgt, invalid := targetFrom(raw, src.ID(), now, window)
+		tgt, invalid := targetFrom(raw, src.ID(), now, window, clusters.forTarget(src, col, raw))
 		recordProblems = append(recordProblems, invalid...)
 		if existing := snap.Targets[tgt.Key]; existing != nil {
 			// Same target contributed by another source (e.g. platform inventory
@@ -288,6 +423,361 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 	st, stateLims := sourceStateFor(src, col, now, revCount, targetCount, len(recordProblems) > 0)
 	snap.Limitations = append(snap.Limitations, stateLims...)
 	snap.Sources = append(snap.Sources, st)
+}
+
+// clusterIndex is what Build knows about the clusters of one snapshot, computed
+// once over every collected source before any record is ingested.
+type clusterIndex struct {
+	records  []ClusterRecord
+	resolved map[string]Cluster
+	// problems are per-source record problems (indexed like sources): invalid
+	// cluster ids, CLUSTER_UNKNOWN with several clusters, CLUSTER_CONFLICT.
+	problems [][]Limitation
+	// clusterless are the keys of the targets each source delivered with no
+	// known cluster (always 3-part keys).
+	clusterless [][]TargetKey
+	// conflicts are the keys of the targets each source reported in a cluster
+	// another evidence source names for the same record (CLUSTER_CONFLICT).
+	conflicts [][]TargetKey
+	multi     bool
+}
+
+// targetCluster is the cluster one raw target resolves to.
+type targetCluster struct {
+	cluster  Cluster
+	relation string
+	keyed    bool
+	// unknown: the target has no known cluster while the snapshot knows one.
+	unknown bool
+	// invalid: the source named a cluster id [ValidClusterID] refuses.
+	invalid bool
+}
+
+// observedEdgesOf is the observed edges of one source. In a snapshot with several
+// clusters a k8s: caller of a source with a known cluster gains that cluster;
+// a caller the source already qualified is kept.
+func observedEdgesOf(id string, col *Collection, c clusterIndex) []observedInput {
+	cl, known := c.resolved[rawClusterID(col, RawTarget{})]
+	out := make([]observedInput, 0, len(col.Observed))
+	for _, e := range col.Observed {
+		if cluster, ns, kind, name, ok := ParseK8sCaller(e.From); ok && cluster == "" && known && c.multi {
+			e.From = K8sCaller(cl.ID, ns, kind, name)
+		}
+		out = append(out, observedInput{edge: e, source: id})
+	}
+	return out
+}
+
+// forTarget resolves the cluster of one raw target: its own cluster when set,
+// else the collection's. An invalid id resolves to none.
+func (c clusterIndex) forTarget(src Source, col *Collection, raw RawTarget) targetCluster {
+	id := rawClusterID(col, raw)
+	cl, ok := c.resolved[id]
+	if !ok {
+		return targetCluster{unknown: len(c.records) > 0, keyed: c.multi, invalid: id != "" && !ValidClusterID(id)}
+	}
+	relation := ClusterRelationReportedThrough
+	if src.Kind() == SourceKindKubernetes {
+		relation = ClusterRelationRunsIn
+	}
+	return targetCluster{cluster: cl, relation: relation, keyed: c.multi}
+}
+
+// rawClusterID is the cluster id a raw target claims, "" when none.
+func rawClusterID(col *Collection, raw RawTarget) string {
+	switch {
+	case raw.Cluster != nil:
+		return raw.Cluster.ID
+	case col.Cluster != nil:
+		return col.Cluster.ID
+	}
+	return ""
+}
+
+// validClusterIDPattern bounds a cluster id from an untrusted source; a
+// kube-system UID fits.
+var validClusterIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,252}$`)
+
+// ValidClusterID reports whether id may name a cluster: what [Build] keeps from
+// an untrusted source. A kube-system UID fits.
+func ValidClusterID(id string) bool { return validClusterIDPattern.MatchString(id) }
+
+// clusterNameRank orders the declared name sources of reported names.
+var clusterNameRank = map[string]int{
+	ClusterNameFromNodeLabel: 4, ClusterNameFromContext: 3, ClusterNameFromFile: 2, ClusterNameFromUID: 1,
+}
+
+// ValidClusterName reports whether [Build] keeps a reported cluster name: at
+// most 63 bytes of printable runes with a known name source.
+func ValidClusterName(name, nameSource string) bool {
+	return validClusterName(name, nameSource, 63)
+}
+
+// maxLiveClusterNameLen bounds a name the process read itself: a kubeconfig
+// context name such as an EKS ARN or a GKE gke_<project>_<zone>_<cluster>
+// often runs past the 63 bytes a reported name may take.
+const maxLiveClusterNameLen = 253
+
+func validClusterName(name, nameSource string, maxLen int) bool {
+	return name != "" && len(name) <= maxLen && utf8.ValidString(name) && clusterNameRank[nameSource] > 0 &&
+		!strings.ContainsFunc(name, func(r rune) bool { return !unicode.IsPrint(r) })
+}
+
+// clusterNameClaim is one source's claim on the name of a cluster.
+type clusterNameClaim struct {
+	name, nameSource, reportedBy string
+	live                         bool
+}
+
+// outranks says whether claim a beats b: a name the process read itself (a
+// kubernetes-kind source) beats any reported one, then the declared name
+// source decides. Equal claims keep the earlier source.
+func (a clusterNameClaim) outranks(b clusterNameClaim) bool {
+	if a.live != b.live {
+		return a.live
+	}
+	return clusterNameRank[a.nameSource] > clusterNameRank[b.nameSource]
+}
+
+// clusterSet validates every cluster the sources report, ranks their names and
+// decides once whether the snapshot holds more than one cluster.
+func clusterSet(results []sourceResult, sources []Source) clusterIndex {
+	idx := clusterIndex{resolved: map[string]Cluster{}, problems: make([][]Limitation, len(sources)), clusterless: make([][]TargetKey, len(sources)), conflicts: make([][]TargetKey, len(sources))}
+	claims := map[string]*clusterNameClaim{}
+	reporters := map[string][]string{}
+	for i, r := range results {
+		if r.err != nil || r.col == nil {
+			continue
+		}
+		invalid := 0
+		for _, c := range sourceClusters(r.col) {
+			if !ValidClusterID(c.ID) {
+				invalid++
+				continue
+			}
+			reporters[c.ID] = appendUnique(reporters[c.ID], sources[i].ID())
+			claimClusterName(claims, sources[i], c)
+		}
+		if invalid > 0 {
+			idx.problems[i] = append(idx.problems[i], clusterInvalid(sources[i].ID(), strconv.Itoa(invalid)+" of them"))
+		}
+	}
+	for id, srcs := range reporters {
+		cl := Cluster{ID: id, Name: id[:min(8, len(id))], NameSource: ClusterNameFromUID}
+		if c := claims[id]; c != nil {
+			cl.Name, cl.NameSource, cl.ReportedBy = c.name, c.nameSource, c.reportedBy
+		}
+		idx.resolved[id] = cl
+		idx.records = append(idx.records, ClusterRecord{Cluster: cl, Sources: srcs})
+	}
+	sort.Slice(idx.records, func(a, b int) bool { return idx.records[a].ID < idx.records[b].ID })
+	disambiguateClusterNames(&idx)
+	idx.multi = len(idx.records) > 1
+	idx.collectClusterless(results, sources)
+	idx.detectClusterConflicts(results, sources)
+	return idx
+}
+
+// disambiguateClusterNames appends the uid prefix to a name more than one
+// cluster resolved to, so two clusters never read alike in labels and search.
+func disambiguateClusterNames(idx *clusterIndex) {
+	uses := map[string]int{}
+	for _, r := range idx.records {
+		uses[r.Name]++
+	}
+	for i := range idx.records {
+		if r := &idx.records[i]; uses[r.Name] > 1 {
+			r.Name += " (" + r.ID[:min(8, len(r.ID))] + ")"
+			idx.resolved[r.ID] = r.Cluster
+		}
+	}
+}
+
+// sourceClusters lists every cluster a collection names: its own and each
+// target's.
+func sourceClusters(col *Collection) []Cluster {
+	var out []Cluster
+	if col.Cluster != nil {
+		out = append(out, *col.Cluster)
+	}
+	for _, t := range col.Targets {
+		if t.Cluster != nil {
+			out = append(out, *t.Cluster)
+		}
+	}
+	return out
+}
+
+// claimClusterName records src's claim on the name of c when it is valid and
+// outranks the claim already held.
+func claimClusterName(claims map[string]*clusterNameClaim, src Source, c Cluster) {
+	live, maxLen := src.Kind() == SourceKindKubernetes, 63
+	if live {
+		maxLen = maxLiveClusterNameLen
+	}
+	if !validClusterName(c.Name, c.NameSource, maxLen) {
+		return
+	}
+	claim := clusterNameClaim{name: c.Name, nameSource: c.NameSource, live: live}
+	if !claim.live {
+		claim.reportedBy = src.ID()
+	}
+	if held := claims[c.ID]; held == nil || claim.outranks(*held) {
+		claims[c.ID] = &claim
+	}
+}
+
+// collectClusterless records the targets each source delivered with no known
+// cluster and, in a snapshot with several clusters, makes each such source
+// partial with one CLUSTER_UNKNOWN. With no known cluster nothing is recorded.
+func (c *clusterIndex) collectClusterless(results []sourceResult, sources []Source) {
+	if len(c.records) == 0 {
+		return
+	}
+	for i, r := range results {
+		if r.err != nil || r.col == nil {
+			continue
+		}
+		for _, t := range r.col.Targets {
+			if _, ok := c.resolved[rawClusterID(r.col, t)]; !ok {
+				c.clusterless[i] = append(c.clusterless[i], NewTargetKey(t.Scope, t.Kind, t.Name))
+			}
+		}
+		if c.multi && len(c.clusterless[i]) > 0 {
+			c.problems[i] = append(c.problems[i], clusterUnknownMulti(sources[i].ID(), len(c.clusterless[i])))
+		}
+	}
+}
+
+// evidenceRecord identifies one evidence record across Evidence Servers.
+type evidenceRecord struct {
+	producer, kind, subject string
+	evidenceAt, acceptedAt  time.Time
+}
+
+// detectClusterConflicts reports one evidence record that two evidence sources
+// list as accepted in two different clusters: the later source gets a
+// CLUSTER_CONFLICT record problem and both targets stay.
+func (c *clusterIndex) detectClusterConflicts(results []sourceResult, sources []Source) {
+	seen := map[evidenceRecord]string{}
+	for i, r := range results {
+		if r.err != nil || r.col == nil || sources[i].Kind() != SourceKindEvidenceHTTP {
+			continue
+		}
+		for _, t := range r.col.Targets {
+			id := rawClusterID(r.col, t)
+			if _, ok := c.resolved[id]; !ok || t.EvidenceAt == nil || t.ReconciledAt == nil {
+				continue
+			}
+			rec := evidenceRecord{t.Scope, t.Kind, t.Name, t.EvidenceAt.UTC(), t.ReconciledAt.UTC()}
+			if prev, ok := seen[rec]; !ok {
+				seen[rec] = id
+			} else if prev != id {
+				// Two ids mean several clusters, so every target is keyed by cluster.
+				c.conflicts[i] = append(c.conflicts[i], NewClusterTargetKey(id, t.Scope, t.Kind, t.Name))
+			}
+		}
+		if n := len(c.conflicts[i]); n > 0 {
+			c.problems[i] = append(c.problems[i], clusterConflict(sources[i].ID(), n))
+		}
+	}
+}
+
+// clusterConflict is the CLUSTER_CONFLICT of source id for n evidence records.
+func clusterConflict(id string, n int) Limitation {
+	return Limitation{Code: LimitationClusterConflict, Source: id,
+		Message: "source " + id + " reports " + strconv.Itoa(n) + " evidence records that another evidence source reports as accepted in a different cluster; one subject has exactly one accepting Evidence Server"}
+}
+
+// clusterInvalidPhrase marks the SOURCE_RECORD_INVALID about invalid cluster
+// ids, which Restrict rebuilds from the targets a view may see.
+const clusterInvalidPhrase = " reported invalid cluster ids: "
+
+// clusterInvalid is the SOURCE_RECORD_INVALID of source id for what (a count
+// of ids, or of targets in a restricted view).
+func clusterInvalid(id, what string) Limitation {
+	return Limitation{Code: LimitationSourceRecordInvalid, Source: id,
+		Message: "source " + id + clusterInvalidPhrase + what + "; those clusters were dropped and their targets carry no cluster"}
+}
+
+// markClusterConflicts records on each conflicting target the source that
+// reported it, so Restrict can recount CLUSTER_CONFLICT from visible targets.
+func markClusterConflicts(snap *FleetSnapshot, c clusterIndex, sources []Source) {
+	for i, keys := range c.conflicts {
+		for _, k := range keys {
+			t := snap.Targets[k]
+			t.clusterConflictFrom = appendUnique(t.clusterConflictFrom, sources[i].ID())
+		}
+	}
+}
+
+// clusterMergeLimitations states, in a snapshot with exactly one known cluster,
+// what Build assumed about clusterless targets. A clusterless target that merged
+// into a clustered one was treated as the same cluster, so its source becomes
+// partial with a CLUSTER_UNKNOWN naming the keys. With no such merge, one
+// informational CLUSTER_UNKNOWN is added and completeness is unchanged.
+func clusterMergeLimitations(snap *FleetSnapshot, c clusterIndex) {
+	if len(c.records) != 1 {
+		return
+	}
+	total, merged := 0, false
+	for i, keys := range c.clusterless {
+		total += len(keys)
+		var hit []string
+		for _, k := range keys {
+			if snap.Targets[k].Cluster != "" {
+				hit = appendUnique(hit, string(k))
+			}
+		}
+		if len(hit) > 0 {
+			merged = true
+			slices.Sort(hit)
+			markSourcePartial(snap, i, clusterUnknownMerged(snap.Sources[i].ID, c.records[0].Name, hit))
+		}
+	}
+	if !merged && total > 0 {
+		snap.Limitations = append(snap.Limitations, clusterUnknownInfo(total))
+	}
+}
+
+// clusterUnknownMulti is the CLUSTER_UNKNOWN of a source that delivered n
+// clusterless targets to a snapshot with several clusters.
+func clusterUnknownMulti(id string, n int) Limitation {
+	return Limitation{Code: LimitationClusterUnknown, Source: id,
+		Message: strconv.Itoa(n) + " targets from source " + id + " carry no cluster id, so they cannot be told apart from another cluster's; give the source a cluster id (for the live source: get on namespaces/kube-system)"}
+}
+
+// clusterUnknownMerged is the CLUSTER_UNKNOWN of a source whose clusterless
+// targets (keys) merged into the targets of the one known cluster.
+func clusterUnknownMerged(id, clusterName string, keys []string) Limitation {
+	return Limitation{Code: LimitationClusterUnknown, Source: id,
+		Message: "targets from source " + id + " carry no cluster id and were merged into the targets of cluster " + clusterName + ": " + boundedKeyList(keys)}
+}
+
+// clusterUnknownInfo is the informational CLUSTER_UNKNOWN of a snapshot with
+// one known cluster whose total clusterless targets merged into none.
+func clusterUnknownInfo(total int) Limitation {
+	return Limitation{Code: LimitationClusterUnknown,
+		Message: strconv.Itoa(total) + " targets carry no cluster id; with one known cluster their keys stay unqualified"}
+}
+
+// boundedKeyList joins at most 20 keys and counts the rest, so a limitation
+// message never grows with the fleet.
+func boundedKeyList(keys []string) string {
+	const limit = 20
+	if len(keys) <= limit {
+		return strings.Join(keys, ", ")
+	}
+	return strings.Join(keys[:limit], ", ") + " and " + strconv.Itoa(len(keys)-limit) + " more"
+}
+
+// markSourcePartial adds lim and downgrades an available source to partial.
+// It runs before completeness is classified.
+func markSourcePartial(snap *FleetSnapshot, i int, lim Limitation) {
+	snap.Limitations = append(snap.Limitations, lim)
+	if snap.Sources[i].Status == SourceAvailable {
+		snap.Sources[i].Status = SourcePartial
+	}
 }
 
 // mergeRevision folds a later contribution of the same immutable revision into
@@ -474,6 +964,7 @@ func mergeTarget(existing, add *TargetRecord) []Limitation {
 		existing.ResolvedRef = ref
 	}
 	lims = append(lims, mergeTargetLabels(existing, add)...)
+	mergeTargetCluster(existing, add)
 	if existing.Owner.IsEmpty() {
 		existing.Owner = add.Owner
 	}
@@ -494,6 +985,26 @@ func mergeTarget(existing, add *TargetRecord) []Limitation {
 	}
 	existing.Limitations = append(existing.Limitations, add.Limitations...)
 	return lims
+}
+
+// mergeTargetCluster fills an empty cluster of existing from add, so the merged
+// target's cluster never depends on source order. Two different ids never share
+// a key (two clusters key every target by cluster), so there is no conflict to
+// report. runs-in wins over reported-through.
+func mergeTargetCluster(existing, add *TargetRecord) {
+	for _, src := range add.clusterUnknownFrom {
+		existing.clusterUnknownFrom = appendUnique(existing.clusterUnknownFrom, src)
+	}
+	for _, src := range add.clusterInvalidFrom {
+		existing.clusterInvalidFrom = appendUnique(existing.clusterInvalidFrom, src)
+	}
+	if existing.Cluster == "" {
+		existing.Cluster, existing.ClusterName, existing.ClusterNameSource = add.Cluster, add.ClusterName, add.ClusterNameSource
+		existing.ClusterNameReportedBy, existing.ClusterRelation = add.ClusterNameReportedBy, add.ClusterRelation
+	}
+	if add.ClusterRelation == ClusterRelationRunsIn {
+		existing.ClusterRelation = ClusterRelationRunsIn
+	}
 }
 
 // mergeTargetIdentity reconciles the identity-bearing fields of two contributions
@@ -782,6 +1293,7 @@ func revisionFrom(raw RawRevision, source string, now time.Time) (*ContractRevis
 		// The declared contract is deep-copied so a source mutating its own
 		// bundle after Build can never mutate the snapshot.
 		Contract:   cloneContract(c),
+		Inferred:   slices.Clone(b.Inferred),
 		Source:     source,
 		Sources:    []string{source},
 		FetchedAt:  copyTime(raw.FetchedAt),
@@ -1085,13 +1597,17 @@ func canonicalFindings(fs []finding.Finding) (out []finding.Finding, invalid int
 // extension seam) may set to any string, keeping the usable record and returning a
 // SOURCE_RECORD_INVALID limitation for each normalized field.
 // The returned limitations are also recorded on the target so it self-describes.
-func targetFrom(raw RawTarget, source string, now time.Time, window time.Duration) (*TargetRecord, []Limitation) {
+func targetFrom(raw RawTarget, source string, now time.Time, window time.Duration, tc targetCluster) (*TargetRecord, []Limitation) {
 	compliance, complianceInvalid := canonicalCompliance(raw.Compliance)
 	findings, invalidSeverities := canonicalFindings(raw.Findings)
+	keyCluster := ""
+	if tc.keyed {
+		keyCluster = cmp.Or(tc.cluster.ID, UnknownClusterKeyPart)
+	}
 	// Every mutable field is deep-copied so a source mutating its own records
 	// after Build cannot mutate the snapshot.
 	t := &TargetRecord{
-		Key:          NewTargetKey(raw.Scope, raw.Kind, raw.Name),
+		Key:          NewClusterTargetKey(keyCluster, raw.Scope, raw.Kind, raw.Name),
 		Scope:        raw.Scope,
 		Kind:         raw.Kind,
 		Name:         raw.Name,
@@ -1116,6 +1632,16 @@ func targetFrom(raw RawTarget, source string, now time.Time, window time.Duratio
 		Source:          source,
 		Sources:         []string{source},
 		Limitations:     append([]Limitation(nil), raw.Limitations...),
+	}
+	if tc.cluster.ID != "" {
+		t.Cluster, t.ClusterName, t.ClusterNameSource = tc.cluster.ID, tc.cluster.Name, tc.cluster.NameSource
+		t.ClusterNameReportedBy, t.ClusterRelation = tc.cluster.ReportedBy, tc.relation
+	}
+	if tc.unknown {
+		t.clusterUnknownFrom = []string{source}
+	}
+	if tc.invalid {
+		t.clusterInvalidFrom = []string{source}
 	}
 	t.reportedDomains, t.domainKnown = reportedDomainsFrom(raw)
 	t.reportedOfferings, t.reportedSummaries = reportedValue(raw.Offering, validBusinessDomain), reportedValue(raw.Summary, validSummary)
@@ -1413,6 +1939,7 @@ func aggregateServices(snap *FleetSnapshot) {
 	placed := targetPlacementKnown(snap)
 	for _, s := range snap.Services {
 		s.Status = serviceStatus(snap, s)
+		s.NameInferred = nameInferred(snap, s)
 		snap.Limitations = append(snap.Limitations, deriveOwner(snap, s)...)
 		snap.Limitations = append(snap.Limitations, deriveBusinessDomain(snap, s)...)
 		deriveTemplate(snap, s, placed)
@@ -1827,6 +2354,23 @@ func ownerSeen(seen []contract.Owner, o contract.Owner) bool {
 	return false
 }
 
+// nameInferred is the inferred service.name entry of the revision of s with
+// the smallest key when every revision of s inferred its name, else nil: one
+// declared revision makes the name declared.
+func nameInferred(snap *FleetSnapshot, s *ServiceRecord) *contract.Inferred {
+	var found *contract.Inferred
+	for _, rk := range slices.Sorted(slices.Values(s.Revisions)) {
+		inf, ok := (&contract.Bundle{Inferred: snap.Revisions[rk].Inferred}).NameInferred()
+		if !ok {
+			return nil
+		}
+		if found == nil {
+			found = &inf
+		}
+	}
+	return found
+}
+
 func ensureService(snap *FleetSnapshot, domain, name string) *ServiceRecord {
 	key := NewServiceKeyDomain(domain, name)
 	s := snap.Services[key]
@@ -2159,7 +2703,7 @@ func revisionDependencyEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractR
 			Type: RelationshipDependency, Provenance: ProvenanceDeclared,
 			Required: dep.Required, Compatibility: dep.Compatibility,
 			RequestedRef: dep.Ref, Resolved: ok, ToService: toSvc,
-			External: dep.External, Version: dep.Version,
+			External: dep.External, Version: dep.Version, NameFromRef: dep.NameFromRef,
 		}
 		if rev.Lock != nil {
 			if e, found := rev.Lock.Dependency(dep.Name); found {
@@ -2170,6 +2714,8 @@ func revisionDependencyEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractR
 		switch {
 		case !ok && dep.External:
 			rel.Reason = "an external dependency: this Pacto system does not deliver it"
+		case !ok && dep.NameFromRef:
+			rel.Reason = derivedNameReason(dep.Ref)
 		case !ok:
 			rel.Reason = "no service in the fleet resolves this dependency ref"
 		default:
@@ -2323,9 +2869,54 @@ func resolveDepRevision(snap *FleetSnapshot, toSvc ServiceKey, lockedDigest stri
 // resolveDepService resolves a dependency to a logical service, preferring the
 // depending revision's own domain (a bare dependency ref carries no domain, so it
 // resolves within the same domain), tolerating a "-pacto" bundle-name suffix.
+//
+// A name derived from the ref is a guess from a path, so it resolves only to a
+// service of the ref's own domain with a revision read from that repository: an
+// oci://ghcr.io/other-org/payments never reaches the fleet's own payments, and a
+// local ref, which names no repository, never resolves.
 func resolveDepService(snap *FleetSnapshot, fromDomain string, dep contract.Dependency) (ServiceKey, bool) {
+	if dep.NameFromRef {
+		repo := ociRepository(dep.Ref)
+		key := lookupServiceInDomain(snap, contract.OCIDomain(dep.Ref), dep.Name)
+		if repo == "" || key == "" || !publishedAt(snap, key, repo) {
+			return "", false
+		}
+		return key, true
+	}
 	key := lookupServiceInDomain(snap, fromDomain, dep.Name)
 	return key, key != ""
+}
+
+// derivedNameReason says why a dependency whose name was derived from ref did
+// not resolve.
+func derivedNameReason(ref string) string {
+	if repo := ociRepository(ref); repo != "" {
+		return "the name was derived from the ref and no service in the fleet is published at " + repo
+	}
+	return "the name was derived from a local ref, which names no published repository: declare the name"
+}
+
+// ociRepository is the repository an oci:// ref names, without scheme, tag or
+// digest; "" for any other ref.
+func ociRepository(ref string) string {
+	if !strings.HasPrefix(ref, contract.OCIScheme) {
+		return ""
+	}
+	repo, _, _ := contract.SplitOCIRef(contract.TrimOCIScheme(ref))
+	return repo
+}
+
+// publishedAt reports whether some revision of svc was read from repo.
+func publishedAt(snap *FleetSnapshot, svc ServiceKey, repo string) bool {
+	for _, rk := range snap.Services[svc].Revisions {
+		rev := snap.Revisions[rk]
+		for _, ref := range []string{rev.RequestedRef, rev.ResolvedRef} {
+			if r, _, _ := contract.SplitOCIRef(contract.TrimOCIScheme(ref)); r == repo {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // lockReference returns the lock entry that records what THIS revision's own

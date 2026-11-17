@@ -87,3 +87,13 @@ func TestRange_String(t *testing.T) {
 		t.Errorf("String() = %q, want %q", got, "^2.0.0")
 	}
 }
+
+// TestRangeLabel: unknown reads range not declared; a range and no range
+// read as they are.
+func TestRangeLabel(t *testing.T) {
+	for in, want := range map[string]string{contract.CompatibilityUnknown: "range not declared", "": "", "^1.2.0": "^1.2.0"} {
+		if got := contract.RangeLabel(in); got != want {
+			t.Errorf("RangeLabel(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/diff"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/lock"
@@ -1150,8 +1151,9 @@ func TestDescribeRangesNamesPolicyReferrers(t *testing.T) {
 		{Service: "checkout", Compatibility: "^3.0.0"},
 		{Service: "audit", Via: []string{fleet.RelationshipPolicyRef}},
 		{Service: "ledger", Compatibility: "^2.0.0", Via: []string{fleet.RelationshipDependency, fleet.RelationshipPolicyRef}},
+		{Service: "reports"},
 	})
-	want := "checkout (accepts ^3.0.0), audit (fails its new policy), ledger (accepts ^2.0.0 and references its policy)"
+	want := "checkout (accepts ^3.0.0), audit (fails its new policy), ledger (accepts ^2.0.0 and references its policy), reports"
 	if got != want {
 		t.Fatalf("describeRanges = %q, want %q", got, want)
 	}
@@ -1209,5 +1211,34 @@ func TestIntentDigestNoCauseUnchanged(t *testing.T) {
 	const want = "sha256:67431a6b147532ff87ea1a3fef97ad72667353492b95085a6e8864311f399532"
 	if got := IntentDigest(s, StageSpec{Service: ServiceRef{Name: "payments"}}); got != want {
 		t.Fatalf("cause-less digest %s, want %s", got, want)
+	}
+}
+
+func TestGateReasonUndeclaredRange(t *testing.T) {
+	got := describeRanges([]impact.AffectedConsumer{
+		{Service: "payments", Compatibility: contract.CompatibilityUnknown},
+		{Service: "invoices", Compatibility: contract.CompatibilityUnknown, Via: []string{fleet.RelationshipPolicyRef}},
+	})
+	if want := "payments (range not declared), invoices (range not declared and references its policy)"; got != want {
+		t.Fatalf("describeRanges = %q, want %q", got, want)
+	}
+	if strings.Contains(got, "accepts unknown") {
+		t.Fatalf("an undeclared range reads as accepted: %q", got)
+	}
+}
+
+func TestUnseenConsumerUndeclaredRange(t *testing.T) {
+	in := PlanInput{Stage: StageSpec{Service: ServiceRef{Name: "ledger"}}, Snapshot: &fleet.FleetSnapshot{}}
+	res := &impact.Result{Classification: diff.NonBreaking.String()}
+	got := unseenConsumersOf(in, res, []impact.AffectedConsumer{
+		{Service: "invoices", Compatibility: contract.CompatibilityUnknown},
+		{Service: "billing"},
+	})
+	want := []string{
+		"invoices (range not declared) has no usable compatibility range for this change",
+		"billing has no usable compatibility range for this change",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("unseenConsumersOf = %q, want %q", got, want)
 	}
 }

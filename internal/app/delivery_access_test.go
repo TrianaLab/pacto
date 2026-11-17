@@ -128,3 +128,78 @@ func TestStatusUnfreezeOfferNeedsAccess(t *testing.T) {
 		t.Fatalf("allowed: %+v", s.Stages[0].Offers)
 	}
 }
+
+// rulesReview answers the caller's rules reviews with status, or fails them
+// with err, and counts them.
+func rulesReview(c *dynamicfake.FakeDynamicClient, status map[string]any, err error, n *int) {
+	c.PrependReactor("create", "selfsubjectrulesreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
+		*n++
+		if err != nil {
+			return true, nil, err
+		}
+		obj := map[string]any{}
+		if status != nil {
+			obj["status"] = status
+		}
+		return true, &unstructured.Unstructured{Object: obj}, nil
+	})
+}
+
+// TestWorkloadAccessByNamespaceAsksOncePerNamespace: one rules review answers
+// every workload in its namespace the way RBAC matches.
+func TestWorkloadAccessByNamespaceAsksOncePerNamespace(t *testing.T) {
+	d, c, _ := deliveryFixture(t, "dana", nil, nil)
+	var asked []map[string]any
+	mayUpdate(c, true, nil, &asked)
+	rules := 0
+	rulesReview(c, map[string]any{"resourceRules": []any{
+		map[string]any{"verbs": []any{"get", "update"}, "apiGroups": []any{"apps"}, "resources": []any{"deployments"}, "resourceNames": []any{"checkout"}},
+		map[string]any{"verbs": []any{"*"}, "apiGroups": []any{"*"}, "resources": []any{"cronjobs"}},
+	}}, nil, &rules)
+	access, ctx := d.WorkloadAccessByNamespace(), context.Background()
+	for _, tc := range []struct {
+		kind, name string
+		want       bool
+	}{{"Deployment", "checkout", true}, {"Deployment", "orders", false}, {"StatefulSet", "checkout", false}, {"CronJob", "nightly", true}} {
+		if a := access(ctx, "payments", delivery.WorkloadRef{Kind: tc.kind, Name: tc.name}); a.Allowed != tc.want || a.Source != delivery.AccessBySelfReview || a.At == "" || a.Unverified != "" {
+			t.Fatalf("%s/%s: %+v", tc.kind, tc.name, a)
+		}
+	}
+	if rules != 1 || len(asked) != 0 {
+		t.Fatalf("one rules review and no access review: %d %v", rules, asked)
+	}
+	if a := access(ctx, "payments", delivery.WorkloadRef{Kind: "Rollout", Name: "x"}); a.Unverified == "" || len(asked) != 0 {
+		t.Fatalf("an unknown kind is never asked: %+v", a)
+	}
+}
+
+// TestWorkloadAccessByNamespaceFallsBack: rules that may be incomplete, a
+// review that could not be evaluated, failed or came back empty leave each
+// workload to its own access review, and the rules are asked once anyway.
+func TestWorkloadAccessByNamespaceFallsBack(t *testing.T) {
+	for name, tc := range map[string]struct {
+		status map[string]any
+		err    error
+	}{
+		"incomplete": {status: map[string]any{"incomplete": true}},
+		"evaluation": {status: map[string]any{"evaluationError": "webhook down"}},
+		"failed":     {err: errors.New("down")},
+		"no status":  {},
+		"malformed":  {status: map[string]any{"incomplete": "maybe"}},
+	} {
+		d, c, _ := deliveryFixture(t, "dana", nil, nil)
+		var asked []map[string]any
+		mayUpdate(c, true, nil, &asked)
+		rules := 0
+		rulesReview(c, tc.status, tc.err, &rules)
+		access := d.WorkloadAccessByNamespace()
+		for range 2 {
+			if a := access(context.Background(), "payments", delivery.WorkloadRef{Kind: "Deployment", Name: "checkout"}); !a.Allowed {
+				t.Fatalf("%s: %+v", name, a)
+			}
+		}
+		if rules != 1 || len(asked) != 2 {
+			t.Fatalf("%s: rules %d, access reviews %d", name, rules, len(asked))
+		}
+	}
+}

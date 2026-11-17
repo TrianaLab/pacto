@@ -147,9 +147,50 @@ func NewRevisionKey(serviceKey ServiceKey, contentID string) RevisionKey {
 // forge a component boundary) and the three components are joined with "/". The
 // encoding is canonical (see the round-trip test); a separate human display string
 // is available via [TargetRecord.DisplayName]. Two distinct (scope,kind,name)
-// triples can never map to the same key.
+// triples can never map to the same key. [NewClusterTargetKey] adds a leading
+// cluster component, and [ParseTargetKey] decodes either form.
 func NewTargetKey(scope, kind, name string) TargetKey {
 	return TargetKey(escapeKeyPart(scope) + "/" + escapeKeyPart(kind) + "/" + escapeKeyPart(name))
+}
+
+// UnknownClusterKeyPart is the cluster component of a target with no known
+// cluster in a snapshot that holds more than one cluster. [ValidClusterID]
+// never accepts it, so it can never name a real cluster, and the target keeps a
+// key of its own: its 3-part key gathers every cluster's namesake.
+const UnknownClusterKeyPart = "_"
+
+// NewClusterTargetKey builds the key of a target in a snapshot that holds more
+// than one cluster: the escaped cluster id, "/", then [NewTargetKey]. An empty
+// cluster yields the 3-part [NewTargetKey], so a snapshot with zero or one
+// cluster keeps today's keys.
+func NewClusterTargetKey(cluster, scope, kind, name string) TargetKey {
+	if cluster == "" {
+		return NewTargetKey(scope, kind, name)
+	}
+	return TargetKey(escapeKeyPart(cluster) + "/" + string(NewTargetKey(scope, kind, name)))
+}
+
+// ParseTargetKey decodes a target key built by [NewTargetKey] (cluster "") or
+// [NewClusterTargetKey]. It accepts exactly 3 or 4 canonically escaped
+// components and rejects a 4-part key with an empty cluster component, which
+// [NewClusterTargetKey] never emits.
+func ParseTargetKey(k TargetKey) (cluster, scope, kind, name string, ok bool) {
+	parts := strings.Split(string(k), "/")
+	if len(parts) != 3 && len(parts) != 4 {
+		return "", "", "", "", false
+	}
+	for _, p := range parts {
+		if escapeKeyPart(unescapeKeyPart(p)) != p {
+			return "", "", "", "", false
+		}
+	}
+	if len(parts) == 4 {
+		if parts[0] == "" {
+			return "", "", "", "", false
+		}
+		cluster, parts = unescapeKeyPart(parts[0]), parts[1:]
+	}
+	return cluster, unescapeKeyPart(parts[0]), unescapeKeyPart(parts[1]), unescapeKeyPart(parts[2]), true
 }
 
 // escapeKeyPart percent-encodes "%" first (so encoding is unambiguous) then "/".
@@ -278,15 +319,25 @@ const (
 	LimitationSourceUnavailable   = "SOURCE_UNAVAILABLE"
 	LimitationSourceStale         = "SOURCE_STALE"
 	LimitationSourcePartial       = "SOURCE_PARTIAL"
-	LimitationUnresolvedDep       = "UNRESOLVED_DEPENDENCY"
+	// LimitationK8sNamespaceScoped: a Kubernetes source reads a list of
+	// namespaces, so a service in any other namespace is unknown.
+	LimitationK8sNamespaceScoped = "K8S_NAMESPACE_SCOPED"
+	// LimitationK8sNamespaceUnreadable: a namespace a Kubernetes source was told
+	// to read could not be read; what runs there is unknown.
+	LimitationK8sNamespaceUnreadable = "K8S_NAMESPACE_UNREADABLE"
+	LimitationUnresolvedDep          = "UNRESOLVED_DEPENDENCY"
 	// LimitationRangeUnsatisfied: a declared dependency resolves to a provider
 	// whose version in the fleet is outside the consumer's compatibility range.
 	LimitationRangeUnsatisfied    = "DEPENDENCY_RANGE_UNSATISFIED"
 	LimitationEvidenceMissing     = "EVIDENCE_MISSING"
 	LimitationSourceRecordInvalid = "SOURCE_RECORD_INVALID"
-	LimitationDuplicateSourceID   = "DUPLICATE_SOURCE_ID"
-	LimitationRevisionUnresolved  = "REVISION_IDENTITY_UNRESOLVED"
-	LimitationRevisionAmbiguous   = "REVISION_LINK_AMBIGUOUS"
+	// LimitationServiceNameCollision: two or more folders or references claim
+	// one service name and at least one only inferred it. Build drops every
+	// inferred claimant, so a guessed name never joins another service.
+	LimitationServiceNameCollision = "SERVICE_NAME_COLLISION"
+	LimitationDuplicateSourceID    = "DUPLICATE_SOURCE_ID"
+	LimitationRevisionUnresolved   = "REVISION_IDENTITY_UNRESOLVED"
+	LimitationRevisionAmbiguous    = "REVISION_LINK_AMBIGUOUS"
 	// LimitationRevisionDocConflict: two sources contributed the same immutable
 	// revision but disagree about its documents (a different set of paths, or the
 	// same path with different content). There is no honest way to pick a winner —
@@ -365,7 +416,56 @@ const (
 	// and no target is marked stale. Stale counts read zero because they were not
 	// computed. It does not change completeness, which states source health.
 	LimitationFreshnessNotEvaluated = "FRESHNESS_NOT_EVALUATED"
+	// LimitationClusterUnknown: targets carry no cluster id while another source
+	// names a cluster, so they cannot be told apart from another cluster's
+	// targets. In a snapshot with several clusters, or when such a target merged
+	// into a clustered one, the source that delivered them is partial; otherwise
+	// the limitation is informational.
+	LimitationClusterUnknown = "CLUSTER_UNKNOWN"
+	// LimitationClusterConflict: two evidence sources report one record (same
+	// producer, subject and times) as accepted in two different clusters. Both
+	// targets are kept and the later source is partial.
+	LimitationClusterConflict = "CLUSTER_CONFLICT"
 )
+
+// Cluster name sources: how a [Cluster] name was found. They mirror the values
+// of pkg/kubecluster, which pkg/fleet cannot import. The live Kubernetes source
+// sets node-label, context or uid; a target state file sets file.
+const (
+	ClusterNameFromNodeLabel = "node-label"
+	ClusterNameFromContext   = "context"
+	ClusterNameFromFile      = "file"
+	ClusterNameFromUID       = "uid"
+)
+
+// Cluster relations of a target (see [TargetRecord.ClusterRelation]).
+const (
+	// ClusterRelationRunsIn: a Kubernetes source read the target in the cluster.
+	ClusterRelationRunsIn = "runs-in"
+	// ClusterRelationReportedThrough: the cluster only reported the target, such
+	// as the cluster whose Evidence Server accepted its evidence.
+	ClusterRelationReportedThrough = "reported-through"
+)
+
+// Cluster identifies one Kubernetes cluster a source reads or reports from.
+type Cluster struct {
+	// ID is the kube-system namespace UID: the cluster identity.
+	ID string `json:"id" doc:"The kube-system namespace UID: the identity of the cluster."`
+	// Name is a display name only, never an identity.
+	Name string `json:"name,omitempty" doc:"A display name for the cluster; never an identity."`
+	// NameSource says how Name was found.
+	NameSource string `json:"nameSource,omitempty" enum:"node-label,context,file,uid" doc:"How the name was found: a node label, the kubeconfig context name, a target state file or the first characters of the UID."`
+	// ReportedBy is the id of the source that reported Name, empty when this
+	// process read the name itself.
+	ReportedBy string `json:"reportedBy,omitempty" doc:"The source that reported the name; empty when this process read it itself."`
+}
+
+// ClusterRecord is one cluster a snapshot knows, with every source that
+// reported its id.
+type ClusterRecord struct {
+	Cluster
+	Sources []string `json:"sources" doc:"Every source that reported this cluster id."`
+}
 
 // Limitation is a structured, machine-readable reason an answer is incomplete.
 // Prose lives in Message; agents branch on Code.
@@ -393,6 +493,8 @@ type SourceState struct {
 	Error              *SourceError `json:"error,omitempty"`
 	RevisionCount      int          `json:"revisionCount"`
 	TargetCount        int          `json:"targetCount"`
+	Namespaces         []string     `json:"namespaces,omitempty" doc:"The namespaces a Kubernetes source read that you may see. Empty with no namespacesTotal means every namespace; empty with namespacesTotal above 0 means every namespace it read is hidden from you. Anything in another namespace is unknown."`
+	NamespacesTotal    int          `json:"namespacesTotal,omitempty" doc:"How many namespaces the source read, when Namespaces is capped or restricted. Above 0, the source reads a list of namespaces, never every namespace."`
 }
 
 // ToolSummary is a bounded projection of an agent-invocable tool derived from a
@@ -457,14 +559,17 @@ type ServiceRecord struct {
 	// SummaryUnknown says an empty Summary is not a known absence: the sources
 	// report different summaries, or no revision was read and no source reports
 	// one. Like BusinessDomainUnknown, unknown is never "declares none".
-	SummaryUnknown bool              `json:"summaryUnknown,omitempty"`
-	Name           string            `json:"name"`
-	Owner          contract.Owner    `json:"owner,omitzero"`
-	Revisions      []RevisionKey     `json:"revisions,omitempty"`
-	Targets        []TargetKey       `json:"targets,omitempty"`
-	Labels         map[string]string `json:"labels,omitempty"`
-	Status         string            `json:"status,omitempty"`
-	Sources        []string          `json:"sources,omitempty"`
+	SummaryUnknown bool   `json:"summaryUnknown,omitempty"`
+	Name           string `json:"name"`
+	// NameInferred is where Name comes from when no revision declares it:
+	// every revision of the service inferred it from its folder.
+	NameInferred *contract.Inferred `json:"nameInferred,omitempty"`
+	Owner        contract.Owner     `json:"owner,omitzero"`
+	Revisions    []RevisionKey      `json:"revisions,omitempty"`
+	Targets      []TargetKey        `json:"targets,omitempty"`
+	Labels       map[string]string  `json:"labels,omitempty"`
+	Status       string             `json:"status,omitempty"`
+	Sources      []string           `json:"sources,omitempty"`
 	// OfferingProvenance says where Offering comes from: declared by a contract
 	// revision, or observed, reported only by the sources observing its targets.
 	OfferingProvenance string `json:"offeringProvenance,omitempty" enum:"declared,observed"`
@@ -520,9 +625,12 @@ type ContractRevision struct {
 	Digest       string             `json:"digest,omitempty"`
 	Owner        contract.Owner     `json:"owner,omitempty"`
 	Contract     *contract.Contract `json:"contract,omitempty"`
-	Readiness    *readiness.Result  `json:"readiness,omitempty"`
-	Validation   []finding.Finding  `json:"validation,omitempty"`
-	Valid        bool               `json:"valid"`
+	// Inferred lists what a local read implied rather than read from the
+	// contract (an absent pactoVersion, an inferred service.name), with sources.
+	Inferred   []contract.Inferred `json:"inferred,omitempty"`
+	Readiness  *readiness.Result   `json:"readiness,omitempty"`
+	Validation []finding.Finding   `json:"validation,omitempty"`
+	Valid      bool                `json:"valid"`
 	// Stages is how each stage of the validation run ended. Empty when the
 	// contract document could not be read, so nothing was validated.
 	Stages []ValidationStage `json:"stages,omitempty"`
@@ -708,8 +816,18 @@ type TargetRecord struct {
 	// The record is kept visible with its conflict limitations but is NOT treated
 	// as authoritative (it does not drive service aggregate status), so source
 	// order can never silently pick an identity.
-	Quarantined bool         `json:"quarantined,omitempty"`
-	Limitations []Limitation `json:"limitations,omitempty"`
+	Quarantined bool `json:"quarantined,omitempty"`
+	// Cluster is the kube-system UID of the cluster that reported this target;
+	// empty when no source names one. ClusterName is display only,
+	// ClusterNameSource says how it was found and ClusterNameReportedBy which
+	// source reported it (empty when this process read it). ClusterRelation says
+	// whether the target runs in the cluster or was only reported through it.
+	Cluster               string       `json:"cluster,omitempty" doc:"The kube-system UID of the cluster that reported this target."`
+	ClusterName           string       `json:"clusterName,omitempty" doc:"A display name for the cluster; never an identity."`
+	ClusterNameSource     string       `json:"clusterNameSource,omitempty" enum:"node-label,context,file,uid" doc:"How the cluster name was found."`
+	ClusterNameReportedBy string       `json:"clusterNameReportedBy,omitempty" doc:"The source that reported the cluster name; empty when this process read it itself."`
+	ClusterRelation       string       `json:"clusterRelation,omitempty" enum:"runs-in,reported-through" doc:"runs-in when a Kubernetes source read the target in the cluster; reported-through when the cluster only reported it."`
+	Limitations           []Limitation `json:"limitations,omitempty"`
 	// labels is the bounded projection of Labels, computed once by boundTargetLabels
 	// after ingestion. Labels itself has to stay a raw map because TargetQuery filters
 	// on it, so this is the only way the detail path can honor the same
@@ -729,12 +847,26 @@ type TargetRecord struct {
 	// environmentConflict: sources disagree on the TargetEnvironmentLabel, so the
 	// label is dropped from Labels and Environment stays empty.
 	environmentConflict bool
+	// clusterUnknownFrom are the sources that delivered this target with no
+	// known cluster while the snapshot knew one; Restrict rebuilds
+	// CLUSTER_UNKNOWN from them.
+	clusterUnknownFrom []string
+	// clusterInvalidFrom are the sources that named an invalid cluster id for
+	// this target, and clusterConflictFrom those that reported it in a cluster
+	// another evidence source names for the same record; Restrict rebuilds
+	// their limitations from them.
+	clusterInvalidFrom, clusterConflictFrom []string
 }
 
 // DisplayName returns a human-readable "scope/kind/name" for a target, with
-// components unescaped. Unlike the canonical Key it is lossy (a name containing
-// "/" is shown verbatim) and must not be used as an identity.
+// components unescaped. A target whose key carries a cluster and whose cluster
+// has a name reads "cluster / scope / name". Unlike the canonical Key it is
+// lossy (a name containing "/" is shown verbatim) and must not be used as an
+// identity.
 func (t *TargetRecord) DisplayName() string {
+	if cluster, _, _, _, ok := ParseTargetKey(t.Key); ok && cluster != "" && t.ClusterName != "" {
+		return t.ClusterName + " / " + t.Scope + " / " + t.Name
+	}
 	return strings.Join([]string{t.Scope, t.Kind, t.Name}, "/")
 }
 
@@ -783,6 +915,10 @@ type Relationship struct {
 	LockedDigest   string `json:"lockedDigest,omitempty"`
 	LockedVersion  string `json:"lockedVersion,omitempty"`
 	Reason         string `json:"reason,omitempty"`
+	// NameFromRef marks a declared dependency whose name the contract does not
+	// declare: it was derived from the ref, so it resolves only to a service
+	// published at that repository.
+	NameFromRef bool `json:"nameFromRef,omitempty"`
 	// RangeStatus, for a resolved declared dependency with a compatibility range,
 	// says whether the provider version the fleet holds satisfies that range:
 	// satisfied, unsatisfied or unknown (a range or version semver cannot read, or
@@ -860,6 +996,12 @@ type FleetSnapshot struct {
 	Sources       []SourceState                     `json:"sources"`
 	Completeness  Completeness                      `json:"completeness"`
 	Limitations   []Limitation                      `json:"limitations,omitempty"`
+	// Clusters are the clusters any source reported, sorted by id. Target keys
+	// carry a cluster component only when there are two or more.
+	Clusters []ClusterRecord `json:"clusters,omitempty"`
+	// clusterKeyed: Build keyed targets by cluster (two or more clusters). It
+	// survives Restrict, which may leave one cluster visible under 4-part keys.
+	clusterKeyed bool
 	// UncontractedCallers are observed callers with no contract of a service
 	// that has one. Sorted by (ToService, Caller).
 	UncontractedCallers []UncontractedCaller `json:"uncontractedCallers,omitempty"`
@@ -898,6 +1040,9 @@ type FleetSnapshot struct {
 	// revisionsHidden holds, in a restricted snapshot, the visible services
 	// that lost a revision to the view (a golden path visible only as one).
 	revisionsHidden map[ServiceKey]bool
+	// hiddenServices holds, in a restricted snapshot, the services the view
+	// hides, so a name that resolves to one is counted and never shown.
+	hiddenServices map[ServiceKey]bool
 	// hiddenConsumers maps, in a restricted snapshot, a provider to the hidden
 	// services with a declared, resolved [ConsumesEdge] to it. Only counted.
 	hiddenConsumers map[ServiceKey]map[ServiceKey]bool
@@ -994,14 +1139,42 @@ type UsageRecord struct {
 
 // UncontractedCaller is a runtime caller no contract describes, of a service
 // that has one. Caller is the raw observed identity, for example
-// "k8s:payments/Deployment/legacy-billing"; the k8s: prefix keeps it from ever
-// resolving to a contracted service by accident.
+// "k8s:payments/Deployment/legacy-billing" (see [K8sCaller]); in a snapshot
+// with several clusters a Kubernetes caller carries its cluster first:
+// "k8s:<clusterUID>/payments/Deployment/legacy-billing". The k8s: prefix keeps
+// it from ever resolving to a contracted service by accident.
 type UncontractedCaller struct {
 	Caller    string     `json:"caller"`
 	ToService ServiceKey `json:"toService"`
 	Sources   []string   `json:"sources"`
 	// Ambiguous is set when the caller name matched more than one service.
 	Ambiguous bool `json:"ambiguous,omitempty"`
+}
+
+// K8sCaller is the identity of a Kubernetes workload with no contract:
+// "k8s:" then the escaped cluster id and "/" when cluster is set, then
+// namespace/kind/name. Namespace and object names are RFC 1123 and a kind is
+// alphanumeric, so the part count tells the two forms apart.
+func K8sCaller(cluster, namespace, kind, name string) string {
+	c := namespace + "/" + kind + "/" + name
+	if cluster != "" {
+		c = escapeKeyPart(cluster) + "/" + c
+	}
+	return "k8s:" + c
+}
+
+// ParseK8sCaller decodes a [K8sCaller] string. ok is false for any other
+// caller, and for a k8s: caller with neither 3 nor 4 parts.
+func ParseK8sCaller(s string) (cluster, namespace, kind, name string, ok bool) {
+	rest, k8s := strings.CutPrefix(s, "k8s:")
+	parts := strings.Split(rest, "/")
+	if !k8s || len(parts) < 3 || len(parts) > 4 {
+		return "", "", "", "", false
+	}
+	if len(parts) == 4 {
+		cluster, parts = unescapeKeyPart(parts[0]), parts[1:]
+	}
+	return cluster, parts[0], parts[1], parts[2], true
 }
 
 // Service returns the logical service record by name, or nil.

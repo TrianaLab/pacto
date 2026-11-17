@@ -37,7 +37,7 @@ Install the operator with:
 
 ```bash
 helm upgrade --install pacto-operator <chart> -n pacto-system \
-  --set nodeAgent.enabled=true --set controller.enableProbing=true
+  --set nodeAgent.enabled=true --set controller.probing=on
 kubectl apply -f config/samples/scenarios/08-runtime-conformance.yaml
 ```
 

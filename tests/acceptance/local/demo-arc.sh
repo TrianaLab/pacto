@@ -43,7 +43,7 @@ go build -o "$BIN" "$ROOT/cmd/pacto"
 
 echo "== beat 1: the fleet exists =="
 OUT="$("$BIN" $(beat_args 1))" || fail "beat 1: fleet search failed"
-assert_contains "$OUT" "40 of 40 service(s):" "every demo service is in the snapshot"
+assert_contains "$OUT" "41 of 41 service(s):" "every demo service is in the snapshot"
 assert_contains "$OUT" "payments-service" "the service the arc changes is present"
 
 echo "== beat 2: five states at once =="
@@ -202,6 +202,7 @@ else
 fi
 assert_contains "$OUT" "PASS configuration-refs" "the configuration ref resolves and its stage passes"
 assert_contains "$OUT" "FAIL environments" "the environments stage fails on its own line"
+assert_contains "$OUT" "INFO  [CONTRACT_BEHIND]" "a behind contract says so even when it fails"
 assert_contains "$OUT" "storefront-web/v1.2.1/environments/production.yaml:5:3: ERROR [ENVIRONMENT_VALUES_INVALID]" "the error points at the line in the values file"
 if grep -Fq "ENVIRONMENT_VALUES_UNVERIFIED" <<<"$OUT"; then
   echo "--- output ---"; echo "$OUT"; fail "preview's values for the ref configuration are checked against the provider schema"

@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
@@ -225,6 +226,7 @@ func analyzeEvent(snap *fleet.FleetSnapshot, opts Options) *Result {
 	subject := fleet.ServiceKey(ev.Service)
 	_, name := fleet.ParseServiceKey(subject)
 	res := newEventResult(snap, q, &ev, name)
+	res.noteNameInferred(snap, subject)
 	if ev.Kind == EventRegressed {
 		res.noteRegression(opts.Regression)
 	}
@@ -238,6 +240,21 @@ func analyzeEvent(snap *fleet.FleetSnapshot, opts Options) *Result {
 	res.noteUnlisted(snap, q, subject)
 	res.noteStaleConsumers()
 	return res
+}
+
+// noteNameInferred adds SERVICE_NAME_INFERRED when the snapshot only inferred
+// subject's name: consumers may address the real service by another name, so
+// the event gate must never clear on it.
+func (r *Result) noteNameInferred(snap *fleet.FleetSnapshot, subject fleet.ServiceKey) {
+	s := snap.Services[subject]
+	if s == nil || s.NameInferred == nil {
+		return
+	}
+	_, name := fleet.ParseServiceKey(subject)
+	r.Limitations = append(r.Limitations, fleet.Limitation{
+		Code: LimitationServiceNameInferred, Source: limitationSource,
+		Message: "service.name " + name + " is inferred from " + s.NameInferred.Source + "; declare it so Pacto can find its consumers",
+	})
 }
 
 // newEventResult is the envelope of an event answer about name.
@@ -349,7 +366,7 @@ func eventConsumer(snap *fleet.FleetSnapshot, subject fleet.ServiceKey, node con
 	}
 	declared := hasDeclared || len(refs) > 0
 	c.Provenance = provenance(declared, seen)
-	c.Confidence = confidence(node.depth, declared, rel.Compatibility != "", observedFresh)
+	c.Confidence = confidence(node.depth, declared, contract.IsRange(rel.Compatibility), observedFresh)
 	if stale {
 		c.Confidence = ConfidenceUnknown
 	}
@@ -459,6 +476,10 @@ func (r *Result) eventPhrase() string {
 // change has a version a consumer can refuse.
 func (r *Result) eventGate() (string, string) {
 	gate, why := r.eventGateCore()
+	// An inferred name may miss every consumer, so nobody found is no proof.
+	if inferred := r.nameInferred(); inferred != "" && gate == GateClear {
+		gate, why = GateUnverified, inferred
+	}
 	if r.Event.Kind == EventRegressed {
 		why += r.regressionSummary()
 	}

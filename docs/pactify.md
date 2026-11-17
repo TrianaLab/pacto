@@ -90,7 +90,7 @@ key out of what is published, and never overwrites your edits. For an image
 `k8s/service.yaml`, the contract is:
 
 ```yaml
-pactoVersion: "2.1"
+pactoVersion: "2.5"        # 2.5 holds compatibility: unknown
 service:
   name: my-service
   version: 1.0.0            # from the image tag (0.1.0 and an Unknown if none)
@@ -101,10 +101,10 @@ capabilities:               # from a readiness, liveness or startup probe
   - type: health
 dependencies:               # one per service a URL in the environment names
   - name: billing
-    ref: oci://registry.example/acme/contracts/billing   # its publish.bundle
+    ref: oci://registry.example/acme/contracts/billing   # where its contract would be published
     required: true                              # yours cannot run without it
-    compatibility: "^1.0.0"                     # a placeholder: the versions yours accepts
-configurations:             # the environment, ConfigMaps included, values as defaults
+    compatibility: unknown   # no range proposed: no contract or running version of billing was read
+configurations:             # the environment, ConfigMaps included: keys and types, no values
   - name: env
     schema: configuration/schema.json
     required: true
@@ -124,14 +124,25 @@ publish:
   sign: {key: cosign.key}
 ```
 
+- The configuration schema holds each key and its type, never a value, so it
+  declares no defaults.
+- It marks a key `writeOnly` when its name holds password, secret, token, key,
+  credential, private or dsn (any case), when it is read from a Secret or when
+  its value is a URL with credentials.
+- Next steps name each manifest or ConfigMap that sets such a key to a
+  literal value, because the bundle publishes that file.
+- A `--cluster` draft reads such a key from the Secret `<workload>-env`, which
+  you create with `kubectl create secret generic --from-env-file`
+  ([details](bootstrap-contracts.md#configuration-keys-and-sensitive-values)).
+
 Leave the long `command` line as it is. It copies your Kubernetes files with
 the image pinned to the digest this version built, in every manifest that runs
 it, and names any file it cannot rewrite. `k8s/deployment.yaml` stays as it is.
 
-Fill in what the plan marked Unknown, above all the dependencies: set each
-placeholder `compatibility` to the versions yours accepts, such as `^2.0.0`
-for any 2.x. With that service's contract in `--fleet`, `init` reads its
-bundle and version instead. This
+Fill in what the plan marked Unknown, above all the dependencies: replace each
+`compatibility: unknown` with the versions yours accepts, such as `^2.0.0` for
+any 2.x. With that service's contract in `--fleet`, `init` reads its bundle and
+proposes one. This
 version range lets Pacto ask the right team about a change. Declare an OpenAPI
 document under `interfaces` ([how](ci.md#declare-your-api-first)): Pacto sees
 API changes only there. Every field is in [Publish](contract-reference/publish.md)
@@ -293,11 +304,12 @@ pacto init --plan services/checkout services/payments
 pacto init --cluster --namespace shop --out drafts --plan
 ```
 
-With the Pacto node agent running, the services a workload was seen calling
-become dependencies, pinned to exactly the version seen running
-(`compatibility: "=2.3.0"`) for you to widen. Until you do, every new version of
-that service asks your team. Without the agent, environment URLs name
-dependencies, and one with no contract gets a placeholder range. Drafts are
+With the Pacto node agent running, the Services a workload calls become
+dependencies. When the Pactos describing `shop/payments` report 2.3.1 and 2.4.0,
+the draft proposes `^2.3.0` in a comment and keeps `compatibility: unknown`
+until you declare a range; until then, impact cannot verify a BREAKING
+change. Without the agent, environment URLs name
+dependencies. Drafts are
 never published, and an invalid one fails the command. The MCP tool
 `pacto_create` with `pactify: true` takes `paths`, `cluster` and `namespaces`,
 and only plans unless `dry_run` is false.

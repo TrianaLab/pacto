@@ -4,7 +4,9 @@
 # SAME shared adapters production uses (build-cli.sh, verify-oci.sh,
 # publish-go-tag.sh), then proves digest idempotency, fail-closed immutability and
 # resume — with real digests, no production coordinate or credential. This is the
-# code path release.yml runs; only the coordinates + credentials differ.
+# code path release.yml runs; only the coordinates + credentials differ. The one
+# production step it skips is the SLSA provenance attestation (it needs the
+# release workflow's OIDC token); it checks the attestation subjects instead.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 REG="${PACTO_STAGING_REGISTRY:-localhost:5001}"
@@ -109,6 +111,15 @@ DIST2="$WORK/dist2"; mkdir -p "$DIST2"
 PACTO_DIST_DIR="$DIST2" bash "$ROOT/release/orchestrator/build-cli.sh" "v$CORE" "$SHA" >/dev/null
 diff -q "$DIST/checksums.txt" "$DIST2/checksums.txt" >/dev/null \
   && echo "   reproducible: identical checksums on rebuild" || { echo "CLI build not reproducible"; exit 1; }
+
+echo "== attest: skipped in the dry run (needs the release workflow's OIDC token) =="
+# release.yml attests dist/pacto_* and dist/checksums.txt. Prove those subjects
+# are exactly what build-cli.sh produced, so the two cannot drift apart.
+n="$(find "$DIST" -maxdepth 1 -name 'pacto_*' | wc -l | tr -d ' ')"
+[ "$n" = 6 ] || { echo "expected 6 pacto_* binaries to attest, found $n"; exit 1; }
+test -s "$DIST/checksums.txt" || { echo "no checksums.txt to attest"; exit 1; }
+awk '{print $2}' "$DIST/checksums.txt" | grep -v '^pacto_' && { echo "checksums.txt names a file outside the attested pacto_* set"; exit 1; }
+echo "   attestation subjects: $n binaries + checksums.txt"
 
 echo "== package + push the chart (with source-revision provenance, as production does) =="
 CHART_SRC="$WORK/chart-src"

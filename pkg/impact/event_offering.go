@@ -36,6 +36,7 @@ func analyzeOfferingEvent(snap *fleet.FleetSnapshot, q *fleet.Query, opts Option
 	}
 	for _, p := range providers {
 		res.Providers = append(res.Providers, string(p))
+		res.noteNameInferred(snap, p)
 	}
 	if n := q.HiddenProviders(ev.Offering); n > 0 {
 		res.partial(LimitationHiddenProviders, strconv.Itoa(n)+" "+plural(n, "provider", "providers")+" of "+ev.Offering+

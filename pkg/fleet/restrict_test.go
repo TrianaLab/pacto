@@ -444,6 +444,22 @@ func TestRestrictKeepsNamespacedCallers(t *testing.T) {
 	}
 }
 
+// TestRestrictHidesMalformedK8sCallers: a k8s: caller that does not parse
+// names no namespace a permission check can read, so even a viewer who may read
+// the cluster scope sees only a count, never the name.
+func TestRestrictHidesMalformedK8sCallers(t *testing.T) {
+	q := bareCallerFleet(t, ObservedEdge{From: "k8s:hidden/Deployment/x/y/z", To: "payments", Count: 1}, ObservedEdge{From: "k8s:shop/x", To: "payments", Count: 1})
+	s := q.Restrict(func(ns string) bool { return ns != "hidden" }).SnapshotForSerialization()
+	for _, name := range callerNames(s) {
+		if strings.HasPrefix(name, "k8s:") {
+			t.Errorf("restricted callers = %v, want no malformed k8s caller", callerNames(s))
+		}
+	}
+	if pay := s.Services[NewServiceKey("payments")]; pay.HiddenDependents != 3 {
+		t.Errorf("payments hidden dependents = %d, want ledger and both malformed callers counted", pay.HiddenDependents)
+	}
+}
+
 // TestRestrictHidesCallersInNamespacesWithoutTargets: a k8s caller in a
 // namespace no target runs in is still a namespace the viewer's permissions
 // decide, so the viewer is asked about it and, refused, sees only a count.
@@ -877,5 +893,42 @@ func TestRestrictedEstateCounts(t *testing.T) {
 	raw, _ := json.Marshal(r.Overview())
 	if strings.Contains(string(raw), "secret-app") {
 		t.Error("the restricted overview names the hidden target")
+	}
+}
+
+func TestRestrictHidesBreakConsumers(t *testing.T) {
+	mk := func(name string) *contract.Contract {
+		return &contract.Contract{PactoVersion: "2.5", Service: contract.Service{Name: name, Version: "1.0.0"}}
+	}
+	web := mk("web")
+	web.Breaks = []contract.Break{{Consumers: []string{"api", "lone", "ghost"}, Reason: "drops /v1"}}
+	k := SourceKindKubernetes
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("k8s", "kubernetes", &Collection{
+		Revisions: []RawRevision{
+			{Bundle: &contract.Bundle{Contract: web, FS: fstest.MapFS{}}, Digest: "sha256:web"},
+			{Bundle: &contract.Bundle{Contract: mk("api"), FS: fstest.MapFS{}}, Digest: "sha256:api"},
+			{Bundle: &contract.Bundle{Contract: mk("lone"), FS: fstest.MapFS{}}, Digest: "sha256:lone"},
+		},
+		Targets: []RawTarget{
+			{Scope: "shop", Kind: k, Name: "web", Service: "web", Compliance: StatusCompliant},
+			{Scope: "secret", Kind: k, Name: "api", Service: "api", Compliance: StatusCompliant},
+			{Scope: "shop", Kind: k, Name: "lone", Service: "lone", Compliance: StatusCompliant},
+		},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := NewQuery(snap).Restrict(func(ns string) bool { return ns == "shop" || ns == "" })
+	d, err := r.EntityDetail(KindRevision, revKeyOf(t, r, "web"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := d.Revision.Breaks
+	if b.Total != 3 || b.Hidden != 1 || b.Count != 2 || b.Items[0].Consumer != "lone" || b.Items[0].Service == nil || b.Items[1].Consumer != "ghost" || b.Items[1].Service != nil {
+		t.Fatalf("breaks = %+v", b)
+	}
+	raw, _ := json.Marshal(b)
+	if strings.Contains(string(raw), "api") {
+		t.Errorf("a hidden consumer is named: %s", raw)
 	}
 }

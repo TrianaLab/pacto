@@ -740,13 +740,109 @@ func TestDefaultVersion(t *testing.T) {
 	}
 }
 
-func TestDefaultCompatibility(t *testing.T) {
-	if c := defaultCompatibility(""); c != "^1.0.0" {
-		t.Errorf("expected ^1.0.0, got %q", c)
+// undeclaredLedger is the sentence pacto_create and pacto_edit add for a
+// ledger dependency written with compatibility unknown.
+const undeclaredLedger = "compatibility of ledger is unknown: no range was given, so impact cannot tell whether a ledger change breaks this service: its verdict is unknown, and a BREAKING change to ledger stays unverified; set the versions this service accepts"
+
+func readPactoYAML(t *testing.T, dir string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if c := defaultCompatibility("~2.0.0"); c != "~2.0.0" {
-		t.Errorf("expected ~2.0.0, got %q", c)
+	return string(b)
+}
+
+// TestCreateOmittedCompatibilityIsUnknown: a dependency given without a range
+// is written as compatibility unknown in a 2.5 contract, never a guessed
+// range, and the result says impact reads it as unverified.
+func TestCreateOmittedCompatibilityIsUnknown(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "invoices")
+	res, err := Create(CreateInput{Name: "invoices", Path: dir, Dependencies: []DependencyInput{{Name: "ledger", Ref: "oci://reg.example/ledger", Required: true}}})
+	if err != nil {
+		t.Fatal(err)
 	}
+	if !containsStr(res.Derived, undeclaredLedger) {
+		t.Errorf("derived = %q", res.Derived)
+	}
+	got := readPactoYAML(t, dir)
+	if !strings.Contains(got, "compatibility: unknown") || !strings.Contains(got, `pactoVersion: "2.5"`) {
+		t.Errorf("contract:\n%s", got)
+	}
+	if chk, err := Check(context.Background(), nil, dir, nil); err != nil || !chk.Valid {
+		t.Fatalf("created contract is invalid: %v %+v", err, chk)
+	}
+}
+
+// TestEditAddDependencyOmittedCompatibilityIsUnknown: pacto_edit adds a
+// dependency without a range as unknown and raises pactoVersion to 2.5.
+func TestEditAddDependencyOmittedCompatibilityIsUnknown(t *testing.T) {
+	dir := testutil.WriteTestBundle(t)
+	ed, err := Edit(context.Background(), nil, EditOptions{}, EditInput{Path: dir, AddDependencies: []DependencyInput{{Name: "ledger", Ref: "oci://reg.example/ledger", Required: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsStr(ed.Changes, `set pactoVersion to "2.5" (was "2.0")`) || !containsStr(ed.Changes, undeclaredLedger) {
+		t.Errorf("changes = %q", ed.Changes)
+	}
+	if got := readPactoYAML(t, dir); !strings.Contains(got, "compatibility: unknown") || !strings.Contains(got, `pactoVersion: "2.5"`) {
+		t.Errorf("contract:\n%s", got)
+	}
+}
+
+// TestExplicitUnknownRaisesPactoVersion: compatibility unknown given by the
+// agent also needs 2.5, and the sentence is written once per dependency.
+func TestExplicitUnknownRaisesPactoVersion(t *testing.T) {
+	dep := []DependencyInput{{Name: "ledger", Ref: "oci://reg.example/ledger", Compatibility: contract.CompatibilityUnknown, Required: true}}
+	dir := filepath.Join(t.TempDir(), "invoices")
+	res, err := Create(CreateInput{Name: "invoices", Path: dir, Dependencies: dep})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := countStr(res.Derived, undeclaredLedger); n != 1 {
+		t.Errorf("sentence written %d times: %q", n, res.Derived)
+	}
+	if got := readPactoYAML(t, dir); !strings.Contains(got, `pactoVersion: "2.5"`) {
+		t.Errorf("contract:\n%s", got)
+	}
+	ed, err := Edit(context.Background(), nil, EditOptions{}, EditInput{Path: testutil.WriteTestBundle(t), AddDependencies: dep})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsStr(ed.Changes, `set pactoVersion to "2.5" (was "2.0")`) || countStr(ed.Changes, undeclaredLedger) != 1 {
+		t.Errorf("changes = %q", ed.Changes)
+	}
+}
+
+// TestGivenRangeKeepsVersion: a declared range raises nothing and adds no
+// sentence.
+func TestGivenRangeKeepsVersion(t *testing.T) {
+	dep := []DependencyInput{{Name: "ledger", Ref: "oci://reg.example/ledger", Compatibility: "^2.0.0", Required: true}}
+	dir := filepath.Join(t.TempDir(), "invoices")
+	res, err := Create(CreateInput{Name: "invoices", Path: dir, Dependencies: dep})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if containsStr(res.Derived, undeclaredLedger) || strings.Contains(readPactoYAML(t, dir), "2.5") {
+		t.Errorf("derived = %q, contract:\n%s", res.Derived, readPactoYAML(t, dir))
+	}
+	ed, err := Edit(context.Background(), nil, EditOptions{}, EditInput{Path: testutil.WriteTestBundle(t), AddDependencies: dep})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if containsStr(ed.Changes, undeclaredLedger) || slices.ContainsFunc(ed.Changes, func(c string) bool { return strings.Contains(c, "pactoVersion") }) {
+		t.Errorf("changes = %q", ed.Changes)
+	}
+}
+
+func countStr(list []string, want string) int {
+	n := 0
+	for _, s := range list {
+		if s == want {
+			n++
+		}
+	}
+	return n
 }
 
 func TestGenerateConfigSchema(t *testing.T) {
@@ -866,7 +962,7 @@ func TestAssessSections(t *testing.T) {
 
 func TestBuildSuggestions(t *testing.T) {
 	t.Run("invalid contract gets no suggestions", func(t *testing.T) {
-		s := buildSuggestions(testutil.TestBundle().Contract, nil, false)
+		s := buildSuggestions(testutil.TestBundle().Contract, nil, false, nil, nil)
 		if len(s) != 0 {
 			t.Error("expected no suggestions for invalid contract")
 		}
@@ -876,7 +972,7 @@ func TestBuildSuggestions(t *testing.T) {
 		bundle := testutil.TestBundle()
 		bundle.Contract.Dependencies = nil
 		bundle.Contract.Configurations = nil
-		s := buildSuggestions(bundle.Contract, nil, true)
+		s := buildSuggestions(bundle.Contract, nil, true, nil, nil)
 		if len(s) == 0 {
 			t.Error("expected suggestions for missing sections")
 		}
@@ -887,7 +983,7 @@ func TestBuildSuggestions(t *testing.T) {
 		bundle.Contract.Service.Owner = contract.Owner{Team: "team/billing"}
 		bundle.Contract.Dependencies = []contract.Dependency{{Name: "ledger", External: true, Version: "v1"}, {Name: "auth", Ref: "oci://r.example/auth", External: true}}
 		var owner, external []Suggestion
-		for _, sg := range buildSuggestions(bundle.Contract, nil, true) {
+		for _, sg := range buildSuggestions(bundle.Contract, nil, true, nil, nil) {
 			if strings.Contains(sg.Message, "owner.team") {
 				owner = append(owner, sg)
 			}
@@ -2834,7 +2930,7 @@ func TestExternalDependencies(t *testing.T) {
 
 	dir = testutil.WriteTestBundle(t)
 	ed, err := Edit(context.Background(), nil, EditOptions{}, EditInput{Path: dir, AddDependencies: external})
-	if err != nil || !containsStr(ed.Changes, `set pactoVersion "2.1" for the external dependency`) || !containsStr(ed.Changes, `added dependency "model"`) {
+	if err != nil || !containsStr(ed.Changes, `set pactoVersion to "2.1" (was "2.0")`) || !containsStr(ed.Changes, `added dependency "model"`) {
 		t.Fatalf("edit: %v %+v", err, ed)
 	}
 	if res, err := Check(context.Background(), nil, dir, nil); err != nil || !res.Valid {
@@ -2850,10 +2946,10 @@ func TestDependencyEntry(t *testing.T) {
 	if e := dependencyEntry(DependencyInput{Name: "model", External: true, Version: "v1"}); e["ref"] != nil || e["compatibility"] != nil || e["version"] != "v1" || e["external"] != true {
 		t.Errorf("external, no ref: %v", e)
 	}
-	if e := dependencyEntry(DependencyInput{Ref: "oci://r/a:1"}); e["external"] != nil || e["compatibility"] != "^1.0.0" {
+	if e := dependencyEntry(DependencyInput{Ref: "oci://r/a:1"}); e["external"] != nil || e["compatibility"] != contract.CompatibilityUnknown {
 		t.Errorf("plain: %v", e)
 	}
-	if needs21(map[string]any{"pactoVersion": "2.0"}, []DependencyInput{{Ref: "r"}}) {
+	if hasExternal([]DependencyInput{{Ref: "r"}}) {
 		t.Error("no external dependency needs no 2.1")
 	}
 }
@@ -2906,7 +3002,7 @@ func TestEdit_Domain(t *testing.T) {
 	if result.Summary.Domain != "payments" {
 		t.Errorf("summary domain %q", result.Summary.Domain)
 	}
-	if want := []string{`set pactoVersion to "2.4"`, `set domain to "payments"`}; !slices.Equal(result.Changes, want) {
+	if want := []string{`set pactoVersion to "2.4" (was "2.3")`, `set domain to "payments"`}; !slices.Equal(result.Changes, want) {
 		t.Errorf("changes %v, want %v", result.Changes, want)
 	}
 	raw, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
@@ -2981,7 +3077,7 @@ func TestEdit_OfferingAndSummary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if want := []string{`set pactoVersion to "2.4"`, `set offering to "postgresql"`}; !slices.Equal(result.Changes, want) {
+	if want := []string{`set pactoVersion to "2.4" (was "2.3")`, `set offering to "postgresql"`}; !slices.Equal(result.Changes, want) {
 		t.Errorf("changes %v, want %v", result.Changes, want)
 	}
 	if result.Summary.Offering != "postgresql" {
@@ -3134,5 +3230,119 @@ func TestCreateDomainRaisesVersion(t *testing.T) {
 	c, err := contract.Parse(bytes.NewReader(data))
 	if err != nil || c.PactoVersion != "2.4" || c.Service.Domain != "payments" {
 		t.Fatalf("contract: %+v %v\n%s", c, err, data)
+	}
+}
+
+// An absent pactoVersion is already the newest, so an edit that needs 2.4 never
+// writes an older version into an implicit-version contract.
+func TestEditImplicitVersionNotDowngraded(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("service:\n  name: svc\n  version: 1.0.0\n"), 0o644)
+	result, err := Edit(context.Background(), nil, EditOptions{}, EditInput{Path: dir, Domain: strPtr("payments")})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if want := []string{`set domain to "payments"`}; !slices.Equal(result.Changes, want) {
+		t.Errorf("changes %v, want %v", result.Changes, want)
+	}
+	raw, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
+	if strings.Contains(string(raw), "pactoVersion") {
+		t.Fatalf("an implicit version was written: %s", raw)
+	}
+	c, err := contract.Parse(bytes.NewReader(raw))
+	if err != nil || c.PactoVersion != contract.Current() || c.Service.Domain != "payments" {
+		t.Fatalf("written contract %+v %v", c, err)
+	}
+}
+
+func TestEditEmptyContract(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), nil, 0o644)
+	if _, err := Edit(context.Background(), nil, EditOptions{}, EditInput{Path: dir, Domain: strPtr("payments")}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
+	c, err := contract.Parse(bytes.NewReader(raw))
+	if err != nil || c.PactoVersion != contract.Current() || c.Service.Domain != "payments" || strings.Contains(string(raw), "pactoVersion") {
+		t.Fatalf("written %q: %+v %v", raw, c, err)
+	}
+}
+
+// emptyChartBundle is a folder named payments-api holding an empty pacto.yaml
+// and chart/Chart.yaml naming payments on line 2.
+func emptyChartBundle(t *testing.T) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "payments-api")
+	if err := os.MkdirAll(filepath.Join(dir, "chart"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), nil, 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "chart", "Chart.yaml"), []byte("apiVersion: v2\nname: payments\nversion: 0.1.0\n"), 0o644)
+	return dir
+}
+
+func TestCheckReportsInferredName(t *testing.T) {
+	result, err := Check(context.Background(), nil, emptyChartBundle(t), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Valid || result.Summary.Name != "payments" {
+		t.Fatalf("valid %v name %q errors %+v", result.Valid, result.Summary.Name, result.Errors)
+	}
+	want := []contract.Inferred{
+		{Field: "pactoVersion", Value: contract.Current(), Source: "this CLI"},
+		{Field: "service.name", Value: "payments", Source: "chart/Chart.yaml:2"},
+	}
+	if !reflect.DeepEqual(result.Inferred, want) {
+		t.Fatalf("inferred = %+v", result.Inferred)
+	}
+	declared, err := Check(context.Background(), nil, testutil.WriteTestBundle(t), nil)
+	if err != nil || declared.Inferred != nil {
+		t.Fatalf("declared inferred = %+v, %v", declared.Inferred, err)
+	}
+}
+
+func TestCheckIgnoresPactoignoredNameSource(t *testing.T) {
+	dir := emptyChartBundle(t)
+	_ = os.WriteFile(filepath.Join(dir, ".pactoignore"), []byte("chart/\n"), 0o644)
+	result, err := Check(context.Background(), nil, dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Summary.Name != "payments-api" {
+		t.Fatalf("name = %q, want the directory: an ignored Chart.yaml is never a source", result.Summary.Name)
+	}
+	_ = os.Remove(filepath.Join(dir, ".pactoignore"))
+	_ = os.Mkdir(filepath.Join(dir, ".pactoignore"), 0o755)
+	if _, err := Check(context.Background(), nil, dir, nil); err == nil || !strings.Contains(err.Error(), ".pactoignore") {
+		t.Fatalf("unreadable .pactoignore: err = %v", err)
+	}
+}
+
+func TestCheckSuggestsDeclaringNameAndVersion(t *testing.T) {
+	result, err := Check(context.Background(), nil, emptyChartBundle(t), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var name, version *Suggestion
+	for i, s := range result.Suggestions {
+		switch {
+		case strings.Contains(s.Message, "Declare service.name to publish"):
+			name = &result.Suggestions[i]
+		case strings.Contains(s.Message, "service.version is not declared; pacto publish needs one"):
+			version = &result.Suggestions[i]
+		}
+	}
+	if name == nil || !strings.Contains(name.Message, "inferred from chart/Chart.yaml:2") || name.ToolCall.Params["name"] != "payments" {
+		t.Errorf("name suggestion = %+v in %+v", name, result.Suggestions)
+	}
+	if version == nil || version.ToolCall.Params["version"] != "0.1.0" {
+		t.Errorf("version suggestion = %+v in %+v", version, result.Suggestions)
+	}
+	declared, _ := Check(context.Background(), nil, testutil.WriteTestBundle(t), nil)
+	for _, s := range declared.Suggestions {
+		if strings.Contains(s.Message, "service.name") || strings.Contains(s.Message, "service.version") {
+			t.Errorf("declared contract got %q", s.Message)
+		}
 	}
 }

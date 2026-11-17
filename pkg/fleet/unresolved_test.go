@@ -32,9 +32,24 @@ func TestUnresolvedRefCountMatchesRepoOrName(t *testing.T) {
 // One reference that may name two providers is one unresolved use.
 func TestUnresolvedRefCountCountsOnce(t *testing.T) {
 	a, b := NewServiceKeyDomain("ghcr.io/one", "db"), NewServiceKeyDomain("ghcr.io/two", "db")
-	snap := &FleetSnapshot{Relationships: []Relationship{unresolvedRel("web", "w1", RelationshipDependency, "oci://somewhere/db")}}
+	rel := unresolvedRel("web", "w1", RelationshipDependency, "oci://somewhere/db")
+	rel.NameFromRef = true
+	snap := &FleetSnapshot{Relationships: []Relationship{rel}}
 	if n := UnresolvedRefCount(snap, []ServiceKey{a, b}, RelationshipDependency); n != 1 {
 		t.Errorf("count = %d, want 1", n)
+	}
+	// A hidden consumer's derived-name dependency counts too.
+	if n := UnresolvedRefCount(&FleetSnapshot{hiddenUnresolvedRefs: appendHiddenUnresolved(nil, rel)}, []ServiceKey{a}, RelationshipDependency); n != 1 {
+		t.Errorf("hidden: count = %d, want 1", n)
+	}
+}
+
+// A dependency that declares its name resolves by that name: unresolved, it
+// names another service, never the provider its ref's last segment matches.
+func TestUnresolvedRefCountDeclaredDependencyNameIsNoMatch(t *testing.T) {
+	snap := &FleetSnapshot{Relationships: []Relationship{unresolvedRel("web", "w1", RelationshipDependency, "oci://somewhere/db")}}
+	if n := UnresolvedRefCount(snap, []ServiceKey{NewServiceKey("db")}, RelationshipDependency); n != 0 {
+		t.Errorf("count = %d, want 0", n)
 	}
 }
 

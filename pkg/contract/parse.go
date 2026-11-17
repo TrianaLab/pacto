@@ -2,6 +2,7 @@ package contract
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"slices"
@@ -11,62 +12,66 @@ import (
 )
 
 // SupportedVersions are the pactoVersion values Parse accepts, oldest first.
-var SupportedVersions = []string{"2.0", "2.1", "2.2", "2.3", "2.4"}
+var SupportedVersions = []string{"2.0", "2.1", "2.2", "2.3", "2.4", "2.5"}
+
+// Current returns the newest supported pactoVersion.
+func Current() string { return SupportedVersions[len(SupportedVersions)-1] }
 
 // Parse deserializes a pacto.yaml from the given reader into a Contract.
-// It enforces syntactic correctness (field types, unknown-field rejection) and a
-// few required top-level fields (pactoVersion, service.name, service.version).
-// pactoVersion "2.0", "2.1", "2.2", "2.3" and "2.4" are supported;
-// other versions are rejected. 2.1 adds the publish and checks sections,
-// external dependencies and the mcp interface type, which validation refuses
-// in a 2.0 contract; 2.2 adds fields validation refuses in a 2.0 or 2.1
-// contract, and 2.3 and 2.4 each add fields it refuses in any older one.
+// It enforces syntactic correctness (field types, unknown-field rejection). An
+// empty document is an empty contract, and an absent pactoVersion is Current().
+// The versions in SupportedVersions ("2.0" to "2.5") are supported; other
+// versions are rejected. 2.1 adds the publish and checks sections, external
+// dependencies and the mcp interface type, which validation refuses in a 2.0
+// contract; 2.2 adds fields validation refuses in a 2.0 or 2.1 contract, and
+// 2.3, 2.4 and 2.5 each add fields it refuses in any older one.
 // Deeper semantic validation is a separate concern handled by the validation engine.
 func Parse(r io.Reader) (*Contract, error) {
+	raw, err := io.ReadAll(r)
+	if err != nil {
+		return nil, &ParseError{Message: fmt.Sprintf("failed to read YAML: %v", err), Err: err}
+	}
+	return parseStrict(raw)
+}
+
+// parseStrict is Parse over bytes in memory. The defaults that depend on which
+// keys a dependency writes are read from the document node afterwards.
+func parseStrict(raw []byte) (*Contract, error) {
 	var c Contract
-	decoder := yaml.NewDecoder(r)
+	decoder := yaml.NewDecoder(bytes.NewReader(raw))
 	decoder.KnownFields(true)
-	if err := decoder.Decode(&c); err != nil {
+	if err := decoder.Decode(&c); err != nil && !errors.Is(err, io.EOF) {
 		return nil, &ParseError{
 			Message: suggestFields(fmt.Sprintf("failed to parse YAML: %v", err)),
 			Err:     err,
 		}
 	}
-	if err := checkRequired(&c); err != nil {
-		return nil, err
-	}
-	return &c, nil
+	var root yaml.Node
+	_ = yaml.Unmarshal(raw, &root) // the strict decode above already read the same document
+	return completeParsed(&root, &c)
 }
 
-func parseStrict(raw []byte) (*Contract, error) { return Parse(bytes.NewReader(raw)) }
+// completeParsed applies what both parse paths do after decoding.
+func completeParsed(root *yaml.Node, c *Contract) (*Contract, error) {
+	if err := checkRequired(c); err != nil {
+		return nil, err
+	}
+	applyDependencyDefaults(root, c)
+	return c, nil
+}
 
-// checkRequired enforces the top-level fields Parse requires.
+// checkRequired completes an absent pactoVersion to Current() and refuses an
+// unsupported one. service.name and service.version may be absent: a contract
+// may be empty, and publishing is where they are required.
 func checkRequired(c *Contract) error {
 	if c.PactoVersion == "" {
-		return &ParseError{
-			Path:    "pactoVersion",
-			Message: "pactoVersion is required",
-		}
+		c.PactoVersion = Current()
 	}
 
 	if !slices.Contains(SupportedVersions, c.PactoVersion) {
 		return &ParseError{
 			Path:    "pactoVersion",
 			Message: fmt.Sprintf("unsupported pactoVersion %q; supported: %s", c.PactoVersion, strings.Join(SupportedVersions, ", ")),
-		}
-	}
-
-	if c.Service.Name == "" {
-		return &ParseError{
-			Path:    "service.name",
-			Message: "service.name is required",
-		}
-	}
-
-	if c.Service.Version == "" {
-		return &ParseError{
-			Path:    "service.version",
-			Message: "service.version is required",
 		}
 	}
 	return nil

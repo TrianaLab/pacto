@@ -197,23 +197,42 @@ service:
 	}
 }
 
-func TestValidateStructural_MissingVersion_Unsupported(t *testing.T) {
-	result := ValidateStructural(map[string]any{"service": map[string]any{}})
-	if result.IsValid() {
-		t.Fatal("expected missing version to be invalid")
+func TestValidateStructural_EmptyIsValid(t *testing.T) {
+	for _, d := range []any{nil, map[string]any{}, map[string]any{"service": map[string]any{}}} {
+		if r := ValidateStructural(d); !r.IsValid() {
+			t.Errorf("%v: %v", d, r.Errors)
+		}
 	}
-	if result.Errors[0].Code != "UNSUPPORTED_PACTO_VERSION" {
-		t.Errorf("expected UNSUPPORTED_PACTO_VERSION, got %s", result.Errors[0].Code)
+	if r := ValidateStructuralRaw(nil); !r.IsValid() {
+		t.Errorf("zero bytes: %v", r.Errors)
 	}
 }
 
-func TestValidateStructural_NonMapData_Unsupported(t *testing.T) {
+func TestValidateStructural_ServiceOnlyNameIsValid(t *testing.T) {
+	if r := ValidateStructuralRaw([]byte("service:\n  name: payments\n")); !r.IsValid() {
+		t.Fatal(r.Errors)
+	}
+}
+
+func TestValidateStructural_V24StillRequiresName(t *testing.T) {
+	for _, d := range []map[string]any{
+		{"pactoVersion": "2.4", "service": map[string]any{"version": "1.0.0"}},
+		{"pactoVersion": "2.4", "service": map[string]any{"name": "svc"}},
+		{"pactoVersion": "2.4"},
+	} {
+		if r := ValidateStructural(d); r.IsValid() {
+			t.Errorf("%v: expected a SCHEMA_VIOLATION", d)
+		}
+	}
+}
+
+func TestValidateStructural_NonMapData_Invalid(t *testing.T) {
 	result := ValidateStructural([]any{"not", "a", "map"})
 	if result.IsValid() {
 		t.Fatal("expected non-map data to be invalid")
 	}
-	if result.Errors[0].Code != "UNSUPPORTED_PACTO_VERSION" {
-		t.Errorf("expected UNSUPPORTED_PACTO_VERSION, got %s", result.Errors[0].Code)
+	if result.Errors[0].Code != "SCHEMA_VIOLATION" {
+		t.Errorf("expected SCHEMA_VIOLATION, got %s", result.Errors[0].Code)
 	}
 }
 
@@ -749,8 +768,8 @@ func TestNeeds23(t *testing.T) {
 }
 
 // TestPactoVersion24: 2.4 is supported, keeps every 2.3 field, takes values
-// and a selector beside a ref, refuses a selector beside a schema and is the
-// schema SchemaBytes returns; the next version is still refused by name.
+// and a selector beside a ref and refuses a selector beside a schema; a
+// version past the newest is still refused by name.
 func TestPactoVersion24(t *testing.T) {
 	doc := func(cfg map[string]any) map[string]any {
 		d := map[string]any{"pactoVersion": "2.4", "service": map[string]any{"name": "svc", "version": "1.0.0"}}
@@ -775,12 +794,31 @@ func TestPactoVersion24(t *testing.T) {
 	if r := ValidateStructural(doc(local)); r.IsValid() || r.Errors[0].Code != "SCHEMA_VIOLATION" {
 		t.Fatalf("2.4 selector beside a schema: %v", r.Errors)
 	}
-	r := ValidateStructural(map[string]any{"pactoVersion": "2.5", "service": map[string]any{"name": "svc", "version": "1.0.0"}})
-	if len(r.Errors) != 1 || r.Errors[0].Code != "UNSUPPORTED_PACTO_VERSION" || !strings.Contains(r.Errors[0].Message, "2.0, 2.1, 2.2, 2.3, 2.4") {
-		t.Fatalf("2.5: %v", r.Errors)
+	r := ValidateStructural(map[string]any{"pactoVersion": "2.6", "service": map[string]any{"name": "svc", "version": "1.0.0"}})
+	if len(r.Errors) != 1 || r.Errors[0].Code != "UNSUPPORTED_PACTO_VERSION" || !strings.Contains(r.Errors[0].Message, "2.0, 2.1, 2.2, 2.3, 2.4, 2.5") {
+		t.Fatalf("2.6: %v", r.Errors)
 	}
-	if !strings.Contains(string(SchemaBytes()), `"title": "Pacto Service Contract v2.4"`) {
-		t.Fatal("SchemaBytes is not the 2.4 schema")
+}
+
+// TestValidateStructural_V25AcceptsV24Body: a 2.4 body is valid as 2.5.
+func TestValidateStructural_V25AcceptsV24Body(t *testing.T) {
+	docs := []map[string]any{
+		{"pactoVersion": "2.5", "service": map[string]any{"name": "svc", "version": "1.0.0", "domain": "payments", "template": map[string]any{}},
+			"environments": []any{map[string]any{"name": "staging", "file": "environments/staging.yaml"}}},
+		{"pactoVersion": "2.5", "service": map[string]any{"name": "svc", "version": "1.0.0"},
+			"configurations": []any{map[string]any{"name": "db", "ref": "oci://r/pg:1.0.0", "configuration": "provisioning", "values": map[string]any{"size": "small"}, "required": true}}},
+	}
+	for _, d := range docs {
+		if r := ValidateStructural(d); !r.IsValid() {
+			t.Fatalf("2.5 with a 2.4 body: %v", r.Errors)
+		}
+	}
+}
+
+// TestSchemaBytesIsNewest: SchemaBytes is the schema of contract.Current().
+func TestSchemaBytesIsNewest(t *testing.T) {
+	if want := `"title": "Pacto Service Contract v` + contract.Current() + `"`; !strings.Contains(string(SchemaBytes()), want) {
+		t.Fatalf("SchemaBytes is not the %s schema", contract.Current())
 	}
 }
 
@@ -959,6 +997,130 @@ func TestNeeds24EnvironmentFields(t *testing.T) {
 		data := map[string]any{"pactoVersion": "2.4", "service": map[string]any{"name": "svc", "version": "1.0.0"}, "environments": []any{e}}
 		if r := ValidateStructural(data); r.IsValid() {
 			t.Errorf("%v: accepted", bad)
+		}
+	}
+}
+
+// TestNeeds25CompatibilityUnknown: compatibility: unknown in an older contract
+// is told to set pactoVersion 2.5, a range beside it is not and the caller's
+// data is left alone.
+func TestNeeds25CompatibilityUnknown(t *testing.T) {
+	unknown := map[string]any{"name": "a", "ref": "oci://r/a", "required": true, "compatibility": "unknown"}
+	ranged := map[string]any{"name": "b", "ref": "oci://r/b", "required": true, "compatibility": "^1.0.0"}
+	data := map[string]any{"pactoVersion": "2.4", "service": map[string]any{"name": "svc", "version": "1.0.0"}, "dependencies": []any{unknown, ranged}}
+	r := ValidateStructural(data)
+	if len(r.Errors) != 1 || r.Errors[0].Code != "NEEDS_PACTO_2_5" || r.Errors[0].Path != "dependencies.0.compatibility" ||
+		!strings.Contains(r.Errors[0].Message, `set pactoVersion: "2.5"`) {
+		t.Fatalf("errors = %+v, want one NEEDS_PACTO_2_5 at dependencies.0.compatibility", r.Errors)
+	}
+	if unknown["compatibility"] != "unknown" {
+		t.Fatal("the caller's data was changed")
+	}
+	// 2.0 requires compatibility on a dependency: the NEEDS error stands alone,
+	// with no generic "missing property" beside it.
+	data["pactoVersion"] = "2.0"
+	if r := ValidateStructural(data); len(r.Errors) != 1 || r.Errors[0].Code != "NEEDS_PACTO_2_5" {
+		t.Fatalf("2.0 errors = %+v, want only NEEDS_PACTO_2_5", r.Errors)
+	}
+	data["pactoVersion"] = "2.5"
+	if r := ValidateStructural(data); !r.IsValid() {
+		t.Fatalf("2.5 compatibility: unknown: %v", r.Errors)
+	}
+}
+
+// TestNeeds25Port: a port on an interface is pactoVersion 2.5; an older
+// contract gets one NEEDS_PACTO_2_5 at the interface's index and the caller's
+// data is left alone.
+func TestNeeds25Port(t *testing.T) {
+	plain := map[string]any{"name": "a", "type": "openapi", "ref": "a.yaml"}
+	ported := map[string]any{"name": "b", "type": "openapi", "ref": "b.yaml", "port": 8080}
+	data := map[string]any{"pactoVersion": "2.4", "service": map[string]any{"name": "svc", "version": "1.0.0"}, "interfaces": []any{plain, ported}}
+	r := ValidateStructural(data)
+	if len(r.Errors) != 1 || r.Errors[0].Code != "NEEDS_PACTO_2_5" || r.Errors[0].Path != "interfaces.1.port" ||
+		!strings.Contains(r.Errors[0].Message, `set pactoVersion: "2.5"`) {
+		t.Fatalf("errors = %+v, want one NEEDS_PACTO_2_5 at interfaces.1.port", r.Errors)
+	}
+	if ported["port"] != 8080 {
+		t.Fatal("the caller's data was changed")
+	}
+	data["pactoVersion"] = "2.5"
+	if r := ValidateStructural(data); !r.IsValid() {
+		t.Fatalf("2.5 port: %v", r.Errors)
+	}
+}
+
+// TestNeeds25Breaks: the breaks section is pactoVersion 2.5; an older
+// contract gets one NEEDS_PACTO_2_5 for it and no generic schema error.
+func TestNeeds25Breaks(t *testing.T) {
+	breaks := []any{map[string]any{"consumers": []any{"reports"}, "reason": "amounts move to euros", "expires": "2026-12-14"}}
+	for _, version := range []string{"2.0", "2.4"} {
+		data := map[string]any{"pactoVersion": version, "service": map[string]any{"name": "svc", "version": "1.0.0"}, "breaks": breaks}
+		r := ValidateStructural(data)
+		if len(r.Errors) != 1 || r.Errors[0].Code != "NEEDS_PACTO_2_5" || r.Errors[0].Path != "breaks" ||
+			!strings.Contains(r.Errors[0].Message, `set pactoVersion: "2.5"`) {
+			t.Fatalf("%s: errors = %+v, want one NEEDS_PACTO_2_5 at breaks", version, r.Errors)
+		}
+		if _, ok := data["breaks"]; !ok {
+			t.Fatal("the caller's data was changed")
+		}
+	}
+	data := map[string]any{"pactoVersion": "2.5", "breaks": breaks}
+	if r := ValidateStructural(data); !r.IsValid() {
+		t.Fatalf("2.5 breaks: %v", r.Errors)
+	}
+	for _, bad := range []map[string]any{
+		{"consumers": []any{}, "reason": "x"},
+		{"consumers": []any{"Reports"}, "reason": "x"},
+		{"consumers": []any{"a", "a"}, "reason": "x"},
+		{"consumers": []any{"a"}, "reason": ""},
+		{"consumers": []any{"a"}},
+		{"consumers": []any{"a"}, "reason": "x", "other": true},
+	} {
+		if r := ValidateStructural(map[string]any{"pactoVersion": "2.5", "breaks": []any{bad}}); r.IsValid() {
+			t.Errorf("breaks %v: valid, want a schema error", bad)
+		}
+	}
+}
+
+// TestPortRange: a port is an integer from 1 to 65535.
+func TestPortRange(t *testing.T) {
+	for port, valid := range map[any]bool{1: true, 65535: true, 0: false, 65536: false, -1: false, "8080": false, 80.5: false} {
+		data := map[string]any{"pactoVersion": "2.5", "interfaces": []any{map[string]any{"name": "a", "type": "openapi", "ref": "a.yaml", "port": port}}}
+		r := ValidateStructural(data)
+		if got := r.IsValid(); got != valid {
+			t.Errorf("port %v: valid %v, want %v", port, got, valid)
+		}
+	}
+}
+
+// TestPublishNeedsRaise: only a known version before 2.1 must raise to
+// declare publish; an absent (current) or unknown version never reads as one.
+func TestPublishNeedsRaise(t *testing.T) {
+	for v, want := range map[string]bool{
+		contract.SupportedVersions[0]: true,
+		"2.1":                         false,
+		contract.Current():            false,
+		"":                            false,
+		"9.9":                         false,
+	} {
+		if got := PublishNeedsRaise(v); got != want {
+			t.Errorf("PublishNeedsRaise(%q) = %v, want %v", v, got, want)
+		}
+	}
+}
+
+// TestRefValuesAllowed: a ref configuration carries values from 2.4 on, and an
+// unknown version is refused as before, matching the operator's old formula.
+func TestRefValuesAllowed(t *testing.T) {
+	for v, want := range map[string]bool{
+		contract.SupportedVersions[0]: false,
+		"2.3":                         false,
+		"2.4":                         true,
+		contract.Current():            true,
+		"9.9":                         false,
+	} {
+		if got := RefValuesAllowed(v); got != want {
+			t.Errorf("RefValuesAllowed(%q) = %v, want %v", v, got, want)
 		}
 	}
 }

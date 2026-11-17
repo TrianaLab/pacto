@@ -16,11 +16,31 @@ The currently published chart:
 !!! warning "An upgrade reverts hand-patched controller flags"
     `helm upgrade` rebuilds the Deployment's `args` from the chart, so a flag
     you patched in by hand disappears without an error. Set opt-in features
-    through chart values such as `controller.enableProbing`,
-    `controller.enableMetricsObservation` and `nodeAgent.enabled`, which
-    survive an upgrade. A flag with no chart value, such as name-match
-    discovery, has to be patched again after every upgrade; see
+    through chart values such as `controller.probing`,
+    `controller.metricsObservation`, `controller.interfaceNameMatchDiscovery`
+    and `nodeAgent.enabled`, which survive an upgrade. Each operator flag
+    has a chart value or a documented reason to stay off the chart; see
     [Limitations: opt-in features](limitations.md#opt-in-features).
+
+## Deprecated observation keys
+
+`controller.enableProbing` and `controller.enableMetricsObservation` still
+work. Their replacements, `controller.probing` and
+`controller.metricsObservation`, default to `auto`, which turns each feature on
+only in namespaces labelled `pacto.trianalab.io/observe`.
+
+An upgrade that keeps the previous release's values renders the same
+arguments; set the new key, or reset the values, to move to `auto`. The
+new key wins, even `auto` over a deprecated `true`:
+
+```yaml
+controller:
+  enableProbing: true   # deprecated, ignored once probing is set
+  probing: auto
+```
+
+`controller.kernelEvidence.enabled: false` still follows `nodeAgent.enabled`;
+the quoted `"off"` refuses kernel evidence while the node agent runs.
 
 ## Hand older CRDs to Helm
 
@@ -143,12 +163,9 @@ these before `helm upgrade`:
 
 ## Delivery approvers need update rights
 
-Delivery now tells people from agents by how they sign in and lets whoever
-may update a Stage's workload decide its held changes. Owner teams narrow
-who may answer only when `delivery.identities.teamGroupPrefix` is set, and
-`requireOwnerTeam` defaults to `false`. An upgrade that takes the new
-defaults turns team narrowing off unless you set `teamGroupPrefix` yourself.
-To keep the earlier behaviour, set `teamGroupPrefix: ""` and
+Whoever may update a Stage's workload decides its held changes. Owner
+teams narrow who may answer only when `delivery.identities.teamGroupPrefix` is
+set, and `requireOwnerTeam` defaults to `false`. To keep the earlier behaviour, set `teamGroupPrefix: ""` and
 `requireOwnerTeam: true` before you upgrade
 ([upgrading](delivery-identity.md#upgrading)).
 
@@ -182,6 +199,41 @@ An upgrade that reuses the values of a release without the key keeps the
 dashboard serving anonymously: the chart passes the flag unless the value is
 `false`. A dashboard you run yourself needs `--allow-anonymous` or
 `PACTO_DASHBOARD_ALLOW_ANONYMOUS=true`.
+
+## Pull secrets outside granted namespaces
+
+The operator no longer reads Secrets across the cluster. It reads a pull
+secret in the release namespace, in each of `controller.watchNamespaces` and
+wherever `controller.secretGrants` names it. Any other pull secret sets
+`ContractValid=Unknown` with reason `PullSecretNotGranted`, and the condition
+message names the grant to add. Before `helm upgrade`, list the pull secrets
+in use:
+
+```bash
+kubectl get pactos -A \
+  -o jsonpath='{range .items[*]}{.metadata.namespace}/{.spec.contractRef.pullSecretRef}{"\n"}{end}'
+```
+
+- A cluster-wide install lists each one as `namespace/name` in
+  `controller.secretGrants`.
+- A namespace-list install already reads pull secrets in each listed
+  namespace. There the message points at the chart's watch Role and
+  RoleBinding in that namespace.
+
+A rotated pull secret is read within one check interval.
+
+`controller.watchNamespace` still works and joins `controller.watchNamespaces`,
+also when an upgrade reuses earlier values.
+
+Moving from a cluster-wide install to a namespace list leaves the
+`pacto-dashboard` ClusterRole and ClusterRoleBinding behind: the
+operator may no longer delete them. The `helm upgrade` notes and a
+`StaleClusterRBAC` Warning event on the dashboard Deployment report them.
+Delete them:
+
+```bash
+kubectl delete clusterrole,clusterrolebinding pacto-dashboard
+```
 
 ## Rolling back
 

@@ -158,17 +158,6 @@ Applications with delivery.argocd.enabled.
 {{- end }}
 
 {{/*
-The cluster's identity: the kube-system Namespace, whose UID names the
-cluster in operations and records.
-*/}}
-{{- define "pacto-operator.delivery.rbac.clusterIdentityRule" -}}
-- apiGroups: [""]
-  resources: [namespaces]
-  resourceNames: [kube-system]
-  verbs: [get]
-{{- end }}
-
-{{/*
 What an agent may do: propose, read and cancel operations, read Stages and
 approvals and what they point at, and read the Pactos and Kustomizations
 planning needs. (dict "ctx" $ "approver" true) adds creating Approvals.

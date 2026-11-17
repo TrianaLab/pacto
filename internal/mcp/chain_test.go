@@ -351,3 +351,55 @@ func TestFleetServerEditPlacesTheService(t *testing.T) {
 		t.Fatalf("a service the fleet does not hold: %+v", elsewhere)
 	}
 }
+
+// An undeclared service.version names no version in the publish and promote
+// steps.
+func TestPromoteChainUndeclaredVersion(t *testing.T) {
+	steps := promoteChain("svc", "", "/d", nil)
+	if !strings.Contains(steps[1].Why, "publish <version> from /d") || !strings.Contains(steps[2].Command, "--to <version>") {
+		t.Fatalf("got %+v", steps)
+	}
+}
+
+// An edit of a contract whose name is inferred places the service by that
+// name, has its staged copy named from the real folder, and declares the
+// identity publish refuses without before the publish steps.
+func TestEditInferredNamePlacesAndDeclares(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "payments")
+	for rel, content := range map[string]string{"pacto.yaml": "", "chart/Chart.yaml": "apiVersion: v2\nname: payments\nversion: 0.1.0\n"} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, rel)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, rel), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var req ImpactRequest
+	provider := func(_ context.Context, _ *fleet.FleetSnapshot, r ImpactRequest) (*impact.Result, error) {
+		req = r
+		return sampleImpact(), nil
+	}
+	opts := editOptions(Modes{Fleet: &FleetMode{Src: staticFleet(buildFleetQuery(t)), Opts: FleetOptions{Impact: provider}}})
+	res, err := Edit(context.Background(), nil, opts, EditInput{Path: dir, Owner: strPtr("team/pay"), DryRun: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Impact == nil || req.NewDirName != "payments" || req.OldRef != dir {
+		t.Fatalf("impact %+v, request %+v", res.Impact, req)
+	}
+	var declare *ChainStep
+	for i, s := range res.Chain {
+		if s.Tool == "pacto_edit" {
+			declare = &res.Chain[i]
+		}
+		if strings.Contains(s.Why, "Stage of ;") {
+			t.Errorf("step names no service: %+v", s)
+		}
+	}
+	if declare == nil || declare.Args["name"] != "payments" || !strings.Contains(declare.Command, "service.name and service.version") {
+		t.Fatalf("chain %+v", res.Chain)
+	}
+	if last := res.Chain[len(res.Chain)-1]; !strings.Contains(last.Why, "Stage of payments") {
+		t.Errorf("promote step %+v", last)
+	}
+}

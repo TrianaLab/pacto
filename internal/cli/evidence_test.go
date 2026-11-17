@@ -419,3 +419,19 @@ func TestEvidenceUsageCommand(t *testing.T) {
 		}
 	}
 }
+
+func TestEvidenceServeClusterNameNeedsID(t *testing.T) {
+	dir, _, _ := setup(t)
+	for _, flag := range []string{"--cluster-name", "--cluster-name-source"} {
+		_, err := runEvidence(t, "evidence", "serve", "--port", "0", "--trust", dir, "--subject", testSubject, flag, "eu-prod")
+		if err == nil || !strings.Contains(err.Error(), "need --cluster-id") {
+			t.Errorf("%s alone: err = %v; want it to need --cluster-id", flag, err)
+		}
+	}
+	// With an id the flags reach the server, which validates them at start.
+	_, err := runEvidence(t, "evidence", "serve", "--port", "0", "--trust", dir, "--subject", testSubject,
+		"--cluster-id", "uid-a", "--cluster-name", "eu-prod", "--cluster-name-source", "guess")
+	if err == nil || !strings.Contains(err.Error(), "invalid cluster name") {
+		t.Errorf("err = %v; want the name source refused at start", err)
+	}
+}

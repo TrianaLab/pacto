@@ -93,3 +93,14 @@ func TestPopulateContractStatus_MetadataJSON(t *testing.T) {
 		}
 	}
 }
+
+func TestStatusMirrorsInterfacePort(t *testing.T) {
+	p := &pactov1alpha1.Pacto{}
+	newReconciler().populateContractStatus(p, &loader.LoadResult{Contract: &contract.Contract{
+		Service:    contract.Service{Name: "payments", Version: "1.0.0"},
+		Interfaces: []contract.Interface{{Name: "api", Type: "openapi", Port: 8080}, {Name: "events", Type: "asyncapi"}},
+	}}, nil)
+	if got := p.Status.Interfaces; len(got) != 2 || got[0].Port != 8080 || got[1].Port != 0 {
+		t.Fatalf("status.interfaces = %+v", got)
+	}
+}

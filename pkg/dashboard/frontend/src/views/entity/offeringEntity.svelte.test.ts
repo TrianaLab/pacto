@@ -329,6 +329,18 @@ describe('offering page', () => {
     done();
   });
 
+  it('titles a consumer with compatibility unknown Range not declared, never as a range it accepts', async () => {
+    const pa = provider('postgresql').service;
+    const use = { offering: 'shared-config', consumer: ref('service', 'invoices'), provider: pa, via: 'dependency', compatibility: 'unknown', rangeStatus: 'unknown', successorRange: 'unknown' };
+    const { target, done } = await render(detail({ consumers: preview([use]) }));
+    const row = target.querySelector('[data-testid="offering-consumer"]') as HTMLElement;
+    const badge = (label: string) => Array.from(row.querySelectorAll('.tag')).find((t) => t.textContent === label) as HTMLElement | undefined;
+    expect(badge('unknown')?.getAttribute('title')).toBe('Range not declared');
+    expect(badge('successor unknown')?.getAttribute('title')).toBe('Range not declared');
+    expect(row.innerHTML).not.toMatch(/Accepts unknown|Range unknown/);
+    done();
+  });
+
   it('lists undeclared callers apart, never links an uncontracted one and counts the hidden ones', async () => {
     const pa = provider('postgresql').service;
     const { target, done } = await render(detail({

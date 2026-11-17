@@ -65,6 +65,10 @@ var deadCodeAllowlist = map[string]string{
 	"pkg/signing.GetPublicKeyPem":     sigstoreKeypair,
 	"pkg/signing.GetSigningAlgorithm": sigstoreKeypair,
 
+	"pkg/workloadmanager.Detect": "511-S1 lands in phases: P1 ships the detection on its own and P6 " +
+		"gives it its production caller (the operator's detectApplier). Remove this entry with that " +
+		"commit; the stale-entry check fails until then",
+
 	"pkg/dashboard.GetStatus": "huma's StatusError: huma reads the HTTP status of a refusal a handler returns " +
 		"through that interface, never by name",
 
@@ -117,13 +121,15 @@ const schemaVocabulary = "bundle vocabulary mirrored by a JSON Schema enum; pinn
 
 // runtimeDispatched are methods the standard library calls through an
 // interface it discovers by reflection, never by name. errors.Is walks Unwrap,
-// fmt prints through Error and String, encoding/json consults MarshalJSON.
+// fmt prints through Error and String, encoding/json consults MarshalJSON,
+// flag parses a bare --name as true when the Value has IsBoolFlag.
 // Nothing in this repo will ever name them at a call site, so "no production
 // caller" is their normal state rather than evidence of death.
 var runtimeDispatched = map[string]bool{
 	"Error": true, "Unwrap": true, "Is": true, "As": true, "String": true,
 	"MarshalJSON": true, "UnmarshalJSON": true,
 	"MarshalYAML": true, "UnmarshalYAML": true,
+	"IsBoolFlag": true,
 }
 
 type decl struct {

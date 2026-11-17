@@ -16,7 +16,8 @@ import (
 
 // k8sService is a Service with a live Kubernetes source that answers, under the kubeconfig
 // context id ctxName. An empty ctxName reproduces the in-cluster case: a dashboard
-// pod has no kubeconfig context, so the source falls back to the id "k8s".
+// pod has no kubeconfig context, so the source falls back to the id "k8s". The
+// fake cannot read the cluster identity (Forbidden), so the context id stays.
 func k8sService(ctxName string) *Service {
 	svc := NewService(nil, nil)
 	svc.sys.newK8s = func() (k8sclient.K8sClient, error) {
