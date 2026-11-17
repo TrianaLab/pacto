@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <properties>
+    <stripe.version>26.1.0</stripe.version>
+  </properties>
+  <repositories>
+    <repository><url>https://maven-user:maven-token@repo.example.com/maven2</url></repository>
+  </repositories>
+  <dependencyManagement>
+    <dependencies>
+      <dependency><groupId>com.twilio.sdk</groupId><artifactId>twilio</artifactId><version>10.0.0</version></dependency>
+    </dependencies>
+  </dependencyManagement>
+  <dependencies>
+    <dependency>
+      <groupId>com.stripe</groupId>
+      <artifactId>stripe-java</artifactId>
+      <version>${stripe.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.twilio.sdk</groupId>
+      <artifactId>twilio</artifactId>
+      <version>${twilio.version}</version>
+    </dependency>
+  </dependencies>
+</project>

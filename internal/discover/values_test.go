@@ -281,7 +281,7 @@ func TestExternalFieldNameFallsBack(t *testing.T) {
 		{Identity: "aws/rds", Confidence: "likely", Kind: "env", Path: "a.yaml", Line: 3, Key: "DB", Origin: "default"},
 	}
 	cited := map[string]bool{}
-	fields := externalFields(xs, func(f string) bool { return f == "dependencies[rds]" }, func(string, string) bool { return false }, cited)
+	fields, _ := externalFields(xs, func(f string) bool { return f == "dependencies[rds]" }, func(string, string) bool { return false }, cited)
 	if len(fields) != 1 || fields[0].Field != "dependencies[aws-rds]" || fields[0].Confidence != "likely" || fields[0].Source != "a.yaml:3" ||
 		len(fields[0].External.Sources) != 2 || !cited["a.yaml"] {
 		t.Errorf("fields = %+v", fields)

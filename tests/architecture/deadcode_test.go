@@ -70,7 +70,6 @@ var deadCodeAllowlist = map[string]string{
 	"pkg/signing.GetPublicKeyPem":     sigstoreKeypair,
 	"pkg/signing.GetSigningAlgorithm": sigstoreKeypair,
 
-	"pkg/externalcatalog.MatchSDK":        folderExternalsP3P4,
 	"pkg/externalcatalog.MatchTerraform":  folderExternalsP3P4,
 	"pkg/externalcatalog.MatchCrossplane": folderExternalsP3P4,
 	"pkg/externalid.Managed":              folderExternalsP3P4,

@@ -77,9 +77,15 @@ func completeWith(dir, repoDir string, declared *contract.Contract, planned map[
 	}
 	fields, cited := merge(c.entries)
 	xs, unidentified := sc.externals(values, cat)
-	fields = append(fields, externalFields(xs, func(field string) bool {
+	sdk, unread, read := sc.sdkUses(dir, cat)
+	for _, f := range read {
+		cited[f] = true
+	}
+	xfields, clients := externalFields(append(xs, sdk...), func(field string) bool {
 		return slices.ContainsFunc(fields, func(f contract.Inferred) bool { return f.Field == field })
-	}, c.declaredExternal, cited)...)
+	}, c.declaredExternal, cited)
+	fields = append(fields, xfields...)
+	unidentified = append(append(unidentified, unread...), clients...)
 	slices.SortFunc(fields, func(a, b contract.Inferred) int { return strings.Compare(a.Field, b.Field) })
 	findings := slices.DeleteFunc(slices.Clone(reading.Findings), func(f contract.InferredFinding) bool {
 		return f.Code == CodeAmbiguous && slices.ContainsFunc(reading.ambiguousSpecs[f.Source], c.declaredRef)

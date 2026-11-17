@@ -195,7 +195,7 @@ func TestFolderExternalsNeverLeak(t *testing.T) {
 		t.Fatal("no record")
 	}
 	all += string(r.Inferred.Marshal())
-	for _, leak := range []string{"admin", "hunter2", "s3cr3t", "/app", "pw-hunter2"} {
+	for _, leak := range []string{"admin", "hunter2", "s3cr3t", "/app", "pw-hunter2", "npm-user", "npm-token", "maven-token", "registry.example.com", "repo.example.com"} {
 		if strings.Contains(all, leak) {
 			t.Errorf("%q leaked", leak)
 		}
@@ -209,6 +209,9 @@ func TestFolderExternalsNeverLeak(t *testing.T) {
 	slices.Sort(kinds)
 	if !slices.Equal(slices.Compact(kinds), []string{"compose", "helmValues", "kustomize"}) {
 		t.Errorf("aws/rds kinds = %q", kinds)
+	}
+	if !slices.ContainsFunc(r.Externals, func(e External) bool { return e.Identity == "stripe" && e.Kind == "sdk" && e.Path == "pom.xml" }) {
+		t.Errorf("the SDK sources are missing: %+v", r.Externals)
 	}
 }
 

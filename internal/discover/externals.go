@@ -33,6 +33,10 @@ type External struct {
 	Line       int    `json:"line,omitempty"`
 	Key        string `json:"key,omitempty"`
 	Origin     string `json:"origin,omitempty"`
+	// SDK and Major are the client library an sdk source lists, as written,
+	// and its major, nil when unknown.
+	SDK   string `json:"-"`
+	Major *int   `json:"-"`
 }
 
 // valueKeyRE is a key a value is read under: an environment or values key,
@@ -154,13 +158,15 @@ func unidentifiedHostMessage(where string) string {
 // it with its confidence, the strongest, and every place in External.Sources.
 // taken reports a field another reader already gives, so the name falls back
 // to the whole identity; declared reports an external the contract declares,
-// which is left out. cited gets every file a source names.
-func externalFields(xs []External, taken func(field string) bool, declared func(name, identity string) bool, cited map[string]bool) []contract.Inferred {
+// which is left out. cited gets every file a source names. An external
+// listed by client libraries of several majors is also a finding.
+func externalFields(xs []External, taken func(field string) bool, declared func(name, identity string) bool, cited map[string]bool) ([]contract.Inferred, []contract.InferredFinding) {
 	byID := map[string][]External{}
 	for _, x := range xs {
 		byID[x.Identity] = append(byID[x.Identity], x)
 	}
 	var out []contract.Inferred
+	var findings []contract.InferredFinding
 	for _, id := range slices.Sorted(maps.Keys(byID)) {
 		group := byID[id]
 		name := DependencyName(id)
@@ -176,6 +182,10 @@ func externalFields(xs []External, taken func(field string) bool, declared func(
 			best = group[i]
 		}
 		x := &contract.InferredExternal{Identity: id, Catalog: best.Origin}
+		var finding *contract.InferredFinding
+		if x.Client, finding = clientOf(id, group); finding != nil {
+			findings = append(findings, *finding)
+		}
 		for _, g := range group {
 			s := contract.InferredExternalSource{Kind: g.Kind, Path: g.Path, Line: g.Line, Key: g.Key, Host: g.Host}
 			if !slices.Contains(x.Sources, s) {
@@ -187,8 +197,42 @@ func externalFields(xs []External, taken func(field string) bool, declared func(
 		out = append(out, contract.Inferred{Field: "dependencies[" + name + "]", Value: id, Source: first.source(), Confidence: best.Confidence,
 			Declare: externalYAML(name, id), External: x})
 	}
-	return out
+	return out, findings
 }
+
+// clientOf is the client library the sdk sources in group list for the
+// external id, the one of the highest major, nil when none does. Several
+// majors make a finding that names each with its file.
+func clientOf(id string, group []External) (*contract.InferredClient, *contract.InferredFinding) {
+	sdks := slices.DeleteFunc(slices.Clone(group), func(x External) bool { return x.Kind != "sdk" })
+	if len(sdks) == 0 {
+		return nil, nil
+	}
+	major := func(x External) int {
+		if x.Major == nil {
+			return -1
+		}
+		return *x.Major
+	}
+	slices.SortStableFunc(sdks, func(a, b External) int { return cmp.Compare(major(a), major(b)) })
+	best := sdks[len(sdks)-1]
+	c := &contract.InferredClient{SDK: best.SDK, Major: best.Major}
+	var versions []string
+	last := -1
+	for _, s := range sdks {
+		if m := major(s); m > last {
+			versions, last = append(versions, fmt.Sprintf("%d (%s)", m, s.Path)), m
+		}
+	}
+	if len(versions) < 2 {
+		return c, nil
+	}
+	return c, &contract.InferredFinding{Code: CodeAmbiguous, Source: best.source(),
+		Message: fmt.Sprintf("the folder names %d client versions of %s: %s; the record keeps the highest", len(versions), id, strings.Join(versions, ", "))}
+}
+
+// source is the "<path>[:<line>]" of x.
+func (x External) source() string { return Value{Path: x.Path, Line: x.Line}.source() }
 
 // externalYAML declares the external id under the dependency name.
 func externalYAML(name, id string) string {

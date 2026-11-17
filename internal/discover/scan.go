@@ -37,6 +37,7 @@ type Scan struct {
 	Env      []EnvVar
 	EnvNotes []string
 	ign      *ignore.Matcher   // .pactoignore: what it leaves out is not read
+	sdkFiles []string          // dependency manifests and lockfiles, in walk order
 	files    map[string][]byte // every YAML file read, by path, for source lines
 }
 
@@ -176,6 +177,8 @@ func (sc *Scan) file(p, rel, base string) {
 	case base == "Dockerfile" || strings.HasPrefix(base, "Dockerfile.") || strings.HasSuffix(base, ".Dockerfile"):
 		sc.Dockerfiles = append(sc.Dockerfiles, rel)
 	case base == "Chart.yaml": // its folder is a chart, recorded by Dir
+	case sdkFile(base):
+		sc.sdkFiles = append(sc.sdkFiles, rel)
 	case strings.HasSuffix(base, ".yaml") || strings.HasSuffix(base, ".yml"):
 		data, err := os.ReadFile(p)
 		if err == nil {
