@@ -44,7 +44,7 @@ The `namespaces` `get` rule limited to `kube-system` reads the cluster id. The o
 
 ## Always granted in the release namespace (`pacto-operator-manager` Role)
 
-The teardown half of the managed components: `get` and `delete` on the fixed names a previous install may have created there, the node agent's included (releases before the dedicated agent namespace ran it in the release namespace). The one `secrets` `get` rule with no name reads pull Secrets and Secrets that back a configuration in the release namespace. The `configmaps` rules let detection write `<fullname>-detected`, the one ConfigMap it publishes: `create` cannot be limited by name, and `get` and `patch` name that ConfigMap only.
+The teardown half of the managed components: `get` and `delete` on the fixed names a previous install may have created there, the node agent's included (releases before the dedicated agent namespace ran it in the release namespace). The one `secrets` `get` rule with no name reads pull Secrets and Secrets that back a configuration in the release namespace. The `configmaps` rules let detection write `<fullname>-detected`, the one ConfigMap it publishes: `create` cannot be limited by name, and `get` and `patch` name that ConfigMap only. The `deployments` `get` rule naming the operator's own Deployment lets detection set it as the ConfigMap's owner.
 
 | API groups | Resources | Verbs | Limited to |
 | --- | --- | --- | --- |
@@ -58,6 +58,7 @@ The teardown half of the managed components: `get` and `delete` on the fixed nam
 | `apps` | `daemonsets` | `delete`, `get` | `pacto-node-agent` |
 | `apps` | `deployments` | `delete`, `get` | `pacto-dashboard` |
 | `apps` | `deployments` | `delete`, `get` | `pacto-evidence` |
+| `apps` | `deployments` | `get` | `pacto-operator` |
 | `rbac.authorization.k8s.io` | `roles`, `rolebindings` | `delete`, `get` | `pacto-node-agent` |
 
 ## Additionally granted when a managed component is enabled

@@ -208,7 +208,6 @@ func authVolumes(cfg Config) ([]*corev1ac.VolumeMountApplyConfiguration, []*core
 	return mounts, vols
 }
 
-// deploymentAC returns a server-side apply configuration for the dashboard Deployment.
 // The managed dashboard reads what the operator detected from this file.
 const (
 	detectedEnvVar    = "PACTO_DASHBOARD_DETECTED"
@@ -216,6 +215,7 @@ const (
 	detectedKey       = "detected.json"
 )
 
+// deploymentAC returns a server-side apply configuration for the dashboard Deployment.
 func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 	env := []*corev1ac.EnvVarApplyConfiguration{
 		corev1ac.EnvVar().WithName("PACTO_DASHBOARD_PORT").WithValue("3000"),

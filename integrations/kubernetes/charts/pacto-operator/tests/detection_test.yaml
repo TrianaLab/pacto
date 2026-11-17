@@ -49,6 +49,18 @@ tests:
           path: rules
           content: {apiGroups: [""], resources: [configmaps], verbs: [get, patch], resourceNames: [pacto-operator-detected]}
 
+  - it: the release Role lets detection read its owner Deployment with a namespace list and no dashboard
+    template: templates/role.yaml
+    documentIndex: 0
+    set:
+      controller.watchNamespaces: [team-a]
+      dashboard.enabled: false
+      evidence.enabled: false
+    asserts:
+      - contains:
+          path: rules
+          content: {apiGroups: [apps], resources: [deployments], verbs: [get], resourceNames: [pacto-operator]}
+
   - it: fullnameOverride names the ConfigMap the operator writes
     set:
       fullnameOverride: custom
@@ -345,4 +357,34 @@ tests:
         documentIndex: 0
         equal:
           path: rules
-          value: [{"apiGroups":[""],"resources":["serviceaccounts","services"],"verbs":["get","delete"],"resourceNames":["pacto-dashboard"]},{"apiGroups":[""],"resources":["secrets"],"verbs":["get","delete"],"resourceNames":["pacto-dashboard-oci-creds"]},{"apiGroups":["apps"],"resources":["deployments"],"verbs":["get","delete"],"resourceNames":["pacto-dashboard"]},{"apiGroups":[""],"resources":["services"],"verbs":["get","delete"],"resourceNames":["pacto-evidence"]},{"apiGroups":["apps"],"resources":["deployments"],"verbs":["get","delete"],"resourceNames":["pacto-evidence"]},{"apiGroups":["apps"],"resources":["daemonsets"],"verbs":["get","delete"],"resourceNames":["pacto-node-agent"]},{"apiGroups":["rbac.authorization.k8s.io"],"resources":["roles","rolebindings"],"verbs":["get","delete"],"resourceNames":["pacto-node-agent"]},{"apiGroups":[""],"resources":["serviceaccounts"],"verbs":["get","delete"],"resourceNames":["pacto-node-agent"]},{"apiGroups":[""],"resources":["secrets"],"verbs":["get"]},{"apiGroups":[""],"resources":["configmaps"],"verbs":["create"]},{"apiGroups":[""],"resources":["configmaps"],"verbs":["get","patch"],"resourceNames":["pacto-operator-detected"]},{"apiGroups":[""],"resources":["secrets","serviceaccounts","services"],"verbs":["create","delete","get","patch","update"]},{"apiGroups":["apps"],"resources":["deployments"],"verbs":["create","delete","get","patch","update"]}]
+          value: [{"apiGroups":[""],"resources":["serviceaccounts","services"],"verbs":["get","delete"],"resourceNames":["pacto-dashboard"]},{"apiGroups":[""],"resources":["secrets"],"verbs":["get","delete"],"resourceNames":["pacto-dashboard-oci-creds"]},{"apiGroups":["apps"],"resources":["deployments"],"verbs":["get","delete"],"resourceNames":["pacto-dashboard"]},{"apiGroups":[""],"resources":["services"],"verbs":["get","delete"],"resourceNames":["pacto-evidence"]},{"apiGroups":["apps"],"resources":["deployments"],"verbs":["get","delete"],"resourceNames":["pacto-evidence"]},{"apiGroups":["apps"],"resources":["daemonsets"],"verbs":["get","delete"],"resourceNames":["pacto-node-agent"]},{"apiGroups":["rbac.authorization.k8s.io"],"resources":["roles","rolebindings"],"verbs":["get","delete"],"resourceNames":["pacto-node-agent"]},{"apiGroups":[""],"resources":["serviceaccounts"],"verbs":["get","delete"],"resourceNames":["pacto-node-agent"]},{"apiGroups":[""],"resources":["secrets"],"verbs":["get"]},{"apiGroups":[""],"resources":["configmaps"],"verbs":["create"]},{"apiGroups":[""],"resources":["configmaps"],"verbs":["get","patch"],"resourceNames":["pacto-operator-detected"]},{"apiGroups":["apps"],"resources":["deployments"],"verbs":["get"],"resourceNames":["pacto-operator"]},{"apiGroups":[""],"resources":["secrets","serviceaccounts","services"],"verbs":["create","delete","get","patch","update"]},{"apiGroups":["apps"],"resources":["deployments"],"verbs":["create","delete","get","patch","update"]}]
+
+  - it: NOTES names the completeness and reason of a partial or unknown entry
+    template: templates/NOTES.txt
+    release:
+      upgrade: true
+    kubernetesProvider:
+      scheme:
+        "v1/ConfigMap":
+          gvr: {group: "", version: v1, resource: configmaps}
+          namespaced: true
+      objects:
+        - kind: ConfigMap
+          apiVersion: v1
+          metadata:
+            name: pacto-operator-detected
+            namespace: default
+            labels: {app.kubernetes.io/managed-by: pacto-operator}
+            ownerReferences:
+              - {apiVersion: apps/v1, kind: Deployment, name: pacto-operator, uid: u1}
+          data:
+            detected.json: '{"schemaVersion":"1","asOf":"2026-11-16T10:02:00Z","cluster":"5b0c6c3e","namespaces":["a","b"],"entries":[{"kind":"cloud","completeness":"unknown","reason":"with controller.watchNamespaces the operator may not list nodes"},{"kind":"registry","value":"ghcr.io/acme","evidence":"in 2 of 2 namespaces, 100% of workloads","source":"running pods","completeness":"partial","reason":"read only the watched namespaces","hint":"oci://ghcr.io/acme/<service>:<version>","namespaces":["a","b"]},{"kind":"sign-in","value":"none found","evidence":"no Dex API or Service","source":"API discovery and Services","completeness":"partial","reason":"an identity provider outside the cluster is not visible; read only the watched namespaces","namespaces":["a","b"]}]}'
+    asserts:
+      - matchRegexRaw:
+          pattern: "  Cloud: unknown: with controller.watchNamespaces the operator may not list nodes\\n"
+      - matchRegexRaw:
+          pattern: "  Sign-in: none found no Dex API or Service \\(from API discovery and Services\\) \\[partial: an identity provider outside the cluster is not visible; read only the watched namespaces\\]"
+      - matchRegexRaw:
+          pattern: "  Registry: ghcr.io/acme in 2 of 2 namespaces, 100% of workloads \\(from running pods\\) \\[partial: read only the watched namespaces\\]"
+      - matchRegexRaw:
+          pattern: "Most of the namespaces Pacto read pull from that registry"

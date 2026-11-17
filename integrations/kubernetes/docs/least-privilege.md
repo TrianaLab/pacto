@@ -41,13 +41,14 @@ with several clusters marks it `CLUSTER_UNKNOWN`.
 
 ## What detection reads and writes
 
-[Detection](detection.md) adds two rules to the
+[Detection](detection.md) adds three rules to the
 operator and none to the dashboard:
 
 | Rule | Where | Why |
 |---|---|---|
 | `nodes` `list` | Cluster-wide ClusterRole only | Cloud from `providerID` and node kernels |
 | `configmaps` `create`, plus `get` and `patch` on `<fullname>-detected` only | Release namespace Role | The one ConfigMap detection writes |
+| `deployments` `get` on `<fullname>` only | Release namespace Role | The operator Deployment that owns that ConfigMap |
 
 Kubernetes cannot scope `create` by name, so it stays unnamed. The
 leader-election Role grants Leases only, so this is the operator's one

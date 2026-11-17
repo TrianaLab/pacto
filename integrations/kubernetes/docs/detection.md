@@ -23,11 +23,13 @@ pacto fleet status --k8s --detected k8s:pacto-operator-system/pacto-operator-det
 ```
 
 A registry or exposure row prints a command to review only when one
-candidate holds most namespaces. BTF reads likely, unlikely or unknown and is
-never confirmed. A missing or stale detection shows on its own row and never
+candidate holds most namespaces and leads every other one. Docker Hub
+official images are never proposed as a push target. BTF reads likely,
+unlikely or unknown and is never confirmed. A missing or stale detection shows on its own row and never
 makes an answer partial.
 
 With `controller.watchNamespaces` the registry row is partial and names the
-watched namespaces, and cloud and nodes are unknown. The only grant detection
-adds is `nodes list` in the cluster-wide ClusterRole; see
+watched namespaces, and cloud and nodes are unknown. Beyond the ConfigMap it
+writes and the operator Deployment that owns it, the only grant detection adds
+is `nodes list` in the cluster-wide ClusterRole; see
 [Run with least privilege](least-privilege.md#what-detection-reads-and-writes).

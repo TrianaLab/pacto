@@ -2118,6 +2118,12 @@ rules:
     resources: [configmaps]
     verbs: [get, patch]
     resourceNames: [pacto-operator-detected]
+  # Detection owns that ConfigMap by the operator Deployment, read by name: with
+  # a namespace list and no dashboard or Evidence Server nothing else grants it.
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [get]
+    resourceNames: [pacto-operator]
   # Dashboard lifecycle: its ServiceAccount, Service, merged OCI credentials
   # Secret and Deployment.
   - apiGroups: [""]

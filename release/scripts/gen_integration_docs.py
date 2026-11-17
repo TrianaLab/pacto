@@ -383,7 +383,9 @@ def gen_rbac(k8s: str) -> str:
         "`secrets` `get` rule with no name reads pull Secrets and Secrets that back a "
         "configuration in the release namespace. The `configmaps` rules let detection "
         "write `<fullname>-detected`, the one ConfigMap it publishes: `create` cannot be "
-        "limited by name, and `get` and `patch` name that ConfigMap only.\n"
+        "limited by name, and `get` and `patch` name that ConfigMap only. The `deployments` "
+        "`get` rule naming the operator's own Deployment lets detection set it as the "
+        "ConfigMap's owner.\n"
     )
     out.extend(_rbac_rules_table(ns_always))
     out.append("")

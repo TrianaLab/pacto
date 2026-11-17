@@ -66,18 +66,21 @@ Pacto detected (inferred, as of {{ regexReplaceAll $unsafe (toString (get $detec
 {{- range $entries }}
 {{- if kindIs "map" . }}
 {{- $kind := regexReplaceAll $unsafe (toString (get . "kind")) "" | trunc 64 }}
-{{- $text := list (get . "value") (get . "evidence") | compact | join " " }}
+{{- $text := regexReplaceAll $unsafe (list (get . "value") (get . "evidence") | compact | join " ") "" | trunc 512 }}
 {{- $source := regexReplaceAll $unsafe (toString (get . "source")) "" | trunc 256 }}
 {{- $hint := regexReplaceAll $unsafe (toString (get . "hint")) "" | trunc 256 }}
-  {{ get $labels $kind | default (title $kind) }}: {{ regexReplaceAll $unsafe $text "" | trunc 512 }}{{ if $source }} (from {{ $source }}){{ end }}
+{{- /* A partial or unknown entry says so and why: unknown is never blank, a partial negative never reads as a fact. */}}
+{{- $completeness := regexReplaceAll $unsafe (toString (get . "completeness")) "" | trunc 16 | default "unknown" }}
+{{- $reason := regexReplaceAll $unsafe (toString (get . "reason")) "" | trunc 256 }}
+  {{ get $labels $kind | default (title $kind) }}: {{ if $text }}{{ $text }}{{ else }}unknown{{ if $reason }}: {{ $reason }}{{ end }}{{ end }}{{ if $source }} (from {{ $source }}){{ end }}{{ if and $text (ne $completeness "complete") }} [{{ $completeness }}{{ if $reason }}: {{ $reason }}{{ end }}]{{ end }}
 {{- if and (eq $kind "registry") $hint (not $registryHint) }}{{ $registryHint = $hint }}{{ end }}
 {{- if and (eq $kind "exposure") $hint (not $exposureHint) }}{{ $exposureHint = $hint }}{{ end }}
 {{- end }}
 {{- end }}
 {{- if $registryHint }}
 
-Most namespaces pull from that registry. To push contracts there from CI
-(a proposal; review it before you use it):
+Most of the namespaces Pacto read pull from that registry. To push contracts
+there from CI (a proposal; review it before you use it):
 
   - uses: trianalab/pacto-actions@v1
     with:
@@ -86,7 +89,8 @@ Most namespaces pull from that registry. To push contracts there from CI
 {{- end }}
 {{- if $exposureHint }}
 
-To expose the dashboard the way most namespaces are exposed, review and add:
+To expose the dashboard the way most of the namespaces Pacto read are exposed,
+review and add:
 
   {{ $exposureHint }}
 {{- end }}
