@@ -65,14 +65,16 @@ can see how Pacto reports them.
 ## Metrics
 
 **Metrics**, under Change and delivery, draws the [run records](../run-record-reference.md)
-in a stats repository as trends: breaking changes caught, gates, delivery rates,
-lead time and coverage, each labelled unsigned statistics and linked to the
-records behind it. In the demo it shows about 90 days of generated run records
-that follow the payments story; [Measure what Pacto does](../measure-what-pacto-does.md)
+in a stats repository as charts: headline tiles for breaking changes caught,
+release gates and lead time to production, then charts of what Pacto stopped,
+gate outcomes, delivery health by environment, lead time by environment and
+coverage over time. Each chart has a table view, and every count is labelled
+unsigned statistics and linked to the records behind it. In the demo it shows
+about 90 days of generated run records that follow the payments story; [Measure what Pacto does](../measure-what-pacto-does.md)
 explains how to record your own.
 
-![The Metrics page with the demo's run records: breaking changes caught, gates, delivery rates and lead time per environment, labelled unsigned statistics](../assets/screenshots/dashboard-metrics-light.png#only-light)
-![The Metrics page with the demo's run records: breaking changes caught, gates, delivery rates and lead time per environment, labelled unsigned statistics](../assets/screenshots/dashboard-metrics-dark.png#only-dark)
+![The Metrics page with the demo's run records: headline tiles with sparklines, charts of what Pacto stopped and gate outcomes per week, delivery health and lead time per environment, labelled unsigned statistics](../assets/screenshots/dashboard-metrics-light.png#only-light)
+![The Metrics page with the demo's run records: headline tiles with sparklines, charts of what Pacto stopped and gate outcomes per week, delivery health and lead time per environment, labelled unsigned statistics](../assets/screenshots/dashboard-metrics-dark.png#only-dark)
 
 ## What the delivery story shows
 

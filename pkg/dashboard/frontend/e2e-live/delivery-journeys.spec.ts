@@ -185,9 +185,11 @@ test('Metrics: a signed-in reader sees the story\'s records', async ({ page }) =
   await expect(page.getByTestId('metrics-hidden')).toHaveCount(0);
   await expect(page.getByTestId('metrics-service-row').filter({ hasText: 'payments' }).first()).toBeVisible();
   // Environments follow the promotion path: test feeds prod.
-  const rows = page.getByTestId('metrics-env-row');
+  const health = page.getByTestId('metrics-health');
+  await health.getByRole('button', { name: 'Show as table' }).click();
+  const rows = health.locator('table tbody th');
   await expect(rows.first()).toBeVisible();
-  const envs = (await rows.locator('th a bdi').allInnerTexts()).map((s) => s.trim());
+  const envs = (await rows.allInnerTexts()).map((s) => s.trim());
   expect(envs.indexOf('test'), `environments ${envs.join(', ')}`).toBeGreaterThanOrEqual(0);
   expect(envs.indexOf('test'), `environments ${envs.join(', ')}`).toBeLessThan(envs.indexOf('prod'));
   await axe(page, 'metrics');

@@ -188,7 +188,16 @@ describe('product visualization system', () => {
 
   // The primitives the product is allowed to draw with. Each is bounded, textual and
   // accessible by construction; see components/viz/viz.test.ts for their contracts.
-  const ALLOWED_VIZ = ['DistributionBar.svelte', 'HorizontalBars.svelte', 'PostureBars.svelte'];
+  // #597 grew the set out loud: ColumnChart (columns, stacked columns, the column
+  // sparkline) and LineChart (the coverage lines, the line sparkline) draw marks only,
+  // hatch every unknown and give every bucket a keyboard tooltip, and each card that
+  // hosts one also prints every number in its table view. RangeDots draws lead time as a
+  // dot at p50 and a line to p90 on one log axis, with an unjoined row hatched "unknown".
+  // RateGrid brings a heatmap back, and only because it fixes what retired the old one
+  // ("dense colour with no textual equivalent"): every cell is a table cell with its
+  // count, denominator and percent in words, the card's table view prints every number,
+  // and colour is an ordinal ramp of 4 bins plus a distinct real-zero cell and the hatch.
+  const ALLOWED_VIZ = ['ColumnChart.svelte', 'DistributionBar.svelte', 'HorizontalBars.svelte', 'LineChart.svelte', 'PostureBars.svelte', 'RangeDots.svelte', 'RateGrid.svelte'];
   // Retired: a shape whose meaning the product data cannot honestly support.
   const RETIRED = /\b(ReadinessDonut|ReadinessHeatmap|TreemapChart)\b|conic-gradient|stroke-dasharray/;
 
@@ -202,6 +211,13 @@ describe('product visualization system', () => {
       offenders,
       `retired chart type (donut/heatmap/treemap/quadrant) back on a product surface: ${offenders.join(', ')}`,
     ).toEqual([]);
+  });
+
+  // SPEC 12, G4: the marks are SVG and every word is HTML placed from the same scale.
+  it('puts no <text> in a viz primitive', () => {
+    const viz = PRODUCT.filter((f) => f.rel.startsWith('components/viz/') && f.rel.endsWith('.svelte'));
+    expect(viz.length).toBeGreaterThan(0);
+    for (const f of viz) expect(f.body, f.rel).not.toMatch(/<text\b/);
   });
 
   it('keeps the primitive set closed, so a new chart type is a decision and not an accident', () => {

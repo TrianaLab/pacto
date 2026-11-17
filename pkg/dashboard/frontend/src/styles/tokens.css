@@ -244,6 +244,43 @@
   /* Frost: frozen, and nothing else (SPEC 2.2 r4). Small diamonds on the info tone, so
      it never reads as the unknown hatch; its wearer also draws a solid info edge. */
   --c-frost: repeating-linear-gradient(45deg, var(--c-info) 0 1.5px, transparent 1.5px 5px), repeating-linear-gradient(-45deg, var(--c-info) 0 1.5px, transparent 1.5px 5px);
+  /* Dots: unverified, and nothing else (#597, AC2). A dot grid on the neutral tone, so it
+     never reads as the unknown hatch or as frost; its wearer also draws a solid 1px
+     --c-neutral edge, which carries the contrast. */
+  --c-dots: radial-gradient(circle, var(--c-neutral) 1.2px, transparent 1.6px) 0 0 / 5px 5px;
+
+  /* Chart roles (#597), SELECTED per surface, never flipped. Each set was run through the
+     dataviz validator (scripts/validate_palette.js) against its own surface:
+
+       node validate_palette.js "#4f46e5,#eb6834" --mode light --surface "#ffffff"
+         PASS  categorical light: CVD worst dE 31.4 (protan), normal-vision dE 39.2
+       node validate_palette.js "#6366f1,#d95926" --mode dark --surface "#111827"
+         PASS  categorical dark: CVD worst dE 30.3 (protan), normal-vision dE 33.3
+       node validate_palette.js "#047857,#b91c1c" --mode light --surface "#ffffff"
+         PASS  status light (--c-ok/--c-err): CVD worst dE 8.4 (deutan)
+       node validate_palette.js "#34d399,#f87171" --mode dark --surface "#111827"
+         WARN  status dark (--c-ok/--c-err): CVD worst dE 6.5 (deutan), in the 6 to 8
+               band that needs secondary encoding. Accepted: status always ships with an
+               icon and a label. The same run also reports the categorical lightness band
+               (L 0.77 and 0.71, above 0.67); that band is for categorical series only,
+               and these are the product's status text tones, checked by contrast.
+       node validate_palette.js "#86b6ef,#3987e5,#1c5cab,#0d366b" --ordinal --mode light --surface "#ffffff"
+         PASS  heatmap ramp light: monotone, light end 2.11:1
+       node validate_palette.js "#184f95,#2a78d6,#6da7ec,#b7d3f6" --ordinal --mode dark --surface "#111827"
+         PASS  heatmap ramp dark: monotone, light end 2.19:1
+
+     Gate clear and blocked add no tokens: they are --c-ok and --c-err, the status words
+     of every chip. Categorical hues go in fixed order (lib/chart.ts SERIES). */
+  --chart-1: #6366f1; /* indigo: the accent stepped into the dark band (#818cf8 is L .68, outside) */
+  --chart-2: #d95926; /* orange */
+  /* Heatmap ordinal ramp, dark: brighter = worse. */
+  --chart-hm-1: #184f95;
+  --chart-hm-2: #2a78d6;
+  --chart-hm-3: #6da7ec;
+  --chart-hm-4: #b7d3f6;
+  --chart-grid: #1e293b;
+  --chart-axis: #334155;
+  --chart-surface: var(--c-surface);
   /* Isometric identity: the landing hero's plane, as dashboard tokens. The slab face,
      and the faint 2:1 grid with its accent glow. Decorative only: no text sits on
      --c-iso-grid. */
@@ -325,6 +362,16 @@
   --c-iso-glow: rgba(79, 70, 229, 0.1);
   --c-fig-side: #eceff4;
   --c-fig-side-2: #d9dee7;
+  /* Chart roles, SELECTED for the white surface (validator runs above). */
+  --chart-1: #4f46e5;
+  --chart-2: #eb6834;
+  /* Heatmap ordinal ramp, light: darker = worse. */
+  --chart-hm-1: #86b6ef;
+  --chart-hm-2: #3987e5;
+  --chart-hm-3: #1c5cab;
+  --chart-hm-4: #0d366b;
+  --chart-grid: #eef2f6;
+  --chart-axis: #cbd5e1;
 }
 
 /* ─── Responsive token overrides ─── */

@@ -143,12 +143,14 @@ func fetch(t *testing.T, srv *httptest.Server, path string) (int, string) {
 
 type statsBody struct {
 	stats.Stats
-	Buckets          []StatsBucket       `json:"buckets"`
-	EnvironmentOrder string              `json:"environmentOrder"`
-	Environments     []StatsEnvironment  `json:"environments"`
-	Services         []StatsServiceRow   `json:"services"`
-	ServicesTotal    int                 `json:"servicesTotal"`
-	CoverageNow      *runrecord.Coverage `json:"coverageNow"`
+	Buckets          []StatsBucket        `json:"buckets"`
+	EnvironmentOrder string               `json:"environmentOrder"`
+	Environments     []StatsEnvironment   `json:"environments"`
+	Services         []StatsServiceRow    `json:"services"`
+	ServicesTotal    int                  `json:"servicesTotal"`
+	CoverageNow      *runrecord.Coverage  `json:"coverageNow"`
+	EnvironmentsBy   StatsEnvironmentsBy  `json:"environmentsBy"`
+	LeadTimeGroups   []StatsLeadTimeGroup `json:"leadTimeGroups"`
 }
 
 func getStatsBody(t *testing.T, srv *httptest.Server, query string) (statsBody, string) {
@@ -792,5 +794,423 @@ func TestStatsClockDefaultsToNow(t *testing.T) {
 	before := time.Now()
 	if got := NewServer(Options{}).now(); got.Before(before) {
 		t.Fatalf("now = %v", got)
+	}
+}
+
+// ownersFleetQuery: orders (team checkout, domain commerce) runs in shop,
+// billing (team payments, domain finance) in vault, catalog (no owner, no
+// domain) and ledger (team books, a real domain named unknown) in shop.
+func ownersFleetQuery(t *testing.T, partial bool) *fleet.Query {
+	t.Helper()
+	rev := func(name string, owner contract.Owner, domain string, d byte) fleet.RawRevision {
+		c := &contract.Contract{PactoVersion: "2.4", Service: contract.Service{Name: name, Version: "1.0.0", Owner: owner, Domain: domain}}
+		return fleet.RawRevision{Bundle: &contract.Bundle{Contract: c, FS: fstest.MapFS{}}, Digest: sha(d)}
+	}
+	target := func(ns, name string) fleet.RawTarget {
+		return fleet.RawTarget{Scope: ns, Kind: fleet.SourceKindKubernetes, Name: name, Service: name, Compliance: fleet.StatusCompliant}
+	}
+	col := &fleet.Collection{
+		Revisions: []fleet.RawRevision{rev("orders", contract.Owner{Team: "checkout"}, "commerce", 'a'), rev("billing", contract.Owner{Team: "payments"}, "finance", 'c'),
+			rev("catalog", contract.Owner{}, "", 'e'), rev("ledger", contract.Owner{Team: "books"}, "unknown", 'f')},
+		Targets: []fleet.RawTarget{target("shop", "orders"), target("vault", "billing"), target("shop", "catalog"), target("shop", "ledger")},
+	}
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: func() time.Time { return statsNowAt.Add(-time.Hour) }},
+		fleet.NewMemorySource("k8s", "kubernetes", col))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if partial {
+		snap.Completeness = fleet.CompletenessPartial
+	}
+	return fleet.NewQuery(snap)
+}
+
+// ownersSet: production delivers orders twice and billing once.
+func ownersSet() stats.RecordSet {
+	return recordSet(
+		opRec("orders", "shop", "prod", "production", ago(10)),
+		opRec("orders", "shop", "prod", "production", ago(8)),
+		opRec("billing", "vault", "prod", "production", ago(9)),
+		ciRec(runrecord.KindDiff, "orders", sha('a'), sha('b'), ago(20)),
+	)
+}
+
+func groupEnvs(groups []StatsEnvironmentGroup, key string) []stats.EnvironmentMetrics {
+	for _, g := range groups {
+		if g.Key == key {
+			return g.Environments
+		}
+	}
+	return nil
+}
+
+// aggregateEnvGroups is what pacto stats --by says per group, as
+// environmentsBy carries it.
+func aggregateEnvGroups(set stats.RecordSet, w stats.Window, by string, sc stats.Scope) []StatsEnvironmentGroup {
+	out := []StatsEnvironmentGroup{}
+	for _, g := range stats.Aggregate(set, stats.Query{Window: w, By: by}, sc, statsNowAt).Groups {
+		envs := g.Metrics.Environments
+		if envs == nil {
+			envs = []stats.EnvironmentMetrics{}
+		}
+		out = append(out, StatsEnvironmentGroup{Key: g.Key, Label: g.Label, Environments: envs})
+	}
+	return out
+}
+
+func TestStatsEnvironmentsByOwner(t *testing.T) {
+	q, set := ownersFleetQuery(t, false), ownersSet()
+	b, _ := getStatsBody(t, statsServer(t, Options{Stats: fixedSet(set), Fleet: fleetOf(q)}), "")
+	by := b.EnvironmentsBy
+	checkout, payments := groupEnvs(by.Owner, "team:checkout"), groupEnvs(by.Owner, "team:payments")
+	if len(checkout) != 1 || checkout[0].Environment != "production" || checkout[0].Operations != 2 ||
+		len(payments) != 1 || payments[0].Environment != "production" || payments[0].Operations != 1 {
+		t.Fatalf("production must count under each owner with only its promotions: %+v", by.Owner)
+	}
+	if finance := groupEnvs(by.Domain, "finance"); len(finance) != 1 || finance[0].Operations != 1 {
+		t.Fatalf("domains = %+v", by.Domain)
+	}
+}
+
+func TestStatsEnvironmentsByEqualsAggregate(t *testing.T) {
+	q, set := ownersFleetQuery(t, false), ownersSet()
+	b, _ := getStatsBody(t, statsServer(t, Options{Stats: fixedSet(set), Fleet: fleetOf(q)}), "")
+	by := b.EnvironmentsBy
+	if by.Attribution == nil || by.Attribution.Provenance != "inferred" || by.Attribution.Partial || by.Attribution.SnapshotID == "" {
+		t.Fatalf("attribution = %+v", by.Attribution)
+	}
+	sc := stats.Scope{Place: stats.FleetPlacement(q, nil), Snapshot: statsAttribution(q)}
+	for name, got := range map[string][]StatsEnvironmentGroup{"owner": by.Owner, "domain": by.Domain} {
+		if want := aggregateEnvGroups(set, b.Window, name, sc); !reflect.DeepEqual(got, want) {
+			t.Fatalf("by %s = %+v, stats.Aggregate says %+v", name, got, want)
+		}
+	}
+	if hasLimitation(b.Limitations, stats.LimitationAttributionPartial) || b.Completeness != fleet.CompletenessComplete {
+		t.Fatalf("a complete snapshot: %s, %v", b.Completeness, b.Limitations)
+	}
+}
+
+func TestStatsEnvironmentsByUnknownKeys(t *testing.T) {
+	set := recordSet(
+		opRec("phantom", "shop", "prod", "production", ago(5)),
+		opRec("catalog", "shop", "prod", "production", ago(5)),
+		opRec("ledger", "shop", "prod", "production", ago(5)),
+	)
+	b, _ := getStatsBody(t, statsServer(t, Options{Stats: fixedSet(set), Fleet: fleetOf(ownersFleetQuery(t, false))}), "")
+	keys := func(groups []StatsEnvironmentGroup) string {
+		var out []string
+		for _, g := range groups {
+			out = append(out, g.Key+"="+g.Label)
+		}
+		return strings.Join(out, ",")
+	}
+	if got := keys(b.EnvironmentsBy.Owner); got != "team:books=books,(unknown)=unknown,(unowned)=unowned" {
+		t.Fatalf("owner keys = %s", got)
+	}
+	if got := keys(b.EnvironmentsBy.Domain); got != "unknown=unknown,(none)=none,(unknown)=unknown" {
+		t.Fatalf("domain keys = %s: a real domain named unknown must stay apart from (unknown)", got)
+	}
+}
+
+func TestStatsEnvironmentsByAttributionPartial(t *testing.T) {
+	b, _ := getStatsBody(t, statsServer(t, Options{Stats: fixedSet(ownersSet()), Fleet: fleetOf(ownersFleetQuery(t, true))}), "")
+	n := 0
+	for _, l := range b.Limitations {
+		if l.Code == stats.LimitationAttributionPartial {
+			n++
+		}
+	}
+	if n != 1 || b.EnvironmentsBy.Attribution == nil || !b.EnvironmentsBy.Attribution.Partial || b.Completeness != fleet.CompletenessPartial {
+		t.Fatalf("partial snapshot: %d ATTRIBUTION_PARTIAL, attribution %+v, completeness %s", n, b.EnvironmentsBy.Attribution, b.Completeness)
+	}
+}
+
+func TestStatsEnvironmentsByRestrictedNeverNamesHidden(t *testing.T) {
+	opts := Options{Stats: fixedSet(ownersSet()), Fleet: fleetOf(ownersFleetQuery(t, false)), View: shopView, OperationAccess: shopAccess}
+	b, raw := getStatsBody(t, statsServer(t, opts), "")
+	assertNotNamed(t, raw, "billing", "payments", "finance", "vault")
+	if checkout := groupEnvs(b.EnvironmentsBy.Owner, "team:checkout"); len(b.EnvironmentsBy.Owner) != 1 || len(checkout) != 1 || checkout[0].Operations != 2 {
+		t.Fatalf("restricted owners = %+v", b.EnvironmentsBy.Owner)
+	}
+}
+
+func TestStatsEnvironmentsByEmptyIsArray(t *testing.T) {
+	b, raw := getStatsBody(t, statsServer(t, Options{Stats: fixedSet(stats.RecordSet{})}), "")
+	if !strings.Contains(raw, `"environmentsBy":{"owner":[],"domain":[]}`) || b.EnvironmentsBy.Attribution != nil {
+		t.Fatalf("empty answer: %s", raw)
+	}
+}
+
+// promoted is a publish of digest d by service and its verified promote on
+// the Stage ns/env into env lead later, finishing at at.
+func promoted(service, ns, env string, d byte, at time.Time, lead time.Duration) []runrecord.Record {
+	pub := runrecord.Record{Version: runrecord.Version, ID: runrecord.ID(runrecord.KindPublish, service, "", sha(d)), Kind: runrecord.KindPublish,
+		Service: service, NewRevision: sha(d), DeployDigest: sha(d), Outcome: runrecord.OutcomePassed, RecordedAt: at.Add(-lead)}
+	op := opRec(service, ns, env, env, at)
+	op.To = sha(d)
+	return []runrecord.Record{pub, op}
+}
+
+func joined(parts ...[]runrecord.Record) stats.RecordSet {
+	var recs []runrecord.Record
+	for _, p := range parts {
+		recs = append(recs, p...)
+	}
+	return recordSet(recs...)
+}
+
+func envByName(t *testing.T, envs []StatsEnvironment, name string) StatsEnvironment {
+	t.Helper()
+	for _, e := range envs {
+		if e.Environment == name {
+			return e
+		}
+	}
+	t.Fatalf("no environment %s in %s", name, envNames(envs))
+	return StatsEnvironment{}
+}
+
+func depthOf(e StatsEnvironment) string {
+	if e.Depth == nil {
+		return "none"
+	}
+	return fmt.Sprint(*e.Depth)
+}
+
+func groupKeys(groups []StatsLeadTimeGroup) string {
+	var out []string
+	for _, g := range groups {
+		out = append(out, g.Key)
+	}
+	return strings.Join(out, ",")
+}
+
+// ladderStages: test feeds prod, prod feeds prod-eu and prod-us; solo is an
+// isolated single Stage. The names sort opposite to the Stage graph (zz-test
+// first in the graph, last by name) so a depth read from a name would show.
+func ladderStages() []delivery.StageObject {
+	return []delivery.StageObject{
+		stageTo("zz-test", "zz-test", ""), stageTo("mm-prod", "mm-prod", "zz-test"),
+		stageTo("aa-eu", "aa-eu", "mm-prod"), stageTo("ab-us", "ab-us", "mm-prod"), stageTo("solo", "solo", ""),
+	}
+}
+
+// ladderSet promotes into every ladder environment: aa-eu leads 1h, 1h and
+// 1h, ab-us 10h, zz-test 2h, mm-prod 3h and solo 4h, all inside the
+// newest bucket of a 30d window, plus one aa-eu promotion two weeks back.
+func ladderSet() stats.RecordSet {
+	h := time.Hour
+	return joined(
+		promoted("orders", "shop", "aa-eu", '1', ago(2), h), promoted("orders", "shop", "aa-eu", '2', ago(3), h),
+		promoted("orders", "shop", "aa-eu", '3', ago(4), h), promoted("orders", "shop", "ab-us", '4', ago(2), 10*h),
+		promoted("orders", "shop", "zz-test", '5', ago(2), 2*h), promoted("orders", "shop", "mm-prod", '6', ago(2), 3*h),
+		promoted("orders", "shop", "solo", '7', ago(2), 4*h), promoted("orders", "shop", "aa-eu", '8', ago(14*24), 5*h),
+	)
+}
+
+func ladderOpts(stages []delivery.StageObject, set stats.RecordSet) Options {
+	api := stagesDelivery{stages: stages}
+	return Options{Stats: fixedSet(set), Delivery: func(*http.Request) (DeliveryAPI, error) { return api, nil }}
+}
+
+func TestStatsEnvironmentDepthFromStages(t *testing.T) {
+	b, _ := getStatsBody(t, statsServer(t, ladderOpts(ladderStages(), ladderSet())), "")
+	for name, want := range map[string]string{"zz-test": "0", "mm-prod": "1", "aa-eu": "2", "ab-us": "2", "solo": "0"} {
+		if got := depthOf(envByName(t, b.Environments, name)); got != want {
+			t.Fatalf("%s depth = %s, want %s", name, got, want)
+		}
+	}
+	eu := envByName(t, b.Environments, "aa-eu")
+	if !reflect.DeepEqual(eu.Upstream, []string{"mm-prod", "zz-test"}) || !reflect.DeepEqual(eu.Parents, []string{"mm-prod"}) {
+		t.Fatalf("aa-eu upstream %v, parents %v: parents is the transitive reduction", eu.Upstream, eu.Parents)
+	}
+	for name, want := range map[string]bool{"aa-eu": true, "ab-us": true, "mm-prod": false, "zz-test": false, "solo": false} {
+		if got := envByName(t, b.Environments, name).ChainEnd; got != want {
+			t.Fatalf("%s chainEnd = %v, want %v (a root-only environment is never a chain end)", name, got, want)
+		}
+	}
+	if p := envByName(t, b.Environments, "zz-test").Parents; p != nil {
+		t.Fatalf("a root has parents %v", p)
+	}
+}
+
+func TestStatsEnvironmentDepthCycleIsAbsent(t *testing.T) {
+	stages := []delivery.StageObject{stageTo("a", "a", "b"), stageTo("b", "b", "a"), stageTo("c", "c", "b"), stageTo("r", "r", "")}
+	set := joined(promoted("orders", "shop", "a", '1', ago(2), time.Hour), promoted("orders", "shop", "b", '2', ago(2), time.Hour),
+		promoted("orders", "shop", "c", '3', ago(2), time.Hour), promoted("orders", "shop", "r", '4', ago(2), time.Hour))
+	b, _ := getStatsBody(t, statsServer(t, ladderOpts(stages, set)), "")
+	for _, name := range []string{"a", "b", "c"} {
+		if e := envByName(t, b.Environments, name); e.Depth != nil || e.ChainEnd || e.Parents != nil {
+			t.Fatalf("%s on or below a cycle: depth %s, chainEnd %v, parents %v", name, depthOf(e), e.ChainEnd, e.Parents)
+		}
+	}
+	if depthOf(envByName(t, b.Environments, "r")) != "0" {
+		t.Fatal("an environment off the cycle loses its depth")
+	}
+	if got := groupKeys(b.LeadTimeGroups); got != "depth-0,all" {
+		t.Fatalf("groups = %s", got)
+	}
+}
+
+func TestStatsEnvironmentDepthNoReadableStage(t *testing.T) {
+	set := joined(promoted("orders", "shop", "lab", '9', ago(2), time.Hour))
+	set.Entries = append(set.Entries, ladderSet().Entries...)
+	b, _ := getStatsBody(t, statsServer(t, ladderOpts(ladderStages(), set)), "")
+	if lab := envByName(t, b.Environments, "lab"); lab.Depth != nil || lab.ChainEnd || lab.Parents != nil || len(lab.Upstream) != 0 {
+		t.Fatalf("lab has no readable Stage, yet %+v", lab)
+	}
+	if !hasLimitation(b.Limitations, LimitationEnvironmentOrderUnknown) || b.EnvironmentOrder != "stages" {
+		t.Fatalf("partial order: %s %v", b.EnvironmentOrder, b.Limitations)
+	}
+	for _, g := range b.LeadTimeGroups {
+		if g.Key == "all" {
+			t.Fatal("an all group beside a chain end")
+		}
+	}
+}
+
+func TestStatsNameOrderHasNoDepth(t *testing.T) {
+	b, _ := getStatsBody(t, statsServer(t, Options{Stats: fixedSet(ladderSet())}), "")
+	for _, e := range b.Environments {
+		if e.Depth != nil || e.ChainEnd || e.Parents != nil {
+			t.Fatalf("name order placed %+v", e)
+		}
+	}
+	if len(b.LeadTimeGroups) != 1 || b.LeadTimeGroups[0].Key != "all" || b.LeadTimeGroups[0].Label != "every environment" ||
+		b.LeadTimeGroups[0].Environments != 5 || b.LeadTimeGroups[0].LeadTime.Joined != 8 {
+		t.Fatalf("groups = %+v", b.LeadTimeGroups)
+	}
+	// No environment, no group.
+	b, raw := getStatsBody(t, statsServer(t, Options{Stats: fixedSet(stats.RecordSet{})}), "")
+	if !strings.Contains(raw, `"leadTimeGroups":[]`) || len(b.LeadTimeGroups) != 0 {
+		t.Fatalf("empty answer: %s", raw)
+	}
+}
+
+func TestStatsLeadTimeGroupsChainEnd(t *testing.T) {
+	set := ladderSet()
+	b, _ := getStatsBody(t, statsServer(t, ladderOpts(ladderStages(), set)), "")
+	if got := groupKeys(b.LeadTimeGroups); got != "chain-end,depth-0,depth-1,depth-2" {
+		t.Fatalf("groups = %s", got)
+	}
+	labels := map[string]string{"chain-end": "chain end", "depth-0": "entry", "depth-1": "hop 2", "depth-2": "hop 3"}
+	members := map[string][]string{"chain-end": {"aa-eu", "ab-us"}, "depth-0": {"zz-test", "solo"}, "depth-1": {"mm-prod"}, "depth-2": {"aa-eu", "ab-us"}}
+	window := stats.LeadTimesIn(set, stats.Query{Window: b.Window}, stats.Scope{}, statsNowAt, members)
+	for _, g := range b.LeadTimeGroups {
+		if g.Label != labels[g.Key] || g.Environments != len(members[g.Key]) || !reflect.DeepEqual(g.LeadTime, window[g.Key]) {
+			t.Fatalf("%s = %+v, want label %q and %+v", g.Key, g, labels[g.Key], window[g.Key])
+		}
+		if (g.Key == "chain-end") != (g.Depth == nil) {
+			t.Fatalf("%s depth = %v", g.Key, g.Depth)
+		}
+		if len(g.Buckets) != len(b.Buckets) {
+			t.Fatalf("%s has %d buckets, the answer %d", g.Key, len(g.Buckets), len(b.Buckets))
+		}
+		for i, bk := range b.Buckets {
+			want := stats.LeadTimesIn(set, stats.Query{Window: stats.Window{Since: bk.Since, Until: bk.Until}}, stats.Scope{}, statsNowAt, members)[g.Key]
+			if !reflect.DeepEqual(g.Buckets[i], want) {
+				t.Fatalf("%s bucket %d = %+v, want %+v", g.Key, i, g.Buckets[i], want)
+			}
+		}
+	}
+	end := b.LeadTimeGroups[0].LeadTime
+	if end.Joined != 5 || *end.P50Seconds != 3600 || *end.P90Seconds != 10*3600 {
+		t.Fatalf("chain end = %+v: the pooled promotions are 1h, 1h, 1h, 5h and 10h", end)
+	}
+}
+
+func TestStatsLeadTimeGroupsNoChainEndFallsBackToAll(t *testing.T) {
+	stages := []delivery.StageObject{stageTo("a", "a", "b"), stageTo("b", "b", "a")}
+	set := joined(promoted("orders", "shop", "a", '1', ago(2), time.Hour), promoted("orders", "shop", "b", '2', ago(2), 3*time.Hour))
+	b, _ := getStatsBody(t, statsServer(t, ladderOpts(stages, set)), "")
+	if b.EnvironmentOrder != "stages" || groupKeys(b.LeadTimeGroups) != "all" || b.LeadTimeGroups[0].Environments != 2 || b.LeadTimeGroups[0].LeadTime.Joined != 2 {
+		t.Fatalf("%s: groups = %+v", b.EnvironmentOrder, b.LeadTimeGroups)
+	}
+}
+
+func TestStatsLeadTimeGroupsUnknownBucket(t *testing.T) {
+	b, _ := getStatsBody(t, statsServer(t, ladderOpts(ladderStages(), ladderSet())), "")
+	end := b.LeadTimeGroups[0]
+	last := len(end.Buckets) - 1
+	if !end.Buckets[0].Unknown || end.Buckets[0].P50Seconds != nil || end.Buckets[0].Joined != 0 {
+		t.Fatalf("a bucket with no promotion = %+v, want unknown", end.Buckets[0])
+	}
+	if end.Buckets[last].Unknown || end.Buckets[last].Joined != 4 {
+		t.Fatalf("newest bucket = %+v", end.Buckets[last])
+	}
+	if !slices.ContainsFunc(end.Buckets, func(l stats.LeadTime) bool { return !l.Unknown && l.Joined == 1 }) {
+		t.Fatalf("the two-week-old promotion has no bucket: %+v", end.Buckets)
+	}
+}
+
+func TestStatsRestrictedEnvironmentFieldsVisibleOnly(t *testing.T) {
+	h := time.Hour
+	set := joined(
+		promoted("orders", "shop", "staging", '1', ago(3), h), promoted("orders", "shop", "production", '2', ago(2), 2*h),
+		promoted("billing", "vault", "books-env", '3', ago(2), 9*h),
+	)
+	api := stagesDelivery{stages: []delivery.StageObject{stageTo("staging", "staging", ""), stageTo("production", "production", "staging")}}
+	opts := Options{Stats: fixedSet(set), Fleet: fleetOf(statsFleetQuery(t, false)), View: shopView, OperationAccess: shopAccess,
+		Delivery: func(*http.Request) (DeliveryAPI, error) { return api, nil }}
+	b, raw := getStatsBody(t, statsServer(t, opts), "")
+	assertNotNamed(t, raw, "billing", "vault", "books-env")
+	prod := envByName(t, b.Environments, "production")
+	if len(b.Environments) != 2 || depthOf(prod) != "1" || !prod.ChainEnd || !reflect.DeepEqual(prod.Parents, []string{"staging"}) {
+		t.Fatalf("restricted environments = %+v", b.Environments)
+	}
+	if groupKeys(b.LeadTimeGroups) != "chain-end,depth-0,depth-1" || b.LeadTimeGroups[0].LeadTime.Joined != 1 || *b.LeadTimeGroups[0].LeadTime.P50Seconds != 7200 {
+		t.Fatalf("restricted groups = %+v", b.LeadTimeGroups)
+	}
+}
+
+func TestStatsEnvironmentDepthDanglingUpstreamIsAbsent(t *testing.T) {
+	// production names staging, whose Stage the caller cannot read (or that
+	// no longer exists): something feeds production, so it is no entry.
+	stages := []delivery.StageObject{stageTo("production", "production", "staging"), stageTo("dr", "dr", "production"), stageTo("r", "r", "")}
+	set := joined(promoted("orders", "shop", "production", '1', ago(2), time.Hour), promoted("orders", "shop", "dr", '2', ago(2), time.Hour),
+		promoted("orders", "shop", "r", '3', ago(2), time.Hour))
+	b, _ := getStatsBody(t, statsServer(t, ladderOpts(stages, set)), "")
+	for _, name := range []string{"production", "dr"} {
+		if e := envByName(t, b.Environments, name); e.Depth != nil || e.ChainEnd || e.Parents != nil {
+			t.Fatalf("%s at or below a dangling upstream: depth %s, chainEnd %v, parents %v", name, depthOf(e), e.ChainEnd, e.Parents)
+		}
+	}
+	if depthOf(envByName(t, b.Environments, "r")) != "0" || groupKeys(b.LeadTimeGroups) != "depth-0,all" {
+		t.Fatalf("r depth %s, groups %s", depthOf(envByName(t, b.Environments, "r")), groupKeys(b.LeadTimeGroups))
+	}
+}
+
+// partialStages refuses the cluster-wide list and the namespace prod.
+type partialStages struct {
+	stagesDelivery
+}
+
+func (d partialStages) Stages(_ context.Context, ns string) ([]delivery.StageObject, error) {
+	if ns == "" || ns == "prod" {
+		return nil, &DeliveryError{Status: http.StatusForbidden}
+	}
+	return d.stages, nil
+}
+
+func (partialStages) StageNamespaces(context.Context) ([]string, error) {
+	return []string{"shop", "prod"}, nil
+}
+
+func TestStatsPartialStageReadSaysSo(t *testing.T) {
+	api := partialStages{stagesDelivery{stages: []delivery.StageObject{stageTo("dev", "dev", ""), stageTo("staging", "staging", "dev")}}}
+	set := joined(promoted("orders", "shop", "dev", '1', ago(2), time.Hour), promoted("orders", "shop", "staging", '2', ago(2), time.Hour))
+	opts := Options{Stats: fixedSet(set), Delivery: func(*http.Request) (DeliveryAPI, error) { return api, nil }}
+	b, _ := getStatsBody(t, statsServer(t, opts), "")
+	if b.EnvironmentOrder != "stages" || !slices.ContainsFunc(b.Limitations, func(l fleet.Limitation) bool {
+		return l.Code == LimitationEnvironmentOrderUnknown && strings.Contains(l.Message, "some Stages could not be read")
+	}) {
+		t.Fatalf("a partial Stage read reads as complete: %s %v", b.EnvironmentOrder, b.Limitations)
+	}
+}
+
+func TestStatsEmptyWindowStaysEmptyOnPartialSnapshot(t *testing.T) {
+	b, _ := getStatsBody(t, statsServer(t, Options{Stats: fixedSet(stats.RecordSet{}), Fleet: fleetOf(ownersFleetQuery(t, true))}), "")
+	if b.Completeness != fleet.CompletenessEmpty || hasLimitation(b.Limitations, stats.LimitationAttributionPartial) {
+		t.Fatalf("no records, partial snapshot: completeness %s, limitations %v", b.Completeness, b.Limitations)
 	}
 }
