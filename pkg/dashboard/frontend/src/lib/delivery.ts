@@ -472,9 +472,9 @@ const GATE_LABELS: Record<string, string> = {
 // ── Who applies a Stage's workloads ─────────────────────────────────────────
 
 /**
- * The promoter rewrites a Stage's applier asOf at least once per resync (a
- * minute by default), so twice that means it stopped checking
- * (delivery.ApplierStaleAfter).
+ * The promoter rewrites a Stage's applier asOf at least once per resync and
+ * stamps staleAt twice its resync later; a status without staleAt falls back
+ * to twice the default resync (delivery.ApplierStaleAfter).
  */
 const APPLIER_STALE_MS = 2 * 60_000;
 
@@ -493,14 +493,25 @@ export interface ApplierLine {
  * applierLine is a Stage's applier as one line says it, or null when the
  * promoter reports none. Only Adopted and Unmanaged read as plain: Conflict
  * and Unknown say why in visible words, and so does a stale observation.
+ * now is the server's clock (the listing's asOf), so a browser clock that
+ * runs ahead never marks a healthy promoter stale. ready is the row's Ready
+ * condition: when the applier is itself the reason, the Cannot promote line
+ * already says why, so the problem is not repeated.
  */
-export function applierLine(a: { state?: string; display?: string; manager?: string; message?: string; asOf?: string } | null | undefined,
-  now = Date.now()): ApplierLine | null {
+/** serverNow is the listing's asOf as a clock, or the browser's without one. */
+export function serverNow(asOf: string | undefined): number {
+  return Date.parse(asOf ?? '') || Date.now();
+}
+
+export function applierLine(a: { state?: string; display?: string; manager?: string; message?: string; asOf?: string; staleAt?: string } | null | undefined,
+  now = Date.now(), ready = ''): ApplierLine | null {
   if (!a) return null;
   const bad = a.state === 'Conflict' || a.state === 'Unknown';
-  const stale = !!a.asOf && now - Date.parse(a.asOf) > APPLIER_STALE_MS;
+  const staleAt = a.staleAt ? Date.parse(a.staleAt) : Date.parse(a.asOf ?? '') + APPLIER_STALE_MS;
+  const stale = !!a.asOf && now > staleAt;
   const display = a.display || a.manager || 'not known';
-  const problem = bad ? `${a.state!.toLowerCase()}: ${a.message ?? ''}` : '';
+  const said = /^False: Applier(Conflict|Unknown)\b/.test(ready);
+  const problem = bad && !said ? `${a.state!.toLowerCase()}: ${a.message ?? ''}` : '';
   const asOf = a.asOf ? `as of ${timeLabel(a.asOf)}${stale ? ', stale: the promoter has not checked since' : ''}` : '';
   return { display, problem, asOf, warn: bad || stale, text: `Applier: ${display}${problem ? `, ${problem}` : ''}${asOf ? ` (${asOf})` : ''}` };
 }

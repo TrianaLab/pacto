@@ -3,7 +3,7 @@
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { deliveryHistoryUrl, deliveryEnvironmentsUrl, deliveryInboxUrl, deliveryAutonomyUrl, deliveryPublishUrl, deliveryChangeUrl, fleetEntityUrl } from '../lib/router.ts';
-  import { shortDigest, sentence, exceptParam, levelLabel, levelHelp, checkText, watchText, timeLabel, andList, typeLabel, progressStamp, isCommand, applierLine } from '../lib/delivery.ts';
+  import { shortDigest, sentence, exceptParam, levelLabel, levelHelp, checkText, watchText, timeLabel, andList, typeLabel, progressStamp, isCommand, applierLine, serverNow } from '../lib/delivery.ts';
   import { completenessClass, completenessLabel } from '../lib/format.ts';
   import { sourceProblem, upstreamText } from '../lib/envFigure.ts';
   import EnvMark from './figure/EnvMark.svelte';
@@ -111,7 +111,7 @@
     {@const source = upstreamText(r)}
     {@const last = lastOf.get(keyOf(r))}
     {@const why = whys[keyOf(r)]}
-    {@const applier = applierLine(r.applier)}
+    {@const applier = applierLine(r.applier, serverNow(data?.asOf), r.ready)}
     <div class="sd-row" data-testid="service-delivery-row">
       <div class="sd-head">
         <bdi class="sd-env">{r.environment}</bdi>

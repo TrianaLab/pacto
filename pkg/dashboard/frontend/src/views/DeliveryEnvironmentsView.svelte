@@ -4,7 +4,7 @@
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { deliveryHistoryUrl, deliveryEnvironmentsUrl, fleetEntityUrl } from '../lib/router.ts';
   import { deliveryServiceUrl } from '../lib/deliveryLinks.svelte.ts';
-  import { shortDigest, levelLabel, levelHelp, shadowLabel, heldButRan, timeLabel, sentence, andList, exceptList, exceptParam, offerLabel, offerRequest, checkText, applierLine } from '../lib/delivery.ts';
+  import { shortDigest, levelLabel, levelHelp, shadowLabel, heldButRan, timeLabel, sentence, andList, exceptList, exceptParam, offerLabel, offerRequest, checkText, applierLine, serverNow } from '../lib/delivery.ts';
   import { urlInt, limitParam } from '../lib/paging.ts';
   import { formatCount, countOf } from '../lib/format.ts';
   import Pager from '../components/Pager.svelte';
@@ -175,7 +175,7 @@
 
 {#snippet stack(svc, env)}
     {#each cell(svc, env) as r (r.namespace + '/' + r.stage)}
-      {@const applier = applierLine(r.applier)}
+      {@const applier = applierLine(r.applier, serverNow(data?.asOf), r.ready)}
       <div class="ev-cell" data-testid="env-cell" data-stage={`${r.namespace}/${r.stage}`}>
         {#if cell(svc, env).length > 1}<span class="t-meta ev-stage">{r.namespace}/{r.stage}</span>{/if}
         <span class="ev-head">
