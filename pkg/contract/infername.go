@@ -31,6 +31,9 @@ type Inferred struct {
 	Declare    string   `json:"declare,omitempty" yaml:"declare,omitempty"`
 	Class      string   `json:"class,omitempty" yaml:"class,omitempty"`
 	Outranks   []string `json:"outranks,omitempty" yaml:"outranks,omitempty"`
+	// External is set on a dependencies[<name>] field that names a system
+	// outside the cluster: its identity, sources and what else was read.
+	External *InferredExternal `json:"external,omitempty" yaml:"external,omitempty"`
 }
 
 var (

@@ -128,7 +128,7 @@ func TestDiscoveryRespectsDeclaredFilter(t *testing.T) {
 		{Name: "http", Type: "openapi", Ref: "api/openapi.v1.yaml"},
 		{Name: "api", Type: "openapi", Ref: "other.yaml"},
 	} {
-		rec, err := CompleteIn(specKindsDir, specKindsDir, &contract.Contract{Interfaces: []contract.Interface{iface}}, contract.InferredInputs{})
+		rec, err := CompleteIn(specKindsDir, specKindsDir, &contract.Contract{Interfaces: []contract.Interface{iface}}, contract.InferredInputs{}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -198,7 +198,7 @@ func TestAmbiguousSpecDeclaredRefChoosesOne(t *testing.T) {
 	})
 	for ref, want := range map[string]int{"api/openapi.v2.yaml": 0, "other.yaml": 1} {
 		d := &contract.Contract{Interfaces: []contract.Interface{{Name: "public", Type: "openapi", Ref: ref}}}
-		rec, err := CompleteIn(dir, dir, d, contract.InferredInputs{})
+		rec, err := CompleteIn(dir, dir, d, contract.InferredInputs{}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

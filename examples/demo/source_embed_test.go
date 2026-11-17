@@ -134,7 +134,7 @@ func newsletterCompletion(t *testing.T) *contract.InferredRecord {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := discover.CompleteIn(dir, dir, declared, contract.InferredInputs{})
+	got, err := discover.CompleteIn(dir, dir, declared, contract.InferredInputs{}, nil)
 	if err != nil || got == nil {
 		t.Fatalf("CompleteIn = %v, %v", got, err)
 	}

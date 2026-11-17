@@ -80,7 +80,61 @@ type InferredInputs struct {
 	Sources   []InferredSourceFile `json:"sources" yaml:"sources"`
 	// ChartDependencies are the chart dependencies Chart.lock pins.
 	ChartDependencies []InferredChartDependency `json:"chartDependencies,omitempty" yaml:"chartDependencies,omitempty"`
+	// Catalog is each external catalog completion classified with, as
+	// "<origin> <digest>": the default first, then the organization's.
+	Catalog []string `json:"catalog,omitempty" yaml:"catalog,omitempty"`
 }
+
+// InferredExternal is a system outside the cluster a folder names: its
+// identity, the origin of the catalog that classified it (none for an
+// unclassified host), every place the folder names it and, when read, the
+// client library and the managed resource.
+type InferredExternal struct {
+	Identity string                   `json:"identity" yaml:"identity"`
+	Catalog  string                   `json:"catalog,omitempty" yaml:"catalog,omitempty"`
+	Sources  []InferredExternalSource `json:"sources" yaml:"sources"`
+	Client   *InferredClient          `json:"client,omitempty" yaml:"client,omitempty"`
+	Resource *InferredResource        `json:"resource,omitempty" yaml:"resource,omitempty"`
+}
+
+// InferredExternalSource is one place a folder names an external: what kind
+// of source, the file, the line (0 when unknown), the key it sits under and
+// the host and port at most, never the value it was read from.
+type InferredExternalSource struct {
+	Kind string `json:"kind" yaml:"kind"`
+	Path string `json:"path" yaml:"path"`
+	Line int    `json:"line,omitempty" yaml:"line,omitempty"`
+	Key  string `json:"key,omitempty" yaml:"key,omitempty"`
+	Host string `json:"host,omitempty" yaml:"host,omitempty"`
+}
+
+// InferredClient is the client library a manifest lists for an external and
+// its major version, nil when unknown: never guessed.
+type InferredClient struct {
+	SDK   string `json:"sdk" yaml:"sdk"`
+	Major *int   `json:"major,omitempty" yaml:"major,omitempty"`
+}
+
+// InferredResource is the managed resource a folder provisions for an
+// external, with the identity parts it could not read.
+type InferredResource struct {
+	Type    string   `json:"type" yaml:"type"`
+	Name    string   `json:"name,omitempty" yaml:"name,omitempty"`
+	Missing []string `json:"missing,omitempty" yaml:"missing,omitempty"`
+}
+
+// InferredExternalKinds are the kinds of source an external is read from.
+var InferredExternalKinds = []string{"env", "configMap", "secretKeyRef", "secretRef", "helmValues", "compose", "kustomize", "sdk", "terraform", "crossplane"}
+
+var (
+	inferredHostRE    = regexp.MustCompile(`^[a-z0-9.-]+(:[0-9]{1,5})?$`)
+	inferredKeyRE     = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]*$`)
+	inferredCatalogRE = regexp.MustCompile(`^(default|organization) sha256:[0-9a-f]{64}$`)
+	// inferredIdentityRE is the shape of an external identity: one to five
+	// lower-case segments. pkg/contract imports no other Pacto package, so
+	// this is externalid's segment rule; the fleet parses it in full.
+	inferredIdentityRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9._-]{0,61}[a-z0-9])?(/[a-z0-9]([a-z0-9._-]{0,61}[a-z0-9])?){0,4}$`)
+)
 
 // InferredSourceFile is one file a record cites, with its sha256: a bundle
 // path, or "repository:<path>" for a repository file outside the bundle.
@@ -119,6 +173,11 @@ func ParseInferredRecord(data []byte) (*InferredRecord, error) {
 			return nil, fmt.Errorf("%s: findings[%d] needs a code and a relative source, has %q at %q", InferredRecordFile, i, f.Code, f.Source)
 		}
 	}
+	for i, c := range r.Inputs.Catalog {
+		if !inferredCatalogRE.MatchString(c) {
+			return nil, fmt.Errorf("%s: inputs.catalog[%d] is %q, want \"<default|organization> sha256:<64 hex>\"", InferredRecordFile, i, c)
+		}
+	}
 	for i, s := range r.Inputs.Sources {
 		if !inferredDigestRE.MatchString(s.Digest) {
 			return nil, fmt.Errorf("%s: inputs.sources[%d].digest is %q, want sha256:<64 hex>", InferredRecordFile, i, s.Digest)
@@ -152,7 +211,82 @@ func checkInferredField(f Inferred, seen map[string]bool) error {
 			return fmt.Errorf(".outranks %q is not a relative path", o)
 		}
 	}
+	if f.External != nil {
+		if !strings.HasPrefix(f.Field, "dependencies[") {
+			return fmt.Errorf(".external is on %q, want a dependencies[<name>] field", f.Field)
+		}
+		if err := checkInferredExternal(f.External); err != nil {
+			return fmt.Errorf(".external%s", err)
+		}
+	}
 	return nil
+}
+
+// checkInferredExternal is why x cannot be in a record, as a suffix of
+// "fields[i].external", or nil. A host with userinfo, a path that leaves the
+// folder or a key that is a URL is refused, so a hand-edited record never
+// carries a credential.
+func checkInferredExternal(x *InferredExternal) error {
+	if len(x.Identity) > 253 || !inferredIdentityRE.MatchString(x.Identity) || strings.Contains(x.Identity, "..") {
+		return fmt.Errorf(".identity %q is not an external identity", x.Identity)
+	}
+	if x.Catalog != "" && x.Catalog != "default" && x.Catalog != "organization" {
+		return fmt.Errorf(".catalog is %q, want default or organization", x.Catalog)
+	}
+	if len(x.Sources) == 0 {
+		return errors.New(".sources is empty")
+	}
+	for i, s := range x.Sources {
+		if err := checkExternalSource(s); err != nil {
+			return fmt.Errorf(".sources[%d]%s", i, err)
+		}
+	}
+	return checkClientResource(x.Client, x.Resource)
+}
+
+// checkClientResource is why an external's client c or resource r cannot be
+// in a record, or nil.
+func checkClientResource(c *InferredClient, r *InferredResource) error {
+	switch {
+	case c != nil && (c.SDK == "" || (c.Major != nil && *c.Major < 0)):
+		return errors.New(".client needs an sdk and a major that is not negative")
+	case r == nil:
+		return nil
+	case r.Type == "":
+		return errors.New(".resource.type is empty")
+	case slices.ContainsFunc(r.Missing, func(m string) bool { return m != "account" && m != "region" }):
+		return fmt.Errorf(".resource.missing is %q, want account or region", r.Missing)
+	}
+	return nil
+}
+
+// checkExternalSource is why s cannot be an external's source, or nil.
+func checkExternalSource(s InferredExternalSource) error {
+	switch {
+	case !slices.Contains(InferredExternalKinds, s.Kind):
+		return fmt.Errorf(".kind is %q", s.Kind)
+	case !validPath(s.Path) || strings.ContainsAny(s.Path, "?#"):
+		return fmt.Errorf(".path %q is not a relative path with no query", s.Path)
+	case s.Line < 0:
+		return errors.New(".line is negative")
+	case s.Key != "" && !inferredKeyRE.MatchString(s.Key):
+		return fmt.Errorf(".key %q is not a key name", s.Key)
+	case s.Host != "" && !inferredHostRE.MatchString(s.Host):
+		return fmt.Errorf(".host %q is not a host and port", s.Host)
+	}
+	return nil
+}
+
+// externalPaths are the files the external on f cites, none when f has none.
+func externalPaths(f Inferred) []string {
+	if f.External == nil {
+		return nil
+	}
+	out := make([]string, 0, len(f.External.Sources))
+	for _, s := range f.External.Sources {
+		out = append(out, s.Path)
+	}
+	return out
 }
 
 // validSource reports whether s is "<path>[:<line>]" with a valid path.
@@ -177,6 +311,17 @@ func (r *InferredRecord) Marshal() []byte {
 	slices.SortFunc(out.Fields, func(a, b Inferred) int {
 		return cmp.Or(strings.Compare(a.Field, b.Field), strings.Compare(a.Source, b.Source))
 	})
+	for i, f := range out.Fields {
+		if f.External != nil {
+			x := *f.External
+			x.Sources = slices.Clone(x.Sources)
+			slices.SortFunc(x.Sources, func(a, b InferredExternalSource) int {
+				return cmp.Or(strings.Compare(a.Path, b.Path), cmp.Compare(a.Line, b.Line), strings.Compare(a.Key, b.Key),
+					strings.Compare(a.Kind, b.Kind), strings.Compare(a.Host, b.Host))
+			})
+			out.Fields[i].External = &x
+		}
+	}
 	out.Findings = slices.Clone(r.Findings)
 	slices.SortFunc(out.Findings, func(a, b InferredFinding) int {
 		return cmp.Or(-cmp.Compare(boolInt(a.Code == InferredFindingTruncated), boolInt(b.Code == InferredFindingTruncated)),
@@ -231,7 +376,7 @@ func VerifyInferredRecord(fsys fs.FS, rec *InferredRecord) error {
 		}
 	}
 	for i, f := range rec.Fields {
-		for _, src := range append([]string{f.Source}, f.Outranks...) {
+		for _, src := range append(append([]string{f.Source}, f.Outranks...), externalPaths(f)...) {
 			if file := sourceFile(src); !listed[file] {
 				return fmt.Errorf("fields[%d] (%s) cites %s, which inputs.sources does not list", i, f.Field, file)
 			}
@@ -329,6 +474,9 @@ func InferredUnchanged(prev, next *Bundle, digest func(*Bundle) (string, error))
 		if in[1] != in[2] {
 			diffs = append(diffs, in[0]+" "+cmp.Or(in[1], "none")+" -> "+cmp.Or(in[2], "none"))
 		}
+	}
+	if a, b := strings.Join(pr.Inputs.Catalog, ", "), strings.Join(nr.Inputs.Catalog, ", "); a != b {
+		diffs = append(diffs, "catalog "+cmp.Or(a, "none")+" -> "+cmp.Or(b, "none"))
 	}
 	unchanged = slices.Equal(pr.Inputs.Sources, nr.Inputs.Sources)
 	if !unchanged {

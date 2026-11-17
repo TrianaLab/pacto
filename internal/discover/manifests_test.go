@@ -34,7 +34,7 @@ func TestManifestContainerPortLines(t *testing.T) {
 			t.Errorf("%s = %+v, want %s", name, f, want)
 		}
 	}
-	rec, err := CompleteIn(manifestsDir, manifestsDir, nil, contract.InferredInputs{})
+	rec, err := CompleteIn(manifestsDir, manifestsDir, nil, contract.InferredInputs{}, nil)
 	if err != nil || rec == nil {
 		t.Fatalf("record = %v, %v", rec, err)
 	}

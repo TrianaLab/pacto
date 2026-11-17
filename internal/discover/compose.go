@@ -57,18 +57,22 @@ func (r *reader) composePort(p string, n *yaml.Node) {
 }
 
 // composeEnv are the keys of the environment env, a list of KEY=value or KEY
-// entries, or a map. A value is never read.
+// entries, or a map. A value is never kept: it goes to the Values visitor
+// alone. An entry whose key is not a key name (a URL with no '=') is not
+// read.
 func (r *reader) composeEnv(p string, env *yaml.Node) {
-	var keys []*yaml.Node
 	if env != nil && env.Kind == yaml.MappingNode {
-		for i := 0; i < len(env.Content); i += 2 {
-			keys = append(keys, env.Content[i])
+		for i := 0; i+1 < len(env.Content); i += 2 {
+			if k := env.Content[i]; valueKeyRE.MatchString(k.Value) {
+				r.addKey(p, k.Line, rankCompose, k.Value)
+				r.value("compose", p, k.Line, k.Value, scalar(env.Content[i+1]))
+			}
 		}
 	}
-	keys = append(keys, items(env)...)
-	for _, k := range keys {
-		if name, _, _ := strings.Cut(scalar(k), "="); name != "" {
+	for _, k := range items(env) {
+		if name, value, _ := strings.Cut(scalar(k), "="); valueKeyRE.MatchString(name) {
 			r.addKey(p, k.Line, rankCompose, name)
+			r.value("compose", p, k.Line, name, value)
 		}
 	}
 }

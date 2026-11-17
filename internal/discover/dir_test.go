@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
 )
 
@@ -263,15 +264,17 @@ func TestDirLiteralsAndProperties(t *testing.T) {
 
 func TestDirExternals(t *testing.T) {
 	dir := folder(t)
-	sc, err := Dir(dir)
+	rec, err := Complete(dir, nil, contract.InferredInputs{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var where []string
-	for _, x := range sc.Externals(dir, externalcatalog.Default()) {
-		where = append(where, x.Identity+" "+x.Where)
+	for _, f := range rec.Fields {
+		for _, s := range externalSources(f) {
+			where = append(where, fmt.Sprintf("%s %s %s:%d %s", f.Value, s.Kind, s.Path, s.Line, s.Key))
+		}
 	}
-	for _, w := range []string{"stripe k8s/app.yaml, env STRIPE", "stripe chart/values.yaml:2 hosts", "stripe k8s/app.yaml, secretKeyRef creds/stripe-token (key name only)"} {
+	for _, w := range []string{"stripe env k8s/app.yaml:25 STRIPE", "stripe helmValues chart/values.yaml:2 hosts", "stripe secretKeyRef k8s/app.yaml:37 TOKEN"} {
 		if !slices.Contains(where, w) {
 			t.Errorf("externals miss %q: %q", w, where)
 		}
@@ -279,17 +282,20 @@ func TestDirExternals(t *testing.T) {
 	if slices.ContainsFunc(where, func(s string) bool { return strings.Contains(s, "chart2") }) {
 		t.Errorf("an ignored values.yaml was read: %q", where)
 	}
-	if !NamesHost(externalcatalog.NormalizeHost("https://api.stripe.com")) || NamesHost(externalcatalog.NormalizeHost("orders")) {
-		t.Error("NamesHost")
+	if !namesHost(externalcatalog.NormalizeHost("https://api.stripe.com")) || namesHost(externalcatalog.NormalizeHost("orders")) {
+		t.Error("namesHost")
 	}
-	if CommentSafe("a\nb c") != "a?b?c" || EnvWhere(EnvVar{File: "f", Name: "N\n"}) != "f, env N?" {
-		t.Error("CommentSafe")
+	if commentSafe("a\nb c") != "a?b c" {
+		t.Error("commentSafe")
 	}
-	visited := 0
-	(&Scan{}).ChartValues(dir, "chart", func(string, string, string) { visited++ })
-	if visited != 1 {
-		t.Errorf("chart values without a .pactoignore: %d", visited)
+}
+
+// externalSources are the sources of f's external, none when it has none.
+func externalSources(f contract.Inferred) []contract.InferredExternalSource {
+	if f.External == nil {
+		return nil
 	}
+	return f.External.Sources
 }
 
 func TestDirSecretRefExternal(t *testing.T) {
@@ -302,8 +308,8 @@ spec: {template: {spec: {containers: [{name: x, envFrom: [{secretRef: {name: str
 	if err != nil {
 		t.Fatal(err)
 	}
-	ext := sc.Externals(dir, externalcatalog.Default())
-	if len(ext) != 1 || ext[0].Where != "d.yaml, secretRef stripe-credentials (Secret name only)" {
+	ext, _ := sc.externals(nil, externalcatalog.Default())
+	if len(ext) != 1 || ext[0].Kind != "secretRef" || ext[0].Key != "stripe-credentials" || ext[0].Confidence != externalcatalog.ConfidencePossible {
 		t.Errorf("externals: %+v", ext)
 	}
 }

@@ -1,22 +1,26 @@
 package discover
 
 import (
+	"cmp"
 	"fmt"
-	"os"
-	"path"
-	"path/filepath"
+	"io/fs"
+	"maps"
+	"regexp"
 	"slices"
 	"strings"
 	"unicode"
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
+	"github.com/trianalab/pacto/v4/pkg/schemax"
 )
 
-// External is a system outside the cluster that the folder names: a vendor
-// API, a managed cloud service or a legacy host. Host is the host and port at
-// most, never the value it was read from.
+// External is one place the folder names a system outside the cluster: a
+// vendor API, a managed cloud service or a legacy host. It carries the kind
+// of source, the file, line and key, and the host and port at most, never the
+// value it was read from. Where is the same place on one printable line.
 type External struct {
 	Identity   string `json:"identity"`
 	Class      string `json:"class"`
@@ -24,68 +28,192 @@ type External struct {
 	Where      string `json:"where"`
 	Host       string `json:"host,omitempty"`
 	Entry      string `json:"entry,omitempty"`
+	Kind       string `json:"kind"`
+	Path       string `json:"path"`
+	Line       int    `json:"line,omitempty"`
+	Key        string `json:"key,omitempty"`
+	Origin     string `json:"origin,omitempty"`
 }
 
-// EnvWhere is where an environment variable is set, safe to print on one line.
-func EnvWhere(e EnvVar) string { return CommentSafe(e.File + ", env " + e.Name) }
+// valueKeyRE is a key a value is read under: an environment or values key,
+// never a URL or a line with no '='.
+var valueKeyRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]*$`)
 
-// Externals classifies the workload's environment and every chart's
-// values.yaml. A Secret contributes its name and key names, never a value.
-func (sc *Scan) Externals(dir string, cat *externalcatalog.Catalog) []External {
-	out := []External{}
-	add := func(where string, ms []externalcatalog.Match) {
+// value hands the string value at line of the file p, under key, to the
+// Values visitor. A key that is not a key name or is sensitive is never
+// handed over, so its value is never parsed.
+func (r *reader) value(kind, p string, line int, key, value string) {
+	if r.in.Values != nil && valueKeyRE.MatchString(key) && !schemax.SensitiveKey(key) {
+		r.in.Values(Value{Kind: kind, Path: p, Line: line, Key: key, Value: value})
+	}
+}
+
+// keyValue hands a KEY=VALUE line to the Values visitor; a line with no '='
+// is not read.
+func (r *reader) keyValue(kind, p string, line int, kv string) {
+	if key, value, ok := strings.Cut(kv, "="); ok {
+		r.value(kind, p, line, key, value)
+	}
+}
+
+// externals classifies, with cat, the workload's environment (a Secret
+// contributes its name and key names, never a value) and every value the
+// readers handed over. A value that names a host outside the cluster no
+// catalog entry identifies is a finding.
+func (sc *Scan) externals(values []Value, cat *externalcatalog.Catalog) ([]External, []contract.InferredFinding) {
+	var out []External
+	var findings []contract.InferredFinding
+	add := func(v Value, ms []externalcatalog.Match) {
+		if !valueKeyRE.MatchString(v.Key) {
+			v.Key = ""
+		}
+		if !recordable(v.Path) {
+			return
+		}
 		for _, m := range ms {
-			x := External{Identity: string(m.Identity), Class: m.Class, Confidence: m.Confidence, Where: CommentSafe(where), Host: m.Host, Entry: m.Entry}
+			x := External{Identity: string(m.Identity), Class: m.Class, Confidence: m.Confidence, Host: m.Host, Entry: m.Entry,
+				Kind: v.Kind, Path: v.Path, Line: v.Line, Key: v.Key, Origin: m.Origin, Where: v.where()}
 			if !slices.Contains(out, x) {
 				out = append(out, x)
 			}
 		}
 	}
-	for _, e := range sc.Env {
-		if e.Secret && e.Key != "" {
-			where := fmt.Sprintf("%s, secretKeyRef %s/%s (key name only)", e.File, e.Ref, e.Key)
-			add(where, cat.Classify("", e.Name))
-			add(where, cat.Classify("", e.Key))
-			continue
+	classify := func(v Value) {
+		ms := cat.Classify(v.Value, v.Key)
+		add(v, ms)
+		if recordable(v.Path) && !schemax.SensitiveKey(v.Key) && namesHost(externalcatalog.NormalizeHost(v.Value)) &&
+			!slices.ContainsFunc(ms, func(m externalcatalog.Match) bool { return m.Host != "" }) {
+			findings = append(findings, contract.InferredFinding{Code: CodeUnresolved, Source: v.source(), Message: unidentifiedHostMessage(v.where())})
 		}
-		add(EnvWhere(e), cat.Classify(e.Value, e.Name))
 	}
-	// A secretRef never reaches sc.env: its keys live in the Secret.
+	envValues, names := sc.envValues()
+	for _, v := range names {
+		add(v, cat.Classify("", v.Key))
+		add(v, cat.Classify("", v.Value))
+	}
+	for _, v := range append(envValues, values...) {
+		classify(v)
+	}
+	slices.SortStableFunc(out, func(a, b External) int {
+		return cmp.Or(strings.Compare(a.Identity, b.Identity), strings.Compare(a.Path, b.Path), cmp.Compare(a.Line, b.Line), strings.Compare(a.Key, b.Key))
+	})
+	return out, slices.Compact(findings)
+}
+
+// recordable reports whether a record source can name the path p.
+func recordable(p string) bool { return fs.ValidPath(p) && !strings.ContainsAny(p, ":?#") }
+
+// envValues are the workload's environment: the values to classify (env and
+// ConfigMap) and the names alone, never a Secret's value: a secretKeyRef's
+// variable with the Secret key name as its Value, and an envFrom
+// secretRef's Secret name as its Key, since its keys live in the Secret.
+func (sc *Scan) envValues() (values, names []Value) {
+	for _, e := range sc.Env {
+		file, line := splitLine(e.Source)
+		v := Value{Kind: "env", Path: cmp.Or(file, e.File), Line: line, Key: e.Name, Value: e.Value}
+		switch {
+		case e.Secret && e.Key != "":
+			v.Kind, v.Value = "secretKeyRef", e.Key
+			names = append(names, v)
+			continue
+		case e.From == "configmap":
+			v.Kind = "configMap"
+		}
+		values = append(values, v)
+	}
 	if sc.Workload != nil {
 		for _, e := range sc.Workload.Env {
 			if e.From == "secret" && e.Key == "" {
-				add(fmt.Sprintf("%s, secretRef %s (Secret name only)", e.File, e.Ref), cat.Classify("", e.Ref))
+				file, line := splitLine(e.Source)
+				names = append(names, Value{Kind: "secretRef", Path: cmp.Or(file, e.File), Line: line, Key: e.Ref})
 			}
 		}
 	}
-	for _, c := range sc.Charts {
-		sc.ChartValues(dir, c, func(where, value, key string) { add(where, cat.Classify(value, key)) })
+	return values, names
+}
+
+// source is the "<path>[:<line>]" of v.
+func (v Value) source() string {
+	if v.Line == 0 {
+		return v.Path
 	}
-	slices.SortStableFunc(out, func(a, b External) int {
-		return strings.Compare(a.Identity+"\x00"+a.Where, b.Identity+"\x00"+b.Where)
-	})
+	return at(v.Path, v.Line)
+}
+
+// where is "<path>[:<line>] <KEY>", safe to print on one line.
+func (v Value) where() string { return commentSafe(v.source() + " " + v.Key) }
+
+// unidentifiedHostMessage says the value at where names a host no catalog
+// entry identifies.
+func unidentifiedHostMessage(where string) string {
+	return where + " names a host outside the cluster that no catalog entry identifies: declare it in pacto.yaml if the service calls it"
+}
+
+// externalFields are the record fields of xs: one dependencies[<name>] per
+// identity, its value the identity, its source the first place that names
+// it with its confidence, the strongest, and every place in External.Sources.
+// taken reports a field another reader already gives, so the name falls back
+// to the whole identity; declared reports an external the contract declares,
+// which is left out. cited gets every file a source names.
+func externalFields(xs []External, taken func(field string) bool, declared func(name, identity string) bool, cited map[string]bool) []contract.Inferred {
+	byID := map[string][]External{}
+	for _, x := range xs {
+		byID[x.Identity] = append(byID[x.Identity], x)
+	}
+	var out []contract.Inferred
+	for _, id := range slices.Sorted(maps.Keys(byID)) {
+		group := byID[id]
+		name := DependencyName(id)
+		if taken("dependencies[" + name + "]") {
+			// ponytail: one fallback; two identities sanitizing alike would need a counter.
+			name = contract.SanitizeName(id)
+		}
+		if declared(name, id) {
+			continue
+		}
+		best := group[0]
+		if i := slices.IndexFunc(group, func(x External) bool { return x.Confidence == externalcatalog.ConfidenceLikely }); i >= 0 {
+			best = group[i]
+		}
+		x := &contract.InferredExternal{Identity: id, Catalog: best.Origin}
+		for _, g := range group {
+			s := contract.InferredExternalSource{Kind: g.Kind, Path: g.Path, Line: g.Line, Key: g.Key, Host: g.Host}
+			if !slices.Contains(x.Sources, s) {
+				x.Sources = append(x.Sources, s)
+			}
+			cited[g.Path] = true
+		}
+		first := Value{Path: best.Path, Line: best.Line}
+		out = append(out, contract.Inferred{Field: "dependencies[" + name + "]", Value: id, Source: first.source(), Confidence: best.Confidence,
+			Declare: externalYAML(name, id), External: x})
+	}
 	return out
 }
 
-// ChartValues calls visit with every string leaf of a chart's values.yaml,
-// read as data: templates are never rendered. A values.yaml .pactoignore
-// leaves out is not read. where has its non-printable characters replaced.
-func (sc *Scan) ChartValues(dir, chart string, visit func(where, value, key string)) {
-	file := path.Join(chart, "values.yaml")
-	if sc.ign != nil && sc.ign.Ignored(file, false) {
-		return
+// externalYAML declares the external id under the dependency name.
+func externalYAML(name, id string) string {
+	return fmt.Sprintf("dependencies:\n  - name: %s\n    external: true\n    identity: %s\n    required: true\n    version: <the API version you call>\n", name, id)
+}
+
+// DependencyName is the identity when it is a valid dependency name, else
+// its last component made one.
+func DependencyName(id string) string {
+	if dependencyNameRE.MatchString(id) {
+		return id
 	}
-	data, err := os.ReadFile(filepath.Join(dir, chart, "values.yaml"))
-	if err != nil {
-		return
+	return contract.SanitizeName(id[strings.LastIndex(id, "/")+1:])
+}
+
+var dependencyNameRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
+
+// CatalogInputs are the catalogs cat was built from, as "<origin> <digest>":
+// what a record names as its catalog inputs.
+func CatalogInputs(cat *externalcatalog.Catalog) []string {
+	var out []string
+	for _, r := range cat.Refs() {
+		out = append(out, r.Origin+" "+r.Digest)
 	}
-	var doc yaml.Node
-	if yaml.Unmarshal(data, &doc) != nil {
-		return
-	}
-	stringLeaves(&doc, "", func(n *yaml.Node, key string) {
-		visit(CommentSafe(fmt.Sprintf("%s:%d %s", file, n.Line, key)), n.Value, key)
-	})
+	return out
 }
 
 // stringLeaves calls visit with every string scalar under n and the key of
@@ -107,16 +235,16 @@ func stringLeaves(n *yaml.Node, key string, visit func(*yaml.Node, string)) {
 	}
 }
 
-// NamesHost reports whether a value is a URL or host:port of a name outside
+// namesHost reports whether a value is a URL or host:port of a name outside
 // the cluster: one with a scheme or a port.
-func NamesHost(hs []externalcatalog.HostPort) bool {
+func namesHost(hs []externalcatalog.HostPort) bool {
 	return slices.ContainsFunc(hs, func(h externalcatalog.HostPort) bool { return h.Scheme || h.Port != "" })
 }
 
-// CommentSafe replaces every rune that is not printable on one line with
+// commentSafe replaces every rune that is not printable on one line with
 // "?": control characters, and U+2028 and U+2029, which YAML also reads as
 // line breaks.
-func CommentSafe(s string) string {
+func commentSafe(s string) string {
 	return strings.Map(func(r rune) rune {
 		if !unicode.IsPrint(r) {
 			return '?'

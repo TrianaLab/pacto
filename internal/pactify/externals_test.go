@@ -37,9 +37,12 @@ func external(r *Result, identity, where string) (External, bool) {
 func TestPactifyClassifiesDottedHosts(t *testing.T) {
 	r := planExternals(t, Options{Dir: fixtureDir(t, "externals"), DescribeOnly: true})
 	for _, want := range []External{
-		{Identity: "stripe", Class: externalcatalog.ClassVendorAPI, Confidence: "likely", Where: "k8s/deployment.yaml, env STRIPE_API_BASE", Host: "api.stripe.com", Entry: "stripe"},
-		{Identity: "aws/rds", Class: externalcatalog.ClassManagedCloud, Confidence: "likely", Where: "k8s/configmap.yaml, env DATABASE_URL", Host: "db.xyz.rds.amazonaws.com", Entry: "aws/rds"},
-		{Identity: "host/corp-legacy.co.uk", Class: externalcatalog.ClassUnclassified, Confidence: "likely", Where: "chart/values.yaml:4 ERP_HOST", Host: "erp.corp-legacy.co.uk:8443"},
+		{Identity: "stripe", Class: externalcatalog.ClassVendorAPI, Confidence: "likely", Where: "k8s/deployment.yaml:17 STRIPE_API_BASE", Host: "api.stripe.com",
+			Kind: "env", Path: "k8s/deployment.yaml", Line: 17, Key: "STRIPE_API_BASE", Origin: "default"},
+		{Identity: "aws/rds", Class: externalcatalog.ClassManagedCloud, Confidence: "likely", Where: "k8s/configmap.yaml:6 DATABASE_URL", Host: "db.xyz.rds.amazonaws.com",
+			Kind: "configMap", Path: "k8s/configmap.yaml", Line: 6, Key: "DATABASE_URL", Origin: "default"},
+		{Identity: "host/corp-legacy.co.uk", Class: externalcatalog.ClassUnclassified, Confidence: "likely", Where: "chart/values.yaml:4 ERP_HOST", Host: "erp.corp-legacy.co.uk:8443",
+			Kind: "helmValues", Path: "chart/values.yaml", Line: 4, Key: "ERP_HOST"},
 	} {
 		if !slices.Contains(r.Externals, want) {
 			t.Errorf("no %+v in %+v", want, r.Externals)
@@ -51,10 +54,10 @@ func TestPactifyClassifiesDottedHosts(t *testing.T) {
 	if slices.ContainsFunc(r.Externals, func(e External) bool { return strings.Contains(e.Where, "ORDERS_ADDR") }) {
 		t.Errorf("orders.shop became an external: %+v", r.Externals)
 	}
-	if !hasLine(r.Unknown, "env ORDERS_ADDR names a host outside the cluster") {
+	if !hasLine(r.Unknown, "k8s/deployment.yaml:23 ORDERS_ADDR names a host outside the cluster") {
 		t.Errorf("unknown: %q", r.Unknown)
 	}
-	if !hasLine(r.Found, "checkout calls stripe (api.stripe.com, k8s/deployment.yaml, env STRIPE_API_BASE)") ||
+	if !hasLine(r.Found, "checkout calls stripe (k8s/deployment.yaml:17)") ||
 		!strings.HasSuffix(r.Catalog, " (embedded)") || !strings.HasPrefix(r.Catalog, externalcatalog.DefaultDigest()) {
 		t.Errorf("found %q, catalog %q", r.Found, r.Catalog)
 	}
@@ -79,7 +82,8 @@ func TestPactifySecretKeyRefKeyNameOnly(t *testing.T) {
 		"k8s/secret.yaml": "apiVersion: v1\nkind: Secret\nmetadata: {name: creds}\nstringData: {SENDGRID_URL: 'https://api.sendgrid.com'}\n",
 	})
 	r := planExternals(t, Options{Dir: dir, DescribeOnly: true})
-	want := []External{{Identity: "twilio", Class: externalcatalog.ClassVendorAPI, Confidence: "possible", Where: "k8s/d.yaml, secretKeyRef creds/token (key name only)", Entry: "twilio"}}
+	want := []External{{Identity: "twilio", Class: externalcatalog.ClassVendorAPI, Confidence: "possible", Where: "k8s/d.yaml:4 TWILIO_AUTH",
+		Kind: "secretKeyRef", Path: "k8s/d.yaml", Line: 4, Key: "TWILIO_AUTH", Origin: "default"}}
 	if !slices.Equal(r.Externals, want) {
 		t.Fatalf("externals: %+v", r.Externals)
 	}
@@ -89,8 +93,8 @@ func TestPactifySecretKeyRefKeyNameOnly(t *testing.T) {
 // name only.
 func TestPactifySecretRefNameOnly(t *testing.T) {
 	r := planExternals(t, Options{Dir: fixtureDir(t, "externals"), DescribeOnly: true})
-	e, ok := external(r, "stripe", "secretRef stripe-credentials")
-	if !ok || e.Confidence != "possible" || e.Where != "k8s/deployment.yaml, secretRef stripe-credentials (Secret name only)" || e.Host != "" {
+	e, ok := external(r, "stripe", "stripe-credentials")
+	if !ok || e.Kind != "secretRef" || e.Where != "k8s/deployment.yaml stripe-credentials" || e.Host != "" {
 		t.Fatalf("externals: %+v", r.Externals)
 	}
 	// With no workload there is no environment to read.
@@ -113,7 +117,8 @@ func TestPactifyChartValuesLine(t *testing.T) {
 		"values.yaml": "image: {tag: 1.0.0}\nhosts:\n  - &erp https://api.stripe.com\n  - *erp\nn: 3\n",
 	})
 	r = planExternals(t, Options{Dir: dir, DescribeOnly: true})
-	if !slices.Equal(r.Externals, []External{{Identity: "stripe", Class: externalcatalog.ClassVendorAPI, Confidence: "likely", Where: "values.yaml:3 hosts", Host: "api.stripe.com", Entry: "stripe"}}) {
+	if !slices.Equal(r.Externals, []External{{Identity: "stripe", Class: externalcatalog.ClassVendorAPI, Confidence: "likely", Where: "values.yaml:3 hosts", Host: "api.stripe.com",
+		Kind: "helmValues", Path: "values.yaml", Line: 3, Key: "hosts", Origin: "default"}}) {
 		t.Errorf("root chart externals: %+v", r.Externals)
 	}
 	// A values.yaml that is not YAML, or is missing, gives nothing.
@@ -141,47 +146,28 @@ func TestPactifyPossibleMatchNotWritten(t *testing.T) {
 	if text := file(t, r, "pacto.yaml").Content; strings.Contains(text, "twilio") || strings.Contains(text, "inferred externals") {
 		t.Errorf("a possible match was written:\n%s", text)
 	}
-	if !hasLine(r.Unknown, "k8s/d.yaml, env TWILIO_ACCOUNT suggests twilio: nothing else in the folder confirms it") {
+	if !hasLine(r.Unknown, "k8s/d.yaml:4 suggests twilio: nothing else in the folder confirms it") {
 		t.Errorf("unknown: %q", r.Unknown)
 	}
 }
 
-// TestPactifyCommentedEntriesKeepContract: the inferred externals are
-// comments, so the parsed contract and its version are those of a run with no
-// externals, even when a values key tries to end the comment.
-func TestPactifyCommentedEntriesKeepContract(t *testing.T) {
-	parsed := func(r *Result) *contract.Contract {
-		t.Helper()
-		c, err := contract.Parse(strings.NewReader(file(t, r, "pacto.yaml").Content))
-		if err != nil {
-			t.Fatal(err)
-		}
-		return c
-	}
-	none := externalcatalog.Merge(&externalcatalog.File{APIVersion: externalcatalog.APIVersion}, externalcatalog.Ref{Digest: "sha256:none"}, nil, nil)
-	base := parsed(planExternals(t, Options{Dir: fixtureDir(t, "externals"), Catalog: none}))
+// TestFolderExternalsNeverInPactoYAML: the externals the folder names go to
+// the inferred record alone; pacto.yaml names none, commented or not, even
+// when a values key tries to end a comment.
+func TestFolderExternalsNeverInPactoYAML(t *testing.T) {
 	r := planExternals(t, Options{Dir: fixtureDir(t, "externals")})
 	text := file(t, r, "pacto.yaml").Content
-	for _, want := range []string{
-		"  # inferred externals: uncomment the ones this service calls and set the version\n",
-		"  # - name: stripe  # k8s/deployment.yaml, env STRIPE_API_BASE (likely, catalog " + r.Catalog + ", entry stripe)\n  #   external: true\n  #   required: true\n  #   version: <the API version you call>\n",
-		"  # - name: rds  # chart/values.yaml:3 DATABASE_URL (likely, catalog " + r.Catalog + ", entry aws/rds, identity aws/rds)\n",
-		"  # - name: corp-legacy-co-uk  # chart/values.yaml:4 ERP_HOST (likely, catalog " + r.Catalog + ", unclassified, identity host/corp-legacy.co.uk)\n",
-	} {
-		if !strings.Contains(text, want) {
-			t.Errorf("no %q in:\n%s", want, text)
+	for _, bad := range []string{"external: true", "inferred externals", "stripe", "aws/rds"} {
+		if strings.Contains(text, bad) {
+			t.Errorf("pacto.yaml holds %q:\n%s", bad, text)
 		}
 	}
-	if strings.Contains(text, "# dependencies:") || !hasLine(r.Next, "uncomment the ones checkout calls") {
-		t.Errorf("header or next: %q\n%s", r.Next, text)
+	if r.Inferred == nil || !slices.ContainsFunc(r.Inferred.Fields, func(f contract.Inferred) bool { return f.Field == "dependencies[stripe]" && f.External != nil }) {
+		t.Fatalf("the record has no stripe: %+v", r.Inferred)
 	}
-	got := parsed(r)
-	if !slices.EqualFunc(got.Dependencies, base.Dependencies, func(a, b contract.Dependency) bool { return a.Name == b.Name && a.Ref == b.Ref }) || got.PactoVersion != base.PactoVersion {
-		t.Errorf("dependencies %+v / %+v, version %s / %s", got.Dependencies, base.Dependencies, got.PactoVersion, base.PactoVersion)
+	if _, err := contract.ParseInferredRecord(r.Inferred.Marshal()); err != nil {
+		t.Fatal(err)
 	}
-
-	// A values key holding a newline cannot write an uncommented entry, and
-	// with no dependency the block says where it goes.
 	dir := writeTree(t, t.TempDir(), map[string]string{
 		"Dockerfile":  "FROM scratch\n",
 		"Chart.yaml":  "apiVersion: v2\nname: pay\nversion: 1.0.0\n",
@@ -190,9 +176,39 @@ func TestPactifyCommentedEntriesKeepContract(t *testing.T) {
 	r = planExternals(t, Options{Dir: dir, DescribeOnly: true})
 	text = file(t, r, "pacto.yaml").Content
 	c, err := contract.Parse(strings.NewReader(text))
-	if err != nil || len(c.Dependencies) != 0 || strings.Contains(text, "\n- name: evil") || !strings.Contains(text, "# dependencies:\n") ||
-		!strings.Contains(text, "values.yaml:1 x?- name: evil?  external: true (likely") {
-		t.Fatalf("injected entry: %v %+v\n%s", err, c, text)
+	if err != nil || len(c.Dependencies) != 0 || strings.Contains(text, "evil") || len(r.Externals) != 0 {
+		t.Fatalf("injected entry: %v %+v %+v\n%s", err, c, r.Externals, text)
+	}
+}
+
+// TestFolderExternalsNeverLeak: a credential, a path or a query in a values
+// file, a Compose environment or a Kustomize literal reaches no byte pactify
+// generates: the result, pacto.yaml or the inferred record.
+func TestFolderExternalsNeverLeak(t *testing.T) {
+	r := planExternals(t, Options{Dir: fixtureDir(t, "folder-externals"), DescribeOnly: true})
+	out, _ := json.Marshal(r)
+	all := string(out)
+	for _, f := range r.Files {
+		all += f.Content
+	}
+	if r.Inferred == nil {
+		t.Fatal("no record")
+	}
+	all += string(r.Inferred.Marshal())
+	for _, leak := range []string{"admin", "hunter2", "s3cr3t", "/app", "pw-hunter2"} {
+		if strings.Contains(all, leak) {
+			t.Errorf("%q leaked", leak)
+		}
+	}
+	var kinds []string
+	for _, e := range r.Externals {
+		if e.Identity == "aws/rds" {
+			kinds = append(kinds, e.Kind)
+		}
+	}
+	slices.Sort(kinds)
+	if !slices.Equal(slices.Compact(kinds), []string{"compose", "helmValues", "kustomize"}) {
+		t.Errorf("aws/rds kinds = %q", kinds)
 	}
 }
 
@@ -206,8 +222,8 @@ func TestPactifyRedactsCredentialURL(t *testing.T) {
 	for _, f := range r.Files {
 		all += f.Content
 	}
-	if !strings.Contains(file(t, r, "pacto.yaml").Content, "inferred externals") {
-		t.Fatal("pacto.yaml has no inferred externals")
+	if r.Inferred != nil {
+		all += string(r.Inferred.Marshal())
 	}
 	assertNoCredential(t, all)
 	if !strings.Contains(all, "db.xyz.rds.amazonaws.com") {

@@ -98,7 +98,7 @@ func TestComposeEnvKeysOnly(t *testing.T) {
 		t.Errorf("API_TOKEN = %v", got)
 	}
 	for _, d := range []string{composeDir, dir} {
-		rec, err := CompleteIn(d, d, nil, contract.InferredInputs{})
+		rec, err := CompleteIn(d, d, nil, contract.InferredInputs{}, nil)
 		if err != nil || rec == nil {
 			t.Fatalf("record = %v, %v", rec, err)
 		}
@@ -152,7 +152,7 @@ func TestReadersPickByDeclaredName(t *testing.T) {
 			"apiVersion: backstage.io/v1alpha1\nkind: Component\nmetadata: {name: storefront-worker}\nspec: {owner: group:other}\n",
 	})
 	dir := root + "/web"
-	rec, err := CompleteIn(dir, dir, &contract.Contract{Service: contract.Service{Name: "storefront"}}, contract.InferredInputs{})
+	rec, err := CompleteIn(dir, dir, &contract.Contract{Service: contract.Service{Name: "storefront"}}, contract.InferredInputs{}, nil)
 	if err != nil || rec == nil {
 		t.Fatalf("record = %v, %v", rec, err)
 	}

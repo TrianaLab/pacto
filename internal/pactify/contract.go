@@ -93,7 +93,6 @@ func (p *planner) contract(ctx context.Context) error {
 	}
 	if p.r.Mode == modePactify {
 		p.r.Dependencies = p.sc.Dependencies(p.r.Service)
-		p.externals(p.r.Dir)
 	}
 	for _, d := range p.opts.Inferred {
 		if !slices.ContainsFunc(p.r.Dependencies, func(f Finding) bool { return f.Name == d.Name }) {
@@ -110,7 +109,8 @@ func (p *planner) contract(ctx context.Context) error {
 	// Everything the folder shows, read once: the contract init writes draws
 	// on it.
 	in := contract.InferredInputs{Commit: p.opts.Commit, Pacto: p.opts.PactoVersion}
-	all, err := discover.CompleteIn(p.r.Dir, "", &contract.Contract{Service: contract.Service{Name: p.r.Service}}, in)
+	cat, _ := p.catalog()
+	all, err := discover.CompleteIn(p.r.Dir, "", &contract.Contract{Service: contract.Service{Name: p.r.Service}}, in, cat)
 	if err != nil {
 		return fmt.Errorf("reading %s: %w", p.r.Dir, err)
 	}
@@ -128,6 +128,7 @@ func (p *planner) contract(ctx context.Context) error {
 	// reaches the inferred record. The folder's files are still named.
 	if p.opts.cluster {
 		p.discoveryLines(all)
+		p.externals(all)
 		return nil
 	}
 	return p.completePlanned(in)
@@ -148,12 +149,14 @@ func (p *planner) completePlanned(in contract.InferredInputs) error {
 		return fmt.Errorf("the contract pacto init would write is not valid: %w", err)
 	}
 	c.Service.Name = p.r.Service
-	rec, err := discover.CompletePlanned(p.r.Dir, c, planned, in)
+	cat, _ := p.catalog()
+	rec, err := discover.CompletePlanned(p.r.Dir, c, planned, in, cat)
 	if err != nil {
 		return fmt.Errorf("reading %s: %w", p.r.Dir, err)
 	}
 	p.r.Inferred = rec
 	p.discoveryLines(rec)
+	p.externals(rec)
 	if rec != nil && len(rec.Fields) > 0 && validation.InferredRecordNeedsRaise(c.PactoVersion) {
 		p.next("pacto.yaml declares pactoVersion %s, so pacto pack publishes none of what Pacto inferred: set pactoVersion: \"2.5\" to publish it in %s", c.PactoVersion, contract.InferredRecordFile)
 	}
@@ -427,13 +430,15 @@ func (p *planner) complete(c *contract.Contract) error {
 	// so the record and Result.Dependencies agree when pacto.yaml names none.
 	named := *c
 	named.Service.Name = p.r.Service
-	rec, err := discover.Complete(p.r.Dir, &named, in)
+	cat, _ := p.catalog()
+	rec, err := discover.Complete(p.r.Dir, &named, in, cat)
 	if err != nil {
 		return fmt.Errorf("completing pacto.yaml: %w", err)
 	}
 	// What the folder holds is named whether or not it completes pacto.yaml,
 	// so a chart or a file Pacto could not read is never silent.
 	p.discoveryLines(rec)
+	p.externals(rec)
 	switch {
 	case validation.InferredRecordNeedsRaise(c.PactoVersion):
 		p.next("pacto.yaml declares pactoVersion %s; set pactoVersion: \"2.5\" to have Pacto complete it", c.PactoVersion)
@@ -449,7 +454,7 @@ func (p *planner) complete(c *contract.Contract) error {
 	}
 	shown := len(rec.Fields)
 	// ponytail: the same files were read a moment ago; a second read that fails counts none as declared.
-	if all, _ := discover.Complete(p.r.Dir, &contract.Contract{Service: contract.Service{Name: p.r.Service}}, in); all != nil {
+	if all, _ := discover.Complete(p.r.Dir, &contract.Contract{Service: contract.Service{Name: p.r.Service}}, in, cat); all != nil {
 		shown = len(all.Fields)
 	}
 	p.found("pacto.yaml declares %d of the values Pacto reads in this folder's manifests and specs; Pacto completed %d in %s, published with the bundle", shown-len(rec.Fields), len(rec.Fields), contract.InferredRecordFile)
@@ -573,7 +578,6 @@ func (p *planner) pactified() string {
 	}
 	p.health(&b, p.openapi != "")
 	p.dependencyEntries(&b, bundles)
-	p.externalEntries(&b)
 	p.configuration(&b)
 	p.environments(&b)
 	if p.opts.DescribeOnly {

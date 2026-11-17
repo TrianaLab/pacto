@@ -15,50 +15,55 @@ import (
 	"strings"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
 	"github.com/trianalab/pacto/v4/pkg/schemax"
 	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 // Version is the discovery version an inferred record names. Bump it when
 // what Complete infers from the same folder changes.
-const Version = "2"
+const Version = "3"
 
 // Complete is CompleteIn with the repository root found from dir.
-func Complete(dir string, declared *contract.Contract, in contract.InferredInputs) (*contract.InferredRecord, error) {
-	return CompleteIn(dir, "", declared, in)
+func Complete(dir string, declared *contract.Contract, in contract.InferredInputs, cat *externalcatalog.Catalog) (*contract.InferredRecord, error) {
+	return CompleteIn(dir, "", declared, in, cat)
 }
 
 // CompleteIn is what the folder dir, in the repository root repoDir (""
 // finds it, as ReadDir does), shows beyond what declared declares: one field
 // per value, with its "<path>:<line>" source, its confidence, the YAML that
-// would declare it and the sources it outranks; what discovery could not read
-// as findings; and in the inputs every file a field cites with its digest. A
-// configuration field carries a key and a type, never a value. It is nil when
-// the folder adds nothing and holds nothing unreadable. A nil declared
-// declares nothing.
-func CompleteIn(dir, repoDir string, declared *contract.Contract, in contract.InferredInputs) (*contract.InferredRecord, error) {
-	return completeWith(dir, repoDir, declared, nil, in)
+// would declare it and the sources it outranks; each system outside the
+// cluster the folder names, classified with cat (nil is the default
+// catalog), as an external dependency; what discovery could not read as
+// findings; and in the inputs the catalogs and every file a field cites with
+// its digest. A configuration field carries a key and a type, never a value.
+// It is nil when the folder adds nothing and holds nothing unreadable. A nil
+// declared declares nothing.
+func CompleteIn(dir, repoDir string, declared *contract.Contract, in contract.InferredInputs, cat *externalcatalog.Catalog) (*contract.InferredRecord, error) {
+	return completeWith(dir, repoDir, declared, nil, in, cat)
 }
 
 // CompletePlanned is Complete against the contract declared that pacto init
 // plans to write with the files planned, by slash path: what the folder
 // shows beyond the pacto.yaml it is about to hold, so a value the new
 // contract declares is never listed apart from it.
-func CompletePlanned(dir string, declared *contract.Contract, planned map[string]string, in contract.InferredInputs) (*contract.InferredRecord, error) {
-	return completeWith(dir, "", declared, planned, in)
+func CompletePlanned(dir string, declared *contract.Contract, planned map[string]string, in contract.InferredInputs, cat *externalcatalog.Catalog) (*contract.InferredRecord, error) {
+	return completeWith(dir, "", declared, planned, in, cat)
 }
 
-func completeWith(dir, repoDir string, declared *contract.Contract, planned map[string]string, in contract.InferredInputs) (*contract.InferredRecord, error) {
+func completeWith(dir, repoDir string, declared *contract.Contract, planned map[string]string, in contract.InferredInputs, cat *externalcatalog.Catalog) (*contract.InferredRecord, error) {
 	sc, err := Dir(dir)
 	if err != nil {
 		return nil, err
 	}
 	d := cmp.Or(declared, &contract.Contract{})
 	name := cmp.Or(d.Service.Name, filepath.Base(dir))
-	reading, err := ReadDir(dir, repoDir, name)
+	var values []Value // held in memory to classify, never kept
+	reading, err := readDir(dir, repoDir, name, func(v Value) { values = append(values, v) })
 	if err != nil {
 		return nil, err
 	}
+	cat = cmp.Or(cat, externalcatalog.Default())
 	c := &completion{sc: sc, d: d, api: OpenAPIRef(reading.Fields) != ""}
 	c.cfgKeys, c.cfgListed = declaredConfigKeys(dir, c.d, planned)
 	c.workload()
@@ -71,18 +76,37 @@ func completeWith(dir, repoDir string, declared *contract.Contract, planned map[
 		}
 	}
 	fields, cited := merge(c.entries)
+	xs, unidentified := sc.externals(values, cat)
+	fields = append(fields, externalFields(xs, func(field string) bool {
+		return slices.ContainsFunc(fields, func(f contract.Inferred) bool { return f.Field == field })
+	}, c.declaredExternal, cited)...)
+	slices.SortFunc(fields, func(a, b contract.Inferred) int { return strings.Compare(a.Field, b.Field) })
 	findings := slices.DeleteFunc(slices.Clone(reading.Findings), func(f contract.InferredFinding) bool {
 		return f.Code == CodeAmbiguous && slices.ContainsFunc(reading.ambiguousSpecs[f.Source], c.declaredRef)
 	})
+	dropped := reading.FindingsDropped
+	for _, f := range unidentified {
+		if len(findings) >= MaxFindings {
+			dropped++
+			continue
+		}
+		findings = append(findings, f)
+	}
 	if len(fields) == 0 && len(findings) == 0 && len(reading.ChartDependencies) == 0 {
 		return nil, nil
 	}
-	in.Discovery, in.ChartDependencies = Version, reading.ChartDependencies
+	in.Discovery, in.ChartDependencies, in.Catalog = Version, reading.ChartDependencies, CatalogInputs(cat)
 	if in.Sources, err = citeSources(dir, repoDir, cited); err != nil {
 		return nil, err
 	}
 	return &contract.InferredRecord{Format: contract.InferredRecordFormat, Inputs: in, Fields: fields,
-		Findings: findings, FindingsDropped: reading.FindingsDropped}, nil
+		Findings: findings, FindingsDropped: dropped}, nil
+}
+
+// declaredExternal reports whether the contract declares the external id,
+// under the dependency name or by its identity.
+func (c *completion) declaredExternal(name, id string) bool {
+	return declaredDependency(c.d, name) || slices.ContainsFunc(c.d.Dependencies, func(dep contract.Dependency) bool { return dep.Identity == id })
 }
 
 // declaredRef reports whether a declared interface names the file p as its
@@ -117,15 +141,16 @@ func citeSources(dir, repoDir string, cited map[string]bool) ([]contract.Inferre
 }
 
 // CompleteBundle overlays on b, read from the folder dir, what Complete
-// infers: b.FS serves it as pacto.inferred.yaml in place of any copy the
-// folder holds (none when nothing is inferred, or when completion fails, so a
-// stale copy never reads as computed). A contract before pactoVersion 2.5 is
+// infers with the catalog cat (nil is the default): b.FS serves it as
+// pacto.inferred.yaml in place of any copy the folder holds (none when
+// nothing is inferred, or when completion fails, so a stale copy never reads
+// as computed). A contract before pactoVersion 2.5 is
 // left as read.
-func CompleteBundle(b *contract.Bundle, dir string, in contract.InferredInputs) error {
+func CompleteBundle(b *contract.Bundle, dir string, in contract.InferredInputs, cat *externalcatalog.Catalog) error {
 	if validation.InferredRecordNeedsRaise(b.Contract.PactoVersion) {
 		return nil
 	}
-	rec, err := Complete(dir, b.Contract, in)
+	rec, err := Complete(dir, b.Contract, in, cat)
 	if err != nil || rec == nil {
 		b.FS = contract.WithoutInferredRecord(b.FS)
 		return err

@@ -52,7 +52,7 @@ func TestDiscoverDeterministic(t *testing.T) {
 
 func TestRecordNoAbsolutePaths(t *testing.T) {
 	abs, _ := filepath.Abs(dockerDir)
-	rec, err := Complete(abs, nil, contract.InferredInputs{})
+	rec, err := Complete(abs, nil, contract.InferredInputs{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +174,7 @@ func TestReadDirRoots(t *testing.T) {
 	if _, err := ReadDir(filepath.Join(dir, "svc"), filepath.Join(dir, "missing"), ""); err == nil || !strings.Contains(err.Error(), "outside the repository") {
 		t.Errorf("a folder outside the repository root read: %v", err)
 	}
-	if _, err := CompleteIn(filepath.Join(dir, "svc"), filepath.Join(dir, "missing"), nil, contract.InferredInputs{}); err == nil {
+	if _, err := CompleteIn(filepath.Join(dir, "svc"), filepath.Join(dir, "missing"), nil, contract.InferredInputs{}, nil); err == nil {
 		t.Error("CompleteIn read a missing repository root")
 	}
 }
@@ -195,7 +195,7 @@ func TestCompleteRecordsDockerfilePort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rec, err := CompleteIn(dockerDir, dockerDir, &contract.Contract{PactoVersion: "2.5", Service: contract.Service{Name: "orders"}}, contract.InferredInputs{})
+	rec, err := CompleteIn(dockerDir, dockerDir, &contract.Contract{PactoVersion: "2.5", Service: contract.Service{Name: "orders"}}, contract.InferredInputs{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,15 +210,15 @@ func TestCompleteRecordsDockerfilePort(t *testing.T) {
 
 func TestCompleteFindingsOnly(t *testing.T) {
 	dir := writeFiles(t, map[string]string{"broken.yaml": "a: ["})
-	rec, err := CompleteIn(dir, dir, nil, contract.InferredInputs{})
+	rec, err := CompleteIn(dir, dir, nil, contract.InferredInputs{}, nil)
 	if err != nil || rec == nil || len(rec.Fields) != 0 || len(rec.Findings) != 1 {
 		t.Fatalf("record = %+v, %v", rec, err)
 	}
 }
 
 func TestCompleteVersionBumped(t *testing.T) {
-	rec, err := Complete(dockerDir, nil, contract.InferredInputs{})
-	if err != nil || rec.Inputs.Discovery != "2" {
+	rec, err := Complete(dockerDir, nil, contract.InferredInputs{}, nil)
+	if err != nil || rec.Inputs.Discovery != Version {
 		t.Fatalf("discovery = %+v, %v", rec, err)
 	}
 }
@@ -226,7 +226,7 @@ func TestCompleteVersionBumped(t *testing.T) {
 func TestDiscoveryRecordParses(t *testing.T) {
 	for _, dir := range []string{dockerDir, completeDir} {
 		r := readFixture(t, dir)
-		rec, err := CompleteIn(dir, dir, nil, contract.InferredInputs{Pacto: "4.6.0"})
+		rec, err := CompleteIn(dir, dir, nil, contract.InferredInputs{Pacto: "4.6.0"}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -254,7 +254,7 @@ func TestMergeOrdersLinesByNumber(t *testing.T) {
 func TestColonNameNeverReachesASource(t *testing.T) {
 	dir := writeFiles(t, map[string]string{"Dockerfile": "FROM x\nEXPOSE 8080\n", "bad:file.yaml": "a: [", "sub/x:y.yaml": "a: [",
 		"cfg:v1/Dockerfile": "FROM x\nEXPOSE 9090\n"})
-	rec, err := CompleteIn(dir, dir, nil, contract.InferredInputs{})
+	rec, err := CompleteIn(dir, dir, nil, contract.InferredInputs{}, nil)
 	if err != nil || rec == nil {
 		t.Fatalf("record = %v, %v", rec, err)
 	}

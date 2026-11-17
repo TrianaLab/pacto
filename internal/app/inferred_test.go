@@ -73,7 +73,7 @@ func completed(t *testing.T, dir, commit string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rec, err := discover.Complete(dir, b.Contract, contract.InferredInputs{Commit: commit, Pacto: "dev"})
+	rec, err := discover.Complete(dir, b.Contract, contract.InferredInputs{Commit: commit, Pacto: "dev"}, nil)
 	if err != nil || rec == nil {
 		t.Fatalf("complete: %v %v", rec, err)
 	}

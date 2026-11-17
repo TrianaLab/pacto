@@ -30,7 +30,7 @@ func TestDiscoveryNeverRecordsURLCredentials(t *testing.T) {
 			t.Errorf("%q recorded: %+v", secret, f)
 		}
 	}
-	rec, err := CompleteIn(helmCredsDir, helmCredsDir, nil, contract.InferredInputs{Pacto: "4.6.0"})
+	rec, err := CompleteIn(helmCredsDir, helmCredsDir, nil, contract.InferredInputs{Pacto: "4.6.0"}, nil)
 	if err != nil || rec == nil {
 		t.Fatalf("record = %+v, %v", rec, err)
 	}
@@ -41,7 +41,7 @@ func TestDiscoveryNeverRecordsURLCredentials(t *testing.T) {
 		t.Errorf("the record holds a credential:\n%s", out)
 	}
 	// A remote Kustomize resource is named without its userinfo or query.
-	rec, err = CompleteIn(kustomizeDir, kustomizeDir, nil, contract.InferredInputs{Pacto: "4.6.0"})
+	rec, err = CompleteIn(kustomizeDir, kustomizeDir, nil, contract.InferredInputs{Pacto: "4.6.0"}, nil)
 	if err != nil || rec == nil {
 		t.Fatalf("record = %+v, %v", rec, err)
 	}

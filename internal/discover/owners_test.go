@@ -172,7 +172,7 @@ func TestCatalogInfoOwnerGroupNamespace(t *testing.T) {
 }
 
 func TestCatalogInfoOutranksCodeowners(t *testing.T) {
-	rec, err := CompleteIn(ownersSvc, ownersRepo, nil, contract.InferredInputs{})
+	rec, err := CompleteIn(ownersSvc, ownersRepo, nil, contract.InferredInputs{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,14 +187,14 @@ func TestOneOwnerFieldRanked(t *testing.T) {
 	count := func(rec *contract.InferredRecord) int {
 		return len(slices.DeleteFunc(slices.Clone(rec.Fields), func(f contract.Inferred) bool { return f.Field != "service.owner" }))
 	}
-	rec, err := CompleteIn(ownersSvc, ownersRepo, nil, contract.InferredInputs{})
+	rec, err := CompleteIn(ownersSvc, ownersRepo, nil, contract.InferredInputs{}, nil)
 	if err != nil || count(rec) != 1 {
 		t.Fatalf("record = %+v, %v", rec, err)
 	}
 	// Without the catalog file, CODEOWNERS writes the field and outranks the
 	// team label.
 	repo := writeFiles(t, map[string]string{".github/CODEOWNERS": "* @acme/a\n", "svc/deploy.yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: svc\n  labels: {team: squad}\n"})
-	rec, err = CompleteIn(filepath.Join(repo, "svc"), repo, nil, contract.InferredInputs{})
+	rec, err = CompleteIn(filepath.Join(repo, "svc"), repo, nil, contract.InferredInputs{}, nil)
 	if err != nil || count(rec) != 1 {
 		t.Fatalf("record = %+v, %v", rec, err)
 	}
@@ -202,12 +202,12 @@ func TestOneOwnerFieldRanked(t *testing.T) {
 		t.Errorf("owner = %+v", f)
 	}
 	// The team label alone carries no owner-file mark.
-	rec, err = CompleteIn(filepath.Join(repo, "svc"), filepath.Join(repo, "svc"), nil, contract.InferredInputs{})
+	rec, err = CompleteIn(filepath.Join(repo, "svc"), filepath.Join(repo, "svc"), nil, contract.InferredInputs{}, nil)
 	if f := field(t, rec.Fields, "service.owner"); err != nil || f.Value != "squad" || f.Class != "" || f.Outranks != nil {
 		t.Errorf("owner = %+v, %v", f, err)
 	}
 	// A declared owner keeps every owner file out of the record.
-	rec, err = CompleteIn(ownersSvc, ownersRepo, &contract.Contract{Service: contract.Service{Owner: contract.Owner{Team: "x"}, Domain: "d"}}, contract.InferredInputs{})
+	rec, err = CompleteIn(ownersSvc, ownersRepo, &contract.Contract{Service: contract.Service{Owner: contract.Owner{Team: "x"}, Domain: "d"}}, contract.InferredInputs{}, nil)
 	if err != nil || count(rec) != 0 || slices.ContainsFunc(rec.Fields, func(f contract.Inferred) bool { return f.Field == "service.domain" }) {
 		t.Errorf("record = %+v, %v", rec, err)
 	}
@@ -256,7 +256,7 @@ func TestCatalogInfoDependsOnComponentOnly(t *testing.T) {
 		t.Errorf("a resource was read: %+v", r.entries)
 	}
 	// A declared dependency stays out of the record.
-	rec, err := CompleteIn(ownersSvc, ownersRepo, &contract.Contract{Dependencies: []contract.Dependency{{Name: "ledger"}}}, contract.InferredInputs{})
+	rec, err := CompleteIn(ownersSvc, ownersRepo, &contract.Contract{Dependencies: []contract.Dependency{{Name: "ledger"}}}, contract.InferredInputs{}, nil)
 	if err != nil || slices.ContainsFunc(rec.Fields, func(f contract.Inferred) bool { return f.Field == "dependencies[ledger]" }) {
 		t.Errorf("record = %+v, %v", rec, err)
 	}
@@ -273,7 +273,7 @@ func TestCatalogInfoStillOutOfManifests(t *testing.T) {
 }
 
 func TestCodeownersCitedInInputs(t *testing.T) {
-	rec, err := CompleteIn(ownersSvc, ownersRepo, nil, contract.InferredInputs{})
+	rec, err := CompleteIn(ownersSvc, ownersRepo, nil, contract.InferredInputs{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +296,7 @@ func TestDeclareSnippetsValidate(t *testing.T) {
 		"api/openapi.v1.yaml": "openapi: 3.0.0\ninfo: {title: t, version: '1'}\npaths: {}\n",
 		"catalog-info.yaml":   "kind: Component\nmetadata: {name: x}\nspec:\n  owner: user:alice\n  system: payments\n  dependsOn: [component:ledger]\n",
 	})
-	rec, err := CompleteIn(dir, dir, nil, contract.InferredInputs{})
+	rec, err := CompleteIn(dir, dir, nil, contract.InferredInputs{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

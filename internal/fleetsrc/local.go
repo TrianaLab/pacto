@@ -177,7 +177,7 @@ func loadRevision(dir string) (fleet.RawRevision, error) {
 		rev.FetchedAt = &t
 	}
 	// No commit: a fleet read of many folders resolves no git.
-	if err := discover.CompleteBundle(b, dir, contract.InferredInputs{}); err != nil {
+	if err := discover.CompleteBundle(b, dir, contract.InferredInputs{}, nil); err != nil {
 		return rev, fmt.Errorf("%w: %w", errIncomplete, err)
 	}
 	return rev, nil

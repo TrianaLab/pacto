@@ -37,12 +37,24 @@ const maxFileSize = 1 << 20
 // Input is what Read reads: the service folder (with .pactoignore applied),
 // the repository root that holds it (nil means the folder is the repository),
 // the folder's slash path in the repository ("." when it is the repository)
-// and the service name.
+// and the service name. Values, when set, is called with each
+// non-sensitive string value the readers parse (Helm values files, Compose
+// environment, Kustomize configMapGenerator); a value is never kept in
+// Reading. A nil Values changes nothing.
 type Input struct {
 	Folder     fs.FS
 	Repo       fs.FS
 	FolderPath string
 	Name       string
+	Values     func(Value)
+}
+
+// Value is one string value a reader parsed, the file and line it sits at,
+// the kind of file and the key it sits under.
+type Value struct {
+	Kind, Path string
+	Line       int
+	Key, Value string
 }
 
 // Reading is what Read found: the fields, each with its source, ranked once
@@ -105,7 +117,9 @@ type reader struct {
 	ambiguous   map[string][]string   // the files of each ambiguous spec finding, by its source
 	chartFiles  map[string]*yaml.Node // the root of each Chart.yaml, Chart.lock and values file, by path
 	chartDeps   []contract.InferredChartDependency
-	templates   []string // the chart templates, read once the charts are known
+	templates   []string        // the chart templates, read once the charts are known
+	walked      map[string]bool // every regular file the walk visited
+	envs        []envsFile      // the configMapGenerator envs files, read after the walk
 }
 
 // Read walks the folder once, regular files only, and hands each file to the
@@ -113,7 +127,7 @@ type reader struct {
 // finding, as is a file over 1 MiB or one that does not parse. Read never
 // fails; what it cannot read is a finding.
 func Read(in Input) Reading {
-	r := &reader{in: in, specs: map[string][]spec{}, chartFiles: map[string]*yaml.Node{}, ambiguous: map[string][]string{}}
+	r := &reader{in: in, specs: map[string][]spec{}, chartFiles: map[string]*yaml.Node{}, ambiguous: map[string][]string{}, walked: map[string]bool{}}
 	walked, left := 0, 0
 	_ = fs.WalkDir(in.Folder, ".", func(p string, d fs.DirEntry, err error) error { //nolint:errcheck // the callback never fails
 		switch {
@@ -142,9 +156,11 @@ func Read(in Input) Reading {
 			r.find(CodeUnreadable, p, unreadableMessage(p, unreadableNotRegular))
 			return nil
 		}
+		r.walked[p] = true
 		r.file(p, d.Name())
 		return nil
 	})
+	r.generatorEnvs()
 	r.dockers()
 	r.interfaces()
 	r.charts()
@@ -354,7 +370,10 @@ func splitLine(s string) (string, int) {
 // Components and Kustomize images by; "" is the folder's base name. A
 // folder that does not exist yet reads as empty. Both roots are opened with
 // os.OpenRoot, so no read leaves them.
-func ReadDir(dir, repoDir, name string) (Reading, error) {
+func ReadDir(dir, repoDir, name string) (Reading, error) { return readDir(dir, repoDir, name, nil) }
+
+// readDir is ReadDir with the Values visitor values.
+func readDir(dir, repoDir, name string, values func(Value)) (Reading, error) {
 	abs, _ := filepath.Abs(dir) // ponytail: Abs fails only without a working directory, and OpenRoot("") then fails
 	root, err := os.OpenRoot(abs)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -368,7 +387,7 @@ func ReadDir(dir, repoDir, name string) (Reading, error) {
 	if err != nil {
 		return Reading{}, fmt.Errorf("reading %s: %w", filepath.Join(dir, ignore.IgnoreFileName), err)
 	}
-	in := Input{Folder: ignore.FS(root.FS(), ign), FolderPath: ".", Name: cmp.Or(name, filepath.Base(abs))}
+	in := Input{Folder: ignore.FS(root.FS(), ign), FolderPath: ".", Name: cmp.Or(name, filepath.Base(abs)), Values: values}
 	if repo := repoFor(abs, repoDir); repo != abs {
 		rel, _ := filepath.Rel(repo, abs) // ponytail: both are absolute
 		if !filepath.IsLocal(rel) {

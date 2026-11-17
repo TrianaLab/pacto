@@ -1,17 +1,16 @@
 package pactify
 
 import (
+	"cmp"
 	"fmt"
-	"slices"
-	"strings"
 
 	"github.com/trianalab/pacto/v4/internal/discover"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
-	"github.com/trianalab/pacto/v4/pkg/schemax"
+	"github.com/trianalab/pacto/v4/pkg/externalid"
 )
 
-// External is a system outside the cluster that the folder names.
+// External is one place the folder names a system outside the cluster.
 type External = discover.External
 
 // catalog is the catalog externals are classified with and its digest, with
@@ -23,81 +22,37 @@ func (p *planner) catalog() (*externalcatalog.Catalog, string) {
 	return externalcatalog.Default(), externalcatalog.DefaultDigest() + " (embedded)"
 }
 
-// externals reads the externals the folder names and says what it found:
-// a likely one in Found, a possible one (a key name with nothing to confirm
-// it) and a host outside the cluster that nothing names in Unknown.
-func (p *planner) externals(dir string) {
+// externals reads the external dependencies of the record rec and says what
+// it found: a likely one in Found, a possible one (a key name with nothing to
+// confirm it) in Unknown. A host no catalog entry identifies is a finding of
+// rec, which discoveryLines names.
+func (p *planner) externals(rec *contract.InferredRecord) {
 	cat, digest := p.catalog()
-	p.r.Catalog = digest
-	p.r.Externals = p.sc.Externals(dir, cat)
-	likely := map[string]bool{}
-	for _, e := range p.r.Externals {
-		if e.Confidence == externalcatalog.ConfidenceLikely {
-			likely[e.Identity] = true
-			p.found("%s calls %s (%s, %s)", p.r.Service, e.Identity, e.Host, e.Where)
+	p.r.Catalog, p.r.Externals = digest, []External{}
+	for _, f := range cmp.Or(rec, &contract.InferredRecord{}).Fields {
+		x := f.External
+		if x == nil {
+			continue
 		}
-	}
-	for _, e := range p.r.Externals {
-		if !likely[e.Identity] {
-			p.unknown("%s suggests %s: nothing else in the folder confirms it", e.Where, e.Identity)
+		class := externalcatalog.ClassUnclassified
+		if e, _, ok := cat.Entry(externalid.ID(x.Identity)); ok {
+			class = e.Class
 		}
-	}
-	// A value under a sensitive key is never parsed, so it never gets here.
-	unidentified := func(where, value, key string) {
-		if !schemax.SensitiveKey(key) && discover.NamesHost(externalcatalog.NormalizeHost(value)) && !slices.ContainsFunc(p.r.Externals, func(x External) bool { return x.Host != "" && x.Where == where }) {
-			p.unknown("%s names a host outside the cluster that no catalog entry identifies: declare it in pacto.yaml if %s calls it", where, p.r.Service)
+		for _, s := range x.Sources {
+			where := s.Path
+			if s.Line > 0 {
+				where = fmt.Sprintf("%s:%d", s.Path, s.Line)
+			}
+			if s.Key != "" {
+				where += " " + s.Key
+			}
+			p.r.Externals = append(p.r.Externals, External{Identity: x.Identity, Class: class, Confidence: f.Confidence, Where: where,
+				Host: s.Host, Kind: s.Kind, Path: s.Path, Line: s.Line, Key: s.Key, Origin: x.Catalog})
 		}
-	}
-	for _, e := range p.sc.Env {
-		if !e.Secret {
-			unidentified(discover.EnvWhere(e), e.Value, e.Name)
-		}
-	}
-	for _, c := range p.sc.Charts {
-		p.sc.ChartValues(dir, c, unidentified)
-	}
-}
-
-// externalEntries writes the likely externals as a commented block under
-// dependencies, so nothing inferred becomes declared until a person
-// uncomments it. Every interpolated string has its control characters
-// replaced, so no value can end a comment line.
-func (p *planner) externalEntries(b *strings.Builder) {
-	var likely []External
-	for _, e := range p.r.Externals {
-		if e.Confidence == externalcatalog.ConfidenceLikely && !slices.ContainsFunc(likely, func(x External) bool { return x.Identity == e.Identity }) {
-			likely = append(likely, e)
-		}
-	}
-	if len(likely) == 0 {
-		return
-	}
-	if !strings.Contains(b.String(), "\ndependencies:\n") {
-		b.WriteString("# dependencies:\n")
-	}
-	b.WriteString("  # inferred externals: uncomment the ones this service calls and set the version\n")
-	for _, e := range likely {
-		name, id := dependencyName(e.Identity), discover.CommentSafe(e.Identity)
-		detail := "likely, catalog " + discover.CommentSafe(p.r.Catalog)
-		if e.Entry != "" {
-			detail += ", entry " + discover.CommentSafe(e.Entry)
+		if f.Confidence == externalcatalog.ConfidenceLikely {
+			p.found("%s calls %s (%s)", p.r.Service, x.Identity, f.Source)
 		} else {
-			detail += ", " + discover.CommentSafe(e.Class)
+			p.unknown("%s suggests %s: nothing else in the folder confirms it", f.Source, x.Identity)
 		}
-		if name != id {
-			detail += ", identity " + id
-		}
-		fmt.Fprintf(b, "  # - name: %s  # %s (%s)\n  #   external: true\n  #   required: true\n  #   version: <the API version you call>\n",
-			name, discover.CommentSafe(e.Where), detail)
 	}
-	p.next("pacto.yaml lists the externals the folder names as comments under dependencies: uncomment the ones %s calls and set the version it calls", p.r.Service)
-}
-
-// dependencyName is the identity when it is a valid dependency name, else its
-// last component made one.
-func dependencyName(id string) string {
-	if nameRE.MatchString(id) {
-		return id
-	}
-	return contract.SanitizeName(id[strings.LastIndex(id, "/")+1:])
 }

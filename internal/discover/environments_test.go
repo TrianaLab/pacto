@@ -92,7 +92,7 @@ func TestEnvsInvalidNameUnresolved(t *testing.T) {
 
 func TestEnvsDeclaredNotInferred(t *testing.T) {
 	dir := "testdata/envs/values"
-	rec, err := CompleteIn(dir, dir, &contract.Contract{Environments: []contract.Environment{{Name: "staging", File: "environments/staging.yaml"}}}, contract.InferredInputs{})
+	rec, err := CompleteIn(dir, dir, &contract.Contract{Environments: []contract.Environment{{Name: "staging", File: "environments/staging.yaml"}}}, contract.InferredInputs{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

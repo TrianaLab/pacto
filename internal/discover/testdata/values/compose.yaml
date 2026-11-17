@@ -1,0 +1,7 @@
+services:
+  app:
+    image: ghcr.io/acme/app:1.0.0
+    environment:
+      SENDGRID_URL: https://api.sendgrid.com
+      DB_PASSWORD: postgres://admin:hunter2@db.example.com
+    env_file: .env.compose

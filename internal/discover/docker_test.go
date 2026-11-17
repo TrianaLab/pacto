@@ -115,7 +115,7 @@ func TestDockerHealthcheckForms(t *testing.T) {
 
 func TestHealthcheckCommandNotRecorded(t *testing.T) {
 	dir := writeFiles(t, map[string]string{"Dockerfile": "FROM x\nHEALTHCHECK CMD curl -H 'Authorization: Bearer x' http://api.internal/ready\n"})
-	rec, err := CompleteIn(dir, dir, nil, contract.InferredInputs{})
+	rec, err := CompleteIn(dir, dir, nil, contract.InferredInputs{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +145,7 @@ spec:
               path: /healthz
 `,
 	})
-	rec, err := CompleteIn(dir, dir, nil, contract.InferredInputs{})
+	rec, err := CompleteIn(dir, dir, nil, contract.InferredInputs{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ spec:
 		t.Errorf("sources = %q", cited)
 	}
 	// A declared health capability leaves both out.
-	rec, err = CompleteIn(dir, dir, &contract.Contract{Capabilities: []contract.Capability{{Type: "health"}}}, contract.InferredInputs{})
+	rec, err = CompleteIn(dir, dir, &contract.Contract{Capabilities: []contract.Capability{{Type: "health"}}}, contract.InferredInputs{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func TestDockerDescriptionLabel(t *testing.T) {
 		t.Errorf("a summary over 200 characters declares %q", f.Declare)
 	}
 	// A declared summary leaves it out.
-	rec, err := CompleteIn(dockerDir, dockerDir, &contract.Contract{Service: contract.Service{Summary: "Orders"}}, contract.InferredInputs{})
+	rec, err := CompleteIn(dockerDir, dockerDir, &contract.Contract{Service: contract.Service{Summary: "Orders"}}, contract.InferredInputs{}, nil)
 	if err != nil || slices.ContainsFunc(rec.Fields, func(f contract.Inferred) bool { return f.Field == "service.summary" }) {
 		t.Errorf("a declared summary was inferred: %v %+v", err, rec)
 	}
@@ -200,7 +200,7 @@ func TestDockerContinuationLines(t *testing.T) {
 }
 
 func TestPortNeverWrittenToInterfaces(t *testing.T) {
-	rec, err := CompleteIn(dockerDir, dockerDir, nil, contract.InferredInputs{})
+	rec, err := CompleteIn(dockerDir, dockerDir, nil, contract.InferredInputs{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +213,7 @@ func TestPortNeverWrittenToInterfaces(t *testing.T) {
 		}
 	}
 	// A declared interface on the port leaves it out.
-	rec, err = CompleteIn(dockerDir, dockerDir, &contract.Contract{Interfaces: []contract.Interface{{Name: "api", Port: 8080}, {Name: "x"}}}, contract.InferredInputs{})
+	rec, err = CompleteIn(dockerDir, dockerDir, &contract.Contract{Interfaces: []contract.Interface{{Name: "api", Port: 8080}, {Name: "x"}}}, contract.InferredInputs{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

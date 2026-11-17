@@ -91,7 +91,7 @@ func loadLocalBundleNamed(dir, dirName string, overrides override.Overrides, in 
 // bundle (readIncomplete).
 func completeLocal(b *contract.Bundle, dir, dirName string, in contract.InferredInputs) error {
 	b.Complete(dirName)
-	if err := discover.CompleteBundle(b, dir, in); err != nil {
+	if err := discover.CompleteBundle(b, dir, in, nil); err != nil {
 		return fmt.Errorf("%w %s: %w", errIncomplete, dir, err)
 	}
 	return nil

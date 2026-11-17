@@ -24,6 +24,7 @@ func (r *reader) kustomization(p string, k *yaml.Node) {
 			r.kustomizeResource(p, res)
 		}
 	}
+	r.configMapGenerator(p, k)
 	if line := keyLine(k, "helmCharts"); line > 0 {
 		r.find(CodeUnsupportedFile, at(p, line), unsupportedMessage(at(p, line), unsupportedHelmCharts))
 	}
@@ -45,6 +46,52 @@ func (r *reader) kustomization(p string, k *yaml.Node) {
 		value += ":" + tag
 	}
 	r.addAt(p, images[i].Line, rankKustomize, "image", value, "")
+}
+
+// envsFile is one configMapGenerator envs entry: the file it names and the
+// "<path>:<line>" that names it.
+type envsFile struct{ path, source string }
+
+// configMapGenerator hands each configMapGenerator literal of the
+// kustomization p, whose root is k, to the Values visitor, and keeps its envs
+// files for generatorEnvs. A secretGenerator is never read.
+func (r *reader) configMapGenerator(p string, k *yaml.Node) {
+	for _, g := range items(contract.MapValue(k, "configMapGenerator")) {
+		for _, lit := range items(contract.MapValue(g, "literals")) {
+			r.keyValue("kustomize", p, lit.Line, scalar(lit))
+		}
+		for _, e := range items(contract.MapValue(g, "envs")) {
+			r.envs = append(r.envs, envsFile{path: path.Join(path.Dir(p), scalar(e)), source: at(p, e.Line)})
+		}
+	}
+}
+
+// generatorEnvs reads each envs file a configMapGenerator names, one
+// KEY=VALUE per line, when the walk visited it as a regular file: one
+// .pactoignore leaves out, under a dot-folder, outside the folder or a link
+// is never opened, and is a finding.
+func (r *reader) generatorEnvs() {
+	for _, e := range r.envs {
+		if !r.walked[e.path] {
+			r.find(CodeUnresolved, e.source, unresolvedEnvsMessage(e.source))
+			continue
+		}
+		if r.in.Values == nil { // nothing reads the values
+			continue
+		}
+		data := r.read(e.path)
+		for i, line := range strings.Split(string(data), "\n") {
+			if line = strings.TrimSpace(line); line != "" && !strings.HasPrefix(line, "#") {
+				r.keyValue("kustomize", e.path, i+1, line)
+			}
+		}
+	}
+}
+
+// unresolvedEnvsMessage says the kustomization line at source names an envs
+// file Pacto does not read.
+func unresolvedEnvsMessage(source string) string {
+	return source + " names a configMapGenerator envs file that is missing from the folder, left out of it or not a regular file, so it is not read"
 }
 
 // kustomizeResource reads one resource entry of the kustomization p.

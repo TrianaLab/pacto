@@ -39,7 +39,7 @@ func TestChartLockedDependencyInputs(t *testing.T) {
 	if got := findingsOf(r, CodeChartDependencyUnlocked); len(got) != 0 {
 		t.Errorf("findings = %+v", got)
 	}
-	rec, err := CompleteIn(helmLockedDir, helmLockedDir, nil, contract.InferredInputs{Pacto: "4.6.0"})
+	rec, err := CompleteIn(helmLockedDir, helmLockedDir, nil, contract.InferredInputs{Pacto: "4.6.0"}, nil)
 	if err != nil || rec == nil || !slices.Equal(rec.Inputs.ChartDependencies, want) {
 		t.Fatalf("record = %+v, %v", rec, err)
 	}
@@ -178,7 +178,7 @@ func TestValuesSensitiveKeyWriteOnly(t *testing.T) {
 }
 
 func TestDiscoveryNeverRecordsEnvValues(t *testing.T) {
-	rec, err := CompleteIn(helmValuesDir, helmValuesDir, nil, contract.InferredInputs{Pacto: "4.6.0"})
+	rec, err := CompleteIn(helmValuesDir, helmValuesDir, nil, contract.InferredInputs{Pacto: "4.6.0"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +237,7 @@ func TestValuesKeysRespectDeclaredFilter(t *testing.T) {
 		"listed":   {Name: "env", Schema: "schema.json", Values: map[string]any{"API_TOKEN": "x"}},
 		"unlisted": {Name: "base", Ref: "oci://reg/platform/base-config"},
 	} {
-		rec, err := CompleteIn(dir, dir, &contract.Contract{Configurations: []contract.Configuration{cfg}}, contract.InferredInputs{Pacto: "4.6.0"})
+		rec, err := CompleteIn(dir, dir, &contract.Contract{Configurations: []contract.Configuration{cfg}}, contract.InferredInputs{Pacto: "4.6.0"}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

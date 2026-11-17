@@ -1212,15 +1212,41 @@ export interface components {
             class?: string;
             confidence?: string;
             declare?: string;
+            external?: components["schemas"]["Contract.InferredExternal"];
             field: string;
             outranks?: string[] | null;
             source: string;
             value: string;
         };
+        "Contract.InferredClient": {
+            /** Format: int64 */
+            major?: number;
+            sdk: string;
+        };
+        "Contract.InferredExternal": {
+            catalog?: string;
+            client?: components["schemas"]["Contract.InferredClient"];
+            identity: string;
+            resource?: components["schemas"]["Contract.InferredResource"];
+            sources: components["schemas"]["Contract.InferredExternalSource"][] | null;
+        };
+        "Contract.InferredExternalSource": {
+            host?: string;
+            key?: string;
+            kind: string;
+            /** Format: int64 */
+            line?: number;
+            path: string;
+        };
         "Contract.InferredFinding": {
             code: string;
             message: string;
             source: string;
+        };
+        "Contract.InferredResource": {
+            missing?: string[] | null;
+            name?: string;
+            type: string;
         };
         "Contract.Interface": {
             /** Format: int64 */

@@ -80,7 +80,7 @@ func TestTemplateUnresolvedOncePerFile(t *testing.T) {
 	if !strings.Contains(got[1].Message, "chart/templates/worker.yaml") || strings.Contains(got[1].Message, "{{") {
 		t.Errorf("message = %q", got[1].Message)
 	}
-	rec, err := CompleteIn(templatesDir, templatesDir, nil, contract.InferredInputs{})
+	rec, err := CompleteIn(templatesDir, templatesDir, nil, contract.InferredInputs{}, nil)
 	if err != nil || rec == nil {
 		t.Fatalf("record = %v, %v", rec, err)
 	}

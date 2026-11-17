@@ -104,6 +104,7 @@ func (r *reader) chartValues(dir string) {
 			r.environment(p, p, m[1], p, rankEnvValues, contract.ConfidencePossible)
 		}
 		r.valuesEnv(p, rank, values)
+		stringLeaves(values, "", func(n *yaml.Node, key string) { r.value("helmValues", p, n.Line, key, n.Value) })
 	}
 }
 

@@ -19,7 +19,7 @@ const completeDir = "testdata/complete"
 
 func complete(t *testing.T, dir string, declared *contract.Contract) *contract.InferredRecord {
 	t.Helper()
-	rec, err := Complete(dir, declared, contract.InferredInputs{Commit: "4e1a9c0", Pacto: "4.6.0"})
+	rec, err := Complete(dir, declared, contract.InferredInputs{Commit: "4e1a9c0", Pacto: "4.6.0"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +136,9 @@ func TestCompleteUnlistedConfigurationInfersNoKey(t *testing.T) {
 // host alone.
 func TestCompleteKeysAndTypesOnly(t *testing.T) {
 	rec := complete(t, completeDir, nil)
-	out := rec.Marshal()
+	noCatalog := *rec
+	noCatalog.Inputs.Catalog = nil // "default" also names the catalog's origin
+	out := noCatalog.Marshal()
 	for _, leak := range []string{"hunter2", "u4l-s3cret", "v4lues-s3cret", "c0nfigmap-s3cret", "default"} {
 		if bytes.Contains(out, []byte(leak)) {
 			t.Errorf("the record holds %q:\n%s", leak, out)
@@ -208,18 +210,18 @@ func TestCompleteHealthWithoutPath(t *testing.T) {
 func TestCompleteErrors(t *testing.T) {
 	// An unreadable .pactoignore stops the scan.
 	dir := writeTree(t, t.TempDir(), map[string]string{".pactoignore/x": ""})
-	if _, err := Complete(dir, nil, contract.InferredInputs{}); err == nil {
+	if _, err := Complete(dir, nil, contract.InferredInputs{}, nil); err == nil {
 		t.Error("an unreadable .pactoignore was not an error")
 	}
 	// A repository root that cannot be opened stops the read.
 	dir = writeTree(t, t.TempDir(), map[string]string{"openapi.yaml": "openapi: 3.1.0\n"})
-	if _, err := CompleteIn(dir, filepath.Join(t.TempDir(), "missing"), nil, contract.InferredInputs{}); err == nil {
+	if _, err := CompleteIn(dir, filepath.Join(t.TempDir(), "missing"), nil, contract.InferredInputs{}, nil); err == nil {
 		t.Error("a missing repository root was not an error")
 	}
 	// A cited file that vanishes once read has no digest.
 	defer func(f func(string) ([]byte, error)) { readSource = f }(readSource)
 	readSource = func(string) ([]byte, error) { return nil, fs.ErrNotExist }
-	if _, err := Complete(completeDir, nil, contract.InferredInputs{}); err == nil {
+	if _, err := Complete(completeDir, nil, contract.InferredInputs{}, nil); err == nil {
 		t.Error("a cited file that vanished was not an error")
 	}
 	readSource = os.ReadFile
@@ -265,7 +267,7 @@ func TestCompleteBundle(t *testing.T) {
 	// Before 2.5 the bundle stays as read, a folder copy included.
 	old := writeTree(t, t.TempDir(), map[string]string{"openapi.yaml": "openapi: 3.1.0\n", contract.InferredRecordFile: "stale"})
 	b := bundleOf(old, "2.4")
-	if err := CompleteBundle(b, old, contract.InferredInputs{}); err != nil {
+	if err := CompleteBundle(b, old, contract.InferredInputs{}, nil); err != nil {
 		t.Fatalf("2.4: %v", err)
 	}
 	if data, _ := fs.ReadFile(b.FS, contract.InferredRecordFile); string(data) != "stale" {
@@ -273,17 +275,17 @@ func TestCompleteBundle(t *testing.T) {
 	}
 	// From 2.5 (absent is this CLI's) the record is computed and served.
 	b = bundleOf(old, "")
-	if err := CompleteBundle(b, old, contract.InferredInputs{Pacto: "4.6.0"}); err != nil {
+	if err := CompleteBundle(b, old, contract.InferredInputs{Pacto: "4.6.0"}, nil); err != nil {
 		t.Fatalf("2.5: %v", err)
 	}
-	want, _ := Complete(old, b.Contract, contract.InferredInputs{Pacto: "4.6.0"})
+	want, _ := Complete(old, b.Contract, contract.InferredInputs{Pacto: "4.6.0"}, nil)
 	if data, _ := fs.ReadFile(b.FS, contract.InferredRecordFile); want == nil || !bytes.Equal(data, want.Marshal()) {
 		t.Fatalf("served %q", data)
 	}
 	// Nothing inferred hides the folder copy.
 	empty := writeTree(t, t.TempDir(), map[string]string{contract.InferredRecordFile: "stale"})
 	b = bundleOf(empty, "2.5")
-	if err := CompleteBundle(b, empty, contract.InferredInputs{}); err != nil {
+	if err := CompleteBundle(b, empty, contract.InferredInputs{}, nil); err != nil {
 		t.Fatalf("nothing inferred: %v", err)
 	}
 	if _, err := fs.Stat(b.FS, contract.InferredRecordFile); err == nil {
@@ -292,7 +294,7 @@ func TestCompleteBundle(t *testing.T) {
 	// A folder Pacto cannot complete is an error, and its copy is hidden too.
 	bad := writeTree(t, t.TempDir(), map[string]string{".pactoignore/x": "", contract.InferredRecordFile: "stale"})
 	b = bundleOf(bad, "2.5")
-	if err := CompleteBundle(b, bad, contract.InferredInputs{}); err == nil {
+	if err := CompleteBundle(b, bad, contract.InferredInputs{}, nil); err == nil {
 		t.Fatal("an unreadable folder was not an error")
 	}
 	if _, err := fs.Stat(b.FS, contract.InferredRecordFile); err == nil {

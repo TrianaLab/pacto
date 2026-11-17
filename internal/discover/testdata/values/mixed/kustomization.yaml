@@ -1,0 +1,8 @@
+configMapGenerator:
+  - name: cfg
+    literals:
+      - PAGERDUTY_URL=https://api.pagerduty.com
+secretGenerator:
+  - name: creds
+    literals:
+      - MAILGUN_URL=https://api.mailgun.net

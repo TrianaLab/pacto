@@ -40,7 +40,7 @@
     "format": "pacto.inferred/v1",
     "inputs": {
       "pacto": "",
-      "discovery": "2",
+      "discovery": "3",
       "sources": [
         {
           "path": "Dockerfile",
@@ -50,6 +50,9 @@
           "path": "k8s/deployment.yaml",
           "digest": "sha256:38e7476ca4ae01fac3a75612a05549bd1203a6af910d16b91c5af1adec255790"
         }
+      ],
+      "catalog": [
+        "default sha256:62a3fd52949e99b18eb330766ec3269d47ba7a821f59b77ab69dea81ad76a063"
       ]
     },
     "fields": [
