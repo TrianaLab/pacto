@@ -496,7 +496,7 @@ func TestApplyOverrides_SchemaViolation(t *testing.T) {
 
 func TestLoadAndValidateLocal_Success(t *testing.T) {
 	dir := writeTestBundle(t)
-	c, rawYAML, bundleFS, err := loadAndValidateLocal(context.Background(), dir, override.Overrides{})
+	c, rawYAML, bundleFS, err := loadAndValidateLocal(context.Background(), dir, override.Overrides{}, contract.InferredInputs{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -512,7 +512,7 @@ func TestLoadAndValidateLocal_Success(t *testing.T) {
 }
 
 func TestLoadAndValidateLocal_FileNotFound(t *testing.T) {
-	_, _, _, err := loadAndValidateLocal(context.Background(), "/nonexistent/dir", override.Overrides{})
+	_, _, _, err := loadAndValidateLocal(context.Background(), "/nonexistent/dir", override.Overrides{}, contract.InferredInputs{})
 	if err == nil {
 		t.Error("expected error for nonexistent directory")
 	}
@@ -526,7 +526,7 @@ func TestLoadAndValidateLocal_UnreadableFile(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(pactoPath, 0644) })
 
-	_, _, _, err := loadAndValidateLocal(context.Background(), dir, override.Overrides{})
+	_, _, _, err := loadAndValidateLocal(context.Background(), dir, override.Overrides{}, contract.InferredInputs{})
 	if err == nil {
 		t.Error("expected error when pacto.yaml is unreadable")
 	}
@@ -534,7 +534,7 @@ func TestLoadAndValidateLocal_UnreadableFile(t *testing.T) {
 
 func TestLoadAndValidateLocal_InvalidContract(t *testing.T) {
 	dir := writeUnparseableBundle(t)
-	_, _, _, err := loadAndValidateLocal(context.Background(), dir, override.Overrides{})
+	_, _, _, err := loadAndValidateLocal(context.Background(), dir, override.Overrides{}, contract.InferredInputs{})
 	if err == nil {
 		t.Error("expected error for invalid contract")
 	}
@@ -544,7 +544,7 @@ func TestLoadAndValidateLocal_OverrideError(t *testing.T) {
 	dir := writeTestBundle(t)
 	_, _, _, err := loadAndValidateLocal(context.Background(), dir, override.Overrides{
 		SetValues: []string{"no-equals"},
-	})
+	}, contract.InferredInputs{})
 	if err == nil {
 		t.Error("expected error for invalid override")
 	}
@@ -552,7 +552,7 @@ func TestLoadAndValidateLocal_OverrideError(t *testing.T) {
 
 func TestLoadAndValidateLocal_ValidationFails(t *testing.T) {
 	dir := writeInvalidBundle(t)
-	_, _, _, err := loadAndValidateLocal(context.Background(), dir, override.Overrides{})
+	_, _, _, err := loadAndValidateLocal(context.Background(), dir, override.Overrides{}, contract.InferredInputs{})
 	if err == nil {
 		t.Error("expected error for invalid bundle")
 	}
@@ -561,7 +561,7 @@ func TestLoadAndValidateLocal_ValidationFails(t *testing.T) {
 func TestLoadAndValidateFull_Success(t *testing.T) {
 	dir := writeTestBundle(t)
 	store := &mockBundleStore{}
-	c, rawYAML, bundleFS, err := loadAndValidateFull(context.Background(), dir, override.Overrides{}, store)
+	c, rawYAML, bundleFS, err := loadAndValidateFull(context.Background(), dir, override.Overrides{}, store, contract.InferredInputs{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -578,7 +578,7 @@ func TestLoadAndValidateFull_Success(t *testing.T) {
 
 func TestLoadAndValidateFull_NilStore(t *testing.T) {
 	dir := writeTestBundle(t)
-	c, _, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{}, nil)
+	c, _, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{}, nil, contract.InferredInputs{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -588,7 +588,7 @@ func TestLoadAndValidateFull_NilStore(t *testing.T) {
 }
 
 func TestLoadAndValidateFull_FileNotFound(t *testing.T) {
-	_, _, _, err := loadAndValidateFull(context.Background(), "/nonexistent/dir", override.Overrides{}, nil)
+	_, _, _, err := loadAndValidateFull(context.Background(), "/nonexistent/dir", override.Overrides{}, nil, contract.InferredInputs{})
 	if err == nil {
 		t.Error("expected error for nonexistent directory")
 	}
@@ -598,7 +598,7 @@ func TestLoadAndValidateFull_OverrideError(t *testing.T) {
 	dir := writeTestBundle(t)
 	_, _, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{
 		SetValues: []string{"no-equals"},
-	}, nil)
+	}, nil, contract.InferredInputs{})
 	if err == nil {
 		t.Error("expected error for invalid override")
 	}
@@ -606,7 +606,7 @@ func TestLoadAndValidateFull_OverrideError(t *testing.T) {
 
 func TestLoadAndValidateFull_ValidationFails(t *testing.T) {
 	dir := writeInvalidBundle(t)
-	_, _, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{}, nil)
+	_, _, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{}, nil, contract.InferredInputs{})
 	if err == nil {
 		t.Error("expected error for invalid bundle")
 	}
@@ -641,7 +641,7 @@ capabilities:
 	}
 
 	// With nil store, ref-based policies fail with POLICY_REF_UNRESOLVED
-	_, _, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{}, nil)
+	_, _, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{}, nil, contract.InferredInputs{})
 	if err == nil {
 		t.Error("expected error for unresolvable policy ref")
 	}
@@ -692,7 +692,7 @@ capabilities:
 		},
 	}
 
-	c, _, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{}, store)
+	c, _, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{}, store, contract.InferredInputs{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -743,7 +743,7 @@ capabilities:
 		},
 	}
 
-	_, _, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{}, store)
+	_, _, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{}, store, contract.InferredInputs{})
 	if err == nil {
 		t.Error("expected error for policy violation (missing scaling)")
 	}
@@ -910,7 +910,7 @@ func TestLoadAndValidateFullRefusesMissingVersion(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("service:\n  name: a\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, _, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{}, nil)
+	_, _, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{}, nil, contract.InferredInputs{})
 	if !errors.Is(err, ErrPublishNeedsServiceVersion) {
 		t.Fatalf("got %v", err)
 	}
@@ -970,7 +970,7 @@ func TestOverrideNameClearsInferredName(t *testing.T) {
 
 func TestPublishWithOverrideNamePublishes(t *testing.T) {
 	dir := emptyChartDir(t, "service:\n  version: 1.0.0\n")
-	c, raw, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{SetValues: []string{"service.name=payments"}}, nil)
+	c, raw, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{SetValues: []string{"service.name=payments"}}, nil, contract.InferredInputs{})
 	if err != nil {
 		t.Fatal(err)
 	}

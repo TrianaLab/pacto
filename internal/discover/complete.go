@@ -15,6 +15,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/schemax"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 // Version is the discovery version an inferred record names. Bump it when
@@ -51,6 +52,27 @@ func Complete(dir string, declared *contract.Contract, in contract.InferredInput
 		in.Sources = append(in.Sources, contract.InferredSourceFile{Path: f, Digest: "sha256:" + hex.EncodeToString(sum[:])})
 	}
 	return &contract.InferredRecord{Format: contract.InferredRecordFormat, Inputs: in, Fields: c.fields}, nil
+}
+
+// CompleteBundle attaches to b, read from the folder dir, what Complete
+// infers: b.Record, and b.FS serving it as pacto.inferred.yaml in place of
+// any copy the folder holds (none when nothing is inferred). A contract
+// before pactoVersion 2.5 is left as read.
+func CompleteBundle(b *contract.Bundle, dir string, in contract.InferredInputs) error {
+	if validation.InferredRecordNeedsRaise(b.Contract.PactoVersion) {
+		return nil
+	}
+	rec, err := Complete(dir, b.Contract, in)
+	if err != nil {
+		return err
+	}
+	b.Record = rec
+	if rec == nil {
+		b.FS = contract.WithoutInferredRecord(b.FS)
+		return nil
+	}
+	b.FS = contract.WithInferredRecord(b.FS, rec.Marshal())
+	return nil
 }
 
 // completion collects the fields Complete infers and the files they cite.

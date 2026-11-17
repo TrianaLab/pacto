@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/trianalab/pacto/v4/internal/discover"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/ignore"
@@ -158,6 +159,11 @@ func loadRevision(dir string) (fleet.RawRevision, error) {
 	rev := fleet.RawRevision{Bundle: b, RequestedRef: "file://" + dir, Document: doc}
 	if h, err := lock.HashFS(fsys); err == nil {
 		rev.Digest = h
+	}
+	// After the digest, so the folder's identity never moves with the record.
+	// No commit: a fleet read of many folders resolves no git.
+	if err := discover.CompleteBundle(b, dir, contract.InferredInputs{}); err != nil {
+		return fleet.RawRevision{}, fmt.Errorf("complete pacto.yaml: %w", err)
 	}
 	if info, err := os.Stat(filepath.Join(dir, "pacto.yaml")); err == nil {
 		t := info.ModTime()

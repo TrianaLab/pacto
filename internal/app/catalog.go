@@ -93,7 +93,7 @@ func catalogLocal(absPath func(string) (string, error), path, base string) (cata
 	if err != nil {
 		return catalog.Resolution{}, nil, catalogErr(catalog.ReasonInvalidContract, "the contract bundle at the referenced path could not be read")
 	}
-	h, err := lock.HashFS(b.FS)
+	h, err := lock.HashFS(contract.WithoutInferredRecord(b.FS))
 	if err != nil {
 		return catalog.Resolution{}, nil, catalogErr(catalog.ReasonInvalidContract, "the contract bundle at the referenced path could not be hashed")
 	}

@@ -10,7 +10,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/lock"
 )
 
 // writeBundle writes a minimal parseable pacto.yaml for service name at dir.
@@ -354,5 +356,38 @@ func TestLoadRevision_NamelessIsAnError(t *testing.T) {
 	}
 	if _, err := loadRevision(dir); err == nil || !strings.Contains(err.Error(), "service.name") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// TestLocalReadCarriesRecord: a local revision carries its inferred record,
+// and its digest is the folder's, without the record.
+func TestLocalReadCarriesRecord(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.CopyFS(dir, os.DirFS(filepath.Join("..", "discover", "testdata", "complete"))); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("service: {name: app, version: 1.0.0}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	folder, err := lock.HashFS(os.DirFS(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rev, err := loadRevision(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rev.Bundle.Record == nil || rev.Bundle.Record.Inputs.Commit != "" || rev.Digest != folder {
+		t.Fatalf("record %+v digest %s, folder %s", rev.Bundle.Record, rev.Digest, folder)
+	}
+	if _, err := fs.Stat(rev.Bundle.FS, contract.InferredRecordFile); err != nil {
+		t.Fatalf("the bundle does not serve the record: %v", err)
+	}
+	if err := os.Chmod(filepath.Join(dir, "api", "openapi.yaml"), 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(filepath.Join(dir, "api", "openapi.yaml"), 0o644) })
+	if _, err := loadRevision(dir); err == nil || !strings.Contains(err.Error(), "complete") {
+		t.Fatalf("an unreadable cited file: %v", err)
 	}
 }

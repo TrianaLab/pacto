@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"testing/fstest"
 
 	"gopkg.in/yaml.v3"
 )
@@ -149,4 +150,96 @@ func sourceFile(source string) string {
 		return source
 	}
 	return source[:i]
+}
+
+// WithInferredRecord is fsys serving data as pacto.inferred.yaml, in place
+// of any copy fsys holds, without copying the rest: a local read overlays the
+// record it computed on the folder it read.
+func WithInferredRecord(fsys fs.FS, data []byte) fs.FS {
+	return recordFS{base: fsys, record: fstest.MapFS{InferredRecordFile: {Data: data, Mode: 0o644}}}
+}
+
+// WithoutInferredRecord is fsys with no pacto.inferred.yaml: what a local
+// hash reads, since the record names the commit and would move it on every
+// commit.
+func WithoutInferredRecord(fsys fs.FS) fs.FS {
+	return recordFS{base: fsys, record: fstest.MapFS{}}
+}
+
+// recordFS is base with its root pacto.inferred.yaml taken from record.
+type recordFS struct {
+	base   fs.FS
+	record fstest.MapFS // holds the record, or nothing to hide it
+}
+
+func (r recordFS) Open(name string) (fs.File, error) {
+	if name == InferredRecordFile {
+		return r.record.Open(name)
+	}
+	return r.base.Open(name)
+}
+
+func (r recordFS) Stat(name string) (fs.FileInfo, error) {
+	if name == InferredRecordFile {
+		return r.record.Stat(name)
+	}
+	return fs.Stat(r.base, name)
+}
+
+func (r recordFS) ReadDir(name string) ([]fs.DirEntry, error) {
+	entries, err := fs.ReadDir(r.base, name)
+	if name != "." || err != nil {
+		return entries, err
+	}
+	entries = slices.DeleteFunc(entries, func(e fs.DirEntry) bool { return e.Name() == InferredRecordFile })
+	if info, err := r.record.Stat(InferredRecordFile); err == nil {
+		entries = append(entries, fs.FileInfoToDirEntry(info))
+		slices.SortFunc(entries, func(a, b fs.DirEntry) int { return strings.Compare(a.Name(), b.Name()) })
+	}
+	return entries, nil
+}
+
+// InferredUnchanged reports whether next differs from prev only in its
+// inferred record with the same cited inputs, so it needs no republish. what
+// names the inputs that differ ("discovery 1 -> 2", "commit 4e1a9c0 ->
+// 77c0b2e") whenever the declared parts match, and is empty when they do not.
+// Both records are read from the bundles' files; digest computes a bundle's
+// digest, here over its files without the record.
+func InferredUnchanged(prev, next *Bundle, digest func(*Bundle) (string, error)) (unchanged bool, what string) {
+	declared := func(b *Bundle) (string, *InferredRecord, error) {
+		rec, err := ReadInferredRecord(b.FS)
+		if err != nil {
+			return "", nil, err
+		}
+		d, err := digest(&Bundle{Contract: b.Contract, FS: WithoutInferredRecord(b.FS)})
+		return d, cmp.Or(rec, &InferredRecord{}), err
+	}
+	pd, pr, perr := declared(prev)
+	nd, nr, nerr := declared(next)
+	if perr != nil || nerr != nil || pd != nd {
+		return false, ""
+	}
+	var diffs []string
+	for _, in := range [][3]string{
+		{"discovery", pr.Inputs.Discovery, nr.Inputs.Discovery},
+		{"pacto", pr.Inputs.Pacto, nr.Inputs.Pacto},
+		{"commit", shortCommit(pr.Inputs.Commit), shortCommit(nr.Inputs.Commit)},
+	} {
+		if in[1] != in[2] {
+			diffs = append(diffs, in[0]+" "+cmp.Or(in[1], "none")+" -> "+cmp.Or(in[2], "none"))
+		}
+	}
+	unchanged = slices.Equal(pr.Inputs.Sources, nr.Inputs.Sources)
+	if !unchanged {
+		diffs = append(diffs, "sources")
+	}
+	return unchanged, cmp.Or(strings.Join(diffs, ", "), "fields")
+}
+
+// shortCommit is a commit as git abbreviates it.
+func shortCommit(c string) string {
+	if len(c) > 7 {
+		return c[:7]
+	}
+	return c
 }

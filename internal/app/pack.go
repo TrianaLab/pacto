@@ -28,7 +28,7 @@ func (s *Service) Pack(ctx context.Context, opts PackOptions) (*PackResult, erro
 	path := defaultPath(opts.Path)
 
 	logging.LoggerFromContext(ctx).Debug("loading and validating local contract", "path", path)
-	c, _, bundleFS, err := loadAndValidateLocal(ctx, path, opts.Overrides)
+	c, _, bundleFS, err := loadAndValidateLocal(ctx, path, opts.Overrides, s.localInputs(path, ""))
 	if err != nil {
 		return nil, err
 	}
