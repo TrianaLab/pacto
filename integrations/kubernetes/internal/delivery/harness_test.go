@@ -146,7 +146,7 @@ func newScheme() *runtime.Scheme {
 	s := runtime.NewScheme()
 	_ = clientgoscheme.AddToScheme(s)
 	_ = dv1.AddToScheme(s)
-	for _, gvk := range []schema.GroupVersionKind{gvkOCI, gvkKs, gvkPacto, gvkApplication} {
+	for _, gvk := range []schema.GroupVersionKind{gvkOCI, gvkKs, gvkPacto, gvkApplication, gvkHelmRelease} {
 		s.AddKnownTypeWithName(gvk, &unstructured.Unstructured{})
 		s.AddKnownTypeWithName(gvk.GroupVersion().WithKind(gvk.Kind+"List"), &unstructured.UnstructuredList{})
 	}
@@ -305,6 +305,31 @@ func kustomization(name, source, ready, reason, applied, attempted string) *unst
 	}}
 	u.SetGroupVersionKind(gvkKs)
 	return u
+}
+
+// helmReleaseObj is a labelled Flux HelmRelease run as its own service
+// account, taking its chart from OCIRepository payments-chart, with the given
+// Ready status, the chart digest it last released and the one it last
+// attempted.
+func helmReleaseObj(ready, reason, released, attempted string) *unstructured.Unstructured {
+	u := &unstructured.Unstructured{Object: map[string]any{
+		"metadata": map[string]any{"namespace": ns, "name": "payments", "labels": map[string]any{ApplyRefLabel: "payments-prod"}},
+		"spec": map[string]any{"chartRef": map[string]any{"kind": "OCIRepository", "name": "payments-chart"},
+			"serviceAccountName": "payments-deployer"},
+		"status": map[string]any{
+			"history":                     []any{map[string]any{"ociDigest": released, "status": "deployed"}},
+			"lastAttemptedRevisionDigest": attempted,
+			"conditions":                  []any{map[string]any{"type": "Ready", "status": ready, "reason": reason, "message": "m"}},
+		},
+	}}
+	u.SetGroupVersionKind(gvkHelmRelease)
+	return u
+}
+
+// chartRepo is the labelled chart OCIRepository of helmReleaseObj, pinned to
+// digest and fetched at it.
+func chartRepo(digest string) *unstructured.Unstructured {
+	return ociRepo("payments-chart", digest, "latest@"+digest, false)
 }
 
 func pactoObj(name, service, contractDigest, status string, gen int64, deps ...map[string]any) *unstructured.Unstructured {

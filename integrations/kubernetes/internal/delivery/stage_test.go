@@ -673,17 +673,39 @@ func TestReadyReasonsMatchOperator(t *testing.T) {
 	for _, r := range []string{delivery.ReadyReasonUnguarded, delivery.ReadyReasonCandidateNotFound,
 		delivery.ReadyReasonCandidateUnverified, delivery.ReadyReasonUpstreamUntrusted, delivery.ReadyReasonUpstreamUnreadable,
 		delivery.ReadyReasonNoCandidateSource, delivery.ReadyReasonApplierUnreadable, delivery.ReadyReasonApplierUnlabelled,
-		delivery.ReadyReasonApplierMultiSource, delivery.ReadyReasonApplierNotOCI, delivery.ReadyReasonApplierNotAutomated} {
+		delivery.ReadyReasonApplierMultiSource, delivery.ReadyReasonApplierNotOCI, delivery.ReadyReasonApplierNotAutomated,
+		delivery.ReadyReasonApplierNotChartRef} {
 		shared[r] = delivery.ReadyFix(r) != ""
 	}
 	// The reasons named by an identifier in the operator.
 	named := map[string]string{"ReasonUnguarded": ReasonUnguarded, "reasonApplierUnlabelled": reasonApplierUnlabelled}
+	// Every non-test file of the package: the applier kinds name their own
+	// reasons beside stage.go.
 	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, "stage.go", nil, 0)
+	files, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	calls := 0
+	for _, name := range files {
+		if strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, name, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		inspectNotReady(t, fset, f, named, shared, &calls)
+	}
+	if calls == 0 {
+		t.Fatal("no notReady call found in the package")
+	}
+}
+
+// inspectNotReady checks every notReady call in f names a shared Ready
+// reason, counting them in calls.
+func inspectNotReady(t *testing.T, fset *token.FileSet, f *ast.File, named map[string]string, shared map[string]bool, calls *int) {
+	t.Helper()
 	ast.Inspect(f, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok || len(call.Args) == 0 {
@@ -692,7 +714,7 @@ func TestReadyReasonsMatchOperator(t *testing.T) {
 		if id, ok := call.Fun.(*ast.Ident); !ok || id.Name != "notReady" {
 			return true
 		}
-		calls++
+		*calls++
 		at := fset.Position(call.Pos())
 		switch a := call.Args[0].(type) {
 		case *ast.SelectorExpr:
@@ -708,7 +730,4 @@ func TestReadyReasonsMatchOperator(t *testing.T) {
 		}
 		return true
 	})
-	if calls == 0 {
-		t.Fatal("no notReady call found in stage.go")
-	}
 }

@@ -57,6 +57,9 @@ type Cluster struct {
 	Cache client.Reader
 	// CacheApplications says Cache holds the Argo CD Applications too.
 	CacheApplications bool
+	// FluxHelm says the promoter watches Flux HelmReleases, so Cache holds
+	// them too.
+	FluxHelm bool
 	// Registry returns a read-only registry client that reaches insecureHosts
 	// over plain HTTP.
 	Registry func(insecureHosts ...string) delivery.Registry
@@ -95,10 +98,11 @@ type source struct {
 	verified bool
 }
 
-// applier is the Stage's applier object (a Flux OCIRepository or an Argo CD
-// Application) as the promoter sees it, with what differs between kinds.
+// applier is the Stage's applier object (a Flux OCIRepository, an Argo CD
+// Application or a Flux HelmRelease) as the promoter sees it, with what
+// differs between kinds.
 type applier interface {
-	// object is the object the promoter writes the version on.
+	// object is the object the Stage's applyRef names.
 	object() *unstructured.Unstructured
 	// src is the repository the applier takes versions from.
 	src() *source
@@ -133,7 +137,7 @@ const ApplyRefLabel = "delivery.pacto.trianalab.io/apply-ref"
 
 // cached is the reader of the watched kinds: Cache, or Client without one.
 func (c Cluster) cached(kind string) client.Reader {
-	if c.Cache == nil || kind == delivery.ApplierArgoCD && !c.CacheApplications {
+	if c.Cache == nil || kind == delivery.ApplierArgoCD && !c.CacheApplications || kind == delivery.ApplierHelmRelease && !c.FluxHelm {
 		return c.Client
 	}
 	return c.Cache
@@ -153,6 +157,9 @@ func (c Cluster) freshApplier(ctx context.Context, ns string, ref delivery.Apply
 }
 
 func (c Cluster) applierFrom(ctx context.Context, r client.Reader, ns string, ref delivery.ApplyRef) (applier, error) {
+	if ref.Kind == delivery.ApplierHelmRelease {
+		return helmRelease(ctx, r, ns, ref.Name)
+	}
 	if ref.Kind != delivery.ApplierArgoCD {
 		s, err := ociRepository(ctx, r, ns, ref.Name)
 		if err != nil {
@@ -254,7 +261,8 @@ func (a *source) host() string {
 
 // setDigest sets spec.ref.digest and asks Flux to reconcile now. It and
 // argoApplier.setDigest are the only writes the promoter ever makes to an
-// object it does not own.
+// object it does not own (helmReleaseApplier.setDigest calls it on the chart
+// source).
 func (a fluxApplier) setDigest(ctx context.Context, c client.Client, digest string, now time.Time) error {
 	return mergePatch(ctx, c, a.obj, map[string]any{
 		"metadata": map[string]any{"annotations": map[string]string{"reconcile.fluxcd.io/requestedAt": now.Format(time.RFC3339Nano)}},

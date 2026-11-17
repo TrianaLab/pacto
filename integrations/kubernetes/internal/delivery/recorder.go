@@ -476,8 +476,9 @@ func (w *writer) write(ctx context.Context, op *dv1.Operation) (*stored, error) 
 	}
 	a, err := w.Cluster.applier(ctx, w.stage.Namespace, w.stage.Spec.ApplyRef)
 	var apply *source // nil: records still go on the anchor
+	var refused *refusedApplier
 	switch {
-	case apierrors.IsNotFound(err):
+	case apierrors.IsNotFound(err) || errors.As(err, &refused):
 	case err != nil:
 		return nil, err
 	default:

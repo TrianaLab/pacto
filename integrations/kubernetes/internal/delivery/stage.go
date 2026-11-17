@@ -12,6 +12,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -285,7 +286,7 @@ func (r *StageReconciler) witness(ctx context.Context, stage *dv1.Stage) error {
 	}
 	a, err := r.Cluster.applier(ctx, stage.Namespace, stage.Spec.ApplyRef)
 	switch {
-	case apierrors.IsNotFound(err) || apierrors.IsForbidden(err) || meta.IsNoMatchError(err):
+	case readyNamesIt(err):
 		return nil // ready names it (applierReady)
 	case err != nil:
 		return err
@@ -525,7 +526,10 @@ func (r *StageReconciler) applierReady(ctx context.Context, stage *dv1.Stage) (*
 	}
 	what := "the " + kind + " " + ref.Name
 	a, err := r.Cluster.applier(ctx, stage.Namespace, ref)
+	var refused *refusedApplier
 	switch {
+	case errors.As(err, &refused):
+		return &refused.ready, nil, nil
 	case apierrors.IsNotFound(err) || apierrors.IsForbidden(err):
 		c := notReady(delivery.ReadyReasonApplierUnreadable, what+" the Stage applies through cannot be read: "+err.Error())
 		return &c, nil, nil
@@ -576,6 +580,13 @@ func (a argoApplier) notReady(what string) *delivery.Condition {
 // reasonApplierUnlabelled is the Ready reason of an applyRef without
 // ApplyRefLabel, which is no fault while the Stage observes.
 const reasonApplierUnlabelled = delivery.ReadyReasonApplierUnlabelled
+
+// readyNamesIt reports whether err is a failed applier read applierReady
+// names on Ready: missing, forbidden, a kind the cluster lacks or refused.
+func readyNamesIt(err error) bool {
+	var refused *refusedApplier
+	return apierrors.IsNotFound(err) || apierrors.IsForbidden(err) || meta.IsNoMatchError(err) || errors.As(err, &refused)
+}
 
 func labelled(o *unstructured.Unstructured) bool {
 	_, ok := o.GetLabels()[ApplyRefLabel]

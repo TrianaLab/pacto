@@ -14,8 +14,6 @@ import (
 	"strings"
 	"time"
 
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -38,7 +36,7 @@ func (r *StageReconciler) shadow(ctx context.Context, stage *dv1.Stage) error {
 	// Live: what GitOps applied is verified and remembered as such.
 	a, err := r.Cluster.freshApplier(ctx, stage.Namespace, stage.Spec.ApplyRef)
 	switch {
-	case apierrors.IsNotFound(err) || apierrors.IsForbidden(err) || meta.IsNoMatchError(err):
+	case readyNamesIt(err):
 		return nil // ready names it (applierReady)
 	case err != nil:
 		return err
