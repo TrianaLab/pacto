@@ -2184,6 +2184,12 @@ func deriveOwner(snap *FleetSnapshot, s *ServiceRecord) []Limitation {
 			s.Owner = r.Owner
 		}
 	}
+	if !s.Owner.IsEmpty() {
+		s.OwnerProvenance = OwnerProvenanceDeclared
+	}
+	// An attested owner (OwnerProvenanceAttested) slots in here: after the
+	// revisions, before the target fallback.
+	//
 	// No revision declares an owner (a fleet read only from Kubernetes has no
 	// revisions at all): fall back to the owner the observing sources read from
 	// the contract each target runs.
@@ -2192,6 +2198,9 @@ func deriveOwner(snap *FleetSnapshot, s *ServiceRecord) []Limitation {
 			if s.Owner.IsEmpty() {
 				s.Owner = snap.Targets[tk].Owner
 			}
+		}
+		if !s.Owner.IsEmpty() {
+			s.OwnerProvenance = OwnerProvenanceDeclaredViaTarget
 		}
 	}
 	return ownerConflict(snap, s)

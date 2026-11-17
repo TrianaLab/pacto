@@ -3930,6 +3930,8 @@ export interface components {
             offeringProvenance?: "declared" | "observed";
             origin?: components["schemas"]["Fleet.ServiceOrigin"];
             owner?: components["schemas"]["Contract.Owner"];
+            /** @enum {string} */
+            ownerProvenance?: "declared" | "declared-via-target" | "attested" | "inferred";
             revisions?: string[] | null;
             sources?: string[] | null;
             status?: string;
@@ -5485,6 +5487,8 @@ export interface components {
             contacts?: components["schemas"]["Fleet.ContactsPreview"];
             declared: boolean;
             owner?: string;
+            /** @enum {string} */
+            provenance?: "declared" | "declared-via-target" | "attested" | "inferred";
             ref?: components["schemas"]["ProductRef"];
             unknown?: boolean;
         };

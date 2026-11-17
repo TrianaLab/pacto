@@ -200,6 +200,8 @@ func TestOpenAPI_EnumsOnSpecificFields(t *testing.T) {
 		{"Delivery.ApplierStatus", "state", sortedSet(delivery.ApplierAdopted, delivery.ApplierUnmanaged, delivery.ApplierConflict, delivery.ApplierUnknown)},
 		{"Delivery.ApplierStatus", "manager", sortedSet("argocd", "flux", "helm", "unsupported", "ambiguous", "none")},
 		{"Delivery.ApplierStatus", "completeness", sortedSet("complete", "partial")},
+		{"Fleet.ServiceRecord", "ownerProvenance", sortedSet("declared", "declared-via-target", "attested", "inferred")},
+		{"ProductOwnership", "provenance", sortedSet("declared", "declared-via-target", "attested", "inferred")},
 	}
 	for _, c := range cases {
 		got := schemaFieldEnum(t, doc, c.schema, c.field)
