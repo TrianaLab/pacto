@@ -16,10 +16,6 @@ import (
 
 const cartName = "k8s:shop/Deployment/cart"
 
-// workloadsKind is the kind of a workload source; pkg/fleet names it beside
-// its first production caller.
-const workloadsKind = "kubernetes-workloads"
-
 // inferredCart is the cart Deployment of shop as a workload source reads it.
 func inferredCart() RawInferredService {
 	at := fixedNow().Add(-time.Minute)
@@ -38,7 +34,7 @@ func rawInferred(ns, kind, name string) RawInferredService {
 }
 
 func workloadsSource(id string, cluster *Cluster, in ...RawInferredService) Source {
-	return NewMemorySource(id, workloadsKind, &Collection{Cluster: cluster, InferredServices: in})
+	return NewMemorySource(id, SourceKindKubernetesWorkloads, &Collection{Cluster: cluster, InferredServices: in})
 }
 
 func sourceState(t *testing.T, snap *FleetSnapshot, id string) SourceState {
@@ -321,7 +317,7 @@ func TestInferredNameCollisionSkipped(t *testing.T) {
 
 func TestInferredCountOnSourceState(t *testing.T) {
 	snap := buildClusterSnap(t, workloadsSource("k8s-workloads", nil, inferredCart(), rawInferred("web", "CronJob", "sweep")))
-	if st := sourceState(t, snap, "k8s-workloads"); st.InferredCount != 2 || st.Status != SourceAvailable || st.Kind != workloadsKind {
+	if st := sourceState(t, snap, "k8s-workloads"); st.InferredCount != 2 || st.Status != SourceAvailable || st.Kind != SourceKindKubernetesWorkloads {
 		t.Errorf("state %+v", st)
 	}
 }

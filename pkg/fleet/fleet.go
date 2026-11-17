@@ -536,7 +536,7 @@ type SourceState struct {
 	TargetCount        int          `json:"targetCount"`
 	Namespaces         []string     `json:"namespaces,omitempty" doc:"The namespaces a Kubernetes source read that you may see. Empty with no namespacesTotal means every namespace; empty with namespacesTotal above 0 means every namespace it read is hidden from you. Anything in another namespace is unknown."`
 	NamespacesTotal    int          `json:"namespacesTotal,omitempty" doc:"How many namespaces the source read, when Namespaces is capped or restricted. Above 0, the source reads a list of namespaces, never every namespace."`
-	InferredCount      int          `json:"inferredCount,omitempty" doc:"The inferred services this source reported"`
+	InferredCount      int          `json:"inferredCount,omitempty" doc:"The inferred services this source reported, after the bound; a restricted view counts only the inferred services you may see"`
 }
 
 // ToolSummary is a bounded projection of an agent-invocable tool derived from a
@@ -658,7 +658,7 @@ func (s *ServiceRecord) Inferred() bool { return s.Declaration == DeclarationInf
 // the image, ports and probes Pacto read, each with the object path it read.
 type InferredWorkload struct {
 	Source     string          `json:"source" doc:"The source that read the workload"`
-	Cluster    string          `json:"cluster,omitempty" doc:"The cluster id, in a snapshot with several clusters"`
+	Cluster    string          `json:"cluster,omitempty" doc:"The cluster id, whenever Pacto knows the source's cluster; the service name carries it only in a snapshot with several clusters"`
 	Namespace  string          `json:"namespace"`
 	Kind       string          `json:"kind" doc:"Deployment, StatefulSet, DaemonSet or CronJob"`
 	Name       string          `json:"name"`

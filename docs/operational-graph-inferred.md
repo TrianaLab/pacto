@@ -32,6 +32,11 @@ path that holds a control character or runs past 512 or 256 characters, with a
 | `INFERRED_SERVICES_CAPPED` | A source reported more than 5000 workloads. The rest are left out and the source is partial |
 | `DECLARATION_UNVERIFIED` | Pacto could not read the Pacto resources of the inferred service's namespace, so a contract may describe it. The Overview counts these as `inferredUnverified` |
 
+The check is conservative. A Kubernetes source that reads every namespace
+verifies its workloads only when it is `available`, so one invalid Pacto
+resource leaves every inferred service of that cluster unverified. A source
+scoped to a namespace list verifies the namespaces it read.
+
 ## Declared and inferred services
 
 Every service record carries `declaration`: `declared` when a contract revision
@@ -61,4 +66,6 @@ and its status is empty.
   cluster, and an empty list then means unknown.
 - A restricted view shows an inferred service only to a viewer whom Kubernetes
   lets list both Pactos and that workload kind in its namespace. Hidden ones
-  are counted and never named.
+  are counted and never named. An uncontracted caller whose inferred service
+  is hidden is left out too, and the declared service it calls counts it in
+  `hiddenDependents`, even when you may list Pactos in the caller's namespace.

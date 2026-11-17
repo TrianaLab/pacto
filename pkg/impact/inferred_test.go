@@ -14,7 +14,7 @@ import (
 
 // legacyWorkloads is a workload source that sees k8s:pay/Deployment/legacy.
 func legacyWorkloads() fleet.Source {
-	return fleet.NewMemorySource("k8s-workloads", "kubernetes-workloads", &fleet.Collection{
+	return fleet.NewMemorySource("k8s-workloads", fleet.SourceKindKubernetesWorkloads, &fleet.Collection{
 		InferredServices: []fleet.RawInferredService{{Namespace: "pay", Kind: "Deployment", Name: "legacy"}},
 	})
 }

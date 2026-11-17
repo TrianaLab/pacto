@@ -371,7 +371,7 @@ type healthOutput struct {
 
 type metricsOutput struct {
 	Body struct {
-		ServiceCount int `json:"serviceCount" doc:"Number of known services"`
+		ServiceCount int `json:"serviceCount" doc:"Number of known services, inferred services included"`
 		SourceCount  int `json:"sourceCount" doc:"Number of active data sources"`
 	}
 }

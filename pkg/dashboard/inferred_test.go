@@ -17,7 +17,7 @@ func inferredSnap(t *testing.T) *fleet.FleetSnapshot {
 	t.Helper()
 	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{},
 		fleet.NewMemorySource("k8s", fleet.SourceKindKubernetes, &fleet.Collection{Targets: []fleet.RawTarget{{Scope: "shop", Kind: "kubernetes", Name: "orders", Service: "orders"}}}),
-		fleet.NewMemorySource("k8s-workloads", "kubernetes-workloads", &fleet.Collection{InferredServices: []fleet.RawInferredService{{Namespace: "shop", Kind: "Deployment", Name: "cart"}}}))
+		fleet.NewMemorySource("k8s-workloads", fleet.SourceKindKubernetesWorkloads, &fleet.Collection{InferredServices: []fleet.RawInferredService{{Namespace: "shop", Kind: "Deployment", Name: "cart"}}}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,4 +159,14 @@ func TestAttentionCallerHasHref(t *testing.T) {
 		}
 	}
 	t.Errorf("no attention item names its caller: %+v", l.Items)
+}
+
+func TestMetricsCountInferredServices(t *testing.T) {
+	var metrics struct {
+		ServiceCount int `json:"serviceCount"`
+	}
+	getJSON(t, inferredServer(t)+"/metrics", http.StatusOK, &metrics)
+	if metrics.ServiceCount != 2 {
+		t.Errorf("metrics count %d services, want orders and the inferred cart", metrics.ServiceCount)
+	}
 }

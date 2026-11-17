@@ -3086,7 +3086,7 @@ export interface components {
             value: string;
         };
         "Fleet.InferredWorkload": {
-            /** @description The cluster id, in a snapshot with several clusters */
+            /** @description The cluster id, whenever Pacto knows the source's cluster; the service name carries it only in a snapshot with several clusters */
             cluster?: string;
             image?: components["schemas"]["Fleet.InferredValue"];
             /** @description Deployment, StatefulSet, DaemonSet or CronJob */
@@ -4062,7 +4062,7 @@ export interface components {
             id: string;
             /**
              * Format: int64
-             * @description The inferred services this source reported
+             * @description The inferred services this source reported, after the bound; a restricted view counts only the inferred services you may see
              */
             inferredCount?: number;
             kind: string;
@@ -4767,7 +4767,7 @@ export interface components {
         MetricsOutputBody: {
             /**
              * Format: int64
-             * @description Number of known services
+             * @description Number of known services, inferred services included
              */
             serviceCount: number;
             /**

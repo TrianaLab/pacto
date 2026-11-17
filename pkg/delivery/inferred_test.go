@@ -30,7 +30,7 @@ func withInferredLegacy(t *testing.T, in PlanInput, p PactoView) PlanInput {
 		Compliance: p.Status.ContractStatus, EvidenceAt: reconciled, ReconciledAt: reconciled}}
 	workloads := &fleet.Collection{InferredServices: []fleet.RawInferredService{{Namespace: "prod", Kind: "Deployment", Name: "legacy"}}}
 	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: func() time.Time { return now }},
-		fleet.NewMemorySource(SnapshotSourceID, fleet.SourceKindKubernetes, col), fleet.NewMemorySource("k8s-workloads", "kubernetes-workloads", workloads))
+		fleet.NewMemorySource(SnapshotSourceID, fleet.SourceKindKubernetes, col), fleet.NewMemorySource("k8s-workloads", fleet.SourceKindKubernetesWorkloads, workloads))
 	if err != nil {
 		t.Fatal(err)
 	}

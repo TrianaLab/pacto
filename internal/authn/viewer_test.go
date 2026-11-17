@@ -501,7 +501,7 @@ func inferredFleet(t *testing.T) *fleet.Query {
 	t.Helper()
 	k := fleet.SourceKindKubernetes
 	declared := fleet.NewMemorySource("k8s", k, &fleet.Collection{Targets: []fleet.RawTarget{{Scope: "shop", Kind: k, Name: "svc-a", Service: "svc-a"}}})
-	workloads := fleet.NewMemorySource("k8s-workloads", "kubernetes-workloads", &fleet.Collection{InferredServices: []fleet.RawInferredService{
+	workloads := fleet.NewMemorySource("k8s-workloads", fleet.SourceKindKubernetesWorkloads, &fleet.Collection{InferredServices: []fleet.RawInferredService{
 		{Namespace: "shop", Kind: "Deployment", Name: "cart"}, {Namespace: "shop", Kind: "CronJob", Name: "nightly"},
 	}})
 	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, declared, workloads)
@@ -592,7 +592,7 @@ func checkScopedWorkloadReview(t *testing.T, q *fleet.Query, cart, nightly strin
 // never visible, even to a reader of everything, and a failed workload review
 // fails the answer as a failed Pacto review does.
 func TestViewerWorkloadReviewEdges(t *testing.T) {
-	workloads := fleet.NewMemorySource("k8s-workloads", "kubernetes-workloads", &fleet.Collection{InferredServices: []fleet.RawInferredService{
+	workloads := fleet.NewMemorySource("k8s-workloads", fleet.SourceKindKubernetesWorkloads, &fleet.Collection{InferredServices: []fleet.RawInferredService{
 		{Namespace: "shop", Kind: "Rollout", Name: "canary"}, {Namespace: "shop", Kind: "Deployment", Name: "cart"},
 	}})
 	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, workloads)
