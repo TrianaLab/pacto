@@ -25,6 +25,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/diff"
+	"github.com/trianalab/pacto/v4/pkg/workloadmanager"
 )
 
 // The browser demo's delivery: an in-memory dashboard.DeliveryAPI over the
@@ -149,6 +150,9 @@ func stageKey(ns, name string) string { return ns + "/" + name }
 func newStage(service, env string) *delivery.StageObject {
 	s := &delivery.StageObject{Metadata: delivery.ObjectMeta{Name: service, Namespace: env, UID: "stage-" + env + "-" + service}}
 	s.Spec = delivery.StageSpec{Service: delivery.ServiceRef{Name: service}, Environment: env, ApplyRef: delivery.ApplyRef{Name: service}}
+	if service == "payments" { // payments ships through Argo CD; every other service through Flux
+		s.Spec.ApplyRef.Kind = delivery.ApplierArgoCD
+	}
 	s.Spec.Gates.Impact.DeclaredConsumersOnly = true // every service in the story has a contract
 	s.Spec.Gates.Verify.Checks = story.Checks(service, env)
 	// Most simulated Stages have already climbed the autonomy ladder, so the
@@ -238,6 +242,37 @@ func (d *demoDelivery) ownPaths() {
 	d.stages = append(d.stages, audit, notify)
 }
 
+// detectAppliers writes every Stage's status.applier, as the stage reconciler
+// does before the promoter plans.
+func (d *demoDelivery) detectAppliers(at time.Time) {
+	for _, s := range d.stages {
+		s.Status.Applier = adoptedApplier(s, at)
+	}
+}
+
+// adoptedApplier is the status.applier the promoter's detection writes on s
+// at at: its Deployment carries the marks of the Stage's own applier, an Argo
+// CD tracking id naming the Stage's Application or the labels of a
+// Kustomization that applies the Stage's OCIRepository. AdoptApplier judges
+// them, so the state follows the applyRef by construction.
+func adoptedApplier(s *delivery.StageObject, at time.Time) *delivery.ApplierStatus {
+	ns, svc := s.Metadata.Namespace, s.Spec.Service.Name
+	o := workloadmanager.Object{Group: "apps", Kind: "Deployment", Namespace: ns, Name: svc}
+	in := delivery.ApplierInput{Namespace: ns, Ref: s.Spec.ApplyRef, Now: at}
+	if s.Spec.ApplyRef.Kind == delivery.ApplierArgoCD {
+		o.Annotations = map[string]string{"argocd.argoproj.io/tracking-id": ns + "_" + s.Spec.ApplyRef.Name + ":apps/Deployment:" + ns + "/" + svc}
+	} else {
+		o.Labels = map[string]string{"kustomize.toolkit.fluxcd.io/name": svc, "kustomize.toolkit.fluxcd.io/namespace": ns}
+		var k delivery.KustomizationView
+		k.Metadata.Namespace, k.Metadata.Name = ns, svc
+		k.Spec.SourceRef.Kind, k.Spec.SourceRef.Name = delivery.ApplierFlux, s.Spec.ApplyRef.Name
+		in.Kustomizations = []delivery.KustomizationView{k}
+	}
+	in.Targets = []delivery.ApplierTarget{{Workload: "Deployment " + svc, Manager: workloadmanager.Detect(o)}}
+	a := delivery.AdoptApplier(in)
+	return &a
+}
+
 // demoCorrelation is the change ticket B1's promote to prod carries, so the
 // history's correlation filter has a change to find.
 const demoCorrelation = "CHG-2041"
@@ -285,6 +320,7 @@ func (d *demoDelivery) replay(start time.Time) error {
 		}
 	}
 	d.ownPaths()
+	d.detectAppliers(start)
 	// Placed before the story starts.
 	for _, p := range []struct{ svc, env, v string }{
 		{"payments", story.Test, "2.3.0"}, {"payments", story.Prod, "2.3.0"},
@@ -1015,7 +1051,17 @@ func inNamespace[T any](all []T, ns string, nsOf func(*T) string) []T {
 func (d *demoDelivery) Stages(_ context.Context, ns string) ([]delivery.StageObject, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return inNamespace(d.snapshot().stages, ns, func(s *delivery.StageObject) string { return s.Metadata.Namespace }), nil
+	out := inNamespace(d.snapshot().stages, ns, func(s *delivery.StageObject) string { return s.Metadata.Namespace })
+	// The promoter re-detects every resync and rewrites asOf, so the demo's
+	// applier is as fresh as the read.
+	for i := range out {
+		if a := out[i].Status.Applier; a != nil {
+			c := *a
+			c.AsOf = stamp(d.now())
+			out[i].Status.Applier = &c
+		}
+	}
+	return out, nil
 }
 
 func (d *demoDelivery) Operations(_ context.Context, ns string) ([]delivery.OperationObject, error) {

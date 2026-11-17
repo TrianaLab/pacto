@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"maps"
@@ -807,5 +808,43 @@ func TestDemoApprovalRecordsAccess(t *testing.T) {
 	}
 	if got.Status.ActorClass != delivery.ClassAgent || got.Status.ActorClassifiedBy != delivery.ClassByServiceAccount {
 		t.Fatalf("the asker's classification is recorded: %s %q", got.Status.ActorClass, got.Status.ActorClassifiedBy)
+	}
+}
+
+// TestDemoStagesCarryApplier: every demo Stage reports the manager that
+// applies it, adopted, with a fresh asOf: payments through Argo CD
+// Applications, the other services through Flux OCIRepositories.
+func TestDemoStagesCarryApplier(t *testing.T) {
+	d, h := demoServer(t)
+	stages, _ := d.Stages(t.Context(), "")
+	for _, st := range stages {
+		id, a := st.Metadata.Namespace+"/"+st.Metadata.Name, st.Status.Applier
+		if a == nil {
+			t.Fatalf("%s reports no applier", id)
+		}
+		if a.State != delivery.ApplierAdopted || a.Stale(time.Now()) {
+			t.Errorf("%s: applier %+v", id, *a)
+		}
+		wantKind, wantManager := delivery.ApplierFlux, "flux"
+		if st.Spec.Service.Name == "payments" {
+			wantKind, wantManager = delivery.ApplierArgoCD, "argocd"
+		}
+		if cmp.Or(st.Spec.ApplyRef.Kind, delivery.ApplierFlux) != wantKind || a.Manager != wantManager {
+			t.Errorf("%s: applyRef kind %q, manager %q", id, st.Spec.ApplyRef.Kind, a.Manager)
+		}
+	}
+	for svc, want := range map[string]string{"payments": "Argo CD (Application prod/payments, tracking annotation)",
+		"orders": "Flux (Kustomization prod/orders, kustomize-controller labels)"} {
+		if r := rowOf(t, environments(t, h, svc), story.Prod, svc); r.Applier == nil || r.Applier.Display != want {
+			t.Errorf("%s: dashboard row applier %+v, want %q", svc, r.Applier, want)
+		}
+	}
+	ops, _ := d.Operations(t.Context(), story.Test)
+	if !slices.ContainsFunc(ops, func(o delivery.OperationObject) bool {
+		return o.Status.Plan != nil && slices.ContainsFunc(o.Status.Plan.Verdicts, func(v delivery.Verdict) bool {
+			return v.Gate == delivery.GateApplier && v.Result == delivery.Pass
+		})
+	}) {
+		t.Error("no demo plan carries a Pass pacto.applier verdict")
 	}
 }
