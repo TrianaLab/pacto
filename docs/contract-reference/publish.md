@@ -1,8 +1,7 @@
 # Publish
 
 `publish` says what a service publishes, where each artifact goes and how it
-is built. Only [`pacto publish`](../publishing.md) reads it.
-[`delivery`](delivery.md) says how the promoter delivers what was published. The other
+is built. Only [`pacto publish`](../publishing.md) reads it. The other
 sections are in [Contract sections](sections.md),
 [Configuration and policy](configuration-and-policy.md),
 [Dependencies and state](dependencies-and-state.md) and

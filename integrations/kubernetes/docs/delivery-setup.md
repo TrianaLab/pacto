@@ -148,8 +148,7 @@ flowchart LR
   fail their schemas. A contract with no environments passes it.
   `pacto.applier` refuses a promote while the Stage's
   [`status.applier`](delivery-reach.md#which-manager-applies-a-stage) reads
-  `Conflict` or `Unknown`, or while the version's contract names a
-  `delivery.applier` the Stage does not apply through.
+  `Conflict` or `Unknown`.
 - After: the Pacto contract check counts only when
   `status.evaluatedRevision` names this version's contract digest and the
   current workload generation. `Compliant` and `Warning` pass, `NonCompliant`
