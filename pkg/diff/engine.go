@@ -17,7 +17,8 @@
 // The boundary is the reason the rule table has no Modified row for anything the
 // walk descends into: an element present on both sides is deep-diffed, so the
 // table is never asked. Adding such a row changes nothing and reads as if it
-// does. SBOM artifacts are diffed separately and are informational only.
+// does. SBOM artifacts are diffed separately and are informational only, and so
+// is the inferred record (inferred.go): its changes are always NON_BREAKING.
 //
 // Two sites adjust a classifier's answer in place, so the table alone does not
 // decide severity for openapi.parameters or for a configuration's values.
@@ -130,6 +131,7 @@ func Compare(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 	changes = append(changes, diffContract(old, new)...)
 	changes = append(changes, diffDependencies(old, new)...)
 	changes = append(changes, diffBreaks(old.Breaks, new.Breaks)...)
+	changes = append(changes, diffInferred(oldFS, newFS)...)
 	changes = append(changes, diffInterfaces(old, new, oldFS, newFS)...)
 	changes = append(changes, diffConfiguration(old, new, oldFS, newFS)...)
 	changes = append(changes, diffEnvironments(old.Environments, new.Environments, oldFS, newFS)...)

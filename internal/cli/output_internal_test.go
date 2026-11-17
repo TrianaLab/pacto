@@ -1714,3 +1714,27 @@ func TestPrintDependenciesUndeclaredRange(t *testing.T) {
 		}
 	}
 }
+
+// TestDiffOutputShowsInferredSection: every renderer prints the inferred
+// changes with their reason, and a sensitive key's summary stays masked.
+func TestDiffOutputShowsInferredSection(t *testing.T) {
+	rec := func(value string) fstest.MapFS {
+		r := &contract.InferredRecord{Format: contract.InferredRecordFormat, Inputs: contract.InferredInputs{Pacto: "4.6.0", Discovery: "1"},
+			Fields: []contract.Inferred{{Field: "configuration.DB_PASSWORD", Value: value, Source: "deploy/app.yaml:24", Confidence: "likely"}}}
+		return fstest.MapFS{contract.InferredRecordFile: {Data: r.Marshal()}}
+	}
+	c := &contract.Contract{PactoVersion: "2.5", Service: contract.Service{Name: "svc", Version: "1.0.0"}}
+	d := diff.Compare(context.Background(), c, c, rec("string"), rec("string, writeOnly"))
+	result := &app.DiffResult{OldPath: "a", NewPath: "b", Classification: d.Classification.String(), Changes: d.Changes}
+	for _, format := range []string{"text", "markdown", "json"} {
+		cmd, buf := testCmd()
+		if err := printDiffResult(cmd, result, format); err != nil {
+			t.Fatal(err)
+		}
+		out := buf.String()
+		if !strings.Contains(out, "inferred.configuration.DB_PASSWORD") || !strings.Contains(out, "inferred by Pacto, not part of the declared contract") ||
+			!strings.Contains(out, "NON_BREAKING") || strings.Contains(out, "writeOnly") || strings.Contains(out, "hunter2") {
+			t.Errorf("%s output: %s", format, out)
+		}
+	}
+}

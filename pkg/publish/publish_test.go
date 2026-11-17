@@ -31,6 +31,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/diff"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 )
 
@@ -847,5 +848,24 @@ func TestClientReferrerDescriptorsPaginated(t *testing.T) {
 	got, err := reg.ReferrerDescriptors(t.Context(), repo, d)
 	if !errors.Is(err, ErrReferrersPartial) || len(got) != 1 {
 		t.Fatalf("paginated referrers = %v, %v", got, err)
+	}
+}
+
+// TestBumpCheckInferredOnlyNeedsPatch: a diff that changes only the inferred
+// record is NON_BREAKING, so a patch over the baseline passes.
+func TestBumpCheckInferredOnlyNeedsPatch(t *testing.T) {
+	host, reg := newRegistry(t)
+	withRecord := func(b *contract.Bundle, value string) *contract.Bundle {
+		r := &contract.InferredRecord{Format: contract.InferredRecordFormat, Inputs: contract.InferredInputs{Pacto: "4.6.0", Discovery: "1"},
+			Fields: []contract.Inferred{{Field: "dependencies[billing]", Value: value, Source: "deploy/app.yaml:12", Confidence: "likely"}}}
+		b.FS.(fstest.MapFS)[contract.InferredRecordFile] = &fstest.MapFile{Data: r.Marshal()}
+		return b
+	}
+	base := withRecord(bundleOf(host, "1.4.2", workloadService), "billing")
+	b := withRecord(bundleOf(host, "1.4.3", workloadService), "ledger")
+	p := &Plan{Version: "1.4.3"}
+	ch := bumpCheck(context.Background(), stubBaseline{reg, base}, b, p, host+"/pacto/payments", "1.4.2")
+	if !ch.Passed || p.Baseline != "1.4.2" || p.RequiredBump != diff.BumpPatch || p.Classification != "NON_BREAKING" {
+		t.Fatalf("inferred-only patch: %+v %+v", ch, p)
 	}
 }
