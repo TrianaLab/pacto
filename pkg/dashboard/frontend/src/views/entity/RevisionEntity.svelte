@@ -169,7 +169,7 @@
       {#if d.discoveryFindings?.total}
         <!-- What discovery could not read or choose: inspection detail, so closed. One line
              can raise two findings, so rows are keyed by position. -->
-        <details class="re-findings disclosure" data-testid="revision-discovery-findings">
+        <details class="disclosure" data-testid="revision-discovery-findings">
           <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span>{findingsSummary(d.discoveryFindings)}</summary>
           <ul class="re-findings-list t-meta">
             {#each d.discoveryFindings.items ?? [] as f, i (i)}
