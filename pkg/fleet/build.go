@@ -180,6 +180,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	matchProvisioning(snap)
 	matchUsage(snap)
 	snap.Completeness = classifyCompleteness(snap)
+	snap.workloadOnlyPartial = snap.Completeness == CompletenessPartial && completenessExcept(snap, SourceKindKubernetesWorkloads) != CompletenessPartial
 	snap.Limitations = append(snap.Limitations, degradedLimitations(snap)...)
 	if opts.DiscloseUncheckedFreshness && opts.FreshnessWindow == 0 && len(snap.Targets) > 0 {
 		snap.Limitations = append(snap.Limitations, Limitation{
@@ -3322,10 +3323,9 @@ func classifyCompleteness(snap *FleetSnapshot) Completeness {
 // impact and gate answers. A workload source reports only inferred services,
 // which are never consumers, so its health never makes such an answer
 // partial; its SOURCE_* limitations still say what it could not read. A
-// restricted view stays partial.
+// view partial for any other reason stays partial.
 func (s *FleetSnapshot) ConsumerCompleteness() Completeness {
-	if s.Completeness != CompletenessPartial ||
-		slices.ContainsFunc(s.Limitations, func(l Limitation) bool { return l.Code == LimitationHiddenByPermissions }) {
+	if s.Completeness != CompletenessPartial || !s.workloadOnlyPartial {
 		return s.Completeness
 	}
 	return completenessExcept(s, SourceKindKubernetesWorkloads)

@@ -173,6 +173,7 @@ func (q *Query) Restrict(visible func(namespace string) bool, workloadVisible fu
 	out.Limitations = append(out.Limitations, Limitation{Code: LimitationHiddenByPermissions, Message: hiddenMessage})
 	sortSnapshotLimitations(&out)
 	out.Completeness = CompletenessPartial
+	out.workloadOnlyPartial = false
 	out.SnapshotID = computeSnapshotID(&out)
 	return NewQuery(&out)
 }
