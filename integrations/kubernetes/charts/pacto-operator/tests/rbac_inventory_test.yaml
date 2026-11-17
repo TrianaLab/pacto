@@ -528,9 +528,6 @@ tests:
     - equal:
         path: rules
         value:
-        - apiGroups: ['']
-          resources: [configmaps]
-          verbs: [get, list, watch, create, update, patch, delete]
         - apiGroups: [coordination.k8s.io]
           resources: [leases]
           verbs: [get, list, watch, create, update, patch, delete]
@@ -680,9 +677,6 @@ tests:
     - equal:
         path: rules
         value:
-        - apiGroups: ['']
-          resources: [configmaps]
-          verbs: [get, list, watch, create, update, patch, delete]
         - apiGroups: [coordination.k8s.io]
           resources: [leases]
           verbs: [get, list, watch, create, update, patch, delete]
@@ -1052,9 +1046,6 @@ tests:
     - equal:
         path: rules
         value:
-        - apiGroups: ['']
-          resources: [configmaps]
-          verbs: [get, list, watch, create, update, patch, delete]
         - apiGroups: [coordination.k8s.io]
           resources: [leases]
           verbs: [get, list, watch, create, update, patch, delete]
@@ -1520,9 +1511,6 @@ tests:
     - equal:
         path: rules
         value:
-        - apiGroups: ['']
-          resources: [configmaps]
-          verbs: [get, list, watch, create, update, patch, delete]
         - apiGroups: [coordination.k8s.io]
           resources: [leases]
           verbs: [get, list, watch, create, update, patch, delete]
@@ -1986,9 +1974,6 @@ tests:
     - equal:
         path: rules
         value:
-        - apiGroups: ['']
-          resources: [configmaps]
-          verbs: [get, list, watch, create, update, patch, delete]
         - apiGroups: [coordination.k8s.io]
           resources: [leases]
           verbs: [get, list, watch, create, update, patch, delete]
@@ -2726,9 +2711,6 @@ tests:
     - equal:
         path: rules
         value:
-        - apiGroups: ['']
-          resources: [configmaps]
-          verbs: [get, list, watch, create, update, patch, delete]
         - apiGroups: [coordination.k8s.io]
           resources: [leases]
           verbs: [get, list, watch, create, update, patch, delete]
@@ -3025,9 +3007,6 @@ tests:
     - equal:
         path: rules
         value:
-        - apiGroups: ['']
-          resources: [configmaps]
-          verbs: [get, list, watch, create, update, patch, delete]
         - apiGroups: [coordination.k8s.io]
           resources: [leases]
           verbs: [get, list, watch, create, update, patch, delete]

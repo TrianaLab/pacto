@@ -2033,10 +2033,10 @@ metadata:
     app.kubernetes.io/instance: pacto-operator
     app.kubernetes.io/version: "VERSION"
     app.kubernetes.io/managed-by: Helm
+# Leases only: controller-runtime elects through a Lease, so no ConfigMap
+# write is granted here and detection's name-scoped rule in role.yaml stays the
+# operator's only ConfigMap write in the release namespace.
 rules:
-  - apiGroups: [""]
-    resources: [configmaps]
-    verbs: [get, list, watch, create, update, patch, delete]
   - apiGroups: [coordination.k8s.io]
     resources: [leases]
     verbs: [get, list, watch, create, update, patch, delete]

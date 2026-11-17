@@ -49,7 +49,9 @@ operator and none to the dashboard:
 | `nodes` `list` | Cluster-wide ClusterRole only | Cloud from `providerID` and node kernels |
 | `configmaps` `create`, plus `get` and `patch` on `<fullname>-detected` only | Release namespace Role | The one ConfigMap detection writes |
 
-Kubernetes cannot scope `create` by name, so it stays unnamed. Pods,
+Kubernetes cannot scope `create` by name, so it stays unnamed. The
+leader-election Role grants Leases only, so this is the operator's one
+ConfigMap write in the release namespace. Pods,
 HTTPRoutes, Ingresses and Services come from reads the operator already has.
 A namespace-list install renders no `nodes` rule, so cloud and nodes read
 unknown.

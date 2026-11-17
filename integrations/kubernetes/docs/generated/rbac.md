@@ -146,7 +146,6 @@ Created in the release namespace and bound to the same ServiceAccount. Used only
 
 | API groups | Resources | Verbs | Limited to |
 | --- | --- | --- | --- |
-| `"" (core)` | `configmaps` | `create`, `delete`, `get`, `list`, `patch`, `update`, `watch` | *not name-restricted* |
 | `"" (core)` | `events` | `create`, `patch` | *not name-restricted* |
 | `coordination.k8s.io` | `leases` | `create`, `delete`, `get`, `list`, `patch`, `update`, `watch` | *not name-restricted* |
 
