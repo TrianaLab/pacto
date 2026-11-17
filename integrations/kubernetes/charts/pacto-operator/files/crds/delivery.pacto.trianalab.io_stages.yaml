@@ -392,6 +392,11 @@ spec:
                   since:
                     description: Since is when this result was first seen (RFC 3339).
                     type: string
+                  staleAt:
+                    description: |-
+                      StaleAt is when asOf turns stale (RFC 3339): twice the promoter's
+                      resync after asOf, since it rewrites asOf at least once per resync.
+                    type: string
                   state:
                     enum:
                     - Adopted

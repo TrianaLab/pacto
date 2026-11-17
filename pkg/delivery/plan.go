@@ -358,15 +358,18 @@ func predict(in PlanInput, p *Plan) Prediction {
 func promoteGates(ctx context.Context, in PlanInput, p *Plan) {
 	pub := publishedGate(in)
 	p.Verdicts = append(p.Verdicts, pub)
-	switch pub.Result {
-	case Fail:
-		return
-	case Unknown:
-		p.Floor = Floor{Human: true, Decision: AcceptUnknown}
-		p.Question = "Pacto cannot tell whether pacto publish published " + short(p.To) + ": " + pub.Message + ". Accept the unknown?"
+	if pub.Result == Fail {
 		return
 	}
+	// The applier is judged before a person is asked to accept an unknown
+	// publication: an applier that is not Pass rejects, and nobody can accept
+	// it by answering another question.
 	if !applierGate(in, p) {
+		return
+	}
+	if pub.Result == Unknown {
+		p.Floor = Floor{Human: true, Decision: AcceptUnknown}
+		p.Question = "Pacto cannot tell whether pacto publish published " + short(p.To) + ": " + pub.Message + ". Accept the unknown?"
 		return
 	}
 	diffV := diffGate(ctx, in)

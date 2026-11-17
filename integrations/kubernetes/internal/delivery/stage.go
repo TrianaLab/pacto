@@ -413,16 +413,19 @@ func (r *StageReconciler) authFreshness() string {
 // nextApplier detects who manages the Stage's workloads and says whether
 // status.applier must be written: when the result changed (since and asOf
 // both move), or when the shown result is older than the resync period (only
-// asOf moves). Status writes stay bounded to one per resync per Stage.
+// asOf moves). Status writes stay bounded to one per resync per Stage. staleAt
+// is twice the resync after asOf, so every surface judges staleness by this
+// promoter's own period.
 func (r *StageReconciler) nextApplier(ctx context.Context, stage *dv1.Stage) (delivery.ApplierStatus, bool) {
-	now := r.Now()
+	now, resync := r.Now(), cmp.Or(r.Resync, DefaultResync)
 	st, old := r.Cluster.detectApplier(ctx, stage, now), stage.Status.Applier
+	st.StaleAt = now.Add(2 * resync).UTC().Format(time.RFC3339)
 	if !delivery.SameApplier(old, &st) {
 		return st, true
 	}
 	st.Since = old.Since
-	if asOf, err := time.Parse(time.RFC3339, old.AsOf); err == nil && now.Sub(asOf) < cmp.Or(r.Resync, DefaultResync) {
-		st.AsOf = old.AsOf
+	if asOf, err := time.Parse(time.RFC3339, old.AsOf); err == nil && now.Sub(asOf) < resync && old.StaleAt != "" {
+		st.AsOf, st.StaleAt = old.AsOf, old.StaleAt
 		return st, false
 	}
 	return st, true

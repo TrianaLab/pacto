@@ -58,6 +58,10 @@ type ApplierStatus struct {
 	// AsOf is the last observation (RFC 3339).
 	// +optional
 	AsOf string `json:"asOf,omitempty" doc:"The last observation (RFC 3339)"`
+	// StaleAt is when asOf turns stale (RFC 3339): twice the promoter's
+	// resync after asOf, since it rewrites asOf at least once per resync.
+	// +optional
+	StaleAt string `json:"staleAt,omitempty" doc:"When asOf turns stale (RFC 3339): twice the promoter's resync after asOf. A later observation means the promoter stopped checking"`
 	// +kubebuilder:validation:Enum=complete;partial
 	Completeness string `json:"completeness" enum:"complete,partial" doc:"partial when a workload or the Pacto list could not be read"`
 }
@@ -68,13 +72,16 @@ type ApplierTarget struct {
 	Manager  workloadmanager.Manager
 }
 
-// ApplierInput is what AdoptApplier reads: the Stage's namespace and
-// applyRef, each target, what could not be read, and the Kustomizations the
-// promoter could list (their sourceRef says which OCIRepository they apply).
+// ApplierInput is what AdoptApplier reads: the Stage's namespace, service
+// and applyRef, each target, the workloads a Pacto reports that do not exist
+// yet, what could not be read, and the Kustomizations the promoter read
+// (their sourceRef says which OCIRepository they apply).
 type ApplierInput struct {
 	Namespace      string
+	Service        string
 	Ref            ApplyRef
 	Targets        []ApplierTarget
+	Missing        []string
 	Unread         []string
 	Kustomizations []KustomizationView
 	Now            time.Time
@@ -102,7 +109,10 @@ func AdoptApplier(in ApplierInput) ApplierStatus {
 			return st
 		}
 		st.Manager, st.Display, st.State = workloadmanager.None, workloadmanager.Describe(workloadmanager.Manager{}), ApplierUnmanaged
-		st.Message = "no workload to check yet: no Pacto for " + in.Ref.Name + "'s service in " + in.Namespace + " reports one"
+		st.Message = "no workload to check yet: no Pacto for service " + in.Service + " in " + in.Namespace + " reports one"
+		if len(in.Missing) > 0 {
+			st.Message = "no workload to check yet: " + strings.Join(in.Missing, ", ") + ", which a Pacto reports, does not exist yet"
+		}
 		return st
 	}
 	pick, verdict := 0, targetVerdict{state: ApplierAdopted}
@@ -118,6 +128,11 @@ func AdoptApplier(in ApplierInput) ApplierStatus {
 	}
 	m := in.Targets[pick].Manager
 	st.Manager, st.Owner, st.Evidence, st.Display = managerEnum(m.Name), ownerOf(m), m.Evidence, workloadmanager.Describe(m)
+	if cmp.Or(m.Name, workloadmanager.None) == workloadmanager.None {
+		// Describe(None) reads "unmanaged", which a workload without marks
+		// does not prove.
+		st.Display = "no manager marks"
+	}
 	st.State, st.Message = verdict.state, verdict.message
 	if st.State == ApplierAdopted {
 		st.Message = st.Display + " applies " + strings.Join(st.Workloads, ", ")
@@ -190,14 +205,23 @@ func adoptFluxKustomization(in ApplierInput, t ApplierTarget) targetVerdict {
 		return conflictWith(in, t)
 	}
 	i := slices.IndexFunc(in.Kustomizations, func(k KustomizationView) bool {
-		return k.Metadata.Namespace == m.OwnerNamespace && k.Metadata.Name == m.OwnerName
+		return k.Metadata.Namespace == m.OwnerNamespace && k.Metadata.Name == m.OwnerName && mayAdopt(in, k)
 	})
 	if i < 0 {
-		msg := "Pacto could not read Kustomization " + m.OwnerNamespace + "/" + m.OwnerName + ", which manages " + t.Workload
+		why := ""
 		if len(in.Unread) > 0 {
-			msg += " (" + strings.Join(in.Unread, "; ") + ")"
+			why = " (" + strings.Join(in.Unread, "; ") + ")"
 		}
-		return targetVerdict{ApplierUnknown, msg}
+		if m.OwnerNamespace != in.Namespace {
+			// The workload's labels, which anyone who edits it controls, name
+			// a Kustomization in another namespace. One fixed verdict, whether
+			// it exists or where it points, so the Stage status never tells a
+			// reader of this namespace about an object they cannot read.
+			return targetVerdict{ApplierUnknown, "Pacto cannot confirm that Kustomization " + m.OwnerNamespace + "/" + m.OwnerName +
+				", which the labels of " + t.Workload + " name, applies from " + appliesThrough(in) +
+				": it reads a Kustomization outside " + in.Namespace + " only when it applies from that OCIRepository" + why}
+		}
+		return targetVerdict{ApplierUnknown, "Pacto could not read Kustomization " + m.OwnerNamespace + "/" + m.OwnerName + ", which manages " + t.Workload + why}
 	}
 	src := in.Kustomizations[i].Spec.SourceRef
 	srcNS := cmp.Or(src.Namespace, m.OwnerNamespace)
@@ -207,6 +231,14 @@ func adoptFluxKustomization(in ApplierInput, t ApplierTarget) targetVerdict {
 			": Pacto never writes a pointer another manager overwrites"}
 	}
 	return targetVerdict{state: ApplierAdopted}
+}
+
+// mayAdopt reports whether the Stage may read k: k is in the Stage namespace,
+// or it applies from the Stage's own OCIRepository, the set Mediated reads.
+func mayAdopt(in ApplierInput, k KustomizationView) bool {
+	src := k.Spec.SourceRef
+	return k.Metadata.Namespace == in.Namespace ||
+		src.Kind == ApplierFlux && cmp.Or(src.Namespace, k.Metadata.Namespace) == in.Namespace && src.Name == in.Ref.Name
 }
 
 func adoptHelmRelease(in ApplierInput, t ApplierTarget) targetVerdict {
@@ -239,30 +271,30 @@ func ownerOf(m workloadmanager.Manager) string {
 	return strings.TrimSpace(m.OwnerKind + " " + name)
 }
 
-// ApplierStaleAfter is twice the promoter's default resync: it rewrites
-// status.applier's asOf at least once per resync, so an older asOf means it
-// stopped checking.
-// ponytail: fixed to the default --resync (one minute); a promoter run with a
-// longer --resync reads stale early. Carry the period on the status if a team
-// sets one.
+// ApplierStaleAfter is twice the promoter's default resync, the stale
+// threshold of a status that carries no staleAt (one an older promoter or the
+// demo wrote).
 const ApplierStaleAfter = 2 * time.Minute
 
-// Stale reports whether the promoter last checked longer than
-// ApplierStaleAfter before now. An unreadable asOf is not stale: the surfaces
+// Stale reports whether now is past staleAt, or, without one, longer than
+// ApplierStaleAfter after asOf. An unreadable time is not stale: the surfaces
 // print it as it is.
 func (a *ApplierStatus) Stale(now time.Time) bool {
+	if t, err := time.Parse(time.RFC3339, a.StaleAt); err == nil {
+		return now.After(t)
+	}
 	t, err := time.Parse(time.RFC3339, a.AsOf)
 	return err == nil && now.Sub(t) > ApplierStaleAfter
 }
 
 // SameApplier reports whether a and b say the same thing: every field but
-// Since and AsOf.
+// Since, AsOf and StaleAt.
 func SameApplier(a, b *ApplierStatus) bool {
 	if a == nil || b == nil {
 		return a == b
 	}
 	x, y := *a, *b
-	x.Since, x.AsOf, y.Since, y.AsOf = "", "", "", ""
+	x.Since, x.AsOf, x.StaleAt, y.Since, y.AsOf, y.StaleAt = "", "", "", "", "", ""
 	return reflect.DeepEqual(x, y)
 }
 

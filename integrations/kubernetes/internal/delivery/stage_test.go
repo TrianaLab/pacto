@@ -8,6 +8,7 @@ See LICENSE file in the project root for full license text.
 package delivery
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"go/ast"
@@ -808,6 +809,14 @@ func TestStageWritesApplierOnlyOnChange(t *testing.T) {
 	must(t, e.reconcileStage("payments-prod"))
 	if a := e.getStage().Status.Applier; a.Since != first.Status.Applier.Since || a.AsOf != "2026-10-20T10:00:02Z" {
 		t.Fatalf("only asOf moves after the resync period: %+v", a)
+	}
+	// staleAt follows asOf by twice this promoter's resync, so a longer
+	// --resync never reads stale while it checks on schedule.
+	for _, a := range []*delivery.ApplierStatus{first.Status.Applier, e.getStage().Status.Applier} {
+		asOf, _ := time.Parse(time.RFC3339, a.AsOf)
+		if a.StaleAt != asOf.Add(2*cmp.Or(e.st.Resync, DefaultResync)).Format(time.RFC3339) || a.Stale(asOf.Add(cmp.Or(e.st.Resync, DefaultResync))) {
+			t.Fatalf("staleAt: %+v", a)
+		}
 	}
 	e.relabel(func(d *appsv1.Deployment) { d.Labels = nil })
 	must(t, e.reconcileStage("payments-prod"))

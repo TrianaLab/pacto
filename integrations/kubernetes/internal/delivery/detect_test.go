@@ -19,6 +19,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/rest"
 	ctrlrt "sigs.k8s.io/controller-runtime"
@@ -81,22 +82,90 @@ func TestDetectApplierFluxKustomization(t *testing.T) {
 	e.st.Cluster.NoFlux = true
 	wantApplier(t, e.detect(stageObj(dA)), delivery.ApplierUnknown, "flux", "partial", "Kustomization prod/payments")
 	e.st.Cluster.NoFlux = false
-	e.fails["list/Kustomization"] = true
+	e.fails["get/Kustomization"] = true
 	wantApplier(t, e.detect(stageObj(dA)), delivery.ApplierUnknown, "flux", "partial", "Kustomization prod/payments")
+	e.fails["get/Kustomization"] = false
+	// A pointer decision rests on the Kustomization's sourceRef, so it is
+	// read live, never through the cache, which can lag a repoint.
+	e.st.Cluster.Cache = interceptor.NewClient(e.c, interceptor.Funcs{List: func(context.Context, client.WithWatch, client.ObjectList, ...client.ListOption) error {
+		return errors.New("the cache must not serve detection")
+	}})
+	wantApplier(t, e.detect(stageObj(dA)), delivery.ApplierAdopted, "flux", "complete", "applies Deployment payments")
 }
 
-// TestDetectApplierNoPactoYet: without a Pacto, with a Pacto that evaluated
-// no workload or with a workload that is gone, there is nothing to check.
+// TestDetectApplierForeignKustomizationLeaksNothing: labels that name a
+// Kustomization in another namespace, which anyone who edits the workload
+// can set, read one fixed verdict whether it exists or where it applies
+// from, so a Stage reader learns nothing about a namespace they cannot read.
+// One that applies from the Stage's OCIRepository is adopted.
+func TestDetectApplierForeignKustomizationLeaksNothing(t *testing.T) {
+	foreign := func(source string) *unstructured.Unstructured {
+		k := kustomization("billing", source, "True", "", "", "")
+		k.SetNamespace("team-b")
+		return k
+	}
+	label := func(d *appsv1.Deployment) {
+		d.Labels["kustomize.toolkit.fluxcd.io/name"], d.Labels["kustomize.toolkit.fluxcd.io/namespace"] = "billing", "team-b"
+	}
+	missing := newEnv(t, deployment("payments", 2, 2), pactoObj("payments", "payments", c1, "Compliant", 2))
+	missing.relabel(label)
+	elsewhere := newEnv(t, deployment("payments", 2, 2), pactoObj("payments", "payments", c1, "Compliant", 2), foreign("billing-prod"))
+	elsewhere.relabel(label)
+	a, b := missing.detect(stageObj(dA)), elsewhere.detect(stageObj(dA))
+	wantApplier(t, a, delivery.ApplierUnknown, "flux", "complete", "Pacto cannot confirm that Kustomization team-b/billing")
+	if !delivery.SameApplier(&a, &b) || strings.Contains(b.Message, "billing-prod") {
+		t.Fatalf("a missing and a foreign Kustomization must read the same:\n%+v\n%+v", a, b)
+	}
+	// ponytail: the fake Kustomization's sourceRef has no namespace, so it
+	// defaults to team-b; point it at the Stage's OCIRepository in prod.
+	ours := foreign("payments")
+	must(t, unstructured.SetNestedField(ours.Object, ns, "spec", "sourceRef", "namespace"))
+	adopted := newEnv(t, deployment("payments", 2, 2), pactoObj("payments", "payments", c1, "Compliant", 2), ours)
+	adopted.relabel(label)
+	wantApplier(t, adopted.detect(stageObj(dA)), delivery.ApplierAdopted, "flux", "complete", "applies Deployment payments")
+}
+
+// TestDetectApplierNoPactoYet: without a Pacto, or with a workload that is
+// gone, there is nothing to check, and the message says which.
 func TestDetectApplierNoPactoYet(t *testing.T) {
-	e := newEnv(t)
-	wantApplier(t, e.detect(stageObj(dA)), delivery.ApplierUnmanaged, "none", "complete", "no workload to check yet")
+	e := newEnv(t, pactoObj("checkout", "checkout", c1, "Compliant", 2))
+	wantApplier(t, e.detect(stageObj(dA)), delivery.ApplierUnmanaged, "none", "complete", "no Pacto for service payments in prod reports one")
+	e = newEnv(t, pactoObj("payments", "payments", c1, "Compliant", 2))
+	wantApplier(t, e.detect(stageObj(dA)), delivery.ApplierUnmanaged, "none", "complete",
+		"Deployment payments, which a Pacto reports, does not exist yet")
+}
+
+// TestDetectApplierUnevaluatedPactoIsUnknown: a Pacto the operator has not
+// reconciled, or one that has evaluated no revision, may be the service's,
+// so the result is Unknown, never Unmanaged: the operator being down is no
+// evidence that nothing manages the workload.
+func TestDetectApplierUnevaluatedPactoIsUnknown(t *testing.T) {
+	unreconciled := pactoObj("payments-next", "payments", c1, "", 2)
+	unreconciled.Object["status"] = map[string]any{}
+	e := newEnv(t, unreconciled)
+	wantApplier(t, e.detect(stageObj(dA)), delivery.ApplierUnknown, "", "partial", "Pacto payments-next, which the operator has not reconciled yet")
 	unevaluated := pactoObj("payments", "payments", c1, "Compliant", 2)
 	delete(unevaluated.Object["status"].(map[string]any), "evaluatedRevision")
-	other := pactoObj("checkout", "checkout", c1, "Compliant", 2)
-	e.create(unevaluated, other)
+	e = newEnv(t, unevaluated)
+	wantApplier(t, e.detect(stageObj(dA)), delivery.ApplierUnknown, "", "partial", "Pacto payments, which has not evaluated a revision yet")
+	// An Invalid Pacto of another service names no service but was
+	// reconciled: it does not block the Stage.
+	invalid := pactoObj("broken", "broken", c1, "Invalid", 2)
+	delete(invalid.Object["status"].(map[string]any), "contract")
+	e = newEnv(t, invalid)
 	wantApplier(t, e.detect(stageObj(dA)), delivery.ApplierUnmanaged, "none", "complete", "no workload to check yet")
-	e = newEnv(t, pactoObj("payments", "payments", c1, "Compliant", 2))
-	wantApplier(t, e.detect(stageObj(dA)), delivery.ApplierUnmanaged, "none", "complete", "no workload to check yet")
+}
+
+// TestDetectApplierDecoyIsUnknown: a version's Pacto that evaluated another
+// workload than the Stage runs (spec.workload) never stands for the Stage's
+// workload, even when the decoy carries the Stage's own marks.
+func TestDetectApplierDecoyIsUnknown(t *testing.T) {
+	d := argoDeployment("payments-shim", 2, 2)
+	p := pactoObj("payments", "payments", c1, "Compliant", 2)
+	p.Object["status"].(map[string]any)["evaluatedRevision"].(map[string]any)["workload"].(map[string]any)["name"] = "payments-shim"
+	e := newEnv(t, d, p, argoDeployment("payments", 2, 2))
+	wantApplier(t, e.detect(argoStage(dA)), delivery.ApplierUnknown, "", "partial",
+		"evaluated Deployment payments-shim, not Deployment payments, the workload this Stage runs (spec.workload)")
 }
 
 // TestDetectApplierUnlabelledWorkloadIsUnknown: a workload without its
@@ -130,7 +199,9 @@ func TestDetectApplierControllerOwnerIsUnknown(t *testing.T) {
 	p := pactoObj("payments", "payments", c1, "Compliant", 2)
 	p.Object["status"].(map[string]any)["evaluatedRevision"].(map[string]any)["workload"].(map[string]any)["kind"] = "Job"
 	e := newEnv(t, job, p)
-	wantApplier(t, e.detect(stageObj(dA)), delivery.ApplierUnknown, "unsupported", "complete", "PaymentsJob nightly")
+	s := stageObj(dA)
+	s.Spec.Workload = &delivery.WorkloadRef{Kind: "Job", Name: "payments"}
+	wantApplier(t, e.detect(s), delivery.ApplierUnknown, "unsupported", "complete", "PaymentsJob nightly")
 }
 
 // TestDetectApplierForbiddenWorkloadIsUnknown: a workload or a Pacto list

@@ -1404,6 +1404,8 @@ export interface components {
             owner?: string;
             /** @description When this result was first seen (RFC 3339) */
             since?: string;
+            /** @description When asOf turns stale (RFC 3339): twice the promoter's resync after asOf. A later observation means the promoter stopped checking */
+            staleAt?: string;
             /**
              * @description Adopted when the Stage's applier manages every workload; Unmanaged when there is no workload yet; Conflict when another manager or object owns one; Unknown when Pacto cannot tell. Only Adopted and Unmanaged let a promote through
              * @enum {string}

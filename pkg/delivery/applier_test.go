@@ -76,19 +76,40 @@ func TestAdoptApplierFluxKustomization(t *testing.T) {
 	same := []KustomizationView{kustomizationOf("payments", "payments", "OCIRepository", "", "payments")}
 	wantState(t, "sourceRef namespace defaults to the Kustomization's", adopt(ApplyRef{Kind: ApplierFlux, Name: "payments"}, same,
 		kustomizationOwner("payments", "payments")), ApplierAdopted, "")
-	other := []KustomizationView{kustomizationOf("flux-system", "payments", "OCIRepository", "payments", "orders")}
-	wantState(t, "another repo", adopt(ref, other, kustomizationOwner("flux-system", "payments")), ApplierConflict,
+	other := []KustomizationView{kustomizationOf("payments", "payments", "OCIRepository", "payments", "orders")}
+	wantState(t, "another repo", adopt(ref, other, kustomizationOwner("payments", "payments")), ApplierConflict,
 		"applies from OCIRepository payments/orders")
-	git := []KustomizationView{kustomizationOf("flux-system", "payments", "GitRepository", "payments", "payments")}
-	wantState(t, "git source", adopt(ref, git, kustomizationOwner("flux-system", "payments")), ApplierConflict, "GitRepository")
-	wantState(t, "missing", adopt(ref, nil, kustomizationOwner("flux-system", "payments")), ApplierUnknown,
-		"Pacto could not read Kustomization flux-system/payments")
+	git := []KustomizationView{kustomizationOf("payments", "payments", "GitRepository", "payments", "payments")}
+	wantState(t, "git source", adopt(ref, git, kustomizationOwner("payments", "payments")), ApplierConflict, "GitRepository")
+	wantState(t, "missing", adopt(ref, nil, kustomizationOwner("payments", "payments")), ApplierUnknown,
+		"Pacto could not read Kustomization payments/payments")
 	wantState(t, "argo applyRef", adopt(argoRef, agree, kustomizationOwner("flux-system", "payments")), ApplierConflict, "Kustomization")
 	unlisted := ApplierInput{Namespace: "payments", Ref: ref, Now: applierNow,
 		Unread:  []string{"the Kustomizations: the promoter runs with --flux=false"},
-		Targets: []ApplierTarget{{Workload: "Deployment w0", Manager: kustomizationOwner("flux-system", "payments")}}}
+		Targets: []ApplierTarget{{Workload: "Deployment w0", Manager: kustomizationOwner("payments", "payments")}}}
 	wantState(t, "unlisted names the cause", AdoptApplier(unlisted), ApplierUnknown,
-		"Pacto could not read Kustomization flux-system/payments, which manages Deployment w0 (the Kustomizations: the promoter runs with --flux=false)")
+		"Pacto could not read Kustomization payments/payments, which manages Deployment w0 (the Kustomizations: the promoter runs with --flux=false)")
+}
+
+// TestAdoptApplierForeignKustomizationIsOneVerdict: a Kustomization outside
+// the Stage namespace that does not apply from the Stage's OCIRepository
+// reads the same whether it is missing or applies from elsewhere, and never
+// names its source: the workload's labels are not a way to read another
+// namespace.
+func TestAdoptApplierForeignKustomizationIsOneVerdict(t *testing.T) {
+	ref, owner := ApplyRef{Name: "payments"}, kustomizationOwner("team-b", "billing")
+	missing := adopt(ref, nil, owner)
+	for name, ks := range map[string][]KustomizationView{
+		"another repo": {kustomizationOf("team-b", "billing", "OCIRepository", "team-b", "billing-prod")},
+		"git source":   {kustomizationOf("team-b", "billing", "GitRepository", "", "billing")},
+	} {
+		got := adopt(ref, ks, owner)
+		if !SameApplier(&missing, &got) || strings.Contains(got.Message, "billing-prod") || strings.Contains(got.Message, "GitRepository") {
+			t.Errorf("%s: want the missing verdict %+v, got %+v", name, missing, got)
+		}
+	}
+	wantState(t, "foreign", missing, ApplierUnknown,
+		"Pacto cannot confirm that Kustomization team-b/billing, which the labels of Deployment w0 name, applies from OCIRepository payments/payments")
 }
 
 func TestAdoptApplierHelmRelease(t *testing.T) {
@@ -120,11 +141,13 @@ func TestAdoptApplierConflicts(t *testing.T) {
 }
 
 func TestAdoptApplierUnmanaged(t *testing.T) {
-	got := adopt(argoRef, nil)
-	wantState(t, "no targets", got, ApplierUnmanaged, "no workload")
-	if got.Manager != "none" || got.Display != "unmanaged" || got.Completeness != "complete" {
+	got := AdoptApplier(ApplierInput{Namespace: "payments", Service: "payments", Ref: ApplyRef{Kind: ApplierHelmRelease, Name: "payments-chart"}, Now: applierNow})
+	wantState(t, "no targets", got, ApplierUnmanaged, "no workload to check yet: no Pacto for service payments in payments reports one")
+	if got.Manager != "none" || got.Display != "unmanaged" || got.Completeness != "complete" || strings.Contains(got.Message, "payments-chart") {
 		t.Errorf("no targets: %+v", got)
 	}
+	gone := AdoptApplier(ApplierInput{Namespace: "payments", Service: "payments", Ref: argoRef, Missing: []string{"Deployment payments"}, Now: applierNow})
+	wantState(t, "a reported workload that is gone", gone, ApplierUnmanaged, "no workload to check yet: Deployment payments, which a Pacto reports, does not exist yet")
 }
 
 func TestAdoptApplierNoneIsUnknown(t *testing.T) {
@@ -132,7 +155,8 @@ func TestAdoptApplierNoneIsUnknown(t *testing.T) {
 	for _, ref := range []ApplyRef{argoRef, {Name: "payments"}, {Kind: ApplierHelmRelease, Name: "payments"}} {
 		got := adopt(ref, nil, none, none)
 		wantState(t, ref.Kind, got, ApplierUnknown, "leaves no mark on Deployment w0")
-		if got.Manager != "none" {
+		// No marks prove nothing: the display never says "unmanaged".
+		if got.Manager != "none" || got.Display != "no manager marks" {
 			t.Errorf("%s: %+v", ref.Kind, got)
 		}
 	}
@@ -268,6 +292,30 @@ func TestApplierGateUnknownRejects(t *testing.T) {
 	}
 }
 
+// TestApplierGateRunsBeforeAnUnknownPublication: when Pacto cannot read the
+// incoming artifact, the published gate asks a person to accept the unknown;
+// an applier that is not Pass must reject first, since nobody can accept it.
+func TestApplierGateRunsBeforeAnUnknownPublication(t *testing.T) {
+	plan := func(st *ApplierStatus) Plan {
+		from, to := rev(dA, c1, bundle("payments", "1.0.0")), Revision{Digest: dB, Err: "registry down"}
+		return autonomousPlan(PlanInput{Spec: promote(dA, dB), Stage: stageSpec(), From: from, To: to, Class: ClassAgent,
+			Status: StageStatus{Pointer: dA, Verified: []string{dA}, Published: []string{dB}, Applier: st}})
+	}
+	for state, reason := range map[string]string{ApplierConflict: "ApplierConflict: ", ApplierUnknown: "ApplierUnknown: "} {
+		p := plan(applierOf(state))
+		if p.Verdicts[0].Gate != GatePublished || p.Verdicts[0].Result != Unknown {
+			t.Fatalf("%s: published must read Unknown: %+v", state, p.Verdicts)
+		}
+		if v := verdict(t, p, GateApplier); v.Result == Pass || p.Predicted != PredictRejected || p.Floor.Human ||
+			len(p.Conflicts) != 1 || !strings.HasPrefix(p.Conflicts[0], reason) {
+			t.Fatalf("%s: %+v", state, p)
+		}
+	}
+	if p := plan(applierOf(ApplierAdopted)); p.Predicted != PredictHeld || p.Floor.Decision != AcceptUnknown || verdict(t, p, GateApplier).Result != Pass {
+		t.Fatalf("an adopted applier still leaves the unknown publication to a person: %+v", p)
+	}
+}
+
 func TestApplierGateAppendsConflict(t *testing.T) {
 	if p := applierPlan(t, argoRef, applierOf(ApplierConflict), ""); len(p.Conflicts) != 1 || p.Conflicts[0] != "ApplierConflict: Conflict message" {
 		t.Fatalf("fail: %q", p.Conflicts)
@@ -356,13 +404,21 @@ func TestRowOfCarriesApplier(t *testing.T) {
 	}
 }
 
-// TestApplierStale: older than twice the default resync is stale; an
-// unreadable asOf is not.
+// TestApplierStale: past staleAt is stale; without one, older than twice
+// the default resync is; an unreadable asOf is not.
 func TestApplierStale(t *testing.T) {
 	now := time.Date(2026, 11, 15, 10, 0, 0, 0, time.UTC)
 	for asOf, want := range map[string]bool{"2026-11-15T09:59:00Z": false, "2026-11-15T09:57:59Z": true, "": false, "yesterday": false} {
 		if got := (&ApplierStatus{AsOf: asOf}).Stale(now); got != want {
 			t.Errorf("asOf %q: stale %v, want %v", asOf, got, want)
 		}
+	}
+	// A promoter run with --resync=5m checks every five minutes: an asOf four
+	// minutes old is fresh until its staleAt.
+	if (&ApplierStatus{AsOf: "2026-11-15T09:56:00Z", StaleAt: "2026-11-15T10:06:00Z"}).Stale(now) {
+		t.Error("a staleAt in the future is not stale")
+	}
+	if !(&ApplierStatus{AsOf: "2026-11-15T09:59:00Z", StaleAt: "2026-11-15T09:59:59Z"}).Stale(now) {
+		t.Error("a staleAt in the past is stale")
 	}
 }

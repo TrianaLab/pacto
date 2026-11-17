@@ -9,7 +9,6 @@ package delivery
 
 import (
 	"context"
-	"slices"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -26,11 +25,14 @@ import (
 // detectApplier reads, and never writes, who manages the workloads the Stage
 // delivers: the workload each Pacto of the Stage's service in the Stage's own
 // namespace evaluated, as verify reads them. A workload that is gone is no
-// target; one Pacto cannot read is named in Unread, which reads Unknown.
+// target; one Pacto cannot read is named in Unread, which reads Unknown. So
+// is a Pacto the operator has not reconciled yet, which may be the service's,
+// and one that evaluated another workload than the Stage runs (a decoy, as
+// verify calls it).
 // ponytail: one namespaced Pacto list and one GET per workload per reconcile;
 // an indexed cache if perf_envtest shows it.
 func (c Cluster) detectApplier(ctx context.Context, stage *dv1.Stage, now time.Time) delivery.ApplierStatus {
-	in := delivery.ApplierInput{Namespace: stage.Namespace, Ref: stage.Spec.ApplyRef, Now: now}
+	in := delivery.ApplierInput{Namespace: stage.Namespace, Service: stage.Spec.Service.Name, Ref: stage.Spec.ApplyRef, Now: now}
 	list := &unstructured.UnstructuredList{}
 	list.SetGroupVersionKind(gvkPactoList)
 	if err := c.Client.List(ctx, list, client.InNamespace(stage.Namespace)); err != nil {
@@ -39,34 +41,72 @@ func (c Cluster) detectApplier(ctx context.Context, stage *dv1.Stage, now time.T
 	}
 	b, _ := list.MarshalJSON()
 	pactos, _ := delivery.DecodePactos(b) // ponytail: the apiserver's own JSON decodes
+	for _, p := range pactos {
+		// ponytail: only a never-reconciled Pacto counts; an Invalid one of
+		// another service in the namespace would otherwise block every Stage.
+		if p.Status.Contract == nil && p.Status.ContractStatus == "" {
+			in.Unread = append(in.Unread, "Pacto "+p.Metadata.Name+", which the operator has not reconciled yet")
+		}
+	}
+	runs := stage.Spec.WorkloadOf()
 	for _, p := range delivery.PactosFor(pactos, stage.Namespace, stage.Spec.Service.Name) {
 		e := p.Status.EvaluatedRevision
-		if e == nil || e.Workload.Name == "" {
+		switch {
+		case e == nil:
+			in.Unread = append(in.Unread, "Pacto "+p.Metadata.Name+", which has not evaluated a revision yet")
+			continue
+		case e.Workload.Name == "":
+			continue
+		case e.Workload.Kind != runs.Kind || e.Workload.Name != runs.Name:
+			in.Unread = append(in.Unread, "Pacto "+p.Metadata.Name+", which evaluated "+e.Workload.Kind+" "+e.Workload.Name+
+				", not "+runs.Kind+" "+runs.Name+", the workload this Stage runs (spec.workload)")
 			continue
 		}
 		what := e.Workload.Kind + " " + e.Workload.Name
 		o, err := c.workloadObject(ctx, stage.Namespace, e.Workload.Kind, e.Workload.Name)
 		switch {
 		case apierrors.IsNotFound(err):
+			in.Missing = append(in.Missing, what)
 		case err != nil:
 			in.Unread = append(in.Unread, what+": "+err.Error())
 		default:
 			in.Targets = append(in.Targets, delivery.ApplierTarget{Workload: what, Manager: workloadmanager.Detect(o)})
 		}
 	}
-	if slices.ContainsFunc(in.Targets, func(t delivery.ApplierTarget) bool { return t.Manager.Name == workloadmanager.FluxKustomization }) {
-		in.Kustomizations, in.Unread = c.detectKustomizations(ctx, in.Unread)
-	}
+	in.Kustomizations, in.Unread = c.detectKustomizations(ctx, in.Targets, in.Unread)
 	return delivery.AdoptApplier(in)
 }
 
-// detectKustomizations lists the Kustomizations a Flux-labelled workload
-// names, or says why it cannot.
-func (c Cluster) detectKustomizations(ctx context.Context, unread []string) ([]delivery.KustomizationView, []string) {
-	if c.NoFlux {
-		return nil, append(unread, "the Kustomizations: the promoter runs with --flux=false")
+// detectKustomizations reads, live, the Kustomization each Flux-labelled
+// target names, or says why it cannot. A pointer decision rests on its
+// sourceRef, so it never comes from the cache; a Kustomization that is gone
+// is simply absent.
+func (c Cluster) detectKustomizations(ctx context.Context, targets []delivery.ApplierTarget, unread []string) ([]delivery.KustomizationView, []string) {
+	list := &unstructured.UnstructuredList{}
+	for _, t := range targets {
+		m := t.Manager
+		if m.Name != workloadmanager.FluxKustomization || m.OwnerName == "" {
+			continue
+		}
+		if c.NoFlux {
+			return nil, append(unread, "the Kustomizations: the promoter runs with --flux=false")
+		}
+		u := &unstructured.Unstructured{}
+		u.SetGroupVersionKind(gvkKustomization.GroupVersion().WithKind("Kustomization"))
+		err := c.Client.Get(ctx, types.NamespacedName{Namespace: m.OwnerNamespace, Name: m.OwnerName}, u)
+		switch {
+		case apierrors.IsNotFound(err):
+		case err != nil:
+			unread = append(unread, "the Kustomizations: "+err.Error())
+		default:
+			list.Items = append(list.Items, *u)
+		}
 	}
-	ks, err := c.kustomizations(ctx)
+	if len(list.Items) == 0 {
+		return nil, unread
+	}
+	b, _ := list.MarshalJSON()
+	ks, err := delivery.DecodeKustomizations(b)
 	if err != nil {
 		return nil, append(unread, "the Kustomizations: "+err.Error())
 	}

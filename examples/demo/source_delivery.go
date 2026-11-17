@@ -258,7 +258,7 @@ func (d *demoDelivery) detectAppliers(at time.Time) {
 func adoptedApplier(s *delivery.StageObject, at time.Time) *delivery.ApplierStatus {
 	ns, svc := s.Metadata.Namespace, s.Spec.Service.Name
 	o := workloadmanager.Object{Group: "apps", Kind: "Deployment", Namespace: ns, Name: svc}
-	in := delivery.ApplierInput{Namespace: ns, Ref: s.Spec.ApplyRef, Now: at}
+	in := delivery.ApplierInput{Namespace: ns, Service: svc, Ref: s.Spec.ApplyRef, Now: at}
 	if s.Spec.ApplyRef.Kind == delivery.ApplierArgoCD {
 		o.Annotations = map[string]string{"argocd.argoproj.io/tracking-id": ns + "_" + s.Spec.ApplyRef.Name + ":apps/Deployment:" + ns + "/" + svc}
 	} else {

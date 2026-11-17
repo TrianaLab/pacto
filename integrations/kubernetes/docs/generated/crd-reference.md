@@ -314,6 +314,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.applier.message` | `string` | no |  |  |  |
 | `status.applier.owner` | `string` | no |  |  | Owner is the object that manages the workloads ("Application payments/payments"). |
 | `status.applier.since` | `string` | no |  |  | Since is when this result was first seen (RFC 3339). |
+| `status.applier.staleAt` | `string` | no |  |  | StaleAt is when asOf turns stale (RFC 3339): twice the promoter's resync after asOf, since it rewrites asOf at least once per resync. |
 | `status.applier.state` | `string` | yes |  | `Adopted`, `Unmanaged`, `Conflict`, `Unknown` |  |
 | `status.applier.workloads` | `[]string` | no |  |  | Workloads are the workloads checked ("Deployment payments"). |
 | `status.authFreshness` | `string` | no |  |  | AuthFreshness is how old a login the promoter accepts on an approval (a Go duration). Clients ask for a fresh login with a margin under it (DecisionFreshnessFor). Empty: no login is too old, and a person decides with the session they have. |
