@@ -37,20 +37,34 @@ func Complete(dir string, declared *contract.Contract, in contract.InferredInput
 // the folder adds nothing and holds nothing unreadable. A nil declared
 // declares nothing.
 func CompleteIn(dir, repoDir string, declared *contract.Contract, in contract.InferredInputs) (*contract.InferredRecord, error) {
+	return completeWith(dir, repoDir, declared, nil, in)
+}
+
+// CompletePlanned is Complete against the contract declared that pacto init
+// plans to write with the files planned, by slash path: what the folder
+// shows beyond the pacto.yaml it is about to hold, so a value the new
+// contract declares is never listed apart from it.
+func CompletePlanned(dir string, declared *contract.Contract, planned map[string]string, in contract.InferredInputs) (*contract.InferredRecord, error) {
+	return completeWith(dir, "", declared, planned, in)
+}
+
+func completeWith(dir, repoDir string, declared *contract.Contract, planned map[string]string, in contract.InferredInputs) (*contract.InferredRecord, error) {
 	sc, err := Dir(dir)
 	if err != nil {
 		return nil, err
 	}
-	reading, err := ReadDir(dir, repoDir)
+	d := cmp.Or(declared, &contract.Contract{})
+	name := cmp.Or(d.Service.Name, filepath.Base(dir))
+	reading, err := ReadDir(dir, repoDir, name)
 	if err != nil {
 		return nil, err
 	}
-	c := &completion{sc: sc, d: cmp.Or(declared, &contract.Contract{}), api: OpenAPIRef(reading.Fields) != ""}
-	c.cfgKeys, c.cfgListed = declaredConfigKeys(dir, c.d)
+	c := &completion{sc: sc, d: d, api: OpenAPIRef(reading.Fields) != ""}
+	c.cfgKeys, c.cfgListed = declaredConfigKeys(dir, c.d, planned)
 	c.workload()
 	c.health()
 	c.configuration()
-	c.dependencies(cmp.Or(c.d.Service.Name, filepath.Base(dir)))
+	c.dependencies(name)
 	for _, e := range reading.entries {
 		if !c.declared(e.Inferred) {
 			c.entries = append(c.entries, e)
@@ -236,8 +250,9 @@ func configField(e EnvVar) (value, declare string) {
 // declaredConfigKeys are the keys every declared configuration lists: its
 // values and its local schema's top-level properties. listed is false when
 // one cannot be listed: a ref, a schema Pacto cannot read, or one that builds
-// its keys through a composing keyword.
-func declaredConfigKeys(dir string, d *contract.Contract) (keys map[string]bool, listed bool) {
+// its keys through a composing keyword. A schema in planned is read from
+// there, not from dir.
+func declaredConfigKeys(dir string, d *contract.Contract, planned map[string]string) (keys map[string]bool, listed bool) {
 	keys = map[string]bool{}
 	for _, cfg := range d.Configurations {
 		for k := range cfg.Values {
@@ -246,9 +261,13 @@ func declaredConfigKeys(dir string, d *contract.Contract) (keys map[string]bool,
 		if cfg.Schema == "" { // a ref: its keys live in another contract
 			return nil, false
 		}
-		data, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(cfg.Schema)))
-		if err != nil {
-			return nil, false
+		text, ok := planned[cfg.Schema]
+		data := []byte(text)
+		if !ok {
+			var err error
+			if data, err = os.ReadFile(filepath.Join(dir, filepath.FromSlash(cfg.Schema))); err != nil {
+				return nil, false
+			}
 		}
 		spec, err := schemax.Parse(data, cfg.Schema)
 		if err != nil || slices.ContainsFunc(composingKeywords, func(k string) bool { return spec[k] != nil }) {

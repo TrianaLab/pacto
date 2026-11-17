@@ -12,7 +12,7 @@ import (
 // readRepoFixture reads the folder folder of the repository fixture repo.
 func readRepoFixture(t *testing.T, repo, folder string) Reading {
 	t.Helper()
-	r, err := ReadDir(filepath.Join(repo, folder), repo)
+	r, err := ReadDir(filepath.Join(repo, folder), repo, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestArgoApplicationValueFiles(t *testing.T) {
 		t.Errorf("staging = %+v", g)
 	}
 	// An Application alone names its environment, as the file it deploys.
-	r = readFixture(t, writeFiles(t, map[string]string{"app.yaml": "apiVersion: argoproj.io/v1alpha1\nkind: Application\nspec:\n  source:\n    path: chart\n    helm:\n      valueFiles:\n        - values-qa.yaml\n        - $values/values-qa.yaml\n"}))
+	r = readFixture(t, writeFiles(t, map[string]string{"chart/values-qa.yaml": "", "app.yaml": "apiVersion: argoproj.io/v1alpha1\nkind: Application\nspec:\n  source:\n    path: chart\n    helm:\n      valueFiles:\n        - values-qa.yaml\n        - $values/values-qa.yaml\n"}))
 	if g := envFields(r)["qa"]; g.Value != "chart/values-qa.yaml" || g.Source != "app.yaml:8" || g.Confidence != contract.ConfidenceLikely {
 		t.Errorf("qa = %+v", g)
 	}
@@ -199,5 +199,18 @@ func TestFluxArtifactPathsNotRead(t *testing.T) {
 	r := readRepoFixture(t, repo, "apps/payments")
 	if len(r.Findings) != 0 || len(envFields(r)) != 0 {
 		t.Errorf("findings = %+v, fields = %+v", r.Findings, r.Fields)
+	}
+}
+
+// An Application deploying a path of another repository, which the folder
+// does not hold, names no environment here.
+func TestGitOpsPathMissingUnresolved(t *testing.T) {
+	r := readFixture(t, writeFiles(t, map[string]string{"Dockerfile": "FROM x\n",
+		"argo/prod.yaml": "apiVersion: argoproj.io/v1alpha1\nkind: Application\nspec:\n  source:\n    repoURL: https://github.com/acme/deploy-config\n    targetRevision: main\n    path: overlays/prod\n"}))
+	if len(envFields(r)) != 0 {
+		t.Errorf("environments = %+v", envFields(r))
+	}
+	if got := findingsOf(r, CodeUnresolved); len(got) != 1 || got[0].Source != "argo/prod.yaml:7" || !strings.Contains(got[0].Message, "does not hold") {
+		t.Errorf("unresolved = %+v", got)
 	}
 }

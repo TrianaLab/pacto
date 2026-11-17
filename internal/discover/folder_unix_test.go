@@ -59,7 +59,7 @@ func TestReadDirUnreadableRepository(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(repo, 0o755) })
-	if _, err := ReadDir(filepath.Join(repo, "svc"), repo); err == nil {
+	if _, err := ReadDir(filepath.Join(repo, "svc"), repo, ""); err == nil {
 		t.Error("an unreadable repository root read")
 	}
 }

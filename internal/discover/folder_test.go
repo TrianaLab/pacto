@@ -156,22 +156,22 @@ func TestRepoRootStopsAtGit(t *testing.T) {
 }
 
 func TestReadDirRoots(t *testing.T) {
-	if r, err := ReadDir(filepath.Join(t.TempDir(), "missing"), ""); err != nil || len(r.Fields)+len(r.Findings) != 0 {
+	if r, err := ReadDir(filepath.Join(t.TempDir(), "missing"), "", ""); err != nil || len(r.Fields)+len(r.Findings) != 0 {
 		t.Errorf("a missing folder: %+v, %v", r, err)
 	}
 	file := filepath.Join(writeFiles(t, map[string]string{"f": ""}), "f")
-	if _, err := ReadDir(file, ""); err == nil {
+	if _, err := ReadDir(file, "", ""); err == nil {
 		t.Error("a file read as a folder")
 	}
 	dir := writeFiles(t, map[string]string{".pactoignore/x": ""})
-	if _, err := ReadDir(dir, ""); err == nil || !strings.Contains(err.Error(), ".pactoignore") {
+	if _, err := ReadDir(dir, "", ""); err == nil || !strings.Contains(err.Error(), ".pactoignore") {
 		t.Errorf("an unreadable .pactoignore: %v", err)
 	}
 	dir = writeFiles(t, map[string]string{"svc/Dockerfile": "FROM x\nEXPOSE 80\n", "svc/.pactoignore": "Dockerfile\n"})
-	if r, err := ReadDir(filepath.Join(dir, "svc"), dir); err != nil || len(r.Fields) != 0 {
+	if r, err := ReadDir(filepath.Join(dir, "svc"), dir, ""); err != nil || len(r.Fields) != 0 {
 		t.Errorf("an ignored Dockerfile was read: %+v, %v", r, err)
 	}
-	if _, err := ReadDir(filepath.Join(dir, "svc"), filepath.Join(dir, "missing")); err == nil || !strings.Contains(err.Error(), "outside the repository") {
+	if _, err := ReadDir(filepath.Join(dir, "svc"), filepath.Join(dir, "missing"), ""); err == nil || !strings.Contains(err.Error(), "outside the repository") {
 		t.Errorf("a folder outside the repository root read: %v", err)
 	}
 	if _, err := CompleteIn(filepath.Join(dir, "svc"), filepath.Join(dir, "missing"), nil, contract.InferredInputs{}); err == nil {
@@ -246,5 +246,26 @@ func TestMergeOrdersLinesByNumber(t *testing.T) {
 	fields, _ := merge([]entry{e("values.yaml:10"), e("values.yaml:12"), e("values.yaml:7"), e("values.yaml:9")})
 	if got := fields[0]; got.Source != "values.yaml:7" || !slices.Equal(got.Outranks, []string{"values.yaml:9", "values.yaml:10", "values.yaml:12"}) {
 		t.Errorf("merged = %+v", got)
+	}
+}
+
+// A file or folder whose name has a ':' is one finding on the folder that
+// holds it, so the record discovery writes is one its decoder reads.
+func TestColonNameNeverReachesASource(t *testing.T) {
+	dir := writeFiles(t, map[string]string{"Dockerfile": "FROM x\nEXPOSE 8080\n", "bad:file.yaml": "a: [", "sub/x:y.yaml": "a: [",
+		"cfg:v1/Dockerfile": "FROM x\nEXPOSE 9090\n"})
+	rec, err := CompleteIn(dir, dir, nil, contract.InferredInputs{})
+	if err != nil || rec == nil {
+		t.Fatalf("record = %v, %v", rec, err)
+	}
+	if _, err := contract.ParseInferredRecord(rec.Marshal()); err != nil {
+		t.Fatalf("the record is refused: %v\n%s", err, rec.Marshal())
+	}
+	var sources []string
+	for _, f := range rec.Findings {
+		sources = append(sources, f.Source)
+	}
+	if !slices.Equal(sources, []string{".", "sub"}) {
+		t.Errorf("finding sources = %v", sources)
 	}
 }

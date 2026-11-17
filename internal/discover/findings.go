@@ -28,6 +28,7 @@ const (
 	unreadableTooLarge   = "is over 1 MiB, so it is not read"
 	unreadableNotYAML    = "is not valid YAML, so it is not read"
 	unreadableFailed     = "could not be read"
+	unreadableColon      = "holds a file or folder whose name has a ':', which a record source cannot name, so it is not read"
 )
 
 // unreadableMessage says why the file at source was not read; why is one of
@@ -126,6 +127,11 @@ func envNameMessage(source string) string {
 // outside the folder.
 func gitopsPathMessage(source string) string {
 	return source + " names a path outside the folder, so what it deploys there is not read"
+}
+
+// gitopsMissingMessage says source names a path the folder does not hold.
+func gitopsMissingMessage(source string) string {
+	return source + " names a path the folder does not hold, so what it deploys there is not read"
 }
 
 // ambiguousNamesMessage says source lists several what, names, and none is

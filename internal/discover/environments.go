@@ -104,8 +104,9 @@ func (r *reader) argoSource(p string, src *yaml.Node) {
 
 // gitopsPath reads the path n of a GitOps object in the file p, relative to
 // base in the repository, for the environment it names: an overlays/<env>
-// folder or a values-<env>.yaml file. A path that leaves the folder, or one
-// that names another source ($values/...), is a finding.
+// folder or a values-<env>.yaml file. A path that leaves the folder, one
+// that names another source ($values/...) or one the folder does not hold is
+// a finding.
 func (r *reader) gitopsPath(p string, n *yaml.Node, base string) {
 	raw := scalar(n)
 	if raw == "" {
@@ -118,6 +119,13 @@ func (r *reader) gitopsPath(p string, n *yaml.Node, base string) {
 	}
 	if !ok {
 		r.find(CodeUnresolved, src, gitopsPathMessage(src))
+		return
+	}
+	// An object deploying from another repository (an Argo CD repoURL, a
+	// Flux GitRepository) names paths there: a path the folder lacks is
+	// never this service's environment file.
+	if _, err := fs.Stat(r.in.Folder, rel); err != nil {
+		r.find(CodeUnresolved, src, gitopsMissingMessage(src))
 		return
 	}
 	env := ""

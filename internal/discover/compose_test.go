@@ -142,3 +142,27 @@ func TestComposeShapes(t *testing.T) {
 		}
 	}
 }
+
+// The service name the contract declares picks the Compose service and the
+// catalog Component, not the folder's name.
+func TestReadersPickByDeclaredName(t *testing.T) {
+	root := writeFiles(t, map[string]string{
+		"web/compose.yaml": "services:\n  web:\n    image: nginx:1.27\n    ports: [\"80:80\"]\n  storefront:\n    image: ghcr.io/acme/storefront:2.0\n    ports: [\"8080:8080\"]\n",
+		"web/catalog-info.yaml": "apiVersion: backstage.io/v1alpha1\nkind: Component\nmetadata: {name: storefront}\nspec: {owner: group:shop}\n---\n" +
+			"apiVersion: backstage.io/v1alpha1\nkind: Component\nmetadata: {name: storefront-worker}\nspec: {owner: group:other}\n",
+	})
+	dir := root + "/web"
+	rec, err := CompleteIn(dir, dir, &contract.Contract{Service: contract.Service{Name: "storefront"}}, contract.InferredInputs{})
+	if err != nil || rec == nil {
+		t.Fatalf("record = %v, %v", rec, err)
+	}
+	if f := field(t, rec.Fields, "image"); f.Value != "ghcr.io/acme/storefront:2.0" {
+		t.Errorf("image = %+v", f)
+	}
+	if f := field(t, rec.Fields, "service.owner"); !strings.Contains(f.Value, "shop") {
+		t.Errorf("owner = %+v", f)
+	}
+	if slices.ContainsFunc(rec.Fields, func(f contract.Inferred) bool { return f.Field == "ports[80]" }) {
+		t.Errorf("the web service's port was read: %+v", rec.Fields)
+	}
+}

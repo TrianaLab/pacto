@@ -25,10 +25,17 @@ const maxChartDepth = 2
 var valuesRE = regexp.MustCompile(`^values(?:[-.]([^.]+))?\.ya?ml$`)
 
 // keepChartFile keeps the root of the parsed file p, named name, when the
-// Helm reader reads it.
+// Helm reader reads it. A values file with no document (empty, comments
+// alone, or one that does not parse) is kept as an empty mapping: its name
+// still names its environment.
 func (r *reader) keepChartFile(p, name string, docs []*yaml.Node) {
-	if (name == "Chart.yaml" || name == "Chart.lock" || valuesRE.MatchString(name)) && len(docs) > 0 && len(docs[0].Content) > 0 {
+	values := valuesRE.MatchString(name)
+	switch {
+	case name != "Chart.yaml" && name != "Chart.lock" && !values:
+	case len(docs) > 0 && len(docs[0].Content) > 0:
 		r.chartFiles[p] = docs[0].Content[0]
+	case values:
+		r.chartFiles[p] = &yaml.Node{Kind: yaml.MappingNode}
 	}
 }
 

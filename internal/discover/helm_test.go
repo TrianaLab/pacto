@@ -253,3 +253,35 @@ func TestValuesKeysRespectDeclaredFilter(t *testing.T) {
 		}
 	}
 }
+
+// A folder that is itself a chart still has its catalog file, Compose file
+// and overlays read; its values and subcharts stay the chart's.
+func TestChartAtFolderRoot(t *testing.T) {
+	r := readFixture(t, writeFiles(t, map[string]string{
+		"Chart.yaml":                       "apiVersion: v2\nname: svc\nversion: 0.1.0\n",
+		"values.yaml":                      "image:\n  repository: r/svc\n  tag: \"1\"\n",
+		"catalog-info.yaml":                "apiVersion: backstage.io/v1alpha1\nkind: Component\nmetadata: {name: svc}\nspec: {owner: group:team-a, system: shop}\n",
+		"compose.yaml":                     "services:\n  svc:\n    image: r/svc:compose\n    ports: [\"80\"]\n",
+		"overlays/prod/kustomization.yaml": "resources: []\n",
+		"charts/sub/Chart.yaml":            "apiVersion: v2\nname: sub\nversion: 0.1.0\n",
+		"charts/sub/catalog-info.yaml":     "not: read\n",
+	}))
+	for _, name := range []string{"service.owner", "service.domain", "ports[80]", "environments[prod].file"} {
+		field(t, r.Fields, name)
+	}
+	if f := field(t, r.Fields, "image"); f.Value != "r/svc:1" || !slices.Equal(f.Outranks, []string{"compose.yaml:3"}) {
+		t.Errorf("image = %+v", f)
+	}
+}
+
+// A placeholder values-<env>.yaml still names its environment.
+func TestEmptyValuesFileNamesEnvironment(t *testing.T) {
+	r := readFixture(t, writeFiles(t, map[string]string{
+		"chart/Chart.yaml":             "apiVersion: v2\nname: svc\nversion: 0.1.0\n",
+		"chart/values-production.yaml": "replicas: 3\n",
+		"chart/values-staging.yaml":    "# staging overrides\n",
+	}))
+	for _, name := range []string{"environments[production].file", "environments[staging].file"} {
+		field(t, r.Fields, name)
+	}
+}

@@ -120,6 +120,14 @@ func Read(in Input) Reading {
 		case err != nil:
 			r.find(CodeUnreadable, p, unreadableMessage(p, unreadableFailed))
 			return nil
+		case strings.Contains(d.Name(), ":"):
+			// A source is "<path>[:<line>]", so the record refuses a path with
+			// a ':': the folder holding it is the finding's source.
+			r.find(CodeUnreadable, path.Dir(p), unreadableMessage(path.Dir(p), unreadableColon))
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
 		case d.IsDir():
 			if p != "." && (strings.HasPrefix(d.Name(), ".") || skipDirs[d.Name()]) {
 				return fs.SkipDir
@@ -144,8 +152,11 @@ func Read(in Input) Reading {
 	out := Reading{entries: r.entries, ChartDependencies: r.chartDeps, ambiguousSpecs: r.ambiguous}
 	out.Fields, _ = merge(r.entries)
 	slices.SortFunc(r.findings, func(a, b contract.InferredFinding) int {
-		return cmp.Or(strings.Compare(a.Code, b.Code), strings.Compare(a.Source, b.Source))
+		return cmp.Or(strings.Compare(a.Code, b.Code), strings.Compare(a.Source, b.Source), strings.Compare(a.Message, b.Message))
 	})
+	// One line can raise the same finding twice (EXPOSE $A $B, a flow list
+	// of remote resources): it is named once.
+	r.findings = slices.Compact(r.findings)
 	if len(r.findings) > MaxFindings {
 		out.FindingsDropped = len(r.findings) - MaxFindings
 		r.findings = r.findings[:MaxFindings]
@@ -190,20 +201,26 @@ func (r *reader) file(p, name string) {
 
 // yamlFile reads the YAML file p, named name: a chart's template is kept for
 // the template scan, since it is not YAML until rendered; any other file is
-// parsed for the Helm reader and the spec reader, and, outside a chart, for
-// the workloads it holds.
+// parsed for the Helm reader and the spec reader, and, unless it is the
+// chart's own (its Chart.yaml, a values file, a subchart or a CRD), for the
+// workloads, GitOps objects and tool files it holds. So a folder that is a
+// chart still has its catalog file, Compose file and overlays read.
 func (r *reader) yamlFile(p, name string) {
 	chart, inChart := r.chartOf(p)
-	if inChart && strings.HasPrefix(p, path.Join(chart, "templates")+"/") {
+	under := func(sub string) bool { return strings.HasPrefix(p, path.Join(chart, sub)+"/") }
+	if inChart && under("templates") {
 		r.templates = append(r.templates, p)
 		return
 	}
+	inChart = inChart && (under("charts") || under("crds") ||
+		(path.Dir(p) == chart && (name == "Chart.yaml" || valuesRE.MatchString(name))))
 	data := r.read(p)
 	if data == nil {
 		return
 	}
-	if docs := r.yamlDocs(p, data); docs != nil {
-		r.keepChartFile(p, name, docs)
+	docs := r.yamlDocs(p, data)
+	r.keepChartFile(p, name, docs)
+	if docs != nil {
 		r.spec(p, data)
 		if !inChart {
 			r.manifests(p, docs)
@@ -332,10 +349,12 @@ func splitLine(s string) (string, int) {
 }
 
 // ReadDir reads the folder dir, inside the repository root repoDir: "" finds
-// the root with RepoRoot, and with none the folder is its own repository. A
+// the root with RepoRoot, and with none the folder is its own repository.
+// name is the service name the readers pick Compose services, catalog
+// Components and Kustomize images by; "" is the folder's base name. A
 // folder that does not exist yet reads as empty. Both roots are opened with
 // os.OpenRoot, so no read leaves them.
-func ReadDir(dir, repoDir string) (Reading, error) {
+func ReadDir(dir, repoDir, name string) (Reading, error) {
 	abs, _ := filepath.Abs(dir) // ponytail: Abs fails only without a working directory, and OpenRoot("") then fails
 	root, err := os.OpenRoot(abs)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -349,7 +368,7 @@ func ReadDir(dir, repoDir string) (Reading, error) {
 	if err != nil {
 		return Reading{}, fmt.Errorf("reading %s: %w", filepath.Join(dir, ignore.IgnoreFileName), err)
 	}
-	in := Input{Folder: ignore.FS(root.FS(), ign), FolderPath: ".", Name: filepath.Base(abs)}
+	in := Input{Folder: ignore.FS(root.FS(), ign), FolderPath: ".", Name: cmp.Or(name, filepath.Base(abs))}
 	if repo := repoFor(abs, repoDir); repo != abs {
 		rel, _ := filepath.Rel(repo, abs) // ponytail: both are absolute
 		if !filepath.IsLocal(rel) {

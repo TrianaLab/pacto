@@ -15,7 +15,7 @@ const dockerDir = "testdata/docker"
 // readFixture reads dir as its own repository.
 func readFixture(t *testing.T, dir string) Reading {
 	t.Helper()
-	r, err := ReadDir(dir, dir)
+	r, err := ReadDir(dir, dir, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestDockerExposePorts(t *testing.T) {
 func TestDockerExposeUnresolved(t *testing.T) {
 	dir := writeFiles(t, map[string]string{"Dockerfile": "FROM x\nEXPOSE ${PORT} 8000-8010 70000 80/sctp 81/UDP\n"})
 	r := readFixture(t, dir)
-	if len(r.Findings) != 4 || r.Findings[0].Code != CodeUnresolved || r.Findings[0].Source != "Dockerfile:2" ||
+	if len(r.Findings) != 1 || r.Findings[0].Code != CodeUnresolved || r.Findings[0].Source != "Dockerfile:2" ||
 		r.Findings[0].Message != "EXPOSE at Dockerfile:2 names a port through a variable or a range, so it is not read" {
 		t.Errorf("findings = %+v", r.Findings)
 	}
@@ -219,5 +219,19 @@ func TestPortNeverWrittenToInterfaces(t *testing.T) {
 	}
 	if slices.ContainsFunc(rec.Fields, func(f contract.Inferred) bool { return f.Field == "ports[8080]" }) {
 		t.Errorf("a declared port was inferred: %+v", rec.Fields)
+	}
+}
+
+// EXPOSE with two variables, and a flow list of remote resources, name each
+// line once.
+func TestRepeatedFindingNamedOnce(t *testing.T) {
+	r := readFixture(t, writeFiles(t, map[string]string{
+		"Dockerfile":           "FROM scratch\nEXPOSE ${PORT} ${METRICS_PORT}\n",
+		"k/kustomization.yaml": "resources: [https://a.example/x.yaml, https://a.example/x.yaml]\n",
+	}))
+	for _, code := range []string{CodeUnresolved, CodeUnsupportedFile} {
+		if got := findingsOf(r, code); len(got) != 1 {
+			t.Errorf("%s = %+v", code, got)
+		}
 	}
 }
