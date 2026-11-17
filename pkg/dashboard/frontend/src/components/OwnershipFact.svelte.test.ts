@@ -31,6 +31,7 @@ describe('OwnershipFact owner provenance', () => {
     const mark = target.querySelector('[data-testid="owner-provenance"]');
     expect(mark).toBeTruthy();
     expect(mark?.querySelector('button')?.getAttribute('aria-label')).toBe('About owner provenance');
+    expect(mark?.querySelector('button')?.textContent).toBe('i'); // the shared ProvenanceMark, not a help tip
     expect(mark?.querySelector('[role="note"]')?.textContent).toBe(ownerProvenanceText(p));
     expect(target.querySelector('a')?.getAttribute('href')).toContain('team%3Apay');
     expect(target.querySelector('a')?.textContent).toContain('pay');
