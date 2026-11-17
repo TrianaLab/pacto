@@ -307,6 +307,26 @@ func TestStatsServiceResolvesFleetKey(t *testing.T) {
 	}
 }
 
+func TestStatsServiceRefusesReplacedKey(t *testing.T) {
+	created, pacto := time.Now().Add(-72*time.Hour), time.Now().Add(-time.Hour)
+	c := &contract.Contract{PactoVersion: "2.4", Service: contract.Service{Name: "cart", Version: "1.0.0"}}
+	snap, err := fleet.Build(t.Context(), fleet.BuildOptions{},
+		fleet.NewMemorySource("k8s", "kubernetes", &fleet.Collection{
+			Revisions: []fleet.RawRevision{{Bundle: &contract.Bundle{Contract: c, FS: fstest.MapFS{}}}},
+			Targets: []fleet.RawTarget{{Scope: "shop", Kind: "kubernetes", Name: "cart", Service: "cart",
+				Workload: &fleet.WorkloadRef{Kind: "Deployment", Name: "legacy"}, CreatedAt: &pacto}},
+		}),
+		fleet.NewMemorySource("w", fleet.SourceKindKubernetesWorkloads, &fleet.Collection{
+			InferredServices: []fleet.RawInferredService{{Namespace: "shop", Kind: "Deployment", Name: "legacy", CreatedAt: &created}},
+		}))
+	if err != nil || len(snap.Replacements) != 1 {
+		t.Fatalf("replacements %+v %v", snap.Replacements, err)
+	}
+	if _, err := statsService("k8s:shop/Deployment/legacy", fleet.NewQuery(snap)); err == nil || !strings.Contains(err.Error(), "was replaced by cart; give cart") {
+		t.Fatalf("an old inferred key answered silently: %v", err)
+	}
+}
+
 func TestStatsCommandTextShowsCoverage(t *testing.T) {
 	path := statsRegistry(t, "impact-blocked.json", "coverage.golden.json")
 	out, _, err := statsCmd(t, "--registry", path)

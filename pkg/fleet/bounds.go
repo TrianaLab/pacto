@@ -21,6 +21,11 @@ const (
 	// MaxSourceNamespaces caps the namespaces one source carries in a meta;
 	// NamespacesTotal keeps the full count.
 	MaxSourceNamespaces = 64
+	// MaxProviders caps the detected-provider rows one answer carries.
+	MaxProviders = 200
+	// MaxProviderObjects caps the objects one provider row names;
+	// ObjectsTotal keeps the count.
+	MaxProviderObjects = 20
 )
 
 // MaxGraphNodes caps the nodes one graph traversal answer carries. The walk itself
@@ -40,6 +45,19 @@ const MaxExternalNodes = 200
 // MaxExternalSources caps the consumers, and their sources, one answer lists
 // for one external system; ConsumersTotal and SourcesTotal keep the counts.
 const MaxExternalSources = 50
+
+// MaxInferredServices caps the inferred services one source contributes.
+// Past it the rest are not read and the source is partial
+// (LimitationInferredServicesCapped). Raise it here if a real cluster hits it.
+const MaxInferredServices = 5000
+
+// MaxInferredImageRunes and MaxInferredPathRunes bound the image and probe
+// path of an inferred service: anyone who may create a workload writes them
+// and the apiserver bounds neither, so a longer value is dropped.
+const (
+	MaxInferredImageRunes = 512
+	MaxInferredPathRunes  = 256
+)
 
 // MaxSearchExternals caps the external systems a search lists.
 const MaxSearchExternals = 20

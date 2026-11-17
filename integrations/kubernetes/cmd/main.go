@@ -39,6 +39,7 @@ import (
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/controller"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/dashboard"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/detection"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/evidence"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/nodeagent"
@@ -540,6 +541,10 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string) error {
 	// operator's own environment rather than configured three times.
 	insecureRegistries := os.Getenv(loader.InsecureRegistriesEnvVar)
 
+	// The cluster id names the cluster in Evidence Server reports and in what
+	// detection writes; read once.
+	ident := readClusterIdentity(mgr)
+
 	dashCfg := dashboard.Config{
 		Enabled:            o.enableDashboard,
 		Image:              dashboardImage,
@@ -558,6 +563,18 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string) error {
 		DeliveryTrust:      o.dashboardDeliveryTrust,
 		Repositories:       o.dashboardRepositories,
 		ExternalCatalog:    o.dashboardExternalCatalog,
+	}
+	// Detection proposes what the cluster provides in one ConfigMap; it never
+	// changes an argument, a rule or a feature. The managed dashboard mounts it
+	// as a file.
+	if d := detection.ForOperator(os.Getenv("OPERATOR_DEPLOYMENT_NAME"), namespace, o.namespaces,
+		o.nodeAgentNamespace, ident, mgr.GetAPIReader(), mgr.GetClient(), detection.ServedFor(mgr.GetConfig())); d != nil {
+		if err := mgr.Add(d); err != nil {
+			return fmt.Errorf("failed to add detection: %w", err)
+		}
+		dashCfg.DetectedConfigMap = d.Name
+	} else {
+		setupLog.Info("Detection is off: OPERATOR_DEPLOYMENT_NAME is not set, so nothing would own its ConfigMap")
 	}
 	if o.dashboardExtraScopes != "" {
 		dashCfg.Auth.ExtraScopes = strings.Split(o.dashboardExtraScopes, ",")
@@ -579,9 +596,8 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string) error {
 		return fmt.Errorf("failed to add dashboard reconciler: %w", err)
 	}
 
-	// The cluster id names the cluster in Evidence Server reports; read once.
 	evidenceCfg := evidence.Config{
-		Cluster:            readClusterIdentity(mgr),
+		Cluster:            ident,
 		Enabled:            o.enableEvidence,
 		Image:              dashboardImage, // the runtime image runs `pacto evidence serve`
 		Namespace:          namespace,

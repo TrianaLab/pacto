@@ -60,6 +60,7 @@ export type ProductRevisionDocument = JSON200<'fleet-revision-document'>;
 export type ProductOfferingVersions = JSON200<'fleet-versions'>;
 export type ProductStats = JSON200<'get-stats'>;
 export type ProductStatsRecords = JSON200<'get-stats-records'>;
+export type ProvidersResult = JSON200<'fleet-providers'>;
 export type ProductMeta = ProductOverview['meta'];
 
 // JSONBody / GetResponse / PostResponse derive an operation's 200 application/json
@@ -475,6 +476,8 @@ export const api = {
   // ── Product-oriented operational-graph APIs ──
   fleetOverview: (): Promise<ProductOverview> =>
     productGet(client.GET('/api/fleet/overview')),
+  fleetProviders: (): Promise<ProvidersResult> =>
+    productGet(client.GET('/api/fleet/providers')),
   fleetEntities: (params: FleetEntitiesInput = {}): Promise<ProductEntityList> => {
     const { kinds, ...rest } = params;
     return productGet(client.GET('/api/fleet/entities', {

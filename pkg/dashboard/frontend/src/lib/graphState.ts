@@ -126,11 +126,47 @@ export function toggleView(views: KnowledgeView[], v: KnowledgeView): KnowledgeV
 
 export type EdgeDifference = 'matched' | 'expected-not-observed' | 'observed-not-expected' | 'insufficient';
 
-/** edgeDifference is the difference an edge shows: the backend verdict, else
- *  'inferred' for an edge only inferred from configuration, which has no
- *  declared-versus-observed verdict and must never render as a blank cell. */
-export function edgeDifference(e: { difference?: string; provenance?: string }): string | undefined {
-  return e.difference || (e.provenance === 'inferred' ? 'inferred' : undefined);
+type EndRef = { label?: string; key?: string; declaration?: string };
+type DifferenceEdge = {
+  difference?: string; provenance?: string; from?: EndRef; to?: EndRef;
+  observationSources?: { total?: number; items?: { source: string; count?: number }[] | null };
+};
+
+/** edgeDifference is the difference an edge shows: the backend verdict, else for an
+ *  inferred edge 'inferred-runtime' when a source saw the call (one end has no
+ *  contract) and 'inferred' when it was only read from configuration. Neither has a
+ *  declared-versus-observed verdict, and neither may render as a blank cell. */
+export function edgeDifference(e: DifferenceEdge): string | undefined {
+  if (e.difference) return e.difference;
+  if (e.provenance !== 'inferred') return undefined;
+  return (e.observationSources?.total ?? 0) > 0 ? 'inferred-runtime' : 'inferred';
+}
+
+// The ends of a runtime-inferred edge that no contract describes, by name.
+function uncontractedEnds(e: DifferenceEdge): string {
+  const names = [e.from, e.to].filter((r) => r?.declaration === 'inferred').map((r) => r?.label || r?.key || '');
+  return names.length ? names.join(' or ') : 'one end';
+}
+
+/** edgeDifferenceLabel is differenceLabel for one edge. A runtime-inferred edge's
+ *  badge stays short: the end it names holds no break point, and a badge never wraps,
+ *  so the name goes in the description, which does. */
+export function edgeDifferenceLabel(e: DifferenceEdge): string {
+  const d = edgeDifference(e);
+  return d === 'inferred-runtime' ? 'Seen at runtime, no contract' : differenceLabel(d);
+}
+
+/** edgeDifferenceDescription is differenceDescription for one edge: a
+ *  runtime-inferred edge names the end no contract describes and the sources that
+ *  saw it. */
+export function edgeDifferenceDescription(e: DifferenceEdge): string {
+  const d = edgeDifference(e);
+  if (d !== 'inferred-runtime') return differenceDescription(d);
+  const os = e.observationSources ?? {};
+  const names = (os.items ?? []).map((s) => s.source);
+  const more = (os.total ?? 0) - names.length;
+  const by = names.length ? `${names.join(', ')}${more > 0 ? ` and ${more} more` : ''}` : `${os.total} sources`;
+  return `No contract describes ${uncontractedEnds(e)}. Seen by ${by}. No contract declares this call, so it never satisfies a dependency, feeds an impact answer or clears a gate.`;
 }
 
 export function differenceLabel(d: string | undefined): string {

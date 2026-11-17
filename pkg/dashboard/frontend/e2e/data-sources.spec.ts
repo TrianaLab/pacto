@@ -6,22 +6,22 @@ import { boot } from './typographyChecks';
  * and honest about the two different things a source page counts.
  *
  * The demo fleet is the fixture and it is adversarial on purpose (examples/demo/
- * source_fleet.go): six sources in three health states, of which `local` is Available
+ * source_fleet.go): nine sources in three health states, of which `local` is Available
  * and `edge-cluster` is Unavailable. That combination is the whole point -- it means
  * the snapshot is partial WHILE the source you are looking at is fine, which is the
  * state that used to print "Source unavailable" above a page badged Available.
  *
  * None of these can be proven off the components. The unit tests prove each piece draws
  * what it is handed; only the built browser proves the overview, the inventory and the
- * source page are describing the same six sources, that the links between them land,
+ * source page are describing the same nine sources, that the links between them land,
  * and that a number computed over the complete population did not quietly become a
  * number computed over the page.
  */
 
 const flat = (s: string | null) => (s ?? '').replace(/\s+/g, ' ').trim();
 
-/** The demo fleet: 5 available, 1 partial (registry-mirror), 1 unavailable (edge-cluster). */
-const DEMO_SOURCES = 7;
+/** The demo fleet: 7 available, 1 partial (registry-mirror), 1 unavailable (edge-cluster). */
+const DEMO_SOURCES = 9;
 
 async function overviewSources(page: Page) {
   const band = page.locator('#sec-sources');
@@ -59,13 +59,13 @@ test.describe('the overview leads to the data sources', () => {
     // The trust figure counts the sources by state (one carrier per fact, L3), so the
     // section states no second tally; its chips name the sources and agree with the
     // inventory. Each source that needs a look keeps its own chip; more than three
-    // healthy ones fold into one "5 available" chip.
+    // healthy ones fold into one "7 available" chip.
     await expect(band.locator('.ov-tally')).toHaveCount(0);
     await expect(page.locator('#fig-trust .src-n').last()).toHaveText(String(DEMO_SOURCES - 2));
 
     const chips = band.locator('a.sh-chip');
     await expect(chips).toHaveCount(3);
-    await expect(band.getByTestId('sources-healthy')).toHaveText(/5 available/);
+    await expect(band.getByTestId('sources-healthy')).toHaveText(/7 available/);
     await expect(band.getByTestId('sources-healthy')).toHaveAttribute('href', /#\/fleet\/sources\?.*sourceHealth=available/);
     // Least healthy first, so the source that costs you data is the first one read.
     expect(flat(await chips.first().textContent())).toContain('Unavailable');
@@ -129,7 +129,7 @@ test.describe('overview to inventory to source and back', () => {
     const tally = page.getByTestId('source-tally');
     const links = tally.locator('.dist-item a');
     const legend = () => links.evaluateAll((as) => as.map((a) => `${a.querySelector('.dist-label')?.textContent} ${a.querySelector('.dist-value')?.textContent}`));
-    await expect.poll(legend, { timeout: 20_000 }).toEqual(['Unavailable 1', 'Partial 1', 'Current 5']);
+    await expect.poll(legend, { timeout: 20_000 }).toEqual(['Unavailable 1', 'Partial 1', `Current ${DEMO_SOURCES - 2}`]);
 
     // The bucket IS the filter. Following it must leave exactly that many rows.
     await links.first().click();
@@ -139,8 +139,32 @@ test.describe('overview to inventory to source and back', () => {
 
     // The summary is over the COMPLETE population, so a filter does not shrink it --
     // it only marks where you are.
-    await expect.poll(legend).toEqual(['Unavailable 1', 'Partial 1', 'Current 5']);
+    await expect.poll(legend).toEqual(['Unavailable 1', 'Partial 1', `Current ${DEMO_SOURCES - 2}`]);
     await expect(tally.locator('a[aria-current="true"] .dist-label')).toHaveText('Unavailable');
+  });
+});
+
+test.describe('the inventory says what Pacto detected', () => {
+  test('one Detected providers block lists the demo cluster rows, and no destination was added', async ({ page }) => {
+    await boot(page, '#/fleet/sources');
+    const block = page.getByTestId('detected-providers');
+    await expect(block.getByRole('heading', { level: 2, name: 'Detected providers' })).toBeVisible();
+    const rows = block.getByTestId('provider-row');
+    // Two reported rows plus the six the cluster's operator detected: five
+    // show, the reported ones first, the rest behind Show all, and no cluster
+    // is unread in the demo.
+    await expect(rows).toHaveCount(5);
+    await expect(rows.nth(0)).not.toHaveClass(/dp-inferred/);
+    await expect(rows.nth(1)).not.toHaveClass(/dp-inferred/);
+    await expect(rows.nth(2)).toHaveClass(/dp-inferred/);
+    await expect(block).toContainText('Pacto CRD');
+    await expect(block).toContainText('Kubernetes workloads');
+    await block.getByRole('button', { name: 'Show all 8 providers' }).click();
+    await expect(rows).toHaveCount(8);
+    await expect(block.getByTestId('provider-not-read')).toHaveCount(0);
+    // The block lives inside Data sources: the primary navigation gained no entry.
+    const primary = page.getByRole('navigation', { name: 'Primary' }).first();
+    await expect(primary.getByRole('link', { name: /provider/i })).toHaveCount(0);
   });
 });
 

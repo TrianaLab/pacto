@@ -48,7 +48,7 @@ func (q *Query) offeringFactsByName() map[string]*offeringFacts {
 	by := map[string]*offeringFacts{}
 	placementKnown := targetPlacementKnown(q.snap)
 	for _, s := range q.snap.Services {
-		if s.Offering == "" {
+		if s.Offering == "" || s.Inferred() {
 			continue
 		}
 		f := by[s.Offering]

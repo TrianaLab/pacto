@@ -256,3 +256,16 @@ func TestFleetFlagNamesIncludeExternalCatalog(t *testing.T) {
 		t.Fatalf("ExternalCatalogRef = %q", got)
 	}
 }
+
+// TestDetectedFlagShared: --detected is one of the shared fleet source flags
+// and reaches app.FleetOptions.
+func TestDetectedFlagShared(t *testing.T) {
+	cmd := &cobra.Command{Use: "bare"}
+	addFleetSourceFlags(cmd.Flags())
+	if err := cmd.Flags().Set("detected", "k8s:pacto-system/pacto-operator-detected"); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(fleetFlagNames(), "detected") || fleetOptions(cmd).Detected != "k8s:pacto-system/pacto-operator-detected" {
+		t.Error("--detected is not a shared fleet flag read into FleetOptions")
+	}
+}

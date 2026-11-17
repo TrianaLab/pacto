@@ -473,6 +473,7 @@
       offering={route.params.offering || ''}
       consumes={route.params.consumes || ''}
       createdFrom={route.params.createdFrom || ''}
+      declaration={route.params.declaration || ''}
       phase={route.params.phase || ''}
       offset={route.params.offset || ''}
       limit={route.params.limit || ''}

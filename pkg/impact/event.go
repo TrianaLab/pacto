@@ -234,6 +234,10 @@ func analyzeEvent(snap *fleet.FleetSnapshot, opts Options) *Result {
 	if graph == nil {
 		return res
 	}
+	if graph.ReplacedFrom != nil {
+		subject = graph.Root // SUBJECT_REPLACED discloses it
+		res.noteNameInferred(snap, subject)
+	}
 	observed := res.eventObserved(snap, opts)
 	res.eventFor(snap, q, subject, graph, observed)
 	res.collectOwnersAndTargets(snap, subject)
@@ -262,7 +266,7 @@ func newEventResult(snap *fleet.FleetSnapshot, q *fleet.Query, ev *Event, name s
 	meta := q.ProductMeta()
 	return &Result{
 		SchemaVersion: SchemaVersion, SnapshotID: snap.SnapshotID, AsOf: snap.GeneratedAt, Service: name, Event: ev,
-		Completeness: snap.Completeness, Limitations: append([]fleet.Limitation(nil), snap.Limitations...),
+		Completeness: snap.ConsumerCompleteness(), Limitations: append([]fleet.Limitation(nil), snap.Limitations...),
 		Consumers: []AffectedConsumer{}, Sources: meta.Sources, SourcesTruncated: meta.SourcesTruncated,
 	}
 }

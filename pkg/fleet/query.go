@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"reflect"
 	"slices"
@@ -80,6 +81,45 @@ func (q *Query) resolveService(identifier string) (*ServiceRecord, error) {
 		sort.Strings(keys)
 		return nil, &AmbiguousError{Kind: "service", ID: identifier, Matches: keys}
 	}
+}
+
+// resolveServiceOrReplaced is resolveService that, when identifier names no
+// service, follows a visible [Replacement] from the inferred service it names
+// to the declared service that replaced it, and returns that replacement. Only
+// the service, graph and entity-detail lookups follow it, each answer carrying
+// replacedFrom; every other lookup stays exact.
+func (q *Query) resolveServiceOrReplaced(identifier string) (*ServiceRecord, *Replacement, error) {
+	s, err := q.resolveService(identifier)
+	var nf *NotFoundError
+	if !errors.As(err, &nf) {
+		return s, nil, err
+	}
+	for _, r := range q.snap.Replacements {
+		if _, name := ParseServiceKey(r.From); string(r.From) == identifier || name == identifier {
+			// Restrict keeps only replacements of visible services.
+			r.At = copyTime(r.At)
+			return q.snap.Services[r.To], &r, nil
+		}
+	}
+	return nil, nil, err
+}
+
+// replacesOf is the bounded list of the inferred services key replaced, the
+// newest first, and how many there are.
+func (q *Query) replacesOf(key ServiceKey) ([]Replacement, int) {
+	var out []Replacement
+	for _, r := range q.snap.Replacements {
+		if r.To == key {
+			r.At = copyTime(r.At)
+			out = append(out, r)
+		}
+	}
+	slices.SortFunc(out, func(a, b Replacement) int {
+		at := func(r Replacement) time.Time { return *cmp.Or(r.At, new(time.Time)) }
+		return cmp.Or(at(b).Compare(at(a)), cmp.Compare(a.From, b.From))
+	})
+	shown, total, _ := boundSlice(out, MaxDetailPreview)
+	return shown, total
 }
 
 // Snapshot returns a deep copy of the snapshot for serialization. It never
@@ -251,6 +291,7 @@ type SearchFilter struct {
 	ReadyOnly      bool              // operationally ready (correlated to target when a target predicate is set)
 	NotReady       bool              // not operationally ready (correlated likewise)
 	Template       string            // TemplateOnly keeps only golden paths, TemplateExclude leaves them out
+	Declaration    string            // DeclarationInferred keeps only inferred services, DeclarationDeclared leaves them out
 	Limit          int               // 0 → DefaultSearchLimit, capped at MaxSearchLimit
 	Offset         int
 }
@@ -280,6 +321,9 @@ type ServiceHit struct {
 	Template bool `json:"template,omitempty"`
 	// NameInferred is where Name comes from when no revision declares it.
 	NameInferred *contract.Inferred `json:"nameInferred,omitempty"`
+	// Declaration says whether a contract describes the service (see
+	// ServiceRecord.Declaration).
+	Declaration string `json:"declaration,omitempty" enum:"declared,inferred"`
 }
 
 // SearchResult is a bounded page of service hits.
@@ -345,6 +389,7 @@ func validateSearchFilter(f SearchFilter) error {
 		{"status", f.Status, "not a canonical status", ValidStatus},
 		{"compliance", f.Compliance, "not a canonical status", ValidStatus},
 		{"template", f.Template, "not a template filter (only, exclude)", validTemplateFilter},
+		{"declaration", f.Declaration, "not a declaration (declared, inferred)", validDeclarationFilter},
 	})
 }
 
@@ -392,7 +437,7 @@ func hitFromService(s *ServiceRecord) ServiceHit {
 		Offering: s.Offering, Summary: s.Summary, Owner: cloneOwner(s.Owner), Status: s.Status,
 		RevisionCount: len(s.Revisions), TargetCount: len(s.Targets),
 		Sources: append([]string(nil), s.Sources...), Labels: cloneStringMap(s.Labels), Template: s.Template,
-		NameInferred: clonePtr(s.NameInferred),
+		NameInferred: clonePtr(s.NameInferred), Declaration: cmp.Or(s.Declaration, DeclarationDeclared),
 	}
 }
 
@@ -421,6 +466,7 @@ func (q *Query) serviceMatches(s *ServiceRecord, f SearchFilter) bool {
 		matchEq(f.Status, s.Status),
 		matchEq(f.Offering, s.Offering),
 		templateMatches(f.Template, s.Template),
+		declarationMatches(f.Declaration, EntityRef{Declaration: s.Declaration}),
 		matchSource(s, f.Source),
 		q.anyRevisionWorkload(s, f.Workload),
 		q.anyRevisionHasCapability(s, f.HasCapability),
@@ -611,17 +657,23 @@ type ServiceView struct {
 	Dependencies []Relationship         `json:"dependencies"`
 	Dependents   []ServiceKey           `json:"dependents"`
 	Capabilities []RevisionCapabilities `json:"capabilities,omitempty"`
+	// ReplacedFrom is set when the service was asked for by the key of an
+	// inferred service it replaced.
+	ReplacedFrom  *Replacement  `json:"replacedFrom,omitempty" doc:"Set when the service was asked for by the key of an inferred service it replaced: that replacement"`
+	Replaces      []Replacement `json:"replaces,omitempty" doc:"The inferred services this service replaced, at most 200"`
+	ReplacesTotal int           `json:"replacesTotal,omitempty" doc:"How many inferred services this service replaced"`
 }
 
 // GetService returns the logical service, its revisions and targets, its declared
 // dependency edges (across all revisions), its dependents, and per-revision tools
 // and skills. It returns a [NotFoundError] when the service is absent.
 func (q *Query) GetService(name string) (*ServiceView, error) {
-	s, err := q.resolveService(name)
+	s, replaced, err := q.resolveServiceOrReplaced(name)
 	if err != nil {
 		return nil, err
 	}
-	view := &ServiceView{Meta: q.meta(), Service: cloneService(s), Dependencies: []Relationship{}}
+	view := &ServiceView{Meta: q.meta(), Service: cloneService(s), Dependencies: []Relationship{}, ReplacedFrom: replaced}
+	view.Replaces, view.ReplacesTotal = q.replacesOf(s.Key)
 	for _, rk := range s.Revisions {
 		rev := cloneRevision(q.snap.Revisions[rk])
 		view.Revisions = append(view.Revisions, rev)
@@ -755,9 +807,10 @@ func (q *Query) resolveForwardKey(id, cluster, scope, kind, name string) (*Targe
 	return nil, nil
 }
 
-// sourcesIncomplete reports whether any source is not fully available.
+// sourcesIncomplete reports whether any source that counts against an answer
+// is not fully available: an advisory source never does.
 func (q *Query) sourcesIncomplete() bool {
-	return slices.ContainsFunc(q.snap.Sources, func(s SourceState) bool { return s.Status != SourceAvailable })
+	return slices.ContainsFunc(q.snap.Sources, SourceState.degraded)
 }
 
 // targetKeyAmbiguous lists matches as the candidates of key, sorted by key,
@@ -835,7 +888,8 @@ type GraphNode struct {
 	Path  []ServiceKey `json:"path"`
 	// Provenance is how the edge that first reached the node is known: declared,
 	// observed or declared+observed, or inferred for a consumer of an external
-	// system known only from its configuration (never a gate's evidence).
+	// system known only from its configuration or a runtime call one of whose
+	// ends no contract describes (never a gate's evidence).
 	Provenance string `json:"provenance" enum:"declared,observed,declared+observed,inferred"`
 	// NameInferred is where Name comes from when no revision declares it.
 	NameInferred *contract.Inferred `json:"nameInferred,omitempty"`
@@ -861,6 +915,9 @@ type GraphResult struct {
 	// is then a deterministic prefix of the reachable graph, not the whole of it,
 	// and a consumer that reads it as complete would understate a blast radius.
 	Truncated bool `json:"truncated,omitempty"`
+	// ReplacedFrom is set when the root was asked for by the key of an
+	// inferred service it replaced.
+	ReplacedFrom *Replacement `json:"replacedFrom,omitempty" doc:"Set when the root was asked for by the key of an inferred service it replaced: that replacement"`
 }
 
 // Graph traverses dependencies or dependents from an explicit root. It returns
@@ -884,18 +941,32 @@ func (q *Query) Graph(gq GraphQuery) (*GraphResult, error) {
 	if key, ok := ParseExternalSubject(gq.Service); ok && gq.Target == "" && gq.Revision == "" {
 		return q.graphExternal(gq, key, maxNodes)
 	}
-	rootSvc, scopeRev, aggregated, err := q.resolveGraphScope(gq)
+	rootSvc, scopeRev, aggregated, replaced, err := q.resolveGraphScope(gq)
 	if err != nil {
 		return nil, err
 	}
 
-	res := &GraphResult{Meta: q.meta(), Root: rootSvc, Revision: scopeRev, Aggregated: aggregated, Direction: dir, Nodes: []GraphNode{}}
+	res := &GraphResult{Meta: q.meta(), Root: rootSvc, Revision: scopeRev, Aggregated: aggregated, Direction: dir, Nodes: []GraphNode{}, ReplacedFrom: replaced}
 	nodeSet, cycles := q.walkGraph(res, rootSvc, gq, maxNodes, func(key ServiceKey) []graphStep {
 		return q.graphNeighbours(key, rootSvc, scopeRev, dir, gq.IncludeObserved)
 	})
 	res.Cycles = cycles
 	res.Edges, res.Unresolved = q.graphEdges(nodeSet, rootSvc, dir, scopeRev, gq.IncludeObserved)
+	if s := q.snap.Services[rootSvc]; s != nil && s.Inferred() {
+		limitationFirst(&res.Meta, Limitation{
+			Code: LimitationServiceInferred, Source: s.Workload.Source,
+			Message: "no contract Pacto read describes " + s.Name + ", so the graph knows none of its declared dependencies or dependents; with observed calls included it shows the calls sources saw, labelled inferred",
+		})
+	}
 	return res, nil
+}
+
+// limitationFirst marks m partial and puts l first, so the cap keeps it.
+func limitationFirst(m *Meta, l Limitation) {
+	m.Completeness = CompletenessPartial
+	var trunc bool
+	m.Limitations, trunc = BoundLimitations(append([]Limitation{l}, m.Limitations...))
+	m.LimitationsTruncated = m.LimitationsTruncated || trunc
 }
 
 // walkGraph is the breadth-first walk of [Query.Graph] from root over
@@ -957,7 +1028,8 @@ type graphStep struct {
 
 // graphNeighbours returns a node's neighbours in sorted key order. Declared
 // neighbours come from the dependency indexes; with observed set, observed
-// runtime calls are merged in. A revision- or target-rooted dependencies walk
+// runtime calls and inferred relationships (runtime calls with an end no
+// contract describes, labelled inferred) are merged in. A revision- or target-rooted dependencies walk
 // keeps its root declared-only: the root's declared edges are exact to that
 // revision and runtime observation is service-level, so merging it would claim
 // the revision makes calls no one saw it make. A dependents walk is
@@ -978,11 +1050,19 @@ func (q *Query) graphNeighbours(key, rootSvc ServiceKey, scopeRev RevisionKey, d
 		prov[k] = ProvenanceDeclared
 	}
 	if observed {
-		for _, k := range q.adjacent(key, dir, false, true) {
+		for _, k := range q.adjacent(key, dir, false, true, false) {
 			if prov[k] == ProvenanceDeclared {
 				prov[k] = ProvenanceDeclaredObserved
 			} else {
 				prov[k] = ProvenanceObserved
+			}
+		}
+		// An inferred relationship has an end no contract describes, so it
+		// never shares a pair with a declared or observed edge; were it to, the
+		// stronger label wins.
+		for _, k := range q.adjacent(key, dir, false, false, true) {
+			if prov[k] == "" {
+				prov[k] = ProvenanceInferred
 			}
 		}
 	}
@@ -1057,27 +1137,28 @@ func validateDirection(d Direction) (Direction, error) {
 }
 
 // resolveGraphScope determines the root service, the scoping revision (empty for
-// an aggregated service query) and whether the answer aggregates revisions.
-func (q *Query) resolveGraphScope(gq GraphQuery) (rootKey ServiceKey, scopeRev RevisionKey, aggregated bool, err error) {
+// an aggregated service query), whether the answer aggregates revisions and the
+// replacement followed when the service was asked for by a replaced key.
+func (q *Query) resolveGraphScope(gq GraphQuery) (rootKey ServiceKey, scopeRev RevisionKey, aggregated bool, replaced *Replacement, err error) {
 	switch {
 	case gq.Target != "":
 		tv, e := q.GetTarget(gq.Target)
 		if e != nil {
-			return "", "", false, e
+			return "", "", false, nil, e
 		}
-		return tv.Target.ServiceKey, tv.Target.ContractRevision, false, nil
+		return tv.Target.ServiceKey, tv.Target.ContractRevision, false, nil, nil
 	case gq.Revision != "":
 		rev := q.snap.Revisions[gq.Revision]
 		if rev == nil {
-			return "", "", false, &NotFoundError{Kind: "revision", ID: string(gq.Revision)}
+			return "", "", false, nil, &NotFoundError{Kind: "revision", ID: string(gq.Revision)}
 		}
-		return rev.ServiceKey, gq.Revision, false, nil
+		return rev.ServiceKey, gq.Revision, false, nil, nil
 	default:
-		s, err := q.resolveService(gq.Service)
+		s, replaced, err := q.resolveServiceOrReplaced(gq.Service)
 		if err != nil {
-			return "", "", false, err
+			return "", "", false, nil, err
 		}
-		return s.Key, "", len(s.Revisions) > 1, nil
+		return s.Key, "", len(s.Revisions) > 1, replaced, nil
 	}
 }
 
@@ -1087,6 +1168,18 @@ func (q *Query) resolveGraphScope(gq GraphQuery) (rootKey ServiceKey, scopeRev R
 // are service-level. An edge to an external system follows graphProvenance,
 // the rule the external graph draws its consumers by.
 func (q *Query) graphEdges(nodeSet map[ServiceKey]bool, rootSvc ServiceKey, dir Direction, scopeRev RevisionKey, includeObserved bool) (edges, unresolved []Relationship) {
+	// Inferred relationships are runtime calls, so they come with the observed
+	// ones only; impact's declared walk never sees them.
+	defer func() {
+		if !includeObserved {
+			return
+		}
+		for _, rel := range q.snap.InferredRelationships {
+			if edgeInScope(rel, nodeSet, rootSvc, dir, scopeRev) {
+				edges = append(edges, rel)
+			}
+		}
+	}()
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
 		if rel.Type != RelationshipDependency && !ConsumesEdge(rel) {
@@ -1154,6 +1247,10 @@ type StatusResult struct {
 	Total     int          `json:"total"`
 	Truncated bool         `json:"truncated,omitempty"`
 	Items     []StatusItem `json:"items"`
+	// Providers are at most MaxProviders rows, reported before inferred and
+	// least healthy first.
+	Providers          []Provider `json:"providers,omitempty" doc:"What Pacto detected in each source, with evidence, what it uses each for and its status"`
+	ProvidersTruncated bool       `json:"providersTruncated,omitempty"`
 }
 
 // Status reports the entities needing attention in the selected categories. It is
@@ -1236,7 +1333,8 @@ func (q *Query) Status(sq StatusQuery) *StatusResult {
 	if total > limit {
 		items = items[:limit]
 	}
-	return &StatusResult{Meta: q.meta(), Total: total, Truncated: total > limit, Items: items}
+	providers, providersTruncated := boundProviders(q.snap.Providers)
+	return &StatusResult{Meta: q.meta(), Total: total, Truncated: total > limit, Items: items, Providers: providers, ProvidersTruncated: providersTruncated}
 }
 
 // AssertionRef identifies the declared assertion a reason is about.
@@ -1294,6 +1392,15 @@ func (q *Query) explainService(s *ServiceRecord) *ExplainResult {
 	// carries no domain field, so a bare name would name a DIFFERENT service (with a
 	// different status) in any fleet holding two domains' worth of the same name.
 	res := &ExplainResult{Meta: q.meta(), Subject: string(s.Key), Kind: "service", Status: s.Status, Reasons: []Reason{}}
+	if s.Inferred() {
+		res.Reasons = append(res.Reasons, Reason{
+			Code: LimitationServiceInferred, Source: s.Workload.Source, ObservedAt: copyTime(s.Workload.ObservedAt),
+			Message: "no contract Pacto read describes this workload; it never satisfies a dependency or clears a gate",
+		})
+		for _, l := range inferredLimitations(s) {
+			res.Reasons = append(res.Reasons, Reason{Code: l.Code, Message: l.Message, Source: l.Source})
+		}
+	}
 	for _, tk := range s.Targets {
 		res.Reasons = append(res.Reasons, targetReasons(q.snap.Targets[tk])...)
 	}

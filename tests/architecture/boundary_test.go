@@ -38,6 +38,7 @@ var corePackages = []string{
 	"github.com/trianalab/pacto/v4/pkg/contractview/...",
 	"github.com/trianalab/pacto/v4/pkg/dashboard/...",
 	"github.com/trianalab/pacto/v4/pkg/delivery/...",
+	"github.com/trianalab/pacto/v4/pkg/detect/...",
 	"github.com/trianalab/pacto/v4/pkg/evidence/...",
 	"github.com/trianalab/pacto/v4/pkg/evidenceenvelope/...",
 	"github.com/trianalab/pacto/v4/pkg/evidenceingest/...",
@@ -215,6 +216,20 @@ func TestContractIsTheLeaf(t *testing.T) {
 	for _, dep := range deps(t, self) {
 		if strings.HasPrefix(dep, "github.com/trianalab/pacto/") && dep != self {
 			t.Errorf("boundary violation: pkg/contract reaches %q; the domain model imports no other Pacto package", dep)
+		}
+	}
+}
+
+// TestWorkloadShapeReadsNoCluster keeps internal/workloadshape a standard
+// library leaf: it reads a decoded workload object, so a folder reader that
+// must never reach a cluster may share it with the cluster source.
+func TestWorkloadShapeReadsNoCluster(t *testing.T) {
+	const self = "github.com/trianalab/pacto/v4/internal/workloadshape"
+	for _, dep := range deps(t, self) {
+		for _, bad := range []string{"k8s.io/", "sigs.k8s.io/", "github.com/trianalab/pacto/"} {
+			if strings.HasPrefix(dep, bad) && dep != self {
+				t.Errorf("boundary violation: internal/workloadshape reaches %q; it imports only the standard library", dep)
+			}
 		}
 	}
 }

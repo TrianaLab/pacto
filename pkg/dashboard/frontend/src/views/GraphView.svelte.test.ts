@@ -268,10 +268,33 @@ describe('GraphView — product Operational Graph', () => {
     const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
     await vi.waitFor(() => expect(q(target, '[data-testid="graph-edges"]')).toBeTruthy());
     const legend = qa(target, '[data-testid="graph-legend-toggle"]').map((b) => b.textContent || '');
-    expect(legend.some((t) => /Inferred from configuration/.test(t))).toBe(true);
+    expect(legend.some((t) => /Inferred: one end has no contract, or read from configuration/.test(t))).toBe(true);
     expect(legend.some((t) => /Expected, not observed/.test(t))).toBe(true);
     const diffs = qa(target, '[data-testid="edge-difference"]').map((b) => b.textContent || '');
     expect(diffs.some((t) => /Inferred from configuration/.test(t))).toBe(true);
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('words the drawer of a runtime-inferred edge apart from a configuration-inferred one', async () => {
+    const base = neighborhood();
+    const ghost = { ...ref('service', 'default/k8s:shop/CronJob/nightly-export', 'nightly-export'), declaration: 'inferred' };
+    neighborhoodFn.mockResolvedValue(neighborhood({ nodes: [...base.nodes, { ref: ghost, depth: 1 }], edges: [...base.edges,
+      { id: 'ghost|web|dependency|inferred', relation: 'dependency', from: ghost, to: ref('service', 'domain-a/web', 'web'), expected: false, observed: false, inferred: true, provenance: 'inferred', count: 24, declaredClaims: { total: 0, count: 0, truncated: false, items: [] }, observationSources: { total: 1, count: 1, truncated: false, items: [{ source: 'kernel-observer', count: 24 }] } },
+      { id: 'domain-a/web|domain-a/api|dependency|inferred', relation: 'dependency', from: ref('service', 'domain-a/web', 'web'), to: ref('service', 'domain-a/api', 'api'), expected: false, observed: false, inferred: true, provenance: 'inferred', declaredClaims: { total: 0, count: 0, truncated: false, items: [] }, observationSources: { total: 0, count: 0, truncated: false, items: [] } },
+    ] }));
+    const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
+    await vi.waitFor(() => expect(q(target, '[data-testid="graph-edges"]')).toBeTruthy());
+    const open = (re: RegExp) => {
+      qa(target, '[data-testid="graph-edge"]').find((b) => re.test(b.querySelector('[data-testid="edge-difference"]')?.textContent || ''))!.click();
+      flushSync();
+      return q(target, '[data-testid="graph-drawer"]')!;
+    };
+    let drawer = open(/Seen at runtime/);
+    expect(drawer.textContent).toContain('Seen at runtime, no contract');
+    expect(q(target, '[data-testid="edge-difference-description"]')?.textContent).toMatch(/^No contract describes nightly-export\. Seen by kernel-observer\. No contract declares this call/);
+    drawer = open(/Inferred from configuration/);
+    expect(drawer.textContent).toContain('Inferred from configuration');
+    expect(q(target, '[data-testid="edge-difference-description"]')?.textContent).toMatch(/configuration/);
     unmount(component); document.body.removeChild(target);
   });
 

@@ -341,6 +341,11 @@ func (q *Query) servingAvailability(ev *envEvidence) (AvailabilityState, string,
 	return AvailabilityAvailable, ProvenanceObserved, fmt.Sprintf("%d of %d targets reporting, evidence %s old", len(ev.serving), len(ev.targets), shortAge(age))
 }
 
+// Age writes d rounded to the minute the way a person would: 1h, 1h30m,
+// 15m. Every surface that prints an age of a fleet fact uses it.
+// A negative age (a clock behind the API server's) reads as 0m.
+func Age(d time.Duration) string { return shortAge(max(d, 0).Round(time.Minute)) }
+
 // shortAge writes a whole-minute age the way a person would: 1h, 1h30m, 15m.
 func shortAge(d time.Duration) string {
 	s := strings.TrimSuffix(d.String(), "0s")

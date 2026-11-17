@@ -8,6 +8,7 @@
  */
 
 import { formatCount } from './format.ts';
+import { formatDateTime } from './dateFormat.ts';
 
 export type Tone = 'ok' | 'warn' | 'err' | 'info' | 'neutral';
 
@@ -440,4 +441,27 @@ export const RANGE_NOT_DECLARED = 'Range not declared';
 export function acceptsLabel(compatibility: string | undefined | null): string {
   if (!compatibility) return '';
   return compatibility === 'unknown' ? RANGE_NOT_DECLARED : `Accepts ${compatibility}`;
+}
+
+/** serviceKeyName is the name inside a canonical service key, as fleet.ParseServiceKey
+ *  reads it: the part after the one unescaped "/" (the domain separator), with "%2F" and
+ *  "%25" decoded. "k8s:prod%2FDeployment%2Fexperiments" reads "k8s:prod/Deployment/experiments". */
+export function serviceKeyName(key: string): string {
+  const name = key.includes('/') ? key.slice(key.indexOf('/') + 1) : key;
+  return name.replaceAll('%2F', '/').replaceAll('%25', '%');
+}
+
+type ReplacementRef = { from: string; target?: string; at?: string };
+
+/** replacesTip is the tooltip of a service's Replaces line: how the newest replacement
+ *  was linked, then up to ten more by key, target and time, so "+N more" never hides
+ *  which workloads were taken over. total counts every replacement. */
+export function replacesTip(replaces: ReplacementRef[], total: number): string {
+  const [first, ...rest] = replaces;
+  if (!first) return '';
+  const head = `Linked by the Pacto target ${first.target || 'of this service'}, which runs as the workload. The Pacto was created ${formatDateTime(first.at)}.`;
+  if (!rest.length) return head;
+  const shown = rest.slice(0, 10).map((r) => `${serviceKeyName(r.from)} (Pacto target ${r.target || 'of this service'}, ${formatDateTime(r.at)})`);
+  const unlisted = total - 1 - shown.length;
+  return `${head} Also replaces ${shown.join(', ')}${unlisted > 0 ? ` and ${formatCount(unlisted)} more, listed by pacto fleet get` : ''}.`;
 }

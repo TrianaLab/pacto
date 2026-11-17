@@ -127,6 +127,17 @@ while IFS="$TAB" read -r subject payload sequence envelope_id extra; do
 	fi
 done <"$WORK/evidence"
 
+if [ -n "${PACTO_DEMO_DETECTED:-}" ]; then
+	echo "== record what the demo cluster detected =="
+	# The fixture carries a fixed asOf; stamp it at seed time, or the dashboard
+	# would call it stale from the first minute. The state volume is $HOME,
+	# which the dashboard mounts too.
+	now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+	sed "s/\"asOf\": *\"[^\"]*\"/\"asOf\": \"$now\"/" "$PACTO_DEMO_DETECTED" >"$HOME/detected.json"
+	grep -qF "\"asOf\": \"$now\"" "$HOME/detected.json" || fail "$PACTO_DEMO_DETECTED holds no asOf to stamp"
+	echo "  stamped the detection at $now"
+fi
+
 if [ -n "${PACTO_DEMO_STATS:-}" ]; then
 	echo "== record the demo's run records =="
 	: "${PACTO_DEMO_STATS_TIMES:?the timestamps of the run records}"

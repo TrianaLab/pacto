@@ -138,6 +138,18 @@ describe('edgeState (backend verdict -> visual vocabulary, never re-inferred)', 
     expect(edgeState({ provenance: 'inferred' })).toBe('inferred');
     expect(edgeState({ provenance: 'inferred', difference: 'matched' })).toBe('matched');
   });
+  it('draws a call between services one of which has no contract in the same muted inferred state', () => {
+    // The backend sends no difference for a runtime-inferred service edge, only its sources.
+    const g = neighborhoodToGraph({
+      nodes: [{ ref: { kind: 'service', key: 'default/k8s:shop/CronJob/nightly-export', label: 'nightly-export', declaration: 'inferred', href: '' }, depth: 0 } as never,
+        { ref: { kind: 'service', key: 'default/search-indexer', label: 'search-indexer', href: '' }, depth: 1 } as never],
+      edges: [{ id: 'x', relation: 'dependency', provenance: 'inferred', inferred: true, expected: false, observed: false, count: 6,
+        from: { kind: 'service', key: 'default/k8s:shop/CronJob/nightly-export', href: '' }, to: { kind: 'service', key: 'default/search-indexer', href: '' },
+        observationSources: { total: 1, count: 1, truncated: false, items: [{ source: 'kernel-observer', count: 6 }] } } as never],
+    });
+    const from = g.nodes.find((n) => n.id === 'default/k8s:shop/CronJob/nightly-export')!;
+    expect(from.edges!.find((e) => e.targetId === 'default/search-indexer')!.edgeState).toBe('inferred');
+  });
 });
 
 describe('graph signatures (Part 5: topology vs presentation)', () => {

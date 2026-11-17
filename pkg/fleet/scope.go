@@ -95,18 +95,23 @@ func hideUnreadable(s *FleetSnapshot, visible func(string) bool, hidden map[stri
 	}
 }
 
+// hiddenByScope reports whether a restricted view drops l: every namespace
+// scope limitation (rebuilt from what is left) and an unreadable namespace
+// visible refuses.
+func hiddenByScope(l Limitation, visible func(string) bool) bool {
+	if l.Code == LimitationK8sNamespaceScoped {
+		return true
+	}
+	ns, ok := unreadableNamespace(l)
+	return ok && !visible(ns)
+}
+
 // restrictScope keeps in each source only the watched namespaces visible says
 // yes to, keeps the total, and rebuilds every scope limitation from what is
 // left, so a watched namespace the reader may not read is never named while
 // the "rest is unknown" explanation stays.
 func restrictScope(out *FleetSnapshot, visible func(string) bool) {
-	out.Limitations = slices.DeleteFunc(out.Limitations, func(l Limitation) bool {
-		if l.Code == LimitationK8sNamespaceScoped {
-			return true
-		}
-		ns, ok := unreadableNamespace(l)
-		return ok && !visible(ns)
-	})
+	out.Limitations = slices.DeleteFunc(out.Limitations, func(l Limitation) bool { return hiddenByScope(l, visible) })
 	for i := range out.Sources {
 		st := &out.Sources[i]
 		if len(st.Namespaces) == 0 && st.NamespacesTotal == 0 {

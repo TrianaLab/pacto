@@ -51,7 +51,7 @@ func TestViewNarrowsEveryFleetAnswer(t *testing.T) {
 		Fleet:     func(context.Context) (*fleet.Query, error) { return q, nil },
 		Published: func() *fleet.Query { return q },
 		View: func(_ context.Context, q *fleet.Query) (*fleet.Query, error) {
-			return q.Restrict(func(ns string) bool { return ns == "shop" }), nil
+			return q.Restrict(func(ns string) bool { return ns == "shop" }, nil), nil
 		},
 		Impact: func(_ context.Context, snap *fleet.FleetSnapshot, _, _ string, _ bool) (*impact.Result, error) {
 			gotSnap = snap
@@ -96,7 +96,7 @@ func TestViewOfNothing(t *testing.T) {
 		Fleet:     func(context.Context) (*fleet.Query, error) { return q, nil },
 		Published: func() *fleet.Query { return q },
 		View: func(_ context.Context, q *fleet.Query) (*fleet.Query, error) {
-			return q.Restrict(func(string) bool { return false }), nil
+			return q.Restrict(func(string) bool { return false }, nil), nil
 		},
 		Auth: &Auth{Login: true, Routes: http.NotFoundHandler(), Middleware: func(h http.Handler) http.Handler { return h }, State: func(*http.Request) AuthState { return AuthState{SignedIn: true} }},
 	})
@@ -160,7 +160,7 @@ func TestSnapshotUsageRestricted(t *testing.T) {
 		Fleet:     func(context.Context) (*fleet.Query, error) { return q, nil },
 		Published: func() *fleet.Query { return q },
 		View: func(_ context.Context, q *fleet.Query) (*fleet.Query, error) {
-			return q.Restrict(func(ns string) bool { return ns == "shop" }), nil
+			return q.Restrict(func(ns string) bool { return ns == "shop" }, nil), nil
 		},
 		Auth: &Auth{Login: true, Routes: http.NotFoundHandler(), Middleware: func(h http.Handler) http.Handler { return h }, State: func(*http.Request) AuthState { return AuthState{SignedIn: true} }},
 	})

@@ -711,7 +711,7 @@ func TestFleetEntitiesConsumes(t *testing.T) {
 // is never named.
 func TestFleetOfferingToolsAnswerFromTheView(t *testing.T) {
 	view := func(_ context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
-		return q.Restrict(func(ns string) bool { return ns != "secretns" }), nil
+		return q.Restrict(func(ns string) bool { return ns != "secretns" }, nil), nil
 	}
 	server := mustNew("test", Authoring{}, Modes{Fleet: &FleetMode{Src: staticFleet(offeringFleet(t)), Opts: FleetOptions{View: view}}})
 	for _, c := range []struct {
@@ -852,6 +852,21 @@ func TestFleetEntityToolDescribesResources(t *testing.T) {
 	}
 }
 
+// The entity and neighborhood tools describe replaced services and the
+// runtime-inferred edges the default views now show.
+func TestFleetToolsDescribeInferredEdgesAndReplacements(t *testing.T) {
+	for d, wants := range map[string][]string{
+		fleetEntityTool().Description:       {"'replaces'", "'replacesTotal'", "'replacedFrom'"},
+		fleetNeighborhoodTool().Description: {"default views with provenance inferred", "never satisfies a"},
+	} {
+		for _, want := range wants {
+			if !strings.Contains(d, want) {
+				t.Errorf("description lacks %s", want)
+			}
+		}
+	}
+}
+
 // The attention and status tools name the provisioning category and its codes.
 func TestFleetAttentionToolDescribesProvisioning(t *testing.T) {
 	for _, d := range []string{fleetAttentionTool().Description, fleetStatusTool().Description} {
@@ -910,5 +925,49 @@ func TestFleetStatusScopedNamesNamespaces(t *testing.T) {
 		return l.Code == fleet.LimitationK8sNamespaceScoped && strings.Contains(l.Message, "(ledger and payments)")
 	}) {
 		t.Errorf("limitations = %+v, want the scope", out.Meta.Limitations)
+	}
+}
+
+// providerQuery: a Kubernetes source with targets in shop and hidden-ns and a
+// provider row whose object and limitation name hidden-ns.
+func providerQuery(t *testing.T) *fleet.Query {
+	t.Helper()
+	src := fleet.NewMemorySource("k8s", fleet.SourceKindKubernetes, &fleet.Collection{
+		Targets: []fleet.RawTarget{
+			{Scope: "shop", Kind: fleet.SourceKindKubernetes, Name: "app", Service: "app"},
+			{Scope: "hidden-ns", Kind: fleet.SourceKindKubernetes, Name: "vault", Service: "vault"},
+		},
+		Providers: []fleet.Provider{{ID: "prometheus", Name: "Prometheus", Evidence: "served (monitoring.coreos.com/v1)", UsedFor: []string{"observed-calls"},
+			Status: fleet.SourcePartial, Objects: []fleet.ProviderObject{{Kind: "Prometheus", Namespace: "hidden-ns", Name: "prom"}, {Kind: "Prometheus", Namespace: "shop", Name: "shop-prom"}},
+			Limitations: []fleet.Limitation{{Code: "SCRAPE", Message: "hidden-ns scrape failed"}}}},
+	})
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: func() time.Time { return fixedNow }}, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fleet.NewQuery(snap)
+}
+
+func TestFleetStatusCarriesProviders(t *testing.T) {
+	var out fleet.StatusResult
+	decode(t, callHandler(t, fleetStatusTool(), fleetStatusHandler(providerQuery(t)), map[string]any{}), &out)
+	if len(out.Providers) != 1 || out.Providers[0].ID != "prometheus" || out.Providers[0].Source != "k8s" {
+		t.Errorf("status providers = %+v", out.Providers)
+	}
+	if !strings.Contains(fleetStatusTool().Description, "'providers'") {
+		t.Error("the tool description does not name providers")
+	}
+}
+
+// TestFleetStatusProvidersRestricted: a signed-in view keeps the row and drops
+// what names a namespace the caller may not read.
+func TestFleetStatusProvidersRestricted(t *testing.T) {
+	view := func(_ context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
+		return q.Restrict(func(ns string) bool { return ns == "shop" }, nil), nil
+	}
+	server := mustNew("test", Authoring{}, Modes{Fleet: &FleetMode{Src: staticFleet(providerQuery(t)), Opts: FleetOptions{View: view}}})
+	text := resultText(t, callToolOn(t, server, "pacto_fleet_status", map[string]any{}))
+	if strings.Contains(text, "hidden-ns") || !strings.Contains(text, `"prometheus"`) || !strings.Contains(text, "shop-prom") {
+		t.Errorf("restricted status providers:\n%s", text)
 	}
 }

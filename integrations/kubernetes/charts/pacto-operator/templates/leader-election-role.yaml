@@ -6,10 +6,10 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "pacto-operator.labels" . | nindent 4 }}
+# Leases only: controller-runtime elects through a Lease, so no ConfigMap
+# write is granted here and detection's name-scoped rule in role.yaml stays the
+# operator's only ConfigMap write in the release namespace.
 rules:
-  - apiGroups: [""]
-    resources: [configmaps]
-    verbs: [get, list, watch, create, update, patch, delete]
   {{- include "pacto-operator.rbac.leaderElectionRules" . | nindent 2 }}
 ---
 {{ include "pacto-operator.binding" (dict "kind" "RoleBinding" "name" (printf "%s-leader-election" (include "pacto-operator.fullname" .)) "namespace" .Release.Namespace "labels" (include "pacto-operator.labels" .) "serviceAccount" (include "pacto-operator.serviceAccountName" .) "serviceAccountNamespace" .Release.Namespace) }}

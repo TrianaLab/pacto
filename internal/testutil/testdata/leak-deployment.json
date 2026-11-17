@@ -1,0 +1,43 @@
+{
+  "apiVersion": "apps/v1",
+  "kind": "Deployment",
+  "metadata": {
+    "name": "billing",
+    "namespace": "shop",
+    "annotations": {
+      "kubectl.kubernetes.io/last-applied-configuration": "{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"billing\",\"env\":[{\"name\":\"DB_PASSWORD\",\"value\":\"hunter2\"}]}]}}}}"
+    },
+    "managedFields": [
+      {"manager": "kubectl-client-side-apply", "operation": "Update", "fieldsV1": {"f:spec": {"f:template": {"f:spec": {"f:containers": {"k:{\"name\":\"billing\"}": {"f:env": {"k:{\"name\":\"DB_PASSWORD\"}": {}}}}}}}}}
+    ]
+  },
+  "spec": {
+    "template": {
+      "spec": {
+        "containers": [
+          {
+            "name": "billing",
+            "image": "registry.example/billing:1.4.2",
+            "args": ["--db-password=s3cr3t-arg"],
+            "ports": [{"containerPort": 8080, "name": "http", "protocol": "TCP"}],
+            "env": [
+              {"name": "DB_PASSWORD", "value": "hunter2"},
+              {"name": "API_KEY", "valueFrom": {"secretKeyRef": {"name": "billing-creds", "key": "token"}}}
+            ],
+            "envFrom": [{"configMapRef": {"name": "billing-config"}}],
+            "readinessProbe": {
+              "httpGet": {
+                "path": "/healthz?token=s3cr3t-query",
+                "port": 8080,
+                "httpHeaders": [{"name": "Authorization", "value": "Bearer s3cr3t-hdr"}]
+              }
+            },
+            "livenessProbe": {
+              "exec": {"command": ["sh", "-c", "curl -H x-key:s3cr3t-exec localhost"]}
+            }
+          }
+        ]
+      }
+    }
+  }
+}

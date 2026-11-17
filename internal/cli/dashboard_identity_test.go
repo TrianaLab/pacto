@@ -203,7 +203,7 @@ func TestDashboardIdentityView(t *testing.T) {
 	v.Set("dashboard.oidc-redirect-url", "https://dash.example/auth/callback")
 	id := identityFor(t, v, "0.0.0.0", nil)
 	var asked []authn.Person
-	id.viewer = authn.NewViewer(func(_ context.Context, p authn.Person, ns string) (bool, error) {
+	id.viewer = authn.NewViewer(func(_ context.Context, p authn.Person, ns string, _ authn.ResourceAttributes) (bool, error) {
 		asked = append(asked, p)
 		return false, nil
 	})
@@ -223,7 +223,9 @@ func TestDashboardIdentityView(t *testing.T) {
 	_, _ = o.View(context.Background(), q)
 	expect(t, len(asked) > 0 && asked[0].User == "https://idp.example#u1", "a signed-in person is asked about as the cluster names them: %+v", asked)
 
-	id.viewer = authn.NewViewer(func(context.Context, authn.Person, string) (bool, error) { return false, errors.New("apiserver down") })
+	id.viewer = authn.NewViewer(func(context.Context, authn.Person, string, authn.ResourceAttributes) (bool, error) {
+		return false, errors.New("apiserver down")
+	})
 	id.state = func(context.Context) authn.State {
 		return authn.State{SignedIn: true, Person: authn.Person{User: "x#y"}}
 	}
@@ -232,11 +234,11 @@ func TestDashboardIdentityView(t *testing.T) {
 }
 
 func TestClusterReview(t *testing.T) {
-	if _, err := clusterReview(nil, nil, reviewCluster)(context.Background(), authn.Anonymous, "a"); !errors.Is(err, errNoClusterToAsk) {
+	if _, err := clusterReview(nil, nil, reviewCluster)(context.Background(), authn.Anonymous, "a", authn.PactoResource); !errors.Is(err, errNoClusterToAsk) {
 		t.Errorf("no cluster: %v", err)
 	}
 	broken := errors.New("bad config")
-	if _, err := clusterReview(&rest.Config{}, func(*rest.Config) (dynamic.Interface, error) { return nil, broken }, reviewCluster)(context.Background(), authn.Anonymous, "a"); !errors.Is(err, broken) {
+	if _, err := clusterReview(&rest.Config{}, func(*rest.Config) (dynamic.Interface, error) { return nil, broken }, reviewCluster)(context.Background(), authn.Anonymous, "a", authn.PactoResource); !errors.Is(err, broken) {
 		t.Errorf("no client: %v", err)
 	}
 	c := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())
@@ -245,7 +247,7 @@ func TestClusterReview(t *testing.T) {
 		_ = unstructured.SetNestedField(obj.Object, true, "status", "allowed")
 		return true, obj, nil
 	})
-	ok, err := clusterReview(&rest.Config{}, func(*rest.Config) (dynamic.Interface, error) { return c, nil }, reviewCluster)(context.Background(), authn.Anonymous, "a")
+	ok, err := clusterReview(&rest.Config{}, func(*rest.Config) (dynamic.Interface, error) { return c, nil }, reviewCluster)(context.Background(), authn.Anonymous, "a", authn.PactoResource)
 	if err != nil || !ok {
 		t.Errorf("review through the cluster: %v %v", ok, err)
 	}
@@ -310,7 +312,9 @@ func operationAccessWorld(t *testing.T) (*dashboardIdentity, func(context.Contex
 	v := viper.New()
 	v.Set("dashboard.token-login", true)
 	id := identityFor(t, v, "0.0.0.0", &rest.Config{Host: "https://k"})
-	id.viewer = authn.NewViewer(func(_ context.Context, _ authn.Person, ns string) (bool, error) { return ns == "shop", nil })
+	id.viewer = authn.NewViewer(func(_ context.Context, _ authn.Person, ns string, _ authn.ResourceAttributes) (bool, error) {
+		return ns == "shop", nil
+	})
 	var mu sync.Mutex
 	var sars []map[string]any
 	sa := fakeDelivery()

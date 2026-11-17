@@ -140,7 +140,7 @@ func TestAttentionActionNarrowedWithItem(t *testing.T) {
 	if !slices.ContainsFunc(all.Items, func(it AttentionItem) bool { return it.Label == hiddenLabel && it.NextAction != nil }) {
 		t.Fatalf("fixture lacks %q with an action: %+v", hiddenLabel, all.Items)
 	}
-	r := attentionOf(t, q.Restrict(func(ns string) bool { return ns != "secret" }), AttentionFilter{})
+	r := attentionOf(t, q.Restrict(func(ns string) bool { return ns != "secret" }, nil), AttentionFilter{})
 	if r.Total != len(r.Items) {
 		t.Errorf("restricted total %d, items %d", r.Total, len(r.Items))
 	}

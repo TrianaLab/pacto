@@ -491,3 +491,25 @@ describe('FleetAttentionView — every category and its cause', () => {
     unmount(component); document.body.removeChild(target);
   });
 });
+
+describe('FleetAttentionView — uncontracted caller (509-S1)', () => {
+  beforeEach(() => { attentionFn.mockReset(); location.hash = ''; });
+
+  it('links the caller to its inferred service', async () => {
+    attentionFn.mockResolvedValue({
+      meta: { schemaVersion: 'pacto.dev/fleet-product/v1', completeness: 'complete', sources: [] },
+      total: 1, offset: 0, limit: PAGE, count: 1, truncated: false,
+      items: [{
+        entity: { kind: 'service', key: 'payments', label: 'payments', href: '/fleet/services/payments' },
+        caller: { kind: 'service', key: 'k8s:shop%2FDeployment%2Fcart', label: 'k8s:shop/Deployment/cart', href: '/fleet/services/k8s%3Ashop%252FDeployment%252Fcart', declaration: 'inferred' },
+        severity: 'info', category: 'undeclared', code: 'UNCONTRACTED_CALLER', summary: 'Caller with no contract',
+      }],
+    });
+    const { target, component } = mountView({});
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="attention-caller"]')).toBeTruthy());
+    const a = target.querySelector('[data-testid="attention-caller"] a.entity-link') as HTMLAnchorElement;
+    expect(a.getAttribute('href')).toBe('#/fleet/services/k8s%3Ashop%252FDeployment%252Fcart');
+    expect(a.textContent).toContain('k8s:shop/Deployment/cart');
+    unmount(component); document.body.removeChild(target);
+  });
+});

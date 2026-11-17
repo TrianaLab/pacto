@@ -10,7 +10,9 @@ import (
 
 // ObservedConsumer is a service, or a caller no contract describes, seen
 // calling a provider of an offering at runtime without declaring a use of any
-// of its providers. Exactly one of Consumer and Caller is set.
+// of its providers. Consumer is set on a service row; Caller on an
+// uncontracted row, which may also carry Consumer: the inferred service
+// behind the caller.
 type ObservedConsumer struct {
 	Consumer *EntityRef `json:"consumer,omitempty"`
 	Caller   string     `json:"caller,omitempty" doc:"A caller no contract describes"`
@@ -58,7 +60,11 @@ func (q *Query) observedConsumers(providers []*ServiceRecord, declared map[Servi
 	}
 	for _, c := range q.snap.UncontractedCallers {
 		if p := isProvider[c.ToService]; p != nil {
-			out = append(out, ObservedConsumer{Caller: c.Caller, Uncontracted: true, Provider: serviceEntityRef(p), Provenance: ProvenanceObserved, Sources: c.Sources})
+			row := ObservedConsumer{Caller: c.Caller, Uncontracted: true, Provider: serviceEntityRef(p), Provenance: ProvenanceObserved, Sources: c.Sources}
+			if e := q.snap.Services[c.Entity]; e != nil {
+				row.Consumer = new(serviceEntityRef(e))
+			}
+			out = append(out, row)
 		}
 	}
 	slices.SortStableFunc(out, func(a, b ObservedConsumer) int {
@@ -70,10 +76,10 @@ func (q *Query) observedConsumers(providers []*ServiceRecord, declared map[Servi
 
 // observedConsumerKey sorts service rows before caller rows, each by name.
 func observedConsumerKey(c ObservedConsumer) string {
-	if c.Consumer != nil {
-		return "0" + c.Consumer.Key
+	if c.Uncontracted {
+		return "1" + c.Caller
 	}
-	return "1" + c.Caller
+	return "0" + c.Consumer.Key
 }
 
 // observedSources is the ids of the sources that witnessed an observed edge.
@@ -130,6 +136,8 @@ func (p ObservedConsumersPreview) Line() string {
 // label names c and says what is known of its last sighting.
 func (c ObservedConsumer) label() string {
 	switch {
+	case c.Uncontracted && c.Consumer != nil:
+		return c.Consumer.Label + " (no contract, last seen unknown)"
 	case c.Uncontracted:
 		return c.Caller + " (no contract, last seen unknown)"
 	case c.Stale:

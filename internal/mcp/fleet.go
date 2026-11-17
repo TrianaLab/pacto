@@ -44,11 +44,14 @@ const fleetInstructions = "Pacto also exposes READ-ONLY fleet tools over the ope
 	"cite asOf, snapshotId and sources, and list limitations when you answer. Each edge carries " +
 	"'provenance' (declared, observed, declared+observed or inferred: an external use read from a workload's configuration or pod spec, which never clears a gate) and a declared edge carries " +
 	"'reconciliation'; each graph node says how it was reached. Say which kind each fact is: " +
-	"declared in a contract, observed at runtime or inferred. Pacto uses 'inferred' in three " +
+	"declared in a contract, observed at runtime or inferred. Pacto uses 'inferred' in four " +
 	"places: a transitive consumer in pacto_impact, a target linked to a revision by tag or " +
-	"version match and an external use read from configuration (relationship and external source provenance). pacto_fleet_entities " +
+	"version match, an external use read from configuration (relationship and external source provenance) " +
+	"and a detected provider row in pacto_fleet_status providers. pacto_fleet_entities " +
 	"with template=only lists golden paths, the starting points pacto_create takes as 'from' (over stdio, from pacto mcp --transport stdio); a " +
-	"golden path is never a consumer, so it is absent from impact and offering consumers. Use " +
+	"golden path is never a consumer, so it is absent from impact and offering consumers. " +
+	"A service marked declaration: inferred is a workload no contract Pacto read describes (with workload.declarationUnverified, a contract Pacto could not read may describe it): " +
+	"it never satisfies a dependency or clears a gate, and pacto_fleet_graph and pacto_impact answer about it partial with SERVICE_INFERRED. Use " +
 	"pacto_fleet_entities to list owners, business domains and offerings, pacto_fleet_entity " +
 	"for one of them and pacto_fleet_attention for what needs attention, most severe first. " +
 	"An attention item's nextAction names the operation that fixes it and the tool that makes it (edit-contract: " +
@@ -219,6 +222,7 @@ func fleetSearchTool() *mcpsdk.Tool {
 			"ready":          {Type: "boolean", Description: "Only operationally ready services"},
 			"not_ready":      {Type: "boolean", Description: "Only services not operationally ready"},
 			"template":       {Type: "string", Description: "only: keep only golden paths (services whose contract declares service.template and that run nowhere); exclude: leave them out. Empty lists every service, golden paths marked 'template'", Enum: []string{fleet.TemplateOnly, fleet.TemplateExclude}},
+			"declaration":    {Type: "string", Description: "inferred: only services Pacto infers from workloads no contract describes; declared: leave them out. Empty lists every service, inferred ones marked 'declaration: inferred'", Enum: []string{fleet.DeclarationDeclared, fleet.DeclarationInferred}},
 			"label":          {Type: "array", Items: "string", Description: "Target labels as key=value; every pair must match one target of the service"},
 			"limit":          {Type: "integer", Description: "Maximum results (bounded)"},
 			"offset":         {Type: "integer", Description: "Number of results to skip, for paging"},
@@ -245,6 +249,7 @@ type fleetSearchArgs struct {
 	Ready          bool     `json:"ready"`
 	NotReady       bool     `json:"not_ready"`
 	Template       string   `json:"template"`
+	Declaration    string   `json:"declaration"`
 	Label          []string `json:"label"`
 	Limit          int      `json:"limit"`
 	Offset         int      `json:"offset"`
@@ -260,7 +265,7 @@ func fleetSearchHandler(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetSearchArgs, a
 			Text: a.Text, Owner: a.Owner, BusinessDomain: a.BusinessDomain, Offering: a.Offering, Status: a.Status, Compliance: a.Compliance,
 			Source: a.Source, Workload: a.Workload, Scope: a.Scope,
 			HasCapability: a.HasCapability, HasDependency: a.HasDependency,
-			ReadyOnly: a.Ready, NotReady: a.NotReady, Template: a.Template, Limit: a.Limit, Offset: a.Offset,
+			ReadyOnly: a.Ready, NotReady: a.NotReady, Template: a.Template, Declaration: a.Declaration, Limit: a.Limit, Offset: a.Offset,
 			Labels: labels,
 		})
 		if err != nil {
@@ -282,7 +287,9 @@ func fleetGetTool() *mcpsdk.Tool {
 			"bundle signature verified against the signer its own contract declares (verified, unverified, " +
 			"unsigned, unknown) and lists its OCI referrers, when a registry source checked them; absent means " +
 			"no source checked. Give service as external:<identity> for an external system: its sources (each with " +
-			"its provenance), consumers, the catalog entry that classified it and 'hiddenConsumers' you may not see. Read-only.",
+			"its provenance), consumers, the catalog entry that classified it and 'hiddenConsumers' you may not see. " +
+			"'replaces' lists the inferred services this service replaced when a Pacto target took over their workload; " +
+			"asked for by such an old key, the answer is the declared service with 'replacedFrom'. Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"service": {Type: "string", Description: "Logical service name, or external:<identity> for an external system"},
 			"target":  {Type: "string", Description: "Operational target key or name (use instead of service)"},
@@ -326,7 +333,9 @@ func fleetGraphTool() *mcpsdk.Tool {
 		Name: "pacto_fleet_graph",
 		Description: "Traverse fleet dependencies or dependents from a service. Cycle-safe. " +
 			"Reports reached nodes with depth, path and 'provenance' (how the edge that reached the node is known: " +
-			"declared, observed or declared+observed, or inferred for an external system's consumer known only from its configuration), cycles, unresolved dependencies and 'truncated'. " +
+			"declared, observed or declared+observed, or inferred for an external system's consumer known only from its configuration or a runtime call one of whose ends no contract describes), cycles, unresolved dependencies and 'truncated'. " +
+			"An inferred edge (provenance inferred, with 'observedSources') is a call sources saw where no contract describes one end: it never satisfies a dependency, never feeds an impact verdict and never clears a gate. " +
+			"A service asked for by the key of an inferred service it replaced answers as that service with 'replacedFrom' (from, to, the Pacto target and when). " +
 			"Edges to external systems are drawn whether declared, observed or inferred. " +
 			"Each edge carries 'provenance' and, for a declared edge, 'reconciliation'. " +
 			"A declared edge appears once per contract revision that declares it ('fromRevision'). " +
@@ -390,7 +399,10 @@ func fleetStatusTool() *mcpsdk.Tool {
 			"undeclared runtime dependencies, running services that declare service.template (GOLDEN_PATH_DEPLOYED) and " +
 			"resources that failed to provision or report stale (category provisioning: PROVISIONING_FAILED, PROVISIONING_STALE; " +
 			"needs_attention includes them). 'total' and 'truncated' say whether the limit cut the list. With no category " +
-			"selected, including empty input, it reports every category. Read-only.",
+			"selected, including empty input, it reports every category. The answer's 'providers' lists what Pacto detected in each " +
+			"source (evidence, usedFor, status, limitations). providers includes what the operator detected (registry, cloud, " +
+			"sign-in, exposure, metrics and nodes) with provenance inferred and asOf; nothing detected is turned on, and a " +
+			"detected value never clears a gate. Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"needs_attention":      {Type: "boolean", Description: "Report every attention category"},
 			"non_compliant":        {Type: "boolean", Description: "Non-compliant targets"},
@@ -430,13 +442,19 @@ type fleetStatusArgs struct {
 
 func fleetStatusHandler(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetStatusArgs, any] {
 	return func(_ context.Context, _ *mcpsdk.CallToolRequest, a fleetStatusArgs) (*mcpsdk.CallToolResult, any, error) {
-		r, err := jsonResult(q.Status(fleet.StatusQuery{
+		res := q.Status(fleet.StatusQuery{
 			NeedsAttention: a.NeedsAttention, NonCompliant: a.NonCompliant,
 			Unknown: a.Unknown, Invalid: a.Invalid,
 			StaleEvidence: a.Stale, MissingReadiness: a.MissingReadiness,
 			UnresolvedDeps: a.UnresolvedDeps, UnsatisfiedRanges: a.UnsatisfiedRanges, Lifecycle: a.Lifecycle,
 			Unowned: a.Unowned, Undeclared: a.Undeclared, GoldenPathDeployed: a.GoldenPathDeployed, Limit: a.Limit,
-		}))
+		})
+		// An agent gets no ready-to-paste hint: a person reviews it on the CLI
+		// or the dashboard. Providers is a copy, so the snapshot keeps it.
+		for i := range res.Providers {
+			res.Providers[i].Hint = ""
+		}
+		r, err := jsonResult(res)
 		return r, nil, err
 	}
 }
@@ -504,6 +522,7 @@ func fleetEntitiesTool() *mcpsdk.Tool {
 			"gap":               {Type: "string", Description: "Services whose contracts leave this out (not-deployed: run nowhere while every source reporting targets is complete; unverified-capability: an extension capability no evaluator verifies), or unknown for those whose knowledge Pacto cannot judge", Enum: fleet.GapFilterValues()},
 			"status":            {Type: "string", Description: "Canonical compliance status", Enum: fleet.CanonicalStatuses()},
 			"template":          {Type: "string", Description: "only: keep only golden paths and, with no kind, list services only; exclude: leave golden paths and their revisions out", Enum: []string{fleet.TemplateOnly, fleet.TemplateExclude}},
+			"declaration":       {Type: "string", Description: "inferred: keep only the services Pacto infers from workloads no contract describes and, with no kind, list services only; declared: leave them out. Empty lists every service, inferred ones marked", Enum: []string{fleet.DeclarationDeclared, fleet.DeclarationInferred}},
 			"created_from":      {Type: "string", Description: "Services created from this golden path, by service key; " + fleet.NoOrigin + " for no declared origin or " + fleet.UnresolvedOrigin + " for an origin that resolves to no golden path"},
 			"sort":              {Type: "string", Description: "Order: by name, least healthy first, owners with the most services first, owners and domains with the most non-compliant services first or with the highest share of them first, golden paths that created the most services first, offerings with the most consumers with a failed provisioning request or the most declared consumers first, or owners and domains with the most services that leave knowledge out first", Enum: []string{fleet.SortName, fleet.SortHealth, fleet.SortServices, fleet.SortNonCompliant, fleet.SortRate, fleet.SortCreated, fleet.SortFailed, fleet.SortConsumers, fleet.SortGaps}},
 			"has_non_compliant": {Type: "boolean", Description: "Owners and domains with at least one non-compliant service only"},
@@ -538,6 +557,7 @@ type fleetEntitiesArgs struct {
 	Gap             string `json:"gap"`
 	Status          string `json:"status"`
 	Template        string `json:"template"`
+	Declaration     string `json:"declaration"`
 	CreatedFrom     string `json:"created_from"`
 	Sort            string `json:"sort"`
 	HasNonCompliant bool   `json:"has_non_compliant"`
@@ -566,7 +586,7 @@ func fleetEntitiesHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[fleet
 		f := fleet.EntityFilter{
 			Text: a.Text, Owner: a.Owner, OwnerKey: a.OwnerKey, BusinessDomain: a.BusinessDomain,
 			Offering: a.Offering, Consumes: a.Consumes, Phase: a.Phase, Environment: a.Environment, Ownership: a.Ownership, Gap: a.Gap, Status: a.Status, Sort: a.Sort, Limit: a.Limit, Offset: a.Offset,
-			Template: a.Template, CreatedFrom: a.CreatedFrom,
+			Template: a.Template, Declaration: a.Declaration, CreatedFrom: a.CreatedFrom,
 			HasNonCompliant: a.HasNonCompliant, SourceKind: a.SourceKind, Lifecycle: a.Lifecycle, Failed: a.Failed,
 			Capability: a.Capability, Domain: a.Domain, Service: a.Service, Source: a.Source,
 			Scope: a.Scope, Readiness: a.Readiness, SourceHealth: a.SourceHealth, Class: a.Class,
@@ -623,6 +643,8 @@ func fleetEntityTool() *mcpsdk.Tool {
 			"reports disagree, 'conflict' names the producers and no figures are given; " +
 			"'not-reported' means no provider reports usage or cost to Pacto. Pacto never sums or converts a cost. A resource's provisioning phase is its lifecycle, never the service's health. " +
 			"The service's 'hiddenProviders' says at least that many resources come from providers you may not see. " +
+			"A service carries 'replaces' and 'replacesTotal', the inferred services it replaced when a Pacto target took over " +
+			"their workload, newest first; asked for by such an old key, the answer is the declared service with 'replacedFrom'. " +
 			fleet.ResourceActionsNote + " Hidden services are only counted, in the hidden fields. Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"kind": {Type: "string", Description: "Entity kind", Enum: fleet.EntityKinds()},
@@ -769,7 +791,9 @@ func fleetNeighborhoodTool() *mcpsdk.Tool {
 		Description: "Show the services around one service: who it depends on and who depends on it, to the " +
 			"requested depth, each with its owner and status. Edges say whether they are declared, observed or " +
 			"both; views defaults to expected,observed. An external use inferred from configuration and neither declared " +
-			"nor observed appears only with views=differences, with provenance inferred. hiddenDependents counts the services, or callers with no " +
+			"nor observed appears only with views=differences, with provenance inferred. A runtime call one of whose ends no contract " +
+			"describes appears in the default views with provenance inferred and the sources that saw it; it never satisfies a " +
+			"dependency. hiddenDependents counts the services, or callers with no " +
 			"contract, that your permissions hide; pacto_fleet_attention with category=undeclared and service lists " +
 			"the callers with no contract. Use it " +
 			"to find the affected services and the teams that own them. Read-only.",

@@ -63,7 +63,7 @@ func resolveOrigins(snap *FleetSnapshot) {
 	}
 	for _, s := range snap.Services {
 		newest := newestReadable(serviceRevisions(snap, s))
-		if newest == nil || newest.Contract.Service.Origin == nil {
+		if s.Inferred() || newest == nil || newest.Contract.Service.Origin == nil {
 			continue
 		}
 		o := newest.Contract.Service.Origin
@@ -129,7 +129,7 @@ func (q *Query) populationService(k ServiceKey) bool {
 func (q *Query) deployedTemplateAttention() []AttentionItem {
 	var out []AttentionItem
 	for _, s := range q.snap.Services {
-		if len(s.Targets) == 0 || !declaresTemplate(newestReadable(serviceRevisions(q.snap, s))) {
+		if len(s.Targets) == 0 || s.Inferred() || !declaresTemplate(newestReadable(serviceRevisions(q.snap, s))) {
 			continue
 		}
 		targets := strconv.Itoa(len(s.Targets)) + " operational targets"
@@ -180,7 +180,7 @@ func originBucket(s *ServiceRecord) string {
 func (q *Query) createdCounts() map[ServiceKey]OriginCount {
 	out := map[ServiceKey]OriginCount{}
 	for _, s := range q.snap.Services {
-		if !s.Template && s.Origin != nil && s.Origin.GoldenPath != "" {
+		if !s.Template && !s.Inferred() && s.Origin != nil && s.Origin.GoldenPath != "" {
 			c := out[s.Origin.GoldenPath]
 			c.add(s)
 			out[s.Origin.GoldenPath] = c
@@ -229,7 +229,7 @@ func (q *Query) templateDetail(s *ServiceRecord) *TemplateDetail {
 	reqs, _ := q.offeringUsesIn(edges, func(*ServiceRecord) bool { return true }, s.Key, false)
 	createdRefs := []EntityRef{}
 	for _, c := range q.snap.Services {
-		if !c.Template && q.createdFrom(c.Key, string(s.Key)) {
+		if !c.Template && !c.Inferred() && q.createdFrom(c.Key, string(s.Key)) {
 			createdRefs = append(createdRefs, serviceEntityRef(c))
 		}
 	}

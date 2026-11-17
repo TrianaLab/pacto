@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"io"
@@ -16,6 +17,7 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/viper"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/rest"
 
 	"github.com/trianalab/pacto/v4/internal/app"
@@ -416,6 +418,8 @@ type fakeClusterClient struct {
 	listJSON string
 	listErr  error
 	asked    []string
+	// workloads is the list body of a workload resource, by resource name.
+	workloads map[string]string
 }
 
 func (c *fakeClusterClient) DiscoverCRD(context.Context) (*k8sclient.CRDDiscovery, error) {
@@ -424,6 +428,12 @@ func (c *fakeClusterClient) DiscoverCRD(context.Context) (*k8sclient.CRDDiscover
 func (c *fakeClusterClient) ClusterIdentity(context.Context, string) (kubecluster.Identity, error) {
 	return kubecluster.Identity{}, errors.New("reading the cluster id: forbidden")
 }
+
+// ListPage reads the workloads of a resource, by default none.
+func (c *fakeClusterClient) ListPage(_ context.Context, gvr schema.GroupVersionResource, _, _ string) ([]byte, string, error) {
+	return []byte(cmp.Or(c.workloads[gvr.Resource], `{"items":[]}`)), "", nil
+}
+
 func (c *fakeClusterClient) ListJSON(_ context.Context, _ k8sclient.CRDDiscovery, ns string) ([]byte, error) {
 	c.asked = append(c.asked, ns)
 	if c.listErr != nil {
@@ -919,5 +929,27 @@ func TestDashboardFleetOptions_Mira(t *testing.T) {
 	}
 	if got := configuredSources(app.FleetOptions{MiraURLs: []string{"x"}}); !slices.Equal(got, []string{"mira"}) {
 		t.Errorf("configuredSources = %v, want [mira]", got)
+	}
+}
+
+// TestConfiguredSourcesNamesDetection: --detected is a configured source the
+// startup banner names.
+func TestConfiguredSourcesNamesDetection(t *testing.T) {
+	fopts := dashboardFleetOptions("./svc", nil, nil, nil, dashboardSources{local: true, detected: "k8s:pacto-system/pacto-operator-detected"})
+	if fopts.Detected != "k8s:pacto-system/pacto-operator-detected" {
+		t.Errorf("Detected = %q", fopts.Detected)
+	}
+	if got := configuredSources(fopts); !slices.Equal(got, []string{"local", "detection"}) {
+		t.Errorf("configuredSources = %v, want [local detection]", got)
+	}
+}
+
+// TestDetectionAloneIsNoDataSource: detection only adds hints to a fleet, so
+// a dashboard with nothing else still refuses to start.
+func TestDetectionAloneIsNoDataSource(t *testing.T) {
+	isolateHost(t)
+	_, err := runDashboard(t, app.NewService(nil, nil), viper.New(), t.TempDir(), "--port", "0", "--detected", "/tmp/detected.json")
+	if err == nil || !strings.Contains(err.Error(), "no data sources detected") {
+		t.Fatalf("err = %v, want the no data sources refusal", err)
 	}
 }

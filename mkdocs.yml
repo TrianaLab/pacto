@@ -234,6 +234,8 @@ nav:
       - Operational graph reference: operational-graph-reference.md
       - Operational graph tallies: operational-graph-tallies.md
       - Clusters and target keys: operational-graph-clusters.md
+      - Inferred services: operational-graph-inferred.md
+      - Detected providers: operational-graph-providers.md
       - External catalog reference: external-catalog-reference.md
       - Platform offerings reference: platform-offerings.md
       - Offering availability and lifecycle: offering-availability.md
@@ -288,6 +290,7 @@ nav:
       - Kubernetes:
           - Install the operator: integrations/kubernetes/installation.md
           - Run with least privilege: integrations/kubernetes/least-privilege.md
+          - What Pacto detects: integrations/kubernetes/detection.md
           - Quickstart profile: integrations/kubernetes/quickstart.md
           - Kubernetes overview: integrations/kubernetes/overview.md
           - Limitations and opt-in features: integrations/kubernetes/limitations.md

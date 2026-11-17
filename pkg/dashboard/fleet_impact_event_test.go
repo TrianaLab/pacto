@@ -137,7 +137,7 @@ func TestImpactEventHiddenServiceNotFound(t *testing.T) {
 	base := serveOptions(t, Options{
 		Fleet: func(context.Context) (*fleet.Query, error) { return q, nil },
 		View: func(_ context.Context, q *fleet.Query) (*fleet.Query, error) {
-			return q.Restrict(func(ns string) bool { return ns == "shop" }), nil
+			return q.Restrict(func(ns string) bool { return ns == "shop" }, nil), nil
 		},
 		Impact: noImpact(t),
 		Auth:   &Auth{Login: true, Routes: http.NotFoundHandler(), Middleware: func(h http.Handler) http.Handler { return h }, State: func(*http.Request) AuthState { return AuthState{SignedIn: true} }},
@@ -417,7 +417,7 @@ func TestImpactOfferingRegressed422(t *testing.T) {
 // viewer may not see answers exactly as one that does not exist.
 func TestImpactOfferingHiddenNotFound(t *testing.T) {
 	base := offeringServer(t, func(_ context.Context, q *fleet.Query) (*fleet.Query, error) {
-		return q.Restrict(func(ns string) bool { return ns == "shop" }), nil
+		return q.Restrict(func(ns string) bool { return ns == "shop" }, nil), nil
 	})
 	code, hidden := call(t, http.MethodPost, base+"/api/fleet/impact", impactRequest{Event: impact.EventUnavailable, OfferingKey: "db"})
 	_, missing := call(t, http.MethodPost, base+"/api/fleet/impact", impactRequest{Event: impact.EventUnavailable, OfferingKey: "no-such-offering"})

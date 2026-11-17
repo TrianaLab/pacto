@@ -214,7 +214,7 @@ pacto-operator    1/1     1            1           21s
 ```
 
 Two Deployments: `pacto-operator` is the controller Helm created,
-`pacto-dashboard` is the one the controller created in turn. With
+`pacto-dashboard` is the one the controller created. With
 `nodeAgent.enabled=true` you also get a `pacto-node-agent` DaemonSet (one pod
 per node). **With `--set
 dashboard.enabled=false` you get `pacto-operator` alone**: the log below has no
@@ -252,6 +252,8 @@ Open the dashboard by forwarding its Service; there is no Ingress by default:
 ```bash
 kubectl port-forward -n pacto-operator-system svc/pacto-dashboard 3000:3000
 ```
+
+Then read [what Pacto detects](detection.md).
 
 ### Scraping the metrics
 

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   graphStateFromParams, hasFocus, toggleView, differenceLabel, differenceTone, edgeDifference,
-  differenceDescription, relationLabel, neighborhoodIsEmpty, DEFAULT_VIEWS, MAX_DEPTH,
+  differenceDescription, edgeDifferenceLabel, edgeDifferenceDescription, relationLabel, neighborhoodIsEmpty, DEFAULT_VIEWS, MAX_DEPTH,
   defaultPerspectiveForKind, availablePerspectives, revisionLinkAuthoritative,
   perspectiveSupportsDepth, corroborationLabel, corroborationTone, serviceScopedCaveat,
   canonicalFocusForPerspective, projectionFocusMismatch,
@@ -104,6 +104,28 @@ describe('difference vocabulary (backend-authoritative, never color-only)', () =
     expect(differenceTone(edgeDifference({ provenance: 'inferred' }))).toBe('neutral');
     expect(edgeDifference({ provenance: 'declared+observed', difference: 'matched' })).toBe('matched');
     expect(edgeDifference({ provenance: 'declared' })).toBeUndefined();
+  });
+  // A call a source saw where one end has no contract reads as runtime, never as configuration.
+  it('words a runtime-inferred edge apart from a configuration-inferred one', () => {
+    const runtime = {
+      provenance: 'inferred',
+      from: { key: 'default/k8s:shop/CronJob/nightly-export', label: 'nightly-export', declaration: 'inferred' },
+      to: { key: 'default/search-indexer', label: 'search-indexer', declaration: 'declared' },
+      observationSources: { total: 2, items: [{ source: 'kernel-observer', count: 6 }] },
+    };
+    expect(edgeDifference(runtime)).toBe('inferred-runtime');
+    expect(edgeDifferenceLabel(runtime)).toBe('Seen at runtime, no contract');
+    expect(edgeDifferenceDescription(runtime)).toBe('No contract describes nightly-export. Seen by kernel-observer and 1 more. No contract declares this call, so it never satisfies a dependency, feeds an impact answer or clears a gate.');
+    expect(differenceTone(edgeDifference(runtime))).toBe('neutral');
+    const both = { ...runtime, to: { label: 'legacy-billing', declaration: 'inferred' }, from: { ...runtime.from } };
+    expect(edgeDifferenceDescription(both)).toMatch(/^No contract describes nightly-export or legacy-billing\. /);
+    expect(edgeDifferenceDescription({ ...runtime, from: undefined, to: undefined })).toMatch(/^No contract describes one end\. /);
+    expect(edgeDifferenceDescription({ provenance: 'inferred', observationSources: { total: 3, items: [] } })).toMatch(/^No contract describes one end\. Seen by 3 sources\./);
+    const config = { provenance: 'inferred', observationSources: { total: 0, items: [] } };
+    expect(edgeDifference(config)).toBe('inferred');
+    expect(edgeDifferenceLabel(config)).toBe('Inferred from configuration');
+    expect(edgeDifferenceDescription(config)).toMatch(/configuration/);
+    expect(edgeDifferenceLabel({ difference: 'matched' })).toBe('Matched');
   });
   it('observed-not-expected is a distinct, warned difference', () => {
     expect(differenceLabel('observed-not-expected')).toBe('Observed, not expected');

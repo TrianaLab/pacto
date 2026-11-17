@@ -5,6 +5,7 @@ import (
 	"io"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -23,6 +24,9 @@ func printFleetSearch(cmd *cobra.Command, res *fleet.SearchResult, format string
 				mark = " golden path"
 			}
 			mark += nameInferredMark(s.NameInferred)
+			if s.Declaration == fleet.DeclarationInferred {
+				mark += " " + fleet.DeclarationInferred
+			}
 			_, _ = fmt.Fprintf(w, "  %-28s %-12s owner=%-14s domain=%-12s offering=%-12s revs=%d targets=%d%s\n",
 				s.Name, orDash(s.Status), orDash(s.Owner.DisplayString()), orDash(s.BusinessDomain), orDash(s.Offering), s.RevisionCount, s.TargetCount, mark)
 		}
@@ -49,16 +53,64 @@ func printFleetService(cmd *cobra.Command, sv *fleet.ServiceView, format string)
 	return formatResult(cmd, format, sv, func() error {
 		w := cmd.OutOrStdout()
 		s := sv.Service
+		printReplacedFrom(w, sv.ReplacedFrom, sv.Meta.AsOf)
 		_, _ = fmt.Fprintf(w, "Service: %s%s\n", s.Name, nameInferredMark(s.NameInferred))
 		_, _ = fmt.Fprintf(w, "Owner: %s\n", orDash(s.Owner.DisplayString()))
 		_, _ = fmt.Fprintf(w, "Status: %s\n", orDash(s.Status))
 		_, _ = fmt.Fprintf(w, "Sources: %v\n", s.Sources)
+		if s.Workload != nil {
+			_, _ = fmt.Fprintln(w, strings.Join(s.Workload.Lines(), "\n"))
+		}
+		for _, r := range sv.Replaces {
+			from, when := replacementWords(r, sv.Meta.AsOf)
+			_, _ = fmt.Fprintf(w, "Replaces %s %s\n", from, when)
+		}
+		if more := sv.ReplacesTotal - len(sv.Replaces); more > 0 {
+			_, _ = fmt.Fprintf(w, "  %d more\n", more)
+		}
 		printRevisions(w, sv.Revisions)
 		printServiceTargets(w, sv.Targets)
 		printServiceEdges(w, sv)
 		warnPartial(cmd, sv.Meta)
 		return nil
 	}, nil)
+}
+
+// printReplacedFrom says the answer is about the service that replaced the
+// inferred service asked for, when it is.
+func printReplacedFrom(w io.Writer, r *fleet.Replacement, asOf time.Time) {
+	if r != nil {
+		from, when := replacementWords(*r, asOf)
+		_, _ = fmt.Fprintf(w, "%s was replaced by %s %s\n", from, r.To, when)
+	}
+}
+
+// replacementWords are the name of the inferred service r replaced and
+// "<age> ago (linked by Pacto <namespace>/<name> target)".
+func replacementWords(r fleet.Replacement, asOf time.Time) (from, when string) {
+	_, from = fleet.ParseServiceKey(r.From)
+	_, scope, _, name, _ := fleet.ParseTargetKey(r.Target)
+	return from, fmt.Sprintf("%s ago (linked by Pacto %s/%s target)", fleet.Age(asOf.Sub(*r.At)), scope, name)
+}
+
+// printInferredEdges prints the graph's runtime-inferred edges: calls one of
+// whose ends no contract describes, with the sources that saw them.
+func printInferredEdges(w io.Writer, edges []fleet.Relationship) {
+	for _, e := range edges {
+		if e.Provenance != fleet.ProvenanceInferred || len(e.ObservedSources) == 0 {
+			continue
+		}
+		_, from := fleet.ParseServiceKey(e.FromService)
+		_, to := fleet.ParseServiceKey(e.ToService)
+		if e.ToExternal != "" {
+			to = fleet.ExternalSubjectPrefix + string(e.ToExternal)
+		}
+		sources := make([]string, len(e.ObservedSources))
+		for i, s := range e.ObservedSources {
+			sources[i] = s.Source
+		}
+		_, _ = fmt.Fprintf(w, "  %s -> %s  inferred (observed by %s)\n", from, to, strings.Join(sources, ", "))
+	}
 }
 
 func printRevisions(w io.Writer, revs []*fleet.ContractRevision) {
@@ -225,6 +277,7 @@ func printFleetTarget(cmd *cobra.Command, tv *fleet.TargetView, format string) e
 func printFleetGraph(cmd *cobra.Command, res *fleet.GraphResult, format string) error {
 	return formatResult(cmd, format, res, func() error {
 		w := cmd.OutOrStdout()
+		printReplacedFrom(w, res.ReplacedFrom, res.Meta.AsOf)
 		root := string(res.Root)
 		if res.External != "" {
 			root = fleet.ExternalSubjectPrefix + string(res.External)
@@ -241,6 +294,7 @@ func printFleetGraph(cmd *cobra.Command, res *fleet.GraphResult, format string) 
 		for _, n := range nodes {
 			_, _ = fmt.Fprintf(w, "  %*s%s (depth %d, %s)\n", n.Depth*2, "", n.Name, n.Depth, orDash(n.Provenance))
 		}
+		printInferredEdges(w, res.Edges)
 		for _, c := range res.Cycles {
 			_, _ = fmt.Fprintf(w, "  cycle: %v\n", c)
 		}
@@ -262,9 +316,62 @@ func printFleetStatus(cmd *cobra.Command, res *fleet.StatusResult, format string
 		for _, it := range res.Items {
 			_, _ = fmt.Fprintf(w, "  [%s] %s %s — %s\n", it.Code, it.Kind, it.Name, it.Reason)
 		}
+		printDetected(w, res.Providers, res.Meta.Sources)
 		warnPartial(cmd, res.Meta)
 		return nil
 	}, nil)
+}
+
+// printDetected prints the inferred provider rows, what the operator
+// detected, with each status and first reason and each hint for a person to
+// review, then one line per advisory source that is not available, so a
+// detection Pacto could not read never reads as nothing detected. Every row
+// of one detection shares its asOf, so the first one is named.
+func printDetected(w io.Writer, rows []fleet.Provider, sources []fleet.SourceState) {
+	defer printAdvisorySources(w, sources)
+	header := false
+	for _, p := range rows {
+		if p.Provenance != fleet.ProvenanceInferred {
+			continue
+		}
+		if !header {
+			asOf := "unknown"
+			if p.AsOf != nil {
+				asOf = p.AsOf.UTC().Format(time.RFC3339)
+			}
+			_, _ = fmt.Fprintf(w, "Detected (inferred, as of %s, nothing turned on):\n", asOf)
+			header = true
+		}
+		status := string(p.Status)
+		if p.Status != fleet.SourceAvailable && len(p.Limitations) > 0 {
+			status += ": " + p.Limitations[0].Message
+		}
+		_, _ = fmt.Fprintf(w, "  %s: %s [%s]\n", p.Name, p.Evidence, status)
+		if p.Hint != "" {
+			_, _ = fmt.Fprintf(w, "    %s\n", p.Hint)
+		}
+	}
+}
+
+// printAdvisorySources prints one line per advisory source that is not
+// available, with its reason, and reports whether it printed any.
+func printAdvisorySources(w io.Writer, sources []fleet.SourceState) bool {
+	printed := false
+	for _, s := range sources {
+		if !s.Advisory || s.Status == fleet.SourceAvailable {
+			continue
+		}
+		state, reason := string(s.Status), ""
+		if s.Status == fleet.SourceUnavailable {
+			state = "not read"
+		}
+		if s.Error != nil {
+			reason = " (" + s.Error.Message + ")"
+		}
+		_, _ = fmt.Fprintf(w, "Detected: %s %s%s\n", s.ID, state, reason)
+		printed = true
+	}
+	return printed
 }
 
 func printFleetExplain(cmd *cobra.Command, res *fleet.ExplainResult, format string) error {

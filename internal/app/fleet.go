@@ -77,7 +77,11 @@ type FleetOptions struct {
 	// unavailable-source limitation rather than a build failure.
 	IncludeK8s bool
 	// K8sNamespaces scopes the live Kubernetes source; empty means all namespaces.
-	K8sNamespaces   []string
+	K8sNamespaces []string
+	// Detected adds what the operator detected as inferred provider rows:
+	// k8s:<namespace>/<name> of its ConfigMap, read with the kubeconfig, or a
+	// file holding the same JSON. The source is advisory; --k8s never adds it.
+	Detected        string
 	FreshnessWindow time.Duration
 	Concurrency     int
 	// DisallowPartial makes a single source failure fatal instead of yielding a
@@ -105,8 +109,9 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 	for i, path := range opts.TargetStateFiles {
 		sources = append(sources, fleetsrc.NewTargetStateFileSource(sourceID("target-state", i, len(opts.TargetStateFiles)), path))
 	}
+	// A malformed --detected ref is a usage error, refused before any read.
 	remote, err := httpSources(opts)
-	if err != nil {
+	if err := errors.Join(err, CheckDetectedRef(opts.Detected)); err != nil {
 		return nil, err
 	}
 	sources = append(sources, remote...)
@@ -137,12 +142,15 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 		client, err := s.env().newK8s()
 		if err != nil {
 			// An unreachable cluster (no kubeconfig, no API server) surfaces as an
-			// unavailable source, consistent with the other source kinds.
-			sources = append(sources, fleet.NewFailingSource(id, fleet.SourceKindKubernetes, err))
+			// unavailable source, consistent with the other source kinds; both
+			// the Pacto and the workload source read unavailable.
+			sources = append(sources, fleet.NewFailingSource(id, fleet.SourceKindKubernetes, err),
+				fleet.NewFailingSource(id+workloadsSuffix, fleet.SourceKindKubernetesWorkloads, err))
 		} else {
-			sources = append(sources, liveK8sSource(ctx, contextName, client, opts.K8sNamespaces))
+			sources = append(sources, liveK8sSources(ctx, contextName, client, opts.K8sNamespaces)...)
 		}
 	}
+	sources = append(sources, s.detectionSources(opts.Detected)...)
 	sources = append(sources, opts.extraSources...)
 	if err := checkSourceIDsAreUnique(sources); err != nil {
 		return nil, err
@@ -164,16 +172,58 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 	}, sources...)
 }
 
-// liveK8sSource names the live source by its cluster UID when the cluster
-// identity can be read, so two contexts on one cluster are one source. When it
-// cannot be read (no get on namespaces/kube-system) the source keeps the
-// context name ("k8s" without one) and reports no cluster.
-func liveK8sSource(ctx context.Context, contextName string, client k8sclient.K8sClient, namespaces []string) *fleetsrc.K8sSource {
-	ident, err := client.ClusterIdentity(ctx, contextName)
-	if err != nil {
-		return fleetsrc.NewK8sSource(contextName, nil, client, namespaces)
+// CheckDetectedRef refuses a --detected k8s: reference that does not name
+// one ConfigMap as k8s:<namespace>/<name>. Any other value is a file, checked
+// when it is read.
+func CheckDetectedRef(ref string) error {
+	rest, ok := strings.CutPrefix(ref, "k8s:")
+	if !ok {
+		return nil
 	}
-	return fleetsrc.NewK8sSource(ident.ID, &fleet.Cluster{ID: ident.ID, Name: ident.Name, NameSource: ident.NameSource}, client, namespaces)
+	if ns, name, _ := strings.Cut(rest, "/"); ns == "" || name == "" || strings.Contains(name, "/") {
+		return fmt.Errorf("--detected %q is not k8s:<namespace>/<name>", ref)
+	}
+	return nil
+}
+
+// detectionSources is the advisory detection source of ref, checked by
+// [CheckDetectedRef], none when ref is empty: k8s:NS/NAME reads that
+// ConfigMap, anything else is a file. A dynamic client that cannot be built
+// is an unavailable source that says so.
+func (s *Service) detectionSources(ref string) []fleet.Source {
+	const id = "detection"
+	rest, ok := strings.CutPrefix(ref, "k8s:")
+	switch {
+	case ref == "":
+		return nil
+	case !ok:
+		return []fleet.Source{fleetsrc.NewDetectionFileSource(id, ref, s.env().now)}
+	}
+	ns, name, _ := strings.Cut(rest, "/")
+	dyn, err := s.env().newDynamic()
+	if err != nil {
+		return []fleet.Source{fleetsrc.NewDetectionFailedSource(id, fmt.Errorf("%w: %w", fleetsrc.ErrDetectionNoCluster, err))}
+	}
+	return []fleet.Source{fleetsrc.NewDetectionK8sSource(id, dyn, ns, name, s.env().now)}
+}
+
+// workloadsSuffix names a cluster's workload source after its Pacto source.
+const workloadsSuffix = "-workloads"
+
+// liveK8sSources are a cluster's two live sources: its Pacto CRs and its
+// workloads. Each is named by the cluster UID when the cluster identity can be
+// read, so two contexts on one cluster are one source. When it cannot be read
+// (no get on namespaces/kube-system) the sources keep the context name ("k8s"
+// without one) and report no cluster.
+func liveK8sSources(ctx context.Context, contextName string, client k8sclient.K8sClient, namespaces []string) []fleet.Source {
+	id, cluster := cmp.Or(contextName, "k8s"), (*fleet.Cluster)(nil)
+	if ident, err := client.ClusterIdentity(ctx, contextName); err == nil {
+		id, cluster = ident.ID, &fleet.Cluster{ID: ident.ID, Name: ident.Name, NameSource: ident.NameSource}
+	}
+	return []fleet.Source{
+		fleetsrc.NewK8sSource(id, cluster, client, namespaces),
+		fleetsrc.NewWorkloadSource(id+workloadsSuffix, cluster, client, namespaces),
+	}
 }
 
 // checkSourceIDsAreUnique refuses to build a snapshot whose sources do not have

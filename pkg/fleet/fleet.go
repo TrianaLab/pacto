@@ -91,6 +91,22 @@ func ParseServiceKey(k ServiceKey) (domain, name string) {
 	return "", unescapeKeyPart(s)
 }
 
+// Replacement records that a declared service took over a service Pacto
+// inferred from a workload, as the cluster showed it: the workload existed
+// before the declaration that links them.
+type Replacement struct {
+	From ServiceKey `json:"from" doc:"The key of the inferred service that was replaced."`
+	To   ServiceKey `json:"to" doc:"The key of the declared service that replaced it."`
+	Link string     `json:"link" enum:"pacto-target" doc:"How the two are linked: pacto-target when a Pacto target runs as the workload."`
+	// Target is the target that links them.
+	Target TargetKey `json:"target,omitempty" doc:"The Pacto target that runs as the workload."`
+	// At is never nil on a recorded replacement.
+	At *time.Time `json:"at" doc:"When the Pacto that links them was created."`
+	// workload is the replaced workload, which Restrict checks like an
+	// inferred service.
+	workload workloadKey
+}
+
 // ObservedResolution classifies how a raw observed (e.g. OpenTelemetry
 // service.name) name mapped onto the fleet's domain-qualified identities.
 type ObservedResolution int
@@ -103,13 +119,19 @@ const (
 	// ObservedAmbiguous: the name matched more than one service (same name in
 	// different domains) — it cannot be attributed to a single domain.
 	ObservedAmbiguous
+	// ObservedInferred: the name matched exactly one service, and Pacto only
+	// infers it from a workload no contract describes. The key is valid, but the
+	// service is never a contracted endpoint: a caller stays uncontracted.
+	ObservedInferred
 )
 
 // ObservedNameResolver returns a resolver that maps a raw observed service name
 // to its UNIQUE domain-qualified [ServiceKey]. A name matching zero or multiple
 // services is never coerced to the default domain — the resolution status says so
-// and the returned key is only valid when [ObservedResolved]. The name index is
-// built once, so repeated resolution is O(1). This is the single place observed
+// and the returned key is only valid when [ObservedResolved] or
+// [ObservedInferred]. The name index is
+// built once, so repeated resolution is O(1). The name of a workload a Pacto
+// target runs as resolves to that target's declared service. This is the single place observed
 // telemetry crosses into Pacto identity, so observed evidence can never
 // corroborate or affect a same-named service in another domain.
 func (s *FleetSnapshot) ObservedNameResolver() func(string) (ServiceKey, ObservedResolution) {
@@ -118,8 +140,14 @@ func (s *FleetSnapshot) ObservedNameResolver() func(string) (ServiceKey, Observe
 		byName[svc.Name] = append(byName[svc.Name], k)
 	}
 	return func(name string) (ServiceKey, ObservedResolution) {
+		if r, ok := s.replacedNames[name]; ok {
+			return r.to, ObservedResolved
+		}
 		switch ks := byName[name]; len(ks) {
 		case 1:
+			if s.Services[ks[0]].Inferred() {
+				return ks[0], ObservedInferred
+			}
 			return ks[0], ObservedResolved
 		case 0:
 			return "", ObservedUnknown
@@ -127,6 +155,13 @@ func (s *FleetSnapshot) ObservedNameResolver() func(string) (ServiceKey, Observe
 			return "", ObservedAmbiguous
 		}
 	}
+}
+
+// replacedName is the declared service a replaced workload name resolves to,
+// and that workload, so a restricted view drops what it may not see.
+type replacedName struct {
+	to       ServiceKey
+	workload workloadKey
 }
 
 // indexUnescapedSlash returns the index of the first "/" (component escaping
@@ -235,7 +270,12 @@ const (
 // Provenance distinguishes how a relationship became known: "declared" (from a
 // contract), "observed" (folded from runtime telemetry, see
 // foldObservedRelationships) or "inferred" (an external system a source
-// recognized in a service's configuration, see foldExternalUses). They are
+// recognized in a service's configuration, see foldExternalUses, or a runtime
+// call one of whose ends no contract describes: an inferred service, see
+// foldObservedRelationships; inferred service edges live in
+// InferredRelationships). Inferred also marks a provider row Pacto detected
+// in a cluster (see pkg/detect), a proposal that never turns anything on.
+// They are
 // kept separate so neither an observed nor an inferred edge is conflated with
 // declared intent, and an inferred edge never enters an index a gate reads.
 const (
@@ -334,13 +374,31 @@ const (
 	LimitationRangeUnsatisfied    = "DEPENDENCY_RANGE_UNSATISFIED"
 	LimitationEvidenceMissing     = "EVIDENCE_MISSING"
 	LimitationSourceRecordInvalid = "SOURCE_RECORD_INVALID"
+	// LimitationPactoCRDNotInstalled: the cluster serves no Pacto CRD, so a
+	// Kubernetes source reads no declared target there; its workloads show as
+	// inferred services.
+	LimitationPactoCRDNotInstalled = "PACTO_CRD_NOT_INSTALLED"
+	// LimitationInferredServicesCapped: a source reported more than
+	// MaxInferredServices workloads; the rest were not read.
+	LimitationInferredServicesCapped = "INFERRED_SERVICES_CAPPED"
+	// LimitationDeclarationUnverified: Pacto could not read the Pacto targets
+	// of an inferred service's namespace, so a contract may describe it.
+	LimitationDeclarationUnverified = "DECLARATION_UNVERIFIED"
+	// LimitationServiceInferred: the answer is about an inferred service, which
+	// no contract describes, so who depends on it is unknown and only its
+	// observed calls are known.
+	LimitationServiceInferred = "SERVICE_INFERRED"
 	// LimitationServiceNameCollision: two or more folders or references claim
 	// one service name and at least one only inferred it. Build drops every
 	// inferred claimant, so a guessed name never joins another service.
 	LimitationServiceNameCollision = "SERVICE_NAME_COLLISION"
-	LimitationDuplicateSourceID    = "DUPLICATE_SOURCE_ID"
-	LimitationRevisionUnresolved   = "REVISION_IDENTITY_UNRESOLVED"
-	LimitationRevisionAmbiguous    = "REVISION_LINK_AMBIGUOUS"
+	// LimitationInferredReplacementAmbiguous: a Pacto target names a workload
+	// Pacto infers a service from, but more than one declared service targets
+	// it or the target's cluster is unknown, so the inferred service stays.
+	LimitationInferredReplacementAmbiguous = "INFERRED_REPLACEMENT_AMBIGUOUS"
+	LimitationDuplicateSourceID            = "DUPLICATE_SOURCE_ID"
+	LimitationRevisionUnresolved           = "REVISION_IDENTITY_UNRESOLVED"
+	LimitationRevisionAmbiguous            = "REVISION_LINK_AMBIGUOUS"
 	// LimitationRevisionDocConflict: two sources contributed the same immutable
 	// revision but disagree about its documents (a different set of paths, or the
 	// same path with different content). There is no honest way to pick a winner —
@@ -518,7 +576,13 @@ type SourceState struct {
 	TargetCount        int          `json:"targetCount"`
 	Namespaces         []string     `json:"namespaces,omitempty" doc:"The namespaces a Kubernetes source read that you may see. Empty with no namespacesTotal means every namespace; empty with namespacesTotal above 0 means every namespace it read is hidden from you. Anything in another namespace is unknown."`
 	NamespacesTotal    int          `json:"namespacesTotal,omitempty" doc:"How many namespaces the source read, when Namespaces is capped or restricted. Above 0, the source reads a list of namespaces, never every namespace."`
+	InferredCount      int          `json:"inferredCount,omitempty" doc:"The inferred services this source reported, after the bound; a restricted view counts only the inferred services you may see"`
+	Advisory           bool         `json:"advisory,omitempty" doc:"An advisory source never makes the answer partial; its rows are hints."`
 }
+
+// degraded reports whether st is a source that is not available and counts
+// against an answer: an advisory source never does.
+func (st SourceState) degraded() bool { return st.Status != SourceAvailable && !st.Advisory }
 
 // ToolSummary is a bounded projection of an agent-invocable tool derived from a
 // revision's OpenAPI interface. It omits the full input schema and operation
@@ -558,6 +622,12 @@ type Coverage struct {
 	Evaluated int `json:"evaluated"`
 	Required  int `json:"required"`
 }
+
+// Declaration values of a [ServiceRecord].
+const (
+	DeclarationDeclared = "declared"
+	DeclarationInferred = "inferred"
+)
 
 // ServiceRecord is a stable logical service. It references its revisions and
 // targets by key rather than copying them, and only carries an aggregate Status
@@ -619,6 +689,56 @@ type ServiceRecord struct {
 	// the caller's permissions hide. They are never named. Zero outside a
 	// restricted answer.
 	HiddenCreated int `json:"hiddenCreated,omitempty"`
+	// Declaration says whether a contract describes the service.
+	Declaration string `json:"declaration" enum:"declared,inferred" doc:"declared when a contract revision or a Pacto target describes the service; inferred when Pacto only sees a workload no contract Pacto read describes; workload.declarationUnverified says Pacto could not read the Pacto targets there"`
+	// Workload is what Pacto read from the workload of an inferred service.
+	Workload *InferredWorkload `json:"workload,omitempty"`
+}
+
+// Inferred reports whether Pacto only sees a workload of the service and no
+// contract describes it. A record with no Declaration reads as declared.
+func (s *ServiceRecord) Inferred() bool { return s.Declaration == DeclarationInferred }
+
+// InferredWorkload is the workload an inferred service is: where it runs and
+// the image, ports and probes Pacto read, each with the object path it read.
+type InferredWorkload struct {
+	Source     string          `json:"source" doc:"The source that read the workload"`
+	Cluster    string          `json:"cluster,omitempty" doc:"The cluster id, whenever Pacto knows the source's cluster; the service name carries it only in a snapshot with several clusters"`
+	Namespace  string          `json:"namespace"`
+	Kind       string          `json:"kind" doc:"Deployment, StatefulSet, DaemonSet or CronJob"`
+	Name       string          `json:"name"`
+	Image      *InferredValue  `json:"image,omitempty"`
+	Ports      []InferredPort  `json:"ports,omitempty"`
+	Probes     []InferredProbe `json:"probes,omitempty"`
+	ObservedAt *time.Time      `json:"observedAt,omitempty"`
+	// DeclarationUnverified and Dropped live on the record, not only in a
+	// limitation's prose, so a restricted view can never lose them.
+	DeclarationUnverified bool     `json:"declarationUnverified,omitempty" doc:"Pacto could not read the Pacto targets of this namespace, so a contract may describe this workload (DECLARATION_UNVERIFIED)"`
+	Dropped               []string `json:"dropped,omitempty" doc:"The fields Pacto read but left out because they held a control character or ran past their bound, such as image or ports[0]"`
+}
+
+// InferredValue is one value read from a workload and the object path it was
+// read from.
+type InferredValue struct {
+	Value string `json:"value"`
+	From  string `json:"from" doc:"The object path Pacto read the value from"`
+}
+
+// InferredPort is one container port read from a workload.
+type InferredPort struct {
+	Port     int    `json:"port"`
+	Name     string `json:"name,omitempty"`
+	Protocol string `json:"protocol,omitempty"`
+	From     string `json:"from" doc:"The object path Pacto read the port from"`
+}
+
+// InferredProbe is one HTTP probe read from a workload: its path (without a
+// query or fragment) and port.
+type InferredProbe struct {
+	Kind string `json:"kind" enum:"readiness,liveness,startup"`
+	Path string `json:"path,omitempty"`
+	Port string `json:"port,omitempty"`
+	From string `json:"from" doc:"The object path Pacto read the probe from"`
 }
 
 // ServiceOrigin is a service's declared service.origin and what it resolves to:
@@ -879,6 +999,11 @@ type TargetRecord struct {
 	// another evidence source names for the same record; Restrict rebuilds
 	// their limitations from them.
 	clusterInvalidFrom, clusterConflictFrom []string
+	// workload is the workload the target runs as, when its source knows it;
+	// Build never infers a service from it.
+	workload *WorkloadRef
+	// createdAt is when the declaration behind the target was created.
+	createdAt *time.Time
 }
 
 // DisplayName returns a human-readable "scope/kind/name" for a target, with
@@ -915,8 +1040,11 @@ func ConsumesEdge(rel Relationship) bool {
 // originates from a specific [ContractRevision] (FromRevision) of a logical
 // service (FromService) — never from "the service's latest revision". Declared,
 // observed and inferred edges are kept apart (see Provenance); an observed edge
-// is folded from runtime telemetry and carries ObservedCount/Source, and an
-// inferred edge to an external system carries InferredSources/Confidence.
+// is folded from runtime telemetry and carries ObservedCount/Source, an
+// inferred edge to an external system read from configuration carries
+// InferredSources/Confidence, and an inferred runtime call with an end no
+// contract describes carries ObservedCount/ObservedSources and lives in
+// [FleetSnapshot.InferredRelationships].
 type Relationship struct {
 	FromService      ServiceKey  `json:"fromService"`
 	FromRevision     RevisionKey `json:"fromRevision,omitempty"`
@@ -1143,9 +1271,17 @@ type FleetSnapshot struct {
 	Revisions     map[RevisionKey]*ContractRevision `json:"revisions"`
 	Targets       map[TargetKey]*TargetRecord       `json:"targets"`
 	Relationships []Relationship                    `json:"relationships"`
-	Sources       []SourceState                     `json:"sources"`
-	Completeness  Completeness                      `json:"completeness"`
-	Limitations   []Limitation                      `json:"limitations,omitempty"`
+	// InferredRelationships are runtime calls with at least one end no
+	// contract describes (an inferred service). They are kept out of
+	// Relationships and every index a gate, impact or reconciliation reads:
+	// an inferred edge never satisfies a dependency. Sorted like Relationships.
+	InferredRelationships []Relationship `json:"inferredRelationships,omitempty"`
+	// Replacements are the inferred services a declared service took over,
+	// sorted by From.
+	Replacements []Replacement `json:"replacements,omitempty"`
+	Sources      []SourceState `json:"sources"`
+	Completeness Completeness  `json:"completeness"`
+	Limitations  []Limitation  `json:"limitations,omitempty"`
 	// Clusters are the clusters any source reported, sorted by id. Target keys
 	// carry a cluster component only when there are two or more.
 	Clusters []ClusterRecord `json:"clusters,omitempty"`
@@ -1170,6 +1306,9 @@ type FleetSnapshot struct {
 	// ExternalCatalogs are the catalogs that classified Externals, the
 	// default first.
 	ExternalCatalogs []ExternalCatalogRef `json:"externalCatalogs,omitempty"`
+	// Providers are what each source detected and read evidence from, sorted
+	// by source then id. They never change completeness or any source state.
+	Providers []Provider `json:"providers,omitempty"`
 
 	// templateEdges are the declared dependency and reference edges of the
 	// golden paths (see deriveTemplate). They are kept out of Relationships and
@@ -1208,7 +1347,7 @@ type FleetSnapshot struct {
 	hiddenConsumers map[ServiceKey]map[ServiceKey]bool
 	// hiddenDependents maps, in a restricted snapshot, a service to the hidden
 	// services that depend on or call it and its hidden uncontracted callers
-	// (as caller:<name> keys). Only counted.
+	// (by their inferred service key, else as caller:<name> keys). Only counted.
 	hiddenDependents map[ServiceKey]map[ServiceKey]bool
 	// hiddenReferrers maps, in a restricted snapshot, a service to the hidden
 	// services whose policy references resolve to it. Only counted.
@@ -1247,6 +1386,21 @@ type FleetSnapshot struct {
 	// callers can layer observed evidence on top rather than conflating the two.
 	observedReverse map[ServiceKey][]ServiceKey
 	observedForward map[ServiceKey][]ServiceKey
+	// inferredReverse/inferredForward are the adjacency of InferredRelationships
+	// between services, apart from the declared and observed indexes.
+	inferredReverse map[ServiceKey][]ServiceKey
+	inferredForward map[ServiceKey][]ServiceKey
+	// replacedNames are the observed names of the workloads a Pacto target
+	// runs as, each mapped to the declared service of that target (see
+	// replaceInferred). ObservedNameResolver consults them first.
+	replacedNames map[string]replacedName
+	// observingSources are the ids of the sources that reported at least one
+	// observed edge: an inferred service's calls are known only where one of
+	// them is available.
+	observingSources map[string]bool
+	// workloadOnlyPartial: Build found the snapshot partial only because of a
+	// workload source. Restrict and the external fold clear it.
+	workloadOnlyPartial bool
 }
 
 // ProvisioningRecord is one validated provisioning report (see
@@ -1312,6 +1466,9 @@ type UncontractedCaller struct {
 	Sources   []string   `json:"sources"`
 	// Ambiguous is set when the caller name matched more than one service.
 	Ambiguous bool `json:"ambiguous,omitempty"`
+	// Entity is the inferred service this caller is, when Pacto sees its
+	// workload. The caller stays uncontracted.
+	Entity ServiceKey `json:"entity,omitempty" doc:"The inferred service this caller is, when Pacto sees its workload"`
 }
 
 // K8sCaller is the identity of a Kubernetes workload with no contract:

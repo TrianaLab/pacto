@@ -1048,7 +1048,7 @@ func TestUnresolvedRefsCountHiddenReferrers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	snap := fleet.NewQuery(full).Restrict(func(ns string) bool { return ns == "shop" }).SnapshotForSerialization()
+	snap := fleet.NewQuery(full).Restrict(func(ns string) bool { return ns == "shop" }, nil).SnapshotForSerialization()
 	res := Analyze(context.Background(), pgContract("16.1.0", "provisioning", true), pgContract("16.2.0", "provisioning", false),
 		pgSchema("small", "medium", "large"), pgSchema("small", "large"), snap, Options{})
 	l := limitation(res, "CONFIG_REF_CONSUMERS_UNRESOLVED")

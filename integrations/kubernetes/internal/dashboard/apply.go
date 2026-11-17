@@ -46,6 +46,15 @@ func clusterRoleAC(scoped bool) runtime.ApplyConfiguration {
 				WithAPIGroups("").
 				WithResources("services").
 				WithVerbs("get", "list", "watch"),
+			// Inferred services: the dashboard lists every workload; it never reads a Pod or a Secret and drops env values before anything is stored.
+			rbacv1ac.PolicyRule().
+				WithAPIGroups("apps").
+				WithResources("deployments", "statefulsets", "daemonsets").
+				WithVerbs("list"),
+			rbacv1ac.PolicyRule().
+				WithAPIGroups("batch").
+				WithResources("cronjobs").
+				WithVerbs("list"),
 		)
 	}
 	return rbacv1ac.ClusterRole(Name).
@@ -199,6 +208,13 @@ func authVolumes(cfg Config) ([]*corev1ac.VolumeMountApplyConfiguration, []*core
 	return mounts, vols
 }
 
+// The managed dashboard reads what the operator detected from this file.
+const (
+	detectedEnvVar    = "PACTO_DASHBOARD_DETECTED"
+	detectedMountPath = "/etc/pacto/detected"
+	detectedKey       = "detected.json"
+)
+
 // deploymentAC returns a server-side apply configuration for the dashboard Deployment.
 func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 	env := []*corev1ac.EnvVarApplyConfiguration{
@@ -266,6 +282,18 @@ func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 
 	authMounts, authVols := authVolumes(cfg)
 	volumeMounts, volumes = append(volumeMounts, authMounts...), append(volumes, authVols...)
+
+	if cfg.DetectedConfigMap != "" {
+		env = append(env, corev1ac.EnvVar().WithName(detectedEnvVar).WithValue(detectedMountPath+"/"+detectedKey))
+		volumeMounts = append(volumeMounts,
+			corev1ac.VolumeMount().WithName("detected").WithMountPath(detectedMountPath).WithReadOnly(true))
+		// Optional: before the first detection the pod still starts and the
+		// dashboard names the detection source unavailable.
+		volumes = append(volumes, corev1ac.Volume().WithName("detected").WithConfigMap(
+			corev1ac.ConfigMapVolumeSource().WithName(cfg.DetectedConfigMap).
+				WithItems(corev1ac.KeyToPath().WithKey(detectedKey).WithPath(detectedKey)).
+				WithOptional(true)))
+	}
 
 	if len(cfg.OCISecrets) > 0 {
 		volumeMounts = append(volumeMounts,

@@ -208,7 +208,7 @@ func TestObservedOnlyCountsUnchanged(t *testing.T) {
 	if got := len(r.observedOnly("")); got != 1 { // api -> reg
 		t.Errorf("restrictFleet observedOnly(all) = %d, want 1", got)
 	}
-	rv := r.Restrict(func(ns string) bool { return ns != "secret" })
+	rv := r.Restrict(func(ns string) bool { return ns != "secret" }, nil)
 	for _, k := range []ServiceKey{"web", "db", "reg", "lone"} {
 		var s ServiceSummary
 		rv.tallyServiceEdges(&s, k)

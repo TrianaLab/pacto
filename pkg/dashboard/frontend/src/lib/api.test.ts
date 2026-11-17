@@ -174,6 +174,23 @@ describe('product endpoint serialization + schema validation', () => {
     expect(await req.clone().json()).toEqual({ snapshotId: 'snap-1', fromRevisionKey: 'svc@a', toRevisionKey: 'svc@b', includeObserved: true });
   });
 
+  it('fleetProviders GET /api/fleet/providers resolves the rows with a product meta', async () => {
+    const body = {
+      meta: { schemaVersion: PRODUCT_SCHEMA_VERSION, asOf: '2026-11-17T00:00:00Z', completeness: 'complete', snapshotId: 's', sourceCounts: { total: 1 }, sources: [{ id: 'k8s', kind: 'kubernetes', status: 'available', revisionCount: 0, targetCount: 2 }] },
+      total: 1, providers: [{ id: 'pacto-crd', source: 'k8s', name: 'Pacto CRD', evidence: 'served (pacto.trianalab.io/v1alpha1)', usedFor: ['declared-targets'], status: 'available' }],
+    };
+    mockFetch.mockResolvedValue(jsonResponse(body));
+    const res = await api.fleetProviders();
+    expect(urlFor().pathname).toBe('/api/fleet/providers');
+    expect(res.providers?.[0].name).toBe('Pacto CRD');
+    expect(res.meta.schemaVersion).toBe(PRODUCT_SCHEMA_VERSION);
+  });
+
+  it('fleetProviders rejects a snapshot meta that is not the product schema', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ meta: { schemaVersion: 'pacto.dev/fleet/v1' }, total: 0, providers: [] }));
+    await expect(api.fleetProviders()).rejects.toBeInstanceOf(SchemaCompatibilityError);
+  });
+
   it('rejects an unsupported product schema version', async () => {
     mockFetch.mockResolvedValue(jsonResponse({ meta: { schemaVersion: 'pacto.dev/fleet-product/v999' }, summary: {} }));
     await expect(api.fleetOverview()).rejects.toBeInstanceOf(SchemaCompatibilityError);

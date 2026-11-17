@@ -602,3 +602,50 @@ func TestFleetEntityExternalPrintsInferredSources(t *testing.T) {
 		t.Errorf("a pod-spec source prints through its inferred evidence only:\n%s", buf.String())
 	}
 }
+
+// shopCartReplacement is the inferred cart workload taken over by shop/cart
+// three minutes before asOf.
+func shopCartReplacement(asOf time.Time) *fleet.Replacement {
+	return &fleet.Replacement{
+		From: fleet.NewServiceKey("k8s:shop/Deployment/cart"), To: fleet.NewServiceKeyDomain("shop", "cart"),
+		Link: "pacto-target", Target: fleet.NewTargetKey("shop", "kubernetes", "cart"), At: new(asOf.Add(-3 * time.Minute)),
+	}
+}
+
+func TestPrintFleetGraphInferredEdgeAndReplaced(t *testing.T) {
+	asOf := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
+	cart, ledger := fleet.NewServiceKey("k8s:shop/Deployment/cart"), fleet.NewServiceKey("k8s:shop/StatefulSet/ledger")
+	res := &fleet.GraphResult{Meta: fleet.Meta{AsOf: asOf}, Root: "shop/cart", Direction: fleet.DirectionDependencies, ReplacedFrom: shopCartReplacement(asOf),
+		Edges: []fleet.Relationship{
+			{FromService: "shop/cart", ToService: "shop/db", Provenance: fleet.ProvenanceDeclared},
+			{FromService: cart, ToService: ledger, Provenance: fleet.ProvenanceInferred, ObservedSources: []fleet.ObservedSourceStat{{Source: "kernel"}, {Source: "mesh"}}},
+			{FromService: cart, ToExternal: "api.stripe.com", Provenance: fleet.ProvenanceInferred, ObservedSources: []fleet.ObservedSourceStat{{Source: "kernel"}}},
+			{FromService: "shop/cart", ToExternal: "smtp", Provenance: fleet.ProvenanceInferred},
+		}}
+	out := printed(t, func(c *cobra.Command) error { return printFleetGraph(c, res, "text") })
+	for _, want := range []string{
+		"k8s:shop/Deployment/cart was replaced by shop/cart 3m ago (linked by Pacto shop/cart target)\ndependencies of shop/cart",
+		"  k8s:shop/Deployment/cart -> k8s:shop/StatefulSet/ledger  inferred (observed by kernel, mesh)\n",
+		"  k8s:shop/Deployment/cart -> external:api.stripe.com  inferred (observed by kernel)\n",
+	} {
+		expect(t, strings.Contains(out, want), "graph lacks %q:\n%s", want, out)
+	}
+	expect(t, !strings.Contains(out, "shop/db") && !strings.Contains(out, "smtp"), "the graph prints an edge that is not runtime-inferred:\n%s", out)
+}
+
+func TestPrintServiceReplaces(t *testing.T) {
+	asOf := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
+	r := shopCartReplacement(asOf)
+	view := &fleet.ServiceView{Meta: fleet.Meta{AsOf: asOf}, Service: &fleet.ServiceRecord{Name: "cart"}, ReplacedFrom: r, Replaces: []fleet.Replacement{*r}, ReplacesTotal: 3}
+	out := printed(t, func(c *cobra.Command) error { return printFleetService(c, view, "text") })
+	for _, want := range []string{
+		"k8s:shop/Deployment/cart was replaced by shop/cart 3m ago (linked by Pacto shop/cart target)\nService: cart\n",
+		"Replaces k8s:shop/Deployment/cart 3m ago (linked by Pacto shop/cart target)\n  2 more\n",
+	} {
+		expect(t, strings.Contains(out, want), "get lacks %q:\n%s", want, out)
+	}
+	plain := printed(t, func(c *cobra.Command) error {
+		return printFleetService(c, &fleet.ServiceView{Service: &fleet.ServiceRecord{Name: "cart"}}, "text")
+	})
+	expect(t, !strings.Contains(plain, "replaced") && !strings.Contains(plain, "Replaces"), "a service that replaced nothing says it did:\n%s", plain)
+}

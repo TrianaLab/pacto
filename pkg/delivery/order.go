@@ -208,7 +208,7 @@ func canMoveFirst(in PlanInput, c *contract.Contract, consumer fleet.ServiceKey,
 // that rejects it, or a range or a version it cannot read. Observed calls
 // carry no range and are not judged here.
 func acceptedHere(snap *fleet.FleetSnapshot, consumer fleet.ServiceKey, c *contract.Contract) (string, error) {
-	if snap.Completeness == fleet.CompletenessPartial {
+	if snap.ConsumerCompleteness() == fleet.CompletenessPartial {
 		return "", fmt.Errorf("the operational graph is partial, so Pacto cannot tell whether something that rejects %s %s runs here", c.Service.Name, c.Service.Version)
 	}
 	for _, r := range snap.Relationships {
@@ -307,7 +307,7 @@ func acceptsWhatRunsHere(snap *fleet.FleetSnapshot, c *contract.Contract, provid
 		case seen, dep.External:
 		case dep.Required:
 			return "", fmt.Errorf("it needs %s %s and Pacto sees no %s running here", dep.Name, dep.Compatibility, dep.Name)
-		case snap.Completeness == fleet.CompletenessPartial:
+		case snap.ConsumerCompleteness() == fleet.CompletenessPartial:
 			// An optional dependency it sees nothing of may still run here, unread.
 			return "", fmt.Errorf("it uses %s %s when it runs and the operational graph is partial, so Pacto cannot tell whether a %s it would break runs here", dep.Name, dep.Compatibility, dep.Name)
 		}

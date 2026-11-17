@@ -56,6 +56,7 @@ func newFleetEntitiesCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	f.String("gap", "", "services whose contracts leave this out (no-summary, no-domain, no-interface-docs, no-readiness, not-deployed, unverified-capability), or unknown for those Pacto cannot judge")
 	f.String("status", "", "canonical compliance status")
 	addTemplateFlag(f)
+	addDeclarationFlag(cmd)
 	f.String("created-from", "", "services created from this golden path, by key; "+fleet.NoOrigin+" for no declared origin or "+fleet.UnresolvedOrigin+" for an origin that resolves to no golden path")
 	f.String("sort", "", "order: name, health (least healthy first; owners and domains by non-compliant, failing, unknown, stale and gap services), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most consumers with a failed provisioning request first), consumers (offerings with the most declared consumers first) or gaps (owners and domains with the most services that leave knowledge out first)")
 	f.Bool("has-non-compliant", false, "owners and domains with at least one non-compliant service only")
@@ -90,7 +91,8 @@ func newFleetNeighborhoodCommand(svc *app.Service, v *viper.Viper) *cobra.Comman
 		Short: "Show the services around one service, with their owners",
 		Long: "Shows who a service depends on and who depends on it, to the requested depth, each with its owner " +
 			"and status, then the edges between them: each says whether a contract declares it, telemetry observed it " +
-			"or both, and how the two compare. The service is a name, or its key when the name is used in more than one domain.",
+			"or both, and how the two compare. A runtime call one of whose ends no contract describes is listed as inferred, " +
+			"with the sources that saw it, and never satisfies a dependency. The service is a name, or its key when the name is used in more than one domain.",
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: noCompletions,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -133,7 +135,7 @@ func entityFilterFromCmd(cmd *cobra.Command, text string) fleet.EntityFilter {
 	f := fleet.EntityFilter{
 		Text: text, Owner: get("owner"), OwnerKey: get("owner-key"), BusinessDomain: get("business-domain"),
 		Offering: get("offering"), Consumes: get("consumes"), Phase: get("phase"), Environment: get("environment"), Ownership: get("ownership"), Gap: get("gap"), Status: get("status"), Sort: get("sort"),
-		Template: get("template"), CreatedFrom: get("created-from"),
+		Template: get("template"), Declaration: get("declaration"), CreatedFrom: get("created-from"),
 		HasNonCompliant: nc, SourceKind: get("source-kind"), Lifecycle: get("lifecycle"), Failed: failed, Limit: limit, Offset: offset,
 		Capability: get("capability"), Domain: get("domain"), Service: get("service"), Source: get("source"),
 		Scope: get("scope"), Readiness: get("readiness"), SourceHealth: get("source-health"), Class: get("class"),
@@ -147,6 +149,13 @@ func entityFilterFromCmd(cmd *cobra.Command, text string) fleet.EntityFilter {
 func addTemplateFlag(f *pflag.FlagSet) {
 	f.String("template", "", "golden paths only, or exclude to leave them out")
 	f.Lookup("template").NoOptDefVal = fleet.TemplateOnly
+}
+
+// addDeclarationFlag adds --declaration: inferred keeps only the services
+// Pacto infers from workloads, and declared leaves them out.
+func addDeclarationFlag(cmd *cobra.Command) {
+	cmd.Flags().String("declaration", "", "inferred keeps only the services Pacto infers from workloads no contract describes; declared leaves them out")
+	_ = cmd.RegisterFlagCompletionFunc("declaration", staticCompletions(fleet.DeclarationDeclared, fleet.DeclarationInferred))
 }
 
 func newFleetEntityCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command {
@@ -300,15 +309,13 @@ func printFleetEntities(cmd *cobra.Command, res *fleet.EntityList, format string
 		w := cmd.OutOrStdout()
 		_, _ = fmt.Fprintf(w, "%d of %d entit(ies):\n", res.Count, res.Total)
 		for _, e := range res.Entities {
-			kind := string(e.Kind)
-			if e.Template {
-				kind = "golden path"
-			}
-			_, _ = fmt.Fprintf(w, "  %-11s %-28s %-32s %s\n", kind, e.Label, e.Key, orDash(e.Status))
-			switch e.Kind {
-			case fleet.KindOffering:
+			_, _ = fmt.Fprintf(w, "  %-11s %-28s %-32s %s\n", entityRowKind(e), e.Label, e.Key, orDash(e.Status))
+			switch {
+			case e.Declaration == fleet.DeclarationInferred:
+				_, _ = fmt.Fprintf(w, "              namespace %s  kind %s  image %s\n", e.Scope, e.Secondary, orDash(e.Image))
+			case e.Kind == fleet.KindOffering:
 				_, _ = fmt.Fprintf(w, "              %s\n", offeringRowFacts(e))
-			case fleet.KindOwner, fleet.KindDomain:
+			case e.Kind == fleet.KindOwner || e.Kind == fleet.KindDomain:
 				_, _ = fmt.Fprintf(w, "              services %d  not compliant %d  failing health %d  unknown %d  stale %d  with gaps %d\n",
 					e.Services, e.NonCompliant, e.FailingHealth, e.Unknown, e.Stale, e.WithGaps)
 			}
@@ -323,6 +330,18 @@ func printFleetEntities(cmd *cobra.Command, res *fleet.EntityList, format string
 		noteScopedPhase(cmd, res.Meta)
 		return nil
 	}, nil)
+}
+
+// entityRowKind is the kind column of an entity row: golden path and
+// inferred services read apart from declared ones.
+func entityRowKind(e fleet.EntityRef) string {
+	switch {
+	case e.Template:
+		return "golden path"
+	case e.Declaration == fleet.DeclarationInferred:
+		return fleet.DeclarationInferred
+	}
+	return string(e.Kind)
 }
 
 // offeringRowFacts is the facts line under an offering row. A target count
@@ -429,7 +448,11 @@ func printFleetEntity(cmd *cobra.Command, res *fleet.EntityDetail, format string
 		if res.Offering != nil {
 			printOfferingText(w, res.Offering)
 		}
-		if res.Service != nil {
+		if res.Service != nil && res.Service.Workload != nil {
+			for _, l := range res.Service.InferredLines(res.Meta.AsOf) {
+				_, _ = fmt.Fprintln(w, l)
+			}
+		} else if res.Service != nil {
 			printResources(w, res.Service)
 			printTemplateText(w, res.Entity.Summary, res.Service.Template)
 			printOriginText(w, res.Service.Origin, res.Service.Creation)
@@ -889,6 +912,9 @@ func printFleetAttention(cmd *cobra.Command, res *fleet.AttentionList, format st
 			action := ""
 			if a := it.NextAction; a != nil {
 				action = fmt.Sprintf(" (action: %s via %s)", a.Verb, a.Tool)
+			}
+			if it.Caller != nil {
+				action += " (inferred service " + it.Caller.Key + ")"
 			}
 			_, _ = fmt.Fprintf(w, "  [%s] %s %s: %s (next: %s)%s\n", it.Severity, it.Category, it.Label, it.Summary, orDash(it.NextStep), action)
 		}

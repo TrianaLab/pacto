@@ -612,7 +612,7 @@ func analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 		OldVersion:       old.Service.Version,
 		NewVersion:       new.Service.Version,
 		Classification:   d.Classification.String(),
-		Completeness:     snap.Completeness,
+		Completeness:     snap.ConsumerCompleteness(),
 		Limitations:      append([]fleet.Limitation(nil), snap.Limitations...),
 		Consumers:        []AffectedConsumer{},
 		Sources:          meta.Sources,
@@ -749,9 +749,20 @@ func (r *Result) noteUnlisted(snap *fleet.FleetSnapshot, q *fleet.Query, changed
 
 // dependents walks every service that depends on key, transitively, and
 // notes the unresolved references that may name it (policy ones withPolicy).
-// It is nil, with the answer partial, when key is not in the fleet. Contract
+// It is nil, with the answer partial, when key is not in the fleet or is an
+// inferred service. Contract
 // and event answers both walk through it, so they list the same consumers.
 func (r *Result) dependents(snap *fleet.FleetSnapshot, q *fleet.Query, key fleet.ServiceKey, withPolicy bool) *fleet.GraphResult {
+	if s := snap.Services[key]; s != nil && s.Inferred() {
+		// No contract can depend on an inferred service, so an empty consumer
+		// list here is unknown, never "nothing breaks".
+		r.Completeness = fleet.CompletenessPartial
+		r.Limitations = append(r.Limitations, fleet.Limitation{
+			Code: fleet.LimitationServiceInferred, Source: limitationSource,
+			Message: "no contract Pacto read describes " + s.Name + ", so its consumers cannot be determined",
+		})
+		return nil
+	}
 	graph, err := q.Graph(fleet.GraphQuery{Service: string(key), Direction: fleet.DirectionDependents, Transitive: true})
 	if err != nil {
 		// The service is not in the graph, so NO consumer can be ruled in or
@@ -774,6 +785,13 @@ func (r *Result) dependents(snap *fleet.FleetSnapshot, q *fleet.Query, key fleet
 			Code: "GRAPH_TRUNCATED", Source: limitationSource,
 			Message: "the dependents traversal hit the " + strconv.Itoa(fleet.MaxGraphNodes) +
 				"-node cap; the consumer list is a prefix of the blast radius, not the whole of it",
+		})
+	}
+	if rp := graph.ReplacedFrom; rp != nil {
+		_, from := fleet.ParseServiceKey(rp.From)
+		r.Limitations = append(r.Limitations, fleet.Limitation{
+			Code: LimitationSubjectReplaced, Source: limitationSource,
+			Message: from + " was replaced by " + string(rp.To) + " (linked by Pacto target " + string(rp.Target) + "), so this answer is about " + string(rp.To),
 		})
 	}
 	r.noteUnresolvedRefs(snap, graph.Root, withPolicy)
@@ -877,6 +895,10 @@ type resolvedObservedEdge struct {
 // the fleet code so the pipeline reports one stable code end to end.
 const ObservedIdentityUnresolved = fleet.LimitationObservedIdentityUnresolved
 
+// LimitationSubjectReplaced discloses that the subject named an inferred
+// service a declared service replaced, and the answer is about the latter.
+const LimitationSubjectReplaced = "SUBJECT_REPLACED"
+
 // resolveObservedEdges maps raw observed (OTel) endpoint names to UNIQUE
 // domain-qualified ServiceKeys via the snapshot. A name matching no service, or
 // more than one (across domains), is NOT silently assigned the default domain: the
@@ -894,19 +916,23 @@ func resolveObservedEdges(snap *fleet.FleetSnapshot, edges []ObservedEdge, inclu
 	var lims []fleet.Limitation
 	seen := map[string]bool{}
 	addLim := func(name string, res fleet.ObservedResolution) bool {
-		reason := ""
+		what := ""
 		switch res {
 		case fleet.ObservedUnknown:
-			reason = "unknown"
+			what = "could not be mapped to a unique fleet service (unknown)"
+		case fleet.ObservedInferred:
+			// An inferred service has no contract: it never corroborates, and a
+			// caller no contract describes stays a limitation, never silence.
+			what = "is an inferred service no contract describes"
 		case fleet.ObservedAmbiguous:
-			reason = "ambiguous across domains"
+			what = "could not be mapped to a unique fleet service (ambiguous across domains)"
 		default:
 			return true
 		}
-		if !seen[reason+":"+name] {
-			seen[reason+":"+name] = true
+		if !seen[what+":"+name] {
+			seen[what+":"+name] = true
 			lims = append(lims, fleet.Limitation{Code: ObservedIdentityUnresolved, Source: limitationSource,
-				Message: "observed service " + name + " could not be mapped to a unique fleet service (" + reason + "); it does not corroborate or affect any domain-qualified service"})
+				Message: "observed service " + name + " " + what + "; it does not corroborate or affect any domain-qualified service"})
 		}
 		return false
 	}

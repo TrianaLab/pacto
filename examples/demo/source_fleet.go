@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"maps"
 	"time"
 
 	"github.com/trianalab/pacto/v4/examples/story"
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/evidence"
 	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
 	"github.com/trianalab/pacto/v4/pkg/finding"
@@ -40,6 +42,13 @@ const (
 // on. A fixed date here had the fleet pages say "Jul 29, 2026" beside delivery pages
 // saying "just now".
 var demoClock = time.Now().UTC().Truncate(time.Second)
+
+// demoDetected is what the demo cluster's operator detected: the registry,
+// cloud, sign-in, exposure, metrics and node kernels the Data sources page
+// lists as inferred rows. The Compose demo carries a byte-identical copy.
+//
+//go:embed detected.json
+var demoDetected []byte
 
 // demoNow is the clock the fleet snapshot is built against.
 func demoNow() time.Time { return demoClock }
@@ -115,12 +124,30 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 	// One cluster, named from its kubeconfig context: every key keeps its 3-part
 	// form and the target page shows where the target runs.
 	prodCluster := &fleet.Cluster{ID: "5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11", Name: "production", NameSource: fleet.ClusterNameFromContext}
+	takeover, takenOver := demoTakeover(demoNow())
+	targets, inferred := append(demoTargets(src), takeover), demoInferredServices()
+	// Each cluster source says what it detected: the Data sources page lists
+	// the Pacto CRD and the workloads the cluster runs. The taken-over
+	// workload is the takeover target, so it counts once.
+	crdRow, workloadsRow := demoProviders(targets, inferred)
 	cluster := fleet.NewMemorySource("k8s-production", fleet.SourceKindKubernetes, &fleet.Collection{
 		Cluster:      prodCluster,
-		Targets:      demoTargets(src),
+		Providers:    []fleet.Provider{crdRow},
+		Targets:      targets,
 		Provisioning: demoProvisioning(src),
 		Usage:        demoUsage(src),
 		ExternalUses: demoExternalUses(demoNow()),
+		// The kernel observer names a caller with no contract by its workload,
+		// so this edge joins the inferred legacy-billing below: attention shows
+		// an uncontracted caller of payments-service that links to it.
+		Observed: append([]fleet.ObservedEdge{{From: "k8s:shop/Deployment/legacy-billing", To: "payments-service", Count: 9}}, demoInferredEdges(demoNow())...),
+	})
+	// The cluster's workload reader: workloads no contract describes show as
+	// inferred services, each value with the object path Pacto read it from.
+	workloads := fleet.NewMemorySource("k8s-production-workloads", fleet.SourceKindKubernetesWorkloads, &fleet.Collection{
+		Cluster:          prodCluster,
+		InferredServices: append(inferred, takenOver),
+		Providers:        []fleet.Provider{workloadsRow},
 	})
 	// Telemetry is a second collector over the SAME estate: it corroborates the two
 	// targets it can see (agreeing on every identity-bearing field, so they merge
@@ -151,6 +178,16 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 			Error:  &fleet.SourceError{Code: fleet.LimitationSourceUnavailable, Message: "edge cluster unreachable"},
 		},
 	})
+	// What the cluster's operator detected: an advisory source whose rows are
+	// hints, dated now so they read current.
+	detected, err := detect.Decode(demoDetected)
+	if err != nil {
+		return nil, nil, err
+	}
+	detected.AsOf, detected.Cluster = demoNow(), prodCluster.ID
+	detection := fleet.NewMemorySource("cluster-detection", fleet.SourceKindDetection, &fleet.Collection{
+		Advisory: true, Providers: detect.ProviderRows(detected, "cluster-detection", demoNow()),
+	})
 	// The organization extension is embedded, so the demo reports it unsigned
 	// rather than inventing a verification it never ran.
 	cat, err := externalcatalog.Assemble(externalcatalog.DefaultRef(), demoExternalCatalog, externalcatalog.Ref{
@@ -163,7 +200,7 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 	}
 	snap, err := fleet.Build(context.Background(),
 		fleet.BuildOptions{Now: demoNow, FreshnessWindow: 24 * time.Hour, ExternalCatalog: cat},
-		fleet.NewMemorySource("local", "local", col), partnerRegistrySource, storySource, cluster, telemetry, mirror, unavailable)
+		fleet.NewMemorySource("local", "local", col), partnerRegistrySource, storySource, cluster, workloads, telemetry, mirror, unavailable, detection)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -451,5 +488,35 @@ func demoCorroboratedTargets() []fleet.RawTarget {
 	return []fleet.RawTarget{
 		{Scope: "prod", Kind: "Deployment", Name: "payments-service", Service: "payments-service", EvidenceAt: at(seen)},
 		{Scope: "prod", Kind: "Deployment", Name: "orders-service", Service: "orders-service", EvidenceAt: at(seen)},
+	}
+}
+
+// demoInferredServices are three workloads the demo cluster runs with no
+// contract: a Deployment pinned by digest, a CronJob with no ports and a
+// DaemonSet in another namespace.
+func demoInferredServices() []fleet.RawInferredService {
+	at := demoNow().Add(-15 * time.Minute)
+	const pod = "spec.template.spec.containers[name="
+	const job = "spec.jobTemplate.spec.template.spec.containers[name="
+	return []fleet.RawInferredService{
+		{
+			Namespace: "shop", Kind: "Deployment", Name: "legacy-billing", ObservedAt: &at,
+			Image: &fleet.InferredValue{
+				Value: "registry.example.com/shop/legacy-billing@sha256:4f1c2a9e8b7d6c5f4e3d2c1b0a9f8e7d6c5b4a39281706f5e4d3c2b1a0f9e8d7",
+				From:  pod + "billing].image",
+			},
+			Ports:  []fleet.InferredPort{{Port: 8080, Name: "http", Protocol: "TCP", From: pod + "billing].ports[0].containerPort"}},
+			Probes: []fleet.InferredProbe{{Kind: "readiness", Path: "/healthz", Port: "http", From: pod + "billing].readinessProbe"}},
+		},
+		{
+			Namespace: "shop", Kind: "CronJob", Name: "nightly-export", ObservedAt: &at,
+			Image: &fleet.InferredValue{Value: "registry.example.com/shop/exporter:2.3.1", From: job + "exporter].image"},
+		},
+		{
+			Namespace: "observability", Kind: "DaemonSet", Name: "log-shipper", ObservedAt: &at,
+			Image:  &fleet.InferredValue{Value: "fluent/fluent-bit:3.1.4", From: pod + "fluent-bit].image"},
+			Ports:  []fleet.InferredPort{{Port: 2020, Name: "metrics", Protocol: "TCP", From: pod + "fluent-bit].ports[0].containerPort"}},
+			Probes: []fleet.InferredProbe{{Kind: "liveness", Path: "/api/v1/health", Port: "2020", From: pod + "fluent-bit].livenessProbe"}},
+		},
 	}
 }

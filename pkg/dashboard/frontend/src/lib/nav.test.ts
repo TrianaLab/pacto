@@ -98,4 +98,11 @@ describe('counts and health', () => {
     expect(sourceHealth({ total: 4, available: 3, stale: 1 })?.partial).toBe(true);
     expect(sourceHealth({ total: 4, available: 3, partial: 1 })?.partial).toBe(true);
   });
+
+  it('an unavailable advisory detection source leaves the health dot ok', () => {
+    // The dot reads the server's counts, and the server keeps an advisory source that
+    // is not available out of every tally (pkg/fleet sourceCounts): three sources, the
+    // fourth an unreadable cluster detection, count as three.
+    expect(sourceHealth({ total: 3, available: 3 })?.partial).toBe(false);
+  });
 });

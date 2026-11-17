@@ -21,6 +21,7 @@ shows version history, interfaces, configuration schemas and diffs. See the [`pa
 reference](cli-reference.md#pacto-dashboard) for its flags and environment
 variables. [The service page](dashboard-service-page.md) describes what a
 service's page shows and how it says what Pacto does not know.
+The Overview counts inferred services apart and the Services list filters them.
 
 ![The dashboard's page for payments-service: compliant, owned by payments-team as declared in 2.1.2 and a summary of its two operational targets](assets/screenshots/dashboard-service-light.png#only-light)
 ![The dashboard's page for payments-service: compliant, owned by payments-team as declared in 2.1.2 and a summary of its two operational targets](assets/screenshots/dashboard-service-dark.png#only-dark)
@@ -45,6 +46,23 @@ consumer's [provisioning status](platform-offerings.md#provisioning-status).
 `pacto fleet entities --kind external` lists the
 [external systems](external-catalog-reference.md) contracts name, and `get`,
 `graph` and `explain` take `external:<identity>`, such as `external:stripe`.
+
+For [inferred services](operational-graph-inferred.md):
+
+- `pacto fleet entities --declaration inferred --k8s` lists them, as below;
+- `pacto fleet graph` lists the calls with no contract on one end as
+  `inferred` edges, with the sources that saw them;
+- `get` or `graph` on the key of an inferred service a contract
+  [took over](operational-graph-inferred.md#when-a-contract-takes-over)
+  first says which service replaced it.
+
+```text
+2 of 2 entit(ies):
+  inferred    k8s:shop/Deployment/billing  k8s:shop%2FDeployment%2Fbilling  -
+              namespace shop  kind Deployment  image registry.example/billing:1.4.2
+  inferred    k8s:shop/Deployment/cart     k8s:shop%2FDeployment%2Fcart     -
+              namespace shop  kind Deployment  image registry.example/cart:2.0.1
+```
 
 [Golden paths](golden-paths.md) have their own filters:
 
@@ -94,6 +112,14 @@ same facts in a `meta` envelope for a CI job to branch on, and
 [query semantics](operational-graph-reference.md#query-semantics) has the five operations
 and the [knowledge vocabulary](operational-graph.md#knowledge) behind
 `completeness`.
+
+### Detected providers
+
+`pacto fleet providers --k8s` lists the
+[providers Pacto detected](operational-graph-providers.md) in each cluster.
+`--detected k8s:<namespace>/<release>-detected` adds the
+[rows the operator detected](operational-graph-providers.md#detected-rows),
+marked `(inferred)`, here and in `pacto fleet status`.
 
 ### Namespace scope
 
@@ -161,6 +187,7 @@ the note says where that answer lives instead.
 | Which services match this text or filter? | `pacto fleet search` | `pacto_fleet_search` | `GET /api/fleet/services` | |
 | How is the fleet doing? | `pacto fleet status` | `pacto_fleet_status` | `GET /api/fleet/status` | |
 | How healthy is the organization and how much do we know? | `pacto fleet overview` | `pacto_fleet_overview` | `GET /api/fleet/overview` | |
+| What did Pacto detect in my cluster, and what does it use each for? | `pacto fleet providers` | `pacto_fleet_status` (`providers`) | `GET /api/fleet/providers` | No separate tool; the status answer carries the rows |
 | What is this service or target? | `pacto fleet get` | `pacto_fleet_get` | `GET /api/fleet/service`, `GET /api/fleet/target` | |
 | What is this service's dependency tree? | `pacto fleet graph` | `pacto_fleet_graph` | `GET /api/fleet/services/{name}/graph` | |
 | Why does Pacto say this? | `pacto fleet explain` | `pacto_fleet_explain` | - | The dashboard explains on its entity pages |

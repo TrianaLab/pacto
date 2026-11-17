@@ -51,12 +51,13 @@ func (s *FleetSnapshot) namespaceShortForm(m externalcatalog.Match) bool {
 }
 
 // recordObservedExternal records, on the record of key, that caller was seen
-// calling it, matched by match (host or system). One source per caller: the
+// calling it, matched by match (host or system), with provenance inferred
+// when the caller is an inferred service. One source per caller: the
 // relationship carries the per-source counts.
-func recordObservedExternal(snap *FleetSnapshot, caller ServiceKey, key ExternalKey, match string) {
+func recordObservedExternal(snap *FleetSnapshot, caller ServiceKey, key ExternalKey, match, provenance string) {
 	rec := externalRecord(snap, snap.externalCatalog(), key)
 	rec.declarations[caller]++
-	rec.Sources = append(rec.Sources, ExternalSource{Kind: ExternalSourceObserved, Service: caller, Provenance: ProvenanceObserved, Match: match})
+	rec.Sources = append(rec.Sources, ExternalSource{Kind: ExternalSourceObserved, Service: caller, Provenance: provenance, Match: match})
 }
 
 // externalCatalog is the catalog the snapshot was built with, else the

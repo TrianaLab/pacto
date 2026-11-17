@@ -266,8 +266,10 @@ tests:
     set:
       dashboard.enabled: false
     asserts:
+      # Detection's nodes [list] is always granted in a cluster-wide render;
+      # the node agent's nodes [get] is not.
       - notExists:
-          path: $.rules[?(@.resources[0]=="nodes")]
+          path: $.rules[?(@.resources[0]=="nodes" && @.verbs[0]=="get")]
       # The kube-system read by name is the cluster identity rule, granted
       # always; no other namespace is read.
       - notExists:

@@ -1,11 +1,11 @@
 <script>
   import { fleetGraphFocusUrl, fleetEntityListUrl, fleetAttentionUrl, fleetServicesUrl, fleetEntityUrl } from '../../lib/router.ts';
   import { abbreviateDigests } from '../../lib/format.ts';
-  import { formatDate } from '../../lib/dateFormat.ts';
+  import { formatDate, formatRelative } from '../../lib/dateFormat.ts';
   import EntityLink from '../../components/EntityLink.svelte';
   import IdentityBadge from '../../components/IdentityBadge.svelte';
   import HelpTip from '../../components/HelpTip.svelte';
-  import { acceptsLabel, businessDomainLabel, UNKNOWN_DOMAIN } from '../../lib/entityLabels.ts';
+  import { acceptsLabel, businessDomainLabel, replacesTip, serviceKeyName, UNKNOWN_DOMAIN } from '../../lib/entityLabels.ts';
   import OwnershipFact from '../../components/OwnershipFact.svelte';
   import PreviewSection from '../../components/PreviewSection.svelte';
   import ServiceDelivery from '../../components/ServiceDelivery.svelte';
@@ -168,6 +168,12 @@
   const resourceEntries = $derived(new Set((used.items ?? []).flatMap((u) => (u.requested ?? [])
     .filter((r) => r.consumerRevision?.key && r.consumerRevision.key === d.currentRevision?.key).map((r) => r.entry))));
   const DOCS = 'https://pacto.run/latest/provision-infrastructure/';
+  // The inferred service a Pacto target took over: one line, the newest first, its
+  // age read against the snapshot so the demo and a paused page agree.
+  const replaced = $derived(d.replaces?.[0]);
+  const replacedMore = $derived((d.replacesTotal ?? d.replaces?.length ?? 0) - 1);
+  const replacedAge = $derived(replaced?.at ? formatRelative(replaced.at, Date.parse(detail.meta?.asOf ?? '') || Date.now()) : '');
+  const replacedTip = $derived(replacesTip(d.replaces ?? [], d.replacesTotal ?? d.replaces?.length ?? 0));
 </script>
 
 <div class="svc-entity">
@@ -250,6 +256,12 @@
         <span class="se-none">No source</span>
       {/if}
     </div>
+    {#if replaced}
+      <div class="se-fact se-replaces" data-testid="service-replaces">
+        <span>Replaces <bdi class="se-code" title={serviceKeyName(replaced.from)}>{serviceKeyName(replaced.from)}</bdi>{replacedAge ? ` · ${replacedAge}` : ''}{replacedMore > 0 ? ` +${formatCount(replacedMore)} more` : ''}</span>
+        <HelpTip label="Replaces" text={replacedTip} />
+      </div>
+    {/if}
   </section>
 
   {#if d.ownership?.conflicts?.count}
@@ -633,6 +645,7 @@
   .se-jump { padding: 0; border: none; background: none; color: var(--c-accent); font: inherit; cursor: pointer; text-decoration: underline; }
   @media (pointer: coarse) { .se-jump { min-block-size: 44px; } }
   .se-none { color: var(--c-text-3); }
+  .se-replaces { color: var(--c-text-3); font-size: var(--text-sm); overflow-wrap: anywhere; }
   .se-wrap { display: contents; }
   .se-unresolved { list-style: none; margin: var(--sp-1) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
   .se-unresolved li { padding: var(--sp-1) var(--sp-2); overflow-wrap: anywhere; }

@@ -73,6 +73,10 @@ type EntityFilter struct {
 	// TemplateExclude and goes under TemplateOnly. Empty keeps every service,
 	// golden paths marked.
 	Template string
+	// Declaration keeps only the inferred SERVICES (DeclarationInferred) or
+	// leaves them out (DeclarationDeclared), keeping every other kind. Empty
+	// keeps every service, inferred ones marked.
+	Declaration string
 	// CreatedFrom keeps the SERVICES whose declared origin resolves to this golden
 	// path service key; NoOrigin keeps those that declare no origin and
 	// UnresolvedOrigin those whose origin resolves to no golden path in this view.
@@ -164,6 +168,24 @@ const (
 	TemplateOnly    = "only"
 	TemplateExclude = "exclude"
 )
+
+// validDeclarationFilter reports whether s is a declaration filter value.
+func validDeclarationFilter(s string) bool {
+	return s == DeclarationDeclared || s == DeclarationInferred
+}
+
+// declarationMatches reports whether an entity passes the declaration filter:
+// inferred keeps only inferred services, declared everything else.
+func declarationMatches(filter string, r EntityRef) bool {
+	switch filter {
+	case DeclarationInferred:
+		return r.Declaration == DeclarationInferred
+	case DeclarationDeclared:
+		return r.Declaration != DeclarationInferred
+	default:
+		return true
+	}
+}
 
 // validTemplateFilter reports whether s is a template filter value.
 func validTemplateFilter(s string) bool { return s == TemplateOnly || s == TemplateExclude }
@@ -460,6 +482,7 @@ func validateEntityFilter(f EntityFilter) error {
 		{"readiness", f.Readiness, "not a readiness state (passing, below-threshold, expired, not-declared)", validReadinessFilter},
 		{"consumes", f.Consumes, "not an offering slug", validBusinessDomain},
 		{"template", f.Template, "not a template filter (only, exclude)", validTemplateFilter},
+		{"declaration", f.Declaration, "not a declaration (declared, inferred)", validDeclarationFilter},
 		{"createdFrom", f.CreatedFrom, "not a service key, (none) or (unresolved)", validCreatedFrom},
 		{"phase", f.Phase, "not a provisioning phase (requested, provisioning, ready, failed, deleting, unknown)", validPhaseBucket},
 		{"lifecycle", f.Lifecycle, "not a lifecycle filter (deprecated, sunset)", validLifecycleFilter},
@@ -547,6 +570,7 @@ func validateFilterCombos(f EntityFilter) error {
 		{"environment", f.Environment, []EntityKind{KindTarget, KindService}},
 		{"capability", f.Capability, []EntityKind{KindService}},
 		{"template", f.Template, []EntityKind{KindService, KindRevision}},
+		{"declaration", f.Declaration, []EntityKind{KindService}},
 		{"createdFrom", f.CreatedFrom, []EntityKind{KindService}},
 		{"domain", f.Domain, []EntityKind{KindService, KindRevision, KindTarget}},
 		{"businessDomain", f.BusinessDomain, []EntityKind{KindService, KindRevision, KindTarget, KindDomain, KindOwner}},
@@ -633,7 +657,7 @@ func (q *Query) candidateRefs(want map[EntityKind]bool) ([]EntityRef, map[string
 func (q *Query) domainListRefs() []EntityRef {
 	by := map[string]*EntityRef{}
 	for _, s := range q.snap.Services {
-		if s.BusinessDomain == "" || s.Template {
+		if s.BusinessDomain == "" || s.Template || s.Inferred() {
 			continue
 		}
 		ref := by[s.BusinessDomain]
@@ -659,7 +683,7 @@ func (q *Query) offeringListRefs() ([]EntityRef, map[string]*offeringFacts) {
 	by := map[string]*EntityRef{}
 	facts := q.offeringFactsByName()
 	for _, s := range q.snap.Services {
-		if s.Offering == "" {
+		if s.Offering == "" || s.Inferred() {
 			continue
 		}
 		ref := by[s.Offering]
@@ -687,6 +711,9 @@ func (q *Query) offeringListRefs() ([]EntityRef, map[string]*offeringFacts) {
 func (q *Query) serviceListRef(s *ServiceRecord, created OriginCount) EntityRef {
 	ref := serviceEntityRef(s)
 	ref.Targets = len(s.Targets)
+	if s.Inferred() && s.Workload.Image != nil {
+		ref.Image = s.Workload.Image.Value
+	}
 	if s.Template {
 		ref.Created, ref.NonCompliant, ref.Signature = created.Services, created.NonCompliant, q.pathSignature(s)
 	}
@@ -709,8 +736,8 @@ func (q *Query) ownerListRefs() []EntityRef {
 	// outright, the ones no other owner disputes, so a row and the figure lane
 	// that links to it count the same services.
 	for _, s := range q.snap.Services {
-		if s.Template {
-			continue // a golden path is no service of its owner's estate
+		if s.Template || s.Inferred() {
+			continue // a golden path is no service of its owner's estate, nor an inferred one
 		}
 		claims := q.ownerClaimsOf(s)
 		for _, k := range claims.keys {
@@ -757,7 +784,7 @@ func (q *Query) owners() []string {
 	// holds only golden paths, an owner that only publishes golden paths has no
 	// row. Its owner page still answers.
 	for _, s := range q.snap.Services {
-		if o := s.Owner.KeyString(); o != "" && !s.Template {
+		if o := s.Owner.KeyString(); o != "" && !s.Template && !s.Inferred() {
 			seen[o] = true
 		}
 	}
@@ -785,7 +812,7 @@ func (q *Query) entityMatches(r EntityRef, f EntityFilter, x crossKind) bool {
 		(f.Source == "" || q.entityFromSource(r, f.Source)) &&
 		q.matchServiceState(r, f) &&
 		(f.Readiness == "" || q.matchReadinessState(r, f.Readiness)) &&
-		q.matchGoldenPath(r, f) &&
+		q.matchGoldenPath(r, f) && declarationMatches(f.Declaration, r) &&
 		q.matchOrganization(r, f, x)
 }
 
@@ -836,6 +863,9 @@ func (q *Query) entityLifecycle(r EntityRef) string {
 	case KindOffering:
 		return r.Lifecycle
 	case KindService:
+		if r.Declaration == DeclarationInferred {
+			return ""
+		}
 		return q.serviceLifecycleState(q.snap.Services[ServiceKey(r.Key)])
 	default:
 		return ""
@@ -939,7 +969,7 @@ func (q *Query) matchServiceState(r EntityRef, f EntityFilter) bool {
 // Any other kind never matches, so an ownership filter on a mixed query narrows
 // to services rather than silently letting revisions through.
 func (q *Query) matchOwnershipState(r EntityRef, want string) bool {
-	if r.Kind != KindService {
+	if r.Kind != KindService || r.Declaration == DeclarationInferred {
 		return false
 	}
 	bucket, key := q.ownershipBucket(q.snap.Services[ServiceKey(r.Key)])

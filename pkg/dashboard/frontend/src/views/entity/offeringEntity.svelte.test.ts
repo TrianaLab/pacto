@@ -368,6 +368,19 @@ describe('offering page', () => {
     done();
   });
 
+  it('links an uncontracted caller to the inferred service behind it and keeps its uncontracted mark', async () => {
+    const pa = provider('postgresql').service;
+    const ghost = ref('service', 'default/k8s:shop/Deployment/legacy-billing', 'legacy-billing', { declaration: 'inferred' });
+    const { target, done } = await render(detail({
+      observedConsumers: preview([{ caller: 'k8s:shop/Deployment/legacy-billing', consumer: ghost, provider: pa, provenance: 'observed', uncontracted: true }]),
+    }));
+    const row = target.querySelector('[data-testid="observed-consumer"]') as HTMLElement;
+    expect(Array.from(row.querySelectorAll('a')).map((a) => a.getAttribute('href'))[0]).toBe(`#${ghost.href}`);
+    expect(text(row)).toContain('legacy-billing');
+    expect(text(row)).toContain('uncontracted');
+    done();
+  });
+
   it('says no undeclared caller was seen only when none is visible or hidden', async () => {
     const empty = await render(detail({ observedConsumers: preview([]), hiddenObservedConsumers: 0 }));
     expect(text(empty.target)).toContain('No observation source saw an undeclared caller. A caller outside the observed sources is not seen.');

@@ -3,8 +3,8 @@
   import { api, ApiError, SchemaCompatibilityError } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import {
-    graphStateFromParams, hasFocus, toggleView, differenceLabel, differenceTone, edgeDifference,
-    differenceDescription, relationLabel, neighborhoodIsEmpty, MAX_DEPTH,
+    graphStateFromParams, hasFocus, toggleView, differenceTone, edgeDifference,
+    edgeDifferenceLabel, edgeDifferenceDescription, relationLabel, neighborhoodIsEmpty, MAX_DEPTH,
     defaultPerspectiveForKind, availablePerspectives, revisionLinkAuthoritative,
     perspectiveSupportsDepth, corroborationLabel, corroborationTone, serviceScopedCaveat,
     canonicalFocusForPerspective, projectionFocusMismatch, nextMaxNodes, maxEdgesFor,
@@ -221,7 +221,7 @@
       { key: 'state:expected-not-observed', label: 'Expected, not observed', cls: 'lg-edge lg-eno' },
       { key: 'state:drift', label: 'Observed, not expected', cls: 'lg-edge lg-drift' },
       { key: 'state:insufficient', label: 'Insufficient evidence', cls: 'lg-edge lg-insufficient' },
-      { key: 'state:inferred', label: 'Inferred from configuration', cls: 'lg-edge lg-inferred' },
+      { key: 'state:inferred', label: 'Inferred: one end has no contract, or read from configuration', cls: 'lg-edge lg-inferred' },
     ] },
     { title: 'Behavior', items: [
       { key: 'behavior:refused', label: 'Refuses a required guarantee', cls: 'lg-edge lg-refused' },
@@ -681,7 +681,7 @@
                       <span class="gv-rel" data-testid="edge-relation">{relationLabel(e.relation)}</span>
                       <span class="gv-endpoint">{e.to.label || e.to.key}</span>
                       {#if e.relation !== 'runs' && edgeDifference(e)}
-                        <span class="gv-diff" data-testid="edge-difference"><IdentityBadge label={differenceLabel(edgeDifference(e))} tone={differenceTone(edgeDifference(e))} title={differenceDescription(edgeDifference(e))} /></span>
+                        <span class="gv-diff" data-testid="edge-difference"><IdentityBadge label={edgeDifferenceLabel(e)} tone={differenceTone(edgeDifference(e))} title={edgeDifferenceDescription(e)} /></span>
                       {:else if e.relation !== 'runs' && e.serviceCorroboration}
                         <span class="gv-diff" data-testid="edge-corroboration"><IdentityBadge label={corroborationLabel(e.serviceCorroboration)} tone={corroborationTone(e.serviceCorroboration)} /></span>
                       {/if}
@@ -749,8 +749,8 @@
                 <p class="gv-ddesc" data-testid="edge-reference-note">Declared configuration reference. It makes no runtime calls, so observation does not apply to it.</p>
               {/if}
               {#if edgeDifference(selected.edge)}
-                <p class="gv-drow"><span class="gv-k">Difference</span> <IdentityBadge label={differenceLabel(edgeDifference(selected.edge))} tone={differenceTone(edgeDifference(selected.edge))} /></p>
-                <p class="gv-ddesc">{differenceDescription(edgeDifference(selected.edge))}</p>
+                <p class="gv-drow"><span class="gv-k">Difference</span> <IdentityBadge label={edgeDifferenceLabel(selected.edge)} tone={differenceTone(edgeDifference(selected.edge))} /></p>
+                <p class="gv-ddesc" data-testid="edge-difference-description">{edgeDifferenceDescription(selected.edge)}</p>
               {:else if selected.edge.serviceCorroboration}
                 <p class="gv-drow"><span class="gv-k">Corroboration</span> <IdentityBadge label={corroborationLabel(selected.edge.serviceCorroboration)} tone={corroborationTone(selected.edge.serviceCorroboration)} /></p>
                 <p class="gv-ddesc" data-testid="edge-scope-caveat">{serviceScopedCaveat(gs.perspective)}</p>
@@ -891,6 +891,8 @@
   .gv-edge-behavior { display: flex; flex-wrap: wrap; gap: var(--sp-1); margin: var(--sp-1) 0 0 var(--sp-3); }
   .gv-rel { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .gv-diff { margin-left: auto; }
+  /* An end's name (an inferred workload key) holds no break point: let it break anywhere. */
+  .gv-endpoint, .gv-ddesc { min-width: 0; overflow-wrap: anywhere; }
   .gv-unresolved, .gv-limitations { border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: var(--sp-3); background: var(--c-surface); }
   /* These were h3s forced back up to section size with a hard-coded font-size -- a
      section title dressed as a subsection, then un-dressed by hand. They sit directly

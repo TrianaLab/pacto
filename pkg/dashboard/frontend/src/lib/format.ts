@@ -226,6 +226,7 @@ export function isReasonActionable(reason: string | undefined): boolean {
 
 const SOURCE_DESCRIPTIONS: Record<string, string> = {
   kubernetes: 'Kubernetes — live cluster runtime data',
+  'kubernetes-workloads': 'Kubernetes workloads — the workloads a cluster runs, read as inferred services',
   oci: 'OCI Registry — versioned contract bundles',
   local: 'Local — contracts from local filesystem',
   cache: 'Cache — offline baseline from a previously pulled bundle',
@@ -235,6 +236,7 @@ const SOURCE_DESCRIPTIONS: Record<string, string> = {
   observation: 'Observation — recorded calls between services',
   catalog: 'Catalog — contracts discovered in a registry',
   mira: 'Mira — calls between services seen in its trace store',
+  detection: 'Cluster detection — what the operator inferred the cluster provides',
 };
 
 export function sourceTooltip(src: string): string {

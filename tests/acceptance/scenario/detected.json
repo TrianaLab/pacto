@@ -1,0 +1,63 @@
+{
+  "schemaVersion": "1",
+  "asOf": "2026-11-16T09:00:00Z",
+  "cluster": "5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11",
+  "entries": [
+    {
+      "kind": "registry",
+      "value": "ghcr.io/acme",
+      "evidence": "in 9 of 11 namespaces, 87% of workloads",
+      "source": "running pods",
+      "completeness": "complete",
+      "hint": "oci://ghcr.io/acme/<service>:<version>",
+      "details": [
+        "ghcr.io/acme: 9 of 11 namespaces, 87% of workloads",
+        "docker.io/library: 3 of 11 namespaces, 8% of workloads",
+        "quay.io/prometheus: 1 of 11 namespaces, 5% of workloads"
+      ],
+      "scope": "cluster"
+    },
+    {
+      "kind": "cloud",
+      "value": "GKE",
+      "evidence": "on 6 of 6 nodes with gce:// provider IDs and GKE node pools",
+      "source": "nodes",
+      "completeness": "complete",
+      "scope": "cluster"
+    },
+    {
+      "kind": "sign-in",
+      "value": "Dex",
+      "evidence": "serves dex.coreos.com/v1",
+      "source": "API discovery",
+      "completeness": "complete"
+    },
+    {
+      "kind": "exposure",
+      "value": "Gateway API",
+      "evidence": "with HTTPRoutes in 4 of 5 namespaces on one Gateway",
+      "source": "HTTPRoutes",
+      "completeness": "complete",
+      "hint": "--set dashboard.httpRoute.enabled=true --set dashboard.httpRoute.parentRefs[0].name=public --set dashboard.httpRoute.parentRefs[0].namespace=infra",
+      "namespaces": ["infra"],
+      "objects": [{"kind": "Gateway", "namespace": "infra", "name": "public"}]
+    },
+    {
+      "kind": "metrics",
+      "value": "Prometheus Operator",
+      "evidence": "serves monitoring.coreos.com/v1; read passively",
+      "source": "API discovery",
+      "completeness": "complete"
+    },
+    {
+      "kind": "nodes",
+      "value": "kernel 6.1 on 6 of 6",
+      "evidence": "with BTF likely",
+      "source": "nodes",
+      "completeness": "partial",
+      "reason": "not confirmed on the node",
+      "details": ["6.1: 6 nodes"],
+      "scope": "cluster"
+    }
+  ]
+}

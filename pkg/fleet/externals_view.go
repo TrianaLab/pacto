@@ -49,17 +49,26 @@ func foldExternals(s *FleetSnapshot) (*FleetSnapshot, map[ExternalKey]*ExternalR
 	view[OtherEgress] = other
 
 	out := *s
-	out.Relationships = slices.Clone(s.Relationships)
-	for i := range out.Relationships {
-		if folded[out.Relationships[i].ToExternal] {
-			out.Relationships[i].FoldedInto = OtherEgress
-		}
-	}
+	out.Relationships = foldInto(s.Relationships, folded)
+	out.InferredRelationships = foldInto(s.InferredRelationships, folded)
 	out.Limitations = append(slices.Clone(s.Limitations), Limitation{Code: LimitationExternalCap, Source: "fleet",
 		Message: fmt.Sprintf("%d external systems are folded into other egress; raise MaxExternalNodes if a real fleet hits it", other.Folded)})
 	sortSnapshotLimitations(&out)
 	out.Completeness = CompletenessPartial
+	out.workloadOnlyPartial = false
 	return &out, view, folded
+}
+
+// foldInto is a copy of rels with each edge to a folded system marked as
+// folded into other egress.
+func foldInto(rels []Relationship, folded map[ExternalKey]bool) []Relationship {
+	out := slices.Clone(rels)
+	for i := range out {
+		if folded[out[i].ToExternal] {
+			out[i].FoldedInto = OtherEgress
+		}
+	}
+	return out
 }
 
 // restrictExternals keeps, in out, the external systems a visible service
