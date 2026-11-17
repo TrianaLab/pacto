@@ -37,6 +37,8 @@ func createTool() *mcpsdk.Tool {
 			"pacto.yaml as commented dependency entries for a person to uncomment. " +
 			"The contract gets a publish section for pacto publish unless describe_only is set: " +
 			"set describe_only when you are asked to describe or document a service. " +
+			"On a folder that already holds pacto.yaml, pactify completes it without changing it and returns the inferred fields with their sources in 'inferred' " +
+			"(keys and types only, never a value), which pacto pack and pacto publish put in the bundle as pacto.inferred.yaml. " +
 			"It only adds files; dry_run plans and writes nothing. For an AI agent, see pacto_schema. " +
 			"With from it creates the service from a golden path like `pacto init --from` (over stdio only): " +
 			"golden paths are listed by pacto mcp --fleet (pacto_fleet_entities template=only) or pacto fleet entities --template. " +
@@ -116,7 +118,7 @@ type createArgs struct {
 	RunPlugins                string `json:"run_plugins"`
 }
 
-func createHandler(init Initializer, served func(string) bool) mcpsdk.ToolHandlerFor[createArgs, any] {
+func createHandler(init Initializer, served func(string) bool, version string) mcpsdk.ToolHandlerFor[createArgs, any] {
 	return func(ctx context.Context, _ *mcpsdk.CallToolRequest, args createArgs) (*mcpsdk.CallToolResult, any, error) {
 		if args.From != "" {
 			return createFromPath(ctx, args, init)
@@ -125,7 +127,7 @@ func createHandler(init Initializer, served func(string) bool) mcpsdk.ToolHandle
 			return nil, nil, errors.New("values, set and run_plugins go with from")
 		}
 		if args.Pactify {
-			return pactifyFolder(ctx, args)
+			return pactifyFolder(ctx, args, version)
 		}
 		input := CreateInput{
 			Name:                      args.Name,
@@ -162,15 +164,17 @@ func createHandler(init Initializer, served func(string) bool) mcpsdk.ToolHandle
 }
 
 // pactifyFolder is pacto_create with pactify: `pacto init` for an agent.
-// Several folders or a whole cluster only plan unless dry_run is false.
-func pactifyFolder(ctx context.Context, args createArgs) (*mcpsdk.CallToolResult, any, error) {
+// Several folders or a whole cluster only plan unless dry_run is false. A
+// completed folder's record names version and no commit: the server may run
+// outside a checkout.
+func pactifyFolder(ctx context.Context, args createArgs, version string) (*mcpsdk.CallToolResult, any, error) {
 	plan := args.Paths != "" || args.Cluster
 	if args.DryRun != nil {
 		plan = *args.DryRun
 	}
 	opts := pactify.Options{Dir: args.Path, Name: args.Name, Owner: args.Owner, Domain: args.Domain, Registry: args.Registry,
 		Delivery: args.Delivery, DescribeOnly: args.DescribeOnly, Plan: plan, NoTransparencyLog: args.NoTransparencyLog,
-		InsecureRegistry: args.InsecureRegistry, RegistrySecret: args.RegistrySecret}
+		InsecureRegistry: args.InsecureRegistry, RegistrySecret: args.RegistrySecret, PactoVersion: version}
 	var paths []string
 	cluster := pactify.ClusterOptions{Out: args.Path}
 	if err := unmarshalFields([]jsonField{

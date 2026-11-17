@@ -102,7 +102,9 @@ func (p *planner) contract(ctx context.Context) error {
 	}
 	if data, err := os.ReadFile(p.r.Path); err == nil {
 		p.r.Files = append(p.r.Files, File{Path: "pacto.yaml", Action: Keep})
-		p.existing(data)
+		if c := p.existing(data); c != nil {
+			return p.complete(c)
+		}
 		return nil
 	}
 	for _, c := range p.sc.Charts {
@@ -265,12 +267,13 @@ func (p *planner) transparencyLog() {
 	p.next("pacto.yaml was not written by this run, so it does not keep signatures out of the transparency log: add transparencyLog: false under publish.sign")
 }
 
-// existing reads what the cluster pieces need from the user's own contract.
-func (p *planner) existing(data []byte) {
+// existing reads what the cluster pieces need from the user's own contract
+// and returns it, or nil when it cannot be read.
+func (p *planner) existing(data []byte) *contract.Contract {
 	c, err := contract.Parse(bytes.NewReader(data))
 	if err != nil {
 		p.unknown("pacto.yaml could not be read (%v), so nothing was taken from it", err)
-		return
+		return nil
 	}
 	// A contract that declares no name keeps the one --name or the folder gave.
 	p.r.Service, p.pub = cmp.Or(c.Service.Name, p.r.Service), c.Publish
@@ -290,6 +293,39 @@ func (p *planner) existing(data []byte) {
 		p.next("pacto.yaml has no publish section, so pacto publish refuses it: %sadd publish "+
 			"(see Pactify a service in the docs), or move pacto.yaml aside and run pacto init again to have one written", bump)
 	}
+	return c
+}
+
+// complete puts what the folder shows beyond the user's contract c in
+// r.Inferred, never changing c. Only a pactoVersion 2.5 contract is
+// completed, and never from the cluster: discover.Complete reads the folder
+// alone.
+func (p *planner) complete(c *contract.Contract) error {
+	switch {
+	case validation.InferredRecordNeedsRaise(c.PactoVersion):
+		p.next("pacto.yaml declares pactoVersion %s; set pactoVersion: \"2.5\" to have Pacto complete it", c.PactoVersion)
+		return nil
+	case len(p.opts.Inferred) > 0 || p.opts.cluster:
+		p.next("what runs in the cluster never completes pacto.yaml: run pacto init %s without --cluster to complete it", p.r.Dir)
+		return nil
+	}
+	in := contract.InferredInputs{Commit: p.opts.Commit, Pacto: p.opts.PactoVersion}
+	rec, err := discover.Complete(p.r.Dir, c, in)
+	if err != nil {
+		return fmt.Errorf("completing pacto.yaml: %w", err)
+	}
+	p.r.Mode, p.r.Inferred = modeComplete, rec
+	if rec == nil {
+		p.found("pacto.yaml declares every value this folder shows, so Pacto infers nothing")
+		return nil
+	}
+	shown := len(rec.Fields)
+	// ponytail: the same files were read a moment ago; a second read that fails counts none as declared.
+	if all, _ := discover.Complete(p.r.Dir, &contract.Contract{Service: contract.Service{Name: c.Service.Name}}, in); all != nil {
+		shown = len(all.Fields)
+	}
+	p.found("pacto.yaml declares %d of the values this folder shows; Pacto completed %d in %s, published with the bundle", shown-len(rec.Fields), len(rec.Fields), contract.InferredRecordFile)
+	return nil
 }
 
 // validate validates the contract text in a bundle that also holds files.
@@ -816,7 +852,7 @@ func (p *planner) readFleet(ctx context.Context) error {
 // consumers looks for the services that declare this one, in FleetRoots.
 func (p *planner) consumers() {
 	if p.snap == nil {
-		if p.r.Mode == modePactify {
+		if p.r.Mode == modePactify || p.r.Mode == modeComplete {
 			p.unknown("who uses %s: no other services' contracts were given (--fleet), so none were looked at", p.r.Service)
 		}
 		return

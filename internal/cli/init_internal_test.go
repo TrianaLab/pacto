@@ -376,3 +376,51 @@ func TestInitNeverPrintsEnvValues(t *testing.T) {
 		t.Fatalf("help:\n%s", out)
 	}
 }
+
+// TestInitCompletionNeverPrintsValues: completing a folder that holds
+// pacto.yaml lists what it adds in text and JSON, and no secret literal
+// reaches either, planned, applied or with several folders.
+func TestInitCompletionNeverPrintsValues(t *testing.T) {
+	completed := func() string {
+		dir := leakFolder(t)
+		if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("service: {name: payments, version: 1.0.0}\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return dir
+	}
+	runs := map[string]func() []string{
+		"plan":    func() []string { return []string{"--plan", completed()} },
+		"json":    func() []string { return []string{"--plan", "--output-format", "json", completed()} },
+		"apply":   func() []string { return []string{completed()} },
+		"several": func() []string { return []string{"--plan", completed(), completed()} },
+	}
+	for name, args := range runs {
+		t.Run(name, func(t *testing.T) {
+			out, err := runInit(t, args()...)
+			if err != nil {
+				t.Fatalf("%v\n%s", err, out)
+			}
+			for _, v := range leakedLiterals {
+				if strings.Contains(out, v) {
+					t.Errorf("the output holds %q:\n%s", v, out)
+				}
+			}
+			if name == "json" {
+				var r struct {
+					Mode     string `json:"mode"`
+					Inferred struct {
+						Inputs struct{ Pacto string }   `json:"inputs"`
+						Fields []struct{ Field string } `json:"fields"`
+					} `json:"inferred"`
+				}
+				if err := json.Unmarshal([]byte(out), &r); err != nil || r.Mode != "complete" || len(r.Inferred.Fields) == 0 || r.Inferred.Inputs.Pacto != "dev" {
+					t.Fatalf("json: %v\n%s", err, out)
+				}
+				return
+			}
+			if !strings.Contains(out, "Inferred, kept apart from pacto.yaml (published as pacto.inferred.yaml):") || !strings.Contains(out, "configuration.DB_PASSWORD  string, writeOnly  from deploy/app.yaml:") {
+				t.Fatalf("text:\n%s", out)
+			}
+		})
+	}
+}

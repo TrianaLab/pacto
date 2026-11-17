@@ -108,8 +108,9 @@ func printInitFindings(w io.Writer, r *app.InitResult) {
 		return out
 	}
 	switch r.Mode {
-	case "pactify":
+	case "pactify", "complete":
 		section("Found", r.Found)
+		section("Inferred, kept apart from pacto.yaml (published as pacto.inferred.yaml):", inferredLines(r))
 		section("Depends on", findings(r.Dependencies))
 		section("Used by", findings(r.Consumers))
 		section("External", externalLines(r))
@@ -126,6 +127,19 @@ func printInitFindings(w io.Writer, r *app.InitResult) {
 		}
 	}
 	section("Already there, left as it is", kept)
+}
+
+// inferredLines are the fields a completed folder adds to its pacto.yaml,
+// each with its value and where it was read; nil when none.
+func inferredLines(r *app.InitResult) []string {
+	if r.Inferred == nil {
+		return nil
+	}
+	var out []string
+	for _, f := range r.Inferred.Fields {
+		out = append(out, f.Field+"  "+f.Value+"  from "+f.Source)
+	}
+	return out
 }
 
 // externalLines are the systems outside the cluster the folder names, each

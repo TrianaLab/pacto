@@ -1462,7 +1462,9 @@ environment and every chart's values.yaml name are listed under External,
 classified with the external catalog, and the likely ones are written as
 commented entries under dependencies for you to uncomment. Only their host and
 port are shown; a Secret gives its name and key names, never a value. A
-readiness, liveness or startup probe becomes a health check.
+readiness, liveness or startup probe becomes a health check. A folder that
+already holds pacto.yaml is completed: Pacto never changes it and lists what
+the folder adds, which pacto pack and pacto publish put in pacto.inferred.yaml.
 
 Either contract also gets a publish section, for pacto publish, with its
 bundle under --registry (default: the workload's image registry, else the

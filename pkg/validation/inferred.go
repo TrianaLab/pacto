@@ -17,7 +17,7 @@ func inferredRecordStage(result *ValidationResult, c *contract.Contract, fsys fs
 	if rec == nil && err == nil {
 		return
 	}
-	if olderThan(cmp.Or(c.PactoVersion, contract.Current()), "2.5") {
+	if InferredRecordNeedsRaise(c.PactoVersion) {
 		result.AddError(contract.InferredRecordFile, string(finding.CodeNeedsPacto25),
 			contract.InferredRecordFile+` needs pactoVersion "2.5"; set pactoVersion: "2.5", which keeps every older field`)
 		return
@@ -28,4 +28,11 @@ func inferredRecordStage(result *ValidationResult, c *contract.Contract, fsys fs
 	if err != nil {
 		result.AddError(contract.InferredRecordFile, string(finding.CodeInferredRecordInvalid), err.Error())
 	}
+}
+
+// InferredRecordNeedsRaise reports whether a contract at version is too old
+// to carry an inferred record: before 2.5. An empty version is
+// contract.Current().
+func InferredRecordNeedsRaise(version string) bool {
+	return olderThan(cmp.Or(version, contract.Current()), "2.5")
 }

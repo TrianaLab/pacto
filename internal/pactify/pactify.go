@@ -76,6 +76,13 @@ type Options struct {
 	// Catalog classifies the externals the folder names. Nil is the embedded
 	// default catalog.
 	Catalog *externalcatalog.Catalog
+	// Commit and PactoVersion are the inputs an inferred record names: the
+	// folder's commit and the Pacto completing it. Empty is omitted.
+	Commit, PactoVersion string
+
+	// cluster marks a draft read from the cluster, which is never completed:
+	// what runs there never reaches the inferred record.
+	cluster bool
 }
 
 // Template is the golden path a service is created from, already read and,
@@ -150,8 +157,9 @@ type Result struct {
 	Dir     string `json:"dir"`
 	Path    string `json:"path"`
 	Service string `json:"service"`
-	// Mode is "template" for a contract created from a golden path, "blank"
-	// for a folder with no service in it, else "pactify".
+	// Mode is "template" for a contract created from a golden path,
+	// "complete" for a folder whose pactoVersion 2.5 pacto.yaml was completed,
+	// "blank" for a folder with no service in it, else "pactify".
 	Mode    string `json:"mode"`
 	Applied bool   `json:"applied"`
 	// Found is what was read from the folder, one line each.
@@ -172,10 +180,15 @@ type Result struct {
 	// Steps say how far creating from a golden path got, and what Pacto
 	// cannot tell yet.
 	Steps []fleet.CreationStep `json:"steps,omitempty"`
+	// Inferred is what the folder shows beyond the pacto.yaml it already
+	// holds, in complete mode: pacto pack and pacto publish put it in the
+	// bundle as pacto.inferred.yaml. The folder never gets the file.
+	Inferred *contract.InferredRecord `json:"inferred,omitempty"`
 }
 
 const (
 	modeBlank    = "blank"
+	modeComplete = "complete"
 	modePactify  = "pactify"
 	modeTemplate = "template"
 )

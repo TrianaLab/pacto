@@ -69,7 +69,7 @@ type BundleMode struct {
 // and the bundle cannot take a pacto_ name, so it never shadows one.
 func New(version string, a Authoring, m Modes) (*mcpsdk.Server, error) {
 	server := newBareServer(version, instructionsFor(a, m))
-	registerTools(server, a, editOptions(m))
+	registerTools(server, version, a, editOptions(m))
 	if m.Fleet != nil {
 		registerFleetTools(server, m.Fleet.Src, m.Fleet.Opts)
 	}

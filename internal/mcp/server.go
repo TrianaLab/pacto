@@ -109,7 +109,7 @@ func newBareServer(version, instructions string) *mcpsdk.Server {
 // newServer builds a server with the given instructions and the authoring tools.
 func newServer(version, instructions string, a Authoring, opts EditOptions) *mcpsdk.Server {
 	server := newBareServer(version, instructions)
-	registerTools(server, a, opts)
+	registerTools(server, version, a, opts)
 	return server
 }
 
@@ -123,10 +123,11 @@ func newServer(version, instructions string, a Authoring, opts EditOptions) *mcp
 // bound a traversal and got an unbounded one.
 //
 // opts is what the edit adds about who it affects and the steps after it;
-// pacto_create shares its Served.
-func registerTools(server *mcpsdk.Server, a Authoring, opts EditOptions) {
+// pacto_create shares its Served. version is the Pacto an inferred record
+// pacto_create completes names.
+func registerTools(server *mcpsdk.Server, version string, a Authoring, opts EditOptions) {
 	if !a.Remote {
-		addTool(server, createTool(), createHandler(a.Init, opts.Served))
+		addTool(server, createTool(), createHandler(a.Init, opts.Served, version))
 		addTool(server, editTool(), editHandler(a.Validate, opts))
 		addTool(server, checkTool(), checkHandler(a.Validate))
 	}

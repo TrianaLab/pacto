@@ -151,7 +151,7 @@ func (cl *cluster) draft(ctx context.Context, w unstructured.Unstructured, base 
 		}
 	}
 	opts := base
-	opts.Dir, opts.Name, opts.Inferred = scanned, w.GetName(), deps
+	opts.Dir, opts.Name, opts.Inferred, opts.cluster = scanned, w.GetName(), deps, true
 	r, err := Init(ctx, opts, writeFile)
 	if r == nil {
 		return nil, err
