@@ -43,7 +43,7 @@ func (r *StageReconciler) shadow(ctx context.Context, stage *dv1.Stage) error {
 	case err != nil:
 		return err
 	}
-	d := delivery.RevisionDigest(a.revision)
+	d := delivery.RevisionDigest(a.src().revision)
 	if _, err := delivery.ParseDigest(d); err != nil {
 		return nil // nothing known runs: the proposal says no-observed-digest
 	}

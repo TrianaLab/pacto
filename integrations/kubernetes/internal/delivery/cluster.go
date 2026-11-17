@@ -82,10 +82,9 @@ func (c Cluster) remote(ctx context.Context, stage *dv1.Stage) (*delivery.StageS
 
 const noUpstreamTrust = "the promoter trusts no key for the records of other clusters (promoter.upstreamTrust)"
 
-// applyRef is the Stage's applier object (a Flux OCIRepository or an Argo CD
-// Application) as the promoter sees it.
-type applyRef struct {
-	argo     bool // an Argo CD Application
+// source is an OCI repository the promoter reads versions from: the apply
+// repository of a Stage's applier or a candidate OCIRepository.
+type source struct {
 	obj      *unstructured.Unstructured
 	repo     string
 	insecure bool
@@ -96,14 +95,45 @@ type applyRef struct {
 	verified bool
 }
 
+// applier is the Stage's applier object (a Flux OCIRepository or an Argo CD
+// Application) as the promoter sees it, with what differs between kinds.
+type applier interface {
+	// object is the object the promoter writes the version on.
+	object() *unstructured.Unstructured
+	// src is the repository the applier takes versions from.
+	src() *source
+	// target names where the promoter writes the version, for messages.
+	target() string
+	// setDigest writes digest and asks the applier to reconcile now.
+	setDigest(ctx context.Context, c client.Client, digest string, now time.Time) error
+	// applied reports whether the applier applied digest (Cluster.applied).
+	applied(ctx context.Context, c Cluster, ns, digest string) (ok, failed bool, msg string, err error)
+	// mediated is the Mediated condition of a labelled applier.
+	mediated(ctx context.Context, c Cluster, ns string) (delivery.Condition, error)
+	// notReady says what keeps a labelled applier from taking a version,
+	// nil when nothing does; what names it in the message.
+	notReady(what string) *delivery.Condition
+}
+
+// fluxApplier is a Flux OCIRepository applied by Kustomizations.
+type fluxApplier struct{ *source }
+
+// argoApplier is an Argo CD Application with one OCI spec.source.
+type argoApplier struct{ *source }
+
+func (a fluxApplier) object() *unstructured.Unstructured { return a.obj }
+func (a fluxApplier) src() *source                       { return a.source }
+func (a argoApplier) object() *unstructured.Unstructured { return a.obj }
+func (a argoApplier) src() *source                       { return a.source }
+
 // ApplyRefLabel marks the object a Stage applies through. Admission guards
 // the pointer of a labelled object only, and lets the promoter write nothing
 // else.
 const ApplyRefLabel = "delivery.pacto.trianalab.io/apply-ref"
 
 // cached is the reader of the watched kinds: Cache, or Client without one.
-func (c Cluster) cached(argo bool) client.Reader {
-	if c.Cache == nil || argo && !c.CacheApplications {
+func (c Cluster) cached(kind string) client.Reader {
+	if c.Cache == nil || kind == delivery.ApplierArgoCD && !c.CacheApplications {
 		return c.Client
 	}
 	return c.Cache
@@ -111,20 +141,24 @@ func (c Cluster) cached(argo bool) client.Reader {
 
 // applier reads the Stage's applier object from the cache, which can lag the
 // apiserver by a watch event. A decision on its digest reads freshApplier.
-func (c Cluster) applier(ctx context.Context, ns string, ref delivery.ApplyRef) (*applyRef, error) {
-	return c.applierFrom(ctx, c.cached(ref.Kind == delivery.ApplierArgoCD), ns, ref)
+func (c Cluster) applier(ctx context.Context, ns string, ref delivery.ApplyRef) (applier, error) {
+	return c.applierFrom(ctx, c.cached(ref.Kind), ns, ref)
 }
 
 // freshApplier reads the Stage's applier object from the apiserver: the
 // foreign-writer check, the witnessed override and the ship path decide on
 // its digest, and a stale one would freeze a Stage or record a move falsely.
-func (c Cluster) freshApplier(ctx context.Context, ns string, ref delivery.ApplyRef) (*applyRef, error) {
+func (c Cluster) freshApplier(ctx context.Context, ns string, ref delivery.ApplyRef) (applier, error) {
 	return c.applierFrom(ctx, c.Client, ns, ref)
 }
 
-func (c Cluster) applierFrom(ctx context.Context, r client.Reader, ns string, ref delivery.ApplyRef) (*applyRef, error) {
+func (c Cluster) applierFrom(ctx context.Context, r client.Reader, ns string, ref delivery.ApplyRef) (applier, error) {
 	if ref.Kind != delivery.ApplierArgoCD {
-		return ociRepository(ctx, r, ns, ref.Name)
+		s, err := ociRepository(ctx, r, ns, ref.Name)
+		if err != nil {
+			return nil, err
+		}
+		return fluxApplier{s}, nil
 	}
 	u := &unstructured.Unstructured{}
 	u.SetGroupVersionKind(gvkApplication)
@@ -136,18 +170,15 @@ func (c Cluster) applierFrom(ctx context.Context, r client.Reader, ns string, re
 	url, _, _ := unstructured.NestedString(u.Object, "spec", "source", "repoURL")
 	digest, _, _ := unstructured.NestedString(u.Object, "spec", "source", "targetRevision")
 	revision, _, _ := unstructured.NestedString(u.Object, "status", "sync", "revision")
-	return &applyRef{argo: true, obj: u, repo: delivery.RepoFromURL(url), digest: digest, revision: revision}, nil
+	return argoApplier{&source{obj: u, repo: delivery.RepoFromURL(url), digest: digest, revision: revision}}, nil
 }
 
-// field names where the promoter writes the version on a, for messages.
-func (a *applyRef) field() string {
-	if a.argo {
-		return "spec.source.targetRevision of Application " + a.obj.GetName()
-	}
-	return "spec.ref.digest of OCIRepository " + a.obj.GetName()
+func (a fluxApplier) target() string { return "spec.ref.digest of OCIRepository " + a.obj.GetName() }
+func (a argoApplier) target() string {
+	return "spec.source.targetRevision of Application " + a.obj.GetName()
 }
 
-func ociRepository(ctx context.Context, r client.Reader, ns, name string) (*applyRef, error) {
+func ociRepository(ctx context.Context, r client.Reader, ns, name string) (*source, error) {
 	u := &unstructured.Unstructured{}
 	u.SetGroupVersionKind(gvkOCIRepository)
 	if err := r.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, u); err != nil {
@@ -157,7 +188,7 @@ func ociRepository(ctx context.Context, r client.Reader, ns, name string) (*appl
 	insecure, _, _ := unstructured.NestedBool(u.Object, "spec", "insecure")
 	digest, _, _ := unstructured.NestedString(u.Object, "spec", "ref", "digest")
 	revision, _, _ := unstructured.NestedString(u.Object, "status", "artifact", "revision")
-	return &applyRef{obj: u, repo: delivery.RepoFromURL(url), insecure: insecure, digest: digest, revision: revision,
+	return &source{obj: u, repo: delivery.RepoFromURL(url), insecure: insecure, digest: digest, revision: revision,
 		verified: pinsIdentity(u.Object) && sourceVerified(u.Object, delivery.RevisionDigest(revision))}, nil
 }
 
@@ -216,27 +247,38 @@ func sourceVerified(obj map[string]any, digest string) bool {
 }
 
 // host is the registry host of the apply repository.
-func (a *applyRef) host() string {
+func (a *source) host() string {
 	host, _, _ := strings.Cut(a.repo, "/")
 	return host
 }
 
-// setDigest sets spec.ref.digest (spec.source.targetRevision on Argo CD) and
-// asks the applier to reconcile now. It is the only write the promoter ever
-// makes to an object it does not own.
-func (c Cluster) setDigest(ctx context.Context, a *applyRef, digest string, now time.Time) error {
-	patch := map[string]any{
+// setDigest sets spec.ref.digest and asks Flux to reconcile now. It and
+// argoApplier.setDigest are the only writes the promoter ever makes to an
+// object it does not own.
+func (a fluxApplier) setDigest(ctx context.Context, c client.Client, digest string, now time.Time) error {
+	return mergePatch(ctx, c, a.obj, map[string]any{
 		"metadata": map[string]any{"annotations": map[string]string{"reconcile.fluxcd.io/requestedAt": now.Format(time.RFC3339Nano)}},
 		"spec":     map[string]any{"ref": map[string]any{"digest": digest}},
-	}
-	if a.argo {
-		patch = map[string]any{
-			"metadata": map[string]any{"annotations": map[string]string{"argocd.argoproj.io/refresh": "normal"}},
-			"spec":     map[string]any{"source": map[string]any{"targetRevision": digest}},
-		}
-	}
+	})
+}
+
+// setDigest sets spec.source.targetRevision and asks Argo CD to refresh.
+func (a argoApplier) setDigest(ctx context.Context, c client.Client, digest string, _ time.Time) error {
+	return mergePatch(ctx, c, a.obj, map[string]any{
+		"metadata": map[string]any{"annotations": map[string]string{"argocd.argoproj.io/refresh": "normal"}},
+		"spec":     map[string]any{"source": map[string]any{"targetRevision": digest}},
+	})
+}
+
+func mergePatch(ctx context.Context, c client.Client, obj client.Object, patch map[string]any) error {
 	b, _ := json.Marshal(patch)
-	return c.Client.Patch(ctx, a.obj, client.RawPatch(types.MergePatchType, b))
+	return c.Patch(ctx, obj, client.RawPatch(types.MergePatchType, b))
+}
+
+// applied reports whether the applier a applied digest: failed is a
+// confirmed failure, ok is a confirmed success, and neither means "not yet".
+func (c Cluster) applied(ctx context.Context, ns string, a applier, digest string) (ok, failed bool, msg string, err error) {
+	return a.applied(ctx, c, ns, digest)
 }
 
 // applied reports whether Flux applied digest from the apply repository:
@@ -244,11 +286,7 @@ func (c Cluster) setDigest(ctx context.Context, a *applyRef, digest string, now 
 // Ready for a reason other than progress), ok is a confirmed success, and
 // neither means "not yet". It reads the Kustomizations live, as the ship path
 // reads a.
-func (c Cluster) applied(ctx context.Context, ns string, a *applyRef, digest string) (ok, failed bool, msg string, err error) {
-	if a.argo {
-		ok, failed, msg = argoApplied(a, digest)
-		return ok, failed, msg, nil
-	}
+func (a fluxApplier) applied(ctx context.Context, c Cluster, ns, digest string) (ok, failed bool, msg string, err error) {
 	if delivery.RevisionDigest(a.revision) != digest {
 		return false, false, "the OCIRepository has not fetched " + digest + " yet", nil
 	}
@@ -296,7 +334,7 @@ func kustomizationApplied(k *unstructured.Unstructured, digest string) (failed b
 	return false, "Kustomization " + k.GetName() + " has not applied " + digest + " yet"
 }
 
-// argoApplied reads whether Argo CD applied digest: Synced and Healthy at that
+// applied reads whether Argo CD applied digest: Synced and Healthy at that
 // revision is a success; a sync of digest that Failed or Errored, or the
 // Application Degraded once Argo CD synced digest, is a confirmed failure;
 // anything else is "not yet" (Progressing, OutOfSync or still at another
@@ -304,7 +342,7 @@ func kustomizationApplied(k *unstructured.Unstructured, digest string) (failed b
 // which moves to the target on a refresh before any sync, so Degraded counts
 // only when the sync is Synced or a sync of digest Succeeded: before that the
 // health still describes the previous version's workloads.
-func argoApplied(a *applyRef, digest string) (ok, failed bool, msg string) {
+func (a argoApplier) applied(_ context.Context, _ Cluster, _, digest string) (ok, failed bool, msg string, err error) {
 	name := a.obj.GetName()
 	at := delivery.RevisionDigest(a.revision) == digest
 	sync, _, _ := unstructured.NestedString(a.obj.Object, "status", "sync", "status")
@@ -314,16 +352,16 @@ func argoApplied(a *applyRef, digest string) (ok, failed bool, msg string) {
 	opMsg, _, _ := unstructured.NestedString(a.obj.Object, "status", "operationState", "message")
 	switch {
 	case (phase == "Failed" || phase == "Error") && delivery.RevisionDigest(opRev) == digest:
-		return false, true, fmt.Sprintf("Application %s failed to sync %s: %s: %s", name, digest, phase, opMsg)
+		return false, true, fmt.Sprintf("Application %s failed to sync %s: %s: %s", name, digest, phase, opMsg), nil
 	case !at:
-		return false, false, "Application " + name + " has not synced " + digest + " yet"
+		return false, false, "Application " + name + " has not synced " + digest + " yet", nil
 	case health == "Degraded" && (sync == "Synced" || phase == "Succeeded" && delivery.RevisionDigest(opRev) == digest):
 		healthMsg, _, _ := unstructured.NestedString(a.obj.Object, "status", "health", "message")
-		return false, true, fmt.Sprintf("Application %s is Degraded at %s: %s", name, digest, healthMsg)
+		return false, true, fmt.Sprintf("Application %s is Degraded at %s: %s", name, digest, healthMsg), nil
 	case sync == "Synced" && health == "Healthy":
-		return true, false, ""
+		return true, false, "", nil
 	}
-	return false, false, fmt.Sprintf("Application %s at %s is %s and %s, not Synced and Healthy yet", name, digest, sync, health)
+	return false, false, fmt.Sprintf("Application %s at %s is %s and %s, not Synced and Healthy yet", name, digest, sync, health), nil
 }
 
 func readyCondition(obj map[string]any) (status, reason, message string) {
@@ -346,7 +384,7 @@ func (c Cluster) describe(ctx context.Context, stage delivery.StageObject, diges
 	if err != nil {
 		return delivery.Revision{Digest: digest, Err: "the apply OCIRepository: " + err.Error()}
 	}
-	return delivery.ResolveRevision(ctx, c.registryFor(a), a.repo, digest)
+	return delivery.ResolveRevision(ctx, c.registryFor(a.src()), a.src().repo, digest)
 }
 
 // pactos lists every Pacto in the cluster through the stable read contract.
@@ -365,7 +403,7 @@ func (c Cluster) pactos(ctx context.Context) ([]delivery.PactoView, error) {
 func (c Cluster) kustomizations(ctx context.Context) ([]delivery.KustomizationView, error) {
 	list := &unstructured.UnstructuredList{}
 	list.SetGroupVersionKind(gvkKustomization)
-	if err := c.cached(false).List(ctx, list); err != nil {
+	if err := c.cached(delivery.ApplierFlux).List(ctx, list); err != nil {
 		return nil, err
 	}
 	b, _ := list.MarshalJSON()

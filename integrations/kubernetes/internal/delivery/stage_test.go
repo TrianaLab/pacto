@@ -537,7 +537,7 @@ func TestStageReadyApplier(t *testing.T) {
 	}
 	cases := []struct {
 		name    string
-		argo    bool
+		onArgo  bool
 		applier client.Object
 		reason  string
 	}{
@@ -557,7 +557,7 @@ func TestStageReadyApplier(t *testing.T) {
 	}
 	for _, c := range cases {
 		s := stageObj(dA)
-		if c.argo {
+		if c.onArgo {
 			s = argoStage(dA)
 		}
 		objs := []client.Object{s, verifiedRepo("payments-candidates", "latest@"+dB)}

@@ -95,8 +95,9 @@ func (p planSources) Revisions(ctx context.Context, stage delivery.StageObject, 
 		why := "the apply OCIRepository: " + err.Error()
 		return delivery.Revision{Digest: from, Err: why}, delivery.Revision{Digest: to, Err: why}
 	}
-	reg := p.c.registryFor(a)
-	return delivery.ResolveRevision(ctx, reg, a.repo, from), delivery.ResolveRevision(ctx, reg, a.repo, to)
+	s := a.src()
+	reg := p.c.registryFor(s)
+	return delivery.ResolveRevision(ctx, reg, s.repo, from), delivery.ResolveRevision(ctx, reg, s.repo, to)
 }
 
 func (p planSources) Pactos(ctx context.Context) ([]delivery.PactoView, error) {

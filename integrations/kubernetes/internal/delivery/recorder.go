@@ -474,12 +474,14 @@ func (w *writer) write(ctx context.Context, op *dv1.Operation) (*stored, error) 
 	if err != nil {
 		return nil, err
 	}
-	apply, err := w.Cluster.applier(ctx, w.stage.Namespace, w.stage.Spec.ApplyRef)
+	a, err := w.Cluster.applier(ctx, w.stage.Namespace, w.stage.Spec.ApplyRef)
+	var apply *source // nil: records still go on the anchor
 	switch {
 	case apierrors.IsNotFound(err):
-		apply = nil // records still go on the anchor
 	case err != nil:
 		return nil, err
+	default:
+		apply = a.src()
 	}
 	l, err := w.Store.locate(ctx, w.anchor, apply, op.Spec.Params.From, op.Spec.Params.To)
 	if err != nil {

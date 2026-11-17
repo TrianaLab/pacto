@@ -167,7 +167,7 @@ func operationToStage(_ context.Context, obj client.Object) []reconcile.Request 
 
 // registryFor returns a registry client for the apply repository, reaching it
 // over plain HTTP when the OCIRepository says so.
-func (c Cluster) registryFor(a *applyRef) delivery.Registry {
+func (c Cluster) registryFor(a *source) delivery.Registry {
 	if a.insecure {
 		return c.Registry(a.host())
 	}

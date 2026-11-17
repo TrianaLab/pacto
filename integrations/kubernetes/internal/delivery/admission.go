@@ -183,7 +183,7 @@ func (r *OperationReconciler) unfreezeRefusal(ctx context.Context, op *dv1.Opera
 		if a, err := r.Cluster.applier(ctx, stage.Namespace, stage.Spec.ApplyRef); err != nil {
 			running.Err = err.Error()
 		} else {
-			running = delivery.ResolveRevision(ctx, r.Cluster.registryFor(a), a.repo, stage.Status.Pointer)
+			running = delivery.ResolveRevision(ctx, r.Cluster.registryFor(a.src()), a.src().repo, stage.Status.Pointer)
 		}
 	}
 	if running.Bundle != nil && running.Bundle.Contract != nil {

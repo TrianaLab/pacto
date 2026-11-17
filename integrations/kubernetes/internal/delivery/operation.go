@@ -465,15 +465,15 @@ func (r *OperationReconciler) running(ctx context.Context, op *dv1.Operation, st
 		op.Status.Message = "reading the apply OCIRepository: " + err.Error()
 		return r.save(ctx, op)
 	}
-	if a.digest != to {
-		if a.digest != from {
+	if cur := a.src().digest; cur != to {
+		if cur != from {
 			return r.finish(ctx, op, stage, conclusion{outcome: delivery.Errored, freeze: true,
-				reason: fmt.Sprintf("ForeignWriter: %s is %q, which this operation did not write; it is left as found", a.field(), a.digest)})
+				reason: fmt.Sprintf("ForeignWriter: %s is %q, which this operation did not write; it is left as found", a.target(), cur)})
 		}
-		if err := r.Cluster.setDigest(ctx, a, to, r.now()); err != nil {
+		if err := a.setDigest(ctx, r.Cluster.Client, to, r.now()); err != nil {
 			// A refusal (a missing apply-ref label, RBAC) lasts until a
 			// person fixes it, so the operation says what it is.
-			op.Status.Message = "writing " + a.field() + ": " + err.Error()
+			op.Status.Message = "writing " + a.target() + ": " + err.Error()
 			return r.save(ctx, op)
 		}
 		return r.requeue()

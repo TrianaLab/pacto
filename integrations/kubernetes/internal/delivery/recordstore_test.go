@@ -142,7 +142,7 @@ func TestRecordStoreLocate(t *testing.T) {
 	ctx := context.Background()
 	s, reg, _ := testStore(t)
 	a, _ := s.anchor(ctx, "s")
-	apply := &applyRef{repo: reg.host + "/apps/payments", insecure: true}
+	apply := &source{repo: reg.host + "/apps/payments", insecure: true}
 	l, err := s.locate(ctx, a, apply, reg.from, reg.to)
 	if err != nil || l.to == nil || l.from == nil || l.contract == nil {
 		t.Fatalf("locate: %+v %v", l, err)
@@ -163,13 +163,13 @@ func TestRecordStoreLocate(t *testing.T) {
 
 // locateUnaddressable checks an unaddressable contract or apply repository
 // and a failed registry read never locate.
-func locateUnaddressable(ctx context.Context, t *testing.T, s *RecordStore, reg *testRegistry, a *place, apply *applyRef, missing string) {
+func locateUnaddressable(ctx context.Context, t *testing.T, s *RecordStore, reg *testRegistry, a *place, apply *source, missing string) {
 	t.Helper()
 	badCtr := reg.push(t, "apps/payments", "v3", map[string]string{delivery.ContractAnnotation: "oci://not a host/x@" + missing}).Digest.String()
 	if l, err := s.locate(ctx, a, apply, "", badCtr); err != nil || l.contract != nil {
 		t.Fatalf("unaddressable contract: %+v %v", l, err)
 	}
-	if _, err := s.locate(ctx, a, &applyRef{repo: "not a host/x"}, "", reg.to); err == nil {
+	if _, err := s.locate(ctx, a, &source{repo: "not a host/x"}, "", reg.to); err == nil {
 		t.Fatal("opened an unparseable apply repository")
 	}
 	for name, fault := range map[string]func(*http.Request) bool{

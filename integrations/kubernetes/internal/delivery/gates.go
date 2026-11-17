@@ -46,7 +46,7 @@ func (c Cluster) revision(ctx context.Context, in delivery.GateInput) delivery.R
 	if err != nil {
 		return delivery.Revision{Err: "reading the apply OCIRepository: " + err.Error()}
 	}
-	return delivery.ResolveRevision(ctx, c.registryFor(a), a.repo, in.Subjects[0])
+	return delivery.ResolveRevision(ctx, c.registryFor(a.src()), a.src().repo, in.Subjects[0])
 }
 
 // clusterGate judges the Pacto evaluation of the version under check.
@@ -88,7 +88,7 @@ func (c Cluster) contractCheck(ctx context.Context, stage *dv1.Stage, digest str
 	if err != nil {
 		return delivery.ContractCheck{}, "reading the apply OCIRepository: " + err.Error()
 	}
-	ann, err := c.registryFor(a).Annotations(ctx, a.repo+"@"+digest)
+	ann, err := c.registryFor(a.src()).Annotations(ctx, a.src().repo+"@"+digest)
 	if err != nil {
 		return delivery.ContractCheck{}, "reading the artifact: " + err.Error()
 	}

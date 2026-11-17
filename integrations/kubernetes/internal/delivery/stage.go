@@ -290,10 +290,10 @@ func (r *StageReconciler) witness(ctx context.Context, stage *dv1.Stage) error {
 	case err != nil:
 		return err
 	}
-	if delivery.CurrentLevel(stage.Spec, stage.Status) == delivery.LevelObserve && !labelled(a.obj) {
+	if delivery.CurrentLevel(stage.Spec, stage.Status) == delivery.LevelObserve && !labelled(a.object()) {
 		return nil // observing an unguarded applyRef: GitOps moves it
 	}
-	if _, err := delivery.ParseDigest(a.digest); err != nil || a.digest == stage.Status.Pointer {
+	if _, err := delivery.ParseDigest(a.src().digest); err != nil || a.src().digest == stage.Status.Pointer {
 		return nil
 	}
 	stage, a, err = r.witnessFresh(ctx, stage)
@@ -302,8 +302,8 @@ func (r *StageReconciler) witness(ctx context.Context, stage *dv1.Stage) error {
 	}
 	spec := delivery.OperationSpec{
 		Type: delivery.TypeOverride, Stage: stage.Name, Facet: delivery.FacetPointer,
-		Params:    delivery.Params{From: stage.Status.Pointer, To: a.digest},
-		Reason:    "witnessed: " + a.field() + " was edited outside Pacto",
+		Params:    delivery.Params{From: stage.Status.Pointer, To: a.src().digest},
+		Reason:    "witnessed: " + a.target() + " was edited outside Pacto",
 		Actor:     delivery.Actor{User: r.Policy.ControllerUser},
 		Cause:     &delivery.Cause{Reason: "pointer edited outside Pacto (editor: unknown)"},
 		Witnessed: true,
@@ -315,7 +315,7 @@ func (r *StageReconciler) witness(ctx context.Context, stage *dv1.Stage) error {
 // cache can lag a write the promoter itself made. It returns them only while
 // the apiserver's digest still differs from the stored pointer and no
 // operation holds the pointer lock.
-func (r *StageReconciler) witnessFresh(ctx context.Context, stage *dv1.Stage) (*dv1.Stage, *applyRef, error) {
+func (r *StageReconciler) witnessFresh(ctx context.Context, stage *dv1.Stage) (*dv1.Stage, applier, error) {
 	a, err := r.Cluster.freshApplier(ctx, stage.Namespace, stage.Spec.ApplyRef)
 	if err != nil {
 		return nil, nil, client.IgnoreNotFound(err)
@@ -324,7 +324,7 @@ func (r *StageReconciler) witnessFresh(ctx context.Context, stage *dv1.Stage) (*
 	if err := r.APIReader.Get(ctx, client.ObjectKeyFromObject(stage), fresh); err != nil {
 		return nil, nil, client.IgnoreNotFound(err)
 	}
-	if _, err := delivery.ParseDigest(a.digest); err != nil || a.digest == fresh.Status.Pointer ||
+	if _, err := delivery.ParseDigest(a.src().digest); err != nil || a.src().digest == fresh.Status.Pointer ||
 		fresh.Status.Locks[delivery.FacetPointer] != "" || fresh.Status.Pointer == "" {
 		return nil, nil, nil
 	}
@@ -365,7 +365,7 @@ func (r *StageReconciler) autoPromote(ctx context.Context, stage *dv1.Stage) err
 // cannot write and nothing is admitted while admission does not guard. It
 // also remembers the newest upstream record read, which the next read must
 // extend.
-func (r *StageReconciler) ready(ctx context.Context, stage *dv1.Stage) (*applyRef, *delivery.StageStatus, error) {
+func (r *StageReconciler) ready(ctx context.Context, stage *dv1.Stage) (*source, *delivery.StageStatus, error) {
 	cand, up, want, err := r.candidateReady(ctx, stage)
 	if err != nil {
 		return nil, nil, err
@@ -456,12 +456,12 @@ func (r *StageReconciler) readyConds(ctx context.Context, stage *dv1.Stage, want
 // candidateReady reads the Stage's candidate source and says whether it can
 // offer anything: the candidate OCIRepository, what the upstream in another
 // cluster offers, and the Ready condition.
-func (r *StageReconciler) candidateReady(ctx context.Context, stage *dv1.Stage) (*applyRef, *delivery.StageStatus, delivery.Condition, error) {
+func (r *StageReconciler) candidateReady(ctx context.Context, stage *dv1.Stage) (*source, *delivery.StageStatus, delivery.Condition, error) {
 	want := delivery.Condition{Type: conditionReady, Status: statusTrue, Reason: conditionReady, Message: "the Stage can promote published versions"}
 	c := stage.Spec.Candidates
 	switch {
 	case c.OCIRepositoryRef != nil:
-		a, err := ociRepository(ctx, r.Cluster.cached(false), stage.Namespace, c.OCIRepositoryRef.Name)
+		a, err := ociRepository(ctx, r.Cluster.cached(delivery.ApplierFlux), stage.Namespace, c.OCIRepositoryRef.Name)
 		switch {
 		case apierrors.IsNotFound(err):
 			want = notReady(delivery.ReadyReasonCandidateNotFound, "the candidate OCIRepository "+c.OCIRepositoryRef.Name+" does not exist")
@@ -517,7 +517,7 @@ func (r *StageReconciler) remote(ctx context.Context, stage *dv1.Stage) (*delive
 // policy then refuses every promoter write), its label names another Stage
 // or, on Argo CD, it has no single
 // OCI spec.source or no automated sync (the promoter never runs a sync).
-func (r *StageReconciler) applierReady(ctx context.Context, stage *dv1.Stage) (*delivery.Condition, *applyRef, error) {
+func (r *StageReconciler) applierReady(ctx context.Context, stage *dv1.Stage) (*delivery.Condition, applier, error) {
 	ref := stage.Spec.ApplyRef
 	kind := ref.Kind
 	if kind == "" {
@@ -536,18 +536,31 @@ func (r *StageReconciler) applierReady(ctx context.Context, stage *dv1.Stage) (*
 		return nil, nil, err
 	}
 	var c delivery.Condition
+	switch o := a.object(); {
+	case !labelled(o):
+		c = notReady(reasonApplierUnlabelled, what+" has no "+ApplyRefLabel+" label, so admission refuses every version the promoter writes to it")
+	case o.GetLabels()[ApplyRefLabel] != stage.Name:
+		// Another Stage could drive the same pointer otherwise.
+		c = notReady(reasonApplierUnlabelled, what+" is labelled "+ApplyRefLabel+"="+o.GetLabels()[ApplyRefLabel]+
+			", not "+stage.Name+": the label names the one Stage that applies through it")
+	default:
+		return a.notReady(what), a, nil
+	}
+	return &c, a, nil
+}
+
+// notReady is nil: a labelled OCIRepository takes any version by digest.
+func (fluxApplier) notReady(string) *delivery.Condition { return nil }
+
+// notReady says why the Application cannot take a version: it has no single
+// OCI spec.source or no automated sync (the promoter never runs a sync). It
+// lives here so TestReadyReasonsMatchOperator checks its reasons.
+func (a argoApplier) notReady(what string) *delivery.Condition {
+	var c delivery.Condition
 	_, multi, _ := unstructured.NestedFieldNoCopy(a.obj.Object, "spec", "sources")
 	url, _, _ := unstructured.NestedString(a.obj.Object, "spec", "source", "repoURL")
 	_, automated, _ := unstructured.NestedFieldNoCopy(a.obj.Object, "spec", "syncPolicy", "automated")
 	switch {
-	case !labelled(a.obj):
-		c = notReady(reasonApplierUnlabelled, what+" has no "+ApplyRefLabel+" label, so admission refuses every version the promoter writes to it")
-	case a.obj.GetLabels()[ApplyRefLabel] != stage.Name:
-		// Another Stage could drive the same pointer otherwise.
-		c = notReady(reasonApplierUnlabelled, what+" is labelled "+ApplyRefLabel+"="+a.obj.GetLabels()[ApplyRefLabel]+
-			", not "+stage.Name+": the label names the one Stage that applies through it")
-	case !a.argo:
-		return nil, a, nil
 	case multi:
 		c = notReady(delivery.ReadyReasonApplierMultiSource, what+" sets spec.sources; the promoter writes only the one OCI spec.source")
 	case !strings.HasPrefix(url, "oci://"):
@@ -555,9 +568,9 @@ func (r *StageReconciler) applierReady(ctx context.Context, stage *dv1.Stage) (*
 	case !automated:
 		c = notReady(delivery.ReadyReasonApplierNotAutomated, what+" sets no spec.syncPolicy.automated; the promoter never runs a sync, so a version it writes is never applied")
 	default:
-		return nil, a, nil
+		return nil
 	}
-	return &c, a, nil
+	return &c
 }
 
 // reasonApplierUnlabelled is the Ready reason of an applyRef without
@@ -577,7 +590,7 @@ func notReady(reason, msg string) delivery.Condition {
 // Flux verified its signature: a version pacto publish published. The
 // pacto.published gate admits only remembered digests, so a version Flux
 // verified earlier can still be proposed after the tag moved on.
-func (r *StageReconciler) recordPublished(ctx context.Context, stage *dv1.Stage, a *applyRef) error {
+func (r *StageReconciler) recordPublished(ctx context.Context, stage *dv1.Stage, a *source) error {
 	if a == nil {
 		return nil
 	}
@@ -613,7 +626,7 @@ func (r *StageReconciler) candidate(ctx context.Context, stage *dv1.Stage, remot
 	c := stage.Spec.Candidates
 	switch {
 	case c.OCIRepositoryRef != nil:
-		a, err := ociRepository(ctx, r.Cluster.cached(false), stage.Namespace, c.OCIRepositoryRef.Name)
+		a, err := ociRepository(ctx, r.Cluster.cached(delivery.ApplierFlux), stage.Namespace, c.OCIRepositoryRef.Name)
 		if err != nil {
 			return "", client.IgnoreNotFound(err)
 		}

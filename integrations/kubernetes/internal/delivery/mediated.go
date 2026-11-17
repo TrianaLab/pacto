@@ -37,25 +37,30 @@ var argoOverrides = [][]string{
 }
 
 // mediated is the Mediated condition for the Stage applying through a.
-func (c Cluster) mediated(ctx context.Context, ns string, a *applyRef) (delivery.Condition, error) {
-	if !labelled(a.obj) {
-		return notMediated("ApplyRefUnguarded", "the apply object "+a.obj.GetName()+" has no "+ApplyRefLabel+" label, so admission does not guard its pointer"), nil
+func (c Cluster) mediated(ctx context.Context, ns string, a applier) (delivery.Condition, error) {
+	if o := a.object(); !labelled(o) {
+		return notMediated("ApplyRefUnguarded", "the apply object "+o.GetName()+" has no "+ApplyRefLabel+" label, so admission does not guard its pointer"), nil
 	}
-	if ignore, _, _ := unstructured.NestedString(a.obj.Object, "spec", "ignore"); !a.argo && ignore != "" {
+	return a.mediated(ctx, c, ns)
+}
+
+func (a argoApplier) mediated(context.Context, Cluster, string) (delivery.Condition, error) {
+	if s, _, _ := unstructured.NestedSlice(a.obj.Object, "spec", "sources"); len(s) > 0 {
+		return notMediated("SeveralSources", "Application "+a.obj.GetName()+" sets spec.sources"), nil
+	}
+	if set := setPaths(a.obj.Object, []string{"spec", "source"}, argoOverrides); len(set) > 0 {
+		return notMediated("ApplierOverrides", "Application "+a.obj.GetName()+" sets "+strings.Join(set, ", ")), nil
+	}
+	return pointerOnly, nil
+}
+
+func (a fluxApplier) mediated(ctx context.Context, c Cluster, ns string) (delivery.Condition, error) {
+	if ignore, _, _ := unstructured.NestedString(a.obj.Object, "spec", "ignore"); ignore != "" {
 		return notMediated("ApplierOverrides", "OCIRepository "+a.obj.GetName()+" sets spec.ignore, which leaves files of the version out"), nil
-	}
-	if a.argo {
-		if s, _, _ := unstructured.NestedSlice(a.obj.Object, "spec", "sources"); len(s) > 0 {
-			return notMediated("SeveralSources", "Application "+a.obj.GetName()+" sets spec.sources"), nil
-		}
-		if set := setPaths(a.obj.Object, []string{"spec", "source"}, argoOverrides); len(set) > 0 {
-			return notMediated("ApplierOverrides", "Application "+a.obj.GetName()+" sets "+strings.Join(set, ", ")), nil
-		}
-		return pointerOnly, nil
 	}
 	list := &unstructured.UnstructuredList{}
 	list.SetGroupVersionKind(gvkKustomization)
-	if err := c.cached(false).List(ctx, list); err != nil {
+	if err := c.cached(delivery.ApplierFlux).List(ctx, list); err != nil {
 		return delivery.Condition{}, err
 	}
 	var appliers []unstructured.Unstructured
