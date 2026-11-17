@@ -51,8 +51,8 @@ Metrics and Nodes. Each carries five more fields:
 | `details` | Other candidates or facts, at most 5 |
 | `scope` | `cluster` for a row read cluster-wide |
 
-A detected row never clears a gate and never changes the answer's
-completeness. An entry the operator could not read is `unavailable` with a
+Detected rows list after the rows a source reported. A detected row never
+clears a gate and never changes the answer's completeness. An entry the operator could not read is `unavailable` with a
 `DETECTION_<KIND>_UNKNOWN` limitation, and a partial one carries
 `DETECTION_<KIND>_PARTIAL`. A row naming a cluster no Kubernetes source of
 the snapshot reads carries `DETECTION_CLUSTER_MISMATCH`, and its source
