@@ -271,7 +271,7 @@ describe('ownerProvenanceText', () => {
   it('says nothing for a declared or absent owner and a sentence for the rest', () => {
     expect(ownerProvenanceText('declared')).toBe('');
     expect(ownerProvenanceText(undefined)).toBe('');
-    expect(ownerProvenanceText('declared-via-target')).toBe('Declared by the contract a running target reports; no published revision of this service declares an owner');
+    expect(ownerProvenanceText('declared-via-target')).toBe('Declared by the contract a running target reports; no revision Pacto read declares an owner');
     expect(ownerProvenanceText('attested')).toBe('Read from the repository at the commit a verified CI identity signed; routes reviews, never clears a gate');
     expect(ownerProvenanceText('inferred')).toBe('Inferred; Pacto never routes approvals or clears a gate on it');
   });

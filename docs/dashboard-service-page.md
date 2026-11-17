@@ -28,7 +28,7 @@ service's contracts readable. A declared owner links to the revision that declar
 the newest revision in use, or the newest known revision when nothing runs the
 service.
 
-A mark after an owner no published revision declares, including a resource's
+A mark after an owner no revision Pacto read declares, including a resource's
 provider owner, says in its tooltip where it comes from.
 
 ## Dependencies

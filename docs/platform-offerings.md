@@ -36,7 +36,7 @@ Each provider says where its membership comes from in `offeringProvenance`:
 `declared` when a contract revision declares the offering, `observed` when only
 the operators observing its targets report it.
 
-The dashboard marks a provider owner that no published revision declares.
+The dashboard marks a provider owner that no revision Pacto read declares.
 
 ## The Offerings list
 

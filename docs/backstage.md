@@ -164,6 +164,8 @@ spec:
 
 ## Agents read the same data
 
-Agents read the same services through `pacto_fleet_search` and
+Agents find the same services with `pacto_fleet_search` and read each one with
 `pacto_fleet_get`; the provenance names (declared, observed, declared+observed,
-inferred, and for owners declared-via-target and attested) are identical.
+inferred, and for owners declared-via-target and attested) are identical. Owner
+provenance is in `pacto_fleet_get`'s `ownerProvenance` and in
+`pacto_fleet_entity`'s `ownership.provenance`; search hits do not carry it.
