@@ -749,9 +749,20 @@ func (r *Result) noteUnlisted(snap *fleet.FleetSnapshot, q *fleet.Query, changed
 
 // dependents walks every service that depends on key, transitively, and
 // notes the unresolved references that may name it (policy ones withPolicy).
-// It is nil, with the answer partial, when key is not in the fleet. Contract
+// It is nil, with the answer partial, when key is not in the fleet or is an
+// inferred service. Contract
 // and event answers both walk through it, so they list the same consumers.
 func (r *Result) dependents(snap *fleet.FleetSnapshot, q *fleet.Query, key fleet.ServiceKey, withPolicy bool) *fleet.GraphResult {
+	if s := snap.Services[key]; s != nil && s.Inferred() {
+		// No contract can depend on an inferred service, so an empty consumer
+		// list here is unknown, never "nothing breaks".
+		r.Completeness = fleet.CompletenessPartial
+		r.Limitations = append(r.Limitations, fleet.Limitation{
+			Code: fleet.LimitationServiceInferred, Source: limitationSource,
+			Message: "no contract Pacto read describes " + s.Name + ", so its consumers cannot be determined",
+		})
+		return nil
+	}
 	graph, err := q.Graph(fleet.GraphQuery{Service: string(key), Direction: fleet.DirectionDependents, Transitive: true})
 	if err != nil {
 		// The service is not in the graph, so NO consumer can be ruled in or

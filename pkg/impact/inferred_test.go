@@ -115,3 +115,20 @@ func TestImpactIgnoresWorkloadSourceHealth(t *testing.T) {
 		}
 	}
 }
+
+// An inferred service has no contract, so nobody can be shown to depend on
+// it: an event about it is unknown, never clear.
+func TestEventOnInferredServiceNeverClears(t *testing.T) {
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{},
+		fleet.NewMemorySource("k8s", "kubernetes", &fleet.Collection{Revisions: []fleet.RawRevision{{Bundle: mkBundle(svcContract("auth-service", "1.0.0", contract.Owner{}))}}}),
+		legacyWorkloads())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []string{EventUnavailable, EventRemoved} {
+		res := event(snap, kind, string(fleet.NewServiceKey("k8s:pay/Deployment/legacy")))
+		if res.Gate == GateClear || res.Completeness != fleet.CompletenessPartial || limitation(res, fleet.LimitationServiceInferred) == nil {
+			t.Errorf("%s: gate %s completeness %s limitations %+v", kind, res.Gate, res.Completeness, res.Limitations)
+		}
+	}
+}

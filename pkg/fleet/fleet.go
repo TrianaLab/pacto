@@ -352,6 +352,10 @@ const (
 	// LimitationDeclarationUnverified: Pacto could not read the Pacto targets
 	// of an inferred service's namespace, so a contract may describe it.
 	LimitationDeclarationUnverified = "DECLARATION_UNVERIFIED"
+	// LimitationServiceInferred: the answer is about an inferred service, which
+	// no contract describes, so who depends on it is unknown and only its
+	// observed calls are known.
+	LimitationServiceInferred = "SERVICE_INFERRED"
 	// LimitationServiceNameCollision: two or more folders or references claim
 	// one service name and at least one only inferred it. Build drops every
 	// inferred claimant, so a guessed name never joins another service.
@@ -645,7 +649,7 @@ type ServiceRecord struct {
 	// restricted answer.
 	HiddenCreated int `json:"hiddenCreated,omitempty"`
 	// Declaration says whether a contract describes the service.
-	Declaration string `json:"declaration" enum:"declared,inferred" doc:"declared when a contract revision or a Pacto target describes the service; inferred when Pacto only sees a workload no contract describes"`
+	Declaration string `json:"declaration" enum:"declared,inferred" doc:"declared when a contract revision or a Pacto target describes the service; inferred when Pacto only sees a workload no contract Pacto read describes; workload.declarationUnverified says Pacto could not read the Pacto targets there"`
 	// Workload is what Pacto read from the workload of an inferred service.
 	Workload *InferredWorkload `json:"workload,omitempty"`
 }

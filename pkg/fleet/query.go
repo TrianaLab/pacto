@@ -901,7 +901,22 @@ func (q *Query) Graph(gq GraphQuery) (*GraphResult, error) {
 	})
 	res.Cycles = cycles
 	res.Edges, res.Unresolved = q.graphEdges(nodeSet, rootSvc, dir, scopeRev, gq.IncludeObserved)
+	if s := q.snap.Services[rootSvc]; s != nil && s.Inferred() {
+		// ponytail: the graph draws no edge of an inferred service yet; 509-S4 adds its observed calls.
+		limitationFirst(&res.Meta, Limitation{
+			Code: LimitationServiceInferred, Source: s.Workload.Source,
+			Message: "no contract Pacto read describes " + s.Name + ", so the graph shows none of its dependencies or dependents; its observed calls are on its entity detail (pacto_fleet_entity)",
+		})
+	}
 	return res, nil
+}
+
+// limitationFirst marks m partial and puts l first, so the cap keeps it.
+func limitationFirst(m *Meta, l Limitation) {
+	m.Completeness = CompletenessPartial
+	var trunc bool
+	m.Limitations, trunc = BoundLimitations(append([]Limitation{l}, m.Limitations...))
+	m.LimitationsTruncated = m.LimitationsTruncated || trunc
 }
 
 // walkGraph is the breadth-first walk of [Query.Graph] from root over
@@ -1300,6 +1315,15 @@ func (q *Query) explainService(s *ServiceRecord) *ExplainResult {
 	// carries no domain field, so a bare name would name a DIFFERENT service (with a
 	// different status) in any fleet holding two domains' worth of the same name.
 	res := &ExplainResult{Meta: q.meta(), Subject: string(s.Key), Kind: "service", Status: s.Status, Reasons: []Reason{}}
+	if s.Inferred() {
+		res.Reasons = append(res.Reasons, Reason{
+			Code: LimitationServiceInferred, Source: s.Workload.Source, ObservedAt: copyTime(s.Workload.ObservedAt),
+			Message: "no contract Pacto read describes this workload; it never satisfies a dependency or clears a gate",
+		})
+		for _, l := range inferredLimitations(s) {
+			res.Reasons = append(res.Reasons, Reason{Code: l.Code, Message: l.Message, Source: l.Source})
+		}
+	}
 	for _, tk := range s.Targets {
 		res.Reasons = append(res.Reasons, targetReasons(q.snap.Targets[tk])...)
 	}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -567,4 +568,33 @@ func TestInferredLines(t *testing.T) {
 	if got := d.InferredLines(asOf); !slices.Equal(got[1:4], []string{"Calls (3):", "  orders", "  2 more"}) {
 		t.Errorf("calls: %q", got)
 	}
+}
+
+func TestGraphAndExplainOfInferredServiceSayItIsInferred(t *testing.T) {
+	q := goldenWith(t, true, kernel(call(cartName, "postgresql")))
+	g, err := q.Graph(GraphQuery{Service: cartName, IncludeObserved: true, Transitive: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.Meta.Completeness != CompletenessPartial || g.Meta.Limitations[0].Code != LimitationServiceInferred || !strings.Contains(g.Meta.Limitations[0].Message, "pacto_fleet_entity") {
+		t.Errorf("graph meta %+v", g.Meta)
+	}
+	ex, err := q.Explain(cartName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if codes := reasonCodes(ex.Reasons); !slices.Equal(codes, []string{LimitationDeclarationUnverified, LimitationServiceInferred}) {
+		t.Errorf("explain reasons %v", codes)
+	}
+	if d, _ := q.Graph(GraphQuery{Service: "orders"}); slices.ContainsFunc(d.Meta.Limitations, func(l Limitation) bool { return l.Code == LimitationServiceInferred }) {
+		t.Error("a declared root is marked inferred")
+	}
+}
+
+func reasonCodes(rs []Reason) []string {
+	var out []string
+	for _, r := range rs {
+		out = append(out, r.Code)
+	}
+	return out
 }

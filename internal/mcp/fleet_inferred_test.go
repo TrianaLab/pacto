@@ -86,3 +86,19 @@ func TestMCPFleetSearchInferredRestricted(t *testing.T) {
 		}
 	}
 }
+
+// TestMCPFleetExplainAndGraphInferred: neither tool answers about an inferred
+// service as if it were a declared one with nothing to say.
+func TestMCPFleetExplainAndGraphInferred(t *testing.T) {
+	q := inferredFleet(t)
+	var ex fleet.ExplainResult
+	decode(t, callHandler(t, fleetExplainTool(), fleetExplainHandler(q), map[string]any{"subject": "k8s:shop/Deployment/cart"}), &ex)
+	if len(ex.Reasons) == 0 || ex.Reasons[0].Code != fleet.LimitationServiceInferred {
+		t.Errorf("explain = %+v", ex)
+	}
+	var g fleet.GraphResult
+	decode(t, callHandler(t, fleetGraphTool(), fleetGraphHandler(q), map[string]any{"service": "k8s:shop/Deployment/cart", "transitive": true}), &g)
+	if g.Meta.Completeness != fleet.CompletenessPartial || len(g.Meta.Limitations) == 0 || g.Meta.Limitations[0].Code != fleet.LimitationServiceInferred {
+		t.Errorf("graph meta = %+v", g.Meta)
+	}
+}

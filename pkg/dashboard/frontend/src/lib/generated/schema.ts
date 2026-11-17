@@ -3937,7 +3937,7 @@ export interface components {
             businessDomain?: string;
             businessDomainUnknown?: boolean;
             /**
-             * @description declared when a contract revision or a Pacto target describes the service; inferred when Pacto only sees a workload no contract describes
+             * @description declared when a contract revision or a Pacto target describes the service; inferred when Pacto only sees a workload no contract Pacto read describes; workload.declarationUnverified says Pacto could not read the Pacto targets there
              * @enum {string}
              */
             declaration: "declared" | "inferred";
