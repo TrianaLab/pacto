@@ -290,8 +290,8 @@ describe('GraphView — product Operational Graph', () => {
       return q(target, '[data-testid="graph-drawer"]')!;
     };
     let drawer = open(/Seen at runtime/);
-    expect(drawer.textContent).toContain('Seen at runtime; no contract describes nightly-export');
-    expect(q(target, '[data-testid="edge-difference-description"]')?.textContent).toMatch(/^Seen by kernel-observer\. No contract declares this call/);
+    expect(drawer.textContent).toContain('Seen at runtime, no contract');
+    expect(q(target, '[data-testid="edge-difference-description"]')?.textContent).toMatch(/^No contract describes nightly-export\. Seen by kernel-observer\. No contract declares this call/);
     drawer = open(/Inferred from configuration/);
     expect(drawer.textContent).toContain('Inferred from configuration');
     expect(q(target, '[data-testid="edge-difference-description"]')?.textContent).toMatch(/configuration/);

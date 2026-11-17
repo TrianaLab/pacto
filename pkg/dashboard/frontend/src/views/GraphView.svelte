@@ -891,6 +891,8 @@
   .gv-edge-behavior { display: flex; flex-wrap: wrap; gap: var(--sp-1); margin: var(--sp-1) 0 0 var(--sp-3); }
   .gv-rel { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .gv-diff { margin-left: auto; }
+  /* An end's name (an inferred workload key) holds no break point: let it break anywhere. */
+  .gv-endpoint, .gv-ddesc { min-width: 0; overflow-wrap: anywhere; }
   .gv-unresolved, .gv-limitations { border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: var(--sp-3); background: var(--c-surface); }
   /* These were h3s forced back up to section size with a hard-coded font-size -- a
      section title dressed as a subsection, then un-dressed by hand. They sit directly

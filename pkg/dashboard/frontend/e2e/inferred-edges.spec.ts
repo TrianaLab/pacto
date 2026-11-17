@@ -24,11 +24,11 @@ test.describe('WASM demo: inferred edges and replaced services', () => {
     await page.getByTestId('graph-textalt').locator('summary').click();
     const edge = page.getByTestId('graph-edge').filter({ hasText: 'nightly-export' });
     await expect(edge).toHaveCount(1, { timeout: T });
-    await expect(edge.getByTestId('edge-difference')).toContainText('Seen at runtime; no contract describes k8s:shop/CronJob/nightly-export');
+    await expect(edge.getByTestId('edge-difference')).toContainText('Seen at runtime, no contract');
     await edge.click();
     const drawer = page.getByTestId('graph-drawer');
-    await expect(drawer).toContainText('Seen at runtime; no contract describes k8s:shop/CronJob/nightly-export');
-    await expect(drawer.getByTestId('edge-difference-description')).toContainText(/^Seen by k8s-production\. No contract declares this call/);
+    await expect(drawer).toContainText('Seen at runtime, no contract');
+    await expect(drawer.getByTestId('edge-difference-description')).toContainText(/^No contract describes k8s:shop\/CronJob\/nightly-export\. Seen by k8s-production\. No contract declares this call/);
   });
 
   test('the service page carries one muted Replaces line with its details in the tooltip', async ({ page }) => {

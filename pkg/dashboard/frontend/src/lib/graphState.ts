@@ -148,15 +148,17 @@ function uncontractedEnds(e: DifferenceEdge): string {
   return names.length ? names.join(' or ') : 'one end';
 }
 
-/** edgeDifferenceLabel is differenceLabel for one edge: a runtime-inferred edge names
- *  the end no contract describes. */
+/** edgeDifferenceLabel is differenceLabel for one edge. A runtime-inferred edge's
+ *  badge stays short: the end it names holds no break point, and a badge never wraps,
+ *  so the name goes in the description, which does. */
 export function edgeDifferenceLabel(e: DifferenceEdge): string {
   const d = edgeDifference(e);
-  return d === 'inferred-runtime' ? `Seen at runtime; no contract describes ${uncontractedEnds(e)}` : differenceLabel(d);
+  return d === 'inferred-runtime' ? 'Seen at runtime, no contract' : differenceLabel(d);
 }
 
 /** edgeDifferenceDescription is differenceDescription for one edge: a
- *  runtime-inferred edge names the sources that saw it. */
+ *  runtime-inferred edge names the end no contract describes and the sources that
+ *  saw it. */
 export function edgeDifferenceDescription(e: DifferenceEdge): string {
   const d = edgeDifference(e);
   if (d !== 'inferred-runtime') return differenceDescription(d);
@@ -164,7 +166,7 @@ export function edgeDifferenceDescription(e: DifferenceEdge): string {
   const names = (os.items ?? []).map((s) => s.source);
   const more = (os.total ?? 0) - names.length;
   const by = names.length ? `${names.join(', ')}${more > 0 ? ` and ${more} more` : ''}` : `${os.total} sources`;
-  return `Seen by ${by}. No contract declares this call, so it never satisfies a dependency, feeds an impact answer or clears a gate.`;
+  return `No contract describes ${uncontractedEnds(e)}. Seen by ${by}. No contract declares this call, so it never satisfies a dependency, feeds an impact answer or clears a gate.`;
 }
 
 export function differenceLabel(d: string | undefined): string {

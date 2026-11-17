@@ -4,7 +4,7 @@
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { decideViewState, snapshotKnowledge } from '../lib/knowledgeState.ts';
   import { kindLabel, serviceKeyName } from '../lib/entityLabels.ts';
-  import { formatRelative } from '../lib/dateFormat.ts';
+  import { formatWhen } from '../lib/dateFormat.ts';
   import { fleetOverviewUrl, fleetGraphFocusUrl, fleetChangesUrl, fleetEntityUrl, hashForHref, replaceHash } from '../lib/router.ts';
   import { fleetEntityBreadcrumbs } from '../lib/breadcrumbs.ts';
   import { postureAnswer, revisionAnswer } from '../lib/answers.ts';
@@ -103,7 +103,7 @@
   // Asked for by the key of an inferred service a contract took over: the answer is the
   // declared service, and the page says so once instead of renaming the question.
   const replacedFrom = $derived(detail?.replacedFrom);
-  const replacedAge = $derived(replacedFrom?.at ? ` ${formatRelative(replacedFrom.at, Date.parse(detail?.meta?.asOf ?? '') || Date.now())}` : '');
+  const replacedAge = $derived(replacedFrom?.at ? ` ${formatWhen(replacedFrom.at, Date.parse(detail?.meta?.asOf ?? '') || Date.now())}` : '');
 
   // Entity-relationship breadcrumbs from canonical DTO refs; a minimal
   // trail while loading/erroring.

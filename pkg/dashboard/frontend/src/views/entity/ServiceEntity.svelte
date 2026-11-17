@@ -1,11 +1,11 @@
 <script>
   import { fleetGraphFocusUrl, fleetEntityListUrl, fleetAttentionUrl, fleetServicesUrl, fleetEntityUrl } from '../../lib/router.ts';
   import { abbreviateDigests } from '../../lib/format.ts';
-  import { formatDate, formatDateTime, formatRelative } from '../../lib/dateFormat.ts';
+  import { formatDate, formatRelative } from '../../lib/dateFormat.ts';
   import EntityLink from '../../components/EntityLink.svelte';
   import IdentityBadge from '../../components/IdentityBadge.svelte';
   import HelpTip from '../../components/HelpTip.svelte';
-  import { acceptsLabel, businessDomainLabel, serviceKeyName, UNKNOWN_DOMAIN } from '../../lib/entityLabels.ts';
+  import { acceptsLabel, businessDomainLabel, replacesTip, serviceKeyName, UNKNOWN_DOMAIN } from '../../lib/entityLabels.ts';
   import OwnershipFact from '../../components/OwnershipFact.svelte';
   import PreviewSection from '../../components/PreviewSection.svelte';
   import ServiceDelivery from '../../components/ServiceDelivery.svelte';
@@ -173,6 +173,7 @@
   const replaced = $derived(d.replaces?.[0]);
   const replacedMore = $derived((d.replacesTotal ?? d.replaces?.length ?? 0) - 1);
   const replacedAge = $derived(replaced?.at ? formatRelative(replaced.at, Date.parse(detail.meta?.asOf ?? '') || Date.now()) : '');
+  const replacedTip = $derived(replacesTip(d.replaces ?? [], d.replacesTotal ?? d.replaces?.length ?? 0));
 </script>
 
 <div class="svc-entity">
@@ -258,7 +259,7 @@
     {#if replaced}
       <div class="se-fact se-replaces" data-testid="service-replaces">
         <span>Replaces <bdi class="se-code" title={serviceKeyName(replaced.from)}>{serviceKeyName(replaced.from)}</bdi>{replacedAge ? ` · ${replacedAge}` : ''}{replacedMore > 0 ? ` +${formatCount(replacedMore)} more` : ''}</span>
-        <HelpTip label="Replaces" text={`Linked by the Pacto target ${replaced.target || 'of this service'}, which runs as the workload. The Pacto was created ${formatDateTime(replaced.at)}.`} />
+        <HelpTip label="Replaces" text={replacedTip} />
       </div>
     {/if}
   </section>

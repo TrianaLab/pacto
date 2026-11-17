@@ -859,6 +859,16 @@ export function installScaleFixture(): void {
       for (const ref of extEdges(doc.edges as Record<string, unknown>[] | undefined, focus?.ref as Record<string, unknown> | undefined)) {
         nodes?.push({ depth: 1, ref });
       }
+      // An inferred end at its longest: a 63-character namespace with no break point.
+      const ns = 'paymentsproductionnortheuropewestonealphabravocharliedeltaecho1';
+      const lengthen = (r: Record<string, unknown> | undefined) => {
+        if (r?.declaration === 'inferred' && typeof r.label === 'string') r.label = `k8s:${ns}/CronJob/${r.label.split('/').pop()}`;
+      };
+      for (const n of nodes ?? []) lengthen(n.ref as Record<string, unknown> | undefined);
+      for (const e of (doc.edges as Record<string, unknown>[] | undefined) ?? []) {
+        lengthen(e.from as Record<string, unknown> | undefined);
+        lengthen(e.to as Record<string, unknown> | undefined);
+      }
     }
     // An inferred service at its longest: a 63-character namespace, a 253-character
     // name, a digest image, 20 ports, three probes with long paths, a 200-character
@@ -2291,7 +2301,17 @@ export const ROUTES: Route[] = [
     },
   },
   // 509-S4: a runtime-inferred edge on the graph, the Replaces line and a replaced key.
-  { name: 'graph inferred edges', hash: '#/fleet/graph/service/search-indexer' },
+  {
+    name: 'graph inferred edges',
+    open: async (page) => {
+      // The text alternative and the drawer of the runtime-inferred edge, whose
+      // uncontracted end carries no break point.
+      await page.goto('/#/fleet/graph/service/search-indexer');
+      await page.getByTestId('graph-textalt').locator('summary').click();
+      await expect(page.getByTestId('graph-edge').filter({ hasText: 'nightly-export' }).first()).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+    },
+  },
   { name: 'service replaced inferred', hash: '#/fleet/services/experiment-service' },
   { name: 'replaced inferred key', hash: `#/fleet/services/${encodeURIComponent('k8s:prod%2FDeployment%2Fexperiments')}` },
 ];

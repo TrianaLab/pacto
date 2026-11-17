@@ -8,7 +8,7 @@ import {
   attentionCategoryLabel, ATTENTION_CATEGORIES, GAP_WORDS,
   provenanceLabel, provenanceIsImplied,
   sourceHealthTallyParts, sourceHealthSentence,
-  collectorLabel, seenBy, splitEntryPoints, acceptsLabel, RANGE_NOT_DECLARED, serviceKeyName,
+  collectorLabel, seenBy, splitEntryPoints, acceptsLabel, RANGE_NOT_DECLARED, serviceKeyName, replacesTip,
 } from './entityLabels.ts';
 
 describe('acceptsLabel', () => {
@@ -272,5 +272,18 @@ describe('serviceKeyName', () => {
     expect(serviceKeyName('k8s:prod%2FDeployment%2Fexperiments')).toBe('k8s:prod/Deployment/experiments');
     expect(serviceKeyName('acme/k8s:shop%2FCronJob%2Fa%252Fb')).toBe('k8s:shop/CronJob/a%2Fb');
     expect(serviceKeyName('payments-service')).toBe('payments-service');
+  });
+});
+
+describe('replacesTip', () => {
+  it('names every replacement the line folds into "+N more"', () => {
+    const at = '2026-11-17T11:56:00Z';
+    const r = (n: number) => ({ from: `k8s:c${n}%2Fprod%2FDeployment%2Fexperiments`, target: `prod/kubernetes/t${n}`, at });
+    expect(replacesTip([r(0)], 1)).toMatch(/^Linked by the Pacto target prod\/kubernetes\/t0, which runs as the workload\. The Pacto was created .+\.$/);
+    const two = replacesTip([r(0), r(1)], 2);
+    expect(two).toContain('Also replaces k8s:c1/prod/Deployment/experiments (Pacto target prod/kubernetes/t1, ');
+    expect(two).not.toContain('more');
+    expect(replacesTip(Array.from({ length: 12 }, (_, i) => r(i)), 40)).toMatch(/ and 29 more, listed by pacto fleet get\.$/);
+    expect(replacesTip([], 0)).toBe('');
   });
 });

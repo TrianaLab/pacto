@@ -114,13 +114,13 @@ describe('difference vocabulary (backend-authoritative, never color-only)', () =
       observationSources: { total: 2, items: [{ source: 'kernel-observer', count: 6 }] },
     };
     expect(edgeDifference(runtime)).toBe('inferred-runtime');
-    expect(edgeDifferenceLabel(runtime)).toBe('Seen at runtime; no contract describes nightly-export');
-    expect(edgeDifferenceDescription(runtime)).toBe('Seen by kernel-observer and 1 more. No contract declares this call, so it never satisfies a dependency, feeds an impact answer or clears a gate.');
+    expect(edgeDifferenceLabel(runtime)).toBe('Seen at runtime, no contract');
+    expect(edgeDifferenceDescription(runtime)).toBe('No contract describes nightly-export. Seen by kernel-observer and 1 more. No contract declares this call, so it never satisfies a dependency, feeds an impact answer or clears a gate.');
     expect(differenceTone(edgeDifference(runtime))).toBe('neutral');
     const both = { ...runtime, to: { label: 'legacy-billing', declaration: 'inferred' }, from: { ...runtime.from } };
-    expect(edgeDifferenceLabel(both)).toBe('Seen at runtime; no contract describes nightly-export or legacy-billing');
-    expect(edgeDifferenceLabel({ ...runtime, from: undefined, to: undefined })).toBe('Seen at runtime; no contract describes one end');
-    expect(edgeDifferenceDescription({ provenance: 'inferred', observationSources: { total: 3, items: [] } })).toMatch(/^Seen by 3 sources\./);
+    expect(edgeDifferenceDescription(both)).toMatch(/^No contract describes nightly-export or legacy-billing\. /);
+    expect(edgeDifferenceDescription({ ...runtime, from: undefined, to: undefined })).toMatch(/^No contract describes one end\. /);
+    expect(edgeDifferenceDescription({ provenance: 'inferred', observationSources: { total: 3, items: [] } })).toMatch(/^No contract describes one end\. Seen by 3 sources\./);
     const config = { provenance: 'inferred', observationSources: { total: 0, items: [] } };
     expect(edgeDifference(config)).toBe('inferred');
     expect(edgeDifferenceLabel(config)).toBe('Inferred from configuration');
