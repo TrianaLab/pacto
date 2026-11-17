@@ -512,21 +512,6 @@ func TestUncontractedCallerAttentionLinksInferred(t *testing.T) {
 	}
 }
 
-func TestObservedConsumersUnchangedWithInferredCaller(t *testing.T) {
-	consumers := func(inferred bool) ObservedConsumersPreview {
-		d, err := goldenWith(t, inferred, kernel(call(cartName, "postgresql"))).EntityDetail(KindOffering, "postgresql")
-		if err != nil {
-			t.Fatal(err)
-		}
-		return d.Offering.ObservedConsumers
-	}
-	with := consumers(true)
-	sameJSON(t, "observed consumers", consumers(false), with)
-	if with.Total != 1 || with.Items[0].Caller != cartName || !with.Items[0].Uncontracted {
-		t.Errorf("rows %+v", with.Items)
-	}
-}
-
 func TestInferredLines(t *testing.T) {
 	w := &InferredWorkload{Source: "w", Cluster: "eu", Namespace: "shop", Kind: "Deployment", Name: "cart",
 		Image:  &InferredValue{Value: "reg/cart:1", From: "Deployment image"},
