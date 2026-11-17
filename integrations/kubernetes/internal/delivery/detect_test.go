@@ -28,6 +28,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 )
 
@@ -223,6 +224,25 @@ func TestPromoteRejectedOnApplierConflict(t *testing.T) {
 	wantOutcome(t, o, delivery.Rejected, "ApplierConflict")
 	if !strings.Contains(o.Status.Message, "Helm release payments owns Deployment payments") || e.ociDigest("payments") != dA {
 		t.Fatalf("message %q, pointer %s", o.Status.Message, e.ociDigest("payments"))
+	}
+}
+
+// TestPromoteRejectedOnContractApplier: a version whose contract names
+// delivery.applier argocd never ships through a Stage that applies through an
+// OCIRepository, even when detection adopts the Kustomization; flux agrees
+// with it and ships.
+func TestPromoteRejectedOnContractApplier(t *testing.T) {
+	e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	e.reg.bundles[contractRef(c2)].Contract.Delivery = &contract.Delivery{Applier: contract.ApplierArgoCD}
+	o := e.drive("p1")
+	wantOutcome(t, o, delivery.Rejected, "ApplierConflict")
+	if !strings.Contains(o.Status.Message, "delivery.applier argocd") || e.ociDigest("payments") != dA {
+		t.Fatalf("message %q, pointer %s", o.Status.Message, e.ociDigest("payments"))
+	}
+	e = baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	e.reg.bundles[contractRef(c2)].Contract.Delivery = &contract.Delivery{Applier: contract.ApplierFlux}
+	if o = e.drive("p1"); !o.Status.Applied || e.ociDigest("payments") != dB {
+		t.Fatalf("flux on an OCIRepository Stage must ship: %s %q, pointer %s", o.Status.Phase, o.Status.Message, e.ociDigest("payments"))
 	}
 }
 

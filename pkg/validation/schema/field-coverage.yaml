@@ -3682,31 +3682,37 @@ fields:
     values:
       auto:
         meaning: adopt the manager that already owns each workload
-        runtime: static-only
+        runtime: partial
         tests:
           unit:
           - pkg/validation/structural_test.go:TestDeliveryApplierValid
+          - pkg/delivery/applier_test.go:TestApplierGateContractOverride
           integration:
           - tests/integration/field_coverage_test.go:TestFieldCoverage/delivery.applier=auto
-          e2e: []
+          e2e:
+          - integrations/kubernetes/internal/delivery/detect_test.go:TestPromoteRejectedOnApplierConflict
       argocd:
         meaning: Argo CD applies the workloads
-        runtime: static-only
+        runtime: partial
         tests:
           unit:
           - pkg/validation/structural_test.go:TestDeliveryApplierValid
+          - pkg/delivery/applier_test.go:TestApplierGateContractOverride
           integration:
           - tests/integration/field_coverage_test.go:TestFieldCoverage/delivery.applier=argocd
-          e2e: []
+          e2e:
+          - integrations/kubernetes/internal/delivery/detect_test.go:TestPromoteRejectedOnContractApplier
       flux:
         meaning: Flux applies the workloads
-        runtime: static-only
+        runtime: partial
         tests:
           unit:
           - pkg/validation/structural_test.go:TestDeliveryApplierValid
+          - pkg/delivery/applier_test.go:TestApplierGateContractOverride
           integration:
           - tests/integration/field_coverage_test.go:TestFieldCoverage/delivery.applier=flux
-          e2e: []
+          e2e:
+          - integrations/kubernetes/internal/delivery/detect_test.go:TestPromoteRejectedOnContractApplier
   checks:
     meaning: Test or eval suites shipped with the version; a delivery gate hands one to a runner.
     runtime: static-only
