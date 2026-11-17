@@ -472,3 +472,31 @@ func TestEncodeSeparatorsAndTrailingNewline(t *testing.T) {
 		t.Error("a failing writer reported no error")
 	}
 }
+
+// An API copies its Component's owner annotations, so an `unknown` owner on an
+// API says why, as it does on the Component.
+func TestAPICarriesOwnerAnnotations(t *testing.T) {
+	es := mapCols(t, &fleet.Collection{Revisions: []fleet.RawRevision{
+		rev("", "a", "1.0.0", team("acme/billing"), func(c *contract.Contract) {
+			c.Interfaces = []contract.Interface{{Name: "rest", Type: "openapi", Ref: "interfaces/rest.yaml"}}
+		}),
+	}})
+	comp := byKey(t, es, "a")
+	var api *Entity
+	for i := range es {
+		if es[i].Kind == kindAPI {
+			api = &es[i]
+		}
+	}
+	if api == nil {
+		t.Fatal("no API exported")
+	}
+	for _, k := range ownerAnnotations {
+		if api.Metadata.Annotations[k] != comp.Metadata.Annotations[k] {
+			t.Errorf("%s: api %q, component %q", k, api.Metadata.Annotations[k], comp.Metadata.Annotations[k])
+		}
+	}
+	if api.Spec.Owner != unknown || api.Metadata.Annotations[AnnotationOwnerUnmapped] != "true" || api.Metadata.Annotations[AnnotationOwnerProvenance] != "declared" {
+		t.Errorf("api = %+v", api)
+	}
+}

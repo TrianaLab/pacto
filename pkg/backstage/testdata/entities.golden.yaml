@@ -129,6 +129,7 @@ metadata:
   annotations:
     pacto.trianalab.io/as-of: "2026-11-16T12:00:00Z"
     pacto.trianalab.io/completeness: complete
+    pacto.trianalab.io/owner-provenance: declared
     pacto.trianalab.io/provenance: declared
     pacto.trianalab.io/service-key: ghcr.io%2Facme/payments
 spec:

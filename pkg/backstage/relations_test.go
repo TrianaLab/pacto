@@ -337,8 +337,14 @@ func TestConsumesAPIsFromRequires(t *testing.T) {
 			h.svc("ledger", ct("ledger", "1.0.0"), ct("ledger", "2.0.0", rest))
 			h.rel(dep("pay", "1.0.0", "ledger", "1.0.0", "rest"))
 		}, nil},
+		// Only the current revision's interfaces become API entities, so a ref
+		// to rest would point at an entity the file does not hold.
 		{"resolved revision has it, current lacks it", func(h *hand) {
 			h.svc("ledger", ct("ledger", "1.0.0", rest), ct("ledger", "2.0.0"))
+			h.rel(dep("pay", "1.0.0", "ledger", "1.0.0", "rest"))
+		}, nil},
+		{"resolved older revision and current both have it", func(h *hand) {
+			h.svc("ledger", ct("ledger", "1.0.0", rest), ct("ledger", "2.0.0", rest))
 			h.rel(dep("pay", "1.0.0", "ledger", "1.0.0", "rest"))
 		}, []string{apiRef("ledger-rest")}},
 		{"resolved revision unreadable", func(h *hand) {

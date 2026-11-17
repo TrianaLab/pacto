@@ -72,7 +72,8 @@ Pacto never rewrites an owner: when the name is not a valid Backstage name,
 `spec.owner` is `unknown`, `pacto.trianalab.io/owner` holds the raw value and
 `pacto.trianalab.io/owner-unmapped` is `"true"`. Two owners claiming one service
 also give `unknown`, with `pacto.trianalab.io/owner-conflict`. An inferred owner
-never fills `spec.owner`.
+never fills `spec.owner`. An API copies its Component's owner and owner
+annotations.
 
 ## Lifecycle, system and relations
 
@@ -83,7 +84,8 @@ service, else `unknown`; a running target never becomes `production`.
 
 `spec.dependsOn` lists the services and external systems the running revisions
 declare or that traces observed. `consumesApis` lists the interfaces a
-dependency requires that the resolved provider revision declares. A dependency
+dependency requires that the resolved provider revision and the provider's
+running revision both declare, so every ref names an API in the file. A dependency
 only an older, unused revision declares is left out. Each ref's provenance is in
 `pacto.trianalab.io/relation-provenance` as `<ref>=declared`,
 `<ref>=observed@<time>` or `<ref>=declared+observed@<time>`, where the time is
@@ -116,7 +118,7 @@ adds `pacto.trianalab.io/caller-ambiguous: "true"` and is `partial`.
 | `pacto.trianalab.io/relation-provenance` | Provenance of each `dependsOn` ref |
 | `pacto.trianalab.io/inferred-depends-on` | Edges Pacto only inferred |
 | `pacto.trianalab.io/hidden-relations` | How many relations your view hides |
-| `pacto.trianalab.io/unresolved-dependencies` | How many declared dependencies did not resolve |
+| `pacto.trianalab.io/unresolved-dependencies` | How many declared dependencies, configuration or policy references did not resolve |
 | `pacto.trianalab.io/external-key` | The external system's key |
 | `pacto.trianalab.io/caller` | The observed caller's identity |
 | `pacto.trianalab.io/caller-ambiguous` | `"true"` when the caller matched more than one service |
