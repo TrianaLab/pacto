@@ -86,6 +86,11 @@ must approve it can depend on who raised it. The types run different checks:
   an override and freezes the Stage.
 - No policy matches workloads or the Stage spec. RBAC alone limits
   `kubectl apply` on a Deployment.
+- The `-agent` and `-approver` roles may `get`, though not list, a Flux
+  HelmRelease or an Argo CD Application they can name, so a plan can find the
+  version source. That read includes inline Helm values. Bind these roles
+  with a RoleBinding in the Stage namespaces, and keep secrets in
+  `valuesFrom` rather than inline values.
 
 Close the rest with RBAC on workloads, Stages and pointer objects, and with
 your own admission on workloads.
