@@ -59,6 +59,11 @@ func TestYankForAnEntityWithNoBundleNamesTheSubjectTheWayTheCommandDoes(t *testi
 			"pacto fleet search --offering redis",
 		},
 		{
+			"an external system is the prefixed subject fleet explain takes",
+			Selection{Kind: fleet.KindExternal, Key: "stripe", Label: "stripe"},
+			"pacto fleet explain external:stripe",
+		},
+		{
 			"a target is a flag on fleet get",
 			Selection{Kind: fleet.KindTarget, Key: "prod/Deployment/svc", Label: "svc"},
 			"pacto fleet get --target prod/Deployment/svc",

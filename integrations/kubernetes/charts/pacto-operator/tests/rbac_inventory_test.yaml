@@ -52,7 +52,6 @@ tests:
     set:
       controller.watchNamespaces: [payments, ledger]
       delivery.enabled: true
-      delivery.identities.allowEmptyHumanGroups: true
     asserts:
       - equal:
           path: rules
@@ -1245,7 +1244,7 @@ tests:
     - hasDocuments: {count: 0}
   - it: 'delivery: every rule, roleRef and subject of clusterrole.yaml is pinned'
     template: templates/clusterrole.yaml
-    set: &id003 {delivery.enabled: true, delivery.identities.allowEmptyHumanGroups: true, delivery.recorder.enabled: true, delivery.recorder.streamsRepository: registry.example/pacto/streams,
+    set: &id003 {delivery.enabled: true, delivery.recorder.enabled: true, delivery.recorder.streamsRepository: registry.example/pacto/streams,
       delivery.recorder.signing.kms: 'awskms:///alias/pacto-recorder'}
     asserts:
     - hasDocuments: {count: 1}
@@ -1755,7 +1754,6 @@ tests:
     set: &id004
       controller.watchNamespaces: [payments, ledger]
       delivery.enabled: true
-      delivery.identities.allowEmptyHumanGroups: true
       delivery.recorder.enabled: true
       delivery.recorder.streamsRepository: registry.example/pacto/streams
       delivery.recorder.signing.kms: awskms:///alias/pacto-recorder
