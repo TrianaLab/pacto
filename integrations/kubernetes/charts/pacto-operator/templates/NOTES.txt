@@ -61,8 +61,9 @@ pointer from everyone else.
 This cluster serves Argo CD Applications, so delivery.argocd.enabled=auto grants
 the promoter patch on Applications. Admission limits that write to
 spec.source.targetRevision of Applications labelled
-delivery.pacto.trianalab.io/apply-ref. An upgrade without --reuse-values on a
-cluster with Argo CD grants it too. Set delivery.argocd.enabled=false to keep it off.
+delivery.pacto.trianalab.io/apply-ref. An upgrade that takes the new chart's
+defaults, such as --reset-then-reuse-values, on a cluster with Argo CD grants it
+too. Set delivery.argocd.enabled=false to keep it off.
 {{- end }}
 
 Agents run as their own ServiceAccounts: bind {{ include "pacto-operator.delivery.fullname" . }}-agent

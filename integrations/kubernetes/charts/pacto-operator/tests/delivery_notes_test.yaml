@@ -62,7 +62,7 @@ tests:
         - argoproj.io/v1alpha1/Application
     asserts:
       - matchRegexRaw:
-          pattern: An upgrade without --reuse-values on a\scluster with Argo CD grants it too\. Set delivery\.argocd\.enabled=false to keep it off\.
+          pattern: An upgrade that takes the new chart's\sdefaults, such as --reset-then-reuse-values, on a cluster with Argo CD grants it\stoo\. Set delivery\.argocd\.enabled=false to keep it off\.
 
   - it: says nothing about Argo CD when it decides explicitly or the API is absent
     asserts:
