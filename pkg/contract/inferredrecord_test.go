@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -166,5 +167,89 @@ func TestInferredJSONUnchangedWithoutNewFields(t *testing.T) {
 	}
 	if want := `{"field":"service.name","value":"orders","source":"chart/Chart.yaml:2"}`; string(got) != want {
 		t.Fatalf("got %s, want %s", got, want)
+	}
+}
+
+func TestRecordClassAndFindingsRoundTrip(t *testing.T) {
+	rec := sampleRecord()
+	rec.Fields = append(rec.Fields, Inferred{Field: "service.owner", Value: "acme/payments", Source: "catalog-info.yaml:7", Confidence: ConfidenceLikely,
+		Class: InferredClassOwnerFile, Outranks: []string{"deploy/app.yaml:4", "repository:.github/CODEOWNERS:4"}})
+	rec.Inputs.ChartDependencies = []InferredChartDependency{{Chart: "chart", Name: "redis", Version: "19.0.0", Repository: "https://charts.example", Digest: digestOf("x")}}
+	rec.Findings = []InferredFinding{
+		{Code: "DISCOVERY_UNREADABLE", Source: "b.yaml", Message: "b"},
+		{Code: "DISCOVERY_AMBIGUOUS", Source: "a.yaml", Message: "a"},
+		{Code: InferredFindingTruncated, Source: ".", Message: "t"},
+		{Code: "DISCOVERY_AMBIGUOUS", Source: "0.yaml", Message: "0"},
+	}
+	rec.FindingsDropped = 3
+	got, err := ParseInferredRecord(rec.Marshal())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var codes []string
+	for _, f := range got.Findings {
+		codes = append(codes, f.Code+" "+f.Source)
+	}
+	if strings.Join(codes, ",") != "DISCOVERY_TRUNCATED .,DISCOVERY_AMBIGUOUS 0.yaml,DISCOVERY_AMBIGUOUS a.yaml,DISCOVERY_UNREADABLE b.yaml" {
+		t.Errorf("findings order = %q", codes)
+	}
+	owner := got.Fields[slices.IndexFunc(got.Fields, func(f Inferred) bool { return f.Field == "service.owner" })]
+	if owner.Class != InferredClassOwnerFile || len(owner.Outranks) != 2 || got.FindingsDropped != 3 || !reflect.DeepEqual(got.Inputs.ChartDependencies, rec.Inputs.ChartDependencies) {
+		t.Errorf("round trip lost a value: %+v", got)
+	}
+}
+
+// recordWith is the sample record with one field and one finding changed.
+func recordWith(f Inferred, finding *InferredFinding, source string) []byte {
+	rec := sampleRecord()
+	rec.Fields = append(rec.Fields, f)
+	if finding != nil {
+		rec.Findings = []InferredFinding{*finding}
+	}
+	if source != "" {
+		rec.Inputs.Sources = append(rec.Inputs.Sources, InferredSourceFile{Path: source, Digest: digestOf("x")})
+	}
+	return rec.Marshal()
+}
+
+func TestRecordRejectsClassOutsideOwner(t *testing.T) {
+	for _, f := range []Inferred{
+		{Field: "ports[8080]", Value: "8080/tcp", Source: "Dockerfile:12", Confidence: ConfidenceLikely, Class: InferredClassOwnerFile},
+		{Field: "service.owner", Value: "acme", Source: "CODEOWNERS:1", Confidence: ConfidenceLikely, Class: "attested"},
+	} {
+		if _, err := ParseInferredRecord(recordWith(f, nil, "")); err == nil || !strings.Contains(err.Error(), ".class") {
+			t.Errorf("%+v: %v", f, err)
+		}
+	}
+}
+
+func TestRecordRepositoryPrefixedSource(t *testing.T) {
+	f := Inferred{Field: "service.owner", Value: "acme/payments", Source: "repository:.github/CODEOWNERS:4", Confidence: ConfidenceLikely, Class: InferredClassOwnerFile}
+	if _, err := ParseInferredRecord(recordWith(f, nil, "repository:.github/CODEOWNERS")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRecordRefusesEscapingSource(t *testing.T) {
+	for _, bad := range []string{"../x", "/etc/x", "other:x", "repository:../x:3"} {
+		f := Inferred{Field: "ports[80]", Value: "80/tcp", Source: bad, Confidence: ConfidenceLikely}
+		if _, err := ParseInferredRecord(recordWith(f, nil, "")); err == nil {
+			t.Errorf("field source %q accepted", bad)
+		}
+		f.Source, f.Outranks = "Dockerfile:2", []string{bad}
+		if _, err := ParseInferredRecord(recordWith(f, nil, "")); err == nil {
+			t.Errorf("outranks %q accepted", bad)
+		}
+		ok := Inferred{Field: "ports[80]", Value: "80/tcp", Source: "Dockerfile:2", Confidence: ConfidenceLikely}
+		if _, err := ParseInferredRecord(recordWith(ok, &InferredFinding{Code: "DISCOVERY_UNREADABLE", Source: bad, Message: "m"}, "")); err == nil {
+			t.Errorf("finding source %q accepted", bad)
+		}
+		if _, err := ParseInferredRecord(recordWith(ok, nil, strings.TrimSuffix(bad, ":3"))); err == nil {
+			t.Errorf("input path %q accepted", bad)
+		}
+	}
+	ok := Inferred{Field: "ports[80]", Value: "80/tcp", Source: "Dockerfile:2", Confidence: ConfidenceLikely}
+	if _, err := ParseInferredRecord(recordWith(ok, &InferredFinding{Source: "Dockerfile", Message: "m"}, "")); err == nil {
+		t.Error("a finding with no code accepted")
 	}
 }

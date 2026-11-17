@@ -1,0 +1,39 @@
+//go:build !windows
+
+package discover
+
+import (
+	"os"
+	"path/filepath"
+	"slices"
+	"syscall"
+	"testing"
+	"time"
+
+	"github.com/trianalab/pacto/v4/pkg/contract"
+)
+
+func TestDiscoverySkipsSymlinkAndFIFO(t *testing.T) {
+	outside := writeFiles(t, map[string]string{"secret.yaml": "openapi: 3.0.0\n"})
+	dir := writeFiles(t, map[string]string{"api/README": ""})
+	if err := os.Symlink(filepath.Join(outside, "secret.yaml"), filepath.Join(dir, "api", "openapi.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(filepath.Join(dir, "Dockerfile"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan Reading, 1)
+	go func() { done <- readFixture(t, dir) }()
+	select {
+	case r := <-done:
+		want := []contract.InferredFinding{
+			{Code: CodeUnreadable, Source: "Dockerfile", Message: "Dockerfile is not a regular file, so it is not read"},
+			{Code: CodeUnreadable, Source: "api/openapi.yaml", Message: "api/openapi.yaml is not a regular file, so it is not read"},
+		}
+		if !slices.Equal(r.Findings, want) || len(r.Fields) != 0 {
+			t.Errorf("findings = %+v, fields = %+v", r.Findings, r.Fields)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("discovery opened the FIFO")
+	}
+}

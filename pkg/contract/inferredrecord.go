@@ -24,16 +24,50 @@ const InferredRecordFile = "pacto.inferred.yaml"
 // InferredRecordFormat is the only format value an inferred record carries.
 const InferredRecordFormat = "pacto.inferred/v1"
 
-// ConfidenceLikely marks an inferred value read from a file in the
-// repository. "observed" stays reserved for runtime evidence.
+// ConfidenceLikely marks an inferred value a file in the repository states.
+// "observed" stays reserved for runtime evidence.
 const ConfidenceLikely = "likely"
 
+// ConfidencePossible marks an inferred value read from a convention, such as
+// a values-<env>.yaml file name, rather than stated by a file.
+const ConfidencePossible = "possible"
+
+// InferredClassOwnerFile marks an owner read from CODEOWNERS or
+// catalog-info.yaml: which file it came from, never that it was verified.
+const InferredClassOwnerFile = "ownerFile"
+
 // InferredRecord is what Pacto inferred from a service's folder beside its
-// declared contract, with the inputs it came from.
+// declared contract, with the inputs it came from, the files discovery
+// recognized but could not read (Findings, at most a bound, FindingsDropped
+// counting the rest).
 type InferredRecord struct {
-	Format string         `json:"format" yaml:"format"`
-	Inputs InferredInputs `json:"inputs" yaml:"inputs"`
-	Fields []Inferred     `json:"fields" yaml:"fields"`
+	Format          string            `json:"format" yaml:"format"`
+	Inputs          InferredInputs    `json:"inputs" yaml:"inputs"`
+	Fields          []Inferred        `json:"fields" yaml:"fields"`
+	Findings        []InferredFinding `json:"findings,omitempty" yaml:"findings,omitempty"`
+	FindingsDropped int               `json:"findingsDropped,omitempty" yaml:"findingsDropped,omitempty"`
+}
+
+// InferredFinding is one thing discovery recognized but could not read, or
+// read as ambiguous: a code, its "<path>[:<line>]" and a fixed message that
+// never quotes the file.
+type InferredFinding struct {
+	Code    string `json:"code" yaml:"code"`
+	Source  string `json:"source" yaml:"source"`
+	Message string `json:"message" yaml:"message"`
+}
+
+// InferredFindingTruncated is the finding that says discovery stopped early:
+// it orders first, since every other result is partial under it.
+const InferredFindingTruncated = "DISCOVERY_TRUNCATED"
+
+// InferredChartDependency is one Helm chart dependency Chart.lock pins.
+type InferredChartDependency struct {
+	Chart      string `json:"chart" yaml:"chart"`
+	Name       string `json:"name" yaml:"name"`
+	Version    string `json:"version" yaml:"version"`
+	Repository string `json:"repository,omitempty" yaml:"repository,omitempty"`
+	Digest     string `json:"digest" yaml:"digest"`
 }
 
 // InferredInputs names what a record was completed from: the commit (absent
@@ -44,9 +78,12 @@ type InferredInputs struct {
 	Pacto     string               `json:"pacto" yaml:"pacto"`
 	Discovery string               `json:"discovery" yaml:"discovery"`
 	Sources   []InferredSourceFile `json:"sources" yaml:"sources"`
+	// ChartDependencies are the chart dependencies Chart.lock pins.
+	ChartDependencies []InferredChartDependency `json:"chartDependencies,omitempty" yaml:"chartDependencies,omitempty"`
 }
 
-// InferredSourceFile is one bundle file a record cites, with its sha256.
+// InferredSourceFile is one file a record cites, with its sha256: a bundle
+// path, or "repository:<path>" for a repository file outside the bundle.
 type InferredSourceFile struct {
 	Path   string `json:"path" yaml:"path"`
 	Digest string `json:"digest" yaml:"digest"`
@@ -56,8 +93,10 @@ var inferredDigestRE = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
 // ParseInferredRecord decodes a record strictly: an unknown key, another
 // format, a field with no field name or source, a field named twice, a
-// confidence other than likely or possible, or a source without a sha256
-// digest is an error naming it.
+// confidence other than likely or possible, a class other than ownerFile or
+// on a field other than service.owner, a finding with no code or source, a
+// source that is absolute, leaves its root or carries a prefix other than
+// "repository:", or an input without a sha256 digest is an error naming it.
 func ParseInferredRecord(data []byte) (*InferredRecord, error) {
 	var r InferredRecord
 	dec := yaml.NewDecoder(bytes.NewReader(data))
@@ -70,33 +109,78 @@ func ParseInferredRecord(data []byte) (*InferredRecord, error) {
 	}
 	seen := make(map[string]bool, len(r.Fields))
 	for i, f := range r.Fields {
-		switch {
-		case seen[f.Field]:
-			return nil, fmt.Errorf("%s: fields[%d].field %q is listed twice", InferredRecordFile, i, f.Field)
-		case f.Field == "":
-			return nil, fmt.Errorf("%s: fields[%d].field is empty", InferredRecordFile, i)
-		case f.Source == "":
-			return nil, fmt.Errorf("%s: fields[%d].source is empty", InferredRecordFile, i)
-		case f.Confidence != ConfidenceLikely && f.Confidence != "possible":
-			return nil, fmt.Errorf("%s: fields[%d].confidence is %q, want likely or possible", InferredRecordFile, i, f.Confidence)
+		if err := checkInferredField(f, seen); err != nil {
+			return nil, fmt.Errorf("%s: fields[%d]%s", InferredRecordFile, i, err)
 		}
 		seen[f.Field] = true
+	}
+	for i, f := range r.Findings {
+		if f.Code == "" || !validSource(f.Source) {
+			return nil, fmt.Errorf("%s: findings[%d] needs a code and a relative source, has %q at %q", InferredRecordFile, i, f.Code, f.Source)
+		}
 	}
 	for i, s := range r.Inputs.Sources {
 		if !inferredDigestRE.MatchString(s.Digest) {
 			return nil, fmt.Errorf("%s: inputs.sources[%d].digest is %q, want sha256:<64 hex>", InferredRecordFile, i, s.Digest)
 		}
+		if !validPath(s.Path) {
+			return nil, fmt.Errorf("%s: inputs.sources[%d].path %q is not a relative path", InferredRecordFile, i, s.Path)
+		}
 	}
 	return &r, nil
 }
 
-// Marshal writes the record with its fields sorted by field then source and
-// its sources by path, and no timestamp, so the same inputs give the same bytes.
+// checkInferredField is why f cannot be in a record whose fields seen holds,
+// as a suffix of "fields[i]", or nil.
+func checkInferredField(f Inferred, seen map[string]bool) error {
+	switch {
+	case seen[f.Field]:
+		return fmt.Errorf(".field %q is listed twice", f.Field)
+	case f.Field == "":
+		return errors.New(".field is empty")
+	case f.Source == "":
+		return errors.New(".source is empty")
+	case !validSource(f.Source):
+		return fmt.Errorf(".source %q is not a relative path", f.Source)
+	case f.Confidence != ConfidenceLikely && f.Confidence != ConfidencePossible:
+		return fmt.Errorf(".confidence is %q, want likely or possible", f.Confidence)
+	case f.Class != "" && (f.Class != InferredClassOwnerFile || f.Field != "service.owner"):
+		return fmt.Errorf(".class is %q, want none or ownerFile on service.owner", f.Class)
+	}
+	for _, o := range f.Outranks {
+		if !validSource(o) {
+			return fmt.Errorf(".outranks %q is not a relative path", o)
+		}
+	}
+	return nil
+}
+
+// validSource reports whether s is "<path>[:<line>]" with a valid path.
+func validSource(s string) bool { return validPath(sourceFile(s)) }
+
+// validPath reports whether p is a clean relative slash path ("." for the
+// folder itself), prefixed by "repository:" or by nothing.
+func validPath(p string) bool {
+	p = strings.TrimPrefix(p, repositoryPrefix)
+	return fs.ValidPath(p) && !strings.Contains(p, ":")
+}
+
+// repositoryPrefix marks a source read from the repository root, outside the
+// bundle.
+const repositoryPrefix = "repository:"
+
+// Marshal writes the record with its fields sorted by field then source, its
+// findings truncation first then by code and source, its sources by path, and no timestamp, so the same inputs give the same bytes.
 func (r *InferredRecord) Marshal() []byte {
 	out := *r
 	out.Fields = slices.Clone(r.Fields)
 	slices.SortFunc(out.Fields, func(a, b Inferred) int {
 		return cmp.Or(strings.Compare(a.Field, b.Field), strings.Compare(a.Source, b.Source))
+	})
+	out.Findings = slices.Clone(r.Findings)
+	slices.SortFunc(out.Findings, func(a, b InferredFinding) int {
+		return cmp.Or(-cmp.Compare(boolInt(a.Code == InferredFindingTruncated), boolInt(b.Code == InferredFindingTruncated)),
+			strings.Compare(a.Code, b.Code), strings.Compare(a.Source, b.Source))
 	})
 	out.Inputs.Sources = slices.Clone(r.Inputs.Sources)
 	slices.SortFunc(out.Inputs.Sources, func(a, b InferredSourceFile) int { return strings.Compare(a.Path, b.Path) })
@@ -243,6 +327,14 @@ func InferredUnchanged(prev, next *Bundle, digest func(*Bundle) (string, error))
 		diffs = append(diffs, "sources")
 	}
 	return unchanged, cmp.Or(strings.Join(diffs, ", "), "fields")
+}
+
+// boolInt is 1 for true.
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // shortCommit is a commit as git abbreviates it.

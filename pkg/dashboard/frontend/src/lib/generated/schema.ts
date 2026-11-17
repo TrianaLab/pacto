@@ -1209,9 +1209,11 @@ export interface components {
             timeout?: string;
         };
         "Contract.Inferred": {
+            class?: string;
             confidence?: string;
             declare?: string;
             field: string;
+            outranks?: string[] | null;
             source: string;
             value: string;
         };

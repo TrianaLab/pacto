@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/trianalab/pacto/v4/internal/discover"
 )
 
 // gitRevision is the commit HEAD points at in the git checkout that holds
@@ -16,27 +18,19 @@ import (
 // ponytail: no reftable support (git 2.45+ opt-in ref storage); such a
 // checkout reads as "" and --revision covers it.
 func gitRevision(dir string) string {
-	for {
-		if gitDir := gitDirOf(filepath.Join(dir, ".git")); gitDir != "" {
+	if root, ok := discover.RepoRoot(dir); ok {
+		if gitDir := gitDirOf(filepath.Join(root, ".git")); gitDir != "" {
 			return resolveHEAD(gitDir)
 		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return ""
-		}
-		dir = parent
 	}
+	return ""
 }
 
 // gitDirOf is the git directory dotGit names: dotGit itself when it is a
 // directory, or the target of its "gitdir:" line when it is a file (a linked
 // worktree or a submodule).
 func gitDirOf(dotGit string) string {
-	fi, err := os.Stat(dotGit)
-	switch {
-	case err != nil:
-		return ""
-	case fi.IsDir():
+	if fi, err := os.Stat(dotGit); err == nil && fi.IsDir() {
 		return dotGit
 	}
 	b, _ := os.ReadFile(dotGit)

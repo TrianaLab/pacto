@@ -1,7 +1,7 @@
 format: pacto.inferred/v1
 inputs:
     pacto: demo
-    discovery: "1"
+    discovery: "2"
     sources:
         - path: deploy/deployment.yaml
           digest: sha256:5b7d211439ba5b72fd6376abc080a33b39cee16d33c03a7b20c42e12fb9dde8c

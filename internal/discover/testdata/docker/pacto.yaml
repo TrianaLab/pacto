@@ -1,0 +1,3 @@
+pactoVersion: "2.5"
+service:
+  name: orders

@@ -11,6 +11,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -20,38 +21,72 @@ import (
 
 // Version is the discovery version an inferred record names. Bump it when
 // what Complete infers from the same folder changes.
-const Version = "1"
+const Version = "2"
 
-// Complete is what the folder dir shows beyond what declared declares: one
-// field per value, with its "<path>:<line>" source, confidence likely and the
-// YAML that would declare it, and in the inputs every file a field cites with
-// its digest. A configuration field carries a key and a type, never a value.
-// It is nil when the folder adds nothing. A nil declared declares nothing.
+// Complete is CompleteIn with the repository root found from dir.
 func Complete(dir string, declared *contract.Contract, in contract.InferredInputs) (*contract.InferredRecord, error) {
+	return CompleteIn(dir, "", declared, in)
+}
+
+// CompleteIn is what the folder dir, in the repository root repoDir (""
+// finds it, as ReadDir does), shows beyond what declared declares: one field
+// per value, with its "<path>:<line>" source, its confidence, the YAML that
+// would declare it and the sources it outranks; what discovery could not read
+// as findings; and in the inputs every file a field cites with its digest. A
+// configuration field carries a key and a type, never a value. It is nil when
+// the folder adds nothing and holds nothing unreadable. A nil declared
+// declares nothing.
+func CompleteIn(dir, repoDir string, declared *contract.Contract, in contract.InferredInputs) (*contract.InferredRecord, error) {
 	sc, err := Dir(dir)
 	if err != nil {
 		return nil, err
 	}
-	c := &completion{sc: sc, d: cmp.Or(declared, &contract.Contract{}), cited: map[string]bool{}}
+	reading, err := ReadDir(dir, repoDir)
+	if err != nil {
+		return nil, err
+	}
+	c := &completion{sc: sc, d: cmp.Or(declared, &contract.Contract{})}
 	c.workload()
 	c.api()
 	c.health()
 	c.configuration(dir)
 	c.dependencies(cmp.Or(c.d.Service.Name, filepath.Base(dir)))
-	if len(c.fields) == 0 {
+	for _, e := range reading.entries {
+		if !c.declared(e.Field) {
+			c.entries = append(c.entries, e)
+		}
+	}
+	fields, cited := merge(c.entries)
+	if len(fields) == 0 && len(reading.Findings) == 0 {
 		return nil, nil
 	}
-	slices.SortFunc(c.fields, func(a, b contract.Inferred) int { return strings.Compare(a.Field, b.Field) })
-	in.Discovery, in.Sources = Version, nil
-	for _, f := range slices.Sorted(maps.Keys(c.cited)) {
-		data, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(f)))
+	in.Discovery, in.ChartDependencies = Version, reading.ChartDependencies
+	if in.Sources, err = citeSources(dir, repoDir, cited); err != nil {
+		return nil, err
+	}
+	return &contract.InferredRecord{Format: contract.InferredRecordFormat, Inputs: in, Fields: fields,
+		Findings: reading.Findings, FindingsDropped: reading.FindingsDropped}, nil
+}
+
+// citeSources is every file in cited with its digest: a folder path under
+// dir, or a "repository:<path>" under the repository root repoDir names (""
+// finds it, as ReadDir does).
+func citeSources(dir, repoDir string, cited map[string]bool) ([]contract.InferredSourceFile, error) {
+	var out []contract.InferredSourceFile
+	for _, f := range slices.Sorted(maps.Keys(cited)) {
+		p := filepath.Join(dir, filepath.FromSlash(f))
+		if rel, ok := strings.CutPrefix(f, "repository:"); ok {
+			abs, _ := filepath.Abs(dir) // ponytail: ReadDir just made dir absolute
+			p = filepath.Join(repoFor(abs, repoDir), filepath.FromSlash(rel))
+		}
+		data, err := os.ReadFile(p)
 		if err != nil {
 			return nil, fmt.Errorf("reading %s: %w", f, err)
 		}
 		sum := sha256.Sum256(data)
-		in.Sources = append(in.Sources, contract.InferredSourceFile{Path: f, Digest: "sha256:" + hex.EncodeToString(sum[:])})
+		out = append(out, contract.InferredSourceFile{Path: f, Digest: "sha256:" + hex.EncodeToString(sum[:])})
 	}
-	return &contract.InferredRecord{Format: contract.InferredRecordFormat, Inputs: in, Fields: c.fields}, nil
+	return out, nil
 }
 
 // CompleteBundle overlays on b, read from the folder dir, what Complete
@@ -72,17 +107,28 @@ func CompleteBundle(b *contract.Bundle, dir string, in contract.InferredInputs) 
 	return nil
 }
 
-// completion collects the fields Complete infers and the files they cite.
+// completion collects the fields Complete infers, before the merge.
 type completion struct {
-	sc     *Scan
-	d      *contract.Contract
-	fields []contract.Inferred
-	cited  map[string]bool
+	sc      *Scan
+	d       *contract.Contract
+	entries []entry
 }
 
 func (c *completion) add(field, value, file, source, declare string) {
-	c.cited[file] = true
-	c.fields = append(c.fields, contract.Inferred{Field: field, Value: value, Source: source, Confidence: contract.ConfidenceLikely, Declare: declare})
+	c.entries = append(c.entries, entry{Inferred: contract.Inferred{Field: field, Value: value, Source: source, Confidence: contract.ConfidenceLikely, Declare: declare}, rank: rankScan, file: file})
+}
+
+// declared reports whether the contract declares the field a reader gives:
+// a health capability, a summary, or an interface on that port.
+func (c *completion) declared(field string) bool {
+	switch field {
+	case "capabilities[health]":
+		return slices.ContainsFunc(c.d.Capabilities, func(k contract.Capability) bool { return k.Type == "health" })
+	case "service.summary":
+		return c.d.Service.Summary != ""
+	}
+	port, ok := strings.CutPrefix(field, "ports[")
+	return ok && slices.ContainsFunc(c.d.Interfaces, func(i contract.Interface) bool { return i.Port != 0 && strconv.Itoa(i.Port)+"]" == port })
 }
 
 // workload is the workload kind and its team label, when not declared.
