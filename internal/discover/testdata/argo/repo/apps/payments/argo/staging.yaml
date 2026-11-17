@@ -1,0 +1,11 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: payments-staging
+spec:
+  sources:
+    - repoURL: https://github.com/acme/platform.git
+      path: apps/payments/chart
+      helm:
+        valueFiles:
+          - values-staging.yaml

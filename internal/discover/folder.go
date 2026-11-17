@@ -69,7 +69,9 @@ type entry struct {
 // and its values-<env>.yaml files, then its templates, then a kustomization's
 // images, then a Compose service's image and environment keys, then plain
 // manifests, then a Compose service's ports. An owner ranks apart: the
-// catalog file, then CODEOWNERS, then the workload's team label.
+// catalog file, then CODEOWNERS, then the workload's team label. So does an
+// environment's file: environments/<env>.yaml, then values-<env>.yaml, then
+// an overlays/<env>/ kustomization, then a GitOps object that names it.
 const (
 	rankScan        = 0
 	rankDockerfile  = 1 << 20
@@ -82,6 +84,10 @@ const (
 	rankCatalog     = 8 << 20
 	rankCodeowners  = 9 << 20
 	rankTeamLabel   = 10 << 20
+	rankEnvFile     = 11 << 20
+	rankEnvValues   = 12 << 20
+	rankEnvOverlay  = 13 << 20
+	rankGitOps      = 14 << 20
 )
 
 // reader collects what one Read finds.
@@ -150,6 +156,9 @@ func (r *reader) file(p, name string) {
 	switch {
 	case name == "Dockerfile" || strings.HasPrefix(name, "Dockerfile.") || strings.HasSuffix(name, ".Dockerfile"):
 		r.dockerfiles = append(r.dockerfiles, p)
+	case r.unsupported(p, name):
+	case path.Dir(p) == envDir && (strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml")):
+		r.envFile(p, name)
 	case name == "Chart.lock":
 		if data := r.read(p); data != nil {
 			r.keepChartFile(p, name, r.yamlDocs(p, data))
@@ -160,8 +169,6 @@ func (r *reader) file(p, name string) {
 		if data := r.read(p); data != nil {
 			r.spec(p, data)
 		}
-	default:
-		r.unsupported(p, name)
 	}
 }
 
@@ -184,6 +191,7 @@ func (r *reader) yamlFile(p, name string) {
 		r.spec(p, data)
 		if !inChart {
 			r.manifests(p, docs)
+			r.gitops(p, docs)
 			r.tool(p, name, docs)
 		}
 	}

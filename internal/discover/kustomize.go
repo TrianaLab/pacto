@@ -16,10 +16,9 @@ import (
 // kustomization reads the kustomization p, whose root is k: a local resource
 // is a manifest the walk already reads, so only one that cannot be read in
 // the folder is a finding, as is a remote one and a helmCharts entry; images
-// give the image.
-// ponytail: an overlays/<env>/ kustomization is an environment candidate; P7
-// records it.
+// give the image; an overlays/<env>/ kustomization is that environment's.
 func (r *reader) kustomization(p string, k *yaml.Node) {
+	r.overlay(p)
 	for _, key := range []string{"resources", "bases"} {
 		for _, res := range items(contract.MapValue(k, key)) {
 			r.kustomizeResource(p, res)

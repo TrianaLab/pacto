@@ -79,9 +79,15 @@ func unlockedDependencyMessage(name string) string {
 // name pattern, each with why.
 // ponytail: a fixed table of the formats seen so far; the next one is one row.
 var unsupportedFiles = map[string]string{
-	"*.graphql":  unsupportedGraphQL,
-	"*.graphqls": unsupportedGraphQL,
-	"*.gql":      unsupportedGraphQL,
+	"*.graphql":     unsupportedGraphQL,
+	"*.graphqls":    unsupportedGraphQL,
+	"*.gql":         unsupportedGraphQL,
+	"helmfile.yaml": unsupportedHelmfile,
+	"helmfile.yml":  unsupportedHelmfile,
+	"Tiltfile":      unsupportedTiltfile,
+	"*.jsonnet":     unsupportedJsonnet,
+	"*.libsonnet":   unsupportedJsonnet,
+	"*.cue":         unsupportedCUE,
 }
 
 // Why a file, or a part of one, is not read.
@@ -91,6 +97,11 @@ const (
 	unsupportedComposeInclude = "Compose include names files Pacto does not follow"
 	unsupportedComposeExtends = "Compose extends from another file, which Pacto does not follow"
 	unsupportedComposeEnvFile = "Compose env_file holds values, which Pacto never reads"
+	unsupportedHelmfile       = "Helmfile releases are rendered by Helmfile, which Pacto does not run"
+	unsupportedTiltfile       = "a Tiltfile is a program, which Pacto does not run"
+	unsupportedJsonnet        = "Jsonnet is a program, which Pacto does not evaluate"
+	unsupportedCUE            = "CUE is evaluated by the CUE tool, which Pacto does not run"
+	unsupportedApplicationSet = "an Argo CD ApplicationSet generates Applications, which Pacto does not expand"
 )
 
 // remoteResourceMessage says the kustomization line at source names the
@@ -105,21 +116,34 @@ func unresolvedResourceMessage(source string) string {
 	return source + " names a Kustomize resource outside the folder or missing from it, so it is not read"
 }
 
+// envNameMessage says source names an environment the contract does not
+// accept as a name.
+func envNameMessage(source string) string {
+	return source + " names an environment that is not a valid environment name (lowercase letters, digits and hyphens, at most 63), so it is not read"
+}
+
+// gitopsPathMessage says the GitOps object line at source names a path
+// outside the folder.
+func gitopsPathMessage(source string) string {
+	return source + " names a path outside the folder, so what it deploys there is not read"
+}
+
 // ambiguousNamesMessage says source lists several what, names, and none is
 // named like the service, so none is read.
 func ambiguousNamesMessage(source, what string, names []string) string {
 	return fmt.Sprintf("%s lists %d %s: %s; none is named like this service, so none is read", source, len(names), what, strings.Join(names, ", "))
 }
 
-// unsupported is a finding when the file p, named name, is one Pacto
-// recognizes but does not read.
-func (r *reader) unsupported(p, name string) {
+// unsupported reports whether the file p, named name, is one Pacto
+// recognizes but does not read, and then it is a finding.
+func (r *reader) unsupported(p, name string) bool {
 	for pattern, why := range unsupportedFiles {
 		if ok, _ := path.Match(pattern, name); ok {
 			r.find(CodeUnsupportedFile, p, unsupportedMessage(p, why))
-			return
+			return true
 		}
 	}
+	return false
 }
 
 // unsupportedMessage says the file at source is not read, and why.

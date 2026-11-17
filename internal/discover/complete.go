@@ -133,8 +133,9 @@ func (c *completion) addRanked(rank int, field, value, file, source, declare str
 
 // declared reports whether the contract declares the field f a reader
 // gives: a health capability, a summary, an owner, a domain, a dependency,
-// an interface with its name or its ref, an interface on that port, or a
-// configuration key (any, when the declared keys cannot be listed).
+// an interface with its name or its ref, an interface on that port, an
+// environment with that name, or a configuration key (any, when the declared
+// keys cannot be listed).
 func (c *completion) declared(f contract.Inferred) bool {
 	field := f.Field
 	if key, ok := strings.CutPrefix(field, "configuration."); ok {
@@ -143,6 +144,9 @@ func (c *completion) declared(f contract.Inferred) bool {
 	if name, ok := strings.CutPrefix(field, "interfaces["); ok {
 		_, ref, _ := strings.Cut(f.Value, " ")
 		return slices.ContainsFunc(c.d.Interfaces, func(i contract.Interface) bool { return i.Name+"]" == name || i.Ref == ref })
+	}
+	if env, ok := strings.CutPrefix(field, "environments["); ok {
+		return slices.ContainsFunc(c.d.Environments, func(e contract.Environment) bool { return e.Name+"].file" == env })
 	}
 	if name, ok := strings.CutPrefix(field, "dependencies["); ok {
 		return declaredDependency(c.d, strings.TrimSuffix(name, "]"))

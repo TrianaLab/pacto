@@ -70,8 +70,8 @@ func (r *reader) chartDependencies(dir string) {
 
 // chartValues reads the values files of the chart in dir: values.yaml for
 // the image, ports and environment keys, and each values-<env>.yaml for its
-// environment keys alone, outranked by values.yaml.
-// ponytail: P7 records each values-<env>.yaml as an environment here.
+// environment keys alone, outranked by values.yaml, and as the file of its
+// environment.
 func (r *reader) chartValues(dir string) {
 	for _, p := range slices.Sorted(maps.Keys(r.chartFiles)) {
 		m := valuesRE.FindStringSubmatch(path.Base(p))
@@ -84,6 +84,7 @@ func (r *reader) chartValues(dir string) {
 			r.valuesPorts(p, values)
 		} else {
 			rank++
+			r.environment(p, p, m[1], p, rankEnvValues, contract.ConfidencePossible)
 		}
 		r.valuesEnv(p, rank, values)
 	}
