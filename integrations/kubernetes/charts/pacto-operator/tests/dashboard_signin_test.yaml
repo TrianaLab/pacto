@@ -93,7 +93,7 @@ tests:
     asserts:
       - equal: {path: kind, value: ClusterRole}
         documentIndex: 0
-      - equal: {path: metadata.name, value: pacto-operator-dashboard-tokenreview}
+      - equal: {path: metadata.name, value: pacto-operator-pacto-operator-system-dashboard-tokenreview}
         documentIndex: 0
       - equal:
           path: rules
@@ -104,11 +104,11 @@ tests:
         documentIndex: 0
       - equal: {path: kind, value: ClusterRoleBinding}
         documentIndex: 1
-      - equal: {path: metadata.name, value: pacto-operator-dashboard-tokenreview}
+      - equal: {path: metadata.name, value: pacto-operator-pacto-operator-system-dashboard-tokenreview}
         documentIndex: 1
       - equal:
           path: roleRef
-          value: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: pacto-operator-dashboard-tokenreview}
+          value: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: pacto-operator-pacto-operator-system-dashboard-tokenreview}
         documentIndex: 1
       - equal:
           path: subjects
@@ -159,7 +159,7 @@ tests:
     template: templates/dashboard-signin.yaml
     release: {name: alpha, namespace: team-a}
     asserts:
-      - equal: {path: metadata.name, value: alpha-pacto-operator-dashboard-tokenreview}
+      - equal: {path: metadata.name, value: alpha-pacto-operator-team-a-dashboard-tokenreview}
         documentIndex: 1
       - equal: {path: "subjects[0].namespace", value: team-a}
         documentIndex: 1
@@ -172,7 +172,7 @@ tests:
     template: templates/dashboard-signin.yaml
     release: {name: beta, namespace: team-b}
     asserts:
-      - equal: {path: metadata.name, value: beta-pacto-operator-dashboard-tokenreview}
+      - equal: {path: metadata.name, value: beta-pacto-operator-team-b-dashboard-tokenreview}
         documentIndex: 0
       - equal: {path: "subjects[0].namespace", value: team-b}
         documentIndex: 1
@@ -180,6 +180,19 @@ tests:
         documentIndex: 3
       - equal: {path: "subjects[0].namespace", value: team-b}
         documentIndex: 4
+
+  - it: names the TokenReview grant per namespace, so one release name installs in two namespaces
+    template: templates/dashboard-signin.yaml
+    release: {name: pacto-operator, namespace: tenant-b}
+    set:
+      controller.watchNamespaces: [b]
+    asserts:
+      - equal: {path: metadata.name, value: pacto-operator-tenant-b-dashboard-tokenreview}
+        documentIndex: 0
+      - equal: {path: metadata.name, value: pacto-operator-tenant-b-dashboard-tokenreview}
+        documentIndex: 1
+      - equal: {path: "roleRef.name", value: pacto-operator-tenant-b-dashboard-tokenreview}
+        documentIndex: 1
 
   - it: binds pacto-viewer per watched namespace with watchNamespaces and renders no viewer ClusterRole
     template: templates/dashboard-signin.yaml
@@ -189,7 +202,7 @@ tests:
       - hasDocuments: {count: 7}
       - equal: {path: kind, value: ClusterRole}
         documentIndex: 0
-      - equal: {path: metadata.name, value: pacto-operator-dashboard-tokenreview}
+      - equal: {path: metadata.name, value: pacto-operator-pacto-operator-system-dashboard-tokenreview}
         documentIndex: 0
       - equal: {path: kind, value: Role}
         documentIndex: 3

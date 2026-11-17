@@ -50,8 +50,8 @@ SA=pacto-operator
 LOCAL_DASH_PORT=18511
 STALE_DELETE="kubectl delete clusterrole,clusterrolebinding pacto-dashboard"
 # The one cluster-scoped object a namespace-list release keeps, named from the
-# fullname (fullnameOverride below).
-TOKENREVIEW=pacto-operator-dashboard-tokenreview
+# fullname (fullnameOverride below) and the release namespace.
+tokenreview() { echo "pacto-operator-$1-dashboard-tokenreview"; }
 
 build_operator_images "$OP_IMG" "$DASH_IMG" "$TAG"
 
@@ -132,15 +132,17 @@ YAML
 
 # The TokenReview grant is excluded by name: assert_tokenreview_grant checks it
 # exactly, and assert_release_gone's instance-label check still catches a leak.
-pacto_clusterroles() { kubectl get clusterrole,clusterrolebinding -o name | grep '/pacto' | grep -v "/${TOKENREVIEW}\$" || true; }
+pacto_clusterroles() { kubectl get clusterrole,clusterrolebinding -o name | grep '/pacto' | grep -v -- '-dashboard-tokenreview$' || true; }
 count_pacto_clusterroles() { pacto_clusterroles | grep -c . || true; }
 
 assert_tokenreview_grant() { # NS — the release namespace whose dashboard it binds
-  kubectl get clusterrole "$TOKENREVIEW" -o json | jq -e '.rules == [{"apiGroups":["authentication.k8s.io"],"resources":["tokenreviews"],"verbs":["create"]}]' >/dev/null \
-    || fail "ClusterRole $TOKENREVIEW grants more than create on tokenreviews: $(kubectl get clusterrole "$TOKENREVIEW" -o jsonpath='{.rules}')"
-  kubectl get clusterrolebinding "$TOKENREVIEW" -o json | jq -e --arg ns "$1" --arg r "$TOKENREVIEW" '.roleRef.name == $r and
+  local tr
+  tr="$(tokenreview "$1")"
+  kubectl get clusterrole "$tr" -o json | jq -e '.rules == [{"apiGroups":["authentication.k8s.io"],"resources":["tokenreviews"],"verbs":["create"]}]' >/dev/null \
+    || fail "ClusterRole $tr grants more than create on tokenreviews: $(kubectl get clusterrole "$tr" -o jsonpath='{.rules}')"
+  kubectl get clusterrolebinding "$tr" -o json | jq -e --arg ns "$1" --arg r "$tr" '.roleRef.name == $r and
       .subjects == [{"kind":"ServiceAccount","name":"pacto-dashboard","namespace":$ns}]' >/dev/null \
-    || fail "ClusterRoleBinding $TOKENREVIEW binds more than pacto-dashboard in $1: $(kubectl get clusterrolebinding "$TOKENREVIEW" -o jsonpath='{.subjects}')"
+    || fail "ClusterRoleBinding $tr binds more than pacto-dashboard in $1: $(kubectl get clusterrolebinding "$tr" -o jsonpath='{.subjects}')"
   pass "the only cluster-scoped grant left is create on tokenreviews for $1's pacto-dashboard"
 }
 
@@ -217,7 +219,7 @@ helm install "$R2" "$CHART" -n "$NS2" --create-namespace "${SETS[@]}" --set crds
 assert_operator_healthy
 wait_managed_ready pacto-dashboard >/dev/null || fail "dashboard Deployment not Ready"
 scoped="$(kubectl get clusterrole,clusterrolebinding -l "app.kubernetes.io/instance=$R2" -o name | sort | tr '\n' ' ')"
-[ "$scoped" = "clusterrole.rbac.authorization.k8s.io/$TOKENREVIEW clusterrolebinding.rbac.authorization.k8s.io/$TOKENREVIEW " ] \
+[ "$scoped" = "clusterrole.rbac.authorization.k8s.io/$(tokenreview "$NS2") clusterrolebinding.rbac.authorization.k8s.io/$(tokenreview "$NS2") " ] \
   || fail "release $R2 rendered a ClusterRole or binding beyond the TokenReview grant: $scoped"
 gone clusterrole pacto-dashboard || fail "the scoped operator applied the pacto-dashboard ClusterRole"
 [ "$(count_pacto_clusterroles)" = "0" ] || fail "ClusterRoles named pacto* exist: $(pacto_clusterroles)"

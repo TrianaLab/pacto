@@ -11,11 +11,12 @@
 # - pacto-viewer, the ServiceAccount the NOTES sign-in link carries a token
 #   for, reads Pactos and PactoRevisions and nothing else. Minting its token
 #   needs create on serviceaccounts/token in the release namespace.
-# Cluster-scoped names come from the release, so two releases never collide.
+# Cluster-scoped names come from the release and its namespace, so two
+# releases never collide, also two of one name in different namespaces.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ $fullname }}-dashboard-tokenreview
+  name: {{ $fullname }}-{{ .Release.Namespace }}-dashboard-tokenreview
   labels:
     {{- $labels | nindent 4 }}
 rules:
@@ -23,7 +24,7 @@ rules:
     resources: [tokenreviews]
     verbs: [create]
 ---
-{{ include "pacto-operator.binding" (dict "kind" "ClusterRoleBinding" "name" (printf "%s-dashboard-tokenreview" $fullname) "labels" $labels "serviceAccount" "pacto-dashboard" "serviceAccountNamespace" .Release.Namespace) }}
+{{ include "pacto-operator.binding" (dict "kind" "ClusterRoleBinding" "name" (printf "%s-%s-dashboard-tokenreview" $fullname .Release.Namespace) "labels" $labels "serviceAccount" "pacto-dashboard" "serviceAccountNamespace" .Release.Namespace) }}
 ---
 apiVersion: v1
 kind: ServiceAccount

@@ -288,7 +288,7 @@ dashboard:
     tokenSignIn:
       # -- Let people sign in with a Kubernetes token. A ServiceAccount token minted with `--audience pacto-dashboard` reads the fleet only (NOTES prints one for `pacto-viewer`). A person's own token (an OIDC ID token, an EKS token) acts as them and may approve held changes. The chart grants the dashboard `create` on `tokenreviews` and creates the read-only `pacto-viewer` ServiceAccount
       enabled: true
-    # -- Serve the dashboard without sign-in, only with tokenSignIn.enabled=false and no issuer. Everyone who reaches it reads every service the dashboard's ServiceAccount reads
+    # -- Serve the dashboard without sign-in, only with tokenSignIn.enabled=false and no issuer. Everyone who reaches it reads every service the dashboard's ServiceAccount reads. With `false` and no sign-in the dashboard refuses to start
     allowAnonymous: false
   # What the dashboard's delivery views read. They need sign-in
   # (`dashboard.auth`), because every delivery read and action runs with the

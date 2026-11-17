@@ -108,7 +108,7 @@ Where the API serves `ValidatingAdmissionPolicy`, the chart also renders one tha
 
 On by default with the dashboard. The dashboard's ServiceAccount may create TokenReviews, which reveals only whose token it already holds, and the `pacto-viewer` ServiceAccount the NOTES sign-in link carries a token for reads Pactos and nothing else. Helm creates both grants, so the operator holds neither:
 
-`pacto-operator-dashboard-tokenreview` (`ClusterRole`):
+`pacto-operator-pacto-operator-system-dashboard-tokenreview` (`ClusterRole`):
 
 | API groups | Resources | Verbs | Limited to |
 | --- | --- | --- | --- |

@@ -127,7 +127,7 @@ echo "== SCENARIO 1b: sign in with the NOTES link =="
 notes="$(helm get notes pacto-operator -n "$NS")"
 mint="$(grep -oE "kubectl -n $NS create token pacto-viewer --audience pacto-dashboard --duration 10m" <<<"$notes" | head -n 1)"
 [ -n "$mint" ] || { echo "$notes" >&2; fail "NOTES print no create-token command for pacto-viewer with the pacto-dashboard audience"; }
-grep -q "#token=\$($mint)" <<<"$notes" || fail "NOTES do not put the token in the link's fragment"
+grep -qF "TOKEN=\$($mint) && echo \"http://127.0.0.1:3000/#token=\$TOKEN\"" <<<"$notes" || fail "NOTES do not put the token in the link's fragment, printed only once minted"
 kubectl -n "$NS" get deploy pacto-dashboard -o json | jq -e '.spec.template.spec.containers[0].env as $e |
     ($e | map(select(.name == "PACTO_DASHBOARD_TOKEN_LOGIN"))[0].value == "true") and
     ($e | map(select(.name == "PACTO_DASHBOARD_ALLOW_ANONYMOUS")) == [])' >/dev/null \
@@ -164,7 +164,7 @@ wait_gone serviceaccount pacto-dashboard -n "$NS"
 wait_gone clusterrolebinding pacto-dashboard
 wait_gone clusterrole pacto-dashboard
 wait_gone serviceaccount pacto-viewer -n "$NS"
-wait_gone clusterrolebinding pacto-operator-dashboard-tokenreview
+wait_gone clusterrolebinding "pacto-operator-${NS}-dashboard-tokenreview"
 wait_gone clusterrolebinding pacto-operator-viewer
 assert_no_dashboard
 

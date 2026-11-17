@@ -2928,7 +2928,7 @@ tests:
     - hasDocuments: {count: 5}
     - equal: {path: kind, value: ClusterRole}
       documentIndex: 0
-    - equal: {path: metadata.name, value: pacto-operator-dashboard-tokenreview}
+    - equal: {path: metadata.name, value: pacto-operator-pacto-operator-system-dashboard-tokenreview}
       documentIndex: 0
     - notExists: {path: metadata.namespace}
       documentIndex: 0
@@ -2941,11 +2941,11 @@ tests:
       documentIndex: 0
     - equal: {path: kind, value: ClusterRoleBinding}
       documentIndex: 1
-    - equal: {path: metadata.name, value: pacto-operator-dashboard-tokenreview}
+    - equal: {path: metadata.name, value: pacto-operator-pacto-operator-system-dashboard-tokenreview}
       documentIndex: 1
     - equal:
         path: roleRef
-        value: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: pacto-operator-dashboard-tokenreview}
+        value: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: pacto-operator-pacto-operator-system-dashboard-tokenreview}
       documentIndex: 1
     - equal:
         path: subjects
@@ -2983,7 +2983,7 @@ tests:
     - hasDocuments: {count: 7}
     - equal: {path: kind, value: ClusterRole}
       documentIndex: 0
-    - equal: {path: metadata.name, value: pacto-operator-dashboard-tokenreview}
+    - equal: {path: metadata.name, value: pacto-operator-pacto-operator-system-dashboard-tokenreview}
       documentIndex: 0
     - notExists: {path: metadata.namespace}
       documentIndex: 0
@@ -2996,11 +2996,11 @@ tests:
       documentIndex: 0
     - equal: {path: kind, value: ClusterRoleBinding}
       documentIndex: 1
-    - equal: {path: metadata.name, value: pacto-operator-dashboard-tokenreview}
+    - equal: {path: metadata.name, value: pacto-operator-pacto-operator-system-dashboard-tokenreview}
       documentIndex: 1
     - equal:
         path: roleRef
-        value: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: pacto-operator-dashboard-tokenreview}
+        value: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: pacto-operator-pacto-operator-system-dashboard-tokenreview}
       documentIndex: 1
     - equal:
         path: subjects
@@ -3070,7 +3070,7 @@ tests:
     - hasDocuments: {count: 7}
     - equal: {path: kind, value: ClusterRole}
       documentIndex: 0
-    - equal: {path: metadata.name, value: pacto-operator-dashboard-tokenreview}
+    - equal: {path: metadata.name, value: pacto-operator-pacto-operator-system-dashboard-tokenreview}
       documentIndex: 0
     - notExists: {path: metadata.namespace}
       documentIndex: 0
@@ -3083,11 +3083,11 @@ tests:
       documentIndex: 0
     - equal: {path: kind, value: ClusterRoleBinding}
       documentIndex: 1
-    - equal: {path: metadata.name, value: pacto-operator-dashboard-tokenreview}
+    - equal: {path: metadata.name, value: pacto-operator-pacto-operator-system-dashboard-tokenreview}
       documentIndex: 1
     - equal:
         path: roleRef
-        value: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: pacto-operator-dashboard-tokenreview}
+        value: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: pacto-operator-pacto-operator-system-dashboard-tokenreview}
       documentIndex: 1
     - equal:
         path: subjects
@@ -3157,7 +3157,7 @@ tests:
     - hasDocuments: {count: 5}
     - equal: {path: kind, value: ClusterRole}
       documentIndex: 0
-    - equal: {path: metadata.name, value: pacto-operator-dashboard-tokenreview}
+    - equal: {path: metadata.name, value: pacto-operator-pacto-operator-system-dashboard-tokenreview}
       documentIndex: 0
     - notExists: {path: metadata.namespace}
       documentIndex: 0
@@ -3170,11 +3170,11 @@ tests:
       documentIndex: 0
     - equal: {path: kind, value: ClusterRoleBinding}
       documentIndex: 1
-    - equal: {path: metadata.name, value: pacto-operator-dashboard-tokenreview}
+    - equal: {path: metadata.name, value: pacto-operator-pacto-operator-system-dashboard-tokenreview}
       documentIndex: 1
     - equal:
         path: roleRef
-        value: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: pacto-operator-dashboard-tokenreview}
+        value: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: pacto-operator-pacto-operator-system-dashboard-tokenreview}
       documentIndex: 1
     - equal:
         path: subjects
@@ -3212,7 +3212,7 @@ tests:
     - hasDocuments: {count: 7}
     - equal: {path: kind, value: ClusterRole}
       documentIndex: 0
-    - equal: {path: metadata.name, value: pacto-operator-dashboard-tokenreview}
+    - equal: {path: metadata.name, value: pacto-operator-pacto-operator-system-dashboard-tokenreview}
       documentIndex: 0
     - notExists: {path: metadata.namespace}
       documentIndex: 0
@@ -3225,11 +3225,11 @@ tests:
       documentIndex: 0
     - equal: {path: kind, value: ClusterRoleBinding}
       documentIndex: 1
-    - equal: {path: metadata.name, value: pacto-operator-dashboard-tokenreview}
+    - equal: {path: metadata.name, value: pacto-operator-pacto-operator-system-dashboard-tokenreview}
       documentIndex: 1
     - equal:
         path: roleRef
-        value: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: pacto-operator-dashboard-tokenreview}
+        value: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: pacto-operator-pacto-operator-system-dashboard-tokenreview}
       documentIndex: 1
     - equal:
         path: subjects
@@ -3299,7 +3299,7 @@ tests:
     - hasDocuments: {count: 5}
     - equal: {path: kind, value: ClusterRole}
       documentIndex: 0
-    - equal: {path: metadata.name, value: pacto-operator-dashboard-tokenreview}
+    - equal: {path: metadata.name, value: pacto-operator-pacto-operator-system-dashboard-tokenreview}
       documentIndex: 0
     - notExists: {path: metadata.namespace}
       documentIndex: 0
@@ -3312,11 +3312,11 @@ tests:
       documentIndex: 0
     - equal: {path: kind, value: ClusterRoleBinding}
       documentIndex: 1
-    - equal: {path: metadata.name, value: pacto-operator-dashboard-tokenreview}
+    - equal: {path: metadata.name, value: pacto-operator-pacto-operator-system-dashboard-tokenreview}
       documentIndex: 1
     - equal:
         path: roleRef
-        value: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: pacto-operator-dashboard-tokenreview}
+        value: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: pacto-operator-pacto-operator-system-dashboard-tokenreview}
       documentIndex: 1
     - equal:
         path: subjects
@@ -3354,7 +3354,7 @@ tests:
     - hasDocuments: {count: 5}
     - equal: {path: kind, value: ClusterRole}
       documentIndex: 0
-    - equal: {path: metadata.name, value: pacto-operator-dashboard-tokenreview}
+    - equal: {path: metadata.name, value: pacto-operator-pacto-operator-system-dashboard-tokenreview}
       documentIndex: 0
     - notExists: {path: metadata.namespace}
       documentIndex: 0
@@ -3367,11 +3367,11 @@ tests:
       documentIndex: 0
     - equal: {path: kind, value: ClusterRoleBinding}
       documentIndex: 1
-    - equal: {path: metadata.name, value: pacto-operator-dashboard-tokenreview}
+    - equal: {path: metadata.name, value: pacto-operator-pacto-operator-system-dashboard-tokenreview}
       documentIndex: 1
     - equal:
         path: roleRef
-        value: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: pacto-operator-dashboard-tokenreview}
+        value: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: pacto-operator-pacto-operator-system-dashboard-tokenreview}
       documentIndex: 1
     - equal:
         path: subjects

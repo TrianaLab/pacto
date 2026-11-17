@@ -1915,11 +1915,12 @@ rules:
 # - pacto-viewer, the ServiceAccount the NOTES sign-in link carries a token
 #   for, reads Pactos and PactoRevisions and nothing else. Minting its token
 #   needs create on serviceaccounts/token in the release namespace.
-# Cluster-scoped names come from the release, so two releases never collide.
+# Cluster-scoped names come from the release and its namespace, so two
+# releases never collide, also two of one name in different namespaces.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: pacto-operator-dashboard-tokenreview
+  name: pacto-operator-default-dashboard-tokenreview
   labels:
     helm.sh/chart: pacto-operator-VERSION
     app.kubernetes.io/name: pacto-operator
@@ -1971,7 +1972,7 @@ subjects:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: pacto-operator-dashboard-tokenreview
+  name: pacto-operator-default-dashboard-tokenreview
   labels:
     helm.sh/chart: pacto-operator-VERSION
     app.kubernetes.io/name: pacto-operator
@@ -1981,7 +1982,7 @@ metadata:
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: pacto-operator-dashboard-tokenreview
+  name: pacto-operator-default-dashboard-tokenreview
 subjects:
   - kind: ServiceAccount
     name: pacto-dashboard

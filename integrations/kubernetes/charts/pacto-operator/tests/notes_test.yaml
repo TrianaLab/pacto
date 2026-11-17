@@ -48,7 +48,11 @@ tests:
       - matchRegexRaw:
           pattern: 'kubectl -n pacto-operator-system port-forward svc/pacto-dashboard 3000:3000'
       - matchRegexRaw:
-          pattern: 'echo "http://127\.0\.0\.1:3000/#token=\$\(kubectl -n pacto-operator-system create token pacto-viewer --audience pacto-dashboard --duration 10m\)"'
+          pattern: 'TOKEN=\$\(kubectl -n pacto-operator-system create token pacto-viewer --audience pacto-dashboard --duration 10m\) && echo "http://127\.0\.0\.1:3000/#token=\$TOKEN"'
+      - matchRegexRaw:
+          pattern: 'shows the fleet views of every namespace where pacto-viewer may read Pactos,\s+with no Delivery and no actions'
+      - notMatchRegexRaw:
+          pattern: reads Pactos and nothing else
       - notMatchRegexRaw:
           pattern: '\?token='
       - notMatchRegexRaw:
@@ -106,12 +110,26 @@ tests:
       - matchRegexRaw:
           pattern: create token pacto-viewer
 
-  - it: prints no link with tokenSignIn false
+  - it: prints no link with tokenSignIn false, and says a dashboard with no sign-in at all will not start
     set:
       dashboard.auth.tokenSignIn.enabled: false
     asserts:
       - notMatchRegexRaw:
           pattern: create token pacto-viewer
+      - matchRegexRaw:
+          pattern: 'WARNING: the dashboard will not start'
+      - notMatchRegexRaw:
+          pattern: Dashboard is enabled
+
+  - it: prints the port-forward with tokenSignIn false and an identity provider
+    set:
+      dashboard.auth.tokenSignIn.enabled: false
+      dashboard.auth.oidc.issuerURL: https://idp.example
+    asserts:
+      - matchRegexRaw:
+          pattern: Dashboard is enabled
+      - notMatchRegexRaw:
+          pattern: will not start
 
   - it: the anonymous warning names tokenSignIn
     set:
