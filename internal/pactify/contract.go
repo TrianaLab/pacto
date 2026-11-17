@@ -100,12 +100,6 @@ func (p *planner) contract(ctx context.Context) error {
 			p.r.Dependencies = append(p.r.Dependencies, Finding{Name: d.Name, Where: d.Where})
 		}
 	}
-	// Before completion too: a chart Pacto does not read is unknown, never
-	// counted as declared.
-	for _, c := range p.sc.Charts {
-		p.unknown("the Helm chart in %s is not read: render it with helm template --include-crds %s %s > k8s/rendered.yaml and run pacto init again, "+
-			"or add the chart under publish.artifacts as a chart", c, p.r.Service, c)
-	}
 	if data, err := os.ReadFile(p.r.Path); err == nil {
 		p.r.Files = append(p.r.Files, File{Path: "pacto.yaml", Action: Keep})
 		if c := p.existing(data); c != nil {
@@ -113,27 +107,58 @@ func (p *planner) contract(ctx context.Context) error {
 		}
 		return nil
 	}
-	if p.r.Mode == modeBlank {
-		openapi := fmt.Sprintf(blankOpenAPI, p.r.Service)
-		text := p.blank()
-		files := p.environmentFiles()
-		files["interfaces/openapi.yaml"], files[configSchema] = openapi, blankSchema
-		if err := validate(text, files); err != nil {
-			return fmt.Errorf("the contract pacto init would write is not valid: %w", err)
-		}
-		p.file("pacto.yaml", text)
-		p.file("interfaces/openapi.yaml", openapi)
-		p.file(configSchema, blankSchema)
-		p.planEnvironmentFiles(files)
-		return nil
-	}
-	p.contractNew = true
-	reading, err := discover.ReadDir(p.r.Dir, "")
+	// Everything the folder shows, read once: the contract init writes draws
+	// on it, and it is kept apart, each value with its source.
+	rec, err := discover.CompleteIn(p.r.Dir, "", &contract.Contract{Service: contract.Service{Name: p.r.Service}},
+		contract.InferredInputs{Commit: p.opts.Commit, Pacto: p.opts.PactoVersion})
 	if err != nil {
-		return err
+		return fmt.Errorf("reading %s: %w", p.r.Dir, err)
 	}
-	p.openapi = discover.OpenAPIRef(reading.Fields)
-	p.ports = discoveredPorts(reading.Fields)
+	fields := cmp.Or(rec, &contract.InferredRecord{}).Fields
+	p.openapi = discover.OpenAPIRef(fields)
+	if p.r.Mode == modeBlank {
+		err = p.blankContract()
+	} else {
+		err = p.pactifiedContract(fields)
+	}
+	// A draft read from the cluster is never completed: what runs there never
+	// reaches the inferred record.
+	if err == nil && !p.opts.cluster {
+		p.r.Inferred = rec
+		p.discoveryLines()
+	}
+	return err
+}
+
+// blankContract plans the blank contract, its interface the OpenAPI file
+// discovery found or, with none, a placeholder, and its files.
+func (p *planner) blankContract() error {
+	text := p.blank()
+	files := p.environmentFiles()
+	files[configSchema] = blankSchema
+	if p.openapi != "" {
+		text = strings.Replace(text, "ref: interfaces/openapi.yaml\n", "ref: "+discover.Quote(p.openapi)+"\n", 1)
+		data, _ := contract.ReadBounded(os.DirFS(p.r.Dir), p.openapi) // ponytail: discovery read it a moment ago; unreadable now fails validation
+		files[p.openapi] = string(data)
+	} else {
+		files["interfaces/openapi.yaml"] = fmt.Sprintf(blankOpenAPI, p.r.Service)
+	}
+	if err := validate(text, files); err != nil {
+		return fmt.Errorf("the contract pacto init would write is not valid: %w", err)
+	}
+	p.file("pacto.yaml", text)
+	if p.openapi == "" {
+		p.file("interfaces/openapi.yaml", files["interfaces/openapi.yaml"])
+	}
+	p.file(configSchema, blankSchema)
+	p.planEnvironmentFiles(files)
+	return nil
+}
+
+// pactifiedContract plans the contract read from the folder, and its files.
+func (p *planner) pactifiedContract(fields []contract.Inferred) error {
+	p.contractNew = true
+	p.ports = discoveredPorts(fields)
 	text := p.pactified()
 	files := p.environmentFiles()
 	if p.openapi != "" {
@@ -151,6 +176,63 @@ func (p *planner) contract(ctx context.Context) error {
 	}
 	p.planEnvironmentFiles(files)
 	return nil
+}
+
+// discoveryLines names in Found what Pacto read statically from each Helm
+// chart, and in Unknown every file discovery recognized but did not read.
+func (p *planner) discoveryLines() {
+	rec := cmp.Or(p.r.Inferred, &contract.InferredRecord{})
+	for _, chart := range p.sc.Charts {
+		p.found("Helm chart %s read statically%s", chart, chartSummary(chart, rec.Fields))
+	}
+	for _, f := range rec.Findings {
+		p.unknown("%s", f.Message)
+	}
+	if rec.FindingsDropped > 0 {
+		p.unknown("and %d more files discovery recognized but did not read", rec.FindingsDropped)
+	}
+}
+
+// chartFile reports whether the source names a file of the chart folder:
+// its Chart.yaml, a values file or a template.
+func chartFile(chart, source string) bool {
+	rel := strings.TrimPrefix(source, chart+"/")
+	if chart == "." {
+		rel = source
+	}
+	file, _, _ := strings.Cut(rel, ":")
+	return file == "Chart.yaml" || strings.HasPrefix(file, "templates/") || (strings.HasPrefix(file, "values") && !strings.Contains(file, "/"))
+}
+
+// chartSummary is what fields read from the chart folder: its image, its
+// ports and how many configuration keys, "" when none.
+func chartSummary(chart string, fields []contract.Inferred) string {
+	in := func(f contract.Inferred) bool {
+		return slices.ContainsFunc(append([]string{f.Source}, f.Outranks...), func(s string) bool { return chartFile(chart, s) })
+	}
+	var parts []string
+	keys := 0
+	for _, f := range fields {
+		switch {
+		case !in(f):
+		case f.Field == "image":
+			parts = append(parts, "image "+f.Value)
+		case strings.HasPrefix(f.Field, "ports["):
+			parts = append(parts, "port "+strings.TrimSuffix(f.Value, "/tcp"))
+		case strings.HasPrefix(f.Field, "configuration."):
+			keys++
+		}
+	}
+	switch {
+	case keys == 1:
+		parts = append(parts, "1 env key")
+	case keys > 1:
+		parts = append(parts, fmt.Sprintf("%d env keys", keys))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return ": " + strings.Join(parts, ", ")
 }
 
 // environmentFile is the values file init writes for env: no values yet.
@@ -327,6 +409,7 @@ func (p *planner) complete(c *contract.Contract) error {
 		return fmt.Errorf("completing pacto.yaml: %w", err)
 	}
 	p.r.Mode, p.r.Inferred = modeComplete, rec
+	p.discoveryLines()
 	if rec == nil {
 		p.found("pacto.yaml declares every value Pacto reads in this folder's manifests and specs, so Pacto infers nothing")
 		return nil

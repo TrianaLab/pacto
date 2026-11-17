@@ -468,13 +468,17 @@ type OriginDetail struct {
 
 // InferredField is one value a local read implied or the bundle's
 // pacto.inferred.yaml records rather than read from the contract, with where it
-// came from: a "<path>:<line>" in the bundle, "directory <name>" or "this CLI".
+// came from: a "<path>:<line>" in the bundle, a "repository:<path>:<line>"
+// in the repository outside it (a CODEOWNERS file), "directory <name>" or
+// "this CLI".
 type InferredField struct {
-	Field      string `json:"field"`
-	Value      string `json:"value"`
-	Source     string `json:"source"`
-	Confidence string `json:"confidence,omitempty" enum:"likely,possible" doc:"How sure the inference is, set for a field of the inferred record: likely when read from a file in the repository"`
-	Provenance string `json:"provenance" enum:"inferred"`
+	Field      string   `json:"field"`
+	Value      string   `json:"value"`
+	Source     string   `json:"source"`
+	Confidence string   `json:"confidence,omitempty" enum:"likely,possible" doc:"How sure the inference is, set for a field of the inferred record: likely when a file states it, possible when only a convention suggests it"`
+	Class      string   `json:"class,omitempty" enum:"ownerFile" doc:"ownerFile: read from CODEOWNERS or catalog-info.yaml; not verified; never clears a gate"`
+	Outranks   []string `json:"outranks,omitempty" doc:"Lower-ranked sources that gave the same field"`
+	Provenance string   `json:"provenance" enum:"inferred"`
 }
 
 // MaxInferredFields bounds the inferred fields a service or revision detail lists.
@@ -506,9 +510,36 @@ func inferredFields(inf []contract.Inferred, rec *contract.InferredRecord) ([]In
 	all, total, _ := boundSlice(all, MaxInferredFields)
 	var out []InferredField
 	for _, i := range all {
-		out = append(out, InferredField{Field: i.Field, Value: i.Value, Source: i.Source, Confidence: i.Confidence, Provenance: ProvenanceInferred})
+		out = append(out, InferredField{Field: i.Field, Value: i.Value, Source: i.Source, Confidence: i.Confidence,
+			Class: i.Class, Outranks: slices.Clone(i.Outranks), Provenance: ProvenanceInferred})
 	}
 	return out, total
+}
+
+// MaxDiscoveryFindings bounds the discovery findings a revision detail lists.
+const MaxDiscoveryFindings = 20
+
+// DiscoveryFindingsPreview is a bounded list of what discovery recognized in
+// the revision's folder but could not read, from its pacto.inferred.yaml.
+// Truncated says discovery stopped early, so every inferred field is partial;
+// its finding comes first.
+type DiscoveryFindingsPreview struct {
+	Items     []contract.InferredFinding `json:"items"`
+	Total     int                        `json:"total"`
+	Truncated bool                       `json:"truncated,omitempty" doc:"Discovery stopped after its file bound, so what it read is partial"`
+}
+
+// discoveryFindings is the preview of rec's findings: the record keeps the
+// truncation finding first, and Total counts the findings it dropped too.
+func discoveryFindings(rec *contract.InferredRecord) DiscoveryFindingsPreview {
+	p := DiscoveryFindingsPreview{Items: []contract.InferredFinding{}}
+	if rec == nil {
+		return p
+	}
+	p.Items, _, _ = boundSlice(rec.Findings, MaxDiscoveryFindings)
+	p.Total = len(rec.Findings) + rec.FindingsDropped
+	p.Truncated = slices.ContainsFunc(rec.Findings, func(f contract.InferredFinding) bool { return f.Code == contract.InferredFindingTruncated })
+	return p
 }
 
 // inferredPreview is the service detail's preview of cur's inferred fields,
@@ -595,6 +626,9 @@ type RevisionDetailData struct {
 	// InferredUnreadable says the revision ships an inferred record Pacto could
 	// not read or verify, so its inferred fields are unknown.
 	InferredUnreadable bool `json:"inferredUnreadable,omitempty" doc:"The revision ships a pacto.inferred.yaml Pacto could not read or verify"`
+	// DiscoveryFindings is what discovery recognized in the folder but could
+	// not read, at most MaxDiscoveryFindings.
+	DiscoveryFindings DiscoveryFindingsPreview `json:"discoveryFindings"`
 	// Lifecycle is the service lifecycle (pactoVersion 2.4) the revision declares.
 	Lifecycle  *contract.InterfaceLifecycle `json:"lifecycle,omitempty"`
 	Identity   RevisionIdentity             `json:"identity"`
@@ -1410,6 +1444,7 @@ func (q *Query) revisionDetail(key string) (*EntityDetail, error) {
 	}
 	data.PactoVersionCurrent, data.PactoVersionUnknown = pactoVersionStatus(rev.PactoVersion)
 	data.Inferred, data.InferredTotal = inferredFields(rev.Inferred, rev.Record)
+	data.DiscoveryFindings = discoveryFindings(rev.Record)
 	return &EntityDetail{
 		Meta: q.productMeta(), Entity: revisionEntityRef(rev), Status: revisionStatus(rev),
 		Revision: data, Actions: []string{"open-graph", "compare", "impact"},

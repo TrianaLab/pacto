@@ -497,7 +497,7 @@ func TestPactifyReadsWhatIsThere(t *testing.T) {
 	if strings.Count(text, " file:") != 1 { // the dev environment's
 		t.Errorf("a plain Dockerfile needs no file:\n%s", text)
 	}
-	if !hasLine(r.Unknown, "the Helm chart in chart is not read") || !hasLine(r.Next, "my k8s/kustomization.yaml decides what Flux applies") ||
+	if !hasLine(r.Found, "Helm chart chart read statically") || !hasLine(r.Next, "my k8s/kustomization.yaml decides what Flux applies") ||
 		!hasLine(r.Unknown, "several Dockerfiles") || hasLine(r.Next, "signing key") {
 		t.Fatalf("findings: %+v", r)
 	}
@@ -1125,7 +1125,7 @@ func TestHelmChartIsNotRead(t *testing.T) {
 				t.Fatalf("service %q, mode %q", r.Service, r.Mode)
 			}
 			for _, c := range tc.chartDirs {
-				assertChartNamedOnce(t, r.Unknown, c)
+				assertChartNamedOnce(t, r, c)
 			}
 			text := file(t, r, "pacto.yaml").Content
 			assertNoChartRead(t, text, r.Found)
@@ -1153,18 +1153,18 @@ func assertNoChartRead(t *testing.T, text string, found []string) {
 	}
 }
 
-// assertChartNamedOnce fails unless Unknown tells the user exactly once how
-// to render the chart in dir.
-func assertChartNamedOnce(t *testing.T, unknown []string, dir string) {
+// assertChartNamedOnce fails unless Found says exactly once that the chart in
+// dir was read statically, and Unknown never asks to render it.
+func assertChartNamedOnce(t *testing.T, r *Result, dir string) {
 	t.Helper()
 	n := 0
-	for _, l := range unknown {
-		if strings.HasPrefix(l, "the Helm chart in "+dir+" is not read: render it with helm template --include-crds checkout "+dir+" > k8s/rendered.yaml") {
+	for _, l := range r.Found {
+		if strings.HasPrefix(l, "Helm chart "+dir+" read statically") {
 			n++
 		}
 	}
-	if n != 1 {
-		t.Fatalf("want chart %s named once in Unknown, got %d: %q", dir, n, unknown)
+	if n != 1 || hasLine(r.Unknown, "render it") {
+		t.Fatalf("want chart %s read once in Found and never rendered, got %d: %q %q", dir, n, r.Found, r.Unknown)
 	}
 }
 

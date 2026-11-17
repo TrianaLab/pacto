@@ -105,3 +105,26 @@ func TestDiffInferredBracketedPathsNonBreaking(t *testing.T) {
 		t.Errorf("sensitive key not masked: %+v", pw)
 	}
 }
+
+// A record that differs only in what folder discovery adds (ports, an owner
+// from an owner file with what it outranks, an environment file, an image,
+// findings and chart dependencies) never asks more than a patch.
+func TestDiscoveryOnlyChangeNonBumping(t *testing.T) {
+	c := bareContract()
+	oldFS := recordFS("a", field("workload", "service", "deploy/app.yaml:3"))
+	owner := field("service.owner", "team team-payments", "catalog-info.yaml:7")
+	owner.Class, owner.Outranks = contract.InferredClassOwnerFile, []string{"repository:.github/CODEOWNERS:4"}
+	env := field("environments[staging].file", "chart/values-staging.yaml", "chart/values-staging.yaml:1")
+	env.Confidence = contract.ConfidencePossible
+	rec := &contract.InferredRecord{Format: contract.InferredRecordFormat,
+		Inputs: contract.InferredInputs{Commit: "a", Pacto: "4.6.0", Discovery: "2", ChartDependencies: []contract.InferredChartDependency{
+			{Chart: "chart", Name: "postgresql", Version: "12.1.0", Repository: "https://charts.example", Digest: "sha256:" + strings.Repeat("a", 64)}}},
+		Fields: []contract.Inferred{field("workload", "service", "deploy/app.yaml:3"), field("ports[8080]", "8080/tcp", "Dockerfile:12"), owner, env,
+			field("image", "ghcr.io/acme/payments:1.2.0", "chart/values.yaml:3")},
+		Findings: []contract.InferredFinding{{Code: "DISCOVERY_CHART_DEPENDENCY_UNLOCKED", Source: "chart/Chart.yaml:9", Message: "chart dependency 'redis' has no Chart.lock digest, not read"}}}
+	newFS := fstest.MapFS{contract.InferredRecordFile: {Data: rec.Marshal()}}
+	r := Compare(context.Background(), c, c, oldFS, newFS)
+	if got := inferredChanges(r); len(got) != 4 || r.Classification != NonBreaking {
+		t.Fatalf("changes %+v, overall %s", got, r.Classification)
+	}
+}

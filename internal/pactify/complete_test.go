@@ -88,16 +88,15 @@ func TestInitCompletesNothingWhenAllDeclared(t *testing.T) {
 	}
 }
 
-// A chart Pacto does not read stays an unknown in completion mode, so a
-// contract over an unrendered chart never reads as declaring everything.
-func TestInitCompletionKeepsChartUnknown(t *testing.T) {
+// Completion names each chart it read statically, as a new contract does.
+func TestInitCompletionNamesChartRead(t *testing.T) {
 	dir := writeTree(t, t.TempDir(), map[string]string{
 		"pacto.yaml":                      "pactoVersion: \"2.5\"\nservice: {name: p}\n",
 		"chart/Chart.yaml":                "apiVersion: v2\nname: p\nversion: 1.0.0\n",
 		"chart/templates/deployment.yaml": "kind: Deployment\nmetadata: {name: p}\n",
 	})
 	r, err := Init(context.Background(), Options{Dir: dir, Plan: true}, os.WriteFile)
-	if err != nil || r.Mode != modeComplete || !slices.ContainsFunc(r.Unknown, func(u string) bool { return strings.HasPrefix(u, "the Helm chart in chart is not read") }) {
+	if err != nil || r.Mode != modeComplete || !slices.Contains(r.Found, "Helm chart chart read statically") {
 		t.Fatalf("plan: %+v %v", r, err)
 	}
 }

@@ -1217,6 +1217,11 @@ export interface components {
             source: string;
             value: string;
         };
+        "Contract.InferredFinding": {
+            code: string;
+            message: string;
+            source: string;
+        };
         "Contract.Interface": {
             /** Format: int64 */
             compatibilityEpoch?: number;
@@ -2539,6 +2544,13 @@ export interface components {
             total: number;
             truncated: boolean;
         };
+        "Fleet.DiscoveryFindingsPreview": {
+            items: components["schemas"]["Contract.InferredFinding"][] | null;
+            /** Format: int64 */
+            total: number;
+            /** @description Discovery stopped after its file bound, so what it read is partial */
+            truncated?: boolean;
+        };
         "Fleet.DocRef": {
             path: string;
             title: string;
@@ -3069,11 +3081,18 @@ export interface components {
         };
         "Fleet.InferredField": {
             /**
-             * @description How sure the inference is, set for a field of the inferred record: likely when read from a file in the repository
+             * @description ownerFile: read from CODEOWNERS or catalog-info.yaml; not verified; never clears a gate
+             * @enum {string}
+             */
+            class?: "ownerFile";
+            /**
+             * @description How sure the inference is, set for a field of the inferred record: likely when a file states it, possible when only a convention suggests it
              * @enum {string}
              */
             confidence?: "likely" | "possible";
             field: string;
+            /** @description Lower-ranked sources that gave the same field */
+            outranks?: string[] | null;
             /** @enum {string} */
             provenance: "inferred";
             source: string;
@@ -5691,6 +5710,7 @@ export interface components {
             configurations: components["schemas"]["ProductConfigurationsPreview"];
             current?: boolean;
             dependencies: components["schemas"]["ProductRelationshipsPreview"];
+            discoveryFindings: components["schemas"]["Fleet.DiscoveryFindingsPreview"];
             docs: components["schemas"]["Fleet.DocsPreview"];
             environments: components["schemas"]["Fleet.EnvironmentsPreview"];
             evidenceSourceCounts: components["schemas"]["Fleet.SourceCounts"];

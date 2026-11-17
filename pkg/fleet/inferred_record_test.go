@@ -47,12 +47,16 @@ type recordFleetOpts struct {
 	declare  bool                // newsletter declares notification-worker too
 	observed bool                // newsletter calls notification-worker at runtime
 	inferred []contract.Inferred // what the local read implied (508-S1)
+	noOwner  bool                // newsletter declares no owner
 }
 
 // recordFleet: newsletter runs in namespace news, notification-worker in shop.
 func recordFleet(t *testing.T, o recordFleetOpts) *Query {
 	t.Helper()
 	news := &contract.Contract{PactoVersion: o.version, Service: contract.Service{Name: "newsletter", Version: "1.0.0", Owner: contract.Owner{Team: "t"}}}
+	if o.noOwner {
+		news.Service.Owner = contract.Owner{}
+	}
 	if o.declare {
 		news.Dependencies = []contract.Dependency{{Name: "notification-worker", Ref: "oci://x/notification-worker", Compatibility: "^1.0.0", Required: true}}
 	}
@@ -254,7 +258,7 @@ func TestServiceDetailInferredFields(t *testing.T) {
 		t.Fatalf("service preview = count %d total %d truncated %v unreadable %v", p.Count, p.Total, p.Truncated, p.Unreadable)
 	}
 	want := InferredField{Field: "configuration.KEY_00", Value: "string", Source: "deploy/app.yaml:5", Confidence: "likely", Provenance: ProvenanceInferred}
-	if p.Items[0] != want {
+	if !reflect.DeepEqual(p.Items[0], want) {
 		t.Errorf("first item = %+v", p.Items[0])
 	}
 	if len(rd.Inferred) != MaxInferredFields || rd.InferredTotal != 60 {

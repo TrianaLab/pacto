@@ -81,10 +81,13 @@ default that holds a secret and publish a new version.
 Init keeps a `pacto.yaml` that is already there, so prepare these folders
 before step 3.
 
-**Helm charts.** Init does not render charts. It skips each chart's
-templates, subcharts and CRDs and names every chart under `unknown`, so a
-chart-only folder plans as `blank`. Render the chart into the folder, then
-init reads the result:
+**Helm charts.** Init reads charts statically and never renders them. It
+skips each chart's templates, subcharts and CRDs as manifests, and reads its
+`Chart.yaml`, values files and templates for images, ports, configuration keys
+and environments. What it reads is listed under `found` and kept in the
+inferred record, and a chart dependency with no `Chart.lock` digest is a
+finding. A chart-only folder plans as `blank`. To have init write the workload
+from the chart, render the chart into the folder, then init reads the result:
 
 ```bash
 mkdir -p services/ledger/k8s
@@ -93,9 +96,8 @@ helm template --include-crds ledger services/ledger/chart \
 ```
 
 The contract then publishes the rendered file, so render again when the chart
-changes. The `unknown` line that names the chart stays after you render it. To
-publish the chart itself, add it under `publish.artifacts` as a `chart`
-([Publish](contract-reference/publish.md)).
+changes. To publish the chart itself, add it under `publish.artifacts` as a
+`chart` ([Publish](contract-reference/publish.md)).
 
 **Compose files.** Init does not read `compose.yaml`. A Compose-only folder
 gets the blank template. The blank template writes a publish section with

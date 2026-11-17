@@ -514,6 +514,7 @@ func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format st
 // would declare them, each top-level key once, and the configuration keys as
 // one JSON object for the configuration schema's properties.
 func printExplainInferred(w io.Writer, result *app.ExplainResult) {
+	defer printDiscoveryFindings(w, result)
 	if !result.InferredUnreadable && len(result.Inferred) == 0 {
 		return
 	}
@@ -526,7 +527,13 @@ func printExplainInferred(w io.Writer, result *app.ExplainResult) {
 	bodies := map[string]string{}
 	var config []string
 	for _, f := range result.Inferred {
-		line := fmt.Sprintf("  %s  inferred  %s  from %s", f.Field, f.Value, f.Source)
+		line := fmt.Sprintf("  %s  inferred  %s  from %s", f.Field, f.Value, explainSource(f.Source))
+		if f.Class == contract.InferredClassOwnerFile {
+			line += "; read from an owner file, not verified"
+		}
+		if len(f.Outranks) > 0 {
+			line += "; outranks " + strings.Join(mapStrings(f.Outranks, explainSource), ", ")
+		}
 		if strings.HasPrefix(f.Field, "configuration.") {
 			config = append(config, f.Declare)
 			if strings.HasSuffix(f.Value, "writeOnly") {
@@ -550,6 +557,38 @@ func printExplainInferred(w io.Writer, result *app.ExplainResult) {
 	if len(config) > 0 {
 		_, _ = fmt.Fprintln(w, "\nTo declare in the configuration schema, under properties:")
 		_, _ = fmt.Fprintf(w, "  {%s}\n", strings.Join(config, ", "))
+	}
+}
+
+// explainSource is source as explain prints it: a file read from the
+// repository outside the bundle is named as such.
+func explainSource(source string) string {
+	if rel, ok := strings.CutPrefix(source, "repository:"); ok {
+		return rel + " (repository file, not in the bundle)"
+	}
+	return source
+}
+
+func mapStrings(in []string, f func(string) string) []string {
+	out := make([]string, len(in))
+	for i, s := range in {
+		out[i] = f(s)
+	}
+	return out
+}
+
+// printDiscoveryFindings prints what discovery recognized in the folder but
+// could not read, in the record's order: a truncation first.
+func printDiscoveryFindings(w io.Writer, result *app.ExplainResult) {
+	if len(result.InferredFindings) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintln(w, "\nDiscovery findings (recognized, not read):")
+	for _, f := range result.InferredFindings {
+		_, _ = fmt.Fprintf(w, "  %s  %s\n", f.Code, f.Message)
+	}
+	if result.InferredFindingsDropped > 0 {
+		_, _ = fmt.Fprintf(w, "  and %d more\n", result.InferredFindingsDropped)
 	}
 }
 

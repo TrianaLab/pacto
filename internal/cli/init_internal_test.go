@@ -418,7 +418,7 @@ func TestInitCompletionNeverPrintsValues(t *testing.T) {
 				}
 				return
 			}
-			if !strings.Contains(out, "Inferred, kept apart from pacto.yaml (published as pacto.inferred.yaml):") || !strings.Contains(out, "configuration.DB_PASSWORD  string, writeOnly  from deploy/app.yaml:") {
+			if !strings.Contains(out, "\npayments inferred:\n") || !regexp.MustCompile(`\n  configuration\.DB_PASSWORD +string, writeOnly from deploy/app\.yaml:\d+\n`).MatchString(out) {
 				t.Fatalf("text:\n%s", out)
 			}
 		})

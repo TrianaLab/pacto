@@ -34,5 +34,46 @@
       "action": "add",
       "content": "cosign.key\n"
     }
-  ]
+  ],
+  "inferred": {
+    "format": "pacto.inferred/v1",
+    "inputs": {
+      "pacto": "",
+      "discovery": "2",
+      "sources": [
+        {
+          "path": "Dockerfile",
+          "digest": "sha256:1d39fbe882b9ca27013ebaac0636207a28f1ee651efbd71efddb97f2b1391943"
+        },
+        {
+          "path": "k8s/deployment.yaml",
+          "digest": "sha256:38e7476ca4ae01fac3a75612a05549bd1203a6af910d16b91c5af1adec255790"
+        }
+      ]
+    },
+    "fields": [
+      {
+        "field": "image",
+        "value": "registry.example/story/images/fraud:1.0.0",
+        "source": "k8s/deployment.yaml:16",
+        "confidence": "likely"
+      },
+      {
+        "field": "ports[8080]",
+        "value": "8080/tcp",
+        "source": "Dockerfile:3",
+        "confidence": "likely",
+        "outranks": [
+          "k8s/deployment.yaml:18"
+        ]
+      },
+      {
+        "field": "workload",
+        "value": "service (Deployment fraud)",
+        "source": "k8s/deployment.yaml:2",
+        "confidence": "likely",
+        "declare": "workload: service\n"
+      }
+    ]
+  }
 }

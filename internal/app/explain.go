@@ -67,6 +67,11 @@ type ExplainResult struct {
 	// completed from the service's folder, each field with its source and the
 	// YAML that would declare it. Never part of the contract.
 	Inferred []contract.Inferred `json:"inferred,omitempty"`
+	// InferredFindings is what discovery recognized in the folder but could
+	// not read, the truncation finding first; InferredFindingsDropped counts
+	// the findings past the record's bound.
+	InferredFindings        []contract.InferredFinding `json:"inferredFindings,omitempty"`
+	InferredFindingsDropped int                        `json:"inferredFindingsDropped,omitempty"`
 	// InferredUnreadable is set when a pactoVersion 2.5 bundle ships a record
 	// Pacto could not read or verify: what it infers is unknown, not absent.
 	InferredUnreadable bool `json:"inferredUnreadable,omitempty"`
@@ -291,7 +296,11 @@ func (s *Service) Explain(ctx context.Context, opts ExplainOptions) (*ExplainRes
 		return nil, err
 	}
 
-	result.Inferred, result.InferredUnreadable = explainInferred(bundle)
+	if rec, unreadable := explainInferred(bundle); rec != nil {
+		result.Inferred, result.InferredFindings, result.InferredFindingsDropped = rec.Fields, rec.Findings, rec.FindingsDropped
+	} else {
+		result.InferredUnreadable = unreadable
+	}
 
 	if eval := readiness.Evaluate(c.Readiness, s.env().now()); eval != nil {
 		er := &ExplainReadiness{
@@ -376,7 +385,7 @@ func explainConfigurations(c *contract.Contract, bundleFS fs.FS) ([]ExplainConfi
 // ignored before pactoVersion 2.5, and unreadable when it does not parse or
 // does not match the files it cites. A local read serves the record it just
 // completed, so both kinds of reference read it the same way.
-func explainInferred(b *contract.Bundle) ([]contract.Inferred, bool) {
+func explainInferred(b *contract.Bundle) (*contract.InferredRecord, bool) {
 	if validation.InferredRecordNeedsRaise(b.Contract.PactoVersion) {
 		return nil, false
 	}
@@ -384,10 +393,10 @@ func explainInferred(b *contract.Bundle) ([]contract.Inferred, bool) {
 	if err == nil && rec != nil {
 		err = contract.VerifyInferredRecord(b.FS, rec)
 	}
-	if err != nil || rec == nil {
-		return nil, err != nil
+	if err != nil {
+		return nil, true
 	}
-	return rec.Fields, false
+	return rec, false
 }
 
 // explainDifferences compares the named environments, or every declared one,
