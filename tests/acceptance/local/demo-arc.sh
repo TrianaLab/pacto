@@ -154,7 +154,10 @@ PORT=8899
 if curl -fsS --max-time 2 "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then
   fail "beat 12: something is already serving on port $PORT — beat 12 needs it free"
 fi
-"$BIN" dashboard examples/demo/bundles --port "$PORT" >"$WORK/dashboard.log" 2>&1 &
+# Its own empty cache and no kubeconfig: a partial disk cache or an unreachable
+# cluster on the developer's machine would make the Backstage route below
+# refuse, as it must for any source that may be missing records.
+KUBECONFIG="$WORK/no-kubeconfig" XDG_CACHE_HOME="$WORK/dash-cache" "$BIN" dashboard examples/demo/bundles --port "$PORT" >"$WORK/dashboard.log" 2>&1 &
 DASH=$!
 READY=""
 # 30s, not 10s: the dashboard probes for a cluster and for OCI repositories
@@ -185,6 +188,17 @@ MCP_OUT="$({ printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","param
 # carry the escaping. The Date header and the version string are not assertable.
 assert_contains "$MCP_OUT" '\"StatusCode\": 200'         "the agent's tool call reaches the same live server"
 assert_contains "$MCP_OUT" '\\\"status\\\":\\\"ok\\\"'   "and gets that server's real health body back"
+
+# A Backstage catalog location reads the same fleet as YAML. The first snapshot
+# builds after /health answers, and until then the route is a 503, so retry.
+BS=""
+for _ in $(seq 1 40); do
+  BS="$(curl -fsS -D "$WORK/bs.h" "http://127.0.0.1:$PORT/api/backstage/entities" 2>/dev/null)" && break
+  sleep 0.5
+done
+assert_contains "$BS" "apiVersion: backstage.io/v1alpha1" "the dashboard serves Backstage entities"
+assert_contains "$BS" "kind: Component" "the Backstage entities include Components"
+if grep -qi '^content-type: application/yaml' "$WORK/bs.h"; then pass "as application/yaml"; else fail "the Backstage route is not YAML: $(cat "$WORK/bs.h")"; fi
 
 kill "$DASH" 2>/dev/null || true
 wait "$DASH" 2>/dev/null || true

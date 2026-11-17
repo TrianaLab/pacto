@@ -2,7 +2,10 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -11,6 +14,7 @@ import (
 	"time"
 
 	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/pkg/dashboard"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
@@ -344,5 +348,45 @@ func TestExportBackstageHelpNamesEveryKind(t *testing.T) {
 		if !strings.Contains(long, want) {
 			t.Errorf("help does not say %q", want)
 		}
+	}
+}
+
+// TestExportBackstageMatchesDashboardRoute: the file pacto export backstage
+// writes and the dashboard's GET /api/backstage/entities are the same bytes
+// over the same sources. Only as-of differs, because each side builds its own
+// snapshot at its own time.
+func TestExportBackstageMatchesDashboardRoute(t *testing.T) {
+	bundles := filepath.Join("..", "..", "examples", "demo", "bundles")
+	targets := filepath.Join("..", "..", "examples", "demo", "fleet-targets.yaml")
+	cli, _, err := execExport(t, "--local", bundles, "--target-state", targets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := app.NewService(nil, nil)
+	srv := dashboard.NewServer(dashboard.Options{Fleet: func(ctx context.Context) (*fleet.Query, error) {
+		snap, err := svc.Fleet(ctx, app.FleetOptions{LocalRoots: []string{bundles}, TargetStateFiles: []string{targets},
+			Provenance: app.NewProvenanceChecker()})
+		if err != nil {
+			return nil, err
+		}
+		return fleet.NewQuery(snap), nil
+	}})
+	mux := http.NewServeMux()
+	srv.RegisterRawRoutes(mux)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/backstage/entities", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("route = %d: %s", rec.Code, rec.Body)
+	}
+	route := rec.Body.String()
+	asOf := regexp.MustCompile(`(?m)^\s*pacto\.trianalab\.io/as-of: .*\n`)
+	entities := regexp.MustCompile(`(?m)^kind: `)
+	for name, out := range map[string]string{"cli": cli, "route": route} {
+		if n, a := len(entities.FindAllString(out, -1)), len(asOf.FindAllString(out, -1)); n == 0 || n != a {
+			t.Errorf("%s: %d entities, %d as-of lines", name, n, a)
+		}
+	}
+	if c, r := asOf.ReplaceAllString(cli, ""), asOf.ReplaceAllString(route, ""); c != r {
+		t.Errorf("the CLI and the route differ:\n--- cli\n%s\n--- route\n%s", c, r)
 	}
 }

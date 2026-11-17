@@ -368,6 +368,23 @@ YAML
     fail "a sign-in link session reached delivery: $out"
   fi
   pass "a ServiceAccount token signs in only when minted for the dashboard, sees only what its RBAC reads and never reaches delivery"
+
+  # A Backstage backend sends the same dashboard-audience token on every read,
+  # with no session. It reads Backstage entities only, narrowed by its RBAC.
+  bearer() { curl -s -o "$IDP_DIR/body" -w '%{http_code}' -H "Authorization: Bearer $1" "$DASH_URL$2"; }
+  local tok; tok="$(kubectl -n rbac-open create token rbac-viewer --audience pacto-dashboard --duration 10m)"
+  entities() { [ "$(bearer "$tok" /api/backstage/entities)" = 200 ] && grep -q rbac-open-svc "$IDP_DIR/body"; }
+  eventually 40 entities || fail "the Backstage reader's token did not read its entities: $(cat "$IDP_DIR/body")"
+  ! grep -q rbac-closed-svc "$IDP_DIR/body" || fail "the Backstage reader sees a namespace its RBAC hides"
+  out="$(bearer not-a-token /api/backstage/entities)"
+  [ "$out" = 401 ] || fail "a token the cluster refuses read Backstage entities: $out"
+  out="$(bearer "$tok" /api/fleet/snapshot)"
+  [ "$out" = 401 ] || fail "a bearer token read the fleet outside /api/backstage/: $out"
+  out="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $tok" "$DASH_URL/api/backstage/entities")"
+  [ "$out" = 405 ] || fail "a bearer token was not refused a write on /api/backstage/: $out"
+  out="$(dash "" GET /api/backstage/entities)"
+  [ "${out%% *}" = 401 ] || fail "a visitor with no session or token read Backstage entities: ${out:0:300}"
+  pass "a Backstage reader's bearer token reads only what its RBAC reads, only on /api/backstage/, and only reads"
 }
 
 # servers_up — wait for the dashboard and the MCP server in_node started; the
