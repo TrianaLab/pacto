@@ -807,9 +807,10 @@ func (q *Query) resolveForwardKey(id, cluster, scope, kind, name string) (*Targe
 	return nil, nil
 }
 
-// sourcesIncomplete reports whether any source is not fully available.
+// sourcesIncomplete reports whether any source that counts against an answer
+// is not fully available: an advisory source never does.
 func (q *Query) sourcesIncomplete() bool {
-	return slices.ContainsFunc(q.snap.Sources, func(s SourceState) bool { return s.Status != SourceAvailable })
+	return slices.ContainsFunc(q.snap.Sources, SourceState.degraded)
 }
 
 // targetKeyAmbiguous lists matches as the candidates of key, sorted by key,

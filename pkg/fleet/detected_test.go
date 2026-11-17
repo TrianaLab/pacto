@@ -80,6 +80,10 @@ func assertAdvisoryIgnored(t *testing.T, status SourceStatus) {
 	if s := q.Overview().Summary; s.DegradedSources+s.StaleSources+s.UnavailableSources != 0 {
 		t.Errorf("overview tallies %d %d %d", s.DegradedSources, s.StaleSources, s.UnavailableSources)
 	}
+	// Service history stays complete and a single-match legacy key resolves.
+	if q.sourcesIncomplete() || q.revisionsPartial(&ServiceRecord{}) {
+		t.Error("the advisory source makes history partial or a legacy key ambiguous")
+	}
 }
 
 func TestDetectionUnavailableLeavesSnapshotComplete(t *testing.T) {

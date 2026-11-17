@@ -108,9 +108,9 @@ func (q *Query) revisionRecords(revs []*ContractRevision) []*ContractRevision {
 }
 
 // revisionsPartial reports whether the view dropped some of s's revisions or
-// a source is not fully available.
+// a source that counts against an answer is not fully available.
 func (q *Query) revisionsPartial(s *ServiceRecord) bool {
-	return q.snap.revisionsHidden[s.Key] || slices.ContainsFunc(q.snap.Sources, func(src SourceState) bool { return src.Status != SourceAvailable })
+	return q.snap.revisionsHidden[s.Key] || q.sourcesIncomplete()
 }
 
 // newestFirst flattens per-revision groups, newest revision first.
