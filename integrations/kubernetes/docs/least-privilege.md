@@ -19,7 +19,7 @@ To watch a list of namespaces instead of the whole cluster:
 helm install pacto oci://ghcr.io/trianalab/pacto/charts/pacto-operator \
   --namespace pacto-operator-system --create-namespace \
   --set 'controller.watchNamespaces={payments,ledger}'
-kubectl get clusterrole | grep pacto   # pacto-pacto-operator-dashboard-tokenreview
+kubectl get clusterrole | grep pacto   # pacto-pacto-operator-pacto-operator-system-dashboard-tokenreview
 ```
 
 The chart then renders a Role and a RoleBinding in each listed namespace for

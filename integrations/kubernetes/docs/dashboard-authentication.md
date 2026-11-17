@@ -199,9 +199,11 @@ without `oidc`, and the sign-in screen takes two kinds of token:
   (`kubectl create token <service-account> -n <namespace> --audience pacto-dashboard`).
   The dashboard checks it with a TokenReview for the `pacto-dashboard`
   audience, which needs `create` on `tokenreviews`. The chart grants that to
-  the dashboard through the ClusterRole `<release>-dashboard-tokenreview`,
+  the dashboard through the ClusterRole `<fullname>-<namespace>-dashboard-tokenreview`,
   with `controller.watchNamespaces` too, because TokenReview has no namespaced
-  form. The session reads the fleet views as that ServiceAccount's RBAC
+  form. `<fullname>` is the release name when it contains `pacto-operator`,
+  `<release>-pacto-operator` otherwise, and `<namespace>` is the release
+  namespace. The session reads the fleet views as that ServiceAccount's RBAC
   allows and never acts. A ServiceAccount token without the audience is
   refused with `TokenAudienceRequired`, and the message prints the command.
 - **Your own token** (an OIDC ID token, an EKS token, a static token). The API
@@ -234,13 +236,13 @@ The install notes print a port-forward and a link to the dashboard:
 
 ```bash
 kubectl -n <namespace> port-forward svc/pacto-dashboard 3000:3000
-echo "http://127.0.0.1:3000/#token=$(kubectl -n <namespace> create token pacto-viewer --audience pacto-dashboard --duration 10m)"
+TOKEN=$(kubectl -n <namespace> create token pacto-viewer --audience pacto-dashboard --duration 10m) && echo "http://127.0.0.1:3000/#token=$TOKEN"
 ```
 
 The link carries a 10-minute token for `pacto-viewer`, a ServiceAccount the
 chart creates in the release namespace that may get, list and watch Pactos
 and PactoRevisions and nothing else: cluster-wide through the ClusterRole
-`<release>-viewer`, or a Role in each of `controller.watchNamespaces`.
+`<fullname>-viewer`, or a Role in each of `controller.watchNamespaces`.
 Minting its token needs `create` on `serviceaccounts/token` in the release
 namespace, which a namespace administrator has. The token sits after `#`, so
 the browser never sends it to a server and it reaches no access log or

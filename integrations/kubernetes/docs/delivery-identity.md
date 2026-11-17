@@ -175,8 +175,8 @@ dashboard:
 ([trust and key rotation](delivery-record-keys.md#trust-and-key-rotation)).
 The dashboard's ServiceAccount gains nothing in delivery and cannot
 impersonate. A dashboard on loopback without sign-in shows the
-`pacto delivery approve` command instead of deciding, because any process on
-your machine could do it as you.
+`pacto delivery approve` command instead of deciding: any process on your
+machine could decide as you.
 
 ## Follow delivery in the dashboard
 
@@ -193,7 +193,7 @@ Whoever [may decide](#who-may-decide) answers it, and only owner team members
 when team narrowing is on. A person decides with the sign-in they
 have. The dashboard and `pacto delivery approve` check a decision with the
 promoter's own rule, asking with your own credentials, before they record it, and refuse one it would not count,
-saying why. Agents are refused, ServiceAccount tokens included; a person's pasted token decides.
+saying why. Agents are refused, ServiceAccount tokens included; a person's token decides where [its login time](#a-recent-sign-in-to-decide) allows.
 
 ### A recent sign-in to decide
 

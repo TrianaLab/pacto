@@ -206,7 +206,7 @@ the dashboard asks people to sign in
   `--audience pacto-dashboard`, and its session reads the fleet only. A
   person's own token signs in as before and may now approve.
 - The dashboard's ServiceAccount gains `create` on `tokenreviews` through the
-  ClusterRole `<release>-dashboard-tokenreview`, also with
+  ClusterRole `<fullname>-<namespace>-dashboard-tokenreview`, also with
   `controller.watchNamespaces`.
 
 A dashboard you run yourself beyond loopback still needs `--token-login`,

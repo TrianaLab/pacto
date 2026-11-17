@@ -19,8 +19,9 @@ previous release served without sign-in.
   still accepts it.
 - The install notes print a port-forward and a sign-in link carrying a
   10-minute token for the chart's read-only `pacto-viewer` ServiceAccount,
-  minted with `--audience pacto-dashboard` and passed after `#`, so no server
-  or log sees it. An expired link says "link expired, run the command again".
+  minted with `--audience pacto-dashboard` and passed after `#`, so the
+  browser sends it to no server in the URL and it reaches no access log or
+  proxy. An expired link says "link expired, run the command again".
 - A ServiceAccount token signs in only when a TokenReview proves it was minted
   for the `pacto-dashboard` audience, and its session reads the fleet only:
   the Delivery tab is hidden and delivery reads answer `SignInLinkReadsFleet`.
@@ -32,7 +33,7 @@ previous release served without sign-in.
   approver rule. ServiceAccount tokens never approve. `TokenCannotDecide` is
   gone.
 - The dashboard's ServiceAccount gains `create` on `tokenreviews` through the
-  ClusterRole `<release>-dashboard-tokenreview`, also with
+  ClusterRole `<fullname>-<namespace>-dashboard-tokenreview`, also with
   `controller.watchNamespaces`. `pacto-viewer` gets `get`, `list` and `watch`
-  on Pactos and PactoRevisions through the ClusterRole `<release>-viewer`, or a
+  on Pactos and PactoRevisions through the ClusterRole `<fullname>-viewer`, or a
   Role in each watched namespace.
