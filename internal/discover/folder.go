@@ -65,10 +65,12 @@ type entry struct {
 }
 
 // Ranks: the folder scan Complete runs (the workload probe, the team label)
-// first, then each Dockerfile in dockerRank order.
+// first, then each Dockerfile in dockerRank order, then a chart's values.yaml
+// and its values-<env>.yaml files.
 const (
 	rankScan       = 0
 	rankDockerfile = 1 << 20
+	rankChart      = 2 << 20
 )
 
 // reader collects what one Read finds.
@@ -77,7 +79,9 @@ type reader struct {
 	entries     []entry
 	findings    []contract.InferredFinding
 	dockerfiles []string
-	specs       map[string][]spec // by kind
+	specs       map[string][]spec     // by kind
+	chartFiles  map[string]*yaml.Node // the root of each Chart.yaml, Chart.lock and values file, by path
+	chartDeps   []contract.InferredChartDependency
 }
 
 // Read walks the folder once, regular files only, and hands each file to the
@@ -85,7 +89,7 @@ type reader struct {
 // finding, as is a file over 1 MiB or one that does not parse. Read never
 // fails; what it cannot read is a finding.
 func Read(in Input) Reading {
-	r := &reader{in: in, specs: map[string][]spec{}}
+	r := &reader{in: in, specs: map[string][]spec{}, chartFiles: map[string]*yaml.Node{}}
 	walked, left := 0, 0
 	_ = fs.WalkDir(in.Folder, ".", func(p string, d fs.DirEntry, err error) error { //nolint:errcheck // the callback never fails
 		switch {
@@ -111,7 +115,8 @@ func Read(in Input) Reading {
 	})
 	r.dockers()
 	r.interfaces()
-	out := Reading{entries: r.entries}
+	r.charts()
+	out := Reading{entries: r.entries, ChartDependencies: r.chartDeps}
 	out.Fields, _ = merge(r.entries)
 	slices.SortFunc(r.findings, func(a, b contract.InferredFinding) int {
 		return cmp.Or(strings.Compare(a.Code, b.Code), strings.Compare(a.Source, b.Source))
@@ -132,9 +137,16 @@ func (r *reader) file(p, name string) {
 	switch {
 	case name == "Dockerfile" || strings.HasPrefix(name, "Dockerfile.") || strings.HasSuffix(name, ".Dockerfile"):
 		r.dockerfiles = append(r.dockerfiles, p)
+	case name == "Chart.lock":
+		if data := r.read(p); data != nil {
+			r.keepChartFile(p, name, r.yamlDocs(p, data))
+		}
 	case (strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml")) && !r.inChartTemplates(p):
-		if data := r.read(p); data != nil && r.yamlDocs(p, data) != nil {
-			r.spec(p, data)
+		if data := r.read(p); data != nil {
+			if docs := r.yamlDocs(p, data); docs != nil {
+				r.keepChartFile(p, name, docs)
+				r.spec(p, data)
+			}
 		}
 	case strings.HasSuffix(name, ".json") || strings.HasSuffix(name, ".proto"):
 		if data := r.read(p); data != nil {

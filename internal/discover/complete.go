@@ -46,9 +46,10 @@ func CompleteIn(dir, repoDir string, declared *contract.Contract, in contract.In
 		return nil, err
 	}
 	c := &completion{sc: sc, d: cmp.Or(declared, &contract.Contract{}), api: OpenAPIRef(reading.Fields) != ""}
+	c.cfgKeys, c.cfgListed = declaredConfigKeys(dir, c.d)
 	c.workload()
 	c.health()
-	c.configuration(dir)
+	c.configuration()
 	c.dependencies(cmp.Or(c.d.Service.Name, filepath.Base(dir)))
 	for _, e := range reading.entries {
 		if !c.declared(e.Inferred) {
@@ -56,7 +57,7 @@ func CompleteIn(dir, repoDir string, declared *contract.Contract, in contract.In
 		}
 	}
 	fields, cited := merge(c.entries)
-	if len(fields) == 0 && len(reading.Findings) == 0 {
+	if len(fields) == 0 && len(reading.Findings) == 0 && len(reading.ChartDependencies) == 0 {
 		return nil, nil
 	}
 	in.Discovery, in.ChartDependencies = Version, reading.ChartDependencies
@@ -116,6 +117,10 @@ type completion struct {
 	d       *contract.Contract
 	api     bool // an OpenAPI file describes the api interface
 	entries []entry
+	// cfgKeys are the configuration keys declared; cfgListed is false when
+	// they cannot be listed, so whether a key is declared is unknown.
+	cfgKeys   map[string]bool
+	cfgListed bool
 }
 
 func (c *completion) add(field, value, file, source, declare string) {
@@ -124,9 +129,13 @@ func (c *completion) add(field, value, file, source, declare string) {
 
 // declared reports whether the contract declares the field f a reader
 // gives: a health capability, a summary, an interface with its name or its
-// ref, or an interface on that port.
+// ref, an interface on that port, or a configuration key (any, when the
+// declared keys cannot be listed).
 func (c *completion) declared(f contract.Inferred) bool {
 	field := f.Field
+	if key, ok := strings.CutPrefix(field, "configuration."); ok {
+		return !c.cfgListed || c.cfgKeys[key]
+	}
 	if name, ok := strings.CutPrefix(field, "interfaces["); ok {
 		_, ref, _ := strings.Cut(f.Value, " ")
 		return slices.ContainsFunc(c.d.Interfaces, func(i contract.Interface) bool { return i.Name+"]" == name || i.Ref == ref })
@@ -174,23 +183,29 @@ func (c *completion) health() {
 // configuration is each environment key no declared configuration lists, as
 // its key and type. When a declared configuration's keys cannot be listed,
 // whether a key is declared is unknown, so no key is inferred.
-func (c *completion) configuration(dir string) {
-	declared, listed := declaredConfigKeys(dir, c.d)
-	if !listed {
+func (c *completion) configuration() {
+	if !c.cfgListed {
 		return
 	}
 	for _, e := range c.sc.Env {
-		if declared[e.Name] {
+		if c.cfgKeys[e.Name] {
 			continue
 		}
-		prop := EnvProperty(e)
-		value := prop["type"].(string)
-		if prop["writeOnly"] == true {
-			value += ", writeOnly"
-		}
-		data, _ := json.Marshal(prop) // ponytail: strings and booleans always marshal
-		c.add("configuration."+e.Name, value, e.File, e.Source, fmt.Sprintf("%q: %s", e.Name, data))
+		value, declare := configField(e)
+		c.add("configuration."+e.Name, value, e.File, e.Source, declare)
 	}
+}
+
+// configField is the value and the declaring schema property of the
+// configuration key e: its type, never its value.
+func configField(e EnvVar) (value, declare string) {
+	prop := EnvProperty(e)
+	value = prop["type"].(string)
+	if prop["writeOnly"] == true {
+		value += ", writeOnly"
+	}
+	data, _ := json.Marshal(prop) // ponytail: strings and booleans always marshal
+	return value, fmt.Sprintf("%q: %s", e.Name, data)
 }
 
 // declaredConfigKeys are the keys every declared configuration lists: its

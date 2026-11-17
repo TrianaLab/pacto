@@ -1,0 +1,10 @@
+apiVersion: v2
+name: payments
+version: 1.2.0
+dependencies:
+  - name: postgresql
+    version: 15.x
+    repository: https://charts.bitnami.com/bitnami
+  - name: redis
+    version: 19.x
+    repository: https://charts.bitnami.com/bitnami

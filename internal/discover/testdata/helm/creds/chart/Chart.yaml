@@ -1,0 +1,7 @@
+apiVersion: v2
+name: payments
+version: 1.2.0
+dependencies:
+  - name: redis
+    version: 19.x
+    repository: https://user:tok3n@charts.example.com/stable?sig=tok3n

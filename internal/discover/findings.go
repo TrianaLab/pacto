@@ -51,6 +51,12 @@ func ambiguousSpecMessage(label string, paths []string) string {
 	return fmt.Sprintf("%d %s files: %s; declare the one this service serves", len(paths), label, strings.Join(paths, ", "))
 }
 
+// unlockedDependencyMessage says the chart dependency name has no Chart.lock
+// digest, so it is not read.
+func unlockedDependencyMessage(name string) string {
+	return "chart dependency '" + name + "' has no Chart.lock digest, not read"
+}
+
 // unsupportedFiles are the files Pacto recognizes but does not read, by base
 // name pattern, each with why.
 // ponytail: a fixed table of the formats seen so far; the next one is one row.

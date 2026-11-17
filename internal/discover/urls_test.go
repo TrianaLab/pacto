@@ -1,8 +1,11 @@
 package discover
 
 import (
+	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 func TestCleanURL(t *testing.T) {
@@ -26,5 +29,15 @@ func TestDiscoveryNeverRecordsURLCredentials(t *testing.T) {
 		if strings.Contains(f.Value+f.Declare, secret) {
 			t.Errorf("%q recorded: %+v", secret, f)
 		}
+	}
+	rec, err := CompleteIn(helmCredsDir, helmCredsDir, nil, contract.InferredInputs{Pacto: "4.6.0"})
+	if err != nil || rec == nil {
+		t.Fatalf("record = %+v, %v", rec, err)
+	}
+	if deps := rec.Inputs.ChartDependencies; len(deps) != 1 || deps[0].Repository != "https://charts.example.com/stable" {
+		t.Errorf("chart dependencies = %+v", deps)
+	}
+	if out := rec.Marshal(); bytes.Contains(out, []byte("tok3n")) || bytes.Contains(out, []byte("user")) {
+		t.Errorf("the record holds a credential:\n%s", out)
 	}
 }
