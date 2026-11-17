@@ -21,6 +21,7 @@ shows version history, interfaces, configuration schemas and diffs. See the [`pa
 reference](cli-reference.md#pacto-dashboard) for its flags and environment
 variables. [The service page](dashboard-service-page.md) describes what a
 service's page shows and how it says what Pacto does not know.
+The Overview counts inferred services apart and the Services list filters them.
 
 ![The dashboard's page for payments-service: compliant, owned by payments-team as declared in 2.1.2 and a summary of its two operational targets](assets/screenshots/dashboard-service-light.png#only-light)
 ![The dashboard's page for payments-service: compliant, owned by payments-team as declared in 2.1.2 and a summary of its two operational targets](assets/screenshots/dashboard-service-dark.png#only-dark)
@@ -45,6 +46,17 @@ consumer's [provisioning status](platform-offerings.md#provisioning-status).
 `pacto fleet entities --kind external` lists the
 [external systems](external-catalog-reference.md) contracts name, and `get`,
 `graph` and `explain` take `external:<identity>`, such as `external:stripe`.
+
+`pacto fleet entities --declaration inferred --k8s` lists
+[inferred services](operational-graph-inferred.md):
+
+```text
+2 of 2 entit(ies):
+  inferred    k8s:shop/Deployment/billing  k8s:shop%2FDeployment%2Fbilling  -
+              namespace shop  kind Deployment  image registry.example/billing:1.4.2
+  inferred    k8s:shop/Deployment/cart     k8s:shop%2FDeployment%2Fcart     -
+              namespace shop  kind Deployment  image registry.example/cart:2.0.1
+```
 
 [Golden paths](golden-paths.md) have their own filters:
 

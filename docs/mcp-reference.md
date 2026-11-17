@@ -236,6 +236,10 @@ or schema file already there as it is, listed in `kept`.
   directories and write to its paths, so an HTTP server offers only
   `pacto_schema` from the contract tools.
 - `pacto_fleet_entities` with `template: only` lists golden paths.
+- `declaration` on `pacto_fleet_entities` and `pacto_fleet_search` takes
+  `inferred`, which keeps only the services Pacto infers from Kubernetes
+  workloads no contract describes, or `declared`, which leaves them out. Empty
+  lists every service and marks the inferred ones `declaration: inferred`.
 
 `pacto_create` and `pacto_edit` return `warnings` for a value that validates
 but is likely wrong, such as an owner written as `team/billing`.
