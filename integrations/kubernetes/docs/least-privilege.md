@@ -39,6 +39,21 @@ A namespace-list install cannot read the `kube-system` namespace, so it
 reports no cluster id. The live source keeps its context name, and a snapshot
 with several clusters marks it `CLUSTER_UNKNOWN`.
 
+## What detection reads and writes
+
+[Detection](detection.md) adds two rules to the
+operator and none to the dashboard:
+
+| Rule | Where | Why |
+|---|---|---|
+| `nodes` `list` | Cluster-wide ClusterRole only | Cloud from `providerID` and node kernels |
+| `configmaps` `create`, plus `get` and `patch` on `<fullname>-detected` only | Release namespace Role | The one ConfigMap detection writes |
+
+Kubernetes cannot scope `create` by name, so it stays unnamed. Pods,
+HTTPRoutes, Ingresses and Services come from reads the operator already has.
+A namespace-list install renders no `nodes` rule, so cloud and nodes read
+unknown.
+
 ## The delivery namespace
 
 Watching or granting the delivery namespace gives the operator its Secrets:

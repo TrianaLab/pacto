@@ -47,6 +47,15 @@ compliance evidence that a source carries.
   edge in `inferredRelationships`, and a Pacto target that takes over one
   records a replacement in `replacements`.
   Both report [detected providers](operational-graph-providers.md).
+- **Operator detection** (`--detected k8s:<namespace>/<name>` or a file,
+  `PACTO_DASHBOARD_DETECTED` for `pacto dashboard`): what the operator
+  [detected in a cluster](integrations/kubernetes/detection.md),
+  read from its `<release>-detected` ConfigMap as source kind `detection`. It
+  adds only [provider rows](operational-graph-providers.md#detected-rows),
+  each with `provenance: inferred`. The source is advisory: a missing,
+  unreadable, foreign or future-dated ConfigMap leaves it `unavailable` with
+  the reason and one older than 15 minutes leaves it `stale`. Neither makes
+  the answer partial.
 - **Ingested external evidence** (`--evidence-url <url>`): a running [Evidence
   Server](evidence.md)'s read-only contribution over HTTP, exposing a
   remote environment's signed `EvidenceSet` reports as operational targets.

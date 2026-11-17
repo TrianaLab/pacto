@@ -36,6 +36,31 @@ view reads no Kubernetes cluster (add --k8s)`. When no source reported a service
 a target, the answer's completeness is `empty`, so the CLI also prints
 `warning: answer is empty` on stderr while it still lists the rows.
 
+## Detected rows
+
+With `--detected`, the rows the operator
+[detected in a cluster](integrations/kubernetes/detection.md)
+join from a source of kind `detection`: Registry, Cloud, Sign-in, Exposure,
+Metrics and Nodes. Each carries five more fields:
+
+| Field | Meaning |
+|---|---|
+| `provenance` | Always `inferred` |
+| `asOf` | When the operator read it; older than 15 minutes is `stale` |
+| `hint` | A command to review, set only when one candidate holds most namespaces. MCP omits it |
+| `details` | Other candidates or facts, at most 5 |
+| `scope` | `cluster` for a row read cluster-wide |
+
+A detected row never clears a gate and never changes the answer's
+completeness. An entry the operator could not read is `unavailable` with a
+`DETECTION_<KIND>_UNKNOWN` limitation, and a partial one carries
+`DETECTION_<KIND>_PARTIAL`. A row naming a cluster no Kubernetes source of
+the snapshot reads carries `DETECTION_CLUSTER_MISMATCH`, and its source
+reads `stale`. A restricted
+view clears the evidence, hint and details of a row that names a namespace
+you cannot read, or of a cluster-wide row when you cannot read the cluster
+scope.
+
 ## Not read and not installed
 
 A cluster Pacto could not reach contributes no row. Every surface names its

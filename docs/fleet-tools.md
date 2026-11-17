@@ -117,6 +117,9 @@ and the [knowledge vocabulary](operational-graph.md#knowledge) behind
 
 `pacto fleet providers --k8s` lists the
 [providers Pacto detected](operational-graph-providers.md) in each cluster.
+`--detected k8s:<namespace>/<release>-detected` adds the
+[rows the operator detected](operational-graph-providers.md#detected-rows),
+marked `(inferred)`, here and in `pacto fleet status`.
 
 ### Namespace scope
 
