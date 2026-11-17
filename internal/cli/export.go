@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"cmp"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -130,19 +131,15 @@ func writeFileAtomic(path string, data []byte) error {
 	if err != nil {
 		return err
 	}
-	defer func() { _ = os.Remove(f.Name()) }()
-	if _, err := f.Write(data); err != nil {
-		_ = f.Close()
-		return err
+	tmp := f.Name()
+	_ = f.Close()
+	defer func() { _ = os.Remove(tmp) }()
+	// CreateTemp opens 0600 and WriteFile keeps an existing file's mode.
+	err = cmp.Or(os.WriteFile(tmp, data, 0o644), os.Chmod(tmp, 0o644))
+	if err == nil {
+		err = os.Rename(tmp, path)
 	}
-	if err := f.Chmod(0o644); err != nil {
-		_ = f.Close()
-		return err
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-	return os.Rename(f.Name(), path)
+	return err
 }
 
 // noteK8sScope says, with --k8s, which namespaces the export reads: everyone
