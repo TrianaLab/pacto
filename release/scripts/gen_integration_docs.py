@@ -381,7 +381,9 @@ def gen_rbac(k8s: str) -> str:
         "a previous install may have created there, the node agent's included (releases "
         "before the dedicated agent namespace ran it in the release namespace). The one "
         "`secrets` `get` rule with no name reads pull Secrets and Secrets that back a "
-        "configuration in the release namespace.\n"
+        "configuration in the release namespace. The `configmaps` rules let detection "
+        "write `<fullname>-detected`, the one ConfigMap it publishes: `create` cannot be "
+        "limited by name, and `get` and `patch` name that ConfigMap only.\n"
     )
     out.extend(_rbac_rules_table(ns_always))
     out.append("")

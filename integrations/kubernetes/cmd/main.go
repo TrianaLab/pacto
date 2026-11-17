@@ -564,6 +564,18 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string) error {
 		Repositories:       o.dashboardRepositories,
 		ExternalCatalog:    o.dashboardExternalCatalog,
 	}
+	// Detection proposes what the cluster provides in one ConfigMap; it never
+	// changes an argument, a rule or a feature. The managed dashboard mounts it
+	// as a file.
+	if d := detection.ForOperator(os.Getenv("OPERATOR_DEPLOYMENT_NAME"), namespace, o.namespaces,
+		o.nodeAgentNamespace, ident, mgr.GetAPIReader(), mgr.GetClient(), detection.ServedFor(mgr.GetConfig())); d != nil {
+		if err := mgr.Add(d); err != nil {
+			return fmt.Errorf("failed to add detection: %w", err)
+		}
+		dashCfg.DetectedConfigMap = d.Name
+	} else {
+		setupLog.Info("Detection is off: OPERATOR_DEPLOYMENT_NAME is not set, so nothing would own its ConfigMap")
+	}
 	if o.dashboardExtraScopes != "" {
 		dashCfg.Auth.ExtraScopes = strings.Split(o.dashboardExtraScopes, ",")
 	}
@@ -638,17 +650,6 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string) error {
 		Config:    nodeAgentCfg,
 	}); err != nil {
 		return fmt.Errorf("failed to add node agent reconciler: %w", err)
-	}
-
-	// Detection proposes what the cluster provides in one ConfigMap; it never
-	// changes an argument, a rule or a feature.
-	if d := detection.ForOperator(os.Getenv("OPERATOR_DEPLOYMENT_NAME"), namespace, o.namespaces,
-		o.nodeAgentNamespace, ident, mgr.GetAPIReader(), mgr.GetClient(), detection.ServedFor(mgr.GetConfig())); d != nil {
-		if err := mgr.Add(d); err != nil {
-			return fmt.Errorf("failed to add detection: %w", err)
-		}
-	} else {
-		setupLog.Info("Detection is off: OPERATOR_DEPLOYMENT_NAME is not set, so nothing would own its ConfigMap")
 	}
 	return nil
 }

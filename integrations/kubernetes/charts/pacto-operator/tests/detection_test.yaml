@@ -1,0 +1,348 @@
+# What the operator detects (510-S5): the RBAC it needs, the NOTES that read
+# the <fullname>-detected ConfigMap back on upgrade and the proof that a full
+# detection changes no rendered manifest. The release matches the golden render
+# (pacto-operator in default) so the last case compares against its values.
+suite: detection
+templates:
+  - templates/NOTES.txt
+  - templates/clusterrole.yaml
+  - templates/role.yaml
+  - templates/deployment.yaml
+  - templates/dashboard-ingress.yaml
+release:
+  name: pacto-operator
+  namespace: default
+tests:
+  - it: default ClusterRole lists nodes
+    template: templates/clusterrole.yaml
+    asserts:
+      - contains:
+          path: rules
+          content: {apiGroups: [""], resources: [nodes], verbs: [list]}
+
+  - it: watchNamespaces renders no nodes rule and no ClusterRole
+    template: templates/clusterrole.yaml
+    set:
+      controller.watchNamespaces: [a, b]
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: the release Role scopes get and patch to the detected ConfigMap
+    template: templates/role.yaml
+    documentIndex: 0
+    asserts:
+      - contains:
+          path: rules
+          content: {apiGroups: [""], resources: [configmaps], verbs: [create]}
+      - contains:
+          path: rules
+          content: {apiGroups: [""], resources: [configmaps], verbs: [get, patch], resourceNames: [pacto-operator-detected]}
+
+  - it: the release Role keeps the detected ConfigMap rules with a namespace list
+    template: templates/role.yaml
+    documentIndex: 0
+    set:
+      controller.watchNamespaces: [a, b]
+    asserts:
+      - contains:
+          path: rules
+          content: {apiGroups: [""], resources: [configmaps], verbs: [get, patch], resourceNames: [pacto-operator-detected]}
+
+  - it: fullnameOverride names the ConfigMap the operator writes
+    set:
+      fullnameOverride: custom
+    asserts:
+      - template: templates/role.yaml
+        documentIndex: 0
+        contains:
+          path: rules
+          content: {apiGroups: [""], resources: [configmaps], verbs: [get, patch], resourceNames: [custom-detected]}
+      - template: templates/deployment.yaml
+        contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: OPERATOR_DEPLOYMENT_NAME, value: custom}
+
+  - it: NOTES prints the detected block on upgrade
+    template: templates/NOTES.txt
+    release:
+      upgrade: true
+    kubernetesProvider:
+      scheme:
+        "v1/ConfigMap":
+          gvr: {group: "", version: v1, resource: configmaps}
+          namespaced: true
+      objects:
+        - kind: ConfigMap
+          apiVersion: v1
+          metadata:
+            name: pacto-operator-detected
+            namespace: default
+            labels: {app.kubernetes.io/managed-by: pacto-operator}
+            ownerReferences:
+              - {apiVersion: apps/v1, kind: Deployment, name: pacto-operator, uid: u1}
+          data:
+            detected.json: '{"schemaVersion":"1","asOf":"2026-11-16T10:02:00Z","cluster":"5b0c6c3e","entries":[{"kind":"cloud","value":"GKE","evidence":"on 6 of 6 nodes","source":"node providerID","completeness":"complete","scope":"cluster"},{"kind":"exposure","value":"Gateway API","evidence":"HTTPRoutes in 4 of 5 namespaces attach to the same Gateway","source":"HTTPRoutes","completeness":"complete","hint":"--set dashboard.httpRoute.enabled=true --set dashboard.httpRoute.parentRefs[0].name=public --set dashboard.httpRoute.parentRefs[0].namespace=infra","namespaces":["infra"]},{"kind":"metrics","value":"Prometheus Operator","evidence":"serves monitoring.coreos.com/v1; read passively","source":"API discovery","completeness":"complete"},{"kind":"nodes","value":"kernel 6.1 on 6 of 6 nodes","evidence":"BTF likely (unconfirmed)","source":"nodes","completeness":"partial","reason":"not confirmed on the node","scope":"cluster"},{"kind":"registry","value":"ghcr.io/acme","evidence":"in 9 of 11 namespaces, 87% of workloads","source":"running pods","completeness":"complete","hint":"oci://ghcr.io/acme/<service>:<version>","scope":"cluster"},{"kind":"sign-in","value":"Dex","evidence":"serves dex.coreos.com/v1","source":"API discovery and Services","completeness":"complete"}]}'
+    asserts:
+      - matchRegexRaw:
+          pattern: "Pacto detected \\(inferred, as of 2026-11-16T10:02:00Z; nothing was turned on\\):"
+      - matchRegexRaw:
+          pattern: "  Registry: ghcr.io/acme in 9 of 11 namespaces, 87% of workloads \\(from running pods\\)"
+      - matchRegexRaw:
+          pattern: "  Cloud: GKE on 6 of 6 nodes \\(from node providerID\\)"
+      - matchRegexRaw:
+          pattern: "  Sign-in: Dex serves dex.coreos.com/v1"
+      - matchRegexRaw:
+          pattern: "  Exposure: Gateway API HTTPRoutes in 4 of 5 namespaces"
+      - matchRegexRaw:
+          pattern: "  Metrics: Prometheus Operator serves monitoring.coreos.com/v1; read passively \\(from API discovery\\)"
+      - matchRegexRaw:
+          pattern: "  Nodes: kernel 6.1 on 6 of 6 nodes BTF likely \\(unconfirmed\\)"
+      - matchRegexRaw:
+          pattern: "pacto fleet status --k8s --detected k8s:default/pacto-operator-detected"
+      - notMatchRegexRaw:
+          pattern: "kubectl get configmap"
+
+  - it: NOTES prints the pacto-actions snippet for the top registry
+    template: templates/NOTES.txt
+    release:
+      upgrade: true
+    kubernetesProvider:
+      scheme:
+        "v1/ConfigMap":
+          gvr: {group: "", version: v1, resource: configmaps}
+          namespaced: true
+      objects:
+        - kind: ConfigMap
+          apiVersion: v1
+          metadata:
+            name: pacto-operator-detected
+            namespace: default
+            labels: {app.kubernetes.io/managed-by: pacto-operator}
+            ownerReferences:
+              - {apiVersion: apps/v1, kind: Deployment, name: pacto-operator, uid: u1}
+          data:
+            detected.json: '{"schemaVersion":"1","asOf":"2026-11-16T10:02:00Z","cluster":"5b0c6c3e","entries":[{"kind":"cloud","value":"GKE","evidence":"on 6 of 6 nodes","source":"node providerID","completeness":"complete","scope":"cluster"},{"kind":"exposure","value":"Gateway API","evidence":"HTTPRoutes in 4 of 5 namespaces attach to the same Gateway","source":"HTTPRoutes","completeness":"complete","hint":"--set dashboard.httpRoute.enabled=true --set dashboard.httpRoute.parentRefs[0].name=public --set dashboard.httpRoute.parentRefs[0].namespace=infra","namespaces":["infra"]},{"kind":"metrics","value":"Prometheus Operator","evidence":"serves monitoring.coreos.com/v1; read passively","source":"API discovery","completeness":"complete"},{"kind":"nodes","value":"kernel 6.1 on 6 of 6 nodes","evidence":"BTF likely (unconfirmed)","source":"nodes","completeness":"partial","reason":"not confirmed on the node","scope":"cluster"},{"kind":"registry","value":"ghcr.io/acme","evidence":"in 9 of 11 namespaces, 87% of workloads","source":"running pods","completeness":"complete","hint":"oci://ghcr.io/acme/<service>:<version>","scope":"cluster"},{"kind":"sign-in","value":"Dex","evidence":"serves dex.coreos.com/v1","source":"API discovery and Services","completeness":"complete"}]}'
+    asserts:
+      - matchRegexRaw:
+          pattern: "- uses: trianalab/pacto-actions@v1\\n    with:\\n      command: push\\n      ref: oci://ghcr.io/acme/<service>:<version>"
+
+  - it: NOTES prints the exposure hint
+    template: templates/NOTES.txt
+    release:
+      upgrade: true
+    kubernetesProvider:
+      scheme:
+        "v1/ConfigMap":
+          gvr: {group: "", version: v1, resource: configmaps}
+          namespaced: true
+      objects:
+        - kind: ConfigMap
+          apiVersion: v1
+          metadata:
+            name: pacto-operator-detected
+            namespace: default
+            labels: {app.kubernetes.io/managed-by: pacto-operator}
+            ownerReferences:
+              - {apiVersion: apps/v1, kind: Deployment, name: pacto-operator, uid: u1}
+          data:
+            detected.json: '{"schemaVersion":"1","asOf":"2026-11-16T10:02:00Z","cluster":"5b0c6c3e","entries":[{"kind":"cloud","value":"GKE","evidence":"on 6 of 6 nodes","source":"node providerID","completeness":"complete","scope":"cluster"},{"kind":"exposure","value":"Gateway API","evidence":"HTTPRoutes in 4 of 5 namespaces attach to the same Gateway","source":"HTTPRoutes","completeness":"complete","hint":"--set dashboard.httpRoute.enabled=true --set dashboard.httpRoute.parentRefs[0].name=public --set dashboard.httpRoute.parentRefs[0].namespace=infra","namespaces":["infra"]},{"kind":"metrics","value":"Prometheus Operator","evidence":"serves monitoring.coreos.com/v1; read passively","source":"API discovery","completeness":"complete"},{"kind":"nodes","value":"kernel 6.1 on 6 of 6 nodes","evidence":"BTF likely (unconfirmed)","source":"nodes","completeness":"partial","reason":"not confirmed on the node","scope":"cluster"},{"kind":"registry","value":"ghcr.io/acme","evidence":"in 9 of 11 namespaces, 87% of workloads","source":"running pods","completeness":"complete","hint":"oci://ghcr.io/acme/<service>:<version>","scope":"cluster"},{"kind":"sign-in","value":"Dex","evidence":"serves dex.coreos.com/v1","source":"API discovery and Services","completeness":"complete"}]}'
+    asserts:
+      - matchRegexRaw:
+          pattern: "--set dashboard.httpRoute.enabled=true --set dashboard.httpRoute.parentRefs\\[0\\].name=public --set dashboard.httpRoute.parentRefs\\[0\\].namespace=infra"
+
+  - it: the printed Ingress hint renders a valid Ingress
+    template: templates/dashboard-ingress.yaml
+    set:
+      dashboard.enabled: true
+      dashboard.ingress.enabled: true
+      dashboard.ingress.className: nginx
+      # helm --set dashboard.ingress.hosts[0].host=... replaces the default
+      # list, so the hint's sets amount to exactly this one host and path.
+      dashboard.ingress.hosts:
+        - host: <your-host>
+          paths:
+            - path: /
+              pathType: Prefix
+    asserts:
+      - equal:
+          path: spec.ingressClassName
+          value: nginx
+      - equal:
+          path: spec.rules[0].http.paths[0].path
+          value: /
+      - equal:
+          path: spec.rules[0].http.paths[0].pathType
+          value: Prefix
+
+  - it: a foreign ConfigMap prints only the pointer (no managed-by label)
+    template: templates/NOTES.txt
+    release:
+      upgrade: true
+    kubernetesProvider:
+      scheme:
+        "v1/ConfigMap":
+          gvr: {group: "", version: v1, resource: configmaps}
+          namespaced: true
+      objects:
+        - kind: ConfigMap
+          apiVersion: v1
+          metadata:
+            name: pacto-operator-detected
+            namespace: default
+            labels: {app.kubernetes.io/managed-by: someone}
+            ownerReferences:
+              - {apiVersion: apps/v1, kind: Deployment, name: pacto-operator, uid: u1}
+          data:
+            detected.json: '{"schemaVersion":"1","asOf":"2026-11-16T10:02:00Z","cluster":"5b0c6c3e","entries":[{"kind":"cloud","value":"GKE","evidence":"on 6 of 6 nodes","source":"node providerID","completeness":"complete","scope":"cluster"},{"kind":"exposure","value":"Gateway API","evidence":"HTTPRoutes in 4 of 5 namespaces attach to the same Gateway","source":"HTTPRoutes","completeness":"complete","hint":"--set dashboard.httpRoute.enabled=true --set dashboard.httpRoute.parentRefs[0].name=public --set dashboard.httpRoute.parentRefs[0].namespace=infra","namespaces":["infra"]},{"kind":"metrics","value":"Prometheus Operator","evidence":"serves monitoring.coreos.com/v1; read passively","source":"API discovery","completeness":"complete"},{"kind":"nodes","value":"kernel 6.1 on 6 of 6 nodes","evidence":"BTF likely (unconfirmed)","source":"nodes","completeness":"partial","reason":"not confirmed on the node","scope":"cluster"},{"kind":"registry","value":"ghcr.io/acme","evidence":"in 9 of 11 namespaces, 87% of workloads","source":"running pods","completeness":"complete","hint":"oci://ghcr.io/acme/<service>:<version>","scope":"cluster"},{"kind":"sign-in","value":"Dex","evidence":"serves dex.coreos.com/v1","source":"API discovery and Services","completeness":"complete"}]}'
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "Pacto detected"
+      - matchRegexRaw:
+          pattern: "kubectl get configmap pacto-operator-detected -n default"
+
+  - it: a foreign ConfigMap prints only the pointer (owned by another Deployment)
+    template: templates/NOTES.txt
+    release:
+      upgrade: true
+    kubernetesProvider:
+      scheme:
+        "v1/ConfigMap":
+          gvr: {group: "", version: v1, resource: configmaps}
+          namespaced: true
+      objects:
+        - kind: ConfigMap
+          apiVersion: v1
+          metadata:
+            name: pacto-operator-detected
+            namespace: default
+            labels: {app.kubernetes.io/managed-by: pacto-operator}
+            ownerReferences:
+              - {apiVersion: apps/v1, kind: Deployment, name: impostor, uid: u1}
+          data:
+            detected.json: '{"schemaVersion":"1","asOf":"2026-11-16T10:02:00Z","cluster":"5b0c6c3e","entries":[{"kind":"cloud","value":"GKE","evidence":"on 6 of 6 nodes","source":"node providerID","completeness":"complete","scope":"cluster"},{"kind":"exposure","value":"Gateway API","evidence":"HTTPRoutes in 4 of 5 namespaces attach to the same Gateway","source":"HTTPRoutes","completeness":"complete","hint":"--set dashboard.httpRoute.enabled=true --set dashboard.httpRoute.parentRefs[0].name=public --set dashboard.httpRoute.parentRefs[0].namespace=infra","namespaces":["infra"]},{"kind":"metrics","value":"Prometheus Operator","evidence":"serves monitoring.coreos.com/v1; read passively","source":"API discovery","completeness":"complete"},{"kind":"nodes","value":"kernel 6.1 on 6 of 6 nodes","evidence":"BTF likely (unconfirmed)","source":"nodes","completeness":"partial","reason":"not confirmed on the node","scope":"cluster"},{"kind":"registry","value":"ghcr.io/acme","evidence":"in 9 of 11 namespaces, 87% of workloads","source":"running pods","completeness":"complete","hint":"oci://ghcr.io/acme/<service>:<version>","scope":"cluster"},{"kind":"sign-in","value":"Dex","evidence":"serves dex.coreos.com/v1","source":"API discovery and Services","completeness":"complete"}]}'
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "Pacto detected"
+      - matchRegexRaw:
+          pattern: "kubectl get configmap pacto-operator-detected -n default"
+
+  - it: NOTES strips control characters
+    template: templates/NOTES.txt
+    release:
+      upgrade: true
+    kubernetesProvider:
+      scheme:
+        "v1/ConfigMap":
+          gvr: {group: "", version: v1, resource: configmaps}
+          namespaced: true
+      objects:
+        - kind: ConfigMap
+          apiVersion: v1
+          metadata:
+            name: pacto-operator-detected
+            namespace: default
+            labels: {app.kubernetes.io/managed-by: pacto-operator}
+            ownerReferences:
+              - {apiVersion: apps/v1, kind: Deployment, name: pacto-operator, uid: u1}
+          data:
+            detected.json: '{"schemaVersion":"1","asOf":"2026-11-16T10:02:00Z","cluster":"5b0c6c3e","entries":[{"kind":"cloud","value":"GKE\u001b[2J\u202e","evidence":"on 6 of 6 nodes","source":"node providerID","completeness":"complete","scope":"cluster"},{"kind":"exposure","value":"Gateway API","evidence":"HTTPRoutes in 4 of 5 namespaces attach to the same Gateway","source":"HTTPRoutes","completeness":"complete","hint":"--set dashboard.httpRoute.enabled=true --set dashboard.httpRoute.parentRefs[0].name=public --set dashboard.httpRoute.parentRefs[0].namespace=infra","namespaces":["infra"]},{"kind":"metrics","value":"Prometheus Operator","evidence":"serves monitoring.coreos.com/v1; read passively","source":"API discovery","completeness":"complete"},{"kind":"nodes","value":"kernel 6.1 on 6 of 6 nodes","evidence":"BTF likely (unconfirmed)","source":"nodes","completeness":"partial","reason":"not confirmed on the node","scope":"cluster"},{"kind":"registry","value":"ghcr.io/acme","evidence":"in 9 of 11 namespaces, 87% of workloads","source":"running pods","completeness":"complete","hint":"oci://ghcr.io/acme/<service>:<version>","scope":"cluster"},{"kind":"sign-in","value":"Dex","evidence":"serves dex.coreos.com/v1","source":"API discovery and Services","completeness":"complete"}]}'
+    asserts:
+      - matchRegexRaw:
+          pattern: "  Cloud: GKE\\[2J on 6 of 6 nodes"
+      - notMatchRegexRaw:
+          pattern: "\\x1b"
+      - notMatchRegexRaw:
+          pattern: "\\x{202e}"
+
+  - it: NOTES points at Data sources and kubectl on first install
+    template: templates/NOTES.txt
+    kubernetesProvider:
+      scheme:
+        "v1/ConfigMap":
+          gvr: {group: "", version: v1, resource: configmaps}
+          namespaced: true
+      objects:
+        - kind: ConfigMap
+          apiVersion: v1
+          metadata:
+            name: pacto-operator-detected
+            namespace: default
+            labels: {app.kubernetes.io/managed-by: pacto-operator}
+            ownerReferences:
+              - {apiVersion: apps/v1, kind: Deployment, name: pacto-operator, uid: u1}
+          data:
+            detected.json: '{"schemaVersion":"1","asOf":"2026-11-16T10:02:00Z","cluster":"5b0c6c3e","entries":[{"kind":"cloud","value":"GKE","evidence":"on 6 of 6 nodes","source":"node providerID","completeness":"complete","scope":"cluster"},{"kind":"exposure","value":"Gateway API","evidence":"HTTPRoutes in 4 of 5 namespaces attach to the same Gateway","source":"HTTPRoutes","completeness":"complete","hint":"--set dashboard.httpRoute.enabled=true --set dashboard.httpRoute.parentRefs[0].name=public --set dashboard.httpRoute.parentRefs[0].namespace=infra","namespaces":["infra"]},{"kind":"metrics","value":"Prometheus Operator","evidence":"serves monitoring.coreos.com/v1; read passively","source":"API discovery","completeness":"complete"},{"kind":"nodes","value":"kernel 6.1 on 6 of 6 nodes","evidence":"BTF likely (unconfirmed)","source":"nodes","completeness":"partial","reason":"not confirmed on the node","scope":"cluster"},{"kind":"registry","value":"ghcr.io/acme","evidence":"in 9 of 11 namespaces, 87% of workloads","source":"running pods","completeness":"complete","hint":"oci://ghcr.io/acme/<service>:<version>","scope":"cluster"},{"kind":"sign-in","value":"Dex","evidence":"serves dex.coreos.com/v1","source":"API discovery and Services","completeness":"complete"}]}'
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "Pacto detected"
+      - matchRegexRaw:
+          pattern: "Pacto lists what it detects under Data sources in the dashboard, or run:"
+      - matchRegexRaw:
+          pattern: "kubectl get configmap pacto-operator-detected -n default -o jsonpath='\\{.data.detected\\\\.json\\}'"
+
+  - it: NOTES points at Data sources and kubectl on an upgrade before the first detection
+    template: templates/NOTES.txt
+    release:
+      upgrade: true
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "Pacto detected"
+      - matchRegexRaw:
+          pattern: "Pacto lists what it detects under Data sources in the dashboard"
+
+  - it: NOTES prints no --set registry line
+    template: templates/NOTES.txt
+    release:
+      upgrade: true
+    kubernetesProvider:
+      scheme:
+        "v1/ConfigMap":
+          gvr: {group: "", version: v1, resource: configmaps}
+          namespaced: true
+      objects:
+        - kind: ConfigMap
+          apiVersion: v1
+          metadata:
+            name: pacto-operator-detected
+            namespace: default
+            labels: {app.kubernetes.io/managed-by: pacto-operator}
+            ownerReferences:
+              - {apiVersion: apps/v1, kind: Deployment, name: pacto-operator, uid: u1}
+          data:
+            detected.json: '{"schemaVersion":"1","asOf":"2026-11-16T10:02:00Z","cluster":"5b0c6c3e","entries":[{"kind":"cloud","value":"GKE","evidence":"on 6 of 6 nodes","source":"node providerID","completeness":"complete","scope":"cluster"},{"kind":"exposure","value":"Gateway API","evidence":"HTTPRoutes in 4 of 5 namespaces attach to the same Gateway","source":"HTTPRoutes","completeness":"complete","hint":"--set dashboard.httpRoute.enabled=true --set dashboard.httpRoute.parentRefs[0].name=public --set dashboard.httpRoute.parentRefs[0].namespace=infra","namespaces":["infra"]},{"kind":"metrics","value":"Prometheus Operator","evidence":"serves monitoring.coreos.com/v1; read passively","source":"API discovery","completeness":"complete"},{"kind":"nodes","value":"kernel 6.1 on 6 of 6 nodes","evidence":"BTF likely (unconfirmed)","source":"nodes","completeness":"partial","reason":"not confirmed on the node","scope":"cluster"},{"kind":"registry","value":"ghcr.io/acme","evidence":"in 9 of 11 namespaces, 87% of workloads","source":"running pods","completeness":"complete","hint":"oci://ghcr.io/acme/<service>:<version>","scope":"cluster"},{"kind":"sign-in","value":"Dex","evidence":"serves dex.coreos.com/v1","source":"API discovery and Services","completeness":"complete"}]}'
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "registry="
+
+  - it: a full detection leaves every manifest unchanged
+    kubernetesProvider:
+      scheme:
+        "v1/ConfigMap":
+          gvr: {group: "", version: v1, resource: configmaps}
+          namespaced: true
+      objects:
+        - kind: ConfigMap
+          apiVersion: v1
+          metadata:
+            name: pacto-operator-detected
+            namespace: default
+            labels: {app.kubernetes.io/managed-by: pacto-operator}
+            ownerReferences:
+              - {apiVersion: apps/v1, kind: Deployment, name: pacto-operator, uid: u1}
+          data:
+            detected.json: '{"schemaVersion":"1","asOf":"2026-11-16T10:02:00Z","cluster":"5b0c6c3e","entries":[{"kind":"cloud","value":"GKE","evidence":"on 6 of 6 nodes","source":"node providerID","completeness":"complete","scope":"cluster"},{"kind":"exposure","value":"Gateway API","evidence":"HTTPRoutes in 4 of 5 namespaces attach to the same Gateway","source":"HTTPRoutes","completeness":"complete","hint":"--set dashboard.httpRoute.enabled=true --set dashboard.httpRoute.parentRefs[0].name=public --set dashboard.httpRoute.parentRefs[0].namespace=infra","namespaces":["infra"]},{"kind":"metrics","value":"Prometheus Operator","evidence":"serves monitoring.coreos.com/v1; read passively","source":"API discovery","completeness":"complete"},{"kind":"nodes","value":"kernel 6.1 on 6 of 6 nodes","evidence":"BTF likely (unconfirmed)","source":"nodes","completeness":"partial","reason":"not confirmed on the node","scope":"cluster"},{"kind":"registry","value":"ghcr.io/acme","evidence":"in 9 of 11 namespaces, 87% of workloads","source":"running pods","completeness":"complete","hint":"oci://ghcr.io/acme/<service>:<version>","scope":"cluster"},{"kind":"sign-in","value":"Dex","evidence":"serves dex.coreos.com/v1","source":"API discovery and Services","completeness":"complete"}]}'
+    asserts:
+      - template: templates/deployment.yaml
+        equal:
+          path: spec.template.spec.containers[0].args
+          value: ["--leader-elect=true","--health-probe-bind-address=:8081","--metrics-bind-address=:8443","--metrics-secure=true","--enable-probing=auto","--enable-metrics-observation=auto","--node-agent-namespace=pacto-node-agent","--enable-dashboard","--dashboard-cpu-request=50m","--dashboard-memory-request=128Mi","--dashboard-memory-limit=512Mi","--dashboard-allow-anonymous"]
+      - template: templates/clusterrole.yaml
+        equal:
+          path: rules
+          value: [{"apiGroups":[""],"resources":["events"],"verbs":["create","patch"]},{"apiGroups":[""],"resources":["services"],"verbs":["get","list","watch"]},{"apiGroups":[""],"resources":["configmaps"],"verbs":["get","list","watch"]},{"apiGroups":[""],"resources":["pods"],"verbs":["get","list","watch"]},{"apiGroups":["pacto.trianalab.io"],"resources":["noderuntimeobservations"],"verbs":["delete","get","list","watch"]},{"apiGroups":["networking.k8s.io"],"resources":["ingresses"],"verbs":["get","list","watch"]},{"apiGroups":["gateway.networking.k8s.io"],"resources":["httproutes"],"verbs":["get","list","watch"]},{"apiGroups":["discovery.k8s.io"],"resources":["endpointslices"],"verbs":["get","list","watch"]},{"apiGroups":["apps"],"resources":["deployments","replicasets","statefulsets","daemonsets"],"verbs":["get","list","watch"]},{"apiGroups":["batch"],"resources":["cronjobs","jobs"],"verbs":["get","list","watch"]},{"apiGroups":["pacto.trianalab.io"],"resources":["pactos"],"verbs":["create","delete","get","list","patch","update","watch"]},{"apiGroups":["pacto.trianalab.io"],"resources":["pactos/status"],"verbs":["get","patch","update"]},{"apiGroups":["pacto.trianalab.io"],"resources":["pactos/finalizers"],"verbs":["update"]},{"apiGroups":["pacto.trianalab.io"],"resources":["pactorevisions"],"verbs":["create","get","list","watch"]},{"apiGroups":["pacto.trianalab.io"],"resources":["pactorevisions/status"],"verbs":["get","patch","update"]},{"apiGroups":["rbac.authorization.k8s.io"],"resources":["clusterroles","clusterrolebindings"],"verbs":["get","delete"],"resourceNames":["pacto-dashboard"]},{"apiGroups":[""],"resources":["namespaces"],"resourceNames":["kube-system"],"verbs":["get"]},{"apiGroups":[""],"resources":["nodes"],"verbs":["list"]},{"apiGroups":[""],"resources":["namespaces"],"verbs":["get"]},{"apiGroups":["rbac.authorization.k8s.io"],"resources":["clusterroles","clusterrolebindings"],"verbs":["create","delete","get","list","patch","update","watch"]},{"apiGroups":["authorization.k8s.io"],"resources":["subjectaccessreviews"],"verbs":["create"]},{"apiGroups":["delivery.pacto.trianalab.io"],"resources":["stages","operations"],"verbs":["get","list","watch"]},{"apiGroups":[""],"resources":["namespaces"],"verbs":["list"]}]
+      - template: templates/role.yaml
+        documentIndex: 0
+        equal:
+          path: rules
+          value: [{"apiGroups":[""],"resources":["serviceaccounts","services"],"verbs":["get","delete"],"resourceNames":["pacto-dashboard"]},{"apiGroups":[""],"resources":["secrets"],"verbs":["get","delete"],"resourceNames":["pacto-dashboard-oci-creds"]},{"apiGroups":["apps"],"resources":["deployments"],"verbs":["get","delete"],"resourceNames":["pacto-dashboard"]},{"apiGroups":[""],"resources":["services"],"verbs":["get","delete"],"resourceNames":["pacto-evidence"]},{"apiGroups":["apps"],"resources":["deployments"],"verbs":["get","delete"],"resourceNames":["pacto-evidence"]},{"apiGroups":["apps"],"resources":["daemonsets"],"verbs":["get","delete"],"resourceNames":["pacto-node-agent"]},{"apiGroups":["rbac.authorization.k8s.io"],"resources":["roles","rolebindings"],"verbs":["get","delete"],"resourceNames":["pacto-node-agent"]},{"apiGroups":[""],"resources":["serviceaccounts"],"verbs":["get","delete"],"resourceNames":["pacto-node-agent"]},{"apiGroups":[""],"resources":["secrets"],"verbs":["get"]},{"apiGroups":[""],"resources":["configmaps"],"verbs":["create"]},{"apiGroups":[""],"resources":["configmaps"],"verbs":["get","patch"],"resourceNames":["pacto-operator-detected"]},{"apiGroups":[""],"resources":["secrets","serviceaccounts","services"],"verbs":["create","delete","get","patch","update"]},{"apiGroups":["apps"],"resources":["deployments"],"verbs":["create","delete","get","patch","update"]}]

@@ -44,10 +44,12 @@ The `namespaces` `get` rule limited to `kube-system` reads the cluster id. The o
 
 ## Always granted in the release namespace (`pacto-operator-manager` Role)
 
-The teardown half of the managed components: `get` and `delete` on the fixed names a previous install may have created there, the node agent's included (releases before the dedicated agent namespace ran it in the release namespace). The one `secrets` `get` rule with no name reads pull Secrets and Secrets that back a configuration in the release namespace.
+The teardown half of the managed components: `get` and `delete` on the fixed names a previous install may have created there, the node agent's included (releases before the dedicated agent namespace ran it in the release namespace). The one `secrets` `get` rule with no name reads pull Secrets and Secrets that back a configuration in the release namespace. The `configmaps` rules let detection write `<fullname>-detected`, the one ConfigMap it publishes: `create` cannot be limited by name, and `get` and `patch` name that ConfigMap only.
 
 | API groups | Resources | Verbs | Limited to |
 | --- | --- | --- | --- |
+| `"" (core)` | `configmaps` | `create` | *not name-restricted* |
+| `"" (core)` | `configmaps` | `get`, `patch` | `pacto-operator-detected` |
 | `"" (core)` | `secrets` | `delete`, `get` | `pacto-dashboard-oci-creds` |
 | `"" (core)` | `secrets` | `get` | *not name-restricted* |
 | `"" (core)` | `serviceaccounts` | `delete`, `get` | `pacto-node-agent` |

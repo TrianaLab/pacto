@@ -102,6 +102,12 @@ type Config struct {
 	// trust config the dashboard verifies delivery records with, so History
 	// reads signed records. Empty Name: the dashboard verifies none.
 	DeliveryTrust KeyRef
+
+	// DetectedConfigMap names the ConfigMap, in the operator namespace, where
+	// the operator publishes what it detected. The dashboard reads it as an
+	// optional kubelet-mounted file, so its ServiceAccount gains no rule.
+	// Empty: the dashboard shows no detected rows.
+	DetectedConfigMap string
 }
 
 // KeyRef names one key of a ConfigMap or a Secret in the operator namespace.

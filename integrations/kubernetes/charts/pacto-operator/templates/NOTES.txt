@@ -36,6 +36,70 @@ Pacto Operator has been installed.
    keep it from starting without sign-in.
 {{- end }}
 {{- end }}
+{{- /* What the operator detected, read back on upgrade only. NOTES is the one
+template that looks the ConfigMap up, so detection changes no manifest. The
+object counts only when the operator wrote it: its managed-by label and an
+owner reference to the operator Deployment. */}}
+{{- $fullname := include "pacto-operator.fullname" . }}
+{{- $detectedName := printf "%s-detected" $fullname }}
+{{- $detected := dict }}
+{{- if .Release.IsUpgrade }}
+{{- $cm := lookup "v1" "ConfigMap" .Release.Namespace $detectedName }}
+{{- if eq (dig "metadata" "labels" "app.kubernetes.io/managed-by" "" $cm) "pacto-operator" }}
+{{- range (dig "metadata" "ownerReferences" list $cm) }}
+{{- if and (eq (get . "kind") "Deployment") (eq (get . "name") $fullname) }}
+{{- $detected = index ($cm.data | default dict) "detected.json" | default "{}" | fromJson }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- /* Control characters and bidi controls never reach the terminal. */}}
+{{- $unsafe := `[\x00-\x1f\x7f-\x9f\x{200e}\x{200f}\x{202a}-\x{202e}\x{2066}-\x{2069}]` }}
+{{- $labels := dict "registry" "Registry" "cloud" "Cloud" "sign-in" "Sign-in" "exposure" "Exposure" "metrics" "Metrics" "nodes" "Nodes" }}
+{{- $entries := get $detected "entries" | default list }}
+{{- if kindIs "slice" $entries }}{{ else }}{{ $entries = list }}{{ end }}
+{{- if $entries }}
+
+Pacto detected (inferred, as of {{ regexReplaceAll $unsafe (toString (get $detected "asOf")) "" | trunc 64 }}; nothing was turned on):
+{{- $registryHint := "" }}
+{{- $exposureHint := "" }}
+{{- range $entries }}
+{{- if kindIs "map" . }}
+{{- $kind := regexReplaceAll $unsafe (toString (get . "kind")) "" | trunc 64 }}
+{{- $text := list (get . "value") (get . "evidence") | compact | join " " }}
+{{- $source := regexReplaceAll $unsafe (toString (get . "source")) "" | trunc 256 }}
+{{- $hint := regexReplaceAll $unsafe (toString (get . "hint")) "" | trunc 256 }}
+  {{ get $labels $kind | default (title $kind) }}: {{ regexReplaceAll $unsafe $text "" | trunc 512 }}{{ if $source }} (from {{ $source }}){{ end }}
+{{- if and (eq $kind "registry") $hint (not $registryHint) }}{{ $registryHint = $hint }}{{ end }}
+{{- if and (eq $kind "exposure") $hint (not $exposureHint) }}{{ $exposureHint = $hint }}{{ end }}
+{{- end }}
+{{- end }}
+{{- if $registryHint }}
+
+Most namespaces pull from that registry. To push contracts there from CI
+(a proposal; review it before you use it):
+
+  - uses: trianalab/pacto-actions@v1
+    with:
+      command: push
+      ref: {{ $registryHint }}
+{{- end }}
+{{- if $exposureHint }}
+
+To expose the dashboard the way most namespaces are exposed, review and add:
+
+  {{ $exposureHint }}
+{{- end }}
+
+Read the same rows from the CLI:
+
+  pacto fleet status --k8s --detected k8s:{{ .Release.Namespace }}/{{ $detectedName }}
+{{- else }}
+
+Pacto lists what it detects under Data sources in the dashboard, or run:
+
+  kubectl get configmap {{ $detectedName }} -n {{ .Release.Namespace }} -o jsonpath='{.data.detected\.json}'
+{{- end }}
 {{- if and .Release.IsUpgrade (include "pacto-operator.watchNamespaces" . | fromYamlArray) (not (and .Values.dashboard.enabled (include "pacto-operator.dashboardDeliveryNamespace" .))) }}
 {{- if or (lookup "rbac.authorization.k8s.io/v1" "ClusterRole" "" "pacto-dashboard") (lookup "rbac.authorization.k8s.io/v1" "ClusterRoleBinding" "" "pacto-dashboard") }}
 
