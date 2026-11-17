@@ -92,19 +92,15 @@ catalog:
 ```
 
 Backstage shows the reader's scope to every Backstage user. A namespace-scoped
-reader sees no service known only from a registry, so a reader that should see
-the whole fleet needs a cluster-wide grant. Until per-cluster restriction
-lands, a namespace grant shows that namespace from
-every cluster the fleet reads; give the reader a grant you are willing to show
-for all clusters.
+reader sees no service known only from a registry, so give a reader that should
+see the whole fleet a cluster-wide grant. Until per-cluster restriction lands, a
+namespace grant shows that namespace from every cluster the fleet reads.
 
-Open and local dashboards serve the route without a token. The route refuses
-whenever `pacto export backstage` would write nothing: while a source is
-unavailable or missing records, the organization catalog is unread or the fleet
-is empty, it answers 503 naming why, and Backstage keeps the entities it had.
-A reader whose grants show nothing of a whole fleet gets an empty catalog, and
-Backstage drops every entity, so check the reader's RoleBinding first when
-Backstage empties. The [browser demo](examples/demo-tour.md) answers 503 on
+Open and local dashboards serve the route without a token. Whenever
+`pacto export backstage` would write nothing, the route answers 503 naming why,
+and Backstage keeps the entities it had. A reader whose grants show nothing
+gets an empty catalog and Backstage drops every entity, so check the reader's
+RoleBinding first when Backstage empties. The [browser demo](examples/demo-tour.md) answers 503 on
 purpose: its `edge-cluster` source is down. On a laptop, a partial bundle cache
 or an unreachable cluster does the same; try `--no-cache` or another kubeconfig.
 
