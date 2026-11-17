@@ -84,6 +84,16 @@ async function ranking(page: Page, title: string): Promise<Figure> {
   return f!;
 }
 
+/**
+ * The declared services on the unfiltered list: the pager also counts the inferred services
+ * (workloads no contract describes), which no figure partitions because they have no contract.
+ */
+async function declaredTotal(page: Page): Promise<number> {
+  const inferred = await page.evaluate(async () =>
+    ((await (await fetch('/api/fleet/entities?kinds=service&declaration=inferred&limit=1')).json()).total as number) ?? 0);
+  return (await pagerTotal(page, '[data-testid="svc-range"]')) - inferred;
+}
+
 /** The pager's own count of the population, which is the rows' side of the claim. */
 async function pagerTotal(page: Page, sel: string): Promise<number> {
   const text = (await page.locator(sel).first().textContent()) ?? '';
@@ -118,7 +128,7 @@ test('Services: a bucket of the figure and the rows under it are the same popula
   await boot(page, '#/fleet/services');
   await expect(page.getByTestId('service-list')).toBeVisible({ timeout: 30_000 });
 
-  const total = await pagerTotal(page, '[data-testid="svc-range"]');
+  const total = await declaredTotal(page);
   const before = await posture(page);
   // Unfiltered, the figure says so in words and reconciles to the whole snapshot.
   expect(before.scope).toMatch(new RegExp(`^All ${total.toLocaleString('en-US')} services: `));
@@ -146,7 +156,7 @@ test('Services: ownership coverage is a distribution of services, and it drills 
   await boot(page, '#/fleet/services');
   await expect(page.getByTestId('service-list')).toBeVisible({ timeout: 30_000 });
 
-  const total = await pagerTotal(page, '[data-testid="svc-range"]');
+  const total = await declaredTotal(page);
   const f = await figure(page, 'Declared ownership');
   // Coverage is a partition of the services, not a count of owners: the buckets say how
   // many services are cleanly owned, how many disagree with themselves, and how many

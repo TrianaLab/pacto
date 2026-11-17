@@ -28,7 +28,7 @@ test.describe('WASM demo — external systems', () => {
     await page.addStyleTag({ content: WIDE_FONT });
     const line = page.getByTestId('overview-services-line');
     await expect(line).toBeVisible({ timeout: T });
-    await expect(line).toContainText(/\d+ declared, \d+ external/);
+    await expect(line).toContainText(/\d+ declared(, \d+ inferred[^,]*)?, \d+ external/);
     await line.getByTestId('overview-externals').click();
     await expect(page).toHaveURL(/#\/fleet\/externals$/);
     await expect(page.getByRole('heading', { level: 1, name: 'External systems' })).toBeVisible({ timeout: T });
