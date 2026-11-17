@@ -23,7 +23,9 @@
   let { knowledge = {}, noun = 'view', testid = undefined, sources = [], tone = '' } = $props();
 
   const names = $derived.by(() => {
-    const ids = (sources ?? []).filter((s) => s?.status && s.status !== 'available').map((s) => s.id);
+    // An advisory source (what the operator detected) never counts against the answer,
+    // so it is not named beside the count either.
+    const ids = (sources ?? []).filter((s) => s?.status && s.status !== 'available' && !s.advisory).map((s) => s.id);
     return ids.length > 4 ? [...ids.slice(0, 3), `${ids.length - 3} more`] : ids;
   });
 

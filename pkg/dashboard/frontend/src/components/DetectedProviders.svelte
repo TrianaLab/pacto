@@ -16,8 +16,8 @@
   // What Pacto found in the clusters it reads (509-S2): per row the provider, the
   // evidence, what Pacto uses it for and its status. A degraded row says why behind a
   // closed disclosure. A cluster Pacto could not read is "not read", never "nothing
-  // detected": the empty sentence appears only when there is no row and no Kubernetes
-  // source is configured. The Kubernetes facts come from the answer, counted over every
+  // detected": the empty sentence appears only when the server sent no row (hidden
+  // inferred rows count) and no Kubernetes source is configured. The Kubernetes facts come from the answer, counted over every
   // source, never from the meta's bounded source list.
   let { refreshTick = 0 } = $props();
 
@@ -59,7 +59,7 @@
   {:else if !loader.data}
     <div class="skeleton skeleton-line" aria-hidden="true"></div>
     <div class="skeleton skeleton-line" aria-hidden="true"></div>
-  {:else if !rows.length && !loader.data.kubernetesSources}
+  {:else if !all.length && !loader.data.kubernetesSources}
     <p class="t-meta">No providers detected. This view reads no Kubernetes cluster.</p>
   {:else}
     {#if loader.error}<StaleRefreshNotice noun="detected provider list" onRetry={() => loader.refresh()} />{/if}
@@ -127,7 +127,11 @@
   /* A stacked block per row on a narrow container, three columns on a wide one
      (SPEC 24.2): the container decides, never the viewport. */
   .dp-list { container-type: inline-size; list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-  .dp-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-1) var(--sp-3); padding: var(--sp-2) 0; border-block-end: 1px solid var(--c-border); min-inline-size: 0; }
+  .dp-row { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-1) var(--sp-3); padding: var(--sp-2) 0; border-block-end: 1px solid var(--c-border); min-inline-size: 0; }
+  /* The provenance tip opens under the row from its inline start: in the wide layout the
+     mark sits mid-row, where a tip grown leftward from it would leave the viewport. */
+  .dp-row .dp-name :global(.help) { position: static; }
+  .dp-row .dp-name :global(.help-body) { left: 0; right: auto; max-width: min(38ch, 100%); }
   @container (min-width: 48rem) {
     .dp-row { grid-template-columns: minmax(18ch, 1fr) minmax(24ch, 2fr) minmax(16ch, 1fr); align-items: baseline; }
     .dp-why { grid-column: 1 / -1; }

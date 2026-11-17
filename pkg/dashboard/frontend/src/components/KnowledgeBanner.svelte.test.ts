@@ -64,4 +64,14 @@ describe('KnowledgeBanner scope', () => {
     expect(text(target)).toBe('The fleet snapshot is missing data. 1 data source is partial (k8s), so this overview may be incomplete.');
     unmount(c); target.remove();
   });
+
+  it('names no advisory source beside the count', () => {
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const sources = [{ id: 'edge-cluster', kind: 'kubernetes', status: 'unavailable' }, { id: 'detection', kind: 'detection', status: 'unavailable', advisory: true }];
+    const c = mount(KnowledgeBanner, { target, props: { knowledge: snapshotKnowledge({ completeness: 'partial', sources }), noun: 'overview', sources } });
+    flushSync();
+    expect(text(target)).toBe('The fleet snapshot is missing data. 1 data source is unavailable (edge-cluster), so this overview may be incomplete.');
+    unmount(c); target.remove();
+  });
 });

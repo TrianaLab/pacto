@@ -271,6 +271,17 @@ describe('DetectedProviders', () => {
       expect((t.querySelector('[data-testid="providers-inferred-toggle"] input') as HTMLInputElement).checked).toBe(false);
     });
 
+    it('says inferred rows are hidden, never that nothing was detected, when no Kubernetes source is read', async () => {
+      location.hash = '#/fleet/sources?inferred=0';
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+      providersFn.mockResolvedValue(resp([inferred('registry')], []));
+      const t = render();
+      await vi.waitFor(() => expect(t.querySelector('[data-testid="providers-inferred-hidden"]')).not.toBeNull());
+      expect(text(t.querySelector('[data-testid="providers-inferred-hidden"]'))).toBe('1 inferred provider hidden.');
+      expect(text(block(t))).not.toContain('No providers detected');
+      expect(rows(t)).toHaveLength(0);
+    });
+
     it('offers no toggle when no row is inferred', async () => {
       providersFn.mockResolvedValue(resp([row('pacto-crd')]));
       const t = render();

@@ -61,4 +61,26 @@ test.describe('WASM demo: what the cluster provides', () => {
     await expect(detected).toHaveCount(0);
     await expect(block.getByTestId('providers-inferred-hidden')).toBeVisible();
   });
+
+  test('the provenance tip stays inside the viewport at every width', async ({ page }) => {
+    // The tip is the only place an inferred row names its source, asOf and completeness.
+    // In the wide layout the mark sits mid-row, so a tip grown leftward from it once left
+    // the viewport (900px). The layout gate never opens a tip, so the widths are swept here.
+    await appReady(page, '/#/fleet/sources');
+    const block = page.getByTestId('detected-providers');
+    const mark = block.getByRole('button', { name: 'Inferred: from cluster-detection' }).first();
+    await expect(mark).toBeVisible({ timeout: T });
+    const widths = [...Array.from({ length: 29 }, (_, i) => 320 + i * 40), 1920, 2560, 3440];
+    const outside: string[] = [];
+    for (const width of widths) {
+      await page.setViewportSize({ width, height: 900 });
+      await mark.click();
+      const tip = block.locator('.prov-tip:not([hidden])');
+      await expect(tip).toBeVisible();
+      const box = await tip.evaluate((el) => { const r = el.getBoundingClientRect(); return { left: r.left, right: r.right, max: document.documentElement.clientWidth }; });
+      if (box.left < 0 || box.right > box.max) outside.push(`${width}px: ${Math.round(box.left)}..${Math.round(box.right)} of ${box.max}`);
+      await page.keyboard.press('Escape');
+    }
+    expect(outside).toEqual([]);
+  });
 });
