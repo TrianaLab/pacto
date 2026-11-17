@@ -272,9 +272,15 @@ type SourceKindCount struct {
 
 // sourceCounts tallies the complete source population by health.
 func sourceCounts(ss []SourceState) SourceCounts {
-	c := SourceCounts{Total: len(ss)}
+	c := SourceCounts{}
 	byKind := map[string]int{}
 	for _, s := range ss {
+		// An advisory source that is not available is in no tally: it never
+		// counts against the fleet's health.
+		if s.Advisory && s.Status != SourceAvailable {
+			continue
+		}
+		c.Total++
 		switch s.Status {
 		case SourceAvailable:
 			c.Available++
@@ -926,6 +932,9 @@ func (q *Query) observedOnly(from ServiceKey) []Relationship {
 // tallySources counts degraded, stale and unavailable sources.
 func (q *Query) tallySources(sum *OverviewSummary) {
 	for _, st := range q.snap.Sources {
+		if st.Advisory {
+			continue
+		}
 		switch st.Status {
 		case SourcePartial:
 			sum.DegradedSources++

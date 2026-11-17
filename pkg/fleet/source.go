@@ -39,6 +39,11 @@ const (
 // trace store. It labels the source only; pkg/fleet never branches on it.
 const SourceKindMira = "mira"
 
+// SourceKindDetection is the Kind of a source reading what the Pacto operator
+// detected in a cluster. It labels the source only; pkg/fleet never branches
+// on it (an advisory source is [Collection.Advisory]).
+const SourceKindDetection = "detection"
+
 type Source interface {
 	// ID is the stable identifier of this source instance (e.g. "oci", "k8s",
 	// "local", or a named environment like "production-eu"). Used as provenance.
@@ -105,6 +110,9 @@ type Collection struct {
 	// Build copies them, fills Source and Cluster and never lets a row claim
 	// better health than the source.
 	Providers []Provider
+	// Advisory: an advisory source never makes a snapshot partial: its status
+	// is reported and its rows are hints.
+	Advisory bool
 }
 
 // RawInferredService is one workload a source read (Kind is Deployment,

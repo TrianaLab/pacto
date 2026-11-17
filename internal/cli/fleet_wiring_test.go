@@ -931,3 +931,25 @@ func TestDashboardFleetOptions_Mira(t *testing.T) {
 		t.Errorf("configuredSources = %v, want [mira]", got)
 	}
 }
+
+// TestConfiguredSourcesNamesDetection: --detected is a configured source the
+// startup banner names.
+func TestConfiguredSourcesNamesDetection(t *testing.T) {
+	fopts := dashboardFleetOptions("./svc", nil, nil, nil, dashboardSources{local: true, detected: "k8s:pacto-system/pacto-operator-detected"})
+	if fopts.Detected != "k8s:pacto-system/pacto-operator-detected" {
+		t.Errorf("Detected = %q", fopts.Detected)
+	}
+	if got := configuredSources(fopts); !slices.Equal(got, []string{"local", "detection"}) {
+		t.Errorf("configuredSources = %v, want [local detection]", got)
+	}
+}
+
+// TestDetectionAloneIsNoDataSource: detection only adds hints to a fleet, so
+// a dashboard with nothing else still refuses to start.
+func TestDetectionAloneIsNoDataSource(t *testing.T) {
+	isolateHost(t)
+	_, err := runDashboard(t, app.NewService(nil, nil), viper.New(), t.TempDir(), "--port", "0", "--detected", "/tmp/detected.json")
+	if err == nil || !strings.Contains(err.Error(), "no data sources detected") {
+		t.Fatalf("err = %v, want the no data sources refusal", err)
+	}
+}

@@ -648,3 +648,39 @@ func TestViewerReviewsProviderCounts(t *testing.T) {
 		t.Errorf("asked %v, never deployments everywhere", r.askedRes)
 	}
 }
+
+// TestViewerReviewsDetectedNamespaces: the namespace of a detected row's
+// Gateway is reviewed even though no service runs there; a reader allowed
+// there gets the row whole, anyone else redacted.
+func TestViewerReviewsDetectedNamespaces(t *testing.T) {
+	k := fleet.SourceKindKubernetes
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{},
+		fleet.NewMemorySource("k8s", k, &fleet.Collection{Targets: []fleet.RawTarget{{Scope: "a", Kind: k, Name: "svc-a", Service: "svc-a"}}}),
+		fleet.NewMemorySource("detection", fleet.SourceKindDetection, &fleet.Collection{Advisory: true, Providers: []fleet.Provider{{
+			ID: "exposure", Name: "Exposure", Evidence: "Gateway API on a Gateway", Provenance: fleet.ProvenanceInferred, Hint: "--set dashboard.httpRoute.enabled=true",
+			Objects: []fleet.ProviderObject{{Kind: "Gateway", Namespace: "infra", Name: "public"}},
+		}}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := fleet.NewQuery(snap)
+	r := &reviews{allow: func(p Person, ns string) (bool, error) { return ns == "a" || (p.User == "carol" && ns == "infra"), nil }}
+	v := NewViewer(r.review)
+	got, err := v.Query(context.Background(), alice, q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(r.asked, "infra") {
+		t.Errorf("asked %v, never the Gateway namespace", r.asked)
+	}
+	if p := got.SnapshotForSerialization().Providers[0]; p.Hint != "" || len(p.Objects) != 0 {
+		t.Errorf("alice sees the Gateway row whole: %+v", p)
+	}
+	got, err = v.Query(context.Background(), Person{User: "carol"}, q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := got.SnapshotForSerialization().Providers[0]; p.Hint == "" || len(p.Objects) != 1 {
+		t.Errorf("carol, who reads infra, gets the row redacted: %+v", p)
+	}
+}

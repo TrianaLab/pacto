@@ -77,7 +77,11 @@ type FleetOptions struct {
 	// unavailable-source limitation rather than a build failure.
 	IncludeK8s bool
 	// K8sNamespaces scopes the live Kubernetes source; empty means all namespaces.
-	K8sNamespaces   []string
+	K8sNamespaces []string
+	// Detected adds what the operator detected as inferred provider rows:
+	// k8s:<namespace>/<name> of its ConfigMap, read with the kubeconfig, or a
+	// file holding the same JSON. The source is advisory; --k8s never adds it.
+	Detected        string
 	FreshnessWindow time.Duration
 	Concurrency     int
 	// DisallowPartial makes a single source failure fatal instead of yielding a
@@ -145,6 +149,7 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 			sources = append(sources, liveK8sSources(ctx, contextName, client, opts.K8sNamespaces)...)
 		}
 	}
+	sources = append(sources, s.detectionSources(opts.Detected)...)
 	sources = append(sources, opts.extraSources...)
 	if err := checkSourceIDsAreUnique(sources); err != nil {
 		return nil, err
@@ -164,6 +169,30 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 		// planner's own build leaves this false.
 		DiscloseUncheckedFreshness: true,
 	}, sources...)
+}
+
+// detectionSources is the advisory detection source of ref, none when ref is
+// empty: k8s:NS/NAME reads that ConfigMap, anything else is a file. A dynamic
+// client that cannot be built, or a k8s: ref without a name, is an
+// unavailable source.
+func (s *Service) detectionSources(ref string) []fleet.Source {
+	const id = "detection"
+	rest, ok := strings.CutPrefix(ref, "k8s:")
+	switch {
+	case ref == "":
+		return nil
+	case !ok:
+		return []fleet.Source{fleetsrc.NewDetectionFileSource(id, ref, s.env().now)}
+	}
+	ns, name, _ := strings.Cut(rest, "/")
+	if ns == "" || name == "" {
+		return []fleet.Source{fleetsrc.NewDetectionFailedSource(id, fmt.Errorf("--detected %q is not k8s:<namespace>/<name>", ref))}
+	}
+	dyn, err := s.env().newDynamic()
+	if err != nil {
+		return []fleet.Source{fleetsrc.NewDetectionFailedSource(id, err)}
+	}
+	return []fleet.Source{fleetsrc.NewDetectionK8sSource(id, dyn, ns, name, s.env().now)}
 }
 
 // workloadsSuffix names a cluster's workload source after its Pacto source.

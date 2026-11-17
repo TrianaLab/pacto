@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"maps"
 	"time"
 
 	"github.com/trianalab/pacto/v4/examples/story"
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/evidence"
 	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
 	"github.com/trianalab/pacto/v4/pkg/finding"
@@ -40,6 +42,13 @@ const (
 // on. A fixed date here had the fleet pages say "Jul 29, 2026" beside delivery pages
 // saying "just now".
 var demoClock = time.Now().UTC().Truncate(time.Second)
+
+// demoDetected is what the demo cluster's operator detected: the registry,
+// cloud, sign-in, exposure, metrics and node kernels the Data sources page
+// lists as inferred rows. The Compose demo carries a byte-identical copy.
+//
+//go:embed detected.json
+var demoDetected []byte
 
 // demoNow is the clock the fleet snapshot is built against.
 func demoNow() time.Time { return demoClock }
@@ -169,6 +178,16 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 			Error:  &fleet.SourceError{Code: fleet.LimitationSourceUnavailable, Message: "edge cluster unreachable"},
 		},
 	})
+	// What the cluster's operator detected: an advisory source whose rows are
+	// hints, dated now so they read current.
+	detected, err := detect.Decode(demoDetected)
+	if err != nil {
+		return nil, nil, err
+	}
+	detected.AsOf, detected.Cluster = demoNow(), prodCluster.ID
+	detection := fleet.NewMemorySource("cluster-detection", fleet.SourceKindDetection, &fleet.Collection{
+		Advisory: true, Providers: detect.ProviderRows(detected, "cluster-detection", demoNow()),
+	})
 	// The organization extension is embedded, so the demo reports it unsigned
 	// rather than inventing a verification it never ran.
 	cat, err := externalcatalog.Assemble(externalcatalog.DefaultRef(), demoExternalCatalog, externalcatalog.Ref{
@@ -181,7 +200,7 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 	}
 	snap, err := fleet.Build(context.Background(),
 		fleet.BuildOptions{Now: demoNow, FreshnessWindow: 24 * time.Hour, ExternalCatalog: cat},
-		fleet.NewMemorySource("local", "local", col), partnerRegistrySource, storySource, cluster, workloads, telemetry, mirror, unavailable)
+		fleet.NewMemorySource("local", "local", col), partnerRegistrySource, storySource, cluster, workloads, telemetry, mirror, unavailable, detection)
 	if err != nil {
 		return nil, nil, err
 	}

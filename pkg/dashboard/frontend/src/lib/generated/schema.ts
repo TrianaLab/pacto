@@ -3715,10 +3715,19 @@ export interface components {
             name?: string;
         };
         "Fleet.Provider": {
+            /**
+             * Format: date-time
+             * @description When the row was detected
+             */
+            asOf?: string;
             /** @description The display name of the cluster the source read, when it reads one */
             cluster?: string;
+            /** @description Further candidates or facts behind the row, at most 5 */
+            details?: string[] | null;
             /** @description What Pacto found. It never names a namespace or a namespaced object; those go in objects */
             evidence: string;
+            /** @description A command or value for a person to review that would turn the proposal on. Nothing is turned on until a person runs it */
+            hint?: string;
             /** @description Stable id of the row within its source, for example pacto-crd or kubernetes-workloads */
             id: string;
             limitations?: components["schemas"]["Fleet.Limitation"][] | null;
@@ -3730,6 +3739,13 @@ export interface components {
              * @description How many objects the row had before the cap or your permissions narrowed it
              */
             objectsTotal?: number;
+            /** @description inferred for a row Pacto detected; empty for a row a source reported directly */
+            provenance?: string;
+            /**
+             * @description cluster when the row was read cluster-wide
+             * @enum {string}
+             */
+            scope?: "cluster";
             /** @description The id of the source that detected it */
             source: string;
             /** @enum {string} */
@@ -4205,6 +4221,8 @@ export interface components {
             kind: string;
         };
         "Fleet.SourceState": {
+            /** @description An advisory source never makes the answer partial; its rows are hints. */
+            advisory?: boolean;
             error?: components["schemas"]["Fleet.SourceError"];
             id: string;
             /**

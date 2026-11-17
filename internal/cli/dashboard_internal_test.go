@@ -486,3 +486,17 @@ func TestDashboardExternalCatalogEnv(t *testing.T) {
 		t.Fatalf("err = %v, want the digest refusal", err)
 	}
 }
+
+// TestDashboardDetectedEnv reads PACTO_DASHBOARD_DETECTED, the file the
+// operator-managed dashboard mounts.
+func TestDashboardDetectedEnv(t *testing.T) {
+	t.Setenv("PACTO_DASHBOARD_DETECTED", "/etc/pacto/detected/detected.json")
+	v := viper.New()
+	v.SetEnvPrefix("PACTO")
+	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
+	v.AutomaticEnv()
+	newDashboardCommand(app.NewService(nil, nil), v, "test", defaultDeps())
+	if got := v.GetString("dashboard.detected"); got != "/etc/pacto/detected/detected.json" {
+		t.Errorf("dashboard.detected = %q", got)
+	}
+}

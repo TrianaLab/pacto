@@ -71,6 +71,7 @@ func addFleetSourceFlags(f *pflag.FlagSet) {
 	shared.String("namespace", "", "namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)")
 	shared.Duration("freshness", fleet.RecentEvidenceWindow, "mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so)")
 	shared.String("external-catalog", "", "organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST (a tag is refused)")
+	shared.String("detected", "", "add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON")
 	f.AddFlagSet(shared)
 }
 
@@ -80,7 +81,7 @@ func addFleetSourceFlags(f *pflag.FlagSet) {
 func fleetFlagNames() []string {
 	return []string{
 		"local", "root", "target-state", "evidence-url", "mira-source", "traces", "oci",
-		"cache", "k8s", "namespace", "freshness", "external-catalog",
+		"cache", "k8s", "namespace", "freshness", "external-catalog", "detected",
 	}
 }
 
@@ -150,6 +151,7 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 	includeK8s, _ := cmd.Flags().GetBool("k8s")
 	freshness, _ := cmd.Flags().GetDuration("freshness")
 	externalCatalog, _ := cmd.Flags().GetString("external-catalog")
+	detected, _ := cmd.Flags().GetString("detected")
 	return app.FleetOptions{
 		LocalRoots:         local,
 		CatalogRoots:       roots,
@@ -163,6 +165,7 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 		K8sNamespaces:      flagNamespaces(cmd),
 		FreshnessWindow:    freshness,
 		ExternalCatalogRef: externalCatalog,
+		Detected:           detected,
 		Provenance:         app.NewProvenanceChecker(),
 	}
 }

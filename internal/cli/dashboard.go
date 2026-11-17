@@ -133,11 +133,12 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 				evidenceURL:     v.GetString("evidence-source-url"),
 				miraURLs:        miraURLs,
 				externalCatalog: externalCatalog,
+				detected:        v.GetString("dashboard.detected"),
 			}
 
 			fopts := dashboardFleetOptions(dir, repos, namespaces, observation, det)
 			configured := configuredSources(fopts)
-			if len(configured) == 0 {
+			if answersNothing(configured) {
 				return fmt.Errorf("no data sources detected: no pacto.yaml in %s, no oci:// argument, no cached bundles and no Kubernetes configuration", dir)
 			}
 
@@ -205,6 +206,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	cmd.Flags().String("host", "127.0.0.1", "bind address for the dashboard server")
 	cmd.Flags().Int("port", 3000, "port for the dashboard server")
 	cmd.Flags().String("namespace", "", "Kubernetes namespaces to read, comma-separated (empty = all namespaces); delivery reads narrow to it only when it names one")
+	cmd.Flags().String("detected", "", "what the operator detected, shown as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON (also PACTO_DASHBOARD_DETECTED)")
 	cmd.Flags().String("cors-origin", "", "explicit cross-origin allowed to call the API (default: same-origin only)")
 	cmd.Flags().StringArray("traces", nil, "OTLP/JSON trace file to fold observed dependencies from (repeatable; also PACTO_DASHBOARD_TRACES)")
 	cmd.Flags().StringArray("trace-source", nil, "named offline OTLP/JSON trace source as NAME=PATH, where NAME is its stable data-source identity (repeatable; also PACTO_DASHBOARD_TRACE_SOURCES)")
@@ -240,6 +242,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	_ = v.BindPFlag("dashboard.trace-sources", cmd.Flags().Lookup("trace-source"))
 	_ = v.BindPFlag("dashboard.mira-sources", cmd.Flags().Lookup("mira-source"))
 	_ = v.BindPFlag("dashboard.external-catalog", cmd.Flags().Lookup("external-catalog"))
+	_ = v.BindPFlag("dashboard.detected", cmd.Flags().Lookup("detected"))
 	for _, f := range []string{"oidc-issuer-url", "oidc-client-id", "oidc-redirect-url", "oidc-display-name", "oidc-extra-scopes", "oidc-ca-file", "oidc-internal-issuer-url",
 		"oidc-username-claim", "oidc-username-prefix", "oidc-groups-claim", "oidc-groups-prefix",
 		"session-idle-timeout", "session-max-age", "token-login", "allow-anonymous", "review", "mira-url", "delivery-namespace", "delivery-trust"} {
@@ -331,6 +334,9 @@ type dashboardSources struct {
 	// PACTO_DASHBOARD_EXTERNAL_CATALOG), already checked by
 	// app.CheckExternalCatalogRef.
 	externalCatalog string
+	// detected is what the operator detected (--detected,
+	// PACTO_DASHBOARD_DETECTED): a k8s: ConfigMap ref or a file.
+	detected string
 }
 
 // localRootHasBundle reports whether dir looks like a place contracts live: a
@@ -394,12 +400,19 @@ func configuredSources(fopts app.FleetOptions) []string {
 		{"observation", len(fopts.ObservationSources) > 0},
 		{"evidence", len(fopts.EvidenceURLs) > 0},
 		{"mira", len(fopts.MiraURLs) > 0},
+		{"detection", fopts.Detected != ""},
 	} {
 		if s.on {
 			names = append(names, s.name)
 		}
 	}
 	return names
+}
+
+// answersNothing reports whether configured names no source that answers a
+// question. Detection alone answers none: it only adds hints to a fleet.
+func answersNothing(configured []string) bool {
+	return len(configured) == 0 || slices.Equal(configured, []string{"detection"})
 }
 
 // fleetRefreshInterval is how often the dashboard's snapshot Manager rebuilds
@@ -661,5 +674,6 @@ func dashboardFleetOptions(dir string, repos []string, namespaces []string, obse
 	}
 	fopts.MiraURLs = det.miraURLs
 	fopts.ExternalCatalogRef = det.externalCatalog
+	fopts.Detected = det.detected
 	return fopts
 }

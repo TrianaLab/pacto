@@ -182,6 +182,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	reconcileDeclared(snap, undeclaredOnly)
 	matchProvisioning(snap)
 	matchUsage(snap)
+	checkDetectedClusters(snap)
 	finalizeProviders(snap)
 	snap.Completeness = classifyCompleteness(snap)
 	snap.workloadOnlyPartial = snap.Completeness == CompletenessPartial && completenessExcept(snap, SourceKindKubernetesWorkloads) != CompletenessPartial
@@ -456,6 +457,7 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 	snap.Limitations = append(snap.Limitations, col.Limitations...)
 	snap.Limitations = append(snap.Limitations, recordProblems...)
 	st, stateLims := sourceStateFor(src, col, now, revCount, targetCount, len(recordProblems) > 0)
+	st.Advisory = col.Advisory
 	snap.Limitations = append(snap.Limitations, stateLims...)
 	snap.Sources = append(snap.Sources, st)
 	ingestProviders(snap, src.ID(), col)
@@ -3379,7 +3381,7 @@ func (s *FleetSnapshot) ConsumerCompleteness() Completeness {
 // completenessExcept is classifyCompleteness ignoring the sources of kind skip.
 func completenessExcept(snap *FleetSnapshot, skip string) Completeness {
 	for _, st := range snap.Sources {
-		if st.Status != SourceAvailable && (skip == "" || st.Kind != skip) {
+		if st.degraded() && (skip == "" || st.Kind != skip) {
 			return CompletenessPartial
 		}
 	}
@@ -3399,6 +3401,9 @@ func completenessExcept(snap *FleetSnapshot, skip string) Completeness {
 func degradedLimitations(snap *FleetSnapshot) []Limitation {
 	var out []Limitation
 	for _, st := range snap.Sources {
+		if st.Advisory {
+			continue
+		}
 		switch st.Status {
 		case SourceStale:
 			out = append(out, Limitation{Code: LimitationSourceStale, Source: st.ID,

@@ -6,11 +6,21 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // LimitationProviderSourceDegraded: a detected-provider row is not available
 // and says why, or took the lower status of the source that reported it.
 const LimitationProviderSourceDegraded = "PROVIDER_SOURCE_DEGRADED"
+
+// LimitationDetectionClusterMismatch: a detected row names a cluster none of
+// the snapshot's Kubernetes sources reads, so it may describe another cluster.
+// Its source reads stale.
+const LimitationDetectionClusterMismatch = "DETECTION_CLUSTER_MISMATCH"
+
+// ScopeCluster is the Scope of a detected row read cluster-wide; a reader who
+// may not read the cluster scope sees it redacted.
+const ScopeCluster = "cluster"
 
 // Row ids and UsedFor values of the Kubernetes rows. An extender adds its own
 // beside them; UsedFor stays a free string list, never an enum.
@@ -44,6 +54,17 @@ type Provider struct {
 	Objects      []ProviderObject `json:"objects,omitempty" doc:"The objects the evidence names, at most 20"`
 	ObjectsTotal int              `json:"objectsTotal,omitempty" doc:"How many objects the row had before the cap or your permissions narrowed it"`
 	Limitations  []Limitation     `json:"limitations,omitempty"`
+	// Provenance, AsOf, Hint, Details and Scope are set on a row Pacto
+	// detected (see pkg/detect); a row a source reported directly leaves them
+	// empty.
+	Provenance string     `json:"provenance,omitempty" doc:"inferred for a row Pacto detected; empty for a row a source reported directly"`
+	AsOf       *time.Time `json:"asOf,omitempty" doc:"When the row was detected"`
+	Hint       string     `json:"hint,omitempty" doc:"A command or value for a person to review that would turn the proposal on. Nothing is turned on until a person runs it"`
+	Details    []string   `json:"details,omitempty" doc:"Further candidates or facts behind the row, at most 5"`
+	Scope      string     `json:"scope,omitempty" enum:"cluster" doc:"cluster when the row was read cluster-wide"`
+	// ClusterID is the id of the cluster a detected row was read in, read
+	// only by Build's cluster check.
+	ClusterID string `json:"-"`
 	// Counts and UnreadableKinds are never serialised: Build renders Evidence
 	// from them and Restrict renders it again from the visible namespaces. A
 	// producer that read and found nothing passes a non-nil empty Counts.
@@ -77,8 +98,42 @@ func ingestProviders(snap *FleetSnapshot, sourceID string, col *Collection) {
 	for _, p := range col.Providers {
 		p.UsedFor, p.Objects, p.Limitations = slices.Clone(p.UsedFor), slices.Clone(p.Objects), slices.Clone(p.Limitations)
 		p.Counts, p.UnreadableKinds = slices.Clone(p.Counts), slices.Clone(p.UnreadableKinds)
-		p.Source, p.Cluster = sourceID, cluster
+		p.Details = slices.Clone(p.Details)
+		if p.AsOf != nil {
+			at := *p.AsOf
+			p.AsOf = &at
+		}
+		// A row that names its own cluster (a detected row) keeps it when the
+		// source reports none.
+		p.Source, p.Cluster = sourceID, cmp.Or(cluster, p.Cluster)
 		snap.Providers = append(snap.Providers, p)
+	}
+}
+
+// checkDetectedClusters names, on each row with a ClusterID, the cluster the
+// snapshot knows it by, or, when the snapshot holds clusters and none is that
+// one, adds LimitationDetectionClusterMismatch and makes its available source
+// stale. A snapshot with no cluster has nothing to compare with.
+func checkDetectedClusters(snap *FleetSnapshot) {
+	if len(snap.Clusters) == 0 {
+		return
+	}
+	for i := range snap.Providers {
+		p := &snap.Providers[i]
+		if p.ClusterID == "" {
+			continue
+		}
+		if j := slices.IndexFunc(snap.Clusters, func(c ClusterRecord) bool { return c.ID == p.ClusterID }); j >= 0 {
+			p.Cluster = cmp.Or(snap.Clusters[j].Name, p.Cluster)
+			continue
+		}
+		p.Limitations = append(p.Limitations, Limitation{Code: LimitationDetectionClusterMismatch, Source: p.Source,
+			Message: "detected in cluster " + p.ClusterID + ", which no Kubernetes source of this answer reads"})
+		for k := range snap.Sources {
+			if snap.Sources[k].ID == p.Source && snap.Sources[k].Status == SourceAvailable {
+				snap.Sources[k].Status = SourceStale
+			}
+		}
 	}
 }
 
@@ -225,6 +280,7 @@ func restrictProviders(rows []Provider, hiddenNames []string, visible func(strin
 			return true
 		})
 		p.Evidence = restrictedEvidence(p, hidden, hiddenNames)
+		redactDetected(&p, len(rows[i].Objects), visible)
 		p.Limitations = slices.DeleteFunc(slices.Clone(p.Limitations), func(l Limitation) bool {
 			return l.Code != LimitationProviderSourceDegraded && (hiddenByScope(l, visible) || mentionsHidden(l.Message))
 		})
@@ -235,6 +291,30 @@ func restrictProviders(rows []Provider, hiddenNames []string, visible func(strin
 		out[i] = p
 	}
 	return out
+}
+
+// redactDetected redacts a detected row p a reader visible says yes to may
+// not read whole, its objects already narrowed from had: a cluster-wide row
+// for a reader who may not read the cluster scope, and a row that lost an
+// object to the view or to the cap. Its evidence then says only that it
+// exists, and its hint and details go, so the view never repeats what the
+// operator read with grants the reader lacks.
+func redactDetected(p *Provider, had int, visible func(string) bool) {
+	switch {
+	case p.Provenance != ProvenanceInferred:
+	case p.Scope == ScopeCluster && !visible(""):
+		p.Evidence = p.Name + " detected cluster-wide; you may read only some namespaces"
+		p.Hint, p.Details = "", nil
+	case len(p.Objects) < max(p.ObjectsTotal, had):
+		p.Evidence = p.Name + " found in a namespace you cannot read"
+		p.Hint, p.Details = "", nil
+	}
+}
+
+// detectedNarrowed reports whether a reader visible says yes to would see p
+// redacted by redactDetected while losing none of its objects.
+func detectedNarrowed(p Provider, visible func(string) bool) bool {
+	return p.Provenance == ProvenanceInferred && !visible("") && (p.Scope == ScopeCluster || p.ObjectsTotal > len(p.Objects))
 }
 
 // restrictedEvidence is the evidence of p, already narrowed, with hidden
@@ -287,10 +367,11 @@ func countVisible(c ProviderCount, visible func(string) bool, workloadVisible fu
 }
 
 // providersNarrowed reports whether a reader visible and workloadVisible say
-// yes to would lose an object or a count of some row of s.
+// yes to would lose an object or a count of some row of s, or see a detected
+// row redacted.
 func providersNarrowed(s *FleetSnapshot, visible func(string) bool, workloadVisible func(namespace, kind string) bool) bool {
 	return slices.ContainsFunc(s.Providers, func(p Provider) bool {
-		return slices.ContainsFunc(p.Objects, func(o ProviderObject) bool { return !visible(o.Namespace) }) ||
+		return detectedNarrowed(p, visible) || slices.ContainsFunc(p.Objects, func(o ProviderObject) bool { return !visible(o.Namespace) }) ||
 			slices.ContainsFunc(p.Counts, func(c ProviderCount) bool { return !countVisible(c, visible, workloadVisible) })
 	})
 }

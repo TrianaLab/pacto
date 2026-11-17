@@ -273,7 +273,9 @@ const (
 // recognized in a service's configuration, see foldExternalUses, or a runtime
 // call one of whose ends no contract describes: an inferred service, see
 // foldObservedRelationships; inferred service edges live in
-// InferredRelationships). They are
+// InferredRelationships). Inferred also marks a provider row Pacto detected
+// in a cluster (see pkg/detect), a proposal that never turns anything on.
+// They are
 // kept separate so neither an observed nor an inferred edge is conflated with
 // declared intent, and an inferred edge never enters an index a gate reads.
 const (
@@ -575,7 +577,12 @@ type SourceState struct {
 	Namespaces         []string     `json:"namespaces,omitempty" doc:"The namespaces a Kubernetes source read that you may see. Empty with no namespacesTotal means every namespace; empty with namespacesTotal above 0 means every namespace it read is hidden from you. Anything in another namespace is unknown."`
 	NamespacesTotal    int          `json:"namespacesTotal,omitempty" doc:"How many namespaces the source read, when Namespaces is capped or restricted. Above 0, the source reads a list of namespaces, never every namespace."`
 	InferredCount      int          `json:"inferredCount,omitempty" doc:"The inferred services this source reported, after the bound; a restricted view counts only the inferred services you may see"`
+	Advisory           bool         `json:"advisory,omitempty" doc:"An advisory source never makes the answer partial; its rows are hints."`
 }
+
+// degraded reports whether st is a source that is not available and counts
+// against an answer: an advisory source never does.
+func (st SourceState) degraded() bool { return st.Status != SourceAvailable && !st.Advisory }
 
 // ToolSummary is a bounded projection of an agent-invocable tool derived from a
 // revision's OpenAPI interface. It omits the full input schema and operation
