@@ -295,7 +295,7 @@ func (d *demoDelivery) replay(start time.Time) error {
 		for _, env := range []string{story.Test, story.Prod} {
 			s := newStage(svc, env)
 			if svc != "fraud" {
-				s.Status.Stream = delivery.Stream{ID: clusterID + "/" + env + "/" + svc, Anchor: "registry.example/story/records@sha256:" + svc + env}
+				s.Status.Stream = delivery.Stream{ID: clusterID + "/" + env + "/" + svc, Anchor: "registry.example/story/records@sha256:" + svc + env, RegistryMode: "native"}
 				s.Status.Conditions = []delivery.Condition{{Type: delivery.ConditionRecordStoreReady, Status: "True"}, ready}
 				d.streams[stageKey(env, svc)] = &stream{}
 			} else {
