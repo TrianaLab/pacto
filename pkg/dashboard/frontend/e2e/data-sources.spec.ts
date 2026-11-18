@@ -152,18 +152,19 @@ test.describe('the inventory says what Pacto detected', () => {
     const rows = block.getByTestId('provider-row');
     // Nine reported rows (the Pacto CRD, Kubernetes workloads, the Argo CD,
     // Flux and Helm rows that group the inferred services and four reporting
-    // adapters) plus the six the cluster's operator detected: five show, the
-    // reported ones first, the rest behind Show all, and no cluster is unread
-    // in the demo.
+    // adapters) plus the six the cluster's operator detected: five show (the
+    // Pacto CRD and the reporting adapters), the reported ones first, the rest
+    // behind Show all, and no cluster is unread in the demo.
     await expect(rows).toHaveCount(5);
     await expect(rows.nth(0)).not.toHaveClass(/dp-inferred/);
     await expect(rows.nth(1)).not.toHaveClass(/dp-inferred/);
     await expect(rows.nth(4)).not.toHaveClass(/dp-inferred/);
     await expect(block).toContainText('Pacto CRD');
-    await expect(block).toContainText('Kubernetes workloads');
-    await expect(block).toContainText('service grouping, repository provenance');
+    await expect(block).toContainText('reports provisioning');
     await block.getByRole('button', { name: 'Show all 15 providers' }).click();
     await expect(rows).toHaveCount(15);
+    await expect(block).toContainText('Kubernetes workloads');
+    await expect(block).toContainText('service grouping, repository provenance');
     await expect(rows.nth(8)).not.toHaveClass(/dp-inferred/);
     await expect(rows.nth(9)).toHaveClass(/dp-inferred/);
     await expect(block.getByTestId('provider-not-read')).toHaveCount(0);
