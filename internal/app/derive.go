@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -658,8 +659,8 @@ func (s *deployFiles) kustomizeRef(f *folder, secrets []string, p, ref string, s
 	return s.copy(f, local)
 }
 
-// chart ships the chart folder dir, less what its .helmignore names and its
-// per-environment values files.
+// chart ships the chart folder dir, less what its .helmignore names, its
+// per-environment values files and every file holding a Secret.
 func (s *deployFiles) chart(f *folder, dir string) error {
 	s.chartDir = dir
 	raw, err := f.read(f.fsys, path.Join(dir, ".helmignore"))
@@ -680,6 +681,10 @@ func (s *deployFiles) chart(f *folder, dir string) error {
 			s.notes = append(s.notes, p+" holds per-environment values, so it is left out of the chart")
 		default:
 			raw, err := f.read(f.fsys, p)
+			if err == nil && secretFile(raw) {
+				s.leftOut(p)
+				return nil
+			}
 			s.files[rel] = raw
 			return err
 		}
@@ -858,12 +863,19 @@ func writeDeployTree(out string, files map[string][]byte) error {
 // secretFile reports whether a document of raw is a Secret or a
 // kustomization's secretGenerator.
 func secretFile(raw []byte) bool {
-	docs, _ := yamlDocs(raw)
+	docs, ok := yamlDocs(raw)
+	if !ok && secretKind.Match(raw) {
+		return true // a Helm template does not decode as YAML; its kind line still says Secret
+	}
 	return slices.ContainsFunc(docs, func(d *yaml.Node) bool {
 		m := d.Content[0]
 		return scalarOf(contract.MapValue(m, "kind")) == "Secret" || contract.MapValue(m, "secretGenerator") != nil
 	})
 }
+
+// secretKind is a top-level kind: Secret line, read when a file does not
+// decode.
+var secretKind = regexp.MustCompile(`(?m)^kind:[ \t]*["']?Secret["']?[ \t]*(#.*)?\r?$`)
 
 // scanOutput refuses a deploy file that sets a sensitive literal: an env
 // entry, a ConfigMap's data or a values file key named like a secret, an

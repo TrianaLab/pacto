@@ -206,20 +206,27 @@ func TestDeployLeavesSecretsOut(t *testing.T) {
 		}
 	}
 	d, got = deployed(t, map[string]string{
-		"Dockerfile":                  "FROM scratch\n",
-		"chart/Chart.yaml":            "apiVersion: v2\nname: payments\nversion: 0.1.0\n",
-		"chart/values.yaml":           "image:\n  repository: r.io/acme/payments\n  tag: \"1.0\"\n",
-		"chart/values-prod.yaml":      "password: v4lues-s3cret\n",
-		"chart/templates/deploy.yaml": "kind: Deployment\n",
-		"chart/templates/debug.yaml":  "note: ign0red\n",
-		"chart/secret-notes.txt":      "hunter2\n",
-		"chart/ci/values.yaml":        "x: ign0red\n",
-		"chart/.helmignore":           "# Helm\nsecret-notes.txt\nci/\n",
-		".pactoignore":                "chart/templates/debug.yaml\n",
+		"Dockerfile":                   "FROM scratch\n",
+		"chart/Chart.yaml":             "apiVersion: v2\nname: payments\nversion: 0.1.0\n",
+		"chart/values.yaml":            "image:\n  repository: r.io/acme/payments\n  tag: \"1.0\"\n",
+		"chart/values-prod.yaml":       "password: v4lues-s3cret\n",
+		"chart/templates/deploy.yaml":  "kind: Deployment\n",
+		"chart/templates/secret.yaml":  "apiVersion: v1\nkind: Secret\nmetadata: {name: db}\nstringData: {password: hunter2}\n",
+		"chart/templates/wrapped.yaml": "{{- if .Values.secret }}\napiVersion: v1\nkind: Secret\nstringData:\n  password: hunter2\n{{- end }}\n",
+		"chart/templates/debug.yaml":   "note: ign0red\n",
+		"chart/secret-notes.txt":       "hunter2\n",
+		"chart/ci/values.yaml":         "x: ign0red\n",
+		"chart/.helmignore":            "# Helm\nsecret-notes.txt\nci/\n",
+		".pactoignore":                 "chart/templates/debug.yaml\n",
 	}, "")
 	noLeak(t, got)
 	if _, ok := got["payments/templates/deploy.yaml"]; !ok || len(got) != 4 || !slices.Contains(d.notes, "chart/values-prod.yaml holds per-environment values, so it is left out of the chart") {
 		t.Fatalf("%v %v", got, d.notes)
+	}
+	for _, f := range []string{"chart/templates/secret.yaml", "chart/templates/wrapped.yaml"} {
+		if !slices.ContainsFunc(d.notes, func(n string) bool { return strings.HasPrefix(n, f+" holds a Secret's values") }) {
+			t.Fatalf("no note for %s: %v", f, d.notes)
+		}
 	}
 }
 
