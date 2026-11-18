@@ -802,12 +802,17 @@ export function installScaleFixture(): void {
         service: { kind: 'service', key: svc(i), label: longName(`external-consumer-${i}`), href: `/fleet/services/${encodeURIComponent(svc(i))}` },
         required: i % 2 === 0, versions: [longName(`api-version-${i}`)],
       }));
-      const KINDS = ['env', 'configMap', 'secretKeyRef', 'secretRef', 'externalNameService', 'selectorlessService', 'serviceEntry'];
+      const KINDS = ['env', 'configMap', 'secretKeyRef', 'secretRef', 'externalNameService', 'selectorlessService', 'serviceEntry',
+        'helmValues', 'compose', 'kustomize', 'sdk', 'terraform', 'crossplane'];
       x.inferredSources = Array.from({ length: 300 }, (_, i) => ({
         service: svc(i % 25), source: longName(`k8s-source-${i % 4}`), kind: KINDS[i % KINDS.length],
         where: `deployment/${longName(`workload-${i}`)} env ${longName(`STRIPE_API_BASE_${i}`).toUpperCase()}`,
         host: i % 3 ? `${longName(`api-${i}`)}.stripe.com:443` : '', confidence: i % 3 ? 'likely' : 'possible',
         entry: i % 5 ? longName('stripe-entry') : undefined, catalog: `sha256:${'3e9a'.repeat(16)}`, observedAt: '2026-11-16T08:00:00Z',
+        // Every fourth row is a repository source (508-S5): a long revision, read from an
+        // SDK manifest or a Terraform resource, only possible.
+        ...(i % 4 === 3 ? { kind: i % 8 === 3 ? 'sdk' : 'terraform', confidence: 'possible', host: '', observedAt: undefined,
+          revision: `${svc(i % 25)}@sha256:${longName(`revision-${i}`)}` } : {}),
       }));
       x.inferredSourcesTotal = 1284;
       x.observedSources = Array.from({ length: 20 }, (_, i) => ({ service: svc(i), source: longName(`otel-${i}`), count: 1200 + i, firstSeen: '2026-11-01T08:00:00Z', lastSeen: '2026-11-16T08:00:00Z' }));
@@ -1226,7 +1231,8 @@ export function installScaleFixture(): void {
       return { status: 409, contentType: 'application/problem+json', body: JSON.stringify({ status: 409, title: 'Conflict',
         detail: 'this target key names targets in more than one cluster; choose one', errors }) };
     }
-    // The demo has no `stripe`: its parcel-carrier answers, and amend renames it.
+    // The demo's `stripe` has only inferred sources: its declared parcel-carrier answers,
+    // and amend renames it.
     const asked = route === '/api/fleet/entities/external' && new URLSearchParams(path.split('?')[1] ?? '').get('key') === 'stripe'
       ? path.replace('key=stripe', 'key=parcel-carrier') : engineName(path);
     const res = await (real as Serve)(method, asked, body);
