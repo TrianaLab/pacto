@@ -244,7 +244,7 @@ func deliveryWriteRows() []surfaceRow {
 			"oidc-ca-file", "oidc-client-id", "oidc-extra-scopes", "oidc-issuer-url", "oidc-redirect-port"),
 		alike("delivery approve", "", "", "the CLI signs the person's decision keyless itself; the dashboard records it through the recorder, which signs on the person's behalf",
 			"fulcio-url", "keyless", "timestamp-url"),
-		alike("delivery approve", "", "", "only the CLI approves from an intent record, signed keyless with the person's fresh login and no kubeconfig; "+whyNoApprove,
+		alike("delivery approve", "", "", "only the CLI approves from an intent record, signed keyless with the person's fresh login and no kubeconfig; MCP reads approval records and never writes one",
 			"intent", "signers"),
 	)
 }
