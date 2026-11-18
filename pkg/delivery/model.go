@@ -29,6 +29,9 @@ const (
 	// FacetUpstream is what the Stage accepts from the upstream stream it
 	// follows (status.upstreamAcknowledged).
 	FacetUpstream = "upstream"
+	// FacetTrust is who may publish the Stage's service: a trust operation
+	// asks a person to confirm a new signer, and the recorder pins it.
+	FacetTrust = "trust"
 )
 
 // Result is a gate verdict.
@@ -658,6 +661,9 @@ type Params struct {
 	// Record is the id of the upstream stand-in an acknowledge accepts.
 	// +optional
 	Record string `json:"record,omitempty"`
+	// Publisher is the signer a trust operation asks a person to confirm.
+	// +optional
+	Publisher *PublisherIdentity `json:"publisher,omitempty"`
 }
 
 // Actor is the apiserver identity that created the operation.
@@ -701,11 +707,11 @@ type Cause struct {
 
 // OperationSpec is the intent. It is frozen at admission.
 type OperationSpec struct {
-	// +kubebuilder:validation:Enum=delivery.pacto.trianalab.io/promote;delivery.pacto.trianalab.io/rollback;delivery.pacto.trianalab.io/override;delivery.pacto.trianalab.io/unfreeze;delivery.pacto.trianalab.io/freeze;delivery.pacto.trianalab.io/autonomy;delivery.pacto.trianalab.io/acknowledge
+	// +kubebuilder:validation:Enum=delivery.pacto.trianalab.io/promote;delivery.pacto.trianalab.io/rollback;delivery.pacto.trianalab.io/override;delivery.pacto.trianalab.io/unfreeze;delivery.pacto.trianalab.io/freeze;delivery.pacto.trianalab.io/autonomy;delivery.pacto.trianalab.io/acknowledge;delivery.pacto.trianalab.io/trust
 	Type string `json:"type"`
 	// Stage is the name of a Stage in the operation's namespace.
 	Stage string `json:"stage"`
-	// +kubebuilder:validation:Enum=pointer;freeze;level;upstream
+	// +kubebuilder:validation:Enum=pointer;freeze;level;upstream;trust
 	Facet string `json:"facet"`
 	// +optional
 	Params Params `json:"params,omitzero"`

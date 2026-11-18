@@ -85,18 +85,24 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `spec.cause.verdict.phase` | `string` | yes |  | `pre`, `verify` |  |
 | `spec.cause.verdict.result` | `string` | yes |  | `Pass`, `Fail`, `Unknown` | Result is a gate verdict. |
 | `spec.correlationID` | `string` | no |  |  |  |
-| `spec.facet` | `string` | yes |  | `pointer`, `freeze`, `level`, `upstream` |  |
+| `spec.facet` | `string` | yes |  | `pointer`, `freeze`, `level`, `upstream`, `trust` |  |
 | `spec.intentDigest` | `string` | no |  |  | IntentDigest is what plan() returned; the promoter recomputes it. |
 | `spec.onBehalfOf` | `object` | no |  |  | Principal is a person an agent says it acts for. It is asserted, never verified. |
 | `spec.onBehalfOf.user` | `string` | yes |  |  |  |
 | `spec.params` | `object` | no |  |  | Params are the operation parameters. On the pointer facet From and To are OCI manifest digests; on the level facet they are level names. |
 | `spec.params.from` | `string` | no |  |  |  |
+| `spec.params.publisher` | `object` | no |  |  | Publisher is the signer a trust operation asks a person to confirm. |
+| `spec.params.publisher.ci` | `boolean` | no |  |  |  |
+| `spec.params.publisher.issuer` | `string` | yes |  |  |  |
+| `spec.params.publisher.ref` | `string` | no |  |  |  |
+| `spec.params.publisher.repository` | `string` | no |  |  |  |
+| `spec.params.publisher.subject` | `string` | yes |  |  |  |
 | `spec.params.record` | `string` | no |  |  | Record is the id of the upstream stand-in an acknowledge accepts. |
 | `spec.params.to` | `string` | no |  |  |  |
 | `spec.params.undoes` | `string` | no |  |  | Undoes is the uid of the operation a rollback undoes. |
 | `spec.reason` | `string` | no |  |  |  |
 | `spec.stage` | `string` | yes |  |  | Stage is the name of a Stage in the operation's namespace. |
-| `spec.type` | `string` | yes |  | `delivery.pacto.trianalab.io/promote`, `delivery.pacto.trianalab.io/rollback`, `delivery.pacto.trianalab.io/override`, `delivery.pacto.trianalab.io/unfreeze`, `delivery.pacto.trianalab.io/freeze`, `delivery.pacto.trianalab.io/autonomy`, `delivery.pacto.trianalab.io/acknowledge` |  |
+| `spec.type` | `string` | yes |  | `delivery.pacto.trianalab.io/promote`, `delivery.pacto.trianalab.io/rollback`, `delivery.pacto.trianalab.io/override`, `delivery.pacto.trianalab.io/unfreeze`, `delivery.pacto.trianalab.io/freeze`, `delivery.pacto.trianalab.io/autonomy`, `delivery.pacto.trianalab.io/acknowledge`, `delivery.pacto.trianalab.io/trust` |  |
 | `spec.witnessed` | `boolean` | no |  |  | Witnessed marks an override the promoter raised for an edit it saw but did not make. Only the promoter may set it. |
 | `status` | `object` | no |  |  | OperationStatus is written only by the promoter. |
 | `status.actorClass` | `string` | no |  |  | ActorClass is who raised an operation, as the promoter classifies the apiserver identity. It is derived, never asserted by the client. |

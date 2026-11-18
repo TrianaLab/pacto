@@ -10,8 +10,11 @@ package delivery
 import (
 	"cmp"
 	"context"
+	"errors"
+	"fmt"
 	"reflect"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,8 +22,11 @@ import (
 
 	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
+	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 	"github.com/trianalab/pacto/v4/pkg/publish"
 	"github.com/trianalab/pacto/v4/pkg/semver"
+	"github.com/trianalab/pacto/v4/pkg/signing"
 )
 
 // Bounds of the watch's memos: how long a failed signature read and a failed
@@ -46,11 +52,25 @@ type Publishers struct {
 	Rule    delivery.PublisherRule
 	HasRule bool
 	NoRule  string
+	// Policy is the signed delivery policy's tag reference
+	// (delivery.publishers.policy); empty: the rule above decides. A
+	// verified policy replaces it; one never verified gives no rule.
+	Policy string
+	// PolicyVerify checks a policy bundle against the policy keys of
+	// delivery.publishers.policySigners.
+	PolicyVerify func(bundle []byte) error
+	// Pins reads the pins of a service; nil reads none.
+	Pins func(ctx context.Context, svc delivery.ServiceRef) (deliveryrecord.PinListing, error)
+	// CannotPin says why a new signer cannot be confirmed (no recorder, or
+	// no key to verify the pins it writes), so no trust operation is
+	// raised; empty when one can.
+	CannotPin string
 	// Resync is how long one listing of a repository is reused.
 	Resync time.Duration
 	Now    func() time.Time
 
 	mu       sync.Mutex
+	policies map[string]delivery.PublisherPolicy // verified in this process, by digest
 	tm       root.TrustedMaterial
 	rootErr  error
 	rootAt   time.Time
@@ -157,23 +177,19 @@ func (p *Publishers) signersOf(ctx context.Context, reg publish.Registry, tm roo
 // watch judges the newest version tags of repo for svc, newest first. The
 // signature read is memoised per digest; the judgement runs on every pass,
 // with this service and rule, so two services never share a verdict.
-func (p *Publishers) watch(ctx context.Context, reg publish.Registry, tm root.TrustedMaterial, svc delivery.ServiceRef, repo string) ([]delivery.PublisherVerdict, error) {
+func (p *Publishers) watch(ctx context.Context, reg publish.Registry, tm root.TrustedMaterial, svc delivery.ServiceRef, repo string, b basis) ([]delivery.PublisherVerdict, error) {
 	tags, err := p.list(ctx, reg, repo)
 	if err != nil {
 		return nil, err
-	}
-	var rules []delivery.PublisherRule
-	if p.HasRule {
-		rules = []delivery.PublisherRule{p.Rule}
 	}
 	out := make([]delivery.PublisherVerdict, 0, len(tags))
 	for _, t := range tags {
 		var v delivery.PublisherVerdict
 		if t.err != nil {
-			v = publish.JudgeRead(t.digest, nil, t.err, svc, t.source, rules, delivery.PublisherSourceRule, nil)
+			v = publish.JudgeRead(t.digest, nil, t.err, svc, t.source, b.rules, b.source, b.pins)
 		} else {
 			signers, err := p.signersOf(ctx, reg, tm, repo, t.digest)
-			v = publish.JudgeRead(t.digest, signers, err, svc, t.source, rules, delivery.PublisherSourceRule, nil)
+			v = publish.JudgeRead(t.digest, signers, err, svc, t.source, b.rules, b.source, b.pins)
 		}
 		v.Version = t.version
 		out = append(out, v)
@@ -198,18 +214,30 @@ func (r *StageReconciler) registryReady(ctx context.Context, stage *dv1.Stage) (
 	case err != nil:
 		return delivery.Condition{}, err
 	}
+	reg := p.Reg(insecure...)
+	b := p.basisFor(ctx, reg, stage.Spec.Service, stage.Status.Publisher)
 	tm, err := p.root()
 	if err != nil {
 		why := "Sigstore's trusted root could not be fetched (" + err.Error() + "), so no version of " + repo + " is judged"
-		return notReady(delivery.ReadyReasonPublisherUnverifiable, why), r.writePublisher(ctx, stage, p, nil, why)
+		return notReady(delivery.ReadyReasonPublisherUnverifiable, why), r.writePublisher(ctx, stage, b, nil, why)
 	}
-	verdicts, err := p.watch(ctx, p.Reg(insecure...), tm, stage.Spec.Service, repo)
+	verdicts, err := p.watch(ctx, reg, tm, stage.Spec.Service, repo, b)
 	if err != nil {
 		why := "the registry " + repo + " cannot be listed (" + err.Error() + "), so no version is published until it can"
-		return notReady(delivery.ReadyReasonRegistryUnreadable, why), r.writePublisher(ctx, stage, p, nil, why)
+		return notReady(delivery.ReadyReasonRegistryUnreadable, why), r.writePublisher(ctx, stage, b, nil, why)
+	}
+	ask, err := r.trustAsk(ctx, stage, verdicts, b)
+	if err != nil {
+		return delivery.Condition{}, err
 	}
 	want := delivery.Condition{Type: conditionReady, Status: statusTrue, Reason: conditionReady, Message: "the Stage can promote published versions"}
-	return want, r.writePublisher(ctx, stage, p, verdicts, p.NoRule)
+	if err := r.writePublisher(ctx, stage, b, verdicts, strings.Join(slices.DeleteFunc(append(b.msgs, ask.why), func(m string) bool { return m == "" }), "; ")); err != nil {
+		return want, err
+	}
+	if ask.spec == nil {
+		return want, nil
+	}
+	return want, r.raiseNamed(ctx, stage, ask.name, *ask.spec)
 }
 
 // watchedRepo is the repository the Stage's registry watch reads: the one it
@@ -232,9 +260,9 @@ func (r *StageReconciler) watchedRepo(ctx context.Context, stage *dv1.Stage) (st
 // writePublisher writes what the watch judged: verdicts (nil when it could
 // not judge, which keeps status.published and the last verdicts) and msg. It
 // writes only on a change, or once per resync to move checkedAt.
-func (r *StageReconciler) writePublisher(ctx context.Context, stage *dv1.Stage, p *Publishers, verdicts []delivery.PublisherVerdict, msg string) error {
+func (r *StageReconciler) writePublisher(ctx context.Context, stage *dv1.Stage, b basis, verdicts []delivery.PublisherVerdict, msg string) error {
 	now, old := r.Now(), stage.Status.Publisher
-	next := publisherStatus(p, old, verdicts, msg)
+	next := publisherStatus(b, old, verdicts, msg)
 	published := applyVerdicts(stage.Status.Published, verdicts)
 	if old != nil && samePublisher(*old, next) && slices.Equal(published, stage.Status.Published) &&
 		now.Sub(parseOr(old.CheckedAt)) < cmp.Or(r.Resync, DefaultResync) {
@@ -251,18 +279,18 @@ func (r *StageReconciler) writePublisher(ctx context.Context, stage *dv1.Stage, 
 	return nil
 }
 
-// publisherStatus is the next status.publisher: the rule, msg and the
-// verdicts, each keeping the time it was first reached while it holds. nil
-// verdicts keep the last ones.
-func publisherStatus(p *Publishers, old *delivery.PublisherStatus, verdicts []delivery.PublisherVerdict, msg string) delivery.PublisherStatus {
-	next := delivery.PublisherStatus{Source: delivery.PublisherSourceNone, Message: msg}
-	if p.HasRule {
-		rule := p.Rule
-		next.Source, next.Rule = delivery.PublisherSourceRule, &rule
-	}
+// publisherStatus is the next status.publisher: what the watch judged
+// against (b), msg and the verdicts, each keeping the time it was first
+// reached while it holds. nil verdicts keep the last ones. The policy and
+// pin high-water marks only move forward: b leaves them empty when it read
+// nothing newer.
+func publisherStatus(b basis, old *delivery.PublisherStatus, verdicts []delivery.PublisherVerdict, msg string) delivery.PublisherStatus {
 	if old == nil {
 		old = &delivery.PublisherStatus{}
 	}
+	next := delivery.PublisherStatus{Source: b.source, Rule: b.rule, PolicyRef: b.policyRef, Pins: len(b.pins), Message: msg,
+		PolicyDigest: cmp.Or(b.policyDigest, old.PolicyDigest), PolicyAt: cmp.Or(b.policyAt, old.PolicyAt),
+		PinDigest: cmp.Or(b.pinDigest, old.PinDigest), PinAt: cmp.Or(b.pinAt, old.PinAt)}
 	if verdicts == nil {
 		next.Verdicts = old.Verdicts
 		return next
@@ -322,4 +350,256 @@ func newestAccepted(p *delivery.PublisherStatus) string {
 		return p.Verdicts[i].Digest
 	}
 	return ""
+}
+
+// basis is what a Stage's watch judges against on one pass: the rules and
+// what they are (rule, policy or none), the service's pins and the policy
+// and pin high-water marks they moved to, and what could not be read.
+type basis struct {
+	rules                  []delivery.PublisherRule
+	source                 string
+	rule                   *delivery.PublisherRule
+	policyRef              string
+	policyDigest, policyAt string
+	pins                   []delivery.IdentityPin
+	pinDigest, pinAt       string
+	msgs                   []string
+}
+
+// basisFor reads what svc's watch judges against: the verified policy when
+// one is configured (its rules replace the derived rule, and one never
+// verified gives no rule), else the derived rule, and svc's pins. old is the
+// Stage's status.publisher, which holds the high-water marks.
+func (p *Publishers) basisFor(ctx context.Context, reg publish.Registry, svc delivery.ServiceRef, old *delivery.PublisherStatus) basis {
+	if old == nil {
+		old = &delivery.PublisherStatus{}
+	}
+	b := basis{source: delivery.PublisherSourceNone}
+	switch {
+	case p.Policy != "":
+		b.policyRef = p.Policy
+		pol, digest, why := p.policy(ctx, reg, old)
+		if pol != nil {
+			b.rules, b.source, b.policyDigest, b.policyAt = pol.Publishers, delivery.PublisherSourcePolicy, digest, pol.At
+		}
+		b.msgs = append(b.msgs, why)
+	case p.HasRule:
+		rule := p.Rule
+		b.rules, b.source, b.rule = []delivery.PublisherRule{rule}, delivery.PublisherSourceRule, &rule
+	default:
+		b.msgs = append(b.msgs, p.NoRule)
+	}
+	var why string
+	b.pins, b.pinDigest, b.pinAt, why = p.pinsFor(ctx, svc, old)
+	b.msgs = append(b.msgs, why)
+	return b
+}
+
+// policy is the delivery policy in force: the one its tag names, verified,
+// unless that cannot be read or verified or was signed before the policy the
+// Stage already used (policyAt), and then that last one, verified again. nil
+// when neither verifies; why says what happened.
+func (p *Publishers) policy(ctx context.Context, reg publish.Registry, old *delivery.PublisherStatus) (*delivery.PublisherPolicy, string, string) {
+	keep := func(why string) (*delivery.PublisherPolicy, string, string) {
+		if old.PolicyDigest != "" {
+			if last, err := p.verifiedPolicy(ctx, reg, old.PolicyDigest); err == nil {
+				return &last, old.PolicyDigest, why + "; the policy " + old.PolicyDigest + " stays"
+			}
+		}
+		return nil, "", why + ", so only pinned signers are accepted"
+	}
+	h, err := reg.Head(ctx, p.Policy)
+	if err == nil && h == nil {
+		err = errors.New("it does not exist")
+	}
+	if err != nil {
+		return keep("the delivery policy " + p.Policy + " could not be read (" + err.Error() + ")")
+	}
+	pol, err := p.verifiedPolicy(ctx, reg, h.Digest)
+	switch {
+	case err != nil:
+		return keep("the delivery policy " + p.Policy + " could not be verified (" + err.Error() + ")")
+	case h.Digest != old.PolicyDigest && parseOr(pol.At).Before(parseOr(old.PolicyAt)):
+		return keep(fmt.Sprintf("the delivery policy %s now names %s signed at %s, older than %s", p.Policy, h.Digest, pol.At, old.PolicyAt))
+	}
+	return &pol, h.Digest, ""
+}
+
+// verifiedPolicy reads and verifies the policy at digest, once per process:
+// a digest a status names is verified again after a restart.
+func (p *Publishers) verifiedPolicy(ctx context.Context, reg publish.Registry, digest string) (delivery.PublisherPolicy, error) {
+	p.mu.Lock()
+	pol, ok := p.policies[digest]
+	p.mu.Unlock()
+	if ok {
+		return pol, nil
+	}
+	bundle, _, err := reg.Layer(ctx, policyRepo(p.Policy), digest)
+	if err == nil {
+		pol, err = delivery.OpenPolicy(bundle, p.PolicyVerify)
+	}
+	if err != nil {
+		return delivery.PublisherPolicy{}, err
+	}
+	p.mu.Lock()
+	if p.policies == nil {
+		p.policies = map[string]delivery.PublisherPolicy{}
+	}
+	p.policies[digest] = pol
+	p.mu.Unlock()
+	return pol, nil
+}
+
+// policyRepo is the repository of a policy reference, repo:tag or
+// repo@digest.
+func policyRepo(ref string) string {
+	if repo, _, ok := strings.Cut(ref, "@"); ok {
+		return repo
+	}
+	if i := strings.LastIndex(ref, ":"); i > strings.LastIndex(ref, "/") {
+		return ref[:i]
+	}
+	return ref
+}
+
+// pinsFor reads svc's pins and the high-water mark they move to. When the
+// newest readable pin is older than the Stage's mark (pinAt), the newer one
+// was deleted: no pin is used, so deleting a pin never brings an older
+// signer back.
+func (p *Publishers) pinsFor(ctx context.Context, svc delivery.ServiceRef, old *delivery.PublisherStatus) (pins []delivery.IdentityPin, digest, at, why string) {
+	if p.Pins == nil {
+		return nil, "", "", ""
+	}
+	l, err := p.Pins(ctx, svc)
+	if err != nil {
+		return nil, "", "", "the pins of " + svc.Name + " could not be read (" + err.Error() + "), so no pinned signer is accepted"
+	}
+	if old.PinAt != "" && (len(l.Pins) == 0 || parseOr(l.Pins[0].Pin.At).Before(parseOr(old.PinAt))) {
+		return nil, "", "", "the newest pin " + old.PinDigest + " signed at " + old.PinAt + " is gone; no older pin is used"
+	}
+	for _, x := range l.Pins {
+		pins = append(pins, x.Pin)
+	}
+	if len(l.Unreadable) > 0 {
+		why = fmt.Sprintf("%d pins of %s could not be used: %s", len(l.Unreadable), svc.Name, strings.Join(l.Unreadable, "; "))
+	}
+	if len(l.Pins) == 0 {
+		return nil, "", "", why
+	}
+	return pins, l.Pins[0].Manifest, l.Pins[0].Pin.At, why
+}
+
+// PinVerifier is the verifier of identity pins: the keys of pinSigner, this
+// cluster's recorder (the chart's pin-signer.yaml), and those keys of
+// recordTrust, the recorder's trust config, that list an explicit pins/
+// stream. Either may be empty; ok is false when neither names a key.
+func PinVerifier(pinSigner, recordTrust []byte) (verify delivery.Verifier, ok bool, err error) {
+	var keys delivery.TrustConfig
+	for i, raw := range [][]byte{pinSigner, recordTrust} {
+		if len(raw) == 0 {
+			continue
+		}
+		t, err := delivery.ParseTrust(raw)
+		if err != nil {
+			return nil, false, err
+		}
+		if i == 1 {
+			t = t.PinKeys()
+		}
+		keys.Keys = append(keys.Keys, t.Keys...)
+	}
+	if len(keys.Keys) == 0 {
+		return nil, false, nil
+	}
+	verify, err = signing.TrustVerifier(keys)
+	return verify, err == nil, err
+}
+
+// PinReader reads a service's pins from the streams repository repo: each
+// verified with verify as a record of the service's pin stream (this
+// cluster's recorder key, or a recorder.trust key scoped to pins/), and each
+// citing an approval record that verifies: a person's keyless record against
+// policy, a recorder-signed one with the same keys as the pin.
+func PinReader(repo string, opts ocireferrer.Options, verify delivery.Verifier, policy delivery.ClassPolicy) func(context.Context, delivery.ServiceRef) (deliveryrecord.PinListing, error) {
+	reader := &deliveryrecord.Reader{} // one per process: a manifest read once is never fetched again
+	return func(ctx context.Context, svc delivery.ServiceRef) (deliveryrecord.PinListing, error) {
+		r, err := ocireferrer.Open(repo, opts)
+		if err != nil {
+			return deliveryrecord.PinListing{}, err
+		}
+		ctx, cancel := delivery.WithRegistryTimeout(ctx)
+		defer cancel()
+		stream := delivery.PinStream(svc)
+		v := func(b []byte) error { return verify(stream, 0, b) }
+		return reader.ListPins(ctx, r, svc, v, approvalAt(opts, policy, v))
+	}
+}
+
+// approvalAt reads and verifies the approval record a pin cites and names
+// who decided: the person a keyless record's certificate names, or the
+// person a recorder-signed record was signed for.
+func approvalAt(opts ocireferrer.Options, policy delivery.ClassPolicy, verify func([]byte) error) deliveryrecord.ApprovalCheck {
+	return func(ctx context.Context, ref string) (delivery.ApprovalStatement, string, error) {
+		path, manifest, _ := strings.Cut(ref, "@")
+		repo, err := ocireferrer.Open(path, opts)
+		var bundle []byte
+		if err == nil {
+			bundle, err = deliveryrecord.Fetch(ctx, repo, manifest, delivery.PredicateApproval)
+		}
+		if err != nil {
+			return delivery.ApprovalStatement{}, "", err
+		}
+		st, _, err := delivery.OpenApproval(bundle, func([]byte) error { return nil }) // Fetch read one
+		if err == nil && st.Predicate.Signer.Kind == delivery.SignerPerson {
+			s, err := openSigned(bundle, policy)
+			return s.st, s.identity.User, err
+		}
+		if _, _, err = delivery.OpenApproval(bundle, verify); err != nil {
+			return delivery.ApprovalStatement{}, "", err
+		}
+		if st.Predicate.Signer.OnBehalfOf == nil {
+			return delivery.ApprovalStatement{}, "", errors.New("the recorder signed it for nobody")
+		}
+		return st, st.Predicate.Signer.OnBehalfOf.User, nil
+	}
+}
+
+// trust is the trust operation a pass raises, or why none is raised.
+type trust struct {
+	name string
+	spec *delivery.OperationSpec
+	why  string
+}
+
+// trustAsk is the trust operation the newest digest the watch did not
+// accept asks for, when a CI identity no rule, pin or policy covers signed
+// it: one per identity (its name), and one pending per Stage, so a stream of
+// tags signed by arbitrary CI identities never floods the inbox. A pinned
+// service whose next signer differs is asked again, never accepted.
+func (r *StageReconciler) trustAsk(ctx context.Context, stage *dv1.Stage, verdicts []delivery.PublisherVerdict, b basis) (trust, error) {
+	i := slices.IndexFunc(verdicts, func(v delivery.PublisherVerdict) bool { return v.Verdict != delivery.VerdictAccepted })
+	if i < 0 || verdicts[i].Verdict != delivery.VerdictNewSigner {
+		return trust{}, nil
+	}
+	v := verdicts[i]
+	if r.Publishers.CannotPin != "" {
+		return trust{why: r.Publishers.CannotPin}, nil
+	}
+	name := delivery.TrustOperationName(stage.Name, *v.Identity)
+	ops, err := stageOps(ctx, r.Client, stage.Namespace, stage.Name)
+	if err != nil {
+		return trust{}, err
+	}
+	for _, o := range ops {
+		if o.Spec.Type == delivery.TypeTrust && o.Status.Phase != delivery.PhaseConcluded && o.Name != name {
+			return trust{why: "the trust operation " + o.Name + " is pending, so " + v.Identity.Subject + " is asked once it concludes"}, nil
+		}
+	}
+	reason := "new signer " + v.Identity.Subject
+	if len(b.pins) > 0 {
+		reason = "signer changed from " + b.pins[0].Subject + " to " + v.Identity.Subject
+	}
+	return trust{name: name, spec: &delivery.OperationSpec{Type: delivery.TypeTrust, Stage: stage.Name, Facet: delivery.FacetTrust,
+		Params: delivery.Params{From: stage.Status.Pointer, To: v.Digest, Publisher: v.Identity}, Reason: reason,
+		Actor: delivery.Actor{User: r.Policy.ControllerUser}}}, nil
 }

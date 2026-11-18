@@ -169,6 +169,8 @@ func PlanFor(ctx context.Context, in PlanInput) Plan {
 	case TypeRollback:
 		rollbackImpact(ctx, in, &p)
 		routeToServiceTeam(in, &p)
+	case TypeTrust:
+		trustFloor(in, &p)
 	}
 	holdForRecords(in, &p)
 	p.Predicted = predict(in, &p)
@@ -250,6 +252,8 @@ func refusal(in PlanInput) string {
 		return fmt.Sprintf("LevelMoved: from is %q but the Stage is on %q", in.Spec.Params.From, CurrentLevel(in.Stage, in.Status))
 	case in.Spec.Type == TypePromote && CurrentLevel(in.Stage, in.Status) == LevelObserve:
 		return "Observing: " + in.Spec.Stage + " observes, so GitOps owns the applyRef; propose " + TypeAutonomy + " to advise first"
+	case in.Spec.Type == TypeTrust && in.Spec.Params.Publisher == nil:
+		return "NoPublisher: a trust operation names the signer it asks a person to confirm"
 	case in.Spec.Type == TypePromote && slices.Contains(in.Status.FailedDigests, in.Spec.Params.To):
 		return "FailedDigest: " + in.Spec.Params.To + " is one of the last 50 versions that failed on this Stage, which are never promoted again"
 	}
@@ -310,6 +314,26 @@ func routeToServiceTeam(in PlanInput, p *Plan) {
 	if p.Floor.Human && !strings.Contains(p.Question, "Asked of: ") {
 		p.Question += " Asked of: " + ownersOrAnyone(p.Floor.Owners, in.RequireOwnerTeam)
 	}
+}
+
+// trustFloor asks a person to confirm the signer a trust operation names,
+// of the team of the service running on the Stage. The candidate is exactly
+// what is not trusted yet, so its own contract never names who confirms it.
+// The promoter writes the lead (new signer, or signer changed) as the reason.
+func trustFloor(in PlanInput, p *Plan) {
+	id, svc := in.Spec.Params.Publisher, in.Stage.Service.Name
+	p.Floor = Floor{Human: true, Decision: Approve, Owners: runningTeam(in)}
+	p.Question = fmt.Sprintf("%s: %s (issuer %s, repository %s, attested). Confirm it may publish %s? Asked of: %s",
+		svc, cmp.Or(in.Spec.Reason, "new signer "+id.Subject), id.Issuer, id.Repository, svc, ownersOrAnyone(p.Floor.Owners, in.RequireOwnerTeam))
+}
+
+// runningTeam is the owner team the contract running on the Stage declares,
+// nil when nothing runs or it declares none. It never reads the candidate.
+func runningTeam(in PlanInput) []string {
+	if in.From.Digest == "" {
+		return nil
+	}
+	return serviceTeam(in)
 }
 
 // serviceTeam is the owner team the contract running on the Stage declares;

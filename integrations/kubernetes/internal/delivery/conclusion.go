@@ -254,11 +254,27 @@ func createRaised(ctx context.Context, c client.Client, op *dv1.Operation) (squa
 		return "", err
 	}
 	if got.Spec.Actor.User == op.Spec.Actor.User && got.Spec.Type == op.Spec.Type &&
-		got.Spec.Params == op.Spec.Params && causeOp(got) == causeOp(op) {
+		paramsEqual(got.Spec.Params, op.Spec.Params, op.Spec.Type) && causeOp(got) == causeOp(op) {
 		return "", nil
 	}
 	return "the name " + op.Name + " is taken by a " + got.Spec.Type + " " + got.Spec.Actor.User +
 		" created, so the promoter cannot raise its " + op.Spec.Type + "; a person must decide", nil
+}
+
+// paramsEqual reports whether a raised operation's params say what the
+// promoter would raise again. A trust operation is keyed by the identity it
+// asks about, so only the publisher counts: the digest that brought it and
+// the version running then may have moved on.
+func paramsEqual(a, b delivery.Params, typ string) bool {
+	if a.Publisher == nil || b.Publisher == nil {
+		return a == b
+	}
+	same := *a.Publisher == *b.Publisher
+	if typ == delivery.TypeTrust {
+		return same
+	}
+	a.Publisher, b.Publisher = nil, nil
+	return same && a == b
 }
 
 func causeOp(o *dv1.Operation) string {

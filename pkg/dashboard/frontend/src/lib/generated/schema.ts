@@ -1795,6 +1795,7 @@ export interface components {
         };
         "Delivery.Params": {
             from?: string;
+            publisher?: components["schemas"]["Delivery.PublisherIdentity"];
             record?: string;
             to?: string;
             undoes?: string;
@@ -1879,6 +1880,18 @@ export interface components {
             /** @description What to do, often a command to copy */
             fix?: string;
             message: string;
+        };
+        "Delivery.PublisherIdentity": {
+            /** @description The certificate is a CI workload identity: it attests a source repository */
+            ci?: boolean;
+            /** @description The OIDC issuer of the signer's certificate */
+            issuer: string;
+            /** @description The source repository ref the certificate attests */
+            ref?: string;
+            /** @description The source repository the certificate attests, set for a CI workload identity */
+            repository?: string;
+            /** @description The certificate's subject: a CI workflow URI or a person's email */
+            subject: string;
         };
         "Delivery.Recheck": {
             at: string;

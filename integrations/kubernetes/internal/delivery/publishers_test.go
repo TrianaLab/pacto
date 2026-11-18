@@ -208,8 +208,8 @@ func TestWatchNewSignerNeverPublishes(t *testing.T) {
 	if v.Verdict != delivery.VerdictNewSigner || v.Identity == nil || v.Identity.Subject != otherSub || len(st.Published) != 0 {
 		t.Fatalf("verdict %+v published %v", v, st.Published)
 	}
-	if len(w.e.ops()) != 0 {
-		t.Fatalf("no trust operation yet: %+v", w.e.ops())
+	if ops := w.e.ops(); len(ops) != 1 || ops[0].Spec.Type != delivery.TypeTrust {
+		t.Fatalf("one trust operation, and nothing promoted: %+v", ops)
 	}
 }
 
@@ -323,14 +323,15 @@ func TestWatchMemoReadsSignaturesOnce(t *testing.T) {
 	w := newWatch(t, registryAt("-"))
 	d := w.push("1.0.0", acmeRepo, w.ci(acmeSubject, acmeRepo))
 	repo := w.host + "/payments"
-	vs, err := w.p.watch(t.Context(), w.reg, w.ss.Root, delivery.ServiceRef{Name: "payments"}, repo)
+	svc := delivery.ServiceRef{Name: "payments"}
+	vs, err := w.p.watch(t.Context(), w.reg, w.ss.Root, svc, repo, w.p.basisFor(t.Context(), w.reg, svc, nil))
 	must(t, err)
 	reads := w.reg.referrers.Load()
 	if reads == 0 || vs[0].Verdict != delivery.VerdictAccepted {
 		t.Fatalf("first pass: %d reads %+v", reads, vs)
 	}
 	w.p.HasRule = false
-	vs, err = w.p.watch(t.Context(), w.reg, w.ss.Root, delivery.ServiceRef{Name: "payments"}, repo)
+	vs, err = w.p.watch(t.Context(), w.reg, w.ss.Root, svc, repo, w.p.basisFor(t.Context(), w.reg, svc, nil))
 	must(t, err)
 	if w.reg.referrers.Load() != reads || vs[0].Verdict != delivery.VerdictNewSigner || vs[0].Digest != d {
 		t.Fatalf("second pass: %d reads %+v", w.reg.referrers.Load(), vs)
@@ -364,9 +365,9 @@ func TestWatchMemoPerService(t *testing.T) {
 	d := w.push("1.0.0", acmeRepo, w.ci(acmeSubject, acmeRepo))
 	w.p.Rule.Services = []string{"payments"}
 	repo := w.host + "/payments"
-	pay, err := w.p.watch(t.Context(), w.reg, w.ss.Root, delivery.ServiceRef{Name: "payments"}, repo)
+	pay, err := w.p.watch(t.Context(), w.reg, w.ss.Root, delivery.ServiceRef{Name: "payments"}, repo, w.p.basisFor(t.Context(), w.reg, delivery.ServiceRef{Name: "payments"}, nil))
 	must(t, err)
-	ledger, err := w.p.watch(t.Context(), w.reg, w.ss.Root, delivery.ServiceRef{Name: "ledger"}, repo)
+	ledger, err := w.p.watch(t.Context(), w.reg, w.ss.Root, delivery.ServiceRef{Name: "ledger"}, repo, w.p.basisFor(t.Context(), w.reg, delivery.ServiceRef{Name: "ledger"}, nil))
 	must(t, err)
 	if pay[0].Verdict != delivery.VerdictAccepted || ledger[0].Verdict != delivery.VerdictNewSigner || ledger[0].Digest != d {
 		t.Fatalf("payments %+v ledger %+v", pay, ledger)
@@ -436,13 +437,13 @@ func TestWatchTagHeadFails(t *testing.T) {
 		t.Fatalf("heads %+v", got)
 	}
 	p := &Publishers{Now: time.Now}
-	vs, err := p.watch(t.Context(), reg, nil, delivery.ServiceRef{Name: "payments"}, "r/p")
+	vs, err := p.watch(t.Context(), reg, nil, delivery.ServiceRef{Name: "payments"}, "r/p", basis{})
 	if err != nil || len(vs) != 1 || vs[0].Verdict != delivery.VerdictUnknown || vs[0].Version != "1.0.0" {
 		t.Fatalf("verdicts %+v %v", vs, err)
 	}
 	// The listing is reused within a resync.
 	reg.tags = nil
-	if vs, _ := p.watch(t.Context(), reg, nil, delivery.ServiceRef{Name: "payments"}, "r/p"); len(vs) != 1 {
+	if vs, _ := p.watch(t.Context(), reg, nil, delivery.ServiceRef{Name: "payments"}, "r/p", basis{}); len(vs) != 1 {
 		t.Fatalf("reused listing: %+v", vs)
 	}
 	if got := applyVerdicts([]string{dA}, vs); !slices.Equal(got, []string{dA}) {

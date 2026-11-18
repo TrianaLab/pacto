@@ -524,6 +524,9 @@ func (w *writer) record(ctx context.Context, it item) (time.Duration, error) {
 		return p.Intent.UID == string(op.UID) && p.Time.Finished == op.Status.Times.Finished
 	})
 	if rec == nil {
+		if err := w.pin(ctx, op); err != nil {
+			return 0, err
+		}
 		written, err := w.write(ctx, op)
 		if err != nil {
 			return 0, err
@@ -568,6 +571,43 @@ func (w *writer) write(ctx context.Context, op *dv1.Operation) (*stored, error) 
 		w.Events.emit(ctx, w.stage, rec.Statement, rec.ID, op.Status.Applied, w.Now())
 	}
 	return rec, err
+}
+
+// pin writes the identity pin a succeeded trust operation owes, before its
+// operation record: the pin is what the registry watch reads, and the
+// operation record the history. It names the person whose approval counted
+// and cites that approval's signed record. A pin pushed again changes
+// nothing a reader uses: it names the same identity.
+// ponytail: an Approval deleted before its operation concluded leaves no
+// record to cite, so no pin is written and the signer stays a question until
+// the operation is collected; the stream is never held for it.
+func (w *writer) pin(ctx context.Context, op *dv1.Operation) error {
+	n := len(op.Status.Approvals)
+	if op.Spec.Type != delivery.TypeTrust || op.Status.Outcome != delivery.Succeeded || n == 0 {
+		return nil
+	}
+	a := op.Status.Approvals[n-1]
+	obj := &dv1.Approval{}
+	if err := w.APIReader.Get(ctx, types.NamespacedName{Namespace: op.Namespace, Name: a.Name}, obj); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	ref := obj.Spec.Record
+	if obj.Status.Record != nil {
+		ref = obj.Status.Record.Ref
+	}
+	id, svc := op.Spec.Params.Publisher, w.stage.Spec.Service
+	p := delivery.IdentityPin{Service: svc, Issuer: id.Issuer, Subject: id.Subject, Repository: id.Repository,
+		Approver: a.By, Approval: ref, Operation: string(op.UID), At: op.Status.Times.Finished}
+	bundle, _, err := delivery.SignPin(ctx, w.Signer, delivery.NewPinStatement(p))
+	if err != nil {
+		return fmt.Errorf("%w: %w", errSigner, err)
+	}
+	at, err := w.Store.anchorIn(ctx, w.Store.Streams, delivery.PinStream(svc))
+	if err != nil {
+		return err
+	}
+	_, err = deliveryrecord.PushPin(ctx, at.repo, at.mode, bundle)
+	return err
 }
 
 // sign signs st and attaches it at l. A record of in whose bundle is larger

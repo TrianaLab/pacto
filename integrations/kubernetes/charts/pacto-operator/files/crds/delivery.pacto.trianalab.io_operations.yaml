@@ -125,6 +125,7 @@ spec:
                 - freeze
                 - level
                 - upstream
+                - trust
                 type: string
               intentDigest:
                 description: IntentDigest is what plan() returned; the promoter recomputes
@@ -147,6 +148,24 @@ spec:
                 properties:
                   from:
                     type: string
+                  publisher:
+                    description: Publisher is the signer a trust operation asks a
+                      person to confirm.
+                    properties:
+                      ci:
+                        type: boolean
+                      issuer:
+                        type: string
+                      ref:
+                        type: string
+                      repository:
+                        type: string
+                      subject:
+                        type: string
+                    required:
+                    - issuer
+                    - subject
+                    type: object
                   record:
                     description: Record is the id of the upstream stand-in an acknowledge
                       accepts.
@@ -171,6 +190,7 @@ spec:
                 - delivery.pacto.trianalab.io/freeze
                 - delivery.pacto.trianalab.io/autonomy
                 - delivery.pacto.trianalab.io/acknowledge
+                - delivery.pacto.trianalab.io/trust
                 type: string
               witnessed:
                 description: |-

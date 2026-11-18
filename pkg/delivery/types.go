@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// Operation type ids: the four Tier 0 types, freeze, autonomy and acknowledge.
+// Operation type ids: the four Tier 0 types, freeze, autonomy, acknowledge and trust.
 const (
 	TypePromote  = "delivery.pacto.trianalab.io/promote"
 	TypeRollback = "delivery.pacto.trianalab.io/rollback"
@@ -24,6 +24,9 @@ const (
 	// TypeAcknowledge accepts one unrecordable stand-in in the upstream
 	// stream a Stage follows, so the Stage offers versions again.
 	TypeAcknowledge = "delivery.pacto.trianalab.io/acknowledge"
+	// TypeTrust asks a person to confirm a CI identity no publisher rule,
+	// pin or policy covers; once it succeeds the recorder pins it.
+	TypeTrust = "delivery.pacto.trianalab.io/trust"
 )
 
 // Gate ids.
@@ -195,6 +198,18 @@ var tier0 = []OperationType{
 		VerifyGates:       []string{},
 		ApprovalFloor:     "none; only a person of the team of the service running on the Stage, or break-glass",
 		Cancellable:       "until it applies",
+		ApprovalDeadline:  defaultApprovalDeadline,
+		ExecutionDeadline: defaultExecutionDeadline,
+	},
+	{
+		ID: TypeTrust, Version: "1.0.0", Facet: FacetTrust,
+		Description:       "Confirm that a CI identity no publisher rule, pin or policy covers may publish the Stage's service. The promoter raises it from the registry watch; once a person approves, the recorder writes a signed pin the watch reads, and a later different signer asks again.",
+		Params:            []string{"to", "publisher"},
+		Raisers:           []ActorClass{ClassController},
+		PreGates:          []string{},
+		VerifyGates:       []string{},
+		ApprovalFloor:     "always a person who may update the workload of the service's first Stage (and, when owner teams narrow who may answer, in the team of the service running there); an agent never decides",
+		Cancellable:       "until approved",
 		ApprovalDeadline:  defaultApprovalDeadline,
 		ExecutionDeadline: defaultExecutionDeadline,
 	},

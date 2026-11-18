@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"path"
 	"slices"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -51,9 +52,10 @@ type TrustedKey struct {
 	UntilSeq    int64  `json:"untilSeq,omitempty" yaml:"untilSeq,omitempty"`
 	UntilRecord string `json:"untilRecord,omitempty" yaml:"untilRecord,omitempty"`
 	// Role is what the key signs: records when empty, the answers of an eval
-	// runner ("runner") or golden paths ("template"). A key of one role never
-	// verifies what another role signs, so a recorder key never verifies a
-	// golden path and a template key never verifies a record.
+	// runner ("runner"), golden paths ("template") or the delivery policy
+	// artifact ("policy"). A key of one role never verifies what another role
+	// signs, so a recorder key never verifies a golden path and a template or
+	// policy key never verifies a record.
 	Role string `json:"role,omitempty" yaml:"role,omitempty"`
 	// Providers are, on a runner key, the gate providers (a Stage check's
 	// provider) whose Pass or Fail a runner must have signed: record verify
@@ -70,6 +72,9 @@ const (
 	// RoleTemplate is the role of a key that signs golden paths, the bundles
 	// pacto init --from creates a service from.
 	RoleTemplate = "template"
+	// RolePolicy is the role of a key that signs the delivery policy
+	// artifact, the publisher rules a promoter judges signers against.
+	RolePolicy = "policy"
 )
 
 // HistoryOnly is the error of a record that only a revoked key signs, at or
@@ -116,18 +121,9 @@ func (t TrustConfig) Digest() string {
 func (t TrustConfig) Verifier(open func(TrustedKey) (func(bundle []byte) error, error)) (Verifier, error) {
 	var entries recordKeys
 	for i, k := range t.Keys {
-		if k.Role != "" && k.Role != RoleRunner && k.Role != RoleTemplate {
-			return nil, fmt.Errorf("trust config key %d (%s): role %q is not empty, %s or %s", i, k.Name, k.Role, RoleRunner, RoleTemplate)
-		}
-		if k.Role == RoleTemplate { // checked here, used by TemplateKeys
-			if err := checkTemplateKey(k, open); err != nil {
-				return nil, fmt.Errorf("trust config key %d (%s): %w", i, k.Name, err)
-			}
-			continue
-		}
-		if k.Role == RoleRunner { // checked here, used by Runners
-			if _, err := RunnersOf([]TrustedKey{k}, open); err != nil {
-				return nil, fmt.Errorf("trust config key %d: %w", i, err)
+		if k.Role != "" {
+			if err := checkRoleKey(i, k, open); err != nil {
+				return nil, err
 			}
 			continue
 		}
@@ -152,6 +148,30 @@ func (t TrustConfig) Verifier(open func(TrustedKey) (func(bundle []byte) error, 
 		entries = append(entries, recordKey{k.Streams, k.UntilSeq, k.UntilRecord, v})
 	}
 	return entries.verify, nil
+}
+
+// checkRoleKey checks key i of a role other than records: it is checked
+// here and used by its own reader (Runners, TemplateKeys, PolicyVerifier),
+// never as a record key.
+func checkRoleKey(i int, k TrustedKey, open func(TrustedKey) (func(bundle []byte) error, error)) error {
+	var err error
+	switch k.Role {
+	case RoleRunner:
+		if _, err = RunnersOf([]TrustedKey{k}, open); err != nil {
+			return fmt.Errorf("trust config key %d: %w", i, err)
+		}
+		return nil
+	case RoleTemplate:
+		err = checkTemplateKey(k, open)
+	case RolePolicy:
+		_, err = open(k)
+	default:
+		err = fmt.Errorf("role %q is not empty, %s, %s or %s", k.Role, RoleRunner, RoleTemplate, RolePolicy)
+	}
+	if err != nil {
+		return fmt.Errorf("trust config key %d (%s): %w", i, k.Name, err)
+	}
+	return nil
 }
 
 // recordKey is one record key a Verifier trusts.
@@ -228,6 +248,71 @@ func (t TrustConfig) TemplateKeys(repo string) []TrustedKey {
 		}
 	}
 	return keys
+}
+
+// PolicyKeys are the keys that may sign the delivery policy artifact.
+func (t TrustConfig) PolicyKeys() []TrustedKey {
+	var keys []TrustedKey
+	for _, k := range t.Keys {
+		if k.Role == RolePolicy {
+			keys = append(keys, k)
+		}
+	}
+	return keys
+}
+
+// PolicyVerifier reads the trust config raw (delivery.publishers.policySigners)
+// and returns the check of a delivery policy bundle: one of its policy keys
+// signed it. A config with no policy key is refused, so a policy is never
+// verified by a record key.
+func PolicyVerifier(raw []byte, open func(TrustedKey) (func(bundle []byte) error, error)) (func(bundle []byte) error, error) {
+	t, err := ParseTrust(raw)
+	if err != nil {
+		return nil, err
+	}
+	var checks []func([]byte) error
+	for _, k := range t.PolicyKeys() {
+		v, err := open(k)
+		if err != nil {
+			return nil, fmt.Errorf("policy key %s: %w", k.Name, err)
+		}
+		checks = append(checks, v)
+	}
+	if len(checks) == 0 {
+		return nil, errors.New("the policy signers name no key with role: policy")
+	}
+	return func(bundle []byte) error {
+		for _, v := range checks {
+			if v(bundle) == nil {
+				return nil
+			}
+		}
+		return errors.New("no policy key signed it")
+	}, nil
+}
+
+// PinKeys are the record keys that may sign identity pins on behalf of
+// another recorder: keys that name an explicit stream pattern under pins/ and
+// are not revoked. A key with no streams signs every stream, so it is left
+// out: a remote or rotated recorder key never mints a pin by accident.
+func (t TrustConfig) PinKeys() TrustConfig {
+	var out TrustConfig
+	for _, k := range t.Keys {
+		if k.Role != "" || k.UntilSeq != 0 || k.UntilRecord != "" {
+			continue
+		}
+		var streams []string
+		for _, p := range k.Streams {
+			if strings.HasPrefix(p, "pins/") {
+				streams = append(streams, p)
+			}
+		}
+		if len(streams) > 0 {
+			k.Streams = streams
+			out.Keys = append(out.Keys, k)
+		}
+	}
+	return out
 }
 
 // HasTemplateKeys reports whether the config names any template key. One

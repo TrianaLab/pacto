@@ -111,6 +111,20 @@ func runPromoter(args []string) error {
 	pubRoot := fs.String("publishers-trusted-root", "",
 		"A Sigstore trusted root (trusted_root.json) publisher signatures must chain to. Empty fetches public-good "+
 			"Sigstore's root through TUF, caching nothing on disk.")
+	pubPolicy := fs.String("publishers-policy", "",
+		"The signed delivery policy (repository:tag) whose publisher rules replace the derived rule once verified. "+
+			"One that never verified gives no rule: only pinned signers are accepted. Empty: none.")
+	pubPolicySigners := fs.String("publishers-policy-signers", "",
+		"A trust config (YAML) whose role: policy keys sign the delivery policy. Required with --publishers-policy.")
+	recordsRepo := fs.String("records-repository", "",
+		"The recorder's streams repository (host/path), where it writes the identity pins of confirmed signers. "+
+			"Empty reads no pins.")
+	pinSignerConfig := fs.String("pin-signer-config", "",
+		"A trust config (YAML) naming this cluster's recorder key or keyless identity for streams pins/*/*: "+
+			"the pins the recorder writes verify under it. Empty: no new signer can be confirmed.")
+	recordTrustConfig := fs.String("record-trust-config", "",
+		"The recorder's trust config (YAML, delivery.recorder.trust): only its keys that list an explicit pins/ "+
+			"stream also verify pins.")
 	admissionPolicies := fs.String("admission-policies", "",
 		"Comma-separated ValidatingAdmissionPolicies (each with a binding of the same name) the promoter trusts. "+
 			"While one is missing, fails open or is not bound with Deny to every object, no operation is admitted, "+
@@ -165,6 +179,10 @@ func runPromoter(args []string) error {
 	}
 	pubs, err := publishers(*pubRegistry, *pubBranch, *pubRoot, keychain, insecure, *resync)
 	if err != nil {
+		return err
+	}
+	if err := trustSources(pubs, policy, ocireferrer.Options{Keychain: keychain, Insecure: insecure}, *records, *pubPolicy,
+		*pubPolicySigners, *recordsRepo, *pinSignerConfig, *recordTrustConfig); err != nil {
 		return err
 	}
 	gates := delivery.NewGates(cluster, configured)
@@ -378,6 +396,53 @@ func publishers(registry, branch, trustedRoot string, keychain authn.Keychain, i
 		Reg: func(hosts ...string) publish.Registry {
 			return publish.NewClient(keychain, slices.Concat(insecure, hosts)...)
 		}}, nil
+}
+
+// trustSources sets what the registry watch reads beside the derived rule:
+// the signed delivery policy and the pins the recorder writes, and why a new
+// signer cannot be confirmed when it cannot. A policy with no policy key, or
+// a trust config that cannot be read, fails startup.
+func trustSources(p *delivery.Publishers, policy core.ClassPolicy, opts ocireferrer.Options, records bool,
+	policyRef, policySigners, recordsRepo, pinSigner, recordTrust string) error {
+	if p == nil {
+		return nil
+	}
+	if policyRef != "" {
+		raw, err := os.ReadFile(policySigners)
+		if err != nil {
+			return fmt.Errorf("--publishers-policy-signers: %w", err)
+		}
+		if p.PolicyVerify, err = core.PolicyVerifier(raw, signing.OpenKey); err != nil {
+			return fmt.Errorf("--publishers-policy-signers: %w", err)
+		}
+		p.Policy = policyRef
+	}
+	var raws [2][]byte
+	for i, f := range []string{pinSigner, recordTrust} {
+		if f == "" {
+			continue
+		}
+		raw, err := os.ReadFile(f)
+		if err != nil {
+			return err
+		}
+		raws[i] = raw
+	}
+	verify, ok, err := delivery.PinVerifier(raws[0], raws[1])
+	if err != nil {
+		return err
+	}
+	if recordsRepo != "" && ok {
+		p.Pins = delivery.PinReader(recordsRepo, opts, verify, policy)
+	}
+	switch {
+	case !records:
+		p.CannotPin = "confirming a new signer needs the recorder (delivery.recorder.enabled)"
+	case recordsRepo == "" || pinSigner == "":
+		p.CannotPin = "confirming a new signer needs delivery.recorder.signing.publicKey or keyless recorder signing, " +
+			"so the promoter can verify the pins the recorder writes"
+	}
+	return nil
 }
 
 // upstreamReader reads what a Stage in another cluster verified from its

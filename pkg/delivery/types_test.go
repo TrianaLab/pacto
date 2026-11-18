@@ -13,8 +13,8 @@ import (
 
 func TestTier0Types(t *testing.T) {
 	ts := Types()
-	if len(ts) != 7 {
-		t.Fatalf("want the four Tier 0 types, freeze, autonomy and acknowledge, got %d", len(ts))
+	if len(ts) != 8 {
+		t.Fatalf("want the four Tier 0 types, freeze, autonomy, acknowledge and trust, got %d", len(ts))
 	}
 	ts[0].ID = "mutated"
 	if p, _ := TypeByID(TypePromote); p.ID != TypePromote {

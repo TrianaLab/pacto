@@ -25,11 +25,13 @@ func TestApprovalDecisionsGoThroughOpenApproval(t *testing.T) {
 	)
 	for call, want := range map[string][]string{
 		// The client peeks at a record to learn who signed it, then verifies
-		// a recorder-signed one with the trust config.
-		"delivery.OpenApproval(":                  {client, person},
+		// a recorder-signed one with the trust config; the promoter's pin
+		// reader (publishers.go) does the same with the pin keys for the
+		// approval a pin cites.
+		"delivery.OpenApproval(":                  {operator + "publishers.go", client, person},
 		"openStatement(bundle, PredicateApproval": {"pkg/delivery/approvalrecord.go"},
 		"signing.OpenPersonApproval(":             {operator + "signedapproval.go", client},
-		"openSigned(":                             {operator + "approvalrecorder.go", operator + "signedapproval.go"},
+		"openSigned(":                             {operator + "approvalrecorder.go", operator + "publishers.go", operator + "signedapproval.go"},
 		"r.verifySigned(":                         {operator + "approval.go"},
 	} {
 		if got := productionFilesCalling(t, call); !slices.Equal(got, want) {

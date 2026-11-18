@@ -347,7 +347,9 @@ func (r *StageReconciler) autoPromote(ctx context.Context, stage *dv1.Stage) err
 		return err
 	}
 	for _, o := range ops {
-		if o.Status.Phase != delivery.PhaseConcluded {
+		// A trust operation never moves the pointer, so a person's open
+		// question about a new signer holds no promote back.
+		if o.Status.Phase != delivery.PhaseConcluded && o.Spec.Facet != delivery.FacetTrust {
 			return nil
 		}
 	}
@@ -723,8 +725,15 @@ func (r *StageReconciler) candidate(ctx context.Context, stage *dv1.Stage, remot
 // is a no-op, while the same move after an earlier one concluded (expired,
 // cancelled or rejected) gets a new name and is proposed again.
 func (r *StageReconciler) raise(ctx context.Context, stage *dv1.Stage, kind string, spec delivery.OperationSpec) error {
+	return r.raiseNamed(ctx, stage, raisedName(stage, kind, spec.Params), spec)
+}
+
+// raiseNamed creates a controller-class operation named name, or finds the
+// one it raised under that name before; one someone else took freezes the
+// Stage.
+func (r *StageReconciler) raiseNamed(ctx context.Context, stage *dv1.Stage, name string, spec delivery.OperationSpec) error {
 	op := &dv1.Operation{}
-	op.Namespace, op.Name = stage.Namespace, raisedName(stage, kind, spec.Params)
+	op.Namespace, op.Name = stage.Namespace, name
 	op.Labels = map[string]string{StageLabel: stage.Name}
 	controllerutil.AddFinalizer(op, dv1.RecordFinalizer)
 	spec.IntentDigest = delivery.IntentDigest(spec, stage.Spec)

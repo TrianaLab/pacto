@@ -98,6 +98,8 @@ func put(ctx context.Context, repo *remote.Repository, anchor ocispec.Descriptor
 const (
 	KindApproval = "approval"
 	KindIntent   = "intent"
+	// KindPin is an identity pin, on its service's pin stream.
+	KindPin = "pin"
 )
 
 // KindTag is the write-once tag of an approval or intent record (kind) of
@@ -107,15 +109,12 @@ func KindTag(stream, kind string, manifest digest.Digest) string {
 	return AnchorTag(stream) + "-" + kind + "-" + manifest.Encoded()[:12]
 }
 
-// Push writes bundle, a signed approval/v1 or operation-intent/v1 record of
-// stream, attached to the stream's anchor in repo in mode, and returns where
+// Push writes bundle, a signed approval/v1, operation-intent/v1 or
+// identity-pin/v1 record of stream, attached to the stream's anchor in repo in mode, and returns where
 // it is: "<repository>@<manifest digest>". ann are added to the record's
 // annotations. Operation records go through [PutRecord].
 func Push(ctx context.Context, repo *remote.Repository, stream string, mode capabilities.ReferrersMode, predicate string, bundle []byte, ann map[string]string) (string, error) {
-	kind := KindIntent
-	if predicate == delivery.PredicateApproval {
-		kind = KindApproval
-	}
+	kind := kindOf(predicate)
 	a := map[string]string{
 		AnnBundleContent: "dsse-envelope",
 		AnnPredicateType: predicate,
@@ -185,11 +184,19 @@ func (r *Reader) ListPredicate(ctx context.Context, repo *remote.Repository, str
 // headsKey is where ListPredicate remembers the heads of predicate records on
 // stream's anchor, and the tag kind they are written under.
 func headsKey(stream, predicate string) (key, kind string) {
-	kind = KindIntent
-	if predicate == delivery.PredicateApproval {
-		kind = KindApproval
-	}
+	kind = kindOf(predicate)
 	return Anchor(stream).ManifestDesc.Digest.String() + " " + kind, kind
+}
+
+// kindOf is the [KindTag] kind records of predicate are written under.
+func kindOf(predicate string) string {
+	switch predicate {
+	case delivery.PredicateApproval:
+		return KindApproval
+	case delivery.PredicateIdentityPin:
+		return KindPin
+	}
+	return KindIntent
 }
 
 // Reject remembers that the predicate record manifest on stream's anchor

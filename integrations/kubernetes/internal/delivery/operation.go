@@ -283,6 +283,12 @@ func (r *OperationReconciler) lock(ctx context.Context, op *dv1.Operation, stage
 		return r.finish(ctx, op, stage, conclusion{outcome: delivery.Succeeded, verification: delivery.Unverified,
 			reason: "LevelChanged: " + op.Spec.Stage + " moved from " + op.Spec.Params.From + " to " + op.Spec.Params.To})
 	}
+	if op.Spec.Facet == delivery.FacetTrust {
+		// Confirming a signer moves nothing: the recorder pins it, and the
+		// digest that brought it is never verified by it.
+		return r.finish(ctx, op, stage, conclusion{outcome: delivery.Succeeded, verification: delivery.Unverified,
+			reason: "SignerConfirmed: a person confirmed that " + op.Spec.Params.Publisher.Subject + " may publish " + stage.Spec.Service.Name})
+	}
 	waiting := ""
 	err := r.casStage(ctx, stage, func(s *dv1.Stage) error {
 		var err error

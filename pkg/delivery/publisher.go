@@ -1,10 +1,17 @@
 package delivery
 
 import (
+	"cmp"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"fmt"
+	"net/url"
 	"path"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // Publisher verdicts: what a check of who signed a digest concluded. Only
@@ -275,4 +282,102 @@ func pinFor(service ServiceRef, id PublisherIdentity, pins []IdentityPin) *Ident
 		}
 	}
 	return nil
+}
+
+// Signed publisher statements: a person's confirmation of one signer, which
+// the recorder signs, and the delivery policy a security owner signs.
+const (
+	PredicateIdentityPin     = "delivery.pacto.trianalab.io/identity-pin/v1"
+	PredicatePublisherPolicy = "delivery.pacto.trianalab.io/policy/v1"
+)
+
+// PinStatement is an in-toto Statement v1 carrying an identity pin. Its
+// subject is the sha256 of the service's pin stream id.
+type PinStatement struct {
+	Type          string      `json:"_type"`
+	Subject       []Subject   `json:"subject"`
+	PredicateType string      `json:"predicateType"`
+	Predicate     IdentityPin `json:"predicate"`
+}
+
+// PinStream is the stream a service's pins are attached to:
+// pins/<domain or ->/<name>, the domain path-escaped so every pin stream has
+// three segments and the trust pattern pins/*/* covers them all.
+func PinStream(s ServiceRef) string {
+	return "pins/" + url.PathEscape(cmp.Or(s.Domain, "-")) + "/" + s.Name
+}
+
+// NewPinStatement builds the statement of pin p.
+func NewPinStatement(p IdentityPin) PinStatement {
+	sum := sha256.Sum256([]byte(PinStream(p.Service)))
+	return PinStatement{Type: StatementType, PredicateType: PredicateIdentityPin, Predicate: p,
+		Subject: []Subject{{Name: "pins", Digest: map[string]string{"sha256": hex.EncodeToString(sum[:])}}}}
+}
+
+// SignPin signs st and returns the bundle and its id, as SignRecord does.
+func SignPin(ctx context.Context, s Signer, st PinStatement) (bundle []byte, id string, err error) {
+	return signStatement(ctx, s, st)
+}
+
+// OpenPin verifies a pin bundle with verify and returns its statement and
+// id. A bundle that is not one signed identity-pin/v1 statement is an error.
+func OpenPin(bundle []byte, verify func(bundle []byte) error) (PinStatement, string, error) {
+	var st PinStatement
+	payload, err := openStatement(bundle, PredicateIdentityPin, &st)
+	if err != nil {
+		return PinStatement{}, "", err
+	}
+	if err := verify(bundle); err != nil {
+		return PinStatement{}, "", fmt.Errorf("signature: %w", err)
+	}
+	return st, sha256Hex(payload), nil
+}
+
+// TrustOperationName is the name of the one trust operation a Stage raises
+// for id: the same identity always names the same operation, so a second
+// pass, a restart or a second digest finds the one already raised.
+func TrustOperationName(stage string, id PublisherIdentity) string {
+	sum := sha256.Sum256([]byte(id.Issuer + "|" + id.Subject + "|" + id.Repository))
+	return stage + "-trust-" + hex.EncodeToString(sum[:])[:10]
+}
+
+// PublisherPolicy is the signed delivery policy (policy/v1): the publisher
+// rules that replace the installation's derived rule, and when it was signed.
+type PublisherPolicy struct {
+	Publishers []PublisherRule `json:"publishers"`
+	// At is when the policy was signed (RFC 3339): a promoter refuses a
+	// policy older than the one it already uses.
+	At string `json:"at"`
+}
+
+// PolicyStatement is an in-toto Statement v1 carrying a delivery policy.
+type PolicyStatement struct {
+	Type          string          `json:"_type"`
+	Subject       []Subject       `json:"subject"`
+	PredicateType string          `json:"predicateType"`
+	Predicate     PublisherPolicy `json:"predicate"`
+}
+
+// OpenPolicy verifies a delivery policy bundle with verify and returns the
+// policy. Decoding is strict, so a key an older promoter does not know is a
+// failed read; a rule with no issuer or an open subject or repository
+// pattern, or a policy with no signed time, is refused.
+func OpenPolicy(bundle []byte, verify func(bundle []byte) error) (PublisherPolicy, error) {
+	var st PolicyStatement
+	if _, err := openStatement(bundle, PredicatePublisherPolicy, &st); err != nil {
+		return PublisherPolicy{}, err
+	}
+	if err := verify(bundle); err != nil {
+		return PublisherPolicy{}, fmt.Errorf("signature: %w", err)
+	}
+	p := st.Predicate
+	if _, err := time.Parse(time.RFC3339, p.At); err != nil {
+		return PublisherPolicy{}, errors.New("the policy carries no signed time (at, RFC 3339)")
+	}
+	for i, r := range p.Publishers {
+		if r.Issuer == "" || !PinnedPattern(r.Subject) || !PinnedPattern(r.Repository) {
+			return PublisherPolicy{}, fmt.Errorf("publisher rule %d (%s) needs an issuer and anchored subject and repository patterns that match no foreign identity", i, r.Name)
+		}
+	}
+	return p, nil
 }
