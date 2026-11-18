@@ -620,6 +620,9 @@
   .rev-entity { display: flex; flex-direction: column; gap: var(--sp-4); }
   .re-facts, .re-idrows, .re-adjacent { display: flex; gap: var(--sp-5); flex-wrap: wrap; }
   .re-fact, .re-idrow, .re-adj { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+  /* A trailing mark opens its tip leftward from its right edge: once a narrow row wraps,
+     the mark keeps to the right edge of its line so the tip stays on screen. */
+  .re-fact > :global(.prov-mark):last-child { margin-left: auto; }
   .re-k { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .re-contactrows { list-style: none; margin: var(--sp-2) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
   .re-contactrow { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }

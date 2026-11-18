@@ -44,3 +44,25 @@ test('a migrated revision reads as inferred', async ({ page }) => {
   await expect(fact.locator('.prov-tip')).toContainText('pacto.inferred.yaml');
   expect(errors).toEqual([]);
 });
+
+// On a phone the Pacto version row wraps; the mark's tip opens leftward from the mark,
+// so it must stay inside the viewport on whichever line the mark lands.
+for (const variant of ['plain', 'layout']) {
+  test(`a migrated revision's tip stays on screen at 320px (${variant})`, async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 800 });
+    await page.addInitScript(installScaleFixture);
+    await page.addInitScript((v) => { (window as unknown as { __migrated?: string }).__migrated = v; }, variant);
+    await openRevision(page);
+    await page.reload();
+    const fact = page.locator('.re-fact').filter({ hasText: 'Pacto version' });
+    await expect(fact).toContainText('migrated from 2.4', { timeout: T });
+    await fact.getByRole('button', { name: 'inferred pactoVersion migration' }).click();
+    const tip = fact.locator('.help-body');
+    await expect(tip).toBeVisible();
+    const box = await tip.boundingBox();
+    const width = await page.evaluate(() => window.innerWidth);
+    expect(box).not.toBeNull();
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(width);
+  });
+}
