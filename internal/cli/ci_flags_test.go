@@ -8,9 +8,10 @@ import (
 )
 
 // nonConsumerFlags are the shared fleet flags that name no consumer source:
-// the repository itself, scoping and freshness knobs, the external catalog
-// and the advisory detection rows, which never clear a gate.
-var nonConsumerFlags = []string{"local", "namespace", "freshness", "external-catalog", "detected"}
+// the repository itself, scoping and freshness knobs, the external catalog,
+// the advisory detection rows and the workload-manager fingerprints, which
+// never clear a gate.
+var nonConsumerFlags = []string{"local", "namespace", "freshness", "external-catalog", "detected", "fingerprints"}
 
 func TestConsumerSourcesClassifiesEveryFleetFlag(t *testing.T) {
 	value := map[string]string{"cache": "true", "k8s": "true", "freshness": "1m"}
