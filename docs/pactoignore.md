@@ -98,7 +98,8 @@ skipped: services/legacy (from .pactoignore:1)
 
 Only folders are matched, so `pacto.yaml` is still always kept inside a
 bundle. When the repository root is itself a service, its bundle and discovery
-share this one file.
+share this one file. A root `.pactoignore` that cannot be read stops these
+commands with an error.
 
 ---
 

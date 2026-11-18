@@ -16,7 +16,8 @@ run record (`--stats-file` still writes one file per impacted service).
 
 A directory pattern in the repository root's `.pactoignore` now also hides
 that folder from discovery, in `pacto ci`, `pacto fleet --local` and
-`pacto dashboard --local`. `pacto-plan.md` joins the default packaging ignores.
+`pacto dashboard --local`, and a root `.pactoignore` that cannot be read now
+fails them with an error. `pacto-plan.md` joins the default packaging ignores.
 
 Every command now answers one JSON document under `--output-format json`,
 failures included: a command that fails before writing its result prints

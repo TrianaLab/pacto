@@ -165,7 +165,7 @@ On GitHub Actions the plan is also appended to $GITHUB_STEP_SUMMARY; on GitLab C
 
 The run is a plan: it reads the registry and the consumer sources you name and writes nothing to them. A run record goes to --stats-file only, one file per impacted service.
 
-The exit status follows the plan: 0 clear, 1 blocked, 2 unverified. A repository with no pacto.yaml exits 2.
+The exit status follows the plan: 0 clear, 1 blocked, 2 unverified. A repository with no pacto.yaml, or a folder it cannot read, exits 2.
 
 ```
 pacto ci [root] [flags]

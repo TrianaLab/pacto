@@ -96,6 +96,7 @@ needs only read credentials (`PACTO_REGISTRY_USERNAME` and
 
 The plan prints each value it detected with its source:
 
+- `CI`: GitHub Actions or GitLab CI, from `GITHUB_ACTIONS` or `GITLAB_CI`
 - `Registry`: `--registry`, else `ghcr.io/<owner>` on GitHub Actions or
   `CI_REGISTRY_IMAGE` on GitLab CI
 - `Base`: the target branch or merge-request base, shown for context only;
@@ -116,7 +117,7 @@ Then one row per service:
 --8<-- "examples/demo/generated/ci-plan.md"
 
 `pacto ci` exits like `pacto impact`: `0` clear, `1` blocked and `2`
-unverified. A changed service reads `unverified (no consumer source)` until you
+unverified. A folder Pacto cannot read makes the run unverified. A changed service reads `unverified (no consumer source)` until you
 name where its consumers are, with the flags `pacto impact` takes, such as `--root`,
 `--oci`, `--cache`, `--k8s`, `--evidence-url`, `--target-state` or `--traces`.
 
