@@ -223,7 +223,7 @@ function parseFleet(path: string, query: string): Route {
     // `domain` is the registry path; `businessDomain` is the business domain, with
     // `(none)` for the services that declare none.
     // `gap` keeps the services whose contracts leave that knowledge out.
-    for (const k of ['text', 'owner', 'ownerKey', 'ownership', 'gap', 'status', 'domain', 'businessDomain', 'capability', 'offering', 'consumes', 'phase', 'createdFrom', 'declaration', 'group', 'offset', 'limit', 'sort']) {
+    for (const k of [...SERVICE_FILTERS, 'offset', 'limit', 'sort']) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
@@ -486,6 +486,10 @@ function setPaging(qs: URLSearchParams, p: ListPaging) {
   if (p.sort) qs.set('sort', p.sort);
 }
 
+// SERVICE_FILTERS are the Services list filters, in their URL order: the route
+// parses exactly these and fleetServicesUrl writes exactly these.
+const SERVICE_FILTERS = ['text', 'owner', 'ownerKey', 'ownership', 'gap', 'status', 'domain', 'businessDomain', 'capability', 'offering', 'consumes', 'phase', 'createdFrom', 'declaration', 'group'];
+
 // fleetServicesUrl builds the product service-list route, preserving the backend
 // filters the list implements and the page offset in the URL so a filtered/paged
 // list is deep-linkable and restored by refresh/back/forward. A zero/absent offset
@@ -497,33 +501,22 @@ export function fleetServicesUrl(opts: {
   businessDomain?: string; capability?: string; offering?: string; consumes?: string; phase?: string; createdFrom?: string; declaration?: string; group?: string; offset?: number;
 } & ListPaging = {}): string {
   const qs = new URLSearchParams();
-  if (opts.text) qs.set('text', opts.text);
   // Two owner questions, two params. `owner` is free-text SEARCH (a substring over
   // team, DRI and contacts, so `team-a` finds `team-a-platform` too) and `ownerKey`
   // is exact canonical IDENTITY. A link built FROM an owner -- an owner page action,
   // a per-owner ranking row -- carries the key, or it lands on a wider population
   // than the number the reader clicked.
-  if (opts.owner) qs.set('owner', opts.owner);
-  if (opts.ownerKey) qs.set('ownerKey', opts.ownerKey);
   // Who owns it (a name) and whether ownership is declared at all (a state) are two
   // different questions, and both are real Entities filters, so they compose.
-  if (opts.ownership) qs.set('ownership', opts.ownership);
-  if (opts.gap) qs.set('gap', opts.gap);
-  if (opts.status) qs.set('status', opts.status);
-  if (opts.domain) qs.set('domain', opts.domain);
-  if (opts.businessDomain) qs.set('businessDomain', opts.businessDomain);
-  if (opts.capability) qs.set('capability', opts.capability);
-  if (opts.offering) qs.set('offering', opts.offering);
-  // consumes keeps the services that consume a provider of that offering.
-  if (opts.consumes) qs.set('consumes', opts.consumes);
-  // phase narrows those consumers to the ones with a provisioning status in it.
-  if (opts.consumes && opts.phase) qs.set('phase', opts.phase);
-  // createdFrom keeps the services whose declared origin is that golden path.
-  if (opts.createdFrom) qs.set('createdFrom', opts.createdFrom);
-  // declaration keeps the declared or the inferred services; absent lists both.
-  if (opts.declaration) qs.set('declaration', opts.declaration);
-  // group keeps the inferred services the cluster groups under one key (509-S3).
-  if (opts.group) qs.set('group', opts.group);
+  // consumes keeps the services that consume a provider of that offering, and phase
+  // narrows those consumers to the ones with a provisioning status in it, so phase
+  // alone is dropped. createdFrom keeps the services whose declared origin is that
+  // golden path; declaration keeps the declared or the inferred services (absent
+  // lists both); group keeps the inferred services the cluster groups under one key.
+  const o = opts as Record<string, unknown>;
+  for (const k of SERVICE_FILTERS) {
+    if (o[k] && (k !== 'phase' || opts.consumes)) qs.set(k, String(o[k]));
+  }
   setPaging(qs, opts);
   const str = qs.toString();
   return str ? `#/fleet/services?${str}` : '#/fleet/services';
