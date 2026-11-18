@@ -106,7 +106,7 @@ func TestSignDigestTagModeClaimsSigTag(t *testing.T) {
 
 // TestSignDigestTagModeRetriesTakenSlot: signing the same statement again
 // claims the same tag (idempotent); a tag someone moved to another manifest
-// is never moved back, and the moved tag is no signature.
+// is never moved back, and the moved tag is unreadable, never a signature.
 func TestSignDigestTagModeRetriesTakenSlot(t *testing.T) {
 	ctx := t.Context()
 	tr := newTagRegistry(t)
@@ -125,8 +125,31 @@ func TestSignDigestTagModeRetriesTakenSlot(t *testing.T) {
 	if err := SignDigest(ctx, tr.c, echoSigner{}, repo, d); !errors.Is(err, ocireferrer.ErrTagTaken) {
 		t.Fatalf("a taken slot: %v", err)
 	}
-	if err := VerifyDigest(ctx, tr.c, names, repo, d); !errors.Is(err, ErrNoSignature) {
+	if err := VerifyDigest(ctx, tr.c, names, repo, d); err == nil || !strings.Contains(err.Error(), "a moved tag") {
 		t.Fatalf("a moved tag verified: %v", err)
+	}
+}
+
+// TestSigTagOfAnotherSubjectIsUnreadable: a fresh tag under A's prefix that
+// names B's signature by its own digest still names B as its subject, so
+// it is never read as A's.
+func TestSigTagOfAnotherSubjectIsUnreadable(t *testing.T) {
+	ctx := t.Context()
+	tr := newTagRegistry(t)
+	repo, a := signedImage(t, tr.c, tr.host)
+	_, b := signedImage(t, tr.c, tr.host)
+	if err := SignDigest(ctx, tr.c, echoSigner{}, repo, b); err != nil {
+		t.Fatal(err)
+	}
+	refs, err := tr.c.Referrers(ctx, repo, b, delivery.BundleMediaType)
+	if err != nil || len(refs) != 1 {
+		t.Fatalf("%v %v", refs, err)
+	}
+	if err := tr.c.Tag(ctx, repo, refs[0], SigTag(a, refs[0])); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tr.c.Referrers(ctx, repo, a, delivery.BundleMediaType); err == nil || !strings.Contains(err.Error(), "a moved tag") {
+		t.Fatalf("B's signature read as A's: %v", err)
 	}
 }
 
@@ -293,12 +316,17 @@ func TestClientSigTagFailures(t *testing.T) {
 		}
 	}
 	for status, want := range map[int]string{http.StatusNotFound: "gone", http.StatusBadRequest: "reading the write-once tag"} {
-		tr.deny.Store(&denied{suffix: "-000000000001", status: status})
+		tr.deny.Store(&denied{suffix: "-000000000000", status: status})
 		if _, err := tr.c.sigTagReferrers(ctx, repo, d); err == nil || !strings.Contains(err.Error(), want) {
 			t.Fatalf("%d: %v", status, err)
 		}
 	}
 	tr.deny.Store(nil)
+	// A tag that names another manifest than the one it points at, or a
+	// manifest with another subject, was moved: unreadable.
+	if _, err := tr.c.sigTagReferrers(ctx, repo, d); err == nil || !strings.Contains(err.Error(), "a moved tag") {
+		t.Fatalf("a moved tag: %v", err)
+	}
 	defer func(n int) { maxSigTags = n }(maxSigTags)
 	maxSigTags = 1
 	if _, err := tr.c.sigTagReferrers(ctx, repo, d); err == nil || !strings.Contains(err.Error(), "at most 1") {

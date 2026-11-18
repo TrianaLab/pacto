@@ -31,6 +31,8 @@ type Remote struct {
 	// ArtifactType is the manifest's artifactType, empty when it has none.
 	ArtifactType string
 	Annotations  map[string]string
+	// Subject is the digest the manifest's subject names, empty when none.
+	Subject string
 }
 
 // Artifact is something publish pushes: a v1.Image or a v1.ImageIndex.
@@ -132,7 +134,9 @@ func (c *Client) PutSigTag(ctx context.Context, repo, digest string, art ocirefe
 var maxSigTags = maxReferrers
 
 // sigTagReferrers is what the pacto-sig tags of repo@digest name, read from
-// each tag's manifest. A tag that cannot be read is an error.
+// each tag's manifest. A tag that cannot be read, that does not name the
+// manifest it points at or whose manifest's subject is not digest (a moved
+// tag) is an error.
 func (c *Client) sigTagReferrers(ctx context.Context, repo, digest string) ([]Remote, error) {
 	r, err := c.open(repo)
 	if err != nil {
@@ -150,6 +154,9 @@ func (c *Client) sigTagReferrers(ctx context.Context, repo, digest string) ([]Re
 		h, err := c.Head(ctx, repo+":"+t)
 		if err == nil && h == nil {
 			err = errors.New("the tag is gone")
+		}
+		if err == nil && (!strings.HasPrefix(h.Digest, "sha256:"+t[strings.LastIndex(t, "-")+1:]) || h.Subject != digest) {
+			err = fmt.Errorf("it points at %s, whose subject is %q: a moved tag", h.Digest, h.Subject)
 		}
 		if err != nil {
 			return nil, fmt.Errorf("reading the write-once tag %s: %w", t, err)
@@ -180,9 +187,16 @@ func (c *Client) Head(ctx context.Context, ref string) (*Remote, error) {
 	var m struct {
 		ArtifactType string            `json:"artifactType"`
 		Annotations  map[string]string `json:"annotations"`
+		Subject      *struct {
+			Digest string `json:"digest"`
+		} `json:"subject"`
 	}
 	_ = json.Unmarshal(d.Manifest, &m)
-	return &Remote{Digest: d.Digest.String(), MediaType: string(d.MediaType), Size: d.Size, ArtifactType: m.ArtifactType, Annotations: m.Annotations}, nil
+	out := &Remote{Digest: d.Digest.String(), MediaType: string(d.MediaType), Size: d.Size, ArtifactType: m.ArtifactType, Annotations: m.Annotations}
+	if m.Subject != nil {
+		out.Subject = m.Subject.Digest
+	}
+	return out, nil
 }
 
 // Tags implements Registry.
