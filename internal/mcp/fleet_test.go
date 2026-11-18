@@ -957,6 +957,9 @@ func TestFleetStatusCarriesProviders(t *testing.T) {
 	if !strings.Contains(fleetStatusTool().Description, "'providers'") {
 		t.Error("the tool description does not name providers")
 	}
+	if d := fleetStatusTool().Description; !strings.Contains(d, "'registry:<host>' row") || !strings.Contains(d, "separate from the operator's inferred registry row") {
+		t.Error("the tool description does not tell the probed registry row from the operator's inferred one")
+	}
 }
 
 // TestFleetStatusProvidersRestricted: a signed-in view keeps the row and drops
