@@ -133,6 +133,9 @@ func (r *applier) artifacts() error {
 		repo, digest := Repo(a.Ref), p.Items[i].Digest
 		if p.Items[i].State == Absent {
 			ann := map[string]string{AnnotationVersion: version, AnnotationRevision: r.in.Revision}
+			if r.in.Source != "" {
+				ann[AnnotationSource] = r.in.Source
+			}
 			if a.Name == r.pub.Deploy {
 				ann[delivery.ContractAnnotation] = contractRef(bundleRepo, bundleDigest)
 			}

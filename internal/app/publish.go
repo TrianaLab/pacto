@@ -75,7 +75,7 @@ func (s *Service) Publish(ctx context.Context, opts PublishOptions) (*publish.Re
 	}
 	b := &contract.Bundle{Contract: c, RawYAML: raw, FS: fsys}
 	env := s.env()
-	in := publish.Input{Bundle: b, Revision: revision, Checks: []publish.Check{validationCheck(s.guaranteeStage(ctx, path, c))}}
+	in := publish.Input{Bundle: b, Revision: revision, Source: ciSource(os.Getenv), Checks: []publish.Check{validationCheck(s.guaranteeStage(ctx, path, c))}}
 	reg := env.publishRegistry()
 	tools := newExecTools(path, env.run, reg)
 	in.Checks = append(in.Checks, checkOf("references", rejectLocalDeps(c), rejectLocalRefs(c)),
@@ -89,6 +89,16 @@ func (s *Service) Publish(ctx context.Context, opts PublishOptions) (*publish.Re
 		res.Refusal = keepRefusal(ctx, env, tools, b, res.Plan)
 	}
 	return res, err
+}
+
+// ciSource is the URL of the repository CI builds from: GitHub Actions, else
+// GitLab CI (the order contextDefault in internal/cli/runrecord.go reads), else
+// empty when not in CI.
+func ciSource(getenv func(string) string) string {
+	if srv, repo := getenv("GITHUB_SERVER_URL"), getenv("GITHUB_REPOSITORY"); srv != "" && repo != "" {
+		return srv + "/" + repo
+	}
+	return getenv("CI_PROJECT_URL")
 }
 
 // preflight checks what the absent items need: the builder of each artifact

@@ -787,3 +787,26 @@ func TestPublishChecksGuarantees(t *testing.T) {
 		})
 	}
 }
+
+// envOf is a getenv over a fixed map.
+func envOf(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
+
+func TestCISourceGitHub(t *testing.T) {
+	got := ciSource(envOf(map[string]string{"GITHUB_SERVER_URL": "https://github.com", "GITHUB_REPOSITORY": "acme/payments", "CI_PROJECT_URL": "https://gitlab.com/acme/payments"}))
+	if got != "https://github.com/acme/payments" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestCISourceGitLab(t *testing.T) {
+	got := ciSource(envOf(map[string]string{"GITHUB_REPOSITORY": "acme/payments", "CI_PROJECT_URL": "https://gitlab.com/acme/payments"}))
+	if got != "https://gitlab.com/acme/payments" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestCISourceNone(t *testing.T) {
+	if got := ciSource(envOf(nil)); got != "" {
+		t.Fatalf("got %q", got)
+	}
+}
