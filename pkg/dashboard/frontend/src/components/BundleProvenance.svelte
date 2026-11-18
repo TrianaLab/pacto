@@ -6,9 +6,9 @@
 
   // The bundle signature check and the OCI referrers of one revision, as the source
   // that read it from a registry reported them. `bundle` is null when no source that
-  // read the revision checks signatures. The signer is always the identity the
-  // contract's own publish.sign declares, so "verified" never renders without it.
-  // An unverified signature names only the expected identity: who signed it is unknown.
+  // read the revision checks signatures. The signer is who signed, read from the
+  // verified certificate; "verified" means a publisher rule, pin or policy accepted
+  // it. An unverified signer is one none of them covers, beside the expected rule.
   let { bundle = null } = $props();
   const sig = $derived(bundle?.signature ?? null);
   const st = $derived(signatureState(sig));

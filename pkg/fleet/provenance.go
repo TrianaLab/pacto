@@ -23,12 +23,15 @@ const (
 // revision's bundle digest.
 type BundleSignature struct {
 	Status string `json:"status" enum:"verified,unverified,unsigned,unknown"`
-	// Signer and Issuer are the identity the revision's own contract declares in
-	// publish.sign (self-declared), set only when Status is verified.
+	// Source is what judged the signer: an installation rule, a person's pin,
+	// the signed policy, a rule inferred from where the artifact lives (never
+	// verified), the Pacto release signer, or nothing.
+	Source string `json:"source,omitempty" enum:"rule,pin,policy,inferred,release,none"`
+	// Signer and Issuer are who signed, read from the verified certificate.
 	Signer string `json:"signer,omitempty"`
 	Issuer string `json:"issuer,omitempty"`
-	// ExpectedSigner and ExpectedIssuer are that declared identity when Status is
-	// unverified: what the signature was checked against, not who signed it.
+	// ExpectedSigner and ExpectedIssuer are the rule or pin the signature was
+	// judged against when Status is unverified.
 	ExpectedSigner string `json:"expectedSigner,omitempty"`
 	ExpectedIssuer string `json:"expectedIssuer,omitempty"`
 	// Bundles is how many Sigstore bundle referrers are attached to the digest.

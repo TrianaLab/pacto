@@ -32,11 +32,6 @@ const catalogCheckTimeout = 30 * time.Second
 // externalCatalogSource names the catalogs in limitations and provenance checks.
 const externalCatalogSource = "external-catalog"
 
-// releaseSigned is the signer the default catalog is checked against.
-var releaseSigned = &contract.Contract{Publish: &contract.Publish{Sign: &contract.PublishSign{
-	Keyless: true, Identity: externalcatalog.DefaultSigner, Issuer: externalcatalog.DefaultIssuer,
-}}}
-
 // catalogLoader remembers the default catalog's signature check and the
 // organization catalogs pulled, so a dashboard refreshing every 30 seconds
 // asks the registry once per TTL.
@@ -139,7 +134,8 @@ func (s *Service) defaultCatalogRef(opts FleetOptions) externalcatalog.Ref {
 func (l *catalogLoader) checkDefault(p *ProvenanceChecker, now func() time.Time) {
 	ctx, cancel := context.WithTimeout(context.Background(), catalogCheckTimeout)
 	defer cancel()
-	res := p.Check(ctx, externalCatalogSource, contract.OCIScheme+externalcatalog.DefaultRepository+"@"+externalcatalog.DefaultDigest(), releaseSigned)
+	res := p.CheckSigner(ctx, externalCatalogSource, contract.OCIScheme+externalcatalog.DefaultRepository+"@"+externalcatalog.DefaultDigest(),
+		externalcatalog.DefaultSigner, externalcatalog.DefaultIssuer)
 	ref := externalcatalog.DefaultRef()
 	ref.Signature, ref.Reason = res.Signature.Status, res.Signature.Reason
 	if res.Signature.Status == fleet.SignatureVerified {

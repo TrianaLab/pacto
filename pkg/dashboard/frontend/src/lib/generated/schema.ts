@@ -2422,6 +2422,8 @@ export interface components {
             reason?: string;
             signer?: string;
             /** @enum {string} */
+            source?: "rule" | "pin" | "policy" | "inferred" | "release" | "none";
+            /** @enum {string} */
             status: "verified" | "unverified" | "unsigned" | "unknown";
         };
         "Fleet.CapabilitiesPreview": {

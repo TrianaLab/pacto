@@ -1,0 +1,232 @@
+package publish
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"log"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/google/go-containerregistry/pkg/registry"
+	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/google/go-containerregistry/pkg/v1/random"
+
+	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
+	"github.com/trianalab/pacto/v4/pkg/signing"
+	"github.com/trianalab/pacto/v4/pkg/signing/testutil"
+)
+
+const (
+	ghIssuer    = "https://token.actions.githubusercontent.com"
+	acmeRepo    = "https://github.com/acme/payments"
+	acmeSubject = acmeRepo + "/.github/workflows/release.yml@refs/heads/main"
+)
+
+var paymentsRef = delivery.ServiceRef{Name: "payments"}
+
+// testRegistry is an in-process registry, with the Referrers API unless
+// referrers is false (as GHCR), and a client over it.
+func testRegistry(t *testing.T, referrers bool) (string, *Client) {
+	t.Helper()
+	srv := httptest.NewServer(registry.New(registry.WithReferrersSupport(referrers), registry.Logger(log.New(io.Discard, "", 0))))
+	t.Cleanup(srv.Close)
+	host := strings.TrimPrefix(srv.URL, "http://")
+	return host, NewClient(anonymous, host)
+}
+
+// push pushes a random image to repo and returns its digest.
+func push(t *testing.T, reg Registry, repo string) string {
+	t.Helper()
+	img, _ := random.Image(32, 1)
+	d, err := reg.Write(t.Context(), repo, img)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
+
+// signerFor is a keyless signer of ss for token.
+func signerFor(t *testing.T, ss *testutil.Sigstore, token string) signing.Signer {
+	t.Helper()
+	s, err := signing.Keyless(ss.Fulcio, ss.TSA, "", func(context.Context) (string, error) { return token, nil }, ss.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+func ciSigner(t *testing.T, ss *testutil.Sigstore, subject, repo string) signing.Signer {
+	t.Helper()
+	return signerFor(t, ss, testutil.CIToken(subject, ghIssuer, repo, "refs/heads/main"))
+}
+
+func acmeRules(t *testing.T) []delivery.PublisherRule {
+	t.Helper()
+	r, why := delivery.DeriveRule("ghcr.io/acme", "main")
+	if why != "" {
+		t.Fatal(why)
+	}
+	return []delivery.PublisherRule{r}
+}
+
+// signed pushes an image to host/payments, signs it with each signer in turn
+// and returns the repository and digest.
+func signed(t *testing.T, host string, reg Registry, signers ...signing.Signer) (string, string) {
+	t.Helper()
+	repo := host + "/payments"
+	d := push(t, reg, repo)
+	for _, s := range signers {
+		if err := SignDigest(t.Context(), reg, s, repo, d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return repo, d
+}
+
+func TestCheckPublisherAcceptedByRule(t *testing.T) {
+	ss := testutil.New(t)
+	host, reg := testRegistry(t, true)
+	repo, d := signed(t, host, reg, ciSigner(t, ss, acmeSubject, acmeRepo))
+	v := CheckPublisher(t.Context(), reg, ss.Root, false, repo, d, paymentsRef, acmeRepo, acmeRules(t), delivery.PublisherSourceRule, nil)
+	if v.Verdict != delivery.VerdictAccepted || v.Source != delivery.PublisherSourceRule || v.Digest != d || v.At == "" || v.Identity.Repository != acmeRepo {
+		t.Fatalf("verdict %+v", v)
+	}
+}
+
+func TestCheckPublisherAcceptedByPin(t *testing.T) {
+	ss := testutil.New(t)
+	host, reg := testRegistry(t, true)
+	const sub = "https://github.com/contractor/payments/.github/workflows/ci.yml@refs/heads/main"
+	repo, d := signed(t, host, reg, ciSigner(t, ss, sub, "https://github.com/contractor/payments"))
+	pin := delivery.IdentityPin{Service: paymentsRef, Issuer: ghIssuer, Subject: sub, Repository: "https://github.com/contractor/payments", Approver: "ana"}
+	v := CheckPublisher(t.Context(), reg, ss.Root, false, repo, d, paymentsRef, "", acmeRules(t), delivery.PublisherSourceRule, []delivery.IdentityPin{pin})
+	if v.Verdict != delivery.VerdictAccepted || v.Source != delivery.PublisherSourcePin {
+		t.Fatalf("verdict %+v", v)
+	}
+}
+
+func TestCheckPublisherNewSigner(t *testing.T) {
+	ss := testutil.New(t)
+	host, reg := testRegistry(t, true)
+	const sub = "https://github.com/contractor/payments/.github/workflows/ci.yml@refs/heads/main"
+	repo, d := signed(t, host, reg, ciSigner(t, ss, sub, "https://github.com/contractor/payments"))
+	v := CheckPublisher(t.Context(), reg, ss.Root, false, repo, d, paymentsRef, "", acmeRules(t), delivery.PublisherSourceRule, nil)
+	if v.Verdict != delivery.VerdictNewSigner || v.Identity == nil || v.Identity.Subject != sub {
+		t.Fatalf("verdict %+v", v)
+	}
+}
+
+// TestCheckPublisherKeepsLookingPastOutsideSigner: a person signed first and
+// the CI the rule covers second, and the digest is accepted.
+func TestCheckPublisherKeepsLookingPastOutsideSigner(t *testing.T) {
+	ss := testutil.New(t)
+	host, reg := testRegistry(t, true)
+	repo, d := signed(t, host, reg, signerFor(t, ss, testutil.Token("ana@acme.example", "https://accounts.example")), ciSigner(t, ss, acmeSubject, acmeRepo))
+	v := CheckPublisher(t.Context(), reg, ss.Root, false, repo, d, paymentsRef, "", acmeRules(t), delivery.PublisherSourceRule, nil)
+	if v.Verdict != delivery.VerdictAccepted || v.Identity.Subject != acmeSubject {
+		t.Fatalf("verdict %+v", v)
+	}
+}
+
+func TestSignersOfReadsEverySignature(t *testing.T) {
+	ss := testutil.New(t)
+	host, reg := testRegistry(t, true)
+	repo, d := signed(t, host, reg, ciSigner(t, ss, acmeSubject, acmeRepo), signerFor(t, ss, testutil.Token("ana@acme.example", "https://accounts.example")))
+	signers, err := SignersOf(t.Context(), reg, ss.Root, false, repo, d)
+	if err != nil || len(signers) != 2 {
+		t.Fatalf("signers %+v %v", signers, err)
+	}
+}
+
+func TestCheckPublisherUnsigned(t *testing.T) {
+	ss := testutil.New(t)
+	host, reg := testRegistry(t, true)
+	repo, d := signed(t, host, reg)
+	v := CheckPublisher(t.Context(), reg, ss.Root, false, repo, d, paymentsRef, "", acmeRules(t), delivery.PublisherSourceRule, nil)
+	if v.Verdict != delivery.VerdictUnsigned || v.Source != delivery.PublisherSourceNone || !strings.Contains(v.Reason, d) {
+		t.Fatalf("verdict %+v", v)
+	}
+}
+
+func TestCheckPublisherUnreachable(t *testing.T) {
+	ss := testutil.New(t)
+	host, reg := testRegistry(t, true)
+	repo, d := signed(t, host, reg, ciSigner(t, ss, acmeSubject, acmeRepo))
+	v := CheckPublisher(t.Context(), failingReferrers{reg}, ss.Root, false, repo, d, paymentsRef, "", acmeRules(t), delivery.PublisherSourceRule, nil)
+	if v.Verdict != delivery.VerdictUnknown || !strings.Contains(v.Reason, "registry down") || len([]rune(v.Reason)) > maxVerdictReason+1 {
+		t.Fatalf("verdict %+v", v)
+	}
+}
+
+// TestCheckPublisherWrongRoot: a signature from another certificate
+// authority is never accepted, and neither is one with no root at all.
+func TestCheckPublisherWrongRoot(t *testing.T) {
+	ss, other := testutil.New(t), testutil.New(t)
+	host, reg := testRegistry(t, true)
+	repo, d := signed(t, host, reg, ciSigner(t, other, acmeSubject, acmeRepo))
+	for _, root := range []*testutil.Sigstore{ss, nil} {
+		tm := signing.Policy{}.Root
+		if root != nil {
+			tm = root.Root
+		}
+		v := CheckPublisher(t.Context(), reg, tm, false, repo, d, paymentsRef, "", acmeRules(t), delivery.PublisherSourceRule, nil)
+		if v.Verdict != delivery.VerdictUnknown {
+			t.Fatalf("verdict %+v", v)
+		}
+	}
+}
+
+// TestCheckPublisherReadsSigTags: on a registry without the Referrers API the
+// signature is read from its pacto-sig tag.
+func TestCheckPublisherReadsSigTags(t *testing.T) {
+	ss := testutil.New(t)
+	host, reg := testRegistry(t, false)
+	repo, d := signed(t, host, reg, ciSigner(t, ss, acmeSubject, acmeRepo))
+	v := CheckPublisher(t.Context(), reg, ss.Root, false, repo, d, paymentsRef, "", acmeRules(t), delivery.PublisherSourceRule, nil)
+	if v.Verdict != delivery.VerdictAccepted {
+		t.Fatalf("verdict %+v", v)
+	}
+}
+
+// TestSignersOfSkipsAttestation: a verified statement that is not a
+// signature, under an annotation that claims one, names no signer.
+func TestSignersOfSkipsAttestation(t *testing.T) {
+	ss := testutil.New(t)
+	host, reg := testRegistry(t, true)
+	repo, d := signed(t, host, reg)
+	h, _ := v1.NewHash(d)
+	stmt := fmt.Appendf(nil, `{"_type":%q,"subject":[{"digest":{"sha256":%q}}],"predicateType":"https://slsa.dev/provenance/v1","predicate":{}}`, delivery.StatementType, h.Hex)
+	b, err := ciSigner(t, ss, acmeSubject, acmeRepo).Sign(t.Context(), delivery.PayloadType, stmt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signers, err := SignersOf(t.Context(), oneReferrer{reg, b}, ss.Root, false, repo, d)
+	if len(signers) != 0 || !errors.Is(err, ErrSignatureInvalid) {
+		t.Fatalf("signers %+v %v", signers, err)
+	}
+}
+
+// failingReferrers is a registry whose referrers cannot be listed.
+type failingReferrers struct{ *Client }
+
+func (failingReferrers) Referrers(context.Context, string, string, string) ([]string, error) {
+	return nil, errors.New("registry down")
+}
+
+// oneReferrer lists one referrer whose bundle is b, annotated as a signature.
+type oneReferrer struct {
+	*Client
+	b []byte
+}
+
+func (oneReferrer) Referrers(context.Context, string, string, string) ([]string, error) {
+	return []string{"sha256:" + strings.Repeat("0", 64)}, nil
+}
+
+func (o oneReferrer) Layer(context.Context, string, string) ([]byte, map[string]string, error) {
+	return o.b, map[string]string{deliveryrecord.AnnPredicateType: SignPredicate}, nil
+}

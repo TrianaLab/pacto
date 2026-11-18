@@ -448,3 +448,15 @@ func TestExtensionMemoised(t *testing.T) {
 		t.Fatalf("a failed pull was retried within its TTL")
 	}
 }
+
+// TestExternalCatalogReleaseSource: the default catalog is checked against
+// the Pacto release signer, and a match says so in its source.
+func TestExternalCatalogReleaseSource(t *testing.T) {
+	reg := provenanceTestRegistry(t)
+	signDefault(t, reg)
+	ref := contract.OCIScheme + reg.host + "/trianalab/pacto/external-catalog@" + externalcatalog.DefaultDigest()
+	p := newProvenanceChecker(reg.client).CheckSigner(t.Context(), externalCatalogSource, ref, externalcatalog.DefaultSigner, externalcatalog.DefaultIssuer)
+	if p.Signature.Status != fleet.SignatureVerified || p.Signature.Source != "release" || p.Signature.Signer != externalcatalog.DefaultSigner {
+		t.Fatalf("signature %+v", p.Signature)
+	}
+}

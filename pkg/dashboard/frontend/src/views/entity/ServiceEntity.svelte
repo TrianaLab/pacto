@@ -443,7 +443,7 @@
       {#if noneChecked}
         <p class="se-none t-body-2" data-testid="signatures-not-checked">No source that read these revisions checks signatures.</p>
       {:else if signed > 0}
-        <DistributionBar title="Bundle signatures of revisions in use" level={4} description="Verified means signed by the identity the revision's own contract declares in publish.sign." segments={signatures} total={sum.revisionsInUse ?? null} />
+        <DistributionBar title="Bundle signatures of revisions in use" level={4} description="Verified means a publisher rule, pin or policy accepted the signer." segments={signatures} total={sum.revisionsInUse ?? null} />
       {/if}
     {/if}
   </section>

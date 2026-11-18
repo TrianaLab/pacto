@@ -61,7 +61,7 @@ const template = (extra: Record<string, any> = {}) => ({
   createdServices: preview([ref('service', 'ghcr.io/acme/gift-cards', 'gift-cards')]),
   hiddenCreatedServices: 2,
   signature: { status: 'verified', signer: 'platform@acme.dev', issuer: 'https://accounts.example', bundles: 1 },
-  signatureNote: 'Signed by the signer the golden path\'s own contract declares; Pacto did not check it against a trust config.',
+  signatureNote: 'The signer was checked against a publisher rule, pin or policy; the golden path\'s own contract never decides who may sign it.',
   instantiate: { ref: `oci://${PATH}@sha256:${'a'.repeat(64)}`, cli: CLI, mcp: MCP },
   ...extra,
 });
@@ -97,7 +97,7 @@ describe('ServiceEntity: a golden path', () => {
     expect(create.querySelectorAll('button.copyable-btn').length).toBe(2);
     const sig = gp.querySelector('[data-testid="golden-path-signature"]')!;
     expect(sig.textContent).toContain('platform@acme.dev');
-    expect(sig.textContent).toContain('did not check it against a trust config');
+    expect(sig.textContent).toContain('checked against a publisher rule, pin or policy');
     const req = gp.querySelector('[data-testid="golden-path-requirements"]')!;
     expect(req.textContent).toContain('postgresql');
     expect(req.textContent).toContain('satisfied');
@@ -123,7 +123,7 @@ describe('ServiceEntity: a golden path', () => {
     const { target, done } = await render(detail(PATH, 'http-service', { template: template({ signature: undefined }) }, { template: true }));
     const sig = target.querySelector('[data-testid="golden-path-signature"]')!;
     expect(sig.textContent).toContain('Not checked');
-    expect(sig.textContent).not.toContain('did not check it against a trust config');
+    expect(sig.textContent).not.toContain('checked against a publisher rule, pin or policy');
     done();
   });
 

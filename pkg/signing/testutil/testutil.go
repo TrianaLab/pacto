@@ -12,13 +12,16 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/asn1"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"io"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -47,6 +50,46 @@ func Token(identity, issuer string) string {
 	return "e30." + base64.RawURLEncoding.EncodeToString(claims) + ".sig"
 }
 
+// CIToken is an OIDC token of a CI workload: the fake Fulcio issues a
+// certificate whose URI SAN is subjectURI and whose extensions attest issuer,
+// the source repository and its ref, as Fulcio does for GitHub Actions.
+func CIToken(subjectURI, issuer, repository, ref string) string {
+	claims, _ := json.Marshal(map[string]string{"sub": subjectURI, "iss": issuer, "repository": repository, "ref": ref})
+	return "e30." + base64.RawURLEncoding.EncodeToString(claims) + ".sig"
+}
+
+// Fulcio's certificate extensions a CI leaf carries: the issuer (v2), the
+// source repository URI and its ref, each a DER UTF8String.
+var (
+	oidIssuerV2      = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 8}
+	oidSourceRepo    = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 12}
+	oidSourceRepoRef = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 14}
+)
+
+// ciLeaf is the certificate Fulcio issues a CI workload: a URI SAN and the
+// extensions sigstore-go reads into certificate.Extensions.
+func ciLeaf(subject, issuer, repository, ref string, pub crypto.PublicKey, parent *x509.Certificate, parentKey crypto.Signer) (*x509.Certificate, error) {
+	san, err := url.Parse(subject)
+	if err != nil {
+		return nil, err
+	}
+	ext := func(id asn1.ObjectIdentifier, v string) pkix.Extension {
+		der, _ := asn1.MarshalWithParams(v, "utf8")
+		return pkix.Extension{Id: id, Value: der}
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1), URIs: []*url.URL{san},
+		NotBefore: time.Now().Add(-time.Minute), NotAfter: time.Now().Add(9 * time.Minute),
+		KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageCodeSigning},
+		ExtraExtensions: []pkix.Extension{ext(oidIssuerV2, issuer), ext(oidSourceRepo, repository), ext(oidSourceRepoRef, ref)},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, parent, pub, parentKey)
+	if err != nil {
+		return nil, err
+	}
+	return x509.ParseCertificate(der)
+}
+
 // New starts a private Sigstore that lives as long as t.
 func New(t testing.TB) *Sigstore {
 	t.Helper()
@@ -61,7 +104,7 @@ func New(t testing.TB) *Sigstore {
 	must(t, err)
 
 	fulcio := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var claims struct{ Sub, Iss string }
+		var claims struct{ Sub, Iss, Repository, Ref string }
 		parts := strings.Split(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), ".")
 		raw, _ := base64.RawURLEncoding.DecodeString(parts[min(1, len(parts)-1)])
 		var req struct {
@@ -79,7 +122,12 @@ func New(t testing.TB) *Sigstore {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		leaf, err := ca.GenerateLeafCert(claims.Sub, claims.Iss, time.Now().Add(-time.Minute), signerOf{pub}, inter, interKey)
+		var leaf *x509.Certificate
+		if claims.Repository != "" {
+			leaf, err = ciLeaf(claims.Sub, claims.Iss, claims.Repository, claims.Ref, pub, inter, interKey)
+		} else {
+			leaf, err = ca.GenerateLeafCert(claims.Sub, claims.Iss, time.Now().Add(-time.Minute), signerOf{pub}, inter, interKey)
+		}
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

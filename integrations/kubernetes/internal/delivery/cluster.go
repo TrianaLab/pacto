@@ -23,7 +23,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 
@@ -224,22 +223,11 @@ func pinsIdentity(obj map[string]any) bool {
 		m, _ := id.(map[string]any)
 		issuer, _ := m["issuer"].(string)
 		subject, _ := m["subject"].(string)
-		if !pinned(issuer) || !pinned(subject) {
+		if !delivery.PinnedPattern(issuer) || !delivery.PinnedPattern(subject) {
 			return false
 		}
 	}
 	return len(ids) > 0
-}
-
-// foreignIdentity is an issuer and subject no publisher has: a pattern that
-// matches it matches anyone.
-const foreignIdentity = "https://example.invalid/x"
-
-// pinned reports whether the Flux identity pattern p is anchored at both
-// ends, is a valid expression and does not match foreignIdentity.
-func pinned(p string) bool {
-	re, err := regexp.Compile(p)
-	return err == nil && strings.HasPrefix(p, "^") && strings.HasSuffix(p, "$") && !re.MatchString(foreignIdentity)
 }
 
 // sourceVerified reports whether Flux's SourceVerified condition is True for
