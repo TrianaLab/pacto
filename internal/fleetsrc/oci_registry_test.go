@@ -2,6 +2,7 @@ package fleetsrc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"slices"
 	"strings"
@@ -43,10 +44,10 @@ func TestRegistryRowNative(t *testing.T) {
 
 func TestRegistryRowProbeFailedIsPartial(t *testing.T) {
 	tried := time.Date(2026, 11, 17, 9, 0, 0, 0, time.UTC)
-	row := registryProbeFailedRow("oci", "ghcr.io", nil, tried, errors.New("timeout"))
+	row := registryProbeFailedRow("oci", "ghcr.io", nil, tried)
 	if row.AsOf == nil || !row.AsOf.Equal(tried) || row.Status != fleet.SourcePartial || row.UsedFor == nil || len(row.UsedFor) != 0 || row.Evidence != "capabilities unknown" ||
 		len(row.Limitations) != 1 || row.Limitations[0].Code != fleet.LimitationRegistryProbeFailed || row.Limitations[0].Source != "oci" ||
-		!strings.Contains(row.Limitations[0].Message, "registry ghcr.io could not be probed: timeout") {
+		row.Limitations[0].Message != "registry ghcr.io could not be probed; Pacto does not know which mode it would use" {
 		t.Fatalf("row = %+v", row)
 	}
 }
@@ -189,5 +190,68 @@ func TestRegistryRowKeptWhenOneRefVisible(t *testing.T) {
 	j := slices.IndexFunc(want, func(p fleet.Provider) bool { return p.ID == "registry:ghcr.io" })
 	if i < 0 || j < 0 || got[i].Evidence != want[j].Evidence || !slices.Equal(got[i].Details, want[j].Details) {
 		t.Fatalf("rows = %+v, want the registry row unchanged", got)
+	}
+}
+
+// TestRegistryProbeFailureHidesTheSubject: the probe subject is the first ref
+// on a host, here a hidden service whose repository path does not carry its
+// name. A failed probe's error names that repository and tag; a viewer who
+// sees another service on the host must not learn them.
+func TestRegistryProbeFailureHidesTheSubject(t *testing.T) {
+	store := &fakeStore{
+		bundles: map[string]*contract.Bundle{"ghcr.io/x/internal-gl:2.3.0": bundleFor("b"), "ghcr.io/x/a:1.0.0": bundleFor("a")},
+		digest:  map[string]string{"ghcr.io/x/internal-gl:2.3.0": validDigest("b"), "ghcr.io/x/a:1.0.0": validDigest("a")},
+	}
+	s := NewOCISource("oci", store, []string{"ghcr.io/x/internal-gl:2.3.0", "ghcr.io/x/a:1.0.0"})
+	s.RegistryProbe = func(_ context.Context, ref string) (capabilities.Capabilities, error) {
+		return capabilities.Capabilities{}, errors.New(`GET "https://` + ref + `": 401`)
+	}
+	targets := fleet.NewMemorySource("k8s", fleet.SourceKindKubernetes, &fleet.Collection{Targets: []fleet.RawTarget{
+		{Scope: "a", Kind: "kubernetes", Name: "a", Service: "a", Domain: "ghcr.io/x"},
+		{Scope: "b", Kind: "kubernetes", Name: "b", Service: "b", Domain: "ghcr.io/x"},
+	}})
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, targets, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	only := func(ns string) bool { return ns == "a" }
+	got, _ := json.Marshal(fleet.NewQuery(snap).Restrict(only, func(ns, _ string) bool { return only(ns) }).Providers())
+	if !strings.Contains(string(got), "registry:ghcr.io") || strings.Contains(string(got), "internal-gl") {
+		t.Fatalf("restricted providers = %s", got)
+	}
+}
+
+// TestRegistryProbeFailureKeepsTheAttemptTime: a failure the prober answers
+// from its cache carries when the probe was tried; the row says that, not
+// when it was built.
+func TestRegistryProbeFailureKeepsTheAttemptTime(t *testing.T) {
+	s := NewOCISource("oci", registryStore(), []string{"ghcr.io/x/a:1.0.0"})
+	s.RegistryProbe = func(context.Context, string) (capabilities.Capabilities, error) {
+		return capabilities.Capabilities{CheckedAt: probedAt}, errors.New("down")
+	}
+	col, _ := s.Collect(context.Background())
+	if len(col.Providers) != 1 || !col.Providers[0].AsOf.Equal(probedAt) {
+		t.Fatalf("rows = %+v", col.Providers)
+	}
+}
+
+// TestRegistryRowsNormaliseTheHost: docker.io and index.docker.io are one
+// registry, so one row, keyed as the probe names it whether it succeeds or
+// fails.
+func TestRegistryRowsNormaliseTheHost(t *testing.T) {
+	store := &fakeStore{
+		bundles: map[string]*contract.Bundle{"docker.io/x/a:1.0.0": bundleFor("a"), "index.docker.io/x/b:1.0.0": bundleFor("b")},
+		digest:  map[string]string{"docker.io/x/a:1.0.0": validDigest("a"), "index.docker.io/x/b:1.0.0": validDigest("b")},
+	}
+	s := NewOCISource("oci", store, []string{"docker.io/x/a:1.0.0", "index.docker.io/x/b:1.0.0"})
+	s.RegistryProbe = func(context.Context, string) (capabilities.Capabilities, error) {
+		return capabilities.Capabilities{}, errors.New("down")
+	}
+	col, _ := s.Collect(context.Background())
+	if len(col.Providers) != 1 || col.Providers[0].ID != "registry:index.docker.io" || len(col.Providers[0].Services) != 2 {
+		t.Fatalf("rows = %+v", col.Providers)
+	}
+	if got := registryHost("not a ref/x"); got != "not a ref" {
+		t.Fatalf("unparseable ref host = %q", got)
 	}
 }

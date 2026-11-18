@@ -4,12 +4,15 @@ import (
 	"cmp"
 	"context"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/google/go-containerregistry/pkg/name"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -85,7 +88,7 @@ func (s *OCISource) registryRows(ctx context.Context, revs []fleet.RawRevision) 
 	subject := map[string]string{}
 	services := map[string][]fleet.ServiceKey{}
 	for _, r := range revs {
-		host, _, _ := strings.Cut(contract.TrimOCIScheme(r.ResolvedRef), "/")
+		host := registryHost(r.ResolvedRef)
 		if _, ok := subject[host]; !ok {
 			hosts = append(hosts, host)
 			subject[host] = r.ResolvedRef
@@ -100,12 +103,26 @@ func (s *OCISource) registryRows(ctx context.Context, revs []fleet.RawRevision) 
 	for _, host := range hosts {
 		caps, err := s.RegistryProbe(pctx, subject[host])
 		if err != nil {
-			rows = append(rows, registryProbeFailedRow(s.id, host, services[host], time.Now(), err))
+			// The error names the subject's repository, which may belong to a
+			// service a restricted viewer cannot see: it stays in the log.
+			slog.WarnContext(ctx, "probing a registry failed", "host", host, "error", err)
+			rows = append(rows, registryProbeFailedRow(s.id, host, services[host], cmp.Or(caps.CheckedAt, time.Now())))
 			continue
 		}
 		rows = append(rows, RegistryRow(caps, services[host]))
 	}
 	return rows
+}
+
+// registryHost is the registry of ref as the probe names it: docker.io and
+// index.docker.io are one registry, so one row with one ID.
+func registryHost(ref string) string {
+	ref = contract.TrimOCIScheme(ref)
+	if r, err := name.ParseReference(ref); err == nil {
+		return r.Context().RegistryStr()
+	}
+	host, _, _ := strings.Cut(ref, "/")
+	return host
 }
 
 // RegistryRow is the detected-provider row of one probed registry host: what
@@ -134,13 +151,14 @@ func RegistryRow(c capabilities.Capabilities, services []fleet.ServiceKey) fleet
 }
 
 // registryProbeFailedRow is the row of a host the probe could not read:
-// partial, with the reason, and no mode. at is when the probe was tried.
-func registryProbeFailedRow(source, host string, services []fleet.ServiceKey, at time.Time, err error) fleet.Provider {
+// partial, with no mode. at is when the probe was tried. The message never
+// carries the probe error: it names the probed repository and tag.
+func registryProbeFailedRow(source, host string, services []fleet.ServiceKey, at time.Time) fleet.Provider {
 	return fleet.Provider{
 		ID: fleet.ProviderRegistryPrefix + host, Name: "Registry " + host, AsOf: &at,
 		Evidence: "capabilities unknown", UsedFor: []string{}, Status: fleet.SourcePartial, Services: services,
 		Limitations: []fleet.Limitation{{Code: fleet.LimitationRegistryProbeFailed, Source: source,
-			Message: "registry " + host + " could not be probed: " + err.Error() + "; Pacto does not know which mode it would use"}},
+			Message: "registry " + host + " could not be probed; Pacto does not know which mode it would use"}},
 	}
 }
 
