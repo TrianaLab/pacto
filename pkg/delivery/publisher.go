@@ -227,7 +227,9 @@ func DeriveRule(registry, defaultBranch string) (PublisherRule, string) {
 	if defaultBranch == "" {
 		defaultBranch = "main"
 	}
-	o, b := regexp.QuoteMeta(org), regexp.QuoteMeta(defaultBranch)
+	// The org matches in any case: GitHub and GitLab names are case-insensitive
+	// and their registries lowercase them (ghcr.io/trianalab is TrianaLab).
+	o, b := "(?i:"+regexp.QuoteMeta(org)+")", regexp.QuoteMeta(defaultBranch)
 	var r PublisherRule
 	switch host {
 	case "ghcr.io":

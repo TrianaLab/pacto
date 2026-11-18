@@ -50,6 +50,12 @@ func TestDeriveRuleGitHub(t *testing.T) {
 	if anchoredMatch(r.Subject, other.Subject) || anchoredMatch(r.Repository, other.Repository) {
 		t.Fatal("another org matched")
 	}
+	// The org matches in any case: ghcr.io lowercases a GitHub org.
+	mixed := ciAcme
+	mixed.Subject, mixed.Repository = strings.Replace(mixed.Subject, "acme", "AcMe", 1), strings.Replace(mixed.Repository, "acme", "AcMe", 1)
+	if !anchoredMatch(r.Subject, mixed.Subject) || !anchoredMatch(r.Repository, mixed.Repository) {
+		t.Fatalf("a mixed-case org did not match: %+v", r)
+	}
 	// A deeper path keeps its first segment as the org, and the default branch defaults to main.
 	if d, _ := DeriveRule("oci://GHCR.io/acme/team", ""); d.Subject != r.Subject {
 		t.Fatalf("deep path %+v", d)

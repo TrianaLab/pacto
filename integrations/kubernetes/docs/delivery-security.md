@@ -85,7 +85,7 @@ checks, and each verdict names the one that decided:
 
 | Source | Accepts | Set by |
 |---|---|---|
-| `rule` | On `ghcr.io/<org>`, a GitHub Actions workflow of `<org>`; on `registry.gitlab.com/<group>`, a GitLab CI pipeline of `<group>`. Both on the default branch, and the repository the certificate attests must match the artifact's `org.opencontainers.image.source` | `delivery.publishers.registry` and `defaultBranch` |
+| `rule` | On `ghcr.io/<org>`, a GitHub Actions workflow of `<org>`; on `registry.gitlab.com/<group>`, a GitLab CI pipeline of `<group>`, the org or group in any case. Both on the default branch, and the repository the certificate attests must match the artifact's `org.opencontainers.image.source` | `delivery.publishers.registry` and `defaultBranch` |
 | `pin` | One CI identity (issuer, subject and repository) a person confirmed for one service | the delivery inbox |
 | `policy` | The rules of a signed delivery policy, which replace the derived rule once verified | `delivery.publishers.policy` and `policySigners` |
 
