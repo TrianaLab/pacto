@@ -170,3 +170,17 @@ func TestInitClusterNeverCompletes(t *testing.T) {
 		}
 	}
 }
+
+// completePlanned fails, never writing a record, when the contract it would
+// plan does not parse or the folder cannot be read.
+func TestCompletePlannedErrors(t *testing.T) {
+	bad := &planner{r: &Result{Dir: t.TempDir(), Files: []File{{Path: "pacto.yaml", Action: Add, Content: "service: ["}}}}
+	if err := bad.completePlanned(contract.InferredInputs{}); err == nil || !strings.Contains(err.Error(), "is not valid") {
+		t.Errorf("unparsable plan: %v", err)
+	}
+	gone := writeTree(t, t.TempDir(), map[string]string{"file": "x"}) + "/file" // a file, never a folder
+	p := &planner{r: &Result{Dir: gone, Files: []File{{Path: "pacto.yaml", Action: Add, Content: completeContract}}}}
+	if err := p.completePlanned(contract.InferredInputs{}); err == nil || !strings.Contains(err.Error(), "reading "+gone) || p.r.Inferred != nil {
+		t.Errorf("unreadable folder: %v, %+v", err, p.r.Inferred)
+	}
+}

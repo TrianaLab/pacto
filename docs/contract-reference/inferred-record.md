@@ -18,7 +18,7 @@ format: pacto.inferred/v1
 inputs:
   commit: 4e1a9c0d...          # left out when the folder is not a git checkout
   pacto: 4.6.0                 # the Pacto that completed it
-  discovery: "2"               # raised when what Pacto reads from a folder changes
+  discovery: "3"               # raised when what Pacto reads from a folder changes
   sources:                     # every file a field cites, sorted by path
     - {path: deploy/app.yaml, digest: "sha256:..."}
     - {path: openapi/v1.yaml, digest: "sha256:..."}

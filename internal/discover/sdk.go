@@ -39,8 +39,12 @@ type sdkDep struct {
 // it, nil when the folder has none. ok is false when it cannot be parsed.
 type sdkFormat struct {
 	ecosystem string
-	read      func(data []byte, open func(name string) []byte) (deps []sdkDep, ok bool)
+	read      func(data []byte, open opener) (deps []sdkDep, ok bool)
 }
+
+// opener reads the file name beside a manifest, nil when the folder has none;
+// a reader calls unparsable when it cannot parse what it read.
+type opener func(name string) (data []byte, unparsable func())
 
 // sdkFormats are the manifests read, by base name; requirements*.txt is
 // matched apart. Each is read only for dependency names and versions:
@@ -123,12 +127,16 @@ func (u *folderScan) manifest(rel string, cat *externalcatalog.Catalog) {
 	if !ok {
 		return
 	}
-	deps, ok := format.read(data, func(name string) []byte {
-		if p := sibling(name); u.files[p] {
-			b, _ := u.readFile(p)
-			return b
+	deps, ok := format.read(data, func(name string) ([]byte, func()) {
+		p := sibling(name)
+		unparsable := func() {
+			u.findings = append(u.findings, contract.InferredFinding{Code: CodeUnreadable, Source: p, Message: unreadableMessage(p, unreadableNotParsed)})
 		}
-		return nil
+		if !u.files[p] {
+			return nil, unparsable
+		}
+		b, _ := u.readFile(p)
+		return b, unparsable
 	})
 	if !ok {
 		u.findings = append(u.findings, contract.InferredFinding{Code: CodeUnreadable, Source: rel, Message: unreadableMessage(rel, unreadableNotParsed)})
@@ -179,7 +187,7 @@ func majorOf(version string) *int {
 
 // goModDeps are the requires of a go.mod; the major is the version's, which
 // a /vN path suffix always matches.
-func goModDeps(data []byte, _ func(string) []byte) ([]sdkDep, bool) {
+func goModDeps(data []byte, _ opener) ([]sdkDep, bool) {
 	f, err := modfile.ParseLax("go.mod", data, nil)
 	if err != nil {
 		return nil, false
@@ -197,11 +205,15 @@ var exactRangeRE = regexp.MustCompile(`^[\^~]?v?[0-9]+(\.[0-9]+){0,2}(-[0-9A-Za-
 // npmDeps are a package.json's dependencies and optionalDependencies (a
 // devDependency is a tool, not a runtime client), the major from
 // package-lock.json, else from an exact range.
-func npmDeps(data []byte, open func(string) []byte) ([]sdkDep, bool) {
+func npmDeps(data []byte, open opener) ([]sdkDep, bool) {
 	if !json.Valid(data) {
 		return nil, false
 	}
-	lock := npmLockMajors(open("package-lock.json"))
+	raw, unparsable := open("package-lock.json")
+	lock, ok := npmLockMajors(raw)
+	if !ok {
+		unparsable() // the major falls back to an exact package.json range
+	}
 	var out []sdkDep
 	jsonKeys(data, 0, func(key string, _, start int, _ json.RawMessage) {
 		if key != "dependencies" && key != "optionalDependencies" {
@@ -222,14 +234,18 @@ func npmDeps(data []byte, open func(string) []byte) ([]sdkDep, bool) {
 }
 
 // npmLockMajors are the majors a package-lock.json locks, by package name:
-// lockfile v2 and v3 packages, v1 dependencies. Only versions are read.
-func npmLockMajors(data []byte) map[string]*int {
+// lockfile v2 and v3 packages, v1 dependencies. Only versions are read. ok is
+// false when a lockfile is there and cannot be parsed.
+func npmLockMajors(data []byte) (map[string]*int, bool) {
+	if data == nil {
+		return nil, true
+	}
 	var lock struct {
 		Packages     map[string]struct{ Version string } `json:"packages"`
 		Dependencies map[string]struct{ Version string } `json:"dependencies"`
 	}
 	if json.Unmarshal(data, &lock) != nil {
-		return nil // ponytail: an unparsable lockfile leaves the package.json range
+		return nil, false
 	}
 	out := map[string]*int{}
 	for name, d := range lock.Dependencies {
@@ -240,7 +256,7 @@ func npmLockMajors(data []byte) map[string]*int {
 			out[name] = majorOf(p.Version)
 		}
 	}
-	return out
+	return out, true
 }
 
 // jsonKeys calls visit with each key of the JSON object that starts at the
@@ -267,7 +283,7 @@ var requirementRE = regexp.MustCompile(`^([A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:\[[^\
 
 // requirementsDeps are the names a requirements file lists, with a major only
 // when pinned with == or ~=. Options, -r, -e and URLs are skipped.
-func requirementsDeps(data []byte, _ func(string) []byte) ([]sdkDep, bool) {
+func requirementsDeps(data []byte, _ opener) ([]sdkDep, bool) {
 	var out []sdkDep
 	eachLine(data, func(n int, line string) {
 		if i := strings.Index(line, " #"); i >= 0 {
@@ -290,7 +306,7 @@ func requirementsDeps(data []byte, _ func(string) []byte) ([]sdkDep, bool) {
 
 // poetryDeps are the name and version of each [[package]] of a poetry.lock,
 // read line by line.
-func poetryDeps(data []byte, _ func(string) []byte) ([]sdkDep, bool) {
+func poetryDeps(data []byte, _ opener) ([]sdkDep, bool) {
 	var out []sdkDep
 	inPackage := false
 	eachLine(data, func(n int, line string) {
@@ -317,7 +333,7 @@ func poetryDeps(data []byte, _ func(string) []byte) ([]sdkDep, bool) {
 
 // gradleDeps are the group:artifact:version=configurations lines of a
 // gradle.lockfile.
-func gradleDeps(data []byte, _ func(string) []byte) ([]sdkDep, bool) {
+func gradleDeps(data []byte, _ opener) ([]sdkDep, bool) {
 	var out []sdkDep
 	eachLine(data, func(n int, line string) {
 		coord, _, _ := strings.Cut(strings.TrimSpace(line), "=")
@@ -346,7 +362,7 @@ type pomDep struct {
 // mavenDeps are the project's dependencies in a pom.xml, a ${property}
 // version resolved only against the file's own properties.
 // dependencyManagement and repositories are never read.
-func mavenDeps(data []byte, _ func(string) []byte) ([]sdkDep, bool) {
+func mavenDeps(data []byte, _ opener) ([]sdkDep, bool) {
 	p := &pomReader{dec: xml.NewDecoder(bytes.NewReader(data)), props: map[string]string{}}
 	for {
 		tok, err := p.dec.Token()

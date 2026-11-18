@@ -173,6 +173,7 @@ func TestSDKUnreadableManifests(t *testing.T) {
 	uses, findings, read := sdkUsesOf(t, dir)
 	equalUses(t, uses, []string{"stripe api/package.json:1 stripe 1"}) // an unparsable lockfile leaves the range
 	equalUses(t, findings, []string{
+		CodeUnreadable + " api/package-lock.json api/package-lock.json " + unreadableNotParsed,
 		CodeUnreadable + " go.mod go.mod " + unreadableNotParsed,
 		CodeUnreadable + " requirements.txt requirements.txt " + unreadableNotRegular,
 		CodeUnreadable + " web/package.json web/package.json " + unreadableNotParsed,
