@@ -54,7 +54,12 @@ func NewPublishServer(version string, run PublishFunc, a Authoring) *mcpsdk.Serv
 		if err != nil {
 			return resultOrError(nil, err)
 		}
-		return resultOrError(res.Plan, nil)
+		// The plan with the notes pacto publish --plan prints (a Secret
+		// left out, not reproducible, ...), so an agent sees them too.
+		return resultOrError(struct {
+			publish.Plan
+			Notes []string `json:"notes,omitempty"`
+		}{res.Plan, res.Notes}, nil)
 	})
 	addTool(server, &mcpsdk.Tool{
 		Name:        "pacto_publish",

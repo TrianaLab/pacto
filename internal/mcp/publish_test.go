@@ -22,10 +22,13 @@ func TestPublishTools(t *testing.T) {
 	}
 	server := NewPublishServer("v", run, Authoring{})
 	args := map[string]any{"path": "svc", "revision": "r", "image": want.Image, "registry": want.Registry, "sign_key": want.SignKey, "no_transparency_log": true}
-	res = &publish.Result{Plan: publish.Plan{Service: "payments", Ready: true, Missing: 2}, Actions: []string{"pushed"}}
-	var p publish.Plan
+	res = &publish.Result{Plan: publish.Plan{Service: "payments", Ready: true, Missing: 2}, Actions: []string{"pushed"}, Notes: []string{"chart/secret.yaml holds a Secret"}}
+	var p struct {
+		publish.Plan
+		Notes []string `json:"notes"`
+	}
 	decode(t, callToolOn(t, server, "pacto_publish_plan", args), &p)
-	if !p.Ready || p.Missing != 2 {
+	if !p.Ready || p.Missing != 2 || len(p.Notes) != 1 {
 		t.Fatalf("plan: %+v", p)
 	}
 	var r publish.Result

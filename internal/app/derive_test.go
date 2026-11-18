@@ -393,6 +393,24 @@ func TestPublishPlanChecksDerivedBuilders(t *testing.T) {
 	}
 }
 
+// A relative --sign-key is read from the working directory, never from the
+// contract directory a derived section is resolved against.
+func TestPublishDerivedRelativeSignKey(t *testing.T) {
+	host, reg := publishRegistry(t)
+	dir := sectionless(t, "1.0.0", "", nil)
+	keys := t.TempDir()
+	pub := keyFiles(t, keys)
+	t.Chdir(keys)
+	opts := PublishOptions{Path: dir, Revision: "r1", Registry: host + "/acme", SignKey: "cosign.key", NoTransparencyLog: true}
+	res, err := publishService(&fakeRun{}, reg).Publish(t.Context(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := publish.VerifyDigest(t.Context(), reg, bundleVerifier(signing.Policy{Key: pub}), host+"/acme/payments", res.Digests[publish.BundleItem]); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestPublishDerivedWithSignKey(t *testing.T) {
 	host, reg := publishRegistry(t)
 	dir := sectionless(t, "1.0.0", "", nil)

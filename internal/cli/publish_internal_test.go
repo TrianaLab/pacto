@@ -232,6 +232,17 @@ func TestMCPPublishMode(t *testing.T) {
 	}
 }
 
+// pacto_publish refuses a pull request pipeline the way pacto publish does:
+// the adapter hands the runner's environment in.
+func TestMCPPublishRefusesPullRequest(t *testing.T) {
+	t.Setenv("GITHUB_ACTIONS", "true")
+	t.Setenv("GITHUB_BASE_REF", "main")
+	_, err := mcpPublish(app.NewService(nil, nil), defaultDeps())(context.Background(), pactomcp.PublishArgs{Path: t.TempDir()}, false)
+	if err == nil || !strings.Contains(err.Error(), app.RefusedPullRequest) {
+		t.Fatalf("a pull request pipeline publishes nothing: %v", err)
+	}
+}
+
 // Every --on-behalf-of says the name is the person's cluster username: the
 // own-change rule compares it with the approver's, so a Git login never matches.
 func TestOnBehalfOfHelpNamesTheClusterUsername(t *testing.T) {

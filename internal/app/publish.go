@@ -38,7 +38,8 @@ type PublishOptions struct {
 	// Registry is where a derived publish section publishes; empty lets the
 	// CI context and the workload image decide.
 	Registry string
-	// SignKey signs a derived publish section with this cosign key file;
+	// SignKey signs a derived publish section with this cosign key file, a
+	// relative path read from the working directory like any CLI file flag;
 	// NoTransparencyLog keeps its signatures out of the transparency log.
 	SignKey           string
 	NoTransparencyLog bool
@@ -93,6 +94,15 @@ func (s *Service) Publish(ctx context.Context, opts PublishOptions) (*publish.Re
 	}
 	if err := opts.flagErr(); err != nil {
 		return nil, err
+	}
+	if opts.SignKey != "" {
+		// The derived section resolves a relative key against the contract
+		// directory, which is right only for a key the contract declares.
+		abs, err := filepath.Abs(opts.SignKey)
+		if err != nil {
+			return nil, fmt.Errorf("--sign-key %s: %w", opts.SignKey, err)
+		}
+		opts.SignKey = abs
 	}
 	// The record names the revision the manifests are stamped with.
 	revision := s.localInputs(path, opts.Revision).Commit
