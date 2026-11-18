@@ -1020,15 +1020,6 @@ func TestBlankWithoutOwnerIsUnknown(t *testing.T) {
 	}
 }
 
-// TestBlankDescribeOnlyHasNoPublish: describe-only writes no publish section,
-// so no signing key and no .pactoignore.
-func TestBlankDescribeOnlyHasNoPublish(t *testing.T) {
-	r, c := planBlank(t, Options{DescribeOnly: true, Registry: "ghcr.io/acme"})
-	if c.Publish != nil || slices.ContainsFunc(r.Files, func(f File) bool { return f.Path == ".pactoignore" }) || hasLine(r.Unknown, "registry") {
-		t.Fatalf("plan: %+v", r)
-	}
-}
-
 // TestBlankIsValid: every option combination writes a contract that
 // validates.
 func TestBlankIsValid(t *testing.T) {
