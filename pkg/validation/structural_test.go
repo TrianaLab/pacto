@@ -1155,38 +1155,14 @@ func TestIdentityNeeds25(t *testing.T) {
 	}
 }
 
-// TestDeliveryApplierValid: each applier value validates on 2.5.
-func TestDeliveryApplierValid(t *testing.T) {
-	for _, v := range []string{"auto", "argocd", "flux"} {
-		data := map[string]any{"pactoVersion": "2.5", "service": map[string]any{"name": "svc", "version": "1.0.0"}, "delivery": map[string]any{"applier": v}}
-		if r := ValidateStructural(data); !r.IsValid() {
-			t.Errorf("applier %s: %v", v, r.Errors)
-		}
-	}
-	if r := ValidateStructural(map[string]any{"pactoVersion": "2.5", "service": map[string]any{"name": "svc", "version": "1.0.0"}, "delivery": map[string]any{}}); !r.IsValid() {
-		t.Errorf("empty delivery: %v", r.Errors)
-	}
-}
-
-// TestDeliveryApplierInvalidValue: an applier outside the enum and an
-// unknown delivery key are schema errors.
-func TestDeliveryApplierInvalidValue(t *testing.T) {
-	for _, d := range []map[string]any{{"applier": "kargo"}, {"applier": "built-in"}, {"applier": "argocd", "other": true}} {
-		if r := ValidateStructural(map[string]any{"pactoVersion": "2.5", "service": map[string]any{"name": "svc", "version": "1.0.0"}, "delivery": d}); r.IsValid() {
-			t.Errorf("delivery %v: valid, want a schema error", d)
-		}
-	}
-}
-
-// TestDeliveryApplierNeeds25: an older contract with a delivery section gets
-// one NEEDS_PACTO_2_5 at delivery and no generic schema error.
-func TestDeliveryApplierNeeds25(t *testing.T) {
-	for _, version := range []string{"2.0", "2.4"} {
+// TestDeliveryIsNotAField: delivery left pactoVersion 2.5 before its release,
+// so the schema refuses it as any unknown key and no NEEDS_PACTO_2_5 joins.
+func TestDeliveryIsNotAField(t *testing.T) {
+	for _, version := range []string{contract.Current(), contract.SupportedVersions[len(contract.SupportedVersions)-2]} {
 		data := map[string]any{"pactoVersion": version, "service": map[string]any{"name": "svc", "version": "1.0.0"}, "delivery": map[string]any{"applier": "argocd"}}
 		r := ValidateStructural(data)
-		if len(r.Errors) != 1 || r.Errors[0].Code != "NEEDS_PACTO_2_5" || r.Errors[0].Path != "delivery" ||
-			!strings.Contains(r.Errors[0].Message, `delivery needs pactoVersion "2.5"`) {
-			t.Fatalf("%s: errors = %+v, want one NEEDS_PACTO_2_5 at delivery", version, r.Errors)
+		if len(r.Errors) != 1 || r.Errors[0].Code != "SCHEMA_VIOLATION" {
+			t.Fatalf("%s: errors = %+v, want one SCHEMA_VIOLATION", version, r.Errors)
 		}
 		if _, ok := data["delivery"]; !ok {
 			t.Fatal("the caller's data was changed")

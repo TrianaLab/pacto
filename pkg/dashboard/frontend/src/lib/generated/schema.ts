@@ -1177,7 +1177,6 @@ export interface components {
             capabilities?: components["schemas"]["Contract.Capability"][] | null;
             checks?: components["schemas"]["Contract.Check"][] | null;
             configurations?: components["schemas"]["Contract.Configuration"][] | null;
-            delivery?: components["schemas"]["Contract.Delivery"];
             dependencies?: components["schemas"]["Contract.Dependency"][] | null;
             environments?: components["schemas"]["Contract.Environment"][] | null;
             extensions?: {
@@ -1194,9 +1193,6 @@ export interface components {
             service: components["schemas"]["Contract.Service"];
             state?: components["schemas"]["Contract.State"];
             workload?: string;
-        };
-        "Contract.Delivery": {
-            applier?: string;
         };
         "Contract.Dependency": {
             compatibility?: string;

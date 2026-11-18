@@ -1234,23 +1234,6 @@
         }
       }
     },
-    "delivery": {
-      "type": "object",
-      "description": "How the Pacto promoter delivers this service.",
-      "additionalProperties": false,
-      "properties": {
-        "applier": {
-          "type": "string",
-          "enum": [
-            "auto",
-            "argocd",
-            "flux"
-          ],
-          "default": "auto",
-          "description": "The manager that applies this service's workloads. auto, the default, adopts the manager that already owns each workload; argocd or flux require that manager and the promoter refuses a Stage that applies through another one."
-        }
-      }
-    },
     "checks": {
       "type": "array",
       "description": "Test or eval suites shipped with this version. Pacto treats them as opaque: it packs each file in the bundle, records its sha256 and hands file and digest to the runner a delivery gate names, accepting only a verdict about that exact digest.",

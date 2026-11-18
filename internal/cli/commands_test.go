@@ -625,6 +625,29 @@ state:
 	}
 }
 
+// TestValidateRemovedDeliveryHint: a contract that still carries the delivery
+// section fails to load with PARSE_ERROR and says where the applier lives now.
+func TestValidateRemovedDeliveryHint(t *testing.T) {
+	dir := t.TempDir()
+	content := "pactoVersion: \"" + contract.Current() + "\"\nservice:\n  name: svc\n  version: 1.0.0\ndelivery:\n  applier: argocd\n"
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	root := cli.NewRootCommand(app.NewService(nil, nil), cli.VersionInfo{Version: "test"})
+	root.SetOut(&out)
+	root.SetErr(&out)
+	root.SetArgs([]string{"validate", dir})
+	if err := root.Execute(); err == nil {
+		t.Fatal("validate passed a contract with a delivery section")
+	}
+	for _, want := range []string{"PARSE_ERROR", "the Stage's spec.applyRef names the applier"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output lacks %q:\n%s", want, out.String())
+		}
+	}
+}
+
 func TestLoginCommand_WriteConfigError(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)

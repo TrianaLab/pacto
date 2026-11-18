@@ -285,7 +285,7 @@ func authoringRows() []surfaceRow {
 		alike("validate", "", "", "checks of pacto validate that pacto_check runs through its suggestions; the dashboard validates nothing", "closure", "readiness", "set", "values"),
 		alike("explain", "", "", "overrides the CLI applies to a local contract before explaining it; pacto_check reads the contract as it is", "set", "values"),
 		alike("", "pacto_edit", "", whyNoEdit, "add-config-properties", "add-configuration-refs", "add-dependencies", "add-environments", "add-interfaces",
-			"add-policy-refs", "applier", "data-loss-impact", "data-shared-across-instances", "data-survives-restart", "domain", "dry-run", "lifecycle", "name",
+			"add-policy-refs", "data-loss-impact", "data-shared-across-instances", "data-survives-restart", "domain", "dry-run", "lifecycle", "name",
 			"offering", "owner", "path", "remove-configuration-refs", "remove-dependencies", "remove-environments", "remove-interfaces", "remove-metadata",
 			"set-environment-values", "set-metadata", "stores-data", "summary", "template", "version", "workload"),
 	)
