@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/trianalab/pacto/v4/internal/ci"
 	"github.com/trianalab/pacto/v4/internal/fleetsrc"
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -93,6 +94,38 @@ type FleetOptions struct {
 	// extraSources join the configured ones. Impact uses it to add the new
 	// revision when no configured source holds the changed service.
 	extraSources []fleet.Source
+}
+
+// ConsumerSources names, one printable entry each, the sources set in o that
+// can name a consumer of a changed service, redacted: the one place that
+// says which source flags can. LocalRoots never counts (it is the repository
+// itself), and whether a source actually answered is read from the snapshot.
+func (o FleetOptions) ConsumerSources() []string {
+	var out []string
+	add := func(flag string, values ...string) {
+		for _, v := range values {
+			out = append(out, ci.Redact(strings.TrimSpace(flag+" "+v)))
+		}
+	}
+	add("--root", o.CatalogRoots...)
+	add("--oci", o.OCIRefs...)
+	if o.IncludeCache {
+		add("--cache", "")
+	}
+	if o.IncludeK8s {
+		ns := "(all namespaces)"
+		if len(o.K8sNamespaces) > 0 {
+			ns = "(namespace " + strings.Join(o.K8sNamespaces, ",") + ")"
+		}
+		add("--k8s", ns)
+	}
+	add("--evidence-url", o.EvidenceURLs...)
+	add("--mira-source", o.MiraURLs...)
+	add("--target-state", o.TargetStateFiles...)
+	for _, spec := range o.ObservationSources {
+		add("--traces", spec.Path)
+	}
+	return out
 }
 
 // Fleet builds an immutable [fleet.FleetSnapshot] from the configured sources.

@@ -148,7 +148,7 @@ func TestChangedFileContent(t *testing.T) {
 	if r.Changed != "yes" || !strings.HasPrefix(r.Reason, "content sha256:") || !strings.Contains(r.Reason, " != baseline 1.0.0 sha256:") {
 		t.Fatalf("row = %+v", r)
 	}
-	if r.Classification != "NON_BREAKING" || r.Next != "1.0.1" || !r.Derived || r.Impact.Text != "unverified (pending)" {
+	if r.Classification != "NON_BREAKING" || r.Next != "1.0.1" || !r.Derived || r.Impact.Text != "unverified (no consumer source)" {
 		t.Fatalf("row = %+v", r)
 	}
 }
@@ -170,9 +170,10 @@ func TestChangedRecordSources(t *testing.T) {
 	e := newCIRepo(t)
 	e.write(t, map[string]string{"reports/pacto.yaml": reportsV1, "CODEOWNERS": "/reports/ @acme/reporting\n"})
 	e.publish(t, "reports", "acme/reports", "1.0.0", nil)
-	e.write(t, map[string]string{"CODEOWNERS": "# owners\n/reports/ @acme/reporting\n"})
+	e.write(t, map[string]string{"CODEOWNERS": "# owners\n/reports/ @acme/reporting\n", "reports/pacto.yaml": "service: {name: reports}\n"})
 	r := row(t, e.plan(t), "reports")
-	if r.Changed != "yes" || r.Reason != "inferred inputs differ from 1.0.0 (sources)" || r.Classification != "NON_BREAKING" {
+	if r.Changed != "yes" || r.Reason != "inferred inputs differ from 1.0.0 (sources)" || r.Classification != "NON_BREAKING" ||
+		!strings.HasPrefix(r.Impact.Text, "unverified (inferred fields changed: ") {
 		t.Fatalf("row = %+v", r)
 	}
 }
@@ -397,7 +398,7 @@ func TestCIBaselinesMatchPublish(t *testing.T) {
 		t.Fatalf("derived row = %+v", r)
 	}
 	e.write(t, map[string]string{"reports/pacto.yaml": "service: {name: reports, version: 2.0.0}\n" + ledgerDep})
-	if r = row(t, e.plan(t), "reports"); r.Next != "2.0.0" || r.Impact.Text != "unverified (pending)" {
+	if r = row(t, e.plan(t), "reports"); r.Next != "2.0.0" || r.Impact.Text != "unverified (no consumer source)" {
 		t.Fatalf("accepted row = %+v", r)
 	}
 }
