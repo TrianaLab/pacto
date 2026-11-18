@@ -273,3 +273,30 @@ func TestCIMigrationLeavesFolderUntouched(t *testing.T) {
 		t.Fatalf("the folder changed:\n%v\n%v", before, after)
 	}
 }
+
+// TestCIPublishUnchangedBehindWithoutSectionFails: a behind contract with no
+// publish section, pushed as written by an earlier CLI, reads unchanged
+// against that baseline and goes back to its as-written bundle. Nothing
+// verifies that baseline as the publisher's, so the row fails with the fix
+// (raise pactoVersion, which derives a section) and never reads unchanged.
+func TestCIPublishUnchangedBehindWithoutSectionFails(t *testing.T) {
+	e := newCIPub(t)
+	y := asBehind("pactoVersion: " + strconv.Quote(contract.Current()) + "\nservice:\n  name: legacy\n  version: 1.0.0\n")
+	e.write(t, map[string]string{"legacy/pacto.yaml": y})
+	c, _, err := contract.ParseDocument([]byte(y))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := oci.NewClient(anonymous, oci.WithInsecureRegistries(e.host)).Push(t.Context(), e.host+"/acme/legacy:1.0.0",
+		&contract.Bundle{Contract: c, RawYAML: []byte(y), FS: fstest.MapFS{"pacto.yaml": {Data: []byte(y)}}}); err != nil {
+		t.Fatal(err)
+	}
+	before := e.reg.writes.Load()
+	p := e.ciPublish(t, nil)
+	r := pubRow(t, p, "legacy")
+	cur := contract.Current()
+	if r.Changed != "no" || r.State != ci.StateFailed || p.Exit != 1 || e.reg.writes.Load() != before ||
+		r.Reason != "declares no publish section; Pacto derives one for pactoVersion "+cur+": set pactoVersion: "+strconv.Quote(cur) {
+		t.Fatalf("row %+v exit %d writes %d", r, p.Exit, e.reg.writes.Load()-before)
+	}
+}

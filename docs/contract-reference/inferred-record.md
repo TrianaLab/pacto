@@ -159,8 +159,8 @@ fields:
 ### Migrations
 
 When [`pacto ci`](../ci.md#older-contracts) raises an older `pactoVersion` in
-memory, the bundle's record says so. A record can hold `migrations` and no
-`fields`:
+memory, the bundle's record says so. A record can hold `migrations` and an
+empty `fields`:
 
 ```yaml
 format: pacto.inferred/v1
@@ -168,6 +168,8 @@ inputs:
   commit: 4e1a9c0d...
   pacto: 4.6.0
   discovery: "1"
+  sources: []
+fields: []
 migrations:
   - from: "2.4"                # the version pacto.yaml declares in your folder
     to: "2.5"                  # the version the bundled copy declares
