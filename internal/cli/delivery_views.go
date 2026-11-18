@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
@@ -49,7 +50,10 @@ func newDeliveryViewCommand(d deps, route, short string) *cobra.Command {
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 1 {
-				_ = cmd.Flags().Set("service", args[0]) // a positionalService view declares service
+				if svc, _ := cmd.Flags().GetString("service"); cmd.Flags().Changed("service") && svc != args[0] {
+					return fmt.Errorf("give the service once: as the argument or with --service, not %q and %q", args[0], svc)
+				}
+				_ = cmd.Flags().Set("service", args[0]) // a positionalService view declares service, a string flag: Set never fails
 			}
 			c, ns, err := deliveryClient(cmd, d)
 			if err != nil {

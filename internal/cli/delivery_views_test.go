@@ -84,6 +84,11 @@ func TestDeliveryTrustPositionalService(t *testing.T) {
 	sameAnswer(t, "trust payments", out, routeBody(t, h, context.Background(), "/api/delivery/trust?service=payments"), "asOf")
 	_, err = runDelivery(t, d, "json", "trust", "payments", "orders")
 	wantErr(t, err, "accepts at most 1 arg")
+	_, err = runDelivery(t, d, "json", "trust", "payments", "--service", "orders")
+	wantErr(t, err, "give the service once")
+	out, err = runDelivery(t, d, "json", "trust", "payments", "--service", "payments")
+	expect(t, err == nil, "trust payments --service payments: %v", err)
+	sameAnswer(t, "trust payments --service payments", out, routeBody(t, h, context.Background(), "/api/delivery/trust?service=payments"), "asOf")
 	_, err = runDelivery(t, d, "json", "published", "payments")
 	wantErr(t, err, "unknown command")
 }
