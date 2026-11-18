@@ -499,7 +499,7 @@ type deployFiles struct {
 	// no tag or digest: kustomize matches an images entry by it literally.
 	written string
 	files   map[string][]byte
-	notes                               []string
+	notes   []string
 }
 
 // folder reads the service folder through its root, so no read leaves it:
