@@ -17,7 +17,7 @@ endif
 
 IMAGE := ghcr.io/trianalab/pacto/dashboard
 
-.PHONY: build test test-integration test-registry-conformance test-acceptance-localtest-acceptance-compose perf-envtest \
+.PHONY: build test test-integration test-registry-conformance test-acceptance-local test-acceptance-compose perf-envtest \
         test-acceptance-compose-selftest \
         test-browser test-browser-layout-full test-browser-live test-browser-compose docs-screenshots \
         e2e coverage lint check-section clean docs docs-build docs-demo demo-preview-clean gen-cli-docs docker-build docker-run \
