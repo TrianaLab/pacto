@@ -258,6 +258,18 @@ describe('what a change says about itself', () => {
     expect(changeSummary(promote({ phase: 'Concluded', outcome: 'Failed', verification: 'Unverified' }), 'prod')).not.toMatch(/: :|pacto\.trianalab\.io|->/);
   });
 
+  it('says a trust change confirms a signer, with no version and no verification word', () => {
+    const trust = (status: Record<string, string>) => ({ spec: { type: 'delivery.pacto.trianalab.io/trust', stage: 'audit-log', params: { from: 'sha256:a', to: 'sha256:b', publisher: { subject: 'https://github.com/acme/a/.github/workflows/hotfix.yml@refs/heads/main' } } }, status });
+    expect(changeSummary(trust({ phase: 'Concluded', outcome: 'Succeeded', verification: 'Unverified' }), 'prod'))
+      .toBe('Confirm https://github.com/acme/a/.github/workflows/hotfix.yml@refs/heads/main may publish what audit-log in prod delivers: ended, a person confirmed it.');
+    expect(changeSummary(trust({ phase: 'Concluded', outcome: 'Rejected' }), 'prod')).toMatch(/: ended, a person refused it\.$/);
+    expect(changeSummary(trust({ phase: 'Concluded', outcome: 'Expired' }), 'prod')).toMatch(/: ended, Expired\.$/);
+    expect(changeSummary(trust({ phase: 'Concluded' }), 'prod')).toMatch(/: ended\.$/);
+    expect(changeSummary(trust({ phase: 'Held' }), 'prod')).toMatch(/delivers: waits for a person\.$/);
+    expect(changeSummary(trust({ phase: 'Odd' }), 'prod')).toMatch(/: is odd\.$/);
+    expect(changeSummary({ spec: { type: 'delivery.pacto.trianalab.io/trust', stage: 's' } }, 'prod')).toBe('Confirm a signer may publish what s in prod delivers: is not admitted yet.');
+  });
+
   it('names a person, an agent or the controller with a chip', () => {
     expect(actorBadge('human')?.label).toBe('Person');
     expect(actorBadge('agent')?.label).toBe('Agent');

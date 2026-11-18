@@ -6,7 +6,7 @@
   import { deliveryInboxUrl, deliveryHistoryUrl, deliveryChangeUrl, fleetEntityUrl } from '../lib/router.ts';
   import { deliveryServiceUrl } from '../lib/deliveryLinks.svelte.ts';
   import { typeLabel, shortDigest, shortDigests, predictionLabel, decisionLabel, authTimeText, changeSummary, actorBadge,
-    undoCause, versionLabel, levelLabel, levelHelp, timeLabel, AUTONOMY_TYPE, reasonWords, reasonAfter, gateLabel, andList, decisionAsked, classSourceLabel } from '../lib/delivery.ts';
+    undoCause, versionLabel, levelLabel, levelHelp, timeLabel, AUTONOMY_TYPE, TRUST_TYPE, reasonWords, reasonAfter, gateLabel, andList, decisionAsked, classSourceLabel } from '../lib/delivery.ts';
   import ApprovalAccess from '../components/ApprovalAccess.svelte';
   import DeliveryLead from '../components/DeliveryLead.svelte';
   import CappedList from '../components/CappedList.svelte';
@@ -70,6 +70,7 @@
       case 'delivery.pacto.trianalab.io/promote': return `Ship ${toV || 'this version'} to ${env}?`;
       case 'delivery.pacto.trianalab.io/rollback': return `Roll ${env} back to ${toV || 'the version before'}?`;
       case AUTONOMY_TYPE: return `Move ${env} to ${toV || 'a new level'}?`;
+      case TRUST_TYPE: return `May ${e.spec.params?.publisher?.subject || 'this signer'} publish what ${env} delivers?`;
       default: return `${typeLabel(e.spec.type)} on ${env}?`;
     }
   });

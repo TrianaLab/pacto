@@ -95,6 +95,20 @@ describe('changeModel stations (G3)', () => {
     expect([c.tone, c.stations[4].sub]).toEqual(['neutral', 'stopped: cancelled']);
   });
 
+  it('draws a confirmed or rejected trust change as nothing moving, never as a stopped or unverified release', () => {
+    const trust = (st: Any) => {
+      const c = change(st);
+      c.explanation.spec = { ...c.explanation.spec, type: 'delivery.pacto.trianalab.io/trust', params: { from: FROM, to: TO, publisher: { subject: 'https://github.com/acme/pay/.github/workflows/hotfix.yml@refs/heads/main' } } };
+      return changeModel(c, 'prod');
+    };
+    const ok = trust({ phase: 'Concluded', outcome: 'Succeeded', verification: 'Unverified', approvals: [{ decision: 'approve' }] });
+    expect([ok.at, ok.tone]).toEqual([4, 'ok']);
+    expect(view(ok).slice(4)).toEqual(['Gate|ok|a person confirmed the signer: nothing moves', 'prod/payments|neutral|nothing moves: still runs 2.0.0|rest', 'Checks after release|neutral|none: nothing moves|rest']);
+    expect(ok.summary).not.toMatch(/2\.0\.1|verified/);
+    const no = trust({ phase: 'Concluded', outcome: 'Rejected', approvals: [{ decision: 'reject' }] });
+    expect([no.tone, no.stations[4].sub]).toEqual(['neutral', 'rejected: nothing is pinned']);
+  });
+
   it('says where the version comes from, as the Stage declares it', () => {
     const origin = (upstream: Any, type?: string) => {
       const d = change({}, { upstream });

@@ -110,6 +110,9 @@
   let acting = $state(null);
   let opener = null;
   const keyOf = (r) => `${r.namespace}/${r.stage}`;
+  // A pinned service's signer that changed is asked as a change, never as a
+  // first signer: the question names the identity it replaces.
+  const pinnedBefore = (it) => (it.question ?? '').match(/: signer changed from (\S+) to /)?.[1] ?? '';
   function act(e, r, o) { opener = e.currentTarget; acting = { key: keyOf(r), ...offerRequest(r, o) }; }
   function close() { acting = null; opener?.focus(); }
 </script>
@@ -118,7 +121,7 @@
   <li class="pl-row dl-row">
     <div class="dl-main">
       <a class="dl-title" class:dl-again={again && it.to && it.type !== TRUST_TYPE} href={deliveryChangeUrl(it.namespace, it.name)}>
-        {#if it.type === TRUST_TYPE && it.publisher}{it.service || `${it.namespace}/${it.stage}`}: new signer <bdi title={it.publisher.subject}>{it.publisher.subject}</bdi>{#if it.publisher.repository}{' '}(repository <bdi title={it.publisher.repository}>{it.publisher.repository}</bdi>, attested){/if}
+        {#if it.type === TRUST_TYPE && it.publisher}{@const was = pinnedBefore(it)}{it.service || `${it.namespace}/${it.stage}`}: {#if was}signer changed from <bdi title={was}>{was}</bdi> to{:else}new signer{/if} <bdi title={it.publisher.subject}>{it.publisher.subject}</bdi>{#if it.publisher.repository}{' '}(repository <bdi title={it.publisher.repository}>{it.publisher.repository}</bdi>, attested){/if}
         {:else if again && it.to}<span class="visually-hidden">{`${changeOn(it)}: `}</span>{moveOf(it)}{:else}{it.to ? `${changeOn(it)}: ${moveOf(it)}` : changeOn(it)}{/if}
       </a>
       <p class="dl-facts t-body-2">

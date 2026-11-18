@@ -31,7 +31,8 @@
       {#if st.value === 'verified'}<span class="bp-v">Signed by <bdi>{sig.signer}</bdi></span>{/if}
     </div>
     {#if sig}<div class="bp-row" class:bp-muted={sig.source === 'inferred'} data-testid="bundle-checked-against"><span class="bp-k">Checked against</span><span>{checked}</span><ProvenanceMark label="Why this check" text={checkedTip} /></div>{/if}
-    {#if sig?.signer}<div class="bp-row"><span class="bp-k">Signer</span><span class="bp-v">{sig.signer}</span></div>{/if}
+    <!-- A verified signature names its signer on the Signature row already. -->
+    {#if sig?.signer && st.value !== 'verified'}<div class="bp-row"><span class="bp-k">Signer</span><span class="bp-v">{sig.signer}</span></div>{/if}
     {#if sig?.issuer}<div class="bp-row"><span class="bp-k">Issuer</span><span class="bp-v">{sig.issuer}</span></div>{/if}
     {#if sig?.expectedSigner}<div class="bp-row"><span class="bp-k">Expected signer</span><span class="bp-v">{sig.expectedSigner}</span></div>{/if}
     {#if sig?.expectedIssuer}<div class="bp-row"><span class="bp-k">Expected issuer</span><span class="bp-v">{sig.expectedIssuer}</span></div>{/if}

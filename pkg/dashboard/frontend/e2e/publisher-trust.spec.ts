@@ -39,7 +39,10 @@ test('a person confirms a new signer from the inbox, and the Published view then
   await expect(page.getByTestId('change-publisher')).toContainText(`Signer ${HOTFIX}, issuer https://token.actions.githubusercontent.com, repository https://github.com/trianalab/audit-log`, { timeout: T });
   await audit(page, 'change, new signer');
   const panel = page.getByTestId('decision-panel');
-  await panel.getByRole('button', { name: 'Approve' }).click({ timeout: T });
+  // Confirming pins the signer and moves nothing, and the panel says so.
+  await expect(panel).toContainText(`Pacto pins ${HOTFIX} for the service prod/audit-log delivers. Nothing moves`, { timeout: T });
+  await expect(panel).not.toContainText('Approve shipping');
+  await panel.getByRole('button', { name: 'Confirm this signer', exact: true }).click({ timeout: T });
   await expect(page.getByTestId('decision-recorded')).toBeVisible({ timeout: T });
 
   await page.goto('/#/delivery/inbox');

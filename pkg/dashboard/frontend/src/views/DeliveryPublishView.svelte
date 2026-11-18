@@ -204,7 +204,9 @@
                   <summary>Recent publisher checks</summary>
                   <ul>
                     {#each p.verdicts.slice(0, CHECKS) as v, i (v.digest + '#' + i)}
-                      <li title={v.reason}><bdi class="pv-mono">{v.version || shortDigest(v.digest)}</bdi> {v.verdict.replace('-', ' ')}{v.verdict === 'accepted' ? ` by ${publisherSourceLabel(v.source)}` : ''}: {v.reason}</li>
+                      {@const verdict = `${v.verdict.replace('-', ' ')}${v.verdict === 'accepted' ? ` by ${publisherSourceLabel(v.source)}` : ''}`}
+                      <!-- The verdict leads, so a long version is what gets cut; the title keeps the whole line. -->
+                      <li title={`${v.version || v.digest} ${verdict}: ${v.reason}`}><span class="pv-verdict">{verdict[0].toUpperCase() + verdict.slice(1)}</span> <bdi class="pv-mono">{v.version || shortDigest(v.digest)}</bdi>: {v.reason}</li>
                     {/each}
                   </ul>
                 </details>
@@ -293,7 +295,7 @@
   .pv-publisher p { display: inline-flex; align-items: center; gap: var(--sp-1); margin: 0; }
   .pv-checks > summary { cursor: pointer; }
   .pv-checks ul { margin: var(--sp-1) 0 0; padding-left: var(--sp-5); }
-  /* A reason is cut to one line, whole on hover. */
+  /* A check is cut to one line, whole on hover. */
   .pv-checks li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   @media (pointer: coarse) { .pv-checks > summary { min-block-size: 44px; display: flex; align-items: center; } }
   .state-box { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); padding: var(--sp-8) var(--sp-4); text-align: center; color: var(--c-text-3); }

@@ -314,7 +314,7 @@ export function reasonWords(reason: string | undefined): string {
 
 /** The fields changeSummary reads from an explanation. */
 export interface ChangeFacts {
-  spec?: { type?: string; stage?: string; params?: { from?: string; to?: string } | null };
+  spec?: { type?: string; stage?: string; params?: { from?: string; to?: string; publisher?: { subject?: string } | null } | null };
   status?: { phase?: string; outcome?: string; verification?: string };
 }
 
@@ -324,6 +324,7 @@ export interface ChangeFacts {
  */
 export function changeSummary(e: ChangeFacts | null | undefined, namespace: string, versions?: Record<string, string> | null): string {
   if (!e) return '';
+  if (e.spec?.type === TRUST_TYPE) return trustSummary(e, namespace);
   const p = e.spec?.params ?? {};
   const v = (d: string | undefined) => (!d ? '' : e.spec?.type === AUTONOMY_TYPE ? levelLabel(d) : versionLabel(d, versions));
   const move = p.from && p.to ? ` from ${v(p.from)} to ${v(p.to)}` : p.to ? ` to ${v(p.to)}` : '';
@@ -336,6 +337,19 @@ export function changeSummary(e: ChangeFacts | null | undefined, namespace: stri
     return `${what} ${end ? `ended: it ${end}` : 'ended'}.`;
   }
   return `${what} ${PHASES[st.phase ?? ''] ?? `is ${(st.phase ?? '').toLowerCase()}`}.`;
+}
+
+/**
+ * trustSummary says what a trust change asked: whether a signer may publish
+ * what the Stage delivers. It moves nothing, so it names no version and no
+ * verification.
+ */
+function trustSummary(e: ChangeFacts, namespace: string): string {
+  const what = `Confirm ${e.spec?.params?.publisher?.subject || 'a signer'} may publish what ${e.spec?.stage ?? ''} in ${namespace} delivers`;
+  const st = e.status ?? {};
+  if (st.phase !== 'Concluded') return `${what}: ${PHASES[st.phase ?? ''] ?? `is ${(st.phase ?? '').toLowerCase()}`}.`;
+  const end = st.outcome === 'Succeeded' ? 'a person confirmed it' : st.outcome === 'Rejected' ? 'a person refused it' : OUTCOMES[st.outcome ?? ''] ?? st.outcome;
+  return `${what}: ${end ? `ended, ${end}` : 'ended'}.`;
 }
 
 const ACTOR_BADGES: Record<string, { label: string; tone: string }> = {

@@ -597,6 +597,8 @@ describe('BundleProvenance', () => {
     expect(row.textContent).toContain('why rule');
     expect(row.classList.contains('bp-muted')).toBe(false);
     expect(target.textContent).toContain('Signed by https://github.com/acme/pay/.github/workflows/ci.yml@refs/heads/main');
+    // The signer is named once in the card.
+    expect(target.textContent?.split('https://github.com/acme/pay/.github/workflows/ci.yml@refs/heads/main').length).toBe(2);
     unmount(comp); comp = null; target.innerHTML = '';
     comp = mount(BundleProvenance, { target, props: { bundle: bundle('inferred') } });
     const inferred = target.querySelector('[data-testid="bundle-checked-against"]') as HTMLElement;

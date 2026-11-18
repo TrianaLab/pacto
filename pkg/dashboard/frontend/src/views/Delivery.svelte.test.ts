@@ -2692,6 +2692,39 @@ describe('publisher trust (511-S3)', () => {
     destroy();
   });
 
+  it('says on the decision panel that confirming a signer pins it and moves nothing', async () => {
+    const op = heldOperation();
+    op.explanation.spec = { ...op.explanation.spec, type: TRUST, params: { from: '', to: D2, publisher: signer } } as unknown as typeof op.explanation.spec;
+    op.operation.spec = { ...op.operation.spec, type: TRUST, params: { from: '', to: D2, publisher: signer } } as unknown as typeof op.operation.spec;
+    op.operation.status.plan.verdicts = [];
+    op.operation.status.plan.floor.consumers = [];
+    fns.operation.mockResolvedValue(op);
+    const { target, destroy } = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    const approve = target.querySelector('[data-testid="decide-approve"]') as HTMLButtonElement;
+    expect(approve.textContent).toBe('Confirm this signer');
+    expect(approve.title).toContain(`Confirm ${signer.subject} may publish`);
+    expect(target.querySelector('[data-testid="decide-reject"]')?.textContent).toBe('Reject: nothing is pinned');
+    expect(text(target)).toContain(`Pacto pins ${signer.subject} for the service`);
+    expect(text(target)).toContain('Nothing is pinned: versions this signer signs stay out.');
+    expect(text(target)).not.toMatch(/Approve shipping|goes to .* now|You can undo it later/);
+    expect(text(target.querySelector('h1') as HTMLElement)).toBe(`May ${signer.subject} publish what prod/${op.explanation.spec.stage} delivers?`);
+    destroy();
+  });
+
+  it('asks a changed signer of a pinned service as a change in the inbox', async () => {
+    const pinned = 'https://github.com/trianalab/audit-log/.github/workflows/release.yml@refs/heads/main';
+    fns.inbox.mockResolvedValue({ ...listing, frozen: [], errored: [],
+      held: [{ namespace: 'prod', name: 'pay-trust-0123456789', stage: 'pay', service: 'audit-log', type: TRUST, to: D2, phase: 'Held', decision: 'approve', owners: [], publisher: signer,
+        question: `audit-log: signer changed from ${pinned} to ${signer.subject} (issuer ${signer.issuer}, repository ${signer.repository}, attested). Confirm it may publish audit-log? Asked of: anyone` }] });
+    const { target, destroy } = render(DeliveryInboxView);
+    await settle();
+    const held = target.querySelector('[data-testid="inbox-held"]') as HTMLElement;
+    expect(text(held)).toContain(`audit-log: signer changed from ${pinned} to ${signer.subject}`);
+    expect(text(held)).not.toContain('new signer');
+    destroy();
+  });
+
   it('puts one publisher line under a service, with its source in a mark and the recent checks folded', async () => {
     const verdicts = Array.from({ length: 20 }, (_, i) => ({ digest: D1, version: `1.${i}.0`, verdict: i ? 'new-signer' : 'accepted', source: i ? 'none' : 'pin', reason: `reason ${i}`, at: '2026-11-01T10:00:00Z' }));
     fns.published.mockResolvedValue({ ...listing, services: [
@@ -2708,6 +2741,10 @@ describe('publisher trust (511-S3)', () => {
     const fold = audit.querySelector('details[data-testid="published-publisher-checks"]') as HTMLDetailsElement;
     expect(fold.open).toBe(false);
     expect(fold.querySelectorAll('li').length).toBe(5);
+    // The verdict leads and the title holds the whole line, so a cut never hides it.
+    const first = fold.querySelector('li') as HTMLElement;
+    expect(first.title).toBe('1.0.0 accepted by pin: reason 0');
+    expect(text(first).startsWith('Accepted by pin 1.0.0')).toBe(true);
     expect(orders.querySelector('[data-testid="published-publisher"]')).toBeNull();
     destroy();
   });

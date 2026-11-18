@@ -9,7 +9,7 @@
  * reached (A1b), and the ones it did not reach are drawn at rest from frame 0.
  */
 import type { DeliveryOperation } from './api.ts';
-import { AUTONOMY_TYPE, changeSummary, levelLabel, versionLabel } from './delivery.ts';
+import { AUTONOMY_TYPE, TRUST_TYPE, changeSummary, levelLabel, versionLabel } from './delivery.ts';
 import type { FigTone, GlyphName, WireDef } from './figure.ts';
 import type { Step, TokenWalk } from './narrate.ts';
 
@@ -51,6 +51,9 @@ export function changeModel(d: DeliveryOperation, namespace: string) {
   const env = d.environment || here;
   const stillRuns = fromV ? `still runs ${fromV}` : 'nothing changed here';
   const failed = outcome === 'Failed' || outcome === 'Errored';
+  // A trust change confirms who may publish; nothing moves past the gate.
+  const trust = e.spec.type === TRUST_TYPE;
+  const confirmed = trust && concluded && outcome === 'Succeeded';
 
   const stations: S[] = [
     origin(d, here, toV, fromV),
@@ -66,6 +69,8 @@ export function changeModel(d: DeliveryOperation, namespace: string) {
     const g = { key: 'gate', label: 'Gate', shape: 'diamond' as const };
     if (held && !applied) return { ...g, tone: 'warn', glyph: 'held', sub: 'holds it until a person decides' };
     if (applied || running) return { ...g, tone: 'ok', glyph: 'ok', sub: 'let it through' };
+    if (confirmed) return { ...g, tone: 'ok', glyph: 'ok', sub: 'a person confirmed the signer: nothing moves' };
+    if (trust && outcome === 'Rejected') return { ...g, tone: 'neutral', glyph: 'none', sub: 'rejected: nothing is pinned' };
     if (concluded) {
       if (outcome === 'Cancelled' || outcome === 'Superseded') return { ...g, tone: 'neutral', glyph: 'none', sub: `stopped: ${outcome === 'Cancelled' ? 'cancelled' : 'superseded'}` };
       return { ...g, tone: 'err', glyph: 'err', sub: outcome === 'Expired' ? 'stopped it: the decision expired' : outcome === 'Rejected' ? 'stopped it: rejected' : 'stopped it' };
@@ -75,6 +80,7 @@ export function changeModel(d: DeliveryOperation, namespace: string) {
   }
   function target(): S {
     const t = { key: 'to', label: env, shape: 'square' as const };
+    if (trust) return { ...t, tone: 'neutral', glyph: 'none', sub: `nothing moves: ${stillRuns}` };
     if (running && !applied) return { ...t, tone: 'accent', glyph: '', sub: `${toV || 'the change'} is being released` };
     if (applied) return failed ? { ...t, tone: 'err', glyph: 'err', sub: `${toV || 'the change'} was released here, then failed` } : { ...t, tone: 'ok', glyph: 'ok', sub: `${toV || 'the change'} was released here` };
     if (e.stage.frozen && !concluded) return { ...t, tone: 'frost', glyph: 'frozen', sub: `frozen: ${stillRuns}` };
@@ -82,6 +88,7 @@ export function changeModel(d: DeliveryOperation, namespace: string) {
   }
   function verify(): S {
     const v = { key: 'verify', label: 'Checks after release' };
+    if (trust) return { ...v, tone: 'neutral', glyph: 'none', sub: 'none: nothing moves' };
     if (!applied) return unknown('verify', v.label, 'not run');
     if (phase === 'Verifying') return { ...v, tone: 'neutral', glyph: '', sub: 'being checked' };
     if (held) return { ...v, tone: 'warn', glyph: 'held', sub: 'ended unknown: a person decides' };
@@ -109,7 +116,7 @@ export function changeModel(d: DeliveryOperation, namespace: string) {
   let tone: FigTone = 'accent';
   if (held && !applied) { at = GATE; tone = 'warn'; }
   else if (applied || running) { at = TO; tone = failed ? 'err' : held ? 'warn' : outcome === 'Succeeded' ? 'ok' : 'accent'; }
-  else if (concluded) { at = GATE; tone = outcome === 'Cancelled' || outcome === 'Superseded' ? 'neutral' : 'err'; }
+  else if (concluded) { at = GATE; tone = confirmed ? 'ok' : outcome === 'Cancelled' || outcome === 'Superseded' || (trust && outcome === 'Rejected') ? 'neutral' : 'err'; }
   else if (e.stage.frozen) tone = 'frost';
   else if (phase === 'Pending') at = GATE;
   const reach = applied && !running ? VERIFY : at;
