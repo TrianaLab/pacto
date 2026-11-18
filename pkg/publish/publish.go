@@ -216,22 +216,35 @@ func item(name, typ, ref string, st State, why string, r *Remote) Item {
 	return it
 }
 
-func signCheck(pub *contract.Publish) Check {
-	if pub.Sign == nil {
-		return Check{Name: "sign", Message: "publish.sign is not configured; everything published is signed, so publish refuses"}
+// SignOf is pub's signer: the declared publish.sign, or the zero value (keyless
+// as the identity the CI token names) when pub or its sign is nil.
+func SignOf(pub *contract.Publish) contract.PublishSign {
+	if pub == nil || pub.Sign == nil {
+		return contract.PublishSign{}
 	}
-	if s := pub.Sign; s.Key == "" && s.KMS == "" && s.TransparencyLog != nil && !*s.TransparencyLog {
-		return Check{Name: "sign", Message: "keyless signing needs the transparency log: a short-lived certificate verifies only at the time the log saw it"}
-	}
-	return Check{Name: "sign", Passed: true, Message: "signed with Sigstore (" + signMethod(pub.Sign) + ")"}
+	sign := pub.Sign
+	return *sign
 }
 
-func signMethod(s *contract.PublishSign) string {
+func signCheck(pub *contract.Publish) Check {
+	s := SignOf(pub)
+	if s.Key == "" && s.KMS == "" && s.TransparencyLog != nil && !*s.TransparencyLog {
+		return Check{Name: "sign", Message: "keyless signing needs the transparency log: a short-lived certificate verifies only at the time the log saw it"}
+	}
+	if pub.Sign == nil {
+		return Check{Name: "sign", Passed: true, Message: "signed keyless as the CI identity the OIDC token names"}
+	}
+	return Check{Name: "sign", Passed: true, Message: "signed with Sigstore (" + signMethod(s) + ")"}
+}
+
+func signMethod(s contract.PublishSign) string {
 	switch {
 	case s.Key != "":
 		return "key " + s.Key
 	case s.KMS != "":
 		return "kms " + s.KMS
+	case s.Identity == "":
+		return "keyless (identity from the OIDC token)"
 	}
 	return "keyless as " + s.Identity
 }

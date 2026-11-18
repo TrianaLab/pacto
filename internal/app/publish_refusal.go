@@ -34,13 +34,10 @@ func keepRefusal(ctx context.Context, env sysDeps, tools execTools, b *contract.
 		return ""
 	}
 	pub := b.Contract.Publish
-	if pub.Sign == nil {
-		return "the refusal was not kept: publish.sign is not configured, and a kept refusal is signed"
-	}
 	ctx, cancel := context.WithTimeout(ctx, refusalTimeout)
 	defer cancel()
 	repo := publish.Repo(pub.Bundle)
-	if err := pushRefusal(ctx, env, tools, b, *pub.Sign, repo, r); err != nil {
+	if err := pushRefusal(ctx, env, tools, b, publish.SignOf(pub), repo, r); err != nil {
 		return "the refusal was not kept in " + repo + ": " + err.Error()
 	}
 	return "the refusal is kept, signed, in " + repo

@@ -43,8 +43,14 @@ type Sigstore struct {
 // (an email SAN) from issuer. Fulcio would check its signature; this one
 // does not.
 func Token(identity, issuer string) string {
-	claims, _ := json.Marshal(map[string]string{"sub": identity, "iss": issuer})
-	return "e30." + base64.RawURLEncoding.EncodeToString(claims) + ".sig"
+	return TokenWith(map[string]string{"sub": identity, "iss": issuer})
+}
+
+// TokenWith is a token carrying claims. The fake Fulcio issues for "sub", so
+// a test sets it to the identity the other claims map to.
+func TokenWith(claims map[string]string) string {
+	raw, _ := json.Marshal(claims)
+	return "e30." + base64.RawURLEncoding.EncodeToString(raw) + ".sig"
 }
 
 // New starts a private Sigstore that lives as long as t.

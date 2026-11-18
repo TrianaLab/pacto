@@ -478,10 +478,6 @@ func TestPlanChecks(t *testing.T) {
 	nopub.Contract.Publish = nil
 	p := MakePlan(ctx, reg, Input{Bundle: nopub})
 	expect(t, !p.Ready && failedCheck(p) == "publish", "no publish section: %+v", p)
-	nosign := bundleOf(host, "1.0.0", workloadService)
-	nosign.Contract.Publish.Sign = nil
-	p = MakePlan(ctx, reg, Input{Bundle: nosign, Revision: "r"})
-	expect(t, failedCheck(p) == "sign", "no sign: %+v", p.Checks)
 	p = MakePlan(ctx, reg, Input{Bundle: b})
 	expect(t, failedCheck(p) == "revision", "no revision: %+v", p.Checks)
 	clash := bundleOf(host, "1.0.0", workloadService)
@@ -495,7 +491,7 @@ func TestPlanChecks(t *testing.T) {
 	docker.Contract.Publish.Artifacts[0].Build = contract.PublishBuild{Dockerfile: &contract.DockerfileBuild{Context: "."}}
 	p = MakePlan(ctx, reg, Input{Bundle: docker, Revision: "r"})
 	expect(t, failedCheck(p) == "sbom" && strings.Contains(p.Checks[2].Message, "writes no SBOM file"), "an SBOM on a dockerfile build: %+v", p.Checks)
-	for _, s := range []contract.PublishSign{{KMS: "awskms:///a"}, {Keyless: true, Identity: "ci@acme", Issuer: "https://issuer"}} {
+	for _, s := range []contract.PublishSign{{KMS: "awskms:///a"}, {Keyless: true, Identity: "ci@acme", Issuer: "https://issuer"}, {Keyless: true}} {
 		c := signCheck(&contract.Publish{Sign: &s})
 		expect(t, c.Passed, "sign %+v: %+v", s, c)
 	}
@@ -889,4 +885,17 @@ func TestCodeownersChangeIsNotIdentical(t *testing.T) {
 	pushBundle(t, reg, host, "1.0.0", withOwners("* @acme/a\n"))
 	it := bundleItem(MakePlan(ctx, reg, Input{Bundle: withOwners("* @acme/b\n"), Revision: "abc123"}))
 	expect(t, it.State == Conflict && it.Reason == "only the inferred record changed since 1.0.0, so a patch is enough"+NextVersion, "bundle: %+v", it)
+}
+
+// TestSignCheckNilSignKeyless: a publish section with no sign signs keyless as
+// the identity the CI's OIDC token names, so the plan passes its sign check.
+func TestSignCheckNilSignKeyless(t *testing.T) {
+	host, reg := newRegistry(t)
+	nosign := bundleOf(host, "1.0.0", workloadService)
+	nosign.Contract.Publish.Sign = nil
+	p := MakePlan(context.Background(), reg, Input{Bundle: nosign, Revision: "r"})
+	expect(t, failedCheck(p) == "" && p.Checks[0] == Check{Name: "sign", Passed: true, Message: "signed keyless as the CI identity the OIDC token names"},
+		"no sign: %+v", p.Checks)
+	expect(t, SignOf(nil) == contract.PublishSign{} && SignOf(nosign.Contract.Publish) == contract.PublishSign{}, "the zero signer")
+	expect(t, signMethod(contract.PublishSign{Keyless: true}) == "keyless (identity from the OIDC token)", "method")
 }

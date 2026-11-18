@@ -222,9 +222,6 @@ func TestPublishPlanChecksTheBuilders(t *testing.T) {
 	if err := builders(context.Background(), sysDeps{}, dir, &contract.Contract{}, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := newExecTools(dir, nil, nil).loadSigner(context.Background(), &contract.Contract{}); err != nil {
-		t.Fatal(err)
-	}
 }
 
 // TestPublishPlanFromTheContractDirectory: from the contract directory with
@@ -261,6 +258,11 @@ func TestPublishPlanChecksTheKeylessToken(t *testing.T) {
 	keyless := &contract.Contract{Publish: &contract.Publish{Sign: &contract.PublishSign{Keyless: true}}}
 	if err := newExecTools(dir, nil, nil).loadSigner(context.Background(), keyless); err == nil || !strings.Contains(err.Error(), "no OIDC token") {
 		t.Fatalf("keyless with no token: %v", err)
+	}
+	// No sign section signs keyless too, so it needs the token as well.
+	nosign := &contract.Contract{Publish: &contract.Publish{}}
+	if err := newExecTools(dir, nil, nil).loadSigner(context.Background(), nosign); err == nil || !strings.Contains(err.Error(), "no OIDC token") {
+		t.Fatalf("no sign with no token: %v", err)
 	}
 	oldRoot := publicGoodRoot
 	defer func() { publicGoodRoot = oldRoot }()

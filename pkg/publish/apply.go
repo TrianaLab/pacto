@@ -75,7 +75,7 @@ func Apply(ctx context.Context, reg Registry, tools Tools, in Input) (*Result, e
 	if err := r.bundle(); err != nil {
 		return res, err
 	}
-	if err := signAll(ctx, tools, *r.pub.Sign, r.pub, Repo(r.pub.Bundle), res); err != nil {
+	if err := signAll(ctx, tools, SignOf(r.pub), r.pub, Repo(r.pub.Bundle), res); err != nil {
 		return res, err
 	}
 	// The deploy artifact's tag goes last: it is the commit point.
@@ -103,7 +103,7 @@ func adoptOnlySigned(ctx context.Context, tools Tools, pub *contract.Publish, p 
 		if it.State != Adopt {
 			continue
 		}
-		if err := tools.Verify(ctx, *pub.Sign, strings.TrimSuffix(it.Ref, ":"+p.Version)+"@"+it.Digest); err != nil {
+		if err := tools.Verify(ctx, SignOf(pub), strings.TrimSuffix(it.Ref, ":"+p.Version)+"@"+it.Digest); err != nil {
 			p.Items[i].State, p.Ready = Conflict, false
 			p.Items[i].Reason = "the tag holds " + it.Digest + " with this version's provenance, but no signature by the configured identity, " +
 				"so Pacto did not publish it; it is never signed or overwritten (" + err.Error() + ")" + NextVersion
@@ -151,7 +151,7 @@ func (r *applier) artifacts() error {
 		if a.SBOM == "" {
 			continue
 		}
-		sbom, err := attachSBOM(r.ctx, r.reg, r.tools, *r.pub.Sign, a.SBOM, repo, digest, version, r.in.Revision, r.res)
+		sbom, err := attachSBOM(r.ctx, r.reg, r.tools, SignOf(r.pub), a.SBOM, repo, digest, version, r.in.Revision, r.res)
 		if err != nil {
 			return fmt.Errorf("SBOM of %s: %w", a.Name, err)
 		}

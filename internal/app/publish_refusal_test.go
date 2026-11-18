@@ -83,9 +83,6 @@ func TestKeepRefusalFailures(t *testing.T) {
 	if got := keepRefusal(t.Context(), env, tools, b, publish.Plan{}); got != "" {
 		t.Fatalf("no version refusal: %q", got)
 	}
-	if got := keepRefusal(t.Context(), env, tools, b, refused); !strings.Contains(got, "publish.sign is not configured") {
-		t.Fatalf("unsigned: %q", got)
-	}
 	b.Contract.Publish.Sign = &contract.PublishSign{Key: "missing.key"}
 	notKept := func(why string) {
 		t.Helper()

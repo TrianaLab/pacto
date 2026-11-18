@@ -212,11 +212,12 @@ func builders(ctx context.Context, env sysDeps, dir string, c *contract.Contract
 // keyOutsideBundle refuses a signing key file that would be packed into the
 // published bundle: a private key in a public artifact.
 func keyOutsideBundle(c *contract.Contract, fsys fs.FS) error {
-	if c.Publish == nil || c.Publish.Sign == nil || c.Publish.Sign.Key == "" || filepath.IsAbs(c.Publish.Sign.Key) {
+	key := publish.SignOf(c.Publish).Key
+	if key == "" || filepath.IsAbs(key) {
 		return nil
 	}
-	if _, err := fs.Stat(fsys, filepath.ToSlash(filepath.Clean(c.Publish.Sign.Key))); err == nil {
-		return fmt.Errorf("the signing key %s would be published inside the bundle; add it to .pactoignore or keep it outside the contract directory", c.Publish.Sign.Key)
+	if _, err := fs.Stat(fsys, filepath.ToSlash(filepath.Clean(key))); err == nil {
+		return fmt.Errorf("the signing key %s would be published inside the bundle; add it to .pactoignore or keep it outside the contract directory", key)
 	}
 	return nil
 }
@@ -343,10 +344,7 @@ func (t execTools) signing(ctx context.Context, sign contract.PublishSign) (sign
 // with no OIDC token refuses the plan, not a publish that already pushed. The
 // signer is kept for the run.
 func (t execTools) loadSigner(ctx context.Context, c *contract.Contract) error {
-	if c.Publish == nil || c.Publish.Sign == nil {
-		return nil // the sign check refuses it
-	}
-	sign := *c.Publish.Sign
+	sign := publish.SignOf(c.Publish)
 	if sign.Key == "" && sign.KMS == "" {
 		// The token is read only when signing, so check it is there.
 		if err := signing.HasIDToken(); err != nil {
@@ -379,8 +377,14 @@ func (t execTools) load(ctx context.Context, sign contract.PublishSign) (signing
 		if err != nil {
 			return signing.Signer{}, signing.Policy{}, fmt.Errorf("public-good Sigstore's trusted root: %w", err)
 		}
+		identity, issuer := sign.Identity, sign.Issuer
+		if identity == "" {
+			if identity, issuer, err = tokenIdentity(ctx); err != nil {
+				return signing.Signer{}, signing.Policy{}, err
+			}
+		}
 		s, err := signing.Keyless(fulcioURL, tsaURL, rekorURL, signing.IDToken(""), root)
-		return s, signing.Policy{Identity: sign.Identity, Issuer: sign.Issuer, Root: root, Tlog: rekorURL != ""}, err
+		return s, signing.Policy{Identity: identity, Issuer: issuer, Root: root, Tlog: rekorURL != ""}, err
 	}
 	if err != nil {
 		return signing.Signer{}, signing.Policy{}, err
@@ -390,6 +394,16 @@ func (t execTools) load(ctx context.Context, sign contract.PublishSign) (signing
 		log = rekorURL
 	}
 	return signing.Keyed(kp, log), signing.Policy{Key: kp.GetPublicKey()}, nil
+}
+
+// tokenIdentity is the identity and issuer the CI's OIDC token names, which a
+// signer with no declared identity signs as and its signatures verify against.
+func tokenIdentity(ctx context.Context) (string, string, error) {
+	tok, err := signing.IDToken("")(ctx)
+	if err != nil {
+		return "", "", err
+	}
+	return signing.TokenIdentity(tok)
 }
 
 // Verify implements publish.Tools: a signature referrer of ref that verifies
@@ -438,7 +452,7 @@ func (t execTools) Sign(ctx context.Context, sign contract.PublishSign, ref stri
 	// any tag is written.
 	if err := t.verify(ctx, p, ref); err != nil {
 		return false, fmt.Errorf("the signature Pacto wrote for %s does not verify against the configured identity (identity %q, issuer %q); check that the CI identity matches publish.sign: %w",
-			ref, sign.Identity, sign.Issuer, err)
+			ref, p.Identity, p.Issuer, err)
 	}
 	return true, nil
 }

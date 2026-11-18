@@ -13,6 +13,7 @@ import (
 	"crypto"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -276,7 +277,46 @@ func HasIDToken() error {
 	if os.Getenv("SIGSTORE_ID_TOKEN") != "" || (os.Getenv("ACTIONS_ID_TOKEN_REQUEST_URL") != "" && os.Getenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN") != "") {
 		return nil
 	}
-	return errors.New("no OIDC token: set SIGSTORE_ID_TOKEN, or run in GitHub Actions with id-token: write")
+	return errors.New("no OIDC token: set SIGSTORE_ID_TOKEN (on GitLab, an id_tokens entry named SIGSTORE_ID_TOKEN with aud: sigstore), or run in GitHub Actions with id-token: write")
+}
+
+// githubIssuer is the issuer of GitHub Actions OIDC tokens.
+const githubIssuer = "https://token.actions.githubusercontent.com"
+
+// TokenIdentity reads, without verifying it, the identity and issuer Fulcio
+// puts in the certificate it issues for token: on GitHub Actions the workflow
+// that runs (job_workflow_ref, a reusable workflow's own ref when one is
+// used), on GitLab the pipeline configuration (ci_config_ref_uri), otherwise
+// the email claim. Fulcio verifies the token and the signature is verified
+// against exactly this identity, so a forged claim only makes Pacto expect a
+// certificate Fulcio never issues.
+func TokenIdentity(token string) (identity, issuer string, err error) {
+	parts := strings.Split(token, ".")
+	var claims struct {
+		Iss            string `json:"iss"`
+		Email          string `json:"email"`
+		JobWorkflowRef string `json:"job_workflow_ref"`
+		CIConfigRefURI string `json:"ci_config_ref_uri"`
+	}
+	if len(parts) != 3 {
+		return "", "", errors.New("the OIDC token is not a JWT: declare publish.sign.identity and issuer")
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err == nil {
+		err = json.Unmarshal(raw, &claims)
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("the OIDC token's claims are unreadable (%v): declare publish.sign.identity and issuer", err)
+	}
+	switch {
+	case claims.Iss == githubIssuer && claims.JobWorkflowRef != "":
+		return "https://github.com/" + claims.JobWorkflowRef, claims.Iss, nil
+	case claims.CIConfigRefURI != "":
+		return "https://" + claims.CIConfigRefURI, claims.Iss, nil
+	case claims.Email != "":
+		return claims.Email, claims.Iss, nil
+	}
+	return "", "", fmt.Errorf("the OIDC token from issuer %q names no identity Pacto can read: declare publish.sign.identity and issuer", claims.Iss)
 }
 
 func githubToken(ctx context.Context, url, bearer string) (string, error) {
