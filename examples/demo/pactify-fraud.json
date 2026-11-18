@@ -68,14 +68,14 @@
         "value": "dockerfile (Dockerfile), image registry.example/story/images/fraud",
         "source": "Dockerfile:1",
         "confidence": "likely",
-        "declare": "publish:\n  bundle: oci://\u003cregistry\u003e/fraud\n  deploy: manifests\n  artifacts:\n    - name: image\n      type: image\n      ref: oci://registry.example/story/images/fraud\n    - name: manifests\n      type: manifests\n      ref: oci://\u003cregistry\u003e/deploy/fraud\n"
+        "declare": "publish:\n  bundle: oci://\u003cregistry\u003e/contracts/fraud\n  deploy: manifests\n  artifacts:\n    - name: image\n      type: image\n      ref: oci://\u003cregistry\u003e/fraud\n    - name: manifests\n      type: manifests\n      ref: oci://\u003cregistry\u003e/deploy/fraud\n"
       },
       {
         "field": "publish.deploy",
         "value": "manifests: k8s/deployment.yaml, k8s/service.yaml; image pinned by digest",
         "source": "k8s/deployment.yaml:16",
         "confidence": "likely",
-        "declare": "publish:\n  bundle: oci://\u003cregistry\u003e/fraud\n  deploy: manifests\n  artifacts:\n    - name: image\n      type: image\n      ref: oci://registry.example/story/images/fraud\n    - name: manifests\n      type: manifests\n      ref: oci://\u003cregistry\u003e/deploy/fraud\n"
+        "declare": "publish:\n  bundle: oci://\u003cregistry\u003e/contracts/fraud\n  deploy: manifests\n  artifacts:\n    - name: image\n      type: image\n      ref: oci://\u003cregistry\u003e/fraud\n    - name: manifests\n      type: manifests\n      ref: oci://\u003cregistry\u003e/deploy/fraud\n"
       }
     ]
   }

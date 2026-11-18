@@ -165,11 +165,11 @@ fields:
       confidence: likely
       declare: |
         publish:
-          bundle: oci://<registry>/newsletter-service
+          bundle: oci://<registry>/contracts/newsletter-service
           artifacts:
             - name: image
               type: image
-              ref: oci://ghcr.io/trianalab/newsletter-service
+              ref: oci://<registry>/newsletter-service
     - field: service.owner
       value: team-growth
       source: catalog-info.yaml:7
