@@ -171,6 +171,7 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 		ExternalCatalogRef: externalCatalog,
 		Detected:           detected,
 		Provenance:         app.NewProvenanceChecker(),
+		RegistryProbe:      app.NewRegistryProbe(),
 		Now:                fleetNow,
 	}
 }

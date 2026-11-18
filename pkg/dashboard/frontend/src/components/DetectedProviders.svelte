@@ -76,7 +76,7 @@
             </span>
             <bdi class="dp-trunc dp-evidence" title={r.evidence}>{r.evidence}</bdi>
             <span class="dp-used">{(r.usedFor ?? []).map(words).join(', ')}</span>
-            {#if isInferred(r)}
+            {#if isInferred(r) || r.details?.length}
               {#if r.hint || r.details?.length || why(r)}
                 <details class="disclosure dp-why">
                   <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span>More details</summary>

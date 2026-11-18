@@ -3,7 +3,9 @@
 // repository with the native Referrers API required (no tag fallback, except
 // for run records, which are unsigned statistics), builds a
 // deterministic referrer manifest, pushes it and confirms the Referrers API
-// lists it before anyone calls the write done.
+// lists it before anyone calls the write done. It also probes what a registry
+// supports (Probe) and writes one write-once, content-addressed tag per record
+// where the registry serves no Referrers API (PushWriteOnce).
 //
 // Experimental: not covered by semantic versioning. Delivery is Alpha, and
 // this API may change in a minor release.

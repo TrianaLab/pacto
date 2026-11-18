@@ -31,6 +31,17 @@ type ReferrersOptions struct {
 	// implements no Referrers API does. It is how a client's fallback-forbidden
 	// posture is proven.
 	Unsupported bool
+	// CatalogStatus serves that status on /v2/_catalog: 404 for a registry
+	// without _catalog, 500 for one that fails. Zero serves the catalog.
+	CatalogStatus int
+	// NameUnknown serves 404 NAME_UNKNOWN from the referrers endpoint, an
+	// answer that says the repository is missing, never that Referrers is.
+	NameUnknown bool
+	// ReferrersContentType serves a 200 with this content type and an HTML
+	// body from the referrers endpoint, as a maintenance or captive-proxy page does.
+	ReferrersContentType string
+	// Challenge serves 401 with this WWW-Authenticate on GET /v2/ only.
+	Challenge string
 }
 
 // NewReferrersRegistry returns an in-process OCI registry whose Referrers
@@ -57,6 +68,15 @@ type referrersRegistry struct {
 }
 
 func (r *referrersRegistry) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	switch {
+	case r.opts.Challenge != "" && req.URL.Path == "/v2/":
+		w.Header().Set("WWW-Authenticate", r.opts.Challenge)
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	case r.opts.CatalogStatus != 0 && req.URL.Path == "/v2/_catalog":
+		http.Error(w, `{"errors":[{"code":"UNSUPPORTED"}]}`, r.opts.CatalogStatus)
+		return
+	}
 	repo, target, ok := parseReferrersPath(req.URL.Path)
 	if !ok || req.Method != http.MethodGet {
 		r.inner.ServeHTTP(w, req)
@@ -64,6 +84,15 @@ func (r *referrersRegistry) ServeHTTP(w http.ResponseWriter, req *http.Request) 
 	}
 	if r.opts.Unsupported {
 		http.Error(w, `{"errors":[{"code":"UNSUPPORTED"}]}`, http.StatusNotFound)
+		return
+	}
+	if r.opts.NameUnknown {
+		http.Error(w, `{"errors":[{"code":"NAME_UNKNOWN"}]}`, http.StatusNotFound)
+		return
+	}
+	if r.opts.ReferrersContentType != "" {
+		w.Header().Set("Content-Type", r.opts.ReferrersContentType)
+		_, _ = w.Write([]byte("<html>maintenance</html>"))
 		return
 	}
 	descs, err := r.referrersOf(repo, target)

@@ -62,6 +62,9 @@ type FleetOptions struct {
 	// every revision the OCI source reads. One checker is shared across builds
 	// so its memo outlives each refresh.
 	Provenance *ProvenanceChecker
+	// RegistryProbe, when set, probes each registry host the OCI source reads
+	// and adds one Registry row per host to the detected providers.
+	RegistryProbe fleetsrc.RegistryProbe
 	// LongRunning says the process builds again later (the dashboard, pacto
 	// mcp, the TUI), so a background check started now can report on a later
 	// build. A one-shot command never starts the default catalog's check.
@@ -124,6 +127,7 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 			if opts.Provenance != nil {
 				src.Provenance = opts.Provenance.Check
 			}
+			src.RegistryProbe = opts.RegistryProbe
 			sources = append(sources, src)
 		} else {
 			sources = append(sources, fleet.NewFailingSource("oci", "oci", errNoBundleStore))

@@ -358,7 +358,7 @@ func TestRestrictProvidersDropsHiddenLimitations(t *testing.T) {
 			{Code: LimitationProviderSourceDegraded, Source: "k8s", Message: "source k8s is partial; this row covers only what it read"},
 		},
 	}}
-	got := restrictProviders(rows, []string{"hidden-svc", ""}, func(ns string) bool { return ns == "a" }, anyKind, nil)
+	got := restrictProviders(rows, nil, []string{"hidden-svc", ""}, func(ns string) bool { return ns == "a" }, anyKind, nil)
 	var codes []string
 	for _, l := range got[0].Limitations {
 		codes = append(codes, l.Code)
@@ -369,7 +369,7 @@ func TestRestrictProvidersDropsHiddenLimitations(t *testing.T) {
 	if len(rows[0].Limitations) != 5 {
 		t.Error("restrictProviders wrote its input")
 	}
-	if restrictProviders(nil, nil, func(string) bool { return true }, anyKind, nil) != nil {
+	if restrictProviders(nil, nil, nil, func(string) bool { return true }, anyKind, nil) != nil {
 		t.Error("no rows stay no rows")
 	}
 }
@@ -379,7 +379,7 @@ func TestRestrictProvidersKeepsAReason(t *testing.T) {
 		{ID: "p", Source: "k8s", Status: SourcePartial, Limitations: []Limitation{NamespaceUnreadableLimitation("k8s", "secret", "forbidden")}},
 		{ID: "ok", Source: "k8s", Status: SourceAvailable, Limitations: []Limitation{NamespaceUnreadableLimitation("k8s", "secret", "forbidden")}},
 	}
-	got := restrictProviders(rows, nil, func(ns string) bool { return ns == "a" }, anyKind, nil)
+	got := restrictProviders(rows, nil, nil, func(ns string) bool { return ns == "a" }, anyKind, nil)
 	if len(got[0].Limitations) != 1 || got[0].Limitations[0].Code != LimitationProviderSourceDegraded ||
 		got[0].Limitations[0].Message != "source k8s reported this row as partial; the reason is hidden by your permissions" {
 		t.Errorf("partial row limitations = %+v, want one degraded reason", got[0].Limitations)
@@ -510,7 +510,7 @@ func TestRestrictProvidersHidesClusterName(t *testing.T) {
 // Evidence a producer wrote is masked only when it names a hidden name whole.
 func TestRestrictProvidersMasksWholeNamesOnly(t *testing.T) {
 	rows := []Provider{crdRow(), {ID: "x", Status: SourceAvailable, Evidence: "reads pacto"}}
-	got := restrictProviders(rows, []string{"pacto"}, func(string) bool { return true }, anyKind, nil)
+	got := restrictProviders(rows, nil, []string{"pacto"}, func(string) bool { return true }, anyKind, nil)
 	if got[0].Evidence != "served (pacto.trianalab.io/v1alpha1)" || got[1].Evidence != "hidden by your permissions" {
 		t.Errorf("evidence = %q, %q", got[0].Evidence, got[1].Evidence)
 	}
@@ -532,5 +532,17 @@ func TestQueryProvidersKubernetesFactsUnbounded(t *testing.T) {
 	}
 	if none := NewQuery(buildProviders(t, NewMemorySource("local", "local", &Collection{}))).Providers(); none.KubernetesSources != 0 || none.NotRead == nil {
 		t.Errorf("no kubernetes source = %+v", none)
+	}
+}
+
+func TestRestrictProvidersDropsRowWithAllServicesHidden(t *testing.T) {
+	rows := []Provider{
+		{ID: "registry:a", Source: "oci", Status: SourceAvailable, Services: []ServiceKey{"x", "y"}},
+		{ID: "registry:b", Source: "oci", Status: SourceAvailable, Services: []ServiceKey{"x", "z"}},
+		{ID: ProviderPactoCRD, Source: "k8s", Status: SourceAvailable},
+	}
+	got := restrictProviders(rows, map[ServiceKey]bool{"x": true, "y": true}, nil, func(string) bool { return true }, anyKind, nil)
+	if len(got) != 2 || got[0].ID != "registry:b" || got[1].ID != ProviderPactoCRD {
+		t.Fatalf("rows = %+v, want registry:b and the row with no services", got)
 	}
 }
