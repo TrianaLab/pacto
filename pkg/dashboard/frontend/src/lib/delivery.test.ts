@@ -1,12 +1,14 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { publisherSourceLabel } from './publisherSource.ts';
 import {
   typeLabel, decisionLabel, shortDigest, decisionAsked, cliDecision,
   keepPending, pendingFor, dropPending, miraLink, miraServiceLink, entityMiraURL, predictionLabel, authTimeText,
   versionLabel, shortDigests, digestParts, sentence, timeLabel,
-  verdictBadge, isBreaking, andList, reasonWords, verificationLabel, outcomeTone, reasonAfter, changeSummary, actorBadge, autonomyOf, unknownHelp, undoCause, UNKNOWN_DOCS,
+  verdictBadge, isBreaking, andList, reasonWords, verificationLabel, outcomeTone, reasonAfter, actorBadge, autonomyOf, unknownHelp, undoCause, UNKNOWN_DOCS,
   exceptParam, exceptList, offerLabel, checkText, watchText, progressStamp, isCommand, offerRequest, lifecycleWords,
   causeText, historyWindow, windowSince, samePerson, classSourceLabel, accessSourceLabel, gateLabel, applierLine, serverNow,
 } from './delivery.ts';
+import { changeSummary } from './changeFigure.ts';
 import {
   parseHash, deliveryInboxUrl, deliveryEnvironmentsUrl, deliveryPublishUrl, deliveryAutonomyUrl, deliveryHistoryUrl, deliveryChangeUrl,
 } from './router.ts';
@@ -27,6 +29,7 @@ describe('delivery labels', () => {
     expect(typeLabel('delivery.pacto.trianalab.io/unfreeze')).toBe('Unfreeze');
     expect(typeLabel('delivery.pacto.trianalab.io/freeze')).toBe('Freeze');
     expect(typeLabel('delivery.pacto.trianalab.io/acknowledge')).toBe('Acknowledge upstream');
+    expect(typeLabel('delivery.pacto.trianalab.io/trust')).toBe('Confirm publisher');
     expect(typeLabel('example.com/migrate')).toBe('example.com/migrate');
     expect(typeLabel(undefined)).toBe('Change');
     expect(decisionLabel('accept-unknown')).toBe('Accept the unknown');
@@ -256,6 +259,18 @@ describe('what a change says about itself', () => {
     expect(changeSummary(promote({ phase: 'Concluded', outcome: 'Failed', verification: 'Unverified' }), 'prod')).not.toMatch(/: :|pacto\.trianalab\.io|->/);
   });
 
+  it('says a trust change confirms a signer, with no version and no verification word', () => {
+    const trust = (status: Record<string, string>) => ({ spec: { type: 'delivery.pacto.trianalab.io/trust', stage: 'audit-log', params: { from: 'sha256:a', to: 'sha256:b', publisher: { subject: 'https://github.com/acme/a/.github/workflows/hotfix.yml@refs/heads/main' } } }, status });
+    expect(changeSummary(trust({ phase: 'Concluded', outcome: 'Succeeded', verification: 'Unverified' }), 'prod'))
+      .toBe('Confirm https://github.com/acme/a/.github/workflows/hotfix.yml@refs/heads/main may publish what audit-log in prod delivers: ended, a person confirmed it.');
+    expect(changeSummary(trust({ phase: 'Concluded', outcome: 'Rejected' }), 'prod')).toMatch(/: ended, a person refused it\.$/);
+    expect(changeSummary(trust({ phase: 'Concluded', outcome: 'Expired' }), 'prod')).toMatch(/: ended, Expired\.$/);
+    expect(changeSummary(trust({ phase: 'Concluded' }), 'prod')).toMatch(/: ended\.$/);
+    expect(changeSummary(trust({ phase: 'Held' }), 'prod')).toMatch(/delivers: waits for a person\.$/);
+    expect(changeSummary(trust({ phase: 'Odd' }), 'prod')).toMatch(/: is odd\.$/);
+    expect(changeSummary({ spec: { type: 'delivery.pacto.trianalab.io/trust', stage: 's' } }, 'prod')).toBe('Confirm a signer may publish what s in prod delivers: is not admitted yet.');
+  });
+
   it('names a person, an agent or the controller with a chip', () => {
     expect(actorBadge('human')?.label).toBe('Person');
     expect(actorBadge('agent')?.label).toBe('Agent');
@@ -466,5 +481,14 @@ describe('applier', () => {
       expect(line?.warn).toBe(true);
     }
     expect(applierLine(a, now, 'False: CandidateUnverified')?.problem).toBe('conflict: Helm release payments owns Deployment payments');
+  });
+});
+
+
+describe('publisherSourceLabel', () => {
+  it('names what accepted a version in one word, and nothing as no publisher check', () => {
+    expect(['rule', 'pin', 'policy', 'inferred', 'release'].map(publisherSourceLabel)).toEqual(['rule', 'pin', 'policy', 'inferred', 'release']);
+    expect(publisherSourceLabel('none')).toBe('no publisher check');
+    expect(publisherSourceLabel(undefined)).toBe('no publisher check');
   });
 });

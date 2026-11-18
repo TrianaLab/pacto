@@ -3,7 +3,7 @@
   import { api } from '../lib/api.ts';
   import { session, me, signIn, hostSignsIn, personLabel, teamGroups } from '../lib/session.svelte.ts';
   import { decisionAsked, decisionLabel, cliDecision, keepPending, pendingFor, dropPending,
-    versionLabel, isBreaking, andList, authTimeText, timeLabel, UNKNOWN_DOCS, APPROVING_DOCS, cannotApproveHere, samePerson } from '../lib/delivery.ts';
+    versionLabel, isBreaking, andList, authTimeText, timeLabel, UNKNOWN_DOCS, APPROVING_DOCS, cannotApproveHere, samePerson, TRUST_TYPE } from '../lib/delivery.ts';
   import { formatCount } from '../lib/format.ts';
   import { formatRelative } from '../lib/dateFormat.ts';
   import CopyableIdentifier from './CopyableIdentifier.svelte';
@@ -61,9 +61,15 @@
   const rollsBack = $derived(applied && op.spec?.type === 'delivery.pacto.trianalab.io/promote' && !!before && !beforeFailed);
   const backV = $derived(before ? versionLabel(before, versions) : '');
 
+  // A trust change confirms who may publish the service; it moves nothing.
+  const trust = $derived(op.spec?.type === TRUST_TYPE);
+  const signer = $derived(op.spec?.params?.publisher?.subject || 'this signer');
+
   // What each answer does, as the promoter acts on it. Short lines: the
   // details of the change sit folded below the panel.
-  const ifApprove = $derived([
+  const ifApprove = $derived(trust ? [
+    `Pacto pins ${signer} for the service ${env} delivers. Nothing moves; the registry watch judges its versions again.`,
+  ] : [
     applied
       ? `${toV} stays on ${env}, and the Unknown checks count as accepted.`
       : `${toV} goes to ${env} now.`,
@@ -89,7 +95,10 @@
     if (fold) fold.open = true;
     h?.scrollIntoView?.();
   }
-  const ifReject = $derived([
+  const ifReject = $derived(trust ? [
+    'Nothing is pinned: versions this signer signs stay out.',
+    `${asker} sees your note.`,
+  ] : [
     rollsBack ? `${env} rolls back to ${backV}.`
       : applied ? `Nothing moves: ${env} keeps running ${toV}${beforeFailed ? `, because ${backV} already failed here` : ''}.`
       : `Nothing moves: ${env} keeps running ${fromV || 'what it runs now'}.`,
@@ -98,10 +107,10 @@
   // A button names the version, cut short when it is long (the title keeps it
   // whole); the environment is in the panel's heading, not on the button.
   const clip = (v) => (v.length > 24 ? `${v.slice(0, 23)}…` : v);
-  const approveLabel = $derived(asked === 'approve'
+  const approveLabel = $derived(trust ? 'Confirm this signer' : asked === 'approve'
     ? `Approve shipping ${clip(toV)}`
     : applied ? `Accept the unknown and keep ${clip(toV)}` : `Accept the unknown and ship ${clip(toV)}`);
-  const rejectLabel = $derived(rollsBack ? `Reject and roll back to ${clip(backV)}` : 'Reject: nothing moves');
+  const rejectLabel = $derived(trust ? 'Reject: nothing is pinned' : rollsBack ? `Reject and roll back to ${clip(backV)}` : 'Reject: nothing moves');
 
   // A decision kept across the fresh sign-in, if this is the change it was for.
   // Read once: the page is keyed by the change, so it never needs re-reading.
@@ -147,7 +156,9 @@
     try {
       const out = await api.deliveryDecide(ns, name, decision, note);
       dropPending();
-      decided = `${decisionLabel(decision)} recorded as ${out.approval}. The promoter acts on it shortly.`;
+      decided = out.signing === 'recorder'
+        ? `${decisionLabel(decision)} recorded as ${out.approval}. The recorder signs it for you into the registry, and the promoter acts once it is there.`
+        : `${decisionLabel(decision)} recorded as ${out.approval}. The promoter acts on it shortly.`;
       onDecided?.(decided);
     } catch (e) {
       if (e?.code === 'FreshLoginRequired') {
@@ -241,7 +252,7 @@
         <h3 class="t-body">If you approve</h3>
         <ul>{#each ifApprove as line (line)}<li>{line}</li>{/each}</ul>
         {#if !applied && consumers.length > 4}<button type="button" class="btn btn-sm dp-more" onclick={toAffected}>See all {formatCount(consumers.length)} affected services</button>{/if}
-        {#if offer}<button type="button" class="btn btn-primary dp-btn" data-testid="decide-approve" bind:this={approveBtn} class:dp-was={kept?.decision === asked} disabled={busy || noteMissing} onclick={() => decide(asked)} title={asked === 'approve' ? `Approve shipping ${toV} to ${env}` : undefined}>{label(asked, approveLabel)}</button>{/if}
+        {#if offer}<button type="button" class="btn btn-primary dp-btn" data-testid="decide-approve" bind:this={approveBtn} class:dp-was={kept?.decision === asked} disabled={busy || noteMissing} onclick={() => decide(asked)} title={trust ? `Confirm ${signer} may publish the service ${env} delivers` : asked === 'approve' ? `Approve shipping ${toV} to ${env}` : undefined}>{label(asked, approveLabel)}</button>{/if}
       </div>
       <div class="dp-outcome dp-reject">
         <h3 class="t-body">If you reject</h3>

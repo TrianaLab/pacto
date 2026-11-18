@@ -71,6 +71,7 @@ var excludedFromTUI = map[string]string{
 	"delivery inbox":         "reads the dashboard's inbox of Operations, which are not fleet entities",
 	"delivery published":     "reads the versions the Stages know, which are not fleet entities",
 	"delivery refusals":      "reads publish refusals, which are not fleet entities",
+	"delivery trust":         "reads which publishers each service accepts, which are not fleet entities",
 	"delivery blame":         "reads a Stage's records, which are not a fleet entity",
 	"delivery candidates":    "lists the versions a Stage may take, which are not fleet entities",
 	"delivery cancel":        "changes what runs; the TUI never acts",

@@ -957,3 +957,14 @@ func TestDetectionAloneIsNoDataSource(t *testing.T) {
 		t.Fatalf("err = %v, want the no data sources refusal", err)
 	}
 }
+
+// TestFleetAndDashboardSetRegistryProbe: both surfaces probe the registries
+// their OCI refs read, so each shows a Registry row per host.
+func TestFleetAndDashboardSetRegistryProbe(t *testing.T) {
+	if fleetOptions(newFleetCommand(app.NewService(nil, nil), viper.New(), deps{}, &runRecorder{})).RegistryProbe == nil {
+		t.Error("the fleet CLI sets no registry probe")
+	}
+	if dashboardFleetOptions("", nil, nil, nil, dashboardSources{}).RegistryProbe == nil {
+		t.Error("the dashboard sets no registry probe")
+	}
+}

@@ -292,7 +292,7 @@ func fleetGetTool() *mcpsdk.Tool {
 			"(team, dri, contacts) here and in pacto_fleet_search. A service's 'ownerProvenance' says where its owner " +
 			"comes from: declared (a revision), declared-via-target (the contract a target runs), attested or inferred; " +
 			"an inferred owner never fills 'owner'. Each revision's 'provenance' says whether its " +
-			"bundle signature verified against the signer its own contract declares (verified, unverified, " +
+			"bundle signature was checked against a publisher rule, pin or policy (verified, unverified, " +
 			"unsigned, unknown) and lists its OCI referrers, when a registry source checked them; absent means " +
 			"no source checked. Give service as external:<identity> for an external system: its sources (each with " +
 			"its provenance), consumers, the catalog entry that classified it and 'hiddenConsumers' you may not see. " +
@@ -411,7 +411,9 @@ func fleetStatusTool() *mcpsdk.Tool {
 			"selected, including empty input, it reports every category. The answer's 'providers' lists what Pacto detected in each " +
 			"source (evidence, usedFor, status, limitations). providers includes what the operator detected (registry, cloud, " +
 			"sign-in, exposure, metrics and nodes) with provenance inferred and asOf; nothing detected is turned on, and a " +
-			"detected value never clears a gate. Read-only.",
+			"detected value never clears a gate. The OCI source adds one observed 'registry:<host>' row per registry it read " +
+			"contracts from, with no provenance: Pacto probed it itself, usedFor and details give the mode it uses there and asOf " +
+			"when it probed; it is separate from the operator's inferred registry row. Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"needs_attention":      {Type: "boolean", Description: "Report every attention category"},
 			"non_compliant":        {Type: "boolean", Description: "Non-compliant targets"},

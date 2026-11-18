@@ -127,7 +127,7 @@ tests:
     asserts:
       - matchRegex:
           path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
-          pattern: "variables\\.status\\.all\\(k, k in \\['record', 'stream', 'conditions'\\] \\|\\| \\(k in variables\\.oldStatus && variables\\.status\\[k\\] == variables\\.oldStatus\\[k\\]\\)\\)"
+          pattern: "variables\\.status\\.all\\(k, k in \\['record', 'intentRecord', 'stream', 'conditions'\\] \\|\\| \\(k in variables\\.oldStatus && variables\\.status\\[k\\] == variables\\.oldStatus\\[k\\]\\)\\)"
 
   - it: lets an agent cancel only its own operations
     capabilities:
@@ -335,6 +335,44 @@ tests:
           path: 'spec.validations[?(@.message == "the promoter may change only spec.source.targetRevision")].message'
           value: "the promoter may change only spec.source.targetRevision"
 
+  - it: pins a recorded native registry mode for everyone, the recorder included
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    set:
+      delivery.recorder.enabled: true
+    asserts:
+      - equal:
+          path: 'spec.validations[?(@.message == "status.stream.registryMode is native and may not narrow to write-once-tags")].expression'
+          value: >-
+            !('registryMode' in variables.oldStream && variables.oldStream['registryMode'] == 'native') ||
+            ('registryMode' in variables.stream && variables.stream['registryMode'] == 'native')
+        documentSelector:
+          path: 'spec.validations[0].message'
+          value: "status.stream.registryMode is native and may not narrow to write-once-tags"
+
+  - it: keeps an approval's record to the recorder and pins a Stage's approvals reference
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    set:
+      delivery.recorder.enabled: true
+    documentSelector:
+      path: 'spec.validations[0].message'
+      value: "status.stream.registryMode is native and may not narrow to write-once-tags"
+    asserts:
+      - equal:
+          path: spec.matchConstraints.resourceRules[0].resources
+          value: [stages/status, operations/status, approvals/status]
+      - equal:
+          path: 'spec.validations[?(@.message == "status.stream.approvals never changes once set")].expression'
+          value: >-
+            !('approvals' in variables.oldStream && variables.oldStream['approvals'] != '') ||
+            ('approvals' in variables.stream && variables.stream['approvals'] == variables.oldStream['approvals'])
+      - matchRegex:
+          path: 'spec.validations[?(@.message == "status.record, status.intentRecord and status.stream.{recordedSeq,head,anchor,registryMode,approvals} are written only by the Pacto delivery recorder")].expression'
+          pattern: "object\\.status\\.record\\.ref.*object\\.status\\.intentRecord\\.digest.*object\\.status\\.intentRecord\\.ref.*object\\.status\\.stream\\.approvals"
+
   - it: keeps the record fields to the recorder, and the recorder away from what runs
     capabilities:
       apiVersions:
@@ -351,7 +389,7 @@ tests:
           path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
           value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: 'spec.validations[?(@.message == "status.record and status.stream.{recordedSeq,head,anchor} are written only by the Pacto delivery recorder")].expression'
+          path: 'spec.validations[?(@.message == "status.record, status.intentRecord and status.stream.{recordedSeq,head,anchor,registryMode,approvals} are written only by the Pacto delivery recorder")].expression'
           pattern: "has\\(object.status.stream.head\\) \\? object.status.stream.head : ''\\) == \\(has\\(oldObject.status\\)"
         documentSelector:
           path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
@@ -364,13 +402,25 @@ tests:
           value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
           path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
-          pattern: "variables\\.status\\.all\\(k, k in \\['record', 'stream', 'conditions'\\] \\|\\|"
+          pattern: "variables\\.status\\.all\\(k, k in \\['record', 'intentRecord', 'stream', 'conditions'\\] \\|\\|"
         documentSelector:
           path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
           value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
           path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
-          pattern: "variables\\.stream\\.all\\(k, k in \\['recordedSeq', 'head', 'anchor'\\] \\|\\|"
+          pattern: "variables\\.stream\\.all\\(k, k in \\['recordedSeq', 'head', 'anchor', 'registryMode', 'approvals'\\] \\|\\|"
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
+      - matchRegex:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
+          pattern: "variables\\.oldStream\\.all\\(k, k in \\['recordedSeq', 'head', 'anchor', 'registryMode', 'approvals'\\] \\|\\|"
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
+      - matchRegex:
+          path: 'spec.validations[?(@.message == "status.record, status.intentRecord and status.stream.{recordedSeq,head,anchor,registryMode,approvals} are written only by the Pacto delivery recorder")].expression'
+          pattern: "has\\(object.status.stream.registryMode\\) \\? object.status.stream.registryMode : ''\\) == \\(has\\(oldObject.status\\)"
         documentSelector:
           path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
           value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
@@ -403,6 +453,62 @@ tests:
           path: 'spec.validations[?(@.message == "the status of a Stage or an Operation is written only by the Pacto delivery promoter; a person may only clear a Stage''s status.upstreamSeen")].expression'
           pattern: "request.userInfo.username in \\['system:serviceaccount:pacto-delivery:d-pacto-operator-delivery', 'system:serviceaccount:pacto-delivery:d-pacto-operator-delivery-recorder'\\]"
 
+  - it: lets only the recorder set an approval's record, and its view pass the person rules
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    set:
+      delivery.recorder.enabled: true
+    documentSelector:
+      path: 'spec.validations[?(@.message == "spec.groups must be the groups of the user creating the approval")].message'
+      value: "spec.groups must be the groups of the user creating the approval"
+    asserts:
+      - equal:
+          path: 'spec.variables[?(@.name == "recorderView")].expression'
+          value: "request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-operator-delivery-recorder' && has(object.spec.record)"
+      - equal:
+          path: 'spec.validations[?(@.message == "spec.record and spec.signedAt are set only by the Pacto delivery recorder")].expression'
+          value: "(!has(object.spec.record) && !has(object.spec.signedAt)) || request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-operator-delivery-recorder'"
+      - matchRegex:
+          path: 'spec.validations[?(@.message == "spec.by must be the user creating the approval")].expression'
+          pattern: "^variables\\.recorderView \\|\\| object\\.spec\\.by == request\\.userInfo\\.username$"
+      - matchRegex:
+          path: 'spec.validations[?(@.message == "agents cannot approve: service accounts, system users and members of agentGroups are agents")].expression'
+          pattern: "^variables\\.recorderView \\|\\| !\\("
+      - matchRegex:
+          path: 'spec.validations[?(@.message == "spec.groups must be the groups of the user creating the approval")].expression'
+          pattern: "^variables\\.recorderView \\|\\| \\(variables\\.groups"
+
+  - it: lets a recorder view pass the login rule with authFreshness set
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    set:
+      delivery.recorder.enabled: true
+      delivery.promoter.authFreshness: 15m
+    documentSelector:
+      path: 'spec.validations[?(@.message == "spec.groups must be the groups of the user creating the approval")].message'
+      value: "spec.groups must be the groups of the user creating the approval"
+    asserts:
+      - matchRegex:
+          path: 'spec.validations[?(@.message == "approving needs a fresh interactive login: spec.authTime must be the login time in userInfo.extra[delivery.pacto.trianalab.io/auth-time]")].expression'
+          pattern: "^variables\\.recorderView \\|\\| 'delivery"
+
+  - it: lets nobody set an approval's record without the recorder
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    documentSelector:
+      path: 'spec.validations[?(@.message == "spec.groups must be the groups of the user creating the approval")].message'
+      value: "spec.groups must be the groups of the user creating the approval"
+    asserts:
+      - equal:
+          path: 'spec.variables[?(@.name == "recorderView")].expression'
+          value: "false"
+      - equal:
+          path: 'spec.validations[?(@.message == "spec.record and spec.signedAt are set only by the Pacto delivery recorder")].expression'
+          value: "(!has(object.spec.record) && !has(object.spec.signedAt))"
+
   - it: dates an approval's login only when it gives one, by default
     capabilities:
       apiVersions:
@@ -413,7 +519,7 @@ tests:
     asserts:
       - matchRegex:
           path: 'spec.validations[?(@.message == "spec.authTime, when given, must be the login time in userInfo.extra[delivery.pacto.trianalab.io/auth-time]")].expression'
-          pattern: "^!has\\(object\\.spec\\.authTime\\) \\|\\|"
+          pattern: "^variables\\.recorderView \\|\\| !has\\(object\\.spec\\.authTime\\) \\|\\|"
       - notExists:
           path: 'spec.validations[?(@.message == "approving needs a fresh interactive login: spec.authTime must be the login time in userInfo.extra[delivery.pacto.trianalab.io/auth-time]")]'
 
@@ -429,7 +535,7 @@ tests:
     asserts:
       - matchRegex:
           path: 'spec.validations[?(@.message == "spec.authTime, when given, must be the login time in userInfo.extra[delivery.pacto.trianalab.io/auth-time]")].expression'
-          pattern: "^!has\\(object\\.spec\\.authTime\\) \\|\\|"
+          pattern: "^variables\\.recorderView \\|\\| !has\\(object\\.spec\\.authTime\\) \\|\\|"
       - notExists:
           path: 'spec.validations[?(@.message == "approving needs a fresh interactive login: spec.authTime must be the login time in userInfo.extra[delivery.pacto.trianalab.io/auth-time]")]'
 
@@ -445,7 +551,7 @@ tests:
     asserts:
       - matchRegex:
           path: 'spec.validations[?(@.message == "approving needs a fresh interactive login: spec.authTime must be the login time in userInfo.extra[delivery.pacto.trianalab.io/auth-time]")].expression'
-          pattern: "^'delivery\\.pacto\\.trianalab\\.io/auth-time' in request\\.userInfo\\.extra &&"
+          pattern: "^variables\\.recorderView \\|\\| 'delivery\\.pacto\\.trianalab\\.io/auth-time' in request\\.userInfo\\.extra &&"
       - notExists:
           path: 'spec.validations[?(@.message == "spec.authTime, when given, must be the login time in userInfo.extra[delivery.pacto.trianalab.io/auth-time]")]'
 

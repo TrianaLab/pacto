@@ -219,7 +219,7 @@ func TestRecordGetText(t *testing.T) {
 		{"text", []string{"record", "get", id, "-n", "prod", "--stage", "payments-prod"}, false, []string{"its signature was not checked"}},
 		{"json", []string{"record", "get", id, "-n", "prod", "--stage", "payments-prod", "--trust", trust}, false, []string{`"verified": true`, `"rerun"`}},
 		{"text", []string{"record", "get", "sha256:other", "-n", "prod", "--stage", "payments-prod", "--trust", trust}, true, []string{"no record with id or prefix sha256:other is in the stream of prod/payments-prod"}},
-		{"text", []string{"record", "get", id, "-n", "prod"}, true, []string{`"stage" not set`}},
+		{"text", []string{"record", "get", id, "-n", "prod"}, true, []string{"pass --stage or a record reference"}},
 	})
 
 	// Cause, correlation and a refused outcome's reason each get a line.

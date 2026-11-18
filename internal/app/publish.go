@@ -143,7 +143,7 @@ func (s *Service) Publish(ctx context.Context, opts PublishOptions) (*publish.Re
 	if err != nil {
 		return nil, err
 	}
-	in := publish.Input{Bundle: b, Revision: revision}
+	in := publish.Input{Bundle: b, Revision: revision, Source: ciSource(os.Getenv)}
 	pub := c.Publish
 	if d != nil {
 		pub, in.Publish, in.Builtin, in.Created, in.Images = d.pub, d.pub, d.builtins, d.created, d.images
@@ -269,6 +269,16 @@ func publishChecks(d *derived) []publish.Check {
 		return nil
 	}
 	return []publish.Check{{Name: "build", Passed: true, Message: d.build}}
+}
+
+// ciSource is the URL of the repository CI builds from: GitHub Actions, else
+// GitLab CI (the order contextDefault in internal/cli/runrecord.go reads), else
+// empty when not in CI.
+func ciSource(getenv func(string) string) string {
+	if srv, repo := getenv("GITHUB_SERVER_URL"), getenv("GITHUB_REPOSITORY"); srv != "" && repo != "" {
+		return srv + "/" + repo
+	}
+	return getenv("CI_PROJECT_URL")
 }
 
 // preflight checks what the absent items need: the builder of each artifact

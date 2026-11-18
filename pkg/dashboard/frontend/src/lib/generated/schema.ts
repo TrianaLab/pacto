@@ -277,7 +277,7 @@ export interface paths {
         };
         /**
          * Published versions
-         * @description Per service the caller can see Stages of: the versions its Stages know, whether Flux verified their signature and which Stages run or verified each.
+         * @description Per service the caller can see Stages of: the versions its Stages know, whether Flux or the registry watch verified their signature and which Stages run or verified each.
          */
         get: operations["delivery-published"];
         put?: never;
@@ -320,6 +320,26 @@ export interface paths {
          * @description Recent publishes Pacto refused, newest first, with the check that refused each and the version bump the change needs. recorded false means this cluster keeps no record of refused publishes, so an empty list proves nothing.
          */
         get: operations["delivery-refusals"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/delivery/trust": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Which publishers each service accepts
+         * @description Per service with a Stage that watches the registry and the caller can see: the installation's publisher rule or signed policy, the identities a person pinned, the CI signers waiting for a person to confirm them and the newest verdicts, each saying which source decided. Pins or a policy that could not be read mark the answer partial.
+         */
+        get: operations["delivery-trust"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1431,6 +1451,11 @@ export interface components {
         DecideOutputBody: {
             /** @description The Approval created; the promoter consumes it */
             approval: string;
+            /**
+             * @description recorder when the recorder wrote the operation's intent record, so it signs the decision into the registry on the person's behalf; empty otherwise
+             * @enum {string}
+             */
+            signing?: "recorder";
         };
         "Delivery.Actor": {
             groups?: string[] | null;
@@ -1472,6 +1497,10 @@ export interface components {
             kind?: string;
             name: string;
         };
+        "Delivery.ApprovalBehalf": {
+            user: string;
+            verified: string;
+        };
         "Delivery.ApprovalPolicy": {
             always?: boolean;
         };
@@ -1485,6 +1514,16 @@ export interface components {
             decision: string;
             name: string;
             note?: string;
+            record?: string;
+            signer?: components["schemas"]["Delivery.ApprovalSigner"];
+        };
+        "Delivery.ApprovalRecordRef": {
+            digest: string;
+            ref: string;
+        };
+        "Delivery.ApprovalSigner": {
+            kind: string;
+            onBehalfOf?: components["schemas"]["Delivery.ApprovalBehalf"];
         };
         "Delivery.AtAnswer": {
             /** @description When the records were read */
@@ -1515,6 +1554,7 @@ export interface components {
         };
         "Delivery.Candidates": {
             ociRepositoryRef?: components["schemas"]["Delivery.LocalRef"];
+            registry?: components["schemas"]["Delivery.RegistryCandidates"];
             upstreamRecords?: components["schemas"]["Delivery.RemoteStage"];
             upstreamStage?: components["schemas"]["Delivery.StageRef"];
         };
@@ -1622,6 +1662,26 @@ export interface components {
              * @description Lines with no time, or one that does not parse: in no slice and no total
              */
             untimed: number;
+        };
+        "Delivery.IdentityPin": {
+            /** @description The signed approval record of that confirmation */
+            approval: string;
+            /** @description Who confirmed the identity */
+            approver: string;
+            /** @description When the pin was signed */
+            at: string;
+            /** @description The pinned signer's OIDC issuer */
+            issuer: string;
+            /** @description The namespace of the Stage whose trust operation a person confirmed; only Stages of that namespace use the pin */
+            namespace: string;
+            /** @description The trust operation the approval answered */
+            operation: string;
+            /** @description The source repository the pinned signer attests */
+            repository: string;
+            /** @description The service the identity may publish */
+            service: components["schemas"]["Delivery.ServiceRef"];
+            /** @description The pinned signer's exact subject */
+            subject: string;
         };
         "Delivery.ImpactGate": {
             declaredConsumersOnly?: boolean;
@@ -1748,6 +1808,7 @@ export interface components {
             approvals?: components["schemas"]["Delivery.ApprovalRecord"][] | null;
             approvedTeams?: string[] | null;
             guarded?: boolean;
+            intentRecord?: components["schemas"]["Delivery.ApprovalRecordRef"];
             message?: string;
             outcome?: string;
             phase?: string;
@@ -1770,9 +1831,24 @@ export interface components {
         };
         "Delivery.Params": {
             from?: string;
+            publisher?: components["schemas"]["Delivery.PublisherIdentity"];
             record?: string;
             to?: string;
             undoes?: string;
+        };
+        "Delivery.PendingSigner": {
+            /** @description The digest it signed */
+            digest: string;
+            /** @description Who signed the version */
+            identity: components["schemas"]["Delivery.PublisherIdentity"];
+            /** @description The Stage's namespace */
+            namespace: string;
+            /** @description The trust operation of the identity: held while a person is asked, concluded when a person already answered it (the reason says how); empty while another trust operation of the Stage is pending */
+            operation?: string;
+            /** @description Why a person is asked, or why nobody is asked again yet */
+            reason: string;
+            /** @description The Stage whose registry watch read it */
+            stage: string;
         };
         "Delivery.Plan": {
             conflicts?: string[] | null;
@@ -1808,6 +1884,14 @@ export interface components {
         "Delivery.PointerChange": {
             after?: string;
             before?: string;
+        };
+        "Delivery.PolicyState": {
+            /** @description When that policy was signed */
+            at?: string;
+            /** @description The digest of the policy a Stage's watch verified and uses; empty while none has */
+            digest?: string;
+            /** @description The delivery policy the installation names (delivery.publishers.policy) */
+            ref: string;
         };
         "Delivery.Precedent": {
             completeness: string;
@@ -1855,6 +1939,91 @@ export interface components {
             fix?: string;
             message: string;
         };
+        "Delivery.PublisherIdentity": {
+            /** @description The certificate is a CI workload identity: it attests a source repository */
+            ci?: boolean;
+            /**
+             * @description Who the signer is: a person (human), an agent or a CI workload; only a person's signature makes a record a decision
+             * @enum {string}
+             */
+            class?: "human" | "agent" | "ci";
+            /** @description What classified the signer: policy:<rule name> or default:<reason> */
+            classifiedBy?: string;
+            /** @description The OIDC issuer of the signer's certificate */
+            issuer: string;
+            /** @description The source repository ref the certificate attests */
+            ref?: string;
+            /** @description The source repository the certificate attests, set for a CI workload identity */
+            repository?: string;
+            /** @description The certificate's subject: a CI workflow URI or a person's email */
+            subject: string;
+        };
+        "Delivery.PublisherRule": {
+            /** @description The OIDC issuer the signer's certificate must carry */
+            issuer: string;
+            /** @description The rule's name */
+            name?: string;
+            /** @description The source repository ref the certificate must attest */
+            ref?: string;
+            /** @description An anchored regular expression the attested source repository must match */
+            repository: string;
+            /** @description Service name patterns the rule covers; empty covers every service */
+            services?: string[] | null;
+            /** @description An anchored regular expression the certificate's subject must match */
+            subject: string;
+        };
+        "Delivery.PublisherStatus": {
+            /** @description When the watch last judged (RFC 3339) */
+            checkedAt?: string;
+            /** @description Why the watch cannot judge, or what it could not read */
+            message?: string;
+            /** @description When the newest pin read was signed: an older newest pin is never used */
+            pinAt?: string;
+            /** @description The digest of the newest pin read */
+            pinDigest?: string;
+            /**
+             * Format: int64
+             * @description How many pinned signers of the service were read
+             */
+            pins?: number;
+            /** @description When the policy in force was signed: an older one is refused */
+            policyAt?: string;
+            /** @description The digest of the policy whose rules are in force */
+            policyDigest?: string;
+            /** @description The signed delivery policy's reference */
+            policyRef?: string;
+            /** @description The publisher rule the watch judges against */
+            rule?: components["schemas"]["Delivery.PublisherRule"];
+            /**
+             * @description What the watch judges against: the installation's rule, the signed policy, or none when only a person's pin accepts a signer
+             * @enum {string}
+             */
+            source?: "rule" | "policy" | "none";
+            /** @description The newest judged digests, newest first */
+            verdicts?: components["schemas"]["Delivery.PublisherVerdict"][] | null;
+        };
+        "Delivery.PublisherVerdict": {
+            /** @description When the check ran */
+            at?: string;
+            /** @description The digest checked */
+            digest: string;
+            /** @description Who signed it, when a signature verified */
+            identity?: components["schemas"]["Delivery.PublisherIdentity"];
+            /** @description Why, in words */
+            reason: string;
+            /**
+             * @description What decided: an installation rule, a person's pin, the signed policy, a rule inferred from where the artifact lives, or nothing
+             * @enum {string}
+             */
+            source: "rule" | "pin" | "policy" | "inferred" | "none";
+            /**
+             * @description What the check concluded; only accepted lets the digest through
+             * @enum {string}
+             */
+            verdict: "accepted" | "new-signer" | "refused" | "unsigned" | "unknown";
+            /** @description The version tag that named the digest */
+            version?: string;
+        };
         "Delivery.Recheck": {
             at: string;
             digest: string;
@@ -1872,6 +2041,8 @@ export interface components {
             intentDigest: string;
             note?: string;
             operation: string;
+            record?: string;
+            signer?: components["schemas"]["Delivery.ApprovalSigner"];
         };
         "Delivery.RecordRef": {
             digest: string;
@@ -1882,6 +2053,9 @@ export interface components {
         };
         "Delivery.RecordsPolicy": {
             required?: boolean;
+        };
+        "Delivery.RegistryCandidates": {
+            repository?: string;
         };
         "Delivery.RemoteStage": {
             repository: string;
@@ -1905,6 +2079,15 @@ export interface components {
         "Delivery.ServiceRef": {
             domain?: string;
             name: string;
+        };
+        "Delivery.ServiceTrust": {
+            /** @description The CI identities that wait for a person to confirm them */
+            pending: components["schemas"]["Delivery.PendingSigner"][] | null;
+            /** @description The identities a person confirmed for the service, newest first; the newest of each namespace is the one its Stages use. null when they could not be read (unreadable says why) */
+            pins: components["schemas"]["Delivery.IdentityPin"][] | null;
+            service: components["schemas"]["Delivery.ServiceRef"];
+            /** @description The newest digests its Stages' registry watch judged, newest first; each at is when the verdict was first reached */
+            verdicts: components["schemas"]["Delivery.PublisherVerdict"][] | null;
         };
         "Delivery.StageAt": {
             /** @description The business domain the artifact's contract declares */
@@ -2062,18 +2245,18 @@ export interface components {
             /** @description kind stage: the upstream Stage's environment, when it could be read */
             environment?: string;
             /**
-             * @description stage: another Stage in this cluster; records: a Stage in another cluster, read from its signed records; artifact: new artifacts of an OCIRepository; none: the Stage declares no source, so it never promotes
+             * @description stage: another Stage in this cluster; records: a Stage in another cluster, read from its signed records; artifact: new artifacts of an OCIRepository or of the registry the promoter watches; none: the Stage declares no source, so it never promotes
              * @enum {string}
              */
             kind: "stage" | "records" | "artifact" | "none";
             /** @description kind stage: the upstream Stage's namespace */
             namespace?: string;
             /**
-             * @description kind stage: why the upstream Stage could not be read; outOfScope when it sits outside the namespace the dashboard shows or the request names; self when the Stage names itself, so it waits on itself and never promotes. kind artifact, from the Stage's Ready condition: missing when the OCIRepository does not exist, unverified when it verifies no publisher's signature; either way the Stage never promotes
+             * @description kind stage: why the upstream Stage could not be read; outOfScope when it sits outside the namespace the dashboard shows or the request names; self when the Stage names itself, so it waits on itself and never promotes. kind artifact, from the Stage's Ready condition: missing when the OCIRepository does not exist, unverified when it verifies no publisher's signature or the promoter has no publisher check for the registry watch, unreadable when the watched registry cannot be listed; either way the Stage never promotes
              * @enum {string}
              */
             problem?: "missing" | "unreadable" | "outOfScope" | "self" | "unverified";
-            /** @description kind records: the upstream recorder's streams repository; kind artifact: the OCIRepository's name */
+            /** @description kind records: the upstream recorder's streams repository; kind artifact: the OCIRepository's name, or the watched registry repository */
             repository?: string;
             /** @description kind stage: the upstream Stage's name */
             stage?: string;
@@ -2395,6 +2578,8 @@ export interface components {
             issuer?: string;
             reason?: string;
             signer?: string;
+            /** @enum {string} */
+            source?: "rule" | "pin" | "policy" | "inferred" | "release" | "none";
             /** @enum {string} */
             status: "verified" | "unverified" | "unsigned" | "unknown";
         };
@@ -4871,8 +5056,12 @@ export interface components {
             /** @description The teams that may answer; empty means no team is declared: nobody may answer when identities.requireOwnerTeam is true (the default), else any person */
             owners?: string[] | null;
             phase: string;
+            /** @description For a trust operation: the CI signer a person is asked to confirm */
+            publisher?: components["schemas"]["Delivery.PublisherIdentity"];
             question?: string;
             reason?: string;
+            /** @description The service the Stage delivers, when the caller can read the Stage */
+            service?: string;
             stage: string;
             to?: string;
             toVersion?: string;
@@ -6348,7 +6537,7 @@ export interface components {
             unknownServices: number;
             /**
              * Format: int64
-             * @description Versions an entry Stage holds that Flux never verified a signature on: who built them cannot be traced
+             * @description Versions an entry Stage holds that no publisher check accepted (Flux or the registry watch): who built them cannot be traced
              */
             unsigned: number;
             /**
@@ -6385,6 +6574,8 @@ export interface components {
         PublishedService: {
             /** @description The registry domain its Stages name; empty when they name none. A service whose Stages name two domains is listed once per domain */
             domain?: string;
+            /** @description What the service's registry watch (candidates.registry) judges against and its newest verdicts; absent when no Stage of the service watches the registry */
+            publisher?: components["schemas"]["Delivery.PublisherStatus"];
             service: string;
             versions: components["schemas"]["PublishedVersion"][] | null;
         };
@@ -7292,6 +7483,27 @@ export interface components {
             name: string;
             /** @description Stage namespace */
             namespace: string;
+        };
+        TrustOutputBody: {
+            asOf: string;
+            /** @enum {string} */
+            completeness: "complete" | "partial";
+            /** @description Why no rule or policy accepts a signer, so only pins do, or why the rule is unknown */
+            noRule?: string;
+            /** @description Which services this page holds; offset and limit count services */
+            page: components["schemas"]["Page"];
+            /** @description The signed delivery policy, when the installation names one */
+            policy?: components["schemas"]["Delivery.PolicyState"];
+            /** @description The installation's publisher rule, derived from delivery.publishers.registry */
+            rule?: components["schemas"]["Delivery.PublisherRule"];
+            /**
+             * @description What every service is judged against: the installation's rule, the signed policy, none when only a person's pin accepts a signer, or unknown when the publisher trust config could not be read
+             * @enum {string}
+             */
+            ruleSource: "rule" | "policy" | "none" | "unknown";
+            services: components["schemas"]["Delivery.ServiceTrust"][] | null;
+            /** @description What could not be listed, each naming its namespace and why, or * when the namespaces could not be known */
+            unreadable?: string[] | null;
         };
         UndoOutputBody: {
             command?: string;
@@ -8711,6 +8923,91 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "delivery-trust": {
+        parameters: {
+            query?: {
+                /** @description Where the page starts. Past the end answers the last page */
+                offset?: number;
+                /** @description How many per page; 0 means the list's default */
+                limit?: number;
+                /** @description Keep only what contains this text, ignoring case */
+                q?: string;
+                /** @description Keep only the service with exactly this name */
+                service?: string;
+                /** @description With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any */
+                domain?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrustOutputBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

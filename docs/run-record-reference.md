@@ -251,8 +251,8 @@ value can hold a secret.
 
 GHCR and released versions of the CNCF `distribution` registry have no native
 Referrers API. On such a registry, run records fall back to the OCI referrers
-tag `sha256-<anchor digest>`, an index that lists the anchor's records. Signed
-delivery and evidence records never fall back. The fallback has two caveats:
+tag `sha256-<anchor digest>`, an index that lists the anchor's records. Delivery
+records use [write-once tags](glossary.md#write-once-tag) instead; evidence never falls back. The fallback has two caveats:
 
 - two records of one service published at the same moment can overwrite each
   other's index update, which drops one record;

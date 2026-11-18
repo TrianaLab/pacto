@@ -491,11 +491,17 @@ func TestExecToolsSignKeyed(t *testing.T) {
 	if err := tools.Verify(ctx, key, ref); err != nil {
 		t.Fatalf("verify after signing: %v", err)
 	}
+	// The test registry serves no Referrers API: the signature Verify read is
+	// the one its pacto-sig write-once tag names.
+	repo, digest, _ := strings.Cut(ref, "@")
+	if tags, _ := reg.Tags(ctx, repo); !slices.ContainsFunc(tags, func(t string) bool { return strings.HasPrefix(t, publish.SigTagPrefix(digest)) }) {
+		t.Fatalf("no pacto-sig tag among %v", tags)
+	}
 	independentlyVerified(t, dir, ref)
 	if signed, err := tools.Sign(ctx, key, ref); err != nil || signed {
 		t.Fatalf("an existing signature is kept: %v %v", signed, err)
 	}
-	repo, digest, _ := strings.Cut(ref, "@")
+	repo, digest, _ = strings.Cut(ref, "@")
 	if err := publish.VerifyDigest(ctx, reg, keyPolicy(pub), repo, digest); err != nil {
 		t.Fatalf("the key file's signature: %v", err)
 	}
@@ -785,5 +791,28 @@ func TestPublishChecksGuarantees(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// envOf is a getenv over a fixed map.
+func envOf(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
+
+func TestCISourceGitHub(t *testing.T) {
+	got := ciSource(envOf(map[string]string{"GITHUB_SERVER_URL": "https://github.com", "GITHUB_REPOSITORY": "acme/payments", "CI_PROJECT_URL": "https://gitlab.com/acme/payments"}))
+	if got != "https://github.com/acme/payments" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestCISourceGitLab(t *testing.T) {
+	got := ciSource(envOf(map[string]string{"GITHUB_REPOSITORY": "acme/payments", "CI_PROJECT_URL": "https://gitlab.com/acme/payments"}))
+	if got != "https://gitlab.com/acme/payments" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestCISourceNone(t *testing.T) {
+	if got := ciSource(envOf(nil)); got != "" {
+		t.Fatalf("got %q", got)
 	}
 }

@@ -148,3 +148,48 @@ tests:
             - --flux-helm
             - --admission-policies=t-pacto-operator-delivery-operation,t-pacto-operator-delivery-cancel,t-pacto-operator-delivery-approval,t-pacto-operator-delivery-pointer,t-pacto-operator-delivery-applier,t-pacto-operator-delivery-promoter-writes,t-pacto-operator-delivery-status,t-pacto-operator-delivery-applier-helmrelease
         template: templates/delivery/deployment.yaml
+
+  # 6.x values have no delivery.publishers key: no publisher, records or pin
+  # flag renders, and the identities ConfigMap keeps only policy.json.
+  - it: should render the 6.x promoter arguments and identities for 6.x values without delivery.publishers
+    set:
+      delivery.enabled: true
+      delivery.identities.allowEmptyHumanGroups: true
+      delivery.argocd.enabled: false
+      delivery.flux: null
+      delivery.publishers: null
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value:
+            - promoter
+            - --leader-elect=true
+            - --poll=3s
+            - --resync=1m
+            - --workers=4
+            - --auth-freshness=0
+            - --controller-user=system:serviceaccount:pacto-delivery:t-pacto-operator-delivery
+            - --identities=/etc/pacto/identities/policy.json
+            - --admission-policies=t-pacto-operator-delivery-operation,t-pacto-operator-delivery-cancel,t-pacto-operator-delivery-approval,t-pacto-operator-delivery-pointer,t-pacto-operator-delivery-applier,t-pacto-operator-delivery-promoter-writes,t-pacto-operator-delivery-status
+        template: templates/delivery/deployment.yaml
+      - notExists:
+          path: data["publishers.json"]
+        template: templates/delivery/identities.yaml
+        documentIndex: 0
+
+  - it: should render no records or pin flag for 6.x values with the recorder on and without delivery.publishers
+    set:
+      delivery.enabled: true
+      delivery.identities.allowEmptyHumanGroups: true
+      delivery.argocd.enabled: false
+      delivery.flux: null
+      delivery.publishers: null
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: registry.example/pacto/streams
+      delivery.recorder.signing.keyless.enabled: true
+      delivery.recorder.trust: "keys: []"
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--(publishers-|records-repository|pin-signer|record-trust)
+        template: templates/delivery/deployment.yaml

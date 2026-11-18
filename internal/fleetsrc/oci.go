@@ -1,17 +1,23 @@
 package fleetsrc
 
 import (
+	"cmp"
 	"context"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/google/go-containerregistry/pkg/name"
+
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/ocireferrer/capabilities"
 )
 
 // OCISource resolves a set of registry references into contract revisions. It is
@@ -27,7 +33,18 @@ type OCISource struct {
 	// Provenance, when set, checks what is attached to each revision's digest
 	// in the registry. Nil leaves revisions without provenance.
 	Provenance ProvenanceFunc
+	// RegistryProbe, when set, probes each registry host the refs resolved
+	// on and adds one Registry row per host. Nil adds no rows.
+	RegistryProbe RegistryProbe
+	// probeBudget bounds every probe of one Collect; zero is defaultProbeBudget.
+	probeBudget time.Duration
 }
+
+// RegistryProbe reports what the registry holding ref supports.
+type RegistryProbe func(ctx context.Context, ref string) (capabilities.Capabilities, error)
+
+// defaultProbeBudget bounds all registry probes of one Collect.
+const defaultProbeBudget = 10 * time.Second
 
 // ProvenanceFunc checks the signature and lists the referrers of the revision
 // read from ref by source, whose bundle declares c. It never fails: what it
@@ -52,9 +69,97 @@ func (s *OCISource) ID() string { return s.id }
 // Kind implements [fleet.Source].
 func (s *OCISource) Kind() string { return "oci" }
 
-// Collect resolves each configured ref into a revision.
+// Collect resolves each configured ref into a revision, then probes each
+// registry host a ref resolved on.
 func (s *OCISource) Collect(ctx context.Context) (*fleet.Collection, error) {
-	return collectRefs(ctx, s.id, s.resolver, s.store, s.refs, s.Provenance)
+	col, err := collectRefs(ctx, s.id, s.resolver, s.store, s.refs, s.Provenance)
+	if err != nil || s.RegistryProbe == nil {
+		return col, err
+	}
+	col.Providers = s.registryRows(ctx, col.Revisions)
+	return col, nil
+}
+
+// registryRows probes the host of each distinct resolved ref once, with the
+// first ref on that host as the subject, under one budget. A host whose refs
+// all failed to resolve has no revision here, so it gets no row.
+func (s *OCISource) registryRows(ctx context.Context, revs []fleet.RawRevision) []fleet.Provider {
+	var hosts []string
+	subject := map[string]string{}
+	services := map[string][]fleet.ServiceKey{}
+	for _, r := range revs {
+		host := registryHost(r.ResolvedRef)
+		if _, ok := subject[host]; !ok {
+			hosts = append(hosts, host)
+			subject[host] = r.ResolvedRef
+		}
+		if key := fleet.NewServiceKeyDomain(r.Domain, r.Bundle.Contract.Service.Name); !slices.Contains(services[host], key) {
+			services[host] = append(services[host], key)
+		}
+	}
+	pctx, cancel := context.WithTimeout(ctx, cmp.Or(s.probeBudget, defaultProbeBudget))
+	defer cancel()
+	rows := make([]fleet.Provider, 0, len(hosts))
+	for _, host := range hosts {
+		caps, err := s.RegistryProbe(pctx, subject[host])
+		if err != nil {
+			// The error names the subject's repository, which may belong to a
+			// service a restricted viewer cannot see: it stays in the log.
+			slog.WarnContext(ctx, "probing a registry failed", "host", host, "error", err)
+			rows = append(rows, registryProbeFailedRow(s.id, host, services[host], cmp.Or(caps.CheckedAt, time.Now())))
+			continue
+		}
+		rows = append(rows, RegistryRow(caps, services[host]))
+	}
+	return rows
+}
+
+// registryHost is the registry of ref as the probe names it: docker.io and
+// index.docker.io are one registry, so one row with one ID.
+func registryHost(ref string) string {
+	ref = contract.TrimOCIScheme(ref)
+	if r, err := name.ParseReference(ref); err == nil {
+		return r.Context().RegistryStr()
+	}
+	host, _, _ := strings.Cut(ref, "/")
+	return host
+}
+
+// RegistryRow is the detected-provider row of one probed registry host: what
+// the probe saw, the mode Pacto uses there and what it did not check.
+// services are the services read from that host; a view that hides every one
+// hides the row.
+func RegistryRow(c capabilities.Capabilities, services []fleet.ServiceKey) fleet.Provider {
+	used := []string{fleet.UseNativeReferrers, fleet.UseIndexListedByCatalog}
+	if c.Referrers != capabilities.ReferrersNative {
+		used[0] = fleet.UseWriteOnceTags
+	}
+	if c.Listing != capabilities.ListingCatalog {
+		used[1] = fleet.UseIndexListedByTag
+	}
+	artifactType := "artifactType: not checked (read-only probe)"
+	if c.ArtifactType == capabilities.ArtifactTypeAccepted {
+		artifactType = "artifactType: accepted"
+	}
+	at := c.CheckedAt
+	return fleet.Provider{
+		ID: fleet.ProviderRegistryPrefix + c.Host, Name: "Registry " + c.Host,
+		Evidence: c.Evidence(), UsedFor: used, AsOf: &at,
+		Details:  []string{"mode: " + c.Mode(), "auth: " + c.Auth, artifactType, "cosign signatures: not checked"},
+		Services: services,
+	}
+}
+
+// registryProbeFailedRow is the row of a host the probe could not read:
+// partial, with no mode. at is when the probe was tried. The message never
+// carries the probe error: it names the probed repository and tag.
+func registryProbeFailedRow(source, host string, services []fleet.ServiceKey, at time.Time) fleet.Provider {
+	return fleet.Provider{
+		ID: fleet.ProviderRegistryPrefix + host, Name: "Registry " + host, AsOf: &at,
+		Evidence: "capabilities unknown", UsedFor: []string{}, Status: fleet.SourcePartial, Services: services,
+		Limitations: []fleet.Limitation{{Code: fleet.LimitationRegistryProbeFailed, Source: source,
+			Message: "registry " + host + " could not be probed; Pacto does not know which mode it would use"}},
+	}
 }
 
 // CacheSource enumerates every bundle in the local OCI disk cache and includes

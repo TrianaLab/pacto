@@ -998,6 +998,27 @@
             }
           }
         },
+        "publishers": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "registry": {
+              "type": "string"
+            },
+            "defaultBranch": {
+              "type": "string"
+            },
+            "policy": {
+              "type": "string"
+            },
+            "policySigners": {
+              "type": "string"
+            },
+            "trustedRoot": {
+              "type": "string"
+            }
+          }
+        },
         "recorder": {
           "type": "object",
           "additionalProperties": false,
@@ -1006,6 +1027,9 @@
               "type": "boolean"
             },
             "streamsRepository": {
+              "type": "string"
+            },
+            "approvalsRepository": {
               "type": "string"
             },
             "poll": {
@@ -1076,6 +1100,9 @@
                       "type": "string"
                     }
                   }
+                },
+                "publicKey": {
+                  "type": "string"
                 }
               }
             },
@@ -1346,6 +1373,23 @@
             "allowEmptyHumanGroups": {
               "type": "boolean",
               "description": "Deprecated and ignored: people and agents are told apart by how they sign in."
+            },
+            "signers": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["issuer", "subjects"],
+                "properties": {
+                  "issuer": {"type": "string", "minLength": 1},
+                  "clientID": {"type": "string"},
+                  "usernamePrefix": {"type": "string"},
+                  "subjects": {"type": "string", "minLength": 1},
+                  "fulcioURL": {"type": "string"},
+                  "timestampURL": {"type": "string"},
+                  "trustedRoot": {"type": "string"}
+                }
+              }
             }
           }
         },

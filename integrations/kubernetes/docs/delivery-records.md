@@ -15,7 +15,7 @@ An [in-toto](https://in-toto.io) statement of predicate type
 policy, every check result with its proof, every approval and the outcome. It
 holds references, never secrets. It is a sigstore bundle attached as an OCI
 referrer to the version moved to, the one moved from, the new contract and the
-Stage's stream anchor. `guarded: true` says the admission policies checked who
+Stage's stream anchor, or a [write-once tag](#write-once-tags). `guarded: true` says the admission policies checked who
 asked and who approved. The promoter admits an operation only while its
 admission policies guard the cluster, so every record it writes carries it. A
 record from an earlier promoter that ran without them lacks it, and its names
@@ -53,15 +53,46 @@ with team narrowing, of the service's team) may acknowledge, with a reason. When
 yet, or what runs names no team or cannot be read, only break-glass may
 acknowledge, whatever `requireOwnerTeam` says. Break-glass can still move the
 follower with an override instead. A **gap** record marks a
-number no operation holds. A record can be late but is never skipped: an
+number no operation holds. A record can be late, never skipped: an
 Operation keeps its `delivery.pacto.trianalab.io/record` finalizer until the
 registry lists its record.
 
+## Approval and intent records
+
+- Each stream also holds an intent record for every admitted Operation and an
+  approval record for every decision, outside the operation chain. See
+  [signed approvals](delivery-signed-approvals.md).
+
+## Identity pins
+
+- When a person confirms a new publisher
+  ([confirm a new signer](delivery-security.md#confirm-a-new-signer)), the
+  recorder signs a `delivery.pacto.trianalab.io/identity-pin/v1` statement
+  before the trust operation's own record: the service, the signer's issuer,
+  exact subject and repository, who confirmed it, the approval record of
+  that decision, the operation, the namespace of the Stage it was confirmed
+  on and the time.
+- It lives on the service's own stream `pins/<domain or ->/<name>` in the
+  streams repository (the domain path-escaped, so `ghcr.io/acme` reads
+  `ghcr.io%2Facme`), as a referrer or a [write-once tag](#write-once-tags)
+  like every record, so anyone who reads the registry reads it.
+- A pin counts only for the Stages of the namespace it names, and only when
+  the approval record it cites answers an operation in that namespace, so a
+  confirmation in one namespace never decides for a Stage of the same service
+  in another.
+- The promoter and clients use the newest pin of a namespace by signed time,
+  so confirming a changed signer stops trusting the one it replaced. They use
+  only a pin that verifies under the recorder's pin key and cites an approval
+  record that verifies and names the same identity. Any other pin is listed
+  as unreadable with why.
+- To let another cluster's recorder sign pins for these services, give its
+  key in `delivery.recorder.trust` an explicit `pins/` stream pattern, such
+  as `pins/*/*` for every service. A pin stream has three segments, so
+  `pins/*` matches none. A key with no `streams` signs no pin.
+
 ## Install
 
-Your registry must serve the OCI Referrers API natively.
-[zot](https://zotregistry.dev) does; GitHub's registry and released
-`distribution` do not, so they hold no records.
+The recorder detects how your registry stores records, so any registry works:
 
 ```yaml
 delivery:
@@ -79,15 +110,70 @@ delivery:
 The push Secret needs write access to the streams, deploy and contract
 repositories. Create a test key with
 `openssl genpkey -algorithm ed25519 -out key.pem`. The operator reads every
-Secret, so the chart refuses such a key without `allowOperatorReadableKey`,
-and refuses a recorder that shares the promoter's ServiceAccount.
+Secret, so the chart refuses such a key without `allowOperatorReadableKey`
+and a recorder sharing the promoter's ServiceAccount.
 
 In production, sign with a KMS key (`delivery.recorder.signing.kms: awskms:///alias/pacto`;
 ECDSA P-256, Ed25519 or RSA PKCS#1 v1.5 with SHA-256; AWS, GCP, Azure and
 Vault) or keyless (`delivery.recorder.signing.keyless`: certificate `identity` and `issuer`, a
 Fulcio, a required timestamp authority and a `trustedRoot`). Workload identity
 goes in `delivery.recorder.serviceAccount.annotations`. The recorder checks a
-probe record at startup, so a wrong key stops it before anything lands.
+probe record at startup, so a wrong key stops it first.
+
+### Registries and their mode
+
+| Registry | Referrers mode | Listing | Source of the row |
+|---|---|---|---|
+| [zot](https://zotregistry.dev) | `native` | `_catalog` | Conformance test |
+| CNCF `distribution` (`registry:2`, `registry:3`) | `write-once-tags` | `_catalog` | Conformance test |
+| GHCR | `write-once-tags` | tags anonymously, `_catalog` with credentials | Probe of `ghcr.io` |
+| Harbor, ECR, ACR, Docker Hub | `native` where the registry serves the Referrers API | detected at run time | Registry documentation |
+| GAR and any other registry | detected at run time | detected at run time | None |
+
+- Read the mode of a running Stage with
+  `kubectl get stage <name> -o jsonpath='{.status.stream.registryMode}'`.
+- Before you install, `pacto fleet providers --oci <ref>` prints one
+  `Registry <host>` row per registry it reads.
+
+### Write-once tags
+
+Without the Referrers API, each record is a tag in the streams repository:
+
+- The tag is `stream-<hash of the stream>-<seq>-<first 12 hex of the record
+  digest>`. The recorder writes it once, never moves it, and the tag names
+  the record by content. Approval and intent records carry `approval` or
+  `intent` in place of the seq.
+- A person's signed approval is a tag of the same form in the approvals
+  repository, under the Stage's anchor tag.
+- The recorder never tags an apply or contract repository. A record keeps
+  its referrer on a version or contract only where that registry serves the
+  Referrers API. When the recorder cannot probe that registry, the write
+  fails with `RegistryUnavailable` and is retried.
+- Records are signed and verified the same way in both modes, and every
+  reader reads both forms, so a stream keeps its history when its registry
+  gains the Referrers API.
+- Registries offer no conditional tag create. Tag names are
+  content-addressed, so two writers never race for one tag, and a taken tag
+  that names another record is refused.
+- Anyone with push access can add, move or delete a tag, as they can attach
+  a referrer. Every loss fails safe. A tag no trusted key signed is ignored and a deleted record
+  breaks the chain from `status.stream.head`, which readers report. A person's
+  signed approval record that was deleted does not count, so the person
+  approves again. A record the recorder signed for an Approval made in the
+  cluster counts once written; if it is deleted later, the operation record
+  names a record id nobody can read. A reader
+  resolves each tag once, so a moved tag is reported as unreadable the next
+  time a new reader (a CLI call or a restarted process) resolves it.
+- Tag-immutability rules (Harbor, ECR, ACR and GAR) can enforce write-once
+  on the streams repository.
+- `pacto delivery plan` reads only this Stage's records for what a version
+  did elsewhere, so that answer stays partial.
+- A Stage recorded `native` never moves to tags on its own. If its registry
+  stops serving the Referrers API, `RecordStoreReady` turns `False` with
+  reason `RegistryUnavailable` and the message `the registry served the
+  Referrers API for this stream and no longer does`. The records admission
+  policy refuses changing a recorded `native` mode for every requester, the
+  recorder included.
 
 ## Check it works
 
@@ -95,8 +181,8 @@ Each Stage gets a `RecordStoreReady` condition:
 
 | Reason | Meaning |
 |---|---|
-| `ReferrersSupported` | Records are being written |
-| `ReferrersUnsupported` | The registry has no Referrers API |
+| `ReferrersSupported` | Records are being written as native referrers |
+| `WriteOnceTags` | Records are being written as write-once tags: the registry serves no Referrers API |
 | `RegistryUnavailable` | The registry did not answer; it tries again |
 | `SignerUnavailable` | The signer (KMS key, keyless token, Fulcio or timestamp authority) failed; it tries again |
 | `StreamConflict` | Two trusted records with one number, a broken chain or a missing head (the one the Stage names). The recorder stops and the Stage freezes |
@@ -107,8 +193,8 @@ one. Anyone who can push can attach a referrer, so an untrusted one never
 freezes a Stage.
 
 Pacto never resolves a `StreamConflict` for you. Find the bad record with
-`pacto delivery record verify`, delete its referrer manifest from the streams
-repository, wait for `RecordStoreReady` to turn `True`, then unfreeze. After an
+`pacto delivery record verify`, delete its referrer manifest (or its tag)
+from the streams repository, wait for `RecordStoreReady` to turn `True`, then unfreeze. After an
 etcd restore the recorder continues from the newest record.
 
 ## Require records

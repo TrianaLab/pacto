@@ -16,6 +16,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
+	"github.com/trianalab/pacto/v4/pkg/ocireferrer/capabilities"
 	"github.com/trianalab/pacto/v4/pkg/signing"
 )
 
@@ -325,18 +326,54 @@ func runnerChecks(p delivery.RecordPredicate, runners delivery.RunnerVerifier, p
 }
 
 // precedent is what the records attached to a version say happened to it:
-// the newest recorded operations, on any Stage, whose target it was.
+// the newest recorded operations, on any Stage that attaches records to it,
+// whose target it was. A Stage whose registry serves no Referrers API
+// attaches nothing to the version, so its precedent reads only its own
+// stream and is never complete.
 func (d *Delivery) precedent(ctx context.Context, stage *delivery.StageObject, to string) *delivery.Precedent {
 	if d.Records == nil || stage.Status.Stream.Anchor == "" {
 		return nil
 	}
 	p := &delivery.Precedent{Completeness: "partial"}
+	if stage.Status.Stream.RegistryMode == string(capabilities.ReferrersWriteOnceTags) {
+		r, err := d.readStream(ctx, stage)
+		if err != nil {
+			p.Note = "the records of " + to + " could not be read: " + err.Error()
+			return p
+		}
+		p.Entries = precedentEntries(r.Fold.Records, to)
+		p.Note = "the registry serves no Referrers API, so only this Stage's records were read"
+		switch {
+		case d.Trust == nil:
+			p.Note += "; no trust config was given, so no signature was checked"
+		case len(r.Unreadable) > 0:
+			p.Note += "; some records of this Stage could not be verified: " + strings.Join(r.Unreadable, "; ")
+		}
+		return p
+	}
 	l, err := d.subjectRecords(ctx, stage, to)
 	if err != nil {
 		p.Note = "the records of " + to + " could not be read: " + err.Error()
 		return p
 	}
-	for _, rec := range l.Records {
+	p.Entries = precedentEntries(l.Records, to)
+	switch {
+	case d.Trust == nil:
+		p.Note = "no trust config was given, so no signature was checked"
+	case len(l.Unreadable) > 0:
+		p.Note = "some records of this version could not be verified: " + strings.Join(l.Unreadable, "; ")
+	default:
+		p.Completeness = "complete"
+		p.Note = fmt.Sprintf("the newest %d recorded operations whose target was this version, on any Stage that attaches records to this version", len(p.Entries))
+	}
+	return p
+}
+
+// precedentEntries are the newest precedentLimit concluded operations of
+// records whose target was to, newest first.
+func precedentEntries(records []delivery.StoredRecord, to string) []delivery.PrecedentEntry {
+	var out []delivery.PrecedentEntry
+	for _, rec := range records {
 		pr := rec.Statement.Predicate
 		if pr.Intent.Params == nil || pr.Intent.Params.To != to || pr.Outcome == nil {
 			continue
@@ -346,20 +383,10 @@ func (d *Delivery) precedent(ctx context.Context, stage *delivery.StageObject, t
 		if pr.Type != nil {
 			e.Type = pr.Type.ID
 		}
-		p.Entries = append(p.Entries, e)
+		out = append(out, e)
 	}
-	slices.SortStableFunc(p.Entries, func(a, b delivery.PrecedentEntry) int { return strings.Compare(b.Finished, a.Finished) })
-	p.Entries = p.Entries[:min(len(p.Entries), precedentLimit)]
-	switch {
-	case d.Trust == nil:
-		p.Note = "no trust config was given, so no signature was checked"
-	case len(l.Unreadable) > 0:
-		p.Note = "some records of this version could not be verified: " + strings.Join(l.Unreadable, "; ")
-	default:
-		p.Completeness = "complete"
-		p.Note = fmt.Sprintf("the newest %d recorded operations whose target was this version, on any Stage", len(p.Entries))
-	}
-	return p
+	slices.SortStableFunc(out, func(a, b delivery.PrecedentEntry) int { return strings.Compare(b.Finished, a.Finished) })
+	return out[:min(len(out), precedentLimit)]
 }
 
 // subjectRecords reads the records attached to digest in the Stage's apply

@@ -39,4 +39,21 @@ describe('ProvenanceMark', () => {
     btn.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); flushSync();
     expect(tip.hidden).toBe(true);
   });
+
+  it('opens its tip toward the side with more room, never wider than that room', () => {
+    const t = render();
+    flushSync();
+    const mark = t.querySelector('.prov-mark') as HTMLElement;
+    const at = (left: number, right: number) => {
+      mark.getBoundingClientRect = () => ({ left, right, top: 0, bottom: 18, width: right - left, height: 18, x: left, y: 0, toJSON() {} });
+      (t.querySelector('button') as HTMLButtonElement).dispatchEvent(new FocusEvent('focusin', { bubbles: true })); flushSync();
+    };
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+    at(72, 90); // the end of a short wrapped line near the left edge
+    expect(mark.classList.contains('prov-right')).toBe(true);
+    expect(mark.style.getPropertyValue('--prov-room')).toBe('306px');
+    at(350, 368); // the end of a full line
+    expect(mark.classList.contains('prov-right')).toBe(false);
+    expect(mark.style.getPropertyValue('--prov-room')).toBe('356px');
+  });
 });

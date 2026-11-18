@@ -194,6 +194,22 @@ describe('DetectedProviders', () => {
     expect(text(block(t))).not.toContain('No providers detected');
   });
 
+  it('collapses the details of a row a source reported under "More details", unmuted and unmarked', async () => {
+    const registry = row('registry:ghcr.io', { source: 'oci', name: 'Registry ghcr.io', evidence: 'no Referrers, no _catalog', usedFor: ['write-once-tags', 'index-listed-by-tag'],
+      details: ['mode: referrers=write-once-tags listing=tags', 'cosign signatures: not checked'] });
+    providersFn.mockResolvedValue({ ...resp([registry], [{ id: 'oci', kind: 'oci', status: 'available' }]) });
+    const t = render();
+    await vi.waitFor(() => expect(rows(t)).toHaveLength(1));
+    const d = rows(t)[0].querySelectorAll('details');
+    expect(d).toHaveLength(1);
+    expect(d[0].open).toBe(false);
+    expect(text(d[0].querySelector('summary'))).toBe('More details');
+    expect(text(d[0])).toContain('mode: referrers=write-once-tags listing=tags');
+    expect(text(rows(t)[0])).toContain('write once tags, index listed by tag');
+    expect(rows(t)[0].classList.contains('dp-inferred')).toBe(false);
+    expect(rows(t)[0].querySelector('.prov-mark')).toBeNull();
+  });
+
   it('counts unread sources past the bound from notReadTotal', async () => {
     const down = Array.from({ length: 3 }, (_, i) => k8s(`edge-${i}`, 'unavailable', 'timeout'));
     providersFn.mockResolvedValue({ ...resp([row('a')], [k8s('k8s'), ...down]), notReadTotal: 60 });

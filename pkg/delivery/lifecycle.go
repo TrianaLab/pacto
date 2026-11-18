@@ -233,6 +233,8 @@ func sourcePhrase(s ClassSource) string {
 		return "in an agent group"
 	case ClassByOutsideHumanGroups:
 		return "outside the human groups"
+	case ClassBySignerURI:
+		return "a signer whose certificate names a workload or an address outside the approvers' domain"
 	}
 	return "a system user"
 }

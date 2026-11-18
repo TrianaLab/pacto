@@ -20,6 +20,7 @@ import DeliveryHistoryView from './DeliveryHistoryView.svelte';
 const D1 = 'sha256:' + '1'.repeat(64);
 const D2 = 'sha256:' + '2'.repeat(64);
 const D3 = 'sha256:' + '3'.repeat(64);
+const REC_A = 'sha256:' + 'a'.repeat(64);
 const SVC = 'registry.example/story/payments';
 const listing = { asOf: '2026-11-10T10:00:00Z', completeness: 'complete' };
 const impact = { gate: 'pacto.impact', phase: 'pre', result: 'Pass', message: 'no consumer breaks' };
@@ -207,6 +208,16 @@ describe('delivery history as of a time', () => {
     await settle();
     expect(fns.history.mock.calls[0][2].at).toBeUndefined();
     expect(target.querySelector('[data-testid="history-at"]')).toBeNull();
+    destroy();
+  });
+
+  it('marks how an approval was signed even when it carries nothing else', async () => {
+    fns.history.mockResolvedValue(stageHistory(true, [promote({ approvals: [{ by: 'alice@acme.com', decision: 'approve',
+      record: REC_A, signer: { kind: 'person' } }] })]));
+    const { target, destroy } = render({ namespace: 'prod', stage: 'pay' });
+    await settle();
+    const cell = target.querySelector('[data-testid="history-decided"]') as HTMLElement;
+    expect(cell.querySelector('button[aria-label="How this approval was signed"]')).not.toBeNull();
     destroy();
   });
 });

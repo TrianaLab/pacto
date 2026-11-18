@@ -355,23 +355,28 @@ pacto delivery [flags]
 
 ### `pacto delivery approve`
 
-Record your decision on a held operation, as the person your kubeconfig signs you in as. When the promoter asks for a fresh login (delivery.promoter.authFreshness), the command instead makes you log in again in your browser (prompt=login, max_age=0) with its own OpenID Connect client and sends the Approval with that login's token, never your kubeconfig's: an agent running in your shell cannot approve as you without you typing your password at that moment. The token is not stored.
+Record your decision on a held operation, as the person your kubeconfig signs you in as. When the installation accepts signed approvals (delivery.identities.signers) and the Stage keeps an approvals repository, the command instead logs you in again in your browser, signs the decision keyless with that login alone and pushes the signed approval record to the registry; it never reads SIGSTORE_ID_TOKEN or a CI token. When the promoter asks for a fresh login (delivery.promoter.authFreshness), the command instead makes you log in again in your browser (prompt=login, max_age=0) with its own OpenID Connect client and sends the Approval with that login's token, never your kubeconfig's: an agent running in your shell cannot approve as you without you typing your password at that moment. The token is not stored. With --intent and no operation name it reads no kubeconfig: it approves the operation a verified intent record names, signed keyless.
 
 ```
-pacto delivery approve <operation> [flags]
+pacto delivery approve [<operation>] [flags]
 ```
 
 **Flags:**
 
 ```
       --decision string             approve, reject or accept-unknown (default "approve")
+      --fulcio-url string           Fulcio to get the signing certificate from, when the installation's signer names none (default "https://fulcio.sigstore.dev")
   -h, --help[=true|false]           help for approve
+      --intent string               approve the operation this intent record names (<repository>:<tag> or <repository>@<digest>) with no kubeconfig: the intent must verify with --trust, and the decision is signed keyless under a signer --signers names
+      --keyless[=true|false]        sign the decision keyless into the Stage's approvals repository when the installation accepts signed approvals; false records it in the cluster (default true)
       --note string                 why, for the record
       --oidc-ca-file string         PEM bundle of the CAs that sign the issuer's certificate, trusted on top of the system roots (also PACTO_DELIVERY_OIDC_CA_FILE)
       --oidc-client-id string       OpenID Connect client used only for approvals, never by a kubeconfig (a confidential client's secret comes from PACTO_DELIVERY_OIDC_CLIENT_SECRET) (default "pacto-approve")
       --oidc-extra-scopes strings   scopes to ask for beyond openid, profile and groups
       --oidc-issuer-url string      OpenID Connect issuer the cluster trusts, to log in again with (also PACTO_DELIVERY_OIDC_ISSUER_URL)
       --oidc-redirect-port int      loopback port the identity provider sends the browser back to (default: a free port)
+      --signers string              the installation's identity policy (JSON or YAML, the pacto-delivery-identities ConfigMap's policy) whose signers verify an approval a person signed; used with a record reference
+      --timestamp-url string        timestamp authority to date the signature with, when the installation's signer names none
 ```
 
 ### `pacto delivery autonomy`
@@ -575,7 +580,7 @@ pacto delivery inbox [flags]
 
 ### `pacto delivery lifecycle`
 
-Follows one artifact of a service, named by exactly one of --digest, --version or --contract, through every Stage of the service you can see: whether pacto publish published it (Flux verified its signature) and, on each Stage, when it arrived, was verified, re-checked, rolled back or left, each from its signed record or the Operation's unsigned status. Without -n it reads every namespace you can list; one you cannot makes the answer partial and is named.
+Follows one artifact of a service, named by exactly one of --digest, --version or --contract, through every Stage of the service you can see: whether pacto publish published it (Flux or the registry watch verified its signature) and, on each Stage, when it arrived, was verified, re-checked, rolled back or left, each from its signed record or the Operation's unsigned status. Without -n it reads every namespace you can list; one you cannot makes the answer partial and is named.
 
 ```
 pacto delivery lifecycle [flags]
@@ -644,7 +649,7 @@ pacto delivery propose [flags]
 
 ### `pacto delivery published`
 
-Per service the caller can see Stages of: the versions its Stages know, whether Flux verified their signature and which Stages run or verified each.
+Per service the caller can see Stages of: the versions its Stages know, whether Flux or the registry watch verified their signature and which Stages run or verified each.
 
 It runs the dashboard's own published view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads the namespaces you may list Stages in and leaves out, without naming them, those outside your permissions; a namespace that refuses the list makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
 
@@ -680,25 +685,26 @@ pacto delivery record [flags]
 
 #### `pacto delivery record get`
 
-Reads one signed record of a Stage's stream by its full id or by the short id a text history prints (sha256: and 12 hex characters), when only one record starts with it.
+Reads one signed record of a Stage's stream by its full id or by the short id a text history prints (sha256: and 12 hex characters), when only one record starts with it. A record reference (&lt;repository&gt;:&lt;tag&gt; or &lt;repository&gt;@&lt;digest&gt;) reads any record, approvals and intents included, with no kubeconfig.
 
 ```
-pacto delivery record get <id> [flags]
+pacto delivery record get <id-or-ref> [flags]
 ```
 
 **Flags:**
 
 ```
   -h, --help[=true|false]   help for get
-      --stage string        the Stage whose stream holds the record (required)
+      --signers string      the installation's identity policy (JSON or YAML, the pacto-delivery-identities ConfigMap's policy) whose signers verify an approval a person signed; used with a record reference
+      --stage string        the Stage whose stream holds the record (with a record id)
 ```
 
 #### `pacto delivery record verify`
 
-Verify every record of a Stage's stream against the trust config and check the chain
+Verifies every record of a Stage's stream against the trust config and checks the chain. With a record reference (&lt;repository&gt;:&lt;tag&gt; or &lt;repository&gt;@&lt;digest&gt;) it reads no kubeconfig: it verifies that one record, an approval or intent included, and for an approval says whether the operation record lists it (counted).
 
 ```
-pacto delivery record verify [flags]
+pacto delivery record verify [<ref>] [flags]
 ```
 
 **Flags:**
@@ -706,6 +712,7 @@ pacto delivery record verify [flags]
 ```
       --all[=true|false]    verify every Stage's stream in the namespace given with -n, or in every namespace you can list
   -h, --help[=true|false]   help for verify
+      --signers string      the installation's identity policy (JSON or YAML, the pacto-delivery-identities ConfigMap's policy) whose signers verify an approval a person signed; used with a record reference
       --stage string        the Stage (this or --all)
 ```
 
@@ -740,6 +747,27 @@ pacto delivery status [flags]
   -h, --help[=true|false]   help for status
       --service string      the service whose Stages to show (required)
       --why[=true|false]    also plan the promote of each Stage's candidate (proposing nothing) and say what holds it back
+```
+
+### `pacto delivery trust`
+
+Per service with a Stage that watches the registry and the caller can see: the installation's publisher rule or signed policy, the identities a person pinned, the CI signers waiting for a person to confirm them and the newest verdicts, each saying which source decided. Pins or a policy that could not be read mark the answer partial.
+
+It runs the dashboard's own trust view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads the namespaces you may list Stages in and leaves out, without naming them, those outside your permissions; a namespace that refuses the list makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
+
+```
+pacto delivery trust [service] [flags]
+```
+
+**Flags:**
+
+```
+      --domain string       With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any
+  -h, --help[=true|false]   help for trust
+      --limit int           How many per page; 0 means the list's default
+      --offset int          Where the page starts. Past the end answers the last page
+      --q string            Keep only what contains this text, ignoring case
+      --service string      Keep only the service with exactly this name
 ```
 
 ### `pacto delivery types`

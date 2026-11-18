@@ -54,8 +54,11 @@ func TestRecorderNotReadyTwiceWritesOnce(t *testing.T) {
 	re := newRecEnv(t)
 	re.stage(1)
 	re.concluded("ship", 1, delivery.Succeeded)
-	re.reg.unsupported = true
+	re.reg.fault = from(1, http.MethodGet, "/referrers/")
 	re.reconcile()
+	if c := condition(re.getStage()); c.Status != "False" {
+		t.Fatalf("condition %+v", c)
+	}
 	rv := re.getStage().ResourceVersion
 	re.reconcile()
 	if re.getStage().ResourceVersion != rv {
@@ -68,7 +71,9 @@ func TestRecorderAdvanceFailsAfterTheWrite(t *testing.T) {
 	re.stage(1)
 	re.setStage(func(s *delivery.StageStatus) {
 		s.Stream.Anchor = deliveryrecord.AnchorRef(re.rec.Store.Streams, "cid/prod/payments-prod")
-		s.Conditions = []delivery.Condition{{Type: ConditionRecordStoreReady, Status: "True", Reason: "ReferrersSupported",
+		s.Stream.RegistryMode = "native"
+		s.Stream.Approvals = deliveryrecord.AnchorRef(re.rec.Store.Approvals, "cid/prod/payments-prod")
+		s.Conditions = []delivery.Condition{{Type: ConditionRecordStoreReady, Status: "True", Reason: ReasonReferrersSupported,
 			Message: "records are written to " + re.rec.Store.Streams}}
 	})
 	re.concluded("ship", 1, delivery.Succeeded)

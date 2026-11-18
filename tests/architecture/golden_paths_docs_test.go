@@ -41,8 +41,8 @@ func TestDocsNeverSpaceTheTemplateFlagValue(t *testing.T) {
 	}
 }
 
-// The fleet reports a golden path's signature as verified when the bundle verifies
-// against the signer its own contract declares (pkg/fleet SignatureVerified), and
+// The fleet reports a golden path's signature as verified when a publisher rule, pin
+// or policy accepts the signer (pkg/fleet SignatureVerified), and
 // pathSignatureStep keeps the created service's signature step unknown for that
 // reason. The docs once said the fleet's line "stays unknown even when the signature
 // verifies", which is false.

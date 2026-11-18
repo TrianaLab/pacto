@@ -106,3 +106,16 @@ func TestRecordEntryOtherKinds(t *testing.T) {
 		t.Fatalf("gap entry = %+v", e)
 	}
 }
+
+// TestStreamRegistryModeJSON: the mode is omitted when the recorder wrote
+// none and round-trips when it did.
+func TestStreamRegistryModeJSON(t *testing.T) {
+	if b, _ := json.Marshal(Stream{ID: "c/ns/s"}); strings.Contains(string(b), "registryMode") {
+		t.Fatalf("an empty mode is omitted: %s", b)
+	}
+	b, _ := json.Marshal(Stream{ID: "c/ns/s", RegistryMode: "write-once-tags"})
+	var s Stream
+	if err := json.Unmarshal(b, &s); err != nil || s.RegistryMode != "write-once-tags" || !strings.Contains(string(b), `"registryMode":"write-once-tags"`) {
+		t.Fatalf("round trip = %s %+v %v", b, s, err)
+	}
+}

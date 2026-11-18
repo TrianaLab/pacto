@@ -29,9 +29,9 @@
 
   const PAGE_SIZE = 25;
   const GUIDE = 'https://pacto.run/latest/golden-paths/';
-  // The fleet checks a path's signature only against the signer its own contract
-  // declares, so a verified row never says who may publish golden paths.
-  const SIGNATURE_NOTE = 'Verified against the signer its own contract declares. Pacto did not check it against a trust config.';
+  // The fleet checks who signed a path against a publisher rule, pin or policy;
+  // the path's own contract never decides who may sign it.
+  const SIGNATURE_NOTE = 'Checked against a publisher rule, pin or policy. A path\'s own contract never decides who may sign it.';
   const pageOffset = $derived(urlInt(offset));
   const pageLimit = $derived(urlInt(limit) || PAGE_SIZE);
   const order = $derived(sort || 'created');

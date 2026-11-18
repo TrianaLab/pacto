@@ -426,6 +426,10 @@ func (a dashDelivery) Describe(ctx context.Context, stage *delivery.StageObject,
 	return a.id.describe(ctx, a.d, stage, digest)
 }
 
+func (a dashDelivery) Trust(ctx context.Context, stages []delivery.StageObject, ops []delivery.OperationObject) (*delivery.TrustView, error) {
+	return a.d.PublisherTrust(ctx, stages, ops), nil
+}
+
 func (a dashDelivery) Can(ctx context.Context, verb, resource, ns string) (bool, error) {
 	ok, err := a.d.Can(ctx, verb, resource, ns)
 	return ok, refusal(err)

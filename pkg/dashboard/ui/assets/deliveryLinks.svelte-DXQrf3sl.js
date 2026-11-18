@@ -1,5 +1,0 @@
-<<<<<<<< HEAD:pkg/dashboard/ui/assets/deliveryLinks.svelte-DXQrf3sl.js
-import{tn as e}from"./format-3vJJKvUw.js";import{i as t}from"./api-DY3bSTsO.js";import{jr as n,rr as r}from"./index-Cys2SqBD.js";var i=e({names:null}),a=!1;function o(){a=!0,Promise.resolve().then(()=>t.fleetEntities({kinds:[`service`],limit:500})).then(e=>{e&&!e.truncated&&(i.names=new Set((e.entities??[]).flatMap(e=>[e.label,e.key])))}).catch(()=>{})}function s(e){return a||o(),i.names&&!i.names.has(e)?r({q:e}):n(e)}export{s as t};
-========
-import{tn as e}from"./format-3vJJKvUw.js";import{i as t}from"./api-DY3bSTsO.js";import{jr as n,rr as r}from"./index-Dwq3jC_I.js";var i=e({names:null}),a=!1;function o(){a=!0,Promise.resolve().then(()=>t.fleetEntities({kinds:[`service`],limit:500})).then(e=>{e&&!e.truncated&&(i.names=new Set((e.entities??[]).flatMap(e=>[e.label,e.key])))}).catch(()=>{})}function s(e){return a||o(),i.names&&!i.names.has(e)?r({q:e}):n(e)}export{s as t};
->>>>>>>> feat/aw3-509-s3:pkg/dashboard/ui/assets/deliveryLinks.svelte-t3E8XAbg.js

@@ -540,7 +540,7 @@ func TestPublishedGate(t *testing.T) {
 		msg    string
 	}{
 		{"oci published", plan(oci, published, to, nil), Pass, "is signed and names its contract"},
-		{"oci never verified", plan(oci, StageStatus{Pointer: dA}, to, nil), Fail, "Flux never verified a signature"},
+		{"oci never verified", plan(oci, StageStatus{Pointer: dA}, to, nil), Fail, "Flux has not verified a signature"},
 		{"oci no contract", plan(oci, published, Revision{Digest: dB, NoContract: true, Err: "no annotation"}, nil), Fail, "names no digest-pinned"},
 		{"oci unreadable", plan(oci, published, Revision{Digest: dB, Err: "registry down"}, nil), Unknown, "registry down"},
 		{"upstream offered", plan(up, StageStatus{Pointer: dA}, to, &StageStatus{Verified: []string{dB}, Offered: []string{dB}}), Pass, "passed pacto.published and verified on the upstream Stage"},

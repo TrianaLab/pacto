@@ -7,13 +7,13 @@ import (
 
 // Upstream is where a Stage's candidates come from, as its spec declares.
 type Upstream struct {
-	Kind        string `json:"kind" enum:"stage,records,artifact,none" doc:"stage: another Stage in this cluster; records: a Stage in another cluster, read from its signed records; artifact: new artifacts of an OCIRepository; none: the Stage declares no source, so it never promotes"`
+	Kind        string `json:"kind" enum:"stage,records,artifact,none" doc:"stage: another Stage in this cluster; records: a Stage in another cluster, read from its signed records; artifact: new artifacts of an OCIRepository or of the registry the promoter watches; none: the Stage declares no source, so it never promotes"`
 	Namespace   string `json:"namespace,omitempty" doc:"kind stage: the upstream Stage's namespace"`
 	Stage       string `json:"stage,omitempty" doc:"kind stage: the upstream Stage's name"`
 	Environment string `json:"environment,omitempty" doc:"kind stage: the upstream Stage's environment, when it could be read"`
-	Problem     string `json:"problem,omitempty" enum:"missing,unreadable,outOfScope,self,unverified" doc:"kind stage: why the upstream Stage could not be read; outOfScope when it sits outside the namespace the dashboard shows or the request names; self when the Stage names itself, so it waits on itself and never promotes. kind artifact, from the Stage's Ready condition: missing when the OCIRepository does not exist, unverified when it verifies no publisher's signature; either way the Stage never promotes"`
+	Problem     string `json:"problem,omitempty" enum:"missing,unreadable,outOfScope,self,unverified" doc:"kind stage: why the upstream Stage could not be read; outOfScope when it sits outside the namespace the dashboard shows or the request names; self when the Stage names itself, so it waits on itself and never promotes. kind artifact, from the Stage's Ready condition: missing when the OCIRepository does not exist, unverified when it verifies no publisher's signature or the promoter has no publisher check for the registry watch, unreadable when the watched registry cannot be listed; either way the Stage never promotes"`
 	Stream      string `json:"stream,omitempty" doc:"kind records: the upstream Stage's stream id, <clusterID>/<namespace>/<name>"`
-	Repository  string `json:"repository,omitempty" doc:"kind records: the upstream recorder's streams repository; kind artifact: the OCIRepository's name"`
+	Repository  string `json:"repository,omitempty" doc:"kind records: the upstream recorder's streams repository; kind artifact: the OCIRepository's name, or the watched registry repository"`
 	Trust       string `json:"trust,omitempty" enum:"trusted,untrusted,unreadable,unknown" doc:"kind records: whether the promoter trusts that record stream, from the Stage's Ready condition. trusted: it reads and verifies the records; untrusted: it trusts no key for the records of other clusters, so the Stage never promotes; unreadable: the records cannot be read or verified; unknown: the promoter has not said yet"`
 }
 
@@ -63,6 +63,15 @@ func UpstreamListed(st *StageObject, byStage map[string]*StageObject, read func(
 		case ReadyReasonCandidateNotFound:
 			u.Problem = "missing"
 		case ReadyReasonCandidateUnverified:
+			u.Problem = "unverified"
+		}
+		return u
+	case c.Registry != nil:
+		u := &Upstream{Kind: "artifact", Repository: watchedRepository(c.Registry)}
+		switch readyReason(st) {
+		case ReadyReasonRegistryUnreadable:
+			u.Problem = "unreadable"
+		case ReadyReasonPublisherUnverifiable:
 			u.Problem = "unverified"
 		}
 		return u

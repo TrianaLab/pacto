@@ -29,6 +29,9 @@ const (
 	// FacetUpstream is what the Stage accepts from the upstream stream it
 	// follows (status.upstreamAcknowledged).
 	FacetUpstream = "upstream"
+	// FacetTrust is who may publish the Stage's service: a trust operation
+	// asks a person to confirm a new signer, and the recorder pins it.
+	FacetTrust = "trust"
 )
 
 // Result is a gate verdict.
@@ -92,6 +95,9 @@ const (
 	ClassAgent      ActorClass = "agent"
 	ClassHuman      ActorClass = "human"
 	ClassBreakGlass ActorClass = "break-glass"
+	// ClassCI is a CI workload that signed a record keyless; only
+	// ClassifySigner gives it.
+	ClassCI ActorClass = "ci"
 )
 
 // ServiceRef is the Pacto ServiceID a Stage delivers: the domain-qualified
@@ -129,11 +135,17 @@ type ApplyRef struct {
 	Name string `json:"name"`
 }
 
-// Candidates says where new versions come from. At most one is set, so the
-// version offered and the version judged come from the same source; a Stage
-// that sets none is not Ready and never promotes.
-// +kubebuilder:validation:XValidation:rule="(has(self.ociRepositoryRef) ? 1 : 0) + (has(self.upstreamStage) ? 1 : 0) + (has(self.upstreamRecords) ? 1 : 0) <= 1",message="set at most one of candidates.ociRepositoryRef, candidates.upstreamStage and candidates.upstreamRecords"
+// Candidates says where new versions come from. At most one of registry,
+// ociRepositoryRef, upstreamStage and upstreamRecords is set, so the version
+// offered and the version judged come from the same source; a Stage that sets
+// none is not Ready and never promotes.
+// +kubebuilder:validation:XValidation:rule="(has(self.registry) ? 1 : 0) + (has(self.ociRepositoryRef) ? 1 : 0) + (has(self.upstreamStage) ? 1 : 0) + (has(self.upstreamRecords) ? 1 : 0) <= 1",message="set at most one of candidates.registry, candidates.ociRepositoryRef, candidates.upstreamStage and candidates.upstreamRecords"
 type Candidates struct {
+	// Registry is the promoter's own registry watch: a new version tag is
+	// a candidate once its Sigstore signature comes from a publisher the
+	// promoter's publisher rule accepts (delivery.publishers).
+	// +optional
+	Registry *RegistryCandidates `json:"registry,omitempty"`
 	// OCIRepositoryRef is a Flux OCIRepository the promoter only reads: the
 	// candidate is the @sha256: part of its status.artifact.revision.
 	// +optional
@@ -146,6 +158,14 @@ type Candidates struct {
 	// that stream (promoter.upstreamTrust), or it offers nothing.
 	// +optional
 	UpstreamRecords *RemoteStage `json:"upstreamRecords,omitempty"`
+}
+
+// RegistryCandidates is the repository the promoter watches for new versions.
+type RegistryCandidates struct {
+	// Repository (host/path) is the repository watched; empty watches the
+	// repository the Stage's applier takes versions from.
+	// +optional
+	Repository string `json:"repository,omitempty"`
 }
 
 // RemoteStage is a Stage in another cluster, known only by its signed records.
@@ -362,6 +382,18 @@ type Stream struct {
 	// <repository>@<anchor digest>. Only the recorder writes it.
 	// +optional
 	Anchor string `json:"anchor,omitempty"`
+	// RegistryMode is how the recorder writes this stream's records: native
+	// OCI referrers, or one write-once tag per record in the streams
+	// repository when the registry serves no Referrers API. Only the
+	// recorder writes it.
+	// +optional
+	// +kubebuilder:validation:Enum=native;write-once-tags
+	RegistryMode string `json:"registryMode,omitempty"`
+	// Approvals is where a person's client pushes a signed approval for
+	// this Stage: <approvals repository>@<anchor digest>. Only the
+	// recorder writes it, once.
+	// +optional
+	Approvals string `json:"approvals,omitempty"`
 	// Concluded are the newest operations given a seq, each with how it
 	// concluded, written in the compare-and-swap that took the seq. An
 	// operation whose own status write then failed concludes again from
@@ -472,8 +504,9 @@ type Blocker struct {
 }
 
 // StageStatus is written by the promoter's operation and stage reconcilers and
-// by the recorder (Stream.Head, Stream.Anchor and RecordStoreReady), each
-// through a compare-and-swap on the Stage's resourceVersion.
+// by the recorder (Stream.Head, Stream.Anchor, Stream.RegistryMode and
+// RecordStoreReady), each through a compare-and-swap on the Stage's
+// resourceVersion.
 type StageStatus struct {
 	// Pointer is the digest the Stage moved the environment to. It is set
 	// when an operation holding the pointer lock starts to apply, before
@@ -508,12 +541,18 @@ type StageStatus struct {
 	RolledBack []string `json:"rolledBack,omitempty"`
 	// +optional
 	Stream Stream `json:"stream,omitzero"`
-	// Published holds the candidate digests Flux verified the signature of on
-	// the candidate OCIRepository (spec.verify naming the publisher's
-	// identity), oldest first (cap 50). Only these are promoted from the
-	// OCIRepository.
+	// Published holds the candidate digests whose signature was verified,
+	// oldest first (cap 50): by Flux on the candidate OCIRepository
+	// (spec.verify naming the publisher's identity), or by the promoter's
+	// registry watch against its publisher rule (candidates.registry). Only
+	// these are promoted from either source.
 	// +optional
 	Published []string `json:"published,omitempty"`
+	// Publisher is what the registry watch (candidates.registry) judged:
+	// the rule it judged against and its newest verdicts. Written by the
+	// promoter only.
+	// +optional
+	Publisher *PublisherStatus `json:"publisher,omitempty"`
 	// Offered holds the digests a promote carried through pacto.published
 	// with a pass (not an accepted unknown) and that then verified here,
 	// oldest first (cap 50). Only these are offered to a downstream Stage.
@@ -523,10 +562,13 @@ type StageStatus struct {
 	// Stage cannot promote: its applier cannot be read, lacks the apply-ref
 	// label or (on Argo CD) has no single OCI source or no automated sync; its
 	// candidate OCIRepository does not exist or sets no spec.verify naming the
-	// publisher; the records of its upstream in another cluster are not
+	// publisher; its watched registry cannot be listed or the promoter has no
+	// publisher check; the records of its upstream in another cluster are not
 	// trusted or cannot be read; or it names no candidate source at all. The
-	// recorder adds RecordStoreReady: False when the registry has no
-	// Referrers API, cannot be reached or holds a stream it refuses to fork.
+	// recorder adds RecordStoreReady: False when the registry cannot be
+	// reached or holds a stream it refuses to fork; a registry without the
+	// Referrers API never sets it, its records are written as write-once
+	// tags.
 	// +optional
 	// +listType=map
 	// +listMapKey=type
@@ -622,6 +664,9 @@ type Params struct {
 	// Record is the id of the upstream stand-in an acknowledge accepts.
 	// +optional
 	Record string `json:"record,omitempty"`
+	// Publisher is the signer a trust operation asks a person to confirm.
+	// +optional
+	Publisher *PublisherIdentity `json:"publisher,omitempty"`
 }
 
 // Actor is the apiserver identity that created the operation.
@@ -665,11 +710,11 @@ type Cause struct {
 
 // OperationSpec is the intent. It is frozen at admission.
 type OperationSpec struct {
-	// +kubebuilder:validation:Enum=delivery.pacto.trianalab.io/promote;delivery.pacto.trianalab.io/rollback;delivery.pacto.trianalab.io/override;delivery.pacto.trianalab.io/unfreeze;delivery.pacto.trianalab.io/freeze;delivery.pacto.trianalab.io/autonomy;delivery.pacto.trianalab.io/acknowledge
+	// +kubebuilder:validation:Enum=delivery.pacto.trianalab.io/promote;delivery.pacto.trianalab.io/rollback;delivery.pacto.trianalab.io/override;delivery.pacto.trianalab.io/unfreeze;delivery.pacto.trianalab.io/freeze;delivery.pacto.trianalab.io/autonomy;delivery.pacto.trianalab.io/acknowledge;delivery.pacto.trianalab.io/trust
 	Type string `json:"type"`
 	// Stage is the name of a Stage in the operation's namespace.
 	Stage string `json:"stage"`
-	// +kubebuilder:validation:Enum=pointer;freeze;level;upstream
+	// +kubebuilder:validation:Enum=pointer;freeze;level;upstream;trust
 	Facet string `json:"facet"`
 	// +optional
 	Params Params `json:"params,omitzero"`
@@ -750,7 +795,9 @@ type Plan struct {
 	// +optional
 	Order *Order `json:"order,omitempty"`
 	// Precedent is what happened the last times this version was the target
-	// of a recorded operation, on any Stage. Clients fill it from records;
+	// of a recorded operation, on any Stage that attaches records to this
+	// version; a Stage whose registry serves no Referrers API reads only its
+	// own stream. Clients fill it from records;
 	// the promoter leaves it empty.
 	// +optional
 	Precedent *Precedent `json:"precedent,omitempty"`
@@ -862,6 +909,13 @@ type ApprovalRecord struct {
 	// AccessAt is when Access was answered (RFC 3339).
 	// +optional
 	AccessAt string `json:"accessAt,omitempty"`
+	// Record is the id of the approval's signed record: the sha256 of its
+	// signed payload.
+	// +optional
+	Record string `json:"record,omitempty"`
+	// Signer is who signed that record.
+	// +optional
+	Signer *ApprovalSigner `json:"signer,omitempty"`
 }
 
 // PointerChange is the pointer before and after an operation.
@@ -957,6 +1011,10 @@ type OperationStatus struct {
 	// it. Only the recorder writes it.
 	// +optional
 	Record *RecordRef `json:"record,omitempty"`
+	// IntentRecord is the signed record of this operation's intent, written
+	// once the promoter admitted it. Only the recorder writes it.
+	// +optional
+	IntentRecord *ApprovalRecordRef `json:"intentRecord,omitempty"`
 }
 
 // RecordRef names an operation's record.
@@ -993,6 +1051,29 @@ type ApprovalSpec struct {
 	// was routed to.
 	// +optional
 	Groups []string `json:"groups,omitempty"`
+	// Record names the keyless approval record this Approval is a view of.
+	// Only the recorder sets it.
+	// +optional
+	Record string `json:"record,omitempty"`
+	// SignedAt is the verified signing time of that record (RFC 3339).
+	// Only the recorder sets it.
+	// +optional
+	SignedAt string `json:"signedAt,omitempty"`
+}
+
+// ApprovalStatus is written only by the recorder.
+type ApprovalStatus struct {
+	// Record is the approval's signed record, once the recorder wrote it.
+	// +optional
+	Record *ApprovalRecordRef `json:"record,omitempty"`
+}
+
+// ApprovalRecordRef names an approval or intent record in a registry.
+type ApprovalRecordRef struct {
+	// Digest is the record id: the sha256 of its signed payload.
+	Digest string `json:"digest"`
+	// Ref is where it is: <repository>@<manifest digest>.
+	Ref string `json:"ref"`
 }
 
 // deepCopyJSON copies in into out through JSON. Every wire type here is plain
@@ -1021,3 +1102,6 @@ func (in *OperationStatus) DeepCopyInto(out *OperationStatus) { deepCopyJSON(in,
 
 // DeepCopyInto copies the receiver into out.
 func (in *ApprovalSpec) DeepCopyInto(out *ApprovalSpec) { deepCopyJSON(in, out) }
+
+// DeepCopyInto copies the receiver into out.
+func (in *ApprovalStatus) DeepCopyInto(out *ApprovalStatus) { deepCopyJSON(in, out) }

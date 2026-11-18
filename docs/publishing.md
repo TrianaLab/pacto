@@ -123,7 +123,10 @@ artifact built before it, `PACTO_DIGEST_<NAME>` and `PACTO_REF_<NAME>`, so a
 manifests build can pin the image it deploys by digest. Pacto then:
 
 1. pushes each artifact by digest, with `org.opencontainers.image.version` and
-   `org.opencontainers.image.revision` on its manifest;
+   `org.opencontainers.image.revision` on its manifest, and in CI
+   `org.opencontainers.image.source`: `$GITHUB_SERVER_URL/$GITHUB_REPOSITORY`
+   on GitHub Actions, `$CI_PROJECT_URL` on GitLab CI. The contract bundle
+   carries none, so its digest stays the same wherever it is built;
 2. annotates the deploy artifact, the manifests or chart any applier
    deploys, with `delivery.pacto.trianalab.io/contract`, which names the
    digest-pinned contract bundle;
@@ -179,7 +182,12 @@ it verifies only at the time the log saw it, and Pacto refuses keyless with
 `transparencyLog: false`. Pacto verifies a keyless signature against the
 `identity` and `issuer` you configure, or the ones the token names when you
 configure none, under the trusted root Sigstore
-publishes through TUF. The dashboard and `pacto_fleet_get` show whether a
+publishes through TUF. `publish.sign` only says how publish signs: who may
+publish a service is the installation's decision, checked against a
+publisher rule, a person's pin or a signed policy
+([which publishers Pacto accepts](integrations/kubernetes/delivery-security.md#which-publishers-pacto-accepts)).
+The repository a keyless CI certificate attests must match the artifact's
+`org.opencontainers.image.source`. The dashboard and `pacto_fleet_get` show whether a
 published version's signature verifies; see [Bundle signatures and
 referrers](dashboard-service-page.md#bundle-signatures-and-referrers).
 
@@ -193,13 +201,14 @@ through MCP: `pacto mcp --publish` adds `pacto_publish_plan` and
 ## Hand-off to delivery
 
 With [Pacto delivery](integrations/kubernetes/delivery.md) installed, a Stage
-whose candidate `OCIRepository` follows the deploy artifact's repository sees
-each new version without an extra step, and `--propose <namespace>/<stage>`
-proposes it on a Stage that does not promote by itself. A Stage promotes only
-versions published this way: Flux checks the signature and the promoter checks
-the contract annotation. So `--propose` first waits until the Stage records the
-version as published, which happens once Flux polls the new tag and verifies
-its signature. It waits up to `--propose-timeout` (10 minutes by default), then
+that watches the deploy artifact's repository (`candidates.registry`), or whose
+candidate `OCIRepository` follows it, sees each new version without an extra
+step, and `--propose <namespace>/<stage>` proposes it on a Stage that does not
+promote by itself. A Stage promotes only versions published this way: the
+registry watch or Flux checks the signature and the promoter checks the
+contract annotation. So `--propose` first waits until the Stage records the
+version as published, which happens once the watch or Flux reads the new tag
+and accepts its signer. It waits up to `--propose-timeout` (10 minutes by default), then
 gives up and says so.
 
 A CI service account is an agent to Pacto delivery, so its `--propose` must

@@ -159,4 +159,7 @@ line names (or the short id a text history prints when
 only one record starts with it), and return that record: the change, who asked and approved, every
 verdict with how to run it again and whether its signature was checked
 against a trust config. A record that does not verify is never returned;
-history lists it as `unverifiedRecord`.
+history lists it as `unverifiedRecord`. Given a record reference instead,
+`record get` and the stdio tool read any record, approvals and intents
+included, with no kubeconfig
+([read one record with no cluster](delivery-signed-approvals.md#read-one-record-with-no-cluster)).

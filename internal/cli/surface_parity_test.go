@@ -79,9 +79,11 @@ const (
 	whyImpactRefs    = "over HTTP and on a shared dashboard, both resolve only refs of revisions in the caller's view, pinned to their digest"
 	whyKeyedImpact   = "the dashboard's impact page compares two revisions of its published snapshot by key; the CLI and MCP name refs (GET /api/fleet/impact)"
 	whyAtServerStart = "the MCP server and the dashboard take it once at startup (pacto mcp and pacto dashboard flags)"
-	whyStatsWindow   = "the Metrics page takes a closed window that ends now (GET /api/stats?window), with the same totals"
-	whyStatsPage     = "the Metrics page answers every service and environment at once and reads the stats repository pacto dashboard --stats-registry names"
-	whyStatsRecords  = "the records behind one number of the Metrics page; pacto stats and pacto_stats answer totals"
+	whyRecordRef     = "a registry reference reads with the local machine's registry credentials, so only the CLI and the local MCP server take one; " +
+		"the remote MCP server and the dashboard read records through a Stage the caller can see"
+	whyStatsWindow  = "the Metrics page takes a closed window that ends now (GET /api/stats?window), with the same totals"
+	whyStatsPage    = "the Metrics page answers every service and environment at once and reads the stats repository pacto dashboard --stats-registry names"
+	whyStatsRecords = "the records behind one number of the Metrics page; pacto stats and pacto_stats answer totals"
 )
 
 // surfaceRows maps every CLI flag, MCP argument and dashboard parameter of
@@ -189,7 +191,11 @@ func deliveryRows() []surfaceRow {
 			{"", "pacto_delivery_history.namespace", "GET /api/delivery/history?namespace", whyNamespace},
 			{"", "pacto_delivery_blame.namespace", "GET /api/delivery/blame?namespace", whyNamespace},
 			{"", "pacto_delivery_candidates.namespace", "", whyNamespace + "; the dashboard lists candidates in its propose panel through plan"},
-			{"delivery record get <id>", "pacto_delivery_record_get.record", "GET /api/delivery/record?id", ""},
+			{"delivery record get <id-or-ref>", "pacto_delivery_record_get.record", "GET /api/delivery/record?id", ""},
+			{"", "pacto_delivery_record_get.ref", "", whyRecordRef},
+			{"delivery record verify <ref>", "pacto_delivery_record_verify.ref", "", whyRecordRef},
+			{"delivery record get --signers", "", "", whyAtServerStart + "; the local MCP server reads the published identity policy"},
+			{"delivery record verify --signers", "", "", whyAtServerStart + "; the local MCP server reads the published identity policy"},
 			{"", "pacto_delivery_record_get.namespace", "GET /api/delivery/record?namespace", whyNamespace},
 			{"delivery record verify --all", "", "", "pacto_delivery_record_verify walks every Stage when stage is empty"},
 			{"", "pacto_delivery_record_verify.namespace", "", whyNamespace + "; the dashboard verifies a record on its record page"},
@@ -238,6 +244,10 @@ func deliveryWriteRows() []surfaceRow {
 		body("delivery approve", "", "POST /api/delivery/operations/{namespace}/{name}/decision", whyNoApprove, "decision", "note"),
 		alike("delivery approve", "", "", "the CLI signs in to the identity provider itself to answer as a person; the dashboard signs people in",
 			"oidc-ca-file", "oidc-client-id", "oidc-extra-scopes", "oidc-issuer-url", "oidc-redirect-port"),
+		alike("delivery approve", "", "", "the CLI signs the person's decision keyless itself; the dashboard records it through the recorder, which signs on the person's behalf",
+			"fulcio-url", "keyless", "timestamp-url"),
+		alike("delivery approve", "", "", "only the CLI approves from an intent record, signed keyless with the person's fresh login and no kubeconfig; MCP reads approval records and never writes one",
+			"intent", "signers"),
 	)
 }
 
@@ -252,6 +262,7 @@ func deliveryViewRows() []surfaceRow {
 		view("environments", "domain", "environment", "except", "limit", "offset", "q", "service", "state", "tier"),
 		view("autonomy", "blockers", "domain", "level", "limit", "offset", "q", "service"),
 		view("published", "domain", "limit", "offset", "q", "service", "signed"),
+		view("trust", "domain", "limit", "offset", "q", "service"),
 		[]surfaceRow{
 			{"delivery refusals", "pacto_delivery_refusals", "GET /api/delivery/refusals", ""},
 			{"delivery caller", "pacto_delivery_caller", "GET /api/delivery/caller", ""},
@@ -483,7 +494,7 @@ func mcpNames(t *testing.T) map[string]bool {
 	server, err := pactomcp.New("v", mcpAuthoring(newMCPCommand(svc, "v", defaultDeps()), svc), pactomcp.Modes{
 		Fleet: &pactomcp.FleetMode{Src: func(context.Context) (*fleet.Query, error) { return q, nil }, Opts: pactomcp.FleetOptions{Impact: signedInImpact(t, defaultDeps()),
 			Stats: mcpStatsProvider(newMCPCommand(svc, "v", defaultDeps()), svc, true)}},
-		Delivery: &pactomcp.DeliveryMode{Writes: true, Reads: func(context.Context, string, url.Values) (json.RawMessage, error) { return nil, nil }},
+		Delivery: &pactomcp.DeliveryMode{Writes: true, Reads: func(context.Context, string, url.Values) (json.RawMessage, error) { return nil, nil }, Refs: &app.Delivery{}},
 	})
 	expect(t, err == nil, "server: %v", err)
 	res, err := sessionOn(t, server).ListTools(context.Background(), nil)

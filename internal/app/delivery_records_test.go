@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -26,6 +27,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
+	"github.com/trianalab/pacto/v4/pkg/ocireferrer/capabilities"
 	"github.com/trianalab/pacto/v4/pkg/signing"
 	sigtest "github.com/trianalab/pacto/v4/pkg/signing/testutil"
 )
@@ -42,11 +44,20 @@ type recordEnv struct {
 	host   string
 	key    ed25519.PrivateKey
 	anchor ocispec.Descriptor
+	// tagged writes the stream's records as write-once tags, as the recorder
+	// does on a registry without the Referrers API.
+	tagged bool
 }
 
 func newRecordEnv(t *testing.T, objs ...runtime.Object) *recordEnv {
 	t.Helper()
-	srv := httptest.NewServer(testutil.NewReferrersRegistry(testutil.ReferrersOptions{}))
+	return newRecordEnvOn(t, testutil.ReferrersOptions{}, objs...)
+}
+
+// newRecordEnvOn is newRecordEnv on a registry configured by opts.
+func newRecordEnvOn(t *testing.T, opts testutil.ReferrersOptions, objs ...runtime.Object) *recordEnv {
+	t.Helper()
+	srv := httptest.NewServer(testutil.NewReferrersRegistry(opts))
 	t.Cleanup(srv.Close)
 	pub, key, _ := ed25519.GenerateKey(rand.Reader)
 	pemKey, _ := delivery.PublicKeyPEM(pub)
@@ -83,10 +94,29 @@ func (e *recordEnv) attach(repo string, subject ocispec.Descriptor, p delivery.R
 	}
 	art := ocireferrer.Build(delivery.BundleMediaType, delivery.BundleMediaType, b, &subject,
 		map[string]string{deliveryrecord.AnnPredicateType: delivery.PredicateOperation})
+	if e.tagged && repo == "delivery/streams" {
+		e.tag(art, fmt.Sprintf("%s-%d-%s", deliveryrecord.AnchorTag(p.Chain.Stream), p.Chain.Seq, art.ManifestDesc.Digest.Encoded()[:12]))
+		return id
+	}
 	if err := ocireferrer.Push(context.Background(), e.repo(repo), art); err != nil {
 		e.t.Fatal(err)
 	}
 	return id
+}
+
+// tag writes art to the streams repository under tag only.
+func (e *recordEnv) tag(art ocireferrer.Artifact, tag string) {
+	e.t.Helper()
+	ctx, r := context.Background(), e.repo("delivery/streams")
+	if err := r.Push(ctx, art.ConfigDesc, bytes.NewReader(art.Config)); err != nil {
+		e.t.Fatal(err)
+	}
+	if err := r.Push(ctx, art.PayloadDesc, bytes.NewReader(art.Payload)); err != nil {
+		e.t.Fatal(err)
+	}
+	if err := r.PushReference(ctx, art.ManifestDesc, bytes.NewReader(art.Manifest), tag); err != nil {
+		e.t.Fatal(err)
+	}
 }
 
 // move is the predicate of an operation that moved the Stage before → after.
@@ -910,6 +940,18 @@ func TestRecordFound(t *testing.T) {
 	}
 }
 
+// TestRecordViewReadsWriteOnceTagStream: a record written as a write-once
+// tag, on a registry without the Referrers API, is found by its id.
+func TestRecordViewReadsWriteOnceTagStream(t *testing.T) {
+	e := newRecordEnvOn(t, testutil.ReferrersOptions{Unsupported: true})
+	e.tagged = true
+	_, r2 := e.twoRecords()
+	v, err := e.d.Record(context.Background(), "prod", "payments-prod", r2)
+	if err != nil || v.Record != r2 || v.Entry.Operation != "ship" || !v.Verified {
+		t.Fatalf("record = %+v %v", v, err)
+	}
+}
+
 // TestRecordShortID: the short id a text history prints names the record.
 func TestRecordShortID(t *testing.T) {
 	e := newRecordEnv(t)
@@ -1037,5 +1079,82 @@ func TestBlameRevision(t *testing.T) {
 	failOperations(e.c)
 	if _, err := e.d.BlameWithRevision(ctx, "prod", "payments-prod", ""); err == nil {
 		t.Fatal("unreadable operations fail the blame")
+	}
+}
+
+// writeOnceStage is a Stage whose stream is written as write-once tags on a
+// registry without the Referrers API, holding twoRecords, the second of which
+// moved the Stage to dlA. The apply repository is unreachable, so a subject
+// listing would fail.
+func writeOnceStage(t *testing.T) (*recordEnv, *delivery.StageObject) {
+	t.Helper()
+	e := newRecordEnvOn(t, testutil.ReferrersOptions{Unsupported: true})
+	e.tagged = true
+	_, r2 := e.twoRecords()
+	e.setStream(map[string]any{"stream": map[string]any{"id": recStream, "seq": int64(2), "recordedSeq": int64(2), "head": r2,
+		"anchor": deliveryrecord.AnchorRef(e.host+"/delivery/streams", recStream), "registryMode": string(capabilities.ReferrersWriteOnceTags)}})
+	stage, err := e.d.Stage(context.Background(), "prod", "payments-prod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return e, stage
+}
+
+// TestPrecedentWriteOnceTagsReadsOwnStream: a write-once-tags Stage reads its
+// own stream, never the subject listing its registry cannot serve.
+func TestPrecedentWriteOnceTagsReadsOwnStream(t *testing.T) {
+	e, stage := writeOnceStage(t)
+	p := e.d.precedent(context.Background(), stage, dlA)
+	if p == nil || len(p.Entries) != 1 || p.Entries[0].Stream != recStream || p.Entries[0].Seq != 2 || p.Completeness != "partial" ||
+		p.Note != "the registry serves no Referrers API, so only this Stage's records were read" {
+		t.Fatalf("precedent = %+v", p)
+	}
+	e.srv.Close()
+	e.d.Streams = nil
+	if p := e.d.precedent(context.Background(), stage, dlA); p.Completeness != "partial" || !strings.Contains(p.Note, "could not be read") {
+		t.Fatalf("precedent with the registry down = %+v", p)
+	}
+}
+
+// TestPrecedentWriteOnceTagsNeverComplete: trust set, every record verified
+// and nothing unreadable still leaves a write-once-tags precedent partial.
+func TestPrecedentWriteOnceTagsNeverComplete(t *testing.T) {
+	e, stage := writeOnceStage(t)
+	if e.d.Trust == nil {
+		t.Fatal("the env sets a trust config")
+	}
+	if p := e.d.precedent(context.Background(), stage, dlA); p.Completeness != "partial" {
+		t.Fatalf("a write-once-tags precedent is never complete: %+v", p)
+	}
+}
+
+// TestPrecedentWriteOnceTagsSaysWhatWasNotVerified: without a trust config,
+// or with one that verifies no record, the write-once-tags note says so next
+// to the Referrers limit.
+func TestPrecedentWriteOnceTagsSaysWhatWasNotVerified(t *testing.T) {
+	e, stage := writeOnceStage(t)
+	e.d.Trust = nil
+	if p := e.d.precedent(context.Background(), stage, dlA); p.Note != "the registry serves no Referrers API, so only this Stage's records were read; no trust config was given, so no signature was checked" {
+		t.Fatalf("precedent without trust = %+v", p)
+	}
+	other, _, _ := ed25519.GenerateKey(rand.Reader)
+	pemKey, _ := delivery.PublicKeyPEM(other)
+	e.d.Trust = &delivery.TrustConfig{Keys: []delivery.TrustedKey{{PublicKey: pemKey, Streams: []string{"*"}}}}
+	e.d.Streams = nil
+	if p := e.d.precedent(context.Background(), stage, dlA); p.Completeness != "partial" || !strings.Contains(p.Note, "; some records of this Stage could not be verified: ") {
+		t.Fatalf("precedent with an untrusted signer = %+v", p)
+	}
+}
+
+// TestPrecedentNativeNote: a native precedent says it read the Stages that
+// attach records to the version.
+func TestPrecedentNativeNote(t *testing.T) {
+	e, to := precedentEnv(t)
+	plan, _, err := e.d.Plan(context.Background(), delivery.Request{Namespace: "prod", Stage: "payments-prod", To: to})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := plan.Precedent; p.Completeness != "complete" || !strings.HasSuffix(p.Note, "on any Stage that attaches records to this version") {
+		t.Fatalf("precedent = %+v", p)
 	}
 }

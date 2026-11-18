@@ -46,6 +46,9 @@ tests:
             - --leader-elect=true
             - --poll=30s
             - --streams-repository=registry.example/pacto/streams
+            - --approvals-repository=registry.example/pacto/streams-approvals
+            - --admission-policies=d-pacto-operator-delivery-approval
+            - --identities=/etc/pacto/identities/policy.json
             - --signing-key-file=/etc/pacto/signing/key.pem
         template: templates/delivery/recorder.yaml
         documentSelector: {path: kind, value: Deployment}
@@ -71,6 +74,50 @@ tests:
             secret:
               secretName: recorder-push
               items: [{key: .dockerconfigjson, path: config.json}]
+        template: templates/delivery/recorder.yaml
+        documentSelector: {path: kind, value: Deployment}
+
+  - it: passes a separate approvals repository and guards on-behalf signing by the approval policy
+    set:
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: registry.example/pacto/streams
+      delivery.recorder.approvalsRepository: registry.example/pacto/approvals
+      delivery.recorder.signing.kms: awskms:///alias/r
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --approvals-repository=registry.example/pacto/approvals
+        template: templates/delivery/recorder.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --admission-policies=d-pacto-operator-delivery-approval
+        template: templates/delivery/recorder.yaml
+        documentSelector: {path: kind, value: Deployment}
+
+  - it: reads the identity policy for the approver signers it verifies keyless approvals against
+    set:
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: registry.example/pacto/streams
+      delivery.recorder.signing.kms: awskms:///alias/r
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --identities=/etc/pacto/identities/policy.json
+        template: templates/delivery/recorder.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content: {name: identities, mountPath: /etc/pacto/identities, readOnly: true}
+        template: templates/delivery/recorder.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - contains:
+          path: spec.template.spec.volumes
+          content: {name: identities, configMap: {name: pacto-delivery-identities}}
+        template: templates/delivery/recorder.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - exists:
+          path: spec.template.metadata.annotations["checksum/identities"]
         template: templates/delivery/recorder.yaml
         documentSelector: {path: kind, value: Deployment}
 
@@ -104,7 +151,10 @@ tests:
           content: {apiGroups: [source.toolkit.fluxcd.io], resources: [ocirepositories], verbs: [get]}
       - contains:
           path: rules
-          content: {apiGroups: [delivery.pacto.trianalab.io], resources: [stages/status, operations/status], verbs: [get, update]}
+          content: {apiGroups: [delivery.pacto.trianalab.io], resources: [stages/status, operations/status, approvals/status], verbs: [get, update]}
+      - contains:
+          path: rules
+          content: {apiGroups: [admissionregistration.k8s.io], resources: [validatingadmissionpolicies, validatingadmissionpolicybindings], verbs: [get]}
 
   - it: reads a HelmRelease Stage's applier when HelmReleases are served
     set:

@@ -9,7 +9,7 @@
  * reached (A1b), and the ones it did not reach are drawn at rest from frame 0.
  */
 import type { DeliveryOperation } from './api.ts';
-import { AUTONOMY_TYPE, changeSummary, levelLabel, versionLabel } from './delivery.ts';
+import { AUTONOMY_TYPE, TRUST_TYPE, OUTCOMES, PHASES, VERIFICATIONS, levelLabel, typeLabel, versionLabel } from './delivery.ts';
 import type { FigTone, GlyphName, WireDef } from './figure.ts';
 import type { Step, TokenWalk } from './narrate.ts';
 
@@ -51,6 +51,9 @@ export function changeModel(d: DeliveryOperation, namespace: string) {
   const env = d.environment || here;
   const stillRuns = fromV ? `still runs ${fromV}` : 'nothing changed here';
   const failed = outcome === 'Failed' || outcome === 'Errored';
+  // A trust change confirms who may publish; nothing moves past the gate.
+  const trust = e.spec.type === TRUST_TYPE;
+  const confirmed = trust && concluded && outcome === 'Succeeded';
 
   const stations: S[] = [
     origin(d, here, toV, fromV),
@@ -66,6 +69,8 @@ export function changeModel(d: DeliveryOperation, namespace: string) {
     const g = { key: 'gate', label: 'Gate', shape: 'diamond' as const };
     if (held && !applied) return { ...g, tone: 'warn', glyph: 'held', sub: 'holds it until a person decides' };
     if (applied || running) return { ...g, tone: 'ok', glyph: 'ok', sub: 'let it through' };
+    if (confirmed) return { ...g, tone: 'ok', glyph: 'ok', sub: 'a person confirmed the signer: nothing moves' };
+    if (trust && outcome === 'Rejected') return { ...g, tone: 'neutral', glyph: 'none', sub: 'rejected: nothing is pinned' };
     if (concluded) {
       if (outcome === 'Cancelled' || outcome === 'Superseded') return { ...g, tone: 'neutral', glyph: 'none', sub: `stopped: ${outcome === 'Cancelled' ? 'cancelled' : 'superseded'}` };
       return { ...g, tone: 'err', glyph: 'err', sub: outcome === 'Expired' ? 'stopped it: the decision expired' : outcome === 'Rejected' ? 'stopped it: rejected' : 'stopped it' };
@@ -75,6 +80,7 @@ export function changeModel(d: DeliveryOperation, namespace: string) {
   }
   function target(): S {
     const t = { key: 'to', label: env, shape: 'square' as const };
+    if (trust) return { ...t, tone: 'neutral', glyph: 'none', sub: `nothing moves: ${stillRuns}` };
     if (running && !applied) return { ...t, tone: 'accent', glyph: '', sub: `${toV || 'the change'} is being released` };
     if (applied) return failed ? { ...t, tone: 'err', glyph: 'err', sub: `${toV || 'the change'} was released here, then failed` } : { ...t, tone: 'ok', glyph: 'ok', sub: `${toV || 'the change'} was released here` };
     if (e.stage.frozen && !concluded) return { ...t, tone: 'frost', glyph: 'frozen', sub: `frozen: ${stillRuns}` };
@@ -82,6 +88,7 @@ export function changeModel(d: DeliveryOperation, namespace: string) {
   }
   function verify(): S {
     const v = { key: 'verify', label: 'Checks after release' };
+    if (trust) return { ...v, tone: 'neutral', glyph: 'none', sub: 'none: nothing moves' };
     if (!applied) return unknown('verify', v.label, 'not run');
     if (phase === 'Verifying') return { ...v, tone: 'neutral', glyph: '', sub: 'being checked' };
     if (held) return { ...v, tone: 'warn', glyph: 'held', sub: 'ended unknown: a person decides' };
@@ -109,7 +116,7 @@ export function changeModel(d: DeliveryOperation, namespace: string) {
   let tone: FigTone = 'accent';
   if (held && !applied) { at = GATE; tone = 'warn'; }
   else if (applied || running) { at = TO; tone = failed ? 'err' : held ? 'warn' : outcome === 'Succeeded' ? 'ok' : 'accent'; }
-  else if (concluded) { at = GATE; tone = outcome === 'Cancelled' || outcome === 'Superseded' ? 'neutral' : 'err'; }
+  else if (concluded) { at = GATE; tone = confirmed ? 'ok' : outcome === 'Cancelled' || outcome === 'Superseded' || (trust && outcome === 'Rejected') ? 'neutral' : 'err'; }
   else if (e.stage.frozen) tone = 'frost';
   else if (phase === 'Pending') at = GATE;
   const reach = applied && !running ? VERIFY : at;
@@ -179,4 +186,44 @@ function approval(st: NonNullable<NonNullable<DeliveryOperation['operation']>['s
   if (last === 'accept-unknown') return { ...a, tone: 'ok', glyph: 'ok', sub: 'a person accepted the unknown' };
   if (st.plan && !st.plan.floor?.human) return { ...a, tone: 'neutral', glyph: 'none', sub: 'not needed' };
   return unknown(a.key, a.label, 'not asked');
+}
+
+/** The fields changeSummary reads from an explanation. */
+export interface ChangeFacts {
+  spec?: { type?: string; stage?: string; params?: { from?: string; to?: string; publisher?: { subject?: string } | null } | null };
+  status?: { phase?: string; outcome?: string; verification?: string };
+}
+
+/**
+ * changeSummary says in one sentence what a change asked and where it stands,
+ * with only the parts it has: no empty fields and no raw machine words.
+ */
+export function changeSummary(e: ChangeFacts | null | undefined, namespace: string, versions?: Record<string, string> | null): string {
+  if (!e) return '';
+  if (e.spec?.type === TRUST_TYPE) return trustSummary(e, namespace);
+  const p = e.spec?.params ?? {};
+  const v = (d: string | undefined) => (!d ? '' : e.spec?.type === AUTONOMY_TYPE ? levelLabel(d) : versionLabel(d, versions));
+  const move = p.from && p.to ? ` from ${v(p.from)} to ${v(p.to)}` : p.to ? ` to ${v(p.to)}` : '';
+  // typeLabel is a verb for every type but a level change, which reads as a noun.
+  const lead = e.spec?.type === AUTONOMY_TYPE ? 'The level of' : typeLabel(e.spec?.type);
+  const what = `${lead} ${e.spec?.stage ?? ''} in ${namespace}${move}`;
+  const st = e.status ?? {};
+  if (st.phase === 'Concluded') {
+    const end = [OUTCOMES[st.outcome ?? ''] ?? st.outcome, VERIFICATIONS[st.verification ?? ''] ?? st.verification].filter(Boolean).join(', ');
+    return `${what} ${end ? `ended: it ${end}` : 'ended'}.`;
+  }
+  return `${what} ${PHASES[st.phase ?? ''] ?? `is ${(st.phase ?? '').toLowerCase()}`}.`;
+}
+
+/**
+ * trustSummary says what a trust change asked: whether a signer may publish
+ * what the Stage delivers. It moves nothing, so it names no version and no
+ * verification.
+ */
+function trustSummary(e: ChangeFacts, namespace: string): string {
+  const what = `Confirm ${e.spec?.params?.publisher?.subject || 'a signer'} may publish what ${e.spec?.stage ?? ''} in ${namespace} delivers`;
+  const st = e.status ?? {};
+  if (st.phase !== 'Concluded') return `${what}: ${PHASES[st.phase ?? ''] ?? `is ${(st.phase ?? '').toLowerCase()}`}.`;
+  const end = st.outcome === 'Succeeded' ? 'a person confirmed it' : st.outcome === 'Rejected' ? 'a person refused it' : OUTCOMES[st.outcome ?? ''] ?? st.outcome;
+  return `${what}: ${end ? `ended, ${end}` : 'ended'}.`;
 }

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
@@ -19,9 +20,13 @@ var deliveryViews = []struct{ route, short string }{
 	{"inbox", "Show what waits on you: held changes your teams may answer, frozen Stages and the Errored changes on them"},
 	{"environments", "Show every Stage by service and environment: what it runs and whether it is verified, failed, frozen or held"},
 	{"autonomy", "Show the path to autonomy: each Stage's level, the next level Pacto proposes and what blocks it"},
-	{"published", "Show the versions the Stages know per service and whether Flux verified their signature"},
+	{"published", "Show the versions the Stages know per service and whether Flux or the registry watch verified their signature"},
 	{"refusals", "Show the publishes Pacto refused and the version bump each change needs"},
+	{"trust", "Show which publishers each service accepts: the rule, the signed policy, the pinned identities and the signers waiting for a person"},
 }
+
+// positionalService are the views whose one optional argument is --service.
+var positionalService = map[string]bool{"trust": true}
 
 func newDeliveryViewCommands(d deps) []*cobra.Command {
 	var out []*cobra.Command
@@ -43,7 +48,13 @@ func newDeliveryViewCommand(d deps, route, short string) *cobra.Command {
 			"a namespace that refuses the list makes the answer partial and is named in unreadable. " +
 			"The answer is the dashboard's JSON in every output format.",
 		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 1 {
+				if svc, _ := cmd.Flags().GetString("service"); cmd.Flags().Changed("service") && svc != args[0] {
+					return fmt.Errorf("give the service once: as the argument or with --service, not %q and %q", args[0], svc)
+				}
+				_ = cmd.Flags().Set("service", args[0]) // a positionalService view declares service, a string flag: Set never fails
+			}
 			c, ns, err := deliveryClient(cmd, d)
 			if err != nil {
 				return err
@@ -60,6 +71,9 @@ func newDeliveryViewCommand(d deps, route, short string) *cobra.Command {
 			// ponytail: JSON for every format; a table per view when people ask for one.
 			return printJSON(cmd, json.RawMessage(body))
 		},
+	}
+	if positionalService[route] {
+		cmd.Use, cmd.Args = route+" [service]", cobra.MaximumNArgs(1)
 	}
 	for _, p := range params {
 		help := p.Description

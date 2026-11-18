@@ -11,6 +11,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 // The names the promoter raises its own operations under are reserved: an
@@ -76,4 +78,41 @@ func TestOperationAgentNamesAPerson(t *testing.T) {
 	allowed(t, onBehalf(controller, ""))
 	allowed(t, onBehalf("bo", "", agents, breakGlass))
 	allowed(t, onBehalf("alice", ""))
+}
+
+// trustOp is an Operation of the trust type user may create, asking to pin
+// a CI identity.
+func trustOp(name, user string, groups ...string) *unstructured.Unstructured {
+	op := operation(name, user, groups)
+	spec := op.Object["spec"].(map[string]any)
+	spec["type"] = "delivery.pacto.trianalab.io/trust"
+	spec["facet"] = "trust"
+	spec["params"] = map[string]any{"to": digestB, "publisher": map[string]any{
+		"issuer":     "https://token.actions.githubusercontent.com",
+		"subject":    "https://github.com/acme/payments/.github/workflows/release.yml@refs/heads/main",
+		"repository": "https://github.com/acme/payments",
+	}}
+	return op
+}
+
+// Only the promoter asks a person to confirm a new signer: a person or an
+// agent raising a trust operation could put an identity of their choosing
+// in front of an approver.
+func TestTrustOnlyFromPromoter(t *testing.T) {
+	ctx := context.Background()
+	const msg = "only the Pacto delivery promoter raises a trust operation"
+	denied(t, as("alice").Create(ctx, trustOp(uniq("trust"), "alice")), msg)
+	bot := trustOp(uniq("trust"), "deploy-bot", agents)
+	bot.Object["spec"].(map[string]any)["onBehalfOf"] = map[string]any{"user": "dana@example.com"}
+	denied(t, as("deploy-bot", agents).Create(ctx, bot), msg)
+	allowed(t, as(controller).Create(ctx, trustOp(uniq("trust"), controller)))
+}
+
+// A <stage>-trust-<hex> name is the promoter's: a person taking one first,
+// for any type, would keep the promoter from raising the question.
+func TestTrustNameReserved(t *testing.T) {
+	ctx := context.Background()
+	const msg = "the Pacto delivery promoter raises its own operations under"
+	denied(t, as("alice").Create(ctx, operation("payments-trust-0123456789", "alice", nil)), msg)
+	allowed(t, as("alice").Create(ctx, operation("payments-trust-12", "alice", nil)))
 }

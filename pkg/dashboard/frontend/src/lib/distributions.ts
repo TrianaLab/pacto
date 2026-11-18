@@ -482,7 +482,7 @@ export interface SignatureTally {
 
 /**
  * The bundle signature check of a revision, in the order always shown. Only a
- * signature verified against the identity its own contract declares is `ok`; a check
+ * signer a publisher rule, pin or policy accepted is `ok`; a check
  * that could not finish and a revision no source checks are neutral, never positive.
  */
 export const SIGNATURE_STATES: BucketState<keyof SignatureTally>[] = [

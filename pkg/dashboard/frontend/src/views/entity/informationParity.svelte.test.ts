@@ -384,7 +384,7 @@ describe('revision detail shows schema content and bundle provenance', () => {
       };
     });
     const sec = target.querySelector('[data-testid="bundle-provenance"]')!;
-    expect(text()).toContain("Signed by the contract's publish.sign identity");
+    expect(text()).toContain('Signed by ci@acme.dev');
     for (const f of ['ci@acme.dev', 'https://token.actions.githubusercontent.com', 'application/vnd.dev.sigstore.bundle.v0.3+json', 'application/vnd.pacto.evidence.record.v1+json', 'a1b2c3d4e5f6', 'Created unknown']) {
       expect(text()).toContain(f);
     }

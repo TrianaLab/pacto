@@ -28,6 +28,9 @@ type Policy struct {
 	// Tlog requires a transparency log entry, as public-good keyless signing
 	// writes.
 	Tlog bool
+	// AnyIdentity accepts a keyless certificate of any identity under Root:
+	// the caller checks who it names (VerifyPerson checks the issuer).
+	AnyIdentity bool
 }
 
 // Verify checks bundle (JSON) against p. digest, the sha256 of the artifact
@@ -58,11 +61,14 @@ func (p Policy) Verify(raw, digest []byte) (*verify.VerificationResult, error) {
 	case p.Root == nil:
 		return nil, errors.New("no trusted root: a certificate that chains to nothing proves no identity")
 	default:
-		id, err := verify.NewShortCertificateIdentity(p.Issuer, "", p.Identity, "")
-		if err != nil {
-			return nil, err
+		tm, popt = p.Root, verify.WithoutIdentitiesUnsafe()
+		if !p.AnyIdentity {
+			id, err := verify.NewShortCertificateIdentity(p.Issuer, "", p.Identity, "")
+			if err != nil {
+				return nil, err
+			}
+			popt = verify.WithCertificateIdentity(id)
 		}
-		tm, popt = p.Root, verify.WithCertificateIdentity(id)
 		vopts = []verify.VerifierOption{verify.WithObserverTimestamps(1)}
 		if p.Tlog {
 			vopts = append(vopts, verify.WithTransparencyLog(1))
@@ -77,6 +83,34 @@ func (p Policy) Verify(raw, digest []byte) (*verify.VerificationResult, error) {
 		art = verify.WithArtifactDigest("sha256", digest)
 	}
 	return v.Verify(&b, verify.NewPolicy(art, popt))
+}
+
+// VerifyPerson checks a keyless bundle (JSON) signed by any identity issuer
+// vouches for under trustedRoot (a trusted_root.json), at a time a timestamp
+// authority or the transparency log observed. It returns who the
+// certificate names (IdentityOf; its Subject is the SAN) and that observed
+// time: a timestamp authority's when there is one, else the log's. Who the
+// signer is, the caller decides.
+func VerifyPerson(raw []byte, issuer, trustedRoot string) (signer delivery.PublisherIdentity, signedAt time.Time, err error) {
+	tr, err := root.NewTrustedRootFromJSON([]byte(trustedRoot))
+	if err != nil {
+		return signer, time.Time{}, fmt.Errorf("trustedRoot: %w", err)
+	}
+	res, err := Policy{AnyIdentity: true, Root: tr}.Verify(raw, nil)
+	if err != nil {
+		return signer, time.Time{}, err
+	}
+	if signer = IdentityOf(res); signer.Issuer != issuer {
+		return delivery.PublisherIdentity{}, time.Time{}, fmt.Errorf("the bundle is not signed by a certificate from %s", issuer)
+	}
+	// Verify required an observer timestamp: a timestamp authority's time
+	// wins over the log's.
+	for _, ts := range res.VerifiedTimestamps {
+		if signedAt.IsZero() || ts.Type == "TimestampAuthority" {
+			signedAt = ts.Timestamp.UTC()
+		}
+	}
+	return signer, signedAt, nil
 }
 
 // PublicGoodRoot fetches public-good Sigstore's trusted root through TUF from

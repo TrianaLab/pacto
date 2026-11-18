@@ -121,7 +121,8 @@ func newRecEnv(t *testing.T, objs ...any) *recEnv {
 	e.create(u)
 	re := &recEnv{env: e, reg: reg, key: key}
 	re.rec = &Recorder{Client: e.c, APIReader: e.c, Cluster: e.op.Cluster, ClusterID: "cid",
-		Store:  &RecordStore{Streams: reg.host + "/delivery/streams", Verify: edVerifier(key.Public())},
+		Store: &RecordStore{Streams: reg.host + "/delivery/streams", Approvals: reg.host + "/delivery/approvals",
+			Verify: edVerifier(key.Public()), Prober: &ocireferrer.Prober{}},
 		Signer: edSigner(key), Now: func() time.Time { return e.now }, Poll: time.Second, GapGrace: time.Minute}
 	return re
 }
@@ -542,19 +543,14 @@ func TestConflict(t *testing.T) {
 }
 
 func TestRecorderStoreFailures(t *testing.T) {
-	t.Run("no referrers API", func(t *testing.T) {
+	t.Run("stream unreadable", func(t *testing.T) {
 		re := newRecEnv(t)
 		re.stage(1)
 		re.concluded("ship", 1, delivery.Succeeded)
-		re.reg.unsupported = true
-		if res := re.reconcile(); res.RequeueAfter != time.Second {
-			t.Fatalf("res = %+v", res)
-		}
-		if c := condition(re.getStage()); c.Status != "False" || c.Reason != ReasonReferrersUnsupported {
+		re.reg.fault = from(1, http.MethodGet, "/tags/list")
+		re.reconcile()
+		if c := condition(re.getStage()); c.Status != "False" || c.Reason != ReasonRegistryUnavailable {
 			t.Fatalf("condition %+v", c)
-		}
-		if !controllerutil.ContainsFinalizer(re.getOp("ship"), dv1.RecordFinalizer) {
-			t.Fatal("the finalizer went with no record")
 		}
 	})
 	t.Run("registry down", func(t *testing.T) {
@@ -621,7 +617,7 @@ func TestRecorderClusterReads(t *testing.T) {
 		t.Fatal("a failed condition write was not an error")
 	}
 	re.fails = fails{}
-	re.reg.unsupported = true
+	re.reg.fault = from(1, http.MethodGet, "/referrers/")
 	re.fails = fails{"status/Stage": true}
 	if _, err := re.rec.Reconcile(ctx, req); err == nil {
 		t.Fatal("a failed not-ready write was not an error")
@@ -741,7 +737,7 @@ func TestRecorderEdgeCases(t *testing.T) {
 		re := newRecEnv(t)
 		re.stage(1)
 		re.setStage(func(s *delivery.StageStatus) {
-			s.Conditions = []delivery.Condition{{Type: ConditionRecordStoreReady, Status: "True", Reason: "ReferrersSupported",
+			s.Conditions = []delivery.Condition{{Type: ConditionRecordStoreReady, Status: "True", Reason: ReasonReferrersSupported,
 				Message: "records are written to " + re.rec.Store.Streams}}
 		})
 		re.concluded("ship", 1, delivery.Succeeded)

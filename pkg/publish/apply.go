@@ -162,6 +162,9 @@ func (r *applier) artifacts() error {
 			if r.in.Created != "" {
 				ann[AnnotationCreated] = r.in.Created
 			}
+			if r.in.Source != "" {
+				ann[AnnotationSource] = r.in.Source
+			}
 			if a.Name == r.pub.Deploy {
 				ann[delivery.ContractAnnotation] = contractRef(bundleRepo, bundleDigest)
 			}
@@ -345,13 +348,18 @@ func attachReferrer(ctx context.Context, reg Registry, tools Tools, sign contrac
 	if err != nil {
 		return "", err
 	}
-	h, _ := v1.NewHash(digest)
-	subject := v1.Descriptor{MediaType: types.MediaType(head.MediaType), Size: head.Size, Digest: h}
-	ann := map[string]string{AnnotationVersion: version, AnnotationRevision: revision}
-	d, err := reg.Write(ctx, repo, referrerArtifact(ref.artifactType, body, subject, ann))
+	mode, err := reg.Mode(ctx, repo, digest)
 	if err != nil {
 		return "", err
 	}
+	h, _ := v1.NewHash(digest)
+	subject := v1.Descriptor{MediaType: types.MediaType(head.MediaType), Size: head.Size, Digest: h}
+	ann := map[string]string{AnnotationVersion: version, AnnotationRevision: revision}
+	img, art := referrerArtifact(ref.artifactType, body, subject, ann)
+	if err := writeReferrer(ctx, reg, mode, repo, digest, img, art); err != nil {
+		return "", err
+	}
+	d := art.ManifestDesc.Digest.String()
 	res.Actions = append(res.Actions, "attached "+ref.what+" "+repo+"@"+d)
 	return d, nil
 }

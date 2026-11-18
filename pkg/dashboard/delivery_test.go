@@ -70,6 +70,10 @@ type fakeDelivery struct {
 	recordErr   error
 	refusals    *PublishRefusals
 	refusalsErr error
+	// publishers and pins answer Trust; trustErr refuses it.
+	publishers delivery.PublisherConfig
+	pins       []delivery.IdentityPin
+	trustErr   error
 	// deny refuses the caller's access reviews "verb resource namespace"
 	// ("verb resource" for every namespace); canErr fails every review.
 	deny   map[string]bool
@@ -104,6 +108,15 @@ func (f *fakeDelivery) Undo(context.Context, string, string, string) (*delivery.
 
 func (f *fakeDelivery) Record(context.Context, string, string, string) (*delivery.RecordView, error) {
 	return f.record, f.recordErr
+}
+
+func (f *fakeDelivery) Trust(_ context.Context, stages []delivery.StageObject, ops []delivery.OperationObject) (*delivery.TrustView, error) {
+	if f.trustErr != nil {
+		return nil, f.trustErr
+	}
+	v := delivery.TrustOf(f.publishers, stages, ops, func(string, delivery.ServiceRef) []delivery.IdentityPin { return f.pins })
+	v.AsOf, v.Completeness = "2026-11-18T00:00:00Z", "complete"
+	return &v, nil
 }
 
 func (f *fakeDelivery) PublishRefusals(context.Context, string) (*PublishRefusals, error) {
@@ -398,7 +411,7 @@ func TestDeliveryNotInstalledAndRefusals(t *testing.T) {
 	_, caps = call(t, http.MethodGet, open+"/api/capabilities", nil)
 	expect(t, caps["delivery"] == false && !asked, "an open dashboard does not ask the cluster: %v %v", caps, asked)
 	base = startDelivery(t, f, a.auth(false, true), true, Refuse(http.StatusUnauthorized, "LoginRequired", "sign in"))
-	for _, p := range []string{"inbox", "environments", "published", "history", "operations/prod/op", "refusals",
+	for _, p := range []string{"inbox", "environments", "published", "history", "operations/prod/op", "refusals", "trust",
 		"blame?namespace=prod&stage=s", "undo?namespace=prod&name=op"} {
 		if code, body = call(t, http.MethodGet, base+"/api/delivery/"+p, nil); code != http.StatusUnauthorized || body["code"] != "LoginRequired" {
 			t.Errorf("%s: %d %v", p, code, body)
@@ -464,6 +477,7 @@ func TestInbox(t *testing.T) {
 	expect(t, names(inbox["held"]) == "for-checkout:approve,anyone:accept-unknown",
 		"held: only what names my team (or nobody), as accept-unknown once it shipped: %v", inbox["held"])
 	first := inbox["held"].([]any)[0].(map[string]any)
+	expect(t, first["service"] == "payments", "a held item names the service of its Stage: %v", first)
 	expect(t, first["question"] == "Approve?" && strings.Join(toStrings(first["consumers"]), ",") == "checkout" &&
 		strings.Join(toStrings(first["owners"]), ",") == "team-checkout" &&
 		first["order"].(map[string]any)["moveFirst"].([]any)[0].(map[string]any)["service"] == "checkout",
@@ -1682,4 +1696,30 @@ func TestDeliveryProposeCarriesCorrelationID(t *testing.T) {
 		"namespace": "prod", "stage": "payments", "to": dNext, "intentDigest": "sha256:i", "correlationID": "CHG-2041"})
 	expect(t, code == http.StatusCreated && len(f.proposed) == 1 && f.proposed[0].CorrelationID == "CHG-2041",
 		"propose carries the correlation id: %d %v %+v", code, out, f.proposed)
+}
+
+// TestDecideSaysRecorderSigns: a decision on an operation whose intent record
+// the recorder wrote says the recorder signs it for the person; elsewhere,
+// a Stage anchor left over from a recorder since turned off included, it says
+// nothing.
+func TestDecideSaysRecorderSigns(t *testing.T) {
+	a := &authed{state: AuthState{SignedIn: true}}
+	f := &fakeDelivery{caller: person("acme:team-checkout"), ops: []delivery.OperationObject{operation("prod", "held", "payments", held("team-checkout"))},
+		stages: []delivery.StageObject{{Metadata: delivery.ObjectMeta{Namespace: "prod", Name: "payments"}}}}
+	base := startDelivery(t, f, a.auth(false, true), true, nil)
+	decide := func() map[string]any {
+		_, out := call(t, http.MethodPost, base+"/api/delivery/operations/prod/held/decision", map[string]string{"decision": "approve"})
+		return out
+	}
+	if out := decide(); out["signing"] != nil {
+		t.Fatalf("no recorder, no signing: %v", out)
+	}
+	f.stages[0].Status.Stream.Anchor = "registry.example/streams@sha256:" + strings.Repeat("a", 64)
+	if out := decide(); out["signing"] != nil {
+		t.Fatalf("an anchor alone promises nothing: %v", out)
+	}
+	f.ops[0].Status.IntentRecord = &delivery.ApprovalRecordRef{Digest: "sha256:i", Ref: "registry.example/streams@sha256:" + strings.Repeat("b", 64)}
+	if out := decide(); out["signing"] != "recorder" {
+		t.Fatalf("a recorded Stage says the recorder signs: %v", out)
+	}
 }

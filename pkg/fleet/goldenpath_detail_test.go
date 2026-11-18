@@ -48,7 +48,7 @@ func TestTemplateDetail(t *testing.T) {
 	if d.Instantiate != nil || !strings.Contains(d.InstantiateReason, "no digest-pinned reference") {
 		t.Errorf("a tag is never instantiated: %+v, %q", d.Instantiate, d.InstantiateReason)
 	}
-	if d.Signature != nil || !strings.Contains(d.SignatureNote, "own contract declares") {
+	if d.Signature != nil || !strings.Contains(d.SignatureNote, "publisher rule, pin or policy") {
 		t.Errorf("signature = %+v, note %q", d.Signature, d.SignatureNote)
 	}
 	if goldenDetail(t, q, "orders").Template != nil {
@@ -200,8 +200,10 @@ func TestCreationChecklistSignature(t *testing.T) {
 		sig            *BundleProvenance
 		status, detail string
 	}{
-		{&BundleProvenance{Signature: BundleSignature{Status: SignatureVerified, Signer: "platform@acme.dev", Issuer: "https://idp"}}, StepStatusUnknown, "signed by platform@acme.dev (https://idp), the signer the golden path's own contract declares"},
-		{&BundleProvenance{Signature: BundleSignature{Status: SignatureUnverified}}, StepStatusFailed, "failed verification"},
+		{&BundleProvenance{Signature: BundleSignature{Status: SignatureVerified, Source: "rule", Signer: "platform@acme.dev", Issuer: "https://idp"}}, StepStatusUnknown, "signed by platform@acme.dev (https://idp), which the installation's publisher rule accepted"},
+		{&BundleProvenance{Signature: BundleSignature{Status: SignatureVerified, Source: "pin", Signer: "s", Issuer: "i"}}, StepStatusUnknown, "which a person's pin accepted"},
+		{&BundleProvenance{Signature: BundleSignature{Status: SignatureVerified, Source: "policy", Signer: "s", Issuer: "i"}}, StepStatusUnknown, "which the signed delivery policy accepted"},
+		{&BundleProvenance{Signature: BundleSignature{Status: SignatureVerified, Source: "release", Signer: "s", Issuer: "i"}}, StepStatusUnknown, "which the Pacto release signer check accepted"},
 		{&BundleProvenance{Signature: BundleSignature{Status: SignatureUnsigned}}, StepStatusUnknown, "the golden path is unsigned"},
 		{&BundleProvenance{Signature: BundleSignature{Status: SignatureUnknown, Reason: "registry unreachable"}}, StepStatusUnknown, "registry unreachable"},
 		{&BundleProvenance{Signature: BundleSignature{Status: SignatureUnknown}}, StepStatusUnknown, "was not checked"},
@@ -212,6 +214,15 @@ func TestCreationChecklistSignature(t *testing.T) {
 		if got.Step != StepSignature || got.Status != tt.status || !strings.Contains(got.Detail, tt.detail) || got.Status == StepStatusDone {
 			t.Errorf("%+v: step = %+v", tt.sig, got)
 		}
+	}
+}
+
+// TestGoldenPathUnverifiedNotFailed: a signer no rule, pin or policy covers is
+// not a broken signature, so the step stays unknown and names who signed.
+func TestGoldenPathUnverifiedNotFailed(t *testing.T) {
+	got := pathSignatureStep(&ContractRevision{Provenance: &BundleProvenance{Signature: BundleSignature{Status: SignatureUnverified, Signer: "ana@acme.dev", Issuer: "https://idp"}}})
+	if got.Status != StepStatusUnknown || got.Detail != "signed by ana@acme.dev (https://idp), which no publisher rule, pin or policy covers" {
+		t.Fatalf("step = %+v", got)
 	}
 }
 

@@ -12,6 +12,8 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
+	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
+	"github.com/trianalab/pacto/v4/pkg/ocireferrer/capabilities"
 )
 
 // The signature publish attaches, as cosign 3 writes it and Flux verifies it:
@@ -43,9 +45,15 @@ type Signer = delivery.Signer
 // predicate type of the statement it verified.
 type BundleVerifier func(bundle, digest []byte) (predicateType string, err error)
 
-// SignDigest signs repo@digest and attaches the signature as its referrer.
+// SignDigest signs repo@digest and attaches the signature as its referrer,
+// named by a write-once pacto-sig tag too on a registry without the
+// Referrers API.
 func SignDigest(ctx context.Context, reg Registry, s Signer, repo, digest string) error {
 	h, err := v1.NewHash(digest)
+	if err != nil {
+		return err
+	}
+	mode, err := reg.Mode(ctx, repo, digest)
 	if err != nil {
 		return err
 	}
@@ -61,8 +69,23 @@ func SignDigest(ctx context.Context, reg Registry, s Signer, repo, digest string
 	}
 	subject := v1.Descriptor{MediaType: types.MediaType(head.MediaType), Size: head.Size, Digest: h}
 	ann := map[string]string{deliveryrecord.AnnBundleContent: "dsse-envelope", deliveryrecord.AnnPredicateType: SignPredicate}
-	_, err = reg.Write(ctx, repo, newArtifact(delivery.BundleMediaType, delivery.BundleMediaType, []byte("{}"), delivery.BundleMediaType, bundle, ann, &subject))
-	return err
+	img, art := newReferrer(delivery.BundleMediaType, delivery.BundleMediaType, []byte("{}"), delivery.BundleMediaType, bundle, ann, subject)
+	return writeReferrer(ctx, reg, mode, repo, digest, img, art)
+}
+
+// writeReferrer pushes a referrer of repo@digest and, on a registry without
+// the Referrers API, names it with its write-once tag, the only place Pacto
+// readers look there. The push still updates the shared sha256-<hex> index
+// on such a registry, which Flux and cosign read; Pacto never does.
+func writeReferrer(ctx context.Context, reg Registry, mode capabilities.ReferrersMode, repo, digest string, img v1.Image, art ocireferrer.Artifact) error {
+	if _, err := reg.Write(ctx, repo, img); err != nil {
+		return err
+	}
+	if mode == capabilities.ReferrersWriteOnceTags {
+		_, err := reg.PutSigTag(ctx, repo, digest, art)
+		return err
+	}
+	return nil
 }
 
 // VerifyDigest returns nil when one of repo@digest's signature referrers

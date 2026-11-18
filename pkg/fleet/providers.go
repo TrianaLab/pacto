@@ -57,7 +57,23 @@ const (
 	// UseReporting: the row's product reports provisioning or usage to Pacto,
 	// the reporting adapters row family.
 	UseReporting = "reporting"
+	// ProviderRegistryPrefix prefixes the id of the row of a registry host an
+	// OCI source read: registry:ghcr.io.
+	ProviderRegistryPrefix = "registry:"
+	// UseNativeReferrers: Pacto attaches records there as OCI 1.1 referrers.
+	UseNativeReferrers = "native-referrers"
+	// UseWriteOnceTags: the registry serves no Referrers API, so Pacto writes
+	// one write-once, content-addressed tag per record there.
+	UseWriteOnceTags = "write-once-tags"
+	// UseIndexListedByCatalog: Pacto lists repositories there through _catalog.
+	UseIndexListedByCatalog = "index-listed-by-catalog"
+	// UseIndexListedByTag: the registry refuses _catalog, so Pacto lists by tag.
+	UseIndexListedByTag = "index-listed-by-tag"
 )
+
+// LimitationRegistryProbeFailed: Pacto could not probe a registry host, so it
+// does not know which mode it would use there.
+const LimitationRegistryProbeFailed = "REGISTRY_PROBE_FAILED"
 
 // PromotionOwnedBy starts the evidence of every promotion row whose product
 // was found, followed by the product: the phrase a delivery back-off reads. A
@@ -99,6 +115,9 @@ type Provider struct {
 	// producer that read and found nothing passes a non-nil empty Counts.
 	Counts          []ProviderCount `json:"-"`
 	UnreadableKinds []string        `json:"-"`
+	// Services are the services whose revisions a registry row's host served;
+	// Restrict drops the row when every one is hidden. Never serialised.
+	Services []ServiceKey `json:"-"`
 }
 
 // ProviderObject is one object a provider row's evidence names. Namespace is
@@ -127,7 +146,7 @@ func ingestProviders(snap *FleetSnapshot, sourceID string, col *Collection) {
 	for _, p := range col.Providers {
 		p.UsedFor, p.Objects, p.Limitations = slices.Clone(p.UsedFor), slices.Clone(p.Objects), slices.Clone(p.Limitations)
 		p.Counts, p.UnreadableKinds = slices.Clone(p.Counts), slices.Clone(p.UnreadableKinds)
-		p.Details = slices.Clone(p.Details)
+		p.Details, p.Services = slices.Clone(p.Details), slices.Clone(p.Services)
 		if p.AsOf != nil {
 			at := *p.AsOf
 			p.AsOf = &at
@@ -234,9 +253,9 @@ const reportingAdapterID = "reporting-adapter/"
 // row an evidence source reported from its trust config (a producer the
 // installation allows to report) names no report and stays for every viewer:
 // the Evidence Server lists those producers to anyone on GET /producers.
-func restrictedProviders(out *FleetSnapshot, rows []Provider, hiddenNames []string, visible func(string) bool, workloadVisible func(namespace, kind string) bool) []Provider {
+func restrictedProviders(out *FleetSnapshot, rows []Provider, hiddenSvc map[ServiceKey]bool, hiddenNames []string, visible func(string) bool, workloadVisible func(namespace, kind string) bool) []Provider {
 	rows = slices.DeleteFunc(slices.Clone(rows), func(p Provider) bool { return strings.HasPrefix(p.ID, reportingAdapterID) })
-	rows = append(restrictProviders(rows, hiddenNames, visible, workloadVisible, out.Clusters), finalizeRows(reportingRows(out.Provisioning), sourceStates(out.Sources))...)
+	rows = append(restrictProviders(rows, hiddenSvc, hiddenNames, visible, workloadVisible, out.Clusters), finalizeRows(reportingRows(out.Provisioning), sourceStates(out.Sources))...)
 	slices.SortStableFunc(rows, func(a, b Provider) int { return cmp.Or(cmp.Compare(a.Source, b.Source), cmp.Compare(a.ID, b.ID)) })
 	return rows
 }
@@ -343,7 +362,8 @@ func PluralKind(k string) string {
 }
 
 // restrictProviders is rows as a reader visible and workloadVisible say yes
-// to sees them. Every row stays; what changes is cloned. An object in a
+// to sees them. Every row stays, except a registry row whose every service is
+// in hiddenSvc; what changes is cloned. An object in a
 // namespace the reader may not read goes, a cluster-scoped one included unless
 // visible("") says yes, and ObjectsTotal keeps the count. A count stays only
 // when the reader may read its namespace and list its kind there (a nil
@@ -354,7 +374,7 @@ func PluralKind(k string) string {
 // stays. A row that is not available and lost every reason gets a degraded
 // one, so it still says why. Evidence a producer wrote that names a hidden
 // name is masked; evidence rendered from counts names none.
-func restrictProviders(rows []Provider, hiddenNames []string, visible func(string) bool, workloadVisible func(namespace, kind string) bool, clusters []ClusterRecord) []Provider {
+func restrictProviders(rows []Provider, hiddenSvc map[ServiceKey]bool, hiddenNames []string, visible func(string) bool, workloadVisible func(namespace, kind string) bool, clusters []ClusterRecord) []Provider {
 	if rows == nil {
 		return nil
 	}
@@ -365,8 +385,11 @@ func restrictProviders(rows []Provider, hiddenNames []string, visible func(strin
 	for _, c := range clusters {
 		shown[c.ID], shown[c.Name] = true, true
 	}
-	out := make([]Provider, len(rows))
+	out := make([]Provider, 0, len(rows))
 	for i, p := range rows {
+		if len(p.Services) > 0 && !slices.ContainsFunc(p.Services, func(k ServiceKey) bool { return !hiddenSvc[k] }) {
+			continue
+		}
 		if !shown[p.Cluster] {
 			p.Evidence, p.Limitations = hideDetectedCluster(p)
 			p.Cluster = ""
@@ -394,7 +417,7 @@ func restrictProviders(rows []Provider, hiddenNames []string, visible func(strin
 			p.Limitations = []Limitation{{Code: LimitationProviderSourceDegraded, Source: p.Source,
 				Message: "source " + p.Source + " reported this row as " + string(p.Status) + "; the reason is hidden by your permissions"}}
 		}
-		out[i] = p
+		out = append(out, p)
 	}
 	return out
 }

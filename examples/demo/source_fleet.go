@@ -85,6 +85,8 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 		return out
 	}
 	col.Revisions = revisions(src, demoRegistry)
+	withProvenance(col.Revisions, "local")
+	col.Providers = []fleet.Provider{demoRegistryRow(demoNativeRegistry, col.Revisions)}
 
 	// One more registry, the payments story's own domain: the contracts the
 	// simulated delivery's Stages run (source_story_fleet.go), so each Stage row
@@ -118,6 +120,7 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 	for i := range partnerCol.Revisions {
 		partnerCol.Revisions[i].Domain = partnerDomain
 	}
+	partnerCol.Providers = []fleet.Provider{demoRegistryRow(demoTagsRegistry, partnerCol.Revisions)}
 	partnerRegistrySource := fleet.NewMemorySource("partner-registry", "oci", partnerCol)
 
 	// The cluster collector reports what is running; the registry above reports what

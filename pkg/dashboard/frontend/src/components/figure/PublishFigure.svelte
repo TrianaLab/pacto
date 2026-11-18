@@ -44,7 +44,7 @@
     <dl class="facts">
       <dt>Services</dt><dd><span data-nofilter>{formatCount(counts.services)}</span> with a version your environments know</dd>
       <dt>Versions</dt><dd><span data-nofilter>{formatCount(counts.signed)}</span> signed, <span data-nofilter>{formatCount(counts.unsigned)}</span> not signed ({sharePct(counts.unsigned, counts.versions)}){#if counts.unknown}, <span data-nofilter>{formatCount(counts.unknown)}</span> not known here{/if}</dd>
-      <dt>Not signed</dt><dd>An entry Stage holds it and Flux never verified a signature on it, so who built it cannot be traced</dd>
+      <dt>Not signed</dt><dd>An entry Stage holds it and no publisher check accepted it, so who built it cannot be traced</dd>
       {#if counts.unknown}<dt>Not known here</dt><dd>Only a Stage downstream or one fed by another cluster holds it, so the Stages you can list cannot tell</dd>{/if}
     </dl>
   {/snippet}

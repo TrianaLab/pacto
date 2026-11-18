@@ -190,11 +190,14 @@ promote and starts the usual rollback.
 Argo CD does not check signatures. The candidate source checks them, and the
 promoter only ever writes a digest, so Argo CD fetches exactly the checked
 bytes. Admission keeps the rest of `spec.source`, `spec.sources` and the label
-to break-glass, so nobody else changes what those bytes become. Only a Flux
-`OCIRepository` with `spec.verify` admits a new version, so the first Stage of
-a service needs Flux's source controller in its cluster even when Argo CD
-applies it. Stages after it can take versions from that Stage, in the same
-cluster or through its records, with no Flux at all. An Argo CD Stage places no
+to break-glass, so nobody else changes what those bytes become. The first
+Stage of a service admits a new version through `spec.candidates.registry`,
+where the promoter lists the service's version tags and verifies each
+signature against the installation's publisher rule (`delivery.publishers`),
+or through a Flux `OCIRepository` with `spec.verify`. A cluster that runs only
+Argo CD uses `candidates.registry` and needs no Flux. Stages after it can take
+versions from that Stage, in the same cluster or through its records. An Argo
+CD Stage places no
 consumers, so label the Pactos it runs with
 `delivery.pacto.trianalab.io/environment`.
 

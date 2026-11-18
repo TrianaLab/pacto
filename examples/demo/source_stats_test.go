@@ -124,7 +124,7 @@ func upstreamKind(c delivery.Candidates) string {
 		return "stage:" + c.UpstreamStage.Namespace + "/" + c.UpstreamStage.Name
 	case c.UpstreamRecords != nil:
 		return "records"
-	case c.OCIRepositoryRef != nil:
+	case c.OCIRepositoryRef != nil || c.Registry != nil:
 		return "artifact"
 	}
 	return "none"

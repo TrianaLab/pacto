@@ -169,6 +169,8 @@ func PlanFor(ctx context.Context, in PlanInput) Plan {
 	case TypeRollback:
 		rollbackImpact(ctx, in, &p)
 		routeToServiceTeam(in, &p)
+	case TypeTrust:
+		trustFloor(in, &p)
 	}
 	holdForRecords(in, &p)
 	p.Predicted = predict(in, &p)
@@ -250,6 +252,8 @@ func refusal(in PlanInput) string {
 		return fmt.Sprintf("LevelMoved: from is %q but the Stage is on %q", in.Spec.Params.From, CurrentLevel(in.Stage, in.Status))
 	case in.Spec.Type == TypePromote && CurrentLevel(in.Stage, in.Status) == LevelObserve:
 		return "Observing: " + in.Spec.Stage + " observes, so GitOps owns the applyRef; propose " + TypeAutonomy + " to advise first"
+	case in.Spec.Type == TypeTrust && in.Spec.Params.Publisher == nil:
+		return "NoPublisher: a trust operation names the signer it asks a person to confirm"
 	case in.Spec.Type == TypePromote && slices.Contains(in.Status.FailedDigests, in.Spec.Params.To):
 		return "FailedDigest: " + in.Spec.Params.To + " is one of the last 50 versions that failed on this Stage, which are never promoted again"
 	}
@@ -310,6 +314,26 @@ func routeToServiceTeam(in PlanInput, p *Plan) {
 	if p.Floor.Human && !strings.Contains(p.Question, "Asked of: ") {
 		p.Question += " Asked of: " + ownersOrAnyone(p.Floor.Owners, in.RequireOwnerTeam)
 	}
+}
+
+// trustFloor asks a person to confirm the signer a trust operation names,
+// of the team of the service running on the Stage. The candidate is exactly
+// what is not trusted yet, so its own contract never names who confirms it.
+// The promoter writes the lead (new signer, or signer changed) as the reason.
+func trustFloor(in PlanInput, p *Plan) {
+	id, svc := in.Spec.Params.Publisher, in.Stage.Service.Name
+	p.Floor = Floor{Human: true, Decision: Approve, Owners: runningTeam(in)}
+	p.Question = fmt.Sprintf("%s: %s (issuer %s, repository %s, attested). Confirm it may publish %s? Asked of: %s",
+		svc, cmp.Or(in.Spec.Reason, "new signer "+id.Subject), id.Issuer, id.Repository, svc, ownersOrAnyone(p.Floor.Owners, in.RequireOwnerTeam))
+}
+
+// runningTeam is the owner team the contract running on the Stage declares,
+// nil when nothing runs or it declares none. It never reads the candidate.
+func runningTeam(in PlanInput) []string {
+	if in.From.Digest == "" {
+		return nil
+	}
+	return serviceTeam(in)
 }
 
 // serviceTeam is the owner team the contract running on the Stage declares;
@@ -559,8 +583,9 @@ func suitesGate(in PlanInput, p *Plan) {
 }
 
 // publishedGate admits only a version pacto publish published. From a
-// candidate OCIRepository that is a digest Flux verified the signature of
-// (Status.Published) whose artifact names its digest-pinned contract; from an
+// candidate OCIRepository that is a digest Flux verified the signature of, and
+// from the registry watch one the publisher check accepted (Status.Published
+// holds both), whose artifact names its digest-pinned contract; from an
 // upstream Stage it is a digest that Stage offers: it passed this gate there,
 // with a pass rather than an accepted unknown, and verified. An upstream
 // Stage that cannot be read offers nothing: the gate never asks a person to
@@ -573,6 +598,8 @@ func publishedGate(in PlanInput) Verdict {
 		upstreamOffers(in, &v)
 	case c.OCIRepositoryRef != nil:
 		candidatePublished(in, &v)
+	case c.Registry != nil:
+		registryPublished(in, &v)
 	default:
 		v.Message = "this Stage names no candidate source, so nothing it could promote was verified as published by pacto publish: set spec.candidates on the Stage"
 	}
@@ -609,15 +636,38 @@ func upstreamOffers(in PlanInput, v *Verdict) {
 }
 
 // candidatePublished judges the published gate for a Stage whose candidates
-// come from an OCIRepository Flux verifies.
+// come from an OCIRepository Flux verifies; the registry watch is the other
+// source of verified versions (registryPublished).
 func candidatePublished(in PlanInput, v *Verdict) {
 	to, ref := in.Spec.Params.To, in.Stage.Candidates.OCIRepositoryRef
 	v.Citation["source"] = ref.Name
-	switch {
-	case !slices.Contains(in.Status.Published, to):
-		v.Message = "Flux never verified a signature of " + short(to) + " on the candidate OCIRepository " + ref.Name +
+	if !slices.Contains(in.Status.Published, to) {
+		v.Message = "Flux has not verified a signature of " + short(to) + " on the candidate OCIRepository " + ref.Name +
 			": only versions pacto publish published and signed are promoted, and the OCIRepository must set spec.verify " +
 			"with a secretRef or matchOIDCIdentity naming the publisher"
+		return
+	}
+	publishedArtifact(in, v)
+}
+
+// registryPublished judges the published gate for a Stage whose candidates
+// come from the promoter's registry watch: only a digest the publisher check
+// accepted is in Status.Published.
+func registryPublished(in PlanInput, v *Verdict) {
+	to, repo := in.Spec.Params.To, watchedRepository(in.Stage.Candidates.Registry)
+	v.Citation["source"] = repo
+	if !slices.Contains(in.Status.Published, to) {
+		v.Message = "no publisher check accepted " + short(to) + " on " + repo + ": see pacto delivery trust " + in.Stage.Service.Name
+		return
+	}
+	publishedArtifact(in, v)
+}
+
+// publishedArtifact judges a verified digest by its artifact: it must name
+// its digest-pinned contract.
+func publishedArtifact(in PlanInput, v *Verdict) {
+	to := in.Spec.Params.To
+	switch {
 	case in.To.NoContract:
 		v.Message = short(to) + " names no digest-pinned " + ContractAnnotation + " annotation, so pacto publish did not publish it"
 	case in.To.ContractRef == "":

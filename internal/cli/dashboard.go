@@ -138,6 +138,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			}
 
 			fopts := dashboardFleetOptions(dir, repos, namespaces, observation, det)
+			fopts.Provenance.Trust = publisherTrust(cmd, d)
 			configured := configuredSources(fopts)
 			if answersNothing(configured) {
 				return fmt.Errorf("no data sources detected: no pacto.yaml in %s, no oci:// argument, no cached bundles and no Kubernetes configuration", dir)
@@ -649,7 +650,7 @@ func dashboardFleetOptions(dir string, repos []string, namespaces []string, obse
 	// safe thing to render as fresh.
 	// One provenance checker for the dashboard's life: every refresh copies
 	// these options and keeps the pointer, so its memo outlives each refresh.
-	fopts := app.FleetOptions{FreshnessWindow: fleet.RecentEvidenceWindow, Provenance: app.NewProvenanceChecker(), LongRunning: true}
+	fopts := app.FleetOptions{FreshnessWindow: fleet.RecentEvidenceWindow, Provenance: app.NewProvenanceChecker(), RegistryProbe: app.NewRegistryProbe(), LongRunning: true}
 	if det.local && dir != "" {
 		fopts.LocalRoots = []string{dir}
 	}

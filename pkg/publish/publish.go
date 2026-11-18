@@ -50,6 +50,8 @@ const (
 const (
 	AnnotationVersion  = "org.opencontainers.image.version"
 	AnnotationRevision = delivery.SourceRevisionAnnotation
+	// AnnotationSource names the source repository that built an artifact.
+	AnnotationSource = "org.opencontainers.image.source"
 )
 
 // BundleItem is the name the contract bundle has among the plan's items.
@@ -101,6 +103,10 @@ type Input struct {
 	Bundle *contract.Bundle
 	// Revision is the source revision (a git commit), stamped on every manifest.
 	Revision string
+	// Source is the source repository URL, stamped as
+	// org.opencontainers.image.source on built artifacts; empty stamps none.
+	// The contract bundle never carries it, so its digest stays deterministic.
+	Source string
 	// Checks are checks the caller ran (validation, local references, the lock).
 	Checks []Check
 	// Preflight, when set, returns more checks once the items are decided, so
