@@ -101,6 +101,55 @@ findings:                      # what Pacto recognized and could not read
 | `configuration.<KEY>` | Each environment key, ConfigMaps included | declares the key in a configuration's `values` or schema `properties`, or declares a configuration whose keys Pacto cannot list (a `ref`, or a schema it cannot read or that uses `allOf`, `anyOf`, `oneOf`, `$ref` or `patternProperties`) |
 | `dependencies[<name>]` | A service name inside the cluster in an environment value, or `spec.dependsOn` in `catalog-info.yaml` | declares a dependency of that name or `ref` |
 
+### External dependencies
+
+A vendor API, managed cloud service or legacy host the folder names is a
+`dependencies[<name>]` field with an `external` member, one per identity, or
+per identity and resource name for a managed resource whose account or region
+the folder does not show. The field's `value` is the identity, its `source` the
+first place that names it and its `confidence` the strongest source's.
+`inputs.catalog` lists the digest of each catalog that classified, default
+first:
+
+```yaml
+inputs:
+  catalog:
+    - default sha256:62a3fd52...
+fields:
+  - field: dependencies[stripe]
+    value: stripe
+    source: chart/values.yaml:9
+    confidence: likely
+    external:
+      identity: stripe
+      catalog: default              # the catalog that classified it: default or organization
+      sources:                      # sorted; every file is also in inputs.sources
+        - {kind: helmValues, path: chart/values.yaml, line: 9, key: STRIPE_API_BASE, host: api.stripe.com}
+        - {kind: sdk, path: requirements.txt, line: 1}
+      client: {sdk: stripe, major: 11}   # major left out when no lockfile or exact range gives it
+  - field: dependencies[newsletter-signups]
+    value: aws/sqs
+    source: infra/main.tf:1
+    confidence: possible
+    external:
+      identity: aws/sqs
+      catalog: default
+      sources:
+        - {kind: terraform, path: infra/main.tf, line: 1, key: aws_sqs_queue.signups}
+      resource: {type: aws_sqs_queue, name: newsletter-signups, missing: [account, region]}
+```
+
+- `kind` is `env`, `configMap`, `secretKeyRef`, `secretRef`, `helmValues`,
+  `compose`, `kustomize`, `sdk`, `terraform` or `crossplane`.
+- `host` is a host and an optional port, `key` a configuration key name and
+  `path` a relative path inside the folder. Pacto refuses a record that holds a
+  user name, a password, a query or a path outside the folder in any of them.
+- `missing` names only `account` and `region`; the
+  [external catalog reference](../external-catalog-reference.md#managed-resource-identities)
+  says when a managed resource gets its full identity.
+- How `pacto init` finds them is in
+  [External dependencies](../pactify.md#external-dependencies).
+
 ## When Pacto writes it
 
 - `pacto init` and the MCP tool `pacto_create` (with `pactify: true`) on a

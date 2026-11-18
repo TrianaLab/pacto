@@ -104,11 +104,6 @@ dependencies:               # one per service a URL in the environment names
     ref: oci://registry.example/acme/contracts/billing   # where its contract would be published
     required: true                              # yours cannot run without it
     compatibility: unknown   # no range proposed: no contract or running version of billing was read
-  # inferred externals: uncomment the ones this service calls and set the version
-  # - name: stripe  # k8s/deployment.yaml, env STRIPE_API_BASE (likely, catalog sha256:... (embedded), entry stripe)
-  #   external: true
-  #   required: true
-  #   version: <the API version you call>
 configurations:             # the environment, ConfigMaps included: keys and types, no values
   - name: env
     schema: configuration/schema.json
@@ -142,11 +137,10 @@ publish:
 
 ### What pactify recognizes
 
-- `init` lists the vendors, managed services and legacy hosts your
-  configuration names under **External**, and writes the likely ones as the
-  commented `inferred externals` block above. Nothing it infers becomes part
-  of the contract until you uncomment an entry. A `--cluster` draft lists them
-  the same way.
+- `init` finds the vendor APIs, managed cloud services and legacy hosts the
+  folder names and records them in the inferred record, never in
+  `pacto.yaml`; see [External dependencies](#external-dependencies). A
+  `--cluster` draft lists them the same way.
 - On a folder that already holds a `pactoVersion: "2.5"` `pacto.yaml`, `init`
   completes the contract and never changes it: what the folder adds goes into
   the [inferred record](contract-reference/inferred-record.md), published with
@@ -155,45 +149,24 @@ publish:
   `pacto.yaml` it writes. `pacto pack` publishes that record only once
   `pacto.yaml` declares `pactoVersion: "2.5"`, and `init` says so under
   **Next** when it writes an older version.
-- Each one shows only its host and port: a user name, password, path and
-  query are stripped from a URL before anything reads it. A Secret's values
-  are never read.
-- The [external catalog](external-catalog-reference.md#matching) decides what
-  each host or key name belongs to, and `init` prints the digest of the
-  catalog it used.
-
-| Source | What is read | Confidence |
-|--------|--------------|------------|
-| Environment of the workload, ConfigMaps included | Each value with a scheme, a port or a key named like a host (`URL`, `HOST`, `ENDPOINT`, `BROKER` and similar), and each key name | `likely` for a host, `possible` for a key name alone |
-| `secretKeyRef` | The Secret name and key name, never the value | `possible` |
-| `envFrom` `secretRef` | The Secret name, never a key or value | `possible` |
-| Each chart's `values.yaml` | Every string value, read as data (templates are never rendered), and its key name | `likely` for a host, `possible` for a key name alone |
-
-- A value under a key named like a password, secret, token, key, credential,
-  private key or DSN is never parsed.
-- Only a `likely` external gets a commented entry. A `possible` one is named
-  under Unknown, such as
-  `k8s/deployment.yaml, env STRIPE_SECRET_KEY suggests stripe`.
-- A host no catalog entry names is grouped by its public registrable domain
-  (`host/corp-legacy.co.uk`) when it has three or more labels. Any other host
-  in the environment is named under Unknown. Names inside the cluster stay dependencies, and an IP
-  address is never an external.
 
 Leave the long `command` line as it is: it copies your Kubernetes files with
 the image pinned to the digest this version built and names any file it cannot
 rewrite.
 
-Fill in what the plan marked Unknown, above all the dependencies: replace each
-`compatibility: unknown` with the versions yours accepts, such as `^2.0.0` for
-any 2.x. With that service's contract in `--fleet`, `init` reads its bundle and
-proposes one. Declare an OpenAPI
-document under `interfaces` ([how](ci.md#declare-your-api-first)): Pacto sees
-API changes only there. Every field is in [Publish](contract-reference/publish.md)
-and [Dependencies](contract-reference/dependencies-and-state.md). For private
-images, add `imagePullSecrets: [{name: registry-creds}]` under
-`spec.template.spec` in your Deployment. With dependencies, run `pacto lock .`
-([Lockfile](lockfile.md)), and commit what `init` wrote, as
-[What to commit](ci.md#what-to-commit) lists.
+Fill in what the plan marked Unknown, above all the dependencies:
+
+- Replace each `compatibility: unknown` with the versions yours accepts, such
+  as `^2.0.0` for any 2.x. With that service's contract in `--fleet`, `init`
+  reads its bundle and proposes one.
+- Declare an OpenAPI document under `interfaces`
+  ([how](ci.md#declare-your-api-first)): Pacto sees API changes only there.
+  Every field is in [Publish](contract-reference/publish.md) and
+  [Dependencies](contract-reference/dependencies-and-state.md).
+- For private images, add `imagePullSecrets: [{name: registry-creds}]` under
+  `spec.template.spec` in your Deployment.
+- With dependencies, run `pacto lock .` ([Lockfile](lockfile.md)), and commit
+  what `init` wrote, as [What to commit](ci.md#what-to-commit) lists.
 
 ## 3. Publish a version
 
@@ -371,10 +344,10 @@ never into `pacto.yaml`.
 |---|---|---|---|---|
 | Dockerfile | `Dockerfile`, `Dockerfile.*`, `*.Dockerfile` | ports from `EXPOSE`, `service.summary` from the `org.opencontainers.image.description` label, a health check from a localhost URL in `HEALTHCHECK` | the `HEALTHCHECK` command and the URL query | `DISCOVERY_UNRESOLVED` for a port set through a variable or a range |
 | OpenAPI, AsyncAPI and gRPC | any `.yaml`, `.yml`, `.json` or `.proto` file that parses as one | one interface per kind: `api`, `events` or `grpc` | GraphQL (`*.graphql`, `*.graphqls`, `*.gql`), which has no Pacto interface type, and package tool files such as `package-lock.json` | `DISCOVERY_AMBIGUOUS` when two files hold one kind, and no interface for that kind |
-| Helm chart | `Chart.yaml`, `Chart.lock`, `values.yaml`, `values-<env>.yaml` and `templates/*.yaml`, up to two folders deep | image, ports, configuration keys, environments and each locked dependency under `inputs.chartDependencies` | a configuration value; it never renders a template, downloads a dependency, opens a vendored `charts/*.tgz` or reads a subchart unpacked under `charts/` | `DISCOVERY_CHART_DEPENDENCY_UNLOCKED` for a dependency with no `Chart.lock` digest; `DISCOVERY_UNRESOLVED` once per template with an expression it does not resolve |
-| Kubernetes manifests | Deployment, StatefulSet, DaemonSet, Job and CronJob outside a chart's `templates/`, `charts/` and `crds/` folders | image, container ports and environment key names | an environment value | `DISCOVERY_UNREADABLE` for YAML that does not parse |
+| Helm chart | `Chart.yaml`, `Chart.lock`, `values.yaml`, `values-<env>.yaml` and `templates/*.yaml`, up to two folders deep | image, ports, configuration keys, environments and each locked dependency under `inputs.chartDependencies` | a configuration value beyond the host it names; it never renders a template, downloads a dependency, opens a vendored `charts/*.tgz` or reads a subchart unpacked under `charts/` | `DISCOVERY_CHART_DEPENDENCY_UNLOCKED` for a dependency with no `Chart.lock` digest; `DISCOVERY_UNRESOLVED` once per template with an expression it does not resolve |
+| Kubernetes manifests | Deployment, StatefulSet, DaemonSet, Job and CronJob outside a chart's `templates/`, `charts/` and `crds/` folders | image, container ports and environment key names | an environment value beyond the host it names | `DISCOVERY_UNREADABLE` for YAML that does not parse |
 | Kustomize | `kustomization.yaml` and its local `resources` | image from `images`, an environment per `overlays/<env>/` | remote resources and `helmCharts` | `DISCOVERY_UNSUPPORTED_FILE`, naming a remote resource without its credentials |
-| Compose | `compose.yaml` or `docker-compose.yaml` at the folder root | image, container ports and environment keys of the service named like yours (the `service.name` in `pacto.yaml`, else the folder's name), else of the only one | `include`, `extends` from another file, `env_file` and every environment value | `DISCOVERY_AMBIGUOUS` when it lists several services and none is named like yours |
+| Compose | `compose.yaml` or `docker-compose.yaml` at the folder root | image, container ports and environment keys of the service named like yours (the `service.name` in `pacto.yaml`, else the folder's name), else of the only one | `include`, `extends` from another file and `env_file`; an environment value only for the host it names | `DISCOVERY_AMBIGUOUS` when it lists several services and none is named like yours |
 | Owner files | `catalog-info.yaml` in the folder; `.github/CODEOWNERS`, `CODEOWNERS` or `docs/CODEOWNERS` at the repository root, the last rule that matches `pacto.yaml` | `service.owner` with the marker `class: ownerFile`, shown as "attested" by `pacto init`; from `catalog-info.yaml` also `service.domain` (`spec.system`) and dependencies (`spec.dependsOn`) | `spec.lifecycle`. The owner is unverified until a signed commit is checked, so it never routes a decision or clears a gate | `DISCOVERY_UNRESOLVED` for a CODEOWNERS rule with email owners only |
 | Environments | `environments/<env>.yaml`, Helm values files, overlays, and Argo CD `Application` and Flux `Kustomization` and `HelmRelease` objects in the folder | `environments[<env>].file`; a GitOps object confirms it | an Argo CD `ApplicationSet`, and the paths of a Flux object whose source is an OCI artifact, a bucket or a Helm repository, such as the `delivery/` files `pacto init` writes | `DISCOVERY_UNRESOLVED` for an invalid environment name, or for a path outside the folder or one the folder does not hold (an Argo CD `Application` that deploys from another repository) |
 | Other formats | `helmfile.yaml`, `helmfile.yml`, `Tiltfile`, `*.jsonnet`, `*.libsonnet`, `*.cue` | nothing | the whole file, a program or a template for another tool | `DISCOVERY_UNSUPPORTED_FILE` |
@@ -396,6 +369,91 @@ never into `pacto.yaml`.
 | `DISCOVERY_UNREADABLE` | the file is over 1 MiB, is not valid YAML, is not a regular file or has a `:` in its name |
 | `DISCOVERY_UNRESOLVED` | a template expression, an invalid environment name, a path outside the folder or missing from it, or a CODEOWNERS rule with email owners only |
 | `DISCOVERY_TRUNCATED` | discovery stopped after 5000 files, so results are partial; always listed first |
+
+## External dependencies
+
+`pacto init`, `pacto explain` and `pacto pack` record the systems a folder
+names outside the cluster:
+
+- Each vendor API, managed cloud service or legacy host becomes a
+  `dependencies[<name>]` field of the
+  [inferred record](contract-reference/inferred-record.md#external-dependencies),
+  with every file and line that names it.
+- Pacto never writes one into `pacto.yaml`, and an inferred external never
+  clears a gate. To declare one, copy its `declare` YAML into `pacto.yaml` and
+  set the version you call.
+
+| Source | What is read | Confidence |
+|---|---|---|
+| Workload environment, ConfigMaps included | Each value that names a host, and each key name | `likely` for a host, `possible` for a key name alone |
+| `secretKeyRef` and `envFrom` `secretRef` | The Secret name and key names, never a value | `possible` |
+| Helm `values.yaml` and `values-<env>.yaml` | Every string value, read as data, and its key | `likely` for a host, `possible` for a key name alone |
+| Compose `environment` | Each value, as a map or a `KEY=VALUE` list | `likely` for a host, `possible` for a key name alone |
+| Kustomize `configMapGenerator` | `literals` and the `envs` files | `likely` for a host, `possible` for a key name alone |
+| SDK manifests and lockfiles | `go.mod`, `package.json` (`dependencies` and `optionalDependencies`) with `package-lock.json`, `requirements*.txt`, `poetry.lock`, `pom.xml` and `gradle.lockfile`: each package name and its major version | `possible` |
+| Terraform `*.tf` | Each `resource` whose type the catalog lists: its id attribute and `region` when they are literals, and the region and account of its `provider` block | `possible` |
+| Crossplane objects | Each object whose `<group>/<Kind>` the catalog lists: its `crossplane.io/external-name` or name, `spec.forProvider.region` and connection Secret name | `likely` when the workload reads that Secret, else `possible` |
+
+- A library in a manifest or a resource in the folder proves no call, so those
+  sources stay `possible`.
+- The SDK major is the client version the service uses. Without a lockfile or
+  an exact range, Pacto leaves it out and never guesses it.
+- A managed resource gets the identity
+  `<provider>/<service>/<account>/<region>/<id>` only when all four parts are
+  literals in the folder. Otherwise it keeps the catalog identity, such as
+  `aws/sqs`, and the record lists the parts it misses.
+
+### What Pacto never reads
+
+- A URL keeps its host and port. The user name, password, path and query are
+  stripped before anything stores it.
+- A value under a key named like a password, secret, token, key, credential,
+  private key or DSN is never parsed, and a Secret's values are never read.
+- Compose `env_file`, `.tfstate` and `.tfstate.backup` files, a
+  `package-lock.json` `resolved` URL, `pom.xml` repositories and every
+  Terraform attribute other than the id, region and account are never read.
+- A catalog can never make Pacto read a secret attribute: a sensitive
+  Terraform id attribute is refused when the catalog loads and again before
+  the scan reads it.
+- A symlinked or ignored `envs` file is never followed.
+
+### The plan line
+
+`init` prints one line, then where each external comes from:
+
+```text
+External dependencies: 2 (sqs:newsletter-signups, stripe), inferred
+  dependencies[newsletter-signups]  external, from infra/main.tf:1 (aws_sqs_queue newsletter-signups, possible)
+  dependencies[stripe]              external, from chart/values.yaml:9 (STRIPE_API_BASE) and requirements.txt:1 (stripe, possible)
+  catalog default sha256:62a3fd52...
+```
+
+- A `possible` external is also named under **Unknown**, such as
+  `infra/main.tf:1 suggests aws/sqs: nothing else in the folder confirms it`.
+- Each file Pacto recognizes and does not read is a finding and is counted, so
+  an unread input never reads as "calls nothing":
+  `External dependencies: none found in what was read, 2 sources not read, inferred`.
+  That covers `yarn.lock`, `pnpm-lock.yaml`, a Gradle build without
+  `gradle.lockfile`, a Terraform `module`, `*.tf.json`, Terraform state, a
+  symlinked `envs` file and an organization catalog Pacto cannot pull.
+- A host outside the cluster that no catalog entry identifies is a
+  `DISCOVERY_UNRESOLVED` finding; declare it in `pacto.yaml` if the service
+  calls it.
+
+### Choose the catalog
+
+- The [external catalog](external-catalog-reference.md#matching) decides what
+  each host, package, resource type or kind belongs to.
+- `init` classifies with the default catalog, plus an organization catalog
+  pinned by digest with `--external-catalog oci://REPOSITORY@sha256:DIGEST` or
+  `PACTO_EXTERNAL_CATALOG`. A tag is refused.
+- `pacto pack`, `pacto push` and `pacto explain` read `PACTO_EXTERNAL_CATALOG`
+  too, so they classify alike.
+- The record lists each catalog digest under `inputs.catalog`, so a new
+  catalog changes the record and nothing else.
+- When the organization catalog cannot be read, the default classifies alone
+  and **Unknown** says so.
+- MCP `pacto_create` uses the catalog the server was started with.
 
 ## What's next
 

@@ -206,12 +206,15 @@ Catalog mode registers nothing else, so it cannot modify a contract. A root or a
 
 `pacto_create` with `pactify: true` does what `pacto init` does for a folder
 holding a service: it reads the Dockerfile and Kubernetes files and writes the
-contract. `describe_only: true` leaves out the publish section, for a request
-to describe a service. With `delivery: true` it also writes the
-cluster files. `domain`, `registry`, `environments`, `fleet_roots`,
-`no_transparency_log`, `insecure_registry` and `registry_secret` match the CLI
-flags, and `dry_run` plans without writing. See
-[Pactify a service](pactify.md).
+contract. See [Pactify a service](pactify.md).
+
+- `describe_only: true` leaves out the publish section, for a request to
+  describe a service. With `delivery: true` it also writes the cluster files.
+- `domain`, `registry`, `environments`, `fleet_roots`, `no_transparency_log`,
+  `insecure_registry` and `registry_secret` match the CLI flags, and `dry_run`
+  plans without writing.
+- External dependencies are classified with the catalog the server was
+  started with (`--external-catalog`).
 
 Without `pactify`, `pacto_create` refuses a folder that already holds
 `pacto.yaml` (change that contract with `pacto_edit`) and leaves any interface
