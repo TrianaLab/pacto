@@ -112,6 +112,13 @@ func deliveryFixture(t *testing.T, user string, groups []string, extra map[strin
 		}
 		return true, &unstructured.Unstructured{Object: map[string]any{"status": map[string]any{"allowed": true}}}, nil
 	})
+	c.PrependReactor("create", "subjectaccessreviews", func(a k8stesting.Action) (bool, runtime.Object, error) {
+		attrs, _, _ := unstructured.NestedMap(a.(k8stesting.CreateAction).GetObject().(*unstructured.Unstructured).Object, "spec", "resourceAttributes")
+		if attrs["verb"] != "update" {
+			return false, nil, nil
+		}
+		return true, &unstructured.Unstructured{Object: map[string]any{"status": map[string]any{"allowed": true}}}, nil
+	})
 	c.PrependReactor("create", "selfsubjectreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
 		gs := make([]any, 0, len(groups))
 		for _, g := range groups {

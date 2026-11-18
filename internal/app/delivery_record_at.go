@@ -129,13 +129,17 @@ func (d *Delivery) approvalAt(ctx context.Context, at *delivery.RecordAt, path s
 	if p.Signer.Kind == delivery.SignerPerson {
 		// ponytail: a person's approval lives in the approvals repository; its
 		// operation records are read from the chart's default streams
-		// repository beside it. Another name reads no records: unknown.
+		// repository beside it. Another name is unknown.
 		streams = strings.TrimSuffix(path, approvalsSuffix)
 		policy, perr := d.classPolicy(ctx)
 		a, err := signing.OpenPersonApproval(bundle, policy)
 		switch {
 		case perr != nil:
 			at.Note = "unverified: the installation's approver signers could not be read: " + perr.Error()
+		case err != nil && d.PolicyNamespace != "":
+			at.Note = "unverified: the installation's published identity policy does not accept this signer: " + err.Error()
+		case err != nil && len(policy.Signers) == 0:
+			at.Note = "unverified: no approver signer was given to verify it with; pass --signers with the installation's identity policy"
 		case err != nil:
 			at.Note = "unverified: " + err.Error() + "; pass --signers with the installation's identity policy"
 		default:
@@ -154,6 +158,11 @@ func (d *Delivery) approvalAt(ctx context.Context, at *delivery.RecordAt, path s
 		return nil
 	}
 	at.Note = "decision recorded (signature verified); it counted only if the operation record lists it"
+	if streams == path && p.Signer.Kind == delivery.SignerPerson {
+		at.Counted, at.CountedWhy = delivery.CountedUnknown, "the operation records' repository is not known from "+path+
+			", which does not carry the chart's default name <streams repository>"+approvalsSuffix
+		return nil
+	}
 	at.Counted, at.CountedWhy = d.counted(ctx, streams, p.Operation, id)
 	return nil
 }

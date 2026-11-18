@@ -167,6 +167,25 @@ func TestApproveKeylessPrintsWriteOnceTag(t *testing.T) {
 	}
 }
 
+// TestApproveKeylessSaysWhatItCouldNotAsk: a caller the apiserver does not
+// let ask about the keyless identity is told the decision counts only if
+// that identity, without the caller's groups, may update the workload.
+func TestApproveKeylessSaysWhatItCouldNotAsk(t *testing.T) {
+	e := newKeylessEnv(t, "", "alice@acme.example")
+	plain := e.d.newDynamic
+	e.d.newDynamic = func() (dynamic.Interface, error) {
+		c, err := plain()
+		c.(*dynamicfake.FakeDynamicClient).PrependReactor("create", "subjectaccessreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
+			return true, nil, errors.New("forbidden")
+		})
+		return c, err
+	}
+	out, errOut, err := e.run(t)
+	if err != nil || !strings.HasPrefix(out, "approval signed by") || !strings.Contains(errOut, "could not ask whether oidc:alice@acme.example itself may update") {
+		t.Fatalf("%q %q %v", out, errOut, err)
+	}
+}
+
 // clusterPath runs approve under a policy or Stage change and checks it
 // records the decision in the cluster, saying why with -v.
 func clusterPath(t *testing.T, mod func(*keylessEnv), why string, args ...string) *keylessEnv {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -168,9 +169,45 @@ func TestRecordAtApprovalUnknownIssuerUnverified(t *testing.T) {
 	if err != nil || at.Verified || at.Counted != "" || !strings.HasPrefix(at.Note, "unverified: ") || !strings.Contains(at.Note, "--signers") {
 		t.Fatalf("%+v %v", at, err)
 	}
+	e.d.Policy.Signers = nil
+	if at, _ := e.d.RecordAt(context.Background(), ref); at.Verified ||
+		at.Note != "unverified: no approver signer was given to verify it with; pass --signers with the installation's identity policy" {
+		t.Fatalf("no signers given: %+v", at)
+	}
 	e.d.PolicyNamespace = "pacto-delivery"
 	if at, _ := e.d.RecordAt(context.Background(), ref); at.Verified || !strings.Contains(at.Note, "signers could not be read") {
 		t.Fatalf("%+v", at)
+	}
+}
+
+func TestRecordAtApprovalPublishedPolicyRefusesSigner(t *testing.T) {
+	e := newAtEnv(t, testutil.ReferrersOptions{})
+	ref, _ := e.personApproval("alice@acme.example", "ok")
+	published := e.d.Policy
+	published.Signers[0].Issuer = "https://other.example"
+	raw, _ := json.Marshal(published)
+	cluster, _, _ := deliveryFixture(t, "carol", nil, nil, obj("v1", "ConfigMap", "pacto-delivery", delivery.PolicyConfigMap,
+		map[string]any{"data": map[string]any{delivery.PolicyKey: string(raw)}}))
+	e.d.Dynamic, e.d.PolicyNamespace = cluster.Dynamic, "pacto-delivery"
+	at, err := e.d.RecordAt(context.Background(), ref)
+	if err != nil || at.Verified || strings.Contains(at.Note, "--signers") ||
+		!strings.HasPrefix(at.Note, "unverified: the installation's published identity policy does not accept this signer: ") {
+		t.Fatalf("%+v %v", at, err)
+	}
+}
+
+func TestRecordAtApprovalCustomApprovalsRepository(t *testing.T) {
+	e := newAtEnv(t, testutil.ReferrersOptions{})
+	if err := ocireferrer.Push(context.Background(), e.repo("delivery/decisions"), deliveryrecord.Anchor(recStream)); err != nil {
+		t.Fatal(err)
+	}
+	st := delivery.NewApprovalRecord(atStage, e.anchor.Digest.String(), shipOp(),
+		delivery.ApprovalSpec{Decision: delivery.Approve}, delivery.ApprovalSigner{Kind: delivery.SignerPerson}, "2026-11-18T00:00:00Z")
+	ref, _ := e.push("delivery/decisions", e.keyless("alice@acme.example"), delivery.PredicateApproval, st)
+	at, err := e.d.RecordAt(context.Background(), ref)
+	if err != nil || !at.Verified || at.Counted != delivery.CountedUnknown || strings.Contains(at.CountedWhy, "yet") ||
+		!strings.Contains(at.CountedWhy, "operation records' repository is not known") {
+		t.Fatalf("%+v %v", at, err)
 	}
 }
 

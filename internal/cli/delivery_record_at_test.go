@@ -149,7 +149,7 @@ func TestRecordGetRefWithoutStage(t *testing.T) {
 	e := newRefEnv(t, "alice@acme.example")
 	out, _, err := e.run(t, "text", "record", "get", e.intent, "--trust", e.trust)
 	if err != nil || !strings.HasPrefix(out, "intent held on prod/payments-prod asked by bob: signature verified with trust config sha256:") ||
-		!strings.Contains(out, "approve it with: pacto delivery approve --intent "+e.intent) {
+		!strings.Contains(out, "approve it with: pacto delivery approve --intent "+e.intent+" --trust <recorder public key> --signers") {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	// get answers an unverified record and fails nothing.
@@ -233,5 +233,52 @@ func TestApproveRefusesNameAndIntent(t *testing.T) {
 		if _, _, err := e.run(t, "text", args...); err != errApproveOne {
 			t.Errorf("%v: %v", args, err)
 		}
+	}
+}
+
+func TestApproveIntentHonoursTheNamedIssuer(t *testing.T) {
+	e := newRefEnv(t, "alice@acme.example")
+	base := []string{"approve", "--intent", e.intent, "--trust", e.trust, "--signers", e.signers}
+	if _, _, err := e.run(t, "text", append(base, "--oidc-issuer-url", "https://idp.other.example")...); err == nil ||
+		!strings.Contains(err.Error(), "names no signer for the issuer https://idp.other.example") {
+		t.Fatal(err)
+	}
+	if e.logins != 0 {
+		t.Fatalf("%d logins for an issuer the policy does not name", e.logins)
+	}
+	out, _, err := e.run(t, "text", append(base, "--oidc-issuer-url", keylessIssuer)...)
+	if err != nil || !strings.Contains(out, "the promoter decides whether it counts") || !strings.Contains(out, "check with: pacto delivery record verify "+e.host) {
+		t.Fatalf("%v\n%s", err, out)
+	}
+}
+
+func TestApproveIntentRefusesHumanGroupsBeforeLogin(t *testing.T) {
+	e := newRefEnv(t, "alice@acme.example")
+	e.policy.HumanGroups = []string{"people"}
+	policy, _ := json.Marshal(e.policy)
+	_ = os.WriteFile(e.signers, policy, 0o600)
+	if _, _, err := e.run(t, "text", "approve", "--intent", e.intent, "--trust", e.trust, "--signers", e.signers); err == nil ||
+		!strings.Contains(err.Error(), "humanGroups is set") || e.logins != 0 {
+		t.Fatalf("%v, %d logins", err, e.logins)
+	}
+}
+
+func TestRecordRefRefusesMixedFlags(t *testing.T) {
+	e := newRefEnv(t, "alice@acme.example")
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"record", "get", e.intent, "--stage", "s"}, "pass a record reference or --stage, not both"},
+		{[]string{"record", "verify", e.intent, "--stage", "s"}, "pass a record reference or --stage, not both"},
+		{[]string{"record", "verify", e.intent, "--all"}, "pass a record reference or --all, not both"},
+		{[]string{"approve", "--intent", e.intent, "--keyless=false"}, "--intent always signs keyless"},
+	} {
+		if _, _, err := e.run(t, "text", c.args...); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%v: %v", c.args, err)
+		}
+	}
+	if e.logins != 0 {
+		t.Fatalf("%d logins", e.logins)
 	}
 }

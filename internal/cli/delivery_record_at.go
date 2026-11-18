@@ -65,6 +65,11 @@ const signersFlagHelp = "the installation's identity policy (JSON or YAML, the p
 // runRecordAt reads the record at ref with no cluster and prints it. verify
 // fails when it does not verify.
 func runRecordAt(cmd *cobra.Command, v *viper.Viper, d deps, ref string, verify bool) error {
+	for _, f := range []string{"stage", "all"} {
+		if cmd.Flags().Changed(f) {
+			return fmt.Errorf("pass a record reference or --%s, not both", f)
+		}
+	}
 	c, err := recordClient(cmd, d)
 	if err != nil {
 		return err
@@ -102,7 +107,7 @@ func printRecordAt(w io.Writer, at *delivery.RecordAt) {
 		p := at.Intent.Predicate
 		_, _ = fmt.Fprintf(w, "intent %s on %s/%s asked by %s: %s\n", p.Intent.Name, p.Intent.Stage.Namespace, p.Intent.Stage.Name, p.Actor.User, at.Note)
 		if at.Verified && p.Approvals != "" {
-			_, _ = fmt.Fprintf(w, "approve it with: pacto delivery approve --intent %s --signers <identity policy>\n", at.Ref)
+			_, _ = fmt.Fprintf(w, "approve it with: pacto delivery approve --intent %s --trust <recorder public key> --signers <identity policy>\n", at.Ref)
 		}
 		_, _ = fmt.Fprintf(w, "as of %s\n", at.AsOf)
 	default:
@@ -125,6 +130,9 @@ var errApproveOne = errors.New("pass an operation name or --intent <record refer
 // cluster: the intent must verify with --trust, and the decision is signed
 // keyless with a fresh login under a signer --signers names.
 func approveIntent(cmd *cobra.Command, v *viper.Viper, d deps, ref, decision, note string) error {
+	if keyless, _ := cmd.Flags().GetBool("keyless"); !keyless {
+		return errors.New("--intent always signs keyless, with no cluster to record in; drop --keyless=false or approve with a kubeconfig by operation name")
+	}
 	c, err := recordClient(cmd, d)
 	if err != nil {
 		return err
@@ -133,13 +141,21 @@ func approveIntent(cmd *cobra.Command, v *viper.Viper, d deps, ref, decision, no
 	if err != nil {
 		return err
 	}
-	signer, ok := c.Policy.SignerFor(v.GetString("delivery.oidc-issuer-url"))
-	if !ok && len(c.Policy.Signers) == 1 {
+	issuer := v.GetString("delivery.oidc-issuer-url")
+	signer, ok := c.Policy.SignerFor(issuer)
+	if issuer == "" && len(c.Policy.Signers) == 1 {
 		signer, ok = c.Policy.Signers[0], true
 	}
-	if !ok {
+	switch {
+	case !ok && issuer != "":
+		return fmt.Errorf("the identity policy --signers names no signer for the issuer %s", issuer)
+	case !ok:
 		return errors.New("approving from an intent needs a signer: pass --signers <file> with the installation's identity policy " +
 			"(and --oidc-issuer-url when it lists several), or approve with a kubeconfig")
+	case len(c.Policy.HumanGroups) > 0:
+		// A keyless identity carries no groups, so ApproverIdentity would call
+		// it an agent; say why before the browser login.
+		return errors.New("humanGroups is set, and a signed approval carries no groups, so it would never count: approve with a kubeconfig")
 	}
 	op := in.Predicate.Intent
 	s, email, err := keylessLogin(cmd, v, d, signer, decision, op.Stage.Namespace+"/"+op.Name)
@@ -150,7 +166,9 @@ func approveIntent(cmd *cobra.Command, v *viper.Viper, d deps, ref, decision, no
 	if err != nil {
 		return err
 	}
-	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "approval signed by %s (keyless) on %s/%s (Stage %s), pushed to the approvals repository %s\nrecord %s at %s\n",
-		email, op.Stage.Namespace, op.Name, op.Stage.Name, in.Predicate.Approvals, r.Digest, r.Ref)
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "approval signed by %s (keyless) on %s/%s (Stage %s), pushed to the approvals repository %s\nrecord %s at %s\n"+
+		"the promoter decides whether it counts (a Stage that asks for a fresh login, or owner teams that narrow who may answer, never count it); "+
+		"check with: pacto delivery record verify %s\n",
+		email, op.Stage.Namespace, op.Name, op.Stage.Name, in.Predicate.Approvals, r.Digest, r.Ref, r.Ref)
 	return nil
 }

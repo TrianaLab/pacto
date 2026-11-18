@@ -103,7 +103,10 @@ func approveKeyless(cmd *cobra.Command, v *viper.Viper, d deps, c *app.Delivery,
 		return err
 	}
 	w, stream := cmd.OutOrStdout(), st.Status.Stream
-	if stream.RegistryMode == string(capabilities.ReferrersWriteOnceTags) {
+	if ref.Caveat != "" {
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), ref.Caveat)
+	}
+	if ref.Mode == capabilities.ReferrersWriteOnceTags {
 		repo, dg, _ := strings.Cut(ref.Ref, "@")
 		_, _ = fmt.Fprintf(w, "approval signed by %s (keyless) on %s/%s, pushed %s:%s (write-once tag; registry has no Referrers)\n",
 			email, ns, name, repo, deliveryrecord.KindTag(stream.ID, deliveryrecord.KindApproval, digest.Digest(dg)))

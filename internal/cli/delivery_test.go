@@ -93,6 +93,7 @@ func deliveryDeps(user string, dynErr error) deps {
 		)
 		// The caller may update every workload unless a test says otherwise.
 		c.PrependReactor("create", "selfsubjectaccessreviews", mayUpdateWorkloads)
+		c.PrependReactor("create", "subjectaccessreviews", mayUpdateWorkloads)
 		c.PrependReactor("create", "selfsubjectreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
 			return true, &unstructured.Unstructured{Object: map[string]any{"status": map[string]any{"userInfo": map[string]any{
 				"username": user, "groups": []any{"team-payments"},

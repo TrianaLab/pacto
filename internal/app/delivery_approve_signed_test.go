@@ -4,10 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	k8stesting "k8s.io/client-go/testing"
 	"oras.land/oras-go/v2/registry/remote"
 
 	"github.com/trianalab/pacto/v4/internal/testutil"
@@ -180,7 +184,71 @@ func TestApproveSignedFailures(t *testing.T) {
 	}
 	e.d.PolicyNamespace = ""
 	e.srv.Close()
-	if _, err := e.d.ApproveSigned(context.Background(), "prod", "p1", delivery.Approve, "", edSigner(e.key), acmeIssuer, "alice@acme.example"); err == nil || !strings.Contains(err.Error(), "pushing the approval") {
+	if _, err := e.d.ApproveSigned(context.Background(), "prod", "p1", delivery.Approve, "", edSigner(e.key), acmeIssuer, "alice@acme.example"); err == nil {
+		t.Fatal("approved on an unreachable registry")
+	}
+}
+
+// TestApproveSignedProbesTheApprovalsRepository: the approvals repository
+// may sit on a registry without Referrers while the stream reads native, so
+// the push takes the approvals host's form, never the stream's mode.
+func TestApproveSignedProbesTheApprovalsRepository(t *testing.T) {
+	e := signedEnv(t, capabilities.ReferrersWriteOnceTags)
+	e.setStream(map[string]any{"stream": map[string]any{"id": recStream, "registryMode": string(capabilities.ReferrersNative),
+		"anchor": deliveryrecord.AnchorRef(e.host+"/delivery/streams", recStream), "approvals": deliveryrecord.AnchorRef(e.host+"/delivery/approvals", recStream)}})
+	ref, err := e.d.ApproveSigned(context.Background(), "prod", "p1", delivery.Approve, "ok", edSigner(e.key), acmeIssuer, "alice@acme.example")
+	if err != nil || ref.Mode != capabilities.ReferrersWriteOnceTags {
+		t.Fatalf("%+v %v", ref, err)
+	}
+	tags, _ := ocireferrer.Tags(context.Background(), e.repo("delivery/approvals"), deliveryrecord.AnchorTag(recStream)+"-"+deliveryrecord.KindApproval+"-")
+	if len(tags) != 1 {
+		t.Fatalf("write-once tags: %v", tags)
+	}
+}
+
+// TestApproveSignedAsksForTheKeylessIdentity: the promoter checks the
+// keyless user with no groups, so a right that comes only through the
+// caller's groups is refused before anything is signed.
+func TestApproveSignedAsksForTheKeylessIdentity(t *testing.T) {
+	e := signedEnv(t, "")
+	var asked string
+	e.c.PrependReactor("create", "subjectaccessreviews", func(a k8stesting.Action) (bool, runtime.Object, error) {
+		spec, _, _ := unstructured.NestedMap(a.(k8stesting.CreateAction).GetObject().(*unstructured.Unstructured).Object, "spec")
+		asked = fmt.Sprint(spec["user"], spec["groups"])
+		return true, &unstructured.Unstructured{Object: map[string]any{"status": map[string]any{"allowed": false}}}, nil
+	})
+	_, err := e.d.ApproveSigned(context.Background(), "prod", "p1", delivery.Approve, "", edSigner(e.key), acmeIssuer, "alice@acme.example")
+	if err == nil || !strings.HasPrefix(err.Error(), "the promoter would not count this decision") || asked != "oidc:alice@acme.example<nil>" {
+		t.Fatalf("%v (asked %q)", err, asked)
+	}
+	e.c.PrependReactor("create", "subjectaccessreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, &unstructured.Unstructured{Object: map[string]any{"status": map[string]any{"evaluationError": "webhook down"}}}, nil
+	})
+	if _, err := e.d.ApproveSigned(context.Background(), "prod", "p1", delivery.Approve, "", edSigner(e.key), acmeIssuer, "alice@acme.example"); err == nil ||
+		!strings.Contains(err.Error(), "could not be evaluated: webhook down") {
+		t.Fatal(err)
+	}
+	// A client that may not ask about another identity falls back to its own
+	// review and says what that cannot show.
+	e.c.PrependReactor("create", "subjectaccessreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, errors.New("forbidden")
+	})
+	ref, err := e.d.ApproveSigned(context.Background(), "prod", "p1", delivery.Approve, "", edSigner(e.key), acmeIssuer, "alice@acme.example")
+	if err != nil || !strings.Contains(ref.Caveat, "could not ask whether oidc:alice@acme.example itself may update") {
+		t.Fatalf("%+v %v", ref, err)
+	}
+}
+
+func TestApproveSignedUnknownWorkloadKindIsUnverified(t *testing.T) {
+	e := signedEnv(t, "")
+	stages := e.c.Resource(gvrStages).Namespace("prod")
+	st, _ := stages.Get(context.Background(), "payments-prod", metav1.GetOptions{})
+	_ = unstructured.SetNestedMap(st.Object, map[string]any{"kind": "Rollout", "name": "payments"}, "spec", "workload")
+	if _, err := stages.Update(context.Background(), st, metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.d.ApproveSigned(context.Background(), "prod", "p1", delivery.Approve, "", edSigner(e.key), acmeIssuer, "alice@acme.example"); err == nil ||
+		!strings.Contains(err.Error(), "Rollout") {
 		t.Fatal(err)
 	}
 }
