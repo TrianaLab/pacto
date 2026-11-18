@@ -14,9 +14,23 @@ Plans, approvals and who may do what are in
 The two automatic levels need [signed records](delivery-records.md#install),
 and records work on any OCI registry. The recorder probes the streams
 repository: where it serves the OCI Referrers API, records are referrers;
-where it does not, as on GHCR, they are
+where it does not, as on GHCR and CNCF distribution, they are
 [write-once tags](delivery-records.md#write-once-tags) in the streams
 repository.
+
+- The recorder chooses the mode by itself, and a Stage that recorded
+  `native` never narrows to tags.
+- With tags, records attached to versions cannot be listed, so what a plan
+  says a version did on other Stages stays partial.
+- Without the Referrers API, `pacto publish` also gives each signature and
+  SBOM a write-once `pacto-sig-<subject hex>-<12 hex>` tag, and Pacto reads
+  only those, never the shared `sha256-<hex>` tag.
+- Only the recorder pushes to the streams repository. People who approve
+  from the CLI need push only on the approvals repository
+  (`delivery.recorder.approvalsRepository`, default
+  `<streamsRepository>-approvals`). The promoter's
+  `delivery.promoter.registryCredentials` need pull there: an approval record
+  it cannot read does not count.
 
 ## Install
 

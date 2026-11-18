@@ -24,7 +24,10 @@ candidate, or Pacto refuses it and says why. The operation records the digest.
 `approve` decides as your kubeconfig signs you in. Where the Stage asks for a
 recent sign-in, it makes you log in again in your browser through its own
 `pacto-approve` client instead, so it needs the issuer the cluster trusts
-(`--oidc-issuer-url` or `PACTO_DELIVERY_OIDC_ISSUER_URL`). See
+(`--oidc-issuer-url` or `PACTO_DELIVERY_OIDC_ISSUER_URL`). Where the
+installation accepts signed approvals, it signs your decision keyless after a
+fresh login and pushes it to the registry, and `--intent <record reference>`
+approves with no kubeconfig. See
 [approve from the terminal](delivery-identity.md#approve-from-the-terminal).
 
 ## What a plan says
@@ -91,7 +94,7 @@ placed counts everywhere and, as a consumer, asks a person.
 | Person | propose, read and cancel any operation, approve a question when they may update the workload (and, with team narrowing, are in a team asked), freeze, unfreeze | write status (beyond clearing a Stage's `upstreamSeen`) |
 | Break-glass (`pacto:break-glass`) | override and edit `spec.ref.digest` | |
 | Promoter | write status and raise its own operations | sign or push |
-| Recorder | write the record fields and finalizer; sign and push records | anything else |
+| Recorder | write the record fields and finalizer, an Approval's `status.record`, `spec.record` and `spec.signedAt`; sign and push records | anything else |
 
 Admission requires an Approval's `spec.by` and `spec.groups` to match the
 requesting user, and a `spec.authTime` to match its login time. The promoter
@@ -106,3 +109,9 @@ an Approval does not count. Once given, an Approval's spec cannot
 change; the promoter makes its operation its owner, so deleting the operation
 deletes its Approvals. A break-glass edit of the pointer is never undone: it
 is recorded as a witnessed override and the Stage freezes.
+
+With the [recorder](delivery-signed-approvals.md) on, an
+Approval counts only once its signed record exists and verifies. The recorder
+signs an Approval made in the cluster on behalf of its author; an approval a
+person signed keyless counts once the promoter verifies its record itself,
+dated by the signature's verified time.

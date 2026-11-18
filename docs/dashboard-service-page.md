@@ -189,7 +189,8 @@ bundle can declare their own identity, so the signer is always shown beside it.
 Delivery pins who may sign a bundle in Flux's `OCIRepository` `spec.verify`. A
 key or KMS signer reads `unknown` because the bundle carries no public key and
 the dashboard never calls a contract's KMS. Legacy cosign `.sig` tags are not
-read. GHCR works through the referrers tag schema.
+read. On GHCR it reads `pacto publish`'s `pacto-sig-` tags, never the
+`sha256-<hex>` index.
 
 Each result is cached for 5 minutes, and a failed check for 1 minute. The
 checks of one refresh share a 20 second budget. `pacto fleet` runs the same check on

@@ -230,6 +230,10 @@ alone. The token is not stored. `--oidc-client-id` defaults to
 `PACTO_DELIVERY_OIDC_CLIENT_SECRET`. Without `--oidc-redirect-port` it picks a
 free port, which suits a provider that allows any loopback port (RFC 8252).
 
+- Where the installation accepts signed approvals, it
+  [signs your decision keyless](delivery-signed-approvals.md#sign-a-decision-from-the-terminal)
+  into the registry instead.
+
 ## Limits
 
 - An agent holding a person's credentials, session or refresh token is that

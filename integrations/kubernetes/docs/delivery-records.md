@@ -57,6 +57,12 @@ number no operation holds. A record can be late, never skipped: an
 Operation keeps its `delivery.pacto.trianalab.io/record` finalizer until the
 registry lists its record.
 
+## Approval and intent records
+
+- Each stream also holds an intent record for every admitted Operation and an
+  approval record for every decision, outside the operation chain. See
+  [signed approvals](delivery-signed-approvals.md).
+
 ## Install
 
 The recorder detects how your registry stores records, so any registry works:
@@ -108,7 +114,10 @@ Without the Referrers API, each record is a tag in the streams repository:
 
 - The tag is `stream-<hash of the stream>-<seq>-<first 12 hex of the record
   digest>`. The recorder writes it once, never moves it, and the tag names
-  the record by content.
+  the record by content. Approval and intent records carry `approval` or
+  `intent` in place of the seq.
+- A person's signed approval is a tag of the same form in the approvals
+  repository, under the Stage's anchor tag.
 - The recorder never tags an apply or contract repository. A record keeps
   its referrer on a version or contract only where that registry serves the
   Referrers API. When the recorder cannot probe that registry, the write
@@ -116,9 +125,13 @@ Without the Referrers API, each record is a tag in the streams repository:
 - Records are signed and verified the same way in both modes, and every
   reader reads both forms, so a stream keeps its history when its registry
   gains the Referrers API.
+- Registries offer no conditional tag create. Tag names are
+  content-addressed, so two writers never race for one tag, and a taken tag
+  that names another record is refused.
 - Anyone with push access can add, move or delete a tag, as they can attach
-  a referrer. A tag no trusted key signed is ignored and a deleted record
-  breaks the chain from `status.stream.head`, which readers report. A reader
+  a referrer. Every loss fails safe. A tag no trusted key signed is ignored and a deleted record
+  breaks the chain from `status.stream.head`, which readers report. A deleted
+  approval record does not count, so the person approves again. A reader
   resolves each tag once, so a moved tag is reported as unreadable the next
   time a new reader (a CLI call or a restarted process) resolves it.
 - Tag-immutability rules (Harbor, ECR, ACR and GAR) can enforce write-once

@@ -194,14 +194,29 @@ counts no approval.
   which only the recorder may write. `helm upgrade` installs the new field
   with the CRDs. A Stage that was ready before the upgrade shows the mode
   after the recorder writes its next record.
-- The `RecordStoreReady` reason `ReferrersUnsupported` is gone. A streams
-  repository on a registry without the OCI Referrers API, such as GHCR, now
-  holds records as [write-once tags](delivery-records.md#write-once-tags) and
-  reports `WriteOnceTags`. Alerts or scripts that match the old reason match
-  nothing.
+- A streams repository on a registry without the OCI Referrers API, such as
+  GHCR, now holds records as
+  [write-once tags](delivery-records.md#write-once-tags) and reports the
+  `RecordStoreReady` reason `WriteOnceTags`. The earlier reason for such a
+  registry is gone: alerts or scripts that match it match nothing.
 - A Stage that recorded `native`, or that was ready before the upgrade, and
   then sees no Referrers API stays `RegistryUnavailable` instead of
   switching to tags.
+
+## Approvals are signed records
+
+- With the recorder on, it signs every Approval into the registry, and the
+  promoter counts an Approval only once its record is written. Operation
+  records then name each approval's record, which an earlier CLI or promoter
+  cannot read. Upgrade the CLIs and every promoter that follows these streams
+  first, then the recorder
+  ([details](delivery-signed-approvals.md#upgrade-approval-records)).
+- The recorder signs no Approval made before it first saw the approval
+  admission policy. Such an Approval on a held operation waits and does not
+  count, so its author approves again.
+- Approvals gain a status subresource and the recorder-only fields
+  `spec.record` and `spec.signedAt`; `helm upgrade` installs them with the
+  CRDs.
 
 ## Delivery grants Argo CD and Flux access by itself
 

@@ -299,6 +299,8 @@ registry. When it reads `the registry served the Referrers API for this stream
 and no longer does`, the Stage recorded `native` and the registry now answers
 as one without the API. The recorder never moves such a Stage to
 [write-once tags](delivery-records.md#write-once-tags) on its own; check the
-registry's configuration. `WriteOnceTags` is healthy: the registry serves no
+registry's configuration: `status.stream.registryMode` is `native` and may not
+narrow, and the records admission policy refuses that change to everyone, the
+recorder included. `WriteOnceTags` is healthy: the registry serves no
 Referrers API, so records are written as tags.
 [Check it works](delivery-records.md#check-it-works) lists the other reasons.

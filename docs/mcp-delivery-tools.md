@@ -22,8 +22,14 @@ points at: `pacto_delivery_status`, `pacto_delivery_operation_types`, `pacto_del
 `pacto_delivery_record_get`, `pacto_delivery_record_verify` and
 `pacto_delivery_lifecycle` for everyone, plus
 `pacto_delivery_operation_propose` and `pacto_delivery_cancel` only when the
-cluster says the caller is an agent. Delivery mode has no approve tool. Over
-HTTP the server needs
+cluster says the caller is an agent. Delivery mode has no approve tool on any
+server: agents read approval records with `pacto_delivery_record_get` and
+`pacto_delivery_record_verify`, and a person approves with
+`pacto delivery approve` or the dashboard. Over stdio the two record tools
+also take `ref`, a record reference (`<repository>:<tag>` or
+`<repository>@<digest>`) read with your own registry credentials and no
+kubeconfig, in place of `namespace`, `stage` and `record`; the HTTP server
+has no `ref`. Over HTTP the server needs
 [token exchange](integrations/kubernetes/delivery-agents.md#agents-over-the-network).
 
 ## The delivery read tools
