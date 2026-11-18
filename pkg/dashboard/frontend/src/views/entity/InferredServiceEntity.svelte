@@ -36,9 +36,12 @@
     'part-of': 'the app.kubernetes.io/part-of label', instance: 'the app.kubernetes.io/instance label', workload: 'the workload itself' };
   const REPO_RULES = ['argocd', 'flux-kustomization', 'flux-helmrelease'];
   const showRepo = $derived(REPO_RULES.includes(group?.rule) || repos.length > 0 || !!w.repositoryUnknown);
+  // The workload's own group was read from no path: its tip says why it is ungrouped.
+  const groupTip = $derived(!group ? '' : group.ambiguous ? `Ungrouped: ${group.ambiguous}`
+    : group.rule === 'workload' ? `Not grouped: ${group.from}` : `Grouped by ${RULE_WORDS[group.rule] ?? group.rule}: read from ${group.from}`);
   // Every value Pacto read, with its path, for the fold.
   const paths = $derived([
-    ...(group ? [{ what: 'Group', from: group.from }] : []),
+    ...(group && group.rule !== 'workload' ? [{ what: 'Group', from: group.from }] : []),
     ...repos.map((r) => ({ what: 'Repository', from: r.from })),
     ...(w.image ? [{ what: 'Image', from: w.image.from }] : []),
     ...ports.map((p) => ({ what: `Port ${p.port}`, from: p.from })),
@@ -59,8 +62,8 @@
         <dt>Group</dt>
         <dd data-testid="inferred-group"><span class="ie-list">
           <bdi class="ie-text" title={group.label}>{group.label}</bdi>
-          {#if group.ambiguous}<span class="t-meta ie-text">{group.ambiguous}</span>{:else if group.rule !== 'workload'}<a class="t-meta" href={fleetServicesUrl({ group: group.key, declaration: 'inferred' })}>Services in this group</a>{/if}
-        </span> <ProvenanceMark label="How the cluster groups this workload" text={`Grouped by ${RULE_WORDS[group.rule] ?? group.rule}: read from ${group.from}`} /></dd>
+          {#if group.ambiguous}<span class="t-meta ie-text">{group.ambiguous}</span>{:else if droppedAny('group')}<span class="t-meta ie-text">The group was read but not shown (invalid value)</span>{:else if group.rule !== 'workload'}<a class="t-meta" href={fleetServicesUrl({ group: group.key, declaration: 'inferred' })}>Services in this group</a>{/if}
+        </span> <ProvenanceMark label="How the cluster groups this workload" text={groupTip} /></dd>
       {/if}
       {#if showRepo}
         <dt>Repository</dt>

@@ -33,15 +33,19 @@ source (such as `prod`) and its workload source (`prod-workloads`).
   release Secret, so it uses them for service grouping only. When the workload
   read was cut short or a workload kind was unreadable, the row is `partial`.
 - **Promotion**: one row per promoter the installation names in its
-  [fingerprints](#fingerprints) and the cluster shows, by a CRD it serves or a
-  label or annotation on a workload, such as
-  `promotion owned by Kargo (CRD stages.kargo.akuity.io served)`. Delivery
-  reads `promotion owned by <product>` to know another tool promotes.
-- **Reporting adapters**: one row per adapter that reports provisioning in
-  the target-state file or signed envelopes, and one per producer the
-  Evidence Server's trust config allows to report `ResourceProvisioned` or
-  `ResourceUsage`, from the additive `adapters` list of its
-  `GET /api/evidence/v1/producers`.
+  [fingerprints](#fingerprints) and the cluster shows, by the API group of a
+  CRD it serves or a label or annotation on a workload, such as
+  `promotion owned by Kargo (API group kargo.akuity.io served)`. Delivery
+  reads `promotion owned by <product>` to know another tool promotes. When
+  discovery fails, a promoter named only by its CRD shows a `partial` row
+  that says Pacto could not check. A restricted view lists only the workloads
+  you may list.
+- **Reporting adapters**: one row per adapter, signed or unsigned, that
+  reports provisioning in the target-state file or signed envelopes, and one
+  per producer the Evidence Server's trust config allows to report
+  `ResourceProvisioned` or `ResourceUsage`, from the additive `adapters` list
+  of its `GET /api/evidence/v1/producers`. Trust config rows show to every
+  viewer, since that endpoint lists them to anyone.
 
 ```bash
 $ pacto fleet providers --k8s

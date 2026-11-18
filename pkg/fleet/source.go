@@ -134,6 +134,11 @@ type RawInferredService struct {
 	Group             *InferredGroup
 	Repositories      []InferredRepository
 	RepositoryUnknown string
+	// RepositoryUnknownFrom is the namespace and kind of each GitOps object
+	// RepositoryUnknown was read from: a restricted view shows the reason only
+	// to a viewer allowed to list every one of them, and an empty namespace to
+	// none. Empty when the reason names no object.
+	RepositoryUnknownFrom []WorkloadScope
 }
 
 // WorkloadRef names the workload a Kubernetes target runs as.

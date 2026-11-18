@@ -33,6 +33,10 @@ var gitopsKinds = []string{"Application", "Kustomization", "HelmRelease", "GitRe
 // when discovery failed.
 const discoveryUnknown = "Pacto could not discover the Argo CD and Flux APIs"
 
+// notServed starts the repository reason of a group whose kind the cluster
+// does not serve.
+const notServed = "the cluster does not serve "
+
 // The typed items of each GitOps kind hold only the fields Pacto reads: a
 // page decodes straight into them, so inline Helm values, post-build
 // substitutions and every other field never sit in memory past the page.
@@ -259,7 +263,7 @@ func (s *WorkloadSource) readGitOps(ctx context.Context, versions map[string]str
 			r = gitopsReaders[kind](ctx, s, kind, gr.WithVersion(v), idx)
 		}
 		if !ok || r.unserved {
-			idx.unknown[kind] = "the cluster does not serve " + fleet.PluralKind(kind)
+			idx.unknown[kind] = notServed + fleet.PluralKind(kind)
 			continue
 		}
 		if r.why != "" {
@@ -346,9 +350,11 @@ func (idx *gitopsIndex) resolveArgo(w fleet.RawInferredService) (*fleet.Inferred
 	g := w.Group
 	a := idx.apps[objectMeta{Name: g.Name, Namespace: g.Namespace}]
 	if named := idx.appsNamed[g.Name]; g.Namespace == "" && len(named) > 1 {
-		// Two Argo CD instances may each hold a cart; a count names neither namespace.
+		// Two Argo CD instances may each hold a cart. The reason names neither
+		// namespace nor how many match: some may be in namespaces the viewer
+		// may not list Applications in.
 		return &fleet.InferredGroup{Rule: workloadmanager.Workload,
-			Ambiguous: "Argo CD Application " + g.Name + " matches " + strconv.Itoa(len(named)) + " Applications"}, nil, ""
+			Ambiguous: "Argo CD Application " + g.Name + " matches more than one Application"}, nil, ""
 	} else if g.Namespace == "" && len(named) == 1 {
 		a = named[0]
 	}
@@ -412,15 +418,59 @@ func (idx *gitopsIndex) gitRepository(ref objectRef, ns, path string) ([]fleet.I
 
 // missing is why an object of kind named ns/name was not found: its kind was
 // not read whole, it is outside the namespaces the source reads, or no such
-// object was read.
+// object was read. An object with no namespace (an unprefixed Argo CD name)
+// may live in any namespace, so a scoped source only says it read none.
 func (idx *gitopsIndex) missing(kind, ns, name string) string {
 	if why := idx.unknown[kind]; why != "" {
 		return why
 	}
-	if len(idx.namespaces) > 0 && !slices.Contains(idx.namespaces, ns) {
+	switch {
+	case len(idx.namespaces) == 0:
+	case ns == "":
+		return "no " + kind + " named " + name + " was read in the namespaces this source reads"
+	case !slices.Contains(idx.namespaces, ns):
 		return fleet.PluralKind(kind) + " outside the namespaces this source reads"
 	}
 	return "no " + kind + " named " + qualified(ns, name) + " was read"
+}
+
+// unknownFrom is the GitOps objects the repository reason why of w was read
+// from: the group's object and, for a Flux group, the GitRepository its
+// source reference names. A restricted view shows the reason only to a viewer
+// allowed to list each of them. An object with no namespace to check (an
+// unprefixed Argo CD name Pacto did not resolve) is kept with an empty
+// namespace, which no viewer passes. A reason that names no object, the
+// cluster not serving the group's kind or discovery failing, needs none.
+func (idx *gitopsIndex) unknownFrom(w fleet.RawInferredService, why string) []fleet.WorkloadScope {
+	if why == "" || w.Group == nil {
+		return nil
+	}
+	g := w.Group
+	kind := map[string]string{workloadmanager.ArgoCD: "Application", workloadmanager.FluxKustomization: "Kustomization", workloadmanager.FluxHelmRelease: "HelmRelease"}[g.Rule]
+	if u := idx.unknown[kind]; why == u && (u == discoveryUnknown || strings.HasPrefix(u, notServed)) {
+		return nil
+	}
+	ns := g.Namespace
+	if named := idx.appsNamed[g.Name]; kind == "Application" && ns == "" && len(named) == 1 {
+		ns = named[0].Metadata.Namespace
+	}
+	out := []fleet.WorkloadScope{{Namespace: ns, Kind: kind}}
+	m := objectMeta{Name: g.Name, Namespace: g.Namespace}
+	var ref objectRef
+	switch kind {
+	case "Kustomization":
+		if k := idx.kustomizations[m]; k != nil {
+			ref = k.Spec.SourceRef
+		}
+	case "HelmRelease":
+		if h := idx.helmReleases[m]; h != nil {
+			ref = cmp.Or(h.Spec.Chart.Spec.SourceRef, h.Spec.ChartRef)
+		}
+	}
+	if ref.Kind == "GitRepository" {
+		out = append(out, fleet.WorkloadScope{Namespace: cmp.Or(ref.Namespace, g.Namespace), Kind: "GitRepository"})
+	}
+	return out
 }
 
 // notListed is why a repository does not attach: the object's status does
@@ -465,8 +515,9 @@ func (a *application) repositories() ([]fleet.InferredRepository, string) {
 		switch {
 		case f.src.Chart != "":
 			chart = cmp.Or(chart, f.src.Chart)
-		case !ok || len(repos) == fleet.MaxInferredRepositories ||
-			slices.ContainsFunc(repos, func(r fleet.InferredRepository) bool { return r.URL == u && r.Path == f.src.Path }):
+		// pkg/fleet keeps the first fleet.MaxInferredRepositories and records
+		// every later one as dropped, so the source sends them all.
+		case !ok || slices.ContainsFunc(repos, func(r fleet.InferredRepository) bool { return r.URL == u && r.Path == f.src.Path }):
 		default:
 			repos = append(repos, fleet.InferredRepository{URL: u, Path: f.src.Path, From: "Application " + a.Metadata.String() + " " + f.name + ".repoURL",
 				Namespace: a.Metadata.Namespace, Kind: "Application"})
@@ -496,13 +547,19 @@ func cleanRepoURL(raw string) (string, bool) {
 		u.User, u.RawQuery, u.ForceQuery, u.Fragment, u.RawFragment = nil, "", false, "", ""
 		return u.String(), true
 	}
-	host, path, ok := strings.Cut(raw, ":")
+	// The userinfo ends at the last '@' before the path's first '/', a
+	// user:password@ included, so the host:path split never sees it.
+	rest, end := raw, strings.IndexByte(raw, '/')
+	if end < 0 {
+		end = len(raw)
+	}
+	if i := strings.LastIndex(raw[:end], "@"); i >= 0 {
+		rest = rest[i+1:]
+	}
+	host, path, ok := strings.Cut(rest, ":")
 	path, _, _ = strings.Cut(path, "?")
 	path, _, _ = strings.Cut(path, "#")
-	if i := strings.LastIndex(host, "@"); i >= 0 {
-		host = host[i+1:]
-	}
-	if !ok || host == "" || path == "" || strings.ContainsAny(host, "/ ") {
+	if !ok || host == "" || path == "" || strings.ContainsAny(host, "/ @") {
 		return "", false
 	}
 	return host + ":" + path, true

@@ -124,8 +124,9 @@ func (s *WorkloadSource) providerRows(ctx context.Context, col *fleet.Collection
 	for i := range col.InferredServices {
 		in := &col.InferredServices[i]
 		in.Group, in.Repositories, in.RepositoryUnknown = idx.resolveGroup(*in)
+		in.RepositoryUnknownFrom = idx.unknownFrom(*in, in.RepositoryUnknown)
 	}
-	return append(append(rows, gitops...), s.promoterRows(versions, promoted)...)
+	return append(append(rows, gitops...), s.promoterRows(versions, err == nil, promoted)...)
 }
 
 // crdGroup is the API group of a <plural>.<group> CRD name.
@@ -157,41 +158,62 @@ func (s *WorkloadSource) notePromoted(promoted map[int][]fleet.ProviderObject, i
 	}
 }
 
-// promoterRows are the promotion rows: one per product whose CRD the cluster
-// serves (versions, nil when discovery failed) or whose label or annotation is
-// on a workload read. Its evidence starts with fleet.PromotionOwnedBy.
-// ponytail: a CRD counts as served when discovery serves its API group, so a
-// group shared with another controller's kinds may name a promoter that is
-// not installed; that only ever backs delivery off. Ask discovery for the
-// group's resources if a team reports one.
-func (s *WorkloadSource) promoterRows(versions map[string]string, promoted map[int][]fleet.ProviderObject) []fleet.Provider {
+// promoterRows are the promotion rows: one per product whose CRD's API group
+// the cluster serves (versions, from discovery) or whose label or annotation
+// is on a workload read. The evidence of a product found starts with
+// fleet.PromotionOwnedBy. When discovery failed (discovered false), a
+// product known only by its CRD gets a partial row that says Pacto could not
+// check, so a failed check never reads as no promoter.
+// ponytail: a CRD counts as served when discovery serves its API group, and
+// the evidence says only that, so a group shared with another controller's
+// kinds may name a promoter that is not installed; that only ever backs
+// delivery off. Ask discovery for the group's resources if a team reports one.
+func (s *WorkloadSource) promoterRows(versions map[string]string, discovered bool, promoted map[int][]fleet.ProviderObject) []fleet.Provider {
 	var rows []fleet.Provider
 	at := map[string]int{}
+	row := func(product string) *fleet.Provider {
+		j, ok := at[product]
+		if !ok {
+			j, at[product] = len(rows), len(rows)
+			rows = append(rows, fleet.Provider{ID: "promotion/" + product, Name: product, UsedFor: []string{fleet.UsePromotion}})
+		}
+		return &rows[j]
+	}
 	for i, f := range s.promoters {
-		var found string
-		var objects []fleet.ProviderObject
-		switch {
-		case f.CRD != "" && versions[crdGroup(f.CRD)] != "":
-			found, objects = "CRD "+f.CRD+" served", []fleet.ProviderObject{{Kind: "CustomResourceDefinition", Name: f.CRD}}
+		switch group := crdGroup(f.CRD); {
+		case f.CRD != "" && versions[group] != "":
+			promotionFound(row(f.Product), "API group "+group+" served", nil)
 		case len(promoted[i]) > 0:
-			found, objects = "annotation "+f.Annotation+" on workloads", promoted[i]
+			found := "annotation " + f.Annotation + " on workloads"
 			if f.Label != "" {
 				found = "label " + f.Label + " on workloads"
 			}
-		default:
-			continue
+			promotionFound(row(f.Product), found, promoted[i])
+		case f.CRD != "" && !discovered:
+			p := row(f.Product)
+			p.Status = fleet.SourcePartial
+			p.Limitations = append(p.Limitations, fleet.Limitation{Code: fleet.LimitationSourcePartial, Source: s.id,
+				Message: "Pacto could not discover whether CRD " + f.CRD + " is served"})
 		}
-		j, ok := at[f.Product]
-		if !ok {
-			j, at[f.Product] = len(rows), len(rows)
-			rows = append(rows, fleet.Provider{ID: "promotion/" + f.Product, Name: f.Product, UsedFor: []string{fleet.UsePromotion},
-				Evidence: fleet.PromotionOwnedBy + f.Product + " (" + found + ")"})
-		} else {
-			rows[j].Evidence = strings.TrimSuffix(rows[j].Evidence, ")") + ", " + found + ")"
+	}
+	for i := range rows {
+		if rows[i].Evidence == "" {
+			rows[i].Evidence = "Pacto could not check whether " + rows[i].Name + " promotes here"
 		}
-		rows[j].Objects = append(rows[j].Objects, objects...)
 	}
 	return rows
+}
+
+// promotionFound adds found, and the objects it names, to the evidence of a
+// promotion row, once.
+func promotionFound(p *fleet.Provider, found string, objects []fleet.ProviderObject) {
+	switch {
+	case p.Evidence == "":
+		p.Evidence = fleet.PromotionOwnedBy + p.Name + " (" + found + ")"
+	case !strings.Contains(p.Evidence, found):
+		p.Evidence = strings.TrimSuffix(p.Evidence, ")") + ", " + found + ")"
+	}
+	p.Objects = append(p.Objects, objects...)
 }
 
 // workloadsRow is the Kubernetes workloads row of col: how many workloads of

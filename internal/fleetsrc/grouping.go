@@ -55,17 +55,19 @@ func toFleetGroup(g workloadmanager.Grouping) *fleet.InferredGroup {
 }
 
 // helmRow is the Helm row of col's services: the distinct releases their
-// groups name, counted per release namespace. No Helm group, no row. Pacto
+// groups name, counted in the namespace of each workload that names one, so a
+// viewer is reviewed in the namespace the count was read from, never the one
+// a release annotation claims. No Helm group, no row. Pacto
 // reads no release Secret, so the row names no repository. A workload read
 // col's limitations cut short may have missed a release, so the row is then
 // partial with them, like the workloads row.
 func helmRow(col *fleet.Collection) (fleet.Provider, bool) {
-	releases := map[[2]string]bool{}
+	releases := map[[3]string]bool{}
 	perNS := map[string]int{}
 	for _, in := range col.InferredServices {
-		if g := in.Group; g != nil && g.Rule == workloadmanager.Helm && !releases[[2]string{g.Namespace, g.Name}] {
-			releases[[2]string{g.Namespace, g.Name}] = true
-			perNS[g.Namespace]++
+		if g := in.Group; g != nil && g.Rule == workloadmanager.Helm && !releases[[3]string{in.Namespace, g.Namespace, g.Name}] {
+			releases[[3]string{in.Namespace, g.Namespace, g.Name}] = true
+			perNS[in.Namespace]++
 		}
 	}
 	if len(releases) == 0 {

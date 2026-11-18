@@ -278,6 +278,58 @@ func TestRestrictDropsRepositoryWithoutApplicationRead(t *testing.T) {
 	}
 }
 
+// TestRestrictHidesRepositoryReasonFromHiddenObject: a repository reason is
+// another object's content, like the repository itself: it shows only to a
+// viewer allowed to list every object it was read from.
+func TestRestrictHidesRepositoryReasonFromHiddenObject(t *testing.T) {
+	unresolved := func(why string, from ...WorkloadScope) *Query {
+		in := argoCart()
+		in.Repositories, in.RepositoryUnknown, in.RepositoryUnknownFrom = nil, why, from
+		return NewQuery(buildClusterSnap(t, workloadsSource("k8s-workloads", nil, in)))
+	}
+	noApps := func(_, kind string) bool { return kind != "Application" }
+	q := unresolved("the source is Helm chart payments-internal, not a Git repository", WorkloadScope{"argocd", "Application"})
+	if !slices.Contains(q.InferredWorkloadScopes(), WorkloadScope{"argocd", "Application"}) {
+		t.Errorf("the reason's object is never reviewed: %v", q.InferredWorkloadScopes())
+	}
+	r := q.Restrict(everyNamespace, noApps)
+	if r == q {
+		t.Fatal("a reason read from a hidden object kept the whole query")
+	}
+	if w := workloadOf(t, r.SnapshotForSerialization(), cartName); w.RepositoryUnknown != "hidden by your permissions" || w.Group.Key != "argocd//cart" {
+		t.Errorf("restricted workload %+v", w)
+	}
+	if q.Restrict(everyNamespace, everyWorkload) != q {
+		t.Error("a viewer who may list the Application got a copy")
+	}
+	// No namespace to check, or an object Pacto cannot name, hides it from every viewer.
+	for _, from := range []WorkloadScope{{Kind: "Application"}, {Namespace: "argocd", Kind: "Secret"}} {
+		w := workloadOf(t, unresolved("no Application named cart was read", from).Restrict(everyNamespace, everyWorkload).SnapshotForSerialization(), cartName)
+		if w.RepositoryUnknown != "hidden by your permissions" {
+			t.Errorf("%+v: reason %q", from, w.RepositoryUnknown)
+		}
+	}
+	// A reason that names no object shows to everyone.
+	q = unresolved("the cluster does not serve Applications")
+	if w := workloadOf(t, q.Restrict(everyNamespace, noApps).SnapshotForSerialization(), cartName); w.RepositoryUnknown != "the cluster does not serve Applications" {
+		t.Errorf("public reason %q", w.RepositoryUnknown)
+	}
+}
+
+// TestInvalidGroupSaysItWasRead: a group a source sent and Pacto left out
+// never reads as no grouping label at all.
+func TestInvalidGroupSaysItWasRead(t *testing.T) {
+	in := inferredCart()
+	in.Group = &InferredGroup{Rule: "argocd", Name: "cart", From: "label\x00"}
+	w := workloadOf(t, buildClusterSnap(t, workloadsSource("k8s-workloads", nil, in)), cartName)
+	if w.Group.From != droppedGroupFrom || w.Group.Rule != groupRuleWorkload || !slices.Contains(w.Dropped, "group") {
+		t.Errorf("workload %+v %+v", w.Group, w.Dropped)
+	}
+	if got := strings.Join(w.Lines(), "\n"); strings.Contains(got, noGroupingFrom) {
+		t.Errorf("lines claim no grouping label:\n%s", got)
+	}
+}
+
 func TestRestrictKeepsGroupOfVisibleWorkload(t *testing.T) {
 	r := groupFleet(t).Restrict(func(ns string) bool { return ns == "shop" }, func(ns, _ string) bool { return ns == "shop" })
 	snap := r.SnapshotForSerialization()

@@ -147,15 +147,29 @@ describe('InferredServiceEntity', () => {
 
   it('gives no group link to a workload grouped by itself, and says why an ambiguous one stays ungrouped', () => {
     const own = { rule: 'workload', namespace: 'shop', name: 'Deployment/cart', from: 'no grouping label or annotation', key: 'workload/shop/Deployment/cart', label: 'This workload only' };
-    let row = render(withWorkload({ group: own })).querySelector('[data-testid="inferred-group"]') as HTMLElement;
+    let t = render(withWorkload({ group: own }));
+    let row = t.querySelector('[data-testid="inferred-group"]') as HTMLElement;
     expect(row.textContent).toContain('This workload only');
     expect(row.querySelector('a')).toBeNull();
+    expect(row.querySelector('.prov-tip')?.textContent).toBe('Not grouped: no grouping label or annotation');
+    expect(t.querySelector('[data-testid="inferred-paths"]')?.textContent).not.toContain('Group');
     cleanup?.(); cleanup = null;
     const why = 'label argocd.argoproj.io/instance names cart and annotation argocd.argoproj.io/tracking-id names checkout';
-    row = render(withWorkload({ group: { ...own, label: 'Ungrouped', ambiguous: why } })).querySelector('[data-testid="inferred-group"]') as HTMLElement;
+    t = render(withWorkload({ group: { ...own, label: 'Ungrouped', ambiguous: why } }));
+    row = t.querySelector('[data-testid="inferred-group"]') as HTMLElement;
     expect(row.querySelector('bdi')?.textContent).toBe('Ungrouped');
     expect(row.querySelector('.t-meta')?.textContent).toBe(why);
     expect(row.querySelector('a')).toBeNull();
+    // The tip never contradicts the claims the row names.
+    expect(row.querySelector('.prov-tip')?.textContent).toBe(`Ungrouped: ${why}`);
+    expect(t.querySelector('[data-testid="inferred-paths"]')?.textContent).not.toContain('no grouping label');
+  });
+
+  it('says a group Pacto read but left out was read, never that no label exists', () => {
+    const left = { rule: 'workload', namespace: 'shop', name: 'Deployment/cart', from: 'a grouping value Pacto read but left out (invalid)', key: 'workload/shop/Deployment/cart', label: 'This workload only' };
+    const row = render(withWorkload({ group: left, dropped: ['group'] })).querySelector('[data-testid="inferred-group"]') as HTMLElement;
+    expect(row.querySelector('.t-meta')?.textContent).toBe('The group was read but not shown (invalid value)');
+    expect(row.querySelector('.prov-tip')?.textContent).toBe('Not grouped: a grouping value Pacto read but left out (invalid)');
   });
 
   it('links an https repository, prints any other as text and keeps the path', () => {

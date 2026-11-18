@@ -69,9 +69,10 @@ type WorkloadScope struct {
 // InferredWorkloadScopes lists, sorted and unique, the (namespace, kind) pairs
 // of the snapshot's inferred services, of the workloads its replacements
 // replaced or a Pacto target runs as, of the GitOps objects their
-// repositories were read from, and of its provider counts: a count is
-// workload data too, so a caller must be allowed to list its kind to see it.
-// A zero count discloses nothing and needs no review.
+// repositories or repository reasons were read from, and of its provider
+// counts and workload objects: a count is workload data too, so a caller must
+// be allowed to list its kind to see it. A zero count discloses nothing and
+// needs no review.
 func (q *Query) InferredWorkloadScopes() []WorkloadScope {
 	seen := map[WorkloadScope]bool{}
 	for _, s := range q.snap.Services {
@@ -82,6 +83,11 @@ func (q *Query) InferredWorkloadScopes() []WorkloadScope {
 		for _, r := range s.Workload.Repositories {
 			if r.Namespace != "" {
 				seen[WorkloadScope{r.Namespace, r.Kind}] = true
+			}
+		}
+		for _, sc := range s.Workload.repositoryUnknownFrom {
+			if sc.Namespace != "" {
+				seen[sc] = true
 			}
 		}
 	}
@@ -95,6 +101,11 @@ func (q *Query) InferredWorkloadScopes() []WorkloadScope {
 		for _, c := range p.Counts {
 			if c.N > 0 {
 				seen[WorkloadScope{c.Namespace, c.Kind}] = true
+			}
+		}
+		for _, o := range p.Objects {
+			if workloadKind(o.Kind) && o.Namespace != "" {
+				seen[WorkloadScope{o.Namespace, o.Kind}] = true
 			}
 		}
 	}
@@ -328,10 +339,12 @@ func keepsEveryName(s *FleetSnapshot, restricted bool, hidden func(namespace, ki
 }
 
 // repositoryHidden reports whether some inferred service of s holds a
-// repository hidden says no to, or one with no namespace to check.
+// repository, or a repository reason, read from an object hidden says no to,
+// or from one with no namespace to check.
 func repositoryHidden(s *FleetSnapshot, hidden func(namespace, kind string) bool) bool {
 	for _, svc := range s.Services {
-		if svc.Inferred() && slices.ContainsFunc(svc.Workload.Repositories, func(r InferredRepository) bool { return r.Namespace == "" || hidden(r.Namespace, r.Kind) }) {
+		if svc.Inferred() && (slices.ContainsFunc(svc.Workload.Repositories, func(r InferredRepository) bool { return r.Namespace == "" || hidden(r.Namespace, r.Kind) }) ||
+			slices.ContainsFunc(svc.Workload.repositoryUnknownFrom, func(sc WorkloadScope) bool { return sc.Namespace == "" || hidden(sc.Namespace, sc.Kind) })) {
 			return true
 		}
 	}
@@ -911,14 +924,15 @@ func restrictServices(out *FleetSnapshot, services map[ServiceKey]*ServiceRecord
 // restrictInferred is a visible inferred service as a restricted view holds
 // it: a copy carrying its hidden counts when it has any, and without the
 // repositories read from an object workloadVisible says no to (or one with no
-// namespace), which then reads "hidden by your permissions". The repository is
-// another object's content the dashboard read, so the workload's own read
-// never decides it. Nothing else of it was derived from what the view may hide.
+// namespace), which then reads "hidden by your permissions". A repository
+// reason read from such an object reads the same. The repository is another
+// object's content the dashboard read, so the workload's own read never
+// decides it. Nothing else of it was derived from what the view may hide.
 func restrictInferred(svc *ServiceRecord, hidden hiddenCounts, workloadVisible func(namespace, kind string) bool) *ServiceRecord {
-	repos := slices.DeleteFunc(slices.Clone(svc.Workload.Repositories), func(r InferredRepository) bool {
-		return r.Namespace == "" || workloadVisible == nil || !workloadVisible(r.Namespace, r.Kind)
-	})
-	reposHidden := len(repos) != len(svc.Workload.Repositories)
+	listed := func(ns, kind string) bool { return ns != "" && workloadVisible != nil && workloadVisible(ns, kind) }
+	repos := slices.DeleteFunc(slices.Clone(svc.Workload.Repositories), func(r InferredRepository) bool { return !listed(r.Namespace, r.Kind) })
+	reposHidden := len(repos) != len(svc.Workload.Repositories) ||
+		slices.ContainsFunc(svc.Workload.repositoryUnknownFrom, func(sc WorkloadScope) bool { return !listed(sc.Namespace, sc.Kind) })
 	if hidden.deps[svc.Key] == nil && hidden.dependents[svc.Key] == nil && !reposHidden {
 		return svc
 	}

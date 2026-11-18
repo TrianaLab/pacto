@@ -582,19 +582,41 @@ func TestPromoterRowFromCRD(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Discovery says only that the API group is served, so the evidence names
+	// the group, once, and never a CRD nobody checked.
 	want := []fleet.Provider{{ID: "promotion/Promoter", Name: "Promoter", UsedFor: []string{fleet.UsePromotion},
-		Evidence: "promotion owned by Promoter (CRD stages.promoter.example.com served, CRD warehouses.promoter.example.com served)",
-		Objects:  []fleet.ProviderObject{{Kind: "CustomResourceDefinition", Name: "stages.promoter.example.com"}, {Kind: "CustomResourceDefinition", Name: "warehouses.promoter.example.com"}}}}
+		Evidence: "promotion owned by Promoter (API group promoter.example.com served)"}}
 	if got := promoterRowsOf(col); !reflect.DeepEqual(got, want) {
 		t.Errorf("rows = %+v", got)
 	}
 	if !slices.Contains(f.discovered, "promoter.example.com") {
 		t.Errorf("discovery asked for %v", f.discovered)
 	}
-	// A failed discovery names no CRD promoter; no fingerprint, no row.
+	// A failed discovery is a partial row that says Pacto could not check,
+	// never a missing row that reads as no promoter.
 	f = &workloadFake{versions: map[string]string{"promoter.example.com": "v1"}, discErr: errors.New("down")}
-	if col, _ := NewWorkloadSource("w", nil, f, nil).WithPromoters(promoterFingerprints).Collect(t.Context()); len(promoterRowsOf(col)) != 0 {
-		t.Errorf("discovery failed: %+v", promoterRowsOf(col))
+	col, _ = NewWorkloadSource("w", nil, f, nil).WithPromoters(promoterFingerprints).Collect(t.Context())
+	want = []fleet.Provider{{ID: "promotion/Promoter", Name: "Promoter", UsedFor: []string{fleet.UsePromotion}, Status: fleet.SourcePartial,
+		Evidence: "Pacto could not check whether Promoter promotes here", Limitations: []fleet.Limitation{
+			{Code: fleet.LimitationSourcePartial, Source: "w", Message: "Pacto could not discover whether CRD stages.promoter.example.com is served"},
+			{Code: fleet.LimitationSourcePartial, Source: "w", Message: "Pacto could not discover whether CRD warehouses.promoter.example.com is served"}}}}
+	if got := promoterRowsOf(col); !reflect.DeepEqual(got, want) {
+		t.Errorf("discovery failed: %+v", got)
+	}
+	if strings.HasPrefix(want[0].Evidence, fleet.PromotionOwnedBy) {
+		t.Error("an unchecked promoter claims promotion")
+	}
+	// A product found another way keeps its evidence and says what it could not check.
+	both := []workloadmanager.Fingerprint{{Product: "P", CRD: "stages.promoter.example.com"}, {Product: "P", Label: "portal.example.com/promoted"}}
+	f = &workloadFake{discErr: errors.New("down"), pages: map[string][2]string{"deployments||": {`{"metadata":{"name":"cart","namespace":"shop","labels":{"portal.example.com/promoted":"yes"}}}`}}}
+	col, _ = NewWorkloadSource("w", nil, f, nil).WithPromoters(both).Collect(t.Context())
+	if got := promoterRowsOf(col); len(got) != 1 || got[0].Evidence != "promotion owned by P (label portal.example.com/promoted on workloads)" || got[0].Status != fleet.SourcePartial || len(got[0].Limitations) != 1 {
+		t.Errorf("found and unchecked: %+v", got)
+	}
+	f.discErr, f.versions = nil, map[string]string{"promoter.example.com": "v1"}
+	col, _ = NewWorkloadSource("w", nil, f, nil).WithPromoters(both).Collect(t.Context())
+	if got := promoterRowsOf(col); len(got) != 1 || got[0].Evidence != "promotion owned by P (API group promoter.example.com served, label portal.example.com/promoted on workloads)" || len(got[0].Objects) != 1 {
+		t.Errorf("found twice: %+v", got)
 	}
 	if col, _ := NewWorkloadSource("w", nil, &workloadFake{versions: map[string]string{"promoter.example.com": "v1"}}, nil).Collect(t.Context()); len(promoterRowsOf(col)) != 0 {
 		t.Errorf("no fingerprints: %+v", promoterRowsOf(col))

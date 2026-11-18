@@ -143,9 +143,27 @@ func TestHelmRowOnlyWhenHelmGroups(t *testing.T) {
 	if row == nil || row.Evidence != "2 Helm releases" || row.Name != "Helm" || !reflect.DeepEqual(row.UsedFor, []string{fleet.UseServiceGrouping}) || row.Status != fleet.SourceAvailable {
 		t.Errorf("Helm row = %+v", row)
 	}
+	if want := []fleet.ProviderCount{{Kind: fleet.HelmReleaseKind, Namespace: "ops", N: 1}, {Kind: fleet.HelmReleaseKind, Namespace: "shop", N: 1}}; !reflect.DeepEqual(row.Counts, want) {
+		t.Errorf("counts = %+v", row.Counts)
+	}
 	snap = buildOne(t, NewWorkloadSource("w", nil, &workloadFake{pages: map[string][2]string{"deployments||": {groupedWorkload("shop", "a", nil, nil)}}}, nil))
 	if row := helmRowOf(snap); row != nil {
 		t.Errorf("Helm row without a Helm group = %+v", row)
+	}
+}
+
+// TestHelmRowCountsWhereTheWorkloadRuns: a release counts in the namespace of
+// the workload it was read from, the one a viewer is reviewed in, never the
+// namespace its annotation claims.
+func TestHelmRowCountsWhereTheWorkloadRuns(t *testing.T) {
+	items := groupedWorkload("secret-ns", "a", nil, map[string]string{"meta.helm.sh/release-name": "exporter", "meta.helm.sh/release-namespace": "shop"})
+	col, err := NewWorkloadSource("w", nil, &workloadFake{pages: map[string][2]string{"deployments||": {items}}}, nil).Collect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, ok := helmRow(col)
+	if want := []fleet.ProviderCount{{Kind: fleet.HelmReleaseKind, Namespace: "secret-ns", N: 1}}; !ok || !reflect.DeepEqual(row.Counts, want) {
+		t.Errorf("Helm row counts = %+v", row.Counts)
 	}
 }
 

@@ -195,7 +195,7 @@ func TestFleetFingerprintsAddPromoterRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !slices.ContainsFunc(snap.Providers, func(p fleet.Provider) bool {
-		return p.Evidence == "promotion owned by Promoter (CRD stages.promoter.example.com served)"
+		return p.Evidence == "promotion owned by Promoter (API group promoter.example.com served)"
 	}) {
 		t.Errorf("providers = %+v", snap.Providers)
 	}

@@ -326,8 +326,6 @@ func kubeClusterID(mgr ctrl.Manager) (string, error) {
 	return kubecluster.ID(context.Background(), dyn)
 }
 
-// upstreamReader reads what a Stage in another cluster verified from its
-// signed records, verified against the trust config in file, under a timeout.
 // loadManagers is the manager detector of the fingerprints file, the
 // built-in one when file is empty.
 func loadManagers(file string) (workloadmanager.Detector, error) {
@@ -343,6 +341,8 @@ func loadManagers(file string) (workloadmanager.Detector, error) {
 	return workloadmanager.Detector{Extra: fp.Managers}, err
 }
 
+// upstreamReader reads what a Stage in another cluster verified from its
+// signed records, verified against the trust config in file, under a timeout.
 func upstreamReader(file string, keychain authn.Keychain) (
 	func(context.Context, core.RemoteStage, core.RecordMark, []string) (*core.StageStatus, string), error,
 ) {

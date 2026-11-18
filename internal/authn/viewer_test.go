@@ -799,6 +799,40 @@ func TestViewerReviewsRepositoryKinds(t *testing.T) {
 	}
 }
 
+// TestViewerReviewsUnresolvedRepositoryReason: a repository Pacto could not
+// resolve still says why from another object's content; that object's kind is
+// reviewed in its namespace, and a cluster-wide reader of Pactos and
+// workloads who may not list it never takes the fast path.
+func TestViewerReviewsUnresolvedRepositoryReason(t *testing.T) {
+	workloads := fleet.NewMemorySource("k8s-workloads", fleet.SourceKindKubernetesWorkloads, &fleet.Collection{InferredServices: []fleet.RawInferredService{
+		{Namespace: "shop", Kind: "Deployment", Name: "cart",
+			Group:                 &fleet.InferredGroup{Rule: "argocd", Namespace: "argocd", Name: "cart", From: "label argocd.argoproj.io/instance"},
+			RepositoryUnknown:     "the source is Helm chart payments-internal, not a Git repository",
+			RepositoryUnknownFrom: []fleet.WorkloadScope{{Namespace: "argocd", Kind: "Application"}}},
+	}})
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, workloads)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := fleet.NewQuery(snap)
+	r := &reviews{allow: func(Person, string) (bool, error) { return true, nil }, allowWorkload: func(_ Person, _ string, res ResourceAttributes) (bool, error) {
+		return res.Resource != "applications", nil
+	}}
+	got, err := NewViewer(r.review).Query(context.Background(), alice, q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == q {
+		t.Fatal("a reader who may not list Applications took the fast path")
+	}
+	if !slices.Contains(r.askedRes, "applications.argoproj.io/argocd") && !slices.Contains(r.askedRes, "applications.argoproj.io/") {
+		t.Errorf("asked %v, never about Applications", r.askedRes)
+	}
+	if w := got.SnapshotForSerialization().Service("k8s:shop/Deployment/cart").Workload; w.RepositoryUnknown != "hidden by your permissions" {
+		t.Errorf("alice reads %q", w.RepositoryUnknown)
+	}
+}
+
 // TestViewerKeyIncludesRepositoryScopes: two people with the same namespaces
 // who differ only in listing Applications in argocd never share a cached
 // view, and a cluster-wide reader of Pactos and workloads who may not list

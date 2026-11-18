@@ -112,12 +112,14 @@ keeps its own `workload` group, reads `Ungrouped` and says in `ambiguous`
 which claims disagree. A lower rule never decides instead. The service carries
 `SERVICE_GROUP_AMBIGUOUS`, and one limitation per source counts those
 workloads. An Argo CD instance with no namespace that matches several
-Applications stays ungrouped the same way.
+Applications stays ungrouped the same way, and the reason says neither how
+many match nor where.
 
 ### Repositories
 
 `workload.repositories` lists at most five source repositories, each with
-`url`, `path`, `from`, `namespace` and `kind`. An Argo CD Application gives
+`url`, `path`, `from`, `namespace` and `kind`; `dropped` names each one past
+five. An Argo CD Application gives
 `spec.source.repoURL` and each `spec.sources[].repoURL`, read as in
 `Application argocd/cart spec.source.repoURL`. A Flux Kustomization or
 HelmRelease gives the `spec.url` of the GitRepository it deploys from. Every
@@ -144,7 +146,9 @@ A restricted view shows a repository only to a viewer whom Kubernetes lets
 list its `kind`, such as `applications.argoproj.io` or
 `gitrepositories.source.toolkit.fluxcd.io`, in its `namespace`, whether or not
 they can read Pactos there. Anyone else
-reads `hidden by your permissions`. The group of a workload you can see always
+reads `hidden by your permissions`. A `repositoryUnknown` reason read from a
+GitOps object follows the same rule; one that names no object, such as `the
+cluster does not serve Applications`, shows to everyone. The group of a workload you can see always
 shows.
 
 ### What Pacto reads to group

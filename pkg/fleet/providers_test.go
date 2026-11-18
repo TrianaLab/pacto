@@ -585,6 +585,43 @@ func TestRestrictProvidersKeepsZeroCounts(t *testing.T) {
 	}
 }
 
+// TestRestrictHidesPromotionWorkloads: a promotion row names the workloads
+// that carry its label; a reader who may not list that workload kind there
+// never sees one, nor how many there are, and the Viewer reviews each.
+func TestRestrictHidesPromotionWorkloads(t *testing.T) {
+	row := Provider{ID: "promotion/X", Name: "X", Source: "w", Status: SourceAvailable, UsedFor: []string{UsePromotion},
+		Evidence: PromotionOwnedBy + "X (label l on workloads)",
+		Objects:  []ProviderObject{{Kind: "Deployment", Namespace: "shop", Name: "payments-api"}, {Kind: "Deployment", Namespace: "ops", Name: "cart"}}}
+	noShopDeployments := func(ns, kind string) bool { return ns != "shop" || kind != "Deployment" }
+	got := restrictProviders([]Provider{row}, nil, everyNamespace, noShopDeployments, nil)[0]
+	if want := []ProviderObject{{Kind: "Deployment", Namespace: "ops", Name: "cart"}}; !slices.Equal(got.Objects, want) || got.ObjectsTotal != 0 || got.Evidence != row.Evidence {
+		t.Errorf("partly hidden row %+v", got)
+	}
+	got = restrictProviders([]Provider{row}, nil, everyNamespace, nil, nil)[0]
+	if len(got.Objects) != 0 || got.ObjectsTotal != 0 || got.Evidence != "X found in a namespace you cannot read" {
+		t.Errorf("all hidden row %+v", got)
+	}
+	// A hidden cluster-scoped object still counts; a hidden workload never does.
+	mixed := row
+	mixed.Objects = append(slices.Clone(row.Objects), ProviderObject{Kind: "CustomResourceDefinition", Name: "stages.x.io"})
+	got = restrictProviders([]Provider{mixed}, nil, func(ns string) bool { return ns != "" }, noShopDeployments, nil)[0]
+	if len(got.Objects) != 1 || got.ObjectsTotal != 2 || got.Evidence != row.Evidence {
+		t.Errorf("mixed row %+v", got)
+	}
+	snap := buildProviders(t, NewMemorySource("w", SourceKindKubernetesWorkloads, &Collection{Providers: []Provider{row}}))
+	q := NewQuery(snap)
+	if scopes := q.InferredWorkloadScopes(); !slices.Contains(scopes, WorkloadScope{"shop", "Deployment"}) || !slices.Contains(scopes, WorkloadScope{"ops", "Deployment"}) {
+		t.Errorf("promotion objects are never reviewed: %v", scopes)
+	}
+	r := q.Restrict(everyNamespace, noShopDeployments)
+	if r == q {
+		t.Fatal("a hidden promotion workload kept the whole query")
+	}
+	if p := r.Providers().Providers[0]; slices.ContainsFunc(p.Objects, func(o ProviderObject) bool { return o.Name == "payments-api" }) {
+		t.Errorf("restricted row names a hidden workload: %+v", p)
+	}
+}
+
 func TestReportingRowsFromProvisioningReporters(t *testing.T) {
 	snap := &FleetSnapshot{
 		Sources: []SourceState{{ID: "evidence", Status: SourceAvailable}, {ID: "file", Status: SourceAvailable}, {ID: "gone", Status: SourceUnavailable}},
@@ -593,8 +630,12 @@ func TestReportingRowsFromProvisioningReporters(t *testing.T) {
 			{Source: "evidence", Provider: "crossplane", Producer: "platform", Verified: true, Name: "second request"},
 			{Source: "file", Verified: false},
 			{Source: "gone", Provider: "x"},
+			// One producer reporting signed and unsigned: two rows, each worded for its own reports.
+			{Source: "embed", Provider: "scanner", Producer: "security", Verified: true},
+			{Source: "embed", Provider: "scanner", Producer: "security"},
 		},
 	}
+	snap.Sources = append(snap.Sources, SourceState{ID: "embed", Status: SourceAvailable})
 	finalizeProviders(snap)
 	got := map[string]string{}
 	for _, p := range snap.Providers {
@@ -604,8 +645,10 @@ func TestReportingRowsFromProvisioningReporters(t *testing.T) {
 		got[p.Source+" "+p.ID+" "+p.Name] = p.Evidence
 	}
 	want := map[string]string{
-		"evidence reporting-adapter/crossplane/platform crossplane": "reports provisioning in signed envelopes as producer platform",
-		"file reporting-adapter// unnamed adapter":                  "reports provisioning in the unsigned target-state file",
+		"evidence reporting-adapter/crossplane/platform/signed crossplane": "reports provisioning in signed envelopes as producer platform",
+		"file reporting-adapter// unnamed adapter":                         "reports provisioning in the unsigned target-state file",
+		"embed reporting-adapter/scanner/security/signed scanner":          "reports provisioning in signed envelopes as producer security",
+		"embed reporting-adapter/scanner/security scanner":                 "reports provisioning in the unsigned target-state file as producer security",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("rows = %v, want %v", got, want)

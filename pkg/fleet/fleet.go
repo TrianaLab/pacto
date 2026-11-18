@@ -745,6 +745,8 @@ type InferredWorkload struct {
 	// group, at most MaxInferredRepositories.
 	Repositories      []InferredRepository `json:"repositories,omitempty"`
 	RepositoryUnknown string               `json:"repositoryUnknown,omitempty" doc:"Why Pacto could not read the repository of a group that names one, for example Applications unreadable (forbidden)"`
+	// repositoryUnknownFrom is RawInferredService.RepositoryUnknownFrom.
+	repositoryUnknownFrom []WorkloadScope
 }
 
 // InferredGroup is how the cluster already groups an inferred service's workload.

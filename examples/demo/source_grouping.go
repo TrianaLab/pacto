@@ -37,7 +37,8 @@ func demoGroupingProviders(inferred []fleet.RawInferredService) []fleet.Provider
 			case workloadmanager.FluxHelmRelease:
 				gitops = add(gitops, "HelmRelease", g.Namespace, g.Name)
 			case workloadmanager.Helm:
-				helm = add(helm, fleet.HelmReleaseKind, g.Namespace, g.Name)
+				// Counted where the workload runs, the namespace a viewer is reviewed in.
+				helm = add(helm, fleet.HelmReleaseKind, in.Namespace, g.Namespace+"/"+g.Name)
 			}
 		}
 		for _, r := range in.Repositories {

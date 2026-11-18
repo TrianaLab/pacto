@@ -86,12 +86,17 @@ func TestCleanRepoURLStripsCredentials(t *testing.T) {
 		"ssh://git@host/a":                                     "ssh://host/a",
 		"https://x-access-token:ghs_abc@github.com/acme/shop/": "https://github.com/acme/shop/",
 		"git@host:a/b?token=x#frag":                            "host:a/b",
+		// A password in scp-like userinfo never reaches the host:path split.
+		"deploy:ghp_SECRET@github.com:acme/shop.git":    "github.com:acme/shop.git",
+		"oauth2:glpat-SECRET@gitlab.com:group/repo.git": "gitlab.com:group/repo.git",
+		"github.com:org/repo@v1":                        "github.com:org/repo@v1",
 	} {
 		if got, ok := cleanRepoURL(in); !ok || got != want {
 			t.Errorf("cleanRepoURL(%q) = %q, %v; want %q", in, got, ok, want)
 		}
 	}
-	for _, in := range []string{"", "https://github.com/a\x00b", "https://[::1", "https://h/%zz", "file:///repo", "not a url", "relative/path", "host:", ":path", "a/b:c"} {
+	for _, in := range []string{"", "https://github.com/a\x00b", "https://[::1", "https://h/%zz", "file:///repo", "not a url", "relative/path", "host:", ":path", "a/b:c",
+		"https:user:pw@host", "deploy:tok@git.example.com/x", "a@b:"} {
 		if got, ok := cleanRepoURL(in); ok {
 			t.Errorf("cleanRepoURL(%q) = %q, want refused", in, got)
 		}
@@ -124,8 +129,60 @@ func TestResolveArgoRepository(t *testing.T) {
 		many = append(many, fmt.Sprintf(`{"repoURL":"https://github.com/acme/r%d"}`, i))
 	}
 	idx.addApplication(decodeAs[application](t, appJSON("shop", "many", `{"sources":[`+strings.Join(many, ",")+`]}`, listedAs("shop", "many"))))
-	if _, repos, _ := idx.resolveGroup(raw("shop", "many", argoGroup("shop", "many"))); len(repos) != fleet.MaxInferredRepositories {
-		t.Errorf("kept %d repositories, want the bound", len(repos))
+	// The source sends every repository; pkg/fleet keeps the bound and
+	// records the rest as dropped, so the list never reads as complete.
+	if _, repos, _ := idx.resolveGroup(raw("shop", "many", argoGroup("shop", "many"))); len(repos) != 7 {
+		t.Errorf("sent %d repositories, want all 7", len(repos))
+	}
+}
+
+func TestResolveArgoRepositoriesPastTheBoundAreDropped(t *testing.T) {
+	var many []string
+	for i := range 7 {
+		many = append(many, fmt.Sprintf(`{"repoURL":"https://github.com/acme/r%d"}`, i))
+	}
+	fake := &workloadFake{versions: gitopsServed, pages: map[string][2]string{
+		"deployments||":  {tracked("shop", "cart", "argocd_cart")},
+		"applications||": {appJSON("argocd", "cart", `{"sources":[`+strings.Join(many, ",")+`]}`, listedAs("shop", "cart"))},
+	}}
+	w := workloadOf(t, buildOne(t, NewWorkloadSource("w", nil, fake, nil)), "k8s:shop/Deployment/cart")
+	if len(w.Repositories) != fleet.MaxInferredRepositories || !slices.Equal(w.Dropped, []string{"repositories[5]", "repositories[6]"}) {
+		t.Errorf("repositories %d, dropped %v", len(w.Repositories), w.Dropped)
+	}
+}
+
+func TestUnknownFromNamesTheObjectsTheReasonWasReadFrom(t *testing.T) {
+	idx := newGitopsIndex(nil)
+	idx.addApplication(decodeAs[application](t, appJSON("argocd", "solo", `{}`)))
+	idx.addKustomization(decodeAs[kustomization](t, kustomizationJSON("flux-system", "apps", `{"kind":"GitRepository","name":"platform"}`, "", "shop_api_apps_Deployment")))
+	idx.addHelmRelease(decodeAs[helmRelease](t, helmReleaseJSON("shop", "rel", `{"chartRef":{"kind":"GitRepository","name":"charts","namespace":"flux-system"}}`)))
+	idx.unknown["GitRepository"] = notServed + "GitRepositories"
+	k := fleet.InferredGroup{Rule: workloadmanager.FluxKustomization, Namespace: "flux-system", Name: "apps"}
+	h := fleet.InferredGroup{Rule: workloadmanager.FluxHelmRelease, Namespace: "shop", Name: "rel"}
+	for name, c := range map[string]struct {
+		w    fleet.RawInferredService
+		why  string
+		want []fleet.WorkloadScope
+	}{
+		"no reason":             {raw("shop", "x", argoGroup("argocd", "x")), "", nil},
+		"no group":              {fleet.RawInferredService{}, "x", nil},
+		"prefixed Application":  {raw("shop", "x", argoGroup("argocd", "x")), "no Application named argocd/x was read", []fleet.WorkloadScope{{Namespace: "argocd", Kind: "Application"}}},
+		"one unprefixed match":  {raw("shop", "solo", argoGroup("", "solo")), "Application argocd/solo does not list this workload", []fleet.WorkloadScope{{Namespace: "argocd", Kind: "Application"}}},
+		"unresolved unprefixed": {raw("shop", "gone", argoGroup("", "gone")), "no Application named gone was read", []fleet.WorkloadScope{{Kind: "Application"}}},
+		// The Kustomization exists, so its GitRepository reason discloses it.
+		"Kustomization source": {raw("shop", "api", k), notServed + "GitRepositories", []fleet.WorkloadScope{{Namespace: "flux-system", Kind: "Kustomization"}, {Namespace: "flux-system", Kind: "GitRepository"}}},
+		"HelmRelease chartRef": {raw("shop", "api", h), "no GitRepository named flux-system/charts was read", []fleet.WorkloadScope{{Namespace: "shop", Kind: "HelmRelease"}, {Namespace: "flux-system", Kind: "GitRepository"}}},
+	} {
+		if got := idx.unknownFrom(c.w, c.why); !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s: %+v, want %+v", name, got, c.want)
+		}
+	}
+	// A reason that names no object needs no review.
+	for _, u := range []string{discoveryUnknown, notServed + "Applications"} {
+		idx.unknown["Application"] = u
+		if got := idx.unknownFrom(raw("shop", "x", argoGroup("argocd", "x")), u); got != nil {
+			t.Errorf("%q: %+v", u, got)
+		}
 	}
 }
 
@@ -178,7 +235,7 @@ func TestResolveArgoNameMatchesManyIsAmbiguous(t *testing.T) {
 	}}
 	snap := buildOne(t, NewWorkloadSource("w", nil, fake, nil))
 	w := workloadOf(t, snap, "k8s:shop/Deployment/cart")
-	if w.Group.Rule != workloadmanager.Workload || w.Group.Label != "Ungrouped" || w.Group.Ambiguous != "Argo CD Application cart matches 2 Applications" || w.Repositories != nil {
+	if w.Group.Rule != workloadmanager.Workload || w.Group.Label != "Ungrouped" || w.Group.Ambiguous != "Argo CD Application cart matches more than one Application" || w.Repositories != nil {
 		t.Errorf("workload = %+v %+v", w.Group, w.Repositories)
 	}
 	if !hasCode(snap.Limitations, fleet.LimitationServiceGroupAmbiguous) {
@@ -187,6 +244,10 @@ func TestResolveArgoNameMatchesManyIsAmbiguous(t *testing.T) {
 	data, _ := json.Marshal(snap)
 	if strings.Contains(string(data), "argocd-team-b") || strings.Contains(string(data), "argocd/cart") {
 		t.Error("the ambiguity names an Application's namespace")
+	}
+	// Nor how many match: one may sit where the viewer lists no Application.
+	if strings.Contains(w.Group.Ambiguous, "2") {
+		t.Errorf("the ambiguity counts the Applications: %q", w.Group.Ambiguous)
 	}
 }
 
@@ -264,6 +325,11 @@ func TestResolveRepositoryUnknownReasons(t *testing.T) {
 	}
 	if got := why(t, &workloadFake{versions: gitopsServed, pages: map[string][2]string{"deployments||": {tracked("shop", "cart", "cart")}}}, nil, "k8s:shop/Deployment/cart"); got != "no Application named cart was read" {
 		t.Errorf("missing in the Argo CD namespace = %q", got)
+	}
+	// An unprefixed name may live in any namespace: a scoped source read none,
+	// which says nothing of the namespaces it does not read.
+	if got := why(t, &workloadFake{versions: gitopsServed, pages: map[string][2]string{"deployments|shop|": {tracked("shop", "cart", "cart")}}}, []string{"argocd", "shop"}, "k8s:shop/Deployment/cart"); got != "no Application named cart was read in the namespaces this source reads" {
+		t.Errorf("unprefixed on a scoped source = %q", got)
 	}
 	if got := why(t, &workloadFake{pages: map[string][2]string{"deployments||": {tracked("shop", "cart", "cart")}}}, nil, "k8s:shop/Deployment/cart"); got != "the cluster does not serve Applications" {
 		t.Errorf("unserved = %q", got)

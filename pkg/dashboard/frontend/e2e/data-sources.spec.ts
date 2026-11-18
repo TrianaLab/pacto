@@ -150,9 +150,9 @@ test.describe('the inventory says what Pacto detected', () => {
     const block = page.getByTestId('detected-providers');
     await expect(block.getByRole('heading', { level: 2, name: 'Detected providers' })).toBeVisible();
     const rows = block.getByTestId('provider-row');
-    // Nine reported rows (the Pacto CRD, Kubernetes workloads, the Argo CD,
-    // Flux and Helm rows that group the inferred services and four reporting
-    // adapters) plus the six the cluster's operator detected: five show (the
+    // Ten reported rows (the Pacto CRD, Kubernetes workloads, the Argo CD,
+    // Flux and Helm rows that group the inferred services and five reporting
+    // adapter rows, one producer's signed and unsigned reports apart) plus the six the cluster's operator detected: five show (the
     // Pacto CRD and the reporting adapters), the reported ones first, the rest
     // behind Show all, and no cluster is unread in the demo.
     await expect(rows).toHaveCount(5);
@@ -161,12 +161,12 @@ test.describe('the inventory says what Pacto detected', () => {
     await expect(rows.nth(4)).not.toHaveClass(/dp-inferred/);
     await expect(block).toContainText('Pacto CRD');
     await expect(block).toContainText('reports provisioning');
-    await block.getByRole('button', { name: 'Show all 15 providers' }).click();
-    await expect(rows).toHaveCount(15);
+    await block.getByRole('button', { name: 'Show all 16 providers' }).click();
+    await expect(rows).toHaveCount(16);
     await expect(block).toContainText('Kubernetes workloads');
     await expect(block).toContainText('service grouping, repository provenance');
-    await expect(rows.nth(8)).not.toHaveClass(/dp-inferred/);
-    await expect(rows.nth(9)).toHaveClass(/dp-inferred/);
+    await expect(rows.nth(9)).not.toHaveClass(/dp-inferred/);
+    await expect(rows.nth(10)).toHaveClass(/dp-inferred/);
     await expect(block.getByTestId('provider-not-read')).toHaveCount(0);
     // The block lives inside Data sources: the primary navigation gained no entry.
     const primary = page.getByRole('navigation', { name: 'Primary' }).first();

@@ -252,6 +252,10 @@ const groupRuleWorkload = "workload"
 // noGroupingFrom is where the fallback group was read from.
 const noGroupingFrom = "no grouping label or annotation"
 
+// droppedGroupFrom is where the fallback group was read from when the group a
+// source sent was left out.
+const droppedGroupFrom = "a grouping value Pacto read but left out (invalid)"
+
 // groupRules are the rules a group may name, in precedence order. The first
 // four are pkg/workloadmanager's manager names.
 var groupRules = []string{"argocd", "flux-kustomization", "flux-helmrelease", "helm", "part-of", "instance", groupRuleWorkload}
@@ -273,6 +277,7 @@ func readGroup(w *InferredWorkload, r RawInferredService, cluster string) (dropp
 	case validGroup(*src):
 		g = InferredGroup{Rule: src.Rule, Namespace: src.Namespace, Name: src.Name, From: src.From}
 	default:
+		g.From = droppedGroupFrom
 		dropped = append(dropped, "group")
 	}
 	g.Key = strings.Join([]string{g.Rule, g.Namespace, g.Name}, "/")
@@ -304,6 +309,13 @@ func readRepositories(w *InferredWorkload, r RawInferredService) (dropped []stri
 	}
 	if cleanText(r.RepositoryUnknown, 2*MaxInferredPathRunes) {
 		w.RepositoryUnknown = r.RepositoryUnknown
+		for _, sc := range r.RepositoryUnknownFrom {
+			// An object Pacto cannot check hides the reason from every viewer.
+			if !cleanText(sc.Namespace, MaxInferredPathRunes) || !slices.Contains(repositoryKinds, sc.Kind) {
+				sc = WorkloadScope{}
+			}
+			w.repositoryUnknownFrom = append(w.repositoryUnknownFrom, sc)
+		}
 	} else {
 		dropped = append(dropped, "repositoryUnknown")
 	}
