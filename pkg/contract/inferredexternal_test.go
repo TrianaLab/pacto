@@ -19,7 +19,7 @@ func externalRecord() *InferredRecord {
 		}, Client: &InferredClient{SDK: "stripe", Major: &major}}},
 		Inferred{Field: "dependencies[sqs]", Value: "aws/sqs", Source: "deploy/app.yaml:1", Confidence: ConfidencePossible,
 			External: &InferredExternal{Identity: "aws/sqs", Catalog: "organization", Sources: []InferredExternalSource{{Kind: "env", Path: "deploy/app.yaml"}},
-				Resource: &InferredResource{Type: "aws_sqs_queue", Name: "orders", Missing: []string{"account", "region"}}}})
+				Resource: &InferredResource{Type: "aws_sqs_queue", Name: "orders", Missing: []string{"account", "region", "id"}}}})
 	return rec
 }
 
@@ -90,7 +90,7 @@ func TestInferredRecordValidatesClientAndResource(t *testing.T) {
 		"negative major":     func(x *InferredExternal) { x.Client = &InferredClient{SDK: "stripe", Major: &neg} },
 		"client with no sdk": func(x *InferredExternal) { x.Client = &InferredClient{} },
 		"unknown missing": func(x *InferredExternal) {
-			x.Resource = &InferredResource{Type: "aws_sqs_queue", Missing: []string{"id"}}
+			x.Resource = &InferredResource{Type: "aws_sqs_queue", Missing: []string{"provider"}}
 		},
 		"resource no type": func(x *InferredExternal) { x.Resource = &InferredResource{Name: "orders"} },
 	} {

@@ -85,7 +85,8 @@ func completeWith(dir, repoDir string, declared *contract.Contract, planned map[
 	xs = append(append(append(xs, sdk...), tf...), sc.crossplaneUses(cat)...)
 	unread = append(unread, tfUnread...)
 	xfields, clients := externalFields(xs, func(field string) bool {
-		return slices.ContainsFunc(fields, func(f contract.Inferred) bool { return f.Field == field })
+		return slices.ContainsFunc(fields, func(f contract.Inferred) bool { return f.Field == field }) ||
+			declaredDependency(c.d, strings.TrimSuffix(strings.TrimPrefix(field, "dependencies["), "]"))
 	}, c.declaredExternal, cited)
 	fields = append(fields, xfields...)
 	unidentified = append(append(unidentified, unread...), clients...)
@@ -112,10 +113,13 @@ func completeWith(dir, repoDir string, declared *contract.Contract, planned map[
 		Findings: findings, FindingsDropped: dropped}, nil
 }
 
-// declaredExternal reports whether the contract declares the external id,
-// under the dependency name or by its identity.
+// declaredExternal reports whether the contract declares the external id:
+// an external dependency of that identity, or one of that name with no
+// identity. A service dependency of the same name declares no external.
 func (c *completion) declaredExternal(name, id string) bool {
-	return declaredDependency(c.d, name) || slices.ContainsFunc(c.d.Dependencies, func(dep contract.Dependency) bool { return dep.Identity == id })
+	return slices.ContainsFunc(c.d.Dependencies, func(dep contract.Dependency) bool {
+		return dep.Identity == id || dep.External && dep.Identity == "" && dep.Name == name
+	})
 }
 
 // declaredRef reports whether a declared interface names the file p as its

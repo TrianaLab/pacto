@@ -154,7 +154,9 @@ A value that does not parse gives no match, never part of the string.
   `<provider>/<service>/<account>/<region>/<id>` only when the provider,
   account, region and id are all literals in the folder.
 - The id is the entry's id attribute (Terraform) or the
-  `crossplane.io/external-name` annotation, else the resource name.
+  `crossplane.io/external-name` annotation, else the object's
+  `metadata.name` (Crossplane). A Terraform resource whose id attribute is
+  not a literal is named by its label, and the id is listed as missing.
 - When a part is missing, Pacto never invents it: the dependency keeps the
   entry's identity and the inferred record names the resource and the parts
   it misses, as below.

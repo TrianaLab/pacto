@@ -335,16 +335,18 @@ func (r tfResource) external(cat *externalcatalog.Catalog, file string, provider
 		region, account = plain[0].region, plain[0].account
 	}
 	return managedExternal(m, managedSource{kind: "terraform", path: file, line: r.line, key: r.typ + "." + r.name,
-		typ: r.typ, ids: []string{r.id, r.name}, account: account, region: cmp.Or(r.region, region)})
+		typ: r.typ, ids: []string{r.id}, label: r.name, account: account, region: cmp.Or(r.region, region)})
 }
 
 // managedSource is a managed resource a folder provisions: the kind, file,
 // line and key of the source, the resource type, the candidate ids in
-// order and the account and region read, empty when unknown.
+// order and the account and region read, empty when unknown. label names
+// the resource when no id is read: a Terraform address, never its cloud id.
 type managedSource struct {
 	kind, path, key, typ string
 	line                 int
 	ids                  []string
+	label                string
 	account, region      string
 }
 
@@ -353,7 +355,8 @@ type managedSource struct {
 // account, region and id are all read; otherwise it is the catalog's
 // identity and the resource names the parts that are missing, so an
 // identity is never invented. The id is the first candidate that makes an
-// identity segment; with none the resource is not recorded.
+// identity segment; with none the label names the resource and the id is
+// missing, and with no label either the resource is not recorded.
 func managedExternal(m externalcatalog.Match, s managedSource) (External, bool) {
 	var id string
 	for _, c := range s.ids {
@@ -362,10 +365,14 @@ func managedExternal(m externalcatalog.Match, s managedSource) (External, bool) 
 			break
 		}
 	}
-	if id == "" {
+	res := &contract.InferredResource{Type: s.typ, Name: id}
+	if id == "" && segment(s.label) {
+		res.Name = strings.ToLower(s.label)
+		res.Missing = append(res.Missing, "id")
+	}
+	if res.Name == "" {
 		return External{}, false
 	}
-	res := &contract.InferredResource{Type: s.typ, Name: id}
 	account, region := strings.ToLower(s.account), strings.ToLower(s.region)
 	if !segment(account) {
 		res.Missing = append(res.Missing, "account")

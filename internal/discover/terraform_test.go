@@ -49,7 +49,7 @@ func TestTerraformResourceLiteralId(t *testing.T) {
 	equalUses(t, uses, []string{
 		"aws/sqs/123456789012/eu-west-1/orders-queue infra/main.tf:12 aws_sqs_queue.orders aws_sqs_queue orders-queue possible",
 		"aws/sqs infra/main.tf:23 aws_sqs_queue.us_orders aws_sqs_queue us-orders account region possible",
-		"aws/rds/123456789012/eu-west-1/main infra/main.tf:28 aws_db_instance.main aws_db_instance main possible",
+		"aws/rds infra/main.tf:28 aws_db_instance.main aws_db_instance main id possible",
 	})
 	if !slices.Equal(read, []string{"infra/main.tf"}) {
 		t.Errorf("read %q", read)
@@ -64,8 +64,8 @@ func TestTerraformInterpolatedIdFallsBackToName(t *testing.T) {
 		"resource \"aws_sqs_queue\" \"Bad_\" {\n  name = format(\"%s\", \"x\")\n}\n"+
 		"resource \"aws_sqs_queue\" \"x\" {\n  name = \"Has Space\"\n}\n"))
 	equalUses(t, uses, []string{
-		"aws/sqs/123456789012/eu-west-1/jobs main.tf:5 aws_sqs_queue.jobs aws_sqs_queue jobs possible",
-		"aws/sqs/123456789012/eu-west-1/x main.tf:11 aws_sqs_queue.x aws_sqs_queue x possible",
+		"aws/sqs main.tf:5 aws_sqs_queue.jobs aws_sqs_queue jobs id possible",
+		"aws/sqs main.tf:11 aws_sqs_queue.x aws_sqs_queue x id possible",
 	}) // Bad_ makes no identity segment, so it is left out
 }
 
@@ -87,7 +87,7 @@ resource "aws_sqs_queue" "c" {
 `))
 	equalUses(t, uses, []string{
 		"aws/sqs/123456789012/eu-west-1/first main.tf:5 aws_sqs_queue.a aws_sqs_queue first possible",
-		"aws/sqs/123456789012/eu-west-1/b main.tf:15 aws_sqs_queue.b aws_sqs_queue b possible",
+		"aws/sqs main.tf:15 aws_sqs_queue.b aws_sqs_queue b id possible",
 		"aws/sqs/123456789012/eu-west-1/second main.tf:16 aws_sqs_queue.c aws_sqs_queue second possible",
 	})
 }
@@ -285,5 +285,46 @@ func TestManagedExternalBadKeyDropped(t *testing.T) {
 	}
 	if _, ok := managedExternal(externalcatalog.Match{Identity: "aws/sqs"}, managedSource{ids: []string{"", "a/b", "other-egress"}}); ok {
 		t.Error("an id that makes no segment was recorded")
+	}
+}
+
+func TestManagedResourcesSharingANameGetTwoFields(t *testing.T) {
+	dir := tfDir(t, awsProvider+"resource \"aws_sqs_queue\" \"orders\" {\n  name = \"orders\"\n}\n"+
+		"resource \"aws_sns_topic\" \"orders\" {\n  name = \"orders\"\n}\n")
+	rec, err := Complete(dir, nil, contract.InferredInputs{Commit: "4e1a9c0", Pacto: "4.6.0"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, f := range rec.Fields {
+		if f.External != nil {
+			names = append(names, f.Field)
+		}
+	}
+	if len(names) != 2 || names[0] == names[1] {
+		t.Errorf("fields %q", names)
+	}
+	if _, err := contract.ParseInferredRecord(rec.Marshal()); err != nil {
+		t.Errorf("record refused: %v", err)
+	}
+	if got := freeName("a", "k", func(n string) bool { return n == "a" || n == "k" || n == "k-2" }); got != "k-3" {
+		t.Errorf("freeName = %q", got)
+	}
+}
+
+func TestServiceDependencyOfTheSameNameKeepsTheExternal(t *testing.T) {
+	dir := tfDir(t, "resource \"aws_sqs_queue\" \"orders\" {}\n")
+	d := &contract.Contract{Dependencies: []contract.Dependency{{Name: "orders", Ref: "oci://ghcr.io/acme/orders:1.0.0"}}}
+	rec, err := Complete(dir, d, contract.InferredInputs{Commit: "4e1a9c0", Pacto: "4.6.0"}, nil)
+	if err != nil || rec == nil {
+		t.Fatalf("record %v, %v", rec, err)
+	}
+	if i := slices.IndexFunc(rec.Fields, func(f contract.Inferred) bool { return f.External != nil }); i < 0 || rec.Fields[i].Field == "dependencies[orders]" {
+		t.Errorf("fields %+v", rec.Fields)
+	}
+	d.Dependencies = append(d.Dependencies, contract.Dependency{Name: "queue", External: true, Identity: "aws/sqs"})
+	if rec, _ := Complete(dir, d, contract.InferredInputs{Commit: "4e1a9c0", Pacto: "4.6.0"}, nil); rec != nil &&
+		slices.ContainsFunc(rec.Fields, func(f contract.Inferred) bool { return f.External != nil }) {
+		t.Error("an external the contract declares by identity was inferred")
 	}
 }

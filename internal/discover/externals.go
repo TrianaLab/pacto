@@ -161,9 +161,10 @@ func unidentifiedHostMessage(where string) string {
 // identity (per identity and resource name for a managed resource, named by
 // the resource and carrying it), its value the identity, its source the first place that names
 // it with its confidence, the strongest, and every place in External.Sources.
-// taken reports a field another reader already gives, so the name falls back
-// to the whole identity; declared reports an external the contract declares,
-// which is left out. cited gets every file a source names. An external
+// taken reports a field another reader already gives or a name the contract
+// gives a dependency of its own, so the name falls back to the whole identity
+// (then a counter), as it does when two externals share a name; declared
+// reports an external the contract declares, which is left out. cited gets every file a source names. An external
 // listed by client libraries of several majors is also a finding.
 func externalFields(xs []External, taken func(field string) bool, declared func(name, identity string) bool, cited map[string]bool) ([]contract.Inferred, []contract.InferredFinding) {
 	byID := map[string][]External{} // by identity, then resource name
@@ -176,19 +177,18 @@ func externalFields(xs []External, taken func(field string) bool, declared func(
 	}
 	var out []contract.Inferred
 	var findings []contract.InferredFinding
+	used := map[string]bool{} // names this loop already gave
 	for _, k := range slices.Sorted(maps.Keys(byID)) {
 		group := byID[k]
 		id, name := group[0].Identity, DependencyName(group[0].Identity)
 		if r := group[0].Resource; r != nil {
 			name = contract.SanitizeName(r.Name)
 		}
-		if taken("dependencies[" + name + "]") {
-			// ponytail: one fallback; two identities sanitizing alike would need a counter.
-			name = contract.SanitizeName(k)
-		}
 		if declared(name, id) {
 			continue
 		}
+		name = freeName(name, contract.SanitizeName(k), func(n string) bool { return used[n] || taken("dependencies["+n+"]") })
+		used[name] = true
 		best := group[0]
 		if i := slices.IndexFunc(group, func(x External) bool { return x.Confidence == externalcatalog.ConfidenceLikely }); i >= 0 {
 			best = group[i]
@@ -210,6 +210,19 @@ func externalFields(xs []External, taken func(field string) bool, declared func(
 			Declare: externalYAML(name, id), External: x})
 	}
 	return out, findings
+}
+
+// freeName is name, else the whole identity key when name is in use, else
+// key with the first free counter suffix.
+func freeName(name, key string, inUse func(string) bool) string {
+	if !inUse(name) {
+		return name
+	}
+	n := key
+	for i := 2; inUse(n); i++ {
+		n = fmt.Sprintf("%s-%d", key, i)
+	}
+	return n
 }
 
 // clientOf is the client library the sdk sources in group list for the

@@ -105,8 +105,8 @@ findings:                      # what Pacto recognized and could not read
 
 A vendor API, managed cloud service or legacy host the folder names is a
 `dependencies[<name>]` field with an `external` member, one per identity, or
-per identity and resource name for a managed resource whose account or region
-the folder does not show. The field's `value` is the identity, its `source` the
+per identity and resource name for a managed resource whose account, region or
+id the folder does not show. The field's `value` is the identity, its `source` the
 first place that names it and its `confidence` the strongest source's.
 `inputs.catalog` lists the digest of each catalog that classified, default
 first:
@@ -144,7 +144,7 @@ fields:
 - `host` is a host and an optional port, `key` a configuration key name and
   `path` a relative path inside the folder. Pacto refuses a record that holds a
   user name, a password, a query or a path outside the folder in any of them.
-- `missing` names only `account` and `region`; the
+- `missing` names only `account`, `region` and `id`; the
   [external catalog reference](../external-catalog-reference.md#managed-resource-identities)
   says when a managed resource gets its full identity.
 - How `pacto init` finds them is in

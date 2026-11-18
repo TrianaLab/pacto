@@ -255,8 +255,8 @@ func checkClientResource(c *InferredClient, r *InferredResource) error {
 		return nil
 	case r.Type == "":
 		return errors.New(".resource.type is empty")
-	case slices.ContainsFunc(r.Missing, func(m string) bool { return m != "account" && m != "region" }):
-		return fmt.Errorf(".resource.missing is %q, want account or region", r.Missing)
+	case slices.ContainsFunc(r.Missing, func(m string) bool { return m != "account" && m != "region" && m != "id" }):
+		return fmt.Errorf(".resource.missing is %q, want account, region or id", r.Missing)
 	}
 	return nil
 }

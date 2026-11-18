@@ -401,7 +401,9 @@ names outside the cluster:
 - A managed resource gets the identity
   `<provider>/<service>/<account>/<region>/<id>` only when all four parts are
   literals in the folder. Otherwise it keeps the catalog identity, such as
-  `aws/sqs`, and the record lists the parts it misses.
+  `aws/sqs`, and the record lists the parts it misses. A Terraform resource
+  whose id attribute is not a literal is named by its label, and the record
+  lists the id as missing.
 
 ### What Pacto never reads
 
