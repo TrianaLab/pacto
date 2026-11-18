@@ -50,6 +50,7 @@ phase_registrytags() {
     --set-json "delivery.insecureRegistries=[\"$REG_HOST\",\"$tags_host\"]" \
     --set delivery.recorder.streamsRepository="$streams" \
     --set delivery.recorder.approvalsRepository="$streams-approvals" \
+    --set-json 'delivery.identities.signers=[{"issuer":"https://idp.kind.invalid","subjects":"[^@]+@acme\\.example"}]' \
     --wait --timeout 240s >/dev/null || fail "the pacto-operator chart did not roll out the recorder on distribution"
   kubectl -n "$DNS" rollout status deploy/pacto-operator-delivery-recorder --timeout=120s >/dev/null \
     || fail "the recorder did not roll out on distribution"

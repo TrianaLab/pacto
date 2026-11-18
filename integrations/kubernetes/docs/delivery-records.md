@@ -130,8 +130,11 @@ Without the Referrers API, each record is a tag in the streams repository:
   that names another record is refused.
 - Anyone with push access can add, move or delete a tag, as they can attach
   a referrer. Every loss fails safe. A tag no trusted key signed is ignored and a deleted record
-  breaks the chain from `status.stream.head`, which readers report. A deleted
-  approval record does not count, so the person approves again. A reader
+  breaks the chain from `status.stream.head`, which readers report. A person's
+  signed approval record that was deleted does not count, so the person
+  approves again. A record the recorder signed for an Approval made in the
+  cluster counts once written; if it is deleted later, the operation record
+  names a record id nobody can read. A reader
   resolves each tag once, so a moved tag is reported as unreadable the next
   time a new reader (a CLI call or a restarted process) resolves it.
 - Tag-immutability rules (Harbor, ECR, ACR and GAR) can enforce write-once

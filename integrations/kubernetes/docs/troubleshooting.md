@@ -311,7 +311,8 @@ candidate until then.
 
 ## An approval does not count
 
-With the recorder on, an Approval counts only once its record exists and
+With the recorder on, an Approval counts only once its record is written,
+and an Approval for a person's signed record only once that record
 verifies. Read the Approval's `status.record`; when it is empty, the recorder
 has not signed it. The recorder signs only Approvals made after it first saw
 the approval admission policy, and it keeps that moment in memory, so an

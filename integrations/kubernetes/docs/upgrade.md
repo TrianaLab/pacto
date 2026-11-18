@@ -214,6 +214,12 @@ counts no approval.
 - The recorder signs no Approval made before it first saw the approval
   admission policy. Such an Approval on a held operation waits and does not
   count, so its author approves again.
+- Before you set `delivery.identities.signers`, create the approvals
+  repository (`delivery.recorder.approvalsRepository`, default
+  `<streamsRepository>-approvals`) where a registry needs it, such as ECR,
+  and let the recorder push there. The recorder anchors it only once a
+  signer is set. Until it can, keyless approvals wait and operation records
+  keep flowing.
 - Approvals gain a status subresource and the recorder-only fields
   `spec.record` and `spec.signedAt`; `helm upgrade` installs them with the
   CRDs.

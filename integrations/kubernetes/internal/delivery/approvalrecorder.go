@@ -10,7 +10,6 @@ package delivery
 import (
 	"cmp"
 	"context"
-	"strings"
 	"sync"
 	"time"
 
@@ -43,11 +42,12 @@ type ApprovalRecorder struct {
 	// guardSince is when the admission policies were first seen guarding,
 	// zero while they do not.
 	guardSince time.Time
-	// logged are the approval records already logged as not viewed, by
-	// manifest digest, so a pass every Poll logs each once.
-	// ponytail: never pruned; it grows with the records seen, bounded by
-	// MaxApprovalScan per operation and pass.
-	logged sync.Map
+	// logged are the refusals already logged, by manifest digest, so a pass
+	// every Poll logs each once. Records that do not verify are rejected in
+	// reader instead, and never read again.
+	// ponytail: emptied once it holds maxLogged keys, so a refusal may be
+	// logged again after that.
+	logged map[string]bool
 	// reader remembers what each approvals repository manifest names.
 	reader deliveryrecord.Reader
 }
@@ -68,10 +68,21 @@ var UnverifiedApprovalRecords = prometheus.NewCounter(prometheus.CounterOpts{
 
 func init() { metrics.Registry.MustRegister(UnverifiedApprovalRecords) }
 
+// maxLogged bounds logged.
+const maxLogged = 4096
+
 // once reports whether key is seen for the first time.
 func (r *ApprovalRecorder) once(key string) bool {
-	_, seen := r.logged.LoadOrStore(key, true)
-	return !seen
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.logged[key] {
+		return false
+	}
+	if r.logged == nil || len(r.logged) >= maxLogged {
+		r.logged = map[string]bool{}
+	}
+	r.logged[key] = true
+	return true
 }
 
 // SetupWithManager registers the approval recorder: an Approval wakes the
@@ -119,10 +130,12 @@ func (r *ApprovalRecorder) Reconcile(ctx context.Context, req reconcile.Request)
 	}
 	// A person's client pushes a signed approval to the registry, which
 	// wakes nothing here: a held operation is looked at again every Poll.
+	// A failing approvals repository never stops the on-behalf signing of
+	// the operation's cluster Approvals: the scan is logged and tried again.
 	scan := len(r.Policy.Signers) > 0 && stage.Status.Stream.Approvals != ""
 	if scan {
 		if err := s.scanSigned(ctx); err != nil {
-			return r.backoff(ctx, op, err)
+			ctrl.LoggerFrom(ctx).Info("not viewing signed approvals", "operation", op.Name, "error", err.Error())
 		}
 	}
 	if since.IsZero() { // unguarded: nothing is signed on behalf, and the guard is looked at again
@@ -302,12 +315,13 @@ func (s *onStage) viewOne(ctx context.Context, f deliveryrecord.Fetched, ref str
 	signed, err := openSigned(f.Bundle, s.Policy)
 	switch {
 	case err != nil:
-		if s.once(f.Manifest) {
-			UnverifiedApprovalRecords.Inc()
-			log.Info("an approval record does not verify, so it is never viewed", "record", ref, "error", err.Error())
-		}
+		// Rejected, it never takes the scan's bound again.
+		s.reader.Reject(s.stage.Status.Stream.ID, delivery.PredicateApproval, f.Manifest)
+		UnverifiedApprovalRecords.Inc()
+		log.Info("an approval record does not verify, so it is never viewed", "record", ref, "error", err.Error())
 		return false, nil
 	case signed.st.Predicate.Operation.UID != string(s.op.UID):
+		s.reader.Reject(s.stage.Status.Stream.ID, delivery.PredicateApproval, f.Manifest)
 		return false, nil
 	case len(viewed) >= MaxApprovalViews:
 		if s.once("views/" + string(s.op.UID)) {
@@ -334,9 +348,10 @@ func (s *onStage) viewOne(ctx context.Context, f deliveryrecord.Fetched, ref str
 // view is the Approval that stands for signed, the record at ref.
 func (s *onStage) view(signed signedApproval, ref string) *dv1.Approval {
 	p, op := signed.st.Predicate, s.op
-	_, manifest, _ := strings.Cut(ref, "@sha256:")
+	// A generated name: a predictable one could be taken first by anyone who
+	// may create Approvals, and the apiserver shortens a long operation name.
 	return &dv1.Approval{
-		ObjectMeta: metav1.ObjectMeta{Namespace: op.Namespace, Name: op.Name + "-signed-" + manifest[:12],
+		ObjectMeta: metav1.ObjectMeta{Namespace: op.Namespace, GenerateName: op.Name + "-signed-",
 			OwnerReferences: []metav1.OwnerReference{{APIVersion: dv1.GroupVersion.String(), Kind: "Operation", Name: op.Name, UID: op.UID}}},
 		Spec: delivery.ApprovalSpec{Operation: op.Name, OperationUID: string(op.UID), IntentDigest: p.Operation.IntentDigest,
 			Decision: p.Decision, Note: p.Note, By: signed.identity.User, Record: ref, SignedAt: ts(signed.at)},

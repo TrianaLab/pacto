@@ -195,9 +195,12 @@ func (r *Recorder) Reconcile(ctx context.Context, req reconcile.Request) (reconc
 	if len(ignored) > 0 {
 		ctrl.LoggerFrom(ctx).Info("ignoring records no trusted key signed", "stage", stage.Name, "records", ignored)
 	}
+	// The approvals repository serves only keyless approvals: failing to
+	// anchor it never stops operation records, and is tried again.
 	approvals, err := r.approvals(ctx, stream)
 	if err != nil {
-		return r.notReady(ctx, stage, storeReason(err), err)
+		ctrl.LoggerFrom(ctx).Info("the approvals repository could not be anchored, so keyless approvals wait", "stage", stage.Name,
+			"repository", r.Store.Approvals, "error", err.Error())
 	}
 	if err := r.ready(ctx, stage, ignored, anchor.mode, approvals); err != nil {
 		return reconcile.Result{}, err
@@ -392,9 +395,10 @@ func (r *Recorder) anchor(ctx context.Context, stream delivery.Stream) (*place, 
 }
 
 // approvalsAnchored says the stream's approvals reference is set, or there
-// is no approvals repository to anchor it in.
+// is none to set: no approvals repository, or no approver signer whose
+// keyless approvals it would hold.
 func (r *Recorder) approvalsAnchored(stream delivery.Stream) bool {
-	return stream.Approvals != "" || r.Store.Approvals == ""
+	return stream.Approvals != "" || r.Store.Approvals == "" || len(r.Policy.Signers) == 0
 }
 
 // approvals is the stream's approvals reference: the one it has, which

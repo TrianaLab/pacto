@@ -30,9 +30,10 @@ A person's signed approval goes to the Stage's approvals repository
 operation the recorder finds it there, verifies it against `delivery.identities.signers` and makes an
 Approval for it.
 
-With the recorder on, the promoter counts an Approval only once its record
-exists and verifies, and the operation record lists every counted approval
-with its record id. A verified approval record is a recorded decision: a gate
+With the recorder on, the promoter counts an Approval made in the cluster
+once the recorder wrote its record, and an Approval made for a person's
+signed record only once it fetched that record and verified it. The
+operation record lists every counted approval with its record id. A verified approval record is a recorded decision: a gate
 reads the operation record's `approvals[]` to know whether it counted.
 
 ## Sign a decision from the terminal

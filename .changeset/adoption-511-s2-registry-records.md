@@ -11,7 +11,10 @@ of the person admission verified. With `delivery.identities.signers` set,
 pushes it to the Stage's approvals repository
 (`delivery.recorder.approvalsRepository`); it refuses while
 `SIGSTORE_ID_TOKEN` or a CI token is set. With the recorder on, an approval
-counts only once its record exists and verifies. `pacto delivery record
+counts only once its record is written, and a person's signed approval only
+once the promoter verified it. The recorder anchors the approvals repository
+only once a signer is set, and a failure there never stops operation
+records. `pacto delivery record
 get/verify <ref>` and `approve --intent <ref>` read records with no
 kubeconfig, and the stdio MCP record tools take `ref`; MCP still has no
 approve tool. On registries without the OCI Referrers API, approval and

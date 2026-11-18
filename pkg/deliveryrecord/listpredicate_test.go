@@ -65,8 +65,8 @@ func predicateFixture(t *testing.T, mode capabilities.ReferrersMode) (*faulty, *
 }
 
 // TestListPredicateBounded: in either form, the approval records on a
-// stream's anchor come back newest first; past max it returns max and says
-// it was cut. Intent and operation records, a record attached elsewhere, one
+// stream's anchor come back newest first; past max it returns max, picked in
+// listing order since a claimed time is unverified, and says it was cut. Intent and operation records, a record attached elsewhere, one
 // for another operation and a vanished tag are not read as its approvals.
 func TestListPredicateBounded(t *testing.T) {
 	for _, mode := range modes {
@@ -84,6 +84,31 @@ func TestListPredicateBounded(t *testing.T) {
 			intents, _, err := r.ListPredicate(t.Context(), repo, stream, delivery.PredicateIntent, "", 10)
 			if err != nil || len(intents) != 1 || string(intents[0].Bundle) != "intent" {
 				t.Fatalf("intents = %+v %v", intents, err)
+			}
+		})
+	}
+}
+
+// TestListPredicateRejectedTakeNoBound: a record the caller rejected is
+// never returned again nor counted against max, so records that never
+// verify cannot hold the same bound pass after pass.
+func TestListPredicateRejectedTakeNoBound(t *testing.T) {
+	for _, mode := range modes {
+		t.Run(string(mode), func(t *testing.T) {
+			_, repo := predicateFixture(t, mode)
+			r := &Reader{}
+			r.Reject(stream, delivery.PredicateApproval, "sha256:unread") // nothing read yet: nothing to remember
+			seen := map[string]bool{}
+			for pass := 0; pass < 3; pass++ {
+				got, cut, err := r.ListPredicate(t.Context(), repo, stream, delivery.PredicateApproval, "u1", 1)
+				if err != nil || len(got) != 1 || seen[got[0].Manifest] || cut != (pass < 2) {
+					t.Fatalf("pass %d: %+v %v %v", pass, got, cut, err)
+				}
+				seen[got[0].Manifest] = true
+				r.Reject(stream, delivery.PredicateApproval, got[0].Manifest)
+			}
+			if got, cut, err := r.ListPredicate(t.Context(), repo, stream, delivery.PredicateApproval, "u1", 1); err != nil || len(got) != 0 || cut {
+				t.Fatalf("all rejected: %+v %v %v", got, cut, err)
 			}
 		})
 	}

@@ -29,9 +29,10 @@ import (
 
 // heldRecEnv is a recorder whose Stage's stream is ready, with a held,
 // admitted operation p1, and its approval recorder guarded by pd-operation.
-func heldRecEnv(t *testing.T) (*recEnv, *ApprovalRecorder, *dv1.Operation) {
+func heldRecEnv(t *testing.T, writeOnce ...bool) (*recEnv, *ApprovalRecorder, *dv1.Operation) {
 	t.Helper()
 	re := newRecEnv(t)
+	re.reg.unsupported = len(writeOnce) > 0 && writeOnce[0]
 	re.rec.AdmissionPolicies = []string{"pd-operation"}
 	re.stage(0)
 	re.reconcile()
@@ -180,7 +181,7 @@ func TestApprovalRecorderSkipsConcludedOperations(t *testing.T) {
 }
 
 func TestIntentRecordWrittenOnceAfterAdmission(t *testing.T) {
-	re, ar, _ := heldRecEnv(t)
+	re, ar, _, _ := keylessRecEnv(t)
 	o := re.getOp("p1")
 	o.Status.Guarded = false
 	if err := re.c.Status().Update(context.Background(), o); err != nil {
@@ -214,7 +215,9 @@ func TestIntentRecordWrittenOnceAfterAdmission(t *testing.T) {
 }
 
 func TestRecorderAnchorsApprovalsRepository(t *testing.T) {
+	signer := []delivery.PersonSigner{{Issuer: personIssuer, Subjects: ".+"}}
 	re := newRecEnv(t)
+	re.rec.Policy.Signers = signer
 	re.stage(0)
 	re.reconcile()
 	want := deliveryrecord.AnchorRef(re.rec.Store.Approvals, "cid/prod/payments-prod")
@@ -232,14 +235,28 @@ func TestRecorderAnchorsApprovalsRepository(t *testing.T) {
 	if got := re.getStage().Status.Stream.Approvals; got != want {
 		t.Fatalf("approvals moved to %q", got)
 	}
-	// An approvals repository that cannot be anchored keeps the stream
-	// not ready.
+	// An approvals repository that cannot be anchored never stops operation
+	// records: the stream is ready, and the anchor is tried again.
 	re2 := newRecEnv(t)
+	re2.rec.Policy.Signers = signer
 	re2.stage(0)
 	re2.reg.fault = func(r *http.Request) bool { return strings.Contains(r.URL.Path, "/delivery/approvals/") }
 	re2.reconcile()
-	if c := condition(re2.getStage()); c.Status != "False" || c.Reason != ReasonRegistryUnavailable {
-		t.Fatalf("condition %+v", c)
+	if s := re2.getStage(); condition(s).Status != "True" || s.Status.Stream.Approvals != "" {
+		t.Fatalf("stream %+v condition %+v", s.Status.Stream, condition(s))
+	}
+	re2.reg.fault = nil
+	re2.reconcile()
+	if got := re2.getStage().Status.Stream.Approvals; got != deliveryrecord.AnchorRef(re2.rec.Store.Approvals, "cid/prod/payments-prod") {
+		t.Fatalf("approvals after the repository came back = %q", got)
+	}
+	// No approver signer: no keyless approval to hold, so nothing is
+	// anchored, as an upgraded install without signers expects.
+	re4 := newRecEnv(t)
+	re4.stage(0)
+	re4.reconcile()
+	if s := re4.getStage(); s.Status.Stream.Approvals != "" || condition(s).Status != "True" {
+		t.Fatalf("stream = %+v", s.Status.Stream)
 	}
 	// No approvals repository: nothing to anchor.
 	re3 := newRecEnv(t)
@@ -333,6 +350,11 @@ func TestApprovalWaitsForItsRecord(t *testing.T) {
 	want := "Approval ok by " + carol + " waits for its signed record: the recorder has not written it yet"
 	if o.Status.Phase != delivery.PhaseHeld || len(o.Status.Approvals) != 0 || o.Status.Message != want {
 		t.Fatalf("an approval without a record counted: %s %q", o.Status.Phase, o.Status.Message)
+	}
+	// Past recordWait the promoter says it may never get one.
+	e.now = e.getApproval("ok").CreationTimestamp.Add(recordWait + time.Second)
+	if o = e.drive("p1"); !strings.Contains(o.Status.Message, "has no signed record after 2m0s: if it was made before the recorder last restarted") {
+		t.Fatalf("message %q", o.Status.Message)
 	}
 	a := e.getApproval("ok")
 	a.Status.Record = &delivery.ApprovalRecordRef{Digest: "sha256:ab", Ref: "reg/streams@sha256:cd"}

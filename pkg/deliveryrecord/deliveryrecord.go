@@ -142,31 +142,30 @@ type Fetched struct {
 
 // ListPredicate reads the bundles of predicate (approval/v1 or
 // operation-intent/v1) attached to stream's anchor in repo, as referrers and
-// as [KindTag] write-once tags, newest first by the time each statement
-// claims. uid, when set, keeps the records whose AnnUID names that
-// operation: an unsigned convenience that only narrows what is read. Nothing
-// is verified: the caller opens each. It returns at most max and says when
-// more matched (cut), so a caller says the bound was reached. A listing or
-// fetch failure is an error, never no record. What each manifest and tag
-// names is remembered, as [Reader.List] does, so a later call fetches only
-// new manifests and the bundles it returns.
+// as [KindTag] write-once tags. uid, when set, keeps the records whose AnnUID
+// names that operation: an unsigned convenience that only narrows what is
+// read. Nothing is verified: the caller opens each, and [Reader.Reject]s
+// what does not verify so it never takes the bound again. It returns at most
+// max, picked in listing order (the time a statement claims is unverified,
+// so it never picks) and then sorted newest first by that claimed time, and
+// says when more matched (cut), so a caller says the bound was reached. A
+// listing or fetch failure is an error, never no record. What each manifest
+// and tag names is remembered, as [Reader.List] does, so a later call
+// fetches only new manifests and the bundles it returns.
 func (r *Reader) ListPredicate(ctx context.Context, repo *remote.Repository, stream, predicate, uid string, max int) ([]Fetched, bool, error) {
-	kind := KindIntent
-	if predicate == delivery.PredicateApproval {
-		kind = KindApproval
-	}
 	anchor := Anchor(stream).ManifestDesc
+	key, kind := headsKey(stream, predicate)
 	descs, tags, err := ocireferrer.Attached(ctx, repo, anchor, AnchorTag(stream)+"-"+kind+"-")
 	if err != nil {
 		return nil, false, err
 	}
-	heads, order, err := r.readHeads(ctx, repo, anchor.Digest.String()+" "+kind, descs, tags)
+	heads, order, err := r.readHeads(ctx, repo, key, descs, tags)
 	if err != nil {
 		return nil, false, err
 	}
 	var matched []string
 	for _, k := range order {
-		if h := heads[k]; h.layer != nil && h.predicate == predicate && h.subject == anchor.Digest.String() && (uid == "" || h.uid == uid) {
+		if h := heads[k]; h.layer != nil && !h.rejected && h.predicate == predicate && h.subject == anchor.Digest.String() && (uid == "" || h.uid == uid) {
 			matched = append(matched, k)
 		}
 	}
@@ -181,6 +180,33 @@ func (r *Reader) ListPredicate(ctx context.Context, repo *remote.Repository, str
 	}
 	slices.SortStableFunc(out, func(a, b Fetched) int { return cmp.Compare(claimedTime(b.Bundle), claimedTime(a.Bundle)) })
 	return out, cut, nil
+}
+
+// headsKey is where ListPredicate remembers the heads of predicate records on
+// stream's anchor, and the tag kind they are written under.
+func headsKey(stream, predicate string) (key, kind string) {
+	kind = KindIntent
+	if predicate == delivery.PredicateApproval {
+		kind = KindApproval
+	}
+	return Anchor(stream).ManifestDesc.Digest.String() + " " + kind, kind
+}
+
+// Reject remembers that the predicate record manifest on stream's anchor
+// does not verify or answers nothing the caller asks, so ListPredicate never
+// returns it again nor counts it against max. It is forgotten with the
+// manifest, once the registry no longer lists it.
+func (r *Reader) Reject(stream, predicate, manifest string) {
+	key, _ := headsKey(stream, predicate)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if h, ok := r.heads[key][manifest]; ok {
+		// A copy: a concurrent readHeads reads the map it took outside the lock.
+		heads := maps.Clone(r.heads[key])
+		h.rejected = true
+		heads[manifest] = h
+		r.heads[key] = heads
+	}
 }
 
 // readHeads says what each manifest in descs and each tag in tags names,
@@ -223,6 +249,8 @@ func (r *Reader) readHeads(ctx context.Context, repo *remote.Repository, key str
 type head struct {
 	predicate, uid, subject string
 	layer                   *ocispec.Descriptor
+	// rejected is set by [Reader.Reject].
+	rejected bool
 }
 
 // readHead fetches the manifest d and says what it is. An error is a

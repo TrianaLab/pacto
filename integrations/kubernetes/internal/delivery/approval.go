@@ -180,6 +180,10 @@ func (r *OperationReconciler) counting(ctx context.Context, a dv1.Approval) (cou
 			signer: &delivery.ApprovalSigner{Kind: delivery.SignerPerson}}, ""
 	}
 	if r.Records && a.Status.Record == nil {
+		if r.now().Sub(a.CreationTimestamp.Time) > recordWait {
+			return counted{}, "has no signed record after " + recordWait.String() + ": if it was made before the recorder last restarted " +
+				"or while it was down, it never gets one, so approve again"
+		}
 		return counted{}, "waits for its signed record: the recorder has not written it yet"
 	}
 	c := counted{spec: s, id: delivery.Identity{User: s.By, Groups: s.Groups}, created: a.CreationTimestamp.Time}
@@ -191,6 +195,11 @@ func (r *OperationReconciler) counting(ctx context.Context, a dv1.Approval) (cou
 	}
 	return c, ""
 }
+
+// recordWait is how long an Approval waits for its signed record before the
+// promoter says it may never get one: the recorder signs only Approvals made
+// while it watched the approval admission policy.
+const recordWait = 2 * time.Minute
 
 // approvalsOf lists the Approvals that answer op, oldest first.
 func (r *OperationReconciler) approvalsOf(ctx context.Context, op *dv1.Operation) ([]dv1.Approval, error) {

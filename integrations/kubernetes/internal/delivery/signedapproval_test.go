@@ -9,6 +9,7 @@ package delivery
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -86,6 +87,7 @@ func keylessRecEnv(t *testing.T) (*recEnv, *ApprovalRecorder, *dv1.Operation, *s
 	re, ar, o := heldRecEnv(t)
 	ss := sigtest.New(t)
 	re.rec.Policy = withSigners(delivery.ClassPolicy{}, ss)
+	re.reconcile() // with signers, the Stage anchors its approvals repository
 	return re, ar, o, ss
 }
 
@@ -302,6 +304,62 @@ func TestScanSignedBounded(t *testing.T) {
 				t.Fatal("a failed pass created a view")
 			}
 		})
+	}
+}
+
+// TestScanSignedFailureKeepsSigningOnBehalf: an approvals repository that
+// cannot be read never stops the recorder signing the operation's cluster
+// Approvals, which count only with their record.
+func TestScanSignedFailureKeepsSigningOnBehalf(t *testing.T) {
+	re, ar, o, _ := keylessRecEnv(t)
+	re.recordApprovals(ar) // the guard is seen first
+	re.reg.fault = func(r *http.Request) bool { return strings.Contains(r.URL.Path, "/delivery/approvals/") }
+	re.approve(o, "ok", carol, delivery.Approve)
+	if res := re.recordApprovals(ar); res.RequeueAfter != re.rec.Poll {
+		t.Fatalf("%+v", res)
+	}
+	if a := re.getApproval("ok"); a.Status.Record == nil {
+		t.Fatalf("a failing approvals repository stopped the on-behalf record: %+v", a.Status)
+	}
+}
+
+// TestScanSignedRejectedTakeNoBound: records that do not verify are read
+// once, so however many sit ahead of a person's record in the listing, a
+// later pass reaches it. Write-once tags list in a stable order.
+func TestScanSignedRejectedTakeNoBound(t *testing.T) {
+	re, ar, o := heldRecEnv(t, true)
+	ss := sigtest.New(t)
+	re.rec.Policy = withSigners(delivery.ClassPolicy{}, ss)
+	re.reconcile()
+	re.recordApprovals(ar)
+	defer func(old int) { MaxApprovalScan = old }(MaxApprovalScan)
+	MaxApprovalScan = 1
+	repo, _ := ocireferrer.Open(re.rec.Store.Approvals, ocireferrer.Options{})
+	push := func(bundle []byte) string {
+		ref, err := deliveryrecord.Push(context.Background(), repo, recStream, capabilities.ReferrersWriteOnceTags, delivery.PredicateApproval, bundle,
+			map[string]string{deliveryrecord.AnnUID: string(o.UID)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ref
+	}
+	real := push(signedApprovalOf(t, ss, alice, o, recStream))
+	// Junk until some lists ahead of the real record.
+	for i := 0; ; i++ {
+		push([]byte(fmt.Sprintf("junk %d", i)))
+		first, _, err := (&deliveryrecord.Reader{}).ListPredicate(context.Background(), repo, recStream, delivery.PredicateApproval, string(o.UID), 1)
+		if err != nil || i > 50 {
+			t.Fatal(err)
+		}
+		if !strings.HasSuffix(real, first[0].Manifest) {
+			break
+		}
+	}
+	for range 60 {
+		re.recordApprovals(ar)
+	}
+	if v := re.views(); len(v) != 1 || v[0].Spec.By != aliceUser {
+		t.Fatalf("views = %+v", v)
 	}
 }
 

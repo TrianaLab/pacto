@@ -28,7 +28,8 @@ repository.
 - Only the recorder pushes to the streams repository. People who approve
   from the CLI need push only on the approvals repository
   (`delivery.recorder.approvalsRepository`, default
-  `<streamsRepository>-approvals`). The promoter's
+  `<streamsRepository>-approvals`). The recorder also pushes there, once
+  `delivery.identities.signers` lists a signer. The promoter's
   `delivery.promoter.registryCredentials` need pull there: an approval record
   it cannot read does not count.
 
