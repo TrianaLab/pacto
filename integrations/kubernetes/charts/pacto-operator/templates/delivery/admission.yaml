@@ -577,9 +577,9 @@ spec:
 {{- if .Values.delivery.recorder.enabled }}
 {{- $recorder := printf "system:serviceaccount:%s:%s" (include "pacto-operator.delivery.namespace" .) (include "pacto-operator.delivery.recorderServiceAccountName" .) }}
 ---
-# The record fields belong to the recorder: status.record on an Operation and
-# status.stream.{recordedSeq,head,anchor} on a Stage change only when the
-# recorder writes them. The recorder may write those and its own
+# The record fields belong to the recorder: status.record on an Operation
+# and status.stream.{recordedSeq,head,anchor,registryMode} on a Stage change
+# only when the recorder writes them. The recorder may write those and its own
 # RecordStoreReady condition, and nothing else: an allowlist, so a status
 # field added later is closed to it without editing this policy. RBAC cannot
 # scope a status write to fields; this policy does.
@@ -619,15 +619,16 @@ spec:
         {{ include "pacto-operator.delivery.celSame" (list "status.record.refused" "''") }} &&
         {{ include "pacto-operator.delivery.celSame" (list "status.stream.head" "''") }} &&
         {{ include "pacto-operator.delivery.celSame" (list "status.stream.recordedSeq" "0") }} &&
-        {{ include "pacto-operator.delivery.celSame" (list "status.stream.anchor" "''") }})
-      message: "status.record and status.stream.{recordedSeq,head,anchor} are written only by the Pacto delivery recorder"
+        {{ include "pacto-operator.delivery.celSame" (list "status.stream.anchor" "''") }} &&
+        {{ include "pacto-operator.delivery.celSame" (list "status.stream.registryMode" "''") }})
+      message: "status.record and status.stream.{recordedSeq,head,anchor,registryMode} are written only by the Pacto delivery recorder"
       reason: Forbidden
     - expression: >-
         !variables.recorder || (
         variables.status.all(k, k in ['record', 'stream', 'conditions'] || (k in variables.oldStatus && variables.status[k] == variables.oldStatus[k])) &&
         variables.oldStatus.all(k, k in ['record', 'stream', 'conditions'] || k in variables.status) &&
-        variables.stream.all(k, k in ['recordedSeq', 'head', 'anchor'] || (k in variables.oldStream && variables.stream[k] == variables.oldStream[k])) &&
-        variables.oldStream.all(k, k in ['recordedSeq', 'head', 'anchor'] || k in variables.stream) &&
+        variables.stream.all(k, k in ['recordedSeq', 'head', 'anchor', 'registryMode'] || (k in variables.oldStream && variables.stream[k] == variables.oldStream[k])) &&
+        variables.oldStream.all(k, k in ['recordedSeq', 'head', 'anchor', 'registryMode'] || k in variables.stream) &&
         variables.conditions == variables.oldConditions)
       message: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       reason: Forbidden

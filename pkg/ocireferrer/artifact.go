@@ -3,7 +3,9 @@
 // repository with the native Referrers API required (no tag fallback, except
 // for run records, which are unsigned statistics), builds a
 // deterministic referrer manifest, pushes it and confirms the Referrers API
-// lists it before anyone calls the write done.
+// lists it before anyone calls the write done. It also probes what a registry
+// supports (Probe) and writes one write-once, content-addressed tag per record
+// where the registry serves no Referrers API (PushWriteOnce).
 //
 // Experimental: not covered by semantic versioning. Delivery is Alpha, and
 // this API may change in a minor release.
@@ -81,6 +83,14 @@ func Descriptor(mediaType string, data []byte) ocispec.Descriptor {
 
 // Push writes art: blobs first, then the manifest that references them.
 func Push(ctx context.Context, repo *remote.Repository, art Artifact) error {
+	if err := pushBlobs(ctx, repo, art); err != nil {
+		return err
+	}
+	return repo.Push(ctx, art.ManifestDesc, bytes.NewReader(art.Manifest))
+}
+
+// pushBlobs writes the blobs art's manifest references.
+func pushBlobs(ctx context.Context, repo *remote.Repository, art Artifact) error {
 	blobs := []struct {
 		desc ocispec.Descriptor
 		data []byte
@@ -90,7 +100,7 @@ func Push(ctx context.Context, repo *remote.Repository, art Artifact) error {
 			return err
 		}
 	}
-	return repo.Push(ctx, art.ManifestDesc, bytes.NewReader(art.Manifest))
+	return nil
 }
 
 // Confirm checks that the Referrers API already lists want among the referrers

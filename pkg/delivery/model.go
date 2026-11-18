@@ -362,6 +362,13 @@ type Stream struct {
 	// <repository>@<anchor digest>. Only the recorder writes it.
 	// +optional
 	Anchor string `json:"anchor,omitempty"`
+	// RegistryMode is how the recorder writes this stream's records: native
+	// OCI referrers, or one write-once tag per record in the streams
+	// repository when the registry serves no Referrers API. Only the
+	// recorder writes it.
+	// +optional
+	// +kubebuilder:validation:Enum=native;write-once-tags
+	RegistryMode string `json:"registryMode,omitempty"`
 	// Concluded are the newest operations given a seq, each with how it
 	// concluded, written in the compare-and-swap that took the seq. An
 	// operation whose own status write then failed concludes again from
@@ -472,8 +479,9 @@ type Blocker struct {
 }
 
 // StageStatus is written by the promoter's operation and stage reconcilers and
-// by the recorder (Stream.Head, Stream.Anchor and RecordStoreReady), each
-// through a compare-and-swap on the Stage's resourceVersion.
+// by the recorder (Stream.Head, Stream.Anchor, Stream.RegistryMode and
+// RecordStoreReady), each through a compare-and-swap on the Stage's
+// resourceVersion.
 type StageStatus struct {
 	// Pointer is the digest the Stage moved the environment to. It is set
 	// when an operation holding the pointer lock starts to apply, before
@@ -525,8 +533,10 @@ type StageStatus struct {
 	// candidate OCIRepository does not exist or sets no spec.verify naming the
 	// publisher; the records of its upstream in another cluster are not
 	// trusted or cannot be read; or it names no candidate source at all. The
-	// recorder adds RecordStoreReady: False when the registry has no
-	// Referrers API, cannot be reached or holds a stream it refuses to fork.
+	// recorder adds RecordStoreReady: False when the registry cannot be
+	// reached or holds a stream it refuses to fork; a registry without the
+	// Referrers API never sets it, its records are written as write-once
+	// tags.
 	// +optional
 	// +listType=map
 	// +listMapKey=type
@@ -750,7 +760,9 @@ type Plan struct {
 	// +optional
 	Order *Order `json:"order,omitempty"`
 	// Precedent is what happened the last times this version was the target
-	// of a recorded operation, on any Stage. Clients fill it from records;
+	// of a recorded operation, on any Stage that attaches records to this
+	// version; a Stage whose registry serves no Referrers API reads only its
+	// own stream. Clients fill it from records;
 	// the promoter leaves it empty.
 	// +optional
 	Precedent *Precedent `json:"precedent,omitempty"`

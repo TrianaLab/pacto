@@ -157,7 +157,7 @@ func (q *Query) Restrict(visible func(namespace string) bool, workloadVisible fu
 		// Only provider rows narrow: they feed no answer's completeness, so
 		// the view stays as complete as q.
 		out := *s
-		out.Providers = restrictProviders(s.Providers, nil, visible, workloadVisible, s.Clusters)
+		out.Providers = restrictProviders(s.Providers, nil, nil, visible, workloadVisible, s.Clusters)
 		out.SnapshotID = computeSnapshotID(&out)
 		return NewQuery(&out)
 	}
@@ -216,7 +216,7 @@ func (q *Query) Restrict(visible func(namespace string) bool, workloadVisible fu
 	hiddenNames = append(hiddenNames, slices.Collect(maps.Keys(hiddenNS))...)
 	restrictLimitations(&out, s.Limitations, hiddenNames, restricted)
 	restrictScope(&out, visible)
-	out.Providers = restrictProviders(s.Providers, hiddenNames, visible, workloadVisible, out.Clusters)
+	out.Providers = restrictProviders(s.Providers, hiddenSvc, hiddenNames, visible, workloadVisible, out.Clusters)
 	out.Limitations = append(out.Limitations, Limitation{Code: LimitationHiddenByPermissions, Message: hiddenMessage + kindHiddenNote(s, hiddenSvc, hiddenNS)})
 	sortSnapshotLimitations(&out)
 	out.Completeness = CompletenessPartial

@@ -139,7 +139,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.plan.order.moveFirst[].unknown` | `string` | no |  |  | Unknown says why Pacto cannot tell whether such a version exists. |
 | `status.plan.order.moveFirst[].version` | `string` | no |  |  | Version is the consumer version running here that does not accept the new provider version. |
 | `status.plan.order.unknown` | `[]string` | no |  |  | Unknown says why the list may be incomplete: a partial graph, a range Pacto cannot read or a consumer it cannot place. Empty means Pacto saw every consumer running here. |
-| `status.plan.precedent` | `object` | no |  |  | Precedent is what happened the last times this version was the target of a recorded operation, on any Stage. Clients fill it from records; the promoter leaves it empty. |
+| `status.plan.precedent` | `object` | no |  |  | Precedent is what happened the last times this version was the target of a recorded operation, on any Stage that attaches records to this version; a Stage whose registry serves no Referrers API reads only its own stream. Clients fill it from records; the promoter leaves it empty. |
 | `status.plan.precedent.completeness` | `string` | yes |  |  |  |
 | `status.plan.precedent.entries` | `[]object` | no |  |  |  |
 | `status.plan.precedent.entries[].finished` | `string` | no |  |  |  |
@@ -304,7 +304,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `spec.workload` | `object` | no |  |  | Workload is the workload the service runs as, in the Stage's namespace: the one object pacto.contract and pacto.runtime may judge. The Pacto resource ships inside every version and names its own target, so without this a version could point its own check at a decoy. Empty is the Deployment named spec.service.name. |
 | `spec.workload.kind` | `string` | yes |  |  | Kind is the workload kind, such as Deployment or StatefulSet. |
 | `spec.workload.name` | `string` | yes |  |  |  |
-| `status` | `object` | no |  |  | StageStatus is written by the promoter's operation and stage reconcilers and by the recorder (Stream.Head, Stream.Anchor and RecordStoreReady), each through a compare-and-swap on the Stage's resourceVersion. |
+| `status` | `object` | no |  |  | StageStatus is written by the promoter's operation and stage reconcilers and by the recorder (Stream.Head, Stream.Anchor, Stream.RegistryMode and RecordStoreReady), each through a compare-and-swap on the Stage's resourceVersion. |
 | `status.applier` | `object` | no |  |  | Applier is who manages the workloads the Stage delivers, against spec.applyRef. Written by the promoter's stage reconciler; observed. since is when this result was first seen, asOf the last observation. |
 | `status.applier.asOf` | `string` | no |  |  | AsOf is the last observation (RFC 3339). |
 | `status.applier.completeness` | `string` | yes |  | `complete`, `partial` |  |
@@ -320,7 +320,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.authFreshness` | `string` | no |  |  | AuthFreshness is how old a login the promoter accepts on an approval (a Go duration). Clients ask for a fresh login with a margin under it (DecisionFreshnessFor). Empty: no login is too old, and a person decides with the session they have. |
 | `status.autoHold` | `boolean` | no |  |  | AutoHold stops auto-promotion after a person or agent rolled back or promoted back to a version the Stage already verified. |
 | `status.candidate` | `string` | no |  |  | Candidate is the newest eligible candidate the stage reconciler saw. |
-| `status.conditions` | `[]object` | no |  |  | Conditions holds Ready. It is False, naming what is missing, when the Stage cannot promote: its applier cannot be read, lacks the apply-ref label or (on Argo CD) has no single OCI source or no automated sync; its candidate OCIRepository does not exist or sets no spec.verify naming the publisher; the records of its upstream in another cluster are not trusted or cannot be read; or it names no candidate source at all. The recorder adds RecordStoreReady: False when the registry has no Referrers API, cannot be reached or holds a stream it refuses to fork. |
+| `status.conditions` | `[]object` | no |  |  | Conditions holds Ready. It is False, naming what is missing, when the Stage cannot promote: its applier cannot be read, lacks the apply-ref label or (on Argo CD) has no single OCI source or no automated sync; its candidate OCIRepository does not exist or sets no spec.verify naming the publisher; the records of its upstream in another cluster are not trusted or cannot be read; or it names no candidate source at all. The recorder adds RecordStoreReady: False when the registry cannot be reached or holds a stream it refuses to fork; a registry without the Referrers API never sets it, its records are written as write-once tags. |
 | `status.conditions[].lastTransitionTime` | `string` | no |  |  | LastTransitionTime is when Status last changed (RFC 3339). |
 | `status.conditions[].message` | `string` | no |  |  |  |
 | `status.conditions[].observedGeneration` | `integer` | no |  |  | ObservedGeneration is the Stage generation the condition was set from. |
@@ -385,6 +385,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.stream.head` | `string` | no |  |  | Head is the digest of the newest record in the stream. Only the recorder writes it. |
 | `status.stream.id` | `string` | no |  |  | ID is &lt;clusterID&gt;/&lt;namespace&gt;/&lt;name&gt;; the cluster id is the kube-system namespace uid. |
 | `status.stream.recordedSeq` | `integer` | no |  |  | RecordedSeq is the newest local seq the recorder wrote or adopted a record for. Only the recorder writes it. |
+| `status.stream.registryMode` | `string` | no |  | `native`, `write-once-tags` | RegistryMode is how the recorder writes this stream's records: native OCI referrers, or one write-once tag per record in the streams repository when the registry serves no Referrers API. Only the recorder writes it. |
 | `status.stream.seq` | `integer` | no |  |  |  |
 | `status.upstreamAcknowledged` | `[]string` | no |  |  | UpstreamAcknowledged holds the ids of the unrecordable stand-ins in the upstream stream that a person on this Stage checked and acknowledged, oldest first (cap 50). They no longer stop the Stage offering. |
 | `status.upstreamSeen` | `object` | no |  |  | UpstreamSeen is the newest record this Stage read from the upstream stream it follows (candidates.upstreamRecords). A later read that ends before it, or holds another record at its seq, offers nothing, so records removed from the upstream's tail never go unseen. |

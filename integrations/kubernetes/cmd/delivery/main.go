@@ -273,12 +273,14 @@ func runRecorder(args []string) error {
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		return err
 	}
-	// Ready only while the streams repository answers native referrers
-	// discovery: a registry without it can never hold records.
+	// Ready while the streams repository can be written and listed in
+	// either mode: native referrers, or write-once tags where the registry
+	// serves no Referrers API.
 	if err := mgr.AddReadyzCheck("records", func(req *http.Request) error {
 		ctx, cancel := context.WithTimeout(req.Context(), 10*time.Second)
 		defer cancel()
-		return store.Probe(ctx)
+		_, err := store.Probe(ctx)
+		return err
 	}); err != nil {
 		return err
 	}

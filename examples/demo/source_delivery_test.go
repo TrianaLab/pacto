@@ -845,3 +845,22 @@ func TestDemoStagesCarryApplier(t *testing.T) {
 		t.Error("no demo plan carries a Pass pacto.applier verdict")
 	}
 }
+
+// TestDemoStagesRecordRegistryMode: every demo Stage with a record stream
+// says how the recorder writes it, as the recorder does on a cluster.
+func TestDemoStagesRecordRegistryMode(t *testing.T) {
+	d, _ := demoServer(t)
+	n := 0
+	for _, s := range d.stages {
+		if s.Status.Stream.Anchor == "" {
+			continue
+		}
+		n++
+		if s.Status.Stream.RegistryMode != "native" {
+			t.Errorf("stage %s: registryMode %q, want native", s.Metadata.Name, s.Status.Stream.RegistryMode)
+		}
+	}
+	if n == 0 {
+		t.Fatal("no demo Stage has a record stream")
+	}
+}

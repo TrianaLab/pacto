@@ -410,7 +410,9 @@ func fleetStatusTool() *mcpsdk.Tool {
 			"selected, including empty input, it reports every category. The answer's 'providers' lists what Pacto detected in each " +
 			"source (evidence, usedFor, status, limitations). providers includes what the operator detected (registry, cloud, " +
 			"sign-in, exposure, metrics and nodes) with provenance inferred and asOf; nothing detected is turned on, and a " +
-			"detected value never clears a gate. Read-only.",
+			"detected value never clears a gate. The OCI source adds one observed 'registry:<host>' row per registry it read " +
+			"contracts from, with no provenance: Pacto probed it itself, usedFor and details give the mode it uses there and asOf " +
+			"when it probed; it is separate from the operator's inferred registry row. Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"needs_attention":      {Type: "boolean", Description: "Report every attention category"},
 			"non_compliant":        {Type: "boolean", Description: "Non-compliant targets"},

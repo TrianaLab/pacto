@@ -221,9 +221,12 @@ KIND_VERSION = v0.30.0
 kind-install:
 	bash release/scripts/retry.sh go install sigs.k8s.io/kind@$(KIND_VERSION)
 
-# OCI leg: the public oci package tests + the staging release-publisher tests.
+# OCI leg: the public oci package tests, the registry conformance test (the
+# probe, write-once tags and record reads on the job's zot and distribution
+# services) + the staging release-publisher tests.
 ci-oci:
 	go test ./pkg/oci/...
+	go test -tags registryconformance ./tests/registryconformance/... -count=1
 	node --test release/orchestrator/*.test.mjs
 
 # Integration test for the version command: runs the REAL `npm run release:version`

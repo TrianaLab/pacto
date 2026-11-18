@@ -628,7 +628,8 @@ delivery:
   recorder:
     # -- Run the recorder, which writes a signed record of every concluded operation to the registry
     # as OCI referrers. Off by default. When on, the promoter leaves the record finalizer to it. The
-    # registry must support the OCI Referrers API natively (GHCR and released `distribution` do not).
+    # recorder detects whether the registry serves the OCI Referrers API and otherwise writes one
+    # write-once, content-addressed tag per record in the streams repository.
     enabled: false
     # -- Repository (`host/path`) that holds one anchor per Stage stream. Required when enabled.
     streamsRepository: ""
