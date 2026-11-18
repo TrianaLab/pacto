@@ -188,6 +188,19 @@ the replacement. Before `helm upgrade`:
 A promoter started without `--admission-policies` admits no operation and
 counts no approval.
 
+## Delivery records work on every registry
+
+- Stages gain `status.stream.registryMode` (`native` or `write-once-tags`),
+  which only the recorder may write. `helm upgrade` installs the new field
+  with the CRDs.
+- The `RecordStoreReady` reason `ReferrersUnsupported` is gone. A streams
+  repository on a registry without the OCI Referrers API, such as GHCR, now
+  holds records as [write-once tags](delivery-records.md#write-once-tags) and
+  reports `WriteOnceTags`. Alerts or scripts that match the old reason match
+  nothing.
+- A Stage that recorded `native` and then sees no Referrers API stays
+  `RegistryUnavailable` instead of switching to tags.
+
 ## Delivery grants Argo CD and Flux access by itself
 
 - `delivery.argocd.enabled` and `delivery.flux.enabled` now default to

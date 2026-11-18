@@ -97,6 +97,5 @@ your own admission on workloads.
 
 ## Signed records
 
-A change leaves a signed record only when the recorder is on and your registry
-serves the OCI Referrers API. The recorder is off by default. [Signed records
+A change leaves a signed record only when the recorder is on. The recorder is off by default. [Signed records
 and history](delivery-records.md) sets it up.

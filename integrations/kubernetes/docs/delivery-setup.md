@@ -12,10 +12,11 @@ Plans, approvals and who may do what are in
 ## Registry
 
 The two automatic levels need [signed records](delivery-records.md#install),
-and records need a registry that serves the OCI Referrers API natively. The
-recorder attaches each record to its streams repository and to the versions
-and contract it touched, so keep all of them on such a registry. GHCR does not
-serve the API.
+and records work on any OCI registry. The recorder probes the streams
+repository: where it serves the OCI Referrers API, records are referrers;
+where it does not, as on GHCR, they are
+[write-once tags](delivery-records.md#write-once-tags) in the streams
+repository.
 
 ## Install
 

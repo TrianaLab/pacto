@@ -18,8 +18,9 @@ that stops with records queued logs `run records not published at shutdown`.
 The repository must be private: pull access to it equals read access to the
 delivery history of every Stage that records to it, so grant pull only to the
 identities that run `pacto stats` or the dashboard. On a registry without the
-native Referrers API, such as GHCR, concurrent writers to one service can lose
-a record without it being counted. The `service` on a record is what the Stage
+Referrers API, such as GHCR, run records share one referrers tag, and
+concurrent writers can lose records uncounted; signed records use
+[write-once tags](delivery-records.md#write-once-tags) there. The `service` on a record is what the Stage
 declares in `spec.service` and nothing verifies it, so statistics key delivery
 rates by Stage.
 

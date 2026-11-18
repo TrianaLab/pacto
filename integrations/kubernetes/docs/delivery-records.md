@@ -15,7 +15,7 @@ An [in-toto](https://in-toto.io) statement of predicate type
 policy, every check result with its proof, every approval and the outcome. It
 holds references, never secrets. It is a sigstore bundle attached as an OCI
 referrer to the version moved to, the one moved from, the new contract and the
-Stage's stream anchor. `guarded: true` says the admission policies checked who
+Stage's stream anchor, or a [write-once tag](#write-once-tags). `guarded: true` says the admission policies checked who
 asked and who approved. The promoter admits an operation only while its
 admission policies guard the cluster, so every record it writes carries it. A
 record from an earlier promoter that ran without them lacks it, and its names
@@ -53,15 +53,13 @@ with team narrowing, of the service's team) may acknowledge, with a reason. When
 yet, or what runs names no team or cannot be read, only break-glass may
 acknowledge, whatever `requireOwnerTeam` says. Break-glass can still move the
 follower with an override instead. A **gap** record marks a
-number no operation holds. A record can be late but is never skipped: an
+number no operation holds. A record can be late, never skipped: an
 Operation keeps its `delivery.pacto.trianalab.io/record` finalizer until the
 registry lists its record.
 
 ## Install
 
-Your registry must serve the OCI Referrers API natively.
-[zot](https://zotregistry.dev) does; GitHub's registry and released
-`distribution` do not, so they hold no records.
+The recorder detects how your registry stores records, so any registry works:
 
 ```yaml
 delivery:
@@ -79,15 +77,56 @@ delivery:
 The push Secret needs write access to the streams, deploy and contract
 repositories. Create a test key with
 `openssl genpkey -algorithm ed25519 -out key.pem`. The operator reads every
-Secret, so the chart refuses such a key without `allowOperatorReadableKey`,
-and refuses a recorder that shares the promoter's ServiceAccount.
+Secret, so the chart refuses such a key without `allowOperatorReadableKey`
+and a recorder sharing the promoter's ServiceAccount.
 
 In production, sign with a KMS key (`delivery.recorder.signing.kms: awskms:///alias/pacto`;
 ECDSA P-256, Ed25519 or RSA PKCS#1 v1.5 with SHA-256; AWS, GCP, Azure and
 Vault) or keyless (`delivery.recorder.signing.keyless`: certificate `identity` and `issuer`, a
 Fulcio, a required timestamp authority and a `trustedRoot`). Workload identity
 goes in `delivery.recorder.serviceAccount.annotations`. The recorder checks a
-probe record at startup, so a wrong key stops it before anything lands.
+probe record at startup, so a wrong key stops it first.
+
+### Registries and their mode
+
+| Registry | Referrers mode | Listing | Source of the row |
+|---|---|---|---|
+| [zot](https://zotregistry.dev) | `native` | `_catalog` | Conformance test |
+| CNCF `distribution` (`registry:2`, `registry:3`) | `write-once-tags` | `_catalog` | Conformance test |
+| GHCR | `write-once-tags` | tags anonymously, `_catalog` with credentials | Probe of `ghcr.io` |
+| Harbor, ECR, ACR, Docker Hub | `native` where the registry serves the Referrers API | detected at run time | Registry documentation |
+| GAR and any other registry | detected at run time | detected at run time | None |
+
+- Read the mode of a running Stage with
+  `kubectl get stage <name> -o jsonpath='{.status.stream.registryMode}'`.
+- Before you install, `pacto fleet providers --oci <ref>` prints one
+  `Registry <host>` row per registry it reads.
+
+### Write-once tags
+
+Without the Referrers API, each record is a tag in the streams repository:
+
+- The tag is `stream-<hash of the stream>-<seq>-<first 12 hex of the record
+  digest>`. The recorder writes it once, never moves it, and the tag names
+  the record by content.
+- The recorder never tags an apply or contract repository. A record keeps
+  its referrer on a version or contract only where that registry serves the
+  Referrers API.
+- Records are signed and verified the same way in both modes, and every
+  reader reads both forms, so a stream keeps its history when its registry
+  gains the Referrers API.
+- Anyone with push access can add, move or delete a tag, as they can attach
+  a referrer. A tag no trusted key signed is ignored, a moved tag is reported
+  as unreadable and a deleted record breaks the chain from
+  `status.stream.head`, which readers report.
+- Tag-immutability rules (Harbor, ECR, ACR and GAR) can enforce write-once
+  on the streams repository.
+- `pacto delivery plan` reads only this Stage's records for what a version
+  did elsewhere, so that answer stays partial.
+- A Stage recorded `native` never moves to tags on its own. If its registry
+  stops serving the Referrers API, `RecordStoreReady` turns `False` with
+  reason `RegistryUnavailable` and the message `the registry served the
+  Referrers API for this stream and no longer does`.
 
 ## Check it works
 
@@ -95,8 +134,8 @@ Each Stage gets a `RecordStoreReady` condition:
 
 | Reason | Meaning |
 |---|---|
-| `ReferrersSupported` | Records are being written |
-| `ReferrersUnsupported` | The registry has no Referrers API |
+| `ReferrersSupported` | Records are being written as native referrers |
+| `WriteOnceTags` | Records are being written as write-once tags: the registry serves no Referrers API |
 | `RegistryUnavailable` | The registry did not answer; it tries again |
 | `SignerUnavailable` | The signer (KMS key, keyless token, Fulcio or timestamp authority) failed; it tries again |
 | `StreamConflict` | Two trusted records with one number, a broken chain or a missing head (the one the Stage names). The recorder stops and the Stage freezes |
@@ -107,8 +146,8 @@ one. Anyone who can push can attach a referrer, so an untrusted one never
 freezes a Stage.
 
 Pacto never resolves a `StreamConflict` for you. Find the bad record with
-`pacto delivery record verify`, delete its referrer manifest from the streams
-repository, wait for `RecordStoreReady` to turn `True`, then unfreeze. After an
+`pacto delivery record verify`, delete its referrer manifest (or its tag)
+from the streams repository, wait for `RecordStoreReady` to turn `True`, then unfreeze. After an
 etcd restore the recorder continues from the newest record.
 
 ## Require records

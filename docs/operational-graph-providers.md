@@ -31,10 +31,42 @@ Kubernetes workloads  412 Deployments, DaemonSets unreadable, 31 CronJobs  infer
 ```
 
 With two or more clusters the table gains a leading `CLUSTER` column. With no
-Kubernetes source or workload source it prints `No providers detected: this
+row and no Kubernetes source it prints `No providers detected: this
 view reads no Kubernetes cluster (add --k8s)`. When no source reported a service or
 a target, the answer's completeness is `empty`, so the CLI also prints
 `warning: answer is empty` on stderr while it still lists the rows.
+
+## Registry rows
+
+An [OCI source](operational-graph-reference.md#sources) adds one
+`Registry <host>` row per registry host it read a contract from. Pacto probes
+each host once per process, with the first contract it resolved there, and
+keeps the answer until the process restarts.
+
+- **Evidence**: what the probe saw, such as `no Referrers, no _catalog` or
+  `Referrers, _catalog`.
+- **Used for**: `native-referrers` or `write-once-tags`, then
+  `index-listed-by-catalog` or `index-listed-by-tag`. The CLI prints them with
+  spaces.
+- **Details**: `mode: referrers=<mode> listing=<mode>`, the `auth` scheme of
+  the `/v2/` challenge, `artifactType: not checked (read-only probe)` and
+  `cosign signatures: not checked`. Every detail says what was checked or that
+  it was not. `asOf` is when the probe ran.
+
+```bash
+$ pacto fleet providers --oci oci://ghcr.io/trianalab/pacto/postgresql:17.0.0
+PROVIDER          EVIDENCE                   USED FOR
+Registry ghcr.io  no Referrers, no _catalog  write once tags, index listed by tag
+```
+
+A probe that cannot tell (a network error, a server error, an answer that is
+not an OCI index) is never a mode. The row then reads `capabilities unknown`,
+is `partial` and carries `REGISTRY_PROBE_FAILED`. A host whose contracts all
+failed to resolve has no row. A registry row never changes the answer's
+completeness. A restricted view drops a registry row when it hides every
+service read from that host. The
+[delivery records reference](integrations/kubernetes/delivery-records.md#write-once-tags)
+explains what each mode means for records.
 
 ## Detected rows
 
@@ -75,7 +107,7 @@ without a reason or when a restricted view hid every other reason.
 
 ## Restricted views
 
-A restricted view keeps every row. Objects in namespaces you cannot read and
+A restricted view keeps every row except a [registry row](#registry-rows) whose every service it hides. Objects in namespaces you cannot read and
 cluster-scoped objects are hidden, as are limitations that name them, and so is
 the name of a cluster where you can see no target. A count stays only where you
 can read the namespace and list the workload kind. The rest becomes one hidden
