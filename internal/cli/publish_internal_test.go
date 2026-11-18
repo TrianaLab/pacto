@@ -86,6 +86,14 @@ func TestPublishCommandPublish(t *testing.T) {
 		Deploy: "reg/deploy@" + cliB}
 	out, err := runPublish(t, publishDeps(done, nil, &got), "text", "--propose", "prod/payments-prod", "--on-behalf-of", "dana")
 	wantRun(t, out, err, false, "pushed manifests", "Deploy: reg/deploy@"+cliB, "Proposed "+cliB+" on prod/payments-prod")
+	// Under json, stdout is the one result document; the propose line goes to
+	// stderr and a failed propose rides in the document as its exit.
+	out, err = runPublish(t, publishDeps(done, nil, &got), "json", "--propose", "prod/payments-prod", "--on-behalf-of", "dana")
+	var doc map[string]any
+	expect(t, err == nil && json.Unmarshal([]byte(out), &doc) == nil && doc["exit"] == nil, "json publish: %v %q", err, out)
+	out, err = runPublish(t, publishDeps(done, nil, &got), "json", "--propose", "prod/payments-prod")
+	doc = nil // the standalone command also prints its usage after the document
+	expect(t, err != nil && json.NewDecoder(strings.NewReader(out)).Decode(&doc) == nil && doc["exit"] != nil, "json publish refused: %v %q", err, out)
 	// An agent's propose names the person it acts for.
 	out, err = runPublish(t, publishDeps(done, nil, &got), "text", "--propose", "prod/payments-prod")
 	wantRun(t, out, err, true, "must name the person it acts for", "--on-behalf-of")

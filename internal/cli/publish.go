@@ -73,11 +73,12 @@ func newPublishCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorde
 			}
 			if err == nil && propose != "" && res.Deploy != "" {
 				timeout, _ := cmd.Flags().GetDuration("propose-timeout")
-				err = proposePublished(cmd, d, ns, stage, res, timeout)
+				err = proposePublished(cmd, d, ns, stage, res, timeout, format)
 			}
-			if perr := printPublishResult(cmd, res, format, failed); perr != nil {
-				return perr
+			if format == "json" {
+				return printJSONExit(cmd, res, err)
 			}
+			_ = printPublishResult(cmd, res, format, failed) // ponytail: text and markdown output never fail
 			return err
 		},
 	}
@@ -127,7 +128,7 @@ var publishPoll = 5 * time.Second
 // proposePublished raises a promote of the published deploy artifact as the
 // caller, through the same client `pacto delivery propose` uses, once the
 // Stage recorded it as published.
-func proposePublished(cmd *cobra.Command, d deps, ns, stage string, res *publish.Result, timeout time.Duration) error {
+func proposePublished(cmd *cobra.Command, d deps, ns, stage string, res *publish.Result, timeout time.Duration, format string) error {
 	dyn, err := d.newDynamic()
 	if err != nil {
 		return err
@@ -145,7 +146,12 @@ func proposePublished(cmd *cobra.Command, d deps, ns, stage string, res *publish
 	if err != nil {
 		return fmt.Errorf("published, but proposing it on %s/%s failed: %w", ns, stage, err)
 	}
-	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Proposed %s on %s/%s as Operation %s\n", digest, ns, stage, op.Metadata.Name)
+	// Under json, stdout holds the one result document, so the line goes to stderr.
+	w := cmd.OutOrStdout()
+	if format == "json" {
+		w = cmd.ErrOrStderr()
+	}
+	_, _ = fmt.Fprintf(w, "Proposed %s on %s/%s as Operation %s\n", digest, ns, stage, op.Metadata.Name)
 	return nil
 }
 
