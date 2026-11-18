@@ -12,13 +12,16 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/asn1"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"io"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -40,7 +43,8 @@ type Sigstore struct {
 }
 
 // Token is an OIDC token the fake Fulcio issues a certificate for: identity
-// (an email SAN) from issuer. Fulcio would check its signature; this one
+// (a URI SAN for a URL such as a GitHub workflow, else an email SAN) from
+// issuer. Fulcio would check its signature; this one
 // does not.
 func Token(identity, issuer string) string {
 	return TokenWith(map[string]string{"sub": identity, "iss": issuer})
@@ -85,7 +89,7 @@ func New(t testing.TB) *Sigstore {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		leaf, err := ca.GenerateLeafCert(claims.Sub, claims.Iss, time.Now().Add(-time.Minute), signerOf{pub}, inter, interKey)
+		leaf, err := leafCert(claims.Sub, claims.Iss, pub, inter, interKey)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -126,6 +130,24 @@ func New(t testing.TB) *Sigstore {
 	js, err := tr.MarshalJSON()
 	must(t, err)
 	return &Sigstore{Fulcio: fulcio.URL, TSA: tsa.URL + "/api/v1/timestamp", Root: tr, RootJSON: js}
+}
+
+// leafCert is the certificate Fulcio issues for sub from iss: a URI SAN when
+// sub is a URL, as Fulcio issues for a GitHub workflow, else an email SAN.
+func leafCert(sub, iss string, pub crypto.PublicKey, parent *x509.Certificate, parentKey crypto.Signer) (*x509.Certificate, error) {
+	u, err := url.Parse(sub)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return ca.GenerateLeafCert(sub, iss, time.Now().Add(-time.Minute), signerOf{pub}, parent, parentKey)
+	}
+	tmpl := &x509.Certificate{SerialNumber: big.NewInt(1), URIs: []*url.URL{u},
+		NotBefore: time.Now().Add(-time.Minute), NotAfter: time.Now().Add(10 * time.Minute),
+		KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageCodeSigning},
+		ExtraExtensions: []pkix.Extension{{Id: asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 1}, Value: []byte(iss)}}}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, parent, pub, parentKey)
+	if err != nil {
+		return nil, err
+	}
+	return x509.ParseCertificate(der)
 }
 
 // signerOf hands ca.GenerateLeafCert a public key: it only calls Public.
