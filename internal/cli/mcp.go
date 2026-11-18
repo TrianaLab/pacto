@@ -23,6 +23,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/capability"
 	"github.com/trianalab/pacto/v4/pkg/catalog"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/graph"
 	"github.com/trianalab/pacto/v4/pkg/impact"
@@ -405,8 +406,24 @@ func mcpAuthoring(cmd *cobra.Command, svc *app.Service) pactomcp.Authoring {
 	if !a.Remote {
 		trust, _ := cmd.Flags().GetString("delivery-trust")
 		a.Init = mcpInit(svc, trust)
+		a.Catalog, a.CatalogUnavailable = mcpCatalog(cmd, svc)
 	}
 	return a
+}
+
+// mcpCatalog is the external catalog pacto_create with pactify classifies
+// with, assembled once for the server: the --external-catalog the server was
+// started with, else PACTO_EXTERNAL_CATALOG. A reference that is not pinned
+// by digest leaves the default to classify alone and says why.
+func mcpCatalog(cmd *cobra.Command, svc *app.Service) (*externalcatalog.Catalog, string) {
+	if ref, _ := cmd.Flags().GetString("external-catalog"); ref != "" {
+		svc.ExternalCatalogRef = ref
+	}
+	var opts app.InitOptions
+	if err := svc.InitCatalog(cmp.Or(cmd.Context(), context.Background()), &opts); err != nil {
+		return nil, err.Error()
+	}
+	return opts.Catalog, opts.CatalogUnavailable
 }
 
 // mcpInit adapts Service.InitFrom to pacto_create from. The trust config is

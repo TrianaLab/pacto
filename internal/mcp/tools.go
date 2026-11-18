@@ -126,16 +126,17 @@ type createArgs struct {
 	RunPlugins                string `json:"run_plugins"`
 }
 
-func createHandler(init Initializer, served func(string) bool, version string) mcpsdk.ToolHandlerFor[createArgs, any] {
+func createHandler(a Authoring, served func(string) bool, version string) mcpsdk.ToolHandlerFor[createArgs, any] {
+	base := pactify.Options{PactoVersion: version, Catalog: a.Catalog, CatalogUnavailable: a.CatalogUnavailable}
 	return func(ctx context.Context, _ *mcpsdk.CallToolRequest, args createArgs) (*mcpsdk.CallToolResult, any, error) {
 		if args.From != "" {
-			return createFromPath(ctx, args, init)
+			return createFromPath(ctx, args, a.Init)
 		}
 		if args.Values != "" || args.Set != "" || args.RunPlugins != "" {
 			return nil, nil, errors.New("values, set and run_plugins go with from")
 		}
 		if args.Pactify {
-			return pactifyFolder(ctx, args, version)
+			return pactifyFolder(ctx, args, base)
 		}
 		input := CreateInput{
 			Name:                      args.Name,
@@ -174,15 +175,16 @@ func createHandler(init Initializer, served func(string) bool, version string) m
 // pactifyFolder is pacto_create with pactify: `pacto init` for an agent.
 // Several folders or a whole cluster only plan unless dry_run is false. A
 // completed folder's record names version and no commit: the server may run
-// outside a checkout.
-func pactifyFolder(ctx context.Context, args createArgs, version string) (*mcpsdk.CallToolResult, any, error) {
+// outside a checkout. base holds the Pacto version and the server's catalog.
+func pactifyFolder(ctx context.Context, args createArgs, base pactify.Options) (*mcpsdk.CallToolResult, any, error) {
 	plan := args.Paths != "" || args.Cluster
 	if args.DryRun != nil {
 		plan = *args.DryRun
 	}
 	opts := pactify.Options{Dir: args.Path, Name: args.Name, Owner: args.Owner, Domain: args.Domain, Registry: args.Registry,
 		Delivery: args.Delivery, DescribeOnly: args.DescribeOnly, Plan: plan, NoTransparencyLog: args.NoTransparencyLog,
-		InsecureRegistry: args.InsecureRegistry, RegistrySecret: args.RegistrySecret, PactoVersion: version}
+		InsecureRegistry: args.InsecureRegistry, RegistrySecret: args.RegistrySecret, PactoVersion: base.PactoVersion,
+		Catalog: base.Catalog, CatalogUnavailable: base.CatalogUnavailable}
 	var paths []string
 	cluster := pactify.ClusterOptions{Out: args.Path}
 	if err := unmarshalFields([]jsonField{

@@ -76,6 +76,9 @@ type Options struct {
 	// Catalog classifies the externals the folder names. Nil is the embedded
 	// default catalog.
 	Catalog *externalcatalog.Catalog
+	// CatalogUnavailable says why the organization catalog the person running
+	// Pacto named could not classify, so only the default did: an Unknown line.
+	CatalogUnavailable string
 	// Commit and PactoVersion are the inputs an inferred record names: the
 	// folder's commit and the Pacto completing it. Empty is omitted.
 	Commit, PactoVersion string
@@ -172,6 +175,10 @@ type Result struct {
 	// Catalog is the digest of the catalog Externals were classified with,
 	// with " (embedded)" for the copy compiled into this binary.
 	Catalog string `json:"catalog,omitempty"`
+	// ExternalSummary is the plan line for the external dependencies the
+	// inferred record holds, then one line per dependency: see
+	// [ExternalSummary].
+	ExternalSummary []string `json:"externalSummary,omitempty"`
 	// Unknown is what Pacto could not establish. It is never guessed.
 	Unknown []string `json:"unknown"`
 	// Next is what a person still has to do.

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
 
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/graph"
@@ -138,8 +139,11 @@ func (s *Service) resolveImpactPair(ctx context.Context, opts ImpactOptions) (ol
 	}
 	logging.LoggerFromContext(ctx).Debug("resolving new revision", "path", opts.NewPath)
 	if opts.NewDirName != "" && !graph.ParseDependencyRef(opts.NewPath).IsOCI() {
-		newBundle, err = loadLocalBundleNamed(graph.ParseDependencyRef(opts.NewPath).Location, opts.NewDirName, opts.NewOverrides, contract.InferredInputs{})
-		err = readIncomplete(ctx, err)
+		var cat *externalcatalog.Catalog
+		if cat, err = s.completionCatalog(ctx); err == nil {
+			newBundle, err = loadLocalBundleNamed(graph.ParseDependencyRef(opts.NewPath).Location, opts.NewDirName, opts.NewOverrides, contract.InferredInputs{}, cat)
+			err = readIncomplete(ctx, err)
+		}
 	} else {
 		newBundle, err = s.resolveBundleWithOverrides(ctx, opts.NewPath, opts.NewOverrides)
 	}

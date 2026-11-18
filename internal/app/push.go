@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"strings"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -63,16 +64,8 @@ func (s *Service) Push(ctx context.Context, opts PushOptions) (*PushResult, erro
 
 	path := defaultPath(opts.Path)
 
-	c, _, bundleFS, err := loadAndValidateFull(ctx, path, opts.Overrides, s.BundleStore, s.localInputs(path, ""))
+	c, bundleFS, err := s.pushable(ctx, path, opts.Overrides)
 	if err != nil {
-		return nil, err
-	}
-
-	if err := rejectLocalDeps(c); err != nil {
-		return nil, err
-	}
-
-	if err := rejectLocalRefs(c); err != nil {
 		return nil, err
 	}
 
@@ -179,4 +172,25 @@ func rejectLocalRefs(c *contract.Contract) error {
 		}
 	}
 	return nil
+}
+
+// pushable completes and validates the contract at path for a push: valid,
+// with remote references resolved, and with no local dependency or
+// reference a registry could not follow.
+func (s *Service) pushable(ctx context.Context, path string, overrides override.Overrides) (*contract.Contract, fs.FS, error) {
+	cat, err := s.completionCatalog(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	c, _, bundleFS, err := loadAndValidateFull(ctx, path, overrides, s.BundleStore, s.localInputs(path, ""), cat)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := rejectLocalDeps(c); err != nil {
+		return nil, nil, err
+	}
+	if err := rejectLocalRefs(c); err != nil {
+		return nil, nil, err
+	}
+	return c, bundleFS, nil
 }

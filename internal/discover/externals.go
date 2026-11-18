@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"maps"
+	"path"
 	"regexp"
 	"slices"
 	"strings"
@@ -306,4 +307,21 @@ func commentSafe(s string) string {
 		}
 		return r
 	}, s)
+}
+
+// ExternalUnread counts the findings that name an input the external readers
+// did not read: a dependency manifest or lockfile, a Terraform file, module
+// or state, or a configMapGenerator envs file. A plan line counts them so a
+// folder that names no external never reads as one that calls nothing.
+func ExternalUnread(findings []contract.InferredFinding) int {
+	n := 0
+	for _, f := range findings {
+		file, _ := splitLine(f.Source)
+		base := path.Base(file)
+		read := f.Code == CodeUnsupportedFile || f.Code == CodeUnreadable
+		if read && (sdkFile(base) || terraformFile(base)) || f.Message == unresolvedEnvsMessage(f.Source) {
+			n++
+		}
+	}
+	return n
 }

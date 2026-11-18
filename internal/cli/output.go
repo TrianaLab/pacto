@@ -10,6 +10,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/internal/discover"
+	"github.com/trianalab/pacto/v4/internal/pactify"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/diff"
 	"github.com/trianalab/pacto/v4/pkg/doc"
@@ -523,20 +525,12 @@ func printExplainInferred(w io.Writer, result *app.ExplainResult) {
 		_, _ = fmt.Fprintln(w, "  Pacto could not read the inferred record")
 		return
 	}
+	printExplainExternals(w, result)
 	var heads []string
 	bodies := map[string]string{}
 	var config []string
 	for _, f := range result.Inferred {
-		line := fmt.Sprintf("  %s  inferred  %s  from %s", f.Field, f.Value, explainSource(f.Source))
-		if f.Class == contract.InferredClassOwnerFile {
-			line += "; read from an owner file, not verified"
-		}
-		if f.Confidence == contract.ConfidencePossible {
-			line += "; possible (a naming convention)"
-		}
-		if len(f.Outranks) > 0 {
-			line += "; outranks " + strings.Join(mapStrings(f.Outranks, explainSource), ", ")
-		}
+		line := explainInferredLine(f)
 		if strings.HasPrefix(f.Field, "configuration.") {
 			config = append(config, f.Declare)
 			if strings.HasSuffix(f.Value, "writeOnly") {
@@ -549,7 +543,9 @@ func printExplainInferred(w io.Writer, result *app.ExplainResult) {
 			}
 			bodies[head] += body
 		}
-		_, _ = fmt.Fprintln(w, line)
+		if f.External == nil { // the summary above lists it
+			_, _ = fmt.Fprintln(w, line)
+		}
 	}
 	if len(heads) > 0 {
 		_, _ = fmt.Fprintln(w, "\nTo declare in pacto.yaml:")
@@ -560,6 +556,35 @@ func printExplainInferred(w io.Writer, result *app.ExplainResult) {
 	if len(config) > 0 {
 		_, _ = fmt.Fprintln(w, "\nTo declare in the configuration schema, under properties:")
 		_, _ = fmt.Fprintf(w, "  {%s}\n", strings.Join(config, ", "))
+	}
+}
+
+// explainInferredLine is the line explain prints for the inferred field f.
+func explainInferredLine(f contract.Inferred) string {
+	line := fmt.Sprintf("  %s  inferred  %s  from %s", f.Field, f.Value, explainSource(f.Source))
+	if f.Class == contract.InferredClassOwnerFile {
+		line += "; read from an owner file, not verified"
+	}
+	if f.Confidence == contract.ConfidencePossible {
+		line += "; possible (a naming convention)"
+	}
+	if len(f.Outranks) > 0 {
+		line += "; outranks " + strings.Join(mapStrings(f.Outranks, explainSource), ", ")
+	}
+	return line
+}
+
+// printExplainExternals prints the plan line for the external dependencies
+// the inferred record holds, when it holds any, one line per dependency
+// under it.
+func printExplainExternals(w io.Writer, result *app.ExplainResult) {
+	if !slices.ContainsFunc(result.Inferred, func(f contract.Inferred) bool { return f.External != nil }) {
+		return
+	}
+	summary := pactify.ExternalSummary(result.Inferred, discover.ExternalUnread(result.InferredFindings))
+	_, _ = fmt.Fprintf(w, "  %s\n", summary[0])
+	for _, l := range summary[1:] {
+		_, _ = fmt.Fprintf(w, "    %s\n", l)
 	}
 }
 

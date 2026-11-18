@@ -9,6 +9,7 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/trianalab/pacto/v4/internal/pactify"
+	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
 	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
@@ -89,10 +90,18 @@ type FromRequest struct {
 // registers: pacto_create, pacto_edit and pacto_check read and write this
 // process's folders, read its kubeconfig and follow refs with its registry
 // credentials, which every remote caller would borrow.
+//
+// Catalog is the external catalog pacto_create with pactify classifies with:
+// the one the server was started with, never one a caller names, so folder
+// content cannot steer an agent into picking the classifier. Nil is the
+// default catalog. CatalogUnavailable says why the organization catalog the
+// server names could not be read.
 type Authoring struct {
-	Validate Validator
-	Init     Initializer
-	Remote   bool
+	Validate           Validator
+	Init               Initializer
+	Remote             bool
+	Catalog            *externalcatalog.Catalog
+	CatalogUnavailable string
 }
 
 // newBareServer builds a server with no tools registered at all. A mode whose
@@ -127,7 +136,7 @@ func newServer(version, instructions string, a Authoring, opts EditOptions) *mcp
 // pacto_create completes names.
 func registerTools(server *mcpsdk.Server, version string, a Authoring, opts EditOptions) {
 	if !a.Remote {
-		addTool(server, createTool(), createHandler(a.Init, opts.Served, version))
+		addTool(server, createTool(), createHandler(a, opts.Served, version))
 		addTool(server, editTool(), editHandler(a.Validate, opts))
 		addTool(server, checkTool(), checkHandler(a.Validate))
 	}

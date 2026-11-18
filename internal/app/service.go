@@ -29,6 +29,11 @@ type Service struct {
 	// Version is the running CLI version, recorded into pacto.lock provenance.
 	// Empty reads as "dev".
 	Version string
+	// ExternalCatalogRef is the organization external catalog every local
+	// completion merges over the default, as oci://REPOSITORY@sha256:DIGEST
+	// (pacto init --external-catalog, PACTO_EXTERNAL_CATALOG). Empty is the
+	// default catalog alone.
+	ExternalCatalogRef string
 
 	// sys holds the side effects the methods reach for; read it through env.
 	sys sysDeps

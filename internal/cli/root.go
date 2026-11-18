@@ -181,6 +181,11 @@ func newRootCommand(svc *app.Service, info VersionInfo, d deps) *cobra.Command {
 		if err := checkOutputFormat(v.GetString(outputFormatKey)); err != nil {
 			return err
 		}
+		// One organization external catalog for every local completion: pacto
+		// init --external-catalog, else PACTO_EXTERNAL_CATALOG or the config.
+		if svc != nil {
+			svc.ExternalCatalogRef = v.GetString(externalCatalogKey)
+		}
 
 		if v.GetBool("no-cache") {
 			// Materialize the resolved decision back onto the flag: viper also

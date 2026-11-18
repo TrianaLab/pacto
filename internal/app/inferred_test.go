@@ -40,8 +40,14 @@ func completionFolder(t *testing.T, header string) string {
 // packed packs dir and returns the archive's files.
 func packed(t *testing.T, dir string) map[string]string {
 	t.Helper()
+	return packedWith(t, NewService(nil, nil), dir)
+}
+
+// packedWith packs dir with s and returns the archive's files.
+func packedWith(t *testing.T, s *Service, dir string) map[string]string {
+	t.Helper()
 	out := filepath.Join(t.TempDir(), "b.tar.gz")
-	if _, err := NewService(nil, nil).Pack(context.Background(), PackOptions{Path: dir, Output: out}); err != nil {
+	if _, err := s.Pack(context.Background(), PackOptions{Path: dir, Output: out}); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(out)
@@ -95,7 +101,7 @@ func TestPackEmbedsInferredRecord(t *testing.T) {
 func TestPackTwiceSameDigest(t *testing.T) {
 	dir := completionFolder(t, `pactoVersion: "2.5"`+"\n")
 	digest := func() string {
-		c, _, fsys, err := loadAndValidateLocal(context.Background(), dir, override.Overrides{}, contract.InferredInputs{Commit: commitA, Pacto: "dev"})
+		c, _, fsys, err := loadAndValidateLocal(context.Background(), dir, override.Overrides{}, contract.InferredInputs{Commit: commitA, Pacto: "dev"}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -112,7 +118,7 @@ func TestPackTwiceSameDigest(t *testing.T) {
 
 func TestPackOlderContractHasNoRecord(t *testing.T) {
 	dir := completionFolder(t, `pactoVersion: "2.4"`+"\n")
-	c, _, fsys, err := loadAndValidateLocal(context.Background(), dir, override.Overrides{}, contract.InferredInputs{Commit: commitA})
+	c, _, fsys, err := loadAndValidateLocal(context.Background(), dir, override.Overrides{}, contract.InferredInputs{Commit: commitA}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +166,7 @@ func TestPackedRecordNeverHoldsValues(t *testing.T) {
 func TestLocalReadCarriesRecord(t *testing.T) {
 	dir := completionFolder(t, "")
 	writeGit(t, dir, map[string]string{"HEAD": commitA + "\n"})
-	named, err := loadLocalBundleNamed(dir, "app", override.Overrides{}, contract.InferredInputs{Pacto: "dev"})
+	named, err := loadLocalBundleNamed(dir, "app", override.Overrides{}, contract.InferredInputs{Pacto: "dev"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +196,7 @@ func TestIncompleteFolder(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(filepath.Join(dir, "api"), 0o755) })
 	// Pack, push and publish refuse a folder Pacto cannot complete.
-	if _, err := loadLocalBundleNamed(dir, "app", override.Overrides{}, contract.InferredInputs{}); err == nil || !strings.Contains(err.Error(), "completing") {
+	if _, err := loadLocalBundleNamed(dir, "app", override.Overrides{}, contract.InferredInputs{}, nil); err == nil || !strings.Contains(err.Error(), "completing") {
 		t.Errorf("an unreadable cited file: %v", err)
 	}
 	if _, err := NewService(nil, nil).Pack(context.Background(), PackOptions{Path: dir, Output: filepath.Join(t.TempDir(), "b.tar.gz")}); err == nil || !strings.Contains(err.Error(), "completing") {

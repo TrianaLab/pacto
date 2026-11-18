@@ -65,7 +65,11 @@ func (s *Service) Publish(ctx context.Context, opts PublishOptions) (*publish.Re
 	path := defaultPath(opts.Path)
 	// The record names the revision the manifests are stamped with.
 	revision := s.localInputs(path, opts.Revision).Commit
-	c, raw, fsys, err := loadAndValidateFull(ctx, path, opts.Overrides, s.BundleStore, s.localInputs(path, revision))
+	cat, err := s.completionCatalog(ctx)
+	if err != nil {
+		return nil, err
+	}
+	c, raw, fsys, err := loadAndValidateFull(ctx, path, opts.Overrides, s.BundleStore, s.localInputs(path, revision), cat)
 	if err != nil {
 		return nil, err
 	}

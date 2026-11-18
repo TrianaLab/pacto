@@ -95,9 +95,15 @@ type FleetOptions struct {
 // The snapshot is a pure read model; query it with [fleet.NewQuery]. Source
 // failures are surfaced as explicit limitations unless DisallowPartial is set.
 func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSnapshot, error) {
+	cat, catLims, err := s.externalCatalog(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
 	var sources []fleet.Source
 	for i, root := range opts.LocalRoots {
-		sources = append(sources, fleetsrc.NewLocalSource(sourceID("local", i, len(opts.LocalRoots)), root))
+		local := fleetsrc.NewLocalSource(sourceID("local", i, len(opts.LocalRoots)), root)
+		local.Catalog = cat
+		sources = append(sources, local)
 	}
 	if len(opts.CatalogRoots) > 0 {
 		sources = append(sources, &catalogSource{id: "catalog", svc: s, roots: opts.CatalogRoots})
@@ -145,10 +151,6 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 	}
 	sources = append(sources, opts.extraSources...)
 	if err := checkSourceIDsAreUnique(sources); err != nil {
-		return nil, err
-	}
-	cat, catLims, err := s.externalCatalog(ctx, opts)
-	if err != nil {
 		return nil, err
 	}
 	return fleet.Build(ctx, fleet.BuildOptions{

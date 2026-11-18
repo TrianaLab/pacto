@@ -15,6 +15,9 @@
   "consumers": [],
   "externals": [],
   "catalog": "sha256:62a3fd52949e99b18eb330766ec3269d47ba7a821f59b77ab69dea81ad76a063 (embedded)",
+  "externalSummary": [
+    "External dependencies: none found, inferred"
+  ],
   "unknown": [
     "interfaces: fraud listens on port 8080, but no OpenAPI file describes it",
     "who uses fraud: no other services' contracts were given (--fleet), so none were looked at"

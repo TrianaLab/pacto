@@ -119,7 +119,7 @@ func printInitFindings(w io.Writer, r *app.InitResult) {
 	case "pactify", "complete":
 		section("Depends on", findings(r.Dependencies))
 		section("Used by", findings(r.Consumers))
-		section("External", externalLines(r))
+		printExternalSummary(w, r)
 	case "template":
 		section("Found", r.Found)
 	}
@@ -168,6 +168,9 @@ func discoveredRows(fields []contract.Inferred) [][2]string {
 	var rows [][2]string
 	var envs, envSources []string
 	for _, f := range fields {
+		if f.External != nil { // printExternalSummary lists them
+			continue
+		}
 		suffix := discoveredSuffix(f, "")
 		switch {
 		case strings.HasPrefix(f.Field, "environments["):
@@ -234,22 +237,22 @@ func notFindings(r *app.InitResult) []string {
 	})
 }
 
-// externalLines are the systems outside the cluster the folder names, each
-// with its class, where it was read and how sure the match is, then the
-// catalog they were classified with. A host is printed as host and port only.
-func externalLines(r *app.InitResult) []string {
-	if len(r.Externals) == 0 {
-		return nil
+// printExternalSummary prints the plan line for the external dependencies
+// the folder names, one line per dependency under it, then the catalogs that
+// classified them. A host is printed as host and port only.
+func printExternalSummary(w io.Writer, r *app.InitResult) {
+	if len(r.ExternalSummary) == 0 {
+		return
 	}
-	var out []string
-	for _, e := range r.Externals {
-		l := fmt.Sprintf("%s  %s  %s  (%s)", e.Identity, e.Class, e.Where, e.Confidence)
-		if e.Host != "" {
-			l += "\n    -> " + e.Host + " (host and port only)"
-		}
-		out = append(out, l)
+	_, _ = fmt.Fprintf(w, "\n%s\n", r.ExternalSummary[0])
+	for _, l := range r.ExternalSummary[1:] {
+		_, _ = fmt.Fprintf(w, "  %s\n", l)
 	}
-	return append(out, "catalog "+r.Catalog)
+	catalog := r.Catalog
+	if r.Inferred != nil && len(r.Inferred.Inputs.Catalog) > 0 {
+		catalog = strings.Join(r.Inferred.Inputs.Catalog, ", ")
+	}
+	_, _ = fmt.Fprintf(w, "  catalog %s\n", catalog)
 }
 
 // printCreationSteps prints how far creating from a golden path got under

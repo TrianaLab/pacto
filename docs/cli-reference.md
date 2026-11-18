@@ -1458,10 +1458,13 @@ that names another service in the cluster becomes a dependency with
 compatibility unknown: with that service's contract in --fleet, its bundle and
 a proposed range from its version in a comment; without it, the comment says
 no range was proposed. Vendors, managed services and legacy hosts that the
-environment and every chart's values.yaml name are listed under External,
-classified with the external catalog, and the likely ones are written as
-commented entries under dependencies for you to uncomment. Only their host and
-port are shown; a Secret gives its name and key names, never a value. A
+folder names (the environment, Helm values files, Compose, Kustomize
+generators, SDK manifests and lockfiles, Terraform resources and Crossplane
+objects) are classified with the external catalog and listed under External
+dependencies as inferred: they go in pacto.inferred.yaml, never in pacto.yaml.
+--external-catalog merges an organization catalog, pinned by digest, over the
+default. Only their host and port are shown; a Secret gives its name and key
+names, never a value. A
 readiness, liveness or startup probe becomes a health check. A folder that
 already holds pacto.yaml at pactoVersion 2.5 (or none) is completed, never
 with --cluster: Pacto never changes it and lists what the folder adds, which
@@ -1541,6 +1544,7 @@ pacto init [dir...] [flags]
       --describe-only[=true|false]         write a contract that only describes the service: no publish section, so no signing key
       --domain string                      business domain, such as payments
       --env strings                        environments for --delivery: declared in the contract and given a Stage each, in promotion order (default [test,prod])
+      --external-catalog string            organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST; a tag is refused (also PACTO_EXTERNAL_CATALOG)
       --fleet strings                      folders of other services' contracts to find the services that use this one
       --from string                        a golden path to create the service from: an oci:// reference or a directory
   -h, --help[=true|false]                  help for init

@@ -24,6 +24,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/internal/discover"
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/ignore"
 	"github.com/trianalab/pacto/v4/pkg/lock"
@@ -38,6 +39,10 @@ const maxScanDepth = 8
 type LocalSource struct {
 	id   string
 	root string
+	// Catalog classifies the external systems each folder names when it is
+	// completed: the catalog the fleet build classifies with. Nil is the
+	// default catalog.
+	Catalog *externalcatalog.Catalog
 }
 
 // NewLocalSource returns a local bundle source rooted at root. id is the source
@@ -78,7 +83,7 @@ func (s *LocalSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 		if d.Name() != "pacto.yaml" {
 			return nil
 		}
-		rev, loadErr := loadRevision(filepath.Dir(p))
+		rev, loadErr := loadRevision(filepath.Dir(p), s.Catalog)
 		if errors.Is(loadErr, errIncomplete) {
 			// Inference only adds: the declared revision stays, and its
 			// inferred dependencies are unknown, which makes the answer partial.
@@ -140,7 +145,7 @@ func skipDir(root, p string, d fs.DirEntry) bool {
 // whole .git tree for a bundle that lives at a repository root. Two views of
 // one bundle would then be two revisions of one service at one version, which
 // is precisely the shape of a content conflict.
-func loadRevision(dir string) (fleet.RawRevision, error) {
+func loadRevision(dir string, cat *externalcatalog.Catalog) (fleet.RawRevision, error) {
 	data, err := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
 	if err != nil {
 		return fleet.RawRevision{}, fmt.Errorf("read pacto.yaml: %w", err)
@@ -177,7 +182,7 @@ func loadRevision(dir string) (fleet.RawRevision, error) {
 		rev.FetchedAt = &t
 	}
 	// No commit: a fleet read of many folders resolves no git.
-	if err := discover.CompleteBundle(b, dir, contract.InferredInputs{}, nil); err != nil {
+	if err := discover.CompleteBundle(b, dir, contract.InferredInputs{}, cat); err != nil {
 		return rev, fmt.Errorf("%w: %w", errIncomplete, err)
 	}
 	return rev, nil

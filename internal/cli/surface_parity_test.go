@@ -268,6 +268,7 @@ func authoringRows() []surfaceRow {
 			{"init --plan", "pacto_create.dry_run", "", whyCreateOnly},
 			{"init --out", "", "", "with --cluster the CLI writes one folder per workload; pacto_create writes at path"},
 			{"init --trust", "", "", "pacto_create verifies a golden path with the trust config the server was started with"},
+			{"init --external-catalog", "", "", "pacto_create classifies with the external catalog the server was started with, never one a caller names"},
 			{"init", "pacto_create.pactify", "", "pacto init always reads the service folder; pacto_create does so with pactify"},
 			{"", "pacto_create.paths", "", "the CLI takes several folders as arguments (init [dir...])"},
 			{"validate [dir | oci://ref]", "pacto_check.path", "", whyCreateOnly},

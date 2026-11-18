@@ -1589,29 +1589,33 @@ func TestPrintEnvironmentDifferences(t *testing.T) {
 // TestInitPrintsExternals: a pactified folder lists the externals it names,
 // each with its class, where it was read and its confidence, a host as host
 // and port only, then the catalog; a folder that names none prints nothing.
-func TestInitPrintsExternals(t *testing.T) {
-	r := &app.InitResult{Dir: "checkout", Service: "checkout", Mode: "pactify", Catalog: "sha256:abc (embedded)",
-		Externals: []pactify.External{
-			{Identity: "aws/rds", Class: "managed-cloud", Confidence: "likely", Where: "k8s/configmap.yaml, env DATABASE_URL", Host: "db.xyz.rds.amazonaws.com"},
-			{Identity: "stripe", Class: "vendor-api", Confidence: "possible", Where: "k8s/deployment.yaml, secretRef stripe-credentials (Secret name only)"},
-		}}
+func TestInitPrintsExternalSummary(t *testing.T) {
+	rec := &contract.InferredRecord{Inputs: contract.InferredInputs{Catalog: []string{"default sha256:abc", "organization sha256:def"}},
+		Fields: []contract.Inferred{{Field: "dependencies[stripe]", Value: "stripe", Source: "chart/values.yaml:3", External: &contract.InferredExternal{Identity: "stripe"}}}}
+	r := &app.InitResult{Dir: "checkout", Service: "checkout", Mode: "pactify", Catalog: "sha256:abc (embedded)", Inferred: rec,
+		ExternalSummary: []string{"External dependencies: 1 (stripe), inferred", "dependencies[stripe]  external, from chart/values.yaml:3 (STRIPE_API_BASE)"}}
 	var buf bytes.Buffer
 	printInitFindings(&buf, r)
 	want := `
-External
-  - aws/rds  managed-cloud  k8s/configmap.yaml, env DATABASE_URL  (likely)
-    -> db.xyz.rds.amazonaws.com (host and port only)
-  - stripe  vendor-api  k8s/deployment.yaml, secretRef stripe-credentials (Secret name only)  (possible)
-  - catalog sha256:abc (embedded)
+External dependencies: 1 (stripe), inferred
+  dependencies[stripe]  external, from chart/values.yaml:3 (STRIPE_API_BASE)
+  catalog default sha256:abc, organization sha256:def
 `
-	if !strings.Contains(buf.String(), want) {
+	if !strings.Contains(buf.String(), want) || strings.Contains(buf.String(), "stripe from chart/values.yaml:3") {
 		t.Fatalf("output:\n%s", buf.String())
 	}
+	// Without a record the catalog is the one the plan names.
 	buf.Reset()
-	r.Externals = nil
+	r.Inferred = nil
+	printInitFindings(&buf, r)
+	if !strings.Contains(buf.String(), "  catalog sha256:abc (embedded)\n") {
+		t.Fatalf("output without a record:\n%s", buf.String())
+	}
+	buf.Reset()
+	r.ExternalSummary = nil
 	printInitFindings(&buf, r)
 	if strings.Contains(buf.String(), "External") {
-		t.Fatalf("output without externals:\n%s", buf.String())
+		t.Fatalf("output without a summary:\n%s", buf.String())
 	}
 }
 

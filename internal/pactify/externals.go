@@ -29,7 +29,14 @@ func (p *planner) catalog() (*externalcatalog.Catalog, string) {
 func (p *planner) externals(rec *contract.InferredRecord) {
 	cat, digest := p.catalog()
 	p.r.Catalog, p.r.Externals = digest, []External{}
-	for _, f := range cmp.Or(rec, &contract.InferredRecord{}).Fields {
+	rec = cmp.Or(rec, &contract.InferredRecord{})
+	unread := discover.ExternalUnread(rec.Findings)
+	if p.opts.CatalogUnavailable != "" {
+		p.unknown("%s", p.opts.CatalogUnavailable)
+		unread++
+	}
+	p.r.ExternalSummary = ExternalSummary(rec.Fields, unread)
+	for _, f := range rec.Fields {
 		x := f.External
 		if x == nil {
 			continue

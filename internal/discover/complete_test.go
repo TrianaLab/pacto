@@ -301,3 +301,19 @@ func TestCompleteBundle(t *testing.T) {
 		t.Fatal("a failed completion still serves the stale copy")
 	}
 }
+
+func TestExternalUnreadCountsExternalInputs(t *testing.T) {
+	findings := []contract.InferredFinding{
+		{Code: CodeUnsupportedFile, Source: "yarn.lock"},
+		{Code: CodeUnreadable, Source: "svc/package.json"},
+		{Code: CodeUnsupportedFile, Source: "infra/main.tf:3"},
+		{Code: CodeUnsupportedFile, Source: "infra/terraform.tfstate"},
+		{Code: CodeUnresolved, Source: "k8s/kustomization.yaml:4", Message: unresolvedEnvsMessage("k8s/kustomization.yaml:4")},
+		{Code: CodeUnsupportedFile, Source: "compose.yaml:7"},
+		{Code: CodeUnresolved, Source: "go.mod"},
+		{Code: CodeUnreadable, Source: "chart/values.yaml"},
+	}
+	if got := ExternalUnread(findings); got != 5 {
+		t.Fatalf("got %d, want 5", got)
+	}
+}
