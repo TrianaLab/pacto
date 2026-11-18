@@ -1322,7 +1322,7 @@ export interface components {
             sign?: components["schemas"]["Contract.PublishSign"];
         };
         "Contract.PublishArtifact": {
-            build: components["schemas"]["Contract.PublishBuild"];
+            build?: components["schemas"]["Contract.PublishBuild"];
             name: string;
             ref: string;
             sbom?: string;
