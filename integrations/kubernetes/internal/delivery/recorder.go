@@ -359,10 +359,16 @@ func hasCondition(stage *dv1.Stage, typ, status string) bool {
 var errDowngrade = errors.New("the registry served the Referrers API for this stream and no longer does")
 
 // anchor opens the stream's anchor and refuses a downgrade from native
-// referrers to write-once tags.
+// referrers to write-once tags. A stream anchored before the mode was
+// recorded (anchor set, no mode) is native: the recorder only anchored a
+// stream on a registry that served the Referrers API.
 func (r *Recorder) anchor(ctx context.Context, stream delivery.Stream) (*place, error) {
+	recorded := stream.RegistryMode
+	if recorded == "" && stream.Anchor != "" {
+		recorded = string(capabilities.ReferrersNative)
+	}
 	a, err := r.Store.anchor(ctx, stream.ID)
-	if err == nil && stream.RegistryMode == string(capabilities.ReferrersNative) && a.mode != capabilities.ReferrersNative {
+	if err == nil && recorded == string(capabilities.ReferrersNative) && a.mode != capabilities.ReferrersNative {
 		err = errDowngrade
 	}
 	return a, err

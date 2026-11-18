@@ -111,14 +111,16 @@ Without the Referrers API, each record is a tag in the streams repository:
   the record by content.
 - The recorder never tags an apply or contract repository. A record keeps
   its referrer on a version or contract only where that registry serves the
-  Referrers API, and gets none where the recorder could not probe it.
+  Referrers API. When the recorder cannot probe that registry, the write
+  fails with `RegistryUnavailable` and is retried.
 - Records are signed and verified the same way in both modes, and every
   reader reads both forms, so a stream keeps its history when its registry
   gains the Referrers API.
 - Anyone with push access can add, move or delete a tag, as they can attach
-  a referrer. A tag no trusted key signed is ignored, a moved tag is reported
-  as unreadable and a deleted record breaks the chain from
-  `status.stream.head`, which readers report.
+  a referrer. A tag no trusted key signed is ignored and a deleted record
+  breaks the chain from `status.stream.head`, which readers report. A reader
+  resolves each tag once, so a moved tag is reported as unreadable the next
+  time a new reader (a CLI call or a restarted process) resolves it.
 - Tag-immutability rules (Harbor, ECR, ACR and GAR) can enforce write-once
   on the streams repository.
 - `pacto delivery plan` reads only this Stage's records for what a version

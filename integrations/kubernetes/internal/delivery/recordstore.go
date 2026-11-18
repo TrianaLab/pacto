@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"slices"
 	"strconv"
 
@@ -148,28 +149,37 @@ func (s *RecordStore) list(ctx context.Context, anchor *place) (recs []stored, i
 // (a refusal can name anything), is skipped; any other failure is returned.
 // A placement outside the streams repository is kept only where its host
 // serves the Referrers API: the recorder never tags a user's apply or
-// contract repository, so a host without Referrers, or one whose probe
-// failed, gets no placement.
+// contract repository, so a host without Referrers gets no placement. A
+// failed probe is returned, so the write is retried instead of losing the
+// placement for good.
 func (s *RecordStore) locate(ctx context.Context, anchor *place, apply *source, from, to string) (locations, error) {
 	l, err := s.candidates(ctx, anchor, apply, from, to)
 	if err != nil {
 		return l, err
 	}
-	l.to, l.from, l.contract = s.native(ctx, l.to), s.native(ctx, l.from), s.native(ctx, l.contract)
+	for _, p := range []**place{&l.to, &l.from, &l.contract} {
+		if *p, err = s.native(ctx, *p); err != nil {
+			return l, err
+		}
+	}
 	return l, nil
 }
 
-// native returns p when its host serves the Referrers API, else nil.
-func (s *RecordStore) native(ctx context.Context, p *place) *place {
+// native returns p when its host serves the Referrers API, nil when it
+// does not, and the probe error when the probe could not tell.
+func (s *RecordStore) native(ctx context.Context, p *place) (*place, error) {
 	if p == nil {
-		return nil
+		return nil, nil
 	}
 	caps, err := s.prober().Probe(ctx, p.repo, p.desc.Digest.String(), false)
-	if err != nil || caps.Referrers != capabilities.ReferrersNative {
-		return nil
+	switch {
+	case err != nil:
+		return nil, err
+	case caps.Referrers != capabilities.ReferrersNative:
+		return nil, nil
 	}
 	p.mode = capabilities.ReferrersNative
-	return p
+	return p, nil
 }
 
 // candidates finds every subject a record of from→to could attach to.
@@ -231,7 +241,8 @@ func resolve(ctx context.Context, repo *remote.Repository, digest string) (*plac
 // write attaches bundle to every location and confirms each is listed:
 // subjects first and the anchor last, so a record on the anchor means every
 // placement exists. The anchor placement goes in the stream's mode; the
-// others are native referrers (locate kept only those).
+// others are native referrers (locate kept only those). Each placement's
+// AnnRegistryMode says how that copy was written.
 func (s *RecordStore) write(ctx context.Context, bundle []byte, st delivery.Statement, l locations) error {
 	chain := st.Predicate.Chain
 	ann := map[string]string{
@@ -240,11 +251,11 @@ func (s *RecordStore) write(ctx context.Context, bundle []byte, st delivery.Stat
 		deliveryrecord.AnnUID:           st.Predicate.Intent.UID,
 		deliveryrecord.AnnStream:        chain.Stream,
 		deliveryrecord.AnnSeq:           strconv.FormatInt(chain.Seq, 10),
-		deliveryrecord.AnnRegistryMode:  string(l.anchor.mode),
 	}
 	build := func(p *place) ocireferrer.Artifact {
-		subject := p.desc
-		return ocireferrer.Build(delivery.BundleMediaType, delivery.BundleMediaType, bundle, &subject, ann)
+		subject, a := p.desc, maps.Clone(ann)
+		a[deliveryrecord.AnnRegistryMode] = string(p.mode)
+		return ocireferrer.Build(delivery.BundleMediaType, delivery.BundleMediaType, bundle, &subject, a)
 	}
 	for _, p := range []*place{l.to, l.from, l.contract} {
 		if p == nil {

@@ -199,8 +199,9 @@ counts no approval.
   holds records as [write-once tags](delivery-records.md#write-once-tags) and
   reports `WriteOnceTags`. Alerts or scripts that match the old reason match
   nothing.
-- A Stage that recorded `native` and then sees no Referrers API stays
-  `RegistryUnavailable` instead of switching to tags.
+- A Stage that recorded `native`, or that was ready before the upgrade, and
+  then sees no Referrers API stays `RegistryUnavailable` instead of
+  switching to tags.
 
 ## Delivery grants Argo CD and Flux access by itself
 

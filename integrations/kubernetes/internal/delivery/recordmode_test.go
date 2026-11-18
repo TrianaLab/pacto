@@ -216,6 +216,33 @@ func TestRecordManifestCarriesRegistryMode(t *testing.T) {
 			t.Fatalf("mode annotations = %v", got)
 		}
 	})
+	// Streams without Referrers, the apply host with them: each copy says
+	// how it was written.
+	t.Run("mixed", func(t *testing.T) {
+		re := newRecEnv(t)
+		streams := newTestRegistry(t)
+		streams.unsupported = true
+		re.rec.Store.Streams = streams.host + "/delivery/streams"
+		re.stage(1)
+		re.concluded("ship", 1, delivery.Succeeded)
+		re.reconcile()
+		tags := streams.recordTags(t, "delivery/streams")
+		if len(tags) != 1 || streams.manifestAt(t, "delivery/streams", tags[0]).Annotations[deliveryrecord.AnnRegistryMode] != "write-once-tags" {
+			t.Fatalf("anchor tag %v", tags)
+		}
+		repo, _ := ocireferrer.Open(re.reg.host+"/apps/payments", ocireferrer.Options{})
+		desc, _ := repo.Resolve(context.Background(), re.reg.to)
+		var got []string
+		_ = repo.Referrers(context.Background(), desc, "", func(page []ocispec.Descriptor) error {
+			for _, d := range page {
+				got = append(got, re.reg.manifestAt(t, "apps/payments", d.Digest.String()).Annotations[deliveryrecord.AnnRegistryMode])
+			}
+			return nil
+		})
+		if !slices.Equal(got, []string{"native"}) {
+			t.Fatalf("apply referrer mode annotations = %v", got)
+		}
+	})
 }
 
 func TestRecorderProbeFailureIsRegistryUnavailable(t *testing.T) {
@@ -285,13 +312,55 @@ func TestStoreProbeReportsMode(t *testing.T) {
 	}
 }
 
-func TestStoreSkipsPlacementWhoseProbeFails(t *testing.T) {
+// TestStorePlacementProbeFailureFails: a probe that cannot tell is an
+// error, never a reason to drop the placement for good.
+func TestStorePlacementProbeFailureFails(t *testing.T) {
 	s, reg, _ := testStore(t)
 	repo, _ := remote.NewRepository(reg.host + "/apps/payments")
 	repo.PlainHTTP = true
 	reg.fault = from(1, http.MethodGet, "/referrers/")
 	desc, _ := repo.Resolve(context.Background(), reg.to)
-	if p := s.native(context.Background(), &place{repo: repo, desc: desc}); p != nil {
-		t.Fatal("a placement whose probe failed was kept")
+	if p, err := s.native(context.Background(), &place{repo: repo, desc: desc}); p != nil || err == nil {
+		t.Fatalf("a placement whose probe failed = %v, %v", p, err)
+	}
+}
+
+// TestRecorderApplyProbeFailureIsRetried: streams healthy, the apply host's
+// probe fails. The record is not written without its version placement:
+// the Stage is RegistryUnavailable and the operation keeps its finalizer.
+func TestRecorderApplyProbeFailureIsRetried(t *testing.T) {
+	re := newRecEnv(t)
+	streams := newTestRegistry(t)
+	re.rec.Store.Streams = streams.host + "/delivery/streams"
+	re.reg.fault = from(1, http.MethodGet, "/referrers/")
+	re.stage(1)
+	re.concluded("ship", 1, delivery.Succeeded)
+	re.reconcile()
+	if c := condition(re.getStage()); c.Status != "False" || c.Reason != ReasonRegistryUnavailable {
+		t.Fatalf("condition %+v", c)
+	}
+	if len(re.records()) != 0 || !controllerutil.ContainsFinalizer(re.getOp("ship"), dv1.RecordFinalizer) {
+		t.Fatal("the record was written without its version placement")
+	}
+}
+
+// TestRecorderRefusesLegacyNativeDowngrade: a Stage anchored before the
+// mode was recorded has an anchor and no mode, and was native. One answer
+// saying write-once tags must not narrow it.
+func TestRecorderRefusesLegacyNativeDowngrade(t *testing.T) {
+	re := newRecEnv(t)
+	re.reg.unsupported = true
+	re.stage(1)
+	re.setStage(func(s *delivery.StageStatus) {
+		s.Stream.Anchor = deliveryrecord.AnchorRef(re.rec.Store.Streams, testStream)
+	})
+	re.concluded("ship", 1, delivery.Succeeded)
+	re.reconcile()
+	s := re.getStage()
+	if c := condition(s); c.Status != "False" || c.Reason != ReasonRegistryUnavailable || c.Message != errDowngrade.Error() {
+		t.Fatalf("condition %+v", c)
+	}
+	if s.Status.Stream.RegistryMode != "" || len(re.records()) != 0 {
+		t.Fatalf("the downgrade changed the stream: %+v", s.Status.Stream)
 	}
 }
