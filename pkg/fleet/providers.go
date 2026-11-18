@@ -387,7 +387,7 @@ func restrictProviders(rows []Provider, hiddenSvc map[ServiceKey]bool, hiddenNam
 	}
 	out := make([]Provider, 0, len(rows))
 	for i, p := range rows {
-		if len(p.Services) > 0 && !slices.ContainsFunc(p.Services, func(k ServiceKey) bool { return !hiddenSvc[k] }) {
+		if allServicesHidden(p, hiddenSvc) {
 			continue
 		}
 		if !shown[p.Cluster] {
@@ -420,6 +420,12 @@ func restrictProviders(rows []Provider, hiddenSvc map[ServiceKey]bool, hiddenNam
 		out = append(out, p)
 	}
 	return out
+}
+
+// allServicesHidden reports whether p names services and hiddenSvc hides
+// every one of them, so the row goes with them.
+func allServicesHidden(p Provider, hiddenSvc map[ServiceKey]bool) bool {
+	return len(p.Services) > 0 && !slices.ContainsFunc(p.Services, func(k ServiceKey) bool { return !hiddenSvc[k] })
 }
 
 // hideDetectedCluster is the evidence and limitations of p without the
