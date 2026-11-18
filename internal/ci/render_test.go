@@ -13,7 +13,7 @@ func TestTextPlanSkeleton(t *testing.T) {
 		Notes:   []string{"GitHub Enterprise Server: no registry host to assume"},
 		Skipped: []Skip{{Rel: "services/legacy", Rule: ".pactoignore:1"}},
 		Rows: []Row{
-			{Service: "payments", Dir: "services/payments", Impact: Impact{Text: "unverified (not planned)"}, Notes: []string{"a note"}},
+			{Service: "payments", Dir: "services/payments", Impact: Impact{Text: "unverified (pending)"}, Notes: []string{"a note"}},
 			{Dir: "services/broken", Errors: []string{"bad yaml"}},
 		},
 	}
@@ -25,9 +25,9 @@ OIDC: available, not requested in plan mode
 Consumer source: none (IMPACT reads unverified)
 GitHub Enterprise Server: no registry host to assume
 
-SERVICE   CHANGED  VERSION  CLASSIFICATION  IMPACT                    INFERRED
-payments  -        -        -               unverified (not planned)  -
--         -        -        -               -                         -
+SERVICE   CHANGED  VERSION  CLASSIFICATION  IMPACT                INFERRED
+payments  -        -        -               unverified (pending)  -
+-         -        -        -               -                     -
 skipped: services/legacy (from .pactoignore:1)
 payments: a note
 error: services/broken: bad yaml

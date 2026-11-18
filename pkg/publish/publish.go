@@ -283,18 +283,7 @@ func versionCheck(ctx context.Context, reg Registry, b *contract.Bundle, p *Plan
 		ch.Message = "the published versions could not be listed: " + err.Error()
 		return ch
 	}
-	var bases []string                      // the final release first, then the candidate
-	for _, t := range semver.Filter(tags) { // newest first
-		if semver.Compare(t, p.Version) >= 0 {
-			continue
-		}
-		if len(bases) == 0 || !prerelease(t) {
-			bases = append([]string{t}, bases...)
-		}
-		if !prerelease(t) {
-			break
-		}
-	}
+	bases := Bases(tags, p.Version)
 	if len(bases) == 0 {
 		ch.Passed, ch.Message = true, "no earlier version is published, so any version is accepted"
 		return ch
@@ -305,6 +294,26 @@ func versionCheck(ctx context.Context, reg Registry, b *contract.Bundle, p *Plan
 		}
 	}
 	return ch
+}
+
+// Bases are the published versions the version rule judges version against,
+// the final release first: the highest semver tag below version and, when
+// that is a release candidate, the highest final release below it too. An
+// empty version is above every tag.
+func Bases(tags []string, version string) []string {
+	var bases []string
+	for _, t := range semver.Filter(tags) { // newest first
+		if version != "" && semver.Compare(t, version) >= 0 {
+			continue
+		}
+		if len(bases) == 0 || !prerelease(t) {
+			bases = append([]string{t}, bases...)
+		}
+		if !prerelease(t) {
+			break
+		}
+	}
+	return bases
 }
 
 // bumpCheck is the version rule against one published version, which it

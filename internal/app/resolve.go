@@ -83,18 +83,18 @@ func loadLocalBundleNamed(dir, dirName string, overrides override.Overrides, in 
 	if bundle, err = applyOverrides(bundle, overrides); err != nil {
 		return nil, err
 	}
-	return bundle, completeLocal(bundle, dir, dirName, in, cat)
+	return bundle, completeLocal(bundle, dir, dirName, "", in, cat)
 }
 
 // completeLocal completes a bundle read from the folder dir: what it implies
 // (pactoVersion, service.name from dirName) and the inferred record. When
 // discovery fails the bundle stays as declared, with no record, and the error
 // wraps errIncomplete: pack, push and publish refuse it, a read keeps the
-// bundle (readIncomplete). cat classifies external systems; nil is the
-// default catalog.
-func completeLocal(b *contract.Bundle, dir, dirName string, in contract.InferredInputs, cat *externalcatalog.Catalog) error {
+// bundle (readIncomplete). repoDir is the repository root ("" finds it). cat
+// classifies external systems; nil is the default catalog.
+func completeLocal(b *contract.Bundle, dir, dirName, repoDir string, in contract.InferredInputs, cat *externalcatalog.Catalog) error {
 	b.Complete(dirName)
-	if err := discover.CompleteBundle(b, dir, in, cat); err != nil {
+	if err := discover.CompleteBundleIn(b, dir, repoDir, in, cat); err != nil {
 		return fmt.Errorf("%w %s: %w", errIncomplete, dir, err)
 	}
 	return nil
@@ -228,7 +228,7 @@ func (s *Service) resolveBundleAsWritten(ctx context.Context, ref string, overri
 			return nil, nil, err
 		}
 		// completeLocal fails only with errIncomplete, which a read keeps.
-		_ = readIncomplete(ctx, completeLocal(bundle, parsed.Location, dirBase(parsed.Location), s.localInputs(parsed.Location, ""), cat))
+		_ = readIncomplete(ctx, completeLocal(bundle, parsed.Location, dirBase(parsed.Location), "", s.localInputs(parsed.Location, ""), cat))
 	}
 	return bundle, asWritten, nil
 }

@@ -46,12 +46,12 @@ func ciRepo(t *testing.T) string {
 func TestCISkeletonListsServices(t *testing.T) {
 	ciEnvOff(t)
 	statsOff(t)
-	stdout, _, err := runRoot(t, defaultDeps(), nil, "ci", ciRepo(t), "--registry", "r.example/acme")
+	stdout, _, err := runRoot(t, defaultDeps(), nil, "ci", ciRepo(t), "--registry", "127.0.0.1:1/acme")
 	var exit *ExitError
 	if !errors.As(err, &exit) || exit.Code != 2 {
 		t.Fatalf("err = %v, want exit 2", err)
 	}
-	for _, want := range []string{"Registry: r.example/acme (from --registry)\n", "\nledger ", "\npayments ", "skipped: services/legacy (from .pactoignore:1)\n"} {
+	for _, want := range []string{"Registry: 127.0.0.1:1/acme (from --registry)\n", "\nledger ", "\npayments ", "skipped: services/legacy (from .pactoignore:1)\n"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("missing %q in:\n%s", want, stdout)
 		}

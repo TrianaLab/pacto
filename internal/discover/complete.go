@@ -163,10 +163,16 @@ func citeSources(dir, repoDir string, cited map[string]bool) ([]contract.Inferre
 // as computed). A contract before pactoVersion 2.5 is
 // left as read.
 func CompleteBundle(b *contract.Bundle, dir string, in contract.InferredInputs, cat *externalcatalog.Catalog) error {
+	return CompleteBundleIn(b, dir, "", in, cat)
+}
+
+// CompleteBundleIn is CompleteBundle in the repository root repoDir (""
+// finds it, as CompleteIn does).
+func CompleteBundleIn(b *contract.Bundle, dir, repoDir string, in contract.InferredInputs, cat *externalcatalog.Catalog) error {
 	if validation.InferredRecordNeedsRaise(b.Contract.PactoVersion) {
 		return nil
 	}
-	rec, err := Complete(dir, b.Contract, in, cat)
+	rec, err := CompleteIn(dir, repoDir, b.Contract, in, cat)
 	if err != nil || rec == nil {
 		b.FS = contract.WithoutInferredRecord(b.FS)
 		return err

@@ -61,6 +61,17 @@ func CheckBump(base, next string, need Bump) error {
 	return fmt.Errorf("%s needs a %s bump over %s: publish %s or higher", next, need, base, floor.String())
 }
 
+// Floor is the smallest version need allows above the published version
+// base: the version the version rule derives for an undeclared one.
+func Floor(base string, need Bump) (string, error) {
+	b, err := semver.NewVersion(base)
+	if err != nil {
+		return "", fmt.Errorf("the published version %q is not semver", base)
+	}
+	f := floorOf(b, need)
+	return f.String(), nil
+}
+
 // floorOf is the smallest version need allows above b.
 func floorOf(b *semver.Version, need Bump) semver.Version {
 	switch need {

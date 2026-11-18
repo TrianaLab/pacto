@@ -409,31 +409,35 @@ func sourceFile(source string) string {
 // of any copy fsys holds, without copying the rest: a local read overlays the
 // record it computed on the folder it read.
 func WithInferredRecord(fsys fs.FS, data []byte) fs.FS {
-	return recordFS{base: fsys, record: fstest.MapFS{InferredRecordFile: {Data: data, Mode: 0o644}}}
+	return recordFS{base: fsys, name: InferredRecordFile, record: fstest.MapFS{InferredRecordFile: {Data: data, Mode: 0o644}}}
 }
 
 // WithoutInferredRecord is fsys with no pacto.inferred.yaml: what a local
 // hash reads, since the record names the commit and would move it on every
 // commit.
-func WithoutInferredRecord(fsys fs.FS) fs.FS {
-	return recordFS{base: fsys, record: fstest.MapFS{}}
+func WithoutInferredRecord(fsys fs.FS) fs.FS { return WithoutFile(fsys, InferredRecordFile) }
+
+// WithoutFile is fsys with no root file name, without copying the rest.
+func WithoutFile(fsys fs.FS, name string) fs.FS {
+	return recordFS{base: fsys, name: name, record: fstest.MapFS{}}
 }
 
-// recordFS is base with its root pacto.inferred.yaml taken from record.
+// recordFS is base with its root file name taken from record.
 type recordFS struct {
 	base   fs.FS
-	record fstest.MapFS // holds the record, or nothing to hide it
+	name   string
+	record fstest.MapFS // holds the file, or nothing to hide it
 }
 
 func (r recordFS) Open(name string) (fs.File, error) {
-	if name == InferredRecordFile {
+	if name == r.name {
 		return r.record.Open(name)
 	}
 	return r.base.Open(name)
 }
 
 func (r recordFS) Stat(name string) (fs.FileInfo, error) {
-	if name == InferredRecordFile {
+	if name == r.name {
 		return r.record.Stat(name)
 	}
 	return fs.Stat(r.base, name)
@@ -444,8 +448,8 @@ func (r recordFS) ReadDir(name string) ([]fs.DirEntry, error) {
 	if name != "." || err != nil {
 		return entries, err
 	}
-	entries = slices.DeleteFunc(entries, func(e fs.DirEntry) bool { return e.Name() == InferredRecordFile })
-	if info, err := r.record.Stat(InferredRecordFile); err == nil {
+	entries = slices.DeleteFunc(entries, func(e fs.DirEntry) bool { return e.Name() == r.name })
+	if info, err := r.record.Stat(r.name); err == nil {
 		entries = append(entries, fs.FileInfoToDirEntry(info))
 		slices.SortFunc(entries, func(a, b fs.DirEntry) int { return strings.Compare(a.Name(), b.Name()) })
 	}

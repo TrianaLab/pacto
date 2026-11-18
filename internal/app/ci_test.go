@@ -55,7 +55,7 @@ func TestCIPlanSkeleton(t *testing.T) {
 	if p.Rows[1].Inferred != 0 || p.Rows[2].Inferred == 0 {
 		t.Fatalf("inferred counts = %d, %d", p.Rows[1].Inferred, p.Rows[2].Inferred)
 	}
-	if p.Exit != 2 || p.Rows[2].Impact.Text != "unverified (not planned)" {
+	if p.Exit != 1 || p.Rows[2].Impact.Text != "unverified (registry inferred from images; pass --registry)" {
 		t.Fatalf("exit %d, impact %+v", p.Exit, p.Rows[2].Impact)
 	}
 }
