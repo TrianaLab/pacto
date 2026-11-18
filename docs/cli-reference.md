@@ -157,6 +157,48 @@ pacto agent [flags]
 
 ---
 
+## `pacto ci`
+
+Walks root (default .) for pacto.yaml, skipping the folders the root .pactoignore names, and prints one plan: the CI platform, the registry and the base, each with its source, then one row per service.
+
+The exit status follows the plan: 0 clear, 1 blocked, 2 unverified. A repository with no pacto.yaml exits 2.
+
+```
+pacto ci [root] [flags]
+```
+
+**Examples:**
+
+```
+  # Plan every service of this repository against a registry
+  pacto ci --registry ghcr.io/acme
+```
+
+**Flags:**
+
+```
+      --cache[=true|false]         include every bundle in the local OCI cache as an offline baseline revision
+      --detected string            add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
+      --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
+      --external-catalog string    organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
+      --freshness duration         mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
+  -h, --help[=true|false]          help for ci
+      --k8s[=true|false]           include live Pacto CRs from the current Kubernetes cluster as targets
+      --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
+      --mira-source stringArray    base URL of a Mira node whose service map supplies observed calls between services (repeatable)
+      --namespace string           namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)
+      --oci stringArray            registry reference to include as a published-baseline revision (repeatable)
+      --registry string            registry the services publish to, for example ghcr.io/acme; default from the CI platform
+      --root stringArray           contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
+      --stats-context string       comma-separated context to include in the run record: repository, run-url, environment=<name>; nothing is included unless named
+      --stats-file string          write the run record to this file for pacto stats publish, replacing the record it holds, so give each command its own file; default $PACTO_STATS_FILE
+      --stats-registry string      publish an unsigned run record (statistics, never evidence) to this repository, for example ghcr.io/acme/pacto-stats; default $PACTO_STATS_REGISTRY
+      --target-state stringArray   offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
+      --traces stringArray         OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
+```
+
+---
+
 ## `pacto completion`
 
 Generate the autocompletion script for pacto for the specified shell.

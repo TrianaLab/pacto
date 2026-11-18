@@ -85,7 +85,7 @@ const (
 // surfaceRows maps every CLI flag, MCP argument and dashboard parameter of
 // the fleet, delivery, impact and contract surfaces to its concept. A story
 // that adds one adds its row here in the same commit.
-var surfaceRows = slices.Concat(fleetRows(), fleetDetailRows(), impactRows(), deliveryRows(), deliveryWriteRows(), deliveryViewRows(), authoringRows(), statsRows(), publishRows(), evidenceRows())
+var surfaceRows = slices.Concat(fleetRows(), fleetDetailRows(), impactRows(), deliveryRows(), deliveryWriteRows(), deliveryViewRows(), authoringRows(), statsRows(), publishRows(), evidenceRows(), ciRows())
 
 func fleetRows() []surfaceRow {
 	return slices.Concat(
@@ -325,6 +325,16 @@ func evidenceRows() []surfaceRow {
 		"collector", "configuration", "contract", "cost", "dependency", "environment", "external-ref", "metric", "observed-at", "outcome", "provider", "subject")
 }
 
+// ciRows map pacto ci, the CI entry point. Its shared fleet source flags are
+// the ones every fleet command takes, so only its own flags are named.
+func ciRows() []surfaceRow {
+	const whyCI = "pacto ci is the CI entry point that plans every service of a repository; MCP answers the same per service with pacto_check and pacto_impact, and the dashboard publishes nothing"
+	return slices.Concat(
+		alike("ci", "", "", whyCI, "registry"),
+		alike("ci", "", "", "a run record is a CI statistic the CLI writes; MCP and the dashboard record no runs", "stats-context", "stats-file", "stats-registry"),
+	)
+}
+
 // parityCommands are the commands whose own flags the mapping covers.
 var parityCommands = []string{
 	"fleet entities", "fleet entity", "fleet attention", "fleet neighborhood", "fleet versions", "fleet search",
@@ -333,7 +343,7 @@ var parityCommands = []string{
 	"delivery record get", "delivery record verify", "delivery get", "delivery explain", "delivery undo", "delivery plan",
 	"delivery propose", "delivery cancel", "delivery describe", "delivery types", "delivery approve",
 	"delivery caller", "delivery inbox", "delivery environments", "delivery autonomy", "delivery published", "delivery refusals",
-	"impact", "init", "validate", "explain", "stats", "publish", "evidence usage",
+	"impact", "init", "validate", "explain", "stats", "publish", "evidence usage", "ci",
 }
 
 // surfaces is what the three surfaces expose at HEAD.
