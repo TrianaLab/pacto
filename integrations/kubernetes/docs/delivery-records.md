@@ -111,7 +111,7 @@ Without the Referrers API, each record is a tag in the streams repository:
   the record by content.
 - The recorder never tags an apply or contract repository. A record keeps
   its referrer on a version or contract only where that registry serves the
-  Referrers API.
+  Referrers API, and gets none where the recorder could not probe it.
 - Records are signed and verified the same way in both modes, and every
   reader reads both forms, so a stream keeps its history when its registry
   gains the Referrers API.

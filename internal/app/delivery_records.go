@@ -343,6 +343,12 @@ func (d *Delivery) precedent(ctx context.Context, stage *delivery.StageObject, t
 		}
 		p.Entries = precedentEntries(r.Fold.Records, to)
 		p.Note = "the registry serves no Referrers API, so only this Stage's records were read"
+		switch {
+		case d.Trust == nil:
+			p.Note += "; no trust config was given, so no signature was checked"
+		case len(r.Unreadable) > 0:
+			p.Note += "; some records of this Stage could not be verified: " + strings.Join(r.Unreadable, "; ")
+		}
 		return p
 	}
 	l, err := d.subjectRecords(ctx, stage, to)

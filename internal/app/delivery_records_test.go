@@ -1128,6 +1128,24 @@ func TestPrecedentWriteOnceTagsNeverComplete(t *testing.T) {
 	}
 }
 
+// TestPrecedentWriteOnceTagsSaysWhatWasNotVerified: without a trust config,
+// or with one that verifies no record, the write-once-tags note says so next
+// to the Referrers limit.
+func TestPrecedentWriteOnceTagsSaysWhatWasNotVerified(t *testing.T) {
+	e, stage := writeOnceStage(t)
+	e.d.Trust = nil
+	if p := e.d.precedent(context.Background(), stage, dlA); p.Note != "the registry serves no Referrers API, so only this Stage's records were read; no trust config was given, so no signature was checked" {
+		t.Fatalf("precedent without trust = %+v", p)
+	}
+	other, _, _ := ed25519.GenerateKey(rand.Reader)
+	pemKey, _ := delivery.PublicKeyPEM(other)
+	e.d.Trust = &delivery.TrustConfig{Keys: []delivery.TrustedKey{{PublicKey: pemKey, Streams: []string{"*"}}}}
+	e.d.Streams = nil
+	if p := e.d.precedent(context.Background(), stage, dlA); p.Completeness != "partial" || !strings.Contains(p.Note, "; some records of this Stage could not be verified: ") {
+		t.Fatalf("precedent with an untrusted signer = %+v", p)
+	}
+}
+
 // TestPrecedentNativeNote: a native precedent says it read the Stages that
 // attach records to the version.
 func TestPrecedentNativeNote(t *testing.T) {

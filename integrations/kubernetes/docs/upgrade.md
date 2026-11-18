@@ -192,7 +192,8 @@ counts no approval.
 
 - Stages gain `status.stream.registryMode` (`native` or `write-once-tags`),
   which only the recorder may write. `helm upgrade` installs the new field
-  with the CRDs.
+  with the CRDs. A Stage that was ready before the upgrade shows the mode
+  after the recorder writes its next record.
 - The `RecordStoreReady` reason `ReferrersUnsupported` is gone. A streams
   repository on a registry without the OCI Referrers API, such as GHCR, now
   holds records as [write-once tags](delivery-records.md#write-once-tags) and
