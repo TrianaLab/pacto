@@ -70,15 +70,21 @@ registry lists its record.
   recorder signs a `delivery.pacto.trianalab.io/identity-pin/v1` statement
   before the trust operation's own record: the service, the signer's issuer,
   exact subject and repository, who confirmed it, the approval record of
-  that decision, the operation and the time.
+  that decision, the operation, the namespace of the Stage it was confirmed
+  on and the time.
 - It lives on the service's own stream `pins/<domain or ->/<name>` in the
   streams repository (the domain path-escaped, so `ghcr.io/acme` reads
   `ghcr.io%2Facme`), as a referrer or a [write-once tag](#write-once-tags)
   like every record, so anyone who reads the registry reads it.
-- The promoter and clients use the newest pin by signed time, and only one
-  that verifies under the recorder's pin key and cites an approval record
-  that verifies and names the same identity. Any other pin is listed as
-  unreadable with why.
+- A pin counts only for the Stages of the namespace it names, and only when
+  the approval record it cites answers an operation in that namespace, so a
+  confirmation in one namespace never decides for a Stage of the same service
+  in another.
+- The promoter and clients use the newest pin of a namespace by signed time,
+  so confirming a changed signer stops trusting the one it replaced. They use
+  only a pin that verifies under the recorder's pin key and cites an approval
+  record that verifies and names the same identity. Any other pin is listed
+  as unreadable with why.
 - To let another cluster's recorder sign pins for these services, give its
   key in `delivery.recorder.trust` an explicit `pins/` stream pattern, such
   as `pins/*/*` for every service. A pin stream has three segments, so

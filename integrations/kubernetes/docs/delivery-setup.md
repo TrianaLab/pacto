@@ -252,7 +252,7 @@ spec:
 
 | Value | What it sets |
 |---|---|
-| `delivery.publishers.registry` | The `host/org` your services publish to. On `ghcr.io` and `registry.gitlab.com` the promoter derives a rule from it; empty, a `candidates.registry` Stage promotes nothing |
+| `delivery.publishers.registry` | The `host/org` your services publish to. On `ghcr.io` and `registry.gitlab.com` the promoter derives a rule from it; empty, only the policy or a person's confirmation in the inbox accepts a signer |
 | `delivery.publishers.defaultBranch` | The branch whose CI the derived rule accepts (`main`) |
 | `delivery.publishers.policy` | A signed delivery policy (`repository:tag`) that replaces the derived rule |
 | `delivery.publishers.policySigners` | The trust config whose `role: policy` keys sign that policy |

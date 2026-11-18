@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
@@ -33,7 +34,7 @@ func (w *watchWorld) trustOps() []dv1.Operation {
 
 // pinned makes the world's pin reader return pins of payments.
 func (w *watchWorld) pinned(pins ...deliveryrecord.Pin) {
-	w.p.Pins = func(context.Context, delivery.ServiceRef) (deliveryrecord.PinListing, error) {
+	w.p.Pins = func(context.Context, string, delivery.ServiceRef) (deliveryrecord.PinListing, error) {
 		return deliveryrecord.PinListing{Pins: pins}, nil
 	}
 }
@@ -264,8 +265,8 @@ func TestTrustOperationAgainOnChangedSigner(t *testing.T) {
 // is used and the message says so; the mark stays.
 func TestPinDeletionDoesNotRollBack(t *testing.T) {
 	w := newWatch(t, registryAt("-"))
-	old := pinFor(otherID, "sha256:p1", "2026-10-19T10:00:00Z")
-	w.pinned(pinFor(delivery.PublisherIdentity{Issuer: ghIssuer, Subject: thirdSub, Repository: thirdRepo}, "sha256:p2", "2026-10-20T10:00:00Z"), old)
+	old := pinFor(delivery.PublisherIdentity{Issuer: ghIssuer, Subject: thirdSub, Repository: thirdRepo}, "sha256:p1", "2026-10-19T10:00:00Z")
+	w.pinned(pinFor(otherID, "sha256:p2", "2026-10-20T10:00:00Z"), old)
 	d := w.push("1.0.0", otherRepo, w.ci(otherSub, otherRepo))
 	if st := w.reconcile(); !slices.Contains(st.Published, d) || st.Publisher.PinDigest != "sha256:p2" {
 		t.Fatalf("both pins: %+v", st.Publisher)
@@ -282,9 +283,60 @@ func TestPinDeletionDoesNotRollBack(t *testing.T) {
 	}
 }
 
+// TestNewerPinReplacesOlder: confirming a changed signer stops trusting the
+// one it replaced: only the newest pin is used.
+func TestNewerPinReplacesOlder(t *testing.T) {
+	w := newWatch(t, registryAt("-"))
+	w.pinned(pinFor(otherID, "sha256:p1", "2026-10-19T10:00:00Z"))
+	d := w.push("1.0.0", otherRepo, w.ci(otherSub, otherRepo))
+	if st := w.reconcile(); !slices.Contains(st.Published, d) {
+		t.Fatalf("first pin: %+v", st.Publisher)
+	}
+	third := delivery.PublisherIdentity{Issuer: ghIssuer, Subject: thirdSub, Repository: thirdRepo}
+	w.pinned(pinFor(third, "sha256:p2", "2026-10-20T10:00:00Z"), pinFor(otherID, "sha256:p1", "2026-10-19T10:00:00Z"))
+	st := w.reconcile()
+	if v := watchVerdict(t, st, d); v.Verdict == delivery.VerdictAccepted || slices.Contains(st.Published, d) || st.Publisher.Pins != 1 {
+		t.Fatalf("the replaced signer: %+v %+v", v, st.Publisher)
+	}
+}
+
+// TestPinsPartialReadNeverDecides: a pin listing that could not be read, a
+// pin whose approval record could not be read, or a cut listing missing the
+// newest pin leave every signer the pins may cover unknown: published as it
+// was, nobody asked and Ready False.
+func TestPinsPartialReadNeverDecides(t *testing.T) {
+	for name, l := range map[string]func() (deliveryrecord.PinListing, error){
+		"unreadable": func() (deliveryrecord.PinListing, error) { return deliveryrecord.PinListing{}, errors.New("503") },
+		"incomplete": func() (deliveryrecord.PinListing, error) {
+			return deliveryrecord.PinListing{Pins: []deliveryrecord.Pin{}, Unreadable: []string{"sha256:x: approval 503"}, Incomplete: true}, nil
+		},
+		"cut": func() (deliveryrecord.PinListing, error) {
+			return deliveryrecord.PinListing{Pins: []deliveryrecord.Pin{pinFor(otherID, "sha256:p0", "2026-10-01T10:00:00Z")}, Cut: true}, nil
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := newWatch(t, registryAt("-"))
+			w.pinned(pinFor(otherID, "sha256:p1", "2026-10-19T10:00:00Z"))
+			d := w.push("1.0.0", otherRepo, w.ci(otherSub, otherRepo))
+			if st := w.reconcile(); !slices.Contains(st.Published, d) {
+				t.Fatalf("pinned: %+v", st.Publisher)
+			}
+			w.p.Pins = func(context.Context, string, delivery.ServiceRef) (deliveryrecord.PinListing, error) { return l() }
+			w.push("1.1.0", thirdRepo, w.ci(thirdSub, thirdRepo))
+			st := w.reconcile()
+			if v := watchVerdict(t, st, d); v.Verdict != delivery.VerdictUnknown || !slices.Contains(st.Published, d) || len(w.trustOps()) != 0 {
+				t.Fatalf("verdict %+v published %v ops %d", v, st.Published, len(w.trustOps()))
+			}
+			if r := readyReasonOf(t, st); r.Status != "False" || r.Reason != delivery.ReadyReasonRegistryUnreadable {
+				t.Fatalf("ready %+v", r)
+			}
+		})
+	}
+}
+
 func TestPinsUnreadable(t *testing.T) {
 	w := newWatch(t, registryAt("-"))
-	w.p.Pins = func(context.Context, delivery.ServiceRef) (deliveryrecord.PinListing, error) {
+	w.p.Pins = func(context.Context, string, delivery.ServiceRef) (deliveryrecord.PinListing, error) {
 		return deliveryrecord.PinListing{}, errors.New("registry down")
 	}
 	d := w.push("1.0.0", otherRepo, w.ci(otherSub, otherRepo))
@@ -292,7 +344,7 @@ func TestPinsUnreadable(t *testing.T) {
 	if !strings.Contains(st.Publisher.Message, "the pins of payments could not be read (registry down)") || slices.Contains(st.Published, d) {
 		t.Fatalf("status %+v", st.Publisher)
 	}
-	w.p.Pins = func(context.Context, delivery.ServiceRef) (deliveryrecord.PinListing, error) {
+	w.p.Pins = func(context.Context, string, delivery.ServiceRef) (deliveryrecord.PinListing, error) {
 		return deliveryrecord.PinListing{Pins: []deliveryrecord.Pin{}, Unreadable: []string{"sha256:x: bad"}}, nil
 	}
 	if st := w.reconcile(); !strings.Contains(st.Publisher.Message, "1 pins of payments could not be used: sha256:x: bad") {
@@ -309,5 +361,29 @@ func TestTrustAskListFails(t *testing.T) {
 	w.p.listings = nil
 	if _, err := w.e.st.registryReady(t.Context(), w.e.getStage()); err == nil {
 		t.Fatal("an unlistable cluster raised a trust operation")
+	}
+}
+
+// TestExpiredSignerAskedAgain: a trust operation nobody answered before its
+// deadline is asked again; a person's rejection is not.
+func TestExpiredSignerAskedAgain(t *testing.T) {
+	w := newWatch(t, registryAt("-"))
+	w.push("1.0.0", otherRepo, w.ci(otherSub, otherRepo))
+	w.reconcile()
+	o := w.e.drive(w.trustOps()[0].Name)
+	w.e.now = w.e.now.Add(25 * time.Hour)
+	wantOutcome(t, w.e.drive(o.Name), delivery.Expired, "")
+	w.reconcile()
+	// The recorder records the expired one and lets it go.
+	gone := w.e.getOp(o.Name)
+	if gone.DeletionTimestamp == nil {
+		t.Fatal("the expired operation was not deleted")
+	}
+	gone.Finalizers = nil
+	must(t, w.e.c.Update(t.Context(), gone))
+	w.reconcile()
+	ops := w.trustOps()
+	if len(ops) != 1 || ops[0].DeletionTimestamp != nil || ops[0].Status.Phase == delivery.PhaseConcluded {
+		t.Fatalf("not asked again: %+v", ops)
 	}
 }

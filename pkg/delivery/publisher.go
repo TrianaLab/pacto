@@ -123,8 +123,12 @@ type PublisherRule struct {
 
 // IdentityPin is a person's confirmation that one CI identity may publish one
 // service: Approval is the approval record id, Operation the trust operation.
+// Namespace is the namespace of the Stage whose trust operation was
+// confirmed: only Stages of that namespace use the pin, so a confirmation in
+// one namespace never decides for a Stage of the same service in another.
 type IdentityPin struct {
 	Service    ServiceRef `json:"service" doc:"The service the identity may publish"`
+	Namespace  string     `json:"namespace" doc:"The namespace of the Stage whose trust operation a person confirmed; only Stages of that namespace use the pin"`
 	Issuer     string     `json:"issuer" doc:"The pinned signer's OIDC issuer"`
 	Subject    string     `json:"subject" doc:"The pinned signer's exact subject"`
 	Repository string     `json:"repository" doc:"The source repository the pinned signer attests"`
@@ -468,8 +472,8 @@ type PendingSigner struct {
 	Digest    string            `json:"digest" doc:"The digest it signed"`
 	Namespace string            `json:"namespace" doc:"The Stage's namespace"`
 	Stage     string            `json:"stage" doc:"The Stage whose registry watch read it"`
-	Operation string            `json:"operation,omitempty" doc:"The held trust operation a person answers; empty while another trust operation of the Stage is pending"`
-	Reason    string            `json:"reason" doc:"Why a person is asked"`
+	Operation string            `json:"operation,omitempty" doc:"The trust operation of the identity: held while a person is asked, concluded when a person already answered it (the reason says how); empty while another trust operation of the Stage is pending"`
+	Reason    string            `json:"reason" doc:"Why a person is asked, or why nobody is asked again yet"`
 }
 
 // ServiceTrust is what one service's publishers are: the identities a
@@ -477,9 +481,9 @@ type PendingSigner struct {
 // Stages' registry watch (each list capped at MaxTrustItems).
 type ServiceTrust struct {
 	Service  ServiceRef         `json:"service"`
-	Pins     []IdentityPin      `json:"pins" doc:"The identities a person confirmed for the service, newest first"`
+	Pins     []IdentityPin      `json:"pins" doc:"The identities a person confirmed for the service, newest first; the newest of each namespace is the one its Stages use. null when they could not be read (unreadable says why)" nullable:"true"`
 	Pending  []PendingSigner    `json:"pending" doc:"The CI identities that wait for a person to confirm them"`
-	Verdicts []PublisherVerdict `json:"verdicts" doc:"The newest digests its Stages' registry watch judged, newest first"`
+	Verdicts []PublisherVerdict `json:"verdicts" doc:"The newest digests its Stages' registry watch judged, newest first; each at is when the verdict was first reached"`
 }
 
 // TrustView is which publishers each service accepts: the installation's
@@ -489,13 +493,17 @@ type TrustView struct {
 	Listing
 	// +optional
 	Rule       *PublisherRule `json:"rule,omitempty" doc:"The installation's publisher rule, derived from delivery.publishers.registry"`
-	RuleSource string         `json:"ruleSource" enum:"rule,policy,none" doc:"What every service is judged against: the installation's rule, the signed policy, or none when only a person's pin accepts a signer"`
+	RuleSource string         `json:"ruleSource" enum:"rule,policy,none,unknown" doc:"What every service is judged against: the installation's rule, the signed policy, none when only a person's pin accepts a signer, or unknown when the publisher trust config could not be read"`
 	// +optional
-	NoRule string `json:"noRule,omitempty" doc:"Why no rule or policy accepts a signer, so only pins do"`
+	NoRule string `json:"noRule,omitempty" doc:"Why no rule or policy accepts a signer, so only pins do, or why the rule is unknown"`
 	// +optional
 	Policy   *PolicyState   `json:"policy,omitempty" doc:"The signed delivery policy, when the installation names one"`
 	Services []ServiceTrust `json:"services"`
 }
+
+// PublisherSourceUnknown is a trust view's rule source when the publisher
+// trust config could not be read.
+const PublisherSourceUnknown = "unknown"
 
 // TrustServices are the services of the Stages that watch the registry
 // (candidates.registry), sorted by name and domain.
@@ -510,34 +518,72 @@ func TrustServices(stages []StageObject) []ServiceRef {
 	return out
 }
 
+// TrustNamespaces are the namespaces of the Stages that watch the registry
+// for svc, sorted: pins are kept per namespace.
+func TrustNamespaces(stages []StageObject, svc ServiceRef) []string {
+	var out []string
+	for _, st := range stages {
+		if st.Spec.Candidates.Registry != nil && st.Spec.Service == svc && !slices.Contains(out, st.Metadata.Namespace) {
+			out = append(out, st.Metadata.Namespace)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
 // TrustOf is the trust view of the Stages and operations the caller listed,
-// judged under cfg: pins (nil reads none) gives a service's pins. Only
-// services of the listed Stages are named. AsOf and completeness are the
-// caller's to set.
-func TrustOf(cfg PublisherConfig, stages []StageObject, ops []OperationObject, pins func(ServiceRef) []IdentityPin) TrustView {
+// judged under cfg: pins (nil reads none) gives the pins of a service in a
+// namespace, nil when they could not be read. Only services of the listed
+// Stages and pins of their namespaces are named. A listed Stage whose watch
+// cannot judge is named in Unreadable; AsOf and completeness are the caller's
+// to set.
+func TrustOf(cfg PublisherConfig, stages []StageObject, ops []OperationObject, pins func(ns string, svc ServiceRef) []IdentityPin) TrustView {
 	v := TrustView{Services: []ServiceTrust{}}
 	trustRule(&v, cfg, stages)
 	for _, svc := range TrustServices(stages) {
 		st := ServiceTrust{Service: svc, Pins: []IdentityPin{}, Pending: []PendingSigner{}, Verdicts: []PublisherVerdict{}}
-		if pins != nil {
-			st.Pins = append(st.Pins, pins(svc)...)
+		for _, ns := range TrustNamespaces(stages, svc) {
+			if pins == nil || st.Pins == nil {
+				continue
+			}
+			p := pins(ns, svc)
+			if p == nil {
+				st.Pins = nil
+				continue
+			}
+			st.Pins = append(st.Pins, p...)
 		}
 		for _, s := range stages {
 			if s.Spec.Candidates.Registry != nil && s.Spec.Service == svc {
 				serviceTrustOf(&st, s, ops)
+				v.Unreadable = append(v.Unreadable, watchUnreadable(s)...)
 			}
 		}
+		slices.SortStableFunc(st.Pins, func(a, b IdentityPin) int { return cmp.Compare(b.At, a.At) })
 		slices.SortStableFunc(st.Verdicts, func(a, b PublisherVerdict) int { return cmp.Compare(b.At, a.At) })
-		st.Pins, st.Pending, st.Verdicts = st.Pins[:min(len(st.Pins), MaxTrustItems)],
-			st.Pending[:min(len(st.Pending), MaxTrustItems)], st.Verdicts[:min(len(st.Verdicts), MaxTrustItems)]
+		if st.Pins != nil {
+			st.Pins = st.Pins[:min(len(st.Pins), MaxTrustItems)]
+		}
+		st.Pending, st.Verdicts = st.Pending[:min(len(st.Pending), MaxTrustItems)], st.Verdicts[:min(len(st.Verdicts), MaxTrustItems)]
 		v.Services = append(v.Services, st)
 	}
 	return v
 }
 
+// watchUnreadable names a registry Stage whose watch cannot judge (Ready
+// False because the registry, the trusted root, the policy or the pins
+// could not be read), so its verdicts and pending signers may be stale.
+func watchUnreadable(s StageObject) []string {
+	r := readyOf(s.Status)
+	if r == nil || r.Status == "True" || (r.Reason != ReadyReasonRegistryUnreadable && r.Reason != ReadyReasonPublisherUnverifiable) {
+		return nil
+	}
+	return []string{"the registry watch of " + s.Metadata.Namespace + "/" + s.Metadata.Name + " cannot judge, so its verdicts may be stale: " + r.Message}
+}
+
 // trustRule sets what every service is judged against: the policy cfg
-// names (with the newest digest a listed Stage verified), else the derived
-// rule, else nothing.
+// names (with the newest digest a listed Stage's watch judges with), else
+// the derived rule, else nothing.
 func trustRule(v *TrustView, cfg PublisherConfig, stages []StageObject) {
 	if cfg.Policy == "" {
 		r, why := cfg.Rule()
@@ -550,23 +596,29 @@ func trustRule(v *TrustView, cfg PublisherConfig, stages []StageObject) {
 	}
 	v.RuleSource, v.Policy = PublisherSourcePolicy, &PolicyState{Ref: cfg.Policy}
 	for _, s := range stages {
-		if p := s.Status.Publisher; p != nil && p.PolicyDigest != "" && p.PolicyAt > v.Policy.At {
+		// The digests a status keeps are high-water marks: only a watch that
+		// judges with the policy now says it is in force.
+		if p := s.Status.Publisher; p != nil && p.Source == PublisherSourcePolicy && p.PolicyDigest != "" && p.PolicyAt > v.Policy.At {
 			v.Policy.Digest, v.Policy.At = p.PolicyDigest, p.PolicyAt
 		}
 	}
 	if v.Policy.Digest == "" {
-		v.NoRule = "no Stage you can list has verified the delivery policy " + cfg.Policy + ", so only pinned signers are accepted"
+		v.NoRule = "no Stage you can list judges with a verified delivery policy " + cfg.Policy + ", so only pinned signers are accepted"
 	}
 }
 
 // serviceTrustOf adds what Stage s knows to st: its watch's verdicts, its
-// held trust operations and the new signers no operation asks about yet.
+// held trust operations and the new signers no held operation asks about:
+// one a person already answered says so.
 func serviceTrustOf(st *ServiceTrust, s StageObject, ops []OperationObject) {
-	asked := map[string]bool{}
+	asked, ended := map[string]bool{}, map[string]OperationObject{}
 	for _, o := range ops {
 		p := o.Spec.Params.Publisher
-		if o.Spec.Type != TypeTrust || o.Status.Phase == PhaseConcluded || p == nil ||
-			o.Metadata.Namespace != s.Metadata.Namespace || o.Spec.Stage != s.Metadata.Name {
+		if o.Spec.Type != TypeTrust || p == nil || o.Metadata.Namespace != s.Metadata.Namespace || o.Spec.Stage != s.Metadata.Name {
+			continue
+		}
+		if o.Status.Phase == PhaseConcluded {
+			ended[o.Metadata.Name] = o
 			continue
 		}
 		asked[p.Issuer+"|"+p.Subject+"|"+p.Repository] = true
@@ -583,7 +635,27 @@ func serviceTrustOf(st *ServiceTrust, s StageObject, ops []OperationObject) {
 			continue
 		}
 		asked[id.Issuer+"|"+id.Subject+"|"+id.Repository] = true
-		st.Pending = append(st.Pending, PendingSigner{Identity: *id, Digest: vd.Digest, Namespace: s.Metadata.Namespace,
-			Stage: s.Metadata.Name, Reason: vd.Reason})
+		ps := PendingSigner{Identity: *id, Digest: vd.Digest, Namespace: s.Metadata.Namespace, Stage: s.Metadata.Name, Reason: vd.Reason}
+		if o, ok := ended[TrustOperationName(s.Metadata.Name, *id)]; ok {
+			ps.Operation, ps.Reason = o.Metadata.Name, answered(o)
+		}
+		st.Pending = append(st.Pending, ps)
 	}
+}
+
+// answered is why a signer whose trust operation o concluded is not asked
+// again yet.
+func answered(o OperationObject) string {
+	at := o.Status.Times.Finished
+	switch o.Status.Outcome {
+	case Rejected:
+		by := "a person"
+		if n := len(o.Status.Approvals); n > 0 {
+			by = o.Status.Approvals[n-1].By
+		}
+		return "refused by " + by + " at " + at + " in " + o.Metadata.Name + "; it is asked again once that operation is collected"
+	case Succeeded:
+		return "confirmed at " + at + " in " + o.Metadata.Name + ", but no pin of it is in use"
+	}
+	return "the trust operation " + o.Metadata.Name + " ended " + string(o.Status.Outcome) + " at " + at + "; it is asked again"
 }

@@ -105,7 +105,7 @@ func runPromoter(args []string) error {
 		"The registry (host/org) the installation's services publish to. Stages with candidates.registry accept a "+
 			"version only when its Sigstore signature comes from the publisher rule derived from it: on ghcr.io and "+
 			"registry.gitlab.com the organization's CI on the default branch. "+
-			"Empty: no Stage with candidates.registry promotes.")
+			"Empty: no rule, so only the signed delivery policy or a person's confirmation (a pin) accepts a signer.")
 	pubBranch := fs.String("publishers-default-branch", "main",
 		"The default branch whose CI the derived publisher rule accepts.")
 	pubRoot := fs.String("publishers-trusted-root", "",
@@ -376,9 +376,6 @@ func kubeClusterID(mgr ctrl.Manager) (string, error) {
 // empty. A trusted root file that cannot be read fails startup.
 func publishers(registry, branch, trustedRoot string, keychain authn.Keychain, insecure []string,
 	resync time.Duration) (*delivery.Publishers, error) {
-	if registry == "" {
-		return nil, nil
-	}
 	fetch := func() (root.TrustedMaterial, error) { return signing.PublicGoodRootReadOnly(tuf.DefaultMirror) }
 	if trustedRoot != "" {
 		raw, err := os.ReadFile(trustedRoot)
@@ -391,7 +388,8 @@ func publishers(registry, branch, trustedRoot string, keychain authn.Keychain, i
 		}
 		fetch = func() (root.TrustedMaterial, error) { return tr, nil }
 	}
-	rule, why := core.DeriveRule(registry, branch)
+	// No registry derives no rule: the policy and pins still judge (TOFU).
+	rule, why := core.PublisherConfig{Registry: registry, DefaultBranch: branch}.Rule()
 	return &delivery.Publishers{Root: fetch, Rule: rule, HasRule: why == "", NoRule: why, Resync: resync, Now: time.Now,
 		Reg: func(hosts ...string) publish.Registry {
 			return publish.NewClient(keychain, slices.Concat(insecure, hosts)...)
@@ -404,9 +402,6 @@ func publishers(registry, branch, trustedRoot string, keychain authn.Keychain, i
 // a trust config that cannot be read, fails startup.
 func trustSources(p *delivery.Publishers, policy core.ClassPolicy, opts ocireferrer.Options, records bool,
 	policyRef, policySigners, recordsRepo, pinSigner, recordTrust string) error {
-	if p == nil {
-		return nil
-	}
 	if policyRef != "" {
 		raw, err := os.ReadFile(policySigners)
 		if err != nil {

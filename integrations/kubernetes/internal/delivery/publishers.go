@@ -20,6 +20,7 @@ import (
 
 	"github.com/sigstore/sigstore-go/pkg/root"
 	"oras.land/oras-go/v2/registry/remote"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
@@ -31,10 +32,13 @@ import (
 )
 
 // Bounds of the watch's memos: how long a failed signature read and a failed
-// root fetch are kept, and how many digests' signers are kept.
+// root fetch are kept, how long a fetched root is used before it is fetched
+// again (Sigstore rotates and adds keys through TUF) and how many digests'
+// signers are kept.
 const (
 	signerRetry   = 5 * time.Minute
 	rootRetry     = time.Minute
+	rootRefresh   = time.Hour
 	maxSignerMemo = 512
 )
 
@@ -46,7 +50,8 @@ type Publishers struct {
 	// Reg returns a registry client that reaches insecureHosts over plain HTTP.
 	Reg func(insecureHosts ...string) publish.Registry
 	// Root fetches the Sigstore trusted root signatures must chain to. A
-	// fetched root is kept; a failure is fetched again after a minute.
+	// fetched root is fetched again after rootRefresh, and kept when that
+	// fails; a failure is fetched again after a minute.
 	Root func() (root.TrustedMaterial, error)
 	// Rule is the installation's publisher rule when HasRule; NoRule says
 	// why there is none, and then only a person's pin accepts a signer.
@@ -60,8 +65,9 @@ type Publishers struct {
 	// PolicyVerify checks a policy bundle against the policy keys of
 	// delivery.publishers.policySigners.
 	PolicyVerify func(bundle []byte) error
-	// Pins reads the pins of a service; nil reads none.
-	Pins func(ctx context.Context, svc delivery.ServiceRef) (deliveryrecord.PinListing, error)
+	// Pins reads the pins of a service that the Stages of namespace ns use;
+	// nil reads none.
+	Pins func(ctx context.Context, ns string, svc delivery.ServiceRef) (deliveryrecord.PinListing, error)
 	// CannotPin says why a new signer cannot be confirmed (no recorder, or
 	// no key to verify the pins it writes), so no trust operation is
 	// raised; empty when one can.
@@ -74,7 +80,7 @@ type Publishers struct {
 	policies map[string]delivery.PublisherPolicy // verified in this process, by digest
 	tm       root.TrustedMaterial
 	rootErr  error
-	rootAt   time.Time
+	rootNext time.Time
 	listings map[string]listing
 	signers  map[string]signersRead
 }
@@ -101,16 +107,25 @@ type signersRead struct {
 	err     error
 }
 
-// root is the trusted root, fetched once, or the error of the last fetch
-// while it is younger than rootRetry.
+// root is the trusted root, fetched again after rootRefresh: a refresh that
+// fails keeps the last good root and is tried again after rootRetry, as is a
+// first fetch that fails.
 func (p *Publishers) root() (root.TrustedMaterial, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.tm != nil || (p.rootErr != nil && p.Now().Sub(p.rootAt) < rootRetry) {
+	now := p.Now()
+	if now.Before(p.rootNext) {
 		return p.tm, p.rootErr
 	}
-	p.tm, p.rootErr = p.Root()
-	p.rootAt = p.Now()
+	tm, err := p.Root()
+	switch {
+	case err == nil:
+		p.tm, p.rootErr, p.rootNext = tm, nil, now.Add(rootRefresh)
+	case p.tm != nil:
+		p.rootNext = now.Add(rootRetry) // the last good root stays
+	default:
+		p.rootErr, p.rootNext = err, now.Add(rootRetry)
+	}
 	return p.tm, p.rootErr
 }
 
@@ -198,9 +213,44 @@ func (p *Publishers) watch(ctx context.Context, reg publish.Registry, tm root.Tr
 			v = publish.JudgeRead(t.digest, signers, err, svc, t.source, b.rules, b.source, b.pins)
 		}
 		v.Version = t.version
-		out = append(out, v)
+		out = append(out, b.unknownIfDegraded(v))
 	}
 	return out, nil
+}
+
+// unknownIfDegraded is v, or unknown when the basis could not be read in
+// full and v is a refusal or a new signer: the pin or policy rule that would
+// accept the signer may be the one not read, and unknown never asks a person
+// nor drops a published digest.
+func (b basis) unknownIfDegraded(v delivery.PublisherVerdict) delivery.PublisherVerdict {
+	if b.degraded == "" || (v.Verdict != delivery.VerdictNewSigner && v.Verdict != delivery.VerdictRefused) {
+		return v
+	}
+	v.Verdict, v.Source, v.Reason = delivery.VerdictUnknown, delivery.PublisherSourceNone, v.Reason+"; not decided, because "+b.degraded
+	return v
+}
+
+// rejudge is what a watch that could not read the registry or the trusted
+// root says about the verdicts it judged before: each accepted one judged
+// again under the current basis (b), so a narrowed policy or a newer pin
+// stops accepting a signer it no longer covers at once. The rest stay.
+func rejudge(svc delivery.ServiceRef, old *delivery.PublisherStatus, b basis) []delivery.PublisherVerdict {
+	if old == nil {
+		return []delivery.PublisherVerdict{}
+	}
+	out := slices.Clone(old.Verdicts)
+	for i, v := range out {
+		if v.Verdict != delivery.VerdictAccepted || v.Identity == nil {
+			continue
+		}
+		// It was accepted, so its source matched: only the rules and pins decide again.
+		n := b.unknownIfDegraded(delivery.JudgePublisher(svc, *v.Identity, "", b.rules, b.source, b.pins))
+		if n.Verdict != delivery.VerdictAccepted {
+			n.Digest, n.Version, n.At = v.Digest, v.Version, ""
+			out[i] = n
+		}
+	}
+	return out
 }
 
 // registryReady runs the registry watch of a Stage with candidates.registry
@@ -221,23 +271,33 @@ func (r *StageReconciler) registryReady(ctx context.Context, stage *dv1.Stage) (
 		return delivery.Condition{}, err
 	}
 	reg := p.Reg(insecure...)
-	b := p.basisFor(ctx, reg, stage.Spec.Service, stage.Status.Publisher)
+	svc := stage.Spec.Service
+	b := p.basisFor(ctx, reg, stage.Namespace, svc, stage.Status.Publisher)
 	tm, err := p.root()
 	if err != nil {
 		why := "Sigstore's trusted root could not be fetched (" + err.Error() + "), so no version of " + repo + " is judged"
-		return notReady(delivery.ReadyReasonPublisherUnverifiable, why), r.writePublisher(ctx, stage, b, nil, why)
+		return notReady(delivery.ReadyReasonPublisherUnverifiable, why), r.writePublisher(ctx, stage, b, rejudge(svc, stage.Status.Publisher, b), why)
 	}
-	verdicts, err := p.watch(ctx, reg, tm, stage.Spec.Service, repo, b)
+	verdicts, err := p.watch(ctx, reg, tm, svc, repo, b)
 	if err != nil {
 		why := "the registry " + repo + " cannot be listed (" + err.Error() + "), so no version is published until it can"
-		return notReady(delivery.ReadyReasonRegistryUnreadable, why), r.writePublisher(ctx, stage, b, nil, why)
+		return notReady(delivery.ReadyReasonRegistryUnreadable, why), r.writePublisher(ctx, stage, b, rejudge(svc, stage.Status.Publisher, b), why)
 	}
-	ask, err := r.trustAsk(ctx, stage, verdicts, b)
-	if err != nil {
-		return delivery.Condition{}, err
+	ask := trust{}
+	if b.degraded == "" { // nobody is asked about a signer the unread pin or policy may cover
+		if ask, err = r.trustAsk(ctx, stage, verdicts, b); err != nil {
+			return delivery.Condition{}, err
+		}
 	}
+	msg := strings.Join(slices.DeleteFunc(append(b.msgs, ask.why), func(m string) bool { return m == "" }), "; ")
 	want := delivery.Condition{Type: conditionReady, Status: statusTrue, Reason: conditionReady, Message: "the Stage can promote published versions"}
-	if err := r.writePublisher(ctx, stage, b, verdicts, strings.Join(slices.DeleteFunc(append(b.msgs, ask.why), func(m string) bool { return m == "" }), "; ")); err != nil {
+	switch {
+	case b.degradedPolicy:
+		want = notReady(delivery.ReadyReasonPublisherUnverifiable, msg)
+	case b.degraded != "":
+		want = notReady(delivery.ReadyReasonRegistryUnreadable, msg)
+	}
+	if err := r.writePublisher(ctx, stage, b, verdicts, msg); err != nil {
 		return want, err
 	}
 	if ask.spec == nil {
@@ -263,9 +323,8 @@ func (r *StageReconciler) watchedRepo(ctx context.Context, stage *dv1.Stage) (st
 	return src.repo, hosts, nil
 }
 
-// writePublisher writes what the watch judged: verdicts (nil when it could
-// not judge, which keeps status.published and the last verdicts) and msg. It
-// writes only on a change, or once per resync to move checkedAt.
+// writePublisher writes what the watch judged, verdicts, and msg. It writes
+// only on a change, or once per resync to move checkedAt.
 func (r *StageReconciler) writePublisher(ctx context.Context, stage *dv1.Stage, b basis, verdicts []delivery.PublisherVerdict, msg string) error {
 	now, old := r.Now(), stage.Status.Publisher
 	next := publisherStatus(b, old, verdicts, msg)
@@ -289,7 +348,8 @@ func (r *StageReconciler) writePublisher(ctx context.Context, stage *dv1.Stage, 
 // against (b), msg and the verdicts, each keeping the time it was first
 // reached while it holds. nil verdicts keep the last ones. The policy and
 // pin high-water marks only move forward: b leaves them empty when it read
-// nothing newer.
+// nothing newer. PolicyDigest is a mark, so Source says whether the policy
+// is in force.
 func publisherStatus(b basis, old *delivery.PublisherStatus, verdicts []delivery.PublisherVerdict, msg string) delivery.PublisherStatus {
 	if old == nil {
 		old = &delivery.PublisherStatus{}
@@ -326,15 +386,16 @@ func samePublisher(a, b delivery.PublisherStatus) bool {
 }
 
 // applyVerdicts adds every accepted digest to published (oldest tag first)
-// and drops a judged digest no longer accepted. A digest outside the window
-// stays.
+// and drops a digest judged decisively no longer accepted. An unknown verdict
+// (a read that failed, or a basis read only in part) changes nothing, and a
+// digest outside the window stays.
 // ponytail: the window (MaxWatchedTags) bounds the registry reads; re-judging
 // all of status.published is the upgrade path.
 func applyVerdicts(published []string, verdicts []delivery.PublisherVerdict) []string {
 	out := slices.Clone(published)
 	for _, v := range slices.Backward(verdicts) {
 		switch {
-		case v.Digest == "":
+		case v.Digest == "", v.Verdict == delivery.VerdictUnknown:
 		case v.Verdict == delivery.VerdictAccepted:
 			if !slices.Contains(out, v.Digest) {
 				out = delivery.AddDigest(out, v.Digest, delivery.MaxPublished)
@@ -371,13 +432,18 @@ type basis struct {
 	pins                   []delivery.IdentityPin
 	pinDigest, pinAt       string
 	msgs                   []string
+	// degraded says why the pins or the policy could not be read in full
+	// (degradedPolicy: the policy); empty when they were.
+	degraded       string
+	degradedPolicy bool
 }
 
-// basisFor reads what svc's watch judges against: the verified policy when
-// one is configured (its rules replace the derived rule, and one never
-// verified gives no rule), else the derived rule, and svc's pins. old is the
-// Stage's status.publisher, which holds the high-water marks.
-func (p *Publishers) basisFor(ctx context.Context, reg publish.Registry, svc delivery.ServiceRef, old *delivery.PublisherStatus) basis {
+// basisFor reads what svc's watch in namespace ns judges against: the
+// verified policy when one is configured (its rules replace the derived rule,
+// and one never verified gives no rule), else the derived rule, and the pin
+// ns uses. old is the Stage's status.publisher, which holds the high-water
+// marks.
+func (p *Publishers) basisFor(ctx context.Context, reg publish.Registry, ns string, svc delivery.ServiceRef, old *delivery.PublisherStatus) basis {
 	if old == nil {
 		old = &delivery.PublisherStatus{}
 	}
@@ -385,9 +451,12 @@ func (p *Publishers) basisFor(ctx context.Context, reg publish.Registry, svc del
 	switch {
 	case p.Policy != "":
 		b.policyRef = p.Policy
-		pol, digest, why := p.policy(ctx, reg, old)
+		pol, digest, why, unread := p.policy(ctx, reg, old)
 		if pol != nil {
 			b.rules, b.classes, b.source, b.policyDigest, b.policyAt = pol.Publishers, pol.Signers, delivery.PublisherSourcePolicy, digest, pol.At
+		}
+		if unread {
+			b.degraded, b.degradedPolicy = why, true
 		}
 		b.msgs = append(b.msgs, why)
 	case p.HasRule:
@@ -396,41 +465,51 @@ func (p *Publishers) basisFor(ctx context.Context, reg publish.Registry, svc del
 	default:
 		b.msgs = append(b.msgs, p.NoRule)
 	}
-	var why string
-	b.pins, b.pinDigest, b.pinAt, why = p.pinsFor(ctx, svc, old)
-	b.msgs = append(b.msgs, why)
+	pr := p.pinsFor(ctx, ns, svc, old)
+	b.pins, b.pinDigest, b.pinAt = pr.pins, pr.digest, pr.at
+	b.msgs = append(b.msgs, pr.why)
+	if pr.degraded && b.degraded == "" {
+		b.degraded = pr.why
+	}
 	return b
 }
 
 // policy is the delivery policy in force: the one its tag names, verified,
 // unless that cannot be read or verified or was signed before the policy the
 // Stage already used (policyAt), and then that last one, verified again. nil
-// when neither verifies; why says what happened.
-func (p *Publishers) policy(ctx context.Context, reg publish.Registry, old *delivery.PublisherStatus) (*delivery.PublisherPolicy, string, string) {
-	keep := func(why string) (*delivery.PublisherPolicy, string, string) {
+// when neither verifies; why says what happened, and unread that a registry
+// read failed on the way, so which policy is in force is not known.
+func (p *Publishers) policy(ctx context.Context, reg publish.Registry, old *delivery.PublisherStatus) (pol *delivery.PublisherPolicy, digest, why string, unread bool) {
+	keep := func(why string, unread bool) (*delivery.PublisherPolicy, string, string, bool) {
 		if old.PolicyDigest != "" {
-			if last, err := p.verifiedPolicy(ctx, reg, old.PolicyDigest); err == nil {
-				return &last, old.PolicyDigest, why + "; the policy " + old.PolicyDigest + " stays"
+			last, err := p.verifiedPolicy(ctx, reg, old.PolicyDigest)
+			if err == nil {
+				return &last, old.PolicyDigest, why + "; the policy " + old.PolicyDigest + " stays", false
 			}
+			unread = errors.Is(err, errPolicyRead)
 		}
-		return nil, "", why + ", so only pinned signers are accepted"
+		return nil, "", why + ", so only pinned signers are accepted", unread
 	}
 	h, err := reg.Head(ctx, p.Policy)
-	if err == nil && h == nil {
-		err = errors.New("it does not exist")
-	}
-	if err != nil {
-		return keep("the delivery policy " + p.Policy + " could not be read (" + err.Error() + ")")
-	}
-	pol, err := p.verifiedPolicy(ctx, reg, h.Digest)
 	switch {
 	case err != nil:
-		return keep("the delivery policy " + p.Policy + " could not be verified (" + err.Error() + ")")
-	case h.Digest != old.PolicyDigest && parseOr(pol.At).Before(parseOr(old.PolicyAt)):
-		return keep(fmt.Sprintf("the delivery policy %s now names %s signed at %s, older than %s", p.Policy, h.Digest, pol.At, old.PolicyAt))
+		return keep("the delivery policy "+p.Policy+" could not be read ("+err.Error()+")", true)
+	case h == nil:
+		return keep("the delivery policy "+p.Policy+" could not be read (it does not exist)", false)
 	}
-	return &pol, h.Digest, ""
+	got, err := p.verifiedPolicy(ctx, reg, h.Digest)
+	switch {
+	case err != nil:
+		return keep("the delivery policy "+p.Policy+" could not be verified ("+err.Error()+")", errors.Is(err, errPolicyRead))
+	case h.Digest != old.PolicyDigest && parseOr(got.At).Before(parseOr(old.PolicyAt)):
+		return keep(fmt.Sprintf("the delivery policy %s now names %s signed at %s, older than %s", p.Policy, h.Digest, got.At, old.PolicyAt), false)
+	}
+	return &got, h.Digest, "", false
 }
+
+// errPolicyRead marks a policy that could not be read, as opposed to one
+// that was read and does not verify.
+var errPolicyRead = errors.New("the policy could not be read")
 
 // verifiedPolicy reads and verifies the policy at digest, once per process:
 // a digest a status names is verified again after a restart.
@@ -442,10 +521,10 @@ func (p *Publishers) verifiedPolicy(ctx context.Context, reg publish.Registry, d
 		return pol, nil
 	}
 	bundle, _, err := reg.Layer(ctx, policyRepo(p.Policy), digest)
-	if err == nil {
-		pol, err = delivery.OpenPolicy(bundle, p.PolicyVerify)
-	}
 	if err != nil {
+		return delivery.PublisherPolicy{}, fmt.Errorf("%w: %w", errPolicyRead, err)
+	}
+	if pol, err = delivery.OpenPolicy(bundle, p.PolicyVerify); err != nil {
 		return delivery.PublisherPolicy{}, err
 	}
 	p.mu.Lock()
@@ -469,31 +548,53 @@ func policyRepo(ref string) string {
 	return ref
 }
 
-// pinsFor reads svc's pins and the high-water mark they move to. When the
-// newest readable pin is older than the Stage's mark (pinAt), the newer one
-// was deleted: no pin is used, so deleting a pin never brings an older
-// signer back.
-func (p *Publishers) pinsFor(ctx context.Context, svc delivery.ServiceRef, old *delivery.PublisherStatus) (pins []delivery.IdentityPin, digest, at, why string) {
+// pinRead is the pin a watch uses, the high-water mark it moves to and what
+// could not be read: degraded when the pins could not be read in full, so
+// a signer no pin read covers is unknown.
+type pinRead struct {
+	pins       []delivery.IdentityPin
+	digest, at string
+	why        string
+	degraded   bool
+}
+
+// pinsFor reads the pin the Stages of namespace ns use for svc: the newest
+// one, so confirming a changed signer stops trusting the one it replaced.
+// When the newest readable pin is older than the Stage's mark (pinAt), the
+// newer one was deleted: no pin is used, so deleting a pin never brings an
+// older signer back. A listing that read only part of the pins, or a pin
+// whose approval record could not be read, never trips that guard: it is a
+// partial read.
+func (p *Publishers) pinsFor(ctx context.Context, ns string, svc delivery.ServiceRef, old *delivery.PublisherStatus) pinRead {
 	if p.Pins == nil {
-		return nil, "", "", ""
+		return pinRead{}
 	}
-	l, err := p.Pins(ctx, svc)
+	l, err := p.Pins(ctx, ns, svc)
 	if err != nil {
-		return nil, "", "", "the pins of " + svc.Name + " could not be read (" + err.Error() + "), so no pinned signer is accepted"
+		return pinRead{why: "the pins of " + svc.Name + " could not be read (" + err.Error() + ")", degraded: true}
 	}
-	if old.PinAt != "" && (len(l.Pins) == 0 || parseOr(l.Pins[0].Pin.At).Before(parseOr(old.PinAt))) {
-		return nil, "", "", "the newest pin " + old.PinDigest + " signed at " + old.PinAt + " is gone; no older pin is used"
-	}
-	for _, x := range l.Pins {
-		pins = append(pins, x.Pin)
-	}
+	var r pinRead
 	if len(l.Unreadable) > 0 {
-		why = fmt.Sprintf("%d pins of %s could not be used: %s", len(l.Unreadable), svc.Name, strings.Join(l.Unreadable, "; "))
+		r.why = fmt.Sprintf("%d pins of %s could not be used: %s", len(l.Unreadable), svc.Name, strings.Join(l.Unreadable, "; "))
 	}
-	if len(l.Pins) == 0 {
-		return nil, "", "", why
+	stale := old.PinAt != "" && (len(l.Pins) == 0 || parseOr(l.Pins[0].Pin.At).Before(parseOr(old.PinAt)))
+	switch {
+	case stale && (l.Cut || l.Incomplete):
+		r.why = strings.TrimPrefix(r.why+"; the newest pin "+old.PinDigest+" signed at "+old.PinAt+" was not among the pins read", "; ")
+		r.degraded = true
+		return r
+	case l.Incomplete:
+		r.degraded = true // the pin whose approval could not be read may be the newest
+		return r
+	case stale:
+		r.why = strings.TrimPrefix(r.why+"; the newest pin "+old.PinDigest+" signed at "+old.PinAt+" is gone; no older pin is used", "; ")
+		return r
+	case len(l.Pins) == 0:
+		return r
 	}
-	return pins, l.Pins[0].Manifest, l.Pins[0].Pin.At, why
+	newest := l.Pins[0]
+	r.pins, r.digest, r.at = []delivery.IdentityPin{newest.Pin}, newest.Manifest, newest.Pin.At
+	return r
 }
 
 // PinVerifier is the verifier of identity pins: the keys of pinSigner, this
@@ -527,9 +628,9 @@ func PinVerifier(pinSigner, recordTrust []byte) (verify delivery.Verifier, ok bo
 // cluster's recorder key, or a recorder.trust key scoped to pins/), and each
 // citing an approval record that verifies: a person's keyless record against
 // policy, a recorder-signed one with the same keys as the pin.
-func PinReader(repo string, opts ocireferrer.Options, verify delivery.Verifier, policy delivery.ClassPolicy) func(context.Context, delivery.ServiceRef) (deliveryrecord.PinListing, error) {
+func PinReader(repo string, opts ocireferrer.Options, verify delivery.Verifier, policy delivery.ClassPolicy) func(context.Context, string, delivery.ServiceRef) (deliveryrecord.PinListing, error) {
 	reader := &deliveryrecord.Reader{} // one per process: a manifest read once is never fetched again
-	return func(ctx context.Context, svc delivery.ServiceRef) (deliveryrecord.PinListing, error) {
+	return func(ctx context.Context, ns string, svc delivery.ServiceRef) (deliveryrecord.PinListing, error) {
 		r, err := ocireferrer.Open(repo, opts)
 		if err != nil {
 			return deliveryrecord.PinListing{}, err
@@ -538,7 +639,7 @@ func PinReader(repo string, opts ocireferrer.Options, verify delivery.Verifier, 
 		defer cancel()
 		stream := delivery.PinStream(svc)
 		v := func(b []byte) error { return verify(stream, 0, b) }
-		return reader.ListPins(ctx, r, svc, v, approvalAt(opts, policy, v))
+		return reader.ListPins(ctx, r, ns, svc, v, approvalAt(opts, policy, v))
 	}
 }
 
@@ -583,7 +684,16 @@ func (r *StageReconciler) trustAsk(ctx context.Context, stage *dv1.Stage, verdic
 		return trust{}, err
 	}
 	for _, o := range ops {
-		if o.Spec.Type == delivery.TypeTrust && o.Status.Phase != delivery.PhaseConcluded && o.Name != name {
+		switch {
+		case o.Spec.Type != delivery.TypeTrust:
+		case o.Name == name && o.Status.Phase == delivery.PhaseConcluded && o.Status.Outcome != delivery.Rejected && o.Status.Outcome != delivery.Succeeded:
+			// Nobody answered it (expired) or it failed: it is asked again, so
+			// the one of the same name goes. A person's answer stays until it is
+			// collected.
+			if err := r.Delete(ctx, &o); client.IgnoreNotFound(err) != nil {
+				return trust{}, err
+			}
+		case o.Status.Phase != delivery.PhaseConcluded && o.Name != name:
 			return trust{why: "the trust operation " + o.Name + " is pending, so " + v.Identity.Subject + " is asked once it concludes"}, nil
 		}
 	}

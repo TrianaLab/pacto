@@ -44,7 +44,7 @@ func (d *demoDelivery) watchRegistry() {
 	at := stamp(d.clock())
 	d.pins = map[string][]delivery.IdentityPin{}
 	id := signerOf("orders")
-	d.pins["orders"] = []delivery.IdentityPin{{Service: delivery.ServiceRef{Name: "orders"}, Issuer: id.Issuer, Subject: id.Subject,
+	d.pins["orders"] = []delivery.IdentityPin{{Service: delivery.ServiceRef{Name: "orders"}, Namespace: story.Test, Issuer: id.Issuer, Subject: id.Subject,
 		Repository: id.Repository, Approver: "bob@example.com", Approval: recordID("orders-trust-approval"), Operation: "op-orders-trust", At: at}}
 	for _, s := range d.stages {
 		if s.Spec.Candidates.Registry != nil {
@@ -60,7 +60,8 @@ func (d *demoDelivery) watchRegistry() {
 func (d *demoDelivery) judge(s *delivery.StageObject, at string) {
 	svc := s.Spec.Service
 	rule, _ := demoPublishers.Rule()
-	pins := d.pins[svc.Name]
+	pins := pinsIn(d.pins[svc.Name], s.Metadata.Namespace)
+	pins = pins[:min(1, len(pins))] // the newest is the one in force
 	p := &delivery.PublisherStatus{Source: delivery.PublisherSourceRule, Rule: &rule, Pins: len(pins), CheckedAt: at}
 	if len(pins) > 0 {
 		p.PinAt, p.PinDigest = pins[0].At, recordID("pin "+svc.Name+" "+pins[0].At)
@@ -106,10 +107,16 @@ func (d *demoDelivery) confirmSigner(o *delivery.OperationObject, c delivery.Cal
 	o.Status.Reason = "SignerConfirmed: a person confirmed that " + id.Subject + " may publish " + st.Spec.Service.Name
 	d.conclude(o, delivery.Succeeded, delivery.Unverified)
 	svc := st.Spec.Service
-	pin := delivery.IdentityPin{Service: svc, Issuer: id.Issuer, Subject: id.Subject, Repository: id.Repository,
+	pin := delivery.IdentityPin{Service: svc, Namespace: o.Metadata.Namespace, Issuer: id.Issuer, Subject: id.Subject, Repository: id.Repository,
 		Approver: c.User, Approval: recordID(approval), Operation: o.Metadata.UID, At: o.Status.Times.Finished}
 	d.pins[svc.Name] = append([]delivery.IdentityPin{pin}, d.pins[svc.Name]...)
 	// ponytail: audit-log has no story contract, so its accepted digest is
 	// not published here (no version could be read); the real watch publishes it.
 	d.judge(st, o.Status.Times.Finished)
+}
+
+// pinsIn are the pins the Stages of namespace ns use, newest first: the
+// first is the one in force.
+func pinsIn(pins []delivery.IdentityPin, ns string) []delivery.IdentityPin {
+	return slices.DeleteFunc(slices.Clone(pins), func(p delivery.IdentityPin) bool { return p.Namespace != ns })
 }

@@ -49,7 +49,23 @@ const (
 type flakyRegistry struct {
 	publish.Registry
 	tagsErr, referrersErr error
-	referrers             atomic.Int32
+	// headErr fails reading a policy reference, layerErr reading a layer.
+	headErr, layerErr error
+	referrers         atomic.Int32
+}
+
+func (f *flakyRegistry) Head(ctx context.Context, ref string) (*publish.Remote, error) {
+	if f.headErr != nil && strings.Contains(ref, "/policy") {
+		return nil, f.headErr
+	}
+	return f.Registry.Head(ctx, ref)
+}
+
+func (f *flakyRegistry) Layer(ctx context.Context, repo, digest string) ([]byte, map[string]string, error) {
+	if f.layerErr != nil {
+		return nil, nil, f.layerErr
+	}
+	return f.Registry.Layer(ctx, repo, digest)
 }
 
 func (f *flakyRegistry) Tags(ctx context.Context, repo string) ([]string, error) {
@@ -324,14 +340,14 @@ func TestWatchMemoReadsSignaturesOnce(t *testing.T) {
 	d := w.push("1.0.0", acmeRepo, w.ci(acmeSubject, acmeRepo))
 	repo := w.host + "/payments"
 	svc := delivery.ServiceRef{Name: "payments"}
-	vs, err := w.p.watch(t.Context(), w.reg, w.ss.Root, svc, repo, w.p.basisFor(t.Context(), w.reg, svc, nil))
+	vs, err := w.p.watch(t.Context(), w.reg, w.ss.Root, svc, repo, w.p.basisFor(t.Context(), w.reg, ns, svc, nil))
 	must(t, err)
 	reads := w.reg.referrers.Load()
 	if reads == 0 || vs[0].Verdict != delivery.VerdictAccepted {
 		t.Fatalf("first pass: %d reads %+v", reads, vs)
 	}
 	w.p.HasRule = false
-	vs, err = w.p.watch(t.Context(), w.reg, w.ss.Root, svc, repo, w.p.basisFor(t.Context(), w.reg, svc, nil))
+	vs, err = w.p.watch(t.Context(), w.reg, w.ss.Root, svc, repo, w.p.basisFor(t.Context(), w.reg, ns, svc, nil))
 	must(t, err)
 	if w.reg.referrers.Load() != reads || vs[0].Verdict != delivery.VerdictNewSigner || vs[0].Digest != d {
 		t.Fatalf("second pass: %d reads %+v", w.reg.referrers.Load(), vs)
@@ -365,9 +381,9 @@ func TestWatchMemoPerService(t *testing.T) {
 	d := w.push("1.0.0", acmeRepo, w.ci(acmeSubject, acmeRepo))
 	w.p.Rule.Services = []string{"payments"}
 	repo := w.host + "/payments"
-	pay, err := w.p.watch(t.Context(), w.reg, w.ss.Root, delivery.ServiceRef{Name: "payments"}, repo, w.p.basisFor(t.Context(), w.reg, delivery.ServiceRef{Name: "payments"}, nil))
+	pay, err := w.p.watch(t.Context(), w.reg, w.ss.Root, delivery.ServiceRef{Name: "payments"}, repo, w.p.basisFor(t.Context(), w.reg, ns, delivery.ServiceRef{Name: "payments"}, nil))
 	must(t, err)
-	ledger, err := w.p.watch(t.Context(), w.reg, w.ss.Root, delivery.ServiceRef{Name: "ledger"}, repo, w.p.basisFor(t.Context(), w.reg, delivery.ServiceRef{Name: "ledger"}, nil))
+	ledger, err := w.p.watch(t.Context(), w.reg, w.ss.Root, delivery.ServiceRef{Name: "ledger"}, repo, w.p.basisFor(t.Context(), w.reg, ns, delivery.ServiceRef{Name: "ledger"}, nil))
 	must(t, err)
 	if pay[0].Verdict != delivery.VerdictAccepted || ledger[0].Verdict != delivery.VerdictNewSigner || ledger[0].Digest != d {
 		t.Fatalf("payments %+v ledger %+v", pay, ledger)
@@ -518,4 +534,32 @@ func TestCandidatesRegistryWithOCIRepositoryRefRefused(t *testing.T) {
 	}
 	s.Spec.Candidates.OCIRepositoryRef = nil
 	must(t, c.Create(t.Context(), s))
+}
+
+// TestRootRefreshedKeepsLastGood: a fetched root is fetched again after
+// rootRefresh, so keys Sigstore adds are trusted; a refresh that fails keeps
+// the last good root and is tried again after rootRetry.
+func TestRootRefreshedKeepsLastGood(t *testing.T) {
+	w := newWatch(t, registryAt("-"))
+	d := w.push("1.0.0", acmeRepo, w.ci(acmeSubject, acmeRepo))
+	fetches := 0
+	w.p.Root = func() (root.TrustedMaterial, error) { fetches++; return w.ss.Root, nil }
+	w.reconcile()
+	w.e.now = w.e.now.Add(rootRefresh - time.Second)
+	w.reconcile()
+	if fetches != 1 {
+		t.Fatalf("fetched %d times within rootRefresh", fetches)
+	}
+	w.e.now = w.e.now.Add(2 * time.Second)
+	w.p.Root = func() (root.TrustedMaterial, error) { fetches++; return nil, errors.New("tuf unreachable") }
+	st := w.reconcile()
+	if fetches != 2 || !slices.Contains(st.Published, d) || readyReasonOf(t, st).Status != "True" {
+		t.Fatalf("a failed refresh: %d fetches, published %v", fetches, st.Published)
+	}
+	w.reconcile()
+	w.e.now = w.e.now.Add(rootRetry)
+	w.reconcile()
+	if fetches != 3 {
+		t.Fatalf("a failed refresh is tried again after rootRetry: %d fetches", fetches)
+	}
 }

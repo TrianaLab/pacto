@@ -45,11 +45,13 @@ type Pin struct {
 
 // PinListing is a service's pins, newest first by signed time. Unreadable
 // names every pin that could not be used, with why; Cut says more pins were
-// attached than MaxPins.
+// attached than MaxPins; Incomplete says the approval record of a pin could
+// not be read, so it may be usable on a later read.
 type PinListing struct {
 	Pins       []Pin    `json:"pins"`
 	Unreadable []string `json:"unreadable,omitempty"`
 	Cut        bool     `json:"cut,omitempty"`
+	Incomplete bool     `json:"incomplete,omitempty"`
 }
 
 // ApprovalCheck reads the approval record at ref (<repository>@<manifest
@@ -86,16 +88,19 @@ func PinApproval(open func(path string) (*remote.Repository, error), person func
 	}
 }
 
-// ListPins reads the newest MaxPins pins of svc from repo. A pin is used
-// only when verify accepts its signature, it names svc and the approval
-// record it cites verifies through approval, approves the trust operation of
-// the same identity it names and was given by the approver it names; any
-// other pin is unreadable, never used. A listing or fetch failure is an
-// error: the registry could not be read, which is never the same as no pin.
+// ListPins reads the newest MaxPins pins of svc from repo that the Stages
+// of namespace ns use (every namespace when ns is empty). A pin is used only
+// when verify accepts its signature, it names svc and the approval record it
+// cites verifies through approval, approves the trust operation of the same
+// identity it names in the namespace it names and was given by the approver
+// it names; any other pin is unreadable, never used, and once it is known
+// not to verify it never takes the bound again. A pin of another namespace
+// is simply not this namespace's. A listing or fetch failure is an error: the
+// registry could not be read, which is never the same as no pin.
 // ponytail: the trust operation is matched by its identity-derived name
 // (40 bits of sha256); reading its intent record for the exact params is the
 // upgrade path.
-func (r *Reader) ListPins(ctx context.Context, repo *remote.Repository, svc delivery.ServiceRef, verify func([]byte) error, approval ApprovalCheck) (PinListing, error) {
+func (r *Reader) ListPins(ctx context.Context, repo *remote.Repository, ns string, svc delivery.ServiceRef, verify func([]byte) error, approval ApprovalCheck) (PinListing, error) {
 	stream := delivery.PinStream(svc)
 	fetched, cut, err := r.ListPredicate(ctx, repo, stream, delivery.PredicateIdentityPin, "", MaxPins)
 	if err != nil {
@@ -103,44 +108,54 @@ func (r *Reader) ListPins(ctx context.Context, repo *remote.Repository, svc deli
 	}
 	out := PinListing{Pins: []Pin{}, Cut: cut}
 	for _, f := range fetched {
-		p, id, why := usablePin(ctx, f.Bundle, svc, verify, approval)
-		if why != "" {
+		p, id, why, reject := usablePin(ctx, f.Bundle, svc, verify, approval)
+		switch {
+		case why != "":
+			if reject {
+				r.Reject(stream, delivery.PredicateIdentityPin, f.Manifest)
+			}
+			out.Incomplete = out.Incomplete || !reject
 			out.Unreadable = append(out.Unreadable, f.Manifest+": "+why)
-			continue
+		case ns == "" || p.Namespace == ns:
+			out.Pins = append(out.Pins, Pin{ID: id, Manifest: f.Manifest, Pin: p})
 		}
-		out.Pins = append(out.Pins, Pin{ID: id, Manifest: f.Manifest, Pin: p})
 	}
 	slices.SortStableFunc(out.Pins, func(a, b Pin) int { return cmp.Compare(b.Pin.At, a.Pin.At) })
 	return out, nil
 }
 
 // usablePin opens one pin of svc and checks the approval it cites, or says
-// why it cannot be used.
-func usablePin(ctx context.Context, bundle []byte, svc delivery.ServiceRef, verify func([]byte) error, approval ApprovalCheck) (delivery.IdentityPin, string, string) {
+// why it cannot be used and whether that will never change (reject): every
+// reason but an approval record that could not be read.
+func usablePin(ctx context.Context, bundle []byte, svc delivery.ServiceRef, verify func([]byte) error, approval ApprovalCheck) (p delivery.IdentityPin, id, why string, reject bool) {
 	st, id, err := delivery.OpenPin(bundle, verify)
 	if err != nil {
-		return delivery.IdentityPin{}, "", err.Error()
+		return delivery.IdentityPin{}, "", err.Error(), true
 	}
-	p := st.Predicate
+	p = st.Predicate
 	if p.Service != svc {
-		return p, "", fmt.Sprintf("names service %q, read from the pins of %q", p.Service.Name, svc.Name)
+		return p, "", fmt.Sprintf("names service %q, read from the pins of %q", p.Service.Name, svc.Name), true
 	}
 	a, approver, err := approval(ctx, p.Approval)
 	if err != nil {
-		return p, "", "the approval record " + p.Approval + " it cites does not verify: " + err.Error()
+		return p, "", "the approval record " + p.Approval + " it cites does not verify: " + err.Error(), false
 	}
 	op := a.Predicate.Operation
 	// The Stage's name prefixes it: TrustOperationName("", id) is the suffix.
 	trust := delivery.TrustOperationName("", delivery.PublisherIdentity{Issuer: p.Issuer, Subject: p.Subject, Repository: p.Repository})
 	switch {
 	case a.Predicate.Decision != delivery.Approve:
-		return p, "", "the approval record it cites decides " + string(a.Predicate.Decision) + ", not approve"
+		why = "the approval record it cites decides " + string(a.Predicate.Decision) + ", not approve"
 	case op.UID != p.Operation:
-		return p, "", "the approval record it cites answers operation " + op.UID + ", not " + p.Operation
+		why = "the approval record it cites answers operation " + op.UID + ", not " + p.Operation
 	case !strings.HasSuffix(op.Name, trust):
-		return p, "", "the approval record it cites answers " + op.Name + ", not the trust operation of " + p.Subject
+		why = "the approval record it cites answers " + op.Name + ", not the trust operation of " + p.Subject
+	case p.Namespace == "" || op.Stage.Namespace != p.Namespace:
+		why = fmt.Sprintf("the approval record it cites answers an operation in namespace %q, not %q", op.Stage.Namespace, p.Namespace)
 	case approver != p.Approver:
-		return p, "", "the approval record it cites was given by " + approver + ", not " + p.Approver
+		why = "the approval record it cites was given by " + approver + ", not " + p.Approver
+	default:
+		return p, id, "", false
 	}
-	return p, id, ""
+	return p, "", why, true
 }

@@ -1363,7 +1363,9 @@ func (d *demoDelivery) Trust(_ context.Context, stages []delivery.StageObject, o
 	d.mu.Lock()
 	pins := clone(d.pins)
 	d.mu.Unlock()
-	v := delivery.TrustOf(demoPublishers, stages, ops, func(s delivery.ServiceRef) []delivery.IdentityPin { return pins[s.Name] })
+	v := delivery.TrustOf(demoPublishers, stages, ops, func(ns string, s delivery.ServiceRef) []delivery.IdentityPin {
+		return pinsIn(pins[s.Name], ns)
+	})
 	v.AsOf, v.Completeness = stamp(d.now()), "complete"
 	return &v, nil
 }

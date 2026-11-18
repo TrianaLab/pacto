@@ -27,7 +27,7 @@ var provRule = delivery.PublisherRule{Name: "release", Issuer: provIssuer,
 
 // provPin is a person's confirmation of acme's release workflow for app.
 func provPin(svc delivery.ServiceRef) delivery.IdentityPin {
-	return delivery.IdentityPin{Service: svc, Issuer: provIssuer, Subject: provWorkflow, Repository: provRepo, Approver: "alice", At: "2026-11-17T00:00:00Z"}
+	return delivery.IdentityPin{Service: svc, Namespace: "prod", Issuer: provIssuer, Subject: provWorkflow, Repository: provRepo, Approver: "alice", At: "2026-11-17T00:00:00Z"}
 }
 
 // trusting makes pc read cfg and pins as the installation's trust, and
@@ -101,16 +101,19 @@ func TestProvenanceVerifiedByPin(t *testing.T) {
 	reg := provenanceTestRegistry(t)
 	pc := checkerFor(reg)
 	var asked []delivery.ServiceRef
-	trusting(pc, delivery.PublisherConfig{}, func(_ context.Context, svc delivery.ServiceRef) ([]delivery.IdentityPin, error) {
+	trusting(pc, delivery.PublisherConfig{}, func(_ context.Context, svc delivery.ServiceRef) ([]delivery.IdentityPin, string, error) {
 		asked = append(asked, svc)
 		if svc.Domain != "" {
-			return nil, nil
+			return nil, "", nil
 		}
-		return []delivery.IdentityPin{provPin(svc)}, nil
+		return []delivery.IdentityPin{provPin(svc)}, "", nil
 	}, nil)
 	p := pc.Check(t.Context(), "oci", pushSigned(t, reg, s), keylessContract(provIdentity))
-	wantStatus(t, p, fleet.SignatureVerified, "alice pinned for app")
-	if p.Signature.Source != delivery.PublisherSourcePin || !strings.Contains(p.Signature.Reason, "No publisher registry is configured") {
+	wantStatus(t, p, fleet.SignatureVerified, "an identity a person pinned for app in namespace prod")
+	// Who confirmed it is the delivery trust view's, which only those who may
+	// list the service's Stages read.
+	if p.Signature.Source != delivery.PublisherSourcePin || !strings.Contains(p.Signature.Reason, "No publisher registry is configured") ||
+		strings.Contains(p.Signature.Reason, "alice") || strings.Contains(p.Signature.Reason, "2026-11-17") {
 		t.Fatalf("signature %+v", p.Signature)
 	}
 	if want := []delivery.ServiceRef{{Domain: reg.host, Name: "app"}, {Name: "app"}}; !slices.Equal(asked, want) {
@@ -172,8 +175,8 @@ func TestProvenancePolicyUnverifiedOnlyPins(t *testing.T) {
 	wantStatus(t, pc.Check(t.Context(), "oci", ref, nil), fleet.SignatureUnverified, "could not be verified")
 	pc = checkerFor(reg)
 	trusting(pc, delivery.PublisherConfig{Policy: reg.host + "/policy:v1", PolicySigners: signers},
-		func(_ context.Context, svc delivery.ServiceRef) ([]delivery.IdentityPin, error) {
-			return []delivery.IdentityPin{provPin(svc)}, nil
+		func(_ context.Context, svc delivery.ServiceRef) ([]delivery.IdentityPin, string, error) {
+			return []delivery.IdentityPin{provPin(svc)}, "", nil
 		}, nil)
 	p := pc.Check(t.Context(), "oci", ref, nil)
 	wantStatus(t, p, fleet.SignatureVerified, "only pinned signers are accepted")
@@ -188,11 +191,25 @@ func TestProvenancePinReadFailureSaysSo(t *testing.T) {
 	_, s := ciSigstore(t)
 	reg := provenanceTestRegistry(t)
 	pc := checkerFor(reg)
-	trusting(pc, delivery.PublisherConfig{Registry: "ghcr.io/acme"}, func(context.Context, delivery.ServiceRef) ([]delivery.IdentityPin, error) {
-		return nil, errors.New("registry down")
+	trusting(pc, delivery.PublisherConfig{Registry: "ghcr.io/acme"}, func(context.Context, delivery.ServiceRef) ([]delivery.IdentityPin, string, error) {
+		return nil, "", errors.New("registry down")
 	}, nil)
 	p := pc.Check(t.Context(), "oci", pushSigned(t, reg, s), keylessContract(provIdentity))
 	wantStatus(t, p, fleet.SignatureVerified, "The pins of app could not be read (registry down), so no pinned signer is accepted.")
+}
+
+// TestProvenancePinListingCutUnknown: when only part of a service's pins
+// were read, a signer no rule or read pin covers is unknown, never
+// unverified, and the reason says the listing was cut.
+func TestProvenancePinListingCutUnknown(t *testing.T) {
+	_, s := ciSigstore(t)
+	reg := provenanceTestRegistry(t)
+	pc := checkerFor(reg)
+	trusting(pc, delivery.PublisherConfig{Registry: "ghcr.io/other"}, func(context.Context, delivery.ServiceRef) ([]delivery.IdentityPin, string, error) {
+		return nil, "more than 20 pins of app are attached and only 20 were read", nil
+	}, nil)
+	p := pc.Check(t.Context(), "oci", pushSigned(t, reg, s), nil)
+	wantStatus(t, p, fleet.SignatureUnknown, "only 20 were read, so a signer no pin read covers is unknown")
 }
 
 // TestProvenanceTrustMemo: the installation's trust is read once per
@@ -249,8 +266,10 @@ func TestInstallationTrust(t *testing.T) {
 	if err != nil || cfg.Registry != "ghcr.io/acme" || pins == nil {
 		t.Fatalf("%+v %v", cfg, err)
 	}
-	if got, err := pins(context.Background(), trustPayments); err != nil || len(got) != 1 || got[0].Operation != "u1" {
-		t.Fatalf("pins %+v %v", got, err)
+	e.pin(trustPayments, "alice", e.trustApproval("u2", ""), "u2", "2026-11-18T00:00:00Z")
+	// The newest pin of the namespace is the one in use, as the promoter reads it.
+	if got, note, err := pins(context.Background(), trustPayments); err != nil || note != "" || len(got) != 1 || got[0].Operation != "u2" {
+		t.Fatalf("pins %+v %q %v", got, note, err)
 	}
 	e.publishing(&delivery.PublisherConfig{Registry: "ghcr.io/acme"})
 	if _, pins, err := e.d.InstallationTrust(context.Background()); err != nil || pins != nil {
@@ -258,7 +277,7 @@ func TestInstallationTrust(t *testing.T) {
 	}
 	e.publishing(&delivery.PublisherConfig{StreamsRepository: streams})
 	_, pins, err = e.d.InstallationTrust(context.Background())
-	if _, perr := pins(context.Background(), trustPayments); err != nil || perr == nil || !strings.Contains(perr.Error(), "names no pin signer") {
+	if _, _, perr := pins(context.Background(), trustPayments); err != nil || perr == nil || !strings.Contains(perr.Error(), "names no pin signer") {
 		t.Fatalf("no pin signer: %v %v", err, perr)
 	}
 	e.d.PolicyNamespace = ""

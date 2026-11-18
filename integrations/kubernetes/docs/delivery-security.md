@@ -125,9 +125,10 @@ at a time, and the delivery inbox asks "payments: new signer `<subject>`
   version still passes every gate.
 - Other new identities wait in the trust view until the open question
   concludes. A signer that differs from the pinned one asks again ("signer
-  changed from ... to ..."). A rejected signer stays out until
-  `delivery.recorder.operationTTL` (168h) deletes the operation, then it is
-  asked again.
+  changed from ... to ..."), and confirming it replaces the pin. A rejected
+  signer stays out until `delivery.recorder.operationTTL` (168h) deletes the
+  operation, then it is asked again; a question nobody answered in time is
+  asked again at once.
 - Pins need the recorder (`delivery.recorder.enabled`) and a key to verify
   them: keyless recorder signing or `delivery.recorder.signing.publicKey`.
   Without them no question is raised, and `status.publisher.message` says
@@ -136,9 +137,12 @@ at a time, and the delivery inbox asks "payments: new signer `<subject>`
 A pin counts only when it verifies under this cluster's recorder key or a
 `delivery.recorder.trust` key that lists an explicit `pins/` stream, and only
 when the approval record it cites verifies and answers the trust operation
-for the same identity. Deleting the newest pin brings back no older one: the Stage
-keeps `status.publisher.pinAt` and judges with no pin while the newest is
-gone.
+for the same identity in the namespace the pin names. A Stage uses only the
+newest pin of its own namespace. Deleting it brings back no older one: the
+Stage keeps `status.publisher.pinAt` and judges with no pin while the newest
+is gone. Pins or a policy the watch could not read leave a signer they may
+cover `unknown`: nobody is asked, nothing published leaves and `Ready` is
+`False`.
 
 ### The signed delivery policy
 

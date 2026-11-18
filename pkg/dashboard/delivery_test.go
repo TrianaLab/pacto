@@ -114,7 +114,7 @@ func (f *fakeDelivery) Trust(_ context.Context, stages []delivery.StageObject, o
 	if f.trustErr != nil {
 		return nil, f.trustErr
 	}
-	v := delivery.TrustOf(f.publishers, stages, ops, func(delivery.ServiceRef) []delivery.IdentityPin { return f.pins })
+	v := delivery.TrustOf(f.publishers, stages, ops, func(string, delivery.ServiceRef) []delivery.IdentityPin { return f.pins })
 	v.AsOf, v.Completeness = "2026-11-18T00:00:00Z", "complete"
 	return &v, nil
 }

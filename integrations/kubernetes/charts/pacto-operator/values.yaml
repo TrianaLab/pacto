@@ -563,7 +563,8 @@ delivery:
   publishers:
     # -- The registry (`host/org`) the installation's services publish to. On `ghcr.io` and
     # `registry.gitlab.com` the promoter derives a rule from it: the organization's CI on the default
-    # branch. Empty: no publisher rule, and a Stage with `candidates.registry` promotes nothing
+    # branch. Empty: no publisher rule, so only the signed policy or a person's confirmation in the
+    # delivery inbox accepts a signer
     registry: ""
     # -- The default branch whose CI the derived rule accepts
     defaultBranch: main

@@ -1676,6 +1676,8 @@ export interface components {
             at: string;
             /** @description The pinned signer's OIDC issuer */
             issuer: string;
+            /** @description The namespace of the Stage whose trust operation a person confirmed; only Stages of that namespace use the pin */
+            namespace: string;
             /** @description The trust operation the approval answered */
             operation: string;
             /** @description The source repository the pinned signer attests */
@@ -1845,9 +1847,9 @@ export interface components {
             identity: components["schemas"]["Delivery.PublisherIdentity"];
             /** @description The Stage's namespace */
             namespace: string;
-            /** @description The held trust operation a person answers; empty while another trust operation of the Stage is pending */
+            /** @description The trust operation of the identity: held while a person is asked, concluded when a person already answered it (the reason says how); empty while another trust operation of the Stage is pending */
             operation?: string;
-            /** @description Why a person is asked */
+            /** @description Why a person is asked, or why nobody is asked again yet */
             reason: string;
             /** @description The Stage whose registry watch read it */
             stage: string;
@@ -2085,10 +2087,10 @@ export interface components {
         "Delivery.ServiceTrust": {
             /** @description The CI identities that wait for a person to confirm them */
             pending: components["schemas"]["Delivery.PendingSigner"][] | null;
-            /** @description The identities a person confirmed for the service, newest first */
+            /** @description The identities a person confirmed for the service, newest first; the newest of each namespace is the one its Stages use. null when they could not be read (unreadable says why) */
             pins: components["schemas"]["Delivery.IdentityPin"][] | null;
             service: components["schemas"]["Delivery.ServiceRef"];
-            /** @description The newest digests its Stages' registry watch judged, newest first */
+            /** @description The newest digests its Stages' registry watch judged, newest first; each at is when the verdict was first reached */
             verdicts: components["schemas"]["Delivery.PublisherVerdict"][] | null;
         };
         "Delivery.StageAt": {
@@ -7442,7 +7444,7 @@ export interface components {
             asOf: string;
             /** @enum {string} */
             completeness: "complete" | "partial";
-            /** @description Why no rule or policy accepts a signer, so only pins do */
+            /** @description Why no rule or policy accepts a signer, so only pins do, or why the rule is unknown */
             noRule?: string;
             /** @description Which services this page holds; offset and limit count services */
             page: components["schemas"]["Page"];
@@ -7451,10 +7453,10 @@ export interface components {
             /** @description The installation's publisher rule, derived from delivery.publishers.registry */
             rule?: components["schemas"]["Delivery.PublisherRule"];
             /**
-             * @description What every service is judged against: the installation's rule, the signed policy, or none when only a person's pin accepts a signer
+             * @description What every service is judged against: the installation's rule, the signed policy, none when only a person's pin accepts a signer, or unknown when the publisher trust config could not be read
              * @enum {string}
              */
-            ruleSource: "rule" | "policy" | "none";
+            ruleSource: "rule" | "policy" | "none" | "unknown";
             services: components["schemas"]["Delivery.ServiceTrust"][] | null;
             /** @description What could not be listed, each naming its namespace and why, or * when the namespaces could not be known */
             unreadable?: string[] | null;

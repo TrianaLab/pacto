@@ -15,11 +15,13 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	ggcrempty "github.com/google/go-containerregistry/pkg/v1/empty"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/static"
 	ggcrtypes "github.com/google/go-containerregistry/pkg/v1/types"
+	"github.com/sigstore/sigstore-go/pkg/root"
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/signing"
@@ -188,5 +190,68 @@ func TestPolicyRepo(t *testing.T) {
 		if got := policyRepo(ref); got != want {
 			t.Errorf("%s: %s", ref, got)
 		}
+	}
+}
+
+// TestRejudgedWhenRegistryUnreadable: while the registry or the trusted root
+// cannot be read, the verdicts judged before are judged again under the
+// policy now in force, so a narrower policy stops accepting a signer at
+// once.
+func TestRejudgedWhenRegistryUnreadable(t *testing.T) {
+	for name, fail := range map[string]func(w *policyWorld){
+		"registry": func(w *policyWorld) { w.reg.tagsErr = errors.New("connection refused") },
+		"root": func(w *policyWorld) {
+			w.p.tm, w.p.rootNext = nil, time.Time{}
+			w.p.Root = func() (root.TrustedMaterial, error) { return nil, errors.New("tuf unreachable") }
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := newPolicyWorld(t)
+			policy := w.p.Policy
+			w.p.Policy = ""
+			ours := w.push("1.0.0", acmeRepo, w.ci(acmeSubject, acmeRepo))
+			if st := w.reconcile(); !slices.Contains(st.Published, ours) {
+				t.Fatalf("the derived rule: %v", st.Published)
+			}
+			w.p.Policy = policy
+			w.sign(w.key, "2026-11-18T10:00:00Z", contractorRule)
+			fail(w)
+			st := w.reconcile()
+			if v := watchVerdict(t, st, ours); v.Verdict == delivery.VerdictAccepted || slices.Contains(st.Published, ours) || readyReasonOf(t, st).Status != "False" {
+				t.Fatalf("verdict %+v published %v", v, st.Published)
+			}
+		})
+	}
+}
+
+// TestPolicyUnreadableNeverDecides: a configured policy that could not be
+// read, with no last one verified, leaves a signer it may cover unknown:
+// nobody is asked and Ready is False.
+func TestPolicyUnreadableNeverDecides(t *testing.T) {
+	w := newPolicyWorld(t)
+	w.reg.headErr = errors.New("503")
+	d := w.push("1.0.0", otherRepo, w.ci(otherSub, otherRepo))
+	st := w.reconcile()
+	if v := watchVerdict(t, st, d); v.Verdict != delivery.VerdictUnknown || len(w.trustOps()) != 0 {
+		t.Fatalf("verdict %+v ops %d", v, len(w.trustOps()))
+	}
+	if c := readyReasonOf(t, st); c.Status != "False" || c.Reason != delivery.ReadyReasonPublisherUnverifiable {
+		t.Fatalf("ready %+v", c)
+	}
+}
+
+// TestPolicyLastGoodUnreadableNeverDecides: after a restart, a policy tag
+// and the last verified digest that both could not be read leave the signers
+// unknown; one that was read and does not verify is decided.
+func TestPolicyLastGoodUnreadableNeverDecides(t *testing.T) {
+	w := newPolicyWorld(t)
+	w.sign(w.key, "2026-11-18T10:00:00Z", contractorRule)
+	d := w.push("1.0.0", otherRepo, w.ci(otherSub, otherRepo))
+	w.reconcile()
+	w.p.policies = nil // a restart
+	w.reg.headErr, w.reg.layerErr = errors.New("503"), errors.New("503")
+	st := w.reconcile()
+	if v := watchVerdict(t, st, d); v.Verdict != delivery.VerdictUnknown || !slices.Contains(st.Published, d) {
+		t.Fatalf("verdict %+v published %v", v, st.Published)
 	}
 }

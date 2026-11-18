@@ -106,6 +106,22 @@ type Recorder struct {
 
 	mu      sync.Mutex
 	missing map[gapKey]time.Time
+	// pinned are the trust operations whose pin this process pushed.
+	pinned map[types.UID]bool
+}
+
+// pinnedOnce reports whether this process pushed op's pin already, and
+// with mark remembers that it did.
+func (r *Recorder) pinnedOnce(op types.UID, mark bool) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if mark {
+		if r.pinned == nil {
+			r.pinned = map[types.UID]bool{}
+		}
+		r.pinned[op] = true
+	}
+	return r.pinned[op]
 }
 
 // gapKey names a seq of one Stage: a Stage recreated with the same name
@@ -576,14 +592,15 @@ func (w *writer) write(ctx context.Context, op *dv1.Operation) (*stored, error) 
 // pin writes the identity pin a succeeded trust operation owes, before its
 // operation record: the pin is what the registry watch reads, and the
 // operation record the history. It names the person whose approval counted
-// and cites that approval's signed record. A pin pushed again changes
-// nothing a reader uses: it names the same identity.
+// and cites that approval's signed record, and the namespace whose Stages
+// use it. A writer pins each operation once: a retry after the operation
+// record failed pushes no second pin to take a reader's bound.
 // ponytail: an Approval deleted before its operation concluded leaves no
 // record to cite, so no pin is written and the signer stays a question until
 // the operation is collected; the stream is never held for it.
 func (w *writer) pin(ctx context.Context, op *dv1.Operation) error {
 	n := len(op.Status.Approvals)
-	if op.Spec.Type != delivery.TypeTrust || op.Status.Outcome != delivery.Succeeded || n == 0 {
+	if op.Spec.Type != delivery.TypeTrust || op.Status.Outcome != delivery.Succeeded || n == 0 || w.pinnedOnce(op.UID, false) {
 		return nil
 	}
 	a := op.Status.Approvals[n-1]
@@ -596,7 +613,7 @@ func (w *writer) pin(ctx context.Context, op *dv1.Operation) error {
 		ref = obj.Status.Record.Ref
 	}
 	id, svc := op.Spec.Params.Publisher, w.stage.Spec.Service
-	p := delivery.IdentityPin{Service: svc, Issuer: id.Issuer, Subject: id.Subject, Repository: id.Repository,
+	p := delivery.IdentityPin{Service: svc, Namespace: op.Namespace, Issuer: id.Issuer, Subject: id.Subject, Repository: id.Repository,
 		Approver: a.By, Approval: ref, Operation: string(op.UID), At: op.Status.Times.Finished}
 	bundle, _, err := delivery.SignPin(ctx, w.Signer, delivery.NewPinStatement(p))
 	if err != nil {
@@ -606,8 +623,11 @@ func (w *writer) pin(ctx context.Context, op *dv1.Operation) error {
 	if err != nil {
 		return err
 	}
-	_, err = deliveryrecord.PushPin(ctx, at.repo, at.mode, bundle)
-	return err
+	if _, err = deliveryrecord.PushPin(ctx, at.repo, at.mode, bundle); err != nil {
+		return err
+	}
+	w.pinnedOnce(op.UID, true) // ponytail: per process; a restart between the pin and the record pushes one more
+	return nil
 }
 
 // sign signs st and attaches it at l. A record of in whose bundle is larger

@@ -239,9 +239,15 @@ func (p *ProvenanceChecker) judgeSignature(ctx context.Context, repo, digest str
 		}
 	}
 	service.Domain = contract.OCIDomain(repo)
-	pins, why := t.pinsOf(ctx, service)
+	pins, why, cut := t.pinsOf(ctx, service)
 	v := publish.CheckPublisher(ctx, p.reg, tm, rekorURL != "", repo, digest, service, "", t.rules, t.source, pins)
 	sig = signatureOf(v, t.expect, sig)
+	switch {
+	case v.Source == delivery.PublisherSourcePin:
+		sig.Reason = capReason(pinReason(v, service, pins))
+	case cut && sig.Status == fleet.SignatureUnverified:
+		sig.Status = fleet.SignatureUnknown // the pin that covers it may be one not read
+	}
 	if note := strings.Join(slices.DeleteFunc(append(notes, why), func(s string) bool { return s == "" }), "; "); note != "" {
 		// Capped apart, so a long verdict never hides what was not applied.
 		sig.Reason = strings.TrimSuffix(sig.Reason, ".") + ". " + capReason(upperFirst(note)+".")
@@ -342,27 +348,41 @@ func (p *ProvenanceChecker) policy(ctx context.Context, cfg delivery.PublisherCo
 }
 
 // pinsOf is the pins of service, and of the same-named service of a Stage
-// that names no domain, or why they could not be read.
-func (t *installTrust) pinsOf(ctx context.Context, service delivery.ServiceRef) ([]delivery.IdentityPin, string) {
+// that names no domain, with what of them could not be read (cut says only
+// part of a listing was read, so a signer no pin read covers is unknown).
+func (t *installTrust) pinsOf(ctx context.Context, service delivery.ServiceRef) (out []delivery.IdentityPin, why string, cut bool) {
 	if t.pins == nil {
-		return nil, ""
+		return nil, "", false
 	}
 	services := []delivery.ServiceRef{service}
 	if service.Domain != "" {
 		services = append(services, delivery.ServiceRef{Name: service.Name})
 	}
-	var out []delivery.IdentityPin
+	var notes []string
 	for _, s := range services {
-		pins, err := t.pins(ctx, s)
+		pins, note, err := t.pins(ctx, s)
 		if err != nil {
-			return nil, "the pins of " + service.Name + " could not be read (" + err.Error() + "), so no pinned signer is accepted"
+			return nil, "the pins of " + service.Name + " could not be read (" + err.Error() + "), so no pinned signer is accepted", false
+		}
+		if note != "" {
+			notes, cut = append(notes, note+", so a signer no pin read covers is unknown"), true
 		}
 		for _, pin := range pins {
 			pin.Service = service // an unscoped Stage's pin covers every same-named service
 			out = append(out, pin)
 		}
 	}
-	return out, ""
+	return out, strings.Join(notes, "; "), cut
+}
+
+// pinReason is why a signer a pin accepted is verified, naming no person:
+// who confirmed it is shown only to those who may list the service's Stages
+// (the delivery trust view).
+func pinReason(v delivery.PublisherVerdict, service delivery.ServiceRef, pins []delivery.IdentityPin) string {
+	i := slices.IndexFunc(pins, func(p delivery.IdentityPin) bool {
+		return p.Issuer == v.Identity.Issuer && p.Subject == v.Identity.Subject
+	})
+	return fmt.Sprintf("Signed by %s (%s), an identity a person pinned for %s in namespace %s.", v.Identity.Subject, v.Identity.Issuer, service.Name, pins[i].Namespace)
 }
 
 // signatureOf maps a publisher verdict onto the fleet's signature statuses:

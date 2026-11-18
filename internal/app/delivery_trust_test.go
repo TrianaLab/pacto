@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -51,11 +52,17 @@ func (e *atEnv) pinSigner() string {
 // the approval at approval, by approver, of the trust operation uid.
 func (e *atEnv) pin(svc delivery.ServiceRef, approver, approval, uid, at string) {
 	e.t.Helper()
+	e.pinIn("prod", svc, approver, approval, uid, at)
+}
+
+// pinIn pushes pin as pin does, confirmed on a Stage of namespace ns.
+func (e *atEnv) pinIn(ns string, svc delivery.ServiceRef, approver, approval, uid, at string) {
+	e.t.Helper()
 	repo := e.repo("delivery/streams")
 	if err := ocireferrer.Push(context.Background(), repo, deliveryrecord.Anchor(delivery.PinStream(svc))); err != nil {
 		e.t.Fatal(err)
 	}
-	p := delivery.IdentityPin{Service: svc, Issuer: trustCI.Issuer, Subject: trustCI.Subject, Repository: trustCI.Repository,
+	p := delivery.IdentityPin{Service: svc, Namespace: ns, Issuer: trustCI.Issuer, Subject: trustCI.Subject, Repository: trustCI.Repository,
 		Approver: approver, Approval: approval, Operation: uid, At: at}
 	b, _, err := delivery.SignPin(context.Background(), edSigner(e.key), delivery.NewPinStatement(p))
 	if err == nil {
@@ -70,13 +77,18 @@ func (e *atEnv) pin(svc delivery.ServiceRef, approver, approval, uid, at string)
 // uid: recorder-signed on alice's behalf when san is empty, else signed
 // keyless by san.
 func (e *atEnv) trustApproval(uid, san string) string {
+	return e.trustApprovalIn(atStage, uid, san)
+}
+
+// trustApprovalIn is trustApproval of the trust operation on stage.
+func (e *atEnv) trustApprovalIn(stage delivery.RecordStage, uid, san string) string {
 	op := delivery.OperationObject{Metadata: delivery.ObjectMeta{Name: delivery.TrustOperationName("payments-prod", trustCI), UID: uid}}
 	signer := delivery.ApprovalSigner{Kind: delivery.SignerRecorder, OnBehalfOf: &delivery.ApprovalBehalf{User: "alice"}}
 	s, path := edSigner(e.key), "delivery/streams"
 	if san != "" {
 		signer, s, path = delivery.ApprovalSigner{Kind: delivery.SignerPerson}, e.keyless(san), atApprovals
 	}
-	st := delivery.NewApprovalRecord(atStage, e.anchor.Digest.String(), op, delivery.ApprovalSpec{Decision: delivery.Approve}, signer, "2026-11-18T00:00:00Z")
+	st := delivery.NewApprovalRecord(stage, e.anchor.Digest.String(), op, delivery.ApprovalSpec{Decision: delivery.Approve}, signer, "2026-11-18T00:00:00Z")
 	ref, _ := e.push(path, s, delivery.PredicateApproval, st)
 	return ref
 }
@@ -149,7 +161,20 @@ func TestTrustPinsPartialOnReadFailure(t *testing.T) {
 		if v.Completeness != "partial" || !strings.Contains(strings.Join(v.Unreadable, "; "), want) {
 			t.Errorf("%s: %+v", want, v)
 		}
+		// Pins never read are unknown (null), never an empty list.
+		if v.Services[0].Pins != nil {
+			t.Errorf("%s: unread pins answered %+v", want, v.Services[0].Pins)
+		}
 		e.d.Records = records
+	}
+	// A config that could not be read states no rule: unknown, and why.
+	for _, set := range []func(){func() { e.d.PolicyNamespace = "" }, func() { e.d.PolicyNamespace = "elsewhere" }, func() { e.publishingRaw("{") }} {
+		set()
+		v := e.d.PublisherTrust(context.Background(), stages, nil)
+		if v.RuleSource != delivery.PublisherSourceUnknown || v.Rule != nil || v.Policy != nil ||
+			!strings.HasPrefix(v.NoRule, "the publisher trust config could not be read, so the rule is unknown: ") || strings.Contains(v.NoRule, "no publisher registry is configured") {
+			t.Errorf("unreadable config: %+v", v)
+		}
 	}
 	// The approver signers cannot be read: a person's approval verifies
 	// nothing, so its pin is unreadable.
@@ -212,5 +237,46 @@ func TestTrustOnlyCallerStages(t *testing.T) {
 	}
 	if v := e.d.PublisherTrust(context.Background(), nil, nil); len(v.Services) != 0 || v.Completeness != "complete" {
 		t.Fatalf("no Stage listed: %+v", v)
+	}
+}
+
+// TestTrustPinsOfListedNamespacesOnly: a pin confirmed on a Stage of the same
+// service in a namespace the caller listed no Stage in never reaches the
+// answer.
+func TestTrustPinsOfListedNamespacesOnly(t *testing.T) {
+	e := newAtEnv(t, testutil.ReferrersOptions{})
+	e.publishing(&delivery.PublisherConfig{StreamsRepository: e.host + "/delivery/streams", PinSigner: e.pinSigner()})
+	teamX := atStage
+	teamX.Namespace = "team-x"
+	e.pinIn("team-x", trustPayments, "alice", e.trustApprovalIn(teamX, "u9", ""), "u9", "2026-11-17T00:00:00Z")
+	v := e.d.PublisherTrust(context.Background(), []delivery.StageObject{trustStage("payments-prod", "payments", nil)}, nil)
+	b, _ := json.Marshal(v)
+	if len(v.Services) != 1 || len(v.Services[0].Pins) != 0 || strings.Contains(string(b), "u9") || v.Completeness != "complete" {
+		t.Fatalf("%s", b)
+	}
+	// team-x's own Stage reads it.
+	other := trustStage("payments-x", "payments", nil)
+	other.Metadata.Namespace = "team-x"
+	if v := e.d.PublisherTrust(context.Background(), []delivery.StageObject{other}, nil); len(v.Services[0].Pins) != 1 || v.Services[0].Pins[0].Namespace != "team-x" {
+		t.Fatalf("team-x: %+v", v)
+	}
+}
+
+// TestTrustPinsCutPartial: more pins than a listing reads make the answer
+// partial and say so, in the trust view and to fleet provenance.
+func TestTrustPinsCutPartial(t *testing.T) {
+	e := newAtEnv(t, testutil.ReferrersOptions{})
+	e.publishing(&delivery.PublisherConfig{StreamsRepository: e.host + "/delivery/streams", PinSigner: e.pinSigner()})
+	approval := e.trustApproval("u1", "")
+	for i := range deliveryrecord.MaxPins + 1 {
+		e.pin(trustPayments, "alice", approval, "u1", fmt.Sprintf("2026-11-17T00:00:%02dZ", i))
+	}
+	v := e.d.PublisherTrust(context.Background(), []delivery.StageObject{trustStage("payments-prod", "payments", nil)}, nil)
+	if v.Completeness != "partial" || !strings.Contains(strings.Join(v.Unreadable, "; "), "more than 20 pins of payments are attached and only 20 were read") {
+		t.Fatalf("%+v", v)
+	}
+	_, pins, _ := e.d.InstallationTrust(context.Background())
+	if _, note, err := pins(context.Background(), trustPayments); err != nil || !strings.Contains(note, "only 20 were read") {
+		t.Fatalf("fleet: %q %v", note, err)
 	}
 }

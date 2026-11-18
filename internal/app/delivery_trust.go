@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -23,28 +25,58 @@ import (
 // could not be read is named in unreadable and makes the answer partial.
 func (d *Delivery) PublisherTrust(ctx context.Context, stages []delivery.StageObject, ops []delivery.OperationObject) *delivery.TrustView {
 	t := &trustReads{}
-	cfg, err := d.publisherConfig(ctx)
-	if err != nil {
-		t.add("the publisher trust config: " + err.Error())
+	cfg, cfgErr := d.publisherConfig(ctx)
+	if cfgErr != nil {
+		t.add("the publisher trust config: " + cfgErr.Error())
 	}
-	pins := d.readPins(ctx, cfg, delivery.TrustServices(stages), t)
-	v := delivery.TrustOf(cfg, stages, ops, func(s delivery.ServiceRef) []delivery.IdentityPin { return pins[s] })
-	v.AsOf, v.Completeness, v.Unreadable = d.Now().UTC().Format(time.RFC3339), "complete", t.unreadable
-	if len(t.unreadable) > 0 {
+	pins := d.readPins(ctx, cfg, trustKeys(stages), t)
+	v := delivery.TrustOf(cfg, stages, ops, func(ns string, s delivery.ServiceRef) []delivery.IdentityPin {
+		switch {
+		case cfgErr != nil:
+			return nil // unknown: the config that names where pins live was not read
+		case cfg.StreamsRepository == "":
+			return []delivery.IdentityPin{} // no recorder, so no pin exists
+		}
+		return pins[pinKey{ns, s}]
+	})
+	if cfgErr != nil {
+		v.Rule, v.Policy, v.RuleSource = nil, nil, delivery.PublisherSourceUnknown
+		v.NoRule = "the publisher trust config could not be read, so the rule is unknown: " + cfgErr.Error()
+	}
+	v.AsOf, v.Completeness, v.Unreadable = d.Now().UTC().Format(time.RFC3339), "complete", append(v.Unreadable, t.unreadable...)
+	if len(v.Unreadable) > 0 {
 		v.Completeness = "partial"
 	}
 	return &v
 }
 
-// PinsFunc reads the pins a service may use.
-type PinsFunc func(ctx context.Context, s delivery.ServiceRef) ([]delivery.IdentityPin, error)
+// pinKey is where a service's pins are kept: per namespace of its Stages.
+type pinKey struct {
+	ns  string
+	svc delivery.ServiceRef
+}
+
+// trustKeys are the services of the registry Stages and their namespaces.
+func trustKeys(stages []delivery.StageObject) []pinKey {
+	var out []pinKey
+	for _, svc := range delivery.TrustServices(stages) {
+		for _, ns := range delivery.TrustNamespaces(stages, svc) {
+			out = append(out, pinKey{ns, svc})
+		}
+	}
+	return out
+}
+
+// PinsFunc reads the pins a service may use, each naming the namespace
+// whose Stages use it, and notes what of them could not be read.
+type PinsFunc func(ctx context.Context, s delivery.ServiceRef) (pins []delivery.IdentityPin, note string, err error)
 
 // InstallationTrust is what the installation trusts, read as PublisherTrust
 // reads it: its publisher trust config and a reader of a service's usable
 // pins (nil when the config names no streams repository, so no pin exists).
 // A pin reader that cannot be built answers its reason on every read. It is
 // ProvenanceChecker.Trust, so fleet provenance judges with the rule, policy
-// and pins the promoter uses.
+// and pins the promoter uses: the newest pin of each namespace.
 func (d *Delivery) InstallationTrust(ctx context.Context) (delivery.PublisherConfig, PinsFunc, error) {
 	cfg, err := d.publisherConfig(ctx)
 	if err != nil {
@@ -53,14 +85,30 @@ func (d *Delivery) InstallationTrust(ctx context.Context) (delivery.PublisherCon
 	read, err := d.pinsReader(ctx, cfg)
 	switch {
 	case err != nil:
-		return cfg, func(context.Context, delivery.ServiceRef) ([]delivery.IdentityPin, error) { return nil, err }, nil
+		return cfg, func(context.Context, delivery.ServiceRef) ([]delivery.IdentityPin, string, error) {
+			return nil, "", err
+		}, nil
 	case read == nil:
 		return cfg, nil, nil
 	}
-	return cfg, func(ctx context.Context, s delivery.ServiceRef) ([]delivery.IdentityPin, error) {
-		pins, _, err := read(ctx, s) // a pin it cannot use is simply not used
-		return pins, err
+	return cfg, func(ctx context.Context, s delivery.ServiceRef) ([]delivery.IdentityPin, string, error) {
+		l, err := read(ctx, "", s) // a pin it cannot use is simply not used
+		var out []delivery.IdentityPin
+		for _, p := range l.Pins { // newest first: the first of each namespace is the one it uses
+			if !slices.ContainsFunc(out, func(o delivery.IdentityPin) bool { return o.Namespace == p.Pin.Namespace }) {
+				out = append(out, p.Pin)
+			}
+		}
+		return out, cutNote(s, l.Cut), err
 	}, nil
+}
+
+// cutNote says that only MaxPins pins of s were read.
+func cutNote(s delivery.ServiceRef, cut bool) string {
+	if !cut {
+		return ""
+	}
+	return fmt.Sprintf("more than %d pins of %s are attached and only %d were read", deliveryrecord.MaxPins, s.Name, deliveryrecord.MaxPins)
 }
 
 // trustReads collects what a trust answer could not read.
@@ -95,10 +143,12 @@ func (d *Delivery) publisherConfig(ctx context.Context) (delivery.PublisherConfi
 	return delivery.ParsePublishers([]byte(raw))
 }
 
-// readPins reads the pins of services, delivery.DescribeParallel at once,
-// naming every listing it could not read and every pin it could not use.
-func (d *Delivery) readPins(ctx context.Context, cfg delivery.PublisherConfig, services []delivery.ServiceRef, t *trustReads) map[delivery.ServiceRef][]delivery.IdentityPin {
-	if len(services) == 0 {
+// readPins reads the pins of each service in each namespace,
+// delivery.DescribeParallel at once, naming every listing it could not read
+// or read only in part and every pin it could not use. A listing it could not
+// read has no entry: its pins are unknown.
+func (d *Delivery) readPins(ctx context.Context, cfg delivery.PublisherConfig, keys []pinKey, t *trustReads) map[pinKey][]delivery.IdentityPin {
+	if len(keys) == 0 {
 		return nil
 	}
 	read, err := d.pinsReader(ctx, cfg)
@@ -108,21 +158,29 @@ func (d *Delivery) readPins(ctx context.Context, cfg delivery.PublisherConfig, s
 	if read == nil {
 		return nil
 	}
-	out := make(map[delivery.ServiceRef][]delivery.IdentityPin, len(services))
+	out := make(map[pinKey][]delivery.IdentityPin, len(keys))
 	var mu sync.Mutex
 	var g errgroup.Group
 	g.SetLimit(delivery.DescribeParallel)
-	for _, svc := range services {
+	for _, k := range keys {
 		g.Go(func() error {
-			pins, unusable, err := read(ctx, svc)
+			l, err := read(ctx, k.ns, k.svc)
 			if err != nil {
-				t.add("pins of " + svc.Name + ": " + err.Error())
+				t.add("pins of " + k.svc.Name + " in " + k.ns + ": " + err.Error())
+				return nil
 			}
-			for _, u := range unusable {
-				t.add("pins of " + svc.Name + ": " + u)
+			if note := cutNote(k.svc, l.Cut); note != "" {
+				t.add(note)
+			}
+			for _, u := range l.Unreadable {
+				t.add("pins of " + k.svc.Name + ": " + u)
+			}
+			pins := make([]delivery.IdentityPin, 0, len(l.Pins))
+			for _, p := range l.Pins {
+				pins = append(pins, p.Pin)
 			}
 			mu.Lock()
-			out[svc] = pins
+			out[k] = pins
 			mu.Unlock()
 			return nil
 		})
@@ -131,12 +189,11 @@ func (d *Delivery) readPins(ctx context.Context, cfg delivery.PublisherConfig, s
 	return out
 }
 
-// pinsReader reads a service's pins as the promoter reads them: each
-// verified with cfg's pin signer and each citing an approval record that
-// verifies. It answers the pins, the ones it could not use and a listing it
-// could not read. No streams repository means no recorder, so no pin
-// exists to read: nil and no error.
-func (d *Delivery) pinsReader(ctx context.Context, cfg delivery.PublisherConfig) (func(context.Context, delivery.ServiceRef) ([]delivery.IdentityPin, []string, error), error) {
+// pinsReader reads a service's pins in a namespace ("" for every one) as the
+// promoter reads them: each verified with cfg's pin signer and each citing an
+// approval record that verifies. No streams repository means no recorder, so
+// no pin exists to read: nil and no error.
+func (d *Delivery) pinsReader(ctx context.Context, cfg delivery.PublisherConfig) (func(context.Context, string, delivery.ServiceRef) (deliveryrecord.PinListing, error), error) {
 	if cfg.StreamsRepository == "" {
 		return nil, nil
 	}
@@ -146,8 +203,8 @@ func (d *Delivery) pinsReader(ctx context.Context, cfg delivery.PublisherConfig)
 	}
 	person := d.personApprovals(ctx)
 	reader := &deliveryrecord.Reader{}
-	return func(ctx context.Context, svc delivery.ServiceRef) ([]delivery.IdentityPin, []string, error) {
-		return d.pinsOf(ctx, reader, cfg.StreamsRepository, svc, verify, person)
+	return func(ctx context.Context, ns string, svc delivery.ServiceRef) (deliveryrecord.PinListing, error) {
+		return d.pinsOf(ctx, reader, cfg.StreamsRepository, ns, svc, verify, person)
 	}, nil
 }
 
@@ -184,26 +241,17 @@ func (d *Delivery) personApprovals(ctx context.Context) func([]byte) (delivery.A
 	}
 }
 
-// pinsOf reads svc's usable pins from the streams repository, with the
-// pins it could not use.
-func (d *Delivery) pinsOf(ctx context.Context, reader *deliveryrecord.Reader, streams string, svc delivery.ServiceRef, verify delivery.Verifier,
-	person func([]byte) (delivery.ApprovalStatement, string, error)) ([]delivery.IdentityPin, []string, error) {
+// pinsOf reads svc's pins in namespace ns from the streams repository.
+func (d *Delivery) pinsOf(ctx context.Context, reader *deliveryrecord.Reader, streams, ns string, svc delivery.ServiceRef, verify delivery.Verifier,
+	person func([]byte) (delivery.ApprovalStatement, string, error)) (deliveryrecord.PinListing, error) {
 	stream := delivery.PinStream(svc)
 	v := func(b []byte) error { return verify(stream, 0, b) }
 	open := func(path string) (*remote.Repository, error) { return d.Records(path) }
 	repo, err := open(streams)
-	var l deliveryrecord.PinListing
-	if err == nil {
-		bounded, cancel := delivery.WithRegistryTimeout(ctx)
-		defer cancel()
-		l, err = reader.ListPins(bounded, repo, svc, v, deliveryrecord.PinApproval(open, person, v))
-	}
 	if err != nil {
-		return nil, nil, err
+		return deliveryrecord.PinListing{}, err
 	}
-	pins := make([]delivery.IdentityPin, 0, len(l.Pins))
-	for _, p := range l.Pins {
-		pins = append(pins, p.Pin)
-	}
-	return pins, l.Unreadable, nil
+	bounded, cancel := delivery.WithRegistryTimeout(ctx)
+	defer cancel()
+	return reader.ListPins(bounded, repo, ns, svc, v, deliveryrecord.PinApproval(open, person, v))
 }
