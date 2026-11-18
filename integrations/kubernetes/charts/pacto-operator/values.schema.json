@@ -877,6 +877,27 @@
             }
           }
         },
+        "publishers": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "registry": {
+              "type": "string"
+            },
+            "defaultBranch": {
+              "type": "string"
+            },
+            "policy": {
+              "type": "string"
+            },
+            "policySigners": {
+              "type": "string"
+            },
+            "trustedRoot": {
+              "type": "string"
+            }
+          }
+        },
         "recorder": {
           "type": "object",
           "additionalProperties": false,
@@ -958,6 +979,9 @@
                       "type": "string"
                     }
                   }
+                },
+                "publicKey": {
+                  "type": "string"
                 }
               }
             },

@@ -1,0 +1,234 @@
+# The publisher rule, the signed delivery policy, its signers and the pins the
+# recorder writes: the only trust inputs the chart holds. Every flag renders
+# only when its value is set; publishers.json carries the same values to
+# every client.
+suite: delivery publishers
+templates:
+  - templates/delivery/deployment.yaml
+  - templates/delivery/identities.yaml
+  - templates/delivery/publishers.yaml
+  - templates/delivery/admission.yaml
+release:
+  name: d
+  namespace: pacto-system
+set:
+  delivery.enabled: true
+capabilities:
+  apiVersions:
+    - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+tests:
+  - it: renders no publisher flag and no publishers ConfigMap by default
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--(publishers-|records-repository|pin-signer|record-trust)
+        template: templates/delivery/deployment.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/delivery/publishers.yaml
+
+  - it: derives the rule from delivery.publishers.registry
+    set:
+      delivery.publishers.registry: ghcr.io/acme
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --publishers-registry=ghcr.io/acme
+        template: templates/delivery/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --publishers-default-branch=main
+        template: templates/delivery/deployment.yaml
+      - matchRegex:
+          path: data["publishers.json"]
+          pattern: '"registry":"ghcr.io/acme"'
+        template: templates/delivery/identities.yaml
+        documentIndex: 0
+
+  - it: passes another default branch with the registry
+    set:
+      delivery.publishers.registry: ghcr.io/acme
+      delivery.publishers.defaultBranch: master
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --publishers-default-branch=master
+        template: templates/delivery/deployment.yaml
+
+  - it: renders no default branch without a registry
+    set:
+      delivery.publishers.defaultBranch: master
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --publishers-default-branch=master
+        template: templates/delivery/deployment.yaml
+
+  - it: mounts the policy signers and the trusted root from the publishers ConfigMap
+    set:
+      delivery.publishers.registry: ghcr.io/acme
+      delivery.publishers.policy: ghcr.io/acme/pacto-policy:v1
+      delivery.publishers.policySigners: "keys: [{publicKey: PEM, role: policy}]"
+      delivery.publishers.trustedRoot: '{"mediaType":"root"}'
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --publishers-policy=ghcr.io/acme/pacto-policy:v1
+        template: templates/delivery/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --publishers-policy-signers=/etc/pacto/publishers/policy-signers.yaml
+        template: templates/delivery/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --publishers-trusted-root=/etc/pacto/publishers/trusted_root.json
+        template: templates/delivery/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content: {name: publishers, mountPath: /etc/pacto/publishers, readOnly: true}
+        template: templates/delivery/deployment.yaml
+      - contains:
+          path: spec.template.spec.volumes
+          content: {name: publishers, configMap: {name: d-pacto-operator-delivery-publishers}}
+        template: templates/delivery/deployment.yaml
+      - equal:
+          path: data
+          value:
+            policy-signers.yaml: "keys: [{publicKey: PEM, role: policy}]"
+            trusted_root.json: '{"mediaType":"root"}'
+        template: templates/delivery/publishers.yaml
+      - isKind:
+          of: ConfigMap
+        template: templates/delivery/publishers.yaml
+
+  - it: refuses a policy without its signers
+    set:
+      delivery.publishers.registry: ghcr.io/acme
+      delivery.publishers.policy: ghcr.io/acme/pacto-policy:v1
+    asserts:
+      - failedTemplate:
+          errorMessage: "delivery.publishers.policy needs delivery.publishers.policySigners: the trust config whose role: policy keys sign it"
+        template: templates/delivery/deployment.yaml
+
+  - it: reads pins from the streams repository with a keyless recorder
+    set:
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: ghcr.io/acme/pacto-streams
+      delivery.recorder.signing.keyless.enabled: true
+      delivery.recorder.signing.keyless.identity: https://kubernetes.io/namespaces/pacto-delivery/serviceaccounts/recorder
+      delivery.recorder.signing.keyless.issuer: https://kubernetes.default.svc
+      delivery.recorder.signing.keyless.trustedRoot: '{"mediaType":"root"}'
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --records-repository=ghcr.io/acme/pacto-streams
+        template: templates/delivery/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --pin-signer-config=/etc/pacto/publishers/pin-signer.yaml
+        template: templates/delivery/deployment.yaml
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --record-trust-config=/etc/pacto/record-trust/trust.yaml
+        template: templates/delivery/deployment.yaml
+      - equal:
+          path: data["pin-signer.yaml"]
+          value: |-
+            keys:
+            - identity: https://kubernetes.io/namespaces/pacto-delivery/serviceaccounts/recorder
+              issuer: https://kubernetes.default.svc
+              name: recorder
+              streams:
+              - pins/*/*
+              trustedRoot: '{"mediaType":"root"}'
+        template: templates/delivery/publishers.yaml
+
+  - it: verifies pins with the recorder's public key and the recorder's trust config
+    set:
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: ghcr.io/acme/pacto-streams
+      delivery.recorder.signing.kms: awskms:///alias/recorder
+      delivery.recorder.signing.publicKey: |
+        -----BEGIN PUBLIC KEY-----
+        MCowBQYDK2VwAyEA
+        -----END PUBLIC KEY-----
+      delivery.recorder.trust: "keys: [{publicKey: PEM, streams: [pins/*/*]}]"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --pin-signer-config=/etc/pacto/publishers/pin-signer.yaml
+        template: templates/delivery/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --record-trust-config=/etc/pacto/record-trust/trust.yaml
+        template: templates/delivery/deployment.yaml
+      - contains:
+          path: spec.template.spec.volumes
+          content: {name: record-trust, configMap: {name: d-pacto-operator-delivery-recorder-trust}}
+        template: templates/delivery/deployment.yaml
+      - equal:
+          path: data["pin-signer.yaml"]
+          value: |-
+            keys:
+            - name: recorder
+              publicKey: |
+                -----BEGIN PUBLIC KEY-----
+                MCowBQYDK2VwAyEA
+                -----END PUBLIC KEY-----
+              streams:
+              - pins/*/*
+        template: templates/delivery/publishers.yaml
+
+  - it: names no pin signer for an Ed25519 recorder without its public key
+    set:
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: ghcr.io/acme/pacto-streams
+      delivery.recorder.signing.ed25519.secretName: recorder-key
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --records-repository=ghcr.io/acme/pacto-streams
+        template: templates/delivery/deployment.yaml
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--pin-signer-config
+        template: templates/delivery/deployment.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/delivery/publishers.yaml
+
+  - it: publishes the trust config clients derive the same rule from
+    set:
+      delivery.publishers.registry: ghcr.io/acme
+      delivery.publishers.policy: ghcr.io/acme/pacto-policy:v1
+      delivery.publishers.policySigners: "keys: []"
+      delivery.publishers.trustedRoot: "{}"
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: ghcr.io/acme/pacto-streams
+      delivery.recorder.signing.kms: awskms:///alias/recorder
+      delivery.recorder.signing.publicKey: PEM
+    template: templates/delivery/identities.yaml
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: data["publishers.json"]
+          value: '{"defaultBranch":"main","pinSigner":"keys:\n- name: recorder\n  publicKey: PEM\n  streams:\n  - pins/*/*","policy":"ghcr.io/acme/pacto-policy:v1","policySigners":"keys: []","registry":"ghcr.io/acme","streamsRepository":"ghcr.io/acme/pacto-streams","trustedRoot":true}'
+
+  - it: publishes empty trust config keys by default
+    template: templates/delivery/identities.yaml
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: data["publishers.json"]
+          value: '{"defaultBranch":"main","pinSigner":"","policy":"","policySigners":"","registry":"","streamsRepository":"","trustedRoot":false}'
+
+  - it: reserves the trust operation and its names for the promoter
+    template: templates/delivery/admission.yaml
+    documentIndex: 0
+    asserts:
+      - matchRegex:
+          path: spec.validations[?(@.message == "only the Pacto delivery promoter raises a trust operation")].expression
+          pattern: "object.spec.type != 'delivery.pacto.trianalab.io/trust' \\|\\| request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-operator-delivery'"
+      - matchRegex:
+          path: 'spec.validations[?(@.message == "names ending in -rollback, -freeze or -stepdown, and <stage>-auto-, -witnessed- or -trust- names, are the ones the Pacto delivery promoter raises its own operations under: choose another name")].expression'
+          pattern: -\(auto\|witnessed\|trust\)-\[0-9a-f\]\{10\}\$

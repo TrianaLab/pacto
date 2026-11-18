@@ -1,0 +1,16 @@
+{{- if .Values.delivery.enabled }}
+{{- with include "pacto-operator.delivery.publishersData" . }}
+# What the promoter verifies publishers with: the keys that sign the delivery
+# policy, the Sigstore trusted root and this cluster's recorder key for the
+# pins it writes. Public keys only.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "pacto-operator.delivery.fullname" $ }}-publishers
+  namespace: {{ include "pacto-operator.delivery.namespace" $ }}
+  labels:
+    {{- include "pacto-operator.delivery.labels" (dict "ctx" $ "component" "delivery-promoter") | nindent 4 }}
+data:
+  {{- . | nindent 2 }}
+{{- end }}
+{{- end }}
