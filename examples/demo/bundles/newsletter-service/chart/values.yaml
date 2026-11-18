@@ -6,3 +6,4 @@ service:
 env:
   BATCH_SIZE: "200"
   SMTP_PASSWORD: demo-placeholder-password
+  STRIPE_API_BASE: https://api.stripe.com/v1

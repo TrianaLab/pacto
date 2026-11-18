@@ -1,7 +1,7 @@
 format: pacto.inferred/v1
 inputs:
     pacto: demo
-    discovery: "2"
+    discovery: "3"
     sources:
         - path: CODEOWNERS
           digest: sha256:a52f034421811e5454b85abaedc944ba60d3e390e6ec2db6ea71e6563bb1f73f
@@ -16,9 +16,15 @@ inputs:
         - path: chart/values-staging.yaml
           digest: sha256:e15c415d62760896bd8bec192a44c5716dc224db9e0fc609b9ac14718f8f9e56
         - path: chart/values.yaml
-          digest: sha256:24952062701109decc4cf3a8075332a48759834a9860b2f89decfc8f3511535f
+          digest: sha256:68bb17033c5e875999cfdad08c00eabdd1eb68299e182d954fe72d375ec37228
         - path: deploy/deployment.yaml
           digest: sha256:5b7d211439ba5b72fd6376abc080a33b39cee16d33c03a7b20c42e12fb9dde8c
+        - path: infra/main.tf
+          digest: sha256:8d3279a20b50be48c3f3116de966e2035bcaf2299187f39e8b0a6dacb0048a01
+        - path: requirements.txt
+          digest: sha256:c9a179f84fcf00def906466ba23914173cf485191f64fc3e9523218b8188bed3
+    catalog:
+        - default sha256:62a3fd52949e99b18eb330766ec3269d47ba7a821f59b77ab69dea81ad76a063
 fields:
     - field: capabilities[health]
       value: GET /healthz (readinessProbe)
@@ -57,6 +63,36 @@ fields:
       declare: '"SMTP_PASSWORD": {"description":"Read from the Secret smtp, whose values pacto init does not read.","type":"string","writeOnly":true}'
       outranks:
         - chart/values.yaml:8
+    - field: configuration.STRIPE_API_BASE
+      value: string
+      source: chart/values.yaml:9
+      confidence: likely
+      declare: '"STRIPE_API_BASE": {"type":"string"}'
+    - field: dependencies[newsletter-signups]
+      value: aws/sqs
+      source: infra/main.tf:1
+      confidence: possible
+      declare: |
+        dependencies:
+          - name: newsletter-signups
+            external: true
+            identity: aws/sqs
+            required: true
+            version: <the API version you call>
+      external:
+        identity: aws/sqs
+        catalog: default
+        sources:
+            - kind: terraform
+              path: infra/main.tf
+              line: 1
+              key: aws_sqs_queue.signups
+        resource:
+            type: aws_sqs_queue
+            name: newsletter-signups
+            missing:
+                - account
+                - region
     - field: dependencies[notification-worker]
       value: notification-worker
       source: deploy/deployment.yaml:21
@@ -67,6 +103,32 @@ fields:
             ref: <where the contract of notification-worker is published>
             required: true
             compatibility: unknown   # declare the versions of notification-worker this service accepts
+    - field: dependencies[stripe]
+      value: stripe
+      source: chart/values.yaml:9
+      confidence: likely
+      declare: |
+        dependencies:
+          - name: stripe
+            external: true
+            identity: stripe
+            required: true
+            version: <the API version you call>
+      external:
+        identity: stripe
+        catalog: default
+        sources:
+            - kind: helmValues
+              path: chart/values.yaml
+              line: 9
+              key: STRIPE_API_BASE
+              host: api.stripe.com
+            - kind: sdk
+              path: requirements.txt
+              line: 1
+        client:
+            sdk: stripe
+            major: 11
     - field: environments[production].file
       value: chart/values-production.yaml
       source: chart/values-production.yaml
