@@ -372,7 +372,7 @@ metadata: {name: db}
 
 // TestPactifyWhatItCannotTell: a folder with only Dockerfiles says nothing
 // about the registry, the owner, the workload or the API, so each is Unknown,
-// and with no manifests there is nothing for Flux to apply.
+// and with no manifests there is nothing to apply.
 func TestPactifyWhatItCannotTell(t *testing.T) {
 	dir := writeTree(t, t.TempDir(), map[string]string{
 		"build/api.Dockerfile":    "FROM scratch\n",

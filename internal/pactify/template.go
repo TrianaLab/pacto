@@ -404,7 +404,7 @@ func (p *planner) deliveryStep() {
 	step := fleet.CreationStep{Step: fleet.StepDelivery, Status: fleet.StepStatusPlanned, Detail: "the Pacto resource and Stages: " + strings.Join(added, ", ")}
 	switch {
 	case !p.deliveryPlanned:
-		step.Status, step.Detail = fleet.StepStatusUnknown, "no cluster pieces: the golden path publishes no manifests for Flux to apply (publish.deploy)"
+		step.Status, step.Detail = fleet.StepStatusUnknown, "no cluster pieces: the golden path publishes no manifests (publish.deploy)"
 	case len(files) < 1+len(p.envs):
 		step.Status, step.Detail = fleet.StepStatusUnknown, "the Pacto resource only: "+strings.Join(files, ", ")+
 			"; no Stage, since nothing deployed says which version runs: tag the image with the version you deploy and run pacto init --delivery again"

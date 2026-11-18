@@ -141,7 +141,7 @@ func (p *planner) noManifests() {
 		p.next("publish.deploy names the chart %s, so Pacto wrote no applier object: deploy it with the applier your cluster runs and name that object in each Stage's spec.applyRef", p.pub.Deploy)
 		return
 	}
-	p.unknown("the cluster pieces: the contract publishes no manifests for Flux to apply (publish.deploy), so none were planned")
+	p.unknown("the cluster pieces: the contract publishes no manifests (publish.deploy), so none were planned")
 }
 
 // keptSource warns when a delivery/<env>.yaml already there takes its
