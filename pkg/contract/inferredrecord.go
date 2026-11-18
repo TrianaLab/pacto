@@ -46,6 +46,19 @@ type InferredRecord struct {
 	Fields          []Inferred        `json:"fields" yaml:"fields"`
 	Findings        []InferredFinding `json:"findings,omitempty" yaml:"findings,omitempty"`
 	FindingsDropped int               `json:"findingsDropped,omitempty" yaml:"findingsDropped,omitempty"`
+	// Migrations are the contracts pacto ci raised in memory before it
+	// published them: never a contract field, and absent when none was.
+	Migrations []InferredMigration `json:"migrations,omitempty" yaml:"migrations,omitempty"`
+}
+
+// InferredMigration is one contract file published at another pactoVersion
+// than it was written with: the version it declared, the version it was
+// published as, the bundle file and the Pacto that raised it.
+type InferredMigration struct {
+	From   string `json:"from" yaml:"from"`
+	To     string `json:"to" yaml:"to"`
+	Source string `json:"source" yaml:"source"`
+	By     string `json:"by" yaml:"by"`
 }
 
 // InferredFinding is one thing discovery recognized but could not read, or
@@ -188,6 +201,13 @@ func ParseInferredRecord(data []byte) (*InferredRecord, error) {
 			return nil, fmt.Errorf("%s: inputs.catalog[%d] is %q, want \"<default|organization> sha256:<64 hex>\"", InferredRecordFile, i, c)
 		}
 	}
+	seenSource := make(map[string]bool, len(r.Migrations))
+	for i, m := range r.Migrations {
+		if err := checkInferredMigration(m, seenSource); err != nil {
+			return nil, fmt.Errorf("%s: migrations[%d]%s", InferredRecordFile, i, err)
+		}
+		seenSource[m.Source] = true
+	}
 	for i, s := range r.Inputs.Sources {
 		if !inferredDigestRE.MatchString(s.Digest) {
 			return nil, fmt.Errorf("%s: inputs.sources[%d].digest is %q, want sha256:<64 hex>", InferredRecordFile, i, s.Digest)
@@ -197,6 +217,26 @@ func ParseInferredRecord(data []byte) (*InferredRecord, error) {
 		}
 	}
 	return &r, nil
+}
+
+// checkInferredMigration is why m cannot be in a record whose migrations
+// seen holds by source, as a suffix of "migrations[i]", or nil.
+func checkInferredMigration(m InferredMigration, seen map[string]bool) error {
+	switch {
+	case m.From == "" || !Known(m.From):
+		return fmt.Errorf(".from %q is not a supported pactoVersion", m.From)
+	case m.To == "" || !Known(m.To):
+		return fmt.Errorf(".to %q is not a supported pactoVersion", m.To)
+	case slices.Index(SupportedVersions, m.From) >= slices.Index(SupportedVersions, m.To):
+		return fmt.Errorf(".from %q is not older than to %q", m.From, m.To)
+	case !validPath(m.Source):
+		return fmt.Errorf(".source %q is not a relative path", m.Source)
+	case seen[m.Source]:
+		return fmt.Errorf(".source %q is listed twice", m.Source)
+	case m.By == "":
+		return errors.New(".by is empty")
+	}
+	return nil
 }
 
 // checkInferredField is why f cannot be in a record whose fields seen holds,
@@ -345,7 +385,9 @@ func validPath(p string) bool {
 const repositoryPrefix = "repository:"
 
 // Marshal writes the record with its fields sorted by field then source, its
-// findings truncation first then by code and source, its sources by path, and no timestamp, so the same inputs give the same bytes.
+// findings truncation first then by code and source, its sources by path, its
+// migrations by source then from, and no timestamp, so the same inputs give
+// the same bytes.
 func (r *InferredRecord) Marshal() []byte {
 	out := *r
 	out.Fields = slices.Clone(r.Fields)
@@ -370,6 +412,10 @@ func (r *InferredRecord) Marshal() []byte {
 	})
 	out.Inputs.Sources = slices.Clone(r.Inputs.Sources)
 	slices.SortFunc(out.Inputs.Sources, func(a, b InferredSourceFile) int { return strings.Compare(a.Path, b.Path) })
+	out.Migrations = slices.Clone(r.Migrations)
+	slices.SortFunc(out.Migrations, func(a, b InferredMigration) int {
+		return cmp.Or(strings.Compare(a.Source, b.Source), strings.Compare(a.From, b.From))
+	})
 	data, _ := yaml.Marshal(&out) // strings and slices of them always encode
 	return data
 }
@@ -393,7 +439,8 @@ func ReadInferredRecord(fsys fs.FS) (*InferredRecord, error) {
 // VerifyInferredRecord checks the record against the bundle it sits in: every
 // source exists in fsys with its digest (the record itself is never a source),
 // and every field cites, in its source and its outranks, files the sources
-// list. A repository file outside
+// list, and every migration names a file in fsys that declares the
+// pactoVersion it was published as. A repository file outside
 // the bundle (a "repository:" source) cannot be checked here: its digest only
 // tells two records' inputs apart. A stale or hand-edited record fails here
 // instead of reading as authoritative.
@@ -425,6 +472,32 @@ func VerifyInferredRecord(fsys fs.FS, rec *InferredRecord) error {
 				return fmt.Errorf("fields[%d] (%s) cites %s, which inputs.sources does not list", i, f.Field, file)
 			}
 		}
+	}
+	for i, m := range rec.Migrations {
+		if err := verifyMigration(fsys, m); err != nil {
+			return fmt.Errorf("migrations[%d]: %s %w", i, m.Source, err)
+		}
+	}
+	return nil
+}
+
+// verifyMigration is why m does not match the bundle fsys, or nil: its source
+// must be in fsys and declare m.To.
+func verifyMigration(fsys fs.FS, m InferredMigration) error {
+	data, err := fs.ReadFile(fsys, m.Source)
+	if err != nil {
+		return errors.New("is not in the bundle")
+	}
+	node, err := versionNode(data)
+	if err != nil {
+		return fmt.Errorf("is unreadable: %w", err)
+	}
+	var got string
+	if node != nil {
+		got = node.Value
+	}
+	if got != m.To {
+		return fmt.Errorf("declares pactoVersion %q, the record says it was published as %q", got, m.To)
 	}
 	return nil
 }
