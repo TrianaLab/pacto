@@ -22,6 +22,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 )
 
 // Media types of the artifacts Pacto packages itself.
@@ -91,11 +92,24 @@ func newArtifact(artifactType string, configType types.MediaType, config []byte,
 	return img
 }
 
+// newReferrer is newArtifact for a referrer of subject, also as the same
+// bytes the write-once writer pushes under a pacto-sig tag.
+func newReferrer(artifactType string, configType types.MediaType, config []byte, layerType types.MediaType, layer []byte,
+	annotations map[string]string, subject v1.Descriptor) (v1.Image, ocireferrer.Artifact) {
+	img := newArtifact(artifactType, configType, config, layerType, layer, annotations, &subject)
+	m, _ := img.RawManifest() // a rawImage returns its bytes
+	return img, ocireferrer.Artifact{
+		Payload: layer, PayloadDesc: ocireferrer.Descriptor(string(layerType), layer),
+		Config: config, ConfigDesc: ocireferrer.Descriptor(string(configType), config),
+		Manifest: m, ManifestDesc: ocireferrer.Descriptor(string(types.OCIManifestSchema1), m),
+	}
+}
+
 // sbomArtifact is an SBOM as a referrer of subject. The config media type is
 // the artifact type too, so a registry that reports a referrer's type from its
 // config (older ones do) lists it the same way.
-func sbomArtifact(mt string, sbom []byte, subject v1.Descriptor, annotations map[string]string) v1.Image {
-	return newArtifact(mt, types.MediaType(mt), []byte("{}"), types.MediaType(mt), sbom, annotations, &subject)
+func sbomArtifact(mt string, sbom []byte, subject v1.Descriptor, annotations map[string]string) (v1.Image, ocireferrer.Artifact) {
+	return newReferrer(mt, types.MediaType(mt), []byte("{}"), types.MediaType(mt), sbom, annotations, subject)
 }
 
 // load turns what a builder wrote to dir into the artifact Pacto pushes, with

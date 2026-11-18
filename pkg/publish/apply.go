@@ -282,13 +282,18 @@ func attachSBOM(ctx context.Context, reg Registry, tools Tools, sign contract.Pu
 	if err := checkSBOM(path, mt, sbom); err != nil {
 		return "", err
 	}
-	h, _ := v1.NewHash(digest)
-	subject := v1.Descriptor{MediaType: types.MediaType(head.MediaType), Size: head.Size, Digest: h}
-	ann := map[string]string{AnnotationVersion: version, AnnotationRevision: revision}
-	d, err := reg.Write(ctx, repo, sbomArtifact(mt, sbom, subject, ann))
+	mode, err := reg.Mode(ctx, repo, digest)
 	if err != nil {
 		return "", err
 	}
+	h, _ := v1.NewHash(digest)
+	subject := v1.Descriptor{MediaType: types.MediaType(head.MediaType), Size: head.Size, Digest: h}
+	ann := map[string]string{AnnotationVersion: version, AnnotationRevision: revision}
+	img, art := sbomArtifact(mt, sbom, subject, ann)
+	if err := writeReferrer(ctx, reg, mode, repo, digest, img, art); err != nil {
+		return "", err
+	}
+	d := art.ManifestDesc.Digest.String()
 	res.Actions = append(res.Actions, "attached the SBOM "+repo+"@"+d)
 	return d, nil
 }

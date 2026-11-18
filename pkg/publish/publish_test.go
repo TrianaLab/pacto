@@ -780,7 +780,8 @@ func TestApplyNeverSignsForeignContent(t *testing.T) {
 	head, _ := reg.Head(ctx, host+"/payments@"+d)
 	h, _ := v1.NewHash(d)
 	subject := v1.Descriptor{MediaType: types.MediaType(head.MediaType), Size: head.Size, Digest: h}
-	foreign, err := reg.Write(ctx, host+"/payments", sbomArtifact(SPDXType, []byte(`{"forged":true}`), subject, nil))
+	forgedSBOM, _ := sbomArtifact(SPDXType, []byte(`{"forged":true}`), subject, nil)
+	foreign, err := reg.Write(ctx, host+"/payments", forgedSBOM)
 	expect(t, err == nil, "foreign SBOM: %v", err)
 	ours, err := attachSBOM(ctx, reg, tools, contract.PublishSign{Key: "k"}, "sbom/api.spdx.json", host+"/payments", d, "1.0.0", "abc123", &Result{})
 	expect(t, err == nil && ours != foreign, "the foreign SBOM was reused: %s %v", ours, err)

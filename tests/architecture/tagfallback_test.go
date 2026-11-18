@@ -62,6 +62,7 @@ func TestOnlyRunRecordsFallBackToTags(t *testing.T) {
 // repository through the primitive unnoticed (#452 decision 11).
 var writeOnceCallers = []string{
 	"pkg/deliveryrecord/deliveryrecord.go", // PutRecord: the delivery record streams repository
+	"pkg/publish/registry.go",              // PutSigTag: the publisher's own artifact and bundle repositories (pacto-sig tags, CLI only)
 }
 
 // TestOnlyAllowedCallersWriteOnceTags keeps write-once tags where the

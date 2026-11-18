@@ -15,6 +15,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/ocireferrer/capabilities"
 	"github.com/trianalab/pacto/v4/pkg/publish"
 	"github.com/trianalab/pacto/v4/pkg/signing"
 )
@@ -35,12 +36,13 @@ const (
 
 // Copy the dashboard shows when a check could not run.
 const (
-	reasonBudgetSpent = "The registry checks for this refresh ran out of time; Pacto checks again on the next refresh."
-	reasonNoDigest    = "This revision has no immutable digest, so nothing attached to it can be listed."
-	reasonNoBundles   = "No Sigstore signature referrer is attached to this digest. Legacy cosign .sig tags are not read."
-	reasonKeySigner   = "The contract signs with a key file or a KMS key. The bundle carries no public key and the dashboard does not call a contract's KMS, so the signature could not be checked."
-	reasonNoIdentity  = "The contract signs keyless but names no identity and issuer to check against."
-	reasonPartial     = "The registry paginates the referrers of this digest and Pacto read only the first page, so the list is incomplete."
+	reasonBudgetSpent   = "The registry checks for this refresh ran out of time; Pacto checks again on the next refresh."
+	reasonNoDigest      = "This revision has no immutable digest, so nothing attached to it can be listed."
+	reasonNoBundles     = "No Sigstore signature referrer is attached to this digest. Legacy cosign .sig tags are not read."
+	reasonKeySigner     = "The contract signs with a key file or a KMS key. The bundle carries no public key and the dashboard does not call a contract's KMS, so the signature could not be checked."
+	reasonNoIdentity    = "The contract signs keyless but names no identity and issuer to check against."
+	reasonPartial       = "The registry paginates the referrers of this digest and Pacto read only the first page, so the list is incomplete."
+	reasonWriteOnceTags = "Read from write-once pacto-sig tags: this registry serves no Referrers API."
 )
 
 type provenanceEntry struct {
@@ -106,7 +108,7 @@ func (p *ProvenanceChecker) compute(ctx context.Context, source, ref string, c *
 		res.Signature.Reason, res.ReferrersUnavailable = reasonNoDigest, reasonNoDigest
 		return res
 	}
-	refs, err := p.listReferrers(ctx, repo, digest)
+	refs, tagged, err := p.listReferrers(ctx, repo, digest)
 	partial := errors.Is(err, publish.ErrReferrersPartial)
 	if err != nil && !partial {
 		why := capReason("The registry could not list what is attached to this digest: " + err.Error())
@@ -121,6 +123,10 @@ func (p *ProvenanceChecker) compute(ctx context.Context, source, ref string, c *
 		}
 	}
 	res.Signature = p.classifySignature(ctx, repo, digest, bundles, c)
+	if tagged {
+		// A fixed prefix: the capped reason after it keeps its own bound.
+		res.Signature.Reason = reasonWriteOnceTags + " " + res.Signature.Reason
+	}
 	if partial {
 		// A signature that verified on the first page stands; anything else may
 		// change on a page Pacto did not read.
@@ -132,14 +138,17 @@ func (p *ProvenanceChecker) compute(ctx context.Context, source, ref string, c *
 	return res
 }
 
-// listReferrers lists every referrer of repo@digest.
-func (p *ProvenanceChecker) listReferrers(ctx context.Context, repo, digest string) ([]fleet.OCIReferrer, error) {
+// listReferrers lists every referrer of repo@digest and says whether they
+// were read from write-once tags.
+func (p *ProvenanceChecker) listReferrers(ctx context.Context, repo, digest string) ([]fleet.OCIReferrer, bool, error) {
 	cctx, cancel := context.WithTimeout(ctx, provenanceCallTimeout)
 	defer cancel()
 	descs, err := p.reg.ReferrerDescriptors(cctx, repo, digest)
 	if err != nil && !errors.Is(err, publish.ErrReferrersPartial) {
-		return nil, err
+		return nil, false, err
 	}
+	// The listing probed the registry already, so this is the remembered answer.
+	mode, _ := p.reg.Mode(cctx, repo, digest)
 	out := make([]fleet.OCIReferrer, 0, len(descs))
 	for _, d := range descs {
 		r := fleet.OCIReferrer{ArtifactType: d.ArtifactType, Digest: d.Digest.String()}
@@ -151,7 +160,7 @@ func (p *ProvenanceChecker) listReferrers(ctx context.Context, repo, digest stri
 		}
 		out = append(out, r)
 	}
-	return out, err
+	return out, mode == capabilities.ReferrersWriteOnceTags, err
 }
 
 // classifySignature decides what can be said about the bundles attached to

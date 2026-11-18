@@ -290,7 +290,7 @@ func TestClientReferrerDescriptors(t *testing.T) {
 	host, reg := newRegistry(t)
 	repo, d := signedImage(t, reg, host)
 	writeBundle(t, reg, repo, d, SignPredicate, statementOver(d, SignPredicate))
-	sbom := sbomArtifact(SPDXType, []byte("{}"), *subjectOf(t, reg, repo, d), map[string]string{"k": "v"})
+	sbom, _ := sbomArtifact(SPDXType, []byte("{}"), *subjectOf(t, reg, repo, d), map[string]string{"k": "v"})
 	if _, err := reg.Write(ctx, repo, sbom); err != nil {
 		t.Fatal(err)
 	}

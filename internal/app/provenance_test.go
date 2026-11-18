@@ -26,6 +26,8 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
+	"github.com/trianalab/pacto/v4/pkg/ocireferrer/capabilities"
 	"github.com/trianalab/pacto/v4/pkg/publish"
 	"github.com/trianalab/pacto/v4/pkg/signing"
 	sigtest "github.com/trianalab/pacto/v4/pkg/signing/testutil"
@@ -52,8 +54,15 @@ type provRegistry struct {
 // *publish.Client over it (publishRegistry returns the narrower interface).
 func provenanceTestRegistry(t *testing.T) *provRegistry {
 	t.Helper()
+	return provenanceTestRegistryOf(t, true)
+}
+
+// provenanceTestRegistryOf is provenanceTestRegistry, without the Referrers API
+// (as GHCR and CNCF distribution) unless referrers is set.
+func provenanceTestRegistryOf(t *testing.T, referrers bool) *provRegistry {
+	t.Helper()
 	p := &provRegistry{}
-	inner := registry.New(registry.WithReferrersSupport(true), registry.Logger(log.New(io.Discard, "", 0)))
+	inner := registry.New(registry.WithReferrersSupport(referrers), registry.Logger(log.New(io.Discard, "", 0)))
 	p.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p.requests.Add(1)
 		if f := p.fail.Load(); f != nil && (*f)(r) {
@@ -166,6 +175,27 @@ func TestProvenanceVerifiedKeyless(t *testing.T) {
 	}
 	if p.Referrers.Total != 1 || p.Referrers.Items[0].ArtifactType != "application/vnd.dev.sigstore.bundle.v0.3+json" {
 		t.Fatalf("referrers %+v", p.Referrers)
+	}
+}
+
+// TestProvenanceReadsSigTags: on a registry without the Referrers API the
+// signature publish wrote is found through its pacto-sig tag and verifies,
+// and the reason says where it was read; a signature only in the shared
+// sha256- index is no signature.
+func TestProvenanceReadsSigTags(t *testing.T) {
+	_, s := keylessSigstore(t)
+	reg := provenanceTestRegistryOf(t, false)
+	p := checkerFor(reg).Check(t.Context(), "oci", pushSigned(t, reg, s), keylessContract(provIdentity))
+	wantStatus(t, p, fleet.SignatureVerified, "write-once pacto-sig tags")
+	if p.Referrers.Total != 1 || p.Referrers.Items[0].ArtifactType != delivery.BundleMediaType {
+		t.Fatalf("referrers %+v", p.Referrers)
+	}
+	indexOnly := contract.OCIScheme + pushImage(t, reg.client, reg.host+"/app")
+	attach(t, reg, indexOnly, delivery.BundleMediaType, nil)
+	p = checkerFor(reg).Check(t.Context(), "oci", indexOnly, keylessContract(provIdentity))
+	wantStatus(t, p, fleet.SignatureUnsigned, "write-once pacto-sig tags")
+	if p.Referrers.Total != 0 {
+		t.Fatalf("the sha256- index was read: %+v", p.Referrers)
 	}
 }
 
@@ -404,6 +434,12 @@ func (descRegistry) Referrers(context.Context, string, string, string) ([]string
 }
 func (descRegistry) Layer(context.Context, string, string) ([]byte, map[string]string, error) {
 	return nil, nil, nil
+}
+func (descRegistry) Mode(context.Context, string, string) (capabilities.ReferrersMode, error) {
+	return capabilities.ReferrersNative, nil
+}
+func (descRegistry) PutSigTag(context.Context, string, string, ocireferrer.Artifact) (string, error) {
+	return "", nil
 }
 func (d descRegistry) ReferrerDescriptors(context.Context, string, string) ([]v1.Descriptor, error) {
 	return d, nil
