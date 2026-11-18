@@ -3380,3 +3380,21 @@ func TestCheckSuggestsDeclaringNameAndVersion(t *testing.T) {
 		}
 	}
 }
+
+// TestCreateToolDeliveryTextNeutral: the delivery argument says what pactify
+// writes for each deploy, and claims to detect no cluster's applier.
+func TestCreateToolDeliveryTextNeutral(t *testing.T) {
+	raw, _ := json.Marshal(createTool().InputSchema)
+	var schema struct {
+		Properties map[string]struct{ Description string }
+	}
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		t.Fatal(err)
+	}
+	want := "With pactify or from: also plan, for a manifests deploy, the Pacto resource, a Stage per environment and a Flux OCIRepository and Kustomization; " +
+		"for a chart deploy no applier object, and the Next line names the Stage spec.applyRef " +
+		"(needs the publish section, so not with describe_only; with from, the golden path must publish a manifests or chart artifact under publish.deploy)"
+	if got := schema.Properties["delivery"].Description; got != want || strings.Contains(got, "detect") {
+		t.Fatalf("delivery: %s", got)
+	}
+}

@@ -1666,7 +1666,7 @@ pacto init [dir...] [flags]
 
 ```
       --cluster[=true|false]               draft a contract for every workload in the cluster that no Pacto describes, reading the current kubeconfig context
-      --delivery[=true|false]              also declares each --env in pacto.yaml with an empty values file, and writes the cluster pieces: the Pacto resource, a Stage per environment and its Flux OCIRepository and Kustomization
+      --delivery[=true|false]              also declares each --env in pacto.yaml with an empty values file, and writes the cluster pieces of a manifests deploy: the Pacto resource, a Stage per environment and a Flux OCIRepository and Kustomization; a chart deploy gets no applier object
       --describe-only[=true|false]         write a contract that only describes the service: no publish section, so no signing key
       --domain string                      business domain, such as payments
       --env strings                        environments for --delivery: declared in the contract and given a Stage each, in promotion order (default [test,prod])

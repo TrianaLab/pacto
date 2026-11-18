@@ -36,10 +36,11 @@ const derivedImage = "image"
 // that declares none, and what carrying it out needs.
 type derived struct {
 	pub *contract.Publish
-	// builtins build the derived artifacts; programs are what they run, so
-	// the plan checks each is there before anything is built.
+	// builtins build the derived artifacts; programs are what each image
+	// builder runs, by artifact, so the plan checks each is there before
+	// anything is built.
 	builtins map[string]publish.Builtin
-	programs []string
+	programs map[string][]string
 	// alt is the bundle repository the layout did not pick; deploy is the
 	// repository of the deploy artifact.
 	alt, deploy string
@@ -86,7 +87,7 @@ func derivePublish(dir, name, registry string, bp discover.BuildPlan, findings [
 		file, _, _ := strings.Cut(bp.ToolSource, ":")
 		d.build = fmt.Sprintf("%s (%s), image %s", bp.Tool, file, image)
 		d.pub.Artifacts = []contract.PublishArtifact{{Name: derivedImage, Type: contract.ArtifactImage, Ref: "oci://" + image}}
-		d.builtins, d.programs = map[string]publish.Builtin{derivedImage: build}, programs
+		d.builtins, d.programs = map[string]publish.Builtin{derivedImage: build}, map[string][]string{derivedImage: programs}
 		if epoch == "" {
 			d.notes = append(d.notes, "not reproducible: no commit time (set SOURCE_DATE_EPOCH)")
 		}
@@ -218,15 +219,17 @@ func createdAt(epoch string) string {
 }
 
 // deriveSection is the publish section Publish carries out for b, the
-// bundle with a supplied image recorded, and nil for a declared section. The
-// flags that shape a derived section refuse a declared one.
+// bundle with a supplied image recorded. A declared section is nil, or
+// itself with the builds detection gives its artifacts that declare none.
+// The flags that shape a derived section refuse a declared one.
 func deriveSection(ctx context.Context, dir string, b *contract.Bundle, opts PublishOptions, run runner, in contract.InferredInputs) (*contract.Bundle, *derived, error) {
 	c := b.Contract
 	if c.Publish != nil {
 		if opts.Image != "" || opts.Registry != "" || opts.SignKey != "" {
 			return nil, nil, errors.New("--image, --registry and --sign-key apply only when the contract declares no publish section")
 		}
-		return b, nil, nil
+		d, err := detectBuilds(ctx, dir, c.Publish, opts.Getenv, run)
+		return b, d, err
 	}
 	if cur, behind := contract.Behind(c.PactoVersion); behind {
 		return nil, nil, fmt.Errorf("%s declares no publish section; Pacto derives one for pactoVersion %s: set pactoVersion: %q", c.Service.Name, cur, cur)
@@ -303,32 +306,148 @@ func (d *derived) addDeploy(dir string, sc *discover.Scan, bp discover.BuildPlan
 		}
 		return nil
 	}
-	set, err := readDeploy(dir, sc, *bp.Deploy)
+	// built: this publish builds the image, or --image supplies it; either
+	// way the deploy pins it. A workload image pinned by digest is kept.
+	bi, notes, err := deployBuiltin(dir, sc, bp, supplied != "" || bp.Tool != "", derivedImage, supplied)
 	if err != nil {
 		return err
 	}
-	// built: this publish builds the image, or --image supplies it; either
-	// way the deploy pins it. A workload image pinned by digest is kept.
-	built, from, where := supplied != "" || bp.Tool != "", "", ""
-	if built && bp.Image != "" {
-		from, _ = discover.ImageRepo(bp.Image)
-		where, _, _ = strings.Cut(bp.ImageSource, ":")
-	}
-	name := contract.ArtifactManifests
-	if set.kind == discover.DeployChart {
-		name = contract.ArtifactChart
-		if _, values := firstMapping(set.files["values.yaml"]); built && contract.MapValue(values, "image") == nil {
-			return fmt.Errorf("deploy: %s/values.yaml has no image: to pin the image this publish deploys in: declare publish", set.chartDir)
-		}
-	}
+	name := deployType(*bp.Deploy)
 	d.pub.Deploy = name
 	d.pub.Artifacts = append(d.pub.Artifacts, contract.PublishArtifact{Name: name, Type: name, Ref: "oci://" + d.deploy})
 	if d.builtins == nil {
 		d.builtins = map[string]publish.Builtin{}
 	}
-	d.builtins[name] = set.builtin(built, from, where, supplied)
-	d.notes = append(d.notes, set.notes...)
+	d.builtins[name] = bi
+	d.notes = append(d.notes, notes...)
 	return nil
+}
+
+// deployType is the artifact type the deploy source src gives.
+func deployType(src discover.DeploySource) string {
+	if src.Kind == discover.DeployChart {
+		return contract.ArtifactChart
+	}
+	return contract.ArtifactManifests
+}
+
+// deployBuiltin assembles the deploy artifact from bp's deploy source, and
+// says what it leaves out. built says an image is pinned in it: supplied
+// (--image), else the one the image artifact img builds.
+func deployBuiltin(dir string, sc *discover.Scan, bp discover.BuildPlan, built bool, img, supplied string) (publish.Builtin, []string, error) {
+	set, err := readDeploy(dir, sc, *bp.Deploy)
+	if err != nil {
+		return nil, nil, err
+	}
+	from, where := "", ""
+	if built && bp.Image != "" {
+		from, _ = discover.ImageRepo(bp.Image)
+		where, _, _ = strings.Cut(bp.ImageSource, ":")
+	}
+	if set.kind == discover.DeployChart {
+		if _, values := firstMapping(set.files["values.yaml"]); built && contract.MapValue(values, "image") == nil {
+			return nil, nil, fmt.Errorf("deploy: %s/values.yaml has no image: to pin the image this publish deploys in: declare publish", set.chartDir)
+		}
+	}
+	return set.builtin(built, from, where, img, supplied), set.notes, nil
+}
+
+// detectBuilds is what builds each artifact of the declared section pub that
+// declares no build (pactoVersion 2.5): the folder's one build tool for an
+// image, Pacto's own assembly for manifests or a chart, pinning the image
+// the section's one image artifact builds. It never adds an artifact, so a
+// section with none stays a contract-only publish; nil when every artifact
+// declares its build.
+func detectBuilds(ctx context.Context, dir string, pub *contract.Publish, getenv func(string) string, run runner) (*derived, error) {
+	var bare []int
+	var images []string
+	for i, a := range pub.Artifacts {
+		if a.Build.Dockerfile == nil && len(a.Build.Command) == 0 {
+			bare = append(bare, i)
+		}
+		if a.Type == contract.ArtifactImage {
+			images = append(images, a.Name)
+		}
+	}
+	if len(bare) == 0 {
+		return nil, nil
+	}
+	sc, err := discover.Dir(dir)
+	if err != nil {
+		return nil, err
+	}
+	bp, findings := discover.Build(dir, sc)
+	d := &derived{pub: pub, builtins: map[string]publish.Builtin{}, programs: map[string][]string{}}
+	for _, i := range bare {
+		a := pub.Artifacts[i]
+		if a.Type == contract.ArtifactImage {
+			err = d.detectImage(ctx, dir, a, images, bp, findings, getenv, run)
+		} else {
+			err = d.detectDeploy(dir, sc, a, pub.Artifacts[:i], images, bp, findings)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return d, nil
+}
+
+// detectImage builds the image artifact a with the folder's one build tool.
+// ponytail: one image per folder, as derived sections do; a second image
+// artifact declares its build.
+func (d *derived) detectImage(ctx context.Context, dir string, a contract.PublishArtifact, images []string, bp discover.BuildPlan, findings []contract.InferredFinding, getenv func(string) string, run runner) error {
+	switch {
+	case len(images) > 1:
+		return fmt.Errorf("artifact %s declares no build, and Pacto detects the build of one image per folder: declare build on each of %s", a.Name, strings.Join(images, ", "))
+	case bp.Tool == "":
+		return noDetection(a, findings, "pass --image", "the folder shows no build tool")
+	}
+	bi, programs := imageBuilder(dir, bp, strings.TrimPrefix(a.Ref, "oci://"), run, commitEpoch(ctx, getenv, run, dir))
+	d.builtins[a.Name], d.programs[a.Name] = bi, programs
+	return nil
+}
+
+// detectDeploy assembles the manifests or chart artifact a from the
+// folder's one deploy source, pinning the image of the section's one image
+// artifact, which before (the artifacts declared ahead of a) must hold, so
+// its digest is known when a is built.
+func (d *derived) detectDeploy(dir string, sc *discover.Scan, a contract.PublishArtifact, before []contract.PublishArtifact, images []string, bp discover.BuildPlan, findings []contract.InferredFinding) error {
+	if bp.Deploy == nil {
+		return noDetection(a, findings, "", "the folder holds no manifests, kustomization or chart")
+	}
+	if got := deployType(*bp.Deploy); got != a.Type {
+		return fmt.Errorf("artifact %s declares no build, and is a %s, but the folder deploys with a %s: declare build", a.Name, a.Type, got)
+	}
+	img := ""
+	if len(images) == 1 {
+		img = images[0]
+		if !slices.ContainsFunc(before, func(b contract.PublishArtifact) bool { return b.Name == img }) {
+			return fmt.Errorf("artifact %s pins the image %s, so declare %s before it", a.Name, img, img)
+		}
+	}
+	bi, notes, err := deployBuiltin(dir, sc, bp, img != "", img, "")
+	if err != nil {
+		return err
+	}
+	d.builtins[a.Name] = bi
+	d.notes = append(d.notes, notes...)
+	return nil
+}
+
+// noDetection refuses the artifact a, which declares no build, with the
+// findings that leave its build undetected (only those holding keep, when
+// set: the rest are another part's), else with none.
+func noDetection(a contract.PublishArtifact, findings []contract.InferredFinding, keep, none string) error {
+	var msgs []string
+	for _, f := range findings {
+		if keep == "" || strings.Contains(f.Message, keep) {
+			msgs = append(msgs, "finding: "+f.Message)
+		}
+	}
+	if len(msgs) == 0 {
+		msgs = []string{none}
+	}
+	return fmt.Errorf("artifact %s declares no build, and Pacto cannot detect one: %s", a.Name, strings.Join(msgs, "; "))
 }
 
 // deployFiles is what a derived deploy artifact ships, read once when the
@@ -566,14 +685,15 @@ func (s *deployFiles) pactoResource(f *folder, src discover.DeploySource) error 
 }
 
 // builtin writes the deploy artifact: the files and, when the image is
-// built (or supplied), the workload's image (from, at where; a chart's
-// values.yaml image) pinned to it by digest.
-func (s *deployFiles) builtin(built bool, from, where, supplied string) publish.Builtin {
+// built by the artifact img (or supplied), the workload's image (from, at
+// where; a chart's values.yaml image) pinned to it by digest.
+func (s *deployFiles) builtin(built bool, from, where, img, supplied string) publish.Builtin {
+	key := strings.ToUpper(strings.ReplaceAll(img, "-", "_")) // as publish names it
 	return func(_ context.Context, out string, env []string) error {
 		version := envValue(env, "PACTO_VERSION")
 		ref := supplied
-		if ref == "" { // the derived image artifact is named image
-			ref = envValue(env, "PACTO_REF_IMAGE") + "@" + envValue(env, "PACTO_DIGEST_IMAGE")
+		if ref == "" {
+			ref = envValue(env, "PACTO_REF_"+key) + "@" + envValue(env, "PACTO_DIGEST_"+key)
 		}
 		files := maps.Clone(s.files)
 		if raw, ok := files[s.resource]; ok {

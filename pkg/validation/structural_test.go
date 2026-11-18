@@ -1,8 +1,10 @@
 package validation
 
 import (
+	"encoding/json"
 	"fmt"
 	"maps"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -1168,4 +1170,76 @@ func TestDeliveryIsNotAField(t *testing.T) {
 			t.Fatal("the caller's data was changed")
 		}
 	}
+}
+
+// buildless is a contract at version publishing an image without build, a
+// chart with one and a string item the schema refuses as it is.
+func buildless(version string) map[string]any {
+	return map[string]any{"pactoVersion": version, "service": map[string]any{"name": "svc", "version": "1.0.0"},
+		"publish": map[string]any{"bundle": "oci://r.io/acme/svc", "artifacts": []any{
+			map[string]any{"name": "api", "type": "image", "ref": "oci://r.io/acme/api"},
+			map[string]any{"name": "chart", "type": "chart", "ref": "oci://r.io/acme/chart", "build": map[string]any{"command": []any{"./chart.sh"}}},
+		}}}
+}
+
+// TestBuildOptionalIn25Only: an artifact may leave build out from 2.5; an
+// older contract gets one NEEDS_PACTO_2_5 at its index and no generic
+// required-property error, a 2.0 contract only NEEDS_PACTO_2_1 for the whole
+// section, and the caller's data is left alone.
+func TestBuildOptionalIn25Only(t *testing.T) {
+	if r := ValidateStructural(buildless("2.5")); !r.IsValid() {
+		t.Fatalf("2.5 without build: %v", r.Errors)
+	}
+	data := buildless("2.4")
+	r := ValidateStructural(data)
+	if len(r.Errors) != 1 || r.Errors[0].Code != "NEEDS_PACTO_2_5" || r.Errors[0].Path != "publish.artifacts.0.build" ||
+		r.Errors[0].Message != `an artifact without build needs pactoVersion "2.5"; set pactoVersion: "2.5", which keeps every older field` {
+		t.Fatalf("errors = %+v, want one NEEDS_PACTO_2_5 at publish.artifacts.0.build", r.Errors)
+	}
+	if !reflect.DeepEqual(data, buildless("2.4")) {
+		t.Fatal("the caller's data was changed")
+	}
+	if r := ValidateStructural(buildless("2.0")); len(r.Errors) != 1 || r.Errors[0].Code != "NEEDS_PACTO_2_1" {
+		t.Fatalf("2.0 errors = %+v, want only NEEDS_PACTO_2_1", r.Errors)
+	}
+	odd := buildless("2.4")
+	arts := odd["publish"].(map[string]any)["artifacts"].([]any)
+	odd["publish"].(map[string]any)["artifacts"] = []any{"api", arts[1]}
+	for _, e := range ValidateStructural(odd).Errors {
+		if e.Code == "NEEDS_PACTO_2_5" {
+			t.Fatalf("a string is no artifact to raise: %+v", e)
+		}
+	}
+}
+
+// TestSchemaPublishWordingIsProviderNeutral: the 2.5 publish section names no
+// deploy or build tool, except the deprecated dockerfile builder.
+func TestSchemaPublishWordingIsProviderNeutral(t *testing.T) {
+	var schema map[string]any
+	if err := json.Unmarshal(schemaBytes["2.5"], &schema); err != nil {
+		t.Fatal(err)
+	}
+	var walk func(p string, v any)
+	walk = func(p string, v any) {
+		switch v := v.(type) {
+		case map[string]any:
+			for k, x := range v {
+				walk(p+"/"+k, x)
+			}
+		case []any:
+			for _, x := range v {
+				walk(p, x)
+			}
+		case string:
+			if !strings.HasSuffix(p, "/description") || strings.Contains(p, "/build/properties/dockerfile/") {
+				return
+			}
+			for _, tool := range []string{"Flux", "Argo", "Kustomization", "HelmRelease", "buildx"} {
+				if strings.Contains(v, tool) {
+					t.Errorf("%s names %s: %s", p, tool, v)
+				}
+			}
+		}
+	}
+	walk("publish", schema["properties"].(map[string]any)["publish"])
 }

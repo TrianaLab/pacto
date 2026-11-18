@@ -170,7 +170,7 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | `publish.artifacts[].name` | `static-only` | - | - | - | SCHEMA_VIOLATION |
 | `publish.artifacts[].type` | `static-only` | - | - | - | SCHEMA_VIOLATION |
 | `publish.artifacts[].ref` | `static-only` | - | - | - | SCHEMA_VIOLATION |
-| `publish.artifacts[].build` | `static-only` | - | - | - | SCHEMA_VIOLATION |
+| `publish.artifacts[].build` | `static-only` | - | - | - | SCHEMA_VIOLATION, NEEDS_PACTO_2_5, PUBLISH_BUILD_DEPRECATED |
 | `publish.artifacts[].build.dockerfile` | `static-only` | - | - | - | PUBLISH_DOCKERFILE_NOT_IMAGE |
 | `publish.artifacts[].build.dockerfile.context` | `static-only` | - | - | - | SCHEMA_VIOLATION |
 | `publish.artifacts[].build.dockerfile.file` | `static-only` | - | - | - | SCHEMA_VIOLATION |
@@ -2122,13 +2122,13 @@ A runtime check never turns "could not look" into a violation. A check with no u
 
 | Key | Value |
 | --- | --- |
-| Meaning | The manifests artifact a Flux Kustomization applies; tagged last. |
+| Meaning | The manifests or chart artifact an applier deploys; tagged last. |
 | Runtime | `static-only` |
 | Evidence | none: pacto publish reads it; nothing at runtime does |
-| Rule | cross-field: names a manifests artifact |
+| Rule | cross-field: names a manifests or chart artifact |
 | Outcomes | PUBLISH_DEPLOY_NOT_MANIFESTS |
-| Limitations | charts are published, never deployed |
-| Tests | unit: `pkg/validation/crossfield_test.go:TestValidatePublish`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.deploy/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.deploy/invalid` |
+| Limitations | a chart is packaged as written, never rendered |
+| Tests | unit: `pkg/validation/crossfield_test.go:TestValidatePublish`, `pkg/validation/crossfield_test.go:TestDeployMayNameAChart`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.deploy/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.deploy/invalid` |
 
 ### `publish.artifacts`
 
@@ -2203,10 +2203,10 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Meaning | How the artifact is built: exactly one builder. |
 | Runtime | `static-only` |
 | Evidence | none: pacto publish reads it; nothing at runtime does |
-| Rule | schema: exactly one of dockerfile or command |
-| Outcomes | SCHEMA_VIOLATION |
+| Rule | schema: exactly one of dockerfile or command; optional and deprecated in 2.5 |
+| Outcomes | SCHEMA_VIOLATION, NEEDS_PACTO_2_5, PUBLISH_BUILD_DEPRECATED |
 | Limitations | builders never push |
-| Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V21Publish`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].build/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].build/invalid` |
+| Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V21Publish`, `pkg/validation/structural_test.go:TestBuildOptionalIn25Only`, `pkg/validation/crossfield_test.go:TestBuildDeprecatedWarning`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].build/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].build/invalid` |
 
 ### `publish.artifacts[].build.dockerfile`
 

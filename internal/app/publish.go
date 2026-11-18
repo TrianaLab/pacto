@@ -154,9 +154,9 @@ func publishChecks(d *derived) []publish.Check {
 // published needs none of them, so `--propose` still works from a machine
 // with no buildx, no OIDC token or an unrelated uncommitted file.
 //
-// pub is the effective publish section and programs what its derived
-// builders run.
-func preflight(ctx context.Context, env sysDeps, tools execTools, path string, pub *contract.Publish, programs []string, fsys fs.FS, askGit bool, rev string) func(publish.Plan) []publish.Check {
+// pub is the effective publish section and programs what its detected
+// image builders run, by artifact.
+func preflight(ctx context.Context, env sysDeps, tools execTools, path string, pub *contract.Publish, programs map[string][]string, fsys fs.FS, askGit bool, rev string) func(publish.Plan) []publish.Check {
 	return func(p publish.Plan) []publish.Check {
 		absent := map[string]bool{}
 		for _, it := range p.Items {
@@ -229,26 +229,25 @@ func cleanCheckout(ctx context.Context, run runner, dir, rev string) error {
 }
 
 // builders predicts a build that cannot start: docker buildx for a
-// dockerfile build, the program a command build runs, for each artifact
-// absent names, and every program a derived image builder runs. It runs no
-// build.
+// dockerfile build, the program a command build runs and every program a
+// detected image builder runs (programs, by artifact), for each artifact
+// absent names. It runs no build.
 //
 // ponytail: a builder on the plain docker driver passes, though it writes an
 // OCI layout only with the containerd image store; the build says so.
-func builders(ctx context.Context, env sysDeps, dir string, pub *contract.Publish, programs []string, absent map[string]bool) error {
+func builders(ctx context.Context, env sysDeps, dir string, pub *contract.Publish, programs map[string][]string, absent map[string]bool) error {
 	if pub == nil {
 		return nil
 	}
 	var errs []error
-	if absent[derivedImage] {
-		for _, prog := range programs {
-			errs = append(errs, lookProgram(env, dir, derivedImage, prog))
-		}
-	}
 	buildx := false
 	for _, a := range pub.Artifacts {
 		switch {
 		case !absent[a.Name]:
+		case len(programs[a.Name]) > 0:
+			for _, prog := range programs[a.Name] {
+				errs = append(errs, lookProgram(env, dir, a.Name, prog))
+			}
 		case a.Build.Dockerfile != nil && !buildx:
 			buildx = true
 			ctx, cancel := context.WithTimeout(ctx, preflightTimeout)

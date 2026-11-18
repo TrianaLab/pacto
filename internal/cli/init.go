@@ -156,7 +156,7 @@ changes nothing.`,
 	f := cmd.Flags()
 	f.BoolVar(&opts.Plan, "plan", false, "show what would be added and change nothing")
 	f.BoolVar(&opts.DescribeOnly, "describe-only", false, "write a contract that only describes the service: no publish section, so no signing key")
-	f.BoolVar(&opts.Delivery, "delivery", false, "also declares each --env in pacto.yaml with an empty values file, and writes the cluster pieces: the Pacto resource, a Stage per environment and its Flux OCIRepository and Kustomization")
+	f.BoolVar(&opts.Delivery, "delivery", false, "also declares each --env in pacto.yaml with an empty values file, and writes the cluster pieces of a manifests deploy: the Pacto resource, a Stage per environment and a Flux OCIRepository and Kustomization; a chart deploy gets no applier object")
 	f.StringVar(&opts.Name, "name", "", "service name (default: the workload's name, then the folder's)")
 	f.StringVar(&opts.Owner, "owner", "", "the team that owns the service, as a bare name such as billing (default: the workload's team label)")
 	f.StringVar(&opts.Domain, "domain", "", "business domain, such as payments")

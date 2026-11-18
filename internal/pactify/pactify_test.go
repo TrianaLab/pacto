@@ -621,6 +621,28 @@ publish:
 
 }
 
+// TestDeliveryChartWritesNoApplier: a contract that deploys a chart gets no
+// applier object and no cluster pieces, only a Next line naming the Stage's
+// spec.applyRef: the cluster's applier deploys the chart.
+func TestDeliveryChartWritesNoApplier(t *testing.T) {
+	dir := writeTree(t, t.TempDir(), map[string]string{"k8s/deploy.yaml": payments200, "pacto.yaml": `pactoVersion: "2.5"
+service: {name: payments, version: 2.0.0}
+publish:
+  bundle: oci://ghcr.io/acme/payments
+  deploy: chart
+  artifacts:
+    - {name: chart, type: chart, ref: oci://ghcr.io/acme/charts/payments}
+`})
+	r, err := Init(context.Background(), Options{Dir: dir, Delivery: true, Plan: true}, os.WriteFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasLine(r.Next, "publish.deploy names the chart chart, so Pacto wrote no applier object: deploy it with the applier your cluster runs and name that object in each Stage's spec.applyRef") ||
+		hasLine(r.Unknown, "the cluster pieces") || slices.ContainsFunc(r.Files, func(f File) bool { return strings.HasPrefix(f.Path, "delivery/") }) {
+		t.Fatalf("plan: %+v", r)
+	}
+}
+
 const payments200 = "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: payments}\nspec:\n  template:\n    spec:\n      containers: [{name: payments, image: ghcr.io/acme/payments:2.0.0}]\n"
 
 // TestDeliveryWithoutADeployedTag: with no image tag that is a version,

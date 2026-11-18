@@ -3318,15 +3318,16 @@ fields:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.bundle/invalid
       e2e: []
   publish.deploy:
-    meaning: The manifests artifact a Flux Kustomization applies; tagged last.
+    meaning: The manifests or chart artifact an applier deploys; tagged last.
     runtime: static-only
     evidence: 'none: pacto publish reads it; nothing at runtime does'
-    rule: 'cross-field: names a manifests artifact'
+    rule: 'cross-field: names a manifests or chart artifact'
     outcomes: PUBLISH_DEPLOY_NOT_MANIFESTS
-    limitations: charts are published, never deployed
+    limitations: a chart is packaged as written, never rendered
     tests:
       unit:
       - pkg/validation/crossfield_test.go:TestValidatePublish
+      - pkg/validation/crossfield_test.go:TestDeployMayNameAChart
       integration:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.deploy/valid
       - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.deploy/invalid
@@ -3430,12 +3431,14 @@ fields:
     meaning: 'How the artifact is built: exactly one builder.'
     runtime: static-only
     evidence: 'none: pacto publish reads it; nothing at runtime does'
-    rule: 'schema: exactly one of dockerfile or command'
-    outcomes: SCHEMA_VIOLATION
+    rule: 'schema: exactly one of dockerfile or command; optional and deprecated in 2.5'
+    outcomes: SCHEMA_VIOLATION, NEEDS_PACTO_2_5, PUBLISH_BUILD_DEPRECATED
     limitations: builders never push
     tests:
       unit:
       - pkg/validation/structural_test.go:TestValidateStructural_V21Publish
+      - pkg/validation/structural_test.go:TestBuildOptionalIn25Only
+      - pkg/validation/crossfield_test.go:TestBuildDeprecatedWarning
       integration:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].build/valid
       - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].build/invalid

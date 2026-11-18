@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
@@ -15,14 +16,15 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
-// delivery plans the cluster pieces: the Pacto resource that ships inside
-// every version, and per environment the Flux OCIRepository new versions come
-// from, the one Pacto points at the version to run, the Kustomization that
-// applies it and the Stage that decides.
+// delivery plans the cluster pieces of a manifests deploy: the Pacto
+// resource that ships inside every version, and per environment the Flux
+// OCIRepository new versions come from, the one Pacto points at the version
+// to run, the Kustomization that applies it and the Stage that decides. A
+// chart deploy gets no applier object: the cluster's applier deploys it.
 func (p *planner) delivery() {
 	deployRepo := p.deployRepo()
 	if deployRepo == "" {
-		p.unknown("the cluster pieces: the contract publishes no manifests for Flux to apply (publish.deploy), so none were planned")
+		p.noManifests()
 		return
 	}
 	name, kind, target := p.r.Service, "Deployment", p.r.Service
@@ -126,6 +128,18 @@ func (p *planner) deployRepo() string {
 		}
 	}
 	return repo
+}
+
+// noManifests says why a contract that deploys no manifests gets no
+// cluster pieces: a chart is deployed by the cluster's own applier.
+func (p *planner) noManifests() {
+	if p.pub != nil && slices.ContainsFunc(p.pub.Artifacts, func(a contract.PublishArtifact) bool {
+		return a.Name == p.pub.Deploy && a.Type == contract.ArtifactChart
+	}) {
+		p.next("publish.deploy names the chart %s, so Pacto wrote no applier object: deploy it with the applier your cluster runs and name that object in each Stage's spec.applyRef", p.pub.Deploy)
+		return
+	}
+	p.unknown("the cluster pieces: the contract publishes no manifests for Flux to apply (publish.deploy), so none were planned")
 }
 
 // keptSource warns when a delivery/<env>.yaml already there takes its

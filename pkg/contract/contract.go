@@ -59,8 +59,8 @@ type Check struct {
 type Publish struct {
 	// Bundle is the repository the contract bundle goes to (oci://, no tag).
 	Bundle string `yaml:"bundle" json:"bundle"`
-	// Deploy names the manifests artifact Flux applies. Pacto annotates it with
-	// the contract and tags it last.
+	// Deploy names the artifact an applier deploys: a manifests or chart
+	// artifact. Pacto annotates it with the contract and tags it last.
 	Deploy    string            `yaml:"deploy,omitempty" json:"deploy,omitempty"`
 	Artifacts []PublishArtifact `yaml:"artifacts,omitempty" json:"artifacts,omitempty"`
 	Sign      *PublishSign      `yaml:"sign,omitempty" json:"sign,omitempty"`
@@ -68,10 +68,12 @@ type Publish struct {
 
 // PublishArtifact is one artifact a service publishes.
 type PublishArtifact struct {
-	Name  string       `yaml:"name" json:"name"`
-	Type  string       `yaml:"type" json:"type"`
-	Ref   string       `yaml:"ref" json:"ref"`
-	Build PublishBuild `yaml:"build" json:"build"`
+	Name string `yaml:"name" json:"name"`
+	Type string `yaml:"type" json:"type"`
+	Ref  string `yaml:"ref" json:"ref"`
+	// Build is how the artifact is built. Optional and deprecated from
+	// pactoVersion 2.5: absent, publish detects it.
+	Build PublishBuild `yaml:"build,omitempty" json:"build,omitzero"`
 	// SBOM is the SPDX (.spdx.json) or CycloneDX (.cdx.json) file the build
 	// writes, relative to the contract directory. Pacto attaches it to the
 	// image and signs it; it never makes one.
@@ -85,7 +87,10 @@ const (
 	ArtifactManifests = "manifests"
 )
 
-// PublishBuild is how an artifact is built: exactly one of the two.
+// PublishBuild is how an artifact is built: exactly one of the two, or
+// neither from pactoVersion 2.5, where publish detects the build: the
+// folder's build tool for an image, Pacto's own assembly for manifests or a
+// chart.
 type PublishBuild struct {
 	Dockerfile *DockerfileBuild `yaml:"dockerfile,omitempty" json:"dockerfile,omitempty"`
 	// Command writes the artifact to $PACTO_OUT.
