@@ -516,6 +516,9 @@ func newDeliveryApproveCommand(v *viper.Viper, d deps) *cobra.Command {
 		Use:   "approve <operation>",
 		Short: "Record your decision on a held operation (people only)",
 		Long: "Record your decision on a held operation, as the person your kubeconfig signs you in as. " +
+			"When the installation accepts signed approvals (delivery.identities.signers) and the Stage keeps an approvals " +
+			"repository, the command instead logs you in again in your browser, signs the decision keyless with that login " +
+			"alone and pushes the signed approval record to the registry; it never reads SIGSTORE_ID_TOKEN or a CI token. " +
 			"When the promoter asks for a fresh login (delivery.promoter.authFreshness), the command instead makes " +
 			"you log in again in your browser (prompt=login, max_age=0) with its own OpenID Connect client and sends " +
 			"the Approval with that login's token, never your kubeconfig's: an agent running in your shell cannot " +
@@ -530,6 +533,22 @@ func newDeliveryApproveCommand(v *viper.Viper, d deps) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			note, _ := cmd.Flags().GetString("note")
+			if keyless, _ := cmd.Flags().GetBool("keyless"); keyless {
+				// An operation, Stage or policy it cannot read keeps the
+				// cluster path, which says what is wrong.
+				_, st, policy, err := c.ApprovalTarget(cmd.Context(), ns, args[0])
+				why := "the operation, its Stage or the identity policy could not be read"
+				if err == nil {
+					var signer delivery.PersonSigner
+					if signer, why = approveRoute(policy, st, v.GetString("delivery.oidc-issuer-url")); why == "" {
+						return approveKeyless(cmd, v, d, c, signer, st, decision, ns, args[0], note)
+					}
+				}
+				if v.GetBool("verbose") {
+					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "recording the decision in the cluster: %s\n", why)
+				}
+			}
 			// A Stage the kubeconfig cannot read (one with no credentials at
 			// all, say) gets the fresh login: the safe way when in doubt.
 			freshness, err := c.Freshness(cmd.Context(), ns, args[0])
@@ -541,7 +560,6 @@ func newDeliveryApproveCommand(v *viper.Viper, d deps) *cobra.Command {
 					return err
 				}
 			}
-			note, _ := cmd.Flags().GetString("note")
 			name, err := c.Approve(cmd.Context(), ns, args[0], delivery.Decision(decision), note)
 			if err != nil {
 				return err
@@ -558,6 +576,9 @@ func newDeliveryApproveCommand(v *viper.Viper, d deps) *cobra.Command {
 	cmd.Flags().StringSlice("oidc-extra-scopes", nil, "scopes to ask for beyond openid, profile and groups")
 	cmd.Flags().Int("oidc-redirect-port", 0, "loopback port the identity provider sends the browser back to (default: a free port)")
 	cmd.Flags().String("oidc-ca-file", "", "PEM bundle of the CAs that sign the issuer's certificate, trusted on top of the system roots (also PACTO_DELIVERY_OIDC_CA_FILE)")
+	cmd.Flags().Bool("keyless", true, "sign the decision keyless into the Stage's approvals repository when the installation accepts signed approvals; false records it in the cluster")
+	cmd.Flags().String("fulcio-url", signing.PublicFulcio, "Fulcio to get the signing certificate from, when the installation's signer names none")
+	cmd.Flags().String("timestamp-url", "", "timestamp authority to date the signature with, when the installation's signer names none")
 	for _, f := range []string{"oidc-issuer-url", "oidc-client-id", "oidc-extra-scopes", "oidc-redirect-port", "oidc-ca-file"} {
 		_ = v.BindPFlag("delivery."+f, cmd.Flags().Lookup(f))
 	}

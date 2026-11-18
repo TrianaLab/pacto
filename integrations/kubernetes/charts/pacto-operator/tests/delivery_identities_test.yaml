@@ -131,3 +131,26 @@ tests:
       - equal:
           path: 'spec.validations[?(@.message == "agents cannot approve: service accounts, system users and members of agentGroups are agents")].expression'
           value: "!(request.userInfo.username.startsWith('system:') || 'system:unauthenticated' in request.userInfo.groups || request.userInfo.groups.exists(g, g in ['pacto:agents']))"
+
+  - it: publishes the keyless approval signers
+    template: templates/delivery/identities.yaml
+    documentIndex: 0
+    set:
+      delivery.identities.signers:
+        - issuer: https://idp.acme.example
+          clientID: sigstore
+          usernamePrefix: "oidc:"
+          subjects: '^[^@]+@acme\.example$'
+    asserts:
+      - matchRegex:
+          path: data["policy.json"]
+          pattern: '"signers":\[\{"clientID":"sigstore","issuer":"https://idp.acme.example","subjects":"\^\[\^@\]\+@acme\\\\\.example\$","usernamePrefix":"oidc:"\}\]'
+
+  - it: refuses a signer without subjects
+    template: templates/delivery/identities.yaml
+    set:
+      delivery.identities.signers:
+        - issuer: https://idp.acme.example
+    asserts:
+      - failedTemplate:
+          errorPattern: subjects

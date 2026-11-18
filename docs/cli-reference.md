@@ -291,7 +291,7 @@ pacto delivery [flags]
 
 ### `pacto delivery approve`
 
-Record your decision on a held operation, as the person your kubeconfig signs you in as. When the promoter asks for a fresh login (delivery.promoter.authFreshness), the command instead makes you log in again in your browser (prompt=login, max_age=0) with its own OpenID Connect client and sends the Approval with that login's token, never your kubeconfig's: an agent running in your shell cannot approve as you without you typing your password at that moment. The token is not stored.
+Record your decision on a held operation, as the person your kubeconfig signs you in as. When the installation accepts signed approvals (delivery.identities.signers) and the Stage keeps an approvals repository, the command instead logs you in again in your browser, signs the decision keyless with that login alone and pushes the signed approval record to the registry; it never reads SIGSTORE_ID_TOKEN or a CI token. When the promoter asks for a fresh login (delivery.promoter.authFreshness), the command instead makes you log in again in your browser (prompt=login, max_age=0) with its own OpenID Connect client and sends the Approval with that login's token, never your kubeconfig's: an agent running in your shell cannot approve as you without you typing your password at that moment. The token is not stored.
 
 ```
 pacto delivery approve <operation> [flags]
@@ -301,13 +301,16 @@ pacto delivery approve <operation> [flags]
 
 ```
       --decision string             approve, reject or accept-unknown (default "approve")
+      --fulcio-url string           Fulcio to get the signing certificate from, when the installation's signer names none (default "https://fulcio.sigstore.dev")
   -h, --help[=true|false]           help for approve
+      --keyless[=true|false]        sign the decision keyless into the Stage's approvals repository when the installation accepts signed approvals; false records it in the cluster (default true)
       --note string                 why, for the record
       --oidc-ca-file string         PEM bundle of the CAs that sign the issuer's certificate, trusted on top of the system roots (also PACTO_DELIVERY_OIDC_CA_FILE)
       --oidc-client-id string       OpenID Connect client used only for approvals, never by a kubeconfig (a confidential client's secret comes from PACTO_DELIVERY_OIDC_CLIENT_SECRET) (default "pacto-approve")
       --oidc-extra-scopes strings   scopes to ask for beyond openid, profile and groups
       --oidc-issuer-url string      OpenID Connect issuer the cluster trusts, to log in again with (also PACTO_DELIVERY_OIDC_ISSUER_URL)
       --oidc-redirect-port int      loopback port the identity provider sends the browser back to (default: a free port)
+      --timestamp-url string        timestamp authority to date the signature with, when the installation's signer names none
 ```
 
 ### `pacto delivery autonomy`

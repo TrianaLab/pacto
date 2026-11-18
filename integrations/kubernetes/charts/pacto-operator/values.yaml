@@ -624,6 +624,15 @@ delivery:
     # -- Deprecated: people and agents are told apart by how they sign in. When set, anyone in none
     # of these groups is an agent.
     humanGroups: []
+    # -- Issuers whose keyless certificates may sign an approval (`pacto delivery approve`). Each
+    # entry has `issuer` (the OIDC issuer URL), `clientID` (the OIDC client the CLI logs in with),
+    # `usernamePrefix` (put before the certificate's email to name the Kubernetes user),
+    # `subjects` (required: a regular expression every approver's email must match, for example
+    # `^[^@]+@acme\.com$`), `fulcioURL`, `timestampURL` and `trustedRoot` (the Sigstore
+    # trusted_root.json the certificate chains to). Empty, keyless approvals never count and the
+    # CLI records Approvals in the cluster. Privacy: public-good Fulcio logs every certificate,
+    # the approver's email included, to Certificate Transparency.
+    signers: []
 
   recorder:
     # -- Run the recorder, which writes a signed record of every concluded operation to the registry

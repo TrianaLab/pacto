@@ -236,6 +236,8 @@ func deliveryWriteRows() []surfaceRow {
 		body("delivery approve", "", "POST /api/delivery/operations/{namespace}/{name}/decision", whyNoApprove, "decision", "note"),
 		alike("delivery approve", "", "", "the CLI signs in to the identity provider itself to answer as a person; the dashboard signs people in",
 			"oidc-ca-file", "oidc-client-id", "oidc-extra-scopes", "oidc-issuer-url", "oidc-redirect-port"),
+		alike("delivery approve", "", "", "the CLI signs the person's decision keyless itself; the dashboard records it through the recorder, which signs on the person's behalf",
+			"fulcio-url", "keyless", "timestamp-url"),
 	)
 }
 

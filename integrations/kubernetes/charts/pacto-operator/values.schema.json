@@ -1228,6 +1228,23 @@
             "allowEmptyHumanGroups": {
               "type": "boolean",
               "description": "Deprecated and ignored: people and agents are told apart by how they sign in."
+            },
+            "signers": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["issuer", "subjects"],
+                "properties": {
+                  "issuer": {"type": "string", "minLength": 1},
+                  "clientID": {"type": "string"},
+                  "usernamePrefix": {"type": "string"},
+                  "subjects": {"type": "string", "minLength": 1},
+                  "fulcioURL": {"type": "string"},
+                  "timestampURL": {"type": "string"},
+                  "trustedRoot": {"type": "string"}
+                }
+              }
             }
           }
         },

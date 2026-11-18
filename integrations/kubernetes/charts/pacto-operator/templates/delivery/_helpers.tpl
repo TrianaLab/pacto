@@ -120,6 +120,10 @@ to "" (the exact group T). Unset, whoever may update the Stage's workload answer
 {{- $types := dict -}}
 {{- range .Values.delivery.gates.providers }}{{ $_ := set $types .name .type }}{{ end -}}
 {{- if $types }}{{ $_ := set $p "gateProviders" $types }}{{ end -}}
+{{- /* Keyless approvers: a signer without subjects would let any address its
+issuer vouches for approve, so it fails the render. */ -}}
+{{- range $i.signers }}{{ if not .subjects }}{{ fail (printf "delivery.identities.signers: the signer for issuer %q needs subjects, the regular expression an approver's certificate must match" .issuer) }}{{ end }}{{ end -}}
+{{- if $i.signers }}{{ $_ := set $p "signers" $i.signers }}{{ end -}}
 {{- $p | toJson -}}
 {{- end }}
 

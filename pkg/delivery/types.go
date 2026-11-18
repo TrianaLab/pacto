@@ -4,7 +4,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -285,6 +287,78 @@ type ClassPolicy struct {
 	// client's plan reads which checks run on an eval provider as the
 	// promoter's does.
 	GateProviders map[string]string `json:"gateProviders,omitempty"`
+	// Signers are the issuers whose keyless certificates may sign an
+	// approval. Empty, keyless approvals never count.
+	Signers []PersonSigner `json:"signers,omitempty"`
+}
+
+// PersonSigner is one issuer whose keyless certificates may sign an
+// approval, and how a client signs with it.
+type PersonSigner struct {
+	// Issuer is the OIDC issuer URL the certificate names.
+	Issuer string `json:"issuer"`
+	// ClientID is the OIDC client a person's client logs in with.
+	ClientID string `json:"clientID,omitempty"`
+	// UsernamePrefix is put before the certificate's email to name the
+	// Kubernetes user the approval is checked as.
+	UsernamePrefix string `json:"usernamePrefix,omitempty"`
+	// Subjects is the regular expression an approver's email must match;
+	// required, since an issuer vouches for addresses that are no approver.
+	Subjects string `json:"subjects"`
+	// FulcioURL and TimestampURL are where a client gets its certificate
+	// and its signed timestamp.
+	FulcioURL    string `json:"fulcioURL,omitempty"`
+	TimestampURL string `json:"timestampURL,omitempty"`
+	// TrustedRoot is the Sigstore trusted_root.json the certificate chains to.
+	TrustedRoot string `json:"trustedRoot,omitempty"`
+}
+
+// SignerFor is the configured signer of issuer.
+func (p ClassPolicy) SignerFor(issuer string) (PersonSigner, bool) {
+	i := slices.IndexFunc(p.Signers, func(s PersonSigner) bool { return s.Issuer == issuer })
+	if i < 0 {
+		return PersonSigner{}, false
+	}
+	return p.Signers[i], true
+}
+
+// ApproverIdentity is who a keyless approval from issuer's certificate
+// naming san speaks for: usernamePrefix+san with no groups, since a
+// certificate names none. A URI SAN (a CI workflow), a SAN outside the
+// signer's subjects or in a machine domain, or an identity ClassifyBy calls
+// no person is ClassBySignerURI, an agent; any other is ClassByUser. An
+// issuer with no configured signer is an error.
+func ApproverIdentity(issuer, san string, p ClassPolicy) (Identity, ClassSource, error) {
+	s, ok := p.SignerFor(issuer)
+	switch {
+	case !ok:
+		return Identity{}, "", fmt.Errorf("no approver signer is configured for the issuer %s", issuer)
+	case san == "":
+		return Identity{}, "", errors.New("the certificate names no subject")
+	case s.Subjects == "":
+		return Identity{}, "", fmt.Errorf("the signer for %s has no subjects, so it vouches for nobody", issuer)
+	}
+	re, err := regexp.Compile(s.Subjects)
+	if err != nil {
+		return Identity{}, "", fmt.Errorf("the subjects of the signer for %s: %w", issuer, err)
+	}
+	id := Identity{User: s.UsernamePrefix + san}
+	lower := strings.ToLower(san)
+	machine := strings.HasSuffix(lower, "gserviceaccount.com") || strings.Contains(lower, ".svc.id.goog")
+	if class, _ := p.ClassifyBy(id); strings.Contains(san, "://") || machine || !re.MatchString(san) || class != ClassHuman {
+		return id, ClassBySignerURI, nil
+	}
+	return id, ClassByUser, nil
+}
+
+// KeylessRefusal is the guard every keyless approval path asks before
+// ApprovalRefusalAsking: a signer ApproverIdentity calls an agent never
+// approves. IsHuman alone would call a URI SAN a person.
+func KeylessRefusal(id Identity, source ClassSource) (code, why string) {
+	if source == ClassBySignerURI {
+		return "AgentsMayNotApprove", "agents cannot approve: " + id.User + " is " + sourcePhrase(source)
+	}
+	return "", ""
 }
 
 // PlanGates is GateProviders as PlanInput.Gates: planning only asks a
@@ -396,6 +470,9 @@ const (
 	ClassBySystemUser ClassSource = "system-user"
 	// ClassByUser: any other authenticated identity, a person.
 	ClassByUser ClassSource = "user"
+	// ClassBySignerURI: a keyless signer whose certificate names a workload
+	// or an address outside the approvers' subjects (ApproverIdentity).
+	ClassBySignerURI ClassSource = "signer-uri"
 )
 
 // Classify derives the actor class (ClassifyBy without its source).
