@@ -464,3 +464,61 @@ func TestCISnapshotErrorFailsTheRun(t *testing.T) {
 		t.Fatal("a source refused before any read fails the run")
 	}
 }
+
+// policyFailure publishes the policy service 1.0.0 with an open policy,
+// tightens it to require metadata, and adds web, a repository-local service
+// whose contract references the policy and carries no metadata.
+// policyFailure publishes the policy service 1.0.0 with an open policy,
+// tightens it to require metadata, and adds web, a repository-local service
+// whose contract references the published policy by digest and carries no
+// metadata, so it fails the new policy.
+func (e *ciRepoEnv) policyFailure(t *testing.T) {
+	t.Helper()
+	e.write(t, map[string]string{
+		"policy/pacto.yaml":         "service: {name: policy, version: 1.0.0}\n",
+		"policy/policy/schema.json": `{"type":"object"}`,
+	})
+	d := e.publish(t, "policy", "acme/policy", "1.0.0", nil)
+	e.write(t, map[string]string{
+		"policy/pacto.yaml":         "service: {name: policy}\n",
+		"policy/policy/schema.json": `{"type":"object","required":["metadata"]}`,
+		"web/pacto.yaml":            "service: {name: web, version: 1.0.0}\npolicies:\n  - name: http\n    ref: oci://" + e.host + "/acme/policy@" + d + "\n",
+	})
+}
+
+// TestCIBlockedSurvivesNoConsumerSource runs the real pipeline: a blocked
+// answer needs no consumer source that answered, while the evidence a clear
+// answer needs is still missing.
+func TestCIBlockedSurvivesNoConsumerSource(t *testing.T) {
+	t.Run("running consumer, no source answered", func(t *testing.T) {
+		e := newCIRepo(t)
+		e.breakingPayments(t)
+		e.write(t, map[string]string{"web/pacto.yaml": consumerOf("web", e.host)})
+		// The only consumer source reports itself partial, so none answered.
+		body := "schemaVersion: pacto.dev/fleet-targets/v1\nstate: {status: partial}\ntargets:\n  - scope: prod\n    kind: k8s\n    name: web\n    service: web\n    compliance: Compliant\n"
+		file := filepath.Join(t.TempDir(), "targets.yaml")
+		writeCIFile(t, filepath.Dir(file), "targets.yaml", body)
+		p, res := e.planWith(t, FleetOptions{TargetStateFiles: []string{file}})
+		want := []ci.SourceLine{{Name: "target-state", Status: "partial"}}
+		if r := row(t, p, "payments"); r.Impact.Text != "blocked (web)" || p.Exit != 1 || !slices.Equal(p.Snapshot.Sources, want) {
+			t.Fatalf("row = %+v, snapshot %+v, result %+v", r, p.Snapshot, res["payments"])
+		}
+	})
+	t.Run("repository-local policy referrer, no consumer source", func(t *testing.T) {
+		e := newCIRepo(t)
+		e.svc.BundleStore = oci.NewClient(anonymous, oci.WithInsecureRegistries(e.host))
+		e.policyFailure(t)
+		p, res := e.planWith(t, FleetOptions{})
+		// The repository alone finds the referrer and its failure; a policy
+		// failure blocks only a referrer that runs on a known target, which
+		// no source here can show, so the row names it and is never clear.
+		got := res["policy"]
+		if len(got.Consumers) != 1 || got.Consumers[0].Service != "web" || got.Consumers[0].CompatibilityVerdict != impact.CompatibilityIncompatible {
+			t.Fatalf("consumers = %+v", got.Consumers)
+		}
+		r := row(t, p, "policy")
+		if r.Classification != "BREAKING" || r.Impact.Gate != impact.GateUnverified || !strings.Contains(r.Impact.Text, "fails its new policy: web") || len(p.ConsumerSources) != 0 {
+			t.Fatalf("row = %+v", r)
+		}
+	})
+}
