@@ -34,6 +34,11 @@ that command. A file holds one record. `--stats-file`:
 `PACTO_STATS_FILE` applies to every recording command in the job, so give each
 command its own file with `--stats-file` when a job runs more than one.
 
+`pacto ci`:
+
+- writes one record per checked service, `run.payments.json` for `--stats-file run.json`;
+- never publishes a record, since it only plans.
+
 Recording prints one of these lines on stderr:
 
 - `pacto: run record published to <repo>@<digest> (unsigned statistics)`

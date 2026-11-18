@@ -80,6 +80,54 @@ Until the first version is published there is nothing to compare with and
 `pacto diff` fails, so add this step after your first `pacto publish`. To
 compare two folders with no registry, run `pacto diff ./main ./feature-branch`.
 
+## Plan every service with pacto ci
+
+When one repository holds several services, `pacto ci` checks them all in one
+step. It finds every `pacto.yaml` under the repository root, skips the folders
+the root `.pactoignore` names and compares each service with its last
+published version in your registry. It writes nothing to the registry, so it
+needs only read credentials (`PACTO_REGISTRY_USERNAME` and
+`PACTO_REGISTRY_PASSWORD`):
+
+```yaml
+- name: Plan every service
+  run: pacto ci
+```
+
+The plan prints each value it detected with its source:
+
+- `Registry`: `--registry`, else `ghcr.io/<owner>` on GitHub Actions or
+  `CI_REGISTRY_IMAGE` on GitLab CI
+- `Base`: the target branch or merge-request base, shown for context only;
+  Pacto reads no Git history and works on a shallow checkout
+- `Consumer source`: each source of consumers you named and what it answered
+
+Then one row per service:
+
+| Column | Shows |
+| --- | --- |
+| `SERVICE` | the service name |
+| `CHANGED` | whether its content differs from the published version |
+| `VERSION` | published version `->` the version it would publish |
+| `CLASSIFICATION` | `NON_BREAKING`, `POTENTIAL_BREAKING` or `BREAKING` |
+| `IMPACT` | `clear`, `blocked (...)` or `unverified (...)` |
+| `INFERRED` | how many fields Pacto read from the folder |
+
+--8<-- "examples/demo/generated/ci-plan.md"
+
+`pacto ci` exits like `pacto impact`: `0` clear, `1` blocked and `2`
+unverified. A changed service reads `unverified (no consumer source)` until you
+name where its consumers are, with the flags `pacto impact` takes, such as `--root`,
+`--oci`, `--cache`, `--k8s`, `--evidence-url`, `--target-state` or `--traces`.
+
+`pacto ci --explain payments` shows why one row reads as it does: its
+baseline, what changed, each inferred field with its source and the consumers.
+`--output-format json` prints the plan as one JSON document.
+
+On GitHub Actions the plan is also added to the job summary. On GitLab CI it
+is written to `pacto-plan.md`; keep it with
+`artifacts: paths: [pacto-plan.md]`.
+
 ## On every pull request: who breaks
 
 `pacto diff` says whether a change is breaking. `pacto impact` says which
