@@ -89,14 +89,23 @@ type IntentPredicate struct {
 
 // NewApprovalRecord builds the record of approval a on op, on the stream
 // anchored at anchorDigest. at is when it was decided (RFC 3339): the
-// Approval's creation, so building it twice gives the same payload.
+// Approval's creation, so building it twice gives the same payload. A note
+// that looks like a secret is withheld, as an intent's params are.
 func NewApprovalRecord(stage RecordStage, anchorDigest string, op OperationObject, a ApprovalSpec, signer ApprovalSigner, at string) ApprovalStatement {
-	return ApprovalStatement{Type: StatementType, Subject: subjects(anchorDigest, ""), PredicateType: PredicateApproval,
+	s := ApprovalStatement{Type: StatementType, Subject: subjects(anchorDigest, ""), PredicateType: PredicateApproval,
 		Predicate: ApprovalPredicate{
 			Operation: ApprovedOperation{Name: op.Metadata.Name, UID: op.Metadata.UID, IntentDigest: a.IntentDigest, Stage: stage},
 			Decision:  a.Decision, Note: a.Note, CorrelationID: op.Spec.CorrelationID, Signer: signer, Time: at,
 		}}
+	if b, _ := json.Marshal(s); secretPattern.Match(b) {
+		s.Predicate.Note = NoteWithheld
+	}
+	return s
 }
+
+// NoteWithheld replaces an approval's note that looks like a secret: anyone
+// who may pull the records repository reads the record.
+const NoteWithheld = "note withheld: it looks like a secret"
 
 // NewIntentRecord builds the intent record of the admitted operation op.
 // approvals is the Stage's approvals reference; at is when op was admitted.

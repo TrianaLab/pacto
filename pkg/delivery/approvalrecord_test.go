@@ -82,6 +82,20 @@ func TestIntentRecordCarriesAdmissionActor(t *testing.T) {
 	}
 }
 
+// TestApprovalRecordWithholdsSecretNote: a note that looks like a secret is
+// never pushed to a repository wider than the namespace's Approval readers.
+func TestApprovalRecordWithholdsSecretNote(t *testing.T) {
+	op := recordInput().Operation
+	secret := "rotated, new key ghp_" + strings.Repeat("a", 36)
+	st := NewApprovalRecord(recStage, rAnc, op, ApprovalSpec{Decision: Approve, Note: secret}, ApprovalSigner{Kind: SignerRecorder}, "2026-10-19T10:00:00Z")
+	if st.Predicate.Note != NoteWithheld || st.Predicate.Decision != Approve {
+		t.Fatalf("a secret-looking note = %+v", st.Predicate)
+	}
+	if st := NewApprovalRecord(recStage, rAnc, op, ApprovalSpec{Decision: Approve, Note: "looks good"}, ApprovalSigner{Kind: SignerRecorder}, "x"); st.Predicate.Note != "looks good" {
+		t.Fatalf("a plain note = %+v", st.Predicate)
+	}
+}
+
 // TestOperationRecordNamesApprovalRecords: the operation record names each
 // approval's own record and who signed it.
 func TestOperationRecordNamesApprovalRecords(t *testing.T) {
