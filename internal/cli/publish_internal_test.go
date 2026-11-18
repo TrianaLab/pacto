@@ -244,3 +244,14 @@ func TestOnBehalfOfHelpNamesTheClusterUsername(t *testing.T) {
 		}
 	}
 }
+
+// TestPublishCommandDerivedFlags: the flags that shape a derived publish
+// section reach the engine, with the process environment.
+func TestPublishCommandDerivedFlags(t *testing.T) {
+	var got app.PublishOptions
+	_, err := runPublish(t, publishDeps(&publish.Result{Plan: publishPlan(true)}, nil, &got), "text", "--plan",
+		"--image", "r.io/x@sha256:abc", "--registry", "r.io/acme", "--sign-key", "/k/cosign.key", "--no-transparency-log")
+	if err != nil || got.Image != "r.io/x@sha256:abc" || got.Registry != "r.io/acme" || got.SignKey != "/k/cosign.key" || !got.NoTransparencyLog || got.Getenv == nil {
+		t.Fatalf("options %+v %v", got, err)
+	}
+}

@@ -38,6 +38,14 @@ type Tools interface {
 // an unreadable registry. Nothing was written.
 var ErrNotReady = errors.New("publish refused")
 
+// ErrTagRace is a tag another publish wrote while this one ran: found just
+// before writing it, or read back right after. Nothing is overwritten.
+var ErrTagRace = errors.New("lost a tag to a concurrent publish")
+
+// ErrForeignSignature marks an item whose tag holds this version's
+// provenance without a signature by the configured identity.
+var ErrForeignSignature = errors.New("not signed by the configured identity")
+
 // Result is what a publish did.
 type Result struct {
 	Plan Plan `json:"plan"`
@@ -65,13 +73,13 @@ type Result struct {
 func Apply(ctx context.Context, reg Registry, tools Tools, in Input) (*Result, error) {
 	p := MakePlan(ctx, reg, in)
 	if p.Ready {
-		adoptOnlySigned(ctx, tools, in.Bundle.Contract.Publish, &p)
+		adoptOnlySigned(ctx, tools, p.pub, &p)
 	}
 	res := &Result{Plan: p, Actions: []string{}, Digests: map[string]string{}, SBOMs: map[string]string{}}
 	if !p.Ready {
 		return res, fmt.Errorf("%w: %s", ErrNotReady, refusal(p))
 	}
-	r := &applier{ctx: ctx, reg: reg, tools: tools, in: in, res: res, pub: in.Bundle.Contract.Publish}
+	r := &applier{ctx: ctx, reg: reg, tools: tools, in: in, res: res, pub: p.pub}
 	if err := r.artifacts(); err != nil {
 		return res, err
 	}
@@ -108,6 +116,7 @@ func adoptOnlySigned(ctx context.Context, tools Tools, pub *contract.Publish, p 
 		}
 		if err := tools.Verify(ctx, SignOf(pub), strings.TrimSuffix(it.Ref, ":"+p.Version)+"@"+it.Digest); err != nil {
 			p.Items[i].State, p.Ready = Conflict, false
+			p.Items[i].Err = fmt.Errorf("%w: %w", ErrForeignSignature, err)
 			p.Items[i].Reason = "the tag holds " + it.Digest + " with this version's provenance, but no signature by the configured identity, " +
 				"so Pacto did not publish it; it is never signed or overwritten (" + err.Error() + ")" + NextVersion
 		}
@@ -136,11 +145,14 @@ func (r *applier) artifacts() error {
 		repo, digest := Repo(a.Ref), p.Items[i].Digest
 		if p.Items[i].State == Absent {
 			ann := map[string]string{AnnotationVersion: version, AnnotationRevision: r.in.Revision}
+			if r.in.Created != "" {
+				ann[AnnotationCreated] = r.in.Created
+			}
 			if a.Name == r.pub.Deploy {
 				ann[delivery.ContractAnnotation] = contractRef(bundleRepo, bundleDigest)
 			}
 			var err error
-			if digest, err = buildAndPush(r.ctx, r.reg, r.tools, a, env, ann); err != nil {
+			if digest, err = buildAndPush(r.ctx, r.reg, r.tools, a, r.in.Builtin[a.Name], env, ann); err != nil {
 				return fmt.Errorf("%s: %w", a.Name, err)
 			}
 			r.res.Actions = append(r.res.Actions, "pushed "+a.Name+" "+repo+"@"+digest)
@@ -165,7 +177,9 @@ func (r *applier) artifacts() error {
 
 // owe records a tag to write once everything is signed. The tag is read again
 // just before it is written, so a publish racing this one is refused in the
-// moment between the read and the write, not over the whole build.
+// moment between the read and the write, not over the whole build, and read
+// back right after, so a write landing in that moment is seen. Both are
+// ErrTagRace.
 func (r *applier) owe(deploy bool, repo, digest string) {
 	tag := func() error {
 		ref := repo + ":" + r.res.Plan.Version
@@ -174,9 +188,18 @@ func (r *applier) owe(deploy bool, repo, digest string) {
 		case err != nil:
 			return err
 		case now == nil:
-			return r.reg.Tag(r.ctx, repo, digest, r.res.Plan.Version)
+			if err := r.reg.Tag(r.ctx, repo, digest, r.res.Plan.Version); err != nil {
+				return err
+			}
+			back, err := r.reg.Head(r.ctx, ref)
+			if err != nil {
+				return fmt.Errorf("reading %s back: %w", ref, err)
+			}
+			if back == nil || back.Digest != digest {
+				return fmt.Errorf("%w: %s no longer holds %s right after this publish tagged it; another publish wrote it meanwhile", ErrTagRace, ref, digest)
+			}
 		case now.Digest != digest:
-			return fmt.Errorf("%s now holds %s, written while this publish ran; it is never overwritten"+NextVersion, ref, now.Digest)
+			return fmt.Errorf("%w: %s now holds %s, written while this publish ran; it is never overwritten"+NextVersion, ErrTagRace, ref, now.Digest)
 		}
 		return nil
 	}
@@ -236,16 +259,20 @@ func refusal(p Plan) string {
 	return "not ready"
 }
 
-// buildAndPush runs a's builder into a fresh directory, loads what it wrote
-// and pushes it by digest. The directory lives until the push is done: an
-// image layout is read lazily.
-func buildAndPush(ctx context.Context, reg Registry, tools Tools, a contract.PublishArtifact, env []string, ann map[string]string) (string, error) {
+// buildAndPush runs a's builder (bi when set, else tools) into a fresh
+// directory, loads what it wrote and pushes it by digest. The directory lives
+// until the push is done: an image layout is read lazily.
+func buildAndPush(ctx context.Context, reg Registry, tools Tools, a contract.PublishArtifact, bi Builtin, env []string, ann map[string]string) (string, error) {
 	out, err := os.MkdirTemp("", "pacto-publish-"+a.Name+"-")
 	if err != nil {
 		return "", err
 	}
 	defer func() { _ = os.RemoveAll(out) }()
-	if err := tools.Build(ctx, a, out, append(env, "PACTO_OUT="+out)); err != nil {
+	env = append(env, "PACTO_OUT="+out)
+	if bi == nil {
+		bi = func(ctx context.Context, out string, env []string) error { return tools.Build(ctx, a, out, env) }
+	}
+	if err := bi(ctx, out, env); err != nil {
 		return "", err
 	}
 	art, err := load(a.Type, out, ann)

@@ -219,7 +219,7 @@ func TestPublishPlanChecksTheBuilders(t *testing.T) {
 		!strings.Contains(b, "the build of manifests runs ./render.sh, which is not an executable here") || strings.Contains(b, "worker") {
 		t.Fatalf("builders: %v", got)
 	}
-	if err := builders(context.Background(), sysDeps{}, dir, &contract.Contract{}, nil); err != nil {
+	if err := builders(context.Background(), sysDeps{}, dir, nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -255,12 +255,12 @@ func TestPublishPlanChecksTheKeylessToken(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("SIGSTORE_ID_TOKEN", "")
 	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", "")
-	keyless := &contract.Contract{Publish: &contract.Publish{Sign: &contract.PublishSign{Keyless: true}}}
+	keyless := &contract.Publish{Sign: &contract.PublishSign{Keyless: true}}
 	if err := newExecTools(dir, nil, nil).loadSigner(context.Background(), keyless); err == nil || !strings.Contains(err.Error(), "no OIDC token") {
 		t.Fatalf("keyless with no token: %v", err)
 	}
 	// No sign section signs keyless too, so it needs the token as well.
-	nosign := &contract.Contract{Publish: &contract.Publish{}}
+	nosign := &contract.Publish{}
 	if err := newExecTools(dir, nil, nil).loadSigner(context.Background(), nosign); err == nil || !strings.Contains(err.Error(), "no OIDC token") {
 		t.Fatalf("no sign with no token: %v", err)
 	}
@@ -365,8 +365,8 @@ func TestPublishAgainNeedsNoBuilderSignerOrCleanCheckout(t *testing.T) {
 	// Keyless with no token: nothing to sign, so the token is not asked for.
 	t.Setenv("SIGSTORE_ID_TOKEN", "")
 	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", "")
-	keyless := &contract.Contract{Publish: &contract.Publish{Sign: &contract.PublishSign{Keyless: true}}}
-	check := preflight(context.Background(), sysDeps{}, newExecTools(dir, nil, nil), dir, keyless, os.DirFS(dir), false, "")
+	keyless := &contract.Publish{Sign: &contract.PublishSign{Keyless: true}}
+	check := preflight(context.Background(), sysDeps{}, newExecTools(dir, nil, nil), dir, keyless, nil, os.DirFS(dir), false, "")
 	for _, c := range check(publish.Plan{}) {
 		if !c.Passed {
 			t.Fatalf("nothing to write, yet %s failed: %s", c.Name, c.Message)
@@ -440,7 +440,7 @@ func TestPublishRefusals(t *testing.T) {
 	if res.Plan.Ready || !slices.ContainsFunc(res.Plan.Checks, func(c publish.Check) bool { return c.Name == "signing key" && !c.Passed }) {
 		t.Fatalf("a signing key inside the bundle is a failed check: %+v", res.Plan.Checks)
 	}
-	if err := keyOutsideBundle(&contract.Contract{Publish: &contract.Publish{Sign: &contract.PublishSign{Key: "/abs/cosign.key"}}}, nil); err != nil {
+	if err := keyOutsideBundle(&contract.Publish{Sign: &contract.PublishSign{Key: "/abs/cosign.key"}}, nil); err != nil {
 		t.Fatal(err)
 	}
 	res, _ = publishService(f, reg).Publish(ctx, PublishOptions{Path: writePublishBundle(t, host, ""), Plan: true})
@@ -664,12 +664,12 @@ func TestExecToolsSBOM(t *testing.T) {
 func TestSBOMsIgnored(t *testing.T) {
 	dir := t.TempDir()
 	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("x"), 0o644)
-	c := &contract.Contract{Publish: &contract.Publish{Artifacts: []contract.PublishArtifact{
-		{Name: "api", SBOM: "out/api.spdx.json"}, {Name: "abs", SBOM: "/tmp/a.spdx.json"}, {Name: "up", SBOM: "../a.spdx.json"}, {Name: "none"}}}}
+	c := &contract.Publish{Artifacts: []contract.PublishArtifact{
+		{Name: "api", SBOM: "out/api.spdx.json"}, {Name: "abs", SBOM: "/tmp/a.spdx.json"}, {Name: "up", SBOM: "../a.spdx.json"}, {Name: "none"}}}
 	if err := sbomsIgnored(c, dir); err == nil || !strings.Contains(err.Error(), "add out/api.spdx.json to .pactoignore") {
 		t.Fatalf("an SBOM in the bundle: %v", err)
 	}
-	inside := &contract.Contract{Publish: &contract.Publish{Artifacts: []contract.PublishArtifact{{Name: "in", SBOM: filepath.Join(dir, "sbom", "api.spdx.json")}}}}
+	inside := &contract.Publish{Artifacts: []contract.PublishArtifact{{Name: "in", SBOM: filepath.Join(dir, "sbom", "api.spdx.json")}}}
 	if err := sbomsIgnored(inside, dir); err == nil || !strings.Contains(err.Error(), "add sbom/api.spdx.json to .pactoignore") {
 		t.Fatalf("an absolute SBOM path in the bundle: %v", err)
 	}
@@ -679,7 +679,7 @@ func TestSBOMsIgnored(t *testing.T) {
 			t.Fatalf("%q: %v", ig, err)
 		}
 	}
-	if err := sbomsIgnored(&contract.Contract{}, dir); err != nil {
+	if err := sbomsIgnored(nil, dir); err != nil {
 		t.Fatal(err)
 	}
 	_ = os.Remove(filepath.Join(dir, ".pactoignore"))

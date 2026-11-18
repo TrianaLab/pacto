@@ -343,7 +343,7 @@ func TestVersionRule(t *testing.T) {
 	b.Contract.Capabilities = nil
 	base := bundleOf(host0, "0.2.0", "job")
 	base.Contract.Capabilities = []contract.Capability{{Type: "health"}}
-	ch := versionCheck(ctx, stubBaseline{reg0, base}, b, &Plan{Version: "0.3.0"})
+	ch := versionCheck(ctx, stubBaseline{reg0, base}, Repo(b.Contract.Publish.Bundle), b, &Plan{Version: "0.3.0"})
 	if !ch.Passed || !strings.Contains(ch.Message, "could not tell") {
 		t.Fatalf("potentially breaking: %+v", ch)
 	}

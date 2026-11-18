@@ -17,6 +17,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/partial"
 	"github.com/google/go-containerregistry/pkg/v1/static"
+	"github.com/google/go-containerregistry/pkg/v1/tarball"
 	"github.com/google/go-containerregistry/pkg/v1/types"
 	"gopkg.in/yaml.v3"
 
@@ -110,8 +111,18 @@ func load(kind, dir string, annotations map[string]string) (Artifact, error) {
 	return loadManifests(dir, annotations)
 }
 
-// loadImage reads the one image or image index of an OCI image layout.
+// loadImage reads the one image or image index of an OCI image layout, or
+// the one docker-save tarball (*.tar) the build wrote instead.
 func loadImage(dir string, annotations map[string]string) (Artifact, error) {
+	if _, err := os.Stat(filepath.Join(dir, "index.json")); err != nil {
+		if tars, _ := filepath.Glob(filepath.Join(dir, "*.tar")); len(tars) == 1 {
+			img, err := tarball.ImageFromPath(tars[0], nil)
+			if err != nil {
+				return nil, fmt.Errorf("the build wrote %s, which is not a docker-save tarball of one image: %w", filepath.Base(tars[0]), err)
+			}
+			return mutate.Annotations(img, annotations).(v1.Image), nil
+		}
+	}
 	idx, err := layout.ImageIndexFromPath(dir)
 	if err != nil {
 		return nil, fmt.Errorf("the build did not write an OCI image layout to $PACTO_OUT: %w", err)

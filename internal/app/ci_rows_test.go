@@ -16,6 +16,7 @@ import (
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 
 	"github.com/trianalab/pacto/v4/internal/ci"
+	"github.com/trianalab/pacto/v4/internal/discover"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/diff"
 	"github.com/trianalab/pacto/v4/pkg/oci"
@@ -136,7 +137,7 @@ func TestUnchangedOnlyRecordDiffers(t *testing.T) {
 		b.FS = contract.WithInferredRecord(b.FS, rec.Marshal())
 	})
 	r := row(t, e.plan(t), "reports")
-	if r.Changed != "no" || !strings.Contains(r.Reason, "only the inferred record differs (discovery 1 -> 3)") || r.Inferred == 0 {
+	if r.Changed != "no" || !strings.Contains(r.Reason, "only the inferred record differs (discovery 1 -> "+discover.Version+")") || r.Inferred == 0 {
 		t.Fatalf("row = %+v", r)
 	}
 }

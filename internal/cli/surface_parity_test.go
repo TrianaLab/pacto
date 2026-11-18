@@ -317,6 +317,7 @@ func publishRows() []surfaceRow {
 		alike("publish", "", "", whyPropose, "propose", "on-behalf-of", "correlation-id", "propose-timeout"),
 		alike("publish", "", "", "overrides the CLI applies to the local contract before publishing; pacto_publish publishes the contract as it is", "set", "values"),
 		alike("publish", "", "", "a run record is a CI statistic the CLI writes; MCP and the dashboard record no runs", "stats-context", "stats-file", "stats-registry"),
+		alike("publish", "", "", "shape the publish section Pacto derives for a contract that declares none; pacto_publish derives it with the registry the workload image names and signs keyless; the dashboard publishes nothing", "image", "registry", "sign-key", "no-transparency-log"),
 	)
 }
 

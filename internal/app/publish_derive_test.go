@@ -232,19 +232,19 @@ func TestPinDerivedFailures(t *testing.T) {
 	host := "example.com"
 	b := &contract.Bundle{Contract: &contract.Contract{Service: contract.Service{Name: "payments"}, Publish: &contract.Publish{Bundle: "oci://" + host + "/x"}},
 		RawYAML: []byte("pactoVersion: \"2.5\"\nservice: {name: payments}\n")}
-	if _, err := pinDerived(&contract.Bundle{Contract: b.Contract, RawYAML: []byte("[a]")}, publish.Derived{Version: "1.0.0"}, contract.InferredInputs{}); err == nil {
+	if _, err := pinDerived(&contract.Bundle{Contract: b.Contract, RawYAML: []byte("[a]")}, "reg/pacto/payments", publish.Derived{Version: "1.0.0"}, contract.InferredInputs{}); err == nil {
 		t.Fatal("a sequence was pinned")
 	}
-	if _, err := pinDerived(&contract.Bundle{Contract: b.Contract, RawYAML: []byte("service: {name: payments}\n")}, publish.Derived{Version: "1.0.0"}, contract.InferredInputs{}); err == nil ||
+	if _, err := pinDerived(&contract.Bundle{Contract: b.Contract, RawYAML: []byte("service: {name: payments}\n")}, "reg/pacto/payments", publish.Derived{Version: "1.0.0"}, contract.InferredInputs{}); err == nil ||
 		!strings.Contains(err.Error(), "pinning service.version 1.0.0") {
 		t.Fatalf("no pactoVersion: %v", err)
 	}
 	b.FS = fstest.MapFS{contract.InferredRecordFile: {Data: []byte("bogus: 1\n")}}
-	if _, err := pinDerived(b, publish.Derived{Version: "1.0.0"}, contract.InferredInputs{}); err == nil {
+	if _, err := pinDerived(b, "reg/pacto/payments", publish.Derived{Version: "1.0.0"}, contract.InferredInputs{}); err == nil {
 		t.Fatal("a broken record was extended")
 	}
 	b.FS = walkFailFS{}
-	if _, err := pinDerived(b, publish.Derived{Version: "1.0.0"}, contract.InferredInputs{}); err == nil || !strings.Contains(err.Error(), "pinned bundle FS") {
+	if _, err := pinDerived(b, "reg/pacto/payments", publish.Derived{Version: "1.0.0"}, contract.InferredInputs{}); err == nil || !strings.Contains(err.Error(), "pinned bundle FS") {
 		t.Fatalf("unwalkable: %v", err)
 	}
 }

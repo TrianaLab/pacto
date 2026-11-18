@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"slices"
 	"strings"
 	"text/tabwriter"
@@ -55,7 +56,12 @@ func newPublishCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorde
 			format := v.GetString(outputFormatKey)
 			start := time.Now()
 			sp := startSpinner(cmd, format, "Publishing")
-			res, err := d.publish(svc, cmd.Context(), app.PublishOptions{Path: path, Overrides: getOverrides(cmd), Revision: revision, Plan: plan})
+			opts := app.PublishOptions{Path: path, Overrides: getOverrides(cmd), Revision: revision, Plan: plan, Getenv: os.Getenv}
+			opts.Image, _ = cmd.Flags().GetString("image")
+			opts.Registry, _ = cmd.Flags().GetString("registry")
+			opts.SignKey, _ = cmd.Flags().GetString("sign-key")
+			opts.NoTransparencyLog, _ = cmd.Flags().GetBool("no-transparency-log")
+			res, err := d.publish(svc, cmd.Context(), opts)
 			if err != nil || plan {
 				sp.Stop()
 			} else {
@@ -89,6 +95,10 @@ func newPublishCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorde
 	cmd.Flags().String("on-behalf-of", "", "with --propose, the person an agent acts for, as the Kubernetes username the cluster authenticates them as (what kubectl auth whoami prints for them, any OIDC prefix included); asserted, not verified; required when an agent proposes, never a service account or other system user, and that person may not approve the change")
 	cmd.Flags().String("correlation-id", "", "with --propose, an id that ties the promote to an incident or another change, such as a ticket; "+
 		"kept with the change and its record, filtered by pacto delivery history --correlation-id")
+	cmd.Flags().String("image", "", "with no publish section: the image to deploy, pinned by digest (repo@sha256:...); Pacto builds, signs and copies none")
+	cmd.Flags().String("registry", "", "with no publish section: the registry to publish to (default: what the CI context or the workload image names)")
+	cmd.Flags().String("sign-key", "", "with no publish section: sign with this cosign key file instead of keyless")
+	cmd.Flags().Bool("no-transparency-log", false, "with --sign-key: keep the signatures out of the transparency log")
 	cmd.Flags().Duration("propose-timeout", 10*time.Minute, "how long --propose waits for the Stage to record the version as published")
 	addOverrideFlagsNoShorthand(cmd)
 	addStatsFlags(cmd)

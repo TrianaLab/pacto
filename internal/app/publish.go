@@ -31,6 +31,30 @@ type PublishOptions struct {
 	Revision string
 	// Plan decides and writes nothing.
 	Plan bool
+	// Image is a digest-pinned image (repo@sha256:...) a contract with no
+	// publish section deploys: Pacto builds, signs and copies none.
+	Image string
+	// Registry is where a derived publish section publishes; empty lets the
+	// CI context and the workload image decide.
+	Registry string
+	// SignKey signs a derived publish section with this cosign key file;
+	// NoTransparencyLog keeps its signatures out of the transparency log.
+	SignKey           string
+	NoTransparencyLog bool
+	// Getenv reads the CI context and SOURCE_DATE_EPOCH; nil is an empty
+	// environment, so only the CLI hands the runner's variables in.
+	Getenv func(string) string
+}
+
+// flagErr refuses flag values that cannot work whatever the contract says.
+func (o PublishOptions) flagErr() error {
+	switch {
+	case o.Image != "" && !strings.Contains(o.Image, "@sha256:"):
+		return errors.New("--image needs a digest: a tag can move")
+	case o.NoTransparencyLog && o.SignKey == "":
+		return errors.New("--no-transparency-log needs --sign-key: keyless signing needs the transparency log")
+	}
+	return nil
 }
 
 // runner runs a program in dir with env added to the process environment and
@@ -63,6 +87,9 @@ func tail(s string) string {
 // runs no tests.
 func (s *Service) Publish(ctx context.Context, opts PublishOptions) (*publish.Result, error) {
 	path := defaultPath(opts.Path)
+	if err := opts.flagErr(); err != nil {
+		return nil, err
+	}
 	// The record names the revision the manifests are stamped with.
 	revision := s.localInputs(path, opts.Revision).Commit
 	cat, err := s.completionCatalog(ctx)
@@ -74,31 +101,51 @@ func (s *Service) Publish(ctx context.Context, opts PublishOptions) (*publish.Re
 	if err != nil {
 		return nil, err
 	}
-	b := &contract.Bundle{Contract: c, RawYAML: raw, FS: fsys}
 	env := s.env()
+	b, d, err := deriveSection(ctx, path, &contract.Bundle{Contract: c, RawYAML: raw, FS: fsys}, opts, env.run, inputs)
+	if err != nil {
+		return nil, err
+	}
+	in := publish.Input{Bundle: b, Revision: revision}
+	pub := c.Publish
+	if d != nil {
+		pub, in.Publish, in.Builtin, in.Created = d.pub, d.pub, d.builtins, d.created
+	} else {
+		d = &derived{}
+	}
 	reg := env.publishRegistry()
 	tools := newExecTools(path, env.run, reg)
-	var notes []string
-	if c.Service.Version == "" && c.Publish != nil {
+	notes := d.notes
+	if c.Service.Version == "" {
 		var done *publish.Result
-		if b, done, notes, err = derivedBundle(ctx, env.run, reg, tools, path, b, revision, inputs); err != nil || done != nil {
+		var more []string
+		if b, done, more, err = derivedBundle(ctx, env.run, reg, tools, path, b, pub, d.alt, revision, inputs); err != nil || done != nil {
 			return done, err
 		}
-		c, fsys = b.Contract, b.FS
+		in.Bundle, c, fsys, notes = b, b.Contract, b.FS, append(notes, more...)
 	}
-	in := publish.Input{Bundle: b, Revision: revision, Checks: []publish.Check{validationCheck(s.guaranteeStage(ctx, path, c))}}
-	in.Checks = append(in.Checks, checkOf("references", rejectLocalDeps(c), rejectLocalRefs(c)),
-		checkOf("lock", s.verifyLockIfPresent(ctx, path, b)), checkOf("build outputs", sbomsIgnored(c, path)))
-	in.Preflight = preflight(ctx, env, tools, path, c, fsys, opts.Revision == "" && in.Revision != "", in.Revision)
+	in.Checks = append(publishChecks(d), validationCheck(s.guaranteeStage(ctx, path, c)),
+		checkOf("references", rejectLocalDeps(c), rejectLocalRefs(c)),
+		checkOf("lock", s.verifyLockIfPresent(ctx, path, b)), checkOf("build outputs", sbomsIgnored(pub, path)))
+	in.Preflight = preflight(ctx, env, tools, path, pub, d.programs, fsys, opts.Revision == "" && in.Revision != "", in.Revision)
 	if opts.Plan {
 		return &publish.Result{Plan: publish.MakePlan(ctx, reg, in), Notes: notes}, nil
 	}
 	res, err := publish.Apply(ctx, reg, tools, in)
 	if errors.Is(err, publish.ErrNotReady) {
-		res.Refusal = keepRefusal(ctx, env, tools, b, res.Plan)
+		res.Refusal = keepRefusal(ctx, env, tools, b, pub, res.Plan)
 	}
 	res.Notes = notes
 	return res, err
+}
+
+// publishChecks is how a derived section has its image, said with the
+// plan's checks; none for a declared section.
+func publishChecks(d *derived) []publish.Check {
+	if d.build == "" {
+		return nil
+	}
+	return []publish.Check{{Name: "build", Passed: true, Message: d.build}}
 }
 
 // preflight checks what the absent items need: the builder of each artifact
@@ -106,17 +153,20 @@ func (s *Service) Publish(ctx context.Context, opts PublishOptions) (*publish.Re
 // checkout (askGit says whether to ask git). A re-run of a version already
 // published needs none of them, so `--propose` still works from a machine
 // with no buildx, no OIDC token or an unrelated uncommitted file.
-func preflight(ctx context.Context, env sysDeps, tools execTools, path string, c *contract.Contract, fsys fs.FS, askGit bool, rev string) func(publish.Plan) []publish.Check {
+//
+// pub is the effective publish section and programs what its derived
+// builders run.
+func preflight(ctx context.Context, env sysDeps, tools execTools, path string, pub *contract.Publish, programs []string, fsys fs.FS, askGit bool, rev string) func(publish.Plan) []publish.Check {
 	return func(p publish.Plan) []publish.Check {
 		absent := map[string]bool{}
 		for _, it := range p.Items {
 			absent[it.Name] = it.State == publish.Absent
 		}
-		sign := keyOutsideBundle(c, fsys)
+		sign := keyOutsideBundle(pub, fsys)
 		if p.Missing > 0 {
-			sign = errors.Join(sign, tools.loadSigner(ctx, c))
+			sign = errors.Join(sign, tools.loadSigner(ctx, pub))
 		}
-		checks := []publish.Check{checkOf("signing key", sign), checkOf("builders", builders(ctx, env, path, c, absent))}
+		checks := []publish.Check{checkOf("signing key", sign), checkOf("builders", builders(ctx, env, path, pub, programs, absent))}
 		if askGit && p.Missing > 0 {
 			checks = append(checks, checkOf("clean checkout", cleanCheckout(ctx, env.run, path, rev)))
 		}
@@ -179,18 +229,24 @@ func cleanCheckout(ctx context.Context, run runner, dir, rev string) error {
 }
 
 // builders predicts a build that cannot start: docker buildx for a
-// dockerfile build, and the program a command build runs, for each artifact
-// absent names. It runs no build.
+// dockerfile build, the program a command build runs, for each artifact
+// absent names, and every program a derived image builder runs. It runs no
+// build.
 //
 // ponytail: a builder on the plain docker driver passes, though it writes an
 // OCI layout only with the containerd image store; the build says so.
-func builders(ctx context.Context, env sysDeps, dir string, c *contract.Contract, absent map[string]bool) error {
-	if c.Publish == nil {
+func builders(ctx context.Context, env sysDeps, dir string, pub *contract.Publish, programs []string, absent map[string]bool) error {
+	if pub == nil {
 		return nil
 	}
 	var errs []error
+	if absent[derivedImage] {
+		for _, prog := range programs {
+			errs = append(errs, lookProgram(env, dir, derivedImage, prog))
+		}
+	}
 	buildx := false
-	for _, a := range c.Publish.Artifacts {
+	for _, a := range pub.Artifacts {
 		switch {
 		case !absent[a.Name]:
 		case a.Build.Dockerfile != nil && !buildx:
@@ -202,27 +258,34 @@ func builders(ctx context.Context, env sysDeps, dir string, c *contract.Contract
 				errs = append(errs, fmt.Errorf("%s is built from a Dockerfile, but docker buildx has no usable builder: %w", a.Name, err))
 			}
 		case len(a.Build.Command) > 0:
-			prog := a.Build.Command[0]
-			if strings.ContainsRune(prog, '/') && !filepath.IsAbs(prog) {
-				prog = filepath.Join(dir, prog) // the build runs in the contract directory
-				if !strings.ContainsRune(prog, filepath.Separator) {
-					// Join(".", "./render.sh") is "render.sh", which LookPath
-					// would search $PATH for.
-					prog = "." + string(filepath.Separator) + prog
-				}
-			}
-			if _, err := env.lookPath(prog); err != nil {
-				errs = append(errs, fmt.Errorf("the build of %s runs %s, which is not an executable here: %w", a.Name, a.Build.Command[0], err))
-			}
+			errs = append(errs, lookProgram(env, dir, a.Name, a.Build.Command[0]))
 		}
 	}
 	return errors.Join(errs...)
 }
 
+// lookProgram refuses a program the build of artifact name runs that is not
+// an executable here. A relative path is in dir, where the build runs.
+func lookProgram(env sysDeps, dir, name, program string) error {
+	prog := program
+	if strings.ContainsRune(prog, '/') && !filepath.IsAbs(prog) {
+		prog = filepath.Join(dir, prog) // the build runs in the contract directory
+		if !strings.ContainsRune(prog, filepath.Separator) {
+			// Join(".", "./render.sh") is "render.sh", which LookPath
+			// would search $PATH for.
+			prog = "." + string(filepath.Separator) + prog
+		}
+	}
+	if _, err := env.lookPath(prog); err != nil {
+		return fmt.Errorf("the build of %s runs %s, which is not an executable here: %w", name, program, err)
+	}
+	return nil
+}
+
 // keyOutsideBundle refuses a signing key file that would be packed into the
 // published bundle: a private key in a public artifact.
-func keyOutsideBundle(c *contract.Contract, fsys fs.FS) error {
-	key := publish.SignOf(c.Publish).Key
+func keyOutsideBundle(pub *contract.Publish, fsys fs.FS) error {
+	key := publish.SignOf(pub).Key
 	if key == "" || filepath.IsAbs(key) {
 		return nil
 	}
@@ -236,8 +299,8 @@ func keyOutsideBundle(c *contract.Contract, fsys fs.FS) error {
 // .pactoignore does not leave out: the build writes it after the plan packed
 // the bundle, so the bundle would change under the publish after every image
 // was pushed.
-func sbomsIgnored(c *contract.Contract, path string) error {
-	if c.Publish == nil {
+func sbomsIgnored(pub *contract.Publish, path string) error {
+	if pub == nil {
 		return nil
 	}
 	_, dir, _ := resolveLocalPath(path) // ponytail: the bundle was just loaded from it
@@ -246,7 +309,7 @@ func sbomsIgnored(c *contract.Contract, path string) error {
 		return err
 	}
 	var errs []error
-	for _, a := range c.Publish.Artifacts {
+	for _, a := range pub.Artifacts {
 		rel := a.SBOM
 		if filepath.IsAbs(rel) {
 			base, _ := filepath.Abs(dir) // ponytail: fails only without a working directory, then Rel fails and rel is skipped
@@ -309,26 +372,37 @@ func (t execTools) Build(ctx context.Context, a contract.PublishArtifact, out st
 		t.built[t.abs(a.SBOM)] = time.Now().Truncate(time.Second)
 	}
 	if d := a.Build.Dockerfile; d != nil {
-		args := []string{"buildx", "build", "--output", "type=oci,dest=" + out + ",tar=false"}
-		for _, e := range env {
-			if v, ok := strings.CutPrefix(e, "PACTO_VERSION="); ok {
-				args = append(args, "--label", publish.AnnotationVersion+"="+v)
-			}
-			if v, ok := strings.CutPrefix(e, "PACTO_REVISION="); ok {
-				args = append(args, "--label", publish.AnnotationRevision+"="+v)
-			}
-		}
-		if d.File != "" {
-			args = append(args, "--file", d.File)
-		}
-		if len(d.Platforms) > 0 {
-			args = append(args, "--platform", strings.Join(d.Platforms, ","))
-		}
-		_, err := t.run(ctx, t.dir, env, "docker", append(args, d.Context)...)
+		_, err := t.run(ctx, t.dir, env, "docker", buildxArgs(d, out, env, false)...)
 		return err
 	}
 	_, err := t.run(ctx, t.dir, env, a.Build.Command[0], a.Build.Command[1:]...)
 	return err
+}
+
+// buildxArgs are the docker arguments that build d into an OCI layout at
+// out, labelled with the version and revision in env. rewrite stamps every
+// layer with SOURCE_DATE_EPOCH, so one commit builds one image.
+func buildxArgs(d *contract.DockerfileBuild, out string, env []string, rewrite bool) []string {
+	output := "type=oci,dest=" + out + ",tar=false"
+	if rewrite {
+		output += ",rewrite-timestamp=true"
+	}
+	args := []string{"buildx", "build", "--output", output}
+	for _, e := range env {
+		if v, ok := strings.CutPrefix(e, "PACTO_VERSION="); ok {
+			args = append(args, "--label", publish.AnnotationVersion+"="+v)
+		}
+		if v, ok := strings.CutPrefix(e, "PACTO_REVISION="); ok {
+			args = append(args, "--label", publish.AnnotationRevision+"="+v)
+		}
+	}
+	if d.File != "" {
+		args = append(args, "--file", d.File)
+	}
+	if len(d.Platforms) > 0 {
+		args = append(args, "--platform", strings.Join(d.Platforms, ","))
+	}
+	return append(args, d.Context)
 }
 
 // Public-good Sigstore, which keyless publishing signs with and a key's
@@ -353,8 +427,8 @@ func (t execTools) signing(ctx context.Context, sign contract.PublishSign) (sign
 // key file, a wrong COSIGN_PASSWORD, an unreachable KMS or keyless signing
 // with no OIDC token refuses the plan, not a publish that already pushed. The
 // signer is kept for the run.
-func (t execTools) loadSigner(ctx context.Context, c *contract.Contract) error {
-	sign := publish.SignOf(c.Publish)
+func (t execTools) loadSigner(ctx context.Context, pub *contract.Publish) error {
+	sign := publish.SignOf(pub)
 	if sign.Key == "" && sign.KMS == "" {
 		// The token is read only when signing, so check it is there.
 		if err := signing.HasIDToken(); err != nil {

@@ -2042,19 +2042,23 @@ pacto publish [dir] [flags]
 **Flags:**
 
 ```
-      --correlation-id string      with --propose, an id that ties the promote to an incident or another change, such as a ticket; kept with the change and its record, filtered by pacto delivery history --correlation-id
-  -h, --help[=true|false]          help for publish
-      --on-behalf-of string        with --propose, the person an agent acts for, as the Kubernetes username the cluster authenticates them as (what kubectl auth whoami prints for them, any OIDC prefix included); asserted, not verified; required when an agent proposes, never a service account or other system user, and that person may not approve the change
-  -p, --path string                path to contract directory, the same as [dir] (default: current directory)
-      --plan[=true|false]          show what is missing and what refuses it; change nothing
-      --propose string             after publishing, propose the deploy artifact on <namespace>/<stage> (needs delivery.enabled on the pacto-operator chart)
-      --propose-timeout duration   how long --propose waits for the Stage to record the version as published (default 10m0s)
-      --revision string            source revision stamped on every artifact (default: the git commit of the contract directory, which must have no uncommitted changes)
-      --set stringArray            set a contract value (e.g. --set service.version=2.0.0)
-      --stats-context string       comma-separated context to include in the run record: repository, run-url, environment=<name>; nothing is included unless named
-      --stats-file string          write the run record to this file for pacto stats publish, replacing the record it holds, so give each command its own file; default $PACTO_STATS_FILE
-      --stats-registry string      publish an unsigned run record (statistics, never evidence) to this repository, for example ghcr.io/acme/pacto-stats; default $PACTO_STATS_REGISTRY
-      --values stringArray         values file to merge into the contract (can be repeated; last wins)
+      --correlation-id string              with --propose, an id that ties the promote to an incident or another change, such as a ticket; kept with the change and its record, filtered by pacto delivery history --correlation-id
+  -h, --help[=true|false]                  help for publish
+      --image string                       with no publish section: the image to deploy, pinned by digest (repo@sha256:...); Pacto builds, signs and copies none
+      --no-transparency-log[=true|false]   with --sign-key: keep the signatures out of the transparency log
+      --on-behalf-of string                with --propose, the person an agent acts for, as the Kubernetes username the cluster authenticates them as (what kubectl auth whoami prints for them, any OIDC prefix included); asserted, not verified; required when an agent proposes, never a service account or other system user, and that person may not approve the change
+  -p, --path string                        path to contract directory, the same as [dir] (default: current directory)
+      --plan[=true|false]                  show what is missing and what refuses it; change nothing
+      --propose string                     after publishing, propose the deploy artifact on <namespace>/<stage> (needs delivery.enabled on the pacto-operator chart)
+      --propose-timeout duration           how long --propose waits for the Stage to record the version as published (default 10m0s)
+      --registry string                    with no publish section: the registry to publish to (default: what the CI context or the workload image names)
+      --revision string                    source revision stamped on every artifact (default: the git commit of the contract directory, which must have no uncommitted changes)
+      --set stringArray                    set a contract value (e.g. --set service.version=2.0.0)
+      --sign-key string                    with no publish section: sign with this cosign key file instead of keyless
+      --stats-context string               comma-separated context to include in the run record: repository, run-url, environment=<name>; nothing is included unless named
+      --stats-file string                  write the run record to this file for pacto stats publish, replacing the record it holds, so give each command its own file; default $PACTO_STATS_FILE
+      --stats-registry string              publish an unsigned run record (statistics, never evidence) to this repository, for example ghcr.io/acme/pacto-stats; default $PACTO_STATS_REGISTRY
+      --values stringArray                 values file to merge into the contract (can be repeated; last wins)
 ```
 
 ---

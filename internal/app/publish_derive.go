@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"strconv"
 	"strings"
 	"time"
@@ -15,30 +16,33 @@ import (
 // derivedBundle is b pinned at the version Pacto derives for it, with the
 // notes deriving it left, or the result of a publish with nothing to write
 // when b holds what its baseline published.
-func derivedBundle(ctx context.Context, run runner, reg publish.Registry, tools execTools, dir string, b *contract.Bundle, revision string, in contract.InferredInputs) (*contract.Bundle, *publish.Result, []string, error) {
-	d, err := deriveVersion(ctx, run, reg, tools, dir, b)
+func derivedBundle(ctx context.Context, run runner, reg publish.Registry, tools execTools, dir string, b *contract.Bundle, pub *contract.Publish, alt, revision string, in contract.InferredInputs) (*contract.Bundle, *publish.Result, []string, error) {
+	d, err := deriveVersion(ctx, run, reg, tools, dir, b, pub, alt)
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	repo := publish.Repo(pub.Bundle)
 	if d.Unchanged {
-		return nil, unchangedResult(b, revision, d), nil, nil
+		return nil, unchangedResult(b, repo, revision, d), nil, nil
 	}
-	pinned, err := pinDerived(b, d, in)
+	pinned, err := pinDerived(b, repo, d, in)
 	return pinned, nil, d.Notes, err
 }
 
 // deriveVersion is the version a contract with no service.version publishes
 // as, measured from the newest baseline its publisher signed, once the
-// checkout is shown to contain that baseline's revision.
-func deriveVersion(ctx context.Context, run runner, reg publish.Registry, tools execTools, dir string, b *contract.Bundle) (publish.Derived, error) {
-	sign := publish.SignOf(b.Contract.Publish)
+// checkout is shown to contain that baseline's revision. pub is the
+// effective publish section and alt the bundle repository a derived one did
+// not pick ("" for a declared one).
+func deriveVersion(ctx context.Context, run runner, reg publish.Registry, tools execTools, dir string, b *contract.Bundle, pub *contract.Publish, alt string) (publish.Derived, error) {
+	sign := publish.SignOf(pub)
 	// The baseline is read only when signed by the publisher, so the
 	// signer that names it must load first: no identity, no baseline.
 	if _, _, err := tools.signing(ctx, sign); err != nil {
 		return publish.Derived{}, fmt.Errorf("deriving service.version needs the publisher identity to verify the baseline: %w", err)
 	}
 	d, err := publish.DeriveVersion(ctx, reg, publish.DeriveInput{
-		Repo: publish.Repo(b.Contract.Publish.Bundle), Local: b, Unchanged: Unchanged,
+		Repo: publish.Repo(pub.Bundle), AltRepo: alt, Local: b, Unchanged: Unchanged,
 		Verify: func(ctx context.Context, ref string) error { return tools.Verify(ctx, sign, ref) },
 	})
 	if err != nil {
@@ -87,8 +91,8 @@ func superseded(ctx context.Context, run runner, dir, svc string, d publish.Deri
 
 // unchangedResult is the publish of a folder that holds what its baseline
 // published: nothing is written, and the baseline is what stands.
-func unchangedResult(b *contract.Bundle, revision string, d publish.Derived) *publish.Result {
-	ref := publish.Repo(b.Contract.Publish.Bundle) + ":" + d.Version
+func unchangedResult(b *contract.Bundle, repo, revision string, d publish.Derived) *publish.Result {
+	ref := repo + ":" + d.Version
 	return &publish.Result{Plan: publish.Plan{Service: b.Contract.Service.Name, Version: d.Version, Revision: revision, Baseline: d.Baseline,
 		Checks: []publish.Check{{Name: "version", Passed: true, Message: "unchanged since " + d.Baseline + ": nothing to publish"}},
 		Items:  []publish.Item{{Name: publish.BundleItem, Type: publish.BundleItem, Ref: ref, State: publish.Identical, Digest: d.BaselineDigest}},
@@ -97,10 +101,10 @@ func unchangedResult(b *contract.Bundle, revision string, d publish.Derived) *pu
 }
 
 // pinDerived is b with the derived version declared in its pacto.yaml and
-// recorded in its inferred record, with the baseline it came from, so every
-// reader sees the version is Pacto's. in are the record inputs when the
-// folder gave no record.
-func pinDerived(b *contract.Bundle, d publish.Derived, in contract.InferredInputs) (*contract.Bundle, error) {
+// recorded in its inferred record, with the baseline it came from in the
+// bundle repository repo, so every reader sees the version is Pacto's. in
+// are the record inputs when the folder gave no record.
+func pinDerived(b *contract.Bundle, repo string, d publish.Derived, in contract.InferredInputs) (*contract.Bundle, error) {
 	raw, err := contract.PinServiceVersion(b.RawYAML, d.Version)
 	if err != nil {
 		return nil, err
@@ -112,20 +116,27 @@ func pinDerived(b *contract.Bundle, d publish.Derived, in contract.InferredInput
 	if err != nil || c.Service.Version != d.Version {
 		return nil, fmt.Errorf("pinning service.version %s into pacto.yaml: %v", d.Version, err)
 	}
-	rec, err := contract.ReadInferredRecord(b.FS)
+	rec, err := recordOf(b.FS, in)
 	if err != nil {
 		return nil, err
 	}
-	if rec == nil {
-		in.Discovery = discover.Version
-		rec = &contract.InferredRecord{Format: contract.InferredRecordFormat, Inputs: in}
-	}
-	rec.Fields = append(rec.Fields, versionField(publish.Repo(b.Contract.Publish.Bundle), d))
+	rec.Fields = append(rec.Fields, versionField(repo, d))
 	fsys, err := copyFSWithReplace(b.FS, DefaultContractPath, raw)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build the pinned bundle FS: %w", err)
 	}
 	return &contract.Bundle{Contract: c, RawYAML: raw, FS: contract.WithInferredRecord(fsys, rec.Marshal())}, nil
+}
+
+// recordOf is the inferred record in fsys, or an empty one with inputs in
+// when the folder gave none.
+func recordOf(fsys fs.FS, in contract.InferredInputs) (*contract.InferredRecord, error) {
+	rec, err := contract.ReadInferredRecord(fsys)
+	if err != nil || rec != nil {
+		return rec, err
+	}
+	in.Discovery = discover.Version
+	return &contract.InferredRecord{Format: contract.InferredRecordFormat, Inputs: in}, nil
 }
 
 // versionField is the record field of a derived service.version.
