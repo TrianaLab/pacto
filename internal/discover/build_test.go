@@ -138,6 +138,14 @@ func TestDeployKustomize(t *testing.T) {
 	if p, f := buildOf(t, dir); len(f) > 0 || p.Deploy == nil || p.Deploy.Paths[0] != "k8s/kustomization.yaml" {
 		t.Errorf("plan = %+v, findings %+v", p, f)
 	}
+	// The kustomization no other one names deploys, its base aside.
+	dir = writeTree(t, t.TempDir(), map[string]string{
+		"k8s/kustomization.yaml": "resources: [base]\n", "k8s/base/kustomization.yaml": "resources: [app.yaml]\n",
+		"k8s/base/app.yaml": appManifest, "Dockerfile": "FROM x\n",
+	})
+	if p, f := buildOf(t, dir); len(f) > 0 || p.Deploy == nil || p.Deploy.Paths[0] != "k8s/kustomization.yaml" {
+		t.Errorf("plan = %+v, findings %+v", p, f)
+	}
 }
 
 func TestDeployChart(t *testing.T) {
@@ -172,12 +180,20 @@ func TestDeploySeveralSourcesIsAFinding(t *testing.T) {
 	if p.Deploy != nil || p.Tool != ToolDockerfile || !reflect.DeepEqual(findings, want) {
 		t.Errorf("plan = %+v, findings %+v", p, findings)
 	}
-	// Two kustomizations and no root one: a base and an overlay.
+	// Two overlays over one base and no root kustomization: one per environment.
 	dir := writeTree(t, t.TempDir(), map[string]string{
-		"base/kustomization.yaml": "resources: []\n", "overlays/prod/kustomization.yaml": "resources: [../../base]\n", "Dockerfile": "FROM x\n",
+		"base/kustomization.yaml": "resources: []\n", "overlays/prod/kustomization.yaml": "resources: [../../base]\n",
+		"overlays/dev/kustomization.yaml": "resources: [../../base]\n", "Dockerfile": "FROM x\n",
 	})
 	if p, f := buildOf(t, dir); p.Deploy != nil || len(f) != 1 ||
-		f[0].Message != "both kustomize (base/kustomization.yaml) and kustomize (overlays/prod/kustomization.yaml) found; declare publish" {
+		f[0].Message != "both kustomize (overlays/dev/kustomization.yaml) and kustomize (overlays/prod/kustomization.yaml) found; declare publish" {
+		t.Errorf("plan = %+v, findings %+v", p, f)
+	}
+	// Two that name each other: neither is the root, so both are candidates.
+	dir = writeTree(t, t.TempDir(), map[string]string{
+		"a/kustomization.yaml": "resources: [../b]\n", "b/kustomization.yaml": "resources: [../a]\n", "Dockerfile": "FROM x\n",
+	})
+	if p, f := buildOf(t, dir); p.Deploy != nil || len(f) != 1 {
 		t.Errorf("plan = %+v, findings %+v", p, f)
 	}
 }

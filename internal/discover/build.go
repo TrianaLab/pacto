@@ -205,11 +205,11 @@ func (b *builder) jib() (candidate, bool) {
 }
 
 // deploy picks the one deploy source: a kustomization (the folder's own
-// kustomization.yaml, else the only one), a chart (the folder itself, else
+// kustomization.yaml, else the only one no other kustomization names), a chart (the folder itself, else
 // the only one) or, with neither, the plain manifests.
 func (b *builder) deploy() {
 	var srcs []DeploySource
-	if k, ok := b.pickOne(kustomizations(b.sc.Kustomize), "kustomization.yaml", DeployKustomize, &srcs); ok {
+	if k, ok := b.pickOne(b.rootKustomizations(), "kustomization.yaml", DeployKustomize, &srcs); ok {
 		srcs = append(srcs, DeploySource{Kind: DeployKustomize, Paths: []string{k}, Source: k})
 	}
 	if c, ok := b.pickOne(b.sc.Charts, ".", DeployChart, &srcs); ok {
@@ -255,6 +255,25 @@ func (b *builder) pickOne(paths []string, preferred, kind string, srcs *[]Deploy
 // Flux Kustomization object left out.
 func kustomizations(files []string) []string {
 	return slices.DeleteFunc(slices.Clone(files), func(p string) bool { return path.Base(p) != "kustomization.yaml" })
+}
+
+// rootKustomizations are the kustomizations no other one names as a
+// resource, base or component: k8s/kustomization.yaml over its k8s/base/.
+// When a loop leaves none, every one is a candidate.
+func (b *builder) rootKustomizations() []string {
+	all := kustomizations(b.sc.Kustomize)
+	named := map[string]bool{}
+	for _, p := range all {
+		for _, key := range []string{"resources", "bases", "components"} {
+			for _, res := range items(contract.MapValue(b.yamlRoot(p), key)) {
+				named[path.Join(path.Dir(p), scalar(res), "kustomization.yaml")] = true
+			}
+		}
+	}
+	if roots := slices.DeleteFunc(slices.Clone(all), func(p string) bool { return named[p] }); len(roots) > 0 {
+		return roots
+	}
+	return all // a loop names every one: each stays a candidate
 }
 
 // kustomizeInside reports whether every local resource, base and component
