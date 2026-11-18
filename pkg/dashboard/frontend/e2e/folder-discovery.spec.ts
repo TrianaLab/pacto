@@ -32,7 +32,7 @@ test.describe('WASM demo — a service whose folder Pacto reads', () => {
     const inferred = page.getByTestId('revision-inferred');
     await expect(inferred).toBeVisible({ timeout: T });
     await inferred.locator('.ifl-more > summary').click();
-    const row = (field: string) => inferred.getByTestId('inferred-field').filter({ has: page.locator('code', { hasText: new RegExp(`^${field.replace(/[[\].]/g, '\\$&')}$`) }) });
+    const row = (field: string) => inferred.getByTestId('inferred-field').filter({ has: page.locator('code', { hasText: new RegExp(`^${field.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) }) });
     const note = async (field: string) => {
       await row(field).getByRole('button', { name: `About inferred ${field}` }).click();
       const n = row(field).getByRole('note');
