@@ -200,7 +200,9 @@ func goModDeps(data []byte, _ opener) ([]sdkDep, bool) {
 	}
 	var out []sdkDep
 	for _, r := range f.Require {
-		out = append(out, sdkDep{r.Mod.Path, majorOf(r.Mod.Version), r.Syntax.Start.Line})
+		if !r.Indirect { // an indirect require is another module's client
+			out = append(out, sdkDep{r.Mod.Path, majorOf(r.Mod.Version), r.Syntax.Start.Line})
+		}
 	}
 	return out, true
 }
@@ -311,16 +313,20 @@ func requirementsDeps(data []byte, _ opener) ([]sdkDep, bool) {
 }
 
 // poetryDeps are the name and version of each [[package]] of a poetry.lock,
-// read line by line.
+// read line by line. A package of the dev category, or whose groups leave
+// out main, is a tool, not a runtime client.
+// ponytail: a transitive package still counts; the lock does not say which
+// are direct.
 func poetryDeps(data []byte, _ opener) ([]sdkDep, bool) {
 	var out []sdkDep
+	var dev []bool
 	inPackage := false
 	eachLine(data, func(n int, line string) {
 		line = strings.TrimSpace(line)
 		switch {
 		case line == "[[package]]":
 			inPackage = true
-			out = append(out, sdkDep{})
+			out, dev = append(out, sdkDep{}), append(dev, false)
 		case strings.HasPrefix(line, "["):
 			inPackage = false
 		case inPackage:
@@ -331,23 +337,44 @@ func poetryDeps(data []byte, _ opener) ([]sdkDep, bool) {
 				out[len(out)-1].name, out[len(out)-1].line = value, n
 			case "version":
 				out[len(out)-1].major = majorOf(value)
+			case "category":
+				dev[len(dev)-1] = value == "dev"
+			case "groups":
+				dev[len(dev)-1] = !strings.Contains(value, `"main"`)
 			}
+		}
+	})
+	kept := out[:0]
+	for i, d := range out {
+		if !dev[i] {
+			kept = append(kept, d)
+		}
+	}
+	return kept, true
+}
+
+// gradleDeps are the group:artifact:version=configurations lines of a
+// gradle.lockfile, but for a line only test configurations resolve.
+func gradleDeps(data []byte, _ opener) ([]sdkDep, bool) {
+	var out []sdkDep
+	eachLine(data, func(n int, line string) {
+		coord, configs, _ := strings.Cut(strings.TrimSpace(line), "=")
+		if parts := strings.Split(coord, ":"); len(parts) == 3 && !strings.HasPrefix(coord, "#") && !testOnly(configs) {
+			out = append(out, sdkDep{parts[0] + ":" + parts[1], majorOf(parts[2]), n})
 		}
 	})
 	return out, true
 }
 
-// gradleDeps are the group:artifact:version=configurations lines of a
-// gradle.lockfile.
-func gradleDeps(data []byte, _ opener) ([]sdkDep, bool) {
-	var out []sdkDep
-	eachLine(data, func(n int, line string) {
-		coord, _, _ := strings.Cut(strings.TrimSpace(line), "=")
-		if parts := strings.Split(coord, ":"); len(parts) == 3 && !strings.HasPrefix(coord, "#") {
-			out = append(out, sdkDep{parts[0] + ":" + parts[1], majorOf(parts[2]), n})
+// testOnly reports whether every configuration of a gradle.lockfile line is
+// a test one.
+func testOnly(configs string) bool {
+	for _, c := range strings.Split(configs, ",") {
+		if !strings.HasPrefix(strings.TrimSpace(c), "test") {
+			return false
 		}
-	})
-	return out, true
+	}
+	return configs != ""
 }
 
 // eachLine calls visit with each line of data and its number.
@@ -361,11 +388,12 @@ func eachLine(data []byte, visit func(n int, line string)) {
 
 // pomDep is a pom.xml dependency as it is read.
 type pomDep struct {
-	group, artifact, version string
-	line                     int
+	group, artifact, version, scope string
+	line                            int
 }
 
-// mavenDeps are the project's dependencies in a pom.xml, a ${property}
+// mavenDeps are the project's dependencies in a pom.xml but for test and
+// provided ones, a ${property}
 // version resolved only against the file's own properties.
 // dependencyManagement and repositories are never read.
 func mavenDeps(data []byte, _ opener) ([]sdkDep, bool) {
@@ -382,6 +410,9 @@ func mavenDeps(data []byte, _ opener) ([]sdkDep, bool) {
 	}
 	var out []sdkDep
 	for _, d := range p.deps {
+		if d.scope == "test" || d.scope == "provided" { // never a runtime client of this service
+			continue
+		}
 		v := d.version
 		if name, ok := strings.CutPrefix(v, "${"); ok {
 			v = p.props[strings.TrimSuffix(name, "}")]
@@ -433,6 +464,8 @@ func (p *pomReader) end(v string) {
 			d.artifact = v
 		case "version":
 			d.version = v
+		case "scope":
+			d.scope = v
 		}
 	}
 }

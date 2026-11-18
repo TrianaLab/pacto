@@ -285,3 +285,25 @@ func TestSDKPythonManifestsNotReadAreNamed(t *testing.T) {
 		t.Errorf("unread %d", n)
 	}
 }
+
+// TestSDKSkipsClientsOfOthersAndTests: an indirect require, a test or
+// provided Maven dependency, a test-only Gradle line and a dev Poetry package
+// are not this service's clients.
+func TestSDKSkipsClientsOfOthersAndTests(t *testing.T) {
+	dir := writeTree(t, t.TempDir(), map[string]string{
+		"go/go.mod": "module x\n\nrequire (\n\tgithub.com/aws/aws-sdk-go-v2/service/sqs v1.30.0 // indirect\n\tgithub.com/stripe/stripe-go/v76 v76.0.0\n)\n",
+		"mvn/pom.xml": "<project><dependencies>" +
+			"<dependency><groupId>com.stripe</groupId><artifactId>stripe-java</artifactId><version>26.0.0</version><scope>test</scope></dependency>" +
+			"<dependency><groupId>com.stripe</groupId><artifactId>stripe-java</artifactId><version>25.0.0</version><scope>provided</scope></dependency>" +
+			"</dependencies></project>",
+		"gradle/gradle.lockfile": "com.stripe:stripe-java:26.0.0=testCompileClasspath,testRuntimeClasspath\nempty=\n",
+		"py/poetry.lock": "[[package]]\nname = \"stripe\"\nversion = \"11.0.0\"\ncategory = \"dev\"\n\n" +
+			"[[package]]\nname = \"stripe\"\nversion = \"10.0.0\"\ngroups = [\"dev\"]\n\n" +
+			"[[package]]\nname = \"stripe\"\nversion = \"9.0.0\"\ngroups = [\"main\", \"dev\"]\n",
+	})
+	uses, _, _ := sdkUsesOf(t, dir)
+	equalUses(t, uses, []string{
+		"stripe go/go.mod:5 github.com/stripe/stripe-go/v76 76",
+		"stripe py/poetry.lock:12 stripe 9",
+	})
+}

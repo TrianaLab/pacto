@@ -390,7 +390,7 @@ names outside the cluster:
 | Helm `values.yaml` and `values-<env>.yaml` | Every string value, read as data, and its key | `likely` for a host, `possible` for a key name alone |
 | Compose `environment` | Each value, as a map or a `KEY=VALUE` list | `likely` for a host, `possible` for a key name alone |
 | Kustomize `configMapGenerator` | `literals` and the `envs` files | `likely` for a host, `possible` for a key name alone |
-| SDK manifests and lockfiles | `go.mod`, `package.json` (`dependencies` and `optionalDependencies`) with `package-lock.json`, `requirements*.txt`, `poetry.lock`, `pom.xml` and `gradle.lockfile`: each package name and its major version | `possible` |
+| SDK manifests and lockfiles | `go.mod` (direct requires), `package.json` (`dependencies` and `optionalDependencies`) with `package-lock.json`, `requirements*.txt`, `poetry.lock` (no dev packages), `pom.xml` (no `test` or `provided` scope) and `gradle.lockfile` (no test-only lines): each package name and its major version | `possible` |
 | Terraform `*.tf` | Each `resource` whose type the catalog lists: its id attribute and `region` when they are literals, and the region and account of its `provider` block | `possible` |
 | Crossplane objects | Each object whose `<group>/<Kind>` the catalog lists: its `crossplane.io/external-name` or name, `spec.forProvider.region` and connection Secret name | `likely` when the workload reads that Secret, else `possible` |
 
