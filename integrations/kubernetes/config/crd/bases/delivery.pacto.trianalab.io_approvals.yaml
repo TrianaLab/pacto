@@ -94,6 +94,16 @@ spec:
                 type: string
               operationUID:
                 type: string
+              record:
+                description: |-
+                  Record names the keyless approval record this Approval is a view of.
+                  Only the recorder sets it.
+                type: string
+              signedAt:
+                description: |-
+                  SignedAt is the verified signing time of that record (RFC 3339).
+                  Only the recorder sets it.
+                type: string
             required:
             - by
             - decision

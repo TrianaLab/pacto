@@ -385,3 +385,30 @@ func TestNoApprovalCountsWithoutRecordsPolicy(t *testing.T) {
 		t.Fatalf("a recorded approval did not count once guarded: %s %q", o.Status.Phase, o.Status.Message)
 	}
 }
+
+// TestOperationRecordNamesTheApprovalRecord: the record of an operation an
+// approval let through names that approval's own record and that the
+// recorder signed it on the approver's behalf, as admission verified them.
+func TestOperationRecordNamesTheApprovalRecord(t *testing.T) {
+	re := newRecEnv(t)
+	re.stage(1)
+	o := re.concluded("ship", 1, delivery.Succeeded)
+	re.approve(o, "ok", carol, delivery.Approve)
+	signer := &delivery.ApprovalSigner{Kind: delivery.SignerRecorder,
+		OnBehalfOf: &delivery.ApprovalBehalf{User: carol, Verified: delivery.VerifiedByAdmission}}
+	o = re.getOp("ship")
+	o.Status.Approvals = []delivery.ApprovalRecord{{Name: "ok", By: carol, Decision: delivery.Approve, Record: "sha256:ab", Signer: signer}}
+	if err := re.c.Status().Update(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	re.reconcile()
+	recs := re.records()
+	if len(recs) != 1 || len(recs[0].Statement.Predicate.Approvals) != 1 {
+		t.Fatalf("records = %+v", recs)
+	}
+	a := recs[0].Statement.Predicate.Approvals[0]
+	if a.Record != "sha256:ab" || a.Signer.Kind != delivery.SignerRecorder || a.Signer.OnBehalfOf.User != carol ||
+		a.Signer.OnBehalfOf.Verified != delivery.VerifiedByAdmission {
+		t.Fatalf("record approval = %+v", a)
+	}
+}

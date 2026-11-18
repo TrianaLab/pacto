@@ -205,7 +205,13 @@ func TestDeepCopyIsIndependent(t *testing.T) {
 	ap := ApprovalSpec{Operation: "o", Decision: Approve, Groups: []string{"team-a"}}
 	var ap2 ApprovalSpec
 	ap.DeepCopyInto(&ap2)
-	if !reflect.DeepEqual(spec, spec2) || !reflect.DeepEqual(op, op2) || !reflect.DeepEqual(os, os2) || !reflect.DeepEqual(ap, ap2) {
+	as := ApprovalStatus{Record: &ApprovalRecordRef{Digest: "sha256:ab", Ref: "r@sha256:cd"}}
+	var as2 ApprovalStatus
+	as.DeepCopyInto(&as2)
+	if as2.Record == as.Record {
+		t.Fatal("the approval status copy aliases the original")
+	}
+	if !reflect.DeepEqual(spec, spec2) || !reflect.DeepEqual(op, op2) || !reflect.DeepEqual(os, os2) || !reflect.DeepEqual(ap, ap2) || !reflect.DeepEqual(as, as2) {
 		t.Fatal("copies differ")
 	}
 }
