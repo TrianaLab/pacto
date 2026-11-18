@@ -193,17 +193,27 @@ func TestMarkdownPublish(t *testing.T) {
 
 func TestSettlePublish(t *testing.T) {
 	p := publishPlan()
-	p.SettlePublish()
+	p.SettlePublish(".")
 	if p.Exit != 1 || p.Gate != StateFailed || p.Reason != "not published: 4 of 7 services" {
 		t.Fatalf("%d %s %q", p.Exit, p.Gate, p.Reason)
 	}
 	p = &Plan{Rows: publishPlan().Rows[:2]}
-	p.SettlePublish()
+	p.SettlePublish(".")
 	if p.Exit != 0 || p.Gate != StatePublished || p.Reason != "" {
 		t.Fatalf("%d %s %q", p.Exit, p.Gate, p.Reason)
 	}
+	p = &Plan{}
+	p.SettlePublish("svc")
+	if p.Exit != 1 || p.Reason != "not published: no pacto.yaml under svc" {
+		t.Fatalf("no contracts is not published: %d %q", p.Exit, p.Reason)
+	}
+	p = &Plan{Rows: publishPlan().Rows[:2], Unreadable: 2}
+	p.SettlePublish(".")
+	if p.Exit != 1 || p.Reason != "not published: 2 folders could not be read" {
+		t.Fatalf("an unread folder may hold a changed service: %d %q", p.Exit, p.Reason)
+	}
 	p = &Plan{Refused: "no"}
-	p.SettlePublish()
+	p.SettlePublish(".")
 	if p.Exit != 1 || p.Gate != StateRefused || p.Reason != "refused: no" {
 		t.Fatalf("%d %s %q", p.Exit, p.Gate, p.Reason)
 	}

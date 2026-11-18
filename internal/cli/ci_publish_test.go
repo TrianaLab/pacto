@@ -52,7 +52,7 @@ func ciPubDeps(rows []ci.Row, refused string, got *app.CIPublishOptions) deps {
 			}
 			opts.Record(r, res, nil)
 		}
-		p.SettlePublish()
+		p.SettlePublish(".")
 		return p, nil
 	}
 	return d
@@ -221,5 +221,52 @@ func TestCIPublishRowImages(t *testing.T) {
 	_, _, _ = runRoot(t, ciPubDeps(rows, "", nil), nil, "ci", t.TempDir(), "--publish", "--stats-file", file)
 	if r := readRecord(t, strings.TrimSuffix(file, ".json")+".ledger.json"); len(r.Images) != 1 || r.Images[0] != rows[0].Images[0] {
 		t.Fatalf("record %+v", r)
+	}
+}
+
+// TestCIPublishExplainKeepsPublishExit: --explain under --publish exits with
+// the publish outcome, never the plan-mode impact gate of the row.
+func TestCIPublishExplainKeepsPublishExit(t *testing.T) {
+	ciEnvOff(t)
+	statsOff(t)
+	root := t.TempDir()
+	writeFiles(t, root, map[string]string{"ledger/pacto.yaml": "pactoVersion: \"2.5\"\nservice:\n  name: ledger\n"})
+	failed := []ci.Row{{Service: "ledger", Dir: "ledger", Changed: "yes", State: ci.StateFailed, Reason: "build failed",
+		Impact: ci.Impact{Gate: "clear"}}}
+	out, _, err := runRoot(t, ciPubDeps(failed, "", nil), nil, "ci", root, "--publish", "--explain", "ledger", "--output-format", "json")
+	var p ci.Plan
+	if jerr := json.Unmarshal([]byte(out), &p); jerr != nil || ciExit(err) != 1 || p.Exit != 1 || p.Gate != ci.StateFailed {
+		t.Fatalf("exit %d %v:\n%s", ciExit(err), jerr, out)
+	}
+	published := pubRows()[:1]
+	published[0].Impact.Gate = "unverified"
+	if _, _, err := runRoot(t, ciPubDeps(published, "", nil), nil, "ci", root, "--publish", "--explain", "ledger"); err != nil {
+		t.Fatalf("a published row with an unverified impact exits 0: %v", err)
+	}
+}
+
+// TestCIPublishRecordFilesNeverCollide: a service name another row took gets
+// a record file of its own.
+func TestCIPublishRecordFilesNeverCollide(t *testing.T) {
+	ciEnvOff(t)
+	statsOff(t)
+	rows := []ci.Row{
+		{Service: "api", Dir: "one", Changed: "yes", State: ci.StateFailed, Reason: "boom"},
+		{Service: "api", Dir: "svc/two", Changed: "yes", State: ci.StateFailed, Reason: "boom"},
+	}
+	file := filepath.Join(t.TempDir(), "rec.json")
+	_, _, _ = runRoot(t, ciPubDeps(rows, "", nil), nil, "ci", t.TempDir(), "--publish", "--stats-file", file)
+	stem := strings.TrimSuffix(file, ".json")
+	for _, f := range []string{".api.json", ".dir-svc_two.json"} {
+		readRecord(t, stem+f)
+	}
+}
+
+func TestCIPublishImageFlagTwice(t *testing.T) {
+	ciEnvOff(t)
+	statsOff(t)
+	_, _, err := runRoot(t, ciPubDeps(nil, "", nil), nil, "ci", t.TempDir(), "--publish", "--image", "a=r.io/a@"+pubDigest, "--image", "a=r.io/b@"+pubDigest)
+	if err == nil || !strings.Contains(err.Error(), "name one service") {
+		t.Fatal(err)
 	}
 }

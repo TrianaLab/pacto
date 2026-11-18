@@ -137,11 +137,12 @@ func (p *Plan) Settle(root string) {
 }
 
 // SettlePublish redacts the plan, then sets a publish run's gate, exit code
-// and reason from its rows: 1 when the run was refused or any row failed,
-// was blocked or refused, else 0. Publish mode never exits 2: an unverified
-// impact never stops a publish, the version rule and later gates protect
-// consumers.
-func (p *Plan) SettlePublish() {
+// and reason from its rows: 1 when the run was refused, found no pacto.yaml
+// under root, skipped a folder it could not read (a service there may have
+// changed) or any row failed, was blocked or refused, else 0. Publish mode
+// never exits 2: an unverified impact never stops a publish, the version
+// rule and later gates protect consumers.
+func (p *Plan) SettlePublish(root string) {
 	p.redact()
 	bad := 0
 	for _, r := range p.Rows {
@@ -153,8 +154,12 @@ func (p *Plan) SettlePublish() {
 	switch {
 	case p.Refused != "":
 		p.Gate, p.Exit, p.Reason = StateRefused, 1, "refused: "+p.Refused
+	case len(p.Rows) == 0:
+		p.Gate, p.Exit, p.Reason = StateFailed, 1, "not published: no pacto.yaml under "+root
 	case bad > 0:
 		p.Gate, p.Exit, p.Reason = StateFailed, 1, fmt.Sprintf("not published: %d of %d services", bad, len(p.Rows))
+	case p.Unreadable > 0:
+		p.Gate, p.Exit, p.Reason = StateFailed, 1, fmt.Sprintf("not published: %d folders could not be read", p.Unreadable)
 	}
 }
 

@@ -459,6 +459,11 @@ func TestCIPublishImageFlag(t *testing.T) {
 	if got, err := rowImages(rows[1:], map[string]string{"": ref}); err != nil || got["b"] != ref {
 		t.Fatalf("%v %v", err, got)
 	}
+	for range 20 { // map order is random: the conflict is refused every time
+		if _, err := rowImages(rows[1:], map[string]string{"": ref, "b": "r.io/y@" + digest64}); err == nil || !strings.Contains(err.Error(), "both name b") {
+			t.Fatal(err)
+		}
+	}
 }
 
 // TestCIPublishDerivesASection: a section-less service publishes with the

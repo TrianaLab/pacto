@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -73,7 +74,7 @@ func (s *Service) CIPublish(ctx context.Context, opts CIPublishOptions) (*ci.Pla
 		rows = append(rows, r)
 	}
 	p.Rows = rows
-	p.SettlePublish()
+	p.SettlePublish(o.Root)
 	return p, nil
 }
 
@@ -344,12 +345,15 @@ func rowImages(rows []ci.Row, images map[string]string) (map[string]string, erro
 		}
 	}
 	out := map[string]string{}
-	for svc, ref := range images {
+	for _, svc := range slices.Sorted(maps.Keys(images)) { // "" first
+		ref := images[svc]
 		switch {
 		case svc == "" && len(changed) != 1:
 			return nil, fmt.Errorf("--image %s names no service, so it needs exactly one changed service; %d changed: pass --image <service>=%s", ref, len(changed), ref)
 		case svc == "":
 			out[changed[0]] = ref
+		case out[svc] != "": // the bare image, sorted first, took the one changed service
+			return nil, fmt.Errorf("--image %s=%s and --image %s both name %s: pass one", svc, ref, images[""], svc)
 		case !slices.Contains(changed, svc):
 			return nil, fmt.Errorf("--image %s=%s names a service that is not changed in this run", svc, ref)
 		default:

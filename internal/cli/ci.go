@@ -88,9 +88,11 @@ func newCICommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder) *c
 			}
 			code, reason := p.Exit, p.Reason
 			printed := p
-			if row != nil {
+			if publishing, _ := cmd.Flags().GetBool("publish"); row != nil && !publishing {
 				// --explain exits with the row's code, so the JSON document
-				// says the row's gate, exit and reason too.
+				// says the row's gate, exit and reason too. A publish run
+				// keeps its own: every service was published or not, and the
+				// plan-mode impact says nothing about that.
 				code, reason = gateExit[row.Impact.Gate], ""
 				if code != 0 {
 					reason = row.Service + ": " + row.Impact.Text
@@ -127,7 +129,8 @@ func runCI(cmd *cobra.Command, svc *app.Service, d deps, rec *runRecorder, opts 
 		if err != nil {
 			return nil, nil, err
 		}
-		po.Record = func(row ci.Row, res *publish.Result, err error) { ciPublishRecord(cmd, rec, row, res, err) }
+		files := map[string]bool{}
+		po.Record = func(row ci.Row, res *publish.Result, err error) { ciPublishRecord(cmd, rec, files, row, res, err) }
 		p, err := d.ciPublish(svc, cmd.Context(), po)
 		return p, nil, err
 	}
@@ -154,6 +157,9 @@ func ciPublishOptions(cmd *cobra.Command, opts app.CIOptions) (app.CIPublishOpti
 		if !strings.Contains(ref, "@sha256:") {
 			return po, fmt.Errorf("--image %s needs a digest: a tag can move", v)
 		}
+		if old, dup := po.Images[svc]; dup {
+			return po, fmt.Errorf("--image %s and --image %s name one service: pass one", old, v)
+		}
 		po.Images[svc] = ref
 	}
 	po.SignKey, _ = cmd.Flags().GetString("sign-key")
@@ -166,8 +172,11 @@ func ciPublishOptions(cmd *cobra.Command, opts app.CIOptions) (app.CIPublishOpti
 
 // ciPublishRecord writes the run record of one service a publish run
 // decided: to the stats registry, and to <stem>.<service><ext> beside
-// --stats-file, since a record file holds one record.
-func ciPublishRecord(cmd *cobra.Command, rec *runRecorder, row ci.Row, res *publish.Result, err error) {
+// --stats-file, since a record file holds one record. A service name another
+// record of this run took (files) is named by its folder instead, so no
+// record replaces another. A row with no service (a folder that could not be
+// read) has no valid record: write warns and writes none.
+func ciPublishRecord(cmd *cobra.Command, rec *runRecorder, files map[string]bool, row ci.Row, res *publish.Result, err error) {
 	reg, file := statsTargets(cmd)
 	out := rowRecord(row)
 	if res != nil {
@@ -178,7 +187,12 @@ func ciPublishRecord(cmd *cobra.Command, rec *runRecorder, row ci.Row, res *publ
 	}
 	if file != "" {
 		ext := filepath.Ext(file)
-		file = strings.TrimSuffix(file, ext) + "." + row.Service + ext
+		stem := strings.TrimSuffix(file, ext) + "."
+		file = stem + row.Service + ext
+		if files[file] {
+			file = stem + "dir-" + strings.ReplaceAll(row.Dir, "/", "_") + ext
+		}
+		files[file] = true
 	}
 	rec.write(cmd, rec.stamp(cmd, *out), reg, file)
 }
