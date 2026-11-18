@@ -2,6 +2,7 @@ package deliveryrecord
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -286,7 +287,7 @@ func TestUpstream(t *testing.T) {
 		t.Fatalf("offered = %+v %q", s, why)
 	}
 	other, mallory, _ := ed25519.GenerateKey(rand.Reader)
-	if s, why := Upstream(t.Context(), repo, stream, keyVerifier(other), delivery.RecordMark{}, nil); !strings.HasPrefix(why, "1 referrers on the upstream anchor could not be verified") || len(s.Offered) != 0 {
+	if s, why := Upstream(t.Context(), repo, stream, keyVerifier(other), delivery.RecordMark{}, nil); !strings.HasPrefix(why, "1 referrers on the upstream anchor could not be verified") || s != nil {
 		t.Fatalf("an untrusted key offers nothing, and says so: %+v %q", s, why)
 	}
 	// A record another key signed, attached by anyone with push access, does
@@ -380,12 +381,19 @@ func TestListStreamHoldsARevokedKeyToItsHistory(t *testing.T) {
 // tag when set.
 func tagRecord(t *testing.T, path string, subject ocispec.Descriptor, payload []byte, seq int64, tag string) ocireferrer.Artifact {
 	t.Helper()
+	return tagAs(t, path, subject, payload, delivery.PredicateOperation, func(d digest.Digest) string {
+		return cmp.Or(tag, RecordTag(stream, seq, d))
+	})
+}
+
+// tagAs pushes payload as a record manifest of predicate attached to subject
+// under the tag tagOf names for its manifest digest.
+func tagAs(t *testing.T, path string, subject ocispec.Descriptor, payload []byte, predicate string, tagOf func(digest.Digest) string) ocireferrer.Artifact {
+	t.Helper()
 	repo, _ := ocireferrer.Open(path, ocireferrer.Options{})
 	art := ocireferrer.Build(delivery.BundleMediaType, delivery.BundleMediaType, payload, &subject,
-		map[string]string{AnnPredicateType: delivery.PredicateOperation})
-	if tag == "" {
-		tag = RecordTag(stream, seq, art.ManifestDesc.Digest)
-	}
+		map[string]string{AnnPredicateType: predicate})
+	tag := tagOf(art.ManifestDesc.Digest)
 	for _, b := range []struct {
 		d    ocispec.Descriptor
 		data []byte
@@ -604,5 +612,62 @@ func TestPutRecordNativeFailures(t *testing.T) {
 	f.tagStatus = map[string]int{art.ManifestDesc.Digest.String(): http.StatusForbidden}
 	if err := PutRecord(t.Context(), repo, anchor, stream, 1, art, capabilities.ReferrersNative); err == nil {
 		t.Fatal("a failed push succeeded")
+	}
+}
+
+// The predicates 511-S2 writes on the same stream as operation records.
+const (
+	predicateApproval = "delivery.pacto.trianalab.io/approval/v1"
+	predicateIntent   = "delivery.pacto.trianalab.io/operation-intent/v1"
+)
+
+// TestListStreamIgnoresApprovalAndIntentRecords: approval and intent records
+// on a stream's anchor, as write-once tags under its prefix or as native
+// referrers, are not operation records: they never join the chain, never
+// count as a fork of a seq and are never unreadable, even when their bundle
+// claims a seq the stream already holds.
+func TestListStreamIgnoresApprovalAndIntentRecords(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		opts testutil.ReferrersOptions
+	}{{"write-once tags", testutil.ReferrersOptions{Unsupported: true}}, {"native", testutil.ReferrersOptions{}}} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, path := setup(t, tc.opts)
+			repo, anchor := anchored(t, path)
+			pub, key, _ := ed25519.GenerateKey(rand.Reader)
+			tagRecord(t, path, anchor, signed(t, key, 1), 1, "")
+			for kind, predicate := range map[string]string{"approval": predicateApproval, "intent": predicateIntent} {
+				claimsSeq1 := signed(t, key, 1)
+				if tc.opts.Unsupported {
+					tagAs(t, path, anchor, claimsSeq1, predicate, func(d digest.Digest) string {
+						return AnchorTag(stream) + "-" + kind + "-" + d.Encoded()[:12]
+					})
+					continue
+				}
+				attach(t, path, anchor, delivery.BundleMediaType, claimsSeq1, map[string]string{AnnPredicateType: predicate})
+			}
+			l, err := ListStream(t.Context(), repo, stream, keyVerifier(pub))
+			if err != nil || !slices.Equal(seqs(l.Records), []int64{1}) || len(l.Unreadable) != 0 {
+				t.Fatalf("listing = %+v %v", l, err)
+			}
+			if f := delivery.FoldStream(l.Records); len(f.Problems) != 0 {
+				t.Fatalf("approval or intent records forked the chain: %v", f.Problems)
+			}
+		})
+	}
+}
+
+// TestUpstreamEmptyIsUnknown: a follower that reads a stream only by its
+// reference and finds no record there cannot tell a new stream from a wrong
+// reference or deleted records, so it offers nothing and says why, never an
+// empty and whole upstream.
+func TestUpstreamEmptyIsUnknown(t *testing.T) {
+	for _, opts := range []testutil.ReferrersOptions{{}, {Unsupported: true}} {
+		_, path := setup(t, opts)
+		repo, _ := anchored(t, path)
+		s, why := Upstream(t.Context(), repo, stream, Unchecked, delivery.RecordMark{}, nil)
+		if s != nil || why != noRecordFound {
+			t.Fatalf("an empty stream read as known: %+v %q", s, why)
+		}
 	}
 }

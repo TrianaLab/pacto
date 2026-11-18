@@ -335,6 +335,28 @@ tests:
           path: 'spec.validations[?(@.message == "the promoter may change only spec.source.targetRevision")].message'
           value: "the promoter may change only spec.source.targetRevision"
 
+  - it: pins a recorded native registry mode for everyone, the recorder included
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    set:
+      delivery.recorder.enabled: true
+    asserts:
+      - equal:
+          path: 'spec.validations[?(@.message == "status.stream.registryMode is native and may not narrow to write-once-tags")].expression'
+          value: >-
+            !('registryMode' in variables.oldStream && variables.oldStream['registryMode'] == 'native') ||
+            ('registryMode' in variables.stream && variables.stream['registryMode'] == 'native')
+        documentSelector:
+          path: 'spec.validations[0].message'
+          value: "status.stream.registryMode is native and may not narrow to write-once-tags"
+      - equal:
+          path: 'spec.validations[0].message'
+          value: "status.stream.registryMode is native and may not narrow to write-once-tags"
+        documentSelector:
+          path: 'spec.validations[0].message'
+          value: "status.stream.registryMode is native and may not narrow to write-once-tags"
+
   - it: keeps the record fields to the recorder, and the recorder away from what runs
     capabilities:
       apiVersions:

@@ -582,7 +582,8 @@ spec:
 # only when the recorder writes them. The recorder may write those and its own
 # RecordStoreReady condition, and nothing else: an allowlist, so a status
 # field added later is closed to it without editing this policy. RBAC cannot
-# scope a status write to fields; this policy does.
+# scope a status write to fields; this policy does. A recorded native
+# registryMode never changes again, for anyone, the recorder included.
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
@@ -613,6 +614,11 @@ spec:
     - name: oldConditions
       expression: "has(oldObject.status) && has(oldObject.status.conditions) ? oldObject.status.conditions.filter(c, c.type != 'RecordStoreReady') : []"
   validations:
+    - expression: >-
+        !('registryMode' in variables.oldStream && variables.oldStream['registryMode'] == 'native') ||
+        ('registryMode' in variables.stream && variables.stream['registryMode'] == 'native')
+      message: "status.stream.registryMode is native and may not narrow to write-once-tags"
+      reason: Forbidden
     - expression: >-
         variables.recorder || (
         {{ include "pacto-operator.delivery.celSame" (list "status.record.digest" "''") }} &&

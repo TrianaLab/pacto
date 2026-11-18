@@ -55,3 +55,28 @@ func TestStatusIsThePromoters(t *testing.T) {
 	denied(t, setStatus(as("alice"), op, map[string]any{"phase": "Held",
 		"approvals": []any{map[string]any{"name": "a", "by": "bob", "decision": "Approve"}}}), msg)
 }
+
+// A recorded native registry mode never narrows: every reader reads both
+// forms, but a stream that moved from referrers to write-once tags would hide
+// its history's form change, so admission refuses it for everyone, the
+// recorder included. The recorder alone sets the mode from empty and may
+// widen write-once-tags to native.
+func TestRecordsPolicyPinsNativeRegistryMode(t *testing.T) {
+	const pin = "status.stream.registryMode is native and may not narrow to write-once-tags"
+	// Others are refused by the promoter's status policy or the records one.
+	const others = "denied request"
+	mode := func(m string) map[string]any { return map[string]any{"stream": map[string]any{"registryMode": m}} }
+
+	widened := mustCreate(t, admin, stage(uniq("payments")))
+	denied(t, setStatus(as("alice"), widened, mode("write-once-tags")), others)
+	allowed(t, setStatus(as(recorder), widened, mode("write-once-tags")))
+	denied(t, setStatus(as("alice"), widened, mode("native")), others)
+	allowed(t, setStatus(as(recorder), widened, mode("native")))
+	denied(t, setStatus(as(recorder), widened, mode("write-once-tags")), pin)
+	denied(t, setStatus(as("alice"), widened, mode("write-once-tags")), others)
+	denied(t, setStatus(as(recorder), widened, map[string]any{"stream": map[string]any{}}), pin)
+
+	native := mustCreate(t, admin, stage(uniq("payments")))
+	allowed(t, setStatus(as(recorder), native, mode("native")))
+	denied(t, setStatus(as(recorder), native, mode("write-once-tags")), pin)
+}

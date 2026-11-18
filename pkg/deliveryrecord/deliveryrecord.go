@@ -9,6 +9,7 @@
 package deliveryrecord
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -381,10 +382,24 @@ func (r *Reader) Upstream(ctx context.Context, repo *remote.Repository, stream s
 	if err != nil {
 		return nil, "reading the records: " + err.Error()
 	}
-	s, why := delivery.UpstreamFromRecords(l.Records, seen, acked)
-	if s != nil && len(l.Unreadable) > 0 {
-		why = fmt.Sprintf("%d referrers on the upstream anchor could not be verified, so a record signed by a key the trust config "+
+	var unverified string
+	if len(l.Unreadable) > 0 {
+		unverified = fmt.Sprintf("%d referrers on the upstream anchor could not be verified, so a record signed by a key the trust config "+
 			"does not list is not seen: %s", len(l.Unreadable), strings.Join(l.Unreadable, "; "))
+	}
+	if len(l.Records) == 0 {
+		// A reference alone cannot tell a new stream from a wrong reference,
+		// deleted records or records it cannot verify: unknown, never an
+		// empty and whole stream.
+		return nil, cmp.Or(unverified, noRecordFound)
+	}
+	s, why := delivery.UpstreamFromRecords(l.Records, seen, acked)
+	if s != nil && unverified != "" {
+		why = unverified
 	}
 	return s, why
 }
+
+// noRecordFound is why a reference-only read that finds no record of a stream
+// says nothing about it.
+const noRecordFound = "no record was found for this stream; the reference may be wrong or the records deleted"

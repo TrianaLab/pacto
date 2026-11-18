@@ -128,7 +128,9 @@ Without the Referrers API, each record is a tag in the streams repository:
 - A Stage recorded `native` never moves to tags on its own. If its registry
   stops serving the Referrers API, `RecordStoreReady` turns `False` with
   reason `RegistryUnavailable` and the message `the registry served the
-  Referrers API for this stream and no longer does`.
+  Referrers API for this stream and no longer does`. The records admission
+  policy refuses changing a recorded `native` mode for every requester, the
+  recorder included.
 
 ## Check it works
 
