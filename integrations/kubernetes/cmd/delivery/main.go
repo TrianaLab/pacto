@@ -157,8 +157,9 @@ func runPromoter(args []string) error {
 	}
 	if err := (&delivery.OperationReconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster,
 		Policy: policy, Workers: *workers, Gates: gates, Now: time.Now, Poll: *poll, Records: *records,
-		Freshness:   *authFreshness,
-		RecordedTTL: *recordedTTL,
+		RecordOptions: ocireferrer.Options{Keychain: keychain, Insecure: insecure},
+		Freshness:     *authFreshness,
+		RecordedTTL:   *recordedTTL,
 		//nolint:staticcheck // TODO: migrate to mgr.GetEventRecorder(), as cmd/main.go
 		Events:            mgr.GetEventRecorderFor("pacto-delivery"),
 		Stats:             stats,
@@ -236,6 +237,9 @@ func runRecorder(args []string) error {
 	admissionPolicies := fs.String("admission-policies", "",
 		"Comma-separated ValidatingAdmissionPolicy names (each bound by a binding of the same name) that must "+
 			"guard Approvals before the recorder signs one on its creator's behalf; empty signs none.")
+	identities := fs.String("identities", "",
+		"The identity policy as JSON, the one the promoter reads: its approver signers are the issuers whose keyless "+
+			"approval records the recorder views. Empty views none.")
 	zopts := zap.Options{}
 	zopts.BindFlags(fs)
 	_ = fs.Parse(args)
@@ -256,6 +260,10 @@ func runRecorder(args []string) error {
 		return err
 	}
 	verify, _ := signing.TrustVerifier(trust) // RecorderTrust checked it
+	policy, err := delivery.LoadClassPolicy(*identities, "")
+	if err != nil {
+		return err
+	}
 	mgr, err := newManager(*metricsAddr, *probeAddr, *leaderElect, "pacto-delivery-recorder", 0, 0)
 	if err != nil {
 		return err
@@ -271,7 +279,7 @@ func runRecorder(args []string) error {
 	cluster := delivery.Cluster{Client: mgr.GetClient()}
 	recorder := &delivery.Recorder{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster, Store: store,
 		Signer: signer, Trust: trust.Digest(), ClusterID: clusterID, Now: time.Now, Poll: *poll, GapGrace: time.Minute,
-		AdmissionPolicies: delivery.SplitList(*admissionPolicies)}
+		AdmissionPolicies: delivery.SplitList(*admissionPolicies), Policy: policy}
 	if *sink != "" {
 		recorder.Events = &delivery.Events{Sink: *sink, Source: "/pacto-delivery/" + clusterID}
 	}

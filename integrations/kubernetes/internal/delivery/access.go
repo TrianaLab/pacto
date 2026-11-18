@@ -12,6 +12,7 @@ import (
 	"time"
 
 	authorizationv1 "k8s.io/api/authorization/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
@@ -31,6 +32,12 @@ const accessTimeout = 5 * time.Second
 // reconcile; cache by user and workload for a few seconds if reviews load the
 // apiserver.
 func (r *OperationReconciler) access(ctx context.Context, id delivery.Identity, stage *dv1.Stage) (delivery.WorkloadAccess, error) {
+	return reviewAccess(ctx, r.Client, r.now(), id, stage)
+}
+
+// reviewAccess is access asked through c, answered as of now: the recorder
+// asks it too before it creates a view the promoter would not count.
+func reviewAccess(ctx context.Context, c client.Client, now time.Time, id delivery.Identity, stage *dv1.Stage) (delivery.WorkloadAccess, error) {
 	a, group := delivery.AccessFor(stage.Spec, stage.Namespace)
 	if a.Unverified != "" {
 		return a, nil
@@ -42,7 +49,7 @@ func (r *OperationReconciler) access(ctx context.Context, id delivery.Identity, 
 	}}
 	ctx, cancel := context.WithTimeout(ctx, accessTimeout)
 	defer cancel()
-	if err := r.Create(ctx, sar); err != nil {
+	if err := c.Create(ctx, sar); err != nil {
 		a.Unverified = "the SubjectAccessReview failed: " + err.Error()
 		return a, err
 	}
@@ -52,6 +59,6 @@ func (r *OperationReconciler) access(ctx context.Context, id delivery.Identity, 
 		a.Unverified = "the SubjectAccessReview could not be evaluated: " + sar.Status.EvaluationError
 		return a, nil
 	}
-	a.Allowed, a.At = sar.Status.Allowed, ts(r.now())
+	a.Allowed, a.At = sar.Status.Allowed, ts(now)
 	return a, nil
 }

@@ -2,6 +2,7 @@ package delivery
 
 import (
 	"encoding/json"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -109,5 +110,26 @@ func TestOperationRecordWithoutApprovalRecordStillOpens(t *testing.T) {
 	}
 	if _, _, err := OpenRecord(b, func(string, int64, []byte) error { return nil }); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestOpenApprovalRefusesOtherPredicate: an approval record opens through
+// its verifier, and an intent record, a refused signature or a broken bundle
+// never opens as an approval.
+func TestOpenApprovalRefusesOtherPredicate(t *testing.T) {
+	op := recordInput().Operation
+	a := ApprovalSpec{OperationUID: "3b1e", IntentDigest: "sha256:aa", Decision: Approve}
+	st := NewApprovalRecord(recStage, rAnc, op, a, ApprovalSigner{Kind: SignerPerson}, "2026-10-19T10:01:50Z")
+	b, id, _ := SignApproval(t.Context(), plainSigner{}, st)
+	ok := func([]byte) error { return nil }
+	if got, gotID, err := OpenApproval(b, ok); err != nil || gotID != id || !reflect.DeepEqual(got, st) {
+		t.Fatalf("OpenApproval = %+v %s %v", got, gotID, err)
+	}
+	intent, _, _ := SignIntent(t.Context(), plainSigner{}, NewIntentRecord(recStage, rAnc, "", op, "2026-10-19T10:01:50Z"))
+	if _, _, err := OpenApproval(intent, ok); err == nil {
+		t.Fatal("an intent record opened as an approval")
+	}
+	if _, _, err := OpenApproval(b, func([]byte) error { return errors.New("no") }); err == nil || !strings.Contains(err.Error(), "signature") {
+		t.Fatalf("a refused signature opened: %v", err)
 	}
 }

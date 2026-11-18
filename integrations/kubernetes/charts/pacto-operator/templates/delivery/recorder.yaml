@@ -67,8 +67,13 @@ metadata:
     {{- $labels | nindent 4 }}
 rules:
   - apiGroups: [delivery.pacto.trianalab.io]
-    resources: [stages, approvals]
+    resources: [stages]
     verbs: [get, list, watch]
+  # Approvals: create is the view of an approval record a person signed
+  # keyless; admission lets the recorder create only a view (spec.record).
+  - apiGroups: [delivery.pacto.trianalab.io]
+    resources: [approvals]
+    verbs: [get, list, watch, create]
   - apiGroups: [delivery.pacto.trianalab.io]
     resources: [operations]
     verbs: [get, list, watch, update]
@@ -78,6 +83,11 @@ rules:
   - apiGroups: [admissionregistration.k8s.io]
     resources: [validatingadmissionpolicies, validatingadmissionpolicybindings]
     verbs: [get]
+  # Whether a keyless approver may update the Stage's workload, asked before
+  # the recorder creates a view the promoter would not count.
+  - apiGroups: [authorization.k8s.io]
+    resources: [subjectaccessreviews]
+    verbs: [create]
   {{- with include "pacto-operator.delivery.rbac.pointerReadRules" . | trim }}{{ . | nindent 2 }}{{ end }}
   {{- include "pacto-operator.rbac.clusterIdentityRule" . | nindent 2 }}
 ---
@@ -130,7 +140,9 @@ spec:
       {{- include "pacto-operator.delivery.selectorLabels" (dict "ctx" . "component" "delivery-recorder") | nindent 6 }}
   template:
     metadata:
-      {{- include "pacto-operator.podMetadata" (dict "ctx" . "values" .Values.delivery "labels" $labels) | trim | nindent 6 }}
+      {{- /* The recorder reads the identity policy (its approver signers) once: a change restarts it. */}}
+      {{- $checksum := dict "checksum/identities" (include "pacto-operator.delivery.identitiesJSON" . | sha256sum) }}
+      {{- include "pacto-operator.podMetadata" (dict "ctx" . "values" .Values.delivery "labels" $labels "annotations" $checksum) | trim | nindent 6 }}
     spec:
       {{- include "pacto-operator.podSpec" (dict "ctx" . "values" .Values.delivery "serviceAccountName" (include "pacto-operator.delivery.recorderServiceAccountName" .)) | trim | nindent 6 }}
       containers:
@@ -143,6 +155,7 @@ spec:
             - {{ printf "--streams-repository=%s" $r.streamsRepository | quote }}
             - {{ printf "--approvals-repository=%s" ($r.approvalsRepository | default (printf "%s-approvals" $r.streamsRepository)) | quote }}
             - --admission-policies={{ include "pacto-operator.delivery.fullname" . }}-approval
+            - --identities=/etc/pacto/identities/policy.json
             {{- if $r.signing.ed25519.secretName }}
             - --signing-key-file=/etc/pacto/signing/{{ $r.signing.ed25519.key }}
             {{- else if $r.signing.kms }}
@@ -184,6 +197,9 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: identities
+              mountPath: /etc/pacto/identities
+              readOnly: true
             {{- if $r.signing.ed25519.secretName }}
             - name: signing-key
               mountPath: /etc/pacto/signing
@@ -210,6 +226,9 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {}
+        - name: identities
+          configMap:
+            name: pacto-delivery-identities
         {{- if $r.signing.ed25519.secretName }}
         - name: signing-key
           secret:

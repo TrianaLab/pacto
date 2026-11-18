@@ -92,6 +92,7 @@ recorder's their own Service, ServiceMonitor and
 | `pacto_delivery_stage_frozen` | 1 while a Stage is frozen |
 | `pacto_delivery_stage_watched` | 0 while the newest re-check of the running version did not pass |
 | `pacto_delivery_records_pending` | concluded operations per stream that have no record yet (recorder) |
+| `pacto_delivery_unverified_approval_records` | approval records in an approvals repository that do not verify, each counted once; the recorder never turns them into an Approval (recorder) |
 | `pacto_delivery_stats_dropped_total` | [run records](delivery-run-records.md) not published, by `reason`: `queue-full`, `namespace-full` (one namespace already holds a quarter of the queue), `publish-failed` (logged with the operation, and the record in flight when the promoter stops), `no-stage` (the operation had no Stage, so no service to file it under) or `shutdown` (still queued, or concluded, after the promoter began to stop). Every reason reads 0 from startup. A `shutdown` drop is counted by a process about to exit, so its lasting trace is the promoter's log line `run records not published at shutdown` |
 
 The promoter emits a Kubernetes Event on an operation when it waits on a person

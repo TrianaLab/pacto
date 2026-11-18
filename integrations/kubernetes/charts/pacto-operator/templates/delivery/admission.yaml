@@ -197,7 +197,15 @@ spec:
 # login older than that, which forces a fresh interactive login to approve. An
 # agent holding a person's credentials still cannot be told apart from that person.
 # Once given, an Approval's spec never changes (a CRD rule); the promoter only
-# adds its operation as owner.
+# adds its operation as owner. With the recorder on, it alone sets spec.record
+# and spec.signedAt: it creates an Approval as a view of an approval record a
+# person signed keyless, naming the person the certificate names, with no
+# groups and no login time (recorderView). The promoter counts such a view
+# only after it verified the record itself.
+{{- $recorderUser := "" }}
+{{- if .Values.delivery.recorder.enabled }}
+{{- $recorderUser = printf "system:serviceaccount:%s:%s" (include "pacto-operator.delivery.namespace" .) (include "pacto-operator.delivery.recorderServiceAccountName" .) }}
+{{- end }}
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
@@ -215,31 +223,38 @@ spec:
   variables:
     - name: groups
       expression: "has(object.spec.groups) ? object.spec.groups : []"
+    - name: recorderView
+      expression: "{{ if $recorderUser }}request.userInfo.username == '{{ $recorderUser }}' && has(object.spec.record){{ else }}false{{ end }}"
   validations:
-    - expression: "object.spec.by == request.userInfo.username"
+    - expression: >-
+        (!has(object.spec.record) && !has(object.spec.signedAt)){{ if $recorderUser }} ||
+        request.userInfo.username == '{{ $recorderUser }}'{{ end }}
+      message: "spec.record and spec.signedAt are set only by the Pacto delivery recorder"
+      reason: Forbidden
+    - expression: "variables.recorderView || object.spec.by == request.userInfo.username"
       message: "spec.by must be the user creating the approval"
       reason: Forbidden
     - expression: >-
-        !({{ $agent }})
+        variables.recorderView || !({{ $agent }})
       message: "agents cannot approve: service accounts, system users and members of agentGroups are agents"
       reason: Forbidden
     {{- /* Any zero duration ("0", "0s", "0m") turns freshness off, as the promoter reads it. */}}
     {{- if not (regexMatch "^(0+(\\.0+)?(ns|us|µs|ms|s|m|h)?)+$" (.Values.delivery.promoter.authFreshness | default "0" | toString)) }}
     - expression: >-
-        'delivery.pacto.trianalab.io/auth-time' in request.userInfo.extra &&
+        variables.recorderView || 'delivery.pacto.trianalab.io/auth-time' in request.userInfo.extra &&
         has(object.spec.authTime) && object.spec.authTime == request.userInfo.extra['delivery.pacto.trianalab.io/auth-time'][0]
       message: "approving needs a fresh interactive login: spec.authTime must be the login time in userInfo.extra[delivery.pacto.trianalab.io/auth-time]"
       reason: Forbidden
     {{- else }}
     - expression: >-
-        !has(object.spec.authTime) || ('delivery.pacto.trianalab.io/auth-time' in request.userInfo.extra &&
+        variables.recorderView || !has(object.spec.authTime) || ('delivery.pacto.trianalab.io/auth-time' in request.userInfo.extra &&
         object.spec.authTime == request.userInfo.extra['delivery.pacto.trianalab.io/auth-time'][0])
       message: "spec.authTime, when given, must be the login time in userInfo.extra[delivery.pacto.trianalab.io/auth-time]"
       reason: Forbidden
     {{- end }}
     - expression: >-
-        variables.groups.all(g, g in request.userInfo.groups) &&
-        request.userInfo.groups.all(g, g in variables.groups)
+        variables.recorderView || (variables.groups.all(g, g in request.userInfo.groups) &&
+        request.userInfo.groups.all(g, g in variables.groups))
       message: "spec.groups must be the groups of the user creating the approval"
       reason: Forbidden
 ---

@@ -10,17 +10,22 @@ package delivery
 import (
 	"cmp"
 	"context"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/metrics"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
 )
 
 // ApprovalRecorder writes, on each Stage's record stream, the intent record
@@ -38,6 +43,35 @@ type ApprovalRecorder struct {
 	// guardSince is when the admission policies were first seen guarding,
 	// zero while they do not.
 	guardSince time.Time
+	// logged are the approval records already logged as not viewed, by
+	// manifest digest, so a pass every Poll logs each once.
+	// ponytail: never pruned; it grows with the records seen, bounded by
+	// MaxApprovalScan per operation and pass.
+	logged sync.Map
+	// reader remembers what each approvals repository manifest names.
+	reader deliveryrecord.Reader
+}
+
+// Bounds of the keyless approval scan: the approval records of one
+// operation read per pass, and the views created per operation.
+var (
+	MaxApprovalScan  = 200
+	MaxApprovalViews = 20
+)
+
+// UnverifiedApprovalRecords counts the approval records found in an
+// approvals repository that do not verify, each once: they are never viewed.
+var UnverifiedApprovalRecords = prometheus.NewCounter(prometheus.CounterOpts{
+	Name: "pacto_delivery_unverified_approval_records",
+	Help: "Approval records in an approvals repository that do not verify, so they are never viewed.",
+})
+
+func init() { metrics.Registry.MustRegister(UnverifiedApprovalRecords) }
+
+// once reports whether key is seen for the first time.
+func (r *ApprovalRecorder) once(key string) bool {
+	_, seen := r.logged.LoadOrStore(key, true)
+	return !seen
 }
 
 // SetupWithManager registers the approval recorder: an Approval wakes the
@@ -80,13 +114,25 @@ func (r *ApprovalRecorder) Reconcile(ctx context.Context, req reconcile.Request)
 	if err := s.intent(ctx); err != nil {
 		return r.backoff(ctx, op, err)
 	}
-	switch {
-	case op.Status.Phase != delivery.PhaseHeld:
+	if op.Status.Phase != delivery.PhaseHeld {
 		return reconcile.Result{}, nil
-	case since.IsZero(): // unguarded: nothing is signed on behalf, and the guard is looked at again
+	}
+	// A person's client pushes a signed approval to the registry, which
+	// wakes nothing here: a held operation is looked at again every Poll.
+	scan := len(r.Policy.Signers) > 0 && stage.Status.Stream.Approvals != ""
+	if scan {
+		if err := s.scanSigned(ctx); err != nil {
+			return r.backoff(ctx, op, err)
+		}
+	}
+	if since.IsZero() { // unguarded: nothing is signed on behalf, and the guard is looked at again
 		return reconcile.Result{RequeueAfter: r.Poll}, nil
 	}
-	return s.approvals(ctx, since)
+	res, err := s.approvals(ctx, since)
+	if scan {
+		res.RequeueAfter = r.Poll
+	}
+	return res, err
 }
 
 // backoff logs a failure and tries again after Poll; a nil err is a
@@ -193,4 +239,122 @@ func (s *onStage) approval(ctx context.Context, a *dv1.Approval) error {
 	}
 	a.Status.Record = &delivery.ApprovalRecordRef{Digest: id, Ref: ref}
 	return s.Status().Update(ctx, a)
+}
+
+// scanSigned views the approval records people signed keyless for the held
+// operation, found in the Stage's approvals repository: each that verifies
+// under an approver signer and that the promoter would count becomes an
+// Approval naming it (spec.record) and its verified signing time
+// (spec.signedAt), owned by the operation. A record that does not verify,
+// or whose signer the promoter would refuse, gets no view.
+func (s *onStage) scanSigned(ctx context.Context) error {
+	stream := s.stage.Status.Stream
+	path, _, err := deliveryrecord.ParseAnchorRef(stream.Approvals, stream.ID)
+	if err != nil {
+		return err
+	}
+	repo, err := s.Store.open(path)
+	if err != nil {
+		return err
+	}
+	fetched, cut, err := s.reader.ListPredicate(ctx, repo, stream.ID, delivery.PredicateApproval, string(s.op.UID), MaxApprovalScan)
+	if err != nil {
+		return err
+	}
+	if cut {
+		ctrl.LoggerFrom(ctx).Info("the approvals repository holds more approval records of this operation than one pass reads; the rest wait",
+			"operation", s.op.Name, "max", MaxApprovalScan)
+	}
+	viewed, err := s.viewed(ctx)
+	if err != nil {
+		return err
+	}
+	for _, f := range fetched {
+		if ref := path + "@" + f.Manifest; !viewed[ref] {
+			if stop, err := s.viewOne(ctx, f, ref, viewed); stop || err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// viewed are the records the operation's views already name.
+func (s *onStage) viewed(ctx context.Context) (map[string]bool, error) {
+	list := &dv1.ApprovalList{}
+	if err := s.APIReader.List(ctx, list, client.InNamespace(s.op.Namespace)); err != nil {
+		return nil, err
+	}
+	viewed := map[string]bool{}
+	for _, a := range list.Items {
+		if a.Spec.OperationUID == string(s.op.UID) && a.Spec.Record != "" {
+			viewed[a.Spec.Record] = true
+		}
+	}
+	return viewed, nil
+}
+
+// viewOne creates the view of the record f at ref when it verifies, answers
+// the operation and would count, and adds it to viewed. stop says the
+// operation has as many views as the recorder creates.
+func (s *onStage) viewOne(ctx context.Context, f deliveryrecord.Fetched, ref string, viewed map[string]bool) (stop bool, err error) {
+	log := ctrl.LoggerFrom(ctx)
+	signed, err := openSigned(f.Bundle, s.Policy)
+	switch {
+	case err != nil:
+		if s.once(f.Manifest) {
+			UnverifiedApprovalRecords.Inc()
+			log.Info("an approval record does not verify, so it is never viewed", "record", ref, "error", err.Error())
+		}
+		return false, nil
+	case signed.st.Predicate.Operation.UID != string(s.op.UID):
+		return false, nil
+	case len(viewed) >= MaxApprovalViews:
+		if s.once("views/" + string(s.op.UID)) {
+			log.Info("the operation has as many views of signed approvals as the recorder creates; the rest wait",
+				"operation", s.op.Name, "max", MaxApprovalViews)
+		}
+		return true, nil
+	}
+	view := s.view(signed, ref)
+	if why := s.refusal(ctx, signed, view.Spec); why != "" {
+		if s.once(f.Manifest) {
+			log.Info("a signed approval would not count, so it is not viewed", "record", ref, "reason", why)
+		}
+		return false, nil
+	}
+	if err := s.Create(ctx, view); err != nil {
+		return false, err
+	}
+	view.Status.Record = &delivery.ApprovalRecordRef{Digest: signed.id, Ref: ref}
+	viewed[ref] = true
+	return false, s.Status().Update(ctx, view)
+}
+
+// view is the Approval that stands for signed, the record at ref.
+func (s *onStage) view(signed signedApproval, ref string) *dv1.Approval {
+	p, op := signed.st.Predicate, s.op
+	_, manifest, _ := strings.Cut(ref, "@sha256:")
+	return &dv1.Approval{
+		ObjectMeta: metav1.ObjectMeta{Namespace: op.Namespace, Name: op.Name + "-signed-" + manifest[:12],
+			OwnerReferences: []metav1.OwnerReference{{APIVersion: dv1.GroupVersion.String(), Kind: "Operation", Name: op.Name, UID: op.UID}}},
+		Spec: delivery.ApprovalSpec{Operation: op.Name, OperationUID: string(op.UID), IntentDigest: p.Operation.IntentDigest,
+			Decision: p.Decision, Note: p.Note, By: signed.identity.User, Record: ref, SignedAt: ts(signed.at)},
+	}
+}
+
+// refusal is why the promoter would not count a view of signed: the same
+// keyless guard and approver checks, with the workload review asked as the
+// identity the certificate names.
+func (s *onStage) refusal(ctx context.Context, signed signedApproval, a delivery.ApprovalSpec) string {
+	if code, why := delivery.KeylessRefusal(signed.identity, signed.source); code != "" {
+		return why
+	}
+	_, why, _ := delivery.ApprovalRefusalAsking(s.op.Spec, s.op.Status, string(s.op.UID), a, signed.at, s.Policy,
+		delivery.PublishedFreshness(s.stage.Status.AuthFreshness),
+		func() delivery.WorkloadAccess {
+			access, _ := reviewAccess(ctx, s.Client, s.Now().UTC(), signed.identity, s.stage)
+			return access
+		})
+	return why
 }

@@ -3,6 +3,7 @@ package delivery
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 )
 
@@ -142,4 +143,19 @@ func SignApproval(ctx context.Context, s Signer, st ApprovalStatement) (bundle [
 // SignIntent signs an intent record and returns its bundle and id.
 func SignIntent(ctx context.Context, s Signer, st IntentStatement) (bundle []byte, id string, err error) {
 	return signStatement(ctx, s, st)
+}
+
+// OpenApproval checks bundle carries one signed approval record, has verify
+// check its signature, and returns the statement and its id. Every approval
+// record a person signed becomes a decision only through it.
+func OpenApproval(bundle []byte, verify func([]byte) error) (ApprovalStatement, string, error) {
+	var st ApprovalStatement
+	payload, err := openStatement(bundle, PredicateApproval, &st)
+	if err != nil {
+		return ApprovalStatement{}, "", err
+	}
+	if err := verify(bundle); err != nil {
+		return ApprovalStatement{}, "", fmt.Errorf("signature: %w", err)
+	}
+	return st, sha256Hex(payload), nil
 }

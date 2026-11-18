@@ -100,6 +100,9 @@ type Recorder struct {
 	// AdmissionPolicies are the policies (the -approval one) that must guard
 	// Approvals before the recorder signs one on its creator's behalf.
 	AdmissionPolicies []string
+	// Policy is the identity policy: its approver signers are the issuers
+	// whose keyless approval records the recorder views.
+	Policy delivery.ClassPolicy
 
 	mu      sync.Mutex
 	missing map[gapKey]time.Time

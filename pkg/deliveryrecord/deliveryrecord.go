@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -132,6 +133,156 @@ func Push(ctx context.Context, repo *remote.Repository, stream string, mode capa
 	return ref.String(), nil
 }
 
+// Fetched is one approval or intent record read but not opened: the
+// manifest that carries it and its bundle.
+type Fetched struct {
+	Manifest string
+	Bundle   []byte
+}
+
+// ListPredicate reads the bundles of predicate (approval/v1 or
+// operation-intent/v1) attached to stream's anchor in repo, as referrers and
+// as [KindTag] write-once tags, newest first by the time each statement
+// claims. uid, when set, keeps the records whose AnnUID names that
+// operation: an unsigned convenience that only narrows what is read. Nothing
+// is verified: the caller opens each. It returns at most max and says when
+// more matched (cut), so a caller says the bound was reached. A listing or
+// fetch failure is an error, never no record. What each manifest and tag
+// names is remembered, as [Reader.List] does, so a later call fetches only
+// new manifests and the bundles it returns.
+func (r *Reader) ListPredicate(ctx context.Context, repo *remote.Repository, stream, predicate, uid string, max int) ([]Fetched, bool, error) {
+	kind := KindIntent
+	if predicate == delivery.PredicateApproval {
+		kind = KindApproval
+	}
+	anchor := Anchor(stream).ManifestDesc
+	descs, tags, err := ocireferrer.Attached(ctx, repo, anchor, AnchorTag(stream)+"-"+kind+"-")
+	if err != nil {
+		return nil, false, err
+	}
+	heads, order, err := r.readHeads(ctx, repo, anchor.Digest.String()+" "+kind, descs, tags)
+	if err != nil {
+		return nil, false, err
+	}
+	var matched []string
+	for _, k := range order {
+		if h := heads[k]; h.layer != nil && h.predicate == predicate && h.subject == anchor.Digest.String() && (uid == "" || h.uid == uid) {
+			matched = append(matched, k)
+		}
+	}
+	cut := len(matched) > max
+	out := make([]Fetched, 0, min(max, len(matched)))
+	for _, k := range matched[:min(max, len(matched))] {
+		bundle, err := content.FetchAll(ctx, repo, *heads[k].layer)
+		if err != nil {
+			return nil, false, err
+		}
+		out = append(out, Fetched{Manifest: k, Bundle: bundle})
+	}
+	slices.SortStableFunc(out, func(a, b Fetched) int { return cmp.Compare(claimedTime(b.Bundle), claimedTime(a.Bundle)) })
+	return out, cut, nil
+}
+
+// readHeads says what each manifest in descs and each tag in tags names,
+// by manifest digest and in listing order, through what r remembers under
+// key. A vanished or moved tag holds nothing to open.
+func (r *Reader) readHeads(ctx context.Context, repo *remote.Repository, key string, descs []ocispec.Descriptor, tags []string) (map[string]head, []string, error) {
+	r.mu.Lock()
+	knownHeads, knownTags := r.heads[key], r.kindTags[key]
+	r.mu.Unlock()
+	tagged, nowTags, err := resolveTags(ctx, repo, tags, knownTags, new([]string))
+	if err != nil {
+		return nil, nil, err
+	}
+	heads := map[string]head{}
+	var order []string
+	for _, d := range append(descs, tagged...) {
+		k := d.Digest.String()
+		if _, dup := heads[k]; dup {
+			continue
+		}
+		h, ok := knownHeads[k]
+		if !ok {
+			if h, err = readHead(ctx, repo, d); err != nil {
+				return nil, nil, err
+			}
+		}
+		heads[k], order = h, append(order, k)
+	}
+	r.mu.Lock()
+	if r.heads == nil {
+		r.heads, r.kindTags = map[string]map[string]head{}, map[string]map[string]ocispec.Descriptor{}
+	}
+	r.heads[key], r.kindTags[key] = heads, nowTags
+	r.mu.Unlock()
+	return heads, order, nil
+}
+
+// head is what a record manifest says before its bundle is fetched. layer
+// is nil when it is not one bundle layer, or too large to be a record.
+type head struct {
+	predicate, uid, subject string
+	layer                   *ocispec.Descriptor
+}
+
+// readHead fetches the manifest d and says what it is. An error is a
+// registry failure, which is never remembered.
+func readHead(ctx context.Context, repo *remote.Repository, d ocispec.Descriptor) (head, error) {
+	if d.Size > MaxBytes {
+		return head{}, nil
+	}
+	raw, err := content.FetchAll(ctx, repo, d)
+	if err != nil {
+		return head{}, err
+	}
+	var m ocispec.Manifest
+	_ = json.Unmarshal(raw, &m) // a manifest that does not decode is no record
+	h := head{predicate: m.Annotations[AnnPredicateType], uid: m.Annotations[AnnUID]}
+	if m.Subject != nil {
+		h.subject = m.Subject.Digest.String()
+	}
+	if len(m.Layers) == 1 && m.Layers[0].Size <= MaxBytes {
+		h.layer = &m.Layers[0]
+	}
+	return h, nil
+}
+
+// Fetch reads the bundle of the predicate record whose manifest digest is
+// manifest in repo, unverified: the caller opens it. Anything else at that
+// digest is an error.
+func Fetch(ctx context.Context, repo *remote.Repository, manifest, predicate string) ([]byte, error) {
+	if _, err := digest.Parse(manifest); err != nil {
+		return nil, fmt.Errorf("%q is not a manifest digest: %w", manifest, err)
+	}
+	d, err := repo.Resolve(ctx, manifest)
+	if err != nil {
+		return nil, err
+	}
+	bundle, _, bad, err := fetchRecord(ctx, repo, d, predicate)
+	if err == nil && bundle == nil {
+		err = fmt.Errorf("%s is not one %s record %s", manifest, predicate, bad)
+	}
+	return bundle, err
+}
+
+// claimedTime is the time a bundle's statement claims, unverified: an order
+// only.
+func claimedTime(bundle []byte) string {
+	var b struct {
+		DSSEEnvelope struct {
+			Payload []byte `json:"payload"`
+		} `json:"dsseEnvelope"`
+	}
+	var st struct {
+		Predicate struct {
+			Time string `json:"time"`
+		} `json:"predicate"`
+	}
+	_ = json.Unmarshal(bundle, &b) // an unreadable bundle sorts last
+	_ = json.Unmarshal(b.DSSEEnvelope.Payload, &st)
+	return st.Predicate.Time
+}
+
 // AnchorRef is where a stream's anchor lives: "<repository>@<digest>".
 func AnchorRef(repository, stream string) string {
 	return repository + "@" + Anchor(stream).ManifestDesc.Digest.String()
@@ -186,6 +337,9 @@ type Reader struct {
 	mu   sync.Mutex
 	read map[string]map[string]referrer           // subject digest -> manifest digest -> what it read as
 	tags map[string]map[string]ocispec.Descriptor // subject digest -> tag -> the manifest it names
+	// heads and kindTags are ListPredicate's: by anchor digest and kind.
+	heads    map[string]map[string]head
+	kindTags map[string]map[string]ocispec.Descriptor
 }
 
 // referrer is what one referrer manifest read as: a record, why it is
