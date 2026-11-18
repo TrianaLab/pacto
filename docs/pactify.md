@@ -436,8 +436,11 @@ External dependencies: 2 (sqs:newsletter-signups, stripe), inferred
   an unread input never reads as "calls nothing":
   `External dependencies: none found in what was read, 2 sources not read, inferred`.
   That covers `yarn.lock`, `pnpm-lock.yaml`, a Gradle build without
-  `gradle.lockfile`, a Terraform `module`, `*.tf.json`, Terraform state, a
-  symlinked `envs` file and an organization catalog Pacto cannot pull.
+  `gradle.lockfile`, `setup.py`, `Pipfile`, `Pipfile.lock`, a `pyproject.toml`
+  without `poetry.lock`, a Terraform `module`, `*.tf.json`, Terraform state, a
+  symlinked `envs` file and an organization catalog Pacto cannot pull. A
+  folder too large to read whole, or with more findings than a record keeps,
+  is counted too.
 - A host outside the cluster that no catalog entry identifies is a
   `DISCOVERY_UNRESOLVED` finding; declare it in `pacto.yaml` if the service
   calls it.

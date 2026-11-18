@@ -266,3 +266,22 @@ func TestSymlinkedManifestNamedOnce(t *testing.T) {
 		t.Errorf("unread %d, findings %+v", n, rec.Findings)
 	}
 }
+
+func TestSDKPythonManifestsNotReadAreNamed(t *testing.T) {
+	dir := writeTree(t, t.TempDir(), map[string]string{
+		"setup.py":              "setup(install_requires=['twilio'])\n",
+		"Pipfile":               "[packages]\nsendgrid = '*'\n",
+		"pyproject.toml":        "[project]\ndependencies = ['stripe']\n",
+		"poetry/pyproject.toml": "[tool.poetry]\n",
+		"poetry/poetry.lock":    "[[package]]\nname = \"stripe\"\nversion = \"11.4.0\"\n",
+	})
+	_, findings, _ := sdkUsesOf(t, dir)
+	equalUses(t, findings, []string{
+		CodeUnsupportedFile + " Pipfile Pipfile is not read: " + unsupportedPython,
+		CodeUnsupportedFile + " pyproject.toml pyproject.toml is not read: " + unsupportedPython,
+		CodeUnsupportedFile + " setup.py setup.py is not read: " + unsupportedPython,
+	}) // poetry.lock lists what its pyproject.toml lists
+	if n := ExternalUnread(complete(t, dir, nil).Findings, 0); n != 3 {
+		t.Errorf("unread %d", n)
+	}
+}

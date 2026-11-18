@@ -25,6 +25,7 @@ const (
 	unreadableNotParsed = "could not be parsed, so it is not read"
 	unsupportedJSLock   = "the client major comes from package.json"
 	unsupportedGradle   = "commit gradle.lockfile to have Pacto read it"
+	unsupportedPython   = "list the dependencies in requirements.txt or poetry.lock to have Pacto read them"
 )
 
 // sdkDep is one dependency a manifest lists: its name as written, its major
@@ -59,13 +60,18 @@ var sdkFormats = map[string]sdkFormat{
 }
 
 // sdkNotRead are the manifests recognized but not read, by base name, each
-// with why. A Gradle build file is one only without a gradle.lockfile beside
-// it; a package-lock.json is read with its package.json.
+// with why. A package-lock.json is read with its package.json.
 var sdkNotRead = map[string]string{
 	"yarn.lock": unsupportedJSLock, "pnpm-lock.yaml": unsupportedJSLock,
 	"build.gradle": unsupportedGradle, "build.gradle.kts": unsupportedGradle,
+	"setup.py": unsupportedPython, "pyproject.toml": unsupportedPython, "Pipfile": unsupportedPython, "Pipfile.lock": unsupportedPython,
 	"package-lock.json": "",
 }
+
+// sdkReadBy is the lockfile beside a manifest that lists what it lists, by
+// base name: with it, the manifest is read through the lockfile and no
+// finding names it.
+var sdkReadBy = map[string]string{"build.gradle": "gradle.lockfile", "build.gradle.kts": "gradle.lockfile", "pyproject.toml": "poetry.lock"}
 
 // sdkFile reports whether the base name names a manifest sdkUses reads or
 // names.
@@ -114,7 +120,7 @@ func (sc *Scan) sdkUses(dir string, cat *externalcatalog.Catalog) ([]External, [
 func (u *folderScan) manifest(rel string, cat *externalcatalog.Catalog) {
 	base, sibling := path.Base(rel), func(name string) string { return path.Join(path.Dir(rel), name) }
 	if why, ok := sdkNotRead[base]; ok {
-		if why != "" && (why != unsupportedGradle || !u.files[sibling("gradle.lockfile")]) {
+		if lock, ok := sdkReadBy[base]; why != "" && (!ok || !u.files[sibling(lock)]) {
 			u.findings = append(u.findings, contract.InferredFinding{Code: CodeUnsupportedFile, Source: rel, Message: unsupportedMessage(rel, why)})
 		}
 		return
