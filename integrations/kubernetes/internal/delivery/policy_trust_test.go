@@ -217,7 +217,7 @@ func TestRejudgedWhenRegistryUnreadable(t *testing.T) {
 			w.sign(w.key, "2026-11-18T10:00:00Z", contractorRule)
 			fail(w)
 			st := w.reconcile()
-			if v := watchVerdict(t, st, ours); v.Verdict == delivery.VerdictAccepted || slices.Contains(st.Published, ours) || readyReasonOf(t, st).Status != "False" {
+			if v := watchVerdict(t, st, ours); v.Verdict == delivery.VerdictAccepted || v.At == "" || slices.Contains(st.Published, ours) || readyReasonOf(t, st).Status != "False" {
 				t.Fatalf("verdict %+v published %v", v, st.Published)
 			}
 		})

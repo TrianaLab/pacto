@@ -233,8 +233,9 @@ func (b basis) unknownIfDegraded(v delivery.PublisherVerdict) delivery.Publisher
 // rejudge is what a watch that could not read the registry or the trusted
 // root says about the verdicts it judged before: each accepted one judged
 // again under the current basis (b), so a narrowed policy or a newer pin
-// stops accepting a signer it no longer covers at once. The rest stay.
-func rejudge(svc delivery.ServiceRef, old *delivery.PublisherStatus, b basis) []delivery.PublisherVerdict {
+// stops accepting a signer it no longer covers at once, reached at. The rest
+// stay.
+func rejudge(svc delivery.ServiceRef, old *delivery.PublisherStatus, b basis, at string) []delivery.PublisherVerdict {
 	if old == nil {
 		return []delivery.PublisherVerdict{}
 	}
@@ -246,7 +247,7 @@ func rejudge(svc delivery.ServiceRef, old *delivery.PublisherStatus, b basis) []
 		// It was accepted, so its source matched: only the rules and pins decide again.
 		n := b.unknownIfDegraded(delivery.JudgePublisher(svc, *v.Identity, "", b.rules, b.source, b.pins))
 		if n.Verdict != delivery.VerdictAccepted {
-			n.Digest, n.Version, n.At = v.Digest, v.Version, ""
+			n.Digest, n.Version, n.At = v.Digest, v.Version, at
 			out[i] = n
 		}
 	}
@@ -276,12 +277,12 @@ func (r *StageReconciler) registryReady(ctx context.Context, stage *dv1.Stage) (
 	tm, err := p.root()
 	if err != nil {
 		why := "Sigstore's trusted root could not be fetched (" + err.Error() + "), so no version of " + repo + " is judged"
-		return notReady(delivery.ReadyReasonPublisherUnverifiable, why), r.writePublisher(ctx, stage, b, rejudge(svc, stage.Status.Publisher, b), why)
+		return notReady(delivery.ReadyReasonPublisherUnverifiable, why), r.writePublisher(ctx, stage, b, rejudge(svc, stage.Status.Publisher, b, r.Now().UTC().Format(time.RFC3339)), why)
 	}
 	verdicts, err := p.watch(ctx, reg, tm, svc, repo, b)
 	if err != nil {
 		why := "the registry " + repo + " cannot be listed (" + err.Error() + "), so no version is published until it can"
-		return notReady(delivery.ReadyReasonRegistryUnreadable, why), r.writePublisher(ctx, stage, b, rejudge(svc, stage.Status.Publisher, b), why)
+		return notReady(delivery.ReadyReasonRegistryUnreadable, why), r.writePublisher(ctx, stage, b, rejudge(svc, stage.Status.Publisher, b, r.Now().UTC().Format(time.RFC3339)), why)
 	}
 	ask := trust{}
 	if b.degraded == "" { // nobody is asked about a signer the unread pin or policy may cover
