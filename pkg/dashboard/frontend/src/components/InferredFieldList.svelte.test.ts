@@ -80,7 +80,7 @@ describe('InferredFieldList', () => {
 
   it('opens each row with its mark and keeps each row a touch target tall', () => {
     render({ items: [field(0)], total: 1 });
-    expect(rows()[0].firstElementChild!.classList.contains('help')).toBe(true);
+    expect(rows()[0].firstElementChild!.classList.contains('prov-mark')).toBe(true);
     // jsdom applies no component style, so the rules are read from the source.
     expect(source).toMatch(/\.ifl-row \{[^}]*min-block-size: var\(--touch-min\)/);
     expect(source).toMatch(/@media \(pointer: coarse\) \{ \.ifl-row \{ min-block-size: 44px; \} \}/);

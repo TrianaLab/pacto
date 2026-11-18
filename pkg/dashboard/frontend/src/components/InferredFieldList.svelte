@@ -1,5 +1,5 @@
 <script>
-  import HelpTip from './HelpTip.svelte';
+  import ProvenanceMark from './ProvenanceMark.svelte';
   import { formatCount } from '../lib/format.ts';
 
   // Values Pacto inferred and keeps apart from the contract. Each row is muted and
@@ -31,7 +31,7 @@
 
 {#snippet row(f)}
   <li class="ifl-row" data-testid="inferred-field">
-    <HelpTip label={`inferred ${f.field}`} text={note(f)} />
+    <ProvenanceMark label={`About inferred ${f.field}`} text={note(f)} />
     <span class="ifl-text">
       <code><bdi>{f.field}</bdi></code>
       <span class="ifl-value"><bdi>{f.value}</bdi></span>
