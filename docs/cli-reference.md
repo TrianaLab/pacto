@@ -159,7 +159,11 @@ pacto agent [flags]
 
 ## `pacto ci`
 
-Walks root (default .) for pacto.yaml, skipping the folders the root .pactoignore names, and prints one plan: the CI platform, the registry and the base, each with its source, then one row per service.
+Walks root (default .) for pacto.yaml, skipping the folders the root .pactoignore names, and prints one plan: the CI platform, the registry and the base, each with its source, then one row per service: whether it changed against its published baseline, the version it would publish, the classification of the change and its impact on the consumers the fleet source flags name.
+
+On GitHub Actions the plan is also appended to $GITHUB_STEP_SUMMARY; on GitLab CI it is written to pacto-plan.md in $CI_PROJECT_DIR. --output-format json writes the plan as one JSON document.
+
+The run is a plan: it reads the registry and the consumer sources you name and writes nothing to them. A run record goes to --stats-file only, one file per impacted service.
 
 The exit status follows the plan: 0 clear, 1 blocked, 2 unverified. A repository with no pacto.yaml exits 2.
 
@@ -172,6 +176,12 @@ pacto ci [root] [flags]
 ```
   # Plan every service of this repository against a registry
   pacto ci --registry ghcr.io/acme
+
+  # Check the impact on the consumers a target-state file names, as JSON
+  pacto ci --registry ghcr.io/acme --target-state targets.yaml --output-format json
+
+  # Why the payments row reads as it does
+  pacto ci --registry ghcr.io/acme --explain payments
 ```
 
 **Flags:**
@@ -180,6 +190,7 @@ pacto ci [root] [flags]
       --cache[=true|false]         include every bundle in the local OCI cache as an offline baseline revision
       --detected string            add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
       --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
+      --explain string             explain one service's row: its folder, baseline, why it changed, its inferred fields and its consumers
       --external-catalog string    organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
       --freshness duration         mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]          help for ci

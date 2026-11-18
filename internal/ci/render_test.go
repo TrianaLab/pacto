@@ -62,3 +62,63 @@ func TestTextPlanFilledCells(t *testing.T) {
 		t.Errorf("OIDC printed without a token URL:\n%s", b.String())
 	}
 }
+
+func TestTextPlanLayout(t *testing.T) {
+	p := &Plan{
+		Registry: Value{Value: "ghcr.io/acme", Source: "GITHUB_REPOSITORY_OWNER"},
+		Base:     Value{Value: "4e1a9c0", Source: "GITHUB_BASE_REF, context only"},
+		Rows: []Row{
+			{Service: "payments", Changed: "yes", Baseline: "1.4.2", Next: "1.5.0", Classification: "NON_BREAKING", Impact: Impact{Text: "unverified (no consumer source)"}, Inferred: 6},
+			{Service: "reports", Changed: "no", Impact: Impact{Text: "-"}},
+		},
+	}
+	var b strings.Builder
+	Text(&b, p)
+	want := `Registry: ghcr.io/acme (from GITHUB_REPOSITORY_OWNER)
+Base: 4e1a9c0 (from GITHUB_BASE_REF, context only)
+Consumer source: none (IMPACT reads unverified)
+
+SERVICE   CHANGED  VERSION         CLASSIFICATION  IMPACT                           INFERRED
+payments  yes      1.4.2 -> 1.5.0  NON_BREAKING    unverified (no consumer source)  6 fields
+reports   no       -               -               -                                -
+`
+	if b.String() != want {
+		t.Fatalf("got:\n%s\nwant:\n%s", b.String(), want)
+	}
+}
+
+func TestMarkdownEscapesCells(t *testing.T) {
+	p := &Plan{
+		Registry: Value{Value: "ghcr.io/acme", Source: "--registry"},
+		Notes:    []string{"images name `x`\n# heading"},
+		Skipped:  []Skip{{Rel: "services/old", Rule: ".pactoignore:2"}},
+		Rows: []Row{
+			{Service: "pay`ments", Dir: "services/pay\nments", Changed: "yes", Next: "1.0.0", Impact: Impact{Text: "unverified (a | b `c`\r\n[x](https://evil) <img src=x>)"}, Errors: []string{"bad\n## yaml"}},
+			{Service: "reports", Changed: "no", Impact: Impact{Text: "-"}},
+		},
+	}
+	got := Markdown(p)
+	want := "### pacto ci plan\n\n" +
+		"- `Registry: ghcr.io/acme (from --registry)`\n" +
+		"- `Base: none`\n" +
+		"- `Consumer source: none (IMPACT reads unverified)`\n" +
+		"- `images name 'x' # heading`\n\n" +
+		"| SERVICE | CHANGED | VERSION | CLASSIFICATION | IMPACT | INFERRED |\n" +
+		"|---|---|---|---|---|---|\n" +
+		"| `pay'ments` | `yes` | `- -> 1.0.0` | - | `unverified (a \\| b 'c'  [x](https://evil) <img src=x>)` | - |\n" +
+		"| `reports` | `no` | - | - | - | - |\n\n" +
+		"- `skipped: services/old (from .pactoignore:2)`\n" +
+		"- `error: services/pay ments: bad ## yaml`\n"
+	if got != want {
+		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
+	}
+	if strings.Count(got, "\n|---|") != 1 {
+		t.Fatalf("more than one separator row:\n%s", got)
+	}
+}
+
+func TestMarkdownNoFooter(t *testing.T) {
+	if got := Markdown(&Plan{}); strings.Contains(got, "\n\n- `skipped") || !strings.HasSuffix(got, "|---|---|---|---|---|---|\n") {
+		t.Fatalf("an empty plan ends after the table header:\n%s", got)
+	}
+}

@@ -182,23 +182,35 @@ func (r *runRecorder) save(cmd *cobra.Command, rec **runrecord.Record, revs *rev
 	if *rec == nil || (reg == "" && file == "") {
 		return
 	}
-	w := cmd.ErrOrStderr()
-	if revs != nil && revs.err != nil {
-		_, _ = fmt.Fprintf(w, "pacto: warning: run record not written: could not compute the bundle digest: %v\n", revs.err)
-		return
+	if !digestFailed(cmd, revs) {
+		r.write(cmd, r.stamp(cmd, **rec), reg, file)
 	}
-	out := **rec
-	out.Version = runrecord.Version
-	out.ID = runrecord.ID(out.Kind, out.Service, out.OldRevision, out.NewRevision)
-	out.PactoVersion = r.version
-	out.RecordedAt = r.now().UTC().Truncate(time.Second)
+}
+
+// digestFailed warns and reports true when revs, nil for publish, carries a
+// digest error, which drops the record.
+func digestFailed(cmd *cobra.Command, revs *revisions) bool {
+	if revs == nil || revs.err == nil {
+		return false
+	}
+	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "pacto: warning: run record not written: could not compute the bundle digest: %v\n", revs.err)
+	return true
+}
+
+// stamp is rec with its version, id, Pacto version, time and the context
+// --stats-context names; a bad context item is a warning.
+func (r *runRecorder) stamp(cmd *cobra.Command, rec runrecord.Record) runrecord.Record {
+	rec.Version = runrecord.Version
+	rec.ID = runrecord.ID(rec.Kind, rec.Service, rec.OldRevision, rec.NewRevision)
+	rec.PactoVersion = r.version
+	rec.RecordedAt = r.now().UTC().Truncate(time.Second)
 	spec, _ := cmd.Flags().GetString("stats-context")
 	var warns []string
-	out.Repository, out.CIRunURL, out.Environment, warns = statsContext(spec, os.Getenv)
+	rec.Repository, rec.CIRunURL, rec.Environment, warns = statsContext(spec, os.Getenv)
 	for _, msg := range warns {
-		_, _ = fmt.Fprintf(w, "pacto: warning: run record context: %s\n", msg)
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "pacto: warning: run record context: %s\n", msg)
 	}
-	r.write(cmd, out, reg, file)
+	return rec
 }
 
 // saveFlagsOnly writes and publishes rec to the targets named by

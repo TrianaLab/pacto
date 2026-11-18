@@ -1,6 +1,7 @@
 package ci
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/impact"
@@ -20,6 +21,8 @@ type Plan struct {
 	Rows            []Row        `json:"rows"`
 	Gate            string       `json:"gate"`
 	Exit            int          `json:"exit"`
+	// Reason is the line a non-zero exit writes to stderr, "" on exit 0.
+	Reason string `json:"reason"`
 }
 
 // SnapshotInfo is the fleet snapshot impact ran over: when, how complete
@@ -65,22 +68,37 @@ type Impact struct {
 	Gate     string   `json:"gate"` // impact.GateClear, GateBlocked or GateUnverified
 	Text     string   `json:"text"`
 	Blocking []string `json:"blocking,omitempty"`
+	// Sources are the consumer sources that answered for the row, empty
+	// when none did or impact never ran.
+	Sources []string `json:"sources"`
+	// Digest is the content digest of a content-addressed consumer source,
+	// empty for a live or file source.
+	Digest string `json:"digest"`
 }
 
-// Settle sets the plan's gate and exit code from its rows: any blocked row
-// exits 1, else any unverified row 2, else 0. No rows is unverified: nothing
-// verified is not clear.
-func (p *Plan) Settle() {
-	p.Gate, p.Exit = impact.GateClear, 0
+// Settle sets the plan's gate, exit code and reason from its rows: any
+// blocked row exits 1, else any unverified row 2, else 0. No rows under root
+// is unverified: nothing verified is not clear.
+func (p *Plan) Settle(root string) {
+	p.Gate, p.Exit, p.Reason = impact.GateClear, 0, ""
 	if len(p.Rows) == 0 {
-		p.Gate, p.Exit = impact.GateUnverified, 2
+		p.Gate, p.Exit, p.Reason = impact.GateUnverified, 2, "unverified: no pacto.yaml under "+root
+		return
 	}
-	for _, r := range p.Rows {
-		switch {
-		case r.Impact.Gate == impact.GateBlocked:
-			p.Gate, p.Exit = impact.GateBlocked, 1
-		case r.Impact.Gate == impact.GateUnverified && p.Exit == 0:
-			p.Gate, p.Exit = impact.GateUnverified, 2
+	count := map[string]int{}
+	for i, r := range p.Rows {
+		count[r.Impact.Gate]++
+		if r.Impact.Sources == nil {
+			p.Rows[i].Impact.Sources = []string{}
 		}
 	}
+	switch {
+	case count[impact.GateBlocked] > 0:
+		p.Gate, p.Exit = impact.GateBlocked, 1
+	case count[impact.GateUnverified] > 0:
+		p.Gate, p.Exit = impact.GateUnverified, 2
+	default:
+		return
+	}
+	p.Reason = fmt.Sprintf("%s: %d of %d services", p.Gate, count[p.Gate], len(p.Rows))
 }

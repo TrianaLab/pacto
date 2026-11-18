@@ -86,7 +86,7 @@ func (s *Service) CIPlan(ctx context.Context, opts CIOptions) (*ci.Plan, map[str
 	for _, f := range folders {
 		p.Rows = append(p.Rows, f.row)
 	}
-	p.Settle()
+	p.Settle(opts.Root)
 	return p, results, nil
 }
 
@@ -599,7 +599,7 @@ func (s *Service) ciImpacts(ctx context.Context, p *ci.Plan, folders []*ciFolder
 		return nil, err
 	}
 	p.Snapshot = snapshotInfo(snap)
-	evidence := consumerEvidence(snap)
+	evidence, answered := consumerEvidence(snap), answeringSources(snap)
 	results := map[string]*impact.Result{}
 	for _, f := range todo {
 		if opts.OnResolved != nil {
@@ -613,6 +613,7 @@ func (s *Service) ciImpacts(ctx context.Context, p *ci.Plan, folders []*ciFolder
 		}
 		results[f.row.Service] = res
 		f.row.Impact = rowImpact(res, f.b, evidence)
+		f.row.Impact.Sources = answered
 	}
 	return results, nil
 }
@@ -717,6 +718,18 @@ func snapshotInfo(snap *fleet.FleetSnapshot) ci.SnapshotInfo {
 		}
 	}
 	return info
+}
+
+// answeringSources are the redacted names of the consumer sources that
+// answered: available and holding something.
+func answeringSources(snap *fleet.FleetSnapshot) []string {
+	out := []string{}
+	for _, st := range snap.Sources {
+		if consumerSource(st) && sourceStatus(st) == string(fleet.SourceAvailable) {
+			out = append(out, ci.Redact(st.ID))
+		}
+	}
+	return out
 }
 
 // consumerEvidence is why no consumer source answered, "" when one did.

@@ -115,12 +115,12 @@ func TestCIClearNeedsConsumerSource(t *testing.T) {
 	e := newCIRepo(t)
 	e.additiveReports(t)
 	p, _ := e.planWith(t, FleetOptions{})
-	if r := row(t, p, "reports"); r.Impact.Text != "unverified (no consumer source)" || p.Exit != 2 || len(p.ConsumerSources) != 0 {
+	if r := row(t, p, "reports"); r.Impact.Text != "unverified (no consumer source)" || p.Exit != 2 || len(p.ConsumerSources) != 0 || r.Impact.Sources == nil || len(r.Impact.Sources) != 0 {
 		t.Fatalf("row = %+v", r)
 	}
 	file := targets(t, "other")
 	p, _ = e.planWith(t, FleetOptions{TargetStateFiles: []string{file}})
-	if r := row(t, p, "reports"); r.Impact.Text != "clear" || p.Exit != 0 {
+	if r := row(t, p, "reports"); r.Impact.Text != "clear" || p.Exit != 0 || !slices.Equal(r.Impact.Sources, []string{"target-state"}) {
 		t.Fatalf("row = %+v", r)
 	}
 	want := []ci.SourceLine{{Name: "target-state", Status: "available"}}

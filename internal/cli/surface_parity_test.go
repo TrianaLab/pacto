@@ -330,7 +330,7 @@ func evidenceRows() []surfaceRow {
 func ciRows() []surfaceRow {
 	const whyCI = "pacto ci is the CI entry point that plans every service of a repository; MCP answers the same per service with pacto_check and pacto_impact, and the dashboard publishes nothing"
 	return slices.Concat(
-		alike("ci", "", "", whyCI, "registry"),
+		alike("ci", "", "", whyCI, "registry", "explain"),
 		alike("ci", "", "", "a run record is a CI statistic the CLI writes; MCP and the dashboard record no runs", "stats-context", "stats-file", "stats-registry"),
 	)
 }
