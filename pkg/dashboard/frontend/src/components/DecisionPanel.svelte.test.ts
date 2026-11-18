@@ -64,14 +64,14 @@ describe('DecisionPanel', () => {
     v.destroy();
   });
 
-  it('offers the intent form of the command only when the change names its intent record', async () => {
+  it('keeps the kubeconfig command on a local dashboard, intent record or not', async () => {
+    // The --intent form needs --trust and --signers, which a copied line cannot carry.
     fns.session.mockResolvedValue({ mode: 'local', login: false, signedIn: true });
-    let v = await render({ op: op({ intentRecord: { digest: 'sha256:x', ref: INTENT } }) });
-    expect(v.target.textContent).toContain(`pacto delivery approve --intent ${INTENT} --decision approve`);
-    v.destroy();
-    v = await render({ op: op() });
-    expect(v.target.textContent).toContain('pacto delivery approve -n prod op1 --decision approve');
-    expect(v.target.textContent).not.toContain('--intent');
-    v.destroy();
+    for (const o of [op({ intentRecord: { digest: 'sha256:x', ref: INTENT } }), op()]) {
+      const v = await render({ op: o });
+      expect(v.target.textContent).toContain('pacto delivery approve -n prod op1 --decision approve');
+      expect(v.target.textContent).not.toContain('--intent');
+      v.destroy();
+    }
   });
 });

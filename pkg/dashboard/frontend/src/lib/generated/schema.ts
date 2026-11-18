@@ -1436,7 +1436,7 @@ export interface components {
             /** @description The Approval created; the promoter consumes it */
             approval: string;
             /**
-             * @description recorder when the Stage records to a registry: the recorder signs the decision into it on the person's behalf; empty when the Stage keeps no records
+             * @description recorder when the recorder wrote the operation's intent record, so it signs the decision into the registry on the person's behalf; empty otherwise
              * @enum {string}
              */
             signing?: "recorder";

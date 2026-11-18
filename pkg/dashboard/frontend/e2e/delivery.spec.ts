@@ -17,7 +17,6 @@ import { DOC_ORIGIN } from './ports';
 // the real redirect does.
 
 const T = 30_000;
-const INTENT_REF = 'registry.example/records@sha256:' + '8'.repeat(64);
 
 // One worker for the file: each test boots its own wasm engine, and nine at once on one
 // machine starve each other into blank pages that prove nothing about delivery.
@@ -69,7 +68,7 @@ function installDelivery(persona: Persona): void {
       message: 'checkout 3.0.0 runs in prod and accepts payments ^1.4.0, not 2.0.0. checkout 3.1.0 (sha256:333333333333) accepts it (>=1.4.0 <3.0.0) ' +
         'and was verified on test/checkout-test. Ship checkout first: promote sha256:' + '3'.repeat(64) + ' on Stage prod/checkout-prod.' }],
     unknown: ['the operational graph is partial (unresolved-reference)'] } };
-  // Runs in the page, so it repeats the module's INTENT_REF.
+  // A held change names its intent record; the local command still uses the kubeconfig.
   const intentRef = 'registry.example/records@sha256:' + '8'.repeat(64);
   const op = () => ({
     metadata: { name: 'op1', namespace: 'prod' },
@@ -404,8 +403,10 @@ test.describe('Delivery views', () => {
   test('a local dashboard shows the command that decides', async ({ page }) => {
     await as(page, 'local');
     await page.goto('/#/delivery/changes/prod/op1');
-    // The change names its intent record, so the command decides from the registry with no kubeconfig.
-    await expect(page.getByTestId('decision-panel')).toContainText(`pacto delivery approve --intent ${INTENT_REF} --decision approve`, { timeout: T });
+    // The change names its intent record, yet the command uses the kubeconfig this dashboard runs with:
+    // the --intent form needs --trust and --signers, which a copied line cannot carry.
+    await expect(page.getByTestId('decision-panel')).toContainText('pacto delivery approve -n prod op1 --decision approve', { timeout: T });
+    await expect(page.getByTestId('decision-panel')).not.toContainText('--intent');
     await expect(page.getByTestId('identity')).toContainText('Acting as kind-admin from this machine');
   });
 

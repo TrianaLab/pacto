@@ -155,11 +155,13 @@ export function decisionAsked(op: DeliveryOperation['operation'] | undefined): D
 }
 
 /**
- * cliDecision is the command that takes a decision a dashboard cannot. With
- * the change's intent record it decides from the registry, needing no kubeconfig.
+ * cliDecision is the command that takes a decision a dashboard cannot. It
+ * uses the kubeconfig the dashboard runs with, which works whether or not
+ * the installation accepts signed approvals: the CLI signs keyless when it
+ * does. The --intent form needs --trust and --signers, so it is left to
+ * `pacto delivery record get <intent ref>`, which prints it.
  */
-export function cliDecision(namespace: string, name: string, decision: string, intentRef?: string): string {
-  if (intentRef) return `pacto delivery approve --intent ${intentRef} --decision ${decision}`;
+export function cliDecision(namespace: string, name: string, decision: string): string {
   return `pacto delivery approve -n ${namespace} ${name} --decision ${decision}`;
 }
 

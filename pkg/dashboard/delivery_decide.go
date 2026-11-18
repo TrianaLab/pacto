@@ -73,7 +73,7 @@ type decideInput struct {
 type decideOutput struct {
 	Body struct {
 		Approval string `json:"approval" doc:"The Approval created; the promoter consumes it"`
-		Signing  string `json:"signing,omitempty" enum:"recorder" doc:"recorder when the Stage records to a registry: the recorder signs the decision into it on the person's behalf; empty when the Stage keeps no records"`
+		Signing  string `json:"signing,omitempty" enum:"recorder" doc:"recorder when the recorder wrote the operation's intent record, so it signs the decision into the registry on the person's behalf; empty otherwise"`
 	}
 }
 
@@ -151,7 +151,10 @@ func (s *Server) deliveryDecide(ctx context.Context, in *decideInput) (*decideOu
 	}
 	out := &decideOutput{}
 	out.Body.Approval = name
-	if stage.Status.Stream.Anchor != "" { // the recorder anchored this Stage, so it records this decision
+	// The recorder wrote this operation's intent record, so it is running for
+	// it and signs the decision too. An anchor alone could be left over from
+	// a recorder since turned off.
+	if op.Status.IntentRecord != nil {
 		out.Body.Signing = "recorder"
 	}
 	return out, nil

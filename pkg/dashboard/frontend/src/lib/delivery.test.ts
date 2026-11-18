@@ -66,10 +66,6 @@ describe('the CLI and the decision kept across a fresh login', () => {
   it('builds the decide command', () => {
     expect(cliDecision('prod', 'op1', 'approve')).toBe('pacto delivery approve -n prod op1 --decision approve');
   });
-  it('decides from the intent record when the change names one', () => {
-    expect(cliDecision('prod', 'op1', 'reject', 'registry.example/records@sha256:abc'))
-      .toBe('pacto delivery approve --intent registry.example/records@sha256:abc --decision reject');
-  });
 
 
   describe('the decision kept across a fresh login', () => {

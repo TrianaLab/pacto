@@ -259,7 +259,7 @@
       <!-- the buttons are in the cards above -->
     {:else if s?.mode === 'local'}
       <p class="t-body-2" data-testid="decide-cli">On your own machine, any program could act as you in the dashboard, so you decide from the command line:</p>
-      <CopyableIdentifier value={cliDecision(ns, name, asked, st.intentRecord?.ref)} label="command" />
+      <CopyableIdentifier value={cliDecision(ns, name, asked)} label="command" />
     {:else if s && !s.signedIn}
       <p class="t-body-2">Sign in to decide.</p>
       <SignInLink hash={location.hash} class="btn btn-sm btn-primary">Sign in</SignInLink>

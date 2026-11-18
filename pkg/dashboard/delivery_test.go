@@ -1684,8 +1684,10 @@ func TestDeliveryProposeCarriesCorrelationID(t *testing.T) {
 		"propose carries the correlation id: %d %v %+v", code, out, f.proposed)
 }
 
-// TestDecideSaysRecorderSigns: a decision on a Stage the recorder anchors in a
-// registry says the recorder signs it for the person; elsewhere it says nothing.
+// TestDecideSaysRecorderSigns: a decision on an operation whose intent record
+// the recorder wrote says the recorder signs it for the person; elsewhere,
+// a Stage anchor left over from a recorder since turned off included, it says
+// nothing.
 func TestDecideSaysRecorderSigns(t *testing.T) {
 	a := &authed{state: AuthState{SignedIn: true}}
 	f := &fakeDelivery{caller: person("acme:team-checkout"), ops: []delivery.OperationObject{operation("prod", "held", "payments", held("team-checkout"))},
@@ -1699,6 +1701,10 @@ func TestDecideSaysRecorderSigns(t *testing.T) {
 		t.Fatalf("no recorder, no signing: %v", out)
 	}
 	f.stages[0].Status.Stream.Anchor = "registry.example/streams@sha256:" + strings.Repeat("a", 64)
+	if out := decide(); out["signing"] != nil {
+		t.Fatalf("an anchor alone promises nothing: %v", out)
+	}
+	f.ops[0].Status.IntentRecord = &delivery.ApprovalRecordRef{Digest: "sha256:i", Ref: "registry.example/streams@sha256:" + strings.Repeat("b", 64)}
 	if out := decide(); out["signing"] != "recorder" {
 		t.Fatalf("a recorded Stage says the recorder signs: %v", out)
 	}

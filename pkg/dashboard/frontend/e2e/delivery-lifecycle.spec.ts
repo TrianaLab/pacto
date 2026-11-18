@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page, type Locator } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { settle } from './ready';
 import { touchProblems } from './layoutGate';
@@ -184,12 +184,21 @@ test.describe('delivery lifecycle in the demo', () => {
     await audit(page, 'history, record panel open');
 
     // alice's rejection of 2.4.1 was signed keyless from her CLI: one mark says so, from the keyboard.
-    const signed = page.locator('section.hv-stage tbody tr').filter({ has: page.getByRole('button', { name: 'How this approval was signed' }) }).first();
-    await signed.locator('button[aria-label^="Read record"]').click();
+    const signedBy = (row: Locator) => row.filter({ has: page.getByRole('button', { name: 'How this approval was signed' }) });
+    await signedBy(page.locator('section.hv-stage tbody tr').filter({ hasText: '2.4.1' })).first().locator('button[aria-label^="Read record"]').click();
     const mark = panel.getByRole('button', { name: 'How this approval was signed' });
     await expect(mark).toHaveCount(1, { timeout: T });
     await mark.focus();
     await expect(panel.locator('.prov-tip')).toHaveText(/^Signed by .+ with a keyless certificate\. Record sha256:[0-9a-f]{64}\.$/);
+
+    // On Test, alice's acceptance was made in the cluster: the recorder signed it for her.
+    await page.goto('/#/delivery/history?namespace=test&stage=payments');
+    await signedBy(page.locator('section.hv-stage tbody tr')).first().locator('button[aria-label^="Read record"]').click();
+    const onBehalf = page.getByTestId('record-panel').getByRole('button', { name: 'How this approval was signed' });
+    await expect(onBehalf).toHaveCount(1, { timeout: T });
+    await onBehalf.focus();
+    await expect(page.getByTestId('record-panel').locator('.prov-tip'))
+      .toHaveText(/^Signed by the recorder for .+, whom the cluster's admission checked\. Record sha256:[0-9a-f]{64}\.$/);
   });
 
   test('a revision lists its way through each Stage, with records', async ({ page }) => {
