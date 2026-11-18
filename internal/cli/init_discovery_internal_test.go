@@ -52,17 +52,29 @@ payments inferred:
 finding: chart dependency 'redis' has no Chart.lock digest, not read
 `
 
+// inferredPublishRows are the rows a contract with no publish section adds to
+// discoveryBlock: the build tool and the deploy source.
+const inferredPublishRows = `  publish.build            dockerfile (Dockerfile) from Dockerfile:1
+  publish.deploy           chart: chart; image pinned by digest from chart/Chart.yaml
+`
+
 // TestInitPrintsDiscoveryBlock: a new contract and a completed empty 2.5
 // contract print the same rows, the owner file marked attested with the
-// CODEOWNERS rule it outranks, and the unlocked chart dependency once.
+// CODEOWNERS rule it outranks, and the unlocked chart dependency once; the
+// empty contract, which declares no publish section, also the build tool
+// and the deploy source.
 func TestInitPrintsDiscoveryBlock(t *testing.T) {
-	for name, pacto := range map[string]string{"new contract": "", "complete": "pactoVersion: \"2.5\"\n"} {
-		out, err := runInit(t, "--plan", paymentsRepo(t, pacto))
+	withPublish := strings.Replace(discoveryBlock, "  owner ", inferredPublishRows+"  owner ", 1)
+	for name, tc := range map[string]struct{ pacto, block string }{
+		"new contract": {"", discoveryBlock},
+		"complete":     {"pactoVersion: \"2.5\"\n", withPublish},
+	} {
+		out, err := runInit(t, "--plan", paymentsRepo(t, tc.pacto))
 		if err != nil {
 			t.Fatalf("%s: %v\n%s", name, err, out)
 		}
-		if !strings.Contains(out, discoveryBlock) || strings.Count(out, "'redis'") != 1 {
-			t.Errorf("%s: want the block\n%s\nin:\n%s", name, discoveryBlock, out)
+		if !strings.Contains(out, tc.block) || strings.Count(out, "'redis'") != 1 {
+			t.Errorf("%s: want the block\n%s\nin:\n%s", name, tc.block, out)
 		}
 	}
 }

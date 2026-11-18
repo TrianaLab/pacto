@@ -22,7 +22,7 @@ import (
 
 // Version is the discovery version an inferred record names. Bump it when
 // what Complete infers from the same folder changes.
-const Version = "3"
+const Version = "4"
 
 // Complete is CompleteIn with the repository root found from dir.
 func Complete(dir string, declared *contract.Contract, in contract.InferredInputs, cat *externalcatalog.Catalog) (*contract.InferredRecord, error) {
@@ -70,6 +70,7 @@ func completeWith(dir, repoDir string, declared *contract.Contract, planned map[
 	c.health()
 	c.configuration()
 	c.dependencies(name)
+	built := c.publish(dir, name)
 	for _, e := range reading.entries {
 		if !c.declared(e.Inferred) {
 			c.entries = append(c.entries, e)
@@ -89,7 +90,7 @@ func completeWith(dir, repoDir string, declared *contract.Contract, planned map[
 			declaredDependency(c.d, strings.TrimSuffix(strings.TrimPrefix(field, "dependencies["), "]"))
 	}, c.declaredExternal, cited)
 	fields = append(fields, xfields...)
-	unidentified = append(append(unidentified, unread...), clients...)
+	unidentified = append(append(append(unidentified, unread...), clients...), built...)
 	slices.SortFunc(fields, func(a, b contract.Inferred) int { return strings.Compare(a.Field, b.Field) })
 	findings := slices.DeleteFunc(slices.Clone(reading.Findings), func(f contract.InferredFinding) bool {
 		return f.Code == CodeAmbiguous && slices.ContainsFunc(reading.ambiguousSpecs[f.Source], c.declaredRef)

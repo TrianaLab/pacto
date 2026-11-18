@@ -289,7 +289,8 @@ func TestCodeownersCitedInInputs(t *testing.T) {
 
 // TestDeclareSnippetsValidate: every declare the readers write, each under
 // its own field, pasted together into an empty 2.5 contract, validates. A
-// configuration declare is a schema property, checked by its own test.
+// configuration declare is a schema property, and a publish declare names
+// the registry as a placeholder, each checked by its own test.
 func TestDeclareSnippetsValidate(t *testing.T) {
 	dir := writeFiles(t, map[string]string{
 		"Dockerfile":          "FROM x\nLABEL org.opencontainers.image.description=\"Takes payments\"\nHEALTHCHECK CMD curl -f http://localhost:8080/healthz\n",
@@ -303,7 +304,7 @@ func TestDeclareSnippetsValidate(t *testing.T) {
 	doc := map[string]any{"pactoVersion": "2.5", "service": map[string]any{"name": "x"}}
 	snippets := 0
 	for _, f := range rec.Fields {
-		if f.Declare == "" || strings.HasPrefix(f.Field, "configuration.") {
+		if f.Declare == "" || strings.HasPrefix(f.Field, "configuration.") || strings.HasPrefix(f.Field, "publish.") {
 			continue
 		}
 		var part map[string]any

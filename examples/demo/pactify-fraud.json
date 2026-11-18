@@ -43,7 +43,7 @@
     "format": "pacto.inferred/v1",
     "inputs": {
       "pacto": "",
-      "discovery": "3",
+      "discovery": "4",
       "sources": [
         {
           "path": "Dockerfile",
