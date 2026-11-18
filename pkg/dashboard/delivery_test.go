@@ -70,6 +70,10 @@ type fakeDelivery struct {
 	recordErr   error
 	refusals    *PublishRefusals
 	refusalsErr error
+	// publishers and pins answer Trust; trustErr refuses it.
+	publishers delivery.PublisherConfig
+	pins       []delivery.IdentityPin
+	trustErr   error
 	// deny refuses the caller's access reviews "verb resource namespace"
 	// ("verb resource" for every namespace); canErr fails every review.
 	deny   map[string]bool
@@ -104,6 +108,15 @@ func (f *fakeDelivery) Undo(context.Context, string, string, string) (*delivery.
 
 func (f *fakeDelivery) Record(context.Context, string, string, string) (*delivery.RecordView, error) {
 	return f.record, f.recordErr
+}
+
+func (f *fakeDelivery) Trust(_ context.Context, stages []delivery.StageObject, ops []delivery.OperationObject) (*delivery.TrustView, error) {
+	if f.trustErr != nil {
+		return nil, f.trustErr
+	}
+	v := delivery.TrustOf(f.publishers, stages, ops, func(delivery.ServiceRef) []delivery.IdentityPin { return f.pins })
+	v.AsOf, v.Completeness = "2026-11-18T00:00:00Z", "complete"
+	return &v, nil
 }
 
 func (f *fakeDelivery) PublishRefusals(context.Context, string) (*PublishRefusals, error) {
@@ -398,7 +411,7 @@ func TestDeliveryNotInstalledAndRefusals(t *testing.T) {
 	_, caps = call(t, http.MethodGet, open+"/api/capabilities", nil)
 	expect(t, caps["delivery"] == false && !asked, "an open dashboard does not ask the cluster: %v %v", caps, asked)
 	base = startDelivery(t, f, a.auth(false, true), true, Refuse(http.StatusUnauthorized, "LoginRequired", "sign in"))
-	for _, p := range []string{"inbox", "environments", "published", "history", "operations/prod/op", "refusals",
+	for _, p := range []string{"inbox", "environments", "published", "history", "operations/prod/op", "refusals", "trust",
 		"blame?namespace=prod&stage=s", "undo?namespace=prod&name=op"} {
 		if code, body = call(t, http.MethodGet, base+"/api/delivery/"+p, nil); code != http.StatusUnauthorized || body["code"] != "LoginRequired" {
 			t.Errorf("%s: %d %v", p, code, body)

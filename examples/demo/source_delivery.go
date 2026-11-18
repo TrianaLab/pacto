@@ -1351,6 +1351,14 @@ func (d *demoDelivery) accessOf(p story.Persona, ns string, w delivery.WorkloadR
 // WorkloadAccess still shape what is offered.
 func (d *demoDelivery) Can(context.Context, string, string, string) (bool, error) { return true, nil }
 
+// Trust: the demo installation names no publisher rule and keeps no pins
+// yet, so only what its Stages' registry watch judged is answered.
+func (d *demoDelivery) Trust(_ context.Context, stages []delivery.StageObject, ops []delivery.OperationObject) (*delivery.TrustView, error) {
+	v := delivery.TrustOf(delivery.PublisherConfig{}, stages, ops, nil)
+	v.AsOf, v.Completeness = stamp(d.now()), "complete"
+	return &v, nil
+}
+
 // StageNamespaces: everyone reads every Stage cluster-wide here, so the
 // dashboard never asks.
 func (d *demoDelivery) StageNamespaces(context.Context) ([]string, error) { return nil, nil }

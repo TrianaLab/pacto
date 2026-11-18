@@ -205,6 +205,7 @@ the note says where that answer lives instead.
 | How far is each Stage from autonomy? | `pacto delivery autonomy` | `pacto_delivery_autonomy` | `GET /api/delivery/autonomy` | |
 | Which versions do the Stages know, and are they signed? | `pacto delivery published` | `pacto_delivery_published` | `GET /api/delivery/published` | |
 | Which publishes did Pacto refuse? | `pacto delivery refusals` | `pacto_delivery_refusals` | `GET /api/delivery/refusals` | |
+| Which publishers does each service accept? | `pacto delivery trust` | `pacto_delivery_trust` | `GET /api/delivery/trust` | |
 | Where is this service in delivery? | `pacto delivery status` | `pacto_delivery_status` | `GET /api/delivery/progress` | Progress is status with `--why` (`why` in MCP) |
 | What happened on this Stage? | `pacto delivery history` | `pacto_delivery_history` | `GET /api/delivery/history` | |
 | What did each Stage run at a past time? | `pacto delivery history --at` | `pacto_delivery_history` with `at` | `GET /api/delivery/history?at=` | From signed records; the CLI and MCP revision is derived, the dashboard's is the fleet's |

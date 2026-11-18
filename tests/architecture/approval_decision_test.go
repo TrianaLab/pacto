@@ -21,23 +21,26 @@ func TestApprovalDecisionsGoThroughOpenApproval(t *testing.T) {
 	const (
 		person   = "pkg/signing/person.go"
 		client   = "internal/app/delivery_record_at.go"
+		trust    = "internal/app/delivery_trust.go"
 		operator = "integrations/kubernetes/internal/delivery/"
 	)
 	for call, want := range map[string][]string{
 		// The client peeks at a record to learn who signed it, then verifies
-		// a recorder-signed one with the trust config; the promoter's pin
-		// reader (publishers.go) does the same with the pin keys for the
+		// a recorder-signed one with the trust config; the pin reader
+		// (deliveryrecord.PinApproval, shared by the promoter and the
+		// client's trust view) does the same with the pin keys for the
 		// approval a pin cites.
-		"delivery.OpenApproval(":                  {operator + "publishers.go", client, person},
+		"delivery.OpenApproval(":                  {client, "pkg/deliveryrecord/pin.go", person},
 		"openStatement(bundle, PredicateApproval": {"pkg/delivery/approvalrecord.go"},
-		"signing.OpenPersonApproval(":             {operator + "signedapproval.go", client},
+		"signing.OpenPersonApproval(":             {operator + "signedapproval.go", client, trust},
 		"openSigned(":                             {operator + "approvalrecorder.go", operator + "publishers.go", operator + "signedapproval.go"},
 		"r.verifySigned(":                         {operator + "approval.go"},
 		// A verified record decides only when a person signed it: the
-		// client asks delivery.ReadsAsDecision itself, and every operator
+		// client (its record reads and the person approvals its trust view's
+		// pins cite) asks delivery.ReadsAsDecision itself, and every operator
 		// caller of openSigned (the recorder's view, the promoter's count and
 		// the pin reader's cited approval) asks it through proposal().
-		"delivery.ReadsAsDecision(": {operator + "signedapproval.go", client},
+		"delivery.ReadsAsDecision(": {operator + "signedapproval.go", client, trust},
 		".proposal()":               {operator + "approvalrecorder.go", operator + "publishers.go", operator + "signedapproval.go"},
 	} {
 		if got := productionFilesCalling(t, call); !slices.Equal(got, want) {

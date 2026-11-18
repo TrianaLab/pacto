@@ -152,3 +152,48 @@ func TestPinApprovalRecordMismatchIgnored(t *testing.T) {
 		}
 	}
 }
+
+// TestPinApproval: the approval a pin cites is fetched and verified: a
+// person's record by the person check, a recorder-signed one under the pin
+// keys and naming whom it was signed for; anything else does not verify.
+func TestPinApproval(t *testing.T) {
+	_, repo := pinRepo(t, capabilities.ReferrersNative)
+	pub, key, _ := ed25519.GenerateKey(rand.Reader)
+	stream := delivery.PinStream(payments)
+	push := func(signer delivery.ApprovalSigner) string {
+		t.Helper()
+		st := delivery.NewApprovalRecord(delivery.RecordStage{Name: "prod"}, "", delivery.OperationObject{}, delivery.ApprovalSpec{Decision: delivery.Approve}, signer, "2026-11-17T00:00:00Z")
+		b, _, err := delivery.SignApproval(t.Context(), edSigner(key), st)
+		ref, perr := Push(t.Context(), repo, stream, capabilities.ReferrersNative, delivery.PredicateApproval, b, nil)
+		if err != nil || perr != nil {
+			t.Fatal(err, perr)
+		}
+		return ref
+	}
+	open := func(string) (*remote.Repository, error) { return repo, nil }
+	person := func([]byte) (delivery.ApprovalStatement, string, error) {
+		return delivery.ApprovalStatement{}, "ana", nil
+	}
+	verify := func(b []byte) error { _, err := signing.Policy{Key: pub}.Verify(b, nil); return err }
+	check := PinApproval(open, person, verify)
+
+	recorder := push(delivery.ApprovalSigner{Kind: delivery.SignerRecorder, OnBehalfOf: &delivery.ApprovalBehalf{User: "alice"}})
+	if _, who, err := check(t.Context(), recorder); err != nil || who != "alice" {
+		t.Fatalf("recorder-signed: %q %v", who, err)
+	}
+	if _, who, err := check(t.Context(), push(delivery.ApprovalSigner{Kind: delivery.SignerPerson})); err != nil || who != "ana" {
+		t.Fatalf("person-signed: %q %v", who, err)
+	}
+	if _, _, err := check(t.Context(), push(delivery.ApprovalSigner{Kind: delivery.SignerRecorder})); err == nil || !strings.Contains(err.Error(), "for nobody") {
+		t.Fatalf("signed for nobody: %v", err)
+	}
+	if _, _, err := PinApproval(open, person, func([]byte) error { return errors.New("wrong key") })(t.Context(), recorder); err == nil {
+		t.Fatal("an approval another key signed verified")
+	}
+	if _, _, err := check(t.Context(), "reg@sha256:"+strings.Repeat("0", 64)); err == nil {
+		t.Fatal("a missing record verified")
+	}
+	if _, _, err := PinApproval(func(string) (*remote.Repository, error) { return nil, errors.New("no repo") }, person, verify)(t.Context(), recorder); err == nil {
+		t.Fatal("an unopenable repository verified")
+	}
+}

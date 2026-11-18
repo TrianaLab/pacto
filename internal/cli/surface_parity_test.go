@@ -260,6 +260,7 @@ func deliveryViewRows() []surfaceRow {
 		view("environments", "domain", "environment", "except", "limit", "offset", "q", "service", "state", "tier"),
 		view("autonomy", "blockers", "domain", "level", "limit", "offset", "q", "service"),
 		view("published", "domain", "limit", "offset", "q", "service", "signed"),
+		view("trust", "domain", "limit", "offset", "q", "service"),
 		[]surfaceRow{
 			{"delivery refusals", "pacto_delivery_refusals", "GET /api/delivery/refusals", ""},
 			{"delivery caller", "pacto_delivery_caller", "GET /api/delivery/caller", ""},
@@ -343,7 +344,7 @@ var parityCommands = []string{
 	"delivery record get", "delivery record verify", "delivery get", "delivery explain", "delivery undo", "delivery plan",
 	"delivery propose", "delivery cancel", "delivery describe", "delivery types", "delivery approve",
 	"delivery caller", "delivery inbox", "delivery environments", "delivery autonomy", "delivery published", "delivery refusals",
-	"impact", "init", "validate", "explain", "stats", "publish", "evidence usage",
+	"delivery trust", "impact", "init", "validate", "explain", "stats", "publish", "evidence usage",
 }
 
 // surfaces is what the three surfaces expose at HEAD.

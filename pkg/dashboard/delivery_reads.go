@@ -822,6 +822,51 @@ func publishedDigests(stages []delivery.StageObject, q, service, domain string) 
 	return byService, readFrom
 }
 
+// trustPage is how many services one page of the trust view holds.
+const trustPage = 25
+
+type trustInput struct {
+	PageQuery
+	Service string `query:"service" doc:"Keep only the service with exactly this name"`
+	Domain  string `query:"domain" doc:"With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any"`
+}
+
+type trustOutput struct {
+	Body struct {
+		delivery.TrustView
+		Page Page `json:"page" doc:"Which services this page holds; offset and limit count services"`
+	}
+}
+
+// deliveryTrust pages the services whose Stages the caller listed and that
+// watch the registry, then reads only the page's trust: a service the
+// caller lists no Stage of is never named, nor are its pins.
+func (s *Server) deliveryTrust(ctx context.Context, in *trustInput) (*trustOutput, error) {
+	api, err := s.deliveryFor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	stages, ops, l, err := s.lists(ctx, api, true)
+	if err != nil {
+		return nil, err
+	}
+	stages = filter(stages, func(st delivery.StageObject) bool {
+		return matches(in.Q, st.Spec.Service.Name) && delivery.OfService(st, in.Service, in.Domain)
+	})
+	out := &trustOutput{}
+	services, page := pageOf(delivery.TrustServices(stages), in.Offset, in.Limit, trustPage)
+	stages = filter(stages, func(st delivery.StageObject) bool { return slices.Contains(services, st.Spec.Service) })
+	view, err := api.Trust(ctx, stages, ops)
+	if err != nil {
+		return nil, err
+	}
+	out.Body.TrustView, out.Body.Page = *view, page
+	if l.Completeness != "complete" {
+		out.Body.Completeness, out.Body.Unreadable = l.Completeness, append(l.Unreadable, view.Unreadable...)
+	}
+	return out, nil
+}
+
 type historyInput struct {
 	Namespace     string `query:"namespace" doc:"Namespace of one Stage (with stage); empty lists every Stage the caller can see"`
 	Stage         string `query:"stage" doc:"One Stage's name"`

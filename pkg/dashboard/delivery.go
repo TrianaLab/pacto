@@ -47,6 +47,11 @@ type DeliveryAPI interface {
 	// in namespace ("" for all). Nil with no error means this host keeps no
 	// record of refused publishes.
 	PublishRefusals(ctx context.Context, namespace string) (*PublishRefusals, error)
+	// Trust is which publishers the services of stages accept: the
+	// installation's rule or signed policy and, per service, its pins, the
+	// signers waiting for a person in ops and its newest verdicts. stages
+	// and ops are what the caller listed, so nothing else is named.
+	Trust(ctx context.Context, stages []delivery.StageObject, ops []delivery.OperationObject) (*delivery.TrustView, error)
 	// Can asks the apiserver whether the caller may verb resource of the
 	// delivery API group in namespace.
 	Can(ctx context.Context, verb, resource, namespace string) (bool, error)
@@ -174,6 +179,11 @@ func (s *Server) registerDeliveryOperations(api huma.API) {
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-published", Method: http.MethodGet, Path: "/api/delivery/published",
 		Summary:     "Published versions",
 		Description: "Per service the caller can see Stages of: the versions its Stages know, whether Flux or the registry watch verified their signature and which Stages run or verified each."}), s.deliveryPublished)
+	huma.Register(api, reg(huma.Operation{OperationID: "delivery-trust", Method: http.MethodGet, Path: "/api/delivery/trust",
+		Summary: "Which publishers each service accepts",
+		Description: "Per service with a Stage that watches the registry and the caller can see: the installation's publisher rule or signed policy, " +
+			"the identities a person pinned, the CI signers waiting for a person to confirm them and the newest verdicts, each saying which source decided. " +
+			"Pins or a policy that could not be read mark the answer partial."}), s.deliveryTrust)
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-history", Method: http.MethodGet, Path: "/api/delivery/history",
 		Summary: "What happened",
 		Description: "What happened on each Stage: read from its signed records when the recorder runs (source records), plus the operations not " +

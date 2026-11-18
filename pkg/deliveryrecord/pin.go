@@ -3,6 +3,7 @@ package deliveryrecord
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -54,6 +55,36 @@ type PinListing struct {
 // ApprovalCheck reads the approval record at ref (<repository>@<manifest
 // digest>), verifies it and returns it with the person who decided.
 type ApprovalCheck func(ctx context.Context, ref string) (st delivery.ApprovalStatement, approver string, err error)
+
+// PinApproval is the ApprovalCheck pins are read with: it fetches the
+// approval record a pin cites through open and names who decided. A record
+// a person signed is verified by person, which also refuses one that only
+// proposes; one the recorder signed is verified by verify, the pin's own
+// keys, and decides for the person it was signed on behalf of.
+func PinApproval(open func(path string) (*remote.Repository, error), person func(bundle []byte) (delivery.ApprovalStatement, string, error), verify func([]byte) error) ApprovalCheck {
+	return func(ctx context.Context, ref string) (delivery.ApprovalStatement, string, error) {
+		path, manifest, _ := strings.Cut(ref, "@")
+		repo, err := open(path)
+		var bundle []byte
+		if err == nil {
+			bundle, err = Fetch(ctx, repo, manifest, delivery.PredicateApproval)
+		}
+		if err != nil {
+			return delivery.ApprovalStatement{}, "", err
+		}
+		st, _, err := delivery.OpenApproval(bundle, func([]byte) error { return nil }) // Fetch read one
+		if err == nil && st.Predicate.Signer.Kind == delivery.SignerPerson {
+			return person(bundle)
+		}
+		if _, _, err = delivery.OpenApproval(bundle, verify); err != nil {
+			return delivery.ApprovalStatement{}, "", err
+		}
+		if st.Predicate.Signer.OnBehalfOf == nil {
+			return delivery.ApprovalStatement{}, "", errors.New("the recorder signed it for nobody")
+		}
+		return st, st.Predicate.Signer.OnBehalfOf.User, nil
+	}
+}
 
 // ListPins reads the newest MaxPins pins of svc from repo. A pin is used
 // only when verify accepts its signature, it names svc and the approval

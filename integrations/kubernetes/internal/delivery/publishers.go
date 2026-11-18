@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/sigstore/sigstore-go/pkg/root"
+	"oras.land/oras-go/v2/registry/remote"
 
 	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
@@ -545,32 +546,14 @@ func PinReader(repo string, opts ocireferrer.Options, verify delivery.Verifier, 
 // who decided: the person a keyless record's certificate names, or the
 // person a recorder-signed record was signed for.
 func approvalAt(opts ocireferrer.Options, policy delivery.ClassPolicy, verify func([]byte) error) deliveryrecord.ApprovalCheck {
-	return func(ctx context.Context, ref string) (delivery.ApprovalStatement, string, error) {
-		path, manifest, _ := strings.Cut(ref, "@")
-		repo, err := ocireferrer.Open(path, opts)
-		var bundle []byte
-		if err == nil {
-			bundle, err = deliveryrecord.Fetch(ctx, repo, manifest, delivery.PredicateApproval)
+	open := func(path string) (*remote.Repository, error) { return ocireferrer.Open(path, opts) }
+	return deliveryrecord.PinApproval(open, func(bundle []byte) (delivery.ApprovalStatement, string, error) {
+		s, err := openSigned(bundle, policy)
+		if why := s.proposal(); err == nil && why != "" {
+			err = errors.New(why)
 		}
-		if err != nil {
-			return delivery.ApprovalStatement{}, "", err
-		}
-		st, _, err := delivery.OpenApproval(bundle, func([]byte) error { return nil }) // Fetch read one
-		if err == nil && st.Predicate.Signer.Kind == delivery.SignerPerson {
-			s, err := openSigned(bundle, policy)
-			if why := s.proposal(); err == nil && why != "" {
-				err = errors.New(why)
-			}
-			return s.st, s.identity.User, err
-		}
-		if _, _, err = delivery.OpenApproval(bundle, verify); err != nil {
-			return delivery.ApprovalStatement{}, "", err
-		}
-		if st.Predicate.Signer.OnBehalfOf == nil {
-			return delivery.ApprovalStatement{}, "", errors.New("the recorder signed it for nobody")
-		}
-		return st, st.Predicate.Signer.OnBehalfOf.User, nil
-	}
+		return s.st, s.identity.User, err
+	}, verify)
 }
 
 // trust is the trust operation a pass raises, or why none is raised.

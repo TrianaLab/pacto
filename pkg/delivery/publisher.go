@@ -444,3 +444,144 @@ func OpenPolicy(bundle []byte, verify func(bundle []byte) error) (PublisherPolic
 	}
 	return p, nil
 }
+
+// MaxTrustItems bounds each list of one service's trust answer: its pins,
+// the signers waiting for a person and its newest verdicts.
+const MaxTrustItems = 20
+
+// PolicyState is the signed delivery policy an installation names and the
+// one a Stage's watch verified and uses.
+type PolicyState struct {
+	Ref string `json:"ref" doc:"The delivery policy the installation names (delivery.publishers.policy)"`
+	// +optional
+	Digest string `json:"digest,omitempty" doc:"The digest of the policy a Stage's watch verified and uses; empty while none has"`
+	// +optional
+	At string `json:"at,omitempty" doc:"When that policy was signed"`
+}
+
+// PendingSigner is a CI identity that signed a version of a service and
+// waits for a person to confirm it may publish the service.
+type PendingSigner struct {
+	Identity  PublisherIdentity `json:"identity" doc:"Who signed the version"`
+	Digest    string            `json:"digest" doc:"The digest it signed"`
+	Namespace string            `json:"namespace" doc:"The Stage's namespace"`
+	Stage     string            `json:"stage" doc:"The Stage whose registry watch read it"`
+	Operation string            `json:"operation,omitempty" doc:"The held trust operation a person answers; empty while another trust operation of the Stage is pending"`
+	Reason    string            `json:"reason" doc:"Why a person is asked"`
+}
+
+// ServiceTrust is what one service's publishers are: the identities a
+// person pinned, the signers waiting for one and the newest verdicts of its
+// Stages' registry watch (each list capped at MaxTrustItems).
+type ServiceTrust struct {
+	Service  ServiceRef         `json:"service"`
+	Pins     []IdentityPin      `json:"pins" doc:"The identities a person confirmed for the service, newest first"`
+	Pending  []PendingSigner    `json:"pending" doc:"The CI identities that wait for a person to confirm them"`
+	Verdicts []PublisherVerdict `json:"verdicts" doc:"The newest digests its Stages' registry watch judged, newest first"`
+}
+
+// TrustView is which publishers each service accepts: the installation's
+// rule or signed policy and, per service with a Stage that watches the
+// registry, its pins, pending signers and verdicts.
+type TrustView struct {
+	Listing
+	// +optional
+	Rule       *PublisherRule `json:"rule,omitempty" doc:"The installation's publisher rule, derived from delivery.publishers.registry"`
+	RuleSource string         `json:"ruleSource" enum:"rule,policy,none" doc:"What every service is judged against: the installation's rule, the signed policy, or none when only a person's pin accepts a signer"`
+	// +optional
+	NoRule string `json:"noRule,omitempty" doc:"Why no rule or policy accepts a signer, so only pins do"`
+	// +optional
+	Policy   *PolicyState   `json:"policy,omitempty" doc:"The signed delivery policy, when the installation names one"`
+	Services []ServiceTrust `json:"services"`
+}
+
+// TrustServices are the services of the Stages that watch the registry
+// (candidates.registry), sorted by name and domain.
+func TrustServices(stages []StageObject) []ServiceRef {
+	var out []ServiceRef
+	for _, st := range stages {
+		if st.Spec.Candidates.Registry != nil && !slices.Contains(out, st.Spec.Service) {
+			out = append(out, st.Spec.Service)
+		}
+	}
+	slices.SortFunc(out, func(a, b ServiceRef) int { return cmp.Or(cmp.Compare(a.Name, b.Name), cmp.Compare(a.Domain, b.Domain)) })
+	return out
+}
+
+// TrustOf is the trust view of the Stages and operations the caller listed,
+// judged under cfg: pins (nil reads none) gives a service's pins. Only
+// services of the listed Stages are named. AsOf and completeness are the
+// caller's to set.
+func TrustOf(cfg PublisherConfig, stages []StageObject, ops []OperationObject, pins func(ServiceRef) []IdentityPin) TrustView {
+	v := TrustView{Services: []ServiceTrust{}}
+	trustRule(&v, cfg, stages)
+	for _, svc := range TrustServices(stages) {
+		st := ServiceTrust{Service: svc, Pins: []IdentityPin{}, Pending: []PendingSigner{}, Verdicts: []PublisherVerdict{}}
+		if pins != nil {
+			st.Pins = append(st.Pins, pins(svc)...)
+		}
+		for _, s := range stages {
+			if s.Spec.Candidates.Registry != nil && s.Spec.Service == svc {
+				serviceTrustOf(&st, s, ops)
+			}
+		}
+		slices.SortStableFunc(st.Verdicts, func(a, b PublisherVerdict) int { return cmp.Compare(b.At, a.At) })
+		st.Pins, st.Pending, st.Verdicts = st.Pins[:min(len(st.Pins), MaxTrustItems)],
+			st.Pending[:min(len(st.Pending), MaxTrustItems)], st.Verdicts[:min(len(st.Verdicts), MaxTrustItems)]
+		v.Services = append(v.Services, st)
+	}
+	return v
+}
+
+// trustRule sets what every service is judged against: the policy cfg
+// names (with the newest digest a listed Stage verified), else the derived
+// rule, else nothing.
+func trustRule(v *TrustView, cfg PublisherConfig, stages []StageObject) {
+	if cfg.Policy == "" {
+		r, why := cfg.Rule()
+		if why != "" {
+			v.RuleSource, v.NoRule = PublisherSourceNone, why
+			return
+		}
+		v.RuleSource, v.Rule = PublisherSourceRule, &r
+		return
+	}
+	v.RuleSource, v.Policy = PublisherSourcePolicy, &PolicyState{Ref: cfg.Policy}
+	for _, s := range stages {
+		if p := s.Status.Publisher; p != nil && p.PolicyDigest != "" && p.PolicyAt > v.Policy.At {
+			v.Policy.Digest, v.Policy.At = p.PolicyDigest, p.PolicyAt
+		}
+	}
+	if v.Policy.Digest == "" {
+		v.NoRule = "no Stage you can list has verified the delivery policy " + cfg.Policy + ", so only pinned signers are accepted"
+	}
+}
+
+// serviceTrustOf adds what Stage s knows to st: its watch's verdicts, its
+// held trust operations and the new signers no operation asks about yet.
+func serviceTrustOf(st *ServiceTrust, s StageObject, ops []OperationObject) {
+	asked := map[string]bool{}
+	for _, o := range ops {
+		p := o.Spec.Params.Publisher
+		if o.Spec.Type != TypeTrust || o.Status.Phase == PhaseConcluded || p == nil ||
+			o.Metadata.Namespace != s.Metadata.Namespace || o.Spec.Stage != s.Metadata.Name {
+			continue
+		}
+		asked[p.Issuer+"|"+p.Subject+"|"+p.Repository] = true
+		st.Pending = append(st.Pending, PendingSigner{Identity: *p, Digest: o.Spec.Params.To, Namespace: s.Metadata.Namespace,
+			Stage: s.Metadata.Name, Operation: o.Metadata.Name, Reason: o.Spec.Reason})
+	}
+	if s.Status.Publisher == nil {
+		return
+	}
+	for _, vd := range s.Status.Publisher.Verdicts {
+		st.Verdicts = append(st.Verdicts, vd)
+		id := vd.Identity
+		if vd.Verdict != VerdictNewSigner || id == nil || asked[id.Issuer+"|"+id.Subject+"|"+id.Repository] {
+			continue
+		}
+		asked[id.Issuer+"|"+id.Subject+"|"+id.Repository] = true
+		st.Pending = append(st.Pending, PendingSigner{Identity: *id, Digest: vd.Digest, Namespace: s.Metadata.Namespace,
+			Stage: s.Metadata.Name, Reason: vd.Reason})
+	}
+}

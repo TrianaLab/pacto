@@ -685,6 +685,27 @@ pacto delivery status [flags]
       --why[=true|false]    also plan the promote of each Stage's candidate (proposing nothing) and say what holds it back
 ```
 
+### `pacto delivery trust`
+
+Per service with a Stage that watches the registry and the caller can see: the installation's publisher rule or signed policy, the identities a person pinned, the CI signers waiting for a person to confirm them and the newest verdicts, each saying which source decided. Pins or a policy that could not be read mark the answer partial.
+
+It runs the dashboard's own trust view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads the namespaces you may list Stages in and leaves out, without naming them, those outside your permissions; a namespace that refuses the list makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
+
+```
+pacto delivery trust [service] [flags]
+```
+
+**Flags:**
+
+```
+      --domain string       With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any
+  -h, --help[=true|false]   help for trust
+      --limit int           How many per page; 0 means the list's default
+      --offset int          Where the page starts. Past the end answers the last page
+      --q string            Keep only what contains this text, ignoring case
+      --service string      Keep only the service with exactly this name
+```
+
 ### `pacto delivery types`
 
 List the operation types you may propose

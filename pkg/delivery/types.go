@@ -551,3 +551,41 @@ func intersects(a, b []string) bool {
 	}
 	return false
 }
+
+// PublishersKey is the key of the PolicyConfigMap that holds the
+// installation's publisher trust config (PublisherConfig) as JSON, so every
+// client derives the rule the promoter judges with.
+const PublishersKey = "publishers.json"
+
+// PublisherConfig is the chart's delivery.publishers as it publishes them:
+// the registry the default rule derives from, the signed policy and its
+// signers, the repository pins are read from and the one-key trust config
+// that verifies them. TrustedRoot only says whether a private Sigstore root
+// is mounted into the promoter.
+type PublisherConfig struct {
+	Registry          string `json:"registry"`
+	DefaultBranch     string `json:"defaultBranch"`
+	Policy            string `json:"policy"`
+	PolicySigners     string `json:"policySigners"`
+	StreamsRepository string `json:"streamsRepository"`
+	PinSigner         string `json:"pinSigner"`
+	TrustedRoot       bool   `json:"trustedRoot"`
+}
+
+// ParsePublishers reads a published PublisherConfig.
+func ParsePublishers(b []byte) (PublisherConfig, error) {
+	var c PublisherConfig
+	if err := json.Unmarshal(b, &c); err != nil {
+		return PublisherConfig{}, fmt.Errorf("the publisher trust config: %w", err)
+	}
+	return c, nil
+}
+
+// Rule is the installation's default publisher rule (DeriveRule), or why
+// there is none.
+func (c PublisherConfig) Rule() (PublisherRule, string) {
+	if c.Registry == "" {
+		return PublisherRule{}, "no publisher registry is configured (delivery.publishers.registry), so the first signer of each service is confirmed by a person"
+	}
+	return DeriveRule(c.Registry, c.DefaultBranch)
+}
