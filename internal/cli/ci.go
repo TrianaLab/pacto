@@ -21,7 +21,7 @@ import (
 )
 
 // newCICommand builds `pacto ci [root]`: plan every service of a repository
-// for a CI run. It reads the registry and writes nothing to it.
+// for a CI run, or with --publish publish every changed service.
 func newCICommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "ci [root]",
@@ -32,7 +32,7 @@ func newCICommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder) *c
 			"and its impact on the consumers the fleet source flags name.\n\n" +
 			"On GitHub Actions the plan is also appended to $GITHUB_STEP_SUMMARY; on GitLab CI it is written to " +
 			"pacto-plan.md in $CI_PROJECT_DIR. --output-format json writes the plan as one JSON document.\n\n" +
-			"The run is a plan: it reads the registry and the consumer sources you name and writes nothing to them. " +
+			"Without --publish the run is a plan: it reads the registry and the consumer sources you name and writes nothing to them. " +
 			"A run record goes to --stats-file only, one file per impacted service.\n\n" +
 			"The exit status follows the plan: 0 clear, 1 blocked, 2 unverified. A repository with no pacto.yaml, or a folder it cannot read, exits 2.\n\n" +
 			"--publish publishes every changed service on the merged commit, through the engine pacto publish runs, providers before " +
