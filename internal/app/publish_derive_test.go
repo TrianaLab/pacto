@@ -321,3 +321,46 @@ func TestLoadAndValidateFullDeriveVersion(t *testing.T) {
 		t.Fatalf("%v", err)
 	}
 }
+
+// TestPublishUnchangedNamesTheDeployArtifact: an unchanged folder still names
+// the deploy artifact its version published, once it verifies, so --propose
+// has a digest to propose; one missing or unsigned gives a note instead.
+func TestPublishUnchangedNamesTheDeployArtifact(t *testing.T) {
+	host, reg := publishRegistry(t)
+	svc := publishService(&fakeRun{}, reg)
+	ctx := context.Background()
+	dir := t.TempDir()
+	signingKey(t, dir)
+	write := func(version string) {
+		y := "pactoVersion: \"2.5\"\nservice:\n  name: payments\n" + version + "publish:\n  bundle: oci://" + host + "/pacto/payments\n  deploy: manifests\n" +
+			"  artifacts:\n    - {name: manifests, type: manifests, ref: \"oci://" + host + "/deploy/payments\", build: {command: [./render.sh]}}\n" +
+			"  sign: {key: cosign.key, transparencyLog: false}\n"
+		if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(y), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("  version: 1.4.2\n")
+	first, err := svc.Publish(ctx, PublishOptions{Path: dir, Revision: "r1"})
+	if err != nil || first.Deploy == "" {
+		t.Fatalf("%v %+v", err, first)
+	}
+	write("")
+	res, err := svc.Publish(ctx, PublishOptions{Path: dir, Revision: "r2"})
+	if err != nil || res.Plan.Version != "1.4.2" || res.Deploy != first.Deploy || len(res.Notes) != 0 {
+		t.Fatalf("%v %+v", err, res)
+	}
+	unsigned := pushImage(t, reg, host+"/unsigned")
+	repo, digest, _ := strings.Cut(unsigned, "@")
+	if err := reg.Tag(ctx, repo, digest, "1.4.2"); err != nil {
+		t.Fatal(err)
+	}
+	no := false
+	tools := newExecTools(dir, nil, reg)
+	for ref, want := range map[string]string{host + "/missing": "not found", repo: "no deploy artifact to propose: " + repo + ":1.4.2"} {
+		pub := &contract.Publish{Deploy: "manifests", Sign: &contract.PublishSign{Key: "cosign.key", TransparencyLog: &no},
+			Artifacts: []contract.PublishArtifact{{Name: "other", Ref: "oci://" + host + "/other"}, {Name: "manifests", Ref: "oci://" + ref}}}
+		if got, notes := unchangedDeploy(ctx, reg, tools, pub, "1.4.2"); got != "" || len(notes) != 1 || !strings.Contains(notes[0], want) {
+			t.Errorf("%s: %q %v", ref, got, notes)
+		}
+	}
+}

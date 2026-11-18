@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"strconv"
@@ -23,7 +24,10 @@ func derivedBundle(ctx context.Context, run runner, reg publish.Registry, tools 
 	}
 	repo := publish.Repo(pub.Bundle)
 	if d.Unchanged {
-		return nil, unchangedResult(b, repo, revision, d), nil, nil
+		res := unchangedResult(b, repo, revision, d)
+		deploy, notes := unchangedDeploy(ctx, reg, tools, pub, d.Version)
+		res.Deploy, res.Notes = deploy, append(res.Notes, notes...)
+		return nil, res, nil, nil
 	}
 	pinned, err := pinDerived(b, repo, d, in)
 	return pinned, nil, d.Notes, err
@@ -98,6 +102,30 @@ func unchangedResult(b *contract.Bundle, repo, revision string, d publish.Derive
 		Items:  []publish.Item{{Name: publish.BundleItem, Type: publish.BundleItem, Ref: ref, State: publish.Identical, Digest: d.BaselineDigest}},
 		Ready:  true},
 		Actions: []string{}, Digests: map[string]string{publish.BundleItem: d.BaselineDigest}, Notes: d.Notes}
+}
+
+// unchangedDeploy is the deploy artifact version published, repo@digest,
+// once its signature verifies, so --propose can still propose it. pub naming
+// a deploy artifact that cannot be read or verified gives a note instead.
+func unchangedDeploy(ctx context.Context, reg publish.Registry, tools execTools, pub *contract.Publish, version string) (string, []string) {
+	for _, a := range pub.Artifacts {
+		if a.Name != pub.Deploy {
+			continue
+		}
+		ref := publish.Repo(a.Ref) + ":" + version
+		r, err := reg.Head(ctx, ref)
+		if err == nil && r == nil {
+			err = errors.New("not found")
+		}
+		if err == nil {
+			err = tools.Verify(ctx, publish.SignOf(pub), publish.Repo(a.Ref)+"@"+r.Digest)
+		}
+		if err != nil {
+			return "", []string{"no deploy artifact to propose: " + ref + ": " + err.Error()}
+		}
+		return publish.Repo(a.Ref) + "@" + r.Digest, nil
+	}
+	return "", nil
 }
 
 // pinDerived is b with the derived version declared in its pacto.yaml and
