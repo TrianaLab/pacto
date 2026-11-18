@@ -1025,13 +1025,16 @@ type InferredSource struct {
 	// Target is the target the evidence was read on, when the source names
 	// one this snapshot holds; a restricted view drops evidence of a hidden one.
 	Target     TargetKey  `json:"target,omitempty" doc:"The target the evidence was read on"`
-	Kind       string     `json:"kind" doc:"What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService, serviceEntry or inferredRecord (a dependency the revision's pacto.inferred.yaml names)"`
+	Kind       string     `json:"kind" doc:"What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService or serviceEntry on a workload; inferredRecord (a dependency the revision's pacto.inferred.yaml names); or, for an external system the inferred record names, helmValues, compose, kustomize, sdk, terraform or crossplane"`
 	Where      string     `json:"where,omitempty" doc:"The object and key it was found in, never a value"`
 	Host       string     `json:"host,omitempty" doc:"The normalized host and port; empty when only a key name matched"`
 	Confidence string     `json:"confidence" enum:"likely,possible"`
 	Entry      string     `json:"entry,omitempty" doc:"The catalog entry that classified it"`
 	Catalog    string     `json:"catalog,omitempty" doc:"The digest of the catalog the source classified it with"`
 	ObservedAt *time.Time `json:"observedAt,omitempty" doc:"When the source last read it"`
+	// Revision is set on a repository source: the consumer revision whose
+	// inferred record names the external system.
+	Revision RevisionKey `json:"revision,omitempty" doc:"The consumer revision whose inferred record names it, for a repository source"`
 }
 
 // ExternalKey is the canonical identity of an external system, an
@@ -1055,6 +1058,9 @@ const (
 	// ExternalSourcePodSpec is a use a source inferred from a workload's pod
 	// spec (see [RawExternalUse]).
 	ExternalSourcePodSpec = "pod-spec"
+	// ExternalSourceRepository is a use the inferred record of the consumer's
+	// newest revision names: read from its repository folder, never declared.
+	ExternalSourceRepository = "repository"
 )
 
 // ExternalRecord is one external system: a vendor API, a managed cloud
@@ -1094,9 +1100,9 @@ type ExternalRecord struct {
 
 // ExternalSource is one piece of evidence that names an external system.
 type ExternalSource struct {
-	Kind     string      `json:"kind" enum:"contract,observed,pod-spec" doc:"Where the evidence comes from: a contract's dependency, a call a trace source saw or a use inferred from a workload's pod spec"`
+	Kind     string      `json:"kind" enum:"contract,observed,pod-spec,repository" doc:"Where the evidence comes from: a contract's dependency, a call a trace source saw, a use inferred from a workload's pod spec or a use the inferred record of the consumer's repository names"`
 	Service  ServiceKey  `json:"service" doc:"The consumer"`
-	Revision RevisionKey `json:"revision,omitempty" doc:"The newest consumer revision that declares it"`
+	Revision RevisionKey `json:"revision,omitempty" doc:"The newest consumer revision that declares it, or whose inferred record names it for a repository source"`
 	// Target is empty for a contract source.
 	Target     TargetKey `json:"target,omitempty" doc:"The target the evidence was observed on; empty for a contract source"`
 	Dependency string    `json:"dependency,omitempty" doc:"The declared dependency name"`
@@ -1104,7 +1110,7 @@ type ExternalSource struct {
 	Version    string    `json:"version,omitempty" doc:"The free-text version the dependency declares"`
 	Required   bool      `json:"required,omitempty"`
 	Provenance string    `json:"provenance" enum:"declared,observed,inferred"`
-	Match      string    `json:"match" doc:"How the evidence was joined to the identity: identity, catalog-alias, host, normalized-name, system (an OpenTelemetry system value) or keyName (a configuration key name only)"`
+	Match      string    `json:"match" doc:"How the evidence was joined to the identity: identity, catalog-alias, host, normalized-name, system (an OpenTelemetry system value), keyName (a configuration key name only), sdk (a client library in a manifest) or resource (a Terraform resource or Crossplane object)"`
 	// Superseded says the consumer has a newer revision that no longer
 	// declares the dependency at this position, so the declaration may be
 	// history rather than what the service runs today.

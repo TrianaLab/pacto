@@ -172,7 +172,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	snap.Limitations = append(snap.Limitations, opts.ExternalCatalogLimitations...)
 	buildRelationships(snap, cat)
 	foldObservedRelationships(snap, observed)
-	foldExternalUses(snap, uses)
+	foldExternalUses(snap, append(uses, recordExternalUses(snap)...))
 	finalizeExternals(snap)
 	reconcileDeclared(snap, undeclaredOnly)
 	matchProvisioning(snap)
@@ -2858,7 +2858,7 @@ func revisionInferredEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractRev
 	for _, f := range rev.Record.Fields {
 		name, ok := strings.CutPrefix(f.Field, "dependencies[")
 		name, closed := strings.CutSuffix(name, "]")
-		if !ok || !closed || declared[name] {
+		if !ok || !closed || declared[name] || f.External != nil { // an external projects through recordExternalUses
 			continue
 		}
 		to, resolved := resolveDepService(snap, rev.Domain, contract.Dependency{Name: name})

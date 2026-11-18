@@ -225,10 +225,11 @@ func checkInferredField(f Inferred, seen map[string]bool) error {
 // checkInferredExternal is why x cannot be in a record, as a suffix of
 // "fields[i].external", or nil. A host with userinfo, a path that leaves the
 // folder or a key that is a URL is refused, so a hand-edited record never
-// carries a credential.
+// carries a credential, and no error quotes the refused value: the fleet
+// shows it in a limitation.
 func checkInferredExternal(x *InferredExternal) error {
 	if len(x.Identity) > 253 || !inferredIdentityRE.MatchString(x.Identity) || strings.Contains(x.Identity, "..") {
-		return fmt.Errorf(".identity %q is not an external identity", x.Identity)
+		return errors.New(".identity is not an external identity")
 	}
 	if x.Catalog != "" && x.Catalog != "default" && x.Catalog != "organization" {
 		return fmt.Errorf(".catalog is %q, want default or organization", x.Catalog)
@@ -264,15 +265,15 @@ func checkClientResource(c *InferredClient, r *InferredResource) error {
 func checkExternalSource(s InferredExternalSource) error {
 	switch {
 	case !slices.Contains(InferredExternalKinds, s.Kind):
-		return fmt.Errorf(".kind is %q", s.Kind)
+		return errors.New(".kind is not a source kind")
 	case !validPath(s.Path) || strings.ContainsAny(s.Path, "?#"):
-		return fmt.Errorf(".path %q is not a relative path with no query", s.Path)
+		return errors.New(".path is not a relative path with no query")
 	case s.Line < 0:
 		return errors.New(".line is negative")
 	case s.Key != "" && !inferredKeyRE.MatchString(s.Key):
-		return fmt.Errorf(".key %q is not a key name", s.Key)
+		return errors.New(".key is not a key name")
 	case s.Host != "" && !inferredHostRE.MatchString(s.Host):
-		return fmt.Errorf(".host %q is not a host and port", s.Host)
+		return errors.New(".host is not a host and port")
 	}
 	return nil
 }

@@ -2946,13 +2946,15 @@ export interface components {
             entry?: string;
             /** @description The normalized host and port; empty when only a key name matched */
             host?: string;
-            /** @description What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService, serviceEntry or inferredRecord (a dependency the revision's pacto.inferred.yaml names) */
+            /** @description What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService or serviceEntry on a workload; inferredRecord (a dependency the revision's pacto.inferred.yaml names); or, for an external system the inferred record names, helmValues, compose, kustomize, sdk, terraform or crossplane */
             kind: string;
             /**
              * Format: date-time
              * @description When the source last read it
              */
             observedAt?: string;
+            /** @description The consumer revision whose inferred record names it, for a repository source */
+            revision?: string;
             /** @description The consumer */
             service: string;
             /** @description The id of the source that reported it */
@@ -3026,16 +3028,16 @@ export interface components {
              */
             index: number;
             /**
-             * @description Where the evidence comes from: a contract's dependency, a call a trace source saw or a use inferred from a workload's pod spec
+             * @description Where the evidence comes from: a contract's dependency, a call a trace source saw, a use inferred from a workload's pod spec or a use the inferred record of the consumer's repository names
              * @enum {string}
              */
-            kind: "contract" | "observed" | "pod-spec";
-            /** @description How the evidence was joined to the identity: identity, catalog-alias, host, normalized-name, system (an OpenTelemetry system value) or keyName (a configuration key name only) */
+            kind: "contract" | "observed" | "pod-spec" | "repository";
+            /** @description How the evidence was joined to the identity: identity, catalog-alias, host, normalized-name, system (an OpenTelemetry system value), keyName (a configuration key name only), sdk (a client library in a manifest) or resource (a Terraform resource or Crossplane object) */
             match: string;
             /** @enum {string} */
             provenance: "declared" | "observed" | "inferred";
             required?: boolean;
-            /** @description The newest consumer revision that declares it */
+            /** @description The newest consumer revision that declares it, or whose inferred record names it for a repository source */
             revision?: string;
             /** @description The consumer */
             service: string;
@@ -3148,13 +3150,15 @@ export interface components {
             entry?: string;
             /** @description The normalized host and port; empty when only a key name matched */
             host?: string;
-            /** @description What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService, serviceEntry or inferredRecord (a dependency the revision's pacto.inferred.yaml names) */
+            /** @description What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService or serviceEntry on a workload; inferredRecord (a dependency the revision's pacto.inferred.yaml names); or, for an external system the inferred record names, helmValues, compose, kustomize, sdk, terraform or crossplane */
             kind: string;
             /**
              * Format: date-time
              * @description When the source last read it
              */
             observedAt?: string;
+            /** @description The consumer revision whose inferred record names it, for a repository source */
+            revision?: string;
             /** @description The id of the source that reported it */
             source: string;
             /** @description The target the evidence was read on */

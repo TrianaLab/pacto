@@ -122,6 +122,17 @@ func supersededNote(src fleet.ExternalSource) string {
 	return ""
 }
 
+// inferredSourceLine is one inferred source of an external system: the
+// consumer, the kind, where it was found and the confidence, then the
+// revision whose inferred record names it, for a repository source.
+func inferredSourceLine(s fleet.ExternalInferredSource) string {
+	out := fmt.Sprintf("%s %s %s (inferred, %s)", s.Service, s.Kind, s.Where, s.Confidence)
+	if s.Revision != "" {
+		out += " from " + string(s.Revision)
+	}
+	return out
+}
+
 // printExternal is the text of one external system: its identity line, the
 // sources that declare, call or use it (an inferred one with its kind, where
 // it was found and the normalized host, never a value) and the catalog that
@@ -138,13 +149,13 @@ func printExternal(w io.Writer, rec fleet.ExternalRecord, into fleet.ExternalKey
 		label = ""
 	}
 	for _, src := range rec.Sources {
-		// Observed and pod-spec sources print through their evidence below.
+		// Observed and inferred sources print through their evidence below.
 		if src.Kind == fleet.ExternalSourceContract {
 			line("%s pacto.yaml dependencies[%d] (name: %s%s)", src.Service, src.Index, src.Dependency, supersededNote(src))
 		}
 	}
 	for _, s := range ev.InferredSources {
-		line("%s %s %s (inferred, %s)", s.Service, s.Kind, s.Where, s.Confidence)
+		line("%s", inferredSourceLine(s))
 		if s.Host != "" {
 			line("  -> %s (host and port only)", s.Host)
 		}

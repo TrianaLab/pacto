@@ -579,7 +579,7 @@ func TestFleetEntityExternalPrintsInferredSources(t *testing.T) {
 			},
 			InferredSourcesTotal: 5,
 			ObservedSources:      []fleet.ExternalObservedSource{{Service: "checkout", ObservedSourceStat: fleet.ObservedSourceStat{Source: "otel", Count: 4}}},
-			ObservedSourcesTotal: 1,
+			ObservedSourcesTotal: 3,
 		},
 	}
 	if err := printFleetEntity(cmd, &fleet.EntityDetail{Entity: fleet.EntityRef{Kind: fleet.KindExternal, Key: "stripe"}, External: ext}, "text"); err != nil {
@@ -590,7 +590,7 @@ func TestFleetEntityExternalPrintsInferredSources(t *testing.T) {
 		"  sources  pay pacto.yaml dependencies[1] (name: stripe-api)\n",
 		"           checkout env deployment/checkout env STRIPE_API_BASE (inferred, likely)\n             -> api.stripe.com (host and port only)\n",
 		"           checkout secretKeyRef deployment/checkout secretKeyRef stripe/KEY (inferred, possible)\n",
-		"           checkout otel (observed, 4 calls)\n           3 more inferred sources\n",
+		"           checkout otel (observed, 4 calls)\n           3 more inferred sources\n           2 more observed sources\n",
 		"  catalog  none (",
 		"  hidden consumers 2\n",
 	} {

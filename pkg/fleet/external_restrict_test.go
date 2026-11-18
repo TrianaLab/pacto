@@ -238,3 +238,40 @@ func TestExplainExternalSaysWhatItLeavesOut(t *testing.T) {
 		t.Error("a complete list says it is truncated")
 	}
 }
+
+// TestRestrictHidesRepositoryExternalOfHiddenService: a view that hides
+// vault never names its repository evidence and counts it as a hidden
+// consumer; evidence from a revision the view hides goes with it, on a
+// visible service too.
+func TestRestrictHidesRepositoryExternalOfHiddenService(t *testing.T) {
+	q := NewQuery(repoFleet(t, repoSvc{"web", "1.0.0", "shop", stripeRecord()}, repoSvc{"vault", "1.0.0", "secret", stripeRecord()}))
+	v, err := q.Restrict(shopView).GetExternal("stripe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.External.HiddenConsumers != 1 || !reflect.DeepEqual(v.External.Consumers, []ServiceKey{"web"}) || len(v.InferredSources) != 2 {
+		t.Fatalf("view = %+v", v)
+	}
+	for _, s := range v.InferredSources {
+		if s.Service != "web" || s.Revision != "web@sha256:web-1.0.0" {
+			t.Errorf("source %+v", s)
+		}
+	}
+	// A visible service whose record-bearing revision the view hides: its
+	// evidence and its edge go, and it counts as a hidden consumer.
+	out := &FleetSnapshot{Services: map[ServiceKey]*ServiceRecord{"web": {}}, Revisions: map[RevisionKey]*ContractRevision{}, Targets: map[TargetKey]*TargetRecord{},
+		Relationships: []Relationship{{FromService: "web", ToExternal: "stripe", Provenance: ProvenanceInferred,
+			InferredSources: []InferredSource{{Source: "k8s", Kind: "sdk", Revision: "web@old"}}}}}
+	restrictInferredEvidence(out)
+	if len(out.Relationships) != 0 {
+		t.Errorf("relationships = %+v", out.Relationships)
+	}
+	rec := &ExternalRecord{Key: "stripe", declarations: map[ServiceKey]int{"web": 1, "pay": 1}, Consumers: []ServiceKey{"pay", "web"}, Sources: []ExternalSource{
+		{Kind: ExternalSourceRepository, Service: "web", Revision: "web@old", Provenance: ProvenanceInferred},
+		{Kind: ExternalSourceContract, Service: "pay", Provenance: ProvenanceDeclared},
+	}}
+	out.Services["pay"] = &ServiceRecord{}
+	if r := restrictExternal(out, rec); r == nil || r.HiddenConsumers != 1 || !reflect.DeepEqual(r.Consumers, []ServiceKey{"pay"}) {
+		t.Errorf("restricted = %+v", r)
+	}
+}

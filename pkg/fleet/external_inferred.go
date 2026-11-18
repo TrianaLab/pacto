@@ -12,10 +12,13 @@ import (
 )
 
 // sourcedUse pairs a raw external use with the id of the source that
-// reported it.
+// reported it. A use an inferred record names (see recordExternalUses) also
+// carries the revision of that record and every catalog digest it recorded.
 type sourcedUse struct {
-	use    RawExternalUse
-	source string
+	use      RawExternalUse
+	source   string
+	revision RevisionKey
+	catalogs []string
 }
 
 // inferredKey is one inferred (consumer, external system) edge.
@@ -53,12 +56,14 @@ func foldExternalUses(snap *FleetSnapshot, uses []sourcedUse) {
 			unattributed[su.source]++
 			continue
 		}
-		if u.Catalog != "" && !snapshotCatalog(snap, u.Catalog) {
-			mismatch[[2]string{su.source, u.Catalog}] = true
+		for _, d := range append([]string{u.Catalog}, su.catalogs...) {
+			if d != "" && !snapshotCatalog(snap, d) {
+				mismatch[[2]string{su.source, d}] = true
+			}
 		}
 		key := ExternalKey(id)
 		src := InferredSource{Source: su.source, Target: targetOfUse(targets, su.source, svc, u.Namespace), Kind: u.Kind, Where: u.Where,
-			Host: u.Host, Confidence: inferredConfidence(u.Confidence), Entry: u.Entry, Catalog: u.Catalog, ObservedAt: copyTime(u.ObservedAt)}
+			Host: u.Host, Confidence: inferredConfidence(u.Confidence), Entry: u.Entry, Catalog: u.Catalog, ObservedAt: copyTime(u.ObservedAt), Revision: su.revision}
 		k := inferredKey{svc, key}
 		rel := edges[k]
 		if rel == nil {
@@ -68,7 +73,11 @@ func foldExternalUses(snap *FleetSnapshot, uses []sourcedUse) {
 		rel.InferredSources = append(rel.InferredSources, src)
 		rec := externalRecord(snap, cat, key)
 		rec.declarations[svc]++
-		rec.Sources = append(rec.Sources, ExternalSource{Kind: ExternalSourcePodSpec, Service: svc, Target: src.Target,
+		kind := ExternalSourcePodSpec
+		if su.revision != "" {
+			kind = ExternalSourceRepository
+		}
+		rec.Sources = append(rec.Sources, ExternalSource{Kind: kind, Service: svc, Revision: su.revision, Target: src.Target,
 			Provenance: ProvenanceInferred, Match: inferredMatch(u)})
 	}
 	for _, k := range slices.SortedFunc(maps.Keys(edges), func(a, b inferredKey) int {
@@ -149,10 +158,15 @@ func inferredConfidence(c string) string {
 	return externalcatalog.ConfidencePossible
 }
 
-// inferredMatch is how a use was joined to its identity: by its host, else
-// by a key name only.
+// inferredMatch is how a use was joined to its identity: by a client
+// library, by a provisioned resource, by its host, else by a key name only.
 func inferredMatch(u RawExternalUse) string {
-	if u.Host != "" {
+	switch {
+	case u.Kind == externalcatalog.KindSDK:
+		return externalcatalog.KindSDK
+	case u.Kind == "terraform" || u.Kind == "crossplane":
+		return externalcatalog.KindResource
+	case u.Host != "":
 		return externalcatalog.KindHost
 	}
 	return externalcatalog.KindKeyName
@@ -175,8 +189,9 @@ func sortInferredSources(srcs []InferredSource) {
 }
 
 // restrictInferredEvidence drops, from out's inferred edges, the evidence
-// read on a target out hides, and an edge left with none: restrictExternals
-// counts its consumer. out's targets and relationships must be restricted.
+// read on a target out hides or from a revision it hides, and an edge left
+// with none: restrictExternals counts its consumer. out's targets, revisions
+// and relationships must be restricted.
 func restrictInferredEvidence(out *FleetSnapshot) {
 	for i := range out.Relationships {
 		rel := &out.Relationships[i]
@@ -184,7 +199,7 @@ func restrictInferredEvidence(out *FleetSnapshot) {
 			continue
 		}
 		rel.InferredSources = slices.DeleteFunc(slices.Clone(rel.InferredSources), func(s InferredSource) bool {
-			return s.Target != "" && out.Targets[s.Target] == nil
+			return (s.Target != "" && out.Targets[s.Target] == nil) || (s.Revision != "" && out.Revisions[s.Revision] == nil)
 		})
 		rel.Confidence = strongestConfidence(rel.InferredSources)
 	}
