@@ -46,8 +46,10 @@ Delivery is the `pacto-operator` chart's `delivery` section, off by default. Tur
   `--api-versions`. `true` or `false` decide regardless of the API.
 - The promoter moves versions through the manager that already applies each
   workload ([which manager applies a Stage](delivery-reach.md#which-manager-applies-a-stage)).
-  The first Stage of a service needs Flux's source controller to verify new
-  versions.
+  The first Stage of a service admits new versions through the promoter's
+  registry watch (`spec.candidates.registry`, judged against
+  `delivery.publishers`) or a Flux `OCIRepository` with `spec.verify`. A
+  cluster that runs only Argo CD uses the registry watch and needs no Flux.
 
 It needs no identity values: whoever may update a Stage's workload decides
 ([who may decide](delivery-identity.md#who-may-decide)).
