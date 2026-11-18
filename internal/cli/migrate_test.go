@@ -11,13 +11,16 @@ import (
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/internal/cli"
+	"github.com/trianalab/pacto/v4/internal/testutil"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
+// runMigrate runs pacto migrate with a bundle store, so a local ../pg ref
+// resolves and billing is kept for its finding, not for a missing resolver.
 func runMigrate(t *testing.T, args ...string) (string, error) {
 	t.Helper()
 	var out bytes.Buffer
-	root := cli.NewRootCommand(app.NewService(nil, nil), cli.VersionInfo{Version: "test"})
+	root := cli.NewRootCommand(app.NewService(&testutil.MockBundleStore{}, nil), cli.VersionInfo{Version: "test"})
 	root.SetOut(&out)
 	root.SetErr(&bytes.Buffer{})
 	root.SetArgs(append([]string{"migrate"}, args...))
@@ -103,5 +106,144 @@ func TestMigrateHasNoCheckFlag(t *testing.T) {
 	cmd, _, err := root.Find([]string{"migrate"})
 	if err != nil || cmd.Name() != "migrate" || cmd.Flags().Lookup("check") != nil || cmd.Flags().Lookup("to") == nil || cmd.Flags().Lookup("dry-run") == nil {
 		t.Fatalf("%v %v", cmd, err)
+	}
+}
+
+// migrateTree copies testdata/migrate into a temporary directory, writes
+// orders/pacto.yaml at Current() and changes into it.
+func migrateTree(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.CopyFS(dir, os.DirFS(filepath.Join("testdata", "migrate"))); err != nil {
+		t.Fatal(err)
+	}
+	orders := "pactoVersion: \"" + contract.Current() + "\"\nservice: {name: orders, version: 1.0.0}\n"
+	if err := os.MkdirAll(filepath.Join(dir, "orders"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "orders", "pacto.yaml"), []byte(orders), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	return dir
+}
+
+// snapshot reads every file under dir, keyed by slash path.
+func snapshot(t *testing.T, dir string) map[string]string {
+	t.Helper()
+	files := map[string]string{}
+	err := filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		b, err := os.ReadFile(p)
+		rel, _ := filepath.Rel(dir, p)
+		files[filepath.ToSlash(rel)] = string(b)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return files
+}
+
+func golden(t *testing.T) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("testdata", "migrate.golden"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.ReplaceAll(string(b), "{{current}}", contract.Current())
+}
+
+// TestMigrateCommandGolden runs pacto migrate with no argument over a mixed
+// repository: three files rise by their version token alone, every other file
+// stays byte-identical, and a second run has nothing left to rewrite.
+func TestMigrateCommandGolden(t *testing.T) {
+	want := golden(t)
+	dir := migrateTree(t)
+	before := snapshot(t, dir)
+
+	out, err := runMigrate(t)
+	if err != nil || out != want {
+		t.Fatalf("%v\ngot:\n%s\nwant:\n%s", err, out, want)
+	}
+
+	after := snapshot(t, dir)
+	cur := contract.Current()
+	raised := map[string][2]string{
+		"payments/pacto.yaml":  {"'2.3'", "'" + cur + "'"},
+		"inventory/pacto.yaml": {`"2.0"`, `"` + cur + `"`},
+		"pg/pacto.yaml":        {`"2.4"`, `"` + cur + `"`},
+	}
+	if len(after) != len(before) {
+		t.Fatalf("file set changed: %d -> %d", len(before), len(after))
+	}
+	for rel, orig := range before {
+		exp := orig
+		if r, ok := raised[rel]; ok {
+			exp = strings.Replace(orig, r[0], r[1], 1)
+		}
+		if after[rel] != exp {
+			t.Errorf("%s:\ngot:  %q\nwant: %q", rel, after[rel], exp)
+		}
+	}
+
+	out, err = runMigrate(t)
+	for _, l := range strings.Split(strings.TrimSuffix(out, "\n"), "\n") {
+		if strings.Contains(l, "set pactoVersion") {
+			t.Errorf("second run rewrote: %s", l)
+		}
+	}
+	if err != nil || !strings.HasSuffix(out, "0 rewritten, 4 current, 1 kept, 1 manual, 2 skipped\n") {
+		t.Fatalf("second run: %v\n%s", err, out)
+	}
+}
+
+func TestMigrateCommandDryRun(t *testing.T) {
+	want := strings.TrimSuffix(golden(t), "\n") + " (dry run: nothing written)\n"
+	dir := migrateTree(t)
+	before := snapshot(t, dir)
+	out, err := runMigrate(t, "--dry-run")
+	if err != nil || out != want {
+		t.Fatalf("%v\ngot:\n%s\nwant:\n%s", err, out, want)
+	}
+	after := snapshot(t, dir)
+	for rel, b := range before {
+		if after[rel] != b {
+			t.Errorf("%s changed under --dry-run", rel)
+		}
+	}
+}
+
+func TestMigrateCommandJSON(t *testing.T) {
+	migrateTree(t)
+	out, err := runMigrate(t, "--output-format", "json")
+	var r app.MigrateResult
+	if jerr := json.Unmarshal([]byte(out), &r); err != nil || jerr != nil {
+		t.Fatalf("%v %v\n%s", err, jerr, out)
+	}
+	if len(r.Files) != 6 || r.Rewritten != 3 || r.Current != 1 || r.Kept != 1 || r.Manual != 1 || r.Failed != 0 || r.Skipped != 2 || r.To != contract.Current() {
+		t.Fatalf("counts: %+v", r)
+	}
+	for _, f := range r.Files {
+		if strings.Contains(f.Path, "node_modules") {
+			t.Errorf("node_modules listed: %s", f.Path)
+		}
+	}
+	for _, s := range r.SkippedDirs {
+		if strings.Contains(s.Path, "node_modules") {
+			t.Errorf("node_modules skipped loudly: %s", s.Path)
+		}
+	}
+}
+
+func TestMigrateCommandArgs(t *testing.T) {
+	migrateTree(t)
+	out, err := runMigrate(t, "--dry-run", "payments", "legacy")
+	if err != nil || !strings.HasPrefix(out, "payments/pacto.yaml: set pactoVersion") ||
+		!strings.Contains(out, "\nlegacy/pacto.yaml:   pactoVersion \"1.0\"") ||
+		!strings.HasSuffix(out, "1 rewritten, 0 current, 0 kept, 1 manual (dry run: nothing written)\n") {
+		t.Fatalf("%v\n%s", err, out)
 	}
 }

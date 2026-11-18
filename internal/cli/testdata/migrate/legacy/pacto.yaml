@@ -1,0 +1,2 @@
+pactoVersion: "1.0"
+service: {name: legacy, version: 0.9.0}

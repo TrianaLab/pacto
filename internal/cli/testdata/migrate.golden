@@ -1,0 +1,9 @@
+billing/pacto.yaml:   kept at 2.3: ENVIRONMENT_VALUES_MISSING at environments[0].file: environment prod: configuration db at /db: required configuration db has no values here and its defaults fail its schema: missing property 'size'
+inventory/pacto.yaml: set pactoVersion to "{{current}}" (was "2.0")
+legacy/pacto.yaml:    pactoVersion "1.0" is not migrated automatically; see https://github.com/TrianaLab/pacto/blob/main/MIGRATION.md
+orders/pacto.yaml:    already current ({{current}})
+payments/pacto.yaml:  set pactoVersion to "{{current}}" (was "2.3")
+pg/pacto.yaml:        set pactoVersion to "{{current}}" (was "2.4")
+archive:              skipped (from .pactoignore:1)
+deep/1/2/3/4/5/6/7/8: skipped (from depth limit 8)
+3 rewritten, 1 current, 1 kept, 1 manual, 2 skipped
