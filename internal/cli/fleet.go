@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"cmp"
+	"context"
 	"fmt"
 	"slices"
 	"strings"
@@ -12,6 +14,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
@@ -134,6 +137,34 @@ func longRunning(opts app.FleetOptions) app.FleetOptions {
 // production, so a build reads time.Now; tests pin it.
 var fleetNow func() time.Time
 
+// fleetDeps is where fleetOptions finds the ambient cluster it reads the
+// installation's publisher trust from; tests swap it.
+var fleetDeps = defaultDeps
+
+// publisherTrust is the fleet provenance checker's reader of the
+// installation's publisher trust config and pins over the ambient cluster,
+// in the namespace --delivery-namespace names (the chart's default when the
+// command has no such flag). nil when there is no cluster config, so a
+// signature is judged against the rule inferred from where it lives.
+func publisherTrust(cmd *cobra.Command, d deps) func(context.Context) (delivery.PublisherConfig, app.PinsFunc, error) {
+	if d.clusterConfig == nil {
+		return nil
+	}
+	if _, err := d.clusterConfig(); err != nil {
+		return nil
+	}
+	ns, _ := cmd.Flags().GetString("delivery-namespace")
+	ns = cmp.Or(ns, delivery.PolicyNamespace)
+	return func(ctx context.Context) (delivery.PublisherConfig, app.PinsFunc, error) {
+		dyn, err := d.newDynamic()
+		if err != nil {
+			return delivery.PublisherConfig{}, nil, err
+		}
+		c := &app.Delivery{Dynamic: dyn, Records: d.newRecordRepo, Policy: delivery.DefaultClassPolicy(), PolicyNamespace: ns, Now: time.Now}
+		return c.InstallationTrust(ctx)
+	}
+}
+
 func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 	local, _ := cmd.Flags().GetStringArray("local")
 	// --root is also `pacto mcp`'s catalog-server selector, where it is mutually
@@ -156,6 +187,8 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 	freshness, _ := cmd.Flags().GetDuration("freshness")
 	externalCatalog, _ := cmd.Flags().GetString("external-catalog")
 	detected, _ := cmd.Flags().GetString("detected")
+	prov := app.NewProvenanceChecker()
+	prov.Trust = publisherTrust(cmd, fleetDeps())
 	return app.FleetOptions{
 		LocalRoots:         local,
 		CatalogRoots:       roots,
@@ -170,7 +203,7 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 		FreshnessWindow:    freshness,
 		ExternalCatalogRef: externalCatalog,
 		Detected:           detected,
-		Provenance:         app.NewProvenanceChecker(),
+		Provenance:         prov,
 		RegistryProbe:      app.NewRegistryProbe(),
 		Now:                fleetNow,
 	}

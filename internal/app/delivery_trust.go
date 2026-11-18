@@ -36,6 +36,33 @@ func (d *Delivery) PublisherTrust(ctx context.Context, stages []delivery.StageOb
 	return &v
 }
 
+// PinsFunc reads the pins a service may use.
+type PinsFunc func(ctx context.Context, s delivery.ServiceRef) ([]delivery.IdentityPin, error)
+
+// InstallationTrust is what the installation trusts, read as PublisherTrust
+// reads it: its publisher trust config and a reader of a service's usable
+// pins (nil when the config names no streams repository, so no pin exists).
+// A pin reader that cannot be built answers its reason on every read. It is
+// ProvenanceChecker.Trust, so fleet provenance judges with the rule, policy
+// and pins the promoter uses.
+func (d *Delivery) InstallationTrust(ctx context.Context) (delivery.PublisherConfig, PinsFunc, error) {
+	cfg, err := d.publisherConfig(ctx)
+	if err != nil {
+		return cfg, nil, err
+	}
+	read, err := d.pinsReader(ctx, cfg)
+	switch {
+	case err != nil:
+		return cfg, func(context.Context, delivery.ServiceRef) ([]delivery.IdentityPin, error) { return nil, err }, nil
+	case read == nil:
+		return cfg, nil, nil
+	}
+	return cfg, func(ctx context.Context, s delivery.ServiceRef) ([]delivery.IdentityPin, error) {
+		pins, _, err := read(ctx, s) // a pin it cannot use is simply not used
+		return pins, err
+	}, nil
+}
+
 // trustReads collects what a trust answer could not read.
 type trustReads struct {
 	mu         sync.Mutex
@@ -69,27 +96,31 @@ func (d *Delivery) publisherConfig(ctx context.Context) (delivery.PublisherConfi
 }
 
 // readPins reads the pins of services, delivery.DescribeParallel at once,
-// as the promoter reads them: each verified with cfg's pin signer and each
-// citing an approval record that verifies. No streams repository means no
-// recorder, so no pin exists to read.
+// naming every listing it could not read and every pin it could not use.
 func (d *Delivery) readPins(ctx context.Context, cfg delivery.PublisherConfig, services []delivery.ServiceRef, t *trustReads) map[delivery.ServiceRef][]delivery.IdentityPin {
-	if cfg.StreamsRepository == "" || len(services) == 0 {
+	if len(services) == 0 {
 		return nil
 	}
-	verify, err := d.pinVerifier(cfg)
+	read, err := d.pinsReader(ctx, cfg)
 	if err != nil {
 		t.add("pins: " + err.Error())
+	}
+	if read == nil {
 		return nil
 	}
-	person := d.personApprovals(ctx)
-	reader := &deliveryrecord.Reader{}
 	out := make(map[delivery.ServiceRef][]delivery.IdentityPin, len(services))
 	var mu sync.Mutex
 	var g errgroup.Group
 	g.SetLimit(delivery.DescribeParallel)
 	for _, svc := range services {
 		g.Go(func() error {
-			pins := d.pinsOf(ctx, reader, cfg.StreamsRepository, svc, verify, person, t)
+			pins, unusable, err := read(ctx, svc)
+			if err != nil {
+				t.add("pins of " + svc.Name + ": " + err.Error())
+			}
+			for _, u := range unusable {
+				t.add("pins of " + svc.Name + ": " + u)
+			}
 			mu.Lock()
 			out[svc] = pins
 			mu.Unlock()
@@ -98,6 +129,26 @@ func (d *Delivery) readPins(ctx context.Context, cfg delivery.PublisherConfig, s
 	}
 	_ = g.Wait() // each read names its own failure
 	return out
+}
+
+// pinsReader reads a service's pins as the promoter reads them: each
+// verified with cfg's pin signer and each citing an approval record that
+// verifies. It answers the pins, the ones it could not use and a listing it
+// could not read. No streams repository means no recorder, so no pin
+// exists to read: nil and no error.
+func (d *Delivery) pinsReader(ctx context.Context, cfg delivery.PublisherConfig) (func(context.Context, delivery.ServiceRef) ([]delivery.IdentityPin, []string, error), error) {
+	if cfg.StreamsRepository == "" {
+		return nil, nil
+	}
+	verify, err := d.pinVerifier(cfg)
+	if err != nil {
+		return nil, err
+	}
+	person := d.personApprovals(ctx)
+	reader := &deliveryrecord.Reader{}
+	return func(ctx context.Context, svc delivery.ServiceRef) ([]delivery.IdentityPin, []string, error) {
+		return d.pinsOf(ctx, reader, cfg.StreamsRepository, svc, verify, person)
+	}, nil
 }
 
 // pinVerifier verifies pins with the pin signer cfg names, this cluster's
@@ -133,10 +184,10 @@ func (d *Delivery) personApprovals(ctx context.Context) func([]byte) (delivery.A
 	}
 }
 
-// pinsOf reads svc's usable pins from the streams repository, naming every
-// pin it could not use and a listing it could not read.
+// pinsOf reads svc's usable pins from the streams repository, with the
+// pins it could not use.
 func (d *Delivery) pinsOf(ctx context.Context, reader *deliveryrecord.Reader, streams string, svc delivery.ServiceRef, verify delivery.Verifier,
-	person func([]byte) (delivery.ApprovalStatement, string, error), t *trustReads) []delivery.IdentityPin {
+	person func([]byte) (delivery.ApprovalStatement, string, error)) ([]delivery.IdentityPin, []string, error) {
 	stream := delivery.PinStream(svc)
 	v := func(b []byte) error { return verify(stream, 0, b) }
 	open := func(path string) (*remote.Repository, error) { return d.Records(path) }
@@ -148,15 +199,11 @@ func (d *Delivery) pinsOf(ctx context.Context, reader *deliveryrecord.Reader, st
 		l, err = reader.ListPins(bounded, repo, svc, v, deliveryrecord.PinApproval(open, person, v))
 	}
 	if err != nil {
-		t.add("pins of " + svc.Name + ": " + err.Error())
-		return nil
-	}
-	for _, u := range l.Unreadable {
-		t.add("pins of " + svc.Name + ": " + u)
+		return nil, nil, err
 	}
 	pins := make([]delivery.IdentityPin, 0, len(l.Pins))
 	for _, p := range l.Pins {
 		pins = append(pins, p.Pin)
 	}
-	return pins
+	return pins, l.Unreadable, nil
 }
