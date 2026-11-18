@@ -215,6 +215,9 @@ func printPublishResult(cmd *cobra.Command, res *publish.Result, format string, 
 		if res.Refusal != "" {
 			_, _ = fmt.Fprintln(w, "Refusal: "+res.Refusal)
 		}
+		for _, n := range res.Notes {
+			_, _ = fmt.Fprintln(w, "note: "+n)
+		}
 		return nil
 	}, nil)
 }

@@ -123,11 +123,12 @@ func TestPublishCommandPublish(t *testing.T) {
 			t.Fatalf("%q: err %v, published %+v", args, err, got)
 		}
 	}
-	nothing := &publish.Result{Plan: publishPlan(true), Actions: []string{}, Digests: map[string]string{"manifests": cliB}}
+	nothing := &publish.Result{Plan: publishPlan(true), Actions: []string{}, Digests: map[string]string{"manifests": cliB},
+		Notes: []string{"ignored 9.9.9: not signed by the publisher"}}
 	out, err = runPublish(t, publishDeps(nothing, nil, &got), "json")
-	wantRun(t, out, err, false, `"actions": []`)
+	wantRun(t, out, err, false, `"actions": []`, `"notes"`)
 	out, err = runPublish(t, publishDeps(nothing, nil, &got), "text")
-	wantRun(t, out, err, false, "Nothing to publish")
+	wantRun(t, out, err, false, "Nothing to publish", "note: ignored 9.9.9: not signed by the publisher")
 	out, err = runPublish(t, publishDeps(done, nil, &got), "bogus")
 	wantRun(t, out, err, false)
 }
