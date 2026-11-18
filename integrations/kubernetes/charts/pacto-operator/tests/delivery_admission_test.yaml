@@ -351,7 +351,7 @@ tests:
           path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
           value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: 'spec.validations[?(@.message == "status.record and status.stream.{recordedSeq,head,anchor} are written only by the Pacto delivery recorder")].expression'
+          path: 'spec.validations[?(@.message == "status.record and status.stream.{recordedSeq,head,anchor,registryMode} are written only by the Pacto delivery recorder")].expression'
           pattern: "has\\(object.status.stream.head\\) \\? object.status.stream.head : ''\\) == \\(has\\(oldObject.status\\)"
         documentSelector:
           path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
@@ -370,7 +370,19 @@ tests:
           value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
           path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
-          pattern: "variables\\.stream\\.all\\(k, k in \\['recordedSeq', 'head', 'anchor'\\] \\|\\|"
+          pattern: "variables\\.stream\\.all\\(k, k in \\['recordedSeq', 'head', 'anchor', 'registryMode'\\] \\|\\|"
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
+      - matchRegex:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
+          pattern: "variables\\.oldStream\\.all\\(k, k in \\['recordedSeq', 'head', 'anchor', 'registryMode'\\] \\|\\|"
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
+      - matchRegex:
+          path: 'spec.validations[?(@.message == "status.record and status.stream.{recordedSeq,head,anchor,registryMode} are written only by the Pacto delivery recorder")].expression'
+          pattern: "has\\(object.status.stream.registryMode\\) \\? object.status.stream.registryMode : ''\\) == \\(has\\(oldObject.status\\)"
         documentSelector:
           path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
           value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"

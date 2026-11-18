@@ -403,7 +403,9 @@ spec:
                   precedent:
                     description: |-
                       Precedent is what happened the last times this version was the target
-                      of a recorded operation, on any Stage. Clients fill it from records;
+                      of a recorded operation, on any Stage that attaches records to this
+                      version; a Stage whose registry serves no Referrers API reads only its
+                      own stream. Clients fill it from records;
                       the promoter leaves it empty.
                     properties:
                       completeness:

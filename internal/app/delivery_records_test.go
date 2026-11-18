@@ -27,6 +27,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
+	"github.com/trianalab/pacto/v4/pkg/ocireferrer/capabilities"
 	"github.com/trianalab/pacto/v4/pkg/signing"
 	sigtest "github.com/trianalab/pacto/v4/pkg/signing/testutil"
 )
@@ -1078,5 +1079,64 @@ func TestBlameRevision(t *testing.T) {
 	failOperations(e.c)
 	if _, err := e.d.BlameWithRevision(ctx, "prod", "payments-prod", ""); err == nil {
 		t.Fatal("unreadable operations fail the blame")
+	}
+}
+
+// writeOnceStage is a Stage whose stream is written as write-once tags on a
+// registry without the Referrers API, holding twoRecords, the second of which
+// moved the Stage to dlA. The apply repository is unreachable, so a subject
+// listing would fail.
+func writeOnceStage(t *testing.T) (*recordEnv, *delivery.StageObject) {
+	t.Helper()
+	e := newRecordEnvOn(t, testutil.ReferrersOptions{Unsupported: true})
+	e.tagged = true
+	_, r2 := e.twoRecords()
+	e.setStream(map[string]any{"stream": map[string]any{"id": recStream, "seq": int64(2), "recordedSeq": int64(2), "head": r2,
+		"anchor": deliveryrecord.AnchorRef(e.host+"/delivery/streams", recStream), "registryMode": string(capabilities.ReferrersWriteOnceTags)}})
+	stage, err := e.d.Stage(context.Background(), "prod", "payments-prod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return e, stage
+}
+
+// TestPrecedentWriteOnceTagsReadsOwnStream: a write-once-tags Stage reads its
+// own stream, never the subject listing its registry cannot serve.
+func TestPrecedentWriteOnceTagsReadsOwnStream(t *testing.T) {
+	e, stage := writeOnceStage(t)
+	p := e.d.precedent(context.Background(), stage, dlA)
+	if p == nil || len(p.Entries) != 1 || p.Entries[0].Stream != recStream || p.Entries[0].Seq != 2 || p.Completeness != "partial" ||
+		p.Note != "the registry serves no Referrers API, so only this Stage's records were read" {
+		t.Fatalf("precedent = %+v", p)
+	}
+	e.srv.Close()
+	e.d.Streams = nil
+	if p := e.d.precedent(context.Background(), stage, dlA); p.Completeness != "partial" || !strings.Contains(p.Note, "could not be read") {
+		t.Fatalf("precedent with the registry down = %+v", p)
+	}
+}
+
+// TestPrecedentWriteOnceTagsNeverComplete: trust set, every record verified
+// and nothing unreadable still leaves a write-once-tags precedent partial.
+func TestPrecedentWriteOnceTagsNeverComplete(t *testing.T) {
+	e, stage := writeOnceStage(t)
+	if e.d.Trust == nil {
+		t.Fatal("the env sets a trust config")
+	}
+	if p := e.d.precedent(context.Background(), stage, dlA); p.Completeness != "partial" {
+		t.Fatalf("a write-once-tags precedent is never complete: %+v", p)
+	}
+}
+
+// TestPrecedentNativeNote: a native precedent says it read the Stages that
+// attach records to the version.
+func TestPrecedentNativeNote(t *testing.T) {
+	e, to := precedentEnv(t)
+	plan, _, err := e.d.Plan(context.Background(), delivery.Request{Namespace: "prod", Stage: "payments-prod", To: to})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := plan.Precedent; p.Completeness != "complete" || !strings.HasSuffix(p.Note, "on any Stage that attaches records to this version") {
+		t.Fatalf("precedent = %+v", p)
 	}
 }
