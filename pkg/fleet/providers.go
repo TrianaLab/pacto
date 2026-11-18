@@ -47,7 +47,17 @@ const (
 	// UseRepositoryProvenance: Pacto names the repository a group deploys
 	// from out of what the row read.
 	UseRepositoryProvenance = "repository-provenance"
+	// UsePromotion: the row's product promotes versions in this installation.
+	// Its evidence starts with PromotionOwnedBy.
+	UsePromotion = "promotion"
+	// UseReporting: the row's product reports provisioning or usage to Pacto,
+	// the reporting adapters row family.
+	UseReporting = "reporting"
 )
+
+// PromotionOwnedBy starts the evidence of every promotion row, followed by
+// the product: the phrase a delivery back-off reads.
+const PromotionOwnedBy = "promotion owned by "
 
 // A Provider is a system Pacto detected and read evidence from, never an
 // offering provider. A source reports its rows in [Collection.Providers]; ids
@@ -155,19 +165,29 @@ func checkDetectedClusters(snap *FleetSnapshot) {
 	}
 }
 
-// finalizeProviders runs once every source state is final. It drops the rows
-// of an unavailable source, never lets a row claim better health than its
-// source, gives every row that is not available a reason, renders counted
-// evidence, sorts by source then id, keeps the first of a duplicate and caps
-// the objects of each row.
+// finalizeProviders runs once every source state is final. It adds the
+// reporting adapter rows, drops the rows of an unavailable source, never lets
+// a row claim better health than its source, gives every row that is not
+// available a reason, renders counted evidence, sorts by source then id, keeps
+// the first of a duplicate and caps the objects of each row.
 func finalizeProviders(snap *FleetSnapshot) {
+	snap.Providers = finalizeRows(append(snap.Providers, reportingRows(snap.Provisioning)...), sourceStates(snap.Sources))
+}
+
+// sourceStates is the least healthy status of each source id.
+func sourceStates(sources []SourceState) map[string]SourceStatus {
 	state := map[string]SourceStatus{}
-	for _, st := range snap.Sources {
+	for _, st := range sources {
 		if cur, ok := state[st.ID]; !ok || sourceHealthRank(st.Status) < sourceHealthRank(cur) {
 			state[st.ID] = st.Status
 		}
 	}
-	rows := slices.DeleteFunc(snap.Providers, func(p Provider) bool { return state[p.Source] == SourceUnavailable })
+	return state
+}
+
+// finalizeRows is finalizeProviders over rows and the source states.
+func finalizeRows(rows []Provider, state map[string]SourceStatus) []Provider {
+	rows = slices.DeleteFunc(rows, func(p Provider) bool { return state[p.Source] == SourceUnavailable })
 	slices.SortStableFunc(rows, func(a, b Provider) int { return cmp.Or(cmp.Compare(a.Source, b.Source), cmp.Compare(a.ID, b.ID)) })
 	rows = slices.CompactFunc(rows, func(a, b Provider) bool { return a.Source == b.Source && a.ID == b.ID })
 	for i := range rows {
@@ -197,7 +217,45 @@ func finalizeProviders(snap *FleetSnapshot) {
 			p.Objects = p.Objects[:MaxProviderObjects]
 		}
 	}
-	snap.Providers = rows
+	return rows
+}
+
+// reportingAdapterID prefixes the id of every row reportingRows makes.
+const reportingAdapterID = "reporting-adapter/"
+
+// restrictedProviders is rows restricted by restrictProviders, with the
+// reporting adapter rows made again from out's restricted provisioning
+// reports, so a view never names an adapter or producer its reports hide.
+func restrictedProviders(out *FleetSnapshot, rows []Provider, hiddenNames []string, visible func(string) bool, workloadVisible func(namespace, kind string) bool) []Provider {
+	rows = slices.DeleteFunc(slices.Clone(rows), func(p Provider) bool { return strings.HasPrefix(p.ID, reportingAdapterID) })
+	rows = append(restrictProviders(rows, hiddenNames, visible, workloadVisible, out.Clusters), finalizeRows(reportingRows(out.Provisioning), sourceStates(out.Sources))...)
+	slices.SortStableFunc(rows, func(a, b Provider) int { return cmp.Or(cmp.Compare(a.Source, b.Source), cmp.Compare(a.ID, b.ID)) })
+	return rows
+}
+
+// reportingRows are the reporting adapter rows of recs, the matched
+// provisioning reports: one per source and adapter, an adapter being the slug
+// and producer offeringAdapters groups reporters by.
+func reportingRows(recs []ProvisioningRecord) []Provider {
+	seen := map[[3]string]bool{}
+	var rows []Provider
+	for _, r := range recs {
+		k := [3]string{r.Source, r.Provider, r.Producer}
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		ev := "reports provisioning in the unsigned target-state file"
+		if r.Verified {
+			ev = "reports provisioning in signed envelopes"
+		}
+		if r.Producer != "" {
+			ev += " as producer " + r.Producer
+		}
+		rows = append(rows, Provider{ID: reportingAdapterID + r.Provider + "/" + r.Producer, Source: r.Source,
+			Name: cmp.Or(r.Provider, "unnamed adapter"), Evidence: ev, UsedFor: []string{UseReporting}})
+	}
+	return rows
 }
 
 // countsEvidence is WorkloadEvidence over per-namespace counts.

@@ -584,3 +584,30 @@ func TestRestrictProvidersKeepsZeroCounts(t *testing.T) {
 		t.Errorf("a zero count asks for review: %v", got)
 	}
 }
+
+func TestReportingRowsFromProvisioningReporters(t *testing.T) {
+	snap := &FleetSnapshot{
+		Sources: []SourceState{{ID: "evidence", Status: SourceAvailable}, {ID: "file", Status: SourceAvailable}, {ID: "gone", Status: SourceUnavailable}},
+		Provisioning: []ProvisioningRecord{
+			{Source: "evidence", Provider: "crossplane", Producer: "platform", Verified: true},
+			{Source: "evidence", Provider: "crossplane", Producer: "platform", Verified: true, Name: "second request"},
+			{Source: "file", Verified: false},
+			{Source: "gone", Provider: "x"},
+		},
+	}
+	finalizeProviders(snap)
+	got := map[string]string{}
+	for _, p := range snap.Providers {
+		if !slices.Equal(p.UsedFor, []string{UseReporting}) || p.Status != SourceAvailable {
+			t.Errorf("row %+v", p)
+		}
+		got[p.Source+" "+p.ID+" "+p.Name] = p.Evidence
+	}
+	want := map[string]string{
+		"evidence reporting-adapter/crossplane/platform crossplane": "reports provisioning in signed envelopes as producer platform",
+		"file reporting-adapter// unnamed adapter":                  "reports provisioning in the unsigned target-state file",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("rows = %v, want %v", got, want)
+	}
+}

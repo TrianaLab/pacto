@@ -222,6 +222,24 @@ func TestAdoptApplierUnsupportedIsUnknown(t *testing.T) {
 	wantState(t, "a name this core does not know", adopt(argoRef, nil, other), ApplierUnknown, "Something (Thing x, a mark) manages Deployment w0")
 }
 
+// TestExternalIsGateOnly: a workload a tool the installation named manages is
+// never Adopted, so the promoter writes no pointer, and never Unsupported.
+func TestExternalIsGateOnly(t *testing.T) {
+	ext := workloadmanager.Manager{Name: workloadmanager.External, Product: "Platform", Evidence: "field manager platform-applier"}
+	for _, ref := range []ApplyRef{argoRef, {Name: "payments"}, {Kind: ApplierHelmRelease, Name: "payments"}} {
+		got := adopt(ref, nil, ext)
+		wantState(t, "external", got, ApplierUnknown,
+			"external: Platform manages Deployment w0 (field manager platform-applier): Pacto runs the gates and writes no pointer")
+		if got.Manager != "external" || got.Display != "external: Platform (field manager platform-applier)" || got.Owner != "" {
+			t.Errorf("external: %+v", got)
+		}
+		p := applierPlan(t, ref, &got)
+		if v := verdict(t, p, GateApplier); v.Result == Pass || p.Predicted == PredictProceeds || v.Citation["observed"] != got.Display {
+			t.Fatalf("external lets a pointer through: %+v %+v", v, p)
+		}
+	}
+}
+
 func TestSameApplierIgnoresTimes(t *testing.T) {
 	a := adopt(argoRef, nil, argoOwner("payments", "payments"))
 	b := a

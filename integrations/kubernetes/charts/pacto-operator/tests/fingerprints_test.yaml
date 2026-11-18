@@ -1,0 +1,116 @@
+suite: fingerprints
+templates:
+  - templates/fingerprints.yaml
+  - templates/deployment.yaml
+  - templates/delivery/deployment.yaml
+release:
+  name: f
+  namespace: pacto-system
+capabilities:
+  majorVersion: 1
+  minorVersion: 30
+  apiVersions:
+    - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+tests:
+  - it: renders the three promoter defaults into a ConfigMap
+    template: templates/fingerprints.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: metadata.name
+          value: f-pacto-operator-fingerprints
+      - equal:
+          path: data["fingerprints.yaml"]
+          value: |-
+            managers: []
+            promoters:
+            - crd: stages.kargo.akuity.io
+              product: Kargo
+            - crd: warehouses.kargo.akuity.io
+              product: Kargo
+            - annotation: argocd-image-updater.argoproj.io/image-list
+              product: Argo CD Image Updater
+            - crd: imageupdateautomations.image.toolkit.fluxcd.io
+              product: Flux ImageUpdateAutomation
+
+  - it: hands the ConfigMap to the managed dashboard
+    template: templates/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-fingerprints-configmap=f-pacto-operator-fingerprints
+
+  - it: renders no ConfigMap and no flag with no fingerprint
+    set:
+      fingerprints.promoters: null
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: templates/fingerprints.yaml
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-fingerprints-configmap=f-pacto-operator-fingerprints
+        template: templates/deployment.yaml
+
+  - it: renders a manager entry
+    template: templates/fingerprints.yaml
+    set:
+      fingerprints.promoters: null
+      fingerprints.managers:
+        - product: Platform
+          fieldManager: platform-applier
+    asserts:
+      - equal:
+          path: data["fingerprints.yaml"]
+          value: |-
+            managers:
+            - fieldManager: platform-applier
+              product: Platform
+            promoters: []
+
+  - it: refuses an entry with two matchers
+    template: templates/fingerprints.yaml
+    set:
+      fingerprints.managers:
+        - product: Platform
+          fieldManager: platform-applier
+          label: platform.example.com/app
+    asserts:
+      - failedTemplate: {}
+
+  - it: mounts the fingerprints into the delivery promoter
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.enabled: true
+    asserts:
+      - equal:
+          path: metadata.name
+          value: f-pacto-operator-delivery-fingerprints
+        documentIndex: 0
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --fingerprints=/etc/pacto/fingerprints/fingerprints.yaml
+        documentIndex: 1
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: fingerprints
+            configMap:
+              name: f-pacto-operator-delivery-fingerprints
+        documentIndex: 1
+      - exists:
+          path: spec.template.metadata.annotations["checksum/fingerprints"]
+        documentIndex: 1
+
+  - it: gives the delivery promoter no fingerprints when there are none
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.enabled: true
+      fingerprints.promoters: null
+    asserts:
+      - hasDocuments:
+          count: 1
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --fingerprints=/etc/pacto/fingerprints/fingerprints.yaml

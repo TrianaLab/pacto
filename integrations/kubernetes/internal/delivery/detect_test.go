@@ -30,6 +30,7 @@ import (
 
 	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/workloadmanager"
 )
 
 // detect runs detectApplier for the Stage s over the env's cluster.
@@ -194,6 +195,17 @@ func TestDetectApplierUnlabelledWorkloadIsUnknown(t *testing.T) {
 		return err
 	}})
 	wantApplier(t, e.detect(stageObj(dA)), delivery.ApplierUnknown, "flux", "complete", "field manager kustomize-controller")
+}
+
+// TestDetectApplierConfiguredManagerIsExternal: a workload a manager the
+// installation configured labels reads external, Unknown: the promoter runs
+// the gates and writes no pointer.
+func TestDetectApplierConfiguredManagerIsExternal(t *testing.T) {
+	d := deployment("payments", 2, 2)
+	d.Labels = map[string]string{"platform.example.com/app": "payments"}
+	e := newEnv(t, d, pactoObj("payments", "payments", c1, "Compliant", 2))
+	e.st.Cluster.Managers = workloadmanager.Detector{Extra: []workloadmanager.Fingerprint{{Product: "Platform", Label: "platform.example.com/app"}}}
+	wantApplier(t, e.detect(stageObj(dA)), delivery.ApplierUnknown, "external", "complete", "external: Platform manages Deployment payments")
 }
 
 // TestDetectApplierControllerOwnerIsUnknown: a Job an operator owns (a

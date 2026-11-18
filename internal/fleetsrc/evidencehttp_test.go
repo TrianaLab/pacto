@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -395,5 +396,62 @@ func TestEvidenceHTTPDropsValuelessUsageMetric(t *testing.T) {
 	}
 	if len(col.Limitations) != 1 || col.Limitations[0].Code != fleet.LimitationSourceRecordInvalid {
 		t.Errorf("limitations = %+v, want one invalid-record limitation", col.Limitations)
+	}
+}
+
+// TestEvidenceSourceReadsAdapters: GET /producers adapters become reporting
+// rows; an older server, a failed or unreadable read gives none.
+func TestEvidenceSourceReadsAdapters(t *testing.T) {
+	collect := func(producers http.HandlerFunc) []fleet.Provider {
+		t.Helper()
+		mux := http.NewServeMux()
+		mux.HandleFunc("GET "+evidenceingest.TargetsPath, func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(targetsJSON)) })
+		mux.HandleFunc("GET "+evidenceingest.ProducersPath, producers)
+		srv := httptest.NewServer(mux)
+		defer srv.Close()
+		col, err := NewEvidenceHTTPSource("ev", srv.URL).Collect(t.Context())
+		if err != nil || len(col.Targets) != 1 {
+			t.Fatalf("collect: %v %+v", err, col)
+		}
+		return col.Providers
+	}
+	write := func(body string) http.HandlerFunc {
+		return func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) }
+	}
+	got := collect(write(`{"producers":["crossplane"],"adapters":[{"producer":"crossplane","kinds":["ResourceProvisioned","ResourceUsage"]}]}`))
+	want := []fleet.Provider{{ID: "reporting-producer/crossplane", Name: "crossplane", UsedFor: []string{fleet.UseReporting},
+		Evidence: "the trust config allows it to report ResourceProvisioned and ResourceUsage"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("rows = %+v", got)
+	}
+	for name, h := range map[string]http.HandlerFunc{
+		"older server": write(`{"producers":["crossplane"]}`),
+		"not json":     write(`{`),
+		"forbidden":    func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusForbidden) },
+		"dropped":      func(http.ResponseWriter, *http.Request) { panic(http.ErrAbortHandler) },
+	} {
+		if rows := collect(h); rows != nil {
+			t.Errorf("%s: rows = %+v", name, rows)
+		}
+	}
+}
+
+// TestReportingRowsFromEvidenceProducers: the adapters reach the snapshot as
+// reporting rows of the evidence source.
+func TestReportingRowsFromEvidenceProducers(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET "+evidenceingest.TargetsPath, func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(targetsJSON)) })
+	mux.HandleFunc("GET "+evidenceingest.ProducersPath, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"producers":[],"adapters":[{"producer":"billing","kinds":["ResourceUsage"]}]}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	snap, err := fleet.Build(t.Context(), fleet.BuildOptions{}, NewEvidenceHTTPSource("ev", srv.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := fleet.NewQuery(snap).Providers()
+	if len(q.Providers) != 1 || q.Providers[0].Source != "ev" || q.Providers[0].Name != "billing" || !slices.Equal(q.Providers[0].UsedFor, []string{fleet.UseReporting}) {
+		t.Errorf("providers = %+v", q.Providers)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -1059,5 +1060,36 @@ func TestProviderScopedKindsIsACopy(t *testing.T) {
 	got[0] = evidence.WorkloadObserved
 	if ProviderScopedKinds()[0] != evidence.ResourceProvisioned {
 		t.Error("mutating the returned slice changed the scoped kinds")
+	}
+}
+
+func TestProducersEndpointListsAdapters(t *testing.T) {
+	ts := evidenceenvelope.MapTrustStore{
+		"k-prov":   {ProducerID: "crossplane", AllowedObservationKinds: []string{string(evidence.ResourceProvisioned), string(evidence.ResourceUsage)}},
+		"k-prov-2": {ProducerID: "crossplane", AllowedObservationKinds: []string{string(evidence.ResourceUsage)}},
+		"k-free":   {AllowedObservationKinds: []string{string(evidence.ResourceUsage)}},
+		"k-team":   {ProducerID: "team"},
+	}
+	want := []ProducerAdapter{
+		{Producer: "crossplane", Kinds: []string{"ResourceProvisioned", "ResourceUsage"}},
+		{Producer: "key k-free", Kinds: []string{"ResourceUsage"}},
+	}
+	if got := ReportingAdapters(ts); !reflect.DeepEqual(got, want) {
+		t.Fatalf("adapters = %+v", got)
+	}
+	for _, tc := range []struct {
+		adapters []ProducerAdapter
+		body     string
+	}{
+		{nil, `{"producers":["env-a"]}`},
+		{want, `{"producers":["env-a"],"adapters":[{"producer":"crossplane","kinds":["ResourceProvisioned","ResourceUsage"]},{"producer":"key k-free","kinds":["ResourceUsage"]}]}`},
+	} {
+		mux := http.NewServeMux()
+		NewHandler(nil, []string{"env-a"}, nil).WithAdapters(tc.adapters).Routes(mux)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/evidence/v1/producers", nil))
+		if got := strings.TrimSpace(rec.Body.String()); got != tc.body {
+			t.Errorf("body = %s, want %s", got, tc.body)
+		}
 	}
 }

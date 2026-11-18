@@ -562,3 +562,59 @@ func TestFluxRowServedKindsOnly(t *testing.T) {
 		}
 	}
 }
+
+// promoterFingerprints are an installation's promoters, as the chart writes
+// them: data, never code.
+var promoterFingerprints = []workloadmanager.Fingerprint{
+	{Product: "Promoter", CRD: "stages.promoter.example.com"},
+	{Product: "Promoter", CRD: "warehouses.promoter.example.com"},
+	{Product: "Updater", Annotation: "updater.example.com/image-list"},
+	{Product: "Portal", Label: "portal.example.com/promoted"},
+}
+
+func promoterRowsOf(col *fleet.Collection) []fleet.Provider {
+	return slices.DeleteFunc(slices.Clone(col.Providers), func(p fleet.Provider) bool { return !slices.Contains(p.UsedFor, fleet.UsePromotion) })
+}
+
+func TestPromoterRowFromCRD(t *testing.T) {
+	f := &workloadFake{versions: map[string]string{"promoter.example.com": "v1alpha1"}}
+	col, err := NewWorkloadSource("w", nil, f, nil).WithPromoters(promoterFingerprints).Collect(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []fleet.Provider{{ID: "promotion/Promoter", Name: "Promoter", UsedFor: []string{fleet.UsePromotion},
+		Evidence: "promotion owned by Promoter (CRD stages.promoter.example.com served, CRD warehouses.promoter.example.com served)",
+		Objects:  []fleet.ProviderObject{{Kind: "CustomResourceDefinition", Name: "stages.promoter.example.com"}, {Kind: "CustomResourceDefinition", Name: "warehouses.promoter.example.com"}}}}
+	if got := promoterRowsOf(col); !reflect.DeepEqual(got, want) {
+		t.Errorf("rows = %+v", got)
+	}
+	if !slices.Contains(f.discovered, "promoter.example.com") {
+		t.Errorf("discovery asked for %v", f.discovered)
+	}
+	// A failed discovery names no CRD promoter; no fingerprint, no row.
+	f = &workloadFake{versions: map[string]string{"promoter.example.com": "v1"}, discErr: errors.New("down")}
+	if col, _ := NewWorkloadSource("w", nil, f, nil).WithPromoters(promoterFingerprints).Collect(t.Context()); len(promoterRowsOf(col)) != 0 {
+		t.Errorf("discovery failed: %+v", promoterRowsOf(col))
+	}
+	if col, _ := NewWorkloadSource("w", nil, &workloadFake{versions: map[string]string{"promoter.example.com": "v1"}}, nil).Collect(t.Context()); len(promoterRowsOf(col)) != 0 {
+		t.Errorf("no fingerprints: %+v", promoterRowsOf(col))
+	}
+}
+
+func TestPromoterRowFromAnnotation(t *testing.T) {
+	annotated := `{"metadata":{"name":"cart","namespace":"shop","annotations":{"updater.example.com/image-list":"cart=img"},"labels":{"portal.example.com/promoted":"yes"}}}`
+	other := `{"metadata":{"name":"db","namespace":"shop","annotations":{"portal.example.com/promoted":"in annotations, not labels"}}}`
+	f := &workloadFake{pages: map[string][2]string{"deployments||": {annotated + "," + other}}}
+	col, err := NewWorkloadSource("w", nil, f, nil).WithPromoters(promoterFingerprints).Collect(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cart := []fleet.ProviderObject{{Kind: "Deployment", Namespace: "shop", Name: "cart"}}
+	want := []fleet.Provider{
+		{ID: "promotion/Updater", Name: "Updater", UsedFor: []string{fleet.UsePromotion}, Evidence: "promotion owned by Updater (annotation updater.example.com/image-list on workloads)", Objects: cart},
+		{ID: "promotion/Portal", Name: "Portal", UsedFor: []string{fleet.UsePromotion}, Evidence: "promotion owned by Portal (label portal.example.com/promoted on workloads)", Objects: cart},
+	}
+	if got := promoterRowsOf(col); !reflect.DeepEqual(got, want) {
+		t.Errorf("rows = %+v", got)
+	}
+}

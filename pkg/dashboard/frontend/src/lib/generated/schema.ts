@@ -1414,10 +1414,10 @@ export interface components {
             /** @description What on the workload names its manager, such as tracking annotation */
             evidence?: string;
             /**
-             * @description The detected manager; both Flux kinds read flux and owner names the kind. Empty when no workload could be read
+             * @description The detected manager; both Flux kinds read flux and owner names the kind; external is a tool the installation named in its fingerprints. Empty when no workload could be read
              * @enum {string}
              */
-            manager?: "argocd" | "flux" | "helm" | "unsupported" | "ambiguous" | "none";
+            manager?: "argocd" | "flux" | "helm" | "external" | "unsupported" | "ambiguous" | "none";
             message?: string;
             /** @description The object that manages the workloads, such as Application payments/payments */
             owner?: string;

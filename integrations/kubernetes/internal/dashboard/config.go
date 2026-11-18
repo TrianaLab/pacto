@@ -108,6 +108,12 @@ type Config struct {
 	// optional kubelet-mounted file, so its ServiceAccount gains no rule.
 	// Empty: the dashboard shows no detected rows.
 	DetectedConfigMap string
+
+	// FingerprintsConfigMap names the ConfigMap, in the operator namespace,
+	// holding the installation's workload manager and promoter fingerprints
+	// (fingerprints.yaml). The dashboard reads it as a kubelet-mounted file,
+	// so its ServiceAccount gains no rule. Empty: no fingerprints.
+	FingerprintsConfigMap string
 }
 
 // KeyRef names one key of a ConfigMap or a Secret in the operator namespace.

@@ -178,3 +178,34 @@ func TestEvidenceServeRejectsInvalidClusterID(t *testing.T) {
 		}
 	}
 }
+
+// TestFleetFingerprintsAddPromoterRows: the --fingerprints file names the
+// promoters the workload source reports; a missing or invalid file is refused
+// before any source is read.
+func TestFleetFingerprintsAddPromoterRows(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "fingerprints.yaml")
+	if err := os.WriteFile(path, []byte("promoters:\n- product: Promoter\n  crd: stages.promoter.example.com\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	svc := k8sService("ctx")
+	fake := &fakeFleetK8sClient{disc: &k8sclient.CRDDiscovery{}, versions: map[string]string{"promoter.example.com": "v1"}}
+	svc.sys.newK8s = func() (k8sclient.K8sClient, error) { return fake, nil }
+	snap, err := svc.Fleet(context.Background(), FleetOptions{IncludeK8s: true, Fingerprints: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(snap.Providers, func(p fleet.Provider) bool {
+		return p.Evidence == "promotion owned by Promoter (CRD stages.promoter.example.com served)"
+	}) {
+		t.Errorf("providers = %+v", snap.Providers)
+	}
+	bad := filepath.Join(t.TempDir(), "bad.yaml")
+	if err := os.WriteFile(bad, []byte("promoters:\n- product: P\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{bad, filepath.Join(t.TempDir(), "missing.yaml")} {
+		if _, err := svc.Fleet(context.Background(), FleetOptions{IncludeK8s: true, Fingerprints: p}); err == nil || !strings.Contains(err.Error(), "--fingerprints") {
+			t.Errorf("%s: err = %v", p, err)
+		}
+	}
+}

@@ -226,7 +226,7 @@ func (q *Query) Restrict(visible func(namespace string) bool, workloadVisible fu
 	hiddenNames = append(hiddenNames, slices.Collect(maps.Keys(hiddenNS))...)
 	restrictLimitations(&out, s.Limitations, hiddenNames, restricted)
 	restrictScope(&out, visible)
-	out.Providers = restrictProviders(s.Providers, hiddenNames, visible, workloadVisible, out.Clusters)
+	out.Providers = restrictedProviders(&out, s.Providers, hiddenNames, visible, workloadVisible)
 	out.Limitations = append(out.Limitations, Limitation{Code: LimitationHiddenByPermissions, Message: hiddenMessage + kindHiddenNote(s, hiddenSvc, hiddenNS)})
 	sortSnapshotLimitations(&out)
 	out.Completeness = CompletenessPartial

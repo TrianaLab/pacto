@@ -232,6 +232,13 @@ const (
 	detectedKey       = "detected.json"
 )
 
+// The managed dashboard reads the installation's fingerprints from this file.
+const (
+	fingerprintsEnvVar    = "PACTO_DASHBOARD_FINGERPRINTS"
+	fingerprintsMountPath = "/etc/pacto/fingerprints"
+	fingerprintsKey       = "fingerprints.yaml"
+)
+
 // deploymentAC returns a server-side apply configuration for the dashboard Deployment.
 func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 	env := []*corev1ac.EnvVarApplyConfiguration{
@@ -310,6 +317,15 @@ func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 			corev1ac.ConfigMapVolumeSource().WithName(cfg.DetectedConfigMap).
 				WithItems(corev1ac.KeyToPath().WithKey(detectedKey).WithPath(detectedKey)).
 				WithOptional(true)))
+	}
+
+	if cfg.FingerprintsConfigMap != "" {
+		env = append(env, corev1ac.EnvVar().WithName(fingerprintsEnvVar).WithValue(fingerprintsMountPath+"/"+fingerprintsKey))
+		volumeMounts = append(volumeMounts,
+			corev1ac.VolumeMount().WithName("fingerprints").WithMountPath(fingerprintsMountPath).WithReadOnly(true))
+		volumes = append(volumes, corev1ac.Volume().WithName("fingerprints").WithConfigMap(
+			corev1ac.ConfigMapVolumeSource().WithName(cfg.FingerprintsConfigMap).
+				WithItems(corev1ac.KeyToPath().WithKey(fingerprintsKey).WithPath(fingerprintsKey))))
 	}
 
 	if len(cfg.OCISecrets) > 0 {

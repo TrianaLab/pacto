@@ -657,7 +657,7 @@
   },
   "pg-removed": {
     "schemaVersion": "pacto.dev/impact/v1",
-    "snapshotId": "sha256:e304b028679593f6a15f5c1f4d344a2e060a7770937089b97d0062fdeccc4b24",
+    "snapshotId": "sha256:bb261efa79ab4899b5f1acd09842c0cebc519c8862e904ef2d7d69b33ab7548f",
     "asOf": "2026-11-10T12:00:00Z",
     "service": "postgresql",
     "classification": "",

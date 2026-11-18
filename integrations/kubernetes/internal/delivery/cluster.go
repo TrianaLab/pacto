@@ -34,6 +34,7 @@ import (
 
 	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/workloadmanager"
 )
 
 // Flux and Pacto kinds the promoter reads through unstructured objects, so the
@@ -64,6 +65,10 @@ type Cluster struct {
 	// FluxHelm says the promoter watches Flux HelmReleases, so Cache holds
 	// them too.
 	FluxHelm bool
+	// Managers detects who manages a Stage's workloads, with the workload
+	// manager fingerprints the installation configured (--fingerprints). The
+	// zero value knows only the built-in ones.
+	Managers workloadmanager.Detector
 	// Registry returns a read-only registry client that reaches insecureHosts
 	// over plain HTTP.
 	Registry func(insecureHosts ...string) delivery.Registry

@@ -72,6 +72,7 @@ func addFleetSourceFlags(f *pflag.FlagSet) {
 	shared.Duration("freshness", fleet.RecentEvidenceWindow, "mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so)")
 	shared.String("external-catalog", "", "organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST (a tag is refused)")
 	shared.String("detected", "", "add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON")
+	shared.String("fingerprints", "", "a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers")
 	f.AddFlagSet(shared)
 }
 
@@ -81,7 +82,7 @@ func addFleetSourceFlags(f *pflag.FlagSet) {
 func fleetFlagNames() []string {
 	return []string{
 		"local", "root", "target-state", "evidence-url", "mira-source", "traces", "oci",
-		"cache", "k8s", "namespace", "freshness", "external-catalog", "detected",
+		"cache", "k8s", "namespace", "freshness", "external-catalog", "detected", "fingerprints",
 	}
 }
 
@@ -156,6 +157,7 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 	freshness, _ := cmd.Flags().GetDuration("freshness")
 	externalCatalog, _ := cmd.Flags().GetString("external-catalog")
 	detected, _ := cmd.Flags().GetString("detected")
+	fingerprints, _ := cmd.Flags().GetString("fingerprints")
 	return app.FleetOptions{
 		LocalRoots:         local,
 		CatalogRoots:       roots,
@@ -170,6 +172,7 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 		FreshnessWindow:    freshness,
 		ExternalCatalogRef: externalCatalog,
 		Detected:           detected,
+		Fingerprints:       fingerprints,
 		Provenance:         app.NewProvenanceChecker(),
 		Now:                fleetNow,
 	}

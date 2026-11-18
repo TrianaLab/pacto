@@ -18,6 +18,22 @@ data:
   trust.yaml: {{ . | quote }}
 ---
 {{- end }}
+{{- $fingerprints := include "pacto-operator.fingerprints" . }}
+{{- with $fingerprints }}
+# The workload managers and promoters this installation runs (fingerprints):
+# a workload a configured manager applies reads external, and the promoter
+# writes no pointer for it.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "pacto-operator.delivery.fullname" $ }}-fingerprints
+  namespace: {{ include "pacto-operator.delivery.namespace" $ }}
+  labels:
+    {{- include "pacto-operator.delivery.labels" (dict "ctx" $ "component" "delivery-promoter") | nindent 4 }}
+data:
+  fingerprints.yaml: {{ . | quote }}
+---
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -32,8 +48,9 @@ spec:
       {{- include "pacto-operator.delivery.selectorLabels" (dict "ctx" . "component" "delivery-promoter") | nindent 6 }}
   template:
     metadata:
-      {{- /* The promoter reads its identity policy once: a change restarts it. */}}
+      {{- /* The promoter reads its identity policy and fingerprints once: a change restarts it. */}}
       {{- $checksum := dict "checksum/identities" (include "pacto-operator.delivery.identitiesJSON" . | sha256sum) }}
+      {{- if $fingerprints }}{{ $_ := set $checksum "checksum/fingerprints" ($fingerprints | sha256sum) }}{{ end }}
       {{- include "pacto-operator.podMetadata" (dict "ctx" . "values" .Values.delivery "labels" (include "pacto-operator.delivery.labels" (dict "ctx" . "component" "delivery-promoter")) "annotations" $checksum) | trim | nindent 6 }}
     spec:
       {{- include "pacto-operator.podSpec" (dict "ctx" . "values" .Values.delivery "serviceAccountName" (include "pacto-operator.delivery.serviceAccountName" .)) | trim | nindent 6 }}
@@ -78,6 +95,9 @@ spec:
             {{- end }}
             {{- with $stats.repository }}
             - --stats-repository={{ . }}
+            {{- end }}
+            {{- if $fingerprints }}
+            - --fingerprints=/etc/pacto/fingerprints/fingerprints.yaml
             {{- end }}
             {{- if $stats.registryCredentials.secretName }}
             - --stats-docker-config=/etc/pacto/stats-registry
@@ -125,6 +145,11 @@ spec:
             - name: identities
               mountPath: /etc/pacto/identities
               readOnly: true
+            {{- if $fingerprints }}
+            - name: fingerprints
+              mountPath: /etc/pacto/fingerprints
+              readOnly: true
+            {{- end }}
             {{- if .Values.delivery.gates.caBundle.configMap }}
             - name: gate-ca
               mountPath: /etc/pacto/ca
@@ -155,6 +180,11 @@ spec:
         - name: identities
           configMap:
             name: pacto-delivery-identities
+        {{- if $fingerprints }}
+        - name: fingerprints
+          configMap:
+            name: {{ include "pacto-operator.delivery.fullname" . }}-fingerprints
+        {{- end }}
         {{- with .Values.delivery.gates.caBundle }}
         {{- if .configMap }}
         - name: gate-ca

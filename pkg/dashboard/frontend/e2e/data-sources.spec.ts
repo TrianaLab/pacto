@@ -150,10 +150,11 @@ test.describe('the inventory says what Pacto detected', () => {
     const block = page.getByTestId('detected-providers');
     await expect(block.getByRole('heading', { level: 2, name: 'Detected providers' })).toBeVisible();
     const rows = block.getByTestId('provider-row');
-    // Five reported rows (the Pacto CRD, Kubernetes workloads and the Argo CD,
-    // Flux and Helm rows that group the inferred services) plus the six the
-    // cluster's operator detected: five show, the reported ones first, the rest
-    // behind Show all, and no cluster is unread in the demo.
+    // Nine reported rows (the Pacto CRD, Kubernetes workloads, the Argo CD,
+    // Flux and Helm rows that group the inferred services and four reporting
+    // adapters) plus the six the cluster's operator detected: five show, the
+    // reported ones first, the rest behind Show all, and no cluster is unread
+    // in the demo.
     await expect(rows).toHaveCount(5);
     await expect(rows.nth(0)).not.toHaveClass(/dp-inferred/);
     await expect(rows.nth(1)).not.toHaveClass(/dp-inferred/);
@@ -161,9 +162,10 @@ test.describe('the inventory says what Pacto detected', () => {
     await expect(block).toContainText('Pacto CRD');
     await expect(block).toContainText('Kubernetes workloads');
     await expect(block).toContainText('service grouping, repository provenance');
-    await block.getByRole('button', { name: 'Show all 11 providers' }).click();
-    await expect(rows).toHaveCount(11);
-    await expect(rows.nth(5)).toHaveClass(/dp-inferred/);
+    await block.getByRole('button', { name: 'Show all 15 providers' }).click();
+    await expect(rows).toHaveCount(15);
+    await expect(rows.nth(8)).not.toHaveClass(/dp-inferred/);
+    await expect(rows.nth(9)).toHaveClass(/dp-inferred/);
     await expect(block.getByTestId('provider-not-read')).toHaveCount(0);
     // The block lives inside Data sources: the primary navigation gained no entry.
     const primary = page.getByRole('navigation', { name: 'Primary' }).first();

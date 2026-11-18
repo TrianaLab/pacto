@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/evidence"
@@ -144,6 +145,7 @@ func (s *EvidenceHTTPSource) Collect(ctx context.Context) (*fleet.Collection, er
 		})
 	}
 
+	col.Providers = s.adapterRows(ctx)
 	usage, lims := s.usageRecords(data.Bytes(), body.Usage)
 	col.Usage, col.Limitations = usage, append(col.Limitations, lims...)
 
@@ -162,6 +164,31 @@ func (s *EvidenceHTTPSource) Collect(ctx context.Context) (*fleet.Collection, er
 		})
 	}
 	return col, nil
+}
+
+// adapterRows are the reporting adapter rows of the server's GET /producers:
+// one per producer its trust config allows to report provisioning or usage.
+// ponytail: a server that lists no adapters (an older one) or a read that
+// fails gives no row and no limitation; a missing row claims nothing, and the
+// targets the source exists for were read.
+func (s *EvidenceHTTPSource) adapterRows(ctx context.Context) []fleet.Provider {
+	// The targets request on the same base URL was already built.
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, s.baseURL+evidenceingest.ProducersPath, nil)
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var body evidenceingest.ProducersResponse
+	if resp.StatusCode != http.StatusOK || strictjson.Decode(io.LimitReader(resp.Body, maxEvidenceBodyBytes), &body) != nil {
+		return nil
+	}
+	var rows []fleet.Provider
+	for _, a := range body.Adapters {
+		rows = append(rows, fleet.Provider{ID: "reporting-producer/" + a.Producer, Name: a.Producer, UsedFor: []string{fleet.UseReporting},
+			Evidence: "the trust config allows it to report " + strings.Join(a.Kinds, " and ")})
+	}
+	return rows
 }
 
 // acceptingCluster is the cluster that accepted a record, nil when unknown. The

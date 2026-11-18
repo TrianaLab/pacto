@@ -8,7 +8,7 @@ import (
 )
 
 // TestDemoProviderRows: the demo cluster reports the five rows a real one
-// does, the Pacto CRD from the Kubernetes source and the workloads, Argo CD,
+// does, beside the reporting adapter rows of its provisioning reports, the Pacto CRD from the Kubernetes source and the workloads, Argo CD,
 // Flux and Helm rows from the workload source, and the workloads row counts
 // what the demo itself holds: the targets the cluster reports plus the
 // inferred workloads. The detected rows are TestDemoFleetHasDetectedRows's;
@@ -16,8 +16,12 @@ import (
 func TestDemoProviderRows(t *testing.T) {
 	snap := demoFleet(t)
 	reported := slices.DeleteFunc(slices.Clone(snap.Providers), func(p fleet.Provider) bool { return p.Source == "cluster-detection" })
-	if len(reported) != 5 {
-		t.Fatalf("providers = %+v, want 5 rows", reported)
+	// The provisioning reports the demo holds add one reporting adapter row
+	// each, named by the source that delivered them.
+	reporting := slices.DeleteFunc(slices.Clone(reported), func(p fleet.Provider) bool { return !slices.Equal(p.UsedFor, []string{fleet.UseReporting}) })
+	reported = slices.DeleteFunc(reported, func(p fleet.Provider) bool { return slices.Equal(p.UsedFor, []string{fleet.UseReporting}) })
+	if len(reported) != 5 || len(reporting) != 4 {
+		t.Fatalf("providers = %+v, reporting = %+v, want 5 and 4 rows", reported, reporting)
 	}
 	rows := map[string]fleet.Provider{}
 	for _, p := range reported {

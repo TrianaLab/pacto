@@ -310,7 +310,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.applier.completeness` | `string` | yes |  | `complete`, `partial` |  |
 | `status.applier.display` | `string` | no |  |  | Display is the one line every surface prints for the manager. |
 | `status.applier.evidence` | `string` | no |  |  | Evidence is what on the workload names the manager. |
-| `status.applier.manager` | `string` | no |  | `argocd`, `flux`, `helm`, `unsupported`, `ambiguous`, `none` | Manager is the detected manager. Both Flux kinds read flux; Owner names the kind. |
+| `status.applier.manager` | `string` | no |  | `argocd`, `flux`, `helm`, `external`, `unsupported`, `ambiguous`, `none` | Manager is the detected manager. Both Flux kinds read flux; Owner names the kind. |
 | `status.applier.message` | `string` | no |  |  |  |
 | `status.applier.owner` | `string` | no |  |  | Owner is the object that manages the workloads ("Application payments/payments"). |
 | `status.applier.since` | `string` | no |  |  | Since is when this result was first seen (RFC 3339). |
