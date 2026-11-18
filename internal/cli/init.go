@@ -229,10 +229,7 @@ func printBulk(cmd *cobra.Command, b *pactify.Bulk, err error, format string) er
 		return err
 	}
 	if format == "json" {
-		if perr := printJSON(cmd, b); perr != nil {
-			return perr
-		}
-		return err
+		return printJSONExit(cmd, b, err)
 	}
 	w := cmd.OutOrStdout()
 	for _, r := range b.Results {
