@@ -3,6 +3,7 @@ package publish
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -109,7 +110,8 @@ func firstVersion(ctx context.Context, reg Registry, in DeriveInput, tags []stri
 }
 
 // verifiedBaseline is the newest final release whose bundle Verify accepts,
-// with a note for each higher one it skipped.
+// with a note for each higher one it skipped: one with no signature or none
+// that verifies. A signature check that could not complete is an error.
 func verifiedBaseline(ctx context.Context, reg Registry, in DeriveInput, tags []string) (Derived, error) {
 	var d Derived
 	for _, t := range semver.Filter(tags) {
@@ -123,10 +125,14 @@ func verifiedBaseline(ctx context.Context, reg Registry, in DeriveInput, tags []
 		if r == nil { // the tag went away since the listing
 			continue
 		}
-		if in.Verify(ctx, in.Repo+"@"+r.Digest) != nil {
+		switch err := in.Verify(ctx, in.Repo+"@"+r.Digest); {
+		case err == nil:
+		case errors.Is(err, ErrNoSignature) || errors.Is(err, ErrSignatureInvalid):
 			d.Notes = append(d.Notes, "ignored "+t+": no signature by the publisher identity")
 			d.skipped = cmp.Or(d.skipped, t)
 			continue
+		default: // unread is not unsigned: it decides no version
+			return Derived{}, fmt.Errorf("cannot verify %s:%s: %w", in.Repo, t, err)
 		}
 		d.Baseline, d.BaselineDigest = t, r.Digest
 		return d, nil

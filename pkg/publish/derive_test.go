@@ -35,7 +35,7 @@ type signedSet map[string]bool
 
 func (s signedSet) verify(_ context.Context, ref string) error {
 	if !s[ref] {
-		return errTest
+		return ErrNoSignature
 	}
 	return nil
 }
@@ -263,5 +263,18 @@ func TestDeriveVersionBaselineRevisionDerivedSection(t *testing.T) {
 	rev, created := baselineRevision(context.Background(), reg, &base, published.Contract.Publish, "1.4.3")
 	if rev != "rev2" || created != "2026-11-01T10:00:00Z" {
 		t.Fatalf("derived baseline: %q %q", rev, created)
+	}
+}
+
+// A signature check that could not complete (a referrers 5xx, say) is an
+// error, never "unsigned": it would pick an older baseline and a new version.
+func TestDeriveVersionUnreadSignatureFails(t *testing.T) {
+	host, reg := newRegistry(t)
+	pushBundle(t, reg, host, "1.2.0", deriveBundle(host, "1.2.0", workloadService, true))
+	pushBundle(t, reg, host, "1.3.0", deriveBundle(host, "1.3.0", workloadService, true))
+	verify := func(context.Context, string) error { return errors.New("referrers: 503") }
+	d, err := DeriveVersion(context.Background(), reg, DeriveInput{Repo: host + "/pacto/payments", Local: same(workloadService, true)(host), Unchanged: never, Verify: verify})
+	if err == nil || !strings.Contains(err.Error(), "cannot verify "+host+"/pacto/payments:1.3.0: referrers: 503") || d.Version != "" {
+		t.Fatalf("%+v %v", d, err)
 	}
 }
