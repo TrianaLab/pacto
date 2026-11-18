@@ -364,7 +364,9 @@ func TestInstallRegistryLoadsThroughTheSharedBoundary(t *testing.T) {
 // legacy referrers-tag fallback. CNCF distribution (`registry:2`, `registry:3`)
 // implements no referrers endpoint, and the ORAS CLI papers over that with a
 // client-side tag fallback — so a harness on distribution would look healthy
-// while the Evidence Server could never become ready.
+// while the Evidence Server could never become ready. Distribution is allowed
+// only as PACTO_NOREFERRERS_REGISTRY_IMAGE, the tag-mode streams and approvals
+// registry of the delivery registrytags phase (TestNoReferrersRegistryIsPinned).
 func TestInClusterRegistrySupportsNativeReferrers(t *testing.T) {
 	body := code(t, filepath.Join(kindDir(t), "lib.sh"))
 	if strings.Contains(body, "PACTO_REGISTRY_IMAGE=\"registry:") {
@@ -386,6 +388,41 @@ func TestInClusterRegistrySupportsNativeReferrers(t *testing.T) {
 	for _, f := range []string{filepath.Join(".github", "workflows", "ci.yml"), "Makefile"} {
 		if !strings.Contains(code(t, filepath.Join(repoRoot(t), f)), pin) {
 			t.Errorf("%s must run the registry conformance test on the Compose demo's registry %q", f, pin)
+		}
+	}
+}
+
+// TestNoReferrersRegistryIsPinned pins the registry the registrytags delivery
+// phase records on: CNCF distribution by tag and index digest, deployed from
+// the copy the run loaded (imagePullPolicy: Never) and pulled and loaded with
+// the other images of the run only when that phase runs. Nothing else names
+// it, so zot stays the registry of every other scenario.
+func TestNoReferrersRegistryIsPinned(t *testing.T) {
+	lib := code(t, filepath.Join(kindDir(t), "lib.sh"))
+	if !regexp.MustCompile(`\nPACTO_NOREFERRERS_REGISTRY_IMAGE="registry:[0-9.]+@sha256:[0-9a-f]{64}"`).MatchString(lib) {
+		t.Error("PACTO_NOREFERRERS_REGISTRY_IMAGE must pin CNCF distribution by tag and index digest")
+	}
+	_, after, ok := strings.Cut(lib, "install_noreferrers_registry() {")
+	if !ok {
+		t.Fatal("install_noreferrers_registry not found in lib.sh")
+	}
+	fn, _, _ := strings.Cut(after, "\n}")
+	for _, want := range []string{"image: ${PACTO_NOREFERRERS_REGISTRY_IMAGE%@*}", "imagePullPolicy: Never"} {
+		if !strings.Contains(fn, want) {
+			t.Errorf("install_noreferrers_registry must contain %q", want)
+		}
+	}
+	sh := code(t, filepath.Join(kindDir(t), "delivery.sh"))
+	if !strings.Contains(sh, `phase_runs registrytags && { pull_pinned "$PACTO_NOREFERRERS_REGISTRY_IMAGE"; EXTRA_IMAGES+=("${PACTO_NOREFERRERS_REGISTRY_IMAGE%@*}"); }`) {
+		t.Error("delivery.sh must pull and load PACTO_NOREFERRERS_REGISTRY_IMAGE with the run's images when registrytags runs")
+	}
+	for _, path := range scenarios(t) {
+		base := filepath.Base(path)
+		if base == "lib.sh" || base == "delivery.sh" || base == "delivery-registry-tags.sh" {
+			continue
+		}
+		if body := code(t, path); strings.Contains(body, "PACTO_NOREFERRERS_REGISTRY_IMAGE") || strings.Contains(body, "install_noreferrers_registry") {
+			t.Errorf("%s uses the registry without Referrers; only the registrytags delivery phase may", base)
 		}
 	}
 }
