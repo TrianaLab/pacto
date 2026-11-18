@@ -53,6 +53,9 @@ type Result struct {
 	// Refusal says where a version-rule refusal was kept, signed, or why it
 	// could not be. It never changes the publish's outcome.
 	Refusal string `json:"refusal,omitempty"`
+	// Notes are what deriving the version found worth saying, such as a
+	// higher tag it ignored.
+	Notes []string `json:"notes,omitempty"`
 }
 
 // Apply plans, then publishes what is absent: builds it, pushes it by digest,

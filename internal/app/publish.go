@@ -69,25 +69,35 @@ func (s *Service) Publish(ctx context.Context, opts PublishOptions) (*publish.Re
 	if err != nil {
 		return nil, err
 	}
-	c, raw, fsys, err := loadAndValidateFull(ctx, path, opts.Overrides, s.BundleStore, s.localInputs(path, revision), cat)
+	inputs := s.localInputs(path, revision)
+	c, raw, fsys, err := loadAndValidateFull(ctx, path, opts.Overrides, s.BundleStore, inputs, cat, true)
 	if err != nil {
 		return nil, err
 	}
 	b := &contract.Bundle{Contract: c, RawYAML: raw, FS: fsys}
 	env := s.env()
-	in := publish.Input{Bundle: b, Revision: revision, Checks: []publish.Check{validationCheck(s.guaranteeStage(ctx, path, c))}}
 	reg := env.publishRegistry()
 	tools := newExecTools(path, env.run, reg)
+	var notes []string
+	if c.Service.Version == "" && c.Publish != nil {
+		var done *publish.Result
+		if b, done, notes, err = derivedBundle(ctx, env.run, reg, tools, path, b, revision, inputs); err != nil || done != nil {
+			return done, err
+		}
+		c, fsys = b.Contract, b.FS
+	}
+	in := publish.Input{Bundle: b, Revision: revision, Checks: []publish.Check{validationCheck(s.guaranteeStage(ctx, path, c))}}
 	in.Checks = append(in.Checks, checkOf("references", rejectLocalDeps(c), rejectLocalRefs(c)),
 		checkOf("lock", s.verifyLockIfPresent(ctx, path, b)), checkOf("build outputs", sbomsIgnored(c, path)))
 	in.Preflight = preflight(ctx, env, tools, path, c, fsys, opts.Revision == "" && in.Revision != "", in.Revision)
 	if opts.Plan {
-		return &publish.Result{Plan: publish.MakePlan(ctx, reg, in)}, nil
+		return &publish.Result{Plan: publish.MakePlan(ctx, reg, in), Notes: notes}, nil
 	}
 	res, err := publish.Apply(ctx, reg, tools, in)
 	if errors.Is(err, publish.ErrNotReady) {
 		res.Refusal = keepRefusal(ctx, env, tools, b, res.Plan)
 	}
+	res.Notes = notes
 	return res, err
 }
 

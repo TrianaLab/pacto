@@ -55,7 +55,7 @@ func (e *ciRepoEnv) publish(t *testing.T, rel, repo, tag string, edit func(*cont
 	if err != nil {
 		t.Fatal(err)
 	}
-	if b, err = publishable(b); err != nil {
+	if b, err = publishable(b, false); err != nil {
 		t.Fatal(err)
 	}
 	if edit != nil {

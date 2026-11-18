@@ -326,7 +326,7 @@ func loadAndValidateLocal(ctx context.Context, dir string, overrides override.Ov
 	}
 
 	logging.LoggerFromContext(ctx).Debug("local validation passed", "name", bundle.Contract.Service.Name, "version", bundle.Contract.Service.Version)
-	if bundle, err = publishable(bundle); err != nil {
+	if bundle, err = publishable(bundle, false); err != nil {
 		return nil, nil, nil, err
 	}
 	return bundle.Contract, bundle.RawYAML, bundle.FS, nil
@@ -336,7 +336,7 @@ func loadAndValidateLocal(ctx context.Context, dir string, overrides override.Ov
 // validates it with full remote ref resolution (policies and configs), and
 // returns the parsed contract and bundle FS. Used by push to enforce remote
 // policies before publishing. in are the inputs the inferred record names.
-func loadAndValidateFull(ctx context.Context, dir string, overrides override.Overrides, store oci.BundleStore, in contract.InferredInputs, cat *externalcatalog.Catalog) (*contract.Contract, []byte, fs.FS, error) {
+func loadAndValidateFull(ctx context.Context, dir string, overrides override.Overrides, store oci.BundleStore, in contract.InferredInputs, cat *externalcatalog.Catalog, deriveVersion bool) (*contract.Contract, []byte, fs.FS, error) {
 	logging.LoggerFromContext(ctx).Debug("loading and validating local bundle with remote resolution", "dir", dir)
 	bundle, err := loadLocalBundleNamed(dir, dirBase(dir), overrides, in, cat)
 	if err != nil {
@@ -354,7 +354,7 @@ func loadAndValidateFull(ctx context.Context, dir string, overrides override.Ove
 	}
 
 	logging.LoggerFromContext(ctx).Debug("validation passed", "name", bundle.Contract.Service.Name, "version", bundle.Contract.Service.Version)
-	if bundle, err = publishable(bundle); err != nil {
+	if bundle, err = publishable(bundle, deriveVersion); err != nil {
 		return nil, nil, nil, err
 	}
 	return bundle.Contract, bundle.RawYAML, bundle.FS, nil
@@ -371,9 +371,10 @@ var (
 // publishable is the bundle pack, push and publish write: it refuses an
 // undeclared service.name or service.version and pins an absent pactoVersion
 // to contract.Current() in the bundled pacto.yaml, then re-parses the pinned
-// bytes to prove the root declares it.
-func publishable(b *contract.Bundle) (*contract.Bundle, error) {
-	if b.Contract.Service.Version == "" {
+// bytes to prove the root declares it. deriveVersion lets an undeclared
+// service.version through: publish derives it and pins it next.
+func publishable(b *contract.Bundle, deriveVersion bool) (*contract.Bundle, error) {
+	if b.Contract.Service.Version == "" && !deriveVersion {
 		return nil, ErrPublishNeedsServiceVersion
 	}
 	if b.Contract.Service.Name == "" {
@@ -391,7 +392,7 @@ func publishable(b *contract.Bundle) (*contract.Bundle, error) {
 	}
 	c, _, err := contract.ParseDocument(raw)
 	if err == nil {
-		err = contract.RequireDeclared(c, raw)
+		err = contract.RequireDeclared(declaredVersion(c, b.Contract.Service.Version), raw)
 	}
 	if err != nil || c.PactoVersion != contract.Current() {
 		return nil, fmt.Errorf("pinning pactoVersion %s into pacto.yaml: %v", contract.Current(), err)
@@ -401,6 +402,18 @@ func publishable(b *contract.Bundle) (*contract.Bundle, error) {
 		return nil, fmt.Errorf("failed to build the pinned bundle FS: %w", err)
 	}
 	return &contract.Bundle{Contract: c, RawYAML: raw, FS: fsys}, nil
+}
+
+// declaredVersion is c as RequireDeclared reads it when publish will derive
+// service.version: an undeclared version stands in as declared, since publish
+// pins it and checks the pinned bytes again.
+func declaredVersion(c *contract.Contract, version string) *contract.Contract {
+	if version != "" {
+		return c
+	}
+	d := *c
+	d.Service.Version = "derived"
+	return &d
 }
 
 // isOCIRef reports whether ref uses the oci:// scheme.

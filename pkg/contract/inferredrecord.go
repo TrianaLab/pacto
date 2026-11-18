@@ -209,8 +209,8 @@ func checkInferredField(f Inferred, seen map[string]bool) error {
 		return errors.New(".field is empty")
 	case f.Source == "":
 		return errors.New(".source is empty")
-	case !validSource(f.Source):
-		return fmt.Errorf(".source %q is not a relative path", f.Source)
+	case !validFieldSource(f.Source):
+		return fmt.Errorf(".source %q is not a relative path or a registry: or flag: source", f.Source)
 	case f.Confidence != ConfidenceLikely && f.Confidence != ConfidencePossible:
 		return fmt.Errorf(".confidence is %q, want likely or possible", f.Confidence)
 	case f.Class != "" && (f.Class != InferredClassOwnerFile || f.Field != "service.owner"):
@@ -298,6 +298,36 @@ func externalPaths(f Inferred) []string {
 		out = append(out, s.Path)
 	}
 	return out
+}
+
+// sourceForms are the field sources outside the folder, which
+// inputs.sources never lists: the verified registry baseline a derived value
+// came from (a repository, pinned by digest when it holds a version) and the
+// command-line flag that supplied one. Any other value under one of these
+// prefixes is invalid.
+var sourceForms = map[string]*regexp.Regexp{
+	"registry:": regexp.MustCompile(`^registry:[a-z0-9][a-z0-9._:/-]*[a-z0-9](@sha256:[0-9a-f]{64})?$`),
+	"flag:":     regexp.MustCompile(`^flag:--[a-z][a-z-]*$`),
+}
+
+// sourceForm reports whether s carries one of the sourceForms prefixes, and
+// whether it is valid under it.
+func sourceForm(s string) (valid, outside bool) {
+	for prefix, re := range sourceForms {
+		if strings.HasPrefix(s, prefix) {
+			return re.MatchString(s), true
+		}
+	}
+	return false, false
+}
+
+// validFieldSource reports whether s is a valid field source: one of the
+// sourceForms, or "<path>[:<line>]".
+func validFieldSource(s string) bool {
+	if valid, outside := sourceForm(s); outside {
+		return valid
+	}
+	return validSource(s)
 }
 
 // validSource reports whether s is "<path>[:<line>]" with a valid path.
@@ -388,6 +418,9 @@ func VerifyInferredRecord(fsys fs.FS, rec *InferredRecord) error {
 	}
 	for i, f := range rec.Fields {
 		for _, src := range append(append([]string{f.Source}, f.Outranks...), externalPaths(f)...) {
+			if _, outside := sourceForm(src); outside {
+				continue
+			}
 			if file := sourceFile(src); !listed[file] {
 				return fmt.Errorf("fields[%d] (%s) cites %s, which inputs.sources does not list", i, f.Field, file)
 			}

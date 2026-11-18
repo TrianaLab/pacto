@@ -261,3 +261,45 @@ func TestRecordRefusesEscapingSource(t *testing.T) {
 		t.Error("a finding with no code accepted")
 	}
 }
+
+// sourceFormRecord parses and verifies the sample record with one field from
+// source, which inputs.sources does not list.
+func sourceFormRecord(source string) error {
+	bundle := fstest.MapFS{
+		"openapi/v1.yaml": &fstest.MapFile{Data: []byte("openapi: 3.0.0\n")},
+		"deploy/app.yaml": &fstest.MapFile{Data: []byte("kind: Deployment\n")},
+	}
+	rec, err := ParseInferredRecord(recordWith(Inferred{Field: "service.version", Value: "1.4.3", Source: source, Confidence: ConfidenceLikely}, nil, ""))
+	if err != nil {
+		return err
+	}
+	return VerifyInferredRecord(bundle, rec)
+}
+
+// TestVerifyInferredRecordRegistrySource: a derived version cites the
+// verified baseline, pinned by digest, or the bare repository when it holds
+// no version; anything else under registry: is invalid.
+func TestVerifyInferredRecordRegistrySource(t *testing.T) {
+	for _, ok := range []string{"registry:ghcr.io/acme/payments@" + digestOf("x"), "registry:ghcr.io/acme/payments", "registry:127.0.0.1:5000/pacto/payments"} {
+		if err := sourceFormRecord(ok); err != nil {
+			t.Errorf("%q: %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"registry:", "registry:Acme Payments", "registry:ghcr.io/acme@sha256:abc", "registry:../x"} {
+		if err := sourceFormRecord(bad); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+}
+
+// TestVerifyInferredRecordFlagSource: a value a flag supplied cites the flag.
+func TestVerifyInferredRecordFlagSource(t *testing.T) {
+	if err := sourceFormRecord("flag:--image"); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"flag:x y", "flag:image", "flag:--"} {
+		if err := sourceFormRecord(bad); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+}
