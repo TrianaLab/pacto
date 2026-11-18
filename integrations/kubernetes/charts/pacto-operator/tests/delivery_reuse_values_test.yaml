@@ -16,6 +16,9 @@ capabilities:
   apiVersions:
     - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
     - source.toolkit.fluxcd.io/v1/OCIRepository
+set:
+  # 6.x values carry no fingerprints key: --reuse-values keeps it absent.
+  fingerprints: null
 tests:
   - it: should render the 6.x promoter rules and arguments for 6.x values without the HelmRelease API
     set:

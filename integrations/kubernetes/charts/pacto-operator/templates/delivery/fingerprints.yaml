@@ -1,0 +1,16 @@
+{{- if .Values.delivery.enabled }}
+{{- with include "pacto-operator.fingerprints" . }}
+# The workload managers and promoters this installation runs (fingerprints):
+# a workload a configured manager applies reads external, and the promoter
+# writes no pointer for it.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "pacto-operator.delivery.fullname" $ }}-fingerprints
+  namespace: {{ include "pacto-operator.delivery.namespace" $ }}
+  labels:
+    {{- include "pacto-operator.delivery.labels" (dict "ctx" $ "component" "delivery-promoter") | nindent 4 }}
+data:
+  fingerprints.yaml: {{ . | quote }}
+{{- end }}
+{{- end }}

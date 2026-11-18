@@ -3,6 +3,7 @@ templates:
   - templates/fingerprints.yaml
   - templates/deployment.yaml
   - templates/delivery/deployment.yaml
+  - templates/delivery/fingerprints.yaml
 release:
   name: f
   namespace: pacto-system
@@ -80,37 +81,37 @@ tests:
       - failedTemplate: {}
 
   - it: mounts the fingerprints into the delivery promoter
-    template: templates/delivery/deployment.yaml
     set:
       delivery.enabled: true
     asserts:
       - equal:
           path: metadata.name
           value: f-pacto-operator-delivery-fingerprints
-        documentIndex: 0
+        template: templates/delivery/fingerprints.yaml
       - contains:
           path: spec.template.spec.containers[0].args
           content: --fingerprints=/etc/pacto/fingerprints/fingerprints.yaml
-        documentIndex: 1
+        template: templates/delivery/deployment.yaml
       - contains:
           path: spec.template.spec.volumes
           content:
             name: fingerprints
             configMap:
               name: f-pacto-operator-delivery-fingerprints
-        documentIndex: 1
+        template: templates/delivery/deployment.yaml
       - exists:
           path: spec.template.metadata.annotations["checksum/fingerprints"]
-        documentIndex: 1
+        template: templates/delivery/deployment.yaml
 
   - it: gives the delivery promoter no fingerprints when there are none
-    template: templates/delivery/deployment.yaml
     set:
       delivery.enabled: true
       fingerprints.promoters: null
     asserts:
       - hasDocuments:
-          count: 1
+          count: 0
+        template: templates/delivery/fingerprints.yaml
       - notContains:
           path: spec.template.spec.containers[0].args
           content: --fingerprints=/etc/pacto/fingerprints/fingerprints.yaml
+        template: templates/delivery/deployment.yaml
