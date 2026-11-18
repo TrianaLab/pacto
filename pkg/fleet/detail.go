@@ -637,6 +637,7 @@ type RevisionDetailData struct {
 	// of different releases can answer differently.
 	PactoVersionCurrent string `json:"pactoVersionCurrent,omitempty" doc:"The latest pactoVersion known to the Pacto that served this answer, set when this revision declares an older or unknown one"`
 	PactoVersionUnknown bool   `json:"pactoVersionUnknown,omitempty" doc:"The revision declares a pactoVersion the Pacto that served this answer does not know"`
+	MigratedFrom        string `json:"migratedFrom,omitempty" doc:"Inferred: the pactoVersion the authored pacto.yaml declared before pacto ci published it as pactoVersion, read from the bundle's pacto.inferred.yaml"`
 	// Inferred lists what a local read implied rather than read from the
 	// contract (an absent pactoVersion, an inferred service.name), then the
 	// fields of the bundle's pacto.inferred.yaml, each with its source, at most
@@ -1472,6 +1473,7 @@ func (q *Query) revisionDetail(key string) (*EntityDetail, error) {
 		Ownership:            revisionOwnership(rev),
 	}
 	data.PactoVersionCurrent, data.PactoVersionUnknown = pactoVersionStatus(rev.PactoVersion)
+	data.MigratedFrom = migratedFrom(rev)
 	data.Inferred, data.InferredTotal = inferredFields(rev.Inferred, rev.Record)
 	data.DiscoveryFindings = discoveryFindings(rev.Record)
 	return &EntityDetail{
@@ -2565,15 +2567,35 @@ func revisionStatus(r *ContractRevision) string {
 }
 
 // PactoVersionText is the declared pactoVersion with the answering Pacto's
-// view of it: behind its latest version, or unknown to it.
+// view of it: behind its latest version, or unknown to it, and the version
+// pacto ci migrated it from, which is inferred.
 func (r *RevisionDetailData) PactoVersionText() string {
 	switch {
+	case r.MigratedFrom != "" && r.PactoVersionCurrent != "":
+		return fmt.Sprintf("%s (behind %s; migrated from %s, inferred)", r.PactoVersion, r.PactoVersionCurrent, r.MigratedFrom)
+	case r.MigratedFrom != "":
+		return fmt.Sprintf("%s (migrated from %s, inferred)", r.PactoVersion, r.MigratedFrom)
 	case r.PactoVersionUnknown:
 		return fmt.Sprintf("%s (unknown to this Pacto, latest %s)", r.PactoVersion, r.PactoVersionCurrent)
 	case r.PactoVersionCurrent != "":
 		return fmt.Sprintf("%s (behind %s)", r.PactoVersion, r.PactoVersionCurrent)
 	}
 	return r.PactoVersion
+}
+
+// migratedFrom is the pactoVersion rev's pacto.yaml was written with before
+// pacto ci raised it to rev.PactoVersion, read only from its verified inferred
+// record; empty when the record names no such migration.
+func migratedFrom(rev *ContractRevision) string {
+	if rev.Record == nil {
+		return ""
+	}
+	for _, m := range rev.Record.Migrations {
+		if m.Source == "pacto.yaml" && m.To == rev.PactoVersion {
+			return m.From
+		}
+	}
+	return ""
 }
 
 // pactoVersionStatus returns this Pacto's latest pactoVersion when v is older

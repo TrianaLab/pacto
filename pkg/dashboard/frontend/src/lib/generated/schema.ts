@@ -5977,6 +5977,8 @@ export interface components {
             lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             limitations: components["schemas"]["Fleet.LimitationsPreview"];
             metadata: components["schemas"]["Fleet.RuntimePreview"];
+            /** @description Inferred: the pactoVersion the authored pacto.yaml declared before pacto ci published it as pactoVersion, read from the bundle's pacto.inferred.yaml */
+            migratedFrom?: string;
             next?: components["schemas"]["ProductRef"];
             ownership?: components["schemas"]["ProductOwnership"];
             pactoVersion?: string;
