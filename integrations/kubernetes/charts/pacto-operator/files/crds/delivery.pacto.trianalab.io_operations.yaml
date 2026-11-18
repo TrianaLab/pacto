@@ -599,9 +599,10 @@ spec:
                     type: object
                   candidates:
                     description: |-
-                      Candidates says where new versions come from. At most one is set, so the
-                      version offered and the version judged come from the same source; a Stage
-                      that sets none is not Ready and never promotes.
+                      Candidates says where new versions come from. At most one of registry,
+                      ociRepositoryRef, upstreamStage and upstreamRecords is set, so the version
+                      offered and the version judged come from the same source; a Stage that sets
+                      none is not Ready and never promotes.
                     properties:
                       ociRepositoryRef:
                         description: |-
@@ -612,6 +613,18 @@ spec:
                             type: string
                         required:
                         - name
+                        type: object
+                      registry:
+                        description: |-
+                          Registry is the promoter's own registry watch: a new version tag is
+                          a candidate once its Sigstore signature comes from a publisher the
+                          promoter's publisher rule accepts (delivery.publishers).
+                        properties:
+                          repository:
+                            description: |-
+                              Repository (host/path) is the repository watched; empty watches the
+                              repository the Stage's applier takes versions from.
+                            type: string
                         type: object
                       upstreamRecords:
                         description: |-
@@ -645,10 +658,11 @@ spec:
                         type: object
                     type: object
                     x-kubernetes-validations:
-                    - message: set at most one of candidates.ociRepositoryRef, candidates.upstreamStage
-                        and candidates.upstreamRecords
-                      rule: '(has(self.ociRepositoryRef) ? 1 : 0) + (has(self.upstreamStage)
-                        ? 1 : 0) + (has(self.upstreamRecords) ? 1 : 0) <= 1'
+                    - message: set at most one of candidates.registry, candidates.ociRepositoryRef,
+                        candidates.upstreamStage and candidates.upstreamRecords
+                      rule: '(has(self.registry) ? 1 : 0) + (has(self.ociRepositoryRef)
+                        ? 1 : 0) + (has(self.upstreamStage) ? 1 : 0) + (has(self.upstreamRecords)
+                        ? 1 : 0) <= 1'
                   deadlines:
                     description: Deadlines override the operation type's defaults
                       (Go durations).

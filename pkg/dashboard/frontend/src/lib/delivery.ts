@@ -743,7 +743,7 @@ export const undoes = (digest: string) => (r: OfferRow, o: DeliveryOffer) =>
 
 /**
  * lifecycleWords words a lifecycle answer: the signature as the Publish page words it
- * ("unsigned" only for an artifact Flux never verified), and unknown never as yes or no.
+ * ("unsigned" only for an artifact no publisher check accepted), and unknown never as yes or no.
  */
 export const lifecycleWords = {
   signature: { signed: 'Signature checked', unsigned: 'Not signed', unknown: 'Signature not known here' },

@@ -68,6 +68,9 @@ type StageReconciler struct {
 	// Events receives the Events it emits when a Stage freezes, stops being
 	// watched or raises a rollback; nil emits none.
 	Events record.EventRecorder
+	// Publishers is the registry watch of the Stages with
+	// candidates.registry. Nil: such a Stage is not Ready and never promotes.
+	Publishers *Publishers
 	// seen is what each Stage last showed (frozen, unwatched), so an Event
 	// marks a change, not every pass. Nil emits none.
 	// ponytail: in memory, so a restart says each once more.
@@ -361,7 +364,8 @@ func (r *StageReconciler) autoPromote(ctx context.Context, stage *dv1.Stage) err
 // the Stage names one that exists, and what an upstream in another cluster
 // offers. Ready is False, naming what is missing, when the Stage cannot
 // promote: nothing is published without a candidate OCIRepository whose
-// spec.verify names the publisher (design M2), nothing is offered by records
+// spec.verify names the publisher (design M2) or a registry watch that can
+// judge who signed (candidates.registry), nothing is offered by records
 // that cannot be read, nothing is applied through an applier the promoter
 // cannot write and nothing is admitted while admission does not guard. It
 // also remembers the newest upstream record read, which the next read must
@@ -524,6 +528,9 @@ func (r *StageReconciler) candidateReady(ctx context.Context, stage *dv1.Stage) 
 				" sets no spec.verify with a secretRef or matchOIDCIdentity naming the publisher, so no version is published and the Stage never promotes")
 		}
 		return a, nil, want, nil
+	case c.Registry != nil:
+		want, err := r.registryReady(ctx, stage)
+		return nil, nil, want, err
 	case c.UpstreamRecords != nil && r.Cluster.Upstream == nil:
 		return nil, nil, notReady(delivery.ReadyReasonUpstreamUntrusted, noUpstreamTrust+", so the Stage never promotes"), nil
 	case c.UpstreamRecords != nil:
@@ -537,7 +544,7 @@ func (r *StageReconciler) candidateReady(ctx context.Context, stage *dv1.Stage) 
 		}
 		return nil, up, want, nil
 	case c.UpstreamStage == nil:
-		want = notReady(delivery.ReadyReasonNoCandidateSource, "the Stage names no candidates.ociRepositoryRef, candidates.upstreamStage or candidates.upstreamRecords, so it never promotes")
+		want = notReady(delivery.ReadyReasonNoCandidateSource, "the Stage names no candidates.registry, candidates.ociRepositoryRef, candidates.upstreamStage or candidates.upstreamRecords, so it never promotes")
 	}
 	return nil, nil, want, nil
 }
@@ -649,7 +656,8 @@ func notReady(reason, msg string) delivery.Condition {
 }
 
 // recordPublished remembers the candidate OCIRepository's current digest once
-// Flux verified its signature: a version pacto publish published. The
+// Flux verified its signature: a version pacto publish published (the
+// registry watch remembers its own, registryReady). The
 // pacto.published gate admits only remembered digests, so a version Flux
 // verified earlier can still be proposed after the tag moved on.
 func (r *StageReconciler) recordPublished(ctx context.Context, stage *dv1.Stage, a *source) error {
@@ -693,6 +701,8 @@ func (r *StageReconciler) candidate(ctx context.Context, stage *dv1.Stage, remot
 			return "", client.IgnoreNotFound(err)
 		}
 		return delivery.NewestCandidate(stage.Status, a.revision, nil), nil
+	case c.Registry != nil:
+		return delivery.NewestCandidate(stage.Status, newestAccepted(stage.Status.Publisher), nil), nil
 	case c.UpstreamStage != nil:
 		up, ns := &dv1.Stage{}, c.UpstreamStage.Namespace
 		if ns == "" {

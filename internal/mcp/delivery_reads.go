@@ -96,7 +96,7 @@ var deliveryReadTools = []deliveryRead{
 			"service": {Type: "string", Description: "Keep only the Stages of the service with exactly this name; it narrows byLevel too, never the blockers or promotionsWithoutPerson"},
 			"domain":  {Type: "string", Description: readDomainDoc},
 		})},
-	{route: "published", description: "Per service the caller can see Stages of: the versions its Stages know, whether Flux verified their signature and which Stages run or verified each.",
+	{route: "published", description: "Per service the caller can see Stages of: the versions its Stages know, whether Flux or the registry watch verified their signature and which Stages run or verified each.",
 		params: page(map[string]property{
 			"service": {Type: "string", Description: "Keep only the versions of the service with exactly this name; it narrows counts too"},
 			"domain":  {Type: "string", Description: readDomainDoc},

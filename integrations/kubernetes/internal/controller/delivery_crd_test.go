@@ -39,18 +39,20 @@ var _ = Describe("Stage candidates", func() {
 			"oci-and-upstream":    {"ociRepositoryRef": oci, "upstreamStage": up},
 			"upstream-and-remote": {"upstreamStage": up, "upstreamRecords": remote},
 			"all-three":           {"ociRepositoryRef": oci, "upstreamStage": up, "upstreamRecords": remote},
+			"registry-and-oci":    {"registry": map[string]any{}, "ociRepositoryRef": oci},
 		} {
 			err := k8sClient.Create(ctx, stage(name, c))
 			Expect(err).To(HaveOccurred(), name)
-			Expect(err.Error()).To(ContainSubstring("set at most one of candidates.ociRepositoryRef"), name)
+			Expect(err.Error()).To(ContainSubstring("set at most one of candidates.registry, candidates.ociRepositoryRef"), name)
 		}
 	})
 
 	It("admits one source or none", func() {
 		for name, c := range map[string]map[string]any{
-			"one-oci":    {"ociRepositoryRef": oci},
-			"one-remote": {"upstreamRecords": remote},
-			"none":       {},
+			"one-oci":      {"ociRepositoryRef": oci},
+			"one-remote":   {"upstreamRecords": remote},
+			"one-registry": {"registry": map[string]any{}},
+			"none":         {},
 		} {
 			Expect(k8sClient.Create(ctx, stage(name, c))).To(Succeed(), name)
 		}

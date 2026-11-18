@@ -114,9 +114,10 @@ spec:
                 type: object
               candidates:
                 description: |-
-                  Candidates says where new versions come from. At most one is set, so the
-                  version offered and the version judged come from the same source; a Stage
-                  that sets none is not Ready and never promotes.
+                  Candidates says where new versions come from. At most one of registry,
+                  ociRepositoryRef, upstreamStage and upstreamRecords is set, so the version
+                  offered and the version judged come from the same source; a Stage that sets
+                  none is not Ready and never promotes.
                 properties:
                   ociRepositoryRef:
                     description: |-
@@ -127,6 +128,18 @@ spec:
                         type: string
                     required:
                     - name
+                    type: object
+                  registry:
+                    description: |-
+                      Registry is the promoter's own registry watch: a new version tag is
+                      a candidate once its Sigstore signature comes from a publisher the
+                      promoter's publisher rule accepts (delivery.publishers).
+                    properties:
+                      repository:
+                        description: |-
+                          Repository (host/path) is the repository watched; empty watches the
+                          repository the Stage's applier takes versions from.
+                        type: string
                     type: object
                   upstreamRecords:
                     description: |-
@@ -160,10 +173,11 @@ spec:
                     type: object
                 type: object
                 x-kubernetes-validations:
-                - message: set at most one of candidates.ociRepositoryRef, candidates.upstreamStage
-                    and candidates.upstreamRecords
-                  rule: '(has(self.ociRepositoryRef) ? 1 : 0) + (has(self.upstreamStage)
-                    ? 1 : 0) + (has(self.upstreamRecords) ? 1 : 0) <= 1'
+                - message: set at most one of candidates.registry, candidates.ociRepositoryRef,
+                    candidates.upstreamStage and candidates.upstreamRecords
+                  rule: '(has(self.registry) ? 1 : 0) + (has(self.ociRepositoryRef)
+                    ? 1 : 0) + (has(self.upstreamStage) ? 1 : 0) + (has(self.upstreamRecords)
+                    ? 1 : 0) <= 1'
               deadlines:
                 description: Deadlines override the operation type's defaults (Go
                   durations).
@@ -437,7 +451,8 @@ spec:
                   Stage cannot promote: its applier cannot be read, lacks the apply-ref
                   label or (on Argo CD) has no single OCI source or no automated sync; its
                   candidate OCIRepository does not exist or sets no spec.verify naming the
-                  publisher; the records of its upstream in another cluster are not
+                  publisher; its watched registry cannot be listed or the promoter has no
+                  publisher check; the records of its upstream in another cluster are not
                   trusted or cannot be read; or it names no candidate source at all. The
                   recorder adds RecordStoreReady: False when the registry cannot be
                   reached or holds a stream it refuses to fork; a registry without the
@@ -624,13 +639,131 @@ spec:
                 type: object
               published:
                 description: |-
-                  Published holds the candidate digests Flux verified the signature of on
-                  the candidate OCIRepository (spec.verify naming the publisher's
-                  identity), oldest first (cap 50). Only these are promoted from the
-                  OCIRepository.
+                  Published holds the candidate digests whose signature was verified,
+                  oldest first (cap 50): by Flux on the candidate OCIRepository
+                  (spec.verify naming the publisher's identity), or by the promoter's
+                  registry watch against its publisher rule (candidates.registry). Only
+                  these are promoted from either source.
                 items:
                   type: string
                 type: array
+              publisher:
+                description: |-
+                  Publisher is what the registry watch (candidates.registry) judged:
+                  the rule it judged against and its newest verdicts. Written by the
+                  promoter only.
+                properties:
+                  checkedAt:
+                    type: string
+                  message:
+                    type: string
+                  pinAt:
+                    type: string
+                  pinDigest:
+                    type: string
+                  pins:
+                    type: integer
+                  policyAt:
+                    type: string
+                  policyDigest:
+                    type: string
+                  policyRef:
+                    type: string
+                  rule:
+                    description: |-
+                      PublisherRule names the CI identities that may publish. Subject and
+                      Repository are anchored regular expressions, both required; Ref, when set,
+                      must equal the certificate's; Services are path.Match patterns over service
+                      names, and empty means every service.
+                    properties:
+                      issuer:
+                        type: string
+                      name:
+                        type: string
+                      ref:
+                        type: string
+                      repository:
+                        type: string
+                      services:
+                        items:
+                          type: string
+                        type: array
+                      subject:
+                        type: string
+                    required:
+                    - issuer
+                    - repository
+                    - subject
+                    type: object
+                  source:
+                    description: |-
+                      Source is what the watch judges against: the installation's rule, the
+                      signed policy, or none when there is no rule and only a person's pin
+                      accepts a signer.
+                    enum:
+                    - rule
+                    - policy
+                    - none
+                    type: string
+                  verdicts:
+                    description: Verdicts are the newest judged digests, newest first
+                      (cap 20).
+                    items:
+                      description: PublisherVerdict is what a publisher check concluded
+                        about one digest.
+                      properties:
+                        at:
+                          type: string
+                        digest:
+                          type: string
+                        identity:
+                          description: |-
+                            PublisherIdentity is who signed a digest, read from the verified Sigstore
+                            certificate.
+                          properties:
+                            ci:
+                              type: boolean
+                            issuer:
+                              type: string
+                            ref:
+                              type: string
+                            repository:
+                              type: string
+                            subject:
+                              type: string
+                          required:
+                          - issuer
+                          - subject
+                          type: object
+                        reason:
+                          type: string
+                        source:
+                          enum:
+                          - rule
+                          - pin
+                          - policy
+                          - inferred
+                          - none
+                          type: string
+                        verdict:
+                          enum:
+                          - accepted
+                          - new-signer
+                          - refused
+                          - unsigned
+                          - unknown
+                          type: string
+                        version:
+                          type: string
+                      required:
+                      - digest
+                      - reason
+                      - source
+                      - verdict
+                      type: object
+                    maxItems: 20
+                    type: array
+                type: object
               rolledBack:
                 description: |-
                   RolledBack holds the uids of the failed operations the promoter raised

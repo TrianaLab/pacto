@@ -19,7 +19,7 @@ var deliveryViews = []struct{ route, short string }{
 	{"inbox", "Show what waits on you: held changes your teams may answer, frozen Stages and the Errored changes on them"},
 	{"environments", "Show every Stage by service and environment: what it runs and whether it is verified, failed, frozen or held"},
 	{"autonomy", "Show the path to autonomy: each Stage's level, the next level Pacto proposes and what blocks it"},
-	{"published", "Show the versions the Stages know per service and whether Flux verified their signature"},
+	{"published", "Show the versions the Stages know per service and whether Flux or the registry watch verified their signature"},
 	{"refusals", "Show the publishes Pacto refused and the version bump each change needs"},
 }
 

@@ -129,11 +129,17 @@ type ApplyRef struct {
 	Name string `json:"name"`
 }
 
-// Candidates says where new versions come from. At most one is set, so the
-// version offered and the version judged come from the same source; a Stage
-// that sets none is not Ready and never promotes.
-// +kubebuilder:validation:XValidation:rule="(has(self.ociRepositoryRef) ? 1 : 0) + (has(self.upstreamStage) ? 1 : 0) + (has(self.upstreamRecords) ? 1 : 0) <= 1",message="set at most one of candidates.ociRepositoryRef, candidates.upstreamStage and candidates.upstreamRecords"
+// Candidates says where new versions come from. At most one of registry,
+// ociRepositoryRef, upstreamStage and upstreamRecords is set, so the version
+// offered and the version judged come from the same source; a Stage that sets
+// none is not Ready and never promotes.
+// +kubebuilder:validation:XValidation:rule="(has(self.registry) ? 1 : 0) + (has(self.ociRepositoryRef) ? 1 : 0) + (has(self.upstreamStage) ? 1 : 0) + (has(self.upstreamRecords) ? 1 : 0) <= 1",message="set at most one of candidates.registry, candidates.ociRepositoryRef, candidates.upstreamStage and candidates.upstreamRecords"
 type Candidates struct {
+	// Registry is the promoter's own registry watch: a new version tag is
+	// a candidate once its Sigstore signature comes from a publisher the
+	// promoter's publisher rule accepts (delivery.publishers).
+	// +optional
+	Registry *RegistryCandidates `json:"registry,omitempty"`
 	// OCIRepositoryRef is a Flux OCIRepository the promoter only reads: the
 	// candidate is the @sha256: part of its status.artifact.revision.
 	// +optional
@@ -146,6 +152,14 @@ type Candidates struct {
 	// that stream (promoter.upstreamTrust), or it offers nothing.
 	// +optional
 	UpstreamRecords *RemoteStage `json:"upstreamRecords,omitempty"`
+}
+
+// RegistryCandidates is the repository the promoter watches for new versions.
+type RegistryCandidates struct {
+	// Repository (host/path) is the repository watched; empty watches the
+	// repository the Stage's applier takes versions from.
+	// +optional
+	Repository string `json:"repository,omitempty"`
 }
 
 // RemoteStage is a Stage in another cluster, known only by its signed records.
@@ -521,12 +535,18 @@ type StageStatus struct {
 	RolledBack []string `json:"rolledBack,omitempty"`
 	// +optional
 	Stream Stream `json:"stream,omitzero"`
-	// Published holds the candidate digests Flux verified the signature of on
-	// the candidate OCIRepository (spec.verify naming the publisher's
-	// identity), oldest first (cap 50). Only these are promoted from the
-	// OCIRepository.
+	// Published holds the candidate digests whose signature was verified,
+	// oldest first (cap 50): by Flux on the candidate OCIRepository
+	// (spec.verify naming the publisher's identity), or by the promoter's
+	// registry watch against its publisher rule (candidates.registry). Only
+	// these are promoted from either source.
 	// +optional
 	Published []string `json:"published,omitempty"`
+	// Publisher is what the registry watch (candidates.registry) judged:
+	// the rule it judged against and its newest verdicts. Written by the
+	// promoter only.
+	// +optional
+	Publisher *PublisherStatus `json:"publisher,omitempty"`
 	// Offered holds the digests a promote carried through pacto.published
 	// with a pass (not an accepted unknown) and that then verified here,
 	// oldest first (cap 50). Only these are offered to a downstream Stage.
@@ -536,7 +556,8 @@ type StageStatus struct {
 	// Stage cannot promote: its applier cannot be read, lacks the apply-ref
 	// label or (on Argo CD) has no single OCI source or no automated sync; its
 	// candidate OCIRepository does not exist or sets no spec.verify naming the
-	// publisher; the records of its upstream in another cluster are not
+	// publisher; its watched registry cannot be listed or the promoter has no
+	// publisher check; the records of its upstream in another cluster are not
 	// trusted or cannot be read; or it names no candidate source at all. The
 	// recorder adds RecordStoreReady: False when the registry cannot be
 	// reached or holds a stream it refuses to fork; a registry without the

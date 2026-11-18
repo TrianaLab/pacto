@@ -150,9 +150,10 @@ func proposePublished(cmd *cobra.Command, d deps, ns, stage string, res *publish
 }
 
 // waitPublished waits until the Stage records digest as published. The
-// promoter refuses a promote from a candidate OCIRepository until then, and it
-// only happens after Flux polled the new tag and verified its signature. A
-// Stage that takes its candidates from another Stage has nothing to wait for.
+// promoter refuses a promote from a candidate OCIRepository or the registry
+// watch until then, and it only happens after Flux, or the promoter's registry
+// watch, read the new tag and verified its signature. A Stage that takes its
+// candidates from another Stage has nothing to wait for.
 func waitPublished(cmd *cobra.Command, c *app.Delivery, ns, stage, digest string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for {
@@ -160,15 +161,25 @@ func waitPublished(cmd *cobra.Command, c *app.Delivery, ns, stage, digest string
 		if err != nil {
 			return err
 		}
-		if s.Spec.Candidates.OCIRepositoryRef == nil || slices.Contains(s.Status.Published, digest) {
+		cands := s.Spec.Candidates
+		if (cands.OCIRepositoryRef == nil && cands.Registry == nil) || slices.Contains(s.Status.Published, digest) {
 			return nil
 		}
 		if !time.Now().Before(deadline) {
-			return fmt.Errorf("the Stage did not record %s as published within %s: Flux has not polled the candidate OCIRepository %s "+
-				"or verified its signature yet; propose it later with `pacto delivery propose`", digest, timeout, s.Spec.Candidates.OCIRepositoryRef.Name)
+			return notPublishedYet(s, digest, timeout)
 		}
 		time.Sleep(publishPoll)
 	}
+}
+
+// notPublishedYet says why a Stage did not record digest as published.
+func notPublishedYet(s *delivery.StageObject, digest string, timeout time.Duration) error {
+	if s.Spec.Candidates.Registry != nil {
+		return fmt.Errorf("the Stage did not record %s as published within %s: the registry watch has not accepted %s yet: "+
+			"see pacto delivery trust %s; propose it later with `pacto delivery propose`", digest, timeout, digest, s.Spec.Service.Name)
+	}
+	return fmt.Errorf("the Stage did not record %s as published within %s: Flux has not polled the candidate OCIRepository %s "+
+		"or verified its signature yet; propose it later with `pacto delivery propose`", digest, timeout, s.Spec.Candidates.OCIRepositoryRef.Name)
 }
 
 // printPublishResult prints what a publish did. failed is true when it was

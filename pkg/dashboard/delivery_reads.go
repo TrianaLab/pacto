@@ -666,7 +666,7 @@ type PublishedCounts struct {
 	Services         int      `json:"services" doc:"Services with a version the Stages know; unsignedServices, unknownServices and the rest partition them"`
 	Versions         int      `json:"versions" doc:"Distinct digests per service the Stages know"`
 	Signed           int      `json:"signed"`
-	Unsigned         int      `json:"unsigned" doc:"Versions an entry Stage holds that Flux never verified a signature on: who built them cannot be traced"`
+	Unsigned         int      `json:"unsigned" doc:"Versions an entry Stage holds that no publisher check accepted (Flux or the registry watch): who built them cannot be traced"`
 	Unknown          int      `json:"unknown" doc:"Versions whose signature Pacto cannot tell from the Stages the caller lists"`
 	UnsignedServices int      `json:"unsignedServices" doc:"Services with at least one unsigned version"`
 	UnknownServices  int      `json:"unknownServices" doc:"Services with no unsigned version and at least one version whose signature Pacto cannot tell"`

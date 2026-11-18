@@ -173,7 +173,7 @@ func (s *Server) registerDeliveryOperations(api huma.API) {
 			"to copy. It only reads: a level moves through a proposed and approved operation."}), s.deliveryAutonomy)
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-published", Method: http.MethodGet, Path: "/api/delivery/published",
 		Summary:     "Published versions",
-		Description: "Per service the caller can see Stages of: the versions its Stages know, whether Flux verified their signature and which Stages run or verified each."}), s.deliveryPublished)
+		Description: "Per service the caller can see Stages of: the versions its Stages know, whether Flux or the registry watch verified their signature and which Stages run or verified each."}), s.deliveryPublished)
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-history", Method: http.MethodGet, Path: "/api/delivery/history",
 		Summary: "What happened",
 		Description: "What happened on each Stage: read from its signed records when the recorder runs (source records), plus the operations not " +

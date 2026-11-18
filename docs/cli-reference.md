@@ -516,7 +516,7 @@ pacto delivery inbox [flags]
 
 ### `pacto delivery lifecycle`
 
-Follows one artifact of a service, named by exactly one of --digest, --version or --contract, through every Stage of the service you can see: whether pacto publish published it (Flux verified its signature) and, on each Stage, when it arrived, was verified, re-checked, rolled back or left, each from its signed record or the Operation's unsigned status. Without -n it reads every namespace you can list; one you cannot makes the answer partial and is named.
+Follows one artifact of a service, named by exactly one of --digest, --version or --contract, through every Stage of the service you can see: whether pacto publish published it (Flux or the registry watch verified its signature) and, on each Stage, when it arrived, was verified, re-checked, rolled back or left, each from its signed record or the Operation's unsigned status. Without -n it reads every namespace you can list; one you cannot makes the answer partial and is named.
 
 ```
 pacto delivery lifecycle [flags]
@@ -585,7 +585,7 @@ pacto delivery propose [flags]
 
 ### `pacto delivery published`
 
-Per service the caller can see Stages of: the versions its Stages know, whether Flux verified their signature and which Stages run or verified each.
+Per service the caller can see Stages of: the versions its Stages know, whether Flux or the registry watch verified their signature and which Stages run or verified each.
 
 It runs the dashboard's own published view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads the namespaces you may list Stages in and leaves out, without naming them, those outside your permissions; a namespace that refuses the list makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
 

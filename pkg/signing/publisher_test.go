@@ -2,6 +2,8 @@ package signing
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -67,5 +69,14 @@ func TestAnyIdentityStillNeedsRoot(t *testing.T) {
 	b, _ := signerFor(t, ss, testutil.Token("ana@acme.example", "https://accounts.example")).Sign(t.Context(), delivery.PayloadType, []byte(`{}`))
 	if _, err := (Policy{AnyIdentity: true}).Verify(b, nil); err == nil || !strings.Contains(err.Error(), "no trusted root") {
 		t.Fatalf("verified with no root: %v", err)
+	}
+}
+
+func TestPublicGoodRootReadOnlyFailsClosed(t *testing.T) {
+	t.Setenv("HOME", "/nonexistent-read-only-home")
+	srv := httptest.NewServer(http.NotFoundHandler())
+	defer srv.Close()
+	if _, err := PublicGoodRootReadOnly(srv.URL); err == nil {
+		t.Error("a TUF mirror that answers nothing gave a trusted root")
 	}
 }

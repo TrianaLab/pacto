@@ -24,6 +24,8 @@ import (
 	"time"
 
 	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/sigstore/sigstore-go/pkg/root"
+	"github.com/sigstore/sigstore-go/pkg/tuf"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -44,6 +46,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/kubecluster"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
+	"github.com/trianalab/pacto/v4/pkg/publish"
 	"github.com/trianalab/pacto/v4/pkg/signing"
 )
 
@@ -98,6 +101,16 @@ func runPromoter(args []string) error {
 	upstreamTrust := fs.String("upstream-trust-config", "",
 		"A trust config (YAML) of the recorder keys of other clusters, per stream glob. "+
 			"Stages with candidates.upstreamRecords promote only on records these keys signed.")
+	pubRegistry := fs.String("publishers-registry", "",
+		"The registry (host/org) the installation's services publish to. Stages with candidates.registry accept a "+
+			"version only when its Sigstore signature comes from the publisher rule derived from it: on ghcr.io and "+
+			"registry.gitlab.com the organization's CI on the default branch. "+
+			"Empty: no Stage with candidates.registry promotes.")
+	pubBranch := fs.String("publishers-default-branch", "main",
+		"The default branch whose CI the derived publisher rule accepts.")
+	pubRoot := fs.String("publishers-trusted-root", "",
+		"A Sigstore trusted root (trusted_root.json) publisher signatures must chain to. Empty fetches public-good "+
+			"Sigstore's root through TUF, caching nothing on disk.")
 	admissionPolicies := fs.String("admission-policies", "",
 		"Comma-separated ValidatingAdmissionPolicies (each with a binding of the same name) the promoter trusts. "+
 			"While one is missing, fails open or is not bound with Deny to every object, no operation is admitted, "+
@@ -150,6 +163,10 @@ func runPromoter(args []string) error {
 			return err
 		}
 	}
+	pubs, err := publishers(*pubRegistry, *pubBranch, *pubRoot, keychain, insecure, *resync)
+	if err != nil {
+		return err
+	}
 	gates := delivery.NewGates(cluster, configured)
 	stats, err := addStats(mgr, *statsRepository, *statsDockerConfig, keychain, insecure, clusterID)
 	if err != nil {
@@ -169,6 +186,7 @@ func runPromoter(args []string) error {
 	if err := (&delivery.StageReconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster,
 		Policy: policy, Workers: *workers, ClusterID: clusterID, Gates: gates, Now: time.Now,
 		Resync: *resync, AdmissionPolicies: delivery.SplitList(*admissionPolicies), Freshness: *authFreshness,
+		Publishers: pubs,
 		//nolint:staticcheck // TODO: migrate to mgr.GetEventRecorder(), as cmd/main.go
 		Events: mgr.GetEventRecorderFor("pacto-delivery")}).SetupWithManager(mgr); err != nil {
 		return err
@@ -333,6 +351,33 @@ func kubeClusterID(mgr ctrl.Manager) (string, error) {
 		return "", err
 	}
 	return kubecluster.ID(context.Background(), dyn)
+}
+
+// publishers is the registry watch of the Stages with candidates.registry,
+// judging against the rule derived from registry, or nil when registry is
+// empty. A trusted root file that cannot be read fails startup.
+func publishers(registry, branch, trustedRoot string, keychain authn.Keychain, insecure []string,
+	resync time.Duration) (*delivery.Publishers, error) {
+	if registry == "" {
+		return nil, nil
+	}
+	fetch := func() (root.TrustedMaterial, error) { return signing.PublicGoodRootReadOnly(tuf.DefaultMirror) }
+	if trustedRoot != "" {
+		raw, err := os.ReadFile(trustedRoot)
+		if err != nil {
+			return nil, err
+		}
+		tr, err := root.NewTrustedRootFromJSON(raw)
+		if err != nil {
+			return nil, fmt.Errorf("--publishers-trusted-root: %w", err)
+		}
+		fetch = func() (root.TrustedMaterial, error) { return tr, nil }
+	}
+	rule, why := core.DeriveRule(registry, branch)
+	return &delivery.Publishers{Root: fetch, Rule: rule, HasRule: why == "", NoRule: why, Resync: resync, Now: time.Now,
+		Reg: func(hosts ...string) publish.Registry {
+			return publish.NewClient(keychain, slices.Concat(insecure, hosts)...)
+		}}, nil
 }
 
 // upstreamReader reads what a Stage in another cluster verified from its

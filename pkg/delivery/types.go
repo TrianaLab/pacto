@@ -32,8 +32,8 @@ const (
 	GateImpact   = "pacto.impact"
 	GateContract = "pacto.contract"
 	// GatePublished admits a promote only of a version `pacto publish`
-	// published: signed (Flux verified it on the candidate source) and
-	// carrying its contract.
+	// published: signed (Flux or the registry watch verified it on the
+	// candidate source) and carrying its contract.
 	GatePublished = "pacto.published"
 	// GateSuites holds a promote of a version that does not ship a suite
 	// one of the Stage's checks runs.

@@ -73,13 +73,58 @@ type IdentityPin struct {
 
 // PublisherVerdict is what a publisher check concluded about one digest.
 type PublisherVerdict struct {
-	Digest   string             `json:"digest" doc:"The digest checked"`
-	Version  string             `json:"version,omitempty" doc:"The version tag that named the digest"`
-	Verdict  string             `json:"verdict" enum:"accepted,new-signer,refused,unsigned,unknown" doc:"What the check concluded; only accepted lets the digest through"`
-	Source   string             `json:"source" enum:"rule,pin,policy,inferred,none" doc:"What decided: an installation rule, a person's pin, the signed policy, a rule inferred from where the artifact lives, or nothing"`
+	Digest string `json:"digest" doc:"The digest checked"`
+	// +optional
+	Version string `json:"version,omitempty" doc:"The version tag that named the digest"`
+	// +kubebuilder:validation:Enum=accepted;new-signer;refused;unsigned;unknown
+	Verdict string `json:"verdict" enum:"accepted,new-signer,refused,unsigned,unknown" doc:"What the check concluded; only accepted lets the digest through"`
+	// +kubebuilder:validation:Enum=rule;pin;policy;inferred;none
+	Source string `json:"source" enum:"rule,pin,policy,inferred,none" doc:"What decided: an installation rule, a person's pin, the signed policy, a rule inferred from where the artifact lives, or nothing"`
+	// +optional
 	Identity *PublisherIdentity `json:"identity,omitempty" doc:"Who signed it, when a signature verified"`
 	Reason   string             `json:"reason" doc:"Why, in words"`
-	At       string             `json:"at,omitempty" doc:"When the check ran"`
+	// +optional
+	At string `json:"at,omitempty" doc:"When the check ran"`
+}
+
+// Bounds of the registry watch: the newest version tags it judges per
+// pass, and the verdicts a Stage keeps.
+const (
+	MaxWatchedTags       = 20
+	MaxPublisherVerdicts = 20
+)
+
+// PublisherStatus is what a Stage's registry watch (candidates.registry)
+// judged, written by the promoter only.
+type PublisherStatus struct {
+	// Source is what the watch judges against: the installation's rule, the
+	// signed policy, or none when there is no rule and only a person's pin
+	// accepts a signer.
+	// +optional
+	// +kubebuilder:validation:Enum=rule;policy;none
+	Source string `json:"source,omitempty" enum:"rule,policy,none" doc:"What the watch judges against: the installation's rule, the signed policy, or none when only a person's pin accepts a signer"`
+	// +optional
+	Rule *PublisherRule `json:"rule,omitempty" doc:"The publisher rule the watch judges against"`
+	// +optional
+	PolicyRef string `json:"policyRef,omitempty" doc:"The signed delivery policy's reference"`
+	// +optional
+	PolicyDigest string `json:"policyDigest,omitempty" doc:"The digest of the policy whose rules are in force"`
+	// +optional
+	PolicyAt string `json:"policyAt,omitempty" doc:"When the policy in force was signed: an older one is refused"`
+	// +optional
+	Pins int `json:"pins,omitempty" doc:"How many pinned signers of the service were read"`
+	// +optional
+	PinAt string `json:"pinAt,omitempty" doc:"When the newest pin read was signed: an older newest pin is never used"`
+	// +optional
+	PinDigest string `json:"pinDigest,omitempty" doc:"The digest of the newest pin read"`
+	// +optional
+	Message string `json:"message,omitempty" doc:"Why the watch cannot judge, or what it could not read"`
+	// Verdicts are the newest judged digests, newest first (cap 20).
+	// +optional
+	// +kubebuilder:validation:MaxItems=20
+	Verdicts []PublisherVerdict `json:"verdicts,omitempty" doc:"The newest judged digests, newest first"`
+	// +optional
+	CheckedAt string `json:"checkedAt,omitempty" doc:"When the watch last judged (RFC 3339)"`
 }
 
 // foreignIdentity is an issuer and subject no publisher has: a pattern that

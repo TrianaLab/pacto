@@ -559,8 +559,9 @@ func suitesGate(in PlanInput, p *Plan) {
 }
 
 // publishedGate admits only a version pacto publish published. From a
-// candidate OCIRepository that is a digest Flux verified the signature of
-// (Status.Published) whose artifact names its digest-pinned contract; from an
+// candidate OCIRepository that is a digest Flux verified the signature of, and
+// from the registry watch one the publisher check accepted (Status.Published
+// holds both), whose artifact names its digest-pinned contract; from an
 // upstream Stage it is a digest that Stage offers: it passed this gate there,
 // with a pass rather than an accepted unknown, and verified. An upstream
 // Stage that cannot be read offers nothing: the gate never asks a person to
@@ -573,6 +574,8 @@ func publishedGate(in PlanInput) Verdict {
 		upstreamOffers(in, &v)
 	case c.OCIRepositoryRef != nil:
 		candidatePublished(in, &v)
+	case c.Registry != nil:
+		registryPublished(in, &v)
 	default:
 		v.Message = "this Stage names no candidate source, so nothing it could promote was verified as published by pacto publish: set spec.candidates on the Stage"
 	}
@@ -609,15 +612,38 @@ func upstreamOffers(in PlanInput, v *Verdict) {
 }
 
 // candidatePublished judges the published gate for a Stage whose candidates
-// come from an OCIRepository Flux verifies.
+// come from an OCIRepository Flux verifies; the registry watch is the other
+// source of verified versions (registryPublished).
 func candidatePublished(in PlanInput, v *Verdict) {
 	to, ref := in.Spec.Params.To, in.Stage.Candidates.OCIRepositoryRef
 	v.Citation["source"] = ref.Name
-	switch {
-	case !slices.Contains(in.Status.Published, to):
-		v.Message = "Flux never verified a signature of " + short(to) + " on the candidate OCIRepository " + ref.Name +
+	if !slices.Contains(in.Status.Published, to) {
+		v.Message = "Flux has not verified a signature of " + short(to) + " on the candidate OCIRepository " + ref.Name +
 			": only versions pacto publish published and signed are promoted, and the OCIRepository must set spec.verify " +
 			"with a secretRef or matchOIDCIdentity naming the publisher"
+		return
+	}
+	publishedArtifact(in, v)
+}
+
+// registryPublished judges the published gate for a Stage whose candidates
+// come from the promoter's registry watch: only a digest the publisher check
+// accepted is in Status.Published.
+func registryPublished(in PlanInput, v *Verdict) {
+	to, repo := in.Spec.Params.To, watchedRepository(in.Stage.Candidates.Registry)
+	v.Citation["source"] = repo
+	if !slices.Contains(in.Status.Published, to) {
+		v.Message = "no publisher check accepted " + short(to) + " on " + repo + ": see pacto delivery trust " + in.Stage.Service.Name
+		return
+	}
+	publishedArtifact(in, v)
+}
+
+// publishedArtifact judges a verified digest by its artifact: it must name
+// its digest-pinned contract.
+func publishedArtifact(in PlanInput, v *Verdict) {
+	to := in.Spec.Params.To
+	switch {
 	case in.To.NoContract:
 		v.Message = short(to) + " names no digest-pinned " + ContractAnnotation + " annotation, so pacto publish did not publish it"
 	case in.To.ContractRef == "":

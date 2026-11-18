@@ -236,3 +236,29 @@ func TestOnBehalfOfHelpNamesTheClusterUsername(t *testing.T) {
 		}
 	}
 }
+
+// TestWaitPublishedRegistry: a Stage fed by the registry watch waits on
+// status.published too, and says the watch has not accepted the digest.
+func TestWaitPublishedRegistry(t *testing.T) {
+	var got app.PublishOptions
+	publishPoll = time.Millisecond
+	stageWith := func(published ...any) deps {
+		d := publishDeps(&publish.Result{Plan: publishPlan(true), Digests: map[string]string{}, Deploy: "reg/deploy@" + cliA}, nil, &got)
+		cluster := d.newDynamic
+		d.newDynamic = func() (dynamic.Interface, error) {
+			c, err := cluster()
+			c.(*dynamicfake.FakeDynamicClient).PrependReactor("get", "stages", func(k8stesting.Action) (bool, runtime.Object, error) {
+				return true, u("delivery.pacto.trianalab.io/v1alpha1", "Stage", "payments-prod", map[string]any{
+					"spec": map[string]any{"service": map[string]any{"name": "payments"}, "applyRef": map[string]any{"name": "payments"},
+						"candidates": map[string]any{"registry": map[string]any{}}},
+					"status": map[string]any{"published": published}}), nil
+			})
+			return c, err
+		}
+		return d
+	}
+	out, err := runPublish(t, stageWith(), "text", "--propose", "prod/payments-prod", "--propose-timeout", "5ms", "--on-behalf-of", "dana")
+	wantRun(t, out, err, true, "the registry watch has not accepted "+cliA+" yet: see pacto delivery trust payments")
+	out, err = runPublish(t, stageWith(cliA), "text", "--propose", "prod/payments-prod", "--propose-timeout", "5ms", "--on-behalf-of", "dana")
+	wantRun(t, out, err, false, "Proposed "+cliA+" on prod/payments-prod")
+}

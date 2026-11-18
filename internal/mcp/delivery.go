@@ -270,7 +270,7 @@ func registerDelivery(server *mcpsdk.Server, api DeliveryAPI, writes bool, refs 
 		Name:        "pacto_delivery_lifecycle",
 		Annotations: readOnly(true),
 		Description: "Follow one version of a service through delivery, by artifact digest, contract version or contract digest: " +
-			"whether pacto publish published it (Flux verified its signature) and, on each Stage you can see, when it arrived, was " +
+			"whether pacto publish published it (Flux or the registry watch verified its signature) and, on each Stage you can see, when it arrived, was " +
 			"verified, re-checked, rolled back or left, each from its signed record or the Operation's unsigned status. asOf and " +
 			"completeness say how much was read. Read-only." + noApprove,
 		InputSchema: inputSchema(map[string]property{

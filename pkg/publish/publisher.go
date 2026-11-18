@@ -49,6 +49,15 @@ func SignersOf(ctx context.Context, reg Registry, root root.TrustedMaterial, tlo
 func CheckPublisher(ctx context.Context, reg Registry, root root.TrustedMaterial, tlog bool, repo, digest string,
 	service delivery.ServiceRef, source string, rules []delivery.PublisherRule, ruleSource string, pins []delivery.IdentityPin) delivery.PublisherVerdict {
 	signers, err := SignersOf(ctx, reg, root, tlog, repo, digest)
+	return JudgeRead(digest, signers, err, service, source, rules, ruleSource, pins)
+}
+
+// JudgeRead judges what SignersOf read of digest: its signers through
+// delivery.JudgeSigners, ErrNoSignature as unsigned and any other error as
+// unknown. The promoter's registry watch reads signers once per digest and
+// judges them on every pass.
+func JudgeRead(digest string, signers []delivery.PublisherIdentity, err error,
+	service delivery.ServiceRef, source string, rules []delivery.PublisherRule, ruleSource string, pins []delivery.IdentityPin) delivery.PublisherVerdict {
 	var v delivery.PublisherVerdict
 	switch {
 	case err == nil:

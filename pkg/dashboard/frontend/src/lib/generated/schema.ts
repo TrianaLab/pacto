@@ -277,7 +277,7 @@ export interface paths {
         };
         /**
          * Published versions
-         * @description Per service the caller can see Stages of: the versions its Stages know, whether Flux verified their signature and which Stages run or verified each.
+         * @description Per service the caller can see Stages of: the versions its Stages know, whether Flux or the registry watch verified their signature and which Stages run or verified each.
          */
         get: operations["delivery-published"];
         put?: never;
@@ -1538,6 +1538,7 @@ export interface components {
         };
         "Delivery.Candidates": {
             ociRepositoryRef?: components["schemas"]["Delivery.LocalRef"];
+            registry?: components["schemas"]["Delivery.RegistryCandidates"];
             upstreamRecords?: components["schemas"]["Delivery.RemoteStage"];
             upstreamStage?: components["schemas"]["Delivery.StageRef"];
         };
@@ -1909,6 +1910,9 @@ export interface components {
         "Delivery.RecordsPolicy": {
             required?: boolean;
         };
+        "Delivery.RegistryCandidates": {
+            repository?: string;
+        };
         "Delivery.RemoteStage": {
             repository: string;
             stream: string;
@@ -2088,18 +2092,18 @@ export interface components {
             /** @description kind stage: the upstream Stage's environment, when it could be read */
             environment?: string;
             /**
-             * @description stage: another Stage in this cluster; records: a Stage in another cluster, read from its signed records; artifact: new artifacts of an OCIRepository; none: the Stage declares no source, so it never promotes
+             * @description stage: another Stage in this cluster; records: a Stage in another cluster, read from its signed records; artifact: new artifacts of an OCIRepository or of the registry the promoter watches; none: the Stage declares no source, so it never promotes
              * @enum {string}
              */
             kind: "stage" | "records" | "artifact" | "none";
             /** @description kind stage: the upstream Stage's namespace */
             namespace?: string;
             /**
-             * @description kind stage: why the upstream Stage could not be read; outOfScope when it sits outside the namespace the dashboard shows or the request names; self when the Stage names itself, so it waits on itself and never promotes. kind artifact, from the Stage's Ready condition: missing when the OCIRepository does not exist, unverified when it verifies no publisher's signature; either way the Stage never promotes
+             * @description kind stage: why the upstream Stage could not be read; outOfScope when it sits outside the namespace the dashboard shows or the request names; self when the Stage names itself, so it waits on itself and never promotes. kind artifact, from the Stage's Ready condition: missing when the OCIRepository does not exist, unverified when it verifies no publisher's signature or the promoter has no publisher check for the registry watch, unreadable when the watched registry cannot be listed; either way the Stage never promotes
              * @enum {string}
              */
             problem?: "missing" | "unreadable" | "outOfScope" | "self" | "unverified";
-            /** @description kind records: the upstream recorder's streams repository; kind artifact: the OCIRepository's name */
+            /** @description kind records: the upstream recorder's streams repository; kind artifact: the OCIRepository's name, or the watched registry repository */
             repository?: string;
             /** @description kind stage: the upstream Stage's name */
             stage?: string;
@@ -6329,7 +6333,7 @@ export interface components {
             unknownServices: number;
             /**
              * Format: int64
-             * @description Versions an entry Stage holds that Flux never verified a signature on: who built them cannot be traced
+             * @description Versions an entry Stage holds that no publisher check accepted (Flux or the registry watch): who built them cannot be traced
              */
             unsigned: number;
             /**

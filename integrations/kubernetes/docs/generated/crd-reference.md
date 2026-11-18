@@ -189,9 +189,11 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.policy.approval.always` | `boolean` | no |  |  | Always holds every promote for a human, whatever the contracts say. |
 | `status.policy.autonomy` | `object` | no |  |  | AutonomyPolicy tunes when Pacto proposes the next level. |
 | `status.policy.autonomy.proposeAfter` | `integer` | no | `10` |  | ProposeAfter is how many qualifying promotions earn a proposal. |
-| `status.policy.candidates` | `object` | no |  |  | Candidates says where new versions come from. At most one is set, so the version offered and the version judged come from the same source; a Stage that sets none is not Ready and never promotes. |
+| `status.policy.candidates` | `object` | no |  |  | Candidates says where new versions come from. At most one of registry, ociRepositoryRef, upstreamStage and upstreamRecords is set, so the version offered and the version judged come from the same source; a Stage that sets none is not Ready and never promotes. |
 | `status.policy.candidates.ociRepositoryRef` | `object` | no |  |  | OCIRepositoryRef is a Flux OCIRepository the promoter only reads: the candidate is the @sha256: part of its status.artifact.revision. |
 | `status.policy.candidates.ociRepositoryRef.name` | `string` | yes |  |  |  |
+| `status.policy.candidates.registry` | `object` | no |  |  | Registry is the promoter's own registry watch: a new version tag is a candidate once its Sigstore signature comes from a publisher the promoter's publisher rule accepts (delivery.publishers). |
+| `status.policy.candidates.registry.repository` | `string` | no |  |  | Repository (host/path) is the repository watched; empty watches the repository the Stage's applier takes versions from. |
 | `status.policy.candidates.upstreamRecords` | `object` | no |  |  | UpstreamRecords offers what a Stage in another cluster verified, read from its signed records: the promoter must trust the key that signs that stream (promoter.upstreamTrust), or it offers nothing. |
 | `status.policy.candidates.upstreamRecords.repository` | `string` | yes |  |  | Repository (host/path) is the upstream recorder's streams repository. |
 | `status.policy.candidates.upstreamRecords.stream` | `string` | yes |  |  | Stream is the upstream Stage's stream id, &lt;clusterID&gt;/&lt;namespace&gt;/&lt;name&gt;: its status.stream.id. |
@@ -285,9 +287,11 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `spec.approval.always` | `boolean` | no |  |  | Always holds every promote for a human, whatever the contracts say. |
 | `spec.autonomy` | `object` | no |  |  | AutonomyPolicy tunes when Pacto proposes the next level. |
 | `spec.autonomy.proposeAfter` | `integer` | no | `10` |  | ProposeAfter is how many qualifying promotions earn a proposal. |
-| `spec.candidates` | `object` | no |  |  | Candidates says where new versions come from. At most one is set, so the version offered and the version judged come from the same source; a Stage that sets none is not Ready and never promotes. |
+| `spec.candidates` | `object` | no |  |  | Candidates says where new versions come from. At most one of registry, ociRepositoryRef, upstreamStage and upstreamRecords is set, so the version offered and the version judged come from the same source; a Stage that sets none is not Ready and never promotes. |
 | `spec.candidates.ociRepositoryRef` | `object` | no |  |  | OCIRepositoryRef is a Flux OCIRepository the promoter only reads: the candidate is the @sha256: part of its status.artifact.revision. |
 | `spec.candidates.ociRepositoryRef.name` | `string` | yes |  |  |  |
+| `spec.candidates.registry` | `object` | no |  |  | Registry is the promoter's own registry watch: a new version tag is a candidate once its Sigstore signature comes from a publisher the promoter's publisher rule accepts (delivery.publishers). |
+| `spec.candidates.registry.repository` | `string` | no |  |  | Repository (host/path) is the repository watched; empty watches the repository the Stage's applier takes versions from. |
 | `spec.candidates.upstreamRecords` | `object` | no |  |  | UpstreamRecords offers what a Stage in another cluster verified, read from its signed records: the promoter must trust the key that signs that stream (promoter.upstreamTrust), or it offers nothing. |
 | `spec.candidates.upstreamRecords.repository` | `string` | yes |  |  | Repository (host/path) is the upstream recorder's streams repository. |
 | `spec.candidates.upstreamRecords.stream` | `string` | yes |  |  | Stream is the upstream Stage's stream id, &lt;clusterID&gt;/&lt;namespace&gt;/&lt;name&gt;: its status.stream.id. |
@@ -336,7 +340,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.authFreshness` | `string` | no |  |  | AuthFreshness is how old a login the promoter accepts on an approval (a Go duration). Clients ask for a fresh login with a margin under it (DecisionFreshnessFor). Empty: no login is too old, and a person decides with the session they have. |
 | `status.autoHold` | `boolean` | no |  |  | AutoHold stops auto-promotion after a person or agent rolled back or promoted back to a version the Stage already verified. |
 | `status.candidate` | `string` | no |  |  | Candidate is the newest eligible candidate the stage reconciler saw. |
-| `status.conditions` | `[]object` | no |  |  | Conditions holds Ready. It is False, naming what is missing, when the Stage cannot promote: its applier cannot be read, lacks the apply-ref label or (on Argo CD) has no single OCI source or no automated sync; its candidate OCIRepository does not exist or sets no spec.verify naming the publisher; the records of its upstream in another cluster are not trusted or cannot be read; or it names no candidate source at all. The recorder adds RecordStoreReady: False when the registry cannot be reached or holds a stream it refuses to fork; a registry without the Referrers API never sets it, its records are written as write-once tags. |
+| `status.conditions` | `[]object` | no |  |  | Conditions holds Ready. It is False, naming what is missing, when the Stage cannot promote: its applier cannot be read, lacks the apply-ref label or (on Argo CD) has no single OCI source or no automated sync; its candidate OCIRepository does not exist or sets no spec.verify naming the publisher; its watched registry cannot be listed or the promoter has no publisher check; the records of its upstream in another cluster are not trusted or cannot be read; or it names no candidate source at all. The recorder adds RecordStoreReady: False when the registry cannot be reached or holds a stream it refuses to fork; a registry without the Referrers API never sets it, its records are written as write-once tags. |
 | `status.conditions[].lastTransitionTime` | `string` | no |  |  | LastTransitionTime is when Status last changed (RFC 3339). |
 | `status.conditions[].message` | `string` | no |  |  |  |
 | `status.conditions[].observedGeneration` | `integer` | no |  |  | ObservedGeneration is the Stage generation the condition was set from. |
@@ -372,7 +376,37 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.proposal.blockers[].subject` | `string` | no |  |  | Subject is the service, consumer or caller identity. |
 | `status.proposal.evidence` | `[]string` | no |  |  | Evidence names the digests or operation uids that earned it. |
 | `status.proposal.level` | `string` | no |  |  | Level is empty while nothing is proposed. |
-| `status.published` | `[]string` | no |  |  | Published holds the candidate digests Flux verified the signature of on the candidate OCIRepository (spec.verify naming the publisher's identity), oldest first (cap 50). Only these are promoted from the OCIRepository. |
+| `status.published` | `[]string` | no |  |  | Published holds the candidate digests whose signature was verified, oldest first (cap 50): by Flux on the candidate OCIRepository (spec.verify naming the publisher's identity), or by the promoter's registry watch against its publisher rule (candidates.registry). Only these are promoted from either source. |
+| `status.publisher` | `object` | no |  |  | Publisher is what the registry watch (candidates.registry) judged: the rule it judged against and its newest verdicts. Written by the promoter only. |
+| `status.publisher.checkedAt` | `string` | no |  |  |  |
+| `status.publisher.message` | `string` | no |  |  |  |
+| `status.publisher.pinAt` | `string` | no |  |  |  |
+| `status.publisher.pinDigest` | `string` | no |  |  |  |
+| `status.publisher.pins` | `integer` | no |  |  |  |
+| `status.publisher.policyAt` | `string` | no |  |  |  |
+| `status.publisher.policyDigest` | `string` | no |  |  |  |
+| `status.publisher.policyRef` | `string` | no |  |  |  |
+| `status.publisher.rule` | `object` | no |  |  | PublisherRule names the CI identities that may publish. Subject and Repository are anchored regular expressions, both required; Ref, when set, must equal the certificate's; Services are path.Match patterns over service names, and empty means every service. |
+| `status.publisher.rule.issuer` | `string` | yes |  |  |  |
+| `status.publisher.rule.name` | `string` | no |  |  |  |
+| `status.publisher.rule.ref` | `string` | no |  |  |  |
+| `status.publisher.rule.repository` | `string` | yes |  |  |  |
+| `status.publisher.rule.services` | `[]string` | no |  |  |  |
+| `status.publisher.rule.subject` | `string` | yes |  |  |  |
+| `status.publisher.source` | `string` | no |  | `rule`, `policy`, `none` | Source is what the watch judges against: the installation's rule, the signed policy, or none when there is no rule and only a person's pin accepts a signer. |
+| `status.publisher.verdicts` | `[]object` | no |  |  | Verdicts are the newest judged digests, newest first (cap 20). |
+| `status.publisher.verdicts[].at` | `string` | no |  |  |  |
+| `status.publisher.verdicts[].digest` | `string` | yes |  |  |  |
+| `status.publisher.verdicts[].identity` | `object` | no |  |  | PublisherIdentity is who signed a digest, read from the verified Sigstore certificate. |
+| `status.publisher.verdicts[].identity.ci` | `boolean` | no |  |  |  |
+| `status.publisher.verdicts[].identity.issuer` | `string` | yes |  |  |  |
+| `status.publisher.verdicts[].identity.ref` | `string` | no |  |  |  |
+| `status.publisher.verdicts[].identity.repository` | `string` | no |  |  |  |
+| `status.publisher.verdicts[].identity.subject` | `string` | yes |  |  |  |
+| `status.publisher.verdicts[].reason` | `string` | yes |  |  |  |
+| `status.publisher.verdicts[].source` | `string` | yes |  | `rule`, `pin`, `policy`, `inferred`, `none` |  |
+| `status.publisher.verdicts[].verdict` | `string` | yes |  | `accepted`, `new-signer`, `refused`, `unsigned`, `unknown` |  |
+| `status.publisher.verdicts[].version` | `string` | no |  |  |  |
 | `status.rolledBack` | `[]string` | no |  |  | RolledBack holds the uids of the failed operations the promoter raised its one automatic rollback for, oldest first (cap 50). A failure listed here never gets a second one. |
 | `status.shadow` | `[]object` | no |  |  | Shadow holds the newest would-have decisions while the Stage observes, newest first. |
 | `status.shadow[].candidate` | `string` | yes |  |  |  |
