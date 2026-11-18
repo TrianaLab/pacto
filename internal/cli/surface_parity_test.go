@@ -81,6 +81,7 @@ const (
 	whyAtServerStart = "the MCP server and the dashboard take it once at startup (pacto mcp and pacto dashboard flags)"
 	whyStatsWindow   = "the Metrics page takes a closed window that ends now (GET /api/stats?window), with the same totals"
 	whyStatsPage     = "the Metrics page answers every service and environment at once and reads the stats repository pacto dashboard --stats-registry names"
+	whyMigrateLocal  = "a repository-wide rewrite of pacto.yaml files is a local CLI step; pacto_edit raises the version of the contract it edits and the dashboard writes no contract files"
 	whyStatsRecords  = "the records behind one number of the Metrics page; pacto stats and pacto_stats answer totals"
 )
 
@@ -276,6 +277,9 @@ func authoringRows() []surfaceRow {
 			{"init", "pacto_create.pactify", "", "pacto init always reads the service folder; pacto_create does so with pactify"},
 			{"", "pacto_create.paths", "", "the CLI takes several folders as arguments (init [dir...])"},
 			{"validate [dir | oci://ref]", "pacto_check.path", "", whyCreateOnly},
+			{"migrate [dir...]", "", "", whyMigrateLocal},
+			{"migrate --to", "", "", whyMigrateLocal},
+			{"migrate --dry-run", "", "", whyMigrateLocal},
 			{"explain --environments", "pacto_check.environments", "", "pacto explain compares environments; pacto_check adds the comparison to its validation"},
 			{"", "pacto_schema", "", "the CLI has no schema command; the JSON Schema is published with the docs"},
 			{"", "pacto_capabilities", "GET /api/capabilities", "the CLI is the local user with every command; MCP and the dashboard report what they serve"},
@@ -874,6 +878,7 @@ var jsonRuns = map[string][]string{
 	"fleet versions":         {"payments"},
 	"impact":                 {"does-not-exist", "does-not-exist-either"},
 	"init":                   {"--plan", "."},
+	"migrate":                {"--dry-run", "does-not-exist"},
 	"publish":                {"does-not-exist"},
 	"stats":                  {"--registry", "127.0.0.1:1/acme/pacto-stats"},
 	"validate":               {"does-not-exist"},

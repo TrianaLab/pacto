@@ -1963,6 +1963,37 @@ See [MCP Integration](mcp-integration.md) for setup and the [MCP reference](mcp-
 
 ---
 
+## `pacto migrate`
+
+Walks the given directories (the current one by default) with the rules of the local fleet source and raises the pactoVersion of every pacto.yaml it finds. Hidden folders, node_modules and vendor are skipped; folders past depth 8 and folders a root .pactoignore names are skipped and printed as skipped.
+
+A file is raised only when validation finds nothing new at the new version, and only its version token changes. A raise that would change what the contract means keeps the file and says why. 1.x files are left to MIGRATION.md.
+
+Exits 1 only when a file cannot be read or written, or --to names an unsupported version.
+
+```
+pacto migrate [dir...] [flags]
+```
+
+**Examples:**
+
+```
+  pacto migrate
+  pacto migrate --dry-run
+  pacto migrate services/payments
+  pacto migrate --to 2.4
+```
+
+**Flags:**
+
+```
+      --dry-run[=true|false]   print what would change and write nothing
+  -h, --help[=true|false]      help for migrate
+      --to string              pactoVersion to raise to (default: the newest this Pacto supports)
+```
+
+---
+
 ## `pacto otel`
 
 Observe runtime dependencies from OpenTelemetry traces

@@ -21,13 +21,16 @@ func Behind(v string) (current string, behind bool) {
 	return Current(), i >= 0 && i < len(SupportedVersions)-1
 }
 
+// MigrationGuideURL is the guide a person follows to move a 1.x contract to 2.x.
+const MigrationGuideURL = "https://github.com/TrianaLab/pacto/blob/main/MIGRATION.md"
+
 // ErrManualMigration is returned by Upgrade for a 1.x contract: moving it to
 // 2.x changes its shape, which a person does by following MIGRATION.md.
 type ErrManualMigration struct{ Version string }
 
 // Error says why the version is not raised and where the migration guide is.
 func (e *ErrManualMigration) Error() string {
-	return fmt.Sprintf("pactoVersion %q is not migrated automatically: moving from 1.x to 2.x changes the contract's shape and needs a person; follow https://github.com/TrianaLab/pacto/blob/main/MIGRATION.md", e.Version)
+	return fmt.Sprintf("pactoVersion %q is not migrated automatically: moving from 1.x to 2.x changes the contract's shape and needs a person; follow %s", e.Version, MigrationGuideURL)
 }
 
 // ErrComparable marks an [UpgradeCheck] error from a run that reached every
