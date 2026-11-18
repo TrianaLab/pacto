@@ -291,10 +291,10 @@ pacto delivery [flags]
 
 ### `pacto delivery approve`
 
-Record your decision on a held operation, as the person your kubeconfig signs you in as. When the installation accepts signed approvals (delivery.identities.signers) and the Stage keeps an approvals repository, the command instead logs you in again in your browser, signs the decision keyless with that login alone and pushes the signed approval record to the registry; it never reads SIGSTORE_ID_TOKEN or a CI token. When the promoter asks for a fresh login (delivery.promoter.authFreshness), the command instead makes you log in again in your browser (prompt=login, max_age=0) with its own OpenID Connect client and sends the Approval with that login's token, never your kubeconfig's: an agent running in your shell cannot approve as you without you typing your password at that moment. The token is not stored.
+Record your decision on a held operation, as the person your kubeconfig signs you in as. When the installation accepts signed approvals (delivery.identities.signers) and the Stage keeps an approvals repository, the command instead logs you in again in your browser, signs the decision keyless with that login alone and pushes the signed approval record to the registry; it never reads SIGSTORE_ID_TOKEN or a CI token. When the promoter asks for a fresh login (delivery.promoter.authFreshness), the command instead makes you log in again in your browser (prompt=login, max_age=0) with its own OpenID Connect client and sends the Approval with that login's token, never your kubeconfig's: an agent running in your shell cannot approve as you without you typing your password at that moment. The token is not stored. With --intent and no operation name it reads no kubeconfig: it approves the operation a verified intent record names, signed keyless.
 
 ```
-pacto delivery approve <operation> [flags]
+pacto delivery approve [<operation>] [flags]
 ```
 
 **Flags:**
@@ -303,6 +303,7 @@ pacto delivery approve <operation> [flags]
       --decision string             approve, reject or accept-unknown (default "approve")
       --fulcio-url string           Fulcio to get the signing certificate from, when the installation's signer names none (default "https://fulcio.sigstore.dev")
   -h, --help[=true|false]           help for approve
+      --intent string               approve the operation this intent record names (<repository>:<tag> or <repository>@<digest>) with no kubeconfig: the intent must verify with --trust, and the decision is signed keyless under a signer --signers names
       --keyless[=true|false]        sign the decision keyless into the Stage's approvals repository when the installation accepts signed approvals; false records it in the cluster (default true)
       --note string                 why, for the record
       --oidc-ca-file string         PEM bundle of the CAs that sign the issuer's certificate, trusted on top of the system roots (also PACTO_DELIVERY_OIDC_CA_FILE)
@@ -310,6 +311,7 @@ pacto delivery approve <operation> [flags]
       --oidc-extra-scopes strings   scopes to ask for beyond openid, profile and groups
       --oidc-issuer-url string      OpenID Connect issuer the cluster trusts, to log in again with (also PACTO_DELIVERY_OIDC_ISSUER_URL)
       --oidc-redirect-port int      loopback port the identity provider sends the browser back to (default: a free port)
+      --signers string              the installation's identity policy (JSON or YAML, the pacto-delivery-identities ConfigMap's policy) whose signers verify an approval a person signed; used with a record reference
       --timestamp-url string        timestamp authority to date the signature with, when the installation's signer names none
 ```
 
@@ -619,25 +621,26 @@ pacto delivery record [flags]
 
 #### `pacto delivery record get`
 
-Reads one signed record of a Stage's stream by its full id or by the short id a text history prints (sha256: and 12 hex characters), when only one record starts with it.
+Reads one signed record of a Stage's stream by its full id or by the short id a text history prints (sha256: and 12 hex characters), when only one record starts with it. A record reference (&lt;repository&gt;:&lt;tag&gt; or &lt;repository&gt;@&lt;digest&gt;) reads any record, approvals and intents included, with no kubeconfig.
 
 ```
-pacto delivery record get <id> [flags]
+pacto delivery record get <id-or-ref> [flags]
 ```
 
 **Flags:**
 
 ```
   -h, --help[=true|false]   help for get
-      --stage string        the Stage whose stream holds the record (required)
+      --signers string      the installation's identity policy (JSON or YAML, the pacto-delivery-identities ConfigMap's policy) whose signers verify an approval a person signed; used with a record reference
+      --stage string        the Stage whose stream holds the record (with a record id)
 ```
 
 #### `pacto delivery record verify`
 
-Verify every record of a Stage's stream against the trust config and check the chain
+Verifies every record of a Stage's stream against the trust config and checks the chain. With a record reference (&lt;repository&gt;:&lt;tag&gt; or &lt;repository&gt;@&lt;digest&gt;) it reads no kubeconfig: it verifies that one record, an approval or intent included, and for an approval says whether the operation record lists it (counted).
 
 ```
-pacto delivery record verify [flags]
+pacto delivery record verify [<ref>] [flags]
 ```
 
 **Flags:**
@@ -645,6 +648,7 @@ pacto delivery record verify [flags]
 ```
       --all[=true|false]    verify every Stage's stream in the namespace given with -n, or in every namespace you can list
   -h, --help[=true|false]   help for verify
+      --signers string      the installation's identity policy (JSON or YAML, the pacto-delivery-identities ConfigMap's policy) whose signers verify an approval a person signed; used with a record reference
       --stage string        the Stage (this or --all)
 ```
 

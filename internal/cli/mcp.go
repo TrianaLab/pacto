@@ -364,7 +364,7 @@ func buildDeliveryMode(cmd *cobra.Command, d deps, fm *pactomcp.FleetMode) (*pac
 	id := baseDashboardIdentity(cluster, d, c.Trust, c.PolicyNamespace)
 	reads := mcpDeliveryReads(id, fm, deliveryNarrowing(flagNamespaces(cmd)))
 	return &pactomcp.DeliveryMode{API: mcpDelivery{c}, Writes: caller.Class == delivery.ClassAgent, Caller: caller,
-		Reads: reads(c, ""), CallerAt: time.Now(), Installed: id.installedProbe()}, nil
+		Reads: reads(c, ""), CallerAt: time.Now(), Installed: id.installedProbe(), Refs: c}, nil
 }
 
 // mcpDelivery adapts app.Delivery to the MCP tools' interface.

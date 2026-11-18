@@ -133,3 +133,28 @@ func TestOpenApprovalRefusesOtherPredicate(t *testing.T) {
 		t.Fatalf("a refused signature opened: %v", err)
 	}
 }
+
+// TestOpenIntentRefusesOtherPredicate: an intent record opens through its
+// verifier as a record of its Stage's stream, and an approval record or a
+// refused signature never opens as an intent.
+func TestOpenIntentRefusesOtherPredicate(t *testing.T) {
+	op := recordInput().Operation
+	st := NewIntentRecord(recStage, rAnc, "reg/approvals@"+rAnc, op, "2026-10-19T10:00:00Z")
+	b, id, _ := SignIntent(t.Context(), plainSigner{}, st)
+	var stream string
+	var seq int64 = -1
+	ok := func(s string, n int64, _ []byte) error { stream, seq = s, n; return nil }
+	if got, gotID, err := OpenIntent(b, ok); err != nil || gotID != id || !reflect.DeepEqual(got, st) || stream != recStage.Stream() || seq != 0 {
+		t.Fatalf("OpenIntent = %+v %s %v (%s %d)", got, gotID, err, stream, seq)
+	}
+	approval, _, _ := SignApproval(t.Context(), plainSigner{}, NewApprovalRecord(recStage, rAnc, op, ApprovalSpec{}, ApprovalSigner{Kind: SignerPerson}, ""))
+	if _, _, err := OpenIntent(approval, ok); err == nil {
+		t.Fatal("an approval record opened as an intent")
+	}
+	if _, _, err := OpenIntent(b, func(string, int64, []byte) error { return errors.New("no") }); err == nil || !strings.Contains(err.Error(), "signature") {
+		t.Fatalf("a refused signature opened: %v", err)
+	}
+	if recStage.Stream() != recStage.Cluster+"/"+recStage.Namespace+"/"+recStage.Name {
+		t.Fatal(recStage.Stream())
+	}
+}

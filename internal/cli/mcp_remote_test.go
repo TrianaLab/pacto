@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -550,5 +551,64 @@ func TestRemoteBundleNoticesOnceAtStartup(t *testing.T) {
 			expect(t, post(t, h, "good", listTools).Code == http.StatusOK, "delivery=%s: tools/list", delivery)
 		}
 		expect(t, strings.Count(stderr.String(), "skipped 1 mutating operation(s)") == 1, "delivery=%s: one notice: %q", delivery, stderr.String())
+	}
+}
+
+// remoteRecordTool is the record tool name as the remote server lists it to
+// a signed-in person.
+func remoteRecordTool(t *testing.T, w *remoteWorld, name string) map[string]any {
+	t.Helper()
+	body := post(t, w.h, "good", listTools).Body.String()
+	if i := strings.Index(body, "{"); i >= 0 {
+		body = body[i:]
+	}
+	var res struct {
+		Result struct {
+			Tools []map[string]any `json:"tools"`
+		} `json:"result"`
+	}
+	if err := json.NewDecoder(strings.NewReader(body)).Decode(&res); err != nil {
+		t.Fatalf("%v: %s", err, body)
+	}
+	for _, tool := range res.Result.Tools {
+		if tool["name"] == name {
+			return tool["inputSchema"].(map[string]any)
+		}
+	}
+	t.Fatalf("%s is not listed: %s", name, body)
+	return nil
+}
+
+// TestRemoteRecordRefNeedsStageAccess: the remote server's record tools take
+// no ref: a record is read only through the caller's Stage, with their token.
+func TestRemoteRecordRefNeedsStageAccess(t *testing.T) {
+	w := newRemoteWorld(t)
+	w.user = "https://idp#carol"
+	for name, required := range map[string]string{"pacto_delivery_record_get": "namespace,stage,record", "pacto_delivery_record_verify": ""} {
+		s := remoteRecordTool(t, w, name)
+		props := s["properties"].(map[string]any)
+		var req []string
+		for _, r := range func() []any { r, _ := s["required"].([]any); return r }() {
+			req = append(req, r.(string))
+		}
+		if _, ok := props["ref"]; ok || strings.Join(req, ",") != required {
+			t.Fatalf("%s: %v required %v", name, props, req)
+		}
+	}
+}
+
+// TestRemoteRecordRefRefusesForeignHost: a ref the caller names is refused
+// by the schema before any registry is reached.
+func TestRemoteRecordRefRefusesForeignHost(t *testing.T) {
+	w := newRemoteWorld(t)
+	for _, tool := range []string{"pacto_delivery_record_get", "pacto_delivery_record_verify"} {
+		body := post(t, w.h, "good", `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"`+tool+
+			`","arguments":{"ref":"evil.example/x:y"}}}`).Body.String()
+		if !strings.Contains(body, `"isError":true`) && !strings.Contains(body, `"error":`) {
+			t.Fatalf("%s took a ref: %s", tool, body)
+		}
+		if !strings.Contains(body, "ref") {
+			t.Fatalf("%s: the refusal does not name ref: %s", tool, body)
+		}
 	}
 }

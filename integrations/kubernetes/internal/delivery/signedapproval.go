@@ -9,7 +9,6 @@ package delivery
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"time"
 
@@ -30,33 +29,12 @@ type signedApproval struct {
 	at       time.Time
 }
 
-// openSigned opens bundle, an approval record, under every approver signer
-// of p and maps the certificate to the identity it speaks for. The recorder
-// and the promoter both go through it, so a record becomes a decision in one
-// place. With no signer configured no record verifies.
+// openSigned opens bundle, an approval record, through
+// signing.OpenPersonApproval: the recorder and the promoter both go through
+// it, so a record becomes a decision in one place.
 func openSigned(bundle []byte, p delivery.ClassPolicy) (signedApproval, error) {
-	if len(p.Signers) == 0 {
-		return signedApproval{}, errors.New("no approver signer is configured, so no signed approval counts")
-	}
-	var errs []error
-	for _, signer := range p.Signers {
-		var san string
-		var at time.Time
-		st, id, err := delivery.OpenApproval(bundle, func(raw []byte) (err error) {
-			san, at, err = signing.VerifyPerson(raw, signer.Issuer, signer.TrustedRoot)
-			return err
-		})
-		if err != nil {
-			errs = append(errs, err)
-			continue
-		}
-		if st.Predicate.Signer.Kind != delivery.SignerPerson {
-			return signedApproval{}, errors.New("the record does not say a person signed it")
-		}
-		identity, source, err := delivery.ApproverIdentity(signer.Issuer, san, p)
-		return signedApproval{st: st, id: id, identity: identity, source: source, at: at}, err
-	}
-	return signedApproval{}, errors.Join(errs...)
+	a, err := signing.OpenPersonApproval(bundle, p)
+	return signedApproval{st: a.Statement, id: a.ID, identity: a.Identity, source: a.Source, at: a.At}, err
 }
 
 // verifySigned fetches and verifies the keyless record the view a names, and

@@ -49,45 +49,52 @@ func approveRoute(p delivery.ClassPolicy, st *delivery.StageObject, issuer strin
 // log in for. Approving never reads them, and refuses while they are set.
 var ambientTokens = []string{"SIGSTORE_ID_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_URL", "ACTIONS_ID_TOKEN_REQUEST_TOKEN"}
 
-// approveKeyless logs the person in again in their browser, signs their
-// decision keyless with that login alone and pushes it to the Stage's
-// approvals repository.
-func approveKeyless(cmd *cobra.Command, v *viper.Viper, d deps, c *app.Delivery, signer delivery.PersonSigner, st *delivery.StageObject, decision, ns, name, note string) error {
+// keylessLogin logs the person in again in their browser and returns a
+// keyless signer bound to that login alone, with the email it names. what
+// is the operation the decision answers, as the prompt names it.
+func keylessLogin(cmd *cobra.Command, v *viper.Viper, d deps, signer delivery.PersonSigner, decision, what string) (delivery.Signer, string, error) {
 	for _, env := range ambientTokens {
 		if os.Getenv(env) != "" {
-			return fmt.Errorf("approving needs your own fresh login; unset %s", env)
+			return nil, "", fmt.Errorf("approving needs your own fresh login; unset %s", env)
 		}
 	}
 	if signer.TrustedRoot == "" {
-		return fmt.Errorf("the signer for %s names no trustedRoot, so a signed approval would verify against nothing", signer.Issuer)
+		return nil, "", fmt.Errorf("the signer for %s names no trustedRoot, so a signed approval would verify against nothing", signer.Issuer)
 	}
 	tr, err := root.NewTrustedRootFromJSON([]byte(signer.TrustedRoot))
 	if err != nil {
-		return fmt.Errorf("the trusted root of the signer for %s: %w", signer.Issuer, err)
+		return nil, "", fmt.Errorf("the trusted root of the signer for %s: %w", signer.Issuer, err)
 	}
 	client, err := authn.IssuerClient(signer.Issuer, "", v.GetString("delivery.oidc-ca-file"))
 	if err != nil {
-		return err
+		return nil, "", err
 	}
 	token, err := d.freshLogin(cmd.Context(), authn.FreshConfig{IssuerURL: signer.Issuer, HTTPClient: client,
 		ClientID: cmp.Or(signer.ClientID, v.GetString("delivery.oidc-client-id")), ClientSecret: v.GetString("delivery.oidc-client-secret"),
 		ExtraScopes: append(v.GetStringSlice("delivery.oidc-extra-scopes"), "email"), Port: v.GetInt("delivery.oidc-redirect-port"),
 		Prompt: func(u string) {
-			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "To sign %s on %s/%s, log in again in your browser:\n\n  %s\n\n", decision, ns, name, u)
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "To sign %s on %s, log in again in your browser:\n\n  %s\n\n", decision, what, u)
 		}})
 	if err != nil {
-		return err
+		return nil, "", err
 	}
 	// Fulcio puts the token's email in the certificate; without one the SAN
 	// would be a URI, which never approves.
 	email := authn.Claims{UsernameClaim: "email", UsernamePrefix: "-"}.Person(token).User
 	if email == authn.Anonymous.User {
-		return errors.New("the login's token carries no email claim, which a signed approval names; ask your identity provider for the email scope")
+		return nil, "", errors.New("the login's token carries no email claim, which a signed approval names; ask your identity provider for the email scope")
 	}
 	fulcio, _ := cmd.Flags().GetString("fulcio-url")
 	tsa, _ := cmd.Flags().GetString("timestamp-url")
 	s, err := signing.Keyless(cmp.Or(signer.FulcioURL, fulcio), cmp.Or(signer.TimestampURL, tsa), "",
 		func(context.Context) (string, error) { return token, nil }, tr)
+	return s, email, err
+}
+
+// approveKeyless signs the person's decision keyless with a fresh login and
+// pushes it to the Stage's approvals repository.
+func approveKeyless(cmd *cobra.Command, v *viper.Viper, d deps, c *app.Delivery, signer delivery.PersonSigner, st *delivery.StageObject, decision, ns, name, note string) error {
+	s, email, err := keylessLogin(cmd, v, d, signer, decision, ns+"/"+name)
 	if err != nil {
 		return err
 	}

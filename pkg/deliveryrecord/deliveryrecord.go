@@ -265,6 +265,34 @@ func Fetch(ctx context.Context, repo *remote.Repository, manifest, predicate str
 	return bundle, err
 }
 
+// ReadAt reads the record at reference in repo, a tag or a manifest
+// digest, unverified, and says which predicate it carries: operation/v1,
+// approval/v1 or operation-intent/v1. Anything else, a record larger than
+// MaxBytes or a write-once tag that does not name the manifest it points at
+// is an error.
+func ReadAt(ctx context.Context, repo *remote.Repository, reference string) (predicate string, bundle []byte, err error) {
+	d, err := repo.Resolve(ctx, reference)
+	if err != nil {
+		return "", nil, err
+	}
+	if strings.HasPrefix(reference, "stream-") { // a write-once tag, never a digest
+		if suffix := reference[strings.LastIndex(reference, "-")+1:]; len(suffix) == 12 && !strings.HasPrefix(d.Digest.Encoded(), suffix) {
+			return "", nil, fmt.Errorf("tag %s does not name the manifest it points at", reference)
+		}
+	}
+	// ponytail: one small manifest read per predicate tried, at most three.
+	for _, predicate = range []string{delivery.PredicateOperation, delivery.PredicateApproval, delivery.PredicateIntent} {
+		var bad string
+		if bundle, _, bad, err = fetchRecord(ctx, repo, d, predicate); err != nil || bad != "" {
+			return "", nil, cmp.Or(err, errors.New(bad))
+		}
+		if bundle != nil {
+			return predicate, bundle, nil
+		}
+	}
+	return "", nil, fmt.Errorf("%s is not a delivery record of at most %d bytes", reference, MaxBytes)
+}
+
 // claimedTime is the time a bundle's statement claims, unverified: an order
 // only.
 func claimedTime(bundle []byte) string {

@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -64,21 +63,12 @@ func (d *Delivery) ApproveSigned(ctx context.Context, ns, name string, decision 
 	stage := delivery.RecordStage{Cluster: cluster, Namespace: ns, Name: st.Metadata.Name, UID: cmp.Or(op.Status.StageUID, st.Metadata.UID)}
 	statement := delivery.NewApprovalRecord(stage, anchor.Digest.String(), *op, spec,
 		delivery.ApprovalSigner{Kind: delivery.SignerPerson}, d.Now().UTC().Format(time.RFC3339))
-	bundle, digest, err := delivery.SignApproval(ctx, signer, statement)
-	if err != nil {
-		return delivery.ApprovalRecordRef{}, fmt.Errorf("signing the approval: %w", err)
-	}
 	repo, err := d.Records(path)
 	if err != nil {
 		return delivery.ApprovalRecordRef{}, err
 	}
-	mode := capabilities.ReferrersMode(cmp.Or(s.RegistryMode, string(capabilities.ReferrersNative)))
+	mode := capabilities.ReferrersMode(s.RegistryMode)
 	bounded, cancel := delivery.WithRegistryTimeout(ctx)
 	defer cancel()
-	ref, err := deliveryrecord.Push(bounded, repo, s.ID, mode, delivery.PredicateApproval, bundle,
-		map[string]string{deliveryrecord.AnnUID: op.Metadata.UID})
-	if err != nil {
-		return delivery.ApprovalRecordRef{}, fmt.Errorf("pushing the approval to %s: %w", path, err)
-	}
-	return delivery.ApprovalRecordRef{Digest: digest, Ref: ref}, nil
+	return pushApproval(bounded, signer, repo, s.ID, mode, statement)
 }

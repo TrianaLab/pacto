@@ -159,3 +159,23 @@ func OpenApproval(bundle []byte, verify func([]byte) error) (ApprovalStatement, 
 	}
 	return st, sha256Hex(payload), nil
 }
+
+// OpenIntent checks bundle carries one signed intent record, has verify
+// check its signature as a record of the intent's Stage stream (seq 0: an
+// intent holds no seq), and returns the statement and its id.
+func OpenIntent(bundle []byte, verify Verifier) (IntentStatement, string, error) {
+	var st IntentStatement
+	payload, err := openStatement(bundle, PredicateIntent, &st)
+	if err != nil {
+		return IntentStatement{}, "", err
+	}
+	if err := verify(st.Predicate.Intent.Stage.Stream(), 0, bundle); err != nil {
+		return IntentStatement{}, "", fmt.Errorf("signature: %w", err)
+	}
+	return st, sha256Hex(payload), nil
+}
+
+// Stream is the id of the record stream of Stage s: cluster/namespace/name.
+func (s RecordStage) Stream() string {
+	return s.Cluster + "/" + s.Namespace + "/" + s.Name
+}
