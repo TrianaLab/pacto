@@ -146,7 +146,7 @@ var fleetDeps = defaultDeps
 // in the namespace --delivery-namespace names (the chart's default when the
 // command has no such flag). nil when there is no cluster config, so a
 // signature is judged against the rule inferred from where it lives.
-func publisherTrust(cmd *cobra.Command, d deps) func(context.Context) (delivery.PublisherConfig, app.PinsFunc, error) {
+func publisherTrust(cmd *cobra.Command, d deps) func(context.Context) (app.Installation, error) {
 	if d.clusterConfig == nil {
 		return nil
 	}
@@ -155,10 +155,10 @@ func publisherTrust(cmd *cobra.Command, d deps) func(context.Context) (delivery.
 	}
 	ns, _ := cmd.Flags().GetString("delivery-namespace")
 	ns = cmp.Or(ns, delivery.PolicyNamespace)
-	return func(ctx context.Context) (delivery.PublisherConfig, app.PinsFunc, error) {
+	return func(ctx context.Context) (app.Installation, error) {
 		dyn, err := d.newDynamic()
 		if err != nil {
-			return delivery.PublisherConfig{}, nil, err
+			return app.Installation{}, err
 		}
 		c := &app.Delivery{Dynamic: dyn, Records: d.newRecordRepo, Policy: delivery.DefaultClassPolicy(), PolicyNamespace: ns, Now: time.Now}
 		return c.InstallationTrust(ctx)

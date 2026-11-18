@@ -15,6 +15,9 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/static"
 	"github.com/google/go-containerregistry/pkg/v1/types"
+	"k8s.io/apimachinery/pkg/runtime"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
+	k8stesting "k8s.io/client-go/testing"
 
 	"github.com/trianalab/pacto/v4/internal/testutil"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
@@ -33,8 +36,14 @@ func provPin(svc delivery.ServiceRef) delivery.IdentityPin {
 // trusting makes pc read cfg and pins as the installation's trust, and
 // counts the reads.
 func trusting(pc *ProvenanceChecker, cfg delivery.PublisherConfig, pins PinsFunc, err error) *int {
+	return trustingIn(pc, Installation{Config: cfg, Pins: pins}, err)
+}
+
+// trustingIn makes pc read in as the installation's trust, and counts the
+// reads.
+func trustingIn(pc *ProvenanceChecker, in Installation, err error) *int {
 	n := new(int)
-	pc.Trust = func(context.Context) (delivery.PublisherConfig, PinsFunc, error) { *n++; return cfg, pins, err }
+	pc.Trust = func(context.Context) (Installation, error) { *n++; return in, err }
 	return n
 }
 
@@ -42,8 +51,15 @@ func trusting(pc *ProvenanceChecker, cfg delivery.PublisherConfig, pins PinsFunc
 // host/policy:v1.
 func signPolicy(t *testing.T, reg *provRegistry, key ed25519.PrivateKey, rules ...delivery.PublisherRule) {
 	t.Helper()
+	signPolicyAt(t, reg, key, "v1", "2026-11-18T00:00:00Z", rules...)
+}
+
+// signPolicyAt pushes a delivery policy of rules signed by key at at to
+// host/policy:tag and returns its digest.
+func signPolicyAt(t *testing.T, reg *provRegistry, key ed25519.PrivateKey, tag, at string, rules ...delivery.PublisherRule) string {
+	t.Helper()
 	payload, _ := json.Marshal(delivery.PolicyStatement{Type: delivery.StatementType, Subject: []delivery.Subject{},
-		PredicateType: delivery.PredicatePublisherPolicy, Predicate: delivery.PublisherPolicy{Publishers: rules, At: "2026-11-18T00:00:00Z"}})
+		PredicateType: delivery.PredicatePublisherPolicy, Predicate: delivery.PublisherPolicy{Publishers: rules, At: at}})
 	bundle, err := edSigner(key).Sign(t.Context(), delivery.PayloadType, payload)
 	if err != nil {
 		t.Fatal(err)
@@ -51,11 +67,12 @@ func signPolicy(t *testing.T, reg *provRegistry, key ed25519.PrivateKey, rules .
 	img, _ := mutate.AppendLayers(empty.Image, static.NewLayer(bundle, types.MediaType(delivery.BundleMediaType)))
 	d, err := reg.client.Write(t.Context(), reg.host+"/policy", mutate.MediaType(img, types.OCIManifestSchema1))
 	if err == nil {
-		err = reg.client.Tag(t.Context(), reg.host+"/policy", d, "v1")
+		err = reg.client.Tag(t.Context(), reg.host+"/policy", d, tag)
 	}
 	if err != nil {
 		t.Fatal(err)
 	}
+	return d
 }
 
 // policySigners is a trust config whose one policy key is pub.
@@ -101,12 +118,12 @@ func TestProvenanceVerifiedByPin(t *testing.T) {
 	reg := provenanceTestRegistry(t)
 	pc := checkerFor(reg)
 	var asked []delivery.ServiceRef
-	trusting(pc, delivery.PublisherConfig{}, func(_ context.Context, svc delivery.ServiceRef) ([]delivery.IdentityPin, string, error) {
+	trusting(pc, delivery.PublisherConfig{}, func(_ context.Context, svc delivery.ServiceRef) ([]delivery.IdentityPin, string, string, error) {
 		asked = append(asked, svc)
 		if svc.Domain != "" {
-			return nil, "", nil
+			return nil, "", "", nil
 		}
-		return []delivery.IdentityPin{provPin(svc)}, "", nil
+		return []delivery.IdentityPin{provPin(svc)}, "", "", nil
 	}, nil)
 	p := pc.Check(t.Context(), "oci", pushSigned(t, reg, s), keylessContract(provIdentity))
 	wantStatus(t, p, fleet.SignatureVerified, "an identity a person pinned for app in namespace prod")
@@ -175,8 +192,8 @@ func TestProvenancePolicyUnverifiedOnlyPins(t *testing.T) {
 	wantStatus(t, pc.Check(t.Context(), "oci", ref, nil), fleet.SignatureUnverified, "could not be verified")
 	pc = checkerFor(reg)
 	trusting(pc, delivery.PublisherConfig{Policy: reg.host + "/policy:v1", PolicySigners: signers},
-		func(_ context.Context, svc delivery.ServiceRef) ([]delivery.IdentityPin, string, error) {
-			return []delivery.IdentityPin{provPin(svc)}, "", nil
+		func(_ context.Context, svc delivery.ServiceRef) ([]delivery.IdentityPin, string, string, error) {
+			return []delivery.IdentityPin{provPin(svc)}, "", "", nil
 		}, nil)
 	p := pc.Check(t.Context(), "oci", ref, nil)
 	wantStatus(t, p, fleet.SignatureVerified, "only pinned signers are accepted")
@@ -191,8 +208,8 @@ func TestProvenancePinReadFailureSaysSo(t *testing.T) {
 	_, s := ciSigstore(t)
 	reg := provenanceTestRegistry(t)
 	pc := checkerFor(reg)
-	trusting(pc, delivery.PublisherConfig{Registry: "ghcr.io/acme"}, func(context.Context, delivery.ServiceRef) ([]delivery.IdentityPin, string, error) {
-		return nil, "", errors.New("registry down")
+	trusting(pc, delivery.PublisherConfig{Registry: "ghcr.io/acme"}, func(context.Context, delivery.ServiceRef) ([]delivery.IdentityPin, string, string, error) {
+		return nil, "", "", errors.New("registry down")
 	}, nil)
 	p := pc.Check(t.Context(), "oci", pushSigned(t, reg, s), keylessContract(provIdentity))
 	wantStatus(t, p, fleet.SignatureVerified, "The pins of app could not be read (registry down), so no pinned signer is accepted.")
@@ -205,8 +222,8 @@ func TestProvenancePinListingCutUnknown(t *testing.T) {
 	_, s := ciSigstore(t)
 	reg := provenanceTestRegistry(t)
 	pc := checkerFor(reg)
-	trusting(pc, delivery.PublisherConfig{Registry: "ghcr.io/other"}, func(context.Context, delivery.ServiceRef) ([]delivery.IdentityPin, string, error) {
-		return nil, "more than 20 pins of app are attached and only 20 were read", nil
+	trusting(pc, delivery.PublisherConfig{Registry: "ghcr.io/other"}, func(context.Context, delivery.ServiceRef) ([]delivery.IdentityPin, string, string, error) {
+		return nil, "more than 20 pins of app are attached and only 20 were read", "", nil
 	}, nil)
 	p := pc.Check(t.Context(), "oci", pushSigned(t, reg, s), nil)
 	wantStatus(t, p, fleet.SignatureUnknown, "only 20 were read, so a signer no pin read covers is unknown")
@@ -262,26 +279,92 @@ func TestInstallationTrust(t *testing.T) {
 	streams := e.host + "/delivery/streams"
 	e.publishing(&delivery.PublisherConfig{Registry: "ghcr.io/acme", StreamsRepository: streams, PinSigner: e.pinSigner()})
 	e.pin(trustPayments, "alice", e.trustApproval("u1", ""), "u1", "2026-11-17T00:00:00Z")
-	cfg, pins, err := e.d.InstallationTrust(context.Background())
-	if err != nil || cfg.Registry != "ghcr.io/acme" || pins == nil {
-		t.Fatalf("%+v %v", cfg, err)
+	in, err := e.d.InstallationTrust(context.Background())
+	pins := in.Pins
+	if err != nil || in.Config.Registry != "ghcr.io/acme" || pins == nil || in.Unguarded != "" {
+		t.Fatalf("%+v %v", in, err)
 	}
 	e.pin(trustPayments, "alice", e.trustApproval("u2", ""), "u2", "2026-11-18T00:00:00Z")
 	// The newest pin of the namespace is the one in use, as the promoter reads it.
-	if got, note, err := pins(context.Background(), trustPayments); err != nil || note != "" || len(got) != 1 || got[0].Operation != "u2" {
-		t.Fatalf("pins %+v %q %v", got, note, err)
+	if got, cut, dropped, err := pins(context.Background(), trustPayments); err != nil || cut+dropped != "" || len(got) != 1 || got[0].Operation != "u2" {
+		t.Fatalf("pins %+v %q %q %v", got, cut, dropped, err)
 	}
 	e.publishing(&delivery.PublisherConfig{Registry: "ghcr.io/acme"})
-	if _, pins, err := e.d.InstallationTrust(context.Background()); err != nil || pins != nil {
+	if in, err := e.d.InstallationTrust(context.Background()); err != nil || in.Pins != nil {
 		t.Fatalf("no streams repository read pins: %v", err)
 	}
 	e.publishing(&delivery.PublisherConfig{StreamsRepository: streams})
-	_, pins, err = e.d.InstallationTrust(context.Background())
-	if _, _, perr := pins(context.Background(), trustPayments); err != nil || perr == nil || !strings.Contains(perr.Error(), "names no pin signer") {
+	in, err = e.d.InstallationTrust(context.Background())
+	if _, _, _, perr := in.Pins(context.Background(), trustPayments); err != nil || perr == nil || !strings.Contains(perr.Error(), "names no pin signer") {
 		t.Fatalf("no pin signer: %v %v", err, perr)
 	}
 	e.d.PolicyNamespace = ""
-	if _, _, err := e.d.InstallationTrust(context.Background()); err == nil {
+	if _, err := e.d.InstallationTrust(context.Background()); err == nil {
 		t.Fatal("no delivery namespace read a config")
+	}
+}
+
+// TestProvenancePolicyRollbackKeepsNewer: a policy tag moved back to an
+// older signed policy is judged as the promoter judges it, with the newer
+// policy a Stage's watch already uses.
+func TestProvenancePolicyRollbackKeepsNewer(t *testing.T) {
+	_, s := ciSigstore(t)
+	reg := provenanceTestRegistry(t)
+	pub, key, _ := ed25519.GenerateKey(rand.Reader)
+	other := provRule
+	other.Subject = `^https://github\.com/acme/app/\.github/workflows/other\.yml@refs/heads/main$`
+	newer := signPolicyAt(t, reg, key, "v2", "2026-11-18T00:00:00Z", other)
+	signPolicyAt(t, reg, key, "v1", "2026-11-01T00:00:00Z", provRule)
+	ref := pushSigned(t, reg, s)
+	cfg := delivery.PublisherConfig{Policy: reg.host + "/policy:v1", PolicySigners: policySigners(t, pub)}
+	pc := checkerFor(reg)
+	trustingIn(pc, Installation{Config: cfg, PolicyDigest: newer, PolicyAt: "2026-11-18T00:00:00Z"}, nil)
+	wantStatus(t, pc.Check(t.Context(), "oci", ref, nil), fleet.SignatureUnverified, "")
+	// An older mark leaves the tag's policy in force.
+	pc = checkerFor(reg)
+	trustingIn(pc, Installation{Config: cfg, PolicyDigest: newer, PolicyAt: "2026-10-01T00:00:00Z"}, nil)
+	wantStatus(t, pc.Check(t.Context(), "oci", ref, nil), fleet.SignatureVerified, "")
+}
+
+// TestProvenanceUnguardedCapsUnknown: when the Stages that hold the
+// promoter's high-water marks cannot be listed, a policy or pin accept is
+// unknown and the reason says why.
+func TestProvenanceUnguardedCapsUnknown(t *testing.T) {
+	_, s := ciSigstore(t)
+	reg := provenanceTestRegistry(t)
+	pub, key, _ := ed25519.GenerateKey(rand.Reader)
+	signPolicy(t, reg, key, provRule)
+	pc := checkerFor(reg)
+	trustingIn(pc, Installation{Config: delivery.PublisherConfig{Policy: reg.host + "/policy:v1", PolicySigners: policySigners(t, pub)},
+		Unguarded: "the Stages could not be listed (forbidden), so the promoter's no-rollback guards were not applied"}, nil)
+	p := pc.Check(t.Context(), "oci", pushSigned(t, reg, s), nil)
+	wantStatus(t, p, fleet.SignatureUnknown, "The Stages could not be listed (forbidden)")
+}
+
+// TestInstallationTrustPinRollback: a namespace whose newest pin is older
+// than the one its Stage already used gets no pin, and says so; the
+// policy high-water mark comes from a watch that judges with the policy.
+func TestInstallationTrustPinRollback(t *testing.T) {
+	e := newAtEnv(t, testutil.ReferrersOptions{})
+	streams := e.host + "/delivery/streams"
+	stage := obj("delivery.pacto.trianalab.io/v1alpha1", "Stage", "prod", "payments-reg", map[string]any{
+		"spec": map[string]any{"service": map[string]any{"name": "payments"}, "candidates": map[string]any{"registry": map[string]any{}}},
+		"status": map[string]any{"publisher": map[string]any{"source": "policy", "policyDigest": "sha256:p", "policyAt": "2026-11-18T00:00:00Z",
+			"pinAt": "2026-11-18T00:00:00Z"}}})
+	e.publishing(&delivery.PublisherConfig{StreamsRepository: streams, PinSigner: e.pinSigner()}, stage)
+	e.pin(trustPayments, "alice", e.trustApproval("u1", ""), "u1", "2026-11-17T00:00:00Z")
+	in, err := e.d.InstallationTrust(context.Background())
+	if err != nil || in.Unguarded != "" || in.PolicyDigest != "sha256:p" {
+		t.Fatalf("%+v %v", in, err)
+	}
+	got, _, dropped, err := in.Pins(context.Background(), trustPayments)
+	if err != nil || len(got) != 0 || !strings.Contains(dropped, "the newest pin of payments in prod is gone; no older pin is used") {
+		t.Fatalf("pins %+v %q %v", got, dropped, err)
+	}
+	e.d.Dynamic.(*dynamicfake.FakeDynamicClient).PrependReactor("list", "stages", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, errors.New("forbidden")
+	})
+	if in, err := e.d.InstallationTrust(context.Background()); err != nil || !strings.Contains(in.Unguarded, "the Stages could not be listed (") || !strings.Contains(in.Unguarded, "forbidden") {
+		t.Fatalf("%+v %v", in, err)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"k8s.io/apimachinery/pkg/runtime"
 	"oras.land/oras-go/v2/registry/remote"
 
 	"github.com/trianalab/pacto/v4/internal/testutil"
@@ -31,7 +32,7 @@ func trustStage(name, service string, p *delivery.PublisherStatus) delivery.Stag
 
 // publishing points e's client at a delivery namespace whose ConfigMap
 // publishes cfg (nil: no publishers.json) and e's approver signers.
-func (e *atEnv) publishing(cfg *delivery.PublisherConfig) {
+func (e *atEnv) publishing(cfg *delivery.PublisherConfig, extra ...runtime.Object) {
 	e.t.Helper()
 	policy, _ := json.Marshal(e.d.Policy)
 	data := map[string]any{delivery.PolicyKey: string(policy)}
@@ -39,7 +40,8 @@ func (e *atEnv) publishing(cfg *delivery.PublisherConfig) {
 		raw, _ := json.Marshal(cfg)
 		data[delivery.PublishersKey] = string(raw)
 	}
-	cluster, _, _ := deliveryFixture(e.t, "carol", nil, nil, obj("v1", "ConfigMap", "pacto-delivery", delivery.PolicyConfigMap, map[string]any{"data": data}))
+	extra = append(extra, obj("v1", "ConfigMap", "pacto-delivery", delivery.PolicyConfigMap, map[string]any{"data": data}))
+	cluster, _, _ := deliveryFixture(e.t, "carol", nil, nil, extra...)
 	e.d.Dynamic, e.d.PolicyNamespace = cluster.Dynamic, "pacto-delivery"
 }
 
@@ -280,8 +282,8 @@ func TestTrustPinsCutPartial(t *testing.T) {
 	if v.Completeness != "partial" || !strings.Contains(strings.Join(v.Unreadable, "; "), "more than 20 pins of payments are attached and only 20 were read") {
 		t.Fatalf("%+v", v)
 	}
-	_, pins, _ := e.d.InstallationTrust(context.Background())
-	if _, note, err := pins(context.Background(), trustPayments); err != nil || !strings.Contains(note, "only 20 were read") {
+	in, _ := e.d.InstallationTrust(context.Background())
+	if _, note, _, err := in.Pins(context.Background(), trustPayments); err != nil || !strings.Contains(note, "only 20 were read") {
 		t.Fatalf("fleet: %q %v", note, err)
 	}
 }

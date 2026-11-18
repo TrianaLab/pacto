@@ -74,7 +74,7 @@ type ProvenanceChecker struct {
 	// its publisher trust config and a reader of a service's pins. nil, or a
 	// config it cannot read, judges against the rule inferred from the
 	// revision's own registry, which never reads verified.
-	Trust func(ctx context.Context) (delivery.PublisherConfig, PinsFunc, error)
+	Trust func(ctx context.Context) (Installation, error)
 }
 
 // NewProvenanceChecker returns a checker over the CLI's registry credentials
@@ -248,6 +248,10 @@ func (p *ProvenanceChecker) judgeSignature(ctx context.Context, repo, digest str
 	case cut && sig.Status == fleet.SignatureUnverified:
 		sig.Status = fleet.SignatureUnknown // the pin that covers it may be one not read
 	}
+	if t.unguarded != "" && sig.Status == fleet.SignatureVerified && sig.Source != delivery.PublisherSourceRule {
+		sig.Status = fleet.SignatureUnknown // the promoter may have moved past this policy or pin
+		notes = append(notes, t.unguarded)
+	}
 	if note := strings.Join(slices.DeleteFunc(append(notes, why), func(s string) bool { return s == "" }), "; "); note != "" {
 		// Capped apart, so a long verdict never hides what was not applied.
 		sig.Reason = strings.TrimSuffix(sig.Reason, ".") + ". " + capReason(upperFirst(note)+".")
@@ -260,14 +264,17 @@ func (p *ProvenanceChecker) judgeSignature(ctx context.Context, repo, digest str
 // a service's pins. note names a part of the installation's trust that was
 // not applied; inferred means no installation config was read.
 type installTrust struct {
-	rules    []delivery.PublisherRule
-	source   string
-	expect   delivery.PublisherRule
-	pins     PinsFunc
-	note     string
-	inferred bool
-	failed   bool
-	until    time.Time
+	rules  []delivery.PublisherRule
+	source string
+	expect delivery.PublisherRule
+	pins   PinsFunc
+	note   string
+	// unguarded says why the promoter's high-water marks were not read, so
+	// a policy or pin accept reads unknown.
+	unguarded string
+	inferred  bool
+	failed    bool
+	until     time.Time
 }
 
 // installation is what the installation trusts, read with Trust and
@@ -296,14 +303,22 @@ func (p *ProvenanceChecker) installation(ctx context.Context) *installTrust {
 // the policy signers, nothing but pins when it does not, else the rule
 // derived from the configured registry.
 func (p *ProvenanceChecker) readInstallation(ctx context.Context) *installTrust {
-	cfg, pins, err := p.Trust(ctx)
+	in, err := p.Trust(ctx)
 	if err != nil {
 		return &installTrust{inferred: true, failed: true,
 			note: "the installation's publisher trust config could not be read (" + err.Error() + "), so the rule was inferred from where the revision lives"}
 	}
-	t := &installTrust{pins: pins, source: delivery.PublisherSourceRule}
+	cfg := in.Config
+	t := &installTrust{pins: in.Pins, source: delivery.PublisherSourceRule, unguarded: in.Unguarded, failed: in.Unguarded != ""}
 	if cfg.Policy != "" {
-		pol, err := p.policy(ctx, cfg)
+		pol, err := p.policy(ctx, cfg, "")
+		if in.PolicyDigest != "" && (err != nil || rfcTime(in.PolicyAt).After(rfcTime(pol.At))) {
+			// The promoter keeps the newest policy it verified: a tag moved
+			// back, or one that no longer verifies, never replaces it.
+			if kept, kerr := p.policy(ctx, cfg, in.PolicyDigest); kerr == nil {
+				pol, err = kept, nil
+			}
+		}
 		if err != nil {
 			t.failed, t.note = true, "the delivery policy "+cfg.Policy+" could not be verified ("+err.Error()+"), so only pinned signers are accepted"
 			return t
@@ -320,11 +335,9 @@ func (p *ProvenanceChecker) readInstallation(ctx context.Context) *installTrust 
 	return t
 }
 
-// policy reads the delivery policy cfg names and verifies it with cfg's
-// policy signers. ponytail: the fleet keeps no high-water mark, so a tag
-// moved to an older signed policy is used where the promoter keeps the newer;
-// reading the Stages' status.publisher.policyAt is the upgrade path.
-func (p *ProvenanceChecker) policy(ctx context.Context, cfg delivery.PublisherConfig) (delivery.PublisherPolicy, error) {
+// policy reads the delivery policy cfg names, or its digest when one is
+// given, and verifies it with cfg's policy signers.
+func (p *ProvenanceChecker) policy(ctx context.Context, cfg delivery.PublisherConfig, digest string) (delivery.PublisherPolicy, error) {
 	verify, err := delivery.PolicyVerifier([]byte(cfg.PolicySigners), signing.OpenKey)
 	if err != nil {
 		return delivery.PublisherPolicy{}, err
@@ -333,14 +346,17 @@ func (p *ProvenanceChecker) policy(ctx context.Context, cfg delivery.PublisherCo
 	if err != nil {
 		return delivery.PublisherPolicy{}, err
 	}
-	h, err := p.reg.Head(ctx, cfg.Policy)
-	if err == nil && h == nil {
-		err = errors.New("it does not exist")
+	if digest == "" {
+		h, err := p.reg.Head(ctx, cfg.Policy)
+		if err == nil && h == nil {
+			err = errors.New("it does not exist")
+		}
+		if err != nil {
+			return delivery.PublisherPolicy{}, err
+		}
+		digest = h.Digest
 	}
-	if err != nil {
-		return delivery.PublisherPolicy{}, err
-	}
-	bundle, _, err := p.reg.Layer(ctx, ref.Context().String(), h.Digest)
+	bundle, _, err := p.reg.Layer(ctx, ref.Context().String(), digest)
 	if err != nil {
 		return delivery.PublisherPolicy{}, err
 	}
@@ -360,12 +376,15 @@ func (t *installTrust) pinsOf(ctx context.Context, service delivery.ServiceRef) 
 	}
 	var notes []string
 	for _, s := range services {
-		pins, note, err := t.pins(ctx, s)
+		pins, cutNote, dropped, err := t.pins(ctx, s)
 		if err != nil {
 			return nil, "the pins of " + service.Name + " could not be read (" + err.Error() + "), so no pinned signer is accepted", false
 		}
-		if note != "" {
-			notes, cut = append(notes, note+", so a signer no pin read covers is unknown"), true
+		if cutNote != "" {
+			notes, cut = append(notes, cutNote+", so a signer no pin read covers is unknown"), true
+		}
+		if dropped != "" {
+			notes = append(notes, dropped)
 		}
 		for _, pin := range pins {
 			pin.Service = service // an unscoped Stage's pin covers every same-named service

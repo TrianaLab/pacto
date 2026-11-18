@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/viper"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/rest"
@@ -23,7 +24,8 @@ func publishersIn(ns, registry string) dynamic.Interface {
 	cm := &unstructured.Unstructured{Object: map[string]any{"apiVersion": "v1", "kind": "ConfigMap",
 		"metadata": map[string]any{"namespace": ns, "name": delivery.PolicyConfigMap},
 		"data":     map[string]any{delivery.PublishersKey: `{"registry":"` + registry + `"}`}}}
-	return dynamicfake.NewSimpleDynamicClient(runtime.NewScheme(), cm)
+	lists := map[schema.GroupVersionResource]string{{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "stages"}: "StageList"}
+	return dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), lists, cm)
 }
 
 // TestFleetWiresPublisherTrust: with a cluster config, fleet provenance
@@ -42,17 +44,17 @@ func TestFleetWiresPublisherTrust(t *testing.T) {
 	if publisherTrust(cmd, noConfig) != nil {
 		t.Fatal("no cluster config read a cluster")
 	}
-	if _, _, err := publisherTrust(cmd, cluster(nil, errors.New("unreachable")))(context.Background()); err == nil {
+	if _, err := publisherTrust(cmd, cluster(nil, errors.New("unreachable")))(context.Background()); err == nil {
 		t.Fatal("a cluster with no client read a config")
 	}
-	cfg, _, err := publisherTrust(cmd, cluster(publishersIn(delivery.PolicyNamespace, "ghcr.io/acme"), nil))(context.Background())
-	if err != nil || cfg.Registry != "ghcr.io/acme" {
-		t.Fatalf("the chart's namespace: %+v %v", cfg, err)
+	in, err := publisherTrust(cmd, cluster(publishersIn(delivery.PolicyNamespace, "ghcr.io/acme"), nil))(context.Background())
+	if err != nil || in.Config.Registry != "ghcr.io/acme" {
+		t.Fatalf("the chart's namespace: %+v %v", in, err)
 	}
 	cmd.Flags().String("delivery-namespace", "", "")
 	_ = cmd.Flags().Set("delivery-namespace", "elsewhere")
-	if cfg, _, err := publisherTrust(cmd, cluster(publishersIn("elsewhere", "ghcr.io/other"), nil))(context.Background()); err != nil || cfg.Registry != "ghcr.io/other" {
-		t.Fatalf("--delivery-namespace: %+v %v", cfg, err)
+	if in, err := publisherTrust(cmd, cluster(publishersIn("elsewhere", "ghcr.io/other"), nil))(context.Background()); err != nil || in.Config.Registry != "ghcr.io/other" {
+		t.Fatalf("--delivery-namespace: %+v %v", in, err)
 	}
 
 	old := fleetDeps

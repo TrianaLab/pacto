@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -68,39 +69,87 @@ func trustKeys(stages []delivery.StageObject) []pinKey {
 }
 
 // PinsFunc reads the pins a service may use, each naming the namespace
-// whose Stages use it, and notes what of them could not be read.
-type PinsFunc func(ctx context.Context, s delivery.ServiceRef) (pins []delivery.IdentityPin, note string, err error)
+// whose Stages use it. cut says only part of the listing was read; dropped
+// names a newest pin not used because a Stage already used a newer one.
+type PinsFunc func(ctx context.Context, s delivery.ServiceRef) (pins []delivery.IdentityPin, cut, dropped string, err error)
+
+// Installation is what the installation trusts, as fleet provenance judges
+// with it: the publisher trust config, a reader of a service's usable pins
+// (nil when the config names no streams repository, so no pin exists) and
+// the promoter's policy high-water mark: the newest policy a Stage's watch
+// judges with. Unguarded says why the Stages could not be listed, so neither
+// of the promoter's no-rollback guards (policyAt, pinAt) was applied.
+type Installation struct {
+	Config                 delivery.PublisherConfig
+	Pins                   PinsFunc
+	PolicyDigest, PolicyAt string
+	Unguarded              string
+}
 
 // InstallationTrust is what the installation trusts, read as PublisherTrust
-// reads it: its publisher trust config and a reader of a service's usable
-// pins (nil when the config names no streams repository, so no pin exists).
-// A pin reader that cannot be built answers its reason on every read. It is
-// ProvenanceChecker.Trust, so fleet provenance judges with the rule, policy
-// and pins the promoter uses: the newest pin of each namespace.
-func (d *Delivery) InstallationTrust(ctx context.Context) (delivery.PublisherConfig, PinsFunc, error) {
+// reads it, with the high-water marks the registry Stages' status.publisher
+// keeps. A pin reader that cannot be built answers its reason on every read.
+// It is ProvenanceChecker.Trust, so fleet provenance judges with the rule,
+// policy and pins the promoter uses: the newest pin of each namespace, unless
+// a Stage of that namespace already used a newer one.
+func (d *Delivery) InstallationTrust(ctx context.Context) (Installation, error) {
 	cfg, err := d.publisherConfig(ctx)
 	if err != nil {
-		return cfg, nil, err
+		return Installation{Config: cfg}, err
+	}
+	in := Installation{Config: cfg}
+	pinAt := map[pinKey]time.Time{}
+	stages, serr := d.Stages(ctx, "")
+	if serr != nil {
+		in.Unguarded = "the Stages could not be listed (" + serr.Error() + "), so the promoter's no-rollback guards were not applied"
+	}
+	for _, st := range stages {
+		p := st.Status.Publisher
+		if st.Spec.Candidates.Registry == nil || p == nil {
+			continue
+		}
+		if p.Source == delivery.PublisherSourcePolicy && p.PolicyDigest != "" && rfcTime(p.PolicyAt).After(rfcTime(in.PolicyAt)) {
+			in.PolicyDigest, in.PolicyAt = p.PolicyDigest, p.PolicyAt
+		}
+		k := pinKey{st.Metadata.Namespace, st.Spec.Service}
+		if at := rfcTime(p.PinAt); at.After(pinAt[k]) {
+			pinAt[k] = at
+		}
 	}
 	read, err := d.pinsReader(ctx, cfg)
 	switch {
 	case err != nil:
-		return cfg, func(context.Context, delivery.ServiceRef) ([]delivery.IdentityPin, string, error) {
-			return nil, "", err
-		}, nil
+		in.Pins = func(context.Context, delivery.ServiceRef) ([]delivery.IdentityPin, string, string, error) {
+			return nil, "", "", err
+		}
+		return in, nil
 	case read == nil:
-		return cfg, nil, nil
+		return in, nil
 	}
-	return cfg, func(ctx context.Context, s delivery.ServiceRef) ([]delivery.IdentityPin, string, error) {
+	in.Pins = func(ctx context.Context, s delivery.ServiceRef) ([]delivery.IdentityPin, string, string, error) {
 		l, err := read(ctx, "", s) // a pin it cannot use is simply not used
 		var out []delivery.IdentityPin
+		var seen, notes []string
 		for _, p := range l.Pins { // newest first: the first of each namespace is the one it uses
-			if !slices.ContainsFunc(out, func(o delivery.IdentityPin) bool { return o.Namespace == p.Pin.Namespace }) {
-				out = append(out, p.Pin)
+			if slices.Contains(seen, p.Pin.Namespace) {
+				continue
 			}
+			seen = append(seen, p.Pin.Namespace)
+			if rfcTime(p.Pin.At).Before(pinAt[pinKey{p.Pin.Namespace, s}]) {
+				notes = append(notes, "the newest pin of "+s.Name+" in "+p.Pin.Namespace+" is gone; no older pin is used")
+				continue
+			}
+			out = append(out, p.Pin)
 		}
-		return out, cutNote(s, l.Cut), err
-	}, nil
+		return out, cutNote(s, l.Cut), strings.Join(notes, "; "), err
+	}
+	return in, nil
+}
+
+// rfcTime is the RFC 3339 time s, zero when s is not one.
+func rfcTime(s string) time.Time {
+	t, _ := time.Parse(time.RFC3339, s)
+	return t
 }
 
 // cutNote says that only MaxPins pins of s were read.
