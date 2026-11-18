@@ -2,6 +2,7 @@
 
 ### pacto ci plan
 
+- `CI: none`
 - `Registry: ghcr.io/acme (from --registry)`
 - `Base: none`
 - `Consumer source: none (IMPACT reads unverified)`

@@ -75,7 +75,7 @@ func header(p *Plan) []string {
 	if p.Registry.Value == "" {
 		reg = "none (pass --registry)"
 	}
-	out := []string{"Registry: " + reg, "Base: " + p.Base.String()}
+	out := []string{"CI: " + platform(p.Platform), "Registry: " + reg, "Base: " + p.Base.String()}
 	if p.OIDC {
 		out = append(out, "OIDC: available, not requested in plan mode")
 	}
@@ -86,6 +86,17 @@ func header(p *Plan) []string {
 		out = append(out, fmt.Sprintf("Consumer source: %s (%s, asOf %s)", s.Name, s.Status, p.Snapshot.AsOf.UTC().Format("2006-01-02T15:04:05Z")))
 	}
 	return append(out, p.Notes...)
+}
+
+// platform is the CI platform line with the variable that detected it.
+func platform(name string) string {
+	switch name {
+	case "github":
+		return "github (from GITHUB_ACTIONS)"
+	case "gitlab":
+		return "gitlab (from GITLAB_CI)"
+	}
+	return "none"
 }
 
 // footer are the skipped folders, then each row's errors and notes.

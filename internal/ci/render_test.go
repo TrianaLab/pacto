@@ -19,7 +19,8 @@ func TestTextPlanSkeleton(t *testing.T) {
 	}
 	var b strings.Builder
 	Text(&b, p)
-	want := `Registry: none (pass --registry)
+	want := `CI: none
+Registry: none (pass --registry)
 Base: main (from GITHUB_BASE_REF, context only)
 OIDC: available, not requested in plan mode
 Consumer source: none (IMPACT reads unverified)
@@ -40,6 +41,7 @@ error: services/broken: bad yaml
 func TestTextPlanFilledCells(t *testing.T) {
 	asOf := time.Date(2026, 11, 17, 10, 0, 0, 0, time.UTC)
 	p := &Plan{
+		Platform: "gitlab",
 		Registry: Value{Value: "ghcr.io/acme", Source: "--registry"},
 		Snapshot: SnapshotInfo{AsOf: asOf, Sources: []SourceLine{{Name: "--target-state t.yaml", Status: "available"}}},
 		Rows: []Row{
@@ -50,7 +52,7 @@ func TestTextPlanFilledCells(t *testing.T) {
 	var b strings.Builder
 	Text(&b, p)
 	for _, line := range []string{
-		"Registry: ghcr.io/acme (from --registry)\n",
+		"CI: gitlab (from GITLAB_CI)\n", "Registry: ghcr.io/acme (from --registry)\n",
 		"Consumer source: --target-state t.yaml (available, asOf 2026-11-17T10:00:00Z)\n",
 		"1.4.2 -> 1.4.3 (derived)", "3 fields", "- -> 1.0.0",
 	} {
@@ -65,6 +67,7 @@ func TestTextPlanFilledCells(t *testing.T) {
 
 func TestTextPlanLayout(t *testing.T) {
 	p := &Plan{
+		Platform: "github",
 		Registry: Value{Value: "ghcr.io/acme", Source: "GITHUB_REPOSITORY_OWNER"},
 		Base:     Value{Value: "4e1a9c0", Source: "GITHUB_BASE_REF, context only"},
 		Rows: []Row{
@@ -74,7 +77,8 @@ func TestTextPlanLayout(t *testing.T) {
 	}
 	var b strings.Builder
 	Text(&b, p)
-	want := `Registry: ghcr.io/acme (from GITHUB_REPOSITORY_OWNER)
+	want := `CI: github (from GITHUB_ACTIONS)
+Registry: ghcr.io/acme (from GITHUB_REPOSITORY_OWNER)
 Base: 4e1a9c0 (from GITHUB_BASE_REF, context only)
 Consumer source: none (IMPACT reads unverified)
 
@@ -99,6 +103,7 @@ func TestMarkdownEscapesCells(t *testing.T) {
 	}
 	got := Markdown(p)
 	want := "### pacto ci plan\n\n" +
+		"- `CI: none`\n" +
 		"- `Registry: ghcr.io/acme (from --registry)`\n" +
 		"- `Base: none`\n" +
 		"- `Consumer source: none (IMPACT reads unverified)`\n" +
