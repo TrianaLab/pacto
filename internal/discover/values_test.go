@@ -157,7 +157,7 @@ func TestValuesNilVisitorUnchanged(t *testing.T) {
 	unresolved := writeTree(t, t.TempDir(), map[string]string{"kustomization.yaml": "configMapGenerator:\n  - name: c\n    envs: [missing.env]\n"})
 	for _, dir := range []string{valuesDir, folderExternalsDir, composeDir, kustomizeDir, helmValuesDir, unresolved} {
 		_, with := visited(t, dir)
-		without, err := ReadDir(dir, dir, "")
+		without, err := readDir(dir, dir, "", nil)
 		if err != nil {
 			t.Fatal(err)
 		}

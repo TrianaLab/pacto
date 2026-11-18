@@ -12,7 +12,7 @@ import (
 // readRepoFixture reads the folder folder of the repository fixture repo.
 func readRepoFixture(t *testing.T, repo, folder string) Reading {
 	t.Helper()
-	r, err := ReadDir(filepath.Join(repo, folder), repo, "")
+	r, err := readDir(filepath.Join(repo, folder), repo, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

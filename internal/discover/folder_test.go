@@ -156,22 +156,22 @@ func TestRepoRootStopsAtGit(t *testing.T) {
 }
 
 func TestReadDirRoots(t *testing.T) {
-	if r, err := ReadDir(filepath.Join(t.TempDir(), "missing"), "", ""); err != nil || len(r.Fields)+len(r.Findings) != 0 {
+	if r, err := readDir(filepath.Join(t.TempDir(), "missing"), "", "", nil); err != nil || len(r.Fields)+len(r.Findings) != 0 {
 		t.Errorf("a missing folder: %+v, %v", r, err)
 	}
 	file := filepath.Join(writeFiles(t, map[string]string{"f": ""}), "f")
-	if _, err := ReadDir(file, "", ""); err == nil {
+	if _, err := readDir(file, "", "", nil); err == nil {
 		t.Error("a file read as a folder")
 	}
 	dir := writeFiles(t, map[string]string{".pactoignore/x": ""})
-	if _, err := ReadDir(dir, "", ""); err == nil || !strings.Contains(err.Error(), ".pactoignore") {
+	if _, err := readDir(dir, "", "", nil); err == nil || !strings.Contains(err.Error(), ".pactoignore") {
 		t.Errorf("an unreadable .pactoignore: %v", err)
 	}
 	dir = writeFiles(t, map[string]string{"svc/Dockerfile": "FROM x\nEXPOSE 80\n", "svc/.pactoignore": "Dockerfile\n"})
-	if r, err := ReadDir(filepath.Join(dir, "svc"), dir, ""); err != nil || len(r.Fields) != 0 {
+	if r, err := readDir(filepath.Join(dir, "svc"), dir, "", nil); err != nil || len(r.Fields) != 0 {
 		t.Errorf("an ignored Dockerfile was read: %+v, %v", r, err)
 	}
-	if _, err := ReadDir(filepath.Join(dir, "svc"), filepath.Join(dir, "missing"), ""); err == nil || !strings.Contains(err.Error(), "outside the repository") {
+	if _, err := readDir(filepath.Join(dir, "svc"), filepath.Join(dir, "missing"), "", nil); err == nil || !strings.Contains(err.Error(), "outside the repository") {
 		t.Errorf("a folder outside the repository root read: %v", err)
 	}
 	if _, err := CompleteIn(filepath.Join(dir, "svc"), filepath.Join(dir, "missing"), nil, contract.InferredInputs{}, nil); err == nil {

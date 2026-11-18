@@ -364,15 +364,12 @@ func splitLine(s string) (string, int) {
 	return s, 0
 }
 
-// ReadDir reads the folder dir, inside the repository root repoDir: "" finds
+// readDir reads the folder dir, inside the repository root repoDir: "" finds
 // the root with RepoRoot, and with none the folder is its own repository.
 // name is the service name the readers pick Compose services, catalog
-// Components and Kustomize images by; "" is the folder's base name. A
-// folder that does not exist yet reads as empty. Both roots are opened with
-// os.OpenRoot, so no read leaves them.
-func ReadDir(dir, repoDir, name string) (Reading, error) { return readDir(dir, repoDir, name, nil) }
-
-// readDir is ReadDir with the Values visitor values.
+// Components and Kustomize images by; "" is the folder's base name. values
+// is the Input.Values visitor. A folder that does not exist yet reads as
+// empty. Both roots are opened with os.OpenRoot, so no read leaves them.
 func readDir(dir, repoDir, name string, values func(Value)) (Reading, error) {
 	abs, _ := filepath.Abs(dir) // ponytail: Abs fails only without a working directory, and OpenRoot("") then fails
 	root, err := os.OpenRoot(abs)

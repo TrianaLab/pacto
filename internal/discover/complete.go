@@ -30,7 +30,7 @@ func Complete(dir string, declared *contract.Contract, in contract.InferredInput
 }
 
 // CompleteIn is what the folder dir, in the repository root repoDir (""
-// finds it, as ReadDir does), shows beyond what declared declares: one field
+// finds it, as readDir does), shows beyond what declared declares: one field
 // per value, with its "<path>:<line>" source, its confidence, the YAML that
 // would declare it and the sources it outranks; each system outside the
 // cluster the folder names, classified with cat (nil is the default
@@ -137,7 +137,7 @@ var readSource = os.ReadFile
 
 // citeSources is every file in cited with its digest: a folder path under
 // dir, or a "repository:<path>" under the repository root repoDir names (""
-// finds it, as ReadDir does).
+// finds it, as readDir does).
 func citeSources(dir, repoDir string, cited map[string]bool) ([]contract.InferredSourceFile, error) {
 	var out []contract.InferredSourceFile
 	for _, f := range slices.Sorted(maps.Keys(cited)) {

@@ -15,7 +15,7 @@ const dockerDir = "testdata/docker"
 // readFixture reads dir as its own repository.
 func readFixture(t *testing.T, dir string) Reading {
 	t.Helper()
-	r, err := ReadDir(dir, dir, "")
+	r, err := readDir(dir, dir, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

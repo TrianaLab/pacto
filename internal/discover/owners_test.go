@@ -23,7 +23,7 @@ const (
 // readIn reads the folder svc, a slash path under the repository root repo.
 func readIn(t *testing.T, repo, svc string) Reading {
 	t.Helper()
-	r, err := ReadDir(filepath.Join(repo, filepath.FromSlash(svc)), repo, "")
+	r, err := readDir(filepath.Join(repo, filepath.FromSlash(svc)), repo, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
