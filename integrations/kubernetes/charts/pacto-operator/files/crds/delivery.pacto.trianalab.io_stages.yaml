@@ -700,6 +700,12 @@ spec:
                       Anchor is where the stream's records are listed:
                       <repository>@<anchor digest>. Only the recorder writes it.
                     type: string
+                  approvals:
+                    description: |-
+                      Approvals is where a person's client pushes a signed approval for
+                      this Stage: <approvals repository>@<anchor digest>. Only the
+                      recorder writes it, once.
+                    type: string
                   concluded:
                     description: |-
                       Concluded are the newest operations given a seq, each with how it

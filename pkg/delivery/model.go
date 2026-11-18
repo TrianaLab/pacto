@@ -369,6 +369,11 @@ type Stream struct {
 	// +optional
 	// +kubebuilder:validation:Enum=native;write-once-tags
 	RegistryMode string `json:"registryMode,omitempty"`
+	// Approvals is where a person's client pushes a signed approval for
+	// this Stage: <approvals repository>@<anchor digest>. Only the
+	// recorder writes it, once.
+	// +optional
+	Approvals string `json:"approvals,omitempty"`
 	// Concluded are the newest operations given a seq, each with how it
 	// concluded, written in the compare-and-swap that took the seq. An
 	// operation whose own status write then failed concludes again from
@@ -874,6 +879,13 @@ type ApprovalRecord struct {
 	// AccessAt is when Access was answered (RFC 3339).
 	// +optional
 	AccessAt string `json:"accessAt,omitempty"`
+	// Record is the id of the approval's signed record: the sha256 of its
+	// signed payload.
+	// +optional
+	Record string `json:"record,omitempty"`
+	// Signer is who signed that record.
+	// +optional
+	Signer *ApprovalSigner `json:"signer,omitempty"`
 }
 
 // PointerChange is the pointer before and after an operation.
@@ -969,6 +981,10 @@ type OperationStatus struct {
 	// it. Only the recorder writes it.
 	// +optional
 	Record *RecordRef `json:"record,omitempty"`
+	// IntentRecord is the signed record of this operation's intent, written
+	// once the promoter admitted it. Only the recorder writes it.
+	// +optional
+	IntentRecord *ApprovalRecordRef `json:"intentRecord,omitempty"`
 }
 
 // RecordRef names an operation's record.
@@ -1005,6 +1021,29 @@ type ApprovalSpec struct {
 	// was routed to.
 	// +optional
 	Groups []string `json:"groups,omitempty"`
+	// Record names the keyless approval record this Approval is a view of.
+	// Only the recorder sets it.
+	// +optional
+	Record string `json:"record,omitempty"`
+	// SignedAt is the verified signing time of that record (RFC 3339).
+	// Only the recorder sets it.
+	// +optional
+	SignedAt string `json:"signedAt,omitempty"`
+}
+
+// ApprovalStatus is written only by the recorder.
+type ApprovalStatus struct {
+	// Record is the approval's signed record, once the recorder wrote it.
+	// +optional
+	Record *ApprovalRecordRef `json:"record,omitempty"`
+}
+
+// ApprovalRecordRef names an approval or intent record in a registry.
+type ApprovalRecordRef struct {
+	// Digest is the record id: the sha256 of its signed payload.
+	Digest string `json:"digest"`
+	// Ref is where it is: <repository>@<manifest digest>.
+	Ref string `json:"ref"`
 }
 
 // deepCopyJSON copies in into out through JSON. Every wire type here is plain
@@ -1033,3 +1072,6 @@ func (in *OperationStatus) DeepCopyInto(out *OperationStatus) { deepCopyJSON(in,
 
 // DeepCopyInto copies the receiver into out.
 func (in *ApprovalSpec) DeepCopyInto(out *ApprovalSpec) { deepCopyJSON(in, out) }
+
+// DeepCopyInto copies the receiver into out.
+func (in *ApprovalStatus) DeepCopyInto(out *ApprovalStatus) { deepCopyJSON(in, out) }

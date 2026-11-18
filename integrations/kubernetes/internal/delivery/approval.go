@@ -129,6 +129,12 @@ func (r *OperationReconciler) approval(ctx context.Context, op *dv1.Operation, s
 		if slices.ContainsFunc(op.Status.Approvals, func(x delivery.ApprovalRecord) bool { return x.Name == a.Name }) {
 			continue
 		}
+		// With the recorder on, an approval counts only once its signed
+		// record is in the registry; only the recorder writes status.record.
+		if r.Records && a.Status.Record == nil {
+			skipped = "Approval " + a.Name + " by " + s.By + " waits for its signed record: the recorder has not written it yet"
+			continue
+		}
 		id := delivery.Identity{User: s.By, Groups: s.Groups}
 		// A failed review is unverified: the approval is skipped and asked
 		// again on the next reconcile.
@@ -141,6 +147,11 @@ func (r *OperationReconciler) approval(ctx context.Context, op *dv1.Operation, s
 		_, by := r.Policy.ClassifyBy(id)
 		rec := delivery.ApprovalRecord{Name: a.Name, By: s.By, Decision: s.Decision, Note: s.Note, AuthTime: s.AuthTime, ClassifiedBy: by,
 			Access: access.Phrase(), AccessSource: access.Source, AccessAt: access.At}
+		if r.Records { // status.record is set and, behind the records policy, the recorder's
+			rec.Record = a.Status.Record.Digest
+			rec.Signer = &delivery.ApprovalSigner{Kind: delivery.SignerRecorder,
+				OnBehalfOf: &delivery.ApprovalBehalf{User: s.By, Verified: delivery.VerifiedByAdmission}}
+		}
 		op.Status.Approvals = append(op.Status.Approvals, rec)
 		op.Status.ApprovedTeams = delivery.AnsweredTeams(r.Policy, ownersOf(op), s.Groups, op.Status.ApprovedTeams)
 		return &rec, ""

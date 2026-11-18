@@ -121,6 +121,10 @@ type RecordApproval struct {
 	Access       string `json:"access,omitempty"`
 	AccessSource string `json:"accessSource,omitempty"`
 	AccessAt     string `json:"accessAt,omitempty"`
+	// Record is the id of the approval's own signed record, and Signer who
+	// signed it; both empty in a record from an earlier recorder.
+	Record string          `json:"record,omitempty"`
+	Signer *ApprovalSigner `json:"signer,omitempty"`
 }
 
 // RecordOutcome is how the operation ended.
@@ -325,5 +329,6 @@ var secretPattern = regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY-----` +
 // approvalOf is a consumed approval of operation uid as a record approval.
 func approvalOf(a ApprovalRecord, uid string) RecordApproval {
 	return RecordApproval{By: a.By, Decision: a.Decision, Operation: uid, AuthTime: a.AuthTime, Note: a.Note,
-		ClassifiedBy: a.ClassifiedBy, Access: a.Access, AccessSource: a.AccessSource, AccessAt: a.AccessAt}
+		ClassifiedBy: a.ClassifiedBy, Access: a.Access, AccessSource: a.AccessSource, AccessAt: a.AccessAt,
+		Record: a.Record, Signer: a.Signer}
 }

@@ -34,8 +34,12 @@ import (
 type RecordStore struct {
 	// Streams is the repository ("host/path") holding one anchor per stream.
 	Streams string
-	Options ocireferrer.Options
-	Verify  delivery.Verifier
+	// Approvals is the repository a person's client pushes signed approvals
+	// to, anchored per stream like Streams; only the recorder pushes to
+	// Streams.
+	Approvals string
+	Options   ocireferrer.Options
+	Verify    delivery.Verifier
 	// Prober probes each registry host once; nil is ocireferrer.Probes.
 	Prober *ocireferrer.Prober
 }
@@ -80,7 +84,27 @@ func (s *RecordStore) open(path string, insecureHosts ...string) (*remote.Reposi
 // its registry takes records in. The anchor is a deterministic manifest, so
 // writing it again changes nothing.
 func (s *RecordStore) anchor(ctx context.Context, stream string) (*place, error) {
-	repo, err := s.open(s.Streams)
+	return s.anchorIn(ctx, s.Streams, stream)
+}
+
+// AnchorApprovals anchors stream in the approvals repository and returns
+// where a client pushes a signed approval of it: "<repository>@<digest>".
+func (s *RecordStore) AnchorApprovals(ctx context.Context, stream string) (string, error) {
+	if _, err := s.anchorIn(ctx, s.Approvals, stream); err != nil {
+		return "", err
+	}
+	return deliveryrecord.AnchorRef(s.Approvals, stream), nil
+}
+
+// Push writes bundle, a signed approval or intent record of predicate for
+// the operation uid, on the stream anchor a, and returns where it is.
+func (s *RecordStore) Push(ctx context.Context, a *place, predicate string, bundle []byte, uid string) (string, error) {
+	return deliveryrecord.Push(ctx, a.repo, a.stream, a.mode, predicate, bundle, map[string]string{deliveryrecord.AnnUID: uid})
+}
+
+// anchorIn makes sure stream's anchor exists in the repository path.
+func (s *RecordStore) anchorIn(ctx context.Context, path, stream string) (*place, error) {
+	repo, err := s.open(path)
 	if err != nil {
 		return nil, err
 	}

@@ -577,13 +577,17 @@ spec:
 {{- if .Values.delivery.recorder.enabled }}
 {{- $recorder := printf "system:serviceaccount:%s:%s" (include "pacto-operator.delivery.namespace" .) (include "pacto-operator.delivery.recorderServiceAccountName" .) }}
 ---
-# The record fields belong to the recorder: status.record on an Operation
-# and status.stream.{recordedSeq,head,anchor,registryMode} on a Stage change
-# only when the recorder writes them. The recorder may write those and its own
-# RecordStoreReady condition, and nothing else: an allowlist, so a status
-# field added later is closed to it without editing this policy. RBAC cannot
-# scope a status write to fields; this policy does. A recorded native
-# registryMode never changes again, for anyone, the recorder included.
+# The record fields belong to the recorder: status.record and
+# status.intentRecord on an Operation, status.record on an Approval and
+# status.stream.{recordedSeq,head,anchor,registryMode,approvals} on a Stage
+# change only when the recorder writes them. The recorder may write those and
+# its own RecordStoreReady condition, and nothing else: an allowlist, so a
+# status field added later is closed to it without editing this policy. RBAC
+# cannot scope a status write to fields; this policy does. A recorded native
+# registryMode never changes again, and neither does a Stage's approvals
+# reference once set, for anyone, the recorder included. The promoter counts
+# an Approval only once its status.record is set, and only while this policy
+# guards it.
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
@@ -597,7 +601,7 @@ spec:
       - apiGroups: [delivery.pacto.trianalab.io]
         apiVersions: ["*"]
         operations: [UPDATE]
-        resources: [stages/status, operations/status]
+        resources: [stages/status, operations/status, approvals/status]
   variables:
     - name: recorder
       expression: "request.userInfo.username == '{{ $recorder }}'"
@@ -620,21 +624,30 @@ spec:
       message: "status.stream.registryMode is native and may not narrow to write-once-tags"
       reason: Forbidden
     - expression: >-
+        !('approvals' in variables.oldStream && variables.oldStream['approvals'] != '') ||
+        ('approvals' in variables.stream && variables.stream['approvals'] == variables.oldStream['approvals'])
+      message: "status.stream.approvals never changes once set"
+      reason: Forbidden
+    - expression: >-
         variables.recorder || (
         {{ include "pacto-operator.delivery.celSame" (list "status.record.digest" "''") }} &&
         {{ include "pacto-operator.delivery.celSame" (list "status.record.refused" "''") }} &&
+        {{ include "pacto-operator.delivery.celSame" (list "status.record.ref" "''") }} &&
+        {{ include "pacto-operator.delivery.celSame" (list "status.intentRecord.digest" "''") }} &&
+        {{ include "pacto-operator.delivery.celSame" (list "status.intentRecord.ref" "''") }} &&
+        {{ include "pacto-operator.delivery.celSame" (list "status.stream.approvals" "''") }} &&
         {{ include "pacto-operator.delivery.celSame" (list "status.stream.head" "''") }} &&
         {{ include "pacto-operator.delivery.celSame" (list "status.stream.recordedSeq" "0") }} &&
         {{ include "pacto-operator.delivery.celSame" (list "status.stream.anchor" "''") }} &&
         {{ include "pacto-operator.delivery.celSame" (list "status.stream.registryMode" "''") }})
-      message: "status.record and status.stream.{recordedSeq,head,anchor,registryMode} are written only by the Pacto delivery recorder"
+      message: "status.record, status.intentRecord and status.stream.{recordedSeq,head,anchor,registryMode,approvals} are written only by the Pacto delivery recorder"
       reason: Forbidden
     - expression: >-
         !variables.recorder || (
-        variables.status.all(k, k in ['record', 'stream', 'conditions'] || (k in variables.oldStatus && variables.status[k] == variables.oldStatus[k])) &&
-        variables.oldStatus.all(k, k in ['record', 'stream', 'conditions'] || k in variables.status) &&
-        variables.stream.all(k, k in ['recordedSeq', 'head', 'anchor', 'registryMode'] || (k in variables.oldStream && variables.stream[k] == variables.oldStream[k])) &&
-        variables.oldStream.all(k, k in ['recordedSeq', 'head', 'anchor', 'registryMode'] || k in variables.stream) &&
+        variables.status.all(k, k in ['record', 'intentRecord', 'stream', 'conditions'] || (k in variables.oldStatus && variables.status[k] == variables.oldStatus[k])) &&
+        variables.oldStatus.all(k, k in ['record', 'intentRecord', 'stream', 'conditions'] || k in variables.status) &&
+        variables.stream.all(k, k in ['recordedSeq', 'head', 'anchor', 'registryMode', 'approvals'] || (k in variables.oldStream && variables.stream[k] == variables.oldStream[k])) &&
+        variables.oldStream.all(k, k in ['recordedSeq', 'head', 'anchor', 'registryMode', 'approvals'] || k in variables.stream) &&
         variables.conditions == variables.oldConditions)
       message: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       reason: Forbidden

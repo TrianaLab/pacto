@@ -121,7 +121,8 @@ func newRecEnv(t *testing.T, objs ...any) *recEnv {
 	e.create(u)
 	re := &recEnv{env: e, reg: reg, key: key}
 	re.rec = &Recorder{Client: e.c, APIReader: e.c, Cluster: e.op.Cluster, ClusterID: "cid",
-		Store:  &RecordStore{Streams: reg.host + "/delivery/streams", Verify: edVerifier(key.Public()), Prober: &ocireferrer.Prober{}},
+		Store: &RecordStore{Streams: reg.host + "/delivery/streams", Approvals: reg.host + "/delivery/approvals",
+			Verify: edVerifier(key.Public()), Prober: &ocireferrer.Prober{}},
 		Signer: edSigner(key), Now: func() time.Time { return e.now }, Poll: time.Second, GapGrace: time.Minute}
 	return re
 }

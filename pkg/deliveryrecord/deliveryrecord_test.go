@@ -615,12 +615,6 @@ func TestPutRecordNativeFailures(t *testing.T) {
 	}
 }
 
-// The predicates 511-S2 writes on the same stream as operation records.
-const (
-	predicateApproval = "delivery.pacto.trianalab.io/approval/v1"
-	predicateIntent   = "delivery.pacto.trianalab.io/operation-intent/v1"
-)
-
 // TestListStreamIgnoresApprovalAndIntentRecords: approval and intent records
 // on a stream's anchor, as write-once tags under its prefix or as native
 // referrers, are not operation records: they never join the chain, never
@@ -636,11 +630,11 @@ func TestListStreamIgnoresApprovalAndIntentRecords(t *testing.T) {
 			repo, anchor := anchored(t, path)
 			pub, key, _ := ed25519.GenerateKey(rand.Reader)
 			tagRecord(t, path, anchor, signed(t, key, 1), 1, "")
-			for kind, predicate := range map[string]string{"approval": predicateApproval, "intent": predicateIntent} {
+			for kind, predicate := range map[string]string{KindApproval: delivery.PredicateApproval, KindIntent: delivery.PredicateIntent} {
 				claimsSeq1 := signed(t, key, 1)
 				if tc.opts.Unsupported {
 					tagAs(t, path, anchor, claimsSeq1, predicate, func(d digest.Digest) string {
-						return AnchorTag(stream) + "-" + kind + "-" + d.Encoded()[:12]
+						return KindTag(stream, kind, d)
 					})
 					continue
 				}
@@ -669,5 +663,59 @@ func TestUpstreamEmptyIsUnknown(t *testing.T) {
 		if s != nil || why != noRecordFound {
 			t.Fatalf("an empty stream read as known: %+v %q", s, why)
 		}
+	}
+}
+
+// TestPushBothModes: an approval or intent record goes onto the stream's
+// anchor in the stream's mode, under its kind's write-once tag where the
+// registry serves no Referrers API, and stays out of the operation chain.
+func TestPushBothModes(t *testing.T) {
+	for _, mode := range []capabilities.ReferrersMode{capabilities.ReferrersNative, capabilities.ReferrersWriteOnceTags} {
+		t.Run(string(mode), func(t *testing.T) {
+			_, path := setup(t, testutil.ReferrersOptions{Unsupported: mode == capabilities.ReferrersWriteOnceTags})
+			repo, anchor := anchored(t, path)
+			pub, key, _ := ed25519.GenerateKey(rand.Reader)
+			for kind, predicate := range map[string]string{KindApproval: delivery.PredicateApproval, KindIntent: delivery.PredicateIntent} {
+				ref, err := Push(t.Context(), repo, stream, mode, predicate, signed(t, key, 1), map[string]string{AnnUID: "u1"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				repoRef, dgst, _ := strings.Cut(ref, "@")
+				if repoRef != strings.TrimPrefix(path, "http://") || !strings.HasPrefix(dgst, "sha256:") {
+					t.Fatalf("reference = %s", ref)
+				}
+				tags, _ := ocireferrer.Tags(t.Context(), repo, AnchorTag(stream)+"-"+kind+"-")
+				if want := mode == capabilities.ReferrersWriteOnceTags; (len(tags) == 1) != want {
+					t.Fatalf("%s tags = %v in %s", kind, tags, mode)
+				}
+			}
+			descs, tags, err := ocireferrer.Attached(t.Context(), repo, anchor, AnchorTag(stream)+"-")
+			if err != nil || len(descs)+len(tags) != 2 {
+				t.Fatalf("attached = %v %v %v", descs, tags, err)
+			}
+			l, err := ListStream(t.Context(), repo, stream, keyVerifier(pub))
+			if err != nil || len(l.Records) != 0 || len(l.Unreadable) != 0 {
+				t.Fatalf("listing = %+v %v", l, err)
+			}
+		})
+	}
+	// A write the registry refuses is an error, never a reference.
+	f, path := setup(t, testutil.ReferrersOptions{Unsupported: true})
+	repo, _ := anchored(t, path)
+	ref, err := Push(t.Context(), repo, stream, capabilities.ReferrersWriteOnceTags, delivery.PredicateIntent, []byte("r"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, dgst, _ := strings.Cut(ref, "@")
+	f.tagStatus = map[string]int{KindTag(stream, KindIntent, digest.Digest(dgst)): http.StatusForbidden}
+	if _, err := Push(t.Context(), repo, stream, capabilities.ReferrersWriteOnceTags, delivery.PredicateIntent, []byte("r"), nil); err == nil {
+		t.Fatal("a refused write returned a reference")
+	}
+}
+
+func TestKindTagShape(t *testing.T) {
+	d := digest.FromString("m")
+	if got := KindTag(stream, KindApproval, d); got != AnchorTag(stream)+"-approval-"+d.Encoded()[:12] || len(got) > 93 {
+		t.Fatalf("tag = %s", got)
 	}
 }

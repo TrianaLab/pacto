@@ -1476,6 +1476,10 @@ export interface components {
             kind?: string;
             name: string;
         };
+        "Delivery.ApprovalBehalf": {
+            user: string;
+            verified: string;
+        };
         "Delivery.ApprovalPolicy": {
             always?: boolean;
         };
@@ -1489,6 +1493,16 @@ export interface components {
             decision: string;
             name: string;
             note?: string;
+            record?: string;
+            signer?: components["schemas"]["Delivery.ApprovalSigner"];
+        };
+        "Delivery.ApprovalRecordRef": {
+            digest: string;
+            ref: string;
+        };
+        "Delivery.ApprovalSigner": {
+            kind: string;
+            onBehalfOf?: components["schemas"]["Delivery.ApprovalBehalf"];
         };
         "Delivery.AtAnswer": {
             /** @description When the records were read */
@@ -1752,6 +1766,7 @@ export interface components {
             approvals?: components["schemas"]["Delivery.ApprovalRecord"][] | null;
             approvedTeams?: string[] | null;
             guarded?: boolean;
+            intentRecord?: components["schemas"]["Delivery.ApprovalRecordRef"];
             message?: string;
             outcome?: string;
             phase?: string;
@@ -1876,6 +1891,8 @@ export interface components {
             intentDigest: string;
             note?: string;
             operation: string;
+            record?: string;
+            signer?: components["schemas"]["Delivery.ApprovalSigner"];
         };
         "Delivery.RecordRef": {
             digest: string;

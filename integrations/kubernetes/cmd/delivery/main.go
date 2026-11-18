@@ -14,6 +14,7 @@ See LICENSE file in the project root for full license text.
 package main
 
 import (
+	"cmp"
 	"context"
 	"flag"
 	"fmt"
@@ -229,6 +230,12 @@ func runRecorder(args []string) error {
 			"such as the old key during a rotation.")
 	sink := fs.String("cdevents-sink", "", "A URL to POST a CDEvent to for every record written and when a Stage "+
 		"is created or deleted (environment.created, environment.deleted), best effort.")
+	approvals := fs.String("approvals-repository", "",
+		"The repository (host/path) a person's client pushes signed approvals to, one anchor per stream. "+
+			"Empty is <streams-repository>-approvals.")
+	admissionPolicies := fs.String("admission-policies", "",
+		"Comma-separated ValidatingAdmissionPolicy names (each bound by a binding of the same name) that must "+
+			"guard Approvals before the recorder signs one on its creator's behalf; empty signs none.")
 	zopts := zap.Options{}
 	zopts.BindFlags(fs)
 	_ = fs.Parse(args)
@@ -259,11 +266,12 @@ func runRecorder(args []string) error {
 	}
 	keychain := oci.NewKeychain(oci.EnvCredentialOptions())
 	insecure := oci.EnvInsecureRegistries()
-	store := &delivery.RecordStore{Streams: *streams, Verify: verify,
+	store := &delivery.RecordStore{Streams: *streams, Approvals: cmp.Or(*approvals, *streams+"-approvals"), Verify: verify,
 		Options: ocireferrer.Options{Keychain: keychain, Insecure: insecure}}
 	cluster := delivery.Cluster{Client: mgr.GetClient()}
 	recorder := &delivery.Recorder{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster, Store: store,
-		Signer: signer, Trust: trust.Digest(), ClusterID: clusterID, Now: time.Now, Poll: *poll, GapGrace: time.Minute}
+		Signer: signer, Trust: trust.Digest(), ClusterID: clusterID, Now: time.Now, Poll: *poll, GapGrace: time.Minute,
+		AdmissionPolicies: delivery.SplitList(*admissionPolicies)}
 	if *sink != "" {
 		recorder.Events = &delivery.Events{Sink: *sink, Source: "/pacto-delivery/" + clusterID}
 	}

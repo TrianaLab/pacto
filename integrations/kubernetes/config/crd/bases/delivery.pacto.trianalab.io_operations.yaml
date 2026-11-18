@@ -70,6 +70,16 @@ spec:
                     items:
                       type: string
                     type: array
+                  record:
+                    description: |-
+                      Record names the keyless approval record this Approval is a view of.
+                      Only the recorder sets it.
+                    type: string
+                  signedAt:
+                    description: |-
+                      SignedAt is the verified signing time of that record (RFC 3339).
+                      Only the recorder sets it.
+                    type: string
                   user:
                     type: string
                 required:
@@ -233,6 +243,32 @@ spec:
                       type: string
                     note:
                       type: string
+                    record:
+                      description: |-
+                        Record is the id of the approval's signed record: the sha256 of its
+                        signed payload.
+                      type: string
+                    signer:
+                      description: Signer is who signed that record.
+                      properties:
+                        kind:
+                          description: Kind is person or recorder.
+                          type: string
+                        onBehalfOf:
+                          description: OnBehalfOf is the person a recorder-signed
+                            record speaks for.
+                          properties:
+                            user:
+                              type: string
+                            verified:
+                              type: string
+                          required:
+                          - user
+                          - verified
+                          type: object
+                      required:
+                      - kind
+                      type: object
                   required:
                   - by
                   - decision
@@ -255,6 +291,22 @@ spec:
                   another cluster may lack it, and its actor and approvers are then only
                   what their writers claimed.
                 type: boolean
+              intentRecord:
+                description: |-
+                  IntentRecord is the signed record of this operation's intent, written
+                  once the promoter admitted it. Only the recorder writes it.
+                properties:
+                  digest:
+                    description: 'Digest is the record id: the sha256 of its signed
+                      payload.'
+                    type: string
+                  ref:
+                    description: 'Ref is where it is: <repository>@<manifest digest>.'
+                    type: string
+                required:
+                - digest
+                - ref
+                type: object
               message:
                 type: string
               outcome:

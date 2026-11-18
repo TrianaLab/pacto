@@ -127,7 +127,7 @@ tests:
     asserts:
       - matchRegex:
           path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
-          pattern: "variables\\.status\\.all\\(k, k in \\['record', 'stream', 'conditions'\\] \\|\\| \\(k in variables\\.oldStatus && variables\\.status\\[k\\] == variables\\.oldStatus\\[k\\]\\)\\)"
+          pattern: "variables\\.status\\.all\\(k, k in \\['record', 'intentRecord', 'stream', 'conditions'\\] \\|\\| \\(k in variables\\.oldStatus && variables\\.status\\[k\\] == variables\\.oldStatus\\[k\\]\\)\\)"
 
   - it: lets an agent cancel only its own operations
     capabilities:
@@ -357,6 +357,28 @@ tests:
           path: 'spec.validations[0].message'
           value: "status.stream.registryMode is native and may not narrow to write-once-tags"
 
+  - it: keeps an approval's record to the recorder and pins a Stage's approvals reference
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    set:
+      delivery.recorder.enabled: true
+    documentSelector:
+      path: 'spec.validations[0].message'
+      value: "status.stream.registryMode is native and may not narrow to write-once-tags"
+    asserts:
+      - equal:
+          path: spec.matchConstraints.resourceRules[0].resources
+          value: [stages/status, operations/status, approvals/status]
+      - equal:
+          path: 'spec.validations[?(@.message == "status.stream.approvals never changes once set")].expression'
+          value: >-
+            !('approvals' in variables.oldStream && variables.oldStream['approvals'] != '') ||
+            ('approvals' in variables.stream && variables.stream['approvals'] == variables.oldStream['approvals'])
+      - matchRegex:
+          path: 'spec.validations[?(@.message == "status.record, status.intentRecord and status.stream.{recordedSeq,head,anchor,registryMode,approvals} are written only by the Pacto delivery recorder")].expression'
+          pattern: "object\\.status\\.record\\.ref.*object\\.status\\.intentRecord\\.digest.*object\\.status\\.intentRecord\\.ref.*object\\.status\\.stream\\.approvals"
+
   - it: keeps the record fields to the recorder, and the recorder away from what runs
     capabilities:
       apiVersions:
@@ -373,7 +395,7 @@ tests:
           path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
           value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: 'spec.validations[?(@.message == "status.record and status.stream.{recordedSeq,head,anchor,registryMode} are written only by the Pacto delivery recorder")].expression'
+          path: 'spec.validations[?(@.message == "status.record, status.intentRecord and status.stream.{recordedSeq,head,anchor,registryMode,approvals} are written only by the Pacto delivery recorder")].expression'
           pattern: "has\\(object.status.stream.head\\) \\? object.status.stream.head : ''\\) == \\(has\\(oldObject.status\\)"
         documentSelector:
           path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
@@ -386,24 +408,24 @@ tests:
           value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
           path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
-          pattern: "variables\\.status\\.all\\(k, k in \\['record', 'stream', 'conditions'\\] \\|\\|"
+          pattern: "variables\\.status\\.all\\(k, k in \\['record', 'intentRecord', 'stream', 'conditions'\\] \\|\\|"
         documentSelector:
           path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
           value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
           path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
-          pattern: "variables\\.stream\\.all\\(k, k in \\['recordedSeq', 'head', 'anchor', 'registryMode'\\] \\|\\|"
+          pattern: "variables\\.stream\\.all\\(k, k in \\['recordedSeq', 'head', 'anchor', 'registryMode', 'approvals'\\] \\|\\|"
         documentSelector:
           path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
           value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
           path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
-          pattern: "variables\\.oldStream\\.all\\(k, k in \\['recordedSeq', 'head', 'anchor', 'registryMode'\\] \\|\\|"
+          pattern: "variables\\.oldStream\\.all\\(k, k in \\['recordedSeq', 'head', 'anchor', 'registryMode', 'approvals'\\] \\|\\|"
         documentSelector:
           path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
           value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: 'spec.validations[?(@.message == "status.record and status.stream.{recordedSeq,head,anchor,registryMode} are written only by the Pacto delivery recorder")].expression'
+          path: 'spec.validations[?(@.message == "status.record, status.intentRecord and status.stream.{recordedSeq,head,anchor,registryMode,approvals} are written only by the Pacto delivery recorder")].expression'
           pattern: "has\\(object.status.stream.registryMode\\) \\? object.status.stream.registryMode : ''\\) == \\(has\\(oldObject.status\\)"
         documentSelector:
           path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'

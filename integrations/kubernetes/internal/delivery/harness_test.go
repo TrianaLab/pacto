@@ -174,7 +174,7 @@ func newEnv(t *testing.T, objs ...client.Object) *env {
 		return nil
 	}
 	e.c = fake.NewClientBuilder().WithScheme(newScheme()).
-		WithStatusSubresource(&dv1.Stage{}, &dv1.Operation{}).
+		WithStatusSubresource(&dv1.Stage{}, &dv1.Operation{}, &dv1.Approval{}).
 		WithIndex(&dv1.Approval{}, approvalOperationUID, approvalUID).
 		// Every reconciler runs guarded, as the chart installs it.
 		WithObjects(append(objs, guardPolicy(), guardBinding())...).

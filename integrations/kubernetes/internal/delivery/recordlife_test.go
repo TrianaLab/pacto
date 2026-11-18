@@ -72,6 +72,7 @@ func TestRecorderAdvanceFailsAfterTheWrite(t *testing.T) {
 	re.setStage(func(s *delivery.StageStatus) {
 		s.Stream.Anchor = deliveryrecord.AnchorRef(re.rec.Store.Streams, "cid/prod/payments-prod")
 		s.Stream.RegistryMode = "native"
+		s.Stream.Approvals = deliveryrecord.AnchorRef(re.rec.Store.Approvals, "cid/prod/payments-prod")
 		s.Conditions = []delivery.Condition{{Type: ConditionRecordStoreReady, Status: "True", Reason: ReasonReferrersSupported,
 			Message: "records are written to " + re.rec.Store.Streams}}
 	})

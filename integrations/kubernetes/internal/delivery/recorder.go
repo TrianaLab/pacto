@@ -72,8 +72,9 @@ func init() { metrics.Registry.MustRegister(RecordsPending) }
 // Recorder writes one signed record per concluded operation, per stream in
 // seq order, and only then lets the operation go. It is the only holder of the
 // signing key and the registry push credentials; it writes nothing in the
-// cluster but status.record, status.stream.{recordedSeq,head,anchor,registryMode},
-// its own Stage condition and the record finalizer.
+// cluster but status.record, status.stream.{recordedSeq,head,anchor,registryMode,approvals},
+// its own Stage condition and the record finalizer; its approval recorder
+// writes an Approval's status.record and an operation's status.intentRecord.
 type Recorder struct {
 	client.Client
 	// APIReader reads operations and Stages uncached: a seq the promoter just
@@ -96,6 +97,9 @@ type Recorder struct {
 	// recorded as a gap. The promoter assigns the seq a moment before it
 	// writes the operation.
 	GapGrace time.Duration
+	// AdmissionPolicies are the policies (the -approval one) that must guard
+	// Approvals before the recorder signs one on its creator's behalf.
+	AdmissionPolicies []string
 
 	mu      sync.Mutex
 	missing map[gapKey]time.Time
@@ -110,11 +114,13 @@ type gapKey struct {
 }
 
 // SetupWithManager registers the recorder. An Operation wakes its Stage.
+// The approval recorder runs beside it.
 func (r *Recorder) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).Named("delivery-recorder").For(&dv1.Stage{}).
+	err := ctrl.NewControllerManagedBy(mgr).Named("delivery-recorder").For(&dv1.Stage{}).
 		Watches(&dv1.Operation{}, handler.EnqueueRequestsFromMapFunc(operationToStage)).
 		Watches(&dv1.Stage{}, handler.Funcs{UpdateFunc: r.stageStreamSeeded, DeleteFunc: r.stageGone}).
 		Complete(r)
+	return errors.Join(err, (&ApprovalRecorder{Recorder: r}).SetupWithManager(mgr))
 }
 
 // stageStreamSeeded posts environment.created when the promoter first gives a
@@ -169,7 +175,7 @@ func (r *Recorder) Reconcile(ctx context.Context, req reconcile.Request) (reconc
 		return reconcile.Result{}, err
 	}
 	RecordsPending.WithLabelValues(stream.ID).Set(float64(len(items)))
-	if len(items) == 0 && hasCondition(stage, ConditionRecordStoreReady, statusTrue) {
+	if len(items) == 0 && hasCondition(stage, ConditionRecordStoreReady, statusTrue) && r.approvalsAnchored(stream) {
 		return reconcile.Result{}, nil
 	}
 	anchor, err := r.anchor(ctx, stream)
@@ -186,7 +192,11 @@ func (r *Recorder) Reconcile(ctx context.Context, req reconcile.Request) (reconc
 	if len(ignored) > 0 {
 		ctrl.LoggerFrom(ctx).Info("ignoring records no trusted key signed", "stage", stage.Name, "records", ignored)
 	}
-	if err := r.ready(ctx, stage, ignored, anchor.mode); err != nil {
+	approvals, err := r.approvals(ctx, stream)
+	if err != nil {
+		return r.notReady(ctx, stage, storeReason(err), err)
+	}
+	if err := r.ready(ctx, stage, ignored, anchor.mode, approvals); err != nil {
 		return reconcile.Result{}, err
 	}
 	w := &writer{Recorder: r, stage: stage, anchor: anchor, recs: recs}
@@ -374,10 +384,26 @@ func (r *Recorder) anchor(ctx context.Context, stream delivery.Stream) (*place, 
 	return a, err
 }
 
+// approvalsAnchored says the stream's approvals reference is set, or there
+// is no approvals repository to anchor it in.
+func (r *Recorder) approvalsAnchored(stream delivery.Stream) bool {
+	return stream.Approvals != "" || r.Store.Approvals == ""
+}
+
+// approvals is the stream's approvals reference: the one it has, which
+// never changes once set, or a new anchor in the approvals repository.
+func (r *Recorder) approvals(ctx context.Context, stream delivery.Stream) (string, error) {
+	if r.approvalsAnchored(stream) {
+		return stream.Approvals, nil
+	}
+	return r.Store.AnchorApprovals(ctx, stream.ID)
+}
+
 // ready marks the stream writable and names where and how its records are
 // written, and the first of the records it ignored because no trusted key
-// signed them. It records the mode on the stream in the same write.
-func (r *Recorder) ready(ctx context.Context, stage *dv1.Stage, ignored []string, mode capabilities.ReferrersMode) error {
+// signed them. It records the mode and the approvals reference on the
+// stream in the same write.
+func (r *Recorder) ready(ctx context.Context, stage *dv1.Stage, ignored []string, mode capabilities.ReferrersMode, approvals string) error {
 	want := delivery.Condition{Type: ConditionRecordStoreReady, Status: statusTrue,
 		Reason: ReasonReferrersSupported, Message: "records are written to " + r.Store.Streams}
 	if mode == capabilities.ReferrersWriteOnceTags {
@@ -391,12 +417,13 @@ func (r *Recorder) ready(ctx context.Context, stage *dv1.Stage, ignored []string
 	ref := deliveryrecord.AnchorRef(r.Store.Streams, stage.Status.Stream.ID)
 	want.ObservedGeneration = stage.Generation
 	if _, changed := delivery.SetCondition(stage.Status.Conditions, want, r.Now()); !changed &&
-		stage.Status.Stream.Anchor == ref && stage.Status.Stream.RegistryMode == string(mode) {
+		stage.Status.Stream.Anchor == ref && stage.Status.Stream.RegistryMode == string(mode) && stage.Status.Stream.Approvals == approvals {
 		return nil
 	}
 	return r.casStage(ctx, stage, func(s *dv1.Stage) {
 		s.Status.Stream.Anchor = ref
 		s.Status.Stream.RegistryMode = string(mode)
+		s.Status.Stream.Approvals = approvals
 		s.Status.Conditions, _ = delivery.SetCondition(s.Status.Conditions, want, r.Now())
 	})
 }

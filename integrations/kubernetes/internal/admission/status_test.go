@@ -80,3 +80,32 @@ func TestRecordsPolicyPinsNativeRegistryMode(t *testing.T) {
 	allowed(t, setStatus(as(recorder), native, mode("native")))
 	denied(t, setStatus(as(recorder), native, mode("write-once-tags")), pin)
 }
+
+// An Approval's status.record, an Operation's status.intentRecord and a
+// Stage's status.stream.approvals are the recorder's: a person patching the
+// status subresource is refused, and the approvals reference never changes
+// once set, the recorder included. Behind this policy the promoter counts an
+// Approval only once its record is written.
+func TestRecordsPolicyApprovalStatusOnlyRecorder(t *testing.T) {
+	const msg = "written only by the Pacto delivery recorder"
+	record := map[string]any{"record": map[string]any{"digest": digestA, "ref": "reg/streams@" + digestB}}
+
+	a := mustCreate(t, as("dana@example.com", "system:authenticated"), approval("dana@example.com"))
+	denied(t, setStatus(as("dana@example.com"), a, record), msg)
+	denied(t, setStatus(as(controller), a, record), msg)
+	allowed(t, setStatus(as(recorder), a, record))
+	denied(t, setStatus(as("dana@example.com"), a, map[string]any{}), msg)
+
+	op := mustCreate(t, as("alice"), operation(uniq("op"), "alice", nil))
+	intent := map[string]any{"intentRecord": map[string]any{"digest": digestA, "ref": "reg/streams@" + digestB}}
+	denied(t, setStatus(as(controller), op, intent), msg)
+	allowed(t, setStatus(as(recorder), op, intent))
+
+	const pin = "status.stream.approvals never changes once set"
+	approvals := func(ref string) map[string]any { return map[string]any{"stream": map[string]any{"approvals": ref}} }
+	st := mustCreate(t, admin, stage(uniq("payments")))
+	denied(t, setStatus(as(controller), st, approvals("reg/approvals@"+digestA)), msg)
+	allowed(t, setStatus(as(recorder), st, approvals("reg/approvals@"+digestA)))
+	denied(t, setStatus(as(recorder), st, approvals("reg/other@"+digestA)), pin)
+	denied(t, setStatus(as(recorder), st, map[string]any{"stream": map[string]any{}}), pin)
+}

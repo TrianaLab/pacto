@@ -26,6 +26,9 @@ spec:
     - jsonPath: .spec.by
       name: By
       type: string
+    - jsonPath: .status.record.ref
+      name: Recorded
+      type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -101,9 +104,30 @@ spec:
             x-kubernetes-validations:
             - message: an approval is immutable
               rule: self == oldSelf
+          status:
+            description: Status names the approval's signed record. Only the recorder
+              writes it.
+            properties:
+              record:
+                description: Record is the approval's signed record, once the recorder
+                  wrote it.
+                properties:
+                  digest:
+                    description: 'Digest is the record id: the sha256 of its signed
+                      payload.'
+                    type: string
+                  ref:
+                    description: 'Ref is where it is: <repository>@<manifest digest>.'
+                    type: string
+                required:
+                - digest
+                - ref
+                type: object
+            type: object
         required:
         - spec
         type: object
     served: true
     storage: true
-    subresources: {}
+    subresources:
+      status: {}

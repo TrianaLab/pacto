@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"strconv"
 	"strings"
 	"sync"
@@ -78,14 +79,57 @@ func RecordTag(stream string, seq int64, manifest digest.Digest) string {
 // [RecordTag] in the streams repository repo where the registry serves no
 // Referrers API.
 func PutRecord(ctx context.Context, repo *remote.Repository, anchor ocispec.Descriptor, stream string, seq int64, art ocireferrer.Artifact, mode capabilities.ReferrersMode) error {
+	return put(ctx, repo, anchor, art, mode, RecordTag(stream, seq, art.ManifestDesc.Digest))
+}
+
+func put(ctx context.Context, repo *remote.Repository, anchor ocispec.Descriptor, art ocireferrer.Artifact, mode capabilities.ReferrersMode, tag string) error {
 	if mode == capabilities.ReferrersWriteOnceTags {
-		// PushWriteOnce here writes only the delivery record streams repository.
-		return ocireferrer.PushWriteOnce(ctx, repo, art, RecordTag(stream, seq, art.ManifestDesc.Digest))
+		// PushWriteOnce here writes only the delivery record repositories.
+		return ocireferrer.PushWriteOnce(ctx, repo, art, tag)
 	}
 	if err := ocireferrer.Push(ctx, repo, art); err != nil {
 		return err
 	}
 	return ocireferrer.Confirm(ctx, repo, anchor, art.ManifestDesc)
+}
+
+// Record kinds that carry no seq, named in their [KindTag].
+const (
+	KindApproval = "approval"
+	KindIntent   = "intent"
+)
+
+// KindTag is the write-once tag of an approval or intent record (kind) of
+// stream whose manifest is manifest: the anchor tag, the kind and 12 hex of
+// the manifest digest. At most 93 characters.
+func KindTag(stream, kind string, manifest digest.Digest) string {
+	return AnchorTag(stream) + "-" + kind + "-" + manifest.Encoded()[:12]
+}
+
+// Push writes bundle, a signed approval/v1 or operation-intent/v1 record of
+// stream, attached to the stream's anchor in repo in mode, and returns where
+// it is: "<repository>@<manifest digest>". ann are added to the record's
+// annotations. Operation records go through [PutRecord].
+func Push(ctx context.Context, repo *remote.Repository, stream string, mode capabilities.ReferrersMode, predicate string, bundle []byte, ann map[string]string) (string, error) {
+	kind := KindIntent
+	if predicate == delivery.PredicateApproval {
+		kind = KindApproval
+	}
+	a := map[string]string{
+		AnnBundleContent: "dsse-envelope",
+		AnnPredicateType: predicate,
+		AnnStream:        stream,
+		AnnRegistryMode:  string(mode),
+	}
+	maps.Copy(a, ann)
+	anchor := Anchor(stream).ManifestDesc
+	art := ocireferrer.Build(delivery.BundleMediaType, delivery.BundleMediaType, bundle, &anchor, a)
+	if err := put(ctx, repo, anchor, art, mode, KindTag(stream, kind, art.ManifestDesc.Digest)); err != nil {
+		return "", err
+	}
+	ref := repo.Reference
+	ref.Reference = art.ManifestDesc.Digest.String()
+	return ref.String(), nil
 }
 
 // AnchorRef is where a stream's anchor lives: "<repository>@<digest>".

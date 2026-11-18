@@ -24,6 +24,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | Operation | string | `.spec.operation` |
 | Decision | string | `.spec.decision` |
 | By | string | `.spec.by` |
+| Recorded | string | `.status.record.ref` |
 | Age | date | `.metadata.creationTimestamp` |
 
 ### Fields
@@ -39,6 +40,10 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `spec.note` | `string` | no |  |  |  |
 | `spec.operation` | `string` | yes |  |  | Operation is the operation's name, for people. Matching uses the uid. |
 | `spec.operationUID` | `string` | yes |  |  |  |
+| `status` | `object` | no |  |  | Status names the approval's signed record. Only the recorder writes it. |
+| `status.record` | `object` | no |  |  | Record is the approval's signed record, once the recorder wrote it. |
+| `status.record.digest` | `string` | yes |  |  | Digest is the record id: the sha256 of its signed payload. |
+| `status.record.ref` | `string` | yes |  |  | Ref is where it is: &lt;repository&gt;@<manifest digest>. |
 
 
 ## Operation
@@ -67,6 +72,8 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `spec` | `object` | yes |  |  | OperationSpec is the intent. It is frozen at admission. |
 | `spec.actor` | `object` | yes |  |  | Actor is the apiserver identity that created the operation. |
 | `spec.actor.groups` | `[]string` | no |  |  |  |
+| `spec.actor.record` | `string` | no |  |  | Record names the keyless approval record this Approval is a view of. Only the recorder sets it. |
+| `spec.actor.signedAt` | `string` | no |  |  | SignedAt is the verified signing time of that record (RFC 3339). Only the recorder sets it. |
 | `spec.actor.user` | `string` | yes |  |  |  |
 | `spec.cause` | `object` | no |  |  | Cause is why an operation was raised. A person or an agent sets one field; a verdict they cite is re-run when the operation is admitted. An automatic rollback names the failed operation and, when a gate failed it, the verdict. |
 | `spec.cause.operation` | `string` | no |  |  | Operation is the uid of the operation that caused this one. |
@@ -105,8 +112,17 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.approvals[].decision` | `string` | yes |  |  | Decision is what a human approval says. |
 | `status.approvals[].name` | `string` | yes |  |  |  |
 | `status.approvals[].note` | `string` | no |  |  |  |
+| `status.approvals[].record` | `string` | no |  |  | Record is the id of the approval's signed record: the sha256 of its signed payload. |
+| `status.approvals[].signer` | `object` | no |  |  | Signer is who signed that record. |
+| `status.approvals[].signer.kind` | `string` | yes |  |  | Kind is person or recorder. |
+| `status.approvals[].signer.onBehalfOf` | `object` | no |  |  | OnBehalfOf is the person a recorder-signed record speaks for. |
+| `status.approvals[].signer.onBehalfOf.user` | `string` | yes |  |  |  |
+| `status.approvals[].signer.onBehalfOf.verified` | `string` | yes |  |  |  |
 | `status.approvedTeams` | `[]string` | no |  |  | ApprovedTeams are the teams the question is asked of (plan.floor.owners) that an approval counted for since the operation was last held. A change asked of several teams goes ahead only once every one of them answered. |
 | `status.guarded` | `boolean` | no |  |  | Guarded says the promoter found its admission policies guarding the cluster when it admitted this operation. The promoter admits nothing otherwise, so it is always true. A record from an earlier promoter or another cluster may lack it, and its actor and approvers are then only what their writers claimed. |
+| `status.intentRecord` | `object` | no |  |  | IntentRecord is the signed record of this operation's intent, written once the promoter admitted it. Only the recorder writes it. |
+| `status.intentRecord.digest` | `string` | yes |  |  | Digest is the record id: the sha256 of its signed payload. |
+| `status.intentRecord.ref` | `string` | yes |  |  | Ref is where it is: &lt;repository&gt;@<manifest digest>. |
 | `status.message` | `string` | no |  |  |  |
 | `status.outcome` | `string` | no |  |  | Outcome is how a concluded operation ended. |
 | `status.phase` | `string` | no |  |  | Phase is where an operation is in its lifecycle. |
@@ -372,6 +388,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.shadow[].verification` | `string` | no |  |  | Verification is the shadow verify on the observed digest. |
 | `status.stream` | `object` | no |  |  | Stream numbers a Stage's concluded operations. |
 | `status.stream.anchor` | `string` | no |  |  | Anchor is where the stream's records are listed: &lt;repository&gt;@<anchor digest>. Only the recorder writes it. |
+| `status.stream.approvals` | `string` | no |  |  | Approvals is where a person's client pushes a signed approval for this Stage: <approvals repository>@<anchor digest>. Only the recorder writes it, once. |
 | `status.stream.concluded` | `[]object` | no |  |  | Concluded are the newest operations given a seq, each with how it concluded, written in the compare-and-swap that took the seq. An operation whose own status write then failed concludes again from here: the same seq and outcome, never a second seq. |
 | `status.stream.concluded[].cause` | `string` | no |  |  | Cause is the uid of the operation whose failure made the promoter raise this one: an automatic rollback, freeze or step-down. |
 | `status.stream.concluded[].clearedBreaking` | `boolean` | no |  |  | ClearedBreaking is a promote of a change that is not NON_BREAKING whose impact verdict passed: every consumer accepts it. |

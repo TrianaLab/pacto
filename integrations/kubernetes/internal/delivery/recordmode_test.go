@@ -332,6 +332,7 @@ func TestRecorderApplyProbeFailureIsRetried(t *testing.T) {
 	re := newRecEnv(t)
 	streams := newTestRegistry(t)
 	re.rec.Store.Streams = streams.host + "/delivery/streams"
+	re.rec.Store.Approvals = streams.host + "/delivery/approvals"
 	re.reg.fault = from(1, http.MethodGet, "/referrers/")
 	re.stage(1)
 	re.concluded("ship", 1, delivery.Succeeded)

@@ -52,8 +52,11 @@ data:
 {{- end }}
 {{- end }}
 # The recorder: it reads concluded operations, their Stages and approvals,
-# and writes only status.record, status.stream.{recordedSeq,head}, its own
-# RecordStoreReady condition and the record finalizer. It is the only holder
+# and writes only status.record, status.stream.{recordedSeq,head,anchor,
+# registryMode,approvals}, an operation's status.intentRecord, an approval's
+# status.record, its own RecordStoreReady condition and the record finalizer.
+# It reads its admission policies to sign an approval on its creator's behalf
+# only while the -approval policy guards approvals. It is the only holder
 # of the signing key and the registry push credentials; it never changes
 # what runs.
 apiVersion: rbac.authorization.k8s.io/v1
@@ -70,8 +73,11 @@ rules:
     resources: [operations]
     verbs: [get, list, watch, update]
   - apiGroups: [delivery.pacto.trianalab.io]
-    resources: [stages/status, operations/status]
+    resources: [stages/status, operations/status, approvals/status]
     verbs: [get, update]
+  - apiGroups: [admissionregistration.k8s.io]
+    resources: [validatingadmissionpolicies, validatingadmissionpolicybindings]
+    verbs: [get]
   {{- with include "pacto-operator.delivery.rbac.pointerReadRules" . | trim }}{{ . | nindent 2 }}{{ end }}
   {{- include "pacto-operator.rbac.clusterIdentityRule" . | nindent 2 }}
 ---
@@ -135,6 +141,8 @@ spec:
             - --leader-elect={{ $r.leaderElect }}
             - --poll={{ $r.poll }}
             - {{ printf "--streams-repository=%s" $r.streamsRepository | quote }}
+            - {{ printf "--approvals-repository=%s" ($r.approvalsRepository | default (printf "%s-approvals" $r.streamsRepository)) | quote }}
+            - --admission-policies={{ include "pacto-operator.delivery.fullname" . }}-approval
             {{- if $r.signing.ed25519.secretName }}
             - --signing-key-file=/etc/pacto/signing/{{ $r.signing.ed25519.key }}
             {{- else if $r.signing.kms }}
