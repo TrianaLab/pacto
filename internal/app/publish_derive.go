@@ -14,23 +14,23 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/publish"
 )
 
-// derivedBundle is b pinned at the version Pacto derives for it, with the
-// notes deriving it left, or the result of a publish with nothing to write
-// when b holds what its baseline published.
-func derivedBundle(ctx context.Context, run runner, reg publish.Registry, tools execTools, dir string, b *contract.Bundle, pub *contract.Publish, alt, revision string, in contract.InferredInputs) (*contract.Bundle, *publish.Result, []string, error) {
+// derivedBundle is b pinned at the version Pacto derives for it, with how it
+// was derived, or the result of a publish with nothing to write when b holds
+// what its baseline published.
+func derivedBundle(ctx context.Context, run runner, reg publish.Registry, tools execTools, dir string, b *contract.Bundle, pub *contract.Publish, alt, revision string, in contract.InferredInputs) (*contract.Bundle, *publish.Result, publish.Derived, error) {
 	d, err := deriveVersion(ctx, run, reg, tools, dir, b, pub, alt)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, d, err
 	}
 	repo := publish.Repo(pub.Bundle)
 	if d.Unchanged {
 		res := unchangedResult(b, repo, revision, d)
 		deploy, notes := unchangedDeploy(ctx, reg, tools, pub, d.Version)
 		res.Deploy, res.Notes = deploy, append(res.Notes, notes...)
-		return nil, res, nil, nil
+		return nil, res, d, nil
 	}
 	pinned, err := pinDerived(b, repo, d, in)
-	return pinned, nil, d.Notes, err
+	return pinned, nil, d, err
 }
 
 // deriveVersion is the version a contract with no service.version publishes

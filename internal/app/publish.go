@@ -46,8 +46,12 @@ type PublishOptions struct {
 	SignKey           string
 	NoTransparencyLog bool
 	// Getenv reads the CI context and SOURCE_DATE_EPOCH; nil is an empty
-	// environment, so only the CLI hands the runner's variables in.
+	// environment, so the CLI and the MCP adapter hand the runner's in.
 	Getenv func(string) string
+	// unchanged is the bundle digest pacto ci found the declared version
+	// holding with this content: Publish then writes nothing once that
+	// bundle verifies as the publisher's and its deploy artifact is there.
+	unchanged string
 }
 
 // flagErr refuses flag values that cannot work whatever the contract says.
@@ -143,23 +147,21 @@ func (s *Service) Publish(ctx context.Context, opts PublishOptions) (*publish.Re
 	}
 	reg := env.publishRegistry()
 	tools := newExecTools(path, env.run, reg)
-	notes := d.notes
-	if c.Service.Version == "" {
-		var done *publish.Result
-		var more []string
-		if b, done, more, err = derivedBundle(ctx, env.run, reg, tools, path, b, pub, d.alt, revision, inputs); err != nil || done != nil {
-			return done, err
-		}
-		in.Bundle, c, fsys, notes = b, b.Contract, b.FS, append(notes, more...)
+	b, done, dv, err := versioned(ctx, env.run, reg, tools, path, b, pub, d, revision, inputs, opts.unchanged)
+	if err != nil || done != nil {
+		return done, err
 	}
+	in.Bundle, c, fsys = b, b.Contract, b.FS
+	notes := append(d.notes, dv.Notes...)
 	in.Checks = append(publishChecks(d), validationCheck(s.guaranteeStage(ctx, path, c)),
 		checkOf("references", rejectLocalDeps(c), rejectLocalRefs(c)),
 		checkOf("lock", s.verifyLockIfPresent(ctx, path, b)), checkOf("build outputs", sbomsIgnored(pub, path)))
 	in.Preflight = preflight(ctx, env, tools, path, pub, d.programs, fsys, opts.Revision == "" && in.Revision != "", in.Revision)
 	if opts.Plan {
-		return &publish.Result{Plan: publish.MakePlan(ctx, reg, in), Notes: notes}, nil
+		return &publish.Result{Plan: derivedFrom(publish.MakePlan(ctx, reg, in), dv), Notes: notes}, nil
 	}
 	res, err := publish.Apply(ctx, reg, tools, in)
+	res.Plan = derivedFrom(res.Plan, dv)
 	if errors.Is(err, publish.ErrNotReady) {
 		res.Refusal = keepRefusal(ctx, env, tools, b, pub, res.Plan)
 	}
@@ -169,6 +171,60 @@ func (s *Service) Publish(ctx context.Context, opts PublishOptions) (*publish.Re
 	}
 	res.Notes = notes
 	return res, err
+}
+
+// versioned is b at the version it publishes as, or done when nothing is to
+// be written: derived and pinned when service.version is undeclared, as
+// declared otherwise. A derived section that cannot have its image (d.refuse)
+// refuses only once something is to be published: an unchanged service
+// whose image is supplied by --image needs none.
+func versioned(ctx context.Context, run runner, reg publish.Registry, tools execTools, path string, b *contract.Bundle, pub *contract.Publish, d *derived, revision string, in contract.InferredInputs, unchanged string) (*contract.Bundle, *publish.Result, publish.Derived, error) {
+	if b.Contract.Service.Version != "" {
+		switch {
+		case unchanged != "":
+			res, err := publishedUnchanged(ctx, reg, tools, b, pub, revision, unchanged)
+			return nil, res, publish.Derived{}, err
+		case d.refuse != nil:
+			return nil, nil, publish.Derived{}, d.refuse
+		}
+		return b, nil, publish.Derived{}, nil
+	}
+	pinned, done, dv, err := derivedBundle(ctx, run, reg, tools, path, b, pub, d.alt, revision, in)
+	switch {
+	case done != nil:
+		return nil, done, dv, nil
+	case d.refuse != nil:
+		return nil, nil, dv, d.refuse
+	}
+	return pinned, nil, dv, err
+}
+
+// publishedUnchanged is the publish of a declared version pacto ci found
+// holding this content at digest: nothing is written, once that bundle is
+// signed by the publisher identity and the deploy artifact, the commit
+// point, is there. A tag read without either is never "unchanged".
+func publishedUnchanged(ctx context.Context, reg publish.Registry, tools execTools, b *contract.Bundle, pub *contract.Publish, revision, digest string) (*publish.Result, error) {
+	repo, version := publish.Repo(pub.Bundle), b.Contract.Service.Version
+	if err := tools.Verify(ctx, publish.SignOf(pub), repo+"@"+digest); err != nil {
+		return nil, fmt.Errorf("%s:%s holds this content, but not signed by the publisher identity: %w", repo, version, err)
+	}
+	deploy, notes := unchangedDeploy(ctx, reg, tools, pub, version)
+	if len(notes) > 0 {
+		return nil, fmt.Errorf("%s: the publish of %s stopped before its commit point; re-run it from the commit that published it, or publish a higher service.version", notes[0], version)
+	}
+	res := unchangedResult(b, repo, revision, publish.Derived{Version: version, Baseline: version, BaselineDigest: digest})
+	res.Deploy = deploy
+	return res, nil
+}
+
+// derivedFrom is p with a derived version's baseline and classification:
+// the verified baseline the version was measured from, never the newest tag
+// below it the version rule reads, which may be one nobody verified.
+func derivedFrom(p publish.Plan, dv publish.Derived) publish.Plan {
+	if dv.Baseline != "" {
+		p.Baseline, p.Classification = dv.Baseline, dv.Classification
+	}
+	return p
 }
 
 // RefusedPullRequest is why a pull or merge request pipeline never publishes.

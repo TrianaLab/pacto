@@ -180,6 +180,9 @@ func TestRowRecord(t *testing.T) {
 			t.Fatalf("%s: %+v", state, r)
 		}
 	}
+	if r := rowRecord(ci.Row{Service: "a", State: ci.StateRefused, Derived: true, Baseline: "1.3.0", Next: "1.4.0", Classification: "NON_BREAKING"}); r.NewRevision != "" || r.OldRevision != "" || r.Classification != "" {
+		t.Fatalf("an unverified derived version is recorded: %+v", r)
+	}
 	if rowRecord(ci.Row{Service: "a", State: ci.StateUnchanged}) != nil {
 		t.Fatal("an unchanged service leaves no record")
 	}

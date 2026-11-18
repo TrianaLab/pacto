@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -646,5 +647,103 @@ func TestDerivedBundleRepoUnreadableFolder(t *testing.T) {
 	writeFiles(t, dir, map[string]string{".pactoignore/x": ""})
 	if got := derivedBundleRepo(dir, "r.io/acme", "ledger"); got != "r.io/acme/ledger" {
 		t.Fatal(got)
+	}
+}
+
+// TestCIPublishUnchangedNeedsTheVerifiedBaseline: plan mode reads the newest
+// tag unverified. When that tag (1.3.0, signed by another key from the same
+// key path) holds the folder's content, the row is not "unchanged": publish
+// measures from the signed 1.2.0 and publishes above the tag it skipped, and
+// the row says the verified baseline.
+func TestCIPublishUnchangedNeedsTheVerifiedBaseline(t *testing.T) {
+	e := newCIPub(t)
+	e.write(t, map[string]string{"payments/pacto.yaml": e.contract("payments", "1.2.0", "", "")})
+	e.publishAs(t, "payments", "r1")
+	own, err := os.ReadFile(e.key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := t.TempDir()
+	keyFiles(t, other)
+	foreign, _ := os.ReadFile(filepath.Join(other, "cosign.key"))
+	_ = os.WriteFile(e.key, foreign, 0o600)
+	e.write(t, map[string]string{"payments/pacto.yaml": e.contract("payments", "1.3.0", "", ""), "payments/notes.md": "# payments\n"})
+	e.publishAs(t, "payments", "r1")
+	_ = os.WriteFile(e.key, own, 0o600)
+	e.write(t, map[string]string{"payments/pacto.yaml": e.contract("payments", "", "", "")})
+	r := pubRow(t, e.ciPublish(t, nil), "payments")
+	if r.Changed != "no" || r.State != ci.StatePublished || r.To != "1.3.1" || r.Baseline != "1.2.0" || slices.Contains(r.Notes, planModeNote) {
+		t.Fatalf("row %+v", r)
+	}
+}
+
+// TestCIPublishUnchangedNeedsTheCommitPoint: a declared version whose bundle
+// tag is there but whose deploy artifact, the commit point, never was is not
+// "unchanged".
+func TestCIPublishUnchangedNeedsTheCommitPoint(t *testing.T) {
+	e := newCIPub(t)
+	e.write(t, map[string]string{"ledger/pacto.yaml": e.contract("ledger", "1.0.0", "", e.deployPub("ledger"))})
+	deploy := e.host + "/acme/deploy/ledger"
+	e.reg.tag = func(repo, _, _ string) bool { return repo == deploy } // the run dies before the deploy tag
+	if _, err := e.svc.Publish(t.Context(), PublishOptions{Path: filepath.Join(e.root, "ledger"), Revision: "r1"}); err == nil {
+		t.Fatal("the read-back sees no deploy tag")
+	}
+	e.reg.tag = nil
+	p := e.ciPublish(t, nil)
+	if r := pubRow(t, p, "ledger"); r.Changed != "no" || r.State != ci.StateFailed || !strings.Contains(r.Reason, "stopped before its commit point") || p.Exit != 1 {
+		t.Fatalf("row %+v", r)
+	}
+}
+
+// TestCIPublishRefusedKeepsThePlanModeNote: a row never published keeps
+// saying its derived version was read without verifying the baseline.
+func TestCIPublishRefusedKeepsThePlanModeNote(t *testing.T) {
+	e := newCIPub(t)
+	e.write(t, map[string]string{"payments/pacto.yaml": e.contract("payments", "", "", "")})
+	e.publishAs(t, "payments", "r1")
+	e.write(t, map[string]string{"payments/notes.md": "# payments\n"})
+	r := pubRow(t, e.ciPublish(t, map[string]string{"GITHUB_ACTIONS": "true", "GITHUB_BASE_REF": "main"}), "payments")
+	if r.State != ci.StateRefused || !r.Derived || !slices.Contains(r.Notes, planModeNote) {
+		t.Fatalf("row %+v", r)
+	}
+}
+
+func TestDerivedFrom(t *testing.T) {
+	p := derivedFrom(publish.Plan{Baseline: "1.3.0", Classification: "NON_BREAKING"}, publish.Derived{Baseline: "1.2.0", Classification: "BREAKING"})
+	if p.Baseline != "1.2.0" || p.Classification != "BREAKING" {
+		t.Fatalf("%+v", p)
+	}
+	if p := derivedFrom(publish.Plan{Baseline: "1.3.0"}, publish.Derived{}); p.Baseline != "1.3.0" {
+		t.Fatalf("a declared version keeps the plan's: %+v", p)
+	}
+	r := ci.Row{Classification: "NON_BREAKING", Notes: []string{planModeNote}}
+	fillRow(&r, &contract.Bundle{Contract: &contract.Contract{}}, &publish.Result{Plan: publish.Plan{Classification: "BREAKING"}, Actions: []string{}}, nil)
+	if r.Classification != "BREAKING" || len(r.Notes) != 0 {
+		t.Fatalf("the row says what publish measured: %+v", r)
+	}
+}
+
+// TestCIPublishUnchangedSuppliedImageNeedsNoImage: a service whose image
+// comes from --image goes through publish when it is unchanged too, and
+// publish asks for no image when there is nothing to write.
+func TestCIPublishUnchangedSuppliedImageNeedsNoImage(t *testing.T) {
+	for name, version := range map[string]string{"derived": "", "declared": "  version: 1.0.0\n"} {
+		t.Run(name, func(t *testing.T) {
+			e := newCIPub(t)
+			e.write(t, map[string]string{
+				"ledger/pacto.yaml":      "pactoVersion: \"2.5\"\nservice:\n  name: ledger\n" + version,
+				"ledger/k8s/deploy.yaml": deployment("r.io/ledger:1"),
+			})
+			opts := CIPublishOptions{CI: CIOptions{Root: e.root, Registry: e.host + "/acme"}, Revision: "r1", SignKey: e.key, NoTransparencyLog: true,
+				Images: map[string]string{"ledger": e.host + "/other/ledger@" + digest64}}
+			if p, err := e.svc.CIPublish(t.Context(), opts); err != nil || pubRow(t, p, "ledger").State != ci.StatePublished {
+				t.Fatalf("%v %+v", err, p)
+			}
+			opts.Revision, opts.Images = "r2", nil
+			p, err := e.svc.CIPublish(t.Context(), opts)
+			if r := pubRow(t, p, "ledger"); err != nil || r.State != ci.StateUnchanged || p.Exit != 0 {
+				t.Fatalf("%v row %+v", err, r)
+			}
+		})
 	}
 }

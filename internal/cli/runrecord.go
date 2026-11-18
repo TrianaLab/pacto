@@ -168,6 +168,11 @@ func publishRecord(res *publish.Result, err error) *runrecord.Record {
 func rowRecord(row ci.Row) *runrecord.Record {
 	rec := &runrecord.Record{Kind: runrecord.KindPublish, Service: row.Service, OldRevision: row.Baseline, NewRevision: row.Next,
 		Classification: row.Classification}
+	if row.Derived {
+		// Plan mode derived them from a baseline it never verified, and no
+		// publish verified it since: a record states no unverified version.
+		rec.OldRevision, rec.NewRevision, rec.Classification = "", "", ""
+	}
 	switch row.State {
 	case ci.StateBlocked:
 		rec.Outcome, rec.Gate = runrecord.OutcomeRefused, &runrecord.Gate{Verdict: runrecord.VerdictRefused, Reason: "dependency"}

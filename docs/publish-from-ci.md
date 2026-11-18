@@ -49,7 +49,9 @@ with it, using the same classification as [`pacto diff`](contract-reference/diff
 | A release candidate above the baseline that the derived version does not satisfy | nothing: declare `service.version` to publish a candidate line |
 
 A declared `service.version` publishes as written, and one too small for the
-change still fails, as with `pacto publish`.
+change still fails, as with `pacto publish`. Its row reads `unchanged` only
+when the bundle at that version is signed by the publisher identity and its
+deploy artifact is there.
 
 ## How the image is built
 
@@ -173,6 +175,7 @@ reproducible as the tool makes them.
 | Run record | One per published, failed, blocked or refused service; a blocked service is a refusal with reason `dependency` |
 
 The exit status is `0` when every changed service is published or already
-published, else `1`. To publish one folder by hand, `pacto publish` takes the
+published, else `1`. A run that finds no `pacto.yaml`, or skips a folder it
+cannot read, exits `1`. To publish one folder by hand, `pacto publish` takes the
 same `--image`, `--registry`, `--sign-key` and `--no-transparency-log` flags;
 see [Publish a version](publishing.md).

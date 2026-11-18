@@ -88,15 +88,17 @@ type ciPublisher struct {
 	done    []ci.Row // the rows decided so far, in order
 }
 
-// row decides one row, first rule that applies: unchanged, undecided by the
-// plan, refused run, behind with nothing to derive from, blocked by a
-// provider of this run, else published through Publish.
+// row decides one row, first rule that applies: undecided by the plan,
+// refused run, behind with nothing to derive from, changed and blocked by a
+// provider of this run, else through Publish. An unchanged row goes through
+// Publish too: plan mode read its baseline without verifying it, and only
+// Publish says "already published" once the publisher's signature and the
+// deploy artifact are there (or resumes what an earlier run left missing).
+// A row decided without Publish keeps the plan-mode note: its version and
+// classification were never verified.
 func (cp *ciPublisher) row(ctx context.Context, r *ci.Row) {
-	r.Notes = slices.DeleteFunc(r.Notes, func(n string) bool { return n == planModeNote })
 	switch b := cp.bundles[r.Dir]; {
-	case r.Changed == "no":
-		cp.decide(r, ci.StateUnchanged, r.Reason)
-	case r.Changed != "yes":
+	case r.Changed != "yes" && r.Changed != "no":
 		cp.decide(r, ci.StateFailed, "not published: "+r.Impact.Text)
 	case cp.refused:
 		cp.decide(r, ci.StateRefused, RefusedPullRequest)
@@ -104,7 +106,7 @@ func (cp *ciPublisher) row(ctx context.Context, r *ci.Row) {
 		cur := contract.Current()
 		cp.decide(r, ci.StateFailed, fmt.Sprintf("declares no publish section; Pacto derives one for pactoVersion %s: set pactoVersion: %q", cur, cur))
 	default:
-		if why := cp.blockedBy(b); why != "" {
+		if why := cp.blockedBy(b); r.Changed == "yes" && why != "" {
 			cp.decide(r, ci.StateBlocked, why)
 			return
 		}
@@ -141,6 +143,9 @@ func (cp *ciPublisher) decide(r *ci.Row, state, reason string) {
 func (cp *ciPublisher) publish(ctx context.Context, r *ci.Row, b *contract.Bundle) {
 	opts := PublishOptions{Path: filepath.Join(cp.opts.CI.Root, filepath.FromSlash(r.Dir)), Revision: cp.opts.Revision,
 		Image: cp.images[r.Service], Getenv: cp.opts.CI.Getenv}
+	if v := b.Contract.Service.Version; r.Changed == "no" && v != "" && r.Baseline == v {
+		opts.unchanged = r.BaselineDigest // the declared tag the plan judged
+	}
 	if b.Contract.Publish == nil {
 		opts.Registry, opts.SignKey, opts.NoTransparencyLog = cp.opts.CI.Registry, cp.opts.SignKey, cp.opts.NoTransparencyLog
 	}
@@ -175,12 +180,15 @@ func lostRace(res *publish.Result, err error) bool {
 	return last.State == publish.Conflict && !errors.Is(last.Err, publish.ErrForeignSignature)
 }
 
-// fillRow sets r from what Publish did.
+// fillRow sets r from what Publish did: Publish verified the baseline, so
+// the plan-mode note goes, and the baseline and classification are the ones
+// Publish measured the version from.
 func fillRow(r *ci.Row, b *contract.Bundle, res *publish.Result, err error) {
 	if res != nil {
+		r.Notes = slices.DeleteFunc(r.Notes, func(n string) bool { return n == planModeNote })
 		r.Notes = append(r.Notes, res.Notes...)
 		r.To = res.Plan.Version
-		r.Baseline = cmp.Or(res.Plan.Baseline, r.Baseline)
+		r.Baseline, r.Classification = cmp.Or(res.Plan.Baseline, r.Baseline), res.Plan.Classification
 	}
 	switch {
 	case errors.Is(err, publish.ErrNotReady):

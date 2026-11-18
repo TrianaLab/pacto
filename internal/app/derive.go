@@ -50,6 +50,9 @@ type derived struct {
 	// build says how the image is had, shown with the plan's checks.
 	build string
 	notes []string
+	// refuse is why the image cannot be had (no tool, no supplied image):
+	// it refuses a publish that has something to write.
+	refuse error
 	// images are the images deployed without being built: supplied
 	// (--image) or pinned by digest in the workload.
 	images []publish.ImageRecord
@@ -66,7 +69,7 @@ type derivedOpts struct {
 // every program run directly, never through a shell. A supplied image
 // (--image, or a workload image pinned by digest) is built, signed and
 // copied by nobody. With no tool and no supplied image, Build's findings
-// refuse it. epoch is the commit time builders get as SOURCE_DATE_EPOCH.
+// are d.refuse. epoch is the commit time builders get as SOURCE_DATE_EPOCH.
 func derivePublish(dir, name, registry string, bp discover.BuildPlan, findings []contract.InferredFinding, opts derivedOpts, run runner, epoch string) (*derived, error) {
 	imageRepo := workloadRepo(bp)
 	bundle, image, deploy := publish.Layout(registry, name, imageRepo)
@@ -102,7 +105,7 @@ func derivePublish(dir, name, registry string, bp discover.BuildPlan, findings [
 		for i, f := range findings {
 			msgs[i] = "finding: " + f.Message
 		}
-		return nil, fmt.Errorf("%s declares no publish section and Pacto cannot derive one: %s", name, strings.Join(msgs, "; "))
+		d.refuse = fmt.Errorf("%s declares no publish section and Pacto cannot derive one: %s", name, strings.Join(msgs, "; "))
 	default:
 		d.build = "no image to build"
 	}
