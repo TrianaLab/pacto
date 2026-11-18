@@ -261,3 +261,311 @@ func TestRecordRefusesEscapingSource(t *testing.T) {
 		t.Error("a finding with no code accepted")
 	}
 }
+
+// clusterRecordYAML is the Decision 5 record, one field per cluster source
+// form, in Marshal's canonical form.
+const clusterRecordYAML = `format: pacto.inferred/v1
+inputs:
+    pacto: 4.6.0
+    discovery: "3"
+    sources:
+        - path: openapi/v1.yaml
+          digest: sha256:7b3d3a1e1f6a4d8e0b2f9c6a5e4d3c2b1a0f9e8d7c6b5a4f3e2d1c0b9a8f7e6d
+    cluster:
+        asOf: "2026-11-14T10:02:00Z"
+        object: shop/Deployment/invoices
+        callWindow: 24h
+        maxItems: 10000
+fields:
+    - field: dependencies[ledger]
+      value: ledger
+      source: cluster:runtime calls from shop/Deployment/invoices
+      confidence: likely
+      asOf: "2026-11-14T09:58:12Z"
+      completeness: complete
+    - field: dependencies[ledger].compatibility
+      value: compatibility unknown
+      source: cluster:fleet reported versions 2.3.1
+      confidence: likely
+      declare: 'compatibility: "^2.3.0"'
+      asOf: "2026-11-14T09:58:12Z"
+      completeness: partial
+      proposed: ^2.3.0
+    - field: image.digest[app]
+      value: sha256:aa
+      source: cluster:runtime pods of shop/Deployment/invoices
+      confidence: likely
+      asOf: "2026-11-14T10:02:00Z"
+    - field: interfaces[api]
+      value: openapi/v1.yaml
+      source: openapi/v1.yaml
+      confidence: likely
+    - field: service.owner
+      value: billing
+      source: cluster:label shop/Deployment/invoices app.kubernetes.io/team
+      confidence: likely
+      asOf: "2026-11-14T10:02:00Z"
+    - field: workload
+      value: service
+      source: cluster:manifest shop/Deployment/invoices manifests.yaml:12
+      confidence: likely
+      asOf: "2026-11-14T10:02:00Z"
+coverage:
+    - source: workloads
+      state: complete
+    - source: endpointslices
+      state: complete
+    - source: runtime-calls
+      state: partial
+      reason: 2 of 3 nodes observed
+hidden:
+    services: 1
+    callers: 2
+`
+
+// clusterDoc is clusterRecordYAML with old replaced by new once.
+func clusterDoc(t *testing.T, old, new string) string {
+	t.Helper()
+	if !strings.Contains(clusterRecordYAML, old) {
+		t.Fatalf("fixture lacks %q", old)
+	}
+	return strings.Replace(clusterRecordYAML, old, new, 1)
+}
+
+// refuses asserts doc fails to parse with an error naming want.
+func refuses(t *testing.T, doc, want string) {
+	t.Helper()
+	if _, err := ParseInferredRecord([]byte(doc)); err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("err = %v, want one naming %q", err, want)
+	}
+}
+
+func TestInferredRecordClusterKeys(t *testing.T) {
+	rec, err := ParseInferredRecord([]byte(clusterRecordYAML))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(rec.Marshal()); got != clusterRecordYAML {
+		t.Fatalf("round trip differs:\n%s", got)
+	}
+	if rec.Inputs.Cluster.MaxItems != 10000 || rec.Hidden.Callers != 2 || rec.Fields[1].Proposed != "^2.3.0" {
+		t.Fatalf("lost a value: %+v", rec)
+	}
+	// A cluster record with no bound and no proposal still parses.
+	if _, err := ParseInferredRecord([]byte(clusterDoc(t, "\n        maxItems: 10000\n", "\n"))); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestInferredRecordRefusesClusterWithoutInput(t *testing.T) {
+	noInput := clusterDoc(t, "    cluster:\n        asOf: \"2026-11-14T10:02:00Z\"\n        object: shop/Deployment/invoices\n        callWindow: 24h\n        maxItems: 10000\n", "")
+	refuses(t, noInput, "coverage and hidden need inputs.cluster")
+	fieldOnly := noInput[:strings.Index(noInput, "coverage:")]
+	refuses(t, fieldOnly, "fields[0].source is a cluster fact, which needs inputs.cluster")
+	for name, tc := range map[string]struct{ old, new, want string }{
+		"asOf":       {`asOf: "2026-11-14T10:02:00Z"` + "\n        object", `asOf: 2026-11-14` + "\n        object", "inputs.cluster.asOf"},
+		"object":     {"object: shop/Deployment/invoices", "object: shop/invoices", "inputs.cluster.object"},
+		"callWindow": {"callWindow: 24h", "callWindow: a day", "inputs.cluster.callWindow"},
+		"maxItems":   {"maxItems: 10000", "maxItems: -1", "inputs.cluster.maxItems"},
+		"hidden":     {"services: 1", "services: -1", "hidden counts a negative number"},
+	} {
+		t.Run(name, func(t *testing.T) { refuses(t, clusterDoc(t, tc.old, tc.new), tc.want) })
+	}
+}
+
+func TestInferredRecordRefusesClusterSourceWithoutAsOf(t *testing.T) {
+	doc := clusterDoc(t, "      source: cluster:runtime calls from shop/Deployment/invoices\n      confidence: likely\n      asOf: \"2026-11-14T09:58:12Z\"\n",
+		"      source: cluster:runtime calls from shop/Deployment/invoices\n      confidence: likely\n")
+	refuses(t, doc, "fields[0].asOf")
+	for _, bad := range []string{"2026-11-14T09:58:12+01:00", "2026-11-14T09:58:12.5Z"} {
+		refuses(t, clusterDoc(t, "asOf: \"2026-11-14T09:58:12Z\"\n      completeness: complete", "asOf: \""+bad+"\"\n      completeness: complete"), "fields[0].asOf")
+	}
+	// asOf belongs to a cluster fact only.
+	refuses(t, clusterDoc(t, "      source: openapi/v1.yaml\n", "      source: openapi/v1.yaml\n      asOf: \"2026-11-14T09:58:12Z\"\n"), "fields[3].asOf is only on a cluster fact")
+}
+
+func TestInferredRecordRefusesBadClusterKind(t *testing.T) {
+	refuses(t, clusterDoc(t, "cluster:runtime pods of shop/Deployment/invoices", "cluster:secret x"), "fields[2].source is not a cluster source form")
+	for _, bad := range []string{
+		"cluster:manifest shop/Deployment/invoices manifests.yaml",
+		"cluster:manifest shop/Deployment/invoices ../manifests.yaml:3",
+		"cluster:manifest shop/Deployment/invoices repository:manifests.yaml:3",
+		"cluster:label shop/Deployment/invoices team name",
+		"cluster:fleet reported versions 2.3.1; DROP",
+		"cluster:fleet reported versions " + strings.Repeat("1", 230),
+	} {
+		refuses(t, clusterDoc(t, "cluster:manifest shop/Deployment/invoices manifests.yaml:12", bad), "fields[5].source is not a cluster source form")
+	}
+}
+
+func TestInferredRecordRefusesForeignObjectInSource(t *testing.T) {
+	for _, bad := range []string{"cluster:runtime calls from vault/Deployment/kms", "cluster:runtime calls seen to vault/kms"} {
+		refuses(t, clusterDoc(t, "cluster:runtime calls from shop/Deployment/invoices", bad), "naming inputs.cluster.object")
+	}
+}
+
+func TestInferredRecordRefusesCompletenessOnFileSource(t *testing.T) {
+	refuses(t, clusterDoc(t, "      source: openapi/v1.yaml\n", "      source: openapi/v1.yaml\n      completeness: complete\n"), "fields[3].completeness is only on a cluster runtime or fleet fact")
+	refuses(t, clusterDoc(t, "app.kubernetes.io/team\n      confidence: likely\n", "app.kubernetes.io/team\n      confidence: likely\n      completeness: complete\n"), "fields[4].completeness")
+	refuses(t, clusterDoc(t, "completeness: complete", "completeness: whole"), `fields[0].completeness is "whole"`)
+}
+
+func TestInferredRecordRefusesProposedOnOtherKey(t *testing.T) {
+	refuses(t, clusterDoc(t, "      completeness: complete\n", "      completeness: complete\n      proposed: ^2.3.0\n"), `fields[0].proposed is on "dependencies[ledger]"`)
+}
+
+func TestInferredRecordRefusesBadProposedRange(t *testing.T) {
+	refuses(t, clusterDoc(t, "proposed: ^2.3.0", "proposed: ^two"), "fields[1].proposed is not a semver range")
+}
+
+func TestInferredRecordRefusesUnknownCoverageSourceOrState(t *testing.T) {
+	refuses(t, clusterDoc(t, "source: endpointslices", "source: secrets"), `coverage[1].source "secrets"`)
+	refuses(t, clusterDoc(t, "source: endpointslices", "source: workloads"), `coverage[1].source "workloads" is not a cluster source or is listed twice`)
+	refuses(t, clusterDoc(t, "state: partial", "state: half"), `coverage[2].state is "half"`)
+	// A reason is a fixed template, never apiserver text naming an object.
+	refuses(t, clusterDoc(t, "reason: 2 of 3 nodes observed", "reason: pods is forbidden in namespace vault"), "coverage[2].reason is not a fixed coverage reason")
+}
+
+func TestInferredRecordRefusesReasonlessPartial(t *testing.T) {
+	refuses(t, clusterDoc(t, "      reason: 2 of 3 nodes observed\n", ""), "coverage[2] is partial with no reason")
+	for _, reason := range []string{"stopped at the item bound (10000)", "forbidden", "not found", "timed out", "the continue token expired",
+		"listing failed (503)", "listing failed (malformed observation)", "no node runtime observations", "2 called services you may not read"} {
+		if _, err := ParseInferredRecord([]byte(clusterDoc(t, "2 of 3 nodes observed", reason))); err != nil {
+			t.Errorf("%q: %v", reason, err)
+		}
+	}
+}
+
+func TestInferredRecordCoverageOrder(t *testing.T) {
+	rec, err := ParseInferredRecord([]byte(clusterRecordYAML))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec.Coverage = []InferredCoverage{
+		{Source: "runtime-calls", State: CoverageFailed, Reason: "no node runtime observations"},
+		{Source: "pactos", State: CoverageComplete},
+		{Source: "workloads", State: CoveragePartial, Reason: "stopped at the item bound (2)"},
+		{Source: "pods", State: CoverageComplete},
+	}
+	got, err := ParseInferredRecord(rec.Marshal())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var order []string
+	for _, c := range got.Coverage {
+		order = append(order, c.Source)
+	}
+	if !slices.Equal(order, []string{"workloads", "pods", "pactos", "runtime-calls"}) || rec.Coverage[0].Source != "runtime-calls" {
+		t.Fatalf("order = %v, receiver %v", order, rec.Coverage)
+	}
+}
+
+func TestInferredRecordZeroHiddenOmitted(t *testing.T) {
+	rec, err := ParseInferredRecord([]byte(clusterDoc(t, "    services: 1\n    callers: 2\n", "    services: 0\n")))
+	if err != nil || rec.Hidden != nil {
+		t.Fatalf("hidden = %+v, %v", rec, err)
+	}
+	rec.Hidden = &InferredHidden{}
+	if strings.Contains(string(rec.Marshal()), "hidden") {
+		t.Fatalf("zero hidden written:\n%s", rec.Marshal())
+	}
+}
+
+func TestVerifyRefusesClusterRecord(t *testing.T) {
+	bundle := fstest.MapFS{"openapi/v1.yaml": &fstest.MapFile{Data: []byte("openapi: 3.0.0\n")}}
+	folder := func() *InferredRecord {
+		return &InferredRecord{Format: InferredRecordFormat,
+			Inputs: InferredInputs{Pacto: "4.6.0", Discovery: "3", Sources: []InferredSourceFile{{Path: "openapi/v1.yaml", Digest: digestOf("openapi: 3.0.0\n")}}},
+			Fields: []Inferred{{Field: "interfaces[api]", Value: "openapi/v1.yaml", Source: "openapi/v1.yaml", Confidence: ConfidenceLikely}}}
+	}
+	cases := map[string]struct {
+		edit func(*InferredRecord)
+		want string
+	}{
+		"field source": {func(r *InferredRecord) {
+			r.Fields = append(r.Fields, Inferred{Field: "image.digest[app]", Source: "cluster:runtime pods of shop/Deployment/invoices", Confidence: ConfidenceLikely})
+		}, "fields[1] (image.digest[app]): "},
+		"input":    {func(r *InferredRecord) { r.Inputs.Cluster = &InferredClusterInput{Object: "shop/Deployment/invoices"} }, "inputs.cluster: "},
+		"coverage": {func(r *InferredRecord) { r.Coverage = []InferredCoverage{{Source: "pods", State: CoverageComplete}} }, "coverage: "},
+		"hidden":   {func(r *InferredRecord) { r.Hidden = &InferredHidden{Callers: 1} }, "hidden: "},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			r := folder()
+			tc.edit(r)
+			if err := VerifyInferredRecord(bundle, r); err == nil || err.Error() != tc.want+clusterBundleRefusal {
+				t.Fatalf("err = %v, want %q", err, tc.want+clusterBundleRefusal)
+			}
+		})
+	}
+	// The parsed Decision 5 record, as a bundle would carry it, is refused too.
+	rec, err := ParseInferredRecord([]byte(clusterRecordYAML))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyInferredRecord(bundle, rec); err == nil || !strings.Contains(err.Error(), clusterBundleRefusal) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestVerifyRefusesClusterPathInSources(t *testing.T) {
+	rec := sampleRecord()
+	rec.Inputs.Sources = append(rec.Inputs.Sources, InferredSourceFile{Path: "cluster:manifests.yaml", Digest: digestOf("x")})
+	if err := VerifyInferredRecord(fstest.MapFS{}, rec); err == nil || err.Error() != "inputs.sources[2]: "+clusterBundleRefusal {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestVerifyAcceptsFolderOnlyRecord(t *testing.T) {
+	// The Decision 5 record without its cluster input, cluster fields,
+	// coverage and hidden counts is a folder record and verifies.
+	rec, err := ParseInferredRecord([]byte(clusterRecordYAML))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec.Inputs.Cluster, rec.Coverage, rec.Hidden = nil, nil, nil
+	rec.Fields = slices.DeleteFunc(rec.Fields, func(f Inferred) bool { return strings.HasPrefix(f.Source, clusterPrefix) })
+	rec.Inputs.Sources[0].Digest = digestOf("openapi: 3.0.0\n")
+	again, err := ParseInferredRecord(rec.Marshal())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyInferredRecord(fstest.MapFS{"openapi/v1.yaml": &fstest.MapFile{Data: []byte("openapi: 3.0.0\n")}}, again); err != nil || len(again.Fields) != 1 {
+		t.Fatalf("err = %v, fields %+v", err, again.Fields)
+	}
+}
+
+func TestInferredJSONKeepsKeys(t *testing.T) {
+	folder, err := json.Marshal(Inferred{Field: "service.name", Value: "orders", Source: "chart/Chart.yaml:2", Confidence: ConfidenceLikely, Declare: "service:\n  name: orders\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `{"field":"service.name","value":"orders","source":"chart/Chart.yaml:2","confidence":"likely","declare":"service:\n  name: orders\n"}`; string(folder) != want {
+		t.Fatalf("got %s, want %s", folder, want)
+	}
+	rec, err := ParseInferredRecord([]byte(clusterRecordYAML))
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"cluster", "asOf", "object", "callWindow", "maxItems", "coverage", "source", "state", "reason", "hidden", "services", "callers", "completeness", "proposed"} {
+		if !strings.Contains(string(data), `"`+key+`":`) {
+			t.Errorf("JSON lacks %q: %s", key, data)
+		}
+	}
+	for _, goName := range []string{"AsOf", "CallWindow", "MaxItems", "Coverage", "Hidden", "Completeness", "Proposed", "Services", "Callers"} {
+		if strings.Contains(string(data), `"`+goName+`"`) {
+			t.Errorf("JSON carries Go name %q: %s", goName, data)
+		}
+	}
+	zero, err := ParseInferredRecord([]byte(clusterDoc(t, "    services: 1\n    callers: 2\n", "    callers: 0\n")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := json.Marshal(zero); strings.Contains(string(data), `"hidden"`) {
+		t.Fatalf("zero hidden in JSON: %s", data)
+	}
+}

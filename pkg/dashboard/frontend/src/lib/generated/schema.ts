@@ -1231,12 +1231,15 @@ export interface components {
             timeout?: string;
         };
         "Contract.Inferred": {
+            asOf?: string;
             class?: string;
+            completeness?: string;
             confidence?: string;
             declare?: string;
             external?: components["schemas"]["Contract.InferredExternal"];
             field: string;
             outranks?: string[] | null;
+            proposed?: string;
             source: string;
             value: string;
         };

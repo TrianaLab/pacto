@@ -34,6 +34,15 @@ type Inferred struct {
 	// External is set on a dependencies[<name>] field that names a system
 	// outside the cluster: its identity, sources and what else was read.
 	External *InferredExternal `json:"external,omitempty" yaml:"external,omitempty"`
+	// AsOf is when a cluster fact was read (RFC 3339 UTC, seconds): set on
+	// every field whose source is "cluster:<kind> ...".
+	AsOf string `json:"asOf,omitempty" yaml:"asOf,omitempty"`
+	// Completeness is complete or partial on a runtime or fleet fact: partial
+	// when a node, a pod or a supporting source went unobserved.
+	Completeness string `json:"completeness,omitempty" yaml:"completeness,omitempty"`
+	// Proposed is a semver range proposed for a dependencies[<name>].compatibility
+	// field: a proposal shown beside the declared value, never declared.
+	Proposed string `json:"proposed,omitempty" yaml:"proposed,omitempty"`
 }
 
 var (
