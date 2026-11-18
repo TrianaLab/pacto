@@ -190,7 +190,7 @@ func preflight(ctx context.Context, env sysDeps, tools execTools, path string, p
 		for _, it := range p.Items {
 			absent[it.Name] = it.State == publish.Absent
 		}
-		sign := keyOutsideBundle(pub, fsys)
+		sign := keyOutsideBundle(pub, path, fsys)
 		if p.Missing > 0 {
 			sign = errors.Join(sign, tools.loadSigner(ctx, pub))
 		}
@@ -311,12 +311,17 @@ func lookProgram(env sysDeps, dir, name, program string) error {
 
 // keyOutsideBundle refuses a signing key file that would be packed into the
 // published bundle: a private key in a public artifact.
-func keyOutsideBundle(pub *contract.Publish, fsys fs.FS) error {
+func keyOutsideBundle(pub *contract.Publish, dir string, fsys fs.FS) error {
 	key := publish.SignOf(pub).Key
-	if key == "" || filepath.IsAbs(key) {
+	rel := key
+	if filepath.IsAbs(key) {
+		base, _ := filepath.Abs(dir) // ponytail: fails only without a working directory, then Rel fails and the key counts as outside
+		rel, _ = filepath.Rel(base, key)
+	}
+	if key == "" || !filepath.IsLocal(rel) {
 		return nil
 	}
-	if _, err := fs.Stat(fsys, filepath.ToSlash(filepath.Clean(key))); err == nil {
+	if _, err := fs.Stat(fsys, filepath.ToSlash(filepath.Clean(rel))); err == nil {
 		return fmt.Errorf("the signing key %s would be published inside the bundle; add it to .pactoignore or keep it outside the contract directory", key)
 	}
 	return nil
