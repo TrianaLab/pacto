@@ -40,6 +40,8 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `spec.note` | `string` | no |  |  |  |
 | `spec.operation` | `string` | yes |  |  | Operation is the operation's name, for people. Matching uses the uid. |
 | `spec.operationUID` | `string` | yes |  |  |  |
+| `spec.record` | `string` | no |  |  | Record names the keyless approval record this Approval is a view of. Only the recorder sets it. |
+| `spec.signedAt` | `string` | no |  |  | SignedAt is the verified signing time of that record (RFC 3339). Only the recorder sets it. |
 | `status` | `object` | no |  |  | Status names the approval's signed record. Only the recorder writes it. |
 | `status.record` | `object` | no |  |  | Record is the approval's signed record, once the recorder wrote it. |
 | `status.record.digest` | `string` | yes |  |  | Digest is the record id: the sha256 of its signed payload. |
@@ -72,8 +74,6 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `spec` | `object` | yes |  |  | OperationSpec is the intent. It is frozen at admission. |
 | `spec.actor` | `object` | yes |  |  | Actor is the apiserver identity that created the operation. |
 | `spec.actor.groups` | `[]string` | no |  |  |  |
-| `spec.actor.record` | `string` | no |  |  | Record names the keyless approval record this Approval is a view of. Only the recorder sets it. |
-| `spec.actor.signedAt` | `string` | no |  |  | SignedAt is the verified signing time of that record (RFC 3339). Only the recorder sets it. |
 | `spec.actor.user` | `string` | yes |  |  |  |
 | `spec.cause` | `object` | no |  |  | Cause is why an operation was raised. A person or an agent sets one field; a verdict they cite is re-run when the operation is admitted. An automatic rollback names the failed operation and, when a gate failed it, the verdict. |
 | `spec.cause.operation` | `string` | no |  |  | Operation is the uid of the operation that caused this one. |
