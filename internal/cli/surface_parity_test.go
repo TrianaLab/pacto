@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
 	"github.com/trianalab/pacto/v4/internal/app"
@@ -253,6 +255,7 @@ func deliveryViewRows() []surfaceRow {
 		[]surfaceRow{
 			{"delivery refusals", "pacto_delivery_refusals", "GET /api/delivery/refusals", ""},
 			{"delivery caller", "pacto_delivery_caller", "GET /api/delivery/caller", ""},
+			{"delivery types", "pacto_delivery_operation_types", "", "the dashboard's propose panel lists the types it offers"},
 		},
 	)
 }
@@ -335,15 +338,115 @@ func ciRows() []surfaceRow {
 	)
 }
 
-// parityCommands are the commands whose own flags the mapping covers.
-var parityCommands = []string{
-	"fleet entities", "fleet entity", "fleet attention", "fleet neighborhood", "fleet versions", "fleet search",
-	"fleet get", "fleet graph", "fleet status", "fleet explain", "fleet reconcile", "fleet snapshot", "fleet overview", "fleet providers",
-	"delivery", "delivery status", "delivery history", "delivery blame", "delivery lifecycle", "delivery candidates",
-	"delivery record get", "delivery record verify", "delivery get", "delivery explain", "delivery undo", "delivery plan",
-	"delivery propose", "delivery cancel", "delivery describe", "delivery types", "delivery approve",
-	"delivery caller", "delivery inbox", "delivery environments", "delivery autonomy", "delivery published", "delivery refusals",
-	"impact", "init", "validate", "explain", "stats", "publish", "evidence usage", "ci",
+// excludedFromSurfaces are the commands no other surface mirrors, each with
+// the reason. Every other command has rows in surfaceRows, so a new command
+// forces a choice: map it, or add it here with a reason.
+var excludedFromSurfaces = map[string]string{
+	"agent":                "a long-running host daemon that reports what runs on its node; the other surfaces read what it reports",
+	"dashboard":            "starts the dashboard server, which is itself the surface the routes belong to",
+	"diff":                 "compares two contracts in a pipeline without the fleet; MCP and the dashboard compare revisions with their consumers (pacto_impact, GET /api/fleet/impact)",
+	"doc":                  "renders a contract's documentation to a file or a local site, a build step with no fleet to read",
+	"evidence keygen":      "creates key material, which belongs at a shell prompt",
+	"evidence provisioned": "an adapter's scripted step that writes provisioning evidence to sign",
+	"evidence send":        "signs with a local key and sends evidence, which belongs at a shell prompt",
+	"evidence serve":       "starts the long-running Evidence Server",
+	"evidence sign":        "signs with a local key, which belongs at a shell prompt",
+	"evidence verify":      "verifies a signed evidence file on disk",
+	"export backstage":     "writes a catalog file for a repository; the dashboard serves the same entities at GET /api/backstage/entities outside the OpenAPI document",
+	"generate":             "runs a code generation plugin over a local contract, a build step",
+	"graph":                "resolves the dependency tree of a bundle path or ref outside any fleet; the fleet's tree is pacto fleet graph, which pacto_fleet_graph and GET /api/fleet/services/{name}/graph mirror",
+	"lock":                 "writes pacto.lock next to a local contract, a build step",
+	"login":                "stores registry credentials on this machine",
+	"logout":               "removes registry credentials from this machine",
+	"mcp":                  "starts the MCP server, which is itself the surface the tools belong to",
+	"otel observe":         "a long-running collector of OpenTelemetry traces",
+	"pack":                 "builds a bundle archive from a local folder, a build step",
+	"pull":                 "downloads a bundle to a local folder",
+	"push":                 "writes a bundle to a registry, a pipeline step the other surfaces never take",
+	"run":                  "wraps a local process and lives as long as it does",
+	"stats publish":        "writes unsigned run records to a registry, a pipeline step the other surfaces never take",
+	"tui":                  "starts the terminal UI, a surface of its own over the same fleet",
+	"update":               "replaces the running binary",
+	"version":              "reports the running binary's own version",
+}
+
+// excludedRoutes are the dashboard operations no CLI command or MCP tool
+// mirrors, each with the reason.
+const whyOfflineRoute = "answered only by the offline static export pacto doc --format html builds for one bundle; a live dashboard serves /api/fleet/*, which the rows map"
+
+var excludedRoutes = map[string]string{
+	"GET /api/diff":                               whyOfflineRoute,
+	"GET /api/graph":                              whyOfflineRoute,
+	"GET /api/services":                           whyOfflineRoute,
+	"GET /api/services/{name}":                    whyOfflineRoute,
+	"GET /api/services/{name}/dependents":         whyOfflineRoute,
+	"GET /api/services/{name}/refs":               whyOfflineRoute,
+	"GET /api/services/{name}/sources":            whyOfflineRoute,
+	"GET /api/services/{name}/versions":           whyOfflineRoute,
+	"GET /api/services/{name}/versions/{version}": whyOfflineRoute,
+	"GET /api/session":                            "the sign-in state and CSRF token of the dashboard's own pages; the CLI and MCP authenticate on every call",
+	"GET /api/sources":                            "the dashboard's Data sources page; the CLI and MCP report each source's status in every fleet answer",
+	"POST /api/refresh":                           "rebuilds the dashboard's long-lived snapshot; the CLI and MCP build a fresh snapshot on every call",
+}
+
+// ownFlags are the flags of c the mapping covers: its non-inherited flags
+// except help and the fleet source flags every fleet command shares.
+func ownFlags(c *cobra.Command) []string {
+	shared := pflag.NewFlagSet("shared", pflag.ContinueOnError)
+	addFleetSourceFlags(shared)
+	var out []string
+	c.NonInheritedFlags().VisitAll(func(f *pflag.Flag) {
+		if sf := shared.Lookup(f.Name); f.Name != "help" && (sf == nil || sf.Usage != f.Usage) {
+			out = append(out, f.Name)
+		}
+	})
+	return out
+}
+
+// commandTree is every runnable command path of the tree (a command with no
+// subcommand) plus every parent with flags of its own, such as delivery.
+func commandTree(root *cobra.Command) map[string]*cobra.Command {
+	out := map[string]*cobra.Command{}
+	var walk func(c *cobra.Command)
+	walk = func(c *cobra.Command) {
+		if c != root && (!c.HasSubCommands() || len(ownFlags(c)) > 0) {
+			out[strings.TrimPrefix(c.CommandPath(), "pacto ")] = c
+		}
+		for _, k := range c.Commands() {
+			if k.Name() != "help" {
+				walk(k)
+			}
+		}
+	}
+	walk(root)
+	return out
+}
+
+// rowCommand is the command path a CLI cell names: the words before its
+// first flag or argument.
+func rowCommand(cell string) string {
+	if i := strings.IndexAny(cell, "-<["); i > 0 {
+		return strings.TrimSpace(cell[:i])
+	}
+	return cell
+}
+
+// rowOperation is the dashboard operation an HTTP cell names.
+func rowOperation(cell string) string {
+	op, _, _ := strings.Cut(cell, "?")
+	op, _, _ = strings.Cut(op, " body.")
+	return op
+}
+
+// mappedBy is the set of what rows name, keyed by f.
+func mappedBy(rows []surfaceRow, f func(surfaceRow) string) map[string]bool {
+	out := map[string]bool{}
+	for _, r := range rows {
+		if k := f(r); k != "" {
+			out[k] = true
+		}
+	}
+	return out
 }
 
 // surfaces is what the three surfaces expose at HEAD.
@@ -355,19 +458,15 @@ type surfaces struct {
 func collectSurfaces(t *testing.T) surfaces {
 	t.Helper()
 	s := surfaces{cli: map[string]bool{}, commands: map[string]string{}}
-	shared := pflag.NewFlagSet("shared", pflag.ContinueOnError)
-	addFleetSourceFlags(shared)
 	root := newRootCommand(app.NewService(nil, nil), VersionInfo{Version: "test"}, defaultDeps())
-	for _, path := range parityCommands {
-		cmd, _, err := root.Find(strings.Fields(path))
-		expect(t, err == nil && cmd.CommandPath() == "pacto "+path, "no command %q", path)
+	for path, cmd := range commandTree(root) {
+		if _, ok := excludedFromSurfaces[path]; ok {
+			continue
+		}
 		s.commands[path] = cmd.Use
-		cmd.NonInheritedFlags().VisitAll(func(f *pflag.Flag) {
-			if sf := shared.Lookup(f.Name); f.Name == "help" || (sf != nil && sf.Usage == f.Usage) {
-				return // help, and the fleet source flags every fleet command shares
-			}
-			s.cli[path+" --"+f.Name] = true
-		})
+		for _, f := range ownFlags(cmd) {
+			s.cli[path+" --"+f] = true
+		}
 	}
 	s.mcp, s.http = mcpNames(t), httpNames(t)
 	return s
@@ -418,28 +517,18 @@ type openAPIOp struct {
 
 // httpNames are "<METHOD> <path>?<param>" for every query and path parameter
 // and "<METHOD> <path> body.<property>" for every request-body property of
-// every dashboard operation under /api/fleet/, /api/delivery/ and /api/stats, or the
-// operation when it takes none, plus GET /api/capabilities.
+// every dashboard operation under /api/ that excludedRoutes does not name, or
+// the operation when it takes none.
 func httpNames(t *testing.T) map[string]bool {
 	t.Helper()
-	raw, err := dashboard.ExportOpenAPI()
-	expect(t, err == nil, "openapi: %v", err)
-	var doc struct {
-		Paths      map[string]map[string]openAPIOp `json:"paths"`
-		Components struct {
-			Schemas map[string]struct {
-				Properties map[string]any `json:"properties"`
-			} `json:"schemas"`
-		} `json:"components"`
-	}
-	expect(t, json.Unmarshal(raw, &doc) == nil, "openapi json")
-	out := map[string]bool{"GET /api/capabilities": true}
+	doc := openAPIDoc(t)
+	out := map[string]bool{}
 	for path, ops := range doc.Paths {
-		if !strings.HasPrefix(path, "/api/fleet/") && !strings.HasPrefix(path, "/api/delivery/") && !strings.HasPrefix(path, "/api/stats") {
-			continue
-		}
 		for method, op := range ops {
 			at := strings.ToUpper(method) + " " + path
+			if _, ok := excludedRoutes[at]; ok || !strings.HasPrefix(path, "/api/") {
+				continue
+			}
 			names := []string{}
 			for _, p := range op.Parameters {
 				if p.In == "query" || p.In == "path" {
@@ -462,6 +551,103 @@ func httpNames(t *testing.T) map[string]bool {
 		}
 	}
 	return out
+}
+
+// openAPIDocument is the part of the dashboard's OpenAPI document the mapping reads.
+type openAPIDocument struct {
+	Paths      map[string]map[string]openAPIOp `json:"paths"`
+	Components struct {
+		Schemas map[string]struct {
+			Properties map[string]any `json:"properties"`
+		} `json:"schemas"`
+	} `json:"components"`
+}
+
+func openAPIDoc(t *testing.T) openAPIDocument {
+	t.Helper()
+	raw, err := dashboard.ExportOpenAPI()
+	expect(t, err == nil, "openapi: %v", err)
+	var doc openAPIDocument
+	expect(t, json.Unmarshal(raw, &doc) == nil, "openapi json")
+	return doc
+}
+
+// apiOperations are "<METHOD> <path>" for every dashboard operation under /api/.
+func apiOperations(t *testing.T) map[string]bool {
+	t.Helper()
+	out := map[string]bool{}
+	for path, ops := range openAPIDoc(t).Paths {
+		for method := range ops {
+			if strings.HasPrefix(path, "/api/") {
+				out[strings.ToUpper(method)+" "+path] = true
+			}
+		}
+	}
+	return out
+}
+
+// unclassified lists every name of all that rows do not name and excluded
+// does not list, sorted.
+func unclassified(all map[string]bool, mapped map[string]bool, excluded map[string]string) []string {
+	var out []string
+	for n := range all {
+		if _, ok := excluded[n]; !ok && !mapped[n] {
+			out = append(out, n)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// TestEveryCommandIsEitherMappedOrExcluded: every command of the tree has rows
+// in surfaceRows or a reason in excludedFromSurfaces, so a new command is
+// mirrored on MCP and the dashboard or excluded on the record.
+func TestEveryCommandIsEitherMappedOrExcluded(t *testing.T) {
+	root := newRootCommand(app.NewService(nil, nil), VersionInfo{Version: "test"}, defaultDeps())
+	all := map[string]bool{}
+	for path := range commandTree(root) {
+		all[path] = true
+	}
+	mapped := mappedBy(surfaceRows, func(r surfaceRow) string { return rowCommand(r.CLI) })
+	for _, path := range unclassified(all, mapped, excludedFromSurfaces) {
+		t.Errorf("pacto %s is in no row of surfaceRows and not in excludedFromSurfaces", path)
+	}
+	// The check itself: a new command is a named failure.
+	all["throwaway"] = true
+	expect(t, slices.Contains(unclassified(all, mapped, excludedFromSurfaces), "throwaway"), "a new command goes unnoticed")
+}
+
+// TestEveryRouteIsEitherMappedOrExcluded: every /api/ operation of the
+// dashboard has rows in surfaceRows or a reason in excludedRoutes.
+func TestEveryRouteIsEitherMappedOrExcluded(t *testing.T) {
+	all := apiOperations(t)
+	mapped := mappedBy(surfaceRows, func(r surfaceRow) string { return rowOperation(r.HTTP) })
+	for _, op := range unclassified(all, mapped, excludedRoutes) {
+		t.Errorf("%s is in no row of surfaceRows and not in excludedRoutes", op)
+	}
+	all["GET /api/throwaway"] = true
+	expect(t, slices.Contains(unclassified(all, mapped, excludedRoutes), "GET /api/throwaway"), "a new route goes unnoticed")
+}
+
+// TestNoStaleSurfaceExclusion: an exclusion names a command or route that
+// exists, has a reason and has no rows, since a row would make it a false claim.
+func TestNoStaleSurfaceExclusion(t *testing.T) {
+	root := newRootCommand(app.NewService(nil, nil), VersionInfo{Version: "test"}, defaultDeps())
+	commands := commandTree(root)
+	cmdRows := mappedBy(surfaceRows, func(r surfaceRow) string { return rowCommand(r.CLI) })
+	for path, reason := range excludedFromSurfaces {
+		_, ok := commands[path]
+		expect(t, ok, "excludedFromSurfaces names %q, which is no command", path)
+		expect(t, !cmdRows[path], "excludedFromSurfaces names %q, which has rows", path)
+		expect(t, reason != "", "the exclusion of %q has no reason", path)
+	}
+	ops := apiOperations(t)
+	opRows := mappedBy(surfaceRows, func(r surfaceRow) string { return rowOperation(r.HTTP) })
+	for op, reason := range excludedRoutes {
+		expect(t, ops[op], "excludedRoutes names %q, which is no operation", op)
+		expect(t, !opRows[op], "excludedRoutes names %q, which has rows", op)
+		expect(t, reason != "", "the exclusion of %q has no reason", op)
+	}
 }
 
 // exists says whether a row's cell names something the surface has: a
@@ -611,5 +797,92 @@ func TestFleetToolsDocListsSurfaceRows(t *testing.T) {
 				t.Errorf("the surfaces table in docs/fleet-tools.md does not name `%s`", name)
 			}
 		}
+	}
+}
+
+// jsonRuns are the arguments TestEverySurfaceCommandEmitsOneJSONDocument runs
+// each mapped command with, offline: most of them fail (no cluster, no
+// registry), which is the case under test. A mapped command without an entry
+// fails the test, so the table is deny-by-default too.
+var jsonRuns = map[string][]string{
+	"ci":                     {"."},
+	"delivery approve":       {"-n", "prod", "held"},
+	"delivery autonomy":      {},
+	"delivery blame":         {"--stage", "prod"},
+	"delivery caller":        {},
+	"delivery cancel":        {"-n", "prod", "op"},
+	"delivery candidates":    {"--stage", "prod"},
+	"delivery describe":      {"promote"},
+	"delivery environments":  {},
+	"delivery explain":       {"-n", "prod", "op"},
+	"delivery get":           {"-n", "prod", "op"},
+	"delivery history":       {"--stage", "prod"},
+	"delivery inbox":         {},
+	"delivery lifecycle":     {"--service", "payments"},
+	"delivery plan":          {"--stage", "prod", "--type", "promote", "--to", "1.0.0"},
+	"delivery propose":       {"--stage", "prod", "--type", "promote", "--to", "1.0.0"},
+	"delivery published":     {},
+	"delivery record get":    {"--stage", "prod", "rec"},
+	"delivery record verify": {"--stage", "prod"},
+	"delivery refusals":      {},
+	"delivery status":        {"--service", "payments"},
+	"delivery types":         {},
+	"delivery undo":          {"-n", "prod", "op"},
+	"evidence usage":         {"--contract", "does-not-exist"},
+	"explain":                {"does-not-exist"},
+	"fleet attention":        {},
+	"fleet entities":         {},
+	"fleet entity":           {"service", "payments"},
+	"fleet explain":          {"payments"},
+	"fleet get":              {"payments"},
+	"fleet graph":            {"payments"},
+	"fleet neighborhood":     {"payments"},
+	"fleet overview":         {},
+	"fleet providers":        {},
+	"fleet reconcile":        {"--traces", "does-not-exist.json"},
+	"fleet search":           {},
+	"fleet snapshot":         {},
+	"fleet status":           {},
+	"fleet versions":         {"payments"},
+	"impact":                 {"does-not-exist", "does-not-exist-either"},
+	"init":                   {"--plan", "."},
+	"publish":                {"does-not-exist"},
+	"stats":                  {"--registry", "127.0.0.1:1/acme/pacto-stats"},
+	"validate":               {"does-not-exist"},
+}
+
+// TestEverySurfaceCommandEmitsOneJSONDocument: every mapped command answers
+// --output-format json with exactly one JSON document whatever its exit, and a
+// failed one carries its exit code and reason, so an agent never parses prose.
+func TestEverySurfaceCommandEmitsOneJSONDocument(t *testing.T) {
+	statsOff(t)
+	ciEnvOff(t)
+	t.Setenv("KUBECONFIG", filepath.Join(t.TempDir(), "none"))
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Chdir(t.TempDir())
+	root := newRootCommand(app.NewService(nil, nil), VersionInfo{Version: "test"}, defaultDeps())
+	for path, cmd := range commandTree(root) {
+		if _, excluded := excludedFromSurfaces[path]; excluded || !cmd.Runnable() {
+			continue
+		}
+		args, ok := jsonRuns[path]
+		if !ok {
+			t.Errorf("pacto %s is mapped but has no jsonRuns entry", path)
+			continue
+		}
+		t.Run(path, func(t *testing.T) {
+			out, stderr, err := runRoot(t, defaultDeps(), nil, slices.Concat(strings.Fields(path), args, []string{"--output-format", "json"})...)
+			dec := json.NewDecoder(strings.NewReader(out))
+			var doc any
+			if derr := dec.Decode(&doc); derr != nil {
+				t.Fatalf("stdout is no JSON document (%v): %q (err %v, stderr %q)", derr, out, err, stderr)
+			}
+			if derr := dec.Decode(&doc); derr != io.EOF {
+				t.Fatalf("stdout holds more than one JSON document: %q", out)
+			}
+			if obj, _ := doc.(map[string]any); err != nil && obj["exit"] == nil {
+				t.Errorf("failed (%v) but the document carries no exit: %q", err, out)
+			}
+		})
 	}
 }
