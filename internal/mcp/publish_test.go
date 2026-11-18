@@ -12,15 +12,16 @@ func TestPublishTools(t *testing.T) {
 	var gotPlan []bool
 	var res *publish.Result
 	var err error
-	run := func(_ context.Context, path, revision string, plan bool) (*publish.Result, error) {
+	want := PublishArgs{Path: "svc", Revision: "r", Image: "reg.example/api@sha256:1", Registry: "reg.example", SignKey: "cosign.key", NoTransparencyLog: true}
+	run := func(_ context.Context, a PublishArgs, plan bool) (*publish.Result, error) {
 		gotPlan = append(gotPlan, plan)
-		if path != "svc" || revision != "r" {
-			t.Fatalf("args: %s %s", path, revision)
+		if a != want {
+			t.Fatalf("args: %+v", a)
 		}
 		return res, err
 	}
 	server := NewPublishServer("v", run, Authoring{})
-	args := map[string]any{"path": "svc", "revision": "r"}
+	args := map[string]any{"path": "svc", "revision": "r", "image": want.Image, "registry": want.Registry, "sign_key": want.SignKey, "no_transparency_log": true}
 	res = &publish.Result{Plan: publish.Plan{Service: "payments", Ready: true, Missing: 2}, Actions: []string{"pushed"}}
 	var p publish.Plan
 	decode(t, callToolOn(t, server, "pacto_publish_plan", args), &p)

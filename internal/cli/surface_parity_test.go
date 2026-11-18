@@ -310,14 +310,13 @@ func statsRows() []surfaceRow {
 // --propose is the promote pacto_delivery_operation_propose and
 // POST /api/delivery/operations make, with the same on-behalf-of and correlation id.
 func publishRows() []surfaceRow {
-	const why = "pacto_publish and pacto_publish_plan take path and revision on pacto mcp --publish over stdio; the dashboard publishes nothing"
+	const why = "pacto_publish and pacto_publish_plan take path, revision, image, registry, sign_key and no_transparency_log on pacto mcp --publish over stdio; the dashboard publishes nothing"
 	const whyPropose = "publish proposes the promote itself; MCP and the dashboard propose it as a separate step (pacto_delivery_operation_propose, POST /api/delivery/operations)"
 	return slices.Concat(
-		alike("publish", "", "", why, "path", "plan", "revision"),
+		alike("publish", "", "", why, "path", "plan", "revision", "image", "registry", "sign-key", "no-transparency-log"),
 		alike("publish", "", "", whyPropose, "propose", "on-behalf-of", "correlation-id", "propose-timeout"),
 		alike("publish", "", "", "overrides the CLI applies to the local contract before publishing; pacto_publish publishes the contract as it is", "set", "values"),
 		alike("publish", "", "", "a run record is a CI statistic the CLI writes; MCP and the dashboard record no runs", "stats-context", "stats-file", "stats-registry"),
-		alike("publish", "", "", "shape the publish section Pacto derives for a contract that declares none; pacto_publish derives it with the registry the workload image names and signs keyless; the dashboard publishes nothing", "image", "registry", "sign-key", "no-transparency-log"),
 	)
 }
 

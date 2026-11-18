@@ -15,6 +15,7 @@ import (
 	k8stesting "k8s.io/client-go/testing"
 
 	"github.com/trianalab/pacto/v4/internal/app"
+	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
 	"github.com/trianalab/pacto/v4/pkg/publish"
 )
 
@@ -215,7 +216,7 @@ func TestMCPPublishMode(t *testing.T) {
 	if s, err := buildMCPServer(cmd, app.NewService(nil, nil), "v", nil, d); err != nil || s == nil {
 		t.Fatalf("publish server: %v", err)
 	}
-	if res, err := mcpPublish(app.NewService(nil, nil), d)(context.Background(), "svc", "r", true); err != nil || !res.Plan.Ready || got.Path != "svc" || !got.Plan {
+	if res, err := mcpPublish(app.NewService(nil, nil), d)(context.Background(), pactomcp.PublishArgs{Path: "svc", Revision: "r", Image: "reg.example/api@sha256:1"}, true); err != nil || !res.Plan.Ready || got.Path != "svc" || !got.Plan || got.Image != "reg.example/api@sha256:1" {
 		t.Fatalf("adapter: %+v %v", got, err)
 	}
 	if err := checkMCPMode(false, false, false, true, true); err == nil || !strings.Contains(err.Error(), "--publish") {
