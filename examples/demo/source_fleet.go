@@ -84,6 +84,7 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 		return out
 	}
 	col.Revisions = revisions(src, demoRegistry)
+	withProvenance(col.Revisions, "local")
 	col.Providers = []fleet.Provider{demoRegistryRow(demoNativeRegistry, col.Revisions)}
 
 	// One more registry, the payments story's own domain: the contracts the

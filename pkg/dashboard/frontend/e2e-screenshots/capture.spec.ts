@@ -113,6 +113,19 @@ const SHOTS: { name: string; open: (page: Page) => Promise<void>; clip?: { x: nu
   // organization catalog, with its consumers and its provenance.
   { name: 'fleet-externals', open: async (p) => { await go(p, '/#/fleet/externals', 'External systems'); await expect(p.getByTestId('external-list')).toBeVisible(); } },
   { name: 'external-entity', open: async (p) => { await go(p, '/#/fleet/externals/llm-provider', 'Hosted LLM provider'); await expect(p.getByTestId('external-catalog')).toBeVisible(); } },
+  // The inbox's held changes as alice sees them: audit-log's new signer, which no
+  // publisher rule or pin covers, waits for a person to confirm it.
+  {
+    name: 'delivery-inbox-new-signer',
+    open: async (p) => {
+      await go(p, '/#/delivery/inbox', 'Inbox');
+      await p.getByTestId('identity-trigger').click();
+      await p.getByRole('button', { name: 'Switch person' }).click();
+      await p.getByTestId('demo-persona-alice').click();
+      await expect(p.locator('a.dl-decide', { hasText: 'Confirm identity' })).toBeVisible();
+    },
+    element: '[data-testid="inbox-held"]',
+  },
 ];
 
 async function finish(page: Page) {

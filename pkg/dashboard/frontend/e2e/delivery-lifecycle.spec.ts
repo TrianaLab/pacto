@@ -51,12 +51,12 @@ test.describe('delivery lifecycle in the demo', () => {
     await audit(page, 'service page with Stages');
   });
 
-  test('a Stage that cannot promote shows the Ready fix, and Why answers as the caller', async ({ page }) => {
+  test('a Stage whose new signer waits for a person can promote, and Why answers as the caller', async ({ page }) => {
+    // audit-log's registry watch read a signer no rule covers: its trust change waits
+    // for a person (publisher-trust.spec.ts), and the Stage itself is ready.
     const prod = await stageRow(page, '#/fleet/services/audit-log', 'prod');
-    await expect(prod.getByText(/^Cannot promote: .*sets no spec\.verify/)).toBeVisible();
-    await expect(prod.getByText(/^Fix: Set spec\.verify on the candidate OCIRepository/)).toBeVisible();
-    await expect(prod.locator('[data-testid="env-state-mark"]')).toHaveAttribute('data-state', 'empty');
-    await expect(prod.locator('.env-word')).toHaveText('running nothing yet');
+    await expect(prod.getByText(/^Cannot promote/)).toHaveCount(0);
+    await expect(prod.locator('[data-testid="env-state-mark"]')).toHaveAttribute('data-state', 'waiting');
 
     const pay = await stageRow(page, PAYMENTS, 'prod');
     await pay.locator('details.sd-why summary').click();

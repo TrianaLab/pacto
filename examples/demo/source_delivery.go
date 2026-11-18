@@ -69,6 +69,7 @@ type demoDelivery struct {
 	ops       []*delivery.OperationObject
 	approvals map[string]delivery.ApprovalSpec
 	streams   map[string]*stream
+	pins      map[string][]delivery.IdentityPin // the signed identity pins, by service, newest first
 	n         int
 
 	key     ed25519.PrivateKey
@@ -159,9 +160,12 @@ func newStage(service, env string) *delivery.StageObject {
 	// story's agent promotes plan as they would on a real autonomous Stage.
 	// fraud is new and observes (replay).
 	s.Status.Level = delivery.LevelAutonomous
-	if env == story.Test {
+	switch {
+	case env == story.Test && service == "fraud": // fraud's GitOps feeds it through a Flux OCIRepository
 		s.Spec.Candidates.OCIRepositoryRef = &delivery.LocalRef{Name: service + "-candidates"}
-	} else {
+	case env == story.Test: // the promoter watches the registry and judges each publisher (source_delivery_trust.go)
+		s.Spec.Candidates.Registry = &delivery.RegistryCandidates{}
+	default:
 		s.Spec.Candidates.UpstreamStage = &delivery.StageRef{Name: service, Namespace: story.Test}
 	}
 	return s
@@ -225,17 +229,16 @@ func (d *demoDelivery) ownPaths() {
 	// checkout forks from test into two more regions beside prod; audit-log has
 	// one prod Stage fed straight by new artifacts; notification-worker's one
 	// prod Stage is fed from another cluster's signed records. None of them takes
-	// part in the story. audit-log's candidate OCIRepository verifies no
-	// publisher, so the promoter reports it not ready, with the fix.
+	// part in the story. audit-log's registry watch read a version signed by
+	// a CI identity no rule covers, so a person is asked to confirm it.
 	for _, region := range []string{"prod-eu", "prod-us"} {
 		s := newStage("checkout", region)
 		s.Status.Conditions = []delivery.Condition{ready}
 		d.stages = append(d.stages, s)
 	}
 	audit := newStage("audit-log", story.Prod)
-	audit.Spec.Candidates = delivery.Candidates{OCIRepositoryRef: &delivery.LocalRef{Name: "audit-log-candidates"}}
-	audit.Status.Conditions = []delivery.Condition{{Type: delivery.ConditionReady, Status: "False", Reason: delivery.ReadyReasonCandidateUnverified,
-		Message: "the candidate OCIRepository audit-log-candidates sets no spec.verify with a secretRef or matchOIDCIdentity naming the publisher, so no version is published and the Stage never promotes"}}
+	audit.Spec.Candidates = delivery.Candidates{Registry: &delivery.RegistryCandidates{}}
+	audit.Status.Conditions = []delivery.Condition{ready}
 	notify := newStage("notification-worker", story.Prod)
 	notify.Spec.Candidates = delivery.Candidates{UpstreamRecords: &delivery.RemoteStage{Repository: "registry.example/edge/records", Stream: "edge-cluster/staging/notification-worker"}}
 	notify.Status.Conditions = []delivery.Condition{ready}
@@ -368,6 +371,7 @@ func (d *demoDelivery) replay(start time.Time) error {
 	for _, s := range d.stages {
 		s.Status.Proposal = d.proposal(s)
 	}
+	d.watchRegistry()
 	return nil
 }
 
@@ -1260,6 +1264,8 @@ func (d *demoDelivery) decide(o *delivery.OperationObject, c delivery.Caller, de
 	case o.Status.Applied: // an accepted unknown after release
 		o.Status.Reason = "AcceptedUnknown: " + c.User + " accepted the unknown"
 		d.conclude(o, delivery.Succeeded, delivery.AcceptedUnknown)
+	case o.Spec.Type == delivery.TypeTrust:
+		d.confirmSigner(o, c, approval)
 	default:
 		o.Status.Question = ""
 		d.start(o)
@@ -1351,10 +1357,13 @@ func (d *demoDelivery) accessOf(p story.Persona, ns string, w delivery.WorkloadR
 // WorkloadAccess still shape what is offered.
 func (d *demoDelivery) Can(context.Context, string, string, string) (bool, error) { return true, nil }
 
-// Trust: the demo installation names no publisher rule and keeps no pins
-// yet, so only what its Stages' registry watch judged is answered.
+// Trust: the demo installation's rule for ghcr.io/trianalab and the pins
+// people confirmed, beside what its Stages' registry watch judged.
 func (d *demoDelivery) Trust(_ context.Context, stages []delivery.StageObject, ops []delivery.OperationObject) (*delivery.TrustView, error) {
-	v := delivery.TrustOf(delivery.PublisherConfig{}, stages, ops, nil)
+	d.mu.Lock()
+	pins := clone(d.pins)
+	d.mu.Unlock()
+	v := delivery.TrustOf(demoPublishers, stages, ops, func(s delivery.ServiceRef) []delivery.IdentityPin { return pins[s.Name] })
 	v.AsOf, v.Completeness = stamp(d.now()), "complete"
 	return &v, nil
 }
