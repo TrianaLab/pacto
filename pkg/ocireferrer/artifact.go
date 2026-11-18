@@ -83,6 +83,14 @@ func Descriptor(mediaType string, data []byte) ocispec.Descriptor {
 
 // Push writes art: blobs first, then the manifest that references them.
 func Push(ctx context.Context, repo *remote.Repository, art Artifact) error {
+	if err := pushBlobs(ctx, repo, art); err != nil {
+		return err
+	}
+	return repo.Push(ctx, art.ManifestDesc, bytes.NewReader(art.Manifest))
+}
+
+// pushBlobs writes the blobs art's manifest references.
+func pushBlobs(ctx context.Context, repo *remote.Repository, art Artifact) error {
 	blobs := []struct {
 		desc ocispec.Descriptor
 		data []byte
@@ -92,7 +100,7 @@ func Push(ctx context.Context, repo *remote.Repository, art Artifact) error {
 			return err
 		}
 	}
-	return repo.Push(ctx, art.ManifestDesc, bytes.NewReader(art.Manifest))
+	return nil
 }
 
 // Confirm checks that the Referrers API already lists want among the referrers

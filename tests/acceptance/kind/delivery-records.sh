@@ -76,6 +76,7 @@ records_store() {
   jq -e --argjson seq "$seq" '.ok and (.records | length) == $seq and ([.records[] | select(.kind == "gap")] | length) == 0' <<<"$out" >/dev/null \
     || fail "after the restart the stream has gaps or duplicates: $out"
   pass "with the recorder down $r1 and $r2 waited; back up, each was recorded once, with no gap"
+  [ "$(kubectl -n "$M" get stage billing -o jsonpath='{.status.stream.registryMode}')" = native ] || fail "registryMode is not native on zot"
 
   # stopped_until_repaired WHAT REPAIR... — the recorder refuses
   # publish-manual/billing's stream and the promoter freezes the Stage: a new

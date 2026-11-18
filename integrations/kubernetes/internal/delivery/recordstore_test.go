@@ -12,7 +12,6 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -42,13 +41,13 @@ func testStore(t *testing.T) (*RecordStore, *testRegistry, ed25519.PrivateKey) {
 	t.Helper()
 	reg := newTestRegistry(t)
 	_, key, _ := ed25519.GenerateKey(rand.Reader)
-	return &RecordStore{Streams: reg.host + "/delivery/streams", Verify: edVerifier(key.Public())}, reg, key
+	return &RecordStore{Streams: reg.host + "/delivery/streams", Verify: edVerifier(key.Public()), Prober: &ocireferrer.Prober{}}, reg, key
 }
 
 func TestRecordStoreAnchorFailures(t *testing.T) {
 	ctx := context.Background()
 	s, reg, _ := testStore(t)
-	if err := s.Probe(ctx); err != nil {
+	if _, err := s.Probe(ctx); err != nil {
 		t.Fatal(err)
 	}
 	for name, fault := range map[string]func(*http.Request) bool{
@@ -57,13 +56,13 @@ func TestRecordStoreAnchorFailures(t *testing.T) {
 		"referrers": from(1, http.MethodGet, "/referrers/"),
 	} {
 		reg.fault = fault
-		if _, err := s.anchor(ctx, "s-"+name); err == nil || errors.Is(err, errUnsupported) {
+		if _, err := s.anchor(ctx, "s-"+name); err == nil {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
 	reg.fault = nil
 	bad := &RecordStore{Streams: "not a host/x"}
-	if _, err := bad.anchor(ctx, "s"); err == nil {
+	if _, err := bad.Probe(ctx); err == nil {
 		t.Fatal("opened an unparseable streams repository")
 	}
 }
@@ -196,9 +195,14 @@ func TestRecordStoreWriteFailures(t *testing.T) {
 		if err := s.write(ctx, bundle, st, locations{anchor: a}); err == nil {
 			t.Errorf("%s: a failed write succeeded", name)
 		}
+		// The same failure on a placement outside the streams repository.
+		to, _ := resolve(ctx, a.repo, a.desc.Digest.String())
+		if err := s.write(ctx, bundle, st, locations{to: to, anchor: a}); err == nil {
+			t.Errorf("%s: a failed placement write succeeded", name)
+		}
 	}
 	reg.fault = nil
-	if err := classify(errors.New("plain")); errors.Is(err, errUnsupported) {
-		t.Fatal("a plain error classified as unsupported")
+	if (&RecordStore{}).prober() != ocireferrer.Probes {
+		t.Fatal("a store without a prober does not use the process prober")
 	}
 }

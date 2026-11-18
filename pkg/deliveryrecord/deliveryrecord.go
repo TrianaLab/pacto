@@ -15,9 +15,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 
+	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
@@ -25,6 +27,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
+	"github.com/trianalab/pacto/v4/pkg/ocireferrer/capabilities"
 )
 
 // Referrer annotations on every record manifest. The predicate type is what
@@ -36,6 +39,10 @@ const (
 	AnnUID           = "dev.pacto.uid"
 	AnnStream        = "dev.pacto.stream"
 	AnnSeq           = "dev.pacto.seq"
+	// AnnRegistryMode is how the record was written: "native" (a referrer)
+	// or "write-once-tags" (one write-once tag per record in the streams
+	// repository).
+	AnnRegistryMode = "dev.pacto.registry-mode"
 	// AnchorType is the artifact and layer type of a stream anchor.
 	AnchorType = "application/vnd.pacto.delivery.stream.v1+json"
 )
@@ -55,6 +62,29 @@ func Anchor(stream string) ocireferrer.Artifact {
 func AnchorTag(stream string) string {
 	sum := sha256.Sum256([]byte(stream))
 	return "stream-" + hex.EncodeToString(sum[:])
+}
+
+// RecordTag is the write-once tag of the record of stream at seq whose
+// manifest is manifest: the anchor tag, the seq and 12 hex of the manifest
+// digest. Two writers racing for one seq write two tags, never one moved
+// tag, and a reader reports the fork. At most 104 characters.
+func RecordTag(stream string, seq int64, manifest digest.Digest) string {
+	return AnchorTag(stream) + "-" + strconv.FormatInt(seq, 10) + "-" + manifest.Encoded()[:12]
+}
+
+// PutRecord writes art, a record attached to anchor, in mode: a referrer
+// confirmed in the Referrers listing, or the write-once tag
+// [RecordTag] in the streams repository repo where the registry serves no
+// Referrers API.
+func PutRecord(ctx context.Context, repo *remote.Repository, anchor ocispec.Descriptor, stream string, seq int64, art ocireferrer.Artifact, mode capabilities.ReferrersMode) error {
+	if mode == capabilities.ReferrersWriteOnceTags {
+		// PushWriteOnce here writes only the delivery record streams repository.
+		return ocireferrer.PushWriteOnce(ctx, repo, art, RecordTag(stream, seq, art.ManifestDesc.Digest))
+	}
+	if err := ocireferrer.Push(ctx, repo, art); err != nil {
+		return err
+	}
+	return ocireferrer.Confirm(ctx, repo, anchor, art.ManifestDesc)
 }
 
 // AnchorRef is where a stream's anchor lives: "<repository>@<digest>".

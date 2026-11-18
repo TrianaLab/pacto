@@ -182,3 +182,138 @@ func TestAttachedFailures(t *testing.T) {
 		t.Fatal("a failed tag listing was not an error")
 	}
 }
+
+// writeOnceRepo serves a registry without the Referrers API through wrap
+// (nil: none) and returns team/app and a record attached to an anchor there.
+func writeOnceRepo(t *testing.T, wrap func(http.Handler) http.Handler) (*remote.Repository, Artifact) {
+	t.Helper()
+	h := testutil.NewReferrersRegistry(testutil.ReferrersOptions{Unsupported: true})
+	if wrap != nil {
+		h = wrap(h)
+	}
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	repo, _ := Open(strings.TrimPrefix(srv.URL, "http://")+"/team/app", Options{})
+	noRetry(repo)
+	anchor := Build("application/x-anchor", "application/x-anchor", []byte("a"), nil, nil)
+	if err := Push(t.Context(), repo, anchor); err != nil {
+		t.Fatal(err)
+	}
+	return repo, Build("application/x-rec", "application/x-rec", []byte("r"), &anchor.ManifestDesc, nil)
+}
+
+func TestPushWriteOnceWritesAndConfirms(t *testing.T) {
+	repo, art := writeOnceRepo(t, nil)
+	if err := PushWriteOnce(t.Context(), repo, art, "rec-1"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := repo.Resolve(t.Context(), "rec-1"); err != nil || got.Digest != art.ManifestDesc.Digest {
+		t.Fatalf("rec-1 = %v %v", got.Digest, err)
+	}
+}
+
+func TestPushWriteOnceIsIdempotent(t *testing.T) {
+	var puts int
+	repo, art := writeOnceRepo(t, func(h http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodPut && strings.Contains(r.URL.Path, "/manifests/") {
+				puts++
+			}
+			h.ServeHTTP(w, r)
+		})
+	})
+	for range 2 {
+		if err := PushWriteOnce(t.Context(), repo, art, "rec-1"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if puts != 2 { // the anchor and the record, once
+		t.Fatalf("manifest puts = %d", puts)
+	}
+}
+
+func TestPushWriteOnceRefusesTakenTag(t *testing.T) {
+	repo, art := writeOnceRepo(t, nil)
+	other := Build("application/x-rec", "application/x-rec", []byte("other"), nil, nil)
+	if err := PushWriteOnce(t.Context(), repo, other, "rec-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := PushWriteOnce(t.Context(), repo, art, "rec-1"); !errors.Is(err, ErrTagTaken) {
+		t.Fatalf("err = %v", err)
+	}
+	if got, _ := repo.Resolve(t.Context(), "rec-1"); got.Digest != other.ManifestDesc.Digest {
+		t.Fatal("a taken tag moved")
+	}
+}
+
+// TestPushWriteOnceFailsWhenTagNamesAnotherManifest: a registry that moves
+// the tag right after the push is caught by the confirming resolve.
+func TestPushWriteOnceFailsWhenTagNamesAnotherManifest(t *testing.T) {
+	other := Build("application/x-rec", "application/x-rec", []byte("other"), nil, nil)
+	repo, art := writeOnceRepo(t, func(h http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			h.ServeHTTP(w, r)
+			if r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/manifests/rec-1") {
+				req := httptest.NewRequest(http.MethodPut, r.URL.Path, bytes.NewReader(other.Manifest))
+				req.Header.Set("Content-Type", ocispec.MediaTypeImageManifest)
+				h.ServeHTTP(httptest.NewRecorder(), req)
+			}
+		})
+	})
+	err := PushWriteOnce(t.Context(), repo, art, "rec-1")
+	if err == nil || !strings.Contains(err.Error(), "names "+other.ManifestDesc.Digest.String()+" after the push") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestPushWriteOnceFailures(t *testing.T) {
+	cases := map[string]func(*http.Request, int) bool{
+		"resolve": func(r *http.Request, n int) bool { return r.Method == http.MethodHead && n == 1 },
+		"blob": func(r *http.Request, _ int) bool {
+			return strings.Contains(r.URL.Path, "/blobs/") && r.Method != http.MethodHead
+		},
+		"manifest": func(r *http.Request, _ int) bool {
+			return r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/rec-1")
+		},
+		"confirm": func(r *http.Request, n int) bool { return r.Method == http.MethodHead && n == 2 },
+	}
+	for name, fail := range cases {
+		armed, heads := false, 0
+		repo, art := writeOnceRepo(t, func(h http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if armed && strings.HasSuffix(r.URL.Path, "/manifests/rec-1") && r.Method != http.MethodPut {
+					heads++
+				}
+				if armed && fail(r, heads) {
+					http.Error(w, `{"errors":[{"code":"DENIED"}]}`, http.StatusForbidden)
+					return
+				}
+				h.ServeHTTP(w, r)
+			})
+		})
+		armed = true
+		if err := PushWriteOnce(t.Context(), repo, art, "rec-1"); err == nil {
+			t.Errorf("%s: a failed write succeeded", name)
+		}
+	}
+}
+
+func TestWriteOnceNeverWritesReferrersTagIndex(t *testing.T) {
+	repo, _ := writeOnceRepo(t, nil)
+	anchor := Build("application/x-anchor", "application/x-anchor", []byte("a"), nil, nil)
+	for i := range 3 {
+		art := Build("application/x-rec", "application/x-rec", fmt.Appendf(nil, "r%d", i), &anchor.ManifestDesc, nil)
+		if err := PushWriteOnce(t.Context(), repo, art, fmt.Sprintf("rec-%d", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tags, err := Tags(t.Context(), repo, "")
+	if err != nil || len(tags) != 3 {
+		t.Fatalf("tags = %v %v", tags, err)
+	}
+	for _, tag := range tags {
+		if strings.HasPrefix(tag, "sha256-") {
+			t.Fatalf("a write-once stream wrote the referrers-tag index %s", tag)
+		}
+	}
+}

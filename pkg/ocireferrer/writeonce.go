@@ -1,6 +1,7 @@
 package ocireferrer
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -20,6 +21,10 @@ const tagPageSize = 100
 // listing: past it the listing fails, never truncates. A var so a test can
 // lower it.
 var maxTagPages = 1000
+
+// ErrTagTaken is returned by [PushWriteOnce] when the tag already names
+// another manifest. A write-once tag is never moved.
+var ErrTagTaken = errors.New("the tag already names another manifest")
 
 var (
 	errTagsUnsorted  = errors.New("the registry does not sort tags")
@@ -108,4 +113,36 @@ func Attached(ctx context.Context, repo *remote.Repository, subject ocispec.Desc
 		return nil, nil, err
 	}
 	return descs, tags, nil
+}
+
+// PushWriteOnce writes art under tag, once: a tag that already names art is
+// done (an idempotent retry), and one that names another manifest is
+// [ErrTagTaken], never moved. After the push it resolves tag again and fails
+// unless tag names art, so a write is confirmed before it is done. It never
+// writes the shared sha256-<hex> referrers-tag index: the tag is
+// content-addressed by the caller and one tag holds one record.
+func PushWriteOnce(ctx context.Context, repo *remote.Repository, art Artifact, tag string) error {
+	want := art.ManifestDesc.Digest
+	got, err := repo.Resolve(ctx, tag)
+	switch {
+	case err == nil && got.Digest == want:
+		return nil
+	case err == nil:
+		return fmt.Errorf("%w: %s names %s, not %s", ErrTagTaken, tag, got.Digest, want)
+	case !errors.Is(err, errdef.ErrNotFound):
+		return err
+	}
+	if err := pushBlobs(ctx, repo, art); err != nil {
+		return err
+	}
+	if err := repo.PushReference(ctx, art.ManifestDesc, bytes.NewReader(art.Manifest), tag); err != nil {
+		return err
+	}
+	if got, err = repo.Resolve(ctx, tag); err != nil {
+		return fmt.Errorf("the write-once tag %s is not readable after the push: %w", tag, err)
+	}
+	if got.Digest != want {
+		return fmt.Errorf("the write-once tag %s names %s after the push, not %s", tag, got.Digest, want)
+	}
+	return nil
 }

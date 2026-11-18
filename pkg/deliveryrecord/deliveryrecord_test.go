@@ -6,7 +6,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
-	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -14,12 +14,14 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/registry/remote"
 
 	"github.com/trianalab/pacto/v4/internal/testutil"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
+	"github.com/trianalab/pacto/v4/pkg/ocireferrer/capabilities"
 	"github.com/trianalab/pacto/v4/pkg/signing"
 )
 
@@ -373,11 +375,6 @@ func TestListStreamHoldsARevokedKeyToItsHistory(t *testing.T) {
 	}
 }
 
-// recordTag is the write-once tag of a record of stream with manifest m.
-func recordTag(seq int64, m ocispec.Descriptor) string {
-	return fmt.Sprintf("%s-%d-%s", AnchorTag(stream), seq, m.Digest.Encoded()[:12])
-}
-
 // tagRecord writes payload as a record attached to subject under a write-once
 // tag, as a registry without the Referrers API holds it. tag overrides the
 // tag when set.
@@ -387,7 +384,7 @@ func tagRecord(t *testing.T, path string, subject ocispec.Descriptor, payload []
 	art := ocireferrer.Build(delivery.BundleMediaType, delivery.BundleMediaType, payload, &subject,
 		map[string]string{AnnPredicateType: delivery.PredicateOperation})
 	if tag == "" {
-		tag = recordTag(seq, art.ManifestDesc)
+		tag = RecordTag(stream, seq, art.ManifestDesc.Digest)
 	}
 	for _, b := range []struct {
 		d    ocispec.Descriptor
@@ -490,7 +487,7 @@ func TestListStreamSkipsVanishedTag(t *testing.T) {
 	repo, anchor := anchored(t, path)
 	pub, key, _ := ed25519.GenerateKey(rand.Reader)
 	tagRecord(t, path, anchor, signed(t, key, 1), 1, "")
-	gone := recordTag(2, tagRecord(t, path, anchor, signed(t, key, 2), 2, "").ManifestDesc)
+	gone := RecordTag(stream, 2, tagRecord(t, path, anchor, signed(t, key, 2), 2, "").ManifestDesc.Digest)
 	f.tagStatus = map[string]int{gone: http.StatusNotFound}
 	l, err := ListStream(t.Context(), repo, stream, keyVerifier(pub))
 	if err != nil || !slices.Equal(seqs(l.Records), []int64{1}) || !slices.Equal(l.Unreadable, []string{"tag " + gone + " was listed and is gone"}) {
@@ -544,5 +541,68 @@ func TestUpstreamReadsWriteOnceTags(t *testing.T) {
 	tagRecord(t, path, anchor, b, 1, "")
 	if s, why := Upstream(t.Context(), repo, stream, keyVerifier(pub), delivery.RecordMark{}, nil); why != "" || s == nil || len(s.Offered) != 1 || s.Offered[0] != to {
 		t.Fatalf("offered = %+v %q", s, why)
+	}
+}
+
+func TestRecordTagShape(t *testing.T) {
+	d := digest.FromString("m")
+	got := RecordTag(stream, math.MaxInt64, d)
+	if want := AnchorTag(stream) + "-9223372036854775807-" + d.Encoded()[:12]; got != want {
+		t.Fatalf("tag = %s, want %s", got, want)
+	}
+	if len(got) > 128 {
+		t.Fatalf("tag is %d characters, more than an OCI tag holds", len(got))
+	}
+}
+
+// putRecord writes a record of seq on stream's anchor at path in mode.
+func putRecord(t *testing.T, path string, key ed25519.PrivateKey, seq int64, mode capabilities.ReferrersMode) (*remote.Repository, ocireferrer.Artifact) {
+	t.Helper()
+	repo, anchor := anchored(t, path)
+	art := ocireferrer.Build(delivery.BundleMediaType, delivery.BundleMediaType, signed(t, key, seq), &anchor,
+		map[string]string{AnnPredicateType: delivery.PredicateOperation, AnnRegistryMode: string(mode)})
+	if err := PutRecord(t.Context(), repo, anchor, stream, seq, art, mode); err != nil {
+		t.Fatal(err)
+	}
+	return repo, art
+}
+
+func TestPutRecordNative(t *testing.T) {
+	_, path := setup(t, testutil.ReferrersOptions{})
+	pub, key, _ := ed25519.GenerateKey(rand.Reader)
+	repo, _ := putRecord(t, path, key, 1, capabilities.ReferrersNative)
+	if tags, _ := ocireferrer.Tags(t.Context(), repo, AnchorTag(stream)+"-"); len(tags) != 0 {
+		t.Fatalf("a native record was tagged: %v", tags)
+	}
+	l, err := List(t.Context(), repo, Anchor(stream).ManifestDesc, keyVerifier(pub))
+	if err != nil || !slices.Equal(seqs(l.Records), []int64{1}) {
+		t.Fatalf("listing = %+v %v", l, err)
+	}
+}
+
+func TestPutRecordWriteOnceTags(t *testing.T) {
+	_, path := setup(t, testutil.ReferrersOptions{Unsupported: true})
+	pub, key, _ := ed25519.GenerateKey(rand.Reader)
+	repo, art := putRecord(t, path, key, 1, capabilities.ReferrersWriteOnceTags)
+	if got, err := repo.Resolve(t.Context(), RecordTag(stream, 1, art.ManifestDesc.Digest)); err != nil || got.Digest != art.ManifestDesc.Digest {
+		t.Fatalf("record tag = %v %v", got.Digest, err)
+	}
+	l, err := ListStream(t.Context(), repo, stream, keyVerifier(pub))
+	if err != nil || !slices.Equal(seqs(l.Records), []int64{1}) || len(l.Unreadable) != 0 {
+		t.Fatalf("listing = %+v %v", l, err)
+	}
+}
+
+func TestPutRecordNativeFailures(t *testing.T) {
+	f, path := setup(t, testutil.ReferrersOptions{})
+	repo, anchor := anchored(t, path)
+	art := ocireferrer.Build(delivery.BundleMediaType, delivery.BundleMediaType, []byte("r"), &anchor, nil)
+	other := ocireferrer.Descriptor(ocispec.MediaTypeImageManifest, []byte("not held"))
+	if err := PutRecord(t.Context(), repo, other, stream, 1, art, capabilities.ReferrersNative); err == nil {
+		t.Fatal("a record the anchor does not list was confirmed")
+	}
+	f.tagStatus = map[string]int{art.ManifestDesc.Digest.String(): http.StatusForbidden}
+	if err := PutRecord(t.Context(), repo, anchor, stream, 1, art, capabilities.ReferrersNative); err == nil {
+		t.Fatal("a failed push succeeded")
 	}
 }

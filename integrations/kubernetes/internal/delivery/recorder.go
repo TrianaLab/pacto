@@ -32,6 +32,7 @@ import (
 	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
+	"github.com/trianalab/pacto/v4/pkg/ocireferrer/capabilities"
 )
 
 // ConditionRecordStoreReady is the recorder's Stage condition.
@@ -47,10 +48,16 @@ const (
 
 // Reasons RecordStoreReady is False.
 const (
-	ReasonReferrersUnsupported = "ReferrersUnsupported"
-	ReasonRegistryUnavailable  = "RegistryUnavailable"
-	ReasonSignerUnavailable    = "SignerUnavailable"
-	ReasonStreamConflict       = "StreamConflict"
+	ReasonRegistryUnavailable = "RegistryUnavailable"
+	ReasonSignerUnavailable   = "SignerUnavailable"
+	ReasonStreamConflict      = "StreamConflict"
+)
+
+// Reasons RecordStoreReady is True: the mode the stream's records are
+// written in.
+const (
+	ReasonReferrersSupported = "ReferrersSupported"
+	ReasonWriteOnceTags      = "WriteOnceTags"
 )
 
 // RecordsPending is how many concluded operations of each stream wait for a
@@ -65,8 +72,8 @@ func init() { metrics.Registry.MustRegister(RecordsPending) }
 // Recorder writes one signed record per concluded operation, per stream in
 // seq order, and only then lets the operation go. It is the only holder of the
 // signing key and the registry push credentials; it writes nothing in the
-// cluster but status.record, status.stream.{recordedSeq,head}, its own Stage
-// condition and the record finalizer.
+// cluster but status.record, status.stream.{recordedSeq,head,anchor,registryMode},
+// its own Stage condition and the record finalizer.
 type Recorder struct {
 	client.Client
 	// APIReader reads operations and Stages uncached: a seq the promoter just
@@ -165,7 +172,7 @@ func (r *Recorder) Reconcile(ctx context.Context, req reconcile.Request) (reconc
 	if len(items) == 0 && hasCondition(stage, ConditionRecordStoreReady, statusTrue) {
 		return reconcile.Result{}, nil
 	}
-	anchor, err := r.Store.anchor(ctx, stream.ID)
+	anchor, err := r.anchor(ctx, stream)
 	if err != nil {
 		return r.notReady(ctx, stage, storeReason(err), err)
 	}
@@ -179,7 +186,7 @@ func (r *Recorder) Reconcile(ctx context.Context, req reconcile.Request) (reconc
 	if len(ignored) > 0 {
 		ctrl.LoggerFrom(ctx).Info("ignoring records no trusted key signed", "stage", stage.Name, "records", ignored)
 	}
-	if err := r.ready(ctx, stage, ignored); err != nil {
+	if err := r.ready(ctx, stage, ignored, anchor.mode); err != nil {
 		return reconcile.Result{}, err
 	}
 	w := &writer{Recorder: r, stage: stage, anchor: anchor, recs: recs}
@@ -326,10 +333,7 @@ var errSigner = errors.New("signing failed")
 
 // storeReason names a registry or signer failure for the condition.
 func storeReason(err error) string {
-	switch {
-	case errors.Is(err, errUnsupported):
-		return ReasonReferrersUnsupported
-	case errors.Is(err, errSigner):
+	if errors.Is(err, errSigner) {
 		return ReasonSignerUnavailable
 	}
 	return ReasonRegistryUnavailable
@@ -349,22 +353,44 @@ func hasCondition(stage *dv1.Stage, typ, status string) bool {
 	return slices.ContainsFunc(stage.Status.Conditions, func(c delivery.Condition) bool { return c.Type == typ && c.Status == status })
 }
 
-// ready marks the stream writable and names where its records are listed,
-// and the first of the records it ignored because no trusted key signed them.
-func (r *Recorder) ready(ctx context.Context, stage *dv1.Stage, ignored []string) error {
+// errDowngrade: a stream recorded as native now probes as write-once tags.
+// One ambiguous answer must not silently narrow a Stage's evidence, so the
+// recorder stops instead.
+var errDowngrade = errors.New("the registry served the Referrers API for this stream and no longer does")
+
+// anchor opens the stream's anchor and refuses a downgrade from native
+// referrers to write-once tags.
+func (r *Recorder) anchor(ctx context.Context, stream delivery.Stream) (*place, error) {
+	a, err := r.Store.anchor(ctx, stream.ID)
+	if err == nil && stream.RegistryMode == string(capabilities.ReferrersNative) && a.mode != capabilities.ReferrersNative {
+		err = errDowngrade
+	}
+	return a, err
+}
+
+// ready marks the stream writable and names where and how its records are
+// written, and the first of the records it ignored because no trusted key
+// signed them. It records the mode on the stream in the same write.
+func (r *Recorder) ready(ctx context.Context, stage *dv1.Stage, ignored []string, mode capabilities.ReferrersMode) error {
 	want := delivery.Condition{Type: ConditionRecordStoreReady, Status: statusTrue,
-		Reason: "ReferrersSupported", Message: "records are written to " + r.Store.Streams}
+		Reason: ReasonReferrersSupported, Message: "records are written to " + r.Store.Streams}
+	if mode == capabilities.ReferrersWriteOnceTags {
+		want.Reason = ReasonWriteOnceTags
+		want.Message += " as write-once tags: the registry serves no Referrers API"
+	}
 	if len(ignored) > 0 {
 		want.Message += fmt.Sprintf("; %d record(s) on the anchor are ignored because no key trusted for this stream signed them, the first: %s",
 			len(ignored), ignored[0])
 	}
 	ref := deliveryrecord.AnchorRef(r.Store.Streams, stage.Status.Stream.ID)
 	want.ObservedGeneration = stage.Generation
-	if _, changed := delivery.SetCondition(stage.Status.Conditions, want, r.Now()); !changed && stage.Status.Stream.Anchor == ref {
+	if _, changed := delivery.SetCondition(stage.Status.Conditions, want, r.Now()); !changed &&
+		stage.Status.Stream.Anchor == ref && stage.Status.Stream.RegistryMode == string(mode) {
 		return nil
 	}
 	return r.casStage(ctx, stage, func(s *dv1.Stage) {
 		s.Status.Stream.Anchor = ref
+		s.Status.Stream.RegistryMode = string(mode)
 		s.Status.Conditions, _ = delivery.SetCondition(s.Status.Conditions, want, r.Now())
 	})
 }
