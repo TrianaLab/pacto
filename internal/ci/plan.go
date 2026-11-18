@@ -29,9 +29,10 @@ type Plan struct {
 }
 
 // SnapshotInfo is the fleet snapshot impact ran over: when, how complete
-// and what each consumer source answered.
+// and what each consumer source answered. A plan where no row reached impact
+// read no snapshot, so it carries no asOf.
 type SnapshotInfo struct {
-	AsOf         time.Time    `json:"asOf"`
+	AsOf         time.Time    `json:"asOf,omitzero"`
 	Completeness string       `json:"completeness,omitempty"`
 	Sources      []SourceLine `json:"sources,omitempty"`
 }
@@ -117,9 +118,10 @@ func (p *Plan) Settle(root string) {
 // summary can be public.
 func (p *Plan) redact() {
 	redactAll(p.Notes)
+	p.Registry.Value = Redact(p.Registry.Value)
 	for i := range p.Rows {
 		r := &p.Rows[i]
-		r.Impact.Text, r.Reason = Redact(r.Impact.Text), Redact(r.Reason)
+		r.Impact.Text, r.Reason, r.Repository = Redact(r.Impact.Text), Redact(r.Reason), Redact(r.Repository)
 		redactAll(r.Notes)
 		redactAll(r.Errors)
 	}

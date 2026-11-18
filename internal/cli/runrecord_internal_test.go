@@ -104,8 +104,7 @@ func runRoot(t *testing.T, d deps, out io.Writer, args ...string) (string, strin
 	}
 	root.SetOut(out)
 	root.SetErr(stderr)
-	root.SetArgs(args)
-	err := root.Execute()
+	err := Execute(context.Background(), root, args)
 	return stdout.String(), stderr.String(), err
 }
 

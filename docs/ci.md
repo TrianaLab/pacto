@@ -101,7 +101,8 @@ The plan prints each value it detected with its source:
   `CI_REGISTRY_IMAGE` on GitLab CI
 - `Base`: the target branch or merge-request base, shown for context only;
   Pacto reads no Git history and works on a shallow checkout
-- `Consumer source`: each source of consumers you named and what it answered
+- `Consumer source`: each source of consumers you named and what it answered,
+  or `not read` when no changed service has a published baseline
 
 Then one row per service:
 
@@ -123,7 +124,12 @@ name where its consumers are, with the flags `pacto impact` takes, such as `--ro
 
 `pacto ci --explain payments` shows why one row reads as it does: its
 baseline, what changed, each inferred field with its source and the consumers.
-`--output-format json` prints the plan as one JSON document.
+Its exit code is that row's. `--output-format json` prints the plan as one JSON
+document, with the row's exit under `--explain`.
+
+`pacto ci` reads the organization catalog from `--external-catalog` or
+`PACTO_EXTERNAL_CATALOG` only, never from a `pacto` config file in the working
+directory: in CI that directory is the repository a pull request can change.
 
 On GitHub Actions the plan is also added to the job summary. On GitLab CI it
 is written to `pacto-plan.md`; keep it with

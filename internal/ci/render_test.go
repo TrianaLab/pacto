@@ -1,6 +1,7 @@
 package ci
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -46,13 +47,13 @@ func TestTextPlanFilledCells(t *testing.T) {
 		Snapshot: SnapshotInfo{AsOf: asOf, Sources: []SourceLine{{Name: "--target-state t.yaml", Status: "available"}}},
 		Rows: []Row{
 			{Service: "ledger", Changed: "yes", Baseline: "1.4.2", Next: "1.4.3", Derived: true, Classification: "NON_BREAKING", Impact: Impact{Text: "clear"}, Inferred: 3},
-			{Service: "new", Changed: "yes", Next: "1.0.0", Impact: Impact{Text: "first publish, clear"}},
+			{Service: "new", Changed: "yes", Next: "1.0.0", Impact: Impact{Text: "first publish, clear"}, Inferred: 1},
 		},
 	}
 	var b strings.Builder
 	Text(&b, p)
 	for _, line := range []string{
-		"CI: gitlab (from GITLAB_CI)\n", "Registry: ghcr.io/acme (from --registry)\n",
+		"CI: gitlab (from GITLAB_CI)\n", "1 field\n", "Registry: ghcr.io/acme (from --registry)\n",
 		"Consumer source: --target-state t.yaml (available, asOf 2026-11-17T10:00:00Z)\n",
 		"1.4.2 -> 1.4.3 (derived)", "3 fields", "- -> 1.0.0",
 	} {
@@ -125,5 +126,24 @@ func TestMarkdownEscapesCells(t *testing.T) {
 func TestMarkdownNoFooter(t *testing.T) {
 	if got := Markdown(&Plan{}); strings.Contains(got, "\n\n- `skipped") || !strings.HasSuffix(got, "|---|---|---|---|---|---|\n") {
 		t.Fatalf("an empty plan ends after the table header:\n%s", got)
+	}
+}
+
+// A consumer source the caller named but no row reached impact for reads
+// "not read", never "none", and the plan carries no fabricated asOf.
+func TestNamedSourceNotRead(t *testing.T) {
+	p := &Plan{ConsumerSources: []string{"--target-state targets.yaml"}, Rows: []Row{{Service: "a", Changed: "no"}}}
+	var b strings.Builder
+	Text(&b, p)
+	if !strings.Contains(b.String(), "Consumer source: --target-state targets.yaml (not read: no changed service with a baseline)\n") ||
+		strings.Contains(b.String(), "Consumer source: none") {
+		t.Fatalf("got:\n%s", b.String())
+	}
+	raw, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "asOf") {
+		t.Fatalf("unread snapshot carries an asOf: %s", raw)
 	}
 }

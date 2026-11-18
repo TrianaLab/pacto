@@ -2,13 +2,44 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 )
+
+// Execute runs root with args. Under --output-format json, a failure cobra
+// reports before any RunE (a flag it cannot parse, a wrong argument count,
+// the root's pre-run) still writes the one exit document when nothing reached
+// stdout; wrapJSONExit covers the failures inside a RunE.
+func Execute(ctx context.Context, root *cobra.Command, args []string) error {
+	out := &countingWriter{w: root.OutOrStdout()}
+	root.SetOut(out)
+	root.SetArgs(args)
+	err := root.ExecuteContext(ctx)
+	if err != nil && out.n == 0 && wantsJSON(args) {
+		_ = json.NewEncoder(out.w).Encode(jsonExit{jsonExitOf(err)})
+	}
+	return err
+}
+
+// wantsJSON reports whether args, or PACTO_OUTPUT_FORMAT, ask for json. It
+// reads the raw arguments: a parse failure may stop before the flag.
+// ponytail: a config file's output-format is not read here; cobra failed
+// before the pre-run that reads it.
+func wantsJSON(args []string) bool {
+	fs := pflag.NewFlagSet("", pflag.ContinueOnError)
+	fs.ParseErrorsAllowlist.UnknownFlags = true
+	fs.SetOutput(io.Discard)
+	format := fs.String(outputFormatKey, os.Getenv("PACTO_OUTPUT_FORMAT"), "")
+	_ = fs.Parse(args)
+	return *format == "json"
+}
 
 // countingWriter is w that remembers whether anything was written to it.
 type countingWriter struct {

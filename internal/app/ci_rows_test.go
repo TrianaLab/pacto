@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/fstest"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 
@@ -184,7 +186,9 @@ func TestChangedStaleRecord(t *testing.T) {
 	e.publish(t, "reports", "acme/reports", "1.0.0", func(b *contract.Bundle) {
 		b.FS = contract.WithInferredRecord(b.FS, []byte("not: a record\n"))
 	})
-	if r := row(t, e.plan(t), "reports"); r.Changed != "yes" || r.Reason != "the inferred record differs from 1.0.0" {
+	// The baseline's record is what failed: the reason says so instead of
+	// asserting a difference.
+	if r := row(t, e.plan(t), "reports"); r.Changed != "yes" || !strings.HasPrefix(r.Reason, "baseline 1.0.0 inferred record unreadable: ") {
 		t.Fatalf("row = %+v", r)
 	}
 }
@@ -574,5 +578,61 @@ func TestCIExternalCatalogLimitationNoted(t *testing.T) {
 	p, _, err := NewService(nil, nil).CIPlan(context.Background(), CIOptions{Root: root, Fleet: FleetOptions{ExternalCatalogRef: ref}})
 	if err != nil || len(p.Notes) == 0 || !strings.Contains(p.Notes[0], "is not a valid catalog") {
 		t.Fatalf("err %v, notes %q", err, p.Notes)
+	}
+}
+
+// TestCIBundlesFeedExplain: the bundle the plan judged, completed with the
+// ci root as its repository, is the one --explain describes; a fresh read of
+// the folder would complete against the enclosing Git checkout instead.
+func TestCIBundlesFeedExplain(t *testing.T) {
+	top := t.TempDir()
+	writeCIFile(t, top, ".git/HEAD", "ref: refs/heads/main\n")
+	writeCIFile(t, top, "CODEOWNERS", "/sub/reports/ @acme/reporting\n")
+	root := filepath.Join(top, "sub")
+	writeCIFile(t, root, "reports/pacto.yaml", "service: {name: reports}\n")
+	bundles := map[string]*contract.Bundle{}
+	svc := NewService(nil, nil)
+	p, _, err := svc.CIPlan(context.Background(), CIOptions{Root: root, Bundles: bundles})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := row(t, p, "reports")
+	judged, err := svc.Explain(context.Background(), ExplainOptions{Path: filepath.Join(root, "reports"), Bundle: bundles["reports"]})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := svc.Explain(context.Background(), ExplainOptions{Path: filepath.Join(root, "reports")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(judged.Inferred) != r.Inferred || len(fresh.Inferred) == r.Inferred {
+		t.Fatalf("row %d inferred, judged bundle %d, fresh read %d", r.Inferred, len(judged.Inferred), len(fresh.Inferred))
+	}
+}
+
+// failFS is a bundle whose files cannot be read.
+type failFS struct{}
+
+func (failFS) Open(string) (fs.File, error) { return nil, errors.New("disk gone") }
+
+// TestUnchangedSaysWhatFailed: a content digest or a record that cannot be
+// read is named as such, never read as a difference.
+func TestUnchangedSaysWhatFailed(t *testing.T) {
+	c := &contract.Contract{Service: contract.Service{Name: "r", Version: "1.0.0"}}
+	ok := &contract.Bundle{Contract: c, FS: fstest.MapFS{"notes.txt": {Data: []byte("a")}}}
+	bad := &contract.Bundle{Contract: c, FS: failFS{}}
+	garbage := &contract.Bundle{Contract: c, FS: contract.WithInferredRecord(ok.FS, []byte("not: a record\n"))}
+	for _, tc := range []struct {
+		name        string
+		base, local *contract.Bundle
+		want        string
+	}{
+		{"baseline content", bad, ok, "baseline 1.0.0 content unreadable: "},
+		{"local content", ok, bad, "content unreadable: "},
+		{"local record", ok, garbage, "inferred record unreadable: "},
+	} {
+		if same, why := Unchanged(tc.base, tc.local); same || !strings.HasPrefix(why, tc.want) {
+			t.Errorf("%s: %v %q, want prefix %q", tc.name, same, why, tc.want)
+		}
 	}
 }

@@ -37,6 +37,9 @@ type CIOptions struct {
 	// OnResolved, when set, is asked for a hook per impacted service and
 	// the hook gets the baseline and the planned local bundle.
 	OnResolved func(service string) func(old, new *contract.Bundle)
+	// Bundles, when non-nil, gets each read folder's judged bundle by its
+	// row's Dir, so --explain describes the bundle the plan judged.
+	Bundles map[string]*contract.Bundle
 }
 
 // firstVersion is the version an undeclared service.version starts at.
@@ -48,6 +51,10 @@ const firstVersion = "1.0.0"
 // registry host it trusts, and writes nothing. The results map holds each
 // impacted row's answer by service.
 func (s *Service) CIPlan(ctx context.Context, opts CIOptions) (*ci.Plan, map[string]*impact.Result, error) {
+	registry, err := ci.NormalizeRegistry(opts.Registry)
+	if err != nil {
+		return nil, nil, err
+	}
 	cctx := ci.Detect(opts.Getenv)
 	p := &ci.Plan{Platform: cctx.Platform, Base: cctx.Base, OIDC: cctx.OIDC}
 	walk, err := discover.Walk(ctx, opts.Root, func(dir string, err error) error {
@@ -72,8 +79,13 @@ func (s *Service) CIPlan(ctx context.Context, opts CIOptions) (*ci.Plan, map[str
 		p.Skipped = append(p.Skipped, ci.Skip{Rel: sk.Rel, Rule: sk.Rule})
 	}
 	folders, images := s.ciFolders(opts.Root, walk.Dirs, cat)
+	for _, f := range folders {
+		if opts.Bundles != nil && f.b != nil {
+			opts.Bundles[f.row.Dir] = f.b
+		}
+	}
 	var notes []string
-	p.Registry, notes = ci.ResolveRegistry(opts.Registry, cctx, images)
+	p.Registry, notes = ci.ResolveRegistry(registry, cctx, images)
 	p.Notes = append(p.Notes, notes...)
 	p.Notes = append(p.Notes, blockCollisions(folders)...)
 	pl := &ciPlanner{s: s, p: p, reg: s.env().publishRegistry(), allowed: allowedHost(p.Registry)}
@@ -453,6 +465,16 @@ func contentDigest(b *contract.Bundle) (string, error) {
 	return lock.HashFS(contract.WithoutFile(b.FS, DefaultContractPath))
 }
 
+// inferredRecordErr is why b's inferred record cannot be read or verified,
+// nil when it can or b has none.
+func inferredRecordErr(b *contract.Bundle) error {
+	rec, err := contract.ReadInferredRecord(b.FS)
+	if err == nil && rec != nil {
+		err = contract.VerifyInferredRecord(b.FS, rec)
+	}
+	return err
+}
+
 // Unchanged reports whether local holds what base published, and why. It
 // compares content, never a manifest digest (publish labels the manifest and
 // pins pactoVersion): the files other than pacto.yaml, the inferred record
@@ -466,12 +488,24 @@ func Unchanged(base, local *contract.Bundle) (bool, string) {
 	case !same && what != "":
 		return false, "inferred inputs differ from " + v + " (" + what + ")"
 	case !same:
-		bd, _ := contentDigest(&contract.Bundle{FS: contract.WithoutInferredRecord(base.FS)})
-		ld, _ := contentDigest(&contract.Bundle{FS: contract.WithoutInferredRecord(local.FS)})
-		if bd == ld {
-			return false, "the inferred record differs from " + v
+		bd, berr := contentDigest(&contract.Bundle{FS: contract.WithoutInferredRecord(base.FS)})
+		ld, lerr := contentDigest(&contract.Bundle{FS: contract.WithoutInferredRecord(local.FS)})
+		switch {
+		case berr != nil:
+			return false, "baseline " + v + " content unreadable: " + berr.Error()
+		case lerr != nil:
+			return false, "content unreadable: " + lerr.Error()
+		case bd != ld:
+			return false, fmt.Sprintf("content %s != baseline %s %s", shortDigest(ld), v, shortDigest(bd))
 		}
-		return false, fmt.Sprintf("content %s != baseline %s %s", shortDigest(ld), v, shortDigest(bd))
+		// The same content, so InferredUnchanged refused a record that does
+		// not read or verify: say which, never assert a difference.
+		if err := inferredRecordErr(local); err != nil {
+			return false, "inferred record unreadable: " + err.Error()
+		}
+		// ponytail: local's record verified and the content matches, so
+		// only the baseline's record can have failed.
+		return false, "baseline " + v + " inferred record unreadable: " + fmt.Sprint(inferredRecordErr(base))
 	}
 	if keys := contractKeys(base.Contract, normalised(local.Contract, v)); len(keys) > 0 {
 		return false, "contract differs from " + v + " (" + strings.Join(keys, ", ") + ")"
@@ -710,11 +744,13 @@ func sourceStatus(st fleet.SourceState) string {
 	return string(st.Status)
 }
 
-// snapshotInfo is what the plan prints about the snapshot impact ran over.
+// snapshotInfo is what the plan prints about the snapshot impact ran over:
+// only the consumer sources, so an advisory one never reads as a consumer
+// source.
 func snapshotInfo(snap *fleet.FleetSnapshot) ci.SnapshotInfo {
 	info := ci.SnapshotInfo{AsOf: snap.GeneratedAt, Completeness: string(snap.Completeness)}
 	for _, st := range snap.Sources {
-		if st.Kind != "local" && st.ID != ciChangesSource {
+		if consumerSource(st) {
 			info.Sources = append(info.Sources, ci.SourceLine{Name: ci.Redact(st.ID), Status: sourceStatus(st)})
 		}
 	}
@@ -778,7 +814,13 @@ func rowImpact(res *impact.Result, local *contract.Bundle, evidence string) ci.I
 	case evidence != "":
 		return unverified(evidence)
 	case res.Completeness != fleet.CompletenessComplete:
-		return unverified("consumer sources partial")
+		// The answer says why it is partial; the repository itself, never
+		// only a consumer source, can be the cause.
+		why := "impact answer " + cmp.Or(string(res.Completeness), string(fleet.CompletenessPartial))
+		if len(res.Limitations) > 0 {
+			why += ": " + res.Limitations[0].Message
+		}
+		return unverified(why)
 	}
 	return ci.Impact{Gate: impact.GateClear, Text: "clear"}
 }

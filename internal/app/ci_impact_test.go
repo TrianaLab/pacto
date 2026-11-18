@@ -286,7 +286,10 @@ func TestRowImpact(t *testing.T) {
 		// failure is evidence.
 		{"blocked policy", impact.Result{Gate: "blocked", GateReason: "the policy fails"}, "no consumer source", "blocked (the policy fails)"},
 		{"unverified", impact.Result{Gate: "unverified", GateReason: "why"}, "", "unverified (why)"},
-		{"partial", impact.Result{Gate: "clear", Completeness: fleet.CompletenessPartial}, "", "unverified (consumer sources partial)"},
+		{"partial", impact.Result{Gate: "clear", Completeness: fleet.CompletenessPartial}, "", "unverified (impact answer partial)"},
+		// The repository's own source can make the answer partial: the row
+		// quotes the answer's limitation, never blames a consumer source.
+		{"partial repo", impact.Result{Gate: "clear", Completeness: fleet.CompletenessPartial, Limitations: []fleet.Limitation{{Message: "the inferred record of b could not be read"}}}, "", "unverified (impact answer partial: the inferred record of b could not be read)"},
 		{"no source", impact.Result{Gate: "clear", Completeness: fleet.CompletenessComplete}, "no consumer source", "unverified (no consumer source)"},
 		{"inferred", impact.Result{Gate: "clear", BreakingChanges: []diff.Change{{Path: "inferred.ports"}}, PotentiallyBreakingChanges: []diff.Change{{Path: "inferred.image"}, {Path: "interfaces"}}}, "", "unverified (inferred fields changed: ports, image; declare them to classify)"},
 		{"clear", impact.Result{Gate: "clear", Completeness: fleet.CompletenessComplete}, "", "clear"},
@@ -313,6 +316,20 @@ func TestConsumerEvidence(t *testing.T) {
 		if got := consumerEvidence(&fleet.FleetSnapshot{Sources: tc.sources}); got != tc.want {
 			t.Errorf("%v: %q, want %q", tc.sources, got, tc.want)
 		}
+	}
+}
+
+// TestSnapshotInfoListsConsumerSourcesOnly: an advisory source (--detected)
+// never prints as a consumer source, so the header agrees with the row.
+func TestSnapshotInfoListsConsumerSourcesOnly(t *testing.T) {
+	info := snapshotInfo(&fleet.FleetSnapshot{Sources: []fleet.SourceState{
+		{ID: "local", Kind: "local", Status: fleet.SourceAvailable},
+		{ID: ciChangesSource, Kind: "argument", Status: fleet.SourceAvailable},
+		{ID: "detection", Kind: "detection", Status: fleet.SourceAvailable, Advisory: true},
+		{ID: "--target-state t.yaml", Kind: "target-state", Status: fleet.SourceAvailable, TargetCount: 1},
+	}})
+	if len(info.Sources) != 1 || info.Sources[0].Name != "--target-state t.yaml" {
+		t.Fatalf("sources = %+v", info.Sources)
 	}
 }
 
@@ -521,4 +538,10 @@ func TestCIBlockedSurvivesNoConsumerSource(t *testing.T) {
 			t.Fatalf("row = %+v", r)
 		}
 	})
+}
+
+func TestCIPlanRefusesABadRegistryFlag(t *testing.T) {
+	if _, _, err := NewService(nil, nil).CIPlan(context.Background(), CIOptions{Root: t.TempDir(), Registry: "https://u:tok@r.example/acme"}); err == nil || strings.Contains(err.Error(), "tok") {
+		t.Fatalf("err = %v", err)
+	}
 }

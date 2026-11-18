@@ -331,7 +331,7 @@ func evidenceRows() []surfaceRow {
 // ciRows map pacto ci, the CI entry point. Its shared fleet source flags are
 // the ones every fleet command takes, so only its own flags are named.
 func ciRows() []surfaceRow {
-	const whyCI = "pacto ci is the CI entry point that plans every service of a repository; MCP answers the same per service with pacto_check and pacto_impact, and the dashboard publishes nothing"
+	const whyCI = "pacto ci is the CI entry point over a repository and a registry baseline; MCP has no repository-wide plan, pacto_impact answers one revision pair without ci's consumer-source and inferred rules, and the dashboard publishes nothing"
 	return slices.Concat(
 		alike("ci", "", "", whyCI, "registry", "explain"),
 		alike("ci", "", "", "a run record is a CI statistic the CLI writes; MCP and the dashboard record no runs", "stats-context", "stats-file", "stats-registry"),
@@ -797,6 +797,33 @@ func TestFleetToolsDocListsSurfaceRows(t *testing.T) {
 				t.Errorf("the surfaces table in docs/fleet-tools.md does not name `%s`", name)
 			}
 		}
+	}
+}
+
+// TestUsageErrorsEmitOneJSONDocument: a failure cobra reports before RunE
+// (a wrong argument count, an unknown flag before --output-format) still
+// answers one exit document under --output-format json.
+func TestUsageErrorsEmitOneJSONDocument(t *testing.T) {
+	statsOff(t)
+	ciEnvOff(t)
+	for _, args := range [][]string{
+		{"ci", "a", "b", "--output-format", "json"},
+		{"ci", "--registy", "x", "--output-format", "json"},
+		{"ci", "--registy", "x", "--output-format=json"},
+	} {
+		out, _, err := runRoot(t, defaultDeps(), nil, args...)
+		exit, _ := decode(t, out)["exit"].(map[string]any)
+		if err == nil || exit["code"] != 1.0 || exit["reason"] != err.Error() {
+			t.Errorf("%v: err %v, stdout %q", args, err, out)
+		}
+	}
+	t.Setenv("PACTO_OUTPUT_FORMAT", "json")
+	if out, _, _ := runRoot(t, defaultDeps(), nil, "ci", "a", "b"); decode(t, out)["exit"] == nil {
+		t.Errorf("PACTO_OUTPUT_FORMAT=json: stdout %q", out)
+	}
+	t.Setenv("PACTO_OUTPUT_FORMAT", "")
+	if out, _, err := runRoot(t, defaultDeps(), nil, "ci", "a", "b"); err == nil || out != "" {
+		t.Errorf("text: err %v, stdout %q", err, out)
 	}
 }
 

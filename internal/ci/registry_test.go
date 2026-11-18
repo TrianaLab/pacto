@@ -2,6 +2,7 @@ package ci
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -52,5 +53,21 @@ func TestResolveRegistryImagesDisagree(t *testing.T) {
 	}
 	if v, _ := ResolveRegistry("", Context{}, nil); v.String() != "none" {
 		t.Fatalf("no images: %+v", v)
+	}
+}
+
+func TestNormalizeRegistry(t *testing.T) {
+	for in, want := range map[string]string{
+		"": "", "ghcr.io/acme": "ghcr.io/acme", "oci://localhost:1/acme": "localhost:1/acme", "localhost:1/acme/": "localhost:1/acme",
+	} {
+		if got, err := NormalizeRegistry(in); err != nil || got != want {
+			t.Errorf("NormalizeRegistry(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	for _, in := range []string{"https://user:tok@localhost:1/acme", "user:tok@localhost:1/acme", "ghcr.io/acme?x=1", "/acme", "oci://", "http://h/acme"} {
+		_, err := NormalizeRegistry(in)
+		if err == nil || strings.Contains(err.Error(), "tok") {
+			t.Errorf("NormalizeRegistry(%q) error = %v, want a redacted refusal", in, err)
+		}
 	}
 }

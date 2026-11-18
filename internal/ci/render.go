@@ -79,11 +79,18 @@ func header(p *Plan) []string {
 	if p.OIDC {
 		out = append(out, "OIDC: available, not requested in plan mode")
 	}
-	if len(p.Snapshot.Sources) == 0 {
+	switch {
+	case len(p.Snapshot.Sources) > 0:
+		for _, s := range p.Snapshot.Sources {
+			out = append(out, fmt.Sprintf("Consumer source: %s (%s, asOf %s)", s.Name, s.Status, p.Snapshot.AsOf.UTC().Format("2006-01-02T15:04:05Z")))
+		}
+	case len(p.ConsumerSources) == 0:
 		out = append(out, "Consumer source: none (IMPACT reads unverified)")
-	}
-	for _, s := range p.Snapshot.Sources {
-		out = append(out, fmt.Sprintf("Consumer source: %s (%s, asOf %s)", s.Name, s.Status, p.Snapshot.AsOf.UTC().Format("2006-01-02T15:04:05Z")))
+	default:
+		// Named but never read: no row reached impact, so no snapshot was built.
+		for _, s := range p.ConsumerSources {
+			out = append(out, "Consumer source: "+s+" (not read: no changed service with a baseline)")
+		}
 	}
 	return append(out, p.Notes...)
 }
@@ -137,10 +144,13 @@ func version(r Row) string {
 	return v
 }
 
-// inferred is the INFERRED cell: "<n> fields", or "-" for none.
+// inferred is the INFERRED cell: "<n> fields", "1 field", or "-" for none.
 func inferred(n int) string {
-	if n == 0 {
+	switch n {
+	case 0:
 		return "-"
+	case 1:
+		return "1 field"
 	}
 	return strconv.Itoa(n) + " fields"
 }

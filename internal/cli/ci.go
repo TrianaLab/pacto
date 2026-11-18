@@ -54,9 +54,18 @@ func newCICommand(svc *app.Service, v *viper.Viper, _ deps, rec *runRecorder) *c
 			if !cmd.Flags().Changed("local") {
 				fo.LocalRoots = nil // CIPlan reads the root
 			}
+			if !cmd.Flags().Changed("external-catalog") {
+				// In CI the working directory is the repository, so a config
+				// file there is pull-request content: the organization catalog
+				// (a host read with the registry credentials) comes from the
+				// flag or the environment only.
+				fo.ExternalCatalogRef = os.Getenv("PACTO_EXTERNAL_CATALOG")
+			}
+			svc.ExternalCatalogRef = fo.ExternalCatalogRef
 			ciStatsNote(cmd)
 			revs := map[string]*revisions{}
-			p, results, err := svc.CIPlan(cmd.Context(), app.CIOptions{Root: root, Registry: registry, Fleet: fo, Getenv: os.Getenv, OnResolved: ciHook(cmd, rec, revs)})
+			bundles := map[string]*contract.Bundle{}
+			p, results, err := svc.CIPlan(cmd.Context(), app.CIOptions{Root: root, Registry: registry, Fleet: fo, Getenv: os.Getenv, OnResolved: ciHook(cmd, rec, revs), Bundles: bundles})
 			if err != nil {
 				return err
 			}
@@ -66,12 +75,21 @@ func newCICommand(svc *app.Service, v *viper.Viper, _ deps, rec *runRecorder) *c
 			}
 			writeCISummaries(cmd, ci.Detect(os.Getenv), p)
 			ciRecords(cmd, rec, revs, results)
-			if err := printCI(cmd, svc, v.GetString(outputFormatKey), p, row, results[explain], root); err != nil {
-				return err
-			}
 			code, reason := p.Exit, p.Reason
+			printed := p
 			if row != nil {
-				code, reason = gateExit[row.Impact.Gate], row.Service+": "+row.Impact.Text
+				// --explain exits with the row's code, so the JSON document
+				// says the row's gate, exit and reason too.
+				code, reason = gateExit[row.Impact.Gate], ""
+				if code != 0 {
+					reason = row.Service + ": " + row.Impact.Text
+				}
+				q := *p
+				q.Gate, q.Exit, q.Reason = row.Impact.Gate, code, reason
+				printed = &q
+			}
+			if err := printCI(cmd, svc, v.GetString(outputFormatKey), printed, row, results[explain], root, bundles); err != nil {
+				return err
 			}
 			if code != 0 {
 				_, _ = fmt.Fprintln(cmd.ErrOrStderr(), reason)
@@ -117,12 +135,12 @@ func explainRow(p *ci.Plan, service string) (*ci.Row, error) {
 }
 
 // printCI writes the plan, or the one row --explain names, in format.
-func printCI(cmd *cobra.Command, svc *app.Service, format string, p *ci.Plan, row *ci.Row, res *impact.Result, root string) error {
+func printCI(cmd *cobra.Command, svc *app.Service, format string, p *ci.Plan, row *ci.Row, res *impact.Result, root string, bundles map[string]*contract.Bundle) error {
 	w := cmd.OutOrStdout()
 	text := func() error { ci.Text(w, p); return nil }
 	markdown := func() error { _, err := io.WriteString(w, ci.Markdown(p)); return err }
 	if row != nil {
-		text = func() error { return printCIExplain(cmd, svc, *row, res, root) }
+		text = func() error { return printCIExplain(cmd, svc, *row, res, root, bundles[row.Dir]) }
 		markdown = nil
 	}
 	return formatResult(cmd, format, p, text, markdown)
@@ -131,7 +149,8 @@ func printCI(cmd *cobra.Command, svc *app.Service, format string, p *ci.Plan, ro
 // printCIExplain writes why row reads as it does: where it was read and
 // judged, why it changed, its inferred fields with their sources and the
 // YAML that declares them, and the consumers impact found.
-func printCIExplain(cmd *cobra.Command, svc *app.Service, row ci.Row, res *impact.Result, root string) error {
+// b is the bundle the plan judged, nil when the folder could not be read.
+func printCIExplain(cmd *cobra.Command, svc *app.Service, row ci.Row, res *impact.Result, root string, b *contract.Bundle) error {
 	w := cmd.OutOrStdout()
 	for _, kv := range [][2]string{
 		{"Service", row.Service}, {"Folder", row.Dir}, {"Repository", row.Repository},
@@ -148,7 +167,7 @@ func printCIExplain(cmd *cobra.Command, svc *app.Service, row ci.Row, res *impac
 	for _, n := range row.Notes {
 		_, _ = fmt.Fprintf(w, "note: %s\n", n)
 	}
-	er, err := svc.Explain(cmd.Context(), app.ExplainOptions{Path: filepath.Join(root, row.Dir)})
+	er, err := svc.Explain(cmd.Context(), app.ExplainOptions{Path: filepath.Join(root, row.Dir), Bundle: b})
 	if err != nil {
 		return err
 	}

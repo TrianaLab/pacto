@@ -1,12 +1,28 @@
 package ci
 
 import (
+	"errors"
 	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/trianalab/pacto/v4/internal/discover"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
+
+// NormalizeRegistry is the --registry value as a repository prefix: no
+// oci:// scheme and no trailing slash. A value that names another scheme,
+// carries userinfo or a query, or has no host is an error, so a bad flag
+// stops the run instead of reading every row unverified (and a credential
+// never reaches the plan).
+func NormalizeRegistry(flag string) (string, error) {
+	reg := strings.TrimRight(contract.TrimOCIScheme(strings.TrimSpace(flag)), "/")
+	if host, _, _ := strings.Cut(reg, "/"); flag != "" && host == "" || strings.ContainsAny(reg, "@?#") || strings.Contains(reg, "://") {
+		// The value is not echoed: it may hold a credential.
+		return "", errors.New("--registry: want a registry host and path with no scheme, credentials or query, for example ghcr.io/acme")
+	}
+	return reg, nil
+}
 
 // ImageRef is an image a service's inferred record names, with the
 // folder-qualified "<path>:<line>" it was read from.

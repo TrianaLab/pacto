@@ -337,6 +337,58 @@ func TestCIExplain(t *testing.T) {
 	}
 }
 
+// TestCIExplainJSONExitIsTheRows: under --explain the process exits with
+// the row's code, so the JSON document says the same exit, gate and reason.
+func TestCIExplainJSONExitIsTheRows(t *testing.T) {
+	e := newCIEnv(t)
+	e.breaking(t)
+	e.additive(t, "reports")
+	ts := targetState(t, "web")
+	out, _, err := e.run(t, "--explain", "reports", "--target-state", ts, "--output-format", "json")
+	doc := decode(t, out)
+	if ciExit(err) != 0 || doc["exit"] != 0.0 || doc["gate"] != "clear" || doc["reason"] != "" {
+		t.Fatalf("clear row in a blocked plan: err %v, exit %v gate %v reason %v", err, doc["exit"], doc["gate"], doc["reason"])
+	}
+	out, _, err = e.run(t, "--explain", "payments", "--target-state", ts, "--output-format", "json")
+	if doc := decode(t, out); ciExit(err) != 1 || doc["exit"] != 1.0 || doc["reason"] != "payments: blocked (web)" {
+		t.Fatalf("blocked row: err %v, exit %v reason %v", err, doc["exit"], doc["reason"])
+	}
+}
+
+// TestCIRegistryFlag: an oci:// prefix and a trailing slash are trimmed; a
+// scheme or credentials stop the run before planning, with nothing on
+// stdout and the credential never echoed.
+func TestCIRegistryFlag(t *testing.T) {
+	e := newCIEnv(t)
+	e.additive(t, "reports")
+	out, _, err := runRoot(t, defaultDeps(), nil, "ci", e.root, "--registry", "oci://"+e.host+"/acme/", "--target-state", targetState(t, "other"))
+	if err != nil || !strings.Contains(out, "Registry: "+e.host+"/acme (from --registry)") || !strings.Contains(out, "clear") {
+		t.Fatalf("oci:// and a trailing slash: err %v\n%s", err, out)
+	}
+	out, stderr, err := runRoot(t, defaultDeps(), nil, "ci", e.root, "--registry", "https://user:tok@"+e.host+"/acme")
+	if ciExit(err) != -1 || out != "" || strings.Contains(err.Error()+stderr, "tok") {
+		t.Fatalf("a scheme with credentials: err %v, stdout %q, stderr %q", err, out, stderr)
+	}
+}
+
+// TestCIIgnoresConfigFileCatalog: in CI the working directory is the
+// repository, so an external-catalog in its pacto.json is pull-request
+// content and is never read.
+func TestCIIgnoresConfigFileCatalog(t *testing.T) {
+	e := newCIEnv(t)
+	e.additive(t, "reports")
+	var hits atomic.Int64
+	evil := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { hits.Add(1); w.WriteHeader(http.StatusNotFound) }))
+	t.Cleanup(evil.Close)
+	ref := "oci://" + strings.TrimPrefix(evil.URL, "http://") + "/evil/catalog@sha256:" + strings.Repeat("0", 64)
+	writeFiles(t, e.root, map[string]string{"pacto.json": `{"external-catalog": "` + ref + `"}`})
+	t.Chdir(e.root)
+	out, _, _ := e.run(t)
+	if hits.Load() != 0 || strings.Contains(out, "evil") {
+		t.Fatalf("%d requests to the catalog a config file named:\n%s", hits.Load(), out)
+	}
+}
+
 func TestCIExplainRowLinesAndUnreadableFolder(t *testing.T) {
 	svc := app.NewService(nil, nil)
 	cmd := newCICommand(svc, nil, defaultDeps(), nil)
@@ -344,7 +396,7 @@ func TestCIExplainRowLinesAndUnreadableFolder(t *testing.T) {
 	cmd.SetOut(&out)
 	cmd.SetContext(t.Context())
 	row := ci.Row{Service: "reports", Dir: "gone", Errors: []string{"service.version: bad"}, Notes: []string{"migrated in memory"}}
-	err := printCIExplain(cmd, svc, row, nil, t.TempDir())
+	err := printCIExplain(cmd, svc, row, nil, t.TempDir(), nil)
 	if err == nil || !strings.Contains(out.String(), "error: service.version: bad\nnote: migrated in memory\n") {
 		t.Fatalf("err %v\n%s", err, out.String())
 	}
