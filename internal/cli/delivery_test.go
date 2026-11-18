@@ -719,14 +719,14 @@ func TestBlameOldRecordNotRecorded(t *testing.T) {
 }
 
 // TestPrintPlanApplierLine: a promote plan names its applier from the
-// pacto.applier citation, observed, declared and contract kept apart, or says
+// pacto.applier citation, observed and declared kept apart, or says
 // the promoter did not report one.
 func TestPrintPlanApplierLine(t *testing.T) {
 	var b strings.Builder
 	printPlan(&b, delivery.PlanAnswer{Plan: delivery.Plan{Type: delivery.TypePromote, Verdicts: []delivery.Verdict{{Gate: delivery.GateApplier,
 		Result: delivery.Pass, Citation: map[string]string{"observed": "Argo CD (Application payments, tracking annotation)",
-			"declared": "Application payments", "contract": "auto", "state": "Adopted"}}}}})
-	if want := "applier:   Argo CD (Application payments, tracking annotation), Adopted; declared Application payments; contract auto\n"; !strings.Contains(b.String(), want) {
+			"declared": "Application payments", "state": "Adopted"}}}}})
+	if want := "applier:   Argo CD (Application payments, tracking annotation), Adopted; declared Application payments\n"; !strings.Contains(b.String(), want) {
 		t.Fatalf("want %q in\n%s", want, b.String())
 	}
 	b.Reset()

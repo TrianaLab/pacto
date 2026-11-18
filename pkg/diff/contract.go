@@ -49,28 +49,7 @@ func diffContract(old, new *contract.Contract) []Change {
 	// Capabilities
 	changes = append(changes, diffCapabilities(old.Capabilities, new.Capabilities)...)
 
-	// Delivery applier (2.5): an absent applier is auto.
-	if o, n := applierOf(old), applierOf(new); effectiveApplier(o) != effectiveApplier(n) {
-		changes = append(changes, newChange("delivery.applier", strChangeType(o, n), o, n))
-	}
-
 	return changes
-}
-
-// applierOf is c's delivery.applier as written, empty when absent.
-func applierOf(c *contract.Contract) string {
-	if c.Delivery == nil {
-		return ""
-	}
-	return c.Delivery.Applier
-}
-
-// effectiveApplier reads an empty applier as auto.
-func effectiveApplier(a string) string {
-	if a == "" {
-		return contract.ApplierAuto
-	}
-	return a
 }
 
 // diffOwner emits granular per-subfield changes for the ownership block so that,

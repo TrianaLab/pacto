@@ -50,9 +50,8 @@ another manager may overwrite, and moving a workload is yours to do.
   with the reason when the Stage does not adopt it and a warning when the
   promoter stopped checking.
 - `pacto delivery plan` keeps what the promoter observed apart from what the
-  Stage declares and what the contract says.
-- A contract on pactoVersion 2.5 can require a manager with
-  [`delivery.applier`](../../contract-reference/delivery.md).
+  Stage declares.
+- The Stage's `spec.applyRef` names the applier; a contract never names one.
 
 ## Apply through a Flux HelmRelease
 
