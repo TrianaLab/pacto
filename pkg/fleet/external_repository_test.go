@@ -373,3 +373,44 @@ func TestRecordExternalUsesDropsForgedSources(t *testing.T) {
 		}
 	}
 }
+
+// TestRepositoryCatalogMismatchHiddenWithItsRevision: a mismatch only a
+// hidden service's record causes names that revision, so a restricted view
+// drops it and never learns the hidden catalog's digest.
+func TestRepositoryCatalogMismatchHiddenWithItsRevision(t *testing.T) {
+	vault := repoRecord(append(defaultCats(), "organization "+orgDigest), nil, extField("stripe", "stripe", "default", "likely", stripeHelm))
+	snap := repoFleet(t, repoSvc{"web", "1.0.0", "shop", stripeRecord()}, repoSvc{"vault", "1.0.0", "secret", vault})
+	if m := mismatches(snap); len(m) != 1 || !strings.Contains(m[0], "vault") || !strings.Contains(m[0], orgDigest) {
+		t.Fatalf("mismatch = %v", m)
+	}
+	q := NewQuery(snap).Restrict(func(ns string) bool { return ns == "shop" })
+	for _, l := range q.Overview().Meta.Limitations {
+		if strings.Contains(l.Message, orgDigest) {
+			t.Errorf("restricted view leaks %q", l.Message)
+		}
+	}
+}
+
+// TestRepositoryRecordWithoutTheSnapshotOrgCatalog: a record packed while the
+// organization catalog was unreachable names only the default, and the
+// snapshot that classifies with the organization catalog says so.
+func TestRepositoryRecordWithoutTheSnapshotOrgCatalog(t *testing.T) {
+	defFile, _ := externalcatalog.ParseFile(externalcatalog.DefaultBytes())
+	cat := externalcatalog.Merge(defFile, externalcatalog.Ref{Origin: "default", Digest: externalcatalog.DefaultDigest()},
+		&externalcatalog.File{APIVersion: externalcatalog.APIVersion}, &externalcatalog.Ref{Origin: "organization", Digest: orgDigest})
+	c := extContract("checkout", "1.0.0")
+	c.PactoVersion = "2.5"
+	col := &Collection{Revisions: []RawRevision{{Bundle: &contract.Bundle{Contract: c, FS: stripeRecord()}, Digest: "sha256:checkout"}}}
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow, ExternalCatalog: cat}, NewMemorySource("k8s", SourceKindKubernetes, col))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m := mismatches(snap); len(m) != 1 || !strings.Contains(m[0], "without the organization catalog "+orgDigest) {
+		t.Errorf("mismatch = %v", m)
+	}
+	// A record from before catalog inputs is not compared.
+	missingCatalogLimitation(snap, &ContractRevision{}, nil)
+	if len(mismatches(snap)) != 1 {
+		t.Error("a record with no catalog inputs was compared")
+	}
+}

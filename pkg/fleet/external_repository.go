@@ -41,6 +41,7 @@ func recordExternalUses(snap *FleetSnapshot) []sourcedUse {
 			}
 		}
 		all := slices.Sorted(maps.Values(digests))
+		missingCatalogLimitation(snap, rev, digests)
 		dropped := 0
 		for _, f := range rev.Record.Fields {
 			if f.External == nil {
@@ -103,4 +104,21 @@ func repositoryUse(cat *externalcatalog.Catalog, rev *ContractRevision, f contra
 		}
 	}
 	return u, true
+}
+
+// missingCatalogLimitation adds one EXTERNAL_CATALOG_MISMATCH when the
+// record of rev, classified with the catalogs digests by origin, lacks an
+// origin the snapshot classifies with: an organization catalog that was
+// unreachable at pack time leaves its externals unclassified by it. A record
+// that names no catalog predates catalog inputs and is not compared.
+func missingCatalogLimitation(snap *FleetSnapshot, rev *ContractRevision, digests map[string]string) {
+	if len(digests) == 0 {
+		return
+	}
+	for _, c := range snap.ExternalCatalogs {
+		if _, ok := digests[c.Origin]; !ok {
+			snap.Limitations = append(snap.Limitations, Limitation{Code: LimitationExternalCatalogMismatch, Source: rev.Source,
+				Message: fmt.Sprintf("the inferred record of revision %s was classified without the %s catalog %s this snapshot classifies with", rev.Key, c.Origin, c.Digest)})
+		}
+	}
 }

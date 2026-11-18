@@ -35,7 +35,9 @@ type inferredKey struct {
 // whose consumer the snapshot does not hold, or whose identity is not one,
 // is dropped and counted in one EXTERNAL_USE_UNATTRIBUTED per source; a use
 // classified by a catalog other than the snapshot's adds one
-// EXTERNAL_CATALOG_MISMATCH per (source, digest).
+// EXTERNAL_CATALOG_MISMATCH per (source, digest), per (revision, digest) for
+// a use a revision's record names, so a restricted view drops it with the
+// revision.
 func foldExternalUses(snap *FleetSnapshot, uses []sourcedUse) {
 	if len(uses) == 0 {
 		return
@@ -43,7 +45,7 @@ func foldExternalUses(snap *FleetSnapshot, uses []sourcedUse) {
 	cat := snap.externalCatalog()
 	targets := targetsByScope(snap)
 	unattributed := map[string]int{}
-	mismatch := map[[2]string]bool{}
+	mismatch := map[[3]string]bool{} // source, revision, digest
 	edges := map[inferredKey]*Relationship{}
 	for _, su := range uses {
 		u := su.use
@@ -58,7 +60,7 @@ func foldExternalUses(snap *FleetSnapshot, uses []sourcedUse) {
 		}
 		for _, d := range append([]string{u.Catalog}, su.catalogs...) {
 			if d != "" && !snapshotCatalog(snap, d) {
-				mismatch[[2]string{su.source, d}] = true
+				mismatch[[3]string{su.source, string(su.revision), d}] = true
 			}
 		}
 		key := ExternalKey(id)
@@ -93,7 +95,7 @@ func foldExternalUses(snap *FleetSnapshot, uses []sourcedUse) {
 
 // externalUseLimitations adds the limitations of the uses foldExternalUses
 // dropped or could not classify alike. No message echoes a use's Where.
-func externalUseLimitations(snap *FleetSnapshot, unattributed map[string]int, mismatch map[[2]string]bool) {
+func externalUseLimitations(snap *FleetSnapshot, unattributed map[string]int, mismatch map[[3]string]bool) {
 	for _, src := range slices.Sorted(maps.Keys(unattributed)) {
 		snap.Limitations = append(snap.Limitations, Limitation{Code: LimitationExternalUseUnattributed, Source: src,
 			Message: fmt.Sprintf("%d external uses source %s reported name no service in this snapshot or no valid external identity; they were dropped", unattributed[src], src)})
@@ -102,11 +104,15 @@ func externalUseLimitations(snap *FleetSnapshot, unattributed map[string]int, mi
 	for _, c := range snap.ExternalCatalogs {
 		digests = append(digests, c.Digest)
 	}
-	for _, m := range slices.SortedFunc(maps.Keys(mismatch), func(a, b [2]string) int {
-		return cmp.Or(cmp.Compare(a[0], b[0]), cmp.Compare(a[1], b[1]))
+	for _, m := range slices.SortedFunc(maps.Keys(mismatch), func(a, b [3]string) int {
+		return cmp.Or(cmp.Compare(a[0], b[0]), cmp.Compare(a[1], b[1]), cmp.Compare(a[2], b[2]))
 	}) {
+		who := "source " + m[0]
+		if m[1] != "" {
+			who = "the inferred record of revision " + m[1]
+		}
 		snap.Limitations = append(snap.Limitations, Limitation{Code: LimitationExternalCatalogMismatch, Source: m[0],
-			Message: fmt.Sprintf("source %s classified external uses with catalog %s; this snapshot classifies with %s", m[0], m[1], strings.Join(digests, ", "))})
+			Message: fmt.Sprintf("%s classified external uses with catalog %s; this snapshot classifies with %s", who, m[2], strings.Join(digests, ", "))})
 	}
 }
 
