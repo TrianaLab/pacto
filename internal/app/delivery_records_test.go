@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -42,11 +43,20 @@ type recordEnv struct {
 	host   string
 	key    ed25519.PrivateKey
 	anchor ocispec.Descriptor
+	// tagged writes the stream's records as write-once tags, as the recorder
+	// does on a registry without the Referrers API.
+	tagged bool
 }
 
 func newRecordEnv(t *testing.T, objs ...runtime.Object) *recordEnv {
 	t.Helper()
-	srv := httptest.NewServer(testutil.NewReferrersRegistry(testutil.ReferrersOptions{}))
+	return newRecordEnvOn(t, testutil.ReferrersOptions{}, objs...)
+}
+
+// newRecordEnvOn is newRecordEnv on a registry configured by opts.
+func newRecordEnvOn(t *testing.T, opts testutil.ReferrersOptions, objs ...runtime.Object) *recordEnv {
+	t.Helper()
+	srv := httptest.NewServer(testutil.NewReferrersRegistry(opts))
 	t.Cleanup(srv.Close)
 	pub, key, _ := ed25519.GenerateKey(rand.Reader)
 	pemKey, _ := delivery.PublicKeyPEM(pub)
@@ -83,10 +93,29 @@ func (e *recordEnv) attach(repo string, subject ocispec.Descriptor, p delivery.R
 	}
 	art := ocireferrer.Build(delivery.BundleMediaType, delivery.BundleMediaType, b, &subject,
 		map[string]string{deliveryrecord.AnnPredicateType: delivery.PredicateOperation})
+	if e.tagged && repo == "delivery/streams" {
+		e.tag(art, fmt.Sprintf("%s-%d-%s", deliveryrecord.AnchorTag(p.Chain.Stream), p.Chain.Seq, art.ManifestDesc.Digest.Encoded()[:12]))
+		return id
+	}
 	if err := ocireferrer.Push(context.Background(), e.repo(repo), art); err != nil {
 		e.t.Fatal(err)
 	}
 	return id
+}
+
+// tag writes art to the streams repository under tag only.
+func (e *recordEnv) tag(art ocireferrer.Artifact, tag string) {
+	e.t.Helper()
+	ctx, r := context.Background(), e.repo("delivery/streams")
+	if err := r.Push(ctx, art.ConfigDesc, bytes.NewReader(art.Config)); err != nil {
+		e.t.Fatal(err)
+	}
+	if err := r.Push(ctx, art.PayloadDesc, bytes.NewReader(art.Payload)); err != nil {
+		e.t.Fatal(err)
+	}
+	if err := r.PushReference(ctx, art.ManifestDesc, bytes.NewReader(art.Manifest), tag); err != nil {
+		e.t.Fatal(err)
+	}
 }
 
 // move is the predicate of an operation that moved the Stage before → after.
@@ -907,6 +936,18 @@ func TestRecordFound(t *testing.T) {
 	e.srv.Close()
 	if _, err := e.d.Record(context.Background(), "prod", "payments-prod", r2); err == nil || !strings.Contains(err.Error(), "reading the records") {
 		t.Fatalf("record with the registry down: %v", err)
+	}
+}
+
+// TestRecordViewReadsWriteOnceTagStream: a record written as a write-once
+// tag, on a registry without the Referrers API, is found by its id.
+func TestRecordViewReadsWriteOnceTagStream(t *testing.T) {
+	e := newRecordEnvOn(t, testutil.ReferrersOptions{Unsupported: true})
+	e.tagged = true
+	_, r2 := e.twoRecords()
+	v, err := e.d.Record(context.Background(), "prod", "payments-prod", r2)
+	if err != nil || v.Record != r2 || v.Entry.Operation != "ship" || !v.Verified {
+		t.Fatalf("record = %+v %v", v, err)
 	}
 }
 

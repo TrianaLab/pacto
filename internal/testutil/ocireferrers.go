@@ -42,6 +42,10 @@ type ReferrersOptions struct {
 	ReferrersContentType string
 	// Challenge serves 401 with this WWW-Authenticate on GET /v2/ only.
 	Challenge string
+	// TagsLink adds the Link header go-containerregistry's tag listing never
+	// sets: a next page whenever a response held exactly ?n= tags. Without
+	// it a client stops after the first page.
+	TagsLink bool
 }
 
 // NewReferrersRegistry returns an in-process OCI registry whose Referrers
@@ -67,14 +71,25 @@ type referrersRegistry struct {
 	opts  ReferrersOptions
 }
 
-func (r *referrersRegistry) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+// serveOverride answers the requests opts reshape outside the referrers
+// endpoint, reporting whether it did.
+func (r *referrersRegistry) serveOverride(w http.ResponseWriter, req *http.Request) bool {
 	switch {
 	case r.opts.Challenge != "" && req.URL.Path == "/v2/":
 		w.Header().Set("WWW-Authenticate", r.opts.Challenge)
 		w.WriteHeader(http.StatusUnauthorized)
-		return
 	case r.opts.CatalogStatus != 0 && req.URL.Path == "/v2/_catalog":
 		http.Error(w, `{"errors":[{"code":"UNSUPPORTED"}]}`, r.opts.CatalogStatus)
+	case r.opts.TagsLink && req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/tags/list"):
+		r.tagsWithLink(w, req)
+	default:
+		return false
+	}
+	return true
+}
+
+func (r *referrersRegistry) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	if r.serveOverride(w, req) {
 		return
 	}
 	repo, target, ok := parseReferrersPath(req.URL.Path)
@@ -116,6 +131,39 @@ func (r *referrersRegistry) ServeHTTP(w http.ResponseWriter, req *http.Request) 
 	}
 	w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+	_, _ = w.Write(body)
+}
+
+// tagsWithLink serves the inner, sorted tag listing paginated here: tags
+// after ?last=, at most ?n= of them, and a next-page Link header when more
+// remain. The inner handler returns every tag when ?last= sorts past them all.
+func (r *referrersRegistry) tagsWithLink(w http.ResponseWriter, req *http.Request) {
+	rec := httptest.NewRecorder()
+	r.inner.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, req.URL.Path, nil))
+	var page struct {
+		Name string   `json:"name"`
+		Tags []string `json:"tags"`
+	}
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &page) != nil {
+		w.WriteHeader(rec.Code)
+		_, _ = w.Write(rec.Body.Bytes())
+		return
+	}
+	q := req.URL.Query()
+	if last := q.Get("last"); last != "" {
+		i := sort.SearchStrings(page.Tags, last)
+		if i < len(page.Tags) && page.Tags[i] == last {
+			i++
+		}
+		page.Tags = page.Tags[i:]
+	}
+	if n, err := strconv.Atoi(q.Get("n")); err == nil && n > 0 && len(page.Tags) > n {
+		page.Tags = page.Tags[:n]
+		next := url.Values{"n": {strconv.Itoa(n)}, "last": {page.Tags[n-1]}}
+		w.Header().Set("Link", fmt.Sprintf(`<%s?%s>; rel="next"`, req.URL.Path, next.Encode()))
+	}
+	body, _ := json.Marshal(page)
+	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write(body)
 }
 

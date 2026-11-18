@@ -51,9 +51,6 @@ func TestRecordStoreAnchorFailures(t *testing.T) {
 	if err := s.Probe(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if AnchorTag("a") == AnchorTag("b") || !strings.HasPrefix(AnchorTag("a"), "stream-") {
-		t.Fatal("anchor tags must differ per stream")
-	}
 	for name, fault := range map[string]func(*http.Request) bool{
 		"push":      from(1, http.MethodPut, "/manifests/sha256:"),
 		"tag":       from(1, http.MethodPut, "/manifests/stream-"),

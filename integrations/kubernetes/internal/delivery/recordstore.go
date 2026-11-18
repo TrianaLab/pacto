@@ -9,8 +9,6 @@ package delivery
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -77,13 +75,6 @@ func (s *RecordStore) open(path string, insecureHosts ...string) (*remote.Reposi
 	return ocireferrer.Open(path, opts)
 }
 
-// AnchorTag is the tag that keeps a stream's anchor from being collected by a
-// registry that removes untagged manifests.
-func AnchorTag(stream string) string {
-	sum := sha256.Sum256([]byte(stream))
-	return "stream-" + hex.EncodeToString(sum[:])
-}
-
 // anchor makes sure the stream's anchor exists and returns it. The anchor is
 // a deterministic manifest, so writing it again changes nothing.
 func (s *RecordStore) anchor(ctx context.Context, stream string) (*place, error) {
@@ -92,7 +83,7 @@ func (s *RecordStore) anchor(ctx context.Context, stream string) (*place, error)
 		return nil, err
 	}
 	art := deliveryrecord.Anchor(stream)
-	tag := AnchorTag(stream)
+	tag := deliveryrecord.AnchorTag(stream)
 	if got, err := repo.Resolve(ctx, tag); err != nil || got.Digest != art.ManifestDesc.Digest {
 		if err := ocireferrer.Push(ctx, repo, art); err != nil {
 			return nil, err

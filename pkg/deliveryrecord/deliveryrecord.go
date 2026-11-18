@@ -10,6 +10,8 @@ package deliveryrecord
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,6 +20,7 @@ import (
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
+	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/registry/remote"
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
@@ -45,6 +48,13 @@ var MaxBytes int64 = 4 << 20
 func Anchor(stream string) ocireferrer.Artifact {
 	payload, _ := json.Marshal(map[string]string{"stream": stream}) // a string map; marshalling cannot fail
 	return ocireferrer.Build(AnchorType, AnchorType, payload, nil, nil)
+}
+
+// AnchorTag is the tag that keeps a stream's anchor from being collected by a
+// registry that removes untagged manifests.
+func AnchorTag(stream string) string {
+	sum := sha256.Sum256([]byte(stream))
+	return "stream-" + hex.EncodeToString(sum[:])
 }
 
 // AnchorRef is where a stream's anchor lives: "<repository>@<digest>".
@@ -91,14 +101,16 @@ func List(ctx context.Context, repo *remote.Repository, subject ocispec.Descript
 // Reader reads records verified with Verify and remembers what each referrer
 // manifest read as, by digest: a manifest never changes, so a later read of
 // the same subject lists its referrers and fetches and verifies only the new
-// ones. It forgets a manifest the subject no longer lists, so it holds no more
-// than the registry does. Use one Reader per trust config; it is safe for
-// concurrent use.
+// ones. It remembers what each write-once record tag resolved to as well: a
+// write-once tag never moves. It forgets a manifest or tag the subject no
+// longer lists, so it holds no more than the registry does. Use one Reader per
+// trust config; it is safe for concurrent use.
 type Reader struct {
 	Verify delivery.Verifier
 
 	mu   sync.Mutex
-	read map[string]map[string]referrer // subject digest -> manifest digest -> what it read as
+	read map[string]map[string]referrer           // subject digest -> manifest digest -> what it read as
+	tags map[string]map[string]ocispec.Descriptor // subject digest -> tag -> the manifest it names
 }
 
 // referrer is what one referrer manifest read as: a record, why it is
@@ -112,7 +124,7 @@ type referrer struct {
 
 // ListStream is the package ListStream through r's cache.
 func (r *Reader) ListStream(ctx context.Context, repo *remote.Repository, stream string) (Listing, error) {
-	l, held, err := r.list(ctx, repo, Anchor(stream).ManifestDesc)
+	l, held, err := r.list(ctx, repo, Anchor(stream).ManifestDesc, AnchorTag(stream)+"-")
 	l.Records = append(l.Records, history(l.Records, held, &l.Unreadable)...)
 	ours := l.Records[:0]
 	for _, rec := range l.Records {
@@ -169,34 +181,40 @@ func history(recs []delivery.StoredRecord, hs []held, unreadable *[]string) []de
 // List is the package List through r's cache. A record only a revoked key
 // signs is unreadable here: only its stream's chain can tell it is history.
 func (r *Reader) List(ctx context.Context, repo *remote.Repository, subject ocispec.Descriptor) (Listing, error) {
-	l, hs, err := r.list(ctx, repo, subject)
+	l, hs, err := r.list(ctx, repo, subject, "")
 	for _, h := range hs {
 		l.Unreadable = append(l.Unreadable, h.rec.Manifest+": signed by a revoked key; read its stream to tell its history from a forgery")
 	}
 	return l, err
 }
 
-func (r *Reader) list(ctx context.Context, repo *remote.Repository, subject ocispec.Descriptor) (Listing, []held, error) {
-	var descs []ocispec.Descriptor
-	if err := repo.Referrers(ctx, subject, "", func(page []ocispec.Descriptor) error {
-		descs = append(descs, page...)
-		return nil
-	}); err != nil {
+// list reads what is attached to subject: its native referrers and, with a
+// tagPrefix, the write-once record tags with that prefix.
+func (r *Reader) list(ctx context.Context, repo *remote.Repository, subject ocispec.Descriptor, tagPrefix string) (Listing, []held, error) {
+	descs, tags, err := ocireferrer.Attached(ctx, repo, subject, tagPrefix)
+	if err != nil {
 		return Listing{}, nil, err
 	}
 	key := subject.Digest.String()
 	r.mu.Lock()
-	known := r.read[key]
+	known, knownTags := r.read[key], r.tags[key]
 	r.mu.Unlock()
-	now := make(map[string]referrer, len(descs))
 	var out Listing
+	tagged, nowTags, err := resolveTags(ctx, repo, tags, knownTags, &out.Unreadable)
+	if err != nil {
+		return Listing{}, nil, err
+	}
+	now := make(map[string]referrer, len(descs)+len(tagged))
 	var hs []held
 	seen := map[string]bool{}
-	for _, d := range descs {
+	for _, d := range append(descs, tagged...) {
+		if _, dup := now[d.Digest.String()]; dup {
+			continue // a record that is both a referrer and a tag
+		}
 		got, ok := known[d.Digest.String()]
 		if !ok {
 			var err error
-			if got, err = r.readOne(ctx, repo, d); err != nil {
+			if got, err = r.readOne(ctx, repo, subject, d); err != nil {
 				return Listing{}, nil, err
 			}
 		}
@@ -215,20 +233,51 @@ func (r *Reader) list(ctx context.Context, repo *remote.Repository, subject ocis
 	}
 	r.mu.Lock()
 	if r.read == nil {
-		r.read = map[string]map[string]referrer{}
+		r.read, r.tags = map[string]map[string]referrer{}, map[string]map[string]ocispec.Descriptor{}
 	}
-	r.read[key] = now
+	r.read[key], r.tags[key] = now, nowTags
 	r.mu.Unlock()
 	return out, hs, nil
 }
 
-// readOne fetches and verifies the referrer d. An error is a registry
-// failure, which is never remembered.
-func (r *Reader) readOne(ctx context.Context, repo *remote.Repository, d ocispec.Descriptor) (referrer, error) {
-	bundle, bad, err := fetchBundle(ctx, repo, d, delivery.PredicateOperation)
+// resolveTags resolves each record tag to the manifest it names, through
+// known. A tag whose manifest digest does not start with the tag's 12-hex
+// suffix, or that was listed and is gone, is unreadable.
+func resolveTags(ctx context.Context, repo *remote.Repository, tags []string, known map[string]ocispec.Descriptor, unreadable *[]string) ([]ocispec.Descriptor, map[string]ocispec.Descriptor, error) {
+	var out []ocispec.Descriptor
+	now := make(map[string]ocispec.Descriptor, len(tags))
+	for _, t := range tags {
+		d, ok := known[t]
+		if !ok {
+			var err error
+			d, err = repo.Resolve(ctx, t)
+			switch {
+			case errors.Is(err, errdef.ErrNotFound):
+				*unreadable = append(*unreadable, "tag "+t+" was listed and is gone")
+				continue
+			case err != nil:
+				return nil, nil, err
+			}
+		}
+		now[t] = d
+		if suffix := t[strings.LastIndex(t, "-")+1:]; len(suffix) != 12 || !strings.HasPrefix(d.Digest.Encoded(), suffix) {
+			*unreadable = append(*unreadable, "tag "+t+" does not name the manifest it points at")
+			continue
+		}
+		out = append(out, d)
+	}
+	return out, now, nil
+}
+
+// readOne fetches and verifies the referrer d of subject. An error is a
+// registry failure, which is never remembered.
+func (r *Reader) readOne(ctx context.Context, repo *remote.Repository, subject, d ocispec.Descriptor) (referrer, error) {
+	bundle, attached, bad, err := fetchRecord(ctx, repo, d, delivery.PredicateOperation)
 	switch {
 	case err != nil:
 		return referrer{}, err
+	case (bundle != nil || bad != "") && attached != subject.Digest.String():
+		return referrer{bad: fmt.Sprintf("%s: tagged as a record of this stream but attached to %q", d.Digest, attached)}, nil
 	case bad != "":
 		return referrer{bad: bad}, nil
 	case bundle == nil:
@@ -248,22 +297,32 @@ func (r *Reader) readOne(ctx context.Context, repo *remote.Repository, d ocispec
 // manifest says it is a bundle of predicate: nil for anything else, bad when
 // it is one but not one bundle layer, an error when the registry fails.
 func fetchBundle(ctx context.Context, repo *remote.Repository, d ocispec.Descriptor, predicate string) (bundle []byte, bad string, err error) {
+	bundle, _, bad, err = fetchRecord(ctx, repo, d, predicate)
+	return bundle, bad, err
+}
+
+// fetchRecord is fetchBundle that also returns the digest the manifest is
+// attached to (its subject), empty when it names none.
+func fetchRecord(ctx context.Context, repo *remote.Repository, d ocispec.Descriptor, predicate string) (bundle []byte, subject, bad string, err error) {
 	if d.Size > MaxBytes {
-		return nil, "", nil // too large to be a record manifest
+		return nil, "", "", nil // too large to be a record manifest
 	}
 	raw, err := content.FetchAll(ctx, repo, d)
 	if err != nil {
-		return nil, "", err
+		return nil, "", "", err
 	}
 	var m ocispec.Manifest
 	if json.Unmarshal(raw, &m) != nil || m.Annotations[AnnPredicateType] != predicate {
-		return nil, "", nil
+		return nil, "", "", nil
+	}
+	if m.Subject != nil {
+		subject = m.Subject.Digest.String()
 	}
 	if len(m.Layers) != 1 || m.Layers[0].Size > MaxBytes {
-		return nil, d.Digest.String() + ": not one bundle layer", nil
+		return nil, subject, d.Digest.String() + ": not one bundle layer", nil
 	}
 	bundle, err = content.FetchAll(ctx, repo, m.Layers[0])
-	return bundle, "", err
+	return bundle, subject, "", err
 }
 
 // Unchecked is a Verifier that accepts every signature: a reader with no trust
