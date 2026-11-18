@@ -46,6 +46,10 @@ type ReferrersOptions struct {
 	// sets: a next page whenever a response held exactly ?n= tags. Without
 	// it a client stops after the first page.
 	TagsLink bool
+	// TagsUnknownLast answers a tag listing whose ?last= names no tag the
+	// repository holds with 200 and null tags, as GHCR does (seen live on
+	// ghcr.io, 2026-11). Listings from a held tag paginate as TagsLink.
+	TagsUnknownLast bool
 }
 
 // NewReferrersRegistry returns an in-process OCI registry whose Referrers
@@ -80,7 +84,7 @@ func (r *referrersRegistry) serveOverride(w http.ResponseWriter, req *http.Reque
 		w.WriteHeader(http.StatusUnauthorized)
 	case r.opts.CatalogStatus != 0 && req.URL.Path == "/v2/_catalog":
 		http.Error(w, `{"errors":[{"code":"UNSUPPORTED"}]}`, r.opts.CatalogStatus)
-	case r.opts.TagsLink && req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/tags/list"):
+	case (r.opts.TagsLink || r.opts.TagsUnknownLast) && req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/tags/list"):
 		r.tagsWithLink(w, req)
 	default:
 		return false
@@ -152,10 +156,15 @@ func (r *referrersRegistry) tagsWithLink(w http.ResponseWriter, req *http.Reques
 	q := req.URL.Query()
 	if last := q.Get("last"); last != "" {
 		i := sort.SearchStrings(page.Tags, last)
-		if i < len(page.Tags) && page.Tags[i] == last {
+		held := i < len(page.Tags) && page.Tags[i] == last
+		if held {
 			i++
 		}
 		page.Tags = page.Tags[i:]
+		if r.opts.TagsUnknownLast && !held {
+			_, _ = w.Write([]byte(`{"tags":null}`))
+			return
+		}
 	}
 	if n, err := strconv.Atoi(q.Get("n")); err == nil && n > 0 && len(page.Tags) > n {
 		page.Tags = page.Tags[:n]

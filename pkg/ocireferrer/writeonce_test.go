@@ -153,12 +153,49 @@ func TestTagsFallsBackWhenSeekRefused(t *testing.T) {
 	}
 }
 
+// TestTagsGHCRUnknownSeek: GHCR answers a listing from a tag it does not
+// hold with 200 and null tags. Seeking from the anchor tag (the prefix
+// without its '-') is honoured, and an empty seek is never a confident empty
+// listing: the full scan answers.
+func TestTagsGHCRUnknownSeek(t *testing.T) {
+	opts := testutil.ReferrersOptions{TagsUnknownLast: true}
+	tags := []string{"rec-1", "rec-2"}
+	for i := range 5000 {
+		tags = append(tags, fmt.Sprintf("a-%05d", i), fmt.Sprintf("z-%05d", i))
+	}
+	repo, _ := tagged(t, opts, append([]string{"rec"}, tags...)...)
+	repo.TagListPageSize = 2
+	old := maxTagPages
+	maxTagPages = 2
+	t.Cleanup(func() { maxTagPages = old })
+	if got, err := Tags(t.Context(), repo, "rec-"); err != nil || !slices.Equal(got, tags[:2]) {
+		t.Fatalf("seek from the anchor = %v %v", got, err)
+	}
+	maxTagPages = old
+	repo, _ = tagged(t, opts, "a", "rec-1", "z")
+	if got, err := Tags(t.Context(), repo, "rec-"); err != nil || !slices.Equal(got, []string{"rec-1"}) {
+		t.Fatalf("seek from a tag GHCR does not hold = %v %v", got, err)
+	}
+	repo, _ = tagged(t, opts, "a", "rec")
+	if got, err := Tags(t.Context(), repo, "rec-"); err != nil || len(got) != 0 {
+		t.Fatalf("anchor with no records = %v %v", got, err)
+	}
+}
+
+func TestSeekFrom(t *testing.T) {
+	for prefix, want := range map[string]string{"": "", "stream-ab-": "stream-ab", "rec": "reb"} {
+		if got := seekFrom(prefix); got != want {
+			t.Errorf("seekFrom(%q) = %q, want %q", prefix, got, want)
+		}
+	}
+}
+
 func TestTagsFailsPastPageBound(t *testing.T) {
 	old := maxTagPages
 	maxTagPages = 3
 	t.Cleanup(func() { maxTagPages = old })
 	_, err := Tags(t.Context(), tagsServer(t, true, "rec-1"), "rec-")
-	if err == nil || !strings.Contains(err.Error(), `from "rec,": more than 3 pages`) {
+	if err == nil || !strings.Contains(err.Error(), `from "rec": more than 3 pages`) {
 		t.Fatalf("sorted path: %v", err)
 	}
 	_, err = Tags(t.Context(), tagsServer(t, true, "z", "rec-1"), "rec-")
@@ -203,6 +240,41 @@ func TestAttachedUnsupportedWithPrefixReadsTags(t *testing.T) {
 	descs, tags, err := Attached(t.Context(), repo, art.ManifestDesc, "rec-")
 	if err != nil || len(descs) != 0 || !slices.Equal(tags, []string{"rec-1", "rec-2"}) {
 		t.Fatalf("attached = %v %v %v", descs, tags, err)
+	}
+}
+
+// TestAttachedRefusesWhatIsNotAMissingAPI: oras-go answers ErrUnsupported
+// for a maintenance page, an index with a content-type parameter and a 404 on
+// a later page alike. Only a registry that does not serve the API reads as
+// tags; the rest fail, so a native stream is never read as empty or short.
+func TestAttachedRefusesWhatIsNotAMissingAPI(t *testing.T) {
+	for _, ct := range []string{"text/html", ocispec.MediaTypeImageIndex + "; charset=utf-8"} {
+		repo, art := tagged(t, testutil.ReferrersOptions{ReferrersContentType: ct}, "rec-1")
+		if descs, tags, err := Attached(t.Context(), repo, art.ManifestDesc, "rec-"); err == nil {
+			t.Errorf("%s: a non-index answer read as %v %v", ct, descs, tags)
+		}
+	}
+	h := testutil.NewReferrersRegistry(testutil.ReferrersOptions{PageSize: 1})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/referrers/") && r.URL.Query().Get("last") != "" {
+			http.Error(w, `{"errors":[{"code":"UNSUPPORTED"}]}`, http.StatusNotFound)
+			return
+		}
+		h.ServeHTTP(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	repo, _ := Open(strings.TrimPrefix(srv.URL, "http://")+"/team/app", Options{})
+	subject := Build("application/x-subject", "application/x-layer", []byte("s"), nil, nil)
+	if err := Push(t.Context(), repo, subject); err != nil {
+		t.Fatal(err)
+	}
+	attachedTo(t, repo, subject.ManifestDesc)
+	second := Build("application/x-ref", "application/x-ref", []byte("r2"), &subject.ManifestDesc, nil)
+	if err := Push(t.Context(), repo, second); err != nil {
+		t.Fatal(err)
+	}
+	if descs, _, err := Attached(t.Context(), repo, subject.ManifestDesc, "rec-"); err == nil || !strings.Contains(err.Error(), "stopped after 1 referrers") {
+		t.Fatalf("a listing cut on page 2 read as %v, %v", descs, err)
 	}
 }
 

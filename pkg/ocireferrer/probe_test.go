@@ -133,6 +133,31 @@ func TestProbeNonIndexContentTypeIsNotAMode(t *testing.T) {
 	}
 }
 
+// TestProbeIndexWithParameterIsNotAMode: oras-go compares the content type
+// exactly, so the probe does too and never says native for a listing the
+// reader then refuses.
+func TestProbeIndexWithParameterIsNotAMode(t *testing.T) {
+	if c, err := probeOf(t, testutil.ReferrersOptions{ReferrersContentType: "application/vnd.oci.image.index.v1+json; charset=utf-8"}); err == nil {
+		t.Fatalf("a parameterised content type gave %+v", c)
+	}
+}
+
+// TestProbeFailureCarriesTheAttemptTime: a failure answered from the cache
+// says when the probe was tried, not when it was asked again.
+func TestProbeFailureCarriesTheAttemptTime(t *testing.T) {
+	ps := newProbeServer(t, testutil.ReferrersOptions{NameUnknown: true}, nil)
+	tried := time.Unix(1000, 0)
+	now := tried
+	p := &Prober{Now: func() time.Time { return now }}
+	if c, err := p.Probe(t.Context(), ps.repo, ps.subject, false); err == nil || !c.CheckedAt.Equal(tried) {
+		t.Fatalf("fresh failure = %+v %v", c, err)
+	}
+	now = tried.Add(probeRetryAfter / 2)
+	if c, err := p.Probe(t.Context(), ps.repo, ps.subject, false); err == nil || !c.CheckedAt.Equal(tried) {
+		t.Fatalf("cached failure = %+v %v", c, err)
+	}
+}
+
 func TestProbeReferrersServerErrorIsNotAMode(t *testing.T) {
 	wrap := func(h http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

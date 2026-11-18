@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"mime"
 	"net/http"
 	"slices"
 	"strings"
@@ -54,7 +53,9 @@ var Probes = &Prober{}
 // manifest (with artifactType) to this host.
 //
 // A probe that cannot tell is an error, never a mode: a network error, a 5xx,
-// a NAME_UNKNOWN or a 200 referrers answer that is not an OCI index.
+// a NAME_UNKNOWN or a 200 referrers answer that is not an OCI index. With an
+// error the returned capabilities carry only CheckedAt, when the failed probe
+// was tried (a remembered failure keeps its first attempt time).
 //
 // ponytail: no TTL; a registry that gains Referrers is seen after a restart.
 // Add a TTL here if one ever flips in place.
@@ -71,8 +72,12 @@ func (p *Prober) Probe(ctx context.Context, repo *remote.Repository, subject str
 	}
 	p.mu.Unlock()
 
+	at := p.now()
 	caps, err := p.probe(ctx, repo, subject)
-	if err == nil && pushed {
+	switch {
+	case err != nil:
+		caps.CheckedAt = at
+	case pushed:
 		caps.ArtifactType = capabilities.ArtifactTypeAccepted
 	}
 	// A probe the caller cancelled says nothing about the registry.
@@ -81,7 +86,7 @@ func (p *Prober) Probe(ctx context.Context, repo *remote.Repository, subject str
 		if p.seen == nil {
 			p.seen = map[string]probed{}
 		}
-		p.seen[key] = probed{caps: caps, err: err, at: p.now()}
+		p.seen[key] = probed{caps: caps, err: err, at: at}
 		p.mu.Unlock()
 	}
 	return caps, err
@@ -106,10 +111,7 @@ func (p *Prober) probe(ctx context.Context, repo *remote.Repository, subject str
 	fail := func(err error) (capabilities.Capabilities, error) {
 		return capabilities.Capabilities{}, fmt.Errorf("probing registry %s: %w", host, err)
 	}
-	client := repo.Client
-	if client == nil {
-		client = auth.DefaultClient
-	}
+	client := clientOf(repo)
 	desc, err := repo.Resolve(ctx, subject)
 	if err != nil {
 		return fail(err)
@@ -127,6 +129,14 @@ func (p *Prober) probe(ctx context.Context, repo *remote.Repository, subject str
 		ArtifactType: capabilities.ArtifactTypeUnknown,
 		Auth:         probeAuth(ctx, client, repo), CheckedAt: p.now(),
 	}, nil
+}
+
+// clientOf is the client every request of repo goes through.
+func clientOf(repo *remote.Repository) remote.Client {
+	if repo.Client == nil {
+		return auth.DefaultClient
+	}
+	return repo.Client
 }
 
 // baseURL is the scheme and host every request of repo goes to.
@@ -156,7 +166,9 @@ func probeReferrers(ctx context.Context, client remote.Client, repo *remote.Repo
 	defer func() { _ = resp.Body.Close() }()
 	switch resp.StatusCode {
 	case http.StatusOK:
-		if mt, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type")); mt == ocispec.MediaTypeImageIndex {
+		// Exact, as oras-go compares it: a probe never says native for an
+		// answer the reader then refuses.
+		if resp.Header.Get("Content-Type") == ocispec.MediaTypeImageIndex {
 			return capabilities.ReferrersNative, nil
 		}
 		return "", fmt.Errorf("the referrers endpoint answered 200 with content type %q, not an OCI index", resp.Header.Get("Content-Type"))
