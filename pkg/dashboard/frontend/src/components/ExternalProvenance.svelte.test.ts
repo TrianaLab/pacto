@@ -140,6 +140,7 @@ describe('ExternalProvenance', () => {
     const r = rows(t).find((x) => x.getAttribute('data-provenance') === 'inferred')!;
     expect(text(r.querySelector('[data-cell="where"]'))).toContain('SDK requirements.txt');
     expect(text(r.querySelector('[data-cell="confidence"]'))).toBe('Confidence Possible (SDK only)');
+    expect(text(r.querySelector('[data-cell="host"]'))).toBe('Host not recorded');
   });
 
   it('labels an unjoined Crossplane source as possible', () => {

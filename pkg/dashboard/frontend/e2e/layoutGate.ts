@@ -815,7 +815,8 @@ export function installScaleFixture(): void {
           revision: `${svc(i % 25)}@sha256:${longName(`revision-${i}`)}` } : {}),
       }));
       x.inferredSourcesTotal = 1284;
-      x.observedSources = Array.from({ length: 20 }, (_, i) => ({ service: svc(i), source: longName(`otel-${i}`), count: 1200 + i, firstSeen: '2026-11-01T08:00:00Z', lastSeen: '2026-11-16T08:00:00Z' }));
+      // Few observed rows listed (of 40), so the capped list reaches the inferred and repository rows.
+      x.observedSources = Array.from({ length: 3 }, (_, i) => ({ service: svc(i), source: longName(`otel-${i}`), count: 1200 + i, firstSeen: '2026-11-01T08:00:00Z', lastSeen: '2026-11-16T08:00:00Z' }));
       x.observedSourcesTotal = 40;
     }
     // Inferred and observed edges to external systems beside the declared ones, so the
@@ -2066,7 +2067,16 @@ export const ROUTES: Route[] = [
   { name: 'external entity name only, hidden, folded and truncated', open: async (page) => { await page.addInitScript(() => { (window as unknown as { __externalStates?: boolean }).__externalStates = true; }); await page.goto('/#/fleet/externals/parcel-carrier'); await page.reload(); await expect(page.getByTestId('external-folded-into')).toBeVisible({ timeout: 30_000 }); } }, // reload: the init script only runs on a new document
   { name: 'graph external focus', hash: '#/fleet/graph/external/parcel-carrier' },
   { name: 'source entity', hash: '#/fleet/sources/edge-cluster' },
-  { name: 'external inferred sources', hash: '#/fleet/externals/stripe' },
+  {
+    name: 'external inferred sources',
+    open: async (page) => {
+      await page.goto('/#/fleet/externals/stripe');
+      await page.getByTestId('external-more-details').click();
+      // A repository row (508-S5) with its long revision detail is laid out, not just the first rows.
+      await expect(page.locator('[data-provenance=inferred] [data-cell=details]', { hasText: 'revision ' }).first()).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0));
+    },
+  },
   { name: 'golden paths', list: true, hash: '#/fleet/golden-paths' },
   { name: 'golden path entity', open: firstLink('#/fleet/golden-paths?sort=name', '/fleet/services/') },
   { name: 'service created from a golden path', open: createdService },

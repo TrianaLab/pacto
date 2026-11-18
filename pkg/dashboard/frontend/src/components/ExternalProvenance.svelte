@@ -40,7 +40,8 @@
   })));
   const inferred = $derived((data?.inferredSources ?? []).map((s) => ({
     provenance: 'inferred', service: s.service, kind: KIND_WORDS[s.kind] ?? s.kind, where: s.where || '',
-    host: s.host || '', confidence: s.confidence === 'likely' ? 'Likely' : (POSSIBLE[s.kind] ?? 'Possible (key name only)'),
+    // A library or a provisioned resource carries no host Pacto read: not recorded, never "none".
+    host: s.host || (s.kind in POSSIBLE ? null : ''), confidence: s.confidence === 'likely' ? 'Likely' : (POSSIBLE[s.kind] ?? 'Possible (key name only)'),
     mark: inferredMark(s),
     details: [`source ${s.source}`, s.entry ? `catalog entry ${s.entry}` : 'no catalog entry', s.catalog ? `catalog ${shortDigest(s.catalog, 12)}` : '',
       s.revision ? `revision ${s.revision}` : s.observedAt ? `read ${formatRelative(s.observedAt)}` : 'read time unknown'].filter(Boolean),
@@ -92,7 +93,7 @@
         </div>
         <div class="xp-cell" data-cell="host">
           <span class="xp-k">Host</span>
-          <!-- Only an inferred row carries a host; elsewhere it is unknown, never "none". -->
+          <!-- "none" only where a key matched with no host in it; elsewhere the host is unknown. -->
           {#if r.host}<bdi class="xp-trunc" title={r.host}>{r.host}</bdi>{:else}<span class="t-meta">{r.host === null ? 'not recorded' : 'none'}</span>{/if}
         </div>
         <div class="xp-cell" data-cell="confidence">
