@@ -60,11 +60,15 @@ func TestCIPlanSkeleton(t *testing.T) {
 	}
 }
 
-func TestCIPlanSkeletonSkipsAndImages(t *testing.T) {
+func TestCISkippedFromPactoignore(t *testing.T) {
 	p, _ := ciSkeletonPlan(t)
 	if len(p.Skipped) != 1 || p.Skipped[0].Rel != "services/legacy" || p.Skipped[0].Rule != ".pactoignore:1" {
 		t.Fatalf("skipped = %+v", p.Skipped)
 	}
+}
+
+func TestCIPlanSkeletonRegistryFromImages(t *testing.T) {
+	p, _ := ciSkeletonPlan(t)
 	if p.Registry.Value != "ghcr.io/acme" || p.Registry.Source != "image references in services/payments/compose.yaml:3" {
 		t.Fatalf("registry = %+v", p.Registry)
 	}
