@@ -192,6 +192,7 @@ func fillRow(r *ci.Row, b *contract.Bundle, res *publish.Result, err error) {
 		r.State, r.Identity, r.Tool = ci.StatePublished, res.Signer, toolOf(b, res.Plan)
 		bundle := res.Plan.Items[len(res.Plan.Items)-1]
 		r.Published = bundle.Ref + "@" + res.Digests[publish.BundleItem]
+		r.Images = publish.ImageRefs(res.Images)
 	}
 }
 

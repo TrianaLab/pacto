@@ -76,6 +76,9 @@ type Row struct {
 	Published string `json:"published,omitempty"`
 	State     string `json:"state,omitempty"`
 	Attempts  int    `json:"attempts,omitempty"`
+	// Images are the images the published bundle deploys, as
+	// <repository>@<digest>, recorded with it.
+	Images []string `json:"images,omitempty"`
 }
 
 // The outcomes of a row in publish mode.

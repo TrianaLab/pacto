@@ -6573,6 +6573,7 @@ export interface components {
             gates?: components["schemas"]["Runrecord.GateResult"][] | null;
             heldFor?: string;
             id: string;
+            images?: string[] | null;
             kind: string;
             newRevision?: string;
             oldRevision?: string;

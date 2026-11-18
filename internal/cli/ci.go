@@ -246,6 +246,9 @@ func printCIExplain(cmd *cobra.Command, svc *app.Service, row ci.Row, res *impac
 	for _, n := range row.Notes {
 		_, _ = fmt.Fprintf(w, "note: %s\n", n)
 	}
+	if len(row.Images) > 0 {
+		_, _ = fmt.Fprintf(w, "images: %s\n", strings.Join(row.Images, ", "))
+	}
 	er, err := svc.Explain(cmd.Context(), app.ExplainOptions{Path: filepath.Join(root, row.Dir), Bundle: b})
 	if err != nil {
 		return err

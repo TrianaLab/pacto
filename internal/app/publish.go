@@ -113,7 +113,7 @@ func (s *Service) Publish(ctx context.Context, opts PublishOptions) (*publish.Re
 	in := publish.Input{Bundle: b, Revision: revision}
 	pub := c.Publish
 	if d != nil {
-		pub, in.Publish, in.Builtin, in.Created = d.pub, d.pub, d.builtins, d.created
+		pub, in.Publish, in.Builtin, in.Created, in.Images = d.pub, d.pub, d.builtins, d.created, d.images
 	} else {
 		d = &derived{}
 	}

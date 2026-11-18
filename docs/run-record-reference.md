@@ -103,6 +103,7 @@ Every record has `version`, `id`, `kind`, `service`, `pactoVersion` and
 | `newRevision` | string | when known | `diff` and `impact`: the new bundle's digest. `publish`: the version being published | none |
 | `bundleDigest` | string | `publish`, when it did not fail | the digest of the published bundle | none |
 | `deployDigest` | string | `publish`, when it did not fail | the digest of the published deploy artifact | none |
+| `images` | array of strings | `publish`, when it did not fail and deploys an image | each image the published bundle deploys, as `<repository>@<digest>`, the same list as its signed images record | none |
 | `classification` | string | when computed | `NON_BREAKING`, `POTENTIAL_BREAKING` or `BREAKING` | none |
 | `gate` | object | `impact`, refused `publish` | the gate the run reached | none |
 | `gate.verdict` | string | with `gate` | `impact`: `clear`, `blocked` or `unverified`. `publish`: `refused` | none |

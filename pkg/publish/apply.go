@@ -1,10 +1,13 @@
 package publish
 
 import (
+	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -64,6 +67,11 @@ type Result struct {
 	// Notes are what deriving the version found worth saying, such as a
 	// higher tag it ignored.
 	Notes []string `json:"notes,omitempty"`
+	// Images are the images this publish deploys, sorted by name, and
+	// ImagesRecord the digest of the signed referrer of the bundle that
+	// lists them; both empty when it deploys none.
+	Images       []ImageRecord `json:"images,omitempty"`
+	ImagesRecord string        `json:"imagesRecord,omitempty"`
 	// Signer is who signed what this publish wrote, as the caller names it:
 	// keyless (<identity>), key <path> or kms <uri>.
 	Signer string `json:"signer,omitempty"`
@@ -87,6 +95,9 @@ func Apply(ctx context.Context, reg Registry, tools Tools, in Input) (*Result, e
 		return res, err
 	}
 	if err := r.bundle(); err != nil {
+		return res, err
+	}
+	if err := r.images(); err != nil {
 		return res, err
 	}
 	if err := signAll(ctx, tools, SignOf(r.pub), r.pub, Repo(r.pub.Bundle), res); err != nil {
@@ -295,7 +306,29 @@ func buildAndPush(ctx context.Context, reg Registry, tools Tools, a contract.Pub
 // signed.
 func attachSBOM(ctx context.Context, reg Registry, tools Tools, sign contract.PublishSign, path, repo, digest, version, revision string, res *Result) (string, error) {
 	mt := sbomType(path)
-	have, err := reg.Referrers(ctx, repo, digest, mt)
+	body := func() ([]byte, error) {
+		sbom, err := tools.SBOM(path)
+		if err != nil {
+			return nil, err
+		}
+		return sbom, checkSBOM(path, mt, sbom)
+	}
+	return attachReferrer(ctx, reg, tools, sign, referrer{mt, "the SBOM", body}, repo, digest, version, revision, res)
+}
+
+// referrer is what attachReferrer attaches: its artifact type, what it is
+// called in the actions, and its body, read only when it is written.
+type referrer struct {
+	artifactType, what string
+	body               func() ([]byte, error)
+}
+
+// attachReferrer attaches ref to repo@digest unless a referrer of its type
+// signed by the configured identity is there already, and returns the
+// referrer's digest. One anyone else attached is left alone and never
+// signed.
+func attachReferrer(ctx context.Context, reg Registry, tools Tools, sign contract.PublishSign, ref referrer, repo, digest, version, revision string, res *Result) (string, error) {
+	have, err := reg.Referrers(ctx, repo, digest, ref.artifactType)
 	if err != nil {
 		return "", err
 	}
@@ -308,25 +341,52 @@ func attachSBOM(ctx context.Context, reg Registry, tools Tools, sign contract.Pu
 	if err != nil || head == nil {
 		return "", fmt.Errorf("reading %s@%s back: %v", repo, digest, err)
 	}
-	sbom, err := tools.SBOM(path)
+	body, err := ref.body()
 	if err != nil {
-		return "", err
-	}
-	if err := checkSBOM(path, mt, sbom); err != nil {
 		return "", err
 	}
 	h, _ := v1.NewHash(digest)
 	subject := v1.Descriptor{MediaType: types.MediaType(head.MediaType), Size: head.Size, Digest: h}
 	ann := map[string]string{AnnotationVersion: version, AnnotationRevision: revision}
-	d, err := reg.Write(ctx, repo, sbomArtifact(mt, sbom, subject, ann))
+	d, err := reg.Write(ctx, repo, referrerArtifact(ref.artifactType, body, subject, ann))
 	if err != nil {
 		return "", err
 	}
-	res.Actions = append(res.Actions, "attached the SBOM "+repo+"@"+d)
+	res.Actions = append(res.Actions, "attached "+ref.what+" "+repo+"@"+d)
 	return d, nil
 }
 
-// signAll signs every published digest: artifacts, SBOMs and the bundle.
+// images attaches the images record to the bundle: every image this
+// publish deploys, built (each image artifact) or supplied (Input.Images),
+// with its digest and where it came from, sorted by name so the same
+// publish always writes the same record. A publish with no image writes
+// none.
+func (r *applier) images() error {
+	imgs := slices.Clone(r.in.Images)
+	for _, a := range r.pub.Artifacts {
+		if a.Type == contract.ArtifactImage {
+			imgs = append(imgs, ImageRecord{Name: a.Name, Repository: Repo(a.Ref), Digest: r.res.Digests[a.Name], Source: SourceBuilt})
+		}
+	}
+	if len(imgs) == 0 {
+		return nil
+	}
+	slices.SortFunc(imgs, func(a, b ImageRecord) int {
+		return cmp.Or(strings.Compare(a.Name, b.Name), strings.Compare(a.Digest, b.Digest))
+	})
+	body, _ := json.Marshal(imagesRecord{imgs})
+	read := func() ([]byte, error) { return body, nil }
+	d, err := attachReferrer(r.ctx, r.reg, r.tools, SignOf(r.pub), referrer{ImagesType, "the images record", read},
+		Repo(r.pub.Bundle), r.res.Digests[BundleItem], r.res.Plan.Version, r.in.Revision, r.res)
+	if err != nil {
+		return fmt.Errorf("the images record: %w", err)
+	}
+	r.res.Images, r.res.ImagesRecord = imgs, d
+	return nil
+}
+
+// signAll signs every published digest: artifacts, SBOMs, the bundle and
+// its images record.
 func signAll(ctx context.Context, tools Tools, sign contract.PublishSign, pub *contract.Publish, bundleRepo string, res *Result) error {
 	var refs []string // each artifact, its SBOM if any, then the bundle
 	for _, a := range pub.Artifacts {
@@ -336,6 +396,9 @@ func signAll(ctx context.Context, tools Tools, sign contract.PublishSign, pub *c
 		}
 	}
 	refs = append(refs, bundleRepo+"@"+res.Digests[BundleItem])
+	if res.ImagesRecord != "" {
+		refs = append(refs, bundleRepo+"@"+res.ImagesRecord)
+	}
 	for _, ref := range refs {
 		signed, err := tools.Sign(ctx, sign, ref)
 		if err != nil {

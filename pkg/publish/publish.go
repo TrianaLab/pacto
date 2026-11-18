@@ -112,6 +112,10 @@ type Input struct {
 	Publish *contract.Publish
 	// Builtin builds an artifact, by name, in place of Tools.Build.
 	Builtin map[string]Builtin
+	// Images are the images the publish deploys without building them
+	// (supplied or pinned by digest); Apply adds each image artifact it
+	// builds and records them all with the bundle.
+	Images []ImageRecord
 	// Created, when set, is stamped on every artifact as AnnotationCreated:
 	// the commit time, so two publishes of one commit stamp the same value.
 	Created string

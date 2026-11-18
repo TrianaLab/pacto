@@ -49,6 +49,9 @@ type derived struct {
 	// build says how the image is had, shown with the plan's checks.
 	build string
 	notes []string
+	// images are the images deployed without being built: supplied
+	// (--image) or pinned by digest in the workload.
+	images []publish.ImageRecord
 }
 
 // derivedOpts are the flags that shape a derived publish section.
@@ -80,8 +83,10 @@ func derivePublish(dir, name, registry string, bp discover.BuildPlan, findings [
 	switch {
 	case opts.image != "":
 		d.build = "image supplied, not built by Pacto: " + opts.image
+		d.images = []publish.ImageRecord{suppliedRecord(opts.image, "flag:--image")}
 	case bp.Pinned:
 		d.build = "image supplied, not built by Pacto: " + bp.Image
+		d.images = []publish.ImageRecord{suppliedRecord(bp.Image, bp.ImageSource)}
 	case bp.Tool != "":
 		build, programs := imageBuilder(dir, bp, image, run, epoch)
 		file, _, _ := strings.Cut(bp.ToolSource, ":")
@@ -101,6 +106,14 @@ func derivePublish(dir, name, registry string, bp discover.BuildPlan, findings [
 		d.build = "no image to build"
 	}
 	return d, nil
+}
+
+// suppliedRecord is the images-record entry of ref (repo@digest), an image
+// this publish deploys without building it, had from source.
+func suppliedRecord(ref, source string) publish.ImageRecord {
+	repo, _ := discover.ImageRepo(ref)
+	_, digest, _ := strings.Cut(ref, "@")
+	return publish.ImageRecord{Name: derivedImage, Repository: repo, Digest: digest, Source: source}
 }
 
 // imageBuilder builds the image with bp's tool into the image repository

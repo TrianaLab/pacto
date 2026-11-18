@@ -45,6 +45,10 @@ func ciPubDeps(rows []ci.Row, refused string, got *app.CIPublishOptions) deps {
 			if r.State == ci.StatePublished {
 				res = &publish.Result{Plan: publish.Plan{Service: r.Service, Version: r.To, Baseline: r.Baseline}, Actions: []string{"pushed"},
 					Digests: map[string]string{publish.BundleItem: pubDigest}}
+				for _, img := range r.Images {
+					repo, digest, _ := strings.Cut(img, "@")
+					res.Images = append(res.Images, publish.ImageRecord{Name: "image", Repository: repo, Digest: digest, Source: publish.SourceBuilt})
+				}
 			}
 			opts.Record(r, res, nil)
 		}
@@ -193,5 +197,29 @@ func TestCIPublishJobSummary(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %q in:\n%s", want, got)
 		}
+	}
+}
+
+// TestCIPublishRowImages: the images a published bundle deploys are on its
+// row in JSON, under --explain and in its run record.
+func TestCIPublishRowImages(t *testing.T) {
+	ciEnvOff(t)
+	statsOff(t)
+	rows := pubRows()[:1]
+	rows[0].Images = []string{"ghcr.io/acme/ledger@" + pubDigest}
+	out, _, err := runRoot(t, ciPubDeps(rows, "", nil), nil, "ci", t.TempDir(), "--publish", "--output-format", "json")
+	if err != nil || !strings.Contains(out, `"images": [`+"\n"+`        "ghcr.io/acme/ledger@`+pubDigest+`"`) {
+		t.Fatalf("%v:\n%s", err, out)
+	}
+	root := t.TempDir()
+	writeFiles(t, root, map[string]string{"ledger/pacto.yaml": "pactoVersion: \"2.5\"\nservice:\n  name: ledger\n"})
+	out, _, err = runRoot(t, ciPubDeps(rows, "", nil), nil, "ci", root, "--publish", "--explain", "ledger")
+	if !strings.Contains(out, "images: ghcr.io/acme/ledger@"+pubDigest+"\n") {
+		t.Fatalf("%v:\n%s", err, out)
+	}
+	file := filepath.Join(t.TempDir(), "rec.json")
+	_, _, _ = runRoot(t, ciPubDeps(rows, "", nil), nil, "ci", t.TempDir(), "--publish", "--stats-file", file)
+	if r := readRecord(t, strings.TrimSuffix(file, ".json")+".ledger.json"); len(r.Images) != 1 || r.Images[0] != rows[0].Images[0] {
+		t.Fatalf("record %+v", r)
 	}
 }

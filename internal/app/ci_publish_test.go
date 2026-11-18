@@ -567,3 +567,45 @@ func TestExecToolsSigner(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+// TestPublishRecordsImageDigests: a ko service and an --image service each
+// leave one images record on their bundle, listing the image the deploy
+// pins with where it came from, signed by the publisher.
+func TestPublishRecordsImageDigests(t *testing.T) {
+	e := newCIPub(t)
+	e.svc.withRun(&buildRun{})
+	supplied := e.host + "/other/ledger@" + digest64
+	e.write(t, map[string]string{
+		"payments/pacto.yaml": "pactoVersion: \"2.5\"\nservice:\n  name: payments\n  version: 1.0.0\n",
+		"payments/.ko.yaml":   "builds:\n  - main: ./cmd/api\n", "payments/k8s/deploy.yaml": deployment(e.host + "/acme/payments:1.0"),
+		"ledger/pacto.yaml": "pactoVersion: \"2.5\"\nservice:\n  name: ledger\n  version: 1.0.0\n",
+		"ledger/Dockerfile": "FROM scratch\n", "ledger/k8s/deploy.yaml": deployment("r.io/ledger:1"),
+	})
+	p, err := e.svc.CIPublish(t.Context(), CIPublishOptions{CI: CIOptions{Root: e.root, Registry: e.host + "/acme"}, Revision: "r1",
+		SignKey: e.key, NoTransparencyLog: true, Images: map[string]string{"ledger": supplied}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	off := false
+	tools := newExecTools(e.root, nil, e.inner)
+	for service, source := range map[string]string{"payments": publish.SourceBuilt, "ledger": "flag:--image"} {
+		r := pubRow(t, p, service)
+		bundle, digest, _ := strings.Cut(r.Published, "@")
+		repo := bundle[:strings.LastIndex(bundle, ":")]
+		have, err := e.inner.Referrers(t.Context(), repo, digest, publish.ImagesType)
+		if err != nil || len(have) != 1 || len(r.Images) != 1 {
+			t.Fatalf("%s: %v %v row %+v", service, have, err, r)
+		}
+		body, _, err := e.inner.Layer(t.Context(), repo, have[0])
+		img, _, _ := strings.Cut(r.Images[0], "@")
+		if err != nil || !strings.Contains(string(body), `"source":"`+source+`"`) || !strings.Contains(string(body), `"repository":"`+img+`"`) {
+			t.Fatalf("%s: %s %v", service, body, err)
+		}
+		if err := tools.Verify(t.Context(), contract.PublishSign{Key: e.key, TransparencyLog: &off}, repo+"@"+have[0]); err != nil {
+			t.Fatalf("%s: the images record does not verify: %v", service, err)
+		}
+	}
+	if r := pubRow(t, p, "ledger"); r.Images[0] != supplied {
+		t.Fatalf("ledger images %v", r.Images)
+	}
+}

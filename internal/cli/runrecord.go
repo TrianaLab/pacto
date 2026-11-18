@@ -155,6 +155,7 @@ func publishRecord(res *publish.Result, err error) *runrecord.Record {
 	if err == nil { // a failed run may hold the digest of a bundle it never wrote
 		rec.BundleDigest = res.Digests[publish.BundleItem]
 		_, rec.DeployDigest, _ = strings.Cut(res.Deploy, "@")
+		rec.Images = publish.ImageRefs(res.Images)
 	}
 	return rec
 }
