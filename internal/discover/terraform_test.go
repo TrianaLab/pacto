@@ -328,3 +328,24 @@ func TestServiceDependencyOfTheSameNameKeepsTheExternal(t *testing.T) {
 		t.Error("an external the contract declares by identity was inferred")
 	}
 }
+
+func TestUnrecordablePathsGiveNoExternals(t *testing.T) {
+	dir := writeTree(t, t.TempDir(), map[string]string{
+		"infra:prod/main.tf":   awsProvider + "resource \"aws_sqs_queue\" \"orders\" {\n  name = \"orders\"\n}\n",
+		"requirements:dev.txt": "stripe==11.4.0\n",
+		"env:prod/queue.yaml":  "apiVersion: sqs.aws.upbound.io/v1beta1\nkind: Queue\nmetadata:\n  name: orders\n",
+		"deploy/ok/README.md":  "",
+	})
+	rec, err := Complete(dir, nil, contract.InferredInputs{Commit: "4e1a9c0", Pacto: "4.6.0"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec != nil {
+		if slices.ContainsFunc(rec.Fields, func(f contract.Inferred) bool { return f.External != nil }) {
+			t.Errorf("fields %+v", rec.Fields)
+		}
+		if _, err := contract.ParseInferredRecord(rec.Marshal()); err != nil {
+			t.Errorf("record refused: %v", err)
+		}
+	}
+}

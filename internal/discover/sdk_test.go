@@ -255,3 +255,14 @@ func TestMajorOf(t *testing.T) {
 		}
 	}
 }
+
+func TestSymlinkedManifestNamedOnce(t *testing.T) {
+	dir := writeTree(t, t.TempDir(), map[string]string{"real.txt": "stripe==1.0.0\n"})
+	if err := os.Symlink(filepath.Join(dir, "real.txt"), filepath.Join(dir, "requirements.txt")); err != nil {
+		t.Fatal(err)
+	}
+	rec := complete(t, dir, nil)
+	if n := ExternalUnread(rec.Findings); n != 1 {
+		t.Errorf("unread %d, findings %+v", n, rec.Findings)
+	}
+}

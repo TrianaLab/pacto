@@ -96,6 +96,9 @@ func completeWith(dir, repoDir string, declared *contract.Contract, planned map[
 	})
 	dropped := reading.FindingsDropped
 	for _, f := range unidentified {
+		if slices.Contains(findings, f) { // the folder reader already names it
+			continue
+		}
 		if len(findings) >= MaxFindings {
 			dropped++
 			continue

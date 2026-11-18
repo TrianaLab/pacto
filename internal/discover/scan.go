@@ -179,6 +179,8 @@ func (sc *Scan) file(p, rel, base string) {
 	case base == "Dockerfile" || strings.HasPrefix(base, "Dockerfile.") || strings.HasSuffix(base, ".Dockerfile"):
 		sc.Dockerfiles = append(sc.Dockerfiles, rel)
 	case base == "Chart.yaml": // its folder is a chart, recorded by Dir
+	case (sdkFile(base) || terraformFile(base)) && !recordable(rel):
+		// the folder reader names it as unread: a record source cannot name it
 	case sdkFile(base):
 		sc.sdkFiles = append(sc.sdkFiles, rel)
 	case terraformFile(base):
@@ -249,7 +251,7 @@ func (sc *Scan) object(rel string, line int, group, kind, name string, doc map[s
 	}
 	if _, ok := WorkloadKinds[kind]; ok {
 		sc.workloads = append(sc.workloads, readWorkload(rel, kind, name, doc, src))
-	} else if o, ok := crossplaneCandidate(group, kind, name, doc); ok {
+	} else if o, ok := crossplaneCandidate(group, kind, name, doc); ok && recordable(rel) {
 		o.file, o.line = splitLine(src("kind: " + kind))
 		sc.xpObjects = append(sc.xpObjects, o)
 	}
