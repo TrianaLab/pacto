@@ -190,6 +190,11 @@ func TestInferredRecordEdgesDescribed(t *testing.T) {
 	if !strings.Contains(fleetInstructions, "Pacto uses 'inferred' in four places") || !strings.Contains(fleetInstructions, "inferredRecord") {
 		t.Error("the instructions miss the inferred record meaning of 'inferred'")
 	}
+	for _, want := range []string{"kind repository", "the revision", "sdk or terraform match is possible only"} {
+		if !strings.Contains(fleetInstructions, want) {
+			t.Errorf("the instructions miss %q", want)
+		}
+	}
 }
 
 // TestFleetGetExternalRepositorySource: the entity and explain tools show an

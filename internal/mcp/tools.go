@@ -34,10 +34,13 @@ func createTool() *mcpsdk.Tool {
 			"service URLs become dependencies, " +
 			"probes become a health check), plans the contract and, with delivery, the cluster pieces, " +
 			"and returns what it found, the dependencies and consumers found, what is Unknown and what to do next. " +
-			"The vendors, managed services and legacy hosts the environment and chart values.yaml name come back in 'externals' " +
-			"(identity, class, confidence, where, host and port only, never a value): they are inferred proposals, not dependencies, " +
-			"classified by the 'catalog' digest (suffixed ' (embedded)' for the built-in copy), and the likely ones are written into " +
-			"pacto.yaml as commented dependency entries for a person to uncomment. " +
+			"The vendors, managed services and legacy hosts the folder names (the environment and ConfigMaps, Helm values*.yaml, Compose environment, " +
+			"Kustomize configMapGenerator, SDK manifests and lockfiles, Terraform resources and Crossplane objects) come back in 'externals', " +
+			"one row per source (identity, class, confidence, where, kind, path, line, key, origin, host and port only, never a value). " +
+			"They are inferred proposals, recorded only in 'inferred' as dependencies[<name>] fields (pacto.inferred.yaml at pack), never in pacto.yaml; " +
+			"an SDK, Terraform or key-name source is possible only. 'externalSummary' is the plan line. " +
+			"'catalog' names each catalog that classified as '<origin> <digest>' (the same list as inferred.inputs.catalog), " +
+			"suffixed ' (embedded)' only when the server assembled no catalog. " +
 			"The contract gets a publish section for pacto publish unless describe_only is set: " +
 			"set describe_only when you are asked to describe or document a service. " +
 			"pactify returns in 'inferred' what the folder shows beyond pacto.yaml, each field with its source, confidence (likely: a file states it; possible: a naming convention) " +

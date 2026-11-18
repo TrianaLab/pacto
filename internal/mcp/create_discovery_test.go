@@ -93,4 +93,12 @@ func TestPactifyDescriptionNamesWhatItReads(t *testing.T) {
 	if strings.Contains(tool.Description, "already holds pacto.yaml, pactify completes it without changing it and returns") {
 		t.Error("the description still ties 'inferred' to an existing pacto.yaml")
 	}
+	for _, want := range []string{"SDK manifests and lockfiles", "Terraform resources", "externalSummary", "never in pacto.yaml"} {
+		if !strings.Contains(tool.Description, want) {
+			t.Errorf("pacto_create description lacks %q", want)
+		}
+	}
+	if strings.Contains(tool.Description, "commented dependency entries") {
+		t.Error("the description still promises commented dependency entries in pacto.yaml")
+	}
 }
