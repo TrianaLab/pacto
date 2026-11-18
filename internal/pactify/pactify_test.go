@@ -497,7 +497,7 @@ func TestPactifyReadsWhatIsThere(t *testing.T) {
 	if strings.Count(text, " file:") != 1 { // the dev environment's
 		t.Errorf("a plain Dockerfile needs no file:\n%s", text)
 	}
-	if !hasLine(r.Unknown, "the Helm chart in chart is not read") || !hasLine(r.Next, "my k8s/kustomization.yaml decides what Flux applies") ||
+	if !hasLine(r.Found, "Helm chart chart read statically") || !hasLine(r.Next, "my k8s/kustomization.yaml decides what Flux applies") ||
 		!hasLine(r.Unknown, "several Dockerfiles") || hasLine(r.Next, "signing key") {
 		t.Fatalf("findings: %+v", r)
 	}
@@ -855,17 +855,6 @@ func TestApplyFailures(t *testing.T) {
 }
 
 func TestHelpers(t *testing.T) {
-	for in, want := range map[string]string{"python:3.13": "docker.io/library/python", "acme/app": "docker.io/acme/app", "localhost:5000/app:1": "localhost:5000/app",
-		"reg.io/a/b@sha256:abc": "reg.io/a/b"} {
-		if got, _ := imageRepo(in); got != want {
-			t.Errorf("imageRepo(%q) = %q, want %q", in, got, want)
-		}
-	}
-	for in, want := range map[string]string{"risk": "risk", "1.0.0": "1.0.0", "1.0": "'1.0'", "yes": "'yes'", "it's": "'it''s'"} {
-		if got := yq(in); got != want {
-			t.Errorf("yq(%q) = %q, want %q", in, got, want)
-		}
-	}
 	if refRepo("oci://r.io/a/b:1.0.0") != "r.io/a/b" || refRepo("oci://r.io:5000/a@sha256:x") != "r.io:5000/a" {
 		t.Error("refRepo")
 	}
@@ -1136,7 +1125,7 @@ func TestHelmChartIsNotRead(t *testing.T) {
 				t.Fatalf("service %q, mode %q", r.Service, r.Mode)
 			}
 			for _, c := range tc.chartDirs {
-				assertChartNamedOnce(t, r.Unknown, c)
+				assertChartNamedOnce(t, r, c)
 			}
 			text := file(t, r, "pacto.yaml").Content
 			assertNoChartRead(t, text, r.Found)
@@ -1164,18 +1153,18 @@ func assertNoChartRead(t *testing.T, text string, found []string) {
 	}
 }
 
-// assertChartNamedOnce fails unless Unknown tells the user exactly once how
-// to render the chart in dir.
-func assertChartNamedOnce(t *testing.T, unknown []string, dir string) {
+// assertChartNamedOnce fails unless Found says exactly once that the chart in
+// dir was read statically, and Unknown never asks to render it.
+func assertChartNamedOnce(t *testing.T, r *Result, dir string) {
 	t.Helper()
 	n := 0
-	for _, l := range unknown {
-		if strings.HasPrefix(l, "the Helm chart in "+dir+" is not read: render it with helm template --include-crds checkout "+dir+" > k8s/rendered.yaml") {
+	for _, l := range r.Found {
+		if strings.HasPrefix(l, "Helm chart "+dir+" read statically") {
 			n++
 		}
 	}
-	if n != 1 {
-		t.Fatalf("want chart %s named once in Unknown, got %d: %q", dir, n, unknown)
+	if n != 1 || hasLine(r.Unknown, "render it") {
+		t.Fatalf("want chart %s read once in Found and never rendered, got %d: %q %q", dir, n, r.Found, r.Unknown)
 	}
 }
 
@@ -1418,5 +1407,62 @@ func TestDeliveryExistingContractSuggestsEnvironments(t *testing.T) {
 	}
 	if r, _ = Init(context.Background(), Options{Dir: dir, Delivery: true, Environments: []string{"test"}, Plan: true}, os.WriteFile); hasLine(r.Next, "declares no environment") {
 		t.Fatalf("every environment declared: %v", r.Next)
+	}
+}
+
+// TestPactifyFindsSpecAtAnyPath: the OpenAPI file a new contract names is the
+// one pacto diff reads, at any path and under any name (Northwind's
+// api/openapi.v1.yaml), never a file that only carries the name.
+func TestPactifyFindsSpecAtAnyPath(t *testing.T) {
+	dir := writeTree(t, t.TempDir(), map[string]string{
+		"Dockerfile":          "FROM scratch\n",
+		"api/openapi.v1.yaml": "openapi: 3.1.0\npaths: {}\n",
+		"openapi.yaml":        "title: not a spec\n",
+	})
+	r, err := Init(context.Background(), Options{Dir: dir, Name: "payments", Plan: true}, os.WriteFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := file(t, r, "pacto.yaml").Content; !strings.Contains(text, "    ref: api/openapi.v1.yaml\n") || !hasLine(r.Found, "API description api/openapi.v1.yaml") {
+		t.Fatalf("pacto.yaml:\n%s\nfound: %q", text, r.Found)
+	}
+}
+
+// TestPactifyPortUnknownFromDiscovery: the ports pacto init names when no
+// OpenAPI file describes them are the ones discovery found, from a
+// Dockerfile and the manifests alike, in numeric order.
+func TestPactifyPortUnknownFromDiscovery(t *testing.T) {
+	dir := writeTree(t, filepath.Join(t.TempDir(), "svc"), map[string]string{
+		"Dockerfile": "FROM alpine:3\nEXPOSE 10000\n",
+		"deploy.yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: svc}\n" +
+			"spec: {template: {spec: {containers: [{name: svc, image: ghcr.io/acme/svc:1.0.0, ports: [{containerPort: 9090}, {containerPort: 10000}]}]}}}\n",
+	})
+	r, err := Init(context.Background(), Options{Dir: dir, Plan: true}, os.WriteFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(r.Unknown, "interfaces: svc listens on port 9090, 10000, but no OpenAPI file describes it") {
+		t.Fatalf("unknown: %q", r.Unknown)
+	}
+}
+
+// TestPactifiedKeepsTeamLabelOwner: a new contract's owner is the workload's
+// team label, whatever CODEOWNERS or catalog-info.yaml say; they reach only
+// the inferred record.
+func TestPactifiedKeepsTeamLabelOwner(t *testing.T) {
+	repo := writeTree(t, filepath.Join(t.TempDir(), "repo"), map[string]string{
+		".git/HEAD":                       "ref: refs/heads/main\n",
+		".github/CODEOWNERS":              "* @acme/owners\n",
+		"payments/catalog-info.yaml":      "apiVersion: backstage.io/v1alpha1\nkind: Component\nmetadata: {name: payments}\nspec: {owner: group:catalog-team}\n",
+		"payments/Dockerfile":             "FROM alpine:3.20\n",
+		"payments/deploy/deployment.yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: payments\n  labels: {team: shop}\nspec: {template: {spec: {containers: [{name: payments, image: payments:1}]}}}\n",
+	})
+	r, err := Init(context.Background(), Options{Dir: filepath.Join(repo, "payments"), Plan: true}, os.WriteFile)
+	if err != nil || r.Mode != modePactify {
+		t.Fatalf("plan: %+v %v", r, err)
+	}
+	c, err := contract.Parse(strings.NewReader(file(t, r, "pacto.yaml").Content))
+	if err != nil || c.Service.Owner.Team != "shop" || c.Service.Owner.DRI != "" {
+		t.Fatalf("owner: %+v %v", c.Service.Owner, err)
 	}
 }

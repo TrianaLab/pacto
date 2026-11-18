@@ -89,8 +89,10 @@ DIGEST="$(push_bundle "$PACTO_BIN" "$LOCAL_REG_PORT" "$BDIR" checkout:1.0.0)"
 CONTRACT_REF="oci://${REG_HOST}/demo/checkout@${DIGEST}"
 LOCAL_SUBJECT="127.0.0.1:${LOCAL_REG_PORT}/demo/checkout@${DIGEST}"
 
+# The documented anonymous path: this journey tests the Evidence Server
+# through the dashboard, not sign-in (dashboard-modes.sh does).
 common_sets=(--set global.imageRegistry= --set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never
-             --set dashboard.enabled=true
+             --set dashboard.enabled=true --set dashboard.auth.tokenSignIn.enabled=false --set dashboard.auth.allowAnonymous=true
              --set "insecureRegistries[0]=${REG_HOST}"
              --set evidence.enabled=true
              --set evidence.trust.existingSecret=pacto-evidence-trust

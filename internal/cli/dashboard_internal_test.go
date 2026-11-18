@@ -486,3 +486,27 @@ func TestDashboardExternalCatalogEnv(t *testing.T) {
 		t.Fatalf("err = %v, want the digest refusal", err)
 	}
 }
+
+// TestDashboardRefusesMalformedDetected: a k8s: ref that names no single
+// ConfigMap stops the dashboard before it serves.
+func TestDashboardRefusesMalformedDetected(t *testing.T) {
+	isolateHost(t)
+	_, err := runDashboard(t, app.NewService(nil, nil), viper.New(), t.TempDir(), "--port", "0", "--detected", "k8s:pacto-system")
+	if err == nil || !strings.Contains(err.Error(), "k8s:<namespace>/<name>") {
+		t.Fatalf("err = %v, want the usage refusal", err)
+	}
+}
+
+// TestDashboardDetectedEnv reads PACTO_DASHBOARD_DETECTED, the file the
+// operator-managed dashboard mounts.
+func TestDashboardDetectedEnv(t *testing.T) {
+	t.Setenv("PACTO_DASHBOARD_DETECTED", "/etc/pacto/detected/detected.json")
+	v := viper.New()
+	v.SetEnvPrefix("PACTO")
+	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
+	v.AutomaticEnv()
+	newDashboardCommand(app.NewService(nil, nil), v, "test", defaultDeps())
+	if got := v.GetString("dashboard.detected"); got != "/etc/pacto/detected/detected.json" {
+		t.Errorf("dashboard.detected = %q", got)
+	}
+}

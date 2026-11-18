@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"k8s.io/client-go/dynamic"
 	"oras.land/oras-go/v2/registry/remote"
 
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
@@ -29,6 +30,11 @@ type Service struct {
 	// Version is the running CLI version, recorded into pacto.lock provenance.
 	// Empty reads as "dev".
 	Version string
+	// ExternalCatalogRef is the organization external catalog every local
+	// completion merges over the default, as oci://REPOSITORY@sha256:DIGEST
+	// (pacto init --external-catalog, PACTO_EXTERNAL_CATALOG). Empty is the
+	// default catalog alone.
+	ExternalCatalogRef string
 
 	// sys holds the side effects the methods reach for; read it through env.
 	sys sysDeps
@@ -48,6 +54,8 @@ type sysDeps struct {
 	generateDoc func(*contractview.ServiceDetails, *graph.Result) (string, error)
 	marshalLock func(*lock.Lock) ([]byte, error)
 	newK8s      func() (k8sclient.K8sClient, error)
+	// newDynamic builds the client a k8s: detection ref is read with.
+	newDynamic  func() (dynamic.Interface, error)
 	kubeContext func() string
 	// readinessTimeout bounds ONE Evidence Server readiness preflight; zero is
 	// defaultReadinessTimeout.
@@ -92,6 +100,9 @@ func (s *Service) env() sysDeps {
 	}
 	if d.newK8s == nil {
 		d.newK8s = k8sclient.NewGoClient
+	}
+	if d.newDynamic == nil {
+		d.newDynamic = k8sclient.NewDynamic
 	}
 	if d.kubeContext == nil {
 		d.kubeContext = k8sclient.CurrentKubeContext

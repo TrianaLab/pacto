@@ -63,7 +63,7 @@ type ExternalObservedSource struct {
 func (q *Query) externalEvidence(key ExternalKey, consumers []ServiceKey) ExternalEvidence {
 	var inf []ExternalInferredSource
 	var obs []ExternalObservedSource
-	for _, rel := range q.snap.Relationships {
+	for _, rel := range q.externalRels(true) {
 		if !externalEdge(rel, key) || !slices.Contains(consumers, rel.FromService) {
 			continue
 		}
@@ -144,7 +144,7 @@ func (q *Query) explainExternal(key string) (*ExplainResult, error) {
 	res := &ExplainResult{Meta: q.externalMeta(), Subject: ExternalSubjectPrefix + string(rec.Key), Kind: string(KindExternal), Status: StatusUnknown, Reasons: []Reason{}}
 	b := boundExternal(rec)
 	for _, src := range b.Sources {
-		if src.Kind != ExternalSourcePodSpec {
+		if src.Provenance != ProvenanceInferred {
 			res.Reasons = append(res.Reasons, externalSourceReason(src))
 		}
 	}
@@ -195,10 +195,11 @@ func externalSourceReason(src ExternalSource) Reason {
 
 // inferredSourceReason explains where one source recognized it: the kind
 // and the object and key, never a value, then the confidence, the
-// normalized host, the catalog entry and the target.
+// normalized host, the catalog entry, the target and the revision whose
+// inferred record names it.
 func inferredSourceReason(src ExternalInferredSource) Reason {
 	msg := fmt.Sprintf("inferred from %s %s of %s (%s", src.Kind, src.Where, src.Service, src.Confidence)
-	for _, kv := range [][2]string{{"host", src.Host}, {"entry", src.Entry}, {"target", string(src.Target)}} {
+	for _, kv := range [][2]string{{"host", src.Host}, {"entry", src.Entry}, {"target", string(src.Target)}, {"revision", string(src.Revision)}} {
 		if kv[1] != "" {
 			msg += ", " + kv[0] + " " + kv[1]
 		}
@@ -249,12 +250,22 @@ func (q *Query) graphExternal(gq GraphQuery, key ExternalKey, maxNodes int) (*Gr
 	if res.Edges == nil {
 		res.Edges = []Relationship{}
 	}
-	for _, rel := range q.snap.Relationships {
+	for _, rel := range q.externalRels(gq.IncludeObserved) {
 		if externalEdge(rel, key) && nodeSet[rel.FromService] && graphProvenance(rel.Provenance, gq.IncludeObserved) {
 			res.Edges = append(res.Edges, rel)
 		}
 	}
 	return res, nil
+}
+
+// externalRels is the relationships an external answer reads: with
+// inferred, also the runtime calls of inferred services (InferredRelationships,
+// which a graph draws only with observed edges).
+func (q *Query) externalRels(inferred bool) []Relationship {
+	if !inferred {
+		return q.snap.Relationships
+	}
+	return slices.Concat(q.snap.Relationships, q.snap.InferredRelationships)
 }
 
 // graphProvenance reports whether a graph answer draws an edge to an
@@ -274,7 +285,7 @@ var provenanceRank = map[string]int{ProvenanceDeclared: 3, ProvenanceObserved: 2
 // labelled declared when any declares it, else observed, else inferred.
 func (q *Query) externalConsumerSteps(key ExternalKey, includeObserved bool) []graphStep {
 	prov := map[ServiceKey]string{}
-	for _, rel := range q.snap.Relationships {
+	for _, rel := range q.externalRels(includeObserved) {
 		if !externalEdge(rel, key) || !graphProvenance(rel.Provenance, includeObserved) {
 			continue
 		}
@@ -419,21 +430,25 @@ func (q *Query) externalNeighborhood(key string, bp boundedParams) (*Neighborhoo
 // keyed as the answer names the system, ordered by consumer then identity.
 func (q *Query) externalEdges(inScope func(ServiceKey) bool, only ExternalKey, views []KnowledgeView) []NeighborhoodEdge {
 	merged := map[string]*NeighborhoodEdge{}
-	for _, rel := range q.snap.Relationships {
-		to := only
-		if only == "" {
-			to = cmp.Or(rel.FoldedInto, rel.ToExternal)
+	// An inferred service's runtime calls to the system are inferred
+	// relationships, kept apart from the rest.
+	for _, rels := range [][]Relationship{q.snap.Relationships, q.snap.InferredRelationships} {
+		for _, rel := range rels {
+			to := only
+			if only == "" {
+				to = cmp.Or(rel.FoldedInto, rel.ToExternal)
+			}
+			if !externalEdge(rel, to) || !inScope(rel.FromService) {
+				continue
+			}
+			id := edgeID(string(rel.FromService), ExternalSubjectPrefix+string(to), RelationDependency)
+			e := merged[id]
+			if e == nil {
+				e = &NeighborhoodEdge{ID: id, Relation: RelationDependency, From: q.serviceRef(rel.FromService), To: externalEntityRef(q.externalRecord(to))}
+				merged[id] = e
+			}
+			q.foldRelationshipIntoEdge(e, rel)
 		}
-		if !externalEdge(rel, to) || !inScope(rel.FromService) {
-			continue
-		}
-		id := edgeID(string(rel.FromService), ExternalSubjectPrefix+string(to), RelationDependency)
-		e := merged[id]
-		if e == nil {
-			e = &NeighborhoodEdge{ID: id, Relation: RelationDependency, From: q.serviceRef(rel.FromService), To: externalEntityRef(q.externalRecord(to))}
-			merged[id] = e
-		}
-		q.foldRelationshipIntoEdge(e, rel)
 	}
 	out := make([]NeighborhoodEdge, 0, len(merged))
 	for _, id := range slices.Sorted(maps.Keys(merged)) {

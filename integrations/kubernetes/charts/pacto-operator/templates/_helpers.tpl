@@ -266,12 +266,11 @@ Controller arguments derived from values
 - --dashboard-session-max-age={{ . }}
 {{- end }}
 {{- end }}
-{{- if (.tokenLogin | default dict).enabled }}
+{{- end }}
+{{- if include "pacto-operator.dashboardTokenSignIn" . }}
 - --dashboard-token-login
 {{- end }}
-{{- end }}
-{{- /* Unless explicitly false: an upgrade that reuses values without the key keeps an anonymous install starting. */}}
-{{- if ne (toString (.Values.dashboard.auth | default dict).allowAnonymous) "false" }}
+{{- if include "pacto-operator.dashboardAnonymous" . }}
 - --dashboard-allow-anonymous
 {{- end }}
 {{- with .Values.dashboard.repositories }}
@@ -570,6 +569,25 @@ dashboard.delivery.namespace, else delivery.namespace when delivery is on.
 {{- with .Values.dashboard.delivery }}
 {{- .namespace | default (ternary $.Values.delivery.namespace "" $.Values.delivery.enabled) }}
 {{- end }}
+{{- end }}
+
+{{/*
+Token sign-in, unless dashboard.auth.tokenSignIn.enabled is explicitly false.
+The key is newer than every earlier release, so an upgrade that reuses their
+values never carries it and signs people in. The deprecated key it replaces is
+ignored: a reused release holds it as false.
+*/}}
+{{- define "pacto-operator.dashboardTokenSignIn" -}}
+{{- if ne (toString (((.Values.dashboard.auth | default dict).tokenSignIn | default dict).enabled)) "false" }}true{{ end }}
+{{- end }}
+
+{{/*
+Anonymous access: only with allowAnonymous explicitly true, token sign-in off
+and no issuer. NOTES.txt reads the same rule for its warning.
+*/}}
+{{- define "pacto-operator.dashboardAnonymous" -}}
+{{- $auth := .Values.dashboard.auth | default dict }}
+{{- if and (eq (toString $auth.allowAnonymous) "true") (not (include "pacto-operator.dashboardTokenSignIn" .)) (not ($auth.oidc | default dict).issuerURL) }}true{{ end }}
 {{- end }}
 
 {{/*

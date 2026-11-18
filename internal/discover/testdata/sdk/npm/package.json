@@ -1,0 +1,14 @@
+{
+  "name": "checkout",
+  "dependencies": {
+    "stripe": "^14.2.0",
+    "twilio": ">=4 <6",
+    "@sendgrid/mail": "~8.1.0"
+  },
+  "optionalDependencies": {
+    "@aws-sdk/client-sqs": "3.600.0"
+  },
+  "devDependencies": {
+    "openai": "4.0.0"
+  }
+}

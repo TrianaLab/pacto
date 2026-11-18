@@ -1589,29 +1589,33 @@ func TestPrintEnvironmentDifferences(t *testing.T) {
 // TestInitPrintsExternals: a pactified folder lists the externals it names,
 // each with its class, where it was read and its confidence, a host as host
 // and port only, then the catalog; a folder that names none prints nothing.
-func TestInitPrintsExternals(t *testing.T) {
-	r := &app.InitResult{Dir: "checkout", Service: "checkout", Mode: "pactify", Catalog: "sha256:abc (embedded)",
-		Externals: []pactify.External{
-			{Identity: "aws/rds", Class: "managed-cloud", Confidence: "likely", Where: "k8s/configmap.yaml, env DATABASE_URL", Host: "db.xyz.rds.amazonaws.com"},
-			{Identity: "stripe", Class: "vendor-api", Confidence: "possible", Where: "k8s/deployment.yaml, secretRef stripe-credentials (Secret name only)"},
-		}}
+func TestInitPrintsExternalSummary(t *testing.T) {
+	rec := &contract.InferredRecord{Inputs: contract.InferredInputs{Catalog: []string{"default sha256:abc", "organization sha256:def"}},
+		Fields: []contract.Inferred{{Field: "dependencies[stripe]", Value: "stripe", Source: "chart/values.yaml:3", External: &contract.InferredExternal{Identity: "stripe"}}}}
+	r := &app.InitResult{Dir: "checkout", Service: "checkout", Mode: "pactify", Catalog: "default sha256:abc, organization sha256:def", Inferred: rec,
+		ExternalSummary: []string{"External dependencies: 1 (stripe), inferred", "dependencies[stripe]  external, from chart/values.yaml:3 (STRIPE_API_BASE)"}}
 	var buf bytes.Buffer
 	printInitFindings(&buf, r)
 	want := `
-External
-  - aws/rds  managed-cloud  k8s/configmap.yaml, env DATABASE_URL  (likely)
-    -> db.xyz.rds.amazonaws.com (host and port only)
-  - stripe  vendor-api  k8s/deployment.yaml, secretRef stripe-credentials (Secret name only)  (possible)
-  - catalog sha256:abc (embedded)
+External dependencies: 1 (stripe), inferred
+  dependencies[stripe]  external, from chart/values.yaml:3 (STRIPE_API_BASE)
+  catalog default sha256:abc, organization sha256:def
 `
-	if !strings.Contains(buf.String(), want) {
+	if !strings.Contains(buf.String(), want) || strings.Contains(buf.String(), "stripe from chart/values.yaml:3") {
 		t.Fatalf("output:\n%s", buf.String())
 	}
+	// A folder with no workload (blank) prints the plan line too.
 	buf.Reset()
-	r.Externals = nil
+	r.Inferred, r.Mode = nil, "blank"
+	printInitFindings(&buf, r)
+	if !strings.Contains(buf.String(), want) {
+		t.Fatalf("blank output:\n%s", buf.String())
+	}
+	buf.Reset()
+	r.ExternalSummary = nil
 	printInitFindings(&buf, r)
 	if strings.Contains(buf.String(), "External") {
-		t.Fatalf("output without externals:\n%s", buf.String())
+		t.Fatalf("output without a summary:\n%s", buf.String())
 	}
 }
 
@@ -1711,6 +1715,30 @@ func TestPrintDependenciesUndeclaredRange(t *testing.T) {
 	for _, want := range []string{"ledger: oci://reg.io/ledger (range not declared, required)", "fraud: oci://reg.io/fraud (^1.2.0, optional)"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+}
+
+// TestDiffOutputShowsInferredSection: every renderer prints the inferred
+// changes with their reason, and a sensitive key's summary stays masked.
+func TestDiffOutputShowsInferredSection(t *testing.T) {
+	rec := func(value string) fstest.MapFS {
+		r := &contract.InferredRecord{Format: contract.InferredRecordFormat, Inputs: contract.InferredInputs{Pacto: "4.6.0", Discovery: "1"},
+			Fields: []contract.Inferred{{Field: "configuration.DB_PASSWORD", Value: value, Source: "deploy/app.yaml:24", Confidence: "likely"}}}
+		return fstest.MapFS{contract.InferredRecordFile: {Data: r.Marshal()}}
+	}
+	c := &contract.Contract{PactoVersion: "2.5", Service: contract.Service{Name: "svc", Version: "1.0.0"}}
+	d := diff.Compare(context.Background(), c, c, rec("string"), rec("string, writeOnly"))
+	result := &app.DiffResult{OldPath: "a", NewPath: "b", Classification: d.Classification.String(), Changes: d.Changes}
+	for _, format := range []string{"text", "markdown", "json"} {
+		cmd, buf := testCmd()
+		if err := printDiffResult(cmd, result, format); err != nil {
+			t.Fatal(err)
+		}
+		out := buf.String()
+		if !strings.Contains(out, "inferred.configuration.DB_PASSWORD") || !strings.Contains(out, "inferred by Pacto, not part of the declared contract") ||
+			!strings.Contains(out, "NON_BREAKING") || strings.Contains(out, "writeOnly") || strings.Contains(out, "hunter2") {
+			t.Errorf("%s output: %s", format, out)
 		}
 	}
 }

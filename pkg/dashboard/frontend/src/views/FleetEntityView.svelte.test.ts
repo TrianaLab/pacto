@@ -1101,3 +1101,22 @@ describe('FleetEntityView — external system page', () => {
     unmount(component); document.body.removeChild(target);
   });
 });
+
+describe('FleetEntityView — inferred service (509-S1)', () => {
+  beforeEach(() => detailFn.mockReset());
+
+  it('dispatches an inferred service to its own page and gives it no posture answer', async () => {
+    const empty = { total: 0, count: 0, truncated: false, items: [] };
+    detailFn.mockResolvedValue({
+      meta,
+      entity: { kind: 'service', key: 'k8s:shop%2FDeployment%2Fcart', label: 'k8s:shop/Deployment/cart', declaration: 'inferred', scope: 'shop', secondary: 'Deployment' },
+      actions: [],
+      service: { workload: { source: 'k8s-workloads', namespace: 'shop', kind: 'Deployment', name: 'cart' }, calls: empty, callsObserved: false, limitations: empty, revisions: empty },
+    });
+    const { target, component } = await mountView('service', 'k8s:shop%2FDeployment%2Fcart');
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="inferred-workload"]')).toBeTruthy());
+    expect(target.querySelector('[data-testid="service-targets"]')).toBeNull();
+    expect(target.querySelector('[data-testid="entity-answer"]')).toBeNull();
+    unmount(component); document.body.removeChild(target);
+  });
+});

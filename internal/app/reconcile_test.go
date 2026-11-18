@@ -373,3 +373,19 @@ func TestFleet_TraceFileExternalCallee(t *testing.T) {
 		}
 	}
 }
+
+func TestReconcileInferredCallerUnresolved(t *testing.T) {
+	cart := fleet.K8sCaller("", "shop", "Deployment", "cart")
+	snap := &fleet.FleetSnapshot{Services: map[fleet.ServiceKey]*fleet.ServiceRecord{
+		fleet.NewServiceKey("payments"): {Name: "payments"},
+		fleet.NewServiceKey(cart):       {Name: cart, Declaration: fleet.DeclarationInferred},
+	}}
+	observed, unresolved := observedFromEdges(snap, []otelobserver.Edge{{From: cart, To: "payments", Count: 4}})
+	if len(observed) != 0 {
+		t.Errorf("an inferred caller reconciled: %+v", observed)
+	}
+	want := []reconcile.Unresolved{{Service: cart, Dependency: "payments", Count: 4, Reason: "unknown"}}
+	if !reflect.DeepEqual(unresolved, want) {
+		t.Errorf("unresolved = %+v, want %+v", unresolved, want)
+	}
+}

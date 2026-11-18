@@ -35,6 +35,7 @@ func newFleetCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder)
 	cmd.AddCommand(newFleetGetCommand(svc, v))
 	cmd.AddCommand(newFleetGraphCommand(svc, v))
 	cmd.AddCommand(newFleetStatusCommand(svc, v, rec))
+	cmd.AddCommand(newFleetProvidersCommand(svc, v))
 	cmd.AddCommand(newFleetSnapshotCommand(svc, v))
 	cmd.AddCommand(newFleetExplainCommand(svc, v))
 	cmd.AddCommand(newFleetReconcileCommand(svc, v))
@@ -69,7 +70,8 @@ func addFleetSourceFlags(f *pflag.FlagSet) {
 	shared.Bool("k8s", false, "include live Pacto CRs from the current Kubernetes cluster as targets")
 	shared.String("namespace", "", "namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)")
 	shared.Duration("freshness", fleet.RecentEvidenceWindow, "mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so)")
-	shared.String("external-catalog", "", "organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST (a tag is refused)")
+	shared.String("external-catalog", "", "organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused")
+	shared.String("detected", "", "add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON")
 	f.AddFlagSet(shared)
 }
 
@@ -79,7 +81,7 @@ func addFleetSourceFlags(f *pflag.FlagSet) {
 func fleetFlagNames() []string {
 	return []string{
 		"local", "root", "target-state", "evidence-url", "mira-source", "traces", "oci",
-		"cache", "k8s", "namespace", "freshness", "external-catalog",
+		"cache", "k8s", "namespace", "freshness", "external-catalog", "detected",
 	}
 }
 
@@ -128,6 +130,10 @@ func longRunning(opts app.FleetOptions) app.FleetOptions {
 	return opts
 }
 
+// fleetNow is the build clock fleetOptions hands every snapshot: nil in
+// production, so a build reads time.Now; tests pin it.
+var fleetNow func() time.Time
+
 func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 	local, _ := cmd.Flags().GetStringArray("local")
 	// --root is also `pacto mcp`'s catalog-server selector, where it is mutually
@@ -149,6 +155,7 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 	includeK8s, _ := cmd.Flags().GetBool("k8s")
 	freshness, _ := cmd.Flags().GetDuration("freshness")
 	externalCatalog, _ := cmd.Flags().GetString("external-catalog")
+	detected, _ := cmd.Flags().GetString("detected")
 	return app.FleetOptions{
 		LocalRoots:         local,
 		CatalogRoots:       roots,
@@ -162,7 +169,9 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 		K8sNamespaces:      flagNamespaces(cmd),
 		FreshnessWindow:    freshness,
 		ExternalCatalogRef: externalCatalog,
+		Detected:           detected,
 		Provenance:         app.NewProvenanceChecker(),
+		Now:                fleetNow,
 	}
 }
 
@@ -286,6 +295,7 @@ func newFleetSearchCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd.Flags().Bool("has-dependency", false, "only services declaring a dependency")
 	cmd.Flags().String("scope", "", "correlate to a target with this scope")
 	addTemplateFlag(cmd.Flags())
+	addDeclarationFlag(cmd)
 	cmd.Flags().Int("limit", 0, fmt.Sprintf("maximum results (0 = %d, capped at %d)", fleet.DefaultSearchLimit, fleet.MaxSearchLimit))
 	cmd.Flags().Int("offset", 0, "result offset for paging")
 
@@ -311,6 +321,7 @@ func searchFilterFromCmd(cmd *cobra.Command, text string) (fleet.SearchFilter, e
 	workload, _ := cmd.Flags().GetString("workload")
 	scope, _ := cmd.Flags().GetString("scope")
 	template, _ := cmd.Flags().GetString("template")
+	declaration, _ := cmd.Flags().GetString("declaration")
 	labels, _ := cmd.Flags().GetStringArray("label")
 	ready, _ := cmd.Flags().GetBool("ready")
 	notReady, _ := cmd.Flags().GetBool("not-ready")
@@ -322,7 +333,7 @@ func searchFilterFromCmd(cmd *cobra.Command, text string) (fleet.SearchFilter, e
 	return fleet.SearchFilter{
 		Text: text, Owner: owner, BusinessDomain: businessDomain, Offering: offering, Labels: parsed, Scope: scope, Status: status,
 		Compliance: compliance, Source: source, Workload: workload,
-		HasCapability: hasCap, HasDependency: hasDep, ReadyOnly: ready, NotReady: notReady, Template: template,
+		HasCapability: hasCap, HasDependency: hasDep, ReadyOnly: ready, NotReady: notReady, Template: template, Declaration: declaration,
 		Limit: limit, Offset: offset,
 	}, err
 }
@@ -383,7 +394,10 @@ func newFleetGraphCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			"an exact revision (never 'latest'). The walk also follows observed " +
 			"runtime calls, so services no contract connects appear too; each node " +
 			"reports its provenance (declared, observed or declared+observed, or " +
-			"inferred for an external system's consumer known only from its configuration). Give " +
+			"inferred for an external system's consumer known only from its configuration " +
+			"or a runtime call one of whose ends no contract describes). Those inferred calls " +
+			"are listed after the nodes with the sources that saw them, and a service asked " +
+			"for by the key of an inferred service it replaced says so first. Give " +
 			"external:<identity> to list the consumers of an external system (its only direction is dependents).",
 		Args: cobra.MaximumNArgs(1),
 		// Same as `fleet get`: the candidates live in a snapshot too expensive to

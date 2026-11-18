@@ -60,7 +60,10 @@ func VisibleNames(view *fleet.Query) []string {
 	var names []string
 	// ponytail: read-only walk of the shared snapshot; bounded by its size.
 	for _, s := range view.SnapshotForSerialization().Services {
-		names = append(names, s.Name)
+		// An inferred service has no registry anchor to read.
+		if !s.Inferred() {
+			names = append(names, s.Name)
+		}
 	}
 	slices.Sort(names)
 	return slices.Compact(names)

@@ -423,6 +423,17 @@ field changed is reported as a modification of that claim (for example
 `readiness.claims[dashboard]`). The diff skips the `readiness.history` revision
 log, an append-only changelog that changes on every release.
 
+## Inferred record
+
+| Field | Change | Classification |
+|-------|--------|----------------|
+| `inferred.<field>` | Added / Modified / Removed | NON_BREAKING |
+
+- A field of the bundle's [inferred record](inferred-record.md) is something
+  Pacto read from the folder, outside the declared contract, so a change to it
+  never asks for more than a patch.
+- `pacto diff` leaves out changes to the record's `inputs`.
+
 ## Fields the diff skips
 
 | Section | Behavior |

@@ -13,6 +13,22 @@ tests:
           of: RoleBinding
         documentIndex: 1
 
+  - it: grants no ConfigMap access, so detection's rule is the only ConfigMap write
+    documentIndex: 0
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [configmaps]
+            verbs: [get, list, watch, create, update, patch, delete]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [coordination.k8s.io]
+            resources: [leases]
+            verbs: [get, list, watch, create, update, patch, delete]
+
   - it: should not create leader election resources when disabled
     set:
       leaderElection.enabled: false

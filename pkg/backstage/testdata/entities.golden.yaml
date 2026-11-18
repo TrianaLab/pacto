@@ -1,0 +1,170 @@
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: commerce
+  namespace: default
+  annotations:
+    pacto.trianalab.io/as-of: "2026-11-16T12:00:00Z"
+    pacto.trianalab.io/completeness: complete
+    pacto.trianalab.io/provenance: declared
+spec:
+  owner: unknown
+---
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: payments
+  namespace: default
+  annotations:
+    pacto.trianalab.io/as-of: "2026-11-16T12:00:00Z"
+    pacto.trianalab.io/completeness: complete
+    pacto.trianalab.io/provenance: declared
+spec:
+  owner: unknown
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: checkout
+  namespace: default
+  description: Takes the order and the money
+  annotations:
+    pacto.trianalab.io/as-of: "2026-11-16T12:00:00Z"
+    pacto.trianalab.io/completeness: complete
+    pacto.trianalab.io/inferred-depends-on: resource:default/host-legacy-mq.example
+    pacto.trianalab.io/owner-provenance: declared
+    pacto.trianalab.io/provenance: declared
+    pacto.trianalab.io/relation-provenance: component:default/payments-f9945306=declared,resource:default/Stripe=declared+observed@2026-11-16T11:00:00Z
+    pacto.trianalab.io/service-key: ghcr.io%2Facme/checkout
+spec:
+  type: service
+  lifecycle: deprecated
+  owner: group:default/commerce
+  system: commerce
+  dependsOn:
+    - component:default/payments-f9945306
+    - resource:default/Stripe
+  consumesApis:
+    - api:default/payments-f9945306-rest
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: legacy
+  namespace: default
+  annotations:
+    pacto.trianalab.io/as-of: "2026-11-16T12:00:00Z"
+    pacto.trianalab.io/completeness: complete
+    pacto.trianalab.io/owner: team:acme/billing
+    pacto.trianalab.io/owner-provenance: declared
+    pacto.trianalab.io/owner-unmapped: "true"
+    pacto.trianalab.io/provenance: declared
+    pacto.trianalab.io/service-key: ghcr.io%2Facme/legacy
+spec:
+  type: service
+  lifecycle: unknown
+  owner: unknown
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: legacy-billing-84ebd704
+  namespace: default
+  tags:
+    - pacto-observed
+  annotations:
+    pacto.trianalab.io/as-of: "2026-11-16T12:00:00Z"
+    pacto.trianalab.io/caller: k8s:shop/Deployment/legacy-billing
+    pacto.trianalab.io/completeness: complete
+    pacto.trianalab.io/provenance: observed
+    pacto.trianalab.io/relation-provenance: component:default/checkout=observed
+spec:
+  type: service
+  lifecycle: unknown
+  owner: unknown
+  dependsOn:
+    - component:default/checkout
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: payments-aea470d7
+  namespace: default
+  title: payments
+  annotations:
+    pacto.trianalab.io/as-of: "2026-11-16T12:00:00Z"
+    pacto.trianalab.io/completeness: complete
+    pacto.trianalab.io/provenance: declared
+    pacto.trianalab.io/service-key: ghcr.io%2Fother/payments
+spec:
+  type: service
+  lifecycle: unknown
+  owner: unknown
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: payments-f9945306
+  namespace: default
+  title: payments
+  annotations:
+    pacto.trianalab.io/as-of: "2026-11-16T12:00:00Z"
+    pacto.trianalab.io/completeness: complete
+    pacto.trianalab.io/owner-provenance: declared
+    pacto.trianalab.io/provenance: declared
+    pacto.trianalab.io/service-key: ghcr.io%2Facme/payments
+spec:
+  type: service
+  lifecycle: unknown
+  owner: group:default/billing
+  system: payments
+  providesApis:
+    - api:default/payments-f9945306-rest
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: payments-f9945306-rest
+  namespace: default
+  annotations:
+    pacto.trianalab.io/as-of: "2026-11-16T12:00:00Z"
+    pacto.trianalab.io/completeness: complete
+    pacto.trianalab.io/owner-provenance: declared
+    pacto.trianalab.io/provenance: declared
+    pacto.trianalab.io/service-key: ghcr.io%2Facme/payments
+spec:
+  type: openapi
+  lifecycle: unknown
+  owner: group:default/billing
+  system: payments
+  definition: Defined by interfaces/openapi.yaml in revision ghcr.io%2Facme/payments@sha256:ghcr.io/acmepayments1.0.0.
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: Stripe
+  namespace: default
+  annotations:
+    pacto.trianalab.io/as-of: "2026-11-16T12:00:00Z"
+    pacto.trianalab.io/completeness: complete
+    pacto.trianalab.io/external-key: stripe
+    pacto.trianalab.io/provenance: declared+observed
+spec:
+  type: vendor-api
+  owner: unknown
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: host-legacy-mq.example
+  namespace: default
+  tags:
+    - pacto-inferred
+  annotations:
+    pacto.trianalab.io/as-of: "2026-11-16T12:00:00Z"
+    pacto.trianalab.io/completeness: complete
+    pacto.trianalab.io/external-key: host/legacy-mq.example
+    pacto.trianalab.io/provenance: inferred
+spec:
+  type: unclassified
+  owner: unknown

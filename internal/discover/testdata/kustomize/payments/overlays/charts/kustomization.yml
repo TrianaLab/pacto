@@ -1,0 +1,5 @@
+resources:
+  - ../../base
+helmCharts:
+  - name: redis
+    repo: https://charts.bitnami.com/bitnami

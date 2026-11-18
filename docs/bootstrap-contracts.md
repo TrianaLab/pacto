@@ -46,17 +46,19 @@ jq -r '.results[] | .service as $s | .unknown[] | "\($s): \(.)"' plan.json
 | The workload's environment, with the ConfigMaps in the folder that it reads | a configuration schema at `configuration/schema.json` with each key and its type, no values; sensitive keys are `writeOnly` |
 | An environment value that names another in-cluster service | `dependencies`, each with `compatibility: unknown` and, from that service's contract in `--fleet`, a proposed range in a comment |
 | A readiness, liveness or startup probe | a `health` capability |
-| A file named exactly `openapi` or `swagger`, with a `.yaml`, `.yml` or `.json` extension | one `openapi` interface |
+| An OpenAPI document at any path in the folder | one `openapi` interface; AsyncAPI and gRPC files go to the inferred record |
 | `kustomization.yaml` | the manifests artifact keeps the folder layout, and init asks you to set the Kustomization's `spec.path` |
 
-Init reads only these. A file such as `api/openapi.v1.yaml` is missed, and
-state stays for you to write. Every dependency range is a proposal: init writes
+These fill in the contract. Init also reads Helm charts, Kustomize, Compose,
+CODEOWNERS, `catalog-info.yaml` and environment files into the inferred record
+([the full list](pactify.md#what-pacto-reads-from-your-folder)). State stays
+for you to write. Every dependency range is a proposal: init writes
 `compatibility: unknown` with the proposal in a comment, and the dependency is
 named under `unknown`.
 
 Init skips the files and folders that the service's
-[`.pactoignore`](pactoignore.md) lists. It also skips every folder that holds a
-`Chart.yaml`, and documents in the `backstage.io` and `skaffold` API groups,
+[`.pactoignore`](pactoignore.md) lists. When it looks for manifests, it also
+skips every folder that holds a `Chart.yaml`, and documents in the `backstage.io` and `skaffold` API groups,
 such as `catalog-info.yaml` and `skaffold.yaml`.
 
 ### Configuration keys and sensitive values
@@ -81,10 +83,14 @@ default that holds a secret and publish a new version.
 Init keeps a `pacto.yaml` that is already there, so prepare these folders
 before step 3.
 
-**Helm charts.** Init does not render charts. It skips each chart's
-templates, subcharts and CRDs and names every chart under `unknown`, so a
-chart-only folder plans as `blank`. Render the chart into the folder, then
-init reads the result:
+**Helm charts.** Init reads charts statically and never renders them. It
+skips each chart's templates, subcharts and CRDs as manifests, and reads its
+`Chart.yaml`, values files and templates for images, ports, configuration keys
+and environments. What it reads is listed under `found` and kept in the
+inferred record, and a chart dependency with no `Chart.lock` digest is a
+finding ([what init reads](pactify.md#what-pacto-reads-from-your-folder)).
+A chart-only folder plans as `blank`. To have init write the workload
+from the chart, render the chart into the folder, then init reads the result:
 
 ```bash
 mkdir -p services/ledger/k8s
@@ -93,12 +99,12 @@ helm template --include-crds ledger services/ledger/chart \
 ```
 
 The contract then publishes the rendered file, so render again when the chart
-changes. The `unknown` line that names the chart stays after you render it. To
-publish the chart itself, add it under `publish.artifacts` as a `chart`
-([Publish](contract-reference/publish.md)).
+changes. To publish the chart itself, add it under `publish.artifacts` as a
+`chart` ([Publish](contract-reference/publish.md)).
 
-**Compose files.** Init does not read `compose.yaml`. A Compose-only folder
-gets the blank template. The blank template writes a publish section with
+**Compose files.** Init reads the image, ports and environment keys of
+`compose.yaml` into the inferred record, and a Compose-only folder still gets
+the blank template. The blank template writes a publish section with
 `bundle: oci://<registry>/<name>` and `sign.key: cosign.key`. Pass `--registry`
 to set the registry, or replace the `registry.example` placeholder that
 `unknown` names before you run `pacto publish`

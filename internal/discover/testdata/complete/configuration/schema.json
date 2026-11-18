@@ -1,0 +1,1 @@
+{"type": "object", "properties": {"PORT": {"type": "integer"}, "DB_PASSWORD": {"type": "string", "writeOnly": true}}}

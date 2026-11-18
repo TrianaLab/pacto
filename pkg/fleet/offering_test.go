@@ -122,7 +122,7 @@ func TestRestrictedView_OfferingFromHiddenTargetDoesNotLeak(t *testing.T) {
 		{Scope: "secret", Kind: SourceKindKubernetes, Name: "x-secret", Service: "x", Offering: "postgresql", Summary: "hidden"},
 		{Scope: "open", Kind: SourceKindKubernetes, Name: "x-open", Service: "x"},
 	}})
-	r := q.Restrict(func(ns string) bool { return ns != "secret" })
+	r := q.Restrict(func(ns string) bool { return ns != "secret" }, nil)
 	if s := r.snap.Services[NewServiceKeyDomain("", "x")]; s.Offering != "" || s.Summary != "" {
 		t.Errorf("restricted offering = %q, summary = %q", s.Offering, s.Summary)
 	}
@@ -680,7 +680,7 @@ func TestRestrictedView_ConflictFromHiddenTargetDoesNotLeak(t *testing.T) {
 	if !slices.ContainsFunc(q.snap.Limitations, func(l Limitation) bool { return l.Code == LimitationOfferingConflict }) {
 		t.Fatal("the unrestricted snapshot has no OFFERING_CONFLICT")
 	}
-	r := q.Restrict(func(ns string) bool { return ns != "hiddenns" })
+	r := q.Restrict(func(ns string) bool { return ns != "hiddenns" }, nil)
 	if s := r.snap.Services[NewServiceKeyDomain("", "x")]; s.Offering != "postgresql" {
 		t.Errorf("restricted offering = %q, want postgresql", s.Offering)
 	}

@@ -48,7 +48,7 @@ func TestRestrictHidesExternalOnlyHiddenConsumers(t *testing.T) {
 	q := extK8sFleet(t,
 		extSvc{"web", []string{"shop"}, []string{"stripe"}},
 		extSvc{"vault", []string{"secret"}, []string{"legacy-mq"}})
-	r := q.Restrict(shopView)
+	r := q.Restrict(shopView, nil)
 	if _, err := r.GetExternal("legacy-mq"); err == nil {
 		t.Fatal("an external only a hidden service declares is not found")
 	}
@@ -64,7 +64,7 @@ func TestRestrictHidesExternalOnlyHiddenConsumers(t *testing.T) {
 		t.Error("the unrestricted view keeps both")
 	}
 	// Restricting twice keeps the count.
-	if rr := r.Restrict(func(string) bool { return false }); rr.Overview().Summary.HiddenExternals != 2 {
+	if rr := r.Restrict(func(string) bool { return false }, nil); rr.Overview().Summary.HiddenExternals != 2 {
 		t.Errorf("hidden after two restrictions = %d", rr.Overview().Summary.HiddenExternals)
 	}
 }
@@ -74,7 +74,7 @@ func TestRestrictExternalCountsHiddenConsumers(t *testing.T) {
 		extSvc{"web", []string{"shop"}, []string{"stripe"}},
 		extSvc{"pay", []string{"secret"}, []string{"stripe"}},
 		extSvc{"bill", []string{"secret"}, []string{"stripe"}})
-	v, err := q.Restrict(shopView).GetExternal("external:stripe")
+	v, err := q.Restrict(shopView, nil).GetExternal("external:stripe")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +87,7 @@ func TestRestrictExternalCountsHiddenConsumers(t *testing.T) {
 			t.Errorf("a hidden consumer is named: %+v", src)
 		}
 	}
-	l, _ := q.Restrict(shopView).Entities(EntityFilter{Kinds: []EntityKind{KindExternal}})
+	l, _ := q.Restrict(shopView, nil).Entities(EntityFilter{Kinds: []EntityKind{KindExternal}})
 	if row := l.Entities[0]; row.Consumers != 1 || row.HiddenConsumers != 0 {
 		t.Fatalf("restricted list row = %+v", row)
 	}
@@ -99,7 +99,7 @@ func TestRestrictExternalSourcesTotalCountsVisibleOnly(t *testing.T) {
 		extSvc{"pay", []string{"secret"}, []string{"stripe"}})
 	// web declares it at two positions of one revision: three declarations.
 	full, _ := q.GetExternal("stripe")
-	v, _ := q.Restrict(shopView).GetExternal("stripe")
+	v, _ := q.Restrict(shopView, nil).GetExternal("stripe")
 	if full.External.SourcesTotal != 3 || v.External.SourcesTotal != 2 {
 		t.Fatalf("sources total = %d of %d", v.External.SourcesTotal, full.External.SourcesTotal)
 	}
@@ -127,7 +127,7 @@ func TestRestrictDropsExternalSourceOfHiddenTarget(t *testing.T) {
 	rec.declarations[web] = 1
 	finalizeExternal(rec)
 	q = NewQuery(snap)
-	v, err := q.Restrict(shopView).GetExternal("stripe")
+	v, err := q.Restrict(shopView, nil).GetExternal("stripe")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,13 +163,13 @@ func TestRestrictFoldRanksOnVisibleConsumersOnly(t *testing.T) {
 	if !hasLimitation(a.Overview().Meta.Limitations, LimitationExternalCap) {
 		t.Fatal("the unrestricted view of 205 externals folds")
 	}
-	ra := a.Restrict(shopView)
+	ra := a.Restrict(shopView, nil)
 	la, _ := ra.Entities(EntityFilter{Kinds: []EntityKind{KindExternal}, Limit: MaxEntityLimit})
 	if la.Total != 150 || la.Hidden != 55 || hasLimitation(la.Meta.Limitations, LimitationExternalCap) {
 		t.Fatalf("restricted list total %d hidden %d limitations %+v", la.Total, la.Hidden, la.Meta.Limitations)
 	}
 	b := foldFleet(t, 150, 3)
-	lb, _ := b.Restrict(shopView).Entities(EntityFilter{Kinds: []EntityKind{KindExternal}, Limit: MaxEntityLimit})
+	lb, _ := b.Restrict(shopView, nil).Entities(EntityFilter{Kinds: []EntityKind{KindExternal}, Limit: MaxEntityLimit})
 	if !reflect.DeepEqual(la.Entities, lb.Entities) || la.Total != lb.Total || la.Hidden != lb.Hidden {
 		t.Error("the restricted answer depends on hidden consumer counts")
 	}
@@ -182,7 +182,7 @@ func TestRestrictedLabelNeverNamesAHiddenConsumer(t *testing.T) {
 	if v, _ := q.GetExternal("host/corp-legacy.co.uk"); v.External.Label != "falcon-acquisition-mq.corp-legacy.co.uk" {
 		t.Fatalf("unrestricted label = %q, want the first consumer's spelling", v.External.Label)
 	}
-	r := q.Restrict(shopView)
+	r := q.Restrict(shopView, nil)
 	v, err := r.GetExternal("host/corp-legacy.co.uk")
 	if err != nil || v.External.Label != "billing.corp-legacy.co.uk" {
 		t.Fatalf("restricted label = %+v, %v", v, err)
@@ -202,7 +202,7 @@ func TestRestrictFoldCountsAHiddenConsumerOnce(t *testing.T) {
 		all = append(all, fmt.Sprintf("ext-%03d", i))
 	}
 	q := extK8sFleet(t, extSvc{"v", []string{"shop"}, all}, extSvc{"h", []string{"secret"}, all})
-	v, err := q.Restrict(shopView).GetExternal(string(OtherEgress))
+	v, err := q.Restrict(shopView, nil).GetExternal(string(OtherEgress))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,7 +216,7 @@ func TestExplainExternalSaysWhatItLeavesOut(t *testing.T) {
 	for i := 0; i < MaxExternalSources+5; i++ {
 		svcs = append(svcs, extSvc{fmt.Sprintf("s%03d", i), []string{"shop"}, []string{"stripe"}})
 	}
-	res, err := extK8sFleet(t, svcs...).Restrict(shopView).Explain("external:stripe")
+	res, err := extK8sFleet(t, svcs...).Restrict(shopView, nil).Explain("external:stripe")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,5 +236,42 @@ func TestExplainExternalSaysWhatItLeavesOut(t *testing.T) {
 	}
 	if res, _ := extK8sFleet(t, svcs[1:3]...).Explain("external:stripe"); slices.ContainsFunc(res.Reasons, func(r Reason) bool { return r.Code == ReasonExternalSourcesTruncated }) {
 		t.Error("a complete list says it is truncated")
+	}
+}
+
+// TestRestrictHidesRepositoryExternalOfHiddenService: a view that hides
+// vault never names its repository evidence and counts it as a hidden
+// consumer; evidence from a revision the view hides goes with it, on a
+// visible service too.
+func TestRestrictHidesRepositoryExternalOfHiddenService(t *testing.T) {
+	q := NewQuery(repoFleet(t, repoSvc{"web", "1.0.0", "shop", stripeRecord()}, repoSvc{"vault", "1.0.0", "secret", stripeRecord()}))
+	v, err := q.Restrict(shopView, nil).GetExternal("stripe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.External.HiddenConsumers != 1 || !reflect.DeepEqual(v.External.Consumers, []ServiceKey{"web"}) || len(v.InferredSources) != 2 {
+		t.Fatalf("view = %+v", v)
+	}
+	for _, s := range v.InferredSources {
+		if s.Service != "web" || s.Revision != "web@sha256:web-1.0.0" {
+			t.Errorf("source %+v", s)
+		}
+	}
+	// A visible service whose record-bearing revision the view hides: its
+	// evidence and its edge go, and it counts as a hidden consumer.
+	out := &FleetSnapshot{Services: map[ServiceKey]*ServiceRecord{"web": {}}, Revisions: map[RevisionKey]*ContractRevision{}, Targets: map[TargetKey]*TargetRecord{},
+		Relationships: []Relationship{{FromService: "web", ToExternal: "stripe", Provenance: ProvenanceInferred,
+			InferredSources: []InferredSource{{Source: "k8s", Kind: "sdk", Revision: "web@old"}}}}}
+	restrictInferredEvidence(out)
+	if len(out.Relationships) != 0 {
+		t.Errorf("relationships = %+v", out.Relationships)
+	}
+	rec := &ExternalRecord{Key: "stripe", declarations: map[ServiceKey]int{"web": 1, "pay": 1}, Consumers: []ServiceKey{"pay", "web"}, Sources: []ExternalSource{
+		{Kind: ExternalSourceRepository, Service: "web", Revision: "web@old", Provenance: ProvenanceInferred},
+		{Kind: ExternalSourceContract, Service: "pay", Provenance: ProvenanceDeclared},
+	}}
+	out.Services["pay"] = &ServiceRecord{}
+	if r := restrictExternal(out, rec); r == nil || r.HiddenConsumers != 1 || !reflect.DeepEqual(r.Consumers, []ServiceKey{"pay"}) {
+		t.Errorf("restricted = %+v", r)
 	}
 }

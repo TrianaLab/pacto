@@ -69,3 +69,10 @@ export function formatRelative(iso: string | null | undefined, now: number = Dat
   if (days < 7) return `${days} day${days === 1 ? '' : 's'} ago`;
   return formatDate(iso);
 }
+
+/** formatWhen is formatRelative worded to follow a verb: "4 minutes ago", "just now",
+ *  or "on Nov 7, 2026" once the age reads as a calendar date. */
+export function formatWhen(iso: string | null | undefined, now: number = Date.now()): string {
+  const r = formatRelative(iso, now);
+  return r && r === formatDate(iso) ? `on ${r}` : r;
+}

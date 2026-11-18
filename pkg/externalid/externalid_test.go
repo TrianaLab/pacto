@@ -140,3 +140,23 @@ func TestNameDropsPort(t *testing.T) {
 		t.Fatalf("two IP:port names collapsed into %q", x)
 	}
 }
+
+func TestManagedBuildsFiveSegments(t *testing.T) {
+	id, err := Managed(" AWS ", "SQS", "123456789012", "EU-West-1", "Orders-Queue")
+	if err != nil || id != "aws/sqs/123456789012/eu-west-1/orders-queue" {
+		t.Fatalf("Managed = %q, %v", id, err)
+	}
+	if _, err := Managed("aws", "sqs", "123456789012", "eu-west-1", "bad/id"); err == nil {
+		t.Fatal("an id with a slash must not parse")
+	}
+}
+
+func TestManagedRefusesEmptyPart(t *testing.T) {
+	for i := range 5 {
+		parts := []string{"aws", "sqs", "123456789012", "eu-west-1", "orders"}
+		parts[i] = " "
+		if _, err := Managed(parts[0], parts[1], parts[2], parts[3], parts[4]); err == nil || !strings.Contains(err.Error(), "provider, service, account, region and id") {
+			t.Errorf("empty part %d: %v", i, err)
+		}
+	}
+}

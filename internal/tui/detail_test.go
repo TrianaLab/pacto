@@ -834,3 +834,22 @@ func TestTUIExternalDetail(t *testing.T) {
 		t.Errorf("the other-egress node:\n%s", out)
 	}
 }
+
+func TestServiceDetailOwnerProvenance(t *testing.T) {
+	for prov, want := range map[string]string{
+		fleet.OwnerProvenanceDeclaredViaTarget: "pay (declared via target)",
+		fleet.OwnerProvenanceAttested:          "pay (attested)",
+		fleet.OwnerProvenanceInferred:          "pay (inferred)",
+	} {
+		var b strings.Builder
+		renderServiceDetail(&b, "web", &fleet.ServiceDetailData{Ownership: &fleet.OwnershipInfo{Owner: "pay", Provenance: prov}}, fleet.CompletenessComplete)
+		if !strings.Contains(b.String(), want) {
+			t.Errorf("%q: want %q in:\n%s", prov, want, b.String())
+		}
+	}
+	var b strings.Builder
+	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{Ownership: &fleet.OwnershipInfo{Owner: "pay", Provenance: fleet.OwnerProvenanceDeclared}}, fleet.CompletenessComplete)
+	if strings.Contains(b.String(), "(declared") {
+		t.Errorf("a declared owner is marked:\n%s", b.String())
+	}
+}

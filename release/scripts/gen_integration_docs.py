@@ -381,7 +381,11 @@ def gen_rbac(k8s: str) -> str:
         "a previous install may have created there, the node agent's included (releases "
         "before the dedicated agent namespace ran it in the release namespace). The one "
         "`secrets` `get` rule with no name reads pull Secrets and Secrets that back a "
-        "configuration in the release namespace.\n"
+        "configuration in the release namespace. The `configmaps` rules let detection "
+        "write `<fullname>-detected`, the one ConfigMap it publishes: `create` cannot be "
+        "limited by name, and `get` and `patch` name that ConfigMap only. The `deployments` "
+        "`get` rule naming the operator's own Deployment lets detection set it as the "
+        "ConfigMap's owner.\n"
     )
     out.extend(_rbac_rules_table(ns_always))
     out.append("")
@@ -468,12 +472,27 @@ def gen_rbac(k8s: str) -> str:
             "token, which RBAC cannot express.\n"
         )
 
+    signin = sorted(k for k in full if k[0] == "ClusterRole" and k != cr_key)
+    if signin:
+        out.append("## Dashboard token sign-in (`dashboard.auth.tokenSignIn`)\n")
+        out.append(
+            "On by default with the dashboard. The dashboard's ServiceAccount may create "
+            "TokenReviews, which reveals only whose token it already holds, and the "
+            "`pacto-viewer` ServiceAccount the NOTES sign-in link carries a token for reads "
+            "Pactos and nothing else. Helm creates both grants, so the operator holds neither:\n"
+        )
+        for key in signin:
+            out.append(f"`{key[2]}` (`ClusterRole`):\n")
+            out.extend(_rbac_rules_table(full[key]["rules"]))
+            out.append("")
+
     out.append("## With controller.watchNamespaces\n")
     out.append(
         "Rendered with `--set 'controller.watchNamespaces={payments,ledger}'`. The chart "
-        "creates no ClusterRole and no ClusterRoleBinding; the node agent and the "
-        "dashboard's delivery reads, when on, keep only their cluster-scoped rules. Each "
-        "watched namespace gets these Roles:\n"
+        "creates no ClusterRole and no ClusterRoleBinding beyond the dashboard's TokenReview "
+        "grant, which has no namespaced form; the node agent and the dashboard's delivery "
+        "reads, when on, keep only their cluster-scoped rules. Each watched namespace gets "
+        "these Roles:\n"
     )
     for key in sorted(k for k in scoped if k[1] == "payments"):
         out.append(f"`{key[2]}` (`{key[0]}` in each watched namespace):\n")

@@ -42,6 +42,9 @@ type capabilityAuth struct {
 	Hidden bool `json:"hidden" doc:"Some services are hidden because this caller's Kubernetes permissions do not let them read their namespace"`
 	// NothingVisible: every service is hidden, so the caller sees an empty fleet.
 	NothingVisible bool `json:"nothingVisible,omitempty" doc:"Every service is hidden because this caller's Kubernetes permissions let them read none of their namespaces"`
+	// FleetOnly: the cluster serves delivery and this session, from a sign-in
+	// link, reads the fleet only.
+	FleetOnly bool `json:"fleetOnly,omitempty" doc:"The cluster serves delivery and this session, from a sign-in link, reads the fleet only"`
 }
 
 // registerCapabilitiesOperation registers the always-on capabilities endpoint. It
@@ -73,10 +76,13 @@ func (s *Server) capabilities(ctx context.Context, _ *struct{}) (*capabilitiesOu
 		out.Body.Auth = capabilityAuth{Hidden: hidden, NothingVisible: hidden && len(q.SnapshotForSerialization().Services) == 0}
 		// A cluster that cannot be asked keeps the tab: its views then say
 		// the cluster is unreachable instead of hiding delivery. Where delivery
-		// is never served, the cluster is not asked at all.
+		// is never served, the cluster is not asked at all. A sign-in link
+		// session sees no Delivery, and is told why only where delivery is
+		// installed: its own sign-in would show it there.
 		if s.opts.Delivery != nil && a.Mode != "open" {
 			installed, err := s.deliveryInstalled(ctx)
-			out.Body.Delivery = installed || err != nil
+			out.Body.Delivery = (installed || err != nil) && !a.State.FleetOnly
+			out.Body.Auth.FleetOnly = installed && a.State.FleetOnly
 		}
 	}
 	out.Body.MiraURL = s.opts.MiraURL
@@ -158,6 +164,15 @@ func (s *Server) registerFleetOperations(api huma.API) {
 		Description: "Reports services and targets needing attention across every category.",
 		Tags:        []string{"Fleet"},
 	}, s.fleetStatus)
+
+	huma.Register(api, huma.Operation{
+		OperationID: "fleet-providers",
+		Method:      http.MethodGet,
+		Path:        "/api/fleet/providers",
+		Summary:     "Detected providers",
+		Description: "Lists what Pacto detected in each source: the evidence, what it uses each for and its status. Read-only.",
+		Tags:        []string{"Fleet"},
+	}, s.fleetProviders)
 }
 
 type fleetSnapshotOutput struct {
@@ -176,14 +191,15 @@ func (s *Server) fleetSnapshot(ctx context.Context, _ *struct{}) (*fleetSnapshot
 }
 
 type fleetSearchInput struct {
-	Text     string `query:"text"`
-	Owner    string `query:"owner"`
-	Scope    string `query:"scope"`
-	Status   string `query:"status" enum:"Compliant,Invalid,NonCompliant,NotEvaluated,Reference,Unknown,Warning" doc:"Compliance status filter"`
-	Source   string `query:"source"`
-	Template string `query:"template" enum:"only,exclude" doc:"Golden path filter: only keeps the golden paths, exclude leaves them out; absent lists every service, golden paths marked template"`
-	Limit    int    `query:"limit"`
-	Offset   int    `query:"offset"`
+	Text        string `query:"text"`
+	Owner       string `query:"owner"`
+	Scope       string `query:"scope"`
+	Status      string `query:"status" enum:"Compliant,Invalid,NonCompliant,NotEvaluated,Reference,Unknown,Warning" doc:"Compliance status filter"`
+	Source      string `query:"source"`
+	Template    string `query:"template" enum:"only,exclude" doc:"Golden path filter: only keeps the golden paths, exclude leaves them out; absent lists every service, golden paths marked template"`
+	Declaration string `query:"declaration" enum:"declared,inferred" doc:"Declaration filter: inferred keeps only the services Pacto infers from workloads no contract describes, declared leaves them out; absent lists every service, inferred ones marked"`
+	Limit       int    `query:"limit"`
+	Offset      int    `query:"offset"`
 }
 
 type fleetSearchOutput struct {
@@ -197,7 +213,7 @@ func (s *Server) fleetSearch(ctx context.Context, in *fleetSearchInput) (*fleetS
 	}
 	res, err := q.Search(fleet.SearchFilter{
 		Text: in.Text, Owner: in.Owner, Scope: in.Scope, Status: in.Status,
-		Source: in.Source, Template: in.Template, Limit: in.Limit, Offset: in.Offset,
+		Source: in.Source, Template: in.Template, Declaration: in.Declaration, Limit: in.Limit, Offset: in.Offset,
 	})
 	if err != nil {
 		return nil, huma.Error422UnprocessableEntity("invalid fleet search filter", err)
@@ -326,6 +342,18 @@ func (s *Server) fleetStatus(ctx context.Context, _ *struct{}) (*fleetStatusOutp
 		return nil, err
 	}
 	return &fleetStatusOutput{Body: q.Status(fleet.StatusQuery{NeedsAttention: true})}, nil
+}
+
+type fleetProvidersOutput struct {
+	Body *fleet.ProvidersResult
+}
+
+func (s *Server) fleetProviders(ctx context.Context, _ *struct{}) (*fleetProvidersOutput, error) {
+	q, err := s.fleetQuery(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &fleetProvidersOutput{Body: q.Providers()}, nil
 }
 
 // registerImpactOperation registers the read-only impact endpoint when a provider

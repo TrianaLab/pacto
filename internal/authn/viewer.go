@@ -52,18 +52,24 @@ type Claims struct {
 	GroupsPrefix string
 }
 
-// Person reads a token the identity layer already verified the way the
-// cluster is told to map it. Any group starting with "system:" is dropped:
-// the apiserver never takes those from an OIDC token, so passing one an IdP
-// lets a user name (system:masters) would make the review answer for a group
-// the person does not hold. A token that names no username is Anonymous.
-func (c Claims) Person(token string) Person {
+// jwtClaims is a JWT's payload claims, unverified; nil for anything else.
+func jwtClaims(token string) map[string]json.RawMessage {
 	var raw map[string]json.RawMessage
 	if parts := strings.Split(token, "."); len(parts) == 3 {
 		if payload, err := base64.RawURLEncoding.DecodeString(parts[1]); err == nil {
 			_ = json.Unmarshal(payload, &raw) // a token without claims is nobody
 		}
 	}
+	return raw
+}
+
+// Person reads a token the identity layer already verified the way the
+// cluster is told to map it. Any group starting with "system:" is dropped:
+// the apiserver never takes those from an OIDC token, so passing one an IdP
+// lets a user name (system:masters) would make the review answer for a group
+// the person does not hold. A token that names no username is Anonymous.
+func (c Claims) Person(token string) Person {
+	raw := jwtClaims(token)
 	str := func(name string) string {
 		var v string
 		_ = json.Unmarshal(raw[name], &v) // a claim that is no string is no name
@@ -98,9 +104,27 @@ func (c Claims) Person(token string) Person {
 	return Person{User: user, Groups: out}
 }
 
-// Review answers whether p may list Pactos in namespace ("" for every
-// namespace at once).
-type Review func(ctx context.Context, p Person, namespace string) (bool, error)
+// Review answers whether p may list res in namespace ("" for every namespace
+// at once).
+type Review func(ctx context.Context, p Person, namespace string, res ResourceAttributes) (bool, error)
+
+// ResourceAttributes is the API group and resource a review asks about.
+type ResourceAttributes struct {
+	Group    string
+	Resource string
+}
+
+// PactoResource is the resource every fleet answer is reviewed against.
+var PactoResource = ResourceAttributes{Group: "pacto.trianalab.io", Resource: "pactos"}
+
+// workloadResources maps the workload kind of an inferred service to the
+// resource a person must be allowed to list to see it.
+var workloadResources = map[string]ResourceAttributes{
+	"Deployment":  {Group: "apps", Resource: "deployments"},
+	"StatefulSet": {Group: "apps", Resource: "statefulsets"},
+	"DaemonSet":   {Group: "apps", Resource: "daemonsets"},
+	"CronJob":     {Group: "batch", Resource: "cronjobs"},
+}
 
 var sarResource = schema.GroupVersionResource{Group: "authorization.k8s.io", Version: "v1", Resource: "subjectaccessreviews"}
 
@@ -110,8 +134,8 @@ const reviewTimeout = 5 * time.Second
 // SubjectAccessReview asks the apiserver, with dyn's own credentials (the
 // dashboard's ServiceAccount, which needs create on subjectaccessreviews).
 func SubjectAccessReview(dyn dynamic.Interface) Review {
-	return func(ctx context.Context, p Person, namespace string) (bool, error) {
-		return postReview(ctx, dyn.Resource(sarResource), reviewObject("SubjectAccessReview", p, namespace))
+	return func(ctx context.Context, p Person, namespace string, res ResourceAttributes) (bool, error) {
+		return postReview(ctx, dyn.Resource(sarResource), reviewObject("SubjectAccessReview", p, namespace, res))
 	}
 }
 
@@ -122,18 +146,18 @@ var lsarResource = schema.GroupVersionResource{Group: "authorization.k8s.io", Ve
 // that namespace only: a namespaced Role grants it. Every namespace at once
 // ("") has no namespaced form, so it is answered false without a request.
 func LocalSubjectAccessReview(dyn dynamic.Interface) Review {
-	return func(ctx context.Context, p Person, namespace string) (bool, error) {
+	return func(ctx context.Context, p Person, namespace string, res ResourceAttributes) (bool, error) {
 		if namespace == "" {
 			return false, nil
 		}
-		obj := reviewObject("LocalSubjectAccessReview", p, namespace)
+		obj := reviewObject("LocalSubjectAccessReview", p, namespace, res)
 		obj.SetNamespace(namespace)
 		return postReview(ctx, dyn.Resource(lsarResource).Namespace(namespace), obj)
 	}
 }
 
-// reviewObject is a review of kind asking whether p may list Pactos in namespace.
-func reviewObject(kind string, p Person, namespace string) *unstructured.Unstructured {
+// reviewObject is a review of kind asking whether p may list res in namespace.
+func reviewObject(kind string, p Person, namespace string, res ResourceAttributes) *unstructured.Unstructured {
 	groups := make([]any, len(p.Groups))
 	for i, g := range p.Groups {
 		groups[i] = g
@@ -141,7 +165,7 @@ func reviewObject(kind string, p Person, namespace string) *unstructured.Unstruc
 	return &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "authorization.k8s.io/v1", "kind": kind,
 		"spec": map[string]any{"user": p.User, "groups": groups, "resourceAttributes": map[string]any{
-			"namespace": namespace, "verb": "list", "group": "pacto.trianalab.io", "resource": "pactos"}},
+			"namespace": namespace, "verb": "list", "group": res.Group, "resource": res.Resource}},
 	}}
 }
 
@@ -216,18 +240,37 @@ var ErrReview = errors.New("the apiserver could not review which namespaces you 
 
 // Query is q as p sees it. A cluster-wide reader sees all of it; anyone else
 // sees the namespaces they may read and nothing without a namespace, such as
-// a service known only from a registry. A failed review is ErrReview, never a
-// quietly smaller answer.
+// a service known only from a registry. An inferred service also needs p to
+// be allowed to list its workload kind in its namespace, so a cluster-wide
+// Pacto reader sees all of q only when they may list every such kind
+// cluster-wide too. A failed review is ErrReview, never a quietly smaller
+// answer.
 func (v *Viewer) Query(ctx context.Context, p Person, q *fleet.Query) (*fleet.Query, error) {
-	visible, all, err := v.visible(ctx, p, q.Namespaces())
+	who := p.User + "\x00" + strings.Join(slices.Sorted(slices.Values(p.Groups)), "\x00")
+	scopes := q.InferredWorkloadScopes()
+	visible, all, err := v.visible(ctx, p, who, q.Namespaces())
+	var workloads map[fleet.WorkloadScope]bool
+	allWorkloads := false
+	if err == nil {
+		workloads, allWorkloads, err = v.workloads(ctx, p, who, scopes, all, visible)
+	}
 	if err != nil {
 		slog.WarnContext(ctx, "reviewing which namespaces a person may read failed", "error", err)
 		return nil, ErrReview
 	}
-	if all {
+	if all && allWorkloads {
 		return q, nil
 	}
+	nsVisible := func(ns string) bool { _, ok := slices.BinarySearch(visible, ns); return ok && ns != "" }
 	key := strings.Join(visible, "\x00")
+	if all {
+		nsVisible, key = func(string) bool { return true }, "\x01all"
+	}
+	for _, sc := range scopes {
+		if workloads[sc] {
+			key += "\x02" + sc.Namespace + "\x00" + sc.Kind
+		}
+	}
 	v.mu.Lock()
 	r, ok := v.views[key]
 	ok = ok && v.viewsOf == q.SnapshotID()
@@ -237,7 +280,7 @@ func (v *Viewer) Query(ctx context.Context, p Person, q *fleet.Query) (*fleet.Qu
 	}
 	// Restricting a large snapshot takes a while, so it runs unlocked: two
 	// people asking at once may both build the same view.
-	r = q.Restrict(func(ns string) bool { _, ok := slices.BinarySearch(visible, ns); return ok && ns != "" })
+	r = q.Restrict(nsVisible, func(ns, kind string) bool { return workloads[fleet.WorkloadScope{Namespace: ns, Kind: kind}] })
 	v.mu.Lock()
 	if v.viewsOf != q.SnapshotID() || len(v.views) >= maxViews {
 		v.viewsOf, v.views = q.SnapshotID(), map[string]*fleet.Query{}
@@ -251,10 +294,9 @@ func (v *Viewer) Query(ctx context.Context, p Person, q *fleet.Query) (*fleet.Qu
 // reads every namespace. One review for every namespace at once comes first:
 // it settles a cluster-wide reader. A scoped viewer skips it and asks only
 // about the watched namespaces.
-func (v *Viewer) visible(ctx context.Context, p Person, nss []string) ([]string, bool, error) {
-	who := p.User + "\x00" + strings.Join(slices.Sorted(slices.Values(p.Groups)), "\x00")
+func (v *Viewer) visible(ctx context.Context, p Person, who string, nss []string) ([]string, bool, error) {
 	if !v.scoped {
-		all, err := v.ask(ctx, p, who, "")
+		all, err := v.ask(ctx, p, who, "", PactoResource)
 		if err != nil || all {
 			return nss, all, err
 		}
@@ -266,7 +308,7 @@ func (v *Viewer) visible(ctx context.Context, p Person, nss []string) ([]string,
 		if v.scoped && !v.watched[ns] {
 			continue
 		}
-		g.Go(func() (err error) { allowed[i], err = v.ask(gctx, p, who, ns); return err })
+		g.Go(func() (err error) { allowed[i], err = v.ask(gctx, p, who, ns, PactoResource); return err })
 	}
 	if err := g.Wait(); err != nil {
 		return nil, false, err
@@ -280,9 +322,69 @@ func (v *Viewer) visible(ctx context.Context, p Person, nss []string) ([]string,
 	return out, false, nil
 }
 
+// workloads returns the scopes p may list the workload kind of, and whether p
+// may list every such kind cluster-wide. An unknown kind is never visible. A
+// viewer that is not scoped asks once per kind about every namespace at once
+// (only for a cluster-wide Pacto reader, the one it could settle) and then
+// about each scope in a visible namespace; a scoped viewer asks only about
+// scopes in watched namespaces.
+func (v *Viewer) workloads(ctx context.Context, p Person, who string, scopes []fleet.WorkloadScope, allNS bool, visible []string) (map[fleet.WorkloadScope]bool, bool, error) {
+	everywhere := map[string]bool{}
+	if allNS && !v.scoped {
+		var err error
+		if everywhere, err = v.kindsEverywhere(ctx, p, who, scopes); err != nil {
+			return nil, false, err
+		}
+	}
+	allowed := make([]bool, len(scopes))
+	all := true
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(reviewsAtOnce)
+	for i, sc := range scopes {
+		res, known := workloadResources[sc.Kind]
+		_, nsOK := slices.BinarySearch(visible, sc.Namespace)
+		switch {
+		case everywhere[sc.Kind]:
+			allowed[i] = true
+		case !known || (v.scoped && !v.watched[sc.Namespace]) || (!allNS && !nsOK):
+			all = false
+		default:
+			all = false
+			g.Go(func() (err error) { allowed[i], err = v.ask(gctx, p, who, sc.Namespace, res); return err })
+		}
+	}
+	if err := g.Wait(); err != nil {
+		return nil, false, err
+	}
+	out := map[fleet.WorkloadScope]bool{}
+	for i, sc := range scopes {
+		if allowed[i] {
+			out[sc] = true
+		}
+	}
+	return out, all, nil
+}
+
+// kindsEverywhere asks, once per known workload kind of scopes, whether p may
+// list it in every namespace at once.
+func (v *Viewer) kindsEverywhere(ctx context.Context, p Person, who string, scopes []fleet.WorkloadScope) (map[string]bool, error) {
+	out := map[string]bool{}
+	for _, sc := range scopes {
+		res, known := workloadResources[sc.Kind]
+		if _, asked := out[sc.Kind]; known && !asked {
+			ok, err := v.ask(ctx, p, who, "", res)
+			if err != nil {
+				return nil, err
+			}
+			out[sc.Kind] = ok
+		}
+	}
+	return out, nil
+}
+
 // ask is one cached review. Failures are not cached.
-func (v *Viewer) ask(ctx context.Context, p Person, who, ns string) (bool, error) {
-	key := who + "\x01" + ns
+func (v *Viewer) ask(ctx context.Context, p Person, who, ns string, res ResourceAttributes) (bool, error) {
+	key := who + "\x01" + ns + "\x01" + res.Resource + "." + res.Group
 	now := v.now()
 	v.mu.Lock()
 	a, ok := v.answers[key]
@@ -290,7 +392,7 @@ func (v *Viewer) ask(ctx context.Context, p Person, who, ns string) (bool, error
 	if ok && now.Before(a.until) {
 		return a.allowed, nil
 	}
-	allowed, err := v.review(ctx, p, ns)
+	allowed, err := v.review(ctx, p, ns, res)
 	if err != nil {
 		return false, err
 	}

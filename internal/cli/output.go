@@ -10,6 +10,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/internal/discover"
+	"github.com/trianalab/pacto/v4/internal/pactify"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/diff"
 	"github.com/trianalab/pacto/v4/pkg/doc"
@@ -503,9 +505,129 @@ func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format st
 		if result.Readiness != nil {
 			printReadiness(w, result.Readiness)
 		}
+		printExplainInferred(w, result)
 
 		return nil
 	}, nil)
+}
+
+// printExplainInferred prints what the inferred record holds, apart from the
+// declared contract: one line per field with its source, then the YAML that
+// would declare them, each top-level key once, and the configuration keys as
+// one JSON object for the configuration schema's properties.
+func printExplainInferred(w io.Writer, result *app.ExplainResult) {
+	defer printDiscoveryFindings(w, result)
+	if !result.InferredUnreadable && len(result.Inferred) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintln(w, "\nInferred (not part of the contract):")
+	if result.InferredUnreadable {
+		_, _ = fmt.Fprintln(w, "  Pacto could not read the inferred record")
+		return
+	}
+	printExplainExternals(w, result)
+	var heads []string
+	bodies := map[string]string{}
+	var config []string
+	for _, f := range result.Inferred {
+		line := explainInferredLine(f)
+		if strings.HasPrefix(f.Field, "configuration.") {
+			config = append(config, f.Declare)
+			if strings.HasSuffix(f.Value, "writeOnly") {
+				line += " (value not read)"
+			}
+		} else if f.Declare != "" {
+			head, body, _ := strings.Cut(f.Declare, "\n")
+			if _, seen := bodies[head]; !seen {
+				heads = append(heads, head)
+			}
+			bodies[head] += body
+		}
+		if f.External == nil { // the summary above lists it
+			_, _ = fmt.Fprintln(w, line)
+		}
+	}
+	if len(heads) > 0 {
+		_, _ = fmt.Fprintln(w, "\nTo declare in pacto.yaml:")
+		for _, head := range heads {
+			_, _ = fmt.Fprint(w, indent("  ", head+"\n"+bodies[head]))
+		}
+	}
+	if len(config) > 0 {
+		_, _ = fmt.Fprintln(w, "\nTo declare in the configuration schema, under properties:")
+		_, _ = fmt.Fprintf(w, "  {%s}\n", strings.Join(config, ", "))
+	}
+}
+
+// explainInferredLine is the line explain prints for the inferred field f.
+func explainInferredLine(f contract.Inferred) string {
+	line := fmt.Sprintf("  %s  inferred  %s  from %s", f.Field, f.Value, explainSource(f.Source))
+	if f.Class == contract.InferredClassOwnerFile {
+		line += "; read from an owner file, not verified"
+	}
+	if f.Confidence == contract.ConfidencePossible {
+		line += "; possible (a naming convention)"
+	}
+	if len(f.Outranks) > 0 {
+		line += "; outranks " + strings.Join(mapStrings(f.Outranks, explainSource), ", ")
+	}
+	return line
+}
+
+// printExplainExternals prints the plan line for the external dependencies
+// the inferred record holds, when it holds any, one line per dependency
+// under it.
+func printExplainExternals(w io.Writer, result *app.ExplainResult) {
+	if !slices.ContainsFunc(result.Inferred, func(f contract.Inferred) bool { return f.External != nil }) {
+		return
+	}
+	summary := pactify.ExternalSummary(result.Inferred, discover.ExternalUnread(result.InferredFindings, result.InferredFindingsDropped))
+	_, _ = fmt.Fprintf(w, "  %s\n", summary[0])
+	for _, l := range summary[1:] {
+		_, _ = fmt.Fprintf(w, "    %s\n", l)
+	}
+}
+
+// explainSource is source as explain prints it: a file read from the
+// repository outside the bundle is named as such.
+func explainSource(source string) string {
+	if rel, ok := strings.CutPrefix(source, "repository:"); ok {
+		return rel + " (repository file, not in the bundle)"
+	}
+	return source
+}
+
+func mapStrings(in []string, f func(string) string) []string {
+	out := make([]string, len(in))
+	for i, s := range in {
+		out[i] = f(s)
+	}
+	return out
+}
+
+// printDiscoveryFindings prints what discovery could not read or choose in
+// the folder, in the record's order: a truncation first. A message that does
+// not name its source (a chart dependency) is prefixed with it.
+func printDiscoveryFindings(w io.Writer, result *app.ExplainResult) {
+	if len(result.InferredFindings) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintln(w, "\nDiscovery findings:")
+	for _, f := range result.InferredFindings {
+		msg := f.Message
+		if f.Source != "." && !strings.Contains(msg, f.Source) {
+			msg = explainSource(f.Source) + "  " + msg
+		}
+		_, _ = fmt.Fprintf(w, "  %s  %s\n", f.Code, msg)
+	}
+	if result.InferredFindingsDropped > 0 {
+		_, _ = fmt.Fprintf(w, "  and %d more\n", result.InferredFindingsDropped)
+	}
+}
+
+// indent prefixes every line of text with prefix.
+func indent(prefix, text string) string {
+	return prefix + strings.ReplaceAll(strings.TrimSuffix(text, "\n"), "\n", "\n"+prefix) + "\n"
 }
 
 // printExplainGoldenPath prints the golden path marker and the declared

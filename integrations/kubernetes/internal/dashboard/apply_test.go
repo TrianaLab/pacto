@@ -198,6 +198,16 @@ func TestDashboardRoleReadsDeliveryOnly(t *testing.T) {
 				t.Errorf("the dashboard role reaches %q", g)
 			}
 		}
+		for _, res := range r.Resources {
+			if res == "pods" || res == "secrets" || res == "configmaps" {
+				t.Errorf("the dashboard role reads %s", res)
+			}
+		}
+		if slices.Equal(r.APIGroups, []string{"apps"}) || slices.Equal(r.APIGroups, []string{"batch"}) {
+			if !slices.Equal(r.Verbs, []string{"list"}) {
+				t.Errorf("the dashboard role may %v workloads %v; inferred services need list only", r.Verbs, r.Resources)
+			}
+		}
 		for _, v := range r.Verbs {
 			if v == "impersonate" || v == "*" || v == "create" || v == "update" || v == "patch" || v == "delete" {
 				t.Errorf("the dashboard role may %s", v)
@@ -482,5 +492,60 @@ func TestApplySetsStatsRegistryEnv(t *testing.T) {
 func TestApplyNoStatsRegistryNoEnv(t *testing.T) {
 	if v, ok := envValue(Config{Image: "i", Namespace: "n"}, "PACTO_STATS_REGISTRY"); ok {
 		t.Fatalf("no stats registry configured, yet PACTO_STATS_REGISTRY=%q", v)
+	}
+}
+
+// The dashboard reads what the operator detected as a kubelet-mounted file, so
+// its ServiceAccount gains no ConfigMap rule; an optional volume keeps the pod
+// starting before the first detection.
+func TestDeploymentAC_DetectedVolumeOptional(t *testing.T) {
+	cfg := Config{Enabled: true, Image: "img:v1", Namespace: "test-ns", DetectedConfigMap: "pacto-operator-detected"}
+	deploy := deploymentAC(cfg).(*appsv1ac.DeploymentApplyConfiguration)
+	container := deploy.Spec.Template.Spec.Containers[0]
+
+	var env bool
+	for _, e := range container.Env {
+		if *e.Name == detectedEnvVar {
+			env = *e.Value == "/etc/pacto/detected/detected.json"
+		}
+	}
+	if !env {
+		t.Errorf("expected %s=/etc/pacto/detected/detected.json", detectedEnvVar)
+	}
+	var mount bool
+	for _, vm := range container.VolumeMounts {
+		if *vm.Name == "detected" {
+			mount = *vm.MountPath == "/etc/pacto/detected" && vm.ReadOnly != nil && *vm.ReadOnly
+		}
+	}
+	if !mount {
+		t.Error("expected a read-only detected mount at /etc/pacto/detected")
+	}
+	var vol bool
+	for _, v := range deploy.Spec.Template.Spec.Volumes {
+		if *v.Name != "detected" {
+			continue
+		}
+		cm := v.ConfigMap
+		vol = cm != nil && *cm.Name == "pacto-operator-detected" && cm.Optional != nil && *cm.Optional &&
+			len(cm.Items) == 1 && *cm.Items[0].Key == "detected.json" && *cm.Items[0].Path == "detected.json"
+	}
+	if !vol {
+		t.Error("expected an optional ConfigMap volume detected with the detected.json item")
+	}
+}
+
+func TestDeploymentAC_NoDetectedWithoutConfigMap(t *testing.T) {
+	deploy := deploymentAC(Config{Enabled: true, Image: "img:v1", Namespace: "test-ns"}).(*appsv1ac.DeploymentApplyConfiguration)
+	container := deploy.Spec.Template.Spec.Containers[0]
+	for _, e := range container.Env {
+		if *e.Name == detectedEnvVar {
+			t.Errorf("unexpected %s without a detected ConfigMap", detectedEnvVar)
+		}
+	}
+	for _, v := range deploy.Spec.Template.Spec.Volumes {
+		if *v.Name == "detected" {
+			t.Error("unexpected detected volume without a detected ConfigMap")
+		}
 	}
 }

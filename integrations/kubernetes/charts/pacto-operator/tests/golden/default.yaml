@@ -1,4 +1,18 @@
 ---
+# Source: pacto-operator/templates/dashboard-signin.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pacto-viewer
+  namespace: default
+  labels:
+    helm.sh/chart: pacto-operator-VERSION
+    app.kubernetes.io/name: pacto-operator
+    app.kubernetes.io/instance: pacto-operator
+    app.kubernetes.io/version: "VERSION"
+    app.kubernetes.io/managed-by: Helm
+automountServiceAccountToken: false
+---
 # Source: pacto-operator/templates/serviceaccount.yaml
 apiVersion: v1
 kind: ServiceAccount
@@ -1923,8 +1937,9 @@ rules:
   - apiGroups: [discovery.k8s.io]
     resources: [endpointslices]
     verbs: [get, list, watch]
+  # daemonsets: the dashboard ClusterRole the operator applies lists them, and Kubernetes lets it grant only what it holds.
   - apiGroups: [apps]
-    resources: [deployments, replicasets, statefulsets]
+    resources: [deployments, replicasets, statefulsets, daemonsets]
     verbs: [get, list, watch]
   - apiGroups: [batch]
     resources: [cronjobs, jobs]
@@ -1964,6 +1979,12 @@ rules:
     resources: [namespaces]
     resourceNames: [kube-system]
     verbs: [get]
+  # Detection reads each node's providerID, labels and kernel to propose the
+  # cloud and the node kernels in <fullname>-detected. It writes nothing on
+  # nodes, and with controller.watchNamespaces this rule is not rendered.
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [list]
   # auto reads the target namespace's pacto.trianalab.io/observe label, by
   # name, uncached; names and labels only.
   - apiGroups: [""]
@@ -1994,6 +2015,49 @@ rules:
     resources: [namespaces]
     verbs: [list]
 ---
+# Source: pacto-operator/templates/dashboard-signin.yaml
+# Token sign-in (dashboard.auth.tokenSignIn). Two grants, both from Helm, so
+# the operator gains no right:
+# - the dashboard's ServiceAccount may create TokenReviews, to prove a
+#   ServiceAccount token was minted for the pacto-dashboard audience. It
+#   reveals only whose token the dashboard already holds. TokenReview has no
+#   namespaced form, so this ClusterRole renders with watchNamespaces too.
+# - pacto-viewer, the ServiceAccount the NOTES sign-in link carries a token
+#   for, reads Pactos and PactoRevisions and nothing else. Minting its token
+#   needs create on serviceaccounts/token in the release namespace.
+# Cluster-scoped names come from the release and its namespace, so two
+# releases never collide, also two of one name in different namespaces.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: pacto-operator-default-dashboard-tokenreview
+  labels:
+    helm.sh/chart: pacto-operator-VERSION
+    app.kubernetes.io/name: pacto-operator
+    app.kubernetes.io/instance: pacto-operator
+    app.kubernetes.io/version: "VERSION"
+    app.kubernetes.io/managed-by: Helm
+rules:
+  - apiGroups: [authentication.k8s.io]
+    resources: [tokenreviews]
+    verbs: [create]
+---
+# Source: pacto-operator/templates/dashboard-signin.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: pacto-operator-viewer
+  labels:
+    helm.sh/chart: pacto-operator-VERSION
+    app.kubernetes.io/name: pacto-operator
+    app.kubernetes.io/instance: pacto-operator
+    app.kubernetes.io/version: "VERSION"
+    app.kubernetes.io/managed-by: Helm
+rules:
+  - apiGroups: [pacto.trianalab.io]
+    resources: [pactos, pactorevisions]
+    verbs: [get, list, watch]
+---
 # Source: pacto-operator/templates/clusterrolebinding.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -2014,6 +2078,46 @@ subjects:
     name: pacto-operator
     namespace: default
 ---
+# Source: pacto-operator/templates/dashboard-signin.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: pacto-operator-default-dashboard-tokenreview
+  labels:
+    helm.sh/chart: pacto-operator-VERSION
+    app.kubernetes.io/name: pacto-operator
+    app.kubernetes.io/instance: pacto-operator
+    app.kubernetes.io/version: "VERSION"
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: pacto-operator-default-dashboard-tokenreview
+subjects:
+  - kind: ServiceAccount
+    name: pacto-dashboard
+    namespace: default
+---
+# Source: pacto-operator/templates/dashboard-signin.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: pacto-operator-viewer
+  labels:
+    helm.sh/chart: pacto-operator-VERSION
+    app.kubernetes.io/name: pacto-operator
+    app.kubernetes.io/instance: pacto-operator
+    app.kubernetes.io/version: "VERSION"
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: pacto-operator-viewer
+subjects:
+  - kind: ServiceAccount
+    name: pacto-viewer
+    namespace: default
+---
 # Source: pacto-operator/templates/leader-election-role.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -2026,10 +2130,10 @@ metadata:
     app.kubernetes.io/instance: pacto-operator
     app.kubernetes.io/version: "VERSION"
     app.kubernetes.io/managed-by: Helm
+# Leases only: controller-runtime elects through a Lease, so no ConfigMap
+# write is granted here and detection's name-scoped rule in role.yaml stays the
+# operator's only ConfigMap write in the release namespace.
 rules:
-  - apiGroups: [""]
-    resources: [configmaps]
-    verbs: [get, list, watch, create, update, patch, delete]
   - apiGroups: [coordination.k8s.io]
     resources: [leases]
     verbs: [get, list, watch, create, update, patch, delete]
@@ -2100,6 +2204,23 @@ rules:
   - apiGroups: [""]
     resources: [secrets]
     verbs: [get]
+  # Detection publishes what the cluster provides in <fullname>-detected, the
+  # one ConfigMap it writes. Kubernetes cannot scope create by name, and
+  # server-side apply creates through patch, so create stays unnamed while get
+  # and patch name that ConfigMap only.
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [create]
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get, patch]
+    resourceNames: [pacto-operator-detected]
+  # Detection owns that ConfigMap by the operator Deployment, read by name: with
+  # a namespace list and no dashboard or Evidence Server nothing else grants it.
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [get]
+    resourceNames: [pacto-operator]
   # Dashboard lifecycle: its ServiceAccount, Service, merged OCI credentials
   # Secret and Deployment.
   - apiGroups: [""]
@@ -2257,7 +2378,7 @@ spec:
             - --dashboard-cpu-request=50m
             - --dashboard-memory-request=128Mi
             - --dashboard-memory-limit=512Mi
-            - --dashboard-allow-anonymous
+            - --dashboard-token-login
           ports:
             - name: metrics
               containerPort: 8443

@@ -1,10 +1,10 @@
 # Platform offerings reference
 
-This page describes how [the operational graph](operational-graph.md) groups
-services by platform offering.
-[Offering availability and lifecycle](offering-availability.md) covers whether
-an offering serves, deprecated providers, observed callers and offering
-impact, and the [operational graph reference](operational-graph-reference.md)
+This page covers how [the operational graph](operational-graph.md) groups
+services by offering.
+[Offering availability and lifecycle](offering-availability.md) covers
+availability, deprecated providers, observed callers and impact, and the
+[operational graph reference](operational-graph-reference.md)
 covers sources and queries.
 
 ## Providers
@@ -12,16 +12,15 @@ covers sources and queries.
 A service's platform offering and summary are the
 [`service.offering`](contract-reference/sections.md#platform-offering) and
 [`service.summary`](contract-reference/sections.md#summary) of its newest valid
-revision, by the rule business domains use. When no revision declares an
-offering, the service takes the one the operator read from the contract each
-target runs (`status.contract.offering` and `status.contract.summary`). When
+revision, by the rule business domains use. With no such revision the service
+takes the offering the operator read from each target's contract
+(`status.contract.offering` and `status.contract.summary`). When
 those operators report different offerings, the service has none and the graph
 raises an `OFFERING_CONFLICT` limitation. Different summaries leave the summary
-empty and raise no limitation.
+empty with no limitation.
 
 Each distinct offering is an `offering` entity. The `offering` filter keeps the
-services that provide it. Offerings are returned only to a query that asks for
-the `offering` kind.
+services that provide it. Only a query for the `offering` kind returns them.
 
 An offering's detail lists its providers and its consumers:
 
@@ -36,6 +35,8 @@ An offering's detail lists its providers and its consumers:
 Each provider says where its membership comes from in `offeringProvenance`:
 `declared` when a contract revision declares the offering, `observed` when only
 the operators observing its targets report it.
+
+The dashboard marks a provider owner that no revision Pacto read declares.
 
 ## The Offerings list
 

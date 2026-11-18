@@ -8,7 +8,7 @@ import {
   attentionCategoryLabel, ATTENTION_CATEGORIES, GAP_WORDS,
   provenanceLabel, provenanceIsImplied,
   sourceHealthTallyParts, sourceHealthSentence,
-  collectorLabel, seenBy, splitEntryPoints, acceptsLabel, RANGE_NOT_DECLARED,
+  collectorLabel, seenBy, splitEntryPoints, acceptsLabel, RANGE_NOT_DECLARED, serviceKeyName, replacesTip, ownerProvenanceText,
 } from './entityLabels.ts';
 
 describe('acceptsLabel', () => {
@@ -134,7 +134,7 @@ describe('relationship provenance', () => {
     expect(provenanceLabel('observed')).toBe('Observed');
     expect(provenanceLabel('declared+observed')).toBe('Expected and observed');
     expect(provenanceLabel('inferred')).toBe('Inferred');
-    // An inferred-only edge already reads "Inferred from configuration": no second chip.
+    // An inferred-only edge already reads as inferred in its difference: no second chip.
     expect(provenanceIsImplied(undefined, 'inferred')).toBe(true);
     expect(provenanceIsImplied(undefined, 'declared')).toBe(false);
     expect(provenanceLabel('declared+observed')).not.toMatch(/\+/);
@@ -264,5 +264,36 @@ describe('splitEntryPoints', () => {
     const { lead, secondary } = splitEntryPoints(eps);
     expect(lead.map((e) => e.category)).toEqual(['non-compliant', 'health']);
     expect(secondary.map((e) => e.category)).toEqual(['stale', 'knowledge']);
+  });
+});
+
+describe('serviceKeyName', () => {
+  it('reads the name inside a service key the way the backend parses it', () => {
+    expect(serviceKeyName('k8s:prod%2FDeployment%2Fexperiments')).toBe('k8s:prod/Deployment/experiments');
+    expect(serviceKeyName('acme/k8s:shop%2FCronJob%2Fa%252Fb')).toBe('k8s:shop/CronJob/a%2Fb');
+    expect(serviceKeyName('payments-service')).toBe('payments-service');
+  });
+});
+
+describe('replacesTip', () => {
+  it('names every replacement the line folds into "+N more"', () => {
+    const at = '2026-11-17T11:56:00Z';
+    const r = (n: number) => ({ from: `k8s:c${n}%2Fprod%2FDeployment%2Fexperiments`, target: `prod/kubernetes/t${n}`, at });
+    expect(replacesTip([r(0)], 1)).toMatch(/^Linked by the Pacto target prod\/kubernetes\/t0, which runs as the workload\. The Pacto was created .+\.$/);
+    const two = replacesTip([r(0), r(1)], 2);
+    expect(two).toContain('Also replaces k8s:c1/prod/Deployment/experiments (Pacto target prod/kubernetes/t1, ');
+    expect(two).not.toContain('more');
+    expect(replacesTip(Array.from({ length: 12 }, (_, i) => r(i)), 40)).toMatch(/ and 29 more, listed by pacto fleet get\.$/);
+    expect(replacesTip([], 0)).toBe('');
+  });
+});
+
+describe('ownerProvenanceText', () => {
+  it('says nothing for a declared or absent owner and a sentence for the rest', () => {
+    expect(ownerProvenanceText('declared')).toBe('');
+    expect(ownerProvenanceText(undefined)).toBe('');
+    expect(ownerProvenanceText('declared-via-target')).toBe('Declared by the contract a running target reports; no revision Pacto read declares an owner');
+    expect(ownerProvenanceText('attested')).toBe('Read from the repository at the commit a verified CI identity signed; routes reviews, never clears a gate');
+    expect(ownerProvenanceText('inferred')).toBe('Inferred; Pacto never routes approvals or clears a gate on it');
   });
 });

@@ -135,6 +135,56 @@ func TestDashboardTokenLoginIdentity(t *testing.T) {
 	expect(t, err == nil, "a token session reaches delivery as itself: %v", err)
 }
 
+// Token sign-in reviews a sign-in link token with the dashboard's own client,
+// for the dashboard's audience, and a dashboard that cannot build that client
+// does not start.
+func TestDashboardTokenLoginReviewsTheAudience(t *testing.T) {
+	v := viper.New()
+	v.Set("dashboard.token-login", true)
+	d := defaultDeps()
+	var asked *rest.Config
+	d.dynamicFor = func(c *rest.Config) (dynamic.Interface, error) {
+		asked = c
+		f := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())
+		f.PrependReactor("create", "tokenreviews", func(a k8stesting.Action) (bool, runtime.Object, error) {
+			obj := a.(k8stesting.CreateAction).GetObject().(*unstructured.Unstructured).DeepCopy()
+			obj.Object["status"] = map[string]any{"authenticated": true, "audiences": []any{authn.DashboardAudience},
+				"user": map[string]any{"username": "system:serviceaccount:pacto:pacto-viewer"}}
+			return true, obj, nil
+		})
+		f.PrependReactor("create", "selfsubjectreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
+			return true, nil, errors.New("Unauthorized") // an audience-only token is no bearer
+		})
+		return f, nil
+	}
+	cluster := &rest.Config{Host: "https://k", BearerToken: "dashboard"}
+	id, err := newDashboardIdentity(v, "0.0.0.0", cluster, d)
+	expect(t, err == nil && asked.BearerToken == "dashboard" && asked.QPS == sarQPS, "the review runs as the dashboard: %v %+v", err, asked)
+	r := httptest.NewRequest(http.MethodPost, "https://dash.example/auth/token", strings.NewReader(`{"token":"link","link":true}`))
+	r.Header.Set("Origin", "https://dash.example")
+	rec := httptest.NewRecorder()
+	id.auth.Routes().ServeHTTP(rec, r)
+	expect(t, rec.Code == http.StatusNoContent, "a link token signs in: %d %s", rec.Code, rec.Body)
+	// A bearer reader on /api/backstage/ goes through the same reviewer.
+	var st authn.State
+	br := httptest.NewRequest(http.MethodGet, "https://dash.example/api/backstage/entities", nil)
+	br.Header.Set("Authorization", "Bearer link")
+	rec = httptest.NewRecorder()
+	id.auth.Middleware(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { st = authn.StateFrom(r.Context()) })).ServeHTTP(rec, br)
+	expect(t, st.Method == "bearer" && st.Person.User == "system:serviceaccount:pacto:pacto-viewer" && st.Token == "",
+		"a bearer reader is reviewed by the token sign-in's reviewer: %d %+v", rec.Code, st)
+
+	d.dynamicFor = func(*rest.Config) (dynamic.Interface, error) { return nil, errors.New("bad config") }
+	_, err = newDashboardIdentity(v, "0.0.0.0", cluster, d)
+	expect(t, err != nil && strings.Contains(err.Error(), "bad config"), "no client to review tokens with: %v", err)
+
+	// Without token sign-in no client is built at startup: a kubeconfig that
+	// cannot build one still serves the local dashboard.
+	v.Set("dashboard.token-login", false)
+	id, err = newDashboardIdentity(v, "127.0.0.1", cluster, d)
+	expect(t, err == nil && id.auth.Local(), "a local dashboard builds no review client: %v", err)
+}
+
 func expect(t *testing.T, ok bool, format string, args ...any) {
 	t.Helper()
 	if !ok {
@@ -203,7 +253,7 @@ func TestDashboardIdentityView(t *testing.T) {
 	v.Set("dashboard.oidc-redirect-url", "https://dash.example/auth/callback")
 	id := identityFor(t, v, "0.0.0.0", nil)
 	var asked []authn.Person
-	id.viewer = authn.NewViewer(func(_ context.Context, p authn.Person, ns string) (bool, error) {
+	id.viewer = authn.NewViewer(func(_ context.Context, p authn.Person, ns string, _ authn.ResourceAttributes) (bool, error) {
 		asked = append(asked, p)
 		return false, nil
 	})
@@ -223,7 +273,9 @@ func TestDashboardIdentityView(t *testing.T) {
 	_, _ = o.View(context.Background(), q)
 	expect(t, len(asked) > 0 && asked[0].User == "https://idp.example#u1", "a signed-in person is asked about as the cluster names them: %+v", asked)
 
-	id.viewer = authn.NewViewer(func(context.Context, authn.Person, string) (bool, error) { return false, errors.New("apiserver down") })
+	id.viewer = authn.NewViewer(func(context.Context, authn.Person, string, authn.ResourceAttributes) (bool, error) {
+		return false, errors.New("apiserver down")
+	})
 	id.state = func(context.Context) authn.State {
 		return authn.State{SignedIn: true, Person: authn.Person{User: "x#y"}}
 	}
@@ -232,11 +284,11 @@ func TestDashboardIdentityView(t *testing.T) {
 }
 
 func TestClusterReview(t *testing.T) {
-	if _, err := clusterReview(nil, nil, reviewCluster)(context.Background(), authn.Anonymous, "a"); !errors.Is(err, errNoClusterToAsk) {
+	if _, err := clusterReview(nil, nil, reviewCluster)(context.Background(), authn.Anonymous, "a", authn.PactoResource); !errors.Is(err, errNoClusterToAsk) {
 		t.Errorf("no cluster: %v", err)
 	}
 	broken := errors.New("bad config")
-	if _, err := clusterReview(&rest.Config{}, func(*rest.Config) (dynamic.Interface, error) { return nil, broken }, reviewCluster)(context.Background(), authn.Anonymous, "a"); !errors.Is(err, broken) {
+	if _, err := clusterReview(&rest.Config{}, func(*rest.Config) (dynamic.Interface, error) { return nil, broken }, reviewCluster)(context.Background(), authn.Anonymous, "a", authn.PactoResource); !errors.Is(err, broken) {
 		t.Errorf("no client: %v", err)
 	}
 	c := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())
@@ -245,7 +297,7 @@ func TestClusterReview(t *testing.T) {
 		_ = unstructured.SetNestedField(obj.Object, true, "status", "allowed")
 		return true, obj, nil
 	})
-	ok, err := clusterReview(&rest.Config{}, func(*rest.Config) (dynamic.Interface, error) { return c, nil }, reviewCluster)(context.Background(), authn.Anonymous, "a")
+	ok, err := clusterReview(&rest.Config{}, func(*rest.Config) (dynamic.Interface, error) { return c, nil }, reviewCluster)(context.Background(), authn.Anonymous, "a", authn.PactoResource)
 	if err != nil || !ok {
 		t.Errorf("review through the cluster: %v %v", ok, err)
 	}
@@ -310,7 +362,9 @@ func operationAccessWorld(t *testing.T) (*dashboardIdentity, func(context.Contex
 	v := viper.New()
 	v.Set("dashboard.token-login", true)
 	id := identityFor(t, v, "0.0.0.0", &rest.Config{Host: "https://k"})
-	id.viewer = authn.NewViewer(func(_ context.Context, _ authn.Person, ns string) (bool, error) { return ns == "shop", nil })
+	id.viewer = authn.NewViewer(func(_ context.Context, _ authn.Person, ns string, _ authn.ResourceAttributes) (bool, error) {
+		return ns == "shop", nil
+	})
 	var mu sync.Mutex
 	var sars []map[string]any
 	sa := fakeDelivery()
@@ -407,4 +461,65 @@ func TestDashboardOperationAccessReviewsOnlyFleetNamespaces(t *testing.T) {
 	}
 	_, err = id.operationAccess(full)(t.Context(), []string{"shop"})
 	expect(t, errors.Is(err, errOperationReview), "a person whose client cannot be built: %v", err)
+}
+
+// A sign-in link session holds no token, so its subject is the identity the
+// TokenReview named: no SelfSubjectReview is asked, and the SAR names the
+// ServiceAccount with its uid, groups and extra.
+func TestLinkSessionSubjectIsReviewedIdentity(t *testing.T) {
+	id, full, sars := operationAccessWorld(t)
+	ssrs := 0
+	id.newClient = func(cfg *rest.Config) (dynamic.Interface, error) {
+		c := fakeDelivery()
+		c.PrependReactor("create", "selfsubjectreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
+			ssrs++
+			return true, &unstructured.Unstructured{Object: map[string]any{"status": map[string]any{"userInfo": map[string]any{"username": "system:anonymous"}}}}, nil
+		})
+		c.PrependReactor("create", "subjectaccessreviews", func(a k8stesting.Action) (bool, runtime.Object, error) {
+			o := a.(k8stesting.CreateAction).GetObject().(*unstructured.Unstructured).DeepCopy()
+			spec, _, _ := unstructured.NestedMap(o.Object, "spec")
+			*sars = append(*sars, spec)
+			o.Object["status"] = map[string]any{"allowed": true}
+			return true, o, nil
+		})
+		return c, nil
+	}
+	viewer := authn.Person{User: "system:serviceaccount:pacto:pacto-viewer", Groups: []string{"system:serviceaccounts", "system:serviceaccounts:pacto"}}
+	id.state = func(context.Context) authn.State {
+		return authn.State{SignedIn: true, Method: "token", Person: viewer, UID: "sa-1", Extra: map[string][]string{"authentication.kubernetes.io/pod-name": {"p"}}}
+	}
+	visible, err := id.operationAccess(full)(t.Context(), []string{"shop"})
+	expect(t, err == nil && visible("shop") && ssrs == 0, "no SelfSubjectReview for a link session: %v %d", err, ssrs)
+	expect(t, len(*sars) == 1, "one review: %+v", *sars)
+	sar := (*sars)[0]
+	groups, _ := sar["groups"].([]any)
+	expect(t, sar["user"] == viewer.User && sar["uid"] == "sa-1" && len(groups) == 2 && sar["extra"] != nil,
+		"the SAR names the reviewed identity: %+v", sar)
+	var o dashboard.Options
+	id.options(&o)
+	st := o.Auth.State(httptest.NewRequest(http.MethodGet, "/", nil))
+	expect(t, st.FleetOnly && st.User == viewer.User, "a link session reads the fleet only: %+v", st)
+}
+
+// A bearer token session still asks its own SelfSubjectReview, whose uid and
+// extra reach the SAR, and it is no fleet-only session.
+func TestBearerTokenSessionSubjectAsksSelfSubjectReview(t *testing.T) {
+	id, full, sars := operationAccessWorld(t)
+	next, asked := id.newClient, ""
+	id.newClient = func(cfg *rest.Config) (dynamic.Interface, error) {
+		if cfg.BearerToken != "" {
+			asked = cfg.BearerToken
+		}
+		return next(cfg)
+	}
+	id.state = func(context.Context) authn.State {
+		return authn.State{SignedIn: true, Method: "token", Token: "alice-token", Person: authn.Person{User: "alice"}}
+	}
+	visible, err := id.operationAccess(full)(t.Context(), []string{"shop"})
+	expect(t, err == nil && visible("shop") && asked == "alice-token", "the session's own token asks who it is: %v %q", err, asked)
+	sar := (*sars)[0]
+	expect(t, sar["user"] == "alice" && sar["uid"] == "u-1" && sar["extra"] != nil, "uid and extra from the token: %+v", sar)
+	var o dashboard.Options
+	id.options(&o)
+	expect(t, !o.Auth.State(httptest.NewRequest(http.MethodGet, "/", nil)).FleetOnly, "a bearer session is not fleet-only")
 }

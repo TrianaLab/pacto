@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/trianalab/pacto/v4/pkg/externalid"
+	"github.com/trianalab/pacto/v4/pkg/schemax"
 	"gopkg.in/yaml.v3"
 )
 
@@ -51,14 +52,26 @@ type File struct {
 
 // Entry classifies one external system.
 type Entry struct {
-	Identity    externalid.ID `yaml:"identity"`
-	Class       string        `yaml:"class"`
-	Label       string        `yaml:"label,omitempty"`
-	Aliases     []string      `yaml:"aliases,omitempty"`
-	Hosts       []string      `yaml:"hosts,omitempty"`
-	SDKModules  []string      `yaml:"sdkModules,omitempty"`
-	KeyPatterns []string      `yaml:"keyPatterns,omitempty"`
-	OTel        OTel          `yaml:"otel,omitempty"`
+	Identity externalid.ID `yaml:"identity"`
+	Class    string        `yaml:"class"`
+	Label    string        `yaml:"label,omitempty"`
+	Aliases  []string      `yaml:"aliases,omitempty"`
+	Hosts    []string      `yaml:"hosts,omitempty"`
+	// SDKModules are client libraries of the system: a bare Go module path
+	// without its /vN suffix, "npm:<package>", "pypi:<normalized name>" or
+	// "maven:<groupId>:<artifactId>".
+	SDKModules  []string `yaml:"sdkModules,omitempty"`
+	KeyPatterns []string `yaml:"keyPatterns,omitempty"`
+	OTel        OTel     `yaml:"otel,omitempty"`
+	// Terraform lists the resource types that provision the service,
+	// "<type>" or "<type>:<id attribute>" ("aws_db_instance:identifier").
+	// Only a managed-cloud entry carries them, and the id attribute is never
+	// a sensitive name.
+	Terraform []string `yaml:"terraform,omitempty"`
+	// Crossplane lists the managed-resource kinds that provision the
+	// service, "<api group>/<Kind>" ("rds.aws.upbound.io/Instance"). Only a
+	// managed-cloud entry carries them.
+	Crossplane []string `yaml:"crossplane,omitempty"`
 }
 
 // OTel lists the OpenTelemetry system attribute values that name the entry.
@@ -119,9 +132,19 @@ var (
 	hostPatternRE = regexp.MustCompile(`^(\*\.)?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$`)
 	keyPatternRE  = regexp.MustCompile(`^[A-Z0-9_]+\*?$`)
 	classes       = []string{ClassVendorAPI, ClassManagedCloud, ClassLegacy, ClassUnclassified}
+	// sdkModuleRE is one sdkModules value in any of its ecosystem forms.
+	sdkModuleRE = regexp.MustCompile(`^([a-z0-9.-]+(/[A-Za-z0-9._~-]+)+|npm:(@[a-z0-9._~-]+/)?[a-z0-9._~-]+|pypi:[a-z0-9]+(-[a-z0-9]+)*|maven:[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+)$`)
+	goMajorRE   = regexp.MustCompile(`/v[0-9]+$`)
+	terraformRE = regexp.MustCompile(`^[a-z][a-z0-9_]*(:[a-z][a-z0-9_]*)?$`)
+	// crossplaneRE is "<api group>/<Kind>"; the group holds a dot.
+	crossplaneRE = regexp.MustCompile(`^[a-z0-9.-]+\.[a-z]+/[A-Z][A-Za-z0-9]*$`)
 )
 
-// claims tracks which entry of one file claimed each alias, host or key pattern.
+// terraformType is the resource type of a terraform row, without its id
+// attribute.
+func terraformType(row string) string { t, _, _ := strings.Cut(row, ":"); return t }
+
+// claims tracks which entry of one file claimed each value of one field.
 type claims map[string]int
 
 func (c claims) claim(errs *[]error, field, value string, i int) {
@@ -144,7 +167,17 @@ func (f *File) Validate() error {
 	}
 	ids := map[externalid.ID]int{}
 	aliases, hosts, keys := claims{}, claims{}, claims{}
+	sdks, tfTypes, xpKinds := claims{}, claims{}, claims{}
 	for i, e := range f.Entries {
+		for _, m := range e.SDKModules {
+			sdks.claim(&errs, "sdkModules", m, i)
+		}
+		for _, r := range e.Terraform {
+			tfTypes.claim(&errs, "terraform", terraformType(r), i)
+		}
+		for _, k := range e.Crossplane {
+			xpKinds.claim(&errs, "crossplane", k, i)
+		}
 		errs = append(errs, validateEntry(i, e)...)
 		if j, ok := ids[e.Identity]; ok {
 			errs = append(errs, fmt.Errorf("entries[%d].identity: %q duplicates entries[%d]", i, e.Identity, j))
@@ -191,32 +224,69 @@ func validateEntry(i int, e Entry) []error {
 			errs = append(errs, fmt.Errorf("entries[%d].keyPatterns: %q must be upper-case letters, digits or '_' with at most one trailing '*'", i, k))
 		}
 	}
+	return append(errs, validateRows(i, e)...)
+}
+
+// validateRows checks an entry's sdkModules, terraform and crossplane values.
+func validateRows(i int, e Entry) []error {
+	var errs []error
+	for _, m := range e.SDKModules {
+		if !sdkModuleRE.MatchString(m) || goMajorRE.MatchString(m) {
+			errs = append(errs, fmt.Errorf("entries[%d].sdkModules: %q must be a Go module path without its /vN suffix, npm:<package>, pypi:<normalized name> or maven:<groupId>:<artifactId>", i, m))
+		}
+	}
+	for _, r := range e.Terraform {
+		_, attr, _ := strings.Cut(r, ":")
+		switch {
+		case !terraformRE.MatchString(r):
+			errs = append(errs, fmt.Errorf("entries[%d].terraform: %q must be <resource type> or <resource type>:<id attribute>, lower-case", i, r))
+		case schemax.SensitiveKey(attr):
+			errs = append(errs, fmt.Errorf("entries[%d].terraform: %q names a sensitive id attribute, which Pacto never reads", i, r))
+		}
+	}
+	for _, k := range e.Crossplane {
+		if !crossplaneRE.MatchString(k) {
+			errs = append(errs, fmt.Errorf("entries[%d].crossplane: %q must be <api group>/<Kind>", i, k))
+		}
+	}
+	if e.Class != ClassManagedCloud && len(e.Terraform)+len(e.Crossplane) > 0 {
+		errs = append(errs, fmt.Errorf("entries[%d]: only a managed-cloud entry lists terraform or crossplane rows", i))
+	}
 	return errs
 }
 
 // Merge builds the catalog from the default file and an optional organization
 // extension. An organization entry replaces the default entry with the same
-// identity, and an alias, host or key pattern the organization claims is taken
-// away from every default entry that also claims it.
+// identity, and an alias, host, key pattern, SDK module, Terraform resource
+// type or Crossplane kind the organization claims is taken away from every
+// default entry that also claims it.
 func Merge(def *File, defRef Ref, org *File, orgRef *Ref) *Catalog {
 	c := &Catalog{entries: map[externalid.ID]sourced{}, refs: []Ref{defRef}, aliases: map[string]externalid.ID{}}
-	taken := struct{ aliases, hosts, keys map[string]bool }{map[string]bool{}, map[string]bool{}, map[string]bool{}}
+	taken := struct{ aliases, hosts, keys, sdks, tfTypes, xpKinds map[string]bool }{
+		map[string]bool{}, map[string]bool{}, map[string]bool{}, map[string]bool{}, map[string]bool{}, map[string]bool{},
+	}
 	if org != nil {
 		c.refs = append(c.refs, *orgRef)
 		for _, e := range org.Entries {
 			c.add(e, 1)
-			mark(taken.aliases, e.Aliases)
-			mark(taken.hosts, e.Hosts)
-			mark(taken.keys, e.KeyPatterns)
+			mark(taken.aliases, e.Aliases, foldKey)
+			mark(taken.hosts, e.Hosts, foldKey)
+			mark(taken.keys, e.KeyPatterns, foldKey)
+			mark(taken.sdks, e.SDKModules, foldKey)
+			mark(taken.tfTypes, e.Terraform, tfKey)
+			mark(taken.xpKinds, e.Crossplane, foldKey)
 		}
 	}
 	for _, e := range def.Entries {
 		if _, replaced := c.entries[e.Identity]; replaced {
 			continue
 		}
-		e.Aliases = without(e.Aliases, taken.aliases)
-		e.Hosts = without(e.Hosts, taken.hosts)
-		e.KeyPatterns = without(e.KeyPatterns, taken.keys)
+		e.Aliases = without(e.Aliases, taken.aliases, foldKey)
+		e.Hosts = without(e.Hosts, taken.hosts, foldKey)
+		e.KeyPatterns = without(e.KeyPatterns, taken.keys, foldKey)
+		e.SDKModules = without(e.SDKModules, taken.sdks, foldKey)
+		e.Terraform = without(e.Terraform, taken.tfTypes, tfKey)
+		e.Crossplane = without(e.Crossplane, taken.xpKinds, foldKey)
 		c.add(e, 0)
 	}
 	return c
@@ -237,14 +307,18 @@ func (c *Catalog) add(e Entry, ref int) {
 // always agree.
 func foldKey(v string) string { return strings.ToLower(strings.TrimSpace(v)) }
 
-func mark(set map[string]bool, values []string) {
+// tfKey compares terraform rows by resource type, so an organization row
+// takes the type whatever id attribute either side names.
+func tfKey(row string) string { return foldKey(terraformType(row)) }
+
+func mark(set map[string]bool, values []string, key func(string) string) {
 	for _, v := range values {
-		set[foldKey(v)] = true
+		set[key(v)] = true
 	}
 }
 
-func without(values []string, taken map[string]bool) []string {
-	return slices.DeleteFunc(slices.Clone(values), func(v string) bool { return taken[foldKey(v)] })
+func without(values []string, taken map[string]bool, key func(string) string) []string {
+	return slices.DeleteFunc(slices.Clone(values), func(v string) bool { return taken[key(v)] })
 }
 
 // Refs returns a copy of the catalogs this catalog was built from, the default

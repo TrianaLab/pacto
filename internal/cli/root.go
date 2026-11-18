@@ -181,6 +181,9 @@ func newRootCommand(svc *app.Service, info VersionInfo, d deps) *cobra.Command {
 		if err := checkOutputFormat(v.GetString(outputFormatKey)); err != nil {
 			return err
 		}
+		if svc != nil {
+			svc.ExternalCatalogRef = externalCatalogRef(cmd, v.GetString(externalCatalogKey))
+		}
 
 		if v.GetBool("no-cache") {
 			// Materialize the resolved decision back onto the flag: viper also
@@ -249,6 +252,7 @@ func newRootCommand(svc *app.Service, info VersionInfo, d deps) *cobra.Command {
 	root.AddCommand(newPublishCommand(svc, v, d, rec))
 	root.AddCommand(newPullCommand(svc, v))
 	root.AddCommand(newGraphCommand(svc, v))
+	root.AddCommand(newExportCommand(svc))
 	root.AddCommand(newFleetCommand(svc, v, d, rec))
 	root.AddCommand(newEvidenceCommand(svc, v))
 	root.AddCommand(newAgentCommand(svc, v, info.Version, d))
@@ -294,4 +298,19 @@ func attachBanner(root *cobra.Command) {
 		}
 		def(cmd, args)
 	})
+}
+
+// externalCatalogRef is the one organization external catalog for every
+// local completion and every snapshot of cmd: its own --external-catalog,
+// else configured (PACTO_EXTERNAL_CATALOG or the config), which also reaches
+// the flag, left unchanged, so fleetOptions reads the same answer.
+func externalCatalogRef(cmd *cobra.Command, configured string) string {
+	f := cmd.Flags().Lookup("external-catalog")
+	switch {
+	case f != nil && f.Changed:
+		return f.Value.String()
+	case f != nil && configured != "":
+		_ = f.Value.Set(configured)
+	}
+	return configured
 }

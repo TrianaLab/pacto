@@ -9,7 +9,8 @@
   import { initScrollRestore } from './lib/scrollRestore.ts';
   import { api } from './lib/api.ts';
   import { entityMiraURL } from './lib/delivery.ts';
-  import { session as auth, me, loadSession, hostSignsIn, teamGroups } from './lib/session.svelte.ts';
+  import { session as auth, me, loadSession, hostSignsIn, teamGroups, personLabel } from './lib/session.svelte.ts';
+  import { consumeSignInLink } from './lib/signInLink.ts';
   import Person from './components/Person.svelte';
   import SignInScreen from './components/SignInScreen.svelte';
   import CappedList from './components/CappedList.svelte';
@@ -87,11 +88,17 @@
   const session = $derived(auth.data);
   const gated = $derived(!!session && session.mode === 'shared' && (session.login || session.tokenLogin) && !session.signedIn && !hostSignsIn());
   const nothingVisible = $derived(!!capabilities?.auth?.nothingVisible);
+  // A sign-in link opened where someone is already signed in is never used:
+  // say so, instead of showing the existing identity as the link's.
+  let linkIgnored = $state(false);
+  $effect(() => { if (session?.signedIn && consumeSignInLink()) linkIgnored = true; });
   // Whether this dashboard serves delivery, and if not why: a service page shows
-  // its Stages only when it does, and says why otherwise.
+  // its Stages only when it does, and says why otherwise. The server says when a
+  // sign-in link session reads the fleet only on a cluster that serves delivery.
   const deliveryState = $derived(capabilities === null ? 'unknown'
     : capabilities.delivery === true ? 'enabled'
-    : (!session || session.mode === 'open' || session.mode === 'none') ? 'no-user' : 'not-served');
+    : (!session || session.mode === 'open' || session.mode === 'none') ? 'no-user'
+    : capabilities.auth?.fleetOnly ? 'link' : 'not-served');
 
   const POLL_FAST = 2000;   // during discovery
   const POLL_NORMAL = 10000;
@@ -393,6 +400,9 @@
 {/snippet}
 
 <main class="container" tabindex="-1" bind:this={mainEl}>
+  {#if linkIgnored && !gated}
+    <p class="t-body-2" role="status" data-testid="sign-in-link-ignored">The sign-in link was not used: you are already signed in{session?.user ? ` as ${personLabel(session.user)}` : ''}. Sign out to use it.</p>
+  {/if}
   {#if gated}
     <SignInScreen />
   {:else if !auth.loaded}
@@ -473,6 +483,7 @@
       offering={route.params.offering || ''}
       consumes={route.params.consumes || ''}
       createdFrom={route.params.createdFrom || ''}
+      declaration={route.params.declaration || ''}
       phase={route.params.phase || ''}
       offset={route.params.offset || ''}
       limit={route.params.limit || ''}
@@ -576,7 +587,7 @@
     {:else if capabilities}
       <div class="product-page" data-testid="delivery-unavailable">
         <h1 class="t-page-title">Delivery is not available here</h1>
-        <DeliveryUnavailable reason={deliveryState === 'no-user' ? 'no-user' : 'not-served'} />
+        <DeliveryUnavailable reason={deliveryState} />
       </div>
     {:else}
       {@render migrating()}

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"cmp"
 	"fmt"
+	"io"
 	"io/fs"
 	"path"
 	"regexp"
@@ -15,12 +16,24 @@ import (
 )
 
 // Inferred is one value Pacto implied rather than read from pacto.yaml, with
-// where it came from: a "<path>:<line>" inside the bundle, "directory <name>"
-// or "this CLI".
+// where it came from: a "<path>:<line>" inside the bundle, a
+// "repository:<path>:<line>" in the repository outside the bundle (a
+// CODEOWNERS file), "directory <name>" or "this CLI". In an inferred record it
+// also carries its confidence (likely or possible), the YAML that would
+// declare it, the class of file it was read from (ownerFile, for an owner
+// read from CODEOWNERS or catalog-info.yaml; a source marker, never trust) and
+// the sources of the same field it outranks.
 type Inferred struct {
-	Field  string `json:"field"`
-	Value  string `json:"value"`
-	Source string `json:"source"`
+	Field      string   `json:"field" yaml:"field"`
+	Value      string   `json:"value" yaml:"value"`
+	Source     string   `json:"source" yaml:"source"`
+	Confidence string   `json:"confidence,omitempty" yaml:"confidence,omitempty"`
+	Declare    string   `json:"declare,omitempty" yaml:"declare,omitempty"`
+	Class      string   `json:"class,omitempty" yaml:"class,omitempty"`
+	Outranks   []string `json:"outranks,omitempty" yaml:"outranks,omitempty"`
+	// External is set on a dependencies[<name>] field that names a system
+	// outside the cluster: its identity, sources and what else was read.
+	External *InferredExternal `json:"external,omitempty" yaml:"external,omitempty"`
 }
 
 var (
@@ -128,21 +141,27 @@ func outsideCharts(f inferFiles) []string {
 	return out
 }
 
-// readSmall reads p unless it is unreadable or over maxInferFileSize.
-func readSmall(fsys fs.FS, p string) ([]byte, bool) {
-	info, err := fs.Stat(fsys, p)
-	if err != nil || info.Size() > maxInferFileSize {
+// ReadBounded reads p unless it cannot be opened, is not a regular file (a
+// link, a FIFO or a device, checked on the opened file) or is over 1 MiB.
+func ReadBounded(fsys fs.FS, p string) ([]byte, bool) {
+	f, err := fsys.Open(p)
+	if err != nil {
 		return nil, false
 	}
-	data, err := fs.ReadFile(fsys, p)
-	return data, err == nil
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() > maxInferFileSize {
+		return nil, false
+	}
+	data, err := io.ReadAll(io.LimitReader(f, maxInferFileSize+1))
+	return data, err == nil && len(data) <= maxInferFileSize
 }
 
 // yamlNames runs pick over every document of every file in paths.
 func yamlNames(fsys fs.FS, paths []string, pick func(doc *yaml.Node) *yaml.Node) []nameCandidate {
 	var out []nameCandidate
 	for _, p := range paths {
-		data, ok := readSmall(fsys, p)
+		data, ok := ReadBounded(fsys, p)
 		if !ok {
 			continue
 		}
@@ -162,8 +181,8 @@ func yamlNames(fsys fs.FS, paths []string, pick func(doc *yaml.Node) *yaml.Node)
 	return out
 }
 
-// mapValue is the value under key in mapping m, or nil.
-func mapValue(m *yaml.Node, key string) *yaml.Node {
+// MapValue is the value under key in mapping m, or nil.
+func MapValue(m *yaml.Node, key string) *yaml.Node {
 	if m == nil || m.Kind != yaml.MappingNode {
 		return nil
 	}
@@ -175,17 +194,17 @@ func mapValue(m *yaml.Node, key string) *yaml.Node {
 	return nil
 }
 
-func chartName(doc *yaml.Node) *yaml.Node { return mapValue(doc, "name") }
+func chartName(doc *yaml.Node) *yaml.Node { return MapValue(doc, "name") }
 
-func metadataName(doc *yaml.Node) *yaml.Node { return mapValue(mapValue(doc, "metadata"), "name") }
+func metadataName(doc *yaml.Node) *yaml.Node { return MapValue(MapValue(doc, "metadata"), "name") }
 
 func nameLabel(doc *yaml.Node) *yaml.Node {
-	return mapValue(mapValue(mapValue(doc, "metadata"), "labels"), "app.kubernetes.io/name")
+	return MapValue(MapValue(MapValue(doc, "metadata"), "labels"), "app.kubernetes.io/name")
 }
 
 // composeService is the key of the only service under services, or nil.
 func composeService(doc *yaml.Node) *yaml.Node {
-	if s := mapValue(doc, "services"); s != nil && s.Kind == yaml.MappingNode && len(s.Content) == 2 {
+	if s := MapValue(doc, "services"); s != nil && s.Kind == yaml.MappingNode && len(s.Content) == 2 {
 		return s.Content[0]
 	}
 	return nil
@@ -196,18 +215,18 @@ func composeService(doc *yaml.Node) *yaml.Node {
 func dockerfileTitles(fsys fs.FS, paths []string) []nameCandidate {
 	var out []nameCandidate
 	for _, p := range paths {
-		data, ok := readSmall(fsys, p)
+		data, ok := ReadBounded(fsys, p)
 		if !ok {
 			continue
 		}
-		for _, ins := range dockerInstructions(data) {
-			fields := strings.Fields(ins.text)
+		for _, ins := range DockerInstructions(data) {
+			fields := strings.Fields(ins.Text)
 			if len(fields) == 0 || !strings.EqualFold(fields[0], "LABEL") {
 				continue
 			}
-			for _, tok := range labelTokens(strings.TrimSpace(ins.text[len(fields[0]):])) {
+			for _, tok := range LabelTokens(strings.TrimSpace(ins.Text[len(fields[0]):])) {
 				if k, v, ok := strings.Cut(tok, "="); ok && k == "org.opencontainers.image.title" {
-					out = append(out, nameCandidate{value: v, source: fmt.Sprintf("%s:%d", p, ins.line), depth: strings.Count(p, "/")})
+					out = append(out, nameCandidate{value: v, source: fmt.Sprintf("%s:%d", p, ins.Line), depth: strings.Count(p, "/")})
 				}
 			}
 		}
@@ -215,15 +234,17 @@ func dockerfileTitles(fsys fs.FS, paths []string) []nameCandidate {
 	return out
 }
 
-// dockerInstruction is one Dockerfile instruction with its continuation lines
+// DockerInstruction is one Dockerfile instruction with its continuation lines
 // joined, and the line it starts on.
-type dockerInstruction struct {
-	text string
-	line int
+type DockerInstruction struct {
+	Text string
+	Line int
 }
 
-func dockerInstructions(data []byte) []dockerInstruction {
-	var out []dockerInstruction
+// DockerInstructions splits a Dockerfile into its instructions, comments and
+// blank lines left out.
+func DockerInstructions(data []byte) []DockerInstruction {
+	var out []DockerInstruction
 	var cur strings.Builder
 	start := 0
 	sc := bufio.NewScanner(bytes.NewReader(data))
@@ -240,18 +261,18 @@ func dockerInstructions(data []byte) []dockerInstruction {
 			continue
 		}
 		cur.WriteString(line)
-		out = append(out, dockerInstruction{text: cur.String(), line: start})
+		out = append(out, DockerInstruction{Text: cur.String(), Line: start})
 		cur.Reset()
 	}
 	if cur.Len() > 0 {
-		out = append(out, dockerInstruction{text: cur.String(), line: start})
+		out = append(out, DockerInstruction{Text: cur.String(), Line: start})
 	}
 	return out
 }
 
-// labelTokens splits LABEL arguments on unquoted whitespace and drops the
+// LabelTokens splits LABEL arguments on unquoted whitespace and drops the
 // quotes, so `a=b "c"="d e"` is [a=b c=d e].
-func labelTokens(s string) []string {
+func LabelTokens(s string) []string {
 	var out []string
 	var tok strings.Builder
 	var quote rune

@@ -127,10 +127,11 @@ func domainLabel(d fleet.DomainTally) string {
 }
 
 // printIncompleteSources lists the sources that are not available from the
-// answer's bounded meta, and says so when that list was cut.
+// answer's bounded meta, and says so when that list was cut. An advisory
+// source never makes the answer incomplete, so it is named apart.
 func printIncompleteSources(w io.Writer, sources []fleet.SourceState, truncated bool) {
 	for _, s := range sources {
-		if s.Status == fleet.SourceAvailable {
+		if s.Status == fleet.SourceAvailable || s.Advisory {
 			continue
 		}
 		reason := ""
@@ -142,6 +143,7 @@ func printIncompleteSources(w io.Writer, sources []fleet.SourceState, truncated 
 	if truncated {
 		_, _ = fmt.Fprintln(w, "... and more incomplete sources; the sources Next line lists them all")
 	}
+	printAdvisorySources(w, sources)
 }
 
 // sourceArgsText is the source flags the overview ran with, shell-quoted with

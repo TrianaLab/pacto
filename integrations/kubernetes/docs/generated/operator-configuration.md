@@ -49,7 +49,7 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-dashboard-session-idle-timeout` | `duration` |  | chart value | A dashboard session without a request for this long ends (0: 1h). |
 | `-dashboard-session-max-age` | `duration` |  | chart value | A dashboard session ends this long after sign-in, renewed or not (0: 12h). |
 | `-dashboard-stats-registry` | `string` |  | chart value | Stats repository the dashboard's Metrics page reads run records from, with the dashboard's OCI credentials; empty: the page explains how to turn recording on. |
-| `-dashboard-token-login` | `bool` |  | chart value | Let people sign in to the dashboard by pasting a Kubernetes bearer token; a token session never decides. |
+| `-dashboard-token-login` | `bool` |  | chart value | Let people sign in to the dashboard with a Kubernetes token; a ServiceAccount token minted for the pacto-dashboard audience reads the fleet only, and a person's own token acts as them. |
 | `-dashboard-trace-source` | `value` |  | chart value | Repeatable: an offline OTLP/JSON trace file to mount read-only into the dashboard, as name=NAME,file=RELATIVE_PATH,existingClaim=PVC (or configMap=NAME). NAME is the stable Data Source identity. Configures offline input only; Pacto runs no OTLP receiver. |
 | `-enable-dashboard` | `bool` |  | chart value | Enable the managed Pacto dashboard deployment. Disabled by default. |
 | `-enable-evidence-server` | `bool` |  | chart value | Enable the managed Pacto Evidence Server deployment. Disabled by default. |

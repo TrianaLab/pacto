@@ -77,6 +77,15 @@ describe('offering page', () => {
     done();
   });
 
+  it('marks a provider owner that comes from a running target', async () => {
+    const p = provider('platform-app-config', { ownership: { declared: true, owner: 'team:platform', ref: ref('owner', 'team:platform'), provenance: 'declared-via-target' } });
+    const { target, done } = await render(detail({ providers: preview([p, provider('platform-worker-config')]) }));
+    const cards = target.querySelectorAll('[data-testid="offering-provider"]');
+    expect(cards[0].querySelector('[data-testid="owner-provenance"] button')?.getAttribute('aria-label')).toBe('About owner provenance');
+    expect(cards[1].querySelector('[data-testid="owner-provenance"]')).toBeNull();
+    done();
+  });
+
   it('marks deprecated and past-sunset versions, says nothing of use it cannot see and counts the rest', async () => {
     const svc = ref('service', 'ghcr.io/acme/postgresql', 'postgresql');
     const v = (version: string, extra: Record<string, unknown> = {}) => ({ revision: ref('revision', `${svc.key}@sha256:${version}`, `postgresql ${version}`), version, ...extra });
@@ -365,6 +374,19 @@ describe('offering page', () => {
     expect(text(target)).toContain('+3 more callers');
     expect(text(target.querySelector('[data-testid="hidden-observed-consumers"]'))).toBe('2 callers you may not see');
     expect(text(target)).not.toContain('No observation source saw an undeclared caller.');
+    done();
+  });
+
+  it('links an uncontracted caller to the inferred service behind it and keeps its uncontracted mark', async () => {
+    const pa = provider('postgresql').service;
+    const ghost = ref('service', 'default/k8s:shop/Deployment/legacy-billing', 'legacy-billing', { declaration: 'inferred' });
+    const { target, done } = await render(detail({
+      observedConsumers: preview([{ caller: 'k8s:shop/Deployment/legacy-billing', consumer: ghost, provider: pa, provenance: 'observed', uncontracted: true }]),
+    }));
+    const row = target.querySelector('[data-testid="observed-consumer"]') as HTMLElement;
+    expect(Array.from(row.querySelectorAll('a')).map((a) => a.getAttribute('href'))[0]).toBe(`#${ghost.href}`);
+    expect(text(row)).toContain('legacy-billing');
+    expect(text(row)).toContain('uncontracted');
     done();
   });
 

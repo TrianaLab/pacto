@@ -46,8 +46,9 @@ Each fact says how Pacto knows it:
   operator.
 - **Inferred**: Pacto derived it. The word has three uses: a transitive
   consumer in `pacto_impact`, a target linked to a revision by tag or version
-  match and an external use read from a workload's configuration or pod spec,
-  which never clears a gate.
+  match and an external use read from a workload's configuration or pod spec
+  or named by the inferred record of a service's newest revision, which never
+  clears a gate.
 
 An edge carries `provenance` (`declared`, `observed`, `declared+observed` or
 `inferred`),

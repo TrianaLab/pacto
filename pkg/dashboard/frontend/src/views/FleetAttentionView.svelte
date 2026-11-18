@@ -344,7 +344,7 @@
             <EntityLink ref={it.entity} showStatus={false} />
             <!-- The source sits inside the summary so the two wrap as one: on its own it
                  dropped to a line of its own under a long service name. -->
-            <span class="attn-summary">{it.summary || it.reason || it.label}{#if it.source}{' '}<span class="attn-src">via {it.source}</span>{/if}</span>
+            <span class="attn-summary">{it.summary || it.reason || it.label}{#if it.source}{' '}<span class="attn-src">via {it.source}</span>{/if}{#if it.caller}{' '}<span class="attn-caller" data-testid="attention-caller">from <EntityLink ref={it.caller} showStatus={false} showKind={false} /></span>{/if}</span>
             <!-- The cause, as the code a CLI or an agent reads; the title words it. A
                  plain span: it is a label, not a control. -->
             {#if it.code}<span class="attn-code" title={attentionCause(it.code)}><bdi>{it.code}</bdi>{#if attentionCause(it.code) !== it.code}<span class="visually-hidden">: {attentionCause(it.code)}</span>{/if}</span>{/if}

@@ -48,7 +48,7 @@ interface MetaLike {
   completeness?: string;
   /** A bounded PREVIEW of the sources, capped by the backend at MaxMetaSources and
    *  ordered least-healthy-first. Never a population to count. */
-  sources?: Array<{ status?: string } | null> | null;
+  sources?: Array<{ status?: string; advisory?: boolean } | null> | null;
   sourcesTruncated?: boolean;
   /** The tally over EVERY source in the snapshot (ProductMeta.SourceCounts), which is
    *  what the counters here are for. Same type the Data sources tally reads, so the
@@ -83,7 +83,9 @@ export function snapshotKnowledge(meta: MetaLike | null | undefined): SnapshotKn
   if (meta.sourceCounts) {
     ({ partial: degraded = 0, stale = 0, unavailable = 0 } = meta.sourceCounts);
   } else {
+    // An advisory source never counts against the answer, as in sourceCounts.
     for (const s of meta.sources ?? []) {
+      if (s?.advisory) continue;
       switch (s?.status) {
         case 'partial': degraded++; break;
         case 'stale': stale++; break;

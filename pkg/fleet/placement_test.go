@@ -129,7 +129,7 @@ func TestPlacementRestricted(t *testing.T) {
 	if n := count(NewQuery(snap)); n != 2 {
 		t.Errorf("visible: %d targets", n)
 	}
-	if n := count(NewQuery(snap).Restrict(func(ns string) bool { return ns != "secret" })); n != 1 {
+	if n := count(NewQuery(snap).Restrict(func(ns string) bool { return ns != "secret" }, nil)); n != 1 {
 		t.Errorf("restricted: %d targets, want the hidden one uncounted", n)
 	}
 }

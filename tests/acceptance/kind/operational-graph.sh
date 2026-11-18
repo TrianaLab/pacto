@@ -191,8 +191,11 @@ done < <(cat "$HELM_VALUES" "$EV_VALUES")
 # The remaining --set values are this RUN's, not the fixture's: the image kind
 # just loaded, the registry it just brought up, the components under test. They
 # have one consumer and no counterpart in the scenario, so they stay here.
+# The documented anonymous path: this journey tests the product API and its
+# browser journeys (e2e-live), not sign-in (dashboard-modes.sh does).
 common_sets=(--set global.imageRegistry= --set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never
-             --set dashboard.enabled=true --set evidence.enabled=true
+             --set dashboard.enabled=true --set dashboard.auth.tokenSignIn.enabled=false --set dashboard.auth.allowAnonymous=true
+             --set evidence.enabled=true
              --set evidence.trust.existingSecret=pacto-evidence-trust
              --set "insecureRegistries[0]=${REG_HOST}"
              "${projected_sets[@]}")
@@ -222,6 +225,7 @@ echo "== declared services: the projected Pacto CRs, resolved FROM THE REGISTRY 
 # reconcile NonCompliant.
 kubectl create namespace "$DEMO_NS" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 workloads=()
+deployments=() # the Deployment each workload's Pacto targets, by index
 statuses=() # the status each workload must reconcile to, by index
 while IFS=$'\t' read -r service deployment port mode extra; do
   [ -n "$service" ] && [ -n "$deployment" ] && [ -n "$port" ] && [ -n "$mode" ] && [ -z "${extra:-}" ] \
@@ -238,6 +242,7 @@ while IFS=$'\t' read -r service deployment port mode extra; do
   [ "$port" = 0 ] \
     || kubectl -n "$DEMO_NS" expose deployment "$deployment" --name="$deployment" --port="$port" >/dev/null 2>&1 || true
   workloads+=("$service")
+  deployments+=("$deployment")
 done < <(plan_records workload)
 [ "${#workloads[@]}" -gt 0 ] || fail "the plan declares no workload to reconcile"
 kubectl apply -f "$CRS" >/dev/null
@@ -246,8 +251,9 @@ kubectl apply -f "$CRS" >/dev/null
 # gate from starting before the operator has reconciled anything.
 for i in "${!workloads[@]}"; do
   service="${workloads[$i]}" status="${statuses[$i]}"
-  wait_pacto_status "$DEMO_NS" "$service" "$status" \
-    && pass "$service reconciled $status" || fail "$service did not reconcile"
+  if wait_pacto_status "$DEMO_NS" "$service" "$status"; then
+    pass "$service reconciled $status"
+  else fail "$service did not reconcile"; fi
 done
 
 echo "== ingest the declared signed EvidenceEnvelopes from a 'remote' environment =="
@@ -261,17 +267,18 @@ while IFS=$'\t' read -r subject payload sequence envelope_id extra; do
   "$PACTO_BIN" evidence sign "$payload" --key "$KEYDIR/${SIGN_KEY_ID}.key" \
     --key-id "$SIGN_KEY_ID" --producer "$SIGN_PRODUCER" \
     --sequence "$sequence" --id "$envelope_id" > "$BDIR/${envelope_id}.envelope.json"
-  "$PACTO_BIN" evidence send "$BDIR/${envelope_id}.envelope.json" --url "http://127.0.0.1:${LOCAL_EV_PORT}" >/dev/null 2>&1 \
-    && pass "$subject evidence accepted" || fail "$subject evidence not accepted"
+  if "$PACTO_BIN" evidence send "$BDIR/${envelope_id}.envelope.json" --url "http://127.0.0.1:${LOCAL_EV_PORT}" >/dev/null 2>&1; then
+    pass "$subject evidence accepted"
+  else fail "$subject evidence not accepted"; fi
 done < <(plan_records evidence)
 # The operator read the cluster id (the kube-system namespace UID) at start and
 # handed it to the Evidence Server, which stamps it on every record it accepts.
 # (UID itself is a read-only bash variable.)
 CLUSTER_UID="$(kubectl get ns kube-system -o jsonpath='{.metadata.uid}')"
-curl -fsS "http://127.0.0.1:${LOCAL_EV_PORT}/api/evidence/v1/targets" \
-  | jq -e --arg u "$CLUSTER_UID" '.schemaVersion == "pacto.dev/evidence-source/v5" and .cluster.id == $u and all(.targets[]; .cluster == $u)' >/dev/null \
-  && pass "the Evidence Server names its cluster on every target" \
-  || fail "the Evidence Server does not name cluster $CLUSTER_UID"
+if curl -fsS "http://127.0.0.1:${LOCAL_EV_PORT}/api/evidence/v1/targets" \
+  | jq -e --arg u "$CLUSTER_UID" '.schemaVersion == "pacto.dev/evidence-source/v5" and .cluster.id == $u and all(.targets[]; .cluster == $u)' >/dev/null; then
+  pass "the Evidence Server names its cluster on every target"
+else fail "the Evidence Server does not name cluster $CLUSTER_UID"; fi
 kill "$EV_PF" 2>/dev/null || true
 
 echo "== the live Product API proves the fixture is ready =="
@@ -298,18 +305,36 @@ echo "== the live Product API proves the fixture is ready =="
 # the state under test.)
 DASH_PF="$(pf 8080 svc/pacto-dashboard 3000)"
 FIXTURE_JSON="$(mktemp)"
-( cd "$ROOT" && go run ./tests/acceptance/kind/productready \
+if ( cd "$ROOT" && go run ./tests/acceptance/kind/productready \
     -base "http://127.0.0.1:8080" -domain "${REG_HOST}/demo" \
-    -snapshots 2 -out "$FIXTURE_JSON" ) \
-  && pass "the live Product API proves the fixture, twice, across a refresh" \
-  || fail "the live Product API never proved the fixture on two distinct snapshots"
+    -snapshots 2 -out "$FIXTURE_JSON" ); then
+  pass "the live Product API proves the fixture, twice, across a refresh"
+else fail "the live Product API never proved the fixture on two distinct snapshots"; fi
 # The managed dashboard reads the kube-system namespace by name (its ClusterRole
 # grants exactly that), so its live source is keyed by the cluster UID. This is
 # the one proof that the RBAC works against a real API server.
-curl -fsS "http://127.0.0.1:8080/api/fleet/snapshot" \
-  | jq -e --arg u "$CLUSTER_UID" 'any(.sources[]; .kind == "kubernetes" and .id == $u)' >/dev/null \
-  && pass "the dashboard's live source is keyed by the cluster UID" \
-  || fail "the dashboard's live source is not keyed by cluster $CLUSTER_UID"
+if curl -fsS "http://127.0.0.1:8080/api/fleet/snapshot" \
+  | jq -e --arg u "$CLUSTER_UID" 'any(.sources[]; .kind == "kubernetes" and .id == $u)' >/dev/null; then
+  pass "the dashboard's live source is keyed by the cluster UID"
+else fail "the dashboard's live source is not keyed by cluster $CLUSTER_UID"; fi
+
+# Inferred services: a Deployment no Pacto targets shows as an inferred service
+# (the dashboard lists workloads with its own list-only grant), and a Deployment
+# a Pacto targets never does.
+kubectl -n "$DEMO_NS" create deployment untracked \
+  --image=registry.k8s.io/pause:3.9@sha256:7031c1b283388d2c2e09b57badb803c05ebed362dc88d84b480cc47f72a21097 >/dev/null 2>&1 || true
+inferred_named() { # DEPLOYMENT — prints the inferred service entities for it in DEMO_NS
+  curl -fsS "http://127.0.0.1:8080/api/fleet/entities?declaration=inferred&kinds=service&text=$1" \
+    | jq -c --arg ns "$DEMO_NS" --arg d "$1" \
+      '[.entities[] | select(.declaration == "inferred" and .scope == $ns and .secondary == "Deployment" and (.label | endswith("/Deployment/" + $d)))]'
+}
+untracked_inferred() { [ "$(inferred_named untracked | jq length)" = 1 ]; }
+if eventually 40 untracked_inferred; then
+  pass "a Deployment no Pacto targets shows as an inferred service"
+else fail "the Deployment $DEMO_NS/untracked never showed as an inferred service: $(inferred_named untracked)"; fi
+if [ "$(inferred_named "${deployments[0]}" | jq length)" = 0 ]; then
+  pass "a Deployment a Pacto targets is never inferred"
+else fail "the targeted Deployment ${deployments[0]} shows as an inferred service"; fi
 
 # Browser acceptance: drive the LIVE dashboard in Chromium via Playwright, proving
 # the real frontend bundle + real HTTP API + real operator data render together —
@@ -319,12 +344,13 @@ curl -fsS "http://127.0.0.1:8080/api/fleet/snapshot" \
 # subcommand) so the default vertical run stays dependency-light.
 if [ -n "${RUN_BROWSER:-}" ]; then
   echo "== live Product journeys against the LIVE dashboard (Playwright/Chromium) =="
-  ( cd "$ROOT/pkg/dashboard/frontend" \
+  if ( cd "$ROOT/pkg/dashboard/frontend" \
     && npm ci --ignore-scripts >/dev/null 2>&1 \
     && npx playwright install --with-deps chromium >/dev/null 2>&1 \
     && PW_BASE_URL="http://127.0.0.1:8080/" PW_FIXTURE="$(cat "$FIXTURE_JSON")" \
-       npx playwright test --config playwright.live.config.ts ) \
-    && pass "live dashboard product journeys" || fail "live dashboard product journeys failed"
+       npx playwright test --config playwright.live.config.ts ); then
+    pass "live dashboard product journeys"
+  else fail "live dashboard product journeys failed"; fi
 fi
 kill "$DASH_PF" 2>/dev/null || true
 

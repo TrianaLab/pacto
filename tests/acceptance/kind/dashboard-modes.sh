@@ -16,6 +16,8 @@
 # rather than a packaged copy, and drives four scenarios:
 #   1. fresh install dashboard.enabled=false -> operator Ready, ZERO restarts, no
 #      dashboard resources.
+#   1b. install dashboard.enabled=true -> the dashboard asks people to sign in,
+#      and the link NOTES prints signs in as pacto-viewer, which reads the fleet.
 #   2. upgrade true -> false -> dashboard resources removed, operator stays Ready.
 #   3. upgrade false -> true -> dashboard resources created + Deployment Ready.
 #   4. uninstall (both modes) -> no operator/dashboard runtime resources.
@@ -118,6 +120,41 @@ assert_operator_healthy
 wait_dashboard_ready
 
 echo
+echo "== SCENARIO 1b: sign in with the NOTES link =="
+# Follow NOTES literally: its create-token command and its port-forward, then
+# the POST /auth/token the link's page makes (dash_token_login). The release is
+# pacto-operator, so the chart's fullname is pacto-operator too.
+notes="$(helm get notes pacto-operator -n "$NS")"
+mint="$(grep -oE "kubectl -n $NS create token pacto-viewer --audience pacto-dashboard --duration 10m" <<<"$notes" | head -n 1)"
+[ -n "$mint" ] || { echo "$notes" >&2; fail "NOTES print no create-token command for pacto-viewer with the pacto-dashboard audience"; }
+grep -qF "TOKEN=\$($mint) && echo \"http://127.0.0.1:3000/#token=\$TOKEN\"" <<<"$notes" || fail "NOTES do not put the token in the link's fragment, printed only once minted"
+kubectl -n "$NS" get deploy pacto-dashboard -o json | jq -e '.spec.template.spec.containers[0].env as $e |
+    ($e | map(select(.name == "PACTO_DASHBOARD_TOKEN_LOGIN"))[0].value == "true") and
+    ($e | map(select(.name == "PACTO_DASHBOARD_ALLOW_ANONYMOUS")) == [])' >/dev/null \
+  || fail "a bare install does not sign people in: $(kubectl -n "$NS" get deploy pacto-dashboard -o jsonpath='{.spec.template.spec.containers[0].env}')"
+DASH_PF="$(pf 3000 svc/pacto-dashboard 3000)" || fail "could not port-forward the dashboard"
+dash_get() { # COOKIE PATH — the HTTP status of a GET, with the session cookie when given
+  local args=(-s -o /dev/null -w '%{http_code}')
+  [ -n "$1" ] && args+=(-H "Cookie: __Host-pacto-session=$1")
+  curl "${args[@]}" "http://127.0.0.1:3000$2"
+}
+[ "$(dash_get "" /api/fleet/services)" = 401 ] || fail "a visitor who has not signed in reads the fleet"
+read -ra mint_cmd <<<"$mint" # the NOTES command, word for word
+link="$("${mint_cmd[@]}")"
+session="$(dash_token_login 3000 "$link" link)"
+[[ -n "$session" && "$session" != *" "* ]] || fail "the NOTES link did not sign in: $session"
+curl -s -H "Cookie: __Host-pacto-session=$session" http://127.0.0.1:3000/api/session |
+  jq -e --arg u "system:serviceaccount:$NS:pacto-viewer" '.signedIn == true and .method == "token" and .user == $u' >/dev/null \
+  || fail "the link session is not pacto-viewer's: $(curl -s -H "Cookie: __Host-pacto-session=$session" http://127.0.0.1:3000/api/session)"
+[ "$(dash_get "$session" /api/fleet/services)" = 200 ] || fail "the link session cannot read the fleet"
+out="$(dash_token_login 3000 "$(kubectl -n "$NS" create token pacto-viewer --duration 10m)")"
+if [ "${out%% *}" != 401 ] || ! grep -q -- '--audience pacto-dashboard' <<<"$out"; then
+  fail "a pacto-viewer token minted for another audience signed in: $out"
+fi
+kill "$DASH_PF" 2>/dev/null || true
+pass "the dashboard asks people to sign in; the NOTES link signs in as pacto-viewer and reads the fleet; a token for another audience does not"
+
+echo
 echo "== SCENARIO 2: upgrade dashboard true -> false removes the dashboard, operator stays Ready =="
 helm upgrade pacto-operator "$CHART" -n "$NS" "${SETS[@]}" \
   --set dashboard.enabled=false --wait --timeout 180s
@@ -126,6 +163,9 @@ wait_gone deployment pacto-dashboard -n "$NS"
 wait_gone serviceaccount pacto-dashboard -n "$NS"
 wait_gone clusterrolebinding pacto-dashboard
 wait_gone clusterrole pacto-dashboard
+wait_gone serviceaccount pacto-viewer -n "$NS"
+wait_gone clusterrolebinding "pacto-operator-${NS}-dashboard-tokenreview"
+wait_gone clusterrolebinding pacto-operator-viewer
 assert_no_dashboard
 
 echo

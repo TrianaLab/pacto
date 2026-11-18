@@ -14,6 +14,7 @@
 package externalid
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"regexp"
@@ -125,4 +126,19 @@ func Host(s string) (ID, bool) {
 	}
 	id, err := Parse("host/" + d)
 	return id, err == nil
+}
+
+// Managed names a managed cloud resource by provider, service, account or
+// project, region and resource id: "aws/sqs/123456789012/eu-west-1/orders".
+// Each part is trimmed and lower-cased; an empty part is an error, so an
+// identity is never built from a part nobody read.
+func Managed(provider, service, account, region, id string) (ID, error) {
+	parts := []string{provider, service, account, region, id}
+	for i, p := range parts {
+		parts[i] = strings.ToLower(strings.TrimSpace(p))
+		if parts[i] == "" {
+			return "", errors.New("external identity: managed resource needs provider, service, account, region and id")
+		}
+	}
+	return Parse(strings.Join(parts, "/"))
 }

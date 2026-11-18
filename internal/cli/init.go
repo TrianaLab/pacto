@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"cmp"
 	"errors"
 	"fmt"
 	"os"
@@ -45,11 +46,18 @@ that names another service in the cluster becomes a dependency with
 compatibility unknown: with that service's contract in --fleet, its bundle and
 a proposed range from its version in a comment; without it, the comment says
 no range was proposed. Vendors, managed services and legacy hosts that the
-environment and every chart's values.yaml name are listed under External,
-classified with the external catalog, and the likely ones are written as
-commented entries under dependencies for you to uncomment. Only their host and
-port are shown; a Secret gives its name and key names, never a value. A
-readiness, liveness or startup probe becomes a health check.
+folder names (the environment, Helm values files, Compose, Kustomize
+generators, SDK manifests and lockfiles, Terraform resources and Crossplane
+objects) are classified with the external catalog and listed under External
+dependencies as inferred: they go in pacto.inferred.yaml, never in pacto.yaml.
+--external-catalog merges an organization catalog, pinned by digest, over the
+default. Only their host and port are shown; a Secret gives its name and key
+names, never a value. A
+readiness, liveness or startup probe becomes a health check. A folder that
+already holds pacto.yaml at pactoVersion 2.5 (or none) is completed, never
+with --cluster: Pacto never changes it and lists what the folder adds, which
+pacto pack and pacto publish put in pacto.inferred.yaml. An older pacto.yaml
+is not completed, and the plan says to raise its pactoVersion.
 
 Either contract also gets a publish section, for pacto publish, with its
 bundle under --registry (default: the workload's image registry, else the
@@ -107,6 +115,9 @@ changes nothing.`,
   pacto init --cluster --namespace shop --out drafts
   pacto init gift-cards --from oci://ghcr.io/acme/paths/http-service:1.0.0 --owner checkout --domain commerce`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := app.CheckExternalCatalogRef(svc.ExternalCatalogRef); err != nil {
+				return err
+			}
 			format := v.GetString(outputFormatKey)
 			overrides := getOverrides(cmd)
 			if err := fromChecks(from, trust, runPlugins, fromCluster, len(args), overrides); err != nil {
@@ -122,9 +133,12 @@ changes nothing.`,
 				if err != nil {
 					return err
 				}
+				_ = svc.InitCatalog(cmd.Context(), &opts) // ponytail: the ref was checked above, so it cannot fail
 				b, err := pactify.Cluster(cmd.Context(), dyn, opts, cluster, os.WriteFile)
 				return printBulk(cmd, b, err, format)
 			case len(args) > 1:
+				opts.PactoVersion = cmp.Or(svc.Version, "dev") // ponytail: no commit per folder; app.Init names one for a single folder
+				_ = svc.InitCatalog(cmd.Context(), &opts)      // ponytail: the ref was checked above, so it cannot fail
 				b, err := pactify.Many(cmd.Context(), opts, args, os.WriteFile)
 				return printBulk(cmd, b, err, format)
 			}
@@ -158,9 +172,15 @@ changes nothing.`,
 	f.StringVar(&from, "from", "", "a golden path to create the service from: an oci:// reference or a directory")
 	f.StringVar(&trust, "trust", "", "the trust config the golden path's signature is verified with: a PEM public key or a trust config file (default $PACTO_DELIVERY_TRUST)")
 	f.StringSliceVar(&runPlugins, "run-plugins", nil, "run these plugins the golden path names, by name (see the plan's plugin steps); each step prints the binary it runs")
+	f.String("external-catalog", "", "organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST; a tag is refused (also PACTO_EXTERNAL_CATALOG)")
+	_ = v.BindPFlag(externalCatalogKey, f.Lookup("external-catalog"))
 	addOverrideFlags(cmd)
 	return cmd
 }
+
+// externalCatalogKey is the viper key of the organization external catalog
+// every local completion merges over the default.
+const externalCatalogKey = "external-catalog"
 
 // fromChecks refuses what cannot go with --from, and what needs it.
 func fromChecks(from, trust string, runPlugins []string, fromCluster bool, folders int, overrides override.Overrides) error {

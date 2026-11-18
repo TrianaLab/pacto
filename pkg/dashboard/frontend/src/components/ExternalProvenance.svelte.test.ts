@@ -117,6 +117,47 @@ describe('ExternalProvenance', () => {
     expect(text(t.querySelector('[data-testid="external-sources-more"]'))).toBe('7 more');
   });
 
+  const repo = (over = {}) => inferred(0, { service: 'newsletter-service', source: 'registry', kind: 'helmValues',
+    where: 'chart/values.yaml:2 STRIPE_API_BASE', observedAt: undefined, revision: 'newsletter-service@sha256:abc', ...over });
+
+  it('renders a repository source muted with its revision', () => {
+    const t = render(data({ external: { ...data().external, sources: [] }, observedSources: [], observedSourcesTotal: 0,
+      inferredSources: [repo()], inferredSourcesTotal: 1 }));
+    const r = rows(t)[0];
+    expect(r.classList.contains('xp-inferred')).toBe(true);
+    expect(text(r.querySelector('[data-cell="where"]'))).toContain('Helm values chart/values.yaml:2 STRIPE_API_BASE');
+    expect(r.querySelector('.xp-mark')?.getAttribute('title')).toBe(
+      "Inferred from newsletter-service's repository at revision newsletter-service@sha256:abc; never declared, so it never clears a gate");
+    (t.querySelector('[data-testid="external-more-details"]') as HTMLButtonElement).click();
+    flushSync();
+    const d = text(r.querySelector('[data-cell="details"]'));
+    expect(d).toContain('revision newsletter-service@sha256:abc');
+    expect(d).not.toContain('read time unknown');
+  });
+
+  it('labels an SDK-only source as possible', () => {
+    const t = render(data({ inferredSources: [repo({ kind: 'sdk', host: '', confidence: 'possible', where: 'requirements.txt stripe' })], inferredSourcesTotal: 1 }));
+    const r = rows(t).find((x) => x.getAttribute('data-provenance') === 'inferred')!;
+    expect(text(r.querySelector('[data-cell="where"]'))).toContain('SDK requirements.txt');
+    expect(text(r.querySelector('[data-cell="confidence"]'))).toBe('Confidence Possible (SDK only)');
+    expect(text(r.querySelector('[data-cell="host"]'))).toBe('Host not recorded');
+  });
+
+  it('labels an unjoined Crossplane source as possible', () => {
+    const t = render(data({ inferredSources: [repo({ kind: 'crossplane', host: '', confidence: 'possible', where: 'infra/queue.yaml:1' })], inferredSourcesTotal: 1 }));
+    const r = rows(t).find((x) => x.getAttribute('data-provenance') === 'inferred')!;
+    expect(text(r.querySelector('[data-cell="confidence"]'))).toBe('Confidence Possible');
+    expect(r.querySelector('.xp-mark')?.getAttribute('title')).toContain('provisioned in this repository');
+  });
+
+  it('hides repository rows with Show inferred off', () => {
+    const t = render(data({ observedSources: [], observedSourcesTotal: 0, inferredSources: [repo()], inferredSourcesTotal: 1 }));
+    expect(rows(t).map((r) => r.getAttribute('data-provenance'))).toEqual(['declared', 'inferred']);
+    (t.querySelector('[data-testid="external-show-inferred"]') as HTMLInputElement).click();
+    flushSync();
+    expect(rows(t).map((r) => r.getAttribute('data-provenance'))).toEqual(['declared']);
+  });
+
   it('stacks each row into a labelled block that the container lays out', () => {
     const t = render(data());
     expect([...rows(t)[2].querySelectorAll('.xp-k')].map((k) => k.textContent)).toEqual(['Consumer', 'Found in', 'Host', 'Confidence']);

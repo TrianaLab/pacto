@@ -56,6 +56,23 @@ rules:
   - apiGroups: [""]
     resources: [secrets]
     verbs: [get]
+  # Detection publishes what the cluster provides in <fullname>-detected, the
+  # one ConfigMap it writes. Kubernetes cannot scope create by name, and
+  # server-side apply creates through patch, so create stays unnamed while get
+  # and patch name that ConfigMap only.
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [create]
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get, patch]
+    resourceNames: [{{ include "pacto-operator.fullname" . }}-detected]
+  # Detection owns that ConfigMap by the operator Deployment, read by name: with
+  # a namespace list and no dashboard or Evidence Server nothing else grants it.
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [get]
+    resourceNames: [{{ include "pacto-operator.fullname" . }}]
   {{- if .Values.dashboard.enabled }}
   # Dashboard lifecycle: its ServiceAccount, Service, merged OCI credentials
   # Secret and Deployment.

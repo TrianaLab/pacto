@@ -729,6 +729,7 @@ func gateCases() []gateCase {
 	active := AffectedConsumer{Service: "web", CompatibilityVerdict: CompatibilityIncompatible, Targets: []string{"prod/k8s/web"}}
 	paper := AffectedConsumer{Service: "web", CompatibilityVerdict: CompatibilityIncompatible}
 	refused := AffectedConsumer{Service: "web", CompatibilityVerdict: CompatibilityCompatible, Unmet: []contract.Mismatch{{Consumer: "web"}}}
+	recordOnly := AffectedConsumer{Service: "news", Provenance: fleet.ProvenanceInferred, Via: []string{fleet.ProvenanceInferred}}
 	failingRunning := AffectedConsumer{Service: "ref", CompatibilityVerdict: CompatibilityIncompatible, policyVerdict: CompatibilityIncompatible, Targets: []string{"prod/k8s/ref"}}
 	failingUnplaced := AffectedConsumer{Service: "ref", CompatibilityVerdict: CompatibilityIncompatible, policyVerdict: CompatibilityIncompatible}
 	unchecked := AffectedConsumer{Service: "ref", CompatibilityVerdict: CompatibilityUnknown, policyVerdict: CompatibilityUnknown}
@@ -744,6 +745,15 @@ func gateCases() []gateCase {
 			r: Result{Classification: "BREAKING", Service: "api", Completeness: fleet.CompletenessComplete, Consumers: []AffectedConsumer{paper}}},
 		{name: "two consumers", gate: GateUnverified, reason: "2 consumers depend on api", code: GateCodeConsumersUnchecked,
 			r: Result{Classification: "BREAKING", Service: "api", Completeness: fleet.CompletenessComplete, Consumers: []AffectedConsumer{paper, paper}}},
+		{name: "a consumer and inferred ones", gate: GateUnverified, code: GateCodeConsumersUnchecked,
+			reason: "1 consumer depends on api, but none is shown to be both incompatible and running. Review each consumer, and add a source that knows where services run " +
+				"(for example --target-state) to tell deployed impact apart. 2 services may depend on it, named only by their inferred records",
+			r: Result{Classification: "BREAKING", Service: "api", Completeness: fleet.CompletenessComplete,
+				Consumers: []AffectedConsumer{paper, recordOnly, recordOnly}}},
+		// A transitive consumer is inferred too, but no record names it.
+		{name: "a transitive consumer", gate: GateUnverified, reason: "1 consumer depends on api, but none", code: GateCodeConsumersUnchecked,
+			r: Result{Classification: "BREAKING", Service: "api", Completeness: fleet.CompletenessComplete,
+				Consumers: []AffectedConsumer{{Provenance: fleet.ProvenanceInferred, Via: []string{"dependency"}}}}},
 		{name: "refused guarantee", gate: GateUnverified, reason: "on api, but none is shown to be both incompatible and running. api 2.0.0 does not meet a guarantee required by web. Review each consumer",
 			code: GateCodeConsumersUnchecked, r: Result{Classification: "BREAKING", Service: "api", NewVersion: "2.0.0", Completeness: fleet.CompletenessComplete, Consumers: []AffectedConsumer{refused}}},
 		{name: "refused guarantee, partial", gate: GateUnverified, reason: "may break. api 2.0.0 does not meet a guarantee required by web. Fix the sources",
@@ -1048,7 +1058,7 @@ func TestUnresolvedRefsCountHiddenReferrers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	snap := fleet.NewQuery(full).Restrict(func(ns string) bool { return ns == "shop" }).SnapshotForSerialization()
+	snap := fleet.NewQuery(full).Restrict(func(ns string) bool { return ns == "shop" }, nil).SnapshotForSerialization()
 	res := Analyze(context.Background(), pgContract("16.1.0", "provisioning", true), pgContract("16.2.0", "provisioning", false),
 		pgSchema("small", "medium", "large"), pgSchema("small", "large"), snap, Options{})
 	l := limitation(res, "CONFIG_REF_CONSUMERS_UNRESOLVED")

@@ -14,7 +14,6 @@ import (
 	"syscall/js"
 	"time"
 
-	"github.com/danielgtaylor/huma/v2/adapters/humago"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -119,10 +118,7 @@ func main() {
 		return ""
 	}))
 
-	mux := http.NewServeMux()
-	api := humago.New(mux, dashboard.APIConfig())
-	dashboard.NewServer(opts).RegisterOperations(api)
-	handler = mux
+	handler = demoHandler(opts)
 
 	js.Global().Set("__pactoServe", js.FuncOf(serve))
 	if cb := js.Global().Get("__pactoOnReady"); cb.Type() == js.TypeFunction {

@@ -1,0 +1,5 @@
+asyncapi: 3.0.0
+info: {title: payments events, version: 1.0.0}
+channels:
+  charges: {address: charges}
+  refunds: {address: refunds}

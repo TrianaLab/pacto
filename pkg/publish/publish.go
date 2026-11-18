@@ -36,7 +36,9 @@ const (
 	// Adopt: the tag's provenance says this version from this revision, so an
 	// earlier publish pushed it. Apply reuses its digest only when it is
 	// signed by the configured identity, and refuses it as a conflict
-	// otherwise: provenance annotations are not signed.
+	// otherwise: provenance annotations are not signed. A bundle is adopted
+	// too when it holds the same declared contract and cited inputs (only the
+	// inferred record differs).
 	Adopt State = "adopt"
 	// Conflict: the tag holds something else. Nothing is overwritten.
 	Conflict State = "conflict"
@@ -160,6 +162,9 @@ func MakePlan(ctx context.Context, reg Registry, in Input) Plan {
 	if err != nil {
 		st, why = Unreadable, "the bundle could not be packed: "+err.Error()
 	}
+	if st == Conflict {
+		st, why = inferredOnly(ctx, reg, Repo(pub.Bundle)+"@"+r.Digest, in.Bundle, p.Version, why)
+	}
 	bundle := item(BundleItem, BundleItem, ref, st, why, r)
 	if st == Absent {
 		bundle.Digest = digest
@@ -180,6 +185,27 @@ func MakePlan(ctx context.Context, reg Registry, in Input) Plan {
 		p.Ready = p.Ready && ch.Passed
 	}
 	return p
+}
+
+// inferredOnly decides a bundle tag that conflicts with the local bundle:
+// adopt when only the inferred record differs and its cited inputs match, so
+// nothing is republished, and a conflict that asks for a patch when the
+// sources differ. Otherwise, or when the tag cannot be pulled, why stands.
+// pinned is the digest the tag's Head returned, so the content compared is the
+// content adopted and verified, even when the tag moves meanwhile.
+func inferredOnly(ctx context.Context, reg Registry, pinned string, local *contract.Bundle, version, why string) (State, string) {
+	remote, err := reg.Pull(ctx, pinned)
+	if err != nil {
+		return Conflict, why
+	}
+	unchanged, what := contract.InferredUnchanged(remote, local, oci.BundleDigest)
+	switch {
+	case unchanged:
+		return Adopt, "only the inferred record differs (" + what + "): not republished"
+	case what != "":
+		return Conflict, "only the inferred record changed since " + version + ", so a patch is enough" + NextVersion
+	}
+	return Conflict, why
 }
 
 func item(name, typ, ref string, st State, why string, r *Remote) Item {

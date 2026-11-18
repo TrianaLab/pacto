@@ -63,18 +63,19 @@ func tail(s string) string {
 // runs no tests.
 func (s *Service) Publish(ctx context.Context, opts PublishOptions) (*publish.Result, error) {
 	path := defaultPath(opts.Path)
-	c, raw, fsys, err := loadAndValidateFull(ctx, path, opts.Overrides, s.BundleStore)
+	// The record names the revision the manifests are stamped with.
+	revision := s.localInputs(path, opts.Revision).Commit
+	cat, err := s.completionCatalog(ctx)
+	if err != nil {
+		return nil, err
+	}
+	c, raw, fsys, err := loadAndValidateFull(ctx, path, opts.Overrides, s.BundleStore, s.localInputs(path, revision), cat)
 	if err != nil {
 		return nil, err
 	}
 	b := &contract.Bundle{Contract: c, RawYAML: raw, FS: fsys}
 	env := s.env()
-	in := publish.Input{Bundle: b, Revision: opts.Revision, Checks: []publish.Check{validationCheck(s.guaranteeStage(ctx, path, c))}}
-	if in.Revision == "" {
-		if abs, err := env.absPath(path); err == nil {
-			in.Revision = gitRevision(abs)
-		}
-	}
+	in := publish.Input{Bundle: b, Revision: revision, Checks: []publish.Check{validationCheck(s.guaranteeStage(ctx, path, c))}}
 	reg := env.publishRegistry()
 	tools := newExecTools(path, env.run, reg)
 	in.Checks = append(in.Checks, checkOf("references", rejectLocalDeps(c), rejectLocalRefs(c)),

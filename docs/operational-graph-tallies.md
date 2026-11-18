@@ -40,7 +40,7 @@ declare no owner; a service whose contract Pacto cannot read counts in
 | | `degraded` | No source reports degradation yet, so it reads 0 |
 | `knowledge` | `described`, `withGaps`, `unknown` | Partitions `services`. A service with two gaps counts in two kinds and once in `withGaps` |
 | `knowledge.gaps` | `noSummary`, `noDomain`, `noInterfaceDocs`, `noReadiness`, `notDeployed`, `unverifiedCapability` | Services per gap kind. `notDeployed` counts only when every source reporting targets is complete |
-| `knowledgeItems` | | How many `knowledge` attention items the gaps raise; the count on the overview tile |
+| `knowledgeItems` | | How many `knowledge` attention items the gaps and recent takeovers raise; the count on the overview tile |
 | `coverage` | `evaluated`, `required`, `reporting`, `notReporting` | Assertions summed over the targets that report coverage; `notReporting` counts targets whose source reported none |
 | `staleCompliantTargets` | | Of `compliantTargets`, how many rest on stale evidence |
 
@@ -95,7 +95,7 @@ sidebar badge counts only items above `info`.
 | `undeclared` | `UNCONTRACTED_CALLER`, a caller with no contract | info |
 | `golden-path` | `GOLDEN_PATH_DEPLOYED` | warning |
 | `readiness` | `MISSING_READINESS` | info |
-| `knowledge` | the gap: `NO_SUMMARY`, `NO_DOMAIN`, `NO_INTERFACE_DOCS`, `NOT_DEPLOYED` or `UNVERIFIED_CAPABILITY`; or the cause of an unknown service: `CONTRACT_UNREADABLE`, `INTERFACE_DOCS_UNREAD`, `SUMMARY_UNKNOWN`, `DOMAIN_UNKNOWN` or `PLACEMENT_UNKNOWN` | info |
+| `knowledge` | the gap: `NO_SUMMARY`, `NO_DOMAIN`, `NO_INTERFACE_DOCS`, `NOT_DEPLOYED` or `UNVERIFIED_CAPABILITY`; or the cause of an unknown service: `CONTRACT_UNREADABLE`, `INTERFACE_DOCS_UNREAD`, `SUMMARY_UNKNOWN`, `DOMAIN_UNKNOWN` or `PLACEMENT_UNKNOWN`; or `INFERRED_REPLACED`, an inferred service a contract took over in the last 24 hours | info |
 | `unowned` | `UNOWNED_SERVICE` | info |
 
 A revision with no readiness assessment raises a `readiness` item, so

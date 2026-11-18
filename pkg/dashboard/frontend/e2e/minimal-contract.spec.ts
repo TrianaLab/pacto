@@ -36,7 +36,9 @@ test.describe('WASM demo — a service with an empty contract', () => {
     await expect(inferred).toBeVisible({ timeout: T });
     await expect(inferred).toContainText('Inferred');
     await expect(inferred).toContainText('service.name');
-    await expect(inferred).toContainText('inferred from chart/Chart.yaml:2');
+    // The source sits in the mark's note, opened by its button.
+    await inferred.getByRole('button', { name: 'About inferred service.name' }).click();
+    await expect(inferred.getByRole('note')).toContainText('Source: chart/Chart.yaml:2');
     await expect(page.getByText('Version not declared', { exact: true })).toBeVisible();
     expect(errors).toEqual([]);
   });
@@ -57,14 +59,14 @@ test.describe('WASM demo — a service with an empty contract', () => {
     const count = page.locator('dt', { hasText: /^Services$/ }).locator('xpath=following-sibling::dd[1]');
     await expect(count).toBeVisible({ timeout: T });
     const all = await page.evaluate(async () => {
-      const r = await (await fetch('/api/fleet/entities?kinds=service&limit=1')).json();
+      const r = await (await fetch('/api/fleet/entities?kinds=service&declaration=declared&limit=1')).json();
       const n = await (await fetch('/api/fleet/entities?kinds=service&text=newsletter-service&limit=5')).json();
       const ov = await (await fetch('/api/fleet/overview')).json();
       return { total: r.total as number, goldenPaths: (ov.summary?.goldenPaths ?? 0) as number,
         newsletter: (n.entities ?? []).map((e: { label: string }) => e.label) };
     });
     expect(all.newsletter).toContain('newsletter-service');
-    // The overview counts golden paths apart; every other service, this one included, is in.
+    // The overview counts golden paths and inferred services apart; every other service, this one included, is in.
     // With external systems declared the line reads "N: D declared, E external"; the first link is D.
     await expect(count.locator('a').first()).toHaveText(new RegExp(`^${all.total - all.goldenPaths}( declared)?$`));
     expect(errors).toEqual([]);

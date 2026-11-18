@@ -33,11 +33,13 @@ import (
 // reason and more strictly: it is the leaf both the dashboard and the offline
 // exporter build on, so a k8s edge here would reach every consumer of either.
 var corePackages = []string{
+	"github.com/trianalab/pacto/v4/pkg/backstage/...",
 	"github.com/trianalab/pacto/v4/pkg/catalog/...",
 	"github.com/trianalab/pacto/v4/pkg/contract/...",
 	"github.com/trianalab/pacto/v4/pkg/contractview/...",
 	"github.com/trianalab/pacto/v4/pkg/dashboard/...",
 	"github.com/trianalab/pacto/v4/pkg/delivery/...",
+	"github.com/trianalab/pacto/v4/pkg/detect/...",
 	"github.com/trianalab/pacto/v4/pkg/evidence/...",
 	"github.com/trianalab/pacto/v4/pkg/evidenceenvelope/...",
 	"github.com/trianalab/pacto/v4/pkg/evidenceingest/...",
@@ -219,6 +221,20 @@ func TestContractIsTheLeaf(t *testing.T) {
 	}
 }
 
+// TestWorkloadShapeReadsNoCluster keeps internal/workloadshape a standard
+// library leaf: it reads a decoded workload object, so a folder reader that
+// must never reach a cluster may share it with the cluster source.
+func TestWorkloadShapeReadsNoCluster(t *testing.T) {
+	const self = "github.com/trianalab/pacto/v4/internal/workloadshape"
+	for _, dep := range deps(t, self) {
+		for _, bad := range []string{"k8s.io/", "sigs.k8s.io/", "github.com/trianalab/pacto/"} {
+			if strings.HasPrefix(dep, bad) && dep != self {
+				t.Errorf("boundary violation: internal/workloadshape reaches %q; it imports only the standard library", dep)
+			}
+		}
+	}
+}
+
 // TestPublicPackagesNeverReachInternal keeps pkg/* importable by external Go
 // programs: a pkg/* -> internal/* edge would compile here and fail for every
 // outside caller, and drag the CLI's wiring into the public API.
@@ -237,6 +253,23 @@ func TestCorePackagesHaveNoKubernetesOrIntegrationDeps(t *testing.T) {
 				if strings.HasPrefix(dep, bad) {
 					t.Errorf("boundary violation: core package pattern %q transitively imports forbidden %q (prefix %q)", pkg, dep, bad)
 				}
+			}
+		}
+	}
+}
+
+// TestDiscoverReadsNoClusterOrRuntime keeps folder discovery a pure read of
+// the repository: what Pacto infers for a contract comes from files, never
+// from a cluster or runtime observation, so internal/discover reaches no
+// Kubernetes client, runtime watcher, fleet source or the pactify package
+// that drafts from a cluster.
+func TestDiscoverReadsNoClusterOrRuntime(t *testing.T) {
+	const mod = "github.com/trianalab/pacto/v4/"
+	forbidden := []string{"k8s.io/", "sigs.k8s.io/", mod + "internal/k8sclient", mod + "internal/runtimewatch", mod + "pkg/runtimefacts", mod + "internal/fleetsrc", mod + "internal/pactify"}
+	for _, dep := range deps(t, mod+"internal/discover") {
+		for _, bad := range forbidden {
+			if strings.HasPrefix(dep, bad) {
+				t.Errorf("boundary violation: internal/discover reaches %q; discovery reads the folder only", dep)
 			}
 		}
 	}

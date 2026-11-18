@@ -1,0 +1,183 @@
+format: pacto.inferred/v1
+inputs:
+    pacto: demo
+    discovery: "3"
+    sources:
+        - path: CODEOWNERS
+          digest: sha256:a52f034421811e5454b85abaedc944ba60d3e390e6ec2db6ea71e6563bb1f73f
+        - path: Dockerfile
+          digest: sha256:82c24e1ed586a665f34f574d3557608a4b786c84b0b7a4e78e7238712338ad35
+        - path: api/openapi.v1.yaml
+          digest: sha256:12765668ae0eff9cef242ca100e660bde343911d69594f74576a1fd8f3434994
+        - path: catalog-info.yaml
+          digest: sha256:292b86d7ff76b340bad48887e7c3ffdc0c5b6be7524c65d75a404b9012c09a18
+        - path: chart/values-production.yaml
+          digest: sha256:803f06d4673b07668ff270301ca54ca5829da3133c1219f47bd9f52a60b22f9f
+        - path: chart/values-staging.yaml
+          digest: sha256:e15c415d62760896bd8bec192a44c5716dc224db9e0fc609b9ac14718f8f9e56
+        - path: chart/values.yaml
+          digest: sha256:68bb17033c5e875999cfdad08c00eabdd1eb68299e182d954fe72d375ec37228
+        - path: deploy/deployment.yaml
+          digest: sha256:5b7d211439ba5b72fd6376abc080a33b39cee16d33c03a7b20c42e12fb9dde8c
+        - path: infra/main.tf
+          digest: sha256:8d3279a20b50be48c3f3116de966e2035bcaf2299187f39e8b0a6dacb0048a01
+        - path: requirements.txt
+          digest: sha256:c9a179f84fcf00def906466ba23914173cf485191f64fc3e9523218b8188bed3
+    catalog:
+        - default sha256:62a3fd52949e99b18eb330766ec3269d47ba7a821f59b77ab69dea81ad76a063
+        - organization sha256:3d6b5d543df126f84b96d130aa2e4256c8d1d4d7e661c45caae55c2c5bae6b7b
+fields:
+    - field: capabilities[health]
+      value: GET /healthz (readinessProbe)
+      source: deploy/deployment.yaml:32
+      confidence: likely
+      declare: |
+        capabilities:
+          - type: health
+            binding:
+              type: http
+              interface: api
+              path: /healthz
+      outranks:
+        - Dockerfile:11
+    - field: configuration.BATCH_SIZE
+      value: integer
+      source: deploy/deployment.yaml:28
+      confidence: likely
+      declare: '"BATCH_SIZE": {"type":"integer"}'
+      outranks:
+        - chart/values.yaml:7
+    - field: configuration.NEWSLETTER_DIGEST_SCHEDULE_FOR_SUBSCRIBERS_WITHOUT_A_CONFIRMED_TIMEZONE_FALLBACK
+      value: string
+      source: deploy/deployment.yaml:30
+      confidence: likely
+      declare: '"NEWSLETTER_DIGEST_SCHEDULE_FOR_SUBSCRIBERS_WITHOUT_A_CONFIRMED_TIMEZONE_FALLBACK": {"type":"string"}'
+    - field: configuration.NOTIFICATION_URL
+      value: string
+      source: deploy/deployment.yaml:21
+      confidence: likely
+      declare: '"NOTIFICATION_URL": {"type":"string"}'
+    - field: configuration.SMTP_PASSWORD
+      value: string, writeOnly
+      source: deploy/deployment.yaml:23
+      confidence: likely
+      declare: '"SMTP_PASSWORD": {"description":"Read from the Secret smtp, whose values pacto init does not read.","type":"string","writeOnly":true}'
+      outranks:
+        - chart/values.yaml:8
+    - field: configuration.STRIPE_API_BASE
+      value: string
+      source: chart/values.yaml:9
+      confidence: likely
+      declare: '"STRIPE_API_BASE": {"type":"string"}'
+    - field: dependencies[newsletter-signups]
+      value: aws/sqs
+      source: infra/main.tf:1
+      confidence: possible
+      declare: |
+        dependencies:
+          - name: newsletter-signups
+            external: true
+            identity: aws/sqs
+            required: true
+            version: <the API version you call>
+      external:
+        identity: aws/sqs
+        catalog: default
+        sources:
+            - kind: terraform
+              path: infra/main.tf
+              line: 1
+              key: aws_sqs_queue.signups
+        resource:
+            type: aws_sqs_queue
+            name: newsletter-signups
+            missing:
+                - account
+                - region
+    - field: dependencies[notification-worker]
+      value: notification-worker
+      source: deploy/deployment.yaml:21
+      confidence: likely
+      declare: |
+        dependencies:
+          - name: notification-worker
+            ref: <where the contract of notification-worker is published>
+            required: true
+            compatibility: unknown   # declare the versions of notification-worker this service accepts
+    - field: dependencies[stripe]
+      value: stripe
+      source: chart/values.yaml:9
+      confidence: likely
+      declare: |
+        dependencies:
+          - name: stripe
+            external: true
+            identity: stripe
+            required: true
+            version: <the API version you call>
+      external:
+        identity: stripe
+        catalog: default
+        sources:
+            - kind: helmValues
+              path: chart/values.yaml
+              line: 9
+              key: STRIPE_API_BASE
+              host: api.stripe.com
+            - kind: sdk
+              path: requirements.txt
+              line: 1
+        client:
+            sdk: stripe
+            major: 11
+    - field: environments[production].file
+      value: chart/values-production.yaml
+      source: chart/values-production.yaml
+      confidence: possible
+    - field: environments[staging].file
+      value: chart/values-staging.yaml
+      source: chart/values-staging.yaml
+      confidence: possible
+    - field: image
+      value: ghcr.io/trianalab/newsletter-service:0.1.0
+      source: chart/values.yaml:2
+      confidence: likely
+      outranks:
+        - deploy/deployment.yaml:19
+    - field: interfaces[api]
+      value: openapi api/openapi.v1.yaml
+      source: api/openapi.v1.yaml:1
+      confidence: likely
+      declare: |
+        interfaces:
+          - name: api
+            type: openapi
+            ref: api/openapi.v1.yaml
+    - field: ports[8080]
+      value: 8080/tcp
+      source: Dockerfile:12
+      confidence: likely
+      outranks:
+        - chart/values.yaml:5
+    - field: service.owner
+      value: team-growth
+      source: catalog-info.yaml:7
+      confidence: likely
+      declare: |
+        service:
+          owner:
+            team: team-growth
+      class: ownerFile
+      outranks:
+        - CODEOWNERS:4
+        - deploy/deployment.yaml:6
+    - field: workload
+      value: service (Deployment newsletter-service)
+      source: deploy/deployment.yaml:2
+      confidence: likely
+      declare: |
+        workload: service
+findings:
+    - code: DISCOVERY_CHART_DEPENDENCY_UNLOCKED
+      source: chart/Chart.yaml:5
+      message: chart dependency 'redis' has no Chart.lock digest, not read

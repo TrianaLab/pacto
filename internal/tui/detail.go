@@ -97,6 +97,8 @@ func businessDomainText(r fleet.EntityRef) string {
 func renderDetail(d *fleet.EntityDetail) string {
 	var b strings.Builder
 	switch {
+	case d.Service != nil && d.Service.Workload != nil:
+		renderInferredWorkload(&b, d)
 	case d.Service != nil:
 		field(&b, "domain", businessDomainText(d.Entity))
 		field(&b, "offering", d.Entity.Offering)
@@ -128,6 +130,16 @@ func renderDetail(d *fleet.EntityDetail) string {
 	return b.String()
 }
 
+// renderInferredWorkload renders an inferred service: its workload, each
+// value with where Pacto read it, and its calls or why they are unknown. It
+// has no contract, so no contract section is drawn.
+func renderInferredWorkload(b *strings.Builder, d *fleet.EntityDetail) {
+	section(b, "Inferred service")
+	for _, l := range d.Service.InferredLines(d.Meta.AsOf) {
+		b.WriteString(safeText(l) + "\n")
+	}
+}
+
 // field writes one aligned label/value line, skipping empty values so a detail
 // page never shows a column of blanks. Every value here comes from the fleet,
 // so it goes through safeText.
@@ -145,6 +157,17 @@ func styledField(b *strings.Builder, label, value string) {
 	fmt.Fprintf(b, "  %s %s\n", dimStyle.Render(pad(label+":", 18)), value)
 }
 
+// OwnerProvenanceMark is the text suffix that says where a service's owner
+// comes from: empty for a declared or absent provenance, else
+// " (declared via target)", " (attested)" or " (inferred)". The CLI and the
+// TUI share it so the owner reads the same on both.
+func OwnerProvenanceMark(p string) string {
+	if p == "" || p == fleet.OwnerProvenanceDeclared {
+		return ""
+	}
+	return " (" + strings.ReplaceAll(p, "-", " ") + ")"
+}
+
 func section(b *strings.Builder, title string) {
 	b.WriteString("\n" + headerStyle.Render(title) + "\n")
 }
@@ -154,7 +177,7 @@ func section(b *strings.Builder, title string) {
 func renderServiceDetail(b *strings.Builder, service string, s *fleet.ServiceDetailData, c fleet.Completeness) {
 	field(b, "registry", s.Domain)
 	if s.Ownership != nil {
-		field(b, "owner", s.Ownership.Owner)
+		field(b, "owner", s.Ownership.Owner+OwnerProvenanceMark(s.Ownership.Provenance))
 	}
 	section(b, "Summary")
 	field(b, "revisions", fmt.Sprintf("%d (%d in use)", s.Summary.Revisions, s.Summary.RevisionsInUse))

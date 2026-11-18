@@ -377,3 +377,38 @@ func inlineRuleIncludes(t *testing.T, data []byte) []byte {
 	}
 	return data
 }
+
+// TestOnlyNotesLooksUpDetectedConfigMap keeps detection inert: the chart reads
+// a ConfigMap only from NOTES.txt, so no rendered manifest can depend on what
+// the operator detected, and NOTES pins the <fullname>-detected name.
+func TestOnlyNotesLooksUpDetectedConfigMap(t *testing.T) {
+	lookup := regexp.MustCompile(`lookup\s+"v1"\s+"ConfigMap"`)
+	found := false
+	err := filepath.WalkDir(chartTemplates, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if !lookup.Match(data) {
+			return nil
+		}
+		if filepath.Base(path) != "NOTES.txt" {
+			t.Errorf("%s looks up a ConfigMap; only NOTES.txt may", path)
+			return nil
+		}
+		found = true
+		if !bytes.Contains(data, []byte(`printf "%s-detected"`)) {
+			t.Errorf("NOTES.txt looks up a ConfigMap without naming it printf \"%%s-detected\"")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk the chart templates: %v", err)
+	}
+	if !found {
+		t.Error("NOTES.txt does not look up the detected ConfigMap")
+	}
+}

@@ -201,7 +201,7 @@ func TestRevisionDependencyBehavior(t *testing.T) {
 }
 
 func TestRestrictHidesProviderBehavior(t *testing.T) {
-	r := behaviorFleet(t).Restrict(func(ns string) bool { return ns != "secret" })
+	r := behaviorFleet(t).Restrict(func(ns string) bool { return ns != "secret" }, nil)
 	for _, from := range []string{"late", "plain"} {
 		rel := behaviorOf(t, r, from)
 		if !rel.Hidden || rel.Unmet != nil || rel.DeprecatedInterfaces != nil {
@@ -345,7 +345,7 @@ func TestEdgeProviderLifecycle(t *testing.T) {
 }
 
 func TestRestrictHidesProviderLifecycle(t *testing.T) {
-	r := lifecycleFleet(t).Restrict(func(ns string) bool { return ns != "secret" })
+	r := lifecycleFleet(t).Restrict(func(ns string) bool { return ns != "secret" }, nil)
 	if rel := lifecycleRel(t, r, "app", "2.0.0"); !rel.Hidden || rel.ProviderLifecycle != nil {
 		t.Errorf("the hidden provider's lifecycle reaches its consumer: %+v", rel)
 	}

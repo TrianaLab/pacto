@@ -26,6 +26,7 @@ Validates against the embedded schema of the contract's version, `pacto-v2.0.sch
 - Fields that must carry a value are non-empty (for example `interfaces[].ref` and `checks[].file`)
 - Discriminated shapes hold: a `configurations[]` entry has exactly one of `schema` or `ref`, a `capabilities[]` `extension` requires a namespaced `ref` and `health` or `metrics` sets no `ref`
 - State invariants hold (`stateless` requires `ephemeral` durability)
+- A `pacto.inferred.yaml` in the bundle parses, and every file it cites is in the bundle with the digest it records (`INFERRED_RECORD_INVALID`)
 
 Structural failures report `SCHEMA_VIOLATION`. A field a later version adds,
 in an older contract, reports that version's code for each use instead: set
@@ -37,7 +38,7 @@ in an older contract, reports that version's code for each use instead: set
 | An interface `lifecycle`, `compatibilityEpoch` or `guarantees`, a dependency `requires` | `"2.2"` | `NEEDS_PACTO_2_2` |
 | `environments` | `"2.3"` | `NEEDS_PACTO_2_3` |
 | `service.domain`, `service.offering`, `service.summary`, `service.lifecycle`, `service.template`, `service.origin`, `values` or a `configuration` selector beside a configuration `ref` | `"2.4"` | `NEEDS_PACTO_2_4` |
-| A dependency `compatibility: unknown` or `identity`, an interface `port`, `breaks` | `"2.5"` | `NEEDS_PACTO_2_5` |
+| A dependency `compatibility: unknown` or `identity`, an interface `port`, `breaks`, a `pacto.inferred.yaml` in the bundle | `"2.5"` | `NEEDS_PACTO_2_5` |
 | No field: the contract declares a `pactoVersion` older than the CLI's newest | any older 2.x | `CONTRACT_BEHIND` (info, never fails `pacto validate`) |
 
 - `pacto validate` and `pacto_check` report `CONTRACT_BEHIND` on the

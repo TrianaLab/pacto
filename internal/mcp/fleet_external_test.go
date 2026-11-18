@@ -2,8 +2,11 @@ package mcp
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
@@ -57,7 +60,7 @@ func TestMCPFleetGetExternal(t *testing.T) {
 // found.
 func TestMCPFleetGetExternalRestricted(t *testing.T) {
 	view := func(_ context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
-		return q.Restrict(func(ns string) bool { return ns != "secretns" }), nil
+		return q.Restrict(func(ns string) bool { return ns != "secretns" }, nil), nil
 	}
 	server := mustNew("test", Authoring{}, Modes{Fleet: &FleetMode{Src: staticFleet(externalFleet(t)), Opts: FleetOptions{View: view}}})
 	res := callToolOn(t, server, "pacto_fleet_get", map[string]any{"service": "external:stripe"})
@@ -151,7 +154,7 @@ func TestFleetGetExternalInferredSources(t *testing.T) {
 
 func TestFleetGetExternalRestrictedCountsHidden(t *testing.T) {
 	view := func(_ context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
-		return q.Restrict(func(ns string) bool { return ns != "secretns" }), nil
+		return q.Restrict(func(ns string) bool { return ns != "secretns" }, nil), nil
 	}
 	server := mustNew("test", Authoring{}, Modes{Fleet: &FleetMode{Src: staticFleet(inferredExternalFleet(t)), Opts: FleetOptions{View: view}}})
 	for _, c := range []struct {
@@ -169,4 +172,62 @@ func TestFleetGetExternalRestrictedCountsHidden(t *testing.T) {
 			t.Errorf("entity does not count the hidden caller or lost the visible one:\n%s", text)
 		}
 	}
+}
+
+// TestInferredRecordEdgesDescribed: the instructions and the graph and impact
+// tools name the service dependency an inferred record names, so an agent
+// never reports it as a configuration read or a transitive consumer.
+func TestInferredRecordEdgesDescribed(t *testing.T) {
+	for name, text := range map[string]string{
+		"instructions":      fleetInstructions,
+		"pacto_fleet_graph": fleetGraphTool().Description,
+		"pacto_impact":      impactTool().Description,
+	} {
+		if !strings.Contains(text, "inferred record") {
+			t.Errorf("%s does not name the inferred record", name)
+		}
+	}
+	if !strings.Contains(fleetInstructions, "Pacto uses 'inferred' in five places") || !strings.Contains(fleetInstructions, "inferredRecord") {
+		t.Error("the instructions miss the inferred record meaning of 'inferred'")
+	}
+	for _, want := range []string{"kind repository", "the revision", "sdk or terraform match is possible only"} {
+		if !strings.Contains(fleetInstructions, want) {
+			t.Errorf("the instructions miss %q", want)
+		}
+	}
+}
+
+// TestFleetGetExternalRepositorySource: the entity and explain tools show an
+// external the consumer's inferred record names, as a repository source
+// with its revision.
+func TestFleetGetExternalRepositorySource(t *testing.T) {
+	path := "requirements.txt"
+	rec := &contract.InferredRecord{Format: contract.InferredRecordFormat,
+		Inputs: contract.InferredInputs{Pacto: "4.6.0", Discovery: "1", Sources: []contract.InferredSourceFile{
+			{Path: path, Digest: "sha256:" + hex.EncodeToString(sha256Of("stripe==11.4.0\n"))}}},
+		Fields: []contract.Inferred{{Field: "dependencies[stripe]", Value: "stripe", Source: path + ":1", Confidence: contract.ConfidencePossible,
+			External: &contract.InferredExternal{Identity: "stripe", Catalog: "default", Sources: []contract.InferredExternalSource{{Kind: "sdk", Path: path, Line: 1}}}}}}
+	fsys := fstest.MapFS{path: {Data: []byte("stripe==11.4.0\n")}, contract.InferredRecordFile: {Data: rec.Marshal()}}
+	src := fleet.NewMemorySource("k8s", fleet.SourceKindKubernetes, &fleet.Collection{Revisions: []fleet.RawRevision{{Digest: "sha256:c", Bundle: &contract.Bundle{FS: fsys,
+		Contract: &contract.Contract{PactoVersion: "2.5", Service: contract.Service{Name: "checkout", Version: "1.0.0"}}}}}})
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := mustNew("test", Authoring{}, Modes{Fleet: &FleetMode{Src: staticFleet(fleet.NewQuery(snap))}})
+	text := resultText(t, callToolOn(t, server, "pacto_fleet_entity", map[string]any{"kind": "external", "key": "stripe"}))
+	for _, want := range []string{`"kind": "repository"`, `"provenance": "inferred"`, `"where": "requirements.txt:1"`, `"revision": "checkout@sha256:c"`, `"confidence": "possible"`} {
+		if !strings.Contains(text, want) {
+			t.Errorf("external entity lacks %s:\n%s", want, text)
+		}
+	}
+	explain := resultText(t, callToolOn(t, server, "pacto_fleet_explain", map[string]any{"subject": "external:stripe"}))
+	if !strings.Contains(explain, "inferred from sdk requirements.txt:1 of checkout (possible, entry stripe, revision checkout@sha256:c)") {
+		t.Errorf("explain lacks the repository source:\n%s", explain)
+	}
+}
+
+func sha256Of(s string) []byte {
+	sum := sha256.Sum256([]byte(s))
+	return sum[:]
 }

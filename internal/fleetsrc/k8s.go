@@ -38,11 +38,7 @@ type K8sSource struct {
 // the context name); cluster is the cluster every target is in, nil when
 // unknown.
 func NewK8sSource(id string, cluster *fleet.Cluster, client k8sclient.K8sClient, namespaces []string) *K8sSource {
-	if id == "" {
-		id = "k8s"
-	}
-	ns := slices.Compact(slices.Sorted(slices.Values(slices.DeleteFunc(slices.Clone(namespaces), func(n string) bool { return n == "" }))))
-	return &K8sSource{id: id, cluster: cluster, client: client, namespaces: ns}
+	return &K8sSource{id: cmp.Or(id, "k8s"), cluster: cluster, client: client, namespaces: normalizeNamespaces(namespaces)}
 }
 
 // ContractRefs returns the contract references the Pacto CRs in namespaces
@@ -97,8 +93,9 @@ func (s *K8sSource) Kind() string { return fleet.SourceKindKubernetes }
 
 // Collect discovers the Pacto CRD, lists its resources in each configured
 // namespace (or once across all of them), and projects each into a target. A
-// cluster with no Pacto CRD installed yields an empty collection (reachable,
-// nothing declared) rather than an error; an unreachable cluster, or a list
+// cluster with no Pacto CRD installed yields no target and a
+// PACTO_CRD_NOT_INSTALLED limitation rather than an error: without Pacto CRs
+// Pacto cannot tell where a service runs. An unreachable cluster, or a list
 // that fails in every namespace, is a source-level error so [fleet.Build]
 // records it as unavailable.
 //
@@ -112,7 +109,14 @@ func (s *K8sSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 		return nil, fmt.Errorf("discovering pacto crd: %w", err)
 	}
 	if !disc.Found {
-		return s.scoped(&fleet.Collection{}, s.namespaces), nil
+		missing := fleet.Limitation{
+			Code: fleet.LimitationPactoCRDNotInstalled, Source: s.id,
+			Message: "the Pacto CRD is not installed in this cluster, so Pacto reads no declared target here; its workloads show as inferred services",
+		}
+		return scoped(s.id, s.namespaces, &fleet.Collection{Cluster: s.cluster, Limitations: []fleet.Limitation{missing}, Providers: []fleet.Provider{{
+			ID: fleet.ProviderPactoCRD, Name: "Pacto CRD", Evidence: "not installed", UsedFor: []string{fleet.UseDeclaredTargets},
+			Status: fleet.SourcePartial, Limitations: []fleet.Limitation{missing},
+		}}}, s.namespaces), nil
 	}
 	col := &fleet.Collection{ObservedUndeclaredOnly: true, Cluster: s.cluster}
 	namespaces := s.namespaces
@@ -136,17 +140,34 @@ func (s *K8sSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 	if len(read) == 0 {
 		return nil, listErr
 	}
-	return s.scoped(col, read), nil
+	col.Providers = append(col.Providers, crdServedRow(disc, col.Limitations))
+	return scoped(s.id, s.namespaces, col, read), nil
 }
 
-// scoped declares col partial with the namespaces read, and states the scope,
-// when the source reads a namespace list; an unscoped col is returned as is.
-func (s *K8sSource) scoped(col *fleet.Collection, read []string) *fleet.Collection {
-	if len(s.namespaces) == 0 {
+// crdServedRow is the Pacto CRD row of a served CRD. Its evidence carries no
+// count: the count is the source's targetCount, which a restricted view
+// recounts. Its status is left to the source; it keeps the unreadable
+// namespaces of lims.
+func crdServedRow(disc *k8sclient.CRDDiscovery, lims []fleet.Limitation) fleet.Provider {
+	return fleet.Provider{
+		ID: fleet.ProviderPactoCRD, Name: "Pacto CRD", Evidence: "served (" + k8sclient.PactoGroup + "/" + disc.Version + ")",
+		UsedFor: []string{fleet.UseDeclaredTargets},
+		Objects: []fleet.ProviderObject{{Kind: "CustomResourceDefinition", Name: disc.ResourceName + "." + k8sclient.PactoGroup}},
+		Limitations: slices.DeleteFunc(slices.Clone(lims), func(l fleet.Limitation) bool {
+			return l.Code != fleet.LimitationK8sNamespaceUnreadable
+		}),
+	}
+}
+
+// scoped declares col of source id partial with the namespaces read, and
+// states the scope, when the source reads a namespace list (namespaces); an
+// unscoped col is returned as is.
+func scoped(id string, namespaces []string, col *fleet.Collection, read []string) *fleet.Collection {
+	if len(namespaces) == 0 {
 		return col
 	}
 	col.State = &fleet.SourceState{Status: fleet.SourcePartial, Namespaces: read, NamespacesTotal: len(read)}
-	col.Limitations = append(col.Limitations, fleet.NamespaceScopeLimitation(s.id, read, 0))
+	col.Limitations = append(col.Limitations, fleet.NamespaceScopeLimitation(id, read, 0))
 	return col
 }
 
@@ -300,6 +321,18 @@ func (s *K8sSource) targetFrom(item k8sItem) fleet.RawTarget {
 		ObservedRuntime:     st.ObservedRuntime,
 		EvidenceAt:          observed,
 		ReconciledAt:        observed,
+		CreatedAt:           parseK8sTime(item.Metadata.CreationTimestamp),
+	}
+	if tg := item.Spec.Target; tg != nil {
+		// The CRD's documented default: the workload is the Deployment named
+		// like the Service.
+		ref := fleet.WorkloadRef{Kind: "Deployment", Name: tg.ServiceName}
+		if w := tg.WorkloadRef; w != nil {
+			ref = fleet.WorkloadRef{Kind: cmp.Or(w.Kind, ref.Kind), Name: cmp.Or(w.Name, ref.Name)}
+		}
+		if ref.Name != "" {
+			t.Workload = &ref
+		}
 	}
 	if st.EvaluationCoverage != nil {
 		t.Coverage = &fleet.Coverage{
@@ -373,13 +406,26 @@ type k8sList struct {
 
 type k8sItem struct {
 	Metadata k8sMetadata `json:"metadata"`
+	Spec     k8sSpec     `json:"spec"`
 	Status   k8sStatus   `json:"status"`
 }
 
+// k8sSpec decodes spec.target: the Service and workload a Pacto observes.
+type k8sSpec struct {
+	Target *struct {
+		ServiceName string `json:"serviceName"`
+		WorkloadRef *struct {
+			Kind string `json:"kind"`
+			Name string `json:"name"`
+		} `json:"workloadRef"`
+	} `json:"target"`
+}
+
 type k8sMetadata struct {
-	Name      string            `json:"name"`
-	Namespace string            `json:"namespace"`
-	Labels    map[string]string `json:"labels"`
+	Name              string            `json:"name"`
+	Namespace         string            `json:"namespace"`
+	Labels            map[string]string `json:"labels"`
+	CreationTimestamp string            `json:"creationTimestamp"`
 }
 
 type k8sStatus struct {

@@ -117,7 +117,7 @@ func TestRevisionDocumentTool(t *testing.T) {
 		t.Fatalf("visible revision: %v %s", isErr, text)
 	}
 	hide := func(_ context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
-		return q.Restrict(func(string) bool { return false }), nil
+		return q.Restrict(func(string) bool { return false }, nil), nil
 	}
 	if text, isErr := call(hide, map[string]any{"key": key, "path": "docs/overview.md"}); !isErr || !strings.Contains(text, "not found") {
 		t.Errorf("a revision the view hides: %v %s", isErr, text)

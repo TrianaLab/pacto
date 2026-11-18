@@ -573,7 +573,7 @@ func TestServiceDetailUnresolvedDependencies(t *testing.T) {
 	}
 	q := NewQuery(snap)
 	check("visible", q, 0)
-	check("hidden", q.Restrict(func(ns string) bool { return ns != "secret" }), 1)
+	check("hidden", q.Restrict(func(ns string) bool { return ns != "secret" }, nil), 1)
 }
 
 func TestRevisionEntityRefFetchedAt(t *testing.T) {
@@ -696,7 +696,7 @@ func TestOfferingHiddenConsumers(t *testing.T) {
 	if n := offeringData(t, q, "db").HiddenConsumers; n != 0 {
 		t.Errorf("unrestricted hidden consumers = %d", n)
 	}
-	r := q.Restrict(func(ns string) bool { return ns == "shop" })
+	r := q.Restrict(func(ns string) bool { return ns == "shop" }, nil)
 	if n := offeringData(t, r, "db").HiddenConsumers; n != 1 {
 		t.Errorf("hidden consumers = %d, want 1", n)
 	}
@@ -719,7 +719,7 @@ func TestOfferingAndDependentsTalliesFollowRestrict(t *testing.T) {
 		Revisions: []RawRevision{ociRev("ghcr.io/acme", svc24("pa", "1.0.0", "db"), nil), ociRev("ghcr.io/acme", both, nil), ociRev("ghcr.io/acme", seen, nil)},
 		Targets:   []RawTarget{tgt("shop", "pa"), tgt("hush", "both"), tgt("shop", "seen")},
 	})
-	r := q.Restrict(func(ns string) bool { return ns == "shop" })
+	r := q.Restrict(func(ns string) bool { return ns == "shop" }, nil)
 	for name, view := range map[string]*Query{"unrestricted": q, "restricted": r} {
 		c := offeringData(t, view, "db").Consumers
 		if got := c.Range.Satisfied + c.Range.Unsatisfied + c.Range.Unknown + c.Range.None; got != c.Total {
@@ -942,7 +942,7 @@ func checkUnresolvedMessage(t *testing.T, lims []Limitation) {
 // A restricted view counts the hidden referrers' unresolved uses and names
 // them nowhere.
 func TestOfferingUnresolvedUsesCountsHiddenConsumers(t *testing.T) {
-	r := unresolvedUsesFleet(t).Restrict(func(ns string) bool { return ns == "shop" })
+	r := unresolvedUsesFleet(t).Restrict(func(ns string) bool { return ns == "shop" }, nil)
 	d, err := r.EntityDetail(KindOffering, "db")
 	if err != nil {
 		t.Fatal(err)
@@ -971,7 +971,7 @@ func TestOfferingUnresolvedUsesCountsHiddenProviders(t *testing.T) {
 		Revisions: []RawRevision{ociRev("ghcr.io/acme", svc24("pa", "1.0.0", "db"), nil), ociRev("ghcr.io/acme", svc24("secret-pa", "1.0.0", "db"), nil), ociRev("ghcr.io/acme", orders, nil)},
 		Targets:   []RawTarget{tgt("shop", "pa"), tgt("hush", "secret-pa"), tgt("shop", "orders")},
 	})
-	for name, view := range map[string]*Query{"full": q, "restricted": q.Restrict(func(ns string) bool { return ns == "shop" })} {
+	for name, view := range map[string]*Query{"full": q, "restricted": q.Restrict(func(ns string) bool { return ns == "shop" }, nil)} {
 		d, err := view.EntityDetail(KindOffering, "db")
 		if err != nil {
 			t.Fatal(err)
@@ -1011,7 +1011,7 @@ func TestOfferingAdaptersFollowRestrict(t *testing.T) {
 	if full.Offering.Adapters.Total != 2 {
 		t.Fatalf("unrestricted adapters = %q", adapterLines(full.Offering.Adapters))
 	}
-	d, err := q.Restrict(func(ns string) bool { return ns != "secret" }).EntityDetail(KindOffering, "postgresql")
+	d, err := q.Restrict(func(ns string) bool { return ns != "secret" }, nil).EntityDetail(KindOffering, "postgresql")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1206,5 +1206,24 @@ func TestRevisionDetailPactoVersionText(t *testing.T) {
 		if got := tc.r.PactoVersionText(); got != tc.want {
 			t.Errorf("PactoVersionText(%+v) = %q, want %q", tc.r, got, tc.want)
 		}
+	}
+}
+
+// A field outranking hundreds of sources lists the first MaxOutranks and
+// counts them all.
+func TestInferredFieldsBoundOutranks(t *testing.T) {
+	var many []string
+	for i := range 300 {
+		many = append(many, fmt.Sprintf("deploy/m%03d.yaml:4", i))
+	}
+	out, _ := inferredFields(nil, &contract.InferredRecord{Fields: []contract.Inferred{
+		{Field: "configuration.LOG_LEVEL", Value: "string", Source: "Dockerfile:3", Outranks: many},
+		{Field: "image", Value: "x:1", Source: "Dockerfile:1", Outranks: many[:2]},
+	}})
+	if len(out[0].Outranks) != MaxOutranks || out[0].OutranksTotal != 300 {
+		t.Errorf("outranks = %d of %d", len(out[0].Outranks), out[0].OutranksTotal)
+	}
+	if len(out[1].Outranks) != 2 || out[1].OutranksTotal != 0 {
+		t.Errorf("short outranks = %+v", out[1])
 	}
 }

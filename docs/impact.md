@@ -70,7 +70,7 @@ For each dependent the analysis records:
 | **confidence** | How strongly the evidence supports the claim (see below). |
 | **status / targets** | The consumer's aggregate status and the operational targets it runs in. |
 | **unmet** | Each [guarantee](contract-reference/dependencies-and-state.md#required-guarantees) the consumer requires that the new version does not meet, with both values. |
-| **evidence** | The facts behind the consumer and their age, newest first: its targets, observed calls, unreachable findings and, for a removal, the provider's declared lifecycle. Stale evidence is marked. |
+| **evidence** | The facts behind the consumer and their age, newest first: its targets, observed calls, unreachable findings, the file its inferred record read the dependency from and, for a removal, the provider's declared lifecycle. Stale evidence is marked. |
 | **effect** | In an [event answer](impact-what-if.md), what the event does to the consumer: `breaks`, `may-degrade` or `unknown`. |
 | **resources** | In a removal answer, what the consumer asked the removed service for, with one provisioning status per environment, at most 20 (`resourcesTotal` counts them all). |
 | **note** | A plain-words qualifier. On a `BREAKING` change a `compatible` verdict only means the range accepts the new version, so the note says to check that the consumer does not use what the change removes. An open range such as `>=1.0.0` accepts every new major version, and the note says so. |

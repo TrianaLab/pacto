@@ -14,14 +14,18 @@
   "dependencies": [],
   "consumers": [],
   "externals": [],
-  "catalog": "sha256:05deb5dec113fd5a543b9423f1f8786eed8c2f876fc9de839dcadfb35df8c6dd (embedded)",
+  "catalog": "default sha256:62a3fd52949e99b18eb330766ec3269d47ba7a821f59b77ab69dea81ad76a063 (embedded)",
+  "externalSummary": [
+    "External dependencies: none found, inferred"
+  ],
   "unknown": [
     "interfaces: fraud listens on port 8080, but no OpenAPI file describes it",
     "who uses fraud: no other services' contracts were given (--fleet), so none were looked at"
   ],
   "next": [
     "put the signing key at cosign.key: a cosign PEM private key, decrypted with COSIGN_PASSWORD",
-    "the publish section is for pacto publish only: for a contract that only describes fraud, run pacto init --describe-only instead (describe_only: true with pacto_create)"
+    "the publish section is for pacto publish only: for a contract that only describes fraud, run pacto init --describe-only instead (describe_only: true with pacto_create)",
+    "pacto.yaml declares pactoVersion 2.1, so pacto pack publishes none of what Pacto inferred: set pactoVersion: \"2.5\" to publish it in pacto.inferred.yaml"
   ],
   "files": [
     {
@@ -34,5 +38,42 @@
       "action": "add",
       "content": "cosign.key\n"
     }
-  ]
+  ],
+  "inferred": {
+    "format": "pacto.inferred/v1",
+    "inputs": {
+      "pacto": "",
+      "discovery": "3",
+      "sources": [
+        {
+          "path": "Dockerfile",
+          "digest": "sha256:1d39fbe882b9ca27013ebaac0636207a28f1ee651efbd71efddb97f2b1391943"
+        },
+        {
+          "path": "k8s/deployment.yaml",
+          "digest": "sha256:38e7476ca4ae01fac3a75612a05549bd1203a6af910d16b91c5af1adec255790"
+        }
+      ],
+      "catalog": [
+        "default sha256:62a3fd52949e99b18eb330766ec3269d47ba7a821f59b77ab69dea81ad76a063"
+      ]
+    },
+    "fields": [
+      {
+        "field": "image",
+        "value": "registry.example/story/images/fraud:1.0.0",
+        "source": "k8s/deployment.yaml:16",
+        "confidence": "likely"
+      },
+      {
+        "field": "ports[8080]",
+        "value": "8080/tcp",
+        "source": "Dockerfile:3",
+        "confidence": "likely",
+        "outranks": [
+          "k8s/deployment.yaml:18"
+        ]
+      }
+    ]
+  }
 }

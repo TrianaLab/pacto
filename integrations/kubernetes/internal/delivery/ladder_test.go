@@ -190,8 +190,68 @@ func TestShadowReplansAnUnknownApplier(t *testing.T) {
 	if b := shadowOf(e.getStage().Status, dB); b == nil || b.Predicted == delivery.PredictRejected {
 		t.Fatalf("a refusal only for an unknown applier is replanned once detection can tell: %+v", b)
 	}
-	if staleRefusal(delivery.Shadow{Predicted: delivery.PredictRejected, Question: "GateFailed: pacto.verify: failed"}, e.getStage().Status) {
+	if staleRefusal(delivery.Shadow{Predicted: delivery.PredictRejected, Question: "GateFailed: pacto.verify: failed"}, e.getStage().Status, true) {
 		t.Fatal("a refusal by a failed gate is never replanned")
+	}
+}
+
+// TestShadowReplansAHoldForAnUnreconciledPacto: a plan held only because a
+// Pacto had no reconciled contract yet (the Stage and its Pactos arriving
+// before the operator reconciles them) is kept while that Pacto is still
+// unreconciled and replanned once it is.
+func TestShadowReplansAHoldForAnUnreconciledPacto(t *testing.T) {
+	ctx := context.Background()
+	e := observeEnv(t)
+	// A verified A leaves the unreconciled Pacto as the plan's only doubt.
+	e.setStage(func(st *delivery.StageStatus) { st.Published, st.Verified = []string{dA, dB}, []string{dA} })
+	// In another namespace, so applier detection for payments does not read it.
+	ledger := &unstructured.Unstructured{Object: map[string]any{"metadata": map[string]any{"namespace": "ledger", "name": "ledger"}}}
+	ledger.SetGroupVersionKind(gvkPacto)
+	must(t, e.c.Create(ctx, ledger))
+	must(t, e.reconcileStage("payments-prod"))
+	if b := shadowOf(e.getStage().Status, dB); b == nil || !heldUnreconciled(*b) {
+		t.Fatalf("an unreconciled Pacto holds the plan: %+v", b)
+	}
+	rv := e.getStage().ResourceVersion
+	if err := e.reconcileStage("payments-prod"); err != nil || e.getStage().ResourceVersion != rv {
+		t.Fatalf("the hold is kept while the Pacto is still unreconciled: %v", err)
+	}
+	e.fails["list/Pacto"] = true
+	if e.st.pactosReconciled(ctx) {
+		t.Fatal("a Pacto list that fails says not reconciled")
+	}
+	delete(e.fails, "list/Pacto")
+	must(t, e.c.Delete(ctx, ledger))
+	done := pactoObj("ledger", "ledger", c1, "Compliant", 1)
+	done.SetNamespace("ledger")
+	must(t, e.c.Create(ctx, done))
+	must(t, e.reconcileStage("payments-prod"))
+	if b := shadowOf(e.getStage().Status, dB); b == nil || b.Predicted != delivery.PredictProceeds {
+		t.Fatalf("the hold is replanned once the Pacto is reconciled: %+v", b)
+	}
+}
+
+// TestShadowKeepsARealHold: a held plan is replanned only when an
+// unreconciled Pacto was all it could not see; any other doubt, or a
+// person's approval, keeps it.
+func TestShadowKeepsARealHold(t *testing.T) {
+	held := func(q string) delivery.Shadow {
+		return delivery.Shadow{Predicted: delivery.PredictHeld, Decision: delivery.AcceptUnknown, Question: q}
+	}
+	only := held("Pacto cannot see enough to clear payments 1.1.0: the operational graph is partial (OBSERVED_EVIDENCE_ABSENT, PACTO_NOT_RECONCILED, SOURCE_PARTIAL). Accept the unknown? Asked of: team-payments")
+	if !staleRefusal(only, delivery.StageStatus{}, true) || staleRefusal(only, delivery.StageStatus{}, false) {
+		t.Fatal("a hold only for an unreconciled Pacto is replanned once, and only once, every Pacto is reconciled")
+	}
+	for _, s := range []delivery.Shadow{
+		held("Pacto cannot see enough to clear payments 1.1.0: ledger has no usable compatibility range for this change; the operational graph is partial (PACTO_NOT_RECONCILED). Accept the unknown?"),
+		held("Pacto cannot see enough to clear payments 1.1.0: the operational graph is partial (PACTO_NOT_RECONCILED, SOURCE_PARTIAL); the version a rollback would return to (sha256:aaaaaaaaaaaa) was never verified here. Accept the unknown?"),
+		held("Pacto cannot see enough to clear payments 1.1.0: the operational graph is partial (PACTO_NOT_RECONCILED, PACTOS_UNREADABLE). Accept the unknown?"),
+		held("Pacto cannot see enough to clear payments 1.1.0: the operational graph is partial (SOURCE_PARTIAL). Accept the unknown?"),
+		{Predicted: delivery.PredictHeld, Decision: delivery.Approve, Question: "Pacto cannot see enough to clear payments 1.1.0: the operational graph is partial (PACTO_NOT_RECONCILED). Accept the unknown?"},
+	} {
+		if staleRefusal(s, delivery.StageStatus{}, true) {
+			t.Fatalf("a hold with another blocker is never replanned: %q", s.Question)
+		}
 	}
 }
 

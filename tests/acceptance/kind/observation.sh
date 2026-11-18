@@ -155,9 +155,11 @@ kubectl -n "$NS" create configmap fixture-trace-export --from-literal=traces.jso
   --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
 echo "== install the operator with four declared observation sources =="
+# The documented anonymous path: this journey tests observation sources
+# through the dashboard, not sign-in (dashboard-modes.sh does).
 helm install pacto-operator "$CHART" -n "$NS" \
   --set global.imageRegistry= --set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never \
-  --set dashboard.enabled=true \
+  --set dashboard.enabled=true --set dashboard.auth.tokenSignIn.enabled=false --set dashboard.auth.allowAnonymous=true \
   --set 'dashboard.observation.sources[0].name=orders-traces' \
   --set 'dashboard.observation.sources[0].file=traces.json' \
   --set 'dashboard.observation.sources[0].existingClaim=orders-trace-export' \
@@ -262,9 +264,10 @@ kill "$DASH_PF" 2>/dev/null || true
 
 echo "== force a configured source to fail: drop one source, repoint the other =="
 BEFORE="$(kubectl -n "$NS" get deployment pacto-dashboard -o jsonpath='{.metadata.generation}')"
+# Same anonymous path as the install: the upgrade sets every value again.
 helm upgrade pacto-operator "$CHART" -n "$NS" \
   --set global.imageRegistry= --set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never \
-  --set dashboard.enabled=true \
+  --set dashboard.enabled=true --set dashboard.auth.tokenSignIn.enabled=false --set dashboard.auth.allowAnonymous=true \
   --set 'dashboard.observation.sources[0].name=orders-traces' \
   --set 'dashboard.observation.sources[0].file=absent.json' \
   --set 'dashboard.observation.sources[0].existingClaim=orders-trace-export' \

@@ -18,6 +18,9 @@ const (
 	EvidenceObservedCall = "observed-call"
 	EvidenceTarget       = "target"
 	EvidenceUnreachable  = "unreachable"
+	// EvidenceInferredRecord: the consumer's own inferred record names the
+	// changed service as a dependency, at the file and line it was read from.
+	EvidenceInferredRecord = "inferred-record"
 )
 
 // tracesFileSource names the source of an observed call read from a traces
@@ -26,11 +29,11 @@ const tracesFileSource = "traces file"
 
 // Evidence is one fact behind an affected consumer, with its age.
 type Evidence struct {
-	Kind       string     `json:"kind" enum:"observed-call,target,unreachable,lifecycle" doc:"What the fact is: an observed call to the changed service, a target the consumer runs on, a finding that the consumer cannot reach the changed service or the provider's declared lifecycle. Provisioning reports are in resources"`
+	Kind       string     `json:"kind" enum:"observed-call,target,unreachable,lifecycle,inferred-record" doc:"What the fact is: an observed call to the changed service, a target the consumer runs on, a finding that the consumer cannot reach the changed service, the provider's declared lifecycle or the consumer's inferred record naming the changed service. Provisioning reports are in resources"`
 	Source     string     `json:"source,omitempty" doc:"Where the fact comes from: the observation source id, the traces file or the target key"`
 	At         *time.Time `json:"at,omitempty" doc:"When the fact was last seen. Empty when the source records no time"`
 	Stale      bool       `json:"stale,omitempty" doc:"The fact is older than 24h before the snapshot's asOf, or has no time, so it does not count as current"`
-	Provenance string     `json:"provenance" enum:"declared,observed" doc:"Whether a contract declares the fact or a source observed it"`
+	Provenance string     `json:"provenance" enum:"declared,observed,inferred" doc:"Whether a contract declares the fact, a source observed it or Pacto inferred it from the consumer's repository"`
 	Message    string     `json:"message" doc:"The fact in plain words"`
 }
 

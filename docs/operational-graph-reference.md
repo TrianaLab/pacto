@@ -41,6 +41,21 @@ compliance evidence that a source carries.
   join as `inferred` edges to external systems. A Pacto whose status predates
   them, reports incomplete coverage or is stale adds `EXTERNALS_UNREPORTED` to
   its target, and the external answers that consume it read `partial`.
+- **Kubernetes workloads** (`--k8s`): workloads no Pacto resource targets join
+  as [inferred services](operational-graph-inferred.md), `declaration: inferred`.
+  A runtime call with an inferred service on one end joins as an `inferred`
+  edge in `inferredRelationships`, and a Pacto target that takes over one
+  records a replacement in `replacements`.
+  Both report [detected providers](operational-graph-providers.md).
+- **Operator detection** (`--detected k8s:<namespace>/<name>` or a file,
+  `PACTO_DASHBOARD_DETECTED` for `pacto dashboard`): what the operator
+  [detected in a cluster](integrations/kubernetes/detection.md),
+  read from its `<release>-detected` ConfigMap as source kind `detection`. It
+  adds only [provider rows](operational-graph-providers.md#detected-rows),
+  each with `provenance: inferred`. The source is advisory: a missing,
+  unreadable, foreign or future-dated ConfigMap leaves it `unavailable` with
+  the reason and one older than 15 minutes leaves it `stale`. Neither makes
+  the answer partial.
 - **Ingested external evidence** (`--evidence-url <url>`): a running [Evidence
   Server](evidence.md)'s read-only contribution over HTTP, exposing a
   remote environment's signed `EvidenceSet` reports as operational targets.
@@ -79,6 +94,8 @@ limitation per source.
 - An observed or inferred edge to an external system follows its caller: when
   the caller is hidden, the edge is dropped and counted among the external
   system's hidden consumers.
+- An inferred edge whose inferred end is hidden is dropped and that end counted
+  once, and a replacement shows only when both of its services do.
 
 ### What a target-state fixture looks like
 
@@ -172,8 +189,8 @@ I/O. A single snapshot serves concurrent queries.
 | Query | Answers |
 |-------|---------|
 | **search** | Which logical services match this filter (owner, label, status, compliance, capability, dependency, readiness). Bounded and deterministically ordered. |
-| **get** | Everything about one service (its owner, revisions, targets, declared dependencies, dependents, tools and skills) or one target. |
-| **graph** | Traverse dependencies or dependents from a service, direct or transitive, cycle-safe, with unresolved edges surfaced. Resolved [configuration references](#configuration-reference-consumers) count as dependencies. The CLI and MCP graph also follow observed-only edges, and each node's `provenance` (`declared`, `observed` or `declared+observed`) says how the edge that first reached it was known. Rooted at a revision or target, a dependencies traversal takes its first step over that revision's declared edges only; deeper steps are service-level and include observed edges. |
+| **get** | Everything about one service (its owner, revisions, targets, declared dependencies, dependents, tools and skills, and the inferred services it `replaces`) or one target. The key of a [replaced inferred service](operational-graph-inferred.md#when-a-contract-takes-over) answers with the service that replaced it and `replacedFrom`, as does **graph**. |
+| **graph** | Traverse dependencies or dependents from a service, direct or transitive, cycle-safe, with unresolved edges surfaced. Resolved [configuration references](#configuration-reference-consumers) count as dependencies. The CLI and MCP graph also follow observed-only edges, and each node's `provenance` (`declared`, `observed`, `declared+observed` or `inferred`) says how the edge that first reached it was known. `inferred` has two producers: an external system read from configuration, and a runtime call one of whose ends is an [inferred service](operational-graph-inferred.md#calls-with-no-contract-on-one-end). Inferred edges are listed in `edges` and never count as dependencies or consumers. Rooted at a revision or target, a dependencies traversal takes its first step over that revision's declared edges only; deeper steps are service-level and include observed edges. |
 | **status** | What needs attention, in the [attention categories](operational-graph-tallies.md#attention-categories). With no category selected it reports every category. `total` counts every match and `truncated` says the limit cut the list. |
 | **explain** | Deterministic, structured reasons for a subject's state. An agent can turn them into prose; Pacto itself embeds no model. |
 
@@ -313,19 +330,20 @@ field named the owner**, written `kind:name`:
 
 The namespace is part of the identity, so `team:payments` and `dri:payments` are
 different owners, and only the name is shown on screen, with a `Team` / `DRI` badge
-where two owners would otherwise be indistinguishable. The separate free-text
-`owner` filter is a human search over team, DRI and contacts. It can match
-several owners at once.
+where two owners would otherwise be indistinguishable. The free-text `owner`
+filter searches team, DRI and contacts and can match several owners.
 
 `search` and `get` return `owner` in one shape, the contract's own
 `{team, dri, contacts}`, and leave it out when no contract declares one. The
 owner comes from the newest revision that declares one. A service known only
-from Kubernetes has no revisions, so its owner comes from the owner the
-operator read from the running contract (`status.contract.owner`). A service
+from Kubernetes takes the owner the operator read from the running contract (`status.contract.owner`). A service
 counts as `unowned`, in the ownership tally and in attention, only when no
 revision declares an owner and no source reports one. A service with no owner
 claim whose contract Pacto cannot read counts as `unknown` instead: the
 dashboard labels it Owner unknown and never No declared owner.
+
+`get` also returns `ownerProvenance`, where the owner comes from: `declared`,
+`declared-via-target`, `attested` or `inferred`.
 
 ## Business domains
 
@@ -409,4 +427,5 @@ covers identities, the join order and catalogs.
 | Graph | Rooted at `external:<identity>`, it walks the consumers and their dependents (an unset direction means `dependents`); an explicit `direction: dependencies` is an invalid query |
 | Neighborhood | External systems are leaves beside the services that declare them; focusing one shows its consumers |
 | Overview | `externals` and `hiddenExternals` |
+| Repository | An external system a revision's [inferred record](contract-reference/inferred-record.md#external-dependencies) names joins as an inferred edge whose sources have kind `repository` and name that `revision`, never as a service dependency, impact or gate input |
 | Cap | An answer that names more than 200 external systems folds the rest into `other-egress` and is partial with `EXTERNAL_CAP`; see [the cap](external-catalog-reference.md#the-cap) |

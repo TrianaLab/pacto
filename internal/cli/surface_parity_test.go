@@ -91,7 +91,7 @@ func fleetRows() []surfaceRow {
 	return slices.Concat(
 		alike("fleet entities", "pacto_fleet_entities", "GET /api/fleet/entities", "", "business-domain", "consumes", "created-from", "environment",
 			"has-non-compliant", "limit", "offering", "offset", "owner", "owner-key", "ownership", "phase", "sort", "source-kind", "status", "template",
-			"capability", "domain", "readiness", "scope", "service", "source", "source-health", "failed", "lifecycle", "gap", "class"),
+			"declaration", "capability", "domain", "readiness", "scope", "service", "source", "source-health", "failed", "lifecycle", "gap", "class"),
 		[]surfaceRow{
 			{"fleet entities --kind", "pacto_fleet_entities.kind", "GET /api/fleet/entities?kinds", "the route takes several kinds, the CLI and MCP one"},
 			{"fleet entities [text]", "pacto_fleet_entities.text", "GET /api/fleet/entities?text", ""},
@@ -104,7 +104,7 @@ func fleetRows() []surfaceRow {
 			{"", "", "GET /api/fleet/neighborhood?perspective", "the dashboard's graph switches perspective; the CLI and MCP walk the service perspective"},
 		},
 		alike("fleet neighborhood", "pacto_fleet_neighborhood", "GET /api/fleet/neighborhood", "", "depth", "direction", "max-edges", "max-nodes", "views"),
-		alike("fleet search", "pacto_fleet_search", "GET /api/fleet/services", "", "limit", "offset", "owner", "scope", "source", "status", "template"),
+		alike("fleet search", "pacto_fleet_search", "GET /api/fleet/services", "", "declaration", "limit", "offset", "owner", "scope", "source", "status", "template"),
 		[]surfaceRow{{"fleet search [text]", "pacto_fleet_search.text", "GET /api/fleet/services?text",
 			"the CLI and MCP also list the external systems the text names; the dashboard finds them through GET /api/fleet/entities?kinds=external&text"}},
 		alike("fleet search", "pacto_fleet_search", "", whySearchRoute, "business-domain", "compliance", "has-capability", "has-dependency", "not-ready", "offering", "ready", "workload"),
@@ -116,6 +116,7 @@ func fleetRows() []surfaceRow {
 		[]surfaceRow{
 			{"fleet status", "pacto_fleet_status", "GET /api/fleet/status", ""},
 			{"fleet overview", "pacto_fleet_overview", "GET /api/fleet/overview", ""},
+			{"fleet providers", "", "GET /api/fleet/providers", "MCP answers it as pacto_fleet_status.providers (no new tool, map X4)"},
 			{"fleet snapshot", "", "GET /api/fleet/snapshot", "MCP serves the snapshot only through the fleet tools' answers"},
 			{"fleet reconcile --traces", "", "", "reconcile compares one local trace file with the local contracts; it reads no fleet source"},
 		},
@@ -268,6 +269,7 @@ func authoringRows() []surfaceRow {
 			{"init --plan", "pacto_create.dry_run", "", whyCreateOnly},
 			{"init --out", "", "", "with --cluster the CLI writes one folder per workload; pacto_create writes at path"},
 			{"init --trust", "", "", "pacto_create verifies a golden path with the trust config the server was started with"},
+			{"init --external-catalog", "", "", "pacto_create classifies with the external catalog the server was started with, never one a caller names"},
 			{"init", "pacto_create.pactify", "", "pacto init always reads the service folder; pacto_create does so with pactify"},
 			{"", "pacto_create.paths", "", "the CLI takes several folders as arguments (init [dir...])"},
 			{"validate [dir | oci://ref]", "pacto_check.path", "", whyCreateOnly},
@@ -326,7 +328,7 @@ func evidenceRows() []surfaceRow {
 // parityCommands are the commands whose own flags the mapping covers.
 var parityCommands = []string{
 	"fleet entities", "fleet entity", "fleet attention", "fleet neighborhood", "fleet versions", "fleet search",
-	"fleet get", "fleet graph", "fleet status", "fleet explain", "fleet reconcile", "fleet snapshot", "fleet overview",
+	"fleet get", "fleet graph", "fleet status", "fleet explain", "fleet reconcile", "fleet snapshot", "fleet overview", "fleet providers",
 	"delivery", "delivery status", "delivery history", "delivery blame", "delivery lifecycle", "delivery candidates",
 	"delivery record get", "delivery record verify", "delivery get", "delivery explain", "delivery undo", "delivery plan",
 	"delivery propose", "delivery cancel", "delivery describe", "delivery types", "delivery approve",

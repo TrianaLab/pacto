@@ -20,11 +20,11 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 
+	"github.com/trianalab/pacto/v4/internal/discover"
 	"github.com/trianalab/pacto/v4/internal/fleetsrc"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/ignore"
-	"github.com/trianalab/pacto/v4/pkg/schemax"
 	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
@@ -92,8 +92,7 @@ func (p *planner) contract(ctx context.Context) error {
 		return p.fromTemplate(ctx)
 	}
 	if p.r.Mode == modePactify {
-		p.r.Dependencies = p.sc.dependencies(p.r.Service)
-		p.externals(p.r.Dir)
+		p.r.Dependencies = p.sc.Dependencies(p.r.Service)
 	}
 	for _, d := range p.opts.Inferred {
 		if !slices.ContainsFunc(p.r.Dependencies, func(f Finding) bool { return f.Name == d.Name }) {
@@ -102,32 +101,101 @@ func (p *planner) contract(ctx context.Context) error {
 	}
 	if data, err := os.ReadFile(p.r.Path); err == nil {
 		p.r.Files = append(p.r.Files, File{Path: "pacto.yaml", Action: Keep})
-		p.existing(data)
-		return nil
-	}
-	for _, c := range p.sc.charts {
-		p.unknown("the Helm chart in %s is not read: render it with helm template --include-crds %s %s > k8s/rendered.yaml and run pacto init again, "+
-			"or add the chart under publish.artifacts as a chart", c, p.r.Service, c)
-	}
-	if p.r.Mode == modeBlank {
-		openapi := fmt.Sprintf(blankOpenAPI, p.r.Service)
-		text := p.blank()
-		files := p.environmentFiles()
-		files["interfaces/openapi.yaml"], files[configSchema] = openapi, blankSchema
-		if err := validate(text, files); err != nil {
-			return fmt.Errorf("the contract pacto init would write is not valid: %w", err)
+		if c := p.existing(data); c != nil {
+			return p.complete(c)
 		}
-		p.file("pacto.yaml", text)
-		p.file("interfaces/openapi.yaml", openapi)
-		p.file(configSchema, blankSchema)
-		p.planEnvironmentFiles(files)
 		return nil
 	}
+	// Everything the folder shows, read once: the contract init writes draws
+	// on it.
+	in := contract.InferredInputs{Commit: p.opts.Commit, Pacto: p.opts.PactoVersion}
+	cat, _ := p.catalog()
+	all, err := discover.CompleteIn(p.r.Dir, "", &contract.Contract{Service: contract.Service{Name: p.r.Service}}, in, cat)
+	if err != nil {
+		return fmt.Errorf("reading %s: %w", p.r.Dir, err)
+	}
+	fields := cmp.Or(all, &contract.InferredRecord{}).Fields
+	p.openapi = discover.OpenAPIRef(fields)
+	if p.r.Mode == modeBlank {
+		err = p.blankContract()
+	} else {
+		err = p.pactifiedContract(fields)
+	}
+	if err != nil {
+		return err
+	}
+	// A draft read from the cluster is never completed: what runs there never
+	// reaches the inferred record. The folder's files are still named.
+	if p.opts.cluster {
+		p.discoveryLines(all)
+		p.externals(all)
+		return nil
+	}
+	return p.completePlanned(in)
+}
+
+// completePlanned puts in r.Inferred what the folder shows beyond the
+// pacto.yaml init plans to write, and names it in Found and Unknown. Only a
+// pactoVersion 2.5 contract publishes it, so an older one says so in Next.
+func (p *planner) completePlanned(in contract.InferredInputs) error {
+	planned := map[string]string{}
+	for _, f := range p.r.Files {
+		if f.Action == Add {
+			planned[f.Path] = f.Content
+		}
+	}
+	c, err := contract.Parse(strings.NewReader(planned["pacto.yaml"]))
+	if err != nil { // ponytail: validate parsed this text a moment ago
+		return fmt.Errorf("the contract pacto init would write is not valid: %w", err)
+	}
+	c.Service.Name = p.r.Service
+	cat, _ := p.catalog()
+	rec, err := discover.CompletePlanned(p.r.Dir, c, planned, in, cat)
+	if err != nil {
+		return fmt.Errorf("reading %s: %w", p.r.Dir, err)
+	}
+	p.r.Inferred = rec
+	p.discoveryLines(rec)
+	p.externals(rec)
+	if rec != nil && len(rec.Fields) > 0 && validation.InferredRecordNeedsRaise(c.PactoVersion) {
+		p.next("pacto.yaml declares pactoVersion %s, so pacto pack publishes none of what Pacto inferred: set pactoVersion: \"2.5\" to publish it in %s", c.PactoVersion, contract.InferredRecordFile)
+	}
+	return nil
+}
+
+// blankContract plans the blank contract, its interface the OpenAPI file
+// discovery found or, with none, a placeholder, and its files.
+func (p *planner) blankContract() error {
+	text := p.blank()
+	files := p.environmentFiles()
+	files[configSchema] = blankSchema
+	if p.openapi != "" {
+		text = strings.Replace(text, "ref: interfaces/openapi.yaml\n", "ref: "+discover.Quote(p.openapi)+"\n", 1)
+		data, _ := contract.ReadBounded(os.DirFS(p.r.Dir), p.openapi) // ponytail: discovery read it a moment ago; unreadable now fails validation
+		files[p.openapi] = string(data)
+	} else {
+		files["interfaces/openapi.yaml"] = fmt.Sprintf(blankOpenAPI, p.r.Service)
+	}
+	if err := validate(text, files); err != nil {
+		return fmt.Errorf("the contract pacto init would write is not valid: %w", err)
+	}
+	p.file("pacto.yaml", text)
+	if p.openapi == "" {
+		p.file("interfaces/openapi.yaml", files["interfaces/openapi.yaml"])
+	}
+	p.file(configSchema, blankSchema)
+	p.planEnvironmentFiles(files)
+	return nil
+}
+
+// pactifiedContract plans the contract read from the folder, and its files.
+func (p *planner) pactifiedContract(fields []contract.Inferred) error {
 	p.contractNew = true
+	p.ports = discoveredPorts(fields)
 	text := p.pactified()
 	files := p.environmentFiles()
-	if p.sc.openapi != "" {
-		files[p.sc.openapi] = "{}"
+	if p.openapi != "" {
+		files[p.openapi] = "{}"
 	}
 	if p.schema != "" {
 		files[configSchema] = p.schema
@@ -141,6 +209,64 @@ func (p *planner) contract(ctx context.Context) error {
 	}
 	p.planEnvironmentFiles(files)
 	return nil
+}
+
+// discoveryLines names in Found what Pacto read statically from each Helm
+// chart, and in Unknown every finding of rec: what discovery could not read
+// or choose.
+func (p *planner) discoveryLines(rec *contract.InferredRecord) {
+	rec = cmp.Or(rec, &contract.InferredRecord{})
+	for _, chart := range p.sc.Charts {
+		p.found("Helm chart %s read statically%s", chart, chartSummary(chart, rec.Fields))
+	}
+	for _, f := range rec.Findings {
+		p.unknown("%s", f.Message)
+	}
+	if rec.FindingsDropped > 0 {
+		p.unknown("and %d more discovery findings", rec.FindingsDropped)
+	}
+}
+
+// chartFile reports whether the source names a file of the chart folder:
+// its Chart.yaml, a values file or a template.
+func chartFile(chart, source string) bool {
+	rel := strings.TrimPrefix(source, chart+"/")
+	if chart == "." {
+		rel = source
+	}
+	file, _, _ := strings.Cut(rel, ":")
+	return file == "Chart.yaml" || strings.HasPrefix(file, "templates/") || (strings.HasPrefix(file, "values") && !strings.Contains(file, "/"))
+}
+
+// chartSummary is what fields read from the chart folder: its image, its
+// ports and how many configuration keys, "" when none.
+func chartSummary(chart string, fields []contract.Inferred) string {
+	in := func(f contract.Inferred) bool {
+		return slices.ContainsFunc(append([]string{f.Source}, f.Outranks...), func(s string) bool { return chartFile(chart, s) })
+	}
+	var parts []string
+	keys := 0
+	for _, f := range fields {
+		switch {
+		case !in(f):
+		case f.Field == "image":
+			parts = append(parts, "image "+f.Value)
+		case strings.HasPrefix(f.Field, "ports["):
+			parts = append(parts, "port "+strings.TrimSuffix(f.Value, "/tcp"))
+		case strings.HasPrefix(f.Field, "configuration."):
+			keys++
+		}
+	}
+	switch {
+	case keys == 1:
+		parts = append(parts, "1 env key")
+	case keys > 1:
+		parts = append(parts, fmt.Sprintf("%d env keys", keys))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return ": " + strings.Join(parts, ", ")
 }
 
 // environmentFile is the values file init writes for env: no values yet.
@@ -188,7 +314,7 @@ func (p *planner) environments(b *strings.Builder) {
 func (p *planner) blank() string {
 	name := p.r.Service
 	var b strings.Builder
-	fmt.Fprintf(&b, "pactoVersion: %q\nservice:\n  name: %s\n  version: 0.1.0\n", p.pactoVersion(), yq(name))
+	fmt.Fprintf(&b, "pactoVersion: %q\nservice:\n  name: %s\n  version: 0.1.0\n", p.pactoVersion(), discover.Quote(name))
 	p.owner(&b, p.opts.Owner, "no team was given")
 	p.domain(&b)
 	b.WriteString(blankBody)
@@ -234,7 +360,7 @@ func (p *planner) owner(b *strings.Builder, team, why string) {
 		p.unknown("owner: %s; pass --owner", why)
 		return
 	}
-	fmt.Fprintf(b, "  owner:\n    team: %s\n", yq(team))
+	fmt.Fprintf(b, "  owner:\n    team: %s\n", discover.Quote(team))
 	if hint := OwnerHint(team); hint != "" {
 		p.next("%s", hint)
 	}
@@ -243,7 +369,7 @@ func (p *planner) owner(b *strings.Builder, team, why string) {
 // domain writes service.domain when the caller gave one.
 func (p *planner) domain(b *strings.Builder) {
 	if p.opts.Domain != "" {
-		fmt.Fprintf(b, "  domain: %s\n", yq(p.opts.Domain))
+		fmt.Fprintf(b, "  domain: %s\n", discover.Quote(p.opts.Domain))
 	}
 }
 
@@ -265,12 +391,13 @@ func (p *planner) transparencyLog() {
 	p.next("pacto.yaml was not written by this run, so it does not keep signatures out of the transparency log: add transparencyLog: false under publish.sign")
 }
 
-// existing reads what the cluster pieces need from the user's own contract.
-func (p *planner) existing(data []byte) {
+// existing reads what the cluster pieces need from the user's own contract
+// and returns it, or nil when it cannot be read.
+func (p *planner) existing(data []byte) *contract.Contract {
 	c, err := contract.Parse(bytes.NewReader(data))
 	if err != nil {
 		p.unknown("pacto.yaml could not be read (%v), so nothing was taken from it", err)
-		return
+		return nil
 	}
 	// A contract that declares no name keeps the one --name or the folder gave.
 	p.r.Service, p.pub = cmp.Or(c.Service.Name, p.r.Service), c.Publish
@@ -290,6 +417,48 @@ func (p *planner) existing(data []byte) {
 		p.next("pacto.yaml has no publish section, so pacto publish refuses it: %sadd publish "+
 			"(see Pactify a service in the docs), or move pacto.yaml aside and run pacto init again to have one written", bump)
 	}
+	return c
+}
+
+// complete puts what the folder shows beyond the user's contract c in
+// r.Inferred, never changing c. Only a pactoVersion 2.5 contract is
+// completed, and never from the cluster: discover.Complete reads the folder
+// alone.
+func (p *planner) complete(c *contract.Contract) error {
+	in := contract.InferredInputs{Commit: p.opts.Commit, Pacto: p.opts.PactoVersion}
+	// Complete leaves out the service itself under the name this run reports,
+	// so the record and Result.Dependencies agree when pacto.yaml names none.
+	named := *c
+	named.Service.Name = p.r.Service
+	cat, _ := p.catalog()
+	rec, err := discover.Complete(p.r.Dir, &named, in, cat)
+	if err != nil {
+		return fmt.Errorf("completing pacto.yaml: %w", err)
+	}
+	// What the folder holds is named whether or not it completes pacto.yaml,
+	// so a chart or a file Pacto could not read is never silent.
+	p.discoveryLines(rec)
+	p.externals(rec)
+	switch {
+	case validation.InferredRecordNeedsRaise(c.PactoVersion):
+		p.next("pacto.yaml declares pactoVersion %s; set pactoVersion: \"2.5\" to have Pacto complete it", c.PactoVersion)
+		return nil
+	case len(p.opts.Inferred) > 0 || p.opts.cluster:
+		p.next("what runs in the cluster never completes pacto.yaml: run pacto init %s without --cluster to complete it", p.r.Dir)
+		return nil
+	}
+	p.r.Mode, p.r.Inferred = modeComplete, rec
+	if rec == nil || len(rec.Fields) == 0 { // a record of findings alone completes no value
+		p.found("pacto.yaml declares every value Pacto reads in this folder's manifests and specs, so Pacto infers nothing")
+		return nil
+	}
+	shown := len(rec.Fields)
+	// ponytail: the same files were read a moment ago; a second read that fails counts none as declared.
+	if all, _ := discover.Complete(p.r.Dir, &contract.Contract{Service: contract.Service{Name: p.r.Service}}, in, cat); all != nil {
+		shown = len(all.Fields)
+	}
+	p.found("pacto.yaml declares %d of the values Pacto reads in this folder's manifests and specs; Pacto completed %d in %s, published with the bundle", shown-len(rec.Fields), len(rec.Fields), contract.InferredRecordFile)
+	return nil
 }
 
 // validate validates the contract text in a bundle that also holds files.
@@ -322,10 +491,10 @@ func (p *planner) next(format string, a ...any) {
 // versionAndRegistry reads the version from the image tag and the registry
 // from the image (or --registry), naming placeholders in Unknown. imgRepo is
 // the image repository, "" when the image names none Pacto can push to.
-func (p *planner) versionAndRegistry(w *workload, name string) (version, registry, imgRepo string) {
+func (p *planner) versionAndRegistry(w *discover.Workload, name string) (version, registry, imgRepo string) {
 	tag := ""
-	if w.image != "" {
-		imgRepo, tag = imageRepo(w.image)
+	if w.Image != "" {
+		imgRepo, tag = discover.ImageRepo(w.Image)
 		if !refRE.MatchString("oci://" + imgRepo) {
 			imgRepo = ""
 		}
@@ -334,7 +503,7 @@ func (p *planner) versionAndRegistry(w *workload, name string) (version, registr
 	version = "0.1.0"
 	if v, err := semver.StrictNewVersion(strings.TrimPrefix(tag, "v")); err == nil {
 		version = v.String()
-		p.found("version %s, from the image tag in %s", version, w.file)
+		p.found("version %s, from the image tag in %s", version, w.File)
 	} else {
 		p.unknown("version: no image tag is a version (x.y.z), so 0.1.0 is a placeholder")
 	}
@@ -344,10 +513,10 @@ func (p *planner) versionAndRegistry(w *workload, name string) (version, registr
 	case registry != "":
 	case imgRepo != "" && !hubLibrary(imgRepo):
 		registry = strings.TrimSuffix(path.Dir(imgRepo), "/images")
-		p.found("registry %s, from the image %s", registry, w.image)
+		p.found("registry %s, from the image %s", registry, w.Image)
 	case imgRepo != "":
 		registry = "registry.example"
-		p.unknown("registry: the image %s is a Docker Hub official image, which only Docker publishes, so registry.example is a placeholder; pass --registry", w.image)
+		p.unknown("registry: the image %s is a Docker Hub official image, which only Docker publishes, so registry.example is a placeholder; pass --registry", w.Image)
 	default:
 		registry = "registry.example"
 		p.unknown("registry: no image says where %s is published, so registry.example is a placeholder; pass --registry", name)
@@ -362,40 +531,40 @@ func hubLibrary(repo string) bool { return strings.HasPrefix(repo, "docker.io/li
 // pactified writes the contract the folder describes. Every value it could
 // not read is left out or marked, and named in Unknown.
 func (p *planner) pactified() string {
-	sc, name, w := p.sc, p.r.Service, p.sc.workload
+	sc, name, w := p.sc, p.r.Service, p.sc.Workload
 	if w == nil {
-		w = &workload{}
+		w = &discover.Workload{}
 	} else {
-		p.found("%s %s in %s", w.kind, w.name, w.file)
+		p.found("%s %s in %s", w.Kind, w.Name, w.File)
 	}
 	version, registry, imgRepo := p.versionAndRegistry(w, name)
 
 	var b strings.Builder
-	files := strings.Join(append(nonEmpty(sc.dockerfile), sc.manifests...), ", ")
+	files := strings.Join(append(nonEmpty(sc.Dockerfile), sc.Manifests...), ", ")
 	next := "see what publishing would do: pacto publish --plan"
 	if p.opts.DescribeOnly {
 		next = "validate it: pacto validate"
 	}
 	fmt.Fprintf(&b, "# Written by pacto init from %s.\n# Check it, then %s\n", files, next)
-	fmt.Fprintf(&b, "pactoVersion: %q\nservice:\n  name: %s\n  version: %s\n", p.pactoVersion(), yq(name), yq(version))
+	fmt.Fprintf(&b, "pactoVersion: %q\nservice:\n  name: %s\n  version: %s\n", p.pactoVersion(), discover.Quote(name), discover.Quote(version))
 	team := p.opts.Owner
-	if team == "" && w.team != "" {
-		team = w.team
-		p.found("owner team %s, from the team label in %s", team, w.file)
+	if team == "" && w.Team != "" {
+		team = w.Team
+		p.found("owner team %s, from the team label in %s", team, w.File)
 	}
 	p.owner(&b, team, "no team label says who owns "+name)
 	p.domain(&b)
-	if kind, ok := workloadKinds[w.kind]; ok {
+	if kind, ok := discover.WorkloadKinds[w.Kind]; ok {
 		fmt.Fprintf(&b, "workload: %s\n", kind)
 	} else {
 		p.unknown("workload: no Kubernetes workload says whether %s is a service, a job or a scheduled job", name)
 	}
 	switch {
-	case sc.openapi != "":
-		fmt.Fprintf(&b, "interfaces:\n  - name: api\n    type: openapi\n    ref: %s\n", yq(sc.openapi))
-		p.found("API description %s", sc.openapi)
-	case len(w.ports) > 0:
-		p.unknown("interfaces: %s listens on port %s, but no OpenAPI file describes it", name, joinInts(w.ports))
+	case p.openapi != "":
+		b.WriteString(discover.InterfaceYAML("api", "openapi", p.openapi))
+		p.found("API description %s", p.openapi)
+	case len(p.ports) > 0:
+		p.unknown("interfaces: %s listens on port %s, but no OpenAPI file describes it", name, joinInts(p.ports))
 	default:
 		p.unknown("interfaces: nothing describes what %s serves", name)
 	}
@@ -405,11 +574,10 @@ func (p *planner) pactified() string {
 	bundles := registry
 	if imgRepo == registry+"/"+name {
 		bundles = registry + "/contracts"
-		p.found("contract bundles under %s, as the image %s already holds %s/%s", bundles, w.image, registry, name)
+		p.found("contract bundles under %s, as the image %s already holds %s/%s", bundles, w.Image, registry, name)
 	}
-	p.health(&b, sc.openapi != "")
+	p.health(&b, p.openapi != "")
 	p.dependencyEntries(&b, bundles)
-	p.externalEntries(&b)
 	p.configuration(&b)
 	p.environments(&b)
 	if p.opts.DescribeOnly {
@@ -417,7 +585,7 @@ func (p *planner) pactified() string {
 	}
 	p.publish(&b, bundles, registry, imgRepo)
 	p.publishOnlyNext()
-	for _, f := range sc.secrets {
+	for _, f := range sc.Secrets {
 		p.next("%s holds a Secret's values, so it is left out of the published manifests, which anyone who can pull them reads; "+
 			"supply it another way (a SealedSecret, an ExternalSecret or SOPS) and move any other objects in it to their own file", f)
 	}
@@ -428,24 +596,23 @@ func (p *planner) pactified() string {
 // to the api interface when the probe calls an HTTP path and an OpenAPI file
 // describes what the service serves.
 func (p *planner) health(b *strings.Builder, api bool) {
-	w := p.sc.workload
-	if w == nil || w.probe == nil {
+	w := p.sc.Workload
+	if w == nil || w.Probe == nil {
 		return
 	}
-	path := w.probe.path
+	path := w.Probe.Path
 	if !contract.ValidCapabilityPath(path) {
 		path = ""
 	}
-	b.WriteString("capabilities:\n  - type: health\n")
+	b.WriteString(discover.HealthYAML(path, api))
 	switch {
 	case path != "" && api:
-		fmt.Fprintf(b, "    binding:\n      type: http\n      interface: api\n      path: %s\n", yq(path))
-		p.found("health check GET %s on api, from the %s probe in %s", path, w.probe.kind, w.file)
+		p.found("health check GET %s on api, from the %s probe in %s", path, w.Probe.Kind, w.File)
 	case path != "":
-		p.found("health check GET %s, from the %s probe in %s", path, w.probe.kind, w.file)
+		p.found("health check GET %s, from the %s probe in %s", path, w.Probe.Kind, w.File)
 		p.unknown("the interface that serves the health check GET %s: no OpenAPI file describes what %s serves, so the check is bound to none", path, p.r.Service)
 	default:
-		p.found("health check, from the %s probe in %s", w.probe.kind, w.file)
+		p.found("health check, from the %s probe in %s", w.Probe.Kind, w.File)
 	}
 }
 
@@ -482,7 +649,7 @@ func (p *planner) dependencyEntries(b *strings.Builder, bundles string) {
 // observedEntries writes the dependencies seen at runtime that the Pactos
 // describing their provider name, each with compatibility unknown: with a
 // range proposed from the lowest version those Pactos report in a comment,
-// or the reason none is. A person declares the range: a guess never decides
+// or the reason none is. A person declares the range: a guess never settles
 // who a change breaks. It prints what kept a range from being proposed for
 // every entry.
 func (p *planner) observedEntries(b *strings.Builder, bundles string) map[string]bool {
@@ -538,7 +705,7 @@ func (p *planner) unproposed(b *strings.Builder, d Inferred, services, bundles s
 // writeDependency writes one dependency with compatibility unknown and
 // comment after it.
 func writeDependency(b *strings.Builder, name, ref, comment string) {
-	fmt.Fprintf(b, "  - name: %s\n    ref: %s\n    required: true\n    compatibility: %s   # %s\n", name, ref, contract.CompatibilityUnknown, comment)
+	b.WriteString(discover.DependencyYAML(name, ref, comment))
 }
 
 // undeclared says, under Unknown and next, that pacto.yaml leaves the range
@@ -606,23 +773,23 @@ const configSchema = "configuration/schema.json"
 // value. A key read from a Secret, whose name matches a sensitive pattern or
 // whose value is a URL with credentials is writeOnly.
 func (p *planner) configuration(b *strings.Builder) {
-	for _, n := range p.sc.envNotes {
+	for _, n := range p.sc.EnvNotes {
 		p.unknown("%s", n)
 	}
-	if len(p.sc.env) == 0 {
+	if len(p.sc.Env) == 0 {
 		return
 	}
 	props := map[string]map[string]any{}
 	var from, sensitive []string
-	literals := p.sc.literals()
-	for _, e := range p.sc.env {
-		prop := envProperty(e)
-		props[e.name] = prop
+	literals := p.sc.Literals()
+	for _, e := range p.sc.Env {
+		prop := discover.EnvProperty(e)
+		props[e.Name] = prop
 		if prop["writeOnly"] == true {
-			sensitive = append(sensitive, e.name)
+			sensitive = append(sensitive, e.Name)
 		}
-		if !slices.Contains(from, e.file) {
-			from = append(from, e.file)
+		if !slices.Contains(from, e.File) {
+			from = append(from, e.File)
 		}
 	}
 	data, _ := json.MarshalIndent(struct { // ponytail: a map of strings and scalars always marshals
@@ -632,7 +799,7 @@ func (p *planner) configuration(b *strings.Builder) {
 	}{"https://json-schema.org/draft/2020-12/schema", "object", props}, "", "  ")
 	p.schema = string(data) + "\n"
 	fmt.Fprintf(b, "configurations:\n  - name: env\n    schema: %s\n    required: true\n", configSchema)
-	p.found("%s: the %d environment variables %s reads, from %s, with their types and no values", configSchema, len(p.sc.env), p.r.Service, strings.Join(from, ", "))
+	p.found("%s: the %d environment variables %s reads, from %s, with their types and no values", configSchema, len(p.sc.Env), p.r.Service, strings.Join(from, ", "))
 	if len(sensitive) > 0 {
 		slices.Sort(sensitive)
 		p.found("sensitive keys, marked writeOnly: %s", strings.Join(sensitive, ", "))
@@ -646,34 +813,6 @@ func (p *planner) configuration(b *strings.Builder) {
 	}
 }
 
-// literals maps each folder file to the sensitive keys it sets to a literal
-// value for the workload: an inline env value or a key of a folder ConfigMap
-// the workload reads. It reads the environment before resolveEnv lets a later
-// variable replace an earlier one of the same name, because the earlier
-// literal is still in the file the bundle publishes.
-func (sc *scan) literals() map[string][]string {
-	out := map[string][]string{}
-	add := func(file, name, value string) {
-		if sensitiveLiteral(name, value) && !slices.Contains(out[file], name) {
-			out[file] = append(out[file], name)
-		}
-	}
-	for _, v := range sc.workload.env {
-		cm, found := sc.configMaps[v.ref]
-		switch {
-		case v.from == "configmap" && found && v.key == "":
-			for k, val := range cm.data {
-				add(cm.file, v.name+k, val)
-			}
-		case v.from == "configmap" && found:
-			add(cm.file, v.name, cm.data[v.key])
-		case v.from == "":
-			add(v.file, v.name, v.value)
-		}
-	}
-	return out
-}
-
 // literalValues is how a next step names the literal values of n keys, and
 // the pronoun that refers back to those keys.
 func literalValues(n int) (values, them string) {
@@ -683,74 +822,33 @@ func literalValues(n int) (values, them string) {
 	return "literal values", "them"
 }
 
-// envProperty is an environment variable's schema property: its key and
-// type, never its value.
-func envProperty(e envVar) map[string]any {
-	switch {
-	case e.secret:
-		return map[string]any{"type": "string", "writeOnly": true, "description": "Read from the Secret " + e.ref + ", whose values pacto init does not read."}
-	case schemax.SensitiveKey(e.name) || schemax.SensitiveValue(literal(e.value)):
-		return map[string]any{"type": "string", "writeOnly": true, "description": "Sensitive: pacto init does not copy its value."}
-	}
-	return map[string]any{"type": typeOf(e.value)}
-}
-
-// typeOf is an environment value's JSON Schema type: an integer, a boolean or
-// a string.
-func typeOf(v string) string {
-	if _, err := strconv.ParseInt(v, 10, 64); err == nil {
-		return "integer"
-	}
-	if v == "true" || v == "false" {
-		return "boolean"
-	}
-	return "string"
-}
-
-// varRef is a Kubernetes dependent-variable reference, $(NAME), which the
-// kubelet expands from another variable when it reads env[].value.
-var varRef = regexp.MustCompile(`\$\([A-Za-z_][A-Za-z0-9_.-]*\)`)
-
-// literal is the part of an env value the manifest itself sets: v less its
-// $(NAME) references, which hold no value of their own.
-func literal(v string) string {
-	return varRef.ReplaceAllString(v, "")
-}
-
-// sensitiveLiteral reports whether an env variable named name sets a literal
-// value that is sensitive, by name or as a URL with credentials.
-func sensitiveLiteral(name, value string) bool {
-	v := literal(value)
-	return v != "" && (schemax.SensitiveKey(name) || schemax.SensitiveValue(v))
-}
-
 // publish writes the publish section and keeps it for the cluster pieces.
 func (p *planner) publish(b *strings.Builder, bundles, registry, imgRepo string) {
 	sc, name := p.sc, p.r.Service
 	p.pub = &contract.Publish{Bundle: "oci://" + bundles + "/" + name, Sign: &contract.PublishSign{Key: signKey}}
 	fmt.Fprintf(b, "publish:\n  bundle: %s\n", p.pub.Bundle)
-	if len(sc.manifests) > 0 {
+	if len(sc.Manifests) > 0 {
 		p.pub.Deploy = "manifests"
 		b.WriteString("  deploy: manifests\n")
 	}
-	if sc.dockerfile != "" || len(sc.manifests) > 0 {
+	if sc.Dockerfile != "" || len(sc.Manifests) > 0 {
 		b.WriteString("  artifacts:\n")
 	}
 	pin := imgRepo
-	if df := sc.dockerfile; df != "" {
+	if df := sc.Dockerfile; df != "" {
 		if imgRepo == "" || hubLibrary(imgRepo) {
 			imgRepo = registry + "/images/" + name
 		}
-		fmt.Fprintf(b, "    - name: api\n      type: image\n      ref: oci://%s\n      build:\n        dockerfile:\n          context: %s\n", imgRepo, yq(path.Dir(df)))
+		fmt.Fprintf(b, "    - name: api\n      type: image\n      ref: oci://%s\n      build:\n        dockerfile:\n          context: %s\n", imgRepo, discover.Quote(path.Dir(df)))
 		if path.Base(df) != "Dockerfile" {
-			fmt.Fprintf(b, "          file: %s\n", yq(df))
+			fmt.Fprintf(b, "          file: %s\n", discover.Quote(df))
 		}
 		p.found("%s builds the image %s", df, imgRepo)
-		if len(sc.dockerfiles) > 1 {
-			p.unknown("several Dockerfiles (%s): pacto init used %s", strings.Join(sc.dockerfiles, ", "), df)
+		if len(sc.Dockerfiles) > 1 {
+			p.unknown("several Dockerfiles (%s): pacto init used %s", strings.Join(sc.Dockerfiles, ", "), df)
 		}
 	}
-	if len(sc.manifests) > 0 {
+	if len(sc.Manifests) > 0 {
 		cmd, kept := p.copyManifests()
 		cmd += p.pinImage(pin, imgRepo, kept)
 		if p.opts.Delivery {
@@ -758,7 +856,7 @@ func (p *planner) publish(b *strings.Builder, bundles, registry, imgRepo string)
 		}
 		ref := "oci://" + registry + "/deploy/" + name
 		p.pub.Artifacts = append(p.pub.Artifacts, contract.PublishArtifact{Name: "manifests", Type: contract.ArtifactManifests, Ref: ref})
-		fmt.Fprintf(b, "    - name: manifests\n      type: manifests\n      ref: %s\n      build:\n        command: [sh, -c, %s]\n", ref, yq(cmd))
+		fmt.Fprintf(b, "    - name: manifests\n      type: manifests\n      ref: %s\n      build:\n        command: [sh, -c, %s]\n", ref, discover.Quote(cmd))
 	}
 	fmt.Fprintf(b, "  sign:\n    key: %s\n", signKey)
 	if p.opts.NoTransparencyLog {
@@ -779,12 +877,12 @@ func (p *planner) publish(b *strings.Builder, bundles, registry, imgRepo string)
 // image repository, "" when it names none Pacto can push to; built is the
 // image the Dockerfile builds; kept says the manifests keep their folders.
 func (p *planner) pinImage(pin, built string, kept bool) string {
-	w := p.sc.workload
-	if p.sc.dockerfile == "" || w == nil {
+	w := p.sc.Workload
+	if p.sc.Dockerfile == "" || w == nil {
 		return ""
 	}
-	if pin == "" || !imageRE.MatchString(w.image) {
-		p.next("%s does not deploy %s, the image the Dockerfile builds, so its image is published as written, not pinned to the one each version builds", w.file, built)
+	if pin == "" || !imageRE.MatchString(w.Image) {
+		p.next("%s does not deploy %s, the image the Dockerfile builds, so its image is published as written, not pinned to the one each version builds", w.File, built)
 		return ""
 	}
 	// The match is the whole value of an image: field, block or flow style,
@@ -793,19 +891,19 @@ func (p *planner) pinImage(pin, built string, kept bool) string {
 	// (a JSON manifest, say) is not pinned, and init says so; a build that
 	// pinned nothing, as the file changed since, fails rather than ship the
 	// tag unpinned.
-	img := strings.ReplaceAll(w.image, ".", `\.`)
+	img := strings.ReplaceAll(w.Image, ".", `\.`)
 	field := regexp.MustCompile(`(?m)(^|[{,\s])image:\s*["']?` + img + `["']?\s*([,}#]|$)`)
 	// named is any image field, YAML or JSON, that holds the image: a file
 	// that has one the match does not read is told it is not pinned; a file
 	// that only shares the text (a Service's name, a label) is not.
-	named := regexp.MustCompile(`image["']?\s*:\s*["']?` + regexp.QuoteMeta(w.image) + `(["'\s,}#]|$)`)
+	named := regexp.MustCompile(`image["']?\s*:\s*["']?` + regexp.QuoteMeta(w.Image) + `(["'\s,}#]|$)`)
 	var cmd string
 	var pinned []string
-	for _, m := range p.sc.manifests {
+	for _, m := range p.sc.Manifests {
 		raw, _ := os.ReadFile(filepath.Join(p.r.Dir, m))
 		if !field.Match(raw) {
 			if named.Match(raw) {
-				p.next("%s names %s in a form pacto init cannot rewrite (write it as `image: %s`), so its image is published as written, not pinned to the one each version builds", m, w.image, w.image)
+				p.next("%s names %s in a form pacto init cannot rewrite (write it as `image: %s`), so its image is published as written, not pinned to the one each version builds", m, w.Image, w.Image)
 			}
 			continue
 		}
@@ -816,7 +914,7 @@ func (p *planner) pinImage(pin, built string, kept bool) string {
 		pinned = append(pinned, m)
 		cmd += fmt.Sprintf(` && sed -E "s,(^|[{,[:space:]])(image:[[:space:]]*[\"']?)%s([\"']?[[:space:]]*([,}#]|$)),\1\2$PACTO_REF_API@$PACTO_DIGEST_API\3,g" %s > "$PACTO_OUT"/%s`+
 			` && { grep -qF "$PACTO_DIGEST_API" "$PACTO_OUT"/%s || { echo "pacto: no image: %s line to pin" >&2; exit 1; }; }`,
-			img, shq(m), shq(out), shq(out), w.image)
+			img, shq(m), shq(out), shq(out), w.Image)
 	}
 	if len(pinned) > 0 {
 		verb := "deploys"
@@ -836,8 +934,8 @@ func (p *planner) copyManifests() (string, bool) {
 	byDir := map[string][]string{}
 	var dirs, all []string
 	seen := map[string]bool{}
-	keep := len(p.sc.kustomize) > 0
-	for _, m := range p.sc.manifests {
+	keep := len(p.sc.Kustomize) > 0
+	for _, m := range p.sc.Manifests {
 		d := path.Dir(m)
 		if byDir[d] == nil {
 			dirs = append(dirs, d)
@@ -886,7 +984,7 @@ func (p *planner) readFleet(ctx context.Context) error {
 // consumers looks for the services that declare this one, in FleetRoots.
 func (p *planner) consumers() {
 	if p.snap == nil {
-		if p.r.Mode == modePactify {
+		if p.r.Mode == modePactify || p.r.Mode == modeComplete {
 			p.unknown("who uses %s: no other services' contracts were given (--fleet), so none were looked at", p.r.Service)
 		}
 		return
@@ -909,8 +1007,9 @@ func declaredBy(snap *fleet.FleetSnapshot, name, bundle string) []Finding {
 	seen := map[Finding]bool{}
 	for _, rel := range snap.Relationships {
 		from, to := snap.Services[rel.FromService], snap.Services[rel.ToService]
-		// Dependencies only: these suggest runtime dependencies to declare.
-		if rel.Type != fleet.RelationshipDependency || from == nil || from.Name == name {
+		// Dependencies only: these suggest runtime dependencies to declare. An
+		// inferred edge is no declaration, so it never reads "declares".
+		if rel.Type != fleet.RelationshipDependency || rel.Provenance == fleet.ProvenanceInferred || from == nil || from.Name == name {
 			continue
 		}
 		// The ref matches even when nothing in snap resolves it, where rel.To
@@ -997,22 +1096,7 @@ var (
 	safeRE = regexp.MustCompile(`^[A-Za-z0-9._/-]+$`)
 	// imageRE is an image reference with nothing sh or sed would read.
 	imageRE = regexp.MustCompile(`^[A-Za-z0-9._/:@-]+$`)
-	// plainRE starts with a letter, a dot or a slash, or is x.y.z, so YAML
-	// never reads it as a number.
-	plainRE = regexp.MustCompile(`^([A-Za-z./][A-Za-z0-9._/-]*|[0-9]+\.[0-9]+\.[0-9]+[A-Za-z0-9._+-]*)$`)
 )
-
-// yq writes s as a YAML string: plain when YAML reads it back as that same
-// string, else single-quoted.
-func yq(s string) string {
-	if plainRE.MatchString(s) && !yamlWords[strings.ToLower(s)] {
-		return s
-	}
-	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
-}
-
-// yamlWords read as booleans or null when plain.
-var yamlWords = map[string]bool{"true": true, "false": true, "yes": true, "no": true, "on": true, "off": true, "null": true, "y": true, "n": true}
 
 // shq quotes s for sh when it needs it.
 func shq(s string) string {
@@ -1027,6 +1111,20 @@ func nonEmpty(s string) []string {
 		return nil
 	}
 	return []string{s}
+}
+
+// discoveredPorts are the container ports among the discovered fields, in
+// numeric order.
+func discoveredPorts(fields []contract.Inferred) []int {
+	var out []int
+	for _, f := range fields {
+		if n, ok := strings.CutPrefix(f.Field, "ports["); ok {
+			port, _ := strconv.Atoi(strings.TrimSuffix(n, "]")) // ponytail: discovery writes ports[<n>] only for a number
+			out = append(out, port)
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 func joinInts(ns []int) string {

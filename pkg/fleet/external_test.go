@@ -429,7 +429,12 @@ func TestSnapshotJSONKeepsFields(t *testing.T) {
 			"requires", "guaranteeStatus", "guaranteeReason", "unmet", "deprecatedInterfaces", "providerLifecycle", "hidden", "observedCount",
 			"source", "observedSources", "firstSeen", "lastSeen", "toExternal"},
 		reflect.TypeFor[FleetSnapshot](): {"schemaVersion", "snapshotId", "generatedAt", "services", "revisions", "targets", "relationships",
-			"sources", "completeness", "limitations", "uncontractedCallers", "provisioning", "usage", "externals", "externalCatalogs"},
+			"sources", "completeness", "limitations", "uncontractedCallers", "provisioning", "usage", "externals", "externalCatalogs", "clusters"},
+		reflect.TypeFor[ServiceRecord](): {"key", "domain", "businessDomain", "businessDomainUnknown", "offering", "summary", "summaryUnknown", "name",
+			"nameInferred", "owner", "revisions", "targets", "labels", "status", "sources", "offeringProvenance", "hiddenDependencies",
+			"hiddenDependents", "hiddenPolicyReferrers", "template", "origin", "hiddenCreated"},
+		reflect.TypeFor[SourceState](): {"id", "kind", "status", "lastSuccessfulSync", "observedAt", "error", "revisionCount", "targetCount",
+			"namespaces", "namespacesTotal"},
 	} {
 		have := jsonTags(typ)
 		for _, k := range keys {

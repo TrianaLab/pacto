@@ -174,8 +174,12 @@ func (l *listScreen) rows(c *Context) []table.Row {
 	rows := make([]table.Row, 0, len(l.entities))
 	for _, e := range l.entities {
 		name := safeText(e.Label)
-		if e.Template {
+		switch {
+		case e.Template:
 			name += " " + faintStyle.Render(goldenPathLabel)
+		case e.Declaration == fleet.DeclarationInferred:
+			// Muted: a workload no contract describes.
+			name = faintStyle.Render(name + " " + fleet.DeclarationInferred)
 		}
 		rows = append(rows, table.Row{
 			safeText(string(e.Kind)),
@@ -375,8 +379,11 @@ func (l *listScreen) paneBody(c *Context, w int) string {
 		return faintStyle.Render("Nothing highlighted.")
 	}
 	kind := string(ref.Kind)
-	if ref.Template {
+	switch {
+	case ref.Template:
 		kind = goldenPathLabel
+	case ref.Declaration == fleet.DeclarationInferred:
+		kind = "inferred service"
 	}
 	lines := []string{
 		focusStyle.Render(trunc(ref.Label, w)),

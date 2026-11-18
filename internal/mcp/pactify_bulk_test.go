@@ -1,10 +1,12 @@
 package mcp
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -15,6 +17,9 @@ import (
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 func bulkFolder(t *testing.T, name string) string {
@@ -209,5 +214,45 @@ func TestCreateTool_PactifyNeverReturnsEnvValues(t *testing.T) {
 	}
 	if !strings.Contains(createTool().Description, "keys and types") {
 		t.Fatal("the description does not say keys and types")
+	}
+}
+
+// TestCreateTool_CompletionParity: pacto_create with pactify on a folder that
+// holds pacto.yaml returns the inferred record pacto init does, never a
+// secret literal, and the description says it completes without changing it.
+func TestCreateTool_CompletionParity(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "payments")
+	if err := os.CopyFS(dir, os.DirFS("../discover/testdata/complete")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("service: {name: payments, version: 1.0.0}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res := callTool(t, "pacto_create", map[string]any{"name": "payments", "pactify": true, "path": dir, "dry_run": true})
+	text := resultText(t, res)
+	var got struct {
+		Mode     string                   `json:"mode"`
+		Inferred *contract.InferredRecord `json:"inferred"`
+	}
+	if res.IsError || json.Unmarshal([]byte(text), &got) != nil || got.Mode != "complete" || got.Inferred == nil || got.Inferred.Inputs.Commit != "" {
+		t.Fatalf("result: %s", text)
+	}
+	svc := app.NewService(nil, nil)
+	svc.Version = "test"
+	cli, err := svc.Init(context.Background(), app.InitOptions{Dir: dir, Name: "payments", Plan: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cli.Inferred.Inputs.Commit = ""
+	if !reflect.DeepEqual(got.Inferred, cli.Inferred) {
+		t.Fatalf("pacto_create inferred:\n%+v\npacto init inferred:\n%+v", got.Inferred, cli.Inferred)
+	}
+	for _, v := range []string{"hunter2", "u4l-s3cret", "v4lues-s3cret", "c0nfigmap-s3cret"} {
+		if strings.Contains(text, v) {
+			t.Errorf("the result holds %q", v)
+		}
+	}
+	if d := createTool().Description; !strings.Contains(d, "completes it without changing it") || !strings.Contains(d, "Completion needs pactoVersion 2.5 (or none) and never runs with cluster") {
+		t.Fatal("the description does not say pactify completes an existing contract")
 	}
 }

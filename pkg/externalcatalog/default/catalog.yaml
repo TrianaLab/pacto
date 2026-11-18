@@ -3,8 +3,12 @@
 # so the embedded copy and the published artifact have one digest.
 #
 # Keep it small and correct: every host and SDK module below is taken from the
-# vendor's own documentation, cited in the "# source:" comment beside it. SDK
-# modules name the module path without its /vN major suffix. Hosts that put the
+# vendor's own documentation or registry page, cited in the "# source:" comment
+# beside it. A bare SDK module is a Go module path without its /vN major
+# suffix; "npm:<package>", "pypi:<normalized name>" and
+# "maven:<groupId>:<artifactId>" name the other ecosystems. Managed-cloud
+# entries list the Terraform resource types ("<type>:<id attribute>") and the
+# Crossplane kinds ("<api group>/<Kind>") that provision them. Hosts that put the
 # region in the middle of the name (sqs.<region>.amazonaws.com) cannot be written
 # as a pattern, so those entries rely on their SDK modules and OTel values.
 apiVersion: catalog.pacto.trianalab.io/v1
@@ -15,35 +19,52 @@ entries:
     label: Stripe
     aliases: [stripe, stripe-api]
     hosts: [api.stripe.com] # source: https://docs.stripe.com/api
-    sdkModules: [github.com/stripe/stripe-go] # source: https://github.com/stripe/stripe-go
+    sdkModules:
+      - github.com/stripe/stripe-go # source: https://github.com/stripe/stripe-go
+      - pypi:stripe # source: https://pypi.org/project/stripe/
+      - npm:stripe # source: https://www.npmjs.com/package/stripe
+      - maven:com.stripe:stripe-java # source: https://github.com/stripe/stripe-java
     keyPatterns: ["STRIPE_*"]
   - identity: twilio
     class: vendor-api
     label: Twilio
     aliases: [twilio, twilio-api]
     hosts: [api.twilio.com] # source: https://github.com/twilio/twilio-go
-    sdkModules: [github.com/twilio/twilio-go] # source: https://github.com/twilio/twilio-go
+    sdkModules:
+      - github.com/twilio/twilio-go # source: https://github.com/twilio/twilio-go
+      - pypi:twilio # source: https://pypi.org/project/twilio/
+      - npm:twilio # source: https://www.npmjs.com/package/twilio
+      - maven:com.twilio.sdk:twilio # source: https://github.com/twilio/twilio-java
     keyPatterns: ["TWILIO_*"]
   - identity: sendgrid
     class: vendor-api
     label: SendGrid
     aliases: [sendgrid, sendgrid-api]
     hosts: [api.sendgrid.com] # source: https://github.com/sendgrid/sendgrid-go
-    sdkModules: [github.com/sendgrid/sendgrid-go] # source: https://github.com/sendgrid/sendgrid-go
+    sdkModules:
+      - github.com/sendgrid/sendgrid-go # source: https://github.com/sendgrid/sendgrid-go
+      - pypi:sendgrid # source: https://pypi.org/project/sendgrid/
+      - npm:@sendgrid/mail # source: https://www.npmjs.com/package/@sendgrid/mail
     keyPatterns: ["SENDGRID_*"]
   - identity: anthropic
     class: vendor-api
     label: Anthropic
     aliases: [anthropic, anthropic-api, claude-api]
     hosts: [api.anthropic.com] # source: https://platform.claude.com/docs/en/api/overview
-    sdkModules: [github.com/anthropics/anthropic-sdk-go] # source: https://github.com/anthropics/anthropic-sdk-go
+    sdkModules:
+      - github.com/anthropics/anthropic-sdk-go # source: https://github.com/anthropics/anthropic-sdk-go
+      - pypi:anthropic # source: https://pypi.org/project/anthropic/
+      - npm:@anthropic-ai/sdk # source: https://www.npmjs.com/package/@anthropic-ai/sdk
     keyPatterns: ["ANTHROPIC_*"]
   - identity: openai
     class: vendor-api
     label: OpenAI
     aliases: [openai, openai-api]
     hosts: [api.openai.com] # source: https://github.com/openai/openai-go/blob/main/option/requestoption.go
-    sdkModules: [github.com/openai/openai-go] # source: https://github.com/openai/openai-go
+    sdkModules:
+      - github.com/openai/openai-go # source: https://github.com/openai/openai-go
+      - pypi:openai # source: https://pypi.org/project/openai/
+      - npm:openai # source: https://www.npmjs.com/package/openai
     keyPatterns: ["OPENAI_*"]
   - identity: github
     class: vendor-api
@@ -55,7 +76,10 @@ entries:
     label: Slack
     aliases: [slack, slack-api]
     hosts: [slack.com] # source: https://docs.slack.dev/apis/web-api/
-    sdkModules: [github.com/slack-go/slack] # source: https://github.com/slack-go/slack
+    sdkModules:
+      - github.com/slack-go/slack # source: https://github.com/slack-go/slack
+      - pypi:slack-sdk # source: https://pypi.org/project/slack-sdk/
+      - npm:@slack/web-api # source: https://www.npmjs.com/package/@slack/web-api
     keyPatterns: ["SLACK_*"]
   - identity: pagerduty
     class: vendor-api
@@ -85,7 +109,10 @@ entries:
     label: Algolia
     aliases: [algolia]
     hosts: ["*.algolia.net", "*.algolianet.com"] # source: https://www.algolia.com/doc/guides/security/security-best-practices/
-    sdkModules: [github.com/algolia/algoliasearch-client-go] # source: https://github.com/algolia/algoliasearch-client-go
+    sdkModules:
+      - github.com/algolia/algoliasearch-client-go # source: https://github.com/algolia/algoliasearch-client-go
+      - pypi:algoliasearch # source: https://pypi.org/project/algoliasearch/
+      - npm:algoliasearch # source: https://www.npmjs.com/package/algoliasearch
     keyPatterns: ["ALGOLIA_*"]
   - identity: mailgun
     class: vendor-api
@@ -101,68 +128,137 @@ entries:
     label: Amazon RDS
     aliases: [aws-rds, amazon-rds]
     hosts: ["*.rds.amazonaws.com"] # source: https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/CHAP_CommonTasks.Connect.html
-    sdkModules: [github.com/aws/aws-sdk-go-v2/service/rds] # source: https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/service/rds
+    sdkModules:
+      - github.com/aws/aws-sdk-go-v2/service/rds # source: https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/service/rds
+      - npm:@aws-sdk/client-rds # source: https://www.npmjs.com/package/@aws-sdk/client-rds
+    terraform:
+      - aws_db_instance:identifier # source: https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/db_instance
+      - aws_rds_cluster:cluster_identifier # source: https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/rds_cluster
+    crossplane:
+      - rds.aws.upbound.io/Instance # source: https://marketplace.upbound.io/providers/upbound/provider-aws-rds/latest/resources/rds.aws.upbound.io/Instance/v1beta1
+      - rds.aws.upbound.io/Cluster # source: https://marketplace.upbound.io/providers/upbound/provider-aws-rds/latest/resources/rds.aws.upbound.io/Cluster/v1beta1
   - identity: aws/sqs
     class: managed-cloud
     label: Amazon SQS
     aliases: [aws-sqs, amazon-sqs]
-    sdkModules: [github.com/aws/aws-sdk-go-v2/service/sqs] # source: https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/service/sqs
+    sdkModules:
+      - github.com/aws/aws-sdk-go-v2/service/sqs # source: https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/service/sqs
+      - npm:@aws-sdk/client-sqs # source: https://www.npmjs.com/package/@aws-sdk/client-sqs
     otel: { messagingSystem: [aws_sqs, aws.sqs] } # source: https://opentelemetry.io/docs/specs/semconv/registry/attributes/messaging/
+    terraform:
+      - aws_sqs_queue:name # source: https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/sqs_queue
+    crossplane:
+      - sqs.aws.upbound.io/Queue # source: https://marketplace.upbound.io/providers/upbound/provider-aws-sqs/latest/resources/sqs.aws.upbound.io/Queue/v1beta1
   - identity: aws/sns
     class: managed-cloud
     label: Amazon SNS
     aliases: [aws-sns, amazon-sns]
-    sdkModules: [github.com/aws/aws-sdk-go-v2/service/sns] # source: https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/service/sns
+    sdkModules:
+      - github.com/aws/aws-sdk-go-v2/service/sns # source: https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/service/sns
+      - npm:@aws-sdk/client-sns # source: https://www.npmjs.com/package/@aws-sdk/client-sns
     otel: { messagingSystem: [aws.sns] } # source: https://opentelemetry.io/docs/specs/semconv/registry/attributes/messaging/
+    terraform:
+      - aws_sns_topic:name # source: https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/sns_topic
+    crossplane:
+      - sns.aws.upbound.io/Topic # source: https://marketplace.upbound.io/providers/upbound/provider-aws-sns/latest/resources/sns.aws.upbound.io/Topic/v1beta1
   - identity: aws/s3
     class: managed-cloud
     label: Amazon S3
     aliases: [aws-s3, amazon-s3]
     hosts: [s3.amazonaws.com, "*.s3.amazonaws.com"] # source: https://docs.aws.amazon.com/AmazonS3/latest/userguide/VirtualHosting.html
-    sdkModules: [github.com/aws/aws-sdk-go-v2/service/s3] # source: https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/service/s3
+    sdkModules:
+      - github.com/aws/aws-sdk-go-v2/service/s3 # source: https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/service/s3
+      - npm:@aws-sdk/client-s3 # source: https://www.npmjs.com/package/@aws-sdk/client-s3
+    terraform:
+      - aws_s3_bucket:bucket # source: https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket
+    crossplane:
+      - s3.aws.upbound.io/Bucket # source: https://marketplace.upbound.io/providers/upbound/provider-aws-s3/latest/resources/s3.aws.upbound.io/Bucket/v1beta1
   - identity: aws/dynamodb
     class: managed-cloud
     label: Amazon DynamoDB
     aliases: [aws-dynamodb, amazon-dynamodb, dynamodb]
-    sdkModules: [github.com/aws/aws-sdk-go-v2/service/dynamodb] # source: https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/service/dynamodb
+    sdkModules:
+      - github.com/aws/aws-sdk-go-v2/service/dynamodb # source: https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/service/dynamodb
+      - npm:@aws-sdk/client-dynamodb # source: https://www.npmjs.com/package/@aws-sdk/client-dynamodb
     otel: { dbSystem: [dynamodb, aws.dynamodb] } # source: https://opentelemetry.io/docs/specs/semconv/registry/attributes/db/
+    terraform:
+      - aws_dynamodb_table:name # source: https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/dynamodb_table
+    crossplane:
+      - dynamodb.aws.upbound.io/Table # source: https://marketplace.upbound.io/providers/upbound/provider-aws-dynamodb/latest/resources/dynamodb.aws.upbound.io/Table/v1beta1
   - identity: aws/elasticache
     class: managed-cloud
     label: Amazon ElastiCache
     aliases: [aws-elasticache, amazon-elasticache, elasticache]
     hosts: ["*.cache.amazonaws.com"] # source: https://docs.aws.amazon.com/AmazonElastiCache/latest/dg/Endpoints.html
-    sdkModules: [github.com/aws/aws-sdk-go-v2/service/elasticache] # source: https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/service/elasticache
+    sdkModules:
+      - github.com/aws/aws-sdk-go-v2/service/elasticache # source: https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/service/elasticache
+      - npm:@aws-sdk/client-elasticache # source: https://www.npmjs.com/package/@aws-sdk/client-elasticache
+    terraform:
+      - aws_elasticache_cluster:cluster_id # source: https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/elasticache_cluster
+      - aws_elasticache_replication_group:replication_group_id # source: https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/elasticache_replication_group
+    crossplane:
+      - elasticache.aws.upbound.io/Cluster # source: https://marketplace.upbound.io/providers/upbound/provider-aws-elasticache/latest/resources/elasticache.aws.upbound.io/Cluster/v1beta1
+      - elasticache.aws.upbound.io/ReplicationGroup # source: https://marketplace.upbound.io/providers/upbound/provider-aws-elasticache/latest/resources/elasticache.aws.upbound.io/ReplicationGroup/v1beta1
   - identity: gcp/cloudsql
     class: managed-cloud
     label: Google Cloud SQL
     aliases: [gcp-cloudsql, cloud-sql, cloudsql]
     hosts: [sqladmin.googleapis.com] # source: https://github.com/GoogleCloudPlatform/cloud-sql-go-connector
     sdkModules: [cloud.google.com/go/cloudsqlconn] # source: https://github.com/GoogleCloudPlatform/cloud-sql-go-connector
+    terraform:
+      - google_sql_database_instance:name # source: https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/sql_database_instance
+    crossplane:
+      - sql.gcp.upbound.io/DatabaseInstance # source: https://marketplace.upbound.io/providers/upbound/provider-gcp-sql/latest/resources/sql.gcp.upbound.io/DatabaseInstance/v1beta1
   - identity: gcp/pubsub
     class: managed-cloud
     label: Google Cloud Pub/Sub
     aliases: [gcp-pubsub, pubsub]
     hosts: [pubsub.googleapis.com] # source: https://docs.cloud.google.com/pubsub/docs/reference/service_apis_overview
-    sdkModules: [cloud.google.com/go/pubsub] # source: https://pkg.go.dev/cloud.google.com/go/pubsub
+    sdkModules:
+      - cloud.google.com/go/pubsub # source: https://pkg.go.dev/cloud.google.com/go/pubsub
+      - pypi:google-cloud-pubsub # source: https://pypi.org/project/google-cloud-pubsub/
+      - npm:@google-cloud/pubsub # source: https://www.npmjs.com/package/@google-cloud/pubsub
     otel: { messagingSystem: [gcp_pubsub, gcp.pubsub] } # source: https://opentelemetry.io/docs/specs/semconv/registry/attributes/messaging/
+    terraform:
+      - google_pubsub_topic:name # source: https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/pubsub_topic
+    crossplane:
+      - pubsub.gcp.upbound.io/Topic # source: https://marketplace.upbound.io/providers/upbound/provider-gcp-pubsub/latest/resources/pubsub.gcp.upbound.io/Topic/v1beta1
   - identity: gcp/gcs
     class: managed-cloud
     label: Google Cloud Storage
     aliases: [gcp-gcs, gcs, google-cloud-storage]
     hosts: [storage.googleapis.com] # source: https://docs.cloud.google.com/storage/docs/request-endpoints
-    sdkModules: [cloud.google.com/go/storage] # source: https://pkg.go.dev/cloud.google.com/go/storage
+    sdkModules:
+      - cloud.google.com/go/storage # source: https://pkg.go.dev/cloud.google.com/go/storage
+      - pypi:google-cloud-storage # source: https://pypi.org/project/google-cloud-storage/
+      - npm:@google-cloud/storage # source: https://www.npmjs.com/package/@google-cloud/storage
+    terraform:
+      - google_storage_bucket:name # source: https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/storage_bucket
+    crossplane:
+      - storage.gcp.upbound.io/Bucket # source: https://marketplace.upbound.io/providers/upbound/provider-gcp-storage/latest/resources/storage.gcp.upbound.io/Bucket/v1beta1
   - identity: azure/sql
     class: managed-cloud
     label: Azure SQL Database
     aliases: [azure-sql]
     hosts: ["*.database.windows.net"] # source: https://learn.microsoft.com/en-us/azure/azure-sql/database/connect-query-go
+    terraform:
+      - azurerm_mssql_server:name # source: https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/mssql_server
+    crossplane:
+      - sql.azure.upbound.io/MSSQLServer # source: https://marketplace.upbound.io/providers/upbound/provider-azure-sql/latest/resources/sql.azure.upbound.io/MSSQLServer/v1beta1
   - identity: azure/servicebus
     class: managed-cloud
     label: Azure Service Bus
     aliases: [azure-servicebus, servicebus]
     hosts: ["*.servicebus.windows.net"] # source: https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus
-    sdkModules: [github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus] # source: https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus
+    sdkModules:
+      - github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus # source: https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus
+      - pypi:azure-servicebus # source: https://pypi.org/project/azure-servicebus/
+      - npm:@azure/service-bus # source: https://www.npmjs.com/package/@azure/service-bus
     otel: { messagingSystem: [servicebus, azure.servicebus] } # source: https://opentelemetry.io/docs/specs/semconv/registry/attributes/messaging/
+    terraform:
+      - azurerm_servicebus_namespace:name # source: https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/servicebus_namespace
+    crossplane:
+      - servicebus.azure.upbound.io/ServiceBusNamespace # source: https://marketplace.upbound.io/providers/upbound/provider-azure-servicebus/latest/resources/servicebus.azure.upbound.io/ServiceBusNamespace/v1beta1
   - identity: azure/storage
     class: managed-cloud
     label: Azure Storage
@@ -173,4 +269,11 @@ entries:
       - "*.file.core.windows.net"
       - "*.queue.core.windows.net"
       - "*.table.core.windows.net"
-    sdkModules: [github.com/Azure/azure-sdk-for-go/sdk/storage/azblob] # source: https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk/storage/azblob
+    sdkModules:
+      - github.com/Azure/azure-sdk-for-go/sdk/storage/azblob # source: https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk/storage/azblob
+      - pypi:azure-storage-blob # source: https://pypi.org/project/azure-storage-blob/
+      - npm:@azure/storage-blob # source: https://www.npmjs.com/package/@azure/storage-blob
+    terraform:
+      - azurerm_storage_account:name # source: https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/storage_account
+    crossplane:
+      - storage.azure.upbound.io/Account # source: https://marketplace.upbound.io/providers/upbound/provider-azure-storage/latest/resources/storage.azure.upbound.io/Account/v1beta1

@@ -678,3 +678,28 @@ func TestNameInferredFromPrefersNew(t *testing.T) {
 		}
 	}
 }
+
+// An old inferred key is never renamed silently: the answer names the
+// successor and carries SUBJECT_REPLACED.
+func TestImpactEventOnReplacedKeyDisclosesAlias(t *testing.T) {
+	now := time.Now()
+	created, pacto := now.Add(-72*time.Hour), now.Add(-time.Hour)
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{},
+		fleet.NewMemorySource("m", "memory", &fleet.Collection{
+			Revisions: []fleet.RawRevision{{Bundle: &contract.Bundle{FS: fstest.MapFS{},
+				Contract: &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: "auth-service", Version: "1.0.0"}}}}},
+			Targets: []fleet.RawTarget{{Scope: "pay", Kind: "kubernetes", Name: "auth-service", Service: "auth-service",
+				Workload: &fleet.WorkloadRef{Kind: "Deployment", Name: "legacy"}, CreatedAt: &pacto}},
+		}),
+		fleet.NewMemorySource("w", fleet.SourceKindKubernetesWorkloads, &fleet.Collection{
+			InferredServices: []fleet.RawInferredService{{Namespace: "pay", Kind: "Deployment", Name: "legacy", CreatedAt: &created}},
+		}))
+	if err != nil || len(snap.Replacements) != 1 {
+		t.Fatalf("replacements %+v %v", snap.Replacements, err)
+	}
+	res, err := NewService(nil, nil).ImpactEventOnSnapshot(context.Background(),
+		ImpactEventOptions{Event: impact.Event{Kind: impact.EventRemoved, Service: "k8s:pay/Deployment/legacy"}}, snap)
+	if err != nil || !slices.ContainsFunc(res.Limitations, func(l fleet.Limitation) bool { return l.Code == impact.LimitationSubjectReplaced }) {
+		t.Fatalf("limitations %+v %v", res, err)
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -542,7 +543,8 @@ func TestCreateTool_PactifyDescribeOnly(t *testing.T) {
 		Next  []string
 		Files []struct{ Path, Content string }
 	}
-	if res.IsError || json.Unmarshal([]byte(resultText(t, res)), &plan) != nil || len(plan.Files) != 1 || strings.Contains(plan.Files[0].Content, "publish:") || len(plan.Next) != 0 {
+	if res.IsError || json.Unmarshal([]byte(resultText(t, res)), &plan) != nil || len(plan.Files) != 1 || strings.Contains(plan.Files[0].Content, "publish:") ||
+		slices.ContainsFunc(plan.Next, func(n string) bool { return !strings.Contains(n, "pacto pack publishes none of what Pacto inferred") }) {
 		t.Fatalf("plan: %s", resultText(t, res))
 	}
 	if res := callTool(t, "pacto_create", map[string]any{"name": "fraud", "path": dir, "pactify": true, "describe_only": true, "delivery": true}); !res.IsError {

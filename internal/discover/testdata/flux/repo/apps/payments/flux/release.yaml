@@ -1,0 +1,11 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: payments-staging
+spec:
+  chart:
+    spec:
+      chart: ./apps/payments/chart
+      valuesFiles:
+        - ./apps/payments/chart/values.yaml
+        - ./apps/payments/chart/values-staging.yaml

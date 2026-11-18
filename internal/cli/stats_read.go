@@ -62,6 +62,10 @@ func statsService(service string, full *fleet.Query) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if r := sv.ReplacedFrom; r != nil {
+		// Run records of the old key are not the successor's: never alias.
+		return "", fmt.Errorf("%s was replaced by %s; give %s", r.From, r.To, r.To)
+	}
 	return sv.Service.Name, nil
 }
 

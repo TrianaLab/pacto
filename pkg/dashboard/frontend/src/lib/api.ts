@@ -60,6 +60,7 @@ export type ProductRevisionDocument = JSON200<'fleet-revision-document'>;
 export type ProductOfferingVersions = JSON200<'fleet-versions'>;
 export type ProductStats = JSON200<'get-stats'>;
 export type ProductStatsRecords = JSON200<'get-stats-records'>;
+export type ProvidersResult = JSON200<'fleet-providers'>;
 export type ProductMeta = ProductOverview['meta'];
 
 // JSONBody / GetResponse / PostResponse derive an operation's 200 application/json
@@ -475,6 +476,8 @@ export const api = {
   // ── Product-oriented operational-graph APIs ──
   fleetOverview: (): Promise<ProductOverview> =>
     productGet(client.GET('/api/fleet/overview')),
+  fleetProviders: (): Promise<ProvidersResult> =>
+    productGet(client.GET('/api/fleet/providers')),
   fleetEntities: (params: FleetEntitiesInput = {}): Promise<ProductEntityList> => {
     const { kinds, ...rest } = params;
     return productGet(client.GET('/api/fleet/entities', {
@@ -518,10 +521,12 @@ export const api = {
   /** The identity mode and the signed-in person, as the API server names them. */
   session: (): Promise<Session> => readSession(),
   /** Signs in with a pasted Kubernetes bearer token (POST /auth/token, outside the
-   *  API). The server checks it with the cluster and keeps it in the session. */
-  signInWithToken: async (token: string): Promise<void> => {
+   *  API). The server checks it with the cluster and keeps it in the session.
+   *  `link` says the token came from a sign-in link, which the server accepts
+   *  only as a token minted for the dashboard. */
+  signInWithToken: async (token: string, opts: { link?: boolean } = {}): Promise<void> => {
     const res = await dashboardFetch(new Request(new URL('/auth/token', location.origin), {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }),
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(opts.link ? { token, link: true } : { token }),
     }));
     if (!res.ok) throw new ApiError(res.status, ((await res.text()) || res.statusText).trim());
   },

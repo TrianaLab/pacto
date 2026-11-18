@@ -10,7 +10,9 @@ import (
 	"path/filepath"
 	"testing/fstest"
 
+	"github.com/trianalab/pacto/v4/internal/discover"
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
 	"github.com/trianalab/pacto/v4/pkg/finding"
 	"github.com/trianalab/pacto/v4/pkg/graph"
 	"github.com/trianalab/pacto/v4/pkg/ignore"
@@ -49,7 +51,9 @@ func resolveLocalPath(dir string) (filePath, bundleDir string, err error) {
 }
 
 // loadLocalBundle reads a local contract directory, parses pacto.yaml, and
-// returns a completed Bundle with Contract, RawYAML, FS and Inferred populated.
+// returns a completed Bundle with Contract, RawYAML, FS (serving the inferred
+// record) and Inferred populated. The record names no commit: its callers hash the bundle without
+// it or read its fields.
 func loadLocalBundle(dir string) (*contract.Bundle, error) {
 	return loadLocalBundleWithOverrides(dir, override.Overrides{})
 }
@@ -57,13 +61,21 @@ func loadLocalBundle(dir string) (*contract.Bundle, error) {
 // loadLocalBundleWithOverrides reads a local contract directory, applies the
 // overrides and then completes the final contract, so what it records as
 // inferred always describes the bytes the bundle holds.
+// A folder Pacto cannot complete is read as declared: these reads load local
+// dependencies, whose inferred record nothing here reports.
 func loadLocalBundleWithOverrides(dir string, overrides override.Overrides) (*contract.Bundle, error) {
-	return loadLocalBundleNamed(dir, dirBase(dir), overrides)
+	b, err := loadLocalBundleNamed(dir, dirBase(dir), overrides, contract.InferredInputs{}, nil)
+	if errors.Is(err, errIncomplete) {
+		err = nil
+	}
+	return b, err
 }
 
 // loadLocalBundleNamed is loadLocalBundleWithOverrides completing with
-// dirName, the folder dir is a staged copy of.
-func loadLocalBundleNamed(dir, dirName string, overrides override.Overrides) (*contract.Bundle, error) {
+// dirName, the folder dir is a staged copy of, recording in as the inferred
+// record's inputs and classifying external systems with cat (nil is the
+// default catalog).
+func loadLocalBundleNamed(dir, dirName string, overrides override.Overrides, in contract.InferredInputs, cat *externalcatalog.Catalog) (*contract.Bundle, error) {
 	bundle, err := readLocalBundle(dir)
 	if err != nil {
 		return nil, err
@@ -71,8 +83,45 @@ func loadLocalBundleNamed(dir, dirName string, overrides override.Overrides) (*c
 	if bundle, err = applyOverrides(bundle, overrides); err != nil {
 		return nil, err
 	}
-	bundle.Complete(dirName)
-	return bundle, nil
+	return bundle, completeLocal(bundle, dir, dirName, in, cat)
+}
+
+// completeLocal completes a bundle read from the folder dir: what it implies
+// (pactoVersion, service.name from dirName) and the inferred record. When
+// discovery fails the bundle stays as declared, with no record, and the error
+// wraps errIncomplete: pack, push and publish refuse it, a read keeps the
+// bundle (readIncomplete). cat classifies external systems; nil is the
+// default catalog.
+func completeLocal(b *contract.Bundle, dir, dirName string, in contract.InferredInputs, cat *externalcatalog.Catalog) error {
+	b.Complete(dirName)
+	if err := discover.CompleteBundle(b, dir, in, cat); err != nil {
+		return fmt.Errorf("%w %s: %w", errIncomplete, dir, err)
+	}
+	return nil
+}
+
+// errIncomplete marks a local bundle Pacto read but could not complete.
+var errIncomplete = errors.New("completing")
+
+// readIncomplete lets a read keep a bundle Pacto could not complete, since
+// inference only adds: it warns that the inferred values are unknown.
+func readIncomplete(ctx context.Context, err error) error {
+	if errors.Is(err, errIncomplete) {
+		logging.LoggerFromContext(ctx).Warn(err.Error() + "; its inferred values are unknown, not absent")
+		return nil
+	}
+	return err
+}
+
+// localInputs are the inferred record inputs of a local read of dir: this
+// CLI and revision, else the commit of dir's git checkout.
+func (s *Service) localInputs(dir, revision string) contract.InferredInputs {
+	if revision == "" {
+		if abs, err := s.env().absPath(dir); err == nil {
+			revision = gitRevision(abs)
+		}
+	}
+	return contract.InferredInputs{Commit: revision, Pacto: s.buildVersion()}
 }
 
 // dirBase is the name of dir's folder, "." resolved.
@@ -174,7 +223,12 @@ func (s *Service) resolveBundleAsWritten(ctx context.Context, ref string, overri
 		return nil, nil, err
 	}
 	if !parsed.IsOCI() {
-		bundle.Complete(dirBase(parsed.Location))
+		cat, err := s.completionCatalog(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		// completeLocal fails only with errIncomplete, which a read keeps.
+		_ = readIncomplete(ctx, completeLocal(bundle, parsed.Location, dirBase(parsed.Location), s.localInputs(parsed.Location, ""), cat))
 	}
 	return bundle, asWritten, nil
 }
@@ -258,9 +312,9 @@ func copyFSWithReplace(src fs.FS, replaceName string, replaceData []byte) (fstes
 // loadAndValidateLocal reads a local contract directory, parses pacto.yaml,
 // validates it, and returns the parsed contract and bundle FS. This is the
 // shared helper for pack and push commands that must validate before proceeding.
-func loadAndValidateLocal(ctx context.Context, dir string, overrides override.Overrides) (*contract.Contract, []byte, fs.FS, error) {
+func loadAndValidateLocal(ctx context.Context, dir string, overrides override.Overrides, in contract.InferredInputs, cat *externalcatalog.Catalog) (*contract.Contract, []byte, fs.FS, error) {
 	logging.LoggerFromContext(ctx).Debug("loading and validating local bundle", "dir", dir)
-	bundle, err := loadLocalBundleWithOverrides(dir, overrides)
+	bundle, err := loadLocalBundleNamed(dir, dirBase(dir), overrides, in, cat)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -281,10 +335,10 @@ func loadAndValidateLocal(ctx context.Context, dir string, overrides override.Ov
 // loadAndValidateFull reads a local contract directory, parses pacto.yaml,
 // validates it with full remote ref resolution (policies and configs), and
 // returns the parsed contract and bundle FS. Used by push to enforce remote
-// policies before publishing.
-func loadAndValidateFull(ctx context.Context, dir string, overrides override.Overrides, store oci.BundleStore) (*contract.Contract, []byte, fs.FS, error) {
+// policies before publishing. in are the inputs the inferred record names.
+func loadAndValidateFull(ctx context.Context, dir string, overrides override.Overrides, store oci.BundleStore, in contract.InferredInputs, cat *externalcatalog.Catalog) (*contract.Contract, []byte, fs.FS, error) {
 	logging.LoggerFromContext(ctx).Debug("loading and validating local bundle with remote resolution", "dir", dir)
-	bundle, err := loadLocalBundleWithOverrides(dir, overrides)
+	bundle, err := loadLocalBundleNamed(dir, dirBase(dir), overrides, in, cat)
 	if err != nil {
 		return nil, nil, nil, err
 	}

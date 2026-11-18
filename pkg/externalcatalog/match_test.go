@@ -276,7 +276,7 @@ entries:
 `)
 	for value, id := range map[string]string{"postgresql": "aws/rds", "KAFKA": "confluent", " aws-api ": "aws/api"} {
 		m, ok := c.MatchOTel(value)
-		want := Match{Identity: externalid.ID(id), Class: m.Class, Confidence: ConfidenceLikely, Kind: KindSystem, Entry: id}
+		want := Match{Identity: externalid.ID(id), Class: m.Class, Confidence: ConfidenceLikely, Kind: KindSystem, Entry: id, Origin: OriginDefault}
 		if !ok || m != want || m.Class == "" {
 			t.Errorf("MatchOTel(%q) = %+v, %v", value, m, ok)
 		}

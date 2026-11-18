@@ -1,11 +1,11 @@
 <script>
   import { fleetGraphFocusUrl, fleetEntityListUrl, fleetAttentionUrl, fleetServicesUrl, fleetEntityUrl } from '../../lib/router.ts';
   import { abbreviateDigests } from '../../lib/format.ts';
-  import { formatDate } from '../../lib/dateFormat.ts';
+  import { formatDate, formatRelative } from '../../lib/dateFormat.ts';
   import EntityLink from '../../components/EntityLink.svelte';
   import IdentityBadge from '../../components/IdentityBadge.svelte';
   import HelpTip from '../../components/HelpTip.svelte';
-  import { acceptsLabel, businessDomainLabel, UNKNOWN_DOMAIN } from '../../lib/entityLabels.ts';
+  import { acceptsLabel, businessDomainLabel, replacesTip, serviceKeyName, UNKNOWN_DOMAIN } from '../../lib/entityLabels.ts';
   import OwnershipFact from '../../components/OwnershipFact.svelte';
   import PreviewSection from '../../components/PreviewSection.svelte';
   import ServiceDelivery from '../../components/ServiceDelivery.svelte';
@@ -20,6 +20,7 @@
   import DistributionBar from '../../components/viz/DistributionBar.svelte';
   import PolicyList from '../../components/PolicyList.svelte';
   import ConfigurationList from '../../components/ConfigurationList.svelte';
+  import InferredFieldList from '../../components/InferredFieldList.svelte';
   import LifecycleBadge from '../../components/LifecycleBadge.svelte';
   import ResourceList from '../../components/ResourceList.svelte';
   import CopyableIdentifier from '../../components/CopyableIdentifier.svelte';
@@ -168,6 +169,12 @@
   const resourceEntries = $derived(new Set((used.items ?? []).flatMap((u) => (u.requested ?? [])
     .filter((r) => r.consumerRevision?.key && r.consumerRevision.key === d.currentRevision?.key).map((r) => r.entry))));
   const DOCS = 'https://pacto.run/latest/provision-infrastructure/';
+  // The inferred service a Pacto target took over: one line, the newest first, its
+  // age read against the snapshot so the demo and a paused page agree.
+  const replaced = $derived(d.replaces?.[0]);
+  const replacedMore = $derived((d.replacesTotal ?? d.replaces?.length ?? 0) - 1);
+  const replacedAge = $derived(replaced?.at ? formatRelative(replaced.at, Date.parse(detail.meta?.asOf ?? '') || Date.now()) : '');
+  const replacedTip = $derived(replacesTip(d.replaces ?? [], d.replacesTotal ?? d.replaces?.length ?? 0));
 </script>
 
 <div class="svc-entity">
@@ -250,6 +257,12 @@
         <span class="se-none">No source</span>
       {/if}
     </div>
+    {#if replaced}
+      <div class="se-fact se-replaces" data-testid="service-replaces">
+        <span>Replaces <bdi class="se-code" title={serviceKeyName(replaced.from)}>{serviceKeyName(replaced.from)}</bdi>{replacedAge ? ` · ${replacedAge}` : ''}{replacedMore > 0 ? ` +${formatCount(replacedMore)} more` : ''}</span>
+        <HelpTip label="Replaces" text={replacedTip} />
+      </div>
+    {/if}
   </section>
 
   {#if d.ownership?.conflicts?.count}
@@ -605,6 +618,21 @@
     </div>
   </div>
 
+  <!-- What Pacto read from the service's folder for its current revision, kept apart
+       from the contract: folded, because the declared sections above are what a reader
+       came for. The list owns the only disclosure for its rows (clip off). An unreadable
+       record says so while folded: its values are unknown, never absent. -->
+  {#if d.inferredFields?.total || d.inferredFields?.unreadable}
+    <div class="se-wrap" data-testid="service-inferred">
+      <PreviewSection title="Inferred by Pacto" collapsible open={false} clip={false} total={d.inferredFields.total} count={d.inferredFields.count ?? 0}
+        summary={d.inferredFields.unreadable ? 'Could not be read' : ''} tone={d.inferredFields.unreadable ? 'warn' : ''}
+        empty="Pacto could not read the inferred record"
+        help="Values Pacto read from the service's folder and keeps apart from the contract. Declare one to make it part of the contract.">
+        <InferredFieldList items={d.inferredFields.items ?? []} total={d.inferredFields.total} unreadable={!!d.inferredFields.unreadable} />
+      </PreviewSection>
+    </div>
+  {/if}
+
   <!-- This is an overview page, so its sections stay open: traffic, dependencies,
        dependents and evidence are read here, not opened one by one. Limitations stay
        folded: the knowledge banner above already states that the page is uncertain. -->
@@ -633,6 +661,7 @@
   .se-jump { padding: 0; border: none; background: none; color: var(--c-accent); font: inherit; cursor: pointer; text-decoration: underline; }
   @media (pointer: coarse) { .se-jump { min-block-size: 44px; } }
   .se-none { color: var(--c-text-3); }
+  .se-replaces { color: var(--c-text-3); font-size: var(--text-sm); overflow-wrap: anywhere; }
   .se-wrap { display: contents; }
   .se-unresolved { list-style: none; margin: var(--sp-1) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
   .se-unresolved li { padding: var(--sp-1) var(--sp-2); overflow-wrap: anywhere; }

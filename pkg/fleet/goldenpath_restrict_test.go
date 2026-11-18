@@ -57,12 +57,12 @@ func hiddenPathFleet(t *testing.T) *Query {
 }
 
 func TestRestrictGoldenPathVisible(t *testing.T) {
-	r := goldenRestrictFleet(t, templated("http-service", "1.0.0")).Restrict(shopOnly)
+	r := goldenRestrictFleet(t, templated("http-service", "1.0.0")).Restrict(shopOnly, nil)
 	path := r.snap.Services[NewServiceKeyDomain(acme, "http-service")]
 	if path == nil || !path.Template {
 		t.Fatalf("golden path = %+v", path)
 	}
-	down := goldenRestrictFleet(t, templated("http-service", "1.0.0"), NewFailingSource("k8s-2", SourceKindKubernetes, errors.New("down"))).Restrict(shopOnly)
+	down := goldenRestrictFleet(t, templated("http-service", "1.0.0"), NewFailingSource("k8s-2", SourceKindKubernetes, errors.New("down"))).Restrict(shopOnly, nil)
 	if down.snap.Services[NewServiceKeyDomain(acme, "http-service")] != nil {
 		t.Error("with a Kubernetes source down the path cannot be placed and stays hidden")
 	}
@@ -70,7 +70,7 @@ func TestRestrictGoldenPathVisible(t *testing.T) {
 
 func TestRestrictGoldenPathRevisions(t *testing.T) {
 	q := goldenRestrictFleet(t, templated("http-service", "1.0.0"))
-	r := q.Restrict(shopOnly)
+	r := q.Restrict(shopOnly, nil)
 	key := NewServiceKeyDomain(acme, "http-service")
 	if len(q.snap.Services[key].Revisions) != 2 {
 		t.Fatalf("unrestricted revisions = %v", q.snap.Services[key].Revisions)
@@ -91,7 +91,7 @@ func TestRestrictGoldenPathRevisions(t *testing.T) {
 
 func TestRestrictGoldenPathHiddenCreated(t *testing.T) {
 	q := goldenRestrictFleet(t, templated("http-service", "1.0.0"))
-	r := q.Restrict(shopOnly)
+	r := q.Restrict(shopOnly, nil)
 	key := NewServiceKeyDomain(acme, "http-service")
 	if got := r.snap.Services[key].HiddenCreated; got != 1 {
 		t.Errorf("hidden created = %d", got)
@@ -125,7 +125,7 @@ func TestRestrictGoldenPathHiddenCreated(t *testing.T) {
 func TestRestrictGoldenPathHasNoOffering(t *testing.T) {
 	path := templated("http-service", "1.0.0")
 	path.Service.Offering = "postgresql"
-	r := goldenRestrictFleet(t, path).Restrict(shopOnly)
+	r := goldenRestrictFleet(t, path).Restrict(shopOnly, nil)
 	s := r.snap.Services[NewServiceKeyDomain(acme, "http-service")]
 	if s.HiddenCreated != 1 || s.Offering != "" || s.OfferingProvenance != "" {
 		t.Errorf("golden path in the view = %+v", s)
@@ -136,7 +136,7 @@ func TestRestrictGoldenPathHasNoOffering(t *testing.T) {
 }
 
 func TestRestrictOriginBlanked(t *testing.T) {
-	r := hiddenPathFleet(t).Restrict(shopOnly)
+	r := hiddenPathFleet(t).Restrict(shopOnly, nil)
 	if r.snap.Services[NewServiceKeyDomain(acme, "http-service")] != nil {
 		t.Fatal("the path is visible")
 	}
@@ -152,7 +152,7 @@ func TestRestrictOriginDoesNotMutateSnapshot(t *testing.T) {
 	var wg sync.WaitGroup
 	for range 4 {
 		for _, q := range []*Query{hidden, visible} {
-			wg.Go(func() { q.Restrict(shopOnly) })
+			wg.Go(func() { q.Restrict(shopOnly, nil) })
 		}
 	}
 	wg.Wait()
@@ -167,7 +167,7 @@ func TestRestrictOriginDoesNotMutateSnapshot(t *testing.T) {
 
 func TestRestrictTemplateEdges(t *testing.T) {
 	q := goldenRestrictFleet(t, templated("http-service", "1.0.0"))
-	r := q.Restrict(shopOnly)
+	r := q.Restrict(shopOnly, nil)
 	path := r.snap.Services[NewServiceKeyDomain(acme, "http-service")]
 	if len(q.snap.templateEdges) != 4 || len(r.snap.templateEdges) != 2 {
 		t.Fatalf("template edges: unrestricted %d, restricted %+v", len(q.snap.templateEdges), r.snap.templateEdges)

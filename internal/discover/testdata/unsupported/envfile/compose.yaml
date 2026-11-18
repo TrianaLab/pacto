@@ -1,0 +1,4 @@
+services:
+  envfile:
+    image: payments
+    env_file: .env

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"strings"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -63,16 +64,8 @@ func (s *Service) Push(ctx context.Context, opts PushOptions) (*PushResult, erro
 
 	path := defaultPath(opts.Path)
 
-	c, _, bundleFS, err := loadAndValidateFull(ctx, path, opts.Overrides, s.BundleStore)
+	c, bundleFS, err := s.pushable(ctx, path, opts.Overrides)
 	if err != nil {
-		return nil, err
-	}
-
-	if err := rejectLocalDeps(c); err != nil {
-		return nil, err
-	}
-
-	if err := rejectLocalRefs(c); err != nil {
 		return nil, err
 	}
 
@@ -103,7 +96,7 @@ func (s *Service) Push(ctx context.Context, opts PushOptions) (*PushResult, erro
 			// A bundle that cannot be packed has no digest and reads as a
 			// conflict below: refused, never overwritten.
 			local, _ := oci.BundleDigest(bundle)
-			if remote == local {
+			if remote == local || s.onlyRecordDiffers(ctx, ref, remote, bundle) {
 				logging.LoggerFromContext(ctx).Debug("identical artifact already published", "ref", ref, "digest", remote)
 				result.Digest, result.Unchanged = remote, true
 				return result, nil
@@ -125,6 +118,29 @@ func (s *Service) Push(ctx context.Context, opts PushOptions) (*PushResult, erro
 
 	result.Digest = digest
 	return result, nil
+}
+
+// onlyRecordDiffers reports whether the bundle at ref, pinned to the digest
+// remote, differs from local only in an inferred record with the same cited
+// inputs: a push from another commit or another Pacto of the same content.
+func (s *Service) onlyRecordDiffers(ctx context.Context, ref, remote string, local *contract.Bundle) bool {
+	prev, err := s.BundleStore.Pull(ctx, refRepo(ref)+"@"+remote)
+	if err != nil {
+		return false
+	}
+	unchanged, _ := contract.InferredUnchanged(prev, local, oci.BundleDigest)
+	return unchanged
+}
+
+// refRepo is ref without its tag or digest.
+func refRepo(ref string) string {
+	if i := strings.Index(ref, "@"); i >= 0 {
+		return ref[:i]
+	}
+	if i := strings.LastIndex(ref, ":"); i > strings.LastIndex(ref, "/") {
+		return ref[:i]
+	}
+	return ref
 }
 
 // isNotFound reports whether err indicates the artifact was not found.
@@ -156,4 +172,25 @@ func rejectLocalRefs(c *contract.Contract) error {
 		}
 	}
 	return nil
+}
+
+// pushable completes and validates the contract at path for a push: valid,
+// with remote references resolved, and with no local dependency or
+// reference a registry could not follow.
+func (s *Service) pushable(ctx context.Context, path string, overrides override.Overrides) (*contract.Contract, fs.FS, error) {
+	cat, err := s.completionCatalog(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	c, _, bundleFS, err := loadAndValidateFull(ctx, path, overrides, s.BundleStore, s.localInputs(path, ""), cat)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := rejectLocalDeps(c); err != nil {
+		return nil, nil, err
+	}
+	if err := rejectLocalRefs(c); err != nil {
+		return nil, nil, err
+	}
+	return c, bundleFS, nil
 }

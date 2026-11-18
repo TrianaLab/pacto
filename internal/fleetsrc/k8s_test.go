@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"k8s.io/apimachinery/pkg/runtime/schema"
+
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
@@ -35,6 +37,12 @@ type fakeK8sClient struct {
 func (f *fakeK8sClient) DiscoverCRD(context.Context) (*k8sclient.CRDDiscovery, error) {
 	return f.disc, f.discErr
 }
+
+// ListPage reads as a cluster with no workloads.
+func (f *fakeK8sClient) ListPage(context.Context, schema.GroupVersionResource, string, string) ([]byte, string, error) {
+	return []byte(`{"items":[]}`), "", nil
+}
+
 func (f *fakeK8sClient) ListJSON(_ context.Context, crd k8sclient.CRDDiscovery, namespace string) ([]byte, error) {
 	f.gotResource, f.gotNS = crd.ResourceName, namespace
 	return f.listData, f.listErr
@@ -63,14 +71,81 @@ func TestK8sSource_Collect_DiscoverError(t *testing.T) {
 	}
 }
 
-func TestK8sSource_Collect_NotFound(t *testing.T) {
-	s := NewK8sSource("k8s", nil, &fakeK8sClient{disc: &k8sclient.CRDDiscovery{Found: false}}, nil)
+func TestK8sSourceCRDMissingSaysSo(t *testing.T) {
+	cluster := &fleet.Cluster{ID: "c1"}
+	s := NewK8sSource("k8s", cluster, &fakeK8sClient{disc: &k8sclient.CRDDiscovery{Found: false}}, nil)
 	col, err := s.Collect(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(col.Targets) != 0 {
-		t.Errorf("expected empty collection, got %d targets", len(col.Targets))
+	if len(col.Targets) != 0 || col.Cluster != cluster {
+		t.Errorf("collection = %+v, want no target in the cluster", col)
+	}
+	if len(col.Limitations) != 1 || col.Limitations[0].Code != fleet.LimitationPactoCRDNotInstalled || col.Limitations[0].Source != "k8s" {
+		t.Fatalf("limitations = %+v, want PACTO_CRD_NOT_INSTALLED", col.Limitations)
+	}
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Sources[0].Status != fleet.SourcePartial {
+		t.Errorf("state = %+v, want partial", snap.Sources[0])
+	}
+}
+
+func TestK8sTargetWorkloadRef(t *testing.T) {
+	list := `{"items":[
+		{"metadata":{"name":"a","namespace":"shop"},"spec":{"target":{"serviceName":"cart-svc","workloadRef":{"kind":"StatefulSet","name":"cart"}}},"status":{"contract":{"serviceName":"a"}}},
+		{"metadata":{"name":"b","namespace":"shop"},"spec":{"target":{"serviceName":"orders"}},"status":{"contract":{"serviceName":"b"}}},
+		{"metadata":{"name":"c","namespace":"shop"},"spec":{"target":{"serviceName":"svc","workloadRef":{"name":"worker"}}},"status":{"contract":{"serviceName":"c"}}},
+		{"metadata":{"name":"d","namespace":"shop"},"spec":{"target":{}},"status":{"contract":{"serviceName":"d"}}},
+		{"metadata":{"name":"e","namespace":"shop"},"status":{"contract":{"serviceName":"e"}}}]}`
+	col, err := NewK8sSource("k8s", nil, &fakeK8sClient{disc: &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"}, listData: []byte(list)}, nil).Collect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]*fleet.WorkloadRef{
+		"a": {Kind: "StatefulSet", Name: "cart"},
+		"b": {Kind: "Deployment", Name: "orders"},
+		"c": {Kind: "Deployment", Name: "worker"},
+		"d": nil,
+		"e": nil,
+	}
+	for _, tg := range col.Targets {
+		if !reflect.DeepEqual(tg.Workload, want[tg.Name]) {
+			t.Errorf("target %s workload = %+v, want %+v", tg.Name, tg.Workload, want[tg.Name])
+		}
+	}
+}
+
+func TestK8sTargetCarriesWorkloadAndCreatedAt(t *testing.T) {
+	list := `{"items":[
+		{"metadata":{"name":"a","namespace":"shop","creationTimestamp":"2026-07-29T11:00:00Z"},"spec":{"target":{"serviceName":"cart"}},"status":{"contract":{"serviceName":"a"}}},
+		{"metadata":{"name":"b","namespace":"shop"},"status":{"contract":{"serviceName":"b"}}}]}`
+	col, err := NewK8sSource("k8s", nil, &fakeK8sClient{disc: &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"}, listData: []byte(list)}, nil).Collect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	created := time.Date(2026, 7, 29, 11, 0, 0, 0, time.UTC)
+	for _, tg := range col.Targets {
+		switch tg.Name {
+		case "a":
+			if !reflect.DeepEqual(tg.Workload, &fleet.WorkloadRef{Kind: "Deployment", Name: "cart"}) || tg.CreatedAt == nil || !tg.CreatedAt.Equal(created) {
+				t.Errorf("target a = %+v created %v", tg.Workload, tg.CreatedAt)
+			}
+		default:
+			if tg.CreatedAt != nil {
+				t.Errorf("target %s created %v, want unknown", tg.Name, tg.CreatedAt)
+			}
+		}
+	}
+	w := `{"metadata":{"name":"cart","namespace":"shop","creationTimestamp":"2026-07-26T12:00:00Z"}}`
+	wcol, err := NewWorkloadSource("", nil, &workloadFake{pages: map[string][2]string{"deployments||": {w}}}, nil).Collect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if at := wcol.InferredServices[0].CreatedAt; at == nil || !at.Equal(time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)) {
+		t.Errorf("workload created %v", at)
 	}
 }
 
@@ -565,7 +640,7 @@ func TestK8sExternalUsesRestrictedByNamespace(t *testing.T) {
 	if v, err := fleet.NewQuery(snap).GetExternal("stripe"); err != nil || len(v.External.Consumers) != 2 {
 		t.Fatalf("unrestricted stripe = %+v, %v", v, err)
 	}
-	r := fleet.NewQuery(snap).Restrict(func(ns string) bool { return ns == "prod" })
+	r := fleet.NewQuery(snap).Restrict(func(ns string) bool { return ns == "prod" }, nil)
 	v, err := r.GetExternal("stripe")
 	if err != nil || len(v.External.Consumers) != 1 || v.External.HiddenConsumers != 1 {
 		t.Fatalf("restricted stripe = %+v, %v", v, err)
@@ -630,5 +705,88 @@ func TestK8sSource_Collect_NamelessContractIsARecordGap(t *testing.T) {
 		strings.Contains(col.Limitations[0].Message, "prod") || strings.Contains(col.Limitations[0].Message, "nameless") ||
 		!strings.Contains(col.Limitations[0].Message, "1 Pacto(s)") {
 		t.Fatalf("limitations = %+v", col.Limitations)
+	}
+}
+
+// providerRow is the row of id the snapshot holds, nil when none.
+func providerRow(snap *fleet.FleetSnapshot, id string) *fleet.Provider {
+	if i := slices.IndexFunc(snap.Providers, func(p fleet.Provider) bool { return p.ID == id }); i >= 0 {
+		return &snap.Providers[i]
+	}
+	return nil
+}
+
+func hasCode(lims []fleet.Limitation, code string) bool {
+	return slices.ContainsFunc(lims, func(l fleet.Limitation) bool { return l.Code == code })
+}
+
+func TestK8sCRDRowServed(t *testing.T) {
+	src := NewK8sSource("prod", &fleet.Cluster{ID: "c1", Name: "eu-prod"}, &fakeK8sClient{disc: &k8sclient.CRDDiscovery{Found: true, Version: "v1alpha1", ResourceName: "pactos"}, listData: []byte(pactoIn("shop", "cart"))}, nil)
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := providerRow(snap, fleet.ProviderPactoCRD)
+	if row == nil {
+		t.Fatalf("providers = %+v, want the Pacto CRD row", snap.Providers)
+	}
+	// The evidence carries no count: the count is the source's targetCount,
+	// which a restricted view recounts (one target read, no "1" anywhere).
+	if row.Evidence != "served (pacto.trianalab.io/v1alpha1)" || row.Name != "Pacto CRD" {
+		t.Errorf("row = %+v", row)
+	}
+	if !slices.Equal(row.UsedFor, []string{fleet.UseDeclaredTargets}) || row.Status != fleet.SourceAvailable || row.Source != "prod" || row.Cluster != "eu-prod" {
+		t.Errorf("row = %+v", row)
+	}
+	if !slices.Equal(row.Objects, []fleet.ProviderObject{{Kind: "CustomResourceDefinition", Name: "pactos.pacto.trianalab.io"}}) || len(row.Limitations) != 0 {
+		t.Errorf("objects %+v limitations %+v", row.Objects, row.Limitations)
+	}
+}
+
+func TestK8sCRDRowNotInstalled(t *testing.T) {
+	src := NewK8sSource("prod", nil, &fakeK8sClient{disc: &k8sclient.CRDDiscovery{Found: false}}, nil)
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := providerRow(snap, fleet.ProviderPactoCRD)
+	if row == nil || row.Evidence != "not installed" || row.Status != fleet.SourcePartial || !hasCode(row.Limitations, fleet.LimitationPactoCRDNotInstalled) || len(row.Objects) != 0 {
+		t.Fatalf("row = %+v", row)
+	}
+}
+
+func TestK8sDiscoveryErrorIsNotNotInstalled(t *testing.T) {
+	src := NewK8sSource("prod", nil, &fakeK8sClient{discErr: errors.New("dial tcp: connection refused")}, nil)
+	if _, err := src.Collect(context.Background()); err == nil {
+		t.Fatal("an unreachable cluster collected without an error")
+	}
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Providers) != 0 || snap.Sources[0].Status != fleet.SourceUnavailable {
+		t.Fatalf("providers %+v sources %+v; want no row and the source unavailable", snap.Providers, snap.Sources)
+	}
+	data, err := json.Marshal(snap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "not installed") {
+		t.Error("an unreachable cluster reads as not installed")
+	}
+}
+
+func TestK8sCRDRowNamespaceList(t *testing.T) {
+	c := &nsFakeClient{found: true, errs: map[string]error{"ops": errors.New("boom")}}
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, NewK8sSource("c1", nil, c, []string{"shop", "ops"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := providerRow(snap, fleet.ProviderPactoCRD)
+	if row == nil || row.Status != fleet.SourcePartial || !hasCode(row.Limitations, fleet.LimitationProviderSourceDegraded) || !hasCode(row.Limitations, fleet.LimitationK8sNamespaceUnreadable) {
+		t.Fatalf("row = %+v; want partial through its source, with the unreadable namespace", row)
+	}
+	if hasCode(row.Limitations, fleet.LimitationK8sNamespaceScoped) {
+		t.Errorf("row repeats the scope limitation its source states: %+v", row.Limitations)
 	}
 }

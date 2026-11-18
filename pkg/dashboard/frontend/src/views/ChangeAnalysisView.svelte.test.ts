@@ -757,6 +757,28 @@ describe('ChangeAnalysisView — migrating a legacy compare bookmark by NAME', (
     unmount(component); document.body.removeChild(target);
   });
 
+  it('gives a consumer only an inferred record names one mark whose title names the record source', async () => {
+    const base = eventResult().consumers.items[0];
+    const items = [
+      { ...base, service: ref('service', 'domain-a/news', 'news'), confidence: 'inferred', effect: 'unknown', required: false, provenance: 'inferred', via: ['inferred'], targets: [], targetsTotal: 0, staleTargets: [],
+        evidence: [{ kind: 'inferred-record', provenance: 'inferred', source: 'local', message: 'named by its inferred record, read from deploy/deployment.yaml:21' }] },
+      // A transitive consumer is inferred too, and keeps its provenance badge.
+      { ...base, service: ref('service', 'domain-a/web', 'web'), depth: 2, direct: false, confidence: 'inferred', effect: 'unknown', required: false, provenance: 'inferred', via: ['dependency'],
+        targets: [], targetsTotal: 0, staleTargets: [], evidence: [] },
+    ];
+    impactFn.mockResolvedValue(eventResult({ consumers: { ...eventResult().consumers, items } }));
+    const { target, component } = mountView({ svc: 'domain-a/payments', event: 'unavailable' });
+    await vi.waitFor(() => expect(target.querySelectorAll('[data-testid="consumer-row"]')).toHaveLength(2));
+    const [news, web] = Array.from(target.querySelectorAll('[data-testid="consumer-row"]'));
+    const why = news.querySelector('[data-label="Why"]')!;
+    expect(why.querySelectorAll('.cell-badges .badge')).toHaveLength(0);
+    expect(why.querySelector('.pill')?.textContent).toBe('inferred');
+    expect(why.querySelector('.pill')?.getAttribute('title')).toContain('Source: named by its inferred record, read from deploy/deployment.yaml:21.');
+    expect(why.querySelector('.why-evidence')).toBeNull();
+    expect(web.querySelector('[data-label="Why"] .badge-info')?.textContent).toBe('inferred');
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('shows why each consumer is affected, links owners and never links an uncontracted caller', async () => {
     impactFn.mockResolvedValue(eventResult());
     const { target, component } = mountView({ svc: 'domain-a/payments', event: 'unavailable' });

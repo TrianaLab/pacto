@@ -14,7 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/danielgtaylor/huma/v2/adapters/humago"
 	"github.com/trianalab/pacto/v4/examples/story"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
@@ -29,9 +28,7 @@ func demoServer(t *testing.T) (*demoDelivery, http.Handler) {
 	}
 	var opts dashboard.Options
 	d.wire(&opts)
-	mux := http.NewServeMux()
-	dashboard.NewServer(opts).RegisterOperations(humago.New(mux, dashboard.APIConfig()))
-	return d, mux
+	return d, demoHandler(opts)
 }
 
 func call(t *testing.T, h http.Handler, method, path, body string, out any) int {

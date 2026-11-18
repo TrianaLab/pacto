@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatDate, formatDateTime, formatRelative } from './dateFormat';
+import { formatDate, formatDateTime, formatRelative, formatWhen } from './dateFormat';
 
 describe('formatDate', () => {
   it('formats valid ISO date to human-readable form', () => {
@@ -63,5 +63,14 @@ describe('formatDateTime', () => {
     expect(formatDateTime(null)).toBe('');
     expect(formatDateTime('')).toBe('');
     expect(formatDateTime('not-a-date')).toBe('');
+  });
+});
+
+describe('formatWhen', () => {
+  const NOW = Date.parse('2026-11-17T12:00:00Z');
+  it('follows a verb both as an age and as a date', () => {
+    expect(formatWhen(new Date(NOW - 4 * 60_000).toISOString(), NOW)).toBe('4 minutes ago');
+    expect(formatWhen('2026-11-07T12:00:00Z', NOW)).toBe('on Nov 7, 2026');
+    expect(formatWhen(null, NOW)).toBe('');
   });
 });

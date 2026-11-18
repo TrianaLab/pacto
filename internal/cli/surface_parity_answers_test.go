@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -55,7 +56,16 @@ func parityFixture(t *testing.T) []string {
 	traces := filepath.Join(t.TempDir(), "traces.json")
 	mustWriteFile(t, traces, `{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"app"}}]},"scopeSpans":[{"spans":[{"kind":3,"attributes":[{"key":"peer.service","value":{"stringValue":"lonely"}}]},`+
 		`{"kind":3,"attributes":[{"key":"server.address","value":{"stringValue":"api.stripe.com"}}]}]}]},`+
-		`{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"lonely"}}]},"scopeSpans":[{"spans":[{"kind":3,"attributes":[{"key":"server.address","value":{"stringValue":"api.stripe.com"}}]}]}]}]}`)
+		`{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"lonely"}}]},"scopeSpans":[{"spans":[{"kind":3,"attributes":[{"key":"server.address","value":{"stringValue":"api.stripe.com"}}]}]}]},`+
+		`{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"k8s:prod/Deployment/worker"}}]},"scopeSpans":[{"spans":[{"kind":3,"attributes":[{"key":"peer.service","value":{"stringValue":"k8s:secret/StatefulSet/ledger"}}]}]}]}]}`)
+	// The cluster: the checkout Pacto in prod took over the checkout
+	// Deployment, which ran with no contract a month before it, and worker (in
+	// prod) calls ledger (in secret), two workloads no contract describes.
+	fakeKubeAPI(t, `{"metadata":{"name":"checkout","namespace":"prod","creationTimestamp":"2026-01-01T00:00:00Z"},"spec":{"target":{"serviceName":"checkout"}},"status":{"contract":{"serviceName":"checkout"}}}`,
+		map[string]string{
+			"deployments":  `{"metadata":{"name":"checkout","namespace":"prod","creationTimestamp":"2025-12-01T00:00:00Z"}},{"metadata":{"name":"worker","namespace":"prod"}}`,
+			"statefulsets": `{"metadata":{"name":"ledger","namespace":"secret"}}`,
+		})
 	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusServiceUnavailable) }))
 	old := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"schemaVersion":"pacto.dev/evidence-source/v2","health":{"status":"ready","subjects":2},"targets":[{"subject":"app","service":"app","producer":"prod","compliance":"Compliant","coverage":{"evaluated":3,"required":3},"evidenceAt":"2026-01-01T00:00:00Z","acceptedAt":"2026-01-01T00:00:00Z"},{"subject":"lonely","service":"lonely","producer":"prod","compliance":"Unknown","coverage":{"evaluated":0,"required":3},"evidenceAt":"2026-01-01T00:00:00Z","acceptedAt":"2026-01-01T00:00:00Z"}]}`))
@@ -67,7 +77,7 @@ func parityFixture(t *testing.T) []string {
 		"  - {scope: prod, kind: kubernetes, name: app, service: app, compliance: Compliant}\n"+
 		"  - {scope: staging, kind: kubernetes, name: postgresql, service: postgresql, compliance: Unknown}\n"+
 		"  - {scope: secret, kind: kubernetes, name: lonely, service: lonely, compliance: NonCompliant}\n")
-	return []string{"--local", root, "--target-state", targets, "--traces", traces, "--evidence-url", down.URL, "--evidence-url", old.URL, "--freshness", "1m"}
+	return []string{"--local", root, "--target-state", targets, "--traces", traces, "--evidence-url", down.URL, "--evidence-url", old.URL, "--freshness", "1m", "--k8s"}
 }
 
 func mustWriteFile(t *testing.T, path, body string) {
@@ -87,6 +97,13 @@ func cliJSON(t *testing.T, flags []string, args ...string) string {
 	expect(t, root.Execute() == nil, "pacto %v", args)
 	return out.String()
 }
+
+// parityWorker and parityCheckout are the fixture's inferred worker and the
+// key of the inferred checkout the checkout Pacto replaced.
+var (
+	parityWorker   = string(fleet.NewServiceKey("k8s:prod/Deployment/worker"))
+	parityCheckout = string(fleet.NewServiceKey("k8s:prod/Deployment/checkout"))
+)
 
 // parityQuery is one question asked of every surface.
 type parityQuery struct {
@@ -120,6 +137,8 @@ func parityQueries(revision string) []parityQuery {
 		{"offerings with a failed request", []string{"fleet", "entities", "--kind", "offering", "--failed"}, "pacto_fleet_entities", map[string]any{"kind": "offering", "failed": true}, "/api/fleet/entities?kinds=offering&failed=true"},
 		{"deprecated offerings", []string{"fleet", "entities", "--kind", "offering", "--lifecycle", "deprecated"}, "pacto_fleet_entities", map[string]any{"kind": "offering", "lifecycle": "deprecated"}, "/api/fleet/entities?kinds=offering&lifecycle=deprecated"},
 		{"external stripe", []string{"fleet", "entity", "external", "stripe"}, "pacto_fleet_entity", map[string]any{"kind": "external", "key": "stripe"}, "/api/fleet/entities/external?key=stripe"},
+		{"neighborhood inferred worker", []string{"fleet", "neighborhood", parityWorker, "--views", "expected,observed"}, "pacto_fleet_neighborhood", map[string]any{"service": parityWorker, "views": "expected,observed"}, "/api/fleet/neighborhood?kind=service&key=" + url.QueryEscape(parityWorker) + "&views=expected,observed"},
+		{"replaced checkout", []string{"fleet", "entity", "service", parityCheckout}, "pacto_fleet_entity", map[string]any{"kind": "service", "key": parityCheckout}, "/api/fleet/entities/service?key=" + url.QueryEscape(parityCheckout)},
 		{"versions postgresql", []string{"fleet", "versions", "postgresql"}, "pacto_fleet_versions", map[string]any{"offering": "postgresql"}, "/api/fleet/versions?offering=postgresql"},
 	}
 }
@@ -274,6 +293,16 @@ func TestSurfaceParityAnswers(t *testing.T) {
 	expect(t, strings.Contains(app, `"kind": "dependency"`) && strings.Contains(app, `"change": "added"`), "the fixture has no dependency change: %s", app)
 	// The Resources answer (#468) and the offering's adapters and unresolved
 	// uses (#463) are compared above: the fixture must hold them.
+	// The owner's provenance is compared above: the service answer must carry it.
+	var appDetail struct {
+		Service struct {
+			Ownership struct {
+				Provenance string `json:"provenance"`
+			} `json:"ownership"`
+		} `json:"service"`
+	}
+	expect(t, json.Unmarshal([]byte(app), &appDetail) == nil && appDetail.Service.Ownership.Provenance == fleet.OwnerProvenanceDeclared,
+		"the fixture's app answer lacks ownership.provenance: %s", app)
 	for _, want := range []string{`"consumedOfferings"`, `"consumption"`, `"state": "not-reported"`, `"providerOwner"`} {
 		expect(t, strings.Contains(app, want), "the fixture's app answer lacks %s: %s", want, app)
 	}
@@ -285,6 +314,12 @@ func TestSurfaceParityAnswers(t *testing.T) {
 	// the fixture must hold one for the comparison to mean anything.
 	attention := cliJSON(t, flags, "fleet", "attention")
 	expect(t, strings.Contains(attention, `"verb": "edit-contract"`), "the fixture has no attention item with a nextAction: %s", attention)
+	// The inferred edge and the replacement are compared above: the fixture
+	// must hold worker's inferred call to ledger and checkout's replacement.
+	worker := cliJSON(t, flags, "fleet", "neighborhood", parityWorker, "--views", "expected,observed")
+	expect(t, strings.Contains(worker, `"provenance": "inferred"`) && strings.Contains(worker, `"inferred": true`) && strings.Contains(worker, "ledger"), "the fixture has no inferred edge: %s", worker)
+	checkout := cliJSON(t, flags, "fleet", "entity", "service", parityCheckout)
+	expect(t, strings.Contains(checkout, `"replacedFrom"`) && strings.Contains(checkout, `"link": "pacto-target"`), "the fixture has no replacement: %s", checkout)
 	// The external answer is compared above: the fixture must hold an
 	// observed external with its per-source evidence.
 	stripe := cliJSON(t, flags, "fleet", "entity", "external", "stripe")
@@ -296,7 +331,7 @@ func TestSurfaceParityAnswers(t *testing.T) {
 // aliceView narrows a fleet to the prod and staging namespaces: one Viewer
 // over a Review that lets alice read those two.
 func aliceView() func(context.Context, *fleet.Query) (*fleet.Query, error) {
-	viewer := authn.NewViewer(func(_ context.Context, p authn.Person, ns string) (bool, error) {
+	viewer := authn.NewViewer(func(_ context.Context, p authn.Person, ns string, _ authn.ResourceAttributes) (bool, error) {
 		return p.User == "alice" && (ns == "prod" || ns == "staging"), nil
 	})
 	return func(ctx context.Context, q *fleet.Query) (*fleet.Query, error) {
@@ -354,6 +389,12 @@ func TestSurfaceParityRestrictedView(t *testing.T) {
 	expect(t, strings.Contains(attention, `"edit-contract"`) && !strings.Contains(attention, "UNOWNED_SERVICE"), "alice's attention: %s", attention)
 	services, _ := callText(t, session, "pacto_fleet_entities", map[string]any{"kind": "service"})
 	expect(t, strings.Contains(services, fleet.LimitationHiddenByPermissions), "the view says it hid something: %s", services)
+	// ledger (in secret) is counted, never named, behind alice's worker; the
+	// replacement in prod stays.
+	worker, _ := callText(t, session, "pacto_fleet_neighborhood", map[string]any{"service": parityWorker, "views": "expected,observed"})
+	expect(t, !strings.Contains(worker, "ledger") && strings.Contains(worker, `"hiddenDependencies": 1`), "alice's worker: %s", worker)
+	checkout, _ := callText(t, session, "pacto_fleet_entity", map[string]any{"kind": "service", "key": parityCheckout})
+	expect(t, strings.Contains(checkout, `"replacedFrom"`), "alice's checkout: %s", checkout)
 	// lonely's call to stripe is counted, never named, in alice's external answer.
 	stripe, _ := callText(t, session, "pacto_fleet_entity", map[string]any{"kind": "external", "key": "stripe"})
 	expect(t, strings.Contains(stripe, `"hiddenConsumers": 1`) && strings.Contains(stripe, `"observedSources"`), "alice's stripe: %s", stripe)
@@ -457,4 +498,50 @@ func TestCapabilitiesKeysMatchDashboard(t *testing.T) {
 		caller, _ := mcp["caller"].(map[string]any)
 		expect(t, (installed != "") == (caller["classAsOf"] != nil), "installed=%q: classAsOf says when the class was read: %s", installed, m)
 	}
+}
+
+// TestSurfaceParityImpactInferredConsumer: CLI pacto impact and MCP
+// pacto_impact read one local fleet whose newsletter names
+// notification-worker only through its inferred record, and give the same
+// consumer row: provenance and confidence inferred, verdict unknown.
+func TestSurfaceParityImpactInferredConsumer(t *testing.T) {
+	root := t.TempDir()
+	contractFile := func(dir, body string) string {
+		mustWriteFile(t, filepath.Join(dir, "pacto.yaml"), "pactoVersion: \"2.5\"\nservice:\n"+body+"workload: service\n"+parityState)
+		return dir
+	}
+	contractFile(filepath.Join(root, "notification-worker"), "  name: notification-worker\n  version: \"1.0.0\"\n")
+	contractFile(filepath.Join(root, "newsletter"), "  name: newsletter\n  version: \"1.0.0\"\n")
+	mustWriteFile(t, filepath.Join(root, "newsletter", "deploy", "app.yaml"), "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: newsletter\nspec:\n  template:\n    spec:\n"+
+		"      containers:\n        - name: app\n          env:\n            - name: WORKER_URL\n              value: http://notification-worker:8080\n")
+	dep := "dependencies:\n  - name: mailer\n    ref: oci://ghcr.io/acme/mailer\n    compatibility: \"^1.0.0\"\n"
+	oldDir := contractFile(filepath.Join(t.TempDir(), "notification-worker"), "  name: notification-worker\n  version: \"1.0.0\"\n"+dep)
+	newDir := contractFile(filepath.Join(t.TempDir(), "notification-worker"), "  name: notification-worker\n  version: \"2.0.0\"\n")
+
+	flags := []string{"--local", root}
+	plain, _, _ := paritySurfaces(t, flags)
+	m, isErr := callText(t, plain, "pacto_impact", map[string]any{"old_ref": oldDir, "new_ref": newDir})
+	expect(t, !isErr, "pacto_impact: %s", m)
+	row := func(what, body string) map[string]any {
+		var res struct {
+			Gate      string           `json:"gate"`
+			Consumers []map[string]any `json:"consumers"`
+		}
+		expect(t, json.Unmarshal([]byte(body), &res) == nil, "%s: %s", what, body)
+		expect(t, res.Gate == "unverified" && len(res.Consumers) == 1, "%s: gate %s consumers %v", what, res.Gate, res.Consumers)
+		return res.Consumers[0]
+	}
+	t.Setenv("PACTO_NO_UPDATE_CHECK", "1")
+	cmd := newRootCommand(app.NewService(nil, nil), VersionInfo{Version: "test"}, defaultDeps())
+	cmd.SetArgs(append([]string{"impact", oldDir, newDir, "--output-format", "json"}, flags...))
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(io.Discard)
+	var exit *ExitError
+	err := cmd.Execute()
+	expect(t, errors.As(err, &exit) && exit.Code == 2, "pacto impact: %v", err) // unverified exits 2
+	cli, mcp := row("cli", out.String()), row("mcp", m)
+	expect(t, reflect.DeepEqual(cli, mcp), "cli %v\nmcp %v", cli, mcp)
+	expect(t, cli["service"] == "newsletter" && cli["provenance"] == "inferred" && cli["confidence"] == "inferred" && cli["compatibilityVerdict"] == "unknown",
+		"newsletter row = %v", cli)
 }

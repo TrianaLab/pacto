@@ -36,14 +36,25 @@ some services are hidden, and a service page counts the hidden services it
 depends on and that depend on it. If the apiserver cannot answer, the views
 show an error, not a smaller fleet.
 
+## Inferred services
+
+An [inferred service](../../operational-graph-inferred.md) also needs the right
+to read its workload. You see one only if you may list both Pactos and its
+kind in its namespace: `deployments`, `statefulsets` or `daemonsets` in the
+`apps` group, or `cronjobs` in the `batch` group. Someone who may list Pactos
+in every namespace, but not every one of those kinds, gets a restricted view
+instead of the whole fleet. The dashboard asks these reviews the same way and
+caches them as long.
+
 ## Without sign-in
 
 Without sign-in nothing is filtered. On loopback the dashboard reads the fleet
 as your kubeconfig user and shows all of it. A shared dashboard without sign-in
 shows everything its ServiceAccount reads to anyone who reaches it, so it
 starts only when you allow that: `pacto dashboard --allow-anonymous`, or the
-chart value `dashboard.auth.allowAnonymous` (`true` by default, with a warning
-in the install notes).
+chart values `dashboard.auth.tokenSignIn.enabled=false` and
+`dashboard.auth.allowAnonymous=true` together, with a warning in the install
+notes ([serve without sign-in](dashboard-authentication.md#serve-without-sign-in)).
 
 ## Metrics
 

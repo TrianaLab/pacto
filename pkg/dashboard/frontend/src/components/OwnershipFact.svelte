@@ -21,11 +21,15 @@
   // actual content is read on the contract revision, which is the entity that
   // declared it.
   import EntityLink from './EntityLink.svelte';
+  import ProvenanceMark from './ProvenanceMark.svelte';
+  import { ownerProvenanceText } from '../lib/entityLabels.ts';
 
   // unownedHref: where the two unowned states lead (the service page's own `unowned`
   // attention item). declaredIn: the revision whose owner block the service takes, where
   // its contacts are shown; contacts are never copied onto a service.
   let { ownership, unownedHref = '', declaredIn = null } = $props();
+  // Where the owner comes from, as a discreet mark: a declared owner shows none.
+  const provenanceText = $derived(ownerProvenanceText(ownership?.provenance));
   const unknownTitle = "Pacto could not read this service's contracts, so it cannot tell whether an owner is declared. Pacto counts it as owner unknown, never as unowned.";
 </script>
 
@@ -45,12 +49,16 @@
     <span class="of-note">No Team or DRI identity</span>
   </span>
 {/if}
+{#if provenanceText}
+  <span class="of-prov" data-testid="owner-provenance"><ProvenanceMark label="About owner provenance" text={provenanceText} /></span>
+{/if}
 {#if ownership?.declared && declaredIn}
   <span class="of-note of-in" data-testid="owner-declared-in" title="Its contacts are on that revision's page">Declared in <EntityLink ref={declaredIn} showStatus={false} showKind={false} /></span>
 {/if}
 
 <style>
   .of-none { color: var(--c-text-3); }
+  .of-prov { display: inline-flex; vertical-align: middle; margin-inline-start: var(--sp-2); }
   .of-unidentified { display: inline-flex; flex-direction: column; gap: 1px; }
   /* Quieter than the value it qualifies: the fact is that ownership WAS declared, and
      the missing identity is why this row is text rather than a link. */

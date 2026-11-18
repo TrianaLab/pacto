@@ -21,9 +21,9 @@ func TestOIDCSessionNamesThePersonAsTheClusterDoes(t *testing.T) {
 	o := newTestOIDC(t, f)
 	who, reviewErr := "oidc:alice", error(nil)
 	var asked []string
-	o.cfg.Review = func(_ context.Context, token string) (Person, error) {
+	o.cfg.Review = func(_ context.Context, token string) (Reviewed, error) {
 		asked = append(asked, token)
-		return Person{User: who, Groups: []string{"team-a"}}, reviewErr
+		return Reviewed{Person: Person{User: who, Groups: []string{"team-a"}}, Bearer: true}, reviewErr
 	}
 	c := cookieNamed(t, login(t, o, f, ""), SessionCookie)
 	s := o.Session(withCookie(c))

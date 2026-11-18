@@ -676,3 +676,104 @@ describe('service page: open in Mira', () => {
     done();
   });
 });
+
+describe('service page: an inferred service it replaced', () => {
+  beforeEach(() => detailFn.mockReset());
+  const replaced = {
+    from: 'k8s:prod%2FDeployment%2Fexperiments', to: KEY, link: 'pacto-target',
+    target: 'prod/Deployment/payments', at: '2026-11-04T09:56:00Z',
+  };
+
+  it('is one muted line among the facts, its details in the tooltip and no new heading', async () => {
+    const plain = await render(detail());
+    const headings = plain.target.querySelectorAll('h2, h3').length;
+    expect(fact(plain.target, 'service-replaces')).toBeNull();
+    plain.done();
+
+    const { target, done } = await render(detail({ replaces: [replaced], replacesTotal: 1 }));
+    const f = fact(target, 'service-replaces')!;
+    expect(f.closest('.se-facts')).toBeTruthy();
+    expect(text(f)).toContain('Replaces k8s:prod/Deployment/experiments · 4 minutes ago');
+    const key = f.querySelector('bdi')!;
+    expect(key.getAttribute('title')).toBe('k8s:prod/Deployment/experiments');
+    expect(text(f.querySelector('[role="note"]'))).toBe('Linked by the Pacto target prod/Deployment/payments, which runs as the workload. The Pacto was created ' + new Date(replaced.at).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }) + '.');
+    expect(target.querySelectorAll('h2, h3').length).toBe(headings);
+    done();
+  });
+
+  it('counts the replacements the preview leaves out', async () => {
+    const { target, done } = await render(detail({ replaces: [replaced], replacesTotal: 3 }));
+    expect(text(fact(target, 'service-replaces'))).toContain('+2 more');
+    done();
+  });
+});
+
+describe('service page: asked for by the key of an inferred service it replaced', () => {
+  beforeEach(() => detailFn.mockReset());
+
+  it('renders the declared page with one notice line under the header', async () => {
+    const replacedFrom = { from: 'k8s:prod%2FDeployment%2Fexperiments', to: KEY, link: 'pacto-target', target: 'prod/Deployment/payments', at: '2026-11-04T09:56:00Z' };
+    const d = detail();
+    const { target, done } = await render({ ...d, replacedFrom }, { entityKey: replacedFrom.from });
+    const n = fact(target, 'entity-replaced-from')!;
+    expect(text(n)).toBe('k8s:prod/Deployment/experiments was replaced by payments 4 minutes ago, linked by Pacto prod/Deployment/payments');
+    expect(n.querySelector('bdi')?.getAttribute('title')).toBe('k8s:prod/Deployment/experiments');
+    expect(target.querySelectorAll('[data-testid="entity-replaced-from"]')).toHaveLength(1);
+    done();
+  });
+
+  it('shows no notice when the service was asked for by its own key', async () => {
+    const { target, done } = await render(detail());
+    expect(fact(target, 'entity-replaced-from')).toBeNull();
+    done();
+  });
+});
+
+describe('service page: inferred by Pacto', () => {
+  beforeEach(() => detailFn.mockReset());
+  const field = (i: number) => ({ field: `configuration.KEY_${i}`, value: 'string', source: `deploy/app.yaml:${i + 1}`, confidence: 'likely', provenance: 'inferred' });
+  const fields = (n: number, extra = {}) => ({ inferredFields: preview(Array.from({ length: n }, (_, i) => field(i)), extra) });
+
+  it('is one collapsed block with the total in its header', async () => {
+    const { target, done } = await render(detail(fields(12)));
+    const wrap = fact(target, 'service-inferred')!;
+    const sec = wrap.querySelector('details') as HTMLDetailsElement;
+    expect(sec.open).toBe(false);
+    expect(text(sec.querySelector('summary'))).toContain('Inferred by Pacto');
+    expect(text(sec.querySelector('summary'))).toContain('12 of 12');
+    done();
+  });
+
+  it('opened with 12 items has exactly one disclosure for the rest', async () => {
+    const { target, done } = await render(detail(fields(12)));
+    const sec = fact(target, 'service-inferred')!.querySelector('details') as HTMLDetailsElement;
+    sec.open = true;
+    sec.dispatchEvent(new Event('toggle'));
+    flushSync();
+    expect(sec.querySelector('[data-testid="preview-show-all"]')).toBeNull();
+    const inner = [...sec.querySelectorAll('.ps-panel details summary')].map((s) => text(s));
+    expect(inner).toEqual(['7 more']);
+    expect(sec.querySelector('button[aria-label="About inferred configuration.KEY_0"]')).toBeTruthy();
+    done();
+  });
+
+  it('renders nothing when nothing is inferred', async () => {
+    const { target, done } = await render(detail(fields(0)));
+    expect(fact(target, 'service-inferred')).toBeNull();
+    done();
+  });
+
+  it('says the record could not be read', async () => {
+    const { target, done } = await render(detail(fields(0, { unreadable: true })));
+    const sec = fact(target, 'service-inferred')!.querySelector('details') as HTMLDetailsElement;
+    // Folded, the head already names the uncertainty: unknown, never absent.
+    expect(sec.open).toBe(false);
+    expect(text(sec.querySelector('summary')!)).toContain('Could not be read');
+    expect(sec.dataset.tone).toBe('warn');
+    sec.open = true;
+    sec.dispatchEvent(new Event('toggle'));
+    flushSync();
+    expect(text(sec)).toContain('Pacto could not read the inferred record');
+    done();
+  });
+});

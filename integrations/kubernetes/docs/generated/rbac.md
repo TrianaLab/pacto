@@ -22,9 +22,10 @@ Present in every cluster-wide install, including one with every managed componen
 | `"" (core)` | `events` | `create`, `patch` | *not name-restricted* |
 | `"" (core)` | `namespaces` | `get` | `kube-system` |
 | `"" (core)` | `namespaces` | `get` | *not name-restricted* |
+| `"" (core)` | `nodes` | `list` | *not name-restricted* |
 | `"" (core)` | `pods` | `get`, `list`, `watch` | *not name-restricted* |
 | `"" (core)` | `services` | `get`, `list`, `watch` | *not name-restricted* |
-| `apps` | `deployments`, `replicasets`, `statefulsets` | `get`, `list`, `watch` | *not name-restricted* |
+| `apps` | `deployments`, `replicasets`, `statefulsets`, `daemonsets` | `get`, `list`, `watch` | *not name-restricted* |
 | `batch` | `cronjobs`, `jobs` | `get`, `list`, `watch` | *not name-restricted* |
 | `discovery.k8s.io` | `endpointslices` | `get`, `list`, `watch` | *not name-restricted* |
 | `gateway.networking.k8s.io` | `httproutes` | `get`, `list`, `watch` | *not name-restricted* |
@@ -43,10 +44,12 @@ The `namespaces` `get` rule limited to `kube-system` reads the cluster id. The o
 
 ## Always granted in the release namespace (`pacto-operator-manager` Role)
 
-The teardown half of the managed components: `get` and `delete` on the fixed names a previous install may have created there, the node agent's included (releases before the dedicated agent namespace ran it in the release namespace). The one `secrets` `get` rule with no name reads pull Secrets and Secrets that back a configuration in the release namespace.
+The teardown half of the managed components: `get` and `delete` on the fixed names a previous install may have created there, the node agent's included (releases before the dedicated agent namespace ran it in the release namespace). The one `secrets` `get` rule with no name reads pull Secrets and Secrets that back a configuration in the release namespace. The `configmaps` rules let detection write `<fullname>-detected`, the one ConfigMap it publishes: `create` cannot be limited by name, and `get` and `patch` name that ConfigMap only. The `deployments` `get` rule naming the operator's own Deployment lets detection set it as the ConfigMap's owner.
 
 | API groups | Resources | Verbs | Limited to |
 | --- | --- | --- | --- |
+| `"" (core)` | `configmaps` | `create` | *not name-restricted* |
+| `"" (core)` | `configmaps` | `get`, `patch` | `pacto-operator-detected` |
 | `"" (core)` | `secrets` | `delete`, `get` | `pacto-dashboard-oci-creds` |
 | `"" (core)` | `secrets` | `get` | *not name-restricted* |
 | `"" (core)` | `serviceaccounts` | `delete`, `get` | `pacto-node-agent` |
@@ -55,6 +58,7 @@ The teardown half of the managed components: `get` and `delete` on the fixed nam
 | `apps` | `daemonsets` | `delete`, `get` | `pacto-node-agent` |
 | `apps` | `deployments` | `delete`, `get` | `pacto-dashboard` |
 | `apps` | `deployments` | `delete`, `get` | `pacto-evidence` |
+| `apps` | `deployments` | `get` | `pacto-operator` |
 | `rbac.authorization.k8s.io` | `roles`, `rolebindings` | `delete`, `get` | `pacto-node-agent` |
 
 ## Additionally granted when a managed component is enabled
@@ -104,16 +108,34 @@ Everything it creates for the agent is granted by the `pacto-operator-manager` R
 
 Where the API serves `ValidatingAdmissionPolicy`, the chart also renders one that lets each agent write only the observation and Lease named after the node in its token, which RBAC cannot express.
 
+## Dashboard token sign-in (`dashboard.auth.tokenSignIn`)
+
+On by default with the dashboard. The dashboard's ServiceAccount may create TokenReviews, which reveals only whose token it already holds, and the `pacto-viewer` ServiceAccount the NOTES sign-in link carries a token for reads Pactos and nothing else. Helm creates both grants, so the operator holds neither:
+
+`pacto-operator-pacto-operator-system-dashboard-tokenreview` (`ClusterRole`):
+
+| API groups | Resources | Verbs | Limited to |
+| --- | --- | --- | --- |
+| `authentication.k8s.io` | `tokenreviews` | `create` | *not name-restricted* |
+
+`pacto-operator-viewer` (`ClusterRole`):
+
+| API groups | Resources | Verbs | Limited to |
+| --- | --- | --- | --- |
+| `pacto.trianalab.io` | `pactos`, `pactorevisions` | `get`, `list`, `watch` | *not name-restricted* |
+
 ## With controller.watchNamespaces
 
-Rendered with `--set 'controller.watchNamespaces={payments,ledger}'`. The chart creates no ClusterRole and no ClusterRoleBinding; the node agent and the dashboard's delivery reads, when on, keep only their cluster-scoped rules. Each watched namespace gets these Roles:
+Rendered with `--set 'controller.watchNamespaces={payments,ledger}'`. The chart creates no ClusterRole and no ClusterRoleBinding beyond the dashboard's TokenReview grant, which has no namespaced form; the node agent and the dashboard's delivery reads, when on, keep only their cluster-scoped rules. Each watched namespace gets these Roles:
 
 `pacto-dashboard-watch` (`Role` in each watched namespace):
 
 | API groups | Resources | Verbs | Limited to |
 | --- | --- | --- | --- |
 | `"" (core)` | `services` | `get`, `list`, `watch` | *not name-restricted* |
+| `apps` | `deployments`, `statefulsets`, `daemonsets` | `list` | *not name-restricted* |
 | `authorization.k8s.io` | `localsubjectaccessreviews` | `create` | *not name-restricted* |
+| `batch` | `cronjobs` | `list` | *not name-restricted* |
 | `pacto.trianalab.io` | `pactos`, `pactorevisions` | `get`, `list`, `watch` | *not name-restricted* |
 
 `pacto-operator-watch` (`Role` in each watched namespace):
@@ -135,13 +157,18 @@ Rendered with `--set 'controller.watchNamespaces={payments,ledger}'`. The chart 
 | `pacto.trianalab.io` | `pactos/finalizers` | `update` | *not name-restricted* |
 | `pacto.trianalab.io` | `pactos/status` | `get`, `patch`, `update` | *not name-restricted* |
 
+`pacto-viewer` (`Role` in each watched namespace):
+
+| API groups | Resources | Verbs | Limited to |
+| --- | --- | --- | --- |
+| `pacto.trianalab.io` | `pactos`, `pactorevisions` | `get`, `list`, `watch` | *not name-restricted* |
+
 ## Namespaced Role (`pacto-operator-leader-election`)
 
 Created in the release namespace and bound to the same ServiceAccount. Used only for the controller-runtime leader election lease.
 
 | API groups | Resources | Verbs | Limited to |
 | --- | --- | --- | --- |
-| `"" (core)` | `configmaps` | `create`, `delete`, `get`, `list`, `patch`, `update`, `watch` | *not name-restricted* |
 | `"" (core)` | `events` | `create`, `patch` | *not name-restricted* |
 | `coordination.k8s.io` | `leases` | `create`, `delete`, `get`, `list`, `patch`, `update`, `watch` | *not name-restricted* |
 

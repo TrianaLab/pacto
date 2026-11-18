@@ -23,18 +23,121 @@ Pacto Operator has been installed.
    kubectl get pactos
 
 {{- if .Values.dashboard.enabled }}
+{{- if include "pacto-operator.dashboardTokenSignIn" . }}
+
+4. Open the dashboard. It asks you to sign in:
+
+   kubectl -n {{ .Release.Namespace }} port-forward svc/pacto-dashboard 3000:3000
+   TOKEN=$(kubectl -n {{ .Release.Namespace }} create token pacto-viewer --audience pacto-dashboard --duration 10m) && echo "http://127.0.0.1:3000/#token=$TOKEN"
+
+   Open the printed link within 10 minutes. It signs you in as pacto-viewer and
+   shows the fleet views of every namespace where pacto-viewer may read Pactos,
+   with no Delivery and no actions. Minting the token needs create on
+   serviceaccounts/token in {{ .Release.Namespace }}. To approve held changes, sign in with your
+   identity provider (dashboard.auth.oidc) or paste your own token.
+{{- if .Release.IsUpgrade }}
+{{- $previous := lookup "apps/v1" "Deployment" .Release.Namespace "pacto-dashboard" }}
+{{- $anonymous := false }}
+{{- range (dig "spec" "template" "spec" "containers" (list) $previous) }}
+{{- range (.env | default list) }}
+{{- if and (eq .name "PACTO_DASHBOARD_ALLOW_ANONYMOUS") (eq (toString .value) "true") }}{{ $anonymous = true }}{{ end }}
+{{- end }}
+{{- end }}
+{{- if $anonymous }}
+
+   The dashboard now asks people to sign in.
+   The previous release served it without sign-in. To keep serving without
+   sign-in, set dashboard.auth.tokenSignIn.enabled=false and
+   dashboard.auth.allowAnonymous=true.
+{{- end }}
+{{- end }}
+{{- else if not (or (include "pacto-operator.dashboardAnonymous" .) ((.Values.dashboard.auth | default dict).oidc | default dict).issuerURL) }}
+
+4. WARNING: the dashboard will not start. Token sign-in is off and there is no
+   identity provider, and a dashboard without sign-in starts only with
+   dashboard.auth.allowAnonymous=true. Set dashboard.auth.tokenSignIn.enabled=true,
+   configure dashboard.auth.oidc or set dashboard.auth.allowAnonymous=true.
+{{- else }}
 
 4. Dashboard is enabled. Access it via:
 
-   kubectl port-forward -n {{ .Release.Namespace }} svc/pacto-dashboard 3000:3000
-{{- $auth := .Values.dashboard.auth | default dict }}
-{{- if and (ne (toString $auth.allowAnonymous) "false") (not ($auth.oidc | default dict).issuerURL) (not ($auth.tokenLogin | default dict).enabled) }}
+   kubectl -n {{ .Release.Namespace }} port-forward svc/pacto-dashboard 3000:3000
+{{- end }}
+{{- if include "pacto-operator.dashboardAnonymous" . }}
 
    WARNING: the dashboard serves without sign-in. Everyone who reaches it reads
-   every service its ServiceAccount reads. Configure dashboard.auth.oidc or
-   dashboard.auth.tokenLogin, or set dashboard.auth.allowAnonymous=false to
-   keep it from starting without sign-in.
+   every service its ServiceAccount reads. Configure dashboard.auth.oidc or set
+   dashboard.auth.tokenSignIn.enabled=true, or set
+   dashboard.auth.allowAnonymous=false to keep it from starting without sign-in.
 {{- end }}
+{{- end }}
+{{- /* What the operator detected, read back on upgrade only. NOTES is the one
+template that looks the ConfigMap up, so detection changes no manifest. The
+object counts only when the operator wrote it: its managed-by label and an
+owner reference to the operator Deployment. */}}
+{{- $fullname := include "pacto-operator.fullname" . }}
+{{- $detectedName := printf "%s-detected" $fullname }}
+{{- $detected := dict }}
+{{- if .Release.IsUpgrade }}
+{{- $cm := lookup "v1" "ConfigMap" .Release.Namespace $detectedName }}
+{{- if eq (dig "metadata" "labels" "app.kubernetes.io/managed-by" "" $cm) "pacto-operator" }}
+{{- range (dig "metadata" "ownerReferences" list $cm) }}
+{{- if and (eq (get . "kind") "Deployment") (eq (get . "name") $fullname) }}
+{{- $detected = index ($cm.data | default dict) "detected.json" | default "{}" | fromJson }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- /* Control characters and bidi controls never reach the terminal. */}}
+{{- $unsafe := `[\x00-\x1f\x7f-\x9f\x{200e}\x{200f}\x{202a}-\x{202e}\x{2066}-\x{2069}]` }}
+{{- $labels := dict "registry" "Registry" "cloud" "Cloud" "sign-in" "Sign-in" "exposure" "Exposure" "metrics" "Metrics" "nodes" "Nodes" }}
+{{- $entries := get $detected "entries" | default list }}
+{{- if kindIs "slice" $entries }}{{ else }}{{ $entries = list }}{{ end }}
+{{- if $entries }}
+
+Pacto detected (inferred, as of {{ regexReplaceAll $unsafe (toString (get $detected "asOf")) "" | trunc 64 }}; nothing was turned on):
+{{- $registryHint := "" }}
+{{- $exposureHint := "" }}
+{{- range $entries }}
+{{- if kindIs "map" . }}
+{{- $kind := regexReplaceAll $unsafe (toString (get . "kind")) "" | trunc 64 }}
+{{- $text := regexReplaceAll $unsafe (list (get . "value") (get . "evidence") | compact | join " ") "" | trunc 512 }}
+{{- $source := regexReplaceAll $unsafe (toString (get . "source")) "" | trunc 256 }}
+{{- $hint := regexReplaceAll $unsafe (toString (get . "hint")) "" | trunc 256 }}
+{{- /* A partial or unknown entry says so and why: unknown is never blank, a partial negative never reads as a fact. */}}
+{{- $completeness := regexReplaceAll $unsafe (toString (get . "completeness")) "" | trunc 16 | default "unknown" }}
+{{- $reason := regexReplaceAll $unsafe (toString (get . "reason")) "" | trunc 256 }}
+  {{ get $labels $kind | default (title $kind) }}: {{ if $text }}{{ $text }}{{ else }}unknown{{ if $reason }}: {{ $reason }}{{ end }}{{ end }}{{ if $source }} (from {{ $source }}){{ end }}{{ if and $text (ne $completeness "complete") }} [{{ $completeness }}{{ if $reason }}: {{ $reason }}{{ end }}]{{ end }}
+{{- if and (eq $kind "registry") $hint (not $registryHint) }}{{ $registryHint = $hint }}{{ end }}
+{{- if and (eq $kind "exposure") $hint (not $exposureHint) }}{{ $exposureHint = $hint }}{{ end }}
+{{- end }}
+{{- end }}
+{{- if $registryHint }}
+
+Most of the namespaces Pacto read pull from that registry. To push contracts
+there from CI (a proposal; review it before you use it):
+
+  - uses: trianalab/pacto-actions@v1
+    with:
+      command: push
+      ref: {{ $registryHint }}
+{{- end }}
+{{- if $exposureHint }}
+
+To expose the dashboard the way most of the namespaces Pacto read are exposed,
+review and add:
+
+  {{ $exposureHint }}
+{{- end }}
+
+Read the same rows from the CLI:
+
+  pacto fleet status --k8s --detected k8s:{{ .Release.Namespace }}/{{ $detectedName }}
+{{- else }}
+
+Pacto lists what it detects under Data sources in the dashboard, or run:
+
+  kubectl get configmap {{ $detectedName }} -n {{ .Release.Namespace }} -o jsonpath='{.data.detected\.json}'
 {{- end }}
 {{- if and .Release.IsUpgrade (include "pacto-operator.watchNamespaces" . | fromYamlArray) (not (and .Values.dashboard.enabled (include "pacto-operator.dashboardDeliveryNamespace" .))) }}
 {{- if or (lookup "rbac.authorization.k8s.io/v1" "ClusterRole" "" "pacto-dashboard") (lookup "rbac.authorization.k8s.io/v1" "ClusterRoleBinding" "" "pacto-dashboard") }}
