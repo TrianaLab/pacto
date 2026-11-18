@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/dynamic"
@@ -611,4 +612,63 @@ func TestRemoteRecordRefRefusesForeignHost(t *testing.T) {
 			t.Fatalf("%s: the refusal does not name ref: %s", tool, body)
 		}
 	}
+}
+
+// TestNoMCPServerListsApproveTool pins that agents read approval records and
+// never write one (#545, 2026-11-17): no MCP server, stdio for a person or an
+// agent or the remote server for either, lists a tool named approve, and
+// every delivery tool says so in noApprove's exact words.
+func TestNoMCPServerListsApproveTool(t *testing.T) {
+	const noApprove = " There is no approve tool: when a person must decide, the plan names who, and they approve themselves."
+	servers := map[string][]*mcpsdk.Tool{}
+	for name, user := range map[string]string{"stdio person": "alice", "stdio agent": "system:serviceaccount:agents:bot"} {
+		d := deliveryDeps(user, nil)
+		cmd := newMCPCommand(app.NewService(nil, nil), "v", d)
+		cmd.SetContext(context.Background())
+		_ = cmd.Flags().Set("delivery", "true")
+		mode, err := buildDeliveryMode(cmd, d, nil)
+		expect(t, err == nil, "%s: %v", name, err)
+		expect(t, mode.Writes == (name == "stdio agent"), "%s writes: %v", name, mode.Writes)
+		server, err := buildMCPServer(cmd, app.NewService(nil, nil), "v", nil, d)
+		expect(t, err == nil, "%s: %v", name, err)
+		servers[name] = listedTools(t, server)
+	}
+	w := newRemoteWorld(t)
+	for name, user := range map[string]string{"remote agent": w.user, "remote person": "https://idp#carol"} {
+		w.user = user
+		body := post(t, w.h, "good", listTools).Body.String()
+		if i := strings.Index(body, "data: "); i >= 0 {
+			body = body[i+len("data: "):]
+		}
+		var res struct {
+			Result struct{ Tools []*mcpsdk.Tool } `json:"result"`
+		}
+		expect(t, json.Unmarshal([]byte(strings.TrimSpace(body)), &res) == nil, "%s: %s", name, body)
+		servers[name] = res.Result.Tools
+	}
+	for name, tools := range servers {
+		var delivery int
+		for _, tool := range tools {
+			expect(t, !strings.Contains(tool.Name, "approve"), "%s lists %s", name, tool.Name)
+			if strings.HasPrefix(tool.Name, "pacto_delivery_") {
+				delivery++
+				expect(t, strings.Contains(tool.Description, noApprove), "%s: %s does not say there is no approve tool", name, tool.Name)
+			}
+		}
+		expect(t, delivery > 0, "%s lists no delivery tool", name)
+	}
+}
+
+// listedTools lists the tools server serves, descriptions included.
+func listedTools(t *testing.T, server *mcpsdk.Server) []*mcpsdk.Tool {
+	t.Helper()
+	ct, st := mcpsdk.NewInMemoryTransports()
+	_, err := server.Connect(context.Background(), st, nil)
+	expect(t, err == nil, "connect: %v", err)
+	session, err := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "c", Version: "1"}, nil).Connect(context.Background(), ct, nil)
+	expect(t, err == nil, "client: %v", err)
+	defer func() { _ = session.Close() }()
+	res, err := session.ListTools(context.Background(), nil)
+	expect(t, err == nil, "list: %v", err)
+	return res.Tools
 }
