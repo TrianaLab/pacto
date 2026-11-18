@@ -94,7 +94,7 @@ func repositoryUse(cat *externalcatalog.Catalog, rev *ContractRevision, f contra
 	if s.Key != "" {
 		where += " " + s.Key
 	}
-	u := RawExternalUse{Service: rev.Service, Domain: rev.Domain, Identity: f.External.Identity, Confidence: sourceConfidence(f, s),
+	u := RawExternalUse{Service: rev.Service, Domain: rev.Domain, Identity: f.External.Identity, Confidence: s.Confidence(f.Confidence),
 		Kind: s.Kind, Where: where, Host: s.Host}
 	if f.External.Catalog != "" {
 		u.Catalog = digest
@@ -103,14 +103,4 @@ func repositoryUse(cat *externalcatalog.Catalog, rev *ContractRevision, f contra
 		}
 	}
 	return u, true
-}
-
-// sourceConfidence is how strongly source s names the external of f: a client
-// library, a provisioned resource or a key name alone is possible; a host or
-// a Crossplane object takes the record's confidence.
-func sourceConfidence(f contract.Inferred, s contract.InferredExternalSource) string {
-	if s.Kind == externalcatalog.KindSDK || s.Kind == "terraform" || (s.Host == "" && s.Kind != "crossplane") {
-		return externalcatalog.ConfidencePossible
-	}
-	return f.Confidence
 }

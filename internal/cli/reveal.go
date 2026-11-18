@@ -120,6 +120,8 @@ func printInitFindings(w io.Writer, r *app.InitResult) {
 		section("Depends on", findings(r.Dependencies))
 		section("Used by", findings(r.Consumers))
 		printExternalSummary(w, r)
+	case "blank":
+		printExternalSummary(w, r)
 	case "template":
 		section("Found", r.Found)
 	}
@@ -248,11 +250,7 @@ func printExternalSummary(w io.Writer, r *app.InitResult) {
 	for _, l := range r.ExternalSummary[1:] {
 		_, _ = fmt.Fprintf(w, "  %s\n", l)
 	}
-	catalog := r.Catalog
-	if r.Inferred != nil && len(r.Inferred.Inputs.Catalog) > 0 {
-		catalog = strings.Join(r.Inferred.Inputs.Catalog, ", ")
-	}
-	_, _ = fmt.Fprintf(w, "  catalog %s\n", catalog)
+	_, _ = fmt.Fprintf(w, "  catalog %s\n", r.Catalog)
 }
 
 // printCreationSteps prints how far creating from a golden path got under

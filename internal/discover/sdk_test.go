@@ -262,7 +262,7 @@ func TestSymlinkedManifestNamedOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	rec := complete(t, dir, nil)
-	if n := ExternalUnread(rec.Findings); n != 1 {
+	if n := ExternalUnread(rec.Findings, rec.FindingsDropped); n != 1 {
 		t.Errorf("unread %d, findings %+v", n, rec.Findings)
 	}
 }

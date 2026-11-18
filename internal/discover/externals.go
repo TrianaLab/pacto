@@ -324,11 +324,16 @@ func commentSafe(s string) string {
 
 // ExternalUnread counts the findings that name an input the external readers
 // did not read: a dependency manifest or lockfile, a Terraform file, module
-// or state, or a configMapGenerator envs file. A plan line counts them so a
-// folder that names no external never reads as one that calls nothing.
-func ExternalUnread(findings []contract.InferredFinding) int {
-	n := 0
+// or state, or a configMapGenerator envs file. A truncated walk counts one
+// and every finding dropped past MaxFindings (dropped) counts one, since
+// either may hide such an input. A plan line counts them so a folder that
+// names no external never reads as one that calls nothing.
+func ExternalUnread(findings []contract.InferredFinding, dropped int) int {
+	n := dropped
 	for _, f := range findings {
+		if f.Code == CodeTruncated {
+			n++
+		}
 		file, _ := splitLine(f.Source)
 		base := path.Base(file)
 		read := f.Code == CodeUnsupportedFile || f.Code == CodeUnreadable

@@ -3,6 +3,7 @@ package pactify
 import (
 	"cmp"
 	"fmt"
+	"strings"
 
 	"github.com/trianalab/pacto/v4/internal/discover"
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -13,13 +14,14 @@ import (
 // External is one place the folder names a system outside the cluster.
 type External = discover.External
 
-// catalog is the catalog externals are classified with and its digest, with
-// " (embedded)" when it is the copy compiled into this binary.
+// catalog is the catalog externals are classified with and every catalog it
+// was built from as "<origin> <digest>", with " (embedded)" when it is the
+// copy compiled into this binary.
 func (p *planner) catalog() (*externalcatalog.Catalog, string) {
 	if c := p.opts.Catalog; c != nil {
-		return c, c.Refs()[0].Digest
+		return c, strings.Join(discover.CatalogInputs(c), ", ")
 	}
-	return externalcatalog.Default(), externalcatalog.DefaultDigest() + " (embedded)"
+	return externalcatalog.Default(), "default " + externalcatalog.DefaultDigest() + " (embedded)"
 }
 
 // externals reads the external dependencies of the record rec and says what
@@ -30,7 +32,7 @@ func (p *planner) externals(rec *contract.InferredRecord) {
 	cat, digest := p.catalog()
 	p.r.Catalog, p.r.Externals = digest, []External{}
 	rec = cmp.Or(rec, &contract.InferredRecord{})
-	unread := discover.ExternalUnread(rec.Findings)
+	unread := discover.ExternalUnread(rec.Findings, rec.FindingsDropped)
 	if p.opts.CatalogUnavailable != "" {
 		p.unknown("%s", p.opts.CatalogUnavailable)
 		unread++
@@ -53,7 +55,7 @@ func (p *planner) externals(rec *contract.InferredRecord) {
 			if s.Key != "" {
 				where += " " + s.Key
 			}
-			p.r.Externals = append(p.r.Externals, External{Identity: x.Identity, Class: class, Confidence: f.Confidence, Where: where,
+			p.r.Externals = append(p.r.Externals, External{Identity: x.Identity, Class: class, Confidence: s.Confidence(f.Confidence), Where: where,
 				Host: s.Host, Kind: s.Kind, Path: s.Path, Line: s.Line, Key: s.Key, Origin: x.Catalog})
 		}
 		if f.Confidence == externalcatalog.ConfidenceLikely {

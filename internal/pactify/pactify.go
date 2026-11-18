@@ -172,8 +172,9 @@ type Result struct {
 	// Externals are the systems outside the cluster the folder names, each
 	// with where it was read and the host and port at most.
 	Externals []External `json:"externals"`
-	// Catalog is the digest of the catalog Externals were classified with,
-	// with " (embedded)" for the copy compiled into this binary.
+	// Catalog is every catalog Externals were classified with, as
+	// "<origin> <digest>" joined with ", ", default first, with " (embedded)"
+	// for the copy compiled into this binary.
 	Catalog string `json:"catalog,omitempty"`
 	// ExternalSummary is the plan line for the external dependencies the
 	// inferred record holds, then one line per dependency: see

@@ -145,3 +145,17 @@ func TestExternalPathsNone(t *testing.T) {
 		t.Error(got)
 	}
 }
+
+func TestInferredExternalSourceConfidence(t *testing.T) {
+	for s, want := range map[InferredExternalSource]string{
+		{Kind: "sdk", Host: "api.stripe.com"}: ConfidencePossible,
+		{Kind: "terraform"}:                   ConfidencePossible,
+		{Kind: "env", Key: "STRIPE_KEY"}:      ConfidencePossible,
+		{Kind: "helmValues", Host: "a.b"}:     ConfidenceLikely,
+		{Kind: "crossplane"}:                  ConfidenceLikely,
+	} {
+		if got := s.Confidence(ConfidenceLikely); got != want {
+			t.Errorf("%+v: %s, want %s", s, got, want)
+		}
+	}
+}

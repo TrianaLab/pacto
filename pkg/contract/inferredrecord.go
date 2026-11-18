@@ -108,6 +108,16 @@ type InferredExternalSource struct {
 	Host string `json:"host,omitempty" yaml:"host,omitempty"`
 }
 
+// Confidence is how strongly s names its external, whose field has the
+// confidence field: a client library, a provisioned resource or a key name
+// alone is possible; a host or a Crossplane object takes the field's.
+func (s InferredExternalSource) Confidence(field string) string {
+	if s.Kind == "sdk" || s.Kind == "terraform" || (s.Host == "" && s.Kind != "crossplane") {
+		return ConfidencePossible
+	}
+	return field
+}
+
 // InferredClient is the client library a manifest lists for an external and
 // its major version, nil when unknown: never guessed.
 type InferredClient struct {

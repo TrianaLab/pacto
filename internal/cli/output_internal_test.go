@@ -1592,7 +1592,7 @@ func TestPrintEnvironmentDifferences(t *testing.T) {
 func TestInitPrintsExternalSummary(t *testing.T) {
 	rec := &contract.InferredRecord{Inputs: contract.InferredInputs{Catalog: []string{"default sha256:abc", "organization sha256:def"}},
 		Fields: []contract.Inferred{{Field: "dependencies[stripe]", Value: "stripe", Source: "chart/values.yaml:3", External: &contract.InferredExternal{Identity: "stripe"}}}}
-	r := &app.InitResult{Dir: "checkout", Service: "checkout", Mode: "pactify", Catalog: "sha256:abc (embedded)", Inferred: rec,
+	r := &app.InitResult{Dir: "checkout", Service: "checkout", Mode: "pactify", Catalog: "default sha256:abc, organization sha256:def", Inferred: rec,
 		ExternalSummary: []string{"External dependencies: 1 (stripe), inferred", "dependencies[stripe]  external, from chart/values.yaml:3 (STRIPE_API_BASE)"}}
 	var buf bytes.Buffer
 	printInitFindings(&buf, r)
@@ -1604,12 +1604,12 @@ External dependencies: 1 (stripe), inferred
 	if !strings.Contains(buf.String(), want) || strings.Contains(buf.String(), "stripe from chart/values.yaml:3") {
 		t.Fatalf("output:\n%s", buf.String())
 	}
-	// Without a record the catalog is the one the plan names.
+	// A folder with no workload (blank) prints the plan line too.
 	buf.Reset()
-	r.Inferred = nil
+	r.Inferred, r.Mode = nil, "blank"
 	printInitFindings(&buf, r)
-	if !strings.Contains(buf.String(), "  catalog sha256:abc (embedded)\n") {
-		t.Fatalf("output without a record:\n%s", buf.String())
+	if !strings.Contains(buf.String(), want) {
+		t.Fatalf("blank output:\n%s", buf.String())
 	}
 	buf.Reset()
 	r.ExternalSummary = nil

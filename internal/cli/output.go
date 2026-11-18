@@ -581,7 +581,7 @@ func printExplainExternals(w io.Writer, result *app.ExplainResult) {
 	if !slices.ContainsFunc(result.Inferred, func(f contract.Inferred) bool { return f.External != nil }) {
 		return
 	}
-	summary := pactify.ExternalSummary(result.Inferred, discover.ExternalUnread(result.InferredFindings))
+	summary := pactify.ExternalSummary(result.Inferred, discover.ExternalUnread(result.InferredFindings, result.InferredFindingsDropped))
 	_, _ = fmt.Fprintf(w, "  %s\n", summary[0])
 	for _, l := range summary[1:] {
 		_, _ = fmt.Fprintf(w, "    %s\n", l)

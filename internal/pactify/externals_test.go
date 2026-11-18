@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -58,14 +59,15 @@ func TestPactifyClassifiesDottedHosts(t *testing.T) {
 		t.Errorf("unknown: %q", r.Unknown)
 	}
 	if !hasLine(r.Found, "checkout calls stripe (k8s/deployment.yaml:17)") ||
-		!strings.HasSuffix(r.Catalog, " (embedded)") || !strings.HasPrefix(r.Catalog, externalcatalog.DefaultDigest()) {
+		r.Catalog != "default "+externalcatalog.DefaultDigest()+" (embedded)" {
 		t.Errorf("found %q, catalog %q", r.Found, r.Catalog)
 	}
 
-	// A catalog the caller gives is used and named by its digest.
-	cat := externalcatalog.Merge(&externalcatalog.File{APIVersion: externalcatalog.APIVersion}, externalcatalog.Ref{Digest: "sha256:org"}, nil, nil)
+	// A catalog the caller gives is used and named by every ref it holds.
+	cat := externalcatalog.Merge(&externalcatalog.File{APIVersion: externalcatalog.APIVersion}, externalcatalog.Ref{Origin: "default", Digest: "sha256:def"},
+		&externalcatalog.File{APIVersion: externalcatalog.APIVersion}, &externalcatalog.Ref{Origin: "organization", Digest: "sha256:org"})
 	r = planExternals(t, Options{Dir: fixtureDir(t, "externals"), DescribeOnly: true, Catalog: cat})
-	if r.Catalog != "sha256:org" {
+	if r.Catalog != "default sha256:def, organization sha256:org" {
 		t.Errorf("catalog %q", r.Catalog)
 	}
 	if _, ok := external(r, "stripe", ""); ok {
@@ -322,5 +324,32 @@ func TestPactifyChartUnidentifiedHostUnknown(t *testing.T) {
 	}
 	if hasLine(r.Unknown, "DATABASE_DSN") || strings.Contains(strings.Join(r.Unknown, "\n"), "acme.io") {
 		t.Errorf("a sensitive or raw value was characterised: %q", r.Unknown)
+	}
+}
+
+// TestExternalRowsCarryTheirSourceConfidence: an SDK source is possible
+// even when a host source makes its external likely.
+func TestExternalRowsCarryTheirSourceConfidence(t *testing.T) {
+	dir := t.TempDir()
+	for name, body := range map[string]string{
+		"Dockerfile":        "FROM python:3.12\n",
+		"chart/Chart.yaml":  "apiVersion: v2\nname: web\nversion: 1.0.0\n",
+		"chart/values.yaml": "env:\n  STRIPE_API_BASE: https://api.stripe.com/v1\n",
+		"requirements.txt":  "stripe==11.4.0\n",
+	} {
+		_ = os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0o755)
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := planExternals(t, Options{Dir: dir, DescribeOnly: true})
+	got := map[string]string{}
+	for _, e := range r.Externals {
+		if e.Identity == "stripe" {
+			got[e.Kind] = e.Confidence
+		}
+	}
+	if got["sdk"] != externalcatalog.ConfidencePossible || got["helmValues"] != externalcatalog.ConfidenceLikely {
+		t.Errorf("stripe rows %v: %+v", got, r.Externals)
 	}
 }

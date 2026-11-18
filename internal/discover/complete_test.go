@@ -313,7 +313,11 @@ func TestExternalUnreadCountsExternalInputs(t *testing.T) {
 		{Code: CodeUnresolved, Source: "go.mod"},
 		{Code: CodeUnreadable, Source: "chart/values.yaml"},
 	}
-	if got := ExternalUnread(findings); got != 5 {
+	if got := ExternalUnread(findings, 0); got != 5 {
 		t.Fatalf("got %d, want 5", got)
+	}
+	// a truncated walk and dropped findings may hide an unread input
+	if got := ExternalUnread([]contract.InferredFinding{{Code: CodeTruncated, Source: "."}}, 3); got != 4 {
+		t.Fatalf("truncated and dropped: got %d, want 4", got)
 	}
 }
