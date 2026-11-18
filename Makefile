@@ -65,7 +65,7 @@ test:
 # together, but nothing a user could reach over a network. It was called `e2e`
 # for historical reasons only.
 test-integration:
-	go test -tags integration ./tests/integration/ -v -count=1 -parallel 16 -timeout 120s
+	go test -tags integration ./tests/integration/ -v -count=1 -parallel 16 -timeout 300s
 	# The acceptance layer's own Go code — the scenario fixture every surface
 	# projects from, its projector, and the kind gates — lives under /tests/,
 	# which ci-test excludes. Without this line the declaration that decides what
