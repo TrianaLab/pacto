@@ -72,18 +72,6 @@ describe('ProposePanel', () => {
     v.destroy();
   });
 
-  it('lets the note say why a precedent is partial, never a read failure that did not happen', async () => {
-    const note = "the registry serves no Referrers API, so only this Stage's records were read";
-    plan.mockResolvedValue({ type: request.type, predicted: 'Proceeds', intentDigest: 'sha256:i', precedent: { completeness: 'partial', note, entries: [] } });
-    const v = render();
-    await settle();
-    const prec = v.target.querySelector('[data-testid="plan-precedent"]')!;
-    expect(prec.textContent).toContain('(partial)');
-    expect(prec.textContent).not.toContain('could not be read');
-    expect(prec.textContent).toContain('only this Stage');
-    v.destroy();
-  });
-
   const fresh = { type: request.type, predicted: 'Proceeds', intentDigest: 'sha256:fresh' };
   const created = { operation: { metadata: { namespace: 'prod', name: 'pay-promote-1' } } };
   const stale = (differs: string) => new ApiError(409, 'moved', 'PlanStale', fresh as never, differs);

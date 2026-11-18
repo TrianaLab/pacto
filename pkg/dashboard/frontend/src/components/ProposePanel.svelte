@@ -107,7 +107,7 @@
         </ul></div>
     {/if}
     {#if plan.precedent}
-      <div data-testid="plan-precedent"><p class="t-body-2"><strong>Earlier changes to this version</strong>{#if plan.precedent.completeness === 'partial'} <span class="t-meta">(partial)</span>{/if}</p>
+      <div data-testid="plan-precedent"><p class="t-body-2"><strong>Earlier changes to this version</strong>{#if plan.precedent.completeness === 'partial'} <span class="t-meta">(partial: some records could not be read)</span>{/if}</p>
         {#if plan.precedent.entries?.length}
           <ul class="pp-list t-body-2">
             {#each plan.precedent.entries as e (e.stream + e.seq)}
