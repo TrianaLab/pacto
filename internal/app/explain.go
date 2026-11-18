@@ -23,6 +23,10 @@ type ExplainOptions struct {
 	// Environments names the environments to compare; empty compares every
 	// declared one.
 	Environments []string
+	// Bundle, when set, is explained as given instead of reading Path: pacto
+	// ci passes the bundle its plan judged, completed with the ci root and
+	// catalog, so the explanation describes that bundle.
+	Bundle *contract.Bundle
 }
 
 // ExplainResult holds the result of the explain command.
@@ -218,9 +222,12 @@ func (s *Service) Explain(ctx context.Context, opts ExplainOptions) (*ExplainRes
 	ref := defaultPath(opts.Path)
 
 	logging.LoggerFromContext(ctx).Debug("resolving contract for explain", "ref", ref)
-	bundle, err := s.resolveBundleWithOverrides(ctx, ref, opts.Overrides)
-	if err != nil {
-		return nil, err
+	bundle := opts.Bundle
+	if bundle == nil {
+		var err error
+		if bundle, err = s.resolveBundleWithOverrides(ctx, ref, opts.Overrides); err != nil {
+			return nil, err
+		}
 	}
 	logging.LoggerFromContext(ctx).Debug("explaining contract", "name", bundle.Contract.Service.Name, "version", bundle.Contract.Service.Version)
 

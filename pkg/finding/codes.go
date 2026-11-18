@@ -12,7 +12,7 @@ const (
 	CodeNeedsPacto22                   Code = "NEEDS_PACTO_2_2"               // an older contract uses an interface lifecycle, compatibilityEpoch or guarantees, or dependency requires
 	CodeNeedsPacto23                   Code = "NEEDS_PACTO_2_3"               // an older contract declares environments
 	CodeNeedsPacto24                   Code = "NEEDS_PACTO_2_4"               // an older contract declares service.domain, service.offering, service.summary, service.lifecycle, service.template or service.origin, values or a configuration selector beside a configuration ref, or an environment's lifetime, expires or owner
-	CodeNeedsPacto25                   Code = "NEEDS_PACTO_2_5"               // an older contract declares compatibility: unknown, an interface port or breaks
+	CodeNeedsPacto25                   Code = "NEEDS_PACTO_2_5"               // an older contract declares compatibility: unknown, an interface port or breaks, or an artifact without build
 	CodeContractBehind                 Code = "CONTRACT_BEHIND"               // the contract declares a pactoVersion older than the current one
 	CodePublishNeedsServiceName        Code = "PUBLISH_NEEDS_SERVICE_NAME"    // pack, push or publish of a contract that does not declare service.name
 	CodePublishNeedsServiceVersion     Code = "PUBLISH_NEEDS_SERVICE_VERSION" // pack, push or publish of a contract that does not declare service.version

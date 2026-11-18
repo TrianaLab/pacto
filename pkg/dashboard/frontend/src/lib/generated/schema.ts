@@ -1322,7 +1322,7 @@ export interface components {
             sign?: components["schemas"]["Contract.PublishSign"];
         };
         "Contract.PublishArtifact": {
-            build: components["schemas"]["Contract.PublishBuild"];
+            build?: components["schemas"]["Contract.PublishBuild"];
             name: string;
             ref: string;
             sbom?: string;
@@ -6022,6 +6022,8 @@ export interface components {
             lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             limitations: components["schemas"]["Fleet.LimitationsPreview"];
             metadata: components["schemas"]["Fleet.RuntimePreview"];
+            /** @description Inferred: the pactoVersion the authored pacto.yaml declared before pacto ci published it as pactoVersion, read from the bundle's pacto.inferred.yaml */
+            migratedFrom?: string;
             next?: components["schemas"]["ProductRef"];
             ownership?: components["schemas"]["ProductOwnership"];
             pactoVersion?: string;
@@ -6618,6 +6620,7 @@ export interface components {
             gates?: components["schemas"]["Runrecord.GateResult"][] | null;
             heldFor?: string;
             id: string;
+            images?: string[] | null;
             kind: string;
             newRevision?: string;
             oldRevision?: string;

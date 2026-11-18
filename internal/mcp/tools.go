@@ -41,8 +41,9 @@ func createTool() *mcpsdk.Tool {
 			"an SDK, Terraform or key-name source is possible only. 'externalSummary' is the plan line. " +
 			"'catalog' names each catalog that classified as '<origin> <digest>' (the same list as inferred.inputs.catalog), " +
 			"suffixed ' (embedded)' only when the server assembled no catalog. " +
-			"The contract gets a publish section for pacto publish unless describe_only is set: " +
-			"set describe_only when you are asked to describe or document a service. " +
+			"The contract has no publish section and no service.version: pacto ci --publish derives both. " +
+			"describe_only changes only the Next lines, which then say how to validate the contract instead of how to publish it: " +
+			"set it when you are asked to describe or document a service. " +
 			"pactify returns in 'inferred' what the folder shows beyond pacto.yaml, each field with its source, confidence (likely: a file states it; possible: a naming convention) " +
 			"and the sources it outranks (keys and types only, never a value), and in 'inferred.findings' what discovery could not read or choose " +
 			"(codes DISCOVERY_UNSUPPORTED_FILE, DISCOVERY_AMBIGUOUS, DISCOVERY_CHART_DEPENDENCY_UNLOCKED, DISCOVERY_UNREADABLE, DISCOVERY_UNRESOLVED, DISCOVERY_TRUNCATED, each with its source and message). " +
@@ -58,7 +59,7 @@ func createTool() *mcpsdk.Tool {
 			"name":                         {Type: "string", Description: "Service name (DNS-compatible, e.g. 'payment-api')"},
 			"description":                  {Type: "string", Description: "Natural-language description; infers interfaces and workload only, never state (set stores_data and friends explicitly)"},
 			"path":                         {Type: "string", Description: "Output directory (defaults to service name)"},
-			"version":                      {Type: "string", Description: "Service version (defaults to '0.1.0')"},
+			"version":                      {Type: "string", Description: "Service version; leave it empty to let pacto ci --publish derive it"},
 			"owner":                        {Type: "string", Description: "The team that owns the service, as a bare team name such as 'billing': usually the team label on its workloads. With pactify it defaults to that label"},
 			"domain":                       {Type: "string", Description: "Business domain (service.domain), such as payments; raises pactoVersion to 2.4"},
 			"interfaces":                   {Type: "string", Description: "JSON array of interfaces: [{name, type, visibility?}]"},
@@ -72,11 +73,11 @@ func createTool() *mcpsdk.Tool {
 			"metadata":                     {Type: "string", Description: "JSON object of metadata key-value pairs"},
 			"dry_run":                      {Type: "boolean", Description: "If true, validate and return result without writing files"},
 			"pactify":                      {Type: "boolean", Description: "Read the existing service folder at path (Dockerfile, Kubernetes manifests, Helm charts, Kustomize, Compose, interface specs, catalog-info.yaml, GitOps objects, and CODEOWNERS from the enclosing repository root) and plan its contract like `pacto init`; uses name, owner, path and dry_run, and ignores the intent arguments"},
-			"describe_only":                {Type: "boolean", Description: "With pactify: write a contract that only describes the service, with no publish section and no signing key. Use it when you are asked to describe or document a service; leave it off to also prepare pacto publish"},
-			"delivery":                     {Type: "boolean", Description: "With pactify or from: also plan the Pacto resource, a Stage per environment and its Flux OCIRepository and Kustomization (needs the publish section, so not with describe_only; with from, the golden path must publish manifests under publish.deploy)"},
+			"describe_only":                {Type: "boolean", Description: "With pactify: the Next lines say how to validate the contract, never how to publish it, and delivery is refused. Use it when you are asked to describe or document a service"},
+			"delivery":                     {Type: "boolean", Description: "With pactify or from: also plan, for a manifests deploy, the Pacto resource, a Stage per environment and a Flux OCIRepository and Kustomization; for a chart deploy no applier object, and the Next line names the Stage spec.applyRef (not with describe_only; with pactify the deploy artifact is the one pacto ci --publish assembles from the folder; with from, the golden path must publish a manifests or chart artifact under publish.deploy)"},
 			"registry":                     {Type: "string", Description: "With pactify: where to publish, as host/path (default: read from the workload's image)"},
 			"environments":                 {Type: "string", Description: "With delivery: JSON array of environments in promotion order (default [\"test\",\"prod\"]); each is declared in pacto.yaml with an empty values file and gets a Stage"},
-			"no_transparency_log":          {Type: "boolean", Description: "With pactify: write transparencyLog: false under publish.sign, so signatures stay out of the public transparency log (offline signing, a throwaway key)"},
+			"no_transparency_log":          {Type: "boolean", Description: "With from only: write transparencyLog: false under the golden path's publish.sign"},
 			"insecure_registry":            {Type: "boolean", Description: "With delivery: the Flux OCIRepositories read the registry over plain HTTP (a local registry only)"},
 			"registry_secret":              {Type: "string", Description: "With delivery: the docker-registry Secret, in each environment's namespace, that Flux and the Pacto resource log in to a private registry with"},
 			"fleet_roots":                  {Type: "string", Description: "With pactify: JSON array of folders of other services' contracts, searched for the services that use this one"},

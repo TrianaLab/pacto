@@ -39,12 +39,12 @@ func TestKustomizeRemoteResourceUnsupported(t *testing.T) {
 		}
 	}
 	for _, ref := range []string{"github.com/org/repo/deploy", "git@github.com:org/repo.git", "./x?ref=main"} {
-		if !remoteResource(ref) {
+		if !RemoteResource(ref) {
 			t.Errorf("%s is not remote", ref)
 		}
 	}
 	for _, ref := range []string{"deployment.yaml", "../base", "sub/dir"} {
-		if remoteResource(ref) {
+		if RemoteResource(ref) {
 			t.Errorf("%s is remote", ref)
 		}
 	}

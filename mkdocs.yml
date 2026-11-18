@@ -245,6 +245,7 @@ nav:
           - MCP reference: mcp-reference.md
           - MCP publish and delivery tools: mcp-delivery-tools.md
       - Publish reference: publishing.md
+      - Publish from CI: publish-from-ci.md
       - Run record reference: run-record-reference.md
       - Dashboard reference:
           - The service page: dashboard-service-page.md

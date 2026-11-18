@@ -583,13 +583,15 @@ func TestBeatWithoutAPlan(t *testing.T) {
 
 // TestPactifyWritesTheFraudContract: pacto init on plain/fraud writes the
 // contract the story's fraud 1.0.0 is, so the pactify beat shows what
-// pactifying really produces.
+// pactifying really produces, less what pacto ci --publish now derives: the
+// version and the publish section. The published 1.0.0 keeps both, at the
+// pactoVersion it was published with.
 func TestPactifyWritesTheFraudContract(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "fraud")
 	if err := os.CopyFS(dir, os.DirFS("plain/fraud")); err != nil {
 		t.Fatal(err)
 	}
-	r, err := pactify.Init(context.Background(), pactify.Options{Dir: dir, Owner: "risk", NoTransparencyLog: true, Plan: true}, nil)
+	r, err := pactify.Init(context.Background(), pactify.Options{Dir: dir, Owner: "risk", Plan: true}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -611,6 +613,7 @@ func TestPactifyWritesTheFraudContract(t *testing.T) {
 	}
 	// The summary is the one line the story adds by hand.
 	want.Metadata = nil
+	want.PactoVersion, want.Service.Version, want.Publish = contract.Current(), "", nil
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("pacto init wrote\n%s\nwhich differs from contracts/fraud/1.0.0", r.Files[i].Content)
 	}

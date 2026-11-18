@@ -289,12 +289,14 @@ func TestCodeownersCitedInInputs(t *testing.T) {
 
 // TestDeclareSnippetsValidate: every declare the readers write, each under
 // its own field, pasted together into an empty 2.5 contract, validates. A
-// configuration declare is a schema property, checked by its own test.
+// configuration declare is a schema property, checked by its own test; a
+// publish declare validates once its registry placeholder is filled in.
 func TestDeclareSnippetsValidate(t *testing.T) {
 	dir := writeFiles(t, map[string]string{
 		"Dockerfile":          "FROM x\nLABEL org.opencontainers.image.description=\"Takes payments\"\nHEALTHCHECK CMD curl -f http://localhost:8080/healthz\n",
 		"api/openapi.v1.yaml": "openapi: 3.0.0\ninfo: {title: t, version: '1'}\npaths: {}\n",
 		"catalog-info.yaml":   "kind: Component\nmetadata: {name: x}\nspec:\n  owner: user:alice\n  system: payments\n  dependsOn: [component:ledger]\n",
+		"deploy/cm.yaml":      "apiVersion: v1\nkind: ConfigMap\nmetadata: {name: x}\n",
 	})
 	rec, err := CompleteIn(dir, dir, nil, contract.InferredInputs{}, nil)
 	if err != nil {
@@ -306,12 +308,18 @@ func TestDeclareSnippetsValidate(t *testing.T) {
 		if f.Declare == "" || strings.HasPrefix(f.Field, "configuration.") {
 			continue
 		}
+		// A publish snippet names the registry with a placeholder.
+		declare := strings.ReplaceAll(f.Declare, "<registry>", "registry.example")
 		var part map[string]any
-		if err := yamlUnmarshal(f.Declare, &part); err != nil {
+		if err := yamlUnmarshal(declare, &part); err != nil {
 			t.Fatalf("%s: %v", f.Field, err)
 		}
 		for k, v := range part {
-			if m, ok := v.(map[string]any); ok && k == "service" {
+			if m, ok := v.(map[string]any); ok {
+				if k != "service" {
+					doc[k] = m // publish.build and publish.deploy share one section
+					continue
+				}
 				for sk, sv := range m {
 					doc["service"].(map[string]any)[sk] = sv
 				}
@@ -327,7 +335,7 @@ func TestDeclareSnippetsValidate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v := validation.Validate(c, raw, os.DirFS(dir)); !v.IsValid() || snippets != 6 {
+	if v := validation.Validate(c, raw, os.DirFS(dir)); !v.IsValid() || snippets != 8 || doc["publish"] == nil {
 		t.Errorf("%d snippets, %s: %+v", snippets, raw, v.Errors)
 	}
 }

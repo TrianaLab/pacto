@@ -46,6 +46,19 @@ type InferredRecord struct {
 	Fields          []Inferred        `json:"fields" yaml:"fields"`
 	Findings        []InferredFinding `json:"findings,omitempty" yaml:"findings,omitempty"`
 	FindingsDropped int               `json:"findingsDropped,omitempty" yaml:"findingsDropped,omitempty"`
+	// Migrations are the contracts pacto ci raised in memory before it
+	// published them: never a contract field, and absent when none was.
+	Migrations []InferredMigration `json:"migrations,omitempty" yaml:"migrations,omitempty"`
+}
+
+// InferredMigration is one contract file published at another pactoVersion
+// than it was written with: the version it declared, the version it was
+// published as, the bundle file and the Pacto that raised it.
+type InferredMigration struct {
+	From   string `json:"from" yaml:"from"`
+	To     string `json:"to" yaml:"to"`
+	Source string `json:"source" yaml:"source"`
+	By     string `json:"by" yaml:"by"`
 }
 
 // InferredFinding is one thing discovery recognized but could not read, or
@@ -188,6 +201,13 @@ func ParseInferredRecord(data []byte) (*InferredRecord, error) {
 			return nil, fmt.Errorf("%s: inputs.catalog[%d] is %q, want \"<default|organization> sha256:<64 hex>\"", InferredRecordFile, i, c)
 		}
 	}
+	seenSource := make(map[string]bool, len(r.Migrations))
+	for i, m := range r.Migrations {
+		if err := checkInferredMigration(m, seenSource); err != nil {
+			return nil, fmt.Errorf("%s: migrations[%d]%s", InferredRecordFile, i, err)
+		}
+		seenSource[m.Source] = true
+	}
 	for i, s := range r.Inputs.Sources {
 		if !inferredDigestRE.MatchString(s.Digest) {
 			return nil, fmt.Errorf("%s: inputs.sources[%d].digest is %q, want sha256:<64 hex>", InferredRecordFile, i, s.Digest)
@@ -197,6 +217,26 @@ func ParseInferredRecord(data []byte) (*InferredRecord, error) {
 		}
 	}
 	return &r, nil
+}
+
+// checkInferredMigration is why m cannot be in a record whose migrations
+// seen holds by source, as a suffix of "migrations[i]", or nil.
+func checkInferredMigration(m InferredMigration, seen map[string]bool) error {
+	switch {
+	case m.From == "" || !Known(m.From):
+		return fmt.Errorf(".from %q is not a supported pactoVersion", m.From)
+	case m.To == "" || !Known(m.To):
+		return fmt.Errorf(".to %q is not a supported pactoVersion", m.To)
+	case slices.Index(SupportedVersions, m.From) >= slices.Index(SupportedVersions, m.To):
+		return fmt.Errorf(".from %q is not older than to %q", m.From, m.To)
+	case !validPath(m.Source):
+		return fmt.Errorf(".source %q is not a relative path", m.Source)
+	case seen[m.Source]:
+		return fmt.Errorf(".source %q is listed twice", m.Source)
+	case m.By == "":
+		return errors.New(".by is empty")
+	}
+	return nil
 }
 
 // checkInferredField is why f cannot be in a record whose fields seen holds,
@@ -209,8 +249,8 @@ func checkInferredField(f Inferred, seen map[string]bool) error {
 		return errors.New(".field is empty")
 	case f.Source == "":
 		return errors.New(".source is empty")
-	case !validSource(f.Source):
-		return fmt.Errorf(".source %q is not a relative path", f.Source)
+	case !validFieldSource(f.Source):
+		return fmt.Errorf(".source %q is not a relative path or a registry: or flag: source", f.Source)
 	case f.Confidence != ConfidenceLikely && f.Confidence != ConfidencePossible:
 		return fmt.Errorf(".confidence is %q, want likely or possible", f.Confidence)
 	case f.Class != "" && (f.Class != InferredClassOwnerFile || f.Field != "service.owner"):
@@ -300,6 +340,36 @@ func externalPaths(f Inferred) []string {
 	return out
 }
 
+// sourceForms are the field sources outside the folder, which
+// inputs.sources never lists: the verified registry baseline a derived value
+// came from (a repository, pinned by digest when it holds a version) and the
+// command-line flag that supplied one. Any other value under one of these
+// prefixes is invalid.
+var sourceForms = map[string]*regexp.Regexp{
+	"registry:": regexp.MustCompile(`^registry:[a-z0-9][a-z0-9._:/-]*[a-z0-9](@sha256:[0-9a-f]{64})?$`),
+	"flag:":     regexp.MustCompile(`^flag:--[a-z][a-z-]*$`),
+}
+
+// sourceForm reports whether s carries one of the sourceForms prefixes, and
+// whether it is valid under it.
+func sourceForm(s string) (valid, outside bool) {
+	for prefix, re := range sourceForms {
+		if strings.HasPrefix(s, prefix) {
+			return re.MatchString(s), true
+		}
+	}
+	return false, false
+}
+
+// validFieldSource reports whether s is a valid field source: one of the
+// sourceForms, or "<path>[:<line>]".
+func validFieldSource(s string) bool {
+	if valid, outside := sourceForm(s); outside {
+		return valid
+	}
+	return validSource(s)
+}
+
 // validSource reports whether s is "<path>[:<line>]" with a valid path.
 func validSource(s string) bool { return validPath(sourceFile(s)) }
 
@@ -315,7 +385,9 @@ func validPath(p string) bool {
 const repositoryPrefix = "repository:"
 
 // Marshal writes the record with its fields sorted by field then source, its
-// findings truncation first then by code and source, its sources by path, and no timestamp, so the same inputs give the same bytes.
+// findings truncation first then by code and source, its sources by path, its
+// migrations by source then from, and no timestamp, so the same inputs give
+// the same bytes.
 func (r *InferredRecord) Marshal() []byte {
 	out := *r
 	out.Fields = slices.Clone(r.Fields)
@@ -340,8 +412,23 @@ func (r *InferredRecord) Marshal() []byte {
 	})
 	out.Inputs.Sources = slices.Clone(r.Inputs.Sources)
 	slices.SortFunc(out.Inputs.Sources, func(a, b InferredSourceFile) int { return strings.Compare(a.Path, b.Path) })
+	out.Migrations = slices.Clone(r.Migrations)
+	slices.SortFunc(out.Migrations, func(a, b InferredMigration) int {
+		return cmp.Or(strings.Compare(a.Source, b.Source), strings.Compare(a.From, b.From))
+	})
 	data, _ := yaml.Marshal(&out) // strings and slices of them always encode
 	return data
+}
+
+// WithMigration is a copy of r holding m in place of any migration of the
+// same source. A nil r is a record of inputs in that holds only m.
+func (r *InferredRecord) WithMigration(m InferredMigration, in InferredInputs) *InferredRecord {
+	if r == nil {
+		return &InferredRecord{Format: InferredRecordFormat, Inputs: in, Migrations: []InferredMigration{m}}
+	}
+	out := *r
+	out.Migrations = append(slices.DeleteFunc(slices.Clone(r.Migrations), func(x InferredMigration) bool { return x.Source == m.Source }), m)
+	return &out
 }
 
 // ReadInferredRecord reads and parses the record in fsys: nil and no error
@@ -363,7 +450,8 @@ func ReadInferredRecord(fsys fs.FS) (*InferredRecord, error) {
 // VerifyInferredRecord checks the record against the bundle it sits in: every
 // source exists in fsys with its digest (the record itself is never a source),
 // and every field cites, in its source and its outranks, files the sources
-// list. A repository file outside
+// list, and every migration names a file in fsys that declares the
+// pactoVersion it was published as. A repository file outside
 // the bundle (a "repository:" source) cannot be checked here: its digest only
 // tells two records' inputs apart. A stale or hand-edited record fails here
 // instead of reading as authoritative.
@@ -388,10 +476,39 @@ func VerifyInferredRecord(fsys fs.FS, rec *InferredRecord) error {
 	}
 	for i, f := range rec.Fields {
 		for _, src := range append(append([]string{f.Source}, f.Outranks...), externalPaths(f)...) {
+			if _, outside := sourceForm(src); outside {
+				continue
+			}
 			if file := sourceFile(src); !listed[file] {
 				return fmt.Errorf("fields[%d] (%s) cites %s, which inputs.sources does not list", i, f.Field, file)
 			}
 		}
+	}
+	for i, m := range rec.Migrations {
+		if err := verifyMigration(fsys, m); err != nil {
+			return fmt.Errorf("migrations[%d]: %s %w", i, m.Source, err)
+		}
+	}
+	return nil
+}
+
+// verifyMigration is why m does not match the bundle fsys, or nil: its source
+// must be in fsys and declare m.To.
+func verifyMigration(fsys fs.FS, m InferredMigration) error {
+	data, err := fs.ReadFile(fsys, m.Source)
+	if err != nil {
+		return errors.New("is not in the bundle")
+	}
+	node, err := versionNode(data)
+	if err != nil {
+		return fmt.Errorf("is unreadable: %w", err)
+	}
+	var got string
+	if node != nil {
+		got = node.Value
+	}
+	if got != m.To {
+		return fmt.Errorf("declares pactoVersion %q, the record says it was published as %q", got, m.To)
 	}
 	return nil
 }
@@ -409,31 +526,35 @@ func sourceFile(source string) string {
 // of any copy fsys holds, without copying the rest: a local read overlays the
 // record it computed on the folder it read.
 func WithInferredRecord(fsys fs.FS, data []byte) fs.FS {
-	return recordFS{base: fsys, record: fstest.MapFS{InferredRecordFile: {Data: data, Mode: 0o644}}}
+	return recordFS{base: fsys, name: InferredRecordFile, record: fstest.MapFS{InferredRecordFile: {Data: data, Mode: 0o644}}}
 }
 
 // WithoutInferredRecord is fsys with no pacto.inferred.yaml: what a local
 // hash reads, since the record names the commit and would move it on every
 // commit.
-func WithoutInferredRecord(fsys fs.FS) fs.FS {
-	return recordFS{base: fsys, record: fstest.MapFS{}}
+func WithoutInferredRecord(fsys fs.FS) fs.FS { return WithoutFile(fsys, InferredRecordFile) }
+
+// WithoutFile is fsys with no root file name, without copying the rest.
+func WithoutFile(fsys fs.FS, name string) fs.FS {
+	return recordFS{base: fsys, name: name, record: fstest.MapFS{}}
 }
 
-// recordFS is base with its root pacto.inferred.yaml taken from record.
+// recordFS is base with its root file name taken from record.
 type recordFS struct {
 	base   fs.FS
-	record fstest.MapFS // holds the record, or nothing to hide it
+	name   string
+	record fstest.MapFS // holds the file, or nothing to hide it
 }
 
 func (r recordFS) Open(name string) (fs.File, error) {
-	if name == InferredRecordFile {
+	if name == r.name {
 		return r.record.Open(name)
 	}
 	return r.base.Open(name)
 }
 
 func (r recordFS) Stat(name string) (fs.FileInfo, error) {
-	if name == InferredRecordFile {
+	if name == r.name {
 		return r.record.Stat(name)
 	}
 	return fs.Stat(r.base, name)
@@ -444,8 +565,8 @@ func (r recordFS) ReadDir(name string) ([]fs.DirEntry, error) {
 	if name != "." || err != nil {
 		return entries, err
 	}
-	entries = slices.DeleteFunc(entries, func(e fs.DirEntry) bool { return e.Name() == InferredRecordFile })
-	if info, err := r.record.Stat(InferredRecordFile); err == nil {
+	entries = slices.DeleteFunc(entries, func(e fs.DirEntry) bool { return e.Name() == r.name })
+	if info, err := r.record.Stat(r.name); err == nil {
 		entries = append(entries, fs.FileInfoToDirEntry(info))
 		slices.SortFunc(entries, func(a, b fs.DirEntry) int { return strings.Compare(a.Name(), b.Name()) })
 	}

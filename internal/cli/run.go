@@ -46,9 +46,11 @@ const (
 var failOnLevels = []string{"none", "noncompliant", "unknown"}
 
 // ExitError ends the process with Code. The command has already said why, so
-// main prints nothing.
+// main prints nothing; Reason repeats that line for the one JSON document
+// --output-format json answers (wrapJSONExit).
 type ExitError struct {
-	Code int
+	Code   int
+	Reason string
 }
 
 func (e *ExitError) Error() string { return "exit status " + strconv.Itoa(e.Code) }
@@ -339,12 +341,14 @@ func (r *runSession) run(cmd *cobra.Command, args []string) error {
 	r.release(stderr)
 
 	code := exitCode(child.ProcessState)
+	reason := "the command exited " + strconv.Itoa(code)
 	if code == 0 && r.fails() {
-		_, _ = fmt.Fprintf(stderr, "pacto run: the final verdict fails --fail-on %s\n", r.opts.failOn)
+		reason = "pacto run: the final verdict fails --fail-on " + r.opts.failOn
+		_, _ = fmt.Fprintln(stderr, reason)
 		code = 1
 	}
 	if code != 0 {
-		return &ExitError{Code: code}
+		return &ExitError{Code: code, Reason: reason}
 	}
 	return nil
 }

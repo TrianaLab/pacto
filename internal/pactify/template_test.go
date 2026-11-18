@@ -442,7 +442,7 @@ func TestTemplateDelivery(t *testing.T) {
 	if s := deliveryStepOf(t, r); s.Status != fleet.StepStatusUnknown || !strings.Contains(s.Detail, "publish.deploy") {
 		t.Errorf("no deploy: %+v", s)
 	}
-	wantLines(t, "unknown", r.Unknown, "publishes no manifests for Flux to apply")
+	wantLines(t, "unknown", r.Unknown, "publishes no manifests (publish.deploy)")
 
 	// publish.deploy in a new folder: the Pacto resource only, no Stage.
 	r, _ = mustFromPath(t, goldenPath(deployPath), Options{Delivery: true}, override.Overrides{})

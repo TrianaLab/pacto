@@ -1,0 +1,5 @@
+service:
+  name: payments
+  version: 1.4.2
+  owner:
+    team: payments

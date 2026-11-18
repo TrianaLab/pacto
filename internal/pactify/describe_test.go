@@ -21,7 +21,6 @@ const invoicesContract = `# Written by pacto init from Dockerfile, k8s/configmap
 pactoVersion: "2.5"
 service:
   name: invoices
-  version: 1.3.0
   owner:
     team: billing
 workload: service
@@ -103,15 +102,18 @@ func TestDescribeOnlyInvoices(t *testing.T) {
 	}
 }
 
-// TestPublishNamesDescribeOnly: the default still writes publish, and says
-// how to leave it out.
+// TestPublishNamesDescribeOnly: the default and describe-only write the
+// same contract, with no publish section; only the line that says what to
+// do next differs.
 func TestPublishNamesDescribeOnly(t *testing.T) {
 	r, err := Init(context.Background(), Options{Dir: fixtureDir(t, "invoices"), Plan: true}, os.WriteFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(file(t, r, "pacto.yaml").Content, "\npublish:\n") || !hasLine(r.Next, "run pacto init --describe-only instead") || !hasLine(r.Next, "signing key") {
-		t.Fatalf("plan: %+v", r)
+	text := file(t, r, "pacto.yaml").Content
+	want := strings.Replace(invoicesContract, "validate it: pacto validate", "see what publishing would do: pacto ci", 1)
+	if text != want || hasLine(r.Next, "signing key") {
+		t.Fatalf("plan: %+v\n%s", r, text)
 	}
 }
 
@@ -242,8 +244,8 @@ func checkEnvSchema(t *testing.T, schema string) {
 // nothing about a missing publish section in the user's own contract.
 func TestDescribeOnlyRefusalsAndExisting(t *testing.T) {
 	for opts, want := range map[*Options]string{
-		{Delivery: true}:          "delivery ships what publish builds",
-		{NoTransparencyLog: true}: "transparencyLog goes under publish.sign",
+		{Delivery: true}:          "describe-only writes no Stages or Pacto resource",
+		{NoTransparencyLog: true}: "transparencyLog goes under a golden path's publish.sign",
 	} {
 		opts.Dir, opts.DescribeOnly = fixtureDir(t, "invoices"), true
 		if _, err := Init(context.Background(), *opts, os.WriteFile); err == nil || !strings.Contains(err.Error(), want) {

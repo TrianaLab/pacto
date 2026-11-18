@@ -17,10 +17,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/trianalab/pacto/v4/internal/discover"
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -29,9 +27,6 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/ignore"
 	"github.com/trianalab/pacto/v4/pkg/lock"
 )
-
-// maxScanDepth bounds how deep LocalSource descends below its root.
-const maxScanDepth = 8
 
 // LocalSource discovers pacto.yaml bundles under a root directory and emits one
 // contract revision per bundle. It is the offline definition source for the
@@ -63,27 +58,18 @@ func (s *LocalSource) Kind() string { return "local" }
 // Collect walks the root for pacto.yaml files and projects each into a raw
 // revision. A missing/unreadable root is a source error (surfaced as an
 // unavailable source), not an empty result. Unparseable individual bundles are
-// skipped rather than failing the whole source.
+// skipped rather than failing the whole source. Folders the root .pactoignore
+// hides are not collected: an explicit choice of the repository.
 func (s *LocalSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 	col := &fleet.Collection{}
 	unreadable := unreadableDirs{source: s.id, root: s.root}
-	err := filepath.WalkDir(s.root, func(p string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return unreadable.note(p, walkErr)
-		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if d.IsDir() {
-			if skipDir(s.root, p, d) {
-				return fs.SkipDir
-			}
-			return nil
-		}
-		if d.Name() != "pacto.yaml" {
-			return nil
-		}
-		rev, loadErr := loadRevision(filepath.Dir(p), s.Catalog)
+	walked, err := discover.Walk(ctx, s.root, unreadable.note)
+	if err != nil {
+		return nil, err
+	}
+	for _, dir := range walked.Dirs {
+		p := filepath.Join(dir, "pacto.yaml")
+		rev, loadErr := loadRevision(dir, s.Catalog)
 		if errors.Is(loadErr, errIncomplete) {
 			// Inference only adds: the declared revision stays, and its
 			// inferred dependencies are unknown, which makes the answer partial.
@@ -101,34 +87,12 @@ func (s *LocalSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 				Code: fleet.LimitationSourceRecordInvalid, Source: s.id,
 				Message: "bundle at " + relPathSafe(s.root, p) + " could not be loaded: " + loadErr.Error(),
 			})
-			return nil
+			continue
 		}
 		col.Revisions = append(col.Revisions, rev)
-		return nil
-	})
-	if err != nil {
-		return nil, err
 	}
 	col.Limitations = append(col.Limitations, unreadable.limitations()...)
 	return col, nil
-}
-
-// skipDir reports whether a directory should not be descended into: hidden dirs
-// (except the root itself), well-known vendor/dependency dirs, and anything past
-// the depth cap.
-func skipDir(root, p string, d fs.DirEntry) bool {
-	if p == root {
-		return false
-	}
-	name := d.Name()
-	if strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor" {
-		return true
-	}
-	rel, err := filepath.Rel(root, p)
-	if err != nil {
-		return true
-	}
-	return strings.Count(rel, string(filepath.Separator)) >= maxScanDepth
 }
 
 // loadRevision parses the bundle in dir into a raw revision. The FS is rooted at

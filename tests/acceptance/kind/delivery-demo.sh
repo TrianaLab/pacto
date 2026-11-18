@@ -826,15 +826,19 @@ story_pactify() {
   local dir="$WORK/fraud"
   rm -rf "$dir"; cp -R "$STORY/plain/fraud" "$dir"
   perl -pi -e "s#registry\\.example/story#${REG_HOST}/story#g" "$dir/k8s/deployment.yaml"
-  # A throwaway key stays out of the public transparency log, and the demo's
-  # registry speaks plain HTTP: both are init flags.
-  echo "  \$ pacto init --delivery --owner risk --no-transparency-log --insecure-registry"
-  (cd "$dir" && "$PACTO" init --delivery --owner risk --no-transparency-log --insecure-registry) | sed 's/^/    /'
+  # The demo's registry speaks plain HTTP: an init flag. pacto init writes no
+  # publish section, so pacto publish derives one.
+  echo "  \$ pacto init --delivery --owner risk --insecure-registry"
+  (cd "$dir" && "$PACTO" init --delivery --owner risk --insecure-registry) | sed 's/^/    /'
   [ -s "$dir/delivery/test.yaml" ] || fail "pacto init --delivery wrote no Stage for test"
-  cp "$KEYS/cosign.key" "$dir/"
+  # The Stages verify an identity that matches nothing until a person names
+  # the publisher: here the demo key, whose public half is cosign-pub.
+  perl -0pi -e 's/  verify:\n    provider: cosign\n    matchOIDCIdentity:\n      - issuer: [^\n]*\n        subject: [^\n]*\n/  verify:\n    provider: cosign\n    secretRef:\n      name: cosign-pub\n/g' "$dir/delivery/test.yaml" "$dir/delivery/prod.yaml"
+  grep -q 'name: cosign-pub' "$dir/delivery/test.yaml" || fail "delivery/test.yaml has no spec.verify to point at the demo key"
   git -C "$dir" init -q && git -C "$dir" add -A && git -C "$dir" -c user.email=demo@example.com -c user.name=demo commit -qm "pactify fraud"
   local out d
-  out="$(cd "$dir" && reg "$PACTO" publish 2>&1)" || { echo "$out" >&2; fail "pacto publish fraud failed"; }
+  # A throwaway key outside the folder, kept out of the public transparency log.
+  out="$(cd "$dir" && reg "$PACTO" publish --registry "${REG_HOST}/story" --sign-key "$KEYS/cosign.key" --no-transparency-log 2>&1)" || { echo "$out" >&2; fail "pacto publish fraud failed"; }
   d="$(grep -oE "^Deploy: .*@sha256:[0-9a-f]{64}" <<<"$out" | sed 's/.*@//')"
   remember fraud 1.0.0 "$d"
   kubectl apply -f "$dir/delivery/test.yaml" -f "$dir/delivery/prod.yaml" >/dev/null
@@ -854,7 +858,7 @@ story_pactify() {
   [[ "$img" == "${REG_HOST}/story/images/fraud@sha256:"* ]] || fail "fraud runs $img in test, not the image pacto publish built, pinned by digest"
   no_fraud_ops() { [ "$(ops test | jq '[.items[] | select(.spec.stage == "fraud")] | length')" = 0 ] && [ "$(ops prod | jq '[.items[] | select(.spec.stage == "fraud")] | length')" = 0 ]; }
   always 5 no_fraud_ops || fail "a Stage on observe raised an operation for fraud"
-  pass "fraud is pactified: its contract, Pacto resource and Stages come from pacto init as it wrote them, both Stages observe, and Pacto noted it would have shipped 1.0.0 to test"
+  pass "fraud is pactified: pacto publish derived and signed 1.0.0 with the demo key; its contract, Pacto resource and Stages come from pacto init, both Stages observe, and Pacto noted it would have shipped 1.0.0 to test"
 }
 
 story_b1() {

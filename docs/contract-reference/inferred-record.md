@@ -18,7 +18,7 @@ format: pacto.inferred/v1
 inputs:
   commit: 4e1a9c0d...          # left out when the folder is not a git checkout
   pacto: 4.6.0                 # the Pacto that completed it
-  discovery: "3"               # raised when what Pacto reads from a folder changes
+  discovery: "4"               # raised when what Pacto reads from a folder changes
   sources:                     # every file a field cites, sorted by path
     - {path: deploy/app.yaml, digest: "sha256:..."}
     - {path: openapi/v1.yaml, digest: "sha256:..."}
@@ -66,7 +66,10 @@ findings:                      # what Pacto recognized and could not read
   as an OpenAPI document. A file at the repository root outside the folder,
   only CODEOWNERS, is `repository:<path>:<line>`, relative to the repository
   root. It is not in the bundle, so `inputs.sources` cites it with its digest
-  and a change to it changes the record.
+  and a change to it changes the record. A version derived by
+  `pacto ci --publish` cites `registry:<repo>@sha256:<digest>`, the verified
+  baseline it was raised from, or `registry:<repo>` when the repository held
+  no version. An image passed on the command line cites `flag:--image`.
 - `class: ownerFile` marks a `service.owner` read from CODEOWNERS or
   `catalog-info.yaml`, the only value and the only field it goes on.
   `pacto init` shows it as "attested". The marker only names the file: an
@@ -100,6 +103,9 @@ findings:                      # what Pacto recognized and could not read
 | `capabilities[health]` | A readiness, liveness or startup probe, else the Dockerfile `HEALTHCHECK` | declares a `health` capability |
 | `configuration.<KEY>` | Each environment key, ConfigMaps included | declares the key in a configuration's `values` or schema `properties`, or declares a configuration whose keys Pacto cannot list (a `ref`, or a schema it cannot read or that uses `allOf`, `anyOf`, `oneOf`, `$ref` or `patternProperties`) |
 | `dependencies[<name>]` | A service name inside the cluster in an environment value, or `spec.dependsOn` in `catalog-info.yaml` | declares a dependency of that name or `ref` |
+| `service.version` | The verified baseline and the change since it, when `pacto ci --publish` or `pacto publish` derives it, such as `1.4.3 (1.4.2 + patch, NON_BREAKING)` or `1.0.0 (no versions in <repo>)`. The bundle's `pacto.yaml` carries the same version | declares `service.version` |
+| `publish.build` | The build tool the folder shows, or `image supplied, not built by Pacto: <ref>` for `--image` or a workload image pinned by digest | declares `publish` |
+| `publish.deploy` | The folder's Kustomization, Helm chart or manifests, and the image pinned by digest | declares `publish` |
 
 ### External dependencies
 
@@ -150,6 +156,36 @@ fields:
 - How `pacto init` finds them is in
   [External dependencies](../pactify.md#external-dependencies).
 
+### Migrations
+
+When [`pacto ci`](../ci.md#older-contracts) raises an older `pactoVersion` in
+memory, the bundle's record says so. A record can hold `migrations` and an
+empty `fields`:
+
+```yaml
+format: pacto.inferred/v1
+inputs:
+  commit: 4e1a9c0d...
+  pacto: 4.6.0
+  discovery: "1"
+  sources: []
+fields: []
+migrations:
+  - from: "2.4"                # the version pacto.yaml declares in your folder
+    to: "2.5"                  # the version the bundled copy declares
+    source: pacto.yaml
+    by: pacto ci 4.6.0
+```
+
+- Entries are sorted by `source`, then `from`. Each needs all four keys, a
+  `from` and `to` this Pacto knows with `from` older than `to`, and a `source`
+  no other entry names.
+- Every entry must match the bundle it sits in: `source` is a file in the
+  bundle and the `pactoVersion` it declares equals `to`. A stale or edited
+  entry makes the record `INFERRED_RECORD_INVALID`, and the fleet then shows
+  no migration.
+- `source` is not listed in `inputs.sources`: its bytes are the raised ones.
+
 ## When Pacto writes it
 
 - `pacto init` and the MCP tool `pacto_create` (with `pactify: true`) on a
@@ -157,7 +193,8 @@ fields:
   it declares and how many Pacto completed. They write no file: the record is
   generated, so a committed copy would go stale on the next commit.
 - An older `pactoVersion` is never completed, so its bundle keeps the same
-  bytes. `init` says to set `pactoVersion: "2.5"`.
+  bytes. `init` says to set `pactoVersion: "2.5"`. `pacto ci` completes a
+  contract it raised in memory and adds a `migrations` entry.
 - A `--cluster` draft never completes a contract: only the folder is read.
 - `pacto validate`, `pacto diff`, `pacto explain`, `pacto impact` and
   `pacto fleet --local` compute the record in memory for a local folder.
@@ -174,7 +211,7 @@ When a published tag differs from the new bundle only in its inferred record,
 and both records cite the same files with the same digests, `pacto publish`
 reports the bundle as adopted (`only the inferred record differs ... not
 republished`). Pacto first checks that the tag is signed by the identity in
-`publish.sign`. An unsigned tag, or one signed by someone else, is a conflict
+`publish.sign`, or the CI token's identity when it declares none. An unsigned tag, or one signed by someone else, is a conflict
 that needs the next version.
 
 The cited files are part of the bundle, so editing one changes the bundle and

@@ -1,0 +1,3 @@
+builds:
+  - id: app
+    main: ./cmd/app

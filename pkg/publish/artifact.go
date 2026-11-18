@@ -17,6 +17,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/partial"
 	"github.com/google/go-containerregistry/pkg/v1/static"
+	"github.com/google/go-containerregistry/pkg/v1/tarball"
 	"github.com/google/go-containerregistry/pkg/v1/types"
 	"gopkg.in/yaml.v3"
 
@@ -35,7 +36,39 @@ const (
 	// file the build wrote.
 	SPDXType      = "application/spdx+json"
 	CycloneDXType = "application/vnd.cyclonedx+json"
+	// ImagesType is the artifactType of the images record: the images a
+	// published bundle deploys, as a signed referrer of the bundle.
+	ImagesType = "application/vnd.pacto.images.v1+json"
 )
+
+// SourceBuilt is the source of an image this publish built.
+const SourceBuilt = "built"
+
+// ImageRecord is one image a published bundle deploys.
+type ImageRecord struct {
+	// Name is the image artifact's name, or the image a derived section
+	// deploys.
+	Name       string `json:"name"`
+	Repository string `json:"repository"`
+	Digest     string `json:"digest"`
+	// Source is how the image is had: SourceBuilt, flag:--image, or the
+	// <manifest>:<line> that pins it by digest.
+	Source string `json:"source"`
+}
+
+// ImageRefs names each image as <repository>@<digest>.
+func ImageRefs(images []ImageRecord) []string {
+	var refs []string
+	for _, i := range images {
+		refs = append(refs, i.Repository+"@"+i.Digest)
+	}
+	return refs
+}
+
+// imagesRecord is the body of the images record.
+type imagesRecord struct {
+	Images []ImageRecord `json:"images"`
+}
 
 // sbomType is the referrer type of the SBOM file at path. The schema allows
 // only the two extensions.
@@ -91,11 +124,12 @@ func newArtifact(artifactType string, configType types.MediaType, config []byte,
 	return img
 }
 
-// sbomArtifact is an SBOM as a referrer of subject. The config media type is
-// the artifact type too, so a registry that reports a referrer's type from its
-// config (older ones do) lists it the same way.
-func sbomArtifact(mt string, sbom []byte, subject v1.Descriptor, annotations map[string]string) v1.Image {
-	return newArtifact(mt, types.MediaType(mt), []byte("{}"), types.MediaType(mt), sbom, annotations, &subject)
+// referrerArtifact is body (an SBOM, the images record) as a referrer of
+// subject. The config media type is the artifact type too, so a registry
+// that reports a referrer's type from its config (older ones do) lists it
+// the same way.
+func referrerArtifact(mt string, body []byte, subject v1.Descriptor, annotations map[string]string) v1.Image {
+	return newArtifact(mt, types.MediaType(mt), []byte("{}"), types.MediaType(mt), body, annotations, &subject)
 }
 
 // load turns what a builder wrote to dir into the artifact Pacto pushes, with
@@ -110,8 +144,18 @@ func load(kind, dir string, annotations map[string]string) (Artifact, error) {
 	return loadManifests(dir, annotations)
 }
 
-// loadImage reads the one image or image index of an OCI image layout.
+// loadImage reads the one image or image index of an OCI image layout, or
+// the one docker-save tarball (*.tar) the build wrote instead.
 func loadImage(dir string, annotations map[string]string) (Artifact, error) {
+	if _, err := os.Stat(filepath.Join(dir, "index.json")); err != nil {
+		if tars, _ := filepath.Glob(filepath.Join(dir, "*.tar")); len(tars) == 1 {
+			img, err := tarball.ImageFromPath(tars[0], nil)
+			if err != nil {
+				return nil, fmt.Errorf("the build wrote %s, which is not a docker-save tarball of one image: %w", filepath.Base(tars[0]), err)
+			}
+			return mutate.Annotations(img, annotations).(v1.Image), nil
+		}
+	}
 	idx, err := layout.ImageIndexFromPath(dir)
 	if err != nil {
 		return nil, fmt.Errorf("the build did not write an OCI image layout to $PACTO_OUT: %w", err)

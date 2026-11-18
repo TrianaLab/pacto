@@ -35,6 +35,7 @@ var embodiedByTUI = map[string]string{
 // command forces a choice: give it a verb, or add it here with a reason.
 var excludedFromTUI = map[string]string{
 	"agent":                "a long-running host daemon",
+	"ci":                   "a CI pipeline step that plans every service of a repository; the TUI never runs it",
 	"run":                  "wraps a process and lives as long as it does",
 	"fleet reconcile":      "requires a --traces file, which no selection can supply",
 	"dashboard":            "a long-running server; the TUI is the terminal equivalent of it",

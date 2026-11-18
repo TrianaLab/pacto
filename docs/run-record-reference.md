@@ -34,6 +34,11 @@ that command. A file holds one record. `--stats-file`:
 `PACTO_STATS_FILE` applies to every recording command in the job, so give each
 command its own file with `--stats-file` when a job runs more than one.
 
+`pacto ci`:
+
+- writes one record per checked service, `run.payments.json` for `--stats-file run.json`;
+- never publishes a record, since it only plans.
+
 Recording prints one of these lines on stderr:
 
 - `pacto: run record published to <repo>@<digest> (unsigned statistics)`
@@ -98,6 +103,7 @@ Every record has `version`, `id`, `kind`, `service`, `pactoVersion` and
 | `newRevision` | string | when known | `diff` and `impact`: the new bundle's digest. `publish`: the version being published | none |
 | `bundleDigest` | string | `publish`, when it did not fail | the digest of the published bundle | none |
 | `deployDigest` | string | `publish`, when it did not fail | the digest of the published deploy artifact | none |
+| `images` | array of strings | `publish`, when it did not fail and deploys an image | each image the published bundle deploys, as `<repository>@<digest>`, the same list as its signed images record | none |
 | `classification` | string | when computed | `NON_BREAKING`, `POTENTIAL_BREAKING` or `BREAKING` | none |
 | `gate` | object | `impact`, refused `publish` | the gate the run reached | none |
 | `gate.verdict` | string | with `gate` | `impact`: `clear`, `blocked` or `unverified`. `publish`: `refused` | none |

@@ -79,9 +79,10 @@ func validateBreaks(c *contract.Contract, result *ValidationResult) {
 }
 
 // validatePublish enforces what the schema cannot say about publish: artifact
-// names are unique, deploy names a manifests artifact (a Kustomization applies
-// manifests, never a chart or an image), the dockerfile builder and sbom
-// apply to images only, and an sbom needs a command build, which writes it.
+// names are unique, deploy names a manifests or chart artifact (what an
+// applier deploys, never an image), the dockerfile builder and sbom apply to
+// images only, and an sbom needs a command build, which writes it. From
+// pactoVersion 2.5 a declared build is deprecated: publish detects it.
 func validatePublish(c *contract.Contract, result *ValidationResult) {
 	if c.Publish == nil {
 		return
@@ -93,18 +94,29 @@ func validatePublish(c *contract.Contract, result *ValidationResult) {
 			result.AddError(path+".name", "DUPLICATE_PUBLISH_ARTIFACT", fmt.Sprintf("artifact name %q is used more than once", a.Name))
 		}
 		types[a.Name] = a.Type
-		switch {
-		case a.SBOM != "" && a.Type != contract.ArtifactImage:
-			result.AddError(path+".sbom", "PUBLISH_SBOM_NOT_IMAGE", fmt.Sprintf("%s is a %s; an SBOM is attached to images only", a.Name, a.Type))
-		case a.SBOM != "" && a.Build.Dockerfile != nil:
-			result.AddError(path+".sbom", "PUBLISH_SBOM_DOCKERFILE", fmt.Sprintf("%s is built from a Dockerfile, which writes no SBOM file; build it with a command that writes %s, or drop sbom", a.Name, a.SBOM))
-		}
-		if a.Build.Dockerfile != nil && a.Type != contract.ArtifactImage {
-			result.AddError(path+".build.dockerfile", "PUBLISH_DOCKERFILE_NOT_IMAGE", fmt.Sprintf("%s is a %s; the dockerfile builder builds images only, use command", a.Name, a.Type))
-		}
+		validateArtifactBuild(c.PactoVersion, path, a, result)
 	}
-	if d := c.Publish.Deploy; d != "" && types[d] != contract.ArtifactManifests {
-		result.AddError("publish.deploy", "PUBLISH_DEPLOY_NOT_MANIFESTS", fmt.Sprintf("deploy %q must name a manifests artifact: Flux applies it through a Kustomization", d))
+	// The code keeps its name: users and agents match on it.
+	if d := c.Publish.Deploy; d != "" && types[d] != contract.ArtifactManifests && types[d] != contract.ArtifactChart {
+		result.AddError("publish.deploy", "PUBLISH_DEPLOY_NOT_MANIFESTS", fmt.Sprintf("deploy %q must name a manifests or chart artifact", d))
+	}
+}
+
+// validateArtifactBuild checks the build of the artifact a at path: the
+// dockerfile builder and sbom apply to images only, an sbom needs a command
+// build, and from pactoVersion 2.5 a declared build is deprecated.
+func validateArtifactBuild(version, path string, a contract.PublishArtifact, result *ValidationResult) {
+	switch {
+	case a.SBOM != "" && a.Type != contract.ArtifactImage:
+		result.AddError(path+".sbom", "PUBLISH_SBOM_NOT_IMAGE", fmt.Sprintf("%s is a %s; an SBOM is attached to images only", a.Name, a.Type))
+	case a.SBOM != "" && a.Build.Dockerfile != nil:
+		result.AddError(path+".sbom", "PUBLISH_SBOM_DOCKERFILE", fmt.Sprintf("%s is built from a Dockerfile, which writes no SBOM file; build it with a command that writes %s, or drop sbom", a.Name, a.SBOM))
+	}
+	if a.Build.Dockerfile != nil && a.Type != contract.ArtifactImage {
+		result.AddError(path+".build.dockerfile", "PUBLISH_DOCKERFILE_NOT_IMAGE", fmt.Sprintf("%s is a %s; the dockerfile builder builds images only, use command", a.Name, a.Type))
+	}
+	if !olderThan(version, "2.5") && (a.Build.Dockerfile != nil || len(a.Build.Command) > 0) {
+		result.AddWarning(path+".build", "PUBLISH_BUILD_DEPRECATED", "deprecated in 2.5: pacto ci --publish detects the build; remove build when detection gives the same result (pacto migrate does it, #552)")
 	}
 }
 

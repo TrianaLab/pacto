@@ -147,10 +147,11 @@ func TestCreateMinVersion(t *testing.T) {
 		input CreateInput
 		want  string
 	}{
-		{"plain", CreateInput{Name: "a"}, "2.0"},
-		{"external", CreateInput{Dependencies: []DependencyInput{{Name: "m", External: true, Version: "v1"}}}, "2.1"},
-		{"domain", CreateInput{Domain: "payments"}, "2.4"},
-		{"undeclared range", CreateInput{Domain: "payments", Dependencies: []DependencyInput{{Name: "a", Ref: "oci://r/a"}}}, "2.5"},
+		{"plain", CreateInput{Name: "a", Version: "1.0.0"}, "2.0"},
+		{"no version", CreateInput{Name: "a"}, "2.5"},
+		{"external", CreateInput{Version: "1.0.0", Dependencies: []DependencyInput{{Name: "m", External: true, Version: "v1"}}}, "2.1"},
+		{"domain", CreateInput{Version: "1.0.0", Domain: "payments"}, "2.4"},
+		{"undeclared range", CreateInput{Version: "1.0.0", Domain: "payments", Dependencies: []DependencyInput{{Name: "a", Ref: "oci://r/a"}}}, "2.5"},
 	} {
 		if got := createMinVersion(tc.input); got != tc.want {
 			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)

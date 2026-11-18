@@ -66,3 +66,24 @@ func TestCheckBump(t *testing.T) {
 		}
 	}
 }
+
+func TestFloor(t *testing.T) {
+	for _, tc := range []struct {
+		base string
+		need Bump
+		want string
+	}{
+		{"1.4.2", BumpPatch, "1.4.3"},
+		{"1.4.2", BumpMinor, "1.5.0"},
+		{"1.4.2", BumpMajor, "2.0.0"},
+		{"0.3.1", RequiredBump(Breaking, "0.3.1"), "0.4.0"},
+		{"2.0.0-rc.1", BumpPatch, "2.0.0"},
+	} {
+		if got, err := Floor(tc.base, tc.need); err != nil || got != tc.want {
+			t.Errorf("Floor(%s, %s) = %q, %v; want %s", tc.base, tc.need, got, err, tc.want)
+		}
+	}
+	if _, err := Floor("latest", BumpPatch); err == nil {
+		t.Error("a non-semver base must fail")
+	}
+}

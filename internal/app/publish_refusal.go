@@ -28,19 +28,16 @@ func defaultRefusalRepo(path string) (*remote.Repository, error) {
 // returns what to tell the person who ran publish, or "" when the version
 // rule did not refuse. It never changes the outcome: a refusal that could not
 // be kept is said beside it.
-func keepRefusal(ctx context.Context, env sysDeps, tools execTools, b *contract.Bundle, p publish.Plan) string {
+// pub is the effective publish section, declared or derived.
+func keepRefusal(ctx context.Context, env sysDeps, tools execTools, b *contract.Bundle, pub *contract.Publish, p publish.Plan) string {
 	r, ok := publish.VersionRefusal(p, env.now())
 	if !ok {
 		return ""
 	}
-	pub := b.Contract.Publish
-	if pub.Sign == nil {
-		return "the refusal was not kept: publish.sign is not configured, and a kept refusal is signed"
-	}
 	ctx, cancel := context.WithTimeout(ctx, refusalTimeout)
 	defer cancel()
 	repo := publish.Repo(pub.Bundle)
-	if err := pushRefusal(ctx, env, tools, b, *pub.Sign, repo, r); err != nil {
+	if err := pushRefusal(ctx, env, tools, b, publish.SignOf(pub), repo, r); err != nil {
 		return "the refusal was not kept in " + repo + ": " + err.Error()
 	}
 	return "the refusal is kept, signed, in " + repo

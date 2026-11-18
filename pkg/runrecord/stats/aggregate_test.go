@@ -178,6 +178,16 @@ func TestAggregatePublishCountsInRunsOnly(t *testing.T) {
 	}
 }
 
+// A publish pacto ci --publish held back for a provider of its run is a
+// refused publish, never a blocked gate.
+func TestBlockedPublishNotCountedAsGateBlocked(t *testing.T) {
+	pub := rec(runrecord.KindPublish, "1.0.0", hoursAgo(2))
+	pub.Outcome, pub.Gate = runrecord.OutcomeRefused, &runrecord.Gate{Verdict: runrecord.VerdictRefused, Reason: "dependency"}
+	if st := agg(set(pub)); st.Totals.Gates.Blocked != 0 || st.Runs != 1 {
+		t.Fatalf("runs %d gates %+v", st.Runs, st.Totals.Gates)
+	}
+}
+
 // A repository the tag scan did not find is said apart from an empty window.
 func TestAggregateRepositoryMissing(t *testing.T) {
 	st := agg(RecordSet{RepositoryMissing: true})

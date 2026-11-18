@@ -1,0 +1,23 @@
+openapi: 3.0.3
+info:
+  title: ledger
+  version: 1.1.0
+paths:
+  /entries:
+    get:
+      operationId: listEntries
+      responses:
+        "200":
+          description: The ledger entries.
+  /entries/{id}:
+    get:
+      operationId: getEntry
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: One ledger entry.

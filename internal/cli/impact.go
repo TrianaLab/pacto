@@ -117,21 +117,24 @@ func newImpactCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder
 			sp.StopOK("Analyzed", start)
 			out = impactRecord(revs, result)
 
-			if err := printImpactResult(cmd, result, format); err != nil {
-				return err
-			}
 			// Fail closed. A blocked change exits 1, as `pacto diff` does on a
 			// breaking change. An unverified one exits 2, so a CI job never reads
 			// "could not tell" as "safe", while a promotion job that gates on
 			// deployed impact alone can still tell the two apart.
+			var failed error
 			switch result.Gate {
 			case impact.GateBlocked:
-				return errors.New(result.GateReason)
+				failed = errors.New(result.GateReason)
 			case impact.GateUnverified:
-				_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "unverified: "+result.GateReason)
-				return &ExitError{Code: 2}
+				failed = &ExitError{Code: 2, Reason: "unverified: " + result.GateReason}
 			}
-			return nil
+			if format == "json" {
+				noteUnverified(cmd, result)
+				return printJSONExit(cmd, result, failed)
+			}
+			_ = printImpactResult(cmd, result, format) // ponytail: text and markdown output never fail
+			noteUnverified(cmd, result)
+			return failed
 		},
 	}
 
@@ -240,6 +243,13 @@ var impactLanes = []struct{ effect, title string }{
 }
 
 // printImpactResult renders an impact result as text or JSON.
+// noteUnverified writes the stderr line an unverified answer exits 2 with.
+func noteUnverified(cmd *cobra.Command, result *impact.Result) {
+	if result.Gate == impact.GateUnverified {
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "unverified: "+result.GateReason)
+	}
+}
+
 func printImpactResult(cmd *cobra.Command, result *impact.Result, format string) error {
 	return formatResult(cmd, format, result, func() error {
 		w := cmd.OutOrStdout()

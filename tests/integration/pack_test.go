@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -32,6 +33,7 @@ func testPackArchive(t *testing.T) {
 	}
 
 	svcDir := filepath.Join(dir, "pack-svc")
+	declareVersion(t, svcDir, "0.1.0")
 	output, err := runCommand(t, nil, "pack", svcDir)
 	if err != nil {
 		t.Fatalf("pack failed: %v\noutput: %s", err, output)
@@ -57,6 +59,7 @@ func testPackCustomOutput(t *testing.T) {
 	}
 
 	svcDir := filepath.Join(dir, "pack-out")
+	declareVersion(t, svcDir, "0.1.0")
 	outPath := filepath.Join(dir, "custom-output.tar.gz")
 	output, err := runCommand(t, nil, "pack", svcDir, "-o", outPath)
 	if err != nil {
@@ -80,6 +83,7 @@ func testPackJSON(t *testing.T) {
 	}
 
 	svcDir := filepath.Join(dir, "pack-json")
+	declareVersion(t, svcDir, "0.1.0")
 	output, err := runCommand(t, nil, "--output-format", "json", "pack", svcDir)
 	if err != nil {
 		t.Fatalf("pack json failed: %v\noutput: %s", err, output)
@@ -105,6 +109,7 @@ func testPackMarkdown(t *testing.T) {
 	}
 
 	svcDir := filepath.Join(dir, "pack-md")
+	declareVersion(t, svcDir, "0.1.0")
 	output, err := runCommand(t, nil, "--output-format", "markdown", "pack", svcDir)
 	if err != nil {
 		t.Fatalf("pack markdown failed: %v\noutput: %s", err, output)
@@ -157,4 +162,19 @@ func testPackHelp(t *testing.T) {
 	}
 	assertContains(t, output, "pack")
 	assertContains(t, output, "Usage")
+}
+
+// declareVersion declares service.version in the contract pacto init wrote,
+// which leaves it to pacto ci --publish: pacto pack names the archive by it.
+func declareVersion(t *testing.T, dir, version string) {
+	t.Helper()
+	path := filepath.Join(dir, "pacto.yaml")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := "  name: " + filepath.Base(dir) + "\n"
+	if err := os.WriteFile(path, []byte(strings.Replace(string(raw), name, name+"  version: "+version+"\n", 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }

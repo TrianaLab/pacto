@@ -70,12 +70,15 @@ func (r *Result) blockingCode() string {
 }
 
 // Blocking counts the consumers that hold the gate (see [Result.blocks]).
-func (r *Result) Blocking() int {
-	n := 0
+func (r *Result) Blocking() int { return len(r.BlockingServices()) }
+
+// BlockingServices names the consumers that hold the gate, in answer order.
+func (r *Result) BlockingServices() []string {
+	var out []string
 	for _, c := range r.Consumers {
 		if r.blocks(c) {
-			n++
+			out = append(out, c.Service)
 		}
 	}
-	return n
+	return out
 }

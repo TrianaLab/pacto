@@ -485,11 +485,9 @@ func boolOrFalse(p *bool) bool {
 }
 
 func buildCreateMap(input CreateInput) map[string]any {
-	m := map[string]any{
-		"service": map[string]any{
-			"name":    input.Name,
-			"version": defaultVersion(input.Version),
-		},
+	m := map[string]any{"service": map[string]any{"name": input.Name}}
+	if input.Version != "" { // empty: pacto ci --publish derives it
+		m["service"].(map[string]any)["version"] = input.Version
 	}
 	m["pactoVersion"] = createMinVersion(input)
 
@@ -653,7 +651,7 @@ func hasIdentity(deps []DependencyInput) bool {
 // meaning to keep, so it is never raised through contract.Upgrade.
 func createMinVersion(input CreateInput) string {
 	switch {
-	case len(undeclaredRanges(input.Dependencies)) > 0, hasIdentity(input.Dependencies):
+	case input.Version == "", len(undeclaredRanges(input.Dependencies)) > 0, hasIdentity(input.Dependencies):
 		return "2.5"
 	case input.Domain != "":
 		return "2.4"
@@ -2209,8 +2207,7 @@ func buildSuggestions(c *contract.Contract, bundleFS fs.FS, valid bool, inferred
 
 	if c.Service.Version == "" {
 		suggestions = append(suggestions, Suggestion{
-			Message:  "service.version is not declared; pacto publish needs one.",
-			ToolCall: &ToolCall{Tool: "pacto_edit", Params: map[string]any{"version": "0.1.0"}},
+			Message: "service.version is not declared, so pacto ci --publish derives it from the newest published version and the change (1.0.0 for the first); declare it to publish a version you choose.",
 		})
 	}
 
@@ -2322,13 +2319,6 @@ func ownerWarnings(team string) []string {
 }
 
 // --- Helpers ---
-
-func defaultVersion(v string) string {
-	if v == "" {
-		return "0.1.0"
-	}
-	return v
-}
 
 func collectDerived(input CreateInput, h descriptionHints) []string {
 	var derived []string

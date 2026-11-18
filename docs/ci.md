@@ -80,6 +80,76 @@ Until the first version is published there is nothing to compare with and
 `pacto diff` fails, so add this step after your first `pacto publish`. To
 compare two folders with no registry, run `pacto diff ./main ./feature-branch`.
 
+## Plan every service with pacto ci
+
+When one repository holds several services, `pacto ci` checks them all in one
+step. It finds every `pacto.yaml` under the repository root, skips the folders
+the root `.pactoignore` names and compares each service with its last
+published version in your registry. It writes nothing to the registry, so it
+needs only read credentials (`PACTO_REGISTRY_USERNAME` and
+`PACTO_REGISTRY_PASSWORD`):
+
+```yaml
+- name: Plan every service
+  run: pacto ci
+```
+
+The plan prints each value it detected with its source:
+
+- `CI`: GitHub Actions or GitLab CI, from `GITHUB_ACTIONS` or `GITLAB_CI`
+- `Registry`: `--registry`, else `ghcr.io/<owner>` on GitHub Actions or
+  `CI_REGISTRY_IMAGE` on GitLab CI
+- `Base`: the target branch or merge-request base, shown for context only;
+  Pacto reads no Git history and works on a shallow checkout
+- `Consumer source`: each source of consumers you named and what it answered,
+  or `not read` when no changed service has a published baseline
+
+Then one row per service:
+
+| Column | Shows |
+| --- | --- |
+| `SERVICE` | the service name |
+| `CHANGED` | whether its content differs from the published version |
+| `VERSION` | published version `->` the version it would publish |
+| `CLASSIFICATION` | `NON_BREAKING`, `POTENTIAL_BREAKING` or `BREAKING` |
+| `IMPACT` | `clear`, `blocked (...)` or `unverified (...)` |
+| `INFERRED` | how many fields Pacto read from the folder |
+
+--8<-- "examples/demo/generated/ci-plan.md"
+
+`pacto ci` exits like `pacto impact`: `0` clear, `1` blocked and `2`
+unverified. A folder Pacto cannot read makes the run unverified. A changed service reads `unverified (no consumer source)` until you
+name where its consumers are, with the flags `pacto impact` takes, such as `--root`,
+`--oci`, `--cache`, `--k8s`, `--evidence-url`, `--target-state` or `--traces`.
+
+`pacto ci --explain payments` shows why one row reads as it does: its
+baseline, what changed, each inferred field with its source and the consumers.
+Its exit code is that row's. `--output-format json` prints the plan as one JSON
+document, with the row's exit under `--explain`.
+
+`pacto ci` reads the organization catalog from `--external-catalog` or
+`PACTO_EXTERNAL_CATALOG` only, never from a `pacto` config file in the working
+directory: in CI that directory is the repository a pull request can change.
+
+On GitHub Actions the plan is also added to the job summary. On GitLab CI it
+is written to `pacto-plan.md`; keep it with
+`artifacts: paths: [pacto-plan.md]`.
+
+### Older contracts
+
+`pacto ci` raises an older `pactoVersion` in memory, in the bundle only,
+when that adds no validation finding. Its row says:
+
+- `ledger: pacto.yaml is 2.4, publishes as 2.5 (migrated in memory)`
+- `kept at 2.4 (<finding>)`: published as written when it declares a `publish`
+  section; with none, the row fails until you fix the finding and raise `pactoVersion`
+- `published as 2.4 (raises to 2.5 when it next changes)`: a raise alone never
+  republishes
+
+No note changes the exit code. The bundle records the raise in
+`pacto.inferred.yaml` ([Migrations](contract-reference/inferred-record.md#migrations)),
+shown as inferred in the dashboard. Your `pacto.yaml` is never rewritten.
+
 ## On every pull request: who breaks
 
 `pacto diff` says whether a change is breaking. `pacto impact` says which
@@ -120,7 +190,10 @@ fixture file, for demos and tests.
 
 ## After a merge: publish
 
-With the same login variables:
+To publish every changed service of the repository in one step, with the
+version and the build derived and keyless signing, use
+[`pacto ci --publish`](publish-from-ci.md). For one contract with a declared
+`publish` section and the same login variables:
 
 ```yaml
 - name: Set up a Docker builder
@@ -154,8 +227,9 @@ uploads only the contract.
 Sometimes a breaking change is the right call. Give it a new major version
 (`1.4.2` becomes `2.0.0`): `pacto publish` refuses a breaking change with a
 smaller version. With delivery, the change then waits for the teams whose
-services it would break. Do not remove fields or change `pactoVersion` to get
-past the check.
+services it would break. Do not remove fields to get past the check. Raising
+`pactoVersion` never hides a breaking change: `pacto ci` publishes an older
+contract as the current version only when that keeps its meaning.
 
 `pacto diff` still fails with the new major version, because the change is
 still breaking, so that pull request's check stays red. Merge it the way your

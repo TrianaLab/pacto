@@ -208,11 +208,16 @@ Catalog mode registers nothing else, so it cannot modify a contract. A root or a
 holding a service: it reads the Dockerfile and Kubernetes files and writes the
 contract. See [Pactify a service](pactify.md).
 
-- `describe_only: true` leaves out the publish section, for a request to
-  describe a service. With `delivery: true` it also writes the cluster files.
-- `domain`, `registry`, `environments`, `fleet_roots`, `no_transparency_log`,
-  `insecure_registry` and `registry_secret` match the CLI flags, and `dry_run`
-  plans without writing.
+- `describe_only: true` makes the next steps say how to validate the
+  contract instead of how to publish it, for a request to describe a service.
+  `delivery: true` also writes the cluster files and is refused with
+  `describe_only`.
+- `domain`, `registry`, `environments`, `fleet_roots`, `insecure_registry`
+  and `registry_secret` match the CLI flags, and `dry_run` plans without
+  writing. `no_transparency_log` applies with `from` only: it writes
+  `transparencyLog: false` under the golden path's `publish.sign`.
+- The contract has no publish section and no `service.version`:
+  `pacto ci --publish` derives both.
 - External dependencies are classified with the catalog the server was
   started with (`--external-catalog`).
 

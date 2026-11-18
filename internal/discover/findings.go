@@ -154,3 +154,41 @@ func (r *reader) unsupported(p, name string) bool {
 
 // unsupportedMessage says the file at source is not read, and why.
 func unsupportedMessage(source, why string) string { return source + " is not read: " + why }
+
+// severalToolsMessage says the folder shows the build tools labels, so Pacto
+// builds with none of them.
+func severalToolsMessage(labels []string) string {
+	return listed(labels) + " found; pass --image or declare publish"
+}
+
+// noBuildToolMessage says no build tool builds the image the workload at
+// source names.
+func noBuildToolMessage(source string) string {
+	return source + " names an image no Skaffold, ko, Jib, buildpacks or Dockerfile builds; pass --image or declare publish"
+}
+
+// skaffoldArtifactsMessage says the skaffold.yaml at source builds n
+// artifacts, and Pacto builds one image per service.
+func skaffoldArtifactsMessage(source string, n int) string {
+	return fmt.Sprintf("%s builds %d artifacts; Pacto builds one image per service: pass --image or declare publish", source, n)
+}
+
+// severalDeployMessage says the folder shows the deploy sources labels, so
+// Pacto assembles none of them.
+func severalDeployMessage(labels []string) string {
+	return listed(labels) + " found; declare publish"
+}
+
+// deployOutsideMessage says the kustomization line at source names a
+// resource outside the folder, which Pacto never copies.
+func deployOutsideMessage(source string) string {
+	return source + " names a resource outside the folder; Pacto deploys only the folder's files: declare publish"
+}
+
+// listed is "both a and b" for two items, else "a, b and c".
+func listed(items []string) string {
+	if len(items) == 2 {
+		return "both " + items[0] + " and " + items[1]
+	}
+	return strings.Join(items[:len(items)-1], ", ") + " and " + items[len(items)-1]
+}

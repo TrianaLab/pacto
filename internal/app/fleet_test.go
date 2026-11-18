@@ -616,3 +616,31 @@ func TestFleetK8sGroupingRows(t *testing.T) {
 		}
 	}
 }
+
+func TestConsumerSourcesOrder(t *testing.T) {
+	all := FleetOptions{
+		LocalRoots:         []string{"."},
+		TargetStateFiles:   []string{"t.yaml"},
+		EvidenceURLs:       []string{"https://u:p@e.example/?token=x"},
+		MiraURLs:           []string{"https://m.example"},
+		ObservationSources: TraceFileSources([]string{"traces.json"}),
+		CatalogRoots:       []string{"oci://r.example/acme/web:1.0.0"},
+		OCIRefs:            []string{"r.example/acme/api:1.0.0"},
+		IncludeCache:       true,
+		IncludeK8s:         true,
+		K8sNamespaces:      []string{"a", "b"},
+	}
+	want := []string{
+		"--root oci://r.example/acme/web:1.0.0", "--oci r.example/acme/api:1.0.0", "--cache", "--k8s (namespace a,b)",
+		"--evidence-url https://e.example/ (redacted)", "--mira-source https://m.example", "--target-state t.yaml", "--traces traces.json",
+	}
+	if got := all.ConsumerSources(); !slices.Equal(got, want) {
+		t.Fatalf("got %q\nwant %q", got, want)
+	}
+	if got := (FleetOptions{IncludeK8s: true}).ConsumerSources(); !slices.Equal(got, []string{"--k8s (all namespaces)"}) {
+		t.Fatalf("k8s = %q", got)
+	}
+	if got := (FleetOptions{LocalRoots: []string{"."}}).ConsumerSources(); len(got) != 0 {
+		t.Fatalf("local only = %q", got)
+	}
+}

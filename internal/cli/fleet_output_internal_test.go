@@ -246,6 +246,19 @@ func TestPrintTallies(t *testing.T) {
 	}
 }
 
+func TestFleetGetPrintsMigratedFrom(t *testing.T) {
+	var buf bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&buf)
+	rev := &fleet.RevisionDetailData{PactoVersion: "2.5", MigratedFrom: "2.4"}
+	if err := printFleetEntity(cmd, &fleet.EntityDetail{Entity: fleet.EntityRef{Kind: fleet.KindRevision}, Revision: rev}, "text"); err != nil {
+		t.Fatal(err)
+	}
+	if want := "Pacto version: 2.5 (migrated from 2.4, inferred)\n"; !strings.Contains(buf.String(), want) {
+		t.Errorf("revision text lacks %q:\n%s", want, buf.String())
+	}
+}
+
 func TestPrintRevisionPlace(t *testing.T) {
 	var buf bytes.Buffer
 	cmd := &cobra.Command{}

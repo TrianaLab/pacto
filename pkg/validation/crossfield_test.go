@@ -1141,6 +1141,27 @@ func TestValidatePublish(t *testing.T) {
 	}
 }
 
+// TestDeployMayNameAChart: the deploy artifact is a manifests or a chart
+// artifact; an image is still refused under the same code.
+func TestDeployMayNameAChart(t *testing.T) {
+	c := validV20Contract()
+	c.PactoVersion = "2.5"
+	c.Publish = &contract.Publish{Bundle: "oci://r/b", Deploy: "chart", Artifacts: []contract.PublishArtifact{
+		{Name: "chart", Type: "chart", Build: contract.PublishBuild{Command: []string{"x"}}},
+		{Name: "api", Type: "image", Build: contract.PublishBuild{Command: []string{"x"}}},
+	}}
+	var r ValidationResult
+	validatePublish(c, &r)
+	if len(r.Errors) != 0 {
+		t.Fatalf("a chart is a deploy artifact: %v", r.Errors)
+	}
+	c.Publish.Deploy = "api"
+	validatePublish(c, &r)
+	if len(r.Errors) != 1 || r.Errors[0].Code != "PUBLISH_DEPLOY_NOT_MANIFESTS" || r.Errors[0].Message != `deploy "api" must name a manifests or chart artifact` {
+		t.Fatalf("an image is no deploy artifact: %v", r.Errors)
+	}
+}
+
 func TestValidateMCPInterfaces(t *testing.T) {
 	codes := func(c *contract.Contract, fsys fs.FS) []string {
 		var r ValidationResult
@@ -1420,5 +1441,29 @@ func TestIdentityValid(t *testing.T) {
 	data["dependencies"].([]any)[0].(map[string]any)["identity"] = "Stripe"
 	if r := ValidateStructural(data); r.IsValid() {
 		t.Fatal("the 2.5 schema took an upper-case identity")
+	}
+}
+
+// TestBuildDeprecatedWarning: a declared build in a 2.5 contract warns that
+// pacto ci --publish detects it; an artifact without one and a 2.4 contract
+// get no warning, and a warning is never an error.
+func TestBuildDeprecatedWarning(t *testing.T) {
+	c := validV20Contract()
+	c.PactoVersion = "2.5"
+	c.Publish = &contract.Publish{Bundle: "oci://r/b", Artifacts: []contract.PublishArtifact{
+		{Name: "api", Type: "image", Build: contract.PublishBuild{Dockerfile: &contract.DockerfileBuild{Context: "."}}},
+		{Name: "web", Type: "image"},
+	}}
+	var r ValidationResult
+	validatePublish(c, &r)
+	if len(r.Errors) != 0 || len(r.Warnings) != 1 || r.Warnings[0].Code != "PUBLISH_BUILD_DEPRECATED" || r.Warnings[0].Path != "publish.artifacts[0].build" ||
+		r.Warnings[0].Message != "deprecated in 2.5: pacto ci --publish detects the build; remove build when detection gives the same result (pacto migrate does it, #552)" {
+		t.Fatalf("errors %v warnings %v", r.Errors, r.Warnings)
+	}
+	c.PactoVersion = "2.4"
+	r = ValidationResult{}
+	validatePublish(c, &r)
+	if len(r.Warnings) != 0 {
+		t.Fatalf("2.4 warnings %v", r.Warnings)
 	}
 }

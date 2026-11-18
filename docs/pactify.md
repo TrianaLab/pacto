@@ -31,8 +31,8 @@ You need:
   change is stored next to what you publish, in a registry that serves OCI
   Referrers. Without records a Stage stops at advise; see
   [What delivery needs](index.md#what-delivery-needs);
-- `cosign`, once, to make a signing key: `brew install cosign`, or
-  `go install github.com/sigstore/cosign/v2/cmd/cosign@latest`;
+- a CI that hands out an OIDC token (GitHub Actions or GitLab CI), so Pacto
+  signs keyless, or a cosign key pair if you sign with a key;
 - for step 4, a Kubernetes cluster (1.30 or later), `kubectl` and `helm`.
   People approve with a fresh company login, which needs a one-time cluster
   setup, maybe by you:
@@ -43,8 +43,8 @@ You need:
 Pacto writes the contract from your service.
 
 If you only want the contract and its CI checks, run
-`pacto init --describe-only`: the contract has no publish section and needs no
-signing key. Then go on to [Put it in your repository](ci.md): `pacto push`
+`pacto init --describe-only`: its next steps say how to validate the contract
+instead of how to publish it. Then go on to [Put it in your repository](ci.md): `pacto push`
 uploads the contract alone.
 
 ## 1. See what Pacto would add
@@ -64,9 +64,9 @@ image only Docker can push to. `--delivery` adds the cluster files of step 4, so
 the first version you publish already carries them. With `--plan` it shows
 exactly what it would add and changes nothing. For a private registry, add
 `--registry-secret registry-creds` (step 4 creates that Secret). For a local
-registry that speaks plain HTTP, add `--insecure-registry`; to keep a throwaway
-key's signatures out of the public
-[transparency log](glossary.md#transparency-log), add `--no-transparency-log`.
+registry that speaks plain HTTP, add `--insecure-registry`. `--no-transparency-log`
+applies with `--from` only: it writes `transparencyLog: false` under the
+golden path's `publish.sign`.
 
 The plan lists the services yours depends on, what Pacto could not work out,
 marked Unknown, and a **Next** list of what to do after.
@@ -78,22 +78,20 @@ Add any flags you needed in step 1, such as `--registry-secret`:
 ```bash
 pacto init --delivery --owner payments
 pacto validate
-echo cosign.key >> .gitignore
 ```
 
 `--owner` names the team that owns the service: the name of its group in your
 company login, whose members Pacto asks about this service
 ([Decide, unfreeze and roll back](pactify-decide.md)). `init` writes
-`pacto.yaml`, the `delivery/` folder and a `.pactoignore` that keeps the signing
-key out of what is published, and never overwrites your edits. For an image
+`pacto.yaml`, the `delivery/` folder and a `.pactoignore`, and never
+overwrites your edits. For an image
 `registry.example/acme/my-service:1.0.0` and the files `k8s/deployment.yaml` and
 `k8s/service.yaml`, the contract is:
 
 ```yaml
 pactoVersion: "2.5"        # 2.5 holds compatibility: unknown
 service:
-  name: my-service
-  version: 1.0.0            # from the image tag (0.1.0 and an Unknown if none)
+  name: my-service         # no version: pacto ci --publish derives it
   owner:
     team: payments
 workload: service           # from the Kubernetes workload kind
@@ -108,22 +106,13 @@ configurations:             # the environment, ConfigMaps included: keys and typ
   - name: env
     schema: configuration/schema.json
     required: true
-publish:
-  bundle: oci://registry.example/acme/contracts/my-service   # where the contract goes
-  deploy: manifests                                 # what Flux applies
-  artifacts:
-    - name: api
-      type: image
-      ref: oci://registry.example/acme/my-service
-      build: {dockerfile: {context: .}}
-    - name: manifests
-      type: manifests
-      ref: oci://registry.example/acme/deploy/my-service
-      build:                # your Kubernetes files, the image just built, delivery/pacto.yaml
-        command: [sh, -c, 'cp k8s/deployment.yaml k8s/service.yaml "$PACTO_OUT"/ && sed -E "s,(^|[{,[:space:]])(image:[[:space:]]*[\"'']?)registry\.example/acme/my-service:1\.0\.0([\"'']?[[:space:]]*([,}#]|$)),\1\2$PACTO_REF_API@$PACTO_DIGEST_API\3,g" k8s/deployment.yaml > "$PACTO_OUT"/deployment.yaml && { grep -qF "$PACTO_DIGEST_API" "$PACTO_OUT"/deployment.yaml || { echo "pacto: no image: registry.example/acme/my-service:1.0.0 line to pin" >&2; exit 1; }; } && sed "s/@PACTO_VERSION@/$PACTO_VERSION/" delivery/pacto.yaml > "$PACTO_OUT"/pacto-resource.yaml']
-  sign: {key: cosign.key}
 ```
 
+- The contract has no `publish` section and no `service.version`:
+  [`pacto ci --publish`](publish-from-ci.md) derives both, building the image
+  with the tool the folder shows and assembling the deploy artifact from your
+  Kubernetes files. The image tag, `1.0.0` here, is named under **Found** as
+  the version to declare for a first publish.
 - The configuration schema holds each key and its type, never a value, so it
   declares no defaults.
 - It marks a key `writeOnly` when its name holds password, passwd, secret,
@@ -150,10 +139,6 @@ publish:
   `pacto.yaml` declares `pactoVersion: "2.5"`, and `init` says so under
   **Next** when it writes an older version.
 
-Leave the long `command` line as it is: it copies your Kubernetes files with
-the image pinned to the digest this version built and names any file it cannot
-rewrite.
-
 Fill in what the plan marked Unknown, above all the dependencies:
 
 - Replace each `compatibility: unknown` with the versions yours accepts, such
@@ -170,23 +155,26 @@ Fill in what the plan marked Unknown, above all the dependencies:
 
 ## 3. Publish a version
 
+In your build pipeline, on the merged commit, after your tests:
+
 ```bash
-cosign generate-key-pair      # once: cosign.key (private) and cosign.pub
-export COSIGN_PASSWORD=...    # the password you chose
-pacto publish --plan
-pacto publish
+pacto ci              # what would be published, and the version; writes nothing
+pacto ci --publish    # publish it
 ```
 
-`--plan` changes nothing. `pacto publish` builds the image, pushes it with your
-Kubernetes files and the contract to your registry, signs them so anyone can
-check they came from you and labels them with the version in the contract. It
-reads `cosign.key` from the root of the repository, as `publish.sign` says. In
-your build pipeline, give the key and its password as secrets and run
-`pacto publish` after your tests.
+`pacto ci --publish` builds the image with the tool your folder uses, pushes it
+with your Kubernetes files and the contract to your registry and signs them so
+anyone can check they came from you. With no key configured, it signs keyless
+as the CI identity, which needs `id-token: write` on GitHub Actions or an
+`id_tokens` entry on GitLab, and prints that identity. To sign with a key
+instead, pass `--sign-key` with a key file outside the folder. The details are
+in [Publish from CI](publish-from-ci.md).
 
-Versions have three numbers, major.minor.patch, such as 2.4.1. Publishing
-refuses a version too small for the change (a change that breaks the services
-using yours needs 3.0.0) and never overwrites a published one; see
+Versions have three numbers, major.minor.patch, such as 2.4.1. With no
+`service.version` declared, the first publish is `1.0.0`, and each later one
+raises the number the change needs: a change that breaks the services using
+yours raises the major. A declared version too small for the change is
+refused, and a published version is never overwritten; see
 [Publish a version](publishing.md).
 
 ## 4. Connect the service to your cluster
@@ -219,13 +207,14 @@ Replace `staff` with your people's group; [Install](integrations/kubernetes/deli
 says why.
 
 Delivery is opt-in: without it, Pacto never changes what runs. Each environment
-is a namespace of the same name. Create them, give Flux your public key, so it
-takes only versions you signed, and apply the files `init` wrote:
+is a namespace of the same name. A Stage promotes nothing until you set
+`spec.verify.matchOIDCIdentity` in its `delivery/<env>.yaml` to the identity
+`pacto ci --publish` printed when it signed. On GitLab CI, also set its `issuer`
+to your GitLab's address. Then apply the files:
 
 ```bash
 for env in test prod; do
   kubectl create namespace $env
-  kubectl -n $env create secret generic cosign-pub --from-file=cosign.pub
   # a private registry only:
   kubectl -n $env create secret docker-registry registry-creds \
     --docker-server=registry.example --docker-username=<user> --docker-password=<token>
@@ -261,8 +250,8 @@ kubectl -n test describe stages.delivery.pacto.trianalab.io my-service  # if not
 
 ## 5. Ship the next version
 
-Make a change, raise `service.version` in `pacto.yaml`, then run
-`pacto publish`. While the Stages observe, you deploy the new tag as before:
+Make a change and merge it: `pacto ci --publish` publishes it with the next
+version the change needs, or with the `service.version` you declare. While the Stages observe, you deploy the new tag as before:
 set `spec.ref.tag` in `delivery/<env>.yaml` and apply it. Each Stage records
 what it would have done.
 

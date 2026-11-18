@@ -285,3 +285,11 @@ func TestFingerprintsFlagShared(t *testing.T) {
 		t.Errorf("dashboard Fingerprints = %q", got)
 	}
 }
+
+// TestEntryPointCommandOnlyForListViews: only the attention and sources entry
+// points name a CLI command; a services entry point names none.
+func TestEntryPointCommandOnlyForListViews(t *testing.T) {
+	if got := entryPointCommand(fleet.EntryPoint{View: fleet.EntryPointServices}); got != "" {
+		t.Fatalf("services entry point: %q", got)
+	}
+}
