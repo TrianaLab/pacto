@@ -55,6 +55,7 @@ func (s *Service) CIPlan(ctx context.Context, opts CIOptions) (*ci.Plan, map[str
 			return err
 		}
 		p.Notes = append(p.Notes, "unreadable, skipped: "+err.Error())
+		p.Unreadable++
 		return nil
 	})
 	if err != nil {
@@ -258,8 +259,8 @@ func (pl *ciPlanner) plan(ctx context.Context, f *ciFolder) {
 }
 
 // validate validates the folder with policy and configuration refs fenced
-// to the allowed host. A refused ref leaves the row unverified, never
-// invalid: what it would have said is unknown.
+// to the allowed host. A refused ref, of either kind, leaves the row
+// unverified, never invalid: what it would have said is unknown.
 func (pl *ciPlanner) validate(ctx context.Context, f *ciFolder) bool {
 	fence := &hostFence{inner: &bundleResolverAdapter{svc: pl.s, base: rootBase(f.dir)}, host: pl.allowed}
 	res := validation.ValidateWithResolver(ctx, f.b.Contract, f.b.RawYAML, f.b.FS, fence)
@@ -273,7 +274,7 @@ func (pl *ciPlanner) validate(ctx context.Context, f *ciFolder) bool {
 	case !res.IsValid():
 		f.decide(impact.GateBlocked, fmt.Sprintf("invalid: %d errors", len(res.Errors)))
 	case len(fence.refused) > 0:
-		f.decide(impact.GateUnverified, "policy ref on "+fence.refused[0]+" not fetched: outside the registry "+pl.registryName())
+		f.decide(impact.GateUnverified, "ref on "+fence.refused[0]+" not fetched: outside the registry "+pl.registryName())
 	}
 	return f.row.Impact.Gate == ""
 }
@@ -608,7 +609,7 @@ func (s *Service) ciImpacts(ctx context.Context, p *ci.Plan, folders []*ciFolder
 		io := ImpactOptions{OldPath: "oci://" + f.row.Repository + "@" + f.row.BaselineDigest, NewPath: f.dir, Domain: contract.OCIDomain(f.row.Repository), Fleet: fo}
 		res, err := fenced.impactOnResolved(ctx, io, snap, true, f.base, f.b)
 		if err != nil {
-			f.decide(impact.GateUnverified, ci.Redact("impact: "+err.Error()))
+			f.decide(impact.GateUnverified, "impact: "+err.Error())
 			continue
 		}
 		results[f.row.Service] = res

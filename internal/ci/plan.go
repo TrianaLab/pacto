@@ -10,11 +10,14 @@ import (
 // Plan is one pacto ci run: every detected value with its source, one row
 // per service folder and the gate the rows settle to.
 type Plan struct {
-	Platform        string       `json:"platform"`
-	Registry        Value        `json:"registry"`
-	Base            Value        `json:"base"`
-	OIDC            bool         `json:"oidc"`
-	Notes           []string     `json:"notes,omitempty"`
+	Platform string   `json:"platform"`
+	Registry Value    `json:"registry"`
+	Base     Value    `json:"base"`
+	OIDC     bool     `json:"oidc"`
+	Notes    []string `json:"notes,omitempty"`
+	// Unreadable counts the folders the walk could not read: each may hide
+	// a service, so the plan cannot read clear.
+	Unreadable      int          `json:"unreadable,omitempty"`
 	ConsumerSources []string     `json:"consumerSources,omitempty"`
 	Snapshot        SnapshotInfo `json:"snapshot"`
 	Skipped         []Skip       `json:"skipped,omitempty"`
@@ -76,10 +79,12 @@ type Impact struct {
 	Digest string `json:"digest"`
 }
 
-// Settle sets the plan's gate, exit code and reason from its rows: any
-// blocked row exits 1, else any unverified row 2, else 0. No rows under root
+// Settle redacts every note, reason and error the plan carries, then sets
+// its gate, exit code and reason from its rows: any blocked row exits 1,
+// else any unverified row or unreadable folder 2, else 0. No rows under root
 // is unverified: nothing verified is not clear.
 func (p *Plan) Settle(root string) {
+	p.redact()
 	p.Gate, p.Exit, p.Reason = impact.GateClear, 0, ""
 	if len(p.Rows) == 0 {
 		p.Gate, p.Exit, p.Reason = impact.GateUnverified, 2, "unverified: no pacto.yaml under "+root
@@ -97,8 +102,32 @@ func (p *Plan) Settle(root string) {
 		p.Gate, p.Exit = impact.GateBlocked, 1
 	case count[impact.GateUnverified] > 0:
 		p.Gate, p.Exit = impact.GateUnverified, 2
+	case p.Unreadable > 0:
+		p.Gate, p.Exit = impact.GateUnverified, 2
+		p.Reason = fmt.Sprintf("unverified: %d folders could not be read", p.Unreadable)
+		return
 	default:
 		return
 	}
 	p.Reason = fmt.Sprintf("%s: %d of %d services", p.Gate, count[p.Gate], len(p.Rows))
+}
+
+// redact passes every text a pull request or a source can shape through
+// Redact, before any renderer, the JSON or a record file reads it: a step
+// summary can be public.
+func (p *Plan) redact() {
+	redactAll(p.Notes)
+	for i := range p.Rows {
+		r := &p.Rows[i]
+		r.Impact.Text, r.Reason = Redact(r.Impact.Text), Redact(r.Reason)
+		redactAll(r.Notes)
+		redactAll(r.Errors)
+	}
+}
+
+// redactAll redacts each string of ss in place.
+func redactAll(ss []string) {
+	for i, s := range ss {
+		ss[i] = Redact(s)
+	}
 }

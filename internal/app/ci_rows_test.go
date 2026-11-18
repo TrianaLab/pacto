@@ -325,8 +325,14 @@ func TestCIPolicyRefOutsideRegistryNotFetched(t *testing.T) {
 	other, hits := countingHost(t)
 	e.write(t, map[string]string{"reports/pacto.yaml": reportsV1 + "policies:\n  - name: p\n    ref: oci://" + other + "/policy:1.0.0\n"})
 	r := row(t, e.plan(t), "reports")
-	if r.Impact.Text != "unverified (policy ref on "+other+" not fetched: outside the registry "+e.host+"/acme)" || hits.Load() != 0 {
+	want := "unverified (ref on " + other + " not fetched: outside the registry " + e.host + "/acme)"
+	if r.Impact.Text != want || hits.Load() != 0 {
 		t.Fatalf("row = %+v, %d requests", r, hits.Load())
+	}
+	// A configuration ref goes through the same fence and reads the same.
+	e.write(t, map[string]string{"reports/pacto.yaml": "pactoVersion: \"2.4\"\n" + reportsV1 + "configurations:\n  - name: db\n    ref: oci://" + other + "/pg:16.1.0\n    required: true\n"})
+	if r := row(t, e.plan(t), "reports"); r.Impact.Text != want || hits.Load() != 0 {
+		t.Fatalf("config ref row = %+v, %d requests", r, hits.Load())
 	}
 	// A contract invalid on its own stays blocked.
 	e.write(t, map[string]string{"reports/pacto.yaml": reportsV1 + "workload: nope\npolicies:\n  - ref: oci://" + other + "/policy:1.0.0\n"})

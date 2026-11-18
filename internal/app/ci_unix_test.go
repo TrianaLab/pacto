@@ -25,8 +25,12 @@ func TestCIPlanNotesUnreadableFolder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(p.Rows) != 1 || len(p.Notes) != 1 || !strings.HasPrefix(p.Notes[0], "unreadable, skipped: ") {
+	if len(p.Rows) != 1 || len(p.Notes) != 1 || !strings.HasPrefix(p.Notes[0], "unreadable, skipped: ") || p.Unreadable != 1 {
 		t.Fatalf("rows %+v, notes %v", p.Rows, p.Notes)
+	}
+	// The folder may hide a service, so the plan never reads clear.
+	if p.Exit != 2 || p.Gate != "unverified" {
+		t.Fatalf("exit %d, gate %s, reason %q", p.Exit, p.Gate, p.Reason)
 	}
 }
 
