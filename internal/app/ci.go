@@ -292,7 +292,8 @@ func (pl *ciPlanner) validate(ctx context.Context, f *ciFolder) bool {
 }
 
 // repository is the folder's bundle repository and whether a declared
-// source names it: publish.bundle when declared, else <registry>/<name>.
+// source names it: publish.bundle when declared, the repository a derived
+// section publishes to when none is, else <registry>/<name>.
 // It makes no request; a repository outside the allowed host is not read.
 func (pl *ciPlanner) repository(f *ciFolder) (string, bool, bool) {
 	reg := pl.p.Registry
@@ -305,7 +306,11 @@ func (pl *ciPlanner) repository(f *ciFolder) (string, bool, bool) {
 		return "", false, false
 	}
 	repo, declared := reg.Value+"/"+f.row.Service, reg.Source != "GITHUB_REPOSITORY_OWNER"
-	if pub := f.b.Contract.Publish; pub != nil && pub.Bundle != "" {
+	pub := f.b.Contract.Publish
+	if pub == nil {
+		repo = derivedBundleRepo(f.dir, reg.Value, f.row.Service)
+	}
+	if pub != nil && pub.Bundle != "" {
 		repo, declared = publish.Repo(pub.Bundle), true
 		if h := hostOf(repo); h != pl.allowed {
 			f.decide(impact.GateUnverified, "publish.bundle names "+h+", outside the registry "+reg.Value+"; pass --registry "+h+" to trust it")

@@ -609,3 +609,32 @@ func TestPublishRecordsImageDigests(t *testing.T) {
 		t.Fatalf("ledger images %v", r.Images)
 	}
 }
+
+// TestCIPlanReadsTheDerivedBundleRepository: a section-less folder whose
+// workload image lives at <registry>/<name> is planned against the
+// repository its derived section publishes to, <registry>/contracts/<name>,
+// never against the image.
+func TestCIPlanReadsTheDerivedBundleRepository(t *testing.T) {
+	e := newCIPub(t)
+	e.write(t, map[string]string{
+		"ledger/pacto.yaml": "pactoVersion: \"2.5\"\nservice:\n  name: ledger\n",
+		"ledger/.ko.yaml":   "builds:\n  - main: ./cmd/api\n", "ledger/k8s/deploy.yaml": deployment(e.host + "/acme/ledger:1.0"),
+	})
+	p, _, err := e.svc.CIPlan(t.Context(), CIOptions{Root: e.root, Registry: e.host + "/acme"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := pubRow(t, p, "ledger"); r.Repository != e.host+"/acme/contracts/ledger" {
+		t.Fatalf("row %+v", r)
+	}
+}
+
+// TestDerivedBundleRepoUnreadableFolder: a folder discovery cannot read has
+// no workload image, so its bundle is <registry>/<name>.
+func TestDerivedBundleRepoUnreadableFolder(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{".pactoignore/x": ""})
+	if got := derivedBundleRepo(dir, "r.io/acme", "ledger"); got != "r.io/acme/ledger" {
+		t.Fatal(got)
+	}
+}

@@ -67,10 +67,7 @@ type derivedOpts struct {
 // copied by nobody. With no tool and no supplied image, Build's findings
 // refuse it. epoch is the commit time builders get as SOURCE_DATE_EPOCH.
 func derivePublish(dir, name, registry string, bp discover.BuildPlan, findings []contract.InferredFinding, opts derivedOpts, run runner, epoch string) (*derived, error) {
-	imageRepo := ""
-	if bp.Image != "" {
-		imageRepo, _ = discover.ImageRepo(bp.Image)
-	}
+	imageRepo := workloadRepo(bp)
 	bundle, image, deploy := publish.Layout(registry, name, imageRepo)
 	d := &derived{pub: &contract.Publish{Bundle: "oci://" + bundle}, alt: publish.AltLayout(registry, name, imageRepo), deploy: deploy, created: createdAt(epoch)}
 	if opts.signKey != "" {
@@ -106,6 +103,27 @@ func derivePublish(dir, name, registry string, bp discover.BuildPlan, findings [
 		d.build = "no image to build"
 	}
 	return d, nil
+}
+
+// workloadRepo is the repository of the image bp's workload runs, "" for none.
+func workloadRepo(bp discover.BuildPlan) string {
+	if bp.Image == "" {
+		return ""
+	}
+	repo, _ := discover.ImageRepo(bp.Image)
+	return repo
+}
+
+// derivedBundleRepo is the repository a derived section for the service
+// name in dir publishes its bundle to under registry, as derivePublish
+// names it. A folder it cannot read has no workload image.
+func derivedBundleRepo(dir, registry, name string) string {
+	var bp discover.BuildPlan
+	if sc, err := discover.Dir(dir); err == nil {
+		bp, _ = discover.Build(dir, sc)
+	}
+	bundle, _, _ := publish.Layout(registry, name, workloadRepo(bp))
+	return bundle
 }
 
 // suppliedRecord is the images-record entry of ref (repo@digest), an image
