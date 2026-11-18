@@ -25,6 +25,10 @@ const AnnotationCreated = "org.opencontainers.image.created"
 type DeriveInput struct {
 	Repo, AltRepo string
 	Local         *contract.Bundle
+	// Publish is the local effective publish section: where a baseline
+	// published from a derived section, which its bundle does not carry,
+	// keeps its deploy artifact.
+	Publish *contract.Publish
 	Unchanged     func(base, local *contract.Bundle) (bool, string)
 	// Verify accepts repo@digest when the publisher identity signed it.
 	Verify func(ctx context.Context, ref string) error
@@ -72,7 +76,7 @@ func DeriveVersion(ctx context.Context, reg Registry, in DeriveInput) (Derived, 
 	if err != nil {
 		return Derived{}, fmt.Errorf("reading the baseline %s: %w", d.Baseline, err)
 	}
-	d.BaselineRevision, d.BaselineCreated = baselineRevision(ctx, reg, base, d.Baseline)
+	d.BaselineRevision, d.BaselineCreated = baselineRevision(ctx, reg, base, in.Publish, d.Baseline)
 	if same, _ := in.Unchanged(base, in.Local); same {
 		d.Version, d.Unchanged = d.Baseline, true
 		return d, nil
@@ -154,9 +158,14 @@ func satisfiesBases(ctx context.Context, reg Registry, in DeriveInput, tags []st
 
 // baselineRevision is the commit the baseline was published from and its
 // commit time: the annotations of its deploy artifact, else the commit its
-// inferred record names.
-func baselineRevision(ctx context.Context, reg Registry, base *contract.Bundle, version string) (string, string) {
-	if pub := base.Contract.Publish; pub != nil {
+// inferred record names. A baseline with no publish section of its own was
+// published from a derived one, which local names the same way.
+func baselineRevision(ctx context.Context, reg Registry, base *contract.Bundle, local *contract.Publish, version string) (string, string) {
+	pub := base.Contract.Publish
+	if pub == nil {
+		pub = local
+	}
+	if pub != nil {
 		for _, a := range pub.Artifacts {
 			if a.Name != pub.Deploy {
 				continue

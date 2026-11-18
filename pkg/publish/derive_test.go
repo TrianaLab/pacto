@@ -235,14 +235,33 @@ func TestDeriveVersionBaselineRevision(t *testing.T) {
 	rec := recordBundle(host, "1.4.2", "1", "src", false)
 	rec.Contract.Publish = &contract.Publish{Bundle: "oci://" + host + "/pacto/payments", Deploy: "manifests",
 		Artifacts: []contract.PublishArtifact{{Name: "chart", Ref: "oci://" + host + "/charts/payments"}, {Name: "manifests", Ref: "oci://" + host + "/nothing"}}}
-	rev, created := baselineRevision(context.Background(), reg, rec, "1.4.2")
+	rev, created := baselineRevision(context.Background(), reg, rec, nil, "1.4.2")
 	if rev != "" || created != "" {
 		t.Fatalf("record without commit: %q %q", rev, created)
 	}
 	r := &contract.InferredRecord{Format: contract.InferredRecordFormat, Inputs: contract.InferredInputs{Commit: "abc", Pacto: "x", Discovery: "1"}}
 	rec.FS = fstest.MapFS{contract.InferredRecordFile: {Data: r.Marshal()}}
 	rec.Contract.Publish = nil
-	if rev, _ := baselineRevision(context.Background(), reg, rec, "1.4.2"); rev != "abc" {
+	if rev, _ := baselineRevision(context.Background(), reg, rec, nil, "1.4.2"); rev != "abc" {
 		t.Fatalf("record commit: %q", rev)
+	}
+}
+
+// TestDeriveVersionBaselineRevisionDerivedSection: a baseline published from
+// a derived section carries no section of its own; its deploy artifact is
+// found through the local one, so its commit time is known.
+func TestDeriveVersionBaselineRevisionDerivedSection(t *testing.T) {
+	host, reg := newRegistry(t)
+	published := bundleOf(host, "1.4.3", workloadService)
+	if _, err := Apply(context.Background(), reg, newTools(), Input{Bundle: published, Revision: "rev2", Created: "2026-11-01T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	base := *published
+	c := *published.Contract
+	c.Publish = nil
+	base.Contract = &c
+	rev, created := baselineRevision(context.Background(), reg, &base, published.Contract.Publish, "1.4.3")
+	if rev != "rev2" || created != "2026-11-01T10:00:00Z" {
+		t.Fatalf("derived baseline: %q %q", rev, created)
 	}
 }

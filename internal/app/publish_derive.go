@@ -46,7 +46,7 @@ func deriveVersion(ctx context.Context, run runner, reg publish.Registry, tools 
 		return publish.Derived{}, fmt.Errorf("deriving service.version needs the publisher identity to verify the baseline: %w", err)
 	}
 	d, err := publish.DeriveVersion(ctx, reg, publish.DeriveInput{
-		Repo: publish.Repo(pub.Bundle), AltRepo: alt, Local: b, Unchanged: Unchanged,
+		Repo: publish.Repo(pub.Bundle), AltRepo: alt, Local: b, Publish: pub, Unchanged: Unchanged,
 		Verify: func(ctx context.Context, ref string) error { return tools.Verify(ctx, sign, ref) },
 	})
 	if err != nil {
