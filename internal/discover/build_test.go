@@ -299,6 +299,13 @@ func TestPublishYAML(t *testing.T) {
 				"    - name: manifests\n      type: manifests\n      ref: oci://<registry>/deploy/x\n"},
 		"chart only": {BuildPlan{Pinned: true, Deploy: &DeploySource{Kind: DeployChart}},
 			"publish:\n  bundle: oci://<registry>/x\n  deploy: chart\n  artifacts:\n    - name: chart\n      type: chart\n      ref: oci://<registry>/deploy/x\n"},
+		// The image already lives at <registry>/x: the bundle moves to
+		// contracts/x, as publish.Layout puts it, so the two never share a tag.
+		"image at the registry": {BuildPlan{Tool: ToolKo, Image: "ghcr.io/acme/x:1.2"},
+			"publish:\n  bundle: oci://<registry>/contracts/x\n  artifacts:\n    - name: image\n      type: image\n      ref: oci://<registry>/x\n"},
+		// A Docker Hub official image is never pushed to.
+		"library image": {BuildPlan{Tool: ToolKo, Image: "nginx:1.25"},
+			"publish:\n  bundle: oci://<registry>/x\n  artifacts:\n    - name: image\n      type: image\n      ref: oci://<registry>/images/x\n"},
 	}
 	for name, tc := range cases {
 		if got := publishYAML(tc.plan, "x"); got != tc.want {

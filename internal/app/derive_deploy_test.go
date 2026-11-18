@@ -341,6 +341,12 @@ func TestDeployKustomizeImagesEntry(t *testing.T) {
 	if !strings.Contains(got["kustomization.yaml"], "images:\n  - name: r.io/acme/payments\n    newName: other.example/img\n    digest: "+digest64) {
 		t.Fatalf("%s", got["kustomization.yaml"])
 	}
+	// kustomize matches the name as written: a Docker Hub short name is not
+	// docker.io/..., or the deploy would keep running the old tag.
+	_, got = deployed(t, map[string]string{"Dockerfile": "FROM scratch\n", "kustomization.yaml": "resources: [deploy.yaml]\n", "deploy.yaml": deployment("acme/payments:1.0")}, "docker.io/acme/payments@"+digest64)
+	if !strings.Contains(got["kustomization.yaml"], "images:\n  - name: acme/payments\n    newName: docker.io/acme/payments\n    digest: "+digest64) {
+		t.Fatalf("%s", got["kustomization.yaml"])
+	}
 }
 
 // chartFolder is a Dockerfile and a chart.

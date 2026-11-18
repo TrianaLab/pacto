@@ -378,6 +378,10 @@ func deployBuiltin(dir string, sc *discover.Scan, bp discover.BuildPlan, built b
 	if built && bp.Image != "" {
 		from, _ = discover.ImageRepo(bp.Image)
 		where, _, _ = strings.Cut(bp.ImageSource, ":")
+		set.written, _, _ = strings.Cut(bp.Image, "@")
+		if i := strings.LastIndex(set.written, ":"); i > strings.LastIndex(set.written, "/") {
+			set.written = set.written[:i]
+		}
 	}
 	if set.kind == discover.DeployChart {
 		if _, values := firstMapping(set.files["values.yaml"]); built && contract.MapValue(values, "image") == nil {
@@ -491,7 +495,10 @@ func noDetection(a contract.PublishArtifact, findings []contract.InferredFinding
 // was left out.
 type deployFiles struct {
 	kind, chartDir, chartName, resource string
-	files                               map[string][]byte
+	// written is the workload image's name as the manifests write it, with
+	// no tag or digest: kustomize matches an images entry by it literally.
+	written string
+	files   map[string][]byte
 	notes                               []string
 }
 
@@ -743,7 +750,7 @@ func (s *deployFiles) builtin(built bool, from, where, img, supplied string) pub
 			return writeChart(out, s.chartName, files, built, ref, version)
 		case from == "":
 		case s.kind == discover.DeployKustomize:
-			pinKustomizations(files, from, ref)
+			pinKustomizations(files, s.written, ref)
 		default:
 			if pinManifests(files, from, ref) == 0 {
 				return fmt.Errorf("deploy: no image: %s line to pin in %s", from, where)

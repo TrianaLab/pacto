@@ -353,10 +353,21 @@ func (c *completion) publish(dir, name string) []contract.InferredFinding {
 
 // publishYAML is a publish section equivalent to the plan p for the service
 // name, without a build command: pacto ci --publish detects the build.
-// <registry> stands for the registry the contract publishes to.
+// <registry> stands for the registry the contract publishes to; the
+// repositories follow publish.Layout (copied: discover stays free of the
+// registry client) with the workload image's own registry as <registry>
+// when it names one (a Docker Hub official image names none), so the
+// snippet keeps the bundle where a derived publish put it.
 func publishYAML(p BuildPlan, name string) string {
+	bundle, image, deploy := "<registry>/"+name, "<registry>/images/"+name, "<registry>/deploy/"+name
+	if repo, _ := ImageRepo(p.Image); p.Image != "" && !strings.HasPrefix(repo, "docker.io/library/") {
+		image = "<registry>/" + path.Base(repo)
+	}
+	if image == bundle {
+		bundle = "<registry>/contracts/" + name
+	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "publish:\n  bundle: oci://<registry>/%s\n", name)
+	fmt.Fprintf(&b, "publish:\n  bundle: oci://%s\n", bundle)
 	art := ""
 	if p.Deploy != nil {
 		art = DeployManifests
@@ -370,14 +381,10 @@ func publishYAML(p BuildPlan, name string) string {
 	}
 	b.WriteString("  artifacts:\n")
 	if p.Tool != "" {
-		ref := "<registry>/images/" + name
-		if p.Image != "" {
-			ref, _ = ImageRepo(p.Image)
-		}
-		fmt.Fprintf(&b, "    - name: image\n      type: image\n      ref: oci://%s\n", ref)
+		fmt.Fprintf(&b, "    - name: image\n      type: image\n      ref: oci://%s\n", image)
 	}
 	if art != "" {
-		fmt.Fprintf(&b, "    - name: %s\n      type: %s\n      ref: oci://<registry>/deploy/%s\n", art, art, name)
+		fmt.Fprintf(&b, "    - name: %s\n      type: %s\n      ref: oci://%s\n", art, art, deploy)
 	}
 	return b.String()
 }
