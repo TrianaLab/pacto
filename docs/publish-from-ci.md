@@ -26,6 +26,10 @@ source. Pacto never writes them into `pacto.yaml`.
 | An image built elsewhere | `--image` or a workload image pinned by digest | field `publish.build`, source `flag:--image` or `<manifest>:<line>` |
 | The repositories | The registry `pacto ci` resolved, and the service name | bundle `<registry>/<name>` (or `<registry>/contracts/<name>` when the image already lives at `<registry>/<name>`), image `<registry>/images/<name>` unless the workload's image is under the registry, deploy `<registry>/deploy/<name>` |
 
+A service that depends on one with a derived section sets the dependency's
+`ref` to that bundle repository, such as `oci://ghcr.io/acme/contracts/ledger`
+when the ledger image lives at `ghcr.io/acme/ledger`.
+
 ## The derived version
 
 The baseline is the highest final release in the bundle repository whose
@@ -79,20 +83,23 @@ folder through the root `.pactoignore` and pins the image by digest.
 | Source | What ships |
 |---|---|
 | Plain manifests | Each file under its folder path, each `image:` of the built repository set to `<repo>@<digest>` |
-| Kustomization | `kustomization.yaml` and only the files its `resources`, `patches`, `components` and `configMapGenerator` name, each kustomization with an `images:` entry for the digest |
+| Kustomization | The kustomization no other one names, and only the files its `resources`, `patches`, `components` and `configMapGenerator` name, at their folder paths, each kustomization with an `images:` entry for the digest. A kustomization in a subfolder, such as `k8s/`, keeps that path, so the applier reads the artifact from it |
 | Helm chart | The chart packaged as a `.tgz`, filtered by `.helmignore`, with `version` and `appVersion` set to the service version and the image digest in `values.yaml`. The chart is the deploy artifact |
-| `delivery/pacto.yaml` | Ships as `pacto-resource.yaml` with the version filled in |
+| `delivery/pacto.yaml` | Ships with the version filled in: as `pacto-resource.yaml` beside the manifests, also added to the root kustomization's `resources`, or as the chart's `templates/pacto-resource.yaml` |
 
 Pacto leaves out, with a plan note:
 
 - every file holding a `kind: Secret`;
 - a kustomization with a `secretGenerator`, and the files and env files it names;
+- a chart's per-environment `values-<env>.yaml` files;
 - files listed in `.pactoignore`.
 
 A symbolic link, or a Kustomization path outside the folder, fails the
 service. Every file Pacto would ship is scanned for sensitive literal values,
 such as a password in a ConfigMap or a chart's values: a hit fails that service
-and names the file.
+and names the file. A values key that only names a Secret, such as
+`existingSecret: my-secret`, can be a hit too; move it to a `values-<env>.yaml`
+file, which never ships.
 
 ## Signing
 

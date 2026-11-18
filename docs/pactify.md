@@ -209,7 +209,8 @@ says why.
 Delivery is opt-in: without it, Pacto never changes what runs. Each environment
 is a namespace of the same name. A Stage promotes nothing until you set
 `spec.verify.matchOIDCIdentity` in its `delivery/<env>.yaml` to the identity
-`pacto ci --publish` printed when it signed. Then apply the files:
+`pacto ci --publish` printed when it signed. On GitLab CI, also set its `issuer`
+to your GitLab's address. Then apply the files:
 
 ```bash
 for env in test prod; do
