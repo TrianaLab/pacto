@@ -2322,7 +2322,7 @@ export const ROUTES: Route[] = [
     },
   },
   { name: 'service page with Stages', open: serviceWithStages('#/fleet/services/registry.example%252Fstory%2Fpayments') },
-  { name: 'service page, Stage running nothing yet', open: serviceWithStages('#/fleet/services/audit-log') },
+  { name: 'service page, Stage waiting on a new signer', open: serviceWithStages('#/fleet/services/audit-log') },
   {
     name: 'service page, Why card open',
     open: async (page) => {

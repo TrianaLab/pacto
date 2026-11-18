@@ -2748,4 +2748,21 @@ describe('publisher trust (511-S3)', () => {
     expect(orders.querySelector('[data-testid="published-publisher"]')).toBeNull();
     destroy();
   });
+
+  it('says when no check accepts a version and names the policy in the mark', async () => {
+    fns.published.mockResolvedValue({ ...listing, services: [
+      { service: 'audit-log', versions: [{ digest: D1, version: '1.0.0', signature: 'signed', stages: [] }],
+        publisher: { source: 'none', policyRef: 'ghcr.io/acme/policy:v1', policyDigest: 'sha256:p', policyAt: '2026-11-01T09:00:00Z', message: 'the delivery policy could not be verified', verdicts: [] } },
+    ] });
+    const { target, destroy } = render(DeliveryPublishView, {});
+    await settle();
+    const line = target.querySelector('[data-testid="published-publisher"]') as HTMLElement;
+    expect(text(line)).toContain('No publisher check: only a pinned signer is accepted');
+    (line.querySelector('.help-btn') as HTMLButtonElement).click();
+    await settle();
+    expect(text(line)).toContain('Policy ghcr.io/acme/policy:v1 at sha256:p, signed');
+    expect(text(line)).toContain('the delivery policy could not be verified');
+    expect(target.querySelector('[data-testid="published-publisher-checks"]')).toBeNull();
+    destroy();
+  });
 });
