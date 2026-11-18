@@ -202,16 +202,20 @@ func (r *Recorder) Reconcile(ctx context.Context, req reconcile.Request) (reconc
 	if err := r.ready(ctx, stage, ignored, anchor.mode, approvals); err != nil {
 		return reconcile.Result{}, err
 	}
-	w := &writer{Recorder: r, stage: stage, anchor: anchor, recs: recs}
+	return r.writeAll(ctx, &writer{Recorder: r, stage: stage, anchor: anchor, recs: recs}, items)
+}
+
+// writeAll records items in order, stopping at the first that must wait.
+func (r *Recorder) writeAll(ctx context.Context, w *writer, items []item) (reconcile.Result, error) {
 	for i, it := range items {
 		wait, err := w.record(ctx, it)
 		if err != nil {
-			return r.notReady(ctx, stage, storeReason(err), err)
+			return r.notReady(ctx, w.stage, storeReason(err), err)
 		}
 		if wait > 0 {
 			return reconcile.Result{RequeueAfter: wait}, nil
 		}
-		RecordsPending.WithLabelValues(stream.ID).Set(float64(len(items) - i - 1))
+		RecordsPending.WithLabelValues(w.stage.Status.Stream.ID).Set(float64(len(items) - i - 1))
 	}
 	return reconcile.Result{}, nil
 }

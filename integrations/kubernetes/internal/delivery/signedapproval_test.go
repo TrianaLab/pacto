@@ -127,14 +127,7 @@ func TestScanSignedCreatesView(t *testing.T) {
 	if len(views) != 1 {
 		t.Fatalf("views = %+v", views)
 	}
-	v := views[0].Spec
-	if v.By != aliceUser || v.Record != ref || v.SignedAt == "" || v.Decision != delivery.Approve || v.Note != "ship it" ||
-		v.OperationUID != string(o.UID) || v.IntentDigest != o.Spec.IntentDigest || len(v.Groups) != 0 || v.AuthTime != "" {
-		t.Fatalf("view = %+v", v)
-	}
-	if own := views[0].OwnerReferences; len(own) != 1 || own[0].UID != o.UID {
-		t.Fatalf("owners = %+v", own)
-	}
+	checkAliceView(t, views[0], ref, o)
 	// Another pass creates nothing new.
 	re.recordApprovals(ar)
 	if len(re.views()) != 1 {
@@ -144,9 +137,26 @@ func TestScanSignedCreatesView(t *testing.T) {
 	// The promoter counts the view only through its verified record.
 	re.op.Records, re.op.Policy = true, withSigners(delivery.ClassPolicy{}, ss)
 	got, why := re.op.approval(context.Background(), re.getOp("p1"), re.getStage())
-	if got == nil || got.By != aliceUser || got.ClassifiedBy != delivery.ClassByUser || got.Record == "" ||
-		got.Signer == nil || got.Signer.Kind != delivery.SignerPerson || got.AccessSource != delivery.AccessBySubjectReview {
+	personCounted := got != nil && got.Signer != nil && got.Signer.Kind == delivery.SignerPerson
+	if !personCounted || got.By != aliceUser || got.ClassifiedBy != delivery.ClassByUser || got.Record == "" ||
+		got.AccessSource != delivery.AccessBySubjectReview {
 		t.Fatalf("counted %+v (%q)", got, why)
+	}
+}
+
+// checkAliceView fails unless a is the view of alice's keyless record ref on
+// o: her mapped user, no groups or login time, owned by o.
+func checkAliceView(t *testing.T, a dv1.Approval, ref string, o *dv1.Operation) {
+	t.Helper()
+	v := a.Spec
+	if v.By != aliceUser || v.Record != ref || v.SignedAt == "" || v.Decision != delivery.Approve || v.Note != "ship it" {
+		t.Fatalf("view = %+v", v)
+	}
+	if v.OperationUID != string(o.UID) || v.IntentDigest != o.Spec.IntentDigest || len(v.Groups) != 0 || v.AuthTime != "" {
+		t.Fatalf("view = %+v", v)
+	}
+	if own := a.OwnerReferences; len(own) != 1 || own[0].UID != o.UID {
+		t.Fatalf("owners = %+v", own)
 	}
 }
 

@@ -350,12 +350,6 @@ tests:
         documentSelector:
           path: 'spec.validations[0].message'
           value: "status.stream.registryMode is native and may not narrow to write-once-tags"
-      - equal:
-          path: 'spec.validations[0].message'
-          value: "status.stream.registryMode is native and may not narrow to write-once-tags"
-        documentSelector:
-          path: 'spec.validations[0].message'
-          value: "status.stream.registryMode is native and may not narrow to write-once-tags"
 
   - it: keeps an approval's record to the recorder and pins a Stage's approvals reference
     capabilities:
