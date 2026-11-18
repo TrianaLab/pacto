@@ -1,11 +1,14 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -14,10 +17,15 @@ import (
 	"strings"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/trianalab/pacto/v4/internal/ci"
 	"github.com/trianalab/pacto/v4/internal/discover"
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/ignore"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/publish"
+	"github.com/trianalab/pacto/v4/pkg/schemax"
 )
 
 // derivedImage is the name of the image artifact a derived publish section
@@ -32,8 +40,9 @@ type derived struct {
 	// the plan checks each is there before anything is built.
 	builtins map[string]publish.Builtin
 	programs []string
-	// alt is the bundle repository the layout did not pick.
-	alt string
+	// alt is the bundle repository the layout did not pick; deploy is the
+	// repository of the deploy artifact.
+	alt, deploy string
 	// created is the commit time stamped on derived artifacts, "" unknown.
 	created string
 	// build says how the image is had, shown with the plan's checks.
@@ -58,8 +67,8 @@ func derivePublish(dir, name, registry string, bp discover.BuildPlan, findings [
 	if bp.Image != "" {
 		imageRepo, _ = discover.ImageRepo(bp.Image)
 	}
-	bundle, image, _ := publish.Layout(registry, name, imageRepo)
-	d := &derived{pub: &contract.Publish{Bundle: "oci://" + bundle}, alt: publish.AltLayout(registry, name, imageRepo), created: createdAt(epoch)}
+	bundle, image, deploy := publish.Layout(registry, name, imageRepo)
+	d := &derived{pub: &contract.Publish{Bundle: "oci://" + bundle}, alt: publish.AltLayout(registry, name, imageRepo), deploy: deploy, created: createdAt(epoch)}
 	if opts.signKey != "" {
 		d.pub.Sign = &contract.PublishSign{Key: opts.signKey}
 		if opts.noTLog {
@@ -233,6 +242,9 @@ func deriveSection(ctx context.Context, dir string, b *contract.Bundle, opts Pub
 	}
 	d, err := derivePublish(dir, c.Service.Name, registry, bp, findings,
 		derivedOpts{image: opts.Image, signKey: opts.SignKey, noTLog: opts.NoTransparencyLog}, run, commitEpoch(ctx, opts.Getenv, run, dir))
+	if err == nil {
+		err = d.addDeploy(dir, sc, bp, findings, opts.Image)
+	}
 	if err == nil && opts.Image != "" {
 		b, err = suppliedImage(b, opts.Image, in)
 	}
@@ -268,4 +280,580 @@ func suppliedImage(b *contract.Bundle, ref string, in contract.InferredInputs) (
 	rec.Fields = append(rec.Fields, contract.Inferred{Field: "publish.build", Value: "image supplied, not built by Pacto: " + ref,
 		Source: "flag:--image", Confidence: contract.ConfidenceLikely})
 	return &contract.Bundle{Contract: b.Contract, RawYAML: b.RawYAML, FS: contract.WithInferredRecord(b.FS, rec.Marshal())}, nil
+}
+
+// addDeploy adds the deploy artifact the folder's one deploy source gives:
+// its manifests or its kustomization as a manifests artifact, or its chart,
+// which is its own deploy artifact. Pacto writes no applier object: any
+// applier that takes plain manifests or a Helm OCI chart deploys it. The
+// image the workload names is pinned to the one this publish builds, or to
+// supplied (--image). Several deploy sources, or a kustomization that leaves
+// the folder, refuse it with Build's finding.
+func (d *derived) addDeploy(dir string, sc *discover.Scan, bp discover.BuildPlan, findings []contract.InferredFinding, supplied string) error {
+	if bp.Deploy == nil {
+		var msgs []string
+		for _, f := range findings {
+			// ponytail: every build-tool finding asks for --image; the rest are the deploy's.
+			if !strings.Contains(f.Message, "pass --image") {
+				msgs = append(msgs, "finding: "+f.Message)
+			}
+		}
+		if len(msgs) > 0 {
+			return fmt.Errorf("the deploy artifact cannot be assembled: %s", strings.Join(msgs, "; "))
+		}
+		return nil
+	}
+	set, err := readDeploy(dir, sc, *bp.Deploy)
+	if err != nil {
+		return err
+	}
+	// built: this publish builds the image, or --image supplies it; either
+	// way the deploy pins it. A workload image pinned by digest is kept.
+	built, from, where := supplied != "" || bp.Tool != "", "", ""
+	if built && bp.Image != "" {
+		from, _ = discover.ImageRepo(bp.Image)
+		where, _, _ = strings.Cut(bp.ImageSource, ":")
+	}
+	name := contract.ArtifactManifests
+	if set.kind == discover.DeployChart {
+		name = contract.ArtifactChart
+		if _, values := firstMapping(set.files["values.yaml"]); built && contract.MapValue(values, "image") == nil {
+			return fmt.Errorf("deploy: %s/values.yaml has no image: to pin the image this publish deploys in: declare publish", set.chartDir)
+		}
+	}
+	d.pub.Deploy = name
+	d.pub.Artifacts = append(d.pub.Artifacts, contract.PublishArtifact{Name: name, Type: name, Ref: "oci://" + d.deploy})
+	if d.builtins == nil {
+		d.builtins = map[string]publish.Builtin{}
+	}
+	d.builtins[name] = set.builtin(built, from, where, supplied)
+	d.notes = append(d.notes, set.notes...)
+	return nil
+}
+
+// deployFiles is what a derived deploy artifact ships, read once when the
+// section is derived: the files by output path (for a chart, by path in the
+// chart), the chart's folder and name, the Pacto resource's path and what
+// was left out.
+type deployFiles struct {
+	kind, chartDir, chartName, resource string
+	files                               map[string][]byte
+	notes                               []string
+}
+
+// folder reads the service folder through its root, so no read leaves it:
+// fsys with .pactoignore applied, root as written.
+type folder struct {
+	root *os.Root
+	fsys fs.FS
+}
+
+func openFolder(dir string) (*folder, error) {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	ign, err := ignore.Load(root.FS())
+	if err != nil {
+		_ = root.Close()
+		return nil, err
+	}
+	return &folder{root: root, fsys: ignore.FS(root.FS(), ign)}, nil
+}
+
+// read is the regular file p of fsys; a symlink is refused.
+func (f *folder) read(fsys fs.FS, p string) ([]byte, error) {
+	if info, err := f.root.Lstat(filepath.FromSlash(p)); err == nil && info.Mode()&fs.ModeSymlink != 0 {
+		return nil, fmt.Errorf("deploy: %s is a symlink; Pacto copies regular files only", p)
+	}
+	raw, err := fs.ReadFile(fsys, p)
+	if errors.Is(err, fs.ErrNotExist) {
+		err = fmt.Errorf("deploy: %s is missing from the folder or left out by .pactoignore: %w", p, fs.ErrNotExist)
+	}
+	return raw, err
+}
+
+// readDeploy reads the files the deploy source src ships, leaves out every
+// file holding a Secret, and refuses a file that sets a sensitive literal.
+func readDeploy(dir string, sc *discover.Scan, src discover.DeploySource) (*deployFiles, error) {
+	f, err := openFolder(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.root.Close() }()
+	set := &deployFiles{kind: src.Kind, files: map[string][]byte{}, resource: "pacto-resource.yaml"}
+	for _, s := range sc.Secrets {
+		set.leftOut(s)
+	}
+	switch src.Kind {
+	case discover.DeployChart:
+		set.resource = "templates/pacto-resource.yaml"
+		err = set.chart(f, src.Paths[0])
+	case discover.DeployKustomize:
+		set.resource = path.Join(path.Dir(src.Paths[0]), set.resource)
+		err = set.kustomize(f, sc.Secrets, src.Paths[0], map[string]bool{})
+	default:
+		for _, p := range src.Paths {
+			if err = set.copy(f, p); err != nil {
+				break
+			}
+		}
+	}
+	if err == nil {
+		err = set.pactoResource(f, src)
+	}
+	if err == nil {
+		err = scanOutput(set.chartDir, set.files)
+	}
+	return set, err
+}
+
+// leftOut notes that the file p holds a Secret and does not ship.
+func (s *deployFiles) leftOut(p string) {
+	note := p + " holds a Secret's values, so it is left out of the deploy artifact, which anyone who can pull it reads; " +
+		"supply it another way (a SealedSecret, an ExternalSecret or SOPS)"
+	if !slices.Contains(s.notes, note) {
+		s.notes = append(s.notes, note)
+	}
+}
+
+// copy ships the file p, unless it holds a Secret.
+func (s *deployFiles) copy(f *folder, p string) error {
+	raw, err := f.read(f.fsys, p)
+	if err != nil {
+		return err
+	}
+	if secretFile(raw) {
+		s.leftOut(p)
+		return nil
+	}
+	s.files[p] = raw
+	return nil
+}
+
+// kustomization is what a kustomization.yaml names that a deploy needs.
+// ponytail: crds, replacements and openapi paths are not copied; add them
+// when a folder needs them.
+type kustomization struct {
+	Resources             []string `yaml:"resources"`
+	Bases                 []string `yaml:"bases"`
+	Components            []string `yaml:"components"`
+	PatchesStrategicMerge []string `yaml:"patchesStrategicMerge"`
+	Patches               []struct {
+		Path string `yaml:"path"`
+	} `yaml:"patches"`
+	ConfigMapGenerator []struct {
+		Files []string `yaml:"files"`
+		Envs  []string `yaml:"envs"`
+		Env   string   `yaml:"env"`
+	} `yaml:"configMapGenerator"`
+}
+
+// refs are the local paths k names, inline patches left out.
+func (k kustomization) refs() []string {
+	refs := slices.Concat(k.Resources, k.Bases, k.Components)
+	for _, p := range k.PatchesStrategicMerge {
+		if !strings.Contains(p, "\n") {
+			refs = append(refs, p)
+		}
+	}
+	for _, p := range k.Patches {
+		refs = append(refs, p.Path)
+	}
+	for _, g := range k.ConfigMapGenerator {
+		for _, file := range g.Files {
+			if _, src, ok := strings.Cut(file, "="); ok {
+				file = src // key=path
+			}
+			refs = append(refs, file)
+		}
+		refs = append(append(refs, g.Envs...), g.Env)
+	}
+	return slices.DeleteFunc(refs, func(r string) bool { return r == "" || discover.RemoteResource(r) })
+}
+
+// kustomize ships the kustomization p and the files it names, through nested
+// kustomizations. A kustomization holding a secretGenerator is left out, with
+// every file it names.
+func (s *deployFiles) kustomize(f *folder, secrets []string, p string, seen map[string]bool) error {
+	if seen[p] || slices.Contains(secrets, p) {
+		return nil
+	}
+	seen[p] = true
+	raw, err := f.read(f.fsys, p)
+	if err != nil {
+		return err
+	}
+	s.files[p] = raw
+	var k kustomization
+	_ = yaml.Unmarshal(raw, &k) // ponytail: what does not decode names nothing; kustomize says so on the cluster
+	for _, ref := range k.refs() {
+		if err := s.kustomizeRef(f, secrets, p, ref, seen); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// kustomizeRef ships what the kustomization p names as ref: a folder's
+// kustomization, else the file.
+func (s *deployFiles) kustomizeRef(f *folder, secrets []string, p, ref string, seen map[string]bool) error {
+	local := path.Join(path.Dir(p), ref)
+	if !fs.ValidPath(local) {
+		return fmt.Errorf("deploy: %s names %s, outside the folder; Pacto deploys only the folder's files: declare publish", p, ref)
+	}
+	if info, err := fs.Stat(f.fsys, local); err == nil && info.IsDir() {
+		return s.kustomize(f, secrets, path.Join(local, "kustomization.yaml"), seen)
+	}
+	return s.copy(f, local)
+}
+
+// chart ships the chart folder dir, less what its .helmignore names and its
+// per-environment values files.
+func (s *deployFiles) chart(f *folder, dir string) error {
+	s.chartDir = dir
+	raw, err := f.read(f.fsys, path.Join(dir, ".helmignore"))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	helmignore := ignore.New(strings.Split(string(raw), "\n"))
+	err = fs.WalkDir(f.fsys, dir, func(p string, e fs.DirEntry, err error) error {
+		rel := strings.TrimPrefix(p, dir+"/")
+		switch {
+		case err != nil:
+			return err
+		case p == dir:
+		case helmignore.Ignored(rel, e.IsDir()) && e.IsDir():
+			return fs.SkipDir
+		case helmignore.Ignored(rel, e.IsDir()) || e.IsDir():
+		case !strings.Contains(rel, "/") && strings.HasPrefix(rel, "values-"):
+			s.notes = append(s.notes, p+" holds per-environment values, so it is left out of the chart")
+		default:
+			raw, err := f.read(f.fsys, p)
+			s.files[rel] = raw
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	_, meta := firstMapping(s.files["Chart.yaml"])
+	if s.chartName = scalarOf(contract.MapValue(meta, "name")); s.chartName == "" {
+		return fmt.Errorf("deploy: %s names no chart", path.Join(dir, "Chart.yaml"))
+	}
+	return nil
+}
+
+// pactoResource ships delivery/pacto.yaml, the Pacto resource pacto init
+// --delivery writes, as s.resource; a kustomization lists it.
+func (s *deployFiles) pactoResource(f *folder, src discover.DeploySource) error {
+	raw, err := f.read(f.root.FS(), "delivery/pacto.yaml") // .pactoignore keeps delivery/ out of the bundle, not out of the deploy
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	s.files[s.resource] = raw
+	if src.Kind == discover.DeployKustomize {
+		editYAML(s.files, src.Paths[0], func(k *yaml.Node) {
+			seq := seqOf(k, "resources")
+			seq.Content = append(seq.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: path.Base(s.resource)})
+		})
+	}
+	return nil
+}
+
+// builtin writes the deploy artifact: the files and, when the image is
+// built (or supplied), the workload's image (from, at where; a chart's
+// values.yaml image) pinned to it by digest.
+func (s *deployFiles) builtin(built bool, from, where, supplied string) publish.Builtin {
+	return func(_ context.Context, out string, env []string) error {
+		version := envValue(env, "PACTO_VERSION")
+		ref := supplied
+		if ref == "" { // the derived image artifact is named image
+			ref = envValue(env, "PACTO_REF_IMAGE") + "@" + envValue(env, "PACTO_DIGEST_IMAGE")
+		}
+		files := maps.Clone(s.files)
+		if raw, ok := files[s.resource]; ok {
+			files[s.resource] = bytes.ReplaceAll(raw, []byte("@PACTO_VERSION@"), []byte(version))
+		}
+		switch {
+		case s.kind == discover.DeployChart:
+			return writeChart(out, s.chartName, files, built, ref, version)
+		case from == "":
+		case s.kind == discover.DeployKustomize:
+			pinKustomizations(files, from, ref)
+		default:
+			if pinManifests(files, from, ref) == 0 {
+				return fmt.Errorf("deploy: no image: %s line to pin in %s", from, where)
+			}
+		}
+		return writeDeployTree(out, files)
+	}
+}
+
+// pinManifests sets every image of the repository repo in files to ref and
+// returns how many it set.
+func pinManifests(files map[string][]byte, repo, ref string) int {
+	n := 0
+	for p, raw := range files {
+		docs, ok := yamlDocs(raw)
+		k := 0
+		for _, d := range docs {
+			k += pinImages(d, repo, ref)
+		}
+		if ok && k > 0 {
+			files[p], n = encodeDocs(docs), n+k
+		}
+	}
+	return n
+}
+
+// pinImages sets every image: value under n whose repository is repo to ref,
+// and returns how many it set.
+func pinImages(n *yaml.Node, repo, ref string) int {
+	set := 0
+	for i := 0; n.Kind == yaml.MappingNode && i+1 < len(n.Content); i += 2 {
+		if v := n.Content[i+1]; n.Content[i].Value == "image" && v.Kind == yaml.ScalarNode {
+			if r, _ := discover.ImageRepo(v.Value); r == repo {
+				v.Value, set = ref, set+1
+			}
+		}
+	}
+	for _, c := range n.Content {
+		set += pinImages(c, repo, ref)
+	}
+	return set
+}
+
+// pinKustomizations gives every kustomization.yaml in files one images entry
+// that pins name to ref, replacing an entry of that name.
+func pinKustomizations(files map[string][]byte, name, ref string) {
+	repo, digest, _ := strings.Cut(ref, "@")
+	entry := []string{"name", name}
+	if repo != name {
+		entry = append(entry, "newName", repo)
+	}
+	entry = append(entry, "digest", digest)
+	for p := range files {
+		if path.Base(p) != "kustomization.yaml" {
+			continue
+		}
+		editYAML(files, p, func(k *yaml.Node) {
+			seq := seqOf(k, "images")
+			pin := mapping(entry...)
+			i := slices.IndexFunc(seq.Content, func(it *yaml.Node) bool { return scalarOf(contract.MapValue(it, "name")) == name })
+			if i < 0 {
+				seq.Content = append(seq.Content, pin)
+				return
+			}
+			seq.Content[i] = pin
+		})
+	}
+}
+
+// writeChart packages the chart files as a deterministic <name>-<version>.tgz
+// in out: Chart.yaml's version and appVersion set to the service version
+// (Helm OCI wants the chart version to be the tag) and, when pin,
+// values.yaml's image set to ref.
+func writeChart(out, name string, files map[string][]byte, pin bool, ref, version string) error {
+	editYAML(files, "Chart.yaml", func(m *yaml.Node) {
+		setKey(m, "version", version)
+		setKey(m, "appVersion", version)
+	})
+	if pin {
+		repo, digest, _ := strings.Cut(ref, "@")
+		editYAML(files, "values.yaml", func(m *yaml.Node) {
+			img := contract.MapValue(m, "image")
+			if contract.MapValue(img, "repository") != nil {
+				setKey(img, "repository", repo)
+			}
+			if contract.MapValue(img, "digest") != nil {
+				setKey(img, "digest", digest)
+				return
+			}
+			setKey(img, "tag", version+"@"+digest)
+		})
+	}
+	stage := filepath.Join(out, "chart")
+	err := writeDeployTree(filepath.Join(stage, name), files)
+	var tgz []byte
+	if err == nil {
+		tgz, err = oci.BundleToTarGz(os.DirFS(stage))
+	}
+	if err == nil {
+		err = os.WriteFile(filepath.Join(out, name+"-"+version+".tgz"), tgz, 0o644)
+	}
+	return err
+}
+
+// writeDeployTree writes files under out, each at its slash path.
+func writeDeployTree(out string, files map[string][]byte) error {
+	for _, p := range slices.Sorted(maps.Keys(files)) {
+		full := filepath.Join(out, filepath.FromSlash(p))
+		err := os.MkdirAll(filepath.Dir(full), 0o755)
+		if err == nil {
+			err = os.WriteFile(full, files[p], 0o644)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// secretFile reports whether a document of raw is a Secret or a
+// kustomization's secretGenerator.
+func secretFile(raw []byte) bool {
+	docs, _ := yamlDocs(raw)
+	return slices.ContainsFunc(docs, func(d *yaml.Node) bool {
+		m := d.Content[0]
+		return scalarOf(contract.MapValue(m, "kind")) == "Secret" || contract.MapValue(m, "secretGenerator") != nil
+	})
+}
+
+// scanOutput refuses a deploy file that sets a sensitive literal: an env
+// entry, a ConfigMap's data or a values file key named like a secret, an
+// env file line, or any URL that carries a credential.
+// Paths are named under dir, the chart folder files are relative to.
+func scanOutput(dir string, files map[string][]byte) error {
+	for _, p := range slices.Sorted(maps.Keys(files)) {
+		if sensitiveFile(p, files[p]) {
+			return fmt.Errorf("deploy: %s sets a sensitive literal value, and the deploy artifact publishes it to anyone who can pull it: read it from a Secret instead", path.Join(dir, p))
+		}
+	}
+	return nil
+}
+
+func sensitiveFile(p string, raw []byte) bool {
+	base := path.Base(p)
+	if !strings.HasSuffix(base, ".yaml") && !strings.HasSuffix(base, ".yml") {
+		for _, line := range strings.Split(string(raw), "\n") {
+			k, v, ok := strings.Cut(strings.TrimSpace(line), "=")
+			if ok && !strings.HasPrefix(k, "#") && discover.SensitiveLiteral(k, strings.Trim(v, `"'`)) {
+				return true
+			}
+		}
+		return false
+	}
+	docs, _ := yamlDocs(raw)
+	values := strings.HasPrefix(base, "values")
+	return slices.ContainsFunc(docs, func(d *yaml.Node) bool {
+		m := d.Content[0]
+		if scalarOf(contract.MapValue(m, "kind")) == "ConfigMap" {
+			return sensitiveNode(contract.MapValue(m, "data"), true) || sensitiveNode(m, false)
+		}
+		return sensitiveNode(m, values)
+	})
+}
+
+// sensitiveNode reports whether n holds a sensitive literal: a {name, value}
+// entry, any key: value pair when keys counts, or a URL with a credential.
+func sensitiveNode(n *yaml.Node, keys bool) bool {
+	if n == nil {
+		return false
+	}
+	if n.Kind == yaml.ScalarNode {
+		return schemax.SensitiveValue(n.Value)
+	}
+	if name, value := contract.MapValue(n, "name"), contract.MapValue(n, "value"); scalarOf(value) != "" &&
+		discover.SensitiveLiteral(scalarOf(name), scalarOf(value)) {
+		return true
+	}
+	for i := 0; keys && n.Kind == yaml.MappingNode && i+1 < len(n.Content); i += 2 {
+		if discover.SensitiveLiteral(n.Content[i].Value, scalarOf(n.Content[i+1])) {
+			return true
+		}
+	}
+	return slices.ContainsFunc(n.Content, func(c *yaml.Node) bool { return sensitiveNode(c, keys) })
+}
+
+// yamlDocs are the documents of raw, and whether all of it decoded.
+func yamlDocs(raw []byte) ([]*yaml.Node, bool) {
+	dec := yaml.NewDecoder(bytes.NewReader(raw))
+	var docs []*yaml.Node
+	for {
+		var d yaml.Node
+		switch err := dec.Decode(&d); {
+		case errors.Is(err, io.EOF):
+			return docs, true
+		case err != nil:
+			return docs, false
+		}
+		docs = append(docs, &d)
+	}
+}
+
+// firstMapping is raw's documents and its first one's mapping, nil when raw
+// does not decode or starts with something else.
+func firstMapping(raw []byte) ([]*yaml.Node, *yaml.Node) {
+	docs, ok := yamlDocs(raw)
+	if !ok || len(docs) == 0 || docs[0].Content[0].Kind != yaml.MappingNode {
+		return nil, nil
+	}
+	return docs, docs[0].Content[0]
+}
+
+// editYAML applies edit to the first mapping of files[p] and writes it back;
+// a file that is missing or holds no mapping is left as it is.
+func editYAML(files map[string][]byte, p string, edit func(*yaml.Node)) {
+	docs, m := firstMapping(files[p])
+	if m == nil {
+		return
+	}
+	edit(m)
+	files[p] = encodeDocs(docs)
+}
+
+func encodeDocs(docs []*yaml.Node) []byte {
+	var b bytes.Buffer
+	enc := yaml.NewEncoder(&b)
+	enc.SetIndent(2)
+	for _, d := range docs {
+		_ = enc.Encode(d) // ponytail: a node that decoded always encodes
+	}
+	_ = enc.Close()
+	return b.Bytes()
+}
+
+// seqOf is the sequence under key in the mapping m, made one when it is
+// missing or holds something else.
+func seqOf(m *yaml.Node, key string) *yaml.Node {
+	v := contract.MapValue(m, key)
+	if v == nil {
+		v = &yaml.Node{}
+		m.Content = append(m.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: key}, v)
+	}
+	if v.Kind != yaml.SequenceNode {
+		*v = yaml.Node{Kind: yaml.SequenceNode}
+	}
+	return v
+}
+
+// setKey sets key in the mapping m to the string value.
+func setKey(m *yaml.Node, key, value string) {
+	v := contract.MapValue(m, key)
+	if v == nil {
+		v = &yaml.Node{}
+		m.Content = append(m.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: key}, v)
+	}
+	*v = yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value}
+}
+
+// mapping is a mapping of the key, value pairs kv.
+func mapping(kv ...string) *yaml.Node {
+	m := &yaml.Node{Kind: yaml.MappingNode}
+	for _, s := range kv {
+		m.Content = append(m.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: s})
+	}
+	return m
+}
+
+func scalarOf(n *yaml.Node) string {
+	if n == nil || n.Kind != yaml.ScalarNode {
+		return ""
+	}
+	return n.Value
 }

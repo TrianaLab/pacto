@@ -266,7 +266,7 @@ func (b *builder) kustomizeInside(p string, seen map[string]bool) bool {
 	for _, key := range []string{"resources", "bases", "components"} {
 		for _, res := range items(contract.MapValue(k, key)) {
 			ref := scalar(res)
-			if remoteResource(ref) {
+			if RemoteResource(ref) {
 				continue
 			}
 			local := path.Join(path.Dir(p), ref)

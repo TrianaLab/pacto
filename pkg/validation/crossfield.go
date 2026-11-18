@@ -103,8 +103,9 @@ func validatePublish(c *contract.Contract, result *ValidationResult) {
 			result.AddError(path+".build.dockerfile", "PUBLISH_DOCKERFILE_NOT_IMAGE", fmt.Sprintf("%s is a %s; the dockerfile builder builds images only, use command", a.Name, a.Type))
 		}
 	}
-	if d := c.Publish.Deploy; d != "" && types[d] != contract.ArtifactManifests {
-		result.AddError("publish.deploy", "PUBLISH_DEPLOY_NOT_MANIFESTS", fmt.Sprintf("deploy %q must name a manifests artifact: Flux applies it through a Kustomization", d))
+	// The code keeps its name: users and agents match on it.
+	if d := c.Publish.Deploy; d != "" && types[d] != contract.ArtifactManifests && types[d] != contract.ArtifactChart {
+		result.AddError("publish.deploy", "PUBLISH_DEPLOY_NOT_MANIFESTS", fmt.Sprintf("deploy %q must name a manifests or chart artifact", d))
 	}
 }
 

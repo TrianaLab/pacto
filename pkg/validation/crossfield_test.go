@@ -1141,6 +1141,27 @@ func TestValidatePublish(t *testing.T) {
 	}
 }
 
+// TestDeployMayNameAChart: the deploy artifact is a manifests or a chart
+// artifact; an image is still refused under the same code.
+func TestDeployMayNameAChart(t *testing.T) {
+	c := validV20Contract()
+	c.PactoVersion = "2.5"
+	c.Publish = &contract.Publish{Bundle: "oci://r/b", Deploy: "chart", Artifacts: []contract.PublishArtifact{
+		{Name: "chart", Type: "chart", Build: contract.PublishBuild{Command: []string{"x"}}},
+		{Name: "api", Type: "image", Build: contract.PublishBuild{Command: []string{"x"}}},
+	}}
+	var r ValidationResult
+	validatePublish(c, &r)
+	if len(r.Errors) != 0 {
+		t.Fatalf("a chart is a deploy artifact: %v", r.Errors)
+	}
+	c.Publish.Deploy = "api"
+	validatePublish(c, &r)
+	if len(r.Errors) != 1 || r.Errors[0].Code != "PUBLISH_DEPLOY_NOT_MANIFESTS" || r.Errors[0].Message != `deploy "api" must name a manifests or chart artifact` {
+		t.Fatalf("an image is no deploy artifact: %v", r.Errors)
+	}
+}
+
 func TestValidateMCPInterfaces(t *testing.T) {
 	codes := func(c *contract.Contract, fsys fs.FS) []string {
 		var r ValidationResult

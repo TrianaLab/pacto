@@ -256,7 +256,7 @@ func TestPublishDerivedBuildsWithTheTool(t *testing.T) {
 	if c := check(res.Plan, "build"); c.Message != "ko (.ko.yaml), image "+host+"/acme/payments" {
 		t.Fatalf("build check %+v", c)
 	}
-	if res.Plan.Items[1].Ref != host+"/acme/contracts/payments:1.0.0" {
+	if res.Plan.Items[2].Ref != host+"/acme/contracts/payments:1.0.0" {
 		t.Fatalf("the bundle moves to contracts/ when the image holds the name: %+v", res.Plan.Items)
 	}
 }
@@ -280,7 +280,7 @@ func TestPublishImageFlagSkipsBuild(t *testing.T) {
 	opts := signedOpts(t, dir, host)
 	opts.Image = host + "/other@" + digest64
 	res, err := publishService(&fakeRun{}, reg).withRun(r).Publish(t.Context(), opts)
-	if err != nil || len(res.Plan.Items) != 1 || slices.ContainsFunc(r.calls, func(c string) bool { return strings.HasPrefix(c, "docker") }) {
+	if err != nil || len(res.Plan.Items) != 2 || res.Plan.Items[0].Name != contract.ArtifactManifests || slices.ContainsFunc(r.calls, func(c string) bool { return strings.HasPrefix(c, "docker") }) {
 		t.Fatalf("%v %+v calls %v", err, res, r.calls)
 	}
 }
@@ -291,7 +291,7 @@ func TestPublishPinnedImageSkipsBuild(t *testing.T) {
 	dir := sectionless(t, "1.0.0", "", map[string]string{"Dockerfile": "FROM scratch\n", "k8s/deploy.yaml": deployment(pinned)})
 	r := &buildRun{}
 	res, err := publishService(&fakeRun{}, reg).withRun(r).Publish(t.Context(), signedOpts(t, dir, host))
-	if err != nil || len(res.Plan.Items) != 1 || check(res.Plan, "build").Message != "image supplied, not built by Pacto: "+pinned || len(r.calls) != 1 {
+	if err != nil || len(res.Plan.Items) != 2 || res.Plan.Items[0].Name != contract.ArtifactManifests || check(res.Plan, "build").Message != "image supplied, not built by Pacto: "+pinned || len(r.calls) != 1 {
 		t.Fatalf("%v %+v calls %v", err, res, r.calls)
 	}
 }
