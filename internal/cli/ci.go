@@ -17,11 +17,12 @@ import (
 	"github.com/trianalab/pacto/v4/internal/ci"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/impact"
+	"github.com/trianalab/pacto/v4/pkg/publish"
 )
 
 // newCICommand builds `pacto ci [root]`: plan every service of a repository
 // for a CI run. It reads the registry and writes nothing to it.
-func newCICommand(svc *app.Service, v *viper.Viper, _ deps, rec *runRecorder) *cobra.Command {
+func newCICommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "ci [root]",
 		Short: "Plan every service of a repository for a CI run",
@@ -33,7 +34,12 @@ func newCICommand(svc *app.Service, v *viper.Viper, _ deps, rec *runRecorder) *c
 			"pacto-plan.md in $CI_PROJECT_DIR. --output-format json writes the plan as one JSON document.\n\n" +
 			"The run is a plan: it reads the registry and the consumer sources you name and writes nothing to them. " +
 			"A run record goes to --stats-file only, one file per impacted service.\n\n" +
-			"The exit status follows the plan: 0 clear, 1 blocked, 2 unverified. A repository with no pacto.yaml, or a folder it cannot read, exits 2.",
+			"The exit status follows the plan: 0 clear, 1 blocked, 2 unverified. A repository with no pacto.yaml, or a folder it cannot read, exits 2.\n\n" +
+			"--publish publishes every changed service on the merged commit, through the engine pacto publish runs, providers before " +
+			"the services that depend on them. A service that fails blocks only the services of the run that depend on it; a version " +
+			"lost to a concurrent run is planned again, up to 3 times. A pull or merge request pipeline is refused before any token is " +
+			"asked for or anything is built. Each service leaves a run record. With --publish the exit status is 0 when every changed " +
+			"service is published, else 1.",
 		Example: `  # Plan every service of this repository against a registry
   pacto ci --registry ghcr.io/acme
 
@@ -41,7 +47,10 @@ func newCICommand(svc *app.Service, v *viper.Viper, _ deps, rec *runRecorder) *c
   pacto ci --registry ghcr.io/acme --target-state targets.yaml --output-format json
 
   # Why the payments row reads as it does
-  pacto ci --registry ghcr.io/acme --explain payments`,
+  pacto ci --registry ghcr.io/acme --explain payments
+
+  # On the merged commit: publish every changed service, payments from an image built elsewhere
+  pacto ci --publish --image payments=ghcr.io/acme/payments@sha256:<digest>`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			root := "."
@@ -62,10 +71,10 @@ func newCICommand(svc *app.Service, v *viper.Viper, _ deps, rec *runRecorder) *c
 				fo.ExternalCatalogRef = os.Getenv("PACTO_EXTERNAL_CATALOG")
 			}
 			svc.ExternalCatalogRef = fo.ExternalCatalogRef
-			ciStatsNote(cmd)
 			revs := map[string]*revisions{}
 			bundles := map[string]*contract.Bundle{}
-			p, results, err := svc.CIPlan(cmd.Context(), app.CIOptions{Root: root, Registry: registry, Fleet: fo, Getenv: os.Getenv, OnResolved: ciHook(cmd, rec, revs), Bundles: bundles})
+			opts := app.CIOptions{Root: root, Registry: registry, Fleet: fo, Getenv: os.Getenv, Bundles: bundles}
+			p, results, err := runCI(cmd, svc, d, rec, opts, revs)
 			if err != nil {
 				return err
 			}
@@ -74,7 +83,9 @@ func newCICommand(svc *app.Service, v *viper.Viper, _ deps, rec *runRecorder) *c
 				return err
 			}
 			writeCISummaries(cmd, ci.Detect(os.Getenv), p)
-			ciRecords(cmd, rec, revs, results)
+			if results != nil {
+				ciRecords(cmd, rec, revs, results)
+			}
 			code, reason := p.Exit, p.Reason
 			printed := p
 			if row != nil {
@@ -99,9 +110,77 @@ func newCICommand(svc *app.Service, v *viper.Viper, _ deps, rec *runRecorder) *c
 	}
 	cmd.Flags().String("registry", "", "registry the services publish to, for example ghcr.io/acme; default from the CI platform")
 	cmd.Flags().String("explain", "", "explain one service's row: its folder, baseline, why it changed, its inferred fields and its consumers")
+	cmd.Flags().Bool("publish", false, "publish every changed service, on the merged commit only")
+	cmd.Flags().StringArray("image", nil, "with --publish: the image <service> deploys, pinned by digest, as <service>=<repo>@sha256:...; Pacto builds, signs and copies none. A bare <repo>@sha256:... needs exactly one changed service")
+	cmd.Flags().String("sign-key", "", "with --publish: sign the services whose contract declares no publish section with this cosign key file instead of keyless")
+	cmd.Flags().Bool("no-transparency-log", false, "with --publish and --sign-key: keep the signatures out of the transparency log")
 	addFleetSourceFlags(cmd.Flags())
 	addStatsFlags(cmd)
 	return cmd
+}
+
+// runCI plans the repository, or publishes it with --publish. A plan's
+// impact results come back for its run records; a publish writes its own.
+func runCI(cmd *cobra.Command, svc *app.Service, d deps, rec *runRecorder, opts app.CIOptions, revs map[string]*revisions) (*ci.Plan, map[string]*impact.Result, error) {
+	if on, _ := cmd.Flags().GetBool("publish"); on {
+		po, err := ciPublishOptions(cmd, opts)
+		if err != nil {
+			return nil, nil, err
+		}
+		po.Record = func(row ci.Row, res *publish.Result, err error) { ciPublishRecord(cmd, rec, row, res, err) }
+		p, err := d.ciPublish(svc, cmd.Context(), po)
+		return p, nil, err
+	}
+	for _, f := range []string{"image", "sign-key", "no-transparency-log"} {
+		if cmd.Flags().Changed(f) {
+			return nil, nil, fmt.Errorf("--%s needs --publish", f)
+		}
+	}
+	ciStatsNote(cmd)
+	opts.OnResolved = ciHook(cmd, rec, revs)
+	return svc.CIPlan(cmd.Context(), opts)
+}
+
+// ciPublishOptions reads the --publish flags: --image as service=ref, or a
+// bare ref under "".
+func ciPublishOptions(cmd *cobra.Command, opts app.CIOptions) (app.CIPublishOptions, error) {
+	po := app.CIPublishOptions{CI: opts, Images: map[string]string{}}
+	images, _ := cmd.Flags().GetStringArray("image")
+	for _, v := range images {
+		svc, ref, ok := strings.Cut(v, "=")
+		if !ok {
+			svc, ref = "", v
+		}
+		if !strings.Contains(ref, "@sha256:") {
+			return po, fmt.Errorf("--image %s needs a digest: a tag can move", v)
+		}
+		po.Images[svc] = ref
+	}
+	po.SignKey, _ = cmd.Flags().GetString("sign-key")
+	po.NoTransparencyLog, _ = cmd.Flags().GetBool("no-transparency-log")
+	if po.NoTransparencyLog && po.SignKey == "" {
+		return po, errors.New("--no-transparency-log needs --sign-key: keyless signing needs the transparency log")
+	}
+	return po, nil
+}
+
+// ciPublishRecord writes the run record of one service a publish run
+// decided: to the stats registry, and to <stem>.<service><ext> beside
+// --stats-file, since a record file holds one record.
+func ciPublishRecord(cmd *cobra.Command, rec *runRecorder, row ci.Row, res *publish.Result, err error) {
+	reg, file := statsTargets(cmd)
+	out := rowRecord(row)
+	if res != nil {
+		out = publishRecord(res, err)
+	}
+	if out == nil || (reg == "" && file == "") {
+		return
+	}
+	if file != "" {
+		ext := filepath.Ext(file)
+		file = strings.TrimSuffix(file, ext) + "." + row.Service + ext
+	}
+	rec.write(cmd, rec.stamp(cmd, *out), reg, file)
 }
 
 // gateExit is the exit code of each gate verdict.

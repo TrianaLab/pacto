@@ -13,3 +13,4 @@
 | `reports` | `no` | - | - | - | - |
 
 - `skipped: services/legacy (from .pactoignore:1)`
+- `payments: baseline unverified in plan mode`

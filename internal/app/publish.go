@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/trianalab/pacto/v4/internal/ci"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/ignore"
 	"github.com/trianalab/pacto/v4/pkg/oci"
@@ -87,6 +88,9 @@ func tail(s string) string {
 // runs no tests.
 func (s *Service) Publish(ctx context.Context, opts PublishOptions) (*publish.Result, error) {
 	path := defaultPath(opts.Path)
+	if ci.Detect(opts.Getenv).Base.Value != "" {
+		return nil, errors.New("refused: " + RefusedPullRequest)
+	}
 	if err := opts.flagErr(); err != nil {
 		return nil, err
 	}
@@ -135,8 +139,32 @@ func (s *Service) Publish(ctx context.Context, opts PublishOptions) (*publish.Re
 	if errors.Is(err, publish.ErrNotReady) {
 		res.Refusal = keepRefusal(ctx, env, tools, b, pub, res.Plan)
 	}
+	if err == nil {
+		err = readBack(ctx, reg, res)
+		res.Signer = tools.signer(publish.SignOf(pub))
+	}
 	res.Notes = notes
 	return res, err
+}
+
+// RefusedPullRequest is why a pull or merge request pipeline never publishes.
+const RefusedPullRequest = "pull request pipelines do not publish; publish runs on the merged commit"
+
+// readBack reads every tag of res again once the deploy tag, the commit
+// point, is written: a registry has no conditional tag write, so a write
+// landing between this publish's read and now is seen and reported, never
+// taken as published.
+func readBack(ctx context.Context, reg publish.Registry, res *publish.Result) error {
+	for _, it := range res.Plan.Items {
+		now, err := reg.Head(ctx, it.Ref)
+		if err != nil {
+			return fmt.Errorf("reading %s back: %w", it.Ref, err)
+		}
+		if want := res.Digests[it.Name]; now == nil || now.Digest != want {
+			return fmt.Errorf("%w: %s no longer holds %s once this publish finished; another publish wrote it meanwhile", publish.ErrTagRace, it.Ref, want)
+		}
+	}
+	return nil
 }
 
 // publishChecks is how a derived section has its image, said with the
@@ -477,6 +505,21 @@ func (t execTools) load(ctx context.Context, sign contract.PublishSign) (signing
 		log = rekorURL
 	}
 	return signing.Keyed(kp, log), signing.Policy{Key: kp.GetPublicKey()}, nil
+}
+
+// signer is who signed for sign, as a row prints it: keyless (<identity>),
+// key <path> or kms <uri>; "" when the signer never loaded.
+func (t execTools) signer(sign contract.PublishSign) string {
+	l, ok := t.signers[sign]
+	switch {
+	case !ok || l.err != nil:
+		return ""
+	case sign.Key != "":
+		return "key " + sign.Key
+	case sign.KMS != "":
+		return "kms " + sign.KMS
+	}
+	return "keyless (" + l.p.Identity + ")"
 }
 
 // tokenIdentity is the identity and issuer the CI's OIDC token names, which a

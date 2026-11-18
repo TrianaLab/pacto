@@ -356,6 +356,9 @@ func (pl *ciPlanner) judge(ctx context.Context, f *ciFolder, repo string, declar
 	if pulls.version(ctx, f, bases) {
 		f.base = base.b // impact decides the row
 	}
+	if f.row.Derived {
+		f.row.Notes = append(f.row.Notes, planModeNote)
+	}
 }
 
 // firstPublish fills the row of a service with no published version. It

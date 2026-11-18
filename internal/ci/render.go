@@ -3,6 +3,7 @@ package ci
 import (
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -16,9 +17,11 @@ func Text(w io.Writer, p *Plan) {
 	}
 	_, _ = fmt.Fprintln(w)
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, strings.Join(columns, "\t"))
+	if !publishing(p) {
+		_, _ = fmt.Fprintln(tw, strings.Join(columns, "\t"))
+	}
 	for _, r := range p.Rows {
-		_, _ = fmt.Fprintln(tw, strings.Join(cells(r), "\t"))
+		_, _ = fmt.Fprintln(tw, strings.Join(rowCells(p, r), "\t"))
 	}
 	_ = tw.Flush()
 	for _, l := range footer(p) {
@@ -32,6 +35,18 @@ func Text(w io.Writer, p *Plan) {
 // image, a heading or an extra table cell.
 func Markdown(p *Plan) string {
 	var b strings.Builder
+	if publishing(p) {
+		b.WriteString("### pacto ci publish\n\n")
+		for _, l := range header(p) {
+			b.WriteString("- " + code(l) + "\n")
+		}
+		b.WriteString("\n")
+		for _, r := range p.Rows {
+			b.WriteString("- " + code(strings.Join(publishCells(r), "  ")) + "\n")
+		}
+		writeFooter(&b, p)
+		return b.String()
+	}
 	b.WriteString("### pacto ci plan\n\n")
 	for _, l := range header(p) {
 		b.WriteString("- " + code(l) + "\n")
@@ -46,14 +61,68 @@ func Markdown(p *Plan) string {
 		}
 		b.WriteString("| " + strings.Join(cs, " | ") + " |\n")
 	}
+	writeFooter(&b, p)
+	return b.String()
+}
+
+// writeFooter writes the footer lines as code-span bullets.
+func writeFooter(b *strings.Builder, p *Plan) {
 	if f := footer(p); len(f) > 0 {
 		b.WriteString("\n")
 		for _, l := range f {
 			b.WriteString("- " + code(l) + "\n")
 		}
 	}
-	return b.String()
 }
+
+// publishing reports whether p is a publish run: refused, or a row with an
+// outcome.
+func publishing(p *Plan) bool {
+	return p.Refused != "" || slices.ContainsFunc(p.Rows, func(r Row) bool { return r.State != "" })
+}
+
+// rowCells are r's cells in p's mode.
+func rowCells(p *Plan, r Row) []string {
+	if publishing(p) {
+		return publishCells(r)
+	}
+	return cells(r)
+}
+
+// publishCells are a publish row's cells: the service, then what happened.
+func publishCells(r Row) []string {
+	out := []string{cell(r.Service)}
+	switch r.State {
+	case StatePublished:
+		out = append(out, cell(r.Baseline)+" -> "+r.To+attempt(r))
+		if r.Tool != "" {
+			out = append(out, "built with "+r.Tool)
+		}
+		if r.Identity != "" {
+			out = append(out, "signed "+r.Identity)
+		}
+		return append(out, "published "+r.Published)
+	case StateFailed:
+		if strings.HasPrefix(r.Reason, "superseded: ") {
+			return append(out, r.Reason+attempt(r))
+		}
+	case StateUnchanged:
+		return append(out, StateUnchanged)
+	}
+	return append(out, r.State+": "+r.Reason+attempt(r))
+}
+
+// attempt is " (attempt n/3)" for a row that re-planned, else "".
+func attempt(r Row) string {
+	if r.Attempts < 2 {
+		return ""
+	}
+	return fmt.Sprintf(" (attempt %d/%d)", r.Attempts, MaxAttempts)
+}
+
+// MaxAttempts bounds how often a publish that lost a tag to a concurrent run
+// re-plans (D14).
+const MaxAttempts = 3
 
 // code is s as one inline code span: backticks become quotes and line
 // breaks spaces, so s can neither close the span nor start a new block.
@@ -76,6 +145,13 @@ func header(p *Plan) []string {
 		reg = "none (pass --registry)"
 	}
 	out := []string{"CI: " + platform(p.Platform), "Registry: " + reg, "Base: " + p.Base.String()}
+	if p.Refused != "" {
+		out = append(out, "refused: "+p.Refused)
+	}
+	if publishing(p) {
+		// No IMPACT column: an unverified impact never stops a publish.
+		return append(out, p.Notes...)
+	}
 	if p.OIDC {
 		out = append(out, "OIDC: available, not requested in plan mode")
 	}

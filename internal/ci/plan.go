@@ -26,6 +26,8 @@ type Plan struct {
 	Exit            int          `json:"exit"`
 	// Reason is the line a non-zero exit writes to stderr, "" on exit 0.
 	Reason string `json:"reason"`
+	// Refused is why a publish run as a whole was refused, "" when it ran.
+	Refused string `json:"refused,omitempty"`
 }
 
 // SnapshotInfo is the fleet snapshot impact ran over: when, how complete
@@ -65,7 +67,25 @@ type Row struct {
 	Reason         string   `json:"reason,omitempty"`
 	Notes          []string `json:"notes,omitempty"`
 	Errors         []string `json:"errors,omitempty"`
+	// Publish mode only (pacto ci --publish), empty in plan mode: the version
+	// published, the tool that built the image, who signed, the bundle as
+	// <ref>@<digest>, the outcome (a State constant) and the attempts made.
+	To        string `json:"to,omitempty"`
+	Tool      string `json:"tool,omitempty"`
+	Identity  string `json:"identity,omitempty"`
+	Published string `json:"published,omitempty"`
+	State     string `json:"state,omitempty"`
+	Attempts  int    `json:"attempts,omitempty"`
 }
+
+// The outcomes of a row in publish mode.
+const (
+	StatePublished = "published"
+	StateUnchanged = "unchanged"
+	StateFailed    = "failed"
+	StateBlocked   = "blocked"
+	StateRefused   = "refused"
+)
 
 // Impact is a row's gate and the text the IMPACT column prints.
 type Impact struct {
@@ -113,6 +133,28 @@ func (p *Plan) Settle(root string) {
 	p.Reason = fmt.Sprintf("%s: %d of %d services", p.Gate, count[p.Gate], len(p.Rows))
 }
 
+// SettlePublish redacts the plan, then sets a publish run's gate, exit code
+// and reason from its rows: 1 when the run was refused or any row failed,
+// was blocked or refused, else 0. Publish mode never exits 2: an unverified
+// impact never stops a publish, the version rule and later gates protect
+// consumers.
+func (p *Plan) SettlePublish() {
+	p.redact()
+	bad := 0
+	for _, r := range p.Rows {
+		if r.State == StateFailed || r.State == StateBlocked || r.State == StateRefused {
+			bad++
+		}
+	}
+	p.Gate, p.Exit, p.Reason = StatePublished, 0, ""
+	switch {
+	case p.Refused != "":
+		p.Gate, p.Exit, p.Reason = StateRefused, 1, "refused: "+p.Refused
+	case bad > 0:
+		p.Gate, p.Exit, p.Reason = StateFailed, 1, fmt.Sprintf("not published: %d of %d services", bad, len(p.Rows))
+	}
+}
+
 // redact passes every text a pull request or a source can shape through
 // Redact, before any renderer, the JSON or a record file reads it: a step
 // summary can be public.
@@ -122,6 +164,7 @@ func (p *Plan) redact() {
 	for i := range p.Rows {
 		r := &p.Rows[i]
 		r.Impact.Text, r.Reason, r.Repository = Redact(r.Impact.Text), Redact(r.Reason), Redact(r.Repository)
+		r.Published, r.Identity = Redact(r.Published), Redact(r.Identity)
 		redactAll(r.Notes)
 		redactAll(r.Errors)
 	}

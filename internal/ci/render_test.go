@@ -147,3 +147,64 @@ func TestNamedSourceNotRead(t *testing.T) {
 		t.Fatalf("unread snapshot carries an asOf: %s", raw)
 	}
 }
+
+// publishPlan is a publish run with one row of each outcome.
+func publishPlan() *Plan {
+	return &Plan{Rows: []Row{
+		{Service: "ledger", Baseline: "1.4.3", To: "1.4.4", Tool: "ko", Identity: "key /k/cosign.key", Published: "r.io/acme/ledger:1.4.4@sha256:ab", State: StatePublished, Attempts: 2},
+		{Service: "web", To: "1.0.0", Published: "r.io/acme/web:1.0.0@sha256:cd", State: StatePublished, Attempts: 1},
+		{Service: "reports", State: StateBlocked, Reason: "depends on ledger 1.4.4, which failed to publish"},
+		{Service: "jobs", State: StateFailed, Reason: "superseded: jobs 2.0.0 was published from abc, which this checkout does not contain"},
+		{Service: "api", State: StateFailed, Reason: "boom", Attempts: 3},
+		{Service: "cron", State: StateRefused, Reason: "publish refused: version"},
+		{Service: "payments", State: StateUnchanged, Notes: []string{"pacto.yaml is 2.3 (current 2.5), published as written"}},
+	}}
+}
+
+func TestTextPublish(t *testing.T) {
+	var b strings.Builder
+	Text(&b, publishPlan())
+	want := `CI: none
+Registry: none (pass --registry)
+Base: none
+
+ledger    1.4.3 -> 1.4.4 (attempt 2/3)  built with ko  signed key /k/cosign.key  published r.io/acme/ledger:1.4.4@sha256:ab
+web       - -> 1.0.0                    published r.io/acme/web:1.0.0@sha256:cd
+reports   blocked: depends on ledger 1.4.4, which failed to publish
+jobs      superseded: jobs 2.0.0 was published from abc, which this checkout does not contain
+api       failed: boom (attempt 3/3)
+cron      refused: publish refused: version
+payments  unchanged
+payments: pacto.yaml is 2.3 (current 2.5), published as written
+`
+	if b.String() != want {
+		t.Fatalf("got:\n%s\nwant:\n%s", b.String(), want)
+	}
+}
+
+func TestMarkdownPublish(t *testing.T) {
+	p := &Plan{Refused: "pull request pipelines do not publish; publish runs on the merged commit", Rows: []Row{{Service: "a", State: StateRefused, Reason: "x"}}}
+	got := Markdown(p)
+	want := "### pacto ci publish\n\n- `CI: none`\n- `Registry: none (pass --registry)`\n- `Base: none`\n- `refused: pull request pipelines do not publish; publish runs on the merged commit`\n\n- `a  refused: x`\n"
+	if got != want {
+		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestSettlePublish(t *testing.T) {
+	p := publishPlan()
+	p.SettlePublish()
+	if p.Exit != 1 || p.Gate != StateFailed || p.Reason != "not published: 4 of 7 services" {
+		t.Fatalf("%d %s %q", p.Exit, p.Gate, p.Reason)
+	}
+	p = &Plan{Rows: publishPlan().Rows[:2]}
+	p.SettlePublish()
+	if p.Exit != 0 || p.Gate != StatePublished || p.Reason != "" {
+		t.Fatalf("%d %s %q", p.Exit, p.Gate, p.Reason)
+	}
+	p = &Plan{Refused: "no"}
+	p.SettlePublish()
+	if p.Exit != 1 || p.Gate != StateRefused || p.Reason != "refused: no" {
+		t.Fatalf("%d %s %q", p.Exit, p.Gate, p.Reason)
+	}
+}

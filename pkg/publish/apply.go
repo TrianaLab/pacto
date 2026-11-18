@@ -64,6 +64,9 @@ type Result struct {
 	// Notes are what deriving the version found worth saying, such as a
 	// higher tag it ignored.
 	Notes []string `json:"notes,omitempty"`
+	// Signer is who signed what this publish wrote, as the caller names it:
+	// keyless (<identity>), key <path> or kms <uri>.
+	Signer string `json:"signer,omitempty"`
 }
 
 // Apply plans, then publishes what is absent: builds it, pushes it by digest,

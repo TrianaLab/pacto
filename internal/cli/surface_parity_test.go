@@ -335,6 +335,7 @@ func ciRows() []surfaceRow {
 	const whyCI = "pacto ci is the CI entry point over a repository and a registry baseline; MCP has no repository-wide plan, pacto_impact answers one revision pair without ci's consumer-source and inferred rules, and the dashboard publishes nothing"
 	return slices.Concat(
 		alike("ci", "", "", whyCI, "registry", "explain"),
+		alike("ci", "", "", "publishing runs in CI on the merged commit, signed as the CI identity; MCP never publishes and the dashboard publishes nothing", "publish", "image", "sign-key", "no-transparency-log"),
 		alike("ci", "", "", "a run record is a CI statistic the CLI writes; MCP and the dashboard record no runs", "stats-context", "stats-file", "stats-registry"),
 	)
 }

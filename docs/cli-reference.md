@@ -167,6 +167,8 @@ The run is a plan: it reads the registry and the consumer sources you name and w
 
 The exit status follows the plan: 0 clear, 1 blocked, 2 unverified. A repository with no pacto.yaml, or a folder it cannot read, exits 2.
 
+--publish publishes every changed service on the merged commit, through the engine pacto publish runs, providers before the services that depend on them. A service that fails blocks only the services of the run that depend on it; a version lost to a concurrent run is planned again, up to 3 times. A pull or merge request pipeline is refused before any token is asked for or anything is built. Each service leaves a run record. With --publish the exit status is 0 when every changed service is published, else 1.
+
 ```
 pacto ci [root] [flags]
 ```
@@ -182,30 +184,37 @@ pacto ci [root] [flags]
 
   # Why the payments row reads as it does
   pacto ci --registry ghcr.io/acme --explain payments
+
+  # On the merged commit: publish every changed service, payments from an image built elsewhere
+  pacto ci --publish --image payments=ghcr.io/acme/payments@sha256:<digest>
 ```
 
 **Flags:**
 
 ```
-      --cache[=true|false]         include every bundle in the local OCI cache as an offline baseline revision
-      --detected string            add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
-      --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
-      --explain string             explain one service's row: its folder, baseline, why it changed, its inferred fields and its consumers
-      --external-catalog string    organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
-      --freshness duration         mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
-  -h, --help[=true|false]          help for ci
-      --k8s[=true|false]           include live Pacto CRs from the current Kubernetes cluster as targets
-      --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
-      --mira-source stringArray    base URL of a Mira node whose service map supplies observed calls between services (repeatable)
-      --namespace string           namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)
-      --oci stringArray            registry reference to include as a published-baseline revision (repeatable)
-      --registry string            registry the services publish to, for example ghcr.io/acme; default from the CI platform
-      --root stringArray           contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
-      --stats-context string       comma-separated context to include in the run record: repository, run-url, environment=<name>; nothing is included unless named
-      --stats-file string          write the run record to this file for pacto stats publish, replacing the record it holds, so give each command its own file; default $PACTO_STATS_FILE
-      --stats-registry string      publish an unsigned run record (statistics, never evidence) to this repository, for example ghcr.io/acme/pacto-stats; default $PACTO_STATS_REGISTRY
-      --target-state stringArray   offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
-      --traces stringArray         OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
+      --cache[=true|false]                 include every bundle in the local OCI cache as an offline baseline revision
+      --detected string                    add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
+      --evidence-url stringArray           base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
+      --explain string                     explain one service's row: its folder, baseline, why it changed, its inferred fields and its consumers
+      --external-catalog string            organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
+      --freshness duration                 mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
+  -h, --help[=true|false]                  help for ci
+      --image stringArray                  with --publish: the image <service> deploys, pinned by digest, as <service>=<repo>@sha256:...; Pacto builds, signs and copies none. A bare <repo>@sha256:... needs exactly one changed service
+      --k8s[=true|false]                   include live Pacto CRs from the current Kubernetes cluster as targets
+      --local stringArray                  local bundle root(s) to scan (repeatable) (default [.])
+      --mira-source stringArray            base URL of a Mira node whose service map supplies observed calls between services (repeatable)
+      --namespace string                   namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)
+      --no-transparency-log[=true|false]   with --publish and --sign-key: keep the signatures out of the transparency log
+      --oci stringArray                    registry reference to include as a published-baseline revision (repeatable)
+      --publish[=true|false]               publish every changed service, on the merged commit only
+      --registry string                    registry the services publish to, for example ghcr.io/acme; default from the CI platform
+      --root stringArray                   contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
+      --sign-key string                    with --publish: sign the services whose contract declares no publish section with this cosign key file instead of keyless
+      --stats-context string               comma-separated context to include in the run record: repository, run-url, environment=<name>; nothing is included unless named
+      --stats-file string                  write the run record to this file for pacto stats publish, replacing the record it holds, so give each command its own file; default $PACTO_STATS_FILE
+      --stats-registry string              publish an unsigned run record (statistics, never evidence) to this repository, for example ghcr.io/acme/pacto-stats; default $PACTO_STATS_REGISTRY
+      --target-state stringArray           offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
+      --traces stringArray                 OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
 ```
 
 ---

@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/internal/ci"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/oci"
@@ -154,6 +155,27 @@ func publishRecord(res *publish.Result, err error) *runrecord.Record {
 	if err == nil { // a failed run may hold the digest of a bundle it never wrote
 		rec.BundleDigest = res.Digests[publish.BundleItem]
 		_, rec.DeployDigest, _ = strings.Cut(res.Deploy, "@")
+	}
+	return rec
+}
+
+// rowRecord is the record of a service a publish run decided without
+// publishing it: blocked by a provider of the run, refused with the run, or
+// failed before publishing; nil for an unchanged one. Blocked and refused use
+// the refused verdict other publish refusals use, so no gate statistic counts
+// them as a blocked gate.
+func rowRecord(row ci.Row) *runrecord.Record {
+	rec := &runrecord.Record{Kind: runrecord.KindPublish, Service: row.Service, OldRevision: row.Baseline, NewRevision: row.Next,
+		Classification: row.Classification}
+	switch row.State {
+	case ci.StateBlocked:
+		rec.Outcome, rec.Gate = runrecord.OutcomeRefused, &runrecord.Gate{Verdict: runrecord.VerdictRefused, Reason: "dependency"}
+	case ci.StateRefused:
+		rec.Outcome, rec.Gate = runrecord.OutcomeRefused, &runrecord.Gate{Verdict: runrecord.VerdictRefused, Reason: "pull-request"}
+	case ci.StateFailed:
+		rec.Outcome = runrecord.OutcomeFailed
+	default:
+		return nil
 	}
 	return rec
 }
