@@ -151,13 +151,7 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 			Error:  &fleet.SourceError{Code: fleet.LimitationSourceUnavailable, Message: "edge cluster unreachable"},
 		},
 	})
-	// The organization extension is embedded, so the demo reports it unsigned
-	// rather than inventing a verification it never ran.
-	cat, err := externalcatalog.Assemble(externalcatalog.DefaultRef(), demoExternalCatalog, externalcatalog.Ref{
-		Origin: externalcatalog.OriginOrganization, Repository: "demo (embedded)", Digest: externalcatalog.Digest(demoExternalCatalog),
-		Copy: externalcatalog.CopyEmbedded, Signature: externalcatalog.SignatureUnknown,
-		Reason: "the demo catalog is embedded in the demo; it is not signed",
-	})
+	cat, err := demoCatalog()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -452,4 +446,16 @@ func demoCorroboratedTargets() []fleet.RawTarget {
 		{Scope: "prod", Kind: "Deployment", Name: "payments-service", Service: "payments-service", EvidenceAt: at(seen)},
 		{Scope: "prod", Kind: "Deployment", Name: "orders-service", Service: "orders-service", EvidenceAt: at(seen)},
 	}
+}
+
+// demoCatalog is the default catalog with the demo organization's extension:
+// what the demo fleet classifies with and newsletter-service's record was
+// completed with. The extension is embedded, so the demo reports it unsigned
+// rather than inventing a verification it never ran.
+func demoCatalog() (*externalcatalog.Catalog, error) {
+	return externalcatalog.Assemble(externalcatalog.DefaultRef(), demoExternalCatalog, externalcatalog.Ref{
+		Origin: externalcatalog.OriginOrganization, Repository: "demo (embedded)", Digest: externalcatalog.Digest(demoExternalCatalog),
+		Copy: externalcatalog.CopyEmbedded, Signature: externalcatalog.SignatureUnknown,
+		Reason: "the demo catalog is embedded in the demo; it is not signed",
+	})
 }

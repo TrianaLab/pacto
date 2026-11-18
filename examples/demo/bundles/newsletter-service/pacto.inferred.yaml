@@ -25,6 +25,7 @@ inputs:
           digest: sha256:c9a179f84fcf00def906466ba23914173cf485191f64fc3e9523218b8188bed3
     catalog:
         - default sha256:62a3fd52949e99b18eb330766ec3269d47ba7a821f59b77ab69dea81ad76a063
+        - organization sha256:3d6b5d543df126f84b96d130aa2e4256c8d1d4d7e661c45caae55c2c5bae6b7b
 fields:
     - field: capabilities[health]
       value: GET /healthz (readinessProbe)

@@ -134,7 +134,11 @@ func newsletterCompletion(t *testing.T) *contract.InferredRecord {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := discover.CompleteIn(dir, dir, declared, contract.InferredInputs{}, nil)
+	cat, err := demoCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := discover.CompleteIn(dir, dir, declared, contract.InferredInputs{}, cat)
 	if err != nil || got == nil {
 		t.Fatalf("CompleteIn = %v, %v", got, err)
 	}
@@ -152,7 +156,8 @@ func TestDemoInferredRecordMatchesCompletion(t *testing.T) {
 	if err != nil || committed == nil {
 		t.Fatalf("committed record = %v, %v", committed, err)
 	}
-	if !reflect.DeepEqual(committed.Fields, got.Fields) || !reflect.DeepEqual(committed.Findings, got.Findings) {
+	if !reflect.DeepEqual(committed.Fields, got.Fields) || !reflect.DeepEqual(committed.Findings, got.Findings) ||
+		!reflect.DeepEqual(committed.Inputs.Catalog, got.Inputs.Catalog) {
 		t.Errorf("committed record differs from completion; regenerate it:\n%s", got.Marshal())
 	}
 	if err := contract.VerifyInferredRecord(os.DirFS(src), committed); err != nil {
