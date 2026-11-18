@@ -23,6 +23,7 @@ func TestFullLifecycle(t *testing.T) {
 	assertContains(t, output, "Created lifecycle-svc/")
 
 	svcDir := filepath.Join(dir, "lifecycle-svc")
+	declareVersion(t, svcDir, "0.1.0") // init leaves it to pacto ci --publish
 
 	// 2. Validate
 	output, err = runCommand(t, reg, "validate", svcDir)
