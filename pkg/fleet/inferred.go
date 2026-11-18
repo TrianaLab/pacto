@@ -487,7 +487,8 @@ func (w *InferredWorkload) Lines() []string {
 }
 
 // groupLines renders the group and repositories of w: where Pacto read each,
-// or why it stays ungrouped or its repository is unknown.
+// or why it stays ungrouped or its repository is unknown. The group's key is
+// on a line of its own, so a person can copy it into the group filter.
 func (w *InferredWorkload) groupLines(from func(string) string) []string {
 	var out []string
 	switch g := w.Group; {
@@ -495,7 +496,7 @@ func (w *InferredWorkload) groupLines(from func(string) string) []string {
 	case g.Ambiguous != "":
 		out = append(out, "  ungrouped: "+g.Ambiguous)
 	default:
-		out = append(out, "  group "+g.Label+from(g.From))
+		out = append(out, "  group "+g.Label+from(g.From), "  group key "+g.Key+" (pacto fleet entities --group takes it)")
 	}
 	for _, r := range w.Repositories {
 		line := "  repository " + r.URL

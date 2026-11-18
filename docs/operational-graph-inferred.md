@@ -99,7 +99,8 @@ annotations and field managers, and the first rule with a claim wins:
 The group carries `rule`, `namespace`, `name`, `from` (what Pacto read),
 `label` and `key`, `rule/namespace/name`, with the cluster first in a snapshot
 of several clusters. `pacto fleet entities --group`, `group` on
-`pacto_fleet_entities` and `GET /api/fleet/entities?group` take the key. The
+`pacto_fleet_entities` and `GET /api/fleet/entities?group` take the key, which
+`pacto fleet entity` prints on its `group key` line. The
 dashboard shows the group and repository in the Workload section of the
 inferred service page, and the Services list shows the group under the image.
 
@@ -135,11 +136,14 @@ why, for example:
 - `the source is OCIRepository manifests, not a GitRepository`;
 - `no Application named cart was read`;
 - `Applications outside the namespaces this source reads`;
+- `the cluster does not serve Applications`;
+- `Pacto read only the first 10000 entries Kustomization flux-system/apps lists`;
 - `Pacto could not discover the Argo CD and Flux APIs`.
 
 A restricted view shows a repository only to a viewer whom Kubernetes lets
 list its `kind`, such as `applications.argoproj.io` or
-`gitrepositories.source.toolkit.fluxcd.io`, in its `namespace`. Anyone else
+`gitrepositories.source.toolkit.fluxcd.io`, in its `namespace`, whether or not
+they can read Pactos there. Anyone else
 reads `hidden by your permissions`. The group of a workload you can see always
 shows.
 

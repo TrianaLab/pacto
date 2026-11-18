@@ -77,6 +77,7 @@ func TestFleetEntityPrintsGroupAndRepository(t *testing.T) {
 	want := "Workload: Deployment shop/cart\n" +
 		"  image registry.example/cart:2.0.1 (from k8s-workloads: Deployment spec.template.spec.containers[name=cart].image)\n" +
 		"  group Argo CD Application cart (from k8s-workloads: label argocd.argoproj.io/instance)\n" +
+		"  group key " + argoCartKey + " (pacto fleet entities --group takes it)\n" +
 		"  repository https://github.com/acme/shop path deploy/cart (from Application argocd/cart spec.source.repoURL)\n"
 	expect(t, strings.Contains(out, want), "entity lacks the group block:\n%s", out)
 	out = printed(t, func(c *cobra.Command) error { return printFleetEntity(c, d, "json") })

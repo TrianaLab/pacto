@@ -174,6 +174,7 @@ func TestInferredLinesShowGroupAndRepository(t *testing.T) {
 	got := strings.Join(workloadOf(t, snap, cartName).Lines(), "\n")
 	for _, want := range []string{
 		"  group Argo CD Application cart (from k8s-workloads: label argocd.argoproj.io/instance)",
+		"  group key argocd//cart (pacto fleet entities --group takes it)",
 		"  repository https://github.com/acme/shop path deploy/cart (from Application argocd/cart spec.source.repoURL)",
 		"  repository git@github.com:acme/base (from Application argocd/cart spec.sources[1].repoURL)",
 		"  repository unknown: the source is Helm chart redis, not a Git repository",

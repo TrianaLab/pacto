@@ -157,7 +157,10 @@ func TestHelmRowOnCappedRead(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(col.Providers) != 2 || col.Providers[1].ID != fleet.ProviderHelm {
-		t.Errorf("rows = %+v", col.Providers)
+		t.Fatalf("rows = %+v", col.Providers)
+	}
+	if h := col.Providers[1]; h.Status != fleet.SourcePartial || len(h.Limitations) != 1 || h.Limitations[0].Code != fleet.LimitationInferredServicesCapped {
+		t.Errorf("a capped read may miss a release, yet the Helm row is %q with %+v", h.Status, h.Limitations)
 	}
 }
 

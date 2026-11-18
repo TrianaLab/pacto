@@ -36,6 +36,10 @@ const (
 	// ProviderHelm is the row of the Helm releases a workload source grouped
 	// workloads by, read from their release annotations.
 	ProviderHelm = "helm"
+	// HelmReleaseKind is the kind of the Helm row's counts. A release is read
+	// from workload annotations, so a reader must be allowed to list every
+	// workload kind in its namespace to see one.
+	HelmReleaseKind = "Helm release"
 	// UseServiceGrouping: Pacto groups inferred services by what the row read.
 	UseServiceGrouping = "service-grouping"
 	// ProviderArgoCD is the row of the Argo CD Applications a workload source

@@ -111,7 +111,7 @@ func readNamespaces(namespaces []string) []string {
 // health do not change.
 func (s *WorkloadSource) providerRows(ctx context.Context, col *fleet.Collection, listed map[string]int, lists int, promoted map[int][]fleet.ProviderObject) []fleet.Provider {
 	rows := []fleet.Provider{workloadsRow(col, listed, lists)}
-	if row, ok := helmRow(col.InferredServices); ok {
+	if row, ok := helmRow(col); ok {
 		rows = append(rows, row)
 	}
 	idx, gitops := discoveryFailedIndex(s.namespaces), []fleet.Provider(nil)

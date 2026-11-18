@@ -54,13 +54,15 @@ func toFleetGroup(g workloadmanager.Grouping) *fleet.InferredGroup {
 	return &fleet.InferredGroup{Rule: g.Rule, Namespace: g.Namespace, Name: g.Name, From: g.From, Ambiguous: g.Ambiguous}
 }
 
-// helmRow is the Helm row of services: the distinct releases their groups
-// name, counted per release namespace. No Helm group, no row. Pacto reads no
-// release Secret, so the row names no repository.
-func helmRow(services []fleet.RawInferredService) (fleet.Provider, bool) {
+// helmRow is the Helm row of col's services: the distinct releases their
+// groups name, counted per release namespace. No Helm group, no row. Pacto
+// reads no release Secret, so the row names no repository. A workload read
+// col's limitations cut short may have missed a release, so the row is then
+// partial with them, like the workloads row.
+func helmRow(col *fleet.Collection) (fleet.Provider, bool) {
 	releases := map[[2]string]bool{}
 	perNS := map[string]int{}
-	for _, in := range services {
+	for _, in := range col.InferredServices {
 		if g := in.Group; g != nil && g.Rule == workloadmanager.Helm && !releases[[2]string{g.Namespace, g.Name}] {
 			releases[[2]string{g.Namespace, g.Name}] = true
 			perNS[g.Namespace]++
@@ -71,7 +73,10 @@ func helmRow(services []fleet.RawInferredService) (fleet.Provider, bool) {
 	}
 	row := fleet.Provider{ID: fleet.ProviderHelm, Name: "Helm", UsedFor: []string{fleet.UseServiceGrouping}}
 	for _, ns := range slices.Sorted(maps.Keys(perNS)) {
-		row.Counts = append(row.Counts, fleet.ProviderCount{Kind: "Helm release", Namespace: ns, N: perNS[ns]})
+		row.Counts = append(row.Counts, fleet.ProviderCount{Kind: fleet.HelmReleaseKind, Namespace: ns, N: perNS[ns]})
+	}
+	if len(col.Limitations) > 0 {
+		row.Status, row.Limitations = fleet.SourcePartial, slices.Clone(col.Limitations)
 	}
 	return row, true
 }

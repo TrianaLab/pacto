@@ -649,6 +649,57 @@ func TestViewerReviewsProviderCounts(t *testing.T) {
 	}
 }
 
+// TestViewerReviewsHelmReleaseCounts: a Helm release is read from workload
+// annotations, so its count shows only to a reader who may list every
+// workload kind in its namespace; one kind short hides it.
+func TestViewerReviewsHelmReleaseCounts(t *testing.T) {
+	k := fleet.SourceKindKubernetes
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("k8s", k, &fleet.Collection{
+		Targets:   []fleet.RawTarget{{Scope: "shop", Kind: k, Name: "svc-a", Service: "svc-a"}},
+		Providers: []fleet.Provider{{ID: fleet.ProviderHelm, Counts: []fleet.ProviderCount{{Kind: fleet.HelmReleaseKind, Namespace: "shop", N: 2}}}},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := fleet.NewQuery(snap)
+	for _, tc := range []struct {
+		denied string
+		want   string
+	}{
+		{"", "2 Helm releases"},
+		{"cronjobs", "none you may see (+2 hidden by your permissions)"},
+	} {
+		r := &reviews{allow: func(_ Person, ns string) (bool, error) { return ns == "shop", nil }, allowWorkload: func(_ Person, ns string, res ResourceAttributes) (bool, error) {
+			return ns == "shop" && res.Resource != tc.denied, nil
+		}}
+		got, err := NewViewer(r.review).Query(context.Background(), alice, q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ev := got.SnapshotForSerialization().Providers[0].Evidence; ev != tc.want {
+			t.Errorf("denied %q: evidence = %q, want %q", tc.denied, ev, tc.want)
+		}
+	}
+}
+
+// TestViewerReviewsRepositoryWithoutPactos: a repository is reviewed against
+// its kind in its namespace alone, so a reader with no Pactos in argocd who
+// may list Applications there sees the URL beside a workload they see, and
+// one who may not list GitRepositories in flux-system does not.
+func TestViewerReviewsRepositoryWithoutPactos(t *testing.T) {
+	q := repositoryFleet(t)
+	r := &reviews{allow: func(_ Person, ns string) (bool, error) { return ns == "shop", nil }, allowWorkload: func(_ Person, ns string, res ResourceAttributes) (bool, error) {
+		return ns == "shop" || (ns == "argocd" && res.Resource == "applications"), nil
+	}}
+	got, err := NewViewer(r.review).Query(context.Background(), alice, q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if urls := repositoryURLs(got); !slices.Equal(urls, []string{"https://github.com/acme/shop"}) {
+		t.Errorf("alice sees repositories %v", urls)
+	}
+}
+
 // TestViewerReviewsDetectedNamespaces: the namespace of a detected row's
 // Gateway is reviewed even though no service runs there; a reader allowed
 // there gets the row whole, anyone else redacted.
@@ -742,7 +793,7 @@ func TestViewerReviewsRepositoryKinds(t *testing.T) {
 		}
 	}
 	for _, kind := range []string{"Kustomization", "HelmRelease"} {
-		if _, ok := workloadResources[kind]; !ok {
+		if _, ok := gitopsResources[kind]; !ok {
 			t.Errorf("no resource reviews a repository read from a %s", kind)
 		}
 	}
