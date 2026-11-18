@@ -13,7 +13,7 @@ REPOWISE_VERSION ?= 0.36.0
        test-acceptance-kind test-acceptance-kind-dashboard test-acceptance-kind-upgrade test-acceptance-kind-reconcile \
        test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation \
        test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd test-acceptance-kind-runtime-conformance \
-       test-acceptance-kind-delivery test-acceptance-kind-delivery-demo test-acceptance-kind-least-privilege ci-oci ci-gates docs-generate docs-check docs-lint docs-build-strict artifact-drift release-dry-run \
+       test-acceptance-kind-delivery test-acceptance-kind-delivery-argocd test-acceptance-kind-delivery-demo test-acceptance-kind-least-privilege ci-oci ci-gates docs-generate docs-check docs-lint docs-build-strict artifact-drift release-dry-run \
        verify-k8s-standalone ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-arch ci-docs \
        gen-openapi gen-config-schema gen-sbom gen-bundle mermaid-check gen-demo-transcripts
 
@@ -125,7 +125,7 @@ ci-perf-envtest:
 test-acceptance-kind: test-acceptance-kind-dashboard test-acceptance-kind-upgrade test-acceptance-kind-reconcile \
 	test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation \
 	test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd test-acceptance-kind-runtime-conformance \
-	test-acceptance-kind-delivery test-acceptance-kind-least-privilege
+	test-acceptance-kind-delivery test-acceptance-kind-delivery-argocd test-acceptance-kind-least-privilege
 
 test-acceptance-kind-dashboard:
 	bash tests/acceptance/kind/dashboard-modes.sh
@@ -178,6 +178,14 @@ test-acceptance-kind-gitops-flux:
 # because a customization Argo does not recognise leaves the Application green.
 test-acceptance-kind-gitops-argocd:
 	bash tests/acceptance/kind/gitops-argocd.sh
+
+# A service's first Stage on a cluster with Argo CD and no Flux CRD: the
+# promoter's registry watch (candidates.registry) verifies the signatures of a
+# private Sigstore against the rule derived from delivery.publishers.registry,
+# publishes only what it covers (never the unsigned version), and an Argo CD
+# Application applies the promote and the rollback.
+test-acceptance-kind-delivery-argocd:
+	bash tests/acceptance/kind/delivery-argocd.sh
 
 # eBPF runtime conformance: the operator-managed node agent attaches to a real
 # kernel, and every runtime contract field's documented verdict is reproduced
