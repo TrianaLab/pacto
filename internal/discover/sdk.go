@@ -76,11 +76,14 @@ func requirementsFile(base string) bool {
 	return ok
 }
 
-// readSDKFile reads a manifest; tests make it fail.
-var readSDKFile = os.ReadFile
+// readFolderFile reads a file a folder reader opens: every manifest,
+// lockfile and Terraform file goes through it, so tests can record or fail
+// each read.
+var readFolderFile = os.ReadFile
 
-// sdkScan collects what sdkUses finds.
-type sdkScan struct {
+// folderScan collects what a reader of the folder dir finds: the externals,
+// the findings and every file it read.
+type folderScan struct {
 	dir      string
 	files    map[string]bool // the manifests the walk visited
 	xs       []External
@@ -93,7 +96,7 @@ type sdkScan struct {
 // a library in a manifest proves no call. It also returns what it could not
 // read, as findings, and every file it read.
 func (sc *Scan) sdkUses(dir string, cat *externalcatalog.Catalog) ([]External, []contract.InferredFinding, []string) {
-	u := &sdkScan{dir: dir, files: map[string]bool{}}
+	u := &folderScan{dir: dir, files: map[string]bool{}}
 	for _, f := range sc.sdkFiles {
 		u.files[f] = true
 	}
@@ -104,7 +107,7 @@ func (sc *Scan) sdkUses(dir string, cat *externalcatalog.Catalog) ([]External, [
 }
 
 // manifest reads the manifest rel and matches every dependency it lists.
-func (u *sdkScan) manifest(rel string, cat *externalcatalog.Catalog) {
+func (u *folderScan) manifest(rel string, cat *externalcatalog.Catalog) {
 	base, sibling := path.Base(rel), func(name string) string { return path.Join(path.Dir(rel), name) }
 	if why, ok := sdkNotRead[base]; ok {
 		if why != "" && (why != unsupportedGradle || !u.files[sibling("gradle.lockfile")]) {
@@ -140,7 +143,7 @@ func (u *sdkScan) manifest(rel string, cat *externalcatalog.Catalog) {
 
 // readFile reads the regular file rel; a symlink or any other file is a
 // finding and is never followed.
-func (u *sdkScan) readFile(rel string) ([]byte, bool) {
+func (u *folderScan) readFile(rel string) ([]byte, bool) {
 	p := filepath.Join(u.dir, filepath.FromSlash(rel))
 	why := unreadableFailed
 	fi, err := os.Lstat(p)
@@ -149,7 +152,7 @@ func (u *sdkScan) readFile(rel string) ([]byte, bool) {
 	case err == nil && !fi.Mode().IsRegular():
 		why = unreadableNotRegular
 	case err == nil:
-		if data, err = readSDKFile(p); err == nil {
+		if data, err = readFolderFile(p); err == nil {
 			u.read = append(u.read, rel)
 			return data, true
 		}

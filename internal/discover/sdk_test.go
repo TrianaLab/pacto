@@ -180,8 +180,8 @@ func TestSDKUnreadableManifests(t *testing.T) {
 	if slices.Contains(read, "requirements.txt") {
 		t.Errorf("read %q", read)
 	}
-	readSDKFile = func(string) ([]byte, error) { return nil, os.ErrPermission }
-	defer func() { readSDKFile = os.ReadFile }()
+	readFolderFile = func(string) ([]byte, error) { return nil, os.ErrPermission }
+	defer func() { readFolderFile = os.ReadFile }()
 	_, findings, _ = sdkUsesOf(t, "testdata/sdk/go")
 	equalUses(t, findings, []string{CodeUnreadable + " go.mod go.mod " + unreadableFailed})
 	if _, f, _ := (&Scan{sdkFiles: []string{"gone.mod/go.mod"}}).sdkUses(t.TempDir(), externalcatalog.Default()); len(f) != 1 || !strings.HasSuffix(f[0].Message, unreadableFailed) {

@@ -78,10 +78,13 @@ func completeWith(dir, repoDir string, declared *contract.Contract, planned map[
 	fields, cited := merge(c.entries)
 	xs, unidentified := sc.externals(values, cat)
 	sdk, unread, read := sc.sdkUses(dir, cat)
-	for _, f := range read {
+	tf, tfUnread, tfRead := sc.terraformUses(dir, cat)
+	for _, f := range append(read, tfRead...) {
 		cited[f] = true
 	}
-	xfields, clients := externalFields(append(xs, sdk...), func(field string) bool {
+	xs = append(append(append(xs, sdk...), tf...), sc.crossplaneUses(cat)...)
+	unread = append(unread, tfUnread...)
+	xfields, clients := externalFields(xs, func(field string) bool {
 		return slices.ContainsFunc(fields, func(f contract.Inferred) bool { return f.Field == field })
 	}, c.declaredExternal, cited)
 	fields = append(fields, xfields...)

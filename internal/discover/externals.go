@@ -37,6 +37,9 @@ type External struct {
 	// and its major, nil when unknown.
 	SDK   string `json:"-"`
 	Major *int   `json:"-"`
+	// Resource is the managed resource a terraform or crossplane source
+	// provisions, with the identity parts it could not read.
+	Resource *contract.InferredResource `json:"-"`
 }
 
 // valueKeyRE is a key a value is read under: an environment or values key,
@@ -154,25 +157,33 @@ func unidentifiedHostMessage(where string) string {
 }
 
 // externalFields are the record fields of xs: one dependencies[<name>] per
-// identity, its value the identity, its source the first place that names
+// identity (per identity and resource name for a managed resource, named by
+// the resource and carrying it), its value the identity, its source the first place that names
 // it with its confidence, the strongest, and every place in External.Sources.
 // taken reports a field another reader already gives, so the name falls back
 // to the whole identity; declared reports an external the contract declares,
 // which is left out. cited gets every file a source names. An external
 // listed by client libraries of several majors is also a finding.
 func externalFields(xs []External, taken func(field string) bool, declared func(name, identity string) bool, cited map[string]bool) ([]contract.Inferred, []contract.InferredFinding) {
-	byID := map[string][]External{}
+	byID := map[string][]External{} // by identity, then resource name
 	for _, x := range xs {
-		byID[x.Identity] = append(byID[x.Identity], x)
+		k := x.Identity
+		if x.Resource != nil {
+			k += "/" + x.Resource.Name
+		}
+		byID[k] = append(byID[k], x)
 	}
 	var out []contract.Inferred
 	var findings []contract.InferredFinding
-	for _, id := range slices.Sorted(maps.Keys(byID)) {
-		group := byID[id]
-		name := DependencyName(id)
+	for _, k := range slices.Sorted(maps.Keys(byID)) {
+		group := byID[k]
+		id, name := group[0].Identity, DependencyName(group[0].Identity)
+		if r := group[0].Resource; r != nil {
+			name = contract.SanitizeName(r.Name)
+		}
 		if taken("dependencies[" + name + "]") {
 			// ponytail: one fallback; two identities sanitizing alike would need a counter.
-			name = contract.SanitizeName(id)
+			name = contract.SanitizeName(k)
 		}
 		if declared(name, id) {
 			continue
@@ -181,7 +192,7 @@ func externalFields(xs []External, taken func(field string) bool, declared func(
 		if i := slices.IndexFunc(group, func(x External) bool { return x.Confidence == externalcatalog.ConfidenceLikely }); i >= 0 {
 			best = group[i]
 		}
-		x := &contract.InferredExternal{Identity: id, Catalog: best.Origin}
+		x := &contract.InferredExternal{Identity: id, Catalog: best.Origin, Resource: group[0].Resource}
 		var finding *contract.InferredFinding
 		if x.Client, finding = clientOf(id, group); finding != nil {
 			findings = append(findings, *finding)

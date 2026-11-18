@@ -34,11 +34,13 @@ type Scan struct {
 	ConfigMaps  map[string]ConfigMap
 	// Env is the workload's environment, with every ConfigMap it reads
 	// expanded, and EnvNotes what of it could not be read.
-	Env      []EnvVar
-	EnvNotes []string
-	ign      *ignore.Matcher   // .pactoignore: what it leaves out is not read
-	sdkFiles []string          // dependency manifests and lockfiles, in walk order
-	files    map[string][]byte // every YAML file read, by path, for source lines
+	Env       []EnvVar
+	EnvNotes  []string
+	ign       *ignore.Matcher   // .pactoignore: what it leaves out is not read
+	sdkFiles  []string          // dependency manifests and lockfiles, in walk order
+	tfFiles   []string          // Terraform configuration, JSON configuration and state, in walk order
+	xpObjects []xpObject        // objects of a dotted API group a catalog may name a managed resource kind
+	files     map[string][]byte // every YAML file read, by path, for source lines
 }
 
 // ConfigMap is a ConfigMap's data and the file it is in.
@@ -179,6 +181,8 @@ func (sc *Scan) file(p, rel, base string) {
 	case base == "Chart.yaml": // its folder is a chart, recorded by Dir
 	case sdkFile(base):
 		sc.sdkFiles = append(sc.sdkFiles, rel)
+	case terraformFile(base):
+		sc.tfFiles = append(sc.tfFiles, rel)
 	case strings.HasSuffix(base, ".yaml") || strings.HasSuffix(base, ".yml"):
 		data, err := os.ReadFile(p)
 		if err == nil {
@@ -215,7 +219,8 @@ func (sc *Scan) manifest(rel string, data []byte) {
 		kind, _ := doc["kind"].(string)
 		secret = secret || holdsSecret(kust, kind, doc)
 		api, ok := doc["apiVersion"].(string)
-		if group, _, _ := strings.Cut(api, "/"); !ok || kind == "" || toolGroups[group] {
+		group, _, _ := strings.Cut(api, "/")
+		if !ok || kind == "" || toolGroups[group] {
 			continue
 		}
 		found = true
@@ -223,12 +228,7 @@ func (sc *Scan) manifest(rel string, data []byte) {
 		sc.objects[name] = true
 		sc.Services[name] = sc.Services[name] || kind == "Service"
 		kust = kust || kind == "Kustomization"
-		if kind == "ConfigMap" {
-			sc.ConfigMaps[name] = ConfigMap{file: rel, line: line, data: stringMap(doc["data"])}
-		}
-		if _, ok := WorkloadKinds[kind]; ok {
-			sc.workloads = append(sc.workloads, readWorkload(rel, kind, name, doc, src))
-		}
+		sc.object(rel, line, group, kind, name, doc, src)
 	}
 	switch {
 	case secret:
@@ -238,6 +238,20 @@ func (sc *Scan) manifest(rel string, data []byte) {
 		if kust {
 			sc.Kustomize = append(sc.Kustomize, rel)
 		}
+	}
+}
+
+// object records the object doc of the file rel, starting at line, when it
+// is a ConfigMap, a workload or a candidate managed resource.
+func (sc *Scan) object(rel string, line int, group, kind, name string, doc map[string]any, src func(needle string) string) {
+	if kind == "ConfigMap" {
+		sc.ConfigMaps[name] = ConfigMap{file: rel, line: line, data: stringMap(doc["data"])}
+	}
+	if _, ok := WorkloadKinds[kind]; ok {
+		sc.workloads = append(sc.workloads, readWorkload(rel, kind, name, doc, src))
+	} else if o, ok := crossplaneCandidate(group, kind, name, doc); ok {
+		o.file, o.line = splitLine(src("kind: " + kind))
+		sc.xpObjects = append(sc.xpObjects, o)
 	}
 }
 
