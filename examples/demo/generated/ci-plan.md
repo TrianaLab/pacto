@@ -9,8 +9,10 @@
 
 | SERVICE | CHANGED | VERSION | CLASSIFICATION | IMPACT | INFERRED |
 |---|---|---|---|---|---|
+| `ledger` | `yes` | `1.0.0 -> 1.1.0` | `NON_BREAKING` | `unverified (no consumer source)` | - |
 | `payments` | `yes` | `1.4.2 -> 1.4.3 (derived)` | `NON_BREAKING` | `unverified (service.name inferred; declare it)` | `6 fields` |
 | `reports` | `no` | - | - | - | - |
 
 - `skipped: services/legacy (from .pactoignore:1)`
+- `ledger: pacto.yaml is 2.4, publishes as 2.5 (migrated in memory)`
 - `payments: baseline unverified in plan mode`

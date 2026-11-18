@@ -284,12 +284,36 @@ func (pl *ciPlanner) plan(ctx context.Context, f *ciFolder) {
 	}
 	fence := &hostFence{inner: &bundleResolverAdapter{svc: pl.s, base: rootBase(f.dir)}, host: pl.allowed}
 	f.b, f.migration = pl.s.migrateForCI(ctx, f.b, f.dir, pl.root, fence, pl.s.localInputs(f.dir, pl.revision), pl.cat)
-	repo, declared, ok := pl.repository(f)
-	if !ok {
-		return
+	if repo, declared, ok := pl.repository(f); ok {
+		f.row.Repository = repo
+		pl.judge(ctx, f, repo, declared)
 	}
-	f.row.Repository = repo
-	pl.judge(ctx, f, repo, declared)
+	if n := migrationNote(f); n != "" {
+		f.row.Notes = append(f.row.Notes, n)
+	}
+}
+
+// migratedNote ends the note of a contract raised in memory; publish mode
+// turns its "publishes as" into "published as" once the bundle is pushed.
+const migratedNote = " (migrated in memory)"
+
+// migrationNote is the plan line of a behind contract: kept and why, raised
+// in memory, or unchanged against a baseline an earlier CLI published as
+// written, which raises only when the service next changes. A current
+// contract has none.
+func migrationNote(f *ciFolder) string {
+	m := f.migration
+	switch {
+	case m.State == migrationKept:
+		return fmt.Sprintf("pacto.yaml is %s, kept at %s (%s)", m.From, m.From, m.Reason)
+	case m.State != migrationMigrated:
+		return ""
+	case f.b == f.asWritten:
+		return fmt.Sprintf("pacto.yaml is %s, published as %s (raises to %s when it next changes)", m.From, m.From, m.To)
+	case f.row.Changed == "no":
+		return fmt.Sprintf("pacto.yaml is %s, published as %s%s", m.From, m.To, migratedNote)
+	}
+	return fmt.Sprintf("pacto.yaml is %s, publishes as %s%s", m.From, m.To, migratedNote)
 }
 
 // validate validates the folder with policy and configuration refs fenced

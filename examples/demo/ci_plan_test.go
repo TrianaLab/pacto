@@ -32,6 +32,7 @@ func TestCIPlanIsCurrent(t *testing.T) {
 	for ref, dir := range map[string]string{
 		"oci://" + host + "/acme/payments:1.4.2": "ci-plan-baseline/payments",
 		"oci://" + host + "/acme/reports:1.0.0":  "ci-plan/services/reports",
+		"oci://" + host + "/acme/ledger:1.0.0":   "ci-plan-baseline/ledger",
 	} {
 		if _, err := svc.Push(t.Context(), app.PushOptions{Ref: ref, Path: dir}); err != nil {
 			t.Fatal(err)

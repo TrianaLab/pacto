@@ -186,15 +186,20 @@ func (s *Service) withBehind(ctx context.Context, stages []validation.Stage, c *
 	return stages
 }
 
-// behindMessage says that the declared pactoVersion is behind current and
-// what raising it does, given the Upgrade result up and its error.
+// behindMessage says that the declared pactoVersion is behind current, what
+// raising it does, given the Upgrade result up and its error, and what pacto
+// ci does with it. A run that already fails says only that: pacto ci refuses
+// an invalid contract.
 func behindMessage(c *contract.Contract, declared, current string, up contract.Upgraded, err error) string {
 	head := fmt.Sprintf("pactoVersion %q is behind %q; ", declared, current)
+	const asWritten = "; pacto ci publishes it as written"
 	switch {
-	case err != nil:
+	case errors.Is(err, validation.ErrUnverified):
 		return head + err.Error()
+	case err != nil:
+		return head + err.Error() + asWritten
 	case up.Kept != nil:
-		return head + fmt.Sprintf("setting pactoVersion: %q would add %s at %s, so review that first", current, up.Kept.Code, up.Kept.Path)
+		return head + fmt.Sprintf("setting pactoVersion: %q would add %s at %s, so review that first", current, up.Kept.Code, up.Kept.Path) + asWritten
 	}
 	var refs []string
 	for _, cfg := range c.Configurations {
@@ -203,9 +208,9 @@ func behindMessage(c *contract.Contract, declared, current string, up contract.U
 		}
 	}
 	if len(refs) > 0 && !validation.RefValuesAllowed(up.From) && validation.RefValuesAllowed(current) {
-		return head + fmt.Sprintf("setting pactoVersion: %q adds no validation finding; the operator then also accepts ContractOverrides values for its ref configurations (%s)", current, strings.Join(refs, ", "))
+		return head + fmt.Sprintf("setting pactoVersion: %q adds no validation finding; the operator then also accepts ContractOverrides values for its ref configurations (%s); pacto ci publishes it as %s when it next publishes this service, if its own check agrees", current, strings.Join(refs, ", "), current)
 	}
-	return head + fmt.Sprintf("setting pactoVersion: %q keeps what this contract means", current)
+	return head + fmt.Sprintf("setting pactoVersion: %q keeps what this contract means; pacto ci publishes it as %s when it next publishes this service, if its own check agrees", current, current)
 }
 
 // failedStage is the stage name, failed with err under code.

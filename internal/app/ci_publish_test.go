@@ -388,7 +388,7 @@ func TestCIPublishBehindIsAPlanLine(t *testing.T) {
 	e.write(t, map[string]string{"legacy/pacto.yaml": strings.Replace(e.contract("legacy", "1.0.0", "", e.deployPub("legacy")), `"2.5"`, `"2.3"`, 1), "legacy/render.sh": "#!/bin/sh\n"})
 	p := e.ciPublish(t, nil)
 	r := pubRow(t, p, "legacy")
-	if r.State != ci.StatePublished || !slices.Contains(r.Notes, "pacto.yaml is 2.3 (current 2.5), published as written") || p.Exit != 0 {
+	if r.State != ci.StatePublished || !slices.Equal(r.Notes, []string{"pacto.yaml is 2.3, kept at 2.3 (PUBLISH_BUILD_DEPRECATED at publish.artifacts[0].build from " + contract.Current() + ")"}) || p.Exit != 0 {
 		t.Fatalf("row %+v", r)
 	}
 }

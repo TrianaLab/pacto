@@ -105,7 +105,7 @@ func (cp *ciPublisher) row(ctx context.Context, r *ci.Row) {
 		cp.decide(r, ci.StateFailed, "not published: "+r.Impact.Text)
 	case cp.refused:
 		cp.decide(r, ci.StateRefused, RefusedPullRequest)
-	case !behindOK(r, b):
+	case !behindOK(b):
 		cur := contract.Current()
 		cp.decide(r, ci.StateFailed, fmt.Sprintf("declares no publish section; Pacto derives one for pactoVersion %s: set pactoVersion: %q", cur, cur))
 	default:
@@ -118,19 +118,12 @@ func (cp *ciPublisher) row(ctx context.Context, r *ci.Row) {
 }
 
 // behindOK reports whether b can publish as its pactoVersion: a current
-// contract can, and a behind one publishes as written when it declares a
-// publish section, with a plan line saying so. A behind contract with no
-// section cannot be derived: that needs the current inferred record.
-func behindOK(r *ci.Row, b *contract.Bundle) bool {
-	cur, behind := contract.Behind(b.Contract.PactoVersion)
-	switch {
-	case !behind:
-		return true
-	case b.Contract.Publish == nil:
-		return false
-	}
-	r.Notes = append(r.Notes, fmt.Sprintf("pacto.yaml is %s (current %s), published as written", b.Contract.PactoVersion, cur))
-	return true
+// contract can, and so can a behind one the plan kept, as written, when it
+// declares a publish section. A behind contract with no section cannot be
+// derived: that needs the current inferred record.
+func behindOK(b *contract.Bundle) bool {
+	_, behind := contract.Behind(b.Contract.PactoVersion)
+	return !behind || b.Contract.Publish != nil
 }
 
 // decide sets r's outcome without publishing and hands it to Record.
@@ -192,6 +185,13 @@ func lostRace(res *publish.Result, err error) bool {
 func fillRow(r *ci.Row, b *contract.Bundle, res *publish.Result, err error) {
 	if res != nil {
 		r.Notes = slices.DeleteFunc(r.Notes, func(n string) bool { return n == planModeNote })
+		if err == nil && len(res.Actions) > 0 {
+			for i, n := range r.Notes {
+				if strings.HasSuffix(n, migratedNote) {
+					r.Notes[i] = strings.Replace(n, ", publishes as ", ", published as ", 1)
+				}
+			}
+		}
 		r.Notes = append(r.Notes, res.Notes...)
 		r.To = res.Plan.Version
 		r.Baseline, r.Classification = cmp.Or(res.Plan.Baseline, r.Baseline), res.Plan.Classification

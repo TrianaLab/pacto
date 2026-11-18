@@ -19,6 +19,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/internal/ci"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/runrecord"
@@ -517,5 +518,29 @@ func TestCIOutputWriteFails(t *testing.T) {
 	_, _, err := runRoot(t, defaultDeps(), failingWriter{}, "ci", e.root, "--registry", e.host+"/acme", "--output-format", "markdown")
 	if err == nil || ciExit(err) != -1 {
 		t.Fatalf("err = %v, want the write error", err)
+	}
+}
+
+// TestCIStepSummaryCarriesMigrationNote: a contract raised in memory gets its
+// note through the one renderer, on the GitHub step summary and in GitLab's
+// pacto-plan.md alike.
+func TestCIStepSummaryCarriesMigrationNote(t *testing.T) {
+	prev, cur := contract.SupportedVersions[len(contract.SupportedVersions)-2], contract.Current()
+	want := "ledger: pacto.yaml is " + prev + ", publishes as " + cur + " (migrated in memory)"
+	e := newCIEnv(t)
+	e.write(t, map[string]string{"ledger/pacto.yaml": "pactoVersion: \"" + prev + "\"\nservice: {name: ledger, version: 1.0.0}\n"})
+	summary := filepath.Join(t.TempDir(), "summary.md")
+	t.Setenv("GITHUB_ACTIONS", "true")
+	t.Setenv("GITHUB_STEP_SUMMARY", summary)
+	out, _, err := e.run(t)
+	if got := readFile(t, summary); ciExit(err) != 0 || !strings.Contains(got, want) || !strings.Contains(out, want) {
+		t.Fatalf("err %v, summary:\n%s\nstdout:\n%s", err, got, out)
+	}
+	ciEnvOff(t)
+	dir := t.TempDir()
+	t.Setenv("GITLAB_CI", "true")
+	t.Setenv("CI_PROJECT_DIR", dir)
+	if _, _, err := e.run(t); ciExit(err) != 0 || !strings.Contains(readFile(t, filepath.Join(dir, "pacto-plan.md")), want) {
+		t.Fatalf("err %v, artifact:\n%s", err, readFile(t, filepath.Join(dir, "pacto-plan.md")))
 	}
 }
