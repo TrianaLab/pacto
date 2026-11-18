@@ -14,6 +14,9 @@ import (
 // Known reports whether v is a pactoVersion this Pacto supports.
 func Known(v string) bool { return slices.Contains(SupportedVersions, v) }
 
+// Supported lists SupportedVersions for a message, oldest first.
+func Supported() string { return strings.Join(SupportedVersions, ", ") }
+
 // Behind returns Current() and whether v is a supported pactoVersion older
 // than it. An unknown or empty v is never behind.
 func Behind(v string) (current string, behind bool) {
@@ -90,7 +93,7 @@ func Upgrade(raw []byte, to string, check UpgradeCheck) (Upgraded, error) {
 	case !Known(to):
 		return kept, &ParseError{Path: "pactoVersion", Message: fmt.Sprintf("cannot upgrade to unsupported pactoVersion %q", to)}
 	case !Known(from):
-		return kept, &ParseError{Path: "pactoVersion", Message: fmt.Sprintf("unsupported pactoVersion %q; supported: %s", from, strings.Join(SupportedVersions, ", "))}
+		return kept, &ParseError{Path: "pactoVersion", Message: fmt.Sprintf("unsupported pactoVersion %q; supported: %s", from, Supported())}
 	case slices.Index(SupportedVersions, from) >= slices.Index(SupportedVersions, to):
 		return kept, nil
 	}

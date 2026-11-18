@@ -8,7 +8,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/trianalab/pacto/v4/internal/discover"
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -110,7 +109,7 @@ func (r *MigrateResult) Summary() string {
 func (s *Service) Migrate(ctx context.Context, opts MigrateOptions) (*MigrateResult, error) {
 	to := cmp.Or(opts.To, contract.Current())
 	if !contract.Known(to) {
-		return nil, fmt.Errorf("--to %q is not a supported pactoVersion; supported: %s", to, strings.Join(contract.SupportedVersions, ", "))
+		return nil, fmt.Errorf("--to %q is not a supported pactoVersion; supported: %s", to, contract.Supported())
 	}
 	roots := opts.Roots
 	if len(roots) == 0 {
