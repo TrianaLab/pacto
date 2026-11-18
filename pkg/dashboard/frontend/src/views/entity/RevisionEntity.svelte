@@ -20,6 +20,7 @@
   import ConfigurationList from '../../components/ConfigurationList.svelte';
   import InferredFieldList from '../../components/InferredFieldList.svelte';
   import BundleProvenance from '../../components/BundleProvenance.svelte';
+  import ProvenanceMark from '../../components/ProvenanceMark.svelte';
   import { lifecycleText, stageBadge } from '../../lib/behavior.ts';
   import { joinAnd } from '../../lib/answers.ts';
   import { formatDate } from '../../lib/dateFormat.ts';
@@ -138,7 +139,7 @@
          a field name sitting in a row of English words. The API already documents it as
          "Pacto version". -->
     <!-- Behind or unknown is this Pacto's view of the declared version, so the titles say whose. -->
-    {#if d.pactoVersion}<div class="re-fact"><span class="re-k">Pacto version</span><span>{d.pactoVersion}</span>{#if d.pactoVersionUnknown}<IdentityBadge label="unknown version" tone="neutral" title={`This revision declares pactoVersion ${d.pactoVersion}, which this Pacto does not know. The latest version it knows is ${d.pactoVersionCurrent}.`} describe />{:else if d.pactoVersionCurrent}<IdentityBadge label={`behind ${d.pactoVersionCurrent}`} tone="neutral" title={`This revision declares pactoVersion ${d.pactoVersion}. The latest version this Pacto knows is ${d.pactoVersionCurrent}.`} describe />{/if}</div>{/if}
+    {#if d.pactoVersion}<div class="re-fact"><span class="re-k">Pacto version</span><span>{d.pactoVersion}</span>{#if d.migratedFrom}<span class="re-muted"><bdi>migrated from {d.migratedFrom}</bdi></span>{/if}{#if d.pactoVersionUnknown}<IdentityBadge label="unknown version" tone="neutral" title={`This revision declares pactoVersion ${d.pactoVersion}, which this Pacto does not know. The latest version it knows is ${d.pactoVersionCurrent}.`} describe />{:else if d.pactoVersionCurrent}<IdentityBadge label={`behind ${d.pactoVersionCurrent}`} tone="neutral" title={`This revision declares pactoVersion ${d.pactoVersion}. The latest version this Pacto knows is ${d.pactoVersionCurrent}.`} describe />{/if}{#if d.migratedFrom}<ProvenanceMark label="inferred pactoVersion migration" text={`Inferred, not declared: pacto.inferred.yaml in this bundle records that its pacto.yaml was written as pactoVersion ${d.migratedFrom} and published as ${d.pactoVersion}.`} />{/if}</div>{/if}
     <div class="re-fact"><span class="re-k">Valid</span><span>{d.valid ? 'Yes' : 'No'}</span></div>
     {#if stages.length > 0}
       <!-- How each validation stage ended, so "No" above says where it stopped and a
@@ -613,6 +614,7 @@
 
 <style>
   .re-none { margin: 0; color: var(--c-text-3); }
+  .re-muted { color: var(--c-text-3); }
   .re-stages { list-style: none; margin: 0; padding: 0; display: flex; gap: var(--sp-1); flex-wrap: wrap; }
   .ri-lifecycle { overflow-wrap: anywhere; }
   .rev-entity { display: flex; flex-direction: column; gap: var(--sp-4); }

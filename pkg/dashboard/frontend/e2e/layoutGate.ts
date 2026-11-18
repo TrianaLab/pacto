@@ -597,6 +597,14 @@ export function installScaleFixture(): void {
       if (rev) {
         // A declared pactoVersion behind this Pacto adds a badge to the Pacto version fact.
         rev.pactoVersionCurrent = '2.5'; delete rev.pactoVersionUnknown;
+        // pacto ci published this revision from an older pactoVersion: 'plain' is the
+        // current version migrated; any other value adds a synthetic newer Pacto, the
+        // row at its longest (version, muted text, behind badge, mark).
+        const migrated = (window as unknown as { __migrated?: string }).__migrated;
+        if (migrated) {
+          rev.pactoVersion = rev.pactoVersionCurrent; rev.migratedFrom = '2.4';
+          if (migrated === 'plain') delete rev.pactoVersionCurrent; else rev.pactoVersionCurrent = '99.0';
+        }
         rev.breaks = { total: 25, count: 20, truncated: true, hidden: 3, items: Array.from({ length: 20 }, (_, i) => ({
           consumer: longName(`break-consumer-${i}`), reason: longName(`break-reason-${i}`), expires: '2026-12-14',
           ...(i % 2 ? { service: { kind: 'service', key: `default/break-consumer-${i}`, label: `break-consumer-${i}` } } : {}) })) };
@@ -2050,6 +2058,17 @@ export const ROUTES: Route[] = [
   { name: 'revision list', list: true, hash: '#/fleet/revisions?service=payments-service' },
   { name: 'revision entity', open: firstLink('#/fleet/revisions?service=payments-service', '/fleet/revisions/') },
   { name: 'revision entity, implicit contract', open: firstLink('#/fleet/revisions?service=newsletter-service', '/fleet/revisions/') },
+  {
+    // pacto ci raised the authored pactoVersion in memory: muted text, behind badge and
+    // the provenance mark that ends the row. Reload: the init script runs on a new document.
+    name: 'revision entity, migrated contract',
+    open: async (page) => {
+      await page.addInitScript(() => { (window as unknown as { __migrated?: string }).__migrated = 'layout'; });
+      await firstLink('#/fleet/revisions?service=api-gateway', '/fleet/revisions/')(page);
+      await page.reload();
+      await expect(page.locator('.re-fact').filter({ hasText: 'migrated from 2.4' })).toBeVisible({ timeout: 30_000 });
+    },
+  },
   { name: 'service entity, implicit contract', hash: '#/fleet/services/newsletter-service' },
   {
     // A collapsed PreviewSection mounts nothing and the gate skips closed disclosures:
