@@ -66,7 +66,10 @@ findings:                      # what Pacto recognized and could not read
   as an OpenAPI document. A file at the repository root outside the folder,
   only CODEOWNERS, is `repository:<path>:<line>`, relative to the repository
   root. It is not in the bundle, so `inputs.sources` cites it with its digest
-  and a change to it changes the record.
+  and a change to it changes the record. A version derived by
+  `pacto ci --publish` cites `registry:<repo>@sha256:<digest>`, the verified
+  baseline it was raised from, or `registry:<repo>` when the repository held
+  no version. An image passed on the command line cites `flag:--image`.
 - `class: ownerFile` marks a `service.owner` read from CODEOWNERS or
   `catalog-info.yaml`, the only value and the only field it goes on.
   `pacto init` shows it as "attested". The marker only names the file: an
@@ -100,6 +103,9 @@ findings:                      # what Pacto recognized and could not read
 | `capabilities[health]` | A readiness, liveness or startup probe, else the Dockerfile `HEALTHCHECK` | declares a `health` capability |
 | `configuration.<KEY>` | Each environment key, ConfigMaps included | declares the key in a configuration's `values` or schema `properties`, or declares a configuration whose keys Pacto cannot list (a `ref`, or a schema it cannot read or that uses `allOf`, `anyOf`, `oneOf`, `$ref` or `patternProperties`) |
 | `dependencies[<name>]` | A service name inside the cluster in an environment value, or `spec.dependsOn` in `catalog-info.yaml` | declares a dependency of that name or `ref` |
+| `service.version` | The verified baseline and the change since it, when `pacto ci --publish` or `pacto publish` derives it, such as `1.4.3 (1.4.2 + patch, NON_BREAKING)` or `1.0.0 (no versions in <repo>)`. The bundle's `pacto.yaml` carries the same version | declares `service.version` |
+| `publish.build` | The build tool the folder shows, or `image supplied, not built by Pacto: <ref>` for `--image` or a workload image pinned by digest | declares `publish` |
+| `publish.deploy` | The folder's Kustomization, Helm chart or manifests, and the image pinned by digest | declares `publish` |
 
 ### External dependencies
 
@@ -174,7 +180,7 @@ When a published tag differs from the new bundle only in its inferred record,
 and both records cite the same files with the same digests, `pacto publish`
 reports the bundle as adopted (`only the inferred record differs ... not
 republished`). Pacto first checks that the tag is signed by the identity in
-`publish.sign`. An unsigned tag, or one signed by someone else, is a conflict
+`publish.sign`, or the CI token's identity when it declares none. An unsigned tag, or one signed by someone else, is a conflict
 that needs the next version.
 
 The cited files are part of the bundle, so editing one changes the bundle and

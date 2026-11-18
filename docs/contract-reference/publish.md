@@ -1,7 +1,9 @@
 # Publish
 
 `publish` says what a service publishes, where each artifact goes and how it
-is built. Only [`pacto publish`](../publishing.md) reads it. The other
+is built. Only [`pacto publish`](../publishing.md) and
+[`pacto ci --publish`](../publish-from-ci.md) read it. Leave it out and
+`pacto ci --publish` derives one from the folder. The other
 sections are in [Contract sections](sections.md),
 [Configuration and policy](configuration-and-policy.md),
 [Dependencies and state](dependencies-and-state.md) and
@@ -48,7 +50,7 @@ publish:
 | `artifacts[].build.dockerfile` | `context`, optional `file` and `platforms`. Runs `docker buildx` into an OCI image layout. Images only. Deprecated in 2.5 |
 | `artifacts[].build.command` | A command run in the contract directory that writes the artifact to `$PACTO_OUT`: an OCI image layout for an image, one `.tgz` for a chart, files for manifests |
 | `artifacts[].sbom` | The SPDX (`.spdx.json`) or CycloneDX (`.cdx.json`) JSON file the build writes, relative to the contract directory. Pacto attaches it to the image and signs it. The image's build command must write it, for example with `syft dir:. -o spdx-json=sbom/api.spdx.json` inside the command. Pacto refuses a file older than the build, and refuses `sbom` on a `dockerfile` build because that build writes no SBOM. A path inside the contract directory must be in `.pactoignore` (`publish --plan` names the line). Images only |
-| `sign` | Exactly one of `keyless: true`, `key` (a PEM key file, such as a cosign key) or `kms` (a KMS key URI, which needs a `pacto` built with `-tags kms`). `transparencyLog: false` keeps signatures out of the public log (`pacto init --no-transparency-log` writes it); keyless signing refuses it. Publishing refuses without `sign` |
+| `sign` | Exactly one of `keyless: true`, `key` (a PEM key file, such as a cosign key) or `kms` (a KMS key URI, which needs a `pacto` built with `-tags kms`). `transparencyLog: false` keeps signatures out of the public log (`pacto init --from <golden path> --no-transparency-log` writes it); keyless signing refuses it. Optional: without `sign`, Pacto signs keyless as the identity the CI's OIDC token names ([Signing](../publish-from-ci.md#signing)) |
 | `sign.identity`, `sign.issuer` | Required with `keyless: true`: the certificate identity the signature carries and its OIDC issuer. Pacto keeps or adopts only what this identity signed |
 
 Builders write to `$PACTO_OUT` and Pacto does all the pushing. It pushes every

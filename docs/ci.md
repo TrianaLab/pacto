@@ -175,7 +175,10 @@ fixture file, for demos and tests.
 
 ## After a merge: publish
 
-With the same login variables:
+To publish every changed service of the repository in one step, with the
+version and the build derived and keyless signing, use
+[`pacto ci --publish`](publish-from-ci.md). For one contract with a declared
+`publish` section and the same login variables:
 
 ```yaml
 - name: Set up a Docker builder

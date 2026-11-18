@@ -1,12 +1,16 @@
 # Publish a version
 
 This page describes how `pacto publish` works. To take a new service to its
-first release, follow [Pactify a service](pactify.md).
+first release, follow [Pactify a service](pactify.md). In CI, publish every
+changed service of a repository with
+[`pacto ci --publish`](publish-from-ci.md), which runs the same engine.
 
 `pacto publish` publishes what a contract's [`publish`](contract-reference/publish.md)
-section declares: the contract bundle, the service's images, charts and the
-manifests Flux applies, all tagged with the version the contract states. Docker
-or a command you name does the build. Pacto pushes, signs and checks.
+section declares: the contract bundle, the service's images and the manifests
+or chart an applier deploys, all tagged with the service version. Pacto
+derives a `publish` section or a `service.version` the contract leaves out
+from the folder and the registry, as
+[`pacto ci --publish`](publish-from-ci.md#what-pacto-derives) describes. Pacto pushes, signs and checks.
 
 ```bash
 pacto publish --plan    # what is missing, and what would refuse it; writes nothing
@@ -23,9 +27,11 @@ on yours run a Pacto and operator that read 2.1: see
 Pacto runs no tests. It refuses to publish when one of its own checks fails:
 
 - the contract is invalid, or uses a local reference or breaks its `pacto.lock`;
-- the contract does not declare `service.name` (`PUBLISH_NEEDS_SERVICE_NAME`)
-  or `service.version` (`PUBLISH_NEEDS_SERVICE_VERSION`). A name Pacto
-  inferred from the folder is never published;
+- the contract does not declare `service.name` (`PUBLISH_NEEDS_SERVICE_NAME`).
+  A name Pacto inferred from the folder is never published. An undeclared
+  `service.version` is derived from the newest verified version in the
+  registry ([the rule](publish-from-ci.md#the-derived-version)), while
+  `pacto pack` and `pacto push` refuse it (`PUBLISH_NEEDS_SERVICE_VERSION`);
 - a provider does not meet what a required dependency `requires`
   (`GUARANTEE_UNMET`). Pacto fetches each provider that a dependency declares
   `requires` for, as `pacto validate` does, and `--plan` shows the unmet
@@ -37,9 +43,9 @@ Pacto runs no tests. It refuses to publish when one of its own checks fails:
   values fail the referenced schema. `pacto push` refuses the same way. A
   `"2.0"` to `"2.3"` reference with no values anywhere only warns; see
   [Resolution and versions](contract-reference/configuration-and-policy.md#resolution-and-versions);
-- `publish.sign` is missing, the signing key file would end up inside the
-  bundle, or the signer does not open: a missing key file, a wrong
-  `COSIGN_PASSWORD` or an unreachable KMS key refuses the plan, before
+- the signing key file would end up inside the bundle, or the signer does
+  not open: a missing key file, a wrong `COSIGN_PASSWORD`, an unreachable KMS
+  key or, for keyless signing, no OIDC token refuses the plan, before
   anything is built;
 - there is no source revision (run it in a git checkout, or pass `--revision`).
   Pacto reads the commit from `.git` itself, worktrees and packed refs
@@ -48,8 +54,9 @@ Pacto runs no tests. It refuses to publish when one of its own checks fails:
   stamped and signed on every artifact would not hold what was built. Publish
   from a clean checkout. This check runs `git status`; `--revision` skips it,
   since you then name the revision yourself. Untracked files are not checked;
-- a `dockerfile` build has no usable `docker buildx` builder, or a `command`
-  build's program is not an executable here;
+- a `dockerfile` build has no usable `docker buildx` builder, a `command`
+  build's program is not an executable here, or a build tool Pacto detected
+  is not installed;
 - two artifacts, or an artifact and the bundle, share one repository;
 - an SBOM is declared on a `dockerfile` build, which writes none, or sits in
   the contract directory without a `.pactoignore` line (`--plan` names it);
@@ -117,8 +124,9 @@ manifests build can pin the image it deploys by digest. Pacto then:
 
 1. pushes each artifact by digest, with `org.opencontainers.image.version` and
    `org.opencontainers.image.revision` on its manifest;
-2. packages the deploy artifact as a Flux artifact whose `delivery.pacto.trianalab.io/contract`
-   annotation names the digest-pinned contract bundle;
+2. annotates the deploy artifact, the manifests or chart any applier
+   deploys, with `delivery.pacto.trianalab.io/contract`, which names the
+   digest-pinned contract bundle;
 3. attaches the SBOM file the build wrote to each image that declares one, and
    signs it, unless one signed by the configured identity is already there.
    Pacto never makes an SBOM, and refuses a file older than the build;
@@ -127,7 +135,9 @@ manifests build can pin the image it deploys by digest. Pacto then:
    signature against that identity. A keyless signature carries whatever
    identity the CI token had, so a mismatch fails here, before any tag is
    written, so Pacto never publishes a version no Stage would take;
-5. pushes the bundle and writes the tags.
+5. pushes the bundle, attaches to it a signed record of every image the
+   deploy pins (`application/vnd.pacto.images.v1+json`: each image's
+   repository, digest and whether Pacto built it), and writes the tags.
 
 The bundled `pacto.yaml` always declares `pactoVersion`. When the contract
 leaves it out, `pacto pack`, `pacto push` and `pacto publish` write the newest
@@ -140,8 +150,11 @@ operator as `ContractUndeclared`.
 It needs `docker buildx` with a builder that can write an OCI layout (the
 `docker-container` driver can) for `dockerfile` builds, and `git` to check that
 the checkout is clean unless you pass `--revision`. It needs no `syft` or
-`cosign`. The build commands `pacto init` writes run `sh`, `cp` and `sed`, so
-they need a POSIX shell: on Windows, publish from WSL or a Linux CI runner.
+`cosign`. With no declared build, it runs the build tool the folder shows
+(Skaffold, ko, Jib, buildpacks or a Dockerfile) directly, never through a
+shell, and assembles the deploy artifact itself; see
+[How the image is built](publish-from-ci.md#how-the-image-is-built).
+`publish.artifacts[].build` is deprecated in `pactoVersion: "2.5"`.
 Registry credentials and plain-HTTP registries come from the same settings as
 `pacto push`.
 
@@ -153,6 +166,7 @@ cosign 3 writes one, so `cosign verify` and Flux's `spec.verify` both check it.
 
 | `sign` | What signs | Notes |
 |---|---|---|
+| none, or no `publish` section | A short-lived certificate for the CI identity the OIDC token names | The identity rule and GitLab's `id_tokens` are in [Signing](publish-from-ci.md#signing). `--sign-key` signs a derived section with a key |
 | `key: cosign.key` | A PEM private key file | A cosign key is decrypted with `COSIGN_PASSWORD` |
 | `kms: awskms:///alias/ci` | A KMS key | `awskms://`, `gcpkms://`, `azurekms://` or `hashivault://`, with that cloud's usual credentials. The key must be ECDSA P-256, Ed25519 or RSA PKCS#1 v1.5 with SHA-256: Pacto refuses RSA-PSS and SHA-384 or SHA-512 keys. The released `pacto` binaries leave cloud KMS out to stay small: build one with `go install -tags kms github.com/trianalab/pacto/v4/cmd/pacto@<version>`, or one provider's tag (`kms_aws`, `kms_gcp`, `kms_azure`, `kms_hashivault`). The error names the build to use |
 | `keyless: true` | A short-lived certificate from public-good Fulcio | The OIDC token comes from `SIGSTORE_ID_TOKEN` or GitHub Actions (`id-token: write`) |
@@ -161,14 +175,16 @@ A signature goes to the public transparency log unless `transparencyLog:
 false`. Keyless signing needs the log: its certificate lives ten minutes, so
 it verifies only at the time the log saw it, and Pacto refuses keyless with
 `transparencyLog: false`. Pacto verifies a keyless signature against the
-`identity` and `issuer` you configure, under the trusted root Sigstore
+`identity` and `issuer` you configure, or the ones the token names when you
+configure none, under the trusted root Sigstore
 publishes through TUF. The dashboard and `pacto_fleet_get` show whether a
 published version's signature verifies; see [Bundle signatures and
 referrers](dashboard-service-page.md#bundle-signatures-and-referrers).
 
 ## In CI and from agents
 
-CI calls it as one step after the tests pass. An agent calls the same thing
+CI calls [`pacto ci --publish`](publish-from-ci.md) as one step after the
+tests pass, on the merged commit. An agent calls `pacto publish`
 through MCP: `pacto mcp --publish` adds `pacto_publish_plan` and
 `pacto_publish` beside the authoring tools, over stdio only.
 

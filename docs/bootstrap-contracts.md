@@ -104,12 +104,9 @@ changes. To publish the chart itself, add it under `publish.artifacts` as a
 
 **Compose files.** Init reads the image, ports and environment keys of
 `compose.yaml` into the inferred record, and a Compose-only folder still gets
-the blank template. The blank template writes a publish section with
-`bundle: oci://<registry>/<name>` and `sign.key: cosign.key`. Pass `--registry`
-to set the registry, or replace the `registry.example` placeholder that
-`unknown` names before you run `pacto publish`
-([Publish](contract-reference/publish.md)). Pass `--describe-only` to leave the
-publish section out.
+the blank template. The blank template writes no publish section and no
+`service.version`: [`pacto ci --publish`](publish-from-ci.md) derives both,
+publishing to the registry it resolves or the one `--registry` names.
 
 ## 3. Write the contracts
 
