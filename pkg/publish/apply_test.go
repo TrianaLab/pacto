@@ -20,7 +20,7 @@ func publishWith(t *testing.T, source string) (*Client, string, *Result) {
 
 func TestApplyStampsSource(t *testing.T) {
 	reg, host, _ := publishWith(t, testSource)
-	for _, ref := range []string{host + "/payments:1.0.0", host + "/charts/payments:1.0.0", host + "/deploy/payments:1.0.0"} {
+	for _, ref := range artifactRefs(host) {
 		m, err := reg.Head(context.Background(), ref)
 		expect(t, err == nil, "head %s: %v", ref, err)
 		expect(t, m.Annotations[AnnotationSource] == testSource, "%s annotations: %v", ref, m.Annotations)
@@ -29,10 +29,17 @@ func TestApplyStampsSource(t *testing.T) {
 
 func TestApplyNoSourceNoAnnotation(t *testing.T) {
 	reg, host, _ := publishWith(t, "")
-	m, err := reg.Head(context.Background(), host+"/deploy/payments:1.0.0")
-	expect(t, err == nil, "head: %v", err)
-	_, ok := m.Annotations[AnnotationSource]
-	expect(t, !ok, "an empty source stamped %v", m.Annotations)
+	for _, ref := range artifactRefs(host) {
+		m, err := reg.Head(context.Background(), ref)
+		expect(t, err == nil, "head %s: %v", ref, err)
+		_, ok := m.Annotations[AnnotationSource]
+		expect(t, !ok, "%s: an empty source stamped %v", ref, m.Annotations)
+	}
+}
+
+// artifactRefs are the image, chart and deploy artifacts publishWith builds.
+func artifactRefs(host string) []string {
+	return []string{host + "/payments:1.0.0", host + "/charts/payments:1.0.0", host + "/deploy/payments:1.0.0"}
 }
 
 // TestBundleDigestUnchangedBySource: the contract bundle stays annotation-free,
