@@ -448,3 +448,20 @@ func TestVerifyInferredRecordMigrationMismatch(t *testing.T) {
 }
 
 const contractFile = "pacto.yaml"
+
+func TestInferredRecordWithMigration(t *testing.T) {
+	prev, cur := SupportedVersions[len(SupportedVersions)-2], Current()
+	in := InferredInputs{Pacto: "test"}
+	m := InferredMigration{From: prev, To: cur, Source: "pacto.yaml", By: "pacto ci test"}
+	var none *InferredRecord
+	got := none.WithMigration(m, in)
+	if got.Format != InferredRecordFormat || got.Inputs.Pacto != "test" || len(got.Migrations) != 1 || got.Migrations[0] != m {
+		t.Fatalf("nil record: %+v", got)
+	}
+	other := InferredMigration{From: prev, To: cur, Source: "other.yaml", By: "pacto ci test"}
+	base := &InferredRecord{Format: InferredRecordFormat, Migrations: []InferredMigration{{From: "2.3", To: cur, Source: "pacto.yaml", By: "old"}, other}}
+	got = base.WithMigration(m, InferredInputs{Pacto: "ignored"})
+	if len(got.Migrations) != 2 || got.Migrations[0] != other || got.Migrations[1] != m || got.Inputs.Pacto != "" || base.Migrations[0].By != "old" {
+		t.Fatalf("replaced: %+v, base %+v", got, base)
+	}
+}

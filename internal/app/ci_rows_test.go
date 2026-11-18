@@ -52,7 +52,7 @@ func (e *ciRepoEnv) write(t *testing.T, files map[string]string) {
 func (e *ciRepoEnv) publish(t *testing.T, rel, repo, tag string, edit func(*contract.Bundle)) string {
 	t.Helper()
 	dir := filepath.Join(e.root, rel)
-	b, err := e.svc.ciBundle(dir, e.root, nil)
+	b, err := e.svc.ciBundle(dir, e.root, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

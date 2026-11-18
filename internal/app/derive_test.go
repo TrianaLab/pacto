@@ -302,11 +302,13 @@ func TestPublishPinnedImageSkipsBuild(t *testing.T) {
 
 func TestPublishNoToolNoImageRefuses(t *testing.T) {
 	host, reg := publishRegistry(t)
-	dir := sectionless(t, "1.0.0", "", map[string]string{"k8s/deploy.yaml": deployment("r.io/x:1")})
-	_, err := publishService(&fakeRun{}, reg).Publish(t.Context(), signedOpts(t, dir, host))
-	if err == nil || !strings.Contains(err.Error(), "payments declares no publish section and Pacto cannot derive one: finding: k8s/deploy.yaml") ||
-		!strings.Contains(err.Error(), "names an image no Skaffold, ko, Jib, buildpacks or Dockerfile builds; pass --image or declare publish") {
-		t.Fatal(err)
+	for _, version := range []string{"1.0.0", ""} { // declared, derived
+		dir := sectionless(t, version, "", map[string]string{"k8s/deploy.yaml": deployment("r.io/x:1")})
+		_, err := publishService(&fakeRun{}, reg).Publish(t.Context(), signedOpts(t, dir, host))
+		if err == nil || !strings.Contains(err.Error(), "payments declares no publish section and Pacto cannot derive one: finding: k8s/deploy.yaml") ||
+			!strings.Contains(err.Error(), "names an image no Skaffold, ko, Jib, buildpacks or Dockerfile builds; pass --image or declare publish") {
+			t.Fatalf("version %q: %v", version, err)
+		}
 	}
 }
 
@@ -411,6 +413,24 @@ func TestPublishDerivedRelativeSignKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := publish.VerifyDigest(t.Context(), reg, bundleVerifier(signing.Policy{Key: pub}), host+"/acme/payments", res.Digests[publish.BundleItem]); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A relative --sign-key with no working directory to resolve it against is
+// an error naming the flag.
+func TestPublishSignKeyWithoutWorkingDirectory(t *testing.T) {
+	gone := t.TempDir()
+	t.Chdir(gone)
+	if err := os.Remove(gone); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PWD", "")
+	if _, err := os.Getwd(); err == nil {
+		t.Skip("this platform still names a removed working directory")
+	}
+	_, err := (&Service{}).Publish(t.Context(), PublishOptions{Path: t.TempDir(), SignKey: "cosign.key"})
+	if err == nil || !strings.HasPrefix(err.Error(), "--sign-key cosign.key: ") {
 		t.Fatal(err)
 	}
 }

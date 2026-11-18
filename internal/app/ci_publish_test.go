@@ -384,7 +384,8 @@ func TestCIPublishStaleRunRefused(t *testing.T) {
 
 func TestCIPublishBehindIsAPlanLine(t *testing.T) {
 	e := newCIPub(t)
-	e.write(t, map[string]string{"legacy/pacto.yaml": strings.Replace(e.contract("legacy", "1.0.0", "", ""), `"2.5"`, `"2.3"`, 1)})
+	// A declared build is deprecated from 2.5: the raise is kept.
+	e.write(t, map[string]string{"legacy/pacto.yaml": strings.Replace(e.contract("legacy", "1.0.0", "", e.deployPub("legacy")), `"2.5"`, `"2.3"`, 1), "legacy/render.sh": "#!/bin/sh\n"})
 	p := e.ciPublish(t, nil)
 	r := pubRow(t, p, "legacy")
 	if r.State != ci.StatePublished || !slices.Contains(r.Notes, "pacto.yaml is 2.3 (current 2.5), published as written") || p.Exit != 0 {
@@ -395,7 +396,8 @@ func TestCIPublishBehindIsAPlanLine(t *testing.T) {
 func TestCIPublishBehindWithoutPublishFailsThatServiceOnly(t *testing.T) {
 	e := newCIPub(t)
 	e.write(t, map[string]string{
-		"legacy/pacto.yaml":   "pactoVersion: \"2.3\"\nservice:\n  name: legacy\n  version: 1.0.0\n",
+		// An escaped version is not raised in memory: it stays behind.
+		"legacy/pacto.yaml":   "pactoVersion: \"2\\x2E3\"\nservice:\n  name: legacy\n  version: 1.0.0\n",
 		"payments/pacto.yaml": e.contract("payments", "1.0.0", "", ""),
 	})
 	p := e.ciPublish(t, nil)
@@ -673,6 +675,27 @@ func TestCIPublishUnchangedNeedsTheVerifiedBaseline(t *testing.T) {
 	e.write(t, map[string]string{"payments/pacto.yaml": e.contract("payments", "", "", "")})
 	r := pubRow(t, e.ciPublish(t, nil), "payments")
 	if r.Changed != "no" || r.State != ci.StatePublished || r.To != "1.3.1" || r.Baseline != "1.2.0" || slices.Contains(r.Notes, planModeNote) {
+		t.Fatalf("row %+v", r)
+	}
+}
+
+// TestCIPublishUnchangedNeedsTheSignature: a declared version holding this
+// content under another identity's signature is never "unchanged".
+func TestCIPublishUnchangedNeedsTheSignature(t *testing.T) {
+	e := newCIPub(t)
+	e.write(t, map[string]string{"payments/pacto.yaml": e.contract("payments", "1.0.0", "", "")})
+	own, err := os.ReadFile(e.key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := t.TempDir()
+	keyFiles(t, other)
+	foreign, _ := os.ReadFile(filepath.Join(other, "cosign.key"))
+	_ = os.WriteFile(e.key, foreign, 0o600)
+	e.publishAs(t, "payments", "r1")
+	_ = os.WriteFile(e.key, own, 0o600)
+	r := pubRow(t, e.ciPublish(t, nil), "payments")
+	if r.Changed != "no" || r.State != ci.StateFailed || !strings.Contains(r.Reason, "holds this content, but not signed by the publisher identity") {
 		t.Fatalf("row %+v", r)
 	}
 }

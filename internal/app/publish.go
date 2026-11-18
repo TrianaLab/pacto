@@ -17,6 +17,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/internal/ci"
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
 	"github.com/trianalab/pacto/v4/pkg/ignore"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/override"
@@ -48,6 +49,10 @@ type PublishOptions struct {
 	// Getenv reads the CI context and SOURCE_DATE_EPOCH; nil is an empty
 	// environment, so the CLI and the MCP adapter hand the runner's in.
 	Getenv func(string) string
+	// Bundle, when set, is the bundle read from Path that publishes, in place
+	// of a fresh read of Path: pacto ci hands in the bundle it raised in
+	// memory, so the bytes it judged are the bytes validated and pushed.
+	Bundle *contract.Bundle
 	// unchanged is the bundle digest pacto ci found the declared version
 	// holding with this content: Publish then writes nothing once that
 	// bundle verifies as the publisher's and its deploy artifact is there.
@@ -129,7 +134,7 @@ func (s *Service) Publish(ctx context.Context, opts PublishOptions) (*publish.Re
 		return nil, err
 	}
 	inputs := s.localInputs(path, revision)
-	c, raw, fsys, err := loadAndValidateFull(ctx, path, opts.Overrides, s.BundleStore, inputs, cat, true)
+	c, raw, fsys, err := publishedBundle(ctx, path, opts, s.BundleStore, inputs, cat)
 	if err != nil {
 		return nil, err
 	}
@@ -171,6 +176,16 @@ func (s *Service) Publish(ctx context.Context, opts PublishOptions) (*publish.Re
 	}
 	res.Notes = notes
 	return res, err
+}
+
+// publishedBundle is the bundle Publish publishes, validated and made
+// publishable: opts.Bundle when set, else path read and completed with in
+// and cat.
+func publishedBundle(ctx context.Context, path string, opts PublishOptions, store oci.BundleStore, in contract.InferredInputs, cat *externalcatalog.Catalog) (*contract.Contract, []byte, fs.FS, error) {
+	if opts.Bundle != nil {
+		return validatedFull(ctx, path, opts.Bundle, store, true)
+	}
+	return loadAndValidateFull(ctx, path, opts.Overrides, store, in, cat, true)
 }
 
 // versioned is b at the version it publishes as, or done when nothing is to

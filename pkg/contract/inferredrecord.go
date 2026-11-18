@@ -420,6 +420,17 @@ func (r *InferredRecord) Marshal() []byte {
 	return data
 }
 
+// WithMigration is a copy of r holding m in place of any migration of the
+// same source. A nil r is a record of inputs in that holds only m.
+func (r *InferredRecord) WithMigration(m InferredMigration, in InferredInputs) *InferredRecord {
+	if r == nil {
+		return &InferredRecord{Format: InferredRecordFormat, Inputs: in, Migrations: []InferredMigration{m}}
+	}
+	out := *r
+	out.Migrations = append(slices.DeleteFunc(slices.Clone(r.Migrations), func(x InferredMigration) bool { return x.Source == m.Source }), m)
+	return &out
+}
+
 // ReadInferredRecord reads and parses the record in fsys: nil and no error
 // when fsys is nil or holds none.
 func ReadInferredRecord(fsys fs.FS) (*InferredRecord, error) {

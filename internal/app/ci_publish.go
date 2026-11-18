@@ -52,6 +52,7 @@ func (s *Service) CIPublish(ctx context.Context, opts CIPublishOptions) (*ci.Pla
 	if o.Bundles == nil {
 		o.Bundles = map[string]*contract.Bundle{}
 	}
+	o.revision, o.migrations = opts.Revision, map[string]CIMigration{}
 	p, _, err := s.CIPlan(ctx, o)
 	if err != nil {
 		return nil, err
@@ -65,7 +66,7 @@ func (s *Service) CIPublish(ctx context.Context, opts CIPublishOptions) (*ci.Pla
 	if note != "" {
 		p.Notes = append(p.Notes, note)
 	}
-	cp := &ciPublisher{s: s, opts: opts, bundles: o.Bundles, images: images, refused: refused != ""}
+	cp := &ciPublisher{s: s, opts: opts, bundles: o.Bundles, migrations: o.migrations, images: images, refused: refused != ""}
 	rows := make([]ci.Row, 0, len(order))
 	for _, i := range order {
 		r := p.Rows[i]
@@ -83,9 +84,11 @@ type ciPublisher struct {
 	s       *Service
 	opts    CIPublishOptions
 	bundles map[string]*contract.Bundle
-	images  map[string]string
-	refused bool     // a pull or merge request pipeline: nothing publishes
-	done    []ci.Row // the rows decided so far, in order
+	// migrations are the plan's in-memory migrations by row Dir.
+	migrations map[string]CIMigration
+	images     map[string]string
+	refused    bool     // a pull or merge request pipeline: nothing publishes
+	done       []ci.Row // the rows decided so far, in order
 }
 
 // row decides one row, first rule that applies: undecided by the plan,
@@ -145,6 +148,9 @@ func (cp *ciPublisher) publish(ctx context.Context, r *ci.Row, b *contract.Bundl
 		Image: cp.images[r.Service], Getenv: cp.opts.CI.Getenv}
 	if v := b.Contract.Service.Version; r.Changed == "no" && v != "" && r.Baseline == v {
 		opts.unchanged = r.BaselineDigest // the declared tag the plan judged
+	}
+	if m := cp.migrations[r.Dir]; m.State == migrationMigrated && b.Contract.PactoVersion == m.To {
+		opts.Bundle = b // the raised bytes the plan judged, never the folder as written
 	}
 	if b.Contract.Publish == nil {
 		opts.Registry, opts.SignKey, opts.NoTransparencyLog = cp.opts.CI.Registry, cp.opts.SignKey, cp.opts.NoTransparencyLog

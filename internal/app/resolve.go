@@ -342,7 +342,12 @@ func loadAndValidateFull(ctx context.Context, dir string, overrides override.Ove
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	return validatedFull(ctx, dir, bundle, store, deriveVersion)
+}
 
+// validatedFull is the second half of loadAndValidateFull: the bundle read
+// from dir validated with full remote ref resolution and made publishable.
+func validatedFull(ctx context.Context, dir string, bundle *contract.Bundle, store oci.BundleStore, deriveVersion bool) (*contract.Contract, []byte, fs.FS, error) {
 	var resolver validation.BundleResolver
 	if store != nil {
 		resolver = (&Service{BundleStore: store}).PolicyResolver(dir)
@@ -354,7 +359,8 @@ func loadAndValidateFull(ctx context.Context, dir string, overrides override.Ove
 	}
 
 	logging.LoggerFromContext(ctx).Debug("validation passed", "name", bundle.Contract.Service.Name, "version", bundle.Contract.Service.Version)
-	if bundle, err = publishable(bundle, deriveVersion); err != nil {
+	bundle, err := publishable(bundle, deriveVersion)
+	if err != nil {
 		return nil, nil, nil, err
 	}
 	return bundle.Contract, bundle.RawYAML, bundle.FS, nil

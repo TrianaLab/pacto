@@ -40,6 +40,13 @@ type CIOptions struct {
 	// Bundles, when non-nil, gets each read folder's judged bundle by its
 	// row's Dir, so --explain describes the bundle the plan judged.
 	Bundles map[string]*contract.Bundle
+	// revision is the commit the inferred records name; empty reads each
+	// folder's git commit. --publish sets it, so the bundles a plan judges
+	// are the bundles it publishes.
+	revision string
+	// migrations, when non-nil, gets each planned folder's migration by its
+	// row's Dir.
+	migrations map[string]CIMigration
 }
 
 // firstVersion is the version an undeclared service.version starts at.
@@ -78,19 +85,20 @@ func (s *Service) CIPlan(ctx context.Context, opts CIOptions) (*ci.Plan, map[str
 	for _, sk := range walk.Skipped {
 		p.Skipped = append(p.Skipped, ci.Skip{Rel: sk.Rel, Rule: sk.Rule})
 	}
-	folders, images := s.ciFolders(opts.Root, walk.Dirs, cat)
-	for _, f := range folders {
-		if opts.Bundles != nil && f.b != nil {
-			opts.Bundles[f.row.Dir] = f.b
-		}
-	}
+	folders, images := s.ciFolders(opts.Root, walk.Dirs, opts.revision, cat)
 	var notes []string
 	p.Registry, notes = ci.ResolveRegistry(registry, cctx, images)
 	p.Notes = append(p.Notes, notes...)
 	p.Notes = append(p.Notes, blockCollisions(folders)...)
-	pl := &ciPlanner{s: s, p: p, reg: s.env().publishRegistry(), allowed: allowedHost(p.Registry)}
+	pl := &ciPlanner{s: s, p: p, reg: s.env().publishRegistry(), allowed: allowedHost(p.Registry), root: opts.Root, revision: opts.revision, cat: cat}
 	for _, f := range folders {
 		pl.plan(ctx, f)
+		if opts.Bundles != nil && f.b != nil {
+			opts.Bundles[f.row.Dir] = f.b
+		}
+		if opts.migrations != nil {
+			opts.migrations[f.row.Dir] = f.migration
+		}
 	}
 	results, err := s.ciImpacts(ctx, p, folders, opts, pl.allowed)
 	if err != nil {
@@ -108,6 +116,10 @@ type ciFolder struct {
 	dir string
 	row ci.Row
 	b   *contract.Bundle // nil when the folder could not be read
+	// asWritten is b before pacto ci raised its pactoVersion in memory, and
+	// migration what it did; b itself when it did not.
+	asWritten *contract.Bundle
+	migration CIMigration
 	// base is the baseline a changed row's impact runs against; nil when an
 	// earlier rule already decided the row.
 	base *contract.Bundle
@@ -131,13 +143,13 @@ func (f *ciFolder) block(text string) {
 
 // ciFolders reads every folder and the images their inferred records name.
 // A folder that cannot be read stays a blocked row, never a dropped service.
-func (s *Service) ciFolders(root string, dirs []string, cat *externalcatalog.Catalog) ([]*ciFolder, []ci.ImageRef) {
+func (s *Service) ciFolders(root string, dirs []string, revision string, cat *externalcatalog.Catalog) ([]*ciFolder, []ci.ImageRef) {
 	var out []*ciFolder
 	var images []ci.ImageRef
 	for _, dir := range dirs {
 		f := &ciFolder{dir: dir, row: ci.Row{Dir: relSlash(root, dir)}}
 		out = append(out, f)
-		b, err := s.ciBundle(dir, root, cat)
+		b, err := s.ciBundle(dir, root, revision, cat)
 		if err != nil {
 			f.row.Errors = append(f.row.Errors, err.Error())
 		}
@@ -155,13 +167,14 @@ func (s *Service) ciFolders(root string, dirs []string, cat *externalcatalog.Cat
 }
 
 // ciBundle is the folder dir read and completed with the ci root as its
-// repository root: the one bundle a plan judges.
-func (s *Service) ciBundle(dir, root string, cat *externalcatalog.Catalog) (*contract.Bundle, error) {
+// repository root, its record naming revision: the bundle a plan judges,
+// before any in-memory migration.
+func (s *Service) ciBundle(dir, root, revision string, cat *externalcatalog.Catalog) (*contract.Bundle, error) {
 	b, err := readLocalBundle(dir)
 	if err != nil {
 		return nil, err
 	}
-	return b, completeLocal(b, dir, dirBase(dir), root, s.localInputs(dir, ""), cat)
+	return b, completeLocal(b, dir, dirBase(dir), root, s.localInputs(dir, revision), cat)
 }
 
 // recordImages counts the row's inferred fields and returns the images they
@@ -251,17 +264,26 @@ type ciPlanner struct {
 	p       *ci.Plan
 	reg     publish.Registry
 	allowed string // the one host the plan reads from; empty reads none
+	// root, revision and cat complete a migrated bundle the way ciBundle
+	// completed the folder.
+	root, revision string
+	cat            *externalcatalog.Catalog
 }
 
 // registryName is the plan's registry as messages name it.
 func (pl *ciPlanner) registryName() string { return cmp.Or(pl.p.Registry.Value, "none") }
 
 // plan fills one folder's row, first rule that applies: validation, the
-// repository, the baseline, changed, the version rule.
+// repository, the baseline, changed, the version rule. A valid folder is
+// raised to the current pactoVersion in memory first, so every rule after
+// validation, and the publish, reads the bundle it would publish.
 func (pl *ciPlanner) plan(ctx context.Context, f *ciFolder) {
+	f.asWritten = f.b
 	if f.row.Impact.Gate != "" || !pl.validate(ctx, f) {
 		return
 	}
+	fence := &hostFence{inner: &bundleResolverAdapter{svc: pl.s, base: rootBase(f.dir)}, host: pl.allowed}
+	f.b, f.migration = pl.s.migrateForCI(ctx, f.b, f.dir, pl.root, fence, pl.s.localInputs(f.dir, pl.revision), pl.cat)
 	repo, declared, ok := pl.repository(f)
 	if !ok {
 		return
@@ -350,6 +372,13 @@ func (pl *ciPlanner) judge(ctx context.Context, f *ciFolder, repo string, declar
 	}
 	f.row.Baseline, f.row.BaselineDigest = tag, base.digest
 	same, why := Unchanged(base.b, f.b)
+	if !same && f.asWritten != f.b {
+		// A baseline an earlier CLI published as written is this content
+		// too: a migration alone never republishes.
+		if sameWritten, whyWritten := Unchanged(base.b, f.asWritten); sameWritten {
+			same, why, f.b = true, whyWritten, f.asWritten
+		}
+	}
 	f.row.Reason = why
 	if same {
 		f.row.Changed = "no"
