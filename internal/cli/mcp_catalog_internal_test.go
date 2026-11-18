@@ -23,3 +23,16 @@ func TestMCPCatalogIsTheServers(t *testing.T) {
 		t.Fatalf("tag: %v %q", cat, why)
 	}
 }
+
+// TestMCPServerRefusesATagAtStartup: a tag stops the server before any tool
+// is served, with or without --fleet.
+func TestMCPServerRefusesATagAtStartup(t *testing.T) {
+	svc := app.NewService(nil, nil)
+	cmd := newMCPCommand(svc, "v", defaultDeps())
+	if err := cmd.Flags().Set("external-catalog", "oci://example.com/cat:latest"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := buildMCPServer(cmd, svc, "v", nil, defaultDeps()); err == nil || !strings.Contains(err.Error(), "pin it by digest") {
+		t.Fatalf("started: %v", err)
+	}
+}

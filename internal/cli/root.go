@@ -181,10 +181,17 @@ func newRootCommand(svc *app.Service, info VersionInfo, d deps) *cobra.Command {
 		if err := checkOutputFormat(v.GetString(outputFormatKey)); err != nil {
 			return err
 		}
-		// One organization external catalog for every local completion: pacto
-		// init --external-catalog, else PACTO_EXTERNAL_CATALOG or the config.
+		// One organization external catalog for every local completion and
+		// every snapshot: the command's own --external-catalog, else
+		// PACTO_EXTERNAL_CATALOG or the config, which also reaches the flag
+		// (unchanged) so fleetOptions reads the same answer.
 		if svc != nil {
 			svc.ExternalCatalogRef = v.GetString(externalCatalogKey)
+			if f := cmd.Flags().Lookup("external-catalog"); f != nil && f.Changed {
+				svc.ExternalCatalogRef = f.Value.String()
+			} else if f != nil && svc.ExternalCatalogRef != "" {
+				_ = f.Value.Set(svc.ExternalCatalogRef)
+			}
 		}
 
 		if v.GetBool("no-cache") {

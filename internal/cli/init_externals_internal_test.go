@@ -73,7 +73,7 @@ func TestInitExternalCatalogUnreadableIsUnknown(t *testing.T) {
 func TestPackUsesExternalCatalogEnv(t *testing.T) {
 	t.Setenv("PACTO_EXTERNAL_CATALOG", "oci://example.com/cat:latest")
 	dir := folderExternals(t)
-	for _, args := range [][]string{{"init", "--plan", dir}, {"pack", dir}} {
+	for _, args := range [][]string{{"init", "--plan", dir}, {"pack", dir}, {"fleet", "status", "--local", dir}} {
 		root := NewRootCommand(app.NewService(nil, nil), VersionInfo{Version: "test"})
 		root.SetArgs(args)
 		root.SetOut(&strings.Builder{})
@@ -109,5 +109,20 @@ func TestExplainPrintsExternalSummary(t *testing.T) {
 	}
 	if strings.Contains(out, "dependencies[stripe]  inferred") {
 		t.Errorf("the external is listed twice:\n%s", out)
+	}
+}
+
+// A command's own --external-catalog is also the catalog its local
+// completions classify with, so impact completes a folder as it classifies
+// the snapshot.
+func TestCommandExternalCatalogIsTheCompletionCatalog(t *testing.T) {
+	t.Setenv("PACTO_EXTERNAL_CATALOG", "")
+	svc := app.NewService(nil, nil)
+	root := NewRootCommand(svc, VersionInfo{Version: "test"})
+	root.SetArgs([]string{"fleet", "status", "--local", folderExternals(t), "--external-catalog", "oci://example.com/own:latest"})
+	root.SetOut(&strings.Builder{})
+	root.SetErr(&strings.Builder{})
+	if err := root.Execute(); err == nil || svc.ExternalCatalogRef != "oci://example.com/own:latest" {
+		t.Errorf("%v, completion ref %q", err, svc.ExternalCatalogRef)
 	}
 }

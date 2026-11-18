@@ -169,6 +169,12 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 // server, or the contract tools composed with any of fleet, delivery and a
 // bundle's operations.
 func buildMCPServer(cmd *cobra.Command, svc *app.Service, version string, args []string, d deps) (*mcpsdk.Server, error) {
+	// A tag is refused at startup, as pacto init refuses it, so no tool
+	// classifies with the default while another fails on every call.
+	ref, _ := cmd.Flags().GetString("external-catalog")
+	if err := app.CheckExternalCatalogRef(cmp.Or(ref, svc.ExternalCatalogRef)); err != nil {
+		return nil, err
+	}
 	roots, _ := cmd.Flags().GetStringArray("root")
 	deliveryMode, _ := cmd.Flags().GetBool("delivery")
 	publishMode, _ := cmd.Flags().GetBool("publish")
