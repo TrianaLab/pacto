@@ -28,8 +28,8 @@ type DeriveInput struct {
 	// Publish is the local effective publish section: where a baseline
 	// published from a derived section, which its bundle does not carry,
 	// keeps its deploy artifact.
-	Publish *contract.Publish
-	Unchanged     func(base, local *contract.Bundle) (bool, string)
+	Publish   *contract.Publish
+	Unchanged func(base, local *contract.Bundle) (bool, string)
 	// Verify accepts repo@digest when the publisher identity signed it.
 	Verify func(ctx context.Context, ref string) error
 }
