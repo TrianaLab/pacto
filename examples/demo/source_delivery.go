@@ -431,12 +431,13 @@ func (d *demoDelivery) decideHeld(o *delivery.OperationObject, to string) {
 	switch {
 	case o.Status.Phase != delivery.PhaseHeld:
 	case to == "2.4.1":
-		d.decide(o, d.callerOf(story.Alice), delivery.Reject, "2.4.2 declares the prod values")
+		// alice signs this one keyless from her CLI, so the record shows both signers.
+		d.decide(o, d.callerOf(story.Alice), delivery.Reject, "2.4.2 declares the prod values", "person")
 	default:
 		// Test auto-promotes only non-breaking changes since 2.4.2 failed,
 		// and a workload with no contract calls payments: alice, on its
 		// team, accepts that unknown.
-		d.decide(o, d.callerOf(story.Alice), o.Status.Plan.Floor.Decision, "ledger-export only reads payment ids, which 3.0.0 keeps")
+		d.decide(o, d.callerOf(story.Alice), o.Status.Plan.Floor.Decision, "ledger-export only reads payment ids, which 3.0.0 keeps", "recorder")
 	}
 }
 
@@ -770,6 +771,10 @@ func (d *demoDelivery) propose(req delivery.Request, actor story.Persona) (*deli
 	// Classified as the promoter's admission does, so the record says how.
 	o.Status.ActorClass, o.Status.ActorClassifiedBy = story.Policy.ClassifyBy(delivery.Identity{User: actor.User, Groups: actor.Groups})
 	o.Status.Plan, o.Status.Verdicts, o.Status.Times.Admitted = &p, p.Verdicts, stamp(t)
+	if st.Status.Stream.Anchor != "" { // the recorder writes an intent record for every admitted operation
+		id := recordID(o.Metadata.UID)
+		o.Status.IntentRecord = &delivery.ApprovalRecordRef{Digest: id, Ref: "registry.example/story/records@" + id}
+	}
 	d.ops = append(d.ops, o)
 	switch p.Predicted {
 	case delivery.PredictRejected:
@@ -1215,12 +1220,14 @@ func (d *demoDelivery) Approve(_ context.Context, ns, name string, decision deli
 	if o == nil || o.Status.Phase != delivery.PhaseHeld {
 		return "", dashboard.Refuse(http.StatusConflict, "NotHeld", name+" is not waiting for a decision")
 	}
-	return d.decide(o, d.caller(), decision, note), nil
+	return d.decide(o, d.caller(), decision, note, "recorder"), nil
 }
 
 // decide records c's decision on the held o and acts on it: what the
-// promoter does when it consumes an Approval.
-func (d *demoDelivery) decide(o *delivery.OperationObject, c delivery.Caller, decision delivery.Decision, note string) string {
+// promoter does when it consumes an Approval. signer is who signed the
+// approval record: the person keyless, or the recorder on their behalf (the
+// dashboard path).
+func (d *demoDelivery) decide(o *delivery.OperationObject, c delivery.Caller, decision delivery.Decision, note, signer string) string {
 	name := o.Metadata.Name
 	d.n++
 	approval := fmt.Sprintf("%s-approval-%d", name, d.n)
@@ -1229,7 +1236,11 @@ func (d *demoDelivery) decide(o *delivery.OperationObject, c delivery.Caller, de
 	access := d.accessOf(personaOf(c.User), o.Metadata.Namespace, d.stage(o.Metadata.Namespace, o.Spec.Stage).Spec.WorkloadOf())
 	_, by := c.Policy.ClassifyBy(c.Identity)
 	o.Status.Approvals = append(o.Status.Approvals, delivery.ApprovalRecord{Name: approval, By: c.User, Decision: decision, Note: note, AuthTime: c.AuthTime,
-		ClassifiedBy: by, Access: access.Phrase(), AccessSource: access.Source, AccessAt: access.At})
+		ClassifiedBy: by, Access: access.Phrase(), AccessSource: access.Source, AccessAt: access.At,
+		Record: recordID(approval), Signer: &delivery.ApprovalSigner{Kind: signer}})
+	if signer == "recorder" {
+		o.Status.Approvals[len(o.Status.Approvals)-1].Signer.OnBehalfOf = &delivery.ApprovalBehalf{User: c.User, Verified: "admission"}
+	}
 	var owners []string
 	if o.Status.Plan != nil {
 		owners = o.Status.Plan.Floor.Owners
@@ -1343,3 +1354,9 @@ func (d *demoDelivery) Can(context.Context, string, string, string) (bool, error
 // StageNamespaces: everyone reads every Stage cluster-wide here, so the
 // dashboard never asks.
 func (d *demoDelivery) StageNamespaces(context.Context) ([]string, error) { return nil, nil }
+
+// recordID is a stable stand-in record id for s.
+func recordID(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return "sha256:" + hex.EncodeToString(sum[:])
+}

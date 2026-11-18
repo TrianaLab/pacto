@@ -1435,6 +1435,11 @@ export interface components {
         DecideOutputBody: {
             /** @description The Approval created; the promoter consumes it */
             approval: string;
+            /**
+             * @description recorder when the Stage records to a registry: the recorder signs the decision into it on the person's behalf; empty when the Stage keeps no records
+             * @enum {string}
+             */
+            signing?: "recorder";
         };
         "Delivery.Actor": {
             groups?: string[] | null;

@@ -369,6 +369,28 @@ func TestReplaySignedEvals(t *testing.T) {
 	}
 }
 
+// TestDemoApprovalSigners: the dashboard path's approvals are signed by the
+// recorder for the person, alice's prod rejection by alice keyless, and an
+// admitted operation on a recorded Stage names its intent record.
+func TestDemoApprovalSigners(t *testing.T) {
+	d, _ := demoServer(t)
+	if r := d.op(story.Test, "pay-agent-promote-17").Status.IntentRecord; r == nil || !strings.HasPrefix(r.Ref, "registry.example/story/records@sha256:") {
+		t.Fatalf("pay-agent 1.1.0 names its intent record: %+v", r)
+	}
+	if r := d.op("prod-us", "checkout-promote-20").Status.IntentRecord; r != nil {
+		t.Fatalf("a Stage no recorder anchors has no intent record: %+v", r)
+	}
+	person := d.op(story.Prod, "payments-promote-6").Status.Approvals[0]
+	recorder := d.op(story.Test, "payments-promote-12").Status.Approvals[0]
+	if person.Record == "" || person.Signer == nil || person.Signer.Kind != "person" || person.Signer.OnBehalfOf != nil {
+		t.Fatalf("alice signs her prod rejection keyless: %+v", person)
+	}
+	if recorder.Signer == nil || recorder.Signer.Kind != "recorder" || recorder.Signer.OnBehalfOf == nil ||
+		recorder.Signer.OnBehalfOf.User != recorder.By || recorder.Signer.OnBehalfOf.Verified != "admission" {
+		t.Fatalf("the recorder signs for the person admission checked: %+v", recorder)
+	}
+}
+
 // TestDemoRecord: a history line's record reads back by its id, verified
 // with the tab's key; an id outside the stream and a missing Stage are 404s.
 func TestDemoRecord(t *testing.T) {

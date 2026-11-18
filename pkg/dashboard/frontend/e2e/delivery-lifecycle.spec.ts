@@ -182,6 +182,14 @@ test.describe('delivery lifecycle in the demo', () => {
     await expect(panel).toBeVisible({ timeout: T });
     await expect(panel.getByTestId('record-verdicts')).toBeVisible({ timeout: T });
     await audit(page, 'history, record panel open');
+
+    // alice's rejection of 2.4.1 was signed keyless from her CLI: one mark says so, from the keyboard.
+    const signed = page.locator('section.hv-stage tbody tr').filter({ has: page.getByRole('button', { name: 'How this approval was signed' }) }).first();
+    await signed.locator('button[aria-label^="Read record"]').click();
+    const mark = panel.getByRole('button', { name: 'How this approval was signed' });
+    await expect(mark).toHaveCount(1, { timeout: T });
+    await mark.focus();
+    await expect(panel.locator('.prov-tip')).toHaveText(/^Signed by .+ with a keyless certificate\. Record sha256:[0-9a-f]{64}\.$/);
   });
 
   test('a revision lists its way through each Stage, with records', async ({ page }) => {

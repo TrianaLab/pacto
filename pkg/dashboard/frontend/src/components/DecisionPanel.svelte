@@ -147,7 +147,9 @@
     try {
       const out = await api.deliveryDecide(ns, name, decision, note);
       dropPending();
-      decided = `${decisionLabel(decision)} recorded as ${out.approval}. The promoter acts on it shortly.`;
+      decided = out.signing === 'recorder'
+        ? `${decisionLabel(decision)} recorded as ${out.approval}. The recorder signs it for you into the registry, and the promoter acts once it is there.`
+        : `${decisionLabel(decision)} recorded as ${out.approval}. The promoter acts on it shortly.`;
       onDecided?.(decided);
     } catch (e) {
       if (e?.code === 'FreshLoginRequired') {
@@ -257,7 +259,7 @@
       <!-- the buttons are in the cards above -->
     {:else if s?.mode === 'local'}
       <p class="t-body-2" data-testid="decide-cli">On your own machine, any program could act as you in the dashboard, so you decide from the command line:</p>
-      <CopyableIdentifier value={cliDecision(ns, name, asked)} label="command" />
+      <CopyableIdentifier value={cliDecision(ns, name, asked, st.intentRecord?.ref)} label="command" />
     {:else if s && !s.signedIn}
       <p class="t-body-2">Sign in to decide.</p>
       <SignInLink hash={location.hash} class="btn btn-sm btn-primary">Sign in</SignInLink>
