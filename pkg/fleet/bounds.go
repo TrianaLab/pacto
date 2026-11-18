@@ -57,6 +57,11 @@ const MaxInferredServices = 5000
 const (
 	MaxInferredImageRunes = 512
 	MaxInferredPathRunes  = 256
+	// MaxInferredRepositories caps the repositories one inferred record keeps.
+	MaxInferredRepositories = 5
+	// MaxInferredGroupKeyRunes bounds a group key filter, above the longest
+	// key a group can carry (cluster, rule, namespace, kind and name).
+	MaxInferredGroupKeyRunes = 1024
 )
 
 // MaxSearchExternals caps the external systems a search lists.

@@ -44,6 +44,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 	"github.com/trianalab/pacto/v4/pkg/signing"
+	"github.com/trianalab/pacto/v4/pkg/workloadmanager"
 )
 
 var version = "dev"
@@ -107,6 +108,10 @@ func runPromoter(args []string) error {
 	statsDockerConfig := fs.String("stats-docker-config", "",
 		"A directory holding a config.json with push credentials for --stats-repository. "+
 			"Empty uses the promoter's own registry credentials.")
+	fingerprints := fs.String("fingerprints", "",
+		"A file (YAML or JSON) of the workload managers and promoters this installation runs, "+
+			"as the chart's fingerprints value. A workload a configured manager applies reads external: <product>, "+
+			"and the promoter writes no pointer for it.")
 	zopts := zap.Options{}
 	zopts.BindFlags(fs)
 	_ = fs.Parse(args)
@@ -139,8 +144,12 @@ func runPromoter(args []string) error {
 	if err != nil {
 		return err
 	}
+	managers, err := loadManagers(*fingerprints)
+	if err != nil {
+		return err
+	}
 	cluster := delivery.Cluster{Client: mgr.GetClient(), Cache: mgr.GetCache(), CacheApplications: *argocd,
-		NoFlux: !*flux, FluxHelm: *fluxHelm,
+		NoFlux: !*flux, FluxHelm: *fluxHelm, Managers: managers,
 		Registry: func(hosts ...string) core.Registry {
 			return oci.NewClient(keychain, oci.WithInsecureRegistries(slices.Concat(insecure, hosts)...))
 		}}
@@ -315,6 +324,21 @@ func kubeClusterID(mgr ctrl.Manager) (string, error) {
 		return "", err
 	}
 	return kubecluster.ID(context.Background(), dyn)
+}
+
+// loadManagers is the manager detector of the fingerprints file, the
+// built-in one when file is empty.
+func loadManagers(file string) (workloadmanager.Detector, error) {
+	if file == "" {
+		return workloadmanager.Detector{}, nil
+	}
+	f, err := os.Open(file)
+	if err != nil {
+		return workloadmanager.Detector{}, err
+	}
+	defer func() { _ = f.Close() }()
+	fp, err := workloadmanager.ParseFingerprints(f)
+	return workloadmanager.Detector{Extra: fp.Managers}, err
 }
 
 // upstreamReader reads what a Stage in another cluster verified from its

@@ -34,6 +34,10 @@ type fakeK8sClient struct {
 	gotNS       string
 }
 
+func (f *fakeK8sClient) PreferredVersions(context.Context, ...string) (map[string]string, error) {
+	return nil, errors.New("the CRD source never discovers GitOps APIs")
+}
+
 func (f *fakeK8sClient) DiscoverCRD(context.Context) (*k8sclient.CRDDiscovery, error) {
 	return f.disc, f.discErr
 }

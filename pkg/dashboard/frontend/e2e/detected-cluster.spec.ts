@@ -68,6 +68,10 @@ test.describe('WASM demo: what the cluster provides', () => {
     // the viewport (900px). The layout gate never opens a tip, so the widths are swept here.
     await appReady(page, '/#/fleet/sources');
     const block = page.getByTestId('detected-providers');
+    // Other stories' rows sort first, so the detected rows may sit behind Show all.
+    await expect(block.getByTestId('provider-row').first()).toBeVisible({ timeout: T });
+    const showAll = block.getByRole('button', { name: /^Show all/ });
+    if (await showAll.isVisible()) await showAll.click();
     const mark = block.getByRole('button', { name: 'Inferred: from cluster-detection' }).first();
     await expect(mark).toBeVisible({ timeout: T });
     const widths = [...Array.from({ length: 29 }, (_, i) => 320 + i * 40), 1920, 2560, 3440];

@@ -346,6 +346,12 @@ type fakeFleetK8sClient struct {
 	gotContext string
 	// workloads is the list JSON of each workload resource; missing: none.
 	workloads map[string]string
+	versions  map[string]string
+}
+
+// PreferredVersions serves the groups of versions; none by default.
+func (f *fakeFleetK8sClient) PreferredVersions(context.Context, ...string) (map[string]string, error) {
+	return f.versions, nil
 }
 
 func (f *fakeFleetK8sClient) DiscoverCRD(context.Context) (*k8sclient.CRDDiscovery, error) {
@@ -571,6 +577,36 @@ func TestFleetK8sProviderRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]string{fleet.ProviderPactoCRD: "uid-1", fleet.ProviderKubernetesWorkloads: "uid-1" + workloadsSuffix}
+	if len(snap.Providers) != len(want) {
+		t.Fatalf("providers = %+v", snap.Providers)
+	}
+	for _, p := range snap.Providers {
+		if want[p.ID] != p.Source || p.Cluster != "eu-prod" {
+			t.Errorf("row %s from %q in cluster %q; want source %q in eu-prod", p.ID, p.Source, p.Cluster, want[p.ID])
+		}
+	}
+}
+
+func TestFleetK8sGroupingRows(t *testing.T) {
+	svc := NewService(nil, nil)
+	svc.sys.newK8s = func() (k8sclient.K8sClient, error) {
+		return &fakeFleetK8sClient{
+			disc:     &k8sclient.CRDDiscovery{Found: true, Version: "v1alpha1", ResourceName: "pactos"},
+			listData: []byte(`{"items":[]}`),
+			identity: kubecluster.Identity{ID: "uid-1", Name: "eu-prod", NameSource: kubecluster.NameFromContext},
+			versions: map[string]string{"argoproj.io": "v1alpha1", "helm.toolkit.fluxcd.io": "v2"},
+			workloads: map[string]string{"deployments": `{"items":[{"metadata":{"name":"cart","namespace":"shop",` +
+				`"annotations":{"meta.helm.sh/release-name":"cart","meta.helm.sh/release-namespace":"shop"}}}]}`},
+		}, nil
+	}
+	svc.sys.kubeContext = func() string { return "eu-prod" }
+	snap, err := svc.Fleet(context.Background(), FleetOptions{IncludeK8s: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workloads := "uid-1" + workloadsSuffix
+	want := map[string]string{fleet.ProviderPactoCRD: "uid-1", fleet.ProviderKubernetesWorkloads: workloads,
+		fleet.ProviderHelm: workloads, fleet.ProviderArgoCD: workloads, fleet.ProviderFlux: workloads}
 	if len(snap.Providers) != len(want) {
 		t.Fatalf("providers = %+v", snap.Providers)
 	}

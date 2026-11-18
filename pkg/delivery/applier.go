@@ -32,8 +32,8 @@ type ApplierStatus struct {
 	// Manager is the detected manager. Both Flux kinds read flux; Owner names
 	// the kind.
 	// +optional
-	// +kubebuilder:validation:Enum=argocd;flux;helm;unsupported;ambiguous;none
-	Manager string `json:"manager,omitempty" enum:"argocd,flux,helm,unsupported,ambiguous,none" doc:"The detected manager; both Flux kinds read flux and owner names the kind. Empty when no workload could be read"`
+	// +kubebuilder:validation:Enum=argocd;flux;helm;external;unsupported;ambiguous;none
+	Manager string `json:"manager,omitempty" enum:"argocd,flux,helm,external,unsupported,ambiguous,none" doc:"The detected manager; both Flux kinds read flux and owner names the kind; external is a tool the installation named in its fingerprints. Empty when no workload could be read"`
 	// Owner is the object that manages the workloads ("Application
 	// payments/payments").
 	// +optional
@@ -154,6 +154,9 @@ func judgeTarget(in ApplierInput, t ApplierTarget) targetVerdict {
 		return targetVerdict{ApplierUnknown, workloadmanager.Describe(m) + ", manages " + t.Workload + ": Pacto adopts only Argo CD and Flux"}
 	case workloadmanager.Ambiguous:
 		return targetVerdict{ApplierUnknown, t.Workload + " carries marks of more than one manager: " + m.Evidence}
+	case workloadmanager.External:
+		// Gate-only: never Adopted, so the promoter writes no pointer.
+		return targetVerdict{ApplierUnknown, "external: " + m.Product + " manages " + t.Workload + " (" + m.Evidence + "): Pacto runs the gates and writes no pointer"}
 	case workloadmanager.Helm:
 		return conflictWith(in, t)
 	}
@@ -253,7 +256,7 @@ func managerEnum(name string) string {
 	switch name {
 	case workloadmanager.FluxKustomization, workloadmanager.FluxHelmRelease:
 		return "flux"
-	case workloadmanager.ArgoCD, workloadmanager.Helm, workloadmanager.Unsupported, workloadmanager.Ambiguous, workloadmanager.None:
+	case workloadmanager.ArgoCD, workloadmanager.Helm, workloadmanager.External, workloadmanager.Unsupported, workloadmanager.Ambiguous, workloadmanager.None:
 		return name
 	case "":
 		return workloadmanager.None

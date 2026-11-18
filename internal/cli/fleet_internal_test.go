@@ -269,3 +269,19 @@ func TestDetectedFlagShared(t *testing.T) {
 		t.Error("--detected is not a shared fleet flag read into FleetOptions")
 	}
 }
+
+// TestFingerprintsFlagShared: --fingerprints is a shared fleet source flag
+// and reaches app.FleetOptions, as the dashboard's own --fingerprints does.
+func TestFingerprintsFlagShared(t *testing.T) {
+	cmd := &cobra.Command{Use: "bare"}
+	addFleetSourceFlags(cmd.Flags())
+	if err := cmd.Flags().Set("fingerprints", "/etc/pacto/fingerprints.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(fleetFlagNames(), "fingerprints") || fleetOptions(cmd).Fingerprints != "/etc/pacto/fingerprints.yaml" {
+		t.Error("--fingerprints is not a shared fleet flag read into FleetOptions")
+	}
+	if got := dashboardFleetOptions("", nil, nil, nil, dashboardSources{fingerprints: "f.yaml"}).Fingerprints; got != "f.yaml" {
+		t.Errorf("dashboard Fingerprints = %q", got)
+	}
+}

@@ -8,6 +8,7 @@ See LICENSE file in the project root for full license text.
 package dashboard
 
 import (
+	"maps"
 	"os"
 	"slices"
 	"strings"
@@ -56,6 +57,38 @@ func TestDashboardClusterRoleWithinOperatorRole(t *testing.T) {
 					}
 				}
 			}
+		}
+	}
+}
+
+// TestClusterRoleListsGitOpsObjects: the unscoped dashboard lists the four
+// GitOps kinds that group inferred services, with list only (no get or watch),
+// and the scoped half grants none of them.
+func TestClusterRoleListsGitOpsObjects(t *testing.T) {
+	want := map[string]string{
+		"argoproj.io":                 "applications",
+		"kustomize.toolkit.fluxcd.io": "kustomizations",
+		"helm.toolkit.fluxcd.io":      "helmreleases",
+		"source.toolkit.fluxcd.io":    "gitrepositories",
+	}
+	for _, scoped := range []bool{false, true} {
+		got := map[string]string{}
+		for _, r := range clusterRoleAC(scoped).(*rbacv1ac.ClusterRoleApplyConfiguration).Rules {
+			for _, g := range r.APIGroups {
+				if _, ok := want[g]; !ok {
+					continue
+				}
+				if !slices.Equal(r.Verbs, []string{"list"}) {
+					t.Errorf("scoped=%v: %s verbs = %v, want [list]", scoped, g, r.Verbs)
+				}
+				got[g] = strings.Join(r.Resources, ",")
+			}
+		}
+		if scoped && len(got) != 0 {
+			t.Errorf("the scoped half grants GitOps objects: %v", got)
+		}
+		if !scoped && !maps.Equal(got, want) {
+			t.Errorf("GitOps rules = %v, want %v", got, want)
 		}
 	}
 }

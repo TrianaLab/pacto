@@ -243,6 +243,14 @@ or schema file already there as it is, listed in `kept`.
   `inferred`, which keeps only the services Pacto infers from Kubernetes
   workloads no contract describes, or `declared`, which leaves them out. Empty
   lists every service and marks the inferred ones `declaration: inferred`.
+- `group` on `pacto_fleet_entities` takes a group key, `workload.group.key`,
+  and keeps the inferred services the cluster groups under it. An inferred
+  service's `workload.group` says how the cluster groups it and where Pacto
+  read that, `workload.repositories` lists the source repositories its Argo CD
+  Application or Flux GitRepository names, and `workload.repositoryUnknown`
+  says why none shows; see
+  [Groups and repositories](operational-graph-inferred.md#groups-and-repositories).
+  List rows carry `group` and `repository`.
 - `pacto_fleet_graph` lists runtime calls with an inferred service on one end
   in `edges` as `inferred`, and `pacto_fleet_get` and `pacto_fleet_graph`
   answer the key of a

@@ -212,6 +212,15 @@ for res in pods secrets; do
   [ "$(can_i get "$res" "$DASH_AS" --all-namespaces)" = "no" ] || fail "the dashboard may get $res"
 done
 pass "the dashboard may list workloads, never get or watch them, and reads no pods or Secrets"
+# Service grouping and repository provenance: the dashboard lists the four
+# GitOps kinds, list only (the CRDs need not be installed for the review).
+for res in applications.argoproj.io kustomizations.kustomize.toolkit.fluxcd.io helmreleases.helm.toolkit.fluxcd.io gitrepositories.source.toolkit.fluxcd.io; do
+  [ "$(can_i list "$res" "$DASH_AS" --all-namespaces)" = "yes" ] || fail "the dashboard may not list $res in every namespace"
+  for verb in get watch; do
+    [ "$(can_i "$verb" "$res" "$DASH_AS" --all-namespaces)" = "no" ] || fail "the dashboard may $verb $res; service grouping needs list only"
+  done
+done
+pass "the dashboard may list Argo CD and Flux objects, never get or watch them"
 apply_pacto default lp-pull missing-grant
 eventually 20 reason_is default lp-pull PullSecretNotGranted || fail "lp-pull never reached PullSecretNotGranted (reason '$(condition default lp-pull reason)')"
 [ "$(pacto_status default lp-pull)" = "Unknown" ] || fail "lp-pull contractStatus=$(pacto_status default lp-pull), want Unknown"

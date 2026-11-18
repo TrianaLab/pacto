@@ -881,6 +881,15 @@ describe('external-system routes', () => {
   });
 });
 
+describe('fleetServicesUrl group (509-S3)', () => {
+  it('carries the group key and parses it back', () => {
+    const url = fleetServicesUrl({ declaration: 'inferred', group: 'argocd/shop/shop' });
+    expect(url).toBe('#/fleet/services?declaration=inferred&group=argocd%2Fshop%2Fshop');
+    expect(parseHash(url)).toEqual({ view: 'fleet-services', params: { declaration: 'inferred', group: 'argocd/shop/shop' } });
+    expect(fleetServicesUrl({ group: '' })).toBe('#/fleet/services');
+  });
+});
+
 describe('fleetServicesUrl declaration (509-S1)', () => {
   it('carries the declaration filter and parses it back', () => {
     const url = fleetServicesUrl({ declaration: 'inferred' });

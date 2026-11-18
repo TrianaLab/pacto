@@ -480,6 +480,31 @@ nodeAgent:
       # and connections it tracks, and the kernel ring buffer is charged here.
       memory: 256Mi
 
+# The workload managers and promoters this installation runs, as data: Pacto
+# ships no code for any of them. Optional; nothing needs it to work. The chart
+# renders it into a ConfigMap the dashboard and the delivery promoter read as
+# --fingerprints. Each entry names a product and exactly one matcher.
+fingerprints:
+  # -- Tools that apply workloads, each named by a `fieldManager`, a `label` or
+  # an `annotation` key it leaves on a workload. A workload one of them manages
+  # reads `external: <product>`, and the delivery promoter runs the gates and
+  # writes no pointer for it.
+  managers: []
+  # -- Tools that promote versions, each named by a `crd` (`<plural>.<group>`)
+  # the cluster serves, or a `label` or `annotation` key on a workload. Data
+  # sources reads `promotion owned by <product>` for each one found. These
+  # three are examples of an open list: add any IDP's promoter, public or
+  # private, as one more entry, or set it to null for none.
+  promoters:
+    - product: Kargo
+      crd: stages.kargo.akuity.io
+    - product: Kargo
+      crd: warehouses.kargo.akuity.io
+    - product: Argo CD Image Updater
+      annotation: argocd-image-updater.argoproj.io/image-list
+    - product: Flux ImageUpdateAutomation
+      crd: imageupdateautomations.image.toolkit.fluxcd.io
+
 # -- Node selector for the controller pod
 nodeSelector: {}
 # -- Tolerations for the controller pod

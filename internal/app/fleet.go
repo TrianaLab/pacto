@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/workloadmanager"
 )
 
 // errNoBundleStore marks an OCI or cache source configured without a store.
@@ -81,7 +83,11 @@ type FleetOptions struct {
 	// Detected adds what the operator detected as inferred provider rows:
 	// k8s:<namespace>/<name> of its ConfigMap, read with the kubeconfig, or a
 	// file holding the same JSON. The source is advisory; --k8s never adds it.
-	Detected        string
+	Detected string
+	// Fingerprints is a file (YAML or JSON) of the installation's workload
+	// managers and promoters; each promoter found is a promotion row of the
+	// workload source. Empty adds none.
+	Fingerprints    string
 	FreshnessWindow time.Duration
 	Concurrency     int
 	// DisallowPartial makes a single source failure fatal instead of yielding a
@@ -117,7 +123,8 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 	}
 	// A malformed --detected ref is a usage error, refused before any read.
 	remote, err := httpSources(opts)
-	if err := errors.Join(err, CheckDetectedRef(opts.Detected)); err != nil {
+	fp, fpErr := loadFingerprints(opts.Fingerprints)
+	if err := errors.Join(err, CheckDetectedRef(opts.Detected), fpErr); err != nil {
 		return nil, err
 	}
 	sources = append(sources, remote...)
@@ -153,7 +160,7 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 			sources = append(sources, fleet.NewFailingSource(id, fleet.SourceKindKubernetes, err),
 				fleet.NewFailingSource(id+workloadsSuffix, fleet.SourceKindKubernetesWorkloads, err))
 		} else {
-			sources = append(sources, liveK8sSources(ctx, contextName, client, opts.K8sNamespaces)...)
+			sources = append(sources, liveK8sSources(ctx, contextName, client, opts.K8sNamespaces, fp.Promoters)...)
 		}
 	}
 	sources = append(sources, s.detectionSources(opts.Detected)...)
@@ -217,15 +224,34 @@ const workloadsSuffix = "-workloads"
 // read, so two contexts on one cluster are one source. When it cannot be read
 // (no get on namespaces/kube-system) the sources keep the context name ("k8s"
 // without one) and report no cluster.
-func liveK8sSources(ctx context.Context, contextName string, client k8sclient.K8sClient, namespaces []string) []fleet.Source {
+func liveK8sSources(ctx context.Context, contextName string, client k8sclient.K8sClient, namespaces []string, promoters []workloadmanager.Fingerprint) []fleet.Source {
 	id, cluster := cmp.Or(contextName, "k8s"), (*fleet.Cluster)(nil)
 	if ident, err := client.ClusterIdentity(ctx, contextName); err == nil {
 		id, cluster = ident.ID, &fleet.Cluster{ID: ident.ID, Name: ident.Name, NameSource: ident.NameSource}
 	}
 	return []fleet.Source{
 		fleetsrc.NewK8sSource(id, cluster, client, namespaces),
-		fleetsrc.NewWorkloadSource(id+workloadsSuffix, cluster, client, namespaces),
+		fleetsrc.NewWorkloadSource(id+workloadsSuffix, cluster, client, namespaces).WithPromoters(promoters),
 	}
+}
+
+// loadFingerprints reads the --fingerprints file, none when path is empty.
+// A file that is unreadable or invalid is a usage error, refused before any
+// source is read.
+func loadFingerprints(path string) (workloadmanager.Fingerprints, error) {
+	if path == "" {
+		return workloadmanager.Fingerprints{}, nil
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return workloadmanager.Fingerprints{}, fmt.Errorf("--fingerprints: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+	fp, err := workloadmanager.ParseFingerprints(f)
+	if err != nil {
+		return workloadmanager.Fingerprints{}, fmt.Errorf("--fingerprints %s: %w", path, err)
+	}
+	return fp, nil
 }
 
 // checkSourceIDsAreUnique refuses to build a snapshot whose sources do not have

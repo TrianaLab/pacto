@@ -549,3 +549,23 @@ func TestDeploymentAC_NoDetectedWithoutConfigMap(t *testing.T) {
 		}
 	}
 }
+
+// The dashboard reads the installation's fingerprints as a kubelet-mounted
+// file, so its ServiceAccount gains no ConfigMap rule.
+func TestDeploymentAC_FingerprintsVolume(t *testing.T) {
+	cfg := Config{Enabled: true, Image: "img:v1", Namespace: "test-ns", FingerprintsConfigMap: "pacto-operator-fingerprints"}
+	deploy := deploymentAC(cfg).(*appsv1ac.DeploymentApplyConfiguration)
+	container := deploy.Spec.Template.Spec.Containers[0]
+	env := slices.ContainsFunc(container.Env, func(e corev1ac.EnvVarApplyConfiguration) bool {
+		return *e.Name == fingerprintsEnvVar && *e.Value == "/etc/pacto/fingerprints/fingerprints.yaml"
+	})
+	mount := slices.ContainsFunc(container.VolumeMounts, func(vm corev1ac.VolumeMountApplyConfiguration) bool {
+		return *vm.Name == "fingerprints" && *vm.MountPath == "/etc/pacto/fingerprints" && *vm.ReadOnly
+	})
+	vol := slices.ContainsFunc(deploy.Spec.Template.Spec.Volumes, func(v corev1ac.VolumeApplyConfiguration) bool {
+		return *v.Name == "fingerprints" && v.ConfigMap != nil && *v.ConfigMap.Name == "pacto-operator-fingerprints" && *v.ConfigMap.Items[0].Key == "fingerprints.yaml"
+	})
+	if !env || !mount || !vol {
+		t.Errorf("env %v mount %v volume %v", env, mount, vol)
+	}
+}

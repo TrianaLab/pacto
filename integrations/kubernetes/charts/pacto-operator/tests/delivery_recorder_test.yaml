@@ -7,6 +7,9 @@ release:
   name: d
   namespace: pacto-system
 set:
+  # This suite pins exact argument and volume lists; the fingerprints
+  # defaults have their own suite (fingerprints_test.yaml).
+  fingerprints: null
   delivery.enabled: true
 capabilities:
   apiVersions:

@@ -57,6 +57,7 @@ func newFleetEntitiesCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	f.String("status", "", "canonical compliance status")
 	addTemplateFlag(f)
 	addDeclarationFlag(cmd)
+	f.String("group", "", "inferred services the cluster groups under this key (rule/namespace/name: workload.group.key in pacto fleet entity --output-format json)")
 	f.String("created-from", "", "services created from this golden path, by key; "+fleet.NoOrigin+" for no declared origin or "+fleet.UnresolvedOrigin+" for an origin that resolves to no golden path")
 	f.String("sort", "", "order: name, health (least healthy first; owners and domains by non-compliant, failing, unknown, stale and gap services), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most consumers with a failed provisioning request first), consumers (offerings with the most declared consumers first) or gaps (owners and domains with the most services that leave knowledge out first)")
 	f.Bool("has-non-compliant", false, "owners and domains with at least one non-compliant service only")
@@ -135,7 +136,7 @@ func entityFilterFromCmd(cmd *cobra.Command, text string) fleet.EntityFilter {
 	f := fleet.EntityFilter{
 		Text: text, Owner: get("owner"), OwnerKey: get("owner-key"), BusinessDomain: get("business-domain"),
 		Offering: get("offering"), Consumes: get("consumes"), Phase: get("phase"), Environment: get("environment"), Ownership: get("ownership"), Gap: get("gap"), Status: get("status"), Sort: get("sort"),
-		Template: get("template"), Declaration: get("declaration"), CreatedFrom: get("created-from"),
+		Template: get("template"), Declaration: get("declaration"), Group: get("group"), CreatedFrom: get("created-from"),
 		HasNonCompliant: nc, SourceKind: get("source-kind"), Lifecycle: get("lifecycle"), Failed: failed, Limit: limit, Offset: offset,
 		Capability: get("capability"), Domain: get("domain"), Service: get("service"), Source: get("source"),
 		Scope: get("scope"), Readiness: get("readiness"), SourceHealth: get("source-health"), Class: get("class"),
@@ -304,6 +305,15 @@ func attentionFilterFromCmd(cmd *cobra.Command) fleet.AttentionFilter {
 	}
 }
 
+// entityGroupLabel is the group of an inferred list row in words, empty when
+// the row carries none.
+func entityGroupLabel(g *fleet.InferredGroup) string {
+	if g == nil {
+		return ""
+	}
+	return g.Label
+}
+
 func printFleetEntities(cmd *cobra.Command, res *fleet.EntityList, format string) error {
 	return formatResult(cmd, format, res, func() error {
 		w := cmd.OutOrStdout()
@@ -312,7 +322,7 @@ func printFleetEntities(cmd *cobra.Command, res *fleet.EntityList, format string
 			_, _ = fmt.Fprintf(w, "  %-11s %-28s %-32s %s\n", entityRowKind(e), e.Label, e.Key, orDash(e.Status))
 			switch {
 			case e.Declaration == fleet.DeclarationInferred:
-				_, _ = fmt.Fprintf(w, "              namespace %s  kind %s  image %s\n", e.Scope, e.Secondary, orDash(e.Image))
+				_, _ = fmt.Fprintf(w, "              namespace %s  kind %s  image %s  group %s\n", e.Scope, e.Secondary, orDash(e.Image), orDash(entityGroupLabel(e.Group)))
 			case e.Kind == fleet.KindOffering:
 				_, _ = fmt.Fprintf(w, "              %s\n", offeringRowFacts(e))
 			case e.Kind == fleet.KindOwner || e.Kind == fleet.KindDomain:

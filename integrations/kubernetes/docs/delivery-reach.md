@@ -29,6 +29,10 @@ first match wins:
    Argo CD.
 6. A controller owner reference, kapp, Rancher Fleet, Spinnaker, Skaffold,
    Terraform or Pulumi: a manager Pacto does not support.
+7. A field manager, label or annotation the chart's `fingerprints.managers`
+   names: `external: <product>`. It weighs like the first four marks, so it
+   and another one read as ambiguous. See
+   [Fingerprints](../../operational-graph-providers.md#fingerprints).
 
 Marks of two different managers read as ambiguous. The Stage records the
 result in `status.applier`, with the evidence, `asOf` and `completeness`, and
@@ -39,7 +43,7 @@ compares it with its `spec.applyRef`:
 | `Adopted` | The Stage's applier manages every workload | goes ahead |
 | `Unmanaged` | No Pacto reports a workload yet, or the workload it reports does not exist yet | goes ahead |
 | `Conflict` | Another manager or another object owns a workload, a plain Helm release owns it, or the workloads disagree | is refused; `Ready` is `False` with `ApplierConflict` |
-| `Unknown` | A workload carries no mark of the Stage's applier, an unsupported or ambiguous manager owns it, Pacto could not read it, a Pacto is not reconciled yet or evaluated another workload than the Stage runs, or a Kustomization in another namespace does not apply from the Stage's OCIRepository | is refused; `Ready` is `False` with `ApplierUnknown` |
+| `Unknown` | A workload carries no mark of the Stage's applier, an unsupported, external or ambiguous manager owns it, Pacto could not read it, a Pacto is not reconciled yet or evaluated another workload than the Stage runs, or a Kustomization in another namespace does not apply from the Stage's OCIRepository | is refused; `Ready` is `False` with `ApplierUnknown` |
 
 Nobody can accept a `Conflict` or an `Unknown`: Pacto never writes a pointer
 another manager may overwrite, and moving a workload is yours to do.
@@ -52,6 +56,8 @@ another manager may overwrite, and moving a workload is yours to do.
 - `pacto delivery plan` keeps what the promoter observed apart from what the
   Stage declares.
 - The Stage's `spec.applyRef` names the applier; a contract never names one.
+- An `external: <product>` workload is gate-only: the verdict reads
+  `external: <product> manages <workload> (<evidence>): Pacto runs the gates and writes no pointer`.
 
 ## Apply through a Flux HelmRelease
 

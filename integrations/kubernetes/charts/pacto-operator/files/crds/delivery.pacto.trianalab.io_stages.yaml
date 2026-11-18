@@ -378,6 +378,7 @@ spec:
                     - argocd
                     - flux
                     - helm
+                    - external
                     - unsupported
                     - ambiguous
                     - none

@@ -649,6 +649,57 @@ func TestViewerReviewsProviderCounts(t *testing.T) {
 	}
 }
 
+// TestViewerReviewsHelmReleaseCounts: a Helm release is read from workload
+// annotations, so its count shows only to a reader who may list every
+// workload kind in its namespace; one kind short hides it.
+func TestViewerReviewsHelmReleaseCounts(t *testing.T) {
+	k := fleet.SourceKindKubernetes
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("k8s", k, &fleet.Collection{
+		Targets:   []fleet.RawTarget{{Scope: "shop", Kind: k, Name: "svc-a", Service: "svc-a"}},
+		Providers: []fleet.Provider{{ID: fleet.ProviderHelm, Counts: []fleet.ProviderCount{{Kind: fleet.HelmReleaseKind, Namespace: "shop", N: 2}}}},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := fleet.NewQuery(snap)
+	for _, tc := range []struct {
+		denied string
+		want   string
+	}{
+		{"", "2 Helm releases"},
+		{"cronjobs", "none you may see (+2 hidden by your permissions)"},
+	} {
+		r := &reviews{allow: func(_ Person, ns string) (bool, error) { return ns == "shop", nil }, allowWorkload: func(_ Person, ns string, res ResourceAttributes) (bool, error) {
+			return ns == "shop" && res.Resource != tc.denied, nil
+		}}
+		got, err := NewViewer(r.review).Query(context.Background(), alice, q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ev := got.SnapshotForSerialization().Providers[0].Evidence; ev != tc.want {
+			t.Errorf("denied %q: evidence = %q, want %q", tc.denied, ev, tc.want)
+		}
+	}
+}
+
+// TestViewerReviewsRepositoryWithoutPactos: a repository is reviewed against
+// its kind in its namespace alone, so a reader with no Pactos in argocd who
+// may list Applications there sees the URL beside a workload they see, and
+// one who may not list GitRepositories in flux-system does not.
+func TestViewerReviewsRepositoryWithoutPactos(t *testing.T) {
+	q := repositoryFleet(t)
+	r := &reviews{allow: func(_ Person, ns string) (bool, error) { return ns == "shop", nil }, allowWorkload: func(_ Person, ns string, res ResourceAttributes) (bool, error) {
+		return ns == "shop" || (ns == "argocd" && res.Resource == "applications"), nil
+	}}
+	got, err := NewViewer(r.review).Query(context.Background(), alice, q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if urls := repositoryURLs(got); !slices.Equal(urls, []string{"https://github.com/acme/shop"}) {
+		t.Errorf("alice sees repositories %v", urls)
+	}
+}
+
 // TestViewerReviewsDetectedNamespaces: the namespace of a detected row's
 // Gateway is reviewed even though no service runs there; a reader allowed
 // there gets the row whole, anyone else redacted.
@@ -682,5 +733,132 @@ func TestViewerReviewsDetectedNamespaces(t *testing.T) {
 	}
 	if p := got.SnapshotForSerialization().Providers[0]; p.Hint == "" || len(p.Objects) != 1 {
 		t.Errorf("carol, who reads infra, gets the row redacted: %+v", p)
+	}
+}
+
+// repositoryFleet: cart is the Argo CD Application cart, whose repository
+// Pacto read from the Application in argocd; ledger is the Flux Kustomization
+// shop/ledger, whose repository it read from the GitRepository in
+// flux-system.
+func repositoryFleet(t *testing.T) *fleet.Query {
+	t.Helper()
+	workloads := fleet.NewMemorySource("k8s-workloads", fleet.SourceKindKubernetesWorkloads, &fleet.Collection{InferredServices: []fleet.RawInferredService{
+		{Namespace: "shop", Kind: "Deployment", Name: "cart",
+			Group:        &fleet.InferredGroup{Rule: "argocd", Name: "cart", From: "label argocd.argoproj.io/instance"},
+			Repositories: []fleet.InferredRepository{{URL: "https://github.com/acme/shop", From: "Application argocd/cart spec.source.repoURL", Namespace: "argocd", Kind: "Application"}}},
+		{Namespace: "shop", Kind: "StatefulSet", Name: "ledger",
+			Group:        &fleet.InferredGroup{Rule: "flux-kustomization", Namespace: "shop", Name: "ledger", From: "labels kustomize.toolkit.fluxcd.io/name and namespace"},
+			Repositories: []fleet.InferredRepository{{URL: "https://github.com/acme/ledger", From: "GitRepository flux-system/ledger spec.url", Namespace: "flux-system", Kind: "GitRepository"}}},
+	}})
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, workloads)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fleet.NewQuery(snap)
+}
+
+// repositoryURLs are the repository URLs q shows, sorted.
+func repositoryURLs(q *fleet.Query) []string {
+	var out []string
+	for _, s := range q.SnapshotForSerialization().Services {
+		if s.Workload != nil {
+			for _, r := range s.Workload.Repositories {
+				out = append(out, r.URL)
+			}
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// TestViewerReviewsRepositoryKinds: a repository is reviewed against the kind
+// it was read from (applications.argoproj.io, gitrepositories in
+// source.toolkit.fluxcd.io) in its namespace, so Pacto read in argocd alone
+// never shows an Application's URL.
+func TestViewerReviewsRepositoryKinds(t *testing.T) {
+	q := repositoryFleet(t)
+	r := &reviews{allow: func(_ Person, ns string) (bool, error) { return ns != "", nil }, allowWorkload: func(_ Person, ns string, res ResourceAttributes) (bool, error) {
+		return ns != "" && res.Resource != "applications", nil
+	}}
+	got, err := NewViewer(r.review).Query(context.Background(), alice, q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if urls := repositoryURLs(got); !slices.Equal(urls, []string{"https://github.com/acme/ledger"}) {
+		t.Errorf("alice sees repositories %v", urls)
+	}
+	for _, want := range []string{"applications.argoproj.io/argocd", "gitrepositories.source.toolkit.fluxcd.io/flux-system", "pactos.pacto.trianalab.io/argocd"} {
+		if !slices.Contains(r.askedRes, want) {
+			t.Errorf("asked %v, never %s", r.askedRes, want)
+		}
+	}
+	for _, kind := range []string{"Kustomization", "HelmRelease"} {
+		if _, ok := gitopsResources[kind]; !ok {
+			t.Errorf("no resource reviews a repository read from a %s", kind)
+		}
+	}
+}
+
+// TestViewerReviewsUnresolvedRepositoryReason: a repository Pacto could not
+// resolve still says why from another object's content; that object's kind is
+// reviewed in its namespace, and a cluster-wide reader of Pactos and
+// workloads who may not list it never takes the fast path.
+func TestViewerReviewsUnresolvedRepositoryReason(t *testing.T) {
+	workloads := fleet.NewMemorySource("k8s-workloads", fleet.SourceKindKubernetesWorkloads, &fleet.Collection{InferredServices: []fleet.RawInferredService{
+		{Namespace: "shop", Kind: "Deployment", Name: "cart",
+			Group:                 &fleet.InferredGroup{Rule: "argocd", Namespace: "argocd", Name: "cart", From: "label argocd.argoproj.io/instance"},
+			RepositoryUnknown:     "the source is Helm chart payments-internal, not a Git repository",
+			RepositoryUnknownFrom: []fleet.WorkloadScope{{Namespace: "argocd", Kind: "Application"}}},
+	}})
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, workloads)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := fleet.NewQuery(snap)
+	r := &reviews{allow: func(Person, string) (bool, error) { return true, nil }, allowWorkload: func(_ Person, _ string, res ResourceAttributes) (bool, error) {
+		return res.Resource != "applications", nil
+	}}
+	got, err := NewViewer(r.review).Query(context.Background(), alice, q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == q {
+		t.Fatal("a reader who may not list Applications took the fast path")
+	}
+	if !slices.Contains(r.askedRes, "applications.argoproj.io/argocd") && !slices.Contains(r.askedRes, "applications.argoproj.io/") {
+		t.Errorf("asked %v, never about Applications", r.askedRes)
+	}
+	if w := got.SnapshotForSerialization().Service("k8s:shop/Deployment/cart").Workload; w.RepositoryUnknown != "hidden by your permissions" {
+		t.Errorf("alice reads %q", w.RepositoryUnknown)
+	}
+}
+
+// TestViewerKeyIncludesRepositoryScopes: two people with the same namespaces
+// who differ only in listing Applications in argocd never share a cached
+// view, and a cluster-wide reader of Pactos and workloads who may not list
+// Applications never takes the fast path.
+func TestViewerKeyIncludesRepositoryScopes(t *testing.T) {
+	q := repositoryFleet(t)
+	r := &reviews{allow: func(_ Person, ns string) (bool, error) { return ns != "", nil }, allowWorkload: func(p Person, ns string, res ResourceAttributes) (bool, error) {
+		return ns != "" && (res.Resource != "applications" || p.User == "bob"), nil
+	}}
+	v := NewViewer(r.review)
+	a, err := v.Query(context.Background(), alice, q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := v.Query(context.Background(), Person{User: "bob"}, q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a == b || slices.Contains(repositoryURLs(a), "https://github.com/acme/shop") || !slices.Contains(repositoryURLs(b), "https://github.com/acme/shop") {
+		t.Errorf("alice sees %v and bob %v", repositoryURLs(a), repositoryURLs(b))
+	}
+	root := &reviews{allow: func(Person, string) (bool, error) { return true, nil }, allowWorkload: func(_ Person, _ string, res ResourceAttributes) (bool, error) {
+		return res.Resource != "applications", nil
+	}}
+	got, err := NewViewer(root.review).Query(context.Background(), alice, q)
+	if err != nil || got == q || slices.Contains(repositoryURLs(got), "https://github.com/acme/shop") {
+		t.Errorf("a reader of everything but Applications sees %v, %v", repositoryURLs(got), err)
 	}
 }

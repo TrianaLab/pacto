@@ -12,8 +12,8 @@ same rows. Each row carries `id`, `source`, `cluster`, `name`, `evidence`,
 `usedFor`, `status` and `limitations`, plus `objects` and `objectsTotal` when
 the evidence names objects. The evidence never names a namespace.
 
-Each cluster reports two rows, from two sources: the Kubernetes source (such
-as `prod`) and its workload source (`prod-workloads`).
+Each cluster reports at least two rows, from two sources: the Kubernetes
+source (such as `prod`) and its workload source (`prod-workloads`).
 
 - **Pacto CRD**: `served (pacto.trianalab.io/v1alpha1)` or `not installed`.
   Pacto uses it for declared targets.
@@ -22,6 +22,30 @@ as `prod`) and its workload source (`prod-workloads`).
   it could not list is `unreadable`, never 0, and one it listed in only some
   namespaces reads `at least 12 Deployments (some unreadable)`. Pacto uses it
   for inferred services.
+- **Argo CD** and **Flux**: when the cluster serves their APIs, how many
+  Applications (Argo CD) or Kustomizations, HelmReleases and GitRepositories
+  (Flux) the workload source listed, such as `1 GitRepository, 1 HelmRelease`
+  or `no Applications found`. A kind it could not list is `unreadable` and the
+  row `partial`. Pacto uses them for service grouping and repository
+  provenance; see [Groups and repositories](operational-graph-inferred.md#groups-and-repositories).
+  A cluster that serves neither shows no row.
+- **Helm**: how many Helm releases group at least one workload. Pacto reads no
+  release Secret, so it uses them for service grouping only. When the workload
+  read was cut short or a workload kind was unreadable, the row is `partial`.
+- **Promotion**: one row per promoter the installation names in its
+  [fingerprints](#fingerprints) and the cluster shows, by the API group of a
+  CRD it serves or a label or annotation on a workload, such as
+  `promotion owned by Kargo (API group kargo.akuity.io served)`. Delivery
+  reads `promotion owned by <product>` to know another tool promotes. When
+  discovery fails, a promoter named only by its CRD shows a `partial` row
+  that says Pacto could not check. A restricted view lists only the workloads
+  you may list.
+- **Reporting adapters**: one row per adapter, signed or unsigned, that
+  reports provisioning in the target-state file or signed envelopes, and one
+  per producer the Evidence Server's trust config allows to report
+  `ResourceProvisioned` or `ResourceUsage`, from the additive `adapters` list
+  of its `GET /api/evidence/v1/producers`. Trust config rows show to every
+  viewer, since that endpoint lists them to anyone.
 
 ```bash
 $ pacto fleet providers --k8s
@@ -35,6 +59,35 @@ Kubernetes source or workload source it prints `No providers detected: this
 view reads no Kubernetes cluster (add --k8s)`. When no source reported a service or
 a target, the answer's completeness is `empty`, so the CLI also prints
 `warning: answer is empty` on stderr while it still lists the rows.
+
+## Fingerprints
+
+`--fingerprints <file>` on `pacto fleet`, `pacto dashboard`, `pacto mcp` and
+the other fleet commands, and the chart's `fingerprints` value, name the
+workload managers and promoters an installation runs. Each entry names a
+`product` and exactly one matcher: a `fieldManager`, `label` or `annotation`
+for a manager, and a `crd` (`<plural>.<group>`), `label` or `annotation` for a
+promoter. A file holds at most 64 entries. Pacto names no product in code:
+the chart's three defaults are entries of an open list, and a private IDP is
+one more.
+
+```yaml
+managers:
+  - product: Internal Deployer
+    fieldManager: acme-deployer
+promoters:
+  - product: Kargo
+    crd: stages.kargo.akuity.io
+  - product: Argo CD Image Updater
+    annotation: argocd-image-updater.argoproj.io/image-list
+  - product: Flux ImageUpdateAutomation
+    crd: imageupdateautomations.image.toolkit.fluxcd.io
+  - product: Acme Release Train
+    annotation: release-train.acme.example/stage
+```
+
+A workload one of the managers applies reads `external: <product>` in the
+[Stage applier verdict](integrations/kubernetes/delivery-reach.md#which-manager-applies-a-stage).
 
 ## Detected rows
 
@@ -78,6 +131,7 @@ without a reason or when a restricted view hid every other reason.
 A restricted view keeps every row. Objects in namespaces you cannot read and
 cluster-scoped objects are hidden, as are limitations that name them, and so is
 the name of a cluster where you can see no target. A count stays only where you
-can read the namespace and list the workload kind. The rest becomes one hidden
+can read the namespace and list its kind there; a Helm release needs every
+workload kind. The rest becomes one hidden
 total, such as `12 Deployments (+30 hidden by your permissions)`. Hiding
 objects or counts never makes the answer partial.

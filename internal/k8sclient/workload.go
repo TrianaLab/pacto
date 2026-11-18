@@ -9,3 +9,12 @@ var WorkloadGVRs = map[string]schema.GroupVersionResource{
 	"DaemonSet":   {Group: "apps", Version: "v1", Resource: "daemonsets"},
 	"CronJob":     {Group: "batch", Version: "v1", Resource: "cronjobs"},
 }
+
+// GitOpsResources are the Argo CD and Flux resources Pacto lists to name the
+// repository behind a group, by kind. Discovery picks each one's version.
+var GitOpsResources = map[string]schema.GroupResource{
+	"Application":   {Group: "argoproj.io", Resource: "applications"},
+	"Kustomization": {Group: "kustomize.toolkit.fluxcd.io", Resource: "kustomizations"},
+	"HelmRelease":   {Group: "helm.toolkit.fluxcd.io", Resource: "helmreleases"},
+	"GitRepository": {Group: "source.toolkit.fluxcd.io", Resource: "gitrepositories"},
+}

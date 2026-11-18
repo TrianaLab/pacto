@@ -108,6 +108,7 @@ type fleetEntitiesInput struct {
 	Service         string   `query:"service" doc:"Scope revision/target entities to a canonical parent ServiceKey (pages all revisions of one service)"`
 	Template        string   `query:"template" enum:"only,exclude" doc:"Golden path filter for service and revision entities: only keeps the golden paths (services whose contract declares service.template and that run nowhere) and, with no kinds, lists services only; exclude leaves them and their revisions out. Absent lists every service, golden paths marked template"`
 	Declaration     string   `query:"declaration" enum:"declared,inferred" doc:"Declaration filter for service entities: inferred keeps only the services Pacto infers from workloads no contract describes and, with no kinds, lists services only; declared leaves them out. Absent lists every service, inferred ones marked"`
+	Group           string   `query:"group" maxLength:"1024" doc:"Group filter for inferred service entities: the workload.group.key of an inferred service; with no kinds it lists services only"`
 	CreatedFrom     string   `query:"createdFrom" doc:"Keeps the services whose declared origin resolves to this golden path, by canonical ServiceKey (service entities); (none) keeps those that declare no origin and (unresolved) those whose origin resolves to no golden path. A hidden, absent or non-golden-path key answers an empty list"`
 	HasNonCompliant bool     `query:"hasNonCompliant" doc:"Keeps the owners and domains with at least one non-compliant service, counted as each row counts it (owner and domain entities)"`
 	SourceKind      string   `query:"sourceKind" doc:"Exact source kind (oci, kubernetes, evidence-http, ...) for source entities"`
@@ -129,7 +130,7 @@ func (s *Server) fleetEntities(ctx context.Context, in *fleetEntitiesInput) (*fl
 	kinds := in.Kinds
 	switch {
 	case len(kinds) > 0:
-	case in.Template == fleet.TemplateOnly || in.Declaration == fleet.DeclarationInferred:
+	case in.Template == fleet.TemplateOnly || in.Declaration == fleet.DeclarationInferred || in.Group != "":
 		kinds = []string{string(fleet.KindService)}
 	case in.Class != "":
 		// class applies only to external systems, as on the CLI and MCP.
@@ -141,7 +142,7 @@ func (s *Server) fleetEntities(ctx context.Context, in *fleetEntitiesInput) (*fl
 		Scope: in.Scope, Status: in.Status, SourceHealth: in.SourceHealth, SourceKind: in.SourceKind, Source: in.Source,
 		HasNonCompliant: in.HasNonCompliant, Lifecycle: in.Lifecycle, Failed: in.Failed, Class: in.Class,
 		Ownership: in.Ownership, Gap: in.Gap, Readiness: in.Readiness,
-		Service: in.Service, Template: in.Template, Declaration: in.Declaration, CreatedFrom: in.CreatedFrom, Sort: in.Sort, Limit: in.Limit, Offset: in.Offset,
+		Service: in.Service, Template: in.Template, Declaration: in.Declaration, Group: in.Group, CreatedFrom: in.CreatedFrom, Sort: in.Sort, Limit: in.Limit, Offset: in.Offset,
 	})
 	if err != nil {
 		return nil, productQueryError(err)
