@@ -37,7 +37,10 @@ var (
 // Tags lists every tag of repo that starts with prefix. It seeks to just
 // below prefix and stops at the first tag sorted past it, so it reads only
 // the tags it returns, plus at most one page, on a registry that sorts tags
-// as the distribution spec says. On one that does not, or that refuses a seek
+// as the distribution spec says. A page out of order, or one that starts
+// before the previous page ended, counts as unsorted; a registry that orders
+// every page it serves but hides a tag on a page after the stop cannot be
+// seen. On one that does not sort, or that refuses a seek
 // from a tag it does not hold with a 404 (zot), it scans every tag from the
 // start. Either way it reads at most maxTagPages pages: the listing
 // is complete or an error. An empty prefix lists every tag. It sets
