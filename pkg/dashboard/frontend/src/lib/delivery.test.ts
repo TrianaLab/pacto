@@ -4,10 +4,11 @@ import {
   typeLabel, decisionLabel, shortDigest, decisionAsked, cliDecision,
   keepPending, pendingFor, dropPending, miraLink, miraServiceLink, entityMiraURL, predictionLabel, authTimeText,
   versionLabel, shortDigests, digestParts, sentence, timeLabel,
-  verdictBadge, isBreaking, andList, reasonWords, verificationLabel, outcomeTone, reasonAfter, changeSummary, actorBadge, autonomyOf, unknownHelp, undoCause, UNKNOWN_DOCS,
+  verdictBadge, isBreaking, andList, reasonWords, verificationLabel, outcomeTone, reasonAfter, actorBadge, autonomyOf, unknownHelp, undoCause, UNKNOWN_DOCS,
   exceptParam, exceptList, offerLabel, checkText, watchText, progressStamp, isCommand, offerRequest, lifecycleWords,
   causeText, historyWindow, windowSince, samePerson, classSourceLabel, accessSourceLabel, gateLabel, applierLine, serverNow,
 } from './delivery.ts';
+import { changeSummary } from './changeFigure.ts';
 import {
   parseHash, deliveryInboxUrl, deliveryEnvironmentsUrl, deliveryPublishUrl, deliveryAutonomyUrl, deliveryHistoryUrl, deliveryChangeUrl,
 } from './router.ts';

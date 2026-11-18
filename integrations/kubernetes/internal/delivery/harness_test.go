@@ -223,6 +223,12 @@ func newEnv(t *testing.T, objs ...client.Object) *env {
 				}
 				return c.Update(ctx, obj, opts...)
 			},
+			Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+				if err := fail("delete", obj); err != nil {
+					return err
+				}
+				return c.Delete(ctx, obj, opts...)
+			},
 			Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
 				if err := fail("patch", obj); err != nil {
 					return err

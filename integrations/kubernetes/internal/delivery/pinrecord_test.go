@@ -285,6 +285,12 @@ func TestPinPushedOnce(t *testing.T) {
 	if puts.Load() != 0 {
 		t.Fatalf("a retry pushed %d writes", puts.Load())
 	}
+	// Another process pushes it again, and a push that fails is an error.
+	re.rec.pinned = nil
+	re.reg.fault = func(r *http.Request) bool { return r.Method == http.MethodPut }
+	if err := w.pin(context.Background(), o); err == nil {
+		t.Fatal("a failed pin push was not an error")
+	}
 	if l := re.readPins(pinSignerYAML(t, re.key.Public().(ed25519.PublicKey), "    streams: ['pins/*/*']\n"), nil); len(l.Pins) != 1 {
 		t.Fatalf("pins %+v", l)
 	}

@@ -258,9 +258,9 @@ export function entityMiraURL(caps: { miraURL?: string; auth?: { hidden?: boolea
   return caps && !caps.auth?.hidden ? caps.miraURL ?? '' : '';
 }
 
-const OUTCOMES: Record<string, string> = { Succeeded: 'succeeded', Failed: 'failed', Rejected: 'was rejected', Errored: 'could not finish' };
-const VERIFICATIONS: Record<string, string> = { Verified: 'verified', Unverified: 'not verified', AcceptedUnknown: 'a person accepted the unknown' };
-const PHASES: Record<string, string> = { Held: 'waits for a person', Pending: 'waits its turn', Running: 'is running', Verifying: 'is being checked', '': 'is not admitted yet' };
+export const OUTCOMES: Record<string, string> = { Succeeded: 'succeeded', Failed: 'failed', Rejected: 'was rejected', Errored: 'could not finish' };
+export const VERIFICATIONS: Record<string, string> = { Verified: 'verified', Unverified: 'not verified', AcceptedUnknown: 'a person accepted the unknown' };
+export const PHASES: Record<string, string> = { Held: 'waits for a person', Pending: 'waits its turn', Running: 'is running', Verifying: 'is being checked', '': 'is not admitted yet' };
 
 /** verificationLabel says how a change's checks ended, in words. */
 export function verificationLabel(v: string | undefined): string {
@@ -310,46 +310,6 @@ export function reasonWords(reason: string | undefined): string {
   const r = reason ?? '';
   if (!/^[A-Z][A-Za-z]+$/.test(r)) return r;
   return REASON_WORDS[r] ?? r.replace(/(?<=[a-z])(?=[A-Z])/g, ' ').replace(/ ([A-Z])/g, (_, c) => ` ${c.toLowerCase()}`);
-}
-
-/** The fields changeSummary reads from an explanation. */
-export interface ChangeFacts {
-  spec?: { type?: string; stage?: string; params?: { from?: string; to?: string; publisher?: { subject?: string } | null } | null };
-  status?: { phase?: string; outcome?: string; verification?: string };
-}
-
-/**
- * changeSummary says in one sentence what a change asked and where it stands,
- * with only the parts it has: no empty fields and no raw machine words.
- */
-export function changeSummary(e: ChangeFacts | null | undefined, namespace: string, versions?: Record<string, string> | null): string {
-  if (!e) return '';
-  if (e.spec?.type === TRUST_TYPE) return trustSummary(e, namespace);
-  const p = e.spec?.params ?? {};
-  const v = (d: string | undefined) => (!d ? '' : e.spec?.type === AUTONOMY_TYPE ? levelLabel(d) : versionLabel(d, versions));
-  const move = p.from && p.to ? ` from ${v(p.from)} to ${v(p.to)}` : p.to ? ` to ${v(p.to)}` : '';
-  // typeLabel is a verb for every type but a level change, which reads as a noun.
-  const lead = e.spec?.type === AUTONOMY_TYPE ? 'The level of' : typeLabel(e.spec?.type);
-  const what = `${lead} ${e.spec?.stage ?? ''} in ${namespace}${move}`;
-  const st = e.status ?? {};
-  if (st.phase === 'Concluded') {
-    const end = [OUTCOMES[st.outcome ?? ''] ?? st.outcome, VERIFICATIONS[st.verification ?? ''] ?? st.verification].filter(Boolean).join(', ');
-    return `${what} ${end ? `ended: it ${end}` : 'ended'}.`;
-  }
-  return `${what} ${PHASES[st.phase ?? ''] ?? `is ${(st.phase ?? '').toLowerCase()}`}.`;
-}
-
-/**
- * trustSummary says what a trust change asked: whether a signer may publish
- * what the Stage delivers. It moves nothing, so it names no version and no
- * verification.
- */
-function trustSummary(e: ChangeFacts, namespace: string): string {
-  const what = `Confirm ${e.spec?.params?.publisher?.subject || 'a signer'} may publish what ${e.spec?.stage ?? ''} in ${namespace} delivers`;
-  const st = e.status ?? {};
-  if (st.phase !== 'Concluded') return `${what}: ${PHASES[st.phase ?? ''] ?? `is ${(st.phase ?? '').toLowerCase()}`}.`;
-  const end = st.outcome === 'Succeeded' ? 'a person confirmed it' : st.outcome === 'Rejected' ? 'a person refused it' : OUTCOMES[st.outcome ?? ''] ?? st.outcome;
-  return `${what}: ${end ? `ended, ${end}` : 'ended'}.`;
 }
 
 const ACTOR_BADGES: Record<string, { label: string; tone: string }> = {

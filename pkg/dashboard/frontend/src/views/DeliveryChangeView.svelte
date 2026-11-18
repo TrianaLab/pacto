@@ -5,8 +5,9 @@
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { deliveryInboxUrl, deliveryHistoryUrl, deliveryChangeUrl, fleetEntityUrl } from '../lib/router.ts';
   import { deliveryServiceUrl } from '../lib/deliveryLinks.svelte.ts';
-  import { typeLabel, shortDigest, shortDigests, predictionLabel, decisionLabel, authTimeText, changeSummary, actorBadge,
+  import { typeLabel, shortDigest, shortDigests, predictionLabel, decisionLabel, authTimeText, actorBadge,
     undoCause, versionLabel, levelLabel, levelHelp, timeLabel, AUTONOMY_TYPE, TRUST_TYPE, reasonWords, reasonAfter, gateLabel, andList, decisionAsked, classSourceLabel } from '../lib/delivery.ts';
+  import { changeSummary } from '../lib/changeFigure.ts';
   import ApprovalAccess from '../components/ApprovalAccess.svelte';
   import DeliveryLead from '../components/DeliveryLead.svelte';
   import CappedList from '../components/CappedList.svelte';

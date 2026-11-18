@@ -210,6 +210,7 @@ func TestRejudgedWhenRegistryUnreadable(t *testing.T) {
 			policy := w.p.Policy
 			w.p.Policy = ""
 			ours := w.push("1.0.0", acmeRepo, w.ci(acmeSubject, acmeRepo))
+			theirs := w.push("0.9.0", otherRepo, w.ci(otherSub, otherRepo)) // a new signer stays one
 			if st := w.reconcile(); !slices.Contains(st.Published, ours) {
 				t.Fatalf("the derived rule: %v", st.Published)
 			}
@@ -217,6 +218,9 @@ func TestRejudgedWhenRegistryUnreadable(t *testing.T) {
 			w.sign(w.key, "2026-11-18T10:00:00Z", contractorRule)
 			fail(w)
 			st := w.reconcile()
+			if v := watchVerdict(t, st, theirs); v.Verdict != delivery.VerdictNewSigner {
+				t.Fatalf("the new signer: %+v", v)
+			}
 			if v := watchVerdict(t, st, ours); v.Verdict == delivery.VerdictAccepted || v.At == "" || slices.Contains(st.Published, ours) || readyReasonOf(t, st).Status != "False" {
 				t.Fatalf("verdict %+v published %v", v, st.Published)
 			}

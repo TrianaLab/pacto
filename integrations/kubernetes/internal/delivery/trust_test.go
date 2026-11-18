@@ -310,6 +310,9 @@ func TestPinsPartialReadNeverDecides(t *testing.T) {
 		"incomplete": func() (deliveryrecord.PinListing, error) {
 			return deliveryrecord.PinListing{Pins: []deliveryrecord.Pin{}, Unreadable: []string{"sha256:x: approval 503"}, Incomplete: true}, nil
 		},
+		"incomplete beside the newest": func() (deliveryrecord.PinListing, error) {
+			return deliveryrecord.PinListing{Pins: []deliveryrecord.Pin{pinFor(otherID, "sha256:p1", "2026-10-19T10:00:00Z")}, Unreadable: []string{"sha256:x: approval 503"}, Incomplete: true}, nil
+		},
 		"cut": func() (deliveryrecord.PinListing, error) {
 			return deliveryrecord.PinListing{Pins: []deliveryrecord.Pin{pinFor(otherID, "sha256:p0", "2026-10-01T10:00:00Z")}, Cut: true}, nil
 		},
@@ -373,6 +376,12 @@ func TestExpiredSignerAskedAgain(t *testing.T) {
 	o := w.e.drive(w.trustOps()[0].Name)
 	w.e.now = w.e.now.Add(25 * time.Hour)
 	wantOutcome(t, w.e.drive(o.Name), delivery.Expired, "")
+	w.e.fails["delete/Operation"] = true
+	w.p.listings = nil
+	if err := w.e.reconcileStage("payments-prod"); err == nil {
+		t.Fatal("a failed delete of the expired operation was not an error")
+	}
+	w.e.fails = fails{}
 	w.reconcile()
 	// The recorder records the expired one and lets it go.
 	gone := w.e.getOp(o.Name)

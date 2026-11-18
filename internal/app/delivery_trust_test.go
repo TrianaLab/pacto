@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -153,6 +154,10 @@ func TestTrustPinsPartialOnReadFailure(t *testing.T) {
 		},
 		"pins of payments": func() {
 			e.publishing(&delivery.PublisherConfig{StreamsRepository: "UPPER/bad", PinSigner: e.pinSigner()})
+		},
+		"pins of payments in prod: records down": func() {
+			e.publishing(&delivery.PublisherConfig{StreamsRepository: streams, PinSigner: e.pinSigner()})
+			e.d.Records = func(string, ...string) (*remote.Repository, error) { return nil, errors.New("records down") }
 		},
 	} {
 		records := e.d.Records
