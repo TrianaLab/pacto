@@ -199,6 +199,7 @@ pacto ci [root] [flags]
       --evidence-url stringArray           base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --explain string                     explain one service's row: its folder, baseline, why it changed, its inferred fields and its consumers
       --external-catalog string            organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
+      --fingerprints string                a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers
       --freshness duration                 mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]                  help for ci
       --image stringArray                  with --publish: the image <service> deploys, pinned by digest, as <service>=<repo>@sha256:...; Pacto builds, signs and copies none. A bare <repo>@sha256:... needs exactly one changed service
@@ -302,6 +303,7 @@ pacto dashboard [sources...] [flags]
       --delivery-trust string             the trust config delivery records are verified with, so History reads signed records (the recorder's PEM public key or a YAML trust config; default $PACTO_DELIVERY_TRUST)
       --detected string                   what the operator detected, shown as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON (also PACTO_DASHBOARD_DETECTED)
       --external-catalog string           organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST; a tag is refused (also PACTO_DASHBOARD_EXTERNAL_CATALOG)
+      --fingerprints string               a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers (also PACTO_DASHBOARD_FINGERPRINTS)
   -h, --help[=true|false]                 help for dashboard
       --host string                       bind address for the dashboard server (default "127.0.0.1")
       --mira-source stringArray           base URL of a Mira node whose service map supplies observed calls between services (repeatable; also PACTO_DASHBOARD_MIRA_SOURCES)
@@ -1135,6 +1137,7 @@ pacto export backstage [flags]
       --detected string              add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
       --evidence-url stringArray     base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --external-catalog string      organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
+      --fingerprints string          a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers
       --freshness duration           mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]            help for backstage
       --k8s[=true|false]             include live Pacto CRs from the current Kubernetes cluster as targets
@@ -1165,6 +1168,7 @@ pacto fleet [flags]
       --detected string            add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
       --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --external-catalog string    organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
+      --fingerprints string        a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers
       --freshness duration         mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]          help for fleet
       --k8s[=true|false]           include live Pacto CRs from the current Kubernetes cluster as targets
@@ -1225,6 +1229,7 @@ pacto fleet entities [text] [flags]
       --environment string               with --kind target, targets in this environment (the delivery.pacto.trianalab.io/environment label); with --consumes and --phase, only the consumers whose status in that phase is in this environment
       --failed[=true|false]              with --kind offering, offerings with at least one failed provisioning request
       --gap string                       services whose contracts leave this out (no-summary, no-domain, no-interface-docs, no-readiness, not-deployed, unverified-capability), or unknown for those Pacto cannot judge
+      --group string                     inferred services the cluster groups under this key (rule/namespace/name: workload.group.key in pacto fleet entity --output-format json)
       --has-non-compliant[=true|false]   owners and domains with at least one non-compliant service only
   -h, --help[=true|false]                help for entities
       --kind string                      entity kind (service, revision, target, owner, source, domain, offering, external; empty lists services, owners, domains and offerings)
@@ -1580,6 +1585,7 @@ pacto impact <old> <new> | --unavailable <service> | --removed <service> | --reg
       --detected string                 add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
       --evidence-url stringArray        base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --external-catalog string         organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
+      --fingerprints string             a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers
       --freshness duration              mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]               help for impact
       --include-observed[=true|false]   let observed (runtime) relationships raise consumer confidence
@@ -1912,6 +1918,7 @@ pacto mcp [bundle-ref] [flags]
       --exchange-audience string      with --fleet or --delivery over HTTP with --auth-issuer: the audience to exchange for, one the apiserver accepts (default "pacto-cli")
       --exchange-client-id string     with --fleet or --delivery over HTTP with --auth-issuer: the server's own OAuth client, which exchanges each caller's token for the cluster (RFC 8693); its secret comes from PACTO_MCP_EXCHANGE_CLIENT_SECRET
       --external-catalog string       organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
+      --fingerprints string           a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers
       --fleet[=true|false]            expose read-only operational-graph (fleet) query tools
       --freshness duration            mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]             help for mcp
@@ -2243,6 +2250,7 @@ pacto stats [flags]
       --detected string            add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
       --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --external-catalog string    organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
+      --fingerprints string        a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers
       --freshness duration         mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]          help for stats
       --k8s[=true|false]           include live Pacto CRs from the current Kubernetes cluster as targets
@@ -2305,6 +2313,7 @@ pacto tui [flags]
       --detected string            add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
       --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --external-catalog string    organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
+      --fingerprints string        a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers
       --freshness duration         mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]          help for tui
       --k8s[=true|false]           include live Pacto CRs from the current Kubernetes cluster as targets
