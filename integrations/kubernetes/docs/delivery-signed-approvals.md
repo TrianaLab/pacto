@@ -15,12 +15,15 @@ Each Stage's stream also holds two smaller in-toto statements. Neither has a
 
 | Predicate type | Written by | Says |
 |---|---|---|
-| `delivery.pacto.trianalab.io/operation-intent/v1` | the recorder, for every admitted Operation | what was asked and by whom (the admission-bound user), whether admission guarded it, and the approvals repository a person pushes a signed approval to |
+| `delivery.pacto.trianalab.io/operation-intent/v1` | the recorder, for every admitted Operation | what was asked and by whom (the admission-bound user), whether admission guarded it, and the approvals repository a person pushes a signed approval to; params, reason and cause that look like a secret are left out |
 | `delivery.pacto.trianalab.io/approval/v1` | the recorder for an Approval made in the cluster (dashboard, kubectl), or the person's own client (`pacto delivery approve`) | the operation (name, uid, intent digest, Stage), the decision, the note and who signed: a `person`, or the `recorder` with `onBehalfOf` the person admission verified |
 
 The recorder signs an Approval on behalf of its author only while the
 approval admission policy guards the cluster, and only for Approvals created
 after it first saw that policy, so turning it on never signs past decisions.
+It keeps that moment in memory: an Approval made before a recorder restart, or
+in the second the recorder first saw the policy, gets no record and never
+counts. Approve again.
 A person's signed approval goes to the Stage's approvals repository
 (`delivery.recorder.approvalsRepository`, published on
 `status.stream.approvals`), never to the streams repository. For a held
@@ -55,7 +58,9 @@ delivery:
 decision keyless with that login alone and pushes the signed record to the
 Stage's approvals repository. It refuses while `SIGSTORE_ID_TOKEN` or a GitHub
 Actions token variable is set: approving needs your own fresh login. The
-issuer must put `auth_time` and `email` in its tokens.
+issuer must put `auth_time`, `email` and `email_verified: true` in its tokens;
+Fulcio refuses an unverified email. `trustedRoot` is required and the command
+fetches no root: for public-good Fulcio, paste its `trusted_root.json`.
 
 The approver is `usernamePrefix` followed by the certificate's email, with no
 groups, so set the prefix your apiserver puts on that user. That user still

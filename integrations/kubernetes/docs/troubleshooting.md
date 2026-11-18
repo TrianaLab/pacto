@@ -304,3 +304,16 @@ narrow, and the records admission policy refuses that change to everyone, the
 recorder included. `WriteOnceTags` is healthy: the registry serves no
 Referrers API, so records are written as tags.
 [Check it works](delivery-records.md#check-it-works) lists the other reasons.
+
+A Stage that follows a new upstream Stage reads `no record was found for this
+stream` until the upstream Stage writes its first record, and offers no
+candidate until then.
+
+## An approval does not count
+
+With the recorder on, an Approval counts only once its record exists and
+verifies. Read the Approval's `status.record`; when it is empty, the recorder
+has not signed it. The recorder signs only Approvals made after it first saw
+the approval admission policy, and it keeps that moment in memory, so an
+Approval made before a recorder restart never gets a record: approve again.
+[Signed approvals](delivery-signed-approvals.md) has the rest.
