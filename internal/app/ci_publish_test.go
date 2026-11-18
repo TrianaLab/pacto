@@ -401,7 +401,7 @@ func TestCIPublishBehindWithoutPublishFailsThatServiceOnly(t *testing.T) {
 		"payments/pacto.yaml": e.contract("payments", "1.0.0", "", ""),
 	})
 	p := e.ciPublish(t, nil)
-	if r := pubRow(t, p, "legacy"); r.State != ci.StateFailed || r.Reason != `declares no publish section; Pacto derives one for pactoVersion 2.5: set pactoVersion: "2.5"` {
+	if r := pubRow(t, p, "legacy"); r.State != ci.StateFailed || !strings.HasPrefix(r.Reason, "declares no publish section, and pactoVersion stays at 2.3 (parse error at pactoVersion: ") {
 		t.Fatalf("legacy %+v", r)
 	}
 	if r := pubRow(t, p, "payments"); r.State != ci.StatePublished || p.Exit != 1 {

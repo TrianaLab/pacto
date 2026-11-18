@@ -107,7 +107,12 @@ func (cp *ciPublisher) row(ctx context.Context, r *ci.Row) {
 		cp.decide(r, ci.StateRefused, RefusedPullRequest)
 	case !behindOK(b):
 		cur := contract.Current()
-		cp.decide(r, ci.StateFailed, fmt.Sprintf("declares no publish section; Pacto derives one for pactoVersion %s: set pactoVersion: %q", cur, cur))
+		why := fmt.Sprintf("declares no publish section; Pacto derives one for pactoVersion %s: set pactoVersion: %q", cur, cur)
+		if m := cp.migrations[r.Dir]; m.State == migrationKept {
+			// Never advise the raise the plan refused: name why it was refused.
+			why = fmt.Sprintf("declares no publish section, and pactoVersion stays at %s (%s): fix that or declare publish", m.From, m.Reason)
+		}
+		cp.decide(r, ci.StateFailed, why)
 	default:
 		if why := cp.blockedBy(b); r.Changed == "yes" && why != "" {
 			cp.decide(r, ci.StateBlocked, why)

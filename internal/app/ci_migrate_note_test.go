@@ -63,6 +63,8 @@ func TestCIPlanUnchangedBehindLine(t *testing.T) {
 			"pacto.yaml is " + prevVersion + ", published as " + cur + " (migrated in memory)"},
 		{"kept", &ciFolder{b: written, asWritten: written, row: ci.Row{Changed: "no"}, migration: CIMigration{From: "2.3", To: "2.3", State: migrationKept, Reason: "ENVIRONMENT_VALUES_MISSING at environments[0] from " + cur}},
 			"pacto.yaml is 2.3, kept at 2.3 (ENVIRONMENT_VALUES_MISSING at environments[0] from " + cur + ")"},
+		{"migrated, baseline not read", &ciFolder{b: &contract.Bundle{}, asWritten: written, migration: CIMigration{From: prevVersion, To: cur, State: migrationMigrated}},
+			"pacto.yaml is " + prevVersion + ", would publish as " + cur + " if it changed (baseline not read)"},
 		{"upgrade error", &ciFolder{b: written, asWritten: written, row: ci.Row{Changed: "no"}, migration: CIMigration{From: "2.3", To: "2.3", State: migrationKept, Reason: "boom"}},
 			"pacto.yaml is 2.3, kept at 2.3 (boom)"},
 	} {
@@ -109,5 +111,36 @@ func TestCIMigrationNeverChangesExit(t *testing.T) {
 	}
 	if p := e.ciPublish(t, nil); p.Exit != 0 {
 		t.Fatalf("publish exit %d rows %+v", p.Exit, p.Rows)
+	}
+}
+
+// TestCIPlanUnreadBaselineLine: a migrated row whose baseline is never read
+// (publish.bundle outside the registry) says what it would publish, not
+// what it publishes.
+func TestCIPlanUnreadBaselineLine(t *testing.T) {
+	e := newCIPub(t)
+	e.write(t, map[string]string{"legacy/pacto.yaml": asBehind(e.contract("legacy", "1.0.0", "", ""))})
+	p, _, err := e.svc.CIPlan(t.Context(), CIOptions{Root: e.root, Registry: "other.example/acme"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := pubRow(t, p, "legacy")
+	if got := migrationNotes(r); r.Changed != "" || !slices.Equal(got, []string{"pacto.yaml is " + prevVersion + ", would publish as " + contract.Current() + " if it changed (baseline not read)"}) {
+		t.Fatalf("row %+v", r)
+	}
+}
+
+// TestCIPublishKeptWithoutSectionNamesKeptReason: a kept behind contract with
+// no publish section fails with the reason the raise was refused, never
+// advice to make that raise.
+func TestCIPublishKeptWithoutSectionNamesKeptReason(t *testing.T) {
+	cur := contract.Current()
+	b := &contract.Bundle{Contract: &contract.Contract{PactoVersion: prevVersion}}
+	reason := "ENVIRONMENT_VALUES_MISSING at environments[0] from " + cur
+	cp := &ciPublisher{bundles: map[string]*contract.Bundle{"legacy": b}, migrations: map[string]CIMigration{"legacy": {From: prevVersion, To: prevVersion, State: migrationKept, Reason: reason}}}
+	r := ci.Row{Dir: "legacy", Changed: "yes"}
+	cp.row(t.Context(), &r)
+	if r.State != ci.StateFailed || r.Reason != "declares no publish section, and pactoVersion stays at "+prevVersion+" ("+reason+"): fix that or declare publish" {
+		t.Fatalf("row %+v", r)
 	}
 }

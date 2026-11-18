@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -608,6 +609,27 @@ func TestCIBundlesFeedExplain(t *testing.T) {
 	}
 	if len(judged.Inferred) != r.Inferred || len(fresh.Inferred) == r.Inferred {
 		t.Fatalf("row %d inferred, judged bundle %d, fresh read %d", r.Inferred, len(judged.Inferred), len(fresh.Inferred))
+	}
+}
+
+// TestCIMigratedRowCountsRaisedRecord: a behind contract records nothing as
+// read; its row counts the inferred fields of the raised bundle it judges.
+func TestCIMigratedRowCountsRaisedRecord(t *testing.T) {
+	top := t.TempDir()
+	writeCIFile(t, top, ".git/HEAD", "ref: refs/heads/main\n")
+	writeCIFile(t, top, "CODEOWNERS", "/sub/reports/ @acme/reporting\n")
+	root := filepath.Join(top, "sub")
+	writeCIFile(t, root, "reports/pacto.yaml", "pactoVersion: "+strconv.Quote(prevVersion)+"\nservice: {name: reports, version: 1.0.0}\n")
+	writeCIFile(t, root, "reports/compose.yaml", "services:\n  reports:\n    image: ghcr.io/acme/reports:1.0\n    ports: [\"8080:8080\"]\n")
+	bundles := map[string]*contract.Bundle{}
+	p, _, err := NewService(nil, nil).CIPlan(context.Background(), CIOptions{Root: root, Bundles: bundles})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := row(t, p, "reports")
+	rec, _ := contract.ReadInferredRecord(bundles["reports"].FS)
+	if bundles["reports"].Contract.PactoVersion != contract.Current() || rec == nil || r.Inferred == 0 || r.Inferred != len(rec.Fields) {
+		t.Fatalf("row %+v, record %+v", r, rec)
 	}
 }
 

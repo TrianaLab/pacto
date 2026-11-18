@@ -181,6 +181,7 @@ func (s *Service) ciBundle(dir, root, revision string, cat *externalcatalog.Cata
 // name, with folder-qualified sources.
 func (f *ciFolder) recordImages() []ci.ImageRef {
 	rec, _ := contract.ReadInferredRecord(f.b.FS) // ponytail: the record was just written by completion
+	f.row.Inferred = 0
 	if rec == nil {
 		return nil
 	}
@@ -284,6 +285,9 @@ func (pl *ciPlanner) plan(ctx context.Context, f *ciFolder) {
 	}
 	fence := &hostFence{inner: &bundleResolverAdapter{svc: pl.s, base: rootBase(f.dir)}, host: pl.allowed}
 	f.b, f.migration = pl.s.migrateForCI(ctx, f.b, f.dir, pl.root, fence, pl.s.localInputs(f.dir, pl.revision), pl.cat)
+	// The raised bundle's record is the one judged and published: count it.
+	// ponytail: its images miss registry inference, resolved before the plan.
+	f.recordImages()
 	if repo, declared, ok := pl.repository(f); ok {
 		f.row.Repository = repo
 		pl.judge(ctx, f, repo, declared)
@@ -312,6 +316,9 @@ func migrationNote(f *ciFolder) string {
 		return fmt.Sprintf("pacto.yaml is %s, published as %s (raises to %s when it next changes)", m.From, m.From, m.To)
 	case f.row.Changed == "no":
 		return fmt.Sprintf("pacto.yaml is %s, published as %s%s", m.From, m.To, migratedNote)
+	case f.row.Changed == "":
+		// No baseline was read: it may hold the as-written bundle, which keeps m.From.
+		return fmt.Sprintf("pacto.yaml is %s, would publish as %s if it changed (baseline not read)", m.From, m.To)
 	}
 	return fmt.Sprintf("pacto.yaml is %s, publishes as %s%s", m.From, m.To, migratedNote)
 }
@@ -401,6 +408,7 @@ func (pl *ciPlanner) judge(ctx context.Context, f *ciFolder, repo string, declar
 		// too: a migration alone never republishes.
 		if sameWritten, whyWritten := Unchanged(base.b, f.asWritten); sameWritten {
 			same, why, f.b = true, whyWritten, f.asWritten
+			f.recordImages()
 		}
 	}
 	f.row.Reason = why

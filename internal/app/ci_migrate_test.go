@@ -167,6 +167,23 @@ func TestCIUpgradeErrorKeeps(t *testing.T) {
 	}
 }
 
+// TestCIBlockScalarVersion: Upgrade reads no version from a block-scalar
+// pactoVersion Parse accepts; the parsed one names the migration, and a
+// current one is never reported kept.
+func TestCIBlockScalarVersion(t *testing.T) {
+	root := t.TempDir()
+	writeFiles(t, root, map[string]string{
+		"current/pacto.yaml": "pactoVersion: |-\n  " + contract.Current() + "\nservice: {name: current, version: 1.0.0}\n",
+		"behind/pacto.yaml":  "pactoVersion: |-\n  " + prevVersion + "\nservice: {name: behind, version: 1.0.0}\n",
+	})
+	if b, nb, m := migrateDir(t, &Service{}, root, "current"); nb != b || m != (CIMigration{From: contract.Current(), To: contract.Current(), State: migrationCurrent}) {
+		t.Fatalf("current: %+v", m)
+	}
+	if b, nb, m := migrateDir(t, &Service{}, root, "behind"); nb != b || m.State != migrationKept || m.From != prevVersion || m.To != prevVersion || m.Reason == "" {
+		t.Fatalf("behind: %+v", m)
+	}
+}
+
 func TestMigrateForCICurrentUntouched(t *testing.T) {
 	root := t.TempDir()
 	writeFiles(t, root, map[string]string{

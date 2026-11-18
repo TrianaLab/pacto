@@ -44,7 +44,13 @@ func (s *Service) migrateForCI(ctx context.Context, b *contract.Bundle, dir, roo
 	kept := CIMigration{From: up.From, To: up.From, State: migrationKept}
 	switch {
 	case err != nil:
-		kept.Reason = err.Error()
+		// Upgrade read no version (a block-scalar pactoVersion Parse accepts):
+		// the parsed one says whether anything was behind.
+		v := b.Contract.PactoVersion
+		if _, behind := contract.Behind(v); !behind {
+			return b, CIMigration{From: v, To: v, State: migrationCurrent}
+		}
+		kept.From, kept.To, kept.Reason = v, v, err.Error()
 		return b, kept
 	case up.Kept != nil:
 		kept.Reason = findingAt(up.Kept.Code, up.Kept.Path) + " from " + contract.Current()
