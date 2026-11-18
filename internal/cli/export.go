@@ -68,8 +68,9 @@ func runExportBackstage(cmd *cobra.Command, svc *app.Service) error {
 	warnProductPartial(cmd, q.ProductMeta())
 	if reason, ok := dashboard.BackstageServable(q.SnapshotForSerialization()); !ok {
 		if allow, _ := cmd.Flags().GetBool("allow-partial"); !allow {
-			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "error: "+reason+", so no file was written; pass --allow-partial to write it anyway")
-			return &ExitError{Code: 2}
+			msg := "error: " + reason + ", so no file was written; pass --allow-partial to write it anyway"
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), msg)
+			return &ExitError{Code: 2, Reason: msg}
 		}
 	}
 	path, _ := cmd.Flags().GetString("output")

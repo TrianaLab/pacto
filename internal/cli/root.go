@@ -275,6 +275,7 @@ func newRootCommand(svc *app.Service, info VersionInfo, d deps) *cobra.Command {
 	root.AddCommand(newStatsCommand(svc, v, d))
 
 	attachBanner(root)
+	wrapJSONExit(root, v)
 	return root
 }
 

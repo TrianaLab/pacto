@@ -76,7 +76,7 @@ func newCICommand(svc *app.Service, v *viper.Viper, _ deps, rec *runRecorder) *c
 			if code != 0 {
 				_, _ = fmt.Fprintln(cmd.ErrOrStderr(), reason)
 			}
-			return exitStatus(code)
+			return exitStatus(code, reason)
 		},
 	}
 	cmd.Flags().String("registry", "", "registry the services publish to, for example ghcr.io/acme; default from the CI platform")
@@ -89,12 +89,12 @@ func newCICommand(svc *app.Service, v *viper.Viper, _ deps, rec *runRecorder) *c
 // gateExit is the exit code of each gate verdict.
 var gateExit = map[string]int{impact.GateClear: 0, impact.GateBlocked: 1, impact.GateUnverified: 2}
 
-// exitStatus is the error that ends the process with code, nil for 0.
-func exitStatus(code int) error {
+// exitStatus is the error that ends the process with code and reason, nil for 0.
+func exitStatus(code int, reason string) error {
 	if code == 0 {
 		return nil
 	}
-	return &ExitError{Code: code}
+	return &ExitError{Code: code, Reason: reason}
 }
 
 // explainRow is the row --explain names, nil when it names none, or an error

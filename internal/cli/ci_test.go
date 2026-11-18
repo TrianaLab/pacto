@@ -84,7 +84,7 @@ func TestCISkeletonDefaultRootClear(t *testing.T) {
 
 func TestExitStatus(t *testing.T) {
 	var exit *ExitError
-	if exitStatus(0) != nil || !errors.As(exitStatus(1), &exit) || exit.Code != 1 {
+	if exitStatus(0, "") != nil || !errors.As(exitStatus(1, "blocked"), &exit) || exit.Code != 1 || exit.Reason != "blocked" {
 		t.Fatal("exitStatus maps 0 to nil and any other code to an ExitError")
 	}
 }
