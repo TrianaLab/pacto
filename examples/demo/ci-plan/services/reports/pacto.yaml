@@ -1,0 +1,6 @@
+pactoVersion: "2.5"
+service:
+  name: reports
+  version: 1.0.0
+  owner:
+    team: reports
