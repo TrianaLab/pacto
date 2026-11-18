@@ -162,7 +162,7 @@ func TestVerifyDigestReadsSigTags(t *testing.T) {
 	if err := SignDigest(ctx, tr.c, echoSigner{}, repo, d); err != nil {
 		t.Fatal(err)
 	}
-	img, art := sbomArtifact(SPDXType, []byte("{}"), *subjectOf(t, tr.c, repo, d), nil)
+	img, art := referrerArtifact(SPDXType, []byte("{}"), *subjectOf(t, tr.c, repo, d), nil)
 	if err := writeReferrer(ctx, tr.c, capabilities.ReferrersWriteOnceTags, repo, d, img, art); err != nil {
 		t.Fatal(err)
 	}

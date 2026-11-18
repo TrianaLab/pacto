@@ -865,6 +865,7 @@ var jsonRuns = map[string][]string{
 	"delivery record verify": {"--stage", "prod"},
 	"delivery refusals":      {},
 	"delivery status":        {"--service", "payments"},
+	"delivery trust":         {},
 	"delivery types":         {},
 	"delivery undo":          {"-n", "prod", "op"},
 	"evidence usage":         {"--contract", "does-not-exist"},
