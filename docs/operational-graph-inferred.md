@@ -17,11 +17,13 @@ container ports and its readiness, liveness and startup probes, each with the
 object path Pacto read it from.
 
 The source needs `list` on `deployments`, `statefulsets` and `daemonsets` in
-the `apps` group and on `cronjobs` in the `batch` group, and nothing else.
+the `apps` group and on `cronjobs` in the `batch` group, plus the
+[grouping](#what-pacto-reads-to-group) kinds.
 Listing a workload also returns every inline `env[].value` of its pod
 template, `kube-system` included. Pacto reads no environment variable, Secret,
-ConfigMap, command, argument, header or annotation, and drops those values
-before anything is stored or served. It cuts a probe path at the first `?` or
+ConfigMap, command, argument or header, and no annotation other than the
+[grouping](#groups-and-repositories) ones, and drops those values before
+anything is stored or served. It cuts a probe path at the first `?` or
 `#`, because probes often carry tokens there, and drops an image or a probe
 path that holds a control character or runs past 512 or 256 characters. The
 workload lists each such field in `dropped`, and one `SOURCE_RECORD_INVALID`
@@ -35,6 +37,7 @@ limitation per source counts those workloads.
 | `INFERRED_REPLACEMENT_AMBIGUOUS` | More than one declared service targets the workload, or a target of unknown cluster names it in a snapshot of several clusters. The workload stays an inferred service; see [When a contract takes over](#when-a-contract-takes-over) |
 | `SUBJECT_REPLACED` | `pacto impact --event` was asked about the key of an inferred service a declared service replaced, and answers for the declared service |
 | `SERVICE_INFERRED` | The answer is about an inferred service. `pacto fleet graph` and `pacto impact --event` answer partial, since no contract can depend on it; `pacto fleet explain` lists it as a reason |
+| `SERVICE_GROUP_AMBIGUOUS` | Two groups of one rule claim the workload, so it stays ungrouped; see [Groups and repositories](#groups-and-repositories) |
 
 The check is conservative. A Kubernetes source that reads every namespace
 verifies its workloads only when it is `available`, so one invalid Pacto
@@ -76,6 +79,78 @@ and its status is empty.
   are counted and never named. An uncontracted caller whose inferred service
   is hidden is left out too, and the declared service it calls counts it in
   `hiddenDependents`, even when you may list Pactos in the caller's namespace.
+
+## Groups and repositories
+
+Every inferred service carries `workload.group`, the group the cluster already
+puts its workload in. Pacto reads it from the workload's own labels,
+annotations and field managers, and the first rule with a claim wins:
+
+| Rule | Read from | Label |
+|---|---|---|
+| `argocd` | The `argocd.argoproj.io/tracking-id` annotation or the `argocd.argoproj.io/instance` label; with neither, `app.kubernetes.io/instance` written by an `argocd` field manager | `Argo CD Application argocd/cart` |
+| `flux-kustomization` | The `kustomize.toolkit.fluxcd.io/name` and `/namespace` labels | `Flux Kustomization flux-system/apps` |
+| `flux-helmrelease` | The `helm.toolkit.fluxcd.io/name` and `/namespace` labels | `Flux HelmRelease observability/log-shipper` |
+| `helm` | The `meta.helm.sh/release-name` and `/release-namespace` annotations, unless a Flux HelmRelease claims the workload | `Helm release shop/exporter` |
+| `part-of` | The `app.kubernetes.io/part-of` label, in the workload's namespace | `part-of checkout in shop` |
+| `instance` | The `app.kubernetes.io/instance` label, in the workload's namespace | `instance cart in shop` |
+| `workload` | None of the above | `This workload only` |
+
+The group carries `rule`, `namespace`, `name`, `from` (what Pacto read),
+`label` and `key`, `rule/namespace/name`, with the cluster first in a snapshot
+of several clusters. `pacto fleet entities --group`, `group` on
+`pacto_fleet_entities` and `GET /api/fleet/entities?group` take the key. The
+dashboard shows the group and repository in the Workload section of the
+inferred service page, and the Services list shows the group under the image.
+
+### Ambiguous groups
+
+When two claims of one rule name different owners, such as a tracking id and
+an instance label naming two Applications, Pacto merges nothing. The workload
+keeps its own `workload` group, reads `Ungrouped` and says in `ambiguous`
+which claims disagree. A lower rule never decides instead. The service carries
+`SERVICE_GROUP_AMBIGUOUS`, and one limitation per source counts those
+workloads. An Argo CD instance with no namespace that matches several
+Applications stays ungrouped the same way.
+
+### Repositories
+
+`workload.repositories` lists at most five source repositories, each with
+`url`, `path`, `from`, `namespace` and `kind`. An Argo CD Application gives
+`spec.source.repoURL` and each `spec.sources[].repoURL`, read as in
+`Application argocd/cart spec.source.repoURL`. A Flux Kustomization or
+HelmRelease gives the `spec.url` of the GitRepository it deploys from. Every
+grouping label is metadata the workload's writer controls, so a repository
+attaches only when the object's own status lists the workload: the
+Application's `status.resources`, the Kustomization's inventory or a
+HelmRelease that installs into the workload's namespace. Helm releases and
+label groups name no repository. Pacto drops the credentials, query and
+fragment of every URL and never writes to Git.
+
+When a group names a repository Pacto cannot show, `repositoryUnknown` says
+why, for example:
+
+- `Application payments/payments-api does not list this workload`;
+- `the source is Helm chart redis, not a Git repository`;
+- `the source is OCIRepository manifests, not a GitRepository`;
+- `no Application named cart was read`;
+- `Applications outside the namespaces this source reads`;
+- `Pacto could not discover the Argo CD and Flux APIs`.
+
+A restricted view shows a repository only to a viewer whom Kubernetes lets
+list its `kind`, such as `applications.argoproj.io` or
+`gitrepositories.source.toolkit.fluxcd.io`, in its `namespace`. Anyone else
+reads `hidden by your permissions`. The group of a workload you can see always
+shows.
+
+### What Pacto reads to group
+
+To group, Pacto reads only the labels and annotations in the table and the
+names of the workload's field managers. From Applications, Kustomizations,
+HelmReleases and GitRepositories it decodes only names, source fields, Argo CD
+`status.resources` and Flux inventory entries, never inline Helm values or
+substitutions. The source needs `list` on those four kinds and reports Argo
+CD, Flux and Helm as [detected providers](operational-graph-providers.md).
 
 ## Calls with no contract on one end
 
