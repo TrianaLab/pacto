@@ -111,6 +111,26 @@ func TestTagsFallsBackWhenUnsorted(t *testing.T) {
 	}
 }
 
+// TestTagsFallsBackWhenSeekRefused: zot answers 404 with an empty body to a
+// tag listing whose last names no tag it holds (seen on zot v2.1.20 by the
+// registry conformance test), so the seek falls back to the full scan.
+func TestTagsFallsBackWhenSeekRefused(t *testing.T) {
+	held := []string{"a", "rec-1", "rec-2", "z"}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		last := r.URL.Query().Get("last")
+		if last != "" && !slices.Contains(held, last) {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_, _ = fmt.Fprintf(w, `{"tags":["%s"]}`, strings.Join(held, `","`))
+	}))
+	t.Cleanup(srv.Close)
+	repo, _ := Open(strings.TrimPrefix(srv.URL, "http://")+"/team/app", Options{})
+	if got, err := Tags(t.Context(), repo, "rec-"); err != nil || !slices.Equal(got, []string{"rec-1", "rec-2"}) {
+		t.Fatalf("tags = %v %v", got, err)
+	}
+}
+
 func TestTagsFailsPastPageBound(t *testing.T) {
 	old := maxTagPages
 	maxTagPages = 3

@@ -5,12 +5,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"slices"
 	"strings"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/registry/remote"
+	"oras.land/oras-go/v2/registry/remote/errcode"
 )
 
 // tagPageSize is the tag listing page size [Tags] asks for when the caller
@@ -35,8 +37,9 @@ var (
 // Tags lists every tag of repo that starts with prefix. It seeks to just
 // below prefix and stops at the first tag sorted past it, so it reads only
 // the tags it returns, plus at most one page, on a registry that sorts tags
-// as the distribution spec says. On one that does not, it scans every tag
-// from the start. Either way it reads at most maxTagPages pages: the listing
+// as the distribution spec says. On one that does not, or that refuses a seek
+// from a tag it does not hold with a 404 (zot), it scans every tag from the
+// start. Either way it reads at most maxTagPages pages: the listing
 // is complete or an error. An empty prefix lists every tag. It sets
 // repo.TagListPageSize when the caller left it zero.
 func Tags(ctx context.Context, repo *remote.Repository, prefix string) ([]string, error) {
@@ -48,10 +51,10 @@ func Tags(ctx context.Context, repo *remote.Repository, prefix string) ([]string
 		last = prefix[:len(prefix)-1] + string(prefix[len(prefix)-1]-1)
 	}
 	out, err := scanTags(ctx, repo, last, prefix, true)
-	switch {
-	case errors.Is(err, errTagsUnsorted):
+	switch why := fullScanReason(err, last); {
+	case why != "":
 		if out, err = scanTags(ctx, repo, "", prefix, false); errors.Is(err, errTagsPastBound) {
-			return nil, fmt.Errorf("listing the tags of %s: the registry does not sort tags, and the full scan passed %d pages", repo.Reference, maxTagPages)
+			return nil, fmt.Errorf("listing the tags of %s: %s, and the full scan passed %d pages", repo.Reference, why, maxTagPages)
 		}
 	case errors.Is(err, errTagsPastBound):
 		return nil, fmt.Errorf("listing the tags of %s from %q: more than %d pages", repo.Reference, last, maxTagPages)
@@ -60,6 +63,24 @@ func Tags(ctx context.Context, repo *remote.Repository, prefix string) ([]string
 		return nil, err
 	}
 	return out, nil
+}
+
+// fullScanReason says why a seek from last failed in a way the full scan
+// from the start answers, or "" when it did not. zot v2.1.20 answers 404 with
+// an empty body to a listing from a tag it does not hold.
+//
+// ponytail: the refused seek costs zot a full scan of the repository's tags
+// per read; seek from a tag the caller knows exists (the anchor tag) if that
+// ever shows up in a profile.
+func fullScanReason(err error, last string) string {
+	var resp *errcode.ErrorResponse
+	switch {
+	case errors.Is(err, errTagsUnsorted):
+		return "the registry does not sort tags"
+	case last != "" && errors.As(err, &resp) && resp.StatusCode == http.StatusNotFound:
+		return "the registry refused to list from a tag it does not hold"
+	}
+	return ""
 }
 
 // scanTags walks repo's tags after last and keeps those with prefix. With
