@@ -167,6 +167,8 @@ Without --publish the run is a plan: it reads the registry and the consumer sour
 
 The exit status follows the plan: 0 clear, 1 blocked, 2 unverified. A repository with no pacto.yaml, or a folder it cannot read, exits 2.
 
+A pacto.yaml that declares an older pactoVersion is raised to the current one in memory when that keeps its meaning, recorded in the bundle's pacto.inferred.yaml and noted on its row; the file in the repository is never rewritten.
+
 --publish publishes every changed service on the merged commit, through the engine pacto publish runs, providers before the services that depend on them. A service that fails blocks only the services of the run that depend on it; a version lost to a concurrent run is planned again, up to 3 times. A pull or merge request pipeline is refused before any token is asked for or anything is built. Each service leaves a run record. With --publish the exit status is 0 when every changed service is published, else 1.
 
 ```

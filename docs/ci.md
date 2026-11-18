@@ -135,6 +135,20 @@ On GitHub Actions the plan is also added to the job summary. On GitLab CI it
 is written to `pacto-plan.md`; keep it with
 `artifacts: paths: [pacto-plan.md]`.
 
+### Older contracts
+
+`pacto ci` raises an older `pactoVersion` in memory, in the bundle only,
+when that adds no validation finding. Its row says:
+
+- `ledger: pacto.yaml is 2.4, publishes as 2.5 (migrated in memory)`
+- `kept at 2.4 (<finding>)`: published as written
+- `published as 2.4 (raises to 2.5 when it next changes)`: a raise alone never
+  republishes
+
+No note changes the exit code. The bundle records the raise in
+`pacto.inferred.yaml` ([Migrations](contract-reference/inferred-record.md#migrations)),
+shown as inferred in the dashboard. Your `pacto.yaml` is never rewritten.
+
 ## On every pull request: who breaks
 
 `pacto diff` says whether a change is breaking. `pacto impact` says which
@@ -212,8 +226,9 @@ uploads only the contract.
 Sometimes a breaking change is the right call. Give it a new major version
 (`1.4.2` becomes `2.0.0`): `pacto publish` refuses a breaking change with a
 smaller version. With delivery, the change then waits for the teams whose
-services it would break. Do not remove fields or change `pactoVersion` to get
-past the check.
+services it would break. Do not remove fields to get past the check. Raising
+`pactoVersion` never hides a breaking change: `pacto ci` publishes an older
+contract as the current version only when that keeps its meaning.
 
 `pacto diff` still fails with the new major version, because the change is
 still breaking, so that pull request's check stays red. Merge it the way your

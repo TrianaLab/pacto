@@ -141,7 +141,9 @@ manifests build can pin the image it deploys by digest. Pacto then:
 
 The bundled `pacto.yaml` always declares `pactoVersion`. When the contract
 leaves it out, `pacto pack`, `pacto push` and `pacto publish` write the newest
-version the CLI supports into it.
+version the CLI supports into it. `pacto ci` also raises an older
+`pactoVersion` in the bundle when that keeps the contract's meaning (see
+[Older contracts](ci.md#older-contracts)).
 Readers rely on it: a bundle pulled from a registry, or an inline contract in a
 Pacto resource, without `pactoVersion`, `service.name` or `service.version` is
 rejected. The operational graph reports it as `SOURCE_RECORD_INVALID` and the

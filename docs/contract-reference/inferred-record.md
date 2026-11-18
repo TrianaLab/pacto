@@ -156,6 +156,34 @@ fields:
 - How `pacto init` finds them is in
   [External dependencies](../pactify.md#external-dependencies).
 
+### Migrations
+
+When [`pacto ci`](../ci.md#older-contracts) raises an older `pactoVersion` in
+memory, the bundle's record says so. A record can hold `migrations` and no
+`fields`:
+
+```yaml
+format: pacto.inferred/v1
+inputs:
+  commit: 4e1a9c0d...
+  pacto: 4.6.0
+  discovery: "1"
+migrations:
+  - from: "2.4"                # the version pacto.yaml declares in your folder
+    to: "2.5"                  # the version the bundled copy declares
+    source: pacto.yaml
+    by: pacto ci 4.6.0
+```
+
+- Entries are sorted by `source`, then `from`. Each needs all four keys, a
+  `from` and `to` this Pacto knows with `from` older than `to`, and a `source`
+  no other entry names.
+- Every entry must match the bundle it sits in: `source` is a file in the
+  bundle and the `pactoVersion` it declares equals `to`. A stale or edited
+  entry makes the record `INFERRED_RECORD_INVALID`, and the fleet then shows
+  no migration.
+- `source` is not listed in `inputs.sources`: its bytes are the raised ones.
+
 ## When Pacto writes it
 
 - `pacto init` and the MCP tool `pacto_create` (with `pactify: true`) on a
@@ -163,7 +191,8 @@ fields:
   it declares and how many Pacto completed. They write no file: the record is
   generated, so a committed copy would go stale on the next commit.
 - An older `pactoVersion` is never completed, so its bundle keeps the same
-  bytes. `init` says to set `pactoVersion: "2.5"`.
+  bytes. `init` says to set `pactoVersion: "2.5"`. `pacto ci` completes a
+  contract it raised in memory and adds a `migrations` entry.
 - A `--cluster` draft never completes a contract: only the folder is read.
 - `pacto validate`, `pacto diff`, `pacto explain`, `pacto impact` and
   `pacto fleet --local` compute the record in memory for a local folder.

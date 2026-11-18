@@ -133,9 +133,11 @@ apply only to a contract that declares no `publish` section, and
   In a shallow clone without that commit, Pacto compares the commit times; a
   baseline published before this check says `fetch more history to check` and
   the publish goes on.
-- A contract behind the current `pactoVersion` publishes as written, with a
-  plan line. One that declares no `publish` section or no version fails that
-  service and asks to set the current `pactoVersion`.
+- A contract behind the current `pactoVersion` publishes as the current
+  version when that keeps its meaning, else as written, with a plan line (see
+  [Older contracts](ci.md#older-contracts)). One kept behind that declares no
+  `publish` section or no version fails that service and asks to set the
+  current `pactoVersion`.
 
 ## Tags, races and order
 
