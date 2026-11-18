@@ -627,8 +627,8 @@ delivery:
     # -- Issuers whose keyless certificates may sign an approval (`pacto delivery approve`). Each
     # entry has `issuer` (the OIDC issuer URL), `clientID` (the OIDC client the CLI logs in with),
     # `usernamePrefix` (put before the certificate's email to name the Kubernetes user),
-    # `subjects` (required: a regular expression every approver's email must match, for example
-    # `^[^@]+@acme\.com$`), `fulcioURL`, `timestampURL` and `trustedRoot` (the Sigstore
+    # `subjects` (required: a regular expression every approver's whole email must match, anchored
+    # at both ends, for example `[^@]+@acme\.com`), `fulcioURL`, `timestampURL` and `trustedRoot` (the Sigstore
     # trusted_root.json the certificate chains to). Empty, keyless approvals never count and the
     # CLI records Approvals in the cluster. Privacy: public-good Fulcio logs every certificate,
     # the approver's email included, to Certificate Transparency.

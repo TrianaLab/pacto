@@ -20,6 +20,10 @@ func TestApproverIdentity(t *testing.T) {
 		{"outside subjects", acme.Issuer, "mallory@evil.example", p, ClassBySignerURI},
 		{"gcp service account", acme.Issuer, "ci@proj.iam.gserviceaccount.com", ClassPolicy{Signers: []PersonSigner{{Issuer: acme.Issuer, Subjects: ".+"}}}, ClassBySignerURI},
 		{"workload identity", acme.Issuer, "proj.svc.id.goog[ns/sa]", ClassPolicy{Signers: []PersonSigner{{Issuer: acme.Issuer, Subjects: ".+"}}}, ClassBySignerURI},
+		{"unanchored subjects match the whole address", acme.Issuer, "eve@acme.example.evil.io",
+			ClassPolicy{Signers: []PersonSigner{{Issuer: acme.Issuer, UsernamePrefix: "oidc:", Subjects: `@acme\.example`}}}, ClassBySignerURI},
+		{"unanchored subjects", acme.Issuer, "alice@acme.example",
+			ClassPolicy{Signers: []PersonSigner{{Issuer: acme.Issuer, UsernamePrefix: "oidc:", Subjects: `[^@]+@acme\.example`}}}, ClassByUser},
 		{"classified agent", acme.Issuer, "alice@acme.example", ClassPolicy{Signers: []PersonSigner{acme}, HumanGroups: []string{"people"}}, ClassBySignerURI},
 	} {
 		id, source, err := ApproverIdentity(c.issuer, c.san, c.policy)

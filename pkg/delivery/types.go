@@ -302,8 +302,9 @@ type PersonSigner struct {
 	// UsernamePrefix is put before the certificate's email to name the
 	// Kubernetes user the approval is checked as.
 	UsernamePrefix string `json:"usernamePrefix,omitempty"`
-	// Subjects is the regular expression an approver's email must match;
-	// required, since an issuer vouches for addresses that are no approver.
+	// Subjects is the regular expression an approver's whole email must
+	// match (it is anchored at both ends); required, since an issuer vouches
+	// for addresses that are no approver.
 	Subjects string `json:"subjects"`
 	// FulcioURL and TimestampURL are where a client gets its certificate
 	// and its signed timestamp.
@@ -338,7 +339,8 @@ func ApproverIdentity(issuer, san string, p ClassPolicy) (Identity, ClassSource,
 	case s.Subjects == "":
 		return Identity{}, "", fmt.Errorf("the signer for %s has no subjects, so it vouches for nobody", issuer)
 	}
-	re, err := regexp.Compile(s.Subjects)
+	// Anchored: an unanchored @acme\.com would also take eve@acme.com.evil.io.
+	re, err := regexp.Compile("^(?:" + s.Subjects + ")$")
 	if err != nil {
 		return Identity{}, "", fmt.Errorf("the subjects of the signer for %s: %w", issuer, err)
 	}
