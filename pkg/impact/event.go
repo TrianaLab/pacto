@@ -297,7 +297,7 @@ func (r *Result) eventFor(snap *fleet.FleetSnapshot, q *fleet.Query, subject fle
 		uses, lims = q.UsesOf(subject)
 		r.Limitations = append(r.Limitations, lims...)
 	}
-	for _, cn := range unionConsumers(graph, subject, observed) {
+	for _, cn := range unionConsumers(graph, subject, observed, snapshotInferredEdges(snap)) {
 		r.Consumers = append(r.Consumers, eventConsumer(snap, subject, cn, observed, effects, uses))
 	}
 	if r.Event.Kind == EventRemoved {
@@ -371,6 +371,7 @@ func eventConsumer(snap *fleet.FleetSnapshot, subject fleet.ServiceKey, node con
 	declared := hasDeclared || len(refs) > 0
 	c.Provenance = provenance(declared, seen)
 	c.Confidence = confidence(node.depth, declared, contract.IsRange(rel.Compatibility), observedFresh)
+	inferredOnly(&c, node, declared || seen)
 	if stale {
 		c.Confidence = ConfidenceUnknown
 	}

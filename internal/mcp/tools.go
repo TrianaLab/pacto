@@ -26,17 +26,30 @@ func createTool() *mcpsdk.Tool {
 			"Translates user intent (stores_data, data_survives_restart, etc.) into " +
 			"correct contract primitives. Scaffolds pacto.yaml plus interface and " +
 			"config files. Supports dry_run mode. With pactify it does what `pacto init` does " +
-			"to an existing service folder at path: reads its Dockerfile and Kubernetes manifests " +
+			"to an existing service folder at path: reads its Dockerfile, Kubernetes manifests, Helm charts (statically: no template is rendered and no dependency downloaded), " +
+			"Kustomize overlays, Compose files, OpenAPI, AsyncAPI and proto files at any path, catalog-info.yaml and in-repo Argo CD or Flux objects, " +
+			"and .github/CODEOWNERS, CODEOWNERS or docs/CODEOWNERS at the root of the enclosing Git repository, above path " +
+			"(see 'What Pacto reads from your folder' in the pactify docs) " +
 			"(the environment and ConfigMaps become a configuration schema of keys and types with no values, sensitive keys marked writeOnly; " +
 			"service URLs become dependencies, " +
 			"probes become a health check), plans the contract and, with delivery, the cluster pieces, " +
 			"and returns what it found, the dependencies and consumers found, what is Unknown and what to do next. " +
-			"The vendors, managed services and legacy hosts the environment and chart values.yaml name come back in 'externals' " +
-			"(identity, class, confidence, where, host and port only, never a value): they are inferred proposals, not dependencies, " +
-			"classified by the 'catalog' digest (suffixed ' (embedded)' for the built-in copy), and the likely ones are written into " +
-			"pacto.yaml as commented dependency entries for a person to uncomment. " +
+			"The vendors, managed services and legacy hosts the folder names (the environment and ConfigMaps, Helm values*.yaml, Compose environment, " +
+			"Kustomize configMapGenerator, SDK manifests and lockfiles, Terraform resources and Crossplane objects) come back in 'externals', " +
+			"one row per source (identity, class, confidence, where, kind, path, line, key, origin, host and port only, never a value). " +
+			"They are inferred proposals, recorded only in 'inferred' as dependencies[<name>] fields (pacto.inferred.yaml at pack), never in pacto.yaml; " +
+			"an SDK, Terraform or key-name source is possible only. 'externalSummary' is the plan line. " +
+			"'catalog' names each catalog that classified as '<origin> <digest>' (the same list as inferred.inputs.catalog), " +
+			"suffixed ' (embedded)' only when the server assembled no catalog. " +
 			"The contract gets a publish section for pacto publish unless describe_only is set: " +
 			"set describe_only when you are asked to describe or document a service. " +
+			"pactify returns in 'inferred' what the folder shows beyond pacto.yaml, each field with its source, confidence (likely: a file states it; possible: a naming convention) " +
+			"and the sources it outranks (keys and types only, never a value), and in 'inferred.findings' what discovery could not read or choose " +
+			"(codes DISCOVERY_UNSUPPORTED_FILE, DISCOVERY_AMBIGUOUS, DISCOVERY_CHART_DEPENDENCY_UNLOCKED, DISCOVERY_UNREADABLE, DISCOVERY_UNRESOLVED, DISCOVERY_TRUNCATED, each with its source and message). " +
+			"On a folder that already holds pacto.yaml, pactify completes it without changing it; for a new contract 'inferred' is what the pacto.yaml it plans leaves out. " +
+			"pacto pack and pacto publish put 'inferred' in the bundle as pacto.inferred.yaml only when pacto.yaml declares pactoVersion 2.5: " +
+			"a new contract below 2.5 says so in Next. Completion needs pactoVersion 2.5 (or none) and never runs with cluster: an existing contract below 2.5 keeps mode 'pactify' with no 'inferred' " +
+			"and a Next step, so no 'inferred' there means not completed, never nothing to add. " +
 			"It only adds files; dry_run plans and writes nothing. For an AI agent, see pacto_schema. " +
 			"With from it creates the service from a golden path like `pacto init --from` (over stdio only): " +
 			"golden paths are listed by pacto mcp --fleet (pacto_fleet_entities template=only) or pacto fleet entities --template. " +
@@ -58,7 +71,7 @@ func createTool() *mcpsdk.Tool {
 			"config_properties":            {Type: "string", Description: "JSON array of config properties: [{name, type?, required?}]"},
 			"metadata":                     {Type: "string", Description: "JSON object of metadata key-value pairs"},
 			"dry_run":                      {Type: "boolean", Description: "If true, validate and return result without writing files"},
-			"pactify":                      {Type: "boolean", Description: "Read the existing service folder at path (Dockerfile, Kubernetes manifests) and plan its contract like `pacto init`; uses name, owner, path and dry_run, and ignores the intent arguments"},
+			"pactify":                      {Type: "boolean", Description: "Read the existing service folder at path (Dockerfile, Kubernetes manifests, Helm charts, Kustomize, Compose, interface specs, catalog-info.yaml, GitOps objects, and CODEOWNERS from the enclosing repository root) and plan its contract like `pacto init`; uses name, owner, path and dry_run, and ignores the intent arguments"},
 			"describe_only":                {Type: "boolean", Description: "With pactify: write a contract that only describes the service, with no publish section and no signing key. Use it when you are asked to describe or document a service; leave it off to also prepare pacto publish"},
 			"delivery":                     {Type: "boolean", Description: "With pactify or from: also plan the Pacto resource, a Stage per environment and its Flux OCIRepository and Kustomization (needs the publish section, so not with describe_only; with from, the golden path must publish manifests under publish.deploy)"},
 			"registry":                     {Type: "string", Description: "With pactify: where to publish, as host/path (default: read from the workload's image)"},
@@ -116,16 +129,17 @@ type createArgs struct {
 	RunPlugins                string `json:"run_plugins"`
 }
 
-func createHandler(init Initializer, served func(string) bool) mcpsdk.ToolHandlerFor[createArgs, any] {
+func createHandler(a Authoring, served func(string) bool, version string) mcpsdk.ToolHandlerFor[createArgs, any] {
+	base := pactify.Options{PactoVersion: version, Catalog: a.Catalog, CatalogUnavailable: a.CatalogUnavailable}
 	return func(ctx context.Context, _ *mcpsdk.CallToolRequest, args createArgs) (*mcpsdk.CallToolResult, any, error) {
 		if args.From != "" {
-			return createFromPath(ctx, args, init)
+			return createFromPath(ctx, args, a.Init)
 		}
 		if args.Values != "" || args.Set != "" || args.RunPlugins != "" {
 			return nil, nil, errors.New("values, set and run_plugins go with from")
 		}
 		if args.Pactify {
-			return pactifyFolder(ctx, args)
+			return pactifyFolder(ctx, args, base)
 		}
 		input := CreateInput{
 			Name:                      args.Name,
@@ -162,15 +176,18 @@ func createHandler(init Initializer, served func(string) bool) mcpsdk.ToolHandle
 }
 
 // pactifyFolder is pacto_create with pactify: `pacto init` for an agent.
-// Several folders or a whole cluster only plan unless dry_run is false.
-func pactifyFolder(ctx context.Context, args createArgs) (*mcpsdk.CallToolResult, any, error) {
+// Several folders or a whole cluster only plan unless dry_run is false. A
+// completed folder's record names version and no commit: the server may run
+// outside a checkout. base holds the Pacto version and the server's catalog.
+func pactifyFolder(ctx context.Context, args createArgs, base pactify.Options) (*mcpsdk.CallToolResult, any, error) {
 	plan := args.Paths != "" || args.Cluster
 	if args.DryRun != nil {
 		plan = *args.DryRun
 	}
 	opts := pactify.Options{Dir: args.Path, Name: args.Name, Owner: args.Owner, Domain: args.Domain, Registry: args.Registry,
 		Delivery: args.Delivery, DescribeOnly: args.DescribeOnly, Plan: plan, NoTransparencyLog: args.NoTransparencyLog,
-		InsecureRegistry: args.InsecureRegistry, RegistrySecret: args.RegistrySecret}
+		InsecureRegistry: args.InsecureRegistry, RegistrySecret: args.RegistrySecret, PactoVersion: base.PactoVersion,
+		Catalog: base.Catalog, CatalogUnavailable: base.CatalogUnavailable}
 	var paths []string
 	cluster := pactify.ClusterOptions{Out: args.Path}
 	if err := unmarshalFields([]jsonField{

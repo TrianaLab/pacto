@@ -27,6 +27,11 @@ const (
 	// KindSystem is an OpenTelemetry db.system, messaging.system or
 	// rpc.system value.
 	KindSystem = "system"
+	// KindSDK is a client library in a dependency manifest.
+	KindSDK = "sdk"
+	// KindResource is a Terraform resource type or a Crossplane kind that
+	// provisions a managed service.
+	KindResource = "resource"
 )
 
 // Match is one external system a configuration value, a key name or an
@@ -41,6 +46,9 @@ type Match struct {
 	Host string `json:"host,omitempty"`
 	// Entry is the catalog entry that matched, empty for an unclassified host.
 	Entry string `json:"entry,omitempty"`
+	// Origin is the catalog that supplied Entry (default or organization),
+	// empty for an unclassified host.
+	Origin string `json:"origin,omitempty"`
 }
 
 // HostPort is one host a value names, with no userinfo, path, query or
@@ -113,8 +121,10 @@ func externalHost(host string) bool {
 // because a namespace short form ("orders.shop") reads like a vendor's apex
 // domain.
 func (c *Catalog) MatchHost(h HostPort) (Match, bool) {
-	if e, ok := c.bestEntry(func(e Entry) int { return hostScore(e.Hosts, h.Host) }); ok {
-		return Match{Identity: e.Identity, Class: e.Class, Confidence: ConfidenceLikely, Kind: KindHost, Host: h.String(), Entry: string(e.Identity)}, true
+	if e, origin, ok := c.bestEntry(func(e Entry) int { return hostScore(e.Hosts, h.Host) }); ok {
+		m := entryMatch(e, origin, ConfidenceLikely, KindHost)
+		m.Host = h.String()
+		return m, true
 	}
 	if strings.Count(h.Host, ".") < 2 {
 		return Match{}, false
@@ -149,11 +159,11 @@ func NamespaceShortForm(m Match, inNS func(string) bool) bool {
 // is only possible: a key name alone confirms nothing.
 func (c *Catalog) MatchKeyName(key string) (Match, bool) {
 	key = strings.NewReplacer("-", "_", ".", "_").Replace(strings.ToUpper(key))
-	e, ok := c.bestEntry(func(e Entry) int { return keyScore(e.KeyPatterns, key) })
+	e, origin, ok := c.bestEntry(func(e Entry) int { return keyScore(e.KeyPatterns, key) })
 	if !ok {
 		return Match{}, false
 	}
-	return Match{Identity: e.Identity, Class: e.Class, Confidence: ConfidencePossible, Kind: KindKeyName, Entry: string(e.Identity)}, true
+	return entryMatch(e, origin, ConfidencePossible, KindKeyName), true
 }
 
 // MatchOTel names the system an OpenTelemetry db.system, messaging.system or
@@ -161,30 +171,119 @@ func (c *Catalog) MatchKeyName(key string) (Match, bool) {
 // otel values. A protocol no entry claims (grpc) gives no match.
 func (c *Catalog) MatchOTel(value string) (Match, bool) {
 	value = strings.ToLower(strings.TrimSpace(value))
-	e, ok := c.bestEntry(func(e Entry) int {
-		if slices.ContainsFunc(slices.Concat(e.OTel.DBSystem, e.OTel.MessagingSystem, e.OTel.RPCSystem), func(v string) bool { return strings.ToLower(v) == value }) {
-			return 1
-		}
-		return 0
+	e, origin, ok := c.bestEntry(func(e Entry) int {
+		return boolScore(slices.ContainsFunc(slices.Concat(e.OTel.DBSystem, e.OTel.MessagingSystem, e.OTel.RPCSystem), func(v string) bool { return strings.ToLower(v) == value }))
 	})
 	if !ok {
 		return Match{}, false
 	}
-	return Match{Identity: e.Identity, Class: e.Class, Confidence: ConfidenceLikely, Kind: KindSystem, Entry: string(e.Identity)}, true
+	return entryMatch(e, origin, ConfidenceLikely, KindSystem), true
 }
 
-// bestEntry returns the entry with the highest positive score, the lower
-// identity on a tie so the answer never depends on map order.
-func (c *Catalog) bestEntry(score func(Entry) int) (Entry, bool) {
-	var best Entry
+// pypiRunRE is what PEP 503 folds to one '-' in a PyPI name.
+var pypiRunRE = regexp.MustCompile(`[-_.]+`)
+
+// MatchSDK names the system a client library belongs to. The ecosystem is
+// go, npm, pypi or maven; name is the module or package as a manifest writes
+// it ("github.com/stripe/stripe-go/v76", "Stripe", "com.stripe:stripe-java").
+// A Go module drops a trailing /vN and matches a listed module or any
+// sub-path of one, the longest listed module winning. A PyPI name is
+// normalized first. The match is only possible: a library in a manifest
+// proves no call.
+func (c *Catalog) MatchSDK(ecosystem, name string) (Match, bool) {
+	var score func(Entry) int
+	switch ecosystem {
+	case "go":
+		name = goMajorRE.ReplaceAllString(name, "")
+		score = func(e Entry) int { return goModuleScore(e.SDKModules, name) }
+	case "npm", "maven":
+		row := ecosystem + ":" + name
+		score = func(e Entry) int { return boolScore(slices.Contains(e.SDKModules, row)) }
+	case "pypi":
+		row := "pypi:" + pypiRunRE.ReplaceAllString(strings.ToLower(name), "-")
+		score = func(e Entry) int { return boolScore(slices.Contains(e.SDKModules, row)) }
+	default:
+		return Match{}, false
+	}
+	e, origin, ok := c.bestEntry(score)
+	if !ok {
+		return Match{}, false
+	}
+	return entryMatch(e, origin, ConfidencePossible, KindSDK), true
+}
+
+// goModuleScore is the length of the longest listed Go module that is mod or
+// a parent path of it, or 0. An ecosystem-prefixed row never matches, since
+// a Go module path holds no ':'.
+func goModuleScore(rows []string, mod string) int {
+	best := 0
+	for _, r := range rows {
+		if mod == r || strings.HasPrefix(mod, r+"/") {
+			best = max(best, len(r))
+		}
+	}
+	return best
+}
+
+// MatchTerraform names the managed service a Terraform resource type
+// provisions and returns the id attribute the catalog lists for it, empty
+// when the row names none. The match is only possible: a resource in a
+// repository proves the team provisions it, not that a service calls it.
+func (c *Catalog) MatchTerraform(resourceType string) (Match, string, bool) {
+	e, origin, ok := c.bestEntry(func(e Entry) int {
+		return boolScore(slices.ContainsFunc(e.Terraform, func(r string) bool { return terraformType(r) == resourceType }))
+	})
+	if !ok {
+		return Match{}, "", false
+	}
+	var attr string
+	for _, r := range e.Terraform {
+		if t, a, _ := strings.Cut(r, ":"); t == resourceType {
+			attr = a
+		}
+	}
+	return entryMatch(e, origin, ConfidencePossible, KindResource), attr, true
+}
+
+// MatchCrossplane names the managed service a Crossplane kind provisions,
+// compared exactly on "<group>/<Kind>". The match is only possible.
+func (c *Catalog) MatchCrossplane(group, kind string) (Match, bool) {
+	row := group + "/" + kind
+	e, origin, ok := c.bestEntry(func(e Entry) int { return boolScore(slices.Contains(e.Crossplane, row)) })
+	if !ok {
+		return Match{}, false
+	}
+	return entryMatch(e, origin, ConfidencePossible, KindResource), true
+}
+
+// entryMatch is the match of catalog entry e, supplied by origin.
+func entryMatch(e Entry, origin, confidence, kind string) Match {
+	return Match{Identity: e.Identity, Class: e.Class, Confidence: confidence, Kind: kind, Entry: string(e.Identity), Origin: origin}
+}
+
+func boolScore(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+// bestEntry returns the entry with the highest positive score and the origin
+// of the catalog that supplied it, the lower identity on a tie so the answer
+// never depends on map order.
+func (c *Catalog) bestEntry(score func(Entry) int) (Entry, string, bool) {
+	var best sourced
 	bestScore := 0
 	for _, s := range c.entries {
 		n := score(s.entry)
-		if n > bestScore || (n == bestScore && n > 0 && s.entry.Identity < best.Identity) {
-			best, bestScore = s.entry, n
+		if n > bestScore || (n == bestScore && n > 0 && s.entry.Identity < best.entry.Identity) {
+			best, bestScore = s, n
 		}
 	}
-	return best, bestScore > 0
+	if bestScore == 0 {
+		return Entry{}, "", false
+	}
+	return best.entry, c.refs[best.ref].Origin, true
 }
 
 // hostScore is the length of the longest rule that matches host, plus one for

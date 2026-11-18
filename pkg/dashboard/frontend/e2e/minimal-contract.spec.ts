@@ -36,7 +36,9 @@ test.describe('WASM demo — a service with an empty contract', () => {
     await expect(inferred).toBeVisible({ timeout: T });
     await expect(inferred).toContainText('Inferred');
     await expect(inferred).toContainText('service.name');
-    await expect(inferred).toContainText('inferred from chart/Chart.yaml:2');
+    // The source sits in the mark's note, opened by its button.
+    await inferred.getByRole('button', { name: 'About inferred service.name' }).click();
+    await expect(inferred.getByRole('note')).toContainText('Source: chart/Chart.yaml:2');
     await expect(page.getByText('Version not declared', { exact: true })).toBeVisible();
     expect(errors).toEqual([]);
   });

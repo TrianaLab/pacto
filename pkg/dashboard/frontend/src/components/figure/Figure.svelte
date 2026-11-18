@@ -156,7 +156,10 @@
   onDestroy(() => {
     ro?.disconnect();
     io?.disconnect();
-    for (const a of anims) a.finish();
+    // Dropped before finishing, so their settling never runs done() on a gone stage.
+    const live = anims;
+    anims = [];
+    for (const a of live) a.finish();
     if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisibility);
   });
 </script>

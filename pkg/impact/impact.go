@@ -43,7 +43,7 @@ const (
 	ConfidenceDeclared     Confidence = "declared"     // declared dependency but no usable compatibility range
 	ConfidenceObserved     Confidence = "observed"     // runtime use observed in a window
 	ConfidenceCorroborated Confidence = "corroborated" // declared and observed agree
-	ConfidenceInferred     Confidence = "inferred"     // transitive effect through another affected service
+	ConfidenceInferred     Confidence = "inferred"     // transitive effect, or a consumer only an inferred record names
 	ConfidenceUnknown      Confidence = "unknown"      // required evidence is incomplete or stale
 )
 
@@ -120,7 +120,7 @@ type AffectedConsumer struct {
 	// raw observed identity, and it has no range a change could be checked against.
 	Uncontracted bool `json:"uncontracted,omitempty"`
 	// Via lists the edge types that make this service a consumer.
-	Via []string `json:"via,omitempty" doc:"The edge types that make this service a consumer: dependency, configuration_reference, policy_reference or observed"`
+	Via []string `json:"via,omitempty" doc:"The edge types that make this service a consumer: dependency, configuration_reference, policy_reference, observed or inferred (named by the consumer's inferred record, never with a known verdict)"`
 	// Unmet lists the guarantees this consumer declares it requires from the
 	// changed service that the new revision does not meet, over every revision
 	// of the consumer the snapshot holds. A consumer with an unmet guarantee
@@ -342,16 +342,47 @@ func (r *Result) gate() (string, string) {
 		return GateUnverified, "the change is BREAKING and the answer is partial, so consumers Pacto cannot see may break" + r.unmetNote() + ". " +
 			"Fix the sources named in limitations and run the analysis again"
 	}
-	if len(r.Consumers) > 0 {
-		n := strconv.Itoa(len(r.Consumers)) + " consumers depend"
-		if len(r.Consumers) == 1 {
+	inferred := r.inferredOnlyConsumers()
+	if known := len(r.Consumers) - inferred; known > 0 {
+		n := strconv.Itoa(known) + " consumers depend"
+		if known == 1 {
 			n = "1 consumer depends"
 		}
 		return GateUnverified, "the change is BREAKING and " + n + " on " + r.Service +
 			", but none is shown to be both incompatible and running" + r.unmetNote() + ". Review each consumer, and add a source that knows where services run " +
-			"(for example --target-state) to tell deployed impact apart"
+			"(for example --target-state) to tell deployed impact apart" + inferredNote(inferred, ". ")
+	}
+	if inferred > 0 {
+		return GateUnverified, "the change is BREAKING and " + inferredNote(inferred, "")
 	}
 	return GateClear, "the change is BREAKING, but no service in the complete fleet snapshot depends on " + r.Service
+}
+
+// inferredOnlyConsumers counts the consumers only an inferred record names:
+// inferred, and through a record (a transitive consumer is inferred too).
+func (r *Result) inferredOnlyConsumers() int {
+	n := 0
+	for _, c := range r.Consumers {
+		if c.Provenance == fleet.ProvenanceInferred && slices.Contains(c.Via, fleet.ProvenanceInferred) {
+			n++
+		}
+	}
+	return n
+}
+
+// inferredNote says that n services may depend on the changed one by their
+// inferred records alone, whose compatibility no target state can show, and
+// how to make it checkable; "" when n is 0. lead goes before it.
+func inferredNote(n int, lead string) string {
+	switch n {
+	case 0:
+		return ""
+	case 1:
+		return lead + "1 service may depend on it, named only by its inferred record, so Pacto cannot check its compatibility: " +
+			"declare the dependency with a compatibility range in that service's pacto.yaml"
+	}
+	return lead + strconv.Itoa(n) + " services may depend on it, named only by their inferred records, so Pacto cannot check their compatibility: " +
+		"declare each dependency with a compatibility range in those services' pacto.yaml"
 }
 
 // blockingGate is the gate when a consumer is shown to break: blocked when one
@@ -659,7 +690,7 @@ func analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 		}
 	}
 	newBundle := &contract.Bundle{Contract: new, FS: newFS}
-	for _, cn := range unionConsumers(graph, changed, resolvedObserved) {
+	for _, cn := range unionConsumers(graph, changed, resolvedObserved, snapshotInferredEdges(snap)) {
 		c := consumerImpact(snap, changed, cn, newBundle, resolvedObserved)
 		c.Unmet = unmetGuarantees(snap, cn.key, changed, new)
 		res.Consumers = append(res.Consumers, c)
@@ -876,6 +907,11 @@ type consumerNode struct {
 	name  string
 	depth int
 	path  []fleet.ServiceKey
+	// inferred marks a consumer an inferred record names as a dependent of
+	// the changed service: it is listed, but never with a known verdict.
+	inferred bool
+	// inferredFrom is where those records were read, as their edges carry it.
+	inferredFrom []fleet.InferredSource
 }
 
 // resolvedObservedEdge is an observed caller→provider edge whose endpoints have
@@ -972,6 +1008,20 @@ func snapshotObservedEdges(snap *fleet.FleetSnapshot) []resolvedObservedEdge {
 	return out
 }
 
+// snapshotInferredEdges is the inferred service dependency edges Build
+// projected from revisions' inferred records. An inferred edge to an external
+// system never enters. They arrive through the snapshot, so a restricted view
+// has already dropped those of hidden services.
+func snapshotInferredEdges(snap *fleet.FleetSnapshot) []fleet.Relationship {
+	var out []fleet.Relationship
+	for _, r := range snap.Relationships {
+		if r.Type == fleet.RelationshipDependency && r.Provenance == fleet.ProvenanceInferred && r.Resolved && r.ToExternal == "" {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 // observedSource names the sources that saw an observed relationship: its
 // sole source, else every source of its per-source breakdown.
 func observedSource(r fleet.Relationship) string {
@@ -987,9 +1037,10 @@ func observedSource(r fleet.Relationship) string {
 
 // unionConsumers merges the declared dependents (from the graph) with observed
 // callers of the changed service — using only observed edges whose endpoints
-// resolved to unique domain-qualified keys. Observed-only callers are direct
+// resolved to unique domain-qualified keys — and with the services whose
+// inferred record names it. Observed-only and inferred-only callers are direct
 // (depth 1). The result is sorted for deterministic output.
-func unionConsumers(graph *fleet.GraphResult, changed fleet.ServiceKey, observed []resolvedObservedEdge) []consumerNode {
+func unionConsumers(graph *fleet.GraphResult, changed fleet.ServiceKey, observed []resolvedObservedEdge, inferred []fleet.Relationship) []consumerNode {
 	byKey := map[fleet.ServiceKey]consumerNode{}
 	for _, node := range graph.Nodes {
 		byKey[node.Key] = consumerNode{key: node.Key, name: node.Name, depth: node.Depth, path: node.Path}
@@ -1002,6 +1053,19 @@ func unionConsumers(graph *fleet.GraphResult, changed fleet.ServiceKey, observed
 			_, name := fleet.ParseServiceKey(e.consumer)
 			byKey[e.consumer] = consumerNode{key: e.consumer, name: name, depth: 1, path: []fleet.ServiceKey{changed, e.consumer}}
 		}
+	}
+	for _, r := range inferred {
+		if r.ToService != changed {
+			continue
+		}
+		cn, ok := byKey[r.FromService]
+		if !ok {
+			_, name := fleet.ParseServiceKey(r.FromService)
+			cn = consumerNode{key: r.FromService, name: name, depth: 1, path: []fleet.ServiceKey{changed, r.FromService}}
+		}
+		cn.inferred = true
+		cn.inferredFrom = append(cn.inferredFrom, r.InferredSources...)
+		byKey[r.FromService] = cn
 	}
 	out := make([]consumerNode, 0, len(byKey))
 	for _, cn := range byKey {
@@ -1047,10 +1111,29 @@ func consumerImpact(snap *fleet.FleetSnapshot, changed fleet.ServiceKey, node co
 	}
 	c.Provenance = provenance(hasDeclared, seen)
 	c.Confidence = confidence(node.depth, hasDeclared, contract.IsRange(rel.Compatibility), observedCounted)
+	inferredOnly(&c, node, hasDeclared || seen)
 	if stale {
 		c.Confidence = ConfidenceUnknown
 	}
 	return c
+}
+
+// inferredOnly adds the inferred evidence of node to c: it is listed in Via,
+// and when nothing declared or observed backs the consumer, its provenance and
+// confidence are inferred and its verdict unknown. A record value never feeds
+// a verdict, so an inferred edge can never read compatible or clear a gate.
+func inferredOnly(c *AffectedConsumer, node consumerNode, backed bool) {
+	if !node.inferred {
+		return
+	}
+	c.Via = append(c.Via, fleet.ProvenanceInferred)
+	for _, is := range node.inferredFrom {
+		c.Evidence = append(c.Evidence, Evidence{Kind: EvidenceInferredRecord, Source: is.Source, Provenance: fleet.ProvenanceInferred,
+			Message: "named by its inferred record, read from " + is.Where})
+	}
+	if !backed {
+		c.Provenance, c.Confidence, c.CompatibilityVerdict = fleet.ProvenanceInferred, ConfidenceInferred, CompatibilityUnknown
+	}
 }
 
 // consumerBase is what every kind of consumer of changed says about the

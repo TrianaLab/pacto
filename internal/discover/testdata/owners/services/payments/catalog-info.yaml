@@ -1,0 +1,20 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: payments
+spec:
+  type: service
+  owner: group:default/team-payments
+  lifecycle: production
+  system: Payments Core
+  dependsOn:
+    - component:default/ledger
+    - resource:default/payments-db
+    - component:acme/fraud
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: payments-worker
+spec:
+  owner: group:acme/workers

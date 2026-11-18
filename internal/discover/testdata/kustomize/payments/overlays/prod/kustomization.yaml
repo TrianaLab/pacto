@@ -1,0 +1,8 @@
+resources:
+  - ../../base
+images:
+  - name: envoy
+    newTag: v1.30.0
+  - name: payments
+    newName: ghcr.io/acme/payments
+    newTag: 2.0.0

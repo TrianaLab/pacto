@@ -1,0 +1,6 @@
+services:
+  folder-externals:
+    image: ghcr.io/acme/folder-externals:1.0.0
+    environment:
+      - DATABASE_URL=postgres://admin:hunter2@db.xyz.rds.amazonaws.com:5432/app?password=s3cr3t
+      - postgres://admin:pw-hunter2@host

@@ -100,5 +100,8 @@
     border: 1px solid var(--c-border); border-radius: var(--radius-sm);
     box-shadow: var(--shadow-md);
     text-transform: none; letter-spacing: normal;
+    /* A note can quote file paths: a long one with no break point wraps anywhere
+       rather than running past the box. */
+    overflow-wrap: anywhere;
   }
 </style>

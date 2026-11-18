@@ -177,7 +177,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	snap.Limitations = append(snap.Limitations, opts.ExternalCatalogLimitations...)
 	buildRelationships(snap, cat)
 	foldObservedRelationships(snap, observed)
-	foldExternalUses(snap, uses)
+	foldExternalUses(snap, append(uses, recordExternalUses(snap)...))
 	finalizeExternals(snap)
 	reconcileDeclared(snap, undeclaredOnly)
 	matchProvisioning(snap)
@@ -1377,6 +1377,10 @@ func revisionFrom(raw RawRevision, source string, now time.Time) (*ContractRevis
 	}
 	// Owner references the cloned contract so it never aliases source memory.
 	rev.Owner = rev.Contract.Service.Owner
+	var recLims []Limitation
+	rev.Record, recLims = inferredRecord(b.FS, c, source)
+	rev.recordUnreadable = len(recLims) > 0
+	lims = append(lims, recLims...)
 	// Validation needs the contract DOCUMENT, and RawYAML holds it only for a local
 	// read -- every bundle fetched from a registry carries the same document in its
 	// FS and nowhere else, so keying off RawYAML alone left every fetched revision
@@ -1426,6 +1430,27 @@ func revisionFrom(raw RawRevision, source string, now time.Time) (*ContractRevis
 	}
 	rev.Lock = cloneLock(lockFrom(raw))
 	return rev, lims
+}
+
+// inferredRecord reads the bundle's pacto.inferred.yaml for a contract at
+// pactoVersion 2.5 or later (an older one never carries a record, so one there
+// is ignored). A record that cannot be parsed, or whose cited files do not
+// match the bundle, is dropped with a limitation: its inferred dependencies are
+// unknown, never guessed and never read as absent. Parsing yields fresh values,
+// so the snapshot never aliases the source's bytes.
+func inferredRecord(fsys fs.FS, c *contract.Contract, source string) (*contract.InferredRecord, []Limitation) {
+	if validation.InferredRecordNeedsRaise(c.PactoVersion) {
+		return nil, nil
+	}
+	rec, err := contract.ReadInferredRecord(fsys)
+	if err == nil && rec != nil {
+		err = contract.VerifyInferredRecord(fsys, rec)
+	}
+	if err != nil {
+		return nil, []Limitation{{Code: LimitationInferredRecordUnreadable, Source: source,
+			Message: "revision " + c.Service.Name + " ships an inferred record Pacto could not read (" + err.Error() + "); its inferred dependencies are unknown, not absent"}}
+	}
+	return rec, nil
 }
 
 // sbomSummary projects a bundle's SBOM into the bounded [SBOMSummary]. It returns
@@ -2538,6 +2563,7 @@ func buildRelationships(snap *FleetSnapshot, cat *externalcatalog.Catalog) {
 			continue
 		}
 		edges := append(revisionDependencyEdges(snap, cat, rk, rev), revisionReferenceEdges(snap, rk, rev)...)
+		edges = append(edges, revisionInferredEdges(snap, rk, rev)...)
 		// A golden path consumes nothing: every edge of every one of its
 		// revisions stays out of Relationships, routed by the service.
 		if snap.Services[rev.ServiceKey].Template {
@@ -2899,6 +2925,44 @@ func revisionDependencyEdges(snap *FleetSnapshot, cat *externalcatalog.Catalog, 
 		}
 		rel.DependencyBehavior = dependencyBehavior(snap, rev.Service, dep, rel)
 		out = append(out, rel)
+	}
+	return out
+}
+
+// inferredRecordKind is the [InferredSource] kind of an edge a revision's
+// inferred record names.
+const inferredRecordKind = "inferredRecord"
+
+// revisionInferredEdges builds one inferred dependency edge per
+// dependencies[<name>] field of the revision's inferred record that the
+// revision does not declare and that resolves to another fleet service. The
+// edge's compatibility is unknown and it enters no service index (see
+// [ConsumesEdge]), so it never satisfies a range or clears a gate.
+// ponytail: an unresolved name (often a database or cache host) makes no edge;
+// add one when the graph should list inferred gaps beside declared ones.
+func revisionInferredEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractRevision) []Relationship {
+	if rev.Record == nil {
+		return nil
+	}
+	declared := map[string]bool{}
+	for _, d := range rev.Contract.Dependencies {
+		declared[d.Name] = true
+	}
+	var out []Relationship
+	for _, f := range rev.Record.Fields {
+		name, ok := strings.CutPrefix(f.Field, "dependencies[")
+		name, closed := strings.CutSuffix(name, "]")
+		if !ok || !closed || declared[name] || f.External != nil { // an external projects through recordExternalUses
+			continue
+		}
+		to, resolved := resolveDepService(snap, rev.Domain, contract.Dependency{Name: name})
+		if !resolved || to == rev.ServiceKey {
+			continue
+		}
+		srcs := []InferredSource{{Source: rev.Source, Kind: inferredRecordKind, Where: f.Source, Confidence: inferredConfidence(f.Confidence)}}
+		out = append(out, Relationship{FromService: rev.ServiceKey, FromRevision: rk, To: name, ToService: to, Resolved: true,
+			Type: RelationshipDependency, Provenance: ProvenanceInferred, Compatibility: contract.CompatibilityUnknown,
+			InferredSources: srcs, Confidence: strongestConfidence(srcs)})
 	}
 	return out
 }
@@ -3404,7 +3468,7 @@ func completenessExcept(snap *FleetSnapshot, skip string) Completeness {
 		}
 	}
 	for _, l := range snap.Limitations {
-		if l.Code == LimitationExternalCatalogUnavailable {
+		if l.Code == LimitationExternalCatalogUnavailable || l.Code == LimitationInferredRecordUnreadable {
 			return CompletenessPartial
 		}
 	}

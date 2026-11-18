@@ -139,12 +139,17 @@ dependencies:
     identity: stripe             # or host/corp-legacy.example
 ```
 
-An identity is lower-case path segments: a vendor (`stripe`),
-`host/<registrable-domain>` or `<provider>/<service>/<account>/<region>/<id>`
-(`aws/rds/123456789012/eu-west-1/orders-db`). It needs `external: true` and no
-`ref` (`IDENTITY_WITHOUT_EXTERNAL`). An unparseable identity or the reserved
-`other-egress` fails with `INVALID_EXTERNAL_IDENTITY`. Changing it is never
-breaking. See the [external catalog reference](../external-catalog-reference.md).
+- An identity is lower-case path segments: a vendor (`stripe`),
+  `host/<registrable-domain>` or `<provider>/<service>/<account>/<region>/<id>`
+  (`aws/rds/123456789012/eu-west-1/orders-db`).
+- It needs `external: true` and no `ref` (`IDENTITY_WITHOUT_EXTERNAL`). An
+  unparseable identity or the reserved `other-egress` fails with
+  `INVALID_EXTERNAL_IDENTITY`. Changing it is never breaking. See the
+  [external catalog reference](../external-catalog-reference.md).
+- `pacto init` records the external systems a folder names in the
+  [inferred record](inferred-record.md#external-dependencies), never here, and
+  the fleet shows them as inferred edges of source kind `repository` until you
+  declare them.
 
 ### A dependency whose contract is not published yet
 

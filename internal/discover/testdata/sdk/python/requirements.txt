@@ -1,0 +1,9 @@
+# runtime
+-r base.txt
+-e git+https://github.com/acme/lib.git#egg=lib
+--index-url https://user:pw@pypi.example.com/simple
+stripe==11.4.0  # pinned
+Twilio>=9
+openai[datalib] ~= 1.30.0 ; python_version >= "3.9"
+anthropic @ https://files.example.com/anthropic-0.30.0.tar.gz
+SendGrid_

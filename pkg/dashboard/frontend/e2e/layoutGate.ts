@@ -603,7 +603,20 @@ export function installScaleFixture(): void {
         const firstDep = (rev.dependencies as { items?: { declaredClaims?: { items?: Record<string, unknown>[] } }[] } | undefined)?.items?.[0];
         for (const c of firstDep?.declaredClaims?.items ?? []) { c.compatibility = 'unknown'; c.nameFromRef = true; }
         for (const it of (rev.interfaces as { items?: Record<string, unknown>[] } | undefined)?.items ?? []) it.port = 65535;
-        rev.inferred = [{ field: 'service.name', value: longName('inferred-service-name'), source: `${longName('charts/deeply/nested/chart-folder')}/Chart.yaml:2`, provenance: 'inferred' }];
+        // The first row at its longest; the engine's other rows stay, so inferredTotal and the "more" rows still agree.
+        const longInferred = { field: 'service.name', value: longName('inferred-service-name'), source: `${longName('charts/deeply/nested/chart-folder')}/Chart.yaml:2`, provenance: 'inferred' };
+        rev.inferred = [longInferred, ...((rev.inferred as unknown[] | undefined) ?? []).slice(1)];
+        // Discovery at its longest: an owner read from an owner file that outranks three
+        // long sources, and 20 findings of 100 (truncation first) with long sources.
+        const longSource = (s: string) => `${longName(`deeply/nested/${s}`)}/${s}`;
+        (rev.inferred as unknown[]).push({ field: 'service.owner', value: longName('team-growth'), source: `${longSource('catalog-info.yaml')}:7`,
+          provenance: 'inferred', confidence: 'likely', class: 'ownerFile',
+          outranks: [`repository:${longSource('CODEOWNERS')}:4`, `${longSource('deployment.yaml')}:6`, `${longSource('values.yaml')}:12`] });
+        rev.inferredTotal = Math.max(Number(rev.inferredTotal ?? 0), (rev.inferred as unknown[]).length);
+        rev.discoveryFindings = { total: 100, truncated: true, items: [
+          { code: 'DISCOVERY_TRUNCATED', source: '.', message: 'discovery stopped after 5000 files; 4000 files were not read, so results are partial' },
+          ...Array.from({ length: 19 }, (_, i) => ({ code: 'DISCOVERY_UNSUPPORTED_FILE', source: longSource(`helmfile-${i}.yaml`), message: longName(`helmfile-${i}.yaml is not read: a format Pacto does not read`) })),
+        ] };
       }
     }
     if (route === '/api/fleet/entities/target') {
@@ -835,15 +848,21 @@ export function installScaleFixture(): void {
         service: { kind: 'service', key: svc(i), label: longName(`external-consumer-${i}`), href: `/fleet/services/${encodeURIComponent(svc(i))}` },
         required: i % 2 === 0, versions: [longName(`api-version-${i}`)],
       }));
-      const KINDS = ['env', 'configMap', 'secretKeyRef', 'secretRef', 'externalNameService', 'selectorlessService', 'serviceEntry'];
+      const KINDS = ['env', 'configMap', 'secretKeyRef', 'secretRef', 'externalNameService', 'selectorlessService', 'serviceEntry',
+        'helmValues', 'compose', 'kustomize', 'sdk', 'terraform', 'crossplane'];
       x.inferredSources = Array.from({ length: 300 }, (_, i) => ({
         service: svc(i % 25), source: longName(`k8s-source-${i % 4}`), kind: KINDS[i % KINDS.length],
         where: `deployment/${longName(`workload-${i}`)} env ${longName(`STRIPE_API_BASE_${i}`).toUpperCase()}`,
         host: i % 3 ? `${longName(`api-${i}`)}.stripe.com:443` : '', confidence: i % 3 ? 'likely' : 'possible',
         entry: i % 5 ? longName('stripe-entry') : undefined, catalog: `sha256:${'3e9a'.repeat(16)}`, observedAt: '2026-11-16T08:00:00Z',
+        // Every fourth row is a repository source (508-S5): a long revision, read from an
+        // SDK manifest or a Terraform resource, only possible.
+        ...(i % 4 === 3 ? { kind: i % 8 === 3 ? 'sdk' : 'terraform', confidence: 'possible', host: '', observedAt: undefined,
+          revision: `${svc(i % 25)}@sha256:${longName(`revision-${i}`)}` } : {}),
       }));
       x.inferredSourcesTotal = 1284;
-      x.observedSources = Array.from({ length: 20 }, (_, i) => ({ service: svc(i), source: longName(`otel-${i}`), count: 1200 + i, firstSeen: '2026-11-01T08:00:00Z', lastSeen: '2026-11-16T08:00:00Z' }));
+      // Few observed rows listed (of 40), so the capped list reaches the inferred and repository rows.
+      x.observedSources = Array.from({ length: 3 }, (_, i) => ({ service: svc(i), source: longName(`otel-${i}`), count: 1200 + i, firstSeen: '2026-11-01T08:00:00Z', lastSeen: '2026-11-16T08:00:00Z' }));
       x.observedSourcesTotal = 40;
     }
     // Inferred and observed edges to external systems beside the declared ones, so the
@@ -953,7 +972,10 @@ export function installScaleFixture(): void {
   // propose PlanStale with the fresh plan and no field that explains it.
   // ambiguousTarget answers the sentinel target key with the 409 a 3-part key that
   // names targets in more than one cluster gets: 6 candidates with long labels.
-  const flags = window as unknown as { __pactoLongPropose?: boolean; __pactoStalePropose?: boolean; __pactoAmbiguousTarget?: boolean };
+  // inferredUnreadable answers every service and revision as one whose inferred record
+  // Pacto could not read: the service has no record field, the revision keeps only the
+  // values a local read infers on its own (pactoVersion, service.name).
+  const flags = window as unknown as { __pactoLongPropose?: boolean; __pactoStalePropose?: boolean; __pactoAmbiguousTarget?: boolean; __pactoInferredUnreadable?: boolean };
   const shortOf = (v: unknown) => [...memo].find(([, l]) => l === v)?.[0] ?? v;
   const engineBody = (path: string, body: string | null): string | null => {
     if (!flags.__pactoLongPropose || !body || !/^\/api\/delivery\/(plan|operations)$/.test(path)) return body;
@@ -1273,6 +1295,16 @@ export function installScaleFixture(): void {
       coverageNow: restricted ? { ...coverageOf(new Date(), false), services: 300, knowledge: { services: 300, described: 200, withGaps: 60, unknown: 40, notDeployed: 12 } } : coverageOf(new Date(), true),
     };
   };
+  const unreadableRecord = (route: string, doc: Record<string, unknown>) => {
+    const svc = doc.service as Record<string, unknown> | undefined;
+    if (route === '/api/fleet/entities/service' && svc) svc.inferredFields = { items: [], count: 0, total: 0, truncated: false, unreadable: true };
+    const rev = doc.revision as Record<string, unknown> | undefined;
+    if (route === '/api/fleet/entities/revision' && rev) {
+      rev.inferred = ((rev.inferred as { field: string }[] | undefined) ?? []).filter((f) => f.field === 'pactoVersion' || f.field === 'service.name');
+      rev.inferredTotal = (rev.inferred as unknown[]).length;
+      rev.inferredUnreadable = true;
+    }
+  };
   const wrapped: Serve = async (method, path, body) => {
     body = engineBody(path, body);
     const route = path.split('?')[0];
@@ -1297,13 +1329,15 @@ export function installScaleFixture(): void {
       return { status: 409, contentType: 'application/problem+json', body: JSON.stringify({ status: 409, title: 'Conflict',
         detail: 'this target key names targets in more than one cluster; choose one', errors }) };
     }
-    // The demo has no `stripe`: its parcel-carrier answers, and amend renames it.
+    // The demo's `stripe` has only inferred sources: its declared parcel-carrier answers,
+    // and amend renames it.
     const asked = route === '/api/fleet/entities/external' && new URLSearchParams(path.split('?')[1] ?? '').get('key') === 'stripe'
       ? path.replace('key=stripe', 'key=parcel-carrier') : engineName(path);
     const res = await (real as Serve)(method, asked, body);
     if (res.status !== 200 || !(res.contentType || '').includes('json')) return res;
     let doc: Record<string, unknown>;
     try { doc = JSON.parse(res.body); } catch { return res; }
+    if (flags.__pactoInferredUnreadable) unreadableRecord(route, doc);
     try { amend(method, path, doc, body); } catch (e) {
       // An override that throws would leave the route unscaled and the gate green:
       // layoutProblems reports it.
@@ -1355,6 +1389,12 @@ export async function layoutProblems(page: Page): Promise<string[]> {
 
     // Horizontal page scroll.
     const doc = document.documentElement;
+    // An open note (HelpTip) is clipped by html's overflow-x: clip, so one that runs past
+    // the viewport is cut with no way to read the rest.
+    for (const n of root.querySelectorAll('[role="note"]:not([hidden])')) {
+      const r = n.getBoundingClientRect();
+      if (r.width && (r.left < -1 || r.right > doc.clientWidth + 1)) out.push(`${say(n)} runs past the viewport (${Math.round(r.left)} to ${Math.round(r.right)} of ${doc.clientWidth}px)`);
+    }
     if (doc.scrollWidth > doc.clientWidth + 1) out.push(`the page scrolls sideways by ${doc.scrollWidth - doc.clientWidth}px`);
 
     // Text runs: one box per line of each visible text node, clipped by every ancestor
@@ -2012,6 +2052,66 @@ export const ROUTES: Route[] = [
   { name: 'revision entity, implicit contract', open: firstLink('#/fleet/revisions?service=newsletter-service', '/fleet/revisions/') },
   { name: 'service entity, implicit contract', hash: '#/fleet/services/newsletter-service' },
   {
+    // A collapsed PreviewSection mounts nothing and the gate skips closed disclosures:
+    // open the inferred block and its "N more" rows so the long key is measured.
+    name: 'service entity, implicit contract, inferred open',
+    open: async (page) => {
+      await page.goto('/#/fleet/services/newsletter-service');
+      const block = page.getByTestId('service-inferred');
+      await expect(block).toBeVisible({ timeout: 30_000 });
+      await block.locator('summary').first().click();
+      await block.locator('.ifl-more > summary').click();
+      await expect(block.locator('.ifl-more [data-testid="inferred-field"]').first()).toBeVisible();
+      await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+    },
+  },
+  {
+    name: 'revision entity, implicit contract, inferred more',
+    open: async (page) => {
+      await firstLink('#/fleet/revisions?service=newsletter-service', '/fleet/revisions/')(page);
+      const more = page.getByTestId('revision-inferred').locator('.ifl-more');
+      await expect(more).toBeAttached({ timeout: 30_000 });
+      await more.locator('> summary').click();
+      await expect(more.getByTestId('inferred-field').first()).toBeVisible();
+      await page.evaluate(() => window.scrollTo(0, 0));
+    },
+  },
+  {
+    // A record Pacto could not read: the folded block names it, and open it says so
+    // in one line, beside no record row.
+    name: 'service entity, implicit contract, inferred unreadable',
+    open: async (page) => {
+      await page.evaluate(() => { (window as unknown as { __pactoInferredUnreadable?: boolean }).__pactoInferredUnreadable = true; });
+      await page.goto('/#/fleet/services/newsletter-service');
+      const block = page.getByTestId('service-inferred');
+      await expect(block).toContainText('Could not be read', { timeout: 30_000 });
+      await block.locator('summary').first().click();
+      await expect(block).toContainText('Pacto could not read the inferred record');
+      await page.evaluate(() => window.scrollTo(0, 0));
+    },
+  },
+  {
+    // The revision keeps the values a local read infers under the unreadable line.
+    name: 'revision entity, implicit contract, inferred unreadable',
+    open: async (page) => {
+      await page.evaluate(() => { (window as unknown as { __pactoInferredUnreadable?: boolean }).__pactoInferredUnreadable = true; });
+      await firstLink('#/fleet/revisions?service=newsletter-service', '/fleet/revisions/')(page);
+      await expect(page.getByTestId('revision-inferred')).toContainText('Pacto could not read the inferred record', { timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0));
+    },
+  },
+  {
+    // newsletter-service consumes notification-worker only through its inferred record.
+    // ponytail: the consumers fold stays closed, as on every change-analysis route: open, the
+    // scale fixture's long names spill from the Consumer and Runs on cells (a table defect
+    // older than the inferred mark). inferred-record.spec.ts checks the Why cell's one mark.
+    name: 'change analysis, implicit contract consumer',
+    open: async (page) => {
+      await page.goto('/#/fleet/changes/notification-worker?event=removed');
+      await expect(page.getByTestId('changes-answer')).toBeVisible({ timeout: 30_000 });
+    },
+  },
+  {
     // The scale fixture's 2.5 rows (announced breaks, ports, a ref-named dependency
     // with no range) live in closed disclosures, which mount nothing: open them all.
     name: 'revision entity, 2.5 sections open',
@@ -2080,7 +2180,16 @@ export const ROUTES: Route[] = [
   { name: 'external entity name only, hidden, folded and truncated', open: async (page) => { await page.addInitScript(() => { (window as unknown as { __externalStates?: boolean }).__externalStates = true; }); await page.goto('/#/fleet/externals/parcel-carrier'); await page.reload(); await expect(page.getByTestId('external-folded-into')).toBeVisible({ timeout: 30_000 }); } }, // reload: the init script only runs on a new document
   { name: 'graph external focus', hash: '#/fleet/graph/external/parcel-carrier' },
   { name: 'source entity', hash: '#/fleet/sources/edge-cluster' },
-  { name: 'external inferred sources', hash: '#/fleet/externals/stripe' },
+  {
+    name: 'external inferred sources',
+    open: async (page) => {
+      await page.goto('/#/fleet/externals/stripe');
+      await page.getByTestId('external-more-details').click();
+      // A repository row (508-S5) with its long revision detail is laid out, not just the first rows.
+      await expect(page.locator('[data-provenance=inferred] [data-cell=details]', { hasText: 'revision ' }).first()).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0));
+    },
+  },
   { name: 'golden paths', list: true, hash: '#/fleet/golden-paths' },
   { name: 'golden path entity', open: firstLink('#/fleet/golden-paths?sort=name', '/fleet/services/') },
   { name: 'service created from a golden path', open: createdService },
@@ -2352,6 +2461,16 @@ export const ROUTES: Route[] = [
   },
   { name: 'service replaced inferred', hash: '#/fleet/services/experiment-service' },
   { name: 'replaced inferred key', hash: `#/fleet/services/${encodeURIComponent('k8s:prod%2FDeployment%2Fexperiments')}` },
+  {
+    name: 'revision entity, discovery findings open',
+    open: async (page) => {
+      await firstLink('#/fleet/revisions?service=newsletter-service', '/fleet/revisions/')(page);
+      const d = page.getByTestId('revision-discovery-findings');
+      await expect(d).toBeAttached({ timeout: 30_000 });
+      await d.evaluate((el) => { (el as HTMLDetailsElement).open = true; });
+      await page.evaluate(() => window.scrollTo(0, 0));
+    },
+  },
 ];
 
 /** Flips the sidebar with its "[" shortcut and returns the state it lands in. */

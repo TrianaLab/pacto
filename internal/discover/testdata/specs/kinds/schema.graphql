@@ -1,0 +1,1 @@
+type Query { charge(id: ID!): String }

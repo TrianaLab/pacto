@@ -107,7 +107,7 @@ func restrictExternal(out *FleetSnapshot, rec *ExternalRecord) *ExternalRecord {
 			(src.Target == "" || out.Targets[src.Target] != nil) {
 			r.Sources = append(r.Sources, src)
 			kept[src.Service] = true
-		} else if src.Kind == ExternalSourcePodSpec {
+		} else if src.Provenance == ProvenanceInferred {
 			droppedUses[src.Service]++
 		}
 	}

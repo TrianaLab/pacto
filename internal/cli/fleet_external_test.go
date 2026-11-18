@@ -164,3 +164,31 @@ func TestFleetOutputShowsToExternal(t *testing.T) {
 		t.Errorf("a joined edge reads:\n%s", out)
 	}
 }
+
+// TestFleetGetExternalShowsRepositorySource: a local folder whose
+// requirements.txt names the Stripe SDK shows stripe as an inferred external
+// from the revision whose record names it.
+func TestFleetGetExternalShowsRepositorySource(t *testing.T) {
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, "checkout", "pacto.yaml"), "pactoVersion: \"2.5\"\nservice:\n  name: checkout\n  version: \"1.0.0\"\n")
+	mustWrite(t, filepath.Join(root, "checkout", "requirements.txt"), "stripe==11.4.0\n")
+	out, _, err := execFleet(t, "fleet", "get", "external:stripe", "--local", root)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if !strings.Contains(out, "sources  checkout sdk requirements.txt:1 (inferred, possible) from checkout@sha256:") {
+		t.Errorf("get external text:\n%s", out)
+	}
+	out, _, err = execFleet(t, "fleet", "get", "external:stripe", "--local", root, "--output-format", "json")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	var v fleet.ExternalView
+	if err := json.Unmarshal([]byte(out), &v); err != nil {
+		t.Fatalf("decode: %v\n%s", err, out)
+	}
+	if len(v.External.Sources) != 1 || v.External.Sources[0].Kind != fleet.ExternalSourceRepository || v.External.Sources[0].Provenance != fleet.ProvenanceInferred ||
+		len(v.InferredSources) != 1 || v.InferredSources[0].Revision == "" {
+		t.Errorf("view = %+v", v)
+	}
+}

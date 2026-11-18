@@ -19,7 +19,16 @@
   const KIND_WORDS = {
     env: 'Env', configMap: 'ConfigMap key', secretKeyRef: 'Secret key name', secretRef: 'Secret name',
     externalNameService: 'ExternalName Service', selectorlessService: 'Selectorless Service', serviceEntry: 'ServiceEntry',
+    helmValues: 'Helm values', compose: 'Compose', kustomize: 'Kustomize', sdk: 'SDK', terraform: 'Terraform', crossplane: 'Crossplane',
   };
+  // A possible match says why it is only possible: an SDK in a manifest, a resource the
+  // repository provisions (the reason sits in the mark), else a key name alone.
+  const POSSIBLE = { sdk: 'Possible (SDK only)', terraform: 'Possible', crossplane: 'Possible' };
+  const PROVISIONED = new Set(['terraform', 'crossplane']);
+  // A repository source (s.revision set) comes from the revision's inferred record.
+  const inferredMark = (s) => s.revision
+    ? `Inferred from ${s.service}'s repository at revision ${s.revision}${PROVISIONED.has(s.kind) ? ' (provisioned in this repository)' : ''}; never declared, so it never clears a gate`
+    : `Inferred from configuration: ${s.source} read it${s.observedAt ? ` ${formatRelative(s.observedAt)}` : ''}; never declared, so it never clears a gate`;
   const MARK = { declared: 'D', observed: 'O', inferred: 'I' };
 
   const declared = $derived((data?.external?.sources ?? []).filter((s) => s.provenance === 'declared').map((s) => ({
@@ -31,10 +40,11 @@
   })));
   const inferred = $derived((data?.inferredSources ?? []).map((s) => ({
     provenance: 'inferred', service: s.service, kind: KIND_WORDS[s.kind] ?? s.kind, where: s.where || '',
-    host: s.host || '', confidence: s.confidence === 'likely' ? 'Likely' : 'Possible (key name only)',
-    mark: `Inferred from configuration: ${s.source} read it${s.observedAt ? ` ${formatRelative(s.observedAt)}` : ''}; never declared, so it never clears a gate`,
+    // A library or a provisioned resource carries no host Pacto read: not recorded, never "none".
+    host: s.host || (s.kind in POSSIBLE ? null : ''), confidence: s.confidence === 'likely' ? 'Likely' : (POSSIBLE[s.kind] ?? 'Possible (key name only)'),
+    mark: inferredMark(s),
     details: [`source ${s.source}`, s.entry ? `catalog entry ${s.entry}` : 'no catalog entry', s.catalog ? `catalog ${shortDigest(s.catalog, 12)}` : '',
-      s.observedAt ? `read ${formatRelative(s.observedAt)}` : 'read time unknown'].filter(Boolean),
+      s.revision ? `revision ${s.revision}` : s.observedAt ? `read ${formatRelative(s.observedAt)}` : 'read time unknown'].filter(Boolean),
   })));
   const observed = $derived((data?.observedSources ?? []).map((s) => ({
     provenance: 'observed', service: s.service, kind: 'Traces', where: s.source, host: null,
@@ -83,7 +93,7 @@
         </div>
         <div class="xp-cell" data-cell="host">
           <span class="xp-k">Host</span>
-          <!-- Only an inferred row carries a host; elsewhere it is unknown, never "none". -->
+          <!-- "none" only where a key matched with no host in it; elsewhere the host is unknown. -->
           {#if r.host}<bdi class="xp-trunc" title={r.host}>{r.host}</bdi>{:else}<span class="t-meta">{r.host === null ? 'not recorded' : 'none'}</span>{/if}
         </div>
         <div class="xp-cell" data-cell="confidence">

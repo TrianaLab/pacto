@@ -144,7 +144,7 @@ func (q *Query) explainExternal(key string) (*ExplainResult, error) {
 	res := &ExplainResult{Meta: q.externalMeta(), Subject: ExternalSubjectPrefix + string(rec.Key), Kind: string(KindExternal), Status: StatusUnknown, Reasons: []Reason{}}
 	b := boundExternal(rec)
 	for _, src := range b.Sources {
-		if src.Kind != ExternalSourcePodSpec {
+		if src.Provenance != ProvenanceInferred {
 			res.Reasons = append(res.Reasons, externalSourceReason(src))
 		}
 	}
@@ -195,10 +195,11 @@ func externalSourceReason(src ExternalSource) Reason {
 
 // inferredSourceReason explains where one source recognized it: the kind
 // and the object and key, never a value, then the confidence, the
-// normalized host, the catalog entry and the target.
+// normalized host, the catalog entry, the target and the revision whose
+// inferred record names it.
 func inferredSourceReason(src ExternalInferredSource) Reason {
 	msg := fmt.Sprintf("inferred from %s %s of %s (%s", src.Kind, src.Where, src.Service, src.Confidence)
-	for _, kv := range [][2]string{{"host", src.Host}, {"entry", src.Entry}, {"target", string(src.Target)}} {
+	for _, kv := range [][2]string{{"host", src.Host}, {"entry", src.Entry}, {"target", string(src.Target)}, {"revision", string(src.Revision)}} {
 		if kv[1] != "" {
 			msg += ", " + kv[0] + " " + kv[1]
 		}

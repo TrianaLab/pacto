@@ -1208,3 +1208,22 @@ func TestRevisionDetailPactoVersionText(t *testing.T) {
 		}
 	}
 }
+
+// A field outranking hundreds of sources lists the first MaxOutranks and
+// counts them all.
+func TestInferredFieldsBoundOutranks(t *testing.T) {
+	var many []string
+	for i := range 300 {
+		many = append(many, fmt.Sprintf("deploy/m%03d.yaml:4", i))
+	}
+	out, _ := inferredFields(nil, &contract.InferredRecord{Fields: []contract.Inferred{
+		{Field: "configuration.LOG_LEVEL", Value: "string", Source: "Dockerfile:3", Outranks: many},
+		{Field: "image", Value: "x:1", Source: "Dockerfile:1", Outranks: many[:2]},
+	}})
+	if len(out[0].Outranks) != MaxOutranks || out[0].OutranksTotal != 300 {
+		t.Errorf("outranks = %d of %d", len(out[0].Outranks), out[0].OutranksTotal)
+	}
+	if len(out[1].Outranks) != 2 || out[1].OutranksTotal != 0 {
+		t.Errorf("short outranks = %+v", out[1])
+	}
+}

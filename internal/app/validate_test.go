@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"slices"
+	"reflect"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -464,7 +464,7 @@ func TestValidateReportsInferred(t *testing.T) {
 		{Field: "pactoVersion", Value: contract.Current(), Source: "this CLI"},
 		{Field: "service.name", Value: "payments", Source: "chart/Chart.yaml:2"},
 	}
-	if !result.Valid || result.VersionDeclared == nil || *result.VersionDeclared || !slices.Equal(result.Inferred, want) {
+	if !result.Valid || result.VersionDeclared == nil || *result.VersionDeclared || !reflect.DeepEqual(result.Inferred, want) {
 		t.Fatalf("got valid=%v declared=%v inferred=%+v errors=%v", result.Valid, result.VersionDeclared, result.Inferred, result.Errors)
 	}
 	result, err = NewService(nil, nil).Validate(context.Background(), ValidateOptions{Path: writeTestBundle(t)})

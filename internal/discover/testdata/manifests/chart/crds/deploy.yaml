@@ -1,0 +1,12 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inner
+spec:
+  template:
+    spec:
+      containers:
+        - name: inner
+          image: ghcr.io/acme/inner:1.0.0
+          ports:
+            - containerPort: 6060

@@ -52,7 +52,7 @@ func boundInferred(col *Collection, source string) ([]RawInferredService, []Limi
 func addInferredServices(snap *FleetSnapshot, inputs []inferredInput) {
 	verified := declarationVerified(snap)
 	for _, in := range inputs {
-		rec, lims := inferredRecord(in, snap.clusterKeyed)
+		rec, lims := inferredServiceRecord(in, snap.clusterKeyed)
 		snap.Limitations = append(snap.Limitations, lims...)
 		if rec == nil {
 			continue
@@ -181,12 +181,12 @@ func declarationVerified(snap *FleetSnapshot) func(cluster, namespace string) bo
 	}
 }
 
-// inferredRecord is the inferred service of one input, or nil with a
+// inferredServiceRecord is the inferred service of one input, or nil with a
 // limitation when its identity is invalid. It is the one gate every source
 // passes: an image, port or probe holding a control character or past its
 // bound is dropped and its field, never the value, recorded in Dropped, and
 // a probe path loses its query and fragment.
-func inferredRecord(in inferredInput, multi bool) (*ServiceRecord, []Limitation) {
+func inferredServiceRecord(in inferredInput, multi bool) (*ServiceRecord, []Limitation) {
 	r := in.raw
 	if !validWorkloadPart(r.Namespace) || !validWorkloadPart(r.Kind) || !validWorkloadPart(r.Name) {
 		return nil, []Limitation{{

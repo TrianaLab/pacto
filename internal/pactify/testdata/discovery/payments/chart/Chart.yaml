@@ -1,0 +1,7 @@
+apiVersion: v2
+name: payments
+version: 0.3.0
+dependencies:
+  - name: redis
+    version: 19.0.2
+    repository: https://charts.example.com

@@ -1,0 +1,9 @@
+image:
+  repository: ghcr.io/trianalab/newsletter-service
+  tag: 0.1.0
+service:
+  port: 8080
+env:
+  BATCH_SIZE: "200"
+  SMTP_PASSWORD: demo-placeholder-password
+  STRIPE_API_BASE: https://api.stripe.com/v1

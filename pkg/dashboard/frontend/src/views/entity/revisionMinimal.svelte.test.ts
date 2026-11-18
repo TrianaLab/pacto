@@ -43,10 +43,34 @@ describe('RevisionEntity, minimal contract', () => {
     const block = target.querySelector('[data-testid="revision-inferred"]')!;
     expect(block.textContent).toContain('service.name');
     expect(block.textContent).toContain('payments');
-    expect(block.textContent).toContain('inferred from chart/Chart.yaml:2');
-    expect(block.textContent).toContain('inferred from this CLI');
-    expect(block.querySelectorAll('.tag').length).toBe(2);
+    const notes = [...block.querySelectorAll('[role="note"]')].map((n) => n.textContent);
+    expect(notes).toContain('Inferred, not declared. Source: chart/Chart.yaml:2.');
+    expect(notes).toContain('Inferred, not declared. Source: this CLI.');
+    expect(block.querySelector('button[aria-label="About inferred service.name"]')).toBeTruthy();
+    // No IdentityBadge per row: the provenance is the discreet mark.
+    expect(block.querySelectorAll('.tag').length).toBe(0);
+    expect(block.textContent).not.toContain('inferred from');
     expect(target.textContent).toContain('Version not declared');
+  });
+
+  it('carries the record fields with their confidence and says when the record is unreadable', () => {
+    comp = mount(RevisionEntity, { target, props: { detail: detail({ inferred: [
+      { field: 'configuration.PORT', value: 'integer', source: 'deploy/app.yaml:24', confidence: 'likely', provenance: 'inferred' },
+    ] }) } });
+    expect(target.querySelector('[data-testid="revision-inferred"] [role="note"]')!.textContent).toContain('Confidence: likely');
+    unmount(comp);
+    comp = mount(RevisionEntity, { target, props: { detail: detail({ inferredUnreadable: true }) } });
+    expect(target.querySelector('[data-testid="revision-inferred"]')!.textContent).toContain('Pacto could not read the inferred record');
+  });
+
+  it('keeps the values a local read infers beside an unreadable record', () => {
+    comp = mount(RevisionEntity, { target, props: { detail: detail({ inferredUnreadable: true, inferred: [
+      { field: 'service.name', value: 'payments', source: 'chart/Chart.yaml:2', provenance: 'inferred' },
+    ] }) } });
+    const block = target.querySelector('[data-testid="revision-inferred"]')!;
+    expect(block.textContent).toContain('Pacto could not read the inferred record');
+    expect(block.querySelector('button[aria-label="About inferred service.name"]')).toBeTruthy();
+    expect(block.querySelector('[role="note"]')!.textContent).toContain('Source: chart/Chart.yaml:2.');
   });
 
   it('shows the declared version and no inferred block for a declared contract', () => {

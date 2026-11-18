@@ -1,0 +1,29 @@
+apiVersion: rds.aws.upbound.io/v1beta1
+kind: Instance
+metadata:
+  name: orders-db
+  annotations:
+    crossplane.io/external-name: orders-prod
+spec:
+  forProvider:
+    region: eu-west-1
+  writeConnectionSecretToRef:
+    name: orders-db-conn
+---
+apiVersion: sqs.aws.upbound.io/v1beta1
+kind: Queue
+metadata:
+  name: signups
+spec:
+  forProvider:
+    region: eu-west-1
+---
+apiVersion: platform.example.org/v1alpha1
+kind: PostgreSQLInstance
+metadata:
+  name: ledger-db
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: web

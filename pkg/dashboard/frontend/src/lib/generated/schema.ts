@@ -1231,9 +1231,44 @@ export interface components {
             timeout?: string;
         };
         "Contract.Inferred": {
+            class?: string;
+            confidence?: string;
+            declare?: string;
+            external?: components["schemas"]["Contract.InferredExternal"];
             field: string;
+            outranks?: string[] | null;
             source: string;
             value: string;
+        };
+        "Contract.InferredClient": {
+            /** Format: int64 */
+            major?: number;
+            sdk: string;
+        };
+        "Contract.InferredExternal": {
+            catalog?: string;
+            client?: components["schemas"]["Contract.InferredClient"];
+            identity: string;
+            resource?: components["schemas"]["Contract.InferredResource"];
+            sources: components["schemas"]["Contract.InferredExternalSource"][] | null;
+        };
+        "Contract.InferredExternalSource": {
+            host?: string;
+            key?: string;
+            kind: string;
+            /** Format: int64 */
+            line?: number;
+            path: string;
+        };
+        "Contract.InferredFinding": {
+            code: string;
+            message: string;
+            source: string;
+        };
+        "Contract.InferredResource": {
+            missing?: string[] | null;
+            name?: string;
+            type: string;
         };
         "Contract.Interface": {
             /** Format: int64 */
@@ -2557,6 +2592,13 @@ export interface components {
             total: number;
             truncated: boolean;
         };
+        "Fleet.DiscoveryFindingsPreview": {
+            items: components["schemas"]["Contract.InferredFinding"][] | null;
+            /** Format: int64 */
+            total: number;
+            /** @description Discovery stopped after its file bound, so what it read is partial */
+            truncated?: boolean;
+        };
         "Fleet.DocRef": {
             path: string;
             title: string;
@@ -2937,13 +2979,15 @@ export interface components {
             entry?: string;
             /** @description The normalized host and port; empty when only a key name matched */
             host?: string;
-            /** @description What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService or serviceEntry */
+            /** @description What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService or serviceEntry on a workload; inferredRecord (a dependency the revision's pacto.inferred.yaml names); or, for an external system the inferred record names, helmValues, compose, kustomize, sdk, terraform or crossplane */
             kind: string;
             /**
              * Format: date-time
              * @description When the source last read it
              */
             observedAt?: string;
+            /** @description The consumer revision whose inferred record names it, for a repository source */
+            revision?: string;
             /** @description The consumer */
             service: string;
             /** @description The id of the source that reported it */
@@ -3017,16 +3061,16 @@ export interface components {
              */
             index: number;
             /**
-             * @description Where the evidence comes from: a contract's dependency, a call a trace source saw or a use inferred from a workload's pod spec
+             * @description Where the evidence comes from: a contract's dependency, a call a trace source saw, a use inferred from a workload's pod spec or a use the inferred record of the consumer's repository names
              * @enum {string}
              */
-            kind: "contract" | "observed" | "pod-spec";
-            /** @description How the evidence was joined to the identity: identity, catalog-alias, host, normalized-name, system (an OpenTelemetry system value) or keyName (a configuration key name only) */
+            kind: "contract" | "observed" | "pod-spec" | "repository";
+            /** @description How the evidence was joined to the identity: identity, catalog-alias, host, normalized-name, system (an OpenTelemetry system value), keyName (a configuration key name only), sdk (a client library in a manifest) or resource (a Terraform resource or Crossplane object) */
             match: string;
             /** @enum {string} */
             provenance: "declared" | "observed" | "inferred";
             required?: boolean;
-            /** @description The newest consumer revision that declares it */
+            /** @description The newest consumer revision that declares it, or whose inferred record names it for a repository source */
             revision?: string;
             /** @description The consumer */
             service: string;
@@ -3102,7 +3146,24 @@ export interface components {
             unresolved?: components["schemas"]["Fleet.Relationship"][] | null;
         };
         "Fleet.InferredField": {
+            /**
+             * @description ownerFile: read from CODEOWNERS or catalog-info.yaml; not verified; never clears a gate
+             * @enum {string}
+             */
+            class?: "ownerFile";
+            /**
+             * @description How sure the inference is, set for a field of the inferred record: likely when a file states it, possible when only a convention suggests it
+             * @enum {string}
+             */
+            confidence?: "likely" | "possible";
             field: string;
+            /** @description Lower-ranked sources that gave the same field, at most MaxOutranks */
+            outranks?: string[] | null;
+            /**
+             * Format: int64
+             * @description Every lower-ranked source, set when outranks lists only the first MaxOutranks
+             */
+            outranksTotal?: number;
             /** @enum {string} */
             provenance: "inferred";
             source: string;
@@ -3115,6 +3176,16 @@ export interface components {
             /** Format: int64 */
             port: number;
             protocol?: string;
+        };
+        "Fleet.InferredPreview": {
+            /** Format: int64 */
+            count: number;
+            items: components["schemas"]["Fleet.InferredField"][] | null;
+            /** Format: int64 */
+            total: number;
+            truncated: boolean;
+            /** @description The revision ships a pacto.inferred.yaml Pacto could not read or verify */
+            unreadable?: boolean;
         };
         "Fleet.InferredProbe": {
             /** @description The object path Pacto read the probe from */
@@ -3133,13 +3204,15 @@ export interface components {
             entry?: string;
             /** @description The normalized host and port; empty when only a key name matched */
             host?: string;
-            /** @description What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService or serviceEntry */
+            /** @description What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService or serviceEntry on a workload; inferredRecord (a dependency the revision's pacto.inferred.yaml names); or, for an external system the inferred record names, helmValues, compose, kustomize, sdk, terraform or crossplane */
             kind: string;
             /**
              * Format: date-time
              * @description When the source last read it
              */
             observedAt?: string;
+            /** @description The consumer revision whose inferred record names it, for a repository source */
+            revision?: string;
             /** @description The id of the source that reported it */
             source: string;
             /** @description The target the evidence was read on */
@@ -3907,7 +3980,7 @@ export interface components {
             /** @enum {string} */
             guaranteeStatus?: "met" | "unmet" | "unknown";
             hidden?: boolean;
-            /** @description Where each source recognized this external system in the caller's configuration; set only on an inferred edge */
+            /** @description Where each source recognized this external system or service in the caller's configuration or inferred record; set only on an inferred edge */
             inferredSources?: components["schemas"]["Fleet.InferredSource"][] | null;
             /** Format: date-time */
             lastSeen?: string;
@@ -4543,7 +4616,7 @@ export interface components {
             targets?: string[] | null;
             uncontracted?: boolean;
             unmet?: components["schemas"]["Contract.Mismatch"][] | null;
-            /** @description The edge types that make this service a consumer: dependency, configuration_reference, policy_reference or observed */
+            /** @description The edge types that make this service a consumer: dependency, configuration_reference, policy_reference, observed or inferred (named by the consumer's inferred record, never with a known verdict) */
             via?: string[] | null;
         };
         "Impact.ChangesPreview": {
@@ -4590,17 +4663,17 @@ export interface components {
              */
             at?: string;
             /**
-             * @description What the fact is: an observed call to the changed service, a target the consumer runs on, a finding that the consumer cannot reach the changed service or the provider's declared lifecycle. Provisioning reports are in resources
+             * @description What the fact is: an observed call to the changed service, a target the consumer runs on, a finding that the consumer cannot reach the changed service, the provider's declared lifecycle or the consumer's inferred record naming the changed service. Provisioning reports are in resources
              * @enum {string}
              */
-            kind: "observed-call" | "target" | "unreachable" | "lifecycle";
+            kind: "observed-call" | "target" | "unreachable" | "lifecycle" | "inferred-record";
             /** @description The fact in plain words */
             message: string;
             /**
-             * @description Whether a contract declares the fact or a source observed it
+             * @description Whether a contract declares the fact, a source observed it or Pacto inferred it from the consumer's repository
              * @enum {string}
              */
-            provenance: "declared" | "observed";
+            provenance: "declared" | "observed" | "inferred";
             /** @description Where the fact comes from: the observation source id, the traces file or the target key */
             source?: string;
             /** @description The fact is older than 24h before the snapshot's asOf, or has no time, so it does not count as current */
@@ -5476,7 +5549,7 @@ export interface components {
             /** @description A runtime caller no contract describes: its service reference names no page */
             uncontracted?: boolean;
             unmet?: components["schemas"]["Contract.Mismatch"][] | null;
-            /** @description The edge types that make this service a consumer: dependency, configuration_reference, policy_reference or observed */
+            /** @description The edge types that make this service a consumer: dependency, configuration_reference, policy_reference, observed or inferred (named by the consumer's inferred record, never with a known verdict) */
             via?: string[] | null;
         };
         ProductImpactConsumersPage: {
@@ -5891,6 +5964,7 @@ export interface components {
             configurations: components["schemas"]["ProductConfigurationsPreview"];
             current?: boolean;
             dependencies: components["schemas"]["ProductRelationshipsPreview"];
+            discoveryFindings: components["schemas"]["Fleet.DiscoveryFindingsPreview"];
             docs: components["schemas"]["Fleet.DocsPreview"];
             environments: components["schemas"]["Fleet.EnvironmentsPreview"];
             evidenceSourceCounts: components["schemas"]["Fleet.SourceCounts"];
@@ -5899,6 +5973,10 @@ export interface components {
             identity: components["schemas"]["Fleet.RevisionIdentity"];
             inferred?: components["schemas"]["Fleet.InferredField"][] | null;
             inferredTargets: components["schemas"]["ProductRefPreview"];
+            /** Format: int64 */
+            inferredTotal?: number;
+            /** @description The revision ships a pacto.inferred.yaml Pacto could not read or verify */
+            inferredUnreadable?: boolean;
             interfaces: components["schemas"]["Fleet.InterfacesPreview"];
             lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             limitations: components["schemas"]["Fleet.LimitationsPreview"];
@@ -5984,6 +6062,7 @@ export interface components {
              * @description At least this many resources this service uses come from providers you may not see; counted from your own contract and reports, never named
              */
             hiddenProviders?: number;
+            inferredFields: components["schemas"]["Fleet.InferredPreview"];
             inferredOfferings: components["schemas"]["ProductInferredOffering"][] | null;
             lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             limitations: components["schemas"]["ProductAttributedLimitationsPreview"];

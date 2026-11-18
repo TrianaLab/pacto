@@ -1,0 +1,5 @@
+# Owners of the services
+* @acme/platform
+
+/services/payments/ @acme/team-payments @alice
+/services/ledger/ @acme/ledger

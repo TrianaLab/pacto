@@ -1,0 +1,8 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: newsletter-service
+spec:
+  type: service
+  owner: group:default/team-growth
+  lifecycle: experimental

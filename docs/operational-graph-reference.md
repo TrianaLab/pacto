@@ -427,4 +427,5 @@ covers identities, the join order and catalogs.
 | Graph | Rooted at `external:<identity>`, it walks the consumers and their dependents (an unset direction means `dependents`); an explicit `direction: dependencies` is an invalid query |
 | Neighborhood | External systems are leaves beside the services that declare them; focusing one shows its consumers |
 | Overview | `externals` and `hiddenExternals` |
+| Repository | An external system a revision's [inferred record](contract-reference/inferred-record.md#external-dependencies) names joins as an inferred edge whose sources have kind `repository` and name that `revision`, never as a service dependency, impact or gate input |
 | Cap | An answer that names more than 200 external systems folds the rest into `other-egress` and is partial with `EXTERNAL_CAP`; see [the cap](external-catalog-reference.md#the-cap) |

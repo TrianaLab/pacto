@@ -270,9 +270,10 @@ const (
 // Provenance distinguishes how a relationship became known: "declared" (from a
 // contract), "observed" (folded from runtime telemetry, see
 // foldObservedRelationships) or "inferred" (an external system a source
-// recognized in a service's configuration, see foldExternalUses, or a runtime
-// call one of whose ends no contract describes: an inferred service, see
-// foldObservedRelationships; inferred service edges live in
+// recognized in a service's configuration, see foldExternalUses, a service
+// dependency a revision's inferred record names, see revisionInferredEdges,
+// or a runtime call one of whose ends no contract describes: an inferred
+// service, see foldObservedRelationships; inferred service edges live in
 // InferredRelationships). Inferred also marks a provider row Pacto detected
 // in a cluster (see pkg/detect), a proposal that never turns anything on.
 // They are
@@ -497,6 +498,11 @@ const (
 	// configured could not be read, so external systems it would classify are
 	// joined by name only. It makes the answer partial.
 	LimitationExternalCatalogUnavailable = "EXTERNAL_CATALOG_UNAVAILABLE"
+	// LimitationInferredRecordUnreadable: a revision at pactoVersion 2.5 or
+	// later ships a pacto.inferred.yaml that cannot be parsed or whose cited
+	// files do not match the bundle, so its inferred dependencies are unknown,
+	// not absent. It makes the answer partial.
+	LimitationInferredRecordUnreadable = "INFERRED_RECORD_UNREADABLE"
 	// LimitationExternalCap: the answer names MaxExternalNodes external
 	// systems and folds the least-consumed rest into one other-egress node.
 	// It makes the answer partial.
@@ -790,10 +796,14 @@ type ContractRevision struct {
 	Contract     *contract.Contract `json:"contract,omitempty"`
 	// Inferred lists what a local read implied rather than read from the
 	// contract (an absent pactoVersion, an inferred service.name), with sources.
-	Inferred   []contract.Inferred `json:"inferred,omitempty"`
-	Readiness  *readiness.Result   `json:"readiness,omitempty"`
-	Validation []finding.Finding   `json:"validation,omitempty"`
-	Valid      bool                `json:"valid"`
+	Inferred []contract.Inferred `json:"inferred,omitempty"`
+	// Record is the bundle's pacto.inferred.yaml, read only for a revision at
+	// pactoVersion 2.5 or later whose cited files match the bundle. Its
+	// dependencies project as inferred relationships; detail exposes its fields.
+	Record     *contract.InferredRecord `json:"-"`
+	Readiness  *readiness.Result        `json:"readiness,omitempty"`
+	Validation []finding.Finding        `json:"validation,omitempty"`
+	Valid      bool                     `json:"valid"`
 	// Stages is how each stage of the validation run ended. Empty when the
 	// contract document could not be read, so nothing was validated.
 	Stages []ValidationStage `json:"stages,omitempty"`
@@ -850,6 +860,10 @@ type ContractRevision struct {
 	// LimitationRevisionDocConflict, and turns every document read into an explicit
 	// unavailable rather than an arbitrary, order-dependent winner.
 	docConflict string
+	// recordUnreadable says Build dropped this revision's pacto.inferred.yaml
+	// (LimitationInferredRecordUnreadable), so detail reads "unknown", never
+	// "nothing inferred".
+	recordUnreadable bool
 	// validated records that this revision's contract document was readable and
 	// was run through the validator at build time. Stored so status queries never
 	// dereference the build-only bundle after Build.
@@ -1061,7 +1075,8 @@ func ConsumesEdge(rel Relationship) bool {
 // service (FromService) — never from "the service's latest revision". Declared,
 // observed and inferred edges are kept apart (see Provenance); an observed edge
 // is folded from runtime telemetry and carries ObservedCount/Source, an
-// inferred edge to an external system read from configuration carries
+// inferred edge (to an external system read from configuration, or to a
+// service a revision's inferred record names) carries
 // InferredSources/Confidence, and an inferred runtime call with an end no
 // contract describes carries ObservedCount/ObservedSources and lives in
 // [FleetSnapshot.InferredRelationships].
@@ -1143,9 +1158,9 @@ type Relationship struct {
 	// offline sample keeps its old window.
 	FirstSeen *time.Time `json:"firstSeen,omitempty"`
 	LastSeen  *time.Time `json:"lastSeen,omitempty"`
-	// InferredSources is the per-source evidence of an inferred edge to an
-	// external system, sorted. Empty for declared and observed edges.
-	InferredSources []InferredSource `json:"inferredSources,omitempty" doc:"Where each source recognized this external system in the caller's configuration; set only on an inferred edge"`
+	// InferredSources is the per-source evidence of an inferred edge, sorted.
+	// Empty for declared and observed edges.
+	InferredSources []InferredSource `json:"inferredSources,omitempty" doc:"Where each source recognized this external system or service in the caller's configuration or inferred record; set only on an inferred edge"`
 	// Confidence is the strongest confidence of an inferred edge's sources.
 	Confidence string `json:"confidence,omitempty" enum:"likely,possible" doc:"The strongest confidence of the inferred sources: likely when a host or system value matched, possible when only a key name did"`
 }
@@ -1158,13 +1173,16 @@ type InferredSource struct {
 	// Target is the target the evidence was read on, when the source names
 	// one this snapshot holds; a restricted view drops evidence of a hidden one.
 	Target     TargetKey  `json:"target,omitempty" doc:"The target the evidence was read on"`
-	Kind       string     `json:"kind" doc:"What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService or serviceEntry"`
+	Kind       string     `json:"kind" doc:"What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService or serviceEntry on a workload; inferredRecord (a dependency the revision's pacto.inferred.yaml names); or, for an external system the inferred record names, helmValues, compose, kustomize, sdk, terraform or crossplane"`
 	Where      string     `json:"where,omitempty" doc:"The object and key it was found in, never a value"`
 	Host       string     `json:"host,omitempty" doc:"The normalized host and port; empty when only a key name matched"`
 	Confidence string     `json:"confidence" enum:"likely,possible"`
 	Entry      string     `json:"entry,omitempty" doc:"The catalog entry that classified it"`
 	Catalog    string     `json:"catalog,omitempty" doc:"The digest of the catalog the source classified it with"`
 	ObservedAt *time.Time `json:"observedAt,omitempty" doc:"When the source last read it"`
+	// Revision is set on a repository source: the consumer revision whose
+	// inferred record names the external system.
+	Revision RevisionKey `json:"revision,omitempty" doc:"The consumer revision whose inferred record names it, for a repository source"`
 }
 
 // ExternalKey is the canonical identity of an external system, an
@@ -1188,6 +1206,9 @@ const (
 	// ExternalSourcePodSpec is a use a source inferred from a workload's pod
 	// spec (see [RawExternalUse]).
 	ExternalSourcePodSpec = "pod-spec"
+	// ExternalSourceRepository is a use the inferred record of the consumer's
+	// newest revision names: read from its repository folder, never declared.
+	ExternalSourceRepository = "repository"
 )
 
 // ExternalRecord is one external system: a vendor API, a managed cloud
@@ -1227,9 +1248,9 @@ type ExternalRecord struct {
 
 // ExternalSource is one piece of evidence that names an external system.
 type ExternalSource struct {
-	Kind     string      `json:"kind" enum:"contract,observed,pod-spec" doc:"Where the evidence comes from: a contract's dependency, a call a trace source saw or a use inferred from a workload's pod spec"`
+	Kind     string      `json:"kind" enum:"contract,observed,pod-spec,repository" doc:"Where the evidence comes from: a contract's dependency, a call a trace source saw, a use inferred from a workload's pod spec or a use the inferred record of the consumer's repository names"`
 	Service  ServiceKey  `json:"service" doc:"The consumer"`
-	Revision RevisionKey `json:"revision,omitempty" doc:"The newest consumer revision that declares it"`
+	Revision RevisionKey `json:"revision,omitempty" doc:"The newest consumer revision that declares it, or whose inferred record names it for a repository source"`
 	// Target is empty for a contract source.
 	Target     TargetKey `json:"target,omitempty" doc:"The target the evidence was observed on; empty for a contract source"`
 	Dependency string    `json:"dependency,omitempty" doc:"The declared dependency name"`
@@ -1237,7 +1258,7 @@ type ExternalSource struct {
 	Version    string    `json:"version,omitempty" doc:"The free-text version the dependency declares"`
 	Required   bool      `json:"required,omitempty"`
 	Provenance string    `json:"provenance" enum:"declared,observed,inferred"`
-	Match      string    `json:"match" doc:"How the evidence was joined to the identity: identity, catalog-alias, host, normalized-name, system (an OpenTelemetry system value) or keyName (a configuration key name only)"`
+	Match      string    `json:"match" doc:"How the evidence was joined to the identity: identity, catalog-alias, host, normalized-name, system (an OpenTelemetry system value), keyName (a configuration key name only), sdk (a client library in a manifest) or resource (a Terraform resource or Crossplane object)"`
 	// Superseded says the consumer has a newer revision that no longer
 	// declares the dependency at this position, so the declaration may be
 	// history rather than what the service runs today.

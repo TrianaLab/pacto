@@ -42,11 +42,16 @@ const fleetInstructions = "Pacto also exposes READ-ONLY fleet tools over the ope
 	"means no current report, never a failure or success. " +
 	"Every fleet answer carries 'meta' (pacto_impact carries the same fields at the top level): " +
 	"cite asOf, snapshotId and sources, and list limitations when you answer. Each edge carries " +
-	"'provenance' (declared, observed, declared+observed or inferred: an external use read from a workload's configuration or pod spec, which never clears a gate) and a declared edge carries " +
+	"'provenance' (declared, observed, declared+observed or inferred: an external use read from a workload's configuration or pod spec, " +
+	"an external use the inferred record of the consumer's newest revision names (external source kind repository; its inferredSources carry " +
+	"the revision and a kind such as helmValues, compose, kustomize, sdk, terraform or crossplane; an sdk or terraform match is possible only, " +
+	"since a library or a provisioned resource proves no call, and a crossplane match is possible unless the workload reads its connection Secret), " +
+	"or a service dependency a revision's pacto.inferred.yaml names (inferredSources kind inferredRecord); none ever clears a gate) and a declared edge carries " +
 	"'reconciliation'; each graph node says how it was reached. Say which kind each fact is: " +
-	"declared in a contract, observed at runtime or inferred. Pacto uses 'inferred' in four " +
+	"declared in a contract, observed at runtime or inferred. Pacto uses 'inferred' in five " +
 	"places: a transitive consumer in pacto_impact, a target linked to a revision by tag or " +
-	"version match, an external use read from configuration (relationship and external source provenance) " +
+	"version match, an external use read from configuration or a revision's inferred record (relationship and external source provenance), " +
+	"a service dependency only a revision's inferred record names (a direct consumer in pacto_impact, compatibility unknown) " +
 	"and a detected provider row in pacto_fleet_status providers. pacto_fleet_entities " +
 	"with template=only lists golden paths, the starting points pacto_create takes as 'from' (over stdio, from pacto mcp --transport stdio); a " +
 	"golden path is never a consumer, so it is absent from impact and offering consumers. " +
@@ -335,7 +340,8 @@ func fleetGraphTool() *mcpsdk.Tool {
 		Name: "pacto_fleet_graph",
 		Description: "Traverse fleet dependencies or dependents from a service. Cycle-safe. " +
 			"Reports reached nodes with depth, path and 'provenance' (how the edge that reached the node is known: " +
-			"declared, observed or declared+observed, or inferred for an external system's consumer known only from its configuration or a runtime call one of whose ends no contract describes), cycles, unresolved dependencies and 'truncated'. " +
+			"declared, observed or declared+observed, or inferred for an external system's consumer known only from its configuration, " +
+			"a service dependency only a revision's inferred record names or a runtime call one of whose ends no contract describes), cycles, unresolved dependencies and 'truncated'. " +
 			"An inferred edge (provenance inferred, with 'observedSources') is a call sources saw where no contract describes one end: it never satisfies a dependency, never feeds an impact verdict and never clears a gate. " +
 			"A service asked for by the key of an inferred service it replaced answers as that service with 'replacedFrom' (from, to, the Pacto target and when). " +
 			"Edges to external systems are drawn whether declared, observed or inferred. " +

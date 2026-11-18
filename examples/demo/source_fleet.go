@@ -188,13 +188,7 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 	detection := fleet.NewMemorySource("cluster-detection", fleet.SourceKindDetection, &fleet.Collection{
 		Advisory: true, Providers: detect.ProviderRows(detected, "cluster-detection", demoNow()),
 	})
-	// The organization extension is embedded, so the demo reports it unsigned
-	// rather than inventing a verification it never ran.
-	cat, err := externalcatalog.Assemble(externalcatalog.DefaultRef(), demoExternalCatalog, externalcatalog.Ref{
-		Origin: externalcatalog.OriginOrganization, Repository: "demo (embedded)", Digest: externalcatalog.Digest(demoExternalCatalog),
-		Copy: externalcatalog.CopyEmbedded, Signature: externalcatalog.SignatureUnknown,
-		Reason: "the demo catalog is embedded in the demo; it is not signed",
-	})
+	cat, err := demoCatalog()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -519,4 +513,16 @@ func demoInferredServices() []fleet.RawInferredService {
 			Probes: []fleet.InferredProbe{{Kind: "liveness", Path: "/api/v1/health", Port: "2020", From: pod + "fluent-bit].livenessProbe"}},
 		},
 	}
+}
+
+// demoCatalog is the default catalog with the demo organization's extension:
+// what the demo fleet classifies with and newsletter-service's record was
+// completed with. The extension is embedded, so the demo reports it unsigned
+// rather than inventing a verification it never ran.
+func demoCatalog() (*externalcatalog.Catalog, error) {
+	return externalcatalog.Assemble(externalcatalog.DefaultRef(), demoExternalCatalog, externalcatalog.Ref{
+		Origin: externalcatalog.OriginOrganization, Repository: "demo (embedded)", Digest: externalcatalog.Digest(demoExternalCatalog),
+		Copy: externalcatalog.CopyEmbedded, Signature: externalcatalog.SignatureUnknown,
+		Reason: "the demo catalog is embedded in the demo; it is not signed",
+	})
 }

@@ -368,6 +368,9 @@ type ServiceDetailData struct {
 	CurrentRevision *EntityRef            `json:"currentRevision,omitempty"`
 	Policies        PoliciesPreview       `json:"policies"`
 	Configurations  ConfigurationsPreview `json:"configurations"`
+	// InferredFields is what Pacto inferred for the current revision and the
+	// revision does not declare, from its pacto.inferred.yaml.
+	InferredFields InferredPreview `json:"inferredFields"`
 	// Summary aggregates the COMPLETE target/revision/edge populations. The
 	// previews below are bounded, so a consumer that needs a proportion or a total
 	// must read it here and never count preview Items.
@@ -473,22 +476,104 @@ type OriginDetail struct {
 	Reason     string     `json:"reason,omitempty"`
 }
 
-// InferredField is one value a local read implied rather than read from the
-// contract, with where it came from: a "<path>:<line>" in the bundle,
-// "directory <name>" or "this CLI".
+// InferredField is one value a local read implied or the bundle's
+// pacto.inferred.yaml records rather than read from the contract, with where it
+// came from: a "<path>:<line>" in the bundle, a "repository:<path>:<line>"
+// in the repository outside it (a CODEOWNERS file), "directory <name>" or
+// "this CLI".
 type InferredField struct {
-	Field      string `json:"field"`
-	Value      string `json:"value"`
-	Source     string `json:"source"`
-	Provenance string `json:"provenance" enum:"inferred"`
+	Field      string   `json:"field"`
+	Value      string   `json:"value"`
+	Source     string   `json:"source"`
+	Confidence string   `json:"confidence,omitempty" enum:"likely,possible" doc:"How sure the inference is, set for a field of the inferred record: likely when a file states it, possible when only a convention suggests it"`
+	Class      string   `json:"class,omitempty" enum:"ownerFile" doc:"ownerFile: read from CODEOWNERS or catalog-info.yaml; not verified; never clears a gate"`
+	Outranks   []string `json:"outranks,omitempty" doc:"Lower-ranked sources that gave the same field, at most MaxOutranks"`
+	// OutranksTotal counts every outranked source when Outranks was bounded.
+	OutranksTotal int    `json:"outranksTotal,omitempty" doc:"Every lower-ranked source, set when outranks lists only the first MaxOutranks"`
+	Provenance    string `json:"provenance" enum:"inferred"`
 }
 
-func inferredFields(inf []contract.Inferred) []InferredField {
-	var out []InferredField
-	for _, i := range inf {
-		out = append(out, InferredField{Field: i.Field, Value: i.Value, Source: i.Source, Provenance: ProvenanceInferred})
+// MaxInferredFields bounds the inferred fields a service or revision detail
+// lists, and MaxOutranks the outranked sources each lists.
+const (
+	MaxInferredFields = 50
+	MaxOutranks       = 10
+)
+
+// InferredPreview is a bounded list of inferred fields. Unreadable says the
+// revision ships an inferred record Pacto could not read, so the empty list
+// means unknown, never "nothing inferred".
+type InferredPreview struct {
+	Items      []InferredField `json:"items"`
+	Count      int             `json:"count"`
+	Total      int             `json:"total"`
+	Truncated  bool            `json:"truncated"`
+	Unreadable bool            `json:"unreadable,omitempty" doc:"The revision ships a pacto.inferred.yaml Pacto could not read or verify"`
+}
+
+// inferredFields is what a local read implied (508-S1) followed by the
+// record's fields, sorted by field then source, at most MaxInferredFields,
+// with the total of both.
+func inferredFields(inf []contract.Inferred, rec *contract.InferredRecord) ([]InferredField, int) {
+	all := slices.Clone(inf)
+	if rec != nil {
+		fields := slices.Clone(rec.Fields)
+		slices.SortFunc(fields, func(a, b contract.Inferred) int {
+			return cmp.Or(strings.Compare(a.Field, b.Field), strings.Compare(a.Source, b.Source))
+		})
+		all = append(all, fields...)
 	}
-	return out
+	all, total, _ := boundSlice(all, MaxInferredFields)
+	var out []InferredField
+	for _, i := range all {
+		f := InferredField{Field: i.Field, Value: i.Value, Source: i.Source, Confidence: i.Confidence,
+			Class: i.Class, Outranks: slices.Clone(i.Outranks), Provenance: ProvenanceInferred}
+		if len(f.Outranks) > MaxOutranks {
+			f.OutranksTotal, f.Outranks = len(f.Outranks), f.Outranks[:MaxOutranks]
+		}
+		out = append(out, f)
+	}
+	return out, total
+}
+
+// MaxDiscoveryFindings bounds the discovery findings a revision detail lists.
+const MaxDiscoveryFindings = 20
+
+// DiscoveryFindingsPreview is a bounded list of what discovery recognized in
+// the revision's folder but could not read, from its pacto.inferred.yaml.
+// Truncated says discovery stopped early, so every inferred field is partial;
+// its finding comes first.
+type DiscoveryFindingsPreview struct {
+	Items     []contract.InferredFinding `json:"items"`
+	Total     int                        `json:"total"`
+	Truncated bool                       `json:"truncated,omitempty" doc:"Discovery stopped after its file bound, so what it read is partial"`
+}
+
+// discoveryFindings is the preview of rec's findings: the record keeps the
+// truncation finding first, and Total counts the findings it dropped too.
+func discoveryFindings(rec *contract.InferredRecord) DiscoveryFindingsPreview {
+	p := DiscoveryFindingsPreview{Items: []contract.InferredFinding{}}
+	if rec == nil {
+		return p
+	}
+	p.Items, _, _ = boundSlice(rec.Findings, MaxDiscoveryFindings)
+	p.Total = len(rec.Findings) + rec.FindingsDropped
+	p.Truncated = slices.ContainsFunc(rec.Findings, func(f contract.InferredFinding) bool { return f.Code == contract.InferredFindingTruncated })
+	return p
+}
+
+// inferredPreview is the service detail's preview of cur's inferred fields,
+// read from the SNAPSHOT record: cur may be a clone, which carries no Record.
+func (q *Query) inferredPreview(cur *ContractRevision) InferredPreview {
+	p := InferredPreview{Items: []InferredField{}}
+	if cur == nil {
+		return p
+	}
+	rev := q.snap.Revisions[cur.Key]
+	items, total := inferredFields(nil, rev.Record)
+	p.Items = append(p.Items, items...)
+	p.Count, p.Total, p.Truncated, p.Unreadable = len(items), total, total > len(items), rev.recordUnreadable
+	return p
 }
 
 // MaxBreaks bounds the announced break rows of a revision detail.
@@ -553,9 +638,17 @@ type RevisionDetailData struct {
 	PactoVersionCurrent string `json:"pactoVersionCurrent,omitempty" doc:"The latest pactoVersion known to the Pacto that served this answer, set when this revision declares an older or unknown one"`
 	PactoVersionUnknown bool   `json:"pactoVersionUnknown,omitempty" doc:"The revision declares a pactoVersion the Pacto that served this answer does not know"`
 	// Inferred lists what a local read implied rather than read from the
-	// contract (an absent pactoVersion, an inferred service.name), each with
-	// its source. It is empty for a published revision.
-	Inferred []InferredField `json:"inferred,omitempty"`
+	// contract (an absent pactoVersion, an inferred service.name), then the
+	// fields of the bundle's pacto.inferred.yaml, each with its source, at most
+	// MaxInferredFields; InferredTotal counts them all.
+	Inferred      []InferredField `json:"inferred,omitempty"`
+	InferredTotal int             `json:"inferredTotal,omitempty"`
+	// InferredUnreadable says the revision ships an inferred record Pacto could
+	// not read or verify, so its inferred fields are unknown.
+	InferredUnreadable bool `json:"inferredUnreadable,omitempty" doc:"The revision ships a pacto.inferred.yaml Pacto could not read or verify"`
+	// DiscoveryFindings is what discovery recognized in the folder but could
+	// not read, at most MaxDiscoveryFindings.
+	DiscoveryFindings DiscoveryFindingsPreview `json:"discoveryFindings"`
 	// Lifecycle is the service lifecycle (pactoVersion 2.4) the revision declares.
 	Lifecycle  *contract.InterfaceLifecycle `json:"lifecycle,omitempty"`
 	Identity   RevisionIdentity             `json:"identity"`
@@ -1294,6 +1387,7 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 		CurrentRevision:        current,
 		Policies:               pols,
 		Configurations:         cfgs,
+		InferredFields:         q.inferredPreview(cur),
 		Summary:                summary,
 		// Newest first, in revision chronology: a version list ordered by content
 		// digest is unreadable as history.
@@ -1356,7 +1450,7 @@ func (q *Query) revisionDetail(key string) (*EntityDetail, error) {
 		Capabilities:         capabilitiesPreview(rev.Contract.Capabilities),
 		Interfaces:           interfacesPreview(rev.Contract.Interfaces, rev.Tools, rev.SpecsRead, q.snap.GeneratedAt),
 		Breaks:               q.breaksPreview(rev),
-		Inferred:             inferredFields(rev.Inferred),
+		InferredUnreadable:   rev.recordUnreadable,
 		Workload:             rev.Contract.Workload,
 		State:                stateSummary(rev.Contract.State),
 		Dependencies:         relationshipsPreview(q.revisionEdges(rev.Key)),
@@ -1378,6 +1472,8 @@ func (q *Query) revisionDetail(key string) (*EntityDetail, error) {
 		Ownership:            revisionOwnership(rev),
 	}
 	data.PactoVersionCurrent, data.PactoVersionUnknown = pactoVersionStatus(rev.PactoVersion)
+	data.Inferred, data.InferredTotal = inferredFields(rev.Inferred, rev.Record)
+	data.DiscoveryFindings = discoveryFindings(rev.Record)
 	return &EntityDetail{
 		Meta: q.productMeta(), Entity: revisionEntityRef(rev), Status: revisionStatus(rev),
 		Revision: data, Actions: []string{"open-graph", "compare", "impact"},

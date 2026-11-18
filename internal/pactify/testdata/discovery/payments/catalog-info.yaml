@@ -1,0 +1,8 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: payments
+spec:
+  type: service
+  owner: group:default/team-payments
+  lifecycle: production

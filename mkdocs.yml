@@ -278,6 +278,7 @@ nav:
           - Validation layers: contract-reference/validation.md
           - Overrides: contract-reference/overrides.md
           - Change classification: contract-reference/diff.md
+          - Inferred record: contract-reference/inferred-record.md
       - CLI reference: cli-reference.md
       - Lockfile: lockfile.md
       - Packaging ignore: pactoignore.md

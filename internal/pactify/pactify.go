@@ -23,6 +23,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/trianalab/pacto/v4/internal/discover"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -75,6 +76,16 @@ type Options struct {
 	// Catalog classifies the externals the folder names. Nil is the embedded
 	// default catalog.
 	Catalog *externalcatalog.Catalog
+	// CatalogUnavailable says why the organization catalog the person running
+	// Pacto named could not classify, so only the default did: an Unknown line.
+	CatalogUnavailable string
+	// Commit and PactoVersion are the inputs an inferred record names: the
+	// folder's commit and the Pacto completing it. Empty is omitted.
+	Commit, PactoVersion string
+
+	// cluster marks a draft read from the cluster, which is never completed:
+	// what runs there never reaches the inferred record.
+	cluster bool
 }
 
 // Template is the golden path a service is created from, already read and,
@@ -142,18 +153,16 @@ type File struct {
 }
 
 // Finding is a service found to depend on, or use, this one.
-type Finding struct {
-	Name  string `json:"name"`
-	Where string `json:"where"`
-}
+type Finding = discover.Finding
 
 // Result is the plan and, once applied, what was done.
 type Result struct {
 	Dir     string `json:"dir"`
 	Path    string `json:"path"`
 	Service string `json:"service"`
-	// Mode is "template" for a contract created from a golden path, "blank"
-	// for a folder with no service in it, else "pactify".
+	// Mode is "template" for a contract created from a golden path,
+	// "complete" for a folder whose pactoVersion 2.5 pacto.yaml was completed,
+	// "blank" for a folder with no service in it, else "pactify".
 	Mode    string `json:"mode"`
 	Applied bool   `json:"applied"`
 	// Found is what was read from the folder, one line each.
@@ -163,9 +172,14 @@ type Result struct {
 	// Externals are the systems outside the cluster the folder names, each
 	// with where it was read and the host and port at most.
 	Externals []External `json:"externals"`
-	// Catalog is the digest of the catalog Externals were classified with,
-	// with " (embedded)" for the copy compiled into this binary.
+	// Catalog is every catalog Externals were classified with, as
+	// "<origin> <digest>" joined with ", ", default first, with " (embedded)"
+	// for the copy compiled into this binary.
 	Catalog string `json:"catalog,omitempty"`
+	// ExternalSummary is the plan line for the external dependencies the
+	// inferred record holds, then one line per dependency: see
+	// [ExternalSummary].
+	ExternalSummary []string `json:"externalSummary,omitempty"`
 	// Unknown is what Pacto could not establish. It is never guessed.
 	Unknown []string `json:"unknown"`
 	// Next is what a person still has to do.
@@ -174,10 +188,17 @@ type Result struct {
 	// Steps say how far creating from a golden path got, and what Pacto
 	// cannot tell yet.
 	Steps []fleet.CreationStep `json:"steps,omitempty"`
+	// Inferred is what the folder shows beyond pacto.yaml: in complete mode
+	// beyond the one it holds, for a new contract beyond the one init plans
+	// to write. pacto pack and pacto publish put it in the bundle as
+	// pacto.inferred.yaml when pacto.yaml declares pactoVersion 2.5 (an older
+	// one says so in Next). The folder never gets the file.
+	Inferred *contract.InferredRecord `json:"inferred,omitempty"`
 }
 
 const (
 	modeBlank    = "blank"
+	modeComplete = "complete"
 	modePactify  = "pactify"
 	modeTemplate = "template"
 )
@@ -219,7 +240,7 @@ func plan(ctx context.Context, opts Options) (*Result, error) {
 	if info, err := os.Stat(dir); err == nil && !info.IsDir() {
 		return nil, fmt.Errorf("%s is a file, not a folder", dir)
 	}
-	sc, err := scanDir(dir)
+	sc, err := discover.Dir(dir)
 	if err != nil {
 		return nil, err
 	}
@@ -236,7 +257,7 @@ func plan(ctx context.Context, opts Options) (*Result, error) {
 	switch {
 	case opts.Template != nil:
 		r.Mode = modeTemplate
-	case sc.dockerfile != "" || len(sc.manifests) > 0:
+	case sc.Dockerfile != "" || len(sc.Manifests) > 0:
 		r.Mode = modePactify
 	}
 	p := &planner{r: r, sc: sc, opts: opts, envs: envs}
@@ -301,9 +322,9 @@ func environments(opts Options) ([]string, error) {
 
 // serviceName is the caller's name, else the workload's, else the folder's
 // made DNS-safe.
-func serviceName(name string, sc *scan, dir string) (string, error) {
-	if name == "" && sc.workload != nil {
-		name = sc.workload.name
+func serviceName(name string, sc *discover.Scan, dir string) (string, error) {
+	if name == "" && sc.Workload != nil {
+		name = sc.Workload.Name
 	}
 	if name == "" {
 		abs, _ := filepath.Abs(dir) // ponytail: Abs fails only without a working directory
@@ -318,13 +339,15 @@ func serviceName(name string, sc *scan, dir string) (string, error) {
 // planner fills one Result.
 type planner struct {
 	r    *Result
-	sc   *scan
+	sc   *discover.Scan
 	opts Options
 	envs []string
 	// pub is the publish section written or found; the cluster pieces read it.
 	pub             *contract.Publish
 	snap            *fleet.FleetSnapshot // the contracts in FleetRoots, nil when none were given
 	schema          string               // the configuration schema written, "" when none
+	openapi         string               // the OpenAPI file discovery found, "" when none
+	ports           []int                // the container ports discovery found, in order
 	stages          []validation.Stage   // what validating a contract created from a golden path found
 	contractNew     bool
 	deliveryPlanned bool

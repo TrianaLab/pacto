@@ -1,0 +1,15 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: folder-externals
+spec:
+  template:
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/acme/folder-externals:1.0.0
+          env:
+            - name: LEGACY_URL
+              value: https://erp.corp-legacy.com:8443/api
+            - name: PARTNER_URL
+              value: https://partner.io

@@ -1,0 +1,10 @@
+resources:
+  - app.yaml
+configMapGenerator:
+  - name: cfg
+    literals:
+      - TWILIO_URL=https://api.twilio.com
+secretGenerator:
+  - name: creds
+    literals:
+      - MAILGUN_URL=https://api.mailgun.net

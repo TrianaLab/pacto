@@ -186,3 +186,10 @@ func (f *filteredFS) ReadDir(name string) ([]fs.DirEntry, error) {
 	}
 	return out, nil
 }
+
+// Matches reports whether the one pattern matches slashPath, a directory when
+// isDir, with no default pattern applied. A negated pattern matches nothing.
+func Matches(pattern, slashPath string, isDir bool) bool {
+	r, ok := parseRule(pattern)
+	return ok && !r.negate && (isDir || !r.dirOnly) && matchSegs(r.segs, strings.Split(slashPath, "/"))
+}

@@ -73,11 +73,13 @@ entries:
     label: Stripe
     aliases: [stripe, stripe-api]
     hosts: [api.stripe.com, "*.stripe.com"]
-    sdkModules: [github.com/stripe/stripe-go]
+    sdkModules: [github.com/stripe/stripe-go, npm:stripe, pypi:stripe, "maven:com.stripe:stripe-java"]
     keyPatterns: ["STRIPE_*"]
   - identity: aws/rds
     class: managed-cloud
     hosts: ["*.rds.amazonaws.com"]
+    terraform: ["aws_db_instance:identifier"]
+    crossplane: [rds.aws.upbound.io/Instance]
 ```
 
 | Field | Required | Rule |
@@ -88,16 +90,19 @@ entries:
 | `entries[].label` | No | The name the dashboard shows |
 | `entries[].aliases` | No | Dependency names that join this entry; non-empty |
 | `entries[].hosts` | No | Lower-case DNS names with an optional leading `*.` |
-| `entries[].sdkModules` | No | SDK module paths |
+| `entries[].sdkModules` | No | Client libraries: a bare Go module path without its `/vN` suffix, `npm:<package>`, `pypi:<normalized name>` (lower case, runs of `-`, `_` and `.` as one `-`) or `maven:<groupId>:<artifactId>` |
+| `entries[].terraform` | No | `managed-cloud` only. A lower-case resource type, optionally with the attribute that holds the resource id: `aws_sqs_queue` or `aws_db_instance:identifier`. An id attribute named like a password, secret, token, key, credential, private key or DSN is refused |
+| `entries[].crossplane` | No | `managed-cloud` only. `<api group>/<Kind>` of a managed resource, or of a claim or composite resource of your own XRD |
 | `entries[].keyPatterns` | No | Environment and secret key names: `A-Z`, `0-9` and `_`, with at most one trailing `*` |
 | `entries[].otel` | No | `dbSystem`, `messagingSystem` and `rpcSystem` lists of OpenTelemetry system values |
 
-An alias, host or key pattern claimed by two entries of one file is an error.
+An alias, host, key pattern, SDK module, Terraform resource type or
+Crossplane kind claimed by two entries of one file is an error, and the error
+names the entry.
 A file holds at most 2000 entries and 1 MiB. Pacto joins declared dependencies
-by `aliases`. `hosts`, `keyPatterns` and `otel` classify what `pacto init`, the
-operator and trace sources recognize, as [Matching](#matching) describes.
-`sdkModules` is parsed and validated so a catalog written now keeps working when
-Pacto reads module manifests.
+by `aliases`. `hosts`, `keyPatterns`, `sdkModules`, `terraform`, `crossplane`
+and `otel` classify what `pacto init`, the operator and trace sources
+recognize, as [Matching](#matching) describes.
 
 ## Matching
 
@@ -109,6 +114,8 @@ matcher.
 | A host | The longest catalog host rule wins, an exact host over a `*.` wildcard of the same length. An exact rule matches only that name, and `*.example.com` matches its subdomains and never `example.com` itself | `likely` |
 | A host no rule names | Three or more labels and a public registrable domain give `host/<registrable-domain>`. A two-label name matches only a catalog rule, because a namespace short form such as `orders.shop` reads like a vendor's domain | `likely` |
 | A configuration key name | Compared without case against the entries' key patterns, with `-` and `.` read as `_`, so the Secret name `stripe-credentials` reads like `STRIPE_CREDENTIALS` | `possible` |
+| An SDK a folder's manifest or lockfile lists | The package name in its ecosystem. A Go module matches with its `/vN` suffix dropped, and so does any package under a listed module | `possible` |
+| A Terraform `resource` or a Crossplane object in the folder | Its resource type, or its `<group>/<Kind>`, equals an entry's row | `possible`; `likely` for a Crossplane object whose connection Secret the workload reads |
 | An OpenTelemetry `db.system`, `messaging.system` or `rpc.system` value | Compared exactly, without case, against the entries' values. A protocol no entry claims, such as `grpc`, gives no match. The default catalog claims only values that name one managed service, such as `aws_sqs` or `dynamodb`, so a generic `postgresql` or `kafka` callee stays unresolved | `likely` |
 
 A configuration value is a host candidate only when it has a scheme
@@ -141,12 +148,34 @@ An IP address, a single label, `localhost`, a name with a `svc` label (such as
 outside RFC 1123 give no match. In-cluster names stay dependencies on services.
 A value that does not parse gives no match, never part of the string.
 
+### Managed resource identities
+
+- A Terraform resource or Crossplane object gets the identity
+  `<provider>/<service>/<account>/<region>/<id>` only when the provider,
+  account, region and id are all literals in the folder.
+- The id is the entry's id attribute (Terraform) or the
+  `crossplane.io/external-name` annotation, else the object's
+  `metadata.name` (Crossplane). A Terraform resource whose id attribute is
+  not a literal is named by its label, and the id is listed as missing.
+- When a part is missing, Pacto never invents it: the dependency keeps the
+  entry's identity and the inferred record names the resource and the parts
+  it misses, as below.
+- A five-segment identity takes the class, label and aliases of its
+  `<provider>/<service>` entry.
+
+```yaml
+external:
+  identity: aws/sqs
+  resource: {type: aws_sqs_queue, name: newsletter-signups, missing: [account, region]}
+```
+
 ## The default catalog
 
 Every Pacto binary embeds a default catalog of well-known vendors (Stripe,
 Twilio, SendGrid, Anthropic, OpenAI, GitHub, Slack, PagerDuty, Datadog, Auth0,
 Algolia and Mailgun) and the AWS, Google Cloud and Azure managed services.
-Each host and module path cites the vendor documentation it comes from.
+Each host, SDK module, Terraform resource type and Crossplane kind cites the
+vendor documentation it comes from.
 
 Each core release publishes the same bytes as an OCI artifact at
 `ghcr.io/trianalab/pacto/external-catalog:<core version>` and signs it with
@@ -171,14 +200,16 @@ classifies.
 ## Organization catalogs
 
 An organization catalog adds entries and overrides default ones. An entry with
-the identity of a default entry replaces it, and an alias, host or key pattern
-the organization claims is taken from any default entry that also claims it.
+the identity of a default entry replaces it, and an alias, host, key pattern, SDK
+module, Terraform resource type or Crossplane kind the organization claims is
+taken from any default entry that also claims it.
 
 Give it by digest:
 
 | Surface | Setting |
 |---|---|
 | `pacto fleet`, `pacto impact`, `pacto mcp`, `pacto stats`, `pacto tui` | `--external-catalog oci://REPOSITORY@sha256:DIGEST` |
+| `pacto init` | `--external-catalog` or `PACTO_EXTERNAL_CATALOG`, which `pacto pack`, `pacto push` and `pacto explain` also read |
 | `pacto dashboard` | `--external-catalog` or `PACTO_DASHBOARD_EXTERNAL_CATALOG` |
 | The operator-managed dashboard | Chart value `dashboard.externalCatalog` |
 
@@ -241,7 +272,7 @@ answer.
 
 ## What's next
 
-- [Pactify a service](pactify.md#what-pactify-recognizes): the externals
+- [Pactify a service](pactify.md#external-dependencies): the externals
   `pacto init` finds in a folder
 - [Operational graph](operational-graph.md#relationships-declared-observed-inferred):
   how observed and inferred edges to external systems join the graph

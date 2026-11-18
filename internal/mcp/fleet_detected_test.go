@@ -100,7 +100,7 @@ func TestFleetStatusDescriptionNamesDetected(t *testing.T) {
 }
 
 func TestServerInstructionsNameDetectedInferred(t *testing.T) {
-	if !strings.Contains(fleetInstructions, "Pacto uses 'inferred' in four") ||
+	if !strings.Contains(fleetInstructions, "Pacto uses 'inferred' in five") ||
 		!strings.Contains(fleetInstructions, "a detected provider row in pacto_fleet_status providers") {
 		t.Errorf("instructions do not name detected rows as inferred:\n%s", fleetInstructions)
 	}

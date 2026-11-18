@@ -1,0 +1,12 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payments
+spec:
+  template:
+    spec:
+      containers:
+        - name: payments
+          image: payments:latest
+          ports:
+            - containerPort: 8080

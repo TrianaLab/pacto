@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
 
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/graph"
@@ -103,7 +104,7 @@ func (s *Service) impactOnResolved(ctx context.Context, opts ImpactOptions, snap
 		rev := fleet.RawRevision{Bundle: newBundle, Domain: domain, RequestedRef: opts.NewPath}
 		// The content digest the local source gives its bundles, so the added
 		// revision has the same identity it would have had from --local.
-		if h, err := lock.HashFS(newBundle.FS); err == nil {
+		if h, err := lock.HashFS(contract.WithoutInferredRecord(newBundle.FS)); err == nil {
 			rev.Digest = h
 		}
 		withNew := opts.Fleet
@@ -138,7 +139,11 @@ func (s *Service) resolveImpactPair(ctx context.Context, opts ImpactOptions) (ol
 	}
 	logging.LoggerFromContext(ctx).Debug("resolving new revision", "path", opts.NewPath)
 	if opts.NewDirName != "" && !graph.ParseDependencyRef(opts.NewPath).IsOCI() {
-		newBundle, err = loadLocalBundleNamed(graph.ParseDependencyRef(opts.NewPath).Location, opts.NewDirName, opts.NewOverrides)
+		var cat *externalcatalog.Catalog
+		if cat, err = s.completionCatalog(ctx); err == nil {
+			newBundle, err = loadLocalBundleNamed(graph.ParseDependencyRef(opts.NewPath).Location, opts.NewDirName, opts.NewOverrides, contract.InferredInputs{}, cat)
+			err = readIncomplete(ctx, err)
+		}
 	} else {
 		newBundle, err = s.resolveBundleWithOverrides(ctx, opts.NewPath, opts.NewOverrides)
 	}

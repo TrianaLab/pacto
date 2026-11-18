@@ -728,3 +728,52 @@ describe('service page: asked for by the key of an inferred service it replaced'
     done();
   });
 });
+
+describe('service page: inferred by Pacto', () => {
+  beforeEach(() => detailFn.mockReset());
+  const field = (i: number) => ({ field: `configuration.KEY_${i}`, value: 'string', source: `deploy/app.yaml:${i + 1}`, confidence: 'likely', provenance: 'inferred' });
+  const fields = (n: number, extra = {}) => ({ inferredFields: preview(Array.from({ length: n }, (_, i) => field(i)), extra) });
+
+  it('is one collapsed block with the total in its header', async () => {
+    const { target, done } = await render(detail(fields(12)));
+    const wrap = fact(target, 'service-inferred')!;
+    const sec = wrap.querySelector('details') as HTMLDetailsElement;
+    expect(sec.open).toBe(false);
+    expect(text(sec.querySelector('summary'))).toContain('Inferred by Pacto');
+    expect(text(sec.querySelector('summary'))).toContain('12 of 12');
+    done();
+  });
+
+  it('opened with 12 items has exactly one disclosure for the rest', async () => {
+    const { target, done } = await render(detail(fields(12)));
+    const sec = fact(target, 'service-inferred')!.querySelector('details') as HTMLDetailsElement;
+    sec.open = true;
+    sec.dispatchEvent(new Event('toggle'));
+    flushSync();
+    expect(sec.querySelector('[data-testid="preview-show-all"]')).toBeNull();
+    const inner = [...sec.querySelectorAll('.ps-panel details summary')].map((s) => text(s));
+    expect(inner).toEqual(['7 more']);
+    expect(sec.querySelector('button[aria-label="About inferred configuration.KEY_0"]')).toBeTruthy();
+    done();
+  });
+
+  it('renders nothing when nothing is inferred', async () => {
+    const { target, done } = await render(detail(fields(0)));
+    expect(fact(target, 'service-inferred')).toBeNull();
+    done();
+  });
+
+  it('says the record could not be read', async () => {
+    const { target, done } = await render(detail(fields(0, { unreadable: true })));
+    const sec = fact(target, 'service-inferred')!.querySelector('details') as HTMLDetailsElement;
+    // Folded, the head already names the uncertainty: unknown, never absent.
+    expect(sec.open).toBe(false);
+    expect(text(sec.querySelector('summary')!)).toContain('Could not be read');
+    expect(sec.dataset.tone).toBe('warn');
+    sec.open = true;
+    sec.dispatchEvent(new Event('toggle'));
+    flushSync();
+    expect(text(sec)).toContain('Pacto could not read the inferred record');
+    done();
+  });
+});

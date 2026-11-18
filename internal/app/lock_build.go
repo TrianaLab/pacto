@@ -199,7 +199,7 @@ func (s *Service) resolveReference(ctx context.Context, d contract.ReferenceRef,
 		if err != nil {
 			return refResolution{}, &lock.UnresolvedError{Ref: d.Ref, Reason: err.Error()}
 		}
-		h, err := lock.HashFS(b.FS)
+		h, err := lock.HashFS(contract.WithoutInferredRecord(b.FS))
 		if err != nil {
 			return refResolution{}, &lock.UnresolvedError{Ref: d.Ref, Reason: err.Error()}
 		}
@@ -240,7 +240,7 @@ func (s *Service) entryFromEdge(ctx context.Context, e graph.Edge, n *graph.Node
 	if parsed.IsLocal() {
 		entry.Source = "local"
 		entry.Path = parsed.Location
-		h, err := lock.HashFS(n.FS)
+		h, err := lock.HashFS(contract.WithoutInferredRecord(n.FS))
 		if err != nil {
 			return lock.Entry{}, &lock.UnresolvedError{Ref: e.Ref, Reason: err.Error()}
 		}

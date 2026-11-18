@@ -1,0 +1,5 @@
+include:
+  - other/compose.yaml
+services:
+  include:
+    image: payments

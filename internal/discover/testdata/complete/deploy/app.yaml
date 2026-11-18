@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app
+  labels:
+    team: payments
+spec:
+  template:
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/acme/app:1.0.0
+          readinessProbe:
+            httpGet:
+              path: /healthz
+          envFrom:
+            - configMapRef:
+                name: app-config
+          env:
+            - name: DB_PASSWORD
+              value: hunter2
+            - name: DATABASE_URL
+              value: postgres://app:u4l-s3cret@db:5432/x
+            - name: PORT
+              value: "8080"
+            - name: BILLING_URL
+              value: http://billing:8080
+            - name: API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: token
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+data:
+  CLIENT_SECRET: c0nfigmap-s3cret

@@ -170,6 +170,9 @@ func TestPushCommand_AlreadyExists(t *testing.T) {
 		ResolveFn: func(_ context.Context, _ string) (string, error) {
 			return "sha256:existing", nil
 		},
+		PullFn: func(context.Context, string) (*contract.Bundle, error) {
+			return &contract.Bundle{Contract: &contract.Contract{}, FS: fstest.MapFS{"pacto.yaml": {Data: []byte("other")}}}, nil
+		},
 	}
 	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(store, nil)
@@ -222,6 +225,9 @@ func TestPushCommand_AlreadyExistsWithForce(t *testing.T) {
 	store := &testutil.MockBundleStore{
 		ResolveFn: func(_ context.Context, _ string) (string, error) {
 			return "sha256:existing", nil
+		},
+		PullFn: func(context.Context, string) (*contract.Bundle, error) {
+			return &contract.Bundle{Contract: &contract.Contract{}, FS: fstest.MapFS{"pacto.yaml": {Data: []byte("other")}}}, nil
 		},
 	}
 	bundleDir := testutil.WriteTestBundle(t)

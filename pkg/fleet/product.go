@@ -915,8 +915,9 @@ func (q *Query) observedOnly(from ServiceKey) []Relationship {
 	mine := func(rel Relationship) bool { return rel.ToService != "" && (from == "" || rel.FromService == from) }
 	declared := map[[2]ServiceKey]bool{}
 	for _, rel := range q.snap.Relationships {
-		// Dependencies only: an observed call pairs with a declared dependency, never a reference.
-		if rel.Type == RelationshipDependency && rel.Provenance != ProvenanceObserved && mine(rel) {
+		// Dependencies only: an observed call pairs with a declared dependency,
+		// never a reference, and never an inferred one (inferred is not declared).
+		if rel.Type == RelationshipDependency && rel.Provenance == ProvenanceDeclared && mine(rel) {
 			declared[[2]ServiceKey{rel.FromService, rel.ToService}] = true
 		}
 	}

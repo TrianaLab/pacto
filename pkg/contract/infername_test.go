@@ -52,7 +52,7 @@ func TestInferNamePrecedence(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got, ok := InferName(tt.fsys, "svc")
 			want := Inferred{Field: "service.name", Value: tt.want, Source: tt.from}
-			if !ok || got != want {
+			if !ok || !reflect.DeepEqual(got, want) {
 				t.Fatalf("InferName = %+v, %v; want %+v", got, ok, want)
 			}
 		})
@@ -203,3 +203,37 @@ func TestNameCollisions(t *testing.T) {
 		})
 	}
 }
+
+func TestReadBoundedRefusesNonRegular(t *testing.T) {
+	fsys := fstest.MapFS{
+		"ok":   file("data"),
+		"link": {Data: []byte("target"), Mode: fs.ModeSymlink},
+		"fifo": {Mode: fs.ModeNamedPipe},
+		"big":  {Data: make([]byte, maxInferFileSize+1)},
+		"dir":  {Mode: fs.ModeDir},
+	}
+	if data, ok := ReadBounded(fsys, "ok"); !ok || string(data) != "data" {
+		t.Errorf("ok = %q, %v", data, ok)
+	}
+	for _, p := range []string{"link", "fifo", "big", "dir", "missing"} {
+		if _, ok := ReadBounded(fsys, p); ok {
+			t.Errorf("%s was read", p)
+		}
+	}
+	// A file that grows past the bound between Stat and Read is refused.
+	if _, ok := ReadBounded(growingFS{}, "x"); ok {
+		t.Error("a file over the bound after its Stat was read")
+	}
+}
+
+// growingFS serves one file whose Stat says it is empty and whose reads
+// never end.
+type growingFS struct{}
+
+func (growingFS) Open(string) (fs.File, error) { return growingFile{}, nil }
+
+type growingFile struct{}
+
+func (growingFile) Stat() (fs.FileInfo, error) { return fstest.MapFS{"x": file("")}.Stat("x") }
+func (growingFile) Read(p []byte) (int, error) { return len(p), nil }
+func (growingFile) Close() error               { return nil }

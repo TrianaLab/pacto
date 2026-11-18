@@ -49,6 +49,7 @@ func TestCategoryOf(t *testing.T) {
 		CodeConfigValuesValidationFailed: CategoryConfigurationViolation,
 		CodeInvalidInterfaceSpec:         CategoryInvalidFile,
 		CodeFileNotFound:                 CategoryInvalidFile,
+		CodeInferredRecordInvalid:        CategoryInvalidFile,
 		CodeCapabilityRefInvalid:         CategoryInvalidCapability,
 		CodeDuplicateCapability:          CategoryDuplicateName,
 		// Family 1 — confirmed violations (RuntimeDrift).

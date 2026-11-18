@@ -1,3 +1,7 @@
 apiVersion: v2
 name: newsletter-service
 version: 0.1.0
+dependencies:
+  - name: redis
+    version: 19.0.2
+    repository: https://charts.example.com

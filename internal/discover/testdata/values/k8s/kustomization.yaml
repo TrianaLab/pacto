@@ -1,0 +1,7 @@
+configMapGenerator:
+  - name: cfg
+    literals:
+      - TWILIO_URL=https://api.twilio.com
+      - https://api.openai.com
+    envs:
+      - cfg.env

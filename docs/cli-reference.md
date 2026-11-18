@@ -975,7 +975,7 @@ pacto evidence verify <envelope.json> [flags]
 
 ## `pacto explain`
 
-Parses a pacto.yaml in the given directory (or oci:// reference) and produces a human-readable summary of the service contract. Each configuration lists its effective values per environment: its inline values with that environment's file merged on top. With two or more environments it also lists the values they disagree on, for every environment or the ones --environments names.
+Parses a pacto.yaml in the given directory (or oci:// reference) and produces a human-readable summary of the service contract. Each configuration lists its effective values per environment: its inline values with that environment's file merged on top. With two or more environments it also lists the values they disagree on, for every environment or the ones --environments names. Last it lists what Pacto inferred from the service's folder, apart from the contract, each value with its source and the YAML that would declare it.
 
 ```
 pacto explain [dir | oci://ref] [flags]
@@ -1042,7 +1042,7 @@ pacto export backstage [flags]
       --cache[=true|false]           include every bundle in the local OCI cache as an offline baseline revision
       --detected string              add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
       --evidence-url stringArray     base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
-      --external-catalog string      organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST (a tag is refused)
+      --external-catalog string      organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
       --freshness duration           mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]            help for backstage
       --k8s[=true|false]             include live Pacto CRs from the current Kubernetes cluster as targets
@@ -1072,7 +1072,7 @@ pacto fleet [flags]
       --cache[=true|false]         include every bundle in the local OCI cache as an offline baseline revision
       --detected string            add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
       --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
-      --external-catalog string    organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST (a tag is refused)
+      --external-catalog string    organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
       --freshness duration         mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]          help for fleet
       --k8s[=true|false]           include live Pacto CRs from the current Kubernetes cluster as targets
@@ -1487,7 +1487,7 @@ pacto impact <old> <new> | --unavailable <service> | --removed <service> | --reg
       --cache[=true|false]              include every bundle in the local OCI cache as an offline baseline revision
       --detected string                 add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
       --evidence-url stringArray        base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
-      --external-catalog string         organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST (a tag is refused)
+      --external-catalog string         organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
       --freshness duration              mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]               help for impact
       --include-observed[=true|false]   let observed (runtime) relationships raise consumer confidence
@@ -1531,11 +1531,18 @@ that names another service in the cluster becomes a dependency with
 compatibility unknown: with that service's contract in --fleet, its bundle and
 a proposed range from its version in a comment; without it, the comment says
 no range was proposed. Vendors, managed services and legacy hosts that the
-environment and every chart's values.yaml name are listed under External,
-classified with the external catalog, and the likely ones are written as
-commented entries under dependencies for you to uncomment. Only their host and
-port are shown; a Secret gives its name and key names, never a value. A
-readiness, liveness or startup probe becomes a health check.
+folder names (the environment, Helm values files, Compose, Kustomize
+generators, SDK manifests and lockfiles, Terraform resources and Crossplane
+objects) are classified with the external catalog and listed under External
+dependencies as inferred: they go in pacto.inferred.yaml, never in pacto.yaml.
+--external-catalog merges an organization catalog, pinned by digest, over the
+default. Only their host and port are shown; a Secret gives its name and key
+names, never a value. A
+readiness, liveness or startup probe becomes a health check. A folder that
+already holds pacto.yaml at pactoVersion 2.5 (or none) is completed, never
+with --cluster: Pacto never changes it and lists what the folder adds, which
+pacto pack and pacto publish put in pacto.inferred.yaml. An older pacto.yaml
+is not completed, and the plan says to raise its pactoVersion.
 
 Either contract also gets a publish section, for pacto publish, with its
 bundle under --registry (default: the workload's image registry, else the
@@ -1610,6 +1617,7 @@ pacto init [dir...] [flags]
       --describe-only[=true|false]         write a contract that only describes the service: no publish section, so no signing key
       --domain string                      business domain, such as payments
       --env strings                        environments for --delivery: declared in the contract and given a Stage each, in promotion order (default [test,prod])
+      --external-catalog string            organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST; a tag is refused (also PACTO_EXTERNAL_CATALOG)
       --fleet strings                      folders of other services' contracts to find the services that use this one
       --from string                        a golden path to create the service from: an oci:// reference or a directory
   -h, --help[=true|false]                  help for init
@@ -1807,7 +1815,7 @@ pacto mcp [bundle-ref] [flags]
       --evidence-url stringArray      base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --exchange-audience string      with --fleet or --delivery over HTTP with --auth-issuer: the audience to exchange for, one the apiserver accepts (default "pacto-cli")
       --exchange-client-id string     with --fleet or --delivery over HTTP with --auth-issuer: the server's own OAuth client, which exchanges each caller's token for the cluster (RFC 8693); its secret comes from PACTO_MCP_EXCHANGE_CLIENT_SECRET
-      --external-catalog string       organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST (a tag is refused)
+      --external-catalog string       organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
       --fleet[=true|false]            expose read-only operational-graph (fleet) query tools
       --freshness duration            mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]             help for mcp
@@ -2134,7 +2142,7 @@ pacto stats [flags]
       --cache[=true|false]         include every bundle in the local OCI cache as an offline baseline revision
       --detected string            add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
       --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
-      --external-catalog string    organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST (a tag is refused)
+      --external-catalog string    organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
       --freshness duration         mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]          help for stats
       --k8s[=true|false]           include live Pacto CRs from the current Kubernetes cluster as targets
@@ -2196,7 +2204,7 @@ pacto tui [flags]
       --cache[=true|false]         include every bundle in the local OCI cache as an offline baseline revision
       --detected string            add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
       --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
-      --external-catalog string    organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST (a tag is refused)
+      --external-catalog string    organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
       --freshness duration         mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]          help for tui
       --k8s[=true|false]           include live Pacto CRs from the current Kubernetes cluster as targets

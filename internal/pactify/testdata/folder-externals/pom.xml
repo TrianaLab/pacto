@@ -1,0 +1,8 @@
+<project>
+  <repositories>
+    <repository><url>https://maven-user:maven-token@repo.example.com/maven2</url></repository>
+  </repositories>
+  <dependencies>
+    <dependency><groupId>com.stripe</groupId><artifactId>stripe-java</artifactId><version>26.1.0</version></dependency>
+  </dependencies>
+</project>
