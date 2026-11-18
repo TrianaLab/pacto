@@ -69,6 +69,7 @@ func TestPactoVersionTextMigrated(t *testing.T) {
 		{RevisionDetailData{PactoVersion: "2.5", MigratedFrom: "2.4", PactoVersionCurrent: "99.0"}, "2.5 (behind 99.0; migrated from 2.4, inferred)"},
 		{RevisionDetailData{PactoVersion: "2.3", PactoVersionCurrent: "2.5"}, "2.3 (behind 2.5)"},
 		{RevisionDetailData{PactoVersion: "9.9", PactoVersionCurrent: "2.5", PactoVersionUnknown: true}, "9.9 (unknown to this Pacto, latest 2.5)"},
+		{RevisionDetailData{PactoVersion: "99.0", MigratedFrom: "2.4", PactoVersionCurrent: "2.5", PactoVersionUnknown: true}, "99.0 (unknown to this Pacto, latest 2.5)"},
 		{RevisionDetailData{}, ""},
 	} {
 		if got := tc.r.PactoVersionText(); got != tc.want {

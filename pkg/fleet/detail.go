@@ -2571,12 +2571,13 @@ func revisionStatus(r *ContractRevision) string {
 // pacto ci migrated it from, which is inferred.
 func (r *RevisionDetailData) PactoVersionText() string {
 	switch {
+	case r.PactoVersionUnknown:
+		// An unknown version is never read as behind, migrated or not.
+		return fmt.Sprintf("%s (unknown to this Pacto, latest %s)", r.PactoVersion, r.PactoVersionCurrent)
 	case r.MigratedFrom != "" && r.PactoVersionCurrent != "":
 		return fmt.Sprintf("%s (behind %s; migrated from %s, inferred)", r.PactoVersion, r.PactoVersionCurrent, r.MigratedFrom)
 	case r.MigratedFrom != "":
 		return fmt.Sprintf("%s (migrated from %s, inferred)", r.PactoVersion, r.MigratedFrom)
-	case r.PactoVersionUnknown:
-		return fmt.Sprintf("%s (unknown to this Pacto, latest %s)", r.PactoVersion, r.PactoVersionCurrent)
 	case r.PactoVersionCurrent != "":
 		return fmt.Sprintf("%s (behind %s)", r.PactoVersion, r.PactoVersionCurrent)
 	}
