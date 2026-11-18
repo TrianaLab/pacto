@@ -422,8 +422,8 @@ func (p *planner) existing(data []byte) *contract.Contract {
 
 // complete puts what the folder shows beyond the user's contract c in
 // r.Inferred, never changing c. Only a pactoVersion 2.5 contract is
-// completed, and never from the cluster: discover.Complete reads the folder
-// alone.
+// completed, from the folder alone unless the cluster facts of a cluster
+// draft are given.
 func (p *planner) complete(c *contract.Contract) error {
 	in := contract.InferredInputs{Commit: p.opts.Commit, Pacto: p.opts.PactoVersion}
 	// Complete leaves out the service itself under the name this run reports,
@@ -443,6 +443,12 @@ func (p *planner) complete(c *contract.Contract) error {
 	case validation.InferredRecordNeedsRaise(c.PactoVersion):
 		p.next("pacto.yaml declares pactoVersion %s; set pactoVersion: \"2.5\" to have Pacto complete it", c.PactoVersion)
 		return nil
+	case p.opts.Cluster != nil:
+		// ponytail: Complete read the same folder a moment ago, so only a
+		// folder changing underneath fails here, and the error is returned.
+		rec, err = discover.CompleteCluster(p.r.Dir, &named, in, cat, *p.opts.Cluster)
+		p.r.Mode, p.r.Inferred = modeComplete, rec
+		return err
 	case len(p.opts.Inferred) > 0 || p.opts.cluster:
 		p.next("what runs in the cluster never completes pacto.yaml: run pacto init %s without --cluster to complete it", p.r.Dir)
 		return nil

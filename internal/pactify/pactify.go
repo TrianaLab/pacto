@@ -70,6 +70,11 @@ type Options struct {
 	// one is written with compatibility unknown; one with Versions gets a
 	// proposed range from the lowest, in a comment.
 	Inferred []Inferred
+	// Cluster are the facts the cluster read shows about the workload this
+	// draft is read from: with them, a kept pactoVersion 2.5 pacto.yaml is
+	// completed from the folder and the cluster. Only pacto init --cluster
+	// sets them.
+	Cluster *discover.ClusterFacts
 	// Template creates the contract from a golden path. It needs Owner and
 	// refuses Delivery, FleetRoots and Inferred.
 	Template *Template

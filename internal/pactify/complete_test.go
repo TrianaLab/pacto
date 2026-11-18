@@ -7,7 +7,9 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/trianalab/pacto/v4/internal/discover"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
@@ -168,6 +170,28 @@ func TestInitClusterNeverCompletes(t *testing.T) {
 		if err != nil || r.Inferred != nil || r.Mode == modeComplete || !hasLine(r.Next, "run pacto init "+dir+" without --cluster to complete it") {
 			t.Fatalf("%s: %+v %v", name, r, err)
 		}
+	}
+}
+
+// A kept pactoVersion 2.5 contract with cluster facts completes through
+// discover.CompleteCluster: the folder's fields plus the cluster's, with the
+// cluster input, and pacto.yaml unchanged.
+func TestInitWithClusterFactsCompletes(t *testing.T) {
+	text := "pactoVersion: \"2.5\"\n" + completeContract
+	dir := completeFixture(t, text)
+	facts := &discover.ClusterFacts{Object: "shop/Deployment/payments", AsOf: time.Date(2026, 11, 14, 10, 2, 0, 0, time.UTC), CallWindow: time.Hour,
+		Calls: []discover.ClusterCall{{Name: "ledger", Ref: "oci://ghcr.io/acme/ledger"}}}
+	r, err := Init(context.Background(), Options{Dir: dir, Plan: true, Cluster: facts}, os.WriteFile)
+	if err != nil || r.Mode != modeComplete || r.Inferred == nil || r.Inferred.Inputs.Cluster == nil {
+		t.Fatalf("%+v %v", r, err)
+	}
+	i := slices.IndexFunc(r.Inferred.Fields, func(f contract.Inferred) bool { return f.Field == "dependencies[ledger]" })
+	if i < 0 || r.Inferred.Fields[i].Source != "cluster:runtime calls from shop/Deployment/payments" ||
+		!slices.ContainsFunc(r.Inferred.Fields, func(f contract.Inferred) bool { return f.Field == "dependencies[billing]" }) {
+		t.Fatalf("fields = %+v", r.Inferred.Fields)
+	}
+	if got, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml")); string(got) != text {
+		t.Fatalf("pacto.yaml changed:\n%s", got)
 	}
 }
 
