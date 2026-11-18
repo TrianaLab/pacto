@@ -1,6 +1,6 @@
 /**
  * The service page of a golden path (its plugins, the pinned command that creates a
- * service from it, its self-declared signature, its requirements and the services
+ * service from it, its signature and the publisher check behind it, its requirements and the services
  * created from it) and of a service created from one (its declared origin and the
  * derived creation checklist, where Unknown never reads as done).
  */

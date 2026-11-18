@@ -182,7 +182,7 @@ func TestPrintTemplateText_Branches(t *testing.T) {
 	var b bytes.Buffer
 	printTemplateText(&b, "", &fleet.TemplateDetail{
 		Signature:              &fleet.BundleSignature{Status: fleet.SignatureVerified, Signer: "ci@acme"},
-		SignatureNote:          "self-declared",
+		SignatureNote:          "checked against a publisher rule",
 		UnresolvedRequirements: fleet.UnresolvedDependenciesPreview{Total: 1, Items: []fleet.UnresolvedDependency{{Ref: "oci://r/redis", Reason: "no provider"}}},
 		CreatedServices:        fleet.RefPreview{Total: 3, Count: 1, Truncated: true, Items: []fleet.EntityRef{{Label: "gift-cards"}}},
 		HiddenCreatedServices:  2,
@@ -190,7 +190,7 @@ func TestPrintTemplateText_Branches(t *testing.T) {
 		InstantiateReason:      "no digest-pinned reference",
 	})
 	for _, want := range []string{
-		"Golden path: -\n", "Signature: verified, signed by ci@acme\n  self-declared\n",
+		"Golden path: -\n", "Signature: verified, signed by ci@acme\n  checked against a publisher rule\n",
 		"Unresolved requirements:\n  oci://r/redis: no provider\nHidden requirements: 1 on services you may not see\n",
 		"Created services:\n  gift-cards\n  2 more\n  2 created services you may not see\n",
 		"Create a service: no digest-pinned reference\n",
