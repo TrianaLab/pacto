@@ -1,5 +1,7 @@
 <script>
   import IdentityBadge from './IdentityBadge.svelte';
+  import ProvenanceMark from './ProvenanceMark.svelte';
+  import { publisherSourceLabel } from '../lib/publisherSource.ts';
   import { abbreviateDigests, formatCount } from '../lib/format.ts';
   import { formatDate } from '../lib/dateFormat.ts';
   import { signatureState } from '../lib/distributions.ts';
@@ -13,6 +15,9 @@
   const sig = $derived(bundle?.signature ?? null);
   const st = $derived(signatureState(sig));
   const refs = $derived(bundle?.referrers ?? { items: [], count: 0, total: 0 });
+  const checked = $derived(publisherSourceLabel(sig?.source));
+  // A rule inferred from where the artifact lives is muted: no installation rule was read.
+  const checkedTip = $derived([sig?.source === 'inferred' && 'Inferred from where the artifact lives: no installation rule was read, so it is never verified.', sig?.reason].filter(Boolean).join(' ') || 'No publisher rule, pin or policy was applied.');
   const reasonTone = $derived(st.value === 'unverified' ? 'err' : st.value === 'unsigned' ? 'warn' : 'neutral');
 </script>
 
@@ -23,8 +28,9 @@
     <div class="bp-row">
       <span class="bp-k">Signature</span>
       <IdentityBadge label={st.label} tone={st.tone} />
-      {#if st.value === 'verified'}<span>Signed by the contract's publish.sign identity</span>{/if}
+      {#if st.value === 'verified'}<span class="bp-v">Signed by <bdi>{sig.signer}</bdi></span>{/if}
     </div>
+    {#if sig}<div class="bp-row" class:bp-muted={sig.source === 'inferred'} data-testid="bundle-checked-against"><span class="bp-k">Checked against</span><span>{checked}</span><ProvenanceMark label="Why this check" text={checkedTip} /></div>{/if}
     {#if sig?.signer}<div class="bp-row"><span class="bp-k">Signer</span><span class="bp-v">{sig.signer}</span></div>{/if}
     {#if sig?.issuer}<div class="bp-row"><span class="bp-k">Issuer</span><span class="bp-v">{sig.issuer}</span></div>{/if}
     {#if sig?.expectedSigner}<div class="bp-row"><span class="bp-k">Expected signer</span><span class="bp-v">{sig.expectedSigner}</span></div>{/if}
@@ -59,6 +65,7 @@
   .bp-row { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; min-width: 0; }
   .bp-k { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .bp-v { overflow-wrap: anywhere; min-width: 0; }
+  .bp-muted { color: var(--c-text-3); }
   .bp-note { margin: 0; font-size: var(--text-sm); color: var(--c-text-3); overflow-wrap: anywhere; }
   .bp-reason { margin: 0; font-size: var(--text-sm); overflow-wrap: anywhere; padding-left: var(--sp-2); border-left: 3px solid var(--tone-c, var(--c-neutral)); color: var(--c-text-2); }
   .tone-err { --tone-c: var(--c-err); }

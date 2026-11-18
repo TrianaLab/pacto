@@ -10,6 +10,8 @@
   import Pager from '../components/Pager.svelte';
   import ListFilter from '../components/ListFilter.svelte';
   import { shortDigest, sentence, timeLabel, lifecycleWords } from '../lib/delivery.ts';
+  import { publisherSourceLabel } from '../lib/publisherSource.ts';
+  import ProvenanceMark from '../components/ProvenanceMark.svelte';
   import PageHeader from '../components/PageHeader.svelte';
   import DeliveryNav from '../components/DeliveryNav.svelte';
   import DeliveryProblem from '../components/DeliveryProblem.svelte';
@@ -90,6 +92,24 @@
   const sigCommon = $derived(Object.keys(SIG).reduce((best, k) => (shown.filter((v) => sigOf(v) === k).length > shown.filter((v) => sigOf(v) === best).length ? k : best), 'signed'));
   const sigMixed = $derived(new Set(shown.map(sigOf)).size > 1);
   const sigLine = $derived(!shown.length ? '' : `${SIG[sigCommon].line}${sigMixed ? ', except where marked' : ''}.`);
+  // A service whose Stage watches the registry gets one publisher line: what
+  // accepted its newest accepted version (else what the watch judges against),
+  // the details in the mark and the last few checks folded.
+  const CHECKS = 5;
+  const accepted = (p) => (p.verdicts ?? []).find((v) => v.verdict === 'accepted');
+  const publisherLine = (p) => {
+    const acc = accepted(p), label = publisherSourceLabel(acc?.source ?? p.source);
+    return label === 'no publisher check' ? 'No publisher check: only a pinned signer is accepted' : `${acc ? 'Accepted by' : 'Checked against'} ${label}`;
+  };
+  const publisherTip = (p) => {
+    const acc = accepted(p);
+    return [
+      acc?.source === 'pin' && acc.identity && `Pinned signer ${acc.identity.subject}${p.pinAt ? `, pin signed ${timeLabel(p.pinAt)}` : ''}.`,
+      p.rule && `Rule: issuer ${p.rule.issuer}, subject ${p.rule.subject}.`,
+      p.policyRef && `Policy ${p.policyRef}${p.policyDigest ? ` at ${p.policyDigest}` : ''}${p.policyAt ? `, signed ${timeLabel(p.policyAt)}` : ''}.`,
+      p.message,
+    ].filter(Boolean).join(' ') || 'No rule or policy is read here.';
+  };
   const BUMPS = { major: 'a major version', minor: 'at least a minor version', patch: 'a patch version' };
 </script>
 
@@ -175,6 +195,22 @@
         {@const id = svc.domain ? `${svc.service}@${svc.domain}` : svc.service}
         <section class="pv-svc" aria-labelledby={`pv-${id}`}>
           <h2 id={`pv-${id}`} class="t-section-title"><a href={deliveryServiceUrl(svc.service)}>{svc.service}</a>{#if svc.domain}{' '}<span class="t-meta"><bdi>{svc.domain}</bdi></span>{/if}</h2>
+          {#if svc.publisher}
+            {@const p = svc.publisher}
+            <div class="pv-publisher t-meta">
+              <p data-testid="published-publisher">{publisherLine(p)} <ProvenanceMark label={`What accepts versions of ${svc.service}`} text={publisherTip(p)} /></p>
+              {#if p.verdicts?.length}
+                <details class="pv-checks" data-testid="published-publisher-checks">
+                  <summary>Recent publisher checks</summary>
+                  <ul>
+                    {#each p.verdicts.slice(0, CHECKS) as v, i (v.digest + '#' + i)}
+                      <li title={v.reason}><bdi class="pv-mono">{v.version || shortDigest(v.digest)}</bdi> {v.verdict.replace('-', ' ')}{v.verdict === 'accepted' ? ` by ${publisherSourceLabel(v.source)}` : ''}: {v.reason}</li>
+                    {/each}
+                  </ul>
+                </details>
+              {/if}
+            </div>
+          {/if}
           <ul class="pl-list">
             {#each open[id] ? (svc.versions ?? []) : (svc.versions ?? []).slice(0, VERSIONS) as v (v.digest)}
               {@const sk = `${id}@${v.digest}`}
@@ -253,6 +289,13 @@
   .pv-partial { padding: var(--sp-2) var(--sp-3) var(--sp-2) calc(var(--sp-3) + 6px); border-radius: var(--radius-sm); background: var(--c-hatch) left / 6px 100% no-repeat, var(--c-neutral-bg); color: var(--c-text-2); border: 1px solid var(--c-neutral); }
   .pv-stages { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: center; }
   .pv-more { align-self: flex-start; }
+  .pv-publisher { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; }
+  .pv-publisher p { display: inline-flex; align-items: center; gap: var(--sp-1); margin: 0; }
+  .pv-checks > summary { cursor: pointer; }
+  .pv-checks ul { margin: var(--sp-1) 0 0; padding-left: var(--sp-5); }
+  /* A reason is cut to one line, whole on hover. */
+  .pv-checks li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  @media (pointer: coarse) { .pv-checks > summary { min-block-size: 44px; display: flex; align-items: center; } }
   .state-box { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); padding: var(--sp-8) var(--sp-4); text-align: center; color: var(--c-text-3); }
   .state-box h2 { color: var(--c-text-2); }
 </style>

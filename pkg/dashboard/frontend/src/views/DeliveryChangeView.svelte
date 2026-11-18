@@ -182,6 +182,12 @@
       <p class="cd-status t-body-2" data-testid="change-answer" title={e.status.reason}>{reasonText}</p>
     {/if}
 
+    {#if e?.spec?.params?.publisher}
+      <!-- The signer a trust change asks about; the decision panel below confirms it. -->
+      {@const p = e.spec.params.publisher}
+      <p class="cd-publisher t-body-2" data-testid="change-publisher">Signer <bdi title={p.subject}>{p.subject}</bdi>, issuer <bdi title={p.issuer}>{p.issuer}</bdi>{#if p.repository}, repository <bdi title={p.repository}>{p.repository}</bdi>{/if}</p>
+    {/if}
+
     {#if undo || blocked}
       <div class="cd-undone t-body-2" data-testid="change-undone">
         {#if undo}<p>Undone by <a href={deliveryChangeUrl(namespace, undo.operation)}>{undo.operation}</a>{#if undo.actorClass === 'controller'}{@const cause = undoCause(e.status.reason, e.status.message)}{' '}(automatic{#if cause.by}: <Person user={cause.by} people={data?.people} /> rejected the unknown{:else if cause.text}: {cause.text}{/if}){:else if undo.actor}, by <Person user={undo.actor} people={data?.people} />{/if}.</p>{/if}
@@ -287,6 +293,7 @@
   .cd-undone a { color: var(--c-accent); text-decoration: underline; }
   .cd-decided { color: var(--c-ok); font-weight: 600; margin: 0; }
   .cd-status { margin: 0; }
+  .cd-publisher { margin: 0; overflow-wrap: anywhere; }
   .cd-facts { display: grid; grid-template-columns: max-content 1fr; gap: 2px var(--sp-3); margin: 0; }
   .cd-facts dt { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .cd-facts dd { margin: 0; overflow-wrap: anywhere; }

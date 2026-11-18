@@ -7,6 +7,9 @@ import { api } from './api.ts';
 import type { DeliveryDecision, DeliveryEnvironments, DeliveryOffer, DeliveryOperation } from './api.ts';
 import { formatCount } from './format.ts';
 
+/** The operation type that asks a person to confirm a new publisher. */
+export const TRUST_TYPE = 'delivery.pacto.trianalab.io/trust';
+
 const TYPE_LABELS: Record<string, string> = {
   'delivery.pacto.trianalab.io/promote': 'Promote',
   'delivery.pacto.trianalab.io/rollback': 'Roll back',
@@ -15,6 +18,7 @@ const TYPE_LABELS: Record<string, string> = {
   'delivery.pacto.trianalab.io/freeze': 'Freeze',
   'delivery.pacto.trianalab.io/autonomy': 'Level change',
   'delivery.pacto.trianalab.io/acknowledge': 'Acknowledge upstream',
+  [TRUST_TYPE]: 'Confirm publisher',
 };
 
 /** typeLabel names an operation type in plain words. */

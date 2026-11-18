@@ -1974,6 +1974,36 @@ export interface components {
             /** @description An anchored regular expression the certificate's subject must match */
             subject: string;
         };
+        "Delivery.PublisherStatus": {
+            /** @description When the watch last judged (RFC 3339) */
+            checkedAt?: string;
+            /** @description Why the watch cannot judge, or what it could not read */
+            message?: string;
+            /** @description When the newest pin read was signed: an older newest pin is never used */
+            pinAt?: string;
+            /** @description The digest of the newest pin read */
+            pinDigest?: string;
+            /**
+             * Format: int64
+             * @description How many pinned signers of the service were read
+             */
+            pins?: number;
+            /** @description When the policy in force was signed: an older one is refused */
+            policyAt?: string;
+            /** @description The digest of the policy whose rules are in force */
+            policyDigest?: string;
+            /** @description The signed delivery policy's reference */
+            policyRef?: string;
+            /** @description The publisher rule the watch judges against */
+            rule?: components["schemas"]["Delivery.PublisherRule"];
+            /**
+             * @description What the watch judges against: the installation's rule, the signed policy, or none when only a person's pin accepts a signer
+             * @enum {string}
+             */
+            source?: "rule" | "policy" | "none";
+            /** @description The newest judged digests, newest first */
+            verdicts?: components["schemas"]["Delivery.PublisherVerdict"][] | null;
+        };
         "Delivery.PublisherVerdict": {
             /** @description When the check ran */
             at?: string;
@@ -4987,8 +5017,12 @@ export interface components {
             /** @description The teams that may answer; empty means no team is declared: nobody may answer when identities.requireOwnerTeam is true (the default), else any person */
             owners?: string[] | null;
             phase: string;
+            /** @description For a trust operation: the CI signer a person is asked to confirm */
+            publisher?: components["schemas"]["Delivery.PublisherIdentity"];
             question?: string;
             reason?: string;
+            /** @description The service the Stage delivers, when the caller can read the Stage */
+            service?: string;
             stage: string;
             to?: string;
             toVersion?: string;
@@ -6495,6 +6529,8 @@ export interface components {
         PublishedService: {
             /** @description The registry domain its Stages name; empty when they name none. A service whose Stages name two domains is listed once per domain */
             domain?: string;
+            /** @description What the service's registry watch (candidates.registry) judges against and its newest verdicts; absent when no Stage of the service watches the registry */
+            publisher?: components["schemas"]["Delivery.PublisherStatus"];
             service: string;
             versions: components["schemas"]["PublishedVersion"][] | null;
         };

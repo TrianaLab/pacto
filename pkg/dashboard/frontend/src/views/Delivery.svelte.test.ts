@@ -2657,3 +2657,58 @@ describe('history filters, columns, gated undo and records (B3)', () => {
     destroy();
   });
 });
+
+describe('publisher trust (511-S3)', () => {
+  const TRUST = 'delivery.pacto.trianalab.io/trust';
+  const signer = { issuer: 'https://token.actions.githubusercontent.com', subject: 'https://github.com/trianalab/audit-log/.github/workflows/hotfix.yml@refs/heads/hotfix', repository: 'https://github.com/trianalab/audit-log', ci: true };
+  it('names the new signer in the inbox and links Confirm identity to the change page, with no decide of its own', async () => {
+    fns.inbox.mockResolvedValue({ ...listing, frozen: [], errored: [],
+      held: [{ namespace: 'prod', name: 'pay-trust-0123456789', stage: 'pay', service: 'audit-log', type: TRUST, to: D2, phase: 'Held', decision: 'approve', owners: [], publisher: signer }] });
+    const { target, destroy } = render(DeliveryInboxView);
+    await settle();
+    const held = target.querySelector('[data-testid="inbox-held"]') as HTMLElement;
+    expect(text(held)).toContain(`audit-log: new signer ${signer.subject} (repository ${signer.repository}, attested)`);
+    expect([...held.querySelectorAll('.dl-title bdi')].map((b) => b.textContent)).toEqual([signer.subject, signer.repository]);
+    const act = held.querySelector('a.dl-decide') as HTMLAnchorElement;
+    expect(act.textContent).toBe('Confirm identity');
+    expect(act.getAttribute('href')).toBe('#/delivery/changes/prod/pay-trust-0123456789');
+    expect(held.querySelector('button')).toBeNull();
+    destroy();
+  });
+
+  it('shows the signer on the change page and decides it with the existing Approve', async () => {
+    const op = heldOperation();
+    op.explanation.spec = { ...op.explanation.spec, type: TRUST, params: { from: '', to: D2, publisher: signer } } as unknown as typeof op.explanation.spec;
+    op.operation.spec = { ...op.operation.spec, type: TRUST } as typeof op.operation.spec;
+    op.operation.status.plan.verdicts = [];
+    op.operation.status.plan.floor.consumers = [];
+    fns.operation.mockResolvedValue(op);
+    const { target, destroy } = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    const row = target.querySelector('[data-testid="change-publisher"]') as HTMLElement;
+    expect([...row.querySelectorAll('bdi')].map((b) => b.textContent)).toEqual([signer.subject, signer.issuer, signer.repository]);
+    expect([...row.querySelectorAll('bdi')].every((b) => b.getAttribute('title') === b.textContent)).toBe(true);
+    expect(target.querySelector('[data-testid="decide-approve"]')).not.toBeNull();
+    destroy();
+  });
+
+  it('puts one publisher line under a service, with its source in a mark and the recent checks folded', async () => {
+    const verdicts = Array.from({ length: 20 }, (_, i) => ({ digest: D1, version: `1.${i}.0`, verdict: i ? 'new-signer' : 'accepted', source: i ? 'none' : 'pin', reason: `reason ${i}`, at: '2026-11-01T10:00:00Z' }));
+    fns.published.mockResolvedValue({ ...listing, services: [
+      { service: 'audit-log', versions: [{ digest: D1, version: '1.0.0', signature: 'signed', stages: [] }],
+        publisher: { source: 'rule', rule: { issuer: signer.issuer, subject: '^https://github\\.com/trianalab/[^/]+/\\.github/workflows/[^@]+@refs/heads/main$', repository: '^https://github\\.com/trianalab/[^/]+$' }, pins: 1, pinAt: '2026-11-01T09:00:00Z', verdicts } },
+      { service: 'orders', versions: [{ digest: D2, version: '2.0.0', signature: 'signed', stages: [] }] },
+    ] });
+    const { target, destroy } = render(DeliveryPublishView, {});
+    await settle();
+    const [audit, orders] = [...target.querySelectorAll('section.pv-svc')] as HTMLElement[];
+    const line = audit.querySelector('[data-testid="published-publisher"]') as HTMLElement;
+    expect(line.querySelectorAll('.prov-mark').length).toBe(1);
+    expect(text(line)).toContain('Accepted by pin');
+    const fold = audit.querySelector('details[data-testid="published-publisher-checks"]') as HTMLDetailsElement;
+    expect(fold.open).toBe(false);
+    expect(fold.querySelectorAll('li').length).toBe(5);
+    expect(orders.querySelector('[data-testid="published-publisher"]')).toBeNull();
+    destroy();
+  });
+});

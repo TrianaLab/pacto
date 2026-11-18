@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { publisherSourceLabel } from './publisherSource.ts';
 import {
   typeLabel, decisionLabel, shortDigest, decisionAsked, cliDecision,
   keepPending, pendingFor, dropPending, miraLink, miraServiceLink, entityMiraURL, predictionLabel, authTimeText,
@@ -27,6 +28,7 @@ describe('delivery labels', () => {
     expect(typeLabel('delivery.pacto.trianalab.io/unfreeze')).toBe('Unfreeze');
     expect(typeLabel('delivery.pacto.trianalab.io/freeze')).toBe('Freeze');
     expect(typeLabel('delivery.pacto.trianalab.io/acknowledge')).toBe('Acknowledge upstream');
+    expect(typeLabel('delivery.pacto.trianalab.io/trust')).toBe('Confirm publisher');
     expect(typeLabel('example.com/migrate')).toBe('example.com/migrate');
     expect(typeLabel(undefined)).toBe('Change');
     expect(decisionLabel('accept-unknown')).toBe('Accept the unknown');
@@ -466,5 +468,14 @@ describe('applier', () => {
       expect(line?.warn).toBe(true);
     }
     expect(applierLine(a, now, 'False: CandidateUnverified')?.problem).toBe('conflict: Helm release payments owns Deployment payments');
+  });
+});
+
+
+describe('publisherSourceLabel', () => {
+  it('names what accepted a version in one word, and nothing as no publisher check', () => {
+    expect(['rule', 'pin', 'policy', 'inferred', 'release'].map(publisherSourceLabel)).toEqual(['rule', 'pin', 'policy', 'inferred', 'release']);
+    expect(publisherSourceLabel('none')).toBe('no publisher check');
+    expect(publisherSourceLabel(undefined)).toBe('no publisher check');
   });
 });

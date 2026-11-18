@@ -101,6 +101,32 @@ export function installScaleFixture(): void {
   const ORIGIN_PATHS: [string, number, number][] = [['load/path-a', 1800, 120], ['load/path-b', 900, 40], ['load/path-c', 320, 50]];
   const ORIGIN_LISTS = new Map<string, number>([...ORIGIN_PATHS.map(([k, n]) => [k, n] as [string, number]), ['(unresolved)', 80], ['(none)', 1300]]);
 
+  const TRUST = 'delivery.pacto.trianalab.io/trust';
+  const signerPrefix = `https://github.com/trianalab/${WORDS.join('-')}-${WORDS.join('-')}`;
+  const signer = {
+    issuer: 'https://token.actions.githubusercontent.com', ci: true, class: 'ci',
+    subject: `${signerPrefix.slice(0, 200 - '/.github/workflows/hotfix.yml@refs/heads/hotfix'.length)}/.github/workflows/hotfix.yml@refs/heads/hotfix`,
+    repository: signerPrefix.slice(0, 120),
+  };
+  const newSigner = (route: string, doc: Record<string, unknown>) => {
+    if (route === '/api/delivery/inbox' && Array.isArray(doc.held)) {
+      doc.held.unshift({ namespace: 'test', name: 'pay-agent-promote-17', stage: 'payments', service: longName('audit-log'), type: TRUST, phase: 'Held', decision: 'approve', owners: [], publisher: signer });
+      const pg = doc.heldPage as { total: number } | undefined;
+      if (pg) pg.total += 1; // the inbox reads its totals, not the page
+    }
+    if (route === '/api/delivery/operations/test/pay-agent-promote-17') {
+      const e = doc.explanation as { spec: Record<string, unknown> } | undefined;
+      const op = doc.operation as { spec: Record<string, unknown> } | undefined;
+      for (const spec of [e?.spec, op?.spec]) if (spec) Object.assign(spec, { type: TRUST, params: { ...(spec.params as object), publisher: signer } });
+    }
+    const first = (doc.services as Record<string, unknown>[] | undefined)?.[0];
+    if (route === '/api/delivery/published' && first) {
+      first.publisher = { source: 'rule', pins: 1, pinAt: '2026-11-01T09:00:00Z', policyRef: `ghcr.io/trianalab/${longName('delivery-policy')}:latest`,
+        rule: { issuer: signer.issuer, subject: `^https://github\\.com/trianalab/[^/]+/\\.github/workflows/[^@]+@refs/heads/${longName('main')}$`, repository: '^https://github\\.com/trianalab/[^/]+$' },
+        verdicts: Array.from({ length: 20 }, (_, i) => ({ digest: `sha256:${String(i).padStart(64, '0')}`, version: `1.${i}.0-${longName(`rc-${i}`)}`, verdict: i % 3 ? 'new-signer' : 'accepted', source: i % 3 ? 'none' : 'pin',
+          identity: signer, reason: longName(`signed by ${signer.subject}, which no publisher rule, pin or policy covers ${i}`), at: '2026-11-01T10:00:00Z' })) };
+    }
+  };
   const amend = (method: string, path: string, doc: Record<string, unknown>, body: string | null) => {
     const [route, query = ''] = path.split('?');
     const q = new URLSearchParams(query);
@@ -416,6 +442,11 @@ export function installScaleFixture(): void {
         }
       }
     }
+    // A new publisher waiting for a person (511-S3), on the routes that set
+    // __pactoNewSigner: a CI signer whose subject is 200 characters long, the held trust
+    // change it raises (the demo's held change, so its link lands) and a publisher line
+    // with 20 verdicts.
+    if (flags.__pactoNewSigner) newSigner(route, doc);
     // The inbox figure at fleet scale: 60 environments with long names, a declared chain
     // through some of them and counts in the thousands. Only the figure's tallies change;
     // the lists stay the engine's, and the figure caps itself at seven stations.
@@ -975,7 +1006,7 @@ export function installScaleFixture(): void {
   // inferredUnreadable answers every service and revision as one whose inferred record
   // Pacto could not read: the service has no record field, the revision keeps only the
   // values a local read infers on its own (pactoVersion, service.name).
-  const flags = window as unknown as { __pactoLongPropose?: boolean; __pactoStalePropose?: boolean; __pactoAmbiguousTarget?: boolean; __pactoInferredUnreadable?: boolean };
+  const flags = window as unknown as { __pactoNewSigner?: boolean; __pactoLongPropose?: boolean; __pactoStalePropose?: boolean; __pactoAmbiguousTarget?: boolean; __pactoInferredUnreadable?: boolean };
   const shortOf = (v: unknown) => [...memo].find(([, l]) => l === v)?.[0] ?? v;
   const engineBody = (path: string, body: string | null): string | null => {
     if (!flags.__pactoLongPropose || !body || !/^\/api\/delivery\/(plan|operations)$/.test(path)) return body;
@@ -2194,6 +2225,14 @@ export const ROUTES: Route[] = [
   { name: 'golden path entity', open: firstLink('#/fleet/golden-paths?sort=name', '/fleet/services/') },
   { name: 'service created from a golden path', open: createdService },
   { name: 'delivery inbox', list: true, hash: '#/delivery/inbox' },
+  {
+    name: 'delivery inbox, new signer',
+    open: async (page) => {
+      await page.evaluate(() => { (window as unknown as { __pactoNewSigner?: boolean }).__pactoNewSigner = true; });
+      await page.goto('/#/delivery/inbox');
+      await expect(page.locator('a.dl-decide', { hasText: 'Confirm identity' }).first()).toBeVisible({ timeout: 30_000 });
+    },
+  },
   { name: 'delivery environments', list: true, hash: '#/delivery/environments' },
   { name: 'delivery environments of one service', hash: '#/delivery/environments?service=payments' },
   { name: 'delivery history', list: true, hash: '#/delivery/history' },
@@ -2261,8 +2300,27 @@ export const ROUTES: Route[] = [
   },
   { name: 'delivery autonomy', list: true, hash: '#/delivery/autonomy' },
   { name: 'delivery publish', list: true, hash: '#/delivery/publish' },
+  {
+    name: 'delivery publish, publisher line',
+    open: async (page) => {
+      await page.evaluate(() => { (window as unknown as { __pactoNewSigner?: boolean }).__pactoNewSigner = true; });
+      await page.goto('/#/delivery/publish');
+      const fold = page.getByTestId('published-publisher-checks').first();
+      await fold.locator('summary').click();
+      await expect(fold.locator('li')).toHaveCount(5, { timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0));
+    },
+  },
   { name: 'delivery change', hash: '#/delivery/changes/prod/payments-promote-2' },
   { name: 'delivery change held', hash: '#/delivery/changes/test/pay-agent-promote-17' },
+  {
+    name: 'delivery change, new signer',
+    open: async (page) => {
+      await page.evaluate(() => { (window as unknown as { __pactoNewSigner?: boolean }).__pactoNewSigner = true; });
+      await page.goto('/#/delivery/changes/test/pay-agent-promote-17');
+      await expect(page.getByTestId('change-publisher')).toBeVisible({ timeout: 30_000 });
+    },
+  },
   { name: 'service page with Stages', open: serviceWithStages('#/fleet/services/registry.example%252Fstory%2Fpayments') },
   { name: 'service page, Stage running nothing yet', open: serviceWithStages('#/fleet/services/audit-log') },
   {

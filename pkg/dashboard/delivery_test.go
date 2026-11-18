@@ -477,6 +477,7 @@ func TestInbox(t *testing.T) {
 	expect(t, names(inbox["held"]) == "for-checkout:approve,anyone:accept-unknown",
 		"held: only what names my team (or nobody), as accept-unknown once it shipped: %v", inbox["held"])
 	first := inbox["held"].([]any)[0].(map[string]any)
+	expect(t, first["service"] == "payments", "a held item names the service of its Stage: %v", first)
 	expect(t, first["question"] == "Approve?" && strings.Join(toStrings(first["consumers"]), ",") == "checkout" &&
 		strings.Join(toStrings(first["owners"]), ",") == "team-checkout" &&
 		first["order"].(map[string]any)["moveFirst"].([]any)[0].(map[string]any)["service"] == "checkout",
