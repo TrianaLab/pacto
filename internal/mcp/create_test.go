@@ -3406,14 +3406,15 @@ func TestCreateToolDeliveryTextNeutral(t *testing.T) {
 }
 
 // TestCheckSuggestionNamesPactoCI: pacto_check repeats CONTRACT_BEHIND, so a
-// behind contract's suggestion says what pacto ci does with it.
+// behind contract's suggestion says what pacto ci does with it and, for a file
+// whose raise keeps its meaning, that pacto migrate rewrites it.
 func TestCheckSuggestionNamesPactoCI(t *testing.T) {
 	prev, cur := contract.SupportedVersions[len(contract.SupportedVersions)-2], contract.Current()
 	res, err := Check(context.Background(), realValidator, writePacto(t, "pactoVersion: \""+prev+"\"\nservice: {name: s, version: 1.0.0}\n"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "pacto ci publishes it as " + cur + " when it next publishes this service, if its own check agrees"
+	want := "pacto ci publishes it as " + cur + " when it next publishes this service, if its own check agrees; run `pacto migrate` to rewrite the file"
 	if !slices.ContainsFunc(res.Suggestions, func(s Suggestion) bool { return strings.HasSuffix(s.Message, want) }) {
 		t.Errorf("no suggestion ends %q: %+v", want, res.Suggestions)
 	}
