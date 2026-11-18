@@ -274,8 +274,7 @@ func SignOf(pub *contract.Publish) contract.PublishSign {
 	if pub == nil || pub.Sign == nil {
 		return contract.PublishSign{}
 	}
-	sign := pub.Sign
-	return *sign
+	return *pub.Sign
 }
 
 func signCheck(pub *contract.Publish) Check {
