@@ -68,8 +68,8 @@ func controlled(o *unstructured.Unstructured, kind, name, uid string) *unstructu
 }
 
 var clusterLists = map[schema.GroupVersionResource]string{
-	workloadGVRs["Deployment"]: "DeploymentList", workloadGVRs["StatefulSet"]: "StatefulSetList", workloadGVRs["DaemonSet"]: "DaemonSetList",
-	workloadGVRs["CronJob"]: "CronJobList", gvrServices: "ServiceList", gvrPods: "PodList", gvrReplicaSets: "ReplicaSetList", gvrJobs: "JobList",
+	k8sclient.WorkloadGVRs["Deployment"]: "DeploymentList", k8sclient.WorkloadGVRs["StatefulSet"]: "StatefulSetList", k8sclient.WorkloadGVRs["DaemonSet"]: "DaemonSetList",
+	k8sclient.WorkloadGVRs["CronJob"]: "CronJobList", gvrServices: "ServiceList", gvrPods: "PodList", gvrReplicaSets: "ReplicaSetList", gvrJobs: "JobList",
 	gvrEndpointSlices: "EndpointSliceList", k8sclient.PactosGVR: "PactoList", kubesink.GVR: "NodeRuntimeObservationList",
 }
 

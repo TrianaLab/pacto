@@ -55,12 +55,6 @@ func gvr(group, version, resource string) schema.GroupVersionResource {
 }
 
 var (
-	workloadGVRs = map[string]schema.GroupVersionResource{
-		"Deployment":  gvr("apps", "v1", "deployments"),
-		"StatefulSet": gvr("apps", "v1", "statefulsets"),
-		"DaemonSet":   gvr("apps", "v1", "daemonsets"),
-		"CronJob":     gvr("batch", "v1", "cronjobs"),
-	}
 	gvrServices       = gvr("", "v1", "services")
 	gvrPods           = gvr("", "v1", "pods")
 	gvrReplicaSets    = gvr("apps", "v1", "replicasets")
@@ -180,7 +174,7 @@ func (cl *cluster) draft(ctx context.Context, w unstructured.Unstructured, base 
 // their ReplicaSets and Jobs.
 func (cl *cluster) readNamespace(list func(schema.GroupVersionResource, string, bool) ([]unstructured.Unstructured, error), ns string) error {
 	for _, k := range []string{"Deployment", "StatefulSet", "DaemonSet", "CronJob"} {
-		items, err := list(workloadGVRs[k], ns, false)
+		items, err := list(k8sclient.WorkloadGVRs[k], ns, false)
 		if err != nil {
 			return err
 		}
