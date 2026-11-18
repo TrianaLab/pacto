@@ -199,8 +199,12 @@ func fillRow(r *ci.Row, b *contract.Bundle, res *publish.Result, err error) {
 
 // toolOf is the tool that built the image: the detected one a derived
 // section names in its build check, else docker buildx or the program of
-// the first declared image build; "" when no image was built.
+// the first declared image build; "" when no image was built in this run
+// (none was absent: an earlier run pushed it, or it is supplied).
 func toolOf(b *contract.Bundle, p publish.Plan) string {
+	if !slices.ContainsFunc(p.Items, func(it publish.Item) bool { return it.Type == contract.ArtifactImage && it.State == publish.Absent }) {
+		return ""
+	}
 	for _, c := range p.Checks {
 		if tool, _, ok := strings.Cut(c.Message, " ("); c.Name == "build" && ok {
 			return tool

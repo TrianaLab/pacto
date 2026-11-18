@@ -294,6 +294,10 @@ func TestPublishPinnedImageSkipsBuild(t *testing.T) {
 	if err != nil || len(res.Plan.Items) != 2 || res.Plan.Items[0].Name != contract.ArtifactManifests || check(res.Plan, "build").Message != "image supplied, not built by Pacto: "+pinned || len(r.calls) != 1 {
 		t.Fatalf("%v %+v calls %v", err, res, r.calls)
 	}
+	bad := sectionless(t, "1.0.0", "", map[string]string{"Dockerfile": "FROM scratch\n", "k8s/deploy.yaml": deployment(host + "/acme/payments@sha256:abc")})
+	if _, err := publishService(&fakeRun{}, reg).Publish(t.Context(), signedOpts(t, bad, host)); err == nil || !strings.Contains(err.Error(), "workload image "+host+"/acme/payments@sha256:abc: the digest is not a sha256 digest") {
+		t.Fatal(err)
+	}
 }
 
 func TestPublishNoToolNoImageRefuses(t *testing.T) {
@@ -429,6 +433,11 @@ func TestPublishDerivedWithSignKey(t *testing.T) {
 		if _, err := publishService(&fakeRun{}, reg).Publish(t.Context(), o); err == nil || !strings.Contains(err.Error(), "apply only when the contract declares no publish section") {
 			t.Fatalf("%+v: %v", o, err)
 		}
+	}
+	// A truncated digest is never signed into the images record as deployed.
+	if _, err := publishService(&fakeRun{}, reg).Publish(t.Context(), PublishOptions{Path: dir, Image: "r.io/acme/payments@sha256:abc"}); err == nil ||
+		!strings.Contains(err.Error(), "the digest is not a sha256 digest") {
+		t.Fatal(err)
 	}
 	if _, err := publishService(&fakeRun{}, reg).Publish(t.Context(), PublishOptions{Path: dir, NoTransparencyLog: true}); err == nil ||
 		!strings.Contains(err.Error(), "--no-transparency-log needs --sign-key") {

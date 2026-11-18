@@ -520,9 +520,14 @@ func TestToolOf(t *testing.T) {
 		"./build.sh":    art(contract.PublishArtifact{Type: contract.ArtifactImage, Build: contract.PublishBuild{Command: []string{"./build.sh"}}}),
 		"":              {Contract: &contract.Contract{}},
 	} {
-		if got := toolOf(b, publish.Plan{}); got != want {
+		if got := toolOf(b, publish.Plan{Items: []publish.Item{{Type: contract.ArtifactImage, State: publish.Absent}}}); got != want {
 			t.Errorf("toolOf = %q, want %q", got, want)
 		}
+	}
+	// A resume that adopts the image an earlier run pushed builds nothing.
+	b := art(contract.PublishArtifact{Type: contract.ArtifactImage, Build: contract.PublishBuild{Command: []string{"./build.sh"}}})
+	if got := toolOf(b, publish.Plan{Items: []publish.Item{{Type: contract.ArtifactImage, State: publish.Adopt}}}); got != "" {
+		t.Errorf("toolOf on a resume = %q", got)
 	}
 }
 

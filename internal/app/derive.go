@@ -83,6 +83,9 @@ func derivePublish(dir, name, registry string, bp discover.BuildPlan, findings [
 		d.build = "image supplied, not built by Pacto: " + opts.image
 		d.images = []publish.ImageRecord{suppliedRecord(opts.image, "flag:--image")}
 	case bp.Pinned:
+		if err := digestErr("workload image", bp.Image); err != nil {
+			return nil, err
+		}
 		d.build = "image supplied, not built by Pacto: " + bp.Image
 		d.images = []publish.ImageRecord{suppliedRecord(bp.Image, bp.ImageSource)}
 	case bp.Tool != "":

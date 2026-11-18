@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	v1 "github.com/google/go-containerregistry/pkg/v1"
+
 	"github.com/trianalab/pacto/v4/internal/ci"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/ignore"
@@ -53,8 +55,20 @@ func (o PublishOptions) flagErr() error {
 	switch {
 	case o.Image != "" && !strings.Contains(o.Image, "@sha256:"):
 		return errors.New("--image needs a digest: a tag can move")
+	case o.Image != "":
+		return digestErr("--image", o.Image)
 	case o.NoTransparencyLog && o.SignKey == "":
 		return errors.New("--no-transparency-log needs --sign-key: keyless signing needs the transparency log")
+	}
+	return nil
+}
+
+// digestErr refuses an image ref whose digest is not a sha256 digest, so a
+// truncated one is never signed into the images record as deployed.
+func digestErr(what, ref string) error {
+	_, digest, _ := strings.Cut(ref, "@")
+	if h, err := v1.NewHash(digest); err != nil || h.Algorithm != "sha256" {
+		return fmt.Errorf("%s %s: the digest is not a sha256 digest (sha256:<64 hex>)", what, ref)
 	}
 	return nil
 }
