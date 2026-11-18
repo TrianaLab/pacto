@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/publish"
 	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
@@ -188,10 +189,10 @@ func TestInit_ScaffoldValidates(t *testing.T) {
 		t.Fatalf("failed to parse scaffolded contract: %v", err)
 	}
 
-	if c.PactoVersion != "2.1" {
-		t.Errorf("expected pactoVersion 2.1, got %s", c.PactoVersion)
+	if c.PactoVersion != contract.Current() {
+		t.Errorf("expected pactoVersion %s, got %s", contract.Current(), c.PactoVersion)
 	}
-	if c.Service.Owner.Team != "billing" || c.Readiness != nil || c.Publish == nil {
+	if c.Service.Owner.Team != "billing" || c.Readiness != nil || c.Publish != nil || c.Service.Version != "" {
 		t.Errorf("owner %+v, readiness %+v, publish %+v", c.Service.Owner, c.Readiness, c.Publish)
 	}
 
@@ -202,8 +203,9 @@ func TestInit_ScaffoldValidates(t *testing.T) {
 
 // TestInit_PactifiedContractPublishes: the contract init reads out of a plain
 // service (the story's fraud: a Dockerfile and two manifests) is one pacto
-// publish accepts: its plan is ready and lists the bundle and both artifacts,
-// all in the registry read from the Deployment's image.
+// publish accepts with no publish section: its plan derives 1.0.0 and is
+// ready, the bundle and both artifacts in the registry read from the
+// Deployment's image.
 func TestInit_PactifiedContractPublishes(t *testing.T) {
 	host, reg := publishRegistry(t)
 	dir := filepath.Join(t.TempDir(), "fraud")
@@ -228,12 +230,15 @@ func TestInit_PactifiedContractPublishes(t *testing.T) {
 	if !slices.Contains(res.Found, "registry "+host+"/story, from the image "+host+"/story/images/fraud:1.0.0") {
 		t.Fatalf("found: %v", res.Found)
 	}
-	keyFiles(t, dir) // init's .pactoignore keeps it out of the bundle
-	pub, err := svc.Publish(context.Background(), PublishOptions{Path: dir, Plan: true})
+	keys := t.TempDir()
+	keyFiles(t, keys) // outside the folder, so nothing keeps it out of the bundle
+	pub, err := svc.Publish(context.Background(), PublishOptions{Path: dir, Plan: true, Registry: host + "/story",
+		SignKey: filepath.Join(keys, "cosign.key"), NoTransparencyLog: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !pub.Plan.Ready || pub.Plan.Missing != 3 || !slices.Equal(f.calls, preflights) {
-		t.Fatalf("publish plan: %+v", pub.Plan)
+	if !pub.Plan.Ready || pub.Plan.Missing != 3 || pub.Plan.Version != publish.FirstVersion ||
+		!slices.Equal(f.calls, []string{"git show -s --format=%ct HEAD", "git status --porcelain --untracked-files=no"}) {
+		t.Fatalf("publish plan: %+v calls %q", pub.Plan, f.calls)
 	}
 }

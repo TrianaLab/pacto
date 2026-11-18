@@ -1597,13 +1597,17 @@ with --cluster: Pacto never changes it and lists what the folder adds, which
 pacto pack and pacto publish put in pacto.inferred.yaml. An older pacto.yaml
 is not completed, and the plan says to raise its pactoVersion.
 
-Either contract also gets a publish section, for pacto publish, with its
-bundle under --registry (default: the workload's image registry, else the
-registry.example placeholder). To describe the service and leave delivery out,
-pass --describe-only: the contract then has no publish section and needs no
-signing key. --delivery also writes the cluster pieces: the Pacto resource
-that checks the running service, and per environment a Stage with the Flux
-OCIRepository and Kustomization it applies through. Each Stage starts at
+Neither contract has a publish section or a service.version: pacto ci
+--publish derives both, and the image tag is named under Found as the version
+to declare for a first publish. --describe-only changes only the next steps,
+which say how to validate the contract instead of how to publish it.
+--delivery also writes the cluster pieces, reading the repositories pacto ci
+--publish publishes to under --registry (default: the workload's image
+registry, else the registry.example placeholder): the Pacto resource that
+checks the running service, and per environment a Stage with the Flux
+OCIRepository and Kustomization it applies through. Each Stage verifies an
+identity that matches nothing until you set the one pacto ci --publish signs
+as. Each Stage starts at
 observe: it plans every new version and moves nothing, and the OCIRepository
 stays pinned to the tag you deploy, so GitOps keeps applying what it did. The
 last environment's Stage also asks a person to approve every promote.
@@ -1655,7 +1659,7 @@ pacto init [dir...] [flags]
   pacto init --plan
   pacto init --describe-only --owner billing
   pacto init --delivery --owner payments --fleet ../contracts
-  pacto init --delivery --no-transparency-log --insecure-registry
+  pacto init --delivery --insecure-registry
   pacto init --delivery --registry-secret registry-creds
   pacto init services/checkout services/payments --plan
   pacto init --cluster --namespace shop --out drafts
@@ -1667,7 +1671,7 @@ pacto init [dir...] [flags]
 ```
       --cluster[=true|false]               draft a contract for every workload in the cluster that no Pacto describes, reading the current kubeconfig context
       --delivery[=true|false]              also declares each --env in pacto.yaml with an empty values file, and writes the cluster pieces of a manifests deploy: the Pacto resource, a Stage per environment and a Flux OCIRepository and Kustomization; a chart deploy gets no applier object
-      --describe-only[=true|false]         write a contract that only describes the service: no publish section, so no signing key
+      --describe-only[=true|false]         write a contract that only describes the service: its next steps say how to validate it, never how to publish it
       --domain string                      business domain, such as payments
       --env strings                        environments for --delivery: declared in the contract and given a Stage each, in promotion order (default [test,prod])
       --external-catalog string            organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST; a tag is refused (also PACTO_EXTERNAL_CATALOG)
@@ -1677,7 +1681,7 @@ pacto init [dir...] [flags]
       --insecure-registry[=true|false]     with --delivery: the Flux OCIRepositories read the registry over plain HTTP (a local registry only)
       --name string                        service name (default: the workload's name, then the folder's)
       --namespace strings                  with --cluster: a namespace to read; repeat it for more (default: every namespace)
-      --no-transparency-log[=true|false]   write transparencyLog: false under publish.sign, so signatures stay out of the public transparency log (offline signing, a throwaway key)
+      --no-transparency-log[=true|false]   with --from: write transparencyLog: false under the golden path's publish.sign
       --out string                         with --cluster: the folder the drafts go in, one <namespace>/<name> folder each
       --owner string                       the team that owns the service, as a bare name such as billing (default: the workload's team label)
       --plan[=true|false]                  show what would be added and change nothing

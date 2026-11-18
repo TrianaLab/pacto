@@ -108,7 +108,9 @@ func TestInitCommand(t *testing.T) {
 			t.Fatalf("init --plan: %v\n%s", err, output)
 		}
 		assertContains(t, output, "Plan for fraud")
-		assertContains(t, output, "bundle: oci://registry.example/story/fraud")
+		assertContains(t, output, "oci: oci://registry.example/story/fraud:@PACTO_VERSION@")
+		assertContains(t, output, "first publish: 1.0.0 is the image tag in k8s/deployment.yaml")
+		assertNotContains(t, output, "publish:\n")
 		assertContains(t, output, "kind: Stage")
 		if _, err := os.Stat(filepath.Join(dir, "pacto.yaml")); err == nil {
 			t.Fatal("--plan wrote pacto.yaml")

@@ -60,13 +60,12 @@ const inferredPublishRows = `  publish.build            dockerfile (Dockerfile) 
 
 // TestInitPrintsDiscoveryBlock: a new contract and a completed empty 2.5
 // contract print the same rows, the owner file marked attested with the
-// CODEOWNERS rule it outranks, and the unlocked chart dependency once; the
-// empty contract, which declares no publish section, also the build tool
-// and the deploy source.
+// CODEOWNERS rule it outranks, the unlocked chart dependency once and, as
+// neither declares a publish section, the build tool and the deploy source.
 func TestInitPrintsDiscoveryBlock(t *testing.T) {
 	withPublish := strings.Replace(discoveryBlock, "  owner ", inferredPublishRows+"  owner ", 1)
 	for name, tc := range map[string]struct{ pacto, block string }{
-		"new contract": {"", discoveryBlock},
+		"new contract": {"", withPublish},
 		"complete":     {"pactoVersion: \"2.5\"\n", withPublish},
 	} {
 		out, err := runInit(t, "--plan", paymentsRepo(t, tc.pacto))

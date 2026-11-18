@@ -142,8 +142,8 @@ func TestPactifyDiscoveryFindingsDropped(t *testing.T) {
 }
 
 // A new contract's record holds only what the pacto.yaml init writes leaves
-// out: the owner it declares from the team label is not listed again, and a
-// contract below 2.5, which publishes no record, says so.
+// out: the owner it declares from the team label is not listed again, and
+// the contract is at 2.5, which publishes the record, so Next asks nothing.
 func TestPactifyNewContractRecordAgainstPlanned(t *testing.T) {
 	dir := writeTree(t, filepath.Join(t.TempDir(), "fraud"), map[string]string{
 		"d.yaml":            "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: fraud, labels: {team: risk}}\nspec: {template: {spec: {containers: [{name: fraud, image: 'reg.example/fraud:1.0.0'}]}}}\n",
@@ -159,7 +159,7 @@ func TestPactifyNewContractRecordAgainstPlanned(t *testing.T) {
 	if slices.ContainsFunc(r.Inferred.Fields, func(f contract.Inferred) bool { return f.Field == "service.owner" || f.Field == "workload" }) {
 		t.Errorf("the record lists what pacto.yaml declares: %+v", r.Inferred.Fields)
 	}
-	if !hasLine(r.Next, "pacto pack publishes none of what Pacto inferred") {
+	if hasLine(r.Next, "pacto pack publishes none of what Pacto inferred") {
 		t.Errorf("next %q", r.Next)
 	}
 }

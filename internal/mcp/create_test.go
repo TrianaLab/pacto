@@ -32,8 +32,8 @@ func TestCreate_Minimal(t *testing.T) {
 	if result.Summary.Name != "test-svc" {
 		t.Errorf("expected name=test-svc, got %q", result.Summary.Name)
 	}
-	if result.Summary.Version != "0.1.0" {
-		t.Errorf("expected default version, got %q", result.Summary.Version)
+	if result.Summary.Version != "" {
+		t.Errorf("expected no version, left to pacto ci --publish, got %q", result.Summary.Version)
 	}
 	if result.FileCount < 1 {
 		t.Errorf("expected at least 1 file, got %d", result.FileCount)
@@ -731,12 +731,17 @@ func TestMarshalContract_KeyOrder(t *testing.T) {
 
 // --- Helper function tests ---
 
-func TestDefaultVersion(t *testing.T) {
-	if v := defaultVersion(""); v != "0.1.0" {
-		t.Errorf("expected 0.1.0, got %q", v)
+// TestCreateLeavesVersionToPublish: an empty version writes no
+// service.version, at the pactoVersion that lets pacto ci --publish derive
+// it; a given one is written as given.
+func TestCreateLeavesVersionToPublish(t *testing.T) {
+	m := buildCreateMap(CreateInput{Name: "svc"})
+	if _, has := m["service"].(map[string]any)["version"]; has || m["pactoVersion"] != "2.5" {
+		t.Errorf("empty version: %v", m)
 	}
-	if v := defaultVersion("2.0.0"); v != "2.0.0" {
-		t.Errorf("expected 2.0.0, got %q", v)
+	m = buildCreateMap(CreateInput{Name: "svc", Version: "2.0.0"})
+	if m["service"].(map[string]any)["version"] != "2.0.0" || m["pactoVersion"] != "2.0" {
+		t.Errorf("version given: %v", m)
 	}
 }
 
@@ -795,7 +800,7 @@ func TestEditAddDependencyOmittedCompatibilityIsUnknown(t *testing.T) {
 func TestExplicitUnknownRaisesPactoVersion(t *testing.T) {
 	dep := []DependencyInput{{Name: "ledger", Ref: "oci://reg.example/ledger", Compatibility: contract.CompatibilityUnknown, Required: true}}
 	dir := filepath.Join(t.TempDir(), "invoices")
-	res, err := Create(CreateInput{Name: "invoices", Path: dir, Dependencies: dep})
+	res, err := Create(CreateInput{Name: "invoices", Version: "1.0.0", Path: dir, Dependencies: dep})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -819,7 +824,7 @@ func TestExplicitUnknownRaisesPactoVersion(t *testing.T) {
 func TestGivenRangeKeepsVersion(t *testing.T) {
 	dep := []DependencyInput{{Name: "ledger", Ref: "oci://reg.example/ledger", Compatibility: "^2.0.0", Required: true}}
 	dir := filepath.Join(t.TempDir(), "invoices")
-	res, err := Create(CreateInput{Name: "invoices", Path: dir, Dependencies: dep})
+	res, err := Create(CreateInput{Name: "invoices", Version: "1.0.0", Path: dir, Dependencies: dep})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3253,7 +3258,7 @@ func TestCreateKeepsExistingInterfaceFile(t *testing.T) {
 // TestCreateDomainRaisesVersion: a domain is written as service.domain at
 // pactoVersion 2.4.
 func TestCreateDomainRaisesVersion(t *testing.T) {
-	r, err := Create(CreateInput{Name: "svc", Path: filepath.Join(t.TempDir(), "svc"), Domain: "payments"})
+	r, err := Create(CreateInput{Name: "svc", Version: "1.0.0", Path: filepath.Join(t.TempDir(), "svc"), Domain: "payments"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3363,14 +3368,14 @@ func TestCheckSuggestsDeclaringNameAndVersion(t *testing.T) {
 		switch {
 		case strings.Contains(s.Message, "Declare service.name to publish"):
 			name = &result.Suggestions[i]
-		case strings.Contains(s.Message, "service.version is not declared; pacto publish needs one"):
+		case strings.Contains(s.Message, "service.version is not declared, so pacto ci --publish derives it"):
 			version = &result.Suggestions[i]
 		}
 	}
 	if name == nil || !strings.Contains(name.Message, "inferred from chart/Chart.yaml:2") || name.ToolCall.Params["name"] != "payments" {
 		t.Errorf("name suggestion = %+v in %+v", name, result.Suggestions)
 	}
-	if version == nil || version.ToolCall.Params["version"] != "0.1.0" {
+	if version == nil || version.ToolCall != nil {
 		t.Errorf("version suggestion = %+v in %+v", version, result.Suggestions)
 	}
 	declared, _ := Check(context.Background(), nil, testutil.WriteTestBundle(t), nil)
@@ -3393,7 +3398,8 @@ func TestCreateToolDeliveryTextNeutral(t *testing.T) {
 	}
 	want := "With pactify or from: also plan, for a manifests deploy, the Pacto resource, a Stage per environment and a Flux OCIRepository and Kustomization; " +
 		"for a chart deploy no applier object, and the Next line names the Stage spec.applyRef " +
-		"(needs the publish section, so not with describe_only; with from, the golden path must publish a manifests or chart artifact under publish.deploy)"
+		"(not with describe_only; with pactify the deploy artifact is the one pacto ci --publish assembles from the folder; " +
+		"with from, the golden path must publish a manifests or chart artifact under publish.deploy)"
 	if got := schema.Properties["delivery"].Description; got != want || strings.Contains(got, "detect") {
 		t.Fatalf("delivery: %s", got)
 	}

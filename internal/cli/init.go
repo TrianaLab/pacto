@@ -59,13 +59,17 @@ with --cluster: Pacto never changes it and lists what the folder adds, which
 pacto pack and pacto publish put in pacto.inferred.yaml. An older pacto.yaml
 is not completed, and the plan says to raise its pactoVersion.
 
-Either contract also gets a publish section, for pacto publish, with its
-bundle under --registry (default: the workload's image registry, else the
-registry.example placeholder). To describe the service and leave delivery out,
-pass --describe-only: the contract then has no publish section and needs no
-signing key. --delivery also writes the cluster pieces: the Pacto resource
-that checks the running service, and per environment a Stage with the Flux
-OCIRepository and Kustomization it applies through. Each Stage starts at
+Neither contract has a publish section or a service.version: pacto ci
+--publish derives both, and the image tag is named under Found as the version
+to declare for a first publish. --describe-only changes only the next steps,
+which say how to validate the contract instead of how to publish it.
+--delivery also writes the cluster pieces, reading the repositories pacto ci
+--publish publishes to under --registry (default: the workload's image
+registry, else the registry.example placeholder): the Pacto resource that
+checks the running service, and per environment a Stage with the Flux
+OCIRepository and Kustomization it applies through. Each Stage verifies an
+identity that matches nothing until you set the one pacto ci --publish signs
+as. Each Stage starts at
 observe: it plans every new version and moves nothing, and the OCIRepository
 stays pinned to the tag you deploy, so GitOps keeps applying what it did. The
 last environment's Stage also asks a person to approve every promote.
@@ -109,7 +113,7 @@ changes nothing.`,
   pacto init --plan
   pacto init --describe-only --owner billing
   pacto init --delivery --owner payments --fleet ../contracts
-  pacto init --delivery --no-transparency-log --insecure-registry
+  pacto init --delivery --insecure-registry
   pacto init --delivery --registry-secret registry-creds
   pacto init services/checkout services/payments --plan
   pacto init --cluster --namespace shop --out drafts
@@ -155,14 +159,14 @@ changes nothing.`,
 	}
 	f := cmd.Flags()
 	f.BoolVar(&opts.Plan, "plan", false, "show what would be added and change nothing")
-	f.BoolVar(&opts.DescribeOnly, "describe-only", false, "write a contract that only describes the service: no publish section, so no signing key")
+	f.BoolVar(&opts.DescribeOnly, "describe-only", false, "write a contract that only describes the service: its next steps say how to validate it, never how to publish it")
 	f.BoolVar(&opts.Delivery, "delivery", false, "also declares each --env in pacto.yaml with an empty values file, and writes the cluster pieces of a manifests deploy: the Pacto resource, a Stage per environment and a Flux OCIRepository and Kustomization; a chart deploy gets no applier object")
 	f.StringVar(&opts.Name, "name", "", "service name (default: the workload's name, then the folder's)")
 	f.StringVar(&opts.Owner, "owner", "", "the team that owns the service, as a bare name such as billing (default: the workload's team label)")
 	f.StringVar(&opts.Domain, "domain", "", "business domain, such as payments")
 	f.StringVar(&opts.Registry, "registry", "", "where to publish, as host/path (default: read from the workload's image)")
 	f.StringSliceVar(&opts.Environments, "env", []string{"test", "prod"}, "environments for --delivery: declared in the contract and given a Stage each, in promotion order")
-	f.BoolVar(&opts.NoTransparencyLog, "no-transparency-log", false, "write transparencyLog: false under publish.sign, so signatures stay out of the public transparency log (offline signing, a throwaway key)")
+	f.BoolVar(&opts.NoTransparencyLog, "no-transparency-log", false, "with --from: write transparencyLog: false under the golden path's publish.sign")
 	f.BoolVar(&opts.InsecureRegistry, "insecure-registry", false, "with --delivery: the Flux OCIRepositories read the registry over plain HTTP (a local registry only)")
 	f.StringVar(&opts.RegistrySecret, "registry-secret", "", "with --delivery: the docker-registry Secret, in each environment's namespace, that Flux and the Pacto resource log in to a private registry with")
 	f.StringSliceVar(&opts.FleetRoots, "fleet", nil, "folders of other services' contracts to find the services that use this one")

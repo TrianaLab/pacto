@@ -48,6 +48,10 @@ func TemplateOptions(opts Options) error {
 	return err
 }
 
+// signKey is where a service created from a golden path keeps its own
+// signing key: the path's signer is never carried over.
+const signKey = "cosign.key"
+
 // fromTemplate plans pacto.yaml and the path's files from the golden path:
 // identity reset, publish rewritten, the caller's values applied, the template
 // marker removed, the fixed inputs and origin set, then the whole folder

@@ -90,7 +90,9 @@ func (p *planner) delivery() {
 	p.next("every promote to %s waits for a person to approve it (approval.always in delivery/%s.yaml); "+
 		"once a health check judges each version there (gates.verify.checks, see Delivery reference: health checks), delete approval, so it promotes on its own at a level above advise", last, last)
 	p.next("create the namespaces %s, then apply each environment: kubectl apply -f delivery/%s.yaml", envs, strings.Join(p.envs, ".yaml -f delivery/"))
-	if !p.contractNew && !p.shipsPactoResource() {
+	// A derived section ships delivery/pacto.yaml itself; a declared one ships
+	// it only when one of its builds reads it.
+	if !p.pubDerived && !p.shipsPactoResource() {
 		p.next(`ship delivery/pacto.yaml with every version: add to the manifests build: sed "s/@PACTO_VERSION@/$PACTO_VERSION/" delivery/pacto.yaml > "$PACTO_OUT"/pacto-resource.yaml`)
 	}
 	for _, k := range p.sc.Kustomize {
@@ -173,24 +175,32 @@ func (p *planner) keptSource(env, want string) {
 }
 
 // verify is the Flux spec.verify that names the publisher, so a Stage
-// promotes only what pacto publish signed.
+// promotes only what the publisher signed: the keyless identity or the key
+// the contract declares, else an identity that matches nothing until a
+// person names the one pacto ci --publish signs as.
 func (p *planner) verify() string {
 	s := p.pub.Sign
-	if s != nil && s.Keyless && s.Identity != "" && s.Issuer != "" {
-		return fmt.Sprintf("  verify:\n    provider: cosign\n    matchOIDCIdentity:\n      - issuer: %s\n        subject: %s\n",
-			discover.Quote("^"+regexp.QuoteMeta(s.Issuer)+"$"), discover.Quote("^"+regexp.QuoteMeta(s.Identity)+"$"))
-	}
-	if s == nil || s.Keyless {
-		p.unknown("who publishes %s: the contract names no signing key or keyless identity, so the Stages cannot tell its versions from anyone else's and promote nothing until publish.sign says", p.r.Service)
-	} else {
+	if s != nil && !s.Keyless {
 		p.next("in each of %s, create the Secret cosign-pub holding the public key: kubectl -n <env> create secret generic cosign-pub --from-file=cosign.pub", strings.Join(p.envs, ", "))
+		return "  verify:\n    provider: cosign\n    secretRef:\n      name: cosign-pub\n"
 	}
-	return "  verify:\n    provider: cosign\n    secretRef:\n      name: cosign-pub\n"
+	issuer, subject := regexp.QuoteMeta(githubIssuer), "<the identity pacto ci --publish prints>"
+	if s != nil && s.Identity != "" && s.Issuer != "" {
+		issuer, subject = regexp.QuoteMeta(s.Issuer), regexp.QuoteMeta(s.Identity)
+	} else {
+		p.unknown("who publishes %s: set spec.verify.matchOIDCIdentity in delivery/<env>.yaml to the identity pacto ci --publish prints", p.r.Service)
+	}
+	return fmt.Sprintf("  verify:\n    provider: cosign\n    matchOIDCIdentity:\n      - issuer: %s\n        subject: %s\n",
+		discover.Quote("^"+issuer+"$"), discover.Quote("^"+subject+"$"))
 }
 
+// githubIssuer is the issuer of a GitHub Actions token, the one a Stage
+// expects until a person names the publisher.
+const githubIssuer = "https://token.actions.githubusercontent.com"
+
 const pactoResource = `# The Pacto resource: it checks the running %s against the contract of the
-# version that ships. It ships inside every version: the manifests build in
-# pacto.yaml fills in @PACTO_VERSION@ when pacto publish runs it. Its Service,
+# version that ships. It ships inside every version: pacto ci --publish
+# fills in @PACTO_VERSION@. Its Service,
 # when there is one, lets Pacto see the calls made to it.
 apiVersion: pacto.trianalab.io/v1alpha1
 kind: Pacto
@@ -205,7 +215,7 @@ spec:
       kind: %s
 `
 
-const candidateRepo = `# New versions: every version pacto publish signed.
+const candidateRepo = `# New versions: every version the publisher signed.
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: OCIRepository
 metadata:
