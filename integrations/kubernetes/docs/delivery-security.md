@@ -74,6 +74,117 @@ must approve it can depend on who raised it. The types run different checks:
 
 [Plan, propose and approve](delivery-operations.md) lists every type.
 
+## Which publishers Pacto accepts
+
+A first Stage that reads `spec.candidates.registry` lists the newest 20
+version tags of its repository and verifies each digest's Sigstore signature
+itself, so it needs no Flux
+([Argo CD clusters](delivery-reach.md#which-manager-applies-a-stage)). A
+digest joins `status.published` only when its signer passes one of three
+checks, and each verdict names the one that decided:
+
+| Source | Accepts | Set by |
+|---|---|---|
+| `rule` | On `ghcr.io/<org>`, a GitHub Actions workflow of `<org>`; on `registry.gitlab.com/<group>`, a GitLab CI pipeline of `<group>`. Both on the default branch, and the repository the certificate attests must match the artifact's `org.opencontainers.image.source` | `delivery.publishers.registry` and `defaultBranch` |
+| `pin` | One CI identity (issuer, subject and repository) a person confirmed for one service | the delivery inbox |
+| `policy` | The rules of a signed delivery policy, which replace the derived rule once verified | `delivery.publishers.policy` and `policySigners` |
+
+Other registries, such as ECR, Artifact Registry, ACR, Docker Hub, Harbor or
+zot, name no CI provider and get no rule: a person confirms the first signer
+of each service. The contract never decides: `publish.sign` only says how
+`pacto publish` signs.
+
+Unsigned, unreadable or unreachable is `unknown` and never passes, and neither
+does a missing trusted root or a policy that does not verify. A person's
+signature passes only through a policy rule that names it, never on first
+use. A registry-declared revision must reuse its CI-signed baseline's deploy
+digest: a deploy digest a person signed is `refused`.
+
+`pacto delivery trust <service>`, the `pacto_delivery_trust` MCP tool and the
+dashboard's Published view show the rule, the pins, the signers waiting and
+the newest verdicts. [Setup](delivery-setup.md#publishers) lists the values.
+
+### Confirm a new signer
+
+A CI identity no rule, pin or policy covers is a `new-signer`. The promoter
+raises one Operation of type `delivery.pacto.trianalab.io/trust` per service
+at a time, and the delivery inbox asks "payments: new signer `<subject>`
+(issuer, repository, attested). Confirm it may publish payments?".
+
+![The delivery inbox asking whether a new CI signer of audit-log may publish it, with a Confirm identity button](../../assets/screenshots/dashboard-delivery-inbox-new-signer-light.png#only-light)
+![The delivery inbox asking whether a new CI signer of audit-log may publish it, with a Confirm identity button](../../assets/screenshots/dashboard-delivery-inbox-new-signer-dark.png#only-dark)
+
+- **Confirm identity** opens the change, where a person approves or rejects
+  it; `pacto delivery approve -n <namespace> <operation>` does the same.
+  Whoever may update the workload may answer. With team narrowing, only the
+  team that owns the running version is asked, never the team the candidate
+  names. An agent never decides.
+- Once approved, the recorder writes a signed
+  [`identity-pin/v1` record](delivery-records.md#identity-pins) and the watch
+  accepts that signer. Confirming a signer marks no digest verified: the
+  version still passes every gate.
+- Other new identities wait in the trust view until the open question
+  concludes. A signer that differs from the pinned one asks again ("signer
+  changed from ... to ..."). A rejected signer stays out until
+  `delivery.recorder.operationTTL` (168h) deletes the operation, then it is
+  asked again.
+- Pins need the recorder (`delivery.recorder.enabled`) and a key to verify
+  them: keyless recorder signing or `delivery.recorder.signing.publicKey`.
+  Without them no question is raised, and `status.publisher.message` says
+  why.
+
+A pin counts only when it verifies under this cluster's recorder key or a
+`delivery.recorder.trust` key that lists an explicit `pins/` stream, and only
+when the approval record it cites verifies and answers the trust operation
+for the same identity. Deleting the newest pin brings back no older one: the Stage
+keeps `status.publisher.pinAt` and judges with no pin while the newest is
+gone.
+
+### The signed delivery policy
+
+A security owner who wants explicit rules signs a delivery policy: an in-toto
+statement of predicate type `delivery.pacto.trianalab.io/policy/v1` in a
+Sigstore bundle with one DSSE signature by a `role: policy` key of
+`delivery.publishers.policySigners`, pushed as the one layer of an OCI
+artifact. `delivery.publishers.policy` names it by tag.
+
+```yaml
+predicate:
+  at: "2026-11-17T09:00:00Z"   # signed time; an older policy is refused
+  publishers:
+    - name: release
+      issuer: https://token.actions.githubusercontent.com
+      subject: ^https://github\.com/acme/[^/]+/\.github/workflows/release\.yml@refs/heads/main$
+      repository: ^https://github\.com/acme/[^/]+$
+      ref: refs/heads/main
+      services: ["pay*"]        # empty covers every service
+  signers:
+    - name: release bots
+      issuer: https://token.actions.githubusercontent.com
+      subject: ^https://github\.com/acme/bots/.+$
+      class: agent              # human, agent or ci
+```
+
+- Every subject and repository pattern is anchored (`^...$`) and matches no
+  identity nobody has, or the policy is refused. An unknown key is refused
+  too, so an older promoter keeps its last policy.
+- A policy key verifies only policies, never a record or a pin.
+- A tag that fails to read or verify, or that moves to a policy signed before
+  `status.publisher.policyAt`, keeps the last verified policy. A configured
+  policy that never verified accepts only pinned signers.
+
+### Signer classes
+
+Every verified keyless signer carries a class and `classifiedBy`. The first
+`signers` rule of the policy that matches decides (`policy:<name>`); otherwise
+the default rule (`default:<reason>`) reads a certificate that attests a
+source repository, or one from a CI issuer, as `ci`; a SPIFFE, Kubernetes
+service account or Google service account subject as `agent`; an email from
+an interactive login as `human`; and anything else as `agent`. Only a
+`human` signature makes an approval a decision. A CI- or agent-signed
+approval record is a proposal and never counts, a trust confirmation
+included.
+
 ## What stays outside the policies
 
 - The policies match only objects that carry the

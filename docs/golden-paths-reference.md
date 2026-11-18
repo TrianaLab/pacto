@@ -96,7 +96,7 @@ fleet holds. Each step is `done` only on its signal:
 
 | Step | `done` when | Otherwise |
 |------|-------------|-----------|
-| `signature` | never | `unknown`: a verified signature names the signer the path's own contract declares, which no trust config checked; `failed` when the signature failed verification |
+| `signature` | never | `unknown`: a verified signature names a signer a publisher rule, pin or policy accepted, and an `unverified` one a signer none of them covers, which is no failure |
 | `contract` | a revision was read | |
 | `validation` | the newest revision is valid with no `*_UNVERIFIED` or `*_NOT_ENFORCED` finding | `unknown` listing those codes; `failed` when invalid |
 | `plugin` | never | `unknown`: Pacto does not observe what a plugin wrote |

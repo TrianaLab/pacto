@@ -34,11 +34,15 @@ has no `ref`. Over HTTP the server needs
 
 ## The delivery read tools
 
-Six read tools answer what the dashboard's delivery views show, with the
+Seven read tools answer what the dashboard's delivery views show, with the
 route's own parameters and answer: `pacto_delivery_caller`,
 `pacto_delivery_inbox`, `pacto_delivery_environments`,
-`pacto_delivery_autonomy`, `pacto_delivery_published` and
-`pacto_delivery_refusals`. They run the dashboard's route code in the server
+`pacto_delivery_autonomy`, `pacto_delivery_published`,
+`pacto_delivery_refusals` and `pacto_delivery_trust`. `pacto_delivery_trust`
+answers which publishers each service accepts: the installation's rule or
+signed policy, the signers a person pinned, the signers waiting for a person
+and the newest verdicts, each naming its source
+([which publishers Pacto accepts](integrations/kubernetes/delivery-security.md#which-publishers-pacto-accepts)). They run the dashboard's route code in the server
 with the caller's identity, so the API server decides what each caller reads.
 With `--fleet` they also follow the caller's fleet view, and the fleet
 `--namespace` limits them to one namespace, as on the dashboard. A list answer

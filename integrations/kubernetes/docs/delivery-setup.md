@@ -232,9 +232,48 @@ beside the pointer.
 The [security model](delivery-security.md) lists what each admission policy
 checks and what stays open.
 
+## Publishers
+
+- A service's first Stage reads new versions from the registry by default:
+  set `spec.candidates.registry`, and the promoter watches the repository the
+  Stage's applier takes versions from, or `candidates.registry.repository`.
+- A Stage names at most one candidate source: `registry`, `ociRepositoryRef`,
+  `upstreamStage` or `upstreamRecords`.
+- The promoter accepts a version only from a publisher it knows
+  ([which publishers Pacto accepts](delivery-security.md#which-publishers-pacto-accepts)).
+
+```yaml
+spec:
+  service: {name: payments}
+  applyRef: {name: payments}
+  candidates:
+    registry: {}   # or {repository: ghcr.io/acme/payments-deploy}
+```
+
+| Value | What it sets |
+|---|---|
+| `delivery.publishers.registry` | The `host/org` your services publish to. On `ghcr.io` and `registry.gitlab.com` the promoter derives a rule from it; empty, a `candidates.registry` Stage promotes nothing |
+| `delivery.publishers.defaultBranch` | The branch whose CI the derived rule accepts (`main`) |
+| `delivery.publishers.policy` | A signed delivery policy (`repository:tag`) that replaces the derived rule |
+| `delivery.publishers.policySigners` | The trust config whose `role: policy` keys sign that policy |
+| `delivery.publishers.trustedRoot` | A `trusted_root.json` for a private Sigstore; empty uses public-good Sigstore |
+| `delivery.recorder.signing.publicKey` | The PEM public key of an Ed25519 or KMS recorder, so the promoter verifies the pins it writes. Keyless recorder signing needs none |
+
+- GHCR serves no Referrers API; the watch reads `pacto publish`'s write-once
+  `pacto-sig-` tags there, so GHCR works with no extra value.
+- Clients read the same configuration from `publishers.json` in the
+  `pacto-delivery-identities` ConfigMap in `delivery.namespace`.
+- A Stage whose registry cannot be listed has `Ready` `False` with the reason
+  `RegistryUnreadable`, and one without a trusted root
+  `PublisherUnverifiable`; nothing is published meanwhile.
+- When a policy narrows, a digest among the newest 20 tags that is no longer
+  accepted leaves `status.published`. One older than those 20 stays there
+  until 50 newer versions push it out: the watch reads only the newest tags.
+
 ## Set up a Stage
 
-The candidate `OCIRepository` follows the deploy artifact's repository and its
+With Flux, a first Stage can follow a candidate `OCIRepository` instead. It
+follows the deploy artifact's repository and its
 `spec.verify` names the publisher, so Flux checks every signature. The Stage
 lists each digest Flux verified in `status.published` and refuses anything else
 as `NotPublished`. Without a `secretRef` or `matchOIDCIdentity` Flux accepts a

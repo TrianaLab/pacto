@@ -44,6 +44,17 @@ unfreezes the Stage. `propose` with the plan's intent digest refuses with
 on-behalf-of person, so pass the same ones you planned with: when they explain
 the difference, `PlanStale` names them.
 
+## Confirm a new publisher
+
+Only the promoter raises an Operation of type
+`delivery.pacto.trianalab.io/trust`, named `<stage>-trust-<10 hex>` after the
+signer, when a Stage that watches the registry finds a CI signer no rule, pin
+or policy covers. Its `spec.params.publisher` holds the signer's issuer, subject
+and repository, and its plan holds for a person. Approve it like any held
+operation. It changes no pointer: a confirmed signer becomes a pin, and its
+versions still pass every gate. See
+[confirm a new signer](delivery-security.md#confirm-a-new-signer).
+
 ## Cancel and roll back
 
 `cancel` works until the pointer moves; after that,

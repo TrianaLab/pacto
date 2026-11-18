@@ -63,6 +63,25 @@ registry lists its record.
   approval record for every decision, outside the operation chain. See
   [signed approvals](delivery-signed-approvals.md).
 
+## Identity pins
+
+- When a person confirms a new publisher
+  ([confirm a new signer](delivery-security.md#confirm-a-new-signer)), the
+  recorder signs a `delivery.pacto.trianalab.io/identity-pin/v1` statement
+  before the trust operation's own record: the service, the signer's issuer,
+  exact subject and repository, who confirmed it, the approval record of
+  that decision, the operation and the time.
+- It lives on the service's own stream `pins/<domain or ->/<name>` in the
+  streams repository, as a referrer or a [write-once tag](#write-once-tags)
+  like every record, so anyone who reads the registry reads it.
+- The promoter and clients use the newest pin by signed time, and only one
+  that verifies under the recorder's pin key and cites an approval record
+  that verifies and names the same identity. Any other pin is listed as
+  unreadable with why.
+- To let another cluster's recorder sign pins for these services, give its
+  key in `delivery.recorder.trust` an explicit `pins/` stream pattern. A key
+  with no `streams` signs no pin.
+
 ## Install
 
 The recorder detects how your registry stores records, so any registry works:

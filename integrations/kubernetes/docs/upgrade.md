@@ -224,6 +224,26 @@ counts no approval.
   `spec.record` and `spec.signedAt`; `helm upgrade` installs them with the
   CRDs.
 
+## Signatures are checked against publishers
+
+- A revision's signature `status` (`pacto_fleet_get`, the dashboard and
+  `pacto fleet`) is `verified` only when a publisher rule, a person's pin, a
+  signed policy or an external system's release signer accepts the signer.
+  A signer the contract's own `publish.sign` declares is no longer enough:
+  scripts that relied on it read `unknown` or `unverified` until the
+  installation sets `delivery.publishers`. The new `source` field says what
+  decided.
+- New chart values: `delivery.publishers.registry`, `defaultBranch`,
+  `policy`, `policySigners` and `trustedRoot`, and
+  `delivery.recorder.signing.publicKey`. Reused values without a
+  `delivery.publishers` block render the promoter arguments they had.
+- Stages gain `spec.candidates.registry` and the promoter-only
+  `status.publisher`, and Operations gain the type
+  `delivery.pacto.trianalab.io/trust` with `spec.params.publisher`; `helm
+  upgrade` installs them with the CRDs. Existing `ociRepositoryRef` and
+  upstream Stages keep working unchanged
+  ([publishers](delivery-setup.md#publishers)).
+
 ## Delivery grants Argo CD and Flux access by itself
 
 - `delivery.argocd.enabled` and `delivery.flux.enabled` now default to
