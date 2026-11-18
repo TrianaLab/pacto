@@ -137,7 +137,7 @@ func TestSignersOfReadsEverySignature(t *testing.T) {
 	host, reg := testRegistry(t, true)
 	repo, d := signed(t, host, reg, ciSigner(t, ss, acmeSubject, acmeRepo), signerFor(t, ss, testutil.Token("ana@acme.example", "https://accounts.example")))
 	signers, err := SignersOf(t.Context(), reg, ss.Root, false, repo, d)
-	if err != nil || len(signers) != 2 {
+	if err != nil || len(signers) != 2 || signers[0].Class == "" || signers[0].Class == signers[1].Class {
 		t.Fatalf("signers %+v %v", signers, err)
 	}
 }

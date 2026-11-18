@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"path"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 )
@@ -50,6 +51,61 @@ type PublisherIdentity struct {
 	Repository string `json:"repository,omitempty" doc:"The source repository the certificate attests, set for a CI workload identity"`
 	Ref        string `json:"ref,omitempty" doc:"The source repository ref the certificate attests"`
 	CI         bool   `json:"ci,omitempty" doc:"The certificate is a CI workload identity: it attests a source repository"`
+	// +optional
+	// +kubebuilder:validation:Enum=human;agent;ci
+	Class ActorClass `json:"class,omitempty" enum:"human,agent,ci" doc:"Who the signer is: a person (human), an agent or a CI workload; only a person's signature makes a record a decision"`
+	// +optional
+	ClassifiedBy string `json:"classifiedBy,omitempty" doc:"What classified the signer: policy:<rule name> or default:<reason>"`
+}
+
+// SignerClassRule classifies keyless signers: a certificate from Issuer whose
+// subject matches Subject (anchored) is Class.
+type SignerClassRule struct {
+	Name    string     `json:"name"`
+	Issuer  string     `json:"issuer"`
+	Subject string     `json:"subject"`
+	Class   ActorClass `json:"class"`
+}
+
+// ciIssuers are OIDC issuers that only issue CI workload identities.
+var ciIssuers = []string{issuerGitHubActions, "https://agent.buildkite.com"}
+
+// ClassifySigner says whether a person, an agent or a CI workload signed as
+// id, and what said so: the first of rules (the signed policy's signers)
+// that matches, else the default rule. A signer the default rule cannot
+// place is an agent: unknown is never a person.
+func ClassifySigner(id PublisherIdentity, rules []SignerClassRule) (ActorClass, string) {
+	for _, r := range rules {
+		if r.Issuer == id.Issuer && anchoredMatch(r.Subject, id.Subject) {
+			return r.Class, "policy:" + r.Name
+		}
+	}
+	sub := strings.ToLower(id.Subject)
+	switch {
+	case id.CI:
+		return ClassCI, "default:the certificate attests a source repository"
+	case slices.Contains(ciIssuers, id.Issuer) || strings.HasPrefix(id.Issuer, "https://oidc.circleci.com/org/"):
+		return ClassCI, "default:" + id.Issuer + " issues CI workload identities"
+	case strings.HasPrefix(sub, "spiffe://") || strings.HasPrefix(sub, "https://kubernetes.io/namespaces/") ||
+		strings.HasSuffix(sub, "gserviceaccount.com") || strings.HasSuffix(sub, ".svc.id.goog"):
+		return ClassAgent, "default:the certificate names a workload identity"
+	case strings.Contains(sub, "@") && !strings.Contains(sub, "://"):
+		return ClassHuman, "default:the certificate names an email from an interactive login"
+	}
+	return ClassAgent, "default:the certificate names no person"
+}
+
+// Classified is id with the class ClassifySigner gives it under rules.
+func Classified(id PublisherIdentity, rules []SignerClassRule) PublisherIdentity {
+	id.Class, id.ClassifiedBy = ClassifySigner(id, rules)
+	return id
+}
+
+// ReadsAsDecision reports whether a record signed by class decides: only a
+// person's does. An agent's or a CI workload's acceptance, approval, claim or
+// owner setting is a proposal.
+func ReadsAsDecision(class ActorClass) bool {
+	return class == ClassHuman
 }
 
 // PublisherRule names the CI identities that may publish. Subject and
@@ -345,6 +401,8 @@ func TrustOperationName(stage string, id PublisherIdentity) string {
 // rules that replace the installation's derived rule, and when it was signed.
 type PublisherPolicy struct {
 	Publishers []PublisherRule `json:"publishers"`
+	// Signers classify keyless signers before the default rule does.
+	Signers []SignerClassRule `json:"signers,omitempty"`
 	// At is when the policy was signed (RFC 3339): a promoter refuses a
 	// policy older than the one it already uses.
 	At string `json:"at"`
@@ -377,6 +435,11 @@ func OpenPolicy(bundle []byte, verify func(bundle []byte) error) (PublisherPolic
 	for i, r := range p.Publishers {
 		if r.Issuer == "" || !PinnedPattern(r.Subject) || !PinnedPattern(r.Repository) {
 			return PublisherPolicy{}, fmt.Errorf("publisher rule %d (%s) needs an issuer and anchored subject and repository patterns that match no foreign identity", i, r.Name)
+		}
+	}
+	for i, r := range p.Signers {
+		if r.Issuer == "" || !PinnedPattern(r.Subject) || !slices.Contains([]ActorClass{ClassHuman, ClassAgent, ClassCI}, r.Class) {
+			return PublisherPolicy{}, fmt.Errorf("signer rule %d (%s) needs an issuer, an anchored subject pattern that matches no foreign identity and a class of human, agent or ci", i, r.Name)
 		}
 	}
 	return p, nil

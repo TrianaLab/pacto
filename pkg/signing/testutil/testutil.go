@@ -52,7 +52,8 @@ func Token(identity, issuer string) string {
 
 // CIToken is an OIDC token of a CI workload: the fake Fulcio issues a
 // certificate whose URI SAN is subjectURI and whose extensions attest issuer,
-// the source repository and its ref, as Fulcio does for GitHub Actions.
+// the source repository and its ref, as Fulcio does for GitHub Actions. With
+// no repository it is any workload identity: a URI SAN, no source extensions.
 func CIToken(subjectURI, issuer, repository, ref string) string {
 	claims, _ := json.Marshal(map[string]string{"sub": subjectURI, "iss": issuer, "repository": repository, "ref": ref})
 	return "e30." + base64.RawURLEncoding.EncodeToString(claims) + ".sig"
@@ -81,7 +82,10 @@ func ciLeaf(subject, issuer, repository, ref string, pub crypto.PublicKey, paren
 		SerialNumber: big.NewInt(1), URIs: []*url.URL{san},
 		NotBefore: time.Now().Add(-time.Minute), NotAfter: time.Now().Add(9 * time.Minute),
 		KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageCodeSigning},
-		ExtraExtensions: []pkix.Extension{ext(oidIssuerV2, issuer), ext(oidSourceRepo, repository), ext(oidSourceRepoRef, ref)},
+		ExtraExtensions: []pkix.Extension{ext(oidIssuerV2, issuer)},
+	}
+	if repository != "" {
+		tmpl.ExtraExtensions = append(tmpl.ExtraExtensions, ext(oidSourceRepo, repository), ext(oidSourceRepoRef, ref))
 	}
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, parent, pub, parentKey)
 	if err != nil {
@@ -123,7 +127,7 @@ func New(t testing.TB) *Sigstore {
 			return
 		}
 		var leaf *x509.Certificate
-		if claims.Repository != "" {
+		if claims.Repository != "" || strings.Contains(claims.Sub, "://") {
 			leaf, err = ciLeaf(claims.Sub, claims.Iss, claims.Repository, claims.Ref, pub, inter, interKey)
 		} else {
 			leaf, err = ca.GenerateLeafCert(claims.Sub, claims.Iss, time.Now().Add(-time.Minute), signerOf{pub}, inter, interKey)

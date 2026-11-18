@@ -269,7 +269,11 @@ func paramsEqual(a, b delivery.Params, typ string) bool {
 	if a.Publisher == nil || b.Publisher == nil {
 		return a == b
 	}
-	same := *a.Publisher == *b.Publisher
+	// The class is how the signer reads, not who it is: a policy that
+	// classifies it anew names the same trust operation.
+	pa, pb := *a.Publisher, *b.Publisher
+	pa.Class, pa.ClassifiedBy, pb.Class, pb.ClassifiedBy = "", "", "", ""
+	same := pa == pb
 	if typ == delivery.TypeTrust {
 		return same
 	}

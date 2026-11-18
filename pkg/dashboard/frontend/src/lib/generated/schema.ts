@@ -1884,6 +1884,13 @@ export interface components {
         "Delivery.PublisherIdentity": {
             /** @description The certificate is a CI workload identity: it attests a source repository */
             ci?: boolean;
+            /**
+             * @description Who the signer is: a person (human), an agent or a CI workload; only a person's signature makes a record a decision
+             * @enum {string}
+             */
+            class?: "human" | "agent" | "ci";
+            /** @description What classified the signer: policy:<rule name> or default:<reason> */
+            classifiedBy?: string;
             /** @description The OIDC issuer of the signer's certificate */
             issuer: string;
             /** @description The source repository ref the certificate attests */

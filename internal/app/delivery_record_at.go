@@ -125,26 +125,13 @@ func (d *Delivery) approvalAt(ctx context.Context, at *delivery.RecordAt, path s
 	}
 	at.Approval = &st
 	p := st.Predicate
-	streams := path
+	streams, subject := path, ""
 	if p.Signer.Kind == delivery.SignerPerson {
 		// ponytail: a person's approval lives in the approvals repository; its
 		// operation records are read from the chart's default streams
 		// repository beside it. Another name is unknown.
 		streams = strings.TrimSuffix(path, approvalsSuffix)
-		policy, perr := d.classPolicy(ctx)
-		a, err := signing.OpenPersonApproval(bundle, policy)
-		switch {
-		case perr != nil:
-			at.Note = "unverified: the installation's approver signers could not be read: " + perr.Error()
-		case err != nil && d.PolicyNamespace != "":
-			at.Note = "unverified: the installation's published identity policy does not accept this signer: " + err.Error()
-		case err != nil && len(policy.Signers) == 0:
-			at.Note = "unverified: no approver signer was given to verify it with; pass --signers with the installation's identity policy"
-		case err != nil:
-			at.Note = "unverified: " + err.Error() + "; pass --signers with the installation's identity policy"
-		default:
-			at.Verified, at.Signer = true, a.SAN+" (keyless, issuer "+a.Issuer+")"
-		}
+		subject = d.personAt(ctx, at, bundle)
 	} else {
 		d.trusted(at, func(v delivery.Verifier) error {
 			_, _, err := delivery.OpenApproval(bundle, func(b []byte) error { return v(p.Operation.Stage.Stream(), 0, b) })
@@ -157,6 +144,12 @@ func (d *Delivery) approvalAt(ctx context.Context, at *delivery.RecordAt, path s
 	if !at.Verified {
 		return nil
 	}
+	if at.SignerClass != "" && !delivery.ReadsAsDecision(at.SignerClass) {
+		at.Note = "proposal recorded (signature verified): only a person's approval decides"
+		at.Counted = delivery.NotCounted
+		at.CountedWhy = "not counted (signed by " + string(at.SignerClass) + " " + subject + ": a proposal)"
+		return nil
+	}
 	at.Note = "decision recorded (signature verified); it counted only if the operation record lists it"
 	if streams == path && p.Signer.Kind == delivery.SignerPerson {
 		at.Counted, at.CountedWhy = delivery.CountedUnknown, "the operation records' repository is not known from "+path+
@@ -165,6 +158,27 @@ func (d *Delivery) approvalAt(ctx context.Context, at *delivery.RecordAt, path s
 	}
 	at.Counted, at.CountedWhy = d.counted(ctx, streams, p.Operation, id)
 	return nil
+}
+
+// personAt verifies a person's keyless approval against the installation's
+// approver signers and returns the subject its certificate names.
+func (d *Delivery) personAt(ctx context.Context, at *delivery.RecordAt, bundle []byte) string {
+	policy, perr := d.classPolicy(ctx)
+	a, err := signing.OpenPersonApproval(bundle, policy)
+	switch {
+	case perr != nil:
+		at.Note = "unverified: the installation's approver signers could not be read: " + perr.Error()
+	case err != nil && d.PolicyNamespace != "":
+		at.Note = "unverified: the installation's published identity policy does not accept this signer: " + err.Error()
+	case err != nil && len(policy.Signers) == 0:
+		at.Note = "unverified: no approver signer was given to verify it with; pass --signers with the installation's identity policy"
+	case err != nil:
+		at.Note = "unverified: " + err.Error() + "; pass --signers with the installation's identity policy"
+	default:
+		at.Verified, at.Signer = true, a.SAN+" (keyless, issuer "+a.Issuer+")"
+		at.SignerClass, at.ClassifiedBy = a.Class, a.ClassifiedBy
+	}
+	return a.SAN
 }
 
 // counted says whether the operation record of op lists the approval record

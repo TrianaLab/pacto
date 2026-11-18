@@ -359,9 +359,12 @@ func (s *onStage) view(signed signedApproval, ref string) *dv1.Approval {
 }
 
 // refusal is why the promoter would not count a view of signed: the same
-// keyless guard and approver checks, with the workload review asked as the
+// proposal and keyless guards and approver checks, with the workload review asked as the
 // identity the certificate names.
 func (s *onStage) refusal(ctx context.Context, signed signedApproval, a delivery.ApprovalSpec) string {
+	if why := signed.proposal(); why != "" {
+		return why
+	}
 	if code, why := delivery.KeylessRefusal(signed.identity, signed.source); code != "" {
 		return why
 	}

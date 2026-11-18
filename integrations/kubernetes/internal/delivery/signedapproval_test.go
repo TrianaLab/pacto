@@ -46,6 +46,12 @@ func withSigners(p delivery.ClassPolicy, ss *sigtest.Sigstore) delivery.ClassPol
 // edit applied before signing.
 func signedApprovalOf(t *testing.T, ss *sigtest.Sigstore, san string, op *dv1.Operation, stream string, edit ...func(*delivery.ApprovalStatement)) []byte {
 	t.Helper()
+	return signedApprovalWith(t, ss, sigtest.Token(san, personIssuer), op, stream, edit...)
+}
+
+// signedApprovalWith is signedApprovalOf signed with the OIDC token tok.
+func signedApprovalWith(t *testing.T, ss *sigtest.Sigstore, tok string, op *dv1.Operation, stream string, edit ...func(*delivery.ApprovalStatement)) []byte {
+	t.Helper()
 	obj := delivery.OperationObject{Metadata: delivery.ObjectMeta{Name: op.Name, Namespace: op.Namespace, UID: string(op.UID)}, Spec: op.Spec}
 	st := delivery.NewApprovalRecord(delivery.RecordStage{}, deliveryrecord.Anchor(stream).ManifestDesc.Digest.String(), obj,
 		delivery.ApprovalSpec{IntentDigest: op.Spec.IntentDigest, Decision: delivery.Approve, Note: "ship it"},
@@ -53,7 +59,6 @@ func signedApprovalOf(t *testing.T, ss *sigtest.Sigstore, san string, op *dv1.Op
 	for _, f := range edit {
 		f(&st)
 	}
-	tok := sigtest.Token(san, personIssuer)
 	s, err := signing.Keyless(ss.Fulcio, ss.TSA, "", func(context.Context) (string, error) { return tok, nil }, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -573,7 +578,8 @@ func TestKeylessApprovalRunsSARWithoutGroups(t *testing.T) {
 }
 
 // TestKeylessURISignerIsAgent: a certificate naming a workload (a URI SAN)
-// is an agent, refused although IsHuman alone would call it a person.
+// is an agent, refused although IsHuman alone would call it a person: its
+// record reads as a proposal, and ApproverIdentity calls it an agent too.
 func TestKeylessURISignerIsAgent(t *testing.T) {
 	e, o, ss, reg := heldKeylessEnv(t)
 	e.op.Policy.Signers[0].Subjects = ".*"
@@ -584,8 +590,7 @@ func TestKeylessURISignerIsAgent(t *testing.T) {
 		t.Fatal("the premise: IsHuman calls the URI a person")
 	}
 	o = e.drive("p1")
-	if len(o.Status.Approvals) != 0 || !strings.Contains(o.Status.Message, "agents cannot approve") ||
-		!strings.Contains(o.Status.Message, "a signer whose certificate names a workload") {
+	if len(o.Status.Approvals) != 0 || !strings.Contains(o.Status.Message, "it is a proposal: signed by agent "+uri) {
 		t.Fatalf("%+v %q", o.Status.Approvals, o.Status.Message)
 	}
 	_, why := e.op.verifySigned(context.Background(), e.getApproval("v").Spec)

@@ -22,11 +22,14 @@ import (
 // who the certificate names, as whom it is checked, and when a timestamp
 // authority or the log saw it signed.
 type signedApproval struct {
-	st       delivery.ApprovalStatement
-	id       string
-	identity delivery.Identity
-	source   delivery.ClassSource
-	at       time.Time
+	st           delivery.ApprovalStatement
+	id           string
+	san          string
+	identity     delivery.Identity
+	source       delivery.ClassSource
+	class        delivery.ActorClass
+	classifiedBy string
+	at           time.Time
 }
 
 // openSigned opens bundle, an approval record, through
@@ -34,7 +37,17 @@ type signedApproval struct {
 // it, so a record becomes a decision in one place.
 func openSigned(bundle []byte, p delivery.ClassPolicy) (signedApproval, error) {
 	a, err := signing.OpenPersonApproval(bundle, p)
-	return signedApproval{st: a.Statement, id: a.ID, identity: a.Identity, source: a.Source, at: a.At}, err
+	return signedApproval{st: a.Statement, id: a.ID, san: a.SAN, identity: a.Identity, source: a.Source,
+		class: a.Class, classifiedBy: a.ClassifiedBy, at: a.At}, err
+}
+
+// proposal says why a verified record is only a proposal: an agent or a CI
+// workload signed it (delivery.ReadsAsDecision). It is "" for a person's.
+func (s signedApproval) proposal() string {
+	if delivery.ReadsAsDecision(s.class) {
+		return ""
+	}
+	return "it is a proposal: signed by " + string(s.class) + " " + s.san + " (" + s.classifiedBy + "), and only a person's approval decides"
 }
 
 // verifySigned fetches and verifies the keyless record the view a names, and
@@ -60,6 +73,9 @@ func (r *OperationReconciler) verifySigned(ctx context.Context, s delivery.Appro
 		return signedApproval{}, "its signed record does not verify: " + err.Error()
 	}
 	p := signed.st.Predicate
+	if why := signed.proposal(); why != "" {
+		return signedApproval{}, why
+	}
 	if code, why := delivery.KeylessRefusal(signed.identity, signed.source); code != "" {
 		return signedApproval{}, why
 	}

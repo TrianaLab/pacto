@@ -15,8 +15,8 @@ import (
 // signing.OpenPersonApproval, which runs OpenApproval with VerifyPerson; and
 // the recorder (approvalrecorder.go), the promoter (approval.go through
 // verifySigned) and the client (internal/app) reach it from the files listed
-// here. 511-S3 adds the signer-class check (a non-person approval reads as a
-// proposal) in exactly this path, so a new caller must join this list.
+// here. Each asks the signer-class check (a non-person approval reads as a
+// proposal, delivery.ReadsAsDecision), so a new caller must join this list.
 func TestApprovalDecisionsGoThroughOpenApproval(t *testing.T) {
 	const (
 		person   = "pkg/signing/person.go"
@@ -33,6 +33,12 @@ func TestApprovalDecisionsGoThroughOpenApproval(t *testing.T) {
 		"signing.OpenPersonApproval(":             {operator + "signedapproval.go", client},
 		"openSigned(":                             {operator + "approvalrecorder.go", operator + "publishers.go", operator + "signedapproval.go"},
 		"r.verifySigned(":                         {operator + "approval.go"},
+		// A verified record decides only when a person signed it: the
+		// client asks delivery.ReadsAsDecision itself, and every operator
+		// caller of openSigned (the recorder's view, the promoter's count and
+		// the pin reader's cited approval) asks it through proposal().
+		"delivery.ReadsAsDecision(": {operator + "signedapproval.go", client},
+		".proposal()":               {operator + "approvalrecorder.go", operator + "publishers.go", operator + "signedapproval.go"},
 	} {
 		if got := productionFilesCalling(t, call); !slices.Equal(got, want) {
 			t.Errorf("%s is called from %v, want exactly %v: an approval record becomes a decision only through signing.OpenPersonApproval", call, got, want)

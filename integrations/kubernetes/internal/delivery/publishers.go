@@ -175,8 +175,9 @@ func (p *Publishers) signersOf(ctx context.Context, reg publish.Registry, tm roo
 }
 
 // watch judges the newest version tags of repo for svc, newest first. The
-// signature read is memoised per digest; the judgement runs on every pass,
-// with this service and rule, so two services never share a verdict.
+// signature read is memoised per digest; the judgement and the signers'
+// classes run on every pass, with this service, rule and policy, so two
+// services never share a verdict and a new policy reclassifies at once.
 func (p *Publishers) watch(ctx context.Context, reg publish.Registry, tm root.TrustedMaterial, svc delivery.ServiceRef, repo string, b basis) ([]delivery.PublisherVerdict, error) {
 	tags, err := p.list(ctx, reg, repo)
 	if err != nil {
@@ -189,6 +190,10 @@ func (p *Publishers) watch(ctx context.Context, reg publish.Registry, tm root.Tr
 			v = publish.JudgeRead(t.digest, nil, t.err, svc, t.source, b.rules, b.source, b.pins)
 		} else {
 			signers, err := p.signersOf(ctx, reg, tm, repo, t.digest)
+			signers = slices.Clone(signers) // the memo's, classified on every pass like the verdict
+			for i := range signers {
+				signers[i] = delivery.Classified(signers[i], b.classes)
+			}
 			v = publish.JudgeRead(t.digest, signers, err, svc, t.source, b.rules, b.source, b.pins)
 		}
 		v.Version = t.version
@@ -353,10 +358,11 @@ func newestAccepted(p *delivery.PublisherStatus) string {
 }
 
 // basis is what a Stage's watch judges against on one pass: the rules and
-// what they are (rule, policy or none), the service's pins and the policy
+// what they are (rule, policy or none), the policy's signer classes, the service's pins and the policy
 // and pin high-water marks they moved to, and what could not be read.
 type basis struct {
 	rules                  []delivery.PublisherRule
+	classes                []delivery.SignerClassRule
 	source                 string
 	rule                   *delivery.PublisherRule
 	policyRef              string
@@ -380,7 +386,7 @@ func (p *Publishers) basisFor(ctx context.Context, reg publish.Registry, svc del
 		b.policyRef = p.Policy
 		pol, digest, why := p.policy(ctx, reg, old)
 		if pol != nil {
-			b.rules, b.source, b.policyDigest, b.policyAt = pol.Publishers, delivery.PublisherSourcePolicy, digest, pol.At
+			b.rules, b.classes, b.source, b.policyDigest, b.policyAt = pol.Publishers, pol.Signers, delivery.PublisherSourcePolicy, digest, pol.At
 		}
 		b.msgs = append(b.msgs, why)
 	case p.HasRule:
@@ -552,6 +558,9 @@ func approvalAt(opts ocireferrer.Options, policy delivery.ClassPolicy, verify fu
 		st, _, err := delivery.OpenApproval(bundle, func([]byte) error { return nil }) // Fetch read one
 		if err == nil && st.Predicate.Signer.Kind == delivery.SignerPerson {
 			s, err := openSigned(bundle, policy)
+			if why := s.proposal(); err == nil && why != "" {
+				err = errors.New(why)
+			}
 			return s.st, s.identity.User, err
 		}
 		if _, _, err = delivery.OpenApproval(bundle, verify); err != nil {

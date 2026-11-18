@@ -20,7 +20,8 @@ const maxVerdictReason = 256
 var errSignerRead = errors.New("signer recorded")
 
 // SignersOf is every identity whose keyless signature of repo@digest verifies
-// under root, whoever it names: who signed is judged by the caller.
+// under root, whoever it names, classified by the default rule: who signed is
+// judged by the caller.
 // ErrNoSignature means no signature is attached; any other error with
 // no signer means none could be verified.
 func SignersOf(ctx context.Context, reg Registry, root root.TrustedMaterial, tlog bool, repo, digest string) ([]delivery.PublisherIdentity, error) {
@@ -34,7 +35,7 @@ func SignersOf(ctx context.Context, reg Registry, root root.TrustedMaterial, tlo
 		if pt := res.Statement.GetPredicateType(); pt != SignPredicate {
 			return pt, nil // VerifyDigest refuses an attestation that is not a signature
 		}
-		signers = append(signers, signing.IdentityOf(res))
+		signers = append(signers, delivery.Classified(signing.IdentityOf(res), nil))
 		return "", errSignerRead
 	}, repo, digest)
 	if len(signers) > 0 {

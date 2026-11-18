@@ -87,21 +87,21 @@ func (p Policy) Verify(raw, digest []byte) (*verify.VerificationResult, error) {
 
 // VerifyPerson checks a keyless bundle (JSON) signed by any identity issuer
 // vouches for under trustedRoot (a trusted_root.json), at a time a timestamp
-// authority or the transparency log observed. It returns the certificate's
-// subject (san) and that observed time: a timestamp authority's when there is
-// one, else the log's. Who san is, the caller decides.
-func VerifyPerson(raw []byte, issuer, trustedRoot string) (san string, signedAt time.Time, err error) {
+// authority or the transparency log observed. It returns who the
+// certificate names (IdentityOf; its Subject is the SAN) and that observed
+// time: a timestamp authority's when there is one, else the log's. Who the
+// signer is, the caller decides.
+func VerifyPerson(raw []byte, issuer, trustedRoot string) (signer delivery.PublisherIdentity, signedAt time.Time, err error) {
 	tr, err := root.NewTrustedRootFromJSON([]byte(trustedRoot))
 	if err != nil {
-		return "", time.Time{}, fmt.Errorf("trustedRoot: %w", err)
+		return signer, time.Time{}, fmt.Errorf("trustedRoot: %w", err)
 	}
 	res, err := Policy{AnyIdentity: true, Root: tr}.Verify(raw, nil)
 	if err != nil {
-		return "", time.Time{}, err
+		return signer, time.Time{}, err
 	}
-	cert := res.Signature.Certificate
-	if cert == nil || cert.Issuer != issuer {
-		return "", time.Time{}, fmt.Errorf("the bundle is not signed by a certificate from %s", issuer)
+	if signer = IdentityOf(res); signer.Issuer != issuer {
+		return delivery.PublisherIdentity{}, time.Time{}, fmt.Errorf("the bundle is not signed by a certificate from %s", issuer)
 	}
 	// Verify required an observer timestamp: a timestamp authority's time
 	// wins over the log's.
@@ -110,7 +110,7 @@ func VerifyPerson(raw []byte, issuer, trustedRoot string) (san string, signedAt 
 			signedAt = ts.Timestamp.UTC()
 		}
 	}
-	return cert.SubjectAlternativeName, signedAt, nil
+	return signer, signedAt, nil
 }
 
 // PublicGoodRoot fetches public-good Sigstore's trusted root through TUF from

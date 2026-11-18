@@ -93,6 +93,8 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `spec.params.from` | `string` | no |  |  |  |
 | `spec.params.publisher` | `object` | no |  |  | Publisher is the signer a trust operation asks a person to confirm. |
 | `spec.params.publisher.ci` | `boolean` | no |  |  |  |
+| `spec.params.publisher.class` | `string` | no |  | `human`, `agent`, `ci` | ActorClass is who raised an operation, as the promoter classifies the apiserver identity. It is derived, never asserted by the client. |
+| `spec.params.publisher.classifiedBy` | `string` | no |  |  |  |
 | `spec.params.publisher.issuer` | `string` | yes |  |  |  |
 | `spec.params.publisher.ref` | `string` | no |  |  |  |
 | `spec.params.publisher.repository` | `string` | no |  |  |  |
@@ -405,6 +407,8 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.publisher.verdicts[].digest` | `string` | yes |  |  |  |
 | `status.publisher.verdicts[].identity` | `object` | no |  |  | PublisherIdentity is who signed a digest, read from the verified Sigstore certificate. |
 | `status.publisher.verdicts[].identity.ci` | `boolean` | no |  |  |  |
+| `status.publisher.verdicts[].identity.class` | `string` | no |  | `human`, `agent`, `ci` | ActorClass is who raised an operation, as the promoter classifies the apiserver identity. It is derived, never asserted by the client. |
+| `status.publisher.verdicts[].identity.classifiedBy` | `string` | no |  |  |  |
 | `status.publisher.verdicts[].identity.issuer` | `string` | yes |  |  |  |
 | `status.publisher.verdicts[].identity.ref` | `string` | no |  |  |  |
 | `status.publisher.verdicts[].identity.repository` | `string` | no |  |  |  |

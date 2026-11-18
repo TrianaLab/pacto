@@ -411,3 +411,23 @@ func TestApproveIntentRegistryFailures(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestRecordAtCarriesClassifiedBy: a verified keyless approval says whether
+// a person, an agent or a CI workload signed it and what said so; an agent's
+// is a proposal that never counted.
+func TestRecordAtCarriesClassifiedBy(t *testing.T) {
+	e := newAtEnv(t, testutil.ReferrersOptions{})
+	ref, _ := e.personApproval("alice@acme.example", "ok")
+	at, err := e.d.RecordAt(context.Background(), ref)
+	if err != nil || at.SignerClass != delivery.ClassHuman || !strings.HasPrefix(at.ClassifiedBy, "default:") {
+		t.Fatalf("a person: %+v %v", at, err)
+	}
+	const sa = "https://kubernetes.io/namespaces/agents/serviceaccounts/reviewer"
+	ref, id := e.personApproval(sa, "ok")
+	e.concluded(id)
+	at, err = e.d.RecordAt(context.Background(), ref)
+	if err != nil || !at.Verified || at.SignerClass != delivery.ClassAgent || !strings.HasPrefix(at.ClassifiedBy, "default:") ||
+		at.Counted != delivery.NotCounted || at.CountedWhy != "not counted (signed by agent "+sa+": a proposal)" || !strings.Contains(at.Note, "proposal") {
+		t.Fatalf("a workload: %+v %v", at, err)
+	}
+}

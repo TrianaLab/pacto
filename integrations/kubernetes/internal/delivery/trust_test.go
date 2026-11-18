@@ -85,7 +85,7 @@ func TestTrustRaiseNeverFreezes(t *testing.T) {
 }
 
 func TestParamsEqual(t *testing.T) {
-	a, b := otherID, otherID
+	a, b, classed := otherID, otherID, delivery.Classified(otherID, nil)
 	b.Subject = "x"
 	for _, c := range []struct {
 		x, y delivery.Params
@@ -98,6 +98,7 @@ func TestParamsEqual(t *testing.T) {
 		{delivery.Params{To: dA, Publisher: &a}, delivery.Params{To: dB, Publisher: &otherID}, delivery.TypePromote, false},
 		{delivery.Params{To: dA, Publisher: &a}, delivery.Params{To: dA, Publisher: &otherID}, delivery.TypePromote, true},
 		{delivery.Params{To: dA, Publisher: &a}, delivery.Params{To: dA}, delivery.TypeTrust, false},
+		{delivery.Params{To: dA, Publisher: &a}, delivery.Params{To: dA, Publisher: &classed}, delivery.TypeTrust, true}, // a class names the same one
 	} {
 		if got := paramsEqual(c.x, c.y, c.typ); got != c.want {
 			t.Errorf("%+v %+v %s: %v", c.x, c.y, c.typ, got)

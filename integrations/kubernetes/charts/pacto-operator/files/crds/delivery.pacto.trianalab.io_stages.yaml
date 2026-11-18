@@ -723,6 +723,17 @@ spec:
                           properties:
                             ci:
                               type: boolean
+                            class:
+                              description: |-
+                                ActorClass is who raised an operation, as the promoter classifies the
+                                apiserver identity. It is derived, never asserted by the client.
+                              enum:
+                              - human
+                              - agent
+                              - ci
+                              type: string
+                            classifiedBy:
+                              type: string
                             issuer:
                               type: string
                             ref:

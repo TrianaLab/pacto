@@ -35,9 +35,9 @@ func personBundle(t *testing.T, ss *testutil.Sigstore, san, issuer string, times
 func TestVerifyPersonReturnsSANAndTime(t *testing.T) {
 	ss := testutil.New(t)
 	before := time.Now().Add(-time.Second)
-	san, at, err := VerifyPerson(personBundle(t, ss, "alice@acme.com", personIssuer, true), personIssuer, string(ss.RootJSON))
-	if err != nil || san != "alice@acme.com" || at.Before(before) || at.After(time.Now().Add(time.Second)) || at.Location() != time.UTC {
-		t.Fatalf("VerifyPerson = %q %v %v", san, at, err)
+	who, at, err := VerifyPerson(personBundle(t, ss, "alice@acme.com", personIssuer, true), personIssuer, string(ss.RootJSON))
+	if err != nil || who.Subject != "alice@acme.com" || who.Issuer != personIssuer || who.CI || at.Before(before) || at.After(time.Now().Add(time.Second)) || at.Location() != time.UTC {
+		t.Fatalf("VerifyPerson = %+v %v %v", who, at, err)
 	}
 }
 
@@ -70,7 +70,13 @@ func TestVerifyPersonNeedsObserverTime(t *testing.T) {
 // approvalBundle is an approval record signed keyless as san by kind.
 func approvalBundle(t *testing.T, ss *testutil.Sigstore, san, kind string) []byte {
 	t.Helper()
-	tok := testutil.Token(san, personIssuer)
+	return approvalBundleOf(t, ss, testutil.Token(san, personIssuer), kind)
+}
+
+// approvalBundleOf is an approval record signed keyless with the OIDC token
+// tok by kind.
+func approvalBundleOf(t *testing.T, ss *testutil.Sigstore, tok, kind string) []byte {
+	t.Helper()
 	s, err := Keyless(ss.Fulcio, ss.TSA, "", func(context.Context) (string, error) { return tok, nil }, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -111,4 +117,42 @@ func TestOpenPersonApproval(t *testing.T) {
 	if _, err := OpenPersonApproval(approvalBundle(t, ss, "alice@acme.com", delivery.SignerPerson), delivery.ClassPolicy{Signers: p.Signers[:1]}); err == nil {
 		t.Fatal("a certificate under another root verified")
 	}
+}
+
+// TestOpenPersonApprovalClassifiesSigner: a person's email certificate reads
+// as a decision; the class and what classified it come with the record.
+func TestOpenPersonApprovalClassifiesSigner(t *testing.T) {
+	ss := testutil.New(t)
+	a, err := OpenPersonApproval(approvalBundle(t, ss, "alice@acme.com", delivery.SignerPerson), signersFor(ss, personIssuer))
+	if err != nil || a.Class != delivery.ClassHuman || !strings.HasPrefix(a.ClassifiedBy, "default:") || !delivery.ReadsAsDecision(a.Class) {
+		t.Fatalf("%+v %v", a, err)
+	}
+}
+
+// TestCISignedApprovalIsProposal: an approval a GitHub Actions workflow
+// signed verifies, but its signer is a CI workload, so it is a proposal.
+func TestCISignedApprovalIsProposal(t *testing.T) {
+	ss := testutil.New(t)
+	const gha = "https://token.actions.githubusercontent.com"
+	tok := testutil.CIToken("https://github.com/acme/app/.github/workflows/ship.yml@refs/heads/main", gha, "https://github.com/acme/app", "refs/heads/main")
+	a, err := OpenPersonApproval(approvalBundleOf(t, ss, tok, delivery.SignerPerson), signersFor(ss, gha))
+	if err != nil || a.Class != delivery.ClassCI || delivery.ReadsAsDecision(a.Class) {
+		t.Fatalf("%+v %v", a, err)
+	}
+}
+
+// TestWorkloadIdentitySignedApprovalIsProposal: an approval a Kubernetes
+// service account signed is an agent's, a proposal.
+func TestWorkloadIdentitySignedApprovalIsProposal(t *testing.T) {
+	ss := testutil.New(t)
+	tok := testutil.CIToken("https://kubernetes.io/namespaces/agents/serviceaccounts/reviewer", personIssuer, "", "")
+	a, err := OpenPersonApproval(approvalBundleOf(t, ss, tok, delivery.SignerPerson), signersFor(ss, personIssuer))
+	if err != nil || a.Class != delivery.ClassAgent || a.SAN != "https://kubernetes.io/namespaces/agents/serviceaccounts/reviewer" || delivery.ReadsAsDecision(a.Class) {
+		t.Fatalf("%+v %v", a, err)
+	}
+}
+
+// signersFor accepts any subject issuer's certificates under ss.
+func signersFor(ss *testutil.Sigstore, issuer string) delivery.ClassPolicy {
+	return delivery.ClassPolicy{Signers: []delivery.PersonSigner{{Issuer: issuer, TrustedRoot: string(ss.RootJSON), UsernamePrefix: "oidc:", Subjects: `.+`}}}
 }

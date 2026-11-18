@@ -51,7 +51,11 @@ type RecordAt struct {
 	Predicate string `json:"predicate" doc:"The record's predicate type: operation/v1, approval/v1 or operation-intent/v1"`
 	Verified  bool   `json:"verified" doc:"Its signature was checked: against the trust config, or for a person's approval against the installation's signers"`
 	Signer    string `json:"signer,omitempty" doc:"Who signed it, as verified"`
-	Note      string `json:"note" doc:"What was checked, or why it is unverified"`
+	// SignerClass, on a verified keyless approval, is who signed it: only a
+	// person's (human) decides; any other is a proposal.
+	SignerClass  ActorClass `json:"signerClass,omitempty" enum:"human,agent,ci" doc:"On a verified keyless approval: whether a person (human), an agent or a CI workload signed it; only a person's approval decides"`
+	ClassifiedBy string     `json:"classifiedBy,omitempty" doc:"What classified the signer: policy:<rule name> or default:<reason>"`
+	Note         string     `json:"note" doc:"What was checked, or why it is unverified"`
 	// Counted, on an approval, is counted, not counted or unknown.
 	Counted    string             `json:"counted,omitempty" enum:"counted,not counted,unknown" doc:"On a verified approval: whether the operation record lists it"`
 	CountedWhy string             `json:"countedWhy,omitempty" doc:"Why it is unknown whether the approval counted"`

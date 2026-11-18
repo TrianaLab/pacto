@@ -48,8 +48,14 @@ func newPolicyWorld(t *testing.T) *policyWorld {
 // its digest.
 func (w *policyWorld) sign(key ed25519.PrivateKey, at string, rules ...delivery.PublisherRule) string {
 	w.t.Helper()
+	return w.signPolicy(key, delivery.PublisherPolicy{Publishers: rules, At: at})
+}
+
+// signPolicy is sign for a whole policy.
+func (w *policyWorld) signPolicy(key ed25519.PrivateKey, pol delivery.PublisherPolicy) string {
+	w.t.Helper()
 	payload, _ := json.Marshal(delivery.PolicyStatement{Type: delivery.StatementType, Subject: []delivery.Subject{},
-		PredicateType: delivery.PredicatePublisherPolicy, Predicate: delivery.PublisherPolicy{Publishers: rules, At: at}})
+		PredicateType: delivery.PredicatePublisherPolicy, Predicate: pol})
 	bundle, err := edSigner(key).Sign(w.t.Context(), delivery.PayloadType, payload)
 	must(w.t, err)
 	img, err := mutate.AppendLayers(ggcrempty.Image, static.NewLayer(bundle, ggcrtypes.MediaType(delivery.BundleMediaType)))

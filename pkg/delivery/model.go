@@ -95,6 +95,9 @@ const (
 	ClassAgent      ActorClass = "agent"
 	ClassHuman      ActorClass = "human"
 	ClassBreakGlass ActorClass = "break-glass"
+	// ClassCI is a CI workload that signed a record keyless; only
+	// ClassifySigner gives it.
+	ClassCI ActorClass = "ci"
 )
 
 // ServiceRef is the Pacto ServiceID a Stage delivers: the domain-qualified
