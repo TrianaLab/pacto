@@ -92,7 +92,9 @@ func TestPublishDerivedVersionRecorded(t *testing.T) {
 	if err := contract.VerifyInferredRecord(b.FS, rec); err != nil {
 		t.Fatal(err)
 	}
-	if len(res.Notes) != 0 {
+	// The fixture's baseline carries no revision: the run says the stale
+	// check did not happen instead of passing it silently.
+	if len(res.Notes) != 1 || !strings.Contains(res.Notes[0], "stale-run check not performed") {
 		t.Fatalf("notes: %v", res.Notes)
 	}
 	want := []contract.Inferred{{Field: "service.version", Value: "1.4.3 (1.4.2 + patch, NON_BREAKING)", Source: "registry:" + host + "/pacto/payments@" + base.Digest,
@@ -291,7 +293,8 @@ func TestSuperseded(t *testing.T) {
 		note    string
 		refused bool
 	}{
-		"no revision":  {publish.Derived{}, nil, "", false},
+		"first":        {publish.Derived{}, nil, "", false},
+		"no revision":  {publish.Derived{Baseline: "1.4.0"}, nil, "baseline 1.4.0 names no revision (no deploy artifact annotation, no inferred record): stale-run check not performed", false},
 		"contained":    {d, map[string]string{"git cat-file": "", "git merge-base": ""}, "", false},
 		"not an anc.":  {d, map[string]string{"git cat-file": "", "git merge-base": "fail"}, "", true},
 		"no time":      {publish.Derived{BaselineRevision: "abc"}, map[string]string{"git cat-file": "fail"}, unknown, false},

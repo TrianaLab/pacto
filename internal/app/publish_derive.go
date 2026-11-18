@@ -62,11 +62,15 @@ func deriveVersion(ctx context.Context, run runner, reg publish.Registry, tools 
 // superseded refuses a checkout that does not contain the revision the
 // baseline was published from: a newer run already published past it. In a
 // shallow clone without that commit, HEAD's commit time is compared with the
-// baseline's; with no baseline time a note says what could not be checked.
+// baseline's; with no baseline time, or a baseline naming no revision, a note
+// says what could not be checked.
 func superseded(ctx context.Context, run runner, dir, svc string, d publish.Derived) (string, error) {
 	rev := d.BaselineRevision
-	if rev == "" {
-		return "", nil
+	switch {
+	case rev == "" && d.Baseline != "":
+		return "baseline " + d.Baseline + " names no revision (no deploy artifact annotation, no inferred record): stale-run check not performed", nil
+	case rev == "":
+		return "", nil // a first publish has nothing to be stale against
 	}
 	ctx, cancel := context.WithTimeout(ctx, preflightTimeout)
 	defer cancel()
