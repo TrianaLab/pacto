@@ -381,6 +381,13 @@ func TestInClusterRegistrySupportsNativeReferrers(t *testing.T) {
 	if !strings.Contains(pin, "@sha256:") || !strings.Contains(body, `PACTO_REGISTRY_IMAGE="`+pin+`"`) {
 		t.Errorf("PACTO_REGISTRY_IMAGE must be the Compose demo's digest-pinned registry %q", pin)
 	}
+	// The registry conformance test's native registry is the same zot, in CI
+	// and locally.
+	for _, f := range []string{filepath.Join(".github", "workflows", "ci.yml"), "Makefile"} {
+		if !strings.Contains(code(t, filepath.Join(repoRoot(t), f)), pin) {
+			t.Errorf("%s must run the registry conformance test on the Compose demo's registry %q", f, pin)
+		}
+	}
 }
 
 // TestKindShardsReuseTheDeliveryImages pins the one image build per run: the
