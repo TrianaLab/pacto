@@ -4,6 +4,10 @@
 // delivery record reads on real registries: zot, which serves the OCI 1.1
 // Referrers API, and CNCF distribution, which serves none. It runs in the
 // ci-oci job and locally through `make test-registry-conformance`.
+//
+// GHCR, which cannot run here, answers a tag listing whose last names a tag
+// it does not hold with 200 and null tags (zot answers 404); the in-process
+// registry's TagsUnknownLast option reproduces it for the unit tests.
 package registryconformance
 
 import (

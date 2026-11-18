@@ -59,6 +59,11 @@ PROVIDER          EVIDENCE                   USED FOR
 Registry ghcr.io  no Referrers, no _catalog  write once tags, index listed by tag
 ```
 
+The `_catalog` answer depends on the credentials the probe sends. The output
+above is anonymous. With a GHCR token, which Pacto finds through `gh auth`,
+GHCR serves `_catalog` with every public repository on ghcr.io, and the row
+reads `no Referrers, _catalog` and `write once tags, index listed by catalog`.
+
 A probe that cannot tell (a network error, a server error, an answer that is
 not an OCI index) is never a mode. The row then reads `capabilities unknown`,
 is `partial` and carries `REGISTRY_PROBE_FAILED`. A host whose contracts all
