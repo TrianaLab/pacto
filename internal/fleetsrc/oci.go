@@ -100,7 +100,7 @@ func (s *OCISource) registryRows(ctx context.Context, revs []fleet.RawRevision) 
 	for _, host := range hosts {
 		caps, err := s.RegistryProbe(pctx, subject[host])
 		if err != nil {
-			rows = append(rows, registryProbeFailedRow(s.id, host, services[host], err))
+			rows = append(rows, registryProbeFailedRow(s.id, host, services[host], time.Now(), err))
 			continue
 		}
 		rows = append(rows, RegistryRow(caps, services[host]))
@@ -134,10 +134,10 @@ func RegistryRow(c capabilities.Capabilities, services []fleet.ServiceKey) fleet
 }
 
 // registryProbeFailedRow is the row of a host the probe could not read:
-// partial, with the reason, and no mode.
-func registryProbeFailedRow(source, host string, services []fleet.ServiceKey, err error) fleet.Provider {
+// partial, with the reason, and no mode. at is when the probe was tried.
+func registryProbeFailedRow(source, host string, services []fleet.ServiceKey, at time.Time, err error) fleet.Provider {
 	return fleet.Provider{
-		ID: fleet.ProviderRegistryPrefix + host, Name: "Registry " + host,
+		ID: fleet.ProviderRegistryPrefix + host, Name: "Registry " + host, AsOf: &at,
 		Evidence: "capabilities unknown", UsedFor: []string{}, Status: fleet.SourcePartial, Services: services,
 		Limitations: []fleet.Limitation{{Code: fleet.LimitationRegistryProbeFailed, Source: source,
 			Message: "registry " + host + " could not be probed: " + err.Error() + "; Pacto does not know which mode it would use"}},

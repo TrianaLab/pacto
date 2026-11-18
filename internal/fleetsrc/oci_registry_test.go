@@ -42,8 +42,9 @@ func TestRegistryRowNative(t *testing.T) {
 }
 
 func TestRegistryRowProbeFailedIsPartial(t *testing.T) {
-	row := registryProbeFailedRow("oci", "ghcr.io", nil, errors.New("timeout"))
-	if row.Status != fleet.SourcePartial || row.UsedFor == nil || len(row.UsedFor) != 0 || row.Evidence != "capabilities unknown" ||
+	tried := time.Date(2026, 11, 17, 9, 0, 0, 0, time.UTC)
+	row := registryProbeFailedRow("oci", "ghcr.io", nil, tried, errors.New("timeout"))
+	if row.AsOf == nil || !row.AsOf.Equal(tried) || row.Status != fleet.SourcePartial || row.UsedFor == nil || len(row.UsedFor) != 0 || row.Evidence != "capabilities unknown" ||
 		len(row.Limitations) != 1 || row.Limitations[0].Code != fleet.LimitationRegistryProbeFailed || row.Limitations[0].Source != "oci" ||
 		!strings.Contains(row.Limitations[0].Message, "registry ghcr.io could not be probed: timeout") {
 		t.Fatalf("row = %+v", row)
@@ -119,7 +120,7 @@ func TestOCISourceProbeBudget(t *testing.T) {
 	if err != nil || time.Since(start) > 5*time.Second {
 		t.Fatalf("collect took %s: %v", time.Since(start), err)
 	}
-	if len(col.Providers) != 1 || col.Providers[0].Status != fleet.SourcePartial {
+	if len(col.Providers) != 1 || col.Providers[0].Status != fleet.SourcePartial || col.Providers[0].AsOf == nil {
 		t.Fatalf("rows = %+v", col.Providers)
 	}
 }
