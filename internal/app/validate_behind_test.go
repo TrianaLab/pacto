@@ -218,6 +218,10 @@ func TestBehindMessageNamesPactoCI(t *testing.T) {
 	ref := &contract.Contract{Configurations: []contract.Configuration{{Name: "db", Ref: "../pg"}}}
 	head := `pactoVersion "2.3" is behind "` + cur + `"; `
 	unverified := validation.Unverified(contract.ValidationError{Code: "X", Message: "bad"})
+	pub := &contract.Contract{Publish: &contract.Publish{}}
+	kept := contract.Upgraded{From: "2.3", To: "2.3", Kept: &contract.ValidationError{Code: "ENVIRONMENT_VALUES_MISSING", Path: "environments[0]"}}
+	keptText := `setting pactoVersion: "` + cur + `" would add ENVIRONMENT_VALUES_MISSING at environments[0], so review that first`
+	noSection := `; pacto ci cannot publish it as written with no publish section, so it fails until pactoVersion is "` + cur + `"`
 	for _, tc := range []struct {
 		name string
 		c    *contract.Contract
@@ -227,8 +231,11 @@ func TestBehindMessageNamesPactoCI(t *testing.T) {
 	}{
 		{"raised", &contract.Contract{}, contract.Upgraded{From: "2.3", To: cur}, nil, head + `setting pactoVersion: "` + cur + `" keeps what this contract means` + raises},
 		{"operator", ref, contract.Upgraded{From: "2.3", To: cur}, nil, head + `setting pactoVersion: "` + cur + `" adds no validation finding; the operator then also accepts ContractOverrides values for its ref configurations (db)` + raises},
-		{"kept", &contract.Contract{}, contract.Upgraded{From: "2.3", To: "2.3", Kept: &contract.ValidationError{Code: "ENVIRONMENT_VALUES_MISSING", Path: "environments[0]"}}, nil, head + `setting pactoVersion: "` + cur + `" would add ENVIRONMENT_VALUES_MISSING at environments[0], so review that first; pacto ci publishes it as written`},
-		{"error", &contract.Contract{}, contract.Upgraded{From: "2.3"}, errors.New("boom"), head + "boom; pacto ci publishes it as written"},
+		{"kept", pub, kept, nil, head + keptText + "; pacto ci publishes it as written"},
+		{"error", pub, contract.Upgraded{From: "2.3"}, errors.New("boom"), head + "boom; pacto ci publishes it as written"},
+		// With no publish section pacto ci derives none below current: it fails the row.
+		{"kept, no section", &contract.Contract{}, kept, nil, head + keptText + noSection},
+		{"error, no section", &contract.Contract{}, contract.Upgraded{From: "2.3"}, errors.New("boom"), head + "boom" + noSection},
 		{"unverified", &contract.Contract{}, contract.Upgraded{From: "2.3"}, unverified, head + unverified.Error()},
 	} {
 		if got := behindMessage(tc.c, "2.3", cur, tc.up, tc.err); got != tc.want {

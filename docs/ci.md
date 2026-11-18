@@ -141,7 +141,8 @@ is written to `pacto-plan.md`; keep it with
 when that adds no validation finding. Its row says:
 
 - `ledger: pacto.yaml is 2.4, publishes as 2.5 (migrated in memory)`
-- `kept at 2.4 (<finding>)`: published as written
+- `kept at 2.4 (<finding>)`: published as written when it declares a `publish`
+  section; with none, the row fails until you fix the finding and raise `pactoVersion`
 - `published as 2.4 (raises to 2.5 when it next changes)`: a raise alone never
   republishes
 

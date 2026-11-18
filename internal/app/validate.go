@@ -192,7 +192,12 @@ func (s *Service) withBehind(ctx context.Context, stages []validation.Stage, c *
 // an invalid contract.
 func behindMessage(c *contract.Contract, declared, current string, up contract.Upgraded, err error) string {
 	head := fmt.Sprintf("pactoVersion %q is behind %q; ", declared, current)
-	const asWritten = "; pacto ci publishes it as written"
+	// pacto ci publishes a kept behind contract only through its own publish
+	// section: it derives none below the current pactoVersion (behindOK).
+	asWritten := "; pacto ci publishes it as written"
+	if c.Publish == nil {
+		asWritten = fmt.Sprintf("; pacto ci cannot publish it as written with no publish section, so it fails until pactoVersion is %q", current)
+	}
 	switch {
 	case errors.Is(err, validation.ErrUnverified):
 		return head + err.Error()
