@@ -4543,6 +4543,8 @@ export interface components {
             namespacesTotal?: number;
             /** Format: date-time */
             observedAt?: string;
+            /** @description The publisher the signed payload names, such as the ServiceAccount that pushed a target snapshot: a claim of the signer, never verified on its own */
+            publisher?: string;
             /** @description The pinned reference the source read, such as a target snapshot's repository@digest */
             ref?: string;
             /** Format: int64 */
@@ -4926,6 +4928,26 @@ export interface components {
             reason?: string;
             type: string;
         };
+        "Impact.RegistryLookup": {
+            /**
+             * Format: int64
+             * @description How many cluster snapshots the found repository holds
+             */
+            clusters?: number;
+            /** @description The pacto-targets repository read, empty when none holds a cluster snapshot */
+            found?: string;
+            /** @description The pacto-targets repositories tried, in order */
+            tried: components["schemas"]["Impact.RegistryRoot"][] | null;
+        };
+        "Impact.RegistryRoot": {
+            /**
+             * @description What the repository answered
+             * @enum {string}
+             */
+            outcome: "found" | "notFound" | "denied" | "noClusterTag";
+            /** @description The pacto-targets repository */
+            repository: string;
+        };
         "Impact.RegressionEvidence": {
             at?: string;
             digest?: string;
@@ -4974,12 +4996,16 @@ export interface components {
             potentiallyBreakingChanges?: components["schemas"]["Diff.Change"][] | null;
             /** @description The service keys of the services that provide the offering of an offering event */
             providers?: string[] | null;
+            /** @description Where Pacto looked for a target snapshot when none was named */
+            registry?: components["schemas"]["Impact.RegistryLookup"];
             regression?: components["schemas"]["Impact.RegressionEvidence"][] | null;
             schemaVersion: string;
             service: string;
             snapshotId: string;
             sources?: components["schemas"]["Fleet.SourceState"][] | null;
             sourcesTruncated?: boolean;
+            /** @description The signed target snapshots the answer read, pinned by digest */
+            targetSnapshots?: components["schemas"]["Fleet.SourceState"][] | null;
             /** @description The service keys of the golden paths that reference the changed service's policy: they run nowhere, so they never hold the gate, but a service created from one checks against the new policy. Review each */
             templates?: string[] | null;
         };

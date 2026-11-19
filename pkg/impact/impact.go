@@ -223,12 +223,43 @@ type Result struct {
 	// Templates are the golden paths that reference the changed service's
 	// policy. A golden path runs nowhere, so it never holds the gate.
 	Templates []string `json:"templates,omitempty" doc:"The service keys of the golden paths that reference the changed service's policy: they run nowhere, so they never hold the gate, but a service created from one checks against the new policy. Review each"`
+	// Registry says where Pacto looked for a target snapshot when no source
+	// named one; nil when it did not look.
+	Registry *RegistryLookup `json:"registry,omitempty" doc:"Where Pacto looked for a target snapshot when none was named"`
+	// TargetSnapshots are the states of the target-snapshot sources the
+	// answer read, each pinned by digest.
+	TargetSnapshots []fleet.SourceState `json:"targetSnapshots,omitempty" doc:"The signed target snapshots the answer read, pinned by digest"`
 	// observationSources are the observation sources an event answer read.
 	observationSources []string
 	// hiddenReferrers counts the services this viewer may not see that may
 	// reference the changed service's policy: none of them was checked.
 	hiddenReferrers int
 }
+
+// RegistryLookup is where Pacto looked for a target snapshot: the
+// pacto-targets repositories it tried in order, the one it found and how
+// many cluster snapshots that one holds.
+type RegistryLookup struct {
+	Tried    []RegistryRoot `json:"tried" doc:"The pacto-targets repositories tried, in order"`
+	Found    string         `json:"found,omitempty" doc:"The pacto-targets repository read, empty when none holds a cluster snapshot"`
+	Clusters int            `json:"clusters,omitempty" doc:"How many cluster snapshots the found repository holds"`
+}
+
+// RegistryRoot is one pacto-targets repository tried and what it answered.
+type RegistryRoot struct {
+	Repository string `json:"repository" doc:"The pacto-targets repository"`
+	// Outcome: found, notFound (no such repository), denied (the registry
+	// refused the read credentials) or noClusterTag (no cluster-<uid> tag).
+	Outcome string `json:"outcome" enum:"found,notFound,denied,noClusterTag" doc:"What the repository answered"`
+}
+
+// Outcomes of a [RegistryRoot].
+const (
+	RegistryFound        = "found"
+	RegistryNotFound     = "notFound"
+	RegistryDenied       = "denied"
+	RegistryNoClusterTag = "noClusterTag"
+)
 
 // boundEnvelope applies the same cap fleet answers apply to the completeness
 // envelope. Several build paths emit one limitation per record -- per ambiguous

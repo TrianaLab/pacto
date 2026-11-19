@@ -5,19 +5,26 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/opencontainers/go-digest"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/registry/remote"
+	"oras.land/oras-go/v2/registry/remote/errcode"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/graph"
+	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 	"github.com/trianalab/pacto/v4/pkg/signing"
@@ -253,7 +260,7 @@ func (r *snapshotReader) classify(id, tagCluster, ref string, bundle []byte) []f
 	}
 	cl := snapshotCluster(snap.Cluster)
 	status, lims := classifyTargetSnapshot(id, snap, verdict, asOf, r.now)
-	state := fleet.SourceState{Status: status, Ref: ref, Signer: snapshotSigner(verdict), Cluster: cl, LastSuccessfulSync: &asOf}
+	state := fleet.SourceState{Status: status, Ref: ref, Signer: snapshotSigner(verdict), Publisher: snap.Publisher, Cluster: cl, LastSuccessfulSync: &asOf}
 	col := delivery.PactoCollection(id, snap.Pactos, nil, r.now)
 	col.Cluster, col.State, col.Limitations = cl, &state, append(col.Limitations, lims...)
 	// The workload source shares the status and cluster; the ref and signer
@@ -326,4 +333,98 @@ func unusedSnapshot(id string, cl *fleet.Cluster, status fleet.SourceStatus, cod
 	return fleet.NewMemorySource(id, fleet.SourceKindTargetSnapshot, &fleet.Collection{Cluster: cl,
 		State:       &fleet.SourceState{Status: status, Cluster: cl},
 		Limitations: []fleet.Limitation{{Code: code, Source: id, Message: message}}})
+}
+
+// registryRoots are the installation registries a provider ref may live
+// under, in the order D8 tries them: <host>/<first path segment>, then
+// <host>. ghcr.io/acme/contracts/ledger:2.3.0 gives ghcr.io/acme and ghcr.io;
+// a ref one segment below its host gives the host alone.
+func registryRoots(ref string) []string {
+	host, path, _ := strings.Cut(contract.TrimOCIScheme(ref), "/")
+	first, rest, nested := strings.Cut(path, "/")
+	if !nested || first == "" || rest == "" {
+		return []string{host}
+	}
+	return []string{host + "/" + first, host}
+}
+
+// findTargetSnapshot looks for the pacto-targets repository beside the first
+// oci:// ref of refs (D8) and returns it as an oci:// ref, with where it
+// looked. Only a 401, a 403, a 404 and a repository with no cluster tag mean
+// "not here": the walk goes on and records the outcome. Any other error
+// stops it and returns a failing target-snapshot source, so the answer is
+// partial rather than the answer of a registry with no snapshot. No oci://
+// ref looks nowhere and returns a nil lookup.
+func (s *Service) findTargetSnapshot(ctx context.Context, refs ...string) (string, *impact.RegistryLookup, fleet.Source) {
+	i := slices.IndexFunc(refs, func(r string) bool { return graph.ParseDependencyRef(r).IsOCI() })
+	if i < 0 {
+		return "", nil, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, cmp.Or(s.sys.snapshotTimeout, delivery.TargetSnapshotReadTimeout))
+	defer cancel()
+	kc := oci.NewKeychain(oci.EnvCredentialOptions())
+	look := &impact.RegistryLookup{Tried: []impact.RegistryRoot{}}
+	for _, root := range registryRoots(refs[i]) {
+		path := root + "/" + delivery.TargetSnapshotRepository
+		repo, err := ocireferrer.Open(path, ocireferrer.Options{Keychain: kc, Insecure: oci.EnvInsecureRegistries()})
+		var tags []string
+		if err == nil {
+			tags, _, err = deliveryrecord.ListTargetSnapshotTags(ctx, repo)
+		}
+		outcome := lookupOutcome(err, len(tags), credentialed(kc, root))
+		if outcome == "" {
+			return "", nil, fleet.NewFailingSource(targetSnapshotsID, fleet.SourceKindTargetSnapshot, fmt.Errorf("looking for target snapshots at %s: %w", path, err))
+		}
+		look.Tried = append(look.Tried, impact.RegistryRoot{Repository: path, Outcome: outcome})
+		if outcome == impact.RegistryFound {
+			look.Found, look.Clusters = path, len(tags)
+			return "oci://" + path, look, nil
+		}
+	}
+	return "", look, nil
+}
+
+// lookupOutcome is what listing a pacto-targets repository answered: found
+// with tags, noClusterTag without, notFound for a 404 (or NAME_UNKNOWN) and
+// for a 401 or 403 to an anonymous read, denied for a 401 or 403 to a read
+// with credentials. Any other error is "": it is no answer.
+func lookupOutcome(err error, tags int, credentialed bool) string {
+	var resp *errcode.ErrorResponse
+	switch {
+	case err == nil && tags > 0:
+		return impact.RegistryFound
+	case err == nil:
+		return impact.RegistryNoClusterTag
+	case !errors.As(err, &resp):
+		return ""
+	case (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) && credentialed:
+		return impact.RegistryDenied
+	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusNotFound,
+		slices.ContainsFunc(resp.Errors, func(e errcode.Error) bool { return e.Code == errcode.ErrorCodeNameUnknown }):
+		return impact.RegistryNotFound
+	}
+	return ""
+}
+
+// credentialed reports whether kc holds credentials for root's registry.
+func credentialed(kc authn.Keychain, root string) bool {
+	host, _, _ := strings.Cut(root, "/")
+	reg, err := name.NewRegistry(host)
+	if err != nil {
+		return false
+	}
+	a, err := kc.Resolve(reg)
+	return err == nil && a != authn.Anonymous
+}
+
+// targetSnapshotStates are the states of snap's target-snapshot sources, in
+// snap's order (by id).
+func targetSnapshotStates(snap *fleet.FleetSnapshot) []fleet.SourceState {
+	var out []fleet.SourceState
+	for _, st := range snap.Sources {
+		if st.Kind == fleet.SourceKindTargetSnapshot {
+			out = append(out, st)
+		}
+	}
+	return out
 }

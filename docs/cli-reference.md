@@ -1592,7 +1592,9 @@ The answer ends in a release gate, and the exit status follows it:
   2  unverified: nothing is shown to block the change, but the answer cannot clear it: a BREAKING change whose answer is partial or whose consumers none is shown to be safe, or a service that references the changed policy and fails it running nowhere known, could not be checked or could not be resolved. A run over --local bundles alone knows no targets, so a BREAKING change with consumers exits 2.
 A command that could not run also exits 1, with nothing on stdout. Add --target-state (or a live source) so the gate can tell deployed impact apart.
 
-Pacto finds consumers only in the sources you pass, such as --local, --root, --oci, --cache, --k8s, --evidence-url and --traces. With --local alone Pacto sees only the contracts in those folders, so "No affected consumers" is not evidence of safety.
+Pacto finds consumers only in the sources you pass, such as --local, --root, --oci, --cache, --k8s, --evidence-url, --traces and the target snapshot. With --local alone Pacto sees only the contracts in those folders, so "No affected consumers" is not evidence of safety.
+
+When you pass no --k8s, --target-state, --evidence-url or --target-snapshot, impact reads the signed target snapshot each cluster's delivery recorder publishes (--target-snapshot auto, the default): from the oci:// ref of the change it tries &lt;host&gt;/<first path segment>/pacto-targets, then &lt;host&gt;/pacto-targets, and prints a Registry line saying where it looked and a Targets line per cluster snapshot it read. auto reads only the clusters whose snapshot exists at that moment, so CI that knows its clusters pins them with --target-snapshot oci://&lt;registry&gt;/pacto-targets:cluster-&lt;uid&gt; (repeatable). --delivery-trust names the trust config that verifies each snapshot; an unverified or stale snapshot never clears a BREAKING change. --target-snapshot off reads none.
 
 ```
 pacto impact <old> <new> | --unavailable <service> | --removed <service> | --regressed <service>@<revision> [flags]
@@ -1603,6 +1605,10 @@ pacto impact <old> <new> | --unavailable <service> | --removed <service> | --reg
 ```
   # Impact of upgrading a local service against the local fleet
   pacto impact ./svc-v1 ./svc-v2 --local .
+
+  # Impact of a published service against the clusters that run it, read
+  # from the target snapshot next to its registry
+  pacto impact oci://ghcr.io/acme/svc:1.0.0 ./svc --delivery-trust trust.yaml
 
   # Include observed (runtime) evidence and emit JSON
   pacto impact oci://ghcr.io/acme/svc:1.0.0 ./svc --include-observed --output-format json

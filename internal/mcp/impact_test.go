@@ -160,3 +160,12 @@ func TestImpactToolSaysServiceIsOfferingName(t *testing.T) {
 		t.Errorf("description = %s", d)
 	}
 }
+
+// TestImpactToolSaysHTTPReadsNoTargetSnapshot: the description says which
+// servers read the change's target snapshot.
+func TestImpactToolSaysHTTPReadsNoTargetSnapshot(t *testing.T) {
+	d := impactTool().Description
+	if !strings.Contains(d, "'registry', 'targetSnapshots'") || !strings.Contains(d, "an HTTP server reads none until per-cluster review exists") {
+		t.Fatal(d)
+	}
+}

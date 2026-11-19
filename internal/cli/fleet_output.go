@@ -444,12 +444,17 @@ func sourceRef(s fleet.SourceState, lims []fleet.Limitation) string {
 		return ""
 	case s.Signer == "":
 		return ", ref " + s.Ref + ", unverified"
-	case slices.ContainsFunc(lims, func(l fleet.Limitation) bool {
-		return l.Source == s.ID && l.Code == fleet.LimitationTargetSnapshotUnscoped
-	}):
+	case unscoped(s, lims):
 		return ", ref " + s.Ref + ", signed by " + s.Signer + " (not scoped to this cluster)"
 	}
 	return ", ref " + s.Ref + ", signed by " + s.Signer
+}
+
+// unscoped reports whether lims say a key not scoped to s's cluster signed it.
+func unscoped(s fleet.SourceState, lims []fleet.Limitation) bool {
+	return slices.ContainsFunc(lims, func(l fleet.Limitation) bool {
+		return l.Source == s.ID && l.Code == fleet.LimitationTargetSnapshotUnscoped
+	})
 }
 
 // orDash returns "-" for an empty string so tabular text output stays aligned.

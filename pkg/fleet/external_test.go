@@ -434,7 +434,7 @@ func TestSnapshotJSONKeepsFields(t *testing.T) {
 			"nameInferred", "owner", "revisions", "targets", "labels", "status", "sources", "offeringProvenance", "hiddenDependencies",
 			"hiddenDependents", "hiddenPolicyReferrers", "template", "origin", "hiddenCreated"},
 		reflect.TypeFor[SourceState](): {"id", "kind", "status", "lastSuccessfulSync", "observedAt", "error", "revisionCount", "targetCount",
-			"namespaces", "namespacesTotal", "ref", "signer", "cluster"},
+			"namespaces", "namespacesTotal", "ref", "signer", "publisher", "cluster"},
 	} {
 		have := jsonTags(typ)
 		for _, k := range keys {

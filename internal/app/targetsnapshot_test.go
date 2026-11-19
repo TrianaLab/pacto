@@ -45,6 +45,10 @@ type snapEnv struct {
 	hang     atomic.Bool
 	// fail answers every request whose path holds it with 403.
 	fail atomic.Value
+	// status, when set, answers every request with it.
+	status atomic.Int64
+	// reqs counts the requests the registry got.
+	reqs atomic.Int64
 }
 
 func newSnapEnv(t *testing.T) *snapEnv {
@@ -54,6 +58,11 @@ func newSnapEnv(t *testing.T) *snapEnv {
 	e.fail.Store("")
 	inner := testutil.NewReferrersRegistry(testutil.ReferrersOptions{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		e.reqs.Add(1)
+		if code := e.status.Load(); code != 0 {
+			http.Error(w, "answered", int(code))
+			return
+		}
 		if f := e.fail.Load().(string); f != "" && strings.Contains(r.URL.Path, f) {
 			http.Error(w, "denied", http.StatusForbidden)
 			return
@@ -101,12 +110,18 @@ func ledgerSnapshot(cluster string, asOf time.Time) delivery.TargetSnapshot {
 // push signs s with key and tags it cluster-<tagCluster>.
 func (e *snapEnv) push(t *testing.T, key ed25519.PrivateKey, tagCluster string, s delivery.TargetSnapshot) ocispec.Descriptor {
 	t.Helper()
+	return pushAt(t, e.repo, key, tagCluster, s)
+}
+
+// pushAt signs s with key and tags it cluster-<tagCluster> in repository path.
+func pushAt(t *testing.T, path string, key ed25519.PrivateKey, tagCluster string, s delivery.TargetSnapshot) ocispec.Descriptor {
+	t.Helper()
 	kp, _ := signing.FromPrivateKey(key)
 	bundle, err := delivery.SignTargetSnapshot(t.Context(), signing.Keyed(kp, ""), delivery.NewTargetSnapshotStatement(s))
 	if err != nil {
 		t.Fatal(err)
 	}
-	repo, _ := ocireferrer.Open(e.repo, ocireferrer.Options{})
+	repo, _ := ocireferrer.Open(path, ocireferrer.Options{})
 	desc, err := deliveryrecord.PushTargetSnapshot(t.Context(), repo, tagCluster, bundle)
 	if err != nil {
 		t.Fatal(err)

@@ -44,6 +44,10 @@ type ImpactOptions struct {
 	// Traces is optional OTLP/JSON trace data; its observed caller→provider edges
 	// corroborate declared consumers and surface shadow (observed-only) ones.
 	Traces []byte
+	// TargetSnapshotAuto derives a target snapshot from the change's
+	// published ref (D8) when Fleet carries no target input: the CLI, a
+	// stdio MCP server and pacto ci set it, the dashboard never does.
+	TargetSnapshotAuto bool
 	// OnResolved is called by [Service.Impact] once both revisions resolve;
 	// nil does nothing. The snapshot paths never call it.
 	OnResolved func(old, new *contract.Bundle)
@@ -61,11 +65,37 @@ func (s *Service) Impact(ctx context.Context, opts ImpactOptions) (*impact.Resul
 	if opts.OnResolved != nil {
 		opts.OnResolved(oldBundle, newBundle)
 	}
+	opts, look, _ := s.deriveTargetSnapshot(ctx, opts)
 	snap, err := s.Fleet(ctx, opts.Fleet)
 	if err != nil {
 		return nil, fmt.Errorf("build fleet snapshot: %w", err)
 	}
-	return s.impactOnResolved(ctx, opts, snap, true, oldBundle, newBundle)
+	res, err := s.impactOnResolved(ctx, opts, snap, true, oldBundle, newBundle)
+	if err != nil {
+		return nil, err
+	}
+	res.Registry = look
+	return res, nil
+}
+
+// deriveTargetSnapshot adds the change's target snapshot to opts.Fleet when
+// opts asks for it and names no target input of its own: the repository
+// [Service.findTargetSnapshot] found, or the failing source of a lookup that
+// got no answer. It returns where it looked and whether it added anything.
+func (s *Service) deriveTargetSnapshot(ctx context.Context, opts ImpactOptions) (ImpactOptions, *impact.RegistryLookup, bool) {
+	if !opts.TargetSnapshotAuto || opts.Fleet.hasTargetInput() {
+		return opts, nil, false
+	}
+	found, look, failed := s.findTargetSnapshot(ctx, opts.OldPath, opts.NewPath)
+	switch {
+	case failed != nil:
+		opts.Fleet.extraSources = append(slices.Clone(opts.Fleet.extraSources), failed)
+	case found != "":
+		opts.Fleet.TargetSnapshot = []string{found}
+	default:
+		return opts, look, false
+	}
+	return opts, look, true
 }
 
 // ImpactWithSnapshot analyzes a change's blast radius over an ALREADY-BUILT
@@ -92,7 +122,21 @@ func (s *Service) ImpactOnSnapshot(ctx context.Context, opts ImpactOptions, snap
 	if err != nil {
 		return nil, err
 	}
-	return s.impactOnResolved(ctx, opts, snap, addMissing, oldBundle, newBundle)
+	var look *impact.RegistryLookup
+	if addMissing {
+		var derived bool
+		if opts, look, derived = s.deriveTargetSnapshot(ctx, opts); derived {
+			if snap, err = s.Fleet(ctx, opts.Fleet); err != nil {
+				return nil, fmt.Errorf("build fleet snapshot: %w", err)
+			}
+		}
+	}
+	res, err := s.impactOnResolved(ctx, opts, snap, addMissing, oldBundle, newBundle)
+	if err != nil {
+		return nil, err
+	}
+	res.Registry = look
+	return res, nil
 }
 
 // impactOnResolved is [Service.ImpactOnSnapshot] with the revisions resolved.
@@ -108,9 +152,9 @@ func (s *Service) impactOnResolved(ctx context.Context, opts ImpactOptions, snap
 			rev.Digest = h
 		}
 		withNew := opts.Fleet
-		withNew.extraSources = []fleet.Source{fleet.NewMemorySource("new-revision", "argument", &fleet.Collection{
+		withNew.extraSources = append(slices.Clone(opts.Fleet.extraSources), fleet.NewMemorySource("new-revision", "argument", &fleet.Collection{
 			Revisions: []fleet.RawRevision{rev},
-		})}
+		}))
 		if snap, err = s.Fleet(ctx, withNew); err != nil {
 			return nil, fmt.Errorf("build fleet snapshot: %w", err)
 		}
@@ -124,12 +168,17 @@ func (s *Service) impactOnResolved(ctx context.Context, opts ImpactOptions, snap
 }
 
 // domain is the changed service's fleet domain: Domain when set, else the
-// domain of the reference that resolved the new revision.
+// domain of the reference that resolved the new revision. A local new
+// revision of a published old one (oci://ghcr.io/acme/ledger:2.3.0
+// ./services/ledger) is that service, so it takes the old ref's domain.
 func (o ImpactOptions) domain() string {
 	if o.Domain != "" {
 		return o.Domain
 	}
-	return revisionDomain(o.NewPath)
+	if d := revisionDomain(o.NewPath); d != "" {
+		return d
+	}
+	return revisionDomain(o.OldPath)
 }
 
 func (s *Service) resolveImpactPair(ctx context.Context, opts ImpactOptions) (oldBundle, newBundle *contract.Bundle, err error) {
@@ -161,7 +210,7 @@ func (s *Service) analyzeImpact(ctx context.Context, opts ImpactOptions, snap *f
 	if err != nil {
 		return nil, fmt.Errorf("parse traces: %w", err)
 	}
-	return impact.Analyze(ctx, oldBundle.Contract, newBundle.Contract, oldBundle.FS, newBundle.FS, snap,
+	res := impact.Analyze(ctx, oldBundle.Contract, newBundle.Contract, oldBundle.FS, newBundle.FS, snap,
 		impact.Options{
 			// Domain-qualify the changed service from its new reference so impact is
 			// isolated across domains (a local path yields the default domain).
@@ -169,7 +218,9 @@ func (s *Service) analyzeImpact(ctx context.Context, opts ImpactOptions, snap *f
 			IncludeObserved:  opts.IncludeObserved,
 			ObservedEdges:    observed,
 			NameInferredFrom: nameInferredFrom(oldBundle, newBundle),
-		}), nil
+		})
+	res.TargetSnapshots = targetSnapshotStates(snap)
+	return res, nil
 }
 
 // nameInferredFrom is where the new, else the old, revision's service.name
@@ -235,9 +286,11 @@ func (s *Service) ImpactEventOnSnapshot(ctx context.Context, opts ImpactEventOpt
 	if ev.Kind == impact.EventRegressed && opts.ReadRegression != nil {
 		reg = opts.ReadRegression(ctx, ev)
 	}
-	return impact.Analyze(ctx, nil, nil, nil, nil, snap, impact.Options{
+	res := impact.Analyze(ctx, nil, nil, nil, nil, snap, impact.Options{
 		Event: &ev, ObservedEdges: observed, Regression: reg,
-	}), nil
+	})
+	res.TargetSnapshots = targetSnapshotStates(snap)
+	return res, nil
 }
 
 // ParseEventFlag reads the value of an event flag of `pacto impact`: a fleet

@@ -623,6 +623,7 @@ type SourceState struct {
 	Advisory           bool         `json:"advisory,omitempty" doc:"An advisory source never makes the answer partial; its rows are hints."`
 	Ref                string       `json:"ref,omitempty" doc:"The pinned reference the source read, such as a target snapshot's repository@digest"`
 	Signer             string       `json:"signer,omitempty" doc:"The trust entry that verified what the source read (its name, or key:<fingerprint>), never a name the signed payload claims; empty means unverified"`
+	Publisher          string       `json:"publisher,omitempty" doc:"The publisher the signed payload names, such as the ServiceAccount that pushed a target snapshot: a claim of the signer, never verified on its own"`
 	Cluster            *Cluster     `json:"cluster,omitempty" doc:"The cluster the source describes"`
 }
 

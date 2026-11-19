@@ -112,6 +112,12 @@ type FleetOptions struct {
 	extraSources []fleet.Source
 }
 
+// hasTargetInput reports whether o names a source of targets: a cluster, a
+// target-state file, an Evidence Server or a target snapshot.
+func (o FleetOptions) hasTargetInput() bool {
+	return o.IncludeK8s || len(o.TargetStateFiles) > 0 || len(o.EvidenceURLs) > 0 || len(o.TargetSnapshot) > 0
+}
+
 // ConsumerSources names, one printable entry each, the sources set in o that
 // can name a consumer of a changed service, redacted: the one place that
 // says which source flags can. LocalRoots never counts (it is the repository
