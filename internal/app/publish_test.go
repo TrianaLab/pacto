@@ -451,11 +451,18 @@ func TestPublishRefusals(t *testing.T) {
 	if res.Plan.Revision != "" || res.Plan.Ready {
 		t.Fatalf("no git revision: %+v", res.Plan)
 	}
-	noAbs := publishService(f, reg)
+}
+
+// TestPublishUnresolvablePath: when the absPath seam fails, a plan has no
+// revision and a --sign-key cannot be resolved.
+func TestPublishUnresolvablePath(t *testing.T) {
+	host, reg := publishRegistry(t)
+	ctx := context.Background()
+	noAbs := publishService(&fakeRun{}, reg)
 	noAbs.sys.absPath = func(string) (string, error) { return "", errors.New("no cwd") }
 	dir := writePublishBundle(t, host, "")
 	writeGit(t, dir, map[string]string{"HEAD": commitA})
-	if res, _ = noAbs.Publish(ctx, PublishOptions{Path: dir, Plan: true}); res.Plan.Revision != "" {
+	if res, _ := noAbs.Publish(ctx, PublishOptions{Path: dir, Plan: true}); res.Plan.Revision != "" {
 		t.Fatalf("an unresolvable path has no revision: %+v", res.Plan)
 	}
 	if _, err := noAbs.Publish(ctx, PublishOptions{Path: dir, Plan: true, SignKey: "cosign.key"}); err == nil || !strings.Contains(err.Error(), "--sign-key cosign.key") {
