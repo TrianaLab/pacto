@@ -182,7 +182,7 @@ func (s *Service) pushable(ctx context.Context, path string, overrides override.
 	if err != nil {
 		return nil, nil, err
 	}
-	c, _, bundleFS, err := loadAndValidateFull(ctx, path, overrides, s.BundleStore, s.localInputs(path, ""), cat)
+	c, _, bundleFS, err := loadAndValidateFull(ctx, path, overrides, s.BundleStore, s.localInputs(path, ""), cat, false)
 	if err != nil {
 		return nil, nil, err
 	}

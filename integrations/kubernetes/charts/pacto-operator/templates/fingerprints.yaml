@@ -1,0 +1,13 @@
+{{- with include "pacto-operator.fingerprints" . }}
+# The workload managers and promoters this installation runs (fingerprints),
+# read by the managed dashboard as --fingerprints. Data only: no secret.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "pacto-operator.fullname" $ }}-fingerprints
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "pacto-operator.labels" $ | nindent 4 }}
+data:
+  fingerprints.yaml: {{ . | quote }}
+{{- end }}

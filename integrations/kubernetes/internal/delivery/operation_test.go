@@ -883,7 +883,7 @@ func TestNotPublishedIsRefused(t *testing.T) {
 	e.create(opObj("p2", delivery.TypePromote, dA, dC, bot))
 	o := e.drive("p2")
 	wantOutcome(t, o, delivery.Rejected, "NotPublished")
-	if !strings.Contains(o.Status.Message, "Flux never verified a signature") || len(o.Status.Verdicts) != 1 {
+	if !strings.Contains(o.Status.Message, "Flux has not verified a signature") || len(o.Status.Verdicts) != 1 {
 		t.Fatalf("message %q verdicts %+v", o.Status.Message, o.Status.Verdicts)
 	}
 }

@@ -13,6 +13,12 @@ metadata:
     {{- include "pacto-operator.delivery.labels" (dict "ctx" . "component" "delivery-promoter") | nindent 4 }}
 data:
   policy.json: {{ include "pacto-operator.delivery.identitiesJSON" . | quote }}
+  {{- /* The publisher trust config, so every client derives the rule the promoter judges with. */}}
+  {{- with .Values.delivery.publishers }}
+  {{- $r := $.Values.delivery.recorder }}
+  {{- $json := dict "registry" (dig "registry" "" .) "defaultBranch" (dig "defaultBranch" "" . | default "main") "policy" (dig "policy" "" .) "policySigners" (dig "policySigners" "" .) "streamsRepository" (ternary $r.streamsRepository "" $r.enabled) "pinSigner" (include "pacto-operator.delivery.pinSigner" $) "trustedRoot" (not (empty (dig "trustedRoot" "" .))) }}
+  publishers.json: {{ toJson $json | quote }}
+  {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role

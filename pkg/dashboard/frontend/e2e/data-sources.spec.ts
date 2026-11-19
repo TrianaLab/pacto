@@ -150,17 +150,27 @@ test.describe('the inventory says what Pacto detected', () => {
     const block = page.getByTestId('detected-providers');
     await expect(block.getByRole('heading', { level: 2, name: 'Detected providers' })).toBeVisible();
     const rows = block.getByTestId('provider-row');
-    // Two reported rows plus the six the cluster's operator detected: five
-    // show, the reported ones first, the rest behind Show all, and no cluster
-    // is unread in the demo.
+    // Twelve reported rows (the Pacto CRD, Kubernetes workloads, the Argo CD,
+    // Flux and Helm rows that group the inferred services, the demo and
+    // partner registries and five reporting adapter rows, one producer's
+    // signed and unsigned reports apart) plus the six the cluster's operator
+    // detected: five show, the reported ones first, the rest behind Show all,
+    // and no cluster is unread in the demo.
     await expect(rows).toHaveCount(5);
-    await expect(rows.nth(0)).not.toHaveClass(/dp-inferred/);
-    await expect(rows.nth(1)).not.toHaveClass(/dp-inferred/);
-    await expect(rows.nth(2)).toHaveClass(/dp-inferred/);
+    for (const i of [0, 1, 2, 3, 4]) await expect(rows.nth(i)).not.toHaveClass(/dp-inferred/);
     await expect(block).toContainText('Pacto CRD');
+    await expect(block).toContainText('reports provisioning');
+    await block.getByRole('button', { name: 'Show all 18 providers' }).click();
+    await expect(rows).toHaveCount(18);
     await expect(block).toContainText('Kubernetes workloads');
-    await block.getByRole('button', { name: 'Show all 8 providers' }).click();
-    await expect(rows).toHaveCount(8);
+    await expect(block).toContainText('service grouping, repository provenance');
+    // One registry serves Referrers and _catalog; the other serves neither,
+    // so Pacto writes its records there as write-once tags.
+    await expect(block).toContainText('Registry demo.pacto.local');
+    await expect(block).toContainText('Registry partners.demo.pacto.local');
+    await expect(block).toContainText('no Referrers, no _catalog');
+    await expect(rows.nth(11)).not.toHaveClass(/dp-inferred/);
+    await expect(rows.nth(12)).toHaveClass(/dp-inferred/);
     await expect(block.getByTestId('provider-not-read')).toHaveCount(0);
     // The block lives inside Data sources: the primary navigation gained no entry.
     const primary = page.getByRole('navigation', { name: 'Primary' }).first();

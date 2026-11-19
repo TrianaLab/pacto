@@ -219,10 +219,7 @@ func TestPublishPlanChecksTheBuilders(t *testing.T) {
 		!strings.Contains(b, "the build of manifests runs ./render.sh, which is not an executable here") || strings.Contains(b, "worker") {
 		t.Fatalf("builders: %v", got)
 	}
-	if err := builders(context.Background(), sysDeps{}, dir, &contract.Contract{}, nil); err != nil {
-		t.Fatal(err)
-	}
-	if err := newExecTools(dir, nil, nil).loadSigner(context.Background(), &contract.Contract{}); err != nil {
+	if err := builders(context.Background(), sysDeps{}, dir, nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -258,9 +255,14 @@ func TestPublishPlanChecksTheKeylessToken(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("SIGSTORE_ID_TOKEN", "")
 	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", "")
-	keyless := &contract.Contract{Publish: &contract.Publish{Sign: &contract.PublishSign{Keyless: true}}}
+	keyless := &contract.Publish{Sign: &contract.PublishSign{Keyless: true}}
 	if err := newExecTools(dir, nil, nil).loadSigner(context.Background(), keyless); err == nil || !strings.Contains(err.Error(), "no OIDC token") {
 		t.Fatalf("keyless with no token: %v", err)
+	}
+	// No sign section signs keyless too, so it needs the token as well.
+	nosign := &contract.Publish{}
+	if err := newExecTools(dir, nil, nil).loadSigner(context.Background(), nosign); err == nil || !strings.Contains(err.Error(), "no OIDC token") {
+		t.Fatalf("no sign with no token: %v", err)
 	}
 	oldRoot := publicGoodRoot
 	defer func() { publicGoodRoot = oldRoot }()
@@ -363,8 +365,8 @@ func TestPublishAgainNeedsNoBuilderSignerOrCleanCheckout(t *testing.T) {
 	// Keyless with no token: nothing to sign, so the token is not asked for.
 	t.Setenv("SIGSTORE_ID_TOKEN", "")
 	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", "")
-	keyless := &contract.Contract{Publish: &contract.Publish{Sign: &contract.PublishSign{Keyless: true}}}
-	check := preflight(context.Background(), sysDeps{}, newExecTools(dir, nil, nil), dir, keyless, os.DirFS(dir), false, "")
+	keyless := &contract.Publish{Sign: &contract.PublishSign{Keyless: true}}
+	check := preflight(context.Background(), sysDeps{}, newExecTools(dir, nil, nil), dir, keyless, nil, os.DirFS(dir), false, "")
 	for _, c := range check(publish.Plan{}) {
 		if !c.Passed {
 			t.Fatalf("nothing to write, yet %s failed: %s", c.Name, c.Message)
@@ -438,8 +440,12 @@ func TestPublishRefusals(t *testing.T) {
 	if res.Plan.Ready || !slices.ContainsFunc(res.Plan.Checks, func(c publish.Check) bool { return c.Name == "signing key" && !c.Passed }) {
 		t.Fatalf("a signing key inside the bundle is a failed check: %+v", res.Plan.Checks)
 	}
-	if err := keyOutsideBundle(&contract.Contract{Publish: &contract.Publish{Sign: &contract.PublishSign{Key: "/abs/cosign.key"}}}, nil); err != nil {
+	if err := keyOutsideBundle(&contract.Publish{Sign: &contract.PublishSign{Key: "/abs/cosign.key"}}, withKey, nil); err != nil {
 		t.Fatal(err)
+	}
+	absKey, _ := filepath.Abs(filepath.Join(withKey, "cosign.key"))
+	if err := keyOutsideBundle(&contract.Publish{Sign: &contract.PublishSign{Key: absKey}}, withKey, os.DirFS(withKey)); err == nil {
+		t.Fatal("an absolute key path inside the contract directory is packed into the bundle and must be refused")
 	}
 	res, _ = publishService(f, reg).Publish(ctx, PublishOptions{Path: writePublishBundle(t, host, ""), Plan: true})
 	if res.Plan.Revision != "" || res.Plan.Ready {
@@ -485,11 +491,17 @@ func TestExecToolsSignKeyed(t *testing.T) {
 	if err := tools.Verify(ctx, key, ref); err != nil {
 		t.Fatalf("verify after signing: %v", err)
 	}
+	// The test registry serves no Referrers API: the signature Verify read is
+	// the one its pacto-sig write-once tag names.
+	repo, digest, _ := strings.Cut(ref, "@")
+	if tags, _ := reg.Tags(ctx, repo); !slices.ContainsFunc(tags, func(t string) bool { return strings.HasPrefix(t, publish.SigTagPrefix(digest)) }) {
+		t.Fatalf("no pacto-sig tag among %v", tags)
+	}
 	independentlyVerified(t, dir, ref)
 	if signed, err := tools.Sign(ctx, key, ref); err != nil || signed {
 		t.Fatalf("an existing signature is kept: %v %v", signed, err)
 	}
-	repo, digest, _ := strings.Cut(ref, "@")
+	repo, digest, _ = strings.Cut(ref, "@")
 	if err := publish.VerifyDigest(ctx, reg, keyPolicy(pub), repo, digest); err != nil {
 		t.Fatalf("the key file's signature: %v", err)
 	}
@@ -662,12 +674,12 @@ func TestExecToolsSBOM(t *testing.T) {
 func TestSBOMsIgnored(t *testing.T) {
 	dir := t.TempDir()
 	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("x"), 0o644)
-	c := &contract.Contract{Publish: &contract.Publish{Artifacts: []contract.PublishArtifact{
-		{Name: "api", SBOM: "out/api.spdx.json"}, {Name: "abs", SBOM: "/tmp/a.spdx.json"}, {Name: "up", SBOM: "../a.spdx.json"}, {Name: "none"}}}}
+	c := &contract.Publish{Artifacts: []contract.PublishArtifact{
+		{Name: "api", SBOM: "out/api.spdx.json"}, {Name: "abs", SBOM: "/tmp/a.spdx.json"}, {Name: "up", SBOM: "../a.spdx.json"}, {Name: "none"}}}
 	if err := sbomsIgnored(c, dir); err == nil || !strings.Contains(err.Error(), "add out/api.spdx.json to .pactoignore") {
 		t.Fatalf("an SBOM in the bundle: %v", err)
 	}
-	inside := &contract.Contract{Publish: &contract.Publish{Artifacts: []contract.PublishArtifact{{Name: "in", SBOM: filepath.Join(dir, "sbom", "api.spdx.json")}}}}
+	inside := &contract.Publish{Artifacts: []contract.PublishArtifact{{Name: "in", SBOM: filepath.Join(dir, "sbom", "api.spdx.json")}}}
 	if err := sbomsIgnored(inside, dir); err == nil || !strings.Contains(err.Error(), "add sbom/api.spdx.json to .pactoignore") {
 		t.Fatalf("an absolute SBOM path in the bundle: %v", err)
 	}
@@ -677,7 +689,7 @@ func TestSBOMsIgnored(t *testing.T) {
 			t.Fatalf("%q: %v", ig, err)
 		}
 	}
-	if err := sbomsIgnored(&contract.Contract{}, dir); err != nil {
+	if err := sbomsIgnored(nil, dir); err != nil {
 		t.Fatal(err)
 	}
 	_ = os.Remove(filepath.Join(dir, ".pactoignore"))
@@ -779,5 +791,28 @@ func TestPublishChecksGuarantees(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// envOf is a getenv over a fixed map.
+func envOf(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
+
+func TestCISourceGitHub(t *testing.T) {
+	got := ciSource(envOf(map[string]string{"GITHUB_SERVER_URL": "https://github.com", "GITHUB_REPOSITORY": "acme/payments", "CI_PROJECT_URL": "https://gitlab.com/acme/payments"}))
+	if got != "https://github.com/acme/payments" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestCISourceGitLab(t *testing.T) {
+	got := ciSource(envOf(map[string]string{"GITHUB_REPOSITORY": "acme/payments", "CI_PROJECT_URL": "https://gitlab.com/acme/payments"}))
+	if got != "https://gitlab.com/acme/payments" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestCISourceNone(t *testing.T) {
+	if got := ciSource(envOf(nil)); got != "" {
+		t.Fatalf("got %q", got)
 	}
 }

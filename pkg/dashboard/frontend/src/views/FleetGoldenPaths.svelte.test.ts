@@ -57,8 +57,8 @@ describe('FleetGoldenPathsView', () => {
     expect(rows[0].textContent).toContain('platform');
     expect(rows[0].textContent).toContain('ghcr.io/acme');
     expect(rows[0].textContent).toContain('Verified');
-    // A verified signature only names the signer the path's own contract declares.
-    expect(rows[0].querySelector('[data-testid="path-signature"]')?.getAttribute('title')).toContain('its own contract declares');
+    // A verified signature was checked against a publisher rule, pin or policy.
+    expect(rows[0].querySelector('[data-testid="path-signature"]')?.getAttribute('title')).toContain('publisher rule, pin or policy');
     expect(rows[1].textContent).toContain('No owner declared');
     expect(rows[1].textContent).toContain('Unsigned');
     // No source that read it checks signatures: never shown as unknown.

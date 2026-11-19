@@ -56,6 +56,7 @@ type recordFleetOpts struct {
 	observed bool                // newsletter calls notification-worker at runtime
 	inferred []contract.Inferred // what the local read implied (508-S1)
 	noOwner  bool                // newsletter declares no owner
+	contract string              // pacto.yaml as the bundle holds it; empty for none
 }
 
 // recordFleet: newsletter runs in namespace news, notification-worker in shop.
@@ -71,6 +72,9 @@ func recordFleet(t *testing.T, o recordFleetOpts) *Query {
 	fsys := fstest.MapFS{"deploy/app.yaml": {Data: []byte(o.manifest)}}
 	if o.record != nil {
 		fsys[contract.InferredRecordFile] = &fstest.MapFile{Data: o.record}
+	}
+	if o.contract != "" {
+		fsys["pacto.yaml"] = &fstest.MapFile{Data: []byte(o.contract)}
 	}
 	worker := &contract.Contract{PactoVersion: "2.5", Service: contract.Service{Name: "notification-worker", Version: "1.0.0", Owner: contract.Owner{Team: "t"}}}
 	k := SourceKindKubernetes

@@ -4,6 +4,13 @@
 {{- if and $stats.registryCredentials.secretName (not $stats.repository) }}
 {{- fail "delivery.stats.registryCredentials.secretName needs delivery.stats.repository: set the repository the promoter records to, or remove the Secret" }}
 {{- end }}
+{{- $pubs := .Values.delivery.publishers | default dict }}
+{{- if and (dig "policy" "" $pubs) (not (dig "policySigners" "" $pubs)) }}
+{{- fail "delivery.publishers.policy needs delivery.publishers.policySigners: the trust config whose role: policy keys sign it" }}
+{{- end }}
+{{- $pubData := include "pacto-operator.delivery.publishersData" . }}
+{{- /* Pins and the recorder's trust config only with a publishers block, so reused 6.x values render the args they had. */}}
+{{- $pins := and .Values.delivery.recorder.enabled (kindIs "map" .Values.delivery.publishers) }}
 {{- with .Values.delivery.promoter.upstreamTrust }}
 # The recorder keys of other clusters whose records an upstreamRecords Stage
 # promotes on, per stream glob. Public keys only.
@@ -18,6 +25,7 @@ data:
   trust.yaml: {{ . | quote }}
 ---
 {{- end }}
+{{- $fingerprints := include "pacto-operator.fingerprints" . }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -32,8 +40,10 @@ spec:
       {{- include "pacto-operator.delivery.selectorLabels" (dict "ctx" . "component" "delivery-promoter") | nindent 6 }}
   template:
     metadata:
-      {{- /* The promoter reads its identity policy once: a change restarts it. */}}
+      {{- /* The promoter reads its identity policy and fingerprints once: a change restarts it. */}}
       {{- $checksum := dict "checksum/identities" (include "pacto-operator.delivery.identitiesJSON" . | sha256sum) }}
+      {{- if $fingerprints }}{{ $_ := set $checksum "checksum/fingerprints" ($fingerprints | sha256sum) }}{{ end }}
+      {{- with $pubData }}{{ $_ := set $checksum "checksum/publishers" (sha256sum .) }}{{ end }}
       {{- include "pacto-operator.podMetadata" (dict "ctx" . "values" .Values.delivery "labels" (include "pacto-operator.delivery.labels" (dict "ctx" . "component" "delivery-promoter")) "annotations" $checksum) | trim | nindent 6 }}
     spec:
       {{- include "pacto-operator.podSpec" (dict "ctx" . "values" .Values.delivery "serviceAccountName" (include "pacto-operator.delivery.serviceAccountName" .)) | trim | nindent 6 }}
@@ -76,8 +86,31 @@ spec:
             {{- if .Values.delivery.promoter.upstreamTrust }}
             - --upstream-trust-config=/etc/pacto/upstream-trust/trust.yaml
             {{- end }}
+            {{- with dig "registry" "" $pubs }}
+            - --publishers-registry={{ . }}
+            - --publishers-default-branch={{ dig "defaultBranch" "" $pubs | default "main" }}
+            {{- end }}
+            {{- if dig "trustedRoot" "" $pubs }}
+            - --publishers-trusted-root=/etc/pacto/publishers/trusted_root.json
+            {{- end }}
+            {{- with dig "policy" "" $pubs }}
+            - --publishers-policy={{ . }}
+            - --publishers-policy-signers=/etc/pacto/publishers/policy-signers.yaml
+            {{- end }}
+            {{- if $pins }}
+            - --records-repository={{ .Values.delivery.recorder.streamsRepository }}
+            {{- if include "pacto-operator.delivery.pinSigner" . }}
+            - --pin-signer-config=/etc/pacto/publishers/pin-signer.yaml
+            {{- end }}
+            {{- if .Values.delivery.recorder.trust }}
+            - --record-trust-config=/etc/pacto/record-trust/trust.yaml
+            {{- end }}
+            {{- end }}
             {{- with $stats.repository }}
             - --stats-repository={{ . }}
+            {{- end }}
+            {{- if $fingerprints }}
+            - --fingerprints=/etc/pacto/fingerprints/fingerprints.yaml
             {{- end }}
             {{- if $stats.registryCredentials.secretName }}
             - --stats-docker-config=/etc/pacto/stats-registry
@@ -112,6 +145,16 @@ spec:
               mountPath: /etc/pacto/upstream-trust
               readOnly: true
             {{- end }}
+            {{- if $pubData }}
+            - name: publishers
+              mountPath: /etc/pacto/publishers
+              readOnly: true
+            {{- end }}
+            {{- if and $pins .Values.delivery.recorder.trust }}
+            - name: record-trust
+              mountPath: /etc/pacto/record-trust
+              readOnly: true
+            {{- end }}
             {{- if $creds }}
             - name: registry
               mountPath: /etc/pacto/registry
@@ -125,6 +168,11 @@ spec:
             - name: identities
               mountPath: /etc/pacto/identities
               readOnly: true
+            {{- if $fingerprints }}
+            - name: fingerprints
+              mountPath: /etc/pacto/fingerprints
+              readOnly: true
+            {{- end }}
             {{- if .Values.delivery.gates.caBundle.configMap }}
             - name: gate-ca
               mountPath: /etc/pacto/ca
@@ -135,6 +183,16 @@ spec:
         - name: upstream-trust
           configMap:
             name: {{ include "pacto-operator.delivery.fullname" . }}-upstream-trust
+        {{- end }}
+        {{- if $pubData }}
+        - name: publishers
+          configMap:
+            name: {{ include "pacto-operator.delivery.fullname" . }}-publishers
+        {{- end }}
+        {{- if and $pins .Values.delivery.recorder.trust }}
+        - name: record-trust
+          configMap:
+            name: {{ include "pacto-operator.delivery.recorderName" . }}-trust
         {{- end }}
         {{- if $creds }}
         - name: registry
@@ -155,6 +213,11 @@ spec:
         - name: identities
           configMap:
             name: pacto-delivery-identities
+        {{- if $fingerprints }}
+        - name: fingerprints
+          configMap:
+            name: {{ include "pacto-operator.delivery.fullname" . }}-fingerprints
+        {{- end }}
         {{- with .Values.delivery.gates.caBundle }}
         {{- if .configMap }}
         - name: gate-ca

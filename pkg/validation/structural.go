@@ -220,9 +220,10 @@ func needs24(result *ValidationResult, data any) any {
 
 // needs25 records a NEEDS_PACTO_2_5 error for each part only pactoVersion 2.5
 // has (compatibility: unknown or identity on a dependency, a port on an
-// interface and the breaks and delivery sections) in an older contract, in place of the older schema's generic
-// error, and returns data without it for that schema to check the rest. Every
-// dependency and interface stays in place so its other errors keep their index.
+// interface, the breaks section and an artifact without build) in an older
+// contract, in place of the older schema's generic error, and returns data
+// without it for that schema to check the rest. Every dependency, interface
+// and artifact stays in place so its other errors keep their index.
 func needs25(result *ValidationResult, data any) any {
 	m, _ := data.(map[string]any) // an older pactoVersion was read from it
 	if _, ok := m["breaks"]; ok {
@@ -230,11 +231,7 @@ func needs25(result *ValidationResult, data any) any {
 		m = maps.Clone(m)
 		delete(m, "breaks")
 	}
-	if _, ok := m["delivery"]; ok {
-		result.AddError("delivery", string(finding.CodeNeedsPacto25), `delivery needs pactoVersion "2.5"; set pactoVersion: "2.5", which keeps every older field`)
-		m = maps.Clone(m)
-		delete(m, "delivery")
-	}
+	m = needsBuild(result, m)
 	m = needsItems(result, m, "2.5", finding.CodeNeedsPacto25, "interfaces", func(map[string]any) []needsKey {
 		return []needsKey{{"port", "port on an interface needs ", true, nil}}
 	})
@@ -244,6 +241,41 @@ func needs25(result *ValidationResult, data any) any {
 		return []needsKey{{"compatibility", "compatibility: unknown needs ", im["compatibility"] == contract.CompatibilityUnknown, "*"},
 			{"identity", "identity on a dependency needs ", true, nil}}
 	})
+}
+
+// needsBuild records NEEDS_PACTO_2_5 for each artifact of m's publish
+// section that declares no build, and returns m with a stand-in build on a
+// copy of each, so the older schema, which requires build, checks the rest.
+// A 2.0 contract has no publish section to check: NEEDS_PACTO_2_1 says so.
+// needsItems cannot do it: the array is nested and the key is absent.
+func needsBuild(result *ValidationResult, m map[string]any) map[string]any {
+	pub, _ := m["publish"].(map[string]any)
+	arts, _ := pub["artifacts"].([]any)
+	if PublishNeedsRaise(pactoVersionOf(m)) {
+		return m
+	}
+	var kept []any
+	for i, it := range arts {
+		im, ok := it.(map[string]any)
+		if _, has := im["build"]; has || !ok {
+			continue
+		}
+		result.AddError(fmt.Sprintf("publish.artifacts.%d.build", i), string(finding.CodeNeedsPacto25), `an artifact without build needs pactoVersion "2.5"; set pactoVersion: "2.5", which keeps every older field`)
+		if kept == nil {
+			kept = slices.Clone(arts)
+		}
+		im = maps.Clone(im)
+		im["build"] = map[string]any{"command": []any{"true"}}
+		kept[i] = im
+	}
+	if kept == nil {
+		return m
+	}
+	pub = maps.Clone(pub)
+	pub["artifacts"] = kept
+	out := maps.Clone(m)
+	out["publish"] = pub
+	return out
 }
 
 // needsKey is one key an item of an array may only hold from a later

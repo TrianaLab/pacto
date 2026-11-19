@@ -171,7 +171,7 @@ change.
 | `pacto_publish_plan` | `--publish` | Read |
 | `pacto_publish` | `--publish` | Writes to your registry |
 | `pacto_delivery_status`, `pacto_delivery_operation_types`, `pacto_delivery_candidates`, `pacto_delivery_operation_plan`, `pacto_delivery_get`, `pacto_delivery_explain`, `pacto_delivery_history`, `pacto_delivery_blame`, `pacto_delivery_undo_plan`, `pacto_delivery_record_get`, `pacto_delivery_record_verify`, `pacto_delivery_lifecycle` | `--delivery` | Read |
-| `pacto_delivery_caller`, `pacto_delivery_inbox`, `pacto_delivery_environments`, `pacto_delivery_autonomy`, `pacto_delivery_published`, `pacto_delivery_refusals` | `--delivery` | Read: what the dashboard's delivery views show, with the caller's identity |
+| `pacto_delivery_caller`, `pacto_delivery_inbox`, `pacto_delivery_environments`, `pacto_delivery_autonomy`, `pacto_delivery_published`, `pacto_delivery_refusals`, `pacto_delivery_trust` | `--delivery` | Read: what the dashboard's delivery views show, with the caller's identity |
 | `pacto_delivery_operation_propose`, `pacto_delivery_cancel` | `--delivery`, agents only | Ask for or cancel a change |
 
 Pacto skips any API operation named `pacto_*`, so the prefix always means a

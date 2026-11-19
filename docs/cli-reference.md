@@ -157,6 +157,71 @@ pacto agent [flags]
 
 ---
 
+## `pacto ci`
+
+Walks root (default .) for pacto.yaml, skipping the folders the root .pactoignore names, and prints one plan: the CI platform, the registry and the base, each with its source, then one row per service: whether it changed against its published baseline, the version it would publish, the classification of the change and its impact on the consumers the fleet source flags name.
+
+On GitHub Actions the plan is also appended to $GITHUB_STEP_SUMMARY; on GitLab CI it is written to pacto-plan.md in $CI_PROJECT_DIR. --output-format json writes the plan as one JSON document.
+
+Without --publish the run is a plan: it reads the registry and the consumer sources you name and writes nothing to them. A run record goes to --stats-file only, one file per impacted service.
+
+The exit status follows the plan: 0 clear, 1 blocked, 2 unverified. A repository with no pacto.yaml, or a folder it cannot read, exits 2.
+
+A pacto.yaml that declares an older pactoVersion is raised to the current one in memory when that keeps its meaning, recorded in the bundle's pacto.inferred.yaml and noted on its row; the file in the repository is never rewritten.
+
+--publish publishes every changed service on the merged commit, through the engine pacto publish runs, providers before the services that depend on them. A service that fails blocks only the services of the run that depend on it; a version lost to a concurrent run is planned again, up to 3 times. A pull or merge request pipeline is refused before any token is asked for or anything is built. Each service leaves a run record. With --publish the exit status is 0 when every changed service is published, else 1.
+
+```
+pacto ci [root] [flags]
+```
+
+**Examples:**
+
+```
+  # Plan every service of this repository against a registry
+  pacto ci --registry ghcr.io/acme
+
+  # Check the impact on the consumers a target-state file names, as JSON
+  pacto ci --registry ghcr.io/acme --target-state targets.yaml --output-format json
+
+  # Why the payments row reads as it does
+  pacto ci --registry ghcr.io/acme --explain payments
+
+  # On the merged commit: publish every changed service, payments from an image built elsewhere
+  pacto ci --publish --image payments=ghcr.io/acme/payments@sha256:<digest>
+```
+
+**Flags:**
+
+```
+      --cache[=true|false]                 include every bundle in the local OCI cache as an offline baseline revision
+      --detected string                    add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
+      --evidence-url stringArray           base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
+      --explain string                     explain one service's row: its folder, baseline, why it changed, its inferred fields and its consumers
+      --external-catalog string            organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
+      --fingerprints string                a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers
+      --freshness duration                 mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
+  -h, --help[=true|false]                  help for ci
+      --image stringArray                  with --publish: the image <service> deploys, pinned by digest, as <service>=<repo>@sha256:...; Pacto builds, signs and copies none. A bare <repo>@sha256:... needs exactly one changed service
+      --k8s[=true|false]                   include live Pacto CRs from the current Kubernetes cluster as targets
+      --local stringArray                  local bundle root(s) to scan (repeatable) (default [.])
+      --mira-source stringArray            base URL of a Mira node whose service map supplies observed calls between services (repeatable)
+      --namespace string                   namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)
+      --no-transparency-log[=true|false]   with --publish and --sign-key: keep the signatures out of the transparency log
+      --oci stringArray                    registry reference to include as a published-baseline revision (repeatable)
+      --publish[=true|false]               publish every changed service, on the merged commit only
+      --registry string                    registry the services publish to, for example ghcr.io/acme; default from the CI platform
+      --root stringArray                   contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
+      --sign-key string                    with --publish: sign the services whose contract declares no publish section with this cosign key file instead of keyless
+      --stats-context string               comma-separated context to include in the run record: repository, run-url, environment=<name>; nothing is included unless named
+      --stats-file string                  write the run record to this file for pacto stats publish, replacing the record it holds, so give each command its own file; default $PACTO_STATS_FILE
+      --stats-registry string              publish an unsigned run record (statistics, never evidence) to this repository, for example ghcr.io/acme/pacto-stats; default $PACTO_STATS_REGISTRY
+      --target-state stringArray           offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
+      --traces stringArray                 OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
+```
+
+---
+
 ## `pacto completion`
 
 Generate the autocompletion script for pacto for the specified shell.
@@ -238,6 +303,7 @@ pacto dashboard [sources...] [flags]
       --delivery-trust string             the trust config delivery records are verified with, so History reads signed records (the recorder's PEM public key or a YAML trust config; default $PACTO_DELIVERY_TRUST)
       --detected string                   what the operator detected, shown as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON (also PACTO_DASHBOARD_DETECTED)
       --external-catalog string           organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST; a tag is refused (also PACTO_DASHBOARD_EXTERNAL_CATALOG)
+      --fingerprints string               a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers (also PACTO_DASHBOARD_FINGERPRINTS)
   -h, --help[=true|false]                 help for dashboard
       --host string                       bind address for the dashboard server (default "127.0.0.1")
       --mira-source stringArray           base URL of a Mira node whose service map supplies observed calls between services (repeatable; also PACTO_DASHBOARD_MIRA_SOURCES)
@@ -291,23 +357,28 @@ pacto delivery [flags]
 
 ### `pacto delivery approve`
 
-Record your decision on a held operation, as the person your kubeconfig signs you in as. When the promoter asks for a fresh login (delivery.promoter.authFreshness), the command instead makes you log in again in your browser (prompt=login, max_age=0) with its own OpenID Connect client and sends the Approval with that login's token, never your kubeconfig's: an agent running in your shell cannot approve as you without you typing your password at that moment. The token is not stored.
+Record your decision on a held operation, as the person your kubeconfig signs you in as. When the installation accepts signed approvals (delivery.identities.signers) and the Stage keeps an approvals repository, the command instead logs you in again in your browser, signs the decision keyless with that login alone and pushes the signed approval record to the registry; it never reads SIGSTORE_ID_TOKEN or a CI token. When the promoter asks for a fresh login (delivery.promoter.authFreshness), the command instead makes you log in again in your browser (prompt=login, max_age=0) with its own OpenID Connect client and sends the Approval with that login's token, never your kubeconfig's: an agent running in your shell cannot approve as you without you typing your password at that moment. The token is not stored. With --intent and no operation name it reads no kubeconfig: it approves the operation a verified intent record names, signed keyless.
 
 ```
-pacto delivery approve <operation> [flags]
+pacto delivery approve [<operation>] [flags]
 ```
 
 **Flags:**
 
 ```
       --decision string             approve, reject or accept-unknown (default "approve")
+      --fulcio-url string           Fulcio to get the signing certificate from, when the installation's signer names none (default "https://fulcio.sigstore.dev")
   -h, --help[=true|false]           help for approve
+      --intent string               approve the operation this intent record names (<repository>:<tag> or <repository>@<digest>) with no kubeconfig: the intent must verify with --trust, and the decision is signed keyless under a signer --signers names
+      --keyless[=true|false]        sign the decision keyless into the Stage's approvals repository when the installation accepts signed approvals; false records it in the cluster (default true)
       --note string                 why, for the record
       --oidc-ca-file string         PEM bundle of the CAs that sign the issuer's certificate, trusted on top of the system roots (also PACTO_DELIVERY_OIDC_CA_FILE)
       --oidc-client-id string       OpenID Connect client used only for approvals, never by a kubeconfig (a confidential client's secret comes from PACTO_DELIVERY_OIDC_CLIENT_SECRET) (default "pacto-approve")
       --oidc-extra-scopes strings   scopes to ask for beyond openid, profile and groups
       --oidc-issuer-url string      OpenID Connect issuer the cluster trusts, to log in again with (also PACTO_DELIVERY_OIDC_ISSUER_URL)
       --oidc-redirect-port int      loopback port the identity provider sends the browser back to (default: a free port)
+      --signers string              the installation's identity policy (JSON or YAML, the pacto-delivery-identities ConfigMap's policy) whose signers verify an approval a person signed; used with a record reference
+      --timestamp-url string        timestamp authority to date the signature with, when the installation's signer names none
 ```
 
 ### `pacto delivery autonomy`
@@ -511,7 +582,7 @@ pacto delivery inbox [flags]
 
 ### `pacto delivery lifecycle`
 
-Follows one artifact of a service, named by exactly one of --digest, --version or --contract, through every Stage of the service you can see: whether pacto publish published it (Flux verified its signature) and, on each Stage, when it arrived, was verified, re-checked, rolled back or left, each from its signed record or the Operation's unsigned status. Without -n it reads every namespace you can list; one you cannot makes the answer partial and is named.
+Follows one artifact of a service, named by exactly one of --digest, --version or --contract, through every Stage of the service you can see: whether pacto publish published it (Flux or the registry watch verified its signature) and, on each Stage, when it arrived, was verified, re-checked, rolled back or left, each from its signed record or the Operation's unsigned status. Without -n it reads every namespace you can list; one you cannot makes the answer partial and is named.
 
 ```
 pacto delivery lifecycle [flags]
@@ -580,7 +651,7 @@ pacto delivery propose [flags]
 
 ### `pacto delivery published`
 
-Per service the caller can see Stages of: the versions its Stages know, whether Flux verified their signature and which Stages run or verified each.
+Per service the caller can see Stages of: the versions its Stages know, whether Flux or the registry watch verified their signature and which Stages run or verified each.
 
 It runs the dashboard's own published view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads the namespaces you may list Stages in and leaves out, without naming them, those outside your permissions; a namespace that refuses the list makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
 
@@ -616,25 +687,26 @@ pacto delivery record [flags]
 
 #### `pacto delivery record get`
 
-Reads one signed record of a Stage's stream by its full id or by the short id a text history prints (sha256: and 12 hex characters), when only one record starts with it.
+Reads one signed record of a Stage's stream by its full id or by the short id a text history prints (sha256: and 12 hex characters), when only one record starts with it. A record reference (&lt;repository&gt;:&lt;tag&gt; or &lt;repository&gt;@&lt;digest&gt;) reads any record, approvals and intents included, with no kubeconfig.
 
 ```
-pacto delivery record get <id> [flags]
+pacto delivery record get <id-or-ref> [flags]
 ```
 
 **Flags:**
 
 ```
   -h, --help[=true|false]   help for get
-      --stage string        the Stage whose stream holds the record (required)
+      --signers string      the installation's identity policy (JSON or YAML, the pacto-delivery-identities ConfigMap's policy) whose signers verify an approval a person signed; used with a record reference
+      --stage string        the Stage whose stream holds the record (with a record id)
 ```
 
 #### `pacto delivery record verify`
 
-Verify every record of a Stage's stream against the trust config and check the chain
+Verifies every record of a Stage's stream against the trust config and checks the chain. With a record reference (&lt;repository&gt;:&lt;tag&gt; or &lt;repository&gt;@&lt;digest&gt;) it reads no kubeconfig: it verifies that one record, an approval or intent included, and for an approval says whether the operation record lists it (counted).
 
 ```
-pacto delivery record verify [flags]
+pacto delivery record verify [<ref>] [flags]
 ```
 
 **Flags:**
@@ -642,6 +714,7 @@ pacto delivery record verify [flags]
 ```
       --all[=true|false]    verify every Stage's stream in the namespace given with -n, or in every namespace you can list
   -h, --help[=true|false]   help for verify
+      --signers string      the installation's identity policy (JSON or YAML, the pacto-delivery-identities ConfigMap's policy) whose signers verify an approval a person signed; used with a record reference
       --stage string        the Stage (this or --all)
 ```
 
@@ -676,6 +749,27 @@ pacto delivery status [flags]
   -h, --help[=true|false]   help for status
       --service string      the service whose Stages to show (required)
       --why[=true|false]    also plan the promote of each Stage's candidate (proposing nothing) and say what holds it back
+```
+
+### `pacto delivery trust`
+
+Per service with a Stage that watches the registry and the caller can see: the installation's publisher rule or signed policy, the identities a person pinned, the CI signers waiting for a person to confirm them and the newest verdicts, each saying which source decided. Pins or a policy that could not be read mark the answer partial.
+
+It runs the dashboard's own trust view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads the namespaces you may list Stages in and leaves out, without naming them, those outside your permissions; a namespace that refuses the list makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
+
+```
+pacto delivery trust [service] [flags]
+```
+
+**Flags:**
+
+```
+      --domain string       With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any
+  -h, --help[=true|false]   help for trust
+      --limit int           How many per page; 0 means the list's default
+      --offset int          Where the page starts. Past the end answers the last page
+      --q string            Keep only what contains this text, ignoring case
+      --service string      Keep only the service with exactly this name
 ```
 
 ### `pacto delivery types`
@@ -1043,6 +1137,7 @@ pacto export backstage [flags]
       --detected string              add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
       --evidence-url stringArray     base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --external-catalog string      organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
+      --fingerprints string          a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers
       --freshness duration           mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]            help for backstage
       --k8s[=true|false]             include live Pacto CRs from the current Kubernetes cluster as targets
@@ -1073,6 +1168,7 @@ pacto fleet [flags]
       --detected string            add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
       --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --external-catalog string    organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
+      --fingerprints string        a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers
       --freshness duration         mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]          help for fleet
       --k8s[=true|false]           include live Pacto CRs from the current Kubernetes cluster as targets
@@ -1133,6 +1229,7 @@ pacto fleet entities [text] [flags]
       --environment string               with --kind target, targets in this environment (the delivery.pacto.trianalab.io/environment label); with --consumes and --phase, only the consumers whose status in that phase is in this environment
       --failed[=true|false]              with --kind offering, offerings with at least one failed provisioning request
       --gap string                       services whose contracts leave this out (no-summary, no-domain, no-interface-docs, no-readiness, not-deployed, unverified-capability), or unknown for those Pacto cannot judge
+      --group string                     inferred services the cluster groups under this key (rule/namespace/name: workload.group.key in pacto fleet entity --output-format json)
       --has-non-compliant[=true|false]   owners and domains with at least one non-compliant service only
   -h, --help[=true|false]                help for entities
       --kind string                      entity kind (service, revision, target, owner, source, domain, offering, external; empty lists services, owners, domains and offerings)
@@ -1488,6 +1585,7 @@ pacto impact <old> <new> | --unavailable <service> | --removed <service> | --reg
       --detected string                 add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
       --evidence-url stringArray        base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --external-catalog string         organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
+      --fingerprints string             a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers
       --freshness duration              mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]               help for impact
       --include-observed[=true|false]   let observed (runtime) relationships raise consumer confidence
@@ -1544,13 +1642,17 @@ with --cluster: Pacto never changes it and lists what the folder adds, which
 pacto pack and pacto publish put in pacto.inferred.yaml. An older pacto.yaml
 is not completed, and the plan says to raise its pactoVersion.
 
-Either contract also gets a publish section, for pacto publish, with its
-bundle under --registry (default: the workload's image registry, else the
-registry.example placeholder). To describe the service and leave delivery out,
-pass --describe-only: the contract then has no publish section and needs no
-signing key. --delivery also writes the cluster pieces: the Pacto resource
-that checks the running service, and per environment a Stage with the Flux
-OCIRepository and Kustomization it applies through. Each Stage starts at
+Neither contract has a publish section or a service.version: pacto ci
+--publish derives both, and the image tag is named under Found as the version
+to declare for a first publish. --describe-only changes only the next steps,
+which say how to validate the contract instead of how to publish it.
+--delivery also writes the cluster pieces, reading the repositories pacto ci
+--publish publishes to under --registry (default: the workload's image
+registry, else the registry.example placeholder): the Pacto resource that
+checks the running service, and per environment a Stage with the Flux
+OCIRepository and Kustomization it applies through. Each Stage verifies an
+identity that matches nothing until you set the one pacto ci --publish signs
+as. Each Stage starts at
 observe: it plans every new version and moves nothing, and the OCIRepository
 stays pinned to the tag you deploy, so GitOps keeps applying what it did. The
 last environment's Stage also asks a person to approve every promote.
@@ -1602,7 +1704,7 @@ pacto init [dir...] [flags]
   pacto init --plan
   pacto init --describe-only --owner billing
   pacto init --delivery --owner payments --fleet ../contracts
-  pacto init --delivery --no-transparency-log --insecure-registry
+  pacto init --delivery --insecure-registry
   pacto init --delivery --registry-secret registry-creds
   pacto init services/checkout services/payments --plan
   pacto init --cluster --namespace shop --out drafts
@@ -1613,8 +1715,8 @@ pacto init [dir...] [flags]
 
 ```
       --cluster[=true|false]               draft a contract for every workload in the cluster that no Pacto describes, reading the current kubeconfig context
-      --delivery[=true|false]              also declares each --env in pacto.yaml with an empty values file, and writes the cluster pieces: the Pacto resource, a Stage per environment and its Flux OCIRepository and Kustomization
-      --describe-only[=true|false]         write a contract that only describes the service: no publish section, so no signing key
+      --delivery[=true|false]              also declares each --env in pacto.yaml with an empty values file, and writes the cluster pieces of a manifests deploy: the Pacto resource, a Stage per environment and a Flux OCIRepository and Kustomization; a chart deploy gets no applier object
+      --describe-only[=true|false]         write a contract that only describes the service: its next steps say how to validate it, never how to publish it
       --domain string                      business domain, such as payments
       --env strings                        environments for --delivery: declared in the contract and given a Stage each, in promotion order (default [test,prod])
       --external-catalog string            organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST; a tag is refused (also PACTO_EXTERNAL_CATALOG)
@@ -1624,7 +1726,7 @@ pacto init [dir...] [flags]
       --insecure-registry[=true|false]     with --delivery: the Flux OCIRepositories read the registry over plain HTTP (a local registry only)
       --name string                        service name (default: the workload's name, then the folder's)
       --namespace strings                  with --cluster: a namespace to read; repeat it for more (default: every namespace)
-      --no-transparency-log[=true|false]   write transparencyLog: false under publish.sign, so signatures stay out of the public transparency log (offline signing, a throwaway key)
+      --no-transparency-log[=true|false]   with --from: write transparencyLog: false under the golden path's publish.sign
       --out string                         with --cluster: the folder the drafts go in, one <namespace>/<name> folder each
       --owner string                       the team that owns the service, as a bare name such as billing (default: the workload's team label)
       --plan[=true|false]                  show what would be added and change nothing
@@ -1636,11 +1738,11 @@ pacto init [dir...] [flags]
   -f, --values stringArray                 values file to merge into the contract (can be repeated; last wins)
 ```
 
-In an empty folder it scaffolds three files: a valid `pacto.yaml`, a placeholder OpenAPI spec at `interfaces/openapi.yaml` and a configuration JSON Schema at `configuration/schema.json`. It also plans a `.pactoignore` that keeps the signing key out of the bundle.
+In an empty folder it scaffolds three files: a valid `pacto.yaml`, a placeholder OpenAPI spec at `interfaces/openapi.yaml` and a configuration JSON Schema at `configuration/schema.json`.
 
 The folder's last part becomes `service.name`, which must match `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`, so `pacto init fleet/checkout-web` writes a contract for `checkout-web` in `fleet/checkout-web`. Pass `--name` to choose another name.
 
-`--owner` becomes `service.owner.team`; without it the owner is a commented placeholder and Unknown names it. `--domain` becomes `service.domain` and raises `pactoVersion` to `2.4`. The contract gets a publish section with `bundle: oci://<registry>/<name>` and `sign.key: cosign.key`: the registry is `--registry`, else the `registry.example` placeholder that Unknown names. `--describe-only` leaves the publish section out.
+`--owner` becomes `service.owner.team`; without it the owner is a commented placeholder and Unknown names it. `--domain` becomes `service.domain`. The contract gets no `publish` section and no `service.version`: [`pacto ci --publish`](publish-from-ci.md) derives both and publishes to the registry its own `--registry` names.
 
 All three files are required **by the scaffolded contract**, because its `interfaces:` and `configurations:` sections point at the other two files. If you delete a directory, also delete the section that references it, or validation fails with `FILE_NOT_FOUND`. A contract that declares neither section needs only `pacto.yaml`, so drop the section and the directory together.
 
@@ -1816,6 +1918,7 @@ pacto mcp [bundle-ref] [flags]
       --exchange-audience string      with --fleet or --delivery over HTTP with --auth-issuer: the audience to exchange for, one the apiserver accepts (default "pacto-cli")
       --exchange-client-id string     with --fleet or --delivery over HTTP with --auth-issuer: the server's own OAuth client, which exchanges each caller's token for the cluster (RFC 8693); its secret comes from PACTO_MCP_EXCHANGE_CLIENT_SECRET
       --external-catalog string       organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
+      --fingerprints string           a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers
       --fleet[=true|false]            expose read-only operational-graph (fleet) query tools
       --freshness duration            mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]             help for mcp
@@ -1989,19 +2092,23 @@ pacto publish [dir] [flags]
 **Flags:**
 
 ```
-      --correlation-id string      with --propose, an id that ties the promote to an incident or another change, such as a ticket; kept with the change and its record, filtered by pacto delivery history --correlation-id
-  -h, --help[=true|false]          help for publish
-      --on-behalf-of string        with --propose, the person an agent acts for, as the Kubernetes username the cluster authenticates them as (what kubectl auth whoami prints for them, any OIDC prefix included); asserted, not verified; required when an agent proposes, never a service account or other system user, and that person may not approve the change
-  -p, --path string                path to contract directory, the same as [dir] (default: current directory)
-      --plan[=true|false]          show what is missing and what refuses it; change nothing
-      --propose string             after publishing, propose the deploy artifact on <namespace>/<stage> (needs delivery.enabled on the pacto-operator chart)
-      --propose-timeout duration   how long --propose waits for the Stage to record the version as published (default 10m0s)
-      --revision string            source revision stamped on every artifact (default: the git commit of the contract directory, which must have no uncommitted changes)
-      --set stringArray            set a contract value (e.g. --set service.version=2.0.0)
-      --stats-context string       comma-separated context to include in the run record: repository, run-url, environment=<name>; nothing is included unless named
-      --stats-file string          write the run record to this file for pacto stats publish, replacing the record it holds, so give each command its own file; default $PACTO_STATS_FILE
-      --stats-registry string      publish an unsigned run record (statistics, never evidence) to this repository, for example ghcr.io/acme/pacto-stats; default $PACTO_STATS_REGISTRY
-      --values stringArray         values file to merge into the contract (can be repeated; last wins)
+      --correlation-id string              with --propose, an id that ties the promote to an incident or another change, such as a ticket; kept with the change and its record, filtered by pacto delivery history --correlation-id
+  -h, --help[=true|false]                  help for publish
+      --image string                       with no publish section: the image to deploy, pinned by digest (repo@sha256:...); Pacto builds, signs and copies none
+      --no-transparency-log[=true|false]   with --sign-key: keep the signatures out of the transparency log
+      --on-behalf-of string                with --propose, the person an agent acts for, as the Kubernetes username the cluster authenticates them as (what kubectl auth whoami prints for them, any OIDC prefix included); asserted, not verified; required when an agent proposes, never a service account or other system user, and that person may not approve the change
+  -p, --path string                        path to contract directory, the same as [dir] (default: current directory)
+      --plan[=true|false]                  show what is missing and what refuses it; change nothing
+      --propose string                     after publishing, propose the deploy artifact on <namespace>/<stage> (needs delivery.enabled on the pacto-operator chart)
+      --propose-timeout duration           how long --propose waits for the Stage to record the version as published (default 10m0s)
+      --registry string                    with no publish section: the registry to publish to (default: what the CI context or the workload image names)
+      --revision string                    source revision stamped on every artifact (default: the git commit of the contract directory, which must have no uncommitted changes)
+      --set stringArray                    set a contract value (e.g. --set service.version=2.0.0)
+      --sign-key string                    with no publish section: sign with this cosign key file instead of keyless
+      --stats-context string               comma-separated context to include in the run record: repository, run-url, environment=<name>; nothing is included unless named
+      --stats-file string                  write the run record to this file for pacto stats publish, replacing the record it holds, so give each command its own file; default $PACTO_STATS_FILE
+      --stats-registry string              publish an unsigned run record (statistics, never evidence) to this repository, for example ghcr.io/acme/pacto-stats; default $PACTO_STATS_REGISTRY
+      --values stringArray                 values file to merge into the contract (can be repeated; last wins)
 ```
 
 ---
@@ -2143,6 +2250,7 @@ pacto stats [flags]
       --detected string            add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
       --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --external-catalog string    organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
+      --fingerprints string        a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers
       --freshness duration         mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]          help for stats
       --k8s[=true|false]           include live Pacto CRs from the current Kubernetes cluster as targets
@@ -2205,6 +2313,7 @@ pacto tui [flags]
       --detected string            add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
       --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --external-catalog string    organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
+      --fingerprints string        a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers
       --freshness duration         mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]          help for tui
       --k8s[=true|false]           include live Pacto CRs from the current Kubernetes cluster as targets

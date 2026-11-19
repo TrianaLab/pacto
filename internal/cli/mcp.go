@@ -364,7 +364,7 @@ func buildDeliveryMode(cmd *cobra.Command, d deps, fm *pactomcp.FleetMode) (*pac
 	id := baseDashboardIdentity(cluster, d, c.Trust, c.PolicyNamespace)
 	reads := mcpDeliveryReads(id, fm, deliveryNarrowing(flagNamespaces(cmd)))
 	return &pactomcp.DeliveryMode{API: mcpDelivery{c}, Writes: caller.Class == delivery.ClassAgent, Caller: caller,
-		Reads: reads(c, ""), CallerAt: time.Now(), Installed: id.installedProbe()}, nil
+		Reads: reads(c, ""), CallerAt: time.Now(), Installed: id.installedProbe(), Refs: c}, nil
 }
 
 // mcpDelivery adapts app.Delivery to the MCP tools' interface.
@@ -450,8 +450,10 @@ func mcpInit(svc *app.Service, trustPath string) pactomcp.Initializer {
 
 // mcpPublish adapts Service.Publish to the publish tools.
 func mcpPublish(svc *app.Service, d deps) pactomcp.PublishFunc {
-	return func(ctx context.Context, path, revision string, plan bool) (*publish.Result, error) {
-		return d.publish(svc, ctx, app.PublishOptions{Path: path, Revision: revision, Plan: plan})
+	return func(ctx context.Context, a pactomcp.PublishArgs, plan bool) (*publish.Result, error) {
+		return d.publish(svc, ctx, app.PublishOptions{Path: a.Path, Revision: a.Revision, Plan: plan,
+			Image: a.Image, Registry: a.Registry, SignKey: a.SignKey, NoTransparencyLog: a.NoTransparencyLog,
+			Getenv: os.Getenv}) // the pull-request refusal reads the runner, as pacto publish does
 	}
 }
 

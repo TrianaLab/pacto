@@ -1088,7 +1088,7 @@
           "type": "string",
           "pattern": "^[a-z][a-z0-9-]*$",
           "maxLength": 63,
-          "description": "The name of the manifests artifact a Flux Kustomization applies. Pacto annotates it with the digest-pinned contract and tags it last, so its tag means everything it points at exists and is signed."
+          "description": "The name of the artifact an applier deploys: a manifests or chart artifact. Pacto annotates it with the digest-pinned contract and tags it last, so its tag means everything it points at exists and is signed."
         },
         "artifacts": {
           "type": "array",
@@ -1098,8 +1098,7 @@
             "required": [
               "name",
               "type",
-              "ref",
-              "build"
+              "ref"
             ],
             "additionalProperties": false,
             "properties": {
@@ -1125,7 +1124,8 @@
               },
               "build": {
                 "type": "object",
-                "description": "How the artifact is built: exactly one of dockerfile or command. Builders write the artifact; Pacto pushes it.",
+                "description": "How the artifact is built: exactly one of dockerfile or command. Builders write the artifact; Pacto pushes it. Deprecated: leave it out and pacto ci --publish detects the build, the folder's build tool for an image and Pacto's own assembly for manifests or a chart.",
+                "deprecated": true,
                 "minProperties": 1,
                 "maxProperties": 1,
                 "additionalProperties": false,
@@ -1179,7 +1179,7 @@
         },
         "sign": {
           "type": "object",
-          "description": "How every published digest is signed with cosign. Publish refuses when it is omitted.",
+          "description": "How every published digest is signed with cosign. Omitted, publish signs keyless as the identity the CI token names.",
           "additionalProperties": false,
           "oneOf": [
             {
@@ -1231,23 +1231,6 @@
               "description": "Upload each signature to the transparency log. Defaults to true; set false for a private registry."
             }
           }
-        }
-      }
-    },
-    "delivery": {
-      "type": "object",
-      "description": "How the Pacto promoter delivers this service.",
-      "additionalProperties": false,
-      "properties": {
-        "applier": {
-          "type": "string",
-          "enum": [
-            "auto",
-            "argocd",
-            "flux"
-          ],
-          "default": "auto",
-          "description": "The manager that applies this service's workloads. auto, the default, adopts the manager that already owns each workload; argocd or flux require that manager and the promoter refuses a Stage that applies through another one."
         }
       }
     },

@@ -441,6 +441,43 @@ YAML
   wait_ready pacto-registry 120s
 }
 
+# PACTO_NOREFERRERS_REGISTRY_IMAGE is CNCF distribution, which serves no
+# Referrers API (registry:3.1.2 answers /v2/<repo>/referrers/<digest> with a
+# 404), as GHCR does not either. It is only ever the tag-mode streams and
+# approvals registry of the delivery registrytags phase: contracts, evidence
+# and everything else stay on zot. Pinned to the tag and its multi-platform
+# index digest (`crane digest docker.io/library/registry:3.1.2`, 2026-11-18;
+# the `3` and `3.1` tags named the same index that day). delivery.sh pulls
+# and loads it with the other images of the run.
+# shellcheck disable=SC2034  # read by delivery.sh and delivery-registry-tags.sh
+PACTO_NOREFERRERS_REGISTRY_IMAGE="registry:3.1.2@sha256:82f6ff4a7f982960c8aa51617fea3aabc485df6e55cce80d22deb1de36f1bc3c"
+
+# install_noreferrers_registry — distribution in $NS as pacto-registry-tags,
+# plain HTTP on 5000, from the image the run already loaded into the node.
+install_noreferrers_registry() {
+  kubectl -n "$NS" apply -f - >/dev/null <<YAML
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: pacto-registry-tags, labels: { app: pacto-registry-tags } }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: pacto-registry-tags } }
+  template:
+    metadata: { labels: { app: pacto-registry-tags } }
+    spec:
+      containers:
+      - { name: registry, image: ${PACTO_NOREFERRERS_REGISTRY_IMAGE%@*}, imagePullPolicy: Never, ports: [ { containerPort: 5000 } ] }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: pacto-registry-tags }
+spec:
+  selector: { app: pacto-registry-tags }
+  ports: [ { port: 5000, targetPort: 5000 } ]
+YAML
+  wait_ready pacto-registry-tags 120s
+}
+
 # trust_keypair PACTO_BIN [KEY_ID] [PRODUCER] — a producer keypair plus the
 # Secret the Evidence Server mounts as its trust store. Prints the key directory;
 # the private half stays there for the caller to sign with.

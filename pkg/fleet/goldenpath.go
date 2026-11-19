@@ -205,8 +205,8 @@ func (q *Query) pathSignature(s *ServiceRecord) string {
 	return SignatureNotChecked
 }
 
-// selfDeclaredSignature is what a golden path's signature check proves.
-const selfDeclaredSignature = "The signer is the one the golden path's own contract declares; Pacto did not check it against a trust config."
+// checkedSignature is what a golden path's signature check proves.
+const checkedSignature = "The signer was checked against a publisher rule, pin or policy; the golden path's own contract never decides who may sign it."
 
 // templateDetail is the golden path detail of s, nil when s is no golden path.
 // It reads the newest readable revision: what it names, what it requires and
@@ -241,7 +241,7 @@ func (q *Query) templateDetail(s *ServiceRecord) *TemplateDetail {
 		CreatedServices:        refPreview(createdRefs),
 		HiddenCreatedServices:  s.HiddenCreated,
 		HiddenRequirements:     len(hidden),
-		SignatureNote:          selfDeclaredSignature,
+		SignatureNote:          checkedSignature,
 		Provenance:             ProvenanceDeclared,
 	}
 	if rev.Provenance != nil {
@@ -300,7 +300,7 @@ func (q *Query) originDetail(s *ServiceRecord) *OriginDetail {
 // creationChecklist derives the creation steps of a service with an origin
 // from what the fleet holds, nil for any other service. A step is done only on
 // its signal; the golden path's signature never is (only creation checks it
-// against a trust config).
+// against a publisher rule, pin or policy).
 func (q *Query) creationChecklist(s *ServiceRecord, view *ServiceView, consumed []OfferingUse) []CreationStep {
 	if s.Origin == nil {
 		return nil
@@ -330,15 +330,29 @@ func pathSignatureStep(path *ContractRevision) CreationStep {
 	sig := revisionSignature(path)
 	switch sig.Status {
 	case SignatureVerified:
-		st.Detail = "signed by " + sig.Signer + " (" + sig.Issuer + "), the signer the golden path's own contract declares; Pacto did not check it against a trust config"
+		st.Detail = "signed by " + sig.Signer + " (" + sig.Issuer + "), which " + signatureSourceName(sig.Source) + " accepted"
 	case SignatureUnverified:
-		st.Status, st.Detail = StepStatusFailed, "the golden path's signature was read and failed verification"
+		// A signer no rule covers is not a broken signature: the step stays unknown.
+		st.Detail = "signed by " + sig.Signer + " (" + sig.Issuer + "), which no publisher rule, pin or policy covers"
 	case SignatureUnsigned:
 		st.Detail = "the golden path is unsigned"
 	default:
 		st.Detail = cmp.Or(sig.Reason, "the golden path's signature was not checked")
 	}
 	return st
+}
+
+// signatureSourceName names what accepted a verified signer in step copy.
+func signatureSourceName(source string) string {
+	switch source {
+	case "pin":
+		return "a person's pin"
+	case "policy":
+		return "the signed delivery policy"
+	case "release":
+		return "the Pacto release signer check"
+	}
+	return "the installation's publisher rule"
 }
 
 // validationStep is how the validation of r ended. A valid revision is done

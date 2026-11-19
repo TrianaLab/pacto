@@ -796,6 +796,14 @@ func TestRenderDetailForAnOfferingAdapters(t *testing.T) {
 	}
 }
 
+func TestRevisionDetailRenderMigrated(t *testing.T) {
+	var b strings.Builder
+	renderRevisionDetail(&b, &fleet.RevisionDetailData{PactoVersion: "2.5", MigratedFrom: "2.4"})
+	if !strings.Contains(b.String(), "2.5 (migrated from 2.4, inferred)") {
+		t.Errorf("revision detail misses the migrated version:\n%s", b.String())
+	}
+}
+
 func TestRevisionDetailShowsBehindVersion(t *testing.T) {
 	var b strings.Builder
 	renderRevisionDetail(&b, &fleet.RevisionDetailData{PactoVersion: "2.3", PactoVersionCurrent: "2.5"})

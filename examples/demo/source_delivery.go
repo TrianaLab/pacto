@@ -69,6 +69,7 @@ type demoDelivery struct {
 	ops       []*delivery.OperationObject
 	approvals map[string]delivery.ApprovalSpec
 	streams   map[string]*stream
+	pins      map[string][]delivery.IdentityPin // the signed identity pins, by service, newest first
 	n         int
 
 	key     ed25519.PrivateKey
@@ -159,9 +160,12 @@ func newStage(service, env string) *delivery.StageObject {
 	// story's agent promotes plan as they would on a real autonomous Stage.
 	// fraud is new and observes (replay).
 	s.Status.Level = delivery.LevelAutonomous
-	if env == story.Test {
+	switch {
+	case env == story.Test && service == "fraud": // fraud's GitOps feeds it through a Flux OCIRepository
 		s.Spec.Candidates.OCIRepositoryRef = &delivery.LocalRef{Name: service + "-candidates"}
-	} else {
+	case env == story.Test: // the promoter watches the registry and judges each publisher (source_delivery_trust.go)
+		s.Spec.Candidates.Registry = &delivery.RegistryCandidates{}
+	default:
 		s.Spec.Candidates.UpstreamStage = &delivery.StageRef{Name: service, Namespace: story.Test}
 	}
 	return s
@@ -225,17 +229,16 @@ func (d *demoDelivery) ownPaths() {
 	// checkout forks from test into two more regions beside prod; audit-log has
 	// one prod Stage fed straight by new artifacts; notification-worker's one
 	// prod Stage is fed from another cluster's signed records. None of them takes
-	// part in the story. audit-log's candidate OCIRepository verifies no
-	// publisher, so the promoter reports it not ready, with the fix.
+	// part in the story. audit-log's registry watch read a version signed by
+	// a CI identity no rule covers, so a person is asked to confirm it.
 	for _, region := range []string{"prod-eu", "prod-us"} {
 		s := newStage("checkout", region)
 		s.Status.Conditions = []delivery.Condition{ready}
 		d.stages = append(d.stages, s)
 	}
 	audit := newStage("audit-log", story.Prod)
-	audit.Spec.Candidates = delivery.Candidates{OCIRepositoryRef: &delivery.LocalRef{Name: "audit-log-candidates"}}
-	audit.Status.Conditions = []delivery.Condition{{Type: delivery.ConditionReady, Status: "False", Reason: delivery.ReadyReasonCandidateUnverified,
-		Message: "the candidate OCIRepository audit-log-candidates sets no spec.verify with a secretRef or matchOIDCIdentity naming the publisher, so no version is published and the Stage never promotes"}}
+	audit.Spec.Candidates = delivery.Candidates{Registry: &delivery.RegistryCandidates{}}
+	audit.Status.Conditions = []delivery.Condition{ready}
 	notify := newStage("notification-worker", story.Prod)
 	notify.Spec.Candidates = delivery.Candidates{UpstreamRecords: &delivery.RemoteStage{Repository: "registry.example/edge/records", Stream: "edge-cluster/staging/notification-worker"}}
 	notify.Status.Conditions = []delivery.Condition{ready}
@@ -295,7 +298,7 @@ func (d *demoDelivery) replay(start time.Time) error {
 		for _, env := range []string{story.Test, story.Prod} {
 			s := newStage(svc, env)
 			if svc != "fraud" {
-				s.Status.Stream = delivery.Stream{ID: clusterID + "/" + env + "/" + svc, Anchor: "registry.example/story/records@sha256:" + svc + env}
+				s.Status.Stream = delivery.Stream{ID: clusterID + "/" + env + "/" + svc, Anchor: "registry.example/story/records@sha256:" + svc + env, RegistryMode: "native"}
 				s.Status.Conditions = []delivery.Condition{{Type: delivery.ConditionRecordStoreReady, Status: "True"}, ready}
 				d.streams[stageKey(env, svc)] = &stream{}
 			} else {
@@ -368,6 +371,7 @@ func (d *demoDelivery) replay(start time.Time) error {
 	for _, s := range d.stages {
 		s.Status.Proposal = d.proposal(s)
 	}
+	d.watchRegistry()
 	return nil
 }
 
@@ -431,12 +435,13 @@ func (d *demoDelivery) decideHeld(o *delivery.OperationObject, to string) {
 	switch {
 	case o.Status.Phase != delivery.PhaseHeld:
 	case to == "2.4.1":
-		d.decide(o, d.callerOf(story.Alice), delivery.Reject, "2.4.2 declares the prod values")
+		// alice signs this one keyless from her CLI, so the record shows both signers.
+		d.decide(o, d.callerOf(story.Alice), delivery.Reject, "2.4.2 declares the prod values", "person")
 	default:
 		// Test auto-promotes only non-breaking changes since 2.4.2 failed,
 		// and a workload with no contract calls payments: alice, on its
 		// team, accepts that unknown.
-		d.decide(o, d.callerOf(story.Alice), o.Status.Plan.Floor.Decision, "ledger-export only reads payment ids, which 3.0.0 keeps")
+		d.decide(o, d.callerOf(story.Alice), o.Status.Plan.Floor.Decision, "ledger-export only reads payment ids, which 3.0.0 keeps", "recorder")
 	}
 }
 
@@ -770,6 +775,10 @@ func (d *demoDelivery) propose(req delivery.Request, actor story.Persona) (*deli
 	// Classified as the promoter's admission does, so the record says how.
 	o.Status.ActorClass, o.Status.ActorClassifiedBy = story.Policy.ClassifyBy(delivery.Identity{User: actor.User, Groups: actor.Groups})
 	o.Status.Plan, o.Status.Verdicts, o.Status.Times.Admitted = &p, p.Verdicts, stamp(t)
+	if st.Status.Stream.Anchor != "" { // the recorder writes an intent record for every admitted operation
+		id := recordID(o.Metadata.UID)
+		o.Status.IntentRecord = &delivery.ApprovalRecordRef{Digest: id, Ref: "registry.example/story/records@" + id}
+	}
 	d.ops = append(d.ops, o)
 	switch p.Predicted {
 	case delivery.PredictRejected:
@@ -1215,12 +1224,14 @@ func (d *demoDelivery) Approve(_ context.Context, ns, name string, decision deli
 	if o == nil || o.Status.Phase != delivery.PhaseHeld {
 		return "", dashboard.Refuse(http.StatusConflict, "NotHeld", name+" is not waiting for a decision")
 	}
-	return d.decide(o, d.caller(), decision, note), nil
+	return d.decide(o, d.caller(), decision, note, "recorder"), nil
 }
 
 // decide records c's decision on the held o and acts on it: what the
-// promoter does when it consumes an Approval.
-func (d *demoDelivery) decide(o *delivery.OperationObject, c delivery.Caller, decision delivery.Decision, note string) string {
+// promoter does when it consumes an Approval. signer is who signed the
+// approval record: the person keyless, or the recorder on their behalf (the
+// dashboard path).
+func (d *demoDelivery) decide(o *delivery.OperationObject, c delivery.Caller, decision delivery.Decision, note, signer string) string {
 	name := o.Metadata.Name
 	d.n++
 	approval := fmt.Sprintf("%s-approval-%d", name, d.n)
@@ -1229,7 +1240,11 @@ func (d *demoDelivery) decide(o *delivery.OperationObject, c delivery.Caller, de
 	access := d.accessOf(personaOf(c.User), o.Metadata.Namespace, d.stage(o.Metadata.Namespace, o.Spec.Stage).Spec.WorkloadOf())
 	_, by := c.Policy.ClassifyBy(c.Identity)
 	o.Status.Approvals = append(o.Status.Approvals, delivery.ApprovalRecord{Name: approval, By: c.User, Decision: decision, Note: note, AuthTime: c.AuthTime,
-		ClassifiedBy: by, Access: access.Phrase(), AccessSource: access.Source, AccessAt: access.At})
+		ClassifiedBy: by, Access: access.Phrase(), AccessSource: access.Source, AccessAt: access.At,
+		Record: recordID(approval), Signer: &delivery.ApprovalSigner{Kind: signer}})
+	if signer == "recorder" {
+		o.Status.Approvals[len(o.Status.Approvals)-1].Signer.OnBehalfOf = &delivery.ApprovalBehalf{User: c.User, Verified: "admission"}
+	}
 	var owners []string
 	if o.Status.Plan != nil {
 		owners = o.Status.Plan.Floor.Owners
@@ -1249,6 +1264,8 @@ func (d *demoDelivery) decide(o *delivery.OperationObject, c delivery.Caller, de
 	case o.Status.Applied: // an accepted unknown after release
 		o.Status.Reason = "AcceptedUnknown: " + c.User + " accepted the unknown"
 		d.conclude(o, delivery.Succeeded, delivery.AcceptedUnknown)
+	case o.Spec.Type == delivery.TypeTrust:
+		d.confirmSigner(o, c, approval)
 	default:
 		o.Status.Question = ""
 		d.start(o)
@@ -1340,6 +1357,25 @@ func (d *demoDelivery) accessOf(p story.Persona, ns string, w delivery.WorkloadR
 // WorkloadAccess still shape what is offered.
 func (d *demoDelivery) Can(context.Context, string, string, string) (bool, error) { return true, nil }
 
+// Trust: the demo installation's rule for ghcr.io/trianalab and the pins
+// people confirmed, beside what its Stages' registry watch judged.
+func (d *demoDelivery) Trust(_ context.Context, stages []delivery.StageObject, ops []delivery.OperationObject) (*delivery.TrustView, error) {
+	d.mu.Lock()
+	pins := clone(d.pins)
+	d.mu.Unlock()
+	v := delivery.TrustOf(demoPublishers, stages, ops, func(ns string, s delivery.ServiceRef) []delivery.IdentityPin {
+		return pinsIn(pins[s.Name], ns)
+	})
+	v.AsOf, v.Completeness = stamp(d.now()), "complete"
+	return &v, nil
+}
+
 // StageNamespaces: everyone reads every Stage cluster-wide here, so the
 // dashboard never asks.
 func (d *demoDelivery) StageNamespaces(context.Context) ([]string, error) { return nil, nil }
+
+// recordID is a stable stand-in record id for s.
+func recordID(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return "sha256:" + hex.EncodeToString(sum[:])
+}

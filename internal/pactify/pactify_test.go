@@ -9,7 +9,6 @@ import (
 	"io/fs"
 	"maps"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -98,11 +97,12 @@ func TestPactifyFraud(t *testing.T) {
 	if text := file(t, r, "pacto.yaml").Content; text != fraudContract {
 		t.Fatalf("pacto.yaml:\n%s", text)
 	}
-	wantFound := []string{"Deployment fraud in k8s/deployment.yaml", "version 1.0.0, from the image tag in k8s/deployment.yaml",
-		"registry registry.example/story, from the image registry.example/story/images/fraud:1.0.0", "Dockerfile builds the image registry.example/story/images/fraud",
-		"the published k8s/deployment.yaml deploys the image each version builds, pinned by digest"}
+	wantFound := []string{"Deployment fraud in k8s/deployment.yaml",
+		"first publish: 1.0.0 is the image tag in k8s/deployment.yaml; declare service.version to publish it, or pacto ci --publish derives 1.0.0",
+		"registry registry.example/story, from the image registry.example/story/images/fraud:1.0.0"}
 	wantUnknown := []string{"interfaces: fraud listens on port 8080, but no OpenAPI file describes it",
-		"who uses fraud: no other services' contracts were given (--fleet), so none were looked at"}
+		"who uses fraud: no other services' contracts were given (--fleet), so none were looked at",
+		"who publishes fraud: set spec.verify.matchOIDCIdentity in delivery/<env>.yaml to the identity pacto ci --publish prints"}
 	if !slices.Equal(r.Found, wantFound) || !slices.Equal(r.Unknown, wantUnknown) || len(r.Dependencies) != 0 {
 		t.Fatalf("findings: %+v", r)
 	}
@@ -112,8 +112,6 @@ func TestPactifyFraud(t *testing.T) {
 	if r, err = Init(context.Background(), opts, os.WriteFile); err != nil || !r.Applied {
 		t.Fatalf("apply: %+v %v", r, err)
 	}
-	c, _ := contract.Parse(strings.NewReader(fraudContract))
-	runManifestsBuild(t, dir, c.Publish.Artifacts[1].Build.Command)
 	checkSecondRunAddsNothing(t, opts)
 }
 
@@ -121,7 +119,7 @@ func TestPactifyFraud(t *testing.T) {
 // init says prod earns its autonomy.
 func checkFraudDelivery(t *testing.T, r *Result) {
 	t.Helper()
-	if ig := file(t, r, ".pactoignore"); ig.Content != "cosign.key\ndelivery/\n" {
+	if ig := file(t, r, ".pactoignore"); ig.Content != "delivery/\n" {
 		t.Fatalf(".pactoignore: %+v", ig)
 	}
 	if res := file(t, r, "delivery/pacto.yaml").Content; !strings.Contains(res, "oci: oci://registry.example/story/fraud:@PACTO_VERSION@") ||
@@ -137,7 +135,8 @@ func checkFraudDelivery(t *testing.T, r *Result) {
 }
 
 // checkSecondRunAddsNothing runs init again: every file is kept, and the
-// contract it wrote already ships the Pacto resource.
+// contract it wrote, with no publish section, needs no hint to ship the
+// Pacto resource: pacto ci --publish ships it.
 func checkSecondRunAddsNothing(t *testing.T, opts Options) {
 	t.Helper()
 	again, err := Init(context.Background(), opts, os.WriteFile)
@@ -154,16 +153,14 @@ func checkSecondRunAddsNothing(t *testing.T, opts Options) {
 	}
 }
 
-// fraudContract is what init writes for fraud: the contract the story wrote
-// by hand (contracts/fraud/1.0.0), with the Pacto resource in the manifests
-// build and the environments declared (so pactoVersion 2.3) because of
-// --delivery.
+// fraudContract is what init writes for fraud: who owns it, its workload and
+// the environments --delivery declares, with no service.version and no
+// publish section, which pacto ci --publish derives.
 const fraudContract = `# Written by pacto init from Dockerfile, k8s/deployment.yaml, k8s/service.yaml.
-# Check it, then see what publishing would do: pacto publish --plan
-pactoVersion: "2.3"
+# Check it, then see what publishing would do: pacto ci
+pactoVersion: "2.5"
 service:
   name: fraud
-  version: 1.0.0
   owner:
     team: risk
 workload: service
@@ -172,23 +169,6 @@ environments:
     file: environments/test.yaml
   - name: prod
     file: environments/prod.yaml
-publish:
-  bundle: oci://registry.example/story/fraud
-  deploy: manifests
-  artifacts:
-    - name: api
-      type: image
-      ref: oci://registry.example/story/images/fraud
-      build:
-        dockerfile:
-          context: .
-    - name: manifests
-      type: manifests
-      ref: oci://registry.example/story/deploy/fraud
-      build:
-        command: [sh, -c, 'cp k8s/deployment.yaml k8s/service.yaml "$PACTO_OUT"/ && sed -E "s,(^|[{,[:space:]])(image:[[:space:]]*[\"'']?)registry\.example/story/images/fraud:1\.0\.0([\"'']?[[:space:]]*([,}#]|$)),\1\2$PACTO_REF_API@$PACTO_DIGEST_API\3,g" k8s/deployment.yaml > "$PACTO_OUT"/deployment.yaml && { grep -qF "$PACTO_DIGEST_API" "$PACTO_OUT"/deployment.yaml || { echo "pacto: no image: registry.example/story/images/fraud:1.0.0 line to pin" >&2; exit 1; }; } && sed "s/@PACTO_VERSION@/$PACTO_VERSION/" delivery/pacto.yaml > "$PACTO_OUT"/pacto-resource.yaml']
-  sign:
-    key: cosign.key
 `
 
 // checkObserves fails unless a generated Stage file starts on observe with
@@ -327,40 +307,6 @@ func decodeStage(t *testing.T, text string) (delivery.StageSpec, map[string]bool
 	return spec, kinds
 }
 
-// pinnedImage is the image a manifests build deploys once pacto publish has
-// built the api image: its repository, pinned by the digest it was pushed at.
-const pinnedImage = "registry.example/story/images/fraud@sha256:" + "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-
-// buildEnv is what pacto publish gives a manifests build after the api image.
-func buildEnv(out string) []string {
-	ref, digest, _ := strings.Cut(pinnedImage, "@")
-	return append(os.Environ(), "PACTO_OUT="+out, "PACTO_VERSION=1.0.0", "PACTO_REF_API="+ref, "PACTO_DIGEST_API="+digest)
-}
-
-// runManifestsBuild runs the build command pacto publish would, and checks it
-// ships the manifests, the Deployment with the image this version built (not
-// the tag written in k8s/deployment.yaml) and the Pacto resource for the
-// version published.
-func runManifestsBuild(t *testing.T, dir string, command []string) {
-	t.Helper()
-	out := t.TempDir()
-	cmd := exec.Command(command[0], command[1:]...)
-	cmd.Dir, cmd.Env = dir, buildEnv(out)
-	if b, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("manifests build: %v\n%s", err, b)
-	}
-	res, err := os.ReadFile(filepath.Join(out, "pacto-resource.yaml"))
-	if err != nil || !strings.Contains(string(res), "oci: oci://registry.example/story/fraud:1.0.0") {
-		t.Fatalf("pacto-resource.yaml: %v\n%s", err, res)
-	}
-	if _, err := os.Stat(filepath.Join(out, "service.yaml")); err != nil {
-		t.Error(err)
-	}
-	if d, _ := os.ReadFile(filepath.Join(out, "deployment.yaml")); !strings.Contains(string(d), "image: "+pinnedImage+"\n") {
-		t.Errorf("the published Deployment does not run the image this version built:\n%s", d)
-	}
-}
-
 // TestDependenciesFromEnvironment: a workload's environment names the
 // services it calls. Its own Services, itself, localhost and anything outside
 // the cluster are not dependencies; each one found is declared once, with
@@ -409,12 +355,14 @@ metadata: {name: db}
 	}
 	text := file(t, r, "pacto.yaml").Content
 	for _, s := range []string{"  - name: payments\n    ref: oci://ghcr.io/acme/contracts/payments\n    required: true\n    compatibility: unknown   # no range proposed: no contract or running version of payments was read\n",
-		"  # from deploy/app.yaml, env PAYMENTS_URL\n  # no contract for payments was read", "version: 1.9.0", "team: shop", "ref: oci://ghcr.io/acme/checkout\n",
-		"bundle: oci://ghcr.io/acme/contracts/checkout\n",
-		`command: [sh, -c, 'cp deploy/app.yaml "$PACTO_OUT"/ && sed -E "s,(^|[{,[:space:]])(image:[[:space:]]*[\"'']?)ghcr\.io/acme/checkout:v1\.9\.0([\"'']?[[:space:]]*([,}#]|$)),\1\2$PACTO_REF_API@$PACTO_DIGEST_API\3,g" deploy/app.yaml > "$PACTO_OUT"/app.yaml && { grep -qF "$PACTO_DIGEST_API" "$PACTO_OUT"/app.yaml || { echo "pacto: no image: ghcr.io/acme/checkout:v1.9.0 line to pin" >&2; exit 1; }; }']`, "from Dockerfile, deploy/app.yaml.\n"} {
+		"  # from deploy/app.yaml, env PAYMENTS_URL\n  # no contract for payments was read", "team: shop", "from Dockerfile, deploy/app.yaml.\n"} {
 		if !strings.Contains(text, s) {
 			t.Errorf("pacto.yaml lacks %q:\n%s", s, text)
 		}
+	}
+	if strings.Contains(text, "version:") || strings.Contains(text, "publish:") || !hasLine(r.Found, "first publish: 1.9.0 is the image tag in deploy/app.yaml") ||
+		!hasLine(r.Found, "contract bundles under ghcr.io/acme/contracts, as the image ghcr.io/acme/checkout:v1.9.0 already holds ghcr.io/acme/checkout") {
+		t.Fatalf("pacto.yaml:\n%s\nfound: %v", text, r.Found)
 	}
 	if !hasLine(r.Next, "deploy/secret.yaml holds a Secret's values") ||
 		!hasLine(r.Unknown, "the versions of payments that checkout accepts") || !hasLine(r.Found, "owner team shop") || !hasLine(r.Unknown, "port 8080, 9090") {
@@ -423,8 +371,8 @@ metadata: {name: db}
 }
 
 // TestPactifyWhatItCannotTell: a folder with only Dockerfiles says nothing
-// about the version, the registry, the owner, the workload or the API, so each
-// is Unknown, and with no manifests there is nothing for Flux to apply.
+// about the registry, the owner, the workload or the API, so each is Unknown,
+// and with no manifests there is nothing to apply.
 func TestPactifyWhatItCannotTell(t *testing.T) {
 	dir := writeTree(t, t.TempDir(), map[string]string{
 		"build/api.Dockerfile":    "FROM scratch\n",
@@ -438,31 +386,26 @@ func TestPactifyWhatItCannotTell(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := file(t, r, "pacto.yaml").Content
-	for _, s := range []string{"version: 0.1.0", "bundle: oci://registry.example/api", "ref: oci://registry.example/images/api",
-		"context: build\n          file: build/Dockerfile.worker", "# owner:"} {
-		if !strings.Contains(text, s) {
-			t.Errorf("pacto.yaml lacks %q:\n%s", s, text)
-		}
-	}
-	if strings.Contains(text, "deploy:") || strings.Contains(text, "workload:") {
+	if !strings.Contains(text, "# owner:") || strings.Contains(text, "version:") || strings.Contains(text, "publish:") || strings.Contains(text, "workload:") {
 		t.Errorf("pacto.yaml claims what it does not know:\n%s", text)
 	}
-	for _, s := range []string{"version: no image tag", "registry: no image", "owner: no team", "workload: no Kubernetes", "nothing describes what api serves",
-		"several Dockerfiles (build/Dockerfile.worker, build/api.Dockerfile, build/deep/Dockerfile): pacto init used build/Dockerfile.worker", "the cluster pieces"} {
+	for _, s := range []string{"registry: no image", "owner: no team", "workload: no Kubernetes", "nothing describes what api serves", "the cluster pieces"} {
 		if !hasLine(r.Unknown, s) {
 			t.Errorf("Unknown lacks %q: %v", s, r.Unknown)
 		}
 	}
-	if ig := file(t, r, ".pactoignore"); ig.Content != "cosign.key\n" {
-		t.Fatalf(".pactoignore: %+v", ig)
+	if hasLine(r.Found, "first publish") {
+		t.Errorf("no image tag is a version: %v", r.Found)
+	}
+	if slices.ContainsFunc(r.Files, func(f File) bool { return f.Path == ".pactoignore" }) {
+		t.Fatalf("a .pactoignore with nothing to ignore: %+v", r.Files)
 	}
 }
 
 // TestPactifyReadsWhatIsThere: an OpenAPI file becomes the interface, a
-// CronJob a scheduled workload, a chart and a kustomization are named, a
-// registry given wins over the image's, and manifests beside a kustomization
-// keep their folders. Tooling folders and the cluster pieces init writes are
-// never read.
+// CronJob a scheduled workload, a kustomization is named and a registry given
+// wins over the image's. Tooling folders and the cluster pieces init writes
+// are never read.
 func TestPactifyReadsWhatIsThere(t *testing.T) {
 	dir := writeTree(t, t.TempDir(), map[string]string{
 		"Dockerfile":                "FROM scratch\n",
@@ -470,8 +413,6 @@ func TestPactifyReadsWhatIsThere(t *testing.T) {
 		"api/openapi.yaml":          "openapi: 3.0.0\n",
 		"docs/old/swagger.json":     "{}",
 		"cosign.key":                "key",
-		"chart/Chart.yaml":          "name: x\n",
-		"chart/sub/Chart.yaml":      "name: y\n",
 		"node_modules/x/Dockerfile": "FROM scratch\n",
 		".github/ci.yaml":           "apiVersion: v1\nkind: ConfigMap\n",
 		"delivery/test.yaml":        "apiVersion: v1\nkind: Stage\n",
@@ -488,21 +429,17 @@ func TestPactifyReadsWhatIsThere(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := file(t, r, "pacto.yaml").Content
-	for _, s := range []string{"name: report", "workload: scheduled", "ref: api/openapi.yaml", "bundle: oci://ghcr.io/acme/report", "ref: oci://reg.io/r\n",
-		`mkdir -p "$PACTO_OUT"/mixed/ && cp mixed/a.yaml mixed/b.yml "$PACTO_OUT"/mixed/ && mkdir -p "$PACTO_OUT"/''my k8s''/ && cp ''my k8s/cron.yaml'' ''my k8s/kustomization.yaml'' "$PACTO_OUT"/''my k8s''/ && cp root.yaml "$PACTO_OUT"/ &&`} {
+	for _, s := range []string{"name: report", "workload: scheduled", "ref: api/openapi.yaml"} {
 		if !strings.Contains(text, s) {
 			t.Errorf("pacto.yaml lacks %q:\n%s", s, text)
 		}
 	}
-	if strings.Count(text, " file:") != 1 { // the dev environment's
-		t.Errorf("a plain Dockerfile needs no file:\n%s", text)
-	}
-	if !hasLine(r.Found, "Helm chart chart read statically") || !hasLine(r.Next, "my k8s/kustomization.yaml decides what Flux applies") ||
-		!hasLine(r.Unknown, "several Dockerfiles") || hasLine(r.Next, "signing key") {
+	if !hasLine(r.Next, "my k8s/kustomization.yaml decides what Flux applies") || hasLine(r.Next, "signing key") {
 		t.Fatalf("findings: %+v", r)
 	}
 	// No Service in the folder, so the target names none: workloadRef follows target directly.
 	for _, want := range [][2]string{{"delivery/pacto.yaml", "  target:\n    workloadRef:\n      name: report\n      kind: CronJob\n"},
+		{"delivery/pacto.yaml", "oci: oci://ghcr.io/acme/report:@PACTO_VERSION@"}, {"delivery/dev.yaml", "url: oci://ghcr.io/acme/deploy/report\n"},
 		{"delivery/dev.yaml", "ociRepositoryRef"}, {"delivery/dev.yaml", "  ref:\n    tag: 1.2.0\n"}} {
 		if !strings.Contains(file(t, r, want[0]).Content, want[1]) {
 			t.Fatalf("%s lacks %q", want[0], want[1])
@@ -519,60 +456,6 @@ func TestPactifyReadsWhatIsThere(t *testing.T) {
 	}
 	if data, _ := os.ReadFile(filepath.Join(dir, ".pactoignore")); string(data) != "*.key\ndelivery/\n" {
 		t.Fatalf(".pactoignore: %q", data)
-	}
-}
-
-// TestPactifyKustomizeLayout: a base and an overlay keep their folders, so
-// neither kustomization overwrites the other, the one with a secretGenerator
-// is left out like a Secret, and every file is named, so a Secret added later
-// is not shipped by a glob.
-func TestPactifyKustomizeLayout(t *testing.T) {
-	deploy := "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: api}\nspec:\n  template:\n    spec:\n      containers: [{name: api, image: 'reg.io/api:1'}]\n"
-	dir := writeTree(t, t.TempDir(), map[string]string{
-		"Dockerfile":                              "FROM scratch\n",
-		"deploy/base/deployment.yaml":             deploy,
-		"deploy/base/kustomization.yaml":          "resources: [deployment.yaml]\n",
-		"deploy/overlays/prod/deployment.yaml":    deploy,
-		"deploy/overlays/prod/kustomization.yaml": "resources: [../../base]\npatches: [{path: deployment.yaml}]\n",
-		"deploy/overlays/dev/kustomization.yaml":  "resources: [../../base]\nsecretGenerator: [{name: db, literals: [password=hunter2]}]\n",
-		"deploy/overlays/dev/deployment.yaml":     deploy,
-	})
-	r, err := Init(context.Background(), Options{Dir: dir, Registry: "oci://ghcr.io/acme/", Plan: true}, os.WriteFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var c struct {
-		Publish struct {
-			Artifacts []struct{ Build struct{ Command []string } }
-		}
-	}
-	if err := yaml.Unmarshal([]byte(file(t, r, "pacto.yaml").Content), &c); err != nil {
-		t.Fatal(err)
-	}
-	cmd := c.Publish.Artifacts[len(c.Publish.Artifacts)-1].Build.Command[2]
-	if strings.Contains(cmd, "/*") || strings.Contains(cmd, " *") || strings.Contains(cmd, "overlays/dev/kustomization.yaml") {
-		t.Fatalf("command: %s", cmd)
-	}
-	if !hasLine(r.Next, "deploy/overlays/dev/kustomization.yaml holds a Secret's values") || !hasLine(r.Unknown, "the folder Flux builds") {
-		t.Fatalf("findings: %+v", r)
-	}
-	_ = os.WriteFile(filepath.Join(dir, "deploy/base/secret.yaml"), []byte("apiVersion: v1\nkind: Secret\ndata: {a: b}\n"), 0o644)
-	out := t.TempDir()
-	build := exec.Command("sh", "-c", cmd)
-	build.Dir, build.Env = dir, buildEnv(out)
-	if b, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("%s: %v", b, err)
-	}
-	for _, f := range []string{"deploy/base/kustomization.yaml", "deploy/overlays/prod/kustomization.yaml", "deploy/overlays/prod/deployment.yaml"} {
-		if _, err := os.Stat(filepath.Join(out, f)); err != nil {
-			t.Error(err)
-		}
-	}
-	if d, _ := os.ReadFile(filepath.Join(out, "deploy/base/deployment.yaml")); !strings.Contains(string(d), "image: '"+pinnedImage+"'") {
-		t.Errorf("the workload's image is not pinned where its folder was kept:\n%s", d)
-	}
-	if _, err := os.Stat(filepath.Join(out, "deploy/base/secret.yaml")); err == nil {
-		t.Error("a Secret added after init was shipped")
 	}
 }
 
@@ -619,6 +502,28 @@ publish:
 		})
 	}
 
+}
+
+// TestDeliveryChartWritesNoApplier: a contract that deploys a chart gets no
+// applier object and no cluster pieces, only a Next line naming the Stage's
+// spec.applyRef: the cluster's applier deploys the chart.
+func TestDeliveryChartWritesNoApplier(t *testing.T) {
+	dir := writeTree(t, t.TempDir(), map[string]string{"k8s/deploy.yaml": payments200, "pacto.yaml": `pactoVersion: "2.5"
+service: {name: payments, version: 2.0.0}
+publish:
+  bundle: oci://ghcr.io/acme/payments
+  deploy: chart
+  artifacts:
+    - {name: chart, type: chart, ref: oci://ghcr.io/acme/charts/payments}
+`})
+	r, err := Init(context.Background(), Options{Dir: dir, Delivery: true, Plan: true}, os.WriteFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasLine(r.Next, "publish.deploy names the chart chart, so Pacto wrote no applier object: deploy it with the applier your cluster runs and name that object in each Stage's spec.applyRef") ||
+		hasLine(r.Unknown, "the cluster pieces") || slices.ContainsFunc(r.Files, func(f File) bool { return strings.HasPrefix(f.Path, "delivery/") }) {
+		t.Fatalf("plan: %+v", r)
+	}
 }
 
 const payments200 = "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: payments}\nspec:\n  template:\n    spec:\n      containers: [{name: payments, image: ghcr.io/acme/payments:2.0.0}]\n"
@@ -683,10 +588,10 @@ func TestDeliveryWithoutManifests(t *testing.T) {
 			t.Fatalf("plan: %+v %v", r, err)
 		}
 	}
-	// A 2.0 contract, the installed base: init says how to reach pacto
-	// publish instead of that there is nothing to add.
+	// A 2.0 contract, the installed base: init says how to reach pacto ci
+	// --publish instead of that there is nothing to add.
 	dir := writeTree(t, t.TempDir(), map[string]string{"pacto.yaml": "pactoVersion: \"2.0\"\nservice: {name: p, version: 1.0.0}\n"})
-	if r, _ := Init(context.Background(), Options{Dir: dir, Plan: true}, os.WriteFile); !hasLine(r.Next, `pacto.yaml has no publish section, so pacto publish refuses it: set pactoVersion: "2.1"`) {
+	if r, _ := Init(context.Background(), Options{Dir: dir, Plan: true}, os.WriteFile); !hasLine(r.Next, `pacto.yaml declares no publish section, and pacto ci --publish derives one only for pactoVersion 2.5: set pactoVersion: "2.5"`) {
 		t.Fatalf("next: %v", r.Next)
 	}
 	dir = writeTree(t, t.TempDir(), map[string]string{"pacto.yaml": "pactoVersion: \"2.1\"\nservice: {name: p, version: 1.0.0}\n" +
@@ -700,8 +605,9 @@ func TestDeliveryWithoutManifests(t *testing.T) {
 	}
 }
 
-// An empty pacto.yaml declares no name: the plan keeps the folder's, and the
-// hint never downgrades a contract whose implicit version is current.
+// An empty pacto.yaml declares no name: the plan keeps the folder's, and its
+// implicit version is current, so pacto ci --publish derives its publish
+// section and init asks for nothing.
 func TestExistingEmptyContractKeepsTheFolderName(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "orders")
 	writeTree(t, dir, map[string]string{"pacto.yaml": ""})
@@ -709,7 +615,7 @@ func TestExistingEmptyContractKeepsTheFolderName(t *testing.T) {
 	if err != nil || r.Service != "orders" {
 		t.Fatalf("service = %q, err = %v", r.Service, err)
 	}
-	if hasLine(r.Next, "pactoVersion") || !hasLine(r.Next, "no publish section") {
+	if hasLine(r.Next, "pactoVersion") || hasLine(r.Next, "no publish section") {
 		t.Fatalf("next: %v", r.Next)
 	}
 }
@@ -741,39 +647,25 @@ func TestConsumersFromFleet(t *testing.T) {
 	}
 }
 
-// TestOfflineSigningAndPlainHTTP: NoTransparencyLog writes transparencyLog:
-// false in a valid contract, InsecureRegistry sets spec.insecure on every
-// OCIRepository, a contract init did not write is named in Next, and an
-// insecure registry without delivery is refused.
+// TestOfflineSigningAndPlainHTTP: InsecureRegistry sets spec.insecure on
+// every OCIRepository and is refused without delivery; NoTransparencyLog is
+// refused without a golden path, the only contract init writes a publish
+// section for.
 func TestOfflineSigningAndPlainHTTP(t *testing.T) {
-	dir := fraudDir(t)
-	opts := Options{Dir: dir, Owner: "risk", Delivery: true, NoTransparencyLog: true, InsecureRegistry: true}
-	r, err := Init(context.Background(), opts, os.WriteFile)
+	r, err := Init(context.Background(), Options{Dir: fraudDir(t), Owner: "risk", Delivery: true, InsecureRegistry: true, Plan: true}, os.WriteFile)
 	if err != nil {
 		t.Fatal(err)
-	}
-	text := file(t, r, "pacto.yaml").Content
-	if text != strings.Replace(fraudContract, "    key: cosign.key\n", "    key: cosign.key\n    transparencyLog: false\n", 1) || hasLine(r.Next, "transparencyLog") {
-		t.Fatalf("pacto.yaml:\n%s\nnext: %v", text, r.Next)
 	}
 	for env, want := range map[string]int{"test": 2, "prod": 1} {
 		if n := insecureRepositories(file(t, r, "delivery/"+env+".yaml").Content); n != want {
 			t.Errorf("%s: %d insecure OCIRepositories, want %d", env, n, want)
 		}
 	}
-	// A second run keeps the contract, which already says it.
-	if again, err := Init(context.Background(), opts, os.WriteFile); err != nil || hasLine(again.Next, "transparencyLog") {
-		t.Fatalf("second run: %+v %v", again, err)
-	}
-
-	d := writeTree(t, t.TempDir(), map[string]string{"pacto.yaml": "pactoVersion: \"2.1\"\nservice: {name: p, version: 1.0.0}\npublish: {bundle: oci://r.example/p, sign: {key: k}}\n"})
-	if r, err := Init(context.Background(), Options{Dir: d, Name: "p", NoTransparencyLog: true, Plan: true}, os.WriteFile); err != nil || !hasLine(r.Next, "add transparencyLog: false under publish.sign") {
-		t.Fatalf("a contract init did not write: %+v %v", r, err)
-	}
-	// A blank contract says it itself.
-	if r, err := Init(context.Background(), Options{Dir: t.TempDir(), Name: "p", NoTransparencyLog: true, Plan: true}, os.WriteFile); err != nil ||
-		hasLine(r.Next, "transparencyLog") || !strings.Contains(file(t, r, "pacto.yaml").Content, "    transparencyLog: false\n") {
-		t.Fatalf("blank: %+v %v", r, err)
+	for _, dir := range []string{fraudDir(t), t.TempDir()} {
+		if _, err := Init(context.Background(), Options{Dir: dir, Name: "p", NoTransparencyLog: true, Plan: true}, os.WriteFile); err == nil ||
+			!strings.Contains(err.Error(), "transparencyLog goes under a golden path's publish.sign") {
+			t.Fatalf("no transparency log without a golden path: %v", err)
+		}
 	}
 	if _, err := Init(context.Background(), Options{Dir: fraudDir(t), InsecureRegistry: true, Plan: true}, os.WriteFile); err == nil || !strings.Contains(err.Error(), "needs delivery") {
 		t.Fatalf("insecure without delivery: %v", err)
@@ -860,8 +752,8 @@ func TestHelpers(t *testing.T) {
 	}
 }
 
-// TestManifestsOnly: manifests with no Dockerfile publish no image, and an
-// image name that is not a valid repository says nothing about the registry.
+// TestManifestsOnly: an image name that is not a valid repository says
+// nothing about the registry.
 func TestManifestsOnly(t *testing.T) {
 	dir := writeTree(t, t.TempDir(), map[string]string{
 		"k8s/app.yaml": "apiVersion: apps/v1\nkind: StatefulSet\nmetadata: {name: store}\nspec: {template: {spec: {containers: [{name: store, image: 'Reg.IO/Store:1.0.0'}]}}}\n",
@@ -871,15 +763,8 @@ func TestManifestsOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := file(t, r, "pacto.yaml").Content
-	if strings.Contains(text, "type: image") || !strings.HasPrefix(text, "# Written by pacto init from k8s/app.yaml.\n") || !hasLine(r.Unknown, "registry: no image") {
+	if strings.Contains(text, "publish:") || !strings.HasPrefix(text, "# Written by pacto init from k8s/app.yaml.\n") || !hasLine(r.Unknown, "registry: no image") {
 		t.Fatalf("plan: %+v\n%s", r, text)
-	}
-	// With a Dockerfile, the image it builds is not the one the workload
-	// names, so there is nothing to pin, and Next says so.
-	_ = os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte("FROM scratch\n"), 0o644)
-	if r, err = Init(context.Background(), Options{Dir: dir, Plan: true}, os.WriteFile); err != nil ||
-		strings.Contains(file(t, r, "pacto.yaml").Content, "PACTO_DIGEST_API") || !hasLine(r.Next, "k8s/app.yaml does not deploy registry.example/images/store") {
-		t.Fatalf("plan: %+v %v", r, err)
 	}
 }
 
@@ -953,130 +838,8 @@ func TestPrivateRegistry(t *testing.T) {
 	}
 }
 
-// TestPinImageRewritesOnlyTheImage: an untagged image named like its labels
-// and its container (image: checkout) is pinned in its image: field only,
-// and an image that starts with the same text is left alone. An image
-// written in a form the match cannot read is not pinned, and init says so;
-// a build whose manifest no longer names the image fails instead of
-// shipping it unpinned.
-func TestPinImageRewritesOnlyTheImage(t *testing.T) {
-	deploy := `apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: checkout
-  labels:
-    app: checkout
-spec:
-  selector:
-    matchLabels:
-      app: checkout
-  template:
-    metadata:
-      labels:
-        app: checkout
-    spec:
-      containers:
-        - name: checkout
-          image: checkout
-        - name: debug
-          image: checkout-debug
-`
-	dir := writeTree(t, t.TempDir(), map[string]string{"Dockerfile": "FROM scratch\n", "k8s/deployment.yaml": deploy})
-	r, err := Init(context.Background(), Options{Dir: dir, Plan: true}, os.WriteFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	c, err := contract.Parse(strings.NewReader(file(t, r, "pacto.yaml").Content))
-	if err != nil {
-		t.Fatal(err)
-	}
-	cmd := c.Publish.Artifacts[1].Build.Command
-	out := t.TempDir()
-	build := exec.Command(cmd[0], cmd[1:]...)
-	build.Dir, build.Env = dir, buildEnv(out)
-	if b, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("%s: %v", b, err)
-	}
-	// checkout is a Docker Hub official image: nobody else pushes there, so
-	// the registry is Unknown, not docker.io/library.
-	if !hasLine(r.Unknown, "registry: the image checkout is a Docker Hub official image") || hasLine(r.Found, "docker.io/library") ||
-		strings.Contains(file(t, r, "pacto.yaml").Content, "docker.io") {
-		t.Fatalf("registry: %+v", r)
-	}
-	want := strings.Replace(deploy, "image: checkout\n", "image: "+pinnedImage+"\n", 1)
-	if d, _ := os.ReadFile(filepath.Join(out, "deployment.yaml")); string(d) != want {
-		t.Fatalf("published Deployment:\n%s", d)
-	}
-
-	// The manifest changed after init: the build fails, it does not ship it.
-	_ = os.WriteFile(filepath.Join(dir, "k8s/deployment.yaml"), []byte(strings.Replace(deploy, "image: checkout\n", "image: other\n", 1)), 0o644)
-	build = exec.Command(cmd[0], cmd[1:]...)
-	build.Dir, build.Env = dir, buildEnv(t.TempDir())
-	if b, err := build.CombinedOutput(); err == nil || !strings.Contains(string(b), "no image: checkout line to pin") {
-		t.Fatalf("a build that pinned nothing passed: %s %v", b, err)
-	}
-
-	// A JSON manifest: init does not claim to pin it.
-	dir = writeTree(t, t.TempDir(), map[string]string{"Dockerfile": "FROM scratch\n",
-		"k8s/deployment.yaml": `{"apiVersion": "apps/v1", "kind": "Deployment", "metadata": {"name": "checkout"}, "spec": {"template": {"spec": {"containers": [{"name": "checkout", "image": "checkout"}]}}}}` + "\n"})
-	if r, err = Init(context.Background(), Options{Dir: dir, Plan: true}, os.WriteFile); err != nil {
-		t.Fatal(err)
-	}
-	if !hasLine(r.Next, "in a form pacto init cannot rewrite") || hasLine(r.Found, "pinned by digest") || strings.Contains(file(t, r, "pacto.yaml").Content, "PACTO_DIGEST_API") {
-		t.Fatalf("findings: %+v", r)
-	}
-}
-
-// TestPinImageInEveryManifest: a CronJob beside the Deployment that runs the
-// same image is pinned too, so one version never deploys two images; a file
-// that names the image in a form init cannot rewrite is named in Next.
-func TestPinImageInEveryManifest(t *testing.T) {
-	deploy := "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: checkout}\nspec: {template: {spec: {containers: [{name: checkout, image: ghcr.io/acme/checkout:1.0.0}]}}}\n"
-	cron := "apiVersion: batch/v1\nkind: CronJob\nmetadata: {name: cleanup}\nspec:\n  jobTemplate:\n    spec:\n      template:\n        spec:\n          containers:\n            - name: cleanup\n              image: ghcr.io/acme/checkout:1.0.0\n"
-	job := `{"apiVersion": "batch/v1", "kind": "Job", "metadata": {"name": "migrate"}, "spec": {"template": {"spec": {"containers": [{"name": "m", "image": "ghcr.io/acme/checkout:1.0.0"}]}}}}` + "\n"
-	dir := writeTree(t, t.TempDir(), map[string]string{"Dockerfile": "FROM scratch\n", "k8s/deployment.yaml": deploy, "k8s/cronjob.yaml": cron, "k8s/job.yaml": job})
-	r, err := Init(context.Background(), Options{Dir: dir, Plan: true}, os.WriteFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !hasLine(r.Found, "k8s/cronjob.yaml, k8s/deployment.yaml deploy the image each version builds") ||
-		!hasLine(r.Next, "k8s/job.yaml names ghcr.io/acme/checkout:1.0.0 in a form pacto init cannot rewrite") {
-		t.Fatalf("findings: %+v", r)
-	}
-	c, err := contract.Parse(strings.NewReader(file(t, r, "pacto.yaml").Content))
-	if err != nil {
-		t.Fatal(err)
-	}
-	cmd := c.Publish.Artifacts[1].Build.Command
-	out := t.TempDir()
-	build := exec.Command(cmd[0], cmd[1:]...)
-	build.Dir, build.Env = dir, buildEnv(out)
-	if b, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("%s: %v", b, err)
-	}
-	for name, src := range map[string]string{"deployment.yaml": deploy, "cronjob.yaml": cron} {
-		want := strings.Replace(src, "ghcr.io/acme/checkout:1.0.0", pinnedImage, 1)
-		if d, _ := os.ReadFile(filepath.Join(out, name)); string(d) != want {
-			t.Fatalf("published %s:\n%s", name, d)
-		}
-	}
-	// A Service that only shares a bare image's text names no image, so init
-	// does not tell anyone to rewrite it.
-	dir = writeTree(t, t.TempDir(), map[string]string{"Dockerfile": "FROM scratch\n",
-		"k8s/deployment.yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: checkout}\nspec: {template: {spec: {containers: [{name: checkout, image: checkout}]}}}\n",
-		"k8s/service.yaml":    "apiVersion: v1\nkind: Service\nmetadata: {name: checkout}\nspec: {selector: {app: checkout}, ports: [{port: 80}]}\n"})
-	if r, err = Init(context.Background(), Options{Dir: dir, Plan: true}, os.WriteFile); err != nil {
-		t.Fatal(err)
-	}
-	for _, l := range r.Next {
-		if strings.Contains(l, "service.yaml") {
-			t.Fatalf("a Service with no image is told to rewrite it: %q", l)
-		}
-	}
-}
-
 // TestHelmChartIsNotRead: a Helm chart's templates are never manifests (#432).
-// Neither the build command, the header nor the workload come from a chart,
+// Neither the header nor the workload come from a chart,
 // whether its templates parse as YAML or not, and Unknown names the chart once.
 // A plain manifest beside the chart is still read.
 func TestHelmChartIsNotRead(t *testing.T) {
@@ -1109,7 +872,7 @@ func TestHelmChartIsNotRead(t *testing.T) {
 				"worker/templates/configmap.yaml": chart["chart/templates/configmap.yaml"]})},
 		{name: "beside a plain manifest", mode: modePactify, header: "Dockerfile, k8s/deploy.yaml", chartDirs: []string{"chart"},
 			files: with(map[string]string{"Dockerfile": docker, "k8s/deploy.yaml": deploy}),
-			want:  []string{"cp k8s/deploy.yaml", "version: 1.2.0", "workload: service"}},
+			want:  []string{"workload: service"}},
 		{name: "the folder is the chart", mode: modePactify, header: "Dockerfile", chartDirs: []string{"."},
 			files: map[string]string{"Dockerfile": docker, "Chart.yaml": chart["chart/Chart.yaml"],
 				"templates/configmap.yaml": chart["chart/templates/configmap.yaml"], "charts/db/templates/cm.yaml": chart["chart/templates/configmap.yaml"],
@@ -1131,9 +894,6 @@ func TestHelmChartIsNotRead(t *testing.T) {
 			assertNoChartRead(t, text, r.Found)
 			if tc.header != "" && !strings.HasPrefix(text, "# Written by pacto init from "+tc.header+".\n") {
 				t.Fatalf("header:\n%s", text)
-			}
-			if tc.want == nil && strings.Contains(text, "type: manifests") {
-				t.Fatalf("a manifests artifact came from the chart:\n%s", text)
 			}
 			for _, s := range tc.want {
 				if !strings.Contains(text, s) {
@@ -1198,7 +958,7 @@ func TestOnlyClusterFilesAreManifests(t *testing.T) {
 				t.Fatal(err)
 			}
 			text := file(t, r, "pacto.yaml").Content
-			if !strings.HasPrefix(text, "# Written by pacto init from "+tc.header+".\n") || !strings.Contains(text, `cp k8s/deploy.yaml "$PACTO_OUT"/`) {
+			if !strings.HasPrefix(text, "# Written by pacto init from "+tc.header+".\n") {
 				t.Fatalf("pacto.yaml:\n%s", text)
 			}
 			for _, s := range []string{"catalog-info.yaml", "skaffold.yaml", "extra.yaml", "local/"} {
@@ -1225,19 +985,17 @@ func planBlank(t *testing.T, opts Options) (*Result, *contract.Contract) {
 	return r, c
 }
 
-// TestBlankHonoursOwnerDomainRegistry: a blank contract carries the owner,
-// domain and registry it was given, and keeps the signing key out of the
-// bundle.
+// TestBlankHonoursOwnerDomainRegistry: a blank contract carries the owner
+// and domain it was given, at the current pactoVersion, with no publish
+// section and so nothing to keep out of the bundle; the registry is pacto ci
+// --publish's to resolve.
 func TestBlankHonoursOwnerDomainRegistry(t *testing.T) {
 	r, c := planBlank(t, Options{Owner: "billing", Domain: "payments", Registry: "oci://ghcr.io/acme/"})
-	if c.PactoVersion != "2.4" || c.Service.Owner.Team != "billing" || c.Service.Domain != "payments" {
+	if c.PactoVersion != "2.5" || c.Service.Owner.Team != "billing" || c.Service.Domain != "payments" || c.Publish != nil {
 		t.Fatalf("contract: %+v", c)
 	}
-	if c.Publish == nil || c.Publish.Bundle != "oci://ghcr.io/acme/svc" || c.Publish.Sign == nil || c.Publish.Sign.Key != signKey {
-		t.Fatalf("publish: %+v", c.Publish)
-	}
-	if f := file(t, r, ".pactoignore"); f.Action != Add || f.Content != signKey+"\n" {
-		t.Fatalf(".pactoignore: %+v", f)
+	if slices.ContainsFunc(r.Files, func(f File) bool { return f.Path == ".pactoignore" }) {
+		t.Fatalf("files: %+v", r.Files)
 	}
 	if hasLine(r.Unknown, "owner") || hasLine(r.Unknown, "registry") {
 		t.Fatalf("unknown: %v", r.Unknown)
@@ -1250,51 +1008,31 @@ func TestBlankHonoursOwnerDomainRegistry(t *testing.T) {
 	}
 }
 
-// TestBlankWithoutOwnerIsUnknown: with no owner or registry the contract says
-// so in a comment and a placeholder, both named in Unknown.
+// TestBlankWithoutOwnerIsUnknown: with no owner the contract says so in a
+// comment, named in Unknown.
 func TestBlankWithoutOwnerIsUnknown(t *testing.T) {
 	r, c := planBlank(t, Options{})
-	if c.PactoVersion != "2.1" || c.Service.Owner.Team != "" || c.Service.Domain != "" || c.Publish.Bundle != "oci://registry.example/svc" {
+	if c.PactoVersion != "2.5" || c.Service.Owner.Team != "" || c.Service.Domain != "" || c.Publish != nil {
 		t.Fatalf("contract: %+v", c)
 	}
-	if !strings.Contains(file(t, r, "pacto.yaml").Content, "  # owner:\n") ||
-		!hasLine(r.Unknown, "owner: no team was given; pass --owner") || !hasLine(r.Unknown, "registry: no --registry was given") {
+	if !strings.Contains(file(t, r, "pacto.yaml").Content, "  # owner:\n") || !hasLine(r.Unknown, "owner: no team was given; pass --owner") {
 		t.Fatalf("unknown: %v", r.Unknown)
 	}
 }
 
-// TestBlankDescribeOnlyHasNoPublish: describe-only writes no publish section,
-// so no signing key and no .pactoignore.
-func TestBlankDescribeOnlyHasNoPublish(t *testing.T) {
-	r, c := planBlank(t, Options{DescribeOnly: true, Registry: "ghcr.io/acme"})
-	if c.Publish != nil || slices.ContainsFunc(r.Files, func(f File) bool { return f.Path == ".pactoignore" }) || hasLine(r.Unknown, "registry") {
-		t.Fatalf("plan: %+v", r)
-	}
-}
-
 // TestBlankIsValid: every option combination writes a contract that
-// validates, and transparencyLog: false lands under publish.sign.
+// validates.
 func TestBlankIsValid(t *testing.T) {
 	for _, owner := range []string{"", "billing"} {
 		for _, domain := range []string{"", "payments"} {
-			for _, registry := range []string{"", "ghcr.io/acme"} {
-				for _, describe := range []bool{false, true} {
-					for _, noTLog := range []bool{false, true} {
-						if describe && noTLog {
-							continue
-						}
-						r, c := planBlank(t, Options{Owner: owner, Domain: domain, Registry: registry, DescribeOnly: describe, NoTransparencyLog: noTLog})
-						files := map[string]string{}
-						for _, f := range r.Files {
-							files[f.Path] = f.Content
-						}
-						if err := validate(files["pacto.yaml"], files); err != nil {
-							t.Errorf("%q %q %q %v %v: %v", owner, domain, registry, describe, noTLog, err)
-						}
-						if noTLog && (c.Publish.Sign.TransparencyLog == nil || *c.Publish.Sign.TransparencyLog) {
-							t.Errorf("transparencyLog: %+v", c.Publish.Sign)
-						}
-					}
+			for _, describe := range []bool{false, true} {
+				r, _ := planBlank(t, Options{Owner: owner, Domain: domain, DescribeOnly: describe})
+				files := map[string]string{}
+				for _, f := range r.Files {
+					files[f.Path] = f.Content
+				}
+				if err := validate(files["pacto.yaml"], files); err != nil {
+					t.Errorf("%q %q %v: %v", owner, domain, describe, err)
 				}
 			}
 		}
@@ -1311,7 +1049,7 @@ func TestBlankInvalidDomainFails(t *testing.T) {
 }
 
 // TestPactifiedWritesDomain: a contract read from the folder carries the
-// domain it was given at pactoVersion 2.4.
+// domain it was given.
 func TestPactifiedWritesDomain(t *testing.T) {
 	dir := writeTree(t, filepath.Join(t.TempDir(), "checkout"), map[string]string{"Dockerfile": "FROM alpine:3.20\n"})
 	r, err := Init(context.Background(), Options{Dir: dir, Domain: "payments", Plan: true}, os.WriteFile)
@@ -1319,7 +1057,7 @@ func TestPactifiedWritesDomain(t *testing.T) {
 		t.Fatalf("plan: %+v %v", r, err)
 	}
 	c, err := contract.Parse(strings.NewReader(file(t, r, "pacto.yaml").Content))
-	if err != nil || c.PactoVersion != "2.4" || c.Service.Domain != "payments" {
+	if err != nil || c.PactoVersion != "2.5" || c.Service.Domain != "payments" {
 		t.Fatalf("contract: %+v %v", c, err)
 	}
 }
@@ -1371,18 +1109,18 @@ func checkDeclaredEnvironments(t *testing.T, r *Result, version string, envs ...
 
 // TestDeliveryDeclaresEnvironments: --delivery declares each --env in the
 // contract init writes, blank or read from the folder, with an empty values
-// file, at 2.3 or 2.4 with a domain, or 2.5 when it writes a dependency.
+// file.
 func TestDeliveryDeclaresEnvironments(t *testing.T) {
 	r, _ := planBlank(t, Options{Delivery: true, Environments: []string{"test", "pr-1"}})
-	checkDeclaredEnvironments(t, r, "2.3", "test", "pr-1")
+	checkDeclaredEnvironments(t, r, "2.5", "test", "pr-1")
 	r, _ = planBlank(t, Options{Delivery: true, Domain: "payments"})
-	checkDeclaredEnvironments(t, r, "2.4", "test", "prod")
+	checkDeclaredEnvironments(t, r, "2.5", "test", "prod")
 
 	r, err := Init(context.Background(), Options{Dir: fraudDir(t), Owner: "risk", Delivery: true, Plan: true}, os.WriteFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	checkDeclaredEnvironments(t, r, "2.3", "test", "prod")
+	checkDeclaredEnvironments(t, r, "2.5", "test", "prod")
 	r, err = Init(context.Background(), Options{Dir: fixtureDir(t, "invoices"), Owner: "billing", Domain: "billing", Delivery: true, Environments: []string{"dev"}, Plan: true}, os.WriteFile)
 	if err != nil {
 		t.Fatal(err)

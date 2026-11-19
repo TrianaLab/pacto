@@ -289,7 +289,7 @@ func TestCreateChain(t *testing.T) {
 	var got CreateResult
 	dir := filepath.Join(t.TempDir(), "ledger")
 	decode(t, callTool(t, "pacto_create", map[string]any{"name": "ledger", "path": dir, "dry_run": true}), &got)
-	want := []string{"pacto publish --plan " + dir, "pacto publish " + dir, "pacto delivery plan --type promote --to 0.1.0 --stage <stage>"}
+	want := []string{"pacto publish --plan " + dir, "pacto publish " + dir, "pacto delivery plan --type promote --to <version> --stage <stage>"}
 	if cmds := chainCommands(got.Chain); !slices.Equal(cmds, want) || got.Chain[0].Tool != "" || got.Chain[0].Args["path"] != dir {
 		t.Fatalf("create chain %+v, want %q", got.Chain, want)
 	}

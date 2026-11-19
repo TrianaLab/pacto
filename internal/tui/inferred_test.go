@@ -14,7 +14,8 @@ import (
 )
 
 // deploymentsOnly is a cluster whose only workloads are the Deployments of
-// body; the workload source calls nothing but ListPage.
+// body; the workload source calls nothing but discovery, which finds no
+// GitOps API, and ListPage.
 type deploymentsOnly struct {
 	k8sclient.K8sClient
 	body string
@@ -25,6 +26,10 @@ func (c deploymentsOnly) ListPage(_ context.Context, gvr schema.GroupVersionReso
 		return []byte(c.body), "", nil
 	}
 	return []byte(`{"items":[]}`), "", nil
+}
+
+func (deploymentsOnly) PreferredVersions(context.Context, ...string) (map[string]string, error) {
+	return nil, nil
 }
 
 // inferredSnapshot reads the Decision 9 object

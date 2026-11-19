@@ -102,4 +102,48 @@ describe('RevisionEntity behavior', () => {
     expect(target.querySelector('[data-testid="revision-declares-none"]')?.textContent).toContain('environments');
     expect(target.querySelector('[data-testid="revision-stages"]')).toBeNull();
   });
+
+  // pacto ci raised the authored pactoVersion in memory; the bundle's pacto.inferred.yaml
+  // records it. The fact says so muted, with one provenance mark that ends the row.
+  const pactoFact = () => [...target.querySelectorAll('.re-fact')].find((f) => f.querySelector('.re-k')?.textContent === 'Pacto version') as HTMLElement;
+  it('shows migrated from beside the Pacto version with one mark', () => {
+    comp = mount(RevisionEntity, { target, props: { detail: detail({ pactoVersion: '2.5', migratedFrom: '2.4' }) } });
+    const f = pactoFact();
+    expect(f.textContent).toContain('2.5');
+    expect(f.textContent).toContain('migrated from 2.4');
+    const marks = f.querySelectorAll('.prov-mark');
+    expect(marks).toHaveLength(1);
+    expect(marks[0].querySelector('button')?.getAttribute('aria-label')).toBe('inferred pactoVersion migration');
+    expect(marks[0].querySelector('.prov-tip')?.textContent).toContain('pacto.inferred.yaml');
+    expect(f.querySelector('.tag')).toBeNull();
+  });
+
+  it('a migrated and behind revision shows both', () => {
+    comp = mount(RevisionEntity, { target, props: { detail: detail({ pactoVersion: '2.5', migratedFrom: '2.4', pactoVersionCurrent: '99.0' }) } });
+    const f = pactoFact();
+    expect(f.querySelector('.tag')?.textContent).toBe('behind 99.0');
+    expect(f.lastElementChild?.classList.contains('prov-mark')).toBe(true);
+    expect(f.querySelector('.tag')!.compareDocumentPosition(f.querySelector('.prov-mark')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('the migrated text is muted', () => {
+    comp = mount(RevisionEntity, { target, props: { detail: detail({ pactoVersion: '2.5', migratedFrom: '2.4' }) } });
+    const muted = pactoFact().querySelector('.re-muted');
+    expect(muted?.textContent).toBe('migrated from 2.4');
+  });
+
+  it('the tip names the recorded versions', () => {
+    comp = mount(RevisionEntity, { target, props: { detail: detail({ pactoVersion: '2.5', migratedFrom: '2.3' }) } });
+    const tip = pactoFact().querySelector('.prov-tip')?.textContent ?? '';
+    expect(tip).toContain('pactoVersion 2.3');
+    expect(tip).toContain('published as 2.5');
+  });
+
+  it('no migratedFrom renders today\'s fact', () => {
+    comp = mount(RevisionEntity, { target, props: { detail: detail({ pactoVersion: '2.5' }) } });
+    const f = pactoFact();
+    expect(f.textContent).toBe('Pacto version2.5');
+    expect(f.textContent).not.toContain('migrated from');
+    expect(f.querySelector('.prov-mark')).toBeNull();
+  });
 });

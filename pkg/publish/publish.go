@@ -50,6 +50,8 @@ const (
 const (
 	AnnotationVersion  = "org.opencontainers.image.version"
 	AnnotationRevision = delivery.SourceRevisionAnnotation
+	// AnnotationSource names the source repository that built an artifact.
+	AnnotationSource = "org.opencontainers.image.source"
 )
 
 // BundleItem is the name the contract bundle has among the plan's items.
@@ -64,6 +66,9 @@ type Item struct {
 	State  State  `json:"state"`
 	Digest string `json:"digest,omitempty"`
 	Reason string `json:"reason,omitempty"`
+	// Err classifies a conflict for the caller (errors.Is), such as
+	// ErrForeignSignature.
+	Err error `json:"-"`
 }
 
 // Check is one of Pacto's own checks. A failed check refuses the publish.
@@ -89,6 +94,8 @@ type Plan struct {
 	Ready bool `json:"ready"`
 	// Missing counts the absent items: what a publish would write.
 	Missing int `json:"missing"`
+	// pub is the publish section the plan decided, which Apply carries out.
+	pub *contract.Publish
 }
 
 // Input is a validated local bundle and where it was built from.
@@ -96,12 +103,59 @@ type Input struct {
 	Bundle *contract.Bundle
 	// Revision is the source revision (a git commit), stamped on every manifest.
 	Revision string
+	// Source is the source repository URL, stamped as
+	// org.opencontainers.image.source on built artifacts; empty stamps none.
+	// The contract bundle never carries it, so its digest stays deterministic.
+	Source string
 	// Checks are checks the caller ran (validation, local references, the lock).
 	Checks []Check
 	// Preflight, when set, returns more checks once the items are decided, so
 	// a check that only matters for what will be written (a builder, a
 	// signer, a clean checkout) can pass when nothing will be.
 	Preflight func(Plan) []Check
+	// Publish, when set, is the publish section to carry out in place of the
+	// contract's: one Pacto derived from the folder.
+	Publish *contract.Publish
+	// Builtin builds an artifact, by name, in place of Tools.Build.
+	Builtin map[string]Builtin
+	// Images are the images the publish deploys without building them
+	// (supplied or pinned by digest); Apply adds each image artifact it
+	// builds and records them all with the bundle.
+	Images []ImageRecord
+	// Created, when set, is stamped on every artifact as AnnotationCreated:
+	// the commit time, so two publishes of one commit stamp the same value.
+	Created string
+}
+
+// Builtin builds one artifact into out, as Tools.Build does, with what
+// Pacto runs or assembles itself.
+type Builtin func(ctx context.Context, out string, env []string) error
+
+// Layout names the repositories a derived publish section writes to under
+// registry, for the service name whose workload runs an image from
+// imageRepo ("" for none): the bundle at <registry>/<name>, or
+// <registry>/contracts/<name> when the image already lives there; the
+// image's own repository when it is under registry and not a Docker Hub
+// official image, else <registry>/images/<name>; the deploy artifact at
+// <registry>/deploy/<name>.
+func Layout(registry, name, imageRepo string) (bundle, image, deploy string) {
+	bundle, image, deploy = registry+"/"+name, registry+"/images/"+name, registry+"/deploy/"+name
+	if strings.HasPrefix(imageRepo, registry+"/") && !strings.HasPrefix(imageRepo, "docker.io/library/") {
+		image = imageRepo
+	}
+	if image == bundle {
+		bundle = registry + "/contracts/" + name
+	}
+	return bundle, image, deploy
+}
+
+// AltLayout is the bundle repository Layout did not pick: a version there
+// means the bundle repository moved.
+func AltLayout(registry, name, imageRepo string) string {
+	if bundle, _, _ := Layout(registry, name, imageRepo); bundle == registry+"/"+name {
+		return registry + "/contracts/" + name
+	}
+	return registry + "/" + name
 }
 
 // Repo turns a publish ref (oci://host/path) into a repository reference.
@@ -143,12 +197,16 @@ const NextVersion = ": publish a higher service.version"
 func MakePlan(ctx context.Context, reg Registry, in Input) Plan {
 	c := in.Bundle.Contract
 	p := Plan{Service: c.Service.Name, Version: c.Service.Version, Revision: in.Revision, Checks: append([]Check{}, in.Checks...)}
-	pub := c.Publish
+	pub := in.Publish
 	if pub == nil {
-		p.Checks = append(p.Checks, Check{Name: "publish", Message: "the contract declares no publish section (pactoVersion 2.1)"})
+		pub = c.Publish
+	}
+	if pub == nil {
+		p.Checks = append(p.Checks, Check{Name: "publish", Message: "the contract declares no publish section (pactoVersion 2.1); pacto ci --publish derives one from the folder"})
 		return p
 	}
-	p.Checks = append(p.Checks, signCheck(pub), refsCheck(pub), sbomCheck(pub), revisionCheck(in.Revision), versionCheck(ctx, reg, in.Bundle, &p))
+	p.pub = pub
+	p.Checks = append(p.Checks, signCheck(pub), refsCheck(pub), sbomCheck(pub), revisionCheck(in.Revision), versionCheck(ctx, reg, Repo(pub.Bundle), in.Bundle, &p))
 	for _, a := range pub.Artifacts {
 		ref := Repo(a.Ref) + ":" + p.Version
 		r, err := reg.Head(ctx, ref)
@@ -216,22 +274,34 @@ func item(name, typ, ref string, st State, why string, r *Remote) Item {
 	return it
 }
 
-func signCheck(pub *contract.Publish) Check {
-	if pub.Sign == nil {
-		return Check{Name: "sign", Message: "publish.sign is not configured; everything published is signed, so publish refuses"}
+// SignOf is pub's signer: the declared publish.sign, or the zero value (keyless
+// as the identity the CI token names) when pub or its sign is nil.
+func SignOf(pub *contract.Publish) contract.PublishSign {
+	if pub == nil || pub.Sign == nil {
+		return contract.PublishSign{}
 	}
-	if s := pub.Sign; s.Key == "" && s.KMS == "" && s.TransparencyLog != nil && !*s.TransparencyLog {
-		return Check{Name: "sign", Message: "keyless signing needs the transparency log: a short-lived certificate verifies only at the time the log saw it"}
-	}
-	return Check{Name: "sign", Passed: true, Message: "signed with Sigstore (" + signMethod(pub.Sign) + ")"}
+	return *pub.Sign
 }
 
-func signMethod(s *contract.PublishSign) string {
+func signCheck(pub *contract.Publish) Check {
+	s := SignOf(pub)
+	if s.Key == "" && s.KMS == "" && s.TransparencyLog != nil && !*s.TransparencyLog {
+		return Check{Name: "sign", Message: "keyless signing needs the transparency log: a short-lived certificate verifies only at the time the log saw it"}
+	}
+	if pub.Sign == nil {
+		return Check{Name: "sign", Passed: true, Message: "signed keyless as the CI identity the OIDC token names"}
+	}
+	return Check{Name: "sign", Passed: true, Message: "signed with Sigstore (" + signMethod(s) + ")"}
+}
+
+func signMethod(s contract.PublishSign) string {
 	switch {
 	case s.Key != "":
 		return "key " + s.Key
 	case s.KMS != "":
 		return "kms " + s.KMS
+	case s.Identity == "":
+		return "keyless (identity from the OIDC token)"
 	}
 	return "keyless as " + s.Identity
 }
@@ -275,26 +345,14 @@ func revisionCheck(rev string) Check {
 // is a release candidate, the change from the highest final release below this
 // one must satisfy the rule too: a candidate's fixes are exempt only from the
 // bump the candidate line itself already carries.
-func versionCheck(ctx context.Context, reg Registry, b *contract.Bundle, p *Plan) Check {
+func versionCheck(ctx context.Context, reg Registry, repo string, b *contract.Bundle, p *Plan) Check {
 	ch := Check{Name: "version"}
-	repo := Repo(b.Contract.Publish.Bundle)
 	tags, err := reg.Tags(ctx, repo)
 	if err != nil {
 		ch.Message = "the published versions could not be listed: " + err.Error()
 		return ch
 	}
-	var bases []string                      // the final release first, then the candidate
-	for _, t := range semver.Filter(tags) { // newest first
-		if semver.Compare(t, p.Version) >= 0 {
-			continue
-		}
-		if len(bases) == 0 || !prerelease(t) {
-			bases = append([]string{t}, bases...)
-		}
-		if !prerelease(t) {
-			break
-		}
-	}
+	bases := Bases(tags, p.Version)
 	if len(bases) == 0 {
 		ch.Passed, ch.Message = true, "no earlier version is published, so any version is accepted"
 		return ch
@@ -305,6 +363,26 @@ func versionCheck(ctx context.Context, reg Registry, b *contract.Bundle, p *Plan
 		}
 	}
 	return ch
+}
+
+// Bases are the published versions the version rule judges version against,
+// the final release first: the highest semver tag below version and, when
+// that is a release candidate, the highest final release below it too. An
+// empty version is above every tag.
+func Bases(tags []string, version string) []string {
+	var bases []string
+	for _, t := range semver.Filter(tags) { // newest first
+		if version != "" && semver.Compare(t, version) >= 0 {
+			continue
+		}
+		if len(bases) == 0 || !prerelease(t) {
+			bases = append([]string{t}, bases...)
+		}
+		if !prerelease(t) {
+			break
+		}
+	}
+	return bases
 }
 
 // bumpCheck is the version rule against one published version, which it

@@ -5,7 +5,7 @@
   import { deliveryChangeUrl, deliveryHistoryUrl, deliveryInboxUrl } from '../lib/router.ts';
   import { deliveryServiceUrl } from '../lib/deliveryLinks.svelte.ts';
   import { session, me, teamGroups } from '../lib/session.svelte.ts';
-  import { typeLabel, shortDigest, shortDigests, andList, exceptList, exceptParam, offerRequest } from '../lib/delivery.ts';
+  import { typeLabel, TRUST_TYPE, shortDigest, shortDigests, andList, exceptList, exceptParam, offerRequest } from '../lib/delivery.ts';
   import PageHeader from '../components/PageHeader.svelte';
   import DeliveryNav from '../components/DeliveryNav.svelte';
   import DeliveryProblem from '../components/DeliveryProblem.svelte';
@@ -110,6 +110,9 @@
   let acting = $state(null);
   let opener = null;
   const keyOf = (r) => `${r.namespace}/${r.stage}`;
+  // A pinned service's signer that changed is asked as a change, never as a
+  // first signer: the question names the identity it replaces.
+  const pinnedBefore = (it) => (it.question ?? '').match(/: signer changed from (\S+) to /)?.[1] ?? '';
   function act(e, r, o) { opener = e.currentTarget; acting = { key: keyOf(r), ...offerRequest(r, o) }; }
   function close() { acting = null; opener?.focus(); }
 </script>
@@ -117,19 +120,20 @@
 {#snippet row(it, again)}
   <li class="pl-row dl-row">
     <div class="dl-main">
-      <a class="dl-title" class:dl-again={again && it.to} href={deliveryChangeUrl(it.namespace, it.name)}>
-        {#if again && it.to}<span class="visually-hidden">{`${changeOn(it)}: `}</span>{moveOf(it)}{:else}{it.to ? `${changeOn(it)}: ${moveOf(it)}` : changeOn(it)}{/if}
+      <a class="dl-title" class:dl-again={again && it.to && it.type !== TRUST_TYPE} href={deliveryChangeUrl(it.namespace, it.name)}>
+        {#if it.type === TRUST_TYPE && it.publisher}{@const was = pinnedBefore(it)}{it.service || `${it.namespace}/${it.stage}`}: {#if was}signer changed from <bdi title={was}>{was}</bdi> to{:else}new signer{/if} <bdi title={it.publisher.subject}>{it.publisher.subject}</bdi>{#if it.publisher.repository}{' '}(repository <bdi title={it.publisher.repository}>{it.publisher.repository}</bdi>, attested){/if}
+        {:else if again && it.to}<span class="visually-hidden">{`${changeOn(it)}: `}</span>{moveOf(it)}{:else}{it.to ? `${changeOn(it)}: ${moveOf(it)}` : changeOn(it)}{/if}
       </a>
       <p class="dl-facts t-body-2">
         {#if it.consumers?.length}
           <span class="dl-affects">{breaksWord(it)} <CappedList items={it.consumers} max={3} inline={true} label="Affected services">{#snippet item(c)}<a href={deliveryServiceUrl(c)}>{c}</a>{/snippet}</CappedList></span>
-        {:else if it.question}
+        {:else if it.question && it.type !== TRUST_TYPE}
           <span class="dl-question">{firstSentence(it.question)}</span>
         {/if}
         <span class="dl-who">{#if it.owners?.length}{#if session.caller?.teamNarrowing === false}People who may update this workload may answer; asked of {andList(it.owners, 3)}{:else}People of {andList(it.owners, 3)} who may update this workload may answer{/if}{:else if session.caller?.requireOwnerTeam}Nobody may answer: no team is declared, so only break-glass can override{:else}People who may update this workload may answer{/if}</span>
       </p>
     </div>
-    <a class="btn btn-primary btn-sm dl-decide" href={deliveryChangeUrl(it.namespace, it.name)} aria-label={`Decide: ${typeLabel(it.type)} on ${it.namespace}/${it.stage}`}>Decide</a>
+    <a class="btn btn-primary btn-sm dl-decide" href={deliveryChangeUrl(it.namespace, it.name)} aria-label={it.type === TRUST_TYPE ? `Confirm identity: ${it.publisher?.subject ?? `${it.namespace}/${it.stage}`}` : `Decide: ${typeLabel(it.type)} on ${it.namespace}/${it.stage}`}>{it.type === TRUST_TYPE ? 'Confirm identity' : 'Decide'}</a>
   </li>
 {/snippet}
 
@@ -283,6 +287,8 @@
   .dl-count { font-variant-numeric: tabular-nums; }
   .dl-note { margin: var(--sp-1) 0 var(--sp-2); color: var(--c-text-3); }
   .dl-title { font-weight: 600; color: var(--c-accent); }
+  /* A signer's subject is one long URI: it breaks anywhere instead of overflowing. */
+  .dl-title bdi { overflow-wrap: anywhere; }
   /* A title cut to what differs from the line above sits under it, indented. */
   .dl-again { padding-left: var(--sp-4); font-weight: 500; }
   .dl-question { margin: 0; }

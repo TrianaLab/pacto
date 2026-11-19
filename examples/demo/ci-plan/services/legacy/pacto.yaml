@@ -1,0 +1,4 @@
+service:
+  name: legacy
+  owner:
+    team: legacy

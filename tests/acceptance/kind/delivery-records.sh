@@ -33,10 +33,11 @@ records_init() {
   }
   # anchor_of NS STAGE — the digest of the Stage's stream anchor.
   anchor_of() { local a; a="$(kubectl -n "$1" get stage "$2" -o jsonpath='{.status.stream.anchor}')"; echo "${a##*@}"; }
-  # records_on REPO DIGEST UID — how many records of operation UID are attached to REPO@DIGEST.
+  # records_on REPO DIGEST UID — how many operation records of operation UID are
+  # attached to REPO@DIGEST; the anchor also holds the operation's intent record.
   records_on() {
     oras discover --plain-http --format json "127.0.0.1:${LOCAL_REG_PORT}/$1@$2" \
-      | jq --arg u "$3" '[.. | objects | select((.annotations // {})["dev.pacto.uid"] == $u)] | length'
+      | jq --arg u "$3" '[.. | objects | select((.annotations // {}) | .["dev.pacto.uid"] == $u and .["dev.sigstore.bundle.predicateType"] == "delivery.pacto.trianalab.io/operation/v1")] | length'
   }
   uid_of() { kubectl -n "$1" get operation "$2" -o jsonpath='{.metadata.uid}'; }
 }
@@ -76,6 +77,7 @@ records_store() {
   jq -e --argjson seq "$seq" '.ok and (.records | length) == $seq and ([.records[] | select(.kind == "gap")] | length) == 0' <<<"$out" >/dev/null \
     || fail "after the restart the stream has gaps or duplicates: $out"
   pass "with the recorder down $r1 and $r2 waited; back up, each was recorded once, with no gap"
+  [ "$(kubectl -n "$M" get stage billing -o jsonpath='{.status.stream.registryMode}')" = native ] || fail "registryMode is not native on zot"
 
   # stopped_until_repaired WHAT REPAIR... — the recorder refuses
   # publish-manual/billing's stream and the promoter freezes the Stage: a new
@@ -228,7 +230,7 @@ records_audit() {
   local ad manifest layer
   ad="$(anchor_of test payments)"
   manifest="$(oras discover --plain-http --format json "$streams_local@$ad" \
-    | jq -r --arg u "$opc_uid" '[.. | objects | select((.annotations // {})["dev.pacto.uid"] == $u)][0].digest')"
+    | jq -r --arg u "$opc_uid" '[.. | objects | select((.annotations // {}) | .["dev.pacto.uid"] == $u and .["dev.sigstore.bundle.predicateType"] == "delivery.pacto.trianalab.io/operation/v1")][0].digest')"
   layer="$(oras manifest fetch --plain-http "$streams_local@$manifest" | jq -r '.layers[0].digest')"
   oras blob fetch --plain-http --output "$tmp/c.json" "$streams_local@$layer" >/dev/null
   cosign verify-blob-attestation --bundle "$tmp/c.json" --key "$RECORDER_PUB" --type delivery.pacto.trianalab.io/operation/v1 \

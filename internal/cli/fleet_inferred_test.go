@@ -97,8 +97,8 @@ func TestFleetEntitiesPrintsInferredRow(t *testing.T) {
 	out := printed(t, func(c *cobra.Command) error { return printFleetEntities(c, l, "text") })
 	for _, want := range []string{
 		"  inferred    " + billingName,
-		"              namespace shop  kind Deployment  image registry.example/billing:1.4.2\n",
-		"              namespace shop  kind Deployment  image -\n",
+		"              namespace shop  kind Deployment  image registry.example/billing:1.4.2  group Argo CD Application shop/billing\n",
+		"              namespace shop  kind Deployment  image -  group This workload only\n",
 	} {
 		expect(t, strings.Contains(out, want), "entities lack %q:\n%s", want, out)
 	}

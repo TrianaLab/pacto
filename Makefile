@@ -17,7 +17,7 @@ endif
 
 IMAGE := ghcr.io/trianalab/pacto/dashboard
 
-.PHONY: build test test-integration test-acceptance-local test-acceptance-compose perf-envtest \
+.PHONY: build test test-integration test-registry-conformance test-acceptance-local test-acceptance-compose perf-envtest \
         test-acceptance-compose-selftest \
         test-browser test-browser-layout-full test-browser-live test-browser-compose docs-screenshots \
         e2e coverage lint check-section clean docs docs-build docs-demo demo-preview-clean gen-cli-docs docker-build docker-run \
@@ -65,7 +65,7 @@ test:
 # together, but nothing a user could reach over a network. It was called `e2e`
 # for historical reasons only.
 test-integration:
-	go test -tags integration ./tests/integration/ -v -count=1 -parallel 16 -timeout 120s
+	go test -tags integration ./tests/integration/ -v -count=1 -parallel 16 -timeout 300s
 	# The acceptance layer's own Go code — the scenario fixture every surface
 	# projects from, its projector, and the kind gates — lives under /tests/,
 	# which ci-test excludes. Without this line the declaration that decides what
@@ -84,6 +84,26 @@ perf-envtest:
 	@assets="$$($(MAKE) -s --no-print-directory -C integrations/kubernetes setup-envtest | tail -n 1)"; \
 	KUBEBUILDER_ASSETS="$$assets" go test -tags perfenvtest -run "TestPerfEnvtest|TestSharedReadsRBACIsolation|TestTokenSignInAgainstAPIServer" -count=1 -timeout 120m -v ./internal/cli/ && \
 	cd integrations/kubernetes && KUBEBUILDER_ASSETS="$$assets" go test -tags perfenvtest -run TestPerfPromoter -count=1 -timeout 30m -v ./internal/delivery/
+
+# Registry conformance: the registry probe, write-once tags and delivery record
+# reads against a real zot (native Referrers) and a real CNCF distribution (no
+# Referrers API). CI runs the same test inside ci-oci against its services,
+# which pin these two images. The containers carry a run id and random ports,
+# and are stopped (and so removed, --rm) on exit.
+CONFORMANCE_ZOT_IMAGE = ghcr.io/project-zot/zot-minimal:v2.1.20@sha256:73f26433b341f4a319963f7c5e169858663a10565e4037e71605737daee202ee
+CONFORMANCE_DISTRIBUTION_IMAGE = registry:2@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
+test-registry-conformance:
+	@id="pacto-conformance-$$$$-$$(date +%s)"; \
+	trap 'docker stop "$$id-zot" "$$id-distribution" >/dev/null 2>&1' EXIT; \
+	docker run -d --rm --name "$$id-zot" -p 127.0.0.1::5000 $(CONFORMANCE_ZOT_IMAGE) >/dev/null && \
+	docker run -d --rm --name "$$id-distribution" -p 127.0.0.1::5000 $(CONFORMANCE_DISTRIBUTION_IMAGE) >/dev/null && \
+	native="localhost:$$(docker port "$$id-zot" 5000/tcp | head -n 1 | sed 's/.*://')" && \
+	tags="localhost:$$(docker port "$$id-distribution" 5000/tcp | head -n 1 | sed 's/.*://')" && \
+	for h in "$$native" "$$tags"; do \
+	  for _ in $$(seq 1 30); do curl -fsS -o /dev/null "http://$$h/v2/" && break; sleep 1; done; \
+	done && \
+	PACTO_CONFORMANCE_NATIVE_REGISTRY="$$native" PACTO_CONFORMANCE_TAGS_REGISTRY="$$tags" \
+	  go test -tags registryconformance ./tests/registryconformance/... -count=1 -v
 
 # Level 4 — local acceptance, cluster-free: builds pacto and drives the whole
 # fleet story end to end against local fixtures (graph, signed evidence

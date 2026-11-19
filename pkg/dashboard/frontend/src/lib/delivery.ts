@@ -7,6 +7,9 @@ import { api } from './api.ts';
 import type { DeliveryDecision, DeliveryEnvironments, DeliveryOffer, DeliveryOperation } from './api.ts';
 import { formatCount } from './format.ts';
 
+/** The operation type that asks a person to confirm a new publisher. */
+export const TRUST_TYPE = 'delivery.pacto.trianalab.io/trust';
+
 const TYPE_LABELS: Record<string, string> = {
   'delivery.pacto.trianalab.io/promote': 'Promote',
   'delivery.pacto.trianalab.io/rollback': 'Roll back',
@@ -15,6 +18,7 @@ const TYPE_LABELS: Record<string, string> = {
   'delivery.pacto.trianalab.io/freeze': 'Freeze',
   'delivery.pacto.trianalab.io/autonomy': 'Level change',
   'delivery.pacto.trianalab.io/acknowledge': 'Acknowledge upstream',
+  [TRUST_TYPE]: 'Confirm publisher',
 };
 
 /** typeLabel names an operation type in plain words. */
@@ -154,7 +158,13 @@ export function decisionAsked(op: DeliveryOperation['operation'] | undefined): D
   return asked as DeliveryDecision;
 }
 
-/** cliDecision is the command that takes a decision a dashboard cannot. */
+/**
+ * cliDecision is the command that takes a decision a dashboard cannot. It
+ * uses the kubeconfig the dashboard runs with, which works whether or not
+ * the installation accepts signed approvals: the CLI signs keyless when it
+ * does. The --intent form needs --trust and --signers, so it is left to
+ * `pacto delivery record get <intent ref>`, which prints it.
+ */
 export function cliDecision(namespace: string, name: string, decision: string): string {
   return `pacto delivery approve -n ${namespace} ${name} --decision ${decision}`;
 }
@@ -248,9 +258,9 @@ export function entityMiraURL(caps: { miraURL?: string; auth?: { hidden?: boolea
   return caps && !caps.auth?.hidden ? caps.miraURL ?? '' : '';
 }
 
-const OUTCOMES: Record<string, string> = { Succeeded: 'succeeded', Failed: 'failed', Rejected: 'was rejected', Errored: 'could not finish' };
-const VERIFICATIONS: Record<string, string> = { Verified: 'verified', Unverified: 'not verified', AcceptedUnknown: 'a person accepted the unknown' };
-const PHASES: Record<string, string> = { Held: 'waits for a person', Pending: 'waits its turn', Running: 'is running', Verifying: 'is being checked', '': 'is not admitted yet' };
+export const OUTCOMES: Record<string, string> = { Succeeded: 'succeeded', Failed: 'failed', Rejected: 'was rejected', Errored: 'could not finish' };
+export const VERIFICATIONS: Record<string, string> = { Verified: 'verified', Unverified: 'not verified', AcceptedUnknown: 'a person accepted the unknown' };
+export const PHASES: Record<string, string> = { Held: 'waits for a person', Pending: 'waits its turn', Running: 'is running', Verifying: 'is being checked', '': 'is not admitted yet' };
 
 /** verificationLabel says how a change's checks ended, in words. */
 export function verificationLabel(v: string | undefined): string {
@@ -300,32 +310,6 @@ export function reasonWords(reason: string | undefined): string {
   const r = reason ?? '';
   if (!/^[A-Z][A-Za-z]+$/.test(r)) return r;
   return REASON_WORDS[r] ?? r.replace(/(?<=[a-z])(?=[A-Z])/g, ' ').replace(/ ([A-Z])/g, (_, c) => ` ${c.toLowerCase()}`);
-}
-
-/** The fields changeSummary reads from an explanation. */
-export interface ChangeFacts {
-  spec?: { type?: string; stage?: string; params?: { from?: string; to?: string } | null };
-  status?: { phase?: string; outcome?: string; verification?: string };
-}
-
-/**
- * changeSummary says in one sentence what a change asked and where it stands,
- * with only the parts it has: no empty fields and no raw machine words.
- */
-export function changeSummary(e: ChangeFacts | null | undefined, namespace: string, versions?: Record<string, string> | null): string {
-  if (!e) return '';
-  const p = e.spec?.params ?? {};
-  const v = (d: string | undefined) => (!d ? '' : e.spec?.type === AUTONOMY_TYPE ? levelLabel(d) : versionLabel(d, versions));
-  const move = p.from && p.to ? ` from ${v(p.from)} to ${v(p.to)}` : p.to ? ` to ${v(p.to)}` : '';
-  // typeLabel is a verb for every type but a level change, which reads as a noun.
-  const lead = e.spec?.type === AUTONOMY_TYPE ? 'The level of' : typeLabel(e.spec?.type);
-  const what = `${lead} ${e.spec?.stage ?? ''} in ${namespace}${move}`;
-  const st = e.status ?? {};
-  if (st.phase === 'Concluded') {
-    const end = [OUTCOMES[st.outcome ?? ''] ?? st.outcome, VERIFICATIONS[st.verification ?? ''] ?? st.verification].filter(Boolean).join(', ');
-    return `${what} ${end ? `ended: it ${end}` : 'ended'}.`;
-  }
-  return `${what} ${PHASES[st.phase ?? ''] ?? `is ${(st.phase ?? '').toLowerCase()}`}.`;
 }
 
 const ACTOR_BADGES: Record<string, { label: string; tone: string }> = {
@@ -737,7 +721,7 @@ export const undoes = (digest: string) => (r: OfferRow, o: DeliveryOffer) =>
 
 /**
  * lifecycleWords words a lifecycle answer: the signature as the Publish page words it
- * ("unsigned" only for an artifact Flux never verified), and unknown never as yes or no.
+ * ("unsigned" only for an artifact no publisher check accepted), and unknown never as yes or no.
  */
 export const lifecycleWords = {
   signature: { signed: 'Signature checked', unsigned: 'Not signed', unknown: 'Signature not known here' },

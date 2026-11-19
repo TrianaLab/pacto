@@ -18,6 +18,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/ocireferrer/capabilities"
 	"github.com/trianalab/pacto/v4/pkg/publish"
 	"github.com/trianalab/pacto/v4/pkg/signing"
 	sigtest "github.com/trianalab/pacto/v4/pkg/signing/testutil"
@@ -48,6 +49,10 @@ func (g *ghcrRegistry) ReferrerDescriptors(ctx context.Context, repo, digest str
 
 func (g *ghcrRegistry) Referrers(ctx context.Context, repo, digest, artifactType string) ([]string, error) {
 	return g.Client.Referrers(ctx, g.repo(repo), digest, artifactType)
+}
+
+func (g *ghcrRegistry) Mode(ctx context.Context, repo, digest string) (capabilities.ReferrersMode, error) {
+	return g.Client.Mode(ctx, g.repo(repo), digest)
 }
 
 func (g *ghcrRegistry) Layer(ctx context.Context, repo, digest string) ([]byte, map[string]string, error) {
@@ -193,10 +198,13 @@ func checking(s *Service) bool {
 	return s.catalogs.checking
 }
 
+// TestDefaultUnsignedKeepsEmbedded: a default catalog digest the registry
+// does not hold cannot be probed, so its signature is unknown, never
+// unsigned or verified, and the embedded copy stays.
 func TestDefaultUnsignedKeepsEmbedded(t *testing.T) {
 	reg := provenanceTestRegistry(t)
 	ref := settledRef(t, NewService(nil, nil), ghcrOptions(newProvenanceChecker(&ghcrRegistry{Client: reg.client, host: reg.host})))
-	if ref.Copy != externalcatalog.CopyEmbedded || ref.Signature != fleet.SignatureUnsigned || ref.Reason == "" {
+	if ref.Copy != externalcatalog.CopyEmbedded || ref.Signature != fleet.SignatureUnknown || ref.Reason == "" {
 		t.Fatalf("ref = %+v", ref)
 	}
 }
@@ -438,5 +446,17 @@ func TestExtensionMemoised(t *testing.T) {
 	snap, _ = s.Fleet(t.Context(), opts)
 	if reg.requests.Load() != failed || snap.Completeness != fleet.CompletenessPartial {
 		t.Fatalf("a failed pull was retried within its TTL")
+	}
+}
+
+// TestExternalCatalogReleaseSource: the default catalog is checked against
+// the Pacto release signer, and a match says so in its source.
+func TestExternalCatalogReleaseSource(t *testing.T) {
+	reg := provenanceTestRegistry(t)
+	signDefault(t, reg)
+	ref := contract.OCIScheme + reg.host + "/trianalab/pacto/external-catalog@" + externalcatalog.DefaultDigest()
+	p := newProvenanceChecker(reg.client).CheckSigner(t.Context(), externalCatalogSource, ref, externalcatalog.DefaultSigner, externalcatalog.DefaultIssuer)
+	if p.Signature.Status != fleet.SignatureVerified || p.Signature.Source != "release" || p.Signature.Signer != externalcatalog.DefaultSigner {
+		t.Fatalf("signature %+v", p.Signature)
 	}
 }

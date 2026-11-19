@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -44,6 +45,10 @@ type K8sClient interface {
 	// ClusterIdentity reads the cluster's id and a display name; contextName is
 	// the kubeconfig context, the name used when no node label names the cluster.
 	ClusterIdentity(ctx context.Context, contextName string) (kubecluster.Identity, error)
+	// PreferredVersions maps each of groups the cluster serves to the version
+	// it prefers, in one discovery call. A group absent from the map is not
+	// served.
+	PreferredVersions(ctx context.Context, groups ...string) (map[string]string, error)
 }
 
 // CRDDiscovery holds the result of discovering the Pacto CRD on the cluster.
@@ -153,11 +158,7 @@ func (c *k8sGoClient) DiscoverCRD(ctx context.Context) (*CRDDiscovery, error) {
 			continue
 		}
 		result.Found = true
-		if g.PreferredVersion.Version != "" {
-			result.Version = g.PreferredVersion.Version
-		} else if len(g.Versions) > 0 {
-			result.Version = g.Versions[0].Version
-		}
+		result.Version = preferredVersion(g)
 		break
 	}
 
@@ -183,6 +184,28 @@ func (c *k8sGoClient) DiscoverCRD(ctx context.Context) (*CRDDiscovery, error) {
 	}
 
 	return result, nil
+}
+
+// preferredVersion is the version g prefers, else its first one.
+func preferredVersion(g *metav1.APIGroup) string {
+	if g.PreferredVersion.Version != "" || len(g.Versions) == 0 {
+		return g.PreferredVersion.Version
+	}
+	return g.Versions[0].Version
+}
+
+func (c *k8sGoClient) PreferredVersions(_ context.Context, groups ...string) (map[string]string, error) {
+	list, err := c.discovery.ServerGroups()
+	if err != nil {
+		return nil, fmt.Errorf("listing API groups: %w", err)
+	}
+	out := map[string]string{}
+	for i := range list.Groups {
+		if g := &list.Groups[i]; slices.Contains(groups, g.Name) && preferredVersion(g) != "" {
+			out[g.Name] = preferredVersion(g)
+		}
+	}
+	return out, nil
 }
 
 func (c *k8sGoClient) ListJSON(ctx context.Context, crd CRDDiscovery, namespace string) ([]byte, error) {

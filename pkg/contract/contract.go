@@ -26,26 +26,10 @@ type Contract struct {
 	Policies       []Policy        `yaml:"policies,omitempty" json:"policies,omitempty"`
 	Readiness      *Readiness      `yaml:"readiness,omitempty" json:"readiness,omitempty"`
 	Publish        *Publish        `yaml:"publish,omitempty" json:"publish,omitempty"`
-	Delivery       *Delivery       `yaml:"delivery,omitempty" json:"delivery,omitempty"`
 	Checks         []Check         `yaml:"checks,omitempty" json:"checks,omitempty"`
 	Metadata       map[string]any  `yaml:"metadata,omitempty" json:"metadata,omitempty"`
 	Extensions     map[string]any  `yaml:"extensions,omitempty" json:"extensions,omitempty"`
 }
-
-// Delivery says how the Pacto promoter delivers the service (pactoVersion 2.5).
-type Delivery struct {
-	// Applier names the manager that applies the service's workloads. auto,
-	// the default (also when empty), adopts the manager that already owns
-	// each workload; argocd or flux require that manager.
-	Applier string `yaml:"applier,omitempty" json:"applier,omitempty"`
-}
-
-// The values of Delivery.Applier.
-const (
-	ApplierAuto   = "auto"
-	ApplierArgoCD = "argocd"
-	ApplierFlux   = "flux"
-)
 
 // Break announces a deliberate breaking change to named consumers
 // (pactoVersion 2.5). It changes no interface; what it does to a gate is
@@ -75,8 +59,8 @@ type Check struct {
 type Publish struct {
 	// Bundle is the repository the contract bundle goes to (oci://, no tag).
 	Bundle string `yaml:"bundle" json:"bundle"`
-	// Deploy names the manifests artifact Flux applies. Pacto annotates it with
-	// the contract and tags it last.
+	// Deploy names the artifact an applier deploys: a manifests or chart
+	// artifact. Pacto annotates it with the contract and tags it last.
 	Deploy    string            `yaml:"deploy,omitempty" json:"deploy,omitempty"`
 	Artifacts []PublishArtifact `yaml:"artifacts,omitempty" json:"artifacts,omitempty"`
 	Sign      *PublishSign      `yaml:"sign,omitempty" json:"sign,omitempty"`
@@ -84,10 +68,12 @@ type Publish struct {
 
 // PublishArtifact is one artifact a service publishes.
 type PublishArtifact struct {
-	Name  string       `yaml:"name" json:"name"`
-	Type  string       `yaml:"type" json:"type"`
-	Ref   string       `yaml:"ref" json:"ref"`
-	Build PublishBuild `yaml:"build" json:"build"`
+	Name string `yaml:"name" json:"name"`
+	Type string `yaml:"type" json:"type"`
+	Ref  string `yaml:"ref" json:"ref"`
+	// Build is how the artifact is built. Optional and deprecated from
+	// pactoVersion 2.5: absent, publish detects it.
+	Build PublishBuild `yaml:"build,omitempty" json:"build,omitzero"`
 	// SBOM is the SPDX (.spdx.json) or CycloneDX (.cdx.json) file the build
 	// writes, relative to the contract directory. Pacto attaches it to the
 	// image and signs it; it never makes one.
@@ -101,7 +87,10 @@ const (
 	ArtifactManifests = "manifests"
 )
 
-// PublishBuild is how an artifact is built: exactly one of the two.
+// PublishBuild is how an artifact is built: exactly one of the two, or
+// neither from pactoVersion 2.5, where publish detects the build: the
+// folder's build tool for an image, Pacto's own assembly for manifests or a
+// chart.
 type PublishBuild struct {
 	Dockerfile *DockerfileBuild `yaml:"dockerfile,omitempty" json:"dockerfile,omitempty"`
 	// Command writes the artifact to $PACTO_OUT.

@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/internal/ci"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/oci"
@@ -154,6 +155,33 @@ func publishRecord(res *publish.Result, err error) *runrecord.Record {
 	if err == nil { // a failed run may hold the digest of a bundle it never wrote
 		rec.BundleDigest = res.Digests[publish.BundleItem]
 		_, rec.DeployDigest, _ = strings.Cut(res.Deploy, "@")
+		rec.Images = publish.ImageRefs(res.Images)
+	}
+	return rec
+}
+
+// rowRecord is the record of a service a publish run decided without
+// publishing it: blocked by a provider of the run, refused with the run, or
+// failed before publishing; nil for an unchanged one. Blocked and refused use
+// the refused verdict other publish refusals use, so no gate statistic counts
+// them as a blocked gate.
+func rowRecord(row ci.Row) *runrecord.Record {
+	rec := &runrecord.Record{Kind: runrecord.KindPublish, Service: row.Service, OldRevision: row.Baseline, NewRevision: row.Next,
+		Classification: row.Classification}
+	if row.Derived {
+		// Plan mode derived them from a baseline it never verified, and no
+		// publish verified it since: a record states no unverified version.
+		rec.OldRevision, rec.NewRevision, rec.Classification = "", "", ""
+	}
+	switch row.State {
+	case ci.StateBlocked:
+		rec.Outcome, rec.Gate = runrecord.OutcomeRefused, &runrecord.Gate{Verdict: runrecord.VerdictRefused, Reason: "dependency"}
+	case ci.StateRefused:
+		rec.Outcome, rec.Gate = runrecord.OutcomeRefused, &runrecord.Gate{Verdict: runrecord.VerdictRefused, Reason: "pull-request"}
+	case ci.StateFailed:
+		rec.Outcome = runrecord.OutcomeFailed
+	default:
+		return nil
 	}
 	return rec
 }
@@ -182,23 +210,35 @@ func (r *runRecorder) save(cmd *cobra.Command, rec **runrecord.Record, revs *rev
 	if *rec == nil || (reg == "" && file == "") {
 		return
 	}
-	w := cmd.ErrOrStderr()
-	if revs != nil && revs.err != nil {
-		_, _ = fmt.Fprintf(w, "pacto: warning: run record not written: could not compute the bundle digest: %v\n", revs.err)
-		return
+	if !digestFailed(cmd, revs) {
+		r.write(cmd, r.stamp(cmd, **rec), reg, file)
 	}
-	out := **rec
-	out.Version = runrecord.Version
-	out.ID = runrecord.ID(out.Kind, out.Service, out.OldRevision, out.NewRevision)
-	out.PactoVersion = r.version
-	out.RecordedAt = r.now().UTC().Truncate(time.Second)
+}
+
+// digestFailed warns and reports true when revs, nil for publish, carries a
+// digest error, which drops the record.
+func digestFailed(cmd *cobra.Command, revs *revisions) bool {
+	if revs == nil || revs.err == nil {
+		return false
+	}
+	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "pacto: warning: run record not written: could not compute the bundle digest: %v\n", revs.err)
+	return true
+}
+
+// stamp is rec with its version, id, Pacto version, time and the context
+// --stats-context names; a bad context item is a warning.
+func (r *runRecorder) stamp(cmd *cobra.Command, rec runrecord.Record) runrecord.Record {
+	rec.Version = runrecord.Version
+	rec.ID = runrecord.ID(rec.Kind, rec.Service, rec.OldRevision, rec.NewRevision)
+	rec.PactoVersion = r.version
+	rec.RecordedAt = r.now().UTC().Truncate(time.Second)
 	spec, _ := cmd.Flags().GetString("stats-context")
 	var warns []string
-	out.Repository, out.CIRunURL, out.Environment, warns = statsContext(spec, os.Getenv)
+	rec.Repository, rec.CIRunURL, rec.Environment, warns = statsContext(spec, os.Getenv)
 	for _, msg := range warns {
-		_, _ = fmt.Fprintf(w, "pacto: warning: run record context: %s\n", msg)
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "pacto: warning: run record context: %s\n", msg)
 	}
-	r.write(cmd, out, reg, file)
+	return rec
 }
 
 // saveFlagsOnly writes and publishes rec to the targets named by

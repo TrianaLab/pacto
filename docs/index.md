@@ -138,12 +138,10 @@ change. It needs:
 - Kubernetes 1.30 or later, with Flux (Argo CD works too, as an experimental
   option).
 - Your container registry, to hold contracts and versions.
-- For signed records, and so for the two automatic levels, a registry that
-  serves the OCI Referrers API: the feature that lets a registry list the
-  files attached to an image, here the signed records. zot, an open source
-  registry, serves it. GitHub's registry does not serve it today, so a Stage
-  that uses it stays on observe or advise. For any other registry,
-  check its documentation for "referrers API".
+- For signed records, and so for the two automatic levels, any OCI registry.
+  Pacto checks whether it serves the OCI Referrers API (the feature that lets
+  a registry list the files attached to an image) and otherwise writes each
+  record as a write-once tag, as on GitHub's registry.
 - For checks on error rates after a release, traces in
   [Mira](https://github.com/trianalab/mira), an OpenTelemetry trace store, or
   a check you call over HTTP. Without them Pacto still checks the contract.

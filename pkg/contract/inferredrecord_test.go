@@ -4,9 +4,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"flag"
+	"io/fs"
+	"os"
 	"reflect"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -259,6 +263,206 @@ func TestRecordRefusesEscapingSource(t *testing.T) {
 	ok := Inferred{Field: "ports[80]", Value: "80/tcp", Source: "Dockerfile:2", Confidence: ConfidenceLikely}
 	if _, err := ParseInferredRecord(recordWith(ok, &InferredFinding{Source: "Dockerfile", Message: "m"}, "")); err == nil {
 		t.Error("a finding with no code accepted")
+	}
+}
+
+// sourceFormRecord parses and verifies the sample record with one field from
+// source, which inputs.sources does not list.
+func sourceFormRecord(source string) error {
+	bundle := fstest.MapFS{
+		"openapi/v1.yaml": &fstest.MapFile{Data: []byte("openapi: 3.0.0\n")},
+		"deploy/app.yaml": &fstest.MapFile{Data: []byte("kind: Deployment\n")},
+	}
+	rec, err := ParseInferredRecord(recordWith(Inferred{Field: "service.version", Value: "1.4.3", Source: source, Confidence: ConfidenceLikely}, nil, ""))
+	if err != nil {
+		return err
+	}
+	return VerifyInferredRecord(bundle, rec)
+}
+
+// TestVerifyInferredRecordRegistrySource: a derived version cites the
+// verified baseline, pinned by digest, or the bare repository when it holds
+// no version; anything else under registry: is invalid.
+func TestVerifyInferredRecordRegistrySource(t *testing.T) {
+	for _, ok := range []string{"registry:ghcr.io/acme/payments@" + digestOf("x"), "registry:ghcr.io/acme/payments", "registry:127.0.0.1:5000/pacto/payments"} {
+		if err := sourceFormRecord(ok); err != nil {
+			t.Errorf("%q: %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"registry:", "registry:Acme Payments", "registry:ghcr.io/acme@sha256:abc", "registry:../x"} {
+		if err := sourceFormRecord(bad); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+}
+
+// TestVerifyInferredRecordFlagSource: a value a flag supplied cites the flag.
+func TestVerifyInferredRecordFlagSource(t *testing.T) {
+	if err := sourceFormRecord("flag:--image"); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"flag:x y", "flag:image", "flag:--"} {
+		if err := sourceFormRecord(bad); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+}
+
+var updateInferredGolden = flag.Bool("update", false, "rewrite testdata/inferred/*.golden.yaml")
+
+// migratedRecord is a fields-empty record holding one migration from the
+// previous supported version to the current one.
+func migratedRecord() *InferredRecord {
+	prev := SupportedVersions[len(SupportedVersions)-2]
+	return &InferredRecord{Format: InferredRecordFormat, Inputs: InferredInputs{Commit: "4e1a9c0d", Pacto: "test", Discovery: "1"},
+		Migrations: []InferredMigration{{From: prev, To: Current(), Source: contractFile, By: "pacto ci test"}}}
+}
+
+func TestInferredRecordMigrationsGolden(t *testing.T) {
+	const golden = "testdata/inferred/migrated.golden.yaml"
+	prev := SupportedVersions[len(SupportedVersions)-2]
+	got := migratedRecord().Marshal()
+	// The golden names the versions as placeholders, so it never pins a version.
+	generic := strings.NewReplacer(`from: "`+prev+`"`, `from: "FROM"`, `to: "`+Current()+`"`, `to: "TO"`).Replace(string(got))
+	if *updateInferredGolden {
+		if err := os.WriteFile(golden, []byte(generic), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want, err := os.ReadFile(golden)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if generic != string(want) {
+		t.Fatalf("got:\n%s\nwant:\n%s", generic, want)
+	}
+	back, err := ParseInferredRecord(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(back.Migrations, migratedRecord().Migrations) {
+		t.Fatalf("parsed back %+v", back.Migrations)
+	}
+}
+
+func TestInferredRecordMigrationsDeterministic(t *testing.T) {
+	v := SupportedVersions
+	m1 := InferredMigration{From: v[len(v)-3], To: Current(), Source: "a/pacto.yaml", By: "pacto ci test"}
+	m2 := InferredMigration{From: v[len(v)-2], To: Current(), Source: contractFile, By: "pacto ci test"}
+	a, b := migratedRecord(), migratedRecord()
+	a.Migrations = []InferredMigration{m1, m2}
+	b.Migrations = []InferredMigration{m2, m1}
+	if string(a.Marshal()) != string(b.Marshal()) {
+		t.Fatalf("different bytes:\n%s\n---\n%s", a.Marshal(), b.Marshal())
+	}
+	if a.Migrations[0] != m1 {
+		t.Fatal("Marshal sorted the receiver")
+	}
+	if regexp.MustCompile(`T\d\d:\d\d:`).Match(a.Marshal()) {
+		t.Fatalf("record holds a timestamp:\n%s", a.Marshal())
+	}
+}
+
+func TestParseInferredRecordRefusesMigration(t *testing.T) {
+	v := SupportedVersions
+	prev, cur := v[len(v)-2], Current()
+	good := string(migratedRecord().Marshal())
+	dup := migratedRecord()
+	dup.Migrations = append(dup.Migrations, InferredMigration{From: v[len(v)-3], To: cur, Source: contractFile, By: "pacto ci test"})
+	cases := map[string]struct{ doc, want string }{
+		"empty from":  {strings.Replace(good, `from: "`+prev+`"`, `from: ""`, 1), "migrations[0].from"},
+		"empty by":    {strings.Replace(good, "by: pacto ci test", `by: ""`, 1), "migrations[0].by"},
+		"empty src":   {strings.Replace(good, "source: pacto.yaml", `source: ""`, 1), "migrations[0].source"},
+		"unknown to":  {strings.Replace(good, `to: "`+cur+`"`, `to: "9.9"`, 1), "migrations[0].to"},
+		"from is to":  {strings.Replace(good, `from: "`+prev+`"`, `from: "`+cur+`"`, 1), "migrations[0].from"},
+		"from after":  {strings.NewReplacer(`from: "`+prev+`"`, `from: "`+cur+`"`, `to: "`+cur+`"`, `to: "`+prev+`"`).Replace(good), "migrations[0].from"},
+		"duplicate":   {string(dup.Marshal()), "migrations[1].source"},
+		"unknown key": {strings.Replace(good, "by: pacto ci test", "by: pacto ci test\n      extra: 1", 1), "extra"},
+		"escaping":    {strings.Replace(good, "source: pacto.yaml", "source: ../pacto.yaml", 1), "migrations[0].source"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := ParseInferredRecord([]byte(tc.doc))
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want one naming %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestInferredRecordWithoutMigrationsUnchanged(t *testing.T) {
+	// The bytes a record with fields and no migrations had before migrations
+	// existed.
+	want := `format: pacto.inferred/v1
+inputs:
+    commit: 4e1a9c0d
+    pacto: 4.6.0
+    discovery: "1"
+    sources:
+        - path: deploy/app.yaml
+          digest: ` + digestOf("kind: Deployment\n") + `
+        - path: openapi/v1.yaml
+          digest: ` + digestOf("openapi: 3.0.0\n") + `
+fields:
+    - field: configuration.DB_PASSWORD
+      value: string, writeOnly
+      source: deploy/app.yaml:1
+      confidence: possible
+    - field: interfaces[api]
+      value: openapi/v1.yaml
+      source: openapi/v1.yaml
+      confidence: likely
+      declare: |
+        interfaces:
+          - name: api
+`
+	if got := string(sampleRecord().Marshal()); got != want {
+		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestVerifyInferredRecordMigrationMismatch(t *testing.T) {
+	prev := SupportedVersions[len(SupportedVersions)-2]
+	at := func(v string) fstest.MapFS {
+		return fstest.MapFS{contractFile: &fstest.MapFile{Data: []byte("# kept\npactoVersion: \"" + v + "\"\n")}}
+	}
+	if err := VerifyInferredRecord(at(Current()), migratedRecord()); err != nil {
+		t.Fatal(err)
+	}
+	cases := map[string]struct {
+		fsys fs.FS
+		want string
+	}{
+		"missing":   {fstest.MapFS{}, "migrations[0]: pacto.yaml is not in the bundle"},
+		"stale":     {at(prev), "migrations[0]: pacto.yaml declares pactoVersion " + strconv.Quote(prev)},
+		"undecl":    {fstest.MapFS{contractFile: &fstest.MapFile{Data: []byte("service: {}\n")}}, `declares pactoVersion ""`},
+		"unreadble": {fstest.MapFS{contractFile: &fstest.MapFile{Data: []byte("pactoVersion: [\n")}}, "migrations[0]: pacto.yaml"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if err := VerifyInferredRecord(tc.fsys, migratedRecord()); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+const contractFile = "pacto.yaml"
+
+func TestInferredRecordWithMigration(t *testing.T) {
+	prev, cur := SupportedVersions[len(SupportedVersions)-2], Current()
+	in := InferredInputs{Pacto: "test"}
+	m := InferredMigration{From: prev, To: cur, Source: "pacto.yaml", By: "pacto ci test"}
+	var none *InferredRecord
+	got := none.WithMigration(m, in)
+	if got.Format != InferredRecordFormat || got.Inputs.Pacto != "test" || len(got.Migrations) != 1 || got.Migrations[0] != m {
+		t.Fatalf("nil record: %+v", got)
+	}
+	other := InferredMigration{From: prev, To: cur, Source: "other.yaml", By: "pacto ci test"}
+	base := &InferredRecord{Format: InferredRecordFormat, Migrations: []InferredMigration{{From: "2.3", To: cur, Source: "pacto.yaml", By: "old"}, other}}
+	got = base.WithMigration(m, InferredInputs{Pacto: "ignored"})
+	if len(got.Migrations) != 2 || got.Migrations[0] != other || got.Migrations[1] != m || got.Inputs.Pacto != "" || base.Migrations[0].By != "old" {
+		t.Fatalf("replaced: %+v, base %+v", got, base)
 	}
 }
 

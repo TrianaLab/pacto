@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -235,5 +236,33 @@ func TestFleetInstructionsGroundAnswers(t *testing.T) {
 		"A Mira read with no spans is unknown, never healthy. " + overviewInstructions
 	if !strings.HasPrefix(fleetInstructions, "Pacto also exposes READ-ONLY fleet tools over the operational graph: ") || !strings.HasSuffix(fleetInstructions, appended) {
 		t.Errorf("fleetInstructions must keep their text and end with the neighbourhood sentences:\n%s", fleetInstructions)
+	}
+}
+
+// pacto_fleet_get says a revision pacto ci migrated was written at an older
+// pactoVersion, read from the bundle's inferred record.
+func TestFleetGetRevisionMigratedFrom(t *testing.T) {
+	cur, prev := contract.Current(), contract.SupportedVersions[len(contract.SupportedVersions)-2]
+	rec := &contract.InferredRecord{Format: contract.InferredRecordFormat, Inputs: contract.InferredInputs{Pacto: "4.6.0", Discovery: "1"},
+		Migrations: []contract.InferredMigration{{From: prev, To: cur, Source: "pacto.yaml", By: "pacto ci 4.6.0"}}}
+	fsys := fstest.MapFS{
+		"pacto.yaml":                {Data: []byte("pactoVersion: \"" + cur + "\"\n")},
+		contract.InferredRecordFile: {Data: rec.Marshal()},
+	}
+	c := &contract.Contract{PactoVersion: cur, Service: contract.Service{Name: "orders", Version: "1.0.0", Owner: contract.Owner{Team: "t"}}}
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: func() time.Time { return fixedNow }},
+		fleet.NewMemorySource("local", "local", &fleet.Collection{Revisions: []fleet.RawRevision{{Bundle: &contract.Bundle{Contract: c, FS: fsys}, Digest: "sha256:o"}}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := fleet.NewQuery(snap)
+	var revs fleet.EntityList
+	decode(t, callHandler(t, fleetEntitiesTool(), fleetEntitiesHandler(q, false), map[string]any{"kind": "revision", "service": "orders"}), &revs)
+	var raw struct {
+		Revision map[string]json.RawMessage `json:"revision"`
+	}
+	decode(t, callHandler(t, fleetEntityTool(), fleetEntityHandler(q, false, nil), map[string]any{"kind": "revision", "key": revs.Entities[0].Key}), &raw)
+	if got := string(raw.Revision["migratedFrom"]); got != `"`+prev+`"` {
+		t.Errorf("revision.migratedFrom = %s, want %q", got, prev)
 	}
 }

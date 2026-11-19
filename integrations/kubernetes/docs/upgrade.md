@@ -188,6 +188,62 @@ the replacement. Before `helm upgrade`:
 A promoter started without `--admission-policies` admits no operation and
 counts no approval.
 
+## Delivery records work on every registry
+
+- Stages gain `status.stream.registryMode` (`native` or `write-once-tags`),
+  which only the recorder may write. `helm upgrade` installs the new field
+  with the CRDs. A Stage that was ready before the upgrade shows the mode
+  after the recorder writes its next record.
+- A streams repository on a registry without the OCI Referrers API, such as
+  GHCR, now holds records as
+  [write-once tags](delivery-records.md#write-once-tags) and reports the
+  `RecordStoreReady` reason `WriteOnceTags`. The earlier reason for such a
+  registry is gone: alerts or scripts that match it match nothing.
+- A Stage that recorded `native`, or that was ready before the upgrade, and
+  then sees no Referrers API stays `RegistryUnavailable` instead of
+  switching to tags.
+
+## Approvals are signed records
+
+- With the recorder on, it signs every Approval into the registry, and the
+  promoter counts an Approval only once its record is written. Operation
+  records then name each approval's record, which an earlier CLI or promoter
+  cannot read. Upgrade the CLIs and every promoter that follows these streams
+  first, then the recorder
+  ([details](delivery-signed-approvals.md#upgrade-approval-records)).
+- The recorder signs no Approval made before it first saw the approval
+  admission policy. Such an Approval on a held operation waits and does not
+  count, so its author approves again.
+- Before you set `delivery.identities.signers`, create the approvals
+  repository (`delivery.recorder.approvalsRepository`, default
+  `<streamsRepository>-approvals`) where a registry needs it, such as ECR,
+  and let the recorder push there. The recorder anchors it only once a
+  signer is set. Until it can, keyless approvals wait and operation records
+  keep flowing.
+- Approvals gain a status subresource and the recorder-only fields
+  `spec.record` and `spec.signedAt`; `helm upgrade` installs them with the
+  CRDs.
+
+## Signatures are checked against publishers
+
+- A revision's signature `status` (`pacto_fleet_get`, the dashboard and
+  `pacto fleet`) is `verified` only when a publisher rule, a person's pin, a
+  signed policy or an external system's release signer accepts the signer.
+  A signer the contract's own `publish.sign` declares is no longer enough:
+  scripts that relied on it read `unknown` or `unverified` until the
+  installation sets `delivery.publishers`. The new `source` field says what
+  decided.
+- New chart values: `delivery.publishers.registry`, `defaultBranch`,
+  `policy`, `policySigners` and `trustedRoot`, and
+  `delivery.recorder.signing.publicKey`. Reused values without a
+  `delivery.publishers` block render the promoter arguments they had.
+- Stages gain `spec.candidates.registry` and the promoter-only
+  `status.publisher`, and Operations gain the type
+  `delivery.pacto.trianalab.io/trust` with `spec.params.publisher`; `helm
+  upgrade` installs them with the CRDs. Existing `ociRepositoryRef` and
+  upstream Stages keep working unchanged
+  ([publishers](delivery-setup.md#publishers)).
+
 ## Delivery grants Argo CD and Flux access by itself
 
 - `delivery.argocd.enabled` and `delivery.flux.enabled` now default to

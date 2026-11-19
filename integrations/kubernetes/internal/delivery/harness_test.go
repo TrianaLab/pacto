@@ -174,7 +174,7 @@ func newEnv(t *testing.T, objs ...client.Object) *env {
 		return nil
 	}
 	e.c = fake.NewClientBuilder().WithScheme(newScheme()).
-		WithStatusSubresource(&dv1.Stage{}, &dv1.Operation{}).
+		WithStatusSubresource(&dv1.Stage{}, &dv1.Operation{}, &dv1.Approval{}).
 		WithIndex(&dv1.Approval{}, approvalOperationUID, approvalUID).
 		// Every reconciler runs guarded, as the chart installs it.
 		WithObjects(append(objs, guardPolicy(), guardBinding())...).
@@ -222,6 +222,12 @@ func newEnv(t *testing.T, objs ...client.Object) *env {
 					return err
 				}
 				return c.Update(ctx, obj, opts...)
+			},
+			Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+				if err := fail("delete", obj); err != nil {
+					return err
+				}
+				return c.Delete(ctx, obj, opts...)
 			},
 			Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
 				if err := fail("patch", obj); err != nil {
@@ -387,6 +393,8 @@ func opObj(name, typ, from, to string, actor string, groups ...string) *dv1.Oper
 		facet = delivery.FacetLevel
 	case delivery.TypeAcknowledge:
 		facet = delivery.FacetUpstream
+	case delivery.TypeTrust:
+		facet = delivery.FacetTrust
 	}
 	o := &dv1.Operation{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name, UID: types.UID("uid-" + name),
 		CreationTimestamp: metav1.NewTime(time.Date(2026, 10, 20, 9, 0, 0, 0, time.UTC))},

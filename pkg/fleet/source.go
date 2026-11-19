@@ -128,6 +128,17 @@ type RawInferredService struct {
 	// CreatedAt is when the workload was created (its
 	// metadata.creationTimestamp), nil when the source does not know it.
 	CreatedAt *time.Time
+	// Group, Repositories and RepositoryUnknown are set by the source from
+	// the workload's own metadata and the GitOps objects it read; Build
+	// validates them and fills Key and Label.
+	Group             *InferredGroup
+	Repositories      []InferredRepository
+	RepositoryUnknown string
+	// RepositoryUnknownFrom is the namespace and kind of each GitOps object
+	// RepositoryUnknown was read from: a restricted view shows the reason only
+	// to a viewer allowed to list every one of them, and an empty namespace to
+	// none. Empty when the reason names no object.
+	RepositoryUnknownFrom []WorkloadScope
 }
 
 // WorkloadRef names the workload a Kubernetes target runs as.

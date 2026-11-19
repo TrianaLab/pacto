@@ -58,5 +58,5 @@ func run() error {
 		BuildDate: buildDate,
 	})
 
-	return root.ExecuteContext(ctx)
+	return cli.Execute(ctx, root, os.Args[1:])
 }

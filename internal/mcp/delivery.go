@@ -81,7 +81,8 @@ const deliveryInstructions = "Pacto delivery decides which version each environm
 // cancel; the command layer passes true only when the caller is not a human
 // identity, so a person's credentials in an agent's hands propose nothing
 // through this server.
-func registerDelivery(server *mcpsdk.Server, api DeliveryAPI, writes bool) {
+// refs, when set, adds a ref argument to the record tools.
+func registerDelivery(server *mcpsdk.Server, api DeliveryAPI, writes bool, refs RecordReader) {
 	addTool(server, &mcpsdk.Tool{
 		Name:        "pacto_delivery_operation_types",
 		Annotations: readOnly(true),
@@ -224,9 +225,15 @@ func registerDelivery(server *mcpsdk.Server, api DeliveryAPI, writes bool) {
 			"check the chain from seq 1 to the head the Stage names: ok, the records, problems and what did not verify, plus the " +
 			"eval runners' own signatures on the verdicts each record keeps (who ran each exam, checked against the runner keys of the trust config), and the " +
 			"cosign command that checks one record without Pacto. Leave stage empty to verify every Stage's stream in the " +
-			"namespace (or, with no namespace, every Stage you can list); a Stage with no records does not verify. Read-only." + noApprove,
-		InputSchema: auditSchema(),
-	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a stageArgs) (*mcpsdk.CallToolResult, any, error) {
+			"namespace (or, with no namespace, every Stage you can list); a Stage with no records does not verify." + refDoc(refs) + " Read-only." + noApprove,
+		InputSchema: withRef(auditSchema(), refs),
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a struct {
+		stageArgs
+		Ref string `json:"ref"`
+	}) (*mcpsdk.CallToolResult, any, error) {
+		if a.Ref != "" {
+			return recordAtTool(ctx, refs, a.Ref, a.Namespace != "" || a.Stage != "")
+		}
 		if a.Stage == "" {
 			return resultOrError(api.VerifyAll(ctx, a.Namespace))
 		}
@@ -238,17 +245,24 @@ func registerDelivery(server *mcpsdk.Server, api DeliveryAPI, writes bool) {
 		Annotations: readOnly(true),
 		Description: "Read one signed record of a Stage's stream by its id (a history line's record): the change, who asked and " +
 			"approved with how each was classified and what let each approver decide, every verdict with its citation and how to run it again, and whether its signature was checked against " +
-			"the trust config. Read-only." + noApprove,
-		InputSchema: inputSchema(map[string]property{
+			"the trust config." + refDoc(refs) + " Read-only." + noApprove,
+		InputSchema: withRef(inputSchema(map[string]property{
 			"namespace": {Type: "string", Description: "Namespace of the Stage"},
 			"stage":     {Type: "string", Description: "Stage name"},
 			"record":    {Type: "string", Description: "The record id (sha256:...) as a history line names it, or its first 19 characters when only one record starts with them"},
-		}, []string{"namespace", "stage", "record"}),
+		}, []string{"namespace", "stage", "record"}), refs),
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a struct {
 		Namespace string `json:"namespace"`
 		Stage     string `json:"stage"`
 		Record    string `json:"record"`
+		Ref       string `json:"ref"`
 	}) (*mcpsdk.CallToolResult, any, error) {
+		if a.Ref != "" {
+			return recordAtTool(ctx, refs, a.Ref, a.Namespace != "" || a.Stage != "" || a.Record != "")
+		}
+		if a.Namespace == "" || a.Stage == "" || a.Record == "" {
+			return errorResult(errors.New("pass namespace, stage and record, or ref")), nil, nil
+		}
 		r, err := api.Record(ctx, a.Namespace, a.Stage, a.Record)
 		return resultOrError(r, err)
 	})
@@ -256,7 +270,7 @@ func registerDelivery(server *mcpsdk.Server, api DeliveryAPI, writes bool) {
 		Name:        "pacto_delivery_lifecycle",
 		Annotations: readOnly(true),
 		Description: "Follow one version of a service through delivery, by artifact digest, contract version or contract digest: " +
-			"whether pacto publish published it (Flux verified its signature) and, on each Stage you can see, when it arrived, was " +
+			"whether pacto publish published it (Flux or the registry watch verified its signature) and, on each Stage you can see, when it arrived, was " +
 			"verified, re-checked, rolled back or left, each from its signed record or the Operation's unsigned status. asOf and " +
 			"completeness say how much was read. Read-only." + noApprove,
 		InputSchema: inputSchema(map[string]property{
@@ -576,4 +590,38 @@ func nameSchema() map[string]any {
 		"namespace": {Type: "string", Description: "Namespace of the operation"},
 		"name":      {Type: "string", Description: "Operation name"},
 	}, []string{"namespace", "name"})
+}
+
+// refDoc is what the record tools say about ref where it is served.
+func refDoc(refs RecordReader) string {
+	if refs == nil {
+		return ""
+	}
+	return " With ref, a registry reference (<repository>:<tag> or <repository>@<digest>; local server only), it reads " +
+		"that one record instead, approvals and intents included, with this machine's registry credentials and no cluster: " +
+		"verified says whether its signature was checked, and for an approval counted says whether the operation record " +
+		"lists it (counted, not counted or unknown). A verified approval record is not a counted approval."
+}
+
+// withRef adds the optional ref argument to a record tool's schema where it
+// is served, and then nothing else is required: the handler checks which
+// form was passed. The remote server's schema has no ref, so a reference a
+// caller names is refused before any registry is reached.
+func withRef(schema map[string]any, refs RecordReader) map[string]any {
+	if refs == nil {
+		return schema
+	}
+	schema["properties"].(map[string]any)["ref"] = map[string]any{"type": []string{"string", "null"},
+		"description": "A record's registry reference, <repository>:<tag> or <repository>@<digest>, instead of namespace, stage and record"}
+	delete(schema, "required")
+	return schema
+}
+
+// recordAtTool reads the record at ref; with another form passed too it
+// refuses rather than guess which was meant.
+func recordAtTool(ctx context.Context, refs RecordReader, ref string, other bool) (*mcpsdk.CallToolResult, any, error) {
+	if other {
+		return errorResult(errors.New("pass ref, or namespace, stage and record, not both")), nil, nil
+	}
+	return resultOrError(refs.RecordAt(ctx, ref))
 }

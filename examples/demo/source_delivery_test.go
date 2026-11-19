@@ -211,7 +211,8 @@ func storyApproved(t *testing.T, d *demoDelivery, h http.Handler, decide string)
 		t.Fatalf("an agent's inbox holds what only people answer: %+v", items)
 	}
 	_ = d.SetPersona("carol", false)
-	items := inbox(t, h)
+	// audit-log's new signer waits for any person who may update it, carol too.
+	items := slices.DeleteFunc(inbox(t, h), func(it dashboard.InboxItem) bool { return it.Type == delivery.TypeTrust })
 	if len(items) != 1 || !slices.Equal(items[0].Owners, []string{"orders"}) || !strings.Contains(items[0].Question, "Asked of: orders") {
 		t.Fatalf("B6 inbox: %+v", items)
 	}
@@ -366,6 +367,28 @@ func TestReplaySignedEvals(t *testing.T) {
 	}
 	if _, _, err := delivery.OpenEvalAnswer([]byte(v.Citation["runnerBundle"]), runners); err != nil {
 		t.Fatalf("the runner's signed answer does not verify: %v", err)
+	}
+}
+
+// TestDemoApprovalSigners: the dashboard path's approvals are signed by the
+// recorder for the person, alice's prod rejection by alice keyless, and an
+// admitted operation on a recorded Stage names its intent record.
+func TestDemoApprovalSigners(t *testing.T) {
+	d, _ := demoServer(t)
+	if r := d.op(story.Test, "pay-agent-promote-17").Status.IntentRecord; r == nil || !strings.HasPrefix(r.Ref, "registry.example/story/records@sha256:") {
+		t.Fatalf("pay-agent 1.1.0 names its intent record: %+v", r)
+	}
+	if r := d.op("prod-us", "checkout-promote-20").Status.IntentRecord; r != nil {
+		t.Fatalf("a Stage no recorder anchors has no intent record: %+v", r)
+	}
+	person := d.op(story.Prod, "payments-promote-6").Status.Approvals[0]
+	recorder := d.op(story.Test, "payments-promote-12").Status.Approvals[0]
+	if person.Record == "" || person.Signer == nil || person.Signer.Kind != "person" || person.Signer.OnBehalfOf != nil {
+		t.Fatalf("alice signs her prod rejection keyless: %+v", person)
+	}
+	if recorder.Signer == nil || recorder.Signer.Kind != "recorder" || recorder.Signer.OnBehalfOf == nil ||
+		recorder.Signer.OnBehalfOf.User != recorder.By || recorder.Signer.OnBehalfOf.Verified != "admission" {
+		t.Fatalf("the recorder signs for the person admission checked: %+v", recorder)
 	}
 }
 
@@ -596,8 +619,8 @@ func TestDemoLastCheckOnlyAfterVerified(t *testing.T) {
 	}
 }
 
-// TestDemoNotReadyStage: every Stage reports Ready; audit-log's candidate
-// OCIRepository verifies no publisher, so it is not ready and says the fix.
+// TestDemoNotReadyStage: every Stage reports Ready; audit-log's registry
+// watch reads the registry, so it is ready while its new signer waits.
 func TestDemoNotReadyStage(t *testing.T) {
 	d, h := demoServer(t)
 	stages, _ := d.Stages(t.Context(), "")
@@ -606,9 +629,7 @@ func TestDemoNotReadyStage(t *testing.T) {
 			t.Errorf("%s/%s reports no Ready", st.Metadata.Namespace, st.Metadata.Name)
 		}
 	}
-	r := rowOf(t, environments(t, h, "audit-log"), story.Prod, "audit-log")
-	if r.Ready != "False: "+delivery.ReadyReasonCandidateUnverified || r.ReadyFix != delivery.ReadyFix(delivery.ReadyReasonCandidateUnverified) ||
-		!strings.Contains(r.ReadyMessage, "spec.verify") {
+	if r := rowOf(t, environments(t, h, "audit-log"), story.Prod, "audit-log"); r.Ready != "True: "+delivery.ConditionReady {
 		t.Fatalf("audit-log: ready %q fix %q message %q", r.Ready, r.ReadyFix, r.ReadyMessage)
 	}
 }
@@ -843,5 +864,24 @@ func TestDemoStagesCarryApplier(t *testing.T) {
 		})
 	}) {
 		t.Error("no demo plan carries a Pass pacto.applier verdict")
+	}
+}
+
+// TestDemoStagesRecordRegistryMode: every demo Stage with a record stream
+// says how the recorder writes it, as the recorder does on a cluster.
+func TestDemoStagesRecordRegistryMode(t *testing.T) {
+	d, _ := demoServer(t)
+	n := 0
+	for _, s := range d.stages {
+		if s.Status.Stream.Anchor == "" {
+			continue
+		}
+		n++
+		if s.Status.Stream.RegistryMode != "native" {
+			t.Errorf("stage %s: registryMode %q, want native", s.Metadata.Name, s.Status.Stream.RegistryMode)
+		}
+	}
+	if n == 0 {
+		t.Fatal("no demo Stage has a record stream")
 	}
 }

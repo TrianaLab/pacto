@@ -211,10 +211,7 @@ type EditInput struct {
 	// pactoVersion 2.4. service.origin has no setter: only creation writes it.
 	Template *TemplateInput
 
-	Workload *string
-	// Applier sets delivery.applier (auto, argocd or flux), which needs
-	// pactoVersion 2.5; "" removes the delivery section.
-	Applier                   *string
+	Workload                  *string
 	StoresData                *bool
 	DataSurvivesRestart       *bool
 	DataSharedAcrossInstances *bool
@@ -488,11 +485,9 @@ func boolOrFalse(p *bool) bool {
 }
 
 func buildCreateMap(input CreateInput) map[string]any {
-	m := map[string]any{
-		"service": map[string]any{
-			"name":    input.Name,
-			"version": defaultVersion(input.Version),
-		},
+	m := map[string]any{"service": map[string]any{"name": input.Name}}
+	if input.Version != "" { // empty: pacto ci --publish derives it
+		m["service"].(map[string]any)["version"] = input.Version
 	}
 	m["pactoVersion"] = createMinVersion(input)
 
@@ -656,7 +651,7 @@ func hasIdentity(deps []DependencyInput) bool {
 // meaning to keep, so it is never raised through contract.Upgrade.
 func createMinVersion(input CreateInput) string {
 	switch {
-	case len(undeclaredRanges(input.Dependencies)) > 0, hasIdentity(input.Dependencies):
+	case input.Version == "", len(undeclaredRanges(input.Dependencies)) > 0, hasIdentity(input.Dependencies):
 		return "2.5"
 	case input.Domain != "":
 		return "2.4"
@@ -670,7 +665,7 @@ func createMinVersion(input CreateInput) string {
 // or "" when any version has them. Removing a field needs no newer version.
 func editMinVersion(input EditInput) string {
 	switch {
-	case len(undeclaredRanges(input.AddDependencies)) > 0, hasIdentity(input.AddDependencies), input.Applier != nil && *input.Applier != "":
+	case len(undeclaredRanges(input.AddDependencies)) > 0, hasIdentity(input.AddDependencies):
 		return "2.5"
 	case needs24(input):
 		return "2.4"
@@ -989,15 +984,6 @@ func applyEdits(m map[string]any, input EditInput) ([]string, error) {
 		m["workload"] = *input.Workload
 		changes = append(changes, fmt.Sprintf("set workload to %q", *input.Workload))
 	}
-	if input.Applier != nil {
-		change, err := setApplier(m, *input.Applier)
-		if err != nil {
-			return nil, err
-		}
-		if change != "" {
-			changes = append(changes, change)
-		}
-	}
 	if hasStateEdits(input) {
 		changes = append(changes, applyStateEdits(m, input)...)
 	}
@@ -1014,24 +1000,6 @@ func applyEdits(m map[string]any, input EditInput) ([]string, error) {
 	}
 
 	return changes, nil
-}
-
-// setApplier sets delivery.applier to applier, or removes the delivery
-// section when applier is "", and returns the change line, "" when nothing
-// changed.
-func setApplier(m map[string]any, applier string) (string, error) {
-	switch applier {
-	case "":
-		if _, ok := m["delivery"]; !ok {
-			return "", nil
-		}
-		delete(m, "delivery")
-		return "removed delivery", nil
-	case contract.ApplierAuto, contract.ApplierArgoCD, contract.ApplierFlux:
-		m["delivery"] = map[string]any{"applier": applier}
-		return "set delivery.applier to " + applier, nil
-	}
-	return "", fmt.Errorf("applier %q is not one of auto, argocd or flux", applier)
 }
 
 // applyReferenceEdits applies the configuration-reference, policy-reference
@@ -1711,7 +1679,7 @@ func (o fileOps) check(ctx context.Context, validate Validator, path string, env
 // in: the newest schema's order.
 var topLevelKeyOrder = []string{
 	"pactoVersion", "service", "interfaces", "configurations", "environments",
-	"policies", "dependencies", "breaks", "state", "workload", "capabilities", "readiness", "publish", "delivery", "checks", "metadata", "extensions",
+	"policies", "dependencies", "breaks", "state", "workload", "capabilities", "readiness", "publish", "checks", "metadata", "extensions",
 }
 
 // marshalContract writes m with its top-level keys in topLevelKeyOrder, then
@@ -2239,8 +2207,7 @@ func buildSuggestions(c *contract.Contract, bundleFS fs.FS, valid bool, inferred
 
 	if c.Service.Version == "" {
 		suggestions = append(suggestions, Suggestion{
-			Message:  "service.version is not declared; pacto publish needs one.",
-			ToolCall: &ToolCall{Tool: "pacto_edit", Params: map[string]any{"version": "0.1.0"}},
+			Message: "service.version is not declared, so pacto ci --publish derives it from the newest published version and the change (1.0.0 for the first); declare it to publish a version you choose.",
 		})
 	}
 
@@ -2352,13 +2319,6 @@ func ownerWarnings(team string) []string {
 }
 
 // --- Helpers ---
-
-func defaultVersion(v string) string {
-	if v == "" {
-		return "0.1.0"
-	}
-	return v
-}
 
 func collectDerived(input CreateInput, h descriptionHints) []string {
 	var derived []string

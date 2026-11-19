@@ -358,7 +358,7 @@ func TestRestrictProvidersDropsHiddenLimitations(t *testing.T) {
 			{Code: LimitationProviderSourceDegraded, Source: "k8s", Message: "source k8s is partial; this row covers only what it read"},
 		},
 	}}
-	got := restrictProviders(rows, []string{"hidden-svc", ""}, func(ns string) bool { return ns == "a" }, anyKind, nil)
+	got := restrictProviders(rows, nil, []string{"hidden-svc", ""}, func(ns string) bool { return ns == "a" }, anyKind, nil)
 	var codes []string
 	for _, l := range got[0].Limitations {
 		codes = append(codes, l.Code)
@@ -369,7 +369,7 @@ func TestRestrictProvidersDropsHiddenLimitations(t *testing.T) {
 	if len(rows[0].Limitations) != 5 {
 		t.Error("restrictProviders wrote its input")
 	}
-	if restrictProviders(nil, nil, func(string) bool { return true }, anyKind, nil) != nil {
+	if restrictProviders(nil, nil, nil, func(string) bool { return true }, anyKind, nil) != nil {
 		t.Error("no rows stay no rows")
 	}
 }
@@ -379,7 +379,7 @@ func TestRestrictProvidersKeepsAReason(t *testing.T) {
 		{ID: "p", Source: "k8s", Status: SourcePartial, Limitations: []Limitation{NamespaceUnreadableLimitation("k8s", "secret", "forbidden")}},
 		{ID: "ok", Source: "k8s", Status: SourceAvailable, Limitations: []Limitation{NamespaceUnreadableLimitation("k8s", "secret", "forbidden")}},
 	}
-	got := restrictProviders(rows, nil, func(ns string) bool { return ns == "a" }, anyKind, nil)
+	got := restrictProviders(rows, nil, nil, func(ns string) bool { return ns == "a" }, anyKind, nil)
 	if len(got[0].Limitations) != 1 || got[0].Limitations[0].Code != LimitationProviderSourceDegraded ||
 		got[0].Limitations[0].Message != "source k8s reported this row as partial; the reason is hidden by your permissions" {
 		t.Errorf("partial row limitations = %+v, want one degraded reason", got[0].Limitations)
@@ -510,7 +510,7 @@ func TestRestrictProvidersHidesClusterName(t *testing.T) {
 // Evidence a producer wrote is masked only when it names a hidden name whole.
 func TestRestrictProvidersMasksWholeNamesOnly(t *testing.T) {
 	rows := []Provider{crdRow(), {ID: "x", Status: SourceAvailable, Evidence: "reads pacto"}}
-	got := restrictProviders(rows, []string{"pacto"}, func(string) bool { return true }, anyKind, nil)
+	got := restrictProviders(rows, nil, []string{"pacto"}, func(string) bool { return true }, anyKind, nil)
 	if got[0].Evidence != "served (pacto.trianalab.io/v1alpha1)" || got[1].Evidence != "hidden by your permissions" {
 		t.Errorf("evidence = %q, %q", got[0].Evidence, got[1].Evidence)
 	}
@@ -532,5 +532,137 @@ func TestQueryProvidersKubernetesFactsUnbounded(t *testing.T) {
 	}
 	if none := NewQuery(buildProviders(t, NewMemorySource("local", "local", &Collection{}))).Providers(); none.KubernetesSources != 0 || none.NotRead == nil {
 		t.Errorf("no kubernetes source = %+v", none)
+	}
+}
+
+func TestWorkloadEvidenceZeroKinds(t *testing.T) {
+	for _, tc := range []struct {
+		counts     map[string]int
+		unreadable []string
+		want       string
+	}{
+		{map[string]int{"Application": 0}, nil, "no Applications found"},
+		{map[string]int{"Kustomization": 0, "HelmRelease": 0}, nil, "no HelmReleases or Kustomizations found"},
+		{map[string]int{}, nil, "no workloads found"},
+		{map[string]int{"Deployment": 0}, nil, "no workloads found"},
+		{map[string]int{"GitRepository": 2, "Kustomization": 0}, nil, "2 GitRepositories"},
+		{map[string]int{"Gateway": 2}, nil, "2 Gateways"},
+		{nil, []string{"GitRepository"}, "GitRepositories unreadable"},
+		{map[string]int{"GitRepository": 0}, nil, "no GitRepositories found"},
+		{map[string]int{"Deployment": 412, "CronJob": 31}, nil, "412 Deployments, 31 CronJobs"},
+	} {
+		if got := WorkloadEvidence(tc.counts, tc.unreadable); got != tc.want {
+			t.Errorf("%v %v: %q, want %q", tc.counts, tc.unreadable, got, tc.want)
+		}
+	}
+}
+
+func TestRestrictProvidersKeepsZeroCounts(t *testing.T) {
+	argo := func(counts ...ProviderCount) Provider {
+		return Provider{ID: "argocd", Name: "Argo CD", Source: "k8s", Status: SourceAvailable, Counts: counts}
+	}
+	noArgo := func(ns string) bool { return ns != "argocd" }
+	rows := restrictProviders([]Provider{argo(ProviderCount{"Application", "", 0}, ProviderCount{"Application", "argocd", 3})}, nil, nil, noArgo, everyWorkload, nil)
+	if got := rows[0]; got.Evidence != "3 Applications in namespaces hidden from you" || len(got.Counts) != 1 || got.Counts[0].N != 0 {
+		t.Errorf("hidden-only row %+v", got)
+	}
+	rows = restrictProviders([]Provider{argo(ProviderCount{"Application", "", 0})}, nil, nil, noArgo, everyWorkload, nil)
+	if got := rows[0]; got.Evidence != "no Applications found" || len(got.Counts) != 1 {
+		t.Errorf("empty row %+v", got)
+	}
+	rows = restrictProviders([]Provider{argo(ProviderCount{"Application", "", 0}, ProviderCount{"Application", "argocd", 3}, ProviderCount{"Application", "shop", 1})}, nil, nil, noArgo, everyWorkload, nil)
+	if got := rows[0].Evidence; got != "1 Application (+3 hidden by your permissions)" {
+		t.Errorf("partly hidden evidence %q", got)
+	}
+	unread := argo(ProviderCount{"Application", "", 0}, ProviderCount{"Application", "argocd", 3})
+	unread.UnreadableKinds = []string{"Application"}
+	if got := restrictProviders([]Provider{unread}, nil, nil, noArgo, everyWorkload, nil)[0].Evidence; got != "Applications unreadable (+3 hidden by your permissions)" {
+		t.Errorf("unreadable evidence %q", got)
+	}
+	snap := buildProviders(t, NewMemorySource("k8s", SourceKindKubernetes, &Collection{Providers: []Provider{argo(ProviderCount{"Application", "", 0})}}))
+	if got := NewQuery(snap).InferredWorkloadScopes(); len(got) != 0 {
+		t.Errorf("a zero count asks for review: %v", got)
+	}
+}
+
+// TestRestrictHidesPromotionWorkloads: a promotion row names the workloads
+// that carry its label; a reader who may not list that workload kind there
+// never sees one, nor how many there are, and the Viewer reviews each.
+func TestRestrictHidesPromotionWorkloads(t *testing.T) {
+	row := Provider{ID: "promotion/X", Name: "X", Source: "w", Status: SourceAvailable, UsedFor: []string{UsePromotion},
+		Evidence: PromotionOwnedBy + "X (label l on workloads)",
+		Objects:  []ProviderObject{{Kind: "Deployment", Namespace: "shop", Name: "payments-api"}, {Kind: "Deployment", Namespace: "ops", Name: "cart"}}}
+	noShopDeployments := func(ns, kind string) bool { return ns != "shop" || kind != "Deployment" }
+	got := restrictProviders([]Provider{row}, nil, nil, everyNamespace, noShopDeployments, nil)[0]
+	if want := []ProviderObject{{Kind: "Deployment", Namespace: "ops", Name: "cart"}}; !slices.Equal(got.Objects, want) || got.ObjectsTotal != 0 || got.Evidence != row.Evidence {
+		t.Errorf("partly hidden row %+v", got)
+	}
+	got = restrictProviders([]Provider{row}, nil, nil, everyNamespace, nil, nil)[0]
+	if len(got.Objects) != 0 || got.ObjectsTotal != 0 || got.Evidence != "X found in a namespace you cannot read" {
+		t.Errorf("all hidden row %+v", got)
+	}
+	// A hidden cluster-scoped object still counts; a hidden workload never does.
+	mixed := row
+	mixed.Objects = append(slices.Clone(row.Objects), ProviderObject{Kind: "CustomResourceDefinition", Name: "stages.x.io"})
+	got = restrictProviders([]Provider{mixed}, nil, nil, func(ns string) bool { return ns != "" }, noShopDeployments, nil)[0]
+	if len(got.Objects) != 1 || got.ObjectsTotal != 2 || got.Evidence != row.Evidence {
+		t.Errorf("mixed row %+v", got)
+	}
+	snap := buildProviders(t, NewMemorySource("w", SourceKindKubernetesWorkloads, &Collection{Providers: []Provider{row}}))
+	q := NewQuery(snap)
+	if scopes := q.InferredWorkloadScopes(); !slices.Contains(scopes, WorkloadScope{"shop", "Deployment"}) || !slices.Contains(scopes, WorkloadScope{"ops", "Deployment"}) {
+		t.Errorf("promotion objects are never reviewed: %v", scopes)
+	}
+	r := q.Restrict(everyNamespace, noShopDeployments)
+	if r == q {
+		t.Fatal("a hidden promotion workload kept the whole query")
+	}
+	if p := r.Providers().Providers[0]; slices.ContainsFunc(p.Objects, func(o ProviderObject) bool { return o.Name == "payments-api" }) {
+		t.Errorf("restricted row names a hidden workload: %+v", p)
+	}
+}
+
+func TestReportingRowsFromProvisioningReporters(t *testing.T) {
+	snap := &FleetSnapshot{
+		Sources: []SourceState{{ID: "evidence", Status: SourceAvailable}, {ID: "file", Status: SourceAvailable}, {ID: "gone", Status: SourceUnavailable}},
+		Provisioning: []ProvisioningRecord{
+			{Source: "evidence", Provider: "crossplane", Producer: "platform", Verified: true},
+			{Source: "evidence", Provider: "crossplane", Producer: "platform", Verified: true, Name: "second request"},
+			{Source: "file", Verified: false},
+			{Source: "gone", Provider: "x"},
+			// One producer reporting signed and unsigned: two rows, each worded for its own reports.
+			{Source: "embed", Provider: "scanner", Producer: "security", Verified: true},
+			{Source: "embed", Provider: "scanner", Producer: "security"},
+		},
+	}
+	snap.Sources = append(snap.Sources, SourceState{ID: "embed", Status: SourceAvailable})
+	finalizeProviders(snap)
+	got := map[string]string{}
+	for _, p := range snap.Providers {
+		if !slices.Equal(p.UsedFor, []string{UseReporting}) || p.Status != SourceAvailable {
+			t.Errorf("row %+v", p)
+		}
+		got[p.Source+" "+p.ID+" "+p.Name] = p.Evidence
+	}
+	want := map[string]string{
+		"evidence reporting-adapter/crossplane/platform/signed crossplane": "reports provisioning in signed envelopes as producer platform",
+		"file reporting-adapter// unnamed adapter":                         "reports provisioning in the unsigned target-state file",
+		"embed reporting-adapter/scanner/security/signed scanner":          "reports provisioning in signed envelopes as producer security",
+		"embed reporting-adapter/scanner/security scanner":                 "reports provisioning in the unsigned target-state file as producer security",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("rows = %v, want %v", got, want)
+	}
+}
+
+func TestRestrictProvidersDropsRowWithAllServicesHidden(t *testing.T) {
+	rows := []Provider{
+		{ID: "registry:a", Source: "oci", Status: SourceAvailable, Services: []ServiceKey{"x", "y"}},
+		{ID: "registry:b", Source: "oci", Status: SourceAvailable, Services: []ServiceKey{"x", "z"}},
+		{ID: ProviderPactoCRD, Source: "k8s", Status: SourceAvailable},
+	}
+	got := restrictProviders(rows, map[ServiceKey]bool{"x": true, "y": true}, nil, func(string) bool { return true }, anyKind, nil)
+	if len(got) != 2 || got[0].ID != "registry:b" || got[1].ID != ProviderPactoCRD {
+		t.Fatalf("rows = %+v, want registry:b and the row with no services", got)
 	}
 }

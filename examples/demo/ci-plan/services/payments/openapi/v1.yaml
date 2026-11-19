@@ -1,0 +1,23 @@
+openapi: 3.0.3
+info:
+  title: payments
+  version: 1.4.2
+paths:
+  /payments:
+    get:
+      operationId: listPayments
+      responses:
+        "200":
+          description: The payments.
+  /payments/{id}:
+    get:
+      operationId: getPayment
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: One payment.

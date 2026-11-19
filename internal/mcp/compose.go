@@ -55,6 +55,16 @@ type DeliveryMode struct {
 	// Installed, when set, asks whether the cluster serves the delivery API,
 	// as the dashboard's /api/capabilities does; nil counts as served.
 	Installed func(context.Context) (bool, error)
+	// Refs, when set, lets the record tools read a record by its registry
+	// reference. Only the local (stdio) server sets it: it reads with this
+	// machine's registry credentials, which a remote caller must never
+	// borrow.
+	Refs RecordReader
+}
+
+// RecordReader reads one delivery record by its registry reference.
+type RecordReader interface {
+	RecordAt(ctx context.Context, ref string) (*delivery.RecordAt, error)
 }
 
 // BundleMode serves one bundle's generated operations and pacto_skill.
@@ -74,7 +84,7 @@ func New(version string, a Authoring, m Modes) (*mcpsdk.Server, error) {
 		registerFleetTools(server, m.Fleet.Src, m.Fleet.Opts)
 	}
 	if m.Delivery != nil {
-		registerDelivery(server, m.Delivery.API, m.Delivery.Writes)
+		registerDelivery(server, m.Delivery.API, m.Delivery.Writes, m.Delivery.Refs)
 		if m.Delivery.Reads != nil {
 			registerDeliveryReads(server, m.Delivery.Reads)
 		}

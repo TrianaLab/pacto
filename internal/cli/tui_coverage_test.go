@@ -35,6 +35,7 @@ var embodiedByTUI = map[string]string{
 // command forces a choice: give it a verb, or add it here with a reason.
 var excludedFromTUI = map[string]string{
 	"agent":                "a long-running host daemon",
+	"ci":                   "a CI pipeline step that plans every service of a repository; the TUI never runs it",
 	"run":                  "wraps a process and lives as long as it does",
 	"fleet reconcile":      "requires a --traces file, which no selection can supply",
 	"dashboard":            "a long-running server; the TUI is the terminal equivalent of it",
@@ -70,6 +71,7 @@ var excludedFromTUI = map[string]string{
 	"delivery inbox":         "reads the dashboard's inbox of Operations, which are not fleet entities",
 	"delivery published":     "reads the versions the Stages know, which are not fleet entities",
 	"delivery refusals":      "reads publish refusals, which are not fleet entities",
+	"delivery trust":         "reads which publishers each service accepts, which are not fleet entities",
 	"delivery blame":         "reads a Stage's records, which are not a fleet entity",
 	"delivery candidates":    "lists the versions a Stage may take, which are not fleet entities",
 	"delivery cancel":        "changes what runs; the TUI never acts",

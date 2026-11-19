@@ -124,6 +124,9 @@ type Record struct {
 	BundleDigest string `json:"bundleDigest,omitempty"`
 	// DeployDigest is the published deploy artifact's digest (publish only).
 	DeployDigest string `json:"deployDigest,omitempty"`
+	// Images are the images the published bundle deploys, as
+	// <repository>@<digest> (publish only).
+	Images []string `json:"images,omitempty"`
 	// Classification is the change classification, when the run computed one.
 	Classification string `json:"classification,omitempty"`
 	// Gate is the gate the run reached (impact, refused publish).

@@ -37,6 +37,13 @@ Listing them lets its ServiceAccount read the inline environment values in
 their pod templates. Pacto drops those values before anything is stored or
 served.
 
+To group inferred services and name their repositories, it also lists Argo CD
+Applications and Flux Kustomizations, HelmReleases and GitRepositories, with
+`list` only. Listing Applications, HelmReleases and Kustomizations lets the
+dashboard and operator ServiceAccounts read their inline Helm values
+(`spec.source.helm.values`, `spec.values`, `spec.postBuild.substitute`), which
+can hold credentials. Pacto decodes only the source and status fields it names.
+
 A namespace-list install cannot read the `kube-system` namespace, so it
 reports no cluster id. The live source keeps its context name, and a snapshot
 with several clusters marks it `CLUSTER_UNKNOWN`.

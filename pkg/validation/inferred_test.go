@@ -114,6 +114,37 @@ func TestValidateWithoutRecordUnchanged(t *testing.T) {
 	}
 }
 
+// migratedBundle is a bundle whose pacto.yaml declares the current version
+// beside a record holding one migration, from and to as given.
+func migratedBundle(t *testing.T, from, to string) ([]byte, *contract.Contract, fstest.MapFS) {
+	t.Helper()
+	data, c := parseString(t, "pactoVersion: \""+contract.Current()+"\"\n")
+	rec := goodRecord()
+	rec.Migrations = []contract.InferredMigration{{From: from, To: to, Source: "pacto.yaml", By: "pacto ci test"}}
+	fsys := recordBundle(rec)
+	fsys["pacto.yaml"] = &fstest.MapFile{Data: data}
+	return data, c, fsys
+}
+
+func TestValidateMigratedRecordValid(t *testing.T) {
+	v := contract.SupportedVersions
+	data, c, fsys := migratedBundle(t, v[len(v)-2], contract.Current())
+	if r := validation.Validate(c, data, fsys); !r.IsValid() {
+		t.Fatalf("errors: %+v", r.Errors)
+	}
+}
+
+func TestValidateMigratedRecordStale(t *testing.T) {
+	v := contract.SupportedVersions
+	// The entry says pacto.yaml was published as the previous version, but it
+	// declares the current one: a stale or hand-edited record.
+	data, c, fsys := migratedBundle(t, v[len(v)-3], v[len(v)-2])
+	r := validation.Validate(c, data, fsys)
+	if got := codesAt(r, contract.InferredRecordFile); !reflect.DeepEqual(got, []string{"INFERRED_RECORD_INVALID"}) {
+		t.Fatalf("codes = %v, errors %+v", got, r.Errors)
+	}
+}
+
 func TestBundleRecordWithClusterSourceRefused(t *testing.T) {
 	data, c := parseString(t, "pactoVersion: \"2.5\"\n")
 	cluster := func(r *contract.InferredRecord) {

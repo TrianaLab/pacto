@@ -93,6 +93,7 @@ jobs:
               - 'pkg/oci/**'
               - 'pkg/ocireferrer/**'
               - 'pkg/openapi/**'
+              - 'pkg/publish/**'
               - 'pkg/readiness/**'
               - 'pkg/runrecord/**'
               - 'pkg/sbom/**'
@@ -181,6 +182,7 @@ jobs:
               - 'pkg/oci/**'
               - 'pkg/ocireferrer/**'
               - 'pkg/openapi/**'
+              - 'pkg/publish/**'
               - 'pkg/readiness/**'
               - 'pkg/runrecord/**'
               - 'pkg/sbom/**'
@@ -423,6 +425,12 @@ jobs:
         image: registry:2@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
         ports:
           - 5001:5000
+      # zot serves the OCI 1.1 Referrers API, distribution above serves none:
+      # the registry conformance test proves both modes. The Compose demo's pin.
+      zot:
+        image: ghcr.io/project-zot/zot-minimal:v2.1.20@sha256:73f26433b341f4a319963f7c5e169858663a10565e4037e71605737daee202ee
+        ports:
+          - 5002:5000
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -436,6 +444,8 @@ jobs:
       - run: make ci-oci
         env:
           PACTO_STAGING_REGISTRY: localhost:5001
+          PACTO_CONFORMANCE_NATIVE_REGISTRY: localhost:5002
+          PACTO_CONFORMANCE_TAGS_REGISTRY: localhost:5001
 
   # Operator image build with the EXACT production build-push context + file
   # (context: repo root, file: integrations/kubernetes/Dockerfile) — a dedicated
@@ -477,7 +487,7 @@ jobs:
       fail-fast: false
       matrix:
         # delivery runs in its own sharded job below (ci-e2e-kind-delivery).
-        scenario: [reconcile, dashboard, upgrade, evidence, operational-graph, observation, gitops-flux, gitops-argocd, runtime-conformance, least-privilege]
+        scenario: [reconcile, dashboard, upgrade, evidence, operational-graph, observation, gitops-flux, gitops-argocd, runtime-conformance, least-privilege, delivery-argocd]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -495,7 +505,8 @@ jobs:
       # The gitops scenarios need the same client for a different reason: they
       # publish the manifest artifact the delivery tool pulls the promotion from —
       # Flux's OCIRepository in one, Argo's OCI application source in the other.
-      - if: matrix.scenario == 'evidence' || startsWith(matrix.scenario, 'gitops-')
+      # delivery-argocd publishes the versions its registry watch judges.
+      - if: matrix.scenario == 'evidence' || startsWith(matrix.scenario, 'gitops-') || matrix.scenario == 'delivery-argocd'
         uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2
       - name: Install kind (checksum-verified via GOSUMDB)
         timeout-minutes: 5
@@ -576,7 +587,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        phase: [core, health, publish, ordering, identity, records, ladder, appliers]
+        phase: [core, health, publish, ordering, identity, records, ladder, appliers, registrytags]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7

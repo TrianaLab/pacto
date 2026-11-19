@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/dynamic"
@@ -551,4 +553,122 @@ func TestRemoteBundleNoticesOnceAtStartup(t *testing.T) {
 		}
 		expect(t, strings.Count(stderr.String(), "skipped 1 mutating operation(s)") == 1, "delivery=%s: one notice: %q", delivery, stderr.String())
 	}
+}
+
+// remoteRecordTool is the record tool name as the remote server lists it to
+// a signed-in person.
+func remoteRecordTool(t *testing.T, w *remoteWorld, name string) map[string]any {
+	t.Helper()
+	body := post(t, w.h, "good", listTools).Body.String()
+	if i := strings.Index(body, "{"); i >= 0 {
+		body = body[i:]
+	}
+	var res struct {
+		Result struct {
+			Tools []map[string]any `json:"tools"`
+		} `json:"result"`
+	}
+	if err := json.NewDecoder(strings.NewReader(body)).Decode(&res); err != nil {
+		t.Fatalf("%v: %s", err, body)
+	}
+	for _, tool := range res.Result.Tools {
+		if tool["name"] == name {
+			return tool["inputSchema"].(map[string]any)
+		}
+	}
+	t.Fatalf("%s is not listed: %s", name, body)
+	return nil
+}
+
+// TestRemoteRecordRefNeedsStageAccess: the remote server's record tools take
+// no ref: a record is read only through the caller's Stage, with their token.
+func TestRemoteRecordRefNeedsStageAccess(t *testing.T) {
+	w := newRemoteWorld(t)
+	w.user = "https://idp#carol"
+	for name, required := range map[string]string{"pacto_delivery_record_get": "namespace,stage,record", "pacto_delivery_record_verify": ""} {
+		s := remoteRecordTool(t, w, name)
+		props := s["properties"].(map[string]any)
+		var req []string
+		for _, r := range func() []any { r, _ := s["required"].([]any); return r }() {
+			req = append(req, r.(string))
+		}
+		if _, ok := props["ref"]; ok || strings.Join(req, ",") != required {
+			t.Fatalf("%s: %v required %v", name, props, req)
+		}
+	}
+}
+
+// TestRemoteRecordRefRefusesForeignHost: a ref the caller names is refused
+// by the schema before any registry is reached.
+func TestRemoteRecordRefRefusesForeignHost(t *testing.T) {
+	w := newRemoteWorld(t)
+	for _, tool := range []string{"pacto_delivery_record_get", "pacto_delivery_record_verify"} {
+		body := post(t, w.h, "good", `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"`+tool+
+			`","arguments":{"ref":"evil.example/x:y"}}}`).Body.String()
+		if !strings.Contains(body, `"isError":true`) && !strings.Contains(body, `"error":`) {
+			t.Fatalf("%s took a ref: %s", tool, body)
+		}
+		if !strings.Contains(body, "ref") {
+			t.Fatalf("%s: the refusal does not name ref: %s", tool, body)
+		}
+	}
+}
+
+// TestNoMCPServerListsApproveTool pins that agents read approval records and
+// never write one (#545, 2026-11-17): no MCP server, stdio for a person or an
+// agent or the remote server for either, lists a tool named approve, and
+// every delivery tool says so in noApprove's exact words.
+func TestNoMCPServerListsApproveTool(t *testing.T) {
+	const noApprove = " There is no approve tool: when a person must decide, the plan names who, and they approve themselves."
+	servers := map[string][]*mcpsdk.Tool{}
+	for name, user := range map[string]string{"stdio person": "alice", "stdio agent": "system:serviceaccount:agents:bot"} {
+		d := deliveryDeps(user, nil)
+		cmd := newMCPCommand(app.NewService(nil, nil), "v", d)
+		cmd.SetContext(context.Background())
+		_ = cmd.Flags().Set("delivery", "true")
+		mode, err := buildDeliveryMode(cmd, d, nil)
+		expect(t, err == nil, "%s: %v", name, err)
+		expect(t, mode.Writes == (name == "stdio agent"), "%s writes: %v", name, mode.Writes)
+		server, err := buildMCPServer(cmd, app.NewService(nil, nil), "v", nil, d)
+		expect(t, err == nil, "%s: %v", name, err)
+		servers[name] = listedTools(t, server)
+	}
+	w := newRemoteWorld(t)
+	for name, user := range map[string]string{"remote agent": w.user, "remote person": "https://idp#carol"} {
+		w.user = user
+		body := post(t, w.h, "good", listTools).Body.String()
+		if i := strings.Index(body, "data: "); i >= 0 {
+			body = body[i+len("data: "):]
+		}
+		var res struct {
+			Result struct{ Tools []*mcpsdk.Tool } `json:"result"`
+		}
+		expect(t, json.Unmarshal([]byte(strings.TrimSpace(body)), &res) == nil, "%s: %s", name, body)
+		servers[name] = res.Result.Tools
+	}
+	for name, tools := range servers {
+		var delivery int
+		for _, tool := range tools {
+			expect(t, !strings.Contains(tool.Name, "approve"), "%s lists %s", name, tool.Name)
+			if strings.HasPrefix(tool.Name, "pacto_delivery_") {
+				delivery++
+				expect(t, strings.Contains(tool.Description, noApprove), "%s: %s does not say there is no approve tool", name, tool.Name)
+			}
+		}
+		expect(t, delivery > 0, "%s lists no delivery tool", name)
+	}
+}
+
+// listedTools lists the tools server serves, descriptions included.
+func listedTools(t *testing.T, server *mcpsdk.Server) []*mcpsdk.Tool {
+	t.Helper()
+	ct, st := mcpsdk.NewInMemoryTransports()
+	_, err := server.Connect(context.Background(), st, nil)
+	expect(t, err == nil, "connect: %v", err)
+	session, err := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "c", Version: "1"}, nil).Connect(context.Background(), ct, nil)
+	expect(t, err == nil, "client: %v", err)
+	defer func() { _ = session.Close() }()
+	res, err := session.ListTools(context.Background(), nil)
+	expect(t, err == nil, "list: %v", err)
+	return res.Tools
 }

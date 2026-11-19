@@ -677,7 +677,8 @@ func TestReadyReasonsMatchOperator(t *testing.T) {
 		delivery.ReadyReasonCandidateUnverified, delivery.ReadyReasonUpstreamUntrusted, delivery.ReadyReasonUpstreamUnreadable,
 		delivery.ReadyReasonNoCandidateSource, delivery.ReadyReasonApplierUnreadable, delivery.ReadyReasonApplierUnlabelled,
 		delivery.ReadyReasonApplierMultiSource, delivery.ReadyReasonApplierNotOCI, delivery.ReadyReasonApplierNotAutomated,
-		delivery.ReadyReasonApplierNotChartRef, delivery.ReadyReasonApplierConflict, delivery.ReadyReasonApplierUnknown} {
+		delivery.ReadyReasonApplierNotChartRef, delivery.ReadyReasonApplierConflict, delivery.ReadyReasonApplierUnknown,
+		delivery.ReadyReasonRegistryUnreadable, delivery.ReadyReasonPublisherUnverifiable} {
 		shared[r] = delivery.ReadyFix(r) != ""
 	}
 	// The reasons named by an identifier in the operator.

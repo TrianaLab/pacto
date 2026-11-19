@@ -15,6 +15,7 @@ import (
 	k8stesting "k8s.io/client-go/testing"
 
 	"github.com/trianalab/pacto/v4/internal/app"
+	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
 	"github.com/trianalab/pacto/v4/pkg/publish"
 )
 
@@ -86,6 +87,14 @@ func TestPublishCommandPublish(t *testing.T) {
 		Deploy: "reg/deploy@" + cliB}
 	out, err := runPublish(t, publishDeps(done, nil, &got), "text", "--propose", "prod/payments-prod", "--on-behalf-of", "dana")
 	wantRun(t, out, err, false, "pushed manifests", "Deploy: reg/deploy@"+cliB, "Proposed "+cliB+" on prod/payments-prod")
+	// Under json, stdout is the one result document; the propose line goes to
+	// stderr and a failed propose rides in the document as its exit.
+	out, err = runPublish(t, publishDeps(done, nil, &got), "json", "--propose", "prod/payments-prod", "--on-behalf-of", "dana")
+	var doc map[string]any
+	expect(t, err == nil && json.Unmarshal([]byte(out), &doc) == nil && doc["exit"] == nil, "json publish: %v %q", err, out)
+	out, err = runPublish(t, publishDeps(done, nil, &got), "json", "--propose", "prod/payments-prod")
+	doc = nil // the standalone command also prints its usage after the document
+	expect(t, err != nil && json.NewDecoder(strings.NewReader(out)).Decode(&doc) == nil && doc["exit"] != nil, "json publish refused: %v %q", err, out)
 	// An agent's propose names the person it acts for.
 	out, err = runPublish(t, publishDeps(done, nil, &got), "text", "--propose", "prod/payments-prod")
 	wantRun(t, out, err, true, "must name the person it acts for", "--on-behalf-of")
@@ -114,11 +123,12 @@ func TestPublishCommandPublish(t *testing.T) {
 			t.Fatalf("%q: err %v, published %+v", args, err, got)
 		}
 	}
-	nothing := &publish.Result{Plan: publishPlan(true), Actions: []string{}, Digests: map[string]string{"manifests": cliB}}
+	nothing := &publish.Result{Plan: publishPlan(true), Actions: []string{}, Digests: map[string]string{"manifests": cliB},
+		Notes: []string{"ignored 9.9.9: not signed by the publisher"}}
 	out, err = runPublish(t, publishDeps(nothing, nil, &got), "json")
-	wantRun(t, out, err, false, `"actions": []`)
+	wantRun(t, out, err, false, `"actions": []`, `"notes"`)
 	out, err = runPublish(t, publishDeps(nothing, nil, &got), "text")
-	wantRun(t, out, err, false, "Nothing to publish")
+	wantRun(t, out, err, false, "Nothing to publish", "note: ignored 9.9.9: not signed by the publisher")
 	out, err = runPublish(t, publishDeps(done, nil, &got), "bogus")
 	wantRun(t, out, err, false)
 }
@@ -207,7 +217,7 @@ func TestMCPPublishMode(t *testing.T) {
 	if s, err := buildMCPServer(cmd, app.NewService(nil, nil), "v", nil, d); err != nil || s == nil {
 		t.Fatalf("publish server: %v", err)
 	}
-	if res, err := mcpPublish(app.NewService(nil, nil), d)(context.Background(), "svc", "r", true); err != nil || !res.Plan.Ready || got.Path != "svc" || !got.Plan {
+	if res, err := mcpPublish(app.NewService(nil, nil), d)(context.Background(), pactomcp.PublishArgs{Path: "svc", Revision: "r", Image: "reg.example/api@sha256:1"}, true); err != nil || !res.Plan.Ready || got.Path != "svc" || !got.Plan || got.Image != "reg.example/api@sha256:1" {
 		t.Fatalf("adapter: %+v %v", got, err)
 	}
 	if err := checkMCPMode(false, false, false, true, true); err == nil || !strings.Contains(err.Error(), "--publish") {
@@ -219,6 +229,17 @@ func TestMCPPublishMode(t *testing.T) {
 	over.SetErr(&strings.Builder{})
 	if err := over.Execute(); !errors.Is(err, errPublishOverHTTP) {
 		t.Fatalf("publish over HTTP must be refused: %v", err)
+	}
+}
+
+// pacto_publish refuses a pull request pipeline the way pacto publish does:
+// the adapter hands the runner's environment in.
+func TestMCPPublishRefusesPullRequest(t *testing.T) {
+	t.Setenv("GITHUB_ACTIONS", "true")
+	t.Setenv("GITHUB_BASE_REF", "main")
+	_, err := mcpPublish(app.NewService(nil, nil), defaultDeps())(context.Background(), pactomcp.PublishArgs{Path: t.TempDir()}, false)
+	if err == nil || !strings.Contains(err.Error(), app.RefusedPullRequest) {
+		t.Fatalf("a pull request pipeline publishes nothing: %v", err)
 	}
 }
 
@@ -235,4 +256,41 @@ func TestOnBehalfOfHelpNamesTheClusterUsername(t *testing.T) {
 			t.Errorf("%v --on-behalf-of: %q", path, usage)
 		}
 	}
+}
+
+// TestPublishCommandDerivedFlags: the flags that shape a derived publish
+// section reach the engine, with the process environment.
+func TestPublishCommandDerivedFlags(t *testing.T) {
+	var got app.PublishOptions
+	_, err := runPublish(t, publishDeps(&publish.Result{Plan: publishPlan(true)}, nil, &got), "text", "--plan",
+		"--image", "r.io/x@sha256:abc", "--registry", "r.io/acme", "--sign-key", "/k/cosign.key", "--no-transparency-log")
+	if err != nil || got.Image != "r.io/x@sha256:abc" || got.Registry != "r.io/acme" || got.SignKey != "/k/cosign.key" || !got.NoTransparencyLog || got.Getenv == nil {
+		t.Fatalf("options %+v %v", got, err)
+	}
+}
+
+// TestWaitPublishedRegistry: a Stage fed by the registry watch waits on
+// status.published too, and says the watch has not accepted the digest.
+func TestWaitPublishedRegistry(t *testing.T) {
+	var got app.PublishOptions
+	publishPoll = time.Millisecond
+	stageWith := func(published ...any) deps {
+		d := publishDeps(&publish.Result{Plan: publishPlan(true), Digests: map[string]string{}, Deploy: "reg/deploy@" + cliA}, nil, &got)
+		cluster := d.newDynamic
+		d.newDynamic = func() (dynamic.Interface, error) {
+			c, err := cluster()
+			c.(*dynamicfake.FakeDynamicClient).PrependReactor("get", "stages", func(k8stesting.Action) (bool, runtime.Object, error) {
+				return true, u("delivery.pacto.trianalab.io/v1alpha1", "Stage", "payments-prod", map[string]any{
+					"spec": map[string]any{"service": map[string]any{"name": "payments"}, "applyRef": map[string]any{"name": "payments"},
+						"candidates": map[string]any{"registry": map[string]any{}}},
+					"status": map[string]any{"published": published}}), nil
+			})
+			return c, err
+		}
+		return d
+	}
+	out, err := runPublish(t, stageWith(), "text", "--propose", "prod/payments-prod", "--propose-timeout", "5ms", "--on-behalf-of", "dana")
+	wantRun(t, out, err, true, "the registry watch has not accepted "+cliA+" yet: see pacto delivery trust payments")
+	out, err = runPublish(t, stageWith(cliA), "text", "--propose", "prod/payments-prod", "--propose-timeout", "5ms", "--on-behalf-of", "dana")
+	wantRun(t, out, err, false, "Proposed "+cliA+" on prod/payments-prod")
 }

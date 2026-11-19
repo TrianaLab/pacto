@@ -102,7 +102,7 @@ func (r *reader) kustomizeResource(p string, res *yaml.Node) {
 		return
 	}
 	src := at(p, res.Line)
-	if remoteResource(ref) {
+	if RemoteResource(ref) {
 		r.find(CodeUnsupportedFile, src, remoteResourceMessage(src, cleanURL(ref)))
 		return
 	}
@@ -112,9 +112,9 @@ func (r *reader) kustomizeResource(p string, res *yaml.Node) {
 // remoteHostRE is a resource that starts with a host name: github.com/org/repo.
 var remoteHostRE = regexp.MustCompile(`^[a-z0-9-]+(\.[a-z0-9-]+)+/[^/]+/`)
 
-// remoteResource reports whether the resource ref is a remote one Kustomize
+// RemoteResource reports whether the resource ref is a remote one Kustomize
 // fetches: a URL, a git@ address, a ?ref= query, a //subdir or a host path.
-func remoteResource(ref string) bool {
+func RemoteResource(ref string) bool {
 	return strings.Contains(ref, "://") || strings.HasPrefix(ref, "git@") || strings.ContainsAny(ref, "?") ||
 		strings.Contains(ref, "//") || remoteHostRE.MatchString(ref)
 }

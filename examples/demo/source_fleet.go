@@ -13,6 +13,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
 	"github.com/trianalab/pacto/v4/pkg/finding"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/workloadmanager"
 )
 
 // This file builds the in-memory operational graph (fleet) and impact provider
@@ -84,6 +85,8 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 		return out
 	}
 	col.Revisions = revisions(src, demoRegistry)
+	withProvenance(col.Revisions, "local")
+	col.Providers = []fleet.Provider{demoRegistryRow(demoNativeRegistry, col.Revisions)}
 
 	// One more registry, the payments story's own domain: the contracts the
 	// simulated delivery's Stages run (source_story_fleet.go), so each Stage row
@@ -117,6 +120,7 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 	for i := range partnerCol.Revisions {
 		partnerCol.Revisions[i].Domain = partnerDomain
 	}
+	partnerCol.Providers = []fleet.Provider{demoRegistryRow(demoTagsRegistry, partnerCol.Revisions)}
 	partnerRegistrySource := fleet.NewMemorySource("partner-registry", "oci", partnerCol)
 
 	// The cluster collector reports what is running; the registry above reports what
@@ -147,7 +151,7 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 	workloads := fleet.NewMemorySource("k8s-production-workloads", fleet.SourceKindKubernetesWorkloads, &fleet.Collection{
 		Cluster:          prodCluster,
 		InferredServices: append(inferred, takenOver),
-		Providers:        []fleet.Provider{workloadsRow},
+		Providers:        append([]fleet.Provider{workloadsRow}, demoGroupingProviders(inferred)...),
 	})
 	// Telemetry is a second collector over the SAME estate: it corroborates the two
 	// targets it can see (agreeing on every identity-bearing field, so they merge
@@ -485,13 +489,18 @@ func demoCorroboratedTargets() []fleet.RawTarget {
 	}
 }
 
-// demoInferredServices are three workloads the demo cluster runs with no
-// contract: a Deployment pinned by digest, a CronJob with no ports and a
-// DaemonSet in another namespace.
+// demoInferredServices are four workloads the demo cluster runs with no
+// contract: a Deployment pinned by digest and a second Deployment of the same
+// Argo CD Application, a CronJob a plain Helm release installs and a
+// DaemonSet a Flux HelmRelease installs in another namespace. The groups and
+// repositories are what a live read with Argo CD, Flux and Helm would give.
 func demoInferredServices() []fleet.RawInferredService {
 	at := demoNow().Add(-15 * time.Minute)
 	const pod = "spec.template.spec.containers[name="
 	const job = "spec.jobTemplate.spec.template.spec.containers[name="
+	shopApp := &fleet.InferredGroup{Rule: workloadmanager.ArgoCD, Namespace: "shop", Name: "shop", From: "annotation argocd.argoproj.io/tracking-id"}
+	shopRepo := []fleet.InferredRepository{{URL: "https://github.com/example/shop", Path: "deploy/legacy",
+		From: "Application shop/shop spec.source.repoURL", Namespace: "shop", Kind: "Application"}}
 	return []fleet.RawInferredService{
 		{
 			Namespace: "shop", Kind: "Deployment", Name: "legacy-billing", ObservedAt: &at,
@@ -499,18 +508,32 @@ func demoInferredServices() []fleet.RawInferredService {
 				Value: "registry.example.com/shop/legacy-billing@sha256:4f1c2a9e8b7d6c5f4e3d2c1b0a9f8e7d6c5b4a39281706f5e4d3c2b1a0f9e8d7",
 				From:  pod + "billing].image",
 			},
-			Ports:  []fleet.InferredPort{{Port: 8080, Name: "http", Protocol: "TCP", From: pod + "billing].ports[0].containerPort"}},
-			Probes: []fleet.InferredProbe{{Kind: "readiness", Path: "/healthz", Port: "http", From: pod + "billing].readinessProbe"}},
+			Ports:        []fleet.InferredPort{{Port: 8080, Name: "http", Protocol: "TCP", From: pod + "billing].ports[0].containerPort"}},
+			Probes:       []fleet.InferredProbe{{Kind: "readiness", Path: "/healthz", Port: "http", From: pod + "billing].readinessProbe"}},
+			Group:        shopApp,
+			Repositories: shopRepo,
+		},
+		{
+			Namespace: "shop", Kind: "Deployment", Name: "billing-worker", ObservedAt: &at,
+			Image:        &fleet.InferredValue{Value: "registry.example.com/shop/billing-worker:1.9.0", From: pod + "worker].image"},
+			Group:        shopApp,
+			Repositories: shopRepo,
 		},
 		{
 			Namespace: "shop", Kind: "CronJob", Name: "nightly-export", ObservedAt: &at,
 			Image: &fleet.InferredValue{Value: "registry.example.com/shop/exporter:2.3.1", From: job + "exporter].image"},
+			Group: &fleet.InferredGroup{Rule: workloadmanager.Helm, Namespace: "shop", Name: "exporter",
+				From: "annotations meta.helm.sh/release-name and release-namespace"},
 		},
 		{
 			Namespace: "observability", Kind: "DaemonSet", Name: "log-shipper", ObservedAt: &at,
 			Image:  &fleet.InferredValue{Value: "fluent/fluent-bit:3.1.4", From: pod + "fluent-bit].image"},
 			Ports:  []fleet.InferredPort{{Port: 2020, Name: "metrics", Protocol: "TCP", From: pod + "fluent-bit].ports[0].containerPort"}},
 			Probes: []fleet.InferredProbe{{Kind: "liveness", Path: "/api/v1/health", Port: "2020", From: pod + "fluent-bit].livenessProbe"}},
+			Group: &fleet.InferredGroup{Rule: workloadmanager.FluxHelmRelease, Namespace: "observability", Name: "log-shipper",
+				From: "labels helm.toolkit.fluxcd.io/name and namespace"},
+			Repositories: []fleet.InferredRepository{{URL: "https://github.com/example/platform",
+				From: "GitRepository flux-system/platform spec.url", Namespace: "flux-system", Kind: "GitRepository"}},
 		},
 	}
 }

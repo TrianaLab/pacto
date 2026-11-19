@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"slices"
 	"strings"
 	"text/tabwriter"
@@ -55,7 +56,12 @@ func newPublishCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorde
 			format := v.GetString(outputFormatKey)
 			start := time.Now()
 			sp := startSpinner(cmd, format, "Publishing")
-			res, err := d.publish(svc, cmd.Context(), app.PublishOptions{Path: path, Overrides: getOverrides(cmd), Revision: revision, Plan: plan})
+			opts := app.PublishOptions{Path: path, Overrides: getOverrides(cmd), Revision: revision, Plan: plan, Getenv: os.Getenv}
+			opts.Image, _ = cmd.Flags().GetString("image")
+			opts.Registry, _ = cmd.Flags().GetString("registry")
+			opts.SignKey, _ = cmd.Flags().GetString("sign-key")
+			opts.NoTransparencyLog, _ = cmd.Flags().GetBool("no-transparency-log")
+			res, err := d.publish(svc, cmd.Context(), opts)
 			if err != nil || plan {
 				sp.Stop()
 			} else {
@@ -73,11 +79,12 @@ func newPublishCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorde
 			}
 			if err == nil && propose != "" && res.Deploy != "" {
 				timeout, _ := cmd.Flags().GetDuration("propose-timeout")
-				err = proposePublished(cmd, d, ns, stage, res, timeout)
+				err = proposePublished(cmd, d, ns, stage, res, timeout, format)
 			}
-			if perr := printPublishResult(cmd, res, format, failed); perr != nil {
-				return perr
+			if format == "json" {
+				return printJSONExit(cmd, res, err)
 			}
+			_ = printPublishResult(cmd, res, format, failed) // ponytail: text and markdown output never fail
 			return err
 		},
 	}
@@ -88,6 +95,10 @@ func newPublishCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorde
 	cmd.Flags().String("on-behalf-of", "", "with --propose, the person an agent acts for, as the Kubernetes username the cluster authenticates them as (what kubectl auth whoami prints for them, any OIDC prefix included); asserted, not verified; required when an agent proposes, never a service account or other system user, and that person may not approve the change")
 	cmd.Flags().String("correlation-id", "", "with --propose, an id that ties the promote to an incident or another change, such as a ticket; "+
 		"kept with the change and its record, filtered by pacto delivery history --correlation-id")
+	cmd.Flags().String("image", "", "with no publish section: the image to deploy, pinned by digest (repo@sha256:...); Pacto builds, signs and copies none")
+	cmd.Flags().String("registry", "", "with no publish section: the registry to publish to (default: what the CI context or the workload image names)")
+	cmd.Flags().String("sign-key", "", "with no publish section: sign with this cosign key file instead of keyless")
+	cmd.Flags().Bool("no-transparency-log", false, "with --sign-key: keep the signatures out of the transparency log")
 	cmd.Flags().Duration("propose-timeout", 10*time.Minute, "how long --propose waits for the Stage to record the version as published")
 	addOverrideFlagsNoShorthand(cmd)
 	addStatsFlags(cmd)
@@ -127,7 +138,7 @@ var publishPoll = 5 * time.Second
 // proposePublished raises a promote of the published deploy artifact as the
 // caller, through the same client `pacto delivery propose` uses, once the
 // Stage recorded it as published.
-func proposePublished(cmd *cobra.Command, d deps, ns, stage string, res *publish.Result, timeout time.Duration) error {
+func proposePublished(cmd *cobra.Command, d deps, ns, stage string, res *publish.Result, timeout time.Duration, format string) error {
 	dyn, err := d.newDynamic()
 	if err != nil {
 		return err
@@ -145,14 +156,20 @@ func proposePublished(cmd *cobra.Command, d deps, ns, stage string, res *publish
 	if err != nil {
 		return fmt.Errorf("published, but proposing it on %s/%s failed: %w", ns, stage, err)
 	}
-	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Proposed %s on %s/%s as Operation %s\n", digest, ns, stage, op.Metadata.Name)
+	// Under json, stdout holds the one result document, so the line goes to stderr.
+	w := cmd.OutOrStdout()
+	if format == "json" {
+		w = cmd.ErrOrStderr()
+	}
+	_, _ = fmt.Fprintf(w, "Proposed %s on %s/%s as Operation %s\n", digest, ns, stage, op.Metadata.Name)
 	return nil
 }
 
 // waitPublished waits until the Stage records digest as published. The
-// promoter refuses a promote from a candidate OCIRepository until then, and it
-// only happens after Flux polled the new tag and verified its signature. A
-// Stage that takes its candidates from another Stage has nothing to wait for.
+// promoter refuses a promote from a candidate OCIRepository or the registry
+// watch until then, and it only happens after Flux, or the promoter's registry
+// watch, read the new tag and verified its signature. A Stage that takes its
+// candidates from another Stage has nothing to wait for.
 func waitPublished(cmd *cobra.Command, c *app.Delivery, ns, stage, digest string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for {
@@ -160,15 +177,25 @@ func waitPublished(cmd *cobra.Command, c *app.Delivery, ns, stage, digest string
 		if err != nil {
 			return err
 		}
-		if s.Spec.Candidates.OCIRepositoryRef == nil || slices.Contains(s.Status.Published, digest) {
+		cands := s.Spec.Candidates
+		if (cands.OCIRepositoryRef == nil && cands.Registry == nil) || slices.Contains(s.Status.Published, digest) {
 			return nil
 		}
 		if !time.Now().Before(deadline) {
-			return fmt.Errorf("the Stage did not record %s as published within %s: Flux has not polled the candidate OCIRepository %s "+
-				"or verified its signature yet; propose it later with `pacto delivery propose`", digest, timeout, s.Spec.Candidates.OCIRepositoryRef.Name)
+			return notPublishedYet(s, digest, timeout)
 		}
 		time.Sleep(publishPoll)
 	}
+}
+
+// notPublishedYet says why a Stage did not record digest as published.
+func notPublishedYet(s *delivery.StageObject, digest string, timeout time.Duration) error {
+	if s.Spec.Candidates.Registry != nil {
+		return fmt.Errorf("the Stage did not record %s as published within %s: the registry watch has not accepted %s yet: "+
+			"see pacto delivery trust %s; propose it later with `pacto delivery propose`", digest, timeout, digest, s.Spec.Service.Name)
+	}
+	return fmt.Errorf("the Stage did not record %s as published within %s: Flux has not polled the candidate OCIRepository %s "+
+		"or verified its signature yet; propose it later with `pacto delivery propose`", digest, timeout, s.Spec.Candidates.OCIRepositoryRef.Name)
 }
 
 // printPublishResult prints what a publish did. failed is true when it was
@@ -198,6 +225,9 @@ func printPublishResult(cmd *cobra.Command, res *publish.Result, format string, 
 		}
 		if res.Refusal != "" {
 			_, _ = fmt.Fprintln(w, "Refusal: "+res.Refusal)
+		}
+		for _, n := range res.Notes {
+			_, _ = fmt.Fprintln(w, "note: "+n)
 		}
 		return nil
 	}, nil)

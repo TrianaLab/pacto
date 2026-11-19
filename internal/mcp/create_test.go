@@ -32,8 +32,8 @@ func TestCreate_Minimal(t *testing.T) {
 	if result.Summary.Name != "test-svc" {
 		t.Errorf("expected name=test-svc, got %q", result.Summary.Name)
 	}
-	if result.Summary.Version != "0.1.0" {
-		t.Errorf("expected default version, got %q", result.Summary.Version)
+	if result.Summary.Version != "" {
+		t.Errorf("expected no version, left to pacto ci --publish, got %q", result.Summary.Version)
 	}
 	if result.FileCount < 1 {
 		t.Errorf("expected at least 1 file, got %d", result.FileCount)
@@ -731,12 +731,17 @@ func TestMarshalContract_KeyOrder(t *testing.T) {
 
 // --- Helper function tests ---
 
-func TestDefaultVersion(t *testing.T) {
-	if v := defaultVersion(""); v != "0.1.0" {
-		t.Errorf("expected 0.1.0, got %q", v)
+// TestCreateLeavesVersionToPublish: an empty version writes no
+// service.version, at the pactoVersion that lets pacto ci --publish derive
+// it; a given one is written as given.
+func TestCreateLeavesVersionToPublish(t *testing.T) {
+	m := buildCreateMap(CreateInput{Name: "svc"})
+	if _, has := m["service"].(map[string]any)["version"]; has || m["pactoVersion"] != "2.5" {
+		t.Errorf("empty version: %v", m)
 	}
-	if v := defaultVersion("2.0.0"); v != "2.0.0" {
-		t.Errorf("expected 2.0.0, got %q", v)
+	m = buildCreateMap(CreateInput{Name: "svc", Version: "2.0.0"})
+	if m["service"].(map[string]any)["version"] != "2.0.0" || m["pactoVersion"] != "2.0" {
+		t.Errorf("version given: %v", m)
 	}
 }
 
@@ -795,7 +800,7 @@ func TestEditAddDependencyOmittedCompatibilityIsUnknown(t *testing.T) {
 func TestExplicitUnknownRaisesPactoVersion(t *testing.T) {
 	dep := []DependencyInput{{Name: "ledger", Ref: "oci://reg.example/ledger", Compatibility: contract.CompatibilityUnknown, Required: true}}
 	dir := filepath.Join(t.TempDir(), "invoices")
-	res, err := Create(CreateInput{Name: "invoices", Path: dir, Dependencies: dep})
+	res, err := Create(CreateInput{Name: "invoices", Version: "1.0.0", Path: dir, Dependencies: dep})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -819,7 +824,7 @@ func TestExplicitUnknownRaisesPactoVersion(t *testing.T) {
 func TestGivenRangeKeepsVersion(t *testing.T) {
 	dep := []DependencyInput{{Name: "ledger", Ref: "oci://reg.example/ledger", Compatibility: "^2.0.0", Required: true}}
 	dir := filepath.Join(t.TempDir(), "invoices")
-	res, err := Create(CreateInput{Name: "invoices", Path: dir, Dependencies: dep})
+	res, err := Create(CreateInput{Name: "invoices", Version: "1.0.0", Path: dir, Dependencies: dep})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3253,7 +3258,7 @@ func TestCreateKeepsExistingInterfaceFile(t *testing.T) {
 // TestCreateDomainRaisesVersion: a domain is written as service.domain at
 // pactoVersion 2.4.
 func TestCreateDomainRaisesVersion(t *testing.T) {
-	r, err := Create(CreateInput{Name: "svc", Path: filepath.Join(t.TempDir(), "svc"), Domain: "payments"})
+	r, err := Create(CreateInput{Name: "svc", Version: "1.0.0", Path: filepath.Join(t.TempDir(), "svc"), Domain: "payments"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3363,14 +3368,14 @@ func TestCheckSuggestsDeclaringNameAndVersion(t *testing.T) {
 		switch {
 		case strings.Contains(s.Message, "Declare service.name to publish"):
 			name = &result.Suggestions[i]
-		case strings.Contains(s.Message, "service.version is not declared; pacto publish needs one"):
+		case strings.Contains(s.Message, "service.version is not declared, so pacto ci --publish derives it"):
 			version = &result.Suggestions[i]
 		}
 	}
 	if name == nil || !strings.Contains(name.Message, "inferred from chart/Chart.yaml:2") || name.ToolCall.Params["name"] != "payments" {
 		t.Errorf("name suggestion = %+v in %+v", name, result.Suggestions)
 	}
-	if version == nil || version.ToolCall.Params["version"] != "0.1.0" {
+	if version == nil || version.ToolCall != nil {
 		t.Errorf("version suggestion = %+v in %+v", version, result.Suggestions)
 	}
 	declared, _ := Check(context.Background(), nil, testutil.WriteTestBundle(t), nil)
@@ -3381,65 +3386,35 @@ func TestCheckSuggestsDeclaringNameAndVersion(t *testing.T) {
 	}
 }
 
-// TestEditSetsApplier: setting the applier on an older contract raises it to
-// 2.5 and writes the delivery section.
-func TestEditSetsApplier(t *testing.T) {
-	dir := t.TempDir()
-	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.1\"\nservice:\n  name: svc\n  version: 1.0.0\n"), 0o644)
-	result, err := Edit(context.Background(), nil, EditOptions{}, EditInput{Path: dir, Applier: strPtr("argocd")})
-	if err != nil {
+// TestCreateToolDeliveryTextNeutral: the delivery argument says what pactify
+// writes for each deploy, and claims to detect no cluster's applier.
+func TestCreateToolDeliveryTextNeutral(t *testing.T) {
+	raw, _ := json.Marshal(createTool().InputSchema)
+	var schema struct {
+		Properties map[string]struct{ Description string }
+	}
+	if err := json.Unmarshal(raw, &schema); err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{`set pactoVersion to "2.5" (was "2.1")`, "set delivery.applier to argocd"}; !slices.Equal(result.Changes, want) {
-		t.Errorf("changes %q, want %q", result.Changes, want)
-	}
-	if c := readContract(t, dir); c.PactoVersion != "2.5" || c.Delivery == nil || c.Delivery.Applier != contract.ApplierArgoCD {
-		t.Fatalf("written contract %+v", c)
+	want := "With pactify or from: also plan, for a manifests deploy, the Pacto resource, a Stage per environment and a Flux OCIRepository and Kustomization; " +
+		"for a chart deploy no applier object, and the Next line names the Stage spec.applyRef " +
+		"(not with describe_only; with pactify the deploy artifact is the one pacto ci --publish assembles from the folder; " +
+		"with from, the golden path must publish a manifests or chart artifact under publish.deploy)"
+	if got := schema.Properties["delivery"].Description; got != want || strings.Contains(got, "detect") {
+		t.Fatalf("delivery: %s", got)
 	}
 }
 
-// TestEditClearsApplier: an empty applier removes the delivery section and
-// raises nothing.
-func TestEditClearsApplier(t *testing.T) {
-	dir := t.TempDir()
-	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.5\"\nservice:\n  name: svc\n  version: 1.0.0\ndelivery:\n  applier: flux\n"), 0o644)
-	result, err := Edit(context.Background(), nil, EditOptions{}, EditInput{Path: dir, Applier: strPtr("")})
+// TestCheckSuggestionNamesPactoCI: pacto_check repeats CONTRACT_BEHIND, so a
+// behind contract's suggestion says what pacto ci does with it.
+func TestCheckSuggestionNamesPactoCI(t *testing.T) {
+	prev, cur := contract.SupportedVersions[len(contract.SupportedVersions)-2], contract.Current()
+	res, err := Check(context.Background(), realValidator, writePacto(t, "pactoVersion: \""+prev+"\"\nservice: {name: s, version: 1.0.0}\n"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"removed delivery"}; !slices.Equal(result.Changes, want) {
-		t.Errorf("changes %q, want %q", result.Changes, want)
-	}
-	if c := readContract(t, dir); c.Delivery != nil {
-		t.Fatalf("delivery kept: %+v", c.Delivery)
-	}
-}
-
-// TestEditClearsAbsentApplierReportsNothing: clearing the applier of a
-// contract without delivery changes nothing, so no change line says it did.
-func TestEditClearsAbsentApplierReportsNothing(t *testing.T) {
-	dir := t.TempDir()
-	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.1\"\nservice:\n  name: svc\n  version: 1.0.0\n"), 0o644)
-	result, err := Edit(context.Background(), nil, EditOptions{}, EditInput{Path: dir, Applier: strPtr(""), DryRun: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if slices.Contains(result.Changes, "removed delivery") {
-		t.Errorf("changes %q report a removal that did not happen", result.Changes)
-	}
-}
-
-// TestEditRejectsUnknownApplier: a value outside the three fails before
-// anything is written, naming them.
-func TestEditRejectsUnknownApplier(t *testing.T) {
-	dir := t.TempDir()
-	before := []byte("pactoVersion: \"2.1\"\nservice:\n  name: svc\n  version: 1.0.0\n")
-	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), before, 0o644)
-	_, err := Edit(context.Background(), nil, EditOptions{}, EditInput{Path: dir, Applier: strPtr("kargo")})
-	if err == nil || !strings.Contains(err.Error(), "auto, argocd or flux") {
-		t.Fatalf("got %v, want the three appliers named", err)
-	}
-	if raw, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml")); !bytes.Equal(raw, before) {
-		t.Errorf("contract was written:\n%s", raw)
+	want := "pacto ci publishes it as " + cur + " when it next publishes this service, if its own check agrees"
+	if !slices.ContainsFunc(res.Suggestions, func(s Suggestion) bool { return strings.HasSuffix(s.Message, want) }) {
+		t.Errorf("no suggestion ends %q: %+v", want, res.Suggestions)
 	}
 }

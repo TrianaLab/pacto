@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log"
@@ -26,6 +27,8 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
+	"github.com/trianalab/pacto/v4/pkg/ocireferrer/capabilities"
 	"github.com/trianalab/pacto/v4/pkg/publish"
 	"github.com/trianalab/pacto/v4/pkg/signing"
 	sigtest "github.com/trianalab/pacto/v4/pkg/signing/testutil"
@@ -34,6 +37,8 @@ import (
 const (
 	provIdentity = "ci@acme.example"
 	provIssuer   = "https://token.actions.githubusercontent.com"
+	provRepo     = "https://github.com/acme/app"
+	provWorkflow = provRepo + "/.github/workflows/release.yml@refs/heads/main"
 )
 
 // provRegistry is an in-process registry that counts requests and fails the
@@ -52,8 +57,15 @@ type provRegistry struct {
 // *publish.Client over it (publishRegistry returns the narrower interface).
 func provenanceTestRegistry(t *testing.T) *provRegistry {
 	t.Helper()
+	return provenanceTestRegistryOf(t, true)
+}
+
+// provenanceTestRegistryOf is provenanceTestRegistry, without the Referrers API
+// (as GHCR and CNCF distribution) unless referrers is set.
+func provenanceTestRegistryOf(t *testing.T, referrers bool) *provRegistry {
+	t.Helper()
 	p := &provRegistry{}
-	inner := registry.New(registry.WithReferrersSupport(true), registry.Logger(log.New(io.Discard, "", 0)))
+	inner := registry.New(registry.WithReferrersSupport(referrers), registry.Logger(log.New(io.Discard, "", 0)))
 	p.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p.requests.Add(1)
 		if f := p.fail.Load(); f != nil && (*f)(r) {
@@ -75,20 +87,43 @@ func provenanceTestRegistry(t *testing.T) *provRegistry {
 func (p *provRegistry) failWhen(f func(*http.Request) bool) { p.fail.Store(&f) }
 
 // keylessSigstore swaps public-good Sigstore for a test one and returns a
-// keyless signer for provIdentity.
+// keyless signer for provIdentity, a person's email.
 func keylessSigstore(t *testing.T) (*sigtest.Sigstore, signing.Signer) {
+	t.Helper()
+	return keylessSigstoreFor(t, sigtest.Token(provIdentity, provIssuer))
+}
+
+// ciSigstore is keylessSigstore with a signer for acme's release workflow, a
+// CI identity of provRepo.
+func ciSigstore(t *testing.T) (*sigtest.Sigstore, signing.Signer) {
+	t.Helper()
+	return keylessSigstoreFor(t, sigtest.CIToken(provWorkflow, provIssuer, provRepo, "refs/heads/main"))
+}
+
+func keylessSigstoreFor(t *testing.T, token string) (*sigtest.Sigstore, signing.Signer) {
 	t.Helper()
 	ss := sigtest.New(t)
 	oldRoot, oldR := publicGoodRoot, rekorURL
 	t.Cleanup(func() { publicGoodRoot, rekorURL = oldRoot, oldR })
 	publicGoodRoot = func(string) (root.TrustedMaterial, error) { return ss.Root, nil }
 	rekorURL = ""
-	t.Setenv("SIGSTORE_ID_TOKEN", sigtest.Token(provIdentity, provIssuer))
+	t.Setenv("SIGSTORE_ID_TOKEN", token)
 	s, err := signing.Keyless(ss.Fulcio, ss.TSA, "", signing.IDToken(""), ss.Root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return ss, s
+}
+
+// asGHCR makes the checker infer its rule as if every test ref lived under
+// ghcr.io/acme.
+func asGHCR(t *testing.T) {
+	t.Helper()
+	old := deriveRule
+	t.Cleanup(func() { deriveRule = old })
+	deriveRule = func(_, branch string) (delivery.PublisherRule, string) {
+		return delivery.DeriveRule("ghcr.io/acme", branch)
+	}
 }
 
 func signedBy(sign *contract.PublishSign) *contract.Contract {
@@ -154,14 +189,17 @@ func TestProvenanceUnsigned(t *testing.T) {
 	}
 }
 
-func TestProvenanceVerifiedKeyless(t *testing.T) {
-	_, s := keylessSigstore(t)
+// TestProvenanceRefDerivedNeverVerified: with no installation config, a CI
+// signer of the ref's own organization is accepted by the inferred rule,
+// which reads unknown with source inferred, never verified.
+func TestProvenanceRefDerivedNeverVerified(t *testing.T) {
+	_, s := ciSigstore(t)
+	asGHCR(t)
 	reg := provenanceTestRegistry(t)
-	ref := pushSigned(t, reg, s)
-	p := checkerFor(reg).Check(t.Context(), "oci", ref, keylessContract(provIdentity))
-	wantStatus(t, p, fleet.SignatureVerified, "own publish.sign")
+	p := checkerFor(reg).Check(t.Context(), "oci", pushSigned(t, reg, s), keylessContract(provIdentity))
+	wantStatus(t, p, fleet.SignatureUnknown, "no installation rule was read, so it is not verified")
 	sig := p.Signature
-	if sig.Signer != provIdentity || sig.Issuer != provIssuer || sig.Bundles != 1 {
+	if sig.Source != delivery.PublisherSourceInferred || sig.Signer != provWorkflow || sig.Issuer != provIssuer || sig.Bundles != 1 {
 		t.Fatalf("signature %+v", sig)
 	}
 	if p.Referrers.Total != 1 || p.Referrers.Items[0].ArtifactType != "application/vnd.dev.sigstore.bundle.v0.3+json" {
@@ -169,15 +207,86 @@ func TestProvenanceVerifiedKeyless(t *testing.T) {
 	}
 }
 
-func TestProvenanceOtherIdentity(t *testing.T) {
+// TestProvenanceIgnoresSelfDeclaredSigner: the contract's publish.sign names
+// the signer, and no rule covers it: unverified with source none, naming who
+// signed and the rule it was judged against.
+func TestProvenanceIgnoresSelfDeclaredSigner(t *testing.T) {
 	_, s := keylessSigstore(t)
+	asGHCR(t)
+	reg := provenanceTestRegistry(t)
+	p := checkerFor(reg).Check(t.Context(), "oci", pushSigned(t, reg, s), keylessContract(provIdentity))
+	wantStatus(t, p, fleet.SignatureUnverified, "a person identity")
+	sig := p.Signature
+	if sig.Source != delivery.PublisherSourceNone || sig.Signer != provIdentity || !strings.Contains(sig.ExpectedSigner, `github\.com/(?i:acme)`) || sig.ExpectedIssuer != provIssuer {
+		t.Fatalf("signature %+v", sig)
+	}
+}
+
+// TestProvenanceUnsignedAndUnknown: a CI signer of a registry with no CI
+// provider is a new signer (unverified, no rule expected), and a signature
+// under another certificate authority is unknown.
+func TestProvenanceUnsignedAndUnknown(t *testing.T) {
+	_, s := ciSigstore(t)
 	reg := provenanceTestRegistry(t)
 	ref := pushSigned(t, reg, s)
-	p := checkerFor(reg).Check(t.Context(), "oci", ref, keylessContract("release@acme.example"))
-	wantStatus(t, p, fleet.SignatureUnverified, "does not verify against release@acme.example")
-	// The declared identity is what was expected, never named as the signer.
-	if sig := p.Signature; sig.Signer != "" || sig.Issuer != "" || sig.ExpectedSigner != "release@acme.example" || sig.ExpectedIssuer != provIssuer {
-		t.Fatalf("signer %+v", sig)
+	p := checkerFor(reg).Check(t.Context(), "oci", ref, nil)
+	wantStatus(t, p, fleet.SignatureUnverified, "a person confirms it")
+	if p.Signature.ExpectedSigner != "" || p.Signature.Signer != provWorkflow {
+		t.Fatalf("signature %+v", p.Signature)
+	}
+	other := sigtest.New(t)
+	publicGoodRoot = func(string) (root.TrustedMaterial, error) { return other.Root, nil }
+	wantStatus(t, checkerFor(reg).Check(t.Context(), "oci", ref, nil), fleet.SignatureUnknown, "No signature could be verified")
+}
+
+// TestSignatureOfInstallationSources: a rule, pin or policy accept is
+// verified, with its source.
+func TestSignatureOfInstallationSources(t *testing.T) {
+	id := &delivery.PublisherIdentity{Subject: provWorkflow, Issuer: provIssuer}
+	for _, src := range []string{delivery.PublisherSourceRule, delivery.PublisherSourcePin, delivery.PublisherSourcePolicy} {
+		sig := signatureOf(delivery.PublisherVerdict{Verdict: delivery.VerdictAccepted, Source: src, Identity: id, Reason: "signed by x"},
+			delivery.PublisherRule{}, fleet.BundleSignature{Bundles: 1})
+		if sig.Status != fleet.SignatureVerified || sig.Source != src || sig.Signer != provWorkflow || sig.Reason != "Signed by x" {
+			t.Fatalf("%s: %+v", src, sig)
+		}
+	}
+	if upperFirst("") != "" {
+		t.Fatal("empty reason")
+	}
+}
+
+// TestBundleSignatureJSONKeepsFields: every key a client reads keeps its name.
+func TestBundleSignatureJSONKeepsFields(t *testing.T) {
+	b, _ := json.Marshal(fleet.BundleSignature{Status: "verified", Source: "rule", Signer: "s", Issuer: "i", ExpectedSigner: "e", ExpectedIssuer: "f", Bundles: 1, Reason: "r"})
+	for _, k := range []string{`"status"`, `"source"`, `"signer"`, `"issuer"`, `"expectedSigner"`, `"expectedIssuer"`, `"bundles"`, `"reason"`} {
+		if !strings.Contains(string(b), k) {
+			t.Errorf("%s missing from %s", k, b)
+		}
+	}
+}
+
+// TestProvenanceReadsSigTags: on a registry without the Referrers API the
+// signature publish wrote is found through its pacto-sig tag and verifies,
+// and the reason says where it was read; a signature only in the shared
+// sha256- index is no signature.
+func TestProvenanceReadsSigTags(t *testing.T) {
+	_, s := ciSigstore(t)
+	asGHCR(t)
+	reg := provenanceTestRegistryOf(t, false)
+	p := checkerFor(reg).Check(t.Context(), "oci", pushSigned(t, reg, s), keylessContract(provIdentity))
+	wantStatus(t, p, fleet.SignatureUnknown, "write-once pacto-sig tags")
+	if p.Signature.Source != delivery.PublisherSourceInferred {
+		t.Fatalf("the tag signature was not read: %+v", p.Signature)
+	}
+	if p.Referrers.Total != 1 || p.Referrers.Items[0].ArtifactType != delivery.BundleMediaType {
+		t.Fatalf("referrers %+v", p.Referrers)
+	}
+	indexOnly := contract.OCIScheme + pushImage(t, reg.client, reg.host+"/app")
+	attach(t, reg, indexOnly, delivery.BundleMediaType, nil)
+	p = checkerFor(reg).Check(t.Context(), "oci", indexOnly, keylessContract(provIdentity))
+	wantStatus(t, p, fleet.SignatureUnsigned, "write-once pacto-sig tags")
+	if p.Referrers.Total != 0 {
+		t.Fatalf("the sha256- index was read: %+v", p.Referrers)
 	}
 }
 
@@ -194,7 +303,7 @@ func TestProvenancePaginatedReferrers(t *testing.T) {
 	if !p.Referrers.Truncated || p.ReferrersUnavailable == "" {
 		t.Fatalf("referrers %+v", p)
 	}
-	p = checkerFor(reg).Check(t.Context(), "oci", pushSigned(t, reg, s), keylessContract(provIdentity))
+	p = checkerFor(reg).CheckSigner(t.Context(), "oci", pushSigned(t, reg, s), provIdentity, provIssuer)
 	wantStatus(t, p, fleet.SignatureVerified, "Signed by")
 	if !p.Referrers.Truncated || p.ReferrersUnavailable == "" {
 		t.Fatalf("referrers %+v", p)
@@ -211,34 +320,6 @@ func TestProvenanceAttestationOnly(t *testing.T) {
 	if p.Signature.Bundles != 1 {
 		t.Fatalf("bundles %d", p.Signature.Bundles)
 	}
-}
-
-func TestProvenanceNoDeclaredSigner(t *testing.T) {
-	_, s := keylessSigstore(t)
-	reg := provenanceTestRegistry(t)
-	ref := pushSigned(t, reg, s)
-	for _, c := range []*contract.Contract{nil, signedBy(nil)} {
-		p := checkerFor(reg).Check(t.Context(), "oci", ref, c)
-		wantStatus(t, p, fleet.SignatureUnknown, "1 Sigstore bundles are attached, but the contract names no publish.sign signer")
-	}
-}
-
-func TestProvenanceKeySigner(t *testing.T) {
-	_, s := keylessSigstore(t)
-	reg := provenanceTestRegistry(t)
-	ref := pushSigned(t, reg, s)
-	for _, sign := range []*contract.PublishSign{{Key: "cosign.key"}, {KMS: "awskms:///k"}} {
-		p := checkerFor(reg).Check(t.Context(), "oci", ref, signedBy(sign))
-		wantStatus(t, p, fleet.SignatureUnknown, "key file or a KMS key")
-	}
-}
-
-func TestProvenanceKeylessNoIdentity(t *testing.T) {
-	_, s := keylessSigstore(t)
-	reg := provenanceTestRegistry(t)
-	ref := pushSigned(t, reg, s)
-	p := checkerFor(reg).Check(t.Context(), "oci", ref, signedBy(&contract.PublishSign{Keyless: true, Identity: provIdentity}))
-	wantStatus(t, p, fleet.SignatureUnknown, "names no identity and issuer")
 }
 
 func TestProvenanceRootUnavailable(t *testing.T) {
@@ -280,7 +361,7 @@ func TestProvenanceLayerReadFails(t *testing.T) {
 	ref := pushSigned(t, reg, s)
 	reg.failWhen(func(r *http.Request) bool { return strings.Contains(r.URL.Path, "/blobs/") })
 	p := checkerFor(reg).Check(t.Context(), "oci", ref, keylessContract(provIdentity))
-	wantStatus(t, p, fleet.SignatureUnknown, "The signature could not be checked: ")
+	wantStatus(t, p, fleet.SignatureUnknown, "No signature could be verified: ")
 }
 
 func TestProvenanceNoDigest(t *testing.T) {
@@ -325,7 +406,7 @@ func TestProvenanceMemo(t *testing.T) {
 	pc.now = func() time.Time { return clock }
 	c := keylessContract(provIdentity)
 	first := pc.Check(t.Context(), "oci", ref, c)
-	wantStatus(t, first, fleet.SignatureVerified, "Signed by")
+	wantStatus(t, first, fleet.SignatureUnverified, "Signed by")
 	n := reg.requests.Load()
 	clock = clock.Add(provenanceTTL - time.Second)
 	again := pc.Check(t.Context(), "oci", ref, c)
@@ -405,6 +486,12 @@ func (descRegistry) Referrers(context.Context, string, string, string) ([]string
 func (descRegistry) Layer(context.Context, string, string) ([]byte, map[string]string, error) {
 	return nil, nil, nil
 }
+func (descRegistry) Mode(context.Context, string, string) (capabilities.ReferrersMode, error) {
+	return capabilities.ReferrersNative, nil
+}
+func (descRegistry) PutSigTag(context.Context, string, string, ocireferrer.Artifact) (string, error) {
+	return "", nil
+}
 func (d descRegistry) ReferrerDescriptors(context.Context, string, string) ([]v1.Descriptor, error) {
 	return d, nil
 }
@@ -479,4 +566,23 @@ func TestFleetProvenanceCachedRegistryDown(t *testing.T) {
 	if r.Provenance == nil || r.Provenance.Signature.Status != fleet.SignatureUnknown || !strings.Contains(r.Provenance.ReferrersUnavailable, "could not list") {
 		t.Fatalf("offline: %+v", r.Provenance)
 	}
+}
+
+// TestProvenanceCheckSignerOutcomes: against a fixed signer, another identity
+// is unverified naming only what was expected, an attestation is no
+// signature, and an unreadable bundle is unknown.
+func TestProvenanceCheckSignerOutcomes(t *testing.T) {
+	_, s := keylessSigstore(t)
+	reg := provenanceTestRegistry(t)
+	ref := pushSigned(t, reg, s)
+	p := checkerFor(reg).CheckSigner(t.Context(), "oci", ref, "release@acme.example", provIssuer)
+	wantStatus(t, p, fleet.SignatureUnverified, "does not verify against release@acme.example")
+	if sig := p.Signature; sig.Signer != "" || sig.ExpectedSigner != "release@acme.example" || sig.ExpectedIssuer != provIssuer {
+		t.Fatalf("signer %+v", sig)
+	}
+	att := contract.OCIScheme + pushImage(t, reg.client, reg.host+"/app")
+	attach(t, reg, att, delivery.BundleMediaType, map[string]string{deliveryrecord.AnnPredicateType: "https://slsa.dev/provenance/v1"})
+	wantStatus(t, checkerFor(reg).CheckSigner(t.Context(), "oci", att, provIdentity, provIssuer), fleet.SignatureUnsigned, "none of them is a signature")
+	reg.failWhen(func(r *http.Request) bool { return strings.Contains(r.URL.Path, "/blobs/") })
+	wantStatus(t, checkerFor(reg).CheckSigner(t.Context(), "oci", ref, provIdentity, provIssuer), fleet.SignatureUnknown, "The signature could not be checked: ")
 }

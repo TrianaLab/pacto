@@ -40,14 +40,14 @@ jq -r '.results[] | .service as $s | .unknown[] | "\($s): \(.)"' plan.json
 
 | Input | Contract fields |
 |---|---|
-| `Dockerfile` (or `Dockerfile.*`, `*.Dockerfile`) | an image artifact under `publish.artifacts`, built from the Dockerfile |
-| Kubernetes YAML with a Deployment, StatefulSet, DaemonSet, Job or CronJob | `service.name` from the workload, `service.version` from the image tag, the registry from the image, `workload` and a manifests artifact that copies the YAML files |
+| `Dockerfile` (or `Dockerfile.*`, `*.Dockerfile`) | `publish.build` in the inferred record: [`pacto ci --publish`](publish-from-ci.md) builds the image with it |
+| Kubernetes YAML with a Deployment, StatefulSet, DaemonSet, Job or CronJob | `service.name` and `workload` from the workload; `publish.deploy` in the inferred record, and a `found` line naming the image tag as the version a first publish can declare |
 | The `team` label on the workload | `service.owner.team` |
 | The workload's environment, with the ConfigMaps in the folder that it reads | a configuration schema at `configuration/schema.json` with each key and its type, no values; sensitive keys are `writeOnly` |
 | An environment value that names another in-cluster service | `dependencies`, each with `compatibility: unknown` and, from that service's contract in `--fleet`, a proposed range in a comment |
 | A readiness, liveness or startup probe | a `health` capability |
 | An OpenAPI document at any path in the folder | one `openapi` interface; AsyncAPI and gRPC files go to the inferred record |
-| `kustomization.yaml` | the manifests artifact keeps the folder layout, and init asks you to set the Kustomization's `spec.path` |
+| `kustomization.yaml` | `publish.deploy` in the inferred record: the deploy artifact keeps the folder layout |
 
 These fill in the contract. Init also reads Helm charts, Kustomize, Compose,
 CODEOWNERS, `catalog-info.yaml` and environment files into the inferred record
@@ -98,18 +98,16 @@ helm template --include-crds ledger services/ledger/chart \
   > services/ledger/k8s/rendered.yaml
 ```
 
-The contract then publishes the rendered file, so render again when the chart
-changes. To publish the chart itself, add it under `publish.artifacts` as a
-`chart` ([Publish](contract-reference/publish.md)).
+Once init has written the contract, delete the rendered file:
+[`pacto ci --publish`](publish-from-ci.md) publishes the chart itself as the
+deploy artifact, and a folder with both a chart and manifests is a finding
+that asks for a `publish` section.
 
 **Compose files.** Init reads the image, ports and environment keys of
 `compose.yaml` into the inferred record, and a Compose-only folder still gets
-the blank template. The blank template writes a publish section with
-`bundle: oci://<registry>/<name>` and `sign.key: cosign.key`. Pass `--registry`
-to set the registry, or replace the `registry.example` placeholder that
-`unknown` names before you run `pacto publish`
-([Publish](contract-reference/publish.md)). Pass `--describe-only` to leave the
-publish section out.
+the blank template. The blank template writes no publish section and no
+`service.version`: [`pacto ci --publish`](publish-from-ci.md) derives both,
+publishing to the registry it resolves or the one `--registry` names.
 
 ## 3. Write the contracts
 

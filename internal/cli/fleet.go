@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"cmp"
+	"context"
 	"fmt"
 	"slices"
 	"strings"
@@ -12,6 +14,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
@@ -72,6 +75,7 @@ func addFleetSourceFlags(f *pflag.FlagSet) {
 	shared.Duration("freshness", fleet.RecentEvidenceWindow, "mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so)")
 	shared.String("external-catalog", "", "organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused")
 	shared.String("detected", "", "add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON")
+	shared.String("fingerprints", "", "a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers")
 	f.AddFlagSet(shared)
 }
 
@@ -81,7 +85,7 @@ func addFleetSourceFlags(f *pflag.FlagSet) {
 func fleetFlagNames() []string {
 	return []string{
 		"local", "root", "target-state", "evidence-url", "mira-source", "traces", "oci",
-		"cache", "k8s", "namespace", "freshness", "external-catalog", "detected",
+		"cache", "k8s", "namespace", "freshness", "external-catalog", "detected", "fingerprints",
 	}
 }
 
@@ -134,6 +138,34 @@ func longRunning(opts app.FleetOptions) app.FleetOptions {
 // production, so a build reads time.Now; tests pin it.
 var fleetNow func() time.Time
 
+// fleetDeps is where fleetOptions finds the ambient cluster it reads the
+// installation's publisher trust from; tests swap it.
+var fleetDeps = defaultDeps
+
+// publisherTrust is the fleet provenance checker's reader of the
+// installation's publisher trust config and pins over the ambient cluster,
+// in the namespace --delivery-namespace names (the chart's default when the
+// command has no such flag). nil when there is no cluster config, so a
+// signature is judged against the rule inferred from where it lives.
+func publisherTrust(cmd *cobra.Command, d deps) func(context.Context) (app.Installation, error) {
+	if d.clusterConfig == nil {
+		return nil
+	}
+	if _, err := d.clusterConfig(); err != nil {
+		return nil
+	}
+	ns, _ := cmd.Flags().GetString("delivery-namespace")
+	ns = cmp.Or(ns, delivery.PolicyNamespace)
+	return func(ctx context.Context) (app.Installation, error) {
+		dyn, err := d.newDynamic()
+		if err != nil {
+			return app.Installation{}, err
+		}
+		c := &app.Delivery{Dynamic: dyn, Records: d.newRecordRepo, Policy: delivery.DefaultClassPolicy(), PolicyNamespace: ns, Now: time.Now}
+		return c.InstallationTrust(ctx)
+	}
+}
+
 func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 	local, _ := cmd.Flags().GetStringArray("local")
 	// --root is also `pacto mcp`'s catalog-server selector, where it is mutually
@@ -156,6 +188,9 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 	freshness, _ := cmd.Flags().GetDuration("freshness")
 	externalCatalog, _ := cmd.Flags().GetString("external-catalog")
 	detected, _ := cmd.Flags().GetString("detected")
+	fingerprints, _ := cmd.Flags().GetString("fingerprints")
+	prov := app.NewProvenanceChecker()
+	prov.Trust = publisherTrust(cmd, fleetDeps())
 	return app.FleetOptions{
 		LocalRoots:         local,
 		CatalogRoots:       roots,
@@ -170,7 +205,9 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 		FreshnessWindow:    freshness,
 		ExternalCatalogRef: externalCatalog,
 		Detected:           detected,
-		Provenance:         app.NewProvenanceChecker(),
+		Fingerprints:       fingerprints,
+		Provenance:         prov,
+		RegistryProbe:      app.NewRegistryProbe(),
 		Now:                fleetNow,
 	}
 }

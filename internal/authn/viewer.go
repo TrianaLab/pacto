@@ -126,6 +126,37 @@ var workloadResources = map[string]ResourceAttributes{
 	"CronJob":     {Group: "batch", Resource: "cronjobs"},
 }
 
+// gitopsResources maps the GitOps kind a repository was read from, or a
+// provider row counts, to the resource a person must be allowed to list to
+// see it.
+var gitopsResources = map[string]ResourceAttributes{
+	"Application":   {Group: "argoproj.io", Resource: "applications"},
+	"GitRepository": {Group: "source.toolkit.fluxcd.io", Resource: "gitrepositories"},
+	"Kustomization": {Group: "kustomize.toolkit.fluxcd.io", Resource: "kustomizations"},
+	"HelmRelease":   {Group: "helm.toolkit.fluxcd.io", Resource: "helmreleases"},
+}
+
+// reviewedAs is every resource a person must be allowed to list in a
+// namespace to see kind there, nil for a kind nobody sees, and whether kind
+// also needs that namespace's Pactos. A workload does, and so does a Helm
+// release, read from workload annotations and needing every workload kind. A
+// GitOps object does not: it is another namespace's object, its repository
+// shows beside a workload the person already sees, so only list on its kind
+// there decides it.
+func reviewedAs(kind string) (res []ResourceAttributes, needsPactos bool) {
+	if r, ok := workloadResources[kind]; ok {
+		return []ResourceAttributes{r}, true
+	}
+	if r, ok := gitopsResources[kind]; ok {
+		return []ResourceAttributes{r}, false
+	}
+	if kind == fleet.HelmReleaseKind {
+		w := workloadResources
+		return []ResourceAttributes{w["Deployment"], w["StatefulSet"], w["DaemonSet"], w["CronJob"]}, true
+	}
+	return nil, false
+}
+
 var sarResource = schema.GroupVersionResource{Group: "authorization.k8s.io", Version: "v1", Resource: "subjectaccessreviews"}
 
 // reviewTimeout bounds one SubjectAccessReview.
@@ -326,8 +357,9 @@ func (v *Viewer) visible(ctx context.Context, p Person, who string, nss []string
 // may list every such kind cluster-wide. An unknown kind is never visible. A
 // viewer that is not scoped asks once per kind about every namespace at once
 // (only for a cluster-wide Pacto reader, the one it could settle) and then
-// about each scope in a visible namespace; a scoped viewer asks only about
-// scopes in watched namespaces.
+// about each scope in a visible namespace, or in any namespace for a kind
+// that needs no Pactos there; a scoped viewer asks only about scopes in
+// watched namespaces.
 func (v *Viewer) workloads(ctx context.Context, p Person, who string, scopes []fleet.WorkloadScope, allNS bool, visible []string) (map[fleet.WorkloadScope]bool, bool, error) {
 	everywhere := map[string]bool{}
 	if allNS && !v.scoped {
@@ -341,16 +373,16 @@ func (v *Viewer) workloads(ctx context.Context, p Person, who string, scopes []f
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(reviewsAtOnce)
 	for i, sc := range scopes {
-		res, known := workloadResources[sc.Kind]
+		res, needsPactos := reviewedAs(sc.Kind)
 		_, nsOK := slices.BinarySearch(visible, sc.Namespace)
 		switch {
 		case everywhere[sc.Kind]:
 			allowed[i] = true
-		case !known || (v.scoped && !v.watched[sc.Namespace]) || (!allNS && !nsOK):
+		case res == nil || (v.scoped && !v.watched[sc.Namespace]) || (needsPactos && !allNS && !nsOK):
 			all = false
 		default:
 			all = false
-			g.Go(func() (err error) { allowed[i], err = v.ask(gctx, p, who, sc.Namespace, res); return err })
+			g.Go(func() (err error) { allowed[i], err = v.askAll(gctx, p, who, sc.Namespace, res); return err })
 		}
 	}
 	if err := g.Wait(); err != nil {
@@ -370,9 +402,9 @@ func (v *Viewer) workloads(ctx context.Context, p Person, who string, scopes []f
 func (v *Viewer) kindsEverywhere(ctx context.Context, p Person, who string, scopes []fleet.WorkloadScope) (map[string]bool, error) {
 	out := map[string]bool{}
 	for _, sc := range scopes {
-		res, known := workloadResources[sc.Kind]
-		if _, asked := out[sc.Kind]; known && !asked {
-			ok, err := v.ask(ctx, p, who, "", res)
+		res, _ := reviewedAs(sc.Kind)
+		if _, asked := out[sc.Kind]; res != nil && !asked {
+			ok, err := v.askAll(ctx, p, who, "", res)
 			if err != nil {
 				return nil, err
 			}
@@ -380,6 +412,16 @@ func (v *Viewer) kindsEverywhere(ctx context.Context, p Person, who string, scop
 		}
 	}
 	return out, nil
+}
+
+// askAll reports whether p may list every one of res in ns.
+func (v *Viewer) askAll(ctx context.Context, p Person, who, ns string, res []ResourceAttributes) (bool, error) {
+	for _, r := range res {
+		if ok, err := v.ask(ctx, p, who, ns, r); err != nil || !ok {
+			return false, err
+		}
+	}
+	return true, nil
 }
 
 // ask is one cached review. Failures are not cached.

@@ -171,27 +171,29 @@ type InboxItem struct {
 	Namespace string `json:"namespace"`
 	Name      string `json:"name"`
 	Stage     string `json:"stage"`
+	Service   string `json:"service,omitempty" doc:"The service the Stage delivers, when the caller can read the Stage"`
 	Type      string `json:"type"`
 	From      string `json:"from,omitempty"`
 	To        string `json:"to,omitempty"`
 	// FromVersion and ToVersion are the versions the digests carry, when
 	// their artifacts could be read.
-	FromVersion string            `json:"fromVersion,omitempty"`
-	ToVersion   string            `json:"toVersion,omitempty"`
-	Phase       delivery.Phase    `json:"phase"`
-	Outcome     delivery.Outcome  `json:"outcome,omitempty"`
-	Reason      string            `json:"reason,omitempty"`
-	Question    string            `json:"question,omitempty"`
-	Decision    delivery.Decision `json:"decision,omitempty" doc:"The decision asked for: approve, or accept-unknown"`
-	Owners      []string          `json:"owners,omitempty" doc:"The teams that may answer; empty means no team is declared: nobody may answer when identities.requireOwnerTeam is true (the default), else any person"`
-	Consumers   []string          `json:"consumers,omitempty" doc:"The services that made a person necessary"`
-	Order       *delivery.Order   `json:"order,omitempty" doc:"What must move first: the consumers whose declared range does not accept the new version, their Stages and any verified version upstream that can go first"`
+	FromVersion string                      `json:"fromVersion,omitempty"`
+	ToVersion   string                      `json:"toVersion,omitempty"`
+	Phase       delivery.Phase              `json:"phase"`
+	Outcome     delivery.Outcome            `json:"outcome,omitempty"`
+	Reason      string                      `json:"reason,omitempty"`
+	Question    string                      `json:"question,omitempty"`
+	Decision    delivery.Decision           `json:"decision,omitempty" doc:"The decision asked for: approve, or accept-unknown"`
+	Owners      []string                    `json:"owners,omitempty" doc:"The teams that may answer; empty means no team is declared: nobody may answer when identities.requireOwnerTeam is true (the default), else any person"`
+	Consumers   []string                    `json:"consumers,omitempty" doc:"The services that made a person necessary"`
+	Order       *delivery.Order             `json:"order,omitempty" doc:"What must move first: the consumers whose declared range does not accept the new version, their Stages and any verified version upstream that can go first"`
+	Publisher   *delivery.PublisherIdentity `json:"publisher,omitempty" doc:"For a trust operation: the CI signer a person is asked to confirm"`
 }
 
 func inboxItem(o delivery.OperationObject) InboxItem {
 	it := InboxItem{Namespace: o.Metadata.Namespace, Name: o.Metadata.Name, Stage: o.Spec.Stage, Type: o.Spec.Type,
 		From: o.Spec.Params.From, To: o.Spec.Params.To, Phase: o.Status.Phase, Outcome: o.Status.Outcome, Reason: o.Status.Reason,
-		Question: o.Status.Question}
+		Question: o.Status.Question, Publisher: o.Spec.Params.Publisher}
 	if p := o.Status.Plan; p != nil {
 		it.Decision, it.Owners, it.Consumers = p.Floor.Decision, p.Floor.Owners, p.Floor.Consumers
 		if !o.Status.Applied { // once it shipped, what had to move first is history
@@ -302,8 +304,8 @@ func (s *Server) deliveryInbox(ctx context.Context, in *inboxInput) (*inboxOutpu
 	}
 	read := describedAll(ctx, api, nil, on...)
 	for i, it := range b.Held {
-		if byStage[it.Namespace+"/"+it.Stage] != nil {
-			b.Held[i].FromVersion, b.Held[i].ToVersion = read[it.From].Version, read[it.To].Version
+		if st := byStage[it.Namespace+"/"+it.Stage]; st != nil {
+			b.Held[i].Service, b.Held[i].FromVersion, b.Held[i].ToVersion = st.Spec.Service.Name, read[it.From].Version, read[it.To].Version
 		}
 	}
 	b.Frozen = []EnvironmentRow{}
@@ -632,6 +634,9 @@ type PublishedService struct {
 	Service  string             `json:"service"`
 	Domain   string             `json:"domain,omitempty" doc:"The registry domain its Stages name; empty when they name none. A service whose Stages name two domains is listed once per domain"`
 	Versions []PublishedVersion `json:"versions"`
+	// Publisher is read from the Stage that watches the registry: only the
+	// watch writes status.publisher.
+	Publisher *delivery.PublisherStatus `json:"publisher,omitempty" doc:"What the service's registry watch (candidates.registry) judges against and its newest verdicts; absent when no Stage of the service watches the registry"`
 }
 
 // publishedKey is one PublishedService: a service name and the domain its
@@ -666,7 +671,7 @@ type PublishedCounts struct {
 	Services         int      `json:"services" doc:"Services with a version the Stages know; unsignedServices, unknownServices and the rest partition them"`
 	Versions         int      `json:"versions" doc:"Distinct digests per service the Stages know"`
 	Signed           int      `json:"signed"`
-	Unsigned         int      `json:"unsigned" doc:"Versions an entry Stage holds that Flux never verified a signature on: who built them cannot be traced"`
+	Unsigned         int      `json:"unsigned" doc:"Versions an entry Stage holds that no publisher check accepted (Flux or the registry watch): who built them cannot be traced"`
 	Unknown          int      `json:"unknown" doc:"Versions whose signature Pacto cannot tell from the Stages the caller lists"`
 	UnsignedServices int      `json:"unsignedServices" doc:"Services with at least one unsigned version"`
 	UnknownServices  int      `json:"unknownServices" doc:"Services with no unsigned version and at least one version whose signature Pacto cannot tell"`
@@ -725,7 +730,7 @@ func (s *Server) deliveryPublished(ctx context.Context, in *publishedInput) (*pu
 				v.Revision = match(svc.Service, svc.Domain, v.Contract)
 			}
 		}
-		ps := PublishedService{Service: svc.Service, Domain: svc.Domain, Versions: []PublishedVersion{}}
+		ps := PublishedService{Service: svc.Service, Domain: svc.Domain, Versions: []PublishedVersion{}, Publisher: publisherOf(stages, svc)}
 		for _, v := range byService[svc] {
 			ps.Versions = append(ps.Versions, *v)
 		}
@@ -735,6 +740,17 @@ func (s *Server) deliveryPublished(ctx context.Context, in *publishedInput) (*pu
 		out.Body.Services = append(out.Body.Services, ps)
 	}
 	return out, nil
+}
+
+// publisherOf is what the first Stage of svc that watches the registry
+// judged, nil when none does.
+func publisherOf(stages []delivery.StageObject, svc publishedKey) *delivery.PublisherStatus {
+	for _, st := range stages {
+		if st.Spec.Candidates.Registry != nil && st.Status.Publisher != nil && st.Spec.Service == (delivery.ServiceRef{Name: svc.Service, Domain: svc.Domain}) {
+			return st.Status.Publisher
+		}
+	}
+	return nil
 }
 
 // signatureLane is the figure's lane of a service with versions vs: unsigned
@@ -820,6 +836,51 @@ func publishedDigests(stages []delivery.StageObject, q, service, domain string) 
 		v.Signature = e.Signature()
 	}
 	return byService, readFrom
+}
+
+// trustPage is how many services one page of the trust view holds.
+const trustPage = 25
+
+type trustInput struct {
+	PageQuery
+	Service string `query:"service" doc:"Keep only the service with exactly this name"`
+	Domain  string `query:"domain" doc:"With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any"`
+}
+
+type trustOutput struct {
+	Body struct {
+		delivery.TrustView
+		Page Page `json:"page" doc:"Which services this page holds; offset and limit count services"`
+	}
+}
+
+// deliveryTrust pages the services whose Stages the caller listed and that
+// watch the registry, then reads only the page's trust: a service the
+// caller lists no Stage of is never named, nor are its pins.
+func (s *Server) deliveryTrust(ctx context.Context, in *trustInput) (*trustOutput, error) {
+	api, err := s.deliveryFor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	stages, ops, l, err := s.lists(ctx, api, true)
+	if err != nil {
+		return nil, err
+	}
+	stages = filter(stages, func(st delivery.StageObject) bool {
+		return matches(in.Q, st.Spec.Service.Name) && delivery.OfService(st, in.Service, in.Domain)
+	})
+	out := &trustOutput{}
+	services, page := pageOf(delivery.TrustServices(stages), in.Offset, in.Limit, trustPage)
+	stages = filter(stages, func(st delivery.StageObject) bool { return slices.Contains(services, st.Spec.Service) })
+	view, err := api.Trust(ctx, stages, ops)
+	if err != nil {
+		return nil, err
+	}
+	out.Body.TrustView, out.Body.Page = *view, page
+	if l.Completeness != "complete" {
+		out.Body.Completeness, out.Body.Unreadable = l.Completeness, append(l.Unreadable, view.Unreadable...)
+	}
+	return out, nil
 }
 
 type historyInput struct {

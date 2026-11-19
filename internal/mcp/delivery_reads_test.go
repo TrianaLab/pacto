@@ -33,7 +33,7 @@ func (s *stubReads) reads(_ context.Context, route string, q url.Values) (json.R
 
 func TestDeliveryReadToolsAnnotated(t *testing.T) {
 	tools := listTools(t, mustNew("test", Authoring{}, Modes{Delivery: &DeliveryMode{API: &stubDelivery{}, Reads: (&stubReads{}).reads}}))
-	for _, route := range []string{"caller", "inbox", "environments", "autonomy", "published", "refusals"} {
+	for _, route := range []string{"caller", "inbox", "environments", "autonomy", "published", "refusals", "trust"} {
 		tl := tools["pacto_delivery_"+route]
 		if tl == nil {
 			t.Fatalf("pacto_delivery_%s is not registered", route)

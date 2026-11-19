@@ -47,10 +47,13 @@ The story starts with one service that has no contract yet. The guided path is f
 in the order the story plays them:
 
 - **Pactify a service.** `pacto init --delivery` reads fraud's Dockerfile and
-  manifests and writes its contract, its Pacto resource and its Stages.
-  `--no-transparency-log` keeps the demo's throwaway key out of the public
-  [transparency log](../glossary.md#transparency-log), and `--insecure-registry` lets Flux read its plain HTTP
-  registry. The demo uses the files as init wrote them. Both of fraud's
+  manifests and writes its contract, its Pacto resource and its Stages, and
+  `--insecure-registry` lets Flux read its plain HTTP registry. The contract
+  has no publish section, so `pacto publish` derives one. It signs with the
+  demo's throwaway key through `--sign-key`, and `--no-transparency-log` keeps
+  that key out of the public
+  [transparency log](../glossary.md#transparency-log). The demo points each
+  Stage's `spec.verify` at that key's public half. Both of fraud's
   Stages start on observe: Flux applies the tag, running the image
   `pacto publish` built, pinned by digest, and Pacto only notes that it would
   have shipped 1.0.0 to test with nobody involved.

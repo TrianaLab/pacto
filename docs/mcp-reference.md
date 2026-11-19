@@ -12,7 +12,7 @@ walkthrough, start with [Drive Pacto from an agent](mcp-integration.md).
 | **Fleet query** | `pacto_fleet_search`, `pacto_fleet_get`, `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`, `pacto_fleet_entities`, `pacto_fleet_entity`, `pacto_fleet_attention`, `pacto_fleet_neighborhood`, `pacto_fleet_versions`, `pacto_fleet_revision_document`, `pacto_fleet_overview`, [`pacto_impact`](impact.md#the-mcp-tool-and-the-dashboard) | Read-only queries over the *operational system*: services, revisions, targets, owners, business domains, offerings, [external systems](external-catalog-reference.md), relationships and what needs attention. `pacto_fleet_get`, `pacto_fleet_graph` and `pacto_fleet_explain` take `external:<identity>`, and `pacto_fleet_entities` lists them with `kind: external`. `pacto_impact` projects a contract diff onto that system to report which consumers a change affects, or asks what happens if a service becomes unavailable, is removed or regresses. `pacto_fleet_get` returns each revision's bundle signature check and OCI referrers as `provenance`, and the service's `ownerProvenance`: where its owner comes from, `declared`, `declared-via-target`, `attested` or `inferred`. `pacto_fleet_revision_document` reads one document a revision's bundle carries, as the dashboard's revision page does. `pacto_fleet_overview` answers "how healthy is the organization and how much do we know" in one call, as `pacto fleet overview` does: a target is failing when its own health check reports it is not healthy and unknown when Pacto cannot tell, and a failing check leaves compliance `Unknown`; see [Organizational health and knowledge](operational-graph.md#organizational-health-and-knowledge). The fleet tools mark target evidence older than 24 hours as stale unless `--freshness` says otherwise. `pacto_fleet_entities` takes `consumes` to list the services that use an [offering](platform-offerings.md#consumers), and with `phase` and `environment` only those whose provisioning status in that phase is in that environment. For a service, `pacto_fleet_entity` lists the [resources it consumes](provision-infrastructure.md#resources-a-service-consumes) with `providerOwner`, `providerAvailability`, `requested` (declared) and `consumption`, plus `hiddenProviders`, and its `changes` in version order; `reached: true` on a stdio server adds when each change reached a Stage, from delivery records, and any other server answers `times: not-read`; `pacto_fleet_attention` and `pacto_fleet_status` report `PROVISIONING_FAILED` and `PROVISIONING_STALE` in the `provisioning` category. `pacto_fleet_status` also carries `providers`, the [providers Pacto detected](operational-graph-providers.md) with their evidence, what each is used for and their status, and `providersTruncated` when the list was cut. With `--detected`, `pacto mcp --fleet` adds the [rows the operator detected](operational-graph-providers.md#detected-rows), each `provenance: inferred` with its `asOf` and without its `hint`. | Always read-only: they write nothing. They still make network calls, and the server that hosts them may also register write tools; see [Fleet query safety](#fleet-query-safety). Catalog mode is the only server with no write tool. |
 | **Fleet query**: statistics | `pacto_stats` | Totals the unsigned run records of a stats repository for a window. See [the stats answer](run-record-reference.md#the-stats-answer). | Always read-only. Over HTTP it appears only when the server was started with `--stats-read-registry` and reads only that repository; a signed-in caller sees only records of services in their view. |
 
-Outside these families: `pacto_capabilities` (what this server serves, see [Combine modes](#combine-modes)), `pacto_skill` (a bundle's skill files) and `pacto_catalog_revision` (one revision from the catalog, see [Catalog mode](#catalog-mode)). The publish and delivery tools, including the six delivery read tools, are listed in [MCP publish and delivery tools](mcp-delivery-tools.md).
+Outside these families: `pacto_capabilities` (what this server serves, see [Combine modes](#combine-modes)), `pacto_skill` (a bundle's skill files) and `pacto_catalog_revision` (one revision from the catalog, see [Catalog mode](#catalog-mode)). The publish and delivery tools, including the seven delivery read tools (`pacto_delivery_trust` among them: which publishers each service accepts), are listed in [MCP publish and delivery tools](mcp-delivery-tools.md).
 
 These tasks are CLI-only: inspecting a registry contract, resolving a dependency
 graph, diffing revisions, generating docs and the two non-query `pacto fleet`
@@ -208,11 +208,16 @@ Catalog mode registers nothing else, so it cannot modify a contract. A root or a
 holding a service: it reads the Dockerfile and Kubernetes files and writes the
 contract. See [Pactify a service](pactify.md).
 
-- `describe_only: true` leaves out the publish section, for a request to
-  describe a service. With `delivery: true` it also writes the cluster files.
-- `domain`, `registry`, `environments`, `fleet_roots`, `no_transparency_log`,
-  `insecure_registry` and `registry_secret` match the CLI flags, and `dry_run`
-  plans without writing.
+- `describe_only: true` makes the next steps say how to validate the
+  contract instead of how to publish it, for a request to describe a service.
+  `delivery: true` also writes the cluster files and is refused with
+  `describe_only`.
+- `domain`, `registry`, `environments`, `fleet_roots`, `insecure_registry`
+  and `registry_secret` match the CLI flags, and `dry_run` plans without
+  writing. `no_transparency_log` applies with `from` only: it writes
+  `transparencyLog: false` under the golden path's `publish.sign`.
+- The contract has no publish section and no `service.version`:
+  `pacto ci --publish` derives both.
 - External dependencies are classified with the catalog the server was
   started with (`--external-catalog`).
 
@@ -243,6 +248,14 @@ or schema file already there as it is, listed in `kept`.
   `inferred`, which keeps only the services Pacto infers from Kubernetes
   workloads no contract describes, or `declared`, which leaves them out. Empty
   lists every service and marks the inferred ones `declaration: inferred`.
+- `group` on `pacto_fleet_entities` takes a group key, `workload.group.key`,
+  and keeps the inferred services the cluster groups under it. An inferred
+  service's `workload.group` says how the cluster groups it and where Pacto
+  read that, `workload.repositories` lists the source repositories its Argo CD
+  Application or Flux GitRepository names, and `workload.repositoryUnknown`
+  says why none shows; see
+  [Groups and repositories](operational-graph-inferred.md#groups-and-repositories).
+  List rows carry `group` and `repository`.
 - `pacto_fleet_graph` lists runtime calls with an inferred service on one end
   in `edges` as `inferred`, and `pacto_fleet_get` and `pacto_fleet_graph`
   answer the key of a

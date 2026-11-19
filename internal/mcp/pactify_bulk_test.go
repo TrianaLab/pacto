@@ -256,3 +256,40 @@ func TestCreateTool_CompletionParity(t *testing.T) {
 		t.Fatal("the description does not say pactify completes an existing contract")
 	}
 }
+
+// TestCreateTool_NoPublishSectionParity: pacto_create with pactify and pacto
+// init plan the same contract for the same folder, with no publish section
+// and no service.version, and the same lines around it.
+func TestCreateTool_NoPublishSectionParity(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "fraud")
+	if err := os.CopyFS(dir, os.DirFS("../pactify/testdata/fraud")); err != nil {
+		t.Fatal(err)
+	}
+	res := callTool(t, "pacto_create", map[string]any{"name": "fraud", "pactify": true, "path": dir, "owner": "risk", "delivery": true, "dry_run": true})
+	type plan struct {
+		Mode                 string
+		Found, Unknown, Next []string
+		Files                []struct{ Path, Action, Content string }
+	}
+	var got, want plan
+	if res.IsError || json.Unmarshal([]byte(resultText(t, res)), &got) != nil {
+		t.Fatalf("result: %s", resultText(t, res))
+	}
+	svc := app.NewService(nil, nil)
+	svc.Version = "test"
+	cli, err := svc.Init(context.Background(), app.InitOptions{Dir: dir, Name: "fraud", Owner: "risk", Delivery: true, Plan: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(cli)
+	if err := json.Unmarshal(raw, &want); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("pacto_create:\n%+v\npacto init:\n%+v", got, want)
+	}
+	text := got.Files[0].Content
+	if got.Files[0].Path != "pacto.yaml" || strings.Contains(text, "publish:") || strings.Contains(text, "  version:") || strings.Contains(text, "cosign.key") {
+		t.Fatalf("pacto.yaml:\n%s", text)
+	}
+}

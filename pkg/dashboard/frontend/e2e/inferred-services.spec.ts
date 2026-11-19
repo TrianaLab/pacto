@@ -8,7 +8,7 @@ import { appReady } from './ready';
 // each has its own page and the uncontracted caller on attention links to it.
 
 const T = 20_000;
-const INFERRED = 3;
+const INFERRED = 4;
 
 test.describe('WASM demo: inferred services', () => {
   test('the Overview segment counts them and lands on the Services list filtered to them', async ({ page }) => {
@@ -101,6 +101,36 @@ test.describe('WASM demo: inferred services', () => {
     expect(box).not.toBeNull();
     expect(box!.x).toBeGreaterThanOrEqual(0);
     expect(box!.x + box!.width).toBeLessThanOrEqual(390);
+  });
+
+  test('an inferred service names its group and repository, and the group lists its services', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await appReady(page, '/#/fleet/services?declaration=inferred');
+    await page.locator('[data-testid="service-list"] a', { hasText: 'legacy-billing' }).first().click();
+
+    const group = page.getByTestId('inferred-group');
+    await expect(group).toContainText('Argo CD Application shop/shop', { timeout: T });
+    const repo = page.getByTestId('inferred-repository');
+    await expect(repo.getByRole('link', { name: 'https://github.com/example/shop' })).toHaveAttribute('href', 'https://github.com/example/shop');
+    const mark = repo.getByRole('button', { name: 'Where Pacto read the repository' });
+    await mark.click();
+    await expect(repo.getByRole('note')).toContainText('spec.source.repoURL');
+    await page.keyboard.press('Escape');
+
+    await group.getByRole('link', { name: 'Services in this group' }).click();
+    await expect(page).toHaveURL(/group=argocd%2Fshop%2Fshop/);
+    await expect(page.locator('[data-testid="service-list"] li')).toHaveCount(2, { timeout: T });
+    await expect(page.locator('.chip', { hasText: 'Group' })).toContainText('Argo CD Application shop/shop');
+    // The group lives in the list and the page: the primary navigation gained no entry.
+    await expect(page.getByRole('navigation', { name: 'Primary' }).first().getByRole('link', { name: /group/i })).toHaveCount(0);
+  });
+
+  test('a Helm release names no repository', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await appReady(page, '/#/fleet/services?declaration=inferred');
+    await page.locator('[data-testid="service-list"] a', { hasText: 'nightly-export' }).first().click();
+    await expect(page.getByTestId('inferred-group')).toContainText('Helm release shop/exporter', { timeout: T });
+    await expect(page.getByTestId('inferred-repository')).toHaveCount(0);
   });
 
   test('the uncontracted caller on attention links to its inferred service', async ({ page }) => {

@@ -52,7 +52,7 @@ func TestLocalSource_Collect(t *testing.T) {
 	writeBundle(t, filepath.Join(root, "node_modules", "svc-y"), "svc-y")
 	writeBundle(t, filepath.Join(root, "vendor", "svc-v"), "svc-v")
 
-	// Skipped: deeper than maxScanDepth (rel depth >= 8).
+	// Skipped: deeper than the depth cap of discover.Walk (rel depth >= 8).
 	deep := filepath.Join(root, "l1", "l2", "l3", "l4", "l5", "l6", "l7", "l8", "l9")
 	writeBundle(t, deep, "svc-deep")
 
@@ -202,41 +202,6 @@ func TestLocalSource_ContextCancelled(t *testing.T) {
 	_, err := NewLocalSource("", root).Collect(ctx)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
-	}
-}
-
-// fakeDirEntry is a synthetic fs.DirEntry for exercising skipDir directly.
-type fakeDirEntry struct{ name string }
-
-func (f fakeDirEntry) Name() string             { return f.name }
-func (fakeDirEntry) IsDir() bool                { return true }
-func (fakeDirEntry) Type() fs.FileMode          { return fs.ModeDir }
-func (fakeDirEntry) Info() (fs.FileInfo, error) { return nil, nil }
-
-func TestSkipDir(t *testing.T) {
-	sep := string(filepath.Separator)
-	deep := "a" + sep + "b" + sep + "c" + sep + "d" + sep + "e" + sep + "f" + sep + "g" + sep + "h" + sep + "i"
-	cases := []struct {
-		name string
-		root string
-		p    string
-		dir  string
-		want bool
-	}{
-		{"root itself", "/r", "/r", "r", false},
-		{"hidden", "/r", "/r/.git", ".git", true},
-		{"node_modules", "/r", "/r/node_modules", "node_modules", true},
-		{"vendor", "/r", "/r/vendor", "vendor", true},
-		{"rel error (abs root, rel path)", "/r", "relative/child", "child", true},
-		{"too deep", "/r", "/r/" + deep, "i", true},
-		{"shallow ok", "/r", "/r/sub", "sub", false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := skipDir(tc.root, tc.p, fakeDirEntry{name: tc.dir}); got != tc.want {
-				t.Errorf("skipDir(%q,%q,%q) = %v, want %v", tc.root, tc.p, tc.dir, got, tc.want)
-			}
-		})
 	}
 }
 

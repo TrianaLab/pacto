@@ -175,11 +175,12 @@ step says `unknown`: Pacto did not check who signed the path. Unknown is
 neither a pass nor a failure. To check the same signature without Pacto, run
 `cosign verify --key platform.pub` on the path's `repository@sha256:...`.
 
-The fleet shows a path's signature as Verified when the bundle verifies against
-the signer its own contract declares, and anyone who can push declares their
-own signer. So the checklist of a service created from the path keeps its
-signature step `unknown`. Only the creation step, checked against your
-template keys, can say `done`.
+The fleet shows a path's signature as Verified when its signer is accepted
+by a publisher rule, a pin or a signed policy
+([which publishers Pacto accepts](integrations/kubernetes/delivery-security.md#which-publishers-pacto-accepts)).
+A service created from the path keeps its signature step `unknown`, and a
+signer none of them covers (`unverified`) is no failed step. Only the creation step, checked against your template
+keys, can say `done`.
 
 ## Plugins
 

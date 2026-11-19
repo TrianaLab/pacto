@@ -155,3 +155,39 @@ func TestPackRefusesUndeclaredVersion(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+func TestRootServiceBundleExcludesPlanFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("service:\n  name: s\n  version: 1.0.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pacto-plan.md"), []byte("# plan\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(t.TempDir(), "s.tar.gz")
+	if _, err := NewService(nil, nil).Pack(context.Background(), PackOptions{Path: dir, Output: output}); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := tar.NewReader(gz)
+	for {
+		h, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			return
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if h.Name == "pacto-plan.md" {
+			t.Fatal("the bundle packs pacto-plan.md")
+		}
+	}
+}

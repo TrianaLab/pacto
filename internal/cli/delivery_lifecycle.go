@@ -20,7 +20,7 @@ func newDeliveryLifecycleCommand(v *viper.Viper, d deps) *cobra.Command {
 		Use:   "lifecycle",
 		Short: "Follow one version of a service through every Stage: published, arrived, verified, re-checked, rolled back or left",
 		Long: "Follows one artifact of a service, named by exactly one of --digest, --version or --contract, through every Stage of the " +
-			"service you can see: whether pacto publish published it (Flux verified its signature) and, on each Stage, when it arrived, " +
+			"service you can see: whether pacto publish published it (Flux or the registry watch verified its signature) and, on each Stage, when it arrived, " +
 			"was verified, re-checked, rolled back or left, each from its signed record or the Operation's unsigned status. " +
 			"Without -n it reads every namespace you can list; one you cannot makes the answer partial and is named.",
 		Args: cobra.NoArgs,

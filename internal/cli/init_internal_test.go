@@ -153,7 +153,8 @@ func TestInitAcceptsTheCommandDeliveryPrints(t *testing.T) {
 	}
 }
 
-// TestInitDomainFlag: --domain, --owner and --registry reach a blank contract.
+// TestInitDomainFlag: --domain and --owner reach a blank contract, which
+// declares no publish section, so the registry goes nowhere in it.
 func TestInitDomainFlag(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "blank")
 	if out, err := runInit(t, dir, "--owner", "billing", "--domain", "payments", "--registry", "ghcr.io/acme"); err != nil {
@@ -163,10 +164,13 @@ func TestInitDomainFlag(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, s := range []string{`pactoVersion: "2.4"`, "team: billing", "domain: payments", "bundle: oci://ghcr.io/acme/blank"} {
+	for _, s := range []string{`pactoVersion: "2.5"`, "team: billing", "domain: payments"} {
 		if !strings.Contains(string(data), s) {
 			t.Errorf("pacto.yaml lacks %q:\n%s", s, data)
 		}
+	}
+	if strings.Contains(string(data), "publish:") || strings.Contains(string(data), "version: 0.1.0") {
+		t.Errorf("pacto.yaml writes what pacto ci --publish derives:\n%s", data)
 	}
 }
 
@@ -282,7 +286,7 @@ func TestInitDeliveryDeclaresEnvironments(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, s := range []string{`pactoVersion: "2.3"`, "  - name: test\n    file: environments/test.yaml\n", "  - name: pr-1\n    file: environments/pr-1.yaml\n"} {
+	for _, s := range []string{`pactoVersion: "2.5"`, "  - name: test\n    file: environments/test.yaml\n", "  - name: pr-1\n    file: environments/pr-1.yaml\n"} {
 		if !strings.Contains(string(data), s) {
 			t.Errorf("pacto.yaml lacks %q:\n%s", s, data)
 		}

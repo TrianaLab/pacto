@@ -198,7 +198,7 @@ func TestOpenAPI_EnumsOnSpecificFields(t *testing.T) {
 		{"Fleet.TargetRecord", "clusterRelation", sortedSet("runs-in", "reported-through")},
 		{"ProductTargetDetail", "clusterRelation", sortedSet("runs-in", "reported-through")},
 		{"Delivery.ApplierStatus", "state", sortedSet(delivery.ApplierAdopted, delivery.ApplierUnmanaged, delivery.ApplierConflict, delivery.ApplierUnknown)},
-		{"Delivery.ApplierStatus", "manager", sortedSet("argocd", "flux", "helm", "unsupported", "ambiguous", "none")},
+		{"Delivery.ApplierStatus", "manager", sortedSet("argocd", "flux", "helm", "external", "unsupported", "ambiguous", "none")},
 		{"Delivery.ApplierStatus", "completeness", sortedSet("complete", "partial")},
 		{"Fleet.ServiceRecord", "ownerProvenance", sortedSet("declared", "declared-via-target", "attested", "inferred")},
 		{"ProductOwnership", "provenance", sortedSet("declared", "declared-via-target", "attested", "inferred")},

@@ -326,8 +326,7 @@ func printPlan(w io.Writer, p delivery.PlanAnswer) {
 }
 
 // printPlanApplier names a promote's applier from the pacto.applier citation,
-// keeping what the promoter observed, what the Stage declares and what the
-// contract says apart.
+// keeping what the promoter observed and what the Stage declares apart.
 func printPlanApplier(w io.Writer, p delivery.PlanAnswer) {
 	if p.Type != delivery.TypePromote {
 		return
@@ -348,7 +347,7 @@ func printPlanApplier(w io.Writer, p delivery.PlanAnswer) {
 	if c["state"] != "" {
 		observed += ", " + c["state"]
 	}
-	_, _ = fmt.Fprintf(w, "applier:   %s; declared %s; contract %s\n", observed, c["declared"], c["contract"])
+	_, _ = fmt.Fprintf(w, "applier:   %s; declared %s\n", observed, c["declared"])
 }
 
 // printPrecedent says what the records attached to the version say happened
@@ -513,41 +512,32 @@ var deliveryDecisions = []string{string(delivery.Approve), string(delivery.Rejec
 // drops it.
 func newDeliveryApproveCommand(v *viper.Viper, d deps) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "approve <operation>",
+		Use:   "approve [<operation>]",
 		Short: "Record your decision on a held operation (people only)",
 		Long: "Record your decision on a held operation, as the person your kubeconfig signs you in as. " +
+			"When the installation accepts signed approvals (delivery.identities.signers) and the Stage keeps an approvals " +
+			"repository, the command instead logs you in again in your browser, signs the decision keyless with that login " +
+			"alone and pushes the signed approval record to the registry; it never reads SIGSTORE_ID_TOKEN or a CI token. " +
 			"When the promoter asks for a fresh login (delivery.promoter.authFreshness), the command instead makes " +
 			"you log in again in your browser (prompt=login, max_age=0) with its own OpenID Connect client and sends " +
 			"the Approval with that login's token, never your kubeconfig's: an agent running in your shell cannot " +
-			"approve as you without you typing your password at that moment. The token is not stored.",
-		Args: cobra.ExactArgs(1),
+			"approve as you without you typing your password at that moment. The token is not stored. With --intent and " +
+			"no operation name it reads no kubeconfig: it approves the operation a verified intent record names, signed keyless.",
+		Args: cobra.RangeArgs(0, 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			decision, _ := cmd.Flags().GetString("decision")
 			if !slices.Contains(deliveryDecisions, decision) {
 				return fmt.Errorf("--decision must be one of %s", strings.Join(deliveryDecisions, ", "))
 			}
-			c, ns, err := deliveryClient(cmd, d)
-			if err != nil {
-				return err
-			}
-			// A Stage the kubeconfig cannot read (one with no credentials at
-			// all, say) gets the fresh login: the safe way when in doubt.
-			freshness, err := c.Freshness(cmd.Context(), ns, args[0])
-			if err != nil && v.GetString("delivery.oidc-issuer-url") == "" {
-				return err
-			}
-			if err != nil || freshness > 0 {
-				if c, err = freshClient(cmd, v, d, decision, ns, args[0]); err != nil {
-					return err
-				}
-			}
 			note, _ := cmd.Flags().GetString("note")
-			name, err := c.Approve(cmd.Context(), ns, args[0], delivery.Decision(decision), note)
-			if err != nil {
-				return err
+			intent, _ := cmd.Flags().GetString("intent")
+			if (intent == "") == (len(args) == 0) {
+				return errApproveOne
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "recorded %s on %s/%s as Approval %s\n", decision, ns, args[0], name)
-			return nil
+			if intent != "" {
+				return approveIntent(cmd, v, d, intent, decision, note)
+			}
+			return approveInCluster(cmd, v, d, decision, args[0], note)
 		},
 	}
 	cmd.Flags().String("decision", string(delivery.Approve), "approve, reject or accept-unknown")
@@ -558,6 +548,12 @@ func newDeliveryApproveCommand(v *viper.Viper, d deps) *cobra.Command {
 	cmd.Flags().StringSlice("oidc-extra-scopes", nil, "scopes to ask for beyond openid, profile and groups")
 	cmd.Flags().Int("oidc-redirect-port", 0, "loopback port the identity provider sends the browser back to (default: a free port)")
 	cmd.Flags().String("oidc-ca-file", "", "PEM bundle of the CAs that sign the issuer's certificate, trusted on top of the system roots (also PACTO_DELIVERY_OIDC_CA_FILE)")
+	cmd.Flags().Bool("keyless", true, "sign the decision keyless into the Stage's approvals repository when the installation accepts signed approvals; false records it in the cluster")
+	cmd.Flags().String("fulcio-url", signing.PublicFulcio, "Fulcio to get the signing certificate from, when the installation's signer names none")
+	cmd.Flags().String("timestamp-url", "", "timestamp authority to date the signature with, when the installation's signer names none")
+	cmd.Flags().String("intent", "", "approve the operation this intent record names (<repository>:<tag> or <repository>@<digest>) "+
+		"with no kubeconfig: the intent must verify with --trust, and the decision is signed keyless under a signer --signers names")
+	cmd.Flags().String("signers", "", signersFlagHelp)
 	for _, f := range []string{"oidc-issuer-url", "oidc-client-id", "oidc-extra-scopes", "oidc-redirect-port", "oidc-ca-file"} {
 		_ = v.BindPFlag("delivery."+f, cmd.Flags().Lookup(f))
 	}
@@ -565,6 +561,49 @@ func newDeliveryApproveCommand(v *viper.Viper, d deps) *cobra.Command {
 	_ = v.BindEnv("delivery.oidc-client-secret", "PACTO_DELIVERY_OIDC_CLIENT_SECRET")
 	_ = cmd.RegisterFlagCompletionFunc("decision", staticCompletions(deliveryDecisions...))
 	return cmd
+}
+
+// approveInCluster decides operation op as the person the kubeconfig signs
+// in: signed keyless into the registry when the installation accepts that,
+// else as an Approval in the cluster, with a fresh login when the promoter
+// asks for one.
+func approveInCluster(cmd *cobra.Command, v *viper.Viper, d deps, decision, op, note string) error {
+	c, ns, err := deliveryClient(cmd, d)
+	if err != nil {
+		return err
+	}
+	if keyless, _ := cmd.Flags().GetBool("keyless"); keyless {
+		// An operation, Stage or policy it cannot read keeps the
+		// cluster path, which says what is wrong.
+		_, st, policy, err := c.ApprovalTarget(cmd.Context(), ns, op)
+		why := "the operation, its Stage or the identity policy could not be read"
+		if err == nil {
+			var signer delivery.PersonSigner
+			if signer, why = approveRoute(policy, st, v.GetString("delivery.oidc-issuer-url")); why == "" {
+				return approveKeyless(cmd, v, d, c, signer, st, decision, ns, op, note)
+			}
+		}
+		if v.GetBool("verbose") {
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "recording the decision in the cluster: %s\n", why)
+		}
+	}
+	// A Stage the kubeconfig cannot read (one with no credentials at
+	// all, say) gets the fresh login: the safe way when in doubt.
+	freshness, err := c.Freshness(cmd.Context(), ns, op)
+	if err != nil && v.GetString("delivery.oidc-issuer-url") == "" {
+		return err
+	}
+	if err != nil || freshness > 0 {
+		if c, err = freshClient(cmd, v, d, decision, ns, op); err != nil {
+			return err
+		}
+	}
+	name, err := c.Approve(cmd.Context(), ns, op, delivery.Decision(decision), note)
+	if err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "recorded %s on %s/%s as Approval %s\n", decision, ns, op, name)
+	return nil
 }
 
 func newDeliveryExplainCommand(v *viper.Viper, d deps) *cobra.Command {
@@ -1047,10 +1086,16 @@ func newDeliveryUndoCommand(v *viper.Viper, d deps) *cobra.Command {
 func newDeliveryRecordCommand(v *viper.Viper, d deps) *cobra.Command {
 	cmd := &cobra.Command{Use: "record", Short: "Work with the signed records of operations"}
 	verify := &cobra.Command{
-		Use:   "verify",
-		Short: "Verify every record of a Stage's stream against the trust config and check the chain",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		Use:   "verify [<ref>]",
+		Short: "Verify every record of a Stage's stream against the trust config and check the chain, or one record by its registry reference",
+		Long: "Verifies every record of a Stage's stream against the trust config and checks the chain. With a record reference " +
+			"(<repository>:<tag> or <repository>@<digest>) it reads no kubeconfig: it verifies that one record, an approval or " +
+			"intent included, and for an approval says whether the operation record lists it (counted).",
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 1 {
+				return runRecordAt(cmd, v, d, args[0], true)
+			}
 			c, ns, err := deliveryClient(cmd, d)
 			if err != nil {
 				return err
@@ -1081,23 +1126,31 @@ func newDeliveryRecordCommand(v *viper.Viper, d deps) *cobra.Command {
 	}
 	verify.Flags().String("stage", "", "the Stage (this or --all)")
 	verify.Flags().Bool("all", false, "verify every Stage's stream in the namespace given with -n, or in every namespace you can list")
+	verify.Flags().String("signers", "", signersFlagHelp)
 	cmd.AddCommand(verify, newDeliveryRecordGetCommand(v, d))
 	return cmd
 }
 
 func newDeliveryRecordGetCommand(v *viper.Viper, d deps) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "get <id>",
-		Short: "Read one signed record of a Stage's stream by its id: the change, who asked and approved and every verdict",
+		Use:   "get <id-or-ref>",
+		Short: "Read one signed record of a Stage's stream by its id, or any record by its registry reference",
 		Long: "Reads one signed record of a Stage's stream by its full id or by the short id a text history prints " +
-			"(sha256: and 12 hex characters), when only one record starts with it.",
+			"(sha256: and 12 hex characters), when only one record starts with it. A record reference " +
+			"(<repository>:<tag> or <repository>@<digest>) reads any record, approvals and intents included, with no kubeconfig.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if isRecordRef(args[0]) {
+				return runRecordAt(cmd, v, d, args[0], false)
+			}
+			stage, _ := cmd.Flags().GetString("stage")
+			if stage == "" {
+				return errors.New("pass --stage or a record reference")
+			}
 			c, ns, err := deliveryClient(cmd, d)
 			if err != nil {
 				return err
 			}
-			stage, _ := cmd.Flags().GetString("stage")
 			r, err := c.Record(cmd.Context(), ns, stage, args[0])
 			if err != nil {
 				return err
@@ -1108,8 +1161,8 @@ func newDeliveryRecordGetCommand(v *viper.Viper, d deps) *cobra.Command {
 			}, nil)
 		},
 	}
-	cmd.Flags().String("stage", "", "the Stage whose stream holds the record (required)")
-	_ = cmd.MarkFlagRequired("stage")
+	cmd.Flags().String("stage", "", "the Stage whose stream holds the record (with a record id)")
+	cmd.Flags().String("signers", "", signersFlagHelp)
 	return cmd
 }
 

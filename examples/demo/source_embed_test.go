@@ -151,7 +151,11 @@ func newsletterCompletion(t *testing.T) *contract.InferredRecord {
 // release changes.
 func TestDemoInferredRecordMatchesCompletion(t *testing.T) {
 	src := filepath.Join("bundles", "newsletter-service")
-	got := newsletterCompletion(t)
+	// Compared in the order the record file holds them.
+	got, err := contract.ParseInferredRecord(newsletterCompletion(t).Marshal())
+	if err != nil {
+		t.Fatal(err)
+	}
 	committed, err := contract.ReadInferredRecord(os.DirFS(src))
 	if err != nil || committed == nil {
 		t.Fatalf("committed record = %v, %v", committed, err)

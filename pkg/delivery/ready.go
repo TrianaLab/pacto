@@ -28,6 +28,12 @@ const (
 	ReadyReasonApplierConflict     = "ApplierConflict"
 	ReadyReasonApplierUnknown      = "ApplierUnknown"
 	ReadyReasonApplierNotChartRef  = "ApplierNotChartRef"
+	// ReadyReasonRegistryUnreadable: the repository candidates.registry
+	// watches cannot be listed.
+	ReadyReasonRegistryUnreadable = "RegistryUnreadable"
+	// ReadyReasonPublisherUnverifiable: the promoter has no publisher check
+	// or no Sigstore trusted root to judge candidates.registry with.
+	ReadyReasonPublisherUnverifiable = "PublisherUnverifiable"
 )
 
 var readyFixes = map[string]string{
@@ -36,9 +42,13 @@ var readyFixes = map[string]string{
 	ReadyReasonCandidateNotFound: "create the candidate OCIRepository the Stage names in spec.candidates.ociRepositoryRef",
 	ReadyReasonCandidateUnverified: "set spec.verify on the candidate OCIRepository with a secretRef or matchOIDCIdentity " +
 		"naming the publisher, then publish with pacto publish",
-	ReadyReasonUpstreamUntrusted:   "give the promoter the upstream recorder's key (promoter.upstreamTrust)",
-	ReadyReasonUpstreamUnreadable:  "make the upstream records readable: check the repository, the registry credentials and the upstream trust key",
-	ReadyReasonNoCandidateSource:   "set one of spec.candidates.ociRepositoryRef, upstreamStage or upstreamRecords",
+	ReadyReasonUpstreamUntrusted:  "give the promoter the upstream recorder's key (promoter.upstreamTrust)",
+	ReadyReasonUpstreamUnreadable: "make the upstream records readable: check the repository, the registry credentials and the upstream trust key",
+	ReadyReasonNoCandidateSource:  "set one of spec.candidates.registry, ociRepositoryRef, upstreamStage or upstreamRecords",
+	ReadyReasonRegistryUnreadable: "make the watched repository listable: check spec.candidates.registry.repository (or the applier's " +
+		"repository) and the promoter's registry credentials",
+	ReadyReasonPublisherUnverifiable: "give the promoter a publisher check (delivery.publishers.registry) and a Sigstore trusted root " +
+		"it can read (delivery.publishers.trustedRoot, or public-good Sigstore reachable over TUF)",
 	ReadyReasonApplierUnreadable:   "create the object spec.applyRef names, or install its CRD, and let the promoter read it",
 	ReadyReasonApplierUnlabelled:   "label the applier delivery.pacto.trianalab.io/apply-ref=<stage>",
 	ReadyReasonApplierMultiSource:  "give the Argo CD Application one OCI spec.source instead of spec.sources",

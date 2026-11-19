@@ -29,6 +29,10 @@ first match wins:
    Argo CD.
 6. A controller owner reference, kapp, Rancher Fleet, Spinnaker, Skaffold,
    Terraform or Pulumi: a manager Pacto does not support.
+7. A field manager, label or annotation the chart's `fingerprints.managers`
+   names: `external: <product>`. It weighs like the first four marks, so it
+   and another one read as ambiguous. See
+   [Fingerprints](../../operational-graph-providers.md#fingerprints).
 
 Marks of two different managers read as ambiguous. The Stage records the
 result in `status.applier`, with the evidence, `asOf` and `completeness`, and
@@ -39,7 +43,7 @@ compares it with its `spec.applyRef`:
 | `Adopted` | The Stage's applier manages every workload | goes ahead |
 | `Unmanaged` | No Pacto reports a workload yet, or the workload it reports does not exist yet | goes ahead |
 | `Conflict` | Another manager or another object owns a workload, a plain Helm release owns it, or the workloads disagree | is refused; `Ready` is `False` with `ApplierConflict` |
-| `Unknown` | A workload carries no mark of the Stage's applier, an unsupported or ambiguous manager owns it, Pacto could not read it, a Pacto is not reconciled yet or evaluated another workload than the Stage runs, or a Kustomization in another namespace does not apply from the Stage's OCIRepository | is refused; `Ready` is `False` with `ApplierUnknown` |
+| `Unknown` | A workload carries no mark of the Stage's applier, an unsupported, external or ambiguous manager owns it, Pacto could not read it, a Pacto is not reconciled yet or evaluated another workload than the Stage runs, or a Kustomization in another namespace does not apply from the Stage's OCIRepository | is refused; `Ready` is `False` with `ApplierUnknown` |
 
 Nobody can accept a `Conflict` or an `Unknown`: Pacto never writes a pointer
 another manager may overwrite, and moving a workload is yours to do.
@@ -50,9 +54,10 @@ another manager may overwrite, and moving a workload is yours to do.
   with the reason when the Stage does not adopt it and a warning when the
   promoter stopped checking.
 - `pacto delivery plan` keeps what the promoter observed apart from what the
-  Stage declares and what the contract says.
-- A contract on pactoVersion 2.5 can require a manager with
-  [`delivery.applier`](../../contract-reference/delivery.md).
+  Stage declares.
+- The Stage's `spec.applyRef` names the applier; a contract never names one.
+- An `external: <product>` workload is gate-only: the verdict reads
+  `external: <product> manages <workload> (<evidence>): Pacto runs the gates and writes no pointer`.
 
 ## Apply through a Flux HelmRelease
 
@@ -185,11 +190,14 @@ promote and starts the usual rollback.
 Argo CD does not check signatures. The candidate source checks them, and the
 promoter only ever writes a digest, so Argo CD fetches exactly the checked
 bytes. Admission keeps the rest of `spec.source`, `spec.sources` and the label
-to break-glass, so nobody else changes what those bytes become. Only a Flux
-`OCIRepository` with `spec.verify` admits a new version, so the first Stage of
-a service needs Flux's source controller in its cluster even when Argo CD
-applies it. Stages after it can take versions from that Stage, in the same
-cluster or through its records, with no Flux at all. An Argo CD Stage places no
+to break-glass, so nobody else changes what those bytes become. The first
+Stage of a service admits a new version through `spec.candidates.registry`,
+where the promoter lists the service's version tags and verifies each
+signature against the installation's publisher rule (`delivery.publishers`),
+or through a Flux `OCIRepository` with `spec.verify`. A cluster that runs only
+Argo CD uses `candidates.registry` and needs no Flux. Stages after it can take
+versions from that Stage, in the same cluster or through its records. An Argo
+CD Stage places no
 consumers, so label the Pactos it runs with
 `delivery.pacto.trianalab.io/environment`.
 
