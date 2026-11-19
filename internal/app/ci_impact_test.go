@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"errors"
 	"io"
 	"log"
@@ -14,11 +16,13 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/google/go-containerregistry/pkg/registry"
 
 	"github.com/trianalab/pacto/v4/internal/ci"
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/diff"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
@@ -543,5 +547,32 @@ func TestCIBlockedSurvivesNoConsumerSource(t *testing.T) {
 func TestCIPlanRefusesABadRegistryFlag(t *testing.T) {
 	if _, _, err := NewService(nil, nil).CIPlan(context.Background(), CIOptions{Root: t.TempDir(), Registry: "https://u:tok@r.example/acme"}); err == nil || strings.Contains(err.Error(), "tok") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// TestCIUsesDefaultTargetSnapshot: with no target input pacto ci reads the
+// target snapshot beside the registry it plans against, as pacto impact does,
+// and names it as a consumer source.
+func TestCIUsesDefaultTargetSnapshot(t *testing.T) {
+	e := newCIRepo(t)
+	e.breakingPayments(t)
+	s := webappSnapshot(snapA, e.host, "^1.0.0", time.Now())
+	s.Pactos[0].Status.Dependencies[0].Name, s.Pactos[0].Status.Dependencies[0].Ref = "payments", "oci://"+e.host+"/acme/payments"
+	_, key, _ := ed25519.GenerateKey(rand.Reader)
+	repo := e.host + "/acme/" + delivery.TargetSnapshotRepository
+	pushAt(t, repo, key, snapA, s)
+	trust := trustFile(t, delivery.TrustedKey{Name: "rec", PublicKey: pemOf(t, key), Streams: []string{snapA + "/*/*"}})
+	p, res, err := e.svc.CIPlan(context.Background(), CIOptions{Root: e.root, Registry: e.host + "/acme", TargetSnapshotAuto: true, Fleet: FleetOptions{TargetSnapshotTrustFile: trust}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := row(t, p, "payments"); r.Impact.Text != "blocked (webapp)" || res["payments"].Registry == nil || res["payments"].Registry.Found != repo ||
+		!slices.Contains(p.ConsumerSources, "--target-snapshot oci://"+repo) {
+		t.Fatalf("row %+v, registry %+v, sources %q", r, res["payments"].Registry, p.ConsumerSources)
+	}
+	// Without it, the plan reads no snapshot.
+	p, _ = e.planWith(t, FleetOptions{TargetSnapshotTrustFile: trust})
+	if r := row(t, p, "payments"); r.Impact.Text == "blocked (webapp)" || len(p.ConsumerSources) != 0 {
+		t.Fatalf("row %+v, sources %q", r, p.ConsumerSources)
 	}
 }

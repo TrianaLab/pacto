@@ -77,7 +77,7 @@ func addFleetSourceFlags(f *pflag.FlagSet) {
 	shared.String("detected", "", "add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON")
 	shared.String("fingerprints", "", "a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers")
 	shared.StringArray("target-snapshot", nil, "signed target snapshot(s) to read targets from: an oci:// pacto-targets repository, or :cluster-<uid> tags or digests "+
-		"to pin the clusters CI expects (repeatable); pacto impact also takes auto (the default: derived from the provider ref) and off")
+		"to pin the clusters CI expects (repeatable); pacto impact and pacto ci also take auto (the default: derived from the provider ref) and off")
 	shared.String("delivery-trust", "", "the trust config target snapshots are verified with: a YAML file with a key scoped to each cluster (default $"+app.TrustEnv+")")
 	f.AddFlagSet(shared)
 }
@@ -221,7 +221,7 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 }
 
 // targetSnapshotRefs drops auto and off from the --target-snapshot values:
-// pacto impact derives the snapshot itself, and every other command reads one
+// pacto impact and pacto ci derive the snapshot themselves, and every other command reads one
 // only when given a ref.
 func targetSnapshotRefs(values []string) []string {
 	var out []string

@@ -75,7 +75,11 @@ func newCICommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder) *c
 			svc.ExternalCatalogRef = fo.ExternalCatalogRef
 			revs := map[string]*revisions{}
 			bundles := map[string]*contract.Bundle{}
-			opts := app.CIOptions{Root: root, Registry: registry, Fleet: fo, Getenv: os.Getenv, Bundles: bundles}
+			auto, err := impactSnapshotAuto(cmd)
+			if err != nil {
+				return err
+			}
+			opts := app.CIOptions{Root: root, Registry: registry, Fleet: fo, Getenv: os.Getenv, Bundles: bundles, TargetSnapshotAuto: auto}
 			p, results, err := runCI(cmd, svc, d, rec, opts, revs)
 			if err != nil {
 				return err
