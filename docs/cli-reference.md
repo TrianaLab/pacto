@@ -2184,6 +2184,7 @@ pacto publish [dir] [flags]
       --correlation-id string              with --propose, an id that ties the promote to an incident or another change, such as a ticket; kept with the change and its record, filtered by pacto delivery history --correlation-id
   -h, --help[=true|false]                  help for publish
       --image string                       with no publish section: the image to deploy, pinned by digest (repo@sha256:...); Pacto builds, signs and copies none
+      --index string                       organization index repository for this version's entry (default <registry>/pacto-index from the contract's repository; none writes no entry)
       --no-transparency-log[=true|false]   with --sign-key: keep the signatures out of the transparency log
       --on-behalf-of string                with --propose, the person an agent acts for, as the Kubernetes username the cluster authenticates them as (what kubectl auth whoami prints for them, any OIDC prefix included); asserted, not verified; required when an agent proposes, never a service account or other system user, and that person may not approve the change
   -p, --path string                        path to contract directory, the same as [dir] (default: current directory)
@@ -2255,6 +2256,7 @@ pacto push <ref> [flags]
 ```
   -f, --force[=true|false]   overwrite existing artifact in registry
   -h, --help[=true|false]    help for push
+      --index string         organization index repository for this version's entry (default <registry>/pacto-index from the contract's repository; none writes no entry)
   -p, --path string          path to contract directory (default: current directory)
       --set stringArray      set a contract value (e.g. --set service.version=2.0.0)
       --values stringArray   values file to merge into the contract (can be repeated; last wins)

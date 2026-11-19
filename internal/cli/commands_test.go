@@ -152,15 +152,17 @@ func TestPushCommand_Success(t *testing.T) {
 	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(store, nil)
 	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
-	root.SetArgs([]string{"push", "oci://ghcr.io/acme/svc:1.0.0", "--path", bundleDir})
+	root.SetArgs([]string{"push", "oci://ghcr.io/acme/svc:1.0.0", "--path", bundleDir, "--index", "none"})
 	var out bytes.Buffer
 	root.SetOut(&out)
+	root.SetErr(&out)
 
 	if err := root.Execute(); err != nil {
 		t.Fatalf("push failed: %v", err)
 	}
 
-	if !strings.Contains(out.String(), "Pushed test-svc@1.0.0") {
+	// --index none reaches the push: no index text at all.
+	if !strings.Contains(out.String(), "Pushed test-svc@1.0.0") || strings.Contains(out.String(), "ndex") {
 		t.Errorf("expected push output, got %q", out.String())
 	}
 }
@@ -210,7 +212,7 @@ func TestPushCommand_Identical(t *testing.T) {
 		t.Fatal(err)
 	}
 	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
-	root.SetArgs([]string{"push", "oci://ghcr.io/acme/svc:1.0.0", "--path", bundleDir})
+	root.SetArgs([]string{"push", "oci://ghcr.io/acme/svc:1.0.0", "--path", bundleDir, "--index", "none"})
 	var out bytes.Buffer
 	root.SetOut(&out)
 	if err := root.Execute(); err != nil {
@@ -233,7 +235,7 @@ func TestPushCommand_AlreadyExistsWithForce(t *testing.T) {
 	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(store, nil)
 	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
-	root.SetArgs([]string{"push", "oci://ghcr.io/acme/svc:1.0.0", "--path", bundleDir, "--force"})
+	root.SetArgs([]string{"push", "oci://ghcr.io/acme/svc:1.0.0", "--path", bundleDir, "--force", "--index", "none"})
 	var out bytes.Buffer
 	root.SetOut(&out)
 

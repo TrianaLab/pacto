@@ -61,6 +61,7 @@ func newPublishCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorde
 			opts.Registry, _ = cmd.Flags().GetString("registry")
 			opts.SignKey, _ = cmd.Flags().GetString("sign-key")
 			opts.NoTransparencyLog, _ = cmd.Flags().GetBool("no-transparency-log")
+			opts.Index, _ = cmd.Flags().GetString("index")
 			res, err := d.publish(svc, cmd.Context(), opts)
 			if err != nil || plan {
 				sp.Stop()
@@ -99,6 +100,7 @@ func newPublishCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorde
 	cmd.Flags().String("registry", "", "with no publish section: the registry to publish to (default: what the CI context or the workload image names)")
 	cmd.Flags().String("sign-key", "", "with no publish section: sign with this cosign key file instead of keyless")
 	cmd.Flags().Bool("no-transparency-log", false, "with --sign-key: keep the signatures out of the transparency log")
+	cmd.Flags().String("index", "", indexFlagUsage)
 	cmd.Flags().Duration("propose-timeout", 10*time.Minute, "how long --propose waits for the Stage to record the version as published")
 	addOverrideFlagsNoShorthand(cmd)
 	addStatsFlags(cmd)
@@ -197,6 +199,9 @@ func notPublishedYet(s *delivery.StageObject, digest string, timeout time.Durati
 	return fmt.Errorf("the Stage did not record %s as published within %s: Flux has not polled the candidate OCIRepository %s "+
 		"or verified its signature yet; propose it later with `pacto delivery propose`", digest, timeout, s.Spec.Candidates.OCIRepositoryRef.Name)
 }
+
+// indexFlagUsage is the help of --index on publish and push.
+const indexFlagUsage = "organization index repository for this version's entry (default <registry>/pacto-index from the contract's repository; none writes no entry)"
 
 // printIndex prints where the organization index entry was written, or, on
 // stderr, the warning that it was not: a missing entry never fails the run.

@@ -8,6 +8,8 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -21,6 +23,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 	"github.com/trianalab/pacto/v4/pkg/orgindex"
 	"github.com/trianalab/pacto/v4/pkg/publish"
@@ -411,5 +414,106 @@ func TestRegistryModeUnknown(t *testing.T) {
 	svc.sys.refusalRepo = anonRepo
 	if got := svc.registryMode(t.Context(), ir.host+"/pacto/payments", digest64); got != "unknown" {
 		t.Fatalf("a subject the registry lacks: %q", got)
+	}
+}
+
+// pushIndexService pushes bundles to ir and opens every index read and
+// write anonymously.
+func pushIndexService(ir *indexReg) *Service {
+	svc := NewService(oci.NewClient(anonymous, oci.WithInsecureRegistries(ir.host)), nil)
+	svc.sys.refusalRepo = anonRepo
+	return svc
+}
+
+// pushTag is the index tag of test-svc 1.0.0 pushed under host/acme.
+func pushTag(ir *indexReg) string {
+	tag, _ := orgindex.Tag(fleet.NewServiceKeyDomain(ir.host+"/acme", "test-svc"), "1.0.0")
+	return tag
+}
+
+func TestPushWritesIndexEntry(t *testing.T) {
+	ir := newIndexReg(t)
+	res, err := pushIndexService(ir).Push(t.Context(), PushOptions{Ref: "oci://" + ir.host + "/acme/svc", Path: writeTestBundle(t)})
+	repo := ir.host + "/acme/pacto-index"
+	if err != nil || res.Index != "indexed as "+repo+":"+pushTag(ir) {
+		t.Fatalf("push: %v %+v", err, res)
+	}
+	e := readEntry(t, repo, pushTag(ir))
+	if e.Publisher != (orgindex.Publisher{}) || e.Bundle != ir.host+"/acme/svc@"+res.Digest || e.Version != "1.0.0" {
+		t.Fatalf("entry %+v", e)
+	}
+}
+
+func TestPushAlreadyPublishedBackfillsEntry(t *testing.T) {
+	ir := newIndexReg(t)
+	svc, dir := pushIndexService(ir), writeTestBundle(t)
+	ref := "oci://" + ir.host + "/acme/svc"
+	if res, err := svc.Push(t.Context(), PushOptions{Ref: ref, Path: dir, Index: IndexNone}); err != nil || res.Index != "" {
+		t.Fatalf("first push: %v %+v", err, res)
+	}
+	res, err := svc.Push(t.Context(), PushOptions{Ref: ref, Path: dir})
+	if err != nil || !res.Unchanged || res.Index != "indexed as "+ir.host+"/acme/pacto-index:"+pushTag(ir) {
+		t.Fatalf("backfill: %v %+v", err, res)
+	}
+	if e := readEntry(t, ir.host+"/acme/pacto-index", pushTag(ir)); e.Bundle != ir.host+"/acme/svc@"+res.Digest {
+		t.Fatalf("entry %+v", e)
+	}
+}
+
+func TestPushForceKeepsTheOldEntry(t *testing.T) {
+	ir := newIndexReg(t)
+	svc, dir := pushIndexService(ir), writeTestBundle(t)
+	ref := "oci://" + ir.host + "/acme/svc"
+	first, err := svc.Push(t.Context(), PushOptions{Ref: ref, Path: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "docs", "README.md"), []byte("# Changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	forced, err := svc.Push(t.Context(), PushOptions{Ref: ref, Path: dir, Force: true})
+	repo := ir.host + "/acme/pacto-index"
+	if err != nil || forced.Digest == first.Digest || !strings.HasSuffix(forced.Index, "names another entry; index entries are never overwritten") {
+		t.Fatalf("forced push: %v %+v", err, forced)
+	}
+	if e := readEntry(t, repo, pushTag(ir)); e.Bundle != ir.host+"/acme/svc@"+first.Digest {
+		t.Fatalf("the entry moved: %+v", e)
+	}
+}
+
+func TestPushLatestTagWritesNoEntry(t *testing.T) {
+	ir := newIndexReg(t)
+	res, err := pushIndexService(ir).Push(t.Context(), PushOptions{Ref: "oci://" + ir.host + "/acme/svc:latest", Path: writeTestBundle(t)})
+	if err != nil || res.Index != "not indexed: pushed as latest; the index names versions" || ir.count("", "pacto-index") != 0 {
+		t.Fatalf("latest: %v %+v requests %d", err, res, ir.count("", "pacto-index"))
+	}
+}
+
+func TestPushDigestRefWritesNoEntry(t *testing.T) {
+	store := &mockBundleStore{ResolveFn: func(context.Context, string) (string, error) { return "", &oci.ArtifactNotFoundError{} }}
+	res, err := offlineService(store).Push(t.Context(), PushOptions{Ref: "oci://ghcr.io/acme/svc@" + digest64, Path: writeTestBundle(t)})
+	if err != nil || res.Index != "not indexed: pushed as a digest; the index names versions" {
+		t.Fatalf("digest ref: %v %+v", err, res)
+	}
+}
+
+func TestIndexFlagOverridesRepository(t *testing.T) {
+	ir := newIndexReg(t)
+	repo := ir.host + "/pacto-index"
+	pushed, err := pushIndexService(ir).Push(t.Context(), PushOptions{Ref: "oci://" + ir.host + "/acme/svc", Path: writeTestBundle(t), Index: "oci://" + repo})
+	if err != nil || pushed.Index != "indexed as "+repo+":"+pushTag(ir) {
+		t.Fatalf("push --index: %v %+v", err, pushed)
+	}
+	published, _, tag, err := publishedIndex(t, ir, indexPublishService(ir), PublishOptions{Index: repo})
+	if err != nil || published.Index != "indexed as "+repo+":"+tag || ir.count("", "/acme/pacto-index/") != 0 || ir.count("", "/pacto/pacto-index/") != 0 {
+		t.Fatalf("publish --index: %v %q", err, published.Index)
+	}
+}
+
+func TestIndexFlagNoneWritesNothing(t *testing.T) {
+	ir := newIndexReg(t)
+	res, err := pushIndexService(ir).Push(t.Context(), PushOptions{Ref: "oci://" + ir.host + "/acme/svc", Path: writeTestBundle(t), Index: IndexNone})
+	if err != nil || res.Index != "" || ir.count("", "pacto-index") != 0 {
+		t.Fatalf("--index none: %v %+v", err, res)
 	}
 }

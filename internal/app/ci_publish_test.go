@@ -17,8 +17,12 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/random"
 
+	"oras.land/oras-go/v2/registry/remote"
+
 	"github.com/trianalab/pacto/v4/internal/ci"
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/orgindex"
 	"github.com/trianalab/pacto/v4/pkg/publish"
 )
 
@@ -769,5 +773,28 @@ func TestCIPublishUnchangedSuppliedImageNeedsNoImage(t *testing.T) {
 				t.Fatalf("%v row %+v", err, r)
 			}
 		})
+	}
+}
+
+func TestCIPublishWritesIndexEntries(t *testing.T) {
+	e := newCIPub(t)
+	ledgerReports(t, e, "^1")
+	e.svc.sys.refusalRepo = anonRepo
+	if p := e.ciPublish(t, nil); p.Exit != 0 {
+		t.Fatalf("plan %+v", p)
+	}
+	for _, name := range []string{"ledger", "reports"} {
+		tag, _ := orgindex.Tag(fleet.NewServiceKeyDomain(e.host+"/acme", name), "1.0.0")
+		if entry := readEntry(t, e.host+"/acme/pacto-index", tag); entry.Name != name {
+			t.Fatalf("entry %+v", entry)
+		}
+	}
+
+	failed := newCIPub(t)
+	ledgerReports(t, failed, "^1")
+	failed.svc.sys.refusalRepo = func(string) (*remote.Repository, error) { return nil, errors.New("denied") }
+	p := failed.ciPublish(t, nil)
+	if p.Exit != 0 || !slices.Equal(failed.records, []string{"ledger published false", "reports published false"}) {
+		t.Fatalf("a failed index write changed the run: exit %d records %v", p.Exit, failed.records)
 	}
 }

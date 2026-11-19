@@ -27,6 +27,7 @@ func newPushCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			ref := args[0]
 			path, _ := cmd.Flags().GetString("path")
 			force, _ := cmd.Flags().GetBool("force")
+			index, _ := cmd.Flags().GetString("index")
 			format := v.GetString(outputFormatKey)
 
 			start := time.Now()
@@ -35,6 +36,7 @@ func newPushCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 				Ref:       ref,
 				Path:      path,
 				Force:     force,
+				Index:     index,
 				Overrides: getOverrides(cmd),
 			})
 			if err != nil {
@@ -49,6 +51,7 @@ func newPushCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 
 	cmd.Flags().StringP("path", "p", "", "path to contract directory (default: current directory)")
 	cmd.Flags().BoolP("force", "f", false, "overwrite existing artifact in registry")
+	cmd.Flags().String("index", "", indexFlagUsage)
 
 	addOverrideFlagsNoShorthand(cmd)
 

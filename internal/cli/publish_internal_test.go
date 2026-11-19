@@ -313,9 +313,9 @@ func TestPublishPrintsIndexLine(t *testing.T) {
 	var got app.PublishOptions
 	res := &publish.Result{Plan: publishPlan(true), Actions: []string{"pushed bundle"}, Digests: map[string]string{},
 		Index: "indexed as reg/pacto-index:0123456789abcdef-1.0.0"}
-	out, stderr, err := runPublishErr(t, publishDeps(res, nil, &got))
+	out, stderr, err := runPublishErr(t, publishDeps(res, nil, &got), "--index", "reg/pacto-index")
 	wantRun(t, out, err, false, "Index: indexed as reg/pacto-index:0123456789abcdef-1.0.0")
-	expect(t, stderr == "", "stderr: %q", stderr)
+	expect(t, stderr == "" && got.Index == "reg/pacto-index", "stderr: %q index %q", stderr, got.Index)
 }
 
 func TestPublishPrintsIndexWarning(t *testing.T) {

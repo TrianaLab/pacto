@@ -301,13 +301,13 @@ func TestPushFromAnotherCommitIsUnchanged(t *testing.T) {
 	dir := completionFolder(t, `pactoVersion: "2.5"`+"\n")
 	writeGit(t, dir, map[string]string{"HEAD": commitA + "\n"})
 	var first *contract.Bundle
-	svc := NewService(&mockBundleStore{
+	svc := offlineService(&mockBundleStore{
 		ResolveFn: func(context.Context, string) (string, error) { return "", &oci.ArtifactNotFoundError{} },
 		PushFn: func(_ context.Context, _ string, b *contract.Bundle) (string, error) {
 			first = b
 			return oci.BundleDigest(b)
 		},
-	}, nil)
+	})
 	pushed, err := svc.Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/app", Path: dir})
 	if err != nil {
 		t.Fatal(err)
