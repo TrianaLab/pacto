@@ -2,6 +2,9 @@ package pactify
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +14,7 @@ import (
 	"reflect"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -116,8 +120,59 @@ func shopCluster(now time.Time) []runtime.Object {
 	}
 }
 
+// fakeCluster serves objs. Touching a Secret or a ConfigMap panics, so no
+// test of the cluster read can pass while it reads one.
 func fakeCluster(objs ...runtime.Object) *dynamicfake.FakeDynamicClient {
-	return dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), clusterLists, objs...)
+	cl := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), clusterLists, objs...)
+	for _, r := range []string{"secrets", "configmaps"} {
+		cl.PrependReactor("*", r, func(a k8stesting.Action) (bool, runtime.Object, error) {
+			panic("the cluster read touched " + a.GetResource().Resource)
+		})
+	}
+	return cl
+}
+
+// paged makes cl serve the lists of resource in one namespace page by page,
+// by Limit and Continue as an API server does, and returns the Limits asked
+// for. The fake drops both from a list of every namespace, which then gets
+// every item.
+func paged(cl *dynamicfake.FakeDynamicClient, resource string) *[]int64 {
+	limits := &[]int64{}
+	cl.PrependReactor("list", resource, func(a k8stesting.Action) (bool, runtime.Object, error) {
+		la := a.(k8stesting.ListActionImpl)
+		o, err := cl.Tracker().List(la.Resource, la.Kind, la.Namespace)
+		if err != nil {
+			return true, nil, err
+		}
+		l := o.(*unstructured.UnstructuredList)
+		slices.SortFunc(l.Items, func(a, b unstructured.Unstructured) int { return strings.Compare(a.GetName(), b.GetName()) })
+		from, _ := strconv.Atoi(la.ListOptions.Continue)
+		to := len(l.Items)
+		if n := int(la.ListOptions.Limit); n > 0 && from+n < to {
+			to = from + n
+			l.SetContinue(strconv.Itoa(to))
+		}
+		*limits = append(*limits, la.ListOptions.Limit)
+		l.Items = l.Items[from:to]
+		return true, l, nil
+	})
+	return limits
+}
+
+// failing makes every list of resource fail with err.
+func failing(cl *dynamicfake.FakeDynamicClient, resource string, err error) *dynamicfake.FakeDynamicClient {
+	cl.PrependReactor("list", resource, func(k8stesting.Action) (bool, runtime.Object, error) { return true, nil, err })
+	return cl
+}
+
+// coverage is the row of source in b.
+func coverage(t *testing.T, b *Bulk, source string) contract.InferredCoverage {
+	t.Helper()
+	i := slices.IndexFunc(b.Coverage, func(c contract.InferredCoverage) bool { return c.Source == source })
+	if i < 0 {
+		t.Fatalf("no coverage row for %s: %+v", source, b.Coverage)
+	}
+	return b.Coverage[i]
 }
 
 func result(t *testing.T, b *Bulk, name string) *Result {
@@ -346,17 +401,6 @@ func TestClusterRefusals(t *testing.T) {
 		if _, err := Cluster(ctx, fakeCluster(shopCluster(now)...), tc.opts, tc.c, nil); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%+v: %v", tc.opts, err)
 		}
-	}
-	for _, r := range []string{"deployments", "pods", "services", "replicasets", "noderuntimeobservations"} {
-		cl := fakeCluster(shopCluster(now)...)
-		cl.PrependReactor("list", r, func(k8stesting.Action) (bool, runtime.Object, error) { return true, nil, errors.New("boom") })
-		if _, err := Cluster(ctx, cl, Options{Plan: true}, c, nil); err == nil || !strings.Contains(err.Error(), "listing "+r+": boom") {
-			t.Errorf("%s: %v", r, err)
-		}
-	}
-	bad := obj("pacto.trianalab.io/v1alpha1", "NodeRuntimeObservation", "pacto-system", "node-2", map[string]any{"status": map[string]any{"surprise": true}})
-	if _, err := Cluster(ctx, fakeCluster(append(shopCluster(now), bad)...), Options{Plan: true}, c, nil); err == nil || !strings.Contains(err.Error(), "node-2") {
-		t.Errorf("bad observation: %v", err)
 	}
 	failing := func(string, []byte, os.FileMode) error { return errors.New("disk full") }
 	if _, err := Cluster(ctx, fakeCluster(shopCluster(now)...), Options{}, c, failing); err == nil || !strings.Contains(err.Error(), "disk full") {
@@ -696,7 +740,8 @@ func checkoutInferred(t *testing.T, canaryRef string) Inferred {
 func checkoutInferredPods(t *testing.T, canaryRef string, bothPods bool) Inferred {
 	t.Helper()
 	now := time.Now()
-	cl, err := readCluster(context.Background(), fakeCluster(twoPaymentServices(now, canaryRef, bothPods)...), []string{"shop"}, now)
+	cl, err := readCluster(context.Background(), fakeCluster(twoPaymentServices(now, canaryRef, bothPods)...),
+		ClusterOptions{Now: func() time.Time { return now }, MaxItems: DefaultMaxItems}, []string{"shop"}, cursor{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -810,5 +855,294 @@ func TestProviderUnreadPactoJoinsAgreement(t *testing.T) {
 	d = cl.provider(*service("shop", "payments", "10.0.0.20"))
 	if !slices.Equal(d.Versions, []string{"2.4.0"}) || !slices.Equal(d.Unknown, []string{"the version of shop/payments that Pacto shop/payments-v3 describes: its status and spec name no usable contract ref, so no range is proposed from it"}) {
 		t.Fatalf("provider: %+v", d)
+	}
+}
+
+// manyPods are n pods of checkout in shop.
+func manyPods(n int) []runtime.Object {
+	out := []runtime.Object{deployment("shop", "checkout", "reg.io/acme/checkout:1.4.0")}
+	for i := range n {
+		out = append(out, obj("v1", "Pod", "shop", fmt.Sprintf("checkout-%04d", i), nil))
+	}
+	return out
+}
+
+// TestReadClusterPagesWithLimitAndContinue: a source longer than a page is
+// read page by page, each asking for at most 500 and no more than the bound
+// leaves, until every item is read.
+func TestReadClusterPagesWithLimitAndContinue(t *testing.T) {
+	cl := fakeCluster(manyPods(1200)...)
+	limits := paged(cl, "pods")
+	b, err := Cluster(context.Background(), cl, Options{Plan: true}, ClusterOptions{Namespaces: []string{"shop"}, Out: t.TempDir(), MaxItems: 1200}, nil)
+	if err != nil || !slices.Equal(*limits, []int64{500, 500, 200}) || coverage(t, b, "pods").State != contract.CoverageComplete {
+		t.Fatalf("limits %v, coverage %+v: %v", *limits, b.Coverage, err)
+	}
+	read, err := readCluster(context.Background(), cl, ClusterOptions{Now: time.Now, MaxItems: 1200}, []string{"shop"}, cursor{})
+	if err != nil || len(read.pods) != 1200 {
+		t.Fatalf("read %d pods: %v", len(read.pods), err)
+	}
+}
+
+// TestReadClusterBoundStopsSourcePartial: a source with more items than the
+// bound keeps the bound's worth and reads partial, saying why.
+func TestReadClusterBoundStopsSourcePartial(t *testing.T) {
+	objs := []runtime.Object{deployment("shop", "checkout", "reg.io/acme/checkout:1.4.0")}
+	for i := range 400 {
+		objs = append(objs, service("shop", fmt.Sprintf("s-%03d", i), "10.0.0.1"))
+	}
+	cl := fakeCluster(objs...)
+	paged(cl, "services")
+	b, err := Cluster(context.Background(), cl, Options{Plan: true}, ClusterOptions{Out: t.TempDir(), MaxItems: 300}, nil)
+	want := contract.InferredCoverage{Source: "services", State: contract.CoveragePartial, Reason: "stopped at the item bound (300)"}
+	if err != nil || coverage(t, b, "services") != want || coverage(t, b, "workloads").State != contract.CoverageComplete {
+		t.Fatalf("coverage %+v: %v", b.Coverage, err)
+	}
+}
+
+// TestReadClusterKeepsGoingAfterListError: a source the reader may not list
+// fails with a reason and the read goes on, drafting every workload.
+func TestReadClusterKeepsGoingAfterListError(t *testing.T) {
+	now := time.Now()
+	cl := failing(fakeCluster(shopCluster(now)...), "endpointslices", apierrors.NewForbidden(schema.GroupResource{Resource: "endpointslices"}, "", errors.New("no")))
+	b, err := Cluster(context.Background(), cl, Options{Plan: true}, ClusterOptions{Out: t.TempDir(), Now: func() time.Time { return now }}, nil)
+	want := contract.InferredCoverage{Source: "endpointslices", State: contract.CoverageFailed, Reason: "forbidden"}
+	if err != nil || len(b.Results) != 4 || coverage(t, b, "endpointslices") != want {
+		t.Fatalf("drafts %d, coverage %+v: %v", len(b.Results), b.Coverage, err)
+	}
+}
+
+// TestReadClusterMissingCRDComplete: a Pacto CRD that is not installed is a
+// complete source with nothing in it, never a failure.
+func TestReadClusterMissingCRDComplete(t *testing.T) {
+	cl := failing(fakeCluster(deployment("shop", "checkout", "reg.io/acme/checkout:1.4.0")), "pactos", errNotFound("pactos"))
+	b, err := Cluster(context.Background(), cl, Options{Plan: true}, ClusterOptions{Out: t.TempDir()}, nil)
+	if err != nil || coverage(t, b, "pactos").State != contract.CoverageComplete ||
+		coverage(t, b, "runtime-calls") != (contract.InferredCoverage{Source: "runtime-calls", State: contract.CoverageFailed, Reason: "no node runtime observations"}) {
+		t.Fatalf("coverage %+v: %v", b.Coverage, err)
+	}
+}
+
+// listErrors are list errors and the coverage reason each gives.
+var listErrors = []struct {
+	err  error
+	want string
+}{
+	{apierrors.NewForbidden(schema.GroupResource{Resource: "services"}, "", errors.New("no")), "forbidden"},
+	{apierrors.NewNotFound(schema.GroupResource{Resource: "services"}, ""), "not found"},
+	{apierrors.NewTimeoutError("slow", 1), "timed out"},
+	{apierrors.NewServerTimeout(schema.GroupResource{Resource: "services"}, "list", 1), "timed out"},
+	{apierrors.NewResourceExpired("too old"), "the continue token expired"},
+	{apierrors.NewInternalError(errors.New("shop/vault is down")), "listing failed (500)"},
+	{apierrors.NewTooManyRequests("slow down", 1), "listing failed (429)"},
+	{errors.New("dial tcp 10.0.0.1:443: connection refused"), "listing failed (no response)"},
+}
+
+// TestReadClusterTimeoutReason: a list that times out, on either side,
+// fails its source as timed out; every other error has its own reason.
+func TestReadClusterTimeoutReason(t *testing.T) {
+	now := time.Now()
+	for _, tc := range listErrors {
+		cl := failing(fakeCluster(shopCluster(now)...), "services", tc.err)
+		b, err := Cluster(context.Background(), cl, Options{Plan: true}, ClusterOptions{Out: t.TempDir(), Now: func() time.Time { return now }}, nil)
+		if err != nil || coverage(t, b, "services") != (contract.InferredCoverage{Source: "services", State: contract.CoverageFailed, Reason: tc.want}) {
+			t.Errorf("%v: %+v %v", tc.err, b.Coverage, err)
+		}
+	}
+}
+
+// TestCoverageReasonsNameNothing: every reason is one of the fixed
+// templates, so no API server error text, and no name in it, reaches a row.
+func TestCoverageReasonsNameNothing(t *testing.T) {
+	template := regexp.MustCompile(`^(stopped at the item bound \([0-9]+\)|forbidden|not found|timed out|the continue token expired|` +
+		`listing failed \(([0-9]{3}|malformed observation|no response)\)|no node runtime observations)$`)
+	for _, tc := range listErrors {
+		if got := failure(tc.err); !template.MatchString(got) || strings.Contains(got, "shop") || strings.Contains(got, "10.0.0.1") {
+			t.Errorf("%v: %q", tc.err, got)
+		}
+	}
+	rec := contract.InferredRecord{Format: contract.InferredRecordFormat, Fields: []contract.Inferred{},
+		Inputs:   contract.InferredInputs{Cluster: &contract.InferredClusterInput{AsOf: "2026-11-14T10:02:00Z", Object: "shop/Deployment/checkout", CallWindow: "24h"}},
+		Coverage: []contract.InferredCoverage{{Source: "services", State: contract.CoverageFailed, Reason: failure(errors.New("x"))}}}
+	if _, err := contract.ParseInferredRecord(rec.Marshal()); err != nil {
+		t.Fatalf("the record refuses the reason: %v", err)
+	}
+}
+
+// TestReadClusterMalformedObservation: an observation that cannot be read
+// fails the runtime calls and is skipped; the others are still read.
+func TestReadClusterMalformedObservation(t *testing.T) {
+	now := time.Now()
+	bad := obj("pacto.trianalab.io/v1alpha1", "NodeRuntimeObservation", "pacto-system", "node-2", map[string]any{"status": map[string]any{"surprise": true}})
+	b, err := Cluster(context.Background(), fakeCluster(append(shopCluster(now), bad)...), Options{Plan: true},
+		ClusterOptions{Namespaces: []string{"shop"}, Out: t.TempDir(), Now: func() time.Time { return now }}, nil)
+	want := contract.InferredCoverage{Source: "runtime-calls", State: contract.CoverageFailed, Reason: "listing failed (malformed observation)"}
+	if err != nil || coverage(t, b, "runtime-calls") != want || len(result(t, b, "checkout").Dependencies) == 0 {
+		t.Fatalf("coverage %+v: %v", b.Coverage, err)
+	}
+}
+
+// TestClusterAllWorkloadsFailedErrors: with no workload read at all the read
+// fails, and still says how far it got.
+func TestClusterAllWorkloadsFailedErrors(t *testing.T) {
+	cl := fakeCluster(shopCluster(time.Now())...)
+	for _, r := range []string{"deployments", "statefulsets", "daemonsets", "cronjobs"} {
+		failing(cl, r, errors.New("boom"))
+	}
+	b, err := Cluster(context.Background(), cl, Options{Plan: true}, ClusterOptions{Out: t.TempDir()}, nil)
+	if err == nil || !strings.Contains(err.Error(), "listing deployments: boom") || b == nil || len(b.Results) != 0 ||
+		coverage(t, b, "workloads").State != contract.CoverageFailed || coverage(t, b, "services").State != contract.CoverageComplete {
+		t.Fatalf("%+v: %v", b, err)
+	}
+}
+
+// fiveDeployments are a1, a2 and a3 in a and b1 and b2 in b, served page by
+// page.
+func fiveDeployments() *dynamicfake.FakeDynamicClient {
+	cl := fakeCluster(deployment("a", "a1", "x:1"), deployment("a", "a2", "x:1"), deployment("a", "a3", "x:1"),
+		deployment("b", "b1", "x:1"), deployment("b", "b2", "x:1"))
+	paged(cl, "deployments")
+	return cl
+}
+
+// drafted are the services b drafted.
+func drafted(b *Bulk) []string {
+	var out []string
+	for _, r := range b.Results {
+		out = append(out, r.Service)
+	}
+	return out
+}
+
+// TestClusterContinueResumes: a read the workload bound stopped drafts what
+// it read and returns a token; each run with the token drafts the next
+// workloads, and the last returns none.
+func TestClusterContinueResumes(t *testing.T) {
+	c := ClusterOptions{Namespaces: []string{"b", "a"}, Out: t.TempDir(), MaxItems: 2}
+	for _, want := range [][]string{{"a1", "a2"}, {"a3", "b1"}, {"b2"}} {
+		b, err := Cluster(context.Background(), fiveDeployments(), Options{Plan: true}, c, nil)
+		if err != nil || !slices.Equal(drafted(b), want) {
+			t.Fatalf("from %q: %v, want %v: %v %+v", c.Continue, drafted(b), want, err, b.Coverage)
+		}
+		last := slices.Equal(want, []string{"b2"})
+		if state := coverage(t, b, "workloads"); last != (b.Continue == "") ||
+			!last && state != (contract.InferredCoverage{Source: "workloads", State: contract.CoveragePartial, Reason: "stopped at the item bound (2)"}) {
+			t.Fatalf("after %v: token %q, %+v", want, b.Continue, state)
+		}
+		c.Continue = b.Continue
+	}
+}
+
+// TestClusterContinueOtherNamespacesRefused: a token is refused, before any
+// read, for another namespace list than the one it was made for.
+func TestClusterContinueOtherNamespacesRefused(t *testing.T) {
+	b, err := Cluster(context.Background(), fiveDeployments(), Options{Plan: true}, ClusterOptions{Namespaces: []string{"a", "b"}, Out: t.TempDir(), MaxItems: 2}, nil)
+	if err != nil || b.Continue == "" {
+		t.Fatalf("%+v: %v", b, err)
+	}
+	cl := fiveDeployments()
+	_, err = Cluster(context.Background(), cl, Options{Plan: true}, ClusterOptions{Namespaces: []string{"a"}, Out: t.TempDir(), Continue: b.Continue}, nil)
+	if err == nil || err.Error() != "the continue token was made for other namespaces: run again without --continue" || len(cl.Actions()) != 0 {
+		t.Fatalf("%v, %d reads", err, len(cl.Actions()))
+	}
+}
+
+// TestClusterContinueExpired: an API continue the server no longer holds
+// fails the workloads, saying so.
+func TestClusterContinueExpired(t *testing.T) {
+	c := ClusterOptions{Namespaces: []string{"a", "b"}, Out: t.TempDir(), MaxItems: 2}
+	b, err := Cluster(context.Background(), fiveDeployments(), Options{Plan: true}, c, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cl := fiveDeployments()
+	cl.PrependReactor("list", "deployments", func(a k8stesting.Action) (bool, runtime.Object, error) {
+		return a.(k8stesting.ListActionImpl).ListOptions.Continue != "", nil, apierrors.NewResourceExpired("too old")
+	})
+	c.Continue = b.Continue
+	b, _ = Cluster(context.Background(), cl, Options{Plan: true}, c, nil)
+	if got := coverage(t, b, "workloads"); got != (contract.InferredCoverage{Source: "workloads", State: contract.CoverageFailed, Reason: "the continue token expired"}) {
+		t.Fatalf("%+v", got)
+	}
+}
+
+// TestClusterContinueMalformed: a token that is not one, or points past the
+// namespaces or kinds, is refused.
+func TestClusterContinueMalformed(t *testing.T) {
+	sum := sha256.Sum256([]byte("a"))
+	for _, token := range []string{"!!", base64.RawURLEncoding.EncodeToString([]byte("{")),
+		encodeContinue(cursor{N: hex.EncodeToString(sum[:]), I: 1}), encodeContinue(cursor{N: hex.EncodeToString(sum[:]), K: 4})} {
+		_, err := Cluster(context.Background(), fiveDeployments(), Options{Plan: true}, ClusterOptions{Namespaces: []string{"a"}, Out: t.TempDir(), Continue: token}, nil)
+		if err == nil || !strings.Contains(err.Error(), "the continue token is malformed") {
+			t.Errorf("%q: %v", token, err)
+		}
+	}
+}
+
+// TestClusterCallWindowConfigurable: a call older than the default window
+// counts once the window is wide enough.
+func TestClusterCallWindowConfigurable(t *testing.T) {
+	now := time.Now()
+	objs := []runtime.Object{
+		deployment("shop", "checkout", "reg.io/acme/checkout:1.4.0"), service("shop", "payments", "10.0.0.20"),
+		controlled(obj("v1", "Pod", "shop", "checkout-0", nil), "Deployment", "checkout", "u-checkout"),
+		obj("pacto.trianalab.io/v1alpha1", "NodeRuntimeObservation", "pacto-system", "node-1", map[string]any{"status": map[string]any{
+			"nodeName": "node-1", "pods": []any{map[string]any{"uid": "u-checkout", "connections": []any{map[string]any{
+				"address": "10.0.0.20", "port": int64(80), "successes": int64(1), "lastSuccessAt": now.Add(-30 * time.Hour).UTC().Format(time.RFC3339)}}}}}}),
+	}
+	for window, want := range map[time.Duration]int{0: 0, 48 * time.Hour: 1} {
+		c := ClusterOptions{Out: t.TempDir(), Now: func() time.Time { return now }, CallWindow: window}
+		b, err := Cluster(context.Background(), fakeCluster(objs...), Options{Plan: true}, c, nil)
+		if err != nil || len(result(t, b, "checkout").Dependencies) != want {
+			t.Errorf("window %v: %+v %v", window, b, err)
+		}
+	}
+}
+
+// TestClusterOptionRefusals: a negative bound and a window under a minute
+// are refused.
+func TestClusterOptionRefusals(t *testing.T) {
+	for _, tc := range []struct {
+		c    ClusterOptions
+		want string
+	}{
+		{ClusterOptions{MaxItems: -1}, "--max-items"},
+		{ClusterOptions{CallWindow: 10 * time.Second}, "--call-window"},
+		{ClusterOptions{CallWindow: -time.Hour}, "--call-window"},
+	} {
+		tc.c.Out = t.TempDir()
+		if _, err := Cluster(context.Background(), fakeCluster(), Options{Plan: true}, tc.c, nil); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%+v: %v", tc.c, err)
+		}
+	}
+}
+
+// TestClusterReadsNoSecrets: the cluster read lists and gets no Secret and no
+// ConfigMap, over every fixture of this file's reads.
+func TestClusterReadsNoSecrets(t *testing.T) {
+	now := time.Now()
+	for _, objs := range [][]runtime.Object{shopCluster(now), secretShop(), manyPods(3)} {
+		cl := fakeCluster(objs...)
+		if _, err := Cluster(context.Background(), cl, Options{Plan: true}, ClusterOptions{Out: t.TempDir(), Now: func() time.Time { return now }}, nil); err != nil {
+			t.Fatal(err)
+		}
+		for _, a := range cl.Actions() {
+			if r := a.GetResource().Resource; r == "secrets" || r == "configmaps" || a.GetVerb() != "list" {
+				t.Errorf("the read did %s %s", a.GetVerb(), r)
+			}
+		}
+	}
+}
+
+// TestManyHasNoCoverageKey: several folders read no cluster, so their JSON
+// carries no coverage and no continue token.
+func TestManyHasNoCoverageKey(t *testing.T) {
+	a, b := fraudDir(t), writeTree(t, t.TempDir(), map[string]string{"x/Dockerfile": "FROM scratch\n"})
+	bulk, err := Many(context.Background(), Options{Plan: true}, []string{a, b}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(bulk)
+	if strings.Contains(string(raw), `"coverage"`) || strings.Contains(string(raw), `"continue"`) {
+		t.Fatalf("%s", raw)
 	}
 }

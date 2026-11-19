@@ -219,7 +219,7 @@ var (
 	// coverageReasonRE is every fixed coverage reason: none names a
 	// namespace or an object, so a viewer never learns a hidden name.
 	coverageReasonRE = regexp.MustCompile(`^(stopped at the item bound \([0-9]+\)|forbidden|not found|timed out|the continue token expired|` +
-		`listing failed \(([0-9]{3}|malformed observation)\)|[0-9]+ of [0-9]+ nodes observed|no node runtime observations|[0-9]+ called services you may not read)$`)
+		`listing failed \(([0-9]{3}|malformed observation|no response)\)|[0-9]+ of [0-9]+ nodes observed|no node runtime observations|[0-9]+ called services you may not read)$`)
 )
 
 // InferredSourceFile is one file a record cites, with its sha256: a bundle

@@ -3,6 +3,9 @@ package pactify
 import (
 	"cmp"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,6 +28,7 @@ import (
 	"github.com/trianalab/pacto/v4/internal/discover"
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
 	"github.com/trianalab/pacto/v4/internal/runtimewatch/kubesink"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/runtimefacts"
 )
 
@@ -37,18 +41,36 @@ type ClusterOptions struct {
 	Out string
 	// Now is the clock calls are judged against; nil is time.Now.
 	Now func() time.Time
+	// MaxItems bounds how many items each source reads; 0 is
+	// DefaultMaxItems. A source stopped by it reads partial.
+	MaxItems int
+	// CallWindow is how far back a call counts as a dependency; 0 is
+	// DefaultCallWindow.
+	CallWindow time.Duration
+	// Continue resumes a read the workload bound stopped, from the token
+	// that read returned in Bulk.Continue.
+	Continue string
+	// Visible says which namespaces the person the read runs for may read;
+	// nil means the API server already authorized the caller's credentials.
+	Visible func(namespace string) bool
 }
+
+// The defaults of ClusterOptions.
+const (
+	DefaultMaxItems   = 10000
+	DefaultCallWindow = 24 * time.Hour
+)
 
 // Bulk is what pacto init did to several services.
 type Bulk struct {
 	Results []*Result `json:"results"`
 	// Skipped are the workloads a Pacto already describes, as ns/Kind/name.
 	Skipped []string `json:"skipped"`
+	// Coverage is how completely a cluster read saw each source.
+	Coverage []contract.InferredCoverage `json:"coverage,omitempty"`
+	// Continue resumes a cluster read the workload bound stopped.
+	Continue string `json:"continue,omitempty"`
 }
-
-// callWindow is how far back a call counts as a dependency.
-// ponytail: fixed; take the observer's dependency window if drafts need to match it.
-const callWindow = 24 * time.Hour
 
 func gvr(group, version, resource string) schema.GroupVersionResource {
 	return schema.GroupVersionResource{Group: group, Version: version, Resource: resource}
@@ -74,6 +96,10 @@ type cluster struct {
 	// nodes maps a node name to its observation.
 	nodes map[string]*runtimefacts.Snapshot
 	now   time.Time
+	// coverage is how completely each source was read, by source.
+	coverage map[string]contract.InferredCoverage
+	// cont resumes the read when the workload bound stopped it.
+	cont string
 }
 
 // Cluster drafts a contract for every workload in the namespaces that no
@@ -91,13 +117,29 @@ func Cluster(ctx context.Context, dyn dynamic.Interface, base Options, c Cluster
 	if c.Now == nil {
 		c.Now = time.Now
 	}
-	cl, err := readCluster(ctx, dyn, c.Namespaces, c.Now())
+	c.MaxItems, c.CallWindow = cmp.Or(c.MaxItems, DefaultMaxItems), cmp.Or(c.CallWindow, DefaultCallWindow)
+	switch {
+	case c.MaxItems < 0:
+		return nil, errors.New("the item bound (--max-items) must be positive")
+	case c.CallWindow < time.Minute:
+		return nil, errors.New("the call window (--call-window) must be at least a minute")
+	}
+	nss := slices.Compact(slices.Sorted(slices.Values(c.Namespaces)))
+	if len(nss) == 0 {
+		nss = []string{metav1.NamespaceAll}
+	}
+	cur, err := decodeContinue(c.Continue, nss)
 	if err != nil {
 		return nil, err
 	}
-	deps := cl.inferred(c.Now().Add(-callWindow))
+	cl, err := readCluster(ctx, dyn, c, nss, cur)
+	b := &Bulk{Results: []*Result{}, Skipped: []string{}, Coverage: cl.rows(), Continue: cl.cont}
+	if err != nil {
+		return b, err
+	}
+	since := c.Now().Add(-c.CallWindow)
+	deps := cl.inferred(since)
 	described := cl.described()
-	b := &Bulk{Results: []*Result{}, Skipped: []string{}}
 	var errs []error
 	for _, w := range cl.workloads {
 		ns, name := w.GetNamespace(), w.GetName()
@@ -170,70 +212,83 @@ func (cl *cluster) draft(ctx context.Context, w unstructured.Unstructured, base 
 	return r, err
 }
 
-// readNamespace reads one namespace's workloads, pods and the owners of
-// their ReplicaSets and Jobs.
-func (cl *cluster) readNamespace(list func(schema.GroupVersionResource, string, bool) ([]unstructured.Unstructured, error), ns string) error {
-	for _, k := range []string{"Deployment", "StatefulSet", "DaemonSet", "CronJob"} {
-		items, err := list(k8sclient.WorkloadGVRs[k], ns, false)
-		if err != nil {
-			return err
-		}
-		cl.workloads = append(cl.workloads, items...)
-	}
-	items, err := list(gvrPods, ns, false)
-	if err != nil {
-		return err
-	}
-	cl.pods = append(cl.pods, items...)
-	for _, r := range []schema.GroupVersionResource{gvrReplicaSets, gvrJobs} {
-		items, err := list(r, ns, false)
-		if err != nil {
-			return err
-		}
+// readNamespace reads one namespace's pods and the owners of its
+// ReplicaSets and Jobs, each source up to its bound.
+func (cl *cluster) readNamespace(rd *reader, ns string) {
+	pods, _, _, _ := rd.page(gvrPods, ns, "pods", false, "")
+	cl.pods = append(cl.pods, pods...)
+	for _, s := range []struct {
+		r      schema.GroupVersionResource
+		source string
+	}{{gvrReplicaSets, "replicasets"}, {gvrJobs, "jobs"}} {
+		items, _, _, _ := rd.page(s.r, ns, s.source, false, "")
 		for _, o := range items {
 			if ref := metav1.GetControllerOf(&o); ref != nil {
 				cl.owners[o.GetNamespace()+"/"+o.GetKind()+"/"+o.GetName()] = o.GetNamespace() + "/" + ref.Kind + "/" + ref.Name
 			}
 		}
 	}
+}
+
+// readWorkloads reads the workloads of nss from cur, each kind of each
+// namespace in turn, until the end or the workload bound. Stopped by the
+// bound, it keeps where to resume in cl.cont. It returns the error of a
+// workload list when none succeeded.
+func (cl *cluster) readWorkloads(rd *reader, nss []string, cur cursor) error {
+	var first error
+	read := false
+	tok := cur.C
+	for i := cur.I; i < len(nss); i++ {
+		for k := cur.K; k < len(workloadKinds); k++ {
+			items, next, more, err := rd.page(k8sclient.WorkloadGVRs[workloadKinds[k]], nss[i], "workloads", false, tok)
+			tok = ""
+			cl.workloads = append(cl.workloads, items...)
+			if more {
+				cl.cont = encodeContinue(cursor{N: cur.N, I: i, K: k, C: next})
+				return nil
+			}
+			if err != nil {
+				first = cmp.Or(first, err)
+				continue
+			}
+			read = true
+		}
+		cur.K = 0
+	}
+	if !read {
+		return first
+	}
 	return nil
 }
 
-// readObservations reads the node runtime observations' snapshots.
-func (cl *cluster) readObservations(nros []unstructured.Unstructured) error {
+// workloadKinds are the workload kinds read, in the order a continue token
+// counts them.
+var workloadKinds = []string{"Deployment", "StatefulSet", "DaemonSet", "CronJob"}
+
+// readObservations reads the node runtime observations' snapshots. A
+// malformed one is skipped and fails the runtime-calls source.
+func (cl *cluster) readObservations(rd *reader, nros []unstructured.Unstructured) {
 	for _, n := range nros {
 		raw, _ := json.Marshal(n.Object["status"])
 		var s runtimefacts.Snapshot
 		if err := json.Unmarshal(raw, &s); err != nil {
-			return fmt.Errorf("reading the node runtime observation %s: %w", n.GetName(), err)
+			rd.mark("runtime-calls", contract.CoverageFailed, "listing failed (malformed observation)")
+			continue
 		}
 		cl.snaps = append(cl.snaps, s)
 	}
 	for i := range cl.snaps {
 		cl.nodes[cl.snaps[i].NodeName] = &cl.snaps[i]
 	}
-	return nil
 }
 
-func readCluster(ctx context.Context, dyn dynamic.Interface, namespaces []string, now time.Time) (*cluster, error) {
-	if len(namespaces) == 0 {
-		namespaces = []string{metav1.NamespaceAll}
-	}
-	cl := &cluster{owners: map[string]string{}, nodes: map[string]*runtimefacts.Snapshot{}, now: now}
-	list := func(r schema.GroupVersionResource, ns string, optional bool) ([]unstructured.Unstructured, error) {
-		l, err := dyn.Resource(r).Namespace(ns).List(ctx, metav1.ListOptions{})
-		if optional && apierrors.IsNotFound(err) {
-			return nil, nil // the CRD is not installed
-		}
-		if err != nil {
-			return nil, fmt.Errorf("listing %s: %w", r.Resource, err)
-		}
-		return l.Items, nil
-	}
-	for _, ns := range namespaces {
-		if err := cl.readNamespace(list, ns); err != nil {
-			return nil, err
-		}
+func readCluster(ctx context.Context, dyn dynamic.Interface, c ClusterOptions, nss []string, cur cursor) (*cluster, error) {
+	cl := &cluster{owners: map[string]string{}, nodes: map[string]*runtimefacts.Snapshot{}, now: c.Now()}
+	rd := &reader{ctx: ctx, dyn: dyn, max: c.MaxItems, count: map[string]int{}, coverage: map[string]contract.InferredCoverage{}}
+	cl.coverage = rd.coverage
+	err := cl.readWorkloads(rd, nss, cur)
+	for _, ns := range nss {
+		cl.readNamespace(rd, ns)
 	}
 	sort.Slice(cl.workloads, func(i, j int) bool { return key(cl.workloads[i]) < key(cl.workloads[j]) })
 	// Services, their endpoints and Pactos are read in every namespace: a pod
@@ -241,24 +296,143 @@ func readCluster(ctx context.Context, dyn dynamic.Interface, namespaces []string
 	// namespaces asked for.
 	for _, into := range []struct {
 		r        schema.GroupVersionResource
+		source   string
 		to       *[]unstructured.Unstructured
 		optional bool
-	}{{gvrServices, &cl.services, false}, {gvrEndpointSlices, &cl.slices, false}, {k8sclient.PactosGVR, &cl.pactos, true}} {
-		items, err := list(into.r, metav1.NamespaceAll, into.optional)
-		if err != nil {
-			return nil, err
-		}
-		*into.to = items
+	}{{gvrServices, "services", &cl.services, false}, {gvrEndpointSlices, "endpointslices", &cl.slices, false},
+		{k8sclient.PactosGVR, "pactos", &cl.pactos, true}} {
+		*into.to, _, _, _ = rd.page(into.r, metav1.NamespaceAll, into.source, into.optional, "")
 	}
-	nros, err := list(kubesink.GVR, metav1.NamespaceAll, true)
-	if err != nil {
-		return nil, err
-	}
-	if err := cl.readObservations(nros); err != nil {
-		return nil, err
-	}
+	nros, _, _, _ := rd.page(kubesink.GVR, metav1.NamespaceAll, "runtime-calls", true, "")
+	cl.readObservations(rd, nros)
 	cl.observed = len(cl.snaps) > 0
-	return cl, nil
+	if !cl.observed {
+		rd.mark("runtime-calls", contract.CoverageFailed, "no node runtime observations")
+	}
+	return cl, err
+}
+
+// reader lists sources page by page, each up to its bound, and keeps how
+// completely it saw each source.
+type reader struct {
+	ctx      context.Context
+	dyn      dynamic.Interface
+	max      int
+	count    map[string]int
+	coverage map[string]contract.InferredCoverage
+}
+
+// page lists r in ns from the API continue tok, counting toward source's
+// bound, until the list ends or the bound is reached. more is true when the
+// bound stopped it before the list ended (or before it started), with next
+// the API continue to resume from. A list error fails the source and is
+// returned; a missing optional CRD is no error and no rows.
+// ponytail: one bound per source; a per-namespace bound if one namespace starves the rest.
+func (rd *reader) page(r schema.GroupVersionResource, ns, source string, optional bool, tok string) ([]unstructured.Unstructured, string, bool, error) {
+	var items []unstructured.Unstructured
+	for {
+		left := rd.max - rd.count[source]
+		if left <= 0 {
+			rd.mark(source, contract.CoveragePartial, fmt.Sprintf("stopped at the item bound (%d)", rd.max))
+			return items, tok, true, nil
+		}
+		l, err := rd.dyn.Resource(r).Namespace(ns).List(rd.ctx, metav1.ListOptions{Limit: int64(min(500, left)), Continue: tok})
+		switch {
+		case optional && apierrors.IsNotFound(err):
+			return items, "", false, nil // the CRD is not installed
+		case err != nil:
+			rd.mark(source, contract.CoverageFailed, failure(err))
+			return items, "", false, fmt.Errorf("listing %s: %w", r.Resource, err)
+		}
+		got := l.Items
+		tok = l.GetContinue()
+		if len(got) > left { // ponytail: only a server ignoring Limit sends more; resuming then re-reads this list
+			got = got[:left]
+			rd.mark(source, contract.CoveragePartial, fmt.Sprintf("stopped at the item bound (%d)", rd.max))
+			rd.count[source] += len(got)
+			return append(items, got...), tok, true, nil
+		}
+		rd.count[source] += len(got)
+		items = append(items, got...)
+		if tok == "" {
+			return items, "", false, nil
+		}
+	}
+}
+
+// mark records state for source unless a worse one is already recorded:
+// failed outranks partial, which outranks complete.
+func (rd *reader) mark(source, state, reason string) {
+	rank := map[string]int{contract.CoverageComplete: 0, contract.CoveragePartial: 1, contract.CoverageFailed: 2}
+	if old, ok := rd.coverage[source]; ok && rank[old.State] >= rank[state] {
+		return
+	}
+	rd.coverage[source] = contract.InferredCoverage{Source: source, State: state, Reason: reason}
+}
+
+// rows are the coverage rows in contract.CoverageSources order, a source
+// with no row being complete.
+func (cl *cluster) rows() []contract.InferredCoverage {
+	out := make([]contract.InferredCoverage, 0, len(contract.CoverageSources))
+	for _, s := range contract.CoverageSources {
+		out = append(out, cmp.Or(cl.coverage[s], contract.InferredCoverage{Source: s, State: contract.CoverageComplete}))
+	}
+	return out
+}
+
+// failure is the fixed coverage reason for a list error: none names an
+// object, since an API server error text may.
+func failure(err error) string {
+	var status apierrors.APIStatus
+	switch {
+	case apierrors.IsForbidden(err):
+		return "forbidden"
+	case apierrors.IsNotFound(err):
+		return "not found"
+	case apierrors.IsTimeout(err) || apierrors.IsServerTimeout(err):
+		return "timed out"
+	case apierrors.IsResourceExpired(err):
+		return "the continue token expired"
+	case errors.As(err, &status) && status.Status().Code >= 100 && status.Status().Code <= 599:
+		return fmt.Sprintf("listing failed (%d)", status.Status().Code)
+	}
+	return "listing failed (no response)"
+}
+
+// cursor is where a read stopped by the workload bound resumes: the
+// sha256 of the sorted namespace list, the namespace and workload kind
+// indexes and the API continue.
+type cursor struct {
+	N string `json:"n"`
+	I int    `json:"i"`
+	K int    `json:"k"`
+	C string `json:"c,omitempty"`
+}
+
+func encodeContinue(c cursor) string {
+	raw, _ := json.Marshal(c)
+	return base64.RawURLEncoding.EncodeToString(raw)
+}
+
+// decodeContinue reads token for a read of nss; "" starts at the beginning.
+func decodeContinue(token string, nss []string) (cursor, error) {
+	sum := sha256.Sum256([]byte(strings.Join(nss, "\n")))
+	c := cursor{N: hex.EncodeToString(sum[:])}
+	if token == "" {
+		return c, nil
+	}
+	var got cursor
+	raw, err := base64.RawURLEncoding.DecodeString(token)
+	if err == nil {
+		err = json.Unmarshal(raw, &got)
+	}
+	switch {
+	case err != nil || got.I < 0 || got.I >= len(nss) || got.K < 0 || got.K >= len(workloadKinds):
+		return c, errors.New("the continue token is malformed: run again without --continue")
+	case got.N != c.N:
+		return c, errors.New("the continue token was made for other namespaces: run again without --continue")
+	}
+	return got, nil
 }
 
 // unobserved are the Unknown lines, sorted, for the pods of w whose calls
