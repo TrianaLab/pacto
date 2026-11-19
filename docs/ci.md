@@ -195,7 +195,10 @@ newest ([how](impact-consumers.md#consumers-from-the-organization-index)):
 Consumers: 41 from ghcr.io/acme/pacto-index (listed by tag, complete)
 ```
 
-`--root` replaces the index for that run and `--index none` reads none.
+`--root` replaces the index for that run and `--index none` reads none. With
+`--publish`, `--index` also names where the run writes its entries, and
+`--index none` writes none. A run that finds a version already published
+writes its missing entry, and an entry it cannot write is a note on its row.
 
 An entry exposes the service name, version, bundle reference and every
 dependency reference of each published service. On GitHub the first publish

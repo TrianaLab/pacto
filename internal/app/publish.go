@@ -155,10 +155,11 @@ func (s *Service) Publish(ctx context.Context, opts PublishOptions) (*publish.Re
 	}
 	reg := env.publishRegistry()
 	tools := newExecTools(path, env.run, reg)
-	b, done, dv, err := versioned(ctx, env.run, reg, tools, path, b, pub, d, revision, inputs, opts.unchanged)
+	vb, done, dv, err := versioned(ctx, env.run, reg, tools, path, b, pub, d, revision, inputs, opts.unchanged)
 	if err != nil || done != nil {
-		return done, err
+		return s.alreadyPublished(ctx, tools, b, pub, done, err, opts)
 	}
+	b = vb
 	in.Bundle, c, fsys = b, b.Contract, b.FS
 	notes := append(d.notes, dv.Notes...)
 	in.Checks = append(publishChecks(d), validationCheck(s.guaranteeStage(ctx, path, c)),
@@ -188,9 +189,28 @@ func (s *Service) readBackAndIndex(ctx context.Context, reg publish.Registry, to
 	if err := readBack(ctx, reg, res); err != nil {
 		return err
 	}
-	_, policy, _ := tools.signing(ctx, publish.SignOf(pub))
-	res.Index = s.keepIndexEntry(ctx, b, publish.Repo(pub.Bundle)+":"+res.Plan.Version, res.Digests[publish.BundleItem], publisherOf(policy), override)
+	s.indexVersion(ctx, tools, b, pub, res, override)
 	return nil
+}
+
+// alreadyPublished is done, a version found already published, with its
+// organization index entry written unless err or opts.Plan: re-running a
+// publish backfills a missing entry.
+func (s *Service) alreadyPublished(ctx context.Context, tools execTools, b *contract.Bundle, pub *contract.Publish, done *publish.Result, err error, opts PublishOptions) (*publish.Result, error) {
+	if err == nil && !opts.Plan {
+		s.indexVersion(ctx, tools, b, pub, done, opts.Index)
+	}
+	return done, err
+}
+
+// indexVersion writes the organization index entry of res's version into
+// res.Index, from b at that version with the effective publish section pub,
+// claiming the policy that signed it.
+func (s *Service) indexVersion(ctx context.Context, tools execTools, b *contract.Bundle, pub *contract.Publish, res *publish.Result, override string) {
+	c := *b.Contract
+	c.Service.Version = res.Plan.Version // an unchanged derived version is not pinned in b
+	_, policy, _ := tools.signing(ctx, publish.SignOf(pub))
+	res.Index = s.keepIndexEntry(ctx, &contract.Bundle{Contract: &c}, publish.Repo(pub.Bundle)+":"+res.Plan.Version, res.Digests[publish.BundleItem], publisherOf(policy), override)
 }
 
 // publishedBundle is the bundle Publish publishes, validated and made

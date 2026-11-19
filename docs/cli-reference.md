@@ -205,7 +205,7 @@ pacto ci [root] [flags]
       --freshness duration                 mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]                  help for ci
       --image stringArray                  with --publish: the image <service> deploys, pinned by digest, as <service>=<repo>@sha256:...; Pacto builds, signs and copies none. A bare <repo>@sha256:... needs exactly one changed service
-      --index string                       organization index pacto impact and pacto ci read consumers from (default <registry>/pacto-index from the provider reference; none reads none; skipped when --root names the consumers; other fleet commands ignore it)
+      --index string                       organization index pacto impact and pacto ci read consumers from (default <registry>/pacto-index from the provider reference; none reads none; skipped when --root names the consumers; pacto ci --publish also writes its entries there; other fleet commands ignore it)
       --k8s[=true|false]                   include live Pacto CRs from the current Kubernetes cluster as targets
       --local stringArray                  local bundle root(s) to scan (repeatable) (default [.])
       --mira-source stringArray            base URL of a Mira node whose service map supplies observed calls between services (repeatable)
@@ -1179,7 +1179,7 @@ pacto export backstage [flags]
       --fingerprints string           a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers
       --freshness duration            mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]             help for backstage
-      --index string                  organization index pacto impact and pacto ci read consumers from (default <registry>/pacto-index from the provider reference; none reads none; skipped when --root names the consumers; other fleet commands ignore it)
+      --index string                  organization index pacto impact and pacto ci read consumers from (default <registry>/pacto-index from the provider reference; none reads none; skipped when --root names the consumers; pacto ci --publish also writes its entries there; other fleet commands ignore it)
       --k8s[=true|false]              include live Pacto CRs from the current Kubernetes cluster as targets
       --local stringArray             local bundle root(s) to scan (repeatable; none unless set)
       --mira-source stringArray       base URL of a Mira node whose service map supplies observed calls between services (repeatable)
@@ -1213,7 +1213,7 @@ pacto fleet [flags]
       --fingerprints string           a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers
       --freshness duration            mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]             help for fleet
-      --index string                  organization index pacto impact and pacto ci read consumers from (default <registry>/pacto-index from the provider reference; none reads none; skipped when --root names the consumers; other fleet commands ignore it)
+      --index string                  organization index pacto impact and pacto ci read consumers from (default <registry>/pacto-index from the provider reference; none reads none; skipped when --root names the consumers; pacto ci --publish also writes its entries there; other fleet commands ignore it)
       --k8s[=true|false]              include live Pacto CRs from the current Kubernetes cluster as targets
       --local stringArray             local bundle root(s) to scan (repeatable) (default [.])
       --mira-source stringArray       base URL of a Mira node whose service map supplies observed calls between services (repeatable)
@@ -1642,7 +1642,7 @@ pacto impact <old> <new> | --unavailable <service> | --removed <service> | --reg
       --freshness duration              mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]               help for impact
       --include-observed[=true|false]   let observed (runtime) relationships raise consumer confidence
-      --index string                    organization index pacto impact and pacto ci read consumers from (default <registry>/pacto-index from the provider reference; none reads none; skipped when --root names the consumers; other fleet commands ignore it)
+      --index string                    organization index pacto impact and pacto ci read consumers from (default <registry>/pacto-index from the provider reference; none reads none; skipped when --root names the consumers; pacto ci --publish also writes its entries there; other fleet commands ignore it)
       --k8s[=true|false]                include live Pacto CRs from the current Kubernetes cluster as targets
       --local stringArray               local bundle root(s) to scan (repeatable) (default [.])
       --mira-source stringArray         base URL of a Mira node whose service map supplies observed calls between services (repeatable)
@@ -1986,7 +1986,7 @@ pacto mcp [bundle-ref] [flags]
       --freshness duration            mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]             help for mcp
       --host string                   bind address for HTTP transport; beyond loopback it needs --auth-issuer, and on loopback without it every request carries the bearer printed at launch (default "127.0.0.1")
-      --index string                  organization index pacto impact and pacto ci read consumers from (default <registry>/pacto-index from the provider reference; none reads none; skipped when --root names the consumers; other fleet commands ignore it)
+      --index string                  organization index pacto impact and pacto ci read consumers from (default <registry>/pacto-index from the provider reference; none reads none; skipped when --root names the consumers; pacto ci --publish also writes its entries there; other fleet commands ignore it)
       --k8s[=true|false]              include live Pacto CRs from the current Kubernetes cluster as targets
       --local stringArray             local bundle root(s) to scan in --fleet mode (repeatable); over HTTP none unless set (default [.])
       --mira-source stringArray       base URL of a Mira node whose service map supplies observed calls between services (repeatable)
@@ -2352,7 +2352,7 @@ pacto stats [flags]
       --fingerprints string           a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers
       --freshness duration            mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]             help for stats
-      --index string                  organization index pacto impact and pacto ci read consumers from (default <registry>/pacto-index from the provider reference; none reads none; skipped when --root names the consumers; other fleet commands ignore it)
+      --index string                  organization index pacto impact and pacto ci read consumers from (default <registry>/pacto-index from the provider reference; none reads none; skipped when --root names the consumers; pacto ci --publish also writes its entries there; other fleet commands ignore it)
       --k8s[=true|false]              include live Pacto CRs from the current Kubernetes cluster as targets
       --kind stringArray              total only run records of this kind: diff, impact, publish, operation, coverage (repeatable)
       --local stringArray             local bundle root(s) to scan (repeatable) (default [.])
@@ -2418,7 +2418,7 @@ pacto tui [flags]
       --fingerprints string           a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers
       --freshness duration            mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]             help for tui
-      --index string                  organization index pacto impact and pacto ci read consumers from (default <registry>/pacto-index from the provider reference; none reads none; skipped when --root names the consumers; other fleet commands ignore it)
+      --index string                  organization index pacto impact and pacto ci read consumers from (default <registry>/pacto-index from the provider reference; none reads none; skipped when --root names the consumers; pacto ci --publish also writes its entries there; other fleet commands ignore it)
       --k8s[=true|false]              include live Pacto CRs from the current Kubernetes cluster as targets
       --local stringArray             local bundle root(s) to scan (repeatable) (default [.])
       --mira-source stringArray       base URL of a Mira node whose service map supplies observed calls between services (repeatable)

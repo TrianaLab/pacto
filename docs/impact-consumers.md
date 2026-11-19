@@ -80,7 +80,7 @@ judges its declared dependency. Each code below makes the answer partial, so a
 | `CONSUMER_INDEX_NOT_FOUND` | No candidate holds an index |
 | `CONSUMER_INDEX_UNAVAILABLE` | The registry refused or failed the listing |
 | `CONSUMER_INDEX_TRUNCATED` | A read bound or the timeout stopped the read |
-| `CONSUMER_INDEX_ENTRY_INVALID` | Entries malformed, unbound or unconfirmed by their own repository were not used |
+| `CONSUMER_INDEX_ENTRY_INVALID` | Entries malformed, unbound or unconfirmed by their own repository were not used; a service whose newest entry is refused counts as not indexed |
 | `CONSUMER_INDEX_UNCHECKED` | No target source to check the index against |
 | `CONSUMER_NOT_INDEXED` | A declared consumer the fleet holds has no entry; it stays in the answer |
 
