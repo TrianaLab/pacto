@@ -913,6 +913,10 @@ type ContractRevision struct {
 	// declarationChecked says a signature the revision's provenance verified
 	// names its record's declarer as a person (acceptDeclaration).
 	declarationChecked bool
+	// declarationRefused is why the reader does not accept the declarer:
+	// an unverified signature or a signer policy that refuses it; "" when
+	// it is accepted (acceptDeclaration).
+	declarationRefused string
 	// declarationHidden and hiddenClusterFields are set on a restricted
 	// view's clone when the viewer may not read the namespace the
 	// declaration came from: its cluster fields are gone and counted.

@@ -259,21 +259,23 @@ func (p *ProvenanceChecker) judgeSignature(ctx context.Context, repo, digest str
 		// Capped apart, so a long verdict never hides what was not applied.
 		sig.Reason = strings.TrimSuffix(sig.Reason, ".") + ". " + capReason(upperFirst(note)+".")
 	}
-	return sig, verifiedSigners(signers)
+	return sig, verifiedSigners(signers, t.classes)
 }
 
-// verifiedSigners is ids as the fleet lists them: sorted by issuer, subject
-// and class, without duplicates, at most fleet.MaxProvenanceSigners.
-func verifiedSigners(ids []delivery.PublisherIdentity) []fleet.VerifiedSigner {
+// verifiedSigners is ids as the fleet lists them: classified by the verified
+// installation policy's signer rules (else the default rule), sorted by
+// issuer, subject and class, without duplicates. The fleet bounds the list
+// once it has matched a declaration's signer against all of it.
+func verifiedSigners(ids []delivery.PublisherIdentity, classes []delivery.SignerClassRule) []fleet.VerifiedSigner {
 	var out []fleet.VerifiedSigner
 	for _, id := range ids {
+		id = delivery.Classified(id, classes)
 		out = append(out, fleet.VerifiedSigner{Subject: id.Subject, Issuer: id.Issuer, Class: string(id.Class)})
 	}
 	slices.SortFunc(out, func(a, b fleet.VerifiedSigner) int {
 		return cmp.Or(strings.Compare(a.Issuer, b.Issuer), strings.Compare(a.Subject, b.Subject), strings.Compare(a.Class, b.Class))
 	})
-	out = slices.Compact(out)
-	return out[:min(len(out), fleet.MaxProvenanceSigners)]
+	return slices.Compact(out)
 }
 
 // installTrust is what a signature is judged against: rules from source,
@@ -281,11 +283,13 @@ func verifiedSigners(ids []delivery.PublisherIdentity) []fleet.VerifiedSigner {
 // a service's pins. note names a part of the installation's trust that was
 // not applied; inferred means no installation config was read.
 type installTrust struct {
-	rules  []delivery.PublisherRule
-	source string
-	expect delivery.PublisherRule
-	pins   PinsFunc
-	note   string
+	rules []delivery.PublisherRule
+	// classes are the verified policy's signer class rules, nil without one.
+	classes []delivery.SignerClassRule
+	source  string
+	expect  delivery.PublisherRule
+	pins    PinsFunc
+	note    string
 	// unguarded says why the promoter's high-water marks were not read, so
 	// a policy or pin accept reads unknown.
 	unguarded string
@@ -355,7 +359,7 @@ func (p *ProvenanceChecker) readInstallation(ctx context.Context) *installTrust 
 			t.failed, t.note = true, "the delivery policy "+cfg.Policy+" could not be verified ("+err.Error()+"), so only pinned signers are accepted"
 			return t
 		}
-		t.rules, t.source = pol.Publishers, delivery.PublisherSourcePolicy
+		t.rules, t.classes, t.source = pol.Publishers, pol.Signers, delivery.PublisherSourcePolicy
 		return t
 	}
 	rule, why := cfg.Rule()

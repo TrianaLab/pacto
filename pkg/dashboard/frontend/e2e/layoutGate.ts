@@ -1031,8 +1031,10 @@ export function installScaleFixture(): void {
   // clusterFacts answers newsletter-service's revision as a signed declaration: 9 inferred
   // rows (cluster and folder sources, partial, a proposed range, 80-character values),
   // coverage, hidden counts and a long signer. 'dropped' answers it as a declaration by an
-  // unverified signer whose namespace the viewer may not read: no rows, no namespace.
-  const flags = window as unknown as { __pactoNewSigner?: boolean; __pactoLongPropose?: boolean; __pactoStalePropose?: boolean; __pactoAmbiguousTarget?: boolean; __pactoInferredUnreadable?: boolean; __pactoClusterFacts?: boolean | 'dropped' };
+  // unverified signer whose namespace the viewer may not read: no rows, no namespace and
+  // no hidden count (its cluster facts were already dropped). 'notAllowed' answers it as a
+  // checked signature the installation signer policy refuses.
+  const flags = window as unknown as { __pactoNewSigner?: boolean; __pactoLongPropose?: boolean; __pactoStalePropose?: boolean; __pactoAmbiguousTarget?: boolean; __pactoInferredUnreadable?: boolean; __pactoClusterFacts?: boolean | 'dropped' | 'notAllowed' };
   const shortOf = (v: unknown) => [...memo].find(([, l]) => l === v)?.[0] ?? v;
   const engineBody = (path: string, body: string | null): string | null => {
     if (!flags.__pactoLongPropose || !body || !/^\/api\/delivery\/(plan|operations)$/.test(path)) return body;
@@ -1370,8 +1372,14 @@ export function installScaleFixture(): void {
   const clusterFacts = (doc: Record<string, unknown>) => {
     const rev = doc.revision as Record<string, unknown>;
     if (flags.__pactoClusterFacts === 'dropped') {
-      Object.assign(rev, { inferred: [], inferredTotal: 0, inferredHidden: { fields: 9 },
+      Object.assign(rev, { inferred: [], inferredTotal: 0,
         declaration: { state: 'declared', signatureChecked: false, claimedSubject: `${'mallory'.repeat(10)}@unverified.example.com`, inferredFromHidden: true } });
+      return;
+    }
+    if (flags.__pactoClusterFacts === 'notAllowed') {
+      Object.assign(rev, { inferred: [], inferredTotal: 0,
+        declaration: { state: 'declared', signatureChecked: true, claimedSubject: 'mallory@gmail.com', baseline: '1.4.0',
+          notAccepted: 'the installation signer policy lists no issuer https://accounts.google.com', inferredFrom: 'k8s:newsletter/Deployment/newsletter-service' } });
       return;
     }
     const wide = (s: string) => `${s}-${'x'.repeat(Math.max(0, 79 - s.length))}`;

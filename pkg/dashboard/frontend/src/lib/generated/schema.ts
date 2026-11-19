@@ -2568,7 +2568,7 @@ export interface components {
             referrers: components["schemas"]["Fleet.ReferrersPreview"];
             referrersUnavailable?: string;
             signature: components["schemas"]["Fleet.BundleSignature"];
-            /** @description Every keyless identity whose signature of the digest verified, at most 5, sorted */
+            /** @description Every keyless identity whose signature of the digest verified, at most 5, sorted, a declaration's signer always kept */
             signers?: components["schemas"]["Fleet.VerifiedSigner"][] | null;
             source: string;
         };
@@ -2755,7 +2755,7 @@ export interface components {
             accepted?: string[] | null;
             /** @description The published version the declaration started from */
             baseline?: string;
-            /** @description The declarer the record claims, unverified; set only when signatureChecked is false */
+            /** @description The declarer the record claims; set only when the declarer is not accepted */
             claimedSubject?: string;
             /** @description The uid of the kube-system namespace of the cluster read */
             cluster?: string;
@@ -2763,8 +2763,10 @@ export interface components {
             draft?: string;
             /** @description The inferred service the declaration came from, k8s:<namespace>/<kind>/<name> */
             inferredFrom?: string;
-            /** @description You may not read the namespace the declaration came from, so its cluster facts are left out */
+            /** @description You may not read the workload the declaration came from, so its cluster facts are left out */
             inferredFromHidden?: boolean;
+            /** @description Why this reader does not accept the declarer, so its cluster facts are not shown; empty when it is accepted */
+            notAccepted?: string;
             /** @description A signature this reader verified names the declarer as a person */
             signatureChecked: boolean;
             signer?: components["schemas"]["Fleet.VerifiedSigner"];
@@ -3415,7 +3417,7 @@ export interface components {
             callers?: number;
             /**
              * Format: int64
-             * @description Cluster fields left out because you may not read the namespace the declaration came from
+             * @description Cluster fields left out because you may not read the workload the declaration came from or the service they name
              */
             fields?: number;
             /** Format: int64 */

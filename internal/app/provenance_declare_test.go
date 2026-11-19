@@ -32,17 +32,17 @@ func TestProvenanceListsVerifiedSigners(t *testing.T) {
 	}
 }
 
-func TestProvenanceSignersBounded(t *testing.T) {
+func TestProvenanceSignersSortedUnique(t *testing.T) {
 	var ids []delivery.PublisherIdentity
 	for i := 7; i > 0; i-- {
 		ids = append(ids, delivery.PublisherIdentity{Subject: fmt.Sprintf("p%d@acme.com", i), Issuer: provIssuer, Class: delivery.ClassHuman})
 	}
 	ids = append(ids, ids[0]) // read twice
-	got := verifiedSigners(ids)
-	if len(got) != fleet.MaxProvenanceSigners || got[0].Subject != "p1@acme.com" || got[4].Subject != "p5@acme.com" || got[0].Class != "human" {
+	got := verifiedSigners(ids, nil)
+	if len(got) != 7 || got[0].Subject != "p1@acme.com" || got[6].Subject != "p7@acme.com" || got[0].Class != "ci" {
 		t.Fatalf("signers %+v", got)
 	}
-	if verifiedSigners(nil) != nil {
+	if verifiedSigners(nil, nil) != nil {
 		t.Fatal("no signer is nil")
 	}
 }
@@ -107,5 +107,19 @@ func TestExplainPrintsDeclaration(t *testing.T) {
 	}
 	if got.Declaration == nil || got.Declaration.Asker.Subject != "ana@acme.com" || len(got.InferredCoverage) != 1 || got.InferredHidden == nil || got.InferredHidden.Services != 1 {
 		t.Fatalf("explain %+v %+v %+v", got.Declaration, got.InferredCoverage, got.InferredHidden)
+	}
+}
+
+// The verified installation policy's signer rules classify a signer before
+// the default rule does: an email the policy names as an agent is no person.
+func TestProvenanceSignersUsePolicyClassRules(t *testing.T) {
+	const google = "https://accounts.google.com"
+	bot := delivery.PublisherIdentity{Subject: "deploy-bot@acme.com", Issuer: google}
+	rules := []delivery.SignerClassRule{{Name: "bots", Issuer: google, Subject: `^deploy-bot@acme\.com$`, Class: delivery.ClassAgent}}
+	if got := verifiedSigners([]delivery.PublisherIdentity{bot}, rules); got[0].Class != string(delivery.ClassAgent) {
+		t.Errorf("class = %s, want the policy's agent", got[0].Class)
+	}
+	if got := verifiedSigners([]delivery.PublisherIdentity{bot}, nil); got[0].Class != string(delivery.ClassHuman) {
+		t.Errorf("class = %s, want the default rule's human", got[0].Class)
 	}
 }

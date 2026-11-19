@@ -44,7 +44,7 @@ describe('RevisionEntity, declaration', () => {
     expect(l.querySelectorAll('.prov-mark').length).toBe(1);
     expect(l.querySelector('button[aria-label="About this declaration"]')).toBeTruthy();
     expect(l.querySelector('bdi')!.textContent).toContain(LONG);
-    expect(visible(l)).toContain('cluster read 1 of 1 sources complete');
+    expect(visible(l)).toContain('cluster read 1 of 1 source complete');
   });
 
   it('declaration with zero inferred items still renders inferred-declaration', () => {
@@ -63,6 +63,12 @@ describe('RevisionEntity, declaration', () => {
   it('unverified signer line names no subject', () => {
     render({ inferred: [], declaration: { state: 'declared', signatureChecked: false, claimedSubject: 'mallory@evil.example' } });
     expect(visible(line()!)).toContain('Declaration by an unverified signer');
+    expect(visible(line()!)).not.toContain('mallory');
+  });
+
+  it('a signer the installation does not allow is named by no subject', () => {
+    render({ inferred: [], declaration: { state: 'declared', signatureChecked: true, claimedSubject: 'mallory@gmail.com', notAccepted: 'no installation signer policy was given to this reader' } });
+    expect(visible(line()!)).toContain('Declaration by a signer this installation does not allow');
     expect(visible(line()!)).not.toContain('mallory');
   });
 });

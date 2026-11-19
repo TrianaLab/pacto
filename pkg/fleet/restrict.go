@@ -38,8 +38,8 @@ func (q *Query) Namespaces() []string {
 		}
 	}
 	for _, r := range q.snap.Revisions {
-		if ns, ok := declarationNamespace(r); ok {
-			seen[ns] = true
+		if sc, ok := declarationScope(r); ok {
+			seen[sc.Namespace] = true
 		}
 	}
 	scopeNamespaces(q.snap, seen)
@@ -72,7 +72,8 @@ type WorkloadScope struct {
 }
 
 // InferredWorkloadScopes lists, sorted and unique, the (namespace, kind) pairs
-// of the snapshot's inferred services, of the workloads its replacements
+// of the snapshot's inferred services, of the workloads its declarations
+// came from (their cluster facts are workload data), of the workloads its replacements
 // replaced or a Pacto target runs as, of the GitOps objects their
 // repositories or repository reasons were read from, and of its provider
 // counts and workload objects: a count is workload data too, so a caller must
@@ -94,6 +95,11 @@ func (q *Query) InferredWorkloadScopes() []WorkloadScope {
 			if sc.Namespace != "" {
 				seen[sc] = true
 			}
+		}
+	}
+	for _, r := range q.snap.Revisions {
+		if sc, ok := declarationScope(r); ok {
+			seen[sc] = true
 		}
 	}
 	for _, r := range q.snap.Replacements {
@@ -199,7 +205,7 @@ func (q *Query) Restrict(visible func(namespace string) bool, workloadVisible fu
 		out.Targets[k] = t
 	}
 	out.Clusters = restrictClusters(s.Clusters, out.Targets)
-	out.Revisions = restrictRevisions(s, hiddenSvc, offeringOnly, hiddenNS)
+	out.Revisions = restrictRevisions(s, hiddenSvc, offeringOnly, workloadHidden(hiddenNS, workloadVisible))
 	// The older revisions a golden path visible only as one drops are hidden
 	// like a hidden service's: nothing visible may resolve to or name them.
 	dropped := map[RevisionKey]bool{}
@@ -326,15 +332,18 @@ func dropHiddenDeclarationEdges(out *FleetSnapshot) {
 
 // restrictRevisions is the revisions of s's visible services. A golden path
 // visible only as one keeps only the revisions that declare service.template.
-// A declared revision whose source namespace is in hiddenNS is a clone
-// without its cluster facts.
-func restrictRevisions(s *FleetSnapshot, hiddenSvc, offeringOnly map[ServiceKey]bool, hiddenNS map[string]bool) map[RevisionKey]*ContractRevision {
+// A declared revision whose source workload hidden says no to is a clone
+// without its cluster facts; one whose cluster facts name a hidden service's
+// dependency is a clone without those fields.
+func restrictRevisions(s *FleetSnapshot, hiddenSvc, offeringOnly map[ServiceKey]bool, hidden func(namespace, kind string) bool) map[RevisionKey]*ContractRevision {
 	out := make(map[RevisionKey]*ContractRevision, len(s.Revisions))
 	for k, r := range s.Revisions {
 		if !hiddenSvc[r.ServiceKey] && (!offeringOnly[r.ServiceKey] || !s.Services[r.ServiceKey].Template || declaresTemplate(r)) {
 			out[k] = r
-			if ns, ok := declarationNamespace(r); ok && hiddenNS[ns] {
+			if declarationSourceHidden(r, hidden) {
 				out[k] = hideDeclarationSource(r)
+			} else if c := hideClusterDependencies(s, r, hiddenSvc); c != nil {
+				out[k] = c
 			}
 		}
 	}
@@ -357,7 +366,8 @@ func targetsHidden(out *FleetSnapshot, services map[ServiceKey]*ServiceRecord, o
 // workload its replacements replaced (hidden says which workloads they may
 // not see).
 func keepsEveryName(s *FleetSnapshot, restricted bool, hidden func(namespace, kind string) bool) bool {
-	return (!restricted || !hasBareNames(s)) && provisioningVisible(s) && !replacementHidden(s, hidden) && !repositoryHidden(s, hidden)
+	return (!restricted || !hasBareNames(s)) && provisioningVisible(s) && !replacementHidden(s, hidden) && !repositoryHidden(s, hidden) &&
+		!slices.ContainsFunc(slices.Collect(maps.Values(s.Revisions)), func(r *ContractRevision) bool { return declarationSourceHidden(r, hidden) })
 }
 
 // repositoryHidden reports whether some inferred service of s holds a

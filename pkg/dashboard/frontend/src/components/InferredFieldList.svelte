@@ -1,6 +1,7 @@
 <script>
   import ProvenanceMark from './ProvenanceMark.svelte';
   import { formatCount } from '../lib/format.ts';
+  import { formatWhen } from '../lib/dateFormat.ts';
 
   // Values Pacto inferred and keeps apart from the contract. Each row is muted and
   // carries one discreet mark; where the value came from and how sure Pacto is sit in
@@ -25,8 +26,8 @@
     + (f.confidence ? ` Confidence: ${f.confidence}.` : '')
     + (f.class === 'ownerFile' ? ` Read from ${where(f.source)}; not verified; never clears a gate.` : '')
     + (f.outranks?.length ? ` Outranks ${f.outranks.map(where).join(', ')}${more(f)}.` : '')
-    + (f.asOf ? ` Read from the cluster at ${f.asOf}.` : '')
-    + (f.completeness === 'partial' ? ' Partial: not every node was observed.' : '')
+    + (formatWhen(f.asOf) ? ` Read from the cluster ${formatWhen(f.asOf)}.` : '')
+    + (f.completeness === 'partial' ? ' Partial: some nodes, pods or supporting sources were not observed.' : '')
     + (f.proposed ? ` Proposed ${f.proposed}, not declared.` : '');
   // The server lists the first outranked sources and counts them all.
   const more = (f) => (f.outranksTotal > f.outranks.length ? ` and ${formatCount(f.outranksTotal - f.outranks.length)} more` : '');

@@ -9,8 +9,8 @@ import { installScaleFixture } from './layoutGate';
 
 const T = 30_000;
 
-async function openDeclared(page: Page, variant: true | 'dropped') {
-  await page.addInitScript((v) => { (window as unknown as { __pactoClusterFacts?: boolean | 'dropped' }).__pactoClusterFacts = v; }, variant);
+async function openDeclared(page: Page, variant: true | 'dropped' | 'notAllowed') {
+  await page.addInitScript((v) => { (window as unknown as { __pactoClusterFacts?: boolean | 'dropped' | 'notAllowed' }).__pactoClusterFacts = v; }, variant);
   await page.addInitScript(installScaleFixture);
   await appReady(page);
   await page.goto('/#/fleet/revisions?service=newsletter-service');
@@ -39,7 +39,8 @@ test.describe('WASM demo — a declared revision', () => {
     // A cluster row's own mark says when it was read and what it proposes.
     const row = page.getByTestId('inferred-field').first();
     await row.getByRole('button').click();
-    await expect(row.getByRole('note')).toContainText('Read from the cluster at 2026-11-17T10:00:00Z.');
+    await expect(row.getByRole('note')).toContainText(/Read from the cluster (.+ ago|on .+)\./);
+    await expect(row.getByRole('note')).not.toContainText('2026-11-17T10:00:00Z');
     await expect(row.getByRole('note')).toContainText('Proposed ^2.0.0, not declared.');
   });
 
@@ -60,6 +61,17 @@ test.describe('WASM demo — a declared revision', () => {
     await expect(line.locator('bdi')).not.toContainText('mallory');
     await line.getByRole('button', { name: 'About this declaration' }).click();
     await expect(line.getByRole('note')).toContainText('signature not checked or not by that signer');
-    await expect(line.getByRole('note')).toContainText('9 cluster fields left out');
+    await expect(line.getByRole('note')).toContainText('From a workload you may not read.');
+    await expect(line.getByRole('note')).not.toContainText('cluster fields left out');
+  });
+
+  test('a signer the installation does not allow is named by no subject, with why in the mark', async ({ page }) => {
+    const line = await openDeclared(page, 'notAllowed');
+    await expect(line).toContainText('Declaration by a signer this installation does not allow');
+    await expect(line.locator('bdi')).not.toContainText('mallory');
+    await line.getByRole('button', { name: 'About this declaration' }).click();
+    const note = line.getByRole('note');
+    await expect(note).toContainText('Not accepted: the installation signer policy lists no issuer https://accounts.google.com.');
+    await expect(note).toContainText('The record claims: Baseline 1.4.0.');
   });
 });

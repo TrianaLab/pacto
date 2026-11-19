@@ -3,6 +3,7 @@
  * mark whose note names the source and confidence, the first five shown and the rest
  * one disclosure away.
  */
+import { formatWhen } from '../lib/dateFormat.ts';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
 // @ts-expect-error — Svelte component has no declaration file
@@ -126,8 +127,9 @@ describe('InferredFieldList, cluster facts', () => {
   it('says when a cluster fact was read, that it is partial and what it proposes', () => {
     render({ items: [field(0, { field: 'dependencies[payments]', source: 'cluster:billing/Deployment/invoices', asOf: '2026-11-17T10:00:00Z', completeness: 'partial', proposed: '^2.0.0' })], total: 1 });
     const note = target.querySelector('[role="note"]')!.textContent!;
-    expect(note).toContain('Read from the cluster at 2026-11-17T10:00:00Z.');
-    expect(note).toContain('Partial: not every node was observed.');
+    expect(note).toContain(`Read from the cluster ${formatWhen('2026-11-17T10:00:00Z')}.`);
+    expect(note).not.toContain('2026-11-17T10:00:00Z');
+    expect(note).toContain('Partial: some nodes, pods or supporting sources were not observed.');
     expect(note).toContain('Proposed ^2.0.0, not declared.');
   });
 

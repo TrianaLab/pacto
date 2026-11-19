@@ -66,10 +66,11 @@ type BundleProvenance struct {
 	Source               string    `json:"source"`
 	CheckedAt            time.Time `json:"checkedAt"`
 	// Signers is every keyless identity whose signature of the digest
-	// verified, whoever it names, sorted, at most MaxProvenanceSigners: read
+	// verified, whoever it names, sorted, at most MaxProvenanceSigners, a
+	// declaration's signer always kept (boundSigners): read
 	// in the same check as Signature, which judges them against a publisher
 	// rule. A declaration's signer is matched against it.
-	Signers []VerifiedSigner `json:"signers,omitempty" doc:"Every keyless identity whose signature of the digest verified, at most 5, sorted"`
+	Signers []VerifiedSigner `json:"signers,omitempty" doc:"Every keyless identity whose signature of the digest verified, at most 5, sorted, a declaration's signer always kept"`
 }
 
 // MaxProvenanceSigners bounds BundleProvenance.Signers.

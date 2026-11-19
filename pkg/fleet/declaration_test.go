@@ -1,8 +1,10 @@
 package fleet
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -61,6 +63,8 @@ type declFleetOpts struct {
 	prov    *BundleProvenance
 	policy  *DeclarationSignerPolicy
 	targets bool // both run in shop, a namespace other than the declaration's
+	// workerNS is where notification-worker runs with targets, shop when "".
+	workerNS string
 }
 
 // declFleet is newsletter (declared, from a registry) and notification-worker.
@@ -77,7 +81,7 @@ func declFleet(t *testing.T, o declFleetOpts) *Query {
 		k := SourceKindKubernetes
 		col.Targets = []RawTarget{
 			{Scope: "shop", Kind: k, Name: "newsletter", Service: "newsletter", Compliance: StatusCompliant},
-			{Scope: "shop", Kind: k, Name: "notification-worker", Service: "notification-worker", Compliance: StatusCompliant},
+			{Scope: cmp.Or(o.workerNS, "shop"), Kind: k, Name: "notification-worker", Service: "notification-worker", Compliance: StatusCompliant},
 		}
 	}
 	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow, DeclarationSigners: o.policy}, NewMemorySource("oci", "oci", col))
@@ -205,6 +209,7 @@ func TestDeclarationSignerNotInInstallationPolicyDropped(t *testing.T) {
 			if !d.Declaration.SignatureChecked {
 				t.Error("the signer matched, so the signature was checked")
 			}
+			wantNotAccepted(t, d)
 		})
 	}
 }
@@ -214,8 +219,73 @@ func TestUnreadSignerPolicyMarksPartial(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			o := signedOpts(t)
 			o.policy = pol
-			wantClusterFactsDropped(t, declFleet(t, o), LimitationDeclarationSignerNotAllowed)
+			wantNotAccepted(t, wantClusterFactsDropped(t, declFleet(t, o), LimitationDeclarationSignerNotAllowed))
 		})
+	}
+}
+
+// wantNotAccepted: a declarer the reader does not accept is never named as
+// the signer, only claimed, and the view says why.
+func wantNotAccepted(t *testing.T, d *RevisionDetailData) {
+	t.Helper()
+	if v := d.Declaration; v.Signer != nil || v.ClaimedSubject != anaSubject || v.NotAccepted == "" {
+		t.Errorf("a declarer the policy refuses was named: %+v", v)
+	}
+}
+
+// Even with no cluster fact to drop, a signer the policy refuses is never
+// named as the declarer.
+func TestDeclarationWithoutClusterFactsNotAllowedOmitsSigner(t *testing.T) {
+	rec, err := contract.ParseInferredRecord(newsletterRecord())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec.Declaration = &contract.InferredDeclaration{State: contract.DeclarationDeclared, Asker: ana}
+	d := newsRevision(t, declFleet(t, declFleetOpts{record: rec.Marshal(), prov: anaSigned()}))
+	wantNotAccepted(t, d)
+	if !d.Declaration.SignatureChecked || d.Declaration.NotAccepted != noSignerPolicy {
+		t.Errorf("declaration = %+v", d.Declaration)
+	}
+}
+
+func TestBoundSignersKeepsTheDeclarer(t *testing.T) {
+	o := signedOpts(t)
+	for _, sub := range []string{"a1", "a2", "a3", "a4", "a5", "a6"} {
+		o.prov.Signers = append([]VerifiedSigner{{Subject: sub + "@gmail.com", Issuer: anaIssuer, Class: contract.SignerClassHuman}}, o.prov.Signers...)
+	}
+	q := declFleet(t, o)
+	d := newsRevision(t, q)
+	if clusterFields(d) != 2 || d.Declaration.Signer == nil {
+		t.Errorf("extra signatures pushed the declarer out: %+v", d.Declaration)
+	}
+	if n := len(q.SnapshotForSerialization().Revisions[RevisionKey(revKeyOf(t, q, "newsletter"))].Provenance.Signers); n != MaxProvenanceSigners {
+		t.Errorf("signers = %d, want the bound", n)
+	}
+	boundSigners(nil, nil)
+}
+
+func TestRestrictHidesDeclarationOfUnlistableWorkloadKind(t *testing.T) {
+	q := declFleet(t, signedOpts(t))
+	if sc := q.InferredWorkloadScopes(); !slices.Contains(sc, WorkloadScope{"news", "Deployment"}) {
+		t.Fatalf("the declaration's workload is not reviewed: %v", sc)
+	}
+	r := q.Restrict(func(string) bool { return true }, func(ns, kind string) bool { return ns != "news" || kind != "Deployment" })
+	if r == q {
+		t.Fatal("a workload kind the viewer may not list must restrict the view")
+	}
+	wantInferredFromHidden(t, r)
+}
+
+func TestRestrictHidesClusterDependencyOnHiddenService(t *testing.T) {
+	o := signedOpts(t)
+	o.targets, o.workerNS = true, "internal"
+	r := declFleet(t, o).Restrict(func(ns string) bool { return ns != "internal" }, func(string, string) bool { return true })
+	d := newsRevision(t, r)
+	if d.Declaration.InferredFromHidden || len(d.Inferred) != 1 || d.InferredHidden == nil || d.InferredHidden.Fields != 2 {
+		t.Errorf("the hidden service's cluster facts reached the viewer: %+v %+v", d.Inferred, d.InferredHidden)
+	}
+	if db, _ := json.Marshal(d); strings.Contains(string(db), "2.3.1") {
+		t.Errorf("the hidden service's versions leaked: %s", db)
 	}
 }
 
