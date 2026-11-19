@@ -90,7 +90,7 @@ const (
 // surfaceRows maps every CLI flag, MCP argument and dashboard parameter of
 // the fleet, delivery, impact and contract surfaces to its concept. A story
 // that adds one adds its row here in the same commit.
-var surfaceRows = slices.Concat(fleetRows(), fleetDetailRows(), impactRows(), deliveryRows(), deliveryWriteRows(), deliveryViewRows(), authoringRows(), statsRows(), publishRows(), evidenceRows(), ciRows())
+var surfaceRows = slices.Concat(fleetRows(), fleetDetailRows(), impactRows(), deliveryRows(), deliveryWriteRows(), deliveryViewRows(), authoringRows(), statsRows(), publishRows(), evidenceRows(), ciRows(), declareRows())
 
 func fleetRows() []surfaceRow {
 	return slices.Concat(
@@ -351,6 +351,19 @@ func ciRows() []surfaceRow {
 		alike("ci", "", "", whyCI, "registry", "explain"),
 		alike("ci", "", "", "publishing runs in CI on the merged commit, signed as the CI identity; MCP never publishes and the dashboard publishes nothing", "publish", "image", "sign-key", "no-transparency-log"),
 		alike("ci", "", "", "a run record is a CI statistic the CLI writes; MCP and the dashboard record no runs", "stats-context", "stats-file", "stats-registry"),
+	)
+}
+
+// declareRows map pacto declare, CLI side: pacto_declare arrives in this
+// story's MCP phase.
+func declareRows() []surfaceRow {
+	const why = "pacto_declare arrives in this story's MCP phase; the dashboard Declare panel is 513-S6"
+	const whyLocal = "a person's local signing and folders; MCP never signs a declared record"
+	return slices.Concat(
+		[]surfaceRow{{"declare <service>", "", "", why}},
+		alike("declare", "", "", why, "namespace", "registry", "accept", "intent", "max-items", "call-window", "yes"),
+		alike("declare", "", "", whyLocal, "dir", "from-draft", "sign-key", "oidc-issuer-url", "oidc-client-id", "device", "fulcio-url", "timestamp-url",
+			"rekor-url", "trusted-root"),
 	)
 }
 
@@ -849,6 +862,7 @@ func TestUsageErrorsEmitOneJSONDocument(t *testing.T) {
 // fails the test, so the table is deny-by-default too.
 var jsonRuns = map[string][]string{
 	"ci":                     {"."},
+	"declare":                {"invoices", "--dir", "/nonexistent"},
 	"delivery approve":       {"-n", "prod", "held"},
 	"delivery autonomy":      {},
 	"delivery blame":         {"--stage", "prod"},
@@ -905,6 +919,12 @@ func TestEverySurfaceCommandEmitsOneJSONDocument(t *testing.T) {
 	t.Setenv("KUBECONFIG", filepath.Join(t.TempDir(), "none"))
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	t.Chdir(t.TempDir())
+	kube := noKube(t)
+	t.Cleanup(func() {
+		if *kube != 0 {
+			t.Errorf("the runs built %d kubeconfig clients", *kube)
+		}
+	})
 	root := newRootCommand(app.NewService(nil, nil), VersionInfo{Version: "test"}, defaultDeps())
 	for path, cmd := range commandTree(root) {
 		if _, excluded := excludedFromSurfaces[path]; excluded || !cmd.Runnable() {

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"crypto/rand"
 	"fmt"
 	"io"
@@ -73,6 +74,8 @@ type sysDeps struct {
 	refusalRepo func(path string) (*remote.Repository, error)
 	// statsRepo opens the stats repository run records are read from.
 	statsRepo func(path string) (*remote.Repository, error)
+	// login is the person's interactive Sigstore login `pacto declare` signs with.
+	login func(context.Context, declareLogin) (string, error)
 }
 
 // env is sys with every unset field at its production default.
@@ -138,6 +141,9 @@ func publishDefaults(d *sysDeps) {
 	}
 	if d.statsRepo == nil {
 		d.statsRepo = defaultStatsRepo
+	}
+	if d.login == nil {
+		d.login = interactiveLogin
 	}
 }
 
