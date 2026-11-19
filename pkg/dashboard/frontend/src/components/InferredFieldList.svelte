@@ -24,7 +24,10 @@
   const note = (f) => `Inferred, not declared. Source: ${where(f.source)}.`
     + (f.confidence ? ` Confidence: ${f.confidence}.` : '')
     + (f.class === 'ownerFile' ? ` Read from ${where(f.source)}; not verified; never clears a gate.` : '')
-    + (f.outranks?.length ? ` Outranks ${f.outranks.map(where).join(', ')}${more(f)}.` : '');
+    + (f.outranks?.length ? ` Outranks ${f.outranks.map(where).join(', ')}${more(f)}.` : '')
+    + (f.asOf ? ` Read from the cluster at ${f.asOf}.` : '')
+    + (f.completeness === 'partial' ? ' Partial: not every node was observed.' : '')
+    + (f.proposed ? ` Proposed ${f.proposed}, not declared.` : '');
   // The server lists the first outranked sources and counts them all.
   const more = (f) => (f.outranksTotal > f.outranks.length ? ` and ${formatCount(f.outranksTotal - f.outranks.length)} more` : '');
 </script>

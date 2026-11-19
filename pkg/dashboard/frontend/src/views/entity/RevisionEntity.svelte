@@ -29,6 +29,7 @@
   import DeliveryLifecycle from '../../components/DeliveryLifecycle.svelte';
   import StageOffers from '../../components/StageOffers.svelte';
   import { stageRowsOf, artifactOf, promotes } from '../../lib/delivery.ts';
+  import { declarationLine, declarationNote } from '../../lib/declaration.ts';
 
   // The revision page: an IMMUTABLE version of the service contract, not a deployment,
   // and the CONTRACT INSPECTOR -- the one place a user reads what this exact revision
@@ -160,13 +161,20 @@
     {/if}
   </section>
 
-  {#if d.inferred?.length || d.inferredUnreadable || d.discoveryFindings?.total}
+  {#if d.inferred?.length || d.inferredUnreadable || d.discoveryFindings?.total || d.declaration}
     <!-- What the contract left out and Pacto implied (pactoVersion 2.5): muted rows, each
          with one mark whose note says where it came from, so an inferred value is never
          shown as a declared one. -->
     <section class="re-inferred" data-testid="revision-inferred" aria-label="Inferred">
       <span class="re-k">Inferred</span>
-      <InferredFieldList items={d.inferred ?? []} total={d.inferredTotal ?? 0} unreadable={!!d.inferredUnreadable} />
+      {#if d.declaration}
+        <!-- Who declared this revision from an inferred service: one muted line, the rest
+             in the mark's note. Shown even when every cluster field was dropped. -->
+        <p class="re-muted re-declaration" data-testid="inferred-declaration"><bdi>{declarationLine(d)}</bdi> <ProvenanceMark label="About this declaration" text={declarationNote(d)} /></p>
+      {/if}
+      {#if d.inferred?.length || d.inferredUnreadable}
+        <InferredFieldList items={d.inferred ?? []} total={d.inferredTotal ?? 0} unreadable={!!d.inferredUnreadable} />
+      {/if}
       {#if d.discoveryFindings?.total}
         <!-- What discovery could not read or choose: inspection detail, so closed. One line
              can raise two findings, so rows are keyed by position. -->
@@ -665,6 +673,7 @@
   .ri-note { margin: 0; font-size: var(--text-sm); color: var(--c-text-3); }
   .ri-port { font-family: var(--font-mono, monospace); font-size: var(--text-sm); color: var(--c-text-2); }
   .re-inferred { display: flex; flex-direction: column; gap: var(--sp-2); min-inline-size: 0; }
+  .re-declaration { margin: 0; overflow-wrap: anywhere; min-inline-size: 0; }
   .re-findings-list { list-style: none; margin: var(--sp-1) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
   .re-findings-list li, .re-path { overflow-wrap: anywhere; min-inline-size: 0; }
   .re-breaks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
