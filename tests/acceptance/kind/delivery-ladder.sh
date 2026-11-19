@@ -221,7 +221,7 @@ ladder_record() {
   anchor="$(kubectl -n "$1" get stage wallet -o jsonpath='{.status.stream.anchor}')"
   anchor="${anchor##*@}"
   manifest="$(oras discover --plain-http --format json "$streams@$anchor" \
-    | jq -r --arg u "$uid" '[.. | objects | select((.annotations // {})["dev.pacto.uid"] == $u)][0].digest')"
+    | jq -r --arg u "$uid" '[.. | objects | select((.annotations // {}) | .["dev.pacto.uid"] == $u and .["dev.sigstore.bundle.predicateType"] == "delivery.pacto.trianalab.io/operation/v1")][0].digest')"
   layer="$(oras manifest fetch --plain-http "$streams@$manifest" | jq -r '.layers[0].digest')"
   f="$(mktemp)"
   oras blob fetch --plain-http --output "$f" "$streams@$layer" >/dev/null

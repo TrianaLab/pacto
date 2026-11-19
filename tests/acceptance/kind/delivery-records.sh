@@ -33,10 +33,11 @@ records_init() {
   }
   # anchor_of NS STAGE — the digest of the Stage's stream anchor.
   anchor_of() { local a; a="$(kubectl -n "$1" get stage "$2" -o jsonpath='{.status.stream.anchor}')"; echo "${a##*@}"; }
-  # records_on REPO DIGEST UID — how many records of operation UID are attached to REPO@DIGEST.
+  # records_on REPO DIGEST UID — how many operation records of operation UID are
+  # attached to REPO@DIGEST; the anchor also holds the operation's intent record.
   records_on() {
     oras discover --plain-http --format json "127.0.0.1:${LOCAL_REG_PORT}/$1@$2" \
-      | jq --arg u "$3" '[.. | objects | select((.annotations // {})["dev.pacto.uid"] == $u)] | length'
+      | jq --arg u "$3" '[.. | objects | select((.annotations // {}) | .["dev.pacto.uid"] == $u and .["dev.sigstore.bundle.predicateType"] == "delivery.pacto.trianalab.io/operation/v1")] | length'
   }
   uid_of() { kubectl -n "$1" get operation "$2" -o jsonpath='{.metadata.uid}'; }
 }
@@ -229,7 +230,7 @@ records_audit() {
   local ad manifest layer
   ad="$(anchor_of test payments)"
   manifest="$(oras discover --plain-http --format json "$streams_local@$ad" \
-    | jq -r --arg u "$opc_uid" '[.. | objects | select((.annotations // {})["dev.pacto.uid"] == $u)][0].digest')"
+    | jq -r --arg u "$opc_uid" '[.. | objects | select((.annotations // {}) | .["dev.pacto.uid"] == $u and .["dev.sigstore.bundle.predicateType"] == "delivery.pacto.trianalab.io/operation/v1")][0].digest')"
   layer="$(oras manifest fetch --plain-http "$streams_local@$manifest" | jq -r '.layers[0].digest')"
   oras blob fetch --plain-http --output "$tmp/c.json" "$streams_local@$layer" >/dev/null
   cosign verify-blob-attestation --bundle "$tmp/c.json" --key "$RECORDER_PUB" --type delivery.pacto.trianalab.io/operation/v1 \
