@@ -273,8 +273,9 @@ func (s *WorkloadSource) listKind(ctx context.Context, col *fleet.Collection, ns
 			if len(col.InferredServices) == fleet.MaxInferredServices {
 				return errCapped
 			}
-			in := inferredService(kind, item, now)
+			in := fleet.InferredServiceOf(kind, item, now)
 			meta, _ := item["metadata"].(map[string]any)
+			in.Group = toFleetGroup(workloadmanager.Group(groupingObject(k8sclient.WorkloadGVRs[kind], kind, in.Namespace, in.Name, meta)))
 			s.notePromoted(promoted, in, meta)
 			col.InferredServices = append(col.InferredServices, in)
 		}
@@ -283,15 +284,6 @@ func (s *WorkloadSource) listKind(ctx context.Context, col *fleet.Collection, ns
 		}
 		token = next
 	}
-}
-
-// inferredService is [fleet.InferredServiceOf] with the group the workload's
-// own metadata names.
-func inferredService(kind string, item map[string]any, now time.Time) fleet.RawInferredService {
-	in := fleet.InferredServiceOf(kind, item, now)
-	meta, _ := item["metadata"].(map[string]any)
-	in.Group = toFleetGroup(workloadmanager.Group(groupingObject(k8sclient.WorkloadGVRs[kind], kind, in.Namespace, in.Name, meta)))
-	return in
 }
 
 // normalizeNamespaces sorts and deduplicates a namespace list, dropping "".

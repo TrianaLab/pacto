@@ -65,9 +65,6 @@ var deadCodeAllowlist = map[string]string{
 	"pkg/signing.GetPublicKeyPem":     sigstoreKeypair,
 	"pkg/signing.GetSigningAlgorithm": sigstoreKeypair,
 
-	"integrations/kubernetes/internal/delivery.NeedLeaderElection": "controller-runtime's LeaderElectionRunnable: " +
-		"the manager reads it through that interface to run one target publisher per cluster, never by name",
-
 	"pkg/dashboard.GetStatus": "huma's StatusError: huma reads the HTTP status of a refusal a handler returns " +
 		"through that interface, never by name",
 

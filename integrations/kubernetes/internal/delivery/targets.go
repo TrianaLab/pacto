@@ -68,12 +68,10 @@ type TargetPublisher struct {
 	maxBytes int
 }
 
-// NeedLeaderElection makes one recorder per cluster the snapshot's writer.
-func (p *TargetPublisher) NeedLeaderElection() bool { return true }
-
 // Start publishes at once, then on every tick until ctx ends. A failed publish
 // is logged and retried on the next tick; CI sees the previous snapshot turn
-// stale.
+// stale. The manager runs a plain Runnable only on the elected leader, so one
+// recorder per cluster is the snapshot's writer.
 func (p *TargetPublisher) Start(ctx context.Context) error {
 	tick := p.Tick
 	if tick == nil {

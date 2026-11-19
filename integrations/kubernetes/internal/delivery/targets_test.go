@@ -223,12 +223,6 @@ func TestTargetPublisherSignAndPushFailures(t *testing.T) {
 	}
 }
 
-func TestTargetPublisherNeedsLeaderElection(t *testing.T) {
-	if !(&TargetPublisher{}).NeedLeaderElection() {
-		t.Fatal("two recorders would write one cluster tag")
-	}
-}
-
 func TestTargetPublisherPushesOnlyToTargets(t *testing.T) {
 	e := newTargetsEnv(t, fakeReader())
 	streams, _ := ocireferrer.Open(e.reg.host+"/delivery/streams", ocireferrer.Options{})
