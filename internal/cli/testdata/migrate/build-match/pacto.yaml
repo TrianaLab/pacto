@@ -1,0 +1,9 @@
+service: {name: web, version: 1.0.0}
+publish:
+  bundle: oci://ghcr.io/acme/contracts/web
+  artifacts:
+    - name: image
+      type: image
+      build:
+        dockerfile: {context: .}
+      ref: oci://ghcr.io/acme/web

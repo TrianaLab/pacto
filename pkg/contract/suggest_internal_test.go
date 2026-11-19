@@ -35,7 +35,7 @@ func TestSuggestFields(t *testing.T) {
 func TestSuggestFieldsRemovedField(t *testing.T) {
 	const hint = "delivery left pactoVersion 2.5"
 	got := suggestFields("line 3: field delivery not found in type contract.Contract")
-	if !strings.Contains(got, hint) || strings.Contains(got, "did you mean") {
+	if !strings.Contains(got, hint) || !strings.HasSuffix(got, "; run pacto migrate to remove it)") || strings.Contains(got, "did you mean") {
 		t.Errorf("removed field: %q", got)
 	}
 	if got := suggestFields("line 3: field delivry not found in type contract.Contract"); strings.Contains(got, hint) {

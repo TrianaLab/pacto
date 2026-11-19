@@ -641,7 +641,7 @@ func TestValidateRemovedDeliveryHint(t *testing.T) {
 	if err := root.Execute(); err == nil {
 		t.Fatal("validate passed a contract with a delivery section")
 	}
-	for _, want := range []string{"PARSE_ERROR", "the Stage's spec.applyRef names the applier"} {
+	for _, want := range []string{"PARSE_ERROR", "the Stage's spec.applyRef names the applier; delete the section; run pacto migrate to remove it)"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("output lacks %q:\n%s", want, out.String())
 		}

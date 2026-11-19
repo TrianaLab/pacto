@@ -157,7 +157,8 @@ func golden(t *testing.T) string {
 }
 
 // TestMigrateCommandGolden runs pacto migrate with no argument over a mixed
-// repository: three files rise by their version token alone, every other file
+// repository: three files rise by their version token alone, two lose a
+// removed delivery section or a build detection reproduces, every other file
 // stays byte-identical, and a second run has nothing left to rewrite.
 func TestMigrateCommandGolden(t *testing.T) {
 	want := golden(t)
@@ -176,6 +177,10 @@ func TestMigrateCommandGolden(t *testing.T) {
 		"inventory/pacto.yaml": {`"2.0"`, `"` + cur + `"`},
 		"pg/pacto.yaml":        {`"2.4"`, `"` + cur + `"`},
 	}
+	dropped := map[string][2]string{
+		"draft25/pacto.yaml":     {"# applied by Argo CD\ndelivery:\n  applier: argocd\n", "# applied by Argo CD\n"},
+		"build-match/pacto.yaml": {"      build:\n        dockerfile: {context: .}\n", ""},
+	}
 	if len(after) != len(before) {
 		t.Fatalf("file set changed: %d -> %d", len(before), len(after))
 	}
@@ -183,6 +188,9 @@ func TestMigrateCommandGolden(t *testing.T) {
 		exp := orig
 		if r, ok := raised[rel]; ok {
 			exp = strings.Replace(orig, r[0], r[1], 1)
+		}
+		if d, ok := dropped[rel]; ok {
+			exp = strings.Replace(orig, d[0], d[1], 1)
 		}
 		if after[rel] != exp {
 			t.Errorf("%s:\ngot:  %q\nwant: %q", rel, after[rel], exp)
@@ -195,7 +203,7 @@ func TestMigrateCommandGolden(t *testing.T) {
 			t.Errorf("second run rewrote: %s", l)
 		}
 	}
-	if err != nil || !strings.HasSuffix(out, "0 rewritten, 4 current, 1 kept, 1 manual, 2 skipped\n") {
+	if err != nil || !strings.HasSuffix(out, "0 rewritten, 7 current, 1 kept, 1 manual, 2 skipped\n") {
 		t.Fatalf("second run: %v\n%s", err, out)
 	}
 }
@@ -223,7 +231,7 @@ func TestMigrateCommandJSON(t *testing.T) {
 	if jerr := json.Unmarshal([]byte(out), &r); err != nil || jerr != nil {
 		t.Fatalf("%v %v\n%s", err, jerr, out)
 	}
-	if len(r.Files) != 6 || r.Rewritten != 3 || r.Current != 1 || r.Kept != 1 || r.Manual != 1 || r.Failed != 0 || r.Skipped != 2 || r.To != contract.Current() {
+	if len(r.Files) != 9 || r.Rewritten != 5 || r.Current != 2 || r.Kept != 1 || r.Manual != 1 || r.Failed != 0 || r.Skipped != 2 || r.To != contract.Current() {
 		t.Fatalf("counts: %+v", r)
 	}
 	for _, f := range r.Files {

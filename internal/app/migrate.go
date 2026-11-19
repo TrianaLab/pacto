@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"errors"
@@ -185,18 +186,31 @@ func (s *Service) migrateFile(ctx context.Context, dir, shown, to string, dryRun
 	if s.BundleStore != nil {
 		resolver = s.PolicyResolver(dir)
 	}
-	up, err := contract.Upgrade(raw, to, validation.UpgradeCheck(ctx, ignore.FS(os.DirFS(dir), m), resolver, s.env().now()))
+	dropped, notes := dropRemoved(raw)
+	check := validation.UpgradeCheck(ctx, ignore.FS(os.DirFS(dir), m), resolver, s.env().now())
+	// The raise is judged on what migrate writes: the raised document without
+	// the builds detection reproduces, so their deprecation adds no finding.
+	up, err := contract.Upgrade(dropped, to, func(b []byte) ([]contract.ValidationError, []contract.ValidationWarning, error) {
+		b, _ = dropDetectedBuilds(dir, b)
+		return check(b)
+	})
 	row := upgradeRow(MigratedFile{Path: shown, From: up.From, To: up.To}, up, to, err)
+	if row.Status != MigrateRewritten && row.Status != MigrateCurrent {
+		return row // a kept or manual file is never written, the drops included
+	}
+	out, built := dropDetectedBuilds(dir, up.Raw)
+	row = withNotes(row, append(notes, built...), !bytes.Equal(out, raw))
 	if row.Status != MigrateRewritten {
 		return row
 	}
 	if fi.Mode()&fs.ModeSymlink != 0 {
-		row.Status, row.To = MigrateKept, up.From
-		row.Message = fmt.Sprintf("kept at %s: pacto.yaml is a symbolic link; edit it by hand", up.From)
+		from := cmp.Or(up.From, contract.Current())
+		row.Status, row.To = MigrateKept, from
+		row.Message = fmt.Sprintf("kept at %s: pacto.yaml is a symbolic link; edit it by hand", from)
 		return row
 	}
 	if !dryRun {
-		if err := s.writeAtomic(path, fi.Mode().Perm(), up.Raw); err != nil {
+		if err := s.writeAtomic(path, fi.Mode().Perm(), out); err != nil {
 			return failedRow(shown, "cannot write", err)
 		}
 	}
