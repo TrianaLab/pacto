@@ -22,6 +22,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
+	"github.com/trianalab/pacto/v4/pkg/evidenceingest"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/graph"
 	"github.com/trianalab/pacto/v4/pkg/impact"
@@ -235,7 +236,7 @@ func (r *snapshotReader) fetch(ctx context.Context, repo *remote.Repository, pat
 	return b, ref, nil
 }
 
-// classify verifies a snapshot bundle and returns its two sources, or one
+// classify verifies a snapshot bundle and returns its sources, or one
 // unused source when it does not verify, names another cluster than its tag
 // (tagCluster, empty for a digest) or claims an asOf in the future.
 func (r *snapshotReader) classify(id, tagCluster, ref string, bundle []byte) []fleet.Source {
@@ -258,48 +259,145 @@ func (r *snapshotReader) classify(id, tagCluster, ref string, bundle []byte) []f
 	if r.seen[snap.Cluster]++; r.seen[snap.Cluster] > 1 {
 		id = fmt.Sprintf("%s-%d", id, r.seen[snap.Cluster])
 	}
-	cl := snapshotCluster(snap.Cluster)
-	status, lims := classifyTargetSnapshot(id, snap, verdict, asOf, r.now)
-	state := fleet.SourceState{Status: status, Ref: ref, Signer: snapshotSigner(verdict), Publisher: snap.Publisher, Cluster: cl, LastSuccessfulSync: &asOf}
-	col := delivery.PactoCollection(id, snap.Pactos, nil, r.now)
-	col.Cluster, col.State, col.Limitations = cl, &state, append(col.Limitations, lims...)
-	// The workload source shares the status and cluster; the ref and signer
-	// stay on the snapshot source, which carries the verdict's limitations.
-	workloadState := fleet.SourceState{Status: status, Cluster: cl, LastSuccessfulSync: &asOf}
-	return []fleet.Source{
-		fleet.NewMemorySource(id, fleet.SourceKindTargetSnapshot, col),
-		fleet.NewMemorySource(id+workloadsSuffix, fleet.SourceKindKubernetesWorkloads,
-			&fleet.Collection{Cluster: cl, State: &workloadState, InferredServices: snap.Workloads}),
-	}
+	rd := snapshotRead{id: id, ref: ref, snap: snap, verdict: verdict, asOf: asOf, now: r.now,
+		cl: snapshotCluster(snap.Cluster), sections: snapshotSections(snap)}
+	return rd.sources()
 }
 
-// classifyTargetSnapshot is the status of a snapshot that verified or was read
-// unverified, and its limitations: the publisher's own, unverified or not
-// scoped to its cluster (partial) and older than the freshness bound (stale).
-func classifyTargetSnapshot(id string, snap delivery.TargetSnapshot, v delivery.TargetSnapshotVerdict, asOf, now time.Time) (fleet.SourceStatus, []fleet.Limitation) {
-	var lims []fleet.Limitation
-	for _, l := range snap.Limitations {
-		l.Source = id
-		lims = append(lims, l)
+// snapshotRead is one snapshot that verified, or was read unverified, on its
+// way to its sources.
+type snapshotRead struct {
+	id, ref   string
+	snap      delivery.TargetSnapshot
+	verdict   delivery.TargetSnapshotVerdict
+	asOf, now time.Time
+	cl        *fleet.Cluster
+	sections  map[string]delivery.SnapshotSource
+}
+
+// sources are the snapshot's sources: its Pactos (the target-snapshot
+// source), its workloads and, when it carries one, its evidence section. The
+// verdict's limitations stay on the Pacto source, but an unscoped key marks
+// every section, so each line says so, and an unverified snapshot keeps its
+// evidence partial too.
+func (rd snapshotRead) sources() []fleet.Source {
+	vlims := verdictLimitations(rd.id, rd.snap.Cluster, rd.verdict)
+	var unscoped []fleet.Limitation
+	if rd.verdict.Verified {
+		unscoped = vlims
 	}
-	switch {
-	case !v.Verified:
-		lims = append(lims, fleet.Limitation{Code: fleet.LimitationTargetSnapshotUnverified, Source: id,
-			Message: "the target snapshot of cluster " + snap.Cluster + " was read with no delivery trust config; nothing verifies it"})
-	case !v.Scoped:
-		lims = append(lims, fleet.Limitation{Code: fleet.LimitationTargetSnapshotUnscoped, Source: id,
-			Message: "the target snapshot of cluster " + snap.Cluster + " is signed by " + snapshotSigner(v) + ", a key not scoped to this cluster"})
+	wid := rd.id + workloadsSuffix
+	out := []fleet.Source{
+		rd.section(rd.id, fleet.SourceKindTargetSnapshot, fleet.SourceKindKubernetes, delivery.PactoCollection(rd.id, rd.snap.Pactos, nil, rd.now),
+			append(slices.Clone(vlims), withSource(rd.id, rd.snap.Limitations)...)),
+		rd.section(wid, fleet.SourceKindKubernetesWorkloads, fleet.SourceKindKubernetesWorkloads, &fleet.Collection{InferredServices: rd.snap.Workloads}, withSource(wid, unscoped)),
 	}
-	status := fleet.SourceAvailable
-	if snap.Completeness != fleet.CompletenessComplete || len(lims) > 0 {
+	if len(rd.snap.Evidence) == 0 && !slices.ContainsFunc(rd.snap.Sources, func(s delivery.SnapshotSource) bool { return s.Kind == fleet.SourceKindEvidenceHTTP }) {
+		return out
+	}
+	eid := rd.id + evidenceSuffix
+	col := &fleet.Collection{}
+	if len(rd.snap.Evidence) > 0 {
+		var err error
+		if col, err = evidenceingest.TargetsCollection(eid, rd.snap.Evidence); err != nil {
+			return append(out, unusedSource(eid, fleet.SourceKindEvidenceHTTP, rd.cl, fleet.SourceUnavailable, fleet.LimitationTargetSnapshotInvalid,
+				"the evidence section of the target snapshot "+rd.ref+" was not used: "+err.Error()))
+		}
+	}
+	return append(out, rd.section(eid, fleet.SourceKindEvidenceHTTP, fleet.SourceKindEvidenceHTTP, col, withSource(eid, vlims)))
+}
+
+// section is the source sid of kind over col, read from the section secKind:
+// its status and asOf are the section's, each section names the ref it was
+// read from and the trust entry that verified it, and lims join col's own.
+func (rd snapshotRead) section(sid, kind, secKind string, col *fleet.Collection, lims []fleet.Limitation) fleet.Source {
+	sec := rd.sections[secKind]
+	status, slims := sectionStatus(sid, rd.snap.Cluster, sec, rd.asOf, rd.now)
+	at, _ := time.Parse(time.RFC3339, sec.AsOf) // Check parsed every section's asOf
+	at = earlier(at, rd.asOf)
+	lims = append(append(col.Limitations, lims...), slims...)
+	if len(lims) > 0 && status == fleet.SourceAvailable {
 		status = fleet.SourcePartial
 	}
-	if now.Sub(asOf) > delivery.TargetSnapshotFreshness {
+	col.Cluster, col.Limitations = rd.cl, lims
+	col.State = &fleet.SourceState{Status: status, Ref: rd.ref, Signer: snapshotSigner(rd.verdict), Publisher: rd.snap.Publisher,
+		Cluster: rd.cl, LastSuccessfulSync: &at}
+	return fleet.NewMemorySource(sid, kind, col)
+}
+
+// evidenceSuffix names the evidence section of a target snapshot after its
+// Pacto source.
+const evidenceSuffix = "-evidence"
+
+// snapshotSections are snap's sections by kind. A snapshot that names none
+// covers its Pactos and workloads with its own completeness (its limitations
+// stay on the Pacto source); a section a snapshot with sections leaves out
+// reads partial.
+func snapshotSections(snap delivery.TargetSnapshot) map[string]delivery.SnapshotSource {
+	out := map[string]delivery.SnapshotSource{}
+	for _, sec := range snap.Sources {
+		out[sec.Kind] = sec
+	}
+	for _, kind := range []string{fleet.SourceKindKubernetes, fleet.SourceKindKubernetesWorkloads, fleet.SourceKindEvidenceHTTP} {
+		if _, ok := out[kind]; !ok {
+			sec := delivery.SnapshotSource{Kind: kind, AsOf: snap.AsOf, Completeness: fleet.CompletenessPartial}
+			if len(snap.Sources) == 0 {
+				sec.Completeness = snap.Completeness
+			}
+			out[kind] = sec
+		}
+	}
+	return out
+}
+
+// verdictLimitations say a snapshot was read unverified or signed by a key
+// not scoped to its cluster; none when a scoped key verified it.
+func verdictLimitations(id, cluster string, v delivery.TargetSnapshotVerdict) []fleet.Limitation {
+	switch {
+	case !v.Verified:
+		return []fleet.Limitation{{Code: fleet.LimitationTargetSnapshotUnverified, Source: id,
+			Message: "the target snapshot of cluster " + cluster + " was read with no delivery trust config; nothing verifies it"}}
+	case !v.Scoped:
+		return []fleet.Limitation{{Code: fleet.LimitationTargetSnapshotUnscoped, Source: id,
+			Message: "the target snapshot of cluster " + cluster + " is signed by " + snapshotSigner(v) + ", a key not scoped to this cluster"}}
+	}
+	return nil
+}
+
+// sectionStatus is the status of one section and its own limitations:
+// partial when it was read partly, stale when it (or the snapshot, asOf) is
+// older than the freshness bound.
+func sectionStatus(id, cluster string, sec delivery.SnapshotSource, asOf, now time.Time) (fleet.SourceStatus, []fleet.Limitation) {
+	lims := withSource(id, sec.Limitations)
+	status := fleet.SourceAvailable
+	if sec.Completeness != fleet.CompletenessComplete {
+		status = fleet.SourcePartial
+	}
+	at, _ := time.Parse(time.RFC3339, sec.AsOf)
+	if at = earlier(at, asOf); now.Sub(at) > delivery.TargetSnapshotFreshness {
 		status = fleet.SourceStale
 		lims = append(lims, fleet.Limitation{Code: fleet.LimitationTargetSnapshotStale, Source: id,
-			Message: fmt.Sprintf("the target snapshot of cluster %s is from %s, older than %s", snap.Cluster, snap.AsOf, delivery.TargetSnapshotFreshness)})
+			Message: fmt.Sprintf("the target snapshot of cluster %s is from %s, older than %s", cluster, at.UTC().Format(time.RFC3339), delivery.TargetSnapshotFreshness)})
 	}
 	return status, lims
+}
+
+// earlier is the earlier of a and b.
+func earlier(a, b time.Time) time.Time {
+	if a.Before(b) {
+		return a
+	}
+	return b
+}
+
+// withSource is lims, each naming source id.
+func withSource(id string, lims []fleet.Limitation) []fleet.Limitation {
+	out := make([]fleet.Limitation, 0, len(lims))
+	for _, l := range lims {
+		l.Source = id
+		out = append(out, l)
+	}
+	return out
 }
 
 // snapshotSigner names the trust entry that verified a snapshot: its name,
@@ -330,7 +428,13 @@ func snapshotCluster(uid string) *fleet.Cluster {
 // unusedSnapshot is a target-snapshot source that contributes nothing, with
 // status and the one limitation that says why.
 func unusedSnapshot(id string, cl *fleet.Cluster, status fleet.SourceStatus, code, message string) fleet.Source {
-	return fleet.NewMemorySource(id, fleet.SourceKindTargetSnapshot, &fleet.Collection{Cluster: cl,
+	return unusedSource(id, fleet.SourceKindTargetSnapshot, cl, status, code, message)
+}
+
+// unusedSource is a source of kind that contributes nothing, with status and
+// the one limitation that says why.
+func unusedSource(id, kind string, cl *fleet.Cluster, status fleet.SourceStatus, code, message string) fleet.Source {
+	return fleet.NewMemorySource(id, kind, &fleet.Collection{Cluster: cl,
 		State:       &fleet.SourceState{Status: status, Cluster: cl},
 		Limitations: []fleet.Limitation{{Code: code, Source: id, Message: message}}})
 }

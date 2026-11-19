@@ -12,6 +12,8 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -31,6 +33,7 @@ import (
 
 	core "github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
+	"github.com/trianalab/pacto/v4/pkg/evidenceingest"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 	"github.com/trianalab/pacto/v4/pkg/signing"
@@ -124,7 +127,8 @@ func TestTargetPublisherPublishesSnapshot(t *testing.T) {
 	s, _ := e.pushed(t)
 	if s.Cluster != snapCluster || s.AsOf != "2026-11-17T10:00:00Z" || s.Completeness != fleet.CompletenessComplete ||
 		s.RegistryMode != "referrers=native listing=catalog" ||
-		s.Publisher != "system:serviceaccount:pacto-system:pacto-operator-delivery-recorder" || len(s.Limitations) != 0 {
+		s.Publisher != "system:serviceaccount:pacto-system:pacto-operator-delivery-recorder" || len(s.Limitations) != 0 ||
+		len(s.Sources) != 2 || s.Sources[0].Kind != fleet.SourceKindKubernetes || s.Sources[1].Kind != fleet.SourceKindKubernetesWorkloads || s.Evidence != nil {
 		t.Fatalf("snapshot: %+v", s)
 	}
 	if len(s.Pactos) != 1 || s.Pactos[0].Metadata.Name != "pay" || s.Pactos[0].Spec.Target.Workload().Name != "pay-0" {
@@ -174,12 +178,12 @@ func TestTargetPublisherListFailureIsPartial(t *testing.T) {
 		t.Fatal(err)
 	}
 	s, bundle := e.pushed(t)
-	if s.Completeness != fleet.CompletenessPartial || len(s.Limitations) != 2 || len(s.Pactos) != 0 || len(s.Workloads) != 3 {
+	if s.Completeness != fleet.CompletenessPartial || len(s.Pactos) != 0 || len(s.Workloads) != 3 || len(s.Sources) != 2 {
 		t.Fatalf("snapshot: %+v", s)
 	}
-	for _, l := range s.Limitations {
-		if l.Code != fleet.LimitationSourcePartial {
-			t.Errorf("limitation: %+v", l)
+	for _, sec := range s.Sources {
+		if sec.Completeness != fleet.CompletenessPartial || len(sec.Limitations) != 1 || sec.Limitations[0].Code != fleet.LimitationSourcePartial {
+			t.Errorf("section: %+v", sec)
 		}
 	}
 	if strings.Contains(string(bundle), "secret detail") {
@@ -296,5 +300,63 @@ func TestStoreModeRecordsProbeMode(t *testing.T) {
 	}
 	if got := (&RecordStore{Streams: "not a host/x"}).Mode(context.Background()); got != "" {
 		t.Fatalf("a failed probe recorded mode %q", got)
+	}
+}
+
+// TestTargetPublisherUnionsEvidenceTargets: the Evidence Server's targets body
+// rides in the snapshot verbatim as a third section; a body it cannot read,
+// or one a reader could not map, leaves that section partial and the rest
+// published.
+func TestTargetPublisherUnionsEvidenceTargets(t *testing.T) {
+	body := `{"schemaVersion":"pacto.dev/evidence-source/v5","generatedAt":"2026-11-17T10:00:00Z",` +
+		`"health":{"status":"ready","subjects":1,"failedSubjects":0,"invalidArtifacts":0},"truncated":false,` +
+		`"targets":[{"subject":"edge","service":"web","producer":"pacto-agent","compliance":"Compliant",` +
+		`"coverage":{"evaluated":0,"required":0},"evidenceAt":"2026-11-17T09:00:00Z","acceptedAt":"2026-11-17T09:00:00Z"}]}`
+	var mu sync.Mutex
+	answer, status := body, http.StatusOK
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		if r.URL.Path != evidenceingest.TargetsPath {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(answer))
+	}))
+	defer srv.Close()
+	e := newTargetsEnv(t, fakeReader(snapshotObjects()...))
+	e.p.EvidenceURL, e.p.HTTP = srv.URL, srv.Client()
+	if err := e.p.publish(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := e.pushed(t)
+	col, err := evidenceingest.TargetsCollection("ev", s.Evidence)
+	if err != nil || len(col.Targets) != 1 || col.Targets[0].Name != "edge" || s.Completeness != fleet.CompletenessComplete ||
+		len(s.Sources) != 3 || s.Sources[2].Kind != fleet.SourceKindEvidenceHTTP || s.Sources[2].Completeness != fleet.CompletenessComplete {
+		t.Fatalf("snapshot %+v, evidence %v", s, err)
+	}
+	for _, tc := range []struct {
+		name, url, answer string
+		status            int
+	}{
+		{"500", srv.URL, body, http.StatusInternalServerError},
+		{"garbage", srv.URL, `{"schemaVersion":"other"}`, http.StatusOK},
+		{"oversize", srv.URL, strings.Repeat(" ", evidenceingest.MaxTargetsBodyBytes+1), http.StatusOK},
+		{"down", "http://127.0.0.1:1", body, http.StatusOK},
+		{"bad url", "http://\x7f", body, http.StatusOK},
+	} {
+		name := tc.name
+		mu.Lock()
+		e.p.EvidenceURL, answer, status = tc.url, tc.answer, tc.status
+		mu.Unlock()
+		if err := e.p.publish(context.Background()); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		s, _ := e.pushed(t)
+		if sec := s.Sources[2]; s.Evidence != nil || s.Completeness != fleet.CompletenessPartial || sec.Completeness != fleet.CompletenessPartial ||
+			len(sec.Limitations) != 1 || len(s.Pactos) != 1 {
+			t.Fatalf("%s: snapshot %+v", name, s)
+		}
 	}
 }

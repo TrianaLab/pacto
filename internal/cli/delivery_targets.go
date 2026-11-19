@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"crypto/ed25519"
 	"encoding/base64"
@@ -81,6 +82,10 @@ func publishTargets(cmd *cobra.Command, d deps, file, registry, keyPath string) 
 	}
 	fingerprint := signing.Hint(kp.GetPublicKey())
 	s.AsOf, s.Publisher = time.Now().UTC().Format(time.RFC3339), "key:"+fingerprint
+	// The sections are signed as written; one with no asOf was read now.
+	for i := range s.Sources {
+		s.Sources[i].AsOf = cmp.Or(s.Sources[i].AsOf, s.AsOf)
+	}
 	if err := s.Check(); err != nil {
 		return targetsPublished{}, fmt.Errorf("%s: %w", file, err)
 	}

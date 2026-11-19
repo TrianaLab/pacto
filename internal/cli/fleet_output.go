@@ -335,14 +335,40 @@ func printFleetStatus(cmd *cobra.Command, res *fleet.StatusResult, format string
 	}, nil)
 }
 
-// printPinnedSources prints one line per source that read a pinned ref (a
-// target snapshot): its status, the ref and who signed it.
+// printPinnedSources prints one line per source that read a pinned ref (each
+// section of a target snapshot): its status, the ref, who signed it, as of
+// when and, when it is not available, its first limitation.
 func printPinnedSources(w io.Writer, sources []fleet.SourceState, lims []fleet.Limitation) {
 	for _, s := range sources {
-		if s.Ref != "" {
-			_, _ = fmt.Fprintf(w, "Source %s (%s): %s%s\n", s.ID, s.Kind, s.Status, sourceRef(s, lims))
+		if s.Ref == "" {
+			continue
+		}
+		line := fmt.Sprintf("Source %s (%s): %s%s", s.ID, s.Kind, s.Status, sourceRef(s, lims))
+		if s.LastSuccessfulSync != nil {
+			line += ", asOf " + s.LastSuccessfulSync.UTC().Format(time.RFC3339)
+		}
+		if why := sourceReason(s.ID, lims); why != "" && s.Status != fleet.SourceAvailable {
+			line += ": " + why
+		}
+		_, _ = fmt.Fprintln(w, line)
+	}
+}
+
+// sourceReason is the first limitation of source id that says why, past the
+// line Build adds for every degraded source ("source <id> returned a partial
+// result"), which it falls back to.
+func sourceReason(id string, lims []fleet.Limitation) string {
+	why := ""
+	for _, l := range lims {
+		switch {
+		case l.Source != id:
+		case !strings.HasPrefix(l.Message, "source "+id+" "):
+			return l.Message
+		case why == "":
+			why = l.Message
 		}
 	}
+	return why
 }
 
 // printDetected prints the inferred provider rows, what the operator

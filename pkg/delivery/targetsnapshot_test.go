@@ -3,6 +3,7 @@ package delivery
 import (
 	"encoding/json"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -69,6 +70,32 @@ func TestTargetSnapshotCheck(t *testing.T) {
 		"publisher":    func(s *TargetSnapshot) { s.Publisher = "" },
 	} {
 		s := targetSnapshot()
+		edit(&s)
+		if err := s.Check(); err == nil || !strings.Contains(err.Error(), name) {
+			t.Errorf("%s: err = %v", name, err)
+		}
+	}
+}
+
+// TestTargetSnapshotCheckSources: every section has a known kind, once, an
+// RFC 3339 asOf and a fleet completeness; the evidence section is bounded.
+func TestTargetSnapshotCheckSources(t *testing.T) {
+	ok := targetSnapshot()
+	ok.Sources = []SnapshotSource{{Kind: fleet.SourceKindKubernetes, AsOf: ok.AsOf, Completeness: fleet.CompletenessComplete},
+		{Kind: fleet.SourceKindEvidenceHTTP, AsOf: ok.AsOf, Completeness: fleet.CompletenessPartial}}
+	ok.Evidence = json.RawMessage(`{}`)
+	if err := ok.Check(); err != nil {
+		t.Fatal(err)
+	}
+	for name, edit := range map[string]func(*TargetSnapshot){
+		"kind":         func(s *TargetSnapshot) { s.Sources[1].Kind = "mira" },
+		"kind \"kub":   func(s *TargetSnapshot) { s.Sources[1].Kind = fleet.SourceKindKubernetes },
+		"asOf":         func(s *TargetSnapshot) { s.Sources[0].AsOf = "now" },
+		"completeness": func(s *TargetSnapshot) { s.Sources[1].Completeness = "" },
+		"evidence":     func(s *TargetSnapshot) { s.Evidence = make(json.RawMessage, 4<<20+1) },
+	} {
+		s := ok
+		s.Sources = slices.Clone(ok.Sources)
 		edit(&s)
 		if err := s.Check(); err == nil || !strings.Contains(err.Error(), name) {
 			t.Errorf("%s: err = %v", name, err)

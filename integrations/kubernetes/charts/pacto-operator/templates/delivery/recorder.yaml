@@ -190,6 +190,10 @@ spec:
             {{- with .Values.registry }}
             - {{ printf "--targets-repository=%s/pacto-targets" . | quote }}
             {{- end }}
+            {{- if .Values.evidence.enabled }}
+            {{- /* The snapshot carries the targets the Evidence Server accepted. */}}
+            - {{ printf "--evidence-url=http://pacto-evidence.%s.svc:8686" .Release.Namespace | quote }}
+            {{- end }}
           env:
             - name: HOME
               value: /tmp

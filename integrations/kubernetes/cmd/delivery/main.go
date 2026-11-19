@@ -289,6 +289,9 @@ func runRecorder(args []string) error {
 	targets := fs.String("targets-repository", "",
 		"The repository (<registry>/pacto-targets) the recorder publishes the cluster's signed target snapshot to "+
 			"every 5 minutes, tagged cluster-<uid>. Empty publishes none.")
+	evidenceURL := fs.String("evidence-url", "",
+		"The installation's Evidence Server base URL. Each target snapshot then carries the targets it accepted "+
+			"from any producer. Empty carries none.")
 	zopts := zap.Options{}
 	zopts.BindFlags(fs)
 	_ = fs.Parse(args)
@@ -338,7 +341,8 @@ func runRecorder(args []string) error {
 	if err := addTargets(mgr, *targets, ocireferrer.Options{Keychain: keychain, Insecure: insecure},
 		&delivery.TargetPublisher{Client: mgr.GetAPIReader(), Signer: signer, ClusterID: clusterID,
 			Publisher: delivery.ServiceAccountUser(os.Getenv("POD_NAMESPACE"), os.Getenv("SERVICE_ACCOUNT")),
-			Mode:      store.Mode, Now: time.Now, Interval: core.TargetSnapshotInterval,
+			Mode:      store.Mode, EvidenceURL: *evidenceURL, HTTP: &http.Client{Timeout: 10 * time.Second},
+			Now: time.Now, Interval: core.TargetSnapshotInterval,
 			Log: ctrl.Log.WithName("targets")}); err != nil {
 		return err
 	}

@@ -39,12 +39,43 @@ func TestFleetTargetSnapshotFlag(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := "Source targets-c-6f1e (target-snapshot): available, ref " + strings.TrimPrefix(repo, "oci://") + "@sha256:"
-	if !strings.Contains(out, want) || !strings.Contains(out, ", signed by ci-demo\n") {
+	if !strings.Contains(out, want) || !strings.Contains(out, ", signed by ci-demo, asOf ") {
 		t.Fatalf("out = %q", out)
 	}
 	out, _, _ = runRoot(t, defaultDeps(), nil, "fleet", "snapshot", "--target-snapshot", repo, "--local", "")
 	if !strings.Contains(out, "targets-c-6f1e (target-snapshot): partial revs=0 targets=0, ref ") || !strings.Contains(out, ", unverified\n") {
 		t.Fatalf("unverified out = %q", out)
+	}
+}
+
+// TestFleetStatusPrintsSnapshotSections: every section of a snapshot prints
+// on its own line with its own source, asOf and completeness, and a partial
+// one names its limitation. The publisher fills a section's empty asOf.
+func TestFleetStatusPrintsSnapshotSections(t *testing.T) {
+	t.Setenv(app.TrustEnv, "")
+	host, key, _ := targetsEnv(t)
+	evidence := fleet.Limitation{Code: fleet.LimitationSourcePartial, Message: "the Evidence Server answered HTTP 500"}
+	doc := snapshotDoc(t, map[string]any{"completeness": "partial", "sources": []any{
+		map[string]any{"kind": "kubernetes", "asOf": "", "completeness": "complete"},
+		map[string]any{"kind": "kubernetes-workloads", "asOf": "", "completeness": "complete"},
+		map[string]any{"kind": "evidence-http", "asOf": "", "completeness": "partial", "limitations": []any{evidence}}}})
+	if _, err := runDelivery(t, defaultDeps(), "", "targets", "publish", doc, "--registry", host+"/acme", "--key", key); err != nil {
+		t.Fatal(err)
+	}
+	pub, _ := os.ReadFile(key + ".pub.pem")
+	trust := filepath.Join(t.TempDir(), "trust.yaml")
+	_ = os.WriteFile(trust, []byte("keys:\n- name: ci-demo\n  streams: [\"c-6f1e/*/*\"]\n  publicKey: |\n    "+strings.ReplaceAll(strings.TrimSpace(string(pub)), "\n", "\n    ")+"\n"), 0o600)
+	out, _, _ := runRoot(t, defaultDeps(), nil, "fleet", "status", "--target-snapshot", "oci://"+host+"/acme/pacto-targets", "--delivery-trust", trust, "--local", "")
+	for _, want := range []string{
+		"Source targets-c-6f1e (target-snapshot): available, ref ",
+		"Source targets-c-6f1e-workloads (kubernetes-workloads): available, ref ",
+		"Source targets-c-6f1e-evidence (evidence-http): partial, ref ",
+		", signed by ci-demo, asOf 20",
+		": " + evidence.Message + "\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("no %q in %q", want, out)
+		}
 	}
 }
 
@@ -132,5 +163,22 @@ func TestDeliveryTrustMovedKeepsEnv(t *testing.T) {
 	_, err := runDelivery(t, deliveryDeps("alice", nil), "text", "history", "-n", "prod", "--stage", "payments-prod")
 	if err == nil || !strings.Contains(err.Error(), "reading the delivery trust config") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// TestPrintPinnedSourcesReason: a degraded source names its own limitation,
+// past the line Build adds for it, else that line; one with no sync prints
+// no asOf.
+func TestPrintPinnedSourcesReason(t *testing.T) {
+	var b strings.Builder
+	lims := []fleet.Limitation{
+		{Source: "a", Message: "source a returned a partial result"},
+		{Source: "b", Message: "source b is stale; its records may be out of date"},
+		{Source: "b", Message: "the snapshot is old"},
+	}
+	printPinnedSources(&b, []fleet.SourceState{{ID: "a", Kind: "k", Status: fleet.SourcePartial, Ref: "r"}, {ID: "b", Kind: "k", Status: fleet.SourceStale, Ref: "r"}}, lims)
+	want := "Source a (k): partial, ref r, unverified: source a returned a partial result\nSource b (k): stale, ref r, unverified: the snapshot is old\n"
+	if b.String() != want {
+		t.Fatalf("got %q", b.String())
 	}
 }

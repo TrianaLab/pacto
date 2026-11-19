@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/trianalab/pacto/v4/pkg/evidenceingest"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
@@ -63,7 +65,29 @@ type TargetSnapshot struct {
 	Pactos []PactoView `json:"pactos"`
 	// Workloads are the workloads no Pacto targets, as inferred services.
 	Workloads []fleet.RawInferredService `json:"workloads"`
+	// Sources say, per section, when it was read and how completely: kind
+	// kubernetes for the Pactos, kubernetes-workloads for the workloads and
+	// evidence-http for Evidence. With none, Completeness and Limitations
+	// cover the Pactos and the workloads.
+	Sources []SnapshotSource `json:"sources,omitempty"`
+	// Evidence is the body the installation's Evidence Server answered on its
+	// targets endpoint, verbatim: the targets it accepted from any producer.
+	// A reader maps it with evidenceingest.TargetsCollection, as it maps the
+	// body of an --evidence-url source.
+	Evidence json.RawMessage `json:"evidence,omitempty"`
 }
+
+// SnapshotSource is one section of a target snapshot: its kind, when it was
+// read, how completely and what could not be read.
+type SnapshotSource struct {
+	Kind         string             `json:"kind"`
+	AsOf         string             `json:"asOf"`
+	Completeness fleet.Completeness `json:"completeness"`
+	Limitations  []fleet.Limitation `json:"limitations,omitempty"`
+}
+
+// snapshotSectionKinds are the section kinds a target snapshot may carry.
+var snapshotSectionKinds = []string{fleet.SourceKindKubernetes, fleet.SourceKindKubernetesWorkloads, fleet.SourceKindEvidenceHTTP}
 
 // TargetSnapshotStatement is an in-toto Statement v1 carrying a target snapshot.
 type TargetSnapshotStatement struct {
@@ -102,19 +126,42 @@ func TargetSnapshotTag(cluster string) (string, error) {
 
 // Check refuses a snapshot a reader could not place: a cluster that cannot sit
 // in a tag, an asOf that is not RFC 3339, a completeness other than complete
-// or partial, or no publisher.
+// or partial, no publisher, a section of an unknown or repeated kind or with
+// the same faults, or an evidence section over evidenceingest's body bound.
 func (s TargetSnapshot) Check() error {
 	if _, err := TargetSnapshotTag(s.Cluster); err != nil {
 		return err
 	}
-	if _, err := time.Parse(time.RFC3339, s.AsOf); err != nil {
-		return fmt.Errorf("asOf %q: want RFC 3339", s.AsOf)
-	}
-	if s.Completeness != fleet.CompletenessComplete && s.Completeness != fleet.CompletenessPartial {
-		return fmt.Errorf("completeness %q: want %s or %s", s.Completeness, fleet.CompletenessComplete, fleet.CompletenessPartial)
+	if err := checkRead(s.AsOf, s.Completeness); err != nil {
+		return err
 	}
 	if s.Publisher == "" {
 		return errors.New("publisher is empty")
+	}
+	seen := map[string]bool{}
+	for _, sec := range s.Sources {
+		if !slices.Contains(snapshotSectionKinds, sec.Kind) || seen[sec.Kind] {
+			return fmt.Errorf("source kind %q: want one each of %s", sec.Kind, strings.Join(snapshotSectionKinds, ", "))
+		}
+		seen[sec.Kind] = true
+		if err := checkRead(sec.AsOf, sec.Completeness); err != nil {
+			return fmt.Errorf("source %s: %w", sec.Kind, err)
+		}
+	}
+	if len(s.Evidence) > evidenceingest.MaxTargetsBodyBytes {
+		return fmt.Errorf("evidence is %d bytes, over the %d byte bound", len(s.Evidence), evidenceingest.MaxTargetsBodyBytes)
+	}
+	return nil
+}
+
+// checkRead refuses an asOf that is not RFC 3339 and a completeness other
+// than complete or partial.
+func checkRead(asOf string, c fleet.Completeness) error {
+	if _, err := time.Parse(time.RFC3339, asOf); err != nil {
+		return fmt.Errorf("asOf %q: want RFC 3339", asOf)
+	}
+	if c != fleet.CompletenessComplete && c != fleet.CompletenessPartial {
+		return fmt.Errorf("completeness %q: want %s or %s", c, fleet.CompletenessComplete, fleet.CompletenessPartial)
 	}
 	return nil
 }

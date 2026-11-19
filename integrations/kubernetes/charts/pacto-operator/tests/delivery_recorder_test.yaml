@@ -292,6 +292,38 @@ tests:
           path: spec.template.spec.containers[0].args
           count: 8
 
+  - it: carries the Evidence Server targets in the target snapshot when the Evidence Server is on
+    set:
+      registry: ghcr.io/acme
+      evidence.enabled: true
+      evidence.trust.existingSecret: my-keys
+      evidence.registry.subjects: ["oci://registry.example/contracts@sha256:0000000000000000000000000000000000000000000000000000000000000000"]
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: registry.example/pacto/streams
+      delivery.recorder.signing.kms: awskms:///alias/pacto
+    template: templates/delivery/recorder.yaml
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --evidence-url=http://pacto-evidence.pacto-system.svc:8686
+
+  - it: reads no Evidence Server without one
+    set:
+      registry: ghcr.io/acme
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: registry.example/pacto/streams
+      delivery.recorder.signing.kms: awskms:///alias/pacto
+    template: templates/delivery/recorder.yaml
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --evidence-url=http://pacto-evidence.pacto-system.svc:8686
+      - lengthEqual:
+          path: spec.template.spec.containers[0].args
+          count: 9
+
   - it: refuses a registry with a scheme
     set:
       registry: oci://x
