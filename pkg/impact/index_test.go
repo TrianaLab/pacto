@@ -20,6 +20,7 @@ const (
 	noTarget = iota
 	liveTarget
 	deadTarget
+	stateTarget
 )
 
 // indexSnap builds ledger with two declared direct consumers in indexDomain:
@@ -39,13 +40,16 @@ func indexSnap(t *testing.T, target int, consumers bool) *fleet.FleetSnapshot {
 		col.Revisions = append(col.Revisions, rev("checkout", "^1.0.0"), rev("billing", "^2.0.0"))
 	}
 	srcs := []fleet.Source{fleet.NewMemorySource("oci", "oci", col)}
+	targets := &fleet.Collection{Targets: []fleet.RawTarget{
+		{Scope: "prod", Kind: "deployment", Name: "checkout", Service: "checkout", Domain: indexDomain, Compliance: fleet.StatusCompliant, EvidenceAt: fresh()},
+	}}
 	switch target {
 	case liveTarget:
-		srcs = append(srcs, fleet.NewMemorySource("ts", fleet.SourceKindTargetState, &fleet.Collection{Targets: []fleet.RawTarget{
-			{Scope: "prod", Kind: "deployment", Name: "checkout", Service: "checkout", Domain: indexDomain, Compliance: fleet.StatusCompliant, EvidenceAt: fresh()},
-		}}))
+		srcs = append(srcs, fleet.NewMemorySource("ts", fleet.SourceKindTargetSnapshot, targets))
 	case deadTarget:
-		srcs = append(srcs, fleet.NewFailingSource("ts", fleet.SourceKindTargetState, errors.New("unreachable")))
+		srcs = append(srcs, fleet.NewFailingSource("ts", fleet.SourceKindTargetSnapshot, errors.New("unreachable")))
+	case stateTarget:
+		srcs = append(srcs, fleet.NewMemorySource("ts", fleet.SourceKindTargetState, targets))
 	}
 	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, srcs...)
 	if err != nil {
@@ -78,7 +82,7 @@ func analyzeIndexed(t *testing.T, snap *fleet.FleetSnapshot, indexed ...string) 
 func TestConsumerNotIndexedIsPartial(t *testing.T) {
 	res := analyzeIndexed(t, indexSnap(t, liveTarget, true), "billing")
 	l := limitation(res, LimitationConsumerNotIndexed)
-	if l == nil || !strings.Contains(l.Message, "1 consumer the fleet holds has no organization index entry: checkout;") {
+	if l == nil || !strings.Contains(l.Message, "1 consumer the fleet holds has no usable organization index entry: checkout;") {
 		t.Fatalf("limitation = %+v", l)
 	}
 	if res.Completeness != fleet.CompletenessPartial || res.ConsumerIndex.Completeness != fleet.CompletenessPartial {
@@ -94,7 +98,7 @@ func TestConsumerNotIndexedKeepsTheConsumer(t *testing.T) {
 	if len(res.Consumers) != 2 {
 		t.Fatalf("consumers = %+v, want checkout and billing kept", res.Consumers)
 	}
-	if l := limitation(res, LimitationConsumerNotIndexed); l == nil || !strings.HasPrefix(l.Message, "2 consumers the fleet holds have no organization index entry: ") {
+	if l := limitation(res, LimitationConsumerNotIndexed); l == nil || !strings.HasPrefix(l.Message, "2 consumers the fleet holds have no usable organization index entry: ") {
 		t.Errorf("limitation = %+v", l)
 	}
 }
@@ -153,7 +157,7 @@ func TestConsumerIndexCopiedToResult(t *testing.T) {
 func TestIndexWithoutTargetSourceIsPartial(t *testing.T) {
 	res := analyzeIndexed(t, indexSnap(t, noTarget, true), "checkout", "billing")
 	l := limitation(res, LimitationConsumerIndexUnchecked)
-	if l == nil || l.Message != "the index lists 3 services; without a target source Pacto cannot tell whether a consumer is missing from it" {
+	if l == nil || l.Message != "the index lists 3 services; without a target snapshot Pacto cannot tell whether a consumer is missing from it" {
 		t.Fatalf("limitation = %+v", l)
 	}
 	if res.ConsumerIndex.Checked || res.Completeness != fleet.CompletenessPartial || res.ConsumerIndex.Completeness != fleet.CompletenessPartial {
@@ -168,6 +172,24 @@ func TestIndexWithUnavailableTargetSourceIsUnchecked(t *testing.T) {
 	res := analyzeIndexed(t, indexSnap(t, deadTarget, true), "checkout", "billing")
 	if limitation(res, LimitationConsumerIndexUnchecked) == nil || res.ConsumerIndex.Checked {
 		t.Fatalf("an unavailable target source checks nothing: %+v", res.ConsumerIndex)
+	}
+}
+
+// TestTargetsAloneLeaveTheIndexUnchecked: --target-state, --k8s and
+// --evidence-url add targets with no revision, so a running consumer missing
+// from the index never becomes a declared consumer to flag; only a target
+// snapshot checks the index.
+func TestTargetsAloneLeaveTheIndexUnchecked(t *testing.T) {
+	for _, kind := range []string{fleet.SourceKindTargetState, fleet.SourceKindKubernetes, fleet.SourceKindEvidenceHTTP} {
+		snap := indexSnap(t, noTarget, false)
+		snap.Sources = append(snap.Sources, fleet.SourceState{ID: "t", Kind: kind, Status: fleet.SourceAvailable})
+		res := analyzeIndexed(t, snap)
+		if limitation(res, LimitationConsumerIndexUnchecked) == nil || res.ConsumerIndex.Checked || res.Gate == GateClear {
+			t.Errorf("%s: %+v gate %s", kind, res.ConsumerIndex, res.Gate)
+		}
+	}
+	if res := analyzeIndexed(t, indexSnap(t, stateTarget, false)); res.ConsumerIndex.Checked {
+		t.Errorf("a target-state source checked the index: %+v", res.ConsumerIndex)
 	}
 }
 

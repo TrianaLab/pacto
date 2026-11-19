@@ -4866,12 +4866,12 @@ export interface components {
             truncated: boolean;
         };
         "Impact.ConsumerIndex": {
-            /** @description Whether a target source was there to check the index against */
+            /** @description Whether a target snapshot was there to check the index against: only a target snapshot adds the running revisions with their declared dependencies */
             checked: boolean;
             completeness: string;
             /**
              * Format: int64
-             * @description Services whose newest entry depends on the changed service; their bundles joined the snapshot by digest
+             * @description Services whose newest entry depends on the changed service, selected from the index; their bundles are pulled by digest, and a bundle that does not resolve or the catalog's root bound makes the answer partial
              */
             consumers: number;
             reason?: string;

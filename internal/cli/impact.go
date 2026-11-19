@@ -72,8 +72,8 @@ func newImpactCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder
 			"names the trust config that verifies each snapshot; an unverified or stale snapshot never clears a " +
 			"BREAKING change. --target-snapshot off reads none.\n\n" +
 			"From the same ref impact also reads the consumers published to the organization index, " +
-			"<host>/<first path segment>/pacto-index then <host>/pacto-index, checks them against the target sources it reads " +
-			"and prints a Consumers line; --index names another index, --index none reads none, a --root list skips it " +
+			"<host>/<first path segment>/pacto-index then <host>/pacto-index, checks them against the target snapshot it reads " +
+			"and prints a Consumers line; --index names another <registry>/pacto-index, --index none reads none, a --root list skips it " +
 			"and a pair of --local folders reads no index.",
 		Example: `  # Impact of upgrading a local service against the local fleet
   pacto impact ./svc-v1 ./svc-v2 --local .

@@ -218,7 +218,7 @@ if [ "$n" = 2 ]; then pass "the index holds one entry per pushed version"; else 
 mkdir -p "$WORK/empty"
 rc=0
 IOUT="$(PACTO_INSECURE_REGISTRIES="$REG_HOST" "$BIN" impact "oci://${REG_HOST}/idx/payments:1.0.0" "$WORK/pay-new" --local "$WORK/empty" 2>&1)" || rc=$?
-assert_contains "$IOUT" "Consumers: 1 from ${REG_HOST}/idx/pacto-index (listed by tag, 2 entries read, unchecked)" "the index read is reported unchecked"
+assert_contains "$IOUT" "Consumers: 1 from ${REG_HOST}/idx/pacto-index (listed by tag, 2 services listed, unchecked)" "the index read is reported unchecked"
 assert_contains "$IOUT" "path: ${REG_HOST}%2Fidx/web > " "the index finds web"
 assert_contains "$IOUT" "Classification: BREAKING" "the change is breaking"
 if [ "$rc" = 2 ]; then pass "an unchecked index never clears the change"; else echo "--- output ---"; echo "$IOUT"; fail "impact exited $rc, expected 2"; fi

@@ -106,8 +106,8 @@ type ConsumerIndex struct {
 	Repository   string             `json:"repository" doc:"The organization index read, such as ghcr.io/acme/pacto-index; empty when none was found or it was not read"`
 	Status       string             `json:"status" enum:"read,not-found,unavailable,skipped" doc:"read: listed by tag; not-found: no index at any candidate; unavailable: the registry refused or failed the listing; skipped: not read, see reason"`
 	Services     int                `json:"services" doc:"Services the index lists"`
-	Consumers    int                `json:"consumers" doc:"Services whose newest entry depends on the changed service; their bundles joined the snapshot by digest"`
-	Checked      bool               `json:"checked" doc:"Whether a target source was there to check the index against"`
+	Consumers    int                `json:"consumers" doc:"Services whose newest entry depends on the changed service, selected from the index; their bundles are pulled by digest, and a bundle that does not resolve or the catalog's root bound makes the answer partial"`
+	Checked      bool               `json:"checked" doc:"Whether a target snapshot was there to check the index against: only a target snapshot adds the running revisions with their declared dependencies"`
 	Completeness fleet.Completeness `json:"completeness"`
 	Reason       string             `json:"reason,omitempty"`
 }
@@ -618,7 +618,7 @@ const LimitationServiceNameInferred = "SERVICE_NAME_INFERRED"
 const LimitationConsumerNotIndexed = "CONSUMER_NOT_INDEXED"
 
 // LimitationConsumerIndexUnchecked marks an answer that read the organization
-// index with no target source to check it against: the index cannot show it
+// index with no target snapshot to check it against: the index cannot show it
 // lists every consumer, so it alone never clears a BREAKING change.
 const LimitationConsumerIndexUnchecked = "CONSUMER_INDEX_UNCHECKED"
 
@@ -648,12 +648,15 @@ func (r *Result) noteUnindexed(indexed func(fleet.ServiceKey) bool) {
 		more = " (and " + strconv.Itoa(n-maxUnindexedNames) + " more)"
 	}
 	r.markIndexPartial(LimitationConsumerNotIndexed, strconv.Itoa(n)+" "+plural(n, "consumer", "consumers")+
-		" the fleet holds "+plural(n, "has", "have")+" no organization index entry: "+joinAnd(listed)+more+
+		" the fleet holds "+plural(n, "has", "have")+" no usable organization index entry: "+joinAnd(listed)+more+
 		"; a consumer missing from the index may hide others like it, so the answer is partial")
 }
 
-// noteUnchecked flags an index read with no target source that answered to
-// check it against: the index cannot prove it covers the organization.
+// noteUnchecked flags an index read with no target snapshot that answered
+// to check it against: the index cannot prove it covers the organization.
+// Only a target snapshot adds the running revisions with their declared
+// dependencies; --k8s, --target-state and --evidence-url add targets alone,
+// so a running consumer missing from the index never reaches noteUnindexed.
 func (r *Result) noteUnchecked(snap *fleet.FleetSnapshot) {
 	checked := slices.ContainsFunc(snap.Sources, func(s fleet.SourceState) bool {
 		return s.Status != fleet.SourceUnavailable && slices.Contains(indexCheckKinds, s.Kind)
@@ -669,11 +672,12 @@ func (r *Result) noteUnchecked(snap *fleet.FleetSnapshot) {
 		n = r.ConsumerIndex.Services
 	}
 	r.markIndexPartial(LimitationConsumerIndexUnchecked, "the index lists "+strconv.Itoa(n)+" "+plural(n, "service", "services")+
-		"; without a target source Pacto cannot tell whether a consumer is missing from it")
+		"; without a target snapshot Pacto cannot tell whether a consumer is missing from it")
 }
 
-// indexCheckKinds are the target source kinds the index is checked against.
-var indexCheckKinds = []string{fleet.SourceKindKubernetes, fleet.SourceKindTargetState, fleet.SourceKindEvidenceHTTP, fleet.SourceKindTargetSnapshot}
+// indexCheckKinds are the source kinds the index is checked against: those
+// that add running revisions with their declared dependencies.
+var indexCheckKinds = []string{fleet.SourceKindTargetSnapshot}
 
 // markIndexPartial adds an index limitation and makes the answer and its
 // index summary partial.

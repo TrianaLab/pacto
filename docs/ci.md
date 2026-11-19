@@ -180,7 +180,7 @@ The first `jq` lists each consumer whose `compatibility` range rejects the new
 version, with its owner; the second fails the step when a `BREAKING` change
 has an `incompatible` consumer. A range Pacto cannot evaluate reads
 `unknown` and passes. The third fails a `BREAKING` change whose answer is
-partial, such as an untrusted snapshot or an index with no target source.
+partial, such as an untrusted snapshot or an index with no target snapshot.
 
 `pacto impact` exits `0` clear, `1` blocked and `2` unverified, as does a
 `BREAKING` change with compatible consumers. `|| [ $? -eq 2 ]` lets the step
@@ -195,6 +195,9 @@ newest ([how](impact-consumers.md#consumers-from-the-organization-index)):
 Consumers: 41 from ghcr.io/acme/pacto-index (listed by tag, complete)
 ```
 
+It says `complete` only when a target snapshot was read: only a snapshot adds
+the running revisions with their dependencies, so with `--k8s` or
+`--target-state` alone a row reads `unverified` (`CONSUMER_INDEX_UNCHECKED`).
 `--root` replaces the index for that run and `--index none` reads none. With
 `--publish`, `--index` also names where the run writes its entries, and
 `--index none` writes none. A run that finds a version already published

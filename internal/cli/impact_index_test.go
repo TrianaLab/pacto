@@ -23,7 +23,7 @@ func indexResult(ix impact.ConsumerIndex, lims ...fleet.Limitation) *impact.Resu
 }
 
 func TestImpactPrintsConsumersLine(t *testing.T) {
-	notIndexed := fleet.Limitation{Code: impact.LimitationConsumerNotIndexed, Message: "1 consumer the fleet holds has no organization index entry: web"}
+	notIndexed := fleet.Limitation{Code: impact.LimitationConsumerNotIndexed, Message: "1 consumer the fleet holds has no usable organization index entry: web"}
 	for name, tc := range map[string]struct {
 		res  *impact.Result
 		want string
@@ -31,9 +31,9 @@ func TestImpactPrintsConsumersLine(t *testing.T) {
 		"checked": {indexResult(impact.ConsumerIndex{Consumers: 41, Checked: true, Completeness: fleet.CompletenessComplete}),
 			"Consumers: 41 from ghcr.io/acme/pacto-index (listed by tag, complete)\n"},
 		"unchecked": {indexResult(impact.ConsumerIndex{Consumers: 41, Services: 120, Completeness: fleet.CompletenessPartial}),
-			"Consumers: 41 from ghcr.io/acme/pacto-index (listed by tag, 120 entries read, unchecked)\n"},
+			"Consumers: 41 from ghcr.io/acme/pacto-index (listed by tag, 120 services listed, unchecked)\n"},
 		"partial": {indexResult(impact.ConsumerIndex{Consumers: 3, Checked: true, Completeness: fleet.CompletenessPartial}, notIndexed),
-			"Consumers: 3 from ghcr.io/acme/pacto-index (listed by tag, partial: 1 consumer the fleet holds has no organization index entry: web)\n"},
+			"Consumers: 3 from ghcr.io/acme/pacto-index (listed by tag, partial: 1 consumer the fleet holds has no usable organization index entry: web)\n"},
 		"fallback": {indexResult(impact.ConsumerIndex{Consumers: 2, Checked: true, Completeness: fleet.CompletenessComplete, Reason: "after ghcr.io/acme/pacto-index: not found"}),
 			"Consumers: 2 from ghcr.io/acme/pacto-index (listed by tag, complete, after ghcr.io/acme/pacto-index: not found)\n"},
 		"not found": {&impact.Result{ConsumerIndex: &impact.ConsumerIndex{Status: impact.IndexNotFound, Reason: "no organization index at ghcr.io/acme/pacto-index or ghcr.io/pacto-index"}},
@@ -156,7 +156,7 @@ func TestCIIndexAloneIsNotAConsumerSource(t *testing.T) {
 	doc := decode(t, out)
 	row := rowsByService(doc)["reports"]
 	imp, _ := row["impact"].(map[string]any)
-	if imp["text"] != "unverified (no consumer source)" || doc["index"] != "0 from "+e.host+"/acme/pacto-index (listed by tag, 1 entry read, unchecked)" {
+	if imp["text"] != "unverified (no consumer source)" || doc["index"] != "0 from "+e.host+"/acme/pacto-index (listed by tag, 1 service listed, unchecked)" {
 		t.Fatalf("impact %v, index %v", imp, doc["index"])
 	}
 }
@@ -174,11 +174,14 @@ func TestCIPassesIndexToImpact(t *testing.T) {
 	}
 }
 
+// TestCIPrintsIndexLine: a target-state source adds targets with no revision,
+// so it never checks the index: the line says unchecked and the row is
+// unverified.
 func TestCIPrintsIndexLine(t *testing.T) {
 	e := newCIEnv(t)
 	e.additive(t, "reports")
-	out, _, err := e.run(t, "--target-state", targetState(t, "other"))
-	if err != nil || !strings.Contains(out, "\nIndex: 0 from "+e.host+"/acme/pacto-index (listed by tag, complete)\n") {
-		t.Fatalf("err %v:\n%s", err, out)
+	out, stderr, err := e.run(t, "--target-state", targetState(t, "other"))
+	if ciExit(err) != 2 || !strings.Contains(out, "\nIndex: 0 from "+e.host+"/acme/pacto-index (listed by tag, 1 service listed, unchecked)\n") {
+		t.Fatalf("err %v:\n%s\n%s", err, out, stderr)
 	}
 }

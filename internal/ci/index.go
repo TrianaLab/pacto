@@ -29,7 +29,7 @@ func IndexText(res *impact.Result) string {
 	how := "complete"
 	switch {
 	case !ix.Checked:
-		how = strconv.Itoa(ix.Services) + " " + plural(ix.Services, "entry", "entries") + " read, unchecked"
+		how = strconv.Itoa(ix.Services) + " " + plural(ix.Services, "service", "services") + " listed, unchecked"
 	case ix.Completeness != fleet.CompletenessComplete:
 		how = "partial: " + indexReason(res.Limitations)
 	}
@@ -37,6 +37,22 @@ func IndexText(res *impact.Result) string {
 		how += ", " + ix.Reason
 	}
 	return strconv.Itoa(ix.Consumers) + " from " + ix.Repository + " (listed by tag, " + how + ")"
+}
+
+// NoteIndex keeps the Index line of the least complete answer: the first
+// that read an index, replaced by a later one only when it says complete and
+// the later one does not, so one row's complete read never hides another's
+// partial one.
+func (p *Plan) NoteIndex(res *impact.Result) {
+	if p.Index == "" || p.indexComplete && !indexComplete(res) {
+		p.Index, p.indexComplete = IndexText(res), indexComplete(res)
+	}
+}
+
+// indexComplete reports whether IndexText says complete for res.
+func indexComplete(res *impact.Result) bool {
+	ix := res.ConsumerIndex
+	return ix != nil && ix.Status == impact.IndexRead && ix.Checked && ix.Completeness == fleet.CompletenessComplete
 }
 
 // indexReason is the first limitation the index read or its cross-check

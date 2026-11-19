@@ -200,7 +200,8 @@ version, bundle digest, every dependency reference and the publisher it claims.
 An entry is never overwritten. A failed write prints a warning and the publish
 still succeeds; publishing the current version again writes a missing entry.
 `pacto push` under a tag other than the version writes none. `--index` names
-another repository and `--index none` writes none.
+another `<registry>/pacto-index`, with no tag or digest, and `--index none`
+writes none.
 
 ## In CI and from agents
 

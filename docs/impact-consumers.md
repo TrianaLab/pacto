@@ -66,8 +66,11 @@ Every `pacto publish`, `pacto push` and `pacto ci --publish` writes one entry
 per published version to `<registry>/pacto-index`. `<registry>` comes from the
 provider reference as for the [target snapshot](ci.md#where-consumers-come-from):
 `ghcr.io/acme/contracts/ledger` tries `ghcr.io/acme/pacto-index`, then
-`ghcr.io/pacto-index`. `--index` names another repository and `--index none`
-reads none. Any `--root` skips it, since `--root` names the consumers.
+`ghcr.io/pacto-index`. `--index` names another `<registry>/pacto-index`, with
+no tag or digest, and `--index none` reads none. Any `--root` skips it, since
+`--root` names the consumers. A `--local` tree that holds the changed service
+also skips it: impact judges that local copy, which the published consumers
+do not depend on.
 
 `pacto impact` lists the index by tag and reads each service's newest entry.
 It refuses an entry not bound to its tag, its index host and its service's
@@ -81,8 +84,8 @@ judges its declared dependency. Each code below makes the answer partial, so a
 | `CONSUMER_INDEX_UNAVAILABLE` | The registry refused or failed the listing |
 | `CONSUMER_INDEX_TRUNCATED` | A read bound or the timeout stopped the read |
 | `CONSUMER_INDEX_ENTRY_INVALID` | Entries malformed, unbound or unconfirmed by their own repository were not used; a service whose newest entry is refused counts as not indexed |
-| `CONSUMER_INDEX_UNCHECKED` | No target source to check the index against |
-| `CONSUMER_NOT_INDEXED` | A declared consumer the fleet holds has no entry; it stays in the answer |
+| `CONSUMER_INDEX_UNCHECKED` | No target snapshot to check the index against: only a snapshot adds the running revisions with their dependencies |
+| `CONSUMER_NOT_INDEXED` | A published declared consumer the fleet holds has no usable entry; it stays in the answer |
 
 The answer reports the read in `consumerIndex`. `pacto_impact` over stdio reads
 the index; over HTTP and in the dashboard it is never read.
