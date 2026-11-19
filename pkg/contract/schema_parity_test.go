@@ -267,6 +267,8 @@ var vocabulariesWithoutSchemaEnum = map[string]string{
 	// Coverage* states live in pacto.inferred.yaml, a non-contract format the
 	// strict decoder checks, never in pacto.yaml.
 	"complete,failed,partial": "Coverage*: how completely a cluster read saw a source, in the inferred record",
+	"declared,draft":          "Declaration*: whether a person declared the service or an agent only drafted it, in the inferred record",
+	"agent,ci,human,none":     "SignerClass*: who asked for or signed a declaration, in the inferred record",
 }
 
 // TestVocabularyParityWithSchema is the DRY gate over contract vocabularies.
