@@ -50,6 +50,7 @@ var corePackages = []string{
 	"github.com/trianalab/pacto/v4/pkg/graph/...",
 	"github.com/trianalab/pacto/v4/pkg/impact/...",
 	"github.com/trianalab/pacto/v4/pkg/oci/...",
+	"github.com/trianalab/pacto/v4/pkg/orgindex/...",
 	"github.com/trianalab/pacto/v4/pkg/otelobserver/...",
 	"github.com/trianalab/pacto/v4/pkg/probe/...",
 	"github.com/trianalab/pacto/v4/pkg/readiness/...",

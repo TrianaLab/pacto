@@ -74,7 +74,8 @@ type sysDeps struct {
 	lookPath func(file string) (string, error)
 	// publishRegistry is the registry publish reads and writes.
 	publishRegistry func() publish.Registry
-	// refusalRepo opens the repository a publish refusal is kept in.
+	// refusalRepo opens a contract registry repository with the CLI's
+	// credentials: the refusal store and the organization index.
 	refusalRepo func(path string) (*remote.Repository, error)
 	// statsRepo opens the stats repository run records are read from.
 	statsRepo func(path string) (*remote.Repository, error)

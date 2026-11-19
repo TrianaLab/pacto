@@ -53,6 +53,9 @@ type PublishOptions struct {
 	// of a fresh read of Path: pacto ci hands in the bundle it raised in
 	// memory, so the bytes it judged are the bytes validated and pushed.
 	Bundle *contract.Bundle
+	// Index is the organization index repository the entry is written to:
+	// "" derives it from the bundle repository, IndexNone writes none.
+	Index string
 	// unchanged is the bundle digest pacto ci found the declared version
 	// holding with this content: Publish then writes nothing once that
 	// bundle verifies as the publisher's and its deploy artifact is there.
@@ -171,11 +174,23 @@ func (s *Service) Publish(ctx context.Context, opts PublishOptions) (*publish.Re
 		res.Refusal = keepRefusal(ctx, env, tools, b, pub, res.Plan)
 	}
 	if err == nil {
-		err = readBack(ctx, reg, res)
 		res.Signer = tools.signer(publish.SignOf(pub))
+		err = s.readBackAndIndex(ctx, reg, tools, b, pub, res, opts.Index)
 	}
 	res.Notes = notes
 	return res, err
+}
+
+// readBackAndIndex confirms what res published and then writes its
+// organization index entry, from b with the effective publish section pub,
+// claiming the policy that signed it. Only the read-back can fail.
+func (s *Service) readBackAndIndex(ctx context.Context, reg publish.Registry, tools execTools, b *contract.Bundle, pub *contract.Publish, res *publish.Result, override string) error {
+	if err := readBack(ctx, reg, res); err != nil {
+		return err
+	}
+	_, policy, _ := tools.signing(ctx, publish.SignOf(pub))
+	res.Index = s.keepIndexEntry(ctx, b, publish.Repo(pub.Bundle)+":"+res.Plan.Version, res.Digests[publish.BundleItem], publisherOf(policy), override)
+	return nil
 }
 
 // publishedBundle is the bundle Publish publishes, validated and made

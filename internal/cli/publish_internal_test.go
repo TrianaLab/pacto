@@ -294,3 +294,36 @@ func TestWaitPublishedRegistry(t *testing.T) {
 	out, err = runPublish(t, stageWith(cliA), "text", "--propose", "prod/payments-prod", "--propose-timeout", "5ms", "--on-behalf-of", "dana")
 	wantRun(t, out, err, false, "Proposed "+cliA+" on prod/payments-prod")
 }
+
+// runPublishErr is runPublish keeping stderr too.
+func runPublishErr(t *testing.T, d deps, args ...string) (stdout, stderr string, err error) {
+	t.Helper()
+	v := viper.New()
+	v.Set(outputFormatKey, "text")
+	cmd := newPublishCommand(app.NewService(nil, nil), v, d, newRunRecorder("test", d))
+	out, errw := &strings.Builder{}, &strings.Builder{}
+	cmd.SetOut(out)
+	cmd.SetErr(errw)
+	cmd.SetArgs(args)
+	err = cmd.Execute()
+	return out.String(), errw.String(), err
+}
+
+func TestPublishPrintsIndexLine(t *testing.T) {
+	var got app.PublishOptions
+	res := &publish.Result{Plan: publishPlan(true), Actions: []string{"pushed bundle"}, Digests: map[string]string{},
+		Index: "indexed as reg/pacto-index:0123456789abcdef-1.0.0"}
+	out, stderr, err := runPublishErr(t, publishDeps(res, nil, &got))
+	wantRun(t, out, err, false, "Index: indexed as reg/pacto-index:0123456789abcdef-1.0.0")
+	expect(t, stderr == "", "stderr: %q", stderr)
+}
+
+func TestPublishPrintsIndexWarning(t *testing.T) {
+	var got app.PublishOptions
+	res := &publish.Result{Plan: publishPlan(true), Actions: []string{"pushed bundle"}, Digests: map[string]string{},
+		Index: "not indexed in reg/pacto-index: denied"}
+	out, stderr, err := runPublishErr(t, publishDeps(res, nil, &got))
+	wantRun(t, out, err, false, "pushed bundle")
+	expect(t, strings.Contains(stderr, "warning: not indexed in reg/pacto-index: denied") && !strings.Contains(out, "Index:"),
+		"stdout %q stderr %q", out, stderr)
+}

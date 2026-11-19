@@ -198,6 +198,17 @@ func notPublishedYet(s *delivery.StageObject, digest string, timeout time.Durati
 		"or verified its signature yet; propose it later with `pacto delivery propose`", digest, timeout, s.Spec.Candidates.OCIRepositoryRef.Name)
 }
 
+// printIndex prints where the organization index entry was written, or, on
+// stderr, the warning that it was not: a missing entry never fails the run.
+func printIndex(cmd *cobra.Command, index string) {
+	switch {
+	case strings.HasPrefix(index, "not indexed"):
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "warning: "+index)
+	case index != "":
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Index: "+index)
+	}
+}
+
 // printPublishResult prints what a publish did. failed is true when it was
 // refused or failed: the error says why, so nothing claims it is all published.
 func printPublishResult(cmd *cobra.Command, res *publish.Result, format string, failed bool) error {
@@ -226,6 +237,7 @@ func printPublishResult(cmd *cobra.Command, res *publish.Result, format string, 
 		if res.Refusal != "" {
 			_, _ = fmt.Fprintln(w, "Refusal: "+res.Refusal)
 		}
+		printIndex(cmd, res.Index)
 		for _, n := range res.Notes {
 			_, _ = fmt.Fprintln(w, "note: "+n)
 		}

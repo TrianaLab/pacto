@@ -64,6 +64,9 @@ type Result struct {
 	// Refusal says where a version-rule refusal was kept, signed, or why it
 	// could not be. It never changes the publish's outcome.
 	Refusal string `json:"refusal,omitempty"`
+	// Index says where this version's organization index entry was written,
+	// or why it was not. It never changes the publish's outcome.
+	Index string `json:"index,omitempty"`
 	// Notes are what deriving the version found worth saying, such as a
 	// higher tag it ignored.
 	Notes []string `json:"notes,omitempty"`
