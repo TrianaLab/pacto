@@ -209,7 +209,7 @@ YAML
   done < <(find "$out" -name pacto.yaml)
   # The draft keeps what the cluster showed in its inferred record, with the read's coverage.
   [ -f "$out/$L/till/pacto.inferred.yaml" ] || fail "the till draft has no pacto.inferred.yaml: $(ls "$out/$L/till")"
-  grep -q '^  cluster:' "$out/$L/till/pacto.inferred.yaml" || fail "the till record has no inputs.cluster: $(cat "$out/$L/till/pacto.inferred.yaml")"
+  grep -qE '^ +cluster:' "$out/$L/till/pacto.inferred.yaml" || fail "the till record has no inputs.cluster: $(cat "$out/$L/till/pacto.inferred.yaml")"
   grep -qE 'source: workloads' "$out/$L/till/pacto.inferred.yaml" || fail "the till record has no workloads coverage row: $(cat "$out/$L/till/pacto.inferred.yaml")"
   pass "init --cluster skipped wallet, drafted till with its inferred record and every draft validates"
 
