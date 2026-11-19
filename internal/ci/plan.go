@@ -20,10 +20,13 @@ type Plan struct {
 	Unreadable      int          `json:"unreadable,omitempty"`
 	ConsumerSources []string     `json:"consumerSources,omitempty"`
 	Snapshot        SnapshotInfo `json:"snapshot"`
-	Skipped         []Skip       `json:"skipped,omitempty"`
-	Rows            []Row        `json:"rows"`
-	Gate            string       `json:"gate"`
-	Exit            int          `json:"exit"`
+	// Index says where the first impact answer read consumers from in the
+	// organization index (IndexText), "" when no answer read one.
+	Index   string `json:"index,omitempty"`
+	Skipped []Skip `json:"skipped,omitempty"`
+	Rows    []Row  `json:"rows"`
+	Gate    string `json:"gate"`
+	Exit    int    `json:"exit"`
 	// Reason is the line a non-zero exit writes to stderr, "" on exit 0.
 	Reason string `json:"reason"`
 	// Refused is why a publish run as a whole was refused, "" when it ran.

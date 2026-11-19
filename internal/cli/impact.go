@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/internal/ci"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
@@ -69,7 +70,11 @@ func newImpactCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder
 			"auto reads only the clusters whose snapshot exists at that moment, so CI that knows its clusters pins " +
 			"them with --target-snapshot oci://<registry>/pacto-targets:cluster-<uid> (repeatable). --delivery-trust " +
 			"names the trust config that verifies each snapshot; an unverified or stale snapshot never clears a " +
-			"BREAKING change. --target-snapshot off reads none.",
+			"BREAKING change. --target-snapshot off reads none.\n\n" +
+			"From the same ref impact also reads the consumers published to the organization index, " +
+			"<host>/<first path segment>/pacto-index then <host>/pacto-index, checks them against the target sources it reads " +
+			"and prints a Consumers line; --index names another index, --index none reads none, a --root list skips it " +
+			"and a pair of --local folders reads no index.",
 		Example: `  # Impact of upgrading a local service against the local fleet
   pacto impact ./svc-v1 ./svc-v2 --local .
 
@@ -213,7 +218,7 @@ func impactSnapshotAuto(cmd *cobra.Command) (bool, error) {
 }
 
 // impactChangeOnlyFlags only shape a contract change answer.
-var impactChangeOnlyFlags = []string{"include-observed", "old-values", "old-set", "new-values", "new-set"}
+var impactChangeOnlyFlags = []string{"include-observed", "old-values", "old-set", "new-values", "new-set", "index"}
 
 // changedFlag is the first of names set on cmd, "" when none is.
 func changedFlag(cmd *cobra.Command, names []string) string {
@@ -350,6 +355,9 @@ func printTargetSnapshots(w io.Writer, result *impact.Result) {
 	}
 	for _, s := range result.TargetSnapshots {
 		_, _ = fmt.Fprintf(w, "Targets: %s\n", targetSnapshotLine(s, result))
+	}
+	if text := ci.IndexText(result); text != "" {
+		_, _ = fmt.Fprintf(w, "Consumers: %s\n", text)
 	}
 }
 

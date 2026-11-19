@@ -79,6 +79,8 @@ func addFleetSourceFlags(f *pflag.FlagSet) {
 	shared.StringArray("target-snapshot", nil, "signed target snapshot(s) to read targets from: an oci:// pacto-targets repository, or :cluster-<uid> tags or digests "+
 		"to pin the clusters CI expects (repeatable); pacto impact, pacto ci and pacto_impact on a stdio pacto mcp also take auto (the default: derived from the provider ref) and off")
 	shared.String("delivery-trust", "", "the trust config target snapshots are verified with: a YAML file with a key scoped to each cluster (default $"+app.TrustEnv+")")
+	shared.String("index", "", "organization index pacto impact and pacto ci read consumers from (default <registry>/pacto-index from the provider reference; "+
+		"none reads none; skipped when --root names the consumers; other fleet commands ignore it)")
 	f.AddFlagSet(shared)
 }
 
@@ -89,7 +91,7 @@ func fleetFlagNames() []string {
 	return []string{
 		"local", "root", "target-state", "evidence-url", "mira-source", "traces", "oci",
 		"cache", "k8s", "namespace", "freshness", "external-catalog", "detected", "fingerprints",
-		"target-snapshot", "delivery-trust",
+		"target-snapshot", "delivery-trust", "index",
 	}
 }
 
@@ -194,6 +196,7 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 	detected, _ := cmd.Flags().GetString("detected")
 	fingerprints, _ := cmd.Flags().GetString("fingerprints")
 	snapshots, _ := cmd.Flags().GetStringArray("target-snapshot")
+	index, _ := cmd.Flags().GetString("index")
 	prov := app.NewProvenanceChecker()
 	prov.Trust = publisherTrust(cmd, fleetDeps())
 	return app.FleetOptions{
@@ -217,6 +220,7 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 		Provenance:              prov,
 		RegistryProbe:           app.NewRegistryProbe(),
 		Now:                     fleetNow,
+		Index:                   index,
 	}
 }
 

@@ -724,6 +724,9 @@ func (s *Service) ciImpacts(ctx context.Context, p *ci.Plan, folders []*ciFolder
 		}
 		res.Registry = look
 		results[f.row.Service] = res
+		if p.Index == "" {
+			p.Index = ci.IndexText(res)
+		}
 		f.row.Impact = rowImpact(res, f.b, evidence)
 		f.row.Impact.Sources = answered
 	}

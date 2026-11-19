@@ -137,6 +137,8 @@ func (o FleetOptions) addedSources() []fleet.Source {
 // can name a consumer of a changed service, redacted: the one place that
 // says which source flags can. LocalRoots never counts (it is the repository
 // itself), and whether a source actually answered is read from the snapshot.
+// Index never counts either: an index alone is never a consumer source, since
+// without a target source it is CONSUMER_INDEX_UNCHECKED (509-S7 Decision 16).
 func (o FleetOptions) ConsumerSources() []string {
 	var out []string
 	add := func(flag string, values ...string) {
