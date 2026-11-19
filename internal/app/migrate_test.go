@@ -347,6 +347,11 @@ func TestMigrateNoContractsFound(t *testing.T) {
 	if r := migrate(t, NewService(nil, nil), MigrateOptions{}); !reflect.DeepEqual(r.NotFound, []string{"."}) || r.To != contract.Current() {
 		t.Fatalf("no roots: %+v", r)
 	}
+	noAbs := NewService(nil, nil) // a root that cannot be made absolute holds nothing seen
+	noAbs.sys.absPath = func(string) (string, error) { return "", errors.New("no working directory") }
+	if r := migrate(t, noAbs, MigrateOptions{Roots: []string{dir}}); !reflect.DeepEqual(r.NotFound, []string{dir}) {
+		t.Fatalf("no abs path: %+v", r)
+	}
 }
 
 func TestMigrateReportsSkipped(t *testing.T) {

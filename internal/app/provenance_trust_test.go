@@ -229,6 +229,22 @@ func TestProvenancePinListingCutUnknown(t *testing.T) {
 	wantStatus(t, p, fleet.SignatureUnknown, "only 20 were read, so a signer no pin read covers is unknown")
 }
 
+// TestProvenanceDroppedPinNamed: a pin the reader dropped is named in the
+// reason.
+func TestProvenanceDroppedPinNamed(t *testing.T) {
+	_, s := ciSigstore(t)
+	reg := provenanceTestRegistry(t)
+	pc := checkerFor(reg)
+	trusting(pc, delivery.PublisherConfig{Registry: "ghcr.io/other"}, func(_ context.Context, svc delivery.ServiceRef) ([]delivery.IdentityPin, string, string, error) {
+		if svc.Domain == "" {
+			return nil, "", "", nil
+		}
+		return nil, "", "a pin of app is not valid and was dropped", nil
+	}, nil)
+	p := pc.Check(t.Context(), "oci", pushSigned(t, reg, s), nil)
+	wantStatus(t, p, fleet.SignatureUnverified, "covers: a person confirms it. A pin of app is not valid and was dropped.")
+}
+
 // TestProvenanceTrustMemo: the installation's trust is read once per
 // provenanceTTL, and a config that cannot be read once per
 // provenanceFailTTL, judged meanwhile with the inferred rule.
