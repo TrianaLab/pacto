@@ -108,8 +108,30 @@ func TestWalkKeepsSkipDirRules(t *testing.T) {
 	if got := relDirs(t, root, res.Dirs); !reflect.DeepEqual(got, []string{"ok"}) {
 		t.Errorf("Dirs = %v", got)
 	}
-	if len(res.Skipped) != 0 {
-		t.Errorf("Skipped = %v, want none", res.Skipped)
+	// Hidden, node_modules and vendor stay silent; only the depth cut is listed.
+	want := []Skip{{Rel: "l1/l2/l3/l4/l5/l6/l7/l8/l9", Rule: "depth limit 8"}}
+	if !reflect.DeepEqual(res.Skipped, want) {
+		t.Errorf("Skipped = %v, want %v", res.Skipped, want)
+	}
+}
+
+func TestWalkListsDepthCut(t *testing.T) {
+	root := walkFixture(t, map[string]string{
+		"a/pacto.yaml":                 "",
+		"d/1/2/3/4/5/6/7/pacto.yaml":   "",
+		"d/1/2/3/4/5/6/7/8/pacto.yaml": "",
+		"d/1/2/3/4/5/6/7/8/9/x":        "",
+	})
+	res, err := Walk(context.Background(), root, failOnErr(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := relDirs(t, root, res.Dirs); !reflect.DeepEqual(got, []string{"a", "d/1/2/3/4/5/6/7"}) {
+		t.Errorf("Dirs = %v", got)
+	}
+	want := []Skip{{Rel: "d/1/2/3/4/5/6/7/8", Rule: "depth limit 8"}}
+	if !reflect.DeepEqual(res.Skipped, want) {
+		t.Errorf("Skipped = %v, want %v (the cut folder only, not its descendants)", res.Skipped, want)
 	}
 }
 
@@ -151,8 +173,7 @@ func TestSkipDir(t *testing.T) {
 		{"hidden", "/r", "/r/.git", ".git", true},
 		{"node_modules", "/r", "/r/node_modules", "node_modules", true},
 		{"vendor", "/r", "/r/vendor", "vendor", true},
-		{"rel error (abs root, rel path)", "/r", "relative/child", "child", true},
-		{"too deep", "/r", "/r/" + deep, "i", true},
+		{"deep is left to Walk", "/r", "/r/" + deep, "i", false},
 		{"shallow ok", "/r", "/r/sub", "sub", false},
 	}
 	for _, tc := range cases {

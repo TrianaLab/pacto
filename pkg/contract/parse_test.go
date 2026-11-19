@@ -535,7 +535,7 @@ func TestParseRejectsRemovedDelivery(t *testing.T) {
 		if !errors.As(err, &pe) {
 			t.Fatalf("%s: err = %v, want *ParseError", v, err)
 		}
-		for _, want := range []string{"field delivery not found in type contract.Contract", "the Stage's spec.applyRef names the applier"} {
+		for _, want := range []string{"field delivery not found in type contract.Contract", "the Stage's spec.applyRef names the applier; delete the section; run pacto migrate to remove it)"} {
 			if !strings.Contains(pe.Error(), want) {
 				t.Errorf("%s: %q lacks %q", v, pe.Error(), want)
 			}

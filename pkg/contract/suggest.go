@@ -75,10 +75,9 @@ var contractTypes = func() map[string]reflect.Type {
 
 // removedFields says what replaced a field a pactoVersion dropped before its
 // release, keyed by the yaml.v3 type name and the field.
-// ponytail: one entry; the table is where 512-S2 appends "run pacto migrate"
-// and where a later removal adds its line.
+// ponytail: one entry; a later removal adds its line.
 var removedFields = map[[2]string]string{
-	{"contract.Contract", "delivery"}: " (delivery left pactoVersion 2.5 before its release: the Stage's spec.applyRef names the applier; delete the section)",
+	{"contract.Contract", "delivery"}: " (delivery left pactoVersion 2.5 before its release: the Stage's spec.applyRef names the applier; delete the section; run pacto migrate to remove it)",
 }
 
 // suggestFields appends what replaced a removed field, or else the closest

@@ -1,0 +1,4 @@
+pactoVersion: "2.4"
+service: {name: postgresql, version: 16.1.0}
+configurations:
+  - {name: provisioning, schema: provisioning.json, required: false}

@@ -98,7 +98,7 @@ func validateAt(t *testing.T, svc *Service, opts ValidateOptions) *ValidateResul
 func TestValidateBehindIsInfoAndValid(t *testing.T) {
 	dir := writeTree(t, "s", map[string]string{"s/pacto.yaml": "pactoVersion: '" + prevVersion + "'\nservice: {name: s, version: 1.0.0}\n"})
 	r := validateAt(t, NewService(nil, nil), ValidateOptions{Path: dir})
-	want := `pactoVersion "` + prevVersion + `" is behind "` + contract.Current() + `"; setting pactoVersion: "` + contract.Current() + `" keeps what this contract means; pacto ci publishes it as ` + contract.Current() + ` when it next publishes this service, if its own check agrees`
+	want := `pactoVersion "` + prevVersion + `" is behind "` + contract.Current() + `"; setting pactoVersion: "` + contract.Current() + `" keeps what this contract means; pacto ci publishes it as ` + contract.Current() + ` when it next publishes this service, if its own check agrees` + migrateHint
 	if got := behind(t, r); !r.Valid || got != want {
 		t.Fatalf("valid=%v message %q", r.Valid, got)
 	}
@@ -238,8 +238,45 @@ func TestBehindMessageNamesPactoCI(t *testing.T) {
 		{"error, no section", &contract.Contract{}, contract.Upgraded{From: "2.3"}, errors.New("boom"), head + "boom" + noSection},
 		{"unverified", &contract.Contract{}, contract.Upgraded{From: "2.3"}, unverified, head + unverified.Error()},
 	} {
-		if got := behindMessage(tc.c, "2.3", cur, tc.up, tc.err); got != tc.want {
+		if got := behindMessage(tc.c, "2.3", cur, tc.up, tc.err, false); got != tc.want {
 			t.Errorf("%s:\n got %q\nwant %q", tc.name, got, tc.want)
 		}
+	}
+}
+
+// TestBehindMessageNamesMigrate pins where CONTRACT_BEHIND names pacto
+// migrate: on the two keeping branches of a local file only. A kept raise or
+// a failing run would stay as written, and a registry bundle has no file to
+// rewrite.
+func TestBehindMessageNamesMigrate(t *testing.T) {
+	dir := writeTree(t, "s", map[string]string{"s/pacto.yaml": "pactoVersion: '" + prevVersion + "'\nservice: {name: s, version: 1.0.0}\n"})
+	if got := behind(t, validateAt(t, NewService(nil, nil), ValidateOptions{Path: dir})); !strings.HasSuffix(got, "; pacto ci publishes it as "+contract.Current()+" when it next publishes this service, if its own check agrees; run `pacto migrate` to rewrite the file") {
+		t.Fatalf("local keeping: %q", got)
+	}
+	if got := behind(t, validateAt(t, NewService(&mockBundleStore{}, nil), ValidateOptions{Path: refPair(t, openSchema, nil)})); !strings.HasSuffix(got, migrateHint) {
+		t.Fatalf("local operator: %q", got)
+	}
+	invalid := writeTree(t, "s", map[string]string{"s/pacto.yaml": "pactoVersion: '" + prevVersion + "'\nservice: {name: s, version: 1.0.0}\nconfigurations:\n  - {name: app, schema: missing.json, required: false}\n"})
+	b := testBundle()
+	b.RawYAML = nil
+	b.FS.(fstest.MapFS)["pacto.yaml"] = &fstest.MapFile{Data: []byte("pactoVersion: '" + prevVersion + "'\nservice: {name: test-svc, version: 1.0.0}\n")}
+	oci := NewService(&mockBundleStore{PullFn: func(context.Context, string) (*contract.Bundle, error) { return b, nil }}, nil)
+	for name, r := range map[string]*ValidateResult{
+		"kept":    validateAt(t, NewService(&mockBundleStore{}, nil), ValidateOptions{Path: refPair(t, strictSchema, nil)}),
+		"invalid": validateAt(t, NewService(nil, nil), ValidateOptions{Path: invalid}),
+		"oci":     validateAt(t, oci, ValidateOptions{Path: "oci://ghcr.io/acme/svc:1.0.0"}),
+	} {
+		if got := behind(t, r); strings.Contains(got, "pacto migrate") || (name == "oci" && !strings.Contains(got, "keeps what")) {
+			t.Errorf("%s: %q", name, got)
+		}
+	}
+}
+
+// TestBehindDeclaredBuildKeepsMeaning: validate judges a behind file with a
+// declared build the way pacto migrate does, so it names migrate.
+func TestBehindDeclaredBuildKeepsMeaning(t *testing.T) {
+	dir := writeTree(t, "", buildFolder(prevVersion, dockerBuild, map[string]string{"Dockerfile": "FROM scratch\n"}))
+	if got := behind(t, validateAt(t, NewService(nil, nil), ValidateOptions{Path: dir})); !strings.HasSuffix(got, migrateHint) {
+		t.Fatalf("%q", got)
 	}
 }

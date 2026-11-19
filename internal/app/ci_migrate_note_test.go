@@ -31,16 +31,16 @@ func TestCIPlanMigratedLine(t *testing.T) {
 	}
 }
 
-// TestCIPlanKeptLine: a declared build is deprecated from the current
-// version, so raising the contract would add a warning; it is kept and
-// published as written, with one note naming why.
+// TestCIPlanKeptLine: raising the contract would resolve a configuration ref
+// it does not resolve today, which fails; it is kept and published as
+// written, with one note naming why.
 func TestCIPlanKeptLine(t *testing.T) {
 	e := newCIPub(t)
-	e.write(t, map[string]string{"legacy/pacto.yaml": asBehind(e.contract("legacy", "1.0.0", "", e.deployPub("legacy"))), "legacy/render.sh": "#!/bin/sh\n"})
+	keptLegacy(t, e)
 	r := pubRow(t, e.ciPublish(t, nil), "legacy")
 	got := migrationNotes(r)
-	if r.State != ci.StatePublished || len(got) != 1 || !strings.HasPrefix(got[0], "pacto.yaml is "+prevVersion+", kept at "+prevVersion+" (") ||
-		!strings.Contains(got[0], " at publish.artifacts[0]") || !strings.HasSuffix(got[0], " from "+contract.Current()+")") {
+	if r.State != ci.StatePublished || len(got) != 1 || !strings.HasPrefix(got[0], "pacto.yaml is "+keptFrom+", kept at "+keptFrom+" (") ||
+		!strings.Contains(got[0], " at configurations[0].ref") || !strings.HasSuffix(got[0], " from "+contract.Current()+")") {
 		t.Fatalf("row %+v", r)
 	}
 	f := &ciFolder{migration: CIMigration{From: "2.3", To: "2.3", State: migrationKept, Reason: "INFERRED_RECORD_INVALID at pacto.inferred.yaml after completion"}}
@@ -143,4 +143,18 @@ func TestCIPublishKeptWithoutSectionNamesKeptReason(t *testing.T) {
 	if r.State != ci.StateFailed || r.Reason != "declares no publish section, and pactoVersion stays at "+prevVersion+" ("+reason+"): fix that or declare publish" {
 		t.Fatalf("row %+v", r)
 	}
+}
+
+// keptLegacy writes a behind legacy service whose raise adds a finding:
+// configuration refs are resolved from 2.4, and its provider is published
+// nowhere.
+const keptFrom = "2.3"
+
+func keptLegacy(t *testing.T, e *ciPubEnv) {
+	t.Helper()
+	extra := "configurations:\n  - {name: db, ref: \"oci://" + e.host + "/acme/pg:16.1.0\", required: true}\n"
+	e.write(t, map[string]string{
+		"legacy/pacto.yaml": strings.Replace(e.contract("legacy", "1.0.0", extra, e.deployPub("legacy")), `"2.5"`, `"`+keptFrom+`"`, 1),
+		"legacy/render.sh":  "#!/bin/sh\n",
+	})
 }

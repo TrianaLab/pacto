@@ -1,0 +1,6 @@
+pactoVersion: "2.3"
+service: {name: billing, version: 1.0.0}
+configurations:
+  - {name: db, ref: ../pg, required: true}
+environments:
+  - {name: prod, file: prod.yaml}

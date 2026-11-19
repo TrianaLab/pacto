@@ -1457,7 +1457,7 @@ func TestBuildDeprecatedWarning(t *testing.T) {
 	var r ValidationResult
 	validatePublish(c, &r)
 	if len(r.Errors) != 0 || len(r.Warnings) != 1 || r.Warnings[0].Code != "PUBLISH_BUILD_DEPRECATED" || r.Warnings[0].Path != "publish.artifacts[0].build" ||
-		r.Warnings[0].Message != "deprecated in 2.5: pacto ci --publish detects the build; remove build when detection gives the same result (pacto migrate does it, #552)" {
+		r.Warnings[0].Message != "deprecated in 2.5: pacto ci --publish detects the build; run pacto migrate to remove build when detection gives the same result" {
 		t.Fatalf("errors %v warnings %v", r.Errors, r.Warnings)
 	}
 	c.PactoVersion = "2.4"

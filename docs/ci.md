@@ -83,8 +83,9 @@ compare two folders with no registry, run `pacto diff ./main ./feature-branch`.
 ## Plan every service with pacto ci
 
 When one repository holds several services, `pacto ci` checks them all in one
-step. It finds every `pacto.yaml` under the repository root, skips the folders
-the root `.pactoignore` names and compares each service with its last
+step. It finds every `pacto.yaml` under the repository root, skips
+[ignored and too-deep folders](pactoignore.md#at-the-repository-root) and
+compares each service with its last
 published version in your registry. It writes nothing to the registry, so it
 needs only read credentials (`PACTO_REGISTRY_USERNAME` and
 `PACTO_REGISTRY_PASSWORD`):
@@ -137,8 +138,8 @@ is written to `pacto-plan.md`; keep it with
 
 ### Older contracts
 
-`pacto ci` raises an older `pactoVersion` in memory, in the bundle only,
-when that adds no validation finding. Its row says:
+`pacto ci` raises an older `pactoVersion` in the bundle only, when that
+adds no validation finding. Its row says:
 
 - `ledger: pacto.yaml is 2.4, publishes as 2.5 (migrated in memory)`
 - `kept at 2.4 (<finding>)`: published as written when it declares a `publish`
@@ -148,7 +149,7 @@ when that adds no validation finding. Its row says:
 
 No note changes the exit code. The bundle records the raise in
 `pacto.inferred.yaml` ([Migrations](contract-reference/inferred-record.md#migrations)),
-shown as inferred in the dashboard. Your `pacto.yaml` is never rewritten.
+shown as inferred in the dashboard. `pacto migrate` rewrites the file itself.
 
 ## On every pull request: who breaks
 

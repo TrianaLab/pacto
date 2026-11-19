@@ -59,6 +59,13 @@ func TestBehind(t *testing.T) {
 	}
 }
 
+func TestOlder(t *testing.T) {
+	prev := SupportedVersions[len(SupportedVersions)-2]
+	if !Older(prev, Current()) || Older(Current(), prev) || Older(Current(), Current()) || !Older("9.9", prev) {
+		t.Fatal("Older does not follow SupportedVersions order")
+	}
+}
+
 func TestUpgradeSplicesOnlyTheToken(t *testing.T) {
 	const doc = "# a contract\nservice: {name: s, version: 1.0.0} # flow\n\npactoVersion: {v}   # the version\nconfigurations: [{name: a, schema: a.json, required: true}]\n# end, no newline"
 	up, err := Upgrade(fixture(doc, prev), cur, clean)

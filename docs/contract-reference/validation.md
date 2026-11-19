@@ -61,6 +61,9 @@ in an older contract, reports that version's code for each use instead: set
   `2.5 (behind <newer>; migrated from 2.4, inferred)` for a newer Pacto. In
   JSON, `migratedFrom` holds the version the authored `pacto.yaml` declared. It
   is inferred, read only from a verified `pacto.inferred.yaml`.
+- When the message says the raise keeps what the contract means, it ends with
+  "run `pacto migrate` to rewrite the file". `pacto migrate` rewrites every
+  behind `pacto.yaml` in a repository, and only in that case.
 - A 1.x contract follows
   [MIGRATION.md](https://github.com/TrianaLab/pacto/blob/main/MIGRATION.md)
   and is never raised automatically.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/trianalab/pacto/v4/internal/ci"
@@ -64,6 +65,21 @@ func TestCISkippedFromPactoignore(t *testing.T) {
 	p, _ := ciSkeletonPlan(t)
 	if len(p.Skipped) != 1 || p.Skipped[0].Rel != "services/legacy" || p.Skipped[0].Rule != ".pactoignore:1" {
 		t.Fatalf("skipped = %+v", p.Skipped)
+	}
+}
+
+func TestCISkippedPastDepthLimit(t *testing.T) {
+	root := t.TempDir()
+	writeCIFile(t, root, "a/pacto.yaml", "service:\n  name: a\n")
+	writeCIFile(t, root, "deep/1/2/3/4/5/6/7/8/pacto.yaml", "service:\n  name: deep\n")
+	p, _, err := NewService(nil, nil).CIPlan(context.Background(), CIOptions{Root: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	ci.Text(&out, p)
+	if len(p.Rows) != 1 || !strings.Contains(out.String(), "skipped: deep/1/2/3/4/5/6/7/8 (from depth limit 8)\n") {
+		t.Fatalf("rows %+v\n%s", p.Rows, out.String())
 	}
 }
 

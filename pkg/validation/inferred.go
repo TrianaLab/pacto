@@ -34,5 +34,5 @@ func inferredRecordStage(result *ValidationResult, c *contract.Contract, fsys fs
 // to carry an inferred record: before 2.5. An empty version is
 // contract.Current().
 func InferredRecordNeedsRaise(version string) bool {
-	return olderThan(cmp.Or(version, contract.Current()), "2.5")
+	return contract.Older(cmp.Or(version, contract.Current()), "2.5")
 }

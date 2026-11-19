@@ -62,6 +62,7 @@ exit code. `pacto stats publish` exits `1` when a file could not be published.
 | `pacto lock --check` on a stale lockfile, or with none at all (`LOCK_MISSING`) | a lockfile that is up to date |
 | `pacto impact` where the gate is `blocked`: a `BREAKING` change reaches a consumer that does not accept the new version and runs on a known target, or a policy referrer that fails the new policy does | `pacto impact` where the gate is `clear`: the change is not `BREAKING` and every policy referrer was checked and passes the new policy, or the snapshot is complete and no service depends on the changed one; an event (`--unavailable`, `--removed` or `--regressed`) when the complete snapshot shows nothing depends on the service |
 | `pacto stats publish` when a file could not be read, parsed or published | `pacto stats publish` that published every file |
+| `pacto migrate` when a `pacto.yaml` could not be read or written, or `--to` names an unsupported version | `pacto migrate` that rewrote, kept or left every file, 1.x files included |
 | **any command that could not run**, for example on an unresolvable reference, an unreadable bundle or an unknown flag | |
 
 | Exits `2` |
@@ -1995,6 +1996,37 @@ Argument names differ from flag names: the substring filter is `text`. Every too
 With `--fleet`, the server rebuilds its snapshot when a call arrives 30 seconds or more after the last rebuild attempt, and `pacto_impact` analyses over the same snapshot as the other tools. Add `--dashboard-url <url>` to make search, graph, status, entities, entity, attention, neighborhood and versions answers carry an `href` to each entity's page on that Pacto dashboard, and each contracted consumer in a `pacto_impact` answer an `href` to its service page.
 
 See [MCP Integration](mcp-integration.md) for setup and the [MCP reference](mcp-reference.md) for serving a bundle's operations as tools and the catalog surface.
+
+---
+
+## `pacto migrate`
+
+Walks the given directories (the current one by default) with the rules of the local fleet source and raises the pactoVersion of every pacto.yaml it finds. Hidden folders, node_modules and vendor are skipped; folders past depth 8 and folders a root .pactoignore names are skipped and printed as skipped.
+
+A file is raised only when validation finds nothing new at the new version. Its version token changes, and two removals can apply even to a file already at the version: a leftover delivery section, and any publish.artifacts[].build block that pacto ci --publish detection reproduces. Every other byte stays as written, and each line names what changed. A raise that would change what the contract means keeps the file and says why. 1.x files are left to MIGRATION.md.
+
+Exits 1 only when a file cannot be read or written, or --to names an unsupported version.
+
+```
+pacto migrate [dir...] [flags]
+```
+
+**Examples:**
+
+```
+  pacto migrate
+  pacto migrate --dry-run
+  pacto migrate services/payments
+  pacto migrate --to 2.4
+```
+
+**Flags:**
+
+```
+      --dry-run[=true|false]   print what would change and write nothing
+  -h, --help[=true|false]      help for migrate
+      --to string              pactoVersion to raise to (default: the newest this Pacto supports)
+```
 
 ---
 

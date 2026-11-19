@@ -47,6 +47,7 @@ type Service struct {
 // behaves like one from NewService; a test sets fields on its own Service.
 type sysDeps struct {
 	writeFile   func(name string, data []byte, perm os.FileMode) error
+	rename      func(oldpath, newpath string) error
 	mkdirTemp   func(dir, pattern string) (string, error)
 	absPath     func(path string) (string, error)
 	now         func() time.Time
@@ -79,6 +80,9 @@ func (s *Service) env() sysDeps {
 	d := s.sys
 	if d.writeFile == nil {
 		d.writeFile = os.WriteFile
+	}
+	if d.rename == nil {
+		d.rename = os.Rename
 	}
 	if d.mkdirTemp == nil {
 		d.mkdirTemp = os.MkdirTemp
