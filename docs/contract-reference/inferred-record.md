@@ -219,7 +219,7 @@ hidden: {services: 1, callers: 2}
 
 | Field | Read from | Source | Recorded unless `pacto.yaml` |
 |---|---|---|---|
-| A field of the table above | The draft's `manifests.yaml` | `cluster:manifest <object> <file>:<n>`, or `cluster:label <object> <label key>` for the team label | declares it, as for a folder |
+| A field of the table above | The draft's `manifests.yaml` | `cluster:manifest <object> <file>:<n>` (or `<file>` alone when the line was not found), or `cluster:label <object> <label key>` for the team label | declares it, as for a folder |
 | `image.digest[<container>]` | The running pods' image digests, sorted and joined | `cluster:runtime pods of <object>` | is never compared: a digest is never declared |
 | `dependencies[<name>]` | A Service the pods were seen calling | `cluster:runtime calls from <object>` | declares a dependency of that name or `ref` |
 | `dependencies[<name>].compatibility` | The versions the Pactos describing the called Service report | `cluster:fleet reported versions <v>[, <v>...]` | declares that dependency with a range |
@@ -233,8 +233,10 @@ hidden: {services: 1, callers: 2}
 - `completeness` is `complete` or `partial`, on `runtime` and `fleet` entries
   only. It is `partial` when a node the workload ran on was not observed, when
   a source they rest on was cut short or failed, or when a called Service is
-  hidden. An image digest is `partial` when the pods list was cut short.
-- `proposed` is a range, on a `dependencies[<name>].compatibility` entry only.
+  hidden. An image digest is `partial` when the pods, ReplicaSets or Jobs list
+  was cut short.
+- `proposed` is a range, on a `dependencies[<name>].compatibility` entry with a
+  `cluster:fleet` source only.
   The dependency keeps `compatibility: unknown` until a person declares one.
 - `coverage` lists the sources `workloads`, `pods`, `replicasets`, `jobs`,
   `services`, `endpointslices`, `pactos` and `runtime-calls`, each `complete`,
@@ -243,8 +245,9 @@ hidden: {services: 1, callers: 2}
   `forbidden`, `not found`, `timed out`, `the continue token expired`,
   `listing failed (<HTTP status>)`, `listing failed (no response)` when the
   API server never answered, `listing failed (malformed observation)`,
-  `<k> of <m> nodes observed`, `no node runtime observations` or
-  `<x> called services you may not read`.
+  `<k> of <m> nodes observed`, `no node runtime observations`,
+  `<x> called services you may not read`, `the pods were not all read` or
+  `no running pods observed` when no pod of the workload ran on a node.
 - `hidden` counts the Services the workload called and the callers of its own
   Services that a read on behalf of a viewer drops. It never names them.
 - Bundle verification refuses these keys until a signed declaration carries

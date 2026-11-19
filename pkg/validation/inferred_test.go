@@ -106,6 +106,20 @@ func TestValidateInferredRecordDigestMismatch(t *testing.T) {
 	}
 }
 
+// TestBundleRecordWithFolderProposalRefused: a proposal citing a folder file,
+// with that file at its real digest, is forged and never reaches a reader.
+func TestBundleRecordWithFolderProposalRefused(t *testing.T) {
+	data, c := parseString(t, "pactoVersion: \"2.5\"\n")
+	rec := goodRecord()
+	f := rec.Fields[0]
+	rec.Fields = append(rec.Fields, contract.Inferred{Field: "dependencies[ledger].compatibility", Value: "compatibility unknown", Proposed: ">=0.0.0",
+		Source: f.Source, Confidence: contract.ConfidenceLikely})
+	r := validation.Validate(c, data, recordBundle(rec))
+	if got := codesAt(r, contract.InferredRecordFile); !reflect.DeepEqual(got, []string{"INFERRED_RECORD_INVALID"}) {
+		t.Fatalf("codes = %v, errors %+v", got, r.Errors)
+	}
+}
+
 func TestValidateWithoutRecordUnchanged(t *testing.T) {
 	data, c := parseString(t, "pactoVersion: \"2.4\"\nservice:\n  name: orders\n  version: 1.0.0\n")
 	fsys := fstest.MapFS{"deploy/app.yaml": &fstest.MapFile{Data: []byte(deployYAML)}}

@@ -219,7 +219,8 @@ var (
 	// coverageReasonRE is every fixed coverage reason: none names a
 	// namespace or an object, so a viewer never learns a hidden name.
 	coverageReasonRE = regexp.MustCompile(`^(stopped at the item bound \([0-9]+\)|forbidden|not found|timed out|the continue token expired|` +
-		`listing failed \(([0-9]{3}|malformed observation|no response)\)|[0-9]+ of [0-9]+ nodes observed|no node runtime observations|[0-9]+ called services you may not read)$`)
+		`listing failed \(([0-9]{3}|malformed observation|no response)\)|[0-9]+ of [0-9]+ nodes observed|no node runtime observations|[0-9]+ called services you may not read|` +
+		`the pods were not all read|no running pods observed)$`)
 )
 
 // InferredSourceFile is one file a record cites, with its sha256: a bundle
@@ -420,7 +421,13 @@ func checkClusterField(f Inferred, c *InferredClusterInput) error {
 		return fmt.Errorf(".asOf is %q, want an RFC 3339 UTC time in seconds", f.AsOf)
 	}
 	kind, _, _ := strings.Cut(rest, " ")
-	return checkFactExtras(f, cluster && (kind == "runtime" || kind == "fleet"))
+	if err := checkFactExtras(f, cluster && (kind == "runtime" || kind == "fleet")); err != nil {
+		return err
+	}
+	if f.Proposed != "" && (!cluster || kind != "fleet") { // ponytail: the one proposal source of wave 3; 508-S7 widens it to its own
+		return errors.New(".proposed is only on a cluster:fleet fact")
+	}
+	return nil
 }
 
 // checkFactExtras is why f's completeness or proposal cannot be in a record,
@@ -455,8 +462,8 @@ func validClusterSource(src, obj string) bool {
 		return clusterLabelKeyRE.MatchString(rest)
 	}
 	if rest, ok := strings.CutPrefix(src, "cluster:manifest "+obj+" "); ok {
-		file := sourceFile(rest)
-		return file != rest && !strings.ContainsAny(file, ": ") && fs.ValidPath(file)
+		file := sourceFile(rest) // the line is left out when the reader could not find it
+		return !strings.ContainsAny(file, ": ") && fs.ValidPath(file)
 	}
 	return false
 }
@@ -746,7 +753,7 @@ func refuseClusterFacts(rec *InferredRecord) error {
 		}
 	}
 	for i, f := range rec.Fields {
-		if strings.HasPrefix(f.Source, clusterPrefix) {
+		if strings.HasPrefix(f.Source, clusterPrefix) || f.Proposed != "" { // only a cluster:fleet fact proposes in wave 3
 			return fmt.Errorf("fields[%d] (%s): %s", i, f.Field, clusterBundleRefusal)
 		}
 	}

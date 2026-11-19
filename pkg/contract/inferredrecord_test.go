@@ -591,7 +591,7 @@ func TestInferredRecordRefusesClusterSourceWithoutAsOf(t *testing.T) {
 func TestInferredRecordRefusesBadClusterKind(t *testing.T) {
 	refuses(t, clusterDoc(t, "cluster:runtime pods of shop/Deployment/invoices", "cluster:secret x"), "fields[2].source is not a cluster source form")
 	for _, bad := range []string{
-		"cluster:manifest shop/Deployment/invoices manifests.yaml",
+		"cluster:manifest shop/Deployment/invoices manifests.yaml:x",
 		"cluster:manifest shop/Deployment/invoices ../manifests.yaml:3",
 		"cluster:manifest shop/Deployment/invoices repository:manifests.yaml:3",
 		"cluster:label shop/Deployment/invoices team name",
@@ -599,6 +599,10 @@ func TestInferredRecordRefusesBadClusterKind(t *testing.T) {
 		"cluster:fleet reported versions " + strings.Repeat("1", 230),
 	} {
 		refuses(t, clusterDoc(t, "cluster:manifest shop/Deployment/invoices manifests.yaml:12", bad), "fields[5].source is not a cluster source form")
+	}
+	// A manifest line the reader could not find leaves the bare file.
+	if _, err := ParseInferredRecord([]byte(clusterDoc(t, "manifests.yaml:12", "manifests.yaml"))); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -618,6 +622,15 @@ func TestInferredRecordRefusesProposedOnOtherKey(t *testing.T) {
 	refuses(t, clusterDoc(t, "      completeness: complete\n", "      completeness: complete\n      proposed: ^2.3.0\n"), `fields[0].proposed is on "dependencies[ledger]"`)
 }
 
+// TestInferredRecordRefusesProposedFromOtherSource: only a cluster:fleet fact
+// proposes a range, so a proposal citing a folder file is forged.
+func TestInferredRecordRefusesProposedFromOtherSource(t *testing.T) {
+	folder := strings.Replace(clusterDoc(t, "      source: cluster:fleet reported versions 2.3.1\n", "      source: openapi/v1.yaml\n"),
+		"      asOf: \"2026-11-14T09:58:12Z\"\n      completeness: partial\n", "", 1)
+	refuses(t, folder, "fields[1].proposed is only on a cluster:fleet fact")
+	refuses(t, clusterDoc(t, "      source: cluster:fleet reported versions 2.3.1\n", "      source: cluster:runtime calls from shop/Deployment/invoices\n"), "fields[1].proposed is only on a cluster:fleet fact")
+}
+
 func TestInferredRecordRefusesBadProposedRange(t *testing.T) {
 	refuses(t, clusterDoc(t, "proposed: ^2.3.0", "proposed: ^two"), "fields[1].proposed is not a semver range")
 }
@@ -633,7 +646,8 @@ func TestInferredRecordRefusesUnknownCoverageSourceOrState(t *testing.T) {
 func TestInferredRecordRefusesReasonlessPartial(t *testing.T) {
 	refuses(t, clusterDoc(t, "      reason: 2 of 3 nodes observed\n", ""), "coverage[2] is partial with no reason")
 	for _, reason := range []string{"stopped at the item bound (10000)", "forbidden", "not found", "timed out", "the continue token expired",
-		"listing failed (503)", "listing failed (malformed observation)", "no node runtime observations", "2 called services you may not read"} {
+		"listing failed (503)", "listing failed (malformed observation)", "no node runtime observations", "2 called services you may not read",
+		"the pods were not all read", "no running pods observed"} {
 		if _, err := ParseInferredRecord([]byte(clusterDoc(t, "2 of 3 nodes observed", reason))); err != nil {
 			t.Errorf("%q: %v", reason, err)
 		}
@@ -692,6 +706,10 @@ func TestVerifyRefusesClusterRecord(t *testing.T) {
 		"input":    {func(r *InferredRecord) { r.Inputs.Cluster = &InferredClusterInput{Object: "shop/Deployment/invoices"} }, "inputs.cluster: "},
 		"coverage": {func(r *InferredRecord) { r.Coverage = []InferredCoverage{{Source: "pods", State: CoverageComplete}} }, "coverage: "},
 		"hidden":   {func(r *InferredRecord) { r.Hidden = &InferredHidden{Callers: 1} }, "hidden: "},
+		"proposal from a folder file": {func(r *InferredRecord) {
+			r.Fields = append(r.Fields, Inferred{Field: "dependencies[ledger].compatibility", Value: "compatibility unknown", Proposed: ">=0.0.0",
+				Source: "openapi/v1.yaml", Confidence: ConfidenceLikely})
+		}, "fields[1] (dependencies[ledger].compatibility): "},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

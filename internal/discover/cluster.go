@@ -93,8 +93,8 @@ func CompleteCluster(dir string, declared *contract.Contract, planned map[string
 // "cluster:manifest", and takes the snapshots out of the inputs.
 func stampSnapshots(rec *contract.InferredRecord, facts ClusterFacts, asOf string) {
 	for i, f := range rec.Fields {
-		file, _, ok := strings.Cut(f.Source, ":")
-		if !ok || !slices.Contains(facts.Snapshots, file) {
+		file, _, _ := strings.Cut(f.Source, ":") // "<file>:<n>", or the bare file when no line was found
+		if !slices.Contains(facts.Snapshots, file) {
 			continue
 		}
 		f.Source, f.AsOf = "cluster:manifest "+facts.Object+" "+f.Source, asOf

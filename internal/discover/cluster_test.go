@@ -1,6 +1,8 @@
 package discover
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -271,4 +273,39 @@ func TestCompleteClusterCallWithoutRef(t *testing.T) {
 			t.Fatalf("%s", rec.Marshal())
 		}
 	}
+}
+
+// TestCompleteClusterQuotedEnvNameHasLine: an env name YAML has to quote,
+// such as NO, is found on its line, so its field is a cluster fact like the
+// rest.
+func TestCompleteClusterQuotedEnvNameHasLine(t *testing.T) {
+	dir := t.TempDir()
+	manifest := "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: invoices\nspec:\n  template:\n    spec:\n      containers:\n" +
+		"        - name: app\n          image: reg.io/acme/invoices:1.0.0\n          env:\n            - name: \"NO\"\n              value: x\n            - name: 'ON'\n              value: y\n"
+	if err := os.WriteFile(filepath.Join(dir, "manifests.yaml"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	facts := ClusterFacts{Object: clusterObject, AsOf: clusterAsOf, CallWindow: time.Hour, Snapshots: []string{"manifests.yaml"}}
+	rec := completeCluster(t, dir, clusterDeclared(), facts)
+	for name, line := range map[string]string{"configuration.NO": "12", "configuration.ON": "14"} {
+		if f, ok := fieldByName(rec, name); !ok || f.Source != "cluster:manifest "+clusterObject+" manifests.yaml:"+line {
+			t.Errorf("%s = %+v", name, f)
+		}
+	}
+	parses(t, rec)
+}
+
+// TestStampSnapshotsBareSource: a field whose line was not found still
+// becomes a cluster fact, so no field cites a snapshot the inputs no longer
+// list.
+func TestStampSnapshotsBareSource(t *testing.T) {
+	rec := &contract.InferredRecord{Format: contract.InferredRecordFormat,
+		Inputs: contract.InferredInputs{Pacto: "4.6.0", Discovery: Version, Sources: []contract.InferredSourceFile{{Path: "manifests.yaml", Digest: "sha256:" + strings.Repeat("b", 64)}},
+			Cluster: &contract.InferredClusterInput{AsOf: "2026-11-14T10:02:00Z", Object: clusterObject, CallWindow: "1h"}},
+		Fields: []contract.Inferred{{Field: "configuration.X", Value: "string", Source: "manifests.yaml", Confidence: contract.ConfidenceLikely}}}
+	stampSnapshots(rec, ClusterFacts{Object: clusterObject, Snapshots: []string{"manifests.yaml"}}, "2026-11-14T10:02:00Z")
+	if f := rec.Fields[0]; f.Source != "cluster:manifest "+clusterObject+" manifests.yaml" || f.AsOf != "2026-11-14T10:02:00Z" || len(rec.Inputs.Sources) != 0 {
+		t.Fatalf("%+v", rec)
+	}
+	parses(t, rec)
 }

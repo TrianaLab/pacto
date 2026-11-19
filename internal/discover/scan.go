@@ -324,7 +324,7 @@ func readEnv(w *Workload, rel string, c any, src func(needle string) string) {
 	for _, e := range env {
 		v := EnvVar{File: rel}
 		v.Name, _ = Dig(e, "name").(string)
-		v.Source = src("name: " + v.Name)
+		v.Source = envSource(src, v.Name)
 		v.Value, _ = Dig(e, "value").(string)
 		if n, ok := Dig(e, "valueFrom", "configMapKeyRef", "name").(string); ok {
 			v.From, v.Ref = "configmap", n
@@ -335,6 +335,18 @@ func readEnv(w *Workload, rel string, c any, src func(needle string) string) {
 		}
 		w.Env = append(w.Env, v)
 	}
+}
+
+// envSource is where the env entry name is: "name: <name>", or its double or
+// single quoted form, which YAML needs for a name such as NO.
+func envSource(src func(needle string) string, name string) string {
+	var s string
+	for _, q := range []string{"", `"`, "'"} {
+		if s = src("name: " + q + name + q); strings.Contains(s, ":") {
+			break
+		}
+	}
+	return s
 }
 
 // readProbe is a container's first readiness, liveness or startup probe.
