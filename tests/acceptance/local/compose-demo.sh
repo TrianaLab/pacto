@@ -1074,6 +1074,19 @@ up_or_dump "$PROJ1" env "${V1_PORTS[@]}" \
 	docker compose --insecure-registry="$ART_HOST" -f "oci://$ART_REPO@$D1" -p "$PROJ1" up -d --wait -y
 pass "the stack is up and healthy"
 
+# The seed's `pacto push` of each version writes one entry to the demo's
+# organization index, registry:5000/demo/pacto-index, with no seed change.
+# TestDemoIndexTagsMatchPlan (tests/acceptance/scenario/indextags_test.go) keeps
+# this count equal to the distinct service versions the plan pushes.
+EXPECTED_INDEX_TAGS=5
+index_tags="$(curl -fsS http://127.0.0.1:15051/v2/demo/pacto-index/tags/list | jq -r '.tags[]')" ||
+	fail "the demo's registry has no organization index at demo/pacto-index"
+bad_tags="$(grep -cvE '^[0-9a-f]{16}-' <<<"$index_tags" || true)"
+[ "$bad_tags" = 0 ] || fail "the organization index holds tags outside the entry scheme: $index_tags"
+[ "$(grep -c . <<<"$index_tags")" = "$EXPECTED_INDEX_TAGS" ] ||
+	fail "the organization index holds $(grep -c . <<<"$index_tags") entries, want $EXPECTED_INDEX_TAGS: $index_tags"
+pass "the demo's pushes are in its organization index"
+
 echo "== 8. what is actually running reads nothing from this machine =="
 # Asked of the RUNNING containers rather than of the file, because the file is
 # what was intended and this is what happened.
@@ -1136,7 +1149,7 @@ pass "pacto diff says checkout 1.1.0 needs a major bump and exits non-zero"
 init_out=$(docker compose -p "$PROJ1" exec -T dashboard sh -c \
 	'mkdir -p /tmp/checkout && printf "FROM nginx:1.27\nEXPOSE 8080\n" >/tmp/checkout/Dockerfile && pacto init --plan --owner commerce /tmp/checkout && echo "checkout holds: $(ls -A /tmp/checkout | tr "\n" " ")"' 2>&1) ||
 	fail "pacto init --plan failed in the demo: $init_out"
-grep -q '(nothing changed)' <<<"$init_out" && grep -q '+ pacto.yaml' <<<"$init_out" ||
+{ grep -q '(nothing changed)' <<<"$init_out" && grep -q '+ pacto.yaml' <<<"$init_out"; } ||
 	fail "pacto init --plan did not show the contract it would add: $init_out"
 grep -q '^checkout holds: Dockerfile $' <<<"$init_out" ||
 	fail "pacto init --plan wrote into the checkout, which should still hold only its Dockerfile: $init_out"
@@ -1179,7 +1192,7 @@ grep -q "^Targets: registry:5000/demo/pacto-targets@sha256:[0-9a-f]* (cluster $T
 # The verdict the scenario implies: orders runs and declares ^1.0.0, which
 # accepts 1.1.0, so the BREAKING change is unverified (exit 2) until someone
 # checks that orders does not use the removed path; its target is current.
-grep -q '^  orders  *direct .*compat=compatible' <<<"$verified_out" && grep -q '^Release gate: unverified$' <<<"$verified_out" ||
+{ grep -q '^  orders  *direct .*compat=compatible' <<<"$verified_out" && grep -q '^Release gate: unverified$' <<<"$verified_out"; } ||
 	fail "pacto impact with the verified snapshot did not name orders as a compatible consumer and answer unverified: $verified_out"
 ! grep -q 'evidence: target .* stale' <<<"$verified_out" ||
 	fail "pacto impact read the snapshot's targets as stale: $verified_out"
