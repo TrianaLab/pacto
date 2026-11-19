@@ -1146,3 +1146,160 @@ func TestManyHasNoCoverageKey(t *testing.T) {
 		t.Fatalf("%s", raw)
 	}
 }
+
+// viewerShop is shop/invoices calling vault/kms, which a Pacto describes,
+// while two vault pods call invoices now and a third did 30 hours ago.
+func viewerShop(now time.Time) []runtime.Object {
+	call := func(ip string, at time.Time) []any {
+		return []any{map[string]any{"address": ip, "port": int64(80), "successes": int64(1), "lastSuccessAt": at.UTC().Format(time.RFC3339)}}
+	}
+	pod := func(ns, name, owner string) *unstructured.Unstructured {
+		return controlled(obj("v1", "Pod", ns, name, map[string]any{"metadata": map[string]any{"labels": map[string]any{"app": owner}}}), "Deployment", owner, "u-"+name)
+	}
+	return []runtime.Object{
+		deployment("shop", "invoices", "reg.io/acme/invoices:1.0.0"), service("shop", "invoices", "10.0.0.30"), pod("shop", "invoices-0", "invoices"),
+		deployment("vault", "kms", "reg.io/acme/kms:1.0.0"), service("vault", "kms", "10.0.0.50"),
+		pod("vault", "agent-a", "kms"), pod("vault", "agent-b", "kms"), pod("vault", "agent-old", "kms"),
+		pactoCR("vault", "kms", "kms", "kms", "oci://reg.io/acme/contracts/kms", "1.2.0", 1, 1),
+		obj("pacto.trianalab.io/v1alpha1", "NodeRuntimeObservation", "pacto-system", "node-1", map[string]any{"status": map[string]any{
+			"nodeName": "node-1", "pods": []any{
+				map[string]any{"uid": "u-invoices-0", "connections": call("10.0.0.50", now)},
+				map[string]any{"uid": "u-agent-a", "connections": call("10.0.0.30", now)},
+				map[string]any{"uid": "u-agent-b", "connections": call("10.0.0.30", now)},
+				map[string]any{"uid": "u-agent-old", "connections": call("10.0.0.30", now.Add(-30*time.Hour))},
+			}}}),
+	}
+}
+
+func onlyShop(ns string) bool { return ns == "shop" }
+
+// TestViewerDropsBeforeCompletion: a Service the viewer may not read is
+// dropped before the draft is made, so it is no dependency and no line
+// names it; without the hook the same read lists it.
+func TestViewerDropsBeforeCompletion(t *testing.T) {
+	now := time.Now()
+	for _, visible := range []func(string) bool{nil, onlyShop} {
+		c := ClusterOptions{Out: t.TempDir(), Now: func() time.Time { return now }, Visible: visible}
+		b, err := Cluster(context.Background(), fakeCluster(viewerShop(now)...), Options{Plan: true}, c, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r := result(t, b, "invoices")
+		raw, _ := json.Marshal(r)
+		if named := strings.Contains(string(raw), "kms"); named != (visible == nil) || len(r.Dependencies) != map[bool]int{true: 1}[visible == nil] {
+			t.Errorf("visible %v: %s", visible != nil, raw)
+		}
+	}
+}
+
+// TestViewerHiddenCounts: per workload, the hidden Services its pods called
+// and the hidden pods calling its Services within the call window.
+func TestViewerHiddenCounts(t *testing.T) {
+	now := time.Now()
+	c := ClusterOptions{MaxItems: DefaultMaxItems, Now: func() time.Time { return now }}
+	nss := []string{""}
+	cur, _ := decodeContinue("", nss)
+	cl, err := readCluster(context.Background(), fakeCluster(viewerShop(now)...), c, nss, cur)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cl.restrict(onlyShop, now.Add(-DefaultCallWindow))
+	want := map[string]int{"shop/Deployment/invoices": 1}
+	if !reflect.DeepEqual(cl.hiddenServices, want) || !reflect.DeepEqual(cl.hiddenCallers, map[string]int{"shop/Deployment/invoices": 2}) {
+		t.Fatalf("services %v, callers %v", cl.hiddenServices, cl.hiddenCallers)
+	}
+	for _, l := range [][]unstructured.Unstructured{cl.workloads, cl.pods, cl.services, cl.pactos} {
+		for _, o := range l {
+			if o.GetNamespace() != "shop" {
+				t.Errorf("kept %s", key(o))
+			}
+		}
+	}
+}
+
+// tokenRE matches strings that may be base64 of something.
+var tokenRE = regexp.MustCompile(`[A-Za-z0-9+/_=-]{8,}`)
+
+// decoded is s with every token-shaped string in it base64-decoded, in the
+// standard and URL alphabets, twice.
+func decoded(s string) string {
+	out := s
+	for range 2 {
+		for _, tok := range tokenRE.FindAllString(out, -1) {
+			for _, enc := range []*base64.Encoding{base64.StdEncoding, base64.URLEncoding, base64.RawStdEncoding, base64.RawURLEncoding} {
+				if raw, err := enc.DecodeString(tok); err == nil {
+					out += "\n" + string(raw)
+				}
+			}
+		}
+	}
+	return out
+}
+
+// TestViewerHiddenObjectsNeverNamed: nothing a viewer gets names a hidden
+// namespace, Service or pod, even decoded.
+func TestViewerHiddenObjectsNeverNamed(t *testing.T) {
+	now := time.Now()
+	c := ClusterOptions{Out: t.TempDir(), Now: func() time.Time { return now }, Visible: onlyShop}
+	b, err := Cluster(context.Background(), fakeCluster(viewerShop(now)...), Options{Plan: true}, c, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(b)
+	text := decoded(string(raw))
+	for _, name := range []string{"vault", "kms", "agent-a", "agent-b", "agent-old"} {
+		if strings.Contains(text, name) {
+			t.Errorf("%q named in %s", name, raw)
+		}
+	}
+}
+
+// TestViewerNoContinueToken: a viewer read the bound stopped says so, and
+// gets no token.
+func TestViewerNoContinueToken(t *testing.T) {
+	c := ClusterOptions{Namespaces: []string{"a", "b"}, Out: t.TempDir(), MaxItems: 2, Visible: func(string) bool { return true }}
+	b, err := Cluster(context.Background(), fiveDeployments(), Options{Plan: true}, c, nil)
+	if err != nil || b.Continue != "" || coverage(t, b, "workloads") != (contract.InferredCoverage{Source: "workloads", State: contract.CoveragePartial, Reason: "stopped at the item bound (2)"}) {
+		t.Fatalf("%+v: %v", b, err)
+	}
+}
+
+// TestViewerContinueRefused: a viewer read refuses a token before any read.
+func TestViewerContinueRefused(t *testing.T) {
+	cl := fiveDeployments()
+	c := ClusterOptions{Out: t.TempDir(), Continue: "x", Visible: onlyShop}
+	if _, err := Cluster(context.Background(), cl, Options{Plan: true}, c, nil); err == nil ||
+		err.Error() != "--continue is not available when reading on behalf of another person" || len(cl.Actions()) != 0 {
+		t.Fatalf("%v, %d reads", err, len(cl.Actions()))
+	}
+}
+
+// TestViewerNilChangesNothing: a viewer who may read everything gets what a
+// read with no hook gets.
+func TestViewerNilChangesNothing(t *testing.T) {
+	now := time.Now()
+	var got []string
+	for _, visible := range []func(string) bool{nil, func(string) bool { return true }} {
+		c := ClusterOptions{Out: "drafts", Now: func() time.Time { return now }, Visible: visible}
+		b, err := Cluster(context.Background(), fakeCluster(shopCluster(now)...), Options{Plan: true}, c, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := json.Marshal(b)
+		got = append(got, string(raw))
+	}
+	if got[0] != got[1] {
+		t.Fatalf("without the hook:\n%s\nwith it:\n%s", got[0], got[1])
+	}
+}
+
+// TestViewerDropsHiddenWorkloads: a namespace the viewer may not read gets
+// no draft, even when the read names it.
+func TestViewerDropsHiddenWorkloads(t *testing.T) {
+	now := time.Now()
+	c := ClusterOptions{Namespaces: []string{"vault", "shop"}, Out: t.TempDir(), Now: func() time.Time { return now }, Visible: onlyShop}
+	b, err := Cluster(context.Background(), fakeCluster(viewerShop(now)...), Options{Plan: true}, c, nil)
+	if err != nil || !slices.Equal(drafted(b), []string{"invoices"}) || len(b.Skipped) != 0 {
+		t.Fatalf("%v %+v: %v", drafted(b), b, err)
+	}
+}

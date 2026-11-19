@@ -100,6 +100,10 @@ type cluster struct {
 	coverage map[string]contract.InferredCoverage
 	// cont resumes the read when the workload bound stopped it.
 	cont string
+	// hiddenServices and hiddenCallers count, per workload as ns/Kind/name,
+	// the Services a viewer may not read that its pods called and the pods
+	// a viewer may not read that called its Services (restrict).
+	hiddenServices, hiddenCallers map[string]int
 }
 
 // Cluster drafts a contract for every workload in the namespaces that no
@@ -114,15 +118,8 @@ func Cluster(ctx context.Context, dyn dynamic.Interface, base Options, c Cluster
 	if base.Name != "" || base.Dir != "" {
 		return nil, errors.New("reading a cluster names each service after its workload, so it takes no name or folder")
 	}
-	if c.Now == nil {
-		c.Now = time.Now
-	}
-	c.MaxItems, c.CallWindow = cmp.Or(c.MaxItems, DefaultMaxItems), cmp.Or(c.CallWindow, DefaultCallWindow)
-	switch {
-	case c.MaxItems < 0:
-		return nil, errors.New("the item bound (--max-items) must be positive")
-	case c.CallWindow < time.Minute:
-		return nil, errors.New("the call window (--call-window) must be at least a minute")
+	if err := c.defaults(); err != nil {
+		return nil, err
 	}
 	nss := slices.Compact(slices.Sorted(slices.Values(c.Namespaces)))
 	if len(nss) == 0 {
@@ -133,11 +130,12 @@ func Cluster(ctx context.Context, dyn dynamic.Interface, base Options, c Cluster
 		return nil, err
 	}
 	cl, err := readCluster(ctx, dyn, c, nss, cur)
+	since := c.Now().Add(-c.CallWindow)
+	cl.restrict(c.Visible, since)
 	b := &Bulk{Results: []*Result{}, Skipped: []string{}, Coverage: cl.rows(), Continue: cl.cont}
 	if err != nil {
 		return b, err
 	}
-	since := c.Now().Add(-c.CallWindow)
 	deps := cl.inferred(since)
 	described := cl.described()
 	var errs []error
@@ -157,6 +155,24 @@ func Cluster(ctx context.Context, dyn dynamic.Interface, base Options, c Cluster
 		}
 	}
 	return b, errors.Join(errs...)
+}
+
+// defaults fills the zero options in and refuses the ones no read can run
+// with.
+func (c *ClusterOptions) defaults() error {
+	if c.Now == nil {
+		c.Now = time.Now
+	}
+	c.MaxItems, c.CallWindow = cmp.Or(c.MaxItems, DefaultMaxItems), cmp.Or(c.CallWindow, DefaultCallWindow)
+	switch {
+	case c.MaxItems < 0:
+		return errors.New("the item bound (--max-items) must be positive")
+	case c.CallWindow < time.Minute:
+		return errors.New("the call window (--call-window) must be at least a minute")
+	case c.Visible != nil && c.Continue != "":
+		return errors.New("--continue is not available when reading on behalf of another person")
+	}
+	return nil
 }
 
 // draft pactifies one workload in <out>/<ns>/<name>. A manifests.yaml
@@ -210,6 +226,72 @@ func (cl *cluster) draft(ctx context.Context, w unstructured.Unstructured, base 
 	}
 	r.Unknown = append(r.Unknown, cl.unobserved(w)...)
 	return r, err
+}
+
+// restrict drops every workload, pod, Service, EndpointSlice and Pacto in a
+// namespace visible does not show, before anything is drafted, after
+// counting what was dropped (countHidden). No name of a dropped object
+// leaves it. A viewer gets no continue token either, since it carries the
+// API server's, which names the next object. A nil visible changes nothing.
+func (cl *cluster) restrict(visible func(string) bool, since time.Time) {
+	if visible == nil {
+		return
+	}
+	cl.cont = ""
+	cl.hiddenServices, cl.hiddenCallers = cl.countHidden(visible, since)
+	hidden := func(o unstructured.Unstructured) bool { return !visible(o.GetNamespace()) }
+	for _, l := range []*[]unstructured.Unstructured{&cl.workloads, &cl.pods, &cl.services, &cl.slices, &cl.pactos} {
+		*l = slices.DeleteFunc(*l, hidden)
+	}
+	maps.DeleteFunc(cl.owners, func(k, _ string) bool { return !visible(strings.SplitN(k, "/", 2)[0]) })
+}
+
+// countHidden counts per workload the distinct hidden Services its visible
+// pods called since since, and the distinct hidden pods that called a
+// visible Service selecting its pods. Only pods read here are known, so a
+// caller in a namespace the read did not cover is not counted.
+func (cl *cluster) countHidden(visible func(string) bool, since time.Time) (services, callers map[string]int) {
+	pods := map[string]unstructured.Unstructured{}
+	for _, p := range cl.pods {
+		pods[string(p.GetUID())] = p
+	}
+	seen := map[[3]string]bool{}
+	services, callers = map[string]int{}, map[string]int{}
+	add := func(m map[string]int, which, w, id string) {
+		if k := [3]string{which, w, id}; !seen[k] {
+			seen[k] = true
+			m[w]++
+		}
+	}
+	for _, svc := range cl.services {
+		shown := visible(svc.GetNamespace())
+		for _, id := range runtimefacts.Callers(cl.snaps, cl.peers(svc), since) {
+			pod, ok := pods[id.ID]
+			if !ok || id.Kind != runtimefacts.KindPod || visible(pod.GetNamespace()) == shown {
+				continue
+			}
+			if shown {
+				for _, w := range cl.selected(svc) {
+					add(callers, "caller", w, id.ID)
+				}
+				continue
+			}
+			add(services, "service", cl.owner(pod), svc.GetNamespace()+"/"+svc.GetName())
+		}
+	}
+	return services, callers
+}
+
+// selected are the workloads, as ns/Kind/name, whose pods svc selects.
+func (cl *cluster) selected(svc unstructured.Unstructured) []string {
+	sel, _, _ := unstructured.NestedStringMap(svc.Object, "spec", "selector")
+	var out []string
+	for _, p := range cl.pods {
+		if w := cl.owner(p); p.GetNamespace() == svc.GetNamespace() && selects(sel, p.GetLabels()) && !slices.Contains(out, w) {
+			out = append(out, w)
+		}
+	}
+	return out
 }
 
 // readNamespace reads one namespace's pods and the owners of its
