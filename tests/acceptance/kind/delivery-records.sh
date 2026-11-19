@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2329 # poll helpers are invoked by name, which shellcheck cannot see
 # Phase 6 ("records") of the delivery kind acceptance, sourced by delivery.sh,
 # whose state and helpers it reads. records_store runs once phases 1 and 3
 # finished, beside the others; records_audit runs after every phase. The recorder ran
