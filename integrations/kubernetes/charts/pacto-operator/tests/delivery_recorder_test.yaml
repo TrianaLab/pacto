@@ -258,6 +258,47 @@ tests:
           path: spec.template.spec.containers[0].env
           content: {name: PACTO_INSECURE_REGISTRIES, value: "reg:5000"}
 
+  - it: publishes the target snapshot to <registry>/pacto-targets and names its publisher
+    set:
+      registry: ghcr.io/acme
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: registry.example/pacto/streams
+      delivery.recorder.signing.kms: awskms:///alias/pacto
+    template: templates/delivery/recorder.yaml
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --targets-repository=ghcr.io/acme/pacto-targets
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: POD_NAMESPACE, valueFrom: {fieldRef: {fieldPath: metadata.namespace}}}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICE_ACCOUNT, valueFrom: {fieldRef: {fieldPath: spec.serviceAccountName}}}
+
+  - it: publishes no target snapshot without the top-level registry value
+    set:
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: registry.example/pacto/streams
+      delivery.recorder.signing.kms: awskms:///alias/pacto
+    template: templates/delivery/recorder.yaml
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[8]
+          pattern: targets-repository
+      - lengthEqual:
+          path: spec.template.spec.containers[0].args
+          count: 8
+
+  - it: refuses a registry with a scheme
+    set:
+      registry: oci://x
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?i)registry.*does not match pattern"
+
   - it: refuses no streams repository
     set:
       delivery.recorder.enabled: true

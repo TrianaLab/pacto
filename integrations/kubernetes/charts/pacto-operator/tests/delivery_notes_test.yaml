@@ -27,6 +27,17 @@ tests:
       - notMatchRegexRaw:
           pattern: kubectl get stages -A
 
+  - it: names the target snapshot repository and asks for its own read ACL
+    set:
+      registry: ghcr.io/acme
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: registry.example/pacto/streams
+    asserts:
+      - matchRegexRaw:
+          pattern: ghcr\.io/acme/pacto-targets:cluster-<uid>
+      - matchRegexRaw:
+          pattern: give it its own read ACL
+
   - it: says the delivery namespace is for cluster admins only
     asserts:
       - matchRegexRaw:
