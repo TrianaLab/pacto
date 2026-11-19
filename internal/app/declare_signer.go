@@ -43,6 +43,8 @@ type declareSigning struct {
 	Device bool
 	// Prompt shows the person where to log in.
 	Prompt func(string)
+	// FreshLogin is the browser login; nil is authn.FreshIDToken.
+	FreshLogin func(context.Context, authn.FreshConfig) (string, error)
 	// Rules are the verified installation policy's signer class rules; nil
 	// is the default rule.
 	Rules []delivery.SignerClassRule
@@ -57,6 +59,8 @@ type declareLogin struct {
 	Issuer, ClientID string
 	Device           bool
 	Prompt           func(string)
+	// Fresh is the browser login; nil is authn.FreshIDToken.
+	Fresh func(context.Context, authn.FreshConfig) (string, error)
 }
 
 // signerChoice is who signs a declare run and what that signature may write:
@@ -159,7 +163,7 @@ func plannedSigner(ctx context.Context, o declareSigning, agent bool) (signerCho
 // signer policy, when read, lists its issuer and subject.
 func (s *Service) loginDeclareSigner(ctx context.Context, o declareSigning) (signerChoice, error) {
 	tok, err := s.env().login(ctx, declareLogin{Issuer: cmp.Or(o.OIDCIssuer, sigstoreIssuer),
-		ClientID: cmp.Or(o.OIDCClient, sigstoreClient), Device: o.Device, Prompt: o.Prompt})
+		ClientID: cmp.Or(o.OIDCClient, sigstoreClient), Device: o.Device, Prompt: o.Prompt, Fresh: o.FreshLogin})
 	if err != nil {
 		return signerChoice{}, fmt.Errorf("the Sigstore login: %w", err)
 	}
@@ -222,7 +226,11 @@ func interactiveLogin(ctx context.Context, l declareLogin) (string, error) {
 	if l.Device {
 		return deviceLogin(ctx, l)
 	}
-	return authn.FreshIDToken(ctx, authn.FreshConfig{IssuerURL: l.Issuer, ClientID: l.ClientID,
+	fresh := l.Fresh
+	if fresh == nil {
+		fresh = authn.FreshIDToken
+	}
+	return fresh(ctx, authn.FreshConfig{IssuerURL: l.Issuer, ClientID: l.ClientID,
 		ExtraScopes: []string{"email"}, Prompt: l.Prompt})
 }
 

@@ -17,7 +17,9 @@
 #     rolled back and steps the Stage down one level, through a signed autonomy
 #     operation the promoter raised with no approval;
 #   - `pacto init --cluster` drafts a valid contract for a caller nobody
-#     described and skips the workload a Pacto already describes.
+#     described and skips the workload a Pacto already describes;
+#   - `pacto declare` plans that caller's first declaration: a contract-only
+#     0.1.0 with no deploy artifact, inferred from its workload.
 # GitOps is played by `oras tag`: moving the applied tag is what a merged
 # commit to a Flux source would do.
 
@@ -212,6 +214,15 @@ YAML
   grep -qE '^ +cluster:' "$out/$L/till/pacto.inferred.yaml" || fail "the till record has no inputs.cluster: $(cat "$out/$L/till/pacto.inferred.yaml")"
   grep -qE 'source: workloads' "$out/$L/till/pacto.inferred.yaml" || fail "the till record has no workloads coverage row: $(cat "$out/$L/till/pacto.inferred.yaml")"
   pass "init --cluster skipped wallet, drafted till with its inferred record and every draft validates"
+
+  section "pacto declare plans till's first declaration without writing"
+  # Plan only: no --yes, so nothing is signed or pushed; acme/till does not exist yet.
+  local plan
+  plan="$(PACTO_INSECURE_REGISTRIES="127.0.0.1:${LOCAL_REG_PORT}" timeout 120 "$PACTO" declare till --namespace "$L" \
+    --registry "127.0.0.1:${LOCAL_REG_PORT}/acme" --output-format json)" || fail "pacto declare till (plan) failed: $plan"
+  jq -e --arg f "k8s:$L/Deployment/till" '.version == "0.1.0" and .deploy == "none" and .inferredFrom == $f' <<<"$plan" >/dev/null \
+    || fail "the declare plan for till is not a contract-only 0.1.0 inferred from $L/Deployment/till: $(jq -c '{version, deploy, inferredFrom}' <<<"$plan")"
+  pass "pacto declare plans till as a contract-only 0.1.0 inferred from k8s:$L/Deployment/till"
 
   section "pacto init --cluster pages under --max-items and resumes with --continue"
   local out2 token runs=0 drafted=""

@@ -1168,6 +1168,34 @@ recent=$(stats_cli --since 15m --kind publish | jq -r '.runs') || fail "pacto st
 [ "$recent" -ge 1 ] || fail "no run record in the last 15 minutes: the seed did not shift the records to seed time"
 pass "the Metrics page reads $STATS_READ CI run records the seed shifted to seed time, and no operation record"
 
+# pacto declare writes a draft into the demo's own registry and pacto pull checks
+# its signature, all inside the dashboard container. A key names no person, so
+# the run writes draft-1, never a version. The stack has no Kubernetes API, so the
+# folder's cluster facts cannot be read again: they are dropped and the plan says
+# so, which is a partial draft and never an error. The key is made on the host
+# because nothing from here on reads the checkout; docker cp hands it to root, so
+# this throwaway key is made readable to the dashboard's non-root user.
+openssl ecparam -name prime256v1 -genkey -noout -out "$WORK/declare.key" || fail "openssl could not make the declare signing key"
+openssl ec -in "$WORK/declare.key" -pubout -out "$WORK/declare.pub" 2>/dev/null || fail "openssl could not derive the declare public key"
+chmod 0644 "$WORK/declare.key" "$WORK/declare.pub"
+docker compose -p "$PROJ1" cp "$WORK/declare.key" dashboard:/tmp/declare.key >/dev/null
+docker compose -p "$PROJ1" cp "$WORK/declare.pub" dashboard:/tmp/declare.pub >/dev/null
+declare_out=$(docker compose -p "$PROJ1" exec -T -e PACTO_INSECURE_REGISTRIES=registry:5000 dashboard sh -c '
+	set -e; mkdir -p /tmp/declare-invoices && cd /tmp/declare-invoices
+	printf "%s\n" "pactoVersion: \"2.5\"" "service:" "  name: invoices" >pacto.yaml
+	printf "%s\n" "format: pacto.inferred/v1" "inputs:" "  pacto: dev" "  cluster:" "    asOf: \"2026-11-14T10:02:00Z\"" \
+		"    object: demo/Deployment/invoices" "    callWindow: 24h" "    maxItems: 10000" "fields:" "  - field: service.owner" \
+		"    value: billing" "    source: cluster:label demo/Deployment/invoices app.kubernetes.io/team" "    confidence: likely" \
+		"    asOf: \"2026-11-14T10:02:00Z\"" >pacto.inferred.yaml
+	pacto declare invoices --dir /tmp/declare-invoices --registry registry:5000/demo --sign-key /tmp/declare.key --yes --output-format json' 2>&1) ||
+	fail "pacto declare --sign-key failed in the demo: $declare_out"
+jq -e '.tag == "draft-1" and .draft and (.plan.notes | any(test("cluster")))' <<<"$declare_out" >/dev/null ||
+	fail "pacto declare did not write draft-1 with a note about the dropped cluster facts: $declare_out"
+pull_out=$(docker compose -p "$PROJ1" exec -T -e PACTO_INSECURE_REGISTRIES=registry:5000 dashboard \
+	pacto pull oci://registry:5000/demo/invoices:draft-1 --verify-key /tmp/declare.pub --output /tmp/declare-pulled 2>&1) ||
+	fail "pacto pull --verify-key refused the draft pacto declare signed: $pull_out"
+pass "pacto declare wrote a key-signed draft-1 with its cluster facts dropped, and pacto pull verified its signature"
+
 # The same live journeys the Kind vertical runs, against the published demo
 # instead of a cluster. The suite reads the fixture the gate just discovered, so it
 # addresses THIS deployment's entities by name — and skips, with a reason, the one

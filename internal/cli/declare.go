@@ -71,6 +71,7 @@ A declaration never sets an owner its published baseline does not declare.`,
 			req.Dynamic = dyn
 			asJSON := v.GetString(outputFormatKey) == "json"
 			req.Signing.Prompt = func(s string) { _, _ = fmt.Fprintln(cmd.ErrOrStderr(), s) }
+			req.Signing.FreshLogin = d.freshLogin
 			if !yes {
 				p, err := d.planDeclare(svc, cmd.Context(), req)
 				return printDeclare(cmd, asJSON, p, nil, err)

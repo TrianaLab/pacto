@@ -32,10 +32,12 @@ func newPullCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			trustedRoot, _ := cmd.Flags().GetString("trusted-root")
 			result, err := svc.Pull(cmd.Context(), app.PullOptions{
-				Ref:    ref,
-				Output: output,
-				Verify: verify,
+				Ref:         ref,
+				Output:      output,
+				Verify:      verify,
+				TrustedRoot: trustedRoot,
 			})
 			if err != nil {
 				sp.Stop()
@@ -51,6 +53,7 @@ func newPullCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd.Flags().String("verify-identity", "", "pull only a bundle signed keyless by this certificate identity, such as an email (needs --verify-issuer)")
 	cmd.Flags().String("verify-issuer", "", "the OIDC issuer of --verify-identity")
 	cmd.Flags().String("verify-key", "", "pull only a bundle signed by the key of this PEM public key file")
+	cmd.Flags().String("trusted-root", "", "Sigstore trusted root JSON --verify-identity checks against (default: public-good Sigstore)")
 
 	return cmd
 }

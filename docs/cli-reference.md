@@ -2243,6 +2243,7 @@ pacto pull <ref> [flags]
 ```
   -h, --help[=true|false]        help for pull
   -o, --output string            output directory (default: service name)
+      --trusted-root string      Sigstore trusted root JSON --verify-identity checks against (default: public-good Sigstore)
       --verify-identity string   pull only a bundle signed keyless by this certificate identity, such as an email (needs --verify-issuer)
       --verify-issuer string     the OIDC issuer of --verify-identity
       --verify-key string        pull only a bundle signed by the key of this PEM public key file

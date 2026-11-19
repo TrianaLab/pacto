@@ -22,6 +22,7 @@ import (
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	k8stesting "k8s.io/client-go/testing"
 
+	"github.com/trianalab/pacto/v4/internal/authn"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/signing"
 	"github.com/trianalab/pacto/v4/pkg/signing/testutil"
@@ -268,6 +269,13 @@ func TestSignerDeviceUsesOAuthflow(t *testing.T) {
 	// Without Device the browser login runs: it fails here at discovery.
 	if _, err := interactiveLogin(t.Context(), declareLogin{Issuer: "http://127.0.0.1:1", Prompt: func(string) {}}); err == nil {
 		t.Fatal("the browser login reached no identity provider and still answered")
+	}
+	// The caller's browser login runs with the fresh-login config, email included.
+	fresh := func(_ context.Context, c authn.FreshConfig) (string, error) {
+		return c.IssuerURL + " " + c.ClientID + " " + strings.Join(c.ExtraScopes, ","), nil
+	}
+	if tok, err := interactiveLogin(t.Context(), declareLogin{Issuer: issuer, ClientID: sigstoreClient, Fresh: fresh}); err != nil || tok != issuer+" sigstore email" {
+		t.Fatal(tok, err)
 	}
 	if (&Service{}).env().login == nil {
 		t.Fatal("no default login")

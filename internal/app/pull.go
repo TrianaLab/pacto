@@ -23,6 +23,9 @@ type PullOptions struct {
 	// keyless identity and issuer): one that does not verify refuses the
 	// pull before anything is extracted.
 	Verify *contract.PublishSign
+	// TrustedRoot is the Sigstore trusted root JSON a keyless Verify checks
+	// against; empty is public-good Sigstore's.
+	TrustedRoot string
 }
 
 // PullResult holds the result of the pull command.
@@ -51,7 +54,7 @@ func (s *Service) Pull(ctx context.Context, opts PullOptions) (*PullResult, erro
 	}
 
 	if opts.Verify != nil {
-		if location, err = s.verifyPull(ctx, location, *opts.Verify); err != nil {
+		if location, err = s.verifyPull(ctx, location, *opts.Verify, opts.TrustedRoot); err != nil {
 			return nil, err
 		}
 	}
@@ -89,7 +92,7 @@ func (s *Service) Pull(ctx context.Context, opts PullOptions) (*PullResult, erro
 // verifyPull resolves location to its digest and checks that digest carries
 // a signature that verifies under sign, with the verifier publish uses. It
 // returns repo@digest, so the bundle pulled is the one verified.
-func (s *Service) verifyPull(ctx context.Context, location string, sign contract.PublishSign) (string, error) {
+func (s *Service) verifyPull(ctx context.Context, location string, sign contract.PublishSign, trustedRoot string) (string, error) {
 	reg := s.env().publishRegistry()
 	rest, digest := contract.SplitOCIDigest(location)
 	repo, _, _ := contract.SplitOCITag(rest)
@@ -104,7 +107,7 @@ func (s *Service) verifyPull(ctx context.Context, location string, sign contract
 		digest = r.Digest
 	}
 	ref := repo + "@" + digest
-	p, err := pullPolicy(sign)
+	p, err := pullPolicy(sign, trustedRoot)
 	if err == nil {
 		err = publish.VerifyDigest(ctx, reg, bundleVerifier(p), repo, digest)
 	}
@@ -116,9 +119,9 @@ func (s *Service) verifyPull(ctx context.Context, location string, sign contract
 
 // pullPolicy is the policy a pulled bundle's signature must verify under:
 // the public key file sign.Key, else the keyless identity and issuer under
-// public-good Sigstore's trusted root, at a time its timestamp authority or
-// transparency log observed.
-func pullPolicy(sign contract.PublishSign) (signing.Policy, error) {
+// the trusted root at trustedRoot (public-good Sigstore's when empty), at a
+// time its timestamp authority or transparency log observed.
+func pullPolicy(sign contract.PublishSign, trustedRoot string) (signing.Policy, error) {
 	if sign.Key != "" {
 		raw, err := os.ReadFile(sign.Key)
 		if err != nil {
@@ -130,9 +133,9 @@ func pullPolicy(sign contract.PublishSign) (signing.Policy, error) {
 		}
 		return signing.Policy{Key: pub}, nil
 	}
-	tm, err := publicGoodRoot(signing.PublicTUF)
+	tm, err := declareRoot(trustedRoot)
 	if err != nil {
-		return signing.Policy{}, fmt.Errorf("public-good Sigstore's trusted root: %w", err)
+		return signing.Policy{}, err
 	}
 	return signing.Policy{Identity: sign.Identity, Issuer: sign.Issuer, Root: tm}, nil
 }
