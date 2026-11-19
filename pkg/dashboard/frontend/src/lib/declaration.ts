@@ -11,7 +11,7 @@ import { joinAnd } from './answers.ts';
 import { countOf, formatCount } from './format.ts';
 
 type S = components['schemas'];
-export interface DeclaredRevision {
+interface DeclaredRevision {
   declaration?: S['Fleet.DeclarationView'];
   inferredCoverage?: S['Fleet.InferredCoverageRow'][] | null;
   inferredHidden?: S['Fleet.InferredHiddenCounts'];
