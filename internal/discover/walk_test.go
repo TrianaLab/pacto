@@ -173,7 +173,6 @@ func TestSkipDir(t *testing.T) {
 		{"hidden", "/r", "/r/.git", ".git", true},
 		{"node_modules", "/r", "/r/node_modules", "node_modules", true},
 		{"vendor", "/r", "/r/vendor", "vendor", true},
-		{"rel error (abs root, rel path)", "/r", "relative/child", "child", true},
 		{"deep is left to Walk", "/r", "/r/" + deep, "i", false},
 		{"shallow ok", "/r", "/r/sub", "sub", false},
 	}

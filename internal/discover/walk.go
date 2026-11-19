@@ -31,11 +31,15 @@ type WalkResult struct {
 // Walk finds every service folder under root. It skips hidden directories
 // (except the root), node_modules, vendor, every directory the root
 // .pactoignore ignores and anything past the depth cap; the last two it
-// records in Skipped with the deciding rule, so a cut folder is named. Only directories are asked, never
-// pacto.yaml, so a file pattern never hides a service. Walk errors go to
-// onErr, whose result the walk returns to filepath.WalkDir.
+// records in Skipped with the deciding rule, so a cut folder is named. Only
+// directories are asked, never pacto.yaml, so a file pattern never hides a
+// service. Walk errors go to onErr, whose result the walk returns to
+// filepath.WalkDir.
 //
 // ponytail: one root .pactoignore; nested .pactoignore files stay packaging-only (D2).
+// ponytail: one depth-cap Skip per cut subtree root, however many there are;
+// summarise past N entries, as fleetsrc's unreadableDirs does, if deep source
+// trees make pacto ci and pacto migrate noisy.
 func Walk(ctx context.Context, root string, onErr func(path string, err error) error) (WalkResult, error) {
 	m, err := ignore.Load(os.DirFS(root))
 	if err != nil {
@@ -61,7 +65,7 @@ func Walk(ctx context.Context, root string, onErr func(path string, err error) e
 		if p == root {
 			return nil
 		}
-		rel, _ := filepath.Rel(root, p) // skipDir already refused a path Rel cannot compute
+		rel, _ := filepath.Rel(root, p) // WalkDir only visits paths below root, so Rel cannot fail
 		rel = filepath.ToSlash(rel)
 		if line, ignored := m.IgnoredBy(rel, true); ignored && line > 0 {
 			res.Skipped = append(res.Skipped, Skip{Rel: rel, Rule: ignore.IgnoreFileName + ":" + strconv.Itoa(line)})
@@ -84,9 +88,5 @@ func skipDir(root, p string, d fs.DirEntry) bool {
 		return false
 	}
 	name := d.Name()
-	if strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor" {
-		return true
-	}
-	_, err := filepath.Rel(root, p)
-	return err != nil
+	return strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor"
 }
