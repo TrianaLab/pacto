@@ -43,8 +43,13 @@ func newTagRegistry(t *testing.T) *tagRegistry {
 	tr.paths.Store(&[]string{})
 	plain := registry.New(registry.Logger(log.New(io.Discard, "", 0)))
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		p := append(*tr.paths.Load(), r.URL.Path)
-		tr.paths.Store(&p)
+		for { // requests run concurrently: copy, then swap only over what was read
+			old := tr.paths.Load()
+			p := append(slices.Clone(*old), r.URL.Path)
+			if tr.paths.CompareAndSwap(old, &p) {
+				break
+			}
+		}
 		if d := tr.deny.Load(); d != nil && strings.HasSuffix(r.URL.Path, d.suffix) {
 			w.WriteHeader(d.status)
 			return
