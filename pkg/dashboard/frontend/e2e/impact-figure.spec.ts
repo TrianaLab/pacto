@@ -94,10 +94,15 @@ for (const theme of ['dark', 'light'] as const) {
       await page.getByRole('button', { name: /Compare revisions/ }).click();
       await expect.poll(() => state(page), { timeout: 30_000 }).toMatch(/playing|done/);
       const skip = page.getByRole('button', { name: 'Skip to final frame' });
-      if ((await state(page)) === 'playing') {
-        await skip.click();
-        await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => r(null))));
-      }
+      // Check and click in one task: a narration that ends between a read and a
+      // Playwright click leaves the click waiting on a disabled Skip until the timeout.
+      const skipped = await page.locator(FIGURE).evaluate((fig) => {
+        if (fig.getAttribute('data-narration') !== 'playing') return false;
+        const b = [...fig.querySelectorAll('button')].find((x) => x.textContent?.trim() === 'Skip to final frame');
+        b?.click();
+        return !!b;
+      });
+      if (skipped) await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => r(null))));
       await expect.poll(() => state(page)).toBe('done');
       await expect(skip).toBeDisabled();
       expect(await narrations(page)).toBe(0);
