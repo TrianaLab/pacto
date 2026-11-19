@@ -11,7 +11,8 @@ import (
 // inferredRecordStage checks the bundle's pacto.inferred.yaml, when it holds
 // one: the record is a pactoVersion 2.5 feature, and it must parse and match
 // the files it cites, so a stale or hand-edited record never reads as
-// authoritative.
+// authoritative. A valid record's declaration must agree with pacto.yaml
+// (declarationStage).
 func inferredRecordStage(result *ValidationResult, c *contract.Contract, fsys fs.FS) {
 	rec, err := contract.ReadInferredRecord(fsys)
 	if rec == nil && err == nil {
@@ -27,7 +28,9 @@ func inferredRecordStage(result *ValidationResult, c *contract.Contract, fsys fs
 	}
 	if err != nil {
 		result.AddError(contract.InferredRecordFile, string(finding.CodeInferredRecordInvalid), err.Error())
+		return
 	}
+	declarationStage(result, c, rec)
 }
 
 // InferredRecordNeedsRaise reports whether a contract at version is too old
