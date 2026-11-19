@@ -47,6 +47,11 @@ type keylessEnv struct {
 
 func newKeylessEnv(t *testing.T, mode capabilities.ReferrersMode, email string) *keylessEnv {
 	t.Helper()
+	// A fresh prober: the process one remembers each host, and this server
+	// can reuse the port of an earlier one with other capabilities.
+	old := ocireferrer.Probes
+	ocireferrer.Probes = &ocireferrer.Prober{}
+	t.Cleanup(func() { ocireferrer.Probes = old })
 	srv := httptest.NewServer(testutil.NewReferrersRegistry(testutil.ReferrersOptions{Unsupported: mode == capabilities.ReferrersWriteOnceTags}))
 	t.Cleanup(srv.Close)
 	ss := sigtest.New(t)

@@ -14,6 +14,7 @@ import (
 )
 
 func TestNewRegistryProbeOpensTheRefRepository(t *testing.T) {
+	freshProbes(t)
 	srv := httptest.NewServer(testutil.NewReferrersRegistry(testutil.ReferrersOptions{Unsupported: true}))
 	defer srv.Close()
 	host := strings.TrimPrefix(srv.URL, "http://")

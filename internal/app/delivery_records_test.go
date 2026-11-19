@@ -57,6 +57,7 @@ func newRecordEnv(t *testing.T, objs ...runtime.Object) *recordEnv {
 // newRecordEnvOn is newRecordEnv on a registry configured by opts.
 func newRecordEnvOn(t *testing.T, opts testutil.ReferrersOptions, objs ...runtime.Object) *recordEnv {
 	t.Helper()
+	freshProbes(t)
 	srv := httptest.NewServer(testutil.NewReferrersRegistry(opts))
 	t.Cleanup(srv.Close)
 	pub, key, _ := ed25519.GenerateKey(rand.Reader)
@@ -77,6 +78,22 @@ func newRecordEnvOn(t *testing.T, opts testutil.ReferrersOptions, objs ...runtim
 	}
 	e.anchor = anchor.ManifestDesc
 	return e
+}
+
+// probesOwner is the test that holds a fresh prober now.
+var probesOwner *testing.T
+
+// freshProbes gives the test its own registry prober, once per test: the
+// process prober remembers each host, and a test server can reuse the port
+// of an earlier one with other capabilities. The tests in this package are
+// not parallel.
+func freshProbes(t *testing.T) {
+	if probesOwner == t {
+		return
+	}
+	old, oldOwner := ocireferrer.Probes, probesOwner
+	ocireferrer.Probes, probesOwner = &ocireferrer.Prober{}, t
+	t.Cleanup(func() { ocireferrer.Probes, probesOwner = old, oldOwner })
 }
 
 func (e *recordEnv) repo(path string) *remote.Repository {
