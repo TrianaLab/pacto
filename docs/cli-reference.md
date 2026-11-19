@@ -1669,8 +1669,12 @@ describes yet, in &lt;out&gt;/&lt;namespace&gt;/&lt;name&gt;: its manifests are 
 cluster, and the services its pods were seen calling become dependencies with
 compatibility unknown and a proposed range, in a comment, from the lowest
 version the Pactos describing each one report, when they agree on one
-contract. Ranges are proposed, never declared: declare each one. Drafts are only written, never published, and a
-draft that is not valid fails the command.
+contract. Ranges are proposed, never declared: declare each one. Each draft also gets
+pacto.inferred.yaml, completed by the engine pacto ci uses, with when each
+cluster fact was read and whether every node was observed. --max-items bounds
+each kind of object read; a kind cut short is listed under Coverage, and a run
+stopped by it prints the command that resumes with --continue. Drafts are only
+written, never published, and a draft that is not valid fails the command.
 
 With --from the service is created from a golden path: an oci:// reference or
 a directory whose contract declares service.template. The path's contract is
@@ -1714,7 +1718,9 @@ pacto init [dir...] [flags]
 **Flags:**
 
 ```
+      --call-window duration               with --cluster: how far back a call counts as a dependency (default 24h)
       --cluster[=true|false]               draft a contract for every workload in the cluster that no Pacto describes, reading the current kubeconfig context
+      --continue string                    with --cluster: resume the read where a run stopped by --max-items left off
       --delivery[=true|false]              also declares each --env in pacto.yaml with an empty values file, and writes the cluster pieces of a manifests deploy: the Pacto resource, a Stage per environment and a Flux OCIRepository and Kustomization; a chart deploy gets no applier object
       --describe-only[=true|false]         write a contract that only describes the service: its next steps say how to validate it, never how to publish it
       --domain string                      business domain, such as payments
@@ -1724,6 +1730,7 @@ pacto init [dir...] [flags]
       --from string                        a golden path to create the service from: an oci:// reference or a directory
   -h, --help[=true|false]                  help for init
       --insecure-registry[=true|false]     with --delivery: the Flux OCIRepositories read the registry over plain HTTP (a local registry only)
+      --max-items int                      with --cluster: the most items read per kind of object; a kind cut short reads as partial (default 10000)
       --name string                        service name (default: the workload's name, then the folder's)
       --namespace strings                  with --cluster: a namespace to read; repeat it for more (default: every namespace)
       --no-transparency-log[=true|false]   with --from: write transparencyLog: false under the golden path's publish.sign

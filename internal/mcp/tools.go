@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"k8s.io/client-go/dynamic"
@@ -49,8 +50,11 @@ func createTool() *mcpsdk.Tool {
 			"(codes DISCOVERY_UNSUPPORTED_FILE, DISCOVERY_AMBIGUOUS, DISCOVERY_CHART_DEPENDENCY_UNLOCKED, DISCOVERY_UNREADABLE, DISCOVERY_UNRESOLVED, DISCOVERY_TRUNCATED, each with its source and message). " +
 			"On a folder that already holds pacto.yaml, pactify completes it without changing it; for a new contract 'inferred' is what the pacto.yaml it plans leaves out. " +
 			"pacto pack and pacto publish put 'inferred' in the bundle as pacto.inferred.yaml only when pacto.yaml declares pactoVersion 2.5: " +
-			"a new contract below 2.5 says so in Next. Completion needs pactoVersion 2.5 (or none) and never runs with cluster: an existing contract below 2.5 keeps mode 'pactify' with no 'inferred' " +
+			"a new contract below 2.5 says so in Next. Completion needs pactoVersion 2.5 (or none): an existing contract below 2.5 keeps mode 'pactify' with no 'inferred' " +
 			"and a Next step, so no 'inferred' there means not completed, never nothing to add. " +
+			"With cluster each draft is completed too and writes its 'inferred' as pacto.inferred.yaml: cluster fields carry asOf, runtime and fleet fields a completeness, " +
+			"a proposed range is 'proposed', never declared, and the result's 'coverage' says which sources the read saw whole. " +
+			"max_items bounds each source (a source cut short reads partial) and a read the bound stopped returns 'continue', which the next call passes back as continue. " +
 			"It only adds files; dry_run plans and writes nothing. For an AI agent, see pacto_schema. " +
 			"With from it creates the service from a golden path like `pacto init --from` (over stdio only): " +
 			"golden paths are listed by pacto mcp --fleet (pacto_fleet_entities template=only) or pacto fleet entities --template. " +
@@ -84,6 +88,9 @@ func createTool() *mcpsdk.Tool {
 			"paths":                        {Type: "string", Description: "With pactify: JSON array of service folders, each planned like path and named after its folder (name is ignored); dry_run defaults to true"},
 			"cluster":                      {Type: "boolean", Description: "With pactify: draft a contract for every workload in the current kubeconfig context that no Pacto describes, into path/<namespace>/<name>, with each service it was seen calling as a dependency with compatibility unknown and a proposed range, in a comment, from the lowest version the Pactos describing it report when they agree on one contract; dry_run defaults to true"},
 			"namespaces":                   {Type: "string", Description: "With cluster: JSON array of namespaces to read (default: every namespace)"},
+			"max_items":                    {Type: "integer", Description: "With cluster: the most items read per kind of object; a kind cut short reads as partial (default 10000)"},
+			"call_window":                  {Type: "string", Description: "With cluster: how far back a call counts as a dependency, as a Go duration such as 24h (default 24h)"},
+			"continue":                     {Type: "string", Description: "With cluster: the 'continue' token a read stopped by max_items returned; resumes the read where it left off"},
 			"from":                         {Type: "string", Description: "A golden path to create the service from: an oci:// reference or a directory. Takes name, owner (required), domain, path, registry, values, set, run_plugins, describe_only, delivery and its options, and dry_run"},
 			"values":                       {Type: "string", Description: "With from: JSON object merged over the golden path's contract, such as {\"service\": {\"summary\": \"Gift card balances\"}}; a null removes a field"},
 			"set":                          {Type: "string", Description: "With from: JSON array of key=value strings applied after values, such as [\"service.summary=Gift card balances\"]"},
@@ -124,6 +131,9 @@ type createArgs struct {
 	Paths                     string `json:"paths"`
 	Cluster                   bool   `json:"cluster"`
 	Namespaces                string `json:"namespaces"`
+	MaxItems                  int    `json:"max_items"`
+	CallWindow                string `json:"call_window"`
+	Continue                  string `json:"continue"`
 	From                      string `json:"from"`
 	Values                    string `json:"values"`
 	Set                       string `json:"set"`
@@ -181,6 +191,10 @@ func createHandler(a Authoring, served func(string) bool, version string) mcpsdk
 // completed folder's record names version and no commit: the server may run
 // outside a checkout. base holds the Pacto version and the server's catalog.
 func pactifyFolder(ctx context.Context, args createArgs, base pactify.Options) (*mcpsdk.CallToolResult, any, error) {
+	cluster, err := clusterArgs(args)
+	if err != nil {
+		return nil, nil, err
+	}
 	plan := args.Paths != "" || args.Cluster
 	if args.DryRun != nil {
 		plan = *args.DryRun
@@ -190,7 +204,6 @@ func pactifyFolder(ctx context.Context, args createArgs, base pactify.Options) (
 		InsecureRegistry: args.InsecureRegistry, RegistrySecret: args.RegistrySecret, PactoVersion: base.PactoVersion,
 		Catalog: base.Catalog, CatalogUnavailable: base.CatalogUnavailable}
 	var paths []string
-	cluster := pactify.ClusterOptions{Out: args.Path}
 	if err := unmarshalFields([]jsonField{
 		{"environments", args.Environments, &opts.Environments},
 		{"fleet_roots", args.FleetRoots, &opts.FleetRoots},
@@ -203,12 +216,11 @@ func pactifyFolder(ctx context.Context, args createArgs, base pactify.Options) (
 		opts.Dir, opts.Name = "", "" // each service is named after its folder or workload
 	}
 	var b *pactify.Bulk
-	var err error
 	switch {
 	case args.Cluster:
 		var dyn dynamic.Interface
 		if dyn, err = newDynamic(); err == nil {
-			b, err = pactify.Cluster(ctx, dyn, opts, cluster, os.WriteFile)
+			b, err = pactifyCluster(ctx, dyn, opts, cluster, os.WriteFile)
 		}
 	case args.Paths != "":
 		b, err = pactify.Many(ctx, opts, paths, os.WriteFile)
@@ -232,6 +244,23 @@ func pactifyFolder(ctx context.Context, args createArgs, base pactify.Options) (
 	res.IsError = true
 	res.Content = append(res.Content, &mcpsdk.TextContent{Text: err.Error()})
 	return res, nil, nil
+}
+
+// clusterArgs is the cluster read pacto_create asks for, written at path;
+// the bound, window and resume token go only with cluster.
+func clusterArgs(args createArgs) (pactify.ClusterOptions, error) {
+	c := pactify.ClusterOptions{Out: args.Path, MaxItems: args.MaxItems, Continue: args.Continue}
+	if !args.Cluster && (args.MaxItems != 0 || args.CallWindow != "" || args.Continue != "") {
+		return c, errors.New("max_items, call_window and continue go with cluster")
+	}
+	if args.CallWindow != "" {
+		d, err := time.ParseDuration(args.CallWindow)
+		if err != nil {
+			return c, fmt.Errorf("call_window %q is not a duration such as 24h", args.CallWindow)
+		}
+		c.CallWindow = d
+	}
+	return c, nil
 }
 
 // errFromOverHTTP refuses pacto_create from on a server with no Initializer:
@@ -286,6 +315,7 @@ func fromConflicts(args createArgs) []string {
 		{"data_loss_impact", args.DataLossImpact != ""}, {"config_properties", args.ConfigProperties != ""},
 		{"metadata", args.Metadata != ""}, {"pactify", args.Pactify}, {"paths", args.Paths != ""},
 		{"cluster", args.Cluster}, {"namespaces", args.Namespaces != ""}, {"fleet_roots", args.FleetRoots != ""},
+		{"max_items", args.MaxItems != 0}, {"call_window", args.CallWindow != ""}, {"continue", args.Continue != ""},
 	} {
 		if a.set {
 			bad = append(bad, a.name)
@@ -296,6 +326,10 @@ func fromConflicts(args createArgs) []string {
 
 // newDynamic is the cluster client the cluster argument reads with.
 var newDynamic = k8sclient.NewDynamic
+
+// pactifyCluster drafts the cluster's workloads; a package variable so tests
+// read the options it is given.
+var pactifyCluster = pactify.Cluster
 
 // --- pacto_edit ---
 

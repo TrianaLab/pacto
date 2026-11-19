@@ -273,7 +273,7 @@ func deliveryViewRows() []surfaceRow {
 
 func authoringRows() []surfaceRow {
 	return slices.Concat(
-		alike("init", "pacto_create", "", whyCreateOnly, "cluster", "delivery", "describe-only", "domain", "from", "insecure-registry", "name",
+		alike("init", "pacto_create", "", whyCreateOnly, "call-window", "cluster", "continue", "delivery", "describe-only", "domain", "from", "insecure-registry", "max-items", "name",
 			"no-transparency-log", "owner", "registry", "registry-secret", "run-plugins", "set", "values"),
 		[]surfaceRow{
 			{"init [dir...]", "pacto_create.path", "", whyCreateOnly},
