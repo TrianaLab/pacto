@@ -168,7 +168,8 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 	// A malformed --detected ref is a usage error, refused before any read.
 	remote, err := httpSources(opts)
 	fp, fpErr := loadFingerprints(opts.Fingerprints)
-	if err := errors.Join(err, CheckDetectedRef(opts.Detected), fpErr); err != nil {
+	snaps, snapErr := s.targetSnapshotSources(ctx, opts)
+	if err := errors.Join(err, CheckDetectedRef(opts.Detected), fpErr, snapErr); err != nil {
 		return nil, err
 	}
 	sources = append(sources, remote...)
@@ -209,13 +210,7 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 		}
 	}
 	sources = append(sources, s.detectionSources(opts.Detected)...)
-	if len(opts.TargetSnapshot) > 0 {
-		snaps, err := s.targetSnapshotSources(ctx, opts)
-		if err != nil {
-			return nil, err
-		}
-		sources = append(sources, snaps...)
-	}
+	sources = append(sources, snaps...)
 	sources = append(sources, opts.extraSources...)
 	if err := checkSourceIDsAreUnique(sources); err != nil {
 		return nil, err

@@ -125,8 +125,11 @@ func parseSnapshotRefs(values []string) ([]snapshotRef, error) {
 // snapshot one target-snapshot source of its Pactos and one workload source
 // of its inferred services, both on the snapshot's cluster. A repository that
 // cannot be listed is one failing source. A ref or trust config that does
-// not parse is an error.
+// not parse is an error. No ref reads nothing.
 func (s *Service) targetSnapshotSources(ctx context.Context, opts FleetOptions) ([]fleet.Source, error) {
+	if len(opts.TargetSnapshot) == 0 {
+		return nil, nil
+	}
 	refs, err := parseSnapshotRefs(opts.TargetSnapshot)
 	trust, terr := DeliveryTrust(opts.TargetSnapshotTrustFile)
 	if err := errors.Join(err, terr); err != nil {
