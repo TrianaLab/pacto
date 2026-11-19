@@ -104,6 +104,8 @@ The plan prints each value it detected with its source:
   Pacto reads no Git history and works on a shallow checkout
 - `Consumer source`: each source of consumers you named and what it answered,
   or `not read` when no changed service has a published baseline
+- `Index`: the [organization index](#consumers-from-the-organization-index)
+  read and how complete the read was; the index alone is no consumer source
 
 Then one row per service:
 
@@ -155,9 +157,11 @@ shown as inferred in the dashboard. `pacto migrate` rewrites the file itself.
 ## On every pull request: who breaks
 
 `pacto diff` says whether a change is breaking. `pacto impact` says which
-consumers it breaks and whether they run, from the signed target snapshot each
-cluster's delivery recorder publishes to your registry. The job needs the
-login variables, the delivery trust config and `jq`, never cluster
+consumers it breaks and whether they run. It finds them through the
+organization index that `pacto publish` and `pacto push` keep at
+`ghcr.io/acme/pacto-index`, so it needs no `--root`, and checks them against
+the signed target snapshot each cluster's delivery recorder publishes. The job
+needs the login variables, the delivery trust config and `jq`, never cluster
 credentials:
 
 ```yaml
@@ -176,11 +180,30 @@ The first `jq` lists each consumer whose `compatibility` range rejects the new
 version, with its owner; the second fails the step when a `BREAKING` change
 has an `incompatible` consumer. A range Pacto cannot evaluate reads
 `unknown` and passes. The third fails a `BREAKING` change whose answer is
-partial, since a snapshot Pacto cannot trust lists no consumers.
+partial, such as an untrusted snapshot or an index with no target source.
 
 `pacto impact` exits `0` clear, `1` blocked and `2` unverified, as does a
 `BREAKING` change with compatible consumers. `|| [ $? -eq 2 ]` lets the step
 reach the `jq` checks; a `1` still fails it.
+
+### Consumers from the organization index
+
+Every published version writes one entry, and impact reads each service's
+newest ([how](impact-consumers.md#consumers-from-the-organization-index)):
+
+```text
+Consumers: 41 from ghcr.io/acme/pacto-index (listed by tag, complete)
+```
+
+`--root` replaces the index for that run and `--index none` reads none.
+
+An entry exposes the service name, version, bundle reference and every
+dependency reference of each published service. On GitHub the first publish
+creates the `pacto-index` package: in its **Manage Actions access** settings,
+grant **write** to each repository that publishes and **read** to each that
+runs impact. Internal visibility shows those names and the dependency graph to
+every organization member, even for packages they cannot read. A publish
+without access still succeeds with a warning.
 
 ### Where consumers come from
 
@@ -237,8 +260,8 @@ keys:
 
 ### Consumers that run nowhere yet
 
-A consumer deployed nowhere is in no snapshot, so name each one's contract with
-`--root oci://ghcr.io/acme/contracts/checkout`. A
+A consumer deployed nowhere is in no snapshot. The index finds it once it is
+published; name an unpublished one with `--root ./services/checkout`. A
 `BREAKING` change that reaches only these exits `2`. `--k8s` reads the
 current cluster, `--evidence-url` an Evidence Server and `--target-state` a
 fixture file.
@@ -272,26 +295,11 @@ password as CI secrets. On GitHub, the job also needs
 It never overwrites a published version, and a merge that does not raise
 `service.version` in `pacto.yaml`, such as a docs change, fails here. Raise
 the version with each change you want to ship, or run this step only when
-`pacto.yaml` changed. See [Publish a version](publishing.md).
+`pacto.yaml` changed. See [Publish a version](publishing.md) and
+[A breaking change you need to ship](publish-from-ci.md#a-breaking-change-you-need-to-ship).
 
 If you use contracts without delivery, `pacto push oci://ghcr.io/acme/contracts/my-service -p .`
 uploads only the contract.
-
-## A breaking change you need to ship
-
-Sometimes a breaking change is the right call. Give it a new major version
-(`1.4.2` becomes `2.0.0`): `pacto publish` refuses a breaking change with a
-smaller version. With delivery, the change then waits for the teams whose
-services it would break. Do not remove fields to get past the check. Raising
-`pactoVersion` never hides a breaking change: `pacto ci` publishes an older
-contract as the current version only when that keeps its meaning.
-
-`pacto diff` still fails with the new major version, because the change is
-still breaking, so that pull request's check stays red. Merge it the way your
-repository lets a reviewer override a failed check, such as an admin bypass.
-Or make the diff step informational (`continue-on-error: true` on GitHub) and
-let `pacto publish` be the gate, since it refuses a breaking change without a
-new major version.
 
 ## GitHub Actions and other CI systems
 

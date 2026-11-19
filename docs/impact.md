@@ -247,6 +247,10 @@ A dashboard that serves other people, signed in or open, takes only `oci://`
 refs of revisions in your view and reads each one's digest-pinned ref, as
 `pacto_impact` does over HTTP. Only a local dashboard reads local folders.
 
+Over stdio `pacto_impact` also reads the
+[organization index](impact-consumers.md#consumers-from-the-organization-index)
+and reports it in `consumerIndex`; over HTTP and in the dashboard it is never read.
+
 ## What's next
 
 - [Ask what happens if](impact-what-if.md): impact for a service that becomes

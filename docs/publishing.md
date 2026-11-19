@@ -191,6 +191,17 @@ The repository a keyless CI certificate attests must match the artifact's
 published version's signature verifies; see [Bundle signatures and
 referrers](dashboard-service-page.md#bundle-signatures-and-referrers).
 
+## The organization index entry
+
+Every published version also writes one entry to the
+[organization index](impact-consumers.md#consumers-from-the-organization-index),
+`<registry>/pacto-index:<hash>-<version>`. It exposes the service name,
+version, bundle digest, every dependency reference and the publisher it claims.
+An entry is never overwritten. A failed write prints a warning and the publish
+still succeeds; publishing the current version again writes a missing entry.
+`pacto push` under a tag other than the version writes none. `--index` names
+another repository and `--index none` writes none.
+
 ## In CI and from agents
 
 CI calls [`pacto ci --publish`](publish-from-ci.md) as one step after the
