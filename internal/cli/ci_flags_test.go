@@ -16,7 +16,7 @@ import (
 var nonConsumerFlags = []string{"local", "namespace", "freshness", "external-catalog", "detected", "fingerprints", "delivery-trust", "index"}
 
 func TestConsumerSourcesClassifiesEveryFleetFlag(t *testing.T) {
-	value := map[string]string{"cache": "true", "k8s": "true", "freshness": "1m"}
+	value := map[string]string{"cache": "true", "k8s": "true", "freshness": "1m", "index": "r/pacto-index"}
 	for _, name := range fleetFlagNames() {
 		cmd := &cobra.Command{Use: "x"}
 		addFleetSourceFlags(cmd.Flags())

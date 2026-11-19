@@ -79,7 +79,7 @@ func addFleetSourceFlags(f *pflag.FlagSet) {
 	shared.StringArray("target-snapshot", nil, "signed target snapshot(s) to read targets from: an oci:// pacto-targets repository, or :cluster-<uid> tags or digests "+
 		"to pin the clusters CI expects (repeatable); pacto impact, pacto ci and pacto_impact on a stdio pacto mcp also take auto (the default: derived from the provider ref) and off")
 	shared.String("delivery-trust", "", "the trust config target snapshots are verified with: a YAML file with a key scoped to each cluster (default $"+app.TrustEnv+")")
-	shared.String("index", "", "organization index pacto impact and pacto ci read consumers from (default <registry>/pacto-index from the provider reference; "+
+	shared.Var(new(indexFlag), "index", "organization index pacto impact and pacto ci read consumers from, as <registry>/pacto-index with no tag or digest (default <registry>/pacto-index from the provider reference; "+
 		"none reads none; skipped when --root names the consumers; pacto ci --publish also writes its entries there; other fleet commands ignore it)")
 	f.AddFlagSet(shared)
 }

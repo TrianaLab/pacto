@@ -51,7 +51,7 @@ func newPushCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 
 	cmd.Flags().StringP("path", "p", "", "path to contract directory (default: current directory)")
 	cmd.Flags().BoolP("force", "f", false, "overwrite existing artifact in registry")
-	cmd.Flags().String("index", "", indexFlagUsage)
+	cmd.Flags().Var(new(indexFlag), "index", indexFlagUsage)
 
 	addOverrideFlagsNoShorthand(cmd)
 

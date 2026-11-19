@@ -14,7 +14,9 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/orgindex"
 	"github.com/trianalab/pacto/v4/pkg/publish"
 	"github.com/trianalab/pacto/v4/pkg/runrecord"
 )
@@ -100,7 +102,7 @@ func newPublishCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorde
 	cmd.Flags().String("registry", "", "with no publish section: the registry to publish to (default: what the CI context or the workload image names)")
 	cmd.Flags().String("sign-key", "", "with no publish section: sign with this cosign key file instead of keyless")
 	cmd.Flags().Bool("no-transparency-log", false, "with --sign-key: keep the signatures out of the transparency log")
-	cmd.Flags().String("index", "", indexFlagUsage)
+	cmd.Flags().Var(new(indexFlag), "index", indexFlagUsage)
 	cmd.Flags().Duration("propose-timeout", 10*time.Minute, "how long --propose waits for the Stage to record the version as published")
 	addOverrideFlagsNoShorthand(cmd)
 	addStatsFlags(cmd)
@@ -201,7 +203,26 @@ func notPublishedYet(s *delivery.StageObject, digest string, timeout time.Durati
 }
 
 // indexFlagUsage is the help of --index on publish and push.
-const indexFlagUsage = "organization index repository for this version's entry (default <registry>/pacto-index from the contract's repository; none writes no entry)"
+const indexFlagUsage = "organization index repository for this version's entry, as <registry>/pacto-index with no tag or digest (default <registry>/pacto-index from the contract's repository; none writes no entry)"
+
+// indexFlag is an --index value: none, or a <registry>/pacto-index
+// repository with no tag or digest, refused at parse time since a reader
+// binds every entry to that fixed name.
+type indexFlag string
+
+func (f *indexFlag) String() string { return string(*f) }
+
+// Type is "string", so GetString reads the flag.
+func (f *indexFlag) Type() string { return "string" }
+
+func (f *indexFlag) Set(v string) error {
+	repo, tag, dig := contract.SplitOCIRef(contract.TrimOCIScheme(v))
+	if v != app.IndexNone && (tag != "" || dig != "" || !strings.HasSuffix(repo, "/"+orgindex.RepositoryName)) {
+		return errors.New("--index must name <registry>/" + orgindex.RepositoryName + " with no tag or digest, or none")
+	}
+	*f = indexFlag(v)
+	return nil
+}
 
 // printIndex prints where the organization index entry was written, or, on
 // stderr, the warning that it was not: a missing entry never fails the run.
