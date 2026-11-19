@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode"
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -508,6 +509,28 @@ func TestTargetSnapshotPublisherLimitationsCarry(t *testing.T) {
 	snap = readSnap(t, &Service{}, snapOpts(trustFile(t, e.scoped("rec", snapA)), "oci://"+e.repo))
 	if st := stateOf(t, snap, id); st.Status != fleet.SourcePartial {
 		t.Fatalf("a partial publish read %+v", st)
+	}
+}
+
+// TestTargetSnapshotPayloadTextHasNoControls: the claimed publisher and the
+// publisher's limitations reach a terminal unverified, so the reader drops
+// control and bidi characters from them.
+func TestTargetSnapshotPayloadTextHasNoControls(t *testing.T) {
+	e := newSnapEnv(t)
+	s := ledgerSnapshot(snapA, snapNow)
+	s.Completeness = fleet.CompletenessPartial
+	s.Publisher = "rec\x1b[2J\u202eder"
+	s.Limitations = []fleet.Limitation{{Code: "PACTOS\nUNREADABLE", Message: "listed\r\x1b]0;pwned\x07 none"}}
+	e.push(t, e.key, snapA, s)
+	snap := readSnap(t, &Service{}, snapOpts("", "oci://"+e.repo))
+	id := "targets-" + snapA
+	if st := stateOf(t, snap, id); st.Publisher != "rec[2Jder" || !hasLim(snap, id, "PACTOSUNREADABLE") {
+		t.Fatalf("source %+v, limitations %+v", st, snap.Limitations)
+	}
+	for _, l := range snap.Limitations {
+		if strings.ContainsFunc(l.Message, unicode.IsControl) {
+			t.Fatalf("limitation %q", l.Message)
+		}
 	}
 }
 

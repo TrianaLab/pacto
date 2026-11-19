@@ -99,7 +99,7 @@ Snapshot sources carry:
 |---|---|
 | `ref` | The snapshot read, pinned as `<repository>@<digest>` |
 | `signer` | The trust entry that verified it: its `name`, or `key:<fingerprint>`; empty when unverified. Never the `publisher` the payload claims |
-| `publisher` | Who the payload says published it, such as the recorder's ServiceAccount; a claim |
+| `publisher` | Who the payload says published it, such as the recorder's ServiceAccount; a claim, with control characters dropped like the publisher's limitations |
 | `cluster` | The cluster the snapshot describes, its id the `kube-system` UID |
 | `lastSuccessfulSync` | The snapshot's `asOf` |
 | `TARGET_SNAPSHOT_UNVERIFIED` | Read with no delivery trust config (`--delivery-trust` or `$PACTO_DELIVERY_TRUST`); the source is `partial` |
@@ -107,6 +107,7 @@ Snapshot sources carry:
 | `TARGET_SNAPSHOT_STALE` | Its `asOf` is more than 15 minutes old; `stale` |
 | `TARGET_SNAPSHOT_INVALID` | Missing (a pinned tag), a bad signature, a cluster other than its tag, an unknown predicate or an `asOf` in the future; not used, `unavailable` |
 | `TARGET_SNAPSHOT_BOUND` | More than 32 cluster tags, a snapshot over 8 MiB or the 20 second read timeout; `partial` or `unavailable` |
+| Text line | `pacto fleet status` and `pacto fleet snapshot` print one per source, such as `Source targets-<uid> (target-snapshot): available, ref <repository>@<digest>, signed by <signer>, asOf <time>`; `unverified` replaces the signer when no trust entry verified it, and a source that is not available ends with its reason |
 
 ### Observed calls under a restricted view
 

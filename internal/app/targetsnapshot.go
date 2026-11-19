@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -320,7 +321,7 @@ func (rd snapshotRead) section(sid, kind, secKind string, col *fleet.Collection,
 		status = fleet.SourcePartial
 	}
 	col.Cluster, col.Limitations = rd.cl, lims
-	col.State = &fleet.SourceState{Status: status, Ref: rd.ref, Signer: snapshotSigner(rd.verdict), Publisher: rd.snap.Publisher,
+	col.State = &fleet.SourceState{Status: status, Ref: rd.ref, Signer: snapshotSigner(rd.verdict), Publisher: payloadText(rd.snap.Publisher),
 		Cluster: rd.cl, LastSuccessfulSync: &at}
 	return fleet.NewMemorySource(sid, kind, col)
 }
@@ -394,10 +395,22 @@ func earlier(a, b time.Time) time.Time {
 func withSource(id string, lims []fleet.Limitation) []fleet.Limitation {
 	out := make([]fleet.Limitation, 0, len(lims))
 	for _, l := range lims {
-		l.Source = id
+		l.Source, l.Code, l.Message = id, payloadText(l.Code), payloadText(l.Message)
 		out = append(out, l)
 	}
 	return out
+}
+
+// payloadText drops control and bidi characters from text a snapshot's
+// publisher wrote (its claimed publisher and its limitations), which can reach
+// a terminal or a CI log unverified.
+func payloadText(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || (r >= 0x200E && r <= 0x200F) || (r >= 0x202A && r <= 0x202E) || (r >= 0x2066 && r <= 0x2069) {
+			return -1
+		}
+		return r
+	}, s)
 }
 
 // snapshotSigner names the trust entry that verified a snapshot: its name,
