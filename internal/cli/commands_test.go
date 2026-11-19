@@ -167,6 +167,26 @@ func TestPushCommand_Success(t *testing.T) {
 	}
 }
 
+// TestPushCommand_IndexWarning: an index entry that cannot be written is a
+// warning on stderr, and the push still exits 0.
+func TestPushCommand_IndexWarning(t *testing.T) {
+	store := &testutil.MockBundleStore{ResolveFn: notFoundResolveFn}
+	bundleDir := testutil.WriteTestBundle(t)
+	root := cli.NewRootCommand(app.NewService(store, nil), cli.VersionInfo{Version: "test"})
+	// 127.0.0.1:1 refuses the registry probe; the index name is not a repository.
+	root.SetArgs([]string{"push", "oci://127.0.0.1:1/acme/svc:1.0.0", "--path", bundleDir, "--index", "Not A Repository"})
+	var out, stderr bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&stderr)
+	if err := root.Execute(); err != nil {
+		t.Fatalf("push failed: %v", err)
+	}
+	if !strings.Contains(out.String(), "Pushed test-svc@1.0.0") || strings.Contains(out.String(), "Index:") ||
+		!strings.Contains(stderr.String(), "warning: not indexed in Not A Repository: ") {
+		t.Errorf("stdout %q stderr %q", out.String(), stderr.String())
+	}
+}
+
 func TestPushCommand_AlreadyExists(t *testing.T) {
 	store := &testutil.MockBundleStore{
 		ResolveFn: func(_ context.Context, _ string) (string, error) {
