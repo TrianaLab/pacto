@@ -169,7 +169,7 @@ records_store() {
 }
 
 # records_targets reads the recorder's target snapshot the way CI does: registry
-# access and no kubeconfig. payments 1.0.0 -> 2.0.0 breaks checkout, which
+# access and no kubeconfig. A BREAKING payments 1.0.0 -> 2.0.0 breaks checkout, which
 # accepts ^1.0.0 only, so a verified snapshot blocks the release (exit 1) and an
 # unverified one leaves the answer partial. Staleness is pinned by unit tests:
 # a kind run cannot wait 15 minutes.
@@ -187,9 +187,14 @@ records_targets() {
     sed 's/^/      /' "$RECORDER_PUB"
     echo "    streams: [\"$uid/*/*\"]"
   } >"$tmp/targets-trust.yaml"
+  # The gate holds only BREAKING changes, and C200 changes nothing but the
+  # version, so the new revision is a local 2.0.0 that also changes the
+  # workload. It stays local: pushing it would move payments' tags under the
+  # Stages the other phases watch.
+  local breaking; breaking="$(contract_dir payments 2.0.0 job)"
   impact_ci() {
     HTTP_PROXY="http://127.0.0.1:${LOCAL_REG_PORT}" PACTO_INSECURE_REGISTRIES="$REG_HOST" KUBECONFIG=/dev/null \
-      "$PACTO" impact "$C100" "$C200" --local "" 2>&1
+      "$PACTO" impact "$C100" "$breaking" --local "" 2>&1
   }
   rc=0; out="$(PACTO_DELIVERY_TRUST="$tmp/targets-trust.yaml" impact_ci)" || rc=$?
   grep -q "^Targets: .*cluster ${uid:0:8}, .*, complete, signed by recorder" <<<"$out" || fail "the Targets line is not complete and signed by recorder: $out"
