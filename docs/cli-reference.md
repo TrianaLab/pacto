@@ -751,6 +751,40 @@ pacto delivery status [flags]
       --why[=true|false]    also plan the promote of each Stage's candidate (proposing nothing) and say what holds it back
 ```
 
+### `pacto delivery targets`
+
+Work with the signed target snapshots CI reads without cluster credentials
+
+```
+pacto delivery targets [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help[=true|false]   help for targets
+```
+
+#### `pacto delivery targets publish`
+
+Signs a target snapshot document and pushes it to &lt;registry&gt;/pacto-targets:cluster-&lt;cluster&gt;. The document is the JSON predicate of delivery.pacto.trianalab.io/target-snapshot/v1: the cluster UID, its completeness and limitations, the Pacto objects as the read contract and the workloads no Pacto targets. The command sets asOf to now, the publisher to the signing key and the registry mode to the one detected on the cluster's existing tag.
+
+Production clusters publish from the delivery recorder. This command is for demos, tests and installations that build the document themselves.
+
+--key takes a PEM private key or a `pacto evidence keygen` seed. After a push the command writes &lt;key&gt;.pub.pem when it is absent. A reader verifies the snapshot only with a trust entry that holds that public key and is scoped to the cluster (streams: ["&lt;cluster&gt;/*/*"]).
+
+```
+pacto delivery targets publish <file> [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help[=true|false]   help for publish
+      --key string          the signing key: a PEM private key or a seed that pacto evidence keygen wrote
+      --registry string     registry host and path the snapshot is written under, as <registry>/pacto-targets
+```
+
 ### `pacto delivery trust`
 
 Per service with a Stage that watches the registry and the caller can see: the installation's publisher rule or signed policy, the identities a person pinned, the CI signers waiting for a person to confirm them and the newest verdicts, each saying which source decided. Pins or a policy that could not be read mark the answer partial.
