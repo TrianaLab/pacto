@@ -131,10 +131,14 @@ It then lists each affected consumer with its owner, verdict and confidence, the
 active targets and a warning when the snapshot is partial. The JSON output also
 carries `owners` and `completeness` as fields.
 
-Pacto finds consumers only in the sources you pass. With `--local` alone it
-sees only the contracts in those folders. A `BREAKING` change that none of them
-depends on ends `clear` and exits `0`, so `No affected consumers.` covers only
-those folders.
+Pacto finds consumers only in the sources it reads. With an `oci://` revision
+and no other source of targets, it reads the signed
+[target snapshot](ci.md#where-consumers-come-from) each cluster publishes
+beside that registry and prints a `Registry:` line saying where it looked;
+`--target-snapshot off` turns that off. With `--local` alone it sees only the
+contracts in those folders. A `BREAKING` change that none of them depends on
+ends `clear` and exits `0`, so `No affected consumers.` covers only those
+folders.
 
 ### Release gate and exit status
 
