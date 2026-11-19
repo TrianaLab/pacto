@@ -180,7 +180,7 @@ func newFleetEntityCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Comm
 			if reached {
 				// A trust config that cannot be read is the caller's error,
 				// never a missing cluster.
-				if _, err := deliveryTrust(trustPath(cmd)); err != nil {
+				if _, err := app.DeliveryTrust(trustPath(cmd)); err != nil {
 					return err
 				}
 			}
@@ -199,7 +199,7 @@ func newFleetEntityCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Comm
 		},
 	}
 	cmd.Flags().Bool("reached", false, "read when each change reached a Stage from signed delivery records, with your cluster credentials")
-	cmd.Flags().String("trust", "", "with --reached: the trust config delivery records are verified with (default $"+trustEnv+")")
+	cmd.Flags().String("trust", "", "with --reached: the trust config delivery records are verified with (default $"+app.TrustEnv+")")
 	return cmd
 }
 

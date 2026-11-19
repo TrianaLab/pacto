@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -116,4 +117,79 @@ func (s TargetSnapshot) Check() error {
 		return errors.New("publisher is empty")
 	}
 	return nil
+}
+
+// TargetSnapshotStream is the stream a snapshot of cluster is verified under,
+// <uid>/pacto-targets/snapshot, shaped like a record stream
+// (<cluster>/<namespace>/<stage>) so a trust entry's streams scope it. Every
+// cluster's recorder can write every cluster-* tag, so a snapshot counts as
+// verified only under a key scoped to its cluster: one whose streams hold a
+// pattern that starts with the literal UID.
+func TargetSnapshotStream(cluster string) string {
+	return cluster + "/" + TargetSnapshotRepository + "/snapshot"
+}
+
+// TargetSnapshotVerdict says how a snapshot verified: Verified when a record
+// key covering its stream signed it, Scoped when that key is scoped to the
+// snapshot's cluster, and Key the trust entry that verified it.
+type TargetSnapshotVerdict struct {
+	Verified, Scoped bool
+	Key              TrustedKey
+}
+
+// OpenTargetSnapshot decodes a target snapshot bundle and verifies it with
+// trust; open turns one key into the check of a bundle (pkg/signing does). A
+// nil trust reads it unverified. Otherwise the record keys scoped to the
+// snapshot's cluster are tried first, then the other record keys that cover
+// its stream; when none verifies, the error says why. A bundle that is not
+// one signed target-snapshot/v1 statement, or a snapshot Check refuses, is an
+// error.
+func OpenTargetSnapshot(bundle []byte, trust *TrustConfig, open func(TrustedKey) (func([]byte) error, error)) (TargetSnapshotStatement, TargetSnapshotVerdict, error) {
+	var st TargetSnapshotStatement
+	if _, err := openStatement(bundle, PredicateTargetSnapshot, &st); err != nil {
+		return TargetSnapshotStatement{}, TargetSnapshotVerdict{}, err
+	}
+	if err := st.Predicate.Check(); err != nil {
+		return TargetSnapshotStatement{}, TargetSnapshotVerdict{}, err
+	}
+	if trust == nil {
+		return st, TargetSnapshotVerdict{}, nil
+	}
+	cluster := st.Predicate.Cluster
+	stream := TargetSnapshotStream(cluster)
+	var scoped, unscoped []TrustedKey
+	for _, k := range trust.Keys {
+		switch {
+		case k.Role != "" || !covers(k.Streams, stream):
+		case scopedTo(k.Streams, cluster, stream):
+			scoped = append(scoped, k)
+		default:
+			unscoped = append(unscoped, k)
+		}
+	}
+	err := fmt.Errorf("no trusted key may sign the target snapshot of cluster %q", cluster)
+	for i, keys := range [][]TrustedKey{scoped, unscoped} {
+		for _, k := range keys {
+			verify, verr := TrustConfig{Keys: []TrustedKey{k}}.Verifier(open)
+			if verr == nil {
+				verr = verify(stream, 0, bundle)
+			}
+			if verr == nil {
+				return st, TargetSnapshotVerdict{Verified: true, Scoped: i == 0, Key: k}, nil
+			}
+			err = verr
+		}
+	}
+	return st, TargetSnapshotVerdict{}, fmt.Errorf("signature: %w", err)
+}
+
+// scopedTo reports whether one of patterns starts with the literal cluster
+// UID and covers stream.
+func scopedTo(patterns []string, cluster, stream string) bool {
+	for _, p := range patterns {
+		if first, _, _ := strings.Cut(p, "/"); first == cluster && covers([]string{p}, stream) {
+			return true
+		}
+	}
+	return false
 }

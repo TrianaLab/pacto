@@ -9,13 +9,14 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 // runFleetEntity runs `fleet entity` over the demo bundles with d.
 func runFleetEntity(t *testing.T, d deps, args ...string) string {
 	t.Helper()
-	t.Setenv(trustEnv, "")
+	t.Setenv(app.TrustEnv, "")
 	v := viper.New()
 	v.Set(outputFormatKey, "text")
 	cmd := newFleetCommand(newTestService(t), v, d, &runRecorder{})
@@ -49,7 +50,7 @@ func TestFleetEntityReachedNoClusterNotRead(t *testing.T) {
 // An explicit trust config that cannot be read fails the command; it is
 // never reported as a missing cluster.
 func TestFleetEntityReachedBadTrustFails(t *testing.T) {
-	t.Setenv(trustEnv, "")
+	t.Setenv(app.TrustEnv, "")
 	cmd := newFleetCommand(newTestService(t), viper.New(), deliveryDeps("alice", nil), &runRecorder{})
 	cmd.SetOut(&strings.Builder{})
 	cmd.SetErr(&strings.Builder{})
@@ -58,7 +59,7 @@ func TestFleetEntityReachedBadTrustFails(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 	// Over MCP the reader names the trust config, not the cluster.
-	t.Setenv(trustEnv, "/nonexistent")
+	t.Setenv(app.TrustEnv, "/nonexistent")
 	h := fleet.ChangeHistoryPreview{}
 	attachReached(&cobra.Command{}, deliveryDeps("alice", nil))(context.Background(), fleet.NewQuery(&fleet.FleetSnapshot{}), "payments", &h)
 	if h.Times != fleet.TimesNotRead || !strings.HasPrefix(h.TimesReason, "the delivery trust config could not be read") {

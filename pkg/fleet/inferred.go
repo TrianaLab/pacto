@@ -162,8 +162,8 @@ func mergeInferred(snap *FleetSnapshot, existing, rec *ServiceRecord, source str
 	}
 }
 
-// declarationVerified reports whether a Kubernetes source read the Pacto
-// targets of a (cluster, namespace) completely: it read every namespace and is
+// declarationVerified reports whether a Kubernetes source or a target snapshot
+// read the Pacto targets of a (cluster, namespace) completely: it read every namespace and is
 // available, it read that namespace and names no failure there, or it found
 // no Pacto CRD, so no Pacto target exists there.
 func declarationVerified(snap *FleetSnapshot) func(cluster, namespace string) bool {
@@ -187,7 +187,7 @@ func declarationVerified(snap *FleetSnapshot) func(cluster, namespace string) bo
 	}
 	return func(cluster, namespace string) bool {
 		return slices.ContainsFunc(snap.Sources, func(st SourceState) bool {
-			return st.Kind == SourceKindKubernetes && (!snap.clusterKeyed || clusterOf[st.ID] == cluster) && read(st, namespace)
+			return (st.Kind == SourceKindKubernetes || st.Kind == SourceKindTargetSnapshot) && (!snap.clusterKeyed || clusterOf[st.ID] == cluster) && read(st, namespace)
 		})
 	}
 }

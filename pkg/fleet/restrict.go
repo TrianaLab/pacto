@@ -657,7 +657,8 @@ func kubePlacementKnown(s *FleetSnapshot) bool {
 
 // targetPlacementKnown reports whether a service with no target in s truly
 // runs nowhere: no source that reports operational targets (Kubernetes, the
-// Evidence Server or a target state file) is unavailable or partial.
+// Evidence Server, a target state file or a target snapshot) is unavailable or
+// partial.
 func targetPlacementKnown(s *FleetSnapshot) bool {
 	id, _ := firstIncompleteTargetSource(s)
 	return id == ""
@@ -671,7 +672,7 @@ func hasTargetSource(s *FleetSnapshot) bool {
 }
 
 // targetSourceKinds are the source kinds that report operational targets.
-var targetSourceKinds = []string{SourceKindKubernetes, SourceKindEvidenceHTTP, SourceKindTargetState}
+var targetSourceKinds = []string{SourceKindKubernetes, SourceKindEvidenceHTTP, SourceKindTargetState, SourceKindTargetSnapshot}
 
 // firstIncompleteTargetSource is the first source reporting operational
 // targets that is not available, and its status; "" when there is none.

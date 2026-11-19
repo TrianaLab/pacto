@@ -76,6 +76,9 @@ func addFleetSourceFlags(f *pflag.FlagSet) {
 	shared.String("external-catalog", "", "organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused")
 	shared.String("detected", "", "add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON")
 	shared.String("fingerprints", "", "a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers")
+	shared.StringArray("target-snapshot", nil, "signed target snapshot(s) to read targets from: an oci:// pacto-targets repository, or :cluster-<uid> tags or digests "+
+		"to pin the clusters CI expects (repeatable); pacto impact also takes auto (the default: derived from the provider ref) and off")
+	shared.String("delivery-trust", "", "the trust config target snapshots are verified with: a YAML file with a key scoped to each cluster (default $"+app.TrustEnv+")")
 	f.AddFlagSet(shared)
 }
 
@@ -86,6 +89,7 @@ func fleetFlagNames() []string {
 	return []string{
 		"local", "root", "target-state", "evidence-url", "mira-source", "traces", "oci",
 		"cache", "k8s", "namespace", "freshness", "external-catalog", "detected", "fingerprints",
+		"target-snapshot", "delivery-trust",
 	}
 }
 
@@ -189,6 +193,7 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 	externalCatalog, _ := cmd.Flags().GetString("external-catalog")
 	detected, _ := cmd.Flags().GetString("detected")
 	fingerprints, _ := cmd.Flags().GetString("fingerprints")
+	snapshots, _ := cmd.Flags().GetStringArray("target-snapshot")
 	prov := app.NewProvenanceChecker()
 	prov.Trust = publisherTrust(cmd, fleetDeps())
 	return app.FleetOptions{
@@ -206,10 +211,26 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 		ExternalCatalogRef: externalCatalog,
 		Detected:           detected,
 		Fingerprints:       fingerprints,
-		Provenance:         prov,
-		RegistryProbe:      app.NewRegistryProbe(),
-		Now:                fleetNow,
+		TargetSnapshot:     targetSnapshotRefs(snapshots),
+		// --trust where a command declares it (pacto delivery), else --delivery-trust.
+		TargetSnapshotTrustFile: trustPath(cmd),
+		Provenance:              prov,
+		RegistryProbe:           app.NewRegistryProbe(),
+		Now:                     fleetNow,
 	}
+}
+
+// targetSnapshotRefs drops auto and off from the --target-snapshot values:
+// pacto impact derives the snapshot itself, and every other command reads one
+// only when given a ref.
+func targetSnapshotRefs(values []string) []string {
+	var out []string
+	for _, v := range values {
+		if v != "auto" && v != "off" && v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // flagNamespaces is the --namespace list of cmd; empty when unset or

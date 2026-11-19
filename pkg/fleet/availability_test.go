@@ -732,3 +732,12 @@ func TestAgeClampsNegative(t *testing.T) {
 		t.Errorf("Age(-2m) = %q", got)
 	}
 }
+
+// TestTargetSnapshotKindIsTargetSource: an unavailable target snapshot is an
+// incomplete target source, so a missing target proves nothing.
+func TestTargetSnapshotKindIsTargetSource(t *testing.T) {
+	s := &FleetSnapshot{Sources: []SourceState{{ID: "targets-c1", Kind: SourceKindTargetSnapshot, Status: SourceUnavailable}}}
+	if targetPlacementKnown(s) || !hasTargetSource(s) {
+		t.Fatal("an unavailable target snapshot left target placement known")
+	}
+}

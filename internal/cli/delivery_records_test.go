@@ -135,7 +135,7 @@ func TestDeliveryRecordVerbs(t *testing.T) {
 		{"text", []string{"record", "verify", "--all"}, true, []string{"needs a trust config"}},
 		{"text", []string{"record", "verify", "-n", "prod"}, true, []string{"name one Stage"}},
 	})
-	t.Setenv(trustEnv, trust)
+	t.Setenv(app.TrustEnv, trust)
 	checkDeliveryRuns(t, d, []deliveryRun{{"text", append([]string{"history"}, stage...), false, []string{"from records, complete"}}})
 	bad := filepath.Join(t.TempDir(), "bad.yaml")
 	_ = os.WriteFile(bad, []byte("keys: ["), 0o600)

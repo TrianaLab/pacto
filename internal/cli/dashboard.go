@@ -234,7 +234,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 		"a public repository is read anonymously, otherwise with the dashboard's registry credentials")
 	cmd.Flags().String("delivery-namespace", delivery.PolicyNamespace, "namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer")
 	cmd.Flags().String("delivery-trust", "", "the trust config delivery records are verified with, so History reads signed records "+
-		"(the recorder's PEM public key or a YAML trust config; default $"+trustEnv+")")
+		"(the recorder's PEM public key or a YAML trust config; default $"+app.TrustEnv+")")
 
 	// Bind to viper so flags can be overridden via PACTO_DASHBOARD_* env vars.
 	_ = v.BindPFlag("dashboard.host", cmd.Flags().Lookup("host"))

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"maps"
-	"os"
 	"slices"
 	"strings"
 	"text/tabwriter"
@@ -42,31 +41,6 @@ func newRecordRepo(path string, hosts ...string) (*remote.Repository, error) {
 		Insecure: append(oci.EnvInsecureRegistries(), hosts...)})
 }
 
-// trustEnv names the trust config file when no flag does.
-const trustEnv = "PACTO_DELIVERY_TRUST"
-
-// deliveryTrust reads the trust config delivery records are verified with:
-// the file the flag names, or $PACTO_DELIVERY_TRUST. None is nil: records are
-// read unverified, and every answer says so.
-func deliveryTrust(path string) (*delivery.TrustConfig, error) {
-	path = cmp.Or(path, os.Getenv(trustEnv))
-	if path == "" {
-		return nil, nil
-	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("reading the delivery trust config: %w", err)
-	}
-	t, err := delivery.ParseTrust(raw)
-	if err == nil {
-		_, err = signing.TrustVerifier(t)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
-	}
-	return &t, nil
-}
-
 func newDeliveryCommand(v *viper.Viper, d deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "delivery",
@@ -80,7 +54,7 @@ func newDeliveryCommand(v *viper.Viper, d deps) *cobra.Command {
 	cmd.PersistentFlags().StringP("namespace", "n", "default", "namespace of the Stage and its Operations")
 	cmd.PersistentFlags().String("delivery-namespace", delivery.PolicyNamespace, "namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer")
 	cmd.PersistentFlags().String("trust", "", "the trust config delivery records are verified with: the recorder's PEM public key, "+
-		"or a YAML file of keys and the streams each may sign (default $"+trustEnv+")")
+		"or a YAML file of keys and the streams each may sign (default $"+app.TrustEnv+")")
 	cmd.AddCommand(
 		newDeliveryTypesCommand(v),
 		newDeliveryDescribeCommand(v),
@@ -125,7 +99,7 @@ func trustPath(cmd *cobra.Command) string {
 func deliveryClientFor(cmd *cobra.Command, d deps, dyn dynamic.Interface) (*app.Delivery, string, error) {
 	ns, _ := cmd.Flags().GetString("namespace")
 	policyNS, _ := cmd.Flags().GetString("delivery-namespace")
-	trust, err := deliveryTrust(trustPath(cmd))
+	trust, err := app.DeliveryTrust(trustPath(cmd))
 	if err != nil {
 		return nil, "", err
 	}

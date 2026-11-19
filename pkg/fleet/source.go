@@ -35,6 +35,11 @@ const (
 	SourceKindTargetState  = "target-state"
 )
 
+// SourceKindTargetSnapshot is the Kind of a source reading a signed snapshot
+// of a cluster's Pactos from a registry (<registry>/pacto-targets). It reports
+// targets.
+const SourceKindTargetSnapshot = "target-snapshot"
+
 // SourceKindMira is the Kind of a source reading the service map of a Mira
 // trace store. It labels the source only; pkg/fleet never branches on it.
 const SourceKindMira = "mira"

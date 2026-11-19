@@ -17,6 +17,7 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
 
+	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/internal/authn"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
@@ -52,7 +53,7 @@ var errOpenNeedsAllowAnonymous = errors.New("serving beyond loopback without sig
 // a loopback bind without either, and open (no delivery) anywhere else, only
 // with --allow-anonymous.
 func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, d deps) (*dashboardIdentity, error) {
-	trust, err := deliveryTrust(v.GetString("dashboard.delivery-trust"))
+	trust, err := app.DeliveryTrust(v.GetString("dashboard.delivery-trust"))
 	if err != nil {
 		return nil, err
 	}

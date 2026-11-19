@@ -152,7 +152,7 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 	cmd.Flags().Bool("publish", false, "expose pacto_publish_plan and pacto_publish beside the authoring tools")
 	cmd.Flags().String("delivery-namespace", delivery.PolicyNamespace, "in --delivery mode: "+"namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer")
 	cmd.Flags().String("delivery-trust", "", "the trust config delivery records (in --delivery mode) and the golden paths pacto_create creates from are verified with "+
-		"(the recorder's PEM public key or a YAML trust config; default $"+trustEnv+")")
+		"(the recorder's PEM public key or a YAML trust config; default $"+app.TrustEnv+")")
 	// Declared before the shared set so this spelling wins: here --root selects a
 	// catalog to discover, not a closure to fold into a snapshot.
 	cmd.Flags().StringArray("root", nil, "contract root to discover a read-only catalog from: a local bundle path or an oci:// reference (repeatable)")
@@ -231,6 +231,9 @@ func stdioReached(cmd *cobra.Command, d deps, transport string) pactomcp.Reached
 // cannot abort the build other sessions wait on.
 func buildFleetMode(cmd *cobra.Command, svc *app.Service, d deps) (*pactomcp.FleetMode, error) {
 	fopts := mcpFleetOptions(cmd)
+	if transport, _ := cmd.Flags().GetString("transport"); transport != "stdio" && len(fopts.TargetSnapshot) > 0 {
+		return nil, errMCPTargetSnapshotHTTP
+	}
 	src, err := mcpFleetSource(cmd.Context(), func(ctx context.Context) (*fleet.FleetSnapshot, error) {
 		return svc.Fleet(ctx, fopts)
 	}, fleetRefreshInterval, time.Now)
@@ -250,6 +253,11 @@ func buildFleetMode(cmd *cobra.Command, svc *app.Service, d deps) (*pactomcp.Fle
 		Stats:   mcpStatsProvider(cmd, svc, transport == "stdio"),
 	}}, nil
 }
+
+// errMCPTargetSnapshotHTTP refuses --target-snapshot on a server that answers
+// over HTTP: restriction reviews a viewer in this cluster only.
+var errMCPTargetSnapshotHTTP = errors.New("this server answers over HTTP, and reading another cluster's snapshot for a signed-in viewer " +
+	"needs a review in that cluster; serve target snapshots over stdio")
 
 // mcpFleetOptions is fleetOptions for the fleet server. Over HTTP every caller
 // reads the snapshot as this process, so the server scans the working
@@ -436,7 +444,7 @@ func mcpCatalog(cmd *cobra.Command, svc *app.Service) (*externalcatalog.Catalog,
 // read on each call, so a broken one fails that call and not the server.
 func mcpInit(svc *app.Service, trustPath string) pactomcp.Initializer {
 	return func(ctx context.Context, opts app.InitOptions, req pactomcp.FromRequest) (*app.InitResult, error) {
-		trust, err := deliveryTrust(trustPath)
+		trust, err := app.DeliveryTrust(trustPath)
 		if err != nil {
 			return nil, err
 		}

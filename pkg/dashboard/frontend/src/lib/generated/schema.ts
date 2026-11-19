@@ -4522,6 +4522,8 @@ export interface components {
         "Fleet.SourceState": {
             /** @description An advisory source never makes the answer partial; its rows are hints. */
             advisory?: boolean;
+            /** @description The cluster the source describes */
+            cluster?: components["schemas"]["Fleet.Cluster"];
             error?: components["schemas"]["Fleet.SourceError"];
             id: string;
             /**
@@ -4541,8 +4543,12 @@ export interface components {
             namespacesTotal?: number;
             /** Format: date-time */
             observedAt?: string;
+            /** @description The pinned reference the source read, such as a target snapshot's repository@digest */
+            ref?: string;
             /** Format: int64 */
             revisionCount: number;
+            /** @description The trust entry that verified what the source read (its name, or key:<fingerprint>), never a name the signed payload claims; empty means unverified */
+            signer?: string;
             /** @enum {string} */
             status: "available" | "partial" | "stale" | "unavailable";
             /** Format: int64 */

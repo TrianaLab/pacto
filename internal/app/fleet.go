@@ -97,6 +97,13 @@ type FleetOptions struct {
 	// DisallowPartial makes a single source failure fatal instead of yielding a
 	// partial snapshot with explicit limitations.
 	DisallowPartial bool
+	// TargetSnapshot is one oci:// ref of a pacto-targets repository, whose
+	// every cluster snapshot is read, or one or more pinned cluster-<uid> tags
+	// or digests; empty reads none.
+	TargetSnapshot []string
+	// TargetSnapshotTrustFile is the delivery trust config the snapshots are
+	// verified with; empty reads $PACTO_DELIVERY_TRUST.
+	TargetSnapshotTrustFile string
 	// Now overrides the build clock (freshness classification); defaults to
 	// time.Now. Injected in tests for deterministic staleness.
 	Now func() time.Time
@@ -131,6 +138,7 @@ func (o FleetOptions) ConsumerSources() []string {
 	add("--evidence-url", o.EvidenceURLs...)
 	add("--mira-source", o.MiraURLs...)
 	add("--target-state", o.TargetStateFiles...)
+	add("--target-snapshot", o.TargetSnapshot...)
 	for _, spec := range o.ObservationSources {
 		add("--traces", spec.Path)
 	}
@@ -201,6 +209,13 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 		}
 	}
 	sources = append(sources, s.detectionSources(opts.Detected)...)
+	if len(opts.TargetSnapshot) > 0 {
+		snaps, err := s.targetSnapshotSources(ctx, opts)
+		if err != nil {
+			return nil, err
+		}
+		sources = append(sources, snaps...)
+	}
 	sources = append(sources, opts.extraSources...)
 	if err := checkSourceIDsAreUnique(sources); err != nil {
 		return nil, err

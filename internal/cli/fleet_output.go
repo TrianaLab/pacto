@@ -329,9 +329,20 @@ func printFleetStatus(cmd *cobra.Command, res *fleet.StatusResult, format string
 			_, _ = fmt.Fprintf(w, "  [%s] %s %s — %s\n", it.Code, it.Kind, it.Name, it.Reason)
 		}
 		printDetected(w, res.Providers, res.Meta.Sources)
+		printPinnedSources(w, res.Meta.Sources, res.Meta.Limitations)
 		warnPartial(cmd, res.Meta)
 		return nil
 	}, nil)
+}
+
+// printPinnedSources prints one line per source that read a pinned ref (a
+// target snapshot): its status, the ref and who signed it.
+func printPinnedSources(w io.Writer, sources []fleet.SourceState, lims []fleet.Limitation) {
+	for _, s := range sources {
+		if s.Ref != "" {
+			_, _ = fmt.Fprintf(w, "Source %s (%s): %s%s\n", s.ID, s.Kind, s.Status, sourceRef(s, lims))
+		}
+	}
 }
 
 // printDetected prints the inferred provider rows, what the operator
@@ -409,7 +420,7 @@ func printFleetSnapshot(cmd *cobra.Command, snap *fleet.FleetSnapshot, format st
 			len(snap.Services), len(snap.Revisions), len(snap.Targets), len(snap.Relationships))
 		_, _ = fmt.Fprintf(w, "Sources (%d):\n", len(snap.Sources))
 		for _, s := range snap.Sources {
-			_, _ = fmt.Fprintf(w, "  %s (%s): %s revs=%d targets=%d\n", s.ID, s.Kind, s.Status, s.RevisionCount, s.TargetCount)
+			_, _ = fmt.Fprintf(w, "  %s (%s): %s revs=%d targets=%d%s\n", s.ID, s.Kind, s.Status, s.RevisionCount, s.TargetCount, sourceRef(s, snap.Limitations))
 		}
 		// The snapshot carries its completeness inline rather than as a fleet.Meta,
 		// so wrap it to reuse the shared partial-answer warning: every other fleet
@@ -422,6 +433,23 @@ func printFleetSnapshot(cmd *cobra.Command, snap *fleet.FleetSnapshot, format st
 		})
 		return nil
 	}, nil)
+}
+
+// sourceRef says what a source with a pinned ref read and who signed it:
+// ", ref <ref>, signed by <signer>", with "(not scoped to this cluster)" when
+// the key is not scoped to it, or ", ref <ref>, unverified"; empty with no ref.
+func sourceRef(s fleet.SourceState, lims []fleet.Limitation) string {
+	switch {
+	case s.Ref == "":
+		return ""
+	case s.Signer == "":
+		return ", ref " + s.Ref + ", unverified"
+	case slices.ContainsFunc(lims, func(l fleet.Limitation) bool {
+		return l.Source == s.ID && l.Code == fleet.LimitationTargetSnapshotUnscoped
+	}):
+		return ", ref " + s.Ref + ", signed by " + s.Signer + " (not scoped to this cluster)"
+	}
+	return ", ref " + s.Ref + ", signed by " + s.Signer
 }
 
 // orDash returns "-" for an empty string so tabular text output stays aligned.
