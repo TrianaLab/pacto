@@ -60,13 +60,18 @@ func mapKey(n *yaml.Node, key string) *yaml.Node {
 
 // dropRemoved deletes the top-level delivery section, which left pactoVersion
 // 2.5 before its release and which Parse refuses at every version, and says
-// so. A section it cannot cut by lines stays, and Parse then names it.
-func dropRemoved(raw []byte) ([]byte, []string) {
+// so. A section it cannot cut by lines (flow style) is refused (false): the
+// file is kept for a person to edit.
+func dropRemoved(raw []byte) ([]byte, []string, bool) {
 	root := rootMapping(raw)
-	if out, ok := deleteKeyLines(raw, root, mapKey(root, "delivery")); ok {
-		return out, []string{"removed delivery (it left pactoVersion 2.5 before its release; the Stage's spec.applyRef names the applier)"}
+	key := mapKey(root, "delivery")
+	if key == nil {
+		return raw, nil, true
 	}
-	return raw, nil
+	if out, ok := deleteKeyLines(raw, root, key); ok {
+		return out, []string{"removed delivery (it left pactoVersion 2.5 before its release; the Stage's spec.applyRef names the applier)"}, true
+	}
+	return raw, nil, false
 }
 
 // dropDetectedBuilds deletes each publish.artifacts[].build of raw that

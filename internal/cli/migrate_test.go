@@ -64,6 +64,16 @@ func TestMigrateCommandExitCodes(t *testing.T) {
 }
 
 // A file that cannot be read prints every line and exits 1, in text and JSON.
+func TestMigrateCommandPrintsOneLinePerFile(t *testing.T) {
+	// yaml.v3 reports each unknown field on its own line; the row stays one.
+	dir := writeFiles(t, map[string]string{"k/pacto.yaml": "pactoVersion: \"2.3\"\nbogus: 1\nother: 2\n"})
+	out, err := runMigrate(t, dir)
+	lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
+	if err != nil || len(lines) != 2 || !strings.Contains(lines[0], "unmarshal errors: line 2: field bogus") {
+		t.Fatalf("%v\n%s", err, out)
+	}
+}
+
 func TestMigrateCommandExitsOneOnUnreadable(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root ignores file permissions")

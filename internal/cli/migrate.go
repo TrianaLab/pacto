@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -47,12 +48,13 @@ Exits 1 only when a file cannot be read or written, or --to names an unsupported
 }
 
 // printMigrateResult prints one line per file, skipped folder and root with
-// no pacto.yaml, padded to the longest path, then the summary.
+// no pacto.yaml, padded to the longest path, then the summary. A message that
+// spans lines (a YAML parse error) is folded onto one.
 func printMigrateResult(cmd *cobra.Command, r *app.MigrateResult) {
 	type line struct{ path, msg string }
 	var lines []line
 	for _, f := range r.Files {
-		lines = append(lines, line{f.Path, f.Message})
+		lines = append(lines, line{f.Path, strings.Join(strings.Fields(f.Message), " ")})
 	}
 	for _, s := range r.SkippedDirs {
 		lines = append(lines, line{s.Path, "skipped (from " + s.Rule + ")"})

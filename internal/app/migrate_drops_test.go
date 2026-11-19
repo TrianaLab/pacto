@@ -57,10 +57,11 @@ func TestMigrateDropsDeliveryAndRaises(t *testing.T) {
 }
 
 func TestMigrateDropsNothingItCannotCut(t *testing.T) {
-	// A key that shares its line with another entry is edited by hand.
+	// A key that shares its line with another entry is edited by hand; the
+	// row says so instead of reading as current or pointing back at migrate.
 	orig := "{pactoVersion: \"" + contract.Current() + "\", service: {name: s, version: 1.0.0}, delivery: {applier: argocd}}\n"
 	f, got := migrateOne(t, map[string]string{"pacto.yaml": orig}, MigrateOptions{})
-	if f.Status != MigrateCurrent || got != orig {
+	if f.Status != MigrateKept || f.Message != "kept: delivery is written in flow style; delete it by hand" || got != orig {
 		t.Fatalf("%+v\n%q", f, got)
 	}
 }

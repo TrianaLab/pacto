@@ -116,7 +116,7 @@ func validateArtifactBuild(version, path string, a contract.PublishArtifact, res
 		result.AddError(path+".build.dockerfile", "PUBLISH_DOCKERFILE_NOT_IMAGE", fmt.Sprintf("%s is a %s; the dockerfile builder builds images only, use command", a.Name, a.Type))
 	}
 	if !olderThan(version, "2.5") && (a.Build.Dockerfile != nil || len(a.Build.Command) > 0) {
-		result.AddWarning(path+".build", "PUBLISH_BUILD_DEPRECATED", "deprecated in 2.5: pacto ci --publish detects the build; remove build when detection gives the same result (pacto migrate does it, #552)")
+		result.AddWarning(path+".build", "PUBLISH_BUILD_DEPRECATED", "deprecated in 2.5: pacto ci --publish detects the build; run pacto migrate to remove build when detection gives the same result")
 	}
 }
 

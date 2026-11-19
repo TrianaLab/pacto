@@ -103,8 +103,8 @@ func (r *MigrateResult) Summary() string {
 
 // Migrate raises every pacto.yaml under opts.Roots to opts.To through
 // contract.Upgrade, which raises a file only when validation finds nothing
-// new, and writes each raised file atomically. It walks with discover.Walk,
-// the walker the local fleet source uses. It returns an error only for an
+// new, and writes each raised file atomically. It walks with the walker the
+// local fleet source uses. It returns an error only for an
 // unsupported target or a cancelled context; a file that cannot be read or
 // written is a failed row.
 func (s *Service) Migrate(ctx context.Context, opts MigrateOptions) (*MigrateResult, error) {
@@ -166,17 +166,11 @@ func failedRow(path, what string, err error) MigratedFile {
 
 // migrateFile raises dir's pacto.yaml, shown as shown, to to and writes it
 // unless dryRun. Anything Upgrade cannot vouch for leaves the file as it is.
-//
-// ponytail: a pacto.yaml that is a FIFO would block the read; no repository has one.
 func (s *Service) migrateFile(ctx context.Context, dir, shown, to string, dryRun bool) MigratedFile {
 	path := filepath.Join(dir, DefaultContractPath)
-	fi, err := os.Lstat(path)
-	var raw []byte
-	if err == nil {
-		raw, err = os.ReadFile(path)
-	}
-	if err != nil {
-		return failedRow(shown, "cannot read", err)
+	fi, raw, stop := readContract(path, shown)
+	if stop != nil {
+		return *stop
 	}
 	m, err := ignore.Load(os.DirFS(dir))
 	if err != nil {
@@ -186,7 +180,10 @@ func (s *Service) migrateFile(ctx context.Context, dir, shown, to string, dryRun
 	if s.BundleStore != nil {
 		resolver = s.PolicyResolver(dir)
 	}
-	dropped, notes := dropRemoved(raw)
+	dropped, notes, ok := dropRemoved(raw)
+	if !ok {
+		return MigratedFile{Path: shown, Status: MigrateKept, Message: "kept: delivery is written in flow style; delete it by hand"}
+	}
 	check := validation.UpgradeCheck(ctx, ignore.FS(os.DirFS(dir), m), resolver, s.env().now())
 	// The raise is judged on what migrate writes: the raised document without
 	// the builds detection reproduces, so their deprecation adds no finding.
@@ -215,6 +212,25 @@ func (s *Service) migrateFile(ctx context.Context, dir, shown, to string, dryRun
 		}
 	}
 	return row
+}
+
+// readContract reads the pacto.yaml at path, shown as shown, or returns the
+// row that says why it was not read: a failed read, or a kept file that is
+// neither regular nor a symbolic link (a FIFO would block the read).
+func readContract(path, shown string) (fs.FileInfo, []byte, *MigratedFile) {
+	fi, err := os.Lstat(path)
+	if err == nil && !fi.Mode().IsRegular() && fi.Mode()&fs.ModeSymlink == 0 {
+		return nil, nil, &MigratedFile{Path: shown, Status: MigrateKept, Message: "kept: pacto.yaml is not a regular file; edit it by hand"}
+	}
+	var raw []byte
+	if err == nil {
+		raw, err = os.ReadFile(path)
+	}
+	if err != nil {
+		f := failedRow(shown, "cannot read", err)
+		return nil, nil, &f
+	}
+	return fi, raw, nil
 }
 
 // upgradeRow is row with the status and message Upgrade's result up and its
