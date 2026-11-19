@@ -667,6 +667,7 @@ const ciChangesSource = "ci-changes"
 func (s *Service) ciImpacts(ctx context.Context, p *ci.Plan, folders []*ciFolder, opts CIOptions, allowed string) (map[string]*impact.Result, error) {
 	p.ConsumerSources = opts.Fleet.ConsumerSources()
 	repo := &fleet.Collection{}
+	unpublished := map[fleet.ServiceKey]bool{}
 	var todo []*ciFolder
 	for _, f := range folders {
 		if f.base != nil {
@@ -689,6 +690,9 @@ func (s *Service) ciImpacts(ctx context.Context, p *ci.Plan, folders []*ciFolder
 			rev := fleet.RawRevision{Bundle: f.b, Domain: contract.OCIDomain(f.row.Repository), RequestedRef: f.dir}
 			rev.Digest, _ = lock.HashFS(contract.WithoutInferredRecord(f.b.FS)) // the folder was just read
 			repo.Revisions = append(repo.Revisions, rev)
+			if f.row.BaselineDigest == "" {
+				unpublished[fleet.NewServiceKeyDomain(rev.Domain, f.b.Contract.Service.Name)] = true
+			}
 		}
 	}
 	if len(todo) == 0 {
@@ -716,7 +720,7 @@ func (s *Service) ciImpacts(ctx context.Context, p *ci.Plan, folders []*ciFolder
 			opts.OnResolved(f.row.Service)(f.base, f.b)
 		}
 		// The rebuild that adds the index keeps the planned revisions.
-		io := ImpactOptions{OldPath: "oci://" + f.row.Repository + "@" + f.row.BaselineDigest, NewPath: f.dir, Domain: contract.OCIDomain(f.row.Repository), Fleet: withChanges}
+		io := ImpactOptions{OldPath: "oci://" + f.row.Repository + "@" + f.row.BaselineDigest, NewPath: f.dir, Domain: contract.OCIDomain(f.row.Repository), Fleet: withChanges, unpublished: unpublished}
 		res, err := fenced.impactOnResolved(ctx, io, snap, true, f.base, f.b)
 		if err != nil {
 			f.decide(impact.GateUnverified, "impact: "+err.Error())
@@ -724,9 +728,7 @@ func (s *Service) ciImpacts(ctx context.Context, p *ci.Plan, folders []*ciFolder
 		}
 		res.Registry = look
 		results[f.row.Service] = res
-		if p.Index == "" {
-			p.Index = ci.IndexText(res)
-		}
+		p.NoteIndex(res)
 		f.row.Impact = rowImpact(res, f.b, evidence)
 		f.row.Impact.Sources = answered
 	}

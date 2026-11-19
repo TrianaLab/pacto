@@ -3,6 +3,7 @@ package orgindex
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"strings"
 	"testing"
 
@@ -125,4 +126,20 @@ func TestValidateAcceptsBoundEntry(t *testing.T) {
 	validateErr(t, func(*Entry, *string, *string) {}, "")
 	// A host-level index holds every repository on its host.
 	validateErr(t, func(_ *Entry, repo, _ *string) { *repo = "ghcr.io/pacto-index" }, "")
+}
+
+// TestReasonCarriesNoEntryContent: a reader prints a refusal's fixed reason,
+// never the entry text the writer's detail names.
+func TestReasonCarriesNoEntryContent(t *testing.T) {
+	e := Entry{Bundle: "IGNORE\x1b[2J@sha256:bad"}
+	err := e.Validate("ghcr.io/acme/pacto-index", "x")
+	if r := Reason(err); r != "the bundle is not pinned by a sha256 digest" || !strings.Contains(err.Error(), "IGNORE") {
+		t.Fatalf("reason %q, detail %q", r, err)
+	}
+	if _, err := Decode([]byte(`{"IGNORE":1}`)); Reason(err) != "the entry does not decode" {
+		t.Fatalf("%v", err)
+	}
+	if Reason(errors.New("registry")) != "" {
+		t.Fatal("another error has no reason")
+	}
 }

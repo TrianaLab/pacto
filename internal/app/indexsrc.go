@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -53,8 +54,12 @@ type indexSource struct {
 	once       sync.Once
 	coll       *fleet.Collection
 	summary    impact.ConsumerIndex
-	// listed holds the prefixes of valid, confirmed entries.
+	// listed holds the prefixes of valid, confirmed entries bound to their
+	// service's name.
 	listed map[string]bool
+	// unread holds the prefixes the listing names that a bound or the
+	// timeout kept from being read: the index may well hold them.
+	unread map[string]bool
 }
 
 // ID implements [fleet.Source].
@@ -74,16 +79,21 @@ func (s *indexSource) collect(ctx context.Context) *fleet.Collection {
 	ctx, cancel := context.WithTimeout(ctx, indexReadTimeout)
 	defer cancel()
 	rd := s.svc.indexRead(ctx, s.candidates)
-	roots := s.selectRoots(rd.entries)
+	s.unread = rd.unread
+	roots, pending := s.selectRoots(rd.entries)
 	coll := s.closure(ctx, roots)
+	s.confirmNames(coll, pending)
 	coll.Limitations = append(slices.Clone(rd.lims), coll.Limitations...)
 	s.summary = impact.ConsumerIndex{Repository: rd.repo, Status: rd.status, Services: rd.services,
 		Consumers: len(roots), Completeness: fleet.CompletenessComplete, Reason: rd.note}
+	// The read's own time, so a memoized read never reads as fresh.
+	at := rd.at
+	coll.State = &fleet.SourceState{Status: fleet.SourceAvailable, ObservedAt: &at, LastSuccessfulSync: &at}
 	switch {
 	case rd.unavailable:
-		coll.State = &fleet.SourceState{Status: fleet.SourceUnavailable}
+		coll.State = &fleet.SourceState{Status: fleet.SourceUnavailable, ObservedAt: &at}
 	case len(coll.Limitations) > 0:
-		coll.State = &fleet.SourceState{Status: fleet.SourcePartial}
+		coll.State.Status = fleet.SourcePartial
 	}
 	if len(coll.Limitations) > 0 {
 		s.summary.Completeness = fleet.CompletenessPartial
@@ -92,17 +102,46 @@ func (s *indexSource) collect(ctx context.Context) *fleet.Collection {
 }
 
 // selectRoots records which services the index lists and returns the
-// bundles of those that depend on the provider.
-func (s *indexSource) selectRoots(entries []orgindex.Entry) []string {
+// bundles of those that depend on the provider. An entry's name is the
+// writer's claim: it counts as listed when its bundle repository ends in
+// that name, and a selected entry whose repository does not is pending until
+// its pulled bundle shows the name (confirmNames), so an entry pointing at
+// another service's bundle never speaks for the service it names.
+//
+// ponytail: an unselected entry whose repository does not end in its name
+// is never listed, so a consumer of that name the fleet holds reads
+// CONSUMER_NOT_INDEXED (partial, never positive); pull its bundle too if
+// such repositories turn out common.
+func (s *indexSource) selectRoots(entries []orgindex.Entry) (roots []string, pending map[string]orgindex.Entry) {
 	s.listed = map[string]bool{}
-	var roots []string
+	pending = map[string]orgindex.Entry{}
 	for _, e := range entries {
-		s.listed[orgindex.Prefix(fleet.ServiceKey(e.Service))] = true
+		repo, _ := contract.SplitOCIDigest(e.Bundle)
+		named := contract.DependencyName(repo) == e.Name
+		if named {
+			s.listed[orgindex.Prefix(fleet.ServiceKey(e.Service))] = true
+		}
 		if e.Names(s.provider) {
-			roots = append(roots, contract.OCIScheme+e.Bundle)
+			root := contract.OCIScheme + e.Bundle
+			roots = append(roots, root)
+			if !named {
+				pending[root] = e
+			}
 		}
 	}
-	return roots
+	return roots, pending
+}
+
+// confirmNames lists each pending entry whose pulled root bundle is the
+// service the entry names.
+func (s *indexSource) confirmNames(coll *fleet.Collection, pending map[string]orgindex.Entry) {
+	for _, r := range coll.Revisions {
+		e, ok := pending[r.RequestedRef]
+		if ok && r.Bundle != nil && r.Bundle.Contract != nil &&
+			string(fleet.NewServiceKeyDomain(r.Domain, r.Bundle.Contract.Service.Name)) == e.Service {
+			s.listed[orgindex.Prefix(fleet.ServiceKey(e.Service))] = true
+		}
+	}
 }
 
 // closure is the selected bundles and their dependency closure, bounded by
@@ -136,8 +175,13 @@ func (s *indexSource) result(skipped impact.ConsumerIndex) (*impact.ConsumerInde
 	return &sum, s.indexed
 }
 
-// indexed reports whether the index lists k.
-func (s *indexSource) indexed(k fleet.ServiceKey) bool { return s.listed[orgindex.Prefix(k)] }
+// indexed reports whether the index lists k, or may: a prefix the listing
+// names but a bound or the timeout kept from being read is never reported
+// missing.
+func (s *indexSource) indexed(k fleet.ServiceKey) bool {
+	p := orgindex.Prefix(k)
+	return s.listed[p] || s.unread[p]
+}
 
 // indexRead is one index read before selection: what every changed service
 // selects its consumers from.
@@ -148,7 +192,9 @@ type indexRead struct {
 	status   string
 	services int
 	// entries are the valid, confirmed newest entries, one per service.
-	entries     []orgindex.Entry
+	entries []orgindex.Entry
+	// unread are the listed prefixes a bound or the timeout kept unread.
+	unread      map[string]bool
 	lims        []fleet.Limitation
 	unavailable bool
 }
@@ -178,8 +224,8 @@ func (s *Service) indexRead(ctx context.Context, candidates []string) *indexRead
 		return rd
 	}
 	rd = s.readIndex(ctx, candidates)
+	rd.at = now
 	if rd.status == impact.IndexRead && ctx.Err() == nil {
-		rd.at = now
 		m.mu.Lock()
 		if m.reads == nil {
 			m.reads = map[string]*indexRead{}
@@ -214,17 +260,21 @@ func (s *Service) readIndex(ctx context.Context, candidates []string) *indexRead
 	if ignored > 0 {
 		rd.note = strings.TrimSpace(rd.note + " " + strconv.Itoa(ignored) + " tags outside the entry scheme ignored")
 	}
-	rd.entries, rd.lims = s.readEntries(ctx, repo, newest)
+	rd.entries, rd.unread, rd.lims = s.readEntries(ctx, repo, newest)
 	return rd
 }
 
 // readEntries reads and confirms the newest entry of at most
-// indexMaxServices services, Workers at a time.
-func (s *Service) readEntries(ctx context.Context, repo string, newest map[string]string) ([]orgindex.Entry, []fleet.Limitation) {
+// indexMaxServices services, Workers at a time. unread are the listed
+// prefixes the service bound or the timeout kept from being read.
+func (s *Service) readEntries(ctx context.Context, repo string, newest map[string]string) (valid []orgindex.Entry, unread map[string]bool, lims []fleet.Limitation) {
 	prefixes := slices.Sorted(maps.Keys(newest))
-	var lims []fleet.Limitation
+	unread = map[string]bool{}
 	if len(prefixes) > indexMaxServices {
 		lims = indexLim(orgindex.LimitationTruncated, fmt.Sprintf("the index lists %d services; only the first %d were read", len(prefixes), indexMaxServices))
+		for _, p := range prefixes[indexMaxServices:] {
+			unread[p] = true
+		}
 		prefixes = prefixes[:indexMaxServices]
 	}
 	// indexRepository just listed repo, so it opens.
@@ -245,22 +295,54 @@ func (s *Service) readEntries(ctx context.Context, repo string, newest map[strin
 	}
 	_ = g.Wait() // every goroutine returns nil
 	if ctx.Err() != nil {
-		return nil, append(lims, indexLim(orgindex.LimitationTruncated, "the index read passed its "+indexReadTimeout.String()+" timeout; no entry was used")...)
+		for _, p := range prefixes {
+			unread[p] = true
+		}
+		return nil, unread, append(lims, indexLim(orgindex.LimitationTruncated, "the index read passed its "+indexReadTimeout.String()+" timeout; no entry was used")...)
 	}
-	var valid []orgindex.Entry
 	var invalid []string
 	for i, err := range errs {
 		if err != nil {
-			invalid = append(invalid, redactDigests(err.Error()))
+			invalid = append(invalid, newest[prefixes[i]]+": "+entryReason(err))
 			continue
 		}
 		valid = append(valid, entries[i])
 	}
-	if len(invalid) > 0 {
-		lims = append(lims, indexLim(orgindex.LimitationEntryInvalid, fmt.Sprintf("%d index entries not used: %s",
-			len(invalid), strings.Join(invalid, "; ")))...)
+	if n := len(invalid); n > 0 {
+		more := ""
+		if n > maxInvalidReasons {
+			invalid, more = invalid[:maxInvalidReasons], fmt.Sprintf(" (and %d more)", n-maxInvalidReasons)
+		}
+		lims = append(lims, indexLim(orgindex.LimitationEntryInvalid, fmt.Sprintf("%d index entries not used: %s%s",
+			n, strings.Join(invalid, "; "), more))...)
 	}
-	return valid, lims
+	return valid, unread, lims
+}
+
+// maxInvalidReasons bounds how many refused entries a limitation names.
+const maxInvalidReasons = 10
+
+// maxReasonLen bounds the text of one refused entry.
+const maxReasonLen = 200
+
+// entryReason is why an entry was refused, with no entry content: a Validate
+// or Decode refusal is its fixed reason, and registry error text loses its
+// digests and non-printing characters and is cut to maxReasonLen, so a
+// forged entry can neither flood an answer nor steer the agent reading it.
+func entryReason(err error) string {
+	if r := orgindex.Reason(err); r != "" {
+		return r
+	}
+	msg := strings.Map(func(r rune) rune {
+		if !unicode.IsPrint(r) {
+			return -1
+		}
+		return r
+	}, redactDigests(err.Error()))
+	if runes := []rune(msg); len(runes) > maxReasonLen {
+		msg = string(runes[:maxReasonLen]) + "…"
+	}
+	return msg
 }
 
 // readEntry reads the entry under tag, checking each bound before the read
@@ -268,14 +350,14 @@ func (s *Service) readEntries(ctx context.Context, repo string, newest map[strin
 func (s *Service) readEntry(ctx context.Context, r *remote.Repository, repo, tag string) (orgindex.Entry, error) {
 	desc, err := r.Resolve(ctx, tag)
 	if err != nil {
-		return orgindex.Entry{}, fmt.Errorf("%s: %w", tag, err)
+		return orgindex.Entry{}, err
 	}
 	if desc.Size > orgindex.MaxManifestBytes {
-		return orgindex.Entry{}, fmt.Errorf("%s: the manifest is %d bytes, over the %d-byte bound", tag, desc.Size, orgindex.MaxManifestBytes)
+		return orgindex.Entry{}, fmt.Errorf("the manifest is %d bytes, over the %d-byte bound", desc.Size, orgindex.MaxManifestBytes)
 	}
 	layer, err := s.entryLayer(ctx, r, repo, desc)
 	if err != nil {
-		return orgindex.Entry{}, fmt.Errorf("%s: %w", tag, err)
+		return orgindex.Entry{}, err
 	}
 	e, err := orgindex.Decode(layer)
 	if err == nil {
@@ -317,7 +399,7 @@ func entryLayerDesc(raw []byte) (ocispec.Descriptor, error) {
 	_ = json.Unmarshal(raw, &m) // a manifest that does not decode has no artifactType
 	switch {
 	case m.ArtifactType != orgindex.ArtifactType:
-		return ocispec.Descriptor{}, fmt.Errorf("the manifest's artifactType is %q, not %s", m.ArtifactType, orgindex.ArtifactType)
+		return ocispec.Descriptor{}, errors.New("the manifest's artifactType is not " + orgindex.ArtifactType)
 	case len(m.Layers) != 1 || m.Layers[0].MediaType != orgindex.MediaType:
 		return ocispec.Descriptor{}, fmt.Errorf("the manifest is not one %s layer", orgindex.MediaType)
 	case m.Layers[0].Size > orgindex.MaxEntryBytes:
@@ -334,14 +416,14 @@ func (s *Service) confirmEntry(ctx context.Context, e orgindex.Entry) error {
 	repo, want := contract.SplitOCIDigest(e.Bundle)
 	r, err := s.env().refusalRepo(repo)
 	if err != nil {
-		return fmt.Errorf("%s %s: %w", e.Service, e.Version, err)
+		return fmt.Errorf("its bundle repository does not open: %w", err)
 	}
 	desc, err := r.Resolve(ctx, e.Version)
 	switch {
 	case err != nil:
-		return fmt.Errorf("%s %s is not confirmed by %s:%s: %w", e.Service, e.Version, repo, e.Version, err)
+		return fmt.Errorf("its version is not confirmed by its bundle repository: %w", err)
 	case desc.Digest.String() != want:
-		return fmt.Errorf("%s %s is not confirmed: %s:%s names another bundle", e.Service, e.Version, repo, e.Version)
+		return errors.New("its bundle repository names another bundle for its version")
 	}
 	return nil
 }

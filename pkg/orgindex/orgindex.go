@@ -133,22 +133,41 @@ func (e Entry) Validate(indexRepo, tag string) error {
 	repo, digest, _ := strings.Cut(e.Bundle, "@")
 	hexd, isSHA := strings.CutPrefix(digest, "sha256:")
 	if !isSHA || len(hexd) != 64 || strings.Trim(hexd, "0123456789abcdef") != "" {
-		return fmt.Errorf("the index entry's bundle %s is not pinned by a sha256 digest", e.Bundle)
+		return refused("the bundle is not pinned by a sha256 digest", fmt.Sprintf("the index entry's bundle %s is not pinned by a sha256 digest", e.Bundle))
 	}
 	host, _, _ := strings.Cut(repo, "/")
 	indexHost, _, _ := strings.Cut(indexRepo, "/")
 	root, inIndex := strings.CutSuffix(indexRepo, "/"+RepositoryName)
 	switch {
 	case host != indexHost:
-		return fmt.Errorf("the index entry's bundle %s is on %s, not the index host %s", repo, host, indexHost)
+		return refused("the bundle is on another host", fmt.Sprintf("the index entry's bundle %s is on %s, not the index host %s", repo, host, indexHost))
 	case !inIndex || !strings.HasPrefix(repo, root+"/"):
-		return fmt.Errorf("the index entry's bundle %s is outside %s", repo, root)
+		return refused("the bundle is outside the index root", fmt.Sprintf("the index entry's bundle %s is outside %s", repo, root))
 	case string(fleet.NewServiceKeyDomain(contract.OCIDomain(repo), e.Name)) != e.Service:
-		return fmt.Errorf("the index entry names service %s, but its bundle %s is %s", e.Service, repo, e.Name)
+		return refused("the service does not match its bundle and name", fmt.Sprintf("the index entry names service %s, but its bundle %s is %s", e.Service, repo, e.Name))
 	}
 	prefix, version, ok := ParseTag(tag)
 	if !ok || prefix != Prefix(fleet.ServiceKey(e.Service)) || version != e.Version {
-		return errors.New("the index entry for " + e.Service + " " + e.Version + " is under tag " + tag + ", which names another service or version")
+		return refused("the tag names another service or version", "the index entry for "+e.Service+" "+e.Version+" is under tag "+tag+", which names another service or version")
 	}
 	return nil
+}
+
+// refusal is an entry refused by Validate or Decode: its Error is the detail
+// a writer prints about its own entry, its reason the fixed text a reader
+// prints, since a reader never echoes the content of an entry it refused.
+type refusal struct{ reason, detail string }
+
+func (r *refusal) Error() string { return r.detail }
+
+func refused(reason, detail string) error { return &refusal{reason: reason, detail: detail} }
+
+// Reason is the fixed reason of a Validate or Decode refusal, which carries
+// no entry content; "" for any other error.
+func Reason(err error) string {
+	var r *refusal
+	if errors.As(err, &r) {
+		return r.reason
+	}
+	return ""
 }

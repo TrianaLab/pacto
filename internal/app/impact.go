@@ -53,6 +53,9 @@ type ImpactOptions struct {
 	// OnResolved is called by [Service.Impact] once both revisions resolve;
 	// nil does nothing. The snapshot paths never call it.
 	OnResolved func(old, new *contract.Bundle)
+	// unpublished are the services pacto ci reads from repository folders
+	// never published: no index can hold them, so none is reported missing.
+	unpublished map[fleet.ServiceKey]bool
 }
 
 // Impact builds a fleet snapshot from the configured sources and analyzes the
@@ -153,16 +156,29 @@ func (s *Service) impactOnResolved(ctx context.Context, opts ImpactOptions, snap
 		opts.Fleet.indexSrc, skipped = s.consumerIndex(opts, newBundle)
 		created = opts.Fleet.indexSrc != nil
 	}
-	domain := opts.domain(snap, newBundle.Contract.Service.Name)
+	name := newBundle.Contract.Service.Name
+	domain := opts.domain(snap, name)
 	opts.Domain = domain
-	added := addMissing && snap.Services[fleet.NewServiceKeyDomain(domain, newBundle.Contract.Service.Name)] == nil
-	if added || created {
+	// A source holding the service in the default domain is analysed, and
+	// the index consumers name the published one: they would never reach the
+	// answer, so the index is dropped (and the snapshot rebuilt without it).
+	dropped := false
+	if src := opts.Fleet.indexSrc; src != nil && src.provider.Key != fleet.NewServiceKeyDomain(domain, name) {
+		opts.Fleet.indexSrc, created, dropped = nil, false, true
+		skipped = impact.ConsumerIndex{Status: impact.IndexSkipped, Completeness: fleet.CompletenessEmpty,
+			Reason: "a local source holds " + name + ", so its local consumers are read; the index names consumers of " + src.provider.Repo}
+	}
+	added := addMissing && snap.Services[fleet.NewServiceKeyDomain(domain, name)] == nil
+	if added || created || dropped {
 		var err error
 		if snap, err = s.Fleet(ctx, withNewRevision(opts, newBundle, added)); err != nil {
 			return nil, fmt.Errorf("build fleet snapshot: %w", err)
 		}
 	}
 	ix, indexed := opts.Fleet.indexSrc.result(skipped)
+	if listed := indexed; listed != nil && len(opts.unpublished) > 0 {
+		indexed = func(k fleet.ServiceKey) bool { return listed(k) || opts.unpublished[k] }
+	}
 	res, err := s.analyzeImpact(ctx, opts, snap, oldBundle, newBundle, ix, indexed)
 	if err != nil {
 		return nil, err
@@ -191,7 +207,8 @@ func withNewRevision(opts ImpactOptions, newBundle *contract.Bundle, add bool) F
 }
 
 // consumerIndex is the organization index source of a change, pure: none
-// for a pair of local folders (nothing to derive it from, nothing printed),
+// for a pair of local folders (nothing to derive it from, nothing printed)
+// or an HTTP server (IndexNever),
 // skipped with a reason for --index none or a --root list, else a source
 // reading the candidates of the provider's repository.
 func (s *Service) consumerIndex(opts ImpactOptions, newBundle *contract.Bundle) (*indexSource, impact.ConsumerIndex) {
@@ -200,7 +217,7 @@ func (s *Service) consumerIndex(opts ImpactOptions, newBundle *contract.Bundle) 
 		return impact.ConsumerIndex{Status: impact.IndexSkipped, Completeness: fleet.CompletenessEmpty, Reason: reason}
 	}
 	switch {
-	case providerRepo == "":
+	case providerRepo == "" || opts.Fleet.Index == IndexNever:
 		return nil, impact.ConsumerIndex{}
 	case opts.Fleet.Index == IndexNone:
 		return nil, skipped("--index none")

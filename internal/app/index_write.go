@@ -26,6 +26,11 @@ var indexWriteTimeout = 30 * time.Second
 // IndexNone turns the organization index off for publish, push and impact.
 const IndexNone = "none"
 
+// IndexNever is what an HTTP pacto mcp server sets: impact reads no index
+// and its answer carries no consumerIndex, as on a server whose callers sign
+// in. The --index flag refuses it, so only a caller can set it.
+const IndexNever = "never"
+
 // errIndexNotFound is every index candidate absent: no repository, or one
 // with no tag.
 var errIndexNotFound = errors.New("no organization index")

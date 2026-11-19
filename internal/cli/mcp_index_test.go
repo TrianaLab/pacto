@@ -115,14 +115,15 @@ func visibleSnapshot(t *testing.T, host string) *fleet.FleetSnapshot {
 
 // TestMCPImpactHTTPReadsNoIndex: an HTTP server without --auth-issuer adds
 // the new revision (addMissing) and still never reads the index, since every
-// caller would read it as this process.
+// caller would read it as this process. Like an authenticated server it says
+// nothing of an index: no consumerIndex, so no flag the operator never passed.
 func TestMCPImpactHTTPReadsNoIndex(t *testing.T) {
 	e, svc, reqs := indexedPayments(t)
 	snap := visibleSnapshot(t, e.host)
 	reqs.Store(0)
 	res, err := mcpProvider(t, svc, "http", true, false)(t.Context(), snap,
 		pactomcp.ImpactRequest{OldRef: "oci://" + e.host + "/acme/payments:1.0.0", NewRef: "oci://" + e.host + "/acme/payments:2.0.0"})
-	if err != nil || res.ConsumerIndex == nil || res.ConsumerIndex.Status != impact.IndexSkipped || reqs.Load() != 0 {
+	if err != nil || res.ConsumerIndex != nil || reqs.Load() != 0 {
 		t.Fatalf("res %+v, %v, %d index requests", res, err, reqs.Load())
 	}
 }

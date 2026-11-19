@@ -1,7 +1,6 @@
 package orgindex
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 
@@ -90,13 +89,13 @@ func (e Entry) Names(p Provider) bool {
 func Decode(b []byte) (Entry, error) {
 	var e Entry
 	if len(b) > MaxEntryBytes {
-		return e, fmt.Errorf("the index entry is %d bytes, over the %d-byte bound", len(b), MaxEntryBytes)
+		return e, refused("the entry is over its size bound", fmt.Sprintf("the index entry is %d bytes, over the %d-byte bound", len(b), MaxEntryBytes))
 	}
 	if err := strictjson.Unmarshal(b, &e); err != nil {
-		return Entry{}, fmt.Errorf("the index entry does not decode: %w", err)
+		return Entry{}, refused("the entry does not decode", "the index entry does not decode: "+err.Error())
 	}
 	if e.SchemaVersion != SchemaVersion {
-		return Entry{}, errors.New("the index entry's schemaVersion is " + e.SchemaVersion + ", not " + SchemaVersion)
+		return Entry{}, refused("the entry's schemaVersion is not "+SchemaVersion, "the index entry's schemaVersion is "+e.SchemaVersion+", not "+SchemaVersion)
 	}
 	return e, nil
 }
