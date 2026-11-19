@@ -1673,7 +1673,8 @@ contract. Ranges are proposed, never declared: declare each one. Each draft also
 pacto.inferred.yaml, completed by the engine pacto ci uses, with when each
 cluster fact was read and whether every node was observed. --max-items bounds
 each kind of object read; a kind cut short is listed under Coverage, and a run
-stopped by it prints the command that resumes with --continue. Drafts are only
+it stopped while listing workloads prints the command that resumes with
+--continue. Drafts are only
 written, never published, and a draft that is not valid fails the command.
 
 With --from the service is created from a golden path: an oci:// reference or
@@ -1718,9 +1719,9 @@ pacto init [dir...] [flags]
 **Flags:**
 
 ```
-      --call-window duration               with --cluster: how far back a call counts as a dependency (default 24h)
+      --call-window duration               with --cluster: how far back a call counts as a dependency (at least 1m, default 24h)
       --cluster[=true|false]               draft a contract for every workload in the cluster that no Pacto describes, reading the current kubeconfig context
-      --continue string                    with --cluster: resume the read where a run stopped by --max-items left off
+      --continue string                    with --cluster: resume the read where a run --max-items stopped while listing workloads left off
       --delivery[=true|false]              also declares each --env in pacto.yaml with an empty values file, and writes the cluster pieces of a manifests deploy: the Pacto resource, a Stage per environment and a Flux OCIRepository and Kustomization; a chart deploy gets no applier object
       --describe-only[=true|false]         write a contract that only describes the service: its next steps say how to validate it, never how to publish it
       --domain string                      business domain, such as payments

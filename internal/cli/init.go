@@ -97,7 +97,8 @@ contract. Ranges are proposed, never declared: declare each one. Each draft also
 pacto.inferred.yaml, completed by the engine pacto ci uses, with when each
 cluster fact was read and whether every node was observed. --max-items bounds
 each kind of object read; a kind cut short is listed under Coverage, and a run
-stopped by it prints the command that resumes with --continue. Drafts are only
+it stopped while listing workloads prints the command that resumes with
+--continue. Drafts are only
 written, never published, and a draft that is not valid fails the command.
 
 With --from the service is created from a golden path: an oci:// reference or
@@ -184,8 +185,8 @@ changes nothing.`,
 	f.StringSliceVar(&cluster.Namespaces, "namespace", nil, "with --cluster: a namespace to read; repeat it for more (default: every namespace)")
 	f.StringVar(&cluster.Out, "out", "", "with --cluster: the folder the drafts go in, one <namespace>/<name> folder each")
 	f.IntVar(&cluster.MaxItems, "max-items", 0, "with --cluster: the most items read per kind of object; a kind cut short reads as partial (default 10000)")
-	f.DurationVar(&cluster.CallWindow, "call-window", 0, "with --cluster: how far back a call counts as a dependency (default 24h)")
-	f.StringVar(&cluster.Continue, "continue", "", "with --cluster: resume the read where a run stopped by --max-items left off")
+	f.DurationVar(&cluster.CallWindow, "call-window", 0, "with --cluster: how far back a call counts as a dependency (at least 1m, default 24h)")
+	f.StringVar(&cluster.Continue, "continue", "", "with --cluster: resume the read where a run --max-items stopped while listing workloads left off")
 	f.StringVar(&from, "from", "", "a golden path to create the service from: an oci:// reference or a directory")
 	f.StringVar(&trust, "trust", "", "the trust config the golden path's signature is verified with: a PEM public key or a trust config file (default $PACTO_DELIVERY_TRUST)")
 	f.StringSliceVar(&runPlugins, "run-plugins", nil, "run these plugins the golden path names, by name (see the plan's plugin steps); each step prints the binary it runs")

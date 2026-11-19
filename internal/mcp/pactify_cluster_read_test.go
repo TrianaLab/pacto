@@ -61,7 +61,7 @@ func TestPactifyClusterArgsNeedCluster(t *testing.T) {
 	_, reads := stubPactifyCluster(t)
 	for name, v := range map[string]any{"max_items": 7, "call_window": "2h", "continue": "tok"} {
 		res := callTool(t, "pacto_create", map[string]any{"name": "d", "path": t.TempDir(), "pactify": true, name: v})
-		if !res.IsError || resultText(t, res) != "max_items, call_window and continue go with cluster" || *reads != 0 {
+		if !res.IsError || resultText(t, res) != "namespaces, max_items, call_window and continue go with cluster" || *reads != 0 {
 			t.Errorf("%s: reads=%d %s", name, *reads, resultText(t, res))
 		}
 	}
@@ -74,6 +74,48 @@ func TestFromConflictsClusterArgs(t *testing.T) {
 		text, isErr := callFrom(t, f.init, map[string]any{"from": "./path", "name": "a", "owner": "o", name: v})
 		if !isErr || !strings.Contains(text, "does not take "+name) {
 			t.Errorf("%s: isErr=%v %q", name, isErr, text)
+		}
+	}
+}
+
+// TestPactifyClusterNamespacesNeedCluster: namespaces without cluster is
+// refused like the CLI's --namespace, before anything is read.
+func TestPactifyClusterNamespacesNeedCluster(t *testing.T) {
+	_, reads := stubPactifyCluster(t)
+	res := callTool(t, "pacto_create", map[string]any{"name": "d", "path": t.TempDir(), "pactify": true, "namespaces": `["shop"]`})
+	if !res.IsError || resultText(t, res) != "namespaces, max_items, call_window and continue go with cluster" || *reads != 0 {
+		t.Fatalf("reads=%d %s", *reads, resultText(t, res))
+	}
+}
+
+// TestClusterArgsNeedPactify: each cluster argument without pactify is
+// refused instead of running an intent create that drops it.
+func TestClusterArgsNeedPactify(t *testing.T) {
+	_, reads := stubPactifyCluster(t)
+	for name, v := range map[string]any{"cluster": true, "namespaces": `["shop"]`, "max_items": 7, "call_window": "2h", "continue": "tok"} {
+		dir := t.TempDir()
+		res := callTool(t, "pacto_create", map[string]any{"name": "d", "path": dir, name: v})
+		if !res.IsError || resultText(t, res) != "cluster, namespaces, max_items, call_window and continue go with pactify" || *reads != 0 {
+			t.Errorf("%s: reads=%d %s", name, *reads, resultText(t, res))
+		}
+		if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+			t.Errorf("%s: wrote %v", name, entries)
+		}
+	}
+}
+
+// TestPactifyClusterArgLimits: a negative bound or a window under a minute
+// is refused in the tool's own argument names, before any read.
+func TestPactifyClusterArgLimits(t *testing.T) {
+	_, reads := stubPactifyCluster(t)
+	for want, args := range map[string]map[string]any{
+		"max_items must not be negative":                   {"max_items": -1},
+		`call_window "30s" is shorter than the 1m minimum`: {"call_window": "30s"},
+	} {
+		args["name"], args["pactify"], args["cluster"] = "d", true, true
+		res := callTool(t, "pacto_create", args)
+		if !res.IsError || resultText(t, res) != want || *reads != 0 || strings.Contains(resultText(t, res), "--") {
+			t.Errorf("reads=%d %s", *reads, resultText(t, res))
 		}
 	}
 }

@@ -54,7 +54,8 @@ func createTool() *mcpsdk.Tool {
 			"and a Next step, so no 'inferred' there means not completed, never nothing to add. " +
 			"With cluster each draft is completed too and writes its 'inferred' as pacto.inferred.yaml: cluster fields carry asOf, runtime and fleet fields a completeness, " +
 			"a proposed range is 'proposed', never declared, and the result's 'coverage' says which sources the read saw whole. " +
-			"max_items bounds each source (a source cut short reads partial) and a read the bound stopped returns 'continue', which the next call passes back as continue. " +
+			"max_items bounds each source (a source cut short reads partial). Only a read max_items stopped while listing workloads returns 'continue', which the next call passes back as continue; " +
+			"any other source cut short stays partial, with no 'continue', and a resumed read lists it again in full up to max_items. " +
 			"It only adds files; dry_run plans and writes nothing. For an AI agent, see pacto_schema. " +
 			"With from it creates the service from a golden path like `pacto init --from` (over stdio only): " +
 			"golden paths are listed by pacto mcp --fleet (pacto_fleet_entities template=only) or pacto fleet entities --template. " +
@@ -89,8 +90,8 @@ func createTool() *mcpsdk.Tool {
 			"cluster":                      {Type: "boolean", Description: "With pactify: draft a contract for every workload in the current kubeconfig context that no Pacto describes, into path/<namespace>/<name>, with each service it was seen calling as a dependency with compatibility unknown and a proposed range, in a comment, from the lowest version the Pactos describing it report when they agree on one contract; dry_run defaults to true"},
 			"namespaces":                   {Type: "string", Description: "With cluster: JSON array of namespaces to read (default: every namespace)"},
 			"max_items":                    {Type: "integer", Description: "With cluster: the most items read per kind of object; a kind cut short reads as partial (default 10000)"},
-			"call_window":                  {Type: "string", Description: "With cluster: how far back a call counts as a dependency, as a Go duration such as 24h (default 24h)"},
-			"continue":                     {Type: "string", Description: "With cluster: the 'continue' token a read stopped by max_items returned; resumes the read where it left off"},
+			"call_window":                  {Type: "string", Description: "With cluster: how far back a call counts as a dependency, as a Go duration such as 24h (at least 1m, default 24h)"},
+			"continue":                     {Type: "string", Description: "With cluster: the 'continue' token a read max_items stopped while listing workloads returned; resumes the read where it left off"},
 			"from":                         {Type: "string", Description: "A golden path to create the service from: an oci:// reference or a directory. Takes name, owner (required), domain, path, registry, values, set, run_plugins, describe_only, delivery and its options, and dry_run"},
 			"values":                       {Type: "string", Description: "With from: JSON object merged over the golden path's contract, such as {\"service\": {\"summary\": \"Gift card balances\"}}; a null removes a field"},
 			"set":                          {Type: "string", Description: "With from: JSON array of key=value strings applied after values, such as [\"service.summary=Gift card balances\"]"},
@@ -151,6 +152,9 @@ func createHandler(a Authoring, served func(string) bool, version string) mcpsdk
 		}
 		if args.Pactify {
 			return pactifyFolder(ctx, args, base)
+		}
+		if args.Cluster || args.Namespaces != "" || args.MaxItems != 0 || args.CallWindow != "" || args.Continue != "" {
+			return nil, nil, errors.New("cluster, namespaces, max_items, call_window and continue go with pactify")
 		}
 		input := CreateInput{
 			Name:                      args.Name,
@@ -247,19 +251,26 @@ func pactifyFolder(ctx context.Context, args createArgs, base pactify.Options) (
 }
 
 // clusterArgs is the cluster read pacto_create asks for, written at path;
-// the bound, window and resume token go only with cluster.
+// the namespaces, bound, window and resume token go only with cluster, and
+// are refused here in the words of the tool's arguments.
 func clusterArgs(args createArgs) (pactify.ClusterOptions, error) {
 	c := pactify.ClusterOptions{Out: args.Path, MaxItems: args.MaxItems, Continue: args.Continue}
-	if !args.Cluster && (args.MaxItems != 0 || args.CallWindow != "" || args.Continue != "") {
-		return c, errors.New("max_items, call_window and continue go with cluster")
+	switch {
+	case !args.Cluster && (args.Namespaces != "" || args.MaxItems != 0 || args.CallWindow != "" || args.Continue != ""):
+		return c, errors.New("namespaces, max_items, call_window and continue go with cluster")
+	case args.MaxItems < 0:
+		return c, errors.New("max_items must not be negative")
+	case args.CallWindow == "":
+		return c, nil
 	}
-	if args.CallWindow != "" {
-		d, err := time.ParseDuration(args.CallWindow)
-		if err != nil {
-			return c, fmt.Errorf("call_window %q is not a duration such as 24h", args.CallWindow)
-		}
-		c.CallWindow = d
+	d, err := time.ParseDuration(args.CallWindow)
+	switch {
+	case err != nil:
+		return c, fmt.Errorf("call_window %q is not a duration such as 24h", args.CallWindow)
+	case d < time.Minute:
+		return c, fmt.Errorf("call_window %q is shorter than the 1m minimum", args.CallWindow)
 	}
+	c.CallWindow = d
 	return c, nil
 }
 
