@@ -96,6 +96,11 @@ names each folder it skips and the line that skipped it:
 skipped: services/legacy (from .pactoignore:1)
 ```
 
+Discovery also stops 8 levels below the root, and `pacto ci` and
+`pacto migrate` name each folder that limit cuts, as
+`skipped: <folder> (from depth limit 8)`. Hidden folders, `node_modules` and
+`vendor` are skipped without a line.
+
 Only folders are matched, so `pacto.yaml` is still always kept inside a
 bundle. When the repository root is itself a service, its bundle and discovery
 share this one file. A root `.pactoignore` that cannot be read stops these

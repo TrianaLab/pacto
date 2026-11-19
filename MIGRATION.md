@@ -553,7 +553,9 @@ archive:             skipped (from .pactoignore:1)
   the applier.
 - A `publish.artifacts[].build` block is removed when `pacto ci --publish`
   detects the same tool and image. Any other block stays, and the line
-  suggests what detection would use.
+  suggests what detection would use. Before 2.5 `build` is required, so a
+  file whose block detection does not reproduce keeps its version, and its
+  line names `PUBLISH_BUILD_DEPRECATED`.
 
 Moving a contract from 1.x to 2.0 stays the manual migration this document
 describes, because the contract shape changes. Those changes are intentional

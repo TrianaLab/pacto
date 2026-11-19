@@ -83,8 +83,9 @@ compare two folders with no registry, run `pacto diff ./main ./feature-branch`.
 ## Plan every service with pacto ci
 
 When one repository holds several services, `pacto ci` checks them all in one
-step. It finds every `pacto.yaml` under the repository root, skips the folders
-the root `.pactoignore` names and compares each service with its last
+step. It finds every `pacto.yaml` under the repository root, skips
+[ignored and too-deep folders](pactoignore.md#at-the-repository-root) and
+compares each service with its last
 published version in your registry. It writes nothing to the registry, so it
 needs only read credentials (`PACTO_REGISTRY_USERNAME` and
 `PACTO_REGISTRY_PASSWORD`):
