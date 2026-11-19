@@ -593,8 +593,8 @@ func TestSecretEnvNoPodSpec(t *testing.T) {
 
 // TestClusterDraftURLLiterals: a $(NAME) reference is no literal, so a URL
 // whose password is one stays in the draft; a malformed credential URL is
-// rewritten; only a rewritten container URL the scan reads a dependency from
-// is named as a lost dependency, never an outside host or an initContainer's.
+// rewritten; only a rewritten URL the scan reads a dependency from is named
+// as a lost dependency, never an outside host.
 func TestClusterDraftURLLiterals(t *testing.T) {
 	appEnv := append(env("DATABASE_URL", "postgres://app:$(DB_PASSWORD)@db:5432/x", "ORDERS_URL", "postgres://app:pa/ss@orders-db:5432/orders",
 		"DB_DSN", "postgres://app:p%zz@ledger:5432/x", "STRIPE_URL", "https://api.stripe.com/v1?api_key=sk_live_x", "ALIAS_PASSWORD", "$(OTHER_PASSWORD)"),
@@ -621,8 +621,8 @@ func TestClusterDraftURLLiterals(t *testing.T) {
 		}
 	}
 	// ORDERS_URL's / in the password is one the scan's host reader never got past.
-	if !hasLine(r.Next, "manifests.yaml: DB_DSN (ledger) held a URL") || hasLine(r.Next, "ORDERS_URL (") || hasLine(r.Next, "STRIPE_URL (") ||
-		hasLine(r.Next, "MIGRATE_DB_URL (") || hasLine(r.Next, "DATABASE_URL") {
+	if !hasLine(r.Next, "manifests.yaml: DB_DSN (ledger), MIGRATE_DB_URL (db) held a URL") || hasLine(r.Next, "ORDERS_URL (") || hasLine(r.Next, "STRIPE_URL (") ||
+		hasLine(r.Next, "DATABASE_URL") {
 		t.Fatalf("next steps: %q", r.Next)
 	}
 	if !hasDependency(r, "db") {
@@ -1301,5 +1301,149 @@ func TestViewerDropsHiddenWorkloads(t *testing.T) {
 	b, err := Cluster(context.Background(), fakeCluster(viewerShop(now)...), Options{Plan: true}, c, nil)
 	if err != nil || !slices.Equal(drafted(b), []string{"invoices"}) || len(b.Skipped) != 0 {
 		t.Fatalf("%v %+v: %v", drafted(b), b, err)
+	}
+}
+
+// argsWorkload is checkout with the containers and initContainers given, each
+// a name and its command and args.
+func argsWorkload(containers, inits []any) *unstructured.Unstructured {
+	spec := map[string]any{"containers": containers}
+	if inits != nil {
+		spec["initContainers"] = inits
+	}
+	return obj("apps/v1", "Deployment", "shop", "checkout", map[string]any{"spec": map[string]any{"template": map[string]any{"spec": spec}}})
+}
+
+// ctr is a container named name with command and args (nil leaves one out)
+// and env.
+func ctr(name string, command, args []any, env []any) map[string]any {
+	c := map[string]any{"name": name, "image": "reg.io/acme/" + name + ":1.0.0"}
+	for k, v := range map[string][]any{"command": command, "args": args, "env": env} {
+		if v != nil {
+			c[k] = v
+		}
+	}
+	return c
+}
+
+// rewriteArgs runs secretEnv over w and returns its containers, its
+// initContainers and the Secret's keys.
+func rewriteArgs(t *testing.T, w *unstructured.Unstructured) (containers, inits []any, keys []string) {
+	t.Helper()
+	keys, _ = secretEnv(w, "checkout-env", map[string]bool{"checkout": true})
+	containers, _, _ = unstructured.NestedSlice(w.Object, "spec", "template", "spec", "containers")
+	inits, _, _ = unstructured.NestedSlice(w.Object, "spec", "template", "spec", "initContainers")
+	return containers, inits, keys
+}
+
+// field is the string list key of the container c.
+func field(c any, key string) []string {
+	l, _ := c.(map[string]any)[key].([]any)
+	out := make([]string, len(l))
+	for i, v := range l {
+		out[i] = v.(string)
+	}
+	return out
+}
+
+// envRef reports whether the container c has the env entry name reading key
+// from checkout-env.
+func envRef(c any, name, key string) bool {
+	envs, _ := c.(map[string]any)["env"].([]any)
+	return slices.ContainsFunc(envs, func(e any) bool {
+		em := e.(map[string]any)
+		return em["name"] == name && fmt.Sprint(em["valueFrom"]) == fmt.Sprint(map[string]any{"secretKeyRef": map[string]any{"name": "checkout-env", "key": key}})
+	})
+}
+
+func TestSecretEnvMovesSensitiveArgs(t *testing.T) {
+	cs, _, keys := rewriteArgs(t, argsWorkload([]any{ctr("app", nil, []any{"serve", "--db-password=hunter2", "--port=8080"}, nil)}, nil))
+	if got := field(cs[0], "args"); !slices.Equal(got, []string{"serve", "--db-password=$(DB_PASSWORD)", "--port=8080"}) ||
+		!envRef(cs[0], "DB_PASSWORD", "DB_PASSWORD") || !slices.Equal(keys, []string{"DB_PASSWORD"}) || strings.Contains(fmt.Sprint(cs), "hunter2") {
+		t.Fatalf("args %v keys %v containers %v", got, keys, cs)
+	}
+}
+
+func TestSecretEnvArgsKeyEqualsForm(t *testing.T) {
+	cs, _, keys := rewriteArgs(t, argsWorkload([]any{ctr("app", []any{"env", "TOKEN=t0ken-arg", "app"}, nil, nil)}, nil))
+	if got := field(cs[0], "command"); !slices.Equal(got, []string{"env", "TOKEN=$(TOKEN)", "app"}) || !envRef(cs[0], "TOKEN", "TOKEN") || !slices.Equal(keys, []string{"TOKEN"}) {
+		t.Fatalf("command %v keys %v", got, keys)
+	}
+	if _, ok := cs[0].(map[string]any)["args"]; ok {
+		t.Fatalf("args appeared: %v", cs[0])
+	}
+}
+
+// TestSecretEnvArgsSplitForm: the value after a bare sensitive flag moves;
+// a short flag moves when its value is sensitive by itself.
+func TestSecretEnvArgsSplitForm(t *testing.T) {
+	cs, _, keys := rewriteArgs(t, argsWorkload([]any{ctr("app", []any{"app"}, []any{"--db-password", "hunter2", "-p", "postgres://u:hunter2@db/x"}, nil)}, nil))
+	if got := slices.Concat(field(cs[0], "command"), field(cs[0], "args")); !slices.Equal(got, []string{"app", "--db-password", "$(DB_PASSWORD)", "-p", "$(P)"}) ||
+		!envRef(cs[0], "P", "P") || !slices.Equal(keys, []string{"DB_PASSWORD", "P"}) || strings.Contains(fmt.Sprint(cs), "hunter2") {
+		t.Fatalf("argv %v keys %v", got, keys)
+	}
+}
+
+func TestSecretEnvArgsShellString(t *testing.T) {
+	cs, _, keys := rewriteArgs(t, argsWorkload([]any{ctr("app", []any{"/bin/sh", "-c"}, []any{"app --token=t0ken-arg  --port=8080"}, nil)}, nil))
+	if got := field(cs[0], "args"); !slices.Equal(got, []string{"app --token=$(TOKEN)  --port=8080"}) || !slices.Equal(keys, []string{"TOKEN"}) {
+		t.Fatalf("args %v keys %v", got, keys)
+	}
+	cs, _, _ = rewriteArgs(t, argsWorkload([]any{ctr("app", nil, []any{"bash", "-c", "x"}, nil)}, nil))
+	if got := field(cs[0], "args"); !slices.Equal(got, []string{"bash", "-c", "x"}) {
+		t.Fatalf("plain script %v", got)
+	}
+}
+
+// TestSecretEnvArgsEnvInSameContainer: the env entry lands in the container
+// or init container that holds the arg, and in no other.
+func TestSecretEnvArgsEnvInSameContainer(t *testing.T) {
+	cs, is, keys := rewriteArgs(t, argsWorkload(
+		[]any{ctr("app", nil, []any{"serve"}, nil), ctr("sidecar", nil, []any{"--api-key=k3y"}, nil)},
+		[]any{ctr("migrate", nil, []any{"--db-password=hunter2"}, nil)}))
+	if !envRef(cs[1], "API_KEY", "API_KEY") || envRef(cs[0], "API_KEY", "API_KEY") || cs[0].(map[string]any)["env"] != nil ||
+		!envRef(is[0], "DB_PASSWORD", "DB_PASSWORD") || envRef(cs[1], "DB_PASSWORD", "DB_PASSWORD") || !slices.Equal(keys, []string{"API_KEY", "DB_PASSWORD"}) {
+		t.Fatalf("containers %v inits %v keys %v", cs, is, keys)
+	}
+}
+
+func TestSecretEnvArgsURLWithUserinfo(t *testing.T) {
+	cs, _, keys := rewriteArgs(t, argsWorkload([]any{ctr("app", nil, []any{"connect", "postgres://u:s3cret@db/x", "postgres://v:other@db/y"}, nil)}, nil))
+	if got := field(cs[0], "args"); !slices.Equal(got, []string{"connect", "$(URL)", "$(URL_2)"}) || !envRef(cs[0], "URL_2", "URL_2") ||
+		!slices.Equal(keys, []string{"URL", "URL_2"}) {
+		t.Fatalf("args %v keys %v", got, keys)
+	}
+}
+
+// TestSecretEnvArgsNameClash: a name the container's env already sets reads
+// ARG_<name>; a Secret key another container's env holds with a different
+// literal reads <container>.<name>; the same literal twice shares one entry.
+func TestSecretEnvArgsNameClash(t *testing.T) {
+	cs, is, keys := rewriteArgs(t, argsWorkload(
+		[]any{ctr("app", nil, []any{"--db-password=hunter2", "--db-password=hunter2"}, env("DB_PASSWORD", "env-pw"))},
+		[]any{ctr("migrate", nil, []any{"--db-password=m1grate"}, nil)}))
+	if got := field(cs[0], "args"); !slices.Equal(got, []string{"--db-password=$(ARG_DB_PASSWORD)", "--db-password=$(ARG_DB_PASSWORD)"}) ||
+		!envRef(cs[0], "ARG_DB_PASSWORD", "ARG_DB_PASSWORD") || len(cs[0].(map[string]any)["env"].([]any)) != 2 ||
+		!envRef(is[0], "DB_PASSWORD", "migrate.DB_PASSWORD") || !slices.Equal(keys, []string{"ARG_DB_PASSWORD", "DB_PASSWORD", "migrate.DB_PASSWORD"}) {
+		t.Fatalf("containers %v inits %v keys %v", cs, is, keys)
+	}
+}
+
+func TestSecretEnvLeavesPlainArgs(t *testing.T) {
+	probe := "while true; do nc -z -w 2 wallet 80; sleep 2; done"
+	w := argsWorkload([]any{ctr("app", []any{"sh", "-c", probe}, []any{"--port=8080", "--port", "8080", "--token", "--verbose", "-", int64(7)}, nil)}, nil)
+	before := fmt.Sprint(w.Object)
+	if _, _, keys := rewriteArgs(t, w); keys != nil || fmt.Sprint(w.Object) != before {
+		t.Fatalf("plain args changed: %v %v", keys, w.Object)
+	}
+}
+
+// TestSecretEnvInitContainerURLNamesDependency: a URL an init container's
+// env sets to a dependency is read by the scan, so moving it into the Secret
+// names the dependency the draft no longer lists.
+func TestSecretEnvInitContainerURLNamesDependency(t *testing.T) {
+	w := argsWorkload([]any{ctr("app", nil, nil, nil)}, []any{ctr("migrate", nil, nil, env("LEDGER_URL", "postgres://u:p@ledger:5432/x"))})
+	if keys, urls := secretEnv(w, "checkout-env", map[string]bool{"checkout": true}); !slices.Equal(keys, []string{"LEDGER_URL"}) || !slices.Equal(urls, []string{"LEDGER_URL (ledger)"}) {
+		t.Fatalf("keys %v urls %v", keys, urls)
 	}
 }

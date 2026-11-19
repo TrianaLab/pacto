@@ -11,7 +11,9 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -885,12 +887,12 @@ func (cl *cluster) manifests(w unstructured.Unstructured) (string, []string, []s
 // whose literal value is sensitive, by name or as a URL with credentials, to
 // read the key of the same name from the Secret secret. A name set to
 // different literals in two containers reads <container>.<name>, so the two
-// never share one value. It returns the Secret's keys and, for each rewritten
-// container variable the scan would have read a dependency from, "NAME
+// never share one value. It rewrites each sensitive literal in their command
+// and args the same way (secretArgs). It returns the Secret's keys and, for
+// each rewritten variable the scan would have read a dependency from, "NAME
 // (service)", both sorted; objects are the names the draft defines, which the
 // scan never reads as a dependency. The values are compared in memory and
 // never kept.
-// ponytail: args and command literals stay as they are; 513-S2 strips them.
 func secretEnv(w *unstructured.Unstructured, secret string, objects map[string]bool) ([]string, []string) {
 	pod := []string{"spec", "template", "spec"}
 	if w.GetKind() == "CronJob" {
@@ -909,11 +911,10 @@ func secretEnv(w *unstructured.Unstructured, secret string, objects map[string]b
 		}
 		seen[name] = value
 	})
-	keys, urls := map[string]bool{}, map[string]bool{}
-	sensitiveEnv(lists, func(list int, container string, e map[string]any) {
-		k := e["name"].(string)
-		// The scan reads containers only (discover.readWorkload).
-		if d := discover.EnvDependencies([]discover.EnvVar{{Name: k, Value: e["value"].(string)}}, objects, w.GetName()); list == 0 && len(d) > 0 {
+	keys, urls, taken := map[string]bool{}, map[string]bool{}, map[string]string{}
+	sensitiveEnv(lists, func(_ int, container string, e map[string]any) {
+		k, value := e["name"].(string), e["value"].(string)
+		if d := discover.EnvDependencies([]discover.EnvVar{{Name: k, Value: value}}, objects, w.GetName()); len(d) > 0 {
 			urls[k+" ("+d[0].Name+")"] = true
 		}
 		if split[k] {
@@ -921,14 +922,134 @@ func secretEnv(w *unstructured.Unstructured, secret string, objects map[string]b
 		}
 		delete(e, "value")
 		e["valueFrom"] = map[string]any{"secretKeyRef": map[string]any{"name": secret, "key": k}}
-		keys[k] = true
+		keys[k], taken[k] = true, value
 	})
+	for _, list := range lists {
+		for _, c := range list {
+			if cm, ok := c.(map[string]any); ok {
+				secretArgs(cm, secret, taken, keys)
+			}
+		}
+	}
 	for i, f := range fields {
 		if lists[i] != nil {
 			_ = unstructured.SetNestedSlice(w.Object, lists[i], slices.Concat(pod, []string{f})...) // ponytail: the path held a slice a moment ago
 		}
 	}
 	return slices.Sorted(maps.Keys(keys)), slices.Sorted(maps.Keys(urls))
+}
+
+// argAssign is a command or args item that sets a value: --flag=value,
+// -f=value or NAME=value.
+var argAssign = regexp.MustCompile(`^(--?)?([A-Za-z_][A-Za-z0-9_.-]*)=(.+)$`)
+
+// argFlag is a bare --flag or -f item, whose value may be the next item.
+var argFlag = regexp.MustCompile(`^--?([A-Za-z][A-Za-z0-9_.-]*)$`)
+
+// argWord is a whitespace-separated word of a shell script.
+var argWord = regexp.MustCompile(`\S+`)
+
+// args rewrites the sensitive literals in one container's command and args.
+type args struct {
+	cm        map[string]any
+	container string
+	secret    string
+	env       map[string]bool   // the names the container's env already sets
+	added     map[string]string // the env names args added, to their literal
+	taken     map[string]string // the Secret's keys, to their literal
+	keys      map[string]bool
+}
+
+// secretArgs rewrites, in the container c's command and args, each literal
+// that is sensitive by its flag's name or as a URL with credentials: an item
+// --flag=literal or NAME=literal, the item after a bare --flag or -f, a bare
+// URL, and the same forms as words of a sh -c or bash -c script. Each becomes
+// $(NAME), NAME being the upper-cased flag (URL for a bare URL), ARG_NAME when
+// the container's env already sets NAME. An env entry NAME reading the key
+// NAME of the Secret secret joins the container's own env, because Kubernetes
+// expands $(NAME) only from it; a key taken by a different literal reads
+// <container>.NAME. taken maps the Secret's keys to their literal and keys
+// collects them.
+// ponytail: a script word is split on whitespace, so a quoted value or one a ; ends is moved whole with its quotes; a shell parser when a script needs one.
+func secretArgs(c map[string]any, secret string, taken map[string]string, keys map[string]bool) {
+	a := &args{cm: c, secret: secret, env: map[string]bool{}, added: map[string]string{}, taken: taken, keys: keys}
+	a.container, _ = c["name"].(string)
+	envs, _ := c["env"].([]any)
+	for _, e := range envs {
+		em, _ := e.(map[string]any)
+		n, _ := em["name"].(string)
+		a.env[n] = true
+	}
+	cmd, _ := c["command"].([]any)
+	arg, _ := c["args"].([]any)
+	argv := slices.Concat(cmd, arg)
+	a.rewrite(argv)
+	if cmd != nil {
+		c["command"] = argv[:len(cmd)]
+	}
+	if arg != nil {
+		c["args"] = argv[len(cmd):]
+	}
+}
+
+// rewrite rewrites argv in place.
+func (a *args) rewrite(argv []any) {
+	for i := 0; i < len(argv); i++ {
+		s, _ := argv[i].(string)
+		next := ""
+		if i+1 < len(argv) {
+			next, _ = argv[i+1].(string)
+		}
+		flag := argFlag.FindStringSubmatch(s)
+		switch {
+		case (path.Base(s) == "sh" || path.Base(s) == "bash") && next == "-c" && i+2 < len(argv):
+			if script, ok := argv[i+2].(string); ok {
+				argv[i+2] = argWord.ReplaceAllStringFunc(script, a.word)
+			}
+			i += 2
+		case flag != nil && !strings.HasPrefix(next, "-") && discover.SensitiveLiteral(flag[1], next):
+			argv[i+1] = a.ref(flag[1], next)
+			i++
+		default:
+			if w := a.word(s); w != s {
+				argv[i] = w
+			}
+		}
+	}
+}
+
+// word is s with its sensitive literal read from the Secret.
+func (a *args) word(s string) string {
+	if m := argAssign.FindStringSubmatch(s); m != nil && discover.SensitiveLiteral(m[2], m[3]) {
+		return m[1] + m[2] + "=" + a.ref(m[2], m[3])
+	}
+	if discover.SensitiveLiteral("", s) {
+		return a.ref("url", s)
+	}
+	return s
+}
+
+// ref is the $(NAME) reference that reads literal, the value of flag, from
+// the Secret, adding the env entry NAME the first time.
+func (a *args) ref(flag, literal string) string {
+	name := strings.ToUpper(strings.ReplaceAll(flag, "-", "_"))
+	if a.env[name] {
+		name = "ARG_" + name
+	}
+	base := name
+	for n := 2; a.env[name] || a.added[name] != "" && a.added[name] != literal; n++ {
+		name = fmt.Sprintf("%s_%d", base, n)
+	}
+	if a.added[name] == "" {
+		key := name
+		if v, ok := a.taken[key]; ok && v != literal {
+			key = a.container + "." + name
+		}
+		a.added[name], a.taken[key], a.keys[key] = literal, literal, true
+		envs, _ := a.cm["env"].([]any)
+		a.cm["env"] = append(envs, map[string]any{"name": name, "valueFrom": map[string]any{"secretKeyRef": map[string]any{"name": a.secret, "key": key}}})
+	}
+	return "$(" + name + ")"
 }
 
 // sensitiveEnv calls fn with each env entry whose literal value is sensitive,
