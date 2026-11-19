@@ -123,6 +123,46 @@ docker compose -p pacto-demo exec -e PACTO_STATS_REGISTRY=registry:5000/demo/pac
   dashboard pacto stats
 ```
 
+## See what CI sees
+
+The `targets` service publishes a signed target snapshot of the demo cluster
+to `registry:5000/demo/pacto-targets` every 5 minutes, as the delivery recorder
+does on Kubernetes. `pacto impact` finds it from the provider ref and needs no
+kubeconfig:
+
+```sh
+docker compose -p pacto-demo exec dashboard pacto impact \
+  oci://registry:5000/demo/checkout:1.0.0 oci://registry:5000/demo/checkout:1.1.0
+```
+
+With no trust file the Targets line says `unverified`, so the answer stays
+partial and the BREAKING change exits 2. To verify the snapshot, copy the
+public key the service wrote and trust it for the demo cluster only. A bare
+PEM trusts every cluster, so Pacto reads it as unscoped and partial:
+
+```sh
+docker compose -p pacto-demo cp targets:/home/pacto/targets/compose-targets.key.pub.pem .
+{ echo 'keys:'; echo '  - name: compose-targets'
+  echo '    streams: ["compose-demo-0000-0000-0000-000000000001/*/*"]'
+  echo '    publicKey: |'; sed 's/^/      /' compose-targets.key.pub.pem; } >trust.yaml
+docker compose -p pacto-demo cp trust.yaml dashboard:/tmp/trust.yaml
+docker compose -p pacto-demo exec dashboard pacto impact --delivery-trust /tmp/trust.yaml \
+  oci://registry:5000/demo/checkout:1.0.0 oci://registry:5000/demo/checkout:1.1.0
+```
+
+```text
+Registry: registry:5000/demo (found registry:5000/demo/pacto-targets, 1 cluster read)
+Targets: registry:5000/demo/pacto-targets@sha256:1be6... (cluster compose-, asOf 0m, complete, signed by compose-targets (publisher key:a59f...))
+Affected consumers (1):
+  orders                       direct     ...   compat=compatible   owner=commerce
+...
+Release gate: unverified
+```
+
+`orders` runs and its range `^1.0.0` accepts 1.1.0, so the gate stays
+unverified (exit 2) until someone checks that `orders` does not call the
+removed path. [CI](../ci.md) shows the same check in a pipeline.
+
 ## Connect an agent
 
 [`pacto mcp`](../mcp-integration.md) serves the demo's fleet to an agent over

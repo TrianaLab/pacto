@@ -563,6 +563,7 @@ func TestCompose_EmitsThePinnedReferencesUnchanged(t *testing.T) {
 		"evidence":  composeOpts.PactoImage,
 		"seed":      composeOpts.PactoImage,
 		"dashboard": composeOpts.PactoImage,
+		"targets":   composeOpts.PactoImage,
 		"agent":     composeOpts.PactoImage,
 		"inventory": composeOpts.PactoImage,
 	}

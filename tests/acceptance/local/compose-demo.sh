@@ -1142,6 +1142,51 @@ grep -q '^checkout holds: Dockerfile $' <<<"$init_out" ||
 	fail "pacto init --plan wrote into the checkout, which should still hold only its Dockerfile: $init_out"
 pass "pacto init --plan shows the checkout contract and changes nothing"
 
+# See what CI sees: the targets service publishes the demo cluster's signed
+# snapshot to registry:5000/demo/pacto-targets, and pacto impact finds it from
+# the provider ref with no kubeconfig. Unverified it never clears a breaking
+# change; under a trust entry scoped to the demo cluster it reads complete.
+TARGETS_CLUSTER=compose-demo-0000-0000-0000-000000000001
+# A Targets line names the cluster by the first 8 characters of its UID.
+TARGETS_NAME="${TARGETS_CLUSTER:0:8}"
+docker compose -p "$PROJ1" cp targets:/home/pacto/targets/compose-targets.key.pub.pem "$WORK/targets.pub.pem" >/dev/null ||
+	fail "the targets service wrote no public key, so no snapshot was published"
+{
+	echo "keys:"
+	echo "  - name: compose-targets"
+	echo "    streams: [\"$TARGETS_CLUSTER/*/*\"]"
+	echo "    publicKey: |"
+	sed 's/^/      /' "$WORK/targets.pub.pem"
+} >"$WORK/targets-trust.yaml"
+docker compose -p "$PROJ1" cp "$WORK/targets-trust.yaml" dashboard:/tmp/targets-trust.yaml >/dev/null ||
+	fail "could not copy the trust file into the dashboard container"
+impact_cli() { # ARGS...: pacto impact inside the stack, checkout 1.0.0 -> 1.1.0
+	docker compose -p "$PROJ1" exec -T dashboard pacto impact \
+		oci://registry:5000/demo/checkout:1.0.0 oci://registry:5000/demo/checkout:1.1.0 "$@" 2>&1
+}
+unverified_rc=0
+unverified_out=$(impact_cli) || unverified_rc=$?
+grep -q '^Registry: registry:5000/demo (found registry:5000/demo/pacto-targets, 1 cluster read)$' <<<"$unverified_out" ||
+	fail "pacto impact did not find the demo's target snapshot: $unverified_out"
+grep -q "^Targets: registry:5000/demo/pacto-targets@sha256:[0-9a-f]* (cluster $TARGETS_NAME, .*unverified)$" <<<"$unverified_out" ||
+	fail "pacto impact without a trust file did not read the snapshot as unverified: $unverified_out"
+[ "$unverified_rc" -eq 2 ] ||
+	fail "pacto impact on an unverified snapshot exited $unverified_rc, want 2: $unverified_out"
+verified_rc=0
+verified_out=$(impact_cli --delivery-trust /tmp/targets-trust.yaml) || verified_rc=$?
+grep -q "^Targets: registry:5000/demo/pacto-targets@sha256:[0-9a-f]* (cluster $TARGETS_NAME, asOf [^,]*, complete, signed by compose-targets (publisher key:" <<<"$verified_out" ||
+	fail "pacto impact with the scoped trust file did not read the snapshot as complete and signed by compose-targets: $verified_out"
+# The verdict the scenario implies: orders runs and declares ^1.0.0, which
+# accepts 1.1.0, so the BREAKING change is unverified (exit 2) until someone
+# checks that orders does not use the removed path; its target is current.
+grep -q '^  orders  *direct .*compat=compatible' <<<"$verified_out" && grep -q '^Release gate: unverified$' <<<"$verified_out" ||
+	fail "pacto impact with the verified snapshot did not name orders as a compatible consumer and answer unverified: $verified_out"
+! grep -q 'evidence: target .* stale' <<<"$verified_out" ||
+	fail "pacto impact read the snapshot's targets as stale: $verified_out"
+[ "$verified_rc" -eq 2 ] ||
+	fail "pacto impact on the verified snapshot exited $verified_rc, want 2: $verified_out"
+pass "pacto impact reads the demo's signed target snapshot: unverified exits 2, verified names orders and exits 2"
+
 # The Metrics page reads the CI run records the seed published to the demo's
 # own registry. Compose runs no delivery, so no record is an operation. The
 # dashboard is shared without sign-in (--allow-anonymous), so it is a restricted
