@@ -77,7 +77,11 @@ func composeTargets(image string, input composeInput) composeService {
 // the scenario places, its status contract built from the deployed bundle as
 // the operator would write it. asOf and publisher are placeholders the
 // publish replaces.
-func (s Scenario) composeTargetSnapshot(files, digests map[string]string) (composeInput, error) {
+func (s Scenario) composeTargetSnapshot(digests map[string]string) (composeInput, error) {
+	files, err := s.MaterializeFiles(ComposeDomain)
+	if err != nil {
+		return composeInput{}, err
+	}
 	snap := delivery.TargetSnapshot{
 		Cluster: ComposeTargetsCluster, AsOf: story.Now.UTC().Format(time.RFC3339),
 		Completeness: fleet.CompletenessComplete, Publisher: "compose:targets",

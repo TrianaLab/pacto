@@ -240,11 +240,7 @@ func (s Scenario) Compose(opts ComposeOptions) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	files, err := s.MaterializeFiles(ComposeDomain)
-	if err != nil {
-		return nil, err
-	}
-	snapshot, err := s.composeTargetSnapshot(files, digests)
+	snapshot, err := s.composeTargetSnapshot(digests)
 	if err != nil {
 		return nil, err
 	}
