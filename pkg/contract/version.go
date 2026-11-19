@@ -24,6 +24,12 @@ func Behind(v string) (current string, behind bool) {
 	return Current(), i >= 0 && i < len(SupportedVersions)-1
 }
 
+// Older reports whether v sorts before w in SupportedVersions. An unknown v
+// is older than every supported w.
+func Older(v, w string) bool {
+	return slices.Index(SupportedVersions, v) < slices.Index(SupportedVersions, w)
+}
+
 // MigrationGuideURL is the guide a person follows to move a 1.x contract to 2.x.
 const MigrationGuideURL = "https://github.com/TrianaLab/pacto/blob/main/MIGRATION.md"
 

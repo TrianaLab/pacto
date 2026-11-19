@@ -458,6 +458,9 @@ func TestPublishRefusals(t *testing.T) {
 	if res, _ = noAbs.Publish(ctx, PublishOptions{Path: dir, Plan: true}); res.Plan.Revision != "" {
 		t.Fatalf("an unresolvable path has no revision: %+v", res.Plan)
 	}
+	if _, err := noAbs.Publish(ctx, PublishOptions{Path: dir, Plan: true, SignKey: "cosign.key"}); err == nil || !strings.Contains(err.Error(), "--sign-key cosign.key") {
+		t.Fatalf("an unresolvable --sign-key is an error: %v", err)
+	}
 }
 
 // pushImage pushes a random image and returns its repo@digest.

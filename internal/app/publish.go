@@ -121,7 +121,7 @@ func (s *Service) Publish(ctx context.Context, opts PublishOptions) (*publish.Re
 	if opts.SignKey != "" {
 		// The derived section resolves a relative key against the contract
 		// directory, which is right only for a key the contract declares.
-		abs, err := filepath.Abs(opts.SignKey)
+		abs, err := s.env().absPath(opts.SignKey)
 		if err != nil {
 			return nil, fmt.Errorf("--sign-key %s: %w", opts.SignKey, err)
 		}

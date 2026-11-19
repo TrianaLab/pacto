@@ -83,7 +83,7 @@ func dropDetectedBuilds(dir string, raw []byte) ([]byte, []string) {
 	if v := contract.MapValue(root, "pactoVersion"); v != nil {
 		version = v.Value
 	}
-	if slices.Index(contract.SupportedVersions, version) < slices.Index(contract.SupportedVersions, buildOptionalFrom) {
+	if contract.Older(version, buildOptionalFrom) {
 		return raw, nil
 	}
 	arts := contract.MapValue(contract.MapValue(root, "publish"), "artifacts")
