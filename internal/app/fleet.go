@@ -206,6 +206,7 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 		return nil, err
 	}
 	return fleet.Build(ctx, fleet.BuildOptions{
+		DeclarationSigners:         s.declarationSigners(ctx, opts),
 		ExternalCatalog:            cat,
 		ExternalCatalogLimitations: catLims,
 		Now:                        opts.Now,
@@ -216,6 +217,17 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 		// planner's own build leaves this false.
 		DiscloseUncheckedFreshness: true,
 	}, sources...)
+}
+
+// declarationSigners is the installation signer policy a declared
+// revision's signer is judged with. Only the registry source checks
+// provenance, so only it can show a declaration's cluster facts: without it
+// none is read.
+func (s *Service) declarationSigners(ctx context.Context, opts FleetOptions) *fleet.DeclarationSignerPolicy {
+	if opts.Provenance == nil || len(opts.OCIRefs) == 0 || s.BundleStore == nil {
+		return nil
+	}
+	return opts.Provenance.DeclarationSigners(ctx)
 }
 
 // CheckDetectedRef refuses a --detected k8s: reference that does not name

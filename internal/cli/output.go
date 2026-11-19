@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -557,11 +558,43 @@ func printExplainInferred(w io.Writer, result *app.ExplainResult) {
 		_, _ = fmt.Fprintln(w, "\nTo declare in the configuration schema, under properties:")
 		_, _ = fmt.Fprintf(w, "  {%s}\n", strings.Join(config, ", "))
 	}
+	printExplainDeclaration(w, result)
+}
+
+// printExplainDeclaration prints who the record says declared the service
+// and how completely the cluster was read. Explain checks no signature, so
+// it says the signer is unchecked.
+func printExplainDeclaration(w io.Writer, result *app.ExplainResult) {
+	if d := result.Declaration; d != nil {
+		_, _ = fmt.Fprintf(w, "\nDeclared by %s (%s) from %s; signer not checked: run pacto pull --verify-identity\n", d.Asker.Subject, d.Asker.Issuer, cmp.Or(d.InferredFrom, "a folder"))
+	}
+	if n := len(result.InferredCoverage); n > 0 {
+		k := 0
+		for _, c := range result.InferredCoverage {
+			if c.State == contract.CoverageComplete {
+				k++
+			}
+		}
+		_, _ = fmt.Fprintf(w, "Cluster read: %d of %d sources complete\n", k, n)
+	}
+	if h := result.InferredHidden; h != nil {
+		_, _ = fmt.Fprintf(w, "Hidden from the cluster read: %d services, %d callers\n", h.Services, h.Callers)
+	}
 }
 
 // explainInferredLine is the line explain prints for the inferred field f.
 func explainInferredLine(f contract.Inferred) string {
 	line := fmt.Sprintf("  %s  inferred  %s  from %s", f.Field, f.Value, explainSource(f.Source))
+	if f.AsOf != "" {
+		line += " (read from the cluster " + f.AsOf
+		if f.Completeness == contract.CoveragePartial {
+			line += ", partial"
+		}
+		line += ")"
+	}
+	if f.Proposed != "" {
+		line += "; proposed " + f.Proposed
+	}
 	if f.Class == contract.InferredClassOwnerFile {
 		line += "; read from an owner file, not verified"
 	}

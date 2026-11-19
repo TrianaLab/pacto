@@ -2568,6 +2568,8 @@ export interface components {
             referrers: components["schemas"]["Fleet.ReferrersPreview"];
             referrersUnavailable?: string;
             signature: components["schemas"]["Fleet.BundleSignature"];
+            /** @description Every keyless identity whose signature of the digest verified, at most 5, sorted */
+            signers?: components["schemas"]["Fleet.VerifiedSigner"][] | null;
             source: string;
         };
         "Fleet.BundleSignature": {
@@ -2747,6 +2749,27 @@ export interface components {
             status: "done" | "planned" | "skipped" | "unknown" | "failed" | "not-applicable";
             /** @enum {string} */
             step: "signature" | "contract" | "validation" | "plugin" | "delivery" | "published" | "fleet" | "deployed" | "provisioning";
+        };
+        "Fleet.DeclarationView": {
+            /** @description The proposed ranges the declarer accepted, as <field> <range> */
+            accepted?: string[] | null;
+            /** @description The published version the declaration started from */
+            baseline?: string;
+            /** @description The declarer the record claims, unverified; set only when signatureChecked is false */
+            claimedSubject?: string;
+            /** @description The uid of the kube-system namespace of the cluster read */
+            cluster?: string;
+            /** @description The draft tag the declaration accepted */
+            draft?: string;
+            /** @description The inferred service the declaration came from, k8s:<namespace>/<kind>/<name> */
+            inferredFrom?: string;
+            /** @description You may not read the namespace the declaration came from, so its cluster facts are left out */
+            inferredFromHidden?: boolean;
+            /** @description A signature this reader verified names the declarer as a person */
+            signatureChecked: boolean;
+            signer?: components["schemas"]["Fleet.VerifiedSigner"];
+            /** @enum {string} */
+            state: "declared" | "draft";
         };
         "Fleet.DeclaredClaim": {
             compatibility?: string;
@@ -3330,12 +3353,25 @@ export interface components {
             truncated?: boolean;
             unresolved?: components["schemas"]["Fleet.Relationship"][] | null;
         };
+        "Fleet.InferredCoverageRow": {
+            reason?: string;
+            source: string;
+            /** @enum {string} */
+            state: "complete" | "partial" | "failed";
+        };
         "Fleet.InferredField": {
+            /** @description When the cluster fact was read (RFC 3339 UTC) */
+            asOf?: string;
             /**
              * @description ownerFile: read from CODEOWNERS or catalog-info.yaml; not verified; never clears a gate
              * @enum {string}
              */
             class?: "ownerFile";
+            /**
+             * @description partial when a node, pod or supporting source went unobserved
+             * @enum {string}
+             */
+            completeness?: "complete" | "partial";
             /**
              * @description How sure the inference is, set for a field of the inferred record: likely when a file states it, possible when only a convention suggests it
              * @enum {string}
@@ -3349,6 +3385,8 @@ export interface components {
              * @description Every lower-ranked source, set when outranks lists only the first MaxOutranks
              */
             outranksTotal?: number;
+            /** @description A semver range proposed for a dependency's compatibility, never declared */
+            proposed?: string;
             /** @enum {string} */
             provenance: "inferred";
             source: string;
@@ -3371,6 +3409,17 @@ export interface components {
              * @enum {string}
              */
             rule: "argocd" | "flux-kustomization" | "flux-helmrelease" | "helm" | "part-of" | "instance" | "workload";
+        };
+        "Fleet.InferredHiddenCounts": {
+            /** Format: int64 */
+            callers?: number;
+            /**
+             * Format: int64
+             * @description Cluster fields left out because you may not read the namespace the declaration came from
+             */
+            fields?: number;
+            /** Format: int64 */
+            services?: number;
         };
         "Fleet.InferredPort": {
             /** @description The object path Pacto read the port from */
@@ -4724,6 +4773,12 @@ export interface components {
             /** @enum {string} */
             status: "pass" | "fail" | "skip";
             unverified?: boolean;
+        };
+        "Fleet.VerifiedSigner": {
+            /** @enum {string} */
+            class: "human" | "agent" | "ci";
+            issuer: string;
+            subject: string;
         };
         GetSourcesOutputBody: {
             /** @description True while the first snapshot is still being built */
@@ -6193,6 +6248,7 @@ export interface components {
             capabilities: components["schemas"]["Fleet.CapabilitiesPreview"];
             configurations: components["schemas"]["ProductConfigurationsPreview"];
             current?: boolean;
+            declaration?: components["schemas"]["Fleet.DeclarationView"];
             dependencies: components["schemas"]["ProductRelationshipsPreview"];
             discoveryFindings: components["schemas"]["Fleet.DiscoveryFindingsPreview"];
             docs: components["schemas"]["Fleet.DocsPreview"];
@@ -6202,6 +6258,8 @@ export interface components {
             exactTargets: components["schemas"]["ProductRefPreview"];
             identity: components["schemas"]["Fleet.RevisionIdentity"];
             inferred?: components["schemas"]["Fleet.InferredField"][] | null;
+            inferredCoverage?: components["schemas"]["Fleet.InferredCoverageRow"][] | null;
+            inferredHidden?: components["schemas"]["Fleet.InferredHiddenCounts"];
             inferredTargets: components["schemas"]["ProductRefPreview"];
             /** Format: int64 */
             inferredTotal?: number;

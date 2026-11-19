@@ -79,6 +79,13 @@ type ExplainResult struct {
 	// InferredUnreadable is set when a pactoVersion 2.5 bundle ships a record
 	// Pacto could not read or verify: what it infers is unknown, not absent.
 	InferredUnreadable bool `json:"inferredUnreadable,omitempty"`
+	// InferredCoverage, InferredHidden and Declaration are set when the
+	// bundle is a declaration: how completely each cluster source was read,
+	// what that read could not see and who declared it. Explain checks no
+	// signature, so the declarer is what the record claims.
+	InferredCoverage []contract.InferredCoverage   `json:"inferredCoverage,omitempty"`
+	InferredHidden   *contract.InferredHidden      `json:"inferredHidden,omitempty"`
+	Declaration      *contract.InferredDeclaration `json:"declaration,omitempty"`
 	// AsOf is the RFC 3339 time of the explain, the time an environment's
 	// expires is compared with.
 	AsOf string `json:"asOf"`
@@ -305,6 +312,7 @@ func (s *Service) Explain(ctx context.Context, opts ExplainOptions) (*ExplainRes
 
 	if rec, unreadable := explainInferred(bundle); rec != nil {
 		result.Inferred, result.InferredFindings, result.InferredFindingsDropped = rec.Fields, rec.Findings, rec.FindingsDropped
+		result.InferredCoverage, result.InferredHidden, result.Declaration = rec.Coverage, rec.Hidden, rec.Declaration
 	} else {
 		result.InferredUnreadable = unreadable
 	}

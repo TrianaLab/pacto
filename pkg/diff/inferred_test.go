@@ -141,3 +141,83 @@ func TestDiffInferredIgnoresMigrations(t *testing.T) {
 		t.Fatalf("a migrations-only difference changed %+v", got)
 	}
 }
+
+// declaredFS is a bundle FS holding a declaration read from a cluster at
+// asOf: a fleet proposal of proposed, a coverage row of state and, when
+// accepted is set, that range accepted by the declarer.
+func declaredFS(t *testing.T, proposed, accepted, asOf, state string) fstest.MapFS {
+	t.Helper()
+	const obj = "billing/Deployment/invoices"
+	r := &contract.InferredRecord{Format: contract.InferredRecordFormat,
+		Inputs: contract.InferredInputs{Pacto: "4.6.0", Discovery: "1",
+			Cluster: &contract.InferredClusterInput{AsOf: asOf, Object: obj, CallWindow: "24h"}},
+		Fields: []contract.Inferred{{Field: "dependencies[ledger].compatibility", Value: "compatibility unknown", Proposed: proposed,
+			Source: "cluster:fleet reported versions 2.3.1", Confidence: contract.ConfidenceLikely, AsOf: asOf, Completeness: state}},
+		Coverage: []contract.InferredCoverage{{Source: contract.CoverageSources[0], State: state, Reason: map[string]string{contract.CoveragePartial: "forbidden"}[state]}},
+		Declaration: &contract.InferredDeclaration{State: contract.DeclarationDeclared,
+			Asker: contract.InferredSigner{Subject: "ana@acme.com", Issuer: "https://accounts.google.com", Class: contract.SignerClassHuman}}}
+	if accepted != "" {
+		r.Declaration.Accepted = []contract.InferredAcceptance{{Field: "dependencies[ledger].compatibility", Range: accepted}}
+	}
+	b := r.Marshal()
+	if _, err := contract.ParseInferredRecord(b); err != nil {
+		t.Fatalf("fixture must parse: %v", err)
+	}
+	return fstest.MapFS{contract.InferredRecordFile: {Data: b}}
+}
+
+func TestDiffInferredProposedChange(t *testing.T) {
+	c := bareContract()
+	r := Compare(context.Background(), c, c, declaredFS(t, "^2.3.0", "", "2026-11-14T10:00:00Z", contract.CoverageComplete),
+		declaredFS(t, "^2.4.0", "", "2026-11-14T10:00:00Z", contract.CoverageComplete))
+	got := inferredChanges(r)
+	if len(got) != 1 || got[0].Path != "inferred.dependencies[ledger].compatibility.proposed" || got[0].Type != Modified ||
+		got[0].OldValue != "^2.3.0" || got[0].NewValue != "^2.4.0" || r.Classification != NonBreaking {
+		t.Fatalf("changes %+v", got)
+	}
+}
+
+func TestDiffInferredIgnoresAsOfAndCoverage(t *testing.T) {
+	c := bareContract()
+	oldFS := declaredFS(t, "^2.3.0", "^2.3.0", "2026-11-14T10:00:00Z", contract.CoverageComplete)
+	newFS := declaredFS(t, "^2.3.0", "^2.3.0", "2026-11-15T08:00:00Z", contract.CoveragePartial)
+	if got := inferredChanges(Compare(context.Background(), c, c, oldFS, newFS)); len(got) != 0 {
+		t.Fatalf("a re-read with the same proposal and acceptance is no change: %+v", got)
+	}
+}
+
+func TestDiffInferredAcceptedChange(t *testing.T) {
+	c := bareContract()
+	none := declaredFS(t, "^2.3.0", "", "2026-11-14T10:00:00Z", contract.CoverageComplete)
+	accepted := declaredFS(t, "^2.3.0", "^2.3.0", "2026-11-14T10:00:00Z", contract.CoverageComplete)
+	widened := declaredFS(t, "^2.3.0", ">=2.3.0", "2026-11-14T10:00:00Z", contract.CoverageComplete)
+	const path = "inferred.declaration.accepted.dependencies[ledger].compatibility"
+	for _, tc := range []struct {
+		name     string
+		old, new fstest.MapFS
+		typ      ChangeType
+		oldV     any
+		newV     any
+	}{
+		{"accepted", none, accepted, Added, nil, "^2.3.0"},
+		{"withdrawn", accepted, none, Removed, "^2.3.0", nil},
+		{"changed", accepted, widened, Modified, "^2.3.0", ">=2.3.0"},
+	} {
+		got := inferredChanges(Compare(context.Background(), c, c, tc.old, tc.new))
+		if len(got) != 1 || got[0].Path != path || got[0].Type != tc.typ || got[0].OldValue != tc.oldV || got[0].NewValue != tc.newV || got[0].Classification != NonBreaking {
+			t.Errorf("%s: changes %+v", tc.name, got)
+		}
+	}
+}
+
+func TestDiffInferredProposalAddedAndRemoved(t *testing.T) {
+	c := bareContract()
+	with := declaredFS(t, "^2.3.0", "", "2026-11-14T10:00:00Z", contract.CoverageComplete)
+	without := declaredFS(t, "", "", "2026-11-14T10:00:00Z", contract.CoverageComplete)
+	if got := inferredChanges(Compare(context.Background(), c, c, without, with)); len(got) != 1 || got[0].Type != Added {
+		t.Errorf("added: %+v", got)
+	}
+	if got := inferredChanges(Compare(context.Background(), c, c, with, without)); len(got) != 1 || got[0].Type != Removed {
+		t.Errorf("removed: %+v", got)
+	}
+}

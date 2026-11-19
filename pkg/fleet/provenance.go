@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"slices"
 	"sort"
 	"time"
 )
@@ -64,6 +65,22 @@ type BundleProvenance struct {
 	ReferrersUnavailable string    `json:"referrersUnavailable,omitempty"`
 	Source               string    `json:"source"`
 	CheckedAt            time.Time `json:"checkedAt"`
+	// Signers is every keyless identity whose signature of the digest
+	// verified, whoever it names, sorted, at most MaxProvenanceSigners: read
+	// in the same check as Signature, which judges them against a publisher
+	// rule. A declaration's signer is matched against it.
+	Signers []VerifiedSigner `json:"signers,omitempty" doc:"Every keyless identity whose signature of the digest verified, at most 5, sorted"`
+}
+
+// MaxProvenanceSigners bounds BundleProvenance.Signers.
+const MaxProvenanceSigners = 5
+
+// VerifiedSigner is one keyless identity whose signature verified, and its
+// signer class (human, agent or ci).
+type VerifiedSigner struct {
+	Subject string `json:"subject"`
+	Issuer  string `json:"issuer"`
+	Class   string `json:"class" enum:"human,agent,ci"`
 }
 
 // SignatureTally buckets the in-use revisions of a service by signature status.
@@ -139,6 +156,7 @@ func cloneProvenance(p *BundleProvenance) *BundleProvenance {
 		return nil
 	}
 	c := *p
+	c.Signers = slices.Clone(p.Signers)
 	c.Referrers.Items = make([]OCIReferrer, len(p.Referrers.Items))
 	for i, r := range p.Referrers.Items {
 		r.Created = copyTime(r.Created)

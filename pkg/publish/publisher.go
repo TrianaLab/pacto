@@ -45,12 +45,12 @@ func SignersOf(ctx context.Context, reg Registry, root root.TrustedMaterial, tlo
 }
 
 // CheckPublisher judges who signed repo@digest against rules and pins: it is
-// SignersOf then delivery.JudgeSigners. Unsigned and unreadable are never
-// accepted.
+// SignersOf then delivery.JudgeSigners, and returns the signers it read too.
+// Unsigned and unreadable are never accepted.
 func CheckPublisher(ctx context.Context, reg Registry, root root.TrustedMaterial, tlog bool, repo, digest string,
-	service delivery.ServiceRef, source string, rules []delivery.PublisherRule, ruleSource string, pins []delivery.IdentityPin) delivery.PublisherVerdict {
+	service delivery.ServiceRef, source string, rules []delivery.PublisherRule, ruleSource string, pins []delivery.IdentityPin) (delivery.PublisherVerdict, []delivery.PublisherIdentity) {
 	signers, err := SignersOf(ctx, reg, root, tlog, repo, digest)
-	return JudgeRead(digest, signers, err, service, source, rules, ruleSource, pins)
+	return JudgeRead(digest, signers, err, service, source, rules, ruleSource, pins), signers
 }
 
 // JudgeRead judges what SignersOf read of digest: its signers through

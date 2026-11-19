@@ -19,9 +19,9 @@ const LimitationHiddenByPermissions = "HIDDEN_BY_PERMISSIONS"
 const hiddenMessage = "some services are hidden because Kubernetes permissions do not let you read their namespace"
 
 // Namespaces lists, sorted, the namespaces the snapshot's Kubernetes targets,
-// inferred services and k8s uncontracted callers run in, and the namespaces
-// its Kubernetes sources were told to read: the ones a caller's permissions
-// decide.
+// inferred services and k8s uncontracted callers run in, the namespaces
+// declared revisions came from, and the namespaces its Kubernetes sources
+// were told to read: the ones a caller's permissions decide.
 func (q *Query) Namespaces() []string {
 	seen := map[string]bool{}
 	for _, t := range q.snap.Targets {
@@ -34,6 +34,11 @@ func (q *Query) Namespaces() []string {
 	}
 	for _, c := range q.snap.UncontractedCallers {
 		if ns, ok := callerNamespace(c); ok {
+			seen[ns] = true
+		}
+	}
+	for _, r := range q.snap.Revisions {
+		if ns, ok := declarationNamespace(r); ok {
 			seen[ns] = true
 		}
 	}
@@ -194,7 +199,7 @@ func (q *Query) Restrict(visible func(namespace string) bool, workloadVisible fu
 		out.Targets[k] = t
 	}
 	out.Clusters = restrictClusters(s.Clusters, out.Targets)
-	out.Revisions = restrictRevisions(s, hiddenSvc, offeringOnly)
+	out.Revisions = restrictRevisions(s, hiddenSvc, offeringOnly, hiddenNS)
 	// The older revisions a golden path visible only as one drops are hidden
 	// like a hidden service's: nothing visible may resolve to or name them.
 	dropped := map[RevisionKey]bool{}
@@ -206,6 +211,7 @@ func (q *Query) Restrict(visible func(namespace string) bool, workloadVisible fu
 	}
 	restrictRevalidation(&out, append(slices.Clone(s.Relationships), s.templateEdges...), hiddenSvc, dropped)
 	hiddenDeps, hiddenDependents, hiddenConsumers, hiddenReferrers := restrictRelationships(&out, s.Relationships, hiddenSvc, dropped)
+	dropHiddenDeclarationEdges(&out)
 	restrictInferredEvidence(&out)
 	out.hiddenConsumers = hiddenConsumers
 	out.hiddenServices = hiddenSvc
@@ -307,13 +313,29 @@ func hiddenUseKeys(out *FleetSnapshot) map[provisioningKey]bool {
 	return keys
 }
 
+// dropHiddenDeclarationEdges removes from out every inferred edge read from
+// the cluster of a declaration whose namespace the viewer may not read: its
+// source names that namespace, so it goes with the cluster fields.
+// out.Relationships is the view's own list.
+func dropHiddenDeclarationEdges(out *FleetSnapshot) {
+	out.Relationships = slices.DeleteFunc(out.Relationships, func(r Relationship) bool {
+		rev := out.Revisions[r.FromRevision]
+		return rev != nil && rev.declarationHidden && slices.ContainsFunc(r.InferredSources, func(s InferredSource) bool { return clusterFact(s.Where) })
+	})
+}
+
 // restrictRevisions is the revisions of s's visible services. A golden path
 // visible only as one keeps only the revisions that declare service.template.
-func restrictRevisions(s *FleetSnapshot, hiddenSvc, offeringOnly map[ServiceKey]bool) map[RevisionKey]*ContractRevision {
+// A declared revision whose source namespace is in hiddenNS is a clone
+// without its cluster facts.
+func restrictRevisions(s *FleetSnapshot, hiddenSvc, offeringOnly map[ServiceKey]bool, hiddenNS map[string]bool) map[RevisionKey]*ContractRevision {
 	out := make(map[RevisionKey]*ContractRevision, len(s.Revisions))
 	for k, r := range s.Revisions {
 		if !hiddenSvc[r.ServiceKey] && (!offeringOnly[r.ServiceKey] || !s.Services[r.ServiceKey].Template || declaresTemplate(r)) {
 			out[k] = r
+			if ns, ok := declarationNamespace(r); ok && hiddenNS[ns] {
+				out[k] = hideDeclarationSource(r)
+			}
 		}
 	}
 	return out

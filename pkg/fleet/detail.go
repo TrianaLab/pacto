@@ -491,6 +491,11 @@ type InferredField struct {
 	// OutranksTotal counts every outranked source when Outranks was bounded.
 	OutranksTotal int    `json:"outranksTotal,omitempty" doc:"Every lower-ranked source, set when outranks lists only the first MaxOutranks"`
 	Provenance    string `json:"provenance" enum:"inferred"`
+	// AsOf, Completeness and Proposed are set on a cluster fact of a signed
+	// declaration only.
+	AsOf         string `json:"asOf,omitempty" doc:"When the cluster fact was read (RFC 3339 UTC)"`
+	Completeness string `json:"completeness,omitempty" enum:"complete,partial" doc:"partial when a node, pod or supporting source went unobserved"`
+	Proposed     string `json:"proposed,omitempty" doc:"A semver range proposed for a dependency's compatibility, never declared"`
 }
 
 // MaxInferredFields bounds the inferred fields a service or revision detail
@@ -527,7 +532,8 @@ func inferredFields(inf []contract.Inferred, rec *contract.InferredRecord) ([]In
 	var out []InferredField
 	for _, i := range all {
 		f := InferredField{Field: i.Field, Value: i.Value, Source: i.Source, Confidence: i.Confidence,
-			Class: i.Class, Outranks: slices.Clone(i.Outranks), Provenance: ProvenanceInferred}
+			Class: i.Class, Outranks: slices.Clone(i.Outranks), Provenance: ProvenanceInferred,
+			AsOf: i.AsOf, Completeness: i.Completeness, Proposed: i.Proposed}
 		if len(f.Outranks) > MaxOutranks {
 			f.OutranksTotal, f.Outranks = len(f.Outranks), f.Outranks[:MaxOutranks]
 		}
@@ -647,6 +653,12 @@ type RevisionDetailData struct {
 	// InferredUnreadable says the revision ships an inferred record Pacto could
 	// not read or verify, so its inferred fields are unknown.
 	InferredUnreadable bool `json:"inferredUnreadable,omitempty" doc:"The revision ships a pacto.inferred.yaml Pacto could not read or verify"`
+	// InferredCoverage, InferredHidden and Declaration are set when the
+	// revision is a declaration: how completely each cluster source was read,
+	// what the read and this view left out, and who declared it.
+	InferredCoverage []InferredCoverageRow `json:"inferredCoverage,omitempty"`
+	InferredHidden   *InferredHiddenCounts `json:"inferredHidden,omitempty"`
+	Declaration      *DeclarationView      `json:"declaration,omitempty"`
 	// DiscoveryFindings is what discovery recognized in the folder but could
 	// not read, at most MaxDiscoveryFindings.
 	DiscoveryFindings DiscoveryFindingsPreview `json:"discoveryFindings"`
@@ -1476,6 +1488,7 @@ func (q *Query) revisionDetail(key string) (*EntityDetail, error) {
 	data.MigratedFrom = migratedFrom(rev)
 	data.Inferred, data.InferredTotal = inferredFields(rev.Inferred, rev.Record)
 	data.DiscoveryFindings = discoveryFindings(rev.Record)
+	data.InferredCoverage, data.InferredHidden, data.Declaration = declarationDetail(rev)
 	return &EntityDetail{
 		Meta: q.productMeta(), Entity: revisionEntityRef(rev), Status: revisionStatus(rev),
 		Revision: data, Actions: []string{"open-graph", "compare", "impact"},
