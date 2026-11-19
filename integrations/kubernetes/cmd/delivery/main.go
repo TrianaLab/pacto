@@ -149,11 +149,7 @@ func runPromoter(args []string) error {
 	if err != nil {
 		return err
 	}
-	user := *controllerUser
-	if user == "" {
-		user = delivery.ServiceAccountUser(os.Getenv("POD_NAMESPACE"), os.Getenv("SERVICE_ACCOUNT"))
-	}
-	policy, err := delivery.LoadClassPolicy(*identities, user)
+	user, policy, err := promoterPolicy(*controllerUser, *identities)
 	if err != nil {
 		return err
 	}
@@ -218,6 +214,11 @@ func runPromoter(args []string) error {
 		Events: mgr.GetEventRecorderFor("pacto-delivery")}).SetupWithManager(mgr); err != nil {
 		return err
 	}
+	return startPromoter(mgr, user)
+}
+
+// startPromoter adds the promoter's health checks and runs the manager.
+func startPromoter(mgr manager.Manager, user string) error {
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		return err
 	}
@@ -226,6 +227,17 @@ func runPromoter(args []string) error {
 	}
 	ctrl.Log.Info("starting the Pacto delivery promoter", "version", version, "controllerUser", user)
 	return mgr.Start(ctrl.SetupSignalHandler())
+}
+
+// promoterPolicy resolves the promoter's own apiserver username (derived from
+// POD_NAMESPACE and SERVICE_ACCOUNT when user is empty) and loads the identity
+// policy for it.
+func promoterPolicy(user, identities string) (string, core.ClassPolicy, error) {
+	if user == "" {
+		user = delivery.ServiceAccountUser(os.Getenv("POD_NAMESPACE"), os.Getenv("SERVICE_ACCOUNT"))
+	}
+	policy, err := delivery.LoadClassPolicy(identities, user)
+	return user, policy, err
 }
 
 // addStats runs a run record emitter when repository is set and returns its
