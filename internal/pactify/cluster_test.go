@@ -621,7 +621,8 @@ func TestClusterDraftURLLiterals(t *testing.T) {
 		}
 	}
 	// ORDERS_URL's / in the password is one the scan's host reader never got past.
-	if !hasLine(r.Next, "manifests.yaml: DB_DSN (ledger), MIGRATE_DB_URL (db) held a URL") || hasLine(r.Next, "ORDERS_URL (") || hasLine(r.Next, "STRIPE_URL (") ||
+	// MIGRATE_DB_URL names db, which DATABASE_URL still lists as a dependency.
+	if !hasLine(r.Next, "manifests.yaml: DB_DSN (ledger) held a URL") || hasLine(r.Next, "MIGRATE_DB_URL (") || hasLine(r.Next, "ORDERS_URL (") || hasLine(r.Next, "STRIPE_URL (") ||
 		hasLine(r.Next, "DATABASE_URL") {
 		t.Fatalf("next steps: %q", r.Next)
 	}

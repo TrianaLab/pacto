@@ -238,9 +238,13 @@ hidden: {services: 1, callers: 2}
   The dependency keeps `compatibility: unknown` until a person declares one.
 - `coverage` lists the sources `workloads`, `pods`, `replicasets`, `jobs`,
   `services`, `endpointslices`, `pactos` and `runtime-calls`, each `complete`,
-  `partial` or `failed`. A source that is not `complete` has a fixed reason,
-  such as `stopped at the item bound (10000)` or `forbidden`, that names no
-  namespace and no object.
+  `partial` or `failed`. A source that is not `complete` has a fixed reason
+  that names no namespace and no object: `stopped at the item bound (<n>)`,
+  `forbidden`, `not found`, `timed out`, `the continue token expired`,
+  `listing failed (<HTTP status>)`, `listing failed (no response)` when the
+  API server never answered, `listing failed (malformed observation)`,
+  `<k> of <m> nodes observed`, `no node runtime observations` or
+  `<x> called services you may not read`.
 - `hidden` counts the Services the workload called and the callers of its own
   Services that a read on behalf of a viewer drops. It never names them.
 - Bundle verification refuses these keys until a signed declaration carries

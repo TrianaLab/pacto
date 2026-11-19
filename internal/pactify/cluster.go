@@ -220,6 +220,10 @@ func (cl *cluster) draft(ctx context.Context, w unstructured.Unstructured, base 
 			"so no value reaches the bundle. Before you apply it, create that Secret from a file of KEY=value lines: "+
 			"kubectl -n %s create secret generic %s --from-env-file=<file>", strings.Join(keys, ", "), values, them, secret, w.GetNamespace(), secret))
 	}
+	// A service another variable still lists as a dependency needs no line.
+	urls = slices.DeleteFunc(urls, func(u string) bool {
+		return slices.ContainsFunc(r.Dependencies, func(d Finding) bool { return strings.HasSuffix(u, " ("+d.Name+")") })
+	})
 	if len(urls) > 0 {
 		r.Next = append(r.Next, fmt.Sprintf("manifests.yaml: %s held a URL naming the service in brackets, which the draft now reads from a Secret, so the draft does not list "+
 			"that service as a dependency: add it under dependencies", strings.Join(urls, ", ")))
