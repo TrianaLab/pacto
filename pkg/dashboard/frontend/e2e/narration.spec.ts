@@ -96,8 +96,15 @@ test.describe('narration (G2)', () => {
           skip: [...fig.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Skip to final frame')?.getAttribute('aria-disabled'),
         }));
         if (snap.state === 'playing') expect(snap.skip).toBe('false');
-        if (snap.state === 'playing' && (await state(page, f.sel)) === 'playing') {
-          await skipOf(page, f.sel).click();
+        // Check and click in one task: a narration that ends between a read and a
+        // Playwright click leaves the click waiting on a disabled Skip until the timeout.
+        const skipped = snap.state === 'playing' && await page.locator(f.sel).evaluate((fig) => {
+          if (fig.getAttribute('data-narration') !== 'playing') return false;
+          const b = [...fig.querySelectorAll('button')].find((x) => x.textContent?.trim() === 'Skip to final frame');
+          b?.click();
+          return !!b;
+        });
+        if (skipped) {
           // Skip reaches the final frame in one frame.
           await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => r(null))));
           expect(await state(page, f.sel)).toBe('done');
