@@ -52,7 +52,7 @@ func registerCapabilitiesTool(server *mcpsdk.Server, a Authoring, m Modes) {
 		Description: "Report what this server serves: its modes (fleet, delivery, bundle or publish), the contract tools it offers, " +
 			"whether fleet, impact, observed edges and delivery are available, who you are to it (caller.user with callerSource " +
 			"reviewed, token or local; with delivery your class, whether the identity policy was read and classAsOf, when the class was read), whether writes are " +
-			"exposed (delivery propose and cancel for you, a bundle's mutating operations or pacto_publish) and the transport. Read-only.",
+			"exposed (delivery propose and cancel for you, a bundle's mutating operations, pacto_publish or declaration drafts) and the transport. Read-only.",
 		InputSchema: map[string]any{"type": "object"},
 	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, _ map[string]any) (*mcpsdk.CallToolResult, any, error) {
 		out, err := capabilities(ctx, req, a, m)
@@ -98,14 +98,19 @@ func capabilities(ctx context.Context, req *mcpsdk.CallToolRequest, a Authoring,
 		out.Modes = append(out.Modes, "publish")
 		out.Writes = true // pacto_publish pushes to the registry
 	}
-	out.Writes = out.Writes || out.Caller.Writes
+	// pacto_declare writes drafts over stdio only.
+	out.Writes = out.Writes || out.Caller.Writes || (a.Declare != nil && !a.Remote)
 	return out, nil
 }
 
 // authoringNames are the contract tools registerTools adds for a.
 func authoringNames(a Authoring) []string {
+	names := []string{"pacto_create", "pacto_edit", "pacto_check", "pacto_schema"}
 	if a.Remote {
-		return []string{"pacto_schema"}
+		names = names[3:]
 	}
-	return []string{"pacto_create", "pacto_edit", "pacto_check", "pacto_schema"}
+	if a.Declare != nil {
+		names = append(names, "pacto_declare")
+	}
+	return names
 }

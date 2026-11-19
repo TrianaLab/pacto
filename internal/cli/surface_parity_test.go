@@ -354,15 +354,22 @@ func ciRows() []surfaceRow {
 	)
 }
 
-// declareRows map pacto declare, CLI side: pacto_declare arrives in this
-// story's MCP phase.
+// declareRows map pacto declare and pacto_declare, the agent write
+// contract's first tool: the agent's dry_run and intent_digest are the
+// person's --yes and --intent.
 func declareRows() []surfaceRow {
-	const why = "pacto_declare arrives in this story's MCP phase; the dashboard Declare panel is 513-S6"
-	const whyLocal = "a person's local signing and folders; MCP never signs a declared record"
+	const why = "the dashboard Declare panel is 513-S6"
+	const whyLocal = "a person's local signing: MCP callers are agents and never sign a declared record"
 	return slices.Concat(
-		[]surfaceRow{{"declare <service>", "", "", why}},
-		alike("declare", "", "", why, "namespace", "registry", "accept", "intent", "max-items", "call-window", "yes"),
-		alike("declare", "", "", whyLocal, "dir", "from-draft", "sign-key", "oidc-issuer-url", "oidc-client-id", "device", "fulcio-url", "timestamp-url",
+		[]surfaceRow{
+			{"declare <service>", "pacto_declare.service", "", why},
+			{"declare --intent", "pacto_declare.intent_digest", "", why},
+			{"declare --yes", "pacto_declare.dry_run", "", why + "; dry_run false writes a draft, --yes publishes after a person's login"},
+			{"declare --dir", "pacto_declare.dir", "", why + "; over MCP dir is stdio only"},
+			{"", "pacto_declare.on_behalf_of", "", "an MCP caller is an agent and names the person it acts for; the CLI runs as that person; " + why},
+		},
+		alike("declare", "pacto_declare", "", why, "namespace", "registry", "accept", "max-items", "call-window"),
+		alike("declare", "", "", whyLocal, "from-draft", "sign-key", "oidc-issuer-url", "oidc-client-id", "device", "fulcio-url", "timestamp-url",
 			"rekor-url", "trusted-root"),
 	)
 }

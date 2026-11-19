@@ -278,7 +278,8 @@ func remoteCallerFor(cmd *cobra.Command, svc *app.Service, version string, args 
 	}
 	// This path always answers over HTTP.
 	m.Transport = "http"
-	a := pactomcp.Authoring{Validate: svc.ValidationReport, Remote: true}
+	ociRefs, _ := cmd.Flags().GetStringArray("oci")
+	a := pactomcp.Authoring{Validate: svc.ValidationReport, Remote: true, Declare: newRemoteDeclarer(svc, ociRefs, m.Fleet)}
 	// The modes register the same way on every request, so a bundle that
 	// cannot register fails here, at startup, and reports what it skipped once.
 	shared, err := pactomcp.New(version, a, m)

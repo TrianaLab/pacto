@@ -228,6 +228,7 @@ the note says where that answer lives instead.
 | Edit a contract | - | `pacto_edit` | - | People edit `pacto.yaml` and run `pacto validate` |
 | Is this contract valid? | `pacto validate` | `pacto_check` | - | The dashboard validates nothing |
 | What may a contract say? | - | `pacto_schema` | - | The JSON Schema is published with the docs |
+| Declare a running service | `pacto declare` | `pacto_declare` | - | An agent writes a draft a person accepts with `pacto declare --from-draft`; over HTTP the tool only plans |
 
 For one fleet, the three surfaces return the same `asOf`, `completeness`,
 `limitations` and unknown counts. The dashboard, and MCP with `--dashboard-url`,

@@ -129,7 +129,7 @@ func TestDeclareAmbientHumanTokenWritesDraft(t *testing.T) {
 	t.Setenv("SIGSTORE_ID_TOKEN", personToken("ana@acme.com"))
 	calls := e.login(personToken("ana@acme.com"))
 	res := e.declare(t, e.req("ledger"))
-	if !res.Draft || !res.Signed || res.Tag != "draft-1" || *calls != 0 || res.Plan.AcceptCLI != "pacto declare invoices --from-draft draft-1" ||
+	if !res.Draft || !res.Signed || res.Tag != "draft-1" || *calls != 0 || res.Plan.AcceptCLI != "pacto declare invoices --registry "+e.host+"/acme --from-draft draft-1" ||
 		!slices.ContainsFunc(res.Plan.Notes, func(n string) bool { return strings.Contains(n, "--from-draft") }) {
 		t.Fatalf("%+v", res)
 	}
@@ -164,7 +164,7 @@ func TestDeclareCITokenWritesDraft(t *testing.T) {
 	req := e.req("ledger")
 	req.OnBehalfOf = "ana"
 	res := e.declare(t, req)
-	if res.Tag != "draft-1" || !res.Signed || res.Plan.AcceptCLI != "pacto declare invoices --from-draft draft-1" {
+	if res.Tag != "draft-1" || !res.Signed || res.Plan.AcceptCLI != "pacto declare invoices --registry "+e.host+"/acme --from-draft draft-1" {
 		t.Fatalf("%+v", res)
 	}
 	_, rec := e.pulled(t, "draft-1")

@@ -40,10 +40,16 @@ const remoteInstructions = contractIntro + schemaSentence + remoteAuthoringSente
 const remoteAuthoringSentence = "Over this HTTP server only pacto_schema is offered from the contract tools; " +
 	"pacto_create, pacto_edit and pacto_check run beside the agent over stdio, from pacto mcp --transport stdio."
 
-// baseFor is the instructions for the contract tools a server registers.
+// baseFor is the instructions for the contract tools a server registers,
+// with pacto_declare named only when it registers.
 func baseFor(a Authoring) string {
-	if a.Remote {
+	switch {
+	case a.Remote && a.Declare != nil:
+		return remoteInstructions + " " + remoteDeclareSentence
+	case a.Remote:
 		return remoteInstructions
+	case a.Declare != nil:
+		return stdioInstructions + " " + declareSentence
 	}
 	return stdioInstructions
 }
@@ -96,12 +102,16 @@ type FromRequest struct {
 // content cannot steer an agent into picking the classifier. Nil is the
 // default catalog. CatalogUnavailable says why the organization catalog the
 // server names could not be read.
+//
+// Declare, when set, registers pacto_declare: over stdio it plans and writes
+// drafts, over HTTP it plans with the caller's own credentials only.
 type Authoring struct {
 	Validate           Validator
 	Init               Initializer
 	Remote             bool
 	Catalog            *externalcatalog.Catalog
 	CatalogUnavailable string
+	Declare            Declarer
 }
 
 // newBareServer builds a server with no tools registered at all. A mode whose
@@ -141,6 +151,9 @@ func registerTools(server *mcpsdk.Server, version string, a Authoring, opts Edit
 		addTool(server, checkTool(), checkHandler(a.Validate))
 	}
 	addTool(server, schemaTool(), schemaHandler(a.Remote))
+	if a.Declare != nil {
+		registerDeclare(server, a.Declare, a.Remote)
+	}
 }
 
 // jsonResult marshals v to JSON and returns it as a CallToolResult with text content.

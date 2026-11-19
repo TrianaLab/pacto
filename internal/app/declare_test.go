@@ -267,7 +267,7 @@ func TestPlanAmbientTokenPlansDraft(t *testing.T) {
 	req.OnBehalfOf = "ana"
 	p, d := e.plan(t, req)
 	dec := d.record.Declaration
-	if p.State != contract.DeclarationDraft || p.Signer.Source != signerAmbient || p.Signer.Subject != "ana@acme.com" || p.AcceptCLI != "pacto declare invoices --from-draft <tag>" ||
+	if p.State != contract.DeclarationDraft || p.Signer.Source != signerAmbient || p.Signer.Subject != "ana@acme.com" || p.AcceptCLI != "pacto declare invoices --registry "+e.host+"/acme --from-draft <tag>" ||
 		!slices.ContainsFunc(p.Notes, func(n string) bool { return strings.Contains(n, "an ambient OIDC token is set") }) ||
 		dec.State != contract.DeclarationDraft || len(dec.Requested) != 1 || len(dec.Accepted) != 0 || dec.OnBehalfOf != "ana" {
 		t.Fatalf("%+v\n%s", p, d.record.Marshal())
