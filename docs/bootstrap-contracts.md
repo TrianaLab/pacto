@@ -183,8 +183,9 @@ ConfigMap.
   per kind (10000 by default).
 - `--call-window` sets how far back a call counts as a dependency (24h by
   default).
-- A run stopped by `--max-items` prints a `Continue:` line with the same
-  command and `--continue <token>`. Run it to resume the read where it
+- A run `--max-items` stopped while listing workloads prints a `Continue:`
+  line with the same command and `--continue <token>`. Another kind of object
+  cut short stays `partial`, and a resumed run lists it again. Run it to resume the read where it
   stopped. A token made for other namespaces is refused.
 - A kind of object your identity may not list reads as `failed` with
   `forbidden`, and the run goes on. The run fails only when it reads no
@@ -197,7 +198,8 @@ ConfigMap.
 Each draft holds a `manifests.yaml` with the workload and its Services as the
 cluster returns them, without namespace, uid or status. It also holds a
 `pacto.yaml` and a `.pactoignore`. `--plan` writes nothing. A workload that a
-Pacto targets is skipped. A container environment variable that sets a
+Pacto targets is skipped. When the Pactos were not all read, the draft of a
+workload says under `Unknown` that a Pacto may already describe it. A container environment variable that sets a
 sensitive key to a literal value is read in the draft from the Secret
 `<name>-env`; create it before you apply the draft with
 `kubectl -n <ns> create secret generic <name>-env --from-env-file=<file>`, from

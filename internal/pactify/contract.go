@@ -432,10 +432,16 @@ func (p *planner) completeCluster(declared *contract.Contract, planned map[strin
 			n++
 		}
 	}
-	p.found("Pacto completed %d values from the cluster in %s (read %s)", n, contract.InferredRecordFile, rec.Inputs.Cluster.AsOf)
 	if p.file(contract.InferredRecordFile, string(rec.Marshal())) == Keep {
+		// The result says what the folder holds: the kept record, nil when it
+		// does not parse.
+		data, _ := os.ReadFile(filepath.Join(p.r.Dir, contract.InferredRecordFile))
+		p.r.Inferred, _ = contract.ParseInferredRecord(data)
+		p.found("the cluster read at %s was not written: %s from an earlier read was kept", rec.Inputs.Cluster.AsOf, contract.InferredRecordFile)
 		p.next("%s is from an earlier read: delete it and run again to record what the cluster shows now", contract.InferredRecordFile)
+		return nil
 	}
+	p.found("Pacto completed %d values from the cluster in %s (read %s)", n, contract.InferredRecordFile, rec.Inputs.Cluster.AsOf)
 	return nil
 }
 

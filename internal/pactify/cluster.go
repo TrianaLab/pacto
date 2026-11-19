@@ -127,6 +127,13 @@ func Cluster(ctx context.Context, dyn dynamic.Interface, base Options, c Cluster
 	if len(nss) == 0 {
 		nss = []string{metav1.NamespaceAll}
 	}
+	// A namespace the viewer may not read is never listed, so no bound row
+	// counts what it holds. The refusal names only what the caller asked for.
+	// ponytail: a read of every namespace still counts hidden ones toward the
+	// bound rows; 513-S3 scopes a viewer's read to the namespaces it may see.
+	if i := slices.IndexFunc(nss, func(ns string) bool { return c.Visible != nil && ns != metav1.NamespaceAll && !c.Visible(ns) }); i >= 0 {
+		return nil, fmt.Errorf("the namespace %s is not one you may read", nss[i])
+	}
 	cur, err := decodeContinue(c.Continue, nss)
 	if err != nil {
 		return nil, err
@@ -172,7 +179,7 @@ func (c *ClusterOptions) defaults() error {
 	case c.CallWindow < time.Minute:
 		return errors.New("the call window (--call-window) must be at least a minute")
 	case c.Visible != nil && c.Continue != "":
-		return errors.New("--continue is not available when reading on behalf of another person")
+		return errors.New("a continue token is not available when reading on behalf of another person")
 	}
 	return nil
 }
@@ -230,6 +237,9 @@ func (cl *cluster) draft(ctx context.Context, w unstructured.Unstructured, base 
 	}
 	if !cl.observed {
 		r.Unknown = append(r.Unknown, "dependencies seen at runtime: the cluster holds no node runtime observations, so no calls were seen")
+	}
+	if p, ok := cl.coverage["pactos"]; ok && p.State != contract.CoverageComplete {
+		r.Unknown = append(r.Unknown, fmt.Sprintf("whether a Pacto already describes this workload: the Pacto list was %s (%s), so this draft may duplicate a contract", p.State, p.Reason))
 	}
 	r.Unknown = append(r.Unknown, cl.unobserved(w)...)
 	return r, err
@@ -433,16 +443,12 @@ func (rd *reader) page(r schema.GroupVersionResource, ns, source string, optiona
 			rd.mark(source, contract.CoverageFailed, failure(err))
 			return items, "", false, fmt.Errorf("listing %s: %w", r.Resource, err)
 		}
-		got := l.Items
+		// ponytail: a server ignoring Limit sends more than left; the whole page
+		// is kept, so the bound overshoots by that page and no item is skipped
+		// on resume.
 		tok = l.GetContinue()
-		if len(got) > left { // ponytail: only a server ignoring Limit sends more; resuming then re-reads this list
-			got = got[:left]
-			rd.mark(source, contract.CoveragePartial, fmt.Sprintf("stopped at the item bound (%d)", rd.max))
-			rd.count[source] += len(got)
-			return append(items, got...), tok, true, nil
-		}
-		rd.count[source] += len(got)
-		items = append(items, got...)
+		rd.count[source] += len(l.Items)
+		items = append(items, l.Items...)
 		if tok == "" {
 			return items, "", false, nil
 		}
@@ -517,9 +523,9 @@ func decodeContinue(token string, nss []string) (cursor, error) {
 	}
 	switch {
 	case err != nil || got.I < 0 || got.I >= len(nss) || got.K < 0 || got.K >= len(workloadKinds):
-		return c, errors.New("the continue token is malformed: run again without --continue")
+		return c, errors.New("the continue token is malformed: run again without the token")
 	case got.N != c.N:
-		return c, errors.New("the continue token was made for other namespaces: run again without --continue")
+		return c, errors.New("the continue token was made for other namespaces: run again without the token")
 	}
 	return got, nil
 }
@@ -530,7 +536,9 @@ func decodeContinue(token string, nss []string) (cursor, error) {
 // the host. With no observation at all the draft already says so once.
 func (cl *cluster) unobserved(w unstructured.Unstructured) []string {
 	var out []string
+	pods := 0
 	cl.eachPod(w, func(p unstructured.Unstructured, node string, o runtimefacts.Observed) {
+		pods++
 		if o.Facts != nil {
 			return
 		}
@@ -545,6 +553,9 @@ func (cl *cluster) unobserved(w unstructured.Unstructured) []string {
 			out = append(out, line)
 		}
 	})
+	if cl.observed && pods == 0 {
+		out = append(out, "dependencies seen at runtime: no pod of the workload was running on a node when the cluster was read, so no calls were seen")
+	}
 	sort.Strings(out)
 	return out
 }
@@ -574,21 +585,35 @@ func (cl *cluster) facts(w unstructured.Unstructured, deps []Inferred, snap bool
 		f.Snapshots = []string{"manifests.yaml"}
 	}
 	asOf, k, m := cl.nodesObserved(w)
-	partial := k < m || f.Hidden.Services > 0 || !cl.complete("pods", "replicasets", "services", "endpointslices")
+	partial := k < m || f.Hidden.Services > 0 || !cl.complete("pods", "replicasets", "jobs", "services", "endpointslices")
 	for _, d := range deps {
 		f.Calls = append(f.Calls, discover.ClusterCall{Name: d.Name, Ref: d.Ref, Proposed: proposedRange(d.Versions), Versions: reportedVersions(d.Versions),
 			AsOf: asOf, Partial: partial || len(d.Unknown) > 0 || !cl.complete("pactos")})
 	}
 	f.Coverage = cl.rows()
 	rc := &f.Coverage[len(f.Coverage)-1] // runtime-calls, for this workload
-	switch {
-	case rc.State != contract.CoverageComplete:
-	case f.Hidden.Services > 0:
-		*rc = contract.InferredCoverage{Source: rc.Source, State: contract.CoveragePartial, Reason: fmt.Sprintf("%d called services you may not read", f.Hidden.Services)}
-	case k < m:
-		*rc = contract.InferredCoverage{Source: rc.Source, State: contract.CoveragePartial, Reason: fmt.Sprintf("%d of %d nodes observed", k, m)}
+	if reason := cl.callsCut(f.Hidden.Services, k, m); rc.State == contract.CoverageComplete && reason != "" {
+		*rc = contract.InferredCoverage{Source: rc.Source, State: contract.CoveragePartial, Reason: reason}
 	}
 	return f
+}
+
+// callsCut is why a workload's runtime calls were not all seen, "" when they
+// were: a called Service is hidden, a node of its pods was not observed, its
+// pods may not all be tied to it, or none of its pods ran on a node, so a
+// workload with no call seen never reads as calling nothing.
+func (cl *cluster) callsCut(hidden, k, m int) string {
+	switch {
+	case hidden > 0:
+		return fmt.Sprintf("%d called services you may not read", hidden)
+	case k < m:
+		return fmt.Sprintf("%d of %d nodes observed", k, m)
+	case !cl.complete("pods", "replicasets", "jobs"):
+		return "the pods were not all read"
+	case m == 0:
+		return "no running pods observed"
+	}
+	return ""
 }
 
 // nodesObserved is how many (k) of the m nodes w's pods run on showed every
@@ -637,7 +662,7 @@ func (cl *cluster) hidden(w unstructured.Unstructured) contract.InferredHidden {
 var digestRE = regexp.MustCompile(`@(sha256:[0-9a-f]{64})$`)
 
 // images are the digests the containers of w's pods run, partial when the
-// pods were not all read.
+// pods, or the ReplicaSets and Jobs that tie them to w, were not all read.
 func (cl *cluster) images(w unstructured.Unstructured) []discover.ClusterImage {
 	var out []discover.ClusterImage
 	for _, p := range cl.pods {
@@ -646,7 +671,7 @@ func (cl *cluster) images(w unstructured.Unstructured) []discover.ClusterImage {
 			name, _ := discover.Dig(st, "name").(string)
 			id, _ := discover.Dig(st, "imageID").(string)
 			if m := digestRE.FindStringSubmatch(id); m != nil && name != "" && cl.owner(p) == key(w) {
-				out = append(out, discover.ClusterImage{Container: name, Digest: m[1], Partial: !cl.complete("pods")})
+				out = append(out, discover.ClusterImage{Container: name, Digest: m[1], Partial: !cl.complete("pods", "replicasets", "jobs")})
 			}
 		}
 	}

@@ -887,16 +887,47 @@ func TestReadClusterPagesWithLimitAndContinue(t *testing.T) {
 // TestReadClusterBoundStopsSourcePartial: a source with more items than the
 // bound keeps the bound's worth and reads partial, saying why.
 func TestReadClusterBoundStopsSourcePartial(t *testing.T) {
-	objs := []runtime.Object{deployment("shop", "checkout", "reg.io/acme/checkout:1.4.0")}
-	for i := range 400 {
-		objs = append(objs, service("shop", fmt.Sprintf("s-%03d", i), "10.0.0.1"))
-	}
-	cl := fakeCluster(objs...)
-	paged(cl, "services")
-	b, err := Cluster(context.Background(), cl, Options{Plan: true}, ClusterOptions{Out: t.TempDir(), MaxItems: 300}, nil)
-	want := contract.InferredCoverage{Source: "services", State: contract.CoveragePartial, Reason: "stopped at the item bound (300)"}
-	if err != nil || coverage(t, b, "services") != want || coverage(t, b, "workloads").State != contract.CoverageComplete {
+	cl := fakeCluster(manyPods(400)...)
+	paged(cl, "pods")
+	b, err := Cluster(context.Background(), cl, Options{Plan: true}, ClusterOptions{Namespaces: []string{"shop"}, Out: t.TempDir(), MaxItems: 300}, nil)
+	want := contract.InferredCoverage{Source: "pods", State: contract.CoveragePartial, Reason: "stopped at the item bound (300)"}
+	if err != nil || coverage(t, b, "pods") != want || coverage(t, b, "workloads").State != contract.CoverageComplete {
 		t.Fatalf("coverage %+v: %v", b.Coverage, err)
+	}
+}
+
+// TestReadClusterServerIgnoringLimitSkipsNothing: a server that sends more
+// than Limit asks for has the whole page kept, so the token resumes after
+// what was read and no workload is skipped.
+func TestReadClusterServerIgnoringLimitSkipsNothing(t *testing.T) {
+	cl := fakeCluster(deployment("a", "a1", "x:1"), deployment("a", "a2", "x:1"), deployment("a", "a3", "x:1"))
+	cl.PrependReactor("list", "deployments", func(a k8stesting.Action) (bool, runtime.Object, error) {
+		la := a.(k8stesting.ListActionImpl)
+		o, _ := cl.Tracker().List(la.Resource, la.Kind, la.Namespace)
+		l := o.(*unstructured.UnstructuredList)
+		slices.SortFunc(l.Items, func(a, b unstructured.Unstructured) int { return strings.Compare(a.GetName(), b.GetName()) })
+		from, _ := strconv.Atoi(la.ListOptions.Continue)
+		to := min(from+2, len(l.Items)) // two a page, whatever Limit says
+		if to < len(l.Items) {
+			l.SetContinue(strconv.Itoa(to))
+		}
+		l.Items = l.Items[from:to]
+		return true, l, nil
+	})
+	c := ClusterOptions{Namespaces: []string{"a"}, Out: t.TempDir(), MaxItems: 1}
+	var got []string
+	for range 3 {
+		b, err := Cluster(context.Background(), cl, Options{Plan: true}, c, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, drafted(b)...)
+		if c.Continue = b.Continue; c.Continue == "" {
+			break
+		}
+	}
+	if !slices.Equal(got, []string{"a1", "a2", "a3"}) {
+		t.Fatalf("drafted %v", got)
 	}
 }
 
@@ -1042,7 +1073,7 @@ func TestClusterContinueOtherNamespacesRefused(t *testing.T) {
 	}
 	cl := fiveDeployments()
 	_, err = Cluster(context.Background(), cl, Options{Plan: true}, ClusterOptions{Namespaces: []string{"a"}, Out: t.TempDir(), Continue: b.Continue}, nil)
-	if err == nil || err.Error() != "the continue token was made for other namespaces: run again without --continue" || len(cl.Actions()) != 0 {
+	if err == nil || err.Error() != "the continue token was made for other namespaces: run again without the token" || len(cl.Actions()) != 0 {
 		t.Fatalf("%v, %d reads", err, len(cl.Actions()))
 	}
 }
@@ -1270,7 +1301,7 @@ func TestViewerContinueRefused(t *testing.T) {
 	cl := fiveDeployments()
 	c := ClusterOptions{Out: t.TempDir(), Continue: "x", Visible: onlyShop}
 	if _, err := Cluster(context.Background(), cl, Options{Plan: true}, c, nil); err == nil ||
-		err.Error() != "--continue is not available when reading on behalf of another person" || len(cl.Actions()) != 0 {
+		err.Error() != "a continue token is not available when reading on behalf of another person" || len(cl.Actions()) != 0 {
 		t.Fatalf("%v, %d reads", err, len(cl.Actions()))
 	}
 }
@@ -1294,11 +1325,20 @@ func TestViewerNilChangesNothing(t *testing.T) {
 	}
 }
 
-// TestViewerDropsHiddenWorkloads: a namespace the viewer may not read gets
-// no draft, even when the read names it.
-func TestViewerDropsHiddenWorkloads(t *testing.T) {
+// TestViewerRefusesHiddenNamespace: a namespace the viewer may not read is
+// refused before any read, with the same words whether it exists or not, so
+// no bound row counts what it holds; a visible one is read as asked.
+func TestViewerRefusesHiddenNamespace(t *testing.T) {
 	now := time.Now()
-	c := ClusterOptions{Namespaces: []string{"vault", "shop"}, Out: t.TempDir(), Now: func() time.Time { return now }, Visible: onlyShop}
+	for _, objs := range [][]runtime.Object{viewerShop(now), nil} {
+		cl := fakeCluster(objs...)
+		c := ClusterOptions{Namespaces: []string{"vault", "shop"}, Out: t.TempDir(), MaxItems: 1, Now: func() time.Time { return now }, Visible: onlyShop}
+		if b, err := Cluster(context.Background(), cl, Options{Plan: true}, c, nil); b != nil || err == nil ||
+			err.Error() != "the namespace vault is not one you may read" || len(cl.Actions()) != 0 {
+			t.Fatalf("%+v: %v, %d reads", b, err, len(cl.Actions()))
+		}
+	}
+	c := ClusterOptions{Namespaces: []string{"shop"}, Out: t.TempDir(), Now: func() time.Time { return now }, Visible: onlyShop}
 	b, err := Cluster(context.Background(), fakeCluster(viewerShop(now)...), Options{Plan: true}, c, nil)
 	if err != nil || !slices.Equal(drafted(b), []string{"invoices"}) || len(b.Skipped) != 0 {
 		t.Fatalf("%v %+v: %v", drafted(b), b, err)

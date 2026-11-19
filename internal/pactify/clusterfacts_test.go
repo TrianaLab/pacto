@@ -3,6 +3,7 @@ package pactify
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -218,6 +219,23 @@ func TestClusterKeepsExistingRecord(t *testing.T) {
 	}
 }
 
+// TestClusterKeptRecordNeverClaimedWritten: a run that keeps an earlier
+// record says its own read was not written, and its result is the record on
+// disk.
+func TestClusterKeptRecordNeverClaimedWritten(t *testing.T) {
+	now := time.Now()
+	out := t.TempDir()
+	draftInvoices(t, now, out, false, invoicesShop(now)...)
+	r := draftInvoices(t, now.Add(time.Hour), out, false, invoicesShop(now)...)
+	later := now.Add(time.Hour).UTC().Format(time.RFC3339)
+	if hasLine(r.Found, "values from the cluster in") || !hasLine(r.Found, "the cluster read at "+later+" was not written: pacto.inferred.yaml from an earlier read was kept") {
+		t.Fatalf("%v", r.Found)
+	}
+	if got, want := string(r.Inferred.Marshal()), string(readRecord(t, r.Dir).Marshal()); got != want {
+		t.Fatalf("result:\n%s\non disk:\n%s", got, want)
+	}
+}
+
 func TestClusterDraftIsPacto25(t *testing.T) {
 	now := time.Now()
 	r := draftInvoices(t, now, t.TempDir(), true, invoicesShop(now)...)
@@ -287,12 +305,26 @@ func TestClusterFieldPartialWhenSupportingSourceCut(t *testing.T) {
 func TestClusterImagePartialWhenPodsBounded(t *testing.T) {
 	now := time.Now()
 	c := ClusterOptions{Namespaces: []string{"shop"}, Out: t.TempDir(), MaxItems: 1, Now: func() time.Time { return now }}
-	b, err := Cluster(context.Background(), fakeCluster(invoicesShop(now)...), Options{Plan: true}, c, nil)
+	cl := fakeCluster(invoicesShop(now)...)
+	paged(cl, "pods")
+	b, err := Cluster(context.Background(), cl, Options{Plan: true}, c, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if f := recordField(t, result(t, b, "invoices").Inferred, "image.digest[invoices]"); f.Completeness != "partial" {
 		t.Fatalf("%+v", f)
+	}
+}
+
+// TestClusterImagePartialWhenOwnersCut: a digest is partial when the
+// ReplicaSets or Jobs that tie pods to the workload were not all read, since
+// a pod of an unread one is not counted.
+func TestClusterImagePartialWhenOwnersCut(t *testing.T) {
+	for _, source := range []string{"replicasets", "jobs"} {
+		f := invoicesFacts(t, map[string]string{source: "failed"})
+		if !f.Images[0].Partial || !f.Calls[0].Partial {
+			t.Errorf("%s failed: images %+v, calls %+v", source, f.Images, f.Calls)
+		}
 	}
 }
 
@@ -434,5 +466,53 @@ func TestReportedVersionsBounded(t *testing.T) {
 	}
 	if reportedVersions([]string{"2.3.1", "2.4.0"}) != "2.3.1, 2.4.0" {
 		t.Fatal("short list changed")
+	}
+}
+
+// runtimeRow is the runtime-calls row of r's record.
+func runtimeRow(r *Result) contract.InferredCoverage {
+	return r.Inferred.Coverage[len(r.Inferred.Coverage)-1]
+}
+
+// TestClusterNoRunningPodNeverCallsNothing: a workload none of whose pods
+// ran on a node, or whose pods could not be tied to it, reads its runtime
+// calls as partial and says why, never as a complete "calls nothing".
+func TestClusterNoRunningPodNeverCallsNothing(t *testing.T) {
+	now := time.Now()
+	scaled := slices.DeleteFunc(invoicesShop(now), func(o runtime.Object) bool { return o.(*unstructured.Unstructured).GetKind() == "Pod" })
+	r := draftInvoices(t, now, t.TempDir(), true, scaled...)
+	if runtimeRow(r) != (contract.InferredCoverage{Source: "runtime-calls", State: "partial", Reason: "no running pods observed"}) ||
+		!hasLine(r.Unknown, "no pod of the workload was running on a node when the cluster was read, so no calls were seen") {
+		t.Fatalf("scaled to 0: %+v %v", runtimeRow(r), r.Unknown)
+	}
+	c := ClusterOptions{Namespaces: []string{"shop"}, Out: t.TempDir(), Now: func() time.Time { return now }}
+	cl := failing(fakeCluster(invoicesShop(now)...), "replicasets", apierrors.NewForbidden(schema.GroupResource{Resource: "replicasets"}, "", errors.New("no")))
+	b, err := Cluster(context.Background(), cl, Options{Plan: true}, c, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := runtimeRow(result(t, b, "invoices")); got != (contract.InferredCoverage{Source: "runtime-calls", State: "partial", Reason: "the pods were not all read"}) {
+		t.Fatalf("replicasets forbidden: %+v", got)
+	}
+}
+
+// TestClusterPactosCutNeverSilentDraft: when the Pactos could not all be
+// read, a workload a Pacto describes may be drafted, and its draft says that
+// whether a Pacto describes it is unknown; read in full, it is skipped.
+func TestClusterPactosCutNeverSilentDraft(t *testing.T) {
+	now := time.Now()
+	objs := append(invoicesShop(now), obj("pacto.trianalab.io/v1alpha1", "Pacto", "shop", "invoices", map[string]any{
+		"spec": map[string]any{"target": map[string]any{"serviceName": "invoices", "workloadRef": map[string]any{"name": "invoices", "kind": "Deployment"}}}}))
+	c := ClusterOptions{Namespaces: []string{"shop"}, Out: t.TempDir(), Now: func() time.Time { return now }}
+	b, err := Cluster(context.Background(), fakeCluster(objs...), Options{Plan: true}, c, nil)
+	if err != nil || !slices.Equal(b.Skipped, []string{"shop/Deployment/invoices"}) {
+		t.Fatalf("read in full: %+v: %v", b, err)
+	}
+	cl := failing(fakeCluster(objs...), "pactos", apierrors.NewForbidden(schema.GroupResource{Resource: "pactos"}, "", errors.New("no")))
+	if b, err = Cluster(context.Background(), cl, Options{Plan: true}, c, nil); err != nil {
+		t.Fatal(err)
+	}
+	if r := result(t, b, "invoices"); !hasLine(r.Unknown, "whether a Pacto already describes this workload: the Pacto list was failed (forbidden), so this draft may duplicate a contract") {
+		t.Fatalf("%v", r.Unknown)
 	}
 }
