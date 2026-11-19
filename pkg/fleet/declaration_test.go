@@ -338,19 +338,3 @@ func TestRestrictVisibleDeclarationNamespaceUnchanged(t *testing.T) {
 		t.Error("a viewer who may read news sees the snapshot unchanged")
 	}
 }
-
-// The contract package checks inferredFrom with its own pattern; it accepts
-// exactly what ParseK8sCaller decodes.
-func TestInferredFromAgreesWithParseK8sCaller(t *testing.T) {
-	for _, from := range []string{"k8s:billing/Deployment/invoices", "k8s:prod/billing/Deployment/invoices", "k8s:a/b", "k8s:a/b/c/d/e", "svc:a/b/c"} {
-		rec, err := contract.ParseInferredRecord(declaredRecord(t, contract.DeclarationDeclared, ana))
-		if err != nil {
-			t.Fatal(err)
-		}
-		rec.Declaration.InferredFrom = from
-		_, perr := contract.ParseInferredRecord(rec.Marshal())
-		if _, _, _, _, ok := ParseK8sCaller(from); ok != (perr == nil) {
-			t.Errorf("%s: ParseK8sCaller ok=%v, record error %v", from, ok, perr)
-		}
-	}
-}

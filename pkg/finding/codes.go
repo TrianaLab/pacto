@@ -72,7 +72,7 @@ const (
 	CodeEnvironmentValuesUnverified    Code = "ENVIRONMENT_VALUES_UNVERIFIED"  // no schema file in the bundle to check an environment's values against
 	CodeInferredRecordInvalid          Code = "INFERRED_RECORD_INVALID"        // pacto.inferred.yaml is malformed or cites a file the bundle lacks or holds with another digest
 	CodeDeclarationRangeNotAccepted    Code = "DECLARATION_RANGE_NOT_ACCEPTED" // pacto.yaml declares a range the record only proposed and the declaration did not accept
-	CodeDeclarationAcceptedMismatch    Code = "DECLARATION_ACCEPTED_MISMATCH"  // a range the declaration accepted is not the compatibility pacto.yaml declares
+	CodeDeclarationAcceptedMismatch    Code = "DECLARATION_ACCEPTED_MISMATCH"  // a range the declaration accepted, or a draft requested, is not the compatibility pacto.yaml declares
 
 	// Family 1 — confirmed violations (emitted only by Evaluate). Registry: {RuntimeDrift, Error}.
 	CodeWorkloadMismatch      Code = "WORKLOAD_MISMATCH"

@@ -22,11 +22,16 @@ func declarationStage(result *ValidationResult, c *contract.Contract, rec *contr
 		declared["dependencies["+dep.Name+"].compatibility"] = dep.Compatibility
 	}
 	accepted := make(map[string]bool, len(d.Accepted)+len(d.Requested))
-	for _, a := range append(append([]contract.InferredAcceptance(nil), d.Accepted...), d.Requested...) {
-		accepted[a.Field] = true
-		if got, ok := declared[a.Field]; !ok || got != a.Range {
-			result.AddError(contract.InferredRecordFile, string(finding.CodeDeclarationAcceptedMismatch),
-				"the declaration accepts "+a.Range+" on "+a.Field+", but pacto.yaml declares "+declaredText(got, ok))
+	for _, l := range []struct {
+		verb string
+		list []contract.InferredAcceptance
+	}{{"accepts", d.Accepted}, {"requests", d.Requested}} {
+		for _, a := range l.list {
+			accepted[a.Field] = true
+			if got, ok := declared[a.Field]; !ok || got != a.Range {
+				result.AddError(contract.InferredRecordFile, string(finding.CodeDeclarationAcceptedMismatch),
+					"the declaration "+l.verb+" "+a.Range+" on "+a.Field+", but pacto.yaml declares "+declaredText(got, ok))
+			}
 		}
 	}
 	for _, f := range rec.Fields {

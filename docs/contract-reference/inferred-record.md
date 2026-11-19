@@ -279,7 +279,7 @@ declaration:
 | Key | Meaning |
 |---|---|
 | `state` | `declared`, signed through a person's Sigstore login, or `draft`, written by anyone else |
-| `asker` | The identity that signed: `subject`, `issuer` and `class` (`human`, `agent` or `ci`). A declared record needs `human`, a draft never has it. An unsigned draft has exactly `{subject: "", issuer: none, class: agent}` |
+| `asker` | The identity that signed: `subject`, `issuer` and `class` (`human`, `agent` or `ci`). A declared record needs `human`, a draft never has it. An unsigned draft has exactly `{subject: "", issuer: none, class: agent}`, a draft signed with a key `{subject: "", issuer: key, class: agent}`, and a draft whose token names no readable identity has issuer `unknown` |
 | `onBehalfOf` | On a draft only: the person an agent asserts it acts for, never verified |
 | `inferredFrom` | The inferred service it came from, `k8s:<namespace>/<Kind>/<name>` |
 | `cluster` | The uid of the cluster's `kube-system` namespace, left out when it could not be read |
@@ -288,8 +288,12 @@ declaration:
 | `requested` | On a draft only: each proposed range the agent asks a person to accept |
 | `draft` | On a declared record that accepted a draft: the draft's tag, digest, signer and `onBehalfOf` |
 
-- Validation checks the block against `pacto.yaml`: each accepted range is the
-  declared `compatibility`, and each other proposed range stays `unknown`.
+- Validation checks the block against `pacto.yaml`: each accepted or
+  requested range is the declared `compatibility`
+  (`DECLARATION_ACCEPTED_MISMATCH`), and each other proposed range stays
+  `unknown` (`DECLARATION_RANGE_NOT_ACCEPTED`). A draft's `pacto.yaml`
+  declares the ranges it requests; accepting it sets them back to `unknown`
+  unless the person accepts them again.
 - A reader shows the cluster facts of a declared record only when the bundle
   carries a signature it verified naming exactly `asker` and its installation
   signer policy allows that person. Otherwise the cluster facts, `coverage`

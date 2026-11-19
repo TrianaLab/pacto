@@ -83,7 +83,8 @@ func TestDeclarationStageRefusesAcceptedMismatch(t *testing.T) {
 	rec.Declaration = &contract.InferredDeclaration{State: contract.DeclarationDraft,
 		Asker:     contract.InferredSigner{Issuer: contract.SignerUnsigned, Class: contract.SignerClassAgent},
 		Requested: []contract.InferredAcceptance{ledger("^2.3.0")}}
-	if got, r := declarationCodes(t, "unknown", rec); !reflect.DeepEqual(got, []string{"DECLARATION_ACCEPTED_MISMATCH"}) {
+	if got, r := declarationCodes(t, "unknown", rec); !reflect.DeepEqual(got, []string{"DECLARATION_ACCEPTED_MISMATCH"}) ||
+		!strings.Contains(r.Errors[0].Message, "the declaration requests ^2.3.0 on dependencies[ledger].compatibility") {
 		t.Fatalf("codes = %v, errors %+v", got, r.Errors)
 	}
 }
