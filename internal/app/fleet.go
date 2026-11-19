@@ -107,15 +107,30 @@ type FleetOptions struct {
 	// Now overrides the build clock (freshness classification); defaults to
 	// time.Now. Injected in tests for deterministic staleness.
 	Now func() time.Time
+	// Index names the organization index impact reads: "" derives
+	// <registry>/pacto-index from the provider reference, IndexNone reads
+	// none, anything else is the repository. Only impact reads it.
+	Index string
 	// extraSources join the configured ones. Impact uses it to add the new
 	// revision when no configured source holds the changed service.
 	extraSources []fleet.Source
+	// indexSrc is the organization index impact reads, nil for none.
+	indexSrc *indexSource
 }
 
 // hasTargetInput reports whether o names a source of targets: a cluster, a
 // target-state file, an Evidence Server or a target snapshot.
 func (o FleetOptions) hasTargetInput() bool {
 	return o.IncludeK8s || len(o.TargetStateFiles) > 0 || len(o.EvidenceURLs) > 0 || len(o.TargetSnapshot) > 0
+}
+
+// addedSources are the sources impact adds: extraSources, then the
+// organization index when it reads one.
+func (o FleetOptions) addedSources() []fleet.Source {
+	if o.indexSrc == nil {
+		return o.extraSources
+	}
+	return append(slices.Clone(o.extraSources), o.indexSrc)
 }
 
 // ConsumerSources names, one printable entry each, the sources set in o that
@@ -217,7 +232,7 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 	}
 	sources = append(sources, s.detectionSources(opts.Detected)...)
 	sources = append(sources, snaps...)
-	sources = append(sources, opts.extraSources...)
+	sources = append(sources, opts.addedSources()...)
 	if err := checkSourceIDsAreUnique(sources); err != nil {
 		return nil, err
 	}

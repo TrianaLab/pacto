@@ -42,6 +42,9 @@ type Service struct {
 	catalogs catalogLoader
 	// snapshots remembers the target snapshot bundles read across builds.
 	snapshots targetSnapshotCache
+	// indexListings remembers organization index reads and, with no cache
+	// directory, their entries.
+	indexListings indexMemo
 }
 
 // sysDeps are the clock, filesystem, entropy and network the Service touches. A

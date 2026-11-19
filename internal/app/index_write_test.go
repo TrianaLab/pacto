@@ -302,7 +302,7 @@ func TestIndexRepositoryPrefersFirstRoot(t *testing.T) {
 	seedIndex(t, ir.host+"/acme/pacto-index")
 	seedIndex(t, ir.host+"/pacto-index")
 	svc := &Service{sys: sysDeps{refusalRepo: anonRepo}}
-	repo, note, err := svc.indexRepository(t.Context(), indexCandidates("", ir.host+"/acme/contracts/ledger"))
+	repo, note, _, err := svc.indexRepository(t.Context(), indexCandidates("", ir.host+"/acme/contracts/ledger"))
 	if err != nil || repo != ir.host+"/acme/pacto-index" || note != "" {
 		t.Fatalf("%q %q %v", repo, note, err)
 	}
@@ -312,12 +312,12 @@ func TestIndexRepositoryFallsThroughOnNotFound(t *testing.T) {
 	ir := newIndexReg(t)
 	svc := &Service{sys: sysDeps{refusalRepo: anonRepo}}
 	cands := indexCandidates("", ir.host+"/acme/contracts/ledger")
-	repo, _, err := svc.indexRepository(t.Context(), cands)
+	repo, _, _, err := svc.indexRepository(t.Context(), cands)
 	if !errors.Is(err, errIndexNotFound) || repo != ir.host+"/acme/pacto-index" {
 		t.Fatalf("every candidate absent: %q %v", repo, err)
 	}
 	seedIndex(t, ir.host+"/pacto-index")
-	repo, note, err := svc.indexRepository(t.Context(), cands)
+	repo, note, _, err := svc.indexRepository(t.Context(), cands)
 	if err != nil || repo != ir.host+"/pacto-index" || note != "after "+ir.host+"/acme/pacto-index: not found" {
 		t.Fatalf("fallback: %q %q %v", repo, note, err)
 	}
@@ -336,12 +336,12 @@ func TestIndexRepositoryStopsOnAuthFailure(t *testing.T) {
 		return true
 	}
 	svc := &Service{sys: sysDeps{refusalRepo: anonRepo}}
-	repo, _, err := svc.indexRepository(t.Context(), indexCandidates("", ir.host+"/acme/contracts/ledger"))
+	repo, _, _, err := svc.indexRepository(t.Context(), indexCandidates("", ir.host+"/acme/contracts/ledger"))
 	if err == nil || errors.Is(err, errIndexNotFound) || repo != ir.host+"/acme/pacto-index" {
 		t.Fatalf("a denied candidate fell through: %q %v", repo, err)
 	}
 	// A candidate that cannot be opened stops too.
-	if _, _, err := svc.indexRepository(t.Context(), []string{"Bad Host/pacto-index"}); err == nil || errors.Is(err, errIndexNotFound) {
+	if _, _, _, err := svc.indexRepository(t.Context(), []string{"Bad Host/pacto-index"}); err == nil || errors.Is(err, errIndexNotFound) {
 		t.Fatalf("unopenable: %v", err)
 	}
 }

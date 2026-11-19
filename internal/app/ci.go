@@ -715,7 +715,8 @@ func (s *Service) ciImpacts(ctx context.Context, p *ci.Plan, folders []*ciFolder
 		if opts.OnResolved != nil {
 			opts.OnResolved(f.row.Service)(f.base, f.b)
 		}
-		io := ImpactOptions{OldPath: "oci://" + f.row.Repository + "@" + f.row.BaselineDigest, NewPath: f.dir, Domain: contract.OCIDomain(f.row.Repository), Fleet: fo}
+		// The rebuild that adds the index keeps the planned revisions.
+		io := ImpactOptions{OldPath: "oci://" + f.row.Repository + "@" + f.row.BaselineDigest, NewPath: f.dir, Domain: contract.OCIDomain(f.row.Repository), Fleet: withChanges}
 		res, err := fenced.impactOnResolved(ctx, io, snap, true, f.base, f.b)
 		if err != nil {
 			f.decide(impact.GateUnverified, "impact: "+err.Error())

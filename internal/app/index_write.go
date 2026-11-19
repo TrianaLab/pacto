@@ -48,17 +48,16 @@ func indexCandidates(override, providerRepo string) []string {
 	return out
 }
 
-// indexRepository is the first candidate that lists a tag, with a note
-// naming the absent candidates it fell through. Only a definite not found
+// indexRepository is the first candidate that lists a tag, with its tags and
+// a note naming the absent candidates it fell through. Only a definite not found
 // (NAME_UNKNOWN, a 404) or an empty listing falls through: any other error
 // stops at that candidate, so a denied index never hides behind another.
 // Every candidate absent returns the first with errIndexNotFound.
-func (s *Service) indexRepository(ctx context.Context, candidates []string) (repo, note string, err error) {
+func (s *Service) indexRepository(ctx context.Context, candidates []string) (repo, note string, tags []string, err error) {
 	env := s.env()
 	var absent []string
 	for _, c := range candidates {
 		r, err := env.refusalRepo(c)
-		var tags []string
 		if err == nil {
 			tags, err = ocireferrer.Tags(ctx, r, "")
 		}
@@ -67,13 +66,13 @@ func (s *Service) indexRepository(ctx context.Context, candidates []string) (rep
 			if len(absent) > 0 {
 				note = "after " + strings.Join(absent, ", ") + ": not found"
 			}
-			return c, note, nil
+			return c, note, tags, nil
 		case err != nil && !registryNotFound(err):
-			return c, "", err
+			return c, "", nil, err
 		}
 		absent = append(absent, c)
 	}
-	return candidates[0], "", fmt.Errorf("%w at %s", errIndexNotFound, strings.Join(candidates, " or "))
+	return candidates[0], "", nil, fmt.Errorf("%w at %s", errIndexNotFound, strings.Join(candidates, " or "))
 }
 
 // registryNotFound reports whether a registry answered that a repository
@@ -115,7 +114,7 @@ func (s *Service) writeIndexEntry(ctx context.Context, b *contract.Bundle, bundl
 	env := s.env()
 	key := fleet.NewServiceKeyDomain(contract.OCIDomain(bundleRepo), b.Contract.Service.Name)
 	mode := s.registryMode(ctx, bundleRepo, digest)
-	repo, note, err = s.indexRepository(ctx, indexCandidates(override, bundleRepo))
+	repo, note, _, err = s.indexRepository(ctx, indexCandidates(override, bundleRepo))
 	if err != nil && !errors.Is(err, errIndexNotFound) {
 		return repo, "", "", err
 	}

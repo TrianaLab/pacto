@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/lock"
 	"github.com/trianalab/pacto/v4/pkg/logging"
 	"github.com/trianalab/pacto/v4/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/orgindex"
 	"github.com/trianalab/pacto/v4/pkg/otelobserver"
 	"github.com/trianalab/pacto/v4/pkg/override"
 )
@@ -65,6 +67,7 @@ func (s *Service) Impact(ctx context.Context, opts ImpactOptions) (*impact.Resul
 	if opts.OnResolved != nil {
 		opts.OnResolved(oldBundle, newBundle)
 	}
+	opts.Fleet.indexSrc, _ = s.consumerIndex(opts, newBundle)
 	opts, look, _ := s.deriveTargetSnapshot(ctx, opts)
 	snap, err := s.Fleet(ctx, opts.Fleet)
 	if err != nil {
@@ -140,27 +143,27 @@ func (s *Service) ImpactOnSnapshot(ctx context.Context, opts ImpactOptions, snap
 }
 
 // impactOnResolved is [Service.ImpactOnSnapshot] with the revisions resolved.
+// With addMissing and no index source from the caller, it adds the
+// organization index (Decision 12): one rebuild carries the index and, when
+// no source holds the changed service, the new revision.
 func (s *Service) impactOnResolved(ctx context.Context, opts ImpactOptions, snap *fleet.FleetSnapshot, addMissing bool, oldBundle, newBundle *contract.Bundle) (*impact.Result, error) {
-	var err error
+	var skipped impact.ConsumerIndex
+	created := false
+	if opts.Fleet.indexSrc == nil && addMissing {
+		opts.Fleet.indexSrc, skipped = s.consumerIndex(opts, newBundle)
+		created = opts.Fleet.indexSrc != nil
+	}
 	domain := opts.domain(snap, newBundle.Contract.Service.Name)
 	opts.Domain = domain
 	added := addMissing && snap.Services[fleet.NewServiceKeyDomain(domain, newBundle.Contract.Service.Name)] == nil
-	if added {
-		rev := fleet.RawRevision{Bundle: newBundle, Domain: domain, RequestedRef: opts.NewPath}
-		// The content digest the local source gives its bundles, so the added
-		// revision has the same identity it would have had from --local.
-		if h, err := lock.HashFS(contract.WithoutInferredRecord(newBundle.FS)); err == nil {
-			rev.Digest = h
-		}
-		withNew := opts.Fleet
-		withNew.extraSources = append(slices.Clone(opts.Fleet.extraSources), fleet.NewMemorySource("new-revision", "argument", &fleet.Collection{
-			Revisions: []fleet.RawRevision{rev},
-		}))
-		if snap, err = s.Fleet(ctx, withNew); err != nil {
+	if added || created {
+		var err error
+		if snap, err = s.Fleet(ctx, withNewRevision(opts, newBundle, added)); err != nil {
 			return nil, fmt.Errorf("build fleet snapshot: %w", err)
 		}
 	}
-	res, err := s.analyzeImpact(ctx, opts, snap, oldBundle, newBundle)
+	ix, indexed := opts.Fleet.indexSrc.result(skipped)
+	res, err := s.analyzeImpact(ctx, opts, snap, oldBundle, newBundle, ix, indexed)
 	if err != nil {
 		return nil, err
 	}
@@ -168,13 +171,67 @@ func (s *Service) impactOnResolved(ctx context.Context, opts ImpactOptions, snap
 	return res, nil
 }
 
+// withNewRevision is opts.Fleet with the new revision as one more source
+// when add is set.
+func withNewRevision(opts ImpactOptions, newBundle *contract.Bundle, add bool) FleetOptions {
+	withNew := opts.Fleet
+	if !add {
+		return withNew
+	}
+	rev := fleet.RawRevision{Bundle: newBundle, Domain: opts.Domain, RequestedRef: opts.NewPath}
+	// The content digest the local source gives its bundles, so the added
+	// revision has the same identity it would have had from --local.
+	if h, err := lock.HashFS(contract.WithoutInferredRecord(newBundle.FS)); err == nil {
+		rev.Digest = h
+	}
+	withNew.extraSources = append(slices.Clone(opts.Fleet.extraSources), fleet.NewMemorySource("new-revision", "argument", &fleet.Collection{
+		Revisions: []fleet.RawRevision{rev},
+	}))
+	return withNew
+}
+
+// consumerIndex is the organization index source of a change, pure: none
+// for a pair of local folders (nothing to derive it from, nothing printed),
+// skipped with a reason for --index none or a --root list, else a source
+// reading the candidates of the provider's repository.
+func (s *Service) consumerIndex(opts ImpactOptions, newBundle *contract.Bundle) (*indexSource, impact.ConsumerIndex) {
+	providerRepo := cmp.Or(ociRepo(opts.OldPath), ociRepo(opts.NewPath))
+	skipped := func(reason string) impact.ConsumerIndex {
+		return impact.ConsumerIndex{Status: impact.IndexSkipped, Completeness: fleet.CompletenessEmpty, Reason: reason}
+	}
+	switch {
+	case providerRepo == "":
+		return nil, impact.ConsumerIndex{}
+	case opts.Fleet.Index == IndexNone:
+		return nil, skipped("--index none")
+	case opts.Fleet.Index == "" && len(opts.Fleet.CatalogRoots) > 0:
+		return nil, skipped("--root names the consumers")
+	}
+	domain := cmp.Or(opts.Domain, revisionDomain(opts.NewPath), revisionDomain(opts.OldPath))
+	return &indexSource{
+		svc:        s,
+		candidates: indexCandidates(opts.Fleet.Index, providerRepo),
+		provider:   orgindex.Provider{Repo: providerRepo, Key: fleet.NewServiceKeyDomain(domain, newBundle.Contract.Service.Name)},
+	}, impact.ConsumerIndex{}
+}
+
+// ociRepo is the repository an oci:// reference names, "" for anything else.
+func ociRepo(ref string) string {
+	parsed := graph.ParseDependencyRef(ref)
+	if !parsed.IsOCI() {
+		return ""
+	}
+	repo, _, _ := contract.SplitOCIRef(parsed.Location)
+	return repo
+}
+
 // domain is the changed service's fleet domain: Domain when set, else the
 // domain of the reference that resolved the new revision. A local new
 // revision of a published old one (oci://ghcr.io/acme/ledger:2.3.0
 // ./services/ledger) takes the old ref's domain only when a target snapshot
-// was read (its consumers name the published domain) and no source holds the
-// service in the default domain, so local consumers (--local, --root) keep
-// resolving it (Decision 14).
+// or the organization index is read (their consumers name the published
+// domain) and no source holds the service in the default domain, so local
+// consumers (--local, --root) keep resolving it (Decision 14).
 func (o ImpactOptions) domain(snap *fleet.FleetSnapshot, name string) string {
 	if o.Domain != "" {
 		return o.Domain
@@ -182,7 +239,7 @@ func (o ImpactOptions) domain(snap *fleet.FleetSnapshot, name string) string {
 	if d := revisionDomain(o.NewPath); d != "" {
 		return d
 	}
-	if len(o.Fleet.TargetSnapshot) > 0 && snap.Services[fleet.NewServiceKeyDomain("", name)] == nil {
+	if (len(o.Fleet.TargetSnapshot) > 0 || o.Fleet.indexSrc != nil) && snap.Services[fleet.NewServiceKeyDomain("", name)] == nil {
 		return revisionDomain(o.OldPath)
 	}
 	return ""
@@ -209,7 +266,7 @@ func (s *Service) resolveImpactPair(ctx context.Context, opts ImpactOptions) (ol
 	return oldBundle, newBundle, nil
 }
 
-func (s *Service) analyzeImpact(ctx context.Context, opts ImpactOptions, snap *fleet.FleetSnapshot, oldBundle, newBundle *contract.Bundle) (*impact.Result, error) {
+func (s *Service) analyzeImpact(ctx context.Context, opts ImpactOptions, snap *fleet.FleetSnapshot, oldBundle, newBundle *contract.Bundle, ix *impact.ConsumerIndex, indexed func(fleet.ServiceKey) bool) (*impact.Result, error) {
 	if err := refuseHidden(snap, opts.OldPath, oldBundle.Contract, opts.NewPath, newBundle.Contract); err != nil {
 		return nil, err
 	}
@@ -225,6 +282,8 @@ func (s *Service) analyzeImpact(ctx context.Context, opts ImpactOptions, snap *f
 			IncludeObserved:  opts.IncludeObserved,
 			ObservedEdges:    observed,
 			NameInferredFrom: nameInferredFrom(oldBundle, newBundle),
+			Index:            ix,
+			Indexed:          indexed,
 		})
 	res.TargetSnapshots = targetSnapshotStates(snap)
 	return res, nil

@@ -287,7 +287,8 @@ func TestImpactAutoSkippedWithTargetInput(t *testing.T) {
 	e := newSnapEnv(t)
 	root, ev := testutil.ImpactFleet(t, "^1.0.0")
 	res, err := ordersService(t).Impact(t.Context(), ImpactOptions{OldPath: e.ordersRef("1.0.0"), NewPath: e.ordersRef("2.0.0"), TargetSnapshotAuto: true,
-		Fleet: FleetOptions{LocalRoots: []string{root}, TargetStateFiles: []string{ev}}})
+		// IndexNone: this counts snapshot lookups, and the index is read on the same registry.
+		Fleet: FleetOptions{LocalRoots: []string{root}, TargetStateFiles: []string{ev}, Index: IndexNone}})
 	if err != nil || res.Registry != nil || e.reqs.Load() != 0 {
 		t.Fatalf("registry %+v, requests %d, %v", res.Registry, e.reqs.Load(), err)
 	}
@@ -347,7 +348,8 @@ func TestSnapshotInferredNeverClearsGate(t *testing.T) {
 func TestSnapshotWorkloadSourceHealthNeverGates(t *testing.T) {
 	e := newSnapEnv(t)
 	e.push(t, e.key, snapA, webappSnapshot(snapA, e.host(), "^2.0.0", snapNow))
-	fo := FleetOptions{TargetSnapshot: []string{"oci://" + e.repo}, TargetSnapshotTrustFile: trustFile(t, e.scoped("rec", snapA)), Now: func() time.Time { return snapNow }}
+	// IndexNone: the test registry holds no organization index, which reads partial.
+	fo := FleetOptions{TargetSnapshot: []string{"oci://" + e.repo}, TargetSnapshotTrustFile: trustFile(t, e.scoped("rec", snapA)), Now: func() time.Time { return snapNow }, Index: IndexNone}
 	fo.extraSources = []fleet.Source{fleet.NewMemorySource("more"+workloadsSuffix, fleet.SourceKindKubernetesWorkloads, &fleet.Collection{
 		State: &fleet.SourceState{Status: fleet.SourcePartial}, Limitations: []fleet.Limitation{{Code: "WORKLOADS_UNREADABLE", Message: "no list"}}})}
 	res, err := ordersService(t).Impact(t.Context(), ImpactOptions{OldPath: e.ordersRef("1.0.0"), NewPath: e.ordersRef("2.0.0"), Fleet: fo})

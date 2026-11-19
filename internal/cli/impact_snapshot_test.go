@@ -189,7 +189,9 @@ func TestImpactPrintsDeniedAndUnusedSnapshots(t *testing.T) {
 func TestImpactTargetSnapshotOff(t *testing.T) {
 	host, trust := webappTargets(t, "^1.0.0")
 	out, _, err := runImpact(t, host, "--delivery-trust", trust, "--target-snapshot", "off")
-	if strings.Contains(out, "Registry:") || strings.Contains(out, "Targets:") || impactExit(err) != 0 {
+	// The test registry holds no organization index, so the BREAKING change
+	// ends unverified rather than clear.
+	if strings.Contains(out, "Registry:") || strings.Contains(out, "Targets:") || impactExit(err) != 2 {
 		t.Fatalf("err %v:\n%s", err, out)
 	}
 	if _, _, err := runImpact(t, host, "--target-snapshot", "auto", "--target-snapshot", "oci://"+host+"/acme/pacto-targets"); err == nil || !strings.Contains(err.Error(), "not a mix") {

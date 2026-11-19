@@ -123,7 +123,8 @@ func TestCIClearNeedsConsumerSource(t *testing.T) {
 		t.Fatalf("row = %+v", r)
 	}
 	file := targets(t, "other")
-	p, _ = e.planWith(t, FleetOptions{TargetStateFiles: []string{file}})
+	// IndexNone: the test registry holds no organization index, which reads partial.
+	p, _ = e.planWith(t, FleetOptions{TargetStateFiles: []string{file}, Index: IndexNone})
 	if r := row(t, p, "reports"); r.Impact.Text != "clear" || p.Exit != 0 || !slices.Equal(r.Impact.Sources, []string{"target-state"}) {
 		t.Fatalf("row = %+v", r)
 	}
@@ -244,7 +245,8 @@ func TestCIOneSnapshot(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	t.Cleanup(srv.Close)
-	fo := FleetOptions{EvidenceURLs: []string{srv.URL}}
+	// IndexNone: reading the index rebuilds the snapshot per changed service.
+	fo := FleetOptions{EvidenceURLs: []string{srv.URL}, Index: IndexNone}
 	if _, err := e.svc.Fleet(context.Background(), fo); err != nil {
 		t.Fatal(err)
 	}
@@ -394,7 +396,8 @@ func TestCIPlanMakesNoWrites(t *testing.T) {
 	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "t")
 	t.Setenv("PACTO_STATS_REGISTRY", stats+"/stats")
 	rec.reset()
-	p, res := e.planWith(t, FleetOptions{TargetStateFiles: []string{targets(t, "other")}})
+	// IndexNone: the test registry holds no organization index, which reads partial.
+	p, res := e.planWith(t, FleetOptions{TargetStateFiles: []string{targets(t, "other")}, Index: IndexNone})
 	if row(t, p, "reports").Impact.Text != "clear" || row(t, p, "ledger").Changed != "no" || row(t, p, "billing").Impact.Text != "first publish, clear" || len(res) != 1 {
 		t.Fatalf("rows = %+v", p.Rows)
 	}
