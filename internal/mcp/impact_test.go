@@ -169,3 +169,14 @@ func TestImpactToolSaysHTTPReadsNoTargetSnapshot(t *testing.T) {
 		t.Fatal(d)
 	}
 }
+
+// TestImpactToolDescriptionNamesIndex: the description says how the
+// organization index is read and which servers never read it.
+func TestImpactToolDescriptionNamesIndex(t *testing.T) {
+	d := impactTool().Description
+	for _, want := range []string{"consumerIndex", "CONSUMER_NOT_INDEXED", "CONSUMER_INDEX_UNCHECKED", "Over HTTP the index is never read"} {
+		if !strings.Contains(d, want) {
+			t.Errorf("description lacks %q", want)
+		}
+	}
+}

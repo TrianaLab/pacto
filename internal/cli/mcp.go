@@ -526,6 +526,11 @@ func buildBundleMode(cmd *cobra.Command, svc *app.Service, version, ref string) 
 // Extracted so the wiring is directly testable.
 func mcpImpactProvider(cmd *cobra.Command, svc *app.Service, d deps, addMissing, trusted bool) func(ctx context.Context, snap *fleet.FleetSnapshot, req pactomcp.ImpactRequest) (*impact.Result, error) {
 	fopts := mcpFleetOptions(cmd)
+	if !trusted {
+		// Over HTTP every caller would read the index as this process, and
+		// addMissing is also true without --auth-issuer (buildFleetMode).
+		fopts.Index = app.IndexNone
+	}
 	auto, _ := impactSnapshotAuto(cmd) // buildFleetMode refused a mix at startup
 	return func(ctx context.Context, snap *fleet.FleetSnapshot, req pactomcp.ImpactRequest) (*impact.Result, error) {
 		req, err := refuseUntrustedImpact(req, trusted, snap)

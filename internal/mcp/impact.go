@@ -50,7 +50,11 @@ func impactTool() *mcpsdk.Tool {
 			"('newRevisionAdded'); on a server whose callers sign in it is not, and the answer says " +
 			"SERVICE_NOT_IN_FLEET with an unverified gate. Over HTTP, old_ref and new_ref must name revisions your fleet view holds, " +
 			"and the server reads each revision from where your fleet view says it lives. On a stdio server that names no target source of its own and was not started with " +
-			"--target-snapshot off, the answer reads the change's signed target snapshot ('registry', 'targetSnapshots'); an HTTP server reads none until per-cluster review exists. Pass 'event' (unavailable, removed or regressed) with 'service' " +
+			"--target-snapshot off, the answer reads the change's signed target snapshot ('registry', 'targetSnapshots'); an HTTP server reads none until per-cluster review exists. " +
+			"Over stdio the answer also finds the consumers published to the organization index (<registry>/pacto-index, derived from the provider's oci:// reference) " +
+			"and says how it read it in 'consumerIndex'; a consumer the fleet holds that the index does not list adds CONSUMER_NOT_INDEXED, and an index with no " +
+			"target source to check it against adds CONSUMER_INDEX_UNCHECKED, both making the answer partial. Over HTTP the index is never read and the answer comes from your fleet view. " +
+			"Pass 'event' (unavailable, removed or regressed) with 'service' " +
 			"(and 'revision' for regressed: an artifact digest reads delivery's recorded failures) instead of old_ref and new_ref " +
 			"to ask what happens if that service becomes unavailable, is removed or regressed; consumers carry 'effect' " +
 			"(breaks, may-degrade, unknown) and the gate is never blocked for an event. Pass 'offering' instead of 'service' " +
