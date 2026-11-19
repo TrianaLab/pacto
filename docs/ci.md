@@ -137,8 +137,8 @@ is written to `pacto-plan.md`; keep it with
 
 ### Older contracts
 
-`pacto ci` raises an older `pactoVersion` in memory, in the bundle only,
-when that adds no validation finding. Its row says:
+`pacto ci` raises an older `pactoVersion` in the bundle only, when that
+adds no validation finding. Its row says:
 
 - `ledger: pacto.yaml is 2.4, publishes as 2.5 (migrated in memory)`
 - `kept at 2.4 (<finding>)`: published as written when it declares a `publish`
@@ -148,7 +148,7 @@ when that adds no validation finding. Its row says:
 
 No note changes the exit code. The bundle records the raise in
 `pacto.inferred.yaml` ([Migrations](contract-reference/inferred-record.md#migrations)),
-shown as inferred in the dashboard. Your `pacto.yaml` is never rewritten.
+shown as inferred in the dashboard. `pacto migrate` rewrites the file itself.
 
 ## On every pull request: who breaks
 
