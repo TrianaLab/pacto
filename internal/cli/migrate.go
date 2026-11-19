@@ -16,7 +16,7 @@ func newMigrateCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		Short: "Raise every pacto.yaml in a repository to the current pactoVersion",
 		Long: `Walks the given directories (the current one by default) with the rules of the local fleet source and raises the pactoVersion of every pacto.yaml it finds. Hidden folders, node_modules and vendor are skipped; folders past depth 8 and folders a root .pactoignore names are skipped and printed as skipped.
 
-A file is raised only when validation finds nothing new at the new version, and only its version token changes. A raise that would change what the contract means keeps the file and says why. 1.x files are left to MIGRATION.md.
+A file is raised only when validation finds nothing new at the new version. Its version token changes, and two removals can apply even to a file already at the version: a leftover delivery section, and any publish.artifacts[].build block that pacto ci --publish detection reproduces. Every other byte stays as written, and each line names what changed. A raise that would change what the contract means keeps the file and says why. 1.x files are left to MIGRATION.md.
 
 Exits 1 only when a file cannot be read or written, or --to names an unsupported version.`,
 		Example: `  pacto migrate

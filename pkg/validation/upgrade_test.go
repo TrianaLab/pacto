@@ -102,6 +102,16 @@ func TestUpgradeFindingsRule(t *testing.T) {
 	}
 }
 
+// TestUpgradeFindingsIgnoresBuildDeprecation: the raise adds the build's
+// deprecation to every declared build, so it never counts as a new finding.
+func TestUpgradeFindingsIgnoresBuildDeprecation(t *testing.T) {
+	ws := []contract.ValidationWarning{{Code: CodeBuildDeprecated}, {Code: "W"}}
+	_, got, err := UpgradeFindings([]Stage{{Name: "cross-field", Status: StagePass, Warnings: ws}})
+	if err != nil || len(got) != 1 || got[0].Code != "W" || len(ws) != 2 {
+		t.Fatalf("%v %v", got, err)
+	}
+}
+
 func TestUpgradeCheckDeterministic(t *testing.T) {
 	open := map[string]*contract.Bundle{pgRef: pgBundle("16.1.0", provisioning)}
 	a, _ := upgradeRefDefaults(t, refDefaultsDoc, envOnly, pgResolver(open))

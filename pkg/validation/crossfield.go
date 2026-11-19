@@ -102,6 +102,10 @@ func validatePublish(c *contract.Contract, result *ValidationResult) {
 	}
 }
 
+// CodeBuildDeprecated is the warning on a publish.artifacts[].build declared
+// at pactoVersion 2.5 or later.
+const CodeBuildDeprecated = "PUBLISH_BUILD_DEPRECATED"
+
 // validateArtifactBuild checks the build of the artifact a at path: the
 // dockerfile builder and sbom apply to images only, an sbom needs a command
 // build, and from pactoVersion 2.5 a declared build is deprecated.
@@ -115,8 +119,8 @@ func validateArtifactBuild(version, path string, a contract.PublishArtifact, res
 	if a.Build.Dockerfile != nil && a.Type != contract.ArtifactImage {
 		result.AddError(path+".build.dockerfile", "PUBLISH_DOCKERFILE_NOT_IMAGE", fmt.Sprintf("%s is a %s; the dockerfile builder builds images only, use command", a.Name, a.Type))
 	}
-	if !olderThan(version, "2.5") && (a.Build.Dockerfile != nil || len(a.Build.Command) > 0) {
-		result.AddWarning(path+".build", "PUBLISH_BUILD_DEPRECATED", "deprecated in 2.5: pacto ci --publish detects the build; run pacto migrate to remove build when detection gives the same result")
+	if !contract.Older(version, "2.5") && (a.Build.Dockerfile != nil || len(a.Build.Command) > 0) {
+		result.AddWarning(path+".build", CodeBuildDeprecated, "deprecated in 2.5: pacto ci --publish detects the build; run pacto migrate to remove build when detection gives the same result")
 	}
 }
 

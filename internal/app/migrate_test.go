@@ -402,3 +402,41 @@ func TestMigrateSummary(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrateDryRunPredictsReadOnlyRefusal(t *testing.T) {
+	skipAsRoot(t)
+	dir := writeTree(t, "", map[string]string{"s/pacto.yaml": simple(prevVersion)})
+	if err := os.Chmod(filepath.Join(dir, "s", "pacto.yaml"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	r := migrate(t, NewService(nil, nil), MigrateOptions{Roots: []string{dir}, DryRun: true})
+	if f := oneRow(t, r); f.Status != MigrateFailed || f.Message != "cannot write: permission denied" || r.Failed != 1 {
+		t.Fatalf("%+v", f)
+	}
+}
+
+func TestMigrateRoots(t *testing.T) {
+	dir := writeTree(t, "", map[string]string{"s/pacto.yaml": simple(prevVersion), "s/notes.md": "x\n"})
+	cases := map[string]MigratedFile{
+		filepath.Join(dir, "s", "pacto.yaml"): {Path: filepath.Join(dir, "s", "pacto.yaml"), Status: MigrateRewritten},
+		filepath.Join(dir, "s", "notes.md"):   {Path: filepath.Join(dir, "s", "notes.md"), Status: MigrateFailed, Message: "not a directory; name the folder that holds pacto.yaml"},
+		"oci://ghcr.io/x/y":                   {Path: "oci://ghcr.io/x/y", Status: MigrateFailed, Message: "pacto migrate rewrites local folders, not OCI references"},
+	}
+	for root, want := range cases {
+		f := oneRow(t, migrate(t, NewService(nil, nil), MigrateOptions{Roots: []string{root}, DryRun: true}))
+		if f.Path != want.Path || f.Status != want.Status || (want.Message != "" && f.Message != want.Message) {
+			t.Fatalf("%s: %+v", root, f)
+		}
+	}
+}
+
+// TestMigrateExplicitRootOverridesEarlierCut: a folder an earlier root's
+// .pactoignore cuts and a later root names is migrated, not also skipped.
+func TestMigrateExplicitRootOverridesEarlierCut(t *testing.T) {
+	dir := writeTree(t, "", map[string]string{"ign/.pactoignore": "sub/\n", "ign/sub/pacto.yaml": simple(prevVersion)})
+	ign := filepath.Join(dir, "ign")
+	r := migrate(t, NewService(nil, nil), MigrateOptions{Roots: []string{ign, filepath.Join(ign, "sub")}, DryRun: true})
+	if r.Rewritten != 1 || r.Skipped != 0 || len(r.SkippedDirs) != 0 || len(r.NotFound) != 0 {
+		t.Fatalf("%+v", r)
+	}
+}

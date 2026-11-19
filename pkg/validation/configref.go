@@ -128,7 +128,7 @@ func resolveConfigRef(ctx context.Context, version string, cfg contract.Configur
 			if hop == 0 && entry.ProviderConfiguration != "" {
 				field = "configuration"
 			}
-			return fail(code, field, !olderThan(version, "2.4"), "%s", why)
+			return fail(code, field, !contract.Older(version, "2.4"), "%s", why)
 		}
 		if hop == 0 {
 			r.Selected = sel.Name

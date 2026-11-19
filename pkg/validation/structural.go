@@ -122,19 +122,19 @@ func ValidateStructural(data any) ValidationResult {
 	}
 
 	var mcp []int
-	if olderThan(version, "2.5") {
+	if contract.Older(version, "2.5") {
 		data = needs25(&result, data)
 	}
-	if olderThan(version, "2.4") {
+	if contract.Older(version, "2.4") {
 		data = needs24(&result, data)
 	}
-	if olderThan(version, "2.3") {
+	if contract.Older(version, "2.3") {
 		data = needs23(&result, data)
 	}
-	if olderThan(version, "2.2") {
+	if contract.Older(version, "2.2") {
 		data = needs22(&result, data)
 	}
-	if olderThan(version, "2.1") {
+	if contract.Older(version, "2.1") {
 		data, mcp = needs21(&result, data)
 	}
 	addSchemaError(&result, schema.Validate(data))
@@ -158,18 +158,12 @@ func ValidateStructural(data any) ValidationResult {
 // RefValuesAllowed reports whether a contract at version lets a configuration
 // that takes its schema by ref carry values, and checks that configuration as
 // needed: from pactoVersion 2.4. An unknown version is refused.
-func RefValuesAllowed(version string) bool { return !olderThan(version, "2.4") }
+func RefValuesAllowed(version string) bool { return !contract.Older(version, "2.4") }
 
 // PublishNeedsRaise reports whether a contract at version must raise
 // pactoVersion before it may declare publish: a known version before 2.1.
 func PublishNeedsRaise(version string) bool {
-	return contract.Known(version) && olderThan(version, "2.1")
-}
-
-// olderThan reports whether the supported pactoVersion version comes before
-// than, so each later version keeps every field an earlier one added.
-func olderThan(version, than string) bool {
-	return slices.Index(contract.SupportedVersions, version) < slices.Index(contract.SupportedVersions, than)
+	return contract.Known(version) && contract.Older(version, "2.1")
 }
 
 // needsServiceFields records a NEEDS_PACTO_2_4 error for each of the service

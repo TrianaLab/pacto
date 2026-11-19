@@ -101,6 +101,9 @@ func addedFinding(before, after validation.ValidationResult) string {
 		all = append(all, found{true, e.Code, e.Path})
 	}
 	for _, w := range after.Warnings {
+		if w.Code == validation.CodeBuildDeprecated {
+			continue // the raise adds it to every declared build; see UpgradeFindings
+		}
 		all = append(all, found{false, w.Code, w.Path})
 	}
 	for _, f := range all {

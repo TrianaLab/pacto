@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/trianalab/pacto/v4/internal/discover"
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -118,7 +119,13 @@ func (s *Service) Migrate(ctx context.Context, opts MigrateOptions) (*MigrateRes
 	}
 	res := &MigrateResult{To: to, DryRun: opts.DryRun, Files: []MigratedFile{}}
 	seen := map[string]bool{} // ponytail: map of seen folders, fine for any repository
+	var skipped []SkippedDir
+	var notFound []string
 	for _, root := range roots {
+		root, ok := migrateRoot(res, root)
+		if !ok {
+			continue
+		}
 		failed := res.Failed
 		w, err := discover.Walk(ctx, root, func(p string, err error) error {
 			res.add(failedRow(p, "cannot read", err))
@@ -128,14 +135,14 @@ func (s *Service) Migrate(ctx context.Context, opts MigrateOptions) (*MigrateRes
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
 			}
-			res.add(failedRow(root, "cannot read "+ignore.IgnoreFileName, err)) // the root .pactoignore, Walk's only other error
+			res.add(failedRow(root, "cannot read "+ignore.IgnoreFileName, err)) // the root .pactoignore: migrateRoot vouched for the folder
 			continue
 		}
 		for _, sk := range w.Skipped {
-			res.SkippedDirs = append(res.SkippedDirs, SkippedDir{Path: filepath.Join(root, filepath.FromSlash(sk.Rel)), Rule: sk.Rule})
+			skipped = append(skipped, SkippedDir{Path: filepath.Join(root, filepath.FromSlash(sk.Rel)), Rule: sk.Rule})
 		}
 		if len(w.Dirs) == 0 && res.Failed == failed {
-			res.NotFound = append(res.NotFound, root)
+			notFound = append(notFound, root)
 		}
 		for _, dir := range w.Dirs {
 			shown := filepath.Join(dir, DefaultContractPath)
@@ -150,18 +157,76 @@ func (s *Service) Migrate(ctx context.Context, opts MigrateOptions) (*MigrateRes
 			}
 		}
 	}
-	res.Skipped = len(res.SkippedDirs)
+	s.addUnseen(res, skipped, notFound, seen)
 	return res, nil
+}
+
+// addUnseen adds to res the skipped folders and the roots with no pacto.yaml
+// that hold no folder in seen: one another root migrated is neither skipped
+// nor empty, as an explicit root overrides an earlier root's cut.
+func (s *Service) addUnseen(res *MigrateResult, skipped []SkippedDir, notFound []string, seen map[string]bool) {
+	for _, sk := range skipped {
+		if !s.holdsSeen(sk.Path, seen) {
+			res.SkippedDirs = append(res.SkippedDirs, sk)
+		}
+	}
+	for _, root := range notFound {
+		if !s.holdsSeen(root, seen) {
+			res.NotFound = append(res.NotFound, root)
+		}
+	}
+	res.Skipped = len(res.SkippedDirs)
+}
+
+// migrateRoot is the folder root names: root itself, or the folder of a
+// pacto.yaml file root names. Anything else (an OCI reference, another file)
+// adds a failed row to res and returns false. A missing root is left to the
+// walk, which reports it.
+func migrateRoot(res *MigrateResult, root string) (string, bool) {
+	if isOCIRef(root) {
+		res.add(MigratedFile{Path: root, Status: MigrateFailed, Message: "pacto migrate rewrites local folders, not OCI references"})
+		return "", false
+	}
+	fi, err := os.Stat(root)
+	switch {
+	case err != nil || fi.IsDir():
+		return root, true
+	case fi.Mode().IsRegular() && filepath.Base(root) == DefaultContractPath:
+		return filepath.Dir(root), true
+	}
+	res.add(MigratedFile{Path: root, Status: MigrateFailed, Message: "not a directory; name the folder that holds " + DefaultContractPath})
+	return "", false
+}
+
+// holdsSeen reports whether dir is, or contains, a folder in seen (absolute
+// paths).
+func (s *Service) holdsSeen(dir string, seen map[string]bool) bool {
+	abs, err := s.env().absPath(dir)
+	if err != nil {
+		return false
+	}
+	for d := range seen {
+		if d == abs || strings.HasPrefix(d, abs+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
 }
 
 // failedRow is the failed row of path: what could not be done and why, with
 // the *fs.PathError wrapper dropped so no absolute path is printed.
 func failedRow(path, what string, err error) MigratedFile {
+	return MigratedFile{Path: path, Status: MigrateFailed, Message: what + ": " + unwrapPath(err).Error()}
+}
+
+// unwrapPath is err without its *fs.PathError wrapper, so no absolute path
+// is printed.
+func unwrapPath(err error) error {
 	var pe *fs.PathError
 	if errors.As(err, &pe) {
-		err = pe.Err
+		return pe.Err
 	}
-	return MigratedFile{Path: path, Status: MigrateFailed, Message: what + ": " + err.Error()}
+	return err
 }
 
 // migrateFile raises dir's pacto.yaml, shown as shown, to to and writes it
@@ -186,7 +251,7 @@ func (s *Service) migrateFile(ctx context.Context, dir, shown, to string, dryRun
 	}
 	check := validation.UpgradeCheck(ctx, ignore.FS(os.DirFS(dir), m), resolver, s.env().now())
 	// The raise is judged on what migrate writes: the raised document without
-	// the builds detection reproduces, so their deprecation adds no finding.
+	// the builds detection reproduces.
 	up, err := contract.Upgrade(dropped, to, func(b []byte) ([]contract.ValidationError, []contract.ValidationWarning, error) {
 		b, _ = dropDetectedBuilds(dir, b)
 		return check(b)
@@ -206,12 +271,24 @@ func (s *Service) migrateFile(ctx context.Context, dir, shown, to string, dryRun
 		row.Message = fmt.Sprintf("kept at %s: pacto.yaml is a symbolic link; edit it by hand", from)
 		return row
 	}
-	if !dryRun {
-		if err := s.writeAtomic(path, fi.Mode().Perm(), out); err != nil {
-			return failedRow(shown, "cannot write", err)
-		}
+	err = writable(path)
+	if err == nil && !dryRun {
+		err = s.writeAtomic(path, fi.Mode().Perm(), out)
+	}
+	if err != nil {
+		return failedRow(shown, "cannot write", err)
 	}
 	return row
+}
+
+// writable refuses a file the caller cannot write, so a dry run predicts the
+// refusal the real run meets. It opens without truncating: nothing changes.
+func writable(path string) error {
+	f, err := os.OpenFile(path, os.O_WRONLY, 0)
+	if err == nil {
+		_ = f.Close()
+	}
+	return err
 }
 
 // readContract reads the pacto.yaml at path, shown as shown, or returns the
@@ -259,9 +336,9 @@ func upgradeRow(row MigratedFile, up contract.Upgraded, to string, err error) Mi
 	return row
 }
 
-// writeAtomic replaces path with data at mode. It refuses a file the caller
-// cannot write (a rename needs only the folder's permission), then writes a
-// temporary file beside it and renames it over path, so a failure leaves the
+// writeAtomic replaces path with data at mode; the caller has already
+// refused a file it cannot write through writable (a rename needs only the
+// folder's permission). It writes a temporary file beside it and renames it over path, so a failure leaves the
 // original and no temporary file.
 //
 // ponytail: ownership and extended attributes are not preserved, which the
@@ -269,11 +346,6 @@ func upgradeRow(row MigratedFile, up contract.Upgraded, to string, err error) Mi
 // internal/mcp/create.go:2014 has the same pattern bound to its own test
 // seams; one helper for both when a third writer appears.
 func (s *Service) writeAtomic(path string, mode fs.FileMode, data []byte) error {
-	f, err := os.OpenFile(path, os.O_WRONLY, 0)
-	if err != nil {
-		return err
-	}
-	_ = f.Close()
 	t, err := os.CreateTemp(filepath.Dir(path), ".pacto-tmp-pacto.yaml-*")
 	if err != nil {
 		return err

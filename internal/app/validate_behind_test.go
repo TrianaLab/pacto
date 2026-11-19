@@ -271,3 +271,12 @@ func TestBehindMessageNamesMigrate(t *testing.T) {
 		}
 	}
 }
+
+// TestBehindDeclaredBuildKeepsMeaning: validate judges a behind file with a
+// declared build the way pacto migrate does, so it names migrate.
+func TestBehindDeclaredBuildKeepsMeaning(t *testing.T) {
+	dir := writeTree(t, "", buildFolder(prevVersion, dockerBuild, map[string]string{"Dockerfile": "FROM scratch\n"}))
+	if got := behind(t, validateAt(t, NewService(nil, nil), ValidateOptions{Path: dir})); !strings.HasSuffix(got, migrateHint) {
+		t.Fatalf("%q", got)
+	}
+}

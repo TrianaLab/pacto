@@ -7,6 +7,7 @@ import (
 	"path"
 	"slices"
 	"strings"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 
@@ -95,27 +96,29 @@ func dropDetectedBuilds(dir string, raw []byte) ([]byte, []string) {
 	if arts == nil || arts.Kind != yaml.SequenceNode {
 		return raw, nil
 	}
-	var (
-		notes   []string
-		bp      discover.BuildPlan
-		finds   []contract.InferredFinding
-		scanned bool
-	)
+	images := 0
+	for _, art := range arts.Content {
+		if t := contract.MapValue(art, "type"); t != nil && t.Value == string(contract.ArtifactImage) {
+			images++
+		}
+	}
+	detect := sync.OnceValues(func() (detection, error) {
+		sc, err := discover.Dir(dir)
+		if err != nil {
+			return detection{}, err
+		}
+		bp, finds := discover.Build(dir, sc)
+		return detection{bp, finds}, nil
+	})
+	var notes []string
 	for i, art := range slices.Backward(arts.Content) { // last first, so earlier line numbers hold
 		key := mapKey(art, "build")
 		if key == nil {
 			continue
 		}
-		if !scanned {
-			scanned = true
-			if sc, err := discover.Dir(dir); err == nil {
-				bp, finds = discover.Build(dir, sc)
-			}
-		}
-		var a contract.PublishArtifact
 		at := fmt.Sprintf("publish.artifacts[%d].build", i)
-		if art.Decode(&a) != nil || !detectedSame(a, bp, finds) {
-			notes = append(notes, fmt.Sprintf("kept %s: %s; remove it if that is what you want", at, detectionGives(bp, finds)))
+		if why := keptBuild(art, images, detect); why != "" {
+			notes = append(notes, fmt.Sprintf("kept %s: %s", at, why))
 			continue
 		}
 		out, ok := deleteKeyLines(raw, art, key)
@@ -128,6 +131,30 @@ func dropDetectedBuilds(dir string, raw []byte) ([]byte, []string) {
 	}
 	slices.Reverse(notes)
 	return raw, notes
+}
+
+// detection is what publish detection finds in a folder.
+type detection struct {
+	bp    discover.BuildPlan
+	finds []contract.InferredFinding
+}
+
+// keptBuild says why the build of the artifact art stays, "" when publish
+// detection reproduces it. images counts the section's image artifacts, and
+// detect scans the folder once.
+func keptBuild(art *yaml.Node, images int, detect func() (detection, error)) string {
+	if images > 1 {
+		return "Pacto detects the build of one image per folder" // detectImage refuses a bare image beside another
+	}
+	d, err := detect()
+	if err != nil {
+		return "detection could not read the folder: " + unwrapPath(err).Error()
+	}
+	var a contract.PublishArtifact
+	if art.Decode(&a) != nil || !detectedSame(a, d.bp, d.finds) {
+		return detectionGives(d.bp, d.finds) + "; remove it if that is what you want"
+	}
+	return ""
 }
 
 // detectedSame reports whether the image artifact a declares the Dockerfile

@@ -529,8 +529,10 @@ migration in the [changelog](https://pacto.run/latest/changelog/):
 
 Within 2.x, `pacto migrate` raises every `pacto.yaml` in a repository to the
 newest `pactoVersion`. Run it with no arguments at the repository root, or
-name the directories to read. It changes only the version and prints one line
-per file and a summary:
+name the directories to read. It raises the version token, removes a
+leftover `delivery` section and any `build` block that detection reproduces,
+leaves every other byte as written and prints one line per file and a
+summary:
 
 ```text
 billing/pacto.yaml:  kept at 2.3: ENVIRONMENT_VALUES_MISSING at environments[0].file: ...
@@ -552,10 +554,9 @@ archive:             skipped (from .pactoignore:1)
 - A leftover `delivery` section is removed: the Stage's `spec.applyRef` names
   the applier.
 - A `publish.artifacts[].build` block is removed when `pacto ci --publish`
-  detects the same tool and image. Any other block stays, and the line
-  suggests what detection would use. Before 2.5 `build` is required, so a
-  file whose block detection does not reproduce keeps its version, and its
-  line names `PUBLISH_BUILD_DEPRECATED`.
+  detects the same tool and image, and the section holds no other image
+  artifact (detection builds one image per folder). Any other block stays,
+  the version still rises, and the line says what detection would use.
 
 Moving a contract from 1.x to 2.0 stays the manual migration this document
 describes, because the contract shape changes. Those changes are intentional

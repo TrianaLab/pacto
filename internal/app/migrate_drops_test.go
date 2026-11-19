@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -168,12 +169,56 @@ func TestMigrateKeepsBuildBelow25(t *testing.T) {
 	}
 }
 
-// TestMigrateKeepsBehindBuildDetectionDiffers: a raise that would leave a
-// build detection does not reproduce adds its deprecation, so the file stays.
-func TestMigrateKeepsBehindBuildDetectionDiffers(t *testing.T) {
-	files := buildFolder(prevVersion, dockerBuild, map[string]string{".ko.yaml": "{}\n"})
+// TestMigrateRaisesBehindBuildDetectionDiffers: the raise adds the build's
+// deprecation, which changes no meaning, so the version rises and the row
+// says what detection gives instead of pointing back at migrate.
+func TestMigrateRaisesBehindBuildDetectionDiffers(t *testing.T) {
+	for name, tc := range map[string]struct{ art, want string }{
+		"another tool": {dockerBuild, "detection gives ko ghcr.io/acme/web:1.0"},
+		"a command":    {"      build: {command: [make, image]}\n", "detection gives ko ghcr.io/acme/web:1.0"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			files := buildFolder(prevVersion, tc.art, map[string]string{".ko.yaml": "builds: [{main: ./cmd/web}]\n"})
+			f, got := migrateOne(t, files, MigrateOptions{})
+			want := strings.Replace(files["pacto.yaml"], `"`+prevVersion+`"`, `"`+contract.Current()+`"`, 1)
+			if f.Status != MigrateRewritten || !strings.Contains(f.Message, "; kept publish.artifacts[0].build: "+tc.want) || got != want {
+				t.Fatalf("%+v\n%q", f, got)
+			}
+		})
+	}
+}
+
+// TestMigrateKeepsBuildBesideAnotherImage: publish detects one image per
+// folder, so a bare image beside another image artifact would not publish.
+func TestMigrateKeepsBuildBesideAnotherImage(t *testing.T) {
+	files := buildFolder(contract.Current(), dockerBuild, map[string]string{"Dockerfile": "FROM scratch\n"})
+	files["pacto.yaml"] += "    - name: worker\n      type: image\n      build: {command: [make, worker]}\n      ref: oci://ghcr.io/acme/worker\n"
 	f, got := migrateOne(t, files, MigrateOptions{})
-	if f.Status != MigrateKept || f.Finding == nil || f.Finding.Code != "PUBLISH_BUILD_DEPRECATED" || got != files["pacto.yaml"] {
+	note := "kept publish.artifacts[%d].build: Pacto detects the build of one image per folder"
+	want := "already current (" + contract.Current() + "); " + fmt.Sprintf(note, 0) + "; " + fmt.Sprintf(note, 1)
+	if f.Status != MigrateCurrent || f.Message != want || got != files["pacto.yaml"] {
 		t.Fatalf("%+v", f)
 	}
+}
+
+// TestMigrateBuildScanFailureIsNotNoBuild: a folder detection cannot read is
+// unknown, never "finds no build".
+func TestMigrateBuildScanFailureIsNotNoBuild(t *testing.T) {
+	skipAsRoot(t)
+	files := buildFolder(contract.Current(), dockerBuild, map[string]string{"Dockerfile": "FROM scratch\n", "locked/x": ""})
+	dir := writeTree(t, "", files)
+	if err := os.Chmod(filepath.Join(dir, "locked"), 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(filepath.Join(dir, "locked"), 0o755) })
+	r := migrate(t, NewService(nil, nil), MigrateOptions{Roots: []string{dir}})
+	for _, f := range r.Files {
+		if f.Path == filepath.Join(dir, "pacto.yaml") {
+			if f.Status != MigrateCurrent || !strings.HasSuffix(f.Message, "; kept publish.artifacts[0].build: detection could not read the folder: permission denied") {
+				t.Fatalf("%+v", f)
+			}
+			return
+		}
+	}
+	t.Fatalf("no row: %+v", r.Files)
 }

@@ -104,17 +104,17 @@ func TestCIMigratedLabelMatchesBytes(t *testing.T) {
 	}
 }
 
-// TestCIKeptLabelMatchesBytes: a declared build is deprecated from 2.5, so
-// raising this contract would add a warning: it publishes as written.
+// TestCIKeptLabelMatchesBytes: raising this contract would add a finding,
+// so it publishes as written.
 func TestCIKeptLabelMatchesBytes(t *testing.T) {
 	e := newCIPub(t)
-	e.write(t, map[string]string{"legacy/pacto.yaml": asBehind(e.contract("legacy", "1.0.0", "", e.deployPub("legacy"))), "legacy/render.sh": "#!/bin/sh\n"})
+	keptLegacy(t, e)
 	r := pubRow(t, e.ciPublish(t, nil), "legacy")
 	if r.State != ci.StatePublished {
 		t.Fatalf("row %+v", r)
 	}
 	b, label := e.pushedBundle(t, r.Published)
-	if label != prevVersion || b.Contract.PactoVersion != label {
+	if label != keptFrom || b.Contract.PactoVersion != label {
 		t.Fatalf("label %s, pacto.yaml %s", label, b.Contract.PactoVersion)
 	}
 	if rec, _ := contract.ReadInferredRecord(b.FS); rec != nil {

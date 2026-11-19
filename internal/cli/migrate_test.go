@@ -119,6 +119,21 @@ func TestMigrateHasNoCheckFlag(t *testing.T) {
 	}
 }
 
+// TestMigrateHelpNamesRemovals: agents read --help, so it names what besides
+// the version token migrate writes.
+func TestMigrateHelpNamesRemovals(t *testing.T) {
+	root := cli.NewRootCommand(app.NewService(nil, nil), cli.VersionInfo{Version: "test"})
+	cmd, _, _ := root.Find([]string{"migrate"})
+	for _, want := range []string{"delivery section", "publish.artifacts[].build", "Every other byte stays as written"} {
+		if !strings.Contains(cmd.Long, want) {
+			t.Errorf("--help does not name %q", want)
+		}
+	}
+	if strings.Contains(cmd.Long, "only its version token changes") {
+		t.Error("--help still says only the version token changes")
+	}
+}
+
 // migrateTree copies testdata/migrate into a temporary directory, writes
 // orders/pacto.yaml at Current() and changes into it.
 func migrateTree(t *testing.T) string {

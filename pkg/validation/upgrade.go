@@ -50,8 +50,13 @@ var meaningStages = []string{"cross-field", "policy", "configuration-refs", "env
 // stage, when it has any error or a meaning stage skipped for a reason other
 // than having nothing to check. A run with no error reached every stage, so
 // its skip error also wraps [contract.ErrComparable].
+//
+// It leaves out [CodeBuildDeprecated]: the raise to 2.5 adds it for every
+// declared build, which stays honoured, so it never changes what a contract
+// means.
 func UpgradeFindings(stages []Stage) ([]contract.ValidationError, []contract.ValidationWarning, error) {
 	r := Merged(stages)
+	r.Warnings = slices.DeleteFunc(slices.Clone(r.Warnings), func(w contract.ValidationWarning) bool { return w.Code == CodeBuildDeprecated })
 	if !r.IsValid() {
 		return r.Errors, r.Warnings, Unverified(r.Errors[0])
 	}
