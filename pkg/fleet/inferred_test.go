@@ -371,3 +371,64 @@ func TestInferredServiceNeverSatisfiesDependency(t *testing.T) {
 		}
 	}
 }
+
+func TestInferredServiceOfReadsShape(t *testing.T) {
+	var obj map[string]any
+	if err := json.Unmarshal([]byte(`{"metadata":{"namespace":"shop","name":"cart","creationTimestamp":"2026-07-29T10:00:00Z"},
+		"spec":{"template":{"spec":{"containers":[{"name":"cart","image":"cart:1","env":[{"name":"TOKEN","value":"secret"}],
+		"ports":[{"containerPort":8080,"name":"http","protocol":"TCP"}],
+		"readinessProbe":{"httpGet":{"path":"/ready?token=secret","port":8080}}}]}}}}`), &obj); err != nil {
+		t.Fatal(err)
+	}
+	now := fixedNow()
+	in := InferredServiceOf("Deployment", obj, now)
+	c := "Deployment spec.template.spec.containers[name=cart]"
+	created := time.Date(2026, 7, 29, 10, 0, 0, 0, time.UTC)
+	want := RawInferredService{Namespace: "shop", Kind: "Deployment", Name: "cart", ObservedAt: &now, CreatedAt: &created,
+		Image:  &InferredValue{Value: "cart:1", From: c + ".image"},
+		Ports:  []InferredPort{{Port: 8080, Name: "http", Protocol: "TCP", From: c + ".ports[0].containerPort"}},
+		Probes: []InferredProbe{{Kind: "readiness", Path: "/ready", Port: "8080", From: c + ".readinessProbe"}}}
+	if !reflect.DeepEqual(in, want) {
+		t.Errorf("got %+v\nwant %+v", in, want)
+	}
+	if b, _ := json.Marshal(in); strings.Contains(string(b), "secret") || strings.Contains(string(b), "TOKEN") {
+		t.Errorf("env or probe query reached the record: %s", b)
+	}
+	bad := InferredServiceOf("Deployment", map[string]any{"metadata": map[string]any{"name": "x", "creationTimestamp": "yesterday"}}, now)
+	if bad.CreatedAt != nil || bad.Image != nil || bad.Name != "x" {
+		t.Errorf("bad = %+v", bad)
+	}
+}
+
+func TestRawInferredServiceJSONRoundTrip(t *testing.T) {
+	in := inferredCart()
+	created := fixedNow().Add(-time.Hour)
+	in.CreatedAt = &created
+	b, err := json.Marshal(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{`"namespace":"shop"`, `"kind":"Deployment"`, `"name":"cart"`, `"image":`, `"ports":`, `"probes":`, `"observedAt":`, `"createdAt":`} {
+		if !strings.Contains(string(b), key) {
+			t.Errorf("%s missing from %s", key, b)
+		}
+	}
+	var back RawInferredService
+	if err := json.Unmarshal(b, &back); err != nil {
+		t.Fatal(err)
+	}
+	if !back.ObservedAt.Equal(*in.ObservedAt) || !back.CreatedAt.Equal(*in.CreatedAt) {
+		t.Errorf("times %v %v", back.ObservedAt, back.CreatedAt)
+	}
+	back.ObservedAt, back.CreatedAt, in.ObservedAt, in.CreatedAt = nil, nil, nil, nil
+	if !reflect.DeepEqual(back, in) {
+		t.Errorf("round trip %+v, want %+v", back, in)
+	}
+	in.Group = &InferredGroup{Rule: "workload", Name: "cart"}
+	if b, _ := json.Marshal(rawInferred("shop", "Deployment", "cart")); string(b) != `{"namespace":"shop","kind":"Deployment","name":"cart"}` {
+		t.Errorf("bare record %s", b)
+	}
+	if b, _ := json.Marshal(in); strings.Contains(string(b), "group") {
+		t.Errorf("group reached the wire record: %s", b)
+	}
+}

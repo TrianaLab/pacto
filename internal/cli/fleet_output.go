@@ -329,9 +329,46 @@ func printFleetStatus(cmd *cobra.Command, res *fleet.StatusResult, format string
 			_, _ = fmt.Fprintf(w, "  [%s] %s %s — %s\n", it.Code, it.Kind, it.Name, it.Reason)
 		}
 		printDetected(w, res.Providers, res.Meta.Sources)
+		printPinnedSources(w, res.Meta.Sources, res.Meta.Limitations)
 		warnPartial(cmd, res.Meta)
 		return nil
 	}, nil)
+}
+
+// printPinnedSources prints one line per source that read a pinned ref (each
+// section of a target snapshot): its status, the ref, who signed it, as of
+// when and, when it is not available, its first limitation.
+func printPinnedSources(w io.Writer, sources []fleet.SourceState, lims []fleet.Limitation) {
+	for _, s := range sources {
+		if s.Ref == "" {
+			continue
+		}
+		line := fmt.Sprintf("Source %s (%s): %s%s", s.ID, s.Kind, s.Status, sourceRef(s))
+		if s.LastSuccessfulSync != nil {
+			line += ", asOf " + s.LastSuccessfulSync.UTC().Format(time.RFC3339)
+		}
+		if why := sourceReason(s.ID, lims); why != "" && s.Status != fleet.SourceAvailable {
+			line += ": " + why
+		}
+		_, _ = fmt.Fprintln(w, line)
+	}
+}
+
+// sourceReason is the first limitation of source id that says why, past the
+// line Build adds for every degraded source ("source <id> returned a partial
+// result"), which it falls back to.
+func sourceReason(id string, lims []fleet.Limitation) string {
+	why := ""
+	for _, l := range lims {
+		switch {
+		case l.Source != id:
+		case !strings.HasPrefix(l.Message, "source "+id+" "):
+			return l.Message
+		case why == "":
+			why = l.Message
+		}
+	}
+	return why
 }
 
 // printDetected prints the inferred provider rows, what the operator
@@ -409,7 +446,7 @@ func printFleetSnapshot(cmd *cobra.Command, snap *fleet.FleetSnapshot, format st
 			len(snap.Services), len(snap.Revisions), len(snap.Targets), len(snap.Relationships))
 		_, _ = fmt.Fprintf(w, "Sources (%d):\n", len(snap.Sources))
 		for _, s := range snap.Sources {
-			_, _ = fmt.Fprintf(w, "  %s (%s): %s revs=%d targets=%d\n", s.ID, s.Kind, s.Status, s.RevisionCount, s.TargetCount)
+			_, _ = fmt.Fprintf(w, "  %s (%s): %s revs=%d targets=%d%s\n", s.ID, s.Kind, s.Status, s.RevisionCount, s.TargetCount, sourceRef(s))
 		}
 		// The snapshot carries its completeness inline rather than as a fleet.Meta,
 		// so wrap it to reuse the shared partial-answer warning: every other fleet
@@ -422,6 +459,21 @@ func printFleetSnapshot(cmd *cobra.Command, snap *fleet.FleetSnapshot, format st
 		})
 		return nil
 	}, nil)
+}
+
+// sourceRef says what a source with a pinned ref read and who signed it:
+// ", ref <ref>, signed by <signer>", with "(not scoped to this cluster)" when
+// the key is not scoped to it, or ", ref <ref>, unverified"; empty with no ref.
+func sourceRef(s fleet.SourceState) string {
+	switch {
+	case s.Ref == "":
+		return ""
+	case s.Signer == "":
+		return ", ref " + s.Ref + ", unverified"
+	case s.SignerUnscoped:
+		return ", ref " + s.Ref + ", signed by " + s.Signer + " (not scoped to this cluster)"
+	}
+	return ", ref " + s.Ref + ", signed by " + s.Signer
 }
 
 // orDash returns "-" for an empty string so tabular text output stays aligned.

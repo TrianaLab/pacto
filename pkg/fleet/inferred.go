@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/trianalab/pacto/v4/pkg/validation"
+	"github.com/trianalab/pacto/v4/pkg/workloadshape"
 )
 
 // inferredInput is one workload a source reported, with the cluster its
@@ -161,8 +162,8 @@ func mergeInferred(snap *FleetSnapshot, existing, rec *ServiceRecord, source str
 	}
 }
 
-// declarationVerified reports whether a Kubernetes source read the Pacto
-// targets of a (cluster, namespace) completely: it read every namespace and is
+// declarationVerified reports whether a Kubernetes source or a target snapshot
+// read the Pacto targets of a (cluster, namespace) completely: it read every namespace and is
 // available, it read that namespace and names no failure there, or it found
 // no Pacto CRD, so no Pacto target exists there.
 func declarationVerified(snap *FleetSnapshot) func(cluster, namespace string) bool {
@@ -186,7 +187,7 @@ func declarationVerified(snap *FleetSnapshot) func(cluster, namespace string) bo
 	}
 	return func(cluster, namespace string) bool {
 		return slices.ContainsFunc(snap.Sources, func(st SourceState) bool {
-			return st.Kind == SourceKindKubernetes && (!snap.clusterKeyed || clusterOf[st.ID] == cluster) && read(st, namespace)
+			return (st.Kind == SourceKindKubernetes || st.Kind == SourceKindTargetSnapshot) && (!snap.clusterKeyed || clusterOf[st.ID] == cluster) && read(st, namespace)
 		})
 	}
 }
@@ -550,4 +551,31 @@ func (d *ServiceDetailData) InferredLines(asOf time.Time) []string {
 		out = append(out, "  - ["+l.Limitation.Code+"] "+l.Limitation.Message)
 	}
 	return out
+}
+
+// InferredServiceOf is the inferred service of one decoded workload object
+// (Kind is Deployment, StatefulSet, DaemonSet or CronJob): its identity, its
+// creation time and its shape, each value's path prefixed with the kind. The
+// caller sets the group and repositories it can read.
+func InferredServiceOf(kind string, obj map[string]any, now time.Time) RawInferredService {
+	meta, _ := obj["metadata"].(map[string]any)
+	name, _ := meta["name"].(string)
+	ns, _ := meta["namespace"].(string)
+	in := RawInferredService{Namespace: ns, Kind: kind, Name: name, ObservedAt: &now}
+	if created, _ := meta["creationTimestamp"].(string); created != "" {
+		if t, err := time.Parse(time.RFC3339, created); err == nil {
+			in.CreatedAt = &t
+		}
+	}
+	shape := workloadshape.ReadWorkloadShape(kind, name, obj)
+	if shape.Image != "" {
+		in.Image = &InferredValue{Value: shape.Image, From: kind + " " + shape.ImageFrom}
+	}
+	for _, p := range shape.Ports {
+		in.Ports = append(in.Ports, InferredPort{Port: p.Number, Name: p.Name, Protocol: p.Protocol, From: kind + " " + p.From})
+	}
+	for _, p := range shape.Probes {
+		in.Probes = append(in.Probes, InferredProbe{Kind: p.Kind, Path: p.Path, Port: p.Port, From: kind + " " + p.From})
+	}
+	return in
 }

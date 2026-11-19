@@ -25,7 +25,39 @@ type PactoView struct {
 		Generation int64             `json:"generation"`
 		Labels     map[string]string `json:"labels"`
 	} `json:"metadata"`
+	Spec struct {
+		Target *PactoTargetView `json:"target"`
+	} `json:"spec"`
 	Status PactoStatusView `json:"status"`
+}
+
+// PactoTargetView is spec.target: the Service and workload the Pacto observes.
+type PactoTargetView struct {
+	ServiceName string           `json:"serviceName"`
+	WorkloadRef *WorkloadRefView `json:"workloadRef"`
+}
+
+// WorkloadRefView is spec.target.workloadRef.
+type WorkloadRefView struct {
+	Kind string `json:"kind"`
+	Name string `json:"name"`
+}
+
+// Workload is the workload the target names, with the CRD's documented
+// default: the Deployment named like the Service. Nil when t is nil or names
+// no workload.
+func (t *PactoTargetView) Workload() *fleet.WorkloadRef {
+	if t == nil {
+		return nil
+	}
+	ref := fleet.WorkloadRef{Kind: "Deployment", Name: t.ServiceName}
+	if w := t.WorkloadRef; w != nil {
+		ref = fleet.WorkloadRef{Kind: cmp.Or(w.Kind, ref.Kind), Name: cmp.Or(w.Name, ref.Name)}
+	}
+	if ref.Name == "" {
+		return nil
+	}
+	return &ref
 }
 
 // StatusFormatGuarantees is the first Pacto.status.statusFormat: the status
@@ -175,39 +207,55 @@ func DecodePactos(data []byte) ([]PactoView, error) {
 // SnapshotSourceID is the fleet source the delivery snapshot reports.
 const SnapshotSourceID = "delivery"
 
-// Snapshot builds the operational graph plan() projects a change onto: one
-// revision and one target per reconciled Pacto (the revision rebuilt from the
-// status the operator already wrote, so no registry read is needed per
-// consumer), plus the revisions on both sides of the change.
-//
-// A Pacto the operator has not reconciled yet carries no contract in its status.
-// It is reported as a limitation, which makes the snapshot partial: a consumer
-// Pacto cannot read is a consumer it cannot rule out.
-//
-// listErr is the error listing the Pactos, if any: Pacto cannot rule out a
-// consumer it could not list, so it makes the snapshot partial too.
+// Snapshot builds the operational graph plan() projects a change onto: the
+// Pactos' [PactoCollection] under [SnapshotSourceID], plus the revisions on
+// both sides of the change.
 func Snapshot(ctx context.Context, pactos []PactoView, listErr error, sides []Revision, now time.Time) (*fleet.FleetSnapshot, error) {
-	col := &fleet.Collection{}
-	if listErr != nil {
-		col.Limitations = append(col.Limitations, fleet.Limitation{
-			Code: "PACTOS_UNREADABLE", Source: SnapshotSourceID, Message: "the Pacto objects could not be listed: " + listErr.Error(),
-		})
-	}
+	col := PactoCollection(SnapshotSourceID, pactos, listErr, now)
+	var revs []fleet.RawRevision
 	for _, side := range sides {
 		if side.Bundle == nil {
 			continue
 		}
 		repo, digest, _ := strings.Cut(contract.TrimOCIScheme(side.ContractRef), "@")
-		col.Revisions = append(col.Revisions, fleet.RawRevision{
+		revs = append(revs, fleet.RawRevision{
 			Bundle: side.Bundle, Domain: contract.OCIDomain(side.ContractRef),
 			RequestedRef: side.ContractRef, ResolvedRef: repo + "@" + digest, Digest: digest,
+		})
+	}
+	// The sides first, as before the collection was shared.
+	col.Revisions = append(revs, col.Revisions...)
+	src := fleet.NewMemorySource(SnapshotSourceID, fleet.SourceKindKubernetes, col)
+	// No ExternalCatalog: Build classifies with externalcatalog.Default(), the
+	// catalog the operator compiles in, so its digest is the snapshot's catalog
+	// ref that EXTERNAL_CATALOG_MISMATCH compares each status against.
+	return fleet.Build(ctx, fleet.BuildOptions{Now: func() time.Time { return now }}, src)
+}
+
+// PactoCollection is the collection of the Pactos as source reads them: one
+// revision and one target per reconciled Pacto (the revision rebuilt from the
+// status the operator already wrote, so no registry read is needed per
+// consumer), their observed edges and external uses. Every limitation names
+// source.
+//
+// A Pacto the operator has not reconciled yet carries no contract in its status.
+// It is reported as a limitation, which makes the collection partial: a consumer
+// Pacto cannot read is a consumer it cannot rule out.
+//
+// listErr is the error listing the Pactos, if any: Pacto cannot rule out a
+// consumer it could not list, so it makes the collection partial too.
+func PactoCollection(source string, pactos []PactoView, listErr error, now time.Time) *fleet.Collection {
+	col := &fleet.Collection{}
+	if listErr != nil {
+		col.Limitations = append(col.Limitations, fleet.Limitation{
+			Code: "PACTOS_UNREADABLE", Source: source, Message: "the Pacto objects could not be listed: " + listErr.Error(),
 		})
 	}
 	for _, p := range pactos {
 		c := p.Status.Contract
 		if c == nil || c.ServiceName == "" {
 			col.Limitations = append(col.Limitations, fleet.Limitation{
-				Code: "PACTO_NOT_RECONCILED", Source: SnapshotSourceID,
+				Code: "PACTO_NOT_RECONCILED", Source: source,
 				Message: "Pacto " + p.Metadata.Namespace + "/" + p.Metadata.Name + " has no reconciled contract yet",
 			})
 			continue
@@ -215,20 +263,20 @@ func Snapshot(ctx context.Context, pactos []PactoView, listErr error, sides []Re
 		rev, digest := revisionFromStatus(p)
 		col.Revisions = append(col.Revisions, rev)
 		reconciled := parseTime(p.Status.LastReconciledAt)
+		lims := append(CallerLimitations(p, reconciled, now), ExternalLimitations(p, reconciled, now)...)
+		for i := range lims {
+			lims[i].Source = source
+		}
 		col.Targets = append(col.Targets, fleet.RawTarget{
 			Scope: p.Metadata.Namespace, Kind: fleet.SourceKindKubernetes, Name: p.Metadata.Name,
 			Service: c.ServiceName, Domain: rev.Domain, ResolvedRef: c.ResolvedRef, Digest: digest,
 			Compliance: p.Status.ContractStatus, EvidenceAt: reconciled, ReconciledAt: reconciled,
-			Limitations: append(CallerLimitations(p, reconciled, now), ExternalLimitations(p, reconciled, now)...),
+			Limitations: lims, Workload: p.Spec.Target.Workload(),
 		})
 		col.Observed = append(col.Observed, ObservedEdges(p)...)
 		col.ExternalUses = append(col.ExternalUses, ExternalUses(p, reconciled)...)
 	}
-	src := fleet.NewMemorySource(SnapshotSourceID, fleet.SourceKindKubernetes, col)
-	// No ExternalCatalog: Build classifies with externalcatalog.Default(), the
-	// catalog the operator compiles in, so its digest is the snapshot's catalog
-	// ref that EXTERNAL_CATALOG_MISMATCH compares each status against.
-	return fleet.Build(ctx, fleet.BuildOptions{Now: func() time.Time { return now }}, src)
+	return col
 }
 
 // LimitationCallersUnseen marks a target whose runtime callers Pacto cannot

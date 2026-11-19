@@ -240,11 +240,11 @@ func initOne(cmd *cobra.Command, svc *app.Service, opts app.InitOptions, from ap
 // PEM key given to --trust is a template key for every repository, since the
 // flag says what it is for; one in $PACTO_DELIVERY_TRUST stays a record key.
 func templateTrust(flag string) (*delivery.TrustConfig, error) {
-	t, err := deliveryTrust(flag)
+	t, err := app.DeliveryTrust(flag)
 	if err != nil || t == nil || flag == "" {
 		return t, err
 	}
-	raw, _ := os.ReadFile(flag) // ponytail: deliveryTrust just read it
+	raw, _ := os.ReadFile(flag) // ponytail: app.DeliveryTrust just read it
 	if bytes.HasPrefix(bytes.TrimSpace(raw), []byte("-----BEGIN")) {
 		t.Keys[0].Role = delivery.RoleTemplate
 	}

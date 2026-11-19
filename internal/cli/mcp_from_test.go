@@ -79,7 +79,7 @@ func assertNotOffered(t *testing.T, err error, reads int32, dir string) {
 
 // TestCreateFromRefusedOverHTTP: an HTTP server offers no pacto_create, so no caller pulls with this process's credentials or writes here.
 func TestCreateFromRefusedOverHTTP(t *testing.T) {
-	t.Setenv(trustEnv, "")
+	t.Setenv(app.TrustEnv, "")
 	dir := t.TempDir()
 	reads, err := callCreateFrom(t, map[string]string{"transport": "http"}, dir)
 	assertNotOffered(t, err, reads, dir)
@@ -92,7 +92,7 @@ func TestCreateFromRefusedOverHTTP(t *testing.T) {
 // TestCreateFromNotOfferedUnderView: the --fleet HTTP server whose callers
 // sign in and are narrowed by Kubernetes RBAC offers no pacto_create either.
 func TestCreateFromNotOfferedUnderView(t *testing.T) {
-	t.Setenv(trustEnv, "")
+	t.Setenv(app.TrustEnv, "")
 	dir := t.TempDir()
 	reads, err := callCreateFrom(t, map[string]string{"transport": "http", "auth-issuer": "https://idp.example",
 		"fleet": "true", "local": t.TempDir()}, dir)
@@ -102,7 +102,7 @@ func TestCreateFromNotOfferedUnderView(t *testing.T) {
 // TestMCPInitMapsOverrides: values and set reach the created contract, set
 // last, and a broken trust config fails the call.
 func TestMCPInitMapsOverrides(t *testing.T) {
-	t.Setenv(trustEnv, "")
+	t.Setenv(app.TrustEnv, "")
 	path := t.TempDir()
 	_ = os.WriteFile(filepath.Join(path, "pacto.yaml"), []byte("pactoVersion: \"2.4\"\nservice:\n  name: http-service\n  version: 1.0.0\n  template: {}\n"), 0o644)
 	svc := app.NewService(nil, nil)

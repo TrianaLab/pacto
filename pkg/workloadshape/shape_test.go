@@ -97,7 +97,7 @@ func TestReadWorkloadShapeJSONNumbers(t *testing.T) {
 // LeakObject is the Decision 9 object.
 func leakObject(t *testing.T) map[string]any {
 	t.Helper()
-	data, err := os.ReadFile("../testutil/testdata/leak-deployment.json")
+	data, err := os.ReadFile("../../internal/testutil/testdata/leak-deployment.json")
 	if err != nil {
 		t.Fatal(err)
 	}

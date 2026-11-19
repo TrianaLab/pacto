@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path"
 	"slices"
 	"time"
 
@@ -297,6 +298,12 @@ func runRecorder(args []string) error {
 	identities := fs.String("identities", "",
 		"The identity policy as JSON, the one the promoter reads: its approver signers are the issuers whose keyless "+
 			"approval records the recorder views. Empty views none.")
+	targets := fs.String("targets-repository", "",
+		"The repository (<registry>/pacto-targets) the recorder publishes the cluster's signed target snapshot to "+
+			"every 5 minutes, tagged cluster-<uid>. Empty publishes none.")
+	evidenceURL := fs.String("evidence-url", "",
+		"The installation's Evidence Server base URL. Each target snapshot then carries the targets it accepted "+
+			"from any producer. Empty carries none.")
 	zopts := zap.Options{}
 	zopts.BindFlags(fs)
 	_ = fs.Parse(args)
@@ -343,6 +350,14 @@ func runRecorder(args []string) error {
 	if err := recorder.SetupWithManager(mgr); err != nil {
 		return err
 	}
+	if err := addTargets(mgr, *targets, ocireferrer.Options{Keychain: keychain, Insecure: insecure},
+		&delivery.TargetPublisher{Client: mgr.GetAPIReader(), Signer: signer, ClusterID: clusterID,
+			Publisher: delivery.ServiceAccountUser(os.Getenv("POD_NAMESPACE"), os.Getenv("SERVICE_ACCOUNT")),
+			Mode:      store.Mode, EvidenceURL: *evidenceURL, HTTP: &http.Client{Timeout: 10 * time.Second},
+			Now: time.Now, Interval: core.TargetSnapshotInterval,
+			Log: ctrl.Log.WithName("targets")}); err != nil {
+		return err
+	}
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		return err
 	}
@@ -359,6 +374,32 @@ func runRecorder(args []string) error {
 	}
 	ctrl.Log.Info("starting the Pacto delivery recorder", "version", version, "streams", *streams)
 	return mgr.Start(ctrl.SetupSignalHandler())
+}
+
+// targetsRepository is the target snapshot repository of the installation
+// registry: <registry>/pacto-targets.
+func targetsRepository(registry string) string {
+	return registry + "/" + core.TargetSnapshotRepository
+}
+
+// addTargets runs p against repository, or logs that the snapshot is off when
+// repository is empty. A repository that is not <registry>/pacto-targets fails
+// startup.
+func addTargets(mgr manager.Manager, repository string, opts ocireferrer.Options, p *delivery.TargetPublisher) error {
+	if repository == "" {
+		ctrl.Log.Info("target snapshot off: set the top-level registry value")
+		return nil
+	}
+	if repository != targetsRepository(path.Dir(repository)) {
+		return fmt.Errorf("--targets-repository %q: want <registry>/%s", repository, core.TargetSnapshotRepository)
+	}
+	repo, err := ocireferrer.Open(repository, opts)
+	if err != nil {
+		return fmt.Errorf("--targets-repository: %w", err)
+	}
+	p.Repo = repo
+	ctrl.Log.Info("target snapshot on", "repository", repository)
+	return mgr.Add(p)
 }
 
 // newManager builds a manager whose client makes qps requests a second,

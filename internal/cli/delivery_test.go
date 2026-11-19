@@ -530,9 +530,9 @@ func TestDeliveryApproveFreshLogin(t *testing.T) {
 	fail(func(d *deps) {
 		d.clusterConfig = func() (*rest.Config, error) { return nil, errors.New("no kubeconfig") }
 	}, "no kubeconfig")
-	fail(func(d *deps) { t.Setenv(trustEnv, "/nonexistent/trust.pem") }, "trust")
+	fail(func(d *deps) { t.Setenv(app.TrustEnv, "/nonexistent/trust.pem") }, "trust")
 	// The issuer's CA bundle is read before the login starts.
-	t.Setenv(trustEnv, "")
+	t.Setenv(app.TrustEnv, "")
 	if _, err := runDelivery(t, approveDeps("alice", nil), "text", "approve", "-n", "prod", "held", "--oidc-issuer-url", "https://idp",
 		"--oidc-ca-file", "/nonexistent/ca.crt"); err == nil || !strings.Contains(err.Error(), "CA bundle") {
 		t.Fatalf("an unreadable CA bundle: %v", err)

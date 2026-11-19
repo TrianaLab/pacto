@@ -60,6 +60,38 @@ corroborating declared consumers, traces surface **observed-only (shadow)
 consumers**: services seen calling the changed service without declaring the
 dependency. With traces they appear as direct consumers at `observed` confidence.
 
+## Target snapshot consumers
+
+The delivery recorder of each cluster publishes a signed target snapshot to
+`<registry>/pacto-targets:cluster-<uid>` every 5 minutes, where `<registry>`
+is the operator chart's top-level `registry` value; with no `registry` it
+publishes none. `pacto impact` and `pacto ci` read it with registry read
+access alone, so CI finds the consumers that run without a kubeconfig. See
+[Where consumers come from](ci.md#where-consumers-come-from) for how Pacto
+finds the repository and pins a cluster.
+
+A snapshot carries every target source the installation accepted, each as
+its own fleet source with its own `asOf` and completeness:
+
+- `targets-<uid>`, kind `target-snapshot`: the Pacto resources of the cluster,
+  read from their status. Their consumers carry `declared` confidence.
+- `targets-<uid>-workloads`, kind `kubernetes-workloads`: workloads no Pacto
+  targets, as [inferred services](operational-graph-inferred.md). An inferred
+  service never counts as a consumer and its health never gates impact.
+- `targets-<uid>-evidence`, kind `evidence-http`: the targets the cluster's
+  [Evidence Server](evidence.md) accepted from any producer, `pacto agent`
+  included. They count as observed targets, as `--evidence-url` does.
+
+A snapshot counts only when a trust entry scoped to its cluster verified its
+signature and its `asOf` is less than 15 minutes old. Otherwise every section
+reads `partial`, `stale` or `unavailable` with a `TARGET_SNAPSHOT_*`
+limitation (see
+[Sources](operational-graph-reference.md#target-snapshots)), and a
+`BREAKING` change with consumers ends `unverified`. A section the publisher
+could only read in part, such as an Evidence Server that did not answer,
+makes its own source and the answer partial, and the other sections still
+answer.
+
 ## Evidence freshness
 
 Impact judges evidence against the 24 hours before the snapshot's `asOf`.

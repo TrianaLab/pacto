@@ -62,3 +62,22 @@ func TestCIGuideDocumentsInMemoryMigration(t *testing.T) {
 		t.Error("docs/contract-reference/validation.md does not document migratedFrom")
 	}
 }
+
+// The CI recipe tolerates exit 2 (a BREAKING change with compatible consumers),
+// so it must fail a BREAKING change whose answer is partial itself: an
+// unverified or unreachable target snapshot lists no consumers. Every
+// read-audience warning names the evidence the snapshot carries, cost included.
+func TestCIGuideImpactRecipeRefusesPartial(t *testing.T) {
+	if !strings.Contains(readRepoFile(t, "docs", "ci.md"), `jq -e '.classification != "BREAKING" or .completeness == "complete"' impact.json`) {
+		t.Error("docs/ci.md: the impact recipe does not fail a partial BREAKING answer")
+	}
+	for _, path := range [][]string{
+		{"docs", "ci.md"},
+		{"integrations", "kubernetes", "docs", "delivery-records.md"},
+		{"integrations", "kubernetes", "charts", "pacto-operator", "templates", "NOTES.txt"},
+	} {
+		if !strings.Contains(strings.Join(strings.Fields(readRepoFile(t, path...)), " "), "provisioning and usage record (cost included)") {
+			t.Errorf("%s: the pacto-targets read audience does not name the evidence it carries", strings.Join(path, "/"))
+		}
+	}
+}

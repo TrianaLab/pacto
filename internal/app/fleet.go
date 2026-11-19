@@ -97,12 +97,25 @@ type FleetOptions struct {
 	// DisallowPartial makes a single source failure fatal instead of yielding a
 	// partial snapshot with explicit limitations.
 	DisallowPartial bool
+	// TargetSnapshot is one oci:// ref of a pacto-targets repository, whose
+	// every cluster snapshot is read, or one or more pinned cluster-<uid> tags
+	// or digests; empty reads none.
+	TargetSnapshot []string
+	// TargetSnapshotTrustFile is the delivery trust config the snapshots are
+	// verified with; empty reads $PACTO_DELIVERY_TRUST.
+	TargetSnapshotTrustFile string
 	// Now overrides the build clock (freshness classification); defaults to
 	// time.Now. Injected in tests for deterministic staleness.
 	Now func() time.Time
 	// extraSources join the configured ones. Impact uses it to add the new
 	// revision when no configured source holds the changed service.
 	extraSources []fleet.Source
+}
+
+// hasTargetInput reports whether o names a source of targets: a cluster, a
+// target-state file, an Evidence Server or a target snapshot.
+func (o FleetOptions) hasTargetInput() bool {
+	return o.IncludeK8s || len(o.TargetStateFiles) > 0 || len(o.EvidenceURLs) > 0 || len(o.TargetSnapshot) > 0
 }
 
 // ConsumerSources names, one printable entry each, the sources set in o that
@@ -131,6 +144,7 @@ func (o FleetOptions) ConsumerSources() []string {
 	add("--evidence-url", o.EvidenceURLs...)
 	add("--mira-source", o.MiraURLs...)
 	add("--target-state", o.TargetStateFiles...)
+	add("--target-snapshot", o.TargetSnapshot...)
 	for _, spec := range o.ObservationSources {
 		add("--traces", spec.Path)
 	}
@@ -160,7 +174,8 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 	// A malformed --detected ref is a usage error, refused before any read.
 	remote, err := httpSources(opts)
 	fp, fpErr := loadFingerprints(opts.Fingerprints)
-	if err := errors.Join(err, CheckDetectedRef(opts.Detected), fpErr); err != nil {
+	snaps, snapErr := s.targetSnapshotSources(ctx, opts)
+	if err := errors.Join(err, CheckDetectedRef(opts.Detected), fpErr, snapErr); err != nil {
 		return nil, err
 	}
 	sources = append(sources, remote...)
@@ -201,6 +216,7 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 		}
 	}
 	sources = append(sources, s.detectionSources(opts.Detected)...)
+	sources = append(sources, snaps...)
 	sources = append(sources, opts.extraSources...)
 	if err := checkSourceIDsAreUnique(sources); err != nil {
 		return nil, err

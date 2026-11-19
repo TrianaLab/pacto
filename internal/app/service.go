@@ -40,6 +40,8 @@ type Service struct {
 	sys sysDeps
 	// catalogs remembers the external catalog checks and pulls across builds.
 	catalogs catalogLoader
+	// snapshots remembers the target snapshot bundles read across builds.
+	snapshots targetSnapshotCache
 }
 
 // sysDeps are the clock, filesystem, entropy and network the Service touches. A
@@ -58,6 +60,9 @@ type sysDeps struct {
 	// newDynamic builds the client a k8s: detection ref is read with.
 	newDynamic  func() (dynamic.Interface, error)
 	kubeContext func() string
+	// snapshotTimeout bounds one target snapshot resolution; zero is
+	// delivery.TargetSnapshotReadTimeout.
+	snapshotTimeout time.Duration
 	// readinessTimeout bounds ONE Evidence Server readiness preflight; zero is
 	// defaultReadinessTimeout.
 	readinessTimeout time.Duration

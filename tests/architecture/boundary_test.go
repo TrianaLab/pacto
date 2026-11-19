@@ -221,15 +221,15 @@ func TestContractIsTheLeaf(t *testing.T) {
 	}
 }
 
-// TestWorkloadShapeReadsNoCluster keeps internal/workloadshape a standard
+// TestWorkloadShapeReadsNoCluster keeps pkg/workloadshape a standard
 // library leaf: it reads a decoded workload object, so a folder reader that
 // must never reach a cluster may share it with the cluster source.
 func TestWorkloadShapeReadsNoCluster(t *testing.T) {
-	const self = "github.com/trianalab/pacto/v4/internal/workloadshape"
+	const self = "github.com/trianalab/pacto/v4/pkg/workloadshape"
 	for _, dep := range deps(t, self) {
 		for _, bad := range []string{"k8s.io/", "sigs.k8s.io/", "github.com/trianalab/pacto/"} {
 			if strings.HasPrefix(dep, bad) && dep != self {
-				t.Errorf("boundary violation: internal/workloadshape reaches %q; it imports only the standard library", dep)
+				t.Errorf("boundary violation: pkg/workloadshape reaches %q; it imports only the standard library", dep)
 			}
 		}
 	}

@@ -76,13 +76,9 @@ func TestGroupRulesMatchFleet(t *testing.T) {
 func TestGroupingArgoTrackingOnLiveDeployment(t *testing.T) {
 	item := groupedWorkload("shop", "billing", map[string]string{"app.kubernetes.io/part-of": "storefront"},
 		map[string]string{"argocd.argoproj.io/tracking-id": "shop_billing:apps/Deployment:shop/billing"})
-	var obj map[string]any
-	if err := json.Unmarshal([]byte(item), &obj); err != nil {
-		t.Fatal(err)
-	}
-	in := inferredService("Deployment", obj, time.Now())
-	if in.Group == nil || in.Group.Rule != workloadmanager.ArgoCD || in.Group.Name != "billing" {
-		t.Errorf("group = %+v", in.Group)
+	snap := buildOne(t, NewWorkloadSource("w", nil, &workloadFake{pages: map[string][2]string{"deployments||": {item}}}, nil))
+	if g := groupOf(t, snap, "k8s:shop/Deployment/billing"); g.Rule != workloadmanager.ArgoCD || g.Name != "billing" {
+		t.Errorf("group = %+v", g)
 	}
 }
 

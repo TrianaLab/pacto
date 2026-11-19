@@ -35,6 +35,11 @@ const (
 	SourceKindTargetState  = "target-state"
 )
 
+// SourceKindTargetSnapshot is the Kind of a source reading a signed snapshot
+// of a cluster's Pactos from a registry (<registry>/pacto-targets). It reports
+// targets.
+const SourceKindTargetSnapshot = "target-snapshot"
+
 // SourceKindMira is the Kind of a source reading the service map of a Mira
 // trace store. It labels the source only; pkg/fleet never branches on it.
 const SourceKindMira = "mira"
@@ -120,25 +125,28 @@ type Collection struct {
 // with the object path it was read from. It never carries environment values,
 // Secrets or ConfigMaps.
 type RawInferredService struct {
-	Namespace, Kind, Name string
-	Image                 *InferredValue
-	Ports                 []InferredPort
-	Probes                []InferredProbe
-	ObservedAt            *time.Time
+	Namespace  string          `json:"namespace"`
+	Kind       string          `json:"kind"`
+	Name       string          `json:"name"`
+	Image      *InferredValue  `json:"image,omitempty"`
+	Ports      []InferredPort  `json:"ports,omitempty"`
+	Probes     []InferredProbe `json:"probes,omitempty"`
+	ObservedAt *time.Time      `json:"observedAt,omitempty"`
 	// CreatedAt is when the workload was created (its
 	// metadata.creationTimestamp), nil when the source does not know it.
-	CreatedAt *time.Time
+	CreatedAt *time.Time `json:"createdAt,omitempty"`
 	// Group, Repositories and RepositoryUnknown are set by the source from
 	// the workload's own metadata and the GitOps objects it read; Build
-	// validates them and fills Key and Label.
-	Group             *InferredGroup
-	Repositories      []InferredRepository
-	RepositoryUnknown string
+	// validates them and fills Key and Label. They are not part of the wire
+	// record a target snapshot carries.
+	Group             *InferredGroup       `json:"-"`
+	Repositories      []InferredRepository `json:"-"`
+	RepositoryUnknown string               `json:"-"`
 	// RepositoryUnknownFrom is the namespace and kind of each GitOps object
 	// RepositoryUnknown was read from: a restricted view shows the reason only
 	// to a viewer allowed to list every one of them, and an empty namespace to
 	// none. Empty when the reason names no object.
-	RepositoryUnknownFrom []WorkloadScope
+	RepositoryUnknownFrom []WorkloadScope `json:"-"`
 }
 
 // WorkloadRef names the workload a Kubernetes target runs as.

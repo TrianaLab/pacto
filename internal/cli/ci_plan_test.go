@@ -370,6 +370,9 @@ func TestCIRegistryFlag(t *testing.T) {
 	if ciExit(err) != -1 || out != "" || strings.Contains(err.Error()+stderr, "tok") {
 		t.Fatalf("a scheme with credentials: err %v, stdout %q, stderr %q", err, out, stderr)
 	}
+	if _, _, err := runRoot(t, defaultDeps(), nil, "ci", e.root, "--target-snapshot", "off", "--target-snapshot", "oci://"+e.host+"/acme/pacto-targets"); err == nil || !strings.Contains(err.Error(), "not a mix") {
+		t.Fatalf("mixed --target-snapshot: %v", err)
+	}
 }
 
 // TestCIIgnoresConfigFileCatalog: in CI the working directory is the

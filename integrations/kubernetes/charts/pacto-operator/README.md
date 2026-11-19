@@ -414,6 +414,7 @@ The chart and the controller image are signed keyless with Sigstore. [Published 
 | podAnnotations | object | `{}` | Annotations to add to the controller pod |
 | podLabels | object | `{}` | Labels to add to the controller pod |
 | podSecurityContext | object | `{}` | Pod securityContext of the controller (defaults to `global.podSecurityContext`) |
+| registry | string | `""` | The installation registry (host[/path], no scheme), such as `ghcr.io/acme`. The delivery recorder publishes the cluster's signed target snapshot to `<registry>/pacto-targets`, which `pacto impact` reads in CI; empty publishes none. Later releases derive more repositories from it. |
 | replicaCount | int | `1` | Number of controller replicas |
 | resources.limits.memory | string | `"256Mi"` | Memory limit of the controller. It caches every Deployment, StatefulSet, ReplicaSet, Job, CronJob and Service it targets. |
 | resources.requests.cpu | string | `"100m"` | CPU request of the controller |
