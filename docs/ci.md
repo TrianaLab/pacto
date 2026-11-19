@@ -156,8 +156,8 @@ shown as inferred in the dashboard. Your `pacto.yaml` is never rewritten.
 `pacto diff` says whether a change is breaking. `pacto impact` says which
 consumers it breaks and whether they run, from the signed target snapshot each
 cluster's delivery recorder publishes to your registry. The job needs the
-same login variables, the delivery trust config and `jq` (on GitHub-hosted
-runners), never cluster credentials:
+login variables, the delivery trust config and `jq`, never cluster
+credentials:
 
 ```yaml
 - name: Check who the change breaks
@@ -175,27 +175,25 @@ The first `jq` lists each consumer whose `compatibility` range rejects the new
 version, with its owner; the second fails the step when a `BREAKING` change
 has an `incompatible` consumer. A range Pacto cannot evaluate reads
 `unknown` and passes. The third fails a `BREAKING` change whose answer is
-partial: a snapshot that is unverified, unscoped, stale, invalid or
-unreachable lists no consumers, so the second check alone would pass it.
+partial, since a snapshot Pacto cannot trust lists no consumers.
 
-`pacto impact` exits on its release gate: `0` clear, `1` blocked and `2`
-unverified. A `BREAKING` change with compatible consumers exits `2` too, so
-`|| [ $? -eq 2 ]` lets the step reach the `jq` checks after a `2`; a `1`
-(blocked, or the command could not run) still fails it.
+`pacto impact` exits `0` clear, `1` blocked and `2` unverified, as does a
+`BREAKING` change with compatible consumers. `|| [ $? -eq 2 ]` lets the step
+reach the `jq` checks; a `1` still fails it.
 
 ### Where consumers come from
 
-From the `oci://` ref, Pacto tries `ghcr.io/acme/pacto-targets`, then
-`ghcr.io/pacto-targets`, and reads every `cluster-<uid>` snapshot in the first
-that exists (in JSON, `registry` and `targetSnapshots`):
+Pacto tries `ghcr.io/acme/pacto-targets`, then `ghcr.io/pacto-targets`, and
+reads every `cluster-<uid>` snapshot in the first that exists (JSON fields
+`registry` and `targetSnapshots`):
 
 ```text
 Registry: ghcr.io/acme (found ghcr.io/acme/pacto-targets, 1 cluster read)
 Targets: ghcr.io/acme/pacto-targets@sha256:4f1c... (cluster 6f1e2a90, asOf 3m, complete, signed by recorder-6f1e2a90 (publisher system:serviceaccount:pacto-system:pacto-operator-delivery-recorder))
 ```
 
-Each snapshot is pinned by digest, and only a verified one clears a
-`BREAKING` change:
+Snapshots are pinned by digest; only a verified one clears a `BREAKING`
+change:
 
 - `unverified`: the job has no trust config. The answer is partial and a
   `BREAKING` change with consumers exits `2`.
@@ -209,8 +207,8 @@ Each snapshot is pinned by digest, and only a verified one clears a
   (`not found`, `denied (check registry read credentials)` or `no cluster
   tag`) and consumers come only from the sources you name, as before.
 
-The trust config holds one entry per cluster, scoped to its `kube-system`
-UID; a bare PEM key reads unscoped. The recorder's public key is in
+The trust config holds one key per cluster, scoped to its `kube-system` UID
+(a bare PEM key is unscoped). Each recorder's key is in
 [Target snapshot](integrations/kubernetes/delivery-records.md#target-snapshot):
 
 ```yaml
@@ -238,11 +236,11 @@ keys:
 
 ### Consumers that run nowhere yet
 
-A consumer deployed nowhere is in no snapshot: name its contract with
-`--root oci://ghcr.io/acme/contracts/checkout`, once per consumer. They carry
-no targets: a `BREAKING` change that reaches only them exits `2`. `--k8s`
-reads the current cluster, `--evidence-url` an Evidence Server and
-`--target-state` a fixture file.
+A consumer deployed nowhere is in no snapshot, so name each one's contract with
+`--root oci://ghcr.io/acme/contracts/checkout`. A
+`BREAKING` change that reaches only these exits `2`. `--k8s` reads the
+current cluster, `--evidence-url` an Evidence Server and `--target-state` a
+fixture file.
 
 ## After a merge: publish
 
