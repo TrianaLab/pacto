@@ -310,8 +310,8 @@ runs "$APP_NS" payments "$V2" || fail "the Stage's pointer is $(pointer "$APP_NS
 pass "promote: the promoter wrote 1.1.0's digest on spec.source.targetRevision and Argo CD synced it"
 
 section "rollback: alice undoes 1.1.0, and the Application goes back to 1.0.0"
-alice propose -n "$APP_NS" --stage payments --type rollback --undoes payments-1-1-0 --name payments-rollback --reason "roll back 1.1.0" >/dev/null
-wait_concluded "$APP_NS" payments-rollback Succeeded/Verified
+alice propose -n "$APP_NS" --stage payments --type rollback --undoes payments-1-1-0 --name payments-undo-1-1-0 --reason "roll back 1.1.0" >/dev/null
+wait_concluded "$APP_NS" payments-undo-1-1-0 Succeeded/Verified
 eventually 30 argo_on "$V1" || fail "Argo CD is not synced back at 1.0.0: $(kubectl -n "$APP_NS" get application payments -o jsonpath='{.spec.source.targetRevision} {.status.sync}')"
 runs_version 1.0.0 || fail "the cluster does not run payments 1.0.0 after the rollback"
 runs "$APP_NS" payments "$V1" || fail "the Stage's pointer is $(pointer "$APP_NS" payments), want $V1"
