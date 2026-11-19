@@ -122,18 +122,18 @@ func (p *planner) contract(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	// A draft read from the cluster is never completed: what runs there never
-	// reaches the inferred record. The folder's files are still named.
-	if p.opts.cluster {
+	// A cluster draft's folder files are named from all the folder holds.
+	if p.opts.Cluster != nil {
 		p.discoveryLines(all)
 		p.externals(all)
-		return nil
 	}
 	return p.completePlanned(in)
 }
 
 // completePlanned puts in r.Inferred what the folder shows beyond the
-// pacto.yaml init plans to write, and names it in Found and Unknown.
+// pacto.yaml init plans to write, and names it in Found and Unknown. A
+// cluster draft is completed from the folder and the cluster instead
+// (completeCluster).
 func (p *planner) completePlanned(in contract.InferredInputs) error {
 	planned := map[string]string{}
 	for _, f := range p.r.Files {
@@ -147,6 +147,9 @@ func (p *planner) completePlanned(in contract.InferredInputs) error {
 	}
 	c.Service.Name = p.r.Service
 	cat, _ := p.catalog()
+	if p.opts.Cluster != nil {
+		return p.completeCluster(c, planned, in)
+	}
 	rec, err := discover.CompletePlanned(p.r.Dir, c, planned, in, cat)
 	if err != nil {
 		return fmt.Errorf("reading %s: %w", p.r.Dir, err)
@@ -370,8 +373,8 @@ func (p *planner) existing(data []byte) *contract.Contract {
 
 // complete puts what the folder shows beyond the user's contract c in
 // r.Inferred, never changing c. Only a pactoVersion 2.5 contract is
-// completed, and never from the cluster: discover.Complete reads the folder
-// alone.
+// completed, from the folder alone unless the cluster facts of a cluster
+// draft are given.
 func (p *planner) complete(c *contract.Contract) error {
 	in := contract.InferredInputs{Commit: p.opts.Commit, Pacto: p.opts.PactoVersion}
 	// Complete leaves out the service itself under the name this run reports,
@@ -391,9 +394,9 @@ func (p *planner) complete(c *contract.Contract) error {
 	case validation.InferredRecordNeedsRaise(c.PactoVersion):
 		p.next("pacto.yaml declares pactoVersion %s; set pactoVersion: \"2.5\" to have Pacto complete it", c.PactoVersion)
 		return nil
-	case len(p.opts.Inferred) > 0 || p.opts.cluster:
-		p.next("what runs in the cluster never completes pacto.yaml: run pacto init %s without --cluster to complete it", p.r.Dir)
-		return nil
+	case p.opts.Cluster != nil:
+		p.r.Mode = modeComplete
+		return p.completeCluster(&named, nil, in)
 	}
 	p.r.Mode, p.r.Inferred = modeComplete, rec
 	if rec == nil || len(rec.Fields) == 0 { // a record of findings alone completes no value
@@ -406,6 +409,39 @@ func (p *planner) complete(c *contract.Contract) error {
 		shown = len(all.Fields)
 	}
 	p.found("pacto.yaml declares %d of the values Pacto reads in this folder's manifests and specs; Pacto completed %d in %s, published with the bundle", shown-len(rec.Fields), len(rec.Fields), contract.InferredRecordFile)
+	return nil
+}
+
+// completeCluster puts in r.Inferred what the folder, read against declared
+// and the files planned, and the cluster show beyond declared, and plans it
+// as pacto.inferred.yaml: the cluster facts cannot be read again from the
+// folder later. A record already there is kept.
+func (p *planner) completeCluster(declared *contract.Contract, planned map[string]string, in contract.InferredInputs) error {
+	cat, _ := p.catalog()
+	rec, err := discover.CompleteCluster(p.r.Dir, declared, planned, in, cat, *p.opts.Cluster)
+	if err != nil { // ponytail: the folder was read a moment ago; only one changing underneath fails here
+		return fmt.Errorf("reading %s: %w", p.r.Dir, err)
+	}
+	p.r.Inferred = rec
+	if rec == nil {
+		return nil
+	}
+	n := 0
+	for _, f := range rec.Fields {
+		if strings.HasPrefix(f.Source, "cluster:") {
+			n++
+		}
+	}
+	if p.file(contract.InferredRecordFile, string(rec.Marshal())) == Keep {
+		// The result says what the folder holds: the kept record, nil when it
+		// does not parse.
+		data, _ := os.ReadFile(filepath.Join(p.r.Dir, contract.InferredRecordFile))
+		p.r.Inferred, _ = contract.ParseInferredRecord(data)
+		p.found("the cluster read at %s was not written: %s from an earlier read was kept", rec.Inputs.Cluster.AsOf, contract.InferredRecordFile)
+		p.next("%s is from an earlier read: delete it and run again to record what the cluster shows now", contract.InferredRecordFile)
+		return nil
+	}
+	p.found("Pacto completed %d values from the cluster in %s (read %s)", n, contract.InferredRecordFile, rec.Inputs.Cluster.AsOf)
 	return nil
 }
 

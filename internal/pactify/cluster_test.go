@@ -2,6 +2,9 @@ package pactify
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +14,7 @@ import (
 	"reflect"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -116,8 +120,59 @@ func shopCluster(now time.Time) []runtime.Object {
 	}
 }
 
+// fakeCluster serves objs. Touching a Secret or a ConfigMap panics, so no
+// test of the cluster read can pass while it reads one.
 func fakeCluster(objs ...runtime.Object) *dynamicfake.FakeDynamicClient {
-	return dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), clusterLists, objs...)
+	cl := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), clusterLists, objs...)
+	for _, r := range []string{"secrets", "configmaps"} {
+		cl.PrependReactor("*", r, func(a k8stesting.Action) (bool, runtime.Object, error) {
+			panic("the cluster read touched " + a.GetResource().Resource)
+		})
+	}
+	return cl
+}
+
+// paged makes cl serve the lists of resource in one namespace page by page,
+// by Limit and Continue as an API server does, and returns the Limits asked
+// for. The fake drops both from a list of every namespace, which then gets
+// every item.
+func paged(cl *dynamicfake.FakeDynamicClient, resource string) *[]int64 {
+	limits := &[]int64{}
+	cl.PrependReactor("list", resource, func(a k8stesting.Action) (bool, runtime.Object, error) {
+		la := a.(k8stesting.ListActionImpl)
+		o, err := cl.Tracker().List(la.Resource, la.Kind, la.Namespace)
+		if err != nil {
+			return true, nil, err
+		}
+		l := o.(*unstructured.UnstructuredList)
+		slices.SortFunc(l.Items, func(a, b unstructured.Unstructured) int { return strings.Compare(a.GetName(), b.GetName()) })
+		from, _ := strconv.Atoi(la.ListOptions.Continue)
+		to := len(l.Items)
+		if n := int(la.ListOptions.Limit); n > 0 && from+n < to {
+			to = from + n
+			l.SetContinue(strconv.Itoa(to))
+		}
+		*limits = append(*limits, la.ListOptions.Limit)
+		l.Items = l.Items[from:to]
+		return true, l, nil
+	})
+	return limits
+}
+
+// failing makes every list of resource fail with err.
+func failing(cl *dynamicfake.FakeDynamicClient, resource string, err error) *dynamicfake.FakeDynamicClient {
+	cl.PrependReactor("list", resource, func(k8stesting.Action) (bool, runtime.Object, error) { return true, nil, err })
+	return cl
+}
+
+// coverage is the row of source in b.
+func coverage(t *testing.T, b *Bulk, source string) contract.InferredCoverage {
+	t.Helper()
+	i := slices.IndexFunc(b.Coverage, func(c contract.InferredCoverage) bool { return c.Source == source })
+	if i < 0 {
+		t.Fatalf("no coverage row for %s: %+v", source, b.Coverage)
+	}
+	return b.Coverage[i]
 }
 
 func result(t *testing.T, b *Bulk, name string) *Result {
@@ -347,17 +402,6 @@ func TestClusterRefusals(t *testing.T) {
 			t.Errorf("%+v: %v", tc.opts, err)
 		}
 	}
-	for _, r := range []string{"deployments", "pods", "services", "replicasets", "noderuntimeobservations"} {
-		cl := fakeCluster(shopCluster(now)...)
-		cl.PrependReactor("list", r, func(k8stesting.Action) (bool, runtime.Object, error) { return true, nil, errors.New("boom") })
-		if _, err := Cluster(ctx, cl, Options{Plan: true}, c, nil); err == nil || !strings.Contains(err.Error(), "listing "+r+": boom") {
-			t.Errorf("%s: %v", r, err)
-		}
-	}
-	bad := obj("pacto.trianalab.io/v1alpha1", "NodeRuntimeObservation", "pacto-system", "node-2", map[string]any{"status": map[string]any{"surprise": true}})
-	if _, err := Cluster(ctx, fakeCluster(append(shopCluster(now), bad)...), Options{Plan: true}, c, nil); err == nil || !strings.Contains(err.Error(), "node-2") {
-		t.Errorf("bad observation: %v", err)
-	}
 	failing := func(string, []byte, os.FileMode) error { return errors.New("disk full") }
 	if _, err := Cluster(ctx, fakeCluster(shopCluster(now)...), Options{}, c, failing); err == nil || !strings.Contains(err.Error(), "disk full") {
 		t.Errorf("write: %v", err)
@@ -549,8 +593,8 @@ func TestSecretEnvNoPodSpec(t *testing.T) {
 
 // TestClusterDraftURLLiterals: a $(NAME) reference is no literal, so a URL
 // whose password is one stays in the draft; a malformed credential URL is
-// rewritten; only a rewritten container URL the scan reads a dependency from
-// is named as a lost dependency, never an outside host or an initContainer's.
+// rewritten; only a rewritten URL the scan reads a dependency from is named
+// as a lost dependency, never an outside host.
 func TestClusterDraftURLLiterals(t *testing.T) {
 	appEnv := append(env("DATABASE_URL", "postgres://app:$(DB_PASSWORD)@db:5432/x", "ORDERS_URL", "postgres://app:pa/ss@orders-db:5432/orders",
 		"DB_DSN", "postgres://app:p%zz@ledger:5432/x", "STRIPE_URL", "https://api.stripe.com/v1?api_key=sk_live_x", "ALIAS_PASSWORD", "$(OTHER_PASSWORD)"),
@@ -577,8 +621,9 @@ func TestClusterDraftURLLiterals(t *testing.T) {
 		}
 	}
 	// ORDERS_URL's / in the password is one the scan's host reader never got past.
-	if !hasLine(r.Next, "manifests.yaml: DB_DSN (ledger) held a URL") || hasLine(r.Next, "ORDERS_URL (") || hasLine(r.Next, "STRIPE_URL (") ||
-		hasLine(r.Next, "MIGRATE_DB_URL (") || hasLine(r.Next, "DATABASE_URL") {
+	// MIGRATE_DB_URL names db, which DATABASE_URL still lists as a dependency.
+	if !hasLine(r.Next, "manifests.yaml: DB_DSN (ledger) held a URL") || hasLine(r.Next, "MIGRATE_DB_URL (") || hasLine(r.Next, "ORDERS_URL (") || hasLine(r.Next, "STRIPE_URL (") ||
+		hasLine(r.Next, "DATABASE_URL") {
 		t.Fatalf("next steps: %q", r.Next)
 	}
 	if !hasDependency(r, "db") {
@@ -696,7 +741,8 @@ func checkoutInferred(t *testing.T, canaryRef string) Inferred {
 func checkoutInferredPods(t *testing.T, canaryRef string, bothPods bool) Inferred {
 	t.Helper()
 	now := time.Now()
-	cl, err := readCluster(context.Background(), fakeCluster(twoPaymentServices(now, canaryRef, bothPods)...), []string{"shop"}, now)
+	cl, err := readCluster(context.Background(), fakeCluster(twoPaymentServices(now, canaryRef, bothPods)...),
+		ClusterOptions{Now: func() time.Time { return now }, MaxItems: DefaultMaxItems}, []string{"shop"}, cursor{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -810,5 +856,635 @@ func TestProviderUnreadPactoJoinsAgreement(t *testing.T) {
 	d = cl.provider(*service("shop", "payments", "10.0.0.20"))
 	if !slices.Equal(d.Versions, []string{"2.4.0"}) || !slices.Equal(d.Unknown, []string{"the version of shop/payments that Pacto shop/payments-v3 describes: its status and spec name no usable contract ref, so no range is proposed from it"}) {
 		t.Fatalf("provider: %+v", d)
+	}
+}
+
+// manyPods are n pods of checkout in shop.
+func manyPods(n int) []runtime.Object {
+	out := []runtime.Object{deployment("shop", "checkout", "reg.io/acme/checkout:1.4.0")}
+	for i := range n {
+		out = append(out, obj("v1", "Pod", "shop", fmt.Sprintf("checkout-%04d", i), nil))
+	}
+	return out
+}
+
+// TestReadClusterPagesWithLimitAndContinue: a source longer than a page is
+// read page by page, each asking for at most 500 and no more than the bound
+// leaves, until every item is read.
+func TestReadClusterPagesWithLimitAndContinue(t *testing.T) {
+	cl := fakeCluster(manyPods(1200)...)
+	limits := paged(cl, "pods")
+	b, err := Cluster(context.Background(), cl, Options{Plan: true}, ClusterOptions{Namespaces: []string{"shop"}, Out: t.TempDir(), MaxItems: 1200}, nil)
+	if err != nil || !slices.Equal(*limits, []int64{500, 500, 200}) || coverage(t, b, "pods").State != contract.CoverageComplete {
+		t.Fatalf("limits %v, coverage %+v: %v", *limits, b.Coverage, err)
+	}
+	read, err := readCluster(context.Background(), cl, ClusterOptions{Now: time.Now, MaxItems: 1200}, []string{"shop"}, cursor{})
+	if err != nil || len(read.pods) != 1200 {
+		t.Fatalf("read %d pods: %v", len(read.pods), err)
+	}
+}
+
+// TestReadClusterBoundStopsSourcePartial: a source with more items than the
+// bound keeps the bound's worth and reads partial, saying why.
+func TestReadClusterBoundStopsSourcePartial(t *testing.T) {
+	cl := fakeCluster(manyPods(400)...)
+	paged(cl, "pods")
+	b, err := Cluster(context.Background(), cl, Options{Plan: true}, ClusterOptions{Namespaces: []string{"shop"}, Out: t.TempDir(), MaxItems: 300}, nil)
+	want := contract.InferredCoverage{Source: "pods", State: contract.CoveragePartial, Reason: "stopped at the item bound (300)"}
+	if err != nil || coverage(t, b, "pods") != want || coverage(t, b, "workloads").State != contract.CoverageComplete {
+		t.Fatalf("coverage %+v: %v", b.Coverage, err)
+	}
+}
+
+// TestReadClusterServerIgnoringLimitSkipsNothing: a server that sends more
+// than Limit asks for has the whole page kept, so the token resumes after
+// what was read and no workload is skipped.
+func TestReadClusterServerIgnoringLimitSkipsNothing(t *testing.T) {
+	cl := fakeCluster(deployment("a", "a1", "x:1"), deployment("a", "a2", "x:1"), deployment("a", "a3", "x:1"))
+	cl.PrependReactor("list", "deployments", func(a k8stesting.Action) (bool, runtime.Object, error) {
+		la := a.(k8stesting.ListActionImpl)
+		o, _ := cl.Tracker().List(la.Resource, la.Kind, la.Namespace)
+		l := o.(*unstructured.UnstructuredList)
+		slices.SortFunc(l.Items, func(a, b unstructured.Unstructured) int { return strings.Compare(a.GetName(), b.GetName()) })
+		from, _ := strconv.Atoi(la.ListOptions.Continue)
+		to := min(from+2, len(l.Items)) // two a page, whatever Limit says
+		if to < len(l.Items) {
+			l.SetContinue(strconv.Itoa(to))
+		}
+		l.Items = l.Items[from:to]
+		return true, l, nil
+	})
+	c := ClusterOptions{Namespaces: []string{"a"}, Out: t.TempDir(), MaxItems: 1}
+	var got []string
+	for range 3 {
+		b, err := Cluster(context.Background(), cl, Options{Plan: true}, c, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, drafted(b)...)
+		if c.Continue = b.Continue; c.Continue == "" {
+			break
+		}
+	}
+	if !slices.Equal(got, []string{"a1", "a2", "a3"}) {
+		t.Fatalf("drafted %v", got)
+	}
+}
+
+// TestReadClusterKeepsGoingAfterListError: a source the reader may not list
+// fails with a reason and the read goes on, drafting every workload.
+func TestReadClusterKeepsGoingAfterListError(t *testing.T) {
+	now := time.Now()
+	cl := failing(fakeCluster(shopCluster(now)...), "endpointslices", apierrors.NewForbidden(schema.GroupResource{Resource: "endpointslices"}, "", errors.New("no")))
+	b, err := Cluster(context.Background(), cl, Options{Plan: true}, ClusterOptions{Out: t.TempDir(), Now: func() time.Time { return now }}, nil)
+	want := contract.InferredCoverage{Source: "endpointslices", State: contract.CoverageFailed, Reason: "forbidden"}
+	if err != nil || len(b.Results) != 4 || coverage(t, b, "endpointslices") != want {
+		t.Fatalf("drafts %d, coverage %+v: %v", len(b.Results), b.Coverage, err)
+	}
+}
+
+// TestReadClusterMissingCRDComplete: a Pacto CRD that is not installed is a
+// complete source with nothing in it, never a failure.
+func TestReadClusterMissingCRDComplete(t *testing.T) {
+	cl := failing(fakeCluster(deployment("shop", "checkout", "reg.io/acme/checkout:1.4.0")), "pactos", errNotFound("pactos"))
+	b, err := Cluster(context.Background(), cl, Options{Plan: true}, ClusterOptions{Out: t.TempDir()}, nil)
+	if err != nil || coverage(t, b, "pactos").State != contract.CoverageComplete ||
+		coverage(t, b, "runtime-calls") != (contract.InferredCoverage{Source: "runtime-calls", State: contract.CoverageFailed, Reason: "no node runtime observations"}) {
+		t.Fatalf("coverage %+v: %v", b.Coverage, err)
+	}
+}
+
+// listErrors are list errors and the coverage reason each gives.
+var listErrors = []struct {
+	err  error
+	want string
+}{
+	{apierrors.NewForbidden(schema.GroupResource{Resource: "services"}, "", errors.New("no")), "forbidden"},
+	{apierrors.NewNotFound(schema.GroupResource{Resource: "services"}, ""), "not found"},
+	{apierrors.NewTimeoutError("slow", 1), "timed out"},
+	{apierrors.NewServerTimeout(schema.GroupResource{Resource: "services"}, "list", 1), "timed out"},
+	{apierrors.NewResourceExpired("too old"), "the continue token expired"},
+	{apierrors.NewInternalError(errors.New("shop/vault is down")), "listing failed (500)"},
+	{apierrors.NewTooManyRequests("slow down", 1), "listing failed (429)"},
+	{errors.New("dial tcp 10.0.0.1:443: connection refused"), "listing failed (no response)"},
+}
+
+// TestReadClusterTimeoutReason: a list that times out, on either side,
+// fails its source as timed out; every other error has its own reason.
+func TestReadClusterTimeoutReason(t *testing.T) {
+	now := time.Now()
+	for _, tc := range listErrors {
+		cl := failing(fakeCluster(shopCluster(now)...), "services", tc.err)
+		b, err := Cluster(context.Background(), cl, Options{Plan: true}, ClusterOptions{Out: t.TempDir(), Now: func() time.Time { return now }}, nil)
+		if err != nil || coverage(t, b, "services") != (contract.InferredCoverage{Source: "services", State: contract.CoverageFailed, Reason: tc.want}) {
+			t.Errorf("%v: %+v %v", tc.err, b.Coverage, err)
+		}
+	}
+}
+
+// TestCoverageReasonsNameNothing: every reason is one of the fixed
+// templates, so no API server error text, and no name in it, reaches a row.
+func TestCoverageReasonsNameNothing(t *testing.T) {
+	template := regexp.MustCompile(`^(stopped at the item bound \([0-9]+\)|forbidden|not found|timed out|the continue token expired|` +
+		`listing failed \(([0-9]{3}|malformed observation|no response)\)|no node runtime observations)$`)
+	for _, tc := range listErrors {
+		if got := failure(tc.err); !template.MatchString(got) || strings.Contains(got, "shop") || strings.Contains(got, "10.0.0.1") {
+			t.Errorf("%v: %q", tc.err, got)
+		}
+	}
+	rec := contract.InferredRecord{Format: contract.InferredRecordFormat, Fields: []contract.Inferred{},
+		Inputs:   contract.InferredInputs{Cluster: &contract.InferredClusterInput{AsOf: "2026-11-14T10:02:00Z", Object: "shop/Deployment/checkout", CallWindow: "24h"}},
+		Coverage: []contract.InferredCoverage{{Source: "services", State: contract.CoverageFailed, Reason: failure(errors.New("x"))}}}
+	if _, err := contract.ParseInferredRecord(rec.Marshal()); err != nil {
+		t.Fatalf("the record refuses the reason: %v", err)
+	}
+}
+
+// TestReadClusterMalformedObservation: an observation that cannot be read
+// fails the runtime calls and is skipped; the others are still read.
+func TestReadClusterMalformedObservation(t *testing.T) {
+	now := time.Now()
+	bad := obj("pacto.trianalab.io/v1alpha1", "NodeRuntimeObservation", "pacto-system", "node-2", map[string]any{"status": map[string]any{"surprise": true}})
+	b, err := Cluster(context.Background(), fakeCluster(append(shopCluster(now), bad)...), Options{Plan: true},
+		ClusterOptions{Namespaces: []string{"shop"}, Out: t.TempDir(), Now: func() time.Time { return now }}, nil)
+	want := contract.InferredCoverage{Source: "runtime-calls", State: contract.CoverageFailed, Reason: "listing failed (malformed observation)"}
+	if err != nil || coverage(t, b, "runtime-calls") != want || len(result(t, b, "checkout").Dependencies) == 0 {
+		t.Fatalf("coverage %+v: %v", b.Coverage, err)
+	}
+}
+
+// TestClusterAllWorkloadsFailedErrors: with no workload read at all the read
+// fails, and still says how far it got.
+func TestClusterAllWorkloadsFailedErrors(t *testing.T) {
+	cl := fakeCluster(shopCluster(time.Now())...)
+	for _, r := range []string{"deployments", "statefulsets", "daemonsets", "cronjobs"} {
+		failing(cl, r, errors.New("boom"))
+	}
+	b, err := Cluster(context.Background(), cl, Options{Plan: true}, ClusterOptions{Out: t.TempDir()}, nil)
+	if err == nil || !strings.Contains(err.Error(), "listing deployments: boom") || b == nil || len(b.Results) != 0 ||
+		coverage(t, b, "workloads").State != contract.CoverageFailed || coverage(t, b, "services").State != contract.CoverageComplete {
+		t.Fatalf("%+v: %v", b, err)
+	}
+}
+
+// fiveDeployments are a1, a2 and a3 in a and b1 and b2 in b, served page by
+// page.
+func fiveDeployments() *dynamicfake.FakeDynamicClient {
+	cl := fakeCluster(deployment("a", "a1", "x:1"), deployment("a", "a2", "x:1"), deployment("a", "a3", "x:1"),
+		deployment("b", "b1", "x:1"), deployment("b", "b2", "x:1"))
+	paged(cl, "deployments")
+	return cl
+}
+
+// drafted are the services b drafted.
+func drafted(b *Bulk) []string {
+	var out []string
+	for _, r := range b.Results {
+		out = append(out, r.Service)
+	}
+	return out
+}
+
+// TestClusterContinueResumes: a read the workload bound stopped drafts what
+// it read and returns a token; each run with the token drafts the next
+// workloads, and the last returns none.
+func TestClusterContinueResumes(t *testing.T) {
+	c := ClusterOptions{Namespaces: []string{"b", "a"}, Out: t.TempDir(), MaxItems: 2}
+	for _, want := range [][]string{{"a1", "a2"}, {"a3", "b1"}, {"b2"}} {
+		b, err := Cluster(context.Background(), fiveDeployments(), Options{Plan: true}, c, nil)
+		if err != nil || !slices.Equal(drafted(b), want) {
+			t.Fatalf("from %q: %v, want %v: %v %+v", c.Continue, drafted(b), want, err, b.Coverage)
+		}
+		last := slices.Equal(want, []string{"b2"})
+		if state := coverage(t, b, "workloads"); last != (b.Continue == "") ||
+			!last && state != (contract.InferredCoverage{Source: "workloads", State: contract.CoveragePartial, Reason: "stopped at the item bound (2)"}) {
+			t.Fatalf("after %v: token %q, %+v", want, b.Continue, state)
+		}
+		c.Continue = b.Continue
+	}
+}
+
+// TestClusterContinueOtherNamespacesRefused: a token is refused, before any
+// read, for another namespace list than the one it was made for.
+func TestClusterContinueOtherNamespacesRefused(t *testing.T) {
+	b, err := Cluster(context.Background(), fiveDeployments(), Options{Plan: true}, ClusterOptions{Namespaces: []string{"a", "b"}, Out: t.TempDir(), MaxItems: 2}, nil)
+	if err != nil || b.Continue == "" {
+		t.Fatalf("%+v: %v", b, err)
+	}
+	cl := fiveDeployments()
+	_, err = Cluster(context.Background(), cl, Options{Plan: true}, ClusterOptions{Namespaces: []string{"a"}, Out: t.TempDir(), Continue: b.Continue}, nil)
+	if err == nil || err.Error() != "the continue token was made for other namespaces: run again without the token" || len(cl.Actions()) != 0 {
+		t.Fatalf("%v, %d reads", err, len(cl.Actions()))
+	}
+}
+
+// TestClusterContinueExpired: an API continue the server no longer holds
+// fails the workloads, saying so.
+func TestClusterContinueExpired(t *testing.T) {
+	c := ClusterOptions{Namespaces: []string{"a", "b"}, Out: t.TempDir(), MaxItems: 2}
+	b, err := Cluster(context.Background(), fiveDeployments(), Options{Plan: true}, c, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cl := fiveDeployments()
+	cl.PrependReactor("list", "deployments", func(a k8stesting.Action) (bool, runtime.Object, error) {
+		return a.(k8stesting.ListActionImpl).ListOptions.Continue != "", nil, apierrors.NewResourceExpired("too old")
+	})
+	c.Continue = b.Continue
+	b, _ = Cluster(context.Background(), cl, Options{Plan: true}, c, nil)
+	if got := coverage(t, b, "workloads"); got != (contract.InferredCoverage{Source: "workloads", State: contract.CoverageFailed, Reason: "the continue token expired"}) {
+		t.Fatalf("%+v", got)
+	}
+}
+
+// TestClusterContinueMalformed: a token that is not one, or points past the
+// namespaces or kinds, is refused.
+func TestClusterContinueMalformed(t *testing.T) {
+	sum := sha256.Sum256([]byte("a"))
+	for _, token := range []string{"!!", base64.RawURLEncoding.EncodeToString([]byte("{")),
+		encodeContinue(cursor{N: hex.EncodeToString(sum[:]), I: 1}), encodeContinue(cursor{N: hex.EncodeToString(sum[:]), K: 4})} {
+		_, err := Cluster(context.Background(), fiveDeployments(), Options{Plan: true}, ClusterOptions{Namespaces: []string{"a"}, Out: t.TempDir(), Continue: token}, nil)
+		if err == nil || !strings.Contains(err.Error(), "the continue token is malformed") {
+			t.Errorf("%q: %v", token, err)
+		}
+	}
+}
+
+// TestClusterCallWindowConfigurable: a call older than the default window
+// counts once the window is wide enough.
+func TestClusterCallWindowConfigurable(t *testing.T) {
+	now := time.Now()
+	objs := []runtime.Object{
+		deployment("shop", "checkout", "reg.io/acme/checkout:1.4.0"), service("shop", "payments", "10.0.0.20"),
+		controlled(obj("v1", "Pod", "shop", "checkout-0", nil), "Deployment", "checkout", "u-checkout"),
+		obj("pacto.trianalab.io/v1alpha1", "NodeRuntimeObservation", "pacto-system", "node-1", map[string]any{"status": map[string]any{
+			"nodeName": "node-1", "pods": []any{map[string]any{"uid": "u-checkout", "connections": []any{map[string]any{
+				"address": "10.0.0.20", "port": int64(80), "successes": int64(1), "lastSuccessAt": now.Add(-30 * time.Hour).UTC().Format(time.RFC3339)}}}}}}),
+	}
+	for window, want := range map[time.Duration]int{0: 0, 48 * time.Hour: 1} {
+		c := ClusterOptions{Out: t.TempDir(), Now: func() time.Time { return now }, CallWindow: window}
+		b, err := Cluster(context.Background(), fakeCluster(objs...), Options{Plan: true}, c, nil)
+		if err != nil || len(result(t, b, "checkout").Dependencies) != want {
+			t.Errorf("window %v: %+v %v", window, b, err)
+		}
+	}
+}
+
+// TestClusterOptionRefusals: a negative bound and a window under a minute
+// are refused.
+func TestClusterOptionRefusals(t *testing.T) {
+	for _, tc := range []struct {
+		c    ClusterOptions
+		want string
+	}{
+		{ClusterOptions{MaxItems: -1}, "--max-items"},
+		{ClusterOptions{CallWindow: 10 * time.Second}, "--call-window"},
+		{ClusterOptions{CallWindow: -time.Hour}, "--call-window"},
+	} {
+		tc.c.Out = t.TempDir()
+		if _, err := Cluster(context.Background(), fakeCluster(), Options{Plan: true}, tc.c, nil); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%+v: %v", tc.c, err)
+		}
+	}
+}
+
+// TestClusterReadsNoSecrets: the cluster read lists and gets no Secret and no
+// ConfigMap, over every fixture of this file's reads.
+func TestClusterReadsNoSecrets(t *testing.T) {
+	now := time.Now()
+	for _, objs := range [][]runtime.Object{shopCluster(now), secretShop(), manyPods(3)} {
+		cl := fakeCluster(objs...)
+		if _, err := Cluster(context.Background(), cl, Options{Plan: true}, ClusterOptions{Out: t.TempDir(), Now: func() time.Time { return now }}, nil); err != nil {
+			t.Fatal(err)
+		}
+		for _, a := range cl.Actions() {
+			if r := a.GetResource().Resource; r == "secrets" || r == "configmaps" || a.GetVerb() != "list" {
+				t.Errorf("the read did %s %s", a.GetVerb(), r)
+			}
+		}
+	}
+}
+
+// TestManyHasNoCoverageKey: several folders read no cluster, so their JSON
+// carries no coverage and no continue token.
+func TestManyHasNoCoverageKey(t *testing.T) {
+	a, b := fraudDir(t), writeTree(t, t.TempDir(), map[string]string{"x/Dockerfile": "FROM scratch\n"})
+	bulk, err := Many(context.Background(), Options{Plan: true}, []string{a, b}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(bulk)
+	if strings.Contains(string(raw), `"coverage"`) || strings.Contains(string(raw), `"continue"`) {
+		t.Fatalf("%s", raw)
+	}
+}
+
+// viewerShop is shop/invoices calling vault/kms, which a Pacto describes,
+// while two vault pods call invoices now and a third did 30 hours ago.
+func viewerShop(now time.Time) []runtime.Object {
+	call := func(ip string, at time.Time) []any {
+		return []any{map[string]any{"address": ip, "port": int64(80), "successes": int64(1), "lastSuccessAt": at.UTC().Format(time.RFC3339)}}
+	}
+	pod := func(ns, name, owner string) *unstructured.Unstructured {
+		return controlled(obj("v1", "Pod", ns, name, map[string]any{"metadata": map[string]any{"labels": map[string]any{"app": owner}}}), "Deployment", owner, "u-"+name)
+	}
+	return []runtime.Object{
+		deployment("shop", "invoices", "reg.io/acme/invoices:1.0.0"), service("shop", "invoices", "10.0.0.30"), pod("shop", "invoices-0", "invoices"),
+		deployment("vault", "kms", "reg.io/acme/kms:1.0.0"), service("vault", "kms", "10.0.0.50"),
+		pod("vault", "agent-a", "kms"), pod("vault", "agent-b", "kms"), pod("vault", "agent-old", "kms"),
+		pactoCR("vault", "kms", "kms", "kms", "oci://reg.io/acme/contracts/kms", "1.2.0", 1, 1),
+		obj("pacto.trianalab.io/v1alpha1", "NodeRuntimeObservation", "pacto-system", "node-1", map[string]any{"status": map[string]any{
+			"nodeName": "node-1", "pods": []any{
+				map[string]any{"uid": "u-invoices-0", "connections": call("10.0.0.50", now)},
+				map[string]any{"uid": "u-agent-a", "connections": call("10.0.0.30", now)},
+				map[string]any{"uid": "u-agent-b", "connections": call("10.0.0.30", now)},
+				map[string]any{"uid": "u-agent-old", "connections": call("10.0.0.30", now.Add(-30*time.Hour))},
+			}}}),
+	}
+}
+
+func onlyShop(ns string) bool { return ns == "shop" }
+
+// TestViewerDropsBeforeCompletion: a Service the viewer may not read is
+// dropped before the draft is made, so it is no dependency and no line
+// names it; without the hook the same read lists it.
+func TestViewerDropsBeforeCompletion(t *testing.T) {
+	now := time.Now()
+	for _, visible := range []func(string) bool{nil, onlyShop} {
+		c := ClusterOptions{Out: t.TempDir(), Now: func() time.Time { return now }, Visible: visible}
+		b, err := Cluster(context.Background(), fakeCluster(viewerShop(now)...), Options{Plan: true}, c, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r := result(t, b, "invoices")
+		raw, _ := json.Marshal(r)
+		if named := strings.Contains(string(raw), "kms"); named != (visible == nil) || len(r.Dependencies) != map[bool]int{true: 1}[visible == nil] {
+			t.Errorf("visible %v: %s", visible != nil, raw)
+		}
+	}
+}
+
+// TestViewerHiddenCounts: per workload, the hidden Services its pods called
+// and the hidden pods calling its Services within the call window.
+func TestViewerHiddenCounts(t *testing.T) {
+	now := time.Now()
+	c := ClusterOptions{MaxItems: DefaultMaxItems, Now: func() time.Time { return now }}
+	nss := []string{""}
+	cur, _ := decodeContinue("", nss)
+	cl, err := readCluster(context.Background(), fakeCluster(viewerShop(now)...), c, nss, cur)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cl.restrict(onlyShop, now.Add(-DefaultCallWindow))
+	want := map[string]int{"shop/Deployment/invoices": 1}
+	if !reflect.DeepEqual(cl.hiddenServices, want) || !reflect.DeepEqual(cl.hiddenCallers, map[string]int{"shop/Deployment/invoices": 2}) {
+		t.Fatalf("services %v, callers %v", cl.hiddenServices, cl.hiddenCallers)
+	}
+	for _, l := range [][]unstructured.Unstructured{cl.workloads, cl.pods, cl.services, cl.pactos} {
+		for _, o := range l {
+			if o.GetNamespace() != "shop" {
+				t.Errorf("kept %s", key(o))
+			}
+		}
+	}
+}
+
+// tokenRE matches strings that may be base64 of something.
+var tokenRE = regexp.MustCompile(`[A-Za-z0-9+/_=-]{8,}`)
+
+// decoded is s with every token-shaped string in it base64-decoded, in the
+// standard and URL alphabets, twice.
+func decoded(s string) string {
+	out := s
+	for range 2 {
+		for _, tok := range tokenRE.FindAllString(out, -1) {
+			for _, enc := range []*base64.Encoding{base64.StdEncoding, base64.URLEncoding, base64.RawStdEncoding, base64.RawURLEncoding} {
+				if raw, err := enc.DecodeString(tok); err == nil {
+					out += "\n" + string(raw)
+				}
+			}
+		}
+	}
+	return out
+}
+
+// TestViewerHiddenObjectsNeverNamed: nothing a viewer gets names a hidden
+// namespace, Service or pod, even decoded.
+func TestViewerHiddenObjectsNeverNamed(t *testing.T) {
+	now := time.Now()
+	c := ClusterOptions{Out: t.TempDir(), Now: func() time.Time { return now }, Visible: onlyShop}
+	b, err := Cluster(context.Background(), fakeCluster(viewerShop(now)...), Options{Plan: true}, c, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(b)
+	text := decoded(string(raw))
+	for _, name := range []string{"vault", "kms", "agent-a", "agent-b", "agent-old"} {
+		if strings.Contains(text, name) {
+			t.Errorf("%q named in %s", name, raw)
+		}
+	}
+}
+
+// TestViewerNoContinueToken: a viewer read the bound stopped says so, and
+// gets no token.
+func TestViewerNoContinueToken(t *testing.T) {
+	c := ClusterOptions{Namespaces: []string{"a", "b"}, Out: t.TempDir(), MaxItems: 2, Visible: func(string) bool { return true }}
+	b, err := Cluster(context.Background(), fiveDeployments(), Options{Plan: true}, c, nil)
+	if err != nil || b.Continue != "" || coverage(t, b, "workloads") != (contract.InferredCoverage{Source: "workloads", State: contract.CoveragePartial, Reason: "stopped at the item bound (2)"}) {
+		t.Fatalf("%+v: %v", b, err)
+	}
+}
+
+// TestViewerContinueRefused: a viewer read refuses a token before any read.
+func TestViewerContinueRefused(t *testing.T) {
+	cl := fiveDeployments()
+	c := ClusterOptions{Out: t.TempDir(), Continue: "x", Visible: onlyShop}
+	if _, err := Cluster(context.Background(), cl, Options{Plan: true}, c, nil); err == nil ||
+		err.Error() != "a continue token is not available when reading on behalf of another person" || len(cl.Actions()) != 0 {
+		t.Fatalf("%v, %d reads", err, len(cl.Actions()))
+	}
+}
+
+// TestViewerNilChangesNothing: a viewer who may read everything gets what a
+// read with no hook gets.
+func TestViewerNilChangesNothing(t *testing.T) {
+	now := time.Now()
+	var got []string
+	for _, visible := range []func(string) bool{nil, func(string) bool { return true }} {
+		c := ClusterOptions{Out: "drafts", Now: func() time.Time { return now }, Visible: visible}
+		b, err := Cluster(context.Background(), fakeCluster(shopCluster(now)...), Options{Plan: true}, c, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := json.Marshal(b)
+		got = append(got, string(raw))
+	}
+	if got[0] != got[1] {
+		t.Fatalf("without the hook:\n%s\nwith it:\n%s", got[0], got[1])
+	}
+}
+
+// TestViewerRefusesHiddenNamespace: a namespace the viewer may not read is
+// refused before any read, with the same words whether it exists or not, so
+// no bound row counts what it holds; a visible one is read as asked.
+func TestViewerRefusesHiddenNamespace(t *testing.T) {
+	now := time.Now()
+	for _, objs := range [][]runtime.Object{viewerShop(now), nil} {
+		cl := fakeCluster(objs...)
+		c := ClusterOptions{Namespaces: []string{"vault", "shop"}, Out: t.TempDir(), MaxItems: 1, Now: func() time.Time { return now }, Visible: onlyShop}
+		if b, err := Cluster(context.Background(), cl, Options{Plan: true}, c, nil); b != nil || err == nil ||
+			err.Error() != "the namespace vault is not one you may read" || len(cl.Actions()) != 0 {
+			t.Fatalf("%+v: %v, %d reads", b, err, len(cl.Actions()))
+		}
+	}
+	c := ClusterOptions{Namespaces: []string{"shop"}, Out: t.TempDir(), Now: func() time.Time { return now }, Visible: onlyShop}
+	b, err := Cluster(context.Background(), fakeCluster(viewerShop(now)...), Options{Plan: true}, c, nil)
+	if err != nil || !slices.Equal(drafted(b), []string{"invoices"}) || len(b.Skipped) != 0 {
+		t.Fatalf("%v %+v: %v", drafted(b), b, err)
+	}
+}
+
+// argsWorkload is checkout with the containers and initContainers given, each
+// a name and its command and args.
+func argsWorkload(containers, inits []any) *unstructured.Unstructured {
+	spec := map[string]any{"containers": containers}
+	if inits != nil {
+		spec["initContainers"] = inits
+	}
+	return obj("apps/v1", "Deployment", "shop", "checkout", map[string]any{"spec": map[string]any{"template": map[string]any{"spec": spec}}})
+}
+
+// ctr is a container named name with command and args (nil leaves one out)
+// and env.
+func ctr(name string, command, args []any, env []any) map[string]any {
+	c := map[string]any{"name": name, "image": "reg.io/acme/" + name + ":1.0.0"}
+	for k, v := range map[string][]any{"command": command, "args": args, "env": env} {
+		if v != nil {
+			c[k] = v
+		}
+	}
+	return c
+}
+
+// rewriteArgs runs secretEnv over w and returns its containers, its
+// initContainers and the Secret's keys.
+func rewriteArgs(t *testing.T, w *unstructured.Unstructured) (containers, inits []any, keys []string) {
+	t.Helper()
+	keys, _ = secretEnv(w, "checkout-env", map[string]bool{"checkout": true})
+	containers, _, _ = unstructured.NestedSlice(w.Object, "spec", "template", "spec", "containers")
+	inits, _, _ = unstructured.NestedSlice(w.Object, "spec", "template", "spec", "initContainers")
+	return containers, inits, keys
+}
+
+// field is the string list key of the container c.
+func field(c any, key string) []string {
+	l, _ := c.(map[string]any)[key].([]any)
+	out := make([]string, len(l))
+	for i, v := range l {
+		out[i] = v.(string)
+	}
+	return out
+}
+
+// envRef reports whether the container c has the env entry name reading key
+// from checkout-env.
+func envRef(c any, name, key string) bool {
+	envs, _ := c.(map[string]any)["env"].([]any)
+	return slices.ContainsFunc(envs, func(e any) bool {
+		em := e.(map[string]any)
+		return em["name"] == name && fmt.Sprint(em["valueFrom"]) == fmt.Sprint(map[string]any{"secretKeyRef": map[string]any{"name": "checkout-env", "key": key}})
+	})
+}
+
+func TestSecretEnvMovesSensitiveArgs(t *testing.T) {
+	cs, _, keys := rewriteArgs(t, argsWorkload([]any{ctr("app", nil, []any{"serve", "--db-password=hunter2", "--port=8080"}, nil)}, nil))
+	if got := field(cs[0], "args"); !slices.Equal(got, []string{"serve", "--db-password=$(DB_PASSWORD)", "--port=8080"}) ||
+		!envRef(cs[0], "DB_PASSWORD", "DB_PASSWORD") || !slices.Equal(keys, []string{"DB_PASSWORD"}) || strings.Contains(fmt.Sprint(cs), "hunter2") {
+		t.Fatalf("args %v keys %v containers %v", got, keys, cs)
+	}
+}
+
+func TestSecretEnvArgsKeyEqualsForm(t *testing.T) {
+	cs, _, keys := rewriteArgs(t, argsWorkload([]any{ctr("app", []any{"env", "TOKEN=t0ken-arg", "app"}, nil, nil)}, nil))
+	if got := field(cs[0], "command"); !slices.Equal(got, []string{"env", "TOKEN=$(TOKEN)", "app"}) || !envRef(cs[0], "TOKEN", "TOKEN") || !slices.Equal(keys, []string{"TOKEN"}) {
+		t.Fatalf("command %v keys %v", got, keys)
+	}
+	if _, ok := cs[0].(map[string]any)["args"]; ok {
+		t.Fatalf("args appeared: %v", cs[0])
+	}
+}
+
+// TestSecretEnvArgsSplitForm: the value after a bare sensitive flag moves;
+// a short flag moves when its value is sensitive by itself.
+func TestSecretEnvArgsSplitForm(t *testing.T) {
+	cs, _, keys := rewriteArgs(t, argsWorkload([]any{ctr("app", []any{"app"}, []any{"--db-password", "hunter2", "-p", "postgres://u:hunter2@db/x"}, nil)}, nil))
+	if got := slices.Concat(field(cs[0], "command"), field(cs[0], "args")); !slices.Equal(got, []string{"app", "--db-password", "$(DB_PASSWORD)", "-p", "$(P)"}) ||
+		!envRef(cs[0], "P", "P") || !slices.Equal(keys, []string{"DB_PASSWORD", "P"}) || strings.Contains(fmt.Sprint(cs), "hunter2") {
+		t.Fatalf("argv %v keys %v", got, keys)
+	}
+}
+
+func TestSecretEnvArgsShellString(t *testing.T) {
+	cs, _, keys := rewriteArgs(t, argsWorkload([]any{ctr("app", []any{"/bin/sh", "-c"}, []any{"app --token=t0ken-arg  --port=8080"}, nil)}, nil))
+	if got := field(cs[0], "args"); !slices.Equal(got, []string{"app --token=$(TOKEN)  --port=8080"}) || !slices.Equal(keys, []string{"TOKEN"}) {
+		t.Fatalf("args %v keys %v", got, keys)
+	}
+	cs, _, _ = rewriteArgs(t, argsWorkload([]any{ctr("app", nil, []any{"bash", "-c", "x"}, nil)}, nil))
+	if got := field(cs[0], "args"); !slices.Equal(got, []string{"bash", "-c", "x"}) {
+		t.Fatalf("plain script %v", got)
+	}
+}
+
+// TestSecretEnvArgsEnvInSameContainer: the env entry lands in the container
+// or init container that holds the arg, and in no other.
+func TestSecretEnvArgsEnvInSameContainer(t *testing.T) {
+	cs, is, keys := rewriteArgs(t, argsWorkload(
+		[]any{ctr("app", nil, []any{"serve"}, nil), ctr("sidecar", nil, []any{"--api-key=k3y"}, nil)},
+		[]any{ctr("migrate", nil, []any{"--db-password=hunter2"}, nil)}))
+	if !envRef(cs[1], "API_KEY", "API_KEY") || envRef(cs[0], "API_KEY", "API_KEY") || cs[0].(map[string]any)["env"] != nil ||
+		!envRef(is[0], "DB_PASSWORD", "DB_PASSWORD") || envRef(cs[1], "DB_PASSWORD", "DB_PASSWORD") || !slices.Equal(keys, []string{"API_KEY", "DB_PASSWORD"}) {
+		t.Fatalf("containers %v inits %v keys %v", cs, is, keys)
+	}
+}
+
+func TestSecretEnvArgsURLWithUserinfo(t *testing.T) {
+	cs, _, keys := rewriteArgs(t, argsWorkload([]any{ctr("app", nil, []any{"connect", "postgres://u:s3cret@db/x", "postgres://v:other@db/y"}, nil)}, nil))
+	if got := field(cs[0], "args"); !slices.Equal(got, []string{"connect", "$(URL)", "$(URL_2)"}) || !envRef(cs[0], "URL_2", "URL_2") ||
+		!slices.Equal(keys, []string{"URL", "URL_2"}) {
+		t.Fatalf("args %v keys %v", got, keys)
+	}
+}
+
+// TestSecretEnvArgsNameClash: a name the container's env already sets reads
+// ARG_<name>; a Secret key another container's env holds with a different
+// literal reads <container>.<name>; the same literal twice shares one entry.
+func TestSecretEnvArgsNameClash(t *testing.T) {
+	cs, is, keys := rewriteArgs(t, argsWorkload(
+		[]any{ctr("app", nil, []any{"--db-password=hunter2", "--db-password=hunter2"}, env("DB_PASSWORD", "env-pw"))},
+		[]any{ctr("migrate", nil, []any{"--db-password=m1grate"}, nil)}))
+	if got := field(cs[0], "args"); !slices.Equal(got, []string{"--db-password=$(ARG_DB_PASSWORD)", "--db-password=$(ARG_DB_PASSWORD)"}) ||
+		!envRef(cs[0], "ARG_DB_PASSWORD", "ARG_DB_PASSWORD") || len(cs[0].(map[string]any)["env"].([]any)) != 2 ||
+		!envRef(is[0], "DB_PASSWORD", "migrate.DB_PASSWORD") || !slices.Equal(keys, []string{"ARG_DB_PASSWORD", "DB_PASSWORD", "migrate.DB_PASSWORD"}) {
+		t.Fatalf("containers %v inits %v keys %v", cs, is, keys)
+	}
+}
+
+func TestSecretEnvLeavesPlainArgs(t *testing.T) {
+	probe := "while true; do nc -z -w 2 wallet 80; sleep 2; done"
+	w := argsWorkload([]any{ctr("app", []any{"sh", "-c", probe}, []any{"--port=8080", "--port", "8080", "--token", "--verbose", "-", int64(7)}, nil)}, nil)
+	before := fmt.Sprint(w.Object)
+	if _, _, keys := rewriteArgs(t, w); keys != nil || fmt.Sprint(w.Object) != before {
+		t.Fatalf("plain args changed: %v %v", keys, w.Object)
+	}
+}
+
+// TestSecretEnvInitContainerURLNamesDependency: a URL an init container's
+// env sets to a dependency is read by the scan, so moving it into the Secret
+// names the dependency the draft no longer lists.
+func TestSecretEnvInitContainerURLNamesDependency(t *testing.T) {
+	w := argsWorkload([]any{ctr("app", nil, nil, nil)}, []any{ctr("migrate", nil, nil, env("LEDGER_URL", "postgres://u:p@ledger:5432/x"))})
+	if keys, urls := secretEnv(w, "checkout-env", map[string]bool{"checkout": true}); !slices.Equal(keys, []string{"LEDGER_URL"}) || !slices.Equal(urls, []string{"LEDGER_URL (ledger)"}) {
+		t.Fatalf("keys %v urls %v", keys, urls)
 	}
 }

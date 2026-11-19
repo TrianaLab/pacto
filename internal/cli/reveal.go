@@ -195,8 +195,9 @@ func discoveredRows(fields []contract.Inferred) [][2]string {
 	return rows
 }
 
-// discoveredSuffix is " (attested, outranks ...)" for f after the note
-// lead, or what of it applies, "" when nothing does. Attested only names
+// discoveredSuffix is " (attested, read from the cluster <asOf>, partial,
+// proposed <range>, outranks ...)" for f after the note lead, or what of it
+// applies, "" when nothing does. Attested only names
 // where an owner was read: it routes nothing and clears no gate.
 func discoveredSuffix(f contract.Inferred, lead string) string {
 	var notes []string
@@ -205,6 +206,15 @@ func discoveredSuffix(f contract.Inferred, lead string) string {
 	}
 	if f.Class == contract.InferredClassOwnerFile {
 		notes = append(notes, "attested")
+	}
+	if f.AsOf != "" {
+		notes = append(notes, "read from the cluster "+f.AsOf)
+	}
+	if f.Completeness == contract.CoveragePartial {
+		notes = append(notes, "partial")
+	}
+	if f.Proposed != "" {
+		notes = append(notes, "proposed "+f.Proposed)
 	}
 	if len(f.Outranks) > 0 {
 		short := make([]string, len(f.Outranks))

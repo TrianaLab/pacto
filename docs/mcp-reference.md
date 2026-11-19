@@ -214,7 +214,8 @@ contract. See [Pactify a service](pactify.md).
   `describe_only`.
 - `domain`, `registry`, `environments`, `fleet_roots`, `insecure_registry`
   and `registry_secret` match the CLI flags, and `dry_run` plans without
-  writing. `no_transparency_log` applies with `from` only: it writes
+  writing. `max_items`, `call_window` and `continue` match the CLI flags too
+  and go with `cluster`. `no_transparency_log` applies with `from` only: it writes
   `transparencyLog: false` under the golden path's `publish.sign`.
 - The contract has no publish section and no `service.version`:
   `pacto ci --publish` derives both.

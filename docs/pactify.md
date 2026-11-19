@@ -130,6 +130,10 @@ configurations:             # the environment, ConfigMaps included: keys and typ
   folder names and records them in the inferred record, never in
   `pacto.yaml`; see [External dependencies](#external-dependencies). A
   `--cluster` draft lists them the same way.
+- A `--cluster` draft is completed by the same engine as a folder, and its
+  `pacto.inferred.yaml` adds what the cluster showed, each value with when it
+  was read and whether every node was observed
+  ([details](bootstrap-contracts.md#the-inferred-record-of-a-draft)).
 - On a folder that already holds a `pactoVersion: "2.5"` `pacto.yaml`, `init`
   completes the contract and never changes it: what the folder adds goes into
   the [inferred record](contract-reference/inferred-record.md), published with
@@ -317,7 +321,8 @@ change. Without the agent, environment URLs name
 dependencies. Drafts are
 never published, and an invalid one fails the command. The MCP tool
 `pacto_create` with `pactify: true` takes `paths`, `cluster` and `namespaces`,
-and only plans unless `dry_run` is false.
+and only plans unless `dry_run` is false. With `cluster` it also takes
+`max_items`, `call_window` and `continue`.
 [Generate contracts from what you already have](bootstrap-contracts.md#draft-from-a-running-cluster)
 lists the permissions `--cluster` needs and walks through a whole folder of
 services.

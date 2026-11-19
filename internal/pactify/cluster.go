@@ -3,12 +3,17 @@ package pactify
 import (
 	"cmp"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
 	"os"
+	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -25,6 +30,7 @@ import (
 	"github.com/trianalab/pacto/v4/internal/discover"
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
 	"github.com/trianalab/pacto/v4/internal/runtimewatch/kubesink"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/runtimefacts"
 )
 
@@ -37,18 +43,36 @@ type ClusterOptions struct {
 	Out string
 	// Now is the clock calls are judged against; nil is time.Now.
 	Now func() time.Time
+	// MaxItems bounds how many items each source reads; 0 is
+	// DefaultMaxItems. A source stopped by it reads partial.
+	MaxItems int
+	// CallWindow is how far back a call counts as a dependency; 0 is
+	// DefaultCallWindow.
+	CallWindow time.Duration
+	// Continue resumes a read the workload bound stopped, from the token
+	// that read returned in Bulk.Continue.
+	Continue string
+	// Visible says which namespaces the person the read runs for may read;
+	// nil means the API server already authorized the caller's credentials.
+	Visible func(namespace string) bool
 }
+
+// The defaults of ClusterOptions.
+const (
+	DefaultMaxItems   = 10000
+	DefaultCallWindow = 24 * time.Hour
+)
 
 // Bulk is what pacto init did to several services.
 type Bulk struct {
 	Results []*Result `json:"results"`
 	// Skipped are the workloads a Pacto already describes, as ns/Kind/name.
 	Skipped []string `json:"skipped"`
+	// Coverage is how completely a cluster read saw each source.
+	Coverage []contract.InferredCoverage `json:"coverage,omitempty"`
+	// Continue resumes a cluster read the workload bound stopped.
+	Continue string `json:"continue,omitempty"`
 }
-
-// callWindow is how far back a call counts as a dependency.
-// ponytail: fixed; take the observer's dependency window if drafts need to match it.
-const callWindow = 24 * time.Hour
 
 func gvr(group, version, resource string) schema.GroupVersionResource {
 	return schema.GroupVersionResource{Group: group, Version: version, Resource: resource}
@@ -74,6 +98,14 @@ type cluster struct {
 	// nodes maps a node name to its observation.
 	nodes map[string]*runtimefacts.Snapshot
 	now   time.Time
+	// coverage is how completely each source was read, by source.
+	coverage map[string]contract.InferredCoverage
+	// cont resumes the read when the workload bound stopped it.
+	cont string
+	// hiddenServices and hiddenCallers count, per workload as ns/Kind/name,
+	// the Services a viewer may not read that its pods called and the pods
+	// a viewer may not read that called its Services (restrict).
+	hiddenServices, hiddenCallers map[string]int
 }
 
 // Cluster drafts a contract for every workload in the namespaces that no
@@ -88,16 +120,33 @@ func Cluster(ctx context.Context, dyn dynamic.Interface, base Options, c Cluster
 	if base.Name != "" || base.Dir != "" {
 		return nil, errors.New("reading a cluster names each service after its workload, so it takes no name or folder")
 	}
-	if c.Now == nil {
-		c.Now = time.Now
+	if err := c.defaults(); err != nil {
+		return nil, err
 	}
-	cl, err := readCluster(ctx, dyn, c.Namespaces, c.Now())
+	nss := slices.Compact(slices.Sorted(slices.Values(c.Namespaces)))
+	if len(nss) == 0 {
+		nss = []string{metav1.NamespaceAll}
+	}
+	// A namespace the viewer may not read is never listed, so no bound row
+	// counts what it holds. The refusal names only what the caller asked for.
+	// ponytail: a read of every namespace still counts hidden ones toward the
+	// bound rows; 513-S3 scopes a viewer's read to the namespaces it may see.
+	if i := slices.IndexFunc(nss, func(ns string) bool { return c.Visible != nil && ns != metav1.NamespaceAll && !c.Visible(ns) }); i >= 0 {
+		return nil, fmt.Errorf("the namespace %s is not one you may read", nss[i])
+	}
+	cur, err := decodeContinue(c.Continue, nss)
 	if err != nil {
 		return nil, err
 	}
-	deps := cl.inferred(c.Now().Add(-callWindow))
+	cl, err := readCluster(ctx, dyn, c, nss, cur)
+	since := c.Now().Add(-c.CallWindow)
+	cl.restrict(c.Visible, since)
+	b := &Bulk{Results: []*Result{}, Skipped: []string{}, Coverage: cl.rows(), Continue: cl.cont}
+	if err != nil {
+		return b, err
+	}
+	deps := cl.inferred(since)
 	described := cl.described()
-	b := &Bulk{Results: []*Result{}, Skipped: []string{}}
 	var errs []error
 	for _, w := range cl.workloads {
 		ns, name := w.GetNamespace(), w.GetName()
@@ -106,7 +155,7 @@ func Cluster(ctx context.Context, dyn dynamic.Interface, base Options, c Cluster
 			b.Skipped = append(b.Skipped, k)
 			continue
 		}
-		r, err := cl.draft(ctx, w, base, deps[k], c.Out, writeFile)
+		r, err := cl.draft(ctx, w, base, deps[k], c, writeFile)
 		if r != nil {
 			b.Results = append(b.Results, r)
 		}
@@ -117,12 +166,30 @@ func Cluster(ctx context.Context, dyn dynamic.Interface, base Options, c Cluster
 	return b, errors.Join(errs...)
 }
 
+// defaults fills the zero options in and refuses the ones no read can run
+// with.
+func (c *ClusterOptions) defaults() error {
+	if c.Now == nil {
+		c.Now = time.Now
+	}
+	c.MaxItems, c.CallWindow = cmp.Or(c.MaxItems, DefaultMaxItems), cmp.Or(c.CallWindow, DefaultCallWindow)
+	switch {
+	case c.MaxItems < 0:
+		return errors.New("the item bound (--max-items) must be positive")
+	case c.CallWindow < time.Minute:
+		return errors.New("the call window (--call-window) must be at least a minute")
+	case c.Visible != nil && c.Continue != "":
+		return errors.New("a continue token is not available when reading on behalf of another person")
+	}
+	return nil
+}
+
 // draft pactifies one workload in <out>/<ns>/<name>. A manifests.yaml
 // already there is the user's and is kept; a plan reads the new one from a
 // scratch folder, so it writes nothing under out.
-func (cl *cluster) draft(ctx context.Context, w unstructured.Unstructured, base Options, deps []Inferred, out string,
+func (cl *cluster) draft(ctx context.Context, w unstructured.Unstructured, base Options, deps []Inferred, c ClusterOptions,
 	writeFile func(string, []byte, os.FileMode) error) (*Result, error) {
-	dir := filepath.Join(out, w.GetNamespace(), w.GetName())
+	dir := filepath.Join(c.Out, w.GetNamespace(), w.GetName())
 	scanned, write := dir, writeFile
 	content, keys, urls := cl.manifests(w)
 	f := File{Path: "manifests.yaml", Action: Add, Content: content}
@@ -144,8 +211,9 @@ func (cl *cluster) draft(ctx context.Context, w unstructured.Unstructured, base 
 			return nil, err
 		}
 	}
+	facts := cl.facts(w, deps, f.Action == Add, c)
 	opts := base
-	opts.Dir, opts.Name, opts.Inferred, opts.cluster = scanned, w.GetName(), deps, true
+	opts.Dir, opts.Name, opts.Inferred, opts.Cluster = scanned, w.GetName(), deps, &facts
 	r, err := Init(ctx, opts, writeFile)
 	if r == nil {
 		return nil, err
@@ -159,6 +227,10 @@ func (cl *cluster) draft(ctx context.Context, w unstructured.Unstructured, base 
 			"so no value reaches the bundle. Before you apply it, create that Secret from a file of KEY=value lines: "+
 			"kubectl -n %s create secret generic %s --from-env-file=<file>", strings.Join(keys, ", "), values, them, secret, w.GetNamespace(), secret))
 	}
+	// A service another variable still lists as a dependency needs no line.
+	urls = slices.DeleteFunc(urls, func(u string) bool {
+		return slices.ContainsFunc(r.Dependencies, func(d Finding) bool { return strings.HasSuffix(u, " ("+d.Name+")") })
+	})
 	if len(urls) > 0 {
 		r.Next = append(r.Next, fmt.Sprintf("manifests.yaml: %s held a URL naming the service in brackets, which the draft now reads from a Secret, so the draft does not list "+
 			"that service as a dependency: add it under dependencies", strings.Join(urls, ", ")))
@@ -166,74 +238,156 @@ func (cl *cluster) draft(ctx context.Context, w unstructured.Unstructured, base 
 	if !cl.observed {
 		r.Unknown = append(r.Unknown, "dependencies seen at runtime: the cluster holds no node runtime observations, so no calls were seen")
 	}
+	if p, ok := cl.coverage["pactos"]; ok && p.State != contract.CoverageComplete {
+		r.Unknown = append(r.Unknown, fmt.Sprintf("whether a Pacto already describes this workload: the Pacto list was %s (%s), so this draft may duplicate a contract", p.State, p.Reason))
+	}
 	r.Unknown = append(r.Unknown, cl.unobserved(w)...)
 	return r, err
 }
 
-// readNamespace reads one namespace's workloads, pods and the owners of
-// their ReplicaSets and Jobs.
-func (cl *cluster) readNamespace(list func(schema.GroupVersionResource, string, bool) ([]unstructured.Unstructured, error), ns string) error {
-	for _, k := range []string{"Deployment", "StatefulSet", "DaemonSet", "CronJob"} {
-		items, err := list(k8sclient.WorkloadGVRs[k], ns, false)
-		if err != nil {
-			return err
-		}
-		cl.workloads = append(cl.workloads, items...)
+// restrict drops every workload, pod, Service, EndpointSlice and Pacto in a
+// namespace visible does not show, before anything is drafted, after
+// counting what was dropped (countHidden). No name of a dropped object
+// leaves it. A viewer gets no continue token either, since it carries the
+// API server's, which names the next object. A nil visible changes nothing.
+func (cl *cluster) restrict(visible func(string) bool, since time.Time) {
+	if visible == nil {
+		return
 	}
-	items, err := list(gvrPods, ns, false)
-	if err != nil {
-		return err
+	cl.cont = ""
+	cl.hiddenServices, cl.hiddenCallers = cl.countHidden(visible, since)
+	hidden := func(o unstructured.Unstructured) bool { return !visible(o.GetNamespace()) }
+	for _, l := range []*[]unstructured.Unstructured{&cl.workloads, &cl.pods, &cl.services, &cl.slices, &cl.pactos} {
+		*l = slices.DeleteFunc(*l, hidden)
 	}
-	cl.pods = append(cl.pods, items...)
-	for _, r := range []schema.GroupVersionResource{gvrReplicaSets, gvrJobs} {
-		items, err := list(r, ns, false)
-		if err != nil {
-			return err
+	maps.DeleteFunc(cl.owners, func(k, _ string) bool { return !visible(strings.SplitN(k, "/", 2)[0]) })
+}
+
+// countHidden counts per workload the distinct hidden Services its visible
+// pods called since since, and the distinct hidden pods that called a
+// visible Service selecting its pods. Only pods read here are known, so a
+// caller in a namespace the read did not cover is not counted.
+func (cl *cluster) countHidden(visible func(string) bool, since time.Time) (services, callers map[string]int) {
+	pods := map[string]unstructured.Unstructured{}
+	for _, p := range cl.pods {
+		pods[string(p.GetUID())] = p
+	}
+	seen := map[[3]string]bool{}
+	services, callers = map[string]int{}, map[string]int{}
+	add := func(m map[string]int, which, w, id string) {
+		if k := [3]string{which, w, id}; !seen[k] {
+			seen[k] = true
+			m[w]++
 		}
+	}
+	for _, svc := range cl.services {
+		shown := visible(svc.GetNamespace())
+		for _, id := range runtimefacts.Callers(cl.snaps, cl.peers(svc), since) {
+			pod, ok := pods[id.ID]
+			if !ok || id.Kind != runtimefacts.KindPod || visible(pod.GetNamespace()) == shown {
+				continue
+			}
+			if shown {
+				for _, w := range cl.selected(svc) {
+					add(callers, "caller", w, id.ID)
+				}
+				continue
+			}
+			add(services, "service", cl.owner(pod), svc.GetNamespace()+"/"+svc.GetName())
+		}
+	}
+	return services, callers
+}
+
+// selected are the workloads, as ns/Kind/name, whose pods svc selects.
+func (cl *cluster) selected(svc unstructured.Unstructured) []string {
+	sel, _, _ := unstructured.NestedStringMap(svc.Object, "spec", "selector")
+	var out []string
+	for _, p := range cl.pods {
+		if w := cl.owner(p); p.GetNamespace() == svc.GetNamespace() && selects(sel, p.GetLabels()) && !slices.Contains(out, w) {
+			out = append(out, w)
+		}
+	}
+	return out
+}
+
+// readNamespace reads one namespace's pods and the owners of its
+// ReplicaSets and Jobs, each source up to its bound.
+func (cl *cluster) readNamespace(rd *reader, ns string) {
+	pods, _, _, _ := rd.page(gvrPods, ns, "pods", false, "")
+	cl.pods = append(cl.pods, pods...)
+	for _, s := range []struct {
+		r      schema.GroupVersionResource
+		source string
+	}{{gvrReplicaSets, "replicasets"}, {gvrJobs, "jobs"}} {
+		items, _, _, _ := rd.page(s.r, ns, s.source, false, "")
 		for _, o := range items {
 			if ref := metav1.GetControllerOf(&o); ref != nil {
 				cl.owners[o.GetNamespace()+"/"+o.GetKind()+"/"+o.GetName()] = o.GetNamespace() + "/" + ref.Kind + "/" + ref.Name
 			}
 		}
 	}
+}
+
+// readWorkloads reads the workloads of nss from cur, each kind of each
+// namespace in turn, until the end or the workload bound. Stopped by the
+// bound, it keeps where to resume in cl.cont. It returns the error of a
+// workload list when none succeeded.
+func (cl *cluster) readWorkloads(rd *reader, nss []string, cur cursor) error {
+	var first error
+	read := false
+	tok := cur.C
+	for i := cur.I; i < len(nss); i++ {
+		for k := cur.K; k < len(workloadKinds); k++ {
+			items, next, more, err := rd.page(k8sclient.WorkloadGVRs[workloadKinds[k]], nss[i], "workloads", false, tok)
+			tok = ""
+			cl.workloads = append(cl.workloads, items...)
+			if more {
+				cl.cont = encodeContinue(cursor{N: cur.N, I: i, K: k, C: next})
+				return nil
+			}
+			if err != nil {
+				first = cmp.Or(first, err)
+				continue
+			}
+			read = true
+		}
+		cur.K = 0
+	}
+	if !read {
+		return first
+	}
 	return nil
 }
 
-// readObservations reads the node runtime observations' snapshots.
-func (cl *cluster) readObservations(nros []unstructured.Unstructured) error {
+// workloadKinds are the workload kinds read, in the order a continue token
+// counts them.
+var workloadKinds = []string{"Deployment", "StatefulSet", "DaemonSet", "CronJob"}
+
+// readObservations reads the node runtime observations' snapshots. A
+// malformed one is skipped and fails the runtime-calls source.
+func (cl *cluster) readObservations(rd *reader, nros []unstructured.Unstructured) {
 	for _, n := range nros {
 		raw, _ := json.Marshal(n.Object["status"])
 		var s runtimefacts.Snapshot
 		if err := json.Unmarshal(raw, &s); err != nil {
-			return fmt.Errorf("reading the node runtime observation %s: %w", n.GetName(), err)
+			rd.mark("runtime-calls", contract.CoverageFailed, "listing failed (malformed observation)")
+			continue
 		}
 		cl.snaps = append(cl.snaps, s)
 	}
 	for i := range cl.snaps {
 		cl.nodes[cl.snaps[i].NodeName] = &cl.snaps[i]
 	}
-	return nil
 }
 
-func readCluster(ctx context.Context, dyn dynamic.Interface, namespaces []string, now time.Time) (*cluster, error) {
-	if len(namespaces) == 0 {
-		namespaces = []string{metav1.NamespaceAll}
-	}
-	cl := &cluster{owners: map[string]string{}, nodes: map[string]*runtimefacts.Snapshot{}, now: now}
-	list := func(r schema.GroupVersionResource, ns string, optional bool) ([]unstructured.Unstructured, error) {
-		l, err := dyn.Resource(r).Namespace(ns).List(ctx, metav1.ListOptions{})
-		if optional && apierrors.IsNotFound(err) {
-			return nil, nil // the CRD is not installed
-		}
-		if err != nil {
-			return nil, fmt.Errorf("listing %s: %w", r.Resource, err)
-		}
-		return l.Items, nil
-	}
-	for _, ns := range namespaces {
-		if err := cl.readNamespace(list, ns); err != nil {
-			return nil, err
-		}
+func readCluster(ctx context.Context, dyn dynamic.Interface, c ClusterOptions, nss []string, cur cursor) (*cluster, error) {
+	cl := &cluster{owners: map[string]string{}, nodes: map[string]*runtimefacts.Snapshot{}, now: c.Now()}
+	rd := &reader{ctx: ctx, dyn: dyn, max: c.MaxItems, count: map[string]int{}, coverage: map[string]contract.InferredCoverage{}}
+	cl.coverage = rd.coverage
+	err := cl.readWorkloads(rd, nss, cur)
+	for _, ns := range nss {
+		cl.readNamespace(rd, ns)
 	}
 	sort.Slice(cl.workloads, func(i, j int) bool { return key(cl.workloads[i]) < key(cl.workloads[j]) })
 	// Services, their endpoints and Pactos are read in every namespace: a pod
@@ -241,24 +395,139 @@ func readCluster(ctx context.Context, dyn dynamic.Interface, namespaces []string
 	// namespaces asked for.
 	for _, into := range []struct {
 		r        schema.GroupVersionResource
+		source   string
 		to       *[]unstructured.Unstructured
 		optional bool
-	}{{gvrServices, &cl.services, false}, {gvrEndpointSlices, &cl.slices, false}, {k8sclient.PactosGVR, &cl.pactos, true}} {
-		items, err := list(into.r, metav1.NamespaceAll, into.optional)
-		if err != nil {
-			return nil, err
-		}
-		*into.to = items
+	}{{gvrServices, "services", &cl.services, false}, {gvrEndpointSlices, "endpointslices", &cl.slices, false},
+		{k8sclient.PactosGVR, "pactos", &cl.pactos, true}} {
+		*into.to, _, _, _ = rd.page(into.r, metav1.NamespaceAll, into.source, into.optional, "")
 	}
-	nros, err := list(kubesink.GVR, metav1.NamespaceAll, true)
-	if err != nil {
-		return nil, err
-	}
-	if err := cl.readObservations(nros); err != nil {
-		return nil, err
-	}
+	nros, _, _, _ := rd.page(kubesink.GVR, metav1.NamespaceAll, "runtime-calls", true, "")
+	cl.readObservations(rd, nros)
 	cl.observed = len(cl.snaps) > 0
-	return cl, nil
+	if !cl.observed {
+		rd.mark("runtime-calls", contract.CoverageFailed, "no node runtime observations")
+	}
+	return cl, err
+}
+
+// reader lists sources page by page, each up to its bound, and keeps how
+// completely it saw each source.
+type reader struct {
+	ctx      context.Context
+	dyn      dynamic.Interface
+	max      int
+	count    map[string]int
+	coverage map[string]contract.InferredCoverage
+}
+
+// page lists r in ns from the API continue tok, counting toward source's
+// bound, until the list ends or the bound is reached. more is true when the
+// bound stopped it before the list ended (or before it started), with next
+// the API continue to resume from. A list error fails the source and is
+// returned; a missing optional CRD is no error and no rows.
+// ponytail: one bound per source; a per-namespace bound if one namespace starves the rest.
+func (rd *reader) page(r schema.GroupVersionResource, ns, source string, optional bool, tok string) ([]unstructured.Unstructured, string, bool, error) {
+	var items []unstructured.Unstructured
+	for {
+		left := rd.max - rd.count[source]
+		if left <= 0 {
+			rd.mark(source, contract.CoveragePartial, fmt.Sprintf("stopped at the item bound (%d)", rd.max))
+			return items, tok, true, nil
+		}
+		l, err := rd.dyn.Resource(r).Namespace(ns).List(rd.ctx, metav1.ListOptions{Limit: int64(min(500, left)), Continue: tok})
+		switch {
+		case optional && apierrors.IsNotFound(err):
+			return items, "", false, nil // the CRD is not installed
+		case err != nil:
+			rd.mark(source, contract.CoverageFailed, failure(err))
+			return items, "", false, fmt.Errorf("listing %s: %w", r.Resource, err)
+		}
+		// ponytail: a server ignoring Limit sends more than left; the whole page
+		// is kept, so the bound overshoots by that page and no item is skipped
+		// on resume.
+		tok = l.GetContinue()
+		rd.count[source] += len(l.Items)
+		items = append(items, l.Items...)
+		if tok == "" {
+			return items, "", false, nil
+		}
+	}
+}
+
+// mark records state for source unless a worse one is already recorded:
+// failed outranks partial, which outranks complete.
+func (rd *reader) mark(source, state, reason string) {
+	rank := map[string]int{contract.CoverageComplete: 0, contract.CoveragePartial: 1, contract.CoverageFailed: 2}
+	if old, ok := rd.coverage[source]; ok && rank[old.State] >= rank[state] {
+		return
+	}
+	rd.coverage[source] = contract.InferredCoverage{Source: source, State: state, Reason: reason}
+}
+
+// rows are the coverage rows in contract.CoverageSources order, a source
+// with no row being complete.
+func (cl *cluster) rows() []contract.InferredCoverage {
+	out := make([]contract.InferredCoverage, 0, len(contract.CoverageSources))
+	for _, s := range contract.CoverageSources {
+		out = append(out, cmp.Or(cl.coverage[s], contract.InferredCoverage{Source: s, State: contract.CoverageComplete}))
+	}
+	return out
+}
+
+// failure is the fixed coverage reason for a list error: none names an
+// object, since an API server error text may.
+func failure(err error) string {
+	var status apierrors.APIStatus
+	switch {
+	case apierrors.IsForbidden(err):
+		return "forbidden"
+	case apierrors.IsNotFound(err):
+		return "not found"
+	case apierrors.IsTimeout(err) || apierrors.IsServerTimeout(err):
+		return "timed out"
+	case apierrors.IsResourceExpired(err):
+		return "the continue token expired"
+	case errors.As(err, &status) && status.Status().Code >= 100 && status.Status().Code <= 599:
+		return fmt.Sprintf("listing failed (%d)", status.Status().Code)
+	}
+	return "listing failed (no response)"
+}
+
+// cursor is where a read stopped by the workload bound resumes: the
+// sha256 of the sorted namespace list, the namespace and workload kind
+// indexes and the API continue.
+type cursor struct {
+	N string `json:"n"`
+	I int    `json:"i"`
+	K int    `json:"k"`
+	C string `json:"c,omitempty"`
+}
+
+func encodeContinue(c cursor) string {
+	raw, _ := json.Marshal(c)
+	return base64.RawURLEncoding.EncodeToString(raw)
+}
+
+// decodeContinue reads token for a read of nss; "" starts at the beginning.
+func decodeContinue(token string, nss []string) (cursor, error) {
+	sum := sha256.Sum256([]byte(strings.Join(nss, "\n")))
+	c := cursor{N: hex.EncodeToString(sum[:])}
+	if token == "" {
+		return c, nil
+	}
+	var got cursor
+	raw, err := base64.RawURLEncoding.DecodeString(token)
+	if err == nil {
+		err = json.Unmarshal(raw, &got)
+	}
+	switch {
+	case err != nil || got.I < 0 || got.I >= len(nss) || got.K < 0 || got.K >= len(workloadKinds):
+		return c, errors.New("the continue token is malformed: run again without the token")
+	case got.N != c.N:
+		return c, errors.New("the continue token was made for other namespaces: run again without the token")
+	}
+	return got, nil
 }
 
 // unobserved are the Unknown lines, sorted, for the pods of w whose calls
@@ -267,16 +536,11 @@ func readCluster(ctx context.Context, dyn dynamic.Interface, namespaces []string
 // the host. With no observation at all the draft already says so once.
 func (cl *cluster) unobserved(w unstructured.Unstructured) []string {
 	var out []string
-	for _, p := range cl.pods {
-		node, _, _ := unstructured.NestedString(p.Object, "spec", "nodeName")
-		if !cl.observed || node == "" || cl.owner(p) != key(w) {
-			continue
-		}
-		started, _, _ := unstructured.NestedString(p.Object, "status", "startTime")
-		start, _ := time.Parse(time.RFC3339, started) // ponytail: zero when unset; Classify uses it only for Complete
-		o := runtimefacts.Classify(cl.nodes[node], string(p.GetUID()), start, cl.now, 0)
+	pods := 0
+	cl.eachPod(w, func(p unstructured.Unstructured, node string, o runtimefacts.Observed) {
+		pods++
 		if o.Facts != nil {
-			continue
+			return
 		}
 		line := "dependencies seen at runtime: node " + node + " has no current observation, so calls from it could not be seen"
 		switch o.Coverage {
@@ -288,8 +552,129 @@ func (cl *cluster) unobserved(w unstructured.Unstructured) []string {
 		if !slices.Contains(out, line) {
 			out = append(out, line)
 		}
+	})
+	if cl.observed && pods == 0 {
+		out = append(out, "dependencies seen at runtime: no pod of the workload was running on a node when the cluster was read, so no calls were seen")
 	}
 	sort.Strings(out)
+	return out
+}
+
+// eachPod calls fn with each pod of w scheduled on a node, that node and
+// what its observation shows of the pod, when any node was observed.
+func (cl *cluster) eachPod(w unstructured.Unstructured, fn func(p unstructured.Unstructured, node string, o runtimefacts.Observed)) {
+	for _, p := range cl.pods {
+		node, _, _ := unstructured.NestedString(p.Object, "spec", "nodeName")
+		if !cl.observed || node == "" || cl.owner(p) != key(w) {
+			continue
+		}
+		started, _, _ := unstructured.NestedString(p.Object, "status", "startTime")
+		start, _ := time.Parse(time.RFC3339, started) // ponytail: zero when unset; Classify uses it only for Complete
+		fn(p, node, runtimefacts.Classify(cl.nodes[node], string(p.GetUID()), start, cl.now, 0))
+	}
+}
+
+// facts is what the read shows about w beyond the folder drafted from it,
+// deps being the services its pods called; snap says the folder's
+// manifests.yaml was written from this read. A call is partial when a node
+// of w's pods was not observed, a source it is read through was not read in
+// full or w called a Service the viewer may not read (Decision 6).
+func (cl *cluster) facts(w unstructured.Unstructured, deps []Inferred, snap bool, c ClusterOptions) discover.ClusterFacts {
+	f := discover.ClusterFacts{Object: key(w), AsOf: cl.now, CallWindow: c.CallWindow, MaxItems: c.MaxItems, Images: cl.images(w), Hidden: cl.hidden(w)}
+	if snap {
+		f.Snapshots = []string{"manifests.yaml"}
+	}
+	asOf, k, m := cl.nodesObserved(w)
+	partial := k < m || f.Hidden.Services > 0 || !cl.complete("pods", "replicasets", "jobs", "services", "endpointslices")
+	for _, d := range deps {
+		f.Calls = append(f.Calls, discover.ClusterCall{Name: d.Name, Ref: d.Ref, Proposed: proposedRange(d.Versions), Versions: reportedVersions(d.Versions),
+			AsOf: asOf, Partial: partial || len(d.Unknown) > 0 || !cl.complete("pactos")})
+	}
+	f.Coverage = cl.rows()
+	rc := &f.Coverage[len(f.Coverage)-1] // runtime-calls, for this workload
+	if reason := cl.callsCut(f.Hidden.Services, k, m); rc.State == contract.CoverageComplete && reason != "" {
+		*rc = contract.InferredCoverage{Source: rc.Source, State: contract.CoveragePartial, Reason: reason}
+	}
+	return f
+}
+
+// callsCut is why a workload's runtime calls were not all seen, "" when they
+// were: a called Service is hidden, a node of its pods was not observed, its
+// pods may not all be tied to it, or none of its pods ran on a node, so a
+// workload with no call seen never reads as calling nothing.
+func (cl *cluster) callsCut(hidden, k, m int) string {
+	switch {
+	case hidden > 0:
+		return fmt.Sprintf("%d called services you may not read", hidden)
+	case k < m:
+		return fmt.Sprintf("%d of %d nodes observed", k, m)
+	case !cl.complete("pods", "replicasets", "jobs"):
+		return "the pods were not all read"
+	case m == 0:
+		return "no running pods observed"
+	}
+	return ""
+}
+
+// nodesObserved is how many (k) of the m nodes w's pods run on showed every
+// pod of w there, and the oldest observation among them.
+func (cl *cluster) nodesObserved(w unstructured.Unstructured) (asOf time.Time, k, m int) {
+	seen := map[string]bool{} // a node, to whether it showed every pod of w on it
+	cl.eachPod(w, func(_ unstructured.Unstructured, node string, o runtimefacts.Observed) {
+		if s := cl.nodes[node]; s != nil && !s.LastPublished.IsZero() && (asOf.IsZero() || s.LastPublished.Before(asOf)) {
+			asOf = s.LastPublished
+		}
+		ok, known := seen[node]
+		seen[node] = (!known || ok) && o.Facts != nil
+	})
+	for _, ok := range seen {
+		if ok {
+			k++
+		}
+	}
+	return asOf, k, len(seen)
+}
+
+// reportedVersions joins versions for a cluster:fleet source, dropping the
+// highest ones that would take it past the record's 256-byte bound.
+func reportedVersions(versions []string) string {
+	const room = 256 - len("cluster:fleet reported versions ")
+	out := strings.Join(versions, ", ")
+	for n := len(versions) - 1; len(out) > room; n-- {
+		out = strings.Join(versions[:n], ", ")
+	}
+	return out
+}
+
+// complete reports whether every one of sources was read in full.
+func (cl *cluster) complete(sources ...string) bool {
+	return !slices.ContainsFunc(sources, func(s string) bool {
+		return cmp.Or(cl.coverage[s].State, contract.CoverageComplete) != contract.CoverageComplete
+	})
+}
+
+// hidden counts what w's draft may not name (restrict).
+func (cl *cluster) hidden(w unstructured.Unstructured) contract.InferredHidden {
+	return contract.InferredHidden{Services: cl.hiddenServices[key(w)], Callers: cl.hiddenCallers[key(w)]}
+}
+
+// digestRE is the sha256 digest at the end of a container status imageID.
+var digestRE = regexp.MustCompile(`@(sha256:[0-9a-f]{64})$`)
+
+// images are the digests the containers of w's pods run, partial when the
+// pods, or the ReplicaSets and Jobs that tie them to w, were not all read.
+func (cl *cluster) images(w unstructured.Unstructured) []discover.ClusterImage {
+	var out []discover.ClusterImage
+	for _, p := range cl.pods {
+		statuses, _, _ := unstructured.NestedSlice(p.Object, "status", "containerStatuses")
+		for _, st := range statuses {
+			name, _ := discover.Dig(st, "name").(string)
+			id, _ := discover.Dig(st, "imageID").(string)
+			if m := digestRE.FindStringSubmatch(id); m != nil && name != "" && cl.owner(p) == key(w) {
+				out = append(out, discover.ClusterImage{Container: name, Digest: m[1], Partial: !cl.complete("pods", "replicasets", "jobs")})
+			}
+		}
+	}
 	return out
 }
 
@@ -629,12 +1014,12 @@ func (cl *cluster) manifests(w unstructured.Unstructured) (string, []string, []s
 // whose literal value is sensitive, by name or as a URL with credentials, to
 // read the key of the same name from the Secret secret. A name set to
 // different literals in two containers reads <container>.<name>, so the two
-// never share one value. It returns the Secret's keys and, for each rewritten
-// container variable the scan would have read a dependency from, "NAME
+// never share one value. It rewrites each sensitive literal in their command
+// and args the same way (secretArgs). It returns the Secret's keys and, for
+// each rewritten variable the scan would have read a dependency from, "NAME
 // (service)", both sorted; objects are the names the draft defines, which the
 // scan never reads as a dependency. The values are compared in memory and
 // never kept.
-// ponytail: args and command literals stay as they are; 513-S2 strips them.
 func secretEnv(w *unstructured.Unstructured, secret string, objects map[string]bool) ([]string, []string) {
 	pod := []string{"spec", "template", "spec"}
 	if w.GetKind() == "CronJob" {
@@ -653,11 +1038,10 @@ func secretEnv(w *unstructured.Unstructured, secret string, objects map[string]b
 		}
 		seen[name] = value
 	})
-	keys, urls := map[string]bool{}, map[string]bool{}
-	sensitiveEnv(lists, func(list int, container string, e map[string]any) {
-		k := e["name"].(string)
-		// The scan reads containers only (discover.readWorkload).
-		if d := discover.EnvDependencies([]discover.EnvVar{{Name: k, Value: e["value"].(string)}}, objects, w.GetName()); list == 0 && len(d) > 0 {
+	keys, urls, taken := map[string]bool{}, map[string]bool{}, map[string]string{}
+	sensitiveEnv(lists, func(_ int, container string, e map[string]any) {
+		k, value := e["name"].(string), e["value"].(string)
+		if d := discover.EnvDependencies([]discover.EnvVar{{Name: k, Value: value}}, objects, w.GetName()); len(d) > 0 {
 			urls[k+" ("+d[0].Name+")"] = true
 		}
 		if split[k] {
@@ -665,14 +1049,134 @@ func secretEnv(w *unstructured.Unstructured, secret string, objects map[string]b
 		}
 		delete(e, "value")
 		e["valueFrom"] = map[string]any{"secretKeyRef": map[string]any{"name": secret, "key": k}}
-		keys[k] = true
+		keys[k], taken[k] = true, value
 	})
+	for _, list := range lists {
+		for _, c := range list {
+			if cm, ok := c.(map[string]any); ok {
+				secretArgs(cm, secret, taken, keys)
+			}
+		}
+	}
 	for i, f := range fields {
 		if lists[i] != nil {
 			_ = unstructured.SetNestedSlice(w.Object, lists[i], slices.Concat(pod, []string{f})...) // ponytail: the path held a slice a moment ago
 		}
 	}
 	return slices.Sorted(maps.Keys(keys)), slices.Sorted(maps.Keys(urls))
+}
+
+// argAssign is a command or args item that sets a value: --flag=value,
+// -f=value or NAME=value.
+var argAssign = regexp.MustCompile(`^(--?)?([A-Za-z_][A-Za-z0-9_.-]*)=(.+)$`)
+
+// argFlag is a bare --flag or -f item, whose value may be the next item.
+var argFlag = regexp.MustCompile(`^--?([A-Za-z][A-Za-z0-9_.-]*)$`)
+
+// argWord is a whitespace-separated word of a shell script.
+var argWord = regexp.MustCompile(`\S+`)
+
+// args rewrites the sensitive literals in one container's command and args.
+type args struct {
+	cm        map[string]any
+	container string
+	secret    string
+	env       map[string]bool   // the names the container's env already sets
+	added     map[string]string // the env names args added, to their literal
+	taken     map[string]string // the Secret's keys, to their literal
+	keys      map[string]bool
+}
+
+// secretArgs rewrites, in the container c's command and args, each literal
+// that is sensitive by its flag's name or as a URL with credentials: an item
+// --flag=literal or NAME=literal, the item after a bare --flag or -f, a bare
+// URL, and the same forms as words of a sh -c or bash -c script. Each becomes
+// $(NAME), NAME being the upper-cased flag (URL for a bare URL), ARG_NAME when
+// the container's env already sets NAME. An env entry NAME reading the key
+// NAME of the Secret secret joins the container's own env, because Kubernetes
+// expands $(NAME) only from it; a key taken by a different literal reads
+// <container>.NAME. taken maps the Secret's keys to their literal and keys
+// collects them.
+// ponytail: a script word is split on whitespace, so a quoted value or one a ; ends is moved whole with its quotes; a shell parser when a script needs one.
+func secretArgs(c map[string]any, secret string, taken map[string]string, keys map[string]bool) {
+	a := &args{cm: c, secret: secret, env: map[string]bool{}, added: map[string]string{}, taken: taken, keys: keys}
+	a.container, _ = c["name"].(string)
+	envs, _ := c["env"].([]any)
+	for _, e := range envs {
+		em, _ := e.(map[string]any)
+		n, _ := em["name"].(string)
+		a.env[n] = true
+	}
+	cmd, _ := c["command"].([]any)
+	arg, _ := c["args"].([]any)
+	argv := slices.Concat(cmd, arg)
+	a.rewrite(argv)
+	if cmd != nil {
+		c["command"] = argv[:len(cmd)]
+	}
+	if arg != nil {
+		c["args"] = argv[len(cmd):]
+	}
+}
+
+// rewrite rewrites argv in place.
+func (a *args) rewrite(argv []any) {
+	for i := 0; i < len(argv); i++ {
+		s, _ := argv[i].(string)
+		next := ""
+		if i+1 < len(argv) {
+			next, _ = argv[i+1].(string)
+		}
+		flag := argFlag.FindStringSubmatch(s)
+		switch {
+		case (path.Base(s) == "sh" || path.Base(s) == "bash") && next == "-c" && i+2 < len(argv):
+			if script, ok := argv[i+2].(string); ok {
+				argv[i+2] = argWord.ReplaceAllStringFunc(script, a.word)
+			}
+			i += 2
+		case flag != nil && !strings.HasPrefix(next, "-") && discover.SensitiveLiteral(flag[1], next):
+			argv[i+1] = a.ref(flag[1], next)
+			i++
+		default:
+			if w := a.word(s); w != s {
+				argv[i] = w
+			}
+		}
+	}
+}
+
+// word is s with its sensitive literal read from the Secret.
+func (a *args) word(s string) string {
+	if m := argAssign.FindStringSubmatch(s); m != nil && discover.SensitiveLiteral(m[2], m[3]) {
+		return m[1] + m[2] + "=" + a.ref(m[2], m[3])
+	}
+	if discover.SensitiveLiteral("", s) {
+		return a.ref("url", s)
+	}
+	return s
+}
+
+// ref is the $(NAME) reference that reads literal, the value of flag, from
+// the Secret, adding the env entry NAME the first time.
+func (a *args) ref(flag, literal string) string {
+	name := strings.ToUpper(strings.ReplaceAll(flag, "-", "_"))
+	if a.env[name] {
+		name = "ARG_" + name
+	}
+	base := name
+	for n := 2; a.env[name] || a.added[name] != "" && a.added[name] != literal; n++ {
+		name = fmt.Sprintf("%s_%d", base, n)
+	}
+	if a.added[name] == "" {
+		key := name
+		if v, ok := a.taken[key]; ok && v != literal {
+			key = a.container + "." + name
+		}
+		a.added[name], a.taken[key], a.keys[key] = literal, literal, true
+		envs, _ := a.cm["env"].([]any)
+		a.cm["env"] = append(envs, map[string]any{"name": name, "valueFrom": map[string]any{"secretKeyRef": map[string]any{"name": a.secret, "key": key}}})
+	}
+	return "$(" + name + ")"
 }
 
 // sensitiveEnv calls fn with each env entry whose literal value is sensitive,

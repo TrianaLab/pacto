@@ -22,7 +22,7 @@ import (
 
 // Version is the discovery version an inferred record names. Bump it when
 // what Complete infers from the same folder changes.
-const Version = "4"
+const Version = "5"
 
 // Complete is CompleteIn with the repository root found from dir.
 func Complete(dir string, declared *contract.Contract, in contract.InferredInputs, cat *externalcatalog.Catalog) (*contract.InferredRecord, error) {

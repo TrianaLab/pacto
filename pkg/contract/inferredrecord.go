@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"testing/fstest"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -46,6 +47,12 @@ type InferredRecord struct {
 	Fields          []Inferred        `json:"fields" yaml:"fields"`
 	Findings        []InferredFinding `json:"findings,omitempty" yaml:"findings,omitempty"`
 	FindingsDropped int               `json:"findingsDropped,omitempty" yaml:"findingsDropped,omitempty"`
+	// Coverage is how completely a cluster read saw each source, one row per
+	// source in CoverageSources order: set only with Inputs.Cluster.
+	Coverage []InferredCoverage `json:"coverage,omitempty" yaml:"coverage,omitempty"`
+	// Hidden counts what a viewer may not read, never naming it: set only
+	// with Inputs.Cluster, absent when both counts are 0.
+	Hidden *InferredHidden `json:"hidden,omitempty" yaml:"hidden,omitempty"`
 	// Migrations are the contracts pacto ci raised in memory before it
 	// published them: never a contract field, and absent when none was.
 	Migrations []InferredMigration `json:"migrations,omitempty" yaml:"migrations,omitempty"`
@@ -60,6 +67,49 @@ type InferredMigration struct {
 	Source string `json:"source" yaml:"source"`
 	By     string `json:"by" yaml:"by"`
 }
+
+// InferredClusterInput is the cluster read a record was completed from: when
+// it ran, the workload it drafted as "<ns>/<Kind>/<name>", the window of
+// runtime calls it read and the item bound of each source (0 when unbounded).
+type InferredClusterInput struct {
+	AsOf       string `json:"asOf" yaml:"asOf"`
+	Object     string `json:"object" yaml:"object"`
+	CallWindow string `json:"callWindow" yaml:"callWindow"`
+	MaxItems   int    `json:"maxItems,omitempty" yaml:"maxItems,omitempty"`
+}
+
+// InferredCoverage is how completely a cluster read saw one source: its
+// state and, unless complete, a fixed reason that names no object.
+type InferredCoverage struct {
+	Source string `json:"source" yaml:"source"`
+	State  string `json:"state" yaml:"state"`
+	Reason string `json:"reason,omitempty" yaml:"reason,omitempty"`
+}
+
+// InferredHidden counts, for a read on behalf of a viewer, the distinct
+// Services the workload called and the distinct pods calling it that the
+// viewer may not read.
+type InferredHidden struct {
+	Services int `json:"services,omitempty" yaml:"services,omitempty"`
+	Callers  int `json:"callers,omitempty" yaml:"callers,omitempty"`
+}
+
+// The states of a coverage row.
+const (
+	CoverageComplete = "complete"
+	CoveragePartial  = "partial"
+	CoverageFailed   = "failed"
+)
+
+// CoverageSources are the sources a cluster read covers, in the order a
+// record lists them.
+var CoverageSources = []string{"workloads", "pods", "replicasets", "jobs", "services", "endpointslices", "pactos", "runtime-calls"}
+
+// clusterPrefix marks a field read from a cluster rather than a file.
+const clusterPrefix = "cluster:"
+
+// clusterBundleRefusal is why a bundle's record may carry no cluster fact.
+const clusterBundleRefusal = "cluster facts reach a bundle only through a signed declaration"
 
 // InferredFinding is one thing discovery recognized but could not read, or
 // read as ambiguous: a code, its "<path>[:<line>]" and a fixed message that
@@ -96,6 +146,9 @@ type InferredInputs struct {
 	// Catalog is each external catalog completion classified with, as
 	// "<origin> <digest>": the default first, then the organization's.
 	Catalog []string `json:"catalog,omitempty" yaml:"catalog,omitempty"`
+	// Cluster is the cluster read a draft was completed from, absent when
+	// the record was completed from a folder alone.
+	Cluster *InferredClusterInput `json:"cluster,omitempty" yaml:"cluster,omitempty"`
 }
 
 // InferredExternal is a system outside the cluster a folder names: its
@@ -157,6 +210,17 @@ var (
 	// lower-case segments. pkg/contract imports no other Pacto package, so
 	// this is externalid's segment rule; the fleet parses it in full.
 	inferredIdentityRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9._-]{0,61}[a-z0-9])?(/[a-z0-9]([a-z0-9._-]{0,61}[a-z0-9])?){0,4}$`)
+	// clusterObjectRE is a workload inside one cluster read: <ns>/<Kind>/<name>.
+	clusterObjectRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?/[A-Z][A-Za-z]{0,62}/[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$`)
+	// clusterLabelKeyRE is a Kubernetes label key, with an optional prefix.
+	clusterLabelKeyRE = regexp.MustCompile(`^([a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?/)?[A-Za-z0-9]([A-Za-z0-9._-]{0,61}[A-Za-z0-9])?$`)
+	// clusterVersionsRE is the comma-separated versions a fleet reported.
+	clusterVersionsRE = regexp.MustCompile(`^[0-9A-Za-z.+-]+(, [0-9A-Za-z.+-]+)*$`)
+	// coverageReasonRE is every fixed coverage reason: none names a
+	// namespace or an object, so a viewer never learns a hidden name.
+	coverageReasonRE = regexp.MustCompile(`^(stopped at the item bound \([0-9]+\)|forbidden|not found|timed out|the continue token expired|` +
+		`listing failed \(([0-9]{3}|malformed observation|no response)\)|[0-9]+ of [0-9]+ nodes observed|no node runtime observations|[0-9]+ called services you may not read|` +
+		`the pods were not all read|no running pods observed)$`)
 )
 
 // InferredSourceFile is one file a record cites, with its sha256: a bundle
@@ -174,6 +238,11 @@ var inferredDigestRE = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 // on a field other than service.owner, a finding with no code or source, a
 // source that is absolute, leaves its root or carries a prefix other than
 // "repository:", or an input without a sha256 digest is an error naming it.
+// A cluster fact must take one of the fixed "cluster:" source forms naming
+// the record's inputs.cluster object, with its asOf; completeness is only on
+// a runtime or fleet fact, proposed only a range on a
+// dependencies[<name>].compatibility field, and coverage and hidden only
+// with inputs.cluster.
 func ParseInferredRecord(data []byte) (*InferredRecord, error) {
 	var r InferredRecord
 	dec := yaml.NewDecoder(bytes.NewReader(data))
@@ -184,9 +253,16 @@ func ParseInferredRecord(data []byte) (*InferredRecord, error) {
 	if r.Format != InferredRecordFormat {
 		return nil, fmt.Errorf("%s: format is %q, want %q", InferredRecordFile, r.Format, InferredRecordFormat)
 	}
+	if err := checkClusterRecord(&r); err != nil {
+		return nil, fmt.Errorf("%s: %w", InferredRecordFile, err)
+	}
 	seen := make(map[string]bool, len(r.Fields))
 	for i, f := range r.Fields {
-		if err := checkInferredField(f, seen); err != nil {
+		err := checkInferredField(f, seen)
+		if err == nil {
+			err = checkClusterField(f, r.Inputs.Cluster)
+		}
+		if err != nil {
 			return nil, fmt.Errorf("%s: fields[%d]%s", InferredRecordFile, i, err)
 		}
 		seen[f.Field] = true
@@ -201,22 +277,31 @@ func ParseInferredRecord(data []byte) (*InferredRecord, error) {
 			return nil, fmt.Errorf("%s: inputs.catalog[%d] is %q, want \"<default|organization> sha256:<64 hex>\"", InferredRecordFile, i, c)
 		}
 	}
+	if err := checkInferredInputs(&r); err != nil {
+		return nil, fmt.Errorf("%s: %w", InferredRecordFile, err)
+	}
+	return &r, nil
+}
+
+// checkInferredInputs is why r's migrations or input sources are malformed,
+// or nil.
+func checkInferredInputs(r *InferredRecord) error {
 	seenSource := make(map[string]bool, len(r.Migrations))
 	for i, m := range r.Migrations {
 		if err := checkInferredMigration(m, seenSource); err != nil {
-			return nil, fmt.Errorf("%s: migrations[%d]%s", InferredRecordFile, i, err)
+			return fmt.Errorf("migrations[%d]%w", i, err)
 		}
 		seenSource[m.Source] = true
 	}
 	for i, s := range r.Inputs.Sources {
 		if !inferredDigestRE.MatchString(s.Digest) {
-			return nil, fmt.Errorf("%s: inputs.sources[%d].digest is %q, want sha256:<64 hex>", InferredRecordFile, i, s.Digest)
+			return fmt.Errorf("inputs.sources[%d].digest is %q, want sha256:<64 hex>", i, s.Digest)
 		}
 		if !validPath(s.Path) {
-			return nil, fmt.Errorf("%s: inputs.sources[%d].path %q is not a relative path", InferredRecordFile, i, s.Path)
+			return fmt.Errorf("inputs.sources[%d].path %q is not a relative path", i, s.Path)
 		}
 	}
-	return &r, nil
+	return nil
 }
 
 // checkInferredMigration is why m cannot be in a record whose migrations
@@ -250,7 +335,7 @@ func checkInferredField(f Inferred, seen map[string]bool) error {
 	case f.Source == "":
 		return errors.New(".source is empty")
 	case !validFieldSource(f.Source):
-		return fmt.Errorf(".source %q is not a relative path or a registry: or flag: source", f.Source)
+		return fmt.Errorf(".source %q is not a relative path, a cluster fact or a registry: or flag: source", f.Source)
 	case f.Confidence != ConfidenceLikely && f.Confidence != ConfidencePossible:
 		return fmt.Errorf(".confidence is %q, want likely or possible", f.Confidence)
 	case f.Class != "" && (f.Class != InferredClassOwnerFile || f.Field != "service.owner"):
@@ -270,6 +355,129 @@ func checkInferredField(f Inferred, seen map[string]bool) error {
 		}
 	}
 	return nil
+}
+
+// checkClusterRecord is why r's cluster input, coverage or hidden counts
+// cannot be in a record, or nil. A zero hidden is dropped.
+func checkClusterRecord(r *InferredRecord) error {
+	if r.Hidden != nil && *r.Hidden == (InferredHidden{}) {
+		r.Hidden = nil
+	}
+	c := r.Inputs.Cluster
+	switch {
+	case c == nil && (len(r.Coverage) > 0 || r.Hidden != nil):
+		return errors.New("coverage and hidden need inputs.cluster")
+	case c == nil:
+		return nil
+	case !validAsOf(c.AsOf):
+		return fmt.Errorf("inputs.cluster.asOf is %q, want an RFC 3339 UTC time in seconds", c.AsOf)
+	case !clusterObjectRE.MatchString(c.Object):
+		return errors.New("inputs.cluster.object is not <namespace>/<Kind>/<name>")
+	case !validDuration(c.CallWindow):
+		return fmt.Errorf("inputs.cluster.callWindow is %q, want a duration", c.CallWindow)
+	case c.MaxItems < 0:
+		return errors.New("inputs.cluster.maxItems is negative")
+	case r.Hidden != nil && (r.Hidden.Services < 0 || r.Hidden.Callers < 0):
+		return errors.New("hidden counts a negative number")
+	}
+	return checkCoverage(r.Coverage)
+}
+
+// checkCoverage is why rows cannot be a record's coverage, or nil: a source
+// outside CoverageSources or listed twice, another state, or no fixed reason
+// on a partial or failed row.
+func checkCoverage(rows []InferredCoverage) error {
+	seen := map[string]bool{}
+	for i, c := range rows {
+		switch {
+		case !slices.Contains(CoverageSources, c.Source) || seen[c.Source]:
+			return fmt.Errorf("coverage[%d].source %q is not a cluster source or is listed twice", i, c.Source)
+		case c.State != CoverageComplete && c.State != CoveragePartial && c.State != CoverageFailed:
+			return fmt.Errorf("coverage[%d].state is %q, want complete, partial or failed", i, c.State)
+		case c.State != CoverageComplete && c.Reason == "":
+			return fmt.Errorf("coverage[%d] is %s with no reason", i, c.State)
+		case c.Reason != "" && !coverageReasonRE.MatchString(c.Reason):
+			return fmt.Errorf("coverage[%d].reason is not a fixed coverage reason", i)
+		}
+		seen[c.Source] = true
+	}
+	return nil
+}
+
+// checkClusterField is why f's cluster source, asOf, completeness or
+// proposal cannot be in a record read from cluster input c, as a suffix of
+// "fields[i]", or nil.
+func checkClusterField(f Inferred, c *InferredClusterInput) error {
+	rest, cluster := strings.CutPrefix(f.Source, clusterPrefix)
+	switch {
+	case !cluster && f.AsOf != "":
+		return errors.New(".asOf is only on a cluster fact")
+	case !cluster:
+	case c == nil:
+		return errors.New(".source is a cluster fact, which needs inputs.cluster")
+	case !validClusterSource(f.Source, c.Object):
+		return errors.New(".source is not a cluster source form naming inputs.cluster.object")
+	case !validAsOf(f.AsOf):
+		return fmt.Errorf(".asOf is %q, want an RFC 3339 UTC time in seconds", f.AsOf)
+	}
+	kind, _, _ := strings.Cut(rest, " ")
+	if err := checkFactExtras(f, cluster && (kind == "runtime" || kind == "fleet")); err != nil {
+		return err
+	}
+	if f.Proposed != "" && (!cluster || kind != "fleet") { // ponytail: the one proposal source of wave 3; 508-S7 widens it to its own
+		return errors.New(".proposed is only on a cluster:fleet fact")
+	}
+	return nil
+}
+
+// checkFactExtras is why f's completeness or proposal cannot be in a record,
+// where runtime says whether f is a cluster runtime or fleet fact, or nil.
+func checkFactExtras(f Inferred, runtime bool) error {
+	switch {
+	case f.Completeness != "" && !runtime:
+		return errors.New(".completeness is only on a cluster runtime or fleet fact")
+	case f.Completeness != "" && f.Completeness != CoverageComplete && f.Completeness != CoveragePartial:
+		return fmt.Errorf(".completeness is %q, want complete or partial", f.Completeness)
+	case f.Proposed != "" && (!strings.HasPrefix(f.Field, "dependencies[") || !strings.HasSuffix(f.Field, "].compatibility")):
+		return fmt.Errorf(".proposed is on %q, want a dependencies[<name>].compatibility field", f.Field)
+	case f.Proposed != "":
+		if _, err := ParseRange(f.Proposed); err != nil {
+			return errors.New(".proposed is not a semver range")
+		}
+	}
+	return nil
+}
+
+// validClusterSource reports whether src is one of the five cluster source
+// forms, naming obj as the object read: a manifest line, a label key, the
+// pods or calls of obj, or the versions a fleet reported.
+func validClusterSource(src, obj string) bool {
+	if rest, ok := strings.CutPrefix(src, "cluster:fleet reported versions "); ok {
+		return len(src) <= 256 && clusterVersionsRE.MatchString(rest)
+	}
+	if src == "cluster:runtime pods of "+obj || src == "cluster:runtime calls from "+obj {
+		return true
+	}
+	if rest, ok := strings.CutPrefix(src, "cluster:label "+obj+" "); ok {
+		return clusterLabelKeyRE.MatchString(rest)
+	}
+	if rest, ok := strings.CutPrefix(src, "cluster:manifest "+obj+" "); ok {
+		file := sourceFile(rest) // the line is left out when the reader could not find it
+		return !strings.ContainsAny(file, ": ") && fs.ValidPath(file)
+	}
+	return false
+}
+
+// validAsOf reports whether s is an RFC 3339 time in UTC, to the second.
+func validAsOf(s string) bool {
+	t, err := time.Parse(time.RFC3339, s)
+	return err == nil && t.UTC().Format(time.RFC3339) == s
+}
+
+// validDuration reports whether s is a positive Go duration.
+func validDuration(s string) bool {
+	d, err := time.ParseDuration(s)
+	return err == nil && d > 0
 }
 
 // checkInferredExternal is why x cannot be in a record, as a suffix of
@@ -361,9 +569,13 @@ func sourceForm(s string) (valid, outside bool) {
 	return false, false
 }
 
-// validFieldSource reports whether s is a valid field source: one of the
-// sourceForms, or "<path>[:<line>]".
+// validFieldSource reports whether s is a valid field source: a cluster fact,
+// whose form checkClusterField checks, one of the sourceForms, or
+// "<path>[:<line>]".
 func validFieldSource(s string) bool {
+	if strings.HasPrefix(s, clusterPrefix) {
+		return true
+	}
 	if valid, outside := sourceForm(s); outside {
 		return valid
 	}
@@ -412,6 +624,13 @@ func (r *InferredRecord) Marshal() []byte {
 	})
 	out.Inputs.Sources = slices.Clone(r.Inputs.Sources)
 	slices.SortFunc(out.Inputs.Sources, func(a, b InferredSourceFile) int { return strings.Compare(a.Path, b.Path) })
+	out.Coverage = slices.Clone(r.Coverage)
+	slices.SortStableFunc(out.Coverage, func(a, b InferredCoverage) int {
+		return cmp.Compare(slices.Index(CoverageSources, a.Source), slices.Index(CoverageSources, b.Source))
+	})
+	if r.Hidden != nil && *r.Hidden == (InferredHidden{}) {
+		out.Hidden = nil
+	}
 	out.Migrations = slices.Clone(r.Migrations)
 	slices.SortFunc(out.Migrations, func(a, b InferredMigration) int {
 		return cmp.Or(strings.Compare(a.Source, b.Source), strings.Compare(a.From, b.From))
@@ -454,8 +673,12 @@ func ReadInferredRecord(fsys fs.FS) (*InferredRecord, error) {
 // pactoVersion it was published as. A repository file outside
 // the bundle (a "repository:" source) cannot be checked here: its digest only
 // tells two records' inputs apart. A stale or hand-edited record fails here
-// instead of reading as authoritative.
+// instead of reading as authoritative. A cluster fact, cluster input,
+// coverage or hidden count fails too: no unsigned path puts one in a bundle.
 func VerifyInferredRecord(fsys fs.FS, rec *InferredRecord) error {
+	if err := refuseClusterFacts(rec); err != nil {
+		return err
+	}
 	listed := make(map[string]bool, len(rec.Inputs.Sources))
 	for i, s := range rec.Inputs.Sources {
 		if s.Path == InferredRecordFile {
@@ -509,6 +732,30 @@ func verifyMigration(fsys fs.FS, m InferredMigration) error {
 	}
 	if got != m.To {
 		return fmt.Errorf("declares pactoVersion %q, the record says it was published as %q", got, m.To)
+	}
+	return nil
+}
+
+// refuseClusterFacts is why rec, read from a bundle, carries a cluster fact,
+// naming where, or nil.
+func refuseClusterFacts(rec *InferredRecord) error {
+	switch {
+	case rec.Inputs.Cluster != nil:
+		return errors.New("inputs.cluster: " + clusterBundleRefusal)
+	case len(rec.Coverage) > 0:
+		return errors.New("coverage: " + clusterBundleRefusal)
+	case rec.Hidden != nil:
+		return errors.New("hidden: " + clusterBundleRefusal)
+	}
+	for i, s := range rec.Inputs.Sources {
+		if strings.HasPrefix(s.Path, clusterPrefix) {
+			return fmt.Errorf("inputs.sources[%d]: %s", i, clusterBundleRefusal)
+		}
+	}
+	for i, f := range rec.Fields {
+		if strings.HasPrefix(f.Source, clusterPrefix) || f.Proposed != "" { // only a cluster:fleet fact proposes in wave 3
+			return fmt.Errorf("fields[%d] (%s): %s", i, f.Field, clusterBundleRefusal)
+		}
 	}
 	return nil
 }

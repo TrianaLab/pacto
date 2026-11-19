@@ -264,6 +264,9 @@ func constVocabulary(g *ast.GenDecl) (names, vals []string) {
 var vocabulariesWithoutSchemaEnum = map[string]string{
 	"config,policy": "ReferenceKind*: which section a reference was found in",
 	"dri,team":      "OwnerKind*: which of owner's mutually exclusive fields was set",
+	// Coverage* states live in pacto.inferred.yaml, a non-contract format the
+	// strict decoder checks, never in pacto.yaml.
+	"complete,failed,partial": "Coverage*: how completely a cluster read saw a source, in the inferred record",
 }
 
 // TestVocabularyParityWithSchema is the DRY gate over contract vocabularies.

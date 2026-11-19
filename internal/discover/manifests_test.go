@@ -77,3 +77,17 @@ func TestPortRankDockerfileOverManifest(t *testing.T) {
 		t.Errorf("ports[8080] = %+v", f)
 	}
 }
+
+// An init container's environment names are configuration keys, as in
+// discover.Scan: its ports and image are not read, nor any value.
+func TestManifestInitContainerEnvKeys(t *testing.T) {
+	r := readFixture(t, writeFiles(t, map[string]string{"m.yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: a}\nspec:\n  template:\n    spec:\n      initContainers:\n        - name: migrate\n          image: migrate:1\n          ports: [{containerPort: 5}]\n          env:\n            - name: MIGRATE_DB_URL\n              value: postgres://u:hunter2@db/x\n      containers: [{name: a, image: a:1}]\n"}))
+	if f := field(t, r.Fields, "configuration.MIGRATE_DB_URL"); f.Source != "m.yaml:12" {
+		t.Errorf("MIGRATE_DB_URL = %+v", f)
+	}
+	if slices.ContainsFunc(r.entries, func(e entry) bool {
+		return strings.Contains(e.Value, "migrate:1") || strings.Contains(e.Value, "hunter2") || strings.HasPrefix(e.Field, "ports[")
+	}) {
+		t.Errorf("an init container's image, port or value was read: %+v", r.entries)
+	}
+}

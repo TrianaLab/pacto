@@ -2952,7 +2952,9 @@ func revisionInferredEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractRev
 	for _, f := range rev.Record.Fields {
 		name, ok := strings.CutPrefix(f.Field, "dependencies[")
 		name, closed := strings.CutSuffix(name, "]")
-		if !ok || !closed || declared[name] || f.External != nil { // an external projects through recordExternalUses
+		// Exactly dependencies[<name>]: a dependencies[<name>].compatibility
+		// key (a proposed range) never names an edge.
+		if !ok || !closed || name == "" || strings.ContainsAny(name, "[]") || declared[name] || f.External != nil { // an external projects through recordExternalUses
 			continue
 		}
 		to, resolved := resolveDepService(snap, rev.Domain, contract.Dependency{Name: name})
