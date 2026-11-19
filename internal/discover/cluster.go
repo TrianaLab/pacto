@@ -50,14 +50,16 @@ type ClusterCall struct {
 const clusterLabel = "team"
 
 // CompleteCluster is CompleteIn over the folder dir, as its own repository
-// root, with the cluster facts added: each field read from a snapshot file
+// root, reading a configuration schema in planned (the files pacto init is
+// about to write, by slash path; nil reads only the folder) the way
+// CompletePlanned does, with the cluster facts added: each field read from a snapshot file
 // becomes a cluster fact with its asOf, and the image digests, the calls
 // and their proposed ranges are added for keys neither the folder record
 // nor declared holds. It sets the cluster input, coverage and hidden
 // counts, and is nil only when there is nothing to record and every source
 // was read in full.
-func CompleteCluster(dir string, declared *contract.Contract, in contract.InferredInputs, cat *externalcatalog.Catalog, facts ClusterFacts) (*contract.InferredRecord, error) {
-	rec, err := CompleteIn(dir, dir, declared, in, cat)
+func CompleteCluster(dir string, declared *contract.Contract, planned map[string]string, in contract.InferredInputs, cat *externalcatalog.Catalog, facts ClusterFacts) (*contract.InferredRecord, error) {
+	rec, err := completeWith(dir, dir, declared, planned, in, cat)
 	if err != nil {
 		return nil, err
 	}
@@ -131,7 +133,7 @@ func addCalls(rec *contract.InferredRecord, d *contract.Contract, facts ClusterF
 	for _, call := range facts.Calls {
 		at := cmp.Or(clusterTime(call.AsOf), asOf)
 		dep, declared := declaredDependencyOf(d, call.Name)
-		if !declared {
+		if !declared && call.Ref != "" { // with no contract ref read, the draft names the call in Unknown
 			addField(rec, contract.Inferred{Field: "dependencies[" + call.Name + "]", Value: call.Ref,
 				Source: "cluster:runtime calls from " + facts.Object, Confidence: contract.ConfidenceLikely, AsOf: at,
 				Completeness: completeness(call.Partial),

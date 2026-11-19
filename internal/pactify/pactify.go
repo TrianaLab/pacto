@@ -72,9 +72,10 @@ type Options struct {
 	// proposed range from the lowest, in a comment.
 	Inferred []Inferred
 	// Cluster are the facts the cluster read shows about the workload this
-	// draft is read from: with them, a kept pactoVersion 2.5 pacto.yaml is
-	// completed from the folder and the cluster. Only pacto init --cluster
-	// sets them.
+	// draft is read from: with them, the draft (or a kept pactoVersion 2.5
+	// pacto.yaml) is completed from the folder and the cluster, and the
+	// record is planned as pacto.inferred.yaml. Set only by Cluster; CI
+	// completion never sets it. Template refuses it.
 	Cluster *discover.ClusterFacts
 	// Template creates the contract from a golden path. It needs Owner and
 	// refuses Delivery, FleetRoots and Inferred.
@@ -88,10 +89,6 @@ type Options struct {
 	// Commit and PactoVersion are the inputs an inferred record names: the
 	// folder's commit and the Pacto completing it. Empty is omitted.
 	Commit, PactoVersion string
-
-	// cluster marks a draft read from the cluster, which is never completed:
-	// what runs there never reaches the inferred record.
-	cluster bool
 }
 
 // Template is the golden path a service is created from, already read and,

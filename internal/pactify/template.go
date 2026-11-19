@@ -41,7 +41,7 @@ func TemplateOptions(opts Options) error {
 		return errors.New("a service created from a golden path needs the team that owns it: pass --owner")
 	case len(opts.FleetRoots) > 0:
 		return errors.New("creating from a golden path reads no other services' contracts: drop --fleet")
-	case len(opts.Inferred) > 0:
+	case len(opts.Inferred) > 0 || opts.Cluster != nil:
 		return errors.New("creating from a golden path reads no running workload: drop --cluster")
 	}
 	_, err := environments(opts) // the delivery options, checked before the path is read

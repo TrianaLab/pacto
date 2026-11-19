@@ -34,7 +34,7 @@ func clusterFacts() ClusterFacts {
 
 func completeCluster(t *testing.T, dir string, declared *contract.Contract, facts ClusterFacts) *contract.InferredRecord {
 	t.Helper()
-	rec, err := CompleteCluster(dir, declared, clusterInputs(), nil, facts)
+	rec, err := CompleteCluster(dir, declared, nil, clusterInputs(), nil, facts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,7 +236,7 @@ func TestCompleteClusterNilWhenNothing(t *testing.T) {
 }
 
 func TestCompleteClusterFolderError(t *testing.T) {
-	if _, err := CompleteCluster("testdata/cluster/deploy.yaml", nil, clusterInputs(), nil, clusterFacts()); err == nil {
+	if _, err := CompleteCluster("testdata/cluster/deploy.yaml", nil, nil, clusterInputs(), nil, clusterFacts()); err == nil {
 		t.Fatal("a missing folder completes")
 	}
 }
@@ -258,6 +258,17 @@ func TestClusterFactsCarryNoValue(t *testing.T) {
 			if f.Name == "Value" || f.Name == "Env" || f.Name == "Args" {
 				t.Errorf("%s.%s can carry a value", typ.Name(), f.Name)
 			}
+		}
+	}
+}
+
+// TestCompleteClusterCallWithoutRef: a call to a service no contract ref
+// was read for adds no dependency, which would have nothing to declare.
+func TestCompleteClusterCallWithoutRef(t *testing.T) {
+	facts := ClusterFacts{Object: clusterObject, AsOf: clusterAsOf, CallWindow: time.Hour, Calls: []ClusterCall{{Name: "fraud"}}}
+	if rec := completeCluster(t, clusterDir, clusterDeclared(), facts); rec != nil {
+		if _, ok := fieldByName(rec, "dependencies[fraud]"); ok {
+			t.Fatalf("%s", rec.Marshal())
 		}
 	}
 }

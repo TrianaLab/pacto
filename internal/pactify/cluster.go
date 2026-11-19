@@ -148,7 +148,7 @@ func Cluster(ctx context.Context, dyn dynamic.Interface, base Options, c Cluster
 			b.Skipped = append(b.Skipped, k)
 			continue
 		}
-		r, err := cl.draft(ctx, w, base, deps[k], c.Out, writeFile)
+		r, err := cl.draft(ctx, w, base, deps[k], c, writeFile)
 		if r != nil {
 			b.Results = append(b.Results, r)
 		}
@@ -180,9 +180,9 @@ func (c *ClusterOptions) defaults() error {
 // draft pactifies one workload in <out>/<ns>/<name>. A manifests.yaml
 // already there is the user's and is kept; a plan reads the new one from a
 // scratch folder, so it writes nothing under out.
-func (cl *cluster) draft(ctx context.Context, w unstructured.Unstructured, base Options, deps []Inferred, out string,
+func (cl *cluster) draft(ctx context.Context, w unstructured.Unstructured, base Options, deps []Inferred, c ClusterOptions,
 	writeFile func(string, []byte, os.FileMode) error) (*Result, error) {
-	dir := filepath.Join(out, w.GetNamespace(), w.GetName())
+	dir := filepath.Join(c.Out, w.GetNamespace(), w.GetName())
 	scanned, write := dir, writeFile
 	content, keys, urls := cl.manifests(w)
 	f := File{Path: "manifests.yaml", Action: Add, Content: content}
@@ -204,8 +204,9 @@ func (cl *cluster) draft(ctx context.Context, w unstructured.Unstructured, base 
 			return nil, err
 		}
 	}
+	facts := cl.facts(w, deps, f.Action == Add, c)
 	opts := base
-	opts.Dir, opts.Name, opts.Inferred, opts.cluster = scanned, w.GetName(), deps, true
+	opts.Dir, opts.Name, opts.Inferred, opts.Cluster = scanned, w.GetName(), deps, &facts
 	r, err := Init(ctx, opts, writeFile)
 	if r == nil {
 		return nil, err
@@ -525,16 +526,9 @@ func decodeContinue(token string, nss []string) (cursor, error) {
 // the host. With no observation at all the draft already says so once.
 func (cl *cluster) unobserved(w unstructured.Unstructured) []string {
 	var out []string
-	for _, p := range cl.pods {
-		node, _, _ := unstructured.NestedString(p.Object, "spec", "nodeName")
-		if !cl.observed || node == "" || cl.owner(p) != key(w) {
-			continue
-		}
-		started, _, _ := unstructured.NestedString(p.Object, "status", "startTime")
-		start, _ := time.Parse(time.RFC3339, started) // ponytail: zero when unset; Classify uses it only for Complete
-		o := runtimefacts.Classify(cl.nodes[node], string(p.GetUID()), start, cl.now, 0)
+	cl.eachPod(w, func(p unstructured.Unstructured, node string, o runtimefacts.Observed) {
 		if o.Facts != nil {
-			continue
+			return
 		}
 		line := "dependencies seen at runtime: node " + node + " has no current observation, so calls from it could not be seen"
 		switch o.Coverage {
@@ -546,8 +540,112 @@ func (cl *cluster) unobserved(w unstructured.Unstructured) []string {
 		if !slices.Contains(out, line) {
 			out = append(out, line)
 		}
-	}
+	})
 	sort.Strings(out)
+	return out
+}
+
+// eachPod calls fn with each pod of w scheduled on a node, that node and
+// what its observation shows of the pod, when any node was observed.
+func (cl *cluster) eachPod(w unstructured.Unstructured, fn func(p unstructured.Unstructured, node string, o runtimefacts.Observed)) {
+	for _, p := range cl.pods {
+		node, _, _ := unstructured.NestedString(p.Object, "spec", "nodeName")
+		if !cl.observed || node == "" || cl.owner(p) != key(w) {
+			continue
+		}
+		started, _, _ := unstructured.NestedString(p.Object, "status", "startTime")
+		start, _ := time.Parse(time.RFC3339, started) // ponytail: zero when unset; Classify uses it only for Complete
+		fn(p, node, runtimefacts.Classify(cl.nodes[node], string(p.GetUID()), start, cl.now, 0))
+	}
+}
+
+// facts is what the read shows about w beyond the folder drafted from it,
+// deps being the services its pods called; snap says the folder's
+// manifests.yaml was written from this read. A call is partial when a node
+// of w's pods was not observed, a source it is read through was not read in
+// full or w called a Service the viewer may not read (Decision 6).
+func (cl *cluster) facts(w unstructured.Unstructured, deps []Inferred, snap bool, c ClusterOptions) discover.ClusterFacts {
+	f := discover.ClusterFacts{Object: key(w), AsOf: cl.now, CallWindow: c.CallWindow, MaxItems: c.MaxItems, Images: cl.images(w), Hidden: cl.hidden(w)}
+	if snap {
+		f.Snapshots = []string{"manifests.yaml"}
+	}
+	asOf, k, m := cl.nodesObserved(w)
+	partial := k < m || f.Hidden.Services > 0 || !cl.complete("pods", "replicasets", "services", "endpointslices")
+	for _, d := range deps {
+		f.Calls = append(f.Calls, discover.ClusterCall{Name: d.Name, Ref: d.Ref, Proposed: proposedRange(d.Versions), Versions: reportedVersions(d.Versions),
+			AsOf: asOf, Partial: partial || len(d.Unknown) > 0 || !cl.complete("pactos")})
+	}
+	f.Coverage = cl.rows()
+	rc := &f.Coverage[len(f.Coverage)-1] // runtime-calls, for this workload
+	switch {
+	case rc.State != contract.CoverageComplete:
+	case f.Hidden.Services > 0:
+		*rc = contract.InferredCoverage{Source: rc.Source, State: contract.CoveragePartial, Reason: fmt.Sprintf("%d called services you may not read", f.Hidden.Services)}
+	case k < m:
+		*rc = contract.InferredCoverage{Source: rc.Source, State: contract.CoveragePartial, Reason: fmt.Sprintf("%d of %d nodes observed", k, m)}
+	}
+	return f
+}
+
+// nodesObserved is how many (k) of the m nodes w's pods run on showed every
+// pod of w there, and the oldest observation among them.
+func (cl *cluster) nodesObserved(w unstructured.Unstructured) (asOf time.Time, k, m int) {
+	seen := map[string]bool{} // a node, to whether it showed every pod of w on it
+	cl.eachPod(w, func(_ unstructured.Unstructured, node string, o runtimefacts.Observed) {
+		if s := cl.nodes[node]; s != nil && !s.LastPublished.IsZero() && (asOf.IsZero() || s.LastPublished.Before(asOf)) {
+			asOf = s.LastPublished
+		}
+		ok, known := seen[node]
+		seen[node] = (!known || ok) && o.Facts != nil
+	})
+	for _, ok := range seen {
+		if ok {
+			k++
+		}
+	}
+	return asOf, k, len(seen)
+}
+
+// reportedVersions joins versions for a cluster:fleet source, dropping the
+// highest ones that would take it past the record's 256-byte bound.
+func reportedVersions(versions []string) string {
+	const room = 256 - len("cluster:fleet reported versions ")
+	out := strings.Join(versions, ", ")
+	for n := len(versions) - 1; len(out) > room; n-- {
+		out = strings.Join(versions[:n], ", ")
+	}
+	return out
+}
+
+// complete reports whether every one of sources was read in full.
+func (cl *cluster) complete(sources ...string) bool {
+	return !slices.ContainsFunc(sources, func(s string) bool {
+		return cmp.Or(cl.coverage[s].State, contract.CoverageComplete) != contract.CoverageComplete
+	})
+}
+
+// hidden counts what w's draft may not name (restrict).
+func (cl *cluster) hidden(w unstructured.Unstructured) contract.InferredHidden {
+	return contract.InferredHidden{Services: cl.hiddenServices[key(w)], Callers: cl.hiddenCallers[key(w)]}
+}
+
+// digestRE is the sha256 digest at the end of a container status imageID.
+var digestRE = regexp.MustCompile(`@(sha256:[0-9a-f]{64})$`)
+
+// images are the digests the containers of w's pods run, partial when the
+// pods were not all read.
+func (cl *cluster) images(w unstructured.Unstructured) []discover.ClusterImage {
+	var out []discover.ClusterImage
+	for _, p := range cl.pods {
+		statuses, _, _ := unstructured.NestedSlice(p.Object, "status", "containerStatuses")
+		for _, st := range statuses {
+			name, _ := discover.Dig(st, "name").(string)
+			id, _ := discover.Dig(st, "imageID").(string)
+			if m := digestRE.FindStringSubmatch(id); m != nil && name != "" && cl.owner(p) == key(w) {
+				out = append(out, discover.ClusterImage{Container: name, Digest: m[1], Partial: !cl.complete("pods")})
+			}
+		}
+	}
 	return out
 }
 

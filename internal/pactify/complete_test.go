@@ -158,21 +158,6 @@ func TestInitOlderContractNotCompleted(t *testing.T) {
 	}
 }
 
-func TestInitClusterNeverCompletes(t *testing.T) {
-	dir := completeFixture(t, "pactoVersion: \"2.5\"\n"+completeContract)
-	// A cluster draft that saw no calls has no Inferred, so the cluster flag
-	// alone has to keep it from completing.
-	for name, opts := range map[string]Options{
-		"calls seen":    {Dir: dir, Plan: true, Inferred: []Inferred{{Name: "ledger", Where: "calls seen"}}},
-		"no calls seen": {Dir: dir, Plan: true, cluster: true},
-	} {
-		r, err := Init(context.Background(), opts, os.WriteFile)
-		if err != nil || r.Inferred != nil || r.Mode == modeComplete || !hasLine(r.Next, "run pacto init "+dir+" without --cluster to complete it") {
-			t.Fatalf("%s: %+v %v", name, r, err)
-		}
-	}
-}
-
 // A kept pactoVersion 2.5 contract with cluster facts completes through
 // discover.CompleteCluster: the folder's fields plus the cluster's, with the
 // cluster input, and pacto.yaml unchanged.
