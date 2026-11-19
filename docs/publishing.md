@@ -198,6 +198,42 @@ tests pass, on the merged commit. An agent calls `pacto publish`
 through MCP: `pacto mcp --publish` adds `pacto_publish_plan` and
 `pacto_publish` beside the authoring tools, over stdio only.
 
+## Declare a running service
+
+`pacto declare <workload> --registry <registry>` publishes a contract for a
+workload the cluster already runs, without a repository or a build. It drafts
+the contract from the cluster with your kubeconfig credentials, as
+[`pacto init --cluster`](bootstrap-contracts.md#draft-from-a-running-cluster)
+does, or reads `--dir`, a folder that command wrote. Without `--yes` it prints
+the plan and writes nothing; the plan ends with its intent digest, and
+`--intent <digest>` refuses a run whose plan changed since you reviewed it.
+
+- **Contract only.** The bundle holds `pacto.yaml`, the files it references
+  and `pacto.inferred.yaml`. Nothing is built and no deploy tag is written:
+  the plan reads `deploy: none`, or the deploy artifact of the published
+  baseline, which keeps pointing at the baseline.
+- **Version.** A first declaration is `0.1.0`. With a published baseline the
+  version is the baseline raised by the change, as `pacto ci` derives it, and
+  an unchanged declaration publishes nothing. A baseline below
+  `pactoVersion: "2.5"` is refused until you run `pacto migrate`.
+- **Who signs.** Only your interactive Sigstore login, in a browser or with
+  `--device`, publishes a declared version. A key, an ambient OIDC token such
+  as `SIGSTORE_ID_TOKEN`, a CI token or a workload identity writes the next
+  `draft-<n>` tag instead. The plan warns that a keyless signature records your
+  email in the public Rekor log.
+- **Ranges.** A range the cluster read proposes stays `unknown` until you name
+  its dependency with `--accept`. The record lists each accepted range.
+- **Owner.** A declaration never sets a `service.owner` its baseline does not
+  declare.
+- **Drafts.** `pacto declare <workload> --from-draft draft-<n> --yes` accepts a
+  draft an agent or CI wrote: the workload is read again under your
+  credentials, every declared change the read and the baseline do not back is
+  flagged and you sign.
+- **Verify.** `pacto pull --verify-identity <email> --verify-issuer <issuer>`
+  pulls a bundle only when that person signed it; `--verify-key` checks a key
+  instead. The record's `declaration` block is in the
+  [inferred record](contract-reference/inferred-record.md#declaration).
+
 ## Hand-off to delivery
 
 With [Pacto delivery](integrations/kubernetes/delivery.md) installed, a Stage

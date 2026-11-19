@@ -93,8 +93,9 @@ logs no line.
 
 ## The authoring tools
 
-Every mode except `--root` carries these four over stdio. Over HTTP the
-server serves only `pacto_schema`.
+Every mode except `--root` carries these four and
+[`pacto_declare`](#declare-a-running-service) over stdio. Over HTTP it serves
+`pacto_schema` and a planning `pacto_declare`.
 
 | Tool | Description |
 |------|-------------|
@@ -158,6 +159,55 @@ server serves only `pacto_schema`.
 | `cron`, `scheduled`, `periodic`, `batch` | a `scheduled` workload (wins over `job`) |
 
 The match is a keyword heuristic: "no HTTP" still matches `HTTP`. State is never inferred: naming `postgres` declares a database dependency and leaves the service stateless.
+
+### Declare a running service
+
+`pacto_declare` plans what
+[`pacto declare`](publishing.md#declare-a-running-service) would publish for a
+running workload.
+
+- It is the first tool of the agent write contract, which every MCP tool that
+  writes to a registry for an agent follows. `pacto_publish_plan` and
+  `pacto_publish` stay outside it.
+- It takes `service`, `namespace`, `dir` (stdio only), `registry`, `accept`,
+  `on_behalf_of`, `dry_run`, `intent_digest`, `max_items` and `call_window`.
+- `dry_run` defaults to true: the call returns the plan and its `intentDigest`.
+- A write needs `dry_run: false` and the `intent_digest` of the plan the agent
+  reviewed. The digest binds what would be declared, never the cluster facts
+  read at the time, so a re-read with the same content keeps it.
+- Every MCP caller is an agent, so a write is a write-once `draft-<n>` tag
+  that names the person in `on_behalf_of` (required, asserted and never
+  verified). `acceptCLI` is the `pacto declare --from-draft` command that
+  person runs to read the workload again and sign. A draft is never a version
+  and the fleet never lists it.
+- Over stdio the draft is signed only by an ambient CI or agent token. A
+  person's ambient token is never used by an agent, so that draft and one with
+  no token are unsigned.
+- Over HTTP the plan reads the cluster with the caller's own exchanged token
+  and only the registries `--oci` names. It returns the baseline only when the
+  caller may see the service. A write is refused with `ExecuteNeedsStdio`.
+
+A refusal carries `code`, an enum in the output schema, `message` and `cli`,
+the command a person runs:
+
+| Code | Meaning |
+|---|---|
+| `PlanStale` | The plan changed since the `intent_digest` was reviewed |
+| `IntentRequired` | A write passed no `intent_digest` |
+| `WorkloadNotFound` | No workload has that name, or `dir` holds no cluster draft |
+| `WorkloadAmbiguous` | Several workloads have that name: pass `namespace/Kind/name` |
+| `AlreadyDeclared` | A Pacto already describes the workload: change it with `pacto publish` |
+| `OwnerNeedsApprovers` | The contract sets a `service.owner` the baseline does not declare |
+| `RangeNotProposed` | An `accept` name has no proposed range |
+| `NoRegistry` | No `registry`, or over HTTP one outside the installation's registries |
+| `RegistryUnreadable` | Listing or reading the registry failed |
+| `VersionConflict` | The version is taken, or no tag is signed by a publisher the installation trusts |
+| `SignerNotAllowed` | The signer is outside the installation signer policy |
+| `SignerUnverified` | The pushed signature does not name the planned signer; nothing was tagged |
+| `DraftNotFound` | The draft tag does not exist or holds no draft of the service |
+| `ExecuteNeedsStdio` | An HTTP server only plans: run the `cli` command |
+| `BaselineNeedsMigration` | The baseline is below `pactoVersion: "2.5"`: run `pacto migrate` |
+| `BundleRepoMismatch` | The baseline publishes to another repository than `registry` |
 
 ## Bundle capabilities
 
