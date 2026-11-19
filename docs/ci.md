@@ -82,11 +82,10 @@ compare two folders with no registry, run `pacto diff ./main ./feature-branch`.
 
 ## Plan every service with pacto ci
 
-When one repository holds several services, `pacto ci` checks them all in one
-step. It finds every `pacto.yaml` under the repository root, skips
+`pacto ci` checks every service of a repository in one step: it finds each
+`pacto.yaml` under the root, skips
 [ignored and too-deep folders](pactoignore.md#at-the-repository-root) and
-compares each service with its last
-published version in your registry. It writes nothing to the registry, so it
+compares each with its last published version. It writes nothing to the registry, so it
 needs only read credentials (`PACTO_REGISTRY_USERNAME` and
 `PACTO_REGISTRY_PASSWORD`):
 
@@ -128,12 +127,11 @@ consumers with the flags `pacto impact` takes, such as `--root`.
 
 `pacto ci --explain payments` shows why one row reads as it does: its
 baseline, what changed, each inferred field with its source and the consumers.
-Its exit code is that row's. `--output-format json` prints the plan as one JSON
-document, with the row's exit under `--explain`.
+It exits with that row's code. `--output-format json` prints the plan as JSON.
 
 `pacto ci` reads the organization catalog from `--external-catalog` or
 `PACTO_EXTERNAL_CATALOG` only, never from a `pacto` config file in the working
-directory: in CI that directory is the repository a pull request can change.
+directory, which a pull request can change.
 
 On GitHub Actions the plan is also added to the job summary. On GitLab CI it
 is written to `pacto-plan.md`; keep it with
@@ -195,16 +193,15 @@ newest ([how](impact-consumers.md#consumers-from-the-organization-index)):
 Consumers: 41 from ghcr.io/acme/pacto-index (listed by tag, complete)
 ```
 
-It says `complete` only when a target snapshot was read: only a snapshot adds
-the running revisions with their dependencies, so with `--k8s` or
+It says `complete` only when a target snapshot was read; with `--k8s` or
 `--target-state` alone a row reads `unverified` (`CONSUMER_INDEX_UNCHECKED`).
-`--root` replaces the index for that run and `--index none` reads none. With
-`--publish`, `--index` also names where the run writes its entries, and
-`--index none` writes none. A run that finds a version already published
-writes its missing entry, and an entry it cannot write is a note on its row.
+`--root` replaces the index. With `--publish`, `--index` also names where the
+run writes its entries and `--index none` turns them off. A run that finds a
+version already published writes its missing entry; an entry it cannot write
+is a note on its row.
 
-An entry exposes the service name, version, bundle reference and every
-dependency reference of each published service. On GitHub the first publish
+An entry exposes each published service's name, version, bundle reference and
+dependency references. On GitHub the first publish
 creates the `pacto-index` package: in its **Manage Actions access** settings,
 grant **write** to each repository that publishes and **read** to each that
 runs impact. Internal visibility shows those names and the dependency graph to
@@ -235,7 +232,7 @@ change:
   the snapshot is not used and the answer is partial.
 - No `pacto-targets` repository or no cluster tag: the Registry line says so
   (`not found`, `denied (check registry read credentials)` or `no cluster
-  tag`) and consumers come only from the sources you name, as before.
+  tag`) and consumers come only from the sources you name.
 
 The trust config holds one key per cluster, scoped to its `kube-system` UID
 (a bare PEM key is unscoped). Each recorder's key is in
@@ -268,9 +265,7 @@ keys:
 
 A consumer deployed nowhere is in no snapshot. The index finds it once it is
 published; name an unpublished one with `--root ./services/checkout`. A
-`BREAKING` change that reaches only these exits `2`. `--k8s` reads the
-current cluster, `--evidence-url` an Evidence Server and `--target-state` a
-fixture file.
+`BREAKING` change that reaches only these exits `2`.
 
 ## After a merge: publish
 
@@ -299,7 +294,7 @@ password as CI secrets. On GitHub, the job also needs
 `permissions: packages: write` to push.
 
 It never overwrites a published version, and a merge that does not raise
-`service.version` in `pacto.yaml`, such as a docs change, fails here. Raise
+`service.version` in `pacto.yaml` fails here. Raise
 the version with each change you want to ship, or run this step only when
 `pacto.yaml` changed. See [Publish a version](publishing.md) and
 [A breaking change you need to ship](publish-from-ci.md#a-breaking-change-you-need-to-ship).
@@ -309,8 +304,8 @@ uploads only the contract.
 
 ## GitHub Actions and other CI systems
 
-The [GitHub Actions integration](github-actions.md) wraps these steps in a
-ready-made action that also installs Pacto and comments on the pull request.
+The [GitHub Actions integration](github-actions.md) wraps these steps in an
+action that installs Pacto and comments on the pull request.
 For GitLab CI, Jenkins or CircleCI, install Pacto with the
 [installer script](installation.md#via-installer-script) and run the same
 commands.
