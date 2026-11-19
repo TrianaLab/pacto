@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
-	"github.com/trianalab/pacto/v4/internal/workloadshape"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/workloadmanager"
+	"github.com/trianalab/pacto/v4/pkg/workloadshape"
 )
 
 // WorkloadSource is a live [fleet.Source] over the Deployments, StatefulSets,
@@ -285,25 +285,12 @@ func (s *WorkloadSource) listKind(ctx context.Context, col *fleet.Collection, ns
 	}
 }
 
-// inferredService is the inferred service of one workload object: its
-// identity and shape, each value's path prefixed with the kind.
+// inferredService is [fleet.InferredServiceOf] with the group the workload's
+// own metadata names.
 func inferredService(kind string, item map[string]any, now time.Time) fleet.RawInferredService {
+	in := fleet.InferredServiceOf(kind, item, now)
 	meta, _ := item["metadata"].(map[string]any)
-	name, _ := meta["name"].(string)
-	ns, _ := meta["namespace"].(string)
-	shape := workloadshape.ReadWorkloadShape(kind, name, item)
-	created, _ := meta["creationTimestamp"].(string)
-	in := fleet.RawInferredService{Namespace: ns, Kind: kind, Name: name, ObservedAt: &now, CreatedAt: parseK8sTime(created),
-		Group: toFleetGroup(workloadmanager.Group(groupingObject(k8sclient.WorkloadGVRs[kind], kind, ns, name, meta)))}
-	if shape.Image != "" {
-		in.Image = &fleet.InferredValue{Value: shape.Image, From: kind + " " + shape.ImageFrom}
-	}
-	for _, p := range shape.Ports {
-		in.Ports = append(in.Ports, fleet.InferredPort{Port: p.Number, Name: p.Name, Protocol: p.Protocol, From: kind + " " + p.From})
-	}
-	for _, p := range shape.Probes {
-		in.Probes = append(in.Probes, fleet.InferredProbe{Kind: p.Kind, Path: p.Path, Port: p.Port, From: kind + " " + p.From})
-	}
+	in.Group = toFleetGroup(workloadmanager.Group(groupingObject(k8sclient.WorkloadGVRs[kind], kind, in.Namespace, in.Name, meta)))
 	return in
 }
 

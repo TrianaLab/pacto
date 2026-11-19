@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/trianalab/pacto/v4/pkg/validation"
+	"github.com/trianalab/pacto/v4/pkg/workloadshape"
 )
 
 // inferredInput is one workload a source reported, with the cluster its
@@ -550,4 +551,31 @@ func (d *ServiceDetailData) InferredLines(asOf time.Time) []string {
 		out = append(out, "  - ["+l.Limitation.Code+"] "+l.Limitation.Message)
 	}
 	return out
+}
+
+// InferredServiceOf is the inferred service of one decoded workload object
+// (Kind is Deployment, StatefulSet, DaemonSet or CronJob): its identity, its
+// creation time and its shape, each value's path prefixed with the kind. The
+// caller sets the group and repositories it can read.
+func InferredServiceOf(kind string, obj map[string]any, now time.Time) RawInferredService {
+	meta, _ := obj["metadata"].(map[string]any)
+	name, _ := meta["name"].(string)
+	ns, _ := meta["namespace"].(string)
+	in := RawInferredService{Namespace: ns, Kind: kind, Name: name, ObservedAt: &now}
+	if created, _ := meta["creationTimestamp"].(string); created != "" {
+		if t, err := time.Parse(time.RFC3339, created); err == nil {
+			in.CreatedAt = &t
+		}
+	}
+	shape := workloadshape.ReadWorkloadShape(kind, name, obj)
+	if shape.Image != "" {
+		in.Image = &InferredValue{Value: shape.Image, From: kind + " " + shape.ImageFrom}
+	}
+	for _, p := range shape.Ports {
+		in.Ports = append(in.Ports, InferredPort{Port: p.Number, Name: p.Name, Protocol: p.Protocol, From: kind + " " + p.From})
+	}
+	for _, p := range shape.Probes {
+		in.Probes = append(in.Probes, InferredProbe{Kind: p.Kind, Path: p.Path, Port: p.Port, From: kind + " " + p.From})
+	}
+	return in
 }
