@@ -308,7 +308,7 @@ func TestStoreModeRecordsProbeMode(t *testing.T) {
 // or one a reader could not map, leaves that section partial and the rest
 // published.
 func TestTargetPublisherUnionsEvidenceTargets(t *testing.T) {
-	body := `{"schemaVersion":"pacto.dev/evidence-source/v5","generatedAt":"2026-11-17T10:00:00Z",` +
+	body := `{"schemaVersion":"` + evidenceingest.TargetsSchemaVersionCluster + `","generatedAt":"2026-11-17T10:00:00Z",` +
 		`"health":{"status":"ready","subjects":1,"failedSubjects":0,"invalidArtifacts":0},"truncated":false,` +
 		`"targets":[{"subject":"edge","service":"web","producer":"pacto-agent","compliance":"Compliant",` +
 		`"coverage":{"evaluated":0,"required":0},"evidenceAt":"2026-11-17T09:00:00Z","acceptedAt":"2026-11-17T09:00:00Z"}]}`
