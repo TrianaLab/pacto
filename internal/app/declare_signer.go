@@ -250,10 +250,10 @@ func deviceLogin(ctx context.Context, l declareLogin) (string, error) {
 }
 
 // readSignerPolicy reads the installation signer policy with one get of the
-// delivery identity ConfigMap, and the publisher rule its publisher trust
-// config derives (nil when none). When it cannot, the note says so: readers
-// then judge the signature with their own policy.
-func readSignerPolicy(ctx context.Context, dyn dynamic.Interface) (*delivery.ClassPolicy, []delivery.PublisherRule, string) {
+// delivery identity ConfigMap, and its publisher trust config as written
+// ("" when none). When it cannot, the note says so: readers then judge the
+// signature with their own policy.
+func readSignerPolicy(ctx context.Context, dyn dynamic.Interface) (*delivery.ClassPolicy, string, string) {
 	var cm struct {
 		Data map[string]string `json:"data"`
 	}
@@ -261,10 +261,10 @@ func readSignerPolicy(ctx context.Context, dyn dynamic.Interface) (*delivery.Cla
 	if err == nil {
 		var p delivery.ClassPolicy
 		if p, err = delivery.ParseClassPolicy([]byte(cm.Data[delivery.PolicyKey])); err == nil {
-			return &p, publisherRules(cm.Data[delivery.PublishersKey]), ""
+			return &p, cm.Data[delivery.PublishersKey], ""
 		}
 	}
-	return nil, nil, fmt.Sprintf("no installation signer policy was read (%v); readers judge this signature with their own", err)
+	return nil, "", fmt.Sprintf("no installation signer policy was read (%v); readers judge this signature with their own", err)
 }
 
 // publisherRules is the default publisher rule of the publisher trust config
@@ -282,6 +282,22 @@ func publisherRules(raw string) []delivery.PublisherRule {
 		return nil
 	}
 	return []delivery.PublisherRule{rule}
+}
+
+// policyClasses is the signer class rules of the delivery policy the
+// publisher trust config raw names, verified with its policy signers; nil
+// when it names none. When the policy cannot be verified, the note says the
+// default rule classifies the signer.
+func policyClasses(ctx context.Context, reg policyReader, raw string) ([]delivery.SignerClassRule, string) {
+	cfg, err := delivery.ParsePublishers([]byte(raw))
+	if err != nil || cfg.Policy == "" {
+		return nil, ""
+	}
+	pol, err := verifiedPolicy(ctx, reg, cfg, "")
+	if err != nil {
+		return nil, "the delivery policy " + cfg.Policy + " could not be verified (" + err.Error() + "), so the default rule classifies the signer"
+	}
+	return pol.Signers, ""
 }
 
 // checkInstallationSigner refuses a person the installation signer policy p

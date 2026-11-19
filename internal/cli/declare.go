@@ -213,6 +213,9 @@ func printDeclarePlan(w io.Writer, p *app.DeclarePlan) {
 	for _, u := range p.Unbacked {
 		_, _ = fmt.Fprintf(w, "not backed by the cluster read or the baseline: %s\n", u)
 	}
+	if p.UnbackedUnchecked != "" {
+		_, _ = fmt.Fprintf(w, "unbacked changes unknown: nothing was checked against the cluster and the baseline (%s)\n", p.UnbackedUnchecked)
+	}
 	for _, n := range p.Notes {
 		_, _ = fmt.Fprintln(w, "note: "+n)
 	}

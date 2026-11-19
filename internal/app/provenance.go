@@ -347,11 +347,11 @@ func (p *ProvenanceChecker) readInstallation(ctx context.Context) *installTrust 
 		t.declare.Signers = append(t.declare.Signers, fleet.PolicySigner{Issuer: s.Issuer, Subjects: s.Subjects})
 	}
 	if cfg.Policy != "" {
-		pol, err := p.policy(ctx, cfg, "")
+		pol, err := verifiedPolicy(ctx, p.reg, cfg, "")
 		if in.PolicyDigest != "" && (err != nil || rfcTime(in.PolicyAt).After(rfcTime(pol.At))) {
 			// The promoter keeps the newest policy it verified: a tag moved
 			// back, or one that no longer verifies, never replaces it.
-			if kept, kerr := p.policy(ctx, cfg, in.PolicyDigest); kerr == nil {
+			if kept, kerr := verifiedPolicy(ctx, p.reg, cfg, in.PolicyDigest); kerr == nil {
 				pol, err = kept, nil
 			}
 		}
@@ -371,9 +371,15 @@ func (p *ProvenanceChecker) readInstallation(ctx context.Context) *installTrust 
 	return t
 }
 
-// policy reads the delivery policy cfg names, or its digest when one is
-// given, and verifies it with cfg's policy signers.
-func (p *ProvenanceChecker) policy(ctx context.Context, cfg delivery.PublisherConfig, digest string) (delivery.PublisherPolicy, error) {
+// policyReader reads a delivery policy from a registry.
+type policyReader interface {
+	Head(ctx context.Context, ref string) (*publish.Remote, error)
+	Layer(ctx context.Context, repo, digest string) ([]byte, map[string]string, error)
+}
+
+// verifiedPolicy reads the delivery policy cfg names, or its digest when one
+// is given, from reg and verifies it with cfg's policy signers.
+func verifiedPolicy(ctx context.Context, reg policyReader, cfg delivery.PublisherConfig, digest string) (delivery.PublisherPolicy, error) {
 	verify, err := delivery.PolicyVerifier([]byte(cfg.PolicySigners), signing.OpenKey)
 	if err != nil {
 		return delivery.PublisherPolicy{}, err
@@ -383,7 +389,7 @@ func (p *ProvenanceChecker) policy(ctx context.Context, cfg delivery.PublisherCo
 		return delivery.PublisherPolicy{}, err
 	}
 	if digest == "" {
-		h, err := p.reg.Head(ctx, cfg.Policy)
+		h, err := reg.Head(ctx, cfg.Policy)
 		if err == nil && h == nil {
 			err = errors.New("it does not exist")
 		}
@@ -392,7 +398,7 @@ func (p *ProvenanceChecker) policy(ctx context.Context, cfg delivery.PublisherCo
 		}
 		digest = h.Digest
 	}
-	bundle, _, err := p.reg.Layer(ctx, ref.Context().String(), digest)
+	bundle, _, err := reg.Layer(ctx, ref.Context().String(), digest)
 	if err != nil {
 		return delivery.PublisherPolicy{}, err
 	}

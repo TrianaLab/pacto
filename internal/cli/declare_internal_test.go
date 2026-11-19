@@ -278,6 +278,25 @@ func TestDeclareCommandFromDraft(t *testing.T) {
 	}
 }
 
+// A plan-only --from-draft run plans the draft: its unbacked changes, or why
+// they were not checked, and the digest a later --yes --intent run takes.
+func TestDeclareCommandFromDraftPlanOnly(t *testing.T) {
+	noKube(t)
+	var got app.DeclareRequest
+	p := declarePlanFixture()
+	p.Unbacked, p.UnbackedUnchecked = []string{"service.owner team"}, ""
+	out, _, err := runRoot(t, declareDeps(t, &got, p, nil, nil), nil, "declare", "invoices", "--from-draft", "draft-3")
+	if err != nil || got.FromDraft != "draft-3" || !strings.Contains(out, "\nnot backed by the cluster read or the baseline: service.owner team\n") ||
+		strings.Count(out, "not backed") != 1 || !strings.Contains(out, "--yes --intent "+declareIntent) {
+		t.Fatalf("%v %+v\n%s", err, got, out)
+	}
+	p.Unbacked, p.UnbackedUnchecked = nil, "disk full"
+	out, _, _ = runRoot(t, declareDeps(t, &got, p, nil, nil), nil, "declare", "invoices", "--from-draft", "draft-3")
+	if !strings.Contains(out, "unbacked changes unknown: nothing was checked against the cluster and the baseline (disk full)\n") {
+		t.Fatalf("%s", out)
+	}
+}
+
 // TestDeclareCommandKubeClient: a run with a registry reads the cluster with
 // the kubeconfig client; a client that fails refuses a cluster read, and a
 // --dir run declares the folder without it.

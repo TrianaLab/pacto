@@ -134,14 +134,20 @@ func (r *applier) write() error {
 // version rule, baseline or derived version ever reads one.
 const DraftPrefix = "draft-"
 
+// maxDraft bounds a draft number: a larger tag someone pushed is ignored,
+// so the next number never overflows.
+const maxDraft = 1 << 30
+
 // NextDraft is the number after the highest prefix<n> tag in tags, 1 when
-// there is none. Tags with no number after prefix are ignored.
+// there is none. Only tags a record names a draft by count (<n> with no
+// leading zero, at most maxDraft); any other is ignored.
 func NextDraft(tags []string, prefix string) int {
 	high := 0
 	for _, t := range tags {
 		rest, ok := strings.CutPrefix(t, prefix)
-		if n, err := strconv.Atoi(rest); ok && err == nil && n > high {
-			high = n
+		n, err := strconv.ParseUint(rest, 10, 31)
+		if ok && err == nil && !strings.HasPrefix(rest, "0") && n <= maxDraft && int(n) > high {
+			high = int(n)
 		}
 	}
 	return high + 1

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -107,6 +108,10 @@ func TestExplainPrintsDeclaration(t *testing.T) {
 	}
 	if got.Declaration == nil || got.Declaration.Asker.Subject != "ana@acme.com" || len(got.InferredCoverage) != 1 || got.InferredHidden == nil || got.InferredHidden.Services != 1 {
 		t.Fatalf("explain %+v %+v %+v", got.Declaration, got.InferredCoverage, got.InferredHidden)
+	}
+	// A machine reader gets the caveat a person reads.
+	if b, _ := json.Marshal(got); !strings.Contains(string(b), `"declarationNote":"signer not checked: run pacto pull --verify-identity"`) {
+		t.Errorf("the JSON names no unchecked signer: %s", b)
 	}
 }
 

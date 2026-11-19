@@ -29,6 +29,8 @@ type stubDeclarer struct {
 	execRefuse   *Refused
 	err          error
 	execErr      error
+	// unchanged plans a service unchanged since 1.4.0: no intent digest.
+	unchanged bool
 }
 
 func (s stubDeclarer) Plan(_ context.Context, a DeclareArgs) (json.RawMessage, *Refused, error) {
@@ -40,6 +42,9 @@ func (s stubDeclarer) Plan(_ context.Context, a DeclareArgs) (json.RawMessage, *
 	}
 	if s.refuse != nil {
 		return nil, s.refuse, nil
+	}
+	if s.unchanged {
+		return json.RawMessage(`{"service":"invoices","unchanged":"1.4.0","intentDigest":""}`), nil, nil
 	}
 	return json.RawMessage(`{"service":"invoices","version":"0.1.0","state":"draft","intentDigest":"` + planDigest +
 		`","acceptCLI":"pacto declare invoices --registry ghcr.io/acme --from-draft <tag>"}`), nil, nil
@@ -160,6 +165,21 @@ func TestDeclareRefusalCarriesCodeAndCLI(t *testing.T) {
 	}
 	if got := (DeclareArgs{Service: "invoices", Registry: "r"}).Command(planDigest); got != "pacto declare invoices --registry r --intent "+planDigest {
 		t.Fatal(got)
+	}
+	// The read bounds change the plan, so the command replays them.
+	if got := (DeclareArgs{Service: "invoices", Registry: "r", MaxItems: 50, CallWindow: "1h"}).Command(""); got != "pacto declare invoices --registry r --max-items 50 --call-window 1h" {
+		t.Fatal(got)
+	}
+}
+
+// An unchanged plan writes nothing and refuses nothing, whatever dry_run says.
+func TestDeclareUnchangedIsNoRefusal(t *testing.T) {
+	for _, dry := range []bool{true, false} {
+		var execs []DeclareArgs
+		out, res := callDeclare(t, stubDeclarer{execs: &execs, unchanged: true}, map[string]any{"service": "invoices", "dry_run": dry, "on_behalf_of": "ana", "intent_digest": otherDigest})
+		if res.IsError || out.Refusal != nil || out.Executed || len(execs) != 0 || out.Plan == nil {
+			t.Errorf("dry_run %v: %+v", dry, out)
+		}
 	}
 }
 

@@ -264,11 +264,13 @@ func TestDeclareRecordInvalidRefused(t *testing.T) {
 func TestDeclarePlanStale(t *testing.T) {
 	e := newDeclareEnv(t)
 	calls := e.login(personToken("ana@acme.com"))
-	req := e.req()
-	req.IntentDigest = "sha256:old"
+	req := e.req("ledger")
+	req.IntentDigest, req.MaxItems, req.CallWindow = "sha256:old", 500, time.Hour
 	res, err := e.svc.Declare(t.Context(), req)
-	if de := refusal(t, err); de.Code != codePlanStale || de.CLI != "pacto declare invoices --intent "+res.Plan.IntentDigest || *calls != 0 {
-		t.Fatal(err)
+	// The command replays every argument the digest binds, so running it plans the same digest.
+	want := "pacto declare invoices --namespace billing --registry " + e.host + "/acme --accept ledger --max-items 500 --call-window 1h0m0s --intent " + res.Plan.IntentDigest
+	if de := refusal(t, err); de.Code != codePlanStale || de.CLI != want || *calls != 0 {
+		t.Fatal(err, de.CLI)
 	}
 	req.IntentDigest = res.Plan.IntentDigest
 	if res := e.declare(t, req); !res.Executed {
@@ -468,13 +470,31 @@ func TestFromDraftShowsUnbackedDeclaredChanges(t *testing.T) {
 	})
 	e.publishBundle(t, e.host+"/acme/invoices", "draft-2", files, nil)
 	e.login(personToken("ana@acme.com"))
-	p, _, err := e.svc.planToDeclare(t.Context(), e.fromDraft("draft-2"))
+	p, _, err := e.svc.PlanDeclare(t.Context(), e.fromDraft("draft-2"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	joined := strings.Join(p.Unbacked, "\n")
-	if !strings.Contains(joined, "dependencies.compatibility.declared audit: ^1.0.0") || !strings.HasSuffix(joined, "not backed by the cluster read or the baseline: publish") {
+	if !strings.Contains(joined, "dependencies.compatibility.declared audit: ^1.0.0") || !strings.HasSuffix(joined, "\npublish") ||
+		strings.Contains(joined, "not backed") || p.UnbackedUnchecked != "" {
 		t.Fatalf("%q", p.Unbacked)
+	}
+}
+
+// A plan-only run of --from-draft plans the draft, and its digest is the one
+// a later --yes --intent run accepts.
+func TestFromDraftPlanIntentIsAccepted(t *testing.T) {
+	e := newDeclareEnv(t)
+	e.agentDraft(t)
+	e.login(personToken("ana@acme.com"))
+	p, _, err := e.svc.PlanDeclare(t.Context(), e.fromDraft("draft-1"))
+	if err != nil || p.Unbacked == nil || !slices.ContainsFunc(p.Notes, func(n string) bool { return strings.HasPrefix(n, "the draft") }) {
+		t.Fatalf("%v %+v", err, p)
+	}
+	req := e.fromDraft("draft-1")
+	req.IntentDigest = p.IntentDigest
+	if res := e.declare(t, req); !res.Executed || res.Draft {
+		t.Fatalf("%+v", res)
 	}
 }
 
@@ -485,9 +505,10 @@ func TestFromDraftUnbackedUnchecked(t *testing.T) {
 	// No cluster: the draft's facts are dropped and nothing is checked.
 	req := e.fromDraft("draft-1")
 	req.Dynamic = nil
-	p, _, err := e.svc.planToDeclare(t.Context(), req)
-	if err != nil || len(p.Unbacked) != 1 || !strings.HasPrefix(p.Unbacked[0], "nothing was checked against the cluster and the baseline (") {
-		t.Fatalf("%v %q", err, p.Unbacked)
+	p, _, err := e.svc.PlanDeclare(t.Context(), req)
+	// A check that did not run counts no unbacked change.
+	if err != nil || len(p.Unbacked) != 0 || p.UnbackedUnchecked == "" {
+		t.Fatalf("%v %q %q", err, p.Unbacked, p.UnbackedUnchecked)
 	}
 	// No scratch folder for the check.
 	n := 0
@@ -497,8 +518,8 @@ func TestFromDraftUnbackedUnchecked(t *testing.T) {
 		}
 		return t.TempDir(), nil
 	}
-	if p, _, err = e.svc.planToDeclare(t.Context(), e.fromDraft("draft-1")); err != nil || len(p.Unbacked) != 1 || !strings.Contains(p.Unbacked[0], "disk full") {
-		t.Fatalf("%v %q", err, p.Unbacked)
+	if p, _, err = e.svc.PlanDeclare(t.Context(), e.fromDraft("draft-1")); err != nil || len(p.Unbacked) != 0 || p.UnbackedUnchecked != "disk full" {
+		t.Fatalf("%v %q %q", err, p.Unbacked, p.UnbackedUnchecked)
 	}
 }
 
@@ -578,7 +599,7 @@ func TestFromDraftReplansVersion(t *testing.T) {
 	e.agentDraft(t)
 	e.withBaseline(t) // the baseline moved since the draft
 	e.login(personToken("ana@acme.com"))
-	p, _, err := e.svc.planToDeclare(t.Context(), e.fromDraft("draft-1"))
+	p, _, err := e.svc.PlanDeclare(t.Context(), e.fromDraft("draft-1"))
 	if err != nil || p.Baseline == nil || p.Baseline.Version != "1.4.0" || p.Version == firstDeclaration {
 		t.Fatalf("%v %+v", err, p)
 	}

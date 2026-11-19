@@ -408,3 +408,12 @@ func TestRestrictVisibleDeclarationNamespaceUnchanged(t *testing.T) {
 		t.Error("a viewer who may read news sees the snapshot unchanged")
 	}
 }
+
+// A declaration whose cluster facts name no hidden service is kept as is.
+func TestHideClusterDependenciesKeepsUnrelatedFields(t *testing.T) {
+	q := declFleet(t, signedOpts(t))
+	rev := q.SnapshotForSerialization().Revisions[RevisionKey(revKeyOf(t, q, "newsletter"))]
+	if hideClusterDependencies(q.SnapshotForSerialization(), rev, map[ServiceKey]bool{"elsewhere": true}) != nil {
+		t.Error("a clone without any hidden dependency")
+	}
+}

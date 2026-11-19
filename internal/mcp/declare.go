@@ -69,6 +69,9 @@ func declare(ctx context.Context, d Declarer, a DeclareArgs) (*mcpsdk.CallToolRe
 	if len(raw) > 0 {
 		out.Plan = raw
 	}
+	if refused == nil && plan.Unchanged != "" {
+		return writeAnswer(out, nil, a) // nothing changed: nothing to write, whatever dry_run says
+	}
 	if refused == nil && !dryRun(a.DryRun) {
 		refused = requireIntent(plan.IntentDigest, a.IntentDigest)
 	}

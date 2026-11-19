@@ -90,8 +90,9 @@ func TestRemoveServiceOwner(t *testing.T) {
 		"service:\n  owner: {team: shop}\n  name: a\n":                               "service:\n  name: a\n",
 		"service: {name: a, owner: {team: shop}}\n":                                  "service: {name: a}\n",
 		"service:\n  name: a\n":                                                      "service:\n  name: a\n",
-		"workload: job\n":                                                            "workload: job\n",
-		"":                                                                           "",
+		"service:\n  name: owner\n  owner:\n    team: payments\n":                    "service:\n  name: owner\n",
+		"workload: job\n": "workload: job\n",
+		"":                "",
 	} {
 		got, err := RemoveServiceOwner([]byte(raw))
 		if err != nil || string(got) != want {

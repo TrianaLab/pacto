@@ -86,10 +86,17 @@ type ExplainResult struct {
 	InferredCoverage []contract.InferredCoverage   `json:"inferredCoverage,omitempty"`
 	InferredHidden   *contract.InferredHidden      `json:"inferredHidden,omitempty"`
 	Declaration      *contract.InferredDeclaration `json:"declaration,omitempty"`
+	// DeclarationNote is DeclarationSignerNote whenever Declaration is set:
+	// a machine reader gets the caveat a person reads.
+	DeclarationNote string `json:"declarationNote,omitempty"`
 	// AsOf is the RFC 3339 time of the explain, the time an environment's
 	// expires is compared with.
 	AsOf string `json:"asOf"`
 }
+
+// DeclarationSignerNote says explain checked no signature of a declaration:
+// its asker is what the record claims.
+const DeclarationSignerNote = "signer not checked: run pacto pull --verify-identity"
 
 // ExplainReadiness is a derived readiness summary for the explain output.
 type ExplainReadiness struct {
@@ -313,6 +320,9 @@ func (s *Service) Explain(ctx context.Context, opts ExplainOptions) (*ExplainRes
 	if rec, unreadable := explainInferred(bundle); rec != nil {
 		result.Inferred, result.InferredFindings, result.InferredFindingsDropped = rec.Fields, rec.Findings, rec.FindingsDropped
 		result.InferredCoverage, result.InferredHidden, result.Declaration = rec.Coverage, rec.Hidden, rec.Declaration
+		if rec.Declaration != nil {
+			result.DeclarationNote = DeclarationSignerNote
+		}
 	} else {
 		result.InferredUnreadable = unreadable
 	}

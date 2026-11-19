@@ -118,6 +118,8 @@ func TestNextDraft(t *testing.T) {
 		{[]string{"1.0.0", "latest"}, 1},
 		{[]string{"draft-1", "draft-2", "draft-9", "draft-x", "draft-"}, 10},
 		{[]string{"pacto-accept-draft-4"}, 1},
+		// A number past the bound or with a leading zero names no draft.
+		{[]string{"draft-3", "draft-9223372036854775807", "draft-1073741825", "draft-007"}, 4},
 	} {
 		expect(t, NextDraft(c.tags, DraftPrefix) == c.want, "%v: %d", c.tags, NextDraft(c.tags, DraftPrefix))
 	}

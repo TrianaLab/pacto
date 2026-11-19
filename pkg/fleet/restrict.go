@@ -108,7 +108,16 @@ func (q *Query) InferredWorkloadScopes() []WorkloadScope {
 	for _, r := range q.snap.replacedNames {
 		seen[WorkloadScope{r.workload.namespace, r.workload.kind}] = true
 	}
-	for _, p := range q.snap.Providers {
+	providerScopes(q.snap.Providers, seen)
+	return slices.SortedFunc(maps.Keys(seen), func(a, b WorkloadScope) int {
+		return cmp.Or(cmp.Compare(a.Namespace, b.Namespace), cmp.Compare(a.Kind, b.Kind))
+	})
+}
+
+// providerScopes adds the (namespace, kind) of every non-zero provider count
+// and namespaced workload object of rows to seen.
+func providerScopes(rows []Provider, seen map[WorkloadScope]bool) {
+	for _, p := range rows {
 		for _, c := range p.Counts {
 			if c.N > 0 {
 				seen[WorkloadScope{c.Namespace, c.Kind}] = true
@@ -120,9 +129,6 @@ func (q *Query) InferredWorkloadScopes() []WorkloadScope {
 			}
 		}
 	}
-	return slices.SortedFunc(maps.Keys(seen), func(a, b WorkloadScope) int {
-		return cmp.Or(cmp.Compare(a.Namespace, b.Namespace), cmp.Compare(a.Kind, b.Kind))
-	})
 }
 
 // callerNamespace is the namespace of a k8s caller (see [ParseK8sCaller]),

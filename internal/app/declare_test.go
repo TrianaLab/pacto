@@ -506,8 +506,62 @@ func TestDirClusterFactsReRead(t *testing.T) {
 	// A re-read that fails drops them too.
 	e.dyn.PrependReactor("list", "deployments", func(k8stesting.Action) (bool, runtime.Object, error) { return true, nil, errors.New("down") })
 	req.Dynamic = e.dyn
-	if p, _ = e.plan(t, req); !slices.ContainsFunc(p.Notes, func(n string) bool { return strings.HasPrefix(n, "the cluster was not read again (") }) {
-		t.Fatalf("%+v", p.Notes)
+	// No fact of this run came from the cluster, so the record names none.
+	if p, _ = e.plan(t, req); !slices.ContainsFunc(p.Notes, func(n string) bool { return strings.HasPrefix(n, "the cluster was not read again (") }) || p.Cluster != "" {
+		t.Fatalf("%+v %q", p.Notes, p.Cluster)
+	}
+}
+
+// A re-read that finds the workload already has a contract refuses, as the
+// cluster path does: it is no failed read.
+func TestPlanFromDirAlreadyDeclaredRefused(t *testing.T) {
+	dir := noOwner(t, newDeclareEnv(t))
+	e := newDeclareEnv(t, append(billing(time.Now()), kubePacto("billing", "invoices", "1.0.0"))...)
+	req := e.req()
+	req.Dir = dir
+	if _, _, err := e.svc.PlanDeclare(t.Context(), req); refusal(t, err).Code != codeAlreadyDeclared {
+		t.Fatal(err)
+	}
+}
+
+// deployHeadFails cannot read the baseline's deploy artifact.
+type deployHeadFails struct{ publish.Registry }
+
+func (d deployHeadFails) Head(ctx context.Context, ref string) (*publish.Remote, error) {
+	if strings.Contains(ref, "/acme/deploy/") {
+		return nil, errors.New("401")
+	}
+	return d.Registry.Head(ctx, ref)
+}
+
+// A baseline deploy artifact that cannot be read refuses the plan: the
+// signed record never says "none" for it.
+func TestPlanBaselineDeployUnreadableRefused(t *testing.T) {
+	e := newDeclareEnv(t)
+	e.withBaseline(t)
+	e.svc.sys.publishRegistry = func() publish.Registry { return deployHeadFails{e.reg} }
+	if _, _, err := e.svc.PlanDeclare(t.Context(), e.req()); refusal(t, err).Code != codeRegistryUnreadable || !strings.Contains(err.Error(), "deploy artifact") {
+		t.Fatal(err)
+	}
+}
+
+// referrersFail cannot list any referrer.
+type referrersFail struct{ publish.Registry }
+
+func (referrersFail) Referrers(context.Context, string, string, string) ([]string, error) {
+	return nil, errors.New("timeout")
+}
+
+// A tag whose signatures could not be read is signed by someone unknown,
+// never by nobody.
+func TestPlanUnreadSignaturesAreUnknown(t *testing.T) {
+	e := newDeclareEnv(t)
+	e.publishBundle(t, e.host+"/acme/invoices", "1.0.0", e.invoicesBaseline("1.0.0", ""), nil)
+	e.svc.sys.publishRegistry = func() publish.Registry { return referrersFail{e.reg} }
+	p, _, err := e.svc.PlanDeclare(t.Context(), e.req())
+	if de := refusal(t, err); de.Code != codeVersionConflict || strings.Contains(de.Message, "nobody") ||
+		len(p.Skipped) != 1 || p.Skipped[0].Signer != "unknown (its signatures could not be read)" {
+		t.Fatalf("%v %+v", err, p.Skipped)
 	}
 }
 
@@ -875,11 +929,15 @@ func TestBaselineDeployNone(t *testing.T) {
 	e := newDeclareEnv(t)
 	base := &contract.Bundle{Contract: &contract.Contract{Publish: &contract.Publish{Deploy: "manifests", Artifacts: []contract.PublishArtifact{
 		{Name: "api", Ref: "oci://" + e.host + "/acme/invoices-api"}, {Name: "manifests", Ref: "oci://" + e.host + "/acme/deploy/invoices"}}}}}
-	if d := baselineDeploy(t.Context(), e.reg, base, "1.4.0"); d != "" {
-		t.Fatal(d)
+	if d, err := baselineDeploy(t.Context(), e.reg, base, "1.4.0"); d != "" || err != nil {
+		t.Fatal(d, err)
 	}
-	if d := baselineDeploy(t.Context(), e.reg, &contract.Bundle{Contract: &contract.Contract{}}, "1.4.0"); d != "" {
-		t.Fatal(d)
+	if d, err := baselineDeploy(t.Context(), e.reg, &contract.Bundle{Contract: &contract.Contract{}}, "1.4.0"); d != "" || err != nil {
+		t.Fatal(d, err)
+	}
+	// A deploy artifact that cannot be read is unknown, never "none".
+	if d, err := baselineDeploy(t.Context(), &faultyRegistry{Registry: e.reg, head: errors.New("401")}, base, "1.4.0"); d != "" || err == nil {
+		t.Fatal("a failed read reads as no deploy artifact")
 	}
 }
 

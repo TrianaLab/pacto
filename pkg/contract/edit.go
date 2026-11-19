@@ -70,8 +70,13 @@ func RemoveServiceOwner(raw []byte) ([]byte, error) {
 	if svc == nil || svc.Kind != yaml.MappingNode {
 		return raw, nil
 	}
-	i := slices.IndexFunc(svc.Content, func(k *yaml.Node) bool { return k.Value == "owner" })
-	if i < 0 || i%2 != 0 {
+	i := -1
+	for k := 0; k+1 < len(svc.Content) && i < 0; k += 2 { // keys only: a value "owner" is no key
+		if svc.Content[k].Value == "owner" {
+			i = k
+		}
+	}
+	if i < 0 {
 		return raw, nil
 	}
 	if plainBlock(top) && plainBlock(svc) {

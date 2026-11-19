@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"strings"
 )
 
@@ -144,6 +145,12 @@ func (a DeclareArgs) Command(intent string) string {
 	for _, n := range a.Accept {
 		parts = append(parts, "--accept", n)
 	}
+	if a.MaxItems != 0 {
+		parts = append(parts, "--max-items", strconv.Itoa(a.MaxItems))
+	}
+	if a.CallWindow != "" {
+		parts = append(parts, "--call-window", a.CallWindow)
+	}
 	if intent != "" {
 		parts = append(parts, "--intent", intent)
 	}
@@ -164,6 +171,7 @@ type Declarer interface {
 type declaredRun struct {
 	IntentDigest string          `json:"intentDigest"`
 	AcceptCLI    string          `json:"acceptCLI"`
+	Unchanged    string          `json:"unchanged"`
 	Plan         json.RawMessage `json:"plan"`
 	Executed     bool            `json:"executed"`
 	Tag          string          `json:"tag"`

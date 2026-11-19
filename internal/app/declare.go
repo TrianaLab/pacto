@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing/fstest"
 	"time"
@@ -84,8 +85,11 @@ type DeclarePlan struct {
 	Notes   []string     `json:"notes,omitempty"`
 	// Unbacked are declared changes neither the baseline, the cluster read
 	// nor an accepted range backs (an accepted draft).
-	Unbacked []string     `json:"unbacked,omitempty"`
-	Publish  publish.Plan `json:"publish"`
+	Unbacked []string `json:"unbacked,omitempty"`
+	// UnbackedUnchecked is why the unbacked check did not run: then nothing
+	// is known about what backs the declared changes.
+	UnbackedUnchecked string       `json:"unbackedUnchecked,omitempty"`
+	Publish           publish.Plan `json:"publish"`
 }
 
 // DeclareBaseline is the published version a declaration starts from and
@@ -178,11 +182,15 @@ type declaration struct {
 // derives the version, applies the owner rule and the accepted ranges, packs
 // the bundle with the record's declaration and decides it against the
 // registry. It writes nothing outside a scratch folder it removes. A run
-// without a registry is refused before any read.
+// without a registry is refused before any read. With req.FromDraft it plans
+// accepting that draft, the plan a later run with --yes carries out.
 func (s *Service) PlanDeclare(ctx context.Context, req DeclareRequest) (*DeclarePlan, *declaration, error) {
 	if req.Registry == "" {
 		return nil, nil, &DeclareError{Code: codeNoRegistry, Message: "declaring a service needs the registry its contract is published to (--registry)",
-			CLI: "pacto declare " + req.Service + " --registry <registry>"}
+			CLI: req.command("")}
+	}
+	if req.FromDraft != "" {
+		return s.fromDraft(ctx, req)
 	}
 	scratch, err := s.env().mkdirTemp("", "pacto-declare-")
 	if err != nil {
@@ -308,8 +316,12 @@ func (pl *declarePlanner) fromDir(ctx context.Context) error {
 	}
 	why := "no Kubernetes client was configured"
 	if pl.req.Dynamic != nil {
-		if err = pl.draft(ctx, pl.object, []string{ns}); err == nil {
+		var de *DeclareError
+		switch err = pl.draft(ctx, pl.object, []string{ns}); {
+		case err == nil:
 			return nil
+		case errors.As(err, &de) && de.Code != codeWorkloadNotFound:
+			return err // a read that found a contract or two workloads is no failed read
 		}
 		why = err.Error()
 	}
@@ -367,7 +379,12 @@ func splitObject(object string) (ns, kind, name string) {
 func (pl *declarePlanner) signer(ctx context.Context) error {
 	o := &pl.req.Signing
 	if pl.req.Dynamic != nil {
-		o.Policy, pl.rules, o.PolicyNote = readSignerPolicy(ctx, pl.req.Dynamic)
+		var publishers, classNote string
+		o.Policy, publishers, o.PolicyNote = readSignerPolicy(ctx, pl.req.Dynamic)
+		pl.rules = publisherRules(publishers)
+		if o.Rules, classNote = policyClasses(ctx, pl.reg, publishers); classNote != "" {
+			pl.plan.Notes = append(pl.plan.Notes, classNote)
+		}
 	} else {
 		o.PolicyNote = "no installation signer policy was read (no Kubernetes client was configured); readers judge this signature with their own"
 	}
@@ -419,7 +436,11 @@ func (pl *declarePlanner) findBaseline(ctx context.Context) error {
 		return err
 	}
 	pl.baseline = base
-	pl.plan.Baseline.InferredBaseline = contract.InferredBaseline{Version: tag, Bundle: pl.repo() + "@" + digest, Deploy: baselineDeploy(ctx, pl.reg, base, tag)}
+	deploy, err := baselineDeploy(ctx, pl.reg, base, tag)
+	if err != nil {
+		return &DeclareError{Code: codeRegistryUnreadable, Message: "reading the deploy artifact of the baseline " + tag + ": " + err.Error()}
+	}
+	pl.plan.Baseline.InferredBaseline = contract.InferredBaseline{Version: tag, Bundle: pl.repo() + "@" + digest, Deploy: deploy}
 	pl.plan.Deploy = cmp.Or(pl.plan.Baseline.Deploy, "none")
 	return pl.redraft(ctx, base)
 }
@@ -471,8 +492,11 @@ func (pl *declarePlanner) countingTag(ctx context.Context, tags []string) (strin
 func (pl *declarePlanner) judge(ctx context.Context, tm root.TrustedMaterial, digest string) (bool, string, string) {
 	signers, err := publish.SignersOf(ctx, pl.reg, tm, pl.req.Signing.RekorURL != "", pl.repo(), digest)
 	signer := "nobody"
-	if len(signers) > 0 {
+	switch {
+	case len(signers) > 0:
 		signer = signers[0].Subject + " (" + signers[0].Issuer + ")"
+	case !errors.Is(err, publish.ErrNoSignature):
+		signer = "unknown (its signatures could not be read)"
 	}
 	v := publish.JudgeRead(digest, signers, err, delivery.ServiceRef{Name: pl.plan.Service}, "", pl.rules, delivery.PublisherSourceRule, nil)
 	if v.Verdict == delivery.VerdictAccepted {
@@ -504,21 +528,26 @@ func (pl *declarePlanner) checkBaseline(base *contract.Bundle) error {
 }
 
 // baselineDeploy is the baseline's deploy artifact at version, repo@digest,
-// or "" when it declares none or the tag is not there.
-func baselineDeploy(ctx context.Context, reg publish.Registry, base *contract.Bundle, version string) string {
+// or "" when it declares none or the tag is not there. A read that fails is
+// an error, never "none": an unread deploy artifact is unknown.
+func baselineDeploy(ctx context.Context, reg publish.Registry, base *contract.Bundle, version string) (string, error) {
 	pub := base.Contract.Publish
 	if pub == nil {
-		return ""
+		return "", nil
 	}
 	for _, a := range pub.Artifacts {
 		if a.Name != pub.Deploy {
 			continue
 		}
-		if r, err := reg.Head(ctx, publish.Repo(a.Ref)+":"+version); err == nil && r != nil {
-			return publish.Repo(a.Ref) + "@" + r.Digest
+		r, err := reg.Head(ctx, publish.Repo(a.Ref)+":"+version)
+		if err != nil {
+			return "", err
+		}
+		if r != nil {
+			return publish.Repo(a.Ref) + "@" + r.Digest, nil
 		}
 	}
-	return ""
+	return "", nil
 }
 
 // redraft writes the baseline's files into a fresh workload folder and
@@ -647,7 +676,9 @@ func (pl *declarePlanner) identify(ctx context.Context) {
 	ns, kind, name := splitObject(pl.object)
 	pl.plan.InferredFrom = fleet.K8sCaller("", ns, kind, name)
 	why := "no Kubernetes client was configured"
-	if pl.req.Dynamic != nil {
+	if pl.req.Dynamic != nil && pl.rec.Inputs.Cluster == nil {
+		why = "this run read no fact from the cluster"
+	} else if pl.req.Dynamic != nil {
 		o, err := pl.req.Dynamic.Resource(gvrNamespaces).Get(ctx, "kube-system", metav1.GetOptions{})
 		if err == nil {
 			pl.plan.Cluster = string(o.GetUID())
@@ -880,7 +911,7 @@ type DeclareResult struct {
 // draft-<n> tag a person accepts with --from-draft. A plan with nothing new
 // writes nothing.
 func (s *Service) Declare(ctx context.Context, req DeclareRequest) (*DeclareResult, error) {
-	plan, d, err := s.planToDeclare(ctx, req)
+	plan, d, err := s.PlanDeclare(ctx, req)
 	res := &DeclareResult{}
 	if plan != nil {
 		res.Plan = *plan
@@ -906,20 +937,12 @@ func (s *Service) Declare(ctx context.Context, req DeclareRequest) (*DeclareResu
 	return res, s.writeDraft(ctx, req, res, d, c)
 }
 
-// planToDeclare plans a declaration, or the acceptance of a draft.
-func (s *Service) planToDeclare(ctx context.Context, req DeclareRequest) (*DeclarePlan, *declaration, error) {
-	if req.FromDraft == "" || req.Registry == "" {
-		return s.PlanDeclare(ctx, req)
-	}
-	return s.fromDraft(ctx, req)
-}
-
 // checkDeclarable refuses a run whose intent digest is not the fresh plan's,
 // and a declared version the registry refuses, before anyone logs in.
 func checkDeclarable(req DeclareRequest, p *DeclarePlan) error {
 	if req.IntentDigest != "" && req.IntentDigest != p.IntentDigest {
 		return &DeclareError{Code: codePlanStale, Message: "the plan changed since intent " + req.IntentDigest + " was reviewed; it is now " + p.IntentDigest +
-			": review the new plan and run again with its digest", CLI: "pacto declare " + p.Service + " --intent " + p.IntentDigest}
+			": review the new plan and run again with its digest", CLI: req.command(p.IntentDigest)}
 	}
 	if p.State == contract.DeclarationDeclared && !p.Publish.Ready {
 		return &DeclareError{Code: codeVersionConflict, Message: "the registry refuses " + p.Service + " " + p.Version + ": " + publish.Refusal(p.Publish)}
@@ -980,6 +1003,32 @@ func (s *Service) writeDraft(ctx context.Context, req DeclareRequest, res *Decla
 	res.Executed, res.Draft, res.Signed, res.Tag, res.Published = true, true, signed, tag, d.repo+"@"+r.Digests[publish.BundleItem]
 	res.Plan.State, res.Plan.AcceptCLI = contract.DeclarationDraft, acceptCLI(res.Plan.Service, req.Registry, tag)
 	return nil
+}
+
+// command is the pacto declare that replays req: every argument the intent
+// digest binds, and intent when it is set. Without --yes it prints the plan.
+func (req DeclareRequest) command(intent string) string {
+	parts := []string{"pacto declare", req.Service}
+	add := func(flag, v string) {
+		if v != "" {
+			parts = append(parts, flag, v)
+		}
+	}
+	add("--namespace", req.Namespace)
+	add("--dir", req.Dir)
+	add("--registry", cmp.Or(req.Registry, "<registry>"))
+	for _, n := range req.Accept {
+		add("--accept", n)
+	}
+	add("--from-draft", req.FromDraft)
+	if req.MaxItems != 0 {
+		add("--max-items", strconv.Itoa(req.MaxItems))
+	}
+	if req.CallWindow != 0 {
+		add("--call-window", req.CallWindow.String())
+	}
+	add("--intent", intent)
+	return strings.Join(parts, " ")
 }
 
 // acceptCLI is the command a person accepts the draft tag of service with.
@@ -1067,7 +1116,7 @@ func (s *Service) fromDraft(ctx context.Context, req DeclareRequest) (*DeclarePl
 	case plan.State != contract.DeclarationDeclared:
 		return plan, nil, &DeclareError{Code: codeSignerNotAllowed, Message: "accepting a draft takes a person's Sigstore login: " + plan.Signer.Why}
 	}
-	plan.Unbacked = s.unbacked(ctx, req, dr.object, d.bundle)
+	plan.Unbacked, plan.UnbackedUnchecked = s.unbacked(ctx, req, dr.object, d.bundle)
 	plan.Notes = append(plan.Notes, dr.notes(req.Accept)...)
 	// The record is packed again with the person as asker before it is signed.
 	dec := d.record.Declaration
@@ -1172,14 +1221,15 @@ func (dr *draftRead) notes(accept []string) []string {
 	return out
 }
 
-// unbacked lists each declared change of final that neither the baseline,
-// this run's cluster read nor an accepted range backs: final compared with
-// the declaration this run would make of object from the cluster and the
-// baseline alone.
-func (s *Service) unbacked(ctx context.Context, req DeclareRequest, object string, final *contract.Bundle) []string {
+// unbacked lists each declared change of final (path and value) that
+// neither the baseline, this run's cluster read nor an accepted range backs:
+// final compared with the declaration this run would make of object from the
+// cluster and the baseline alone. When that check cannot run, it lists
+// nothing and says why.
+func (s *Service) unbacked(ctx context.Context, req DeclareRequest, object string, final *contract.Bundle) ([]string, string) {
 	scratch, err := s.env().mkdirTemp("", "pacto-declare-")
 	if err != nil {
-		return []string{"nothing was checked against the cluster and the baseline (" + err.Error() + ")"}
+		return nil, err.Error()
 	}
 	defer func() { _ = os.RemoveAll(scratch) }()
 	ref := req
@@ -1191,16 +1241,16 @@ func (s *Service) unbacked(ctx context.Context, req DeclareRequest, object strin
 		base, err = contract.Parse(bytes.NewReader(raw))
 	}
 	if err != nil {
-		return []string{"nothing was checked against the cluster and the baseline (" + err.Error() + ")"}
+		return nil, err.Error()
 	}
 	out := []string{}
 	for _, c := range diff.Compare(ctx, base, final.Contract, os.DirFS(pl.dir), final.FS).Changes {
 		if c.Path != "service.version" && !strings.HasPrefix(c.Path, "inferred.") {
-			out = append(out, "not backed by the cluster read or the baseline: "+c.Path+" "+fmt.Sprint(cmp.Or(c.NewValue, c.OldValue)))
+			out = append(out, c.Path+" "+fmt.Sprint(cmp.Or(c.NewValue, c.OldValue)))
 		}
 	}
 	if !reflect.DeepEqual(base.Publish, final.Contract.Publish) {
-		out = append(out, "not backed by the cluster read or the baseline: publish")
+		out = append(out, "publish")
 	}
-	return out
+	return out, ""
 }

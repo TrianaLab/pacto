@@ -317,10 +317,16 @@ func TestMCPDeclareHTTPRefusesDir(t *testing.T) {
 func TestMCPDeclareHTTPRefusesForeignRegistry(t *testing.T) {
 	rd := newRemoteDeclarer(app.NewService(nil, nil), []string{"oci://ghcr.io/acme/ledger:1.0.0", "ghcr.io/acme/orders@sha256:aa"}, nil)
 	for reg, ok := range map[string]bool{"ghcr.io/acme": true, "ghcr.io/acme/orders": true, "ghcr.io/acme/ledger/sub": true,
-		"ghcr.io/evil": false, "ghcr.io/acmefoo": false, "": false} {
+		"ghcr.io/evil": false, "ghcr.io/acmefoo": false, "": false,
+		// A bare host or a namespace above the one holding a repository is no installation registry.
+		"ghcr.io": false} {
 		if rd.reads(reg) != ok {
 			t.Errorf("reads(%q) = %v", reg, !ok)
 		}
+	}
+	deep := newRemoteDeclarer(app.NewService(nil, nil), []string{"oci://ghcr.io/acme/team/ledger:1.0.0"}, nil)
+	if deep.reads("ghcr.io/acme") || !deep.reads("ghcr.io/acme/team") {
+		t.Error("only the namespace directly holding a repository reads")
 	}
 	_, refused, err := rd.Plan(remoteCtx(nil), pactomcp.DeclareArgs{Service: "invoices", Registry: "ghcr.io/evil"})
 	if err != nil || refused == nil || refused.Code != pactomcp.RefusalNoRegistry || !strings.Contains(refused.Message, "ghcr.io/acme/ledger, ghcr.io/acme/orders") {
@@ -385,6 +391,18 @@ func TestMCPDeclareHTTPRestrictsBaselineEndToEnd(t *testing.T) {
 	_ = json.Unmarshal(raw, &p)
 	if err != nil || refused == nil || len(p.Skipped) != 0 || !strings.Contains(strings.Join(p.Notes, " "), "hidden") {
 		t.Fatalf("%s %+v %v", raw, refused, err)
+	}
+	// The refusal names nothing the hidden baseline holds: no tag, signer or repository.
+	if refused.Code != pactomcp.RefusalVersionConflict || !strings.Contains(refused.Message, "the published baseline of invoices is hidden") ||
+		strings.Contains(refused.Message, "0.1.0") || strings.Contains(refused.Message, "signed by") || strings.Contains(refused.Message, w.host) {
+		t.Fatalf("%+v", refused)
+	}
+	// This server writes no draft: the plan names no draft state or accept command, only the command a person runs.
+	if p.State != "" || p.AcceptCLI != "" || !strings.Contains(strings.Join(p.Notes, " "), "with: pacto declare invoices --namespace billing --registry "+w.host+"/acme") {
+		t.Fatalf("%s", raw)
+	}
+	if hiddenRefusal("invoices", nil) != nil {
+		t.Fatal("no refusal stays none")
 	}
 }
 

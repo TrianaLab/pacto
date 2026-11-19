@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"path"
+	"slices"
 	"strings"
 	"time"
 
@@ -134,14 +136,37 @@ func (r remoteDeclarer) Plan(ctx context.Context, a pactomcp.DeclareArgs) (json.
 	req.Dynamic = who.own.Dynamic
 	p, _, err := r.svc.PlanDeclare(ctx, req)
 	if p != nil {
-		// This server signs nothing: who would sign is the person who runs it.
+		// This server signs nothing and writes no draft: who would sign is
+		// the person who runs the plan's command, whose login decides the state.
 		p.Signer = app.SignerView{Class: contract.SignerClassAgent, Source: "none",
 			Why: "this HTTP server writes nothing: a person runs the plan's pacto declare command"}
-		if (p.Baseline != nil || len(p.Skipped) > 0) && !r.shows(ctx, p.Service) {
-			p = baselineHidden(p)
+		p.State, p.AcceptCLI = "", ""
+		if (p.Baseline != nil || len(p.Skipped) > 0 || baselineRefusal(err)) && !r.shows(ctx, p.Service) {
+			p, err = baselineHidden(p), hiddenRefusal(p.Service, err)
 		}
+		p.Notes = append(p.Notes, "a person carries out this plan on their machine with: "+a.Command(p.IntentDigest))
 	}
 	return declareAnswer(p, err)
+}
+
+// baselineRefusal reports whether err is a refusal built from what the
+// published baseline holds: its tags and signers, publish section or
+// pactoVersion, or the registry read of it.
+func baselineRefusal(err error) bool {
+	var de *app.DeclareError
+	return errors.As(err, &de) && slices.Contains([]pactomcp.WriteRefusal{pactomcp.RefusalVersionConflict, pactomcp.RefusalBundleRepoMismatch,
+		pactomcp.RefusalBaselineNeedsMigration, pactomcp.RefusalRegistryUnreadable}, pactomcp.WriteRefusal(de.Code))
+}
+
+// hiddenRefusal is err for a caller who may not see service: a baseline
+// refusal keeps its code and command, and names nothing the baseline holds.
+func hiddenRefusal(service string, err error) error {
+	var de *app.DeclareError
+	if !baselineRefusal(err) || !errors.As(err, &de) {
+		return err
+	}
+	return &app.DeclareError{Code: de.Code, CLI: de.CLI,
+		Message: "the published baseline of " + service + " is hidden: you may not read it in the fleet; run pacto declare on your machine"}
 }
 
 // Execute never writes: it names the pacto declare a person runs, replaying
@@ -151,10 +176,14 @@ func (r remoteDeclarer) Execute(_ context.Context, a pactomcp.DeclareArgs) (json
 		"it prints the same plan, and adding --yes publishes it signed by you", CLI: a.Command(a.IntentDigest)}, nil
 }
 
-// reads is whether registry is under a repository the installation reads.
+// reads is whether registry is a repository the installation reads, one
+// under it, or the namespace directly holding it (where a new service's
+// bundle goes). A bare host, or a namespace above that, is no installation
+// registry: the server would read repositories it was never given with its
+// own credentials.
 func (r remoteDeclarer) reads(registry string) bool {
 	for _, repo := range r.repos {
-		if registry != "" && (repo == registry || strings.HasPrefix(repo, registry+"/") || strings.HasPrefix(registry, repo+"/")) {
+		if strings.Contains(registry, "/") && (repo == registry || path.Dir(repo) == registry || strings.HasPrefix(registry, repo+"/")) {
 			return true
 		}
 	}

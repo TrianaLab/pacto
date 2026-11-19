@@ -157,3 +157,32 @@ func TestPrintExplainDeclarationLines(t *testing.T) {
 		t.Fatalf("folder declaration:\n%s", buf.String())
 	}
 }
+
+// A draft reads as a proposal awaiting a person, never as declared, and a
+// declaration with no field still says who declared it.
+func TestPrintExplainDraftAndFieldlessDeclaration(t *testing.T) {
+	cmd, buf := testCmd()
+	result := &app.ExplainResult{Name: "invoices", Declaration: &contract.InferredDeclaration{State: contract.DeclarationDraft, OnBehalfOf: "ana",
+		InferredFrom: "k8s:billing/Deployment/invoices", Asker: contract.InferredSigner{Issuer: contract.SignerUnsigned, Class: contract.SignerClassAgent},
+		Requested: []contract.InferredAcceptance{{Field: "dependencies[ledger].compatibility", Range: "^2.3.0"}}}}
+	if err := printExplainResult(cmd, result, "text"); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	for _, want := range []string{
+		"\nDraft by nobody (unsigned) for ana (asserted) from k8s:billing/Deployment/invoices, awaiting a person: accept it with pacto declare invoices --from-draft <tag>; signer not checked",
+		"  requests dependencies[ledger].compatibility ^2.3.0\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "Declared by") {
+		t.Errorf("a draft reads as declared:\n%s", out)
+	}
+	result.Declaration = &contract.InferredDeclaration{State: contract.DeclarationDeclared, Asker: contract.InferredSigner{Subject: "ana@acme.com", Issuer: "https://accounts.google.com"}}
+	buf.Reset()
+	if err := printExplainResult(cmd, result, "text"); err != nil || !strings.Contains(buf.String(), "Declared by ana@acme.com") {
+		t.Fatalf("a declaration with no field:\n%s", buf.String())
+	}
+}
