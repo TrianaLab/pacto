@@ -276,22 +276,31 @@ func ParseInferredRecord(data []byte) (*InferredRecord, error) {
 			return nil, fmt.Errorf("%s: inputs.catalog[%d] is %q, want \"<default|organization> sha256:<64 hex>\"", InferredRecordFile, i, c)
 		}
 	}
+	if err := checkInferredInputs(&r); err != nil {
+		return nil, fmt.Errorf("%s: %w", InferredRecordFile, err)
+	}
+	return &r, nil
+}
+
+// checkInferredInputs is why r's migrations or input sources are malformed,
+// or nil.
+func checkInferredInputs(r *InferredRecord) error {
 	seenSource := make(map[string]bool, len(r.Migrations))
 	for i, m := range r.Migrations {
 		if err := checkInferredMigration(m, seenSource); err != nil {
-			return nil, fmt.Errorf("%s: migrations[%d]%s", InferredRecordFile, i, err)
+			return fmt.Errorf("migrations[%d]%w", i, err)
 		}
 		seenSource[m.Source] = true
 	}
 	for i, s := range r.Inputs.Sources {
 		if !inferredDigestRE.MatchString(s.Digest) {
-			return nil, fmt.Errorf("%s: inputs.sources[%d].digest is %q, want sha256:<64 hex>", InferredRecordFile, i, s.Digest)
+			return fmt.Errorf("inputs.sources[%d].digest is %q, want sha256:<64 hex>", i, s.Digest)
 		}
 		if !validPath(s.Path) {
-			return nil, fmt.Errorf("%s: inputs.sources[%d].path %q is not a relative path", InferredRecordFile, i, s.Path)
+			return fmt.Errorf("inputs.sources[%d].path %q is not a relative path", i, s.Path)
 		}
 	}
-	return &r, nil
+	return nil
 }
 
 // checkInferredMigration is why m cannot be in a record whose migrations
