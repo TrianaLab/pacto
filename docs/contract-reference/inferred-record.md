@@ -3,7 +3,7 @@
 `pacto.inferred.yaml` holds what Pacto completes for a service from its folder,
 apart from what `pacto.yaml` declares. Pacto writes it into the bundle of a
 `pactoVersion: "2.5"` contract when it packs, pushes or publishes, and never
-into your folder or into `pacto.yaml`. Each value names the file and line it
+into `pacto.yaml`. Only a `--cluster` draft gets a copy in its folder. Each value names the file and line it
 was read from, how sure Pacto is and the YAML that would declare it.
 
 A declared value always wins: Pacto never records a field that `pacto.yaml`
@@ -87,8 +87,9 @@ findings:                      # what Pacto recognized and could not read
 - `confidence` is `likely` (read from a file in the repository) or `possible`.
 - `declare` is the YAML to add to `pacto.yaml`. For a configuration key it is
   the property to add to the configuration's JSON Schema.
-- The record has no timestamp: the same folder at the same commit gives the
-  same bytes.
+- A record completed from a folder has no timestamp: the same folder at the
+  same commit gives the same bytes. Only a `--cluster` draft's record carries
+  read times ([Cluster facts](#cluster-facts)).
 
 | Field | Read from | Recorded unless `pacto.yaml` |
 |---|---|---|
@@ -186,6 +187,66 @@ migrations:
   no migration.
 - `source` is not listed in `inputs.sources`: its bytes are the raised ones.
 
+### Cluster facts
+
+A [`--cluster` draft](../bootstrap-contracts.md#the-inferred-record-of-a-draft)
+writes its record into the draft folder, completed from the folder and then
+from what the cluster showed. A cluster entry is added only for a field the
+folder did not give.
+
+```yaml
+inputs:
+  cluster:
+    asOf: 2026-11-14T10:02:00Z     # when the cluster was read
+    object: shop/Deployment/invoices
+    callWindow: 24h
+    maxItems: 10000
+fields:
+  - field: dependencies[ledger].compatibility
+    value: compatibility unknown
+    proposed: ^2.3.0
+    source: cluster:fleet reported versions 2.3.1
+    confidence: likely
+    asOf: 2026-11-14T09:58:12Z
+    completeness: partial
+    declare: 'compatibility: "^2.3.0"'
+coverage:                          # always in this source order
+  - {source: workloads, state: complete}
+  - {source: endpointslices, state: complete}
+  - {source: runtime-calls, state: partial, reason: 2 of 3 nodes observed}
+hidden: {services: 1, callers: 2}
+```
+
+| Field | Read from | Source | Recorded unless `pacto.yaml` |
+|---|---|---|---|
+| A field of the table above | The draft's `manifests.yaml` | `cluster:manifest <object> <file>:<n>`, or `cluster:label <object> <label key>` for the team label | declares it, as for a folder |
+| `image.digest[<container>]` | The running pods' image digests, sorted and joined | `cluster:runtime pods of <object>` | is never compared: a digest is never declared |
+| `dependencies[<name>]` | A Service the pods were seen calling | `cluster:runtime calls from <object>` | declares a dependency of that name or `ref` |
+| `dependencies[<name>].compatibility` | The versions the Pactos describing the called Service report | `cluster:fleet reported versions <v>[, <v>...]` | declares that dependency with a range |
+
+- `<object>` is always `inputs.cluster.object`, the drafted workload, as
+  `<namespace>/<Kind>/<name>`. A source never names another object, a value,
+  an argument or a URL, and Pacto refuses a record whose source does.
+- `asOf` is required on every cluster entry, in UTC to the second. Entries
+  from `manifests.yaml` and image digests carry the read time. `runtime` and
+  `fleet` entries carry the oldest node observation they rest on.
+- `completeness` is `complete` or `partial`, on `runtime` and `fleet` entries
+  only. It is `partial` when a node the workload ran on was not observed, when
+  a source they rest on was cut short or failed, or when a called Service is
+  hidden. An image digest is `partial` when the pods list was cut short.
+- `proposed` is a range, on a `dependencies[<name>].compatibility` entry only.
+  The dependency keeps `compatibility: unknown` until a person declares one.
+- `coverage` lists the sources `workloads`, `pods`, `replicasets`, `jobs`,
+  `services`, `endpointslices`, `pactos` and `runtime-calls`, each `complete`,
+  `partial` or `failed`. A source that is not `complete` has a fixed reason,
+  such as `stopped at the item bound (10000)` or `forbidden`, that names no
+  namespace and no object.
+- `hidden` counts the Services the workload called and the callers of its own
+  Services that a read on behalf of a viewer drops. It never names them.
+- Bundle verification refuses these keys until a signed declaration carries
+  them: a bundle whose record holds a cluster source, `inputs.cluster`,
+  `coverage` or `hidden` is `INFERRED_RECORD_INVALID`.
+
 ## When Pacto writes it
 
 - `pacto init` and the MCP tool `pacto_create` (with `pactify: true`) on a
@@ -195,7 +256,9 @@ migrations:
 - An older `pactoVersion` is never completed, so its bundle keeps the same
   bytes. `init` says to set `pactoVersion: "2.5"`. `pacto ci` completes a
   contract it raised in memory and adds a `migrations` entry.
-- A `--cluster` draft never completes a contract: only the folder is read.
+- A `--cluster` draft completes its contract and writes `pacto.inferred.yaml`
+  into the draft folder, because its cluster facts cannot be read from the
+  folder again. It keeps a record already there.
 - `pacto validate`, `pacto diff`, `pacto explain`, `pacto impact` and
   `pacto fleet --local` compute the record in memory for a local folder.
 - `pacto pack`, `pacto push` and `pacto publish` put a fresh record into the

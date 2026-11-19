@@ -176,8 +176,23 @@ workload in the namespace that no Pacto resource describes, in
 `<dir>/<ns>/<name>`, from your current kubeconfig context. Without
 `--namespace` it reads every namespace, `kube-system` included. It lists
 Services, EndpointSlices, Pactos and node runtime observations in every
-namespace even with `--namespace`, so your identity needs cluster-wide `list`
-on them. It needs that permission even when the Pacto CRDs are not installed.
+namespace even with `--namespace`. It never lists or reads a Secret or a
+ConfigMap.
+
+- The read lists each kind of object in pages and stops at `--max-items` items
+  per kind (10000 by default).
+- `--call-window` sets how far back a call counts as a dependency (24h by
+  default).
+- A run stopped by `--max-items` prints a `Continue:` line with the same
+  command and `--continue <token>`. Run it to resume the read where it
+  stopped. A token made for other namespaces is refused.
+- A kind of object your identity may not list reads as `failed` with
+  `forbidden`, and the run goes on. The run fails only when it reads no
+  workload at all.
+- The `Coverage:` line names each kind of object the read did not see whole,
+  with its state, `partial` or `failed`, and a reason. A draft built from a
+  partial read can miss dependencies and callers, so treat what it lacks as
+  unknown.
 
 Each draft holds a `manifests.yaml` with the workload and its Services as the
 cluster returns them, without namespace, uid or status. It also holds a
@@ -188,6 +203,35 @@ sensitive key to a literal value is read in the draft from the Secret
 `kubectl -n <ns> create secret generic <name>-env --from-env-file=<file>`, from
 a file of `KEY=value` lines. When such a value is a URL, the draft no longer
 lists the service it names as a dependency, and next steps ask you to add it.
+A literal secret in a container's `command` or `args`, such as
+`--db-password=hunter2`, moves to the same Secret: the draft reads it through
+`$(DB_PASSWORD)` from an environment variable of that container.
+
+### The inferred record of a draft
+
+Each draft also holds a `pacto.inferred.yaml`, completed by the engine
+`pacto ci` uses, with one entry per field Pacto could tell
+([Inferred record](contract-reference/inferred-record.md#cluster-facts)).
+
+- Each entry names its source: `manifest` or `label` for what the draft's
+  `manifests.yaml` shows, `runtime` for what the pods ran and called, and
+  `fleet` for the versions the Pactos of a called Service report.
+- Each cluster entry carries `asOf`, when it was read. A `runtime` or `fleet`
+  entry also carries its completeness: `partial` when not every node the
+  workload ran on was observed or a source was cut short.
+- `coverage` gives the state of each kind of object read, and `hidden` counts
+  the callers and Services a read on behalf of a viewer may not show.
+- The running image digest of each container is recorded as
+  `image.digest[<container>]`. It is never declared and never becomes a
+  deploy artifact.
+- A proposed range sits in a `proposed` value beside
+  `compatibility: unknown`, never declared.
+- When the draft folder already holds a `pacto.inferred.yaml`, it is kept and
+  next steps say to delete it to record what the cluster shows now.
+- `pacto validate`, `pacto explain` and `pacto publish` recompute the record
+  from the folder, so the cluster facts stay in the draft. A published bundle
+  whose record carries cluster facts fails validation with
+  `INFERRED_RECORD_INVALID`.
 
 ### Dependencies of a draft
 
@@ -207,6 +251,11 @@ one.
 The MCP tool `pacto_create` with `pactify: true` and `paths` plans the same
 contracts for an agent. It plans only, unless the agent sets `dry_run` to
 false ([AI assistants](mcp-integration.md)).
+
+- With `cluster`, it takes `max_items`, `call_window` and `continue`, the
+  `--max-items`, `--call-window` and `--continue` flags. A read stopped by
+  `max_items` returns `continue`, and the next call passes it back to resume
+  the read.
 
 ## What's next
 
