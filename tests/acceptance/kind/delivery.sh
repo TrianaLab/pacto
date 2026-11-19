@@ -1615,8 +1615,10 @@ YAML
 billing_contract 1.0.0 service
 printf 'cosign.key\nrender.sh\n' > "$PUB/.pactoignore"
 git -C "$PUB" init -q && git -C "$PUB" add -A && git -C "$PUB" -c user.email=ci@e.com -c user.name=ci commit -qm billing
+# The runner's CI context stays out: publish refuses a pull request pipeline,
+# and this harness also runs on pull requests.
 pub() {
-  (cd "$PUB" && HTTP_PROXY="http://127.0.0.1:${LOCAL_REG_PORT}" PACTO_INSECURE_REGISTRIES="$REG_HOST" COSIGN_PASSWORD="" \
+  (cd "$PUB" && env -u GITHUB_ACTIONS -u GITLAB_CI HTTP_PROXY="http://127.0.0.1:${LOCAL_REG_PORT}" PACTO_INSECURE_REGISTRIES="$REG_HOST" COSIGN_PASSWORD="" \
     BILLING_BUNDLE="${REG_HOST}/demo/billing" "$PACTO" publish "$@")
 }
 tags() { oras repo tags --plain-http "127.0.0.1:${LOCAL_REG_PORT}/$1" 2>/dev/null | sort | tr '\n' ' ' || true; }

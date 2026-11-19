@@ -182,7 +182,7 @@ YAML
   printf 'cosign.key\nrender.sh\n' > "$pubd/.pactoignore"
   git -C "$pubd" init -q && git -C "$pubd" add -A && git -C "$pubd" -c user.email=ci@e.com -c user.name=ci commit -qm notes
   tpub() {
-    (cd "$pubd" && HTTP_PROXY="http://127.0.0.1:${TAGS_REG_PORT}" PACTO_INSECURE_REGISTRIES="$tags_host" COSIGN_PASSWORD="" "$PACTO" publish)
+    (cd "$pubd" && env -u GITHUB_ACTIONS -u GITLAB_CI HTTP_PROXY="http://127.0.0.1:${TAGS_REG_PORT}" PACTO_INSECURE_REGISTRIES="$tags_host" COSIGN_PASSWORD="" "$PACTO" publish)
   }
   out="$(tpub 2>&1)" || fail "publish to distribution failed: $out"
   dep="$(grep -oE "^Deploy: ${tags_host}/apps/notes@sha256:[0-9a-f]{64}" <<<"$out" | sed 's/.*@sha256://')"

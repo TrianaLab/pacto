@@ -102,7 +102,8 @@ mkdirs() {
 admin() { [ -s "$ADMIN_KC" ] || { echo "no demo cluster: run 'make e2e-delivery-demo-up' first" >&2; exit 1; }; export KUBECONFIG="$ADMIN_KC"; }
 # reg CMD... — a host command that reaches the in-cluster registry by its
 # in-cluster name, through the port-forward (plain HTTP goes through HTTP_PROXY).
-reg() { HTTP_PROXY="http://127.0.0.1:${LOCAL_REG_PORT}" PACTO_INSECURE_REGISTRIES="$REG_HOST" PACTO_STATS_REGISTRY="$STATS_REPO" COSIGN_PASSWORD="" "$@"; }
+# The runner's CI context stays out: publish refuses a pull request pipeline.
+reg() { env -u GITHUB_ACTIONS -u GITLAB_CI HTTP_PROXY="http://127.0.0.1:${LOCAL_REG_PORT}" PACTO_INSECURE_REGISTRIES="$REG_HOST" PACTO_STATS_REGISTRY="$STATS_REPO" COSIGN_PASSWORD="" "$@"; }
 registry_pf() { [ -n "$PF_PIDS" ] || PF_PIDS=" $(pf "$LOCAL_REG_PORT" svc/pacto-registry 5000)"; }
 PF_PIDS=""
 stop_pf() { local p; for p in $PF_PIDS; do kill "$p" 2>/dev/null || true; done; PF_PIDS=""; }
