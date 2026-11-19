@@ -152,6 +152,17 @@ func (s *RecordStore) Probe(ctx context.Context) (capabilities.Capabilities, err
 	return s.prober().Probe(ctx, a.repo, a.desc.Digest.String(), true)
 }
 
+// Mode is the registry mode Probe reports, such as
+// "referrers=native listing=catalog", or empty when the probe fails. The target
+// snapshot records it.
+func (s *RecordStore) Mode(ctx context.Context) string {
+	caps, err := s.Probe(ctx)
+	if err != nil {
+		return ""
+	}
+	return caps.Mode()
+}
+
 // list reads every record on the anchor that a key trusted for the stream
 // signed. Referrers that are not records are skipped, and so is a record that
 // will not verify: it is not the stream's history, and anyone who can push to

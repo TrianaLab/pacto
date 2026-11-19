@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
+	"slices"
 	"strings"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/internal/ci"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
@@ -57,11 +60,27 @@ func newImpactCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder
 			"A command that could not run also exits 1, with nothing on stdout. Add --target-state " +
 			"(or a live source) so the gate can tell deployed impact apart.\n\n" +
 			"Pacto finds consumers only in the sources you pass, such as --local, --root, " +
-			"--oci, --cache, --k8s, --evidence-url and --traces. With --local alone " +
+			"--oci, --cache, --k8s, --evidence-url, --traces and the target snapshot. With --local alone " +
 			"Pacto sees only the contracts in those folders, so \"No affected " +
-			"consumers\" is not evidence of safety.",
+			"consumers\" is not evidence of safety.\n\n" +
+			"When you pass no --k8s, --target-state, --evidence-url or --target-snapshot, impact reads the signed " +
+			"target snapshot each cluster's delivery recorder publishes (--target-snapshot auto, the default): from " +
+			"the oci:// ref of the change it tries <host>/<first path segment>/pacto-targets, then <host>/pacto-targets, " +
+			"and prints a Registry line saying where it looked and a Targets line per cluster snapshot it read. " +
+			"auto reads only the clusters whose snapshot exists at that moment, so CI that knows its clusters pins " +
+			"them with --target-snapshot oci://<registry>/pacto-targets:cluster-<uid> (repeatable). --delivery-trust " +
+			"names the trust config that verifies each snapshot; an unverified or stale snapshot never clears a " +
+			"BREAKING change. --target-snapshot off reads none.\n\n" +
+			"From the same ref impact also reads the consumers published to the organization index, " +
+			"<host>/<first path segment>/pacto-index then <host>/pacto-index, checks them against the target snapshot it reads " +
+			"and prints a Consumers line; --index names another <registry>/pacto-index, --index none reads none, a --root list skips it " +
+			"and a pair of --local folders reads no index.",
 		Example: `  # Impact of upgrading a local service against the local fleet
   pacto impact ./svc-v1 ./svc-v2 --local .
+
+  # Impact of a published service against the clusters that run it, read
+  # from the target snapshot next to its registry
+  pacto impact oci://ghcr.io/acme/svc:1.0.0 ./svc --delivery-trust trust.yaml
 
   # Include observed (runtime) evidence and emit JSON
   pacto impact oci://ghcr.io/acme/svc:1.0.0 ./svc --include-observed --output-format json
@@ -91,23 +110,27 @@ func newImpactCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder
 				includeObserved = true // supplying traces implies observed analysis
 			}
 
+			auto, err := impactSnapshotAuto(cmd)
+			if err != nil {
+				return err
+			}
 			start := time.Now()
 			sp := startSpinner(cmd, format, "Analyzing impact")
 			var result *impact.Result
-			var err error
 			if kind, value := impactEventFlag(cmd); kind != "" {
 				result, err = runImpactEvent(cmd, svc, d, kind, value, traces)
 			} else {
 				oldOverrides, newOverrides := getDiffOverrides(cmd)
 				result, err = svc.Impact(cmd.Context(), app.ImpactOptions{
-					OldPath:         args[0],
-					NewPath:         args[1],
-					OldOverrides:    oldOverrides,
-					NewOverrides:    newOverrides,
-					Fleet:           fleetOptions(cmd),
-					IncludeObserved: includeObserved,
-					Traces:          traces,
-					OnResolved:      rec.hook(cmd, &revs),
+					OldPath:            args[0],
+					NewPath:            args[1],
+					OldOverrides:       oldOverrides,
+					NewOverrides:       newOverrides,
+					Fleet:              fleetOptions(cmd),
+					IncludeObserved:    includeObserved,
+					Traces:             traces,
+					OnResolved:         rec.hook(cmd, &revs),
+					TargetSnapshotAuto: auto,
 				})
 			}
 			if err != nil {
@@ -182,8 +205,20 @@ func impactArgs(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// impactSnapshotAuto reads --target-snapshot for pacto impact: none or auto
+// derives the snapshot from the change, off reads none and refs read those.
+// auto or off beside another value is a usage error.
+func impactSnapshotAuto(cmd *cobra.Command) (bool, error) {
+	values, _ := cmd.Flags().GetStringArray("target-snapshot")
+	refs := targetSnapshotRefs(values)
+	if len(refs) < len(values) && len(values) > 1 {
+		return false, errors.New("--target-snapshot takes auto, off or oci:// refs, not a mix")
+	}
+	return len(refs) == 0 && !slices.Contains(values, "off"), nil
+}
+
 // impactChangeOnlyFlags only shape a contract change answer.
-var impactChangeOnlyFlags = []string{"include-observed", "old-values", "old-set", "new-values", "new-set"}
+var impactChangeOnlyFlags = []string{"include-observed", "old-values", "old-set", "new-values", "new-set", "index"}
 
 // changedFlag is the first of names set on cmd, "" when none is.
 func changedFlag(cmd *cobra.Command, names []string) string {
@@ -258,6 +293,7 @@ func printImpactResult(cmd *cobra.Command, result *impact.Result, format string)
 		} else {
 			printChangeHeader(w, result)
 		}
+		printTargetSnapshots(w, result)
 		printImpactConsumers(w, result)
 		if len(result.ConsumerTallies.ByOutcome) > 0 && len(result.Consumers) > 0 {
 			_, _ = fmt.Fprintf(w, "By outcome: %s\n", result.ConsumerTallies.OutcomeSummary())
@@ -299,6 +335,68 @@ func printChangeHeader(w io.Writer, result *impact.Result) {
 	if result.NewRevisionAdded {
 		_, _ = fmt.Fprintf(w, "%s is in none of the fleet sources; the new revision was added to the snapshot to find its consumers.\n", result.Service)
 	}
+}
+
+// printTargetSnapshots writes where impact looked for a target snapshot and
+// one line per snapshot it read.
+func printTargetSnapshots(w io.Writer, result *impact.Result) {
+	if l := result.Registry; l != nil && l.Found != "" {
+		clusters := "clusters"
+		if l.Clusters == 1 {
+			clusters = "cluster"
+		}
+		_, _ = fmt.Fprintf(w, "Registry: %s (found %s, %d %s read)\n", path.Dir(l.Found), l.Found, l.Clusters, clusters)
+	} else if l != nil {
+		var tried []string
+		for _, r := range l.Tried {
+			tried = append(tried, r.Repository+" ("+registryOutcomeText[r.Outcome]+")")
+		}
+		_, _ = fmt.Fprintf(w, "Registry: no pacto-targets at %s; consumers come only from the sources you passed\n", strings.Join(tried, " or "))
+	}
+	for _, s := range result.TargetSnapshots {
+		_, _ = fmt.Fprintf(w, "Targets: %s\n", targetSnapshotLine(s, result))
+	}
+	if text := ci.IndexText(result); text != "" {
+		_, _ = fmt.Fprintf(w, "Consumers: %s\n", text)
+	}
+}
+
+// registryOutcomeText says each registry lookup outcome in words.
+var registryOutcomeText = map[string]string{
+	impact.RegistryNotFound:     "not found",
+	impact.RegistryDenied:       "denied (check registry read credentials)",
+	impact.RegistryNoClusterTag: "no cluster tag",
+}
+
+// targetSnapshotLine is what a Targets line says about one snapshot source:
+// its pinned ref, cluster, age, status and who signed it.
+func targetSnapshotLine(s fleet.SourceState, result *impact.Result) string {
+	cluster := "-"
+	if s.Cluster != nil {
+		cluster = s.Cluster.Name
+	}
+	if s.Ref == "" {
+		return fmt.Sprintf("%s (cluster %s, %s, not used)", s.ID, cluster, s.Status)
+	}
+	age := "-"
+	if s.LastSuccessfulSync != nil {
+		age = fmt.Sprintf("%dm", int(result.AsOf.Sub(*s.LastSuccessfulSync).Minutes()))
+	}
+	status := string(s.Status)
+	if s.Status == fleet.SourceAvailable {
+		status = string(fleet.CompletenessComplete)
+	}
+	signer := "unverified"
+	switch {
+	case s.Signer == "":
+	case s.SignerUnscoped:
+		signer = "signed by " + s.Signer + " (not scoped to this cluster)"
+	case s.Publisher != "":
+		signer = "signed by " + s.Signer + " (publisher " + s.Publisher + ")"
+	default:
+		signer = "signed by " + s.Signer
+	}
+	return fmt.Sprintf("%s (cluster %s, asOf %s, %s, %s)", s.Ref, cluster, age, status, signer)
 }
 
 // printEventHeader writes the header of an event answer.

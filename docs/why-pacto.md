@@ -168,8 +168,9 @@ validation failed with 1 error(s)
   requirement.
 - **Reviewer.** Read the `pacto impact` output on the pull request. It names
   the classification, each affected consumer and its owner.
-- **Platform team.** Run `pacto impact` in CI with the sources that know your
-  fleet, such as `--oci`, `--k8s` or `--target-state`. See
+- **Platform team.** Run `pacto impact` in CI. It reads the signed target
+  snapshot your clusters publish to the registry, and takes more sources such
+  as `--oci` or `--k8s`. See
   [who breaks in CI](ci.md#on-every-pull-request-who-breaks).
 - **On-call.** The operator and `pacto run` compare a running service with its
   contract and report findings such as `INTERFACE_ABSENT` and

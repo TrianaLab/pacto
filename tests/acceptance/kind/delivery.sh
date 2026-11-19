@@ -385,6 +385,7 @@ helm upgrade --install pacto-operator "$OP_CHART" -n "$NS" ${OP_HEALTH[@]+"${OP_
   --set delivery.enabled=true --set delivery.createNamespace=false --set-json "delivery.admissionPolicies.gitopsUsers=$GITOPS_USERS" \
   --set delivery.image.repository="$DL_REPO" --set delivery.image.tag="$VER" --set delivery.image.pullPolicy=Never \
   --set "delivery.insecureRegistries[0]=$REG_HOST" --set delivery.promoter.poll=2s \
+  --set registry="$REG_HOST" \
   --set delivery.recorder.enabled=true --set delivery.recorder.streamsRepository="$REG_HOST/$STREAMS_REPO" --set delivery.recorder.poll=5s \
   --set delivery.stats.repository="$REG_HOST/$STATS_REPO" \
   --set delivery.recorder.signing.ed25519.secretName=recorder-key --set delivery.recorder.signing.allowOperatorReadableKey=true --wait --timeout 240s >/dev/null || fail "the pacto-operator chart did not roll out" &
@@ -2029,6 +2030,7 @@ source "$(dirname "$0")/delivery-records.sh"
 phase_records() {
   section "phase 6: the recorder catches up, and a forged record stops the stream"
   records_store
+  records_targets
 }
 # Phase 7 runs beside the others, in its own namespace.
 # shellcheck source=tests/acceptance/kind/delivery-ladder.sh

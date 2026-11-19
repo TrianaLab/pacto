@@ -143,7 +143,9 @@ func readFile(t *testing.T, path string) string {
 func TestCIExitCodes(t *testing.T) {
 	e := newCIEnv(t)
 	e.additive(t, "reports")
-	if out, _, err := e.run(t, "--target-state", targetState(t, "other")); err != nil || !strings.Contains(out, "\nreports  yes") || !strings.Contains(out, "clear") {
+	// --index none: a target-state source never checks an index (only a target
+	// snapshot does), so the index would leave the row unverified.
+	if out, _, err := e.run(t, "--target-state", targetState(t, "other"), "--index", "none"); err != nil || !strings.Contains(out, "\nreports  yes") || !strings.Contains(out, "clear") {
 		t.Fatalf("clear: err %v\n%s", err, out)
 	}
 	if _, stderr, err := e.run(t); ciExit(err) != 2 || stderr != "unverified: 1 of 1 services\n" {
@@ -265,7 +267,7 @@ func TestCIJSONRowShape(t *testing.T) {
 	e.write(t, map[string]string{"fresh/pacto.yaml": "service: {}\n"})
 	t.Setenv("GITHUB_ACTIONS", "true")
 	t.Setenv("GITHUB_BASE_REF", "main")
-	out, stderr, err := e.run(t, "--output-format", "json", "--target-state", targetState(t, "other"))
+	out, stderr, err := e.run(t, "--output-format", "json", "--target-state", targetState(t, "other"), "--index", "none")
 	doc := decode(t, out)
 	requireValueSource(t, doc, "registry", "base")
 	if ciExit(err) != 2 || doc["exit"] != 2.0 || doc["reason"] != "unverified: 1 of 2 services" || stderr != "unverified: 1 of 2 services\n" {
@@ -345,12 +347,12 @@ func TestCIExplainJSONExitIsTheRows(t *testing.T) {
 	e.breaking(t)
 	e.additive(t, "reports")
 	ts := targetState(t, "web")
-	out, _, err := e.run(t, "--explain", "reports", "--target-state", ts, "--output-format", "json")
+	out, _, err := e.run(t, "--explain", "reports", "--target-state", ts, "--output-format", "json", "--index", "none")
 	doc := decode(t, out)
 	if ciExit(err) != 0 || doc["exit"] != 0.0 || doc["gate"] != "clear" || doc["reason"] != "" {
 		t.Fatalf("clear row in a blocked plan: err %v, exit %v gate %v reason %v", err, doc["exit"], doc["gate"], doc["reason"])
 	}
-	out, _, err = e.run(t, "--explain", "payments", "--target-state", ts, "--output-format", "json")
+	out, _, err = e.run(t, "--explain", "payments", "--target-state", ts, "--output-format", "json", "--index", "none")
 	if doc := decode(t, out); ciExit(err) != 1 || doc["exit"] != 1.0 || doc["reason"] != "payments: blocked (web)" {
 		t.Fatalf("blocked row: err %v, exit %v reason %v", err, doc["exit"], doc["reason"])
 	}
@@ -362,13 +364,16 @@ func TestCIExplainJSONExitIsTheRows(t *testing.T) {
 func TestCIRegistryFlag(t *testing.T) {
 	e := newCIEnv(t)
 	e.additive(t, "reports")
-	out, _, err := runRoot(t, defaultDeps(), nil, "ci", e.root, "--registry", "oci://"+e.host+"/acme/", "--target-state", targetState(t, "other"))
+	out, _, err := runRoot(t, defaultDeps(), nil, "ci", e.root, "--registry", "oci://"+e.host+"/acme/", "--target-state", targetState(t, "other"), "--index", "none")
 	if err != nil || !strings.Contains(out, "Registry: "+e.host+"/acme (from --registry)") || !strings.Contains(out, "clear") {
 		t.Fatalf("oci:// and a trailing slash: err %v\n%s", err, out)
 	}
 	out, stderr, err := runRoot(t, defaultDeps(), nil, "ci", e.root, "--registry", "https://user:tok@"+e.host+"/acme")
 	if ciExit(err) != -1 || out != "" || strings.Contains(err.Error()+stderr, "tok") {
 		t.Fatalf("a scheme with credentials: err %v, stdout %q, stderr %q", err, out, stderr)
+	}
+	if _, _, err := runRoot(t, defaultDeps(), nil, "ci", e.root, "--target-snapshot", "off", "--target-snapshot", "oci://"+e.host+"/acme/pacto-targets"); err == nil || !strings.Contains(err.Error(), "not a mix") {
+		t.Fatalf("mixed --target-snapshot: %v", err)
 	}
 }
 

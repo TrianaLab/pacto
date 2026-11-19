@@ -196,6 +196,7 @@ pacto ci [root] [flags]
 
 ```
       --cache[=true|false]                 include every bundle in the local OCI cache as an offline baseline revision
+      --delivery-trust string              the trust config target snapshots are verified with: a YAML file with a key scoped to each cluster (default $PACTO_DELIVERY_TRUST)
       --detected string                    add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
       --evidence-url stringArray           base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --explain string                     explain one service's row: its folder, baseline, why it changed, its inferred fields and its consumers
@@ -204,6 +205,7 @@ pacto ci [root] [flags]
       --freshness duration                 mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]                  help for ci
       --image stringArray                  with --publish: the image <service> deploys, pinned by digest, as <service>=<repo>@sha256:...; Pacto builds, signs and copies none. A bare <repo>@sha256:... needs exactly one changed service
+      --index string                       organization index pacto impact and pacto ci read consumers from, as <registry>/pacto-index with no tag or digest (default <registry>/pacto-index from the provider reference; none reads none; skipped when --root names the consumers; pacto ci --publish also writes its entries there; other fleet commands ignore it)
       --k8s[=true|false]                   include live Pacto CRs from the current Kubernetes cluster as targets
       --local stringArray                  local bundle root(s) to scan (repeatable) (default [.])
       --mira-source stringArray            base URL of a Mira node whose service map supplies observed calls between services (repeatable)
@@ -217,6 +219,7 @@ pacto ci [root] [flags]
       --stats-context string               comma-separated context to include in the run record: repository, run-url, environment=<name>; nothing is included unless named
       --stats-file string                  write the run record to this file for pacto stats publish, replacing the record it holds, so give each command its own file; default $PACTO_STATS_FILE
       --stats-registry string              publish an unsigned run record (statistics, never evidence) to this repository, for example ghcr.io/acme/pacto-stats; default $PACTO_STATS_REGISTRY
+      --target-snapshot stringArray        signed target snapshot(s) to read targets from: an oci:// pacto-targets repository, or :cluster-<uid> tags or digests to pin the clusters CI expects (repeatable); pacto impact, pacto ci and pacto_impact on a stdio pacto mcp also take auto (the default: derived from the provider ref) and off
       --target-state stringArray           offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
       --traces stringArray                 OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
 ```
@@ -752,6 +755,40 @@ pacto delivery status [flags]
       --why[=true|false]    also plan the promote of each Stage's candidate (proposing nothing) and say what holds it back
 ```
 
+### `pacto delivery targets`
+
+Work with the signed target snapshots CI reads without cluster credentials
+
+```
+pacto delivery targets [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help[=true|false]   help for targets
+```
+
+#### `pacto delivery targets publish`
+
+Signs a target snapshot document and pushes it to &lt;registry&gt;/pacto-targets:cluster-&lt;cluster&gt;. The document is the JSON predicate of delivery.pacto.trianalab.io/target-snapshot/v1: the cluster UID, its completeness and limitations, the Pacto objects as the read contract and the workloads no Pacto targets. The command sets asOf to now, the publisher to the signing key and the registry mode to the one detected on the cluster's existing tag.
+
+Production clusters publish from the delivery recorder. This command is for demos, tests and installations that build the document themselves.
+
+--key takes a PEM private key or a `pacto evidence keygen` seed. After a push the command writes &lt;key&gt;.pub.pem when it is absent; it refuses to publish while that file holds another key. A reader verifies the snapshot only with a trust entry that holds that public key and is scoped to the cluster (streams: ["&lt;cluster&gt;/*/*"]).
+
+```
+pacto delivery targets publish <file> [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help[=true|false]   help for publish
+      --key string          the signing key: a PEM private key or a seed that pacto evidence keygen wrote
+      --registry string     registry host and path the snapshot is written under, as <registry>/pacto-targets
+```
+
 ### `pacto delivery trust`
 
 Per service with a Stage that watches the registry and the caller can see: the installation's publisher rule or signed policy, the identities a person pinned, the CI signers waiting for a person to confirm them and the newest verdicts, each saying which source decided. Pins or a policy that could not be read mark the answer partial.
@@ -1133,23 +1170,26 @@ pacto export backstage [flags]
 **Flags:**
 
 ```
-      --allow-partial[=true|false]   write the file even when the fleet is partial or empty
-      --cache[=true|false]           include every bundle in the local OCI cache as an offline baseline revision
-      --detected string              add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
-      --evidence-url stringArray     base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
-      --external-catalog string      organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
-      --fingerprints string          a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers
-      --freshness duration           mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
-  -h, --help[=true|false]            help for backstage
-      --k8s[=true|false]             include live Pacto CRs from the current Kubernetes cluster as targets
-      --local stringArray            local bundle root(s) to scan (repeatable; none unless set)
-      --mira-source stringArray      base URL of a Mira node whose service map supplies observed calls between services (repeatable)
-      --namespace string             namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)
-      --oci stringArray              registry reference to include as a published-baseline revision (repeatable)
-  -o, --output string                write the entities to this file instead of standard output
-      --root stringArray             contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
-      --target-state stringArray     offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
-      --traces stringArray           OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
+      --allow-partial[=true|false]    write the file even when the fleet is partial or empty
+      --cache[=true|false]            include every bundle in the local OCI cache as an offline baseline revision
+      --delivery-trust string         the trust config target snapshots are verified with: a YAML file with a key scoped to each cluster (default $PACTO_DELIVERY_TRUST)
+      --detected string               add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
+      --evidence-url stringArray      base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
+      --external-catalog string       organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
+      --fingerprints string           a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers
+      --freshness duration            mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
+  -h, --help[=true|false]             help for backstage
+      --index string                  organization index pacto impact and pacto ci read consumers from, as <registry>/pacto-index with no tag or digest (default <registry>/pacto-index from the provider reference; none reads none; skipped when --root names the consumers; pacto ci --publish also writes its entries there; other fleet commands ignore it)
+      --k8s[=true|false]              include live Pacto CRs from the current Kubernetes cluster as targets
+      --local stringArray             local bundle root(s) to scan (repeatable; none unless set)
+      --mira-source stringArray       base URL of a Mira node whose service map supplies observed calls between services (repeatable)
+      --namespace string              namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)
+      --oci stringArray               registry reference to include as a published-baseline revision (repeatable)
+  -o, --output string                 write the entities to this file instead of standard output
+      --root stringArray              contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
+      --target-snapshot stringArray   signed target snapshot(s) to read targets from: an oci:// pacto-targets repository, or :cluster-<uid> tags or digests to pin the clusters CI expects (repeatable); pacto impact, pacto ci and pacto_impact on a stdio pacto mcp also take auto (the default: derived from the provider ref) and off
+      --target-state stringArray      offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
+      --traces stringArray            OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
 ```
 
 ---
@@ -1165,21 +1205,24 @@ pacto fleet [flags]
 **Flags:**
 
 ```
-      --cache[=true|false]         include every bundle in the local OCI cache as an offline baseline revision
-      --detected string            add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
-      --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
-      --external-catalog string    organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
-      --fingerprints string        a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers
-      --freshness duration         mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
-  -h, --help[=true|false]          help for fleet
-      --k8s[=true|false]           include live Pacto CRs from the current Kubernetes cluster as targets
-      --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
-      --mira-source stringArray    base URL of a Mira node whose service map supplies observed calls between services (repeatable)
-      --namespace string           namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)
-      --oci stringArray            registry reference to include as a published-baseline revision (repeatable)
-      --root stringArray           contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
-      --target-state stringArray   offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
-      --traces stringArray         OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
+      --cache[=true|false]            include every bundle in the local OCI cache as an offline baseline revision
+      --delivery-trust string         the trust config target snapshots are verified with: a YAML file with a key scoped to each cluster (default $PACTO_DELIVERY_TRUST)
+      --detected string               add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
+      --evidence-url stringArray      base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
+      --external-catalog string       organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
+      --fingerprints string           a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers
+      --freshness duration            mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
+  -h, --help[=true|false]             help for fleet
+      --index string                  organization index pacto impact and pacto ci read consumers from, as <registry>/pacto-index with no tag or digest (default <registry>/pacto-index from the provider reference; none reads none; skipped when --root names the consumers; pacto ci --publish also writes its entries there; other fleet commands ignore it)
+      --k8s[=true|false]              include live Pacto CRs from the current Kubernetes cluster as targets
+      --local stringArray             local bundle root(s) to scan (repeatable) (default [.])
+      --mira-source stringArray       base URL of a Mira node whose service map supplies observed calls between services (repeatable)
+      --namespace string              namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)
+      --oci stringArray               registry reference to include as a published-baseline revision (repeatable)
+      --root stringArray              contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
+      --target-snapshot stringArray   signed target snapshot(s) to read targets from: an oci:// pacto-targets repository, or :cluster-<uid> tags or digests to pin the clusters CI expects (repeatable); pacto impact, pacto ci and pacto_impact on a stdio pacto mcp also take auto (the default: derived from the provider ref) and off
+      --target-state stringArray      offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
+      --traces stringArray            OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
 ```
 
 ### `pacto fleet attention`
@@ -1553,7 +1596,11 @@ The answer ends in a release gate, and the exit status follows it:
   2  unverified: nothing is shown to block the change, but the answer cannot clear it: a BREAKING change whose answer is partial or whose consumers none is shown to be safe, or a service that references the changed policy and fails it running nowhere known, could not be checked or could not be resolved. A run over --local bundles alone knows no targets, so a BREAKING change with consumers exits 2.
 A command that could not run also exits 1, with nothing on stdout. Add --target-state (or a live source) so the gate can tell deployed impact apart.
 
-Pacto finds consumers only in the sources you pass, such as --local, --root, --oci, --cache, --k8s, --evidence-url and --traces. With --local alone Pacto sees only the contracts in those folders, so "No affected consumers" is not evidence of safety.
+Pacto finds consumers only in the sources you pass, such as --local, --root, --oci, --cache, --k8s, --evidence-url, --traces and the target snapshot. With --local alone Pacto sees only the contracts in those folders, so "No affected consumers" is not evidence of safety.
+
+When you pass no --k8s, --target-state, --evidence-url or --target-snapshot, impact reads the signed target snapshot each cluster's delivery recorder publishes (--target-snapshot auto, the default): from the oci:// ref of the change it tries &lt;host&gt;/<first path segment>/pacto-targets, then &lt;host&gt;/pacto-targets, and prints a Registry line saying where it looked and a Targets line per cluster snapshot it read. auto reads only the clusters whose snapshot exists at that moment, so CI that knows its clusters pins them with --target-snapshot oci://&lt;registry&gt;/pacto-targets:cluster-&lt;uid&gt; (repeatable). --delivery-trust names the trust config that verifies each snapshot; an unverified or stale snapshot never clears a BREAKING change. --target-snapshot off reads none.
+
+From the same ref impact also reads the consumers published to the organization index, &lt;host&gt;/<first path segment>/pacto-index then &lt;host&gt;/pacto-index, checks them against the target snapshot it reads and prints a Consumers line; --index names another &lt;registry&gt;/pacto-index, --index none reads none, a --root list skips it and a pair of --local folders reads no index.
 
 ```
 pacto impact <old> <new> | --unavailable <service> | --removed <service> | --regressed <service>@<revision> [flags]
@@ -1564,6 +1611,10 @@ pacto impact <old> <new> | --unavailable <service> | --removed <service> | --reg
 ```
   # Impact of upgrading a local service against the local fleet
   pacto impact ./svc-v1 ./svc-v2 --local .
+
+  # Impact of a published service against the clusters that run it, read
+  # from the target snapshot next to its registry
+  pacto impact oci://ghcr.io/acme/svc:1.0.0 ./svc --delivery-trust trust.yaml
 
   # Include observed (runtime) evidence and emit JSON
   pacto impact oci://ghcr.io/acme/svc:1.0.0 ./svc --include-observed --output-format json
@@ -1583,6 +1634,7 @@ pacto impact <old> <new> | --unavailable <service> | --removed <service> | --reg
 
 ```
       --cache[=true|false]              include every bundle in the local OCI cache as an offline baseline revision
+      --delivery-trust string           the trust config target snapshots are verified with: a YAML file with a key scoped to each cluster (default $PACTO_DELIVERY_TRUST)
       --detected string                 add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
       --evidence-url stringArray        base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --external-catalog string         organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
@@ -1590,6 +1642,7 @@ pacto impact <old> <new> | --unavailable <service> | --removed <service> | --reg
       --freshness duration              mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]               help for impact
       --include-observed[=true|false]   let observed (runtime) relationships raise consumer confidence
+      --index string                    organization index pacto impact and pacto ci read consumers from, as <registry>/pacto-index with no tag or digest (default <registry>/pacto-index from the provider reference; none reads none; skipped when --root names the consumers; pacto ci --publish also writes its entries there; other fleet commands ignore it)
       --k8s[=true|false]                include live Pacto CRs from the current Kubernetes cluster as targets
       --local stringArray               local bundle root(s) to scan (repeatable) (default [.])
       --mira-source stringArray         base URL of a Mira node whose service map supplies observed calls between services (repeatable)
@@ -1605,6 +1658,7 @@ pacto impact <old> <new> | --unavailable <service> | --removed <service> | --reg
       --stats-context string            comma-separated context to include in the run record: repository, run-url, environment=<name>; nothing is included unless named
       --stats-file string               write the run record to this file for pacto stats publish, replacing the record it holds, so give each command its own file; default $PACTO_STATS_FILE
       --stats-registry string           publish an unsigned run record (statistics, never evidence) to this repository, for example ghcr.io/acme/pacto-stats; default $PACTO_STATS_REGISTRY
+      --target-snapshot stringArray     signed target snapshot(s) to read targets from: an oci:// pacto-targets repository, or :cluster-<uid> tags or digests to pin the clusters CI expects (repeatable); pacto impact, pacto ci and pacto_impact on a stdio pacto mcp also take auto (the default: derived from the provider ref) and off
       --target-state stringArray        offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
       --traces string                   OTLP/JSON trace file; its observed edges corroborate and surface consumers (implies --include-observed)
       --unavailable string              what happens if this service (a fleet service key, or a name only one domain holds) becomes unavailable; offering:<name> asks it of every provider of an offering
@@ -1921,7 +1975,7 @@ pacto mcp [bundle-ref] [flags]
       --dashboard-url string          with --fleet: base URL of a Pacto dashboard; fleet answers then carry an href to each entity's page there
       --delivery[=true|false]         expose the Pacto delivery tools over the ambient cluster
       --delivery-namespace string     in --delivery mode: namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer (default "pacto-delivery")
-      --delivery-trust string         the trust config delivery records (in --delivery mode) and the golden paths pacto_create creates from are verified with (the recorder's PEM public key or a YAML trust config; default $PACTO_DELIVERY_TRUST)
+      --delivery-trust string         the trust config delivery records (in --delivery mode), the golden paths pacto_create creates from and the target snapshots pacto_impact and --target-snapshot read are verified with (the recorder's PEM public key or a YAML trust config; a target snapshot verifies only under a key scoped to its cluster: streams ["<uid>/*/*"]; default $PACTO_DELIVERY_TRUST)
       --detected string               add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
       --evidence-url stringArray      base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --exchange-audience string      with --fleet or --delivery over HTTP with --auth-issuer: the audience to exchange for, one the apiserver accepts (default "pacto-cli")
@@ -1932,6 +1986,7 @@ pacto mcp [bundle-ref] [flags]
       --freshness duration            mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]             help for mcp
       --host string                   bind address for HTTP transport; beyond loopback it needs --auth-issuer, and on loopback without it every request carries the bearer printed at launch (default "127.0.0.1")
+      --index string                  organization index pacto impact and pacto ci read consumers from, as <registry>/pacto-index with no tag or digest (default <registry>/pacto-index from the provider reference; none reads none; skipped when --root names the consumers; pacto ci --publish also writes its entries there; other fleet commands ignore it)
       --k8s[=true|false]              include live Pacto CRs from the current Kubernetes cluster as targets
       --local stringArray             local bundle root(s) to scan in --fleet mode (repeatable); over HTTP none unless set (default [.])
       --mira-source stringArray       base URL of a Mira node whose service map supplies observed calls between services (repeatable)
@@ -1947,6 +2002,7 @@ pacto mcp [bundle-ref] [flags]
       --review string                 with --fleet over HTTP with --auth-issuer: how people are reviewed: cluster asks once about every namespace and needs a ClusterRole; local asks in each --namespace only, which a namespaced Role grants, and then services without a namespace show to nobody (default "cluster")
       --root stringArray              contract root to discover a read-only catalog from: a local bundle path or an oci:// reference (repeatable)
       --stats-read-registry string    with --fleet: the stats repository pacto_stats reads; it reads and never records. Over stdio the default is $PACTO_STATS_REGISTRY; over HTTP only this flag enables pacto_stats
+      --target-snapshot stringArray   signed target snapshot(s) to read targets from: an oci:// pacto-targets repository, or :cluster-<uid> tags or digests to pin the clusters CI expects (repeatable); pacto impact, pacto ci and pacto_impact on a stdio pacto mcp also take auto (the default: derived from the provider ref) and off
       --target-state stringArray      offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
       --traces stringArray            OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
   -t, --transport string              transport type: stdio or http (default "stdio")
@@ -2135,6 +2191,7 @@ pacto publish [dir] [flags]
       --correlation-id string              with --propose, an id that ties the promote to an incident or another change, such as a ticket; kept with the change and its record, filtered by pacto delivery history --correlation-id
   -h, --help[=true|false]                  help for publish
       --image string                       with no publish section: the image to deploy, pinned by digest (repo@sha256:...); Pacto builds, signs and copies none
+      --index string                       organization index repository for this version's entry, as <registry>/pacto-index with no tag or digest (default <registry>/pacto-index from the contract's repository; none writes no entry)
       --no-transparency-log[=true|false]   with --sign-key: keep the signatures out of the transparency log
       --on-behalf-of string                with --propose, the person an agent acts for, as the Kubernetes username the cluster authenticates them as (what kubectl auth whoami prints for them, any OIDC prefix included); asserted, not verified; required when an agent proposes, never a service account or other system user, and that person may not approve the change
   -p, --path string                        path to contract directory, the same as [dir] (default: current directory)
@@ -2206,6 +2263,7 @@ pacto push <ref> [flags]
 ```
   -f, --force[=true|false]   overwrite existing artifact in registry
   -h, --help[=true|false]    help for push
+      --index string         organization index repository for this version's entry, as <registry>/pacto-index with no tag or digest (default <registry>/pacto-index from the contract's repository; none writes no entry)
   -p, --path string          path to contract directory (default: current directory)
       --set stringArray      set a contract value (e.g. --set service.version=2.0.0)
       --values stringArray   values file to merge into the contract (can be repeated; last wins)
@@ -2285,27 +2343,30 @@ pacto stats [flags]
 **Flags:**
 
 ```
-      --by string                  group the numbers by service, owner, domain, repository, environment
-      --cache[=true|false]         include every bundle in the local OCI cache as an offline baseline revision
-      --detected string            add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
-      --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
-      --external-catalog string    organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
-      --fingerprints string        a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers
-      --freshness duration         mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
-  -h, --help[=true|false]          help for stats
-      --k8s[=true|false]           include live Pacto CRs from the current Kubernetes cluster as targets
-      --kind stringArray           total only run records of this kind: diff, impact, publish, operation, coverage (repeatable)
-      --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
-      --mira-source stringArray    base URL of a Mira node whose service map supplies observed calls between services (repeatable)
-      --namespace string           namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)
-      --oci stringArray            registry reference to include as a published-baseline revision (repeatable)
-      --registry string            stats repository to read or publish to, for example ghcr.io/acme/pacto-stats (default $PACTO_STATS_REGISTRY)
-      --root stringArray           contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
-      --service string             total only the run records of this service: the contract's service.name
-      --since string               start of the window: 30d, 12h, a date or RFC 3339 (default 30d)
-      --target-state stringArray   offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
-      --traces stringArray         OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
-      --until string               end of the window, exclusive: 30d, 12h, a date or RFC 3339 (default now)
+      --by string                     group the numbers by service, owner, domain, repository, environment
+      --cache[=true|false]            include every bundle in the local OCI cache as an offline baseline revision
+      --delivery-trust string         the trust config target snapshots are verified with: a YAML file with a key scoped to each cluster (default $PACTO_DELIVERY_TRUST)
+      --detected string               add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
+      --evidence-url stringArray      base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
+      --external-catalog string       organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
+      --fingerprints string           a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers
+      --freshness duration            mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
+  -h, --help[=true|false]             help for stats
+      --index string                  organization index pacto impact and pacto ci read consumers from, as <registry>/pacto-index with no tag or digest (default <registry>/pacto-index from the provider reference; none reads none; skipped when --root names the consumers; pacto ci --publish also writes its entries there; other fleet commands ignore it)
+      --k8s[=true|false]              include live Pacto CRs from the current Kubernetes cluster as targets
+      --kind stringArray              total only run records of this kind: diff, impact, publish, operation, coverage (repeatable)
+      --local stringArray             local bundle root(s) to scan (repeatable) (default [.])
+      --mira-source stringArray       base URL of a Mira node whose service map supplies observed calls between services (repeatable)
+      --namespace string              namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)
+      --oci stringArray               registry reference to include as a published-baseline revision (repeatable)
+      --registry string               stats repository to read or publish to, for example ghcr.io/acme/pacto-stats (default $PACTO_STATS_REGISTRY)
+      --root stringArray              contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
+      --service string                total only the run records of this service: the contract's service.name
+      --since string                  start of the window: 30d, 12h, a date or RFC 3339 (default 30d)
+      --target-snapshot stringArray   signed target snapshot(s) to read targets from: an oci:// pacto-targets repository, or :cluster-<uid> tags or digests to pin the clusters CI expects (repeatable); pacto impact, pacto ci and pacto_impact on a stdio pacto mcp also take auto (the default: derived from the provider ref) and off
+      --target-state stringArray      offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
+      --traces stringArray            OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
+      --until string                  end of the window, exclusive: 30d, 12h, a date or RFC 3339 (default now)
 ```
 
 ### `pacto stats publish`
@@ -2349,22 +2410,25 @@ pacto tui [flags]
 **Flags:**
 
 ```
-      --cache[=true|false]         include every bundle in the local OCI cache as an offline baseline revision
-      --detected string            add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
-      --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
-      --external-catalog string    organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
-      --fingerprints string        a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers
-      --freshness duration         mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
-  -h, --help[=true|false]          help for tui
-      --k8s[=true|false]           include live Pacto CRs from the current Kubernetes cluster as targets
-      --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
-      --mira-source stringArray    base URL of a Mira node whose service map supplies observed calls between services (repeatable)
-      --namespace string           namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)
-      --oci stringArray            registry reference to include as a published-baseline revision (repeatable)
-      --read-only[=true|false]     hide every write verb
-      --root stringArray           contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
-      --target-state stringArray   offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
-      --traces stringArray         OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
+      --cache[=true|false]            include every bundle in the local OCI cache as an offline baseline revision
+      --delivery-trust string         the trust config target snapshots are verified with: a YAML file with a key scoped to each cluster (default $PACTO_DELIVERY_TRUST)
+      --detected string               add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
+      --evidence-url stringArray      base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
+      --external-catalog string       organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
+      --fingerprints string           a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers
+      --freshness duration            mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
+  -h, --help[=true|false]             help for tui
+      --index string                  organization index pacto impact and pacto ci read consumers from, as <registry>/pacto-index with no tag or digest (default <registry>/pacto-index from the provider reference; none reads none; skipped when --root names the consumers; pacto ci --publish also writes its entries there; other fleet commands ignore it)
+      --k8s[=true|false]              include live Pacto CRs from the current Kubernetes cluster as targets
+      --local stringArray             local bundle root(s) to scan (repeatable) (default [.])
+      --mira-source stringArray       base URL of a Mira node whose service map supplies observed calls between services (repeatable)
+      --namespace string              namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)
+      --oci stringArray               registry reference to include as a published-baseline revision (repeatable)
+      --read-only[=true|false]        hide every write verb
+      --root stringArray              contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
+      --target-snapshot stringArray   signed target snapshot(s) to read targets from: an oci:// pacto-targets repository, or :cluster-<uid> tags or digests to pin the clusters CI expects (repeatable); pacto impact, pacto ci and pacto_impact on a stdio pacto mcp also take auto (the default: derived from the provider ref) and off
+      --target-state stringArray      offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
+      --traces stringArray            OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
 ```
 
 ---

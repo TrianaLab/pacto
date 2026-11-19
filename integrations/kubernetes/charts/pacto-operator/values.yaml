@@ -32,6 +32,12 @@ global:
     # -- Run as UID 65532 (nonroot in distroless)
     runAsUser: 65532
 
+# -- The installation registry (host[/path], no scheme), such as
+# `ghcr.io/acme`. The delivery recorder publishes the cluster's signed target
+# snapshot to `<registry>/pacto-targets`, which `pacto impact` reads in CI; empty
+# publishes none. Later releases derive more repositories from it.
+registry: ""
+
 # -- Number of controller replicas
 replicaCount: 1
 

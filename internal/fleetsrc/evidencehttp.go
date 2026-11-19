@@ -1,25 +1,17 @@
 package fleetsrc
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"time"
 
-	"github.com/trianalab/pacto/v4/pkg/evidence"
 	"github.com/trianalab/pacto/v4/pkg/evidenceingest"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/strictjson"
 )
-
-// maxEvidenceBodyBytes bounds the response body an evidence source reads, so a
-// misbehaving or hostile server cannot exhaust memory. The server already caps
-// the target count; this is a defensive second bound.
-const maxEvidenceBodyBytes = 4 << 20 // 4 MiB
 
 // EvidenceHTTPSource consumes an Evidence Server's read-only Operational Graph
 // contribution over HTTP, WITHOUT touching its durable store — the consumer
@@ -69,100 +61,15 @@ func (s *EvidenceHTTPSource) Collect(ctx context.Context) (*fleet.Collection, er
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("evidence source %s returned HTTP %d", url, resp.StatusCode)
 	}
-	// The server's own DTO type, not a hand-kept mirror of it: the two copies had
-	// already drifted to different Coverage types for the same JSON, and a strict
-	// decode (unknown fields rejected) turns any further drift into a hard failure
-	// at a consumer that has no way to know what it dropped. The boundary the old
-	// comment cited does not exist -- internal may import pkg, and internal/app
-	// already imports this package -- and only this direction is importable, since
-	// pkg/evidenceingest may not reach internal.
-	var body evidenceingest.TargetsResponse
-	var data bytes.Buffer // the raw body, which usageRecords reads again
-	// Strict: reject unknown fields AND trailing data, bounded by the LimitReader.
-	if err := strictjson.Decode(io.TeeReader(io.LimitReader(resp.Body, maxEvidenceBodyBytes), &data), &body); err != nil {
-		return nil, err
+	// The shared mapping decodes strictly on the server's own DTO type, so the
+	// target snapshot reader and this source never drift. A body cut at the
+	// bound, or by a failed read, fails that decode.
+	data, _ := io.ReadAll(io.LimitReader(resp.Body, evidenceingest.MaxTargetsBodyBytes))
+	col, err := evidenceingest.TargetsCollection(s.id, data)
+	if err != nil {
+		return nil, fmt.Errorf("evidence source %s: %w", url, err)
 	}
-	// v3 is v2 plus provisioning records, v4 is v3 plus usage records and v5
-	// is v4 plus clusters, which an older body never carries.
-	switch body.SchemaVersion {
-	case evidenceingest.TargetsSchemaVersion, evidenceingest.TargetsSchemaVersionProvisioning,
-		evidenceingest.TargetsSchemaVersionUsage, evidenceingest.TargetsSchemaVersionCluster:
-	default:
-		return nil, fmt.Errorf("evidence source %s speaks schema %q, want %q, %q, %q or %q", url, body.SchemaVersion,
-			evidenceingest.TargetsSchemaVersion, evidenceingest.TargetsSchemaVersionProvisioning,
-			evidenceingest.TargetsSchemaVersionUsage, evidenceingest.TargetsSchemaVersionCluster)
-	}
-
-	col := &fleet.Collection{}
-	for _, t := range body.Targets {
-		if !fleet.ValidStatus(t.Compliance) {
-			// A record with a status this consumer cannot interpret is kept out of
-			// the graph but surfaced, so a bad record is never confused with none.
-			col.Limitations = append(col.Limitations, fleet.Limitation{
-				Code: fleet.LimitationSourceRecordInvalid, Source: s.id,
-				Message: fmt.Sprintf("evidence target %q reported unknown compliance status", t.Subject),
-			})
-			continue
-		}
-		evidenceAt, acceptedAt := t.EvidenceAt, t.AcceptedAt
-		coverage := fleet.Coverage{Evaluated: t.Coverage.Evaluated, Required: t.Coverage.Required}
-		// Name is the operational target (subject); Service/Domain/Digest are the
-		// RESOLVED logical identity the server derived from the ContractRef — used
-		// as-is, never inferred from Subject, so the target links to the correct
-		// domain-qualified service and revision. Fall back to deriving the digest
-		// from the ref only when the server omitted it.
-		digest := t.Digest
-		if digest == "" {
-			digest = digestFromRef(t.ContractRef)
-		}
-		col.Targets = append(col.Targets, fleet.RawTarget{
-			Scope:        t.Producer,
-			Kind:         "external",
-			Name:         t.Subject,
-			Service:      t.Service,
-			Domain:       t.Domain,
-			ResolvedRef:  t.ContractRef,
-			Digest:       digest,
-			Compliance:   t.Compliance,
-			Findings:     t.Findings,
-			Coverage:     &coverage,
-			EvidenceAt:   &evidenceAt,
-			ReconciledAt: &acceptedAt,
-			Cluster:      acceptingCluster(t.Cluster, body.Cluster),
-		})
-	}
-
-	for _, p := range body.Provisioning {
-		digest := p.Digest
-		if digest == "" {
-			digest = digestFromRef(p.ContractRef)
-		}
-		acceptedAt := p.AcceptedAt
-		col.Provisioning = append(col.Provisioning, fleet.RawProvisioning{
-			Service: p.Service, Domain: p.Domain, Digest: digest, Kind: p.Kind, Name: p.Name, Environment: p.Environment,
-			Provider: p.Provider, ExternalRef: p.ExternalRef, Phase: p.Phase, Outcome: p.Outcome,
-			Producer: p.Producer, ProducerKeyID: p.ProducerKeyID, ObservedAt: p.EvidenceAt, AcceptedAt: &acceptedAt, Verified: true,
-		})
-	}
-
 	col.Providers = s.adapterRows(ctx)
-	usage, lims := s.usageRecords(data.Bytes(), body.Usage)
-	col.Usage, col.Limitations = usage, append(col.Limitations, lims...)
-
-	// An unreadable subject, an invalid published artifact or a truncated response
-	// means the contribution is incomplete: surface the limitation so downstream
-	// answers carry the honesty rather than presenting a full-looking graph.
-	//
-	// The limitation is the WHOLE mechanism: [fleet.Build] already downgrades a
-	// source with collection limitations to partial, so a source never has to
-	// declare its own health to report a degraded read. Saying it through the
-	// limitation keeps the health verdict in one place instead of splitting it
-	// between the source and the builder.
-	if degraded, msg := evidenceDegraded(body); degraded {
-		col.Limitations = append(col.Limitations, fleet.Limitation{
-			Code: fleet.LimitationSourcePartial, Source: s.id, Message: msg,
-		})
-	}
 	return col, nil
 }
 
@@ -180,7 +87,7 @@ func (s *EvidenceHTTPSource) adapterRows(ctx context.Context) []fleet.Provider {
 	}
 	defer func() { _ = resp.Body.Close() }()
 	var body evidenceingest.ProducersResponse
-	if resp.StatusCode != http.StatusOK || strictjson.Decode(io.LimitReader(resp.Body, maxEvidenceBodyBytes), &body) != nil {
+	if resp.StatusCode != http.StatusOK || strictjson.Decode(io.LimitReader(resp.Body, evidenceingest.MaxTargetsBodyBytes), &body) != nil {
 		return nil
 	}
 	var rows []fleet.Provider
@@ -189,74 +96,4 @@ func (s *EvidenceHTTPSource) adapterRows(ctx context.Context) []fleet.Provider {
 			Evidence: "the trust config allows it to report " + strings.Join(a.Kinds, " and ")})
 	}
 	return rows
-}
-
-// acceptingCluster is the cluster that accepted a record, nil when unknown. The
-// listing server's own cluster only names it when the ids are equal: a record
-// another cluster accepted keeps its id alone, and is never given the listing
-// server's cluster. [fleet.Build] validates both.
-func acceptingCluster(id string, server *evidenceingest.ClusterDTO) *fleet.Cluster {
-	switch {
-	case id == "":
-		return nil
-	case server != nil && server.ID == id:
-		return &fleet.Cluster{ID: id, Name: server.Name, NameSource: server.NameSource}
-	}
-	return &fleet.Cluster{ID: id}
-}
-
-// evidenceDegraded reports whether the server's contribution is incomplete and a
-// sanitized reason. Any non-ready status, unreadable subject, invalid published
-// artifact or truncated body counts. The counts are read independently of the
-// status so a server that reports them without downgrading its own status still
-// makes the consumer honest.
-//
-// The prose comes from [evidenceingest.SourceHealth.Reason], the server's own
-// summary of its own health block. A second phrasing here had already drifted
-// from it -- it had no wording for unreadable subjects AND invalid artifacts
-// together, and reported only the first. Truncation is the one thing Reason
-// cannot say, because it is a property of the response, not of the store read.
-func evidenceDegraded(body evidenceingest.TargetsResponse) (bool, string) {
-	h := body.Health
-	switch {
-	case h.FailedSubjects > 0 || h.InvalidArtifacts > 0 || (h.Status != "" && h.Status != evidenceingest.HealthReady):
-		return true, h.Reason()
-	case body.Truncated:
-		return true, "evidence source response was truncated"
-	}
-	return false, ""
-}
-
-// usageRecords maps the body's usage DTOs to verified raw records. The strict
-// decode does not require keys, so data is read again for each record's raw
-// metrics: one holding a metric with no value would read as a measured zero,
-// and is dropped with a counted limitation instead.
-func (s *EvidenceHTTPSource) usageRecords(data []byte, dtos []evidenceingest.UsageDTO) ([]fleet.RawUsage, []fleet.Limitation) {
-	var raw struct {
-		Usage []json.RawMessage `json:"usage"`
-	}
-	_ = json.Unmarshal(data, &raw) // the strict decode already accepted data
-	var out []fleet.RawUsage
-	valueless := 0
-	for i, u := range dtos {
-		if i < len(raw.Usage) && evidence.CheckMetricValues(raw.Usage[i]) != nil {
-			valueless++
-			continue
-		}
-		digest := u.Digest
-		if digest == "" {
-			digest = digestFromRef(u.ContractRef)
-		}
-		acceptedAt := u.AcceptedAt
-		out = append(out, fleet.RawUsage{
-			Service: u.Service, Domain: u.Domain, Digest: digest, Kind: u.Kind, Name: u.Name, Environment: u.Environment,
-			Provider: u.Provider, ExternalRef: u.ExternalRef, Metrics: u.Metrics, Cost: u.Cost, Outcome: u.Outcome,
-			Producer: u.Producer, ProducerKeyID: u.ProducerKeyID, ObservedAt: u.EvidenceAt, AcceptedAt: &acceptedAt, Verified: true,
-		})
-	}
-	if valueless == 0 {
-		return out, nil
-	}
-	return out, []fleet.Limitation{{Code: fleet.LimitationSourceRecordInvalid, Source: s.id,
-		Message: fmt.Sprintf("%d usage records hold a metric with no value and were dropped", valueless)}}
 }

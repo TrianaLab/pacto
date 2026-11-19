@@ -79,6 +79,7 @@ func TestPactoStatusFillsTheDeliveryReadContract(t *testing.T) {
 	p.Status.Dependencies = []pactov1alpha1.DependencyInfo{{Name: "ledger", Ref: "oci://r/ledger", Required: true, Compatibility: "^1"}}
 	p.Status.Contract.Owner = &pactov1alpha1.OwnerInfo{Team: "team-pay"}
 	p.Generation = 2
+	p.Spec.Target = pactov1alpha1.TargetRef{ServiceName: "pay", WorkloadRef: &pactov1alpha1.WorkloadRef{Kind: "StatefulSet", Name: "pay-0"}}
 	p.Status.EvaluatedRevision.KernelCoverage = "Complete"
 	p.Status.ObservedCallers = []pactov1alpha1.ObservedCaller{{Namespace: "pay", Kind: "Deployment", Name: "legacy", Source: "ebpf"}}
 	p.Status.ObservedCallersCoverage = &pactov1alpha1.CallerCoverage{State: "partial", Reason: "stale-node", RefreshSeconds: 300}
@@ -95,6 +96,10 @@ func TestPactoStatusFillsTheDeliveryReadContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := v.Status
+	if tg := v.Spec.Target; tg == nil || tg.ServiceName != "pay" || tg.WorkloadRef == nil ||
+		*tg.WorkloadRef != (delivery.WorkloadRefView{Kind: "StatefulSet", Name: "pay-0"}) {
+		t.Fatalf("the delivery read contract lost spec.target: %+v", v.Spec.Target)
+	}
 	if v.Metadata.Namespace != "default" || v.Metadata.Name != "pay" || v.Metadata.Generation != 2 ||
 		s.ContractStatus == "" || s.LastReconciledAt == "" ||
 		s.Contract == nil || s.Contract.ServiceName != "payments" || s.Contract.Version != "1.0.0" || s.Contract.ResolvedRef == "" ||

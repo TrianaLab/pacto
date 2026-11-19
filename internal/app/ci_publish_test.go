@@ -17,8 +17,13 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/random"
 
+	"oras.land/oras-go/v2/registry/remote"
+
 	"github.com/trianalab/pacto/v4/internal/ci"
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
+	"github.com/trianalab/pacto/v4/pkg/orgindex"
 	"github.com/trianalab/pacto/v4/pkg/publish"
 )
 
@@ -439,7 +444,7 @@ func TestPublishEqualsOneCIRow(t *testing.T) {
 		t.Fatalf("plan %+v row %+v", plan.Plan, r)
 	}
 	again, err := e.svc.Publish(t.Context(), PublishOptions{Path: filepath.Join(e.root, "payments"), Revision: "r3", Plan: true})
-	if err != nil || len(again.Plan.Checks) != 1 || !strings.HasPrefix(again.Plan.Checks[0].Message, "unchanged since") {
+	if err != nil || len(again.Plan.Checks) != 1 || !strings.HasPrefix(again.Plan.Checks[0].Message, "unchanged since") || again.Index != "" {
 		t.Fatalf("%v %+v", err, again)
 	}
 	if r := pubRow(t, e.ciPublish(t, nil), "payments"); r.State != ci.StateUnchanged {
@@ -769,5 +774,82 @@ func TestCIPublishUnchangedSuppliedImageNeedsNoImage(t *testing.T) {
 				t.Fatalf("%v row %+v", err, r)
 			}
 		})
+	}
+}
+
+func TestCIPublishWritesIndexEntries(t *testing.T) {
+	e := newCIPub(t)
+	ledgerReports(t, e, "^1")
+	e.svc.sys.refusalRepo = anonRepo
+	if p := e.ciPublish(t, nil); p.Exit != 0 {
+		t.Fatalf("plan %+v", p)
+	}
+	for _, name := range []string{"ledger", "reports"} {
+		tag, _ := orgindex.Tag(fleet.NewServiceKeyDomain(e.host+"/acme", name), "1.0.0")
+		if entry := readEntry(t, e.host+"/acme/pacto-index", tag); entry.Name != name {
+			t.Fatalf("entry %+v", entry)
+		}
+	}
+
+	failed := newCIPub(t)
+	ledgerReports(t, failed, "^1")
+	failed.svc.sys.refusalRepo = func(string) (*remote.Repository, error) { return nil, errors.New("denied") }
+	p := failed.ciPublish(t, nil)
+	if p.Exit != 0 || !slices.Equal(failed.records, []string{"ledger published false", "reports published false"}) {
+		t.Fatalf("a failed index write changed the run: exit %d records %v", p.Exit, failed.records)
+	}
+	if r := pubRow(t, p, "ledger"); !slices.ContainsFunc(r.Notes, func(n string) bool { return strings.HasPrefix(n, "ledger 1.0.0 not indexed in ") }) {
+		t.Fatalf("the failed write is not said: %v", r.Notes)
+	}
+
+	// A re-run over the published content writes the missing entries.
+	failed.svc.sys.refusalRepo = anonRepo
+	again := failed.ciPublish(t, nil)
+	for _, name := range []string{"ledger", "reports"} {
+		if r := pubRow(t, again, name); r.State != ci.StateUnchanged || len(r.Notes) != 0 {
+			t.Fatalf("row %+v", r)
+		}
+		tag, _ := orgindex.Tag(fleet.NewServiceKeyDomain(failed.host+"/acme", name), "1.0.0")
+		if entry := readEntry(t, failed.host+"/acme/pacto-index", tag); entry.Name != name {
+			t.Fatalf("not backfilled: %+v", entry)
+		}
+	}
+}
+
+// TestPublishUnchangedDerivedBackfillsEntry: publishing a derived version
+// again over unchanged content writes the entry the first publish could not.
+func TestPublishUnchangedDerivedBackfillsEntry(t *testing.T) {
+	e := newCIPub(t)
+	e.write(t, map[string]string{"payments/pacto.yaml": e.contract("payments", "", "", "")})
+	e.svc.sys.refusalRepo = func(string) (*remote.Repository, error) { return nil, errors.New("denied") }
+	path := filepath.Join(e.root, "payments")
+	first, err := e.svc.Publish(t.Context(), PublishOptions{Path: path, Revision: "r1"})
+	if err != nil || !strings.HasPrefix(first.Index, "not indexed in ") {
+		t.Fatalf("%v %q", err, first.Index)
+	}
+	e.svc.sys.refusalRepo = anonRepo
+	again, err := e.svc.Publish(t.Context(), PublishOptions{Path: path, Revision: "r2"})
+	if err != nil || len(again.Actions) != 0 || !strings.HasPrefix(again.Index, "indexed as "+e.host+"/acme/pacto-index:") {
+		t.Fatalf("%v %+v", err, again)
+	}
+	tag, _ := orgindex.Tag(fleet.NewServiceKeyDomain(e.host+"/acme", "payments"), first.Plan.Version)
+	if entry := readEntry(t, e.host+"/acme/pacto-index", tag); entry.Version != first.Plan.Version {
+		t.Fatalf("entry %+v", entry)
+	}
+}
+
+// TestCIPublishIndexNoneWritesNothing: --index reaches every publish of the
+// run, so --index none writes no entry.
+func TestCIPublishIndexNoneWritesNothing(t *testing.T) {
+	e := newCIPub(t)
+	ledgerReports(t, e, "^1")
+	e.svc.sys.refusalRepo = anonRepo
+	p, err := e.svc.CIPublish(t.Context(), CIPublishOptions{CI: CIOptions{Root: e.root, Registry: e.host + "/acme", Getenv: mapEnv(nil), Fleet: FleetOptions{Index: IndexNone}}, Revision: "r2"})
+	if err != nil || p.Exit != 0 {
+		t.Fatalf("%v %+v", err, p)
+	}
+	r, _ := anonRepo(e.host + "/acme/pacto-index")
+	if tags, err := ocireferrer.Tags(t.Context(), r, ""); len(tags) != 0 || (err != nil && !registryNotFound(err)) {
+		t.Fatalf("--index none wrote %v (%v)", tags, err)
 	}
 }

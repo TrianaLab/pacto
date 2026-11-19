@@ -753,7 +753,7 @@ func TestPushNoLockPasses(t *testing.T) {
 		return "sha256:v1", nil
 	}
 	store.PushFn = func(_ context.Context, _ string, _ *contract.Bundle) (string, error) { return "sha256:pushed", nil }
-	s := NewService(store, nil)
+	s := offlineService(store)
 	res, err := s.Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/root", Path: full})
 	if err != nil {
 		t.Fatalf("Push with no lock should pass, got %v", err)

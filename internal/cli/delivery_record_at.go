@@ -25,7 +25,7 @@ func isRecordRef(arg string) bool { return strings.Contains(arg, "/") }
 // kubeconfig is read. It verifies with --trust and, for an approval a person
 // signed, with the approver signers of the identity policy --signers names.
 func recordClient(cmd *cobra.Command, d deps) (*app.Delivery, error) {
-	trust, err := deliveryTrust(trustPath(cmd))
+	trust, err := app.DeliveryTrust(trustPath(cmd))
 	if err != nil {
 		return nil, err
 	}

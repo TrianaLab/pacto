@@ -95,7 +95,30 @@ type Options struct {
 	// so an inferred name may miss every one of them: the answer then carries
 	// SERVICE_NAME_INFERRED and the gate never clears a BREAKING change.
 	NameInferredFrom string
+	// Index is how the organization index was read; nil when the caller read none.
+	Index *ConsumerIndex
+	// Indexed reports whether the index lists a service; nil skips both cross-checks.
+	Indexed func(fleet.ServiceKey) bool
 }
+
+// ConsumerIndex is how the organization index was read for this answer.
+type ConsumerIndex struct {
+	Repository   string             `json:"repository" doc:"The organization index read, such as ghcr.io/acme/pacto-index; empty when none was found or it was not read"`
+	Status       string             `json:"status" enum:"read,not-found,unavailable,skipped" doc:"read: listed by tag; not-found: no index at any candidate; unavailable: the registry refused or failed the listing; skipped: not read, see reason"`
+	Services     int                `json:"services" doc:"Services the index lists"`
+	Consumers    int                `json:"consumers" doc:"Services whose newest entry depends on the changed service, selected from the index; their bundles are pulled by digest, and a bundle that does not resolve or the catalog's root bound makes the answer partial"`
+	Checked      bool               `json:"checked" doc:"Whether a target snapshot was there to check the index against: only a target snapshot adds the running revisions with their declared dependencies"`
+	Completeness fleet.Completeness `json:"completeness"`
+	Reason       string             `json:"reason,omitempty"`
+}
+
+// Statuses of a [ConsumerIndex].
+const (
+	IndexRead        = "read"
+	IndexNotFound    = "not-found"
+	IndexUnavailable = "unavailable"
+	IndexSkipped     = "skipped"
+)
 
 // AffectedConsumer is one service affected by the change.
 type AffectedConsumer struct {
@@ -223,12 +246,45 @@ type Result struct {
 	// Templates are the golden paths that reference the changed service's
 	// policy. A golden path runs nowhere, so it never holds the gate.
 	Templates []string `json:"templates,omitempty" doc:"The service keys of the golden paths that reference the changed service's policy: they run nowhere, so they never hold the gate, but a service created from one checks against the new policy. Review each"`
+	// Registry says where Pacto looked for a target snapshot when no source
+	// named one; nil when it did not look.
+	Registry *RegistryLookup `json:"registry,omitempty" doc:"Where Pacto looked for a target snapshot when none was named"`
+	// TargetSnapshots are the states of the target-snapshot sources the
+	// answer read, each pinned by digest.
+	TargetSnapshots []fleet.SourceState `json:"targetSnapshots,omitempty" doc:"The signed target snapshots the answer read, pinned by digest"`
+	// ConsumerIndex is how the organization index was read; nil when none was.
+	ConsumerIndex *ConsumerIndex `json:"consumerIndex,omitempty" doc:"How the organization index was read: which repository, how many services it lists and how many depend on the changed service. Absent when no index was read, such as for local folders, over HTTP or in the dashboard"`
 	// observationSources are the observation sources an event answer read.
 	observationSources []string
 	// hiddenReferrers counts the services this viewer may not see that may
 	// reference the changed service's policy: none of them was checked.
 	hiddenReferrers int
 }
+
+// RegistryLookup is where Pacto looked for a target snapshot: the
+// pacto-targets repositories it tried in order, the one it found and how
+// many cluster snapshots that one holds.
+type RegistryLookup struct {
+	Tried    []RegistryRoot `json:"tried" doc:"The pacto-targets repositories tried, in order"`
+	Found    string         `json:"found,omitempty" doc:"The pacto-targets repository read, empty when none holds a cluster snapshot"`
+	Clusters int            `json:"clusters,omitempty" doc:"How many cluster snapshots the found repository holds"`
+}
+
+// RegistryRoot is one pacto-targets repository tried and what it answered.
+type RegistryRoot struct {
+	Repository string `json:"repository" doc:"The pacto-targets repository"`
+	// Outcome: found, notFound (no such repository), denied (the registry
+	// refused the read credentials) or noClusterTag (no cluster-<uid> tag).
+	Outcome string `json:"outcome" enum:"found,notFound,denied,noClusterTag" doc:"What the repository answered"`
+}
+
+// Outcomes of a [RegistryRoot].
+const (
+	RegistryFound        = "found"
+	RegistryNotFound     = "notFound"
+	RegistryDenied       = "denied"
+	RegistryNoClusterTag = "noClusterTag"
+)
 
 // boundEnvelope applies the same cap fleet answers apply to the completeness
 // envelope. Several build paths emit one limitation per record -- per ambiguous
@@ -556,6 +612,83 @@ func (r *Result) unmetNote() string {
 // inferred (see [Options.NameInferredFrom]).
 const LimitationServiceNameInferred = "SERVICE_NAME_INFERRED"
 
+// LimitationConsumerNotIndexed marks an answer with a declared direct consumer
+// the fleet holds but the organization index lists no entry for: a consumer
+// missing from the index may hide others like it.
+const LimitationConsumerNotIndexed = "CONSUMER_NOT_INDEXED"
+
+// LimitationConsumerIndexUnchecked marks an answer that read the organization
+// index with no target snapshot to check it against: the index cannot show it
+// lists every consumer, so it alone never clears a BREAKING change.
+const LimitationConsumerIndexUnchecked = "CONSUMER_INDEX_UNCHECKED"
+
+// maxUnindexedNames bounds how many unindexed consumers a limitation names.
+const maxUnindexedNames = 10
+
+// noteUnindexed flags the declared direct consumers in an OCI domain that the
+// index lists no entry for. They stay in Consumers; the answer is partial.
+// Observed-only, inferred and local (default-domain) consumers are never
+// published under their identity, so they are never flagged.
+func (r *Result) noteUnindexed(indexed func(fleet.ServiceKey) bool) {
+	var names []string
+	for _, c := range r.Consumers {
+		if c.Direct && c.Domain != "" && strings.HasPrefix(c.Provenance, fleet.ProvenanceDeclared) &&
+			!indexed(fleet.NewServiceKeyDomain(c.Domain, c.Service)) {
+			names = append(names, c.Service)
+		}
+	}
+	if len(names) == 0 {
+		return
+	}
+	n := len(names)
+	listed := names
+	more := ""
+	if n > maxUnindexedNames {
+		listed = names[:maxUnindexedNames]
+		more = " (and " + strconv.Itoa(n-maxUnindexedNames) + " more)"
+	}
+	r.markIndexPartial(LimitationConsumerNotIndexed, strconv.Itoa(n)+" "+plural(n, "consumer", "consumers")+
+		" the fleet holds "+plural(n, "has", "have")+" no usable organization index entry: "+joinAnd(listed)+more+
+		"; a consumer missing from the index may hide others like it, so the answer is partial")
+}
+
+// noteUnchecked flags an index read with no target snapshot that answered
+// to check it against: the index cannot prove it covers the organization.
+// Only a target snapshot adds the running revisions with their declared
+// dependencies; --k8s, --target-state and --evidence-url add targets alone,
+// so a running consumer missing from the index never reaches noteUnindexed.
+func (r *Result) noteUnchecked(snap *fleet.FleetSnapshot) {
+	checked := slices.ContainsFunc(snap.Sources, func(s fleet.SourceState) bool {
+		return s.Status != fleet.SourceUnavailable && slices.Contains(indexCheckKinds, s.Kind)
+	})
+	if r.ConsumerIndex != nil {
+		r.ConsumerIndex.Checked = checked
+	}
+	if checked {
+		return
+	}
+	n := 0
+	if r.ConsumerIndex != nil {
+		n = r.ConsumerIndex.Services
+	}
+	r.markIndexPartial(LimitationConsumerIndexUnchecked, "the index lists "+strconv.Itoa(n)+" "+plural(n, "service", "services")+
+		"; without a target snapshot Pacto cannot tell whether a consumer is missing from it")
+}
+
+// indexCheckKinds are the source kinds the index is checked against: those
+// that add running revisions with their declared dependencies.
+var indexCheckKinds = []string{fleet.SourceKindTargetSnapshot}
+
+// markIndexPartial adds an index limitation and makes the answer and its
+// index summary partial.
+func (r *Result) markIndexPartial(code, msg string) {
+	r.Limitations = append(r.Limitations, fleet.Limitation{Code: code, Source: limitationSource, Message: msg})
+	r.Completeness = fleet.CompletenessPartial
+	if r.ConsumerIndex != nil {
+		r.ConsumerIndex.Completeness = fleet.CompletenessPartial
+	}
+}
+
 // nameInferred is the SERVICE_NAME_INFERRED message, "" when the changed
 // service's name is declared.
 func (r *Result) nameInferred() string {
@@ -616,6 +749,14 @@ func Analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 	} else {
 		res = analyze(ctx, old, new, oldFS, newFS, snap, opts)
 		res.noteRangeOnlyMatches()
+		if opts.Index != nil {
+			idx := *opts.Index
+			res.ConsumerIndex = &idx
+		}
+		if opts.Indexed != nil {
+			res.noteUnindexed(opts.Indexed)
+			res.noteUnchecked(snap)
+		}
 	}
 	if opts.NameInferredFrom != "" && res.nameInferred() == "" {
 		res.Limitations = append(res.Limitations, fleet.Limitation{

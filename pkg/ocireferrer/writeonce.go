@@ -31,10 +31,13 @@ var maxTagPages = 1000
 // another manifest. A write-once tag is never moved.
 var ErrTagTaken = errors.New("the tag already names another manifest")
 
+// ErrTagPagesExceeded is wrapped by a [Tags] listing that passed its page
+// bound: the listing failed, it was never truncated.
+var ErrTagPagesExceeded = errors.New("past the page bound")
+
 var (
 	errTagsUnsorted  = errors.New("the registry does not sort tags")
 	errTagsEmptySeek = errors.New("the seek returned no tags")
-	errTagsPastBound = errors.New("passed the page bound")
 	errTagsDone      = errors.New("done")
 )
 
@@ -58,11 +61,11 @@ func Tags(ctx context.Context, repo *remote.Repository, prefix string) ([]string
 	out, err := scanTags(ctx, repo, last, prefix, true)
 	switch why := fullScanReason(err, last); {
 	case why != "":
-		if out, err = scanTags(ctx, repo, "", prefix, false); errors.Is(err, errTagsPastBound) {
-			return nil, fmt.Errorf("listing the tags of %s: %s, and the full scan passed %d pages", repo.Reference, why, maxTagPages)
+		if out, err = scanTags(ctx, repo, "", prefix, false); errors.Is(err, ErrTagPagesExceeded) {
+			return nil, fmt.Errorf("listing the tags of %s: %s, and the full scan passed %d pages: %w", repo.Reference, why, maxTagPages, ErrTagPagesExceeded)
 		}
-	case errors.Is(err, errTagsPastBound):
-		return nil, fmt.Errorf("listing the tags of %s from %q: more than %d pages", repo.Reference, last, maxTagPages)
+	case errors.Is(err, ErrTagPagesExceeded):
+		return nil, fmt.Errorf("listing the tags of %s from %q: more than %d pages: %w", repo.Reference, last, maxTagPages, ErrTagPagesExceeded)
 	}
 	if err != nil {
 		return nil, err
@@ -115,7 +118,7 @@ func scanTags(ctx context.Context, repo *remote.Repository, last, prefix string,
 	pages, prev := 0, last
 	err := repo.Tags(ctx, last, func(tags []string) error {
 		if pages++; pages > maxTagPages {
-			return errTagsPastBound
+			return ErrTagPagesExceeded
 		}
 		if seek && pages == 1 && last != "" && len(tags) == 0 {
 			return errTagsEmptySeek

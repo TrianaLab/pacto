@@ -14,7 +14,9 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/orgindex"
 	"github.com/trianalab/pacto/v4/pkg/publish"
 	"github.com/trianalab/pacto/v4/pkg/runrecord"
 )
@@ -61,6 +63,7 @@ func newPublishCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorde
 			opts.Registry, _ = cmd.Flags().GetString("registry")
 			opts.SignKey, _ = cmd.Flags().GetString("sign-key")
 			opts.NoTransparencyLog, _ = cmd.Flags().GetBool("no-transparency-log")
+			opts.Index, _ = cmd.Flags().GetString("index")
 			res, err := d.publish(svc, cmd.Context(), opts)
 			if err != nil || plan {
 				sp.Stop()
@@ -99,6 +102,7 @@ func newPublishCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorde
 	cmd.Flags().String("registry", "", "with no publish section: the registry to publish to (default: what the CI context or the workload image names)")
 	cmd.Flags().String("sign-key", "", "with no publish section: sign with this cosign key file instead of keyless")
 	cmd.Flags().Bool("no-transparency-log", false, "with --sign-key: keep the signatures out of the transparency log")
+	cmd.Flags().Var(new(indexFlag), "index", indexFlagUsage)
 	cmd.Flags().Duration("propose-timeout", 10*time.Minute, "how long --propose waits for the Stage to record the version as published")
 	addOverrideFlagsNoShorthand(cmd)
 	addStatsFlags(cmd)
@@ -198,6 +202,39 @@ func notPublishedYet(s *delivery.StageObject, digest string, timeout time.Durati
 		"or verified its signature yet; propose it later with `pacto delivery propose`", digest, timeout, s.Spec.Candidates.OCIRepositoryRef.Name)
 }
 
+// indexFlagUsage is the help of --index on publish and push.
+const indexFlagUsage = "organization index repository for this version's entry, as <registry>/pacto-index with no tag or digest (default <registry>/pacto-index from the contract's repository; none writes no entry)"
+
+// indexFlag is an --index value: none, or a <registry>/pacto-index
+// repository with no tag or digest, refused at parse time since a reader
+// binds every entry to that fixed name.
+type indexFlag string
+
+func (f *indexFlag) String() string { return string(*f) }
+
+// Type is "string", so GetString reads the flag.
+func (f *indexFlag) Type() string { return "string" }
+
+func (f *indexFlag) Set(v string) error {
+	repo, tag, dig := contract.SplitOCIRef(contract.TrimOCIScheme(v))
+	if v != app.IndexNone && (tag != "" || dig != "" || !strings.HasSuffix(repo, "/"+orgindex.RepositoryName)) {
+		return errors.New("--index must name <registry>/" + orgindex.RepositoryName + " with no tag or digest, or none")
+	}
+	*f = indexFlag(v)
+	return nil
+}
+
+// printIndex prints where the organization index entry was written, or, on
+// stderr, the warning that it was not: a missing entry never fails the run.
+func printIndex(cmd *cobra.Command, index string) {
+	switch {
+	case strings.HasPrefix(index, "not indexed"):
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "warning: "+index)
+	case index != "":
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Index: "+index)
+	}
+}
+
 // printPublishResult prints what a publish did. failed is true when it was
 // refused or failed: the error says why, so nothing claims it is all published.
 func printPublishResult(cmd *cobra.Command, res *publish.Result, format string, failed bool) error {
@@ -226,6 +263,7 @@ func printPublishResult(cmd *cobra.Command, res *publish.Result, format string, 
 		if res.Refusal != "" {
 			_, _ = fmt.Fprintln(w, "Refusal: "+res.Refusal)
 		}
+		printIndex(cmd, res.Index)
 		for _, n := range res.Notes {
 			_, _ = fmt.Fprintln(w, "note: "+n)
 		}

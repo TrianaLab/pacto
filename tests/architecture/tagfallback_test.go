@@ -65,6 +65,9 @@ func TestOnlyRunRecordsFallBackToTags(t *testing.T) {
 // adds a caller adds its row here, so no one tags a user's apply or contract
 // repository through the primitive unnoticed (#452 decision 11).
 var writeOnceCallers = []string{
+	// keepIndexEntry: one write-once entry per published version in the
+	// organization index, <registry>/pacto-index (CLI only, #452 decision 11).
+	"internal/app/index_write.go",
 	// PutRecord and Push: the delivery record streams repository (records,
 	// approvals, intents and identity pins) and the approvals repository; the
 	// operator's recordstore.go and recorder.go and the CLI write through it.

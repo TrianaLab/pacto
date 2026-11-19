@@ -147,6 +147,7 @@ func printPushResult(cmd *cobra.Command, result *app.PushResult, format string) 
 		}
 		_, _ = fmt.Fprintf(w, "%s%s %s@%s -> %s\n", okGlyph(w), verb, result.Name, result.Version, result.Ref)
 		_, _ = fmt.Fprintf(w, "Digest: %s\n", result.Digest)
+		printIndex(cmd, result.Index)
 		for _, wr := range result.Warnings {
 			_, _ = fmt.Fprintf(w, "  WARN  [%s] %s: %s\n", wr.Code, wr.Path, wr.Message)
 		}

@@ -168,6 +168,9 @@ func header(p *Plan) []string {
 			out = append(out, "Consumer source: "+s+" (not read: no changed service with a baseline)")
 		}
 	}
+	if p.Index != "" {
+		out = append(out, "Index: "+p.Index)
+	}
 	return append(out, p.Notes...)
 }
 

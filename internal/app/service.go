@@ -40,6 +40,11 @@ type Service struct {
 	sys sysDeps
 	// catalogs remembers the external catalog checks and pulls across builds.
 	catalogs catalogLoader
+	// snapshots remembers the target snapshot bundles read across builds.
+	snapshots targetSnapshotCache
+	// indexListings remembers organization index reads and, with no cache
+	// directory, their entries.
+	indexListings indexMemo
 }
 
 // sysDeps are the clock, filesystem, entropy and network the Service touches. A
@@ -58,6 +63,9 @@ type sysDeps struct {
 	// newDynamic builds the client a k8s: detection ref is read with.
 	newDynamic  func() (dynamic.Interface, error)
 	kubeContext func() string
+	// snapshotTimeout bounds one target snapshot resolution; zero is
+	// delivery.TargetSnapshotReadTimeout.
+	snapshotTimeout time.Duration
 	// readinessTimeout bounds ONE Evidence Server readiness preflight; zero is
 	// defaultReadinessTimeout.
 	readinessTimeout time.Duration
@@ -69,7 +77,8 @@ type sysDeps struct {
 	lookPath func(file string) (string, error)
 	// publishRegistry is the registry publish reads and writes.
 	publishRegistry func() publish.Registry
-	// refusalRepo opens the repository a publish refusal is kept in.
+	// refusalRepo opens a contract registry repository with the CLI's
+	// credentials: the refusal store and the organization index.
 	refusalRepo func(path string) (*remote.Repository, error)
 	// statsRepo opens the stats repository run records are read from.
 	statsRepo func(path string) (*remote.Repository, error)
