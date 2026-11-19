@@ -4865,6 +4865,29 @@ export interface components {
             total: number;
             truncated: boolean;
         };
+        "Impact.ConsumerIndex": {
+            /** @description Whether a target source was there to check the index against */
+            checked: boolean;
+            completeness: string;
+            /**
+             * Format: int64
+             * @description Services whose newest entry depends on the changed service; their bundles joined the snapshot by digest
+             */
+            consumers: number;
+            reason?: string;
+            /** @description The organization index read, such as ghcr.io/acme/pacto-index; empty when none was found or it was not read */
+            repository: string;
+            /**
+             * Format: int64
+             * @description Services the index lists
+             */
+            services: number;
+            /**
+             * @description read: listed by tag; not-found: no index at any candidate; unavailable: the registry refused or failed the listing; skipped: not read, see reason
+             * @enum {string}
+             */
+            status: "read" | "not-found" | "unavailable" | "skipped";
+        };
         "Impact.ConsumerTallies": {
             /** Format: int64 */
             beyondRanking: number;
@@ -4976,6 +4999,8 @@ export interface components {
             changedOwnerKey?: string;
             classification: string;
             completeness: string;
+            /** @description How the organization index was read: which repository, how many services it lists and how many depend on the changed service. Absent when no index was read, such as for local folders, over HTTP or in the dashboard */
+            consumerIndex?: components["schemas"]["Impact.ConsumerIndex"];
             consumerTallies: components["schemas"]["Impact.ConsumerTallies"];
             consumers: components["schemas"]["Impact.AffectedConsumer"][] | null;
             event?: components["schemas"]["Impact.Event"];
