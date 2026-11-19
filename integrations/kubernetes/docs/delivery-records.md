@@ -372,8 +372,10 @@ still checked.
   `<registry>/pacto-targets` too. A snapshot over 8 MiB is logged and not
   pushed, so readers see the previous one turn stale.
 - **Read audience:** pull on `pacto-targets` reads every namespace's Pacto
-  status and workload shape regardless of Kubernetes RBAC, usually for every
-  CI job of the organization. Give that repository its own read ACL.
+  status and workload shape regardless of Kubernetes RBAC and, with
+  `evidence.enabled`, every target, provisioning and usage record (cost
+  included) the Evidence Server accepted, usually for every CI job of the
+  organization. Give that repository its own read ACL.
 - **Retention:** each publish writes a new manifest and Pacto deletes none.
   Expire untagged manifests with the registry's rule: GHCR untagged version
   cleanup, an ECR lifecycle policy on untagged images, or Harbor or zot

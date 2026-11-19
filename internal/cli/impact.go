@@ -381,7 +381,7 @@ func targetSnapshotLine(s fleet.SourceState, result *impact.Result) string {
 	signer := "unverified"
 	switch {
 	case s.Signer == "":
-	case unscoped(s, result.Limitations):
+	case s.SignerUnscoped:
 		signer = "signed by " + s.Signer + " (not scoped to this cluster)"
 	case s.Publisher != "":
 		signer = "signed by " + s.Signer + " (publisher " + s.Publisher + ")"

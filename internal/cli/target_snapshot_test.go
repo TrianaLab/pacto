@@ -80,12 +80,12 @@ func TestFleetStatusPrintsSnapshotSections(t *testing.T) {
 }
 
 func TestSourceRefLine(t *testing.T) {
-	s := fleet.SourceState{ID: "targets-c1", Ref: "reg/acme/pacto-targets@sha256:1", Signer: "key:ab"}
-	lims := []fleet.Limitation{{Code: fleet.LimitationTargetSnapshotUnscoped, Source: "targets-c1"}}
-	if got := sourceRef(s, lims); got != ", ref reg/acme/pacto-targets@sha256:1, signed by key:ab (not scoped to this cluster)" {
+	// The scope rides on the source, so a capped limitation list never drops it.
+	s := fleet.SourceState{ID: "targets-c1", Ref: "reg/acme/pacto-targets@sha256:1", Signer: "key:ab", SignerUnscoped: true}
+	if got := sourceRef(s); got != ", ref reg/acme/pacto-targets@sha256:1, signed by key:ab (not scoped to this cluster)" {
 		t.Fatal(got)
 	}
-	if got := sourceRef(fleet.SourceState{ID: "oci"}, nil); got != "" {
+	if got := sourceRef(fleet.SourceState{ID: "oci"}); got != "" {
 		t.Fatal(got)
 	}
 }

@@ -150,7 +150,7 @@ func (s *Service) targetSnapshotSources(ctx context.Context, opts FleetOptions) 
 	if opts.Now != nil {
 		now = opts.Now
 	}
-	r := &snapshotReader{cache: &s.snapshots, trust: trust, now: now(), seen: map[string]int{}}
+	r := &snapshotReader{cache: &s.snapshots, trust: trust, now: now(), used: map[string]bool{}}
 	var out []fleet.Source
 	for _, ref := range refs {
 		out = append(out, r.resolveTargetSnapshot(ctx, ref)...)
@@ -163,9 +163,24 @@ type snapshotReader struct {
 	cache *targetSnapshotCache
 	trust *delivery.TrustConfig
 	now   time.Time
-	// seen counts the snapshots read per cluster, so two refs of one cluster
-	// keep distinct source ids.
-	seen map[string]int
+	// used holds the source ids the read handed out, so two refs of one
+	// cluster, or a tag whose cluster ends like a section suffix
+	// (cluster-<uid>-workloads), keep distinct source ids.
+	used map[string]bool
+}
+
+// claim returns id, else id-N for the first N from 2 that leaves id and each
+// id+suffix unused, and marks them used.
+func (r *snapshotReader) claim(id string, suffixes ...string) string {
+	suffixes = append([]string{""}, suffixes...)
+	cand := id
+	for n := 2; slices.ContainsFunc(suffixes, func(s string) bool { return r.used[cand+s] }); n++ {
+		cand = fmt.Sprintf("%s-%d", id, n)
+	}
+	for _, s := range suffixes {
+		r.used[cand+s] = true
+	}
+	return cand
 }
 
 // resolveTargetSnapshot reads the snapshot ref pins, or every cluster tag of
@@ -173,18 +188,18 @@ type snapshotReader struct {
 func (r *snapshotReader) resolveTargetSnapshot(ctx context.Context, ref snapshotRef) []fleet.Source {
 	repo, err := ocireferrer.Open(ref.repo, ocireferrer.Options{Keychain: oci.NewKeychain(oci.EnvCredentialOptions()), Insecure: oci.EnvInsecureRegistries()})
 	if err != nil {
-		return []fleet.Source{fleet.NewFailingSource(targetSnapshotsID, fleet.SourceKindTargetSnapshot, err)}
+		return []fleet.Source{fleet.NewFailingSource(r.claim(targetSnapshotsID), fleet.SourceKindTargetSnapshot, err)}
 	}
 	if ref.reference != "" {
 		return r.snapshot(ctx, repo, ref.repo, ref.reference)
 	}
 	tags, truncated, err := deliveryrecord.ListTargetSnapshotTags(ctx, repo)
 	if err != nil {
-		return []fleet.Source{fleet.NewFailingSource(targetSnapshotsID, fleet.SourceKindTargetSnapshot, err)}
+		return []fleet.Source{fleet.NewFailingSource(r.claim(targetSnapshotsID), fleet.SourceKindTargetSnapshot, err)}
 	}
 	var out []fleet.Source
 	if truncated {
-		out = append(out, unusedSnapshot(targetSnapshotsID, nil, fleet.SourcePartial, fleet.LimitationTargetSnapshotBound,
+		out = append(out, unusedSnapshot(r.claim(targetSnapshotsID), nil, fleet.SourcePartial, fleet.LimitationTargetSnapshotBound,
 			fmt.Sprintf("%s holds more cluster tags than the %d a read takes; the clusters past them are unknown", ref.repo, delivery.MaxTargetSnapshots)))
 	}
 	for _, tag := range tags {
@@ -207,13 +222,13 @@ func (r *snapshotReader) snapshot(ctx context.Context, repo *remote.Repository, 
 	bundle, ref, err := r.fetch(ctx, repo, path, reference)
 	switch {
 	case errors.Is(err, deliveryrecord.ErrTargetSnapshotBound) || errors.Is(err, context.DeadlineExceeded):
-		return []fleet.Source{unusedSnapshot(id, cl, fleet.SourceUnavailable, fleet.LimitationTargetSnapshotBound,
+		return []fleet.Source{unusedSnapshot(r.claim(id), cl, fleet.SourceUnavailable, fleet.LimitationTargetSnapshotBound,
 			"the target snapshot "+reference+" is over its bound, or its read took longer than the read timeout")}
 	case errors.Is(err, errdef.ErrNotFound):
-		return []fleet.Source{unusedSnapshot(id, cl, fleet.SourceUnavailable, fleet.LimitationTargetSnapshotInvalid,
+		return []fleet.Source{unusedSnapshot(r.claim(id), cl, fleet.SourceUnavailable, fleet.LimitationTargetSnapshotInvalid,
 			"the target snapshot "+path+":"+reference+" was not found")}
 	case err != nil:
-		return []fleet.Source{fleet.NewFailingSource(id, fleet.SourceKindTargetSnapshot, err)}
+		return []fleet.Source{fleet.NewFailingSource(r.claim(id), fleet.SourceKindTargetSnapshot, err)}
 	}
 	return r.classify(id, tagCluster, ref, bundle)
 }
@@ -243,23 +258,20 @@ func (r *snapshotReader) fetch(ctx context.Context, repo *remote.Repository, pat
 func (r *snapshotReader) classify(id, tagCluster, ref string, bundle []byte) []fleet.Source {
 	st, verdict, err := delivery.OpenTargetSnapshot(bundle, r.trust, signing.OpenKey)
 	if err != nil {
-		return []fleet.Source{unusedSnapshot(id, snapshotCluster(tagCluster), fleet.SourceUnavailable, fleet.LimitationTargetSnapshotInvalid,
+		return []fleet.Source{unusedSnapshot(r.claim(id), snapshotCluster(tagCluster), fleet.SourceUnavailable, fleet.LimitationTargetSnapshotInvalid,
 			"the target snapshot "+ref+" was not used: "+err.Error())}
 	}
 	snap := st.Predicate
 	asOf, _ := time.Parse(time.RFC3339, snap.AsOf) // OpenTargetSnapshot checked it
 	switch {
 	case tagCluster != "" && snap.Cluster != tagCluster:
-		return []fleet.Source{unusedSnapshot(id, snapshotCluster(tagCluster), fleet.SourceUnavailable, fleet.LimitationTargetSnapshotInvalid,
+		return []fleet.Source{unusedSnapshot(r.claim(id), snapshotCluster(tagCluster), fleet.SourceUnavailable, fleet.LimitationTargetSnapshotInvalid,
 			"the target snapshot "+ref+" names cluster "+snap.Cluster+" under the tag of cluster "+tagCluster+"; it was not used")}
 	case asOf.After(r.now.Add(targetSnapshotSkew)):
-		return []fleet.Source{unusedSnapshot(id, snapshotCluster(snap.Cluster), fleet.SourceUnavailable, fleet.LimitationTargetSnapshotInvalid,
+		return []fleet.Source{unusedSnapshot(r.claim(id), snapshotCluster(snap.Cluster), fleet.SourceUnavailable, fleet.LimitationTargetSnapshotInvalid,
 			"the target snapshot "+ref+" claims asOf "+snap.AsOf+", in the future; it was not used")}
 	}
-	id = targetSnapshotsID + "-" + snap.Cluster
-	if r.seen[snap.Cluster]++; r.seen[snap.Cluster] > 1 {
-		id = fmt.Sprintf("%s-%d", id, r.seen[snap.Cluster])
-	}
+	id = r.claim(targetSnapshotsID+"-"+snap.Cluster, workloadsSuffix, evidenceSuffix)
 	rd := snapshotRead{id: id, ref: ref, snap: snap, verdict: verdict, asOf: asOf, now: r.now,
 		cl: snapshotCluster(snap.Cluster), sections: snapshotSections(snap)}
 	return rd.sources()
@@ -278,20 +290,15 @@ type snapshotRead struct {
 
 // sources are the snapshot's sources: its Pactos (the target-snapshot
 // source), its workloads and, when it carries one, its evidence section. The
-// verdict's limitations stay on the Pacto source, but an unscoped key marks
-// every section, so each line says so, and an unverified snapshot keeps its
-// evidence partial too.
+// verdict's limitations mark every section, so an unverified snapshot keeps
+// each one partial (Decision 19) and an unscoped key shows on each line.
 func (rd snapshotRead) sources() []fleet.Source {
 	vlims := verdictLimitations(rd.id, rd.snap.Cluster, rd.verdict)
-	var unscoped []fleet.Limitation
-	if rd.verdict.Verified {
-		unscoped = vlims
-	}
 	wid := rd.id + workloadsSuffix
 	out := []fleet.Source{
 		rd.section(rd.id, fleet.SourceKindTargetSnapshot, fleet.SourceKindKubernetes, delivery.PactoCollection(rd.id, rd.snap.Pactos, nil, rd.now),
 			append(slices.Clone(vlims), withSource(rd.id, rd.snap.Limitations)...)),
-		rd.section(wid, fleet.SourceKindKubernetesWorkloads, fleet.SourceKindKubernetesWorkloads, &fleet.Collection{InferredServices: rd.snap.Workloads}, withSource(wid, unscoped)),
+		rd.section(wid, fleet.SourceKindKubernetesWorkloads, fleet.SourceKindKubernetesWorkloads, &fleet.Collection{InferredServices: rd.snap.Workloads}, withSource(wid, vlims)),
 	}
 	if len(rd.snap.Evidence) == 0 && !slices.ContainsFunc(rd.snap.Sources, func(s delivery.SnapshotSource) bool { return s.Kind == fleet.SourceKindEvidenceHTTP }) {
 		return out
@@ -321,7 +328,7 @@ func (rd snapshotRead) section(sid, kind, secKind string, col *fleet.Collection,
 		status = fleet.SourcePartial
 	}
 	col.Cluster, col.Limitations = rd.cl, lims
-	col.State = &fleet.SourceState{Status: status, Ref: rd.ref, Signer: snapshotSigner(rd.verdict), Publisher: payloadText(rd.snap.Publisher),
+	col.State = &fleet.SourceState{Status: status, Ref: rd.ref, Signer: snapshotSigner(rd.verdict), SignerUnscoped: rd.verdict.Verified && !rd.verdict.Scoped, Publisher: payloadText(rd.snap.Publisher),
 		Cluster: rd.cl, LastSuccessfulSync: &at}
 	return fleet.NewMemorySource(sid, kind, col)
 }
@@ -333,10 +340,19 @@ const evidenceSuffix = "-evidence"
 // snapshotSections are snap's sections by kind. A snapshot that names none
 // covers its Pactos and workloads with its own completeness (its limitations
 // stay on the Pacto source); a section a snapshot with sections leaves out
+// reads partial. A snapshot its publisher calls partial over sections that
+// all claim complete names no section it could not read, so every section
 // reads partial.
 func snapshotSections(snap delivery.TargetSnapshot) map[string]delivery.SnapshotSource {
 	out := map[string]delivery.SnapshotSource{}
+	unexplained := snap.Completeness != fleet.CompletenessComplete &&
+		!slices.ContainsFunc(snap.Sources, func(sec delivery.SnapshotSource) bool { return sec.Completeness != fleet.CompletenessComplete })
 	for _, sec := range snap.Sources {
+		if unexplained {
+			sec.Completeness = fleet.CompletenessPartial
+			sec.Limitations = append(slices.Clone(sec.Limitations), fleet.Limitation{Code: fleet.LimitationSourcePartial,
+				Message: "the publisher of the target snapshot of cluster " + snap.Cluster + " says the snapshot is " + string(snap.Completeness)})
+		}
 		out[sec.Kind] = sec
 	}
 	for _, kind := range []string{fleet.SourceKindKubernetes, fleet.SourceKindKubernetesWorkloads, fleet.SourceKindEvidenceHTTP} {

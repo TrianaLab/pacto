@@ -241,6 +241,26 @@ func TestImpactAutoSnapshotLocalNewRevision(t *testing.T) {
 	}
 }
 
+// TestImpactLocalNewRevisionKeepsLocalConsumer: with no target snapshot read,
+// a local new revision of a published old one stays in the default domain,
+// where a --local consumer resolves it, with derivation on or off.
+func TestImpactLocalNewRevisionKeepsLocalConsumer(t *testing.T) {
+	e := newSnapEnv(t)
+	root := t.TempDir()
+	testutil.WriteOrders(t, filepath.Join(root, "orders"), "2.0.0", "job")
+	testutil.WriteConsumer(t, filepath.Join(root, "webapp"), "^1.0.0")
+	for _, auto := range []bool{false, true} {
+		res, err := ordersService(t).Impact(t.Context(), ImpactOptions{OldPath: e.ordersRef("1.0.0"), NewPath: filepath.Join(root, "orders"),
+			TargetSnapshotAuto: auto, Fleet: FleetOptions{LocalRoots: []string{root}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Gate == impact.GateClear || res.NewRevisionAdded || len(res.Consumers) != 1 || res.Consumers[0].Service != "webapp" {
+			t.Fatalf("auto %v: gate %s, added %v, consumers %+v", auto, res.Gate, res.NewRevisionAdded, res.Consumers)
+		}
+	}
+}
+
 // TestImpactAutoNotFoundKeepsGate: with no pacto-targets anywhere the answer
 // is the answer of the same sources without the lookup, plus where it looked.
 func TestImpactAutoNotFoundKeepsGate(t *testing.T) {

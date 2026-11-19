@@ -151,8 +151,9 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 	cmd.Flags().Bool("delivery", false, "expose the Pacto delivery tools over the ambient cluster")
 	cmd.Flags().Bool("publish", false, "expose pacto_publish_plan and pacto_publish beside the authoring tools")
 	cmd.Flags().String("delivery-namespace", delivery.PolicyNamespace, "in --delivery mode: "+"namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer")
-	cmd.Flags().String("delivery-trust", "", "the trust config delivery records (in --delivery mode) and the golden paths pacto_create creates from are verified with "+
-		"(the recorder's PEM public key or a YAML trust config; default $"+app.TrustEnv+")")
+	cmd.Flags().String("delivery-trust", "", "the trust config delivery records (in --delivery mode), the golden paths pacto_create creates from and the target snapshots "+
+		"pacto_impact and --target-snapshot read are verified with (the recorder's PEM public key or a YAML trust config; a target snapshot verifies only under a "+
+		"key scoped to its cluster: streams [\"<uid>/*/*\"]; default $"+app.TrustEnv+")")
 	// Declared before the shared set so this spelling wins: here --root selects a
 	// catalog to discover, not a closure to fold into a snapshot.
 	cmd.Flags().StringArray("root", nil, "contract root to discover a read-only catalog from: a local bundle path or an oci:// reference (repeatable)")
@@ -233,6 +234,9 @@ func buildFleetMode(cmd *cobra.Command, svc *app.Service, d deps) (*pactomcp.Fle
 	fopts := mcpFleetOptions(cmd)
 	if transport, _ := cmd.Flags().GetString("transport"); transport != "stdio" && len(fopts.TargetSnapshot) > 0 {
 		return nil, errMCPTargetSnapshotHTTP
+	}
+	if _, err := impactSnapshotAuto(cmd); err != nil {
+		return nil, err
 	}
 	src, err := mcpFleetSource(cmd.Context(), func(ctx context.Context) (*fleet.FleetSnapshot, error) {
 		return svc.Fleet(ctx, fopts)
@@ -522,6 +526,7 @@ func buildBundleMode(cmd *cobra.Command, svc *app.Service, version, ref string) 
 // Extracted so the wiring is directly testable.
 func mcpImpactProvider(cmd *cobra.Command, svc *app.Service, d deps, addMissing, trusted bool) func(ctx context.Context, snap *fleet.FleetSnapshot, req pactomcp.ImpactRequest) (*impact.Result, error) {
 	fopts := mcpFleetOptions(cmd)
+	auto, _ := impactSnapshotAuto(cmd) // buildFleetMode refused a mix at startup
 	return func(ctx context.Context, snap *fleet.FleetSnapshot, req pactomcp.ImpactRequest) (*impact.Result, error) {
 		req, err := refuseUntrustedImpact(req, trusted, snap)
 		if err != nil {
@@ -545,7 +550,7 @@ func mcpImpactProvider(cmd *cobra.Command, svc *app.Service, d deps, addMissing,
 		// Only a trusted (stdio) server derives the change's target snapshot:
 		// reading another cluster for a signed-in viewer needs a review there.
 		opts := app.ImpactOptions{OldPath: req.OldRef, NewPath: req.NewRef, NewDirName: req.NewDirName, Domain: req.Domain, Fleet: fopts,
-			IncludeObserved: req.IncludeObserved, Traces: traces, TargetSnapshotAuto: trusted}
+			IncludeObserved: req.IncludeObserved, Traces: traces, TargetSnapshotAuto: trusted && auto}
 		return svc.ImpactOnSnapshot(ctx, opts, snap, addMissing)
 	}
 }

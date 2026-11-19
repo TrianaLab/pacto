@@ -217,7 +217,7 @@ pacto ci [root] [flags]
       --stats-context string               comma-separated context to include in the run record: repository, run-url, environment=<name>; nothing is included unless named
       --stats-file string                  write the run record to this file for pacto stats publish, replacing the record it holds, so give each command its own file; default $PACTO_STATS_FILE
       --stats-registry string              publish an unsigned run record (statistics, never evidence) to this repository, for example ghcr.io/acme/pacto-stats; default $PACTO_STATS_REGISTRY
-      --target-snapshot stringArray        signed target snapshot(s) to read targets from: an oci:// pacto-targets repository, or :cluster-<uid> tags or digests to pin the clusters CI expects (repeatable); pacto impact and pacto ci also take auto (the default: derived from the provider ref) and off
+      --target-snapshot stringArray        signed target snapshot(s) to read targets from: an oci:// pacto-targets repository, or :cluster-<uid> tags or digests to pin the clusters CI expects (repeatable); pacto impact, pacto ci and pacto_impact on a stdio pacto mcp also take auto (the default: derived from the provider ref) and off
       --target-state stringArray           offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
       --traces stringArray                 OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
 ```
@@ -773,7 +773,7 @@ Signs a target snapshot document and pushes it to &lt;registry&gt;/pacto-targets
 
 Production clusters publish from the delivery recorder. This command is for demos, tests and installations that build the document themselves.
 
---key takes a PEM private key or a `pacto evidence keygen` seed. After a push the command writes &lt;key&gt;.pub.pem when it is absent. A reader verifies the snapshot only with a trust entry that holds that public key and is scoped to the cluster (streams: ["&lt;cluster&gt;/*/*"]).
+--key takes a PEM private key or a `pacto evidence keygen` seed. After a push the command writes &lt;key&gt;.pub.pem when it is absent; it refuses to publish while that file holds another key. A reader verifies the snapshot only with a trust entry that holds that public key and is scoped to the cluster (streams: ["&lt;cluster&gt;/*/*"]).
 
 ```
 pacto delivery targets publish <file> [flags]
@@ -1184,7 +1184,7 @@ pacto export backstage [flags]
       --oci stringArray               registry reference to include as a published-baseline revision (repeatable)
   -o, --output string                 write the entities to this file instead of standard output
       --root stringArray              contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
-      --target-snapshot stringArray   signed target snapshot(s) to read targets from: an oci:// pacto-targets repository, or :cluster-<uid> tags or digests to pin the clusters CI expects (repeatable); pacto impact and pacto ci also take auto (the default: derived from the provider ref) and off
+      --target-snapshot stringArray   signed target snapshot(s) to read targets from: an oci:// pacto-targets repository, or :cluster-<uid> tags or digests to pin the clusters CI expects (repeatable); pacto impact, pacto ci and pacto_impact on a stdio pacto mcp also take auto (the default: derived from the provider ref) and off
       --target-state stringArray      offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
       --traces stringArray            OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
 ```
@@ -1216,7 +1216,7 @@ pacto fleet [flags]
       --namespace string              namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)
       --oci stringArray               registry reference to include as a published-baseline revision (repeatable)
       --root stringArray              contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
-      --target-snapshot stringArray   signed target snapshot(s) to read targets from: an oci:// pacto-targets repository, or :cluster-<uid> tags or digests to pin the clusters CI expects (repeatable); pacto impact and pacto ci also take auto (the default: derived from the provider ref) and off
+      --target-snapshot stringArray   signed target snapshot(s) to read targets from: an oci:// pacto-targets repository, or :cluster-<uid> tags or digests to pin the clusters CI expects (repeatable); pacto impact, pacto ci and pacto_impact on a stdio pacto mcp also take auto (the default: derived from the provider ref) and off
       --target-state stringArray      offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
       --traces stringArray            OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
 ```
@@ -1651,7 +1651,7 @@ pacto impact <old> <new> | --unavailable <service> | --removed <service> | --reg
       --stats-context string            comma-separated context to include in the run record: repository, run-url, environment=<name>; nothing is included unless named
       --stats-file string               write the run record to this file for pacto stats publish, replacing the record it holds, so give each command its own file; default $PACTO_STATS_FILE
       --stats-registry string           publish an unsigned run record (statistics, never evidence) to this repository, for example ghcr.io/acme/pacto-stats; default $PACTO_STATS_REGISTRY
-      --target-snapshot stringArray     signed target snapshot(s) to read targets from: an oci:// pacto-targets repository, or :cluster-<uid> tags or digests to pin the clusters CI expects (repeatable); pacto impact and pacto ci also take auto (the default: derived from the provider ref) and off
+      --target-snapshot stringArray     signed target snapshot(s) to read targets from: an oci:// pacto-targets repository, or :cluster-<uid> tags or digests to pin the clusters CI expects (repeatable); pacto impact, pacto ci and pacto_impact on a stdio pacto mcp also take auto (the default: derived from the provider ref) and off
       --target-state stringArray        offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
       --traces string                   OTLP/JSON trace file; its observed edges corroborate and surface consumers (implies --include-observed)
       --unavailable string              what happens if this service (a fleet service key, or a name only one domain holds) becomes unavailable; offering:<name> asks it of every provider of an offering
@@ -1960,7 +1960,7 @@ pacto mcp [bundle-ref] [flags]
       --dashboard-url string          with --fleet: base URL of a Pacto dashboard; fleet answers then carry an href to each entity's page there
       --delivery[=true|false]         expose the Pacto delivery tools over the ambient cluster
       --delivery-namespace string     in --delivery mode: namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer (default "pacto-delivery")
-      --delivery-trust string         the trust config delivery records (in --delivery mode) and the golden paths pacto_create creates from are verified with (the recorder's PEM public key or a YAML trust config; default $PACTO_DELIVERY_TRUST)
+      --delivery-trust string         the trust config delivery records (in --delivery mode), the golden paths pacto_create creates from and the target snapshots pacto_impact and --target-snapshot read are verified with (the recorder's PEM public key or a YAML trust config; a target snapshot verifies only under a key scoped to its cluster: streams ["<uid>/*/*"]; default $PACTO_DELIVERY_TRUST)
       --detected string               add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
       --evidence-url stringArray      base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --exchange-audience string      with --fleet or --delivery over HTTP with --auth-issuer: the audience to exchange for, one the apiserver accepts (default "pacto-cli")
@@ -1986,7 +1986,7 @@ pacto mcp [bundle-ref] [flags]
       --review string                 with --fleet over HTTP with --auth-issuer: how people are reviewed: cluster asks once about every namespace and needs a ClusterRole; local asks in each --namespace only, which a namespaced Role grants, and then services without a namespace show to nobody (default "cluster")
       --root stringArray              contract root to discover a read-only catalog from: a local bundle path or an oci:// reference (repeatable)
       --stats-read-registry string    with --fleet: the stats repository pacto_stats reads; it reads and never records. Over stdio the default is $PACTO_STATS_REGISTRY; over HTTP only this flag enables pacto_stats
-      --target-snapshot stringArray   signed target snapshot(s) to read targets from: an oci:// pacto-targets repository, or :cluster-<uid> tags or digests to pin the clusters CI expects (repeatable); pacto impact and pacto ci also take auto (the default: derived from the provider ref) and off
+      --target-snapshot stringArray   signed target snapshot(s) to read targets from: an oci:// pacto-targets repository, or :cluster-<uid> tags or digests to pin the clusters CI expects (repeatable); pacto impact, pacto ci and pacto_impact on a stdio pacto mcp also take auto (the default: derived from the provider ref) and off
       --target-state stringArray      offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
       --traces stringArray            OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
   -t, --transport string              transport type: stdio or http (default "stdio")
@@ -2313,7 +2313,7 @@ pacto stats [flags]
       --root stringArray              contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
       --service string                total only the run records of this service: the contract's service.name
       --since string                  start of the window: 30d, 12h, a date or RFC 3339 (default 30d)
-      --target-snapshot stringArray   signed target snapshot(s) to read targets from: an oci:// pacto-targets repository, or :cluster-<uid> tags or digests to pin the clusters CI expects (repeatable); pacto impact and pacto ci also take auto (the default: derived from the provider ref) and off
+      --target-snapshot stringArray   signed target snapshot(s) to read targets from: an oci:// pacto-targets repository, or :cluster-<uid> tags or digests to pin the clusters CI expects (repeatable); pacto impact, pacto ci and pacto_impact on a stdio pacto mcp also take auto (the default: derived from the provider ref) and off
       --target-state stringArray      offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
       --traces stringArray            OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
       --until string                  end of the window, exclusive: 30d, 12h, a date or RFC 3339 (default now)
@@ -2375,7 +2375,7 @@ pacto tui [flags]
       --oci stringArray               registry reference to include as a published-baseline revision (repeatable)
       --read-only[=true|false]        hide every write verb
       --root stringArray              contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
-      --target-snapshot stringArray   signed target snapshot(s) to read targets from: an oci:// pacto-targets repository, or :cluster-<uid> tags or digests to pin the clusters CI expects (repeatable); pacto impact and pacto ci also take auto (the default: derived from the provider ref) and off
+      --target-snapshot stringArray   signed target snapshot(s) to read targets from: an oci:// pacto-targets repository, or :cluster-<uid> tags or digests to pin the clusters CI expects (repeatable); pacto impact, pacto ci and pacto_impact on a stdio pacto mcp also take auto (the default: derived from the provider ref) and off
       --target-state stringArray      offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
       --traces stringArray            OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
 ```

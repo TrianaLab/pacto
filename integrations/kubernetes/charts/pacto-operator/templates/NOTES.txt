@@ -191,7 +191,9 @@ records are being written:
 The recorder publishes the cluster's signed target snapshot to
 {{ . }}/pacto-targets:cluster-<uid> every 5 minutes, and CI reads it with
 pacto impact. Pull on that repository reads every namespace's Pacto status and
-workload shape regardless of Kubernetes RBAC, so give it its own read ACL.
+workload shape regardless of Kubernetes RBAC and, with evidence.enabled, every
+target, provisioning and usage record (cost included) the Evidence Server
+accepted, so give it its own read ACL.
 {{- end }}
 {{- end }}
 {{- end }}

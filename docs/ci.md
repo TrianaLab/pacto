@@ -166,6 +166,7 @@ runners), never cluster credentials:
       --output-format json > impact.json || [ $? -eq 2 ]
     jq -r '.consumers[] | select(.compatibilityVerdict == "incompatible") | "\(.service) (owner \(.owner // "unknown")) accepts \(.compatibility)"' impact.json
     jq -e '.classification != "BREAKING" or all(.consumers[]; .compatibilityVerdict != "incompatible")' impact.json
+    jq -e '.classification != "BREAKING" or .completeness == "complete"' impact.json
   env:
     PACTO_DELIVERY_TRUST: pacto-trust.yaml   # committed: public keys only
 ```
@@ -173,11 +174,14 @@ runners), never cluster credentials:
 The first `jq` lists each consumer whose `compatibility` range rejects the new
 version, with its owner; the second fails the step when a `BREAKING` change
 has an `incompatible` consumer. A range Pacto cannot evaluate reads
-`unknown` and passes.
+`unknown` and passes. The third fails a `BREAKING` change whose answer is
+partial: a snapshot that is unverified, unscoped, stale, invalid or
+unreachable lists no consumers, so the second check alone would pass it.
 
 `pacto impact` exits on its release gate: `0` clear, `1` blocked and `2`
-unverified. `|| [ $? -eq 2 ]` lets the step reach the `jq` checks after a `2`;
-a `1` (blocked, or the command could not run) still fails it.
+unverified. A `BREAKING` change with compatible consumers exits `2` too, so
+`|| [ $? -eq 2 ]` lets the step reach the `jq` checks after a `2`; a `1`
+(blocked, or the command could not run) still fails it.
 
 ### Where consumers come from
 
@@ -228,7 +232,9 @@ keys:
 - `--target-snapshot` with a repository reads it when the derivation cannot
   find it, and `--target-snapshot off` reads none.
 - Pull on `pacto-targets` reads every cluster's Pacto status and workload
-  shape regardless of Kubernetes RBAC. Give that repository its own read ACL.
+  shape regardless of Kubernetes RBAC and, where the Evidence Server is on,
+  every target, provisioning and usage record (cost included) it accepted.
+  Give that repository its own read ACL.
 
 ### Consumers that run nowhere yet
 

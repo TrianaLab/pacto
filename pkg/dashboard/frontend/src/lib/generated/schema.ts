@@ -4551,6 +4551,8 @@ export interface components {
             revisionCount: number;
             /** @description The trust entry that verified what the source read (its name, or key:<fingerprint>), never a name the signed payload claims; empty means unverified */
             signer?: string;
+            /** @description The trust entry in signer is not scoped to the cluster the source describes, so the cluster it names is the signer's claim alone */
+            signerUnscoped?: boolean;
             /** @enum {string} */
             status: "available" | "partial" | "stale" | "unavailable";
             /** Format: int64 */

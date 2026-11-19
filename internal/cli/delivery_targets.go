@@ -4,7 +4,9 @@ import (
 	"cmp"
 	"context"
 	"crypto/ed25519"
+	"crypto/x509"
 	"encoding/base64"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -45,7 +47,7 @@ func newDeliveryTargetsCommand(v *viper.Viper, d deps) *cobra.Command {
 			"Production clusters publish from the delivery recorder. This command is for demos, tests and installations that build " +
 			"the document themselves.\n\n" +
 			"--key takes a PEM private key or a `pacto evidence keygen` seed. After a push the command writes <key>.pub.pem when it " +
-			"is absent. A reader verifies the snapshot only with a trust entry that holds that public key and is scoped to the " +
+			"is absent; it refuses to publish while that file holds another key. A reader verifies the snapshot only with a trust entry that holds that public key and is scoped to the " +
 			"cluster (streams: [\"<cluster>/*/*\"]).",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -89,6 +91,9 @@ func publishTargets(cmd *cobra.Command, d deps, file, registry, keyPath string) 
 	if err := s.Check(); err != nil {
 		return targetsPublished{}, fmt.Errorf("%s: %w", file, err)
 	}
+	if err := checkPublicKeyFile(keyPath+".pub.pem", fingerprint); err != nil {
+		return targetsPublished{}, err
+	}
 	path := strings.TrimSuffix(contract.TrimOCIScheme(registry), "/") + "/" + delivery.TargetSnapshotRepository
 	ref, err := pushTargets(cmd.Context(), d, path, &s, signing.Keyed(kp, ""))
 	if err != nil {
@@ -109,6 +114,8 @@ func pushTargets(ctx context.Context, d deps, path string, s *delivery.TargetSna
 		return "", err
 	}
 	tag, _ := delivery.TargetSnapshotTag(s.Cluster) // Check accepted the cluster
+	// Only a detected mode is signed, never the one the document claims.
+	s.RegistryMode = ""
 	if _, err := repo.Resolve(ctx, tag); err == nil {
 		// The probe needs a subject that exists: the first publish records no mode.
 		if caps, err := app.NewRegistryProbe()(ctx, contract.OCIScheme+path+":"+tag); err == nil {
@@ -163,6 +170,29 @@ func loadTargetsKey(path string) (*signing.Keypair, error) {
 		return nil, fmt.Errorf("%w; it is no pacto evidence keygen seed either", pemErr)
 	}
 	return signing.FromPrivateKey(ed25519.NewKeyFromSeed(seed))
+}
+
+// checkPublicKeyFile refuses a file at path that holds another public key
+// than the one with fingerprint, so <key>.pub.pem always names the key that
+// signs (a seed regenerated in place would otherwise keep the old one).
+func checkPublicKeyFile(path, fingerprint string) error {
+	raw, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	held := "no PEM public key"
+	if block, _ := pem.Decode(raw); block != nil {
+		if pub, err := x509.ParsePKIXPublicKey(block.Bytes); err == nil {
+			if signing.Hint(pub) == fingerprint {
+				return nil
+			}
+			held = "key " + signing.Hint(pub)
+		}
+	}
+	return fmt.Errorf("%s holds %s, not the signing key %s: remove it so the publish writes the new one", path, held, fingerprint)
 }
 
 // writePublicKeyOnce writes kp's PEM public key to path unless a file is there.

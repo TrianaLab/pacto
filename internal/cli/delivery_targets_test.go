@@ -103,16 +103,39 @@ func TestDeliveryTargetsPublish(t *testing.T) {
 	if s := publishedSnapshot(t, host, "c-6f1e"); s.Cluster != "c-6f1e" || s.AsOf == "" {
 		t.Fatalf("snapshot = %+v", s)
 	}
-	// JSON output, and a .pub.pem already there is left alone.
-	if err := os.WriteFile(key+".pub.pem", []byte("mine"), 0o644); err != nil {
+	// JSON output, and a .pub.pem of the same key already there is left alone.
+	same, _ := delivery.PublicKeyPEM(pub)
+	if err := os.WriteFile(key+".pub.pem", []byte("\n"+same), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	out, err = runDelivery(t, defaultDeps(), "json", "targets", "publish", snapshotDoc(t, nil), "--registry", "oci://"+host+"/acme/", "--key", key)
 	if err != nil || !strings.Contains(out, `"cluster": "c-6f1e"`) {
 		t.Fatalf("json = %q, %v", out, err)
 	}
-	if raw, _ := os.ReadFile(key + ".pub.pem"); string(raw) != "mine" {
+	if raw, _ := os.ReadFile(key + ".pub.pem"); string(raw) != "\n"+same {
 		t.Fatalf(".pub.pem overwritten: %q", raw)
+	}
+}
+
+// TestDeliveryTargetsPublishRefusesStalePublicKey: a .pub.pem that holds
+// another key (a seed regenerated in place) or no key is refused before the
+// push, so the file never names a key other than the one that signs.
+func TestDeliveryTargetsPublishRefusesStalePublicKey(t *testing.T) {
+	host, key, pub := targetsEnv(t)
+	other, _, _ := ed25519.GenerateKey(rand.Reader)
+	stale, _ := delivery.PublicKeyPEM(other)
+	for content, want := range map[string]string{stale: "key " + signing.Hint(other), "mine": "no PEM public key"} {
+		if err := os.WriteFile(key+".pub.pem", []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		_, err := runDelivery(t, defaultDeps(), "", "targets", "publish", snapshotDoc(t, nil), "--registry", host+"/acme", "--key", key)
+		if err == nil || !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), signing.Hint(pub)) {
+			t.Fatalf("%q: %v", want, err)
+		}
+	}
+	repo, _ := ocireferrer.Open(host+"/acme/pacto-targets", ocireferrer.Options{Insecure: []string{host}})
+	if _, err := repo.Resolve(t.Context(), "cluster-c-6f1e"); err == nil {
+		t.Fatal("a refused publish pushed")
 	}
 }
 
@@ -137,11 +160,12 @@ func TestDeliveryTargetsPublishRefusesBadDocument(t *testing.T) {
 }
 
 // TestDeliveryTargetsPublishRecordsRegistryMode: the mode comes from the probe
-// of the cluster's existing tag, so the first publish records none.
+// of the cluster's existing tag, so the first publish records none, whatever
+// the document claims.
 func TestDeliveryTargetsPublishRecordsRegistryMode(t *testing.T) {
 	host, key, _ := targetsEnv(t)
 	for i := range 2 {
-		if _, err := runDelivery(t, defaultDeps(), "", "targets", "publish", snapshotDoc(t, nil), "--registry", host+"/acme", "--key", key); err != nil {
+		if _, err := runDelivery(t, defaultDeps(), "", "targets", "publish", snapshotDoc(t, map[string]any{"registryMode": "claimed"}), "--registry", host+"/acme", "--key", key); err != nil {
 			t.Fatal(err)
 		}
 		mode := publishedSnapshot(t, host, "c-6f1e").RegistryMode

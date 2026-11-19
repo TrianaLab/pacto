@@ -262,7 +262,7 @@ func TestTargetSnapshotUnscopedKeyIsPartial(t *testing.T) {
 	_ = os.WriteFile(bare, []byte(e.pub), 0o600)
 	snap := readSnap(t, &Service{}, snapOpts(bare, "oci://"+e.repo))
 	id := "targets-" + snapA
-	if st := stateOf(t, snap, id); st.Status != fleet.SourcePartial || !strings.HasPrefix(st.Signer, "key:") || !hasLim(snap, id, fleet.LimitationTargetSnapshotUnscoped) {
+	if st := stateOf(t, snap, id); st.Status != fleet.SourcePartial || !strings.HasPrefix(st.Signer, "key:") || !st.SignerUnscoped || !hasLim(snap, id, fleet.LimitationTargetSnapshotUnscoped) {
 		t.Fatalf("source %+v, limitations %+v", st, snap.Limitations)
 	}
 	if snap.Completeness == fleet.CompletenessComplete {
@@ -306,6 +306,60 @@ func TestTargetSnapshotUnverifiedIsPartial(t *testing.T) {
 	if snap.Completeness == fleet.CompletenessComplete {
 		t.Fatal("an unverified snapshot read complete")
 	}
+	// Every section reads partial, the workloads too (Decision 19).
+	wid := id + workloadsSuffix
+	if st := stateOf(t, snap, wid); st.Status != fleet.SourcePartial || st.SignerUnscoped || !hasLim(snap, wid, fleet.LimitationTargetSnapshotUnverified) {
+		t.Fatalf("workloads %+v, limitations %+v", st, snap.Limitations)
+	}
+}
+
+// TestTargetSnapshotPartialTopOverCompleteSections: a publisher that calls
+// the snapshot partial keeps every section partial, even when each section
+// claims complete and the snapshot carries no limitation text.
+func TestTargetSnapshotPartialTopOverCompleteSections(t *testing.T) {
+	e := newSnapEnv(t)
+	s := ledgerSnapshot(snapA, snapNow)
+	s.Completeness = fleet.CompletenessPartial
+	s.Sources = []delivery.SnapshotSource{
+		{Kind: fleet.SourceKindKubernetes, AsOf: s.AsOf, Completeness: fleet.CompletenessComplete},
+		{Kind: fleet.SourceKindKubernetesWorkloads, AsOf: s.AsOf, Completeness: fleet.CompletenessComplete},
+	}
+	e.push(t, e.key, snapA, s)
+	snap := readSnap(t, &Service{}, snapOpts(trustFile(t, e.scoped("rec", snapA)), "oci://"+e.repo))
+	for _, id := range []string{"targets-" + snapA, "targets-" + snapA + workloadsSuffix} {
+		if st := stateOf(t, snap, id); st.Status != fleet.SourcePartial || !hasLim(snap, id, fleet.LimitationSourcePartial) {
+			t.Fatalf("%s = %+v, limitations %+v", id, st, snap.Limitations)
+		}
+	}
+	if snap.Completeness == fleet.CompletenessComplete {
+		t.Fatal("a snapshot its publisher calls partial read complete")
+	}
+}
+
+// TestTargetSnapshotSourceIDsStayUnique: the same missing pin twice, and a
+// tag whose cluster ends like a section suffix next to the real cluster,
+// read as sources of their own, never a duplicate id that fails the build.
+func TestTargetSnapshotSourceIDsStayUnique(t *testing.T) {
+	e := newSnapEnv(t)
+	e.push(t, e.key, snapA, ledgerSnapshot(snapA, snapNow))
+	_, other, _ := ed25519.GenerateKey(rand.Reader)
+	e.push(t, other, snapA+"-workloads", ledgerSnapshot(snapA+"-workloads", snapNow))
+	trust := trustFile(t, e.scoped("rec", snapA, snapB))
+	svc := &Service{}
+	snap, err := svc.Fleet(t.Context(), snapOpts(trust, "oci://"+e.repo))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st := stateOf(t, snap, "targets-"+snapA); st.Status != fleet.SourceAvailable {
+		t.Fatalf("cluster A = %+v", st)
+	}
+	wantUnused(t, snap, "targets-"+snapA+"-workloads-2", fleet.LimitationTargetSnapshotInvalid)
+	missing := "oci://" + e.repo + ":cluster-" + snapB
+	if snap, err = svc.Fleet(t.Context(), snapOpts(trust, missing, missing)); err != nil {
+		t.Fatal(err)
+	}
+	wantUnused(t, snap, "targets-"+snapB, fleet.LimitationTargetSnapshotInvalid)
+	wantUnused(t, snap, "targets-"+snapB+"-2", fleet.LimitationTargetSnapshotInvalid)
 }
 
 func TestTargetSnapshotBadSignatureUnused(t *testing.T) {

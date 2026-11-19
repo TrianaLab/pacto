@@ -171,10 +171,10 @@ func TestImpactPrintsDeniedAndUnusedSnapshots(t *testing.T) {
 		TargetSnapshots: []fleet.SourceState{
 			{ID: "targets-c-6f1e", Status: fleet.SourceUnavailable, Cluster: cl},
 			{ID: "targets", Status: fleet.SourceUnavailable},
-			{ID: "targets-c2", Ref: "r@sha256:1", Signer: "key:ab", Status: fleet.SourcePartial},
+			{ID: "targets-c2", Ref: "r@sha256:1", Signer: "key:ab", SignerUnscoped: true, Status: fleet.SourcePartial},
 			{ID: "targets-c3", Ref: "r@sha256:2", Signer: "rec", Status: fleet.SourceAvailable},
 		},
-		Limitations: []fleet.Limitation{{Code: fleet.LimitationTargetSnapshotUnscoped, Source: "targets-c2"}},
+		// No limitation: a capped list can drop it, so the line reads the source.
 	})
 	want := "Registry: no pacto-targets at ghcr.io/acme/pacto-targets (denied (check registry read credentials)) or ghcr.io/pacto-targets (no cluster tag); consumers come only from the sources you passed\n" +
 		"Targets: targets-c-6f1e (cluster c-6f1e, unavailable, not used)\n" +
@@ -224,6 +224,27 @@ func TestMCPImpactStdioDerivesSnapshot(t *testing.T) {
 		pactomcp.ImpactRequest{OldRef: "oci://" + host + "/acme/orders:1.0.0", NewRef: "oci://" + host + "/acme/orders:2.0.0"})
 	if err != nil || res.Registry == nil || len(res.TargetSnapshots) != 1 || res.Gate != impact.GateBlocked {
 		t.Fatalf("res %+v, %v", res, err)
+	}
+}
+
+// TestMCPImpactStdioTargetSnapshotOff: pacto mcp --target-snapshot off turns
+// the derivation off as pacto impact does, and a mix fails at startup.
+func TestMCPImpactStdioTargetSnapshotOff(t *testing.T) {
+	host, trust := webappTargets(t, "^1.0.0")
+	svc := app.NewService(ordersStore(t), nil)
+	cmd := newMCPCommand(svc, "v", defaultDeps())
+	cmd.SetContext(t.Context())
+	for k, v := range map[string]string{"transport": "stdio", "fleet": "true", "local": "", "delivery-trust": trust, "target-snapshot": "off"} {
+		_ = cmd.Flags().Set(k, v)
+	}
+	res, err := mcpImpactProvider(cmd, svc, defaultDeps(), true, true)(t.Context(), &fleet.FleetSnapshot{},
+		pactomcp.ImpactRequest{OldRef: "oci://" + host + "/acme/orders:1.0.0", NewRef: "oci://" + host + "/acme/orders:2.0.0"})
+	if err != nil || res.Registry != nil || len(res.TargetSnapshots) != 0 {
+		t.Fatalf("res %+v, %v", res, err)
+	}
+	_ = cmd.Flags().Set("target-snapshot", "oci://"+host+"/acme/pacto-targets")
+	if _, err := buildFleetMode(cmd, svc, defaultDeps()); err == nil || !strings.Contains(err.Error(), "not a mix") {
+		t.Fatalf("mixed values: %v", err)
 	}
 }
 

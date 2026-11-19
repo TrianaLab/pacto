@@ -142,7 +142,8 @@ func (s *Service) ImpactOnSnapshot(ctx context.Context, opts ImpactOptions, snap
 // impactOnResolved is [Service.ImpactOnSnapshot] with the revisions resolved.
 func (s *Service) impactOnResolved(ctx context.Context, opts ImpactOptions, snap *fleet.FleetSnapshot, addMissing bool, oldBundle, newBundle *contract.Bundle) (*impact.Result, error) {
 	var err error
-	domain := opts.domain()
+	domain := opts.domain(snap, newBundle.Contract.Service.Name)
+	opts.Domain = domain
 	added := addMissing && snap.Services[fleet.NewServiceKeyDomain(domain, newBundle.Contract.Service.Name)] == nil
 	if added {
 		rev := fleet.RawRevision{Bundle: newBundle, Domain: domain, RequestedRef: opts.NewPath}
@@ -170,15 +171,21 @@ func (s *Service) impactOnResolved(ctx context.Context, opts ImpactOptions, snap
 // domain is the changed service's fleet domain: Domain when set, else the
 // domain of the reference that resolved the new revision. A local new
 // revision of a published old one (oci://ghcr.io/acme/ledger:2.3.0
-// ./services/ledger) is that service, so it takes the old ref's domain.
-func (o ImpactOptions) domain() string {
+// ./services/ledger) takes the old ref's domain only when a target snapshot
+// was read (its consumers name the published domain) and no source holds the
+// service in the default domain, so local consumers (--local, --root) keep
+// resolving it (Decision 14).
+func (o ImpactOptions) domain(snap *fleet.FleetSnapshot, name string) string {
 	if o.Domain != "" {
 		return o.Domain
 	}
 	if d := revisionDomain(o.NewPath); d != "" {
 		return d
 	}
-	return revisionDomain(o.OldPath)
+	if len(o.Fleet.TargetSnapshot) > 0 && snap.Services[fleet.NewServiceKeyDomain("", name)] == nil {
+		return revisionDomain(o.OldPath)
+	}
+	return ""
 }
 
 func (s *Service) resolveImpactPair(ctx context.Context, opts ImpactOptions) (oldBundle, newBundle *contract.Bundle, err error) {
@@ -214,7 +221,7 @@ func (s *Service) analyzeImpact(ctx context.Context, opts ImpactOptions, snap *f
 		impact.Options{
 			// Domain-qualify the changed service from its new reference so impact is
 			// isolated across domains (a local path yields the default domain).
-			Domain:           opts.domain(),
+			Domain:           opts.Domain,
 			IncludeObserved:  opts.IncludeObserved,
 			ObservedEdges:    observed,
 			NameInferredFrom: nameInferredFrom(oldBundle, newBundle),
