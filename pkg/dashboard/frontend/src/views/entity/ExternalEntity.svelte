@@ -4,6 +4,7 @@
   import { fleetEntityUrl } from '../../lib/router.ts';
   import EntityLink from '../../components/EntityLink.svelte';
   import ExternalProvenance from '../../components/ExternalProvenance.svelte';
+  import IdentityBadge from '../../components/IdentityBadge.svelte';
 
   // An external system's page: the services that declare, call or use it first, then how
   // Pacto knows it. The catalog that classified it (or how its consumers join it) is in
@@ -22,6 +23,15 @@
   const signatureWords = (c) => (c.signature === 'verified' ? `signature verified${c.signer ? ` (${c.signer})` : ''}` : `signature ${c.signature || 'unknown'}`);
   // Required and optional describe a declaration; a consumer no contract declares says
   // how Pacto knows it instead.
+  // The inferred contract the operator published for it (517-S3). Its revisions come
+  // operator-signed first, so the first is the one shown, and the mark says what its own
+  // signature proves. A view that hides any source or consumer drops the surface.
+  const provider = $derived(rec.provider ?? null);
+  const shown = $derived(provider?.revisions?.[0] ?? null);
+  const markTitle = $derived(shown?.signature?.source === 'operator'
+    ? "Published and signed by this installation's operator from what Pacto sees; a range is never checked against it"
+    : 'Unsigned, publisher unknown; a range is never checked against it');
+  const SURFACE = [['hosts', 'Hosts'], ['ports', 'Ports'], ['clients', 'Clients']];
   const consumerUse = (c) => (c.provenance === 'observed' ? 'observed only' : c.provenance === 'inferred' ? 'inferred only' : c.required ? 'required' : 'optional');
 </script>
 
@@ -56,6 +66,36 @@
     {/if}
   </section>
 
+  {#if provider}
+    <details class="xe-inferred disclosure" id="sec-inferred-contract" data-toc="Inferred contract" data-testid="external-inferred-contract">
+      <summary>
+        <span class="disclosure-caret" data-motion aria-hidden="true"></span>
+        <h2 class="t-section-title">Inferred contract</h2>
+        <span class="t-meta">Range checks: unverified</span>
+      </summary>
+      <div class="xe-inferred-panel">
+        <p class="t-body-2 xe-wrap"><bdi>{provider.repository}</bdi>{#if shown}, version <bdi>{shown.version}</bdi>{/if} <IdentityBadge label="inferred" title={markTitle} describe /></p>
+        {#if shown?.surface}
+          <details class="disclosure">
+            <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span>What Pacto saw</summary>
+            {#each SURFACE as [k, label] (k)}
+              {#if shown.surface[k]?.length}
+                <h3 class="t-label">{label}</h3>
+                <ul class="xe-surface">
+                  {#each shown.surface[k] as v (v.value)}
+                    <li><bdi>{v.value}</bdi> <span class="t-meta xe-sources">seen by {(v.sources ?? []).join(', ')}</span></li>
+                  {/each}
+                </ul>
+              {/if}
+            {/each}
+          </details>
+        {:else if shown}
+          <p class="t-meta" data-testid="inferred-surface-hidden">Surface hidden: some sources are outside your view</p>
+        {/if}
+      </div>
+    </details>
+  {/if}
+
   <section class="xe-section" id="sec-provenance" data-toc="Provenance" aria-labelledby="xe-prov-h">
     <h2 id="xe-prov-h" class="t-section-title">Provenance</h2>
     {#if catalog && rec.catalog}
@@ -75,7 +115,12 @@
   .external-entity { display: flex; flex-direction: column; gap: var(--sp-4); }
   .xe-section { display: flex; flex-direction: column; gap: var(--sp-2); }
   .xe-section h2, .xe-caption, .xe-catalog, .xe-note { margin: 0; }
-  .xe-catalog { overflow-wrap: anywhere; }
+  .xe-catalog, .xe-wrap, .xe-surface li { overflow-wrap: anywhere; }
+  .xe-inferred { border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: var(--sp-4); background: var(--c-surface); }
+  .xe-inferred > summary h2 { margin: 0; color: var(--c-text); }
+  .xe-inferred-panel { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-3); }
+  .xe-inferred-panel p, .xe-inferred-panel h3 { margin: 0; }
+  .xe-surface { margin: 0 0 var(--sp-2); padding-left: var(--sp-4); }
   .xe-digest { font-family: var(--font-mono); font-size: 0.95em; }
   .xe-frame { container: xetable / inline-size; }
   @container xetable (max-width: 36rem) {

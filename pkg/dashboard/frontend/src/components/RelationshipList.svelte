@@ -76,6 +76,9 @@
   // judged in range whatever status the payload carries.
   const NOT_DECLARED = { label: RANGE_NOT_DECLARED, tone: 'neutral' };
   const rangeOf = (c) => (c.compatibility === 'unknown' ? NOT_DECLARED : RANGE[c.rangeStatus]);
+  // Why a range stayed unknown, in the badge's title.
+  const RANGE_REASON = { INFERRED_PROVIDER: 'Unverified: inferred contract' };
+  const rangeTitle = (c) => RANGE_REASON[c.rangeReason] ?? '';
   const nameFromRef = (e) => claims(e).some((c) => c.nameFromRef);
 
   // When traffic on this edge was last seen, and how many calls were counted.
@@ -117,10 +120,10 @@
           <!-- The range verdict sits beside the range it judges, so a claim keeps one
                line at 1280px instead of wrapping a separate Range pair onto a second. -->
           {#each claimFacts(c) as [label, value] (label)}
-            <dt>{label}</dt><dd>{value}{#if label === 'Compatibility' && rangeOf(c)}{value ? ' ' : ''}<IdentityBadge label={rangeOf(c).label} tone={rangeOf(c).tone} />{/if}</dd>
+            <dt>{label}</dt><dd>{value}{#if label === 'Compatibility' && rangeOf(c)}{value ? ' ' : ''}<IdentityBadge label={rangeOf(c).label} tone={rangeOf(c).tone} title={rangeTitle(c)} />{/if}</dd>
           {/each}
           {#if !c.compatibility && RANGE[c.rangeStatus]}
-            <dt>Range</dt><dd><IdentityBadge label={RANGE[c.rangeStatus].label} tone={RANGE[c.rangeStatus].tone} /></dd>
+            <dt>Range</dt><dd><IdentityBadge label={RANGE[c.rangeStatus].label} tone={RANGE[c.rangeStatus].tone} title={rangeTitle(c)} /></dd>
           {/if}
         </dl>
         {#if hasBehavior(c)}
