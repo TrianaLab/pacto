@@ -810,11 +810,6 @@ func TestSurfaceParameterMapping(t *testing.T) {
 		t.Error(p)
 	}
 	for _, f := range unreachableFields(surfaceRows) {
-		// ponytail: 514-S2 P3 adds the Cluster filter and P6 its CLI, MCP and
-		// dashboard rows; P6 deletes this exemption.
-		if f == "EntityFilter.Cluster" {
-			continue
-		}
 		t.Errorf("%s is reachable from no row", f)
 	}
 	// The check itself: one row less is a named failure.

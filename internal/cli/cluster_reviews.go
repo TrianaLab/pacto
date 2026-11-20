@@ -132,6 +132,11 @@ func (c *clusterReviewSet) resolve(ctx context.Context) {
 	for uid := range conflict {
 		delete(c.reviews, uid)
 	}
+	if len(entries) == 0 && c.home.Config != nil {
+		// No Kubernetes source (a registry-only fleet): the items without a
+		// cluster id are reviewed in the sign-in cluster, as before contexts.
+		c.reviews[""], c.homeOK = c.review(c.home.Config), true
+	}
 }
 
 // sameServer reports whether a and b reach one API server with one CA.

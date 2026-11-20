@@ -254,3 +254,25 @@ func TestClusterlessContextNeverReviewedByHome(t *testing.T) {
 		t.Errorf("home asked %v, us asked %v, contexts %v", h.askedOf("https://home"), h.askedOf("https://us"), gotContexts)
 	}
 }
+
+// TestClusterReviewsNoSourceReviewsAtHome: with no Kubernetes source (an HTTP
+// MCP server reading only a registry), the items without a cluster id are
+// reviewed in the sign-in cluster, and with no sign-in cluster nobody is.
+func TestClusterReviewsNoSourceReviewsAtHome(t *testing.T) {
+	h := &hostClusters{allow: everyNS}
+	home := homeCluster{Config: &rest.Config{Host: "https://home"}, UID: func(context.Context) (string, bool) { return "", false }}
+	set := clusterReviews(entriesOf(), home, reviewDeps(h), reviewCluster)
+	m := set.Reviews(context.Background())
+	if len(m) != 1 || m[""] == nil {
+		t.Fatalf("reviewers %v; want the sign-in cluster for clusterless items", m)
+	}
+	if ok, err := m[""](context.Background(), authn.Person{User: "alice"}, "", authn.PactoResource); !ok || err != nil || !slices.Equal(h.askedOf("https://home"), []string{""}) {
+		t.Errorf("asked %v: %v %v", h.asked, ok, err)
+	}
+	if key, ok := set.Home(context.Background()); key != "" || !ok {
+		t.Errorf("home %q %v", key, ok)
+	}
+	if m := clusterReviews(entriesOf(), homeCluster{}, reviewDeps(h), reviewCluster).Reviews(context.Background()); len(m) != 0 {
+		t.Errorf("no sign-in cluster: reviewers %v", m)
+	}
+}
