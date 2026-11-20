@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -219,4 +220,51 @@ func insertBeforeLine(bom, body []byte, line int, text string) []byte {
 	lines := strings.SplitAfter(string(body), "\n")
 	at := len(strings.Join(lines[:line-1], ""))
 	return slices.Concat(bom, body[:at], []byte(text+newline(body)), body[at:])
+}
+
+// PinDependencyField returns raw with key declared as value on the
+// dependency called name, so an accepted field publishes as declared. A
+// dependency that already declares key leaves raw unchanged: the
+// repository wins. A block item whose first key sits on one line gets one
+// line inserted below it, at its indent; anything else is re-encoded,
+// keeping the BOM and the line endings. A contract with no dependency name
+// is an error.
+func PinDependencyField(raw []byte, name, key, value string) ([]byte, error) {
+	bom, body, root, top, err := decodeRoot(raw)
+	if err != nil {
+		return nil, fmt.Errorf("pin dependencies[%s].%s: %w", name, key, err)
+	}
+	item := dependencyItem(top, name)
+	if item == nil {
+		return nil, fmt.Errorf("pin dependencies[%s].%s: the contract declares no dependency %s", name, key, name)
+	}
+	if hasKey(item, key) {
+		return raw, nil
+	}
+	quoted := strconv.Quote(value) // every Go escape is a YAML double-quoted escape
+	if first, v := item.Content[0], item.Content[1]; plainBlock(item) && v.Line == first.Line && v.Kind == yaml.ScalarNode &&
+		v.Style&(yaml.LiteralStyle|yaml.FoldedStyle) == 0 && bytes.HasSuffix(body, []byte("\n")) {
+		return insertBeforeLine(bom, body, first.Line+1, strings.Repeat(" ", first.Column-1)+key+": "+quoted), nil
+	}
+	item.Content = append(item.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value, Style: yaml.DoubleQuotedStyle})
+	return reencode(root, bom, body), nil
+}
+
+// dependencyItem is the mapping of the dependency called name under top's
+// dependencies, nil when there is none.
+func dependencyItem(top *yaml.Node, name string) *yaml.Node {
+	if top == nil || top.Kind != yaml.MappingNode {
+		return nil
+	}
+	deps := valueOf(top, "dependencies")
+	if deps == nil || deps.Kind != yaml.SequenceNode {
+		return nil
+	}
+	for _, it := range deps.Content {
+		if n := valueOf(it, "name"); it.Kind == yaml.MappingNode && n != nil && n.Value == name {
+			return it
+		}
+	}
+	return nil
 }

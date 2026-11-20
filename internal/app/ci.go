@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/trianalab/pacto/v4/internal/ci"
 	"github.com/trianalab/pacto/v4/internal/discover"
@@ -49,7 +50,8 @@ type CIOptions struct {
 	// row's Dir.
 	migrations map[string]CIMigration
 	// proposed, when non-nil, gets the Dir of each row whose bundle holds a
-	// proposal, so publish pushes the bundle the plan judged.
+	// proposal or a carried acceptance, so publish pushes the bundle the
+	// plan judged.
 	proposed map[string]bool
 	// TargetSnapshotAuto reads the target snapshot beside the registry the
 	// plan reads (D8) when Fleet names no target input, as pacto impact does.
@@ -100,10 +102,16 @@ func (s *Service) CIPlan(ctx context.Context, opts CIOptions) (*ci.Plan, map[str
 	p.Registry, notes = ci.ResolveRegistry(registry, cctx, images)
 	p.Notes = append(p.Notes, notes...)
 	p.Notes = append(p.Notes, blockCollisions(folders)...)
-	pl := &ciPlanner{s: s, p: p, reg: s.env().publishRegistry(), allowed: allowedHost(p.Registry), root: opts.Root, revision: opts.revision, cat: cat}
+	pl := &ciPlanner{s: s, p: p, reg: s.env().publishRegistry(), allowed: allowedHost(p.Registry), root: opts.Root, revision: opts.revision, cat: cat,
+		acceptances: sync.OnceValue(func() *acceptanceStore {
+			return newAcceptanceStore(ctx, s.env(), impactTrust(ImpactOptions{Signers: opts.Signers, Fleet: opts.Fleet}))
+		})}
 	for _, f := range folders {
 		pl.plan(ctx, f)
 		f.judged = f.b
+		if f.carried && opts.proposed != nil {
+			opts.proposed[f.row.Dir] = true
+		}
 		if opts.Bundles != nil && f.b != nil {
 			opts.Bundles[f.row.Dir] = f.b
 		}
@@ -138,6 +146,8 @@ type ciFolder struct {
 	// judged is the bundle the plan judged and publish pushes: b before
 	// impact replaced it with the planned revision.
 	judged *contract.Bundle
+	// carried is set when b holds acceptances carried from the baseline.
+	carried bool
 }
 
 // decide sets the row's impact unless an earlier rule already did.
@@ -284,6 +294,8 @@ type ciPlanner struct {
 	// completed the folder.
 	root, revision string
 	cat            *externalcatalog.Catalog
+	// acceptances reads the acceptances a baseline carries, built once.
+	acceptances func() *acceptanceStore
 }
 
 // registryName is the plan's registry as messages name it.
@@ -417,8 +429,12 @@ func (pl *ciPlanner) judge(ctx context.Context, f *ciFolder, repo string, declar
 		return
 	}
 	f.row.Baseline, f.row.BaselineDigest = tag, base.digest
+	migrated := f.asWritten != f.b
+	if !pl.carry(ctx, f, carryBase{repo: repo, version: tag, digest: base.digest, b: base.b}) {
+		return
+	}
 	same, why := Unchanged(base.b, f.b)
-	if !same && f.asWritten != f.b {
+	if !same && migrated && !f.carried {
 		// A baseline an earlier CLI published as written is this content
 		// too: a migration alone never republishes.
 		if sameWritten, whyWritten := Unchanged(base.b, f.asWritten); sameWritten {
@@ -440,6 +456,23 @@ func (pl *ciPlanner) judge(ctx context.Context, f *ciFolder, repo string, declar
 	if f.row.Derived {
 		f.row.Notes = append(f.row.Notes, planModeNote)
 	}
+}
+
+// carry folds the acceptances base carries into the folder's bundle, so
+// the plan judges and publish pushes the accepted fields as declared. A
+// cited acceptance that cannot be read leaves the row unverified: false.
+func (pl *ciPlanner) carry(ctx context.Context, f *ciFolder, base carryBase) bool {
+	res, err := carryForward(ctx, pl.acceptances(), base, f.b)
+	if err != nil {
+		f.decide(impact.GateUnverified, "carried acceptances unreadable: "+err.Error())
+		return false
+	}
+	f.row.Notes = append(f.row.Notes, res.Notes...)
+	if res.Bundle != f.b {
+		f.b, f.carried, f.row.Accepted = res.Bundle, true, res.Pinned
+		f.recordImages()
+	}
+	return true
 }
 
 // firstPublish fills the row of a service with no published version. It

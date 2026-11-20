@@ -57,6 +57,7 @@ const (
 // listings remembers each subject's attached listing for one run.
 type acceptanceStore struct {
 	open     func(path string) (*remote.Repository, error)
+	pull     func() publish.Registry
 	verify   func(ctx context.Context, raw []byte) (delivery.PublisherIdentity, time.Time, error)
 	rules    []delivery.SignerClassRule
 	note     string
@@ -70,7 +71,7 @@ type acceptanceStore struct {
 // ponytail: signers are classified by the default rule, as signed approvals
 // are; the verified policy's class rules are the upgrade path.
 func newAcceptanceStore(ctx context.Context, env sysDeps, trust func(context.Context) (Installation, error)) *acceptanceStore {
-	st := &acceptanceStore{open: env.refusalRepo, now: env.now, listings: map[string][]acceptanceCandidate{}}
+	st := &acceptanceStore{open: env.refusalRepo, pull: env.publishRegistry, now: env.now, listings: map[string][]acceptanceCandidate{}}
 	var signers []delivery.PersonSigner
 	if trust != nil {
 		if in, err := trust(ctx); err == nil {
@@ -233,7 +234,7 @@ func (st *acceptanceStore) judgeOne(ctx context.Context, repo *remote.Repository
 	if resolved != "" {
 		return delivery.JudgedAcceptance{}, resolved, nil
 	}
-	layer, why, err := acceptanceLayer(ctx, repo, d, dgst)
+	layer, _, why, err := acceptanceLayer(ctx, repo, d, dgst)
 	if why != "" || err != nil {
 		return delivery.JudgedAcceptance{}, why, err
 	}
@@ -282,28 +283,76 @@ func resolveCandidate(ctx context.Context, repo *remote.Repository, c acceptance
 }
 
 // acceptanceLayer reads the manifest d, at most maxAcceptanceManifest
-// bytes, and returns its one record layer when it is an acceptance of dgst
-// of at most delivery.MaxAcceptanceBytes. Sizes are checked on each
-// descriptor before anything is fetched.
-func acceptanceLayer(ctx context.Context, repo *remote.Repository, d ocispec.Descriptor, dgst string) (ocispec.Descriptor, string, error) {
+// bytes, and returns its one record layer and its subject when it is an
+// acceptance (of dgst, unless dgst is "") of at most
+// delivery.MaxAcceptanceBytes. Sizes are checked on each descriptor before
+// anything is fetched.
+func acceptanceLayer(ctx context.Context, repo *remote.Repository, d ocispec.Descriptor, dgst string) (ocispec.Descriptor, string, string, error) {
 	if d.Size > maxAcceptanceManifest {
-		return ocispec.Descriptor{}, fmt.Sprintf("its manifest is larger than %d bytes", maxAcceptanceManifest), nil
+		return ocispec.Descriptor{}, "", fmt.Sprintf("its manifest is larger than %d bytes", maxAcceptanceManifest), nil
 	}
 	raw, err := content.FetchAll(ctx, repo, d)
 	if err != nil {
-		return ocispec.Descriptor{}, "", err
+		return ocispec.Descriptor{}, "", "", err
 	}
 	var m ocispec.Manifest
 	_ = json.Unmarshal(raw, &m) // a manifest that does not decode is no acceptance
 	switch {
 	case m.ArtifactType != delivery.AcceptanceArtifactType || len(m.Layers) != 1:
-		return ocispec.Descriptor{}, "it is no acceptance record", nil
-	case m.Subject == nil || m.Subject.Digest != digest.Digest(dgst):
-		return ocispec.Descriptor{}, "it is attached to another subject", nil
+		return ocispec.Descriptor{}, "", "it is no acceptance record", nil
+	case m.Subject == nil || dgst != "" && m.Subject.Digest != digest.Digest(dgst):
+		return ocispec.Descriptor{}, "", "it is attached to another subject", nil
 	case m.Layers[0].Size > delivery.MaxAcceptanceBytes:
-		return ocispec.Descriptor{}, fmt.Sprintf("its record is larger than %d bytes", delivery.MaxAcceptanceBytes), nil
+		return ocispec.Descriptor{}, "", fmt.Sprintf("its record is larger than %d bytes", delivery.MaxAcceptanceBytes), nil
 	}
-	return m.Layers[0], "", nil
+	return m.Layers[0], m.Subject.Digest.String(), "", nil
+}
+
+// readCited reads the acceptance record a bundle cites
+// (<repository>@sha256:<hex>) by digest, on host only, and judges it
+// against the bundle it is attached to, which must be service's; expires
+// is a break's expiry, as acceptanceQuery.Expires. It returns why the
+// record no longer counts as cited (gone, elsewhere, another service's or
+// not verifying) or a registry failure.
+//
+// ponytail: the manifest is fetched twice, here for its subject and in
+// judgeOne; both reads are bounded at maxAcceptanceManifest.
+func (st *acceptanceStore) readCited(ctx context.Context, ref, host, service string, expires func(delivery.AcceptedBreak) string) (delivery.JudgedAcceptance, string, error) {
+	path, dgst, _ := strings.Cut(ref, "@")
+	if _, err := digest.Parse(dgst); err != nil {
+		return delivery.JudgedAcceptance{}, "it names no manifest digest", nil
+	}
+	if h := hostOf(path); h != host {
+		return delivery.JudgedAcceptance{}, "it is on " + h + ", read only on " + host, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, acceptanceReadTimeout)
+	defer cancel()
+	repo, err := st.open(path)
+	if err != nil {
+		return delivery.JudgedAcceptance{}, "", err
+	}
+	d, err := repo.Resolve(ctx, dgst)
+	switch {
+	case errors.Is(err, errdef.ErrNotFound):
+		return delivery.JudgedAcceptance{}, "the record is gone", nil
+	case err != nil:
+		return delivery.JudgedAcceptance{}, "", err
+	}
+	_, subject, why, err := acceptanceLayer(ctx, repo, d, "")
+	if why != "" || err != nil {
+		return delivery.JudgedAcceptance{}, why, err
+	}
+	b, err := st.pull().Pull(ctx, path+"@"+subject)
+	if err != nil {
+		return delivery.JudgedAcceptance{}, "", fmt.Errorf("reading %s@%s: %w", path, subject, err)
+	}
+	rec, _ := contract.ReadInferredRecord(b.FS) // an unreadable record makes the owner declared as written
+	q := acceptanceQuery{Subject: path + "@" + subject, Repo: path, Service: string(fleet.NewServiceKeyDomain(contract.OCIDomain(path), b.Contract.Service.Name)),
+		Version: b.Contract.Service.Version, Owner: declaredOwner(b.Contract, rec), Expires: expires}
+	if q.Service != service {
+		return delivery.JudgedAcceptance{}, "it is attached to " + q.Service + ", not " + service, nil
+	}
+	return st.judgeOne(ctx, repo, d, "", q, subject)
 }
 
 // foreignAcceptance says why a verified statement does not belong to the

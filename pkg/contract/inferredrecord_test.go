@@ -147,6 +147,9 @@ func TestVerifyInferredRecord(t *testing.T) {
 		"digest":   {func(r *InferredRecord) { r.Inputs.Sources[1].Digest = digestOf("other") }, "has digest"},
 		"unlisted": {func(r *InferredRecord) { r.Fields[1].Source = "chart/values.yaml:3" }, "chart/values.yaml"},
 		"outranks": {func(r *InferredRecord) { r.Fields[1].Outranks = []string{"Dockerfile:4"} }, "cites Dockerfile"},
+		"cited": {func(r *InferredRecord) {
+			r.Inputs.Acceptances = []CitedAcceptance{{Record: "ghcr.io/acme/reports@sha256:abc", Signer: "ana@acme.com", Fields: "x"}}
+		}, "inputs.acceptances[0].record"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -1009,5 +1012,24 @@ func TestVerifyStillRefusesClusterFactsWithoutDeclaration(t *testing.T) {
 	rec.Inputs.Sources[0].Digest = digestOf("openapi: 3.0.0\n")
 	if err := VerifyInferredRecord(fstest.MapFS{"openapi/v1.yaml": &fstest.MapFile{Data: []byte("openapi: 3.0.0\n")}}, rec); err == nil || err.Error() != "inputs.cluster: "+clusterBundleRefusal {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestCitedAcceptancesRoundTrip(t *testing.T) {
+	r := sampleRecord()
+	r.Inputs.Acceptances = []CitedAcceptance{{Record: "ghcr.io/acme/reports@sha256:" + strings.Repeat("a", 64), Signer: "ana@acme.com",
+		Fields: "dependencies[ledger].compatibility"}}
+	got, err := ParseInferredRecord(r.Marshal())
+	if err != nil || !reflect.DeepEqual(got.Inputs.Acceptances, r.Inputs.Acceptances) {
+		t.Fatalf("%v %+v", err, got)
+	}
+	bundle := fstest.MapFS{"openapi/v1.yaml": &fstest.MapFile{Data: []byte("openapi: 3.0.0\n")}, "deploy/app.yaml": &fstest.MapFile{Data: []byte("kind: Deployment\n")}}
+	if err := VerifyInferredRecord(bundle, got); err != nil {
+		t.Fatal(err)
+	}
+	// The strict decoder refuses a key a citation does not have.
+	bad := strings.Replace(string(r.Marshal()), "signer: ana@acme.com", "signer: ana@acme.com\n          by: bob", 1)
+	if _, err := ParseInferredRecord([]byte(bad)); err == nil || !strings.Contains(err.Error(), "by") {
+		t.Fatalf("%v\n%s", err, bad)
 	}
 }

@@ -100,20 +100,45 @@ func (r *acceptanceReader) read(ctx context.Context, consumer fleet.ServiceKey) 
 	ann := r.in.Announced[name]
 	subjects, complete := r.subjects(ctx, consumer)
 	var out []impact.Acceptance
+	expires := func(delivery.AcceptedBreak) string { return ann.Expires }
 	for _, sub := range subjects {
+		service := string(fleet.NewServiceKeyDomain(contract.OCIDomain(sub.repo), sub.c.Service.Name))
 		judged, notes, err := r.store.readAcceptances(ctx, acceptanceQuery{Subject: sub.subject, Repo: sub.repo,
-			Service: string(fleet.NewServiceKeyDomain(contract.OCIDomain(sub.repo), sub.c.Service.Name)), Version: sub.version,
-			Owner:   declaredOwner(sub.c, sub.rec),
-			Expires: func(delivery.AcceptedBreak) string { return ann.Expires },
-			Wants:   func(a impact.Acceptance) bool { return a.Break != nil && a.Break.Announcement == ann.Announcement }})
+			Service: service, Version: sub.version, Owner: declaredOwner(sub.c, sub.rec), Expires: expires,
+			Wants: func(a impact.Acceptance) bool { return a.Break != nil && a.Break.Announcement == ann.Announcement }})
 		if err != nil || slices.ContainsFunc(notes, func(n string) bool { return strings.HasPrefix(n, AcceptancesTruncated) }) {
 			complete = false
 		}
-		for _, j := range judged {
-			out = append(out, j.ForImpact())
+		cited, ok := r.cited(ctx, sub, service, expires)
+		complete = complete && ok
+		for _, j := range append(judged, cited...) {
+			if !slices.ContainsFunc(out, func(a impact.Acceptance) bool { return a.Record == j.Ref }) {
+				out = append(out, j.ForImpact())
+			}
 		}
 	}
 	return out, complete
+}
+
+// cited re-reads and re-judges the acceptances sub's record cites
+// (carried by pacto ci from an earlier version); ok is false when one
+// could not be read. A record that no longer counts as cited is left out.
+func (r *acceptanceReader) cited(ctx context.Context, sub acceptanceSubject, service string, expires func(delivery.AcceptedBreak) string) ([]delivery.JudgedAcceptance, bool) {
+	if sub.rec == nil {
+		return nil, true
+	}
+	var out []delivery.JudgedAcceptance
+	ok := true
+	for _, c := range sub.rec.Inputs.Acceptances {
+		j, why, err := r.store.readCited(ctx, c.Record, hostOf(sub.repo), service, expires)
+		switch {
+		case err != nil:
+			ok = false
+		case why == "":
+			out = append(out, j)
+		}
+	}
+	return out, ok
 }
 
 // subjects is consumer's lookup set; complete is false when a repository's

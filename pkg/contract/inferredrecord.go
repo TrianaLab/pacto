@@ -154,6 +154,19 @@ type InferredInputs struct {
 	// Cluster is the cluster read a draft was completed from, absent when
 	// the record was completed from a folder alone.
 	Cluster *InferredClusterInput `json:"cluster,omitempty" yaml:"cluster,omitempty"`
+	// Acceptances are the signed acceptances pacto ci carried into this
+	// bundle: a range one pins its fields into pacto.yaml, a break one
+	// keeps the record in the service's lookup set.
+	Acceptances []CitedAcceptance `json:"acceptances,omitempty" yaml:"acceptances,omitempty"`
+}
+
+// CitedAcceptance is one carried acceptance: where the record is
+// (<repository>@sha256:<hex>), who signed it and what it carried (the
+// pinned field keys, or the accepted break as <provider>@<version>).
+type CitedAcceptance struct {
+	Record string `json:"record" yaml:"record"`
+	Signer string `json:"signer" yaml:"signer"`
+	Fields string `json:"fields" yaml:"fields"`
 }
 
 // InferredExternal is a system outside the cluster a folder names: its
@@ -770,6 +783,17 @@ func VerifyInferredRecord(fsys fs.FS, rec *InferredRecord) error {
 	for i, m := range rec.Migrations {
 		if err := verifyMigration(fsys, m); err != nil {
 			return fmt.Errorf("migrations[%d]: %s %w", i, m.Source, err)
+		}
+	}
+	return checkCitedAcceptances(rec.Inputs.Acceptances)
+}
+
+// checkCitedAcceptances is why a cited acceptance does not name its
+// record as <repository>@sha256:<64 hex>, or nil.
+func checkCitedAcceptances(list []CitedAcceptance) error {
+	for i, a := range list {
+		if repo, d, ok := strings.Cut(a.Record, "@"); !ok || repo == "" || !inferredDigestRE.MatchString(d) {
+			return fmt.Errorf("inputs.acceptances[%d].record is %q, want <repository>@sha256:<64 hex>", i, a.Record)
 		}
 	}
 	return nil

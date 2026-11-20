@@ -84,6 +84,11 @@ findings:                      # what Pacto recognized and could not read
   100 are kept; `findingsDropped` counts the rest.
 - `inputs.chartDependencies` lists each chart dependency `Chart.lock` pins,
   with the repository URL stripped of credentials. Pacto never downloads one.
+- `inputs.acceptances` lists each signed acceptance `pacto ci --publish`
+  carried from the previous version: the record as `<repository>@sha256:<hex>`,
+  its signer and the fields it pinned into the published `pacto.yaml` (or the
+  break it accepts). The next run reads them again and drops one that no longer
+  verifies.
 - `confidence` is `likely` (read from a file in the repository) or `possible`.
 - `declare` is the YAML to add to `pacto.yaml`. For a configuration key it is
   the property to add to the configuration's JSON Schema.

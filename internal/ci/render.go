@@ -135,7 +135,7 @@ var columns = []string{"SERVICE", "CHANGED", "VERSION", "CLASSIFICATION", "IMPAC
 
 // cells are r's table cells, "-" for an empty one.
 func cells(r Row) []string {
-	return []string{cell(r.Service), cell(r.Changed), version(r), cell(r.Classification), cell(r.Impact.Text), inferred(r.Inferred)}
+	return []string{cell(r.Service), cell(r.Changed), version(r), cell(r.Classification), cell(r.Impact.Text), inferred(r.Inferred, r.Accepted)}
 }
 
 // header are the detected values, each with its source, and the plan notes.
@@ -223,13 +223,18 @@ func version(r Row) string {
 	return v
 }
 
-// inferred is the INFERRED cell: "<n> fields", "1 field", or "-" for none.
-func inferred(n int) string {
-	switch n {
-	case 0:
+// inferred is the INFERRED cell: "<n> fields", "1 field", or "-" for none,
+// then ", <a> accepted" when signed acceptances made fields declared.
+func inferred(n, accepted int) string {
+	out := strconv.Itoa(n) + " fields"
+	switch {
+	case n == 1:
+		out = "1 field"
+	case n == 0 && accepted == 0:
 		return "-"
-	case 1:
-		return "1 field"
 	}
-	return strconv.Itoa(n) + " fields"
+	if accepted > 0 {
+		out += ", " + strconv.Itoa(accepted) + " accepted"
+	}
+	return out
 }
