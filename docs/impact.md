@@ -147,11 +147,16 @@ The CLI exits on it, and the MCP tool returns it:
 
 | `gate` | Exit | When |
 |--------|------|------|
-| `blocked` | `1` | The change is `BREAKING` and reaches a consumer that does not accept the new version, or has an `unmet` guarantee, and is *active*. Or a policy referrer that fails the new policy is active, whatever the classification. |
+| `blocked` | `1` | The change is `BREAKING` and reaches a consumer that does not accept the new version, or has an `unmet` guarantee, and is *active*. Or a policy referrer that fails the new policy is active, whatever the classification. Or a [`--policy`](ci.md#accept-proposed-ranges) set to `fail` meets an unknown range or an uncontracted caller. |
 | `unverified` | `2` | Nothing is shown to block the change, but the answer cannot clear it: a `BREAKING` change whose answer is partial or whose consumers none is shown to be safe, or a policy referrer that fails the new policy and runs nowhere known, could not be checked or could not be resolved. |
-| `clear` | `0` | The change is not `BREAKING` and every policy referrer was checked and passes the new policy, or the snapshot is complete and no service depends on the changed one. |
+| `clear` | `0` | The change is not `BREAKING` and every policy referrer was checked and passes the new policy, or the snapshot is complete and no service depends on the changed one, or every consumer [accepted the announced break](impact-consumers.md#announced-breaks) (`BREAKING_ACCEPTED`). |
 
 A command that could not run also exits `1`, with nothing on stdout.
+
+The answer also carries `ranges`, the
+[range coverage](impact-consumers.md#range-coverage) of the changed service's
+consumers, and each announced consumer's `break` state. A changed spec that is
+only inferred adds an [advisory](impact-consumers.md#a-possible-break-on-an-inferred-interface).
 
 **Active means the snapshot knows of somewhere that consumer is deployed**: at
 least one operational target. Compatibility is a statement about contracts;
@@ -202,29 +207,6 @@ breaking changes affect active consumers, which run on known targets and do not 
 $ echo $?
 1
 ```
-
-#### A possible break on an inferred interface
-
-When a spec file is only inferred (an `interfaces[api]`, `interfaces[events]`
-or `interfaces[grpc]` entry in `pacto.inferred.yaml` and no interface of that
-name in `pacto.yaml`), Pacto runs the same spec diff it runs on a declared
-interface, between the old and the new file. Its breaking findings become an
-advisory in `advisories`: the interface, the inferred source `path:line`, the
-findings, the direct consumers (each `inferred`, with compatibility `unknown`)
-and the YAML that declares the interface. The CLI prints one line after the
-gate:
-
-```text
-possible break (inferred) payments api openapi/v1.yaml:1: openapi.paths[/payments].methods[GET].parameters[currency:query] GET /payments query param 'currency' added; consumers (inferred, unknown): web
-```
-
-An advisory never blocks and never clears. It never changes the
-classification or the version `pacto publish` requires. A change that is not
-`BREAKING` reads `unverified` with the gate code `INFERRED_POSSIBLE_BREAK`; a
-`BREAKING` change keeps its own gate. Without the old record or a spec file
-that reads, Pacto reports no advisory. To classify the change, add the `declare` YAML to
-`pacto.yaml`. `pacto diff`, `pacto ci`, `pacto_impact` and Change analysis
-show the same advisory.
 
 #### Gating in CI
 

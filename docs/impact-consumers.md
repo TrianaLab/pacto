@@ -122,6 +122,69 @@ could only read in part, such as an Evidence Server that did not answer,
 makes its own source and the answer partial, and the other sections still
 answer.
 
+## Announced breaks
+
+A provider announces a deliberate break in
+[`breaks`](contract-reference/dependencies-and-state.md#breaks). On a
+`BREAKING` change each announced, direct and declared consumer carries a
+`break` state, printed under it:
+
+```text
+    break: announced for reports, not accepted; waiting for the owner of reports: ana@acme.com
+```
+
+- `accepted`: the consumer's declared owner signed a counted acceptance of
+  exactly this break (provider, version and the digest of its announcement)
+  with [`pacto accept --break`](ci.md#ship-a-breaking-change), or the
+  consumer's own published ranges admit the new version and no revision that
+  refuses it runs on a target. An accepted consumer never blocks.
+- `announced`: nothing accepts it. A record by somebody other than the
+  declared owner, or signed by CI or an agent, names who may accept.
+- `expired`: the announcement's `expires`, else the date `pacto ci` recorded
+  (commit time + 30 days), has passed, or no date is recorded
+  (`expiry unknown: run pacto ci or declare expires`).
+
+A listing of acceptances that could not all be read makes the answer partial
+(`ACCEPTANCES_TRUNCATED`), never accepted.
+
+## Range coverage
+
+`ranges` counts the direct declared consumers of the changed service:
+`declared` when the consumer declares a range, `accepted` when a counted
+acceptance accepts it and is not yet published, else `unknown`, listed with the
+range its inferred record proposes (20 at most):
+
+```text
+Ranges: 3 declared and 1 accepted of 5 dependency edges (80%)
+  unknown: reports -> ledger (proposed ^2.4.0)
+```
+
+`policy` echoes the [`--policy`](ci.md#accept-proposed-ranges) the answer was
+held to, and a `warn` policy that applies adds a `POLICY_WARNING` note.
+
+## A possible break on an inferred interface
+
+When a spec file is only inferred (an `interfaces[api]`, `interfaces[events]`
+or `interfaces[grpc]` entry in `pacto.inferred.yaml` and no interface of that
+name in `pacto.yaml`), Pacto runs the same spec diff it runs on a declared
+interface, between the old and the new file. Its breaking findings become an
+advisory in `advisories`: the interface, the inferred source `path:line`, the
+findings, the direct consumers (each `inferred`, with compatibility `unknown`)
+and the YAML that declares the interface. The CLI prints one line after the
+gate:
+
+```text
+possible break (inferred) payments api openapi/v1.yaml:1: openapi.paths[/payments].methods[GET].parameters[currency:query] GET /payments query param 'currency' added; consumers (inferred, unknown): web
+```
+
+An advisory never blocks and never clears. It never changes the
+classification or the version `pacto publish` requires. A change that is not
+`BREAKING` reads `unverified` with the gate code `INFERRED_POSSIBLE_BREAK`; a
+`BREAKING` change keeps its own gate. Without the old record or a spec file
+that reads, Pacto reports no advisory. To classify the change, add the `declare` YAML to
+`pacto.yaml`. `pacto diff`, `pacto ci`, `pacto_impact` and Change analysis
+show the same advisory.
+
 ## Evidence freshness
 
 Impact judges evidence against the 24 hours before the snapshot's `asOf`.

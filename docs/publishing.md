@@ -211,6 +211,14 @@ tests pass, on the merged commit. An agent calls `pacto publish`
 through MCP: `pacto mcp --publish` adds `pacto_publish_plan` and
 `pacto_publish` beside the authoring tools, over stdio only.
 
+- **Carry-forward.** `pacto ci --publish` reads the signed
+  [acceptances](ci.md#accept-proposed-ranges) attached to the version before
+  and re-reads the ones its inferred record cites. It pins each counted range
+  into the published `pacto.yaml`, unless the repository's `pacto.yaml`
+  declares that field, and cites every carried record in
+  [`inputs.acceptances`](contract-reference/inferred-record.md). A record that
+  no longer verifies stops carrying. A plain `pacto publish` carries none.
+
 ## Declare a running service
 
 `pacto declare <workload> --registry <registry>` publishes a contract for a

@@ -16,9 +16,9 @@ Declares dependencies on other services via their Pacto contracts.
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
 | `name` | string | Yes, unless `ref` | Non-empty identifier for the dependency. In 2.5, derived from `ref` when absent. See [Name from `ref`](#name-from-ref) |
-| `ref` | string | Yes, unless `external` | Non-empty. OCI reference (`oci://...`) or local path (`file://...` or bare path) |
+| `ref` | string | Yes, unless `external` or, in 2.5, a [dependency by name](#depend-on-a-service-by-name) | Non-empty. OCI reference (`oci://...`) or local path (`file://...` or bare path) |
 | `required` | boolean | Yes (2.0 to 2.4) | Whether the dependency is mandatory. In 2.5 an absent `required` is `true` |
-| `compatibility` | string | With `ref` | Non-empty. Valid semver constraint, or `unknown` in 2.5. See [Unknown compatibility](#unknown-compatibility) |
+| `compatibility` | string | With `ref`; optional by name | Non-empty. Valid semver constraint, or `unknown` in 2.5. See [Unknown compatibility](#unknown-compatibility) |
 | `external` | boolean | No | `true` when something outside this Pacto system delivers the dependency. Needs `pactoVersion: "2.1"` |
 | `version` | string | Only for `external` without `ref` | The version it runs against, as free text |
 | `identity` | string | No | Only for `external` without `ref`. The canonical identity of the external system. See [Name an external system](#name-an-external-system). Needs `pactoVersion: "2.5"` |
@@ -55,17 +55,20 @@ dependencies:
     compatibility: "^2.0.0"      # optional; without it the range reads unknown
 ```
 
-A dependency by name gives no `version`: Pacto reads it from the fleet, and
-`version` beside it fails with `VERSION_WITHOUT_REF`. Without `compatibility`
-the range is `unknown`, so impact cannot tell whether a change breaks this
-service. `pacto graph` shows the dependency as resolved by name, and a catalog
-closure that meets it reads `partial` (`DEPENDENCY_BY_NAME`). An older
-contract fails with `NEEDS_PACTO_2_5`.
+- A dependency by name gives no `version`: Pacto reads it from the fleet,
+  and `version` beside it fails with `VERSION_WITHOUT_REF`.
+- Without `compatibility` the range is `unknown`, so impact cannot tell
+  whether a change breaks this service. `pacto ci` proposes a range, which the
+  owner accepts with
+  [`pacto accept`](../ci.md#accept-proposed-ranges).
+- `pacto graph` shows the dependency as resolved by name, and a catalog
+  closure that meets it reads `partial` (`DEPENDENCY_BY_NAME`).
+- An older contract fails with `NEEDS_PACTO_2_5`.
 
 ### Unknown compatibility
 
 `compatibility: unknown` says that a range has not been decided yet. It needs
-`pactoVersion: "2.5"` and a `ref`, like any range. Everything that reads a
+`pactoVersion: "2.5"`. Everything that reads a
 range reads it as unknown, never as compatible: impact analysis gives the
 consumer the verdict `unknown` and keeps a breaking change `unverified`,
 delivery holds a promotion that depends on it and the operator reports the
@@ -100,21 +103,23 @@ dependencies:
         dedupeWindow: 5m
 ```
 
-`pacto validate` reads the provider contract and reports every unmet guarantee
-in one run as `GUARANTEE_UNMET`, naming both services, the guarantee and both
-values: an error on a required dependency, a warning on an optional one. When
-Pacto cannot read the provider contract, validation warns with
-`GUARANTEE_UNVERIFIED` and reports the `guarantees` stage as `SKIP`, naming the
-dependency. `pacto publish` and `pacto push` run the same check and refuse an
-unmet guarantee of a required dependency. `pacto pack` works offline and fetches
-no providers. `pacto graph` marks each refused edge.
-[`pacto impact`](../impact.md) lists the consumers whose requirement a change
-breaks and blocks the release when one of them runs.
-[Delivery](../integrations/kubernetes/delivery.md) holds a promote that leaves
-a consumer's required guarantee unmet, wherever the consumer runs. A status an
-older operator wrote records no guarantees, so delivery reads it as unknown
-until the new operator reconciles it: a breaking or possibly breaking change to
-such a provider waits for a person to accept the unknown.
+- `pacto validate` reads the provider contract and reports every unmet
+  guarantee in one run as `GUARANTEE_UNMET`, naming both services, the
+  guarantee and both values: an error on a required dependency, a warning on
+  an optional one.
+- When Pacto cannot read the provider contract, validation warns with
+  `GUARANTEE_UNVERIFIED` and reports the `guarantees` stage as `SKIP`, naming
+  the dependency.
+- `pacto publish` and `pacto push` run the same check and refuse an unmet
+  guarantee of a required dependency. `pacto pack` works offline and fetches
+  no providers. `pacto graph` marks each refused edge.
+- [`pacto impact`](../impact.md) lists the consumers whose requirement a
+  change breaks and blocks the release when one of them runs.
+- [Delivery](../integrations/kubernetes/delivery.md) holds a promote that
+  leaves a consumer's required guarantee unmet, wherever the consumer runs. A
+  status an older operator wrote records no guarantees, so delivery reads it
+  as unknown until the new operator reconciles it: a breaking or possibly
+  breaking change to such a provider waits for a person to accept the unknown.
 
 ### External dependencies
 
@@ -255,6 +260,11 @@ Practices:
 Announces a deliberate breaking change to the consumers it affects. Needs
 `pactoVersion: "2.5"`. An announcement changes no interface: `pacto diff` reports
 every change to `breaks` as non-breaking.
+
+Each consumer owner accepts the break with
+[`pacto accept --break`](../ci.md#ship-a-breaking-change). Without `expires`,
+`pacto ci` records the commit time plus 30 days, and an expired announcement
+blocks again.
 
 ```yaml
 breaks:
