@@ -238,6 +238,7 @@ nav:
       - Inferred services: operational-graph-inferred.md
       - Detected providers: operational-graph-providers.md
       - External catalog reference: external-catalog-reference.md
+      - Inferred contracts: inferred-contracts.md
       - Platform offerings reference: platform-offerings.md
       - Offering availability and lifecycle: offering-availability.md
       - Golden paths reference: golden-paths-reference.md
