@@ -372,6 +372,9 @@ var fieldCoverageCases = []fcCase{
 	invalid("dependencies[].identity/invalid", "INVALID_EXTERNAL_IDENTITY", set("dependencies.1", map[string]any{"name": "payments-provider", "required": true, "external": true, "version": "2025-01", "identity": "other-egress"})),
 	invalid("dependencies[].identity/with-ref", "IDENTITY_WITHOUT_EXTERNAL", set("dependencies.0.identity", "stripe")),
 	invalid("dependencies[].identity/needs-2.5", needs25, set("pactoVersion", "2.4"), del("interfaces.0.port"), del("breaks"), set("dependencies.1", map[string]any{"name": "payments-provider", "required": true, "external": true, "version": "2025-01", "identity": "stripe"})),
+	valid("service.external/valid", set("service.external", "stripe")),
+	invalid("service.external/invalid", "INVALID_EXTERNAL_IDENTITY", set("service.external", "other-egress")),
+	invalid("service.external/needs-2.5", needs25, set("pactoVersion", "2.4"), del("interfaces.0.port"), del("breaks"), set("service.external", "stripe")),
 
 	valid("breaks/valid", del("breaks")),
 	invalid("breaks/invalid", schemaViolation, set("breaks", []any{})),

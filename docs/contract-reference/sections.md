@@ -67,6 +67,7 @@ and `version`; see [the smallest contract](index.md#the-smallest-contract).
 | `lifecycle` | object | No | pactoVersion 2.4. See [service lifecycle](#service-lifecycle) |
 | `template` | object | No | pactoVersion 2.4. See [golden path template](#golden-path-template) |
 | `origin` | object | No | pactoVersion 2.4. See [service origin](#service-origin) |
+| `external` | string | No | The canonical identity of the external system the contract describes, for example `stripe` or `host/corp-legacy.example`; the `dependencies[].identity` pattern, at most 253 characters. pactoVersion 2.5 |
 
 `service` carries identity only. The contract has no `image` or `chart` field:
 how you build and deploy a service is a delivery concern that lives outside the

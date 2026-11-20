@@ -1397,6 +1397,7 @@ export interface components {
         };
         "Contract.Service": {
             domain?: string;
+            external?: string;
             lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             name: string;
             offering?: string;
