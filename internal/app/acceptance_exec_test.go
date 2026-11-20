@@ -206,6 +206,16 @@ func TestReadAcceptanceDraft(t *testing.T) {
 			t.Errorf("%s: %v", ref, err)
 		}
 	}
+}
+
+// A registry or credential failure while reading a draft is an error, never a missing draft.
+func TestReadAcceptanceDraftTransportFailures(t *testing.T) {
+	e := newAcceptEnv(t, false)
+	d := delivery.AcceptanceDraft{Record: e.rangesRecord(), Subject: e.subject, OnBehalfOf: "ana"}
+	tag, err := e.svc.writeAcceptanceDraft(t.Context(), e.repo, d, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, part := range []string{"/blobs/", "/manifests/"} {
 		e.failWhen(func(r *http.Request) bool { return strings.Contains(r.URL.Path, part) })
 		if _, err := e.svc.readAcceptanceDraft(t.Context(), e.repo+":"+tag); err == nil || errors.As(err, new(*DeclareError)) {
