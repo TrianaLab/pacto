@@ -33,6 +33,8 @@ func runningPacto(host, ns, name, service, version, hex string) delivery.PactoVi
 	p.Status.ContractStatus, p.Status.LastReconciledAt = "Compliant", time.Now().Format(time.RFC3339)
 	p.Status.Contract = &delivery.ContractInfoView{ServiceName: service, Version: version,
 		ResolvedRef: "oci://" + host + "/acme/" + service + "@sha256:" + strings.Repeat(hex, 64)}
+	// The operator records the manifest digest it evaluated, so the fleet links the target.
+	p.Status.EvaluatedRevision = &delivery.EvaluatedView{ContractDigest: "sha256:" + strings.Repeat(hex, 64)}
 	return p
 }
 
@@ -165,20 +167,23 @@ func TestCIProposalOnlyDifferenceNotRepublished(t *testing.T) {
 }
 
 // TestRunningProvidersReadsLinkedTargets: a target linked to its revision
-// counts, one outside the consumer's namespaces or reported by no target
-// snapshot does not, and an unresolved dependency proposes nothing.
+// counts, one outside the consumer's namespaces, reported by no target
+// snapshot or left unlinked does not, and an unresolved dependency proposes
+// nothing.
 func TestRunningProvidersReadsLinkedTargets(t *testing.T) {
 	const reports, ledger fleet.ServiceKey = "acme/reports", "acme/ledger"
 	rev := &fleet.ContractRevision{Version: "2.5.0"}
 	snap := &fleet.FleetSnapshot{
 		Sources: []fleet.SourceState{{ID: "snap", Kind: fleet.SourceKindTargetSnapshot, Ref: "r.io/acme/pacto-targets@sha256:" + strings.Repeat("a", 64)},
 			{ID: "file", Kind: "target-state"}},
-		Revisions: map[fleet.RevisionKey]*fleet.ContractRevision{"acme/ledger@x": rev},
+		Revisions: map[fleet.RevisionKey]*fleet.ContractRevision{"acme/ledger@x": rev, fleet.NewRevisionKey(ledger, "y"): {Version: "9.0.0"}},
 		Targets: map[fleet.TargetKey]*fleet.TargetRecord{
 			"shop/k/reports": {Key: "shop/k/reports", ServiceKey: reports, Source: "snap"},
 			"shop/k/ledger":  {Key: "shop/k/ledger", ServiceKey: ledger, Source: "snap", ContractRevision: "acme/ledger@x"},
 			"else/k/ledger":  {Key: "else/k/ledger", ServiceKey: ledger, Source: "snap", ContractRevision: "acme/ledger@x"},
 			"shop/k/ledger2": {Key: "shop/k/ledger2", ServiceKey: ledger, Source: "file", ContractRevision: "acme/ledger@x"},
+			// The fleet made no link (an inconsistent or ambiguous identity): never a version.
+			"shop/k/ledger3": {Key: "shop/k/ledger3", ServiceKey: ledger, Source: "snap", Digest: "y"},
 		},
 		Relationships: []fleet.Relationship{
 			{FromService: reports, To: "ledger", ToService: ledger, Type: fleet.RelationshipDependency, Resolved: true},
@@ -246,6 +251,18 @@ func TestProposeRefAmbiguousIsFinding(t *testing.T) {
 	want := map[string]discover.Sourced{"ledger": {Value: "oci://" + e.ir.host + "/acme/ledger", Source: contract.SourceIndex + e.index() + ":" + tag}}
 	if !reflect.DeepEqual(refs, want) {
 		t.Fatalf("refs = %+v, want %+v", refs, want)
+	}
+}
+
+// TestIndexRefsIgnoresAConsumerOfTheName: an indexed service that only
+// depends on ledger proposes no ref for ledger; the name matches the
+// entry's own service, never its dependencies.
+func TestIndexRefsIgnoresAConsumerOfTheName(t *testing.T) {
+	e := newIdxEnv(t)
+	e.push(t, "billing", "1.0.0", e.dependsOnLedger(), "")
+	refs := e.svc.indexRefs(t.Context(), indexCandidates("", e.ir.host+"/acme/reports"), e.ir.host+"/acme", []string{"ledger"})
+	if len(refs) != 0 {
+		t.Fatalf("refs = %+v, want none", refs)
 	}
 }
 

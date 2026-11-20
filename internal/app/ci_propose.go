@@ -151,13 +151,10 @@ func targetScope(k fleet.TargetKey) string {
 	return cluster + "/" + scope
 }
 
-// targetRevision is the revision t runs: its link, else the revision of its
-// service pinned by its digest, nil when neither is in snap.
+// targetRevision is the revision the fleet linked t to, nil when it made no
+// link (an ambiguous or inconsistent identity never proposes a range).
 func targetRevision(snap *fleet.FleetSnapshot, t *fleet.TargetRecord) *fleet.ContractRevision {
-	if rev := snap.Revisions[t.ContractRevision]; rev != nil {
-		return rev
-	}
-	return snap.Revisions[fleet.NewRevisionKey(t.ServiceKey, t.Digest)]
+	return snap.Revisions[t.ContractRevision]
 }
 
 // ciRanges is the range coverage of every walked service's dependencies on
