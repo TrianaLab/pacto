@@ -139,10 +139,7 @@ func defaultACRToken(ctx context.Context) (string, error) {
 		return "", err
 	}
 	tok, err := cred.GetToken(ctx, policy.TokenRequestOptions{Scopes: []string{acrScope}})
-	if err != nil {
-		return "", err
-	}
-	return tok.Token, nil
+	return tok.Token, err // the caller reads err first; Token is empty with it
 }
 
 // defaultACRExchangeURL is always https: the AAD token is valid for every ACR
