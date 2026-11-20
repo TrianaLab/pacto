@@ -182,6 +182,9 @@ func TestPublishRefusesWithoutSigner(t *testing.T) {
 	if _, err := Publish(context.Background(), d, "r/elsewhere", stripeFleet(t, []string{"api.stripe.com"})); err == nil || !strings.Contains(err.Error(), "no pacto-inferred repository") {
 		t.Errorf("another root = %v", err)
 	}
+	if _, err := Publish(context.Background(), d, "zot:5000/pacto-inferred", stripeFleet(t, []string{"api.stripe.com"})); err == nil || !strings.Contains(err.Error(), "<host>/<path>") {
+		t.Errorf("a bare-host root = %v", err)
+	}
 }
 
 // manyFleet is checkout calling n external systems.
@@ -332,7 +335,7 @@ func (s *seen) RoundTrip(r *http.Request) (*http.Response, error) {
 func TestPublishOnlyUnderInferredPrefix(t *testing.T) {
 	host, _ := testRegistry(t)
 	rec := &seen{base: http.DefaultTransport}
-	guarded := publish.NewClientWith(anonymous, oci.WithTransport(oci.NewPushScope(host+"/demo").Guard(rec)))
+	guarded := publish.NewScopedClient(anonymous, oci.NewPushScope(host+"/demo"), rec)
 	d := deps(t, guarded)
 	rep := publishOK(t, d, host+"/demo/pacto-inferred", stripeFleet(t, []string{"api.stripe.com"}))
 	if len(rep.Published) != 1 || len(rep.Errors) != 0 {
@@ -348,7 +351,7 @@ func TestPublishOnlyUnderInferredPrefix(t *testing.T) {
 	if !image || !tag || !referrer {
 		t.Errorf("the guard saw image %v, tag %v, signature %v: %v", image, tag, referrer, rec.reqs)
 	}
-	outside := publish.NewClientWith(anonymous, oci.WithTransport(oci.NewPushScope(host+"/other").Guard(nil)))
+	outside := publish.NewScopedClient(anonymous, oci.NewPushScope(host+"/other"), nil)
 	d.Registry = outside
 	rep = publishOK(t, d, host+"/demo/pacto-inferred", stripeFleet(t, []string{"api.stripe.com", "files.stripe.com"}))
 	if len(rep.Published) != 0 || len(rep.Errors) != 1 || !strings.Contains(rep.Errors[0].Error, oci.ErrOutsidePushScope.Error()) {

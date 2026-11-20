@@ -8,6 +8,7 @@ import (
 	"maps"
 	"path"
 	"slices"
+	"strings"
 	"time"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -71,6 +72,9 @@ func Publish(ctx context.Context, d Deps, root string, snap *fleet.FleetSnapshot
 	}
 	if path.Base(root) != contract.InferredRepository {
 		return Report{}, fmt.Errorf("%s is no %s repository", root, contract.InferredRepository)
+	}
+	if !strings.Contains(path.Dir(root), "/") { // contract.InferredRef skips a first path segment
+		return Report{}, fmt.Errorf("%s sits right under the registry host, where readers take it for an organization's service: set registry to <host>/<path>", root)
 	}
 	r := &run{d: d, root: root, snap: snap, partial: Partial(snap), now: d.Now(), in: inputs(d, snap)}
 	rep := Report{Published: []Entry{}}

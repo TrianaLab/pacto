@@ -23,7 +23,9 @@ acme/pacto-inferred/host/corp-legacy.example
 
 The operator runs the publisher every 5 minutes and needs no other value: no
 flag, no extra chart key and no Git access. Without `registry` nothing is
-published. The operator log reports each run, and the metrics
+published. `registry` needs a path below the host: with a bare host such as
+`zot:5000` the operator publishes nothing and logs why, because readers take
+`zot:5000/pacto-inferred/stripe` for an organization named `pacto-inferred`. The operator log reports each run, and the metrics
 `pacto_inferred_contracts_published_total` and
 `pacto_inferred_contracts_publish_errors_total` count pushes and errors.
 
