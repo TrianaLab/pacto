@@ -141,13 +141,81 @@ func TestWriteAcceptanceDraftNumbering(t *testing.T) {
 		}
 		return false
 	})
-	if tag, err := e.svc.writeAcceptanceDraft(t.Context(), e.repo, d, nil); err != nil || tag != "pacto-accept-draft-3" {
+	third := d
+	third.OnBehalfOf = "carol"
+	if tag, err := e.svc.writeAcceptanceDraft(t.Context(), e.repo, third, nil); err != nil || tag != "pacto-accept-draft-3" {
 		t.Fatalf("%q %v", tag, err)
 	}
 	e.failWhen(nil)
 	tags := e.acceptTags(t)
 	if !slices.Equal(tags, []string{"pacto-accept-draft-1", "pacto-accept-draft-2", "pacto-accept-draft-3"}) || slices.ContainsFunc(tags, func(s string) bool { return strings.HasPrefix(s, "draft-") }) {
 		t.Fatal(tags)
+	}
+}
+
+func TestWriteAcceptanceDraftRepeatedReusesNewest(t *testing.T) {
+	e := newAcceptEnv(t, false)
+	d := delivery.AcceptanceDraft{Record: e.rangesRecord(), Subject: e.subject, OnBehalfOf: "ana"}
+	for range 2 {
+		if tag, err := e.svc.writeAcceptanceDraft(t.Context(), e.repo, d, nil); err != nil || tag != "pacto-accept-draft-1" {
+			t.Fatalf("%q %v", tag, err)
+		}
+	}
+	// Only the newest draft is compared: an older identical one is not.
+	other := d
+	other.OnBehalfOf = "bob"
+	for _, w := range []struct {
+		d    delivery.AcceptanceDraft
+		want string
+	}{{other, "pacto-accept-draft-2"}, {d, "pacto-accept-draft-3"}} {
+		if tag, err := e.svc.writeAcceptanceDraft(t.Context(), e.repo, w.d, nil); err != nil || tag != w.want {
+			t.Fatalf("%q %v, want %s", tag, err, w.want)
+		}
+	}
+	if tags := e.acceptTags(t); len(tags) != 3 {
+		t.Fatal(tags)
+	}
+}
+
+func TestReadAcceptanceDraft(t *testing.T) {
+	e := newAcceptEnv(t, false)
+	d := delivery.AcceptanceDraft{Record: e.rangesRecord(), Subject: e.subject, OnBehalfOf: "ana"}
+	tag, err := e.svc.writeAcceptanceDraft(t.Context(), e.repo, d, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := e.svc.readAcceptanceDraft(t.Context(), e.repo+":"+tag)
+	if err != nil || got.OnBehalfOf != "ana" || got.Subject != e.subject || got.Record.Service != d.Record.Service {
+		t.Fatalf("%v %+v", err, got)
+	}
+	r, err := ocireferrer.Open(e.repo, ocireferrer.Options{Keychain: anonymous})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for tag, art := range map[string]ocireferrer.Artifact{
+		"pacto-accept-draft-7": ocireferrer.Build(delivery.AcceptanceArtifactType, delivery.AcceptanceArtifactType, []byte("{}"), nil, nil),
+		"pacto-accept-draft-8": ocireferrer.Build(delivery.AcceptanceDraftArtifactType, delivery.AcceptanceDraftArtifactType, []byte(`{"record":{}}`), nil, nil),
+	} {
+		if err := ocireferrer.PushWriteOnce(t.Context(), r, art, tag); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, ref := range []string{e.repo + ":pacto-accept-draft-9", e.repo + ":1.6.0", e.repo, e.repo + ":pacto-accept-draft-7", e.repo + ":pacto-accept-draft-8"} {
+		var de *DeclareError
+		if _, err := e.svc.readAcceptanceDraft(t.Context(), ref); !errors.As(err, &de) || de.Code != codeDraftNotFound {
+			t.Errorf("%s: %v", ref, err)
+		}
+	}
+	for _, part := range []string{"/blobs/", "/manifests/"} {
+		e.failWhen(func(r *http.Request) bool { return strings.Contains(r.URL.Path, part) })
+		if _, err := e.svc.readAcceptanceDraft(t.Context(), e.repo+":"+tag); err == nil || errors.As(err, new(*DeclareError)) {
+			t.Fatalf("%s: %v", part, err)
+		}
+	}
+	e.failWhen(nil)
+	e.svc.sys.refusalRepo = func(string) (*remote.Repository, error) { return nil, errors.New("no credentials") }
+	if _, err := e.svc.readAcceptanceDraft(t.Context(), e.repo+":"+tag); err == nil || errors.As(err, new(*DeclareError)) {
+		t.Fatal(err)
 	}
 }
 

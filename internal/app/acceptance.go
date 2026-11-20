@@ -702,14 +702,30 @@ func (s *Service) writeAcceptance(ctx context.Context, repo, dgst string, bundle
 
 // writeAcceptanceDraft writes d to repo under the next free
 // pacto-accept-draft-<n> tag and returns that tag: signed by signer, or
-// unsigned when it is nil. A number another run took meanwhile is retried
-// once at the next one; a second loss is VersionConflict.
+// unsigned when it is nil. When the newest draft already holds d (a CI or
+// agent run repeated), its tag is returned and nothing is signed or
+// written. A number another run took meanwhile is retried once at the next
+// one; a second loss is VersionConflict.
 func (s *Service) writeAcceptanceDraft(ctx context.Context, repo string, d delivery.AcceptanceDraft, signer *signing.Signer) (string, error) {
 	r, err := s.env().refusalRepo(repo)
 	if err != nil {
 		return "", err
 	}
+	tags, err := ocireferrer.Tags(ctx, r, acceptanceDraftPrefix)
+	if err != nil {
+		return "", fmt.Errorf("listing the acceptance drafts in %s: %w", repo, err)
+	}
+	n := publish.NextDraft(tags, acceptanceDraftPrefix)
 	payload, _ := json.Marshal(d) // plain data; marshalling cannot fail
+	// ponytail: the newest draft is compared unverified; whoever may push to
+	// the service's own repository could plant a look-alike, and the person
+	// accepting it verifies its signature anyway.
+	newest := acceptanceDraftPrefix + strconv.Itoa(n-1)
+	if prev, err := s.readAcceptanceDraft(ctx, repo+":"+newest); err == nil {
+		if same, _ := json.Marshal(prev); string(same) == string(payload) {
+			return newest, nil
+		}
+	}
 	layer := delivery.AcceptanceDraftArtifactType
 	if signer != nil {
 		if payload, _, err = delivery.SignAcceptanceDraft(ctx, signer, d); err != nil {
@@ -717,12 +733,7 @@ func (s *Service) writeAcceptanceDraft(ctx context.Context, repo string, d deliv
 		}
 		layer = delivery.BundleMediaType
 	}
-	tags, err := ocireferrer.Tags(ctx, r, acceptanceDraftPrefix)
-	if err != nil {
-		return "", fmt.Errorf("listing the acceptance drafts in %s: %w", repo, err)
-	}
 	art := ocireferrer.Build(delivery.AcceptanceDraftArtifactType, layer, payload, nil, nil)
-	n := publish.NextDraft(tags, acceptanceDraftPrefix)
 	for try := n; try <= n+1; try++ {
 		tag := acceptanceDraftPrefix + strconv.Itoa(try)
 		if err = ocireferrer.PushWriteOnce(ctx, r, art, tag); !errors.Is(err, ocireferrer.ErrTagTaken) {
@@ -730,6 +741,49 @@ func (s *Service) writeAcceptanceDraft(ctx context.Context, repo string, d deliv
 		}
 	}
 	return "", &DeclareError{Code: codeVersionConflict, Message: "another run took " + acceptanceDraftPrefix + strconv.Itoa(n) + " and the next draft number in " + repo + ": " + err.Error()}
+}
+
+// readAcceptanceDraft reads the acceptance draft ref
+// (<repo>:pacto-accept-draft-<n>), strictly decoded and unverified. A tag
+// that is not there, or does not hold one acceptance draft within the
+// acceptance bounds, is DraftNotFound.
+func (s *Service) readAcceptanceDraft(ctx context.Context, ref string) (delivery.AcceptanceDraft, error) {
+	repo := repoOf(ref)
+	tag := ref[strings.LastIndex(ref, ":")+1:]
+	notFound := &DeclareError{Code: codeDraftNotFound, Message: "there is no acceptance draft " + ref}
+	if !strings.HasPrefix(tag, acceptanceDraftPrefix) {
+		return delivery.AcceptanceDraft{}, notFound
+	}
+	r, err := s.env().refusalRepo(repo)
+	if err != nil {
+		return delivery.AcceptanceDraft{}, err
+	}
+	desc, err := r.Resolve(ctx, tag)
+	if errors.Is(err, errdef.ErrNotFound) {
+		return delivery.AcceptanceDraft{}, notFound
+	}
+	var raw []byte
+	if err == nil && desc.Size <= maxAcceptanceManifest {
+		raw, err = content.FetchAll(ctx, r, desc)
+	}
+	if err != nil {
+		return delivery.AcceptanceDraft{}, fmt.Errorf("reading %s: %w", ref, err)
+	}
+	var m ocispec.Manifest
+	_ = json.Unmarshal(raw, &m) // a manifest that does not decode is no draft
+	if m.ArtifactType != delivery.AcceptanceDraftArtifactType || len(m.Layers) != 1 || m.Layers[0].Size > delivery.MaxAcceptanceBytes {
+		return delivery.AcceptanceDraft{}, notFound
+	}
+	payload, err := content.FetchAll(ctx, r, m.Layers[0])
+	if err != nil {
+		return delivery.AcceptanceDraft{}, fmt.Errorf("reading %s: %w", ref, err)
+	}
+	d, err := delivery.DecodeAcceptanceDraft(m.Layers[0].MediaType, payload)
+	if err != nil {
+		notFound.Message = ref + " holds no acceptance draft: " + err.Error()
+		return delivery.AcceptanceDraft{}, notFound
+	}
+	return d, nil
 }
 
 // AcceptResult is what pacto accept did: the plan it carried out, who

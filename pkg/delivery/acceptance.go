@@ -3,6 +3,7 @@ package delivery
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
+	"github.com/trianalab/pacto/v4/pkg/strictjson"
 )
 
 // The acceptance record: a person accepts proposed dependency fields of a
@@ -128,6 +130,37 @@ func SignAcceptanceDraft(ctx context.Context, s Signer, d AcceptanceDraft) (bund
 		PredicateType string          `json:"predicateType"`
 		Predicate     AcceptanceDraft `json:"predicate"`
 	}{st.Type, st.Subject, PredicateAcceptanceDraft, d})
+}
+
+// DecodeAcceptanceDraft strictly decodes an acceptance draft layer of
+// mediaType: the draft itself (AcceptanceDraftArtifactType) or a signed
+// acceptance-draft statement (BundleMediaType), whose signature it does not
+// verify. An unknown key, trailing data or a draft without its record's
+// service or its subject is an error.
+func DecodeAcceptanceDraft(mediaType string, payload []byte) (AcceptanceDraft, error) {
+	var st struct {
+		Type          string          `json:"_type"`
+		Subject       []Subject       `json:"subject"`
+		PredicateType string          `json:"predicateType"`
+		Predicate     AcceptanceDraft `json:"predicate"`
+	}
+	var err error
+	switch mediaType {
+	case AcceptanceDraftArtifactType:
+		err = strictjson.Unmarshal(payload, &st.Predicate)
+	case BundleMediaType:
+		_, err = openStatement(payload, PredicateAcceptanceDraft, &st)
+	default:
+		err = fmt.Errorf("layer media type %q", mediaType)
+	}
+	d := st.Predicate
+	if err == nil && (d.Record.Service == "" || d.Subject == "") {
+		err = errors.New("the draft names no service or no subject")
+	}
+	if err != nil {
+		return AcceptanceDraft{}, fmt.Errorf("acceptance draft: %w", err)
+	}
+	return d, nil
 }
 
 // OpenAcceptance verifies an acceptance bundle with verify and returns its

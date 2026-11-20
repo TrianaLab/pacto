@@ -221,3 +221,34 @@ func TestSignAcceptanceDraft(t *testing.T) {
 		t.Fatalf("%v %+v", err, st)
 	}
 }
+
+func TestAcceptanceDraftStrictDecode(t *testing.T) {
+	d := AcceptanceDraft{Record: acceptanceStatement(AcceptKindRanges).Predicate, Subject: "reg/reports@sha256:ab", OnBehalfOf: "ana",
+		Asker: contract.InferredSigner{Subject: "ci@acme.com", Issuer: "https://token.actions.githubusercontent.com"}}
+	raw, _ := json.Marshal(d)
+	signed, _, err := SignAcceptanceDraft(t.Context(), plainSigner{}, d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for mt, payload := range map[string][]byte{AcceptanceDraftArtifactType: raw, BundleMediaType: signed} {
+		if got, err := DecodeAcceptanceDraft(mt, payload); err != nil || !reflect.DeepEqual(got, d) {
+			t.Fatalf("%s: %v %+v", mt, err, got)
+		}
+	}
+	unknown := strings.Replace(string(raw), `"onBehalfOf"`, `"extra":1,"onBehalfOf"`, 1)
+	noSubject, _ := json.Marshal(AcceptanceDraft{Record: d.Record})
+	for name, c := range map[string]struct {
+		mt      string
+		payload []byte
+	}{
+		"unknown key":   {AcceptanceDraftArtifactType, []byte(unknown)},
+		"trailing data": {AcceptanceDraftArtifactType, append(raw, '}')},
+		"no subject":    {AcceptanceDraftArtifactType, noSubject},
+		"other layer":   {AcceptanceArtifactType, raw},
+		"not a bundle":  {BundleMediaType, raw},
+	} {
+		if _, err := DecodeAcceptanceDraft(c.mt, c.payload); err == nil {
+			t.Errorf("%s decoded", name)
+		}
+	}
+}
