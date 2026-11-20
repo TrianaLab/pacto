@@ -233,7 +233,11 @@ Each draft also holds a `pacto.inferred.yaml`, completed by the engine
 - `pacto validate`, `pacto explain` and `pacto publish` recompute the record
   from the folder, so the cluster facts stay in the draft. A published bundle
   whose record carries cluster facts fails validation with
-  `INFERRED_RECORD_INVALID`.
+  `INFERRED_RECORD_INVALID`, unless the record holds a declaration.
+- `pacto declare <workload> --registry <registry>` publishes the draft as a
+  contract-only version you sign, with its cluster facts; a key or an ambient
+  token writes a `draft-<n>` tag a person accepts
+  ([Declare a running service](publishing.md#declare-a-running-service)).
 
 ### Dependencies of a draft
 
@@ -258,6 +262,10 @@ false ([AI assistants](mcp-integration.md)).
   `--max-items`, `--call-window` and `--continue` flags. A read stopped by
   `max_items` returns `continue`, and the next call passes it back to resume
   the read.
+- `pacto_declare` plans a declaration of a running workload. An agent's write
+  is a `draft-<n>` tag, and the person it acts for accepts it with
+  `pacto declare <workload> --from-draft draft-<n>`
+  ([the agent write contract](mcp-reference.md#declare-a-running-service)).
 
 ## What's next
 

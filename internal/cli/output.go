@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -518,6 +519,7 @@ func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format st
 // one JSON object for the configuration schema's properties.
 func printExplainInferred(w io.Writer, result *app.ExplainResult) {
 	defer printDiscoveryFindings(w, result)
+	defer printExplainDeclaration(w, result) // a declaration with no field still says who declared it
 	if !result.InferredUnreadable && len(result.Inferred) == 0 {
 		return
 	}
@@ -560,9 +562,49 @@ func printExplainInferred(w io.Writer, result *app.ExplainResult) {
 	}
 }
 
+// printExplainDeclaration prints who the record says declared the service,
+// or for a draft who proposed it and what it requests, and how completely
+// the cluster was read. Explain checks no signature, so it says the signer
+// is unchecked.
+func printExplainDeclaration(w io.Writer, result *app.ExplainResult) {
+	switch d := result.Declaration; {
+	case d == nil:
+	case d.State == contract.DeclarationDraft:
+		_, _ = fmt.Fprintf(w, "\nDraft by %s for %s (asserted) from %s, awaiting a person: accept it with pacto declare %s --from-draft <tag>; %s\n",
+			cmp.Or(d.Asker.Subject, "nobody (unsigned)"), cmp.Or(d.OnBehalfOf, "nobody named"), cmp.Or(d.InferredFrom, "a folder"), result.Name, app.DeclarationSignerNote)
+		for _, r := range d.Requested {
+			_, _ = fmt.Fprintf(w, "  requests %s %s\n", r.Field, r.Range)
+		}
+	default:
+		_, _ = fmt.Fprintf(w, "\nDeclared by %s (%s) from %s; %s\n", d.Asker.Subject, d.Asker.Issuer, cmp.Or(d.InferredFrom, "a folder"), app.DeclarationSignerNote)
+	}
+	if n := len(result.InferredCoverage); n > 0 {
+		k := 0
+		for _, c := range result.InferredCoverage {
+			if c.State == contract.CoverageComplete {
+				k++
+			}
+		}
+		_, _ = fmt.Fprintf(w, "Cluster read: %d of %d sources complete\n", k, n)
+	}
+	if h := result.InferredHidden; h != nil {
+		_, _ = fmt.Fprintf(w, "Hidden from the cluster read: %d services, %d callers\n", h.Services, h.Callers)
+	}
+}
+
 // explainInferredLine is the line explain prints for the inferred field f.
 func explainInferredLine(f contract.Inferred) string {
 	line := fmt.Sprintf("  %s  inferred  %s  from %s", f.Field, f.Value, explainSource(f.Source))
+	if f.AsOf != "" {
+		line += " (read from the cluster " + f.AsOf
+		if f.Completeness == contract.CoveragePartial {
+			line += ", partial"
+		}
+		line += ")"
+	}
+	if f.Proposed != "" {
+		line += "; proposed " + f.Proposed
+	}
 	if f.Class == contract.InferredClassOwnerFile {
 		line += "; read from an owner file, not verified"
 	}

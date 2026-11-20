@@ -11,6 +11,7 @@
 package publish
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"strings"
@@ -94,6 +95,12 @@ type Plan struct {
 	Ready bool `json:"ready"`
 	// Missing counts the absent items: what a publish would write.
 	Missing int `json:"missing"`
+	// ContractOnly is a version that is only a contract: nothing is built and
+	// only the bundle is written and signed.
+	ContractOnly bool `json:"contractOnly,omitempty"`
+	// Deploy is the deploy artifact a contract-only version reuses, as
+	// repo@digest, or "none".
+	Deploy string `json:"deploy,omitempty"`
 	// pub is the publish section the plan decided, which Apply carries out.
 	pub *contract.Publish
 }
@@ -125,6 +132,13 @@ type Input struct {
 	// Created, when set, is stamped on every artifact as AnnotationCreated:
 	// the commit time, so two publishes of one commit stamp the same value.
 	Created string
+	// ContractOnly publishes the bundle alone, whatever the publish section
+	// lists: no artifact is built and only the bundle is signed. The caller
+	// names who signs, so it passes the sign check in Checks.
+	ContractOnly bool
+	// BaselineDeploy is the deploy artifact a contract-only version reuses,
+	// repo@digest; empty means none.
+	BaselineDeploy string
 }
 
 // Builtin builds one artifact into out, as Tools.Build does, with what
@@ -206,12 +220,12 @@ func MakePlan(ctx context.Context, reg Registry, in Input) Plan {
 		return p
 	}
 	p.pub = pub
-	p.Checks = append(p.Checks, signCheck(pub), refsCheck(pub), sbomCheck(pub), revisionCheck(in.Revision), versionCheck(ctx, reg, Repo(pub.Bundle), in.Bundle, &p))
-	for _, a := range pub.Artifacts {
-		ref := Repo(a.Ref) + ":" + p.Version
-		r, err := reg.Head(ctx, ref)
-		st, why := Decide(r, err, "", p.Version, in.Revision)
-		p.Items = append(p.Items, item(a.Name, a.Type, ref, st, why, r))
+	if in.ContractOnly {
+		p.ContractOnly, p.Deploy = true, cmp.Or(in.BaselineDeploy, "none")
+		p.Checks = append(p.Checks, revisionCheck(in.Revision), versionCheck(ctx, reg, Repo(pub.Bundle), in.Bundle, &p))
+	} else {
+		p.Checks = append(p.Checks, signCheck(pub), refsCheck(pub), sbomCheck(pub), revisionCheck(in.Revision), versionCheck(ctx, reg, Repo(pub.Bundle), in.Bundle, &p))
+		p.Items = artifactItems(ctx, reg, pub, p.Version, in.Revision)
 	}
 	ref := Repo(pub.Bundle) + ":" + p.Version
 	digest, err := oci.BundleDigest(in.Bundle)
@@ -243,6 +257,18 @@ func MakePlan(ctx context.Context, reg Registry, in Input) Plan {
 		p.Ready = p.Ready && ch.Passed
 	}
 	return p
+}
+
+// artifactItems decides every declared artifact's version tag.
+func artifactItems(ctx context.Context, reg Registry, pub *contract.Publish, version, revision string) []Item {
+	var items []Item
+	for _, a := range pub.Artifacts {
+		ref := Repo(a.Ref) + ":" + version
+		r, err := reg.Head(ctx, ref)
+		st, why := Decide(r, err, "", version, revision)
+		items = append(items, item(a.Name, a.Type, ref, st, why, r))
+	}
+	return items
 }
 
 // inferredOnly decides a bundle tag that conflicts with the local bundle:

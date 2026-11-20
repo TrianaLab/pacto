@@ -35,9 +35,8 @@ type Inferred struct {
 	// outside the cluster: its identity, sources and what else was read.
 	External *InferredExternal `json:"external,omitempty" yaml:"external,omitempty"`
 	// AsOf, Completeness and Proposed are hidden from the dashboard's OpenAPI
-	// schema: only a cluster draft's record sets them, and bundle verification
-	// refuses a record with cluster facts, so no dashboard answer carries them.
-	// 513-S3 drops the tag when it adds their first carrier.
+	// schema: only a record read from a cluster sets them, and the dashboard
+	// carries a record's fields as fleet.InferredField, never as Inferred.
 	//
 	// AsOf is when a cluster fact was read (RFC 3339 UTC, seconds): set on
 	// every field whose source is "cluster:<kind> ...".

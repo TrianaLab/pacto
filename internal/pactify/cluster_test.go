@@ -1488,3 +1488,50 @@ func TestSecretEnvInitContainerURLNamesDependency(t *testing.T) {
 		t.Fatalf("keys %v urls %v", keys, urls)
 	}
 }
+
+// TestClusterWorkloadSelects: --workload drafts only the workload it names,
+// by name, ns/name or ns/Kind/name; none, several or one a Pacto describes
+// is refused with a message saying what to pass.
+func TestClusterWorkloadSelects(t *testing.T) {
+	now := time.Now()
+	objs := append(shopCluster(now), deployment("other", "checkout", "reg.io/acme/checkout:1.4.0"))
+	draft := func(w string) (*Bulk, error) {
+		c := ClusterOptions{Out: t.TempDir(), Now: func() time.Time { return now }, Workload: w}
+		return Cluster(context.Background(), fakeCluster(objs...), Options{Plan: true}, c, nil)
+	}
+	for _, w := range []string{"fraud", "shop/checkout", "shop/Deployment/checkout"} {
+		if b, err := draft(w); err != nil || len(b.Results) != 1 || !strings.HasSuffix(w, b.Results[0].Service) {
+			t.Fatalf("%s: %+v %v", w, b, err)
+		}
+	}
+	for w, want := range map[string]error{"checkout": ErrWorkloadAmbiguous, "missing": ErrWorkloadNotFound, "shop/payments": ErrAlreadyDeclared, "shop/StatefulSet/checkout": ErrWorkloadNotFound} {
+		_, err := draft(w)
+		if !errors.Is(err, want) {
+			t.Fatalf("%s: %v", w, err)
+		}
+	}
+	_, err := draft("checkout")
+	_, gone := draft("missing")
+	_, declared := draft("shop/payments")
+	if err.Error() != "2 workloads are named checkout: pass ns/Kind/name" || gone.Error() != "no workload named missing that no Pacto describes" ||
+		declared.Error() != "shop/Deployment/payments already has a contract: change it with pacto publish" {
+		t.Fatalf("%v | %v | %v", err, gone, declared)
+	}
+}
+
+// TestClusterWorkloadHiddenNotCounted: a workload of the same name in a
+// namespace the viewer may not read is never counted, so the name is not
+// ambiguous and nothing names the hidden one.
+func TestClusterWorkloadHiddenNotCounted(t *testing.T) {
+	now := time.Now()
+	objs := append(shopCluster(now), deployment("other", "checkout", "reg.io/acme/checkout:1.4.0"))
+	c := ClusterOptions{Out: t.TempDir(), Now: func() time.Time { return now }, Workload: "checkout", Visible: func(ns string) bool { return ns == "shop" }}
+	b, err := Cluster(context.Background(), fakeCluster(objs...), Options{Plan: true}, c, nil)
+	if err != nil || len(b.Results) != 1 || b.Results[0].Dir != filepath.Join(c.Out, "shop", "checkout") {
+		t.Fatalf("%+v %v", b, err)
+	}
+	c.Workload = "other/checkout"
+	if _, err := Cluster(context.Background(), fakeCluster(objs...), Options{Plan: true}, c, nil); !errors.Is(err, ErrWorkloadNotFound) || strings.Contains(err.Error(), "2 workloads") {
+		t.Fatal(err)
+	}
+}

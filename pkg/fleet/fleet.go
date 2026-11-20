@@ -506,6 +506,20 @@ const (
 	// files do not match the bundle, so its inferred dependencies are unknown,
 	// not absent. It makes the answer partial.
 	LimitationInferredRecordUnreadable = "INFERRED_RECORD_UNREADABLE"
+	// LimitationDeclarationDraftIgnored: a bundle whose inferred record is a
+	// declaration draft (state: draft) is not a version, so the revision is
+	// left out. Completeness is unchanged.
+	LimitationDeclarationDraftIgnored = "DECLARATION_DRAFT_IGNORED"
+	// LimitationDeclarationSignerUnverified: a declared revision carries
+	// cluster facts but no signature this reader verified names its asker as
+	// a person, so the cluster facts, coverage and hidden counts are dropped.
+	// It makes the answer partial.
+	LimitationDeclarationSignerUnverified = "DECLARATION_SIGNER_UNVERIFIED"
+	// LimitationDeclarationSignerNotAllowed: a declared revision is signed
+	// by its asker, but the reader's installation signer policy does not
+	// allow that person or could not be read, so its cluster facts, coverage
+	// and hidden counts are dropped. It makes the answer partial.
+	LimitationDeclarationSignerNotAllowed = "DECLARATION_SIGNER_NOT_ALLOWED"
 	// LimitationExternalCap: the answer names MaxExternalNodes external
 	// systems and folds the least-consumed rest into one other-egress node.
 	// It makes the answer partial.
@@ -919,6 +933,18 @@ type ContractRevision struct {
 	// (LimitationInferredRecordUnreadable), so detail reads "unknown", never
 	// "nothing inferred".
 	recordUnreadable bool
+	// declarationChecked says a signature the revision's provenance verified
+	// names its record's declarer as a person (acceptDeclaration).
+	declarationChecked bool
+	// declarationRefused is why the reader does not accept the declarer:
+	// an unverified signature or a signer policy that refuses it; "" when
+	// it is accepted (acceptDeclaration).
+	declarationRefused string
+	// declarationHidden and hiddenClusterFields are set on a restricted
+	// view's clone when the viewer may not read the namespace the
+	// declaration came from: its cluster fields are gone and counted.
+	declarationHidden   bool
+	hiddenClusterFields int
 	// validated records that this revision's contract document was readable and
 	// was run through the validator at build time. Stored so status queries never
 	// dereference the build-only bundle after Build.
@@ -1384,6 +1410,8 @@ type FleetSnapshot struct {
 	// clusterKeyed: Build keyed targets by cluster (two or more clusters). It
 	// survives Restrict, which may leave one cluster visible under 4-part keys.
 	clusterKeyed bool
+	// declarationSigners is BuildOptions.DeclarationSigners.
+	declarationSigners *DeclarationSignerPolicy
 	// UncontractedCallers are observed callers with no contract of a service
 	// that has one. Sorted by (ToService, Caller).
 	UncontractedCallers []UncontractedCaller `json:"uncontractedCallers,omitempty"`

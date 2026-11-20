@@ -27,6 +27,7 @@ Validates against the embedded schema of the contract's version, `pacto-v2.0.sch
 - Discriminated shapes hold: a `configurations[]` entry has exactly one of `schema` or `ref`, a `capabilities[]` `extension` requires a namespaced `ref` and `health` or `metrics` sets no `ref`
 - State invariants hold (`stateless` requires `ephemeral` durability)
 - A `pacto.inferred.yaml` in the bundle parses, and every file it cites is in the bundle with the digest it records (`INFERRED_RECORD_INVALID`)
+- A [declaration](inferred-record.md#declaration) in that record agrees with `pacto.yaml`: each range it accepts or requests is the declared `compatibility` (`DECLARATION_ACCEPTED_MISMATCH`), and each other proposed range stays `unknown` (`DECLARATION_RANGE_NOT_ACCEPTED`)
 
 Structural failures report `SCHEMA_VIOLATION`. A field a later version adds,
 in an older contract, reports that version's code for each use instead: set

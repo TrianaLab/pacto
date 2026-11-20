@@ -340,6 +340,73 @@ For a tour of what the dashboard surfaces, see [For platform engineers](platform
 
 ---
 
+## `pacto declare`
+
+Declares a workload the cluster runs as a service with a contract. The
+workload is name, namespace/name, namespace/Kind/name or k8s:namespace/Kind/name.
+Its contract is drafted from the cluster with your kubeconfig credentials, as
+pacto init --cluster does, or read from --dir, a folder pacto init --cluster
+wrote (its cluster facts are read again).
+
+Without --yes it prints the plan and writes nothing: the version (0.1.0 for a
+first declaration, else the published baseline raised by the change), contract
+only with the baseline's deploy artifact reused or none, every dependency range
+and who signs. Proposed ranges stay unknown unless you name the dependency with
+--accept. The plan ends with its intent digest.
+
+--yes prints the plan, then publishes it: a contract-only bundle signed keyless
+by you through an interactive Sigstore login (a browser, or a device code with
+--device). Nothing is built, no deploy tag is written and no Git access is
+needed. Only that login writes a declared version: a key, an ambient OIDC token
+(SIGSTORE_ID_TOKEN included) or a CI identity writes the next draft-&lt;n&gt; tag
+instead, and the output names the command a person runs to accept it with
+--from-draft. --intent refuses the run when the plan differs from the one you
+reviewed.
+
+A declaration never sets an owner its published baseline does not declare.
+
+```
+pacto declare <service> [flags]
+```
+
+**Examples:**
+
+```
+  # What declaring invoices would publish
+  pacto declare billing/invoices --registry ghcr.io/acme
+
+  # Accept the proposed range of ledger and publish, signed by you
+  pacto declare billing/invoices --registry ghcr.io/acme --accept ledger --yes
+
+  # Accept a draft an agent wrote
+  pacto declare invoices --registry ghcr.io/acme --from-draft draft-3 --yes
+```
+
+**Flags:**
+
+```
+      --accept strings           a dependency whose proposed range you accept as declared; repeat it for more
+      --call-window duration     how far back a call counts as a dependency (at least 1m, default 24h)
+      --device[=true|false]      log in with a device code instead of a browser
+      --dir string               a folder pacto init --cluster wrote, declared instead of a new draft
+      --from-draft string        accept this draft-<n> tag: the workload is read again and you sign
+      --fulcio-url string        Fulcio to get the signing certificate from (default "https://fulcio.sigstore.dev")
+  -h, --help[=true|false]        help for declare
+      --intent string            the intent digest of the plan you reviewed: a different plan is refused
+      --max-items int            the most items read per kind of object; a kind cut short reads as partial (default 10000)
+  -n, --namespace string         the namespace of the workload (default: every namespace the name is found in)
+      --oidc-client-id string    OpenID Connect client of the Sigstore login (default "sigstore")
+      --oidc-issuer-url string   OpenID Connect issuer of the Sigstore login (default "https://oauth2.sigstore.dev/auth")
+      --registry string          the registry the contract is published to, as host/path
+      --rekor-url string         Rekor transparency log the signature is recorded in (default "https://rekor.sigstore.dev")
+      --sign-key string          sign with this key file: a key names no person, so the run writes a draft
+      --timestamp-url string     timestamp authority to date the signature with
+      --trusted-root string      Sigstore trusted root JSON to verify with (default: public-good Sigstore)
+      --yes[=true|false]         publish the plan (or write a draft) after printing it
+```
+
+---
+
 ## `pacto delivery`
 
 Pacto delivery decides which version each environment (a Stage) runs. Every change is an Operation: plan it to see what the promoter will do and who must agree, propose it, and a person approves only when the contracts say a consumer would break, Pacto cannot see enough or the Stage asks for approval on every promote.
@@ -1935,7 +2002,7 @@ Over HTTP, --auth-issuer and --resource make every request carry a bearer token 
 
 With --publish, the authoring server also exposes pacto_publish_plan and pacto_publish, which publish a contract's version exactly as `pacto publish` does, with this process's registry credentials.
 
-Over HTTP the only contract tool is pacto_schema: pacto_create, pacto_edit and pacto_check read and write the server's folders and follow refs with its credentials, so they run beside the agent over stdio.
+Over HTTP the contract tools are pacto_schema and pacto_declare: pacto_create, pacto_edit and pacto_check read and write the server's folders and follow refs with its credentials, so they run beside the agent over stdio. pacto_declare plans declaring a running workload; over stdio it writes a draft-&lt;n&gt; tag a person accepts with pacto declare --from-draft, and over HTTP (with --auth-issuer and token exchange) it plans with the caller's own cluster credentials, only in the registries --oci names, and writes nothing.
 
 A bundle reference, --fleet and --delivery combine in one server; --root and --publish select servers of their own. Call pacto_capabilities to learn what a server serves.
 
@@ -2231,8 +2298,12 @@ pacto pull <ref> [flags]
 **Flags:**
 
 ```
-  -h, --help[=true|false]   help for pull
-  -o, --output string       output directory (default: service name)
+  -h, --help[=true|false]        help for pull
+  -o, --output string            output directory (default: service name)
+      --trusted-root string      Sigstore trusted root JSON --verify-identity checks against (default: public-good Sigstore)
+      --verify-identity string   pull only a bundle signed keyless by this certificate identity, such as an email (needs --verify-issuer)
+      --verify-issuer string     the OIDC issuer of --verify-identity
+      --verify-key string        pull only a bundle signed by the key of this PEM public key file
 ```
 
 ---

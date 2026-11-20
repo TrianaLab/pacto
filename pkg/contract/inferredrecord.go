@@ -14,6 +14,7 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/Masterminds/semver/v3"
 	"gopkg.in/yaml.v3"
 )
 
@@ -47,6 +48,10 @@ type InferredRecord struct {
 	Fields          []Inferred        `json:"fields" yaml:"fields"`
 	Findings        []InferredFinding `json:"findings,omitempty" yaml:"findings,omitempty"`
 	FindingsDropped int               `json:"findingsDropped,omitempty" yaml:"findingsDropped,omitempty"`
+	// Declaration names who declared the service from this record, from
+	// which inferred service and with which ranges they accepted: absent on
+	// a record a folder or a cluster draft completed alone.
+	Declaration *InferredDeclaration `json:"declaration,omitempty" yaml:"declaration,omitempty"`
 	// Coverage is how completely a cluster read saw each source, one row per
 	// source in CoverageSources order: set only with Inputs.Cluster.
 	Coverage []InferredCoverage `json:"coverage,omitempty" yaml:"coverage,omitempty"`
@@ -242,7 +247,7 @@ var inferredDigestRE = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 // the record's inputs.cluster object, with its asOf; completeness is only on
 // a runtime or fleet fact, proposed only a range on a
 // dependencies[<name>].compatibility field, and coverage and hidden only
-// with inputs.cluster.
+// with inputs.cluster. A declaration follows checkDeclaration's rules.
 func ParseInferredRecord(data []byte) (*InferredRecord, error) {
 	var r InferredRecord
 	dec := yaml.NewDecoder(bytes.NewReader(data))
@@ -255,6 +260,9 @@ func ParseInferredRecord(data []byte) (*InferredRecord, error) {
 	}
 	if err := checkClusterRecord(&r); err != nil {
 		return nil, fmt.Errorf("%s: %w", InferredRecordFile, err)
+	}
+	if err := checkDeclaration(r.Declaration); err != nil {
+		return nil, fmt.Errorf("%s: declaration%w", InferredRecordFile, err)
 	}
 	seen := make(map[string]bool, len(r.Fields))
 	for i, f := range r.Fields {
@@ -598,7 +606,7 @@ const repositoryPrefix = "repository:"
 
 // Marshal writes the record with its fields sorted by field then source, its
 // findings truncation first then by code and source, its sources by path, its
-// migrations by source then from, and no timestamp, so the same inputs give
+// migrations by source then from, a declaration's ranges by field, and no timestamp, so the same inputs give
 // the same bytes.
 func (r *InferredRecord) Marshal() []byte {
 	out := *r
@@ -630,6 +638,11 @@ func (r *InferredRecord) Marshal() []byte {
 	})
 	if r.Hidden != nil && *r.Hidden == (InferredHidden{}) {
 		out.Hidden = nil
+	}
+	if r.Declaration != nil {
+		d := *r.Declaration
+		d.Accepted, d.Requested = sortedAcceptances(d.Accepted), sortedAcceptances(d.Requested)
+		out.Declaration = &d
 	}
 	out.Migrations = slices.Clone(r.Migrations)
 	slices.SortFunc(out.Migrations, func(a, b InferredMigration) int {
@@ -674,10 +687,15 @@ func ReadInferredRecord(fsys fs.FS) (*InferredRecord, error) {
 // the bundle (a "repository:" source) cannot be checked here: its digest only
 // tells two records' inputs apart. A stale or hand-edited record fails here
 // instead of reading as authoritative. A cluster fact, cluster input,
-// coverage or hidden count fails too: no unsigned path puts one in a bundle.
+// coverage or hidden count fails too, unless the record carries a
+// declaration: no unsigned path puts one in a bundle, and the record cannot
+// prove its signer, so a reader shows them only once it checked the
+// bundle's signature names the declaration's asker.
 func VerifyInferredRecord(fsys fs.FS, rec *InferredRecord) error {
-	if err := refuseClusterFacts(rec); err != nil {
-		return err
+	if rec.Declaration == nil {
+		if err := refuseClusterFacts(rec); err != nil {
+			return err
+		}
 	}
 	listed := make(map[string]bool, len(rec.Inputs.Sources))
 	for i, s := range rec.Inputs.Sources {
@@ -699,8 +717,8 @@ func VerifyInferredRecord(fsys fs.FS, rec *InferredRecord) error {
 	}
 	for i, f := range rec.Fields {
 		for _, src := range append(append([]string{f.Source}, f.Outranks...), externalPaths(f)...) {
-			if _, outside := sourceForm(src); outside {
-				continue
+			if _, outside := sourceForm(src); outside || strings.HasPrefix(src, clusterPrefix) {
+				continue // a cluster fact names no bundle file; refuseClusterFacts kept it out without a declaration
 			}
 			if file := sourceFile(src); !listed[file] {
 				return fmt.Errorf("fields[%d] (%s) cites %s, which inputs.sources does not list", i, f.Field, file)
@@ -878,4 +896,214 @@ func shortCommit(c string) string {
 		return c[:7]
 	}
 	return c
+}
+
+// The states of a declaration: a person's signed declaration, or a draft
+// another signer proposed for a person to accept.
+const (
+	DeclarationDeclared = "declared"
+	DeclarationDraft    = "draft"
+)
+
+// The signer classes a declaration names (delivery's actor classes; human
+// is the person) and the issuer of an unsigned draft.
+const (
+	SignerClassHuman = "human"
+	SignerClassAgent = "agent"
+	SignerClassCI    = "ci"
+	SignerUnsigned   = "none"
+)
+
+// InferredDeclaration is who declared a service from a record and how: the
+// state, the identity that signed (Asker), the person an agent drafted for
+// (OnBehalfOf, asserted, drafts only), the inferred service it came from as
+// fleet.K8sCaller("", ns, kind, name), the kube-system namespace uid of the
+// cluster read ("" when unread), the baseline it reuses, the proposed ranges
+// the signer accepted (declared only) or requested (drafts only) and, for an
+// accepted draft, the draft it came from.
+type InferredDeclaration struct {
+	State        string               `json:"state" yaml:"state"`
+	Asker        InferredSigner       `json:"asker" yaml:"asker"`
+	OnBehalfOf   string               `json:"onBehalfOf,omitempty" yaml:"onBehalfOf,omitempty"`
+	InferredFrom string               `json:"inferredFrom,omitempty" yaml:"inferredFrom,omitempty"`
+	Cluster      string               `json:"cluster,omitempty" yaml:"cluster,omitempty"`
+	Baseline     *InferredBaseline    `json:"baseline,omitempty" yaml:"baseline,omitempty"`
+	Accepted     []InferredAcceptance `json:"accepted,omitempty" yaml:"accepted,omitempty"`
+	Requested    []InferredAcceptance `json:"requested,omitempty" yaml:"requested,omitempty"`
+	Draft        *InferredDraft       `json:"draft,omitempty" yaml:"draft,omitempty"`
+}
+
+// InferredSigner is the identity that signed a declaration or a draft and
+// its class; an unsigned draft's is {"", none, agent}.
+type InferredSigner struct {
+	Subject string `json:"subject" yaml:"subject"`
+	Issuer  string `json:"issuer" yaml:"issuer"`
+	Class   string `json:"class" yaml:"class"`
+}
+
+// InferredBaseline is the published version a declaration starts from: its
+// version, its bundle and its deploy artifact (empty when it has none), each
+// pinned by digest.
+type InferredBaseline struct {
+	Version string `json:"version" yaml:"version"`
+	Bundle  string `json:"bundle" yaml:"bundle"`
+	Deploy  string `json:"deploy,omitempty" yaml:"deploy,omitempty"`
+}
+
+// InferredAcceptance is one proposed range a signer accepted or requested:
+// the record field "dependencies[<name>].compatibility" and the range.
+type InferredAcceptance struct {
+	Field string `json:"field" yaml:"field"`
+	Range string `json:"range" yaml:"range"`
+}
+
+// InferredDraft is the draft an accepted declaration came from: its tag, its
+// bundle pinned by digest, who signed it and whom it was drafted for.
+type InferredDraft struct {
+	Tag        string         `json:"tag" yaml:"tag"`
+	Digest     string         `json:"digest" yaml:"digest"`
+	Asker      InferredSigner `json:"asker" yaml:"asker"`
+	OnBehalfOf string         `json:"onBehalfOf,omitempty" yaml:"onBehalfOf,omitempty"`
+}
+
+var (
+	// inferredFromRE is fleet.K8sCaller's form: "k8s:", an optional escaped
+	// cluster id, then namespace/kind/name. pkg/contract imports no fleet, so
+	// a fleet test keeps the two in step.
+	inferredFromRE = regexp.MustCompile(`^k8s:([^/\s]+/)?[^/\s]+/[^/\s]+/[^/\s]+$`)
+	// pinnedRefRE is a repository pinned by digest.
+	pinnedRefRE = regexp.MustCompile(`^[a-z0-9][a-z0-9._:/-]*[a-z0-9]@sha256:[0-9a-f]{64}$`)
+	// acceptanceFieldRE is the record field a range is accepted on.
+	acceptanceFieldRE = regexp.MustCompile(`^dependencies\[[^\[\]]+\]\.compatibility$`)
+	draftTagRE        = regexp.MustCompile(`^draft-[1-9][0-9]*$`)
+)
+
+// checkDeclaration is why d cannot be a record's declaration, as a suffix of
+// "declaration", or nil: another state; a declared record not signed by a
+// person or a draft signed by one; an unsigned asker other than
+// {"", none, agent}; onBehalfOf or requested off a draft, accepted or a
+// draft reference off a declared record; a malformed range, inferredFrom,
+// baseline, draft reference or cluster uid.
+func checkDeclaration(d *InferredDeclaration) error {
+	if d == nil {
+		return nil
+	}
+	if err := checkDeclarationState(d); err != nil {
+		return err
+	}
+	if err := checkAcceptances(".accepted", d.Accepted); err != nil {
+		return err
+	}
+	if err := checkAcceptances(".requested", d.Requested); err != nil {
+		return err
+	}
+	switch {
+	case d.InferredFrom != "" && !inferredFromRE.MatchString(d.InferredFrom):
+		return errors.New(".inferredFrom is not k8s:[<cluster>/]<namespace>/<Kind>/<name>")
+	case len(d.Cluster) > 64:
+		return errors.New(".cluster is longer than 64 bytes")
+	}
+	if err := checkBaseline(d.Baseline); err != nil {
+		return err
+	}
+	return checkDraftRef(d.Draft)
+}
+
+// checkDeclarationState is why d's state, asker and the members its state
+// allows do not agree, or nil.
+func checkDeclarationState(d *InferredDeclaration) error {
+	if err := checkSigner(".asker", d.Asker); err != nil {
+		return err
+	}
+	switch d.State {
+	case DeclarationDeclared:
+		switch {
+		case d.Asker.Class != SignerClassHuman || d.Asker.Subject == "":
+			return errors.New(": a declared record is signed by a person (asker.class human, with a subject)")
+		case d.OnBehalfOf != "":
+			return errors.New(".onBehalfOf is only on a draft")
+		case len(d.Requested) > 0:
+			return errors.New(".requested is only on a draft")
+		}
+	case DeclarationDraft:
+		switch {
+		case d.Asker.Class == SignerClassHuman:
+			return errors.New(": a draft is never signed by a person (asker.class human)")
+		case len(d.Accepted) > 0:
+			return errors.New(".accepted is only on a declared record")
+		case d.Draft != nil:
+			return errors.New(".draft is only on a declared record")
+		}
+	default:
+		return fmt.Errorf(".state is %q, want declared or draft", d.State)
+	}
+	return nil
+}
+
+// checkSigner is why s cannot be the signer at path, or nil: another class,
+// no issuer, or an unsigned signer other than {"", none, agent}.
+func checkSigner(path string, s InferredSigner) error {
+	switch {
+	case s.Class != SignerClassHuman && s.Class != SignerClassAgent && s.Class != SignerClassCI:
+		return fmt.Errorf("%s.class is %q, want human, agent or ci", path, s.Class)
+	case s.Issuer == "":
+		return fmt.Errorf("%s.issuer is empty", path)
+	case s.Issuer == SignerUnsigned && (s.Subject != "" || s.Class != SignerClassAgent):
+		return fmt.Errorf("%s of an unsigned draft is exactly {subject: \"\", issuer: none, class: agent}", path)
+	}
+	return nil
+}
+
+// checkAcceptances is why list cannot be the ranges at path, or nil.
+func checkAcceptances(path string, list []InferredAcceptance) error {
+	seen := map[string]bool{}
+	for i, a := range list {
+		switch {
+		case !acceptanceFieldRE.MatchString(a.Field):
+			return fmt.Errorf("%s[%d].field is %q, want dependencies[<name>].compatibility", path, i, a.Field)
+		case seen[a.Field]:
+			return fmt.Errorf("%s[%d].field %q is listed twice", path, i, a.Field)
+		}
+		if _, err := ParseRange(a.Range); err != nil {
+			return fmt.Errorf("%s[%d].range is not a semver range", path, i)
+		}
+		seen[a.Field] = true
+	}
+	return nil
+}
+
+// checkBaseline is why b cannot be a declaration's baseline, or nil.
+func checkBaseline(b *InferredBaseline) error {
+	if b == nil {
+		return nil
+	}
+	if _, err := semver.StrictNewVersion(b.Version); err != nil {
+		return fmt.Errorf(".baseline.version %q is not a version", b.Version)
+	}
+	if !pinnedRefRE.MatchString(b.Bundle) || (b.Deploy != "" && !pinnedRefRE.MatchString(b.Deploy)) {
+		return errors.New(".baseline.bundle and .deploy are <repository>@sha256:<64 hex>")
+	}
+	return nil
+}
+
+// checkDraftRef is why r cannot name the draft a declaration accepted, or nil.
+func checkDraftRef(r *InferredDraft) error {
+	switch {
+	case r == nil:
+		return nil
+	case !draftTagRE.MatchString(r.Tag):
+		return fmt.Errorf(".draft.tag is %q, want draft-<n>", r.Tag)
+	case !pinnedRefRE.MatchString(r.Digest):
+		return errors.New(".draft.digest is <repository>@sha256:<64 hex>")
+	case r.Asker.Class == SignerClassHuman:
+		return errors.New(".draft.asker: a draft is never signed by a person")
+	}
+	return checkSigner(".draft.asker", r.Asker)
+}
+
+// sortedAcceptances is a copy of list sorted by field.
+func sortedAcceptances(list []InferredAcceptance) []InferredAcceptance {
+	out := slices.Clone(list)
+	slices.SortFunc(out, func(a, b InferredAcceptance) int { return strings.Compare(a.Field, b.Field) })
+	return out
 }

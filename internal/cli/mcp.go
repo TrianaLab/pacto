@@ -67,7 +67,9 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 			"asks the apiserver who the caller is (a SelfSubjectReview) and asks Kubernetes RBAC what that user may read.\n\n" +
 			"With --publish, the authoring server also exposes pacto_publish_plan and pacto_publish, which publish " +
 			"a contract's version exactly as `pacto publish` does, with this process's registry credentials.\n\n" +
-			"Over HTTP the only contract tool is pacto_schema: pacto_create, pacto_edit and pacto_check read and write the server's folders and follow refs with its credentials, so they run beside the agent over stdio.\n\n" +
+			"Over HTTP the contract tools are pacto_schema and pacto_declare: pacto_create, pacto_edit and pacto_check read and write the server's folders and follow refs with its credentials, so they run beside the agent over stdio. " +
+			"pacto_declare plans declaring a running workload; over stdio it writes a draft-<n> tag a person accepts with pacto declare --from-draft, and over HTTP " +
+			"(with --auth-issuer and token exchange) it plans with the caller's own cluster credentials, only in the registries --oci names, and writes nothing.\n\n" +
 			"A bundle reference, --fleet and --delivery combine in one server; --root and --publish select servers of their own. " +
 			"Call pacto_capabilities to learn what a server serves.",
 		Example: `  # Start MCP server over stdio (default)
@@ -414,9 +416,11 @@ var errPublishOverHTTP = errors.New("--publish serves stdio only: over HTTP ever
 	"registry credentials; run `pacto mcp --publish` beside the agent, under the agent's own credentials")
 
 // mcpAuthoring is what every server's authoring tools get. pacto_create,
-// pacto_edit and pacto_check serve stdio only: over HTTP every caller would
-// read and write this process's folders, read its kubeconfig and follow refs
-// with its registry credentials, so Remote leaves only pacto_schema there.
+// pacto_edit, pacto_check and the drafting pacto_declare serve stdio only:
+// over HTTP every caller would read and write this process's folders, read
+// its kubeconfig and follow refs with its registry credentials, so Remote
+// leaves only pacto_schema there (remoteCallerFor adds the planning
+// pacto_declare when it reviews each caller).
 func mcpAuthoring(cmd *cobra.Command, svc *app.Service) pactomcp.Authoring {
 	a := pactomcp.Authoring{Validate: svc.ValidationReport}
 	transport, _ := cmd.Flags().GetString("transport")
@@ -425,6 +429,7 @@ func mcpAuthoring(cmd *cobra.Command, svc *app.Service) pactomcp.Authoring {
 		trust, _ := cmd.Flags().GetString("delivery-trust")
 		a.Init = mcpInit(svc, trust)
 		a.Catalog, a.CatalogUnavailable = mcpCatalog(cmd, svc)
+		a.Declare = newMCPDeclarer(svc)
 	}
 	return a
 }

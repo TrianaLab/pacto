@@ -1028,7 +1028,13 @@ export function installScaleFixture(): void {
   // inferredUnreadable answers every service and revision as one whose inferred record
   // Pacto could not read: the service has no record field, the revision keeps only the
   // values a local read infers on its own (pactoVersion, service.name).
-  const flags = window as unknown as { __pactoNewSigner?: boolean; __pactoLongPropose?: boolean; __pactoStalePropose?: boolean; __pactoAmbiguousTarget?: boolean; __pactoInferredUnreadable?: boolean };
+  // clusterFacts answers newsletter-service's revision as a signed declaration: 9 inferred
+  // rows (cluster and folder sources, partial, a proposed range, 80-character values),
+  // coverage, hidden counts and a long signer. 'dropped' answers it as a declaration by an
+  // unverified signer whose namespace the viewer may not read: no rows, no namespace and
+  // no hidden count (its cluster facts were already dropped). 'notAllowed' answers it as a
+  // checked signature the installation signer policy refuses.
+  const flags = window as unknown as { __pactoNewSigner?: boolean; __pactoLongPropose?: boolean; __pactoStalePropose?: boolean; __pactoAmbiguousTarget?: boolean; __pactoInferredUnreadable?: boolean; __pactoClusterFacts?: boolean | 'dropped' | 'notAllowed' };
   const shortOf = (v: unknown) => [...memo].find(([, l]) => l === v)?.[0] ?? v;
   const engineBody = (path: string, body: string | null): string | null => {
     if (!flags.__pactoLongPropose || !body || !/^\/api\/delivery\/(plan|operations)$/.test(path)) return body;
@@ -1358,6 +1364,36 @@ export function installScaleFixture(): void {
       rev.inferredUnreadable = true;
     }
   };
+  // Read before amend renames the service; applied after amend scales the rows.
+  const declaredRevision = (route: string, doc: Record<string, unknown>) => {
+    const rev = doc.revision as Record<string, unknown> | undefined;
+    return route === '/api/fleet/entities/revision' && !!rev && String((rev.service as { key?: string } | undefined)?.key ?? '').endsWith('newsletter-service');
+  };
+  const clusterFacts = (doc: Record<string, unknown>) => {
+    const rev = doc.revision as Record<string, unknown>;
+    if (flags.__pactoClusterFacts === 'dropped') {
+      Object.assign(rev, { inferred: [], inferredTotal: 0,
+        declaration: { state: 'declared', signatureChecked: false, claimedSubject: `${'mallory'.repeat(10)}@unverified.example.com`, inferredFromHidden: true } });
+      return;
+    }
+    if (flags.__pactoClusterFacts === 'notAllowed') {
+      Object.assign(rev, { inferred: [], inferredTotal: 0,
+        declaration: { state: 'declared', signatureChecked: true, claimedSubject: 'mallory@gmail.com', baseline: '1.4.0',
+          notAccepted: 'the installation signer policy lists no issuer https://accounts.google.com', inferredFrom: 'k8s:newsletter/Deployment/newsletter-service' } });
+      return;
+    }
+    const wide = (s: string) => `${s}-${'x'.repeat(Math.max(0, 79 - s.length))}`;
+    const workload = `cluster:${wide('newsletter')}/Deployment/newsletter-service`;
+    rev.inferred = Array.from({ length: 9 }, (_, i) => (i % 3 === 2
+      ? { field: `configuration.${wide(`KEY_${i}`)}`, value: wide(`value-${i}`), source: `deploy/deployment.yaml:${i + 1}`, confidence: 'likely', provenance: 'inferred' }
+      : { field: `dependencies[${wide(`callee-${i}`)}]`, value: wide(`callee-${i}`), source: workload, provenance: 'inferred',
+        asOf: '2026-11-17T10:00:00Z', completeness: i % 2 ? 'partial' : 'complete', ...(i === 0 ? { proposed: '^2.0.0' } : {}) }));
+    rev.inferredTotal = 9;
+    rev.inferredCoverage = [{ source: workload, state: 'complete' }, { source: 'cluster:runtime-calls', state: 'partial', reason: 'a node went unobserved' }];
+    rev.inferredHidden = { services: 2, callers: 5 };
+    rev.declaration = { state: 'declared', signatureChecked: true, signer: { subject: `${'ana'.repeat(25)}@acme.example.com`, issuer: 'https://accounts.google.com', class: 'human' },
+      inferredFrom: `k8s:${wide('newsletter')}/Deployment/newsletter-service`, baseline: '1.4.0', accepted: [`dependencies[${wide('callee-0')}] ^2.0.0`] };
+  };
   const wrapped: Serve = async (method, path, body) => {
     body = engineBody(path, body);
     const route = path.split('?')[0];
@@ -1391,6 +1427,7 @@ export function installScaleFixture(): void {
     let doc: Record<string, unknown>;
     try { doc = JSON.parse(res.body); } catch { return res; }
     if (flags.__pactoInferredUnreadable) unreadableRecord(route, doc);
+    const declared = !!flags.__pactoClusterFacts && declaredRevision(route, doc);
     try { amend(method, path, doc, body); } catch (e) {
       // An override that throws would leave the route unscaled and the gate green:
       // layoutProblems reports it.
@@ -1399,6 +1436,7 @@ export function installScaleFixture(): void {
       (w.__pactoScaleErrors ??= []).push(`scale fixture ${path}: ${e}`);
       return res;
     }
+    if (declared) clusterFacts(doc);
     return { ...res, body: JSON.stringify(doc) };
   };
   Object.defineProperty(window, '__pactoServe', {
@@ -2112,6 +2150,21 @@ export const ROUTES: Route[] = [
   { name: 'revision list', list: true, hash: '#/fleet/revisions?service=payments-service' },
   { name: 'revision entity', open: firstLink('#/fleet/revisions?service=payments-service', '/fleet/revisions/') },
   { name: 'revision entity, implicit contract', open: firstLink('#/fleet/revisions?service=newsletter-service', '/fleet/revisions/') },
+  {
+    // A signed declaration: the declaration line and the cluster rows, the "N more" open
+    // so the 80-character values are measured. Reload: the flag is read per answer.
+    name: 'revision entity, cluster facts',
+    open: async (page) => {
+      await page.addInitScript(() => { (window as unknown as { __pactoClusterFacts?: boolean }).__pactoClusterFacts = true; });
+      await firstLink('#/fleet/revisions?service=newsletter-service', '/fleet/revisions/')(page);
+      await page.reload();
+      const block = page.getByTestId('revision-inferred');
+      await expect(block.getByTestId('inferred-declaration')).toBeVisible({ timeout: 30_000 });
+      await block.locator('.ifl-more > summary').click();
+      await expect(block.locator('.ifl-more [data-testid="inferred-field"]').first()).toBeVisible();
+      await page.evaluate(() => window.scrollTo(0, 0));
+    },
+  },
   {
     // pacto ci raised the authored pactoVersion in memory: muted text, behind badge and
     // the provenance mark that ends the row. Reload: the init script runs on a new document.

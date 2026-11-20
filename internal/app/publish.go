@@ -536,6 +536,15 @@ func newExecTools(dir string, run runner, reg publish.Registry) execTools {
 	return execTools{dir: dir, run: run, reg: reg, signers: map[contract.PublishSign]loadedSigner{}, built: map[string]time.Time{}}
 }
 
+// signerTools is execTools that signs with s, and verifies under p, whatever
+// the publish section's sign config: the signer a caller chose, such as a
+// person's Sigstore login.
+func signerTools(reg publish.Registry, s signing.Signer, p signing.Policy) execTools {
+	t := newExecTools("", nil, reg)
+	t.signers[contract.PublishSign{}] = loadedSigner{s: s, p: p}
+	return t
+}
+
 // Build implements publish.Tools.
 func (t execTools) Build(ctx context.Context, a contract.PublishArtifact, out string, env []string) error {
 	if a.SBOM != "" {

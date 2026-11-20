@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -91,16 +92,10 @@ func Apply(ctx context.Context, reg Registry, tools Tools, in Input) (*Result, e
 	}
 	res := &Result{Plan: p, Actions: []string{}, Digests: map[string]string{}, SBOMs: map[string]string{}}
 	if !p.Ready {
-		return res, fmt.Errorf("%w: %s", ErrNotReady, refusal(p))
+		return res, fmt.Errorf("%w: %s", ErrNotReady, Refusal(p))
 	}
 	r := &applier{ctx: ctx, reg: reg, tools: tools, in: in, res: res, pub: p.pub}
-	if err := r.artifacts(); err != nil {
-		return res, err
-	}
-	if err := r.bundle(); err != nil {
-		return res, err
-	}
-	if err := r.images(); err != nil {
+	if err := r.write(); err != nil {
 		return res, err
 	}
 	if err := signAll(ctx, tools, SignOf(r.pub), r.pub, Repo(r.pub.Bundle), res); err != nil {
@@ -120,6 +115,110 @@ func Apply(ctx context.Context, reg Registry, tools Tools, in Input) (*Result, e
 		res.Actions = append(res.Actions, fmt.Sprintf("tagged %d artifacts %s", len(tags), p.Version))
 	}
 	return res, nil
+}
+
+// write builds and pushes what the plan found absent: the artifacts, the
+// bundle and the images record, or only the bundle for a contract-only
+// version.
+func (r *applier) write() error {
+	if r.res.Plan.ContractOnly {
+		return r.bundle()
+	}
+	if err := r.artifacts(); err != nil {
+		return err
+	}
+	if err := r.bundle(); err != nil {
+		return err
+	}
+	return r.images()
+}
+
+// DraftPrefix starts every draft tag: draft-<n>, never a semver tag, so no
+// version rule, baseline or derived version ever reads one.
+const DraftPrefix = "draft-"
+
+// maxDraft bounds a draft number: a larger tag someone pushed is ignored,
+// so the next number never overflows.
+const maxDraft = 1 << 30
+
+// NextDraft is the number after the highest prefix<n> tag in tags, 1 when
+// there is none. Only tags a record names a draft by count (<n> with no
+// leading zero, at most maxDraft); any other is ignored.
+func NextDraft(tags []string, prefix string) int {
+	high := 0
+	for _, t := range tags {
+		rest, ok := strings.CutPrefix(t, prefix)
+		n, err := strconv.ParseUint(rest, 10, 31)
+		if ok && err == nil && !strings.HasPrefix(rest, "0") && n <= maxDraft && int(n) > high {
+			high = int(n)
+		}
+	}
+	return high + 1
+}
+
+// ApplyDraft writes the bundle under the next free draft-<n> tag of its
+// bundle repository and returns that tag: write-once, never over an existing
+// tag, signed only when sign. A tag another run took meanwhile is retried
+// once at the next number; a second loss is ErrTagRace.
+func ApplyDraft(ctx context.Context, reg Registry, tools Tools, in Input, sign bool) (*Result, string, error) {
+	pub := cmp.Or(in.Publish, in.Bundle.Contract.Publish)
+	if pub == nil {
+		return nil, "", errors.New("a draft needs a bundle repository: pass the publish section")
+	}
+	repo := Repo(pub.Bundle)
+	tags, err := reg.Tags(ctx, repo)
+	if err != nil {
+		return nil, "", fmt.Errorf("listing the drafts in %s: %w", repo, err)
+	}
+	digest, err := oci.BundleDigest(in.Bundle)
+	if err != nil {
+		return nil, "", fmt.Errorf("packing the bundle: %w", err)
+	}
+	res := &Result{Plan: Plan{Service: in.Bundle.Contract.Service.Name, Revision: in.Revision, ContractOnly: true, Ready: true, Missing: 1, pub: pub},
+		Actions: []string{}, Digests: map[string]string{}}
+	r := &applier{ctx: ctx, reg: reg, tools: tools, in: in, res: res, pub: pub}
+	n, lost := NextDraft(tags, DraftPrefix), error(nil)
+	for try := range 2 {
+		tag := DraftPrefix + strconv.Itoa(n+try)
+		if lost, err = r.draft(repo, tag, digest, sign); err != nil {
+			return res, "", err
+		}
+		if lost == nil {
+			res.Actions = append(res.Actions, "tagged the draft "+repo+":"+tag)
+			return res, tag, nil
+		}
+	}
+	return res, "", fmt.Errorf("two draft tags were taken while this run wrote one: %w", lost)
+}
+
+// draft tries to write the bundle as repo:tag. lost is the race when another
+// run holds tag; err is any other failure.
+func (r *applier) draft(repo, tag, digest string, sign bool) (lost, err error) {
+	now, err := r.reg.Head(r.ctx, repo+":"+tag)
+	switch st, why := Decide(now, err, "", tag, ""); st {
+	case Absent:
+	case Unreadable:
+		return nil, errors.New(why)
+	default:
+		return fmt.Errorf("%w: %s holds %s; it is never overwritten", ErrTagRace, repo+":"+tag, now.Digest), nil
+	}
+	r.res.Plan.Version, r.tags = tag, nil
+	r.res.Plan.Items = []Item{{Name: BundleItem, Type: BundleItem, Ref: repo + ":" + tag, State: Absent, Digest: digest}}
+	if err := r.bundle(); err != nil {
+		return nil, err
+	}
+	if sign { // before the tag; Tools.Sign skips a digest it already signed
+		if err := signAll(r.ctx, r.tools, SignOf(r.pub), r.pub, repo, r.res); err != nil {
+			return nil, err
+		}
+	}
+	if err := r.tags[0](); err != nil {
+		if errors.Is(err, ErrTagRace) {
+			return err, nil
+		}
+		return nil, fmt.Errorf("tagging: %w", err)
+	}
+	return nil, nil
 }
 
 // adoptOnlySigned turns an adopted tag that carries no signature by the
@@ -264,8 +363,8 @@ type streamed struct {
 
 func (s streamed) Digest() (v1.Hash, error) { return s.digest, nil }
 
-// refusal says why a plan is not ready.
-func refusal(p Plan) string {
+// Refusal says why a plan is not ready: its first failed check or conflict.
+func Refusal(p Plan) string {
 	for _, c := range p.Checks {
 		if !c.Passed {
 			return c.Name + ": " + c.Message
@@ -401,6 +500,9 @@ func (r *applier) images() error {
 func signAll(ctx context.Context, tools Tools, sign contract.PublishSign, pub *contract.Publish, bundleRepo string, res *Result) error {
 	var refs []string // each artifact, its SBOM if any, then the bundle
 	for _, a := range pub.Artifacts {
+		if res.Plan.ContractOnly {
+			break // nothing but the bundle was written
+		}
 		refs = append(refs, Repo(a.Ref)+"@"+res.Digests[a.Name])
 		if sbom := res.SBOMs[a.Name]; sbom != "" {
 			refs = append(refs, Repo(a.Ref)+"@"+sbom)

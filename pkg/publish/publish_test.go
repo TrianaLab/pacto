@@ -499,7 +499,7 @@ func TestPlanChecks(t *testing.T) {
 	off := false
 	c := signCheck(&contract.Publish{Sign: &contract.PublishSign{Keyless: true, Identity: "ci@acme", Issuer: "https://issuer", TransparencyLog: &off}})
 	expect(t, !c.Passed && strings.Contains(c.Message, "transparency log"), "keyless without the log: %+v", c)
-	expect(t, refusal(Plan{}) == "not ready", "refusal of an empty plan")
+	expect(t, Refusal(Plan{}) == "not ready", "refusal of an empty plan")
 }
 
 func TestPlanUnreadable(t *testing.T) {

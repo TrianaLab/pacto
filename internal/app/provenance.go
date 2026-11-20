@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -88,8 +89,9 @@ func newProvenanceChecker(reg provenanceRegistry) *ProvenanceChecker {
 }
 
 // signatureJudge decides what can be said about the signatures of
-// repo@digest under the trusted root tm, starting from sig.
-type signatureJudge func(ctx context.Context, repo, digest string, tm root.TrustedMaterial, sig fleet.BundleSignature) fleet.BundleSignature
+// repo@digest under the trusted root tm, starting from sig, and lists every
+// identity whose signature verified (none when it read no signer).
+type signatureJudge func(ctx context.Context, repo, digest string, tm root.TrustedMaterial, sig fleet.BundleSignature) (fleet.BundleSignature, []fleet.VerifiedSigner)
 
 // deriveRule is the publisher rule inferred from where an artifact lives
 // (delivery.DeriveRule); tests swap it for a registry host it knows.
@@ -105,7 +107,7 @@ func (p *ProvenanceChecker) Check(ctx context.Context, source, ref string, c *co
 	if c != nil {
 		service.Name = c.Service.Name
 	}
-	return p.check(ctx, source, ref, func(ctx context.Context, repo, digest string, tm root.TrustedMaterial, sig fleet.BundleSignature) fleet.BundleSignature {
+	return p.check(ctx, source, ref, func(ctx context.Context, repo, digest string, tm root.TrustedMaterial, sig fleet.BundleSignature) (fleet.BundleSignature, []fleet.VerifiedSigner) {
 		return p.judgeSignature(ctx, repo, digest, tm, sig, service)
 	})
 }
@@ -114,8 +116,8 @@ func (p *ProvenanceChecker) Check(ctx context.Context, source, ref string, c *co
 // Pacto release signer of the default external catalog: a match is verified
 // with source release.
 func (p *ProvenanceChecker) CheckSigner(ctx context.Context, source, ref, identity, issuer string) *fleet.BundleProvenance {
-	return p.check(ctx, source, ref, func(ctx context.Context, repo, digest string, tm root.TrustedMaterial, sig fleet.BundleSignature) fleet.BundleSignature {
-		return p.verifySigner(ctx, repo, digest, tm, sig, identity, issuer)
+	return p.check(ctx, source, ref, func(ctx context.Context, repo, digest string, tm root.TrustedMaterial, sig fleet.BundleSignature) (fleet.BundleSignature, []fleet.VerifiedSigner) {
+		return p.verifySigner(ctx, repo, digest, tm, sig, identity, issuer), nil
 	})
 }
 
@@ -163,7 +165,7 @@ func (p *ProvenanceChecker) compute(ctx context.Context, source, ref string, jud
 			bundles++
 		}
 	}
-	res.Signature = p.signature(ctx, repo, digest, bundles, judge)
+	res.Signature, res.Signers = p.signature(ctx, repo, digest, bundles, judge)
 	if tagged {
 		// A fixed prefix: the capped reason after it keeps its own bound.
 		res.Signature.Reason = reasonWriteOnceTags + " " + res.Signature.Reason
@@ -207,16 +209,16 @@ func (p *ProvenanceChecker) listReferrers(ctx context.Context, repo, digest stri
 // signature is what can be said about the bundles attached to repo@digest:
 // unsigned with none, unknown without Sigstore's trusted root, else judge's
 // answer within one registry call's time.
-func (p *ProvenanceChecker) signature(ctx context.Context, repo, digest string, bundles int, judge signatureJudge) fleet.BundleSignature {
+func (p *ProvenanceChecker) signature(ctx context.Context, repo, digest string, bundles int, judge signatureJudge) (fleet.BundleSignature, []fleet.VerifiedSigner) {
 	sig := fleet.BundleSignature{Status: fleet.SignatureUnknown, Source: delivery.PublisherSourceNone, Bundles: bundles}
 	if bundles == 0 {
 		sig.Status, sig.Reason = fleet.SignatureUnsigned, reasonNoBundles
-		return sig
+		return sig, nil
 	}
 	tm, err := p.trustedRoot()
 	if err != nil {
 		sig.Reason = capReason("Sigstore's trusted root could not be fetched, so the signature could not be checked: " + err.Error())
-		return sig
+		return sig, nil
 	}
 	cctx, cancel := context.WithTimeout(ctx, provenanceCallTimeout)
 	defer cancel()
@@ -227,8 +229,9 @@ func (p *ProvenanceChecker) signature(ctx context.Context, repo, digest string, 
 // rule, verified policy and the service's pins when Trust reads them, else
 // against the rule inferred from repo's registry and organization, whose
 // accept reads unknown, never verified. A part of the installation's trust
-// that could not be applied is named in the reason.
-func (p *ProvenanceChecker) judgeSignature(ctx context.Context, repo, digest string, tm root.TrustedMaterial, sig fleet.BundleSignature, service delivery.ServiceRef) fleet.BundleSignature {
+// that could not be applied is named in the reason. The signers it read are
+// returned too, from the same registry read.
+func (p *ProvenanceChecker) judgeSignature(ctx context.Context, repo, digest string, tm root.TrustedMaterial, sig fleet.BundleSignature, service delivery.ServiceRef) (fleet.BundleSignature, []fleet.VerifiedSigner) {
 	t := p.installation(ctx)
 	notes := []string{t.note}
 	if t.inferred {
@@ -240,7 +243,7 @@ func (p *ProvenanceChecker) judgeSignature(ctx context.Context, repo, digest str
 	}
 	service.Domain = contract.OCIDomain(repo)
 	pins, why, cut := t.pinsOf(ctx, service)
-	v := publish.CheckPublisher(ctx, p.reg, tm, rekorURL != "", repo, digest, service, "", t.rules, t.source, pins)
+	v, signers := publish.CheckPublisher(ctx, p.reg, tm, rekorURL != "", repo, digest, service, "", t.rules, t.source, pins)
 	sig = signatureOf(v, t.expect, sig)
 	switch {
 	case v.Source == delivery.PublisherSourcePin:
@@ -256,7 +259,23 @@ func (p *ProvenanceChecker) judgeSignature(ctx context.Context, repo, digest str
 		// Capped apart, so a long verdict never hides what was not applied.
 		sig.Reason = strings.TrimSuffix(sig.Reason, ".") + ". " + capReason(upperFirst(note)+".")
 	}
-	return sig
+	return sig, verifiedSigners(signers, t.classes)
+}
+
+// verifiedSigners is ids as the fleet lists them: classified by the verified
+// installation policy's signer rules (else the default rule), sorted by
+// issuer, subject and class, without duplicates. The fleet bounds the list
+// once it has matched a declaration's signer against all of it.
+func verifiedSigners(ids []delivery.PublisherIdentity, classes []delivery.SignerClassRule) []fleet.VerifiedSigner {
+	var out []fleet.VerifiedSigner
+	for _, id := range ids {
+		id = delivery.Classified(id, classes)
+		out = append(out, fleet.VerifiedSigner{Subject: id.Subject, Issuer: id.Issuer, Class: string(id.Class)})
+	}
+	slices.SortFunc(out, func(a, b fleet.VerifiedSigner) int {
+		return cmp.Or(strings.Compare(a.Issuer, b.Issuer), strings.Compare(a.Subject, b.Subject), strings.Compare(a.Class, b.Class))
+	})
+	return slices.Compact(out)
 }
 
 // installTrust is what a signature is judged against: rules from source,
@@ -264,17 +283,29 @@ func (p *ProvenanceChecker) judgeSignature(ctx context.Context, repo, digest str
 // a service's pins. note names a part of the installation's trust that was
 // not applied; inferred means no installation config was read.
 type installTrust struct {
-	rules  []delivery.PublisherRule
-	source string
-	expect delivery.PublisherRule
-	pins   PinsFunc
-	note   string
+	rules []delivery.PublisherRule
+	// classes are the verified policy's signer class rules, nil without one.
+	classes []delivery.SignerClassRule
+	source  string
+	expect  delivery.PublisherRule
+	pins    PinsFunc
+	note    string
 	// unguarded says why the promoter's high-water marks were not read, so
 	// a policy or pin accept reads unknown.
 	unguarded string
 	inferred  bool
 	failed    bool
 	until     time.Time
+	// declare is the installation signer policy declarations are judged
+	// with, nil when no installation trust was read.
+	declare *fleet.DeclarationSignerPolicy
+}
+
+// DeclarationSigners is the installation signer policy a declared
+// revision's signer is judged with, read with the installation's trust and
+// remembered with it; nil when no Trust reader is set.
+func (p *ProvenanceChecker) DeclarationSigners(ctx context.Context) *fleet.DeclarationSignerPolicy {
+	return p.installation(ctx).declare
 }
 
 // installation is what the installation trusts, read with Trust and
@@ -306,16 +337,21 @@ func (p *ProvenanceChecker) readInstallation(ctx context.Context) *installTrust 
 	in, err := p.Trust(ctx)
 	if err != nil {
 		return &installTrust{inferred: true, failed: true,
-			note: "the installation's publisher trust config could not be read (" + err.Error() + "), so the rule was inferred from where the revision lives"}
+			note:    "the installation's publisher trust config could not be read (" + err.Error() + "), so the rule was inferred from where the revision lives",
+			declare: &fleet.DeclarationSignerPolicy{Unread: err.Error()}}
 	}
 	cfg := in.Config
-	t := &installTrust{pins: in.Pins, source: delivery.PublisherSourceRule, unguarded: in.Unguarded, failed: in.Unguarded != ""}
+	t := &installTrust{pins: in.Pins, source: delivery.PublisherSourceRule, unguarded: in.Unguarded, failed: in.Unguarded != "",
+		declare: &fleet.DeclarationSignerPolicy{Unread: in.SignersUnread}}
+	for _, s := range in.Signers {
+		t.declare.Signers = append(t.declare.Signers, fleet.PolicySigner{Issuer: s.Issuer, Subjects: s.Subjects})
+	}
 	if cfg.Policy != "" {
-		pol, err := p.policy(ctx, cfg, "")
+		pol, err := verifiedPolicy(ctx, p.reg, cfg, "")
 		if in.PolicyDigest != "" && (err != nil || rfcTime(in.PolicyAt).After(rfcTime(pol.At))) {
 			// The promoter keeps the newest policy it verified: a tag moved
 			// back, or one that no longer verifies, never replaces it.
-			if kept, kerr := p.policy(ctx, cfg, in.PolicyDigest); kerr == nil {
+			if kept, kerr := verifiedPolicy(ctx, p.reg, cfg, in.PolicyDigest); kerr == nil {
 				pol, err = kept, nil
 			}
 		}
@@ -323,7 +359,7 @@ func (p *ProvenanceChecker) readInstallation(ctx context.Context) *installTrust 
 			t.failed, t.note = true, "the delivery policy "+cfg.Policy+" could not be verified ("+err.Error()+"), so only pinned signers are accepted"
 			return t
 		}
-		t.rules, t.source = pol.Publishers, delivery.PublisherSourcePolicy
+		t.rules, t.classes, t.source = pol.Publishers, pol.Signers, delivery.PublisherSourcePolicy
 		return t
 	}
 	rule, why := cfg.Rule()
@@ -335,9 +371,15 @@ func (p *ProvenanceChecker) readInstallation(ctx context.Context) *installTrust 
 	return t
 }
 
-// policy reads the delivery policy cfg names, or its digest when one is
-// given, and verifies it with cfg's policy signers.
-func (p *ProvenanceChecker) policy(ctx context.Context, cfg delivery.PublisherConfig, digest string) (delivery.PublisherPolicy, error) {
+// policyReader reads a delivery policy from a registry.
+type policyReader interface {
+	Head(ctx context.Context, ref string) (*publish.Remote, error)
+	Layer(ctx context.Context, repo, digest string) ([]byte, map[string]string, error)
+}
+
+// verifiedPolicy reads the delivery policy cfg names, or its digest when one
+// is given, from reg and verifies it with cfg's policy signers.
+func verifiedPolicy(ctx context.Context, reg policyReader, cfg delivery.PublisherConfig, digest string) (delivery.PublisherPolicy, error) {
 	verify, err := delivery.PolicyVerifier([]byte(cfg.PolicySigners), signing.OpenKey)
 	if err != nil {
 		return delivery.PublisherPolicy{}, err
@@ -347,7 +389,7 @@ func (p *ProvenanceChecker) policy(ctx context.Context, cfg delivery.PublisherCo
 		return delivery.PublisherPolicy{}, err
 	}
 	if digest == "" {
-		h, err := p.reg.Head(ctx, cfg.Policy)
+		h, err := reg.Head(ctx, cfg.Policy)
 		if err == nil && h == nil {
 			err = errors.New("it does not exist")
 		}
@@ -356,7 +398,7 @@ func (p *ProvenanceChecker) policy(ctx context.Context, cfg delivery.PublisherCo
 		}
 		digest = h.Digest
 	}
-	bundle, _, err := p.reg.Layer(ctx, ref.Context().String(), digest)
+	bundle, _, err := reg.Layer(ctx, ref.Context().String(), digest)
 	if err != nil {
 		return delivery.PublisherPolicy{}, err
 	}
@@ -512,6 +554,7 @@ func ttlFor(ok bool) time.Duration {
 // cloneProvenance copies p, its referrer list and their times.
 func cloneProvenance(p *fleet.BundleProvenance) *fleet.BundleProvenance {
 	c := *p
+	c.Signers = slices.Clone(p.Signers)
 	c.Referrers = fleet.NewReferrersPreview(p.Referrers.Items)
 	c.Referrers.Total, c.Referrers.Truncated = p.Referrers.Total, p.Referrers.Truncated
 	return &c

@@ -250,9 +250,57 @@ hidden: {services: 1, callers: 2}
   `no running pods observed` when no pod of the workload ran on a node.
 - `hidden` counts the Services the workload called and the callers of its own
   Services that a read on behalf of a viewer drops. It never names them.
-- Bundle verification refuses these keys until a signed declaration carries
-  them: a bundle whose record holds a cluster source, `inputs.cluster`,
-  `coverage` or `hidden` is `INFERRED_RECORD_INVALID`.
+- Bundle verification accepts these keys only beside a
+  [`declaration`](#declaration): a bundle whose record holds a cluster source,
+  `inputs.cluster`, `coverage` or `hidden` without one is
+  `INFERRED_RECORD_INVALID`.
+
+### Declaration
+
+[`pacto declare`](../publishing.md#declare-a-running-service) adds a
+`declaration` block after `fields`. It says who declared the service, which
+workload it came from and which proposed ranges the signer accepted.
+
+```yaml
+declaration:
+  state: declared
+  asker: {subject: ana@acme.com, issuer: https://accounts.google.com, class: human}
+  inferredFrom: k8s:billing/Deployment/invoices
+  cluster: 3f1c0b6e-...
+  baseline:
+    version: 1.4.0
+    bundle: ghcr.io/acme/invoices@sha256:...
+    deploy: ghcr.io/acme/invoices-deploy@sha256:...
+  accepted:
+    - {field: dependencies[ledger].compatibility, range: ^2.3.0}
+  draft: {tag: draft-3, digest: sha256:..., asker: {subject: "", issuer: none, class: agent}, onBehalfOf: ana}
+```
+
+| Key | Meaning |
+|---|---|
+| `state` | `declared`, signed through a person's Sigstore login, or `draft`, written by anyone else |
+| `asker` | The identity that signed: `subject`, `issuer` and `class` (`human`, `agent` or `ci`). A declared record needs `human`, a draft never has it. An unsigned draft has exactly `{subject: "", issuer: none, class: agent}`, a draft signed with a key `{subject: "", issuer: key, class: agent}`, and a draft whose token names no readable identity has issuer `unknown` |
+| `onBehalfOf` | On a draft only: the person an agent asserts it acts for, never verified |
+| `inferredFrom` | The inferred service it came from, `k8s:<namespace>/<Kind>/<name>` |
+| `cluster` | The uid of the cluster's `kube-system` namespace, left out when it could not be read |
+| `baseline` | The published version it starts from, its bundle and its deploy artifact, each pinned by digest |
+| `accepted` | On a declared record only: each proposed range the signer accepted, which `pacto.yaml` declares |
+| `requested` | On a draft only: each proposed range the agent asks a person to accept |
+| `draft` | On a declared record that accepted a draft: the draft's tag, digest, signer and `onBehalfOf` |
+
+- Validation checks the block against `pacto.yaml`: each accepted or
+  requested range is the declared `compatibility`
+  (`DECLARATION_ACCEPTED_MISMATCH`), and each other proposed range stays
+  `unknown` (`DECLARATION_RANGE_NOT_ACCEPTED`). A draft's `pacto.yaml`
+  declares the ranges it requests; accepting it sets them back to `unknown`
+  unless the person accepts them again.
+- A reader shows the cluster facts of a declared record only when the bundle
+  carries a signature it verified naming exactly `asker` and its installation
+  signer policy allows that person. Otherwise the cluster facts, `coverage`
+  and `hidden` are dropped with `DECLARATION_SIGNER_UNVERIFIED` or
+  `DECLARATION_SIGNER_NOT_ALLOWED`, and the answer is `partial`.
+- A draft is never a version: the fleet leaves it out with
+  `DECLARATION_DRAFT_IGNORED`.
 
 ## When Pacto writes it
 

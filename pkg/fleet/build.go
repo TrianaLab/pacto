@@ -71,6 +71,10 @@ type BuildOptions struct {
 	// ExternalCatalog (an organization catalog it could not read, for
 	// example). Any of them makes the snapshot partial.
 	ExternalCatalogLimitations []Limitation
+	// DeclarationSigners is the reader's installation signer policy: a
+	// declared revision's cluster facts are shown only when its verified
+	// signer is a person it allows. Nil or unread shows none of them.
+	DeclarationSigners *DeclarationSignerPolicy
 }
 
 // Build composes an immutable [FleetSnapshot] from the given sources. It calls
@@ -111,6 +115,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 		provisioningWindow:    opts.FreshnessWindow,
 		Clusters:              clusters.records,
 		clusterKeyed:          clusters.multi,
+		declarationSigners:    opts.DeclarationSigners,
 	}
 
 	// Zero configured sources is NOT the same as "every source was available and
@@ -422,6 +427,17 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 	recordProblems := slices.Clone(clusters.problems[i])
 	for _, raw := range col.Revisions {
 		rev, lims := revisionFrom(raw, src.ID(), now)
+		if rev != nil {
+			var ingest bool
+			var declLims []Limitation
+			rev.Record, declLims, ingest = acceptDeclaration(rev, rev.Record, snap.declarationSigners)
+			if !ingest {
+				// A draft is no record problem: the source read it whole.
+				snap.Limitations = append(snap.Limitations, declLims...)
+				continue
+			}
+			lims = append(lims, declLims...)
+		}
 		if rev == nil {
 			// A nil revision may still carry a limitation stating why it was omitted
 			// (e.g. no immutable digest and unhashable content); record it so the
@@ -3470,7 +3486,9 @@ func completenessExcept(snap *FleetSnapshot, skip string) Completeness {
 		}
 	}
 	for _, l := range snap.Limitations {
-		if l.Code == LimitationExternalCatalogUnavailable || l.Code == LimitationInferredRecordUnreadable {
+		switch l.Code {
+		case LimitationExternalCatalogUnavailable, LimitationInferredRecordUnreadable,
+			LimitationDeclarationSignerUnverified, LimitationDeclarationSignerNotAllowed:
 			return CompletenessPartial
 		}
 	}
