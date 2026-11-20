@@ -270,16 +270,19 @@ export function installScaleFixture(): void {
         if (i === 7) Object.assign(r, { evidence: 'Registry found in a namespace you cannot read', hint: undefined, details: undefined, objects: undefined, objectsTotal: 3 });
       }
       // The operator's declared Installation row (510-S6), with no scope or objects and
-      // four 256-rune refs plus a 64-character key id in its details, and its inferred
+      // its worst case in details: three 256-rune refs, eight 256-rune push prefixes, a
+      // 64-character key id and a last push to a cluster-uid tag, and its inferred
       // Pull Secret proposal with a 253-character <namespace>/<name> and a long hint.
       const runes = (s: string) => (s + '/' + 'r'.repeat(256)).slice(0, 256);
       const secret = `${'n'.repeat(63)}/${'s'.repeat(189)}`;
       (doc.providers as Record<string, unknown>[]).push({
         id: 'installation', source: 'cluster-detection', provenance: 'declared', asOf: new Date(Date.now() - 4 * 60_000).toISOString(), name: 'Installation',
-        evidence: `registry ${runes('ghcr.io/acme')}; pushes only under the listed prefixes`, status: 'available', cluster: clusters[0],
+        evidence: `registry ${runes('ghcr.io/acme')}; tags only under the listed prefixes, referrers by digest elsewhere`, status: 'available', cluster: clusters[0],
         usedFor: ['target snapshot, organization index and inferred contracts; set by a person with the registry value'],
-        details: [`target snapshot ${runes('ghcr.io/acme/pacto-targets')}`, `organization index ${runes('ghcr.io/acme/pacto-index')}`,
-          `inferred contracts ${runes('ghcr.io/acme/pacto-inferred')}`, `push prefix ${runes('quay.io/stats/pacto')}`, `snapshot key ${'f'.repeat(64)}`],
+        details: [[`target snapshot ${runes('ghcr.io/acme/pacto-targets')}`, `organization index ${runes('ghcr.io/acme/pacto-index')}`,
+          `inferred contracts ${runes('ghcr.io/acme/pacto-inferred')}`].join('; '),
+          `push prefixes ${Array.from({ length: 8 }, (_, i) => runes(`quay.io/stats-${i}/pacto`)).join(', ')}`, `snapshot key ${'f'.repeat(64)}`,
+          `last push ${runes('ghcr.io/acme/pacto-targets')}:cluster-5b0c6c3e-1f2a-4c3d-9e8f-0a1b2c3d4e5f at 2026-11-16T09:00:00Z`],
       });
       (doc.providers as Record<string, unknown>[]).push({
         id: 'pull-secret', source: 'cluster-detection', provenance: 'inferred', asOf: new Date(Date.now() - 4 * 60_000).toISOString(), name: 'Pull Secret',
@@ -2089,10 +2092,11 @@ export const ROUTES: Route[] = [
       await page.goto('/#/fleet/sources');
       const block = page.locator('[data-testid=detected-providers]');
       await block.getByRole('button', { name: /Show all/ }).click();
-      const more = block.locator('.dp-inferred details');
+      // Every row's More details, the declared Installation row's included.
+      const more = block.locator('.dp-row details');
       await expect(more.first()).toBeAttached({ timeout: 30_000 });
       await more.evaluateAll((ds) => { for (const d of ds) (d as HTMLDetailsElement).open = true; });
-      await expect(block.locator('.dp-inferred details:not([open])')).toHaveCount(0);
+      await expect(block.locator('.dp-row details:not([open])')).toHaveCount(0);
       await page.evaluate(() => window.scrollTo(0, 0)); // the click scrolled the block into view; the gate reads from the top
     },
   },

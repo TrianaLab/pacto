@@ -39,7 +39,7 @@
   const markText = (r) => [`Inferred from ${r.source}`, r.asOf && `as of ${formatRelative(r.asOf)}`, COMPLETENESS[r.status] ?? r.status].filter(Boolean).join(', ') + '. Nothing was turned on.' + (r.evidence ? ` ${r.evidence}` : '');
   // The operator's Installation row (510-S6) is declared configuration: the same discreet mark, never muted.
   const isDeclared = (r) => r.provenance === 'declared';
-  const DECLARED_TEXT = "Declared by the operator's configuration";
+  const declaredText = (r) => ["Declared by the operator's configuration", r.asOf && `as of ${formatRelative(r.asOf)}`, COMPLETENESS[r.status] ?? r.status].filter(Boolean).join(', ') + '.';
   const notRead = $derived(loader.data?.notRead ?? []);
   const notReadTotal = $derived(loader.data?.notReadTotal ?? notRead.length);
   const clustered = $derived(new Set(rows.map((r) => r.cluster).filter(Boolean)).size > 1);
@@ -76,7 +76,7 @@
               <span class:visually-hidden={r.status === 'available'} class="dp-status">{sourceHealthLabel(r.status)}</span>
               {#if clustered && r.cluster}<bdi class="dp-cluster" title={r.cluster}>{r.cluster}</bdi>{/if}
               <bdi class="dp-trunc" title={r.name}>{r.name}</bdi>
-              {#if isInferred(r)}<ProvenanceMark label={`Inferred: from ${r.source}`} text={markText(r)} />{:else if isDeclared(r)}<ProvenanceMark label="Declared: by the operator's configuration" text={DECLARED_TEXT} />{/if}
+              {#if isInferred(r)}<ProvenanceMark label={`Inferred: from ${r.source}`} text={markText(r)} />{:else if isDeclared(r)}<ProvenanceMark label="Declared: by the operator's configuration" text={declaredText(r)} />{/if}
             </span>
             <bdi class="dp-trunc dp-evidence" title={r.evidence}>{r.evidence}</bdi>
             <span class="dp-used">{(r.usedFor ?? []).map(words).join(', ')}</span>

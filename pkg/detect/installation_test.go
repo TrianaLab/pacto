@@ -26,7 +26,7 @@ func TestInstallationRowIsDeclared(t *testing.T) {
 	inst := row(t, rows, "installation")
 	if inst.Provenance != fleet.ProvenanceDeclared || inst.Name != "Installation" || inst.AsOf == nil || inst.Status != fleet.SourceAvailable ||
 		inst.Scope != "" || inst.Objects != nil || inst.Hint != "" || inst.ClusterID != "uid" ||
-		inst.Evidence != "registry ghcr.io/acme; pushes only under the listed prefixes" {
+		inst.Evidence != "registry ghcr.io/acme; tags only under the listed prefixes, referrers by digest elsewhere" {
 		t.Errorf("installation row = %+v", inst)
 	}
 	if r := row(t, rows, "registry"); r.Provenance != fleet.ProvenanceInferred {
@@ -64,13 +64,13 @@ func TestInstallationRowPartialBeforeFirstPush(t *testing.T) {
 func TestInstallationRowListsEveryPushPrefix(t *testing.T) {
 	inst := row(t, ProviderRows(Result{AsOf: asOf, Installation: installation(pushed)}, "detection", asOf), "installation")
 	details := strings.Join(inst.Details, "\n")
-	for _, want := range []string{"push prefix quay.io/stats/pacto", "push prefix ghcr.io/acme/pacto-targets", "target snapshot ghcr.io/acme/pacto-targets",
+	for _, want := range []string{"push prefixes ghcr.io/acme/pacto-targets, ghcr.io/acme/pacto-index, ghcr.io/acme/pacto-inferred, quay.io/stats/pacto", "target snapshot ghcr.io/acme/pacto-targets",
 		"organization index ghcr.io/acme/pacto-index", "inferred contracts ghcr.io/acme/pacto-inferred", "last push ghcr.io/acme/pacto-targets:cluster-uid at 2026-11-16T09:00:00Z"} {
 		if !strings.Contains(details, want) {
 			t.Errorf("details lack %q:\n%s", want, details)
 		}
 	}
-	if !strings.Contains(inst.Evidence, "pushes only under the listed prefixes") {
+	if !strings.Contains(inst.Evidence, "tags only under the listed prefixes, referrers by digest elsewhere") {
 		t.Errorf("evidence = %q", inst.Evidence)
 	}
 }
@@ -119,5 +119,33 @@ func TestDecodeRefusesNonBase64SnapshotKey(t *testing.T) {
 	}
 	if _, err := Encode(Result{Installation: bad}); err == nil {
 		t.Error("Encode wrote a key that is not base64")
+	}
+}
+
+// The worst-case row, every push prefix and a last push, keeps the MaxDetails
+// the API documents for every Provider row.
+func TestInstallationRowKeepsMaxDetails(t *testing.T) {
+	inst := installation(pushed)
+	inst.Pushes = make([]string, MaxPushes)
+	for i := range inst.Pushes {
+		inst.Pushes[i] = "ghcr.io/acme/p" + strings.Repeat("x", i)
+	}
+	r := row(t, ProviderRows(Result{AsOf: asOf, Installation: inst}, "detection", asOf), "installation")
+	if len(r.Details) > MaxDetails || !strings.Contains(strings.Join(r.Details, "\n"), "ghcr.io/acme/pxxxxxxx") {
+		t.Errorf("details = %d %q", len(r.Details), r.Details)
+	}
+}
+
+// An old success, or a push with no ref or time, is no confirmation.
+func TestInstallationRowUnconfirmedPush(t *testing.T) {
+	for name, p := range map[string]*PushResult{
+		"old":    {At: asOf.Add(-StaleAfter - time.Minute), Ref: "ghcr.io/acme/pacto-targets:cluster-uid"},
+		"zero":   {},
+		"no ref": {At: asOf},
+	} {
+		r := row(t, ProviderRows(Result{AsOf: asOf, Installation: installation(p)}, "detection", asOf), "installation")
+		if r.Status != fleet.SourcePartial || len(r.Limitations) != 1 || strings.Contains(strings.Join(r.Details, "\n"), "last push") {
+			t.Errorf("%s: installation row = %+v", name, r)
+		}
 	}
 }

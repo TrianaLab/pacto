@@ -140,7 +140,7 @@ func (d *Detector) detect(ctx context.Context) detect.Result {
 	ws, sampled, err := d.workloads(ctx)
 	reg := or(err, "registry", func() detect.Entry { return detect.Registries(ws, sampled, !scoped) })
 	res.Entries = append(res.Entries, reg)
-	if ps := detect.PullSecret(ws, reg, !scoped); ps.Kind != "" {
+	if ps := detect.PullSecret(ws, reg, sampled, !scoped); ps.Kind != "" {
 		res.Entries = append(res.Entries, ps)
 	}
 

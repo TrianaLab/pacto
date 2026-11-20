@@ -251,7 +251,7 @@ func TestRestrictHidesDetectedClusterName(t *testing.T) {
 // Installation row, which names no namespace, reaches every viewer whole.
 func TestPullSecretRowRedactedForHiddenNamespace(t *testing.T) {
 	at := fixedNow()
-	inst := Provider{ID: "installation", Name: "Installation", Evidence: "registry ghcr.io/acme; pushes only under the listed prefixes",
+	inst := Provider{ID: "installation", Name: "Installation", Evidence: "registry ghcr.io/acme; tags only under the listed prefixes, referrers by digest elsewhere",
 		Status: SourceAvailable, Provenance: ProvenanceDeclared, AsOf: &at, Details: []string{"push prefix ghcr.io/acme/pacto-targets"}}
 	q := NewQuery(buildProviders(t,
 		NewMemorySource("k8s", SourceKindKubernetes, &Collection{Targets: []RawTarget{workload("team-a", "web"), workload("shop", "api")}}),
@@ -265,5 +265,28 @@ func TestPullSecretRowRedactedForHiddenNamespace(t *testing.T) {
 	}
 	if p := providerByID(t, q.Restrict(readerOf("shop"), nil).SnapshotForSerialization().Providers, "pull-secret"); redacted(p) {
 		t.Errorf("a reader of shop got the row redacted: %+v", p)
+	}
+}
+
+// TestRestrictDropsDeclaredRowOfHiddenCluster: the Installation row's last
+// push names the cluster's snapshot tag, so a view that hides the cluster
+// hides the row; a view that names the cluster keeps it whole.
+func TestRestrictDropsDeclaredRowOfHiddenCluster(t *testing.T) {
+	at := fixedNow()
+	inst := Provider{ID: "installation", Name: "Installation", Evidence: "registry ghcr.io/acme; last push failed: denied ghcr.io/acme/pacto-targets:cluster-uid-2",
+		Status: SourcePartial, Provenance: ProvenanceDeclared, AsOf: &at, Cluster: "prod-eu", ClusterID: "uid-2",
+		Details: []string{"last push ghcr.io/acme/pacto-targets:cluster-uid-2 at 2026-11-16T09:00:00Z"}}
+	q := NewQuery(buildProviders(t,
+		NewMemorySource("k8s-1", SourceKindKubernetes, &Collection{Cluster: clusterOf("uid-1", "staging", ClusterNameFromContext), Targets: []RawTarget{workload("team-a", "web")}}),
+		NewMemorySource("k8s-2", SourceKindKubernetes, &Collection{Cluster: clusterOf("uid-2", "prod-eu", ClusterNameFromContext), Targets: []RawTarget{workload("shop", "api")}}),
+		detectedSource(SourceAvailable, inst)))
+	for _, p := range q.Restrict(readerOf("team-a"), nil).SnapshotForSerialization().Providers {
+		if p.ID == "installation" {
+			t.Errorf("a view hiding cluster uid-2 got its installation row: %+v", p)
+		}
+	}
+	r := q.Restrict(readerOf("team-a", "shop"), nil).SnapshotForSerialization()
+	if p := providerByID(t, r.Providers, "installation"); len(p.Details) != 1 {
+		t.Errorf("installation row = %+v", p)
 	}
 }

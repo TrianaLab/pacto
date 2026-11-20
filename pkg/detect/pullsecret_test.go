@@ -22,11 +22,11 @@ func TestPullSecretPicksMostUsedOnTopHost(t *testing.T) {
 		pulling("e", "q", "quay.io/x/z:1", "quay-pull"),
 		pulling("f", "q", "quay.io/x/w:1", "quay-pull"),
 	}
-	e := PullSecret(ws, hinted, true)
+	e := PullSecret(ws, hinted, false, true)
 	if e.Value != "shop/ghcr-pull" || !strings.Contains(e.Evidence, "of 2 running workloads that pulled from ghcr.io") || e.Scope != "" {
 		t.Errorf("entry = %+v", e)
 	}
-	one := PullSecret(ws[2:3], hinted, true)
+	one := PullSecret(ws[2:3], hinted, false, true)
 	if !strings.Contains(one.Evidence, "of 1 running workload that") {
 		t.Errorf("evidence = %q", one.Evidence)
 	}
@@ -34,23 +34,23 @@ func TestPullSecretPicksMostUsedOnTopHost(t *testing.T) {
 
 func TestPullSecretTieBreaksByName(t *testing.T) {
 	ws := []Workload{pulling("a", "shop", "ghcr.io/acme/web:1", "zz"), pulling("b", "shop", "ghcr.io/acme/api:1", "aa")}
-	if e := PullSecret(ws, hinted, true); e.Value != "shop/aa" {
+	if e := PullSecret(ws, hinted, false, true); e.Value != "shop/aa" {
 		t.Errorf("entry = %+v", e)
 	}
 }
 
 func TestPullSecretHintOnlyWithRegistryHint(t *testing.T) {
 	ws := []Workload{pulling("a", "shop", "ghcr.io/acme/web:1", "ghcr-pull")}
-	if e := PullSecret(ws, hinted, true); e.Hint != "--set registryPullSecret=shop/ghcr-pull" {
+	if e := PullSecret(ws, hinted, false, true); e.Hint != "--set registryPullSecret=shop/ghcr-pull" {
 		t.Errorf("hint = %q", e.Hint)
 	}
-	if e := PullSecret(ws, Entry{Kind: "registry", Value: "ghcr.io/acme"}, true); e.Hint != "" {
+	if e := PullSecret(ws, Entry{Kind: "registry", Value: "ghcr.io/acme"}, false, true); e.Hint != "" {
 		t.Errorf("no clear registry majority, still a hint: %q", e.Hint)
 	}
 }
 
 func TestPullSecretIsInferredAndProposed(t *testing.T) {
-	e := PullSecret([]Workload{pulling("a", "shop", "ghcr.io/acme/web:1", "ghcr-pull")}, hinted, false)
+	e := PullSecret([]Workload{pulling("a", "shop", "ghcr.io/acme/web:1", "ghcr-pull")}, hinted, false, false)
 	if e.Kind != "pull-secret" || e.Value != "shop/ghcr-pull" || len(e.Namespaces) != 1 || e.Namespaces[0] != "shop" || e.Completeness != Partial ||
 		!strings.Contains(e.Evidence, "named in the pod specs of") || !strings.Contains(e.Evidence, "Pacto did not read the Secret") {
 		t.Fatalf("entry = %+v", e)
@@ -64,10 +64,18 @@ func TestPullSecretIsInferredAndProposed(t *testing.T) {
 
 func TestPullSecretNoneWhenNoPodNamesOne(t *testing.T) {
 	ws := []Workload{pulling("a", "shop", "ghcr.io/acme/web:1"), pulling("b", "shop", "quay.io/x/y:1", "quay-pull"), pulling("c", "shop", "ghcr.io/acme/x:1", "")}
-	if e := PullSecret(ws, hinted, true); e.Kind != "" {
+	if e := PullSecret(ws, hinted, false, true); e.Kind != "" {
 		t.Errorf("entry = %+v", e)
 	}
-	if e := PullSecret(ws, Entry{Kind: "registry"}, true); e.Kind != "" {
+	if e := PullSecret(ws, Entry{Kind: "registry"}, false, true); e.Kind != "" {
 		t.Errorf("no registry value, still an entry: %+v", e)
+	}
+}
+
+// A count over a read that stopped at MaxPods is never a complete proposal.
+func TestPullSecretSampledIsPartial(t *testing.T) {
+	e := PullSecret([]Workload{pulling("a", "shop", "ghcr.io/acme/web:1", "ghcr-pull")}, hinted, true, true)
+	if e.Completeness != Partial || !strings.Contains(e.Reason, "sampled the first") {
+		t.Errorf("entry = %+v", e)
 	}
 }

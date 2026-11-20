@@ -371,7 +371,8 @@ func sourceReason(id string, lims []fleet.Limitation) string {
 	return why
 }
 
-// printDetected prints the declared installation row, then the inferred
+// printDetected prints the declared installation row with its asOf and
+// details, then the inferred
 // provider rows, what the operator detected, with each status and first reason and each hint for a person to
 // review, then one line per advisory source that is not available, so a
 // detection Pacto could not read never reads as nothing detected. Every row
@@ -380,7 +381,14 @@ func printDetected(w io.Writer, rows []fleet.Provider, sources []fleet.SourceSta
 	defer printAdvisorySources(w, sources)
 	for _, p := range rows {
 		if p.Provenance == fleet.ProvenanceDeclared {
-			_, _ = fmt.Fprintf(w, "%s: %s (declared) [%s]\n", p.Name, p.Evidence, p.Status)
+			asOf := "unknown"
+			if p.AsOf != nil {
+				asOf = p.AsOf.UTC().Format(time.RFC3339)
+			}
+			_, _ = fmt.Fprintf(w, "%s: %s (declared, as of %s) [%s]\n", p.Name, p.Evidence, asOf, p.Status)
+			for _, d := range p.Details {
+				_, _ = fmt.Fprintf(w, "    %s\n", d)
+			}
 		}
 	}
 	header := false

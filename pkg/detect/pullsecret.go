@@ -13,8 +13,9 @@ import (
 // ties broken by name. It is inferred from pod specs only: Pacto never reads
 // the Secret, and nothing uses it until a person sets registryPullSecret. The
 // hint appears only when reg has one (a clear majority). No pod naming a pull
-// Secret is no entry (an empty Kind).
-func PullSecret(ws []Workload, reg Entry, clusterWide bool) Entry {
+// Secret is no entry (an empty Kind). A read that stopped at MaxPods
+// (sampled) or saw only the watched namespaces is partial.
+func PullSecret(ws []Workload, reg Entry, sampled, clusterWide bool) Entry {
 	host, _, _ := strings.Cut(reg.Value, "/")
 	t := tallies{}
 	for _, w := range ws {
@@ -43,10 +44,14 @@ func PullSecret(ws []Workload, reg Entry, clusterWide bool) Entry {
 	if reg.Hint != "" {
 		e.Hint = fitting("--set registryPullSecret=" + top.name)
 	}
-	if !clusterWide {
-		return partial(e, watchedOnly)
+	var reasons []string
+	if sampled {
+		reasons = append(reasons, fmt.Sprintf("sampled the first %d running pods", MaxPods))
 	}
-	return e
+	if !clusterWide {
+		reasons = append(reasons, watchedOnly)
+	}
+	return partial(e, reasons...)
 }
 
 // imageHost is the registry host of image, as [Registries] counts it.

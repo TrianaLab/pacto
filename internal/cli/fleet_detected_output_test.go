@@ -93,12 +93,15 @@ func TestUnreadDetectionIsNamedInText(t *testing.T) {
 // its hint.
 func TestFleetStatusPrintsInstallation(t *testing.T) {
 	rows := detect.ProviderRows(detect.Result{SchemaVersion: "1", AsOf: detectedAsOf,
-		Installation: &detect.Installation{Registry: "ghcr.io/acme", LastPush: &detect.PushResult{At: detectedAsOf}},
+		Installation: &detect.Installation{Registry: "ghcr.io/acme", Targets: "ghcr.io/acme/pacto-targets", Pushes: []string{"ghcr.io/acme/pacto-targets", "quay.io/stats/pacto"},
+			LastPush: &detect.PushResult{At: detectedAsOf, Ref: "ghcr.io/acme/pacto-targets:cluster-uid"}},
 		Entries: []detect.Entry{{Kind: "pull-secret", Value: "shop/ghcr-pull", Evidence: "named in the pod specs of 3 running workloads that pulled from ghcr.io",
 			Completeness: detect.Complete, Hint: "--set registryPullSecret=shop/ghcr-pull", Namespaces: []string{"shop"}}}}, "detection", detectedAsOf)
 	out := statusText(t, &fleet.StatusResult{Providers: rows})
 	for _, want := range []string{
-		"Installation: registry ghcr.io/acme; pushes only under the listed prefixes (declared) [available]\n",
+		"Installation: registry ghcr.io/acme; tags only under the listed prefixes, referrers by digest elsewhere (declared, as of 2026-11-16T09:00:00Z) [available]\n",
+		"    target snapshot ghcr.io/acme/pacto-targets\n",
+		"    push prefixes ghcr.io/acme/pacto-targets, quay.io/stats/pacto\n",
 		"Detected (inferred, as of 2026-11-16T09:00:00Z, nothing turned on):\n  Pull Secret: shop/ghcr-pull named in the pod specs of",
 		"    --set registryPullSecret=shop/ghcr-pull\n",
 	} {

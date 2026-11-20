@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -79,13 +80,17 @@ func sanitizeInstallation(inst *Installation) {
 // succeeded, and a failed push says why, so it never reads healthy unconfirmed.
 func installationRow(res Result, source string, now time.Time) fleet.Provider {
 	inst, asOf := res.Installation, res.AsOf
-	evidence := "registry " + inst.Registry + "; pushes only under the listed prefixes"
+	evidence := "registry " + inst.Registry + "; tags only under the listed prefixes, referrers by digest elsewhere"
 	completeness, why := Partial, ""
 	switch p := inst.LastPush; {
-	case p == nil:
-		why = "push not confirmed yet"
-	case p.Error != "":
+	case p != nil && p.Error != "":
 		why = "last push failed: " + p.Error
+	case p == nil || p.Ref == "" || p.At.IsZero():
+		why = "push not confirmed yet"
+	case asOf.Sub(p.At) > StaleAfter:
+		// A publisher that hangs keeps its last success: an old one is no
+		// confirmation that pushes still work.
+		why = "last push at " + p.At.UTC().Format(time.RFC3339) + " is older than " + StaleAfter.String()
 	default:
 		completeness = Complete
 	}
@@ -94,19 +99,25 @@ func installationRow(res Result, source string, now time.Time) fleet.Provider {
 		evidence += "; " + why
 		lims = []fleet.Limitation{{Code: "INSTALLATION_PUSH_UNCONFIRMED", Source: source, Message: why}}
 	}
-	var details []string
+	// At most four lines, within the MaxDetails every Provider row keeps: the
+	// three fixed repositories, every push prefix, the key and the last push.
+	var refs []string
 	for _, d := range [][2]string{{"target snapshot ", inst.Targets}, {"organization index ", inst.Index}, {"inferred contracts ", inst.Inferred}} {
 		if d[1] != "" {
-			details = append(details, d[0]+d[1])
+			refs = append(refs, d[0]+d[1])
 		}
 	}
-	for _, p := range inst.Pushes {
-		details = append(details, "push prefix "+p)
+	var details []string
+	if len(refs) > 0 {
+		details = append(details, strings.Join(refs, "; "))
+	}
+	if len(inst.Pushes) > 0 {
+		details = append(details, "push prefixes "+strings.Join(inst.Pushes, ", "))
 	}
 	if inst.SnapshotKeyID != "" {
 		details = append(details, "snapshot key "+inst.SnapshotKeyID)
 	}
-	if p := inst.LastPush; p != nil && p.Error == "" {
+	if p := inst.LastPush; completeness == Complete {
 		details = append(details, "last push "+p.Ref+" at "+p.At.UTC().Format(time.RFC3339))
 	}
 	return fleet.Provider{

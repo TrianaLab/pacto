@@ -257,13 +257,13 @@ describe('DetectedProviders', () => {
 
     it('declared row gets the declared mark', async () => {
       const installation = row('installation', { source: 'cluster-detection', provenance: 'declared', asOf: AS_OF, name: 'Installation',
-        evidence: 'registry ghcr.io/acme; pushes only under the listed prefixes', details: ['push prefix ghcr.io/acme/pacto-targets'] });
+        evidence: 'registry ghcr.io/acme; tags only under the listed prefixes, referrers by digest elsewhere', details: ['push prefixes ghcr.io/acme/pacto-targets'] });
       providersFn.mockResolvedValue(resp([installation, inferred('pull-secret', { name: 'Pull Secret' })]));
       const t = render();
       await vi.waitFor(() => expect(rows(t)).toHaveLength(2));
       const r = rows(t)[0];
       expect(r.querySelector('.prov-mark button')?.getAttribute('aria-label')).toBe("Declared: by the operator's configuration");
-      expect(text(r.querySelector('.prov-tip'))).toBe("Declared by the operator's configuration");
+      expect(text(r.querySelector('.prov-tip'))).toBe("Declared by the operator's configuration, as of 4 minutes ago, complete.");
       expect(r.classList.contains('dp-inferred')).toBe(false);
       expect(text(r.querySelector('details summary'))).toBe('More details');
       // The Inferred toggle hides the proposal and keeps the declared row.
