@@ -352,6 +352,51 @@ func TestOwnerVerifiedNoPolicyIsKept(t *testing.T) {
 	}
 }
 
+// TestOwnerVerifiedDeliveryPolicyClassifiesSigners: the verified delivery
+// policy's signer class rules classify who signed, as the fleet does: an
+// email-shaped identity the policy calls an agent sets no owner, even as a
+// member of the owner. A configured policy that does not verify allows no
+// owner change, and its rules replace the derived one.
+func TestOwnerVerifiedDeliveryPolicyClassifiesSigners(t *testing.T) {
+	bot := core.SignerRule{Name: "release-bot", Issuer: ownerPersonIssuer, Subject: `^release-bot@acme\.example$`}
+	members := &core.OwnerPolicy{DefaultApprovers: ownerPolicy.DefaultApprovers, Teams: map[string][]core.SignerRule{"payments": {bot}}}
+	rule, _ := core.DeriveRule("ghcr.io/acme", "main")
+	pol := &core.PublisherPolicy{Publishers: []core.PublisherRule{rule},
+		Signers: []core.SignerClassRule{{Name: "bot", Issuer: ownerPersonIssuer, Subject: `^release-bot@acme\.example$`, Class: core.ClassAgent}}}
+
+	f := newOwnerFixture(t)
+	f.r.Owners.Policy = members
+	f.r.Owners.DeliveryPolicy = func(context.Context) (*core.PublisherPolicy, string) { return pol, "" }
+	f.run(f.publish(teamPayments, nil))
+	p := f.run(f.publish(teamBilling, declarationRecord(), f.person("release-bot@acme.example")))
+	wantOwnerVerified(t, p, metav1.ConditionFalse, pactov1alpha1.ReasonOwnerSignerNotPerson)
+	if statusOwnerTeam(p) != "" {
+		t.Fatal("an agent's owner is withheld")
+	}
+
+	// Without the class rule the same signer is a member and allowed.
+	f = newOwnerFixture(t)
+	f.r.Owners.Policy = members
+	f.run(f.publish(teamPayments, nil))
+	wantOwnerVerified(t, f.run(f.publish(teamBilling, declarationRecord(), f.person("release-bot@acme.example"))),
+		metav1.ConditionTrue, pactov1alpha1.ReasonOwnerSignerAllowed)
+
+	// A policy that does not verify: even a default approver is unverified,
+	// judged again once it reads.
+	f = newOwnerFixture(t)
+	why := "the delivery policy ghcr.io/acme/policy:latest could not be verified (bad signature)"
+	f.r.Owners.DeliveryPolicy = func(context.Context) (*core.PublisherPolicy, string) { return nil, why }
+	f.run(f.publish(teamPayments, nil))
+	d := f.publish(teamBilling, declarationRecord(), f.person("admin@acme.example"))
+	p = f.run(d)
+	wantOwnerVerified(t, p, metav1.ConditionUnknown, pactov1alpha1.ReasonOwnerSignerUnverified)
+	if tl := judged(ownerCondition(p)); tl.kept || !strings.Contains(ownerCondition(p).Message, "bad signature") || statusOwnerTeam(p) != "" {
+		t.Fatalf("%+v", ownerCondition(p))
+	}
+	f.r.Owners.DeliveryPolicy = func(context.Context) (*core.PublisherPolicy, string) { return pol, "" }
+	wantOwnerVerified(t, f.run(d), metav1.ConditionTrue, pactov1alpha1.ReasonOwnerSignerAllowed)
+}
+
 // TestOwnerVerifiedCIWithoutRuleIsUnverified: with no publisher rule, whether
 // a CI identity may publish is unknown, so its owner change reads
 // unverified, never a confirmed refusal.

@@ -45,9 +45,36 @@ type OwnerCheck struct {
 	Root func() (root.TrustedMaterial, error)
 	// Rules are the installation's publisher rules; none means no owner is
 	// ever attested here (fail closed).
-	Rules    []core.PublisherRule
-	Registry func(auth *authn.AuthConfig) publish.Registry
-	Now      func() time.Time
+	Rules []core.PublisherRule
+	// DeliveryPolicy reads the verified signed delivery policy
+	// (--publishers-policy); nil when none is configured. Its publisher rules
+	// replace Rules and its signer class rules classify signers, as the fleet
+	// does. One that does not verify accepts no CI identity and allows no
+	// owner change (unverified, judged again).
+	DeliveryPolicy func(ctx context.Context) (*core.PublisherPolicy, string)
+	Registry       func(auth *authn.AuthConfig) publish.Registry
+	Now            func() time.Time
+
+	// classes, source and unread are what resolved read from DeliveryPolicy.
+	classes []core.SignerClassRule
+	source  string
+	unread  string
+}
+
+// resolved is oc with the delivery policy in force: its rules and signer
+// classes, or, when it does not verify, no rule and why.
+func (oc *OwnerCheck) resolved(ctx context.Context) *OwnerCheck {
+	if oc.DeliveryPolicy == nil {
+		return oc
+	}
+	c := *oc
+	pol, why := oc.DeliveryPolicy(ctx)
+	if pol == nil {
+		c.Rules, c.unread = nil, cmp.Or(why, "the delivery policy could not be verified")
+		return &c
+	}
+	c.Rules, c.classes, c.source = pol.Publishers, pol.Signers, core.PublisherSourcePolicy
+	return &c
 }
 
 // ownerJudgedPrefix starts the tail of the OwnerVerified message that names
@@ -78,6 +105,7 @@ func (r *PactoReconciler) verifyOwner(ctx context.Context, pacto *pactov1alpha1.
 		meta.RemoveStatusCondition(&pacto.Status.Conditions, pactov1alpha1.ConditionOwnerVerified)
 		return true
 	}
+	oc = oc.resolved(ctx)
 	fp := oc.fingerprint()
 	ref, judge := ownerReference(prev, lr.ResolvedDigest, fp)
 	if !judge {
@@ -126,9 +154,14 @@ func (r *PactoReconciler) verifyOwner(ctx context.Context, pacto *pactov1alpha1.
 func (oc *OwnerCheck) verdict(ctx context.Context, reg publish.Registry, tm root.TrustedMaterial, cur ownerBundle, ref string, current, proposed core.OwnerClaim) (core.OwnerRight, bool) {
 	service := cur.rev.Service
 	v := publish.VerifyOwnerRight(ctx, publish.OwnerRightInput{Registry: reg, Root: tm, TLog: hasTLog(tm), Repo: cur.repo, Digest: cur.digest,
-		Service: service, Proposed: proposed.Owner, Current: current, Policy: oc.Policy, PolicyFrom: oc.PolicyFrom, Now: oc.Now()})
+		Service: service, Proposed: proposed.Owner, Current: current, Policy: oc.Policy, PolicyFrom: oc.PolicyFrom, ClassRules: oc.classes, Now: oc.Now()})
 	refused := v.Code == core.OwnerSignerNotPerson || v.Code == core.OwnerSignerNotAllowed
 	switch {
+	case v.Allowed && oc.unread != "":
+		// Who is a person is unknown until the policy's signer classes are read.
+		v.Allowed, v.Grant = false, ""
+		v.Code, v.Message = core.OwnerSignerUnverified, "the owner this revision of "+service+" sets is unverified: "+oc.unread
+		return v, false
 	case v.Code == core.OwnerSignerNotPerson && fleet.CIUndecided(cur.rev.Provenance, len(oc.Rules) > 0):
 		v.Code, v.Message = core.OwnerSignerUnverified, "the owner this revision of "+service+" sets is unverified: no installation publisher rule says whether its CI signer may publish it"
 	case ref == "" && refused:
@@ -144,9 +177,10 @@ func (oc *OwnerCheck) verdict(ctx context.Context, reg publish.Registry, tm root
 // verdict again.
 func (oc *OwnerCheck) fingerprint() string {
 	b, _ := json.Marshal(struct {
-		Policy *core.OwnerPolicy
-		Rules  []core.PublisherRule
-	}{oc.Policy, oc.Rules})
+		Policy  *core.OwnerPolicy
+		Rules   []core.PublisherRule
+		Classes []core.SignerClassRule `json:",omitempty"`
+	}{oc.Policy, oc.Rules, oc.classes})
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:6])
 }
@@ -271,7 +305,7 @@ type ownerBundle struct {
 func (oc *OwnerCheck) bundle(ctx context.Context, reg publish.Registry, tm root.TrustedMaterial, lr *loader.LoadResult) ownerBundle {
 	repo := repoOf(lr.ResolvedRef)
 	rec, _ := contract.ReadInferredRecord(lr.BundleFS)
-	ruleSource := core.PublisherSourceRule
+	ruleSource := cmp.Or(oc.source, core.PublisherSourceRule)
 	if len(oc.Rules) == 0 {
 		ruleSource = core.PublisherSourceInferred // no rule: never an accepted signer, never attested
 	}
@@ -279,6 +313,7 @@ func (oc *OwnerCheck) bundle(ctx context.Context, reg publish.Registry, tm root.
 		core.ServiceRef{Name: lr.Contract.Service.Name}, "", oc.Rules, ruleSource, nil)
 	ids := make([]fleet.VerifiedSigner, 0, len(signers))
 	for _, s := range signers {
+		s = core.Classified(s, oc.classes)
 		ids = append(ids, fleet.VerifiedSigner{Subject: s.Subject, Issuer: s.Issuer, Class: string(s.Class)})
 	}
 	return ownerBundle{repo: repo, digest: lr.ResolvedDigest, rev: fleet.ContractRevision{Service: lr.Contract.Service.Name, Owner: lr.Contract.Service.Owner, Record: rec,

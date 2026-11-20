@@ -40,6 +40,13 @@ owner. A CI publish that the `delivery.publishers.registry` rule accepts is
 outside the owner rule. A CI signer that rule refuses is refused, and with no
 rule set a CI signer's owner change reads as unverified.
 
+When `delivery.publishers.policy` is set, the operator reads the signed
+delivery policy too, verified with `delivery.publishers.policySigners`, which
+the chart adds to the ConfigMap below. The policy's publisher rules replace
+the `delivery.publishers.registry` rule, and its signer class rules decide who
+counts as a person, as they do in the fleet. Until that policy verifies, every
+owner change reads as unverified.
+
 ## The ConfigMap
 
 The chart renders the policy into the ConfigMap

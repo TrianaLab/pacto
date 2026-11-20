@@ -1,7 +1,8 @@
-{{- with include "pacto-operator.ownerPolicy.json" . }}
-# Who may set a service owner (the declare block). Immutable and named after
-# its content: only a chart upgrade changes the policy the operator mounts and
-# publishes, and no Role in this chart writes it.
+{{- if include "pacto-operator.ownerPolicy.mounted" . }}
+# Who may set a service owner (the declare block) and the keys that sign the
+# delivery policy whose signer classes say who is a person. Immutable and
+# named after its content: only a chart upgrade changes what the operator
+# mounts and publishes, and no Role in this chart writes it.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -11,8 +12,13 @@ metadata:
     {{- include "pacto-operator.labels" $ | nindent 4 }}
 immutable: true
 data:
+  {{- with include "pacto-operator.ownerPolicy.json" $ }}
   policy.json: {{ . | quote }}
+  {{- end }}
   {{- with include "pacto-operator.ownerPolicy.trustedRoot" $ }}
   trusted_root.json: {{ . | quote }}
+  {{- end }}
+  {{- with include "pacto-operator.ownerPolicy.signers" $ }}
+  policy-signers.yaml: {{ . | quote }}
   {{- end }}
 {{- end }}

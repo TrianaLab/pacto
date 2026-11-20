@@ -126,11 +126,30 @@ else delivery.publishers.trustedRoot; empty uses public-good Sigstore.
 {{- end }}
 
 {{/*
-The immutable owner policy ConfigMap, named after its content (the policy and
-the trusted root) so only a chart upgrade changes what the operator mounts.
+The trust config whose role: policy keys sign the delivery policy, when
+delivery.publishers.policy is set: the owner check classifies signers with
+the verified policy's signer class rules, as the fleet does.
+*/}}
+{{- define "pacto-operator.ownerPolicy.signers" -}}
+{{- $p := dig "publishers" dict (.Values.delivery | default dict) }}
+{{- if dig "policy" "" $p }}{{ dig "policySigners" "" $p }}{{ end }}
+{{- end }}
+
+{{/*
+Whether the manager mounts the owner policy ConfigMap: it holds the owner
+policy or the delivery policy's signers.
+*/}}
+{{- define "pacto-operator.ownerPolicy.mounted" -}}
+{{- if or (include "pacto-operator.ownerPolicy.json" .) (include "pacto-operator.ownerPolicy.signers" .) }}true{{ end }}
+{{- end }}
+
+{{/*
+The immutable owner policy ConfigMap, named after its content (the policy,
+the trusted root and the delivery policy's signers) so only a chart upgrade
+changes what the operator mounts.
 */}}
 {{- define "pacto-operator.ownerPolicy.name" -}}
-{{- printf "%s-owner-policy-%s" (include "pacto-operator.fullname" .) (printf "%s%s" (include "pacto-operator.ownerPolicy.json" .) (include "pacto-operator.ownerPolicy.trustedRoot" .) | sha256sum | trunc 10) }}
+{{- printf "%s-owner-policy-%s" (include "pacto-operator.fullname" .) (printf "%s%s%s" (include "pacto-operator.ownerPolicy.json" .) (include "pacto-operator.ownerPolicy.trustedRoot" .) (include "pacto-operator.ownerPolicy.signers" .) | sha256sum | trunc 10) }}
 {{- end }}
 
 {{/*
@@ -174,6 +193,10 @@ Controller arguments derived from values
 {{- with dig "publishers" "registry" "" (.Values.delivery | default dict) }}
 - --publishers-registry={{ . }}
 - --publishers-default-branch={{ dig "publishers" "defaultBranch" "" ($.Values.delivery | default dict) | default "main" }}
+{{- end }}
+{{- if include "pacto-operator.ownerPolicy.signers" . }}
+- --publishers-policy={{ .Values.delivery.publishers.policy }}
+- --publishers-policy-signers=/etc/pacto/owner-policy/policy-signers.yaml
 {{- end }}
 {{- if .Values.controller.stabilizationWindow }}
 - --stabilization-window={{ .Values.controller.stabilizationWindow }}

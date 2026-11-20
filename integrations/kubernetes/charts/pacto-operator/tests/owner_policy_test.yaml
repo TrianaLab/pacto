@@ -216,6 +216,41 @@ tests:
           path: spec.template.spec.containers[0].args
           content: --owner-policy=/etc/pacto/owner-policy/policy.json
 
+  - it: TestDeliveryPolicySignersMountedForOwnerCheck
+    set:
+      delivery.publishers.policy: ghcr.io/acme/delivery-policy:latest
+      delivery.publishers.policySigners: "keys: []\n"
+    asserts:
+      - isKind:
+          of: ConfigMap
+        template: templates/owner-policy.yaml
+      - equal:
+          path: data["policy-signers.yaml"]
+          value: "keys: []\n"
+        template: templates/owner-policy.yaml
+      - notExists:
+          path: data["policy.json"]
+        template: templates/owner-policy.yaml
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --publishers-policy=ghcr.io/acme/delivery-policy:latest
+        template: templates/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --publishers-policy-signers=/etc/pacto/owner-policy/policy-signers.yaml
+        template: templates/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: owner-policy
+            mountPath: /etc/pacto/owner-policy
+            readOnly: true
+        template: templates/deployment.yaml
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --owner-policy=/etc/pacto/owner-policy/policy.json
+        template: templates/deployment.yaml
+
   - it: TestDeclarePolicyPublishedWithRegistryOnly
     set:
       registry: ghcr.io/acme

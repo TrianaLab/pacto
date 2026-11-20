@@ -46,6 +46,7 @@ import (
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/controller"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/credentials"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/dashboard"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/delivery"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/detection"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/evidence"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/installkey"
@@ -146,6 +147,8 @@ type options struct {
 	trustedRoot        string
 	publishersRegistry string
 	publishersBranch   string
+	publishersPolicy   string
+	policySigners      string
 
 	zap zap.Options
 }
@@ -353,6 +356,11 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 			"as attested when an owner change is judged. Empty: no owner is attested.")
 	fs.StringVar(&o.publishersBranch, "publishers-default-branch", "main",
 		"The default branch whose CI the derived publisher rule accepts.")
+	fs.StringVar(&o.publishersPolicy, "publishers-policy", "",
+		"The signed delivery policy's tag reference (delivery.publishers.policy): once verified, its publisher rules "+
+			"replace the derived rule and its signer class rules classify who signed an owner change, as the fleet does.")
+	fs.StringVar(&o.policySigners, "publishers-policy-signers", "",
+		"A trust config (YAML) whose role: policy keys sign the delivery policy. Required with --publishers-policy.")
 	o.zap.BindFlags(fs)
 }
 
@@ -829,6 +837,21 @@ func ownerCheck(o *options, ld *loader.Loader) (*controller.OwnerCheck, error) {
 	pubs := core.PublisherConfig{Registry: o.publishersRegistry, DefaultBranch: o.publishersBranch}
 	if rule, why := pubs.Rule(); why == "" {
 		oc.Rules = []core.PublisherRule{rule}
+	}
+	if o.publishersPolicy != "" {
+		raw, err := os.ReadFile(o.policySigners)
+		if err != nil {
+			return nil, fmt.Errorf("--publishers-policy-signers: %w", err)
+		}
+		verify, err := core.PolicyVerifier(raw, signing.OpenKey)
+		if err != nil {
+			return nil, fmt.Errorf("--publishers-policy-signers: %w", err)
+		}
+		reg := func(...string) publish.Registry {
+			return publish.NewClient(ld.Keychain(nil), oci.EnvInsecureRegistries()...)
+		}
+		pubs := &delivery.Publishers{Policy: o.publishersPolicy, PolicyVerify: verify, Reg: reg, Now: time.Now}
+		oc.DeliveryPolicy = pubs.VerifiedPolicy
 	}
 	return oc, nil
 }
