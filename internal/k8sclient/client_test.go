@@ -551,6 +551,26 @@ clusters:
 	}
 }
 
+// TestCurrentKubeContextInAPod: a pod reads its in-cluster config as the
+// current one, so a mounted kubeconfig's current-context never names it and a
+// --context naming that context is read as the other cluster it is.
+func TestCurrentKubeContextInAPod(t *testing.T) {
+	kubeconfigPath := filepath.Join(t.TempDir(), "kubeconfig")
+	if err := os.WriteFile(kubeconfigPath, []byte("apiVersion: v1\nkind: Config\ncurrent-context: us-prod\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("KUBECONFIG", kubeconfigPath)
+	b := defaultBuilders()
+	b.inCluster = func() (*rest.Config, error) { return &rest.Config{Host: "https://10.96.0.1:443"}, nil }
+	if got := b.currentContext(); got != "" {
+		t.Errorf("in a pod the current context is %q, want none", got)
+	}
+	b.inCluster = func() (*rest.Config, error) { return nil, rest.ErrNotInCluster }
+	if got := b.currentContext(); got != "us-prod" {
+		t.Errorf("outside a pod the current context is %q, want us-prod", got)
+	}
+}
+
 func TestReadCurrentKubeContext_NoConfig(t *testing.T) {
 	t.Setenv("KUBECONFIG", filepath.Join(t.TempDir(), "nonexistent"))
 
@@ -755,5 +775,27 @@ func TestUnknownContextIsAnError(t *testing.T) {
 	}
 	if _, err := NewGoClientFor("ap-prod"); err == nil {
 		t.Fatal("an unknown context built a client")
+	}
+}
+
+// TestServerOf: the CA compares as its bytes whether inline or a file, an
+// unreadable file as its path, and the host without a trailing slash.
+func TestServerOf(t *testing.T) {
+	ca := filepath.Join(t.TempDir(), "ca.crt")
+	if err := os.WriteFile(ca, []byte("PEM\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		cfg      *rest.Config
+		host, ca string
+	}{
+		{nil, "", ""},
+		{&rest.Config{Host: "https://a/", TLSClientConfig: rest.TLSClientConfig{CAFile: ca}}, "https://a", "PEM"},
+		{&rest.Config{Host: "https://a", TLSClientConfig: rest.TLSClientConfig{CAData: []byte("PEM"), CAFile: "/nope"}}, "https://a", "PEM"},
+		{&rest.Config{Host: "https://a", TLSClientConfig: rest.TLSClientConfig{CAFile: "/nope"}}, "https://a", "file:/nope"},
+	} {
+		if h, c := ServerOf(tc.cfg); h != tc.host || c != tc.ca {
+			t.Errorf("ServerOf(%+v) = %q, %q; want %q, %q", tc.cfg, h, c, tc.host, tc.ca)
+		}
 	}
 }

@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"sync"
 	"testing"
@@ -274,5 +276,19 @@ func TestClusterReviewsNoSourceReviewsAtHome(t *testing.T) {
 	}
 	if m := clusterReviews(entriesOf(), homeCluster{}, reviewDeps(h), reviewCluster).Reviews(context.Background()); len(m) != 0 {
 		t.Errorf("no sign-in cluster: reviewers %v", m)
+	}
+}
+
+// TestSameServerComparesWhatTheServerIs: one CA given as a file and inline,
+// and one host with a trailing slash, are one server.
+func TestSameServerComparesWhatTheServerIs(t *testing.T) {
+	ca := filepath.Join(t.TempDir(), "ca.crt")
+	if err := os.WriteFile(ca, []byte("PEM"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	file := &rest.Config{Host: "https://prod", TLSClientConfig: rest.TLSClientConfig{CAFile: ca}}
+	inline := &rest.Config{Host: "https://prod/", TLSClientConfig: rest.TLSClientConfig{CAData: []byte("PEM")}}
+	if !sameServer(file, inline) || sameServer(file, nil) || sameServer(file, &rest.Config{Host: "https://other"}) {
+		t.Error("sameServer must compare the host and the CA's bytes")
 	}
 }

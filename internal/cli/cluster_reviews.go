@@ -9,6 +9,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/internal/authn"
+	"github.com/trianalab/pacto/v4/internal/k8sclient"
 	"github.com/trianalab/pacto/v4/pkg/kubecluster"
 )
 
@@ -141,5 +142,10 @@ func (c *clusterReviewSet) resolve(ctx context.Context) {
 
 // sameServer reports whether a and b reach one API server with one CA.
 func sameServer(a, b *rest.Config) bool {
-	return a != nil && b != nil && a.Host == b.Host && a.CAFile == b.CAFile && string(a.CAData) == string(b.CAData)
+	if a == nil || b == nil {
+		return false
+	}
+	ah, aca := k8sclient.ServerOf(a)
+	bh, bca := k8sclient.ServerOf(b)
+	return ah == bh && aca == bca
 }

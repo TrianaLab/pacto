@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"time"
@@ -83,6 +84,16 @@ func defaultBuilders() builders {
 // CurrentKubeContext reads the current context name from the kubeconfig file,
 // returning "" when it cannot be determined.
 func CurrentKubeContext() string {
+	return defaultBuilders().currentContext()
+}
+
+// currentContext is "" in a pod, where the current config is the in-cluster
+// one whatever a mounted kubeconfig names, else the kubeconfig's
+// current-context.
+func (b builders) currentContext() string {
+	if _, err := b.inCluster(); err == nil {
+		return ""
+	}
 	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
 	config, err := loadingRules.Load()
 	if err != nil {
@@ -282,6 +293,25 @@ func Config() (*rest.Config, error) {
 // ConfigFor is [Config] for one kubeconfig context; "" is the current one.
 func ConfigFor(context string) (*rest.Config, error) {
 	return defaultBuilders().config(context)
+}
+
+// ServerOf is the API server cfg reaches and the CA it trusts, as what they
+// are rather than how the kubeconfig spells them: the CA's bytes whether given
+// inline or as a file (an unreadable file stays its path) and the host
+// without a trailing slash. Two contexts on one server compare equal.
+func ServerOf(cfg *rest.Config) (host, ca string) {
+	if cfg == nil {
+		return "", ""
+	}
+	ca = string(cfg.CAData)
+	if ca == "" && cfg.CAFile != "" {
+		b, err := os.ReadFile(cfg.CAFile)
+		ca = "file:" + cfg.CAFile
+		if err == nil {
+			ca = string(b)
+		}
+	}
+	return strings.TrimSuffix(cfg.Host, "/"), strings.TrimSpace(ca)
 }
 
 // Served reports whether the cluster serves the API group version gv,

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -64,6 +66,27 @@ func TestContextsOnOneClusterReadOnce(t *testing.T) {
 	}
 	if len(snap.Sources) != 2 || sourceState(snap, clusterA) == nil || sourceState(snap, clusterA+workloadsSuffix) == nil || snap.Completeness != fleet.CompletenessComplete {
 		t.Fatalf("sources %+v completeness %s; want the cluster read once", snap.Sources, snap.Completeness)
+	}
+}
+
+// TestContextsOnOneServerSpellingCADifferentlyAreAliases: one context names
+// the CA as a file, the other inline, and one writes the host with a trailing
+// slash; they reach one server, so the second is an alias, never a conflict.
+func TestContextsOnOneServerSpellingCADifferentlyAreAliases(t *testing.T) {
+	ca := filepath.Join(t.TempDir(), "ca.crt")
+	if err := os.WriteFile(ca, []byte("PEM\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	svc := contextService("", map[string]*fakeFleetK8sClient{"admin": clusterFake(clusterA), "ro": clusterFake(clusterA)}, nil)
+	svc.sys.contextConfig = func(read string) (*rest.Config, error) {
+		if read == "admin" {
+			return &rest.Config{Host: "https://prod", TLSClientConfig: rest.TLSClientConfig{CAFile: ca}}, nil
+		}
+		return &rest.Config{Host: "https://prod/", TLSClientConfig: rest.TLSClientConfig{CAData: []byte("PEM")}}, nil
+	}
+	entries := svc.ResolveK8sContexts(context.Background(), false, []string{"admin", "ro"})
+	if len(entries) != 2 || entries[1].Alias != "admin" || entries[1].Conflict != "" {
+		t.Fatalf("entries = %+v; want ro an alias of admin", entries)
 	}
 }
 

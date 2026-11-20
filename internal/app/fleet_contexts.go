@@ -92,7 +92,8 @@ func (s *Service) contextEntry(ctx context.Context, name, read string) K8sEntry 
 	}
 	e.client = client
 	if cfg, err := env.contextConfig(read); err == nil {
-		e.Config, e.Host, e.CA = cfg, cfg.Host, cfg.CAFile+string(cfg.CAData)
+		e.Host, e.CA = k8sclient.ServerOf(cfg)
+		e.Config = cfg
 	}
 	memo := k8sMemo{"identity", e.label()}
 	ident, err := client.ClusterIdentity(ctx, name)
