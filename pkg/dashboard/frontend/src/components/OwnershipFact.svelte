@@ -28,8 +28,11 @@
   // attention item). declaredIn: the revision whose owner block the service takes, where
   // its contacts are shown; contacts are never copied onto a service.
   let { ownership, unownedHref = '', declaredIn = null } = $props();
-  // Where the owner comes from, as a discreet mark: a declared owner shows none.
-  const provenanceText = $derived(ownerProvenanceText(ownership?.provenance));
+  // Where the owner comes from, as a discreet mark: a declared owner shows none. An
+  // attested owner's tip also says where it was read, in full (the mark wraps it).
+  const provenanceText = $derived(
+    ownerProvenanceText(ownership?.provenance) + (ownership?.provenance === 'attested' && ownership?.source ? ` Source: ${ownership.source}.` : ''),
+  );
   const unknownTitle = "Pacto could not read this service's contracts, so it cannot tell whether an owner is declared. Pacto counts it as owner unknown, never as unowned.";
 </script>
 

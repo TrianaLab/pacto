@@ -56,7 +56,7 @@ func printFleetService(cmd *cobra.Command, sv *fleet.ServiceView, format string)
 		s := sv.Service
 		printReplacedFrom(w, sv.ReplacedFrom, sv.Meta.AsOf)
 		_, _ = fmt.Fprintf(w, "Service: %s%s\n", s.Name, nameInferredMark(s.NameInferred))
-		_, _ = fmt.Fprintf(w, "Owner: %s%s\n", orDash(s.Owner.DisplayString()), tui.OwnerProvenanceMark(s.OwnerProvenance))
+		_, _ = fmt.Fprintf(w, "Owner: %s%s\n", orDash(s.Owner.DisplayString()), tui.OwnerProvenanceMark(s.OwnerProvenance, s.OwnerSource))
 		_, _ = fmt.Fprintf(w, "Status: %s\n", orDash(s.Status))
 		_, _ = fmt.Fprintf(w, "Sources: %v\n", s.Sources)
 		if s.Workload != nil {
