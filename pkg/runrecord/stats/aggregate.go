@@ -62,9 +62,11 @@ func ratio(count, of int) Ratio {
 }
 
 // Hidden says whether records outside a restricted caller's view exist. It
-// never counts them.
+// never counts them: it counts only other-cluster records of services the
+// caller can see.
 type Hidden struct {
-	Present bool `json:"present" doc:"True when run records name services outside the caller's view; they are left out of every number"`
+	Present       bool `json:"present" doc:"True when run records name services outside the caller's view; they are left out of every number"`
+	OtherClusters int  `json:"otherClusters,omitempty" doc:"Operation records of services in the caller's view whose Stage is in a cluster the caller was not reviewed in; they are left out of every number. Records of services outside the view are never counted"`
 }
 
 // Distinct counts distinct changes and the runs behind them.
@@ -123,7 +125,7 @@ type Stats struct {
 	Skipped         Skipped             `json:"skipped" doc:"Records that could not be counted; they are left out of every number"`
 	Truncated       string              `json:"truncated" doc:"The bound that cut the read; services listed after the cut were not read at all. Empty when the read is whole"`
 	Hidden          Hidden              `json:"hidden" doc:"Whether records outside the caller's view exist"`
-	Completeness    fleet.Completeness  `json:"completeness" enum:"complete,partial,empty" doc:"partial when a record was skipped, the read was cut, records are outside the caller's view or a blocked change was judged on a partial snapshot; empty when the window holds no records"`
+	Completeness    fleet.Completeness  `json:"completeness" enum:"complete,partial,empty" doc:"partial when a record was skipped, the read was cut, records are outside the caller's view, operation records of other clusters were left out or a blocked change was judged on a partial snapshot; empty when the window holds no records"`
 	Limitations     []fleet.Limitation  `json:"limitations" doc:"Why the answer is incomplete"`
 	By              string              `json:"by,omitempty" doc:"What the groups are by"`
 	Attribution     *Attribution        `json:"attribution,omitempty" doc:"Where owner and domain came from, when grouping by them"`
@@ -137,7 +139,7 @@ type Stats struct {
 func Aggregate(set RecordSet, q Query, sc Scope, now time.Time) *Stats {
 	st := &Stats{AsOf: now.UTC(), Window: q.Window, Provenance: Provenance, By: q.By, Truncated: set.Truncated}
 	sel := selectRecords(set, q, sc, now)
-	st.Skipped, st.Hidden.Present = sel.skipped, sel.outside
+	st.Skipped, st.Hidden = sel.skipped, Hidden{Present: sel.outside, OtherClusters: sel.otherClusters}
 	st.RecordsRead = len(sel.history)
 	entries, coverage := splitCoverage(sel.inWindow)
 	st.Runs, st.Coverage = len(entries), newestCoverage(coverage, q.Window.Until)
@@ -169,16 +171,19 @@ type selection struct {
 	skipped  Skipped
 	future   int
 	outside  bool
+	// otherClusters counts visible services' operation records of other
+	// clusters.
+	otherClusters int
 	// coverageHidden says a restricted caller was kept from coverage records.
 	coverageHidden bool
 }
 
 func selectRecords(set RecordSet, q Query, sc Scope, now time.Time) selection {
-	visible, skipped, outside, coverage := visibleEntries(set.Entries, set.Skipped, q.Service, sc)
+	visible, skipped, outside, coverage, other := visibleEntries(set.Entries, set.Skipped, q.Service, sc)
 	current, future := notFuture(visible, now)
 	skipped.Malformed += future
 	coverage = coverage || sc.Restricted && set.CoverageAnchor
-	return selection{history: current, inWindow: dedupe(selectEntries(current, q)), skipped: skipped, future: future, outside: outside, coverageHidden: coverage}
+	return selection{history: current, inWindow: dedupe(selectEntries(current, q)), skipped: skipped, future: future, outside: outside, otherClusters: other, coverageHidden: coverage}
 }
 
 // metricsOf is the CI and delivery numbers of entries and their distinct
@@ -332,6 +337,15 @@ func countGate(m *Metrics, e *Entry) {
 	}
 }
 
+// otherClustersMessage says how many operation records of other clusters
+// were left out.
+func otherClustersMessage(n int) string {
+	if n == 1 {
+		return "1 operation record from another cluster is not shown"
+	}
+	return fmt.Sprintf("%d operation records from other clusters are not shown", n)
+}
+
 func limitations(st *Stats, set RecordSet, sc Scope, sel selection, truncatedBy string) ([]fleet.Limitation, fleet.Completeness) {
 	lims := []fleet.Limitation{}
 	for _, l := range []*fleet.Limitation{
@@ -339,6 +353,7 @@ func limitations(st *Stats, set RecordSet, sc Scope, sel selection, truncatedBy 
 		truncatedLimitation(st.Truncated, truncatedBy, set.UnreadAnchors, sc.Restricted),
 		limitationIf(st.Hidden.Present, LimitationOutsideView, "some run records name services outside your view of the fleet and are left out of every number"),
 		limitationIf(sc.Restricted && len(sc.Names) == 0 && st.Runs == 0 && !st.Hidden.Present, LimitationOutsideView, "your view of the fleet holds no service, so no run record is read for you"),
+		limitationIf(sel.otherClusters > 0, LimitationOtherClusters, otherClustersMessage(sel.otherClusters)),
 		limitationIf(sel.coverageHidden, LimitationCoverageOutsideView, "coverage records count every service, so only a reader who can see every service sees them"),
 		limitationIf(sc.NoDelivery != "", LimitationDeliveryUnavailable, sc.NoDelivery),
 		limitationIf(st.Attribution != nil && st.Attribution.Partial, LimitationAttributionPartial, "the fleet snapshot owner and domain come from is partial; a service it misses groups as unknown"),

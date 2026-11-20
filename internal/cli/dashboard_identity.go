@@ -22,6 +22,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/runrecord/stats"
 )
 
 // splitList reads a list flag that may also come from an environment
@@ -104,7 +105,8 @@ func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, ent
 	switch {
 	case o != nil || t != nil:
 		id.auth = authn.NewShared(o, t).AcceptBearer(review)
-		id.viewer = clusterViewer(entries, newHomeCluster(cluster, d), d, mode, namespaces)
+		home := newHomeCluster(cluster, d)
+		id.viewer, id.homeUID = clusterViewer(entries, home, d, mode, namespaces), home.UID
 	case isLoopback(host):
 		id.auth = authn.NewLocal()
 	case v.GetBool("dashboard.allow-anonymous"):
@@ -188,32 +190,35 @@ func (id *dashboardIdentity) view(ctx context.Context, q *fleet.Query) (*fleet.Q
 
 // operationAccess says which Stage namespaces the caller may list operations
 // in, for the run records of the Metrics page: each namespace of their fleet
-// view is reviewed for the person (as the API server names their token, with
-// uid and extra; anyone else as its anonymous user) through the shared
-// dashboard's cached SubjectAccessReview, the rule every delivery view on it
-// follows. Namespaces outside the view are refused unreviewed, so registry
-// data cannot choose what is asked.
-func (id *dashboardIdentity) operationAccess(full func(context.Context) (*fleet.Query, error)) func(context.Context, []string) (func(string) bool, error) {
-	return func(ctx context.Context, nss []string) (func(string) bool, error) {
-		var known []string
+// view in the sign-in cluster is reviewed for the person (as the API server
+// names their token, with uid and extra; anyone else as its anonymous user)
+// through the shared dashboard's cached SubjectAccessReview, the rule every
+// delivery view on it follows. Namespaces outside the view are refused
+// unreviewed, so registry data cannot choose what is asked, and records of
+// any other cluster are hidden and counted (id.homeUID, read from its cache).
+func (id *dashboardIdentity) operationAccess(full func(context.Context) (*fleet.Query, error)) func(context.Context, []string) (stats.OperationAccess, error) {
+	return func(ctx context.Context, nss []string) (stats.OperationAccess, error) {
+		var pairs []fleet.ClusterNamespace
 		if full != nil {
 			q, err := full(ctx)
 			if err == nil {
 				q, err = id.view(ctx, q)
 			}
 			if err != nil {
-				return nil, err
+				return stats.OperationAccess{}, err
 			}
-			known = knownNamespaces(q.Namespaces())
+			pairs = q.Namespaces()
 		}
+		known, clusters := homeNamespaces(ctx, id.homeUID, pairs)
 		who := sync.OnceValues(func() (subject, error) { return id.subject(ctx) })
-		return reviewOperations(ctx, known, nss, func(ctx context.Context, ns string) (bool, error) {
+		visible, err := reviewOperations(ctx, known, nss, func(ctx context.Context, ns string) (bool, error) {
 			p, err := who()
 			if err != nil {
 				return false, err
 			}
 			return id.shared.may(ctx, p, "list", sharedOps, ns, "")
 		})
+		return stats.OperationAccess{Visible: visible, Clusters: clusters}, err
 	}
 }
 

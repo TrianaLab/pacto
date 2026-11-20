@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/runrecord/stats"
 )
 
@@ -223,5 +225,31 @@ func TestStatsDashboardMatchesCLI(t *testing.T) {
 	if string(want) != string(got) || cli.Runs != dash.Runs || cli.DistinctChanges != dash.DistinctChanges ||
 		cli.RecordsRead != dash.RecordsRead || cli.Completeness != dash.Completeness || !cli.Window.Since.Equal(dash.Window.Since) {
 		t.Fatalf("pacto stats:\n%s\n/api/stats:\n%s", out, got)
+	}
+}
+
+// The Metrics page reviews operation records in the sign-in cluster alone:
+// its cached id is the one cluster records may come from, and an id that
+// cannot be read leaves none, so every record naming a cluster is hidden.
+func TestDashboardOperationAccessHomeCluster(t *testing.T) {
+	id, full, _ := operationAccessWorld(t)
+	id.homeUID = func(context.Context) (string, bool) { return "c1", true }
+	access, err := id.operationAccess(full)(t.Context(), []string{"shop"})
+	expect(t, err == nil && access.Visible("shop") && slices.Equal(access.Clusters, []string{"c1"}), "home known: %+v %v", access, err)
+	id.homeUID = func(context.Context) (string, bool) { return "", false }
+	access, err = id.operationAccess(full)(t.Context(), []string{"shop"})
+	expect(t, err == nil && access.Visible("shop") && access.Clusters != nil && len(access.Clusters) == 0, "home unknown: %+v %v", access, err)
+
+	pairs := []fleet.ClusterNamespace{{Cluster: "c1", Namespace: "shop"}, {Cluster: "c2", Namespace: "vault"}, {Namespace: "plain"}, {Cluster: "c1", Namespace: "shop"}}
+	for _, tc := range []struct {
+		home           func(context.Context) (string, bool)
+		known, cluster []string
+	}{
+		{func(context.Context) (string, bool) { return "c1", true }, []string{"plain", "shop"}, []string{"c1"}},
+		{func(context.Context) (string, bool) { return "c2", false }, []string{"plain"}, []string{}},
+		{nil, []string{"plain"}, []string{}},
+	} {
+		known, clusters := homeNamespaces(t.Context(), tc.home, pairs)
+		expect(t, slices.Equal(known, tc.known) && slices.Equal(clusters, tc.cluster) && clusters != nil, "known %v clusters %v, want %v %v", known, clusters, tc.known, tc.cluster)
 	}
 }

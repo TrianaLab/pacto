@@ -72,7 +72,7 @@ func parityViews(t *testing.T, d deps, home *rest.Config, entries []app.K8sEntry
 	for k, val := range map[string]string{"transport": "http", "auth-issuer": "https://idp.example", "context": "eu-prod"} {
 		expect(t, cmd.Flags().Set(k, val) == nil, "flag %s", k)
 	}
-	mcpView := mcpFleetView(cmd, app.NewService(nil, nil), d)
+	mcpView, _ := mcpFleetView(cmd, app.NewService(nil, nil), d)
 	viaMCP, err := mcpView(aliceCtx, nil, q)
 	expect(t, err == nil, "mcp: %v", err)
 

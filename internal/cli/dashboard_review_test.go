@@ -143,7 +143,7 @@ func TestMCPViewerLocalUsesLocal(t *testing.T) {
 	_ = cmd.Flags().Set("namespace", "payments")
 	_ = cmd.Flags().Set("transport", "http")
 	_ = cmd.Flags().Set("auth-issuer", "https://idp.example")
-	view := mcpFleetView(cmd, app.NewService(nil, nil), d)
+	view, _ := mcpFleetView(cmd, app.NewService(nil, nil), d)
 	alice := context.WithValue(context.Background(), reviewedKey{}, reviewed{person: authn.Person{User: "alice"}})
 	if _, err := view(alice, nil, reviewFleet(t)); err != nil {
 		t.Fatal(err)

@@ -244,7 +244,7 @@ func TestClusterlessContextNeverReviewedByHome(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	view := mcpFleetView(cmd, app.NewService(nil, nil), d)
+	view, _ := mcpFleetView(cmd, app.NewService(nil, nil), d)
 	alice := context.WithValue(context.Background(), reviewedKey{}, reviewed{person: authn.Person{User: "alice"}})
 	got, err := view(alice, nil, reviewFleet(t))
 	if err != nil || len(got.SnapshotForSerialization().Services) != 0 {

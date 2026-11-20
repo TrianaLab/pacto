@@ -459,3 +459,67 @@ func TestVisibleNamesExcludesInferred(t *testing.T) {
 		t.Errorf("names = %v", got)
 	}
 }
+
+// inCluster is a verified promote of service whose Stage is in cluster.
+func inCluster(service, cluster string) runrecord.Record {
+	r := of(service, verifiedTo(digest('d'), hoursAgo(1)))
+	r.Stage = &runrecord.StageRef{Namespace: "shop", Name: "prod", Cluster: cluster}
+	return r
+}
+
+func TestStatsOperationOtherClusterHiddenAndCounted(t *testing.T) {
+	sc := restrictedScope(t)
+	sc.Clusters = []string{"c1"}
+	st := aggBy(set(inCluster("shop/orders", "c1"), inCluster("shop/orders", "c2"), inCluster("shop/orders", "c2")), "", sc)
+	if st.Runs != 1 || st.Hidden.OtherClusters != 2 || st.Hidden.Present || st.Completeness != fleet.CompletenessPartial || !hasLimitation(st, LimitationOtherClusters) {
+		t.Fatalf("answer = %+v", st)
+	}
+	for _, l := range st.Limitations {
+		if strings.Contains(l.Message, "c2") {
+			t.Fatalf("limitation names the other cluster: %q", l.Message)
+		}
+	}
+}
+
+func TestStatsOtherClusterUnplaceableNotCounted(t *testing.T) {
+	sc := restrictedScope(t)
+	sc.Clusters = []string{"c1"}
+	st := aggBy(set(inCluster("billing", "c2"), inCluster("shop/orders", "c1")), "", sc)
+	if st.Runs != 1 || st.Hidden.OtherClusters != 0 || !st.Hidden.Present {
+		t.Fatalf("answer = %+v", st)
+	}
+	data, _ := json.Marshal(st.Hidden)
+	if string(data) != `{"present":true}` {
+		t.Fatalf("hidden = %s", data)
+	}
+}
+
+func TestStatsUnknownHomeClusterHidesClusteredRecords(t *testing.T) {
+	sc := restrictedScope(t)
+	sc.Clusters = []string{}
+	st := aggBy(set(inCluster("shop/orders", "c1"), inCluster("shop/orders", "")), "", sc)
+	if st.Runs != 1 || st.Hidden.OtherClusters != 1 {
+		t.Fatalf("answer = %+v", st)
+	}
+}
+
+func TestStatsRecordWithoutClusterKeepsNamespaceReview(t *testing.T) {
+	sc := restrictedScope(t)
+	sc.Clusters = []string{"c1"}
+	noCluster := inCluster("shop/orders", "")
+	if st := aggBy(set(noCluster), "", sc); st.Runs != 1 || st.Hidden.OtherClusters != 0 {
+		t.Fatalf("allowed = %+v", st)
+	}
+	noCluster.Stage.Namespace = "vault"
+	if st := aggBy(set(noCluster), "", sc); st.Runs != 0 || !st.Hidden.Present || st.Hidden.OtherClusters != 0 {
+		t.Fatalf("refused = %+v", st)
+	}
+}
+
+func TestStatsUnrestrictedIgnoresClusters(t *testing.T) {
+	sc := unrestrictedScope(t)
+	sc.Clusters = []string{"c1"}
+	if st := aggBy(set(inCluster("shop/orders", "c2")), "", sc); st.Runs != 1 || st.Hidden != (Hidden{}) {
+		t.Fatalf("answer = %+v", st)
+	}
+}

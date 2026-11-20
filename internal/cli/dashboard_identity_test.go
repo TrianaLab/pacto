@@ -410,7 +410,7 @@ func TestDashboardOperationAccessAsksListOperations(t *testing.T) {
 	id, full, sars := operationAccessWorld(t)
 	o := dashboard.Options{Fleet: full}
 	id.options(&o)
-	visible, err := o.OperationAccess(t.Context(), []string{"shop"})
+	visible, err := visibleOf(o.OperationAccess(t.Context(), []string{"shop"}))
 	expect(t, err == nil && visible("shop"), "shop: %v", err)
 	expect(t, len(*sars) == 1, "one review: %+v", *sars)
 	sar := (*sars)[0]
@@ -434,27 +434,27 @@ func TestDashboardOperationAccessOnlyWithViewer(t *testing.T) {
 func TestDashboardOperationAccessAnonymous(t *testing.T) {
 	id, full, sars := operationAccessWorld(t)
 	id.state = func(context.Context) authn.State { return authn.State{} }
-	visible, err := id.operationAccess(full)(t.Context(), []string{"shop"})
+	visible, err := visibleOf(id.operationAccess(full)(t.Context(), []string{"shop"}))
 	expect(t, err == nil && visible("shop") && len(*sars) == 1, "err %v sars %+v", err, *sars)
 	expect(t, (*sars)[0]["user"] == authn.Anonymous.User, "asked for the anonymous user: %+v", (*sars)[0])
 
 	id.cluster = nil
-	_, err = id.operationAccess(full)(t.Context(), []string{"shop"})
+	_, err = visibleOf(id.operationAccess(full)(t.Context(), []string{"shop"}))
 	expect(t, errors.Is(err, errOperationReview), "no cluster to ask is a failed review: %v", err)
 }
 
 func TestDashboardOperationAccessReviewsOnlyFleetNamespaces(t *testing.T) {
 	id, full, sars := operationAccessWorld(t)
-	visible, err := id.operationAccess(full)(t.Context(), []string{"vault", "elsewhere", "shop"})
+	visible, err := visibleOf(id.operationAccess(full)(t.Context(), []string{"vault", "elsewhere", "shop"}))
 	expect(t, err == nil && visible("shop") && !visible("vault") && !visible("elsewhere"), "err %v", err)
 	expect(t, len(*sars) == 1 && (*sars)[0]["resourceAttributes"].(map[string]any)["namespace"] == "shop",
 		"only the viewer's namespaces are reviewed: %+v", *sars)
 
-	visible, err = id.operationAccess(nil)(t.Context(), []string{"shop"})
+	visible, err = visibleOf(id.operationAccess(nil)(t.Context(), []string{"shop"}))
 	expect(t, err == nil && !visible("shop") && len(*sars) == 1, "no fleet, nothing reviewed: %v", err)
 
 	broken := errors.New("no snapshot")
-	_, err = id.operationAccess(func(context.Context) (*fleet.Query, error) { return nil, broken })(t.Context(), []string{"shop"})
+	_, err = visibleOf(id.operationAccess(func(context.Context) (*fleet.Query, error) { return nil, broken })(t.Context(), []string{"shop"}))
 	expect(t, errors.Is(err, broken), "a fleet that cannot be read: %v", err)
 
 	id.newClient = func(cfg *rest.Config) (dynamic.Interface, error) {
@@ -463,7 +463,7 @@ func TestDashboardOperationAccessReviewsOnlyFleetNamespaces(t *testing.T) {
 		}
 		return fakeDelivery(), nil
 	}
-	_, err = id.operationAccess(full)(t.Context(), []string{"shop"})
+	_, err = visibleOf(id.operationAccess(full)(t.Context(), []string{"shop"}))
 	expect(t, errors.Is(err, errOperationReview), "a person whose client cannot be built: %v", err)
 }
 
@@ -492,7 +492,7 @@ func TestLinkSessionSubjectIsReviewedIdentity(t *testing.T) {
 	id.state = func(context.Context) authn.State {
 		return authn.State{SignedIn: true, Method: "token", Person: viewer, UID: "sa-1", Extra: map[string][]string{"authentication.kubernetes.io/pod-name": {"p"}}}
 	}
-	visible, err := id.operationAccess(full)(t.Context(), []string{"shop"})
+	visible, err := visibleOf(id.operationAccess(full)(t.Context(), []string{"shop"}))
 	expect(t, err == nil && visible("shop") && ssrs == 0, "no SelfSubjectReview for a link session: %v %d", err, ssrs)
 	expect(t, len(*sars) == 1, "one review: %+v", *sars)
 	sar := (*sars)[0]
@@ -519,7 +519,7 @@ func TestBearerTokenSessionSubjectAsksSelfSubjectReview(t *testing.T) {
 	id.state = func(context.Context) authn.State {
 		return authn.State{SignedIn: true, Method: "token", Token: "alice-token", Person: authn.Person{User: "alice"}}
 	}
-	visible, err := id.operationAccess(full)(t.Context(), []string{"shop"})
+	visible, err := visibleOf(id.operationAccess(full)(t.Context(), []string{"shop"}))
 	expect(t, err == nil && visible("shop") && asked == "alice-token", "the session's own token asks who it is: %v %q", err, asked)
 	sar := (*sars)[0]
 	expect(t, sar["user"] == "alice" && sar["uid"] == "u-1" && sar["extra"] != nil, "uid and extra from the token: %+v", sar)

@@ -149,7 +149,7 @@ func signedInStats(t *testing.T, repo string, view pactomcp.FleetView) *mcpsdk.C
 	svc := app.NewService(nil, nil)
 	cmd := statsMCPCommand(t, svc, map[string]string{"transport": "http", "stats-read-registry": repo})
 	server, err := pactomcp.New("v", pactomcp.Authoring{Remote: true}, pactomcp.Modes{Transport: "http", Fleet: &pactomcp.FleetMode{
-		Src: impactViewFleet(t), Opts: pactomcp.FleetOptions{View: view, Stats: mcpStatsProvider(cmd, svc, false)},
+		Src: impactViewFleet(t), Opts: pactomcp.FleetOptions{View: view, Stats: mcpStatsProvider(cmd, svc, false, nil)},
 	}})
 	expect(t, err == nil, "server: %v", err)
 	return sessionOn(t, server)
@@ -267,6 +267,11 @@ func signedInRemoteStats(t *testing.T) (h http.Handler, reviews map[string][]str
 			reviews[c.BearerToken] = append(reviews[c.BearerToken], ns)
 			mu.Unlock()
 			return true, &unstructured.Unstructured{Object: map[string]any{"status": map[string]any{"allowed": c.BearerToken == "for-the-cluster" && ns == "prod-a"}}}, nil
+		})
+		// The sign-in cluster is the one the operation records name.
+		dyn.PrependReactor("get", "namespaces", func(k8stesting.Action) (bool, runtime.Object, error) {
+			return true, &unstructured.Unstructured{Object: map[string]any{"apiVersion": "v1", "kind": "Namespace",
+				"metadata": map[string]any{"name": "kube-system", "uid": opA.Stage.Cluster}}}, nil
 		})
 		return dyn, nil
 	}

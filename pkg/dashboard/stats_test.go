@@ -337,12 +337,26 @@ func TestStatsFleetErrorIs503(t *testing.T) {
 	}
 }
 
-func restrictedOpts(t *testing.T, access func(context.Context, []string) (func(string) bool, error)) Options {
+func restrictedOpts(t *testing.T, access func(context.Context, []string) (stats.OperationAccess, error)) Options {
 	return Options{Stats: fixedSet(standardSet()), Fleet: fleetOf(statsFleetQuery(t, false)), View: shopView, OperationAccess: access}
 }
 
-func shopAccess(_ context.Context, nss []string) (func(string) bool, error) {
-	return func(ns string) bool { return ns == "shop" }, nil
+func shopAccess(_ context.Context, nss []string) (stats.OperationAccess, error) {
+	return stats.OperationAccess{Visible: func(ns string) bool { return ns == "shop" }, Clusters: []string{"cluster-uid-1"}}, nil
+}
+
+func TestStatsOperationOtherClusterHiddenAndCountedNeverNamed(t *testing.T) {
+	other := opRec("orders", "shop", "prod", "far-env", ago(8))
+	other.Stage.Cluster = "cluster-uid-2"
+	set := standardSet()
+	set.Entries = append(set.Entries, stats.Entry{Record: other, Digest: fmt.Sprintf("sha256:%064d", 99), Anchor: runrecord.AnchorTag("orders")})
+	opts := restrictedOpts(t, shopAccess)
+	opts.Stats = fixedSet(set)
+	b, raw := getStatsBody(t, statsServer(t, opts), "")
+	if b.Hidden.OtherClusters != 1 || len(b.Environments) != 1 || !hasLimitation(b.Limitations, stats.LimitationOtherClusters) {
+		t.Fatalf("hidden %+v, environments %+v, limitations %v", b.Hidden, b.Environments, b.Limitations)
+	}
+	assertNotNamed(t, raw, "cluster-uid-2", "far-env")
 }
 
 func TestStatsRestrictedHiddenNeverNamed(t *testing.T) {
@@ -427,7 +441,9 @@ func TestStatsLocalModeUnrestricted(t *testing.T) {
 }
 
 func TestStatsOperationCheckFailureIs503(t *testing.T) {
-	failing := func(context.Context, []string) (func(string) bool, error) { return nil, errors.New("apiserver down") }
+	failing := func(context.Context, []string) (stats.OperationAccess, error) {
+		return stats.OperationAccess{}, errors.New("apiserver down")
+	}
 	srv := statsServer(t, restrictedOpts(t, failing))
 	code, raw := fetch(t, srv, "/api/stats")
 	if code != http.StatusServiceUnavailable || !strings.Contains(raw, "PermissionCheckFailed") || !strings.Contains(raw, "checking your Kubernetes permissions failed") {
@@ -437,7 +453,7 @@ func TestStatsOperationCheckFailureIs503(t *testing.T) {
 
 func TestStatsOperationAccessAsksOperationNamespaces(t *testing.T) {
 	var asked []string
-	access := func(_ context.Context, nss []string) (func(string) bool, error) {
+	access := func(_ context.Context, nss []string) (stats.OperationAccess, error) {
 		asked = nss
 		return shopAccess(context.Background(), nss)
 	}

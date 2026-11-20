@@ -7286,6 +7286,11 @@ export interface components {
             metrics: components["schemas"]["Stats.Metrics"];
         };
         "Stats.Hidden": {
+            /**
+             * Format: int64
+             * @description Operation records of services in the caller's view whose Stage is in a cluster the caller was not reviewed in; they are left out of every number. Records of services outside the view are never counted
+             */
+            otherClusters?: number;
             /** @description True when run records name services outside the caller's view; they are left out of every number */
             present: boolean;
         };
@@ -7401,7 +7406,7 @@ export interface components {
             /** @description What the groups are by */
             by?: string;
             /**
-             * @description partial when a record was skipped, the read was cut, records are outside the caller's view or a blocked change was judged on a partial snapshot; empty when the window holds no records
+             * @description partial when a record was skipped, the read was cut, records are outside the caller's view, operation records of other clusters were left out or a blocked change was judged on a partial snapshot; empty when the window holds no records
              * @enum {string}
              */
             completeness: "complete" | "partial" | "empty";
