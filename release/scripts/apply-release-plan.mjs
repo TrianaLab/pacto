@@ -168,6 +168,9 @@ assert(pathMajor >= 2 ? majorOf(pin.version) === pathMajor : majorOf(pin.version
     // A transcript of the operator's own startup log, which names the dashboard
     // image it deploys. Sample output ages exactly like a command does.
     'integrations/kubernetes/docs/installation.md',
+    // The Argo CD sync gate fixtures, published verbatim on the GitOps page.
+    'tests/acceptance/kind/fixtures/gitops/argocd-repo-server-pacto-patch.yaml',
+    'tests/acceptance/kind/fixtures/gitops/argocd-presync-pacto-impact.yaml',
   ];
   for (const rel of pages) {
     const after = edit(rel, (s) => {

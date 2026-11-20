@@ -108,6 +108,37 @@ A key that did not take prints `Health script is not configured` while
 **exiting 0**, so read the output and ignore the exit code. Both checks read the
 ConfigMap, so they also pass on a controller that started before the patch.
 
+## Gate every Argo CD sync
+
+A Config Management Plugin sidecar on `argocd-repo-server` runs
+`pacto impact --running` on every Application whose source folder holds a
+contract `pacto.yaml`. It renders the folder with `helm template` or
+`kustomize build`, judges the contract that the render applies against the
+revisions that run, and prints the manifests only after a pass. Exit 1 or 2
+fails the render, so Argo CD applies nothing.
+
+The plugin ConfigMap holds the discovery rule and the script:
+
+```yaml
+--8<-- "tests/acceptance/kind/fixtures/gitops/argocd-cmp-pacto.yaml"
+```
+
+Patch `argocd-repo-server` once with the sidecar:
+
+```yaml
+--8<-- "tests/acceptance/kind/fixtures/gitops/argocd-repo-server-pacto-patch.yaml"
+```
+
+An Application that names its source type skips plugin discovery. A PreSync
+hook gates such an Application on the bundle it publishes:
+
+```yaml
+--8<-- "tests/acceptance/kind/fixtures/gitops/argocd-presync-pacto-impact.yaml"
+```
+
+`tests/acceptance/gitopsplugin` runs **that exact script** against stub
+`pacto`, `helm` and `kustomize` binaries.
+
 ## Timing
 
 The gate is as fresh as the verdict behind it, and verdicts land at different

@@ -356,6 +356,8 @@ artifact-drift:
 		integrations/kubernetes/charts/pacto-operator/README.md \
 		docs/examples/compose-demo.md docs/dashboard-docker.md \
 		integrations/kubernetes/docs/installation.md \
+		tests/acceptance/kind/fixtures/gitops/argocd-repo-server-pacto-patch.yaml \
+		tests/acceptance/kind/fixtures/gitops/argocd-presync-pacto-impact.yaml \
 		|| { echo "artifact drift: apply-release-plan is not idempotent (re-run mutated tracked files)"; exit 1; }
 	@echo "    artifact-drift: OK"
 
