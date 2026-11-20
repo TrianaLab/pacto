@@ -16,6 +16,8 @@ import (
 
 	"github.com/opencontainers/go-digest"
 
+	"github.com/trianalab/pacto/v4/pkg/catalog"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/oci"
@@ -928,5 +930,40 @@ func TestUnpublishedFolderIsNeverReportedNotIndexed(t *testing.T) {
 		if !slices.Contains(consumerNames(res), "reports") || strings.Contains(msg, "reports") == (unpublished != nil) {
 			t.Fatalf("unpublished %v: consumers %v, %q", unpublished, consumerNames(res), msg)
 		}
+	}
+}
+
+// TestIndexSourceByNameProviderIsComplete: a consumer that names the
+// provider itself by name in its own domain leaves nothing unknown, so the
+// index stays complete; a by-name dependency on any other service, or on the
+// provider's name from another domain, still reads partial.
+func TestIndexSourceByNameProviderIsComplete(t *testing.T) {
+	e := newIdxEnv(t)
+	e.push(t, "ledger", "1.0.0", interfaceYAML, "")
+	e.push(t, "reports", "1.0.0", "dependencies:\n  - name: ledger\n", "")
+	src, coll := e.collect(t, e.svc)
+	if src.summary.Completeness != fleet.CompletenessComplete || coll.State.Status != fleet.SourceAvailable || src.summary.Consumers != 1 {
+		t.Fatalf("summary %+v lims %+v", src.summary, coll.Limitations)
+	}
+	e.push(t, "billing", "1.0.0", "dependencies:\n  - name: ledger\n  - name: audit\n", "")
+	src, coll = e.collect(t, pushIndexService(e.ir))
+	if src.summary.Completeness != fleet.CompletenessPartial || !strings.HasSuffix(limMessage(coll.Limitations, "DEPENDENCY_BY_NAME"), " (audit)") {
+		t.Fatalf("summary %+v lims %+v", src.summary, coll.Limitations)
+	}
+}
+
+func TestByNameIsProvider(t *testing.T) {
+	src := &indexSource{provider: orgindex.Provider{Key: fleet.NewServiceKeyDomain("reg/acme", "ledger")}}
+	rev := func(domain string) fleet.RawRevision {
+		return fleet.RawRevision{Domain: domain, Bundle: &contract.Bundle{Contract: &contract.Contract{Dependencies: []contract.Dependency{{Name: "ledger"}}}}}
+	}
+	lim := fleet.Limitation{Code: catalog.LimitationDependencyByName, Message: "reports depends on ledger by name; the closure cannot follow it without a ref (ledger)"}
+	coll := &fleet.Collection{Revisions: []fleet.RawRevision{rev("reg/acme"), {}}, Limitations: []fleet.Limitation{lim}}
+	if src.withoutProviderByName(coll); len(coll.Limitations) != 0 {
+		t.Fatal(coll.Limitations)
+	}
+	coll = &fleet.Collection{Revisions: []fleet.RawRevision{rev("reg/acme"), rev("reg/other")}, Limitations: []fleet.Limitation{lim}}
+	if src.withoutProviderByName(coll); len(coll.Limitations) != 1 {
+		t.Fatal("another domain's ledger is another service")
 	}
 }

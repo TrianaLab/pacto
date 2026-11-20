@@ -207,3 +207,20 @@ func TestRangeAdmitsSkipsOtherServicesTargets(t *testing.T) {
 		t.Fatalf("%v %q", ok, why)
 	}
 }
+
+func TestBreakStateText(t *testing.T) {
+	for _, tc := range []struct {
+		b    BreakState
+		want string
+	}{
+		{BreakState{State: BreakAccepted, By: "ana@acme.com", Record: "r@sha256:ab"}, "accepted for reports (ana@acme.com, r@sha256:ab)"},
+		{BreakState{State: BreakAccepted, Reason: "its ranges admit 3.0.0"}, "accepted for reports; its ranges admit 3.0.0"},
+		{BreakState{State: BreakAnnounced, Route: "waiting for the owner"}, "announced for reports, not accepted; waiting for the owner"},
+		{BreakState{State: BreakExpired}, "expired -"},
+		{BreakState{State: BreakExpired, Expires: "2026-12-14"}, "expired 2026-12-14"},
+	} {
+		if got := tc.b.Text("reports"); got != tc.want {
+			t.Errorf("%+v: %q, want %q", tc.b, got, tc.want)
+		}
+	}
+}

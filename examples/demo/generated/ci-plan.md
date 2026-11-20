@@ -5,16 +5,18 @@
 - `CI: none`
 - `Registry: ghcr.io/acme (from --registry)`
 - `Base: none`
-- `Consumer source: none (IMPACT reads unverified)`
-- `Index: 0 from ghcr.io/acme/pacto-index (listed by tag, 3 services listed, unchecked)`
-- `Ranges: no dependency edges`
+- `Consumer source: targets-6f1e0000-cccc-4000-8000-000000000003 (available, asOf <time>)`
+- `Consumer source: targets-6f1e0000-cccc-4000-8000-000000000003-workloads (empty, asOf <time>)`
+- `Index: 1 from ghcr.io/acme/pacto-index (listed by tag, complete)`
+- `Ranges: 0 declared and 0 accepted of 1 dependency edges (0%)`
+- `  unknown: reports -> ledger (proposed ^2.4.0)`
 
 | SERVICE | CHANGED | VERSION | CLASSIFICATION | IMPACT | INFERRED |
 |---|---|---|---|---|---|
-| `ledger` | `yes` | `1.0.0 -> 1.1.0` | `NON_BREAKING` | `unverified (no consumer source)` | - |
+| `ledger` | `yes` | `2.4.0 -> 3.0.0` | `BREAKING` | `unverified (the change is BREAKING and the answer is partial, so consumers Pacto cannot see may break. Fix the sources named in limitations and run the analysis again)` | `1 field` |
 | `payments` | `yes` | `1.4.2 -> 1.4.3 (derived)` | `NON_BREAKING` | `unverified (service.name inferred; declare it)` | `6 fields` |
-| `reports` | `no` | - | - | - | - |
+| `reports` | `no` | - | - | - | `2 fields` |
 
 - `skipped: services/legacy (from .pactoignore:1)`
-- `ledger: pacto.yaml is 2.4, publishes as 2.5 (migrated in memory)`
+- `ledger: break accepted for reports (ana@acme.com, ghcr.io/acme/reports@<digest>); expires 2026-12-14 (commit b287e209fa1c + 30d, inferred)`
 - `payments: baseline unverified in plan mode`

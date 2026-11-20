@@ -9,6 +9,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -127,6 +128,7 @@ func (s *Service) CIPlan(ctx context.Context, opts CIOptions) (*ci.Plan, map[str
 	}
 	for _, f := range folders {
 		pl.propose(ctx, f, snap, opts)
+		f.row.Notes = append(f.row.Notes, breakNotes(f.judged, results[f.row.Service])...)
 		p.Rows = append(p.Rows, f.row)
 	}
 	p.Ranges = ciRanges(folders, opts.Root)
@@ -955,6 +957,48 @@ func rowImpact(res *impact.Result, local *contract.Bundle, evidence string) ci.I
 		return unverified(why)
 	}
 	return ci.Impact{Gate: impact.GateClear, Text: "clear"}
+}
+
+// breakNotes are the row notes of the consumers the break b announces: where
+// each stands and when the announcement expires, with where that date came
+// from (declared, or recorded in pacto.inferred.yaml from the commit time).
+func breakNotes(b *contract.Bundle, res *impact.Result) []string {
+	if b == nil || res == nil {
+		return nil
+	}
+	rec, _ := contract.ReadInferredRecord(b.FS) // propose just wrote it
+	var out []string
+	seen := map[string]bool{}
+	for _, c := range res.Consumers {
+		if c.Break == nil || seen[c.Service] {
+			continue
+		}
+		seen[c.Service] = true
+		note := "break " + c.Break.Text(c.Service)
+		if c.Break.Expires != "" {
+			note += "; expires " + c.Break.Expires + " (" + expirySource(b.Contract.Breaks, rec, c.Service) + ")"
+		}
+		out = append(out, note)
+	}
+	return out
+}
+
+// expirySource says where the expiry of the break naming consumer comes
+// from: "declared", or the recorded source with "inferred".
+func expirySource(breaks []contract.Break, rec *contract.InferredRecord, consumer string) string {
+	i := slices.IndexFunc(breaks, func(b contract.Break) bool { return slices.Contains(b.Consumers, consumer) })
+	if i >= 0 && breaks[i].Expires != "" {
+		return "declared"
+	}
+	src := "commit time + 30d"
+	if rec != nil {
+		for _, f := range rec.Fields {
+			if f.Field == "breaks["+strconv.Itoa(i)+"].expires" {
+				src = strings.Replace(strings.Replace(f.Source, ":", " ", 1), " +", " + ", 1)
+			}
+		}
+	}
+	return src + ", inferred"
 }
 
 // unverified is an unverified row impact saying why.

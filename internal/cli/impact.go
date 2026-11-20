@@ -485,7 +485,7 @@ func printImpactConsumer(w io.Writer, result *impact.Result, c impact.AffectedCo
 		c.Service, scope, c.Confidence, verdict, orDash(c.Owner))
 	_, _ = fmt.Fprintf(w, "    path: %s  provenance: %s  via: %s\n", strings.Join(c.Path, " > "), orDash(c.Provenance), orDash(strings.Join(c.Via, ",")))
 	if b := c.Break; b != nil {
-		_, _ = fmt.Fprintf(w, "    break: %s\n", breakText(c.Service, b))
+		_, _ = fmt.Fprintf(w, "    break: %s\n", b.Text(c.Service))
 	}
 	for _, m := range c.Unmet {
 		_, _ = fmt.Fprintf(w, "    refused: %s\n", m)
@@ -506,27 +506,6 @@ func printImpactConsumer(w io.Writer, result *impact.Result, c impact.AffectedCo
 	if c.Note != "" {
 		_, _ = fmt.Fprintf(w, "    note: %s\n", c.Note)
 	}
-}
-
-// breakText says where an announced break stands for consumer.
-func breakText(consumer string, b *impact.BreakState) string {
-	var text string
-	switch {
-	case b.State == impact.BreakExpired:
-		text = "expired " + orDash(b.Expires)
-	case b.State == impact.BreakAccepted && b.By != "":
-		text = "accepted for " + consumer + " (" + b.By + ", " + b.Record + ")"
-	case b.State == impact.BreakAccepted:
-		text = "accepted for " + consumer
-	default:
-		text = "announced for " + consumer + ", not accepted"
-	}
-	for _, more := range []string{b.Reason, b.Route} {
-		if more != "" {
-			text += "; " + more
-		}
-	}
-	return text
 }
 
 // evidenceDetail says how old a target or an observed call was at asOf, or

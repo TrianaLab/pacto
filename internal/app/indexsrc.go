@@ -83,6 +83,7 @@ func (s *indexSource) collect(ctx context.Context) *fleet.Collection {
 	roots, pending := s.selectRoots(rd.entries)
 	coll := s.closure(ctx, roots)
 	s.confirmNames(coll, pending)
+	s.withoutProviderByName(coll)
 	coll.Limitations = append(slices.Clone(rd.lims), coll.Limitations...)
 	s.summary = impact.ConsumerIndex{Repository: rd.repo, Status: rd.status, Services: rd.services,
 		Consumers: len(roots), Completeness: fleet.CompletenessComplete, Reason: rd.note}
@@ -155,6 +156,29 @@ func (s *indexSource) closure(ctx context.Context, roots []string) *fleet.Collec
 	cat, _ := catalog.Build(ctx, catalog.Request{Roots: roots, Resolver: s.svc.recordingCatalogResolver(rec),
 		Bounds: catalog.Bounds{MaxRoots: indexMaxRoots}})
 	return catalogCollection(s.ID(), cat, rec)
+}
+
+// withoutProviderByName drops the DEPENDENCY_BY_NAME gap the closure
+// reports for the provider's own name when every resolved revision naming it
+// is in the provider's domain: the fleet resolves that name to the provider,
+// which the answer already holds, so nothing is unknown. A by-name
+// dependency on any other service, or on that name from another domain,
+// stays a gap.
+func (s *indexSource) withoutProviderByName(coll *fleet.Collection) {
+	domain, name := fleet.ParseServiceKey(s.provider.Key)
+	for _, r := range coll.Revisions {
+		if r.Bundle == nil || r.Bundle.Contract == nil || r.Domain == domain {
+			continue
+		}
+		for _, d := range r.Bundle.Contract.Dependencies {
+			if d.Ref == "" && !d.External && d.Name == name {
+				return
+			}
+		}
+	}
+	coll.Limitations = slices.DeleteFunc(coll.Limitations, func(l fleet.Limitation) bool {
+		return l.Code == catalog.LimitationDependencyByName && strings.HasSuffix(l.Message, " ("+name+")")
+	})
 }
 
 // result is the index summary and listing impact checks the answer with: a

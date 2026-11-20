@@ -1,6 +1,7 @@
 package impact
 
 import (
+	"cmp"
 	"maps"
 	"slices"
 	"strings"
@@ -50,6 +51,27 @@ type BreakState struct {
 	Expires string `json:"expires,omitempty" doc:"When the announcement expires (YYYY-MM-DD); empty when none is recorded"`
 	Route   string `json:"route,omitempty" doc:"Who may accept for the consumer, when an acceptance waits for its owner"`
 	Reason  string `json:"reason,omitempty" doc:"Why the break is not accepted, in plain words"`
+}
+
+// Text says where the break stands for consumer.
+func (b *BreakState) Text(consumer string) string {
+	var text string
+	switch {
+	case b.State == BreakExpired:
+		text = "expired " + cmp.Or(b.Expires, "-")
+	case b.State == BreakAccepted && b.By != "":
+		text = "accepted for " + consumer + " (" + b.By + ", " + b.Record + ")"
+	case b.State == BreakAccepted:
+		text = "accepted for " + consumer
+	default:
+		text = "announced for " + consumer + ", not accepted"
+	}
+	for _, more := range []string{b.Reason, b.Route} {
+		if more != "" {
+			text += "; " + more
+		}
+	}
+	return text
 }
 
 // applyBreaks gives each announced, direct, declared consumer of a BREAKING
