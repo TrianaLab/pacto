@@ -391,13 +391,16 @@ var (
 )
 
 // TestArgoPluginSidecarTagMatchesKindPin keeps the sidecar on the Argo CD
-// release the kind scenarios install, whose argocd-cmp-server it runs.
+// release the kind scenarios install, whose argocd-cmp-server it runs, in the
+// health scenario and in the sync-gate scenario that runs the plugin.
 func TestArgoPluginSidecarTagMatchesKindPin(t *testing.T) {
 	_, sidecar := repoServerPatch(t)
 	tag := argoImageTag.FindStringSubmatch(sidecar.Image)
-	pin := kindArgoPin.FindStringSubmatch(readRepoFile(t, "tests", "acceptance", "kind", "gitops-argocd.sh"))
-	if tag == nil || pin == nil || tag[1] != pin[1] {
-		t.Fatalf("sidecar image %q does not match ARGOCD_VERSION in gitops-argocd.sh (%v)", sidecar.Image, pin)
+	for _, script := range []string{"gitops-argocd.sh", "gitops-argocd-sync.sh"} {
+		pin := kindArgoPin.FindStringSubmatch(readRepoFile(t, "tests", "acceptance", "kind", script))
+		if tag == nil || pin == nil || tag[1] != pin[1] {
+			t.Errorf("sidecar image %q does not match ARGOCD_VERSION in %s (%v)", sidecar.Image, script, pin)
+		}
 	}
 }
 
