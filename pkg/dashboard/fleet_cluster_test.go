@@ -149,3 +149,24 @@ func TestTargetDetailCarriesCluster(t *testing.T) {
 		t.Errorf("cluster = %+v relation = %q", td.Cluster, td.ClusterRelation)
 	}
 }
+
+// ?cluster= keeps the targets of that cluster and the services with a target
+// there.
+func TestEntitiesClusterQuery(t *testing.T) {
+	base := twoClusterBase(t)
+	var got ProductEntityList
+	getJSON(t, base+"/api/fleet/entities?kinds=target,service&cluster="+clusterUS, http.StatusOK, &got)
+	keys := map[string]bool{}
+	for _, e := range got.Entities {
+		keys[e.Key] = true
+	}
+	want := map[string]bool{string(fleet.NewClusterTargetKey(clusterUS, "payments", "kubernetes", "payments")): true, string(fleet.NewServiceKey("payments")): true}
+	if len(keys) != len(want) {
+		t.Fatalf("entities in us-prod = %v, want %v", keys, want)
+	}
+	for k := range want {
+		if !keys[k] {
+			t.Errorf("entities lack %s: %v", k, keys)
+		}
+	}
+}

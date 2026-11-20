@@ -682,3 +682,49 @@ func TestFleetGetTextOwnerProvenance(t *testing.T) {
 		}
 	}
 }
+
+// pacto fleet status names each cluster's status when it knows two or more,
+// the access word winning over the source status.
+func TestFleetStatusPrintsClusters(t *testing.T) {
+	res := &fleet.StatusResult{Meta: fleet.Meta{Clusters: []fleet.ClusterSummary{
+		{ID: "uid-eu", Name: "eu-prod", Status: fleet.SourceAvailable},
+		{ID: "uid-us", Name: "us-prod", Status: fleet.SourceAvailable, Access: fleet.ClusterNoAccess},
+		{ID: "uid-ap", Name: "ap-prod", Status: fleet.SourceStale},
+		{Name: "lab", Status: fleet.SourceUnavailable},
+		{ID: "uid-ca", Name: "ca-prod", Status: fleet.SourcePartial, Access: fleet.ClusterReviewFailed},
+		{ID: "uid-sa", Name: "sa-prod", Status: fleet.SourcePartial},
+		{ID: "uid-me", Name: "me-prod", Status: fleet.SourceAvailable, Access: fleet.ClusterNotReviewable},
+	}}}
+	cmd := &cobra.Command{}
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	if err := printFleetStatus(cmd, res, "text"); err != nil {
+		t.Fatal(err)
+	}
+	want := "Clusters: eu-prod complete, us-prod no access, ap-prod stale, lab unreachable, ca-prod review failed, sa-prod partial, me-prod not reviewable\n"
+	if !strings.Contains(out.String(), want) {
+		t.Errorf("status lacks %q:\n%s", want, out.String())
+	}
+}
+
+// One cluster with nothing hidden prints no Clusters line; one hidden
+// cluster does.
+func TestFleetStatusOmitsClustersForOne(t *testing.T) {
+	for _, tc := range []struct {
+		access string
+		want   bool
+	}{{"", false}, {fleet.ClusterNoAccess, true}} {
+		res := &fleet.StatusResult{Meta: fleet.Meta{Clusters: []fleet.ClusterSummary{{ID: "uid-eu", Name: "eu-prod", Status: fleet.SourceAvailable, Access: tc.access}}}}
+		cmd := &cobra.Command{}
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&bytes.Buffer{})
+		if err := printFleetStatus(cmd, res, "text"); err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Contains(out.String(), "Clusters:"); got != tc.want {
+			t.Errorf("access %q: Clusters line = %v, want %v:\n%s", tc.access, got, tc.want, out.String())
+		}
+	}
+}

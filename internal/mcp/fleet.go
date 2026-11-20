@@ -29,6 +29,7 @@ const fleetInstructions = "Pacto also exposes READ-ONLY fleet tools over the ope
 	"'rangeStatus' before saying the dependency is met. Every fleet answer includes " +
 	"'asOf' and 'completeness'. Treat a 'partial' or stale answer as incomplete " +
 	"knowledge: when source coverage is incomplete, a missing result means unknown. " +
+	"'meta.clusters' gives each cluster's status and, for a signed-in caller, whether it could be reviewed; a hidden cluster is unknown, never empty. " +
 	"An external system (a vendor, managed service or legacy host no Pacto contract describes) is kind external, " +
 	"keyed by its canonical identity; a dependency that joins one has toExternal set and resolved false. " +
 	"A service's 'offering' names the platform offering it provides to other teams " +
@@ -531,6 +532,7 @@ func fleetEntitiesTool() *mcpsdk.Tool {
 			"consumes":          {Type: "string", Description: "Services that depend on or reference a provider of this platform offering"},
 			"phase":             {Type: "string", Description: "With consumes: only the consumers with a provisioning status of that offering in this phase", Enum: fleet.PhaseBuckets()},
 			"environment":       {Type: "string", Description: "With kind=target, the targets in this environment; otherwise it needs consumes and phase: only the consumers whose provisioning status in that phase is in this environment. A name no visible revision declares and no visible target reports is said so in the limitations"},
+			"cluster":           {Type: "string", Description: "Cluster UID as meta.clusters lists it: targets in that cluster, services with a target there and revisions a target there runs; an unknown id answers an empty list"},
 			"ownership":         {Type: "string", Description: "How ownership is declared on a service; conflicting means owners disagree: targets run different owners, or one version declares two (an older version's owner is a handover, not a conflict); unknown is a service with no owner claim whose contract Pacto cannot read, unidentified every service with no single canonical owner", Enum: []string{fleet.OwnershipConsistent, fleet.OwnershipConflicting, fleet.OwnershipUnowned, fleet.OwnershipUnknown, fleet.OwnershipUnidentified}},
 			"gap":               {Type: "string", Description: "Services whose contracts leave this out (not-deployed: run nowhere while every source reporting targets is complete; unverified-capability: an extension capability no evaluator verifies), or unknown for those whose knowledge Pacto cannot judge", Enum: fleet.GapFilterValues()},
 			"status":            {Type: "string", Description: "Canonical compliance status", Enum: fleet.CanonicalStatuses()},
@@ -567,6 +569,7 @@ type fleetEntitiesArgs struct {
 	Consumes        string `json:"consumes"`
 	Phase           string `json:"phase"`
 	Environment     string `json:"environment"`
+	Cluster         string `json:"cluster"`
 	Ownership       string `json:"ownership"`
 	Gap             string `json:"gap"`
 	Status          string `json:"status"`
@@ -600,7 +603,7 @@ func fleetEntitiesHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[fleet
 		}
 		f := fleet.EntityFilter{
 			Text: a.Text, Owner: a.Owner, OwnerKey: a.OwnerKey, BusinessDomain: a.BusinessDomain,
-			Offering: a.Offering, Consumes: a.Consumes, Phase: a.Phase, Environment: a.Environment, Ownership: a.Ownership, Gap: a.Gap, Status: a.Status, Sort: a.Sort, Limit: a.Limit, Offset: a.Offset,
+			Offering: a.Offering, Consumes: a.Consumes, Phase: a.Phase, Environment: a.Environment, Cluster: a.Cluster, Ownership: a.Ownership, Gap: a.Gap, Status: a.Status, Sort: a.Sort, Limit: a.Limit, Offset: a.Offset,
 			Template: a.Template, Declaration: a.Declaration, Group: a.Group, CreatedFrom: a.CreatedFrom,
 			HasNonCompliant: a.HasNonCompliant, SourceKind: a.SourceKind, Lifecycle: a.Lifecycle, Failed: a.Failed,
 			Capability: a.Capability, Domain: a.Domain, Service: a.Service, Source: a.Source,

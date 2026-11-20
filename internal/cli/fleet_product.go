@@ -52,6 +52,7 @@ func newFleetEntitiesCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	f.String("consumes", "", "services that depend on or reference a provider of this platform offering")
 	f.String("phase", "", "with --consumes: only the consumers with a provisioning status of that offering in this phase")
 	f.String("environment", "", "with --kind target, targets in this environment (the delivery.pacto.trianalab.io/environment label); with --consumes and --phase, only the consumers whose status in that phase is in this environment")
+	f.String("cluster", "", "with --kind target or service, entities in this cluster, by its UID as meta.clusters lists it")
 	f.String("ownership", "", "how ownership is declared on a service (consistent, conflicting, unowned, unknown or unidentified; conflicting means owners disagree: targets run different owners, or one version declares two; unknown is a service whose contract Pacto cannot read, unidentified every service with no single canonical owner)")
 	f.String("gap", "", "services whose contracts leave this out (no-summary, no-domain, no-interface-docs, no-readiness, not-deployed, unverified-capability), or unknown for those Pacto cannot judge")
 	f.String("status", "", "canonical compliance status")
@@ -135,7 +136,7 @@ func entityFilterFromCmd(cmd *cobra.Command, text string) fleet.EntityFilter {
 	failed, _ := cmd.Flags().GetBool("failed")
 	f := fleet.EntityFilter{
 		Text: text, Owner: get("owner"), OwnerKey: get("owner-key"), BusinessDomain: get("business-domain"),
-		Offering: get("offering"), Consumes: get("consumes"), Phase: get("phase"), Environment: get("environment"), Ownership: get("ownership"), Gap: get("gap"), Status: get("status"), Sort: get("sort"),
+		Offering: get("offering"), Consumes: get("consumes"), Phase: get("phase"), Environment: get("environment"), Cluster: get("cluster"), Ownership: get("ownership"), Gap: get("gap"), Status: get("status"), Sort: get("sort"),
 		Template: get("template"), Declaration: get("declaration"), Group: get("group"), CreatedFrom: get("created-from"),
 		HasNonCompliant: nc, SourceKind: get("source-kind"), Lifecycle: get("lifecycle"), Failed: failed, Limit: limit, Offset: offset,
 		Capability: get("capability"), Domain: get("domain"), Service: get("service"), Source: get("source"),

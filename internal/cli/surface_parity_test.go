@@ -94,7 +94,7 @@ var surfaceRows = slices.Concat(fleetRows(), fleetDetailRows(), impactRows(), de
 
 func fleetRows() []surfaceRow {
 	return slices.Concat(
-		alike("fleet entities", "pacto_fleet_entities", "GET /api/fleet/entities", "", "business-domain", "consumes", "created-from", "environment",
+		alike("fleet entities", "pacto_fleet_entities", "GET /api/fleet/entities", "", "business-domain", "consumes", "created-from", "environment", "cluster",
 			"has-non-compliant", "limit", "offering", "offset", "owner", "owner-key", "ownership", "phase", "sort", "source-kind", "status", "template",
 			"declaration", "group", "capability", "domain", "readiness", "scope", "service", "source", "source-health", "failed", "lifecycle", "gap", "class"),
 		[]surfaceRow{

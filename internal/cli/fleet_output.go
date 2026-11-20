@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"fmt"
 	"io"
 	"slices"
@@ -330,9 +331,31 @@ func printFleetStatus(cmd *cobra.Command, res *fleet.StatusResult, format string
 		}
 		printDetected(w, res.Providers, res.Meta.Sources)
 		printPinnedSources(w, res.Meta.Sources, res.Meta.Limitations)
+		printClusters(w, res.Meta.Clusters)
 		warnPartial(cmd, res.Meta)
 		return nil
 	}, nil)
+}
+
+// clusterWords are the status words of a cluster: why a restricted view hides
+// it, else how its sources answered.
+var clusterWords = map[string]string{
+	fleet.ClusterNoAccess: "no access", fleet.ClusterReviewFailed: "review failed", fleet.ClusterNotReviewable: "not reviewable",
+	string(fleet.SourceAvailable): "complete", string(fleet.SourcePartial): "partial", string(fleet.SourceStale): "stale", string(fleet.SourceUnavailable): "unreachable",
+}
+
+// printClusters prints one Clusters line, "eu-prod complete, us-prod no
+// access", when the answer knows two or more clusters or hides one.
+func printClusters(w io.Writer, clusters []fleet.ClusterSummary) {
+	words := make([]string, 0, len(clusters))
+	hidden := false
+	for _, c := range clusters {
+		hidden = hidden || c.Access != ""
+		words = append(words, c.Name+" "+clusterWords[cmp.Or(c.Access, string(c.Status))])
+	}
+	if len(clusters) >= 2 || hidden {
+		_, _ = fmt.Fprintln(w, "Clusters: "+strings.Join(words, ", "))
+	}
 }
 
 // printPinnedSources prints one line per source that read a pinned ref (each

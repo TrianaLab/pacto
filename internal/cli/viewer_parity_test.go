@@ -4,6 +4,7 @@ import (
 	"context"
 	"maps"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -120,4 +121,32 @@ func services(q *fleet.Query) []string {
 		out = append(out, s.Name)
 	}
 	return out
+}
+
+// TestClusterFilterParity: the dashboard, pacto fleet entities --cluster and
+// pacto_fleet_entities cluster answer one two-cluster fleet the same.
+func TestClusterFilterParity(t *testing.T) {
+	dir := t.TempDir()
+	state := func(name, id string, nss ...string) string {
+		body := "schemaVersion: pacto.dev/fleet-targets/v1\ncluster:\n  id: " + id + "\n  name: " + name + "\ntargets:\n"
+		for _, ns := range nss {
+			body += "  - {scope: " + ns + ", kind: kubernetes, name: " + ns + ", service: " + ns + ", compliance: Compliant}\n"
+		}
+		p := dir + "/" + name + ".yaml"
+		mustWriteFile(t, p, body)
+		return p
+	}
+	flags := []string{"--local", t.TempDir(), "--target-state", state("eu-prod", "uid-eu", "payments", "orders"), "--target-state", state("us-prod", "uid-us", "payments")}
+	plain, _, dash := paritySurfaces(t, flags)
+	for _, kind := range []string{"target", "service", "revision"} {
+		m, isErr := callText(t, plain, "pacto_fleet_entities", map[string]any{"kind": kind, "cluster": "uid-us"})
+		expect(t, !isErr, "%s: %s", kind, m)
+		cli := cliJSON(t, flags, "fleet", "entities", "--kind", kind, "--cluster", "uid-us")
+		sameOnSurfaces(t, "cluster "+kind, map[string]string{
+			"cli": cli, "mcp": m, "dashboard": routeBody(t, dash, context.Background(), "/api/fleet/entities?kinds="+kind+"&cluster=uid-us"),
+		})
+		if kind == "target" {
+			expect(t, strings.Contains(cli, "uid-us/payments/kubernetes/payments") && !strings.Contains(cli, "uid-eu/"), "targets of uid-us: %s", cli)
+		}
+	}
 }

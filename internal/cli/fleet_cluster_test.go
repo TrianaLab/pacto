@@ -53,3 +53,30 @@ func TestFleetGetTargetLegacyKeyResolves(t *testing.T) {
 		t.Errorf("a unique legacy key answers with the canonical key:\n%s", out)
 	}
 }
+
+// --cluster keeps the targets of one cluster and the services with a target
+// there; an unknown id answers an empty list.
+func TestFleetEntitiesClusterFlag(t *testing.T) {
+	flags := twoClusterTargetState(t)
+	out, _, err := execFleet(t, append([]string{"fleet", "entities", "--kind", "target", "--cluster", "uid-us", "--output-format", "json"}, flags...)...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"key": "uid-us/payments/kubernetes/payments"`) || strings.Contains(out, "uid-eu/") {
+		t.Errorf("targets of uid-us:\n%s", out)
+	}
+	out, _, err = execFleet(t, append([]string{"fleet", "entities", "--kind", "service", "--cluster", "uid-us", "--output-format", "json"}, flags...)...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"key": "payments"`) || strings.Contains(out, `"key": "orders"`) {
+		t.Errorf("services in uid-us:\n%s", out)
+	}
+	out, _, err = execFleet(t, append([]string{"fleet", "entities", "--kind", "target", "--cluster", "uid-none", "--output-format", "json"}, flags...)...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, `"key": "uid-`) {
+		t.Errorf("an unknown cluster answers no entity:\n%s", out)
+	}
+}
