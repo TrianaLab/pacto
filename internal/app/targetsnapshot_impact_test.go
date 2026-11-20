@@ -114,6 +114,7 @@ func TestSnapshotRoots(t *testing.T) {
 		"r.example/a/b/c/d/e/svc":                              {"r.example/a/b/c", "r.example/a/b", "r.example/a", "r.example"},
 		"ghcr.io/acme/ledger@sha256:abc":                       {"ghcr.io/acme", "ghcr.io"},
 		"oci://ghcr.io/ledger:1.0.0":                           {"ghcr.io"},
+		"r.example/a//b/svc":                                   {"r.example/a", "r.example"},
 	} {
 		if got := snapshotRoots(ref); !slices.Equal(got, want) {
 			t.Errorf("%s: %q, want %q", ref, got, want)

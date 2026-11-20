@@ -381,11 +381,7 @@ func printDetected(w io.Writer, rows []fleet.Provider, sources []fleet.SourceSta
 	defer printAdvisorySources(w, sources)
 	for _, p := range rows {
 		if p.Provenance == fleet.ProvenanceDeclared {
-			asOf := "unknown"
-			if p.AsOf != nil {
-				asOf = p.AsOf.UTC().Format(time.RFC3339)
-			}
-			_, _ = fmt.Fprintf(w, "%s: %s (declared, as of %s) [%s]\n", p.Name, p.Evidence, asOf, p.Status)
+			_, _ = fmt.Fprintf(w, "%s: %s (declared, as of %s) [%s]\n", p.Name, p.Evidence, asOfText(p.AsOf), p.Status)
 			for _, d := range p.Details {
 				_, _ = fmt.Fprintf(w, "    %s\n", d)
 			}
@@ -397,11 +393,7 @@ func printDetected(w io.Writer, rows []fleet.Provider, sources []fleet.SourceSta
 			continue
 		}
 		if !header {
-			asOf := "unknown"
-			if p.AsOf != nil {
-				asOf = p.AsOf.UTC().Format(time.RFC3339)
-			}
-			_, _ = fmt.Fprintf(w, "Detected (inferred, as of %s, nothing turned on):\n", asOf)
+			_, _ = fmt.Fprintf(w, "Detected (inferred, as of %s, nothing turned on):\n", asOfText(p.AsOf))
 			header = true
 		}
 		status := string(p.Status)
@@ -413,6 +405,14 @@ func printDetected(w io.Writer, rows []fleet.Provider, sources []fleet.SourceSta
 			_, _ = fmt.Fprintf(w, "    %s\n", p.Hint)
 		}
 	}
+}
+
+// asOfText is a detected row's asOf in RFC 3339, or unknown.
+func asOfText(at *time.Time) string {
+	if at == nil {
+		return "unknown"
+	}
+	return at.UTC().Format(time.RFC3339)
 }
 
 // printAdvisorySources prints one line per advisory source that is not
