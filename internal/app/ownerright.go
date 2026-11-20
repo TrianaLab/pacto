@@ -107,13 +107,12 @@ func ownerJudge(service string, policy *delivery.OwnerPolicy, from string, now t
 }
 
 // outsideOwnerRule reports whether r's owner claim counts as it is: no
-// declaration, and unsigned or signed by a CI identity an installation rule,
-// pin or policy accepted. Registry write is the trust boundary of an
-// unsigned push.
+// declaration, and unsigned or a CI identity's publish (fleet.CIPublished).
+// Registry write is the trust boundary of an unsigned push.
 func outsideOwnerRule(r *fleet.ContractRevision) bool {
 	p := r.Provenance
 	signed := p != nil && p.Signature.Status != fleet.SignatureUnsigned
-	return !isDeclaration(r) && (!signed || ciAccepted(p))
+	return !isDeclaration(r) && (!signed || fleet.CIPublished(p))
 }
 
 // signersOf is the verified signers p lists, none for no provenance.
@@ -122,15 +121,6 @@ func signersOf(p *fleet.BundleProvenance) []fleet.VerifiedSigner {
 		return nil
 	}
 	return p.Signers
-}
-
-// ciAccepted reports whether p's verified signature is a CI identity's an
-// installation rule, pin or policy accepted.
-func ciAccepted(p *fleet.BundleProvenance) bool {
-	s := p.Signature
-	return s.Status == fleet.SignatureVerified && slices.ContainsFunc(p.Signers, func(v fleet.VerifiedSigner) bool {
-		return v.Subject == s.Signer && v.Issuer == s.Issuer && v.Class == string(delivery.ClassCI)
-	})
 }
 
 // OwnerPolicyFunc reads the owner policy for the bundle repository repo,
@@ -178,8 +168,14 @@ type ownerPolicyRead struct {
 }
 
 // stampOwnerRights judges one service's revisions and stamps the verdicts.
+// The fleet reads only the refs its sources name, so the owner before a
+// revision may be unread: then a refusal, a grant to a member of the owner
+// read and an unchanged declaration are unconfirmed (OWNER_SIGNER_UNVERIFIED);
+// only a default approver's grant holds whatever the owner was. A check the
+// budget or the trusted root cut short is unverified too.
 func (p *ProvenanceChecker) stampOwnerRights(ctx context.Context, revs []fleet.ContractRevision, policy func(repo string) *ownerPolicyRead) {
 	spent := map[fleet.RevisionKey]bool{}
+	hist := &ownerHistory{reg: p.reg, revs: revs, tags: map[string][]string{}}
 	_, rights := OwnerRights(ctx, revs, func(ctx context.Context, r *fleet.ContractRevision, current delivery.OwnerClaim) *delivery.OwnerRight {
 		if outsideOwnerRule(r) {
 			return nil
@@ -187,7 +183,7 @@ func (p *ProvenanceChecker) stampOwnerRights(ctx context.Context, revs []fleet.C
 		repo, digest, _ := strings.Cut(contract.TrimOCIScheme(r.ResolvedRef), "@")
 		tm, err := p.trustedRoot()
 		if ctx.Err() != nil || err != nil {
-			spent[r.Key] = true // unstamped: unknown, and never the next reference
+			spent[r.Key] = true // unknown, and never the next reference
 			return &delivery.OwnerRight{Code: delivery.OwnerSignerUnverified}
 		}
 		pol := policy(repo)
@@ -196,13 +192,8 @@ func (p *ProvenanceChecker) stampOwnerRights(ctx context.Context, revs []fleet.C
 			Service: r.Service, Proposed: proposed.Owner, Current: current, Policy: pol.policy, PolicyFrom: pol.from,
 			ClassRules: p.installation(ctx).classes, Now: p.now()})
 		spent[r.Key] = ctx.Err() != nil
-		if !v.Allowed && current.Provenance == "" && (v.Code == delivery.OwnerSignerNotPerson || v.Code == delivery.OwnerSignerNotAllowed) {
-			// ponytail: the fleet reads only the refs its sources name, so no
-			// earlier owner may mean an unread one, and a refusal judged
-			// against it is unconfirmed. Reading the repository's tags here,
-			// as declare does, would confirm it.
-			v.Code, v.Unverified = delivery.OwnerSignerUnverified, "the owner before this version was not read"
-			v.Message = "the owner this version of " + r.Service + " sets is unverified: the owner before it was not read"
+		if historyMatters(v) && hist.unknownBefore(ctx, r) {
+			v = unreadHistory(r)
 		}
 		return &v
 	})
@@ -210,13 +201,78 @@ func (p *ProvenanceChecker) stampOwnerRights(ctx context.Context, revs []fleet.C
 		r := &revs[i]
 		v, judged := rights[r.Key]
 		switch {
-		case r.Provenance == nil || spent[r.Key]:
+		case r.Provenance == nil:
+		case spent[r.Key]:
+			r.Provenance.OwnerRight = &fleet.OwnerRightCheck{Code: delivery.OwnerSignerUnverified,
+				Message: "the owner this version of " + r.Service + " sets is unverified: the owner check did not finish"}
 		case judged:
 			r.Provenance.OwnerRight = &fleet.OwnerRightCheck{Allowed: v.Allowed, Code: v.Code, Message: v.Message}
+		case isDeclaration(r) && hist.unknownBefore(ctx, r):
+			v := unreadHistory(r)
+			r.Provenance.OwnerRight = &fleet.OwnerRightCheck{Code: v.Code, Message: v.Message}
 		case isDeclaration(r):
 			r.Provenance.OwnerRight = &fleet.OwnerRightCheck{Allowed: true, Message: "the owner is unchanged"}
 		}
 	}
+}
+
+// historyMatters reports whether v depends on the owner before the
+// revision: every verdict but a default approver's grant and an
+// unverified one.
+func historyMatters(v delivery.OwnerRight) bool {
+	if v.Allowed {
+		return !strings.HasPrefix(v.Grant, "default-approver:")
+	}
+	return v.Code == delivery.OwnerSignerNotPerson || v.Code == delivery.OwnerSignerNotAllowed
+}
+
+// unreadHistory is the verdict on r when the owner before it was not read.
+func unreadHistory(r *fleet.ContractRevision) delivery.OwnerRight {
+	return delivery.OwnerRight{WorkloadAccess: delivery.WorkloadAccess{Unverified: "the owner before this version was not read"}, Code: delivery.OwnerSignerUnverified,
+		Message: "the owner this version of " + r.Service + " sets is unverified: the owner before it was not read"}
+}
+
+// ownerHistory tells which of one service's revisions follow a version of
+// their repository the fleet did not read.
+type ownerHistory struct {
+	reg  publish.Registry
+	revs []fleet.ContractRevision
+	// tags holds each repository's semver tags once listed; nil for one
+	// that could not be listed.
+	tags map[string][]string
+}
+
+// unknownBefore reports whether the owner before r is unknown: a version of
+// r's repository below r was not read since the newest read revision before
+// r that sets the owner as it is (outsideOwnerRule), or the repository's
+// versions could not be listed.
+//
+// ponytail: one tag listing per repository and pass; the walk is quadratic
+// in the revisions one source read of one service.
+func (h *ownerHistory) unknownBefore(ctx context.Context, r *fleet.ContractRevision) bool {
+	from, read := "", map[string]bool{}
+	for i := range h.revs {
+		o := &h.revs[i]
+		read[o.Version] = true
+		if _, claims := revisionClaim(o); claims && outsideOwnerRule(o) && fleet.LessRevisionChrono(o, r) && (from == "" || semver.Compare(o.Version, from) > 0) {
+			from = o.Version
+		}
+	}
+	repo, _, _ := strings.Cut(contract.TrimOCIScheme(r.ResolvedRef), "@")
+	tags, listed := h.tags[repo]
+	if !listed {
+		all, err := h.reg.Tags(ctx, repo)
+		if tags = append([]string{}, semver.Filter(all)...); err != nil {
+			tags = nil // a repository that could not be listed has unread versions
+		}
+		h.tags[repo] = tags
+	}
+	if tags == nil {
+		return true
+	}
+	return slices.ContainsFunc(tags, func(t string) bool {
+		return !read[t] && semver.Compare(t, r.Version) < 0 && (from == "" || semver.Compare(t, from) > 0)
+	})
 }
 
 // maxOwnerHistory bounds the versions a declaration reads to find the

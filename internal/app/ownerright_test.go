@@ -77,6 +77,13 @@ func TestOwnerJudgeCases(t *testing.T) {
 	if v := judge(context.Background(), &ci, current); v != nil {
 		t.Fatalf("%+v", v)
 	}
+	// Where no installation rule was read, the inferred rule's accept (status
+	// unknown) of a CI identity is outside the rule too.
+	ci.Provenance.Signature.Status, ci.Provenance.Signature.Source = fleet.SignatureUnknown, delivery.PublisherSourceInferred
+	if v := judge(context.Background(), &ci, current); v != nil {
+		t.Fatalf("inferred CI accept = %+v", v)
+	}
+	ci.Provenance.Signature.Source = ""
 	// A CI signature no rule accepted is no person.
 	ci.Provenance.Signature.Status = fleet.SignatureUnverified
 	if v := judge(context.Background(), &ci, current); v == nil || v.Code != delivery.OwnerSignerNotPerson {
