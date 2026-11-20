@@ -63,6 +63,9 @@ dependencies:
   [`pacto accept`](../ci.md#accept-proposed-ranges).
 - `pacto graph` shows the dependency as resolved by name, and a catalog
   closure that meets it reads `partial` (`DEPENDENCY_BY_NAME`).
+- `pacto lock` and `pacto validate --closure` cannot follow it: they fail
+  naming the dependency (`LOCK_UNRESOLVED`,
+  `CLOSURE_DEPENDENCY_UNRESOLVED`) until you declare its `ref`.
 - An older contract fails with `NEEDS_PACTO_2_5`.
 
 ### Unknown compatibility
