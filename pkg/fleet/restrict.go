@@ -506,7 +506,8 @@ func rebuiltLimitation(l Limitation) bool {
 	case LimitationDomainConflict, LimitationOfferingConflict, LimitationOwnerConflict,
 		// A fleet-wide count of reports, counts of clusterless targets and
 		// per-source counts of inferred records.
-		LimitationProvisioningTruncated, LimitationUsageTruncated, LimitationClusterUnknown, LimitationClusterConflict, LimitationDeclarationUnverified, LimitationServiceGroupAmbiguous:
+		LimitationProvisioningTruncated, LimitationUsageTruncated, LimitationClusterUnknown, LimitationClusterConflict, LimitationDeclarationUnverified, LimitationServiceGroupAmbiguous,
+		LimitationOwnerDeclarationRefused, LimitationOwnerDeclarationUnverified:
 		return true
 	case LimitationSourceRecordInvalid:
 		// Per-source counts of records that may be hidden.
@@ -536,6 +537,7 @@ func restrictLimitations(out *FleetSnapshot, limitations []Limitation, hiddenNam
 		_, _, dc := businessDomainOf(out, svc)
 		_, _, oc := offeringOf(out, svc)
 		out.Limitations = append(append(append(out.Limitations, domainConflict(svc.Name, dc)...), offeringConflict(svc.Name, oc)...), ownerConflict(out, svc)...)
+		out.Limitations = append(out.Limitations, ownerBlockedLimitations(out, svc)...)
 	}
 	out.Limitations = append(out.Limitations, droppedReports(out, out.provisioningDropped, LimitationProvisioningTruncated, "provisioning", MaxProvisioningRecords)...)
 	out.Limitations = append(out.Limitations, droppedReports(out, out.usageDropped, LimitationUsageTruncated, "usage", MaxUsageRecords)...)

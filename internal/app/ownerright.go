@@ -1,14 +1,17 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/sigstore/sigstore-go/pkg/root"
 
+	"github.com/trianalab/pacto/v4/internal/fleetsrc"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -85,36 +88,32 @@ func isDeclaration(r *fleet.ContractRevision) bool {
 }
 
 // ownerJudge judges a published revision's owner change from the verified
-// signers its provenance lists: a declaration, or a bundle signed by anyone
-// but an accepted CI identity, is decided by DecideOwnerRight for each
-// signer, the first allowed one winning, else the most decisive refusal. A
-// declaration with no verified signer is unverified.
+// signers its provenance lists (delivery.JudgeOwnerSigners): a declaration,
+// or a bundle signed by anyone but an accepted CI identity. A declaration
+// with no verified signer is unverified.
 func ownerJudge(service string, policy *delivery.OwnerPolicy, from string, now time.Time) OwnerJudge {
 	return func(_ context.Context, r *fleet.ContractRevision, current delivery.OwnerClaim) *delivery.OwnerRight {
-		p := r.Provenance
-		signed := p != nil && p.Signature.Status != fleet.SignatureUnsigned
-		if !isDeclaration(r) && (!signed || ciAccepted(p)) {
+		if outsideOwnerRule(r) {
 			return nil
 		}
 		proposed, _ := revisionClaim(r)
-		var best *delivery.OwnerRight
-		for _, s := range signersOf(p) {
-			id := delivery.PublisherIdentity{Subject: s.Subject, Issuer: s.Issuer, Class: delivery.ActorClass(s.Class)}
-			v := delivery.DecideOwnerRight(service, id, current, proposed, policy, from, now)
-			if v.Allowed {
-				return &v
-			}
-			if best == nil || decisive(v.Code) > decisive(best.Code) {
-				best = &v
-			}
+		var ids []delivery.PublisherIdentity
+		for _, s := range signersOf(r.Provenance) {
+			ids = append(ids, delivery.PublisherIdentity{Subject: s.Subject, Issuer: s.Issuer, Class: delivery.ActorClass(s.Class)})
 		}
-		if best == nil {
-			best = &delivery.OwnerRight{Code: delivery.OwnerSignerUnverified, WorkloadAccess: delivery.WorkloadAccess{Resource: "services", Name: service,
-				Source: delivery.AccessByRegistryPolicy, Unverified: "no signature of this version verified"},
-				Message: "the owner set by " + service + " " + r.Version + " is unverified: no signature of it verified"}
-		}
-		return best
+		v := delivery.JudgeOwnerSigners(service, ids, "", current, proposed, policy, from, now)
+		return &v
 	}
+}
+
+// outsideOwnerRule reports whether r's owner claim counts as it is: no
+// declaration, and unsigned or signed by a CI identity an installation rule,
+// pin or policy accepted. Registry write is the trust boundary of an
+// unsigned push.
+func outsideOwnerRule(r *fleet.ContractRevision) bool {
+	p := r.Provenance
+	signed := p != nil && p.Signature.Status != fleet.SignatureUnsigned
+	return !isDeclaration(r) && (!signed || ciAccepted(p))
 }
 
 // signersOf is the verified signers p lists, none for no provenance.
@@ -134,10 +133,82 @@ func ciAccepted(p *fleet.BundleProvenance) bool {
 	})
 }
 
-// decisive ranks refusal codes: a person outside the rule over a signer who
-// is no person over an unknown policy over an unverified signer.
-func decisive(code string) int {
-	return 4 - slices.Index([]string{delivery.OwnerSignerNotAllowed, delivery.OwnerSignerNotPerson, delivery.OwnerPolicyUnverified, delivery.OwnerSignerUnverified}, code)
+// OwnerPolicyFunc reads the owner policy for the bundle repository repo,
+// and when there is none, why (Service.OwnerPolicy).
+type OwnerPolicyFunc func(ctx context.Context, repo string) (*delivery.OwnerPolicy, string)
+
+// fleetOwnerPolicy is Service.OwnerPolicy with the fleet's trust config
+// path: a server's mounted policy, else the signed target snapshots.
+func (s *Service) fleetOwnerPolicy(trust string) OwnerPolicyFunc {
+	return func(ctx context.Context, repo string) (*delivery.OwnerPolicy, string) {
+		return s.OwnerPolicy(ctx, repo, trust)
+	}
+}
+
+// ownerRights is the fleet's owner pass (fleetsrc.OwnerRightsFunc): per
+// service, OwnerRights over the revisions one registry source read, each
+// owner change judged by publish.VerifyOwnerRight from the bundle's
+// certificates, and the verdict stamped on the revision's provenance. Every
+// declaration gets a stamp, allowed when its owner is unchanged. Nothing is
+// stamped once the budget in ctx is spent: an unstamped declaration reads
+// unverified in the fleet.
+func (p *ProvenanceChecker) ownerRights(policy OwnerPolicyFunc) fleetsrc.OwnerRightsFunc {
+	return func(ctx context.Context, _ string, revs []fleet.ContractRevision) {
+		groups := map[fleet.ServiceKey][]fleet.ContractRevision{}
+		for _, r := range revs {
+			groups[r.ServiceKey] = append(groups[r.ServiceKey], r)
+		}
+		policies := map[string]*ownerPolicyRead{}
+		for _, group := range groups {
+			p.stampOwnerRights(ctx, group, func(repo string) *ownerPolicyRead {
+				if policies[repo] == nil {
+					pol, from := policy(ctx, repo)
+					policies[repo] = &ownerPolicyRead{pol, from}
+				}
+				return policies[repo]
+			})
+		}
+	}
+}
+
+// ownerPolicyRead is one read of an owner policy and why it is absent.
+type ownerPolicyRead struct {
+	policy *delivery.OwnerPolicy
+	from   string
+}
+
+// stampOwnerRights judges one service's revisions and stamps the verdicts.
+func (p *ProvenanceChecker) stampOwnerRights(ctx context.Context, revs []fleet.ContractRevision, policy func(repo string) *ownerPolicyRead) {
+	spent := map[fleet.RevisionKey]bool{}
+	_, rights := OwnerRights(ctx, revs, func(ctx context.Context, r *fleet.ContractRevision, current delivery.OwnerClaim) *delivery.OwnerRight {
+		if outsideOwnerRule(r) {
+			return nil
+		}
+		repo, digest, _ := strings.Cut(contract.TrimOCIScheme(r.ResolvedRef), "@")
+		tm, err := p.trustedRoot()
+		if ctx.Err() != nil || err != nil {
+			spent[r.Key] = true // unstamped: unknown, and never the next reference
+			return &delivery.OwnerRight{Code: delivery.OwnerSignerUnverified}
+		}
+		pol := policy(repo)
+		proposed, _ := revisionClaim(r)
+		v := publish.VerifyOwnerRight(ctx, publish.OwnerRightInput{Registry: p.reg, Root: tm, TLog: rekorURL != "", Repo: repo, Digest: cmp.Or(digest, r.Digest),
+			Service: r.Service, Proposed: proposed.Owner, Current: current, Policy: pol.policy, PolicyFrom: pol.from,
+			ClassRules: p.installation(ctx).classes, Now: p.now()})
+		spent[r.Key] = ctx.Err() != nil
+		return &v
+	})
+	for i := range revs {
+		r := &revs[i]
+		v, judged := rights[r.Key]
+		switch {
+		case r.Provenance == nil || spent[r.Key]:
+		case judged:
+			r.Provenance.OwnerRight = &fleet.OwnerRightCheck{Allowed: v.Allowed, Code: v.Code, Message: v.Message}
+		case isDeclaration(r):
+			r.Provenance.OwnerRight = &fleet.OwnerRightCheck{Allowed: true, Message: "the owner is unchanged"}
+		}
+	}
 }
 
 // maxOwnerHistory bounds the versions a declaration reads to find the

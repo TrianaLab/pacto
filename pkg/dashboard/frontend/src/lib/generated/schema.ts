@@ -2565,6 +2565,8 @@ export interface components {
         "Fleet.BundleProvenance": {
             /** Format: date-time */
             checkedAt: string;
+            /** @description The owner rule's verdict on the owner this revision sets; absent when no check ran */
+            ownerRight?: components["schemas"]["Fleet.OwnerRightCheck"];
             referrers: components["schemas"]["Fleet.ReferrersPreview"];
             referrersUnavailable?: string;
             signature: components["schemas"]["Fleet.BundleSignature"];
@@ -3916,6 +3918,15 @@ export interface components {
             services: number;
             /** Format: int64 */
             targets: number;
+        };
+        "Fleet.OwnerRightCheck": {
+            allowed: boolean;
+            /**
+             * @description Why the signer may not set the owner; empty when allowed
+             * @enum {string}
+             */
+            code?: "OWNER_SIGNER_NOT_PERSON" | "OWNER_SIGNER_NOT_ALLOWED" | "OWNER_POLICY_UNVERIFIED" | "OWNER_SIGNER_UNVERIFIED";
+            message?: string;
         };
         "Fleet.OwnerSummary": {
             compliance: components["schemas"]["Fleet.ComplianceTally"];

@@ -27,7 +27,9 @@ func anaPolicy() *DeclarationSignerPolicy {
 // anaSigned is a provenance whose verified signers include ana, a person.
 func anaSigned() *BundleProvenance {
 	return &BundleProvenance{Signature: BundleSignature{Status: SignatureUnverified}, Source: "oci",
-		Signers: []VerifiedSigner{{Subject: anaSubject, Issuer: anaIssuer, Class: contract.SignerClassHuman}}}
+		Signers: []VerifiedSigner{{Subject: anaSubject, Issuer: anaIssuer, Class: contract.SignerClassHuman}},
+		// The owner pass let ana set newsletter's owner.
+		OwnerRight: &OwnerRightCheck{Allowed: true}}
 }
 
 // declaredRecord is a declaration of newsletter by ana from the inferred
@@ -307,7 +309,8 @@ func TestBuildIgnoresDraftRecord(t *testing.T) {
 	}
 }
 
-// A declaration with no cluster fact keeps its record whoever signed it.
+// A declaration with no cluster fact keeps its record whoever signed it; its
+// owner, which no owner check stamped, is unverified.
 func TestDeclarationWithoutClusterFactsKept(t *testing.T) {
 	rec, err := contract.ParseInferredRecord(newsletterRecord())
 	if err != nil {
@@ -315,7 +318,7 @@ func TestDeclarationWithoutClusterFactsKept(t *testing.T) {
 	}
 	rec.Declaration = &contract.InferredDeclaration{State: contract.DeclarationDeclared, Asker: ana}
 	q := declFleet(t, declFleetOpts{record: rec.Marshal()})
-	if s := q.SnapshotForSerialization(); s.Completeness != CompletenessComplete {
+	if s := q.SnapshotForSerialization(); len(s.Limitations) != 1 || s.Limitations[0].Code != LimitationOwnerDeclarationUnverified || !s.Services[rNews].Owner.IsEmpty() {
 		t.Errorf("completeness %s, limitations %+v", s.Completeness, s.Limitations)
 	}
 	if d := newsRevision(t, q); len(d.Inferred) != 4 || d.Declaration.SignatureChecked || d.Declaration.Baseline != "" || d.InferredHidden != nil {

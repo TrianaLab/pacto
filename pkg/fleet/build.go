@@ -428,6 +428,7 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 	for _, raw := range col.Revisions {
 		rev, lims := revisionFrom(raw, src.ID(), now)
 		if rev != nil {
+			rev.registryBacked = slices.Contains(registrySourceKinds, src.Kind())
 			var ingest bool
 			var declLims []Limitation
 			rev.Record, declLims, ingest = acceptDeclaration(rev, rev.Record, snap.declarationSigners)
@@ -2281,7 +2282,75 @@ func deriveOwner(snap *FleetSnapshot, s *ServiceRecord) []Limitation {
 			s.OwnerProvenance = OwnerProvenanceDeclaredViaTarget
 		}
 	}
-	return ownerConflict(snap, s)
+	return append(ownerConflict(snap, s), ownerBlockedLimitations(snap, s)...)
+}
+
+// registrySourceKinds are the source kinds whose revisions were published to
+// a registry, so the owner rule's verdict on them applies.
+var registrySourceKinds = []string{"oci", "cache"}
+
+// ownerBlocked is why r's owner claim is not read, "" when it is: a registry
+// revision the owner rule refused (OWNER_DECLARATION_REFUSED), or whose check
+// could not decide, or a declaration no check stamped (budget spent, no
+// checker, a disk-cache read with no provenance): OWNER_DECLARATION_UNVERIFIED.
+// Only an explicit allowed verdict keeps a declaration's owner. A local
+// folder is its author's own files and is never blocked.
+func ownerBlocked(r *ContractRevision) string {
+	if !r.registryBacked {
+		return ""
+	}
+	var check *OwnerRightCheck
+	if r.Provenance != nil {
+		check = r.Provenance.OwnerRight
+	}
+	switch {
+	case check == nil:
+		if r.Record != nil && r.Record.Declaration != nil {
+			return LimitationOwnerDeclarationUnverified
+		}
+	case check.Allowed:
+	case check.Code == ownerPolicyUnverified || check.Code == ownerSignerUnverified:
+		return LimitationOwnerDeclarationUnverified
+	default:
+		return LimitationOwnerDeclarationRefused
+	}
+	return ""
+}
+
+// The owner right codes that mean the rule could not decide (delivery's
+// OwnerPolicyUnverified and OwnerSignerUnverified).
+const (
+	ownerPolicyUnverified = "OWNER_POLICY_UNVERIFIED"
+	ownerSignerUnverified = "OWNER_SIGNER_UNVERIFIED"
+)
+
+// ownerBlockedLimitations counts, once per service and code, the revisions of
+// s that claim an owner ownerBlocked leaves out.
+func ownerBlockedLimitations(snap *FleetSnapshot, s *ServiceRecord) []Limitation {
+	counts := map[string]int{}
+	for _, rk := range s.Revisions {
+		r := snap.Revisions[rk]
+		if r == nil {
+			continue
+		}
+		if _, _, _, attested := AttestedOwner(r); r.Owner.IsEmpty() && !attested {
+			continue // nothing left out
+		}
+		if code := ownerBlocked(r); code != "" {
+			counts[code]++
+		}
+	}
+	var out []Limitation
+	for _, l := range []Limitation{
+		{Code: LimitationOwnerDeclarationRefused, Message: "set an owner their signer may not set"},
+		{Code: LimitationOwnerDeclarationUnverified, Message: "declare an owner the owner rule could not check"},
+	} {
+		if n := counts[l.Code]; n > 0 {
+			l.Source, l.Message = "fleet", s.Name+": "+strconv.Itoa(n)+" registry revision(s) "+l.Message+", so that owner is not used"
+			out = append(out, l)
+		}
+	}
+	return out
 }
 
 // claimTier is which owner claim of a revision the readers of a service ask
@@ -2299,6 +2368,9 @@ const (
 // tier t and whether r makes a claim there. Every owner reader of a service
 // routes through it, in the tier [ownerTier] picks.
 func claimOwner(r *ContractRevision, t claimTier) (contract.Owner, bool) {
+	if ownerBlocked(r) != "" {
+		return contract.Owner{}, false
+	}
 	switch t {
 	case tierDeclared:
 		return r.Owner, !r.Owner.IsEmpty()
@@ -3584,7 +3656,7 @@ func completenessExcept(snap *FleetSnapshot, skip string) Completeness {
 	for _, l := range snap.Limitations {
 		switch l.Code {
 		case LimitationExternalCatalogUnavailable, LimitationInferredRecordUnreadable,
-			LimitationDeclarationSignerUnverified, LimitationDeclarationSignerNotAllowed:
+			LimitationDeclarationSignerUnverified, LimitationDeclarationSignerNotAllowed, LimitationOwnerDeclarationUnverified:
 			return CompletenessPartial
 		}
 	}

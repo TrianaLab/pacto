@@ -33,6 +33,9 @@ type OCISource struct {
 	// Provenance, when set, checks what is attached to each revision's digest
 	// in the registry. Nil leaves revisions without provenance.
 	Provenance ProvenanceFunc
+	// OwnerRights, when set with Provenance, stamps the owner rule's verdict
+	// on the provenance of each revision whose owner it checks.
+	OwnerRights OwnerRightsFunc
 	// RegistryProbe, when set, probes each registry host the refs resolved
 	// on and adds one Registry row per host. Nil adds no rows.
 	RegistryProbe RegistryProbe
@@ -50,6 +53,11 @@ const defaultProbeBudget = 10 * time.Second
 // read from ref by source, whose bundle declares c. It never fails: what it
 // cannot check it reports as unknown.
 type ProvenanceFunc func(ctx context.Context, source, ref string, c *contract.Contract) *fleet.BundleProvenance
+
+// OwnerRightsFunc judges the owner changes among the revisions read by
+// source, in place: it stamps BundleProvenance.OwnerRight through each
+// revision's shared provenance.
+type OwnerRightsFunc func(ctx context.Context, source string, revs []fleet.ContractRevision)
 
 // provenanceBudget bounds all provenance checks of one Collect, so an
 // unreachable registry costs a refresh at most this long.
@@ -72,7 +80,7 @@ func (s *OCISource) Kind() string { return "oci" }
 // Collect resolves each configured ref into a revision, then probes each
 // registry host a ref resolved on.
 func (s *OCISource) Collect(ctx context.Context) (*fleet.Collection, error) {
-	col, err := collectRefs(ctx, s.id, s.resolver, s.store, s.refs, s.Provenance)
+	col, err := collectRefs(ctx, s.id, s.resolver, s.store, s.refs, s.Provenance, s.OwnerRights)
 	if err != nil || s.RegistryProbe == nil {
 		return col, err
 	}
@@ -224,7 +232,7 @@ func (s *CacheSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 
 // collectRefs resolves refs into revisions, turning per-ref failures into
 // record-level limitations so a partial result is never mistaken for empty.
-func collectRefs(ctx context.Context, id string, resolver *oci.Resolver, store oci.BundleStore, refs []string, check ProvenanceFunc) (*fleet.Collection, error) {
+func collectRefs(ctx context.Context, id string, resolver *oci.Resolver, store oci.BundleStore, refs []string, check ProvenanceFunc, owners OwnerRightsFunc) (*fleet.Collection, error) {
 	col := &fleet.Collection{}
 	var contracts []*contract.Contract
 	for _, ref := range refs {
@@ -269,6 +277,15 @@ func collectRefs(ctx context.Context, id string, resolver *oci.Resolver, store o
 	defer cancel()
 	for i := range col.Revisions {
 		col.Revisions[i].Provenance = check(pctx, id, col.Revisions[i].ResolvedRef, contracts[i])
+	}
+	if owners != nil {
+		var views []fleet.ContractRevision
+		for _, r := range col.Revisions {
+			if v, ok := fleet.OwnerView(r); ok {
+				views = append(views, v)
+			}
+		}
+		owners(pctx, id, views)
 	}
 	return col, nil
 }

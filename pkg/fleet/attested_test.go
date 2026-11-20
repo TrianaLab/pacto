@@ -273,6 +273,9 @@ func TestOwnerTierSkipsMissingRevisions(t *testing.T) {
 	if tier, repos := ownerTier(q.snap, &s); tier != tierAttested || len(repos) != 1 {
 		t.Errorf("tier = %v %v", tier, repos)
 	}
+	if l := ownerBlockedLimitations(q.snap, &s); len(l) != 0 {
+		t.Errorf("limitations = %+v", l)
+	}
 	if q.ownerClaims(nil, func(contract.Owner) bool { return true }) {
 		t.Error("no service has a claim")
 	}

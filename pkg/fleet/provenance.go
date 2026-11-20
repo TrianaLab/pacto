@@ -75,6 +75,19 @@ type BundleProvenance struct {
 	// in the same check as Signature, which judges them against a publisher
 	// rule. A declaration's signer is matched against it.
 	Signers []VerifiedSigner `json:"signers,omitempty" doc:"Every keyless identity whose signature of the digest verified, at most 5, sorted, a declaration's signer always kept"`
+	// OwnerRight is the owner rule's verdict on the owner this revision sets
+	// over its service's effective owner: present on a declaration and on a
+	// bundle signed by anyone but an accepted CI identity that changes the
+	// owner, nil when no check ran.
+	OwnerRight *OwnerRightCheck `json:"ownerRight,omitempty" doc:"The owner rule's verdict on the owner this revision sets; absent when no check ran"`
+}
+
+// OwnerRightCheck is the owner rule's verdict on a published revision's
+// owner change, the fleet's copy of delivery.OwnerRight.
+type OwnerRightCheck struct {
+	Allowed bool   `json:"allowed"`
+	Code    string `json:"code,omitempty" enum:"OWNER_SIGNER_NOT_PERSON,OWNER_SIGNER_NOT_ALLOWED,OWNER_POLICY_UNVERIFIED,OWNER_SIGNER_UNVERIFIED" doc:"Why the signer may not set the owner; empty when allowed"`
+	Message string `json:"message,omitempty"`
 }
 
 // MaxProvenanceSigners bounds BundleProvenance.Signers.
@@ -162,6 +175,10 @@ func cloneProvenance(p *BundleProvenance) *BundleProvenance {
 	}
 	c := *p
 	c.Signers = slices.Clone(p.Signers)
+	if p.OwnerRight != nil {
+		o := *p.OwnerRight
+		c.OwnerRight = &o
+	}
 	c.Referrers.Items = make([]OCIReferrer, len(p.Referrers.Items))
 	for i, r := range p.Referrers.Items {
 		r.Created = copyTime(r.Created)
@@ -172,8 +189,10 @@ func cloneProvenance(p *BundleProvenance) *BundleProvenance {
 
 // mergeProvenance folds a second contribution's provenance into existing. A
 // source that checked wins over one that did not; two that both checked keep
-// the one whose Source sorts first, so the snapshot is order-independent.
+// the one whose Source sorts first, so the snapshot is order-independent. A
+// revision any registry source contributed is registry-backed.
 func mergeProvenance(existing, add *ContractRevision) {
+	existing.registryBacked = existing.registryBacked || add.registryBacked
 	if add.Provenance == nil {
 		return
 	}

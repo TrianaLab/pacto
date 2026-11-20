@@ -187,3 +187,33 @@ func TestOwnerRightSourceIsRegistryPolicy(t *testing.T) {
 		t.Fatalf("%+v", r.WorkloadAccess)
 	}
 }
+
+// TestJudgeOwnerSigners: the first allowed signer wins, else the most
+// decisive refusal; no signer is unverified with why.
+func TestJudgeOwnerSigners(t *testing.T) {
+	pol := ownerPolicy()
+	current := OwnerClaim{Owner: contract.Owner{Team: "payments"}, Provenance: "declared"}
+	proposed := OwnerClaim{Owner: contract.Owner{Team: "billing"}}
+	agent, eve, admin := PublisherIdentity{Subject: "bot", Class: ClassAgent}, human(google, "eve@acme.com"), human(google, "admin@acme.com")
+	for name, c := range map[string]struct {
+		signers []PublisherIdentity
+		policy  *OwnerPolicy
+		code    string
+	}{
+		"allowed wins":         {[]PublisherIdentity{agent, eve, admin}, &pol, ""},
+		"person over agent":    {[]PublisherIdentity{agent, eve}, &pol, OwnerSignerNotAllowed},
+		"agent over no policy": {[]PublisherIdentity{eve, agent}, nil, OwnerSignerNotPerson},
+	} {
+		if r := JudgeOwnerSigners("invoices", c.signers, "", current, proposed, c.policy, "trust missing", ownerNow); r.Code != c.code || r.Allowed != (c.code == "") {
+			t.Errorf("%s: %+v", name, r)
+		}
+	}
+	r := JudgeOwnerSigners("invoices", nil, "", current, proposed, &pol, "", ownerNow)
+	if r.Allowed || r.Code != OwnerSignerUnverified || r.Unverified != "no signature of it verified" || r.Source != AccessByRegistryPolicy ||
+		!strings.Contains(r.Message, "invoices sets is unverified") || len(r.MayAccept) == 0 {
+		t.Errorf("no signer: %+v", r)
+	}
+	if r := JudgeOwnerSigners("invoices", nil, "registry down", current, proposed, &pol, "", ownerNow); !strings.HasSuffix(r.Message, "registry down") {
+		t.Errorf("why: %+v", r)
+	}
+}

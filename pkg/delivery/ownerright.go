@@ -168,6 +168,36 @@ func DecideOwnerRight(service string, signer PublisherIdentity, current, propose
 	return r
 }
 
+// JudgeOwnerSigners decides the owner change a bundle makes from each of its
+// verified signers through DecideOwnerRight: the first allowed verdict wins,
+// else the most decisive refusal (a person outside the rule over a signer who
+// is no person over an unknown policy). With no verified signer the change is
+// unverified, OWNER_SIGNER_UNVERIFIED, and why says what was read.
+func JudgeOwnerSigners(service string, signers []PublisherIdentity, why string, current, proposed OwnerClaim, policy *OwnerPolicy, policyFrom string, now time.Time) OwnerRight {
+	var best *OwnerRight
+	for _, s := range signers {
+		v := DecideOwnerRight(service, s, current, proposed, policy, policyFrom, now)
+		if v.Allowed {
+			return v
+		}
+		if best == nil || decisive(v.Code) > decisive(best.Code) {
+			best = &v
+		}
+	}
+	if best != nil {
+		return *best
+	}
+	why = cmp.Or(why, "no signature of it verified")
+	return OwnerRight{WorkloadAccess: WorkloadAccess{Resource: "services", Name: service, Source: AccessByRegistryPolicy,
+		Unverified: why, At: now.UTC().Format(time.RFC3339)}, Code: OwnerSignerUnverified, MayAccept: mayAccept(current, policy),
+		Message: "the owner this version of " + service + " sets is unverified: " + why}
+}
+
+// decisive ranks the refusal codes, the most decisive highest.
+func decisive(code string) int {
+	return len(OwnerRightCodes) - slices.Index([]string{OwnerSignerNotAllowed, OwnerSignerNotPerson, OwnerPolicyUnverified, OwnerSignerUnverified}, code)
+}
+
 // The owner provenances a member of the owner is read from (516-S1's
 // constants in pkg/fleet).
 const (
