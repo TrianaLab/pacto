@@ -1444,6 +1444,12 @@ type FleetSnapshot struct {
 	// that name a workload, with that workload and the declaring services,
 	// so a restricted view drops those it may not see.
 	inferredLinkNotes []workloadNote
+	// hiddenLinkNotes holds, in a restricted snapshot, the limitations of
+	// inferredLinkNotes whose workload or declaring service the view hides.
+	hiddenLinkNotes []Limitation
+	// hiddenReplacements counts, in a restricted snapshot, the replacements
+	// of each visible service whose workload the view hides. Only counted.
+	hiddenReplacements map[ServiceKey]int
 	// UncontractedCallers are observed callers with no contract of a service
 	// that has one. Sorted by (ToService, Caller).
 	UncontractedCallers []UncontractedCaller `json:"uncontractedCallers,omitempty"`

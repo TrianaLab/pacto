@@ -429,7 +429,7 @@ func TestServiceDetailJSONKeys(t *testing.T) {
 		"activeRevisions", "signatures", "deployments", "placement", "dependencies", "dependents", "changes",
 		"hiddenDependencies", "hiddenProviders", "hiddenDependents", "dependentsStatus", "referencedBy", "relationships",
 		"findings", "evidence", "limitations", "template", "origin", "creation", "workload", "calls", "callsObserved",
-		"replaces", "replacesTotal"}
+		"replaces", "replacesTotal", "replacesHidden"}
 	ty := reflect.TypeFor[ServiceDetailData]()
 	got := make([]string, ty.NumField())
 	for i := range got {

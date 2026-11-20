@@ -142,10 +142,14 @@ func declarationScope(rev *ContractRevision) (WorkloadScope, bool) {
 
 // declarationSourceHidden reports whether hidden says no to the workload rev's
 // declaration came from: its cluster facts are that workload's data, so they
-// need namespace read and workload read of its kind.
+// need namespace read and workload read of its kind. An inferredFrom Pacto
+// cannot read hides them too: unknown is never positive.
 func declarationSourceHidden(rev *ContractRevision, hidden func(namespace, kind string) bool) bool {
 	sc, ok := declarationScope(rev)
-	return ok && hidden(sc.Namespace, sc.Kind)
+	if !ok {
+		return rev.Record != nil && rev.Record.Declaration != nil && rev.Record.Declaration.InferredFrom != ""
+	}
+	return hidden(sc.Namespace, sc.Kind)
 }
 
 // hideClusterDependencies is a clone of rev without the cluster-sourced

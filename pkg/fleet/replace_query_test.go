@@ -70,7 +70,7 @@ func TestServiceDetailReplacesBounded(t *testing.T) {
 		r.From = NewServiceKey(cartName + strings.Repeat("x", i+1))
 		q.snap.Replacements = append(q.snap.Replacements, r)
 	}
-	shown, total := q.replacesOf(to)
+	shown, total, _ := q.replacesOf(to)
 	if len(shown) != MaxDetailPreview || total != MaxDetailPreview+3 {
 		t.Errorf("shown %d total %d", len(shown), total)
 	}

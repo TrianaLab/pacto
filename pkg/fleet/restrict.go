@@ -108,6 +108,9 @@ func (q *Query) InferredWorkloadScopes() []WorkloadScope {
 	for _, r := range q.snap.replacedNames {
 		seen[WorkloadScope{r.workload.namespace, r.workload.kind}] = true
 	}
+	for _, n := range q.snap.inferredLinkNotes {
+		seen[WorkloadScope{n.workload.namespace, n.workload.kind}] = true
+	}
 	providerScopes(q.snap.Providers, seen)
 	return slices.SortedFunc(maps.Keys(seen), func(a, b WorkloadScope) int {
 		return cmp.Or(cmp.Compare(a.Namespace, b.Namespace), cmp.Compare(a.Kind, b.Kind))
@@ -548,7 +551,7 @@ func restrictLimitations(out *FleetSnapshot, limitations []Limitation, hiddenNam
 	// visible namespaces. Structured subjects on Limitation would make it exact
 	// and linear.
 	out.Limitations = slices.DeleteFunc(limitations, func(l Limitation) bool {
-		return rebuiltLimitation(l) || slices.ContainsFunc(hiddenNames, func(n string) bool { return n != "" && strings.Contains(l.Message, n) })
+		return rebuiltLimitation(l) || slices.Contains(out.hiddenLinkNotes, l) || slices.ContainsFunc(hiddenNames, func(n string) bool { return n != "" && strings.Contains(l.Message, n) })
 	})
 	for _, svc := range out.Services {
 		_, _, dc := businessDomainOf(out, svc)

@@ -185,19 +185,35 @@ func (r Replacement) Line(asOf time.Time) string {
 
 // restrictReplacements keeps the replacements whose declared service is
 // visible and whose workload hidden says the viewer may see, and the replaced
-// names under the same rule.
+// names under the same rule. It counts those it drops for a visible service
+// and collects the limitations of replaceByInferredFrom that name a hidden
+// workload or service.
 func restrictReplacements(out, s *FleetSnapshot, hiddenSvc map[ServiceKey]bool, hidden func(namespace, kind string) bool) {
+	out.hiddenReplacements = map[ServiceKey]int{}
 	out.Replacements = slices.DeleteFunc(slices.Clone(s.Replacements), func(r Replacement) bool {
-		return hiddenSvc[r.To] || hidden(r.workload.namespace, r.workload.kind)
+		if hiddenSvc[r.To] {
+			return true
+		}
+		if hidden(r.workload.namespace, r.workload.kind) {
+			out.hiddenReplacements[r.To]++
+			return true
+		}
+		return false
 	})
 	out.replacedNames = maps.Clone(s.replacedNames)
 	maps.DeleteFunc(out.replacedNames, func(_ string, r replacedName) bool {
 		return hiddenSvc[r.to] || hidden(r.workload.namespace, r.workload.kind)
 	})
+	for _, n := range s.inferredLinkNotes {
+		if hidden(n.workload.namespace, n.workload.kind) || slices.ContainsFunc(n.services, func(k ServiceKey) bool { return hiddenSvc[k] }) {
+			out.hiddenLinkNotes = append(out.hiddenLinkNotes, n.l)
+		}
+	}
 }
 
 // replacementHidden reports whether hidden hides the workload of some
-// replacement of s.
+// replacement of s or of some limitation replaceByInferredFrom raised.
 func replacementHidden(s *FleetSnapshot, hidden func(namespace, kind string) bool) bool {
-	return slices.ContainsFunc(s.Replacements, func(r Replacement) bool { return hidden(r.workload.namespace, r.workload.kind) })
+	return slices.ContainsFunc(s.Replacements, func(r Replacement) bool { return hidden(r.workload.namespace, r.workload.kind) }) ||
+		slices.ContainsFunc(s.inferredLinkNotes, func(n workloadNote) bool { return hidden(n.workload.namespace, n.workload.kind) })
 }

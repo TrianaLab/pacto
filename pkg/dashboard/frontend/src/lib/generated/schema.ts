@@ -4536,6 +4536,11 @@ export interface components {
             replaces?: components["schemas"]["Fleet.Replacement"][] | null;
             /**
              * Format: int64
+             * @description Replacements of this service whose workload you may not see
+             */
+            replacesHidden?: number;
+            /**
+             * Format: int64
              * @description How many inferred services this service replaced
              */
             replacesTotal?: number;
@@ -6458,6 +6463,11 @@ export interface components {
             relationships: components["schemas"]["ProductRelationshipsPreview"];
             /** @description The inferred services this service replaced, at most 200 */
             replaces?: components["schemas"]["Fleet.Replacement"][] | null;
+            /**
+             * Format: int64
+             * @description Replacements of this service whose workload you may not see
+             */
+            replacesHidden?: number;
             /**
              * Format: int64
              * @description How many inferred services this service replaced
