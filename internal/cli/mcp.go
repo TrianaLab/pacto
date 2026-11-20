@@ -246,7 +246,7 @@ func buildFleetMode(cmd *cobra.Command, svc *app.Service, d deps) (*pactomcp.Fle
 	if err != nil {
 		return nil, err
 	}
-	view := mcpFleetView(cmd, d)
+	view := mcpFleetView(cmd, svc, d)
 	url, _ := cmd.Flags().GetString("dashboard-url")
 	// view is nil for an HTTP server without --auth-issuer too, so only the
 	// transport says whether the caller is this process's own user.
@@ -600,11 +600,12 @@ func mcpRegression(ctx context.Context, cmd *cobra.Command, d deps, ev impact.Ev
 
 // mcpFleetView narrows the fleet tools of a server whose callers sign in
 // (HTTP with --auth-issuer) to what each caller's Kubernetes RBAC lets them
-// read, asked with this process's own credentials about the person the
-// apiserver reviewed for the request (remoteCaller). Other servers answer
-// from the whole snapshot, as their single local user would read it.
-// checkFleetOnlyFlags already checked --review.
-func mcpFleetView(cmd *cobra.Command, d deps) pactomcp.FleetView {
+// read, asked in each cluster the fleet reads (--k8s, --context) with that
+// context's own credentials about the person the apiserver reviewed for the
+// request (remoteCaller). Other servers answer from the whole snapshot, as
+// their single local user would read it. checkFleetOnlyFlags already checked
+// --review.
+func mcpFleetView(cmd *cobra.Command, svc *app.Service, d deps) pactomcp.FleetView {
 	transport, _ := cmd.Flags().GetString("transport")
 	issuer, _ := cmd.Flags().GetString("auth-issuer")
 	mode, _ := cmd.Flags().GetString("review")
@@ -613,17 +614,13 @@ func mcpFleetView(cmd *cobra.Command, d deps) pactomcp.FleetView {
 		return nil
 	}
 	cluster, _ := d.clusterConfig()
-	viewer := clusterViewer(cluster, d.dynamicFor, mode, namespaces)
+	viewer := clusterViewer(fleetEntries(svc, d, mcpFleetOptions(cmd)), newHomeCluster(cluster, d), d, mode, namespaces)
 	return func(ctx context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
 		p, ok := personFrom(ctx)
 		if !ok {
 			return nil, errNobodyReviewed
 		}
-		r, err := viewer.Query(ctx, p, q)
-		if err != nil {
-			return nil, fmt.Errorf("checking your Kubernetes permissions failed: %w", err)
-		}
-		return r, nil
+		return viewer.Query(ctx, p, q)
 	}
 }
 

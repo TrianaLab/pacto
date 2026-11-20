@@ -94,31 +94,30 @@ func TestMCPFleetView(t *testing.T) {
 	d := defaultDeps()
 	d.clusterConfig = func() (*rest.Config, error) { return nil, errors.New("no kubeconfig") }
 	cmd := newMCPCommand(svc, "v", d)
-	if view := mcpFleetView(cmd, d); view != nil {
+	if view := mcpFleetView(cmd, app.NewService(nil, nil), d); view != nil {
 		t.Fatal("a stdio server narrows nothing")
 	}
 	_ = cmd.Flags().Set("transport", "http")
-	if view := mcpFleetView(cmd, d); view != nil {
+	if view := mcpFleetView(cmd, app.NewService(nil, nil), d); view != nil {
 		t.Fatal("an HTTP server without sign-in narrows nothing")
 	}
 	_ = cmd.Flags().Set("auth-issuer", "https://idp.example")
-	view := mcpFleetView(cmd, d)
+	view := mcpFleetView(cmd, app.NewService(nil, nil), d)
 	// Even a snapshot with no namespace asks whether the caller reads the whole
 	// cluster: that decides the services known only from a registry.
 	if _, err := view(context.Background(), nil, fleet.NewQuery(&fleet.FleetSnapshot{})); !errors.Is(err, errNobodyReviewed) {
 		t.Fatalf("a request nobody reviewed gets no view: %v", err)
 	}
 	alice := context.WithValue(context.Background(), reviewedKey{}, reviewed{person: authn.Person{User: "alice"}})
-	if _, err := view(alice, nil, fleet.NewQuery(&fleet.FleetSnapshot{})); err == nil {
-		t.Fatal("a snapshot with no namespace still needs the cluster-wide answer")
-	}
 	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("k8s", "kubernetes", &fleet.Collection{
 		Targets: []fleet.RawTarget{{Scope: "shop", Kind: fleet.SourceKindKubernetes, Name: "web", Service: "web"}},
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = view(alice, nil, fleet.NewQuery(snap)); err == nil || !strings.Contains(err.Error(), "checking your Kubernetes permissions failed") {
+	// No cluster to ask: nothing shows, and the answer says it is partial.
+	got, err := view(alice, nil, fleet.NewQuery(snap))
+	if err != nil || len(got.SnapshotForSerialization().Services) != 0 || got.SnapshotForSerialization().Completeness != fleet.CompletenessPartial {
 		t.Fatalf("no cluster to ask: %v", err)
 	}
 }
@@ -454,7 +453,7 @@ func TestClusterContractRefs(t *testing.T) {
 	if got := clusterContractRefs(nil, nil); got != nil {
 		t.Error("expected no callback without a cluster client")
 	}
-	unreadable := clusterContractRefs(&fakeClusterClient{listErr: errors.New("cluster unreachable")}, nil)
+	unreadable := clusterContractRefs([]k8sclient.K8sClient{&fakeClusterClient{listErr: errors.New("cluster unreachable")}}, nil)
 	if unreadable == nil {
 		t.Fatal("expected a callback when a cluster client was built")
 	}
@@ -462,9 +461,10 @@ func TestClusterContractRefs(t *testing.T) {
 		t.Errorf("an unreadable cluster contributed %v, want no references", got)
 	}
 	listed := &fakeClusterClient{listJSON: `{"items":[]}`}
-	clusterContractRefs(listed, []string{"ledger", "payments"})(context.Background())
-	if !slices.Equal(listed.asked, []string{"ledger", "payments"}) {
-		t.Errorf("asked %q, want each namespace of the list", listed.asked)
+	other := &fakeClusterClient{listJSON: `{"items":[]}`}
+	clusterContractRefs([]k8sclient.K8sClient{listed, other}, []string{"ledger", "payments"})(context.Background())
+	if !slices.Equal(listed.asked, []string{"ledger", "payments"}) || !slices.Equal(other.asked, listed.asked) {
+		t.Errorf("asked %q and %q, want each namespace of the list in every context", listed.asked, other.asked)
 	}
 }
 
@@ -482,7 +482,7 @@ func TestClusterContractRefs_ExactRefsPrecedeTheirRepository(t *testing.T) {
 		{"metadata":{"name":"checkout","namespace":"prod"},
 		 "status":{"contract":{"serviceName":"checkout","resolvedRef":"reg.svc:5000/demo/checkout@sha256:abc"}}}
 	]}`}
-	got := clusterContractRefs(client, nil)(context.Background())
+	got := clusterContractRefs([]k8sclient.K8sClient{client}, nil)(context.Background())
 	for exact, repo := range map[string]string{
 		"reg.svc:5000/demo/orders:1.0.0":        "reg.svc:5000/demo/orders",
 		"reg.svc:5000/demo/checkout@sha256:abc": "reg.svc:5000/demo/checkout",

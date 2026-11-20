@@ -51,6 +51,17 @@ func TestWithClusterAccessNamesHiddenClusters(t *testing.T) {
 	}
 }
 
+// TestWithClusterAccessUnidentifiedCluster: the one cluster whose id was
+// never read is named as the Kubernetes cluster.
+func TestWithClusterAccessUnidentifiedCluster(t *testing.T) {
+	full := twoClusterFleet(t)
+	v := full.Restrict(euOnly, everyWorkloadIn).WithClusterAccess(full, map[string]string{"": ClusterReviewFailed})
+	got := clusterHidden(v.SnapshotForSerialization())
+	if len(got) != 1 || got[0].Source != "" || got[0].Message != "the Kubernetes cluster: the review failed or took longer than 5s, so its services are hidden" {
+		t.Errorf("CLUSTER_HIDDEN = %+v", got)
+	}
+}
+
 // checkAccessedView checks what WithClusterAccess changed from view to v.
 func checkAccessedView(t *testing.T, view, v *Query) {
 	t.Helper()

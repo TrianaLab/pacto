@@ -252,6 +252,7 @@ func signedInRemoteStats(t *testing.T) (h http.Handler, reviews map[string][]str
 	d.clusterConfig = func() (*rest.Config, error) {
 		return &rest.Config{Host: "https://k", BearerToken: "process-token"}, nil
 	}
+	d.resolveK8s = ambientEntries(&d)
 	d.dynamicFor = func(c *rest.Config) (dynamic.Interface, error) {
 		dyn := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())
 		dyn.PrependReactor("create", "selfsubjectreviews", func(k8stesting.Action) (bool, runtime.Object, error) {

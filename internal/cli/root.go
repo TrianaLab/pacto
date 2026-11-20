@@ -50,7 +50,13 @@ type deps struct {
 	// clusterConfig is the ambient cluster config the dashboard builds callers' clients from (address and CA
 	// only); served asks discovery whether an API group version is installed.
 	clusterConfig func() (*rest.Config, error)
-	served        func(*rest.Config, string) (bool, error)
+	// contextConfig is the config of one named kubeconfig context; inCluster is the pod's own config, an
+	// error outside a pod.
+	contextConfig func(string) (*rest.Config, error)
+	inCluster     func() (*rest.Config, error)
+	// resolveK8s resolves the kubeconfig contexts the fleet reads, once for its sources and its reviewers.
+	resolveK8s func(svc *app.Service, ctx context.Context, includeCurrent bool, contexts []string) []app.K8sEntry
+	served     func(*rest.Config, string) (bool, error)
 	// dynamicFor builds a client from a caller's own config; newMCPAuth reads the remote MCP issuer.
 	dynamicFor func(*rest.Config) (dynamic.Interface, error)
 	newMCPAuth func(authn.MCPConfig) (mcpAuth, error)
@@ -98,6 +104,9 @@ func defaultDeps() deps {
 		newCollector:        ebpf.New,
 		newDynamic:          k8sclient.NewDynamic,
 		clusterConfig:       k8sclient.Config,
+		contextConfig:       k8sclient.ConfigFor,
+		inCluster:           rest.InClusterConfig,
+		resolveK8s:          (*app.Service).ResolveK8sContexts,
 		served:              k8sclient.Served,
 		dynamicFor:          newDynamicForConfig,
 		newMCPAuth:          newMCPAuth,

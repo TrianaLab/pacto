@@ -636,6 +636,15 @@ var clusterHiddenReasons = map[string]string{
 	ClusterNotReviewable: "nobody can be reviewed there, so its services are hidden from signed-in readers",
 }
 
+// clusterLabel names a cluster in a limitation; "" is the one cluster whose
+// id was never read.
+func clusterLabel(name string) string {
+	if name == "" {
+		return "the Kubernetes cluster"
+	}
+	return "cluster " + name
+}
+
 // WithClusterAccess marks the reviewed clusters a restricted view q shows
 // nothing of: access maps a cluster id to ClusterNoAccess, ClusterReviewFailed
 // or ClusterNotReviewable. Each marked cluster a Kubernetes source of full read
@@ -669,7 +678,7 @@ func (q *Query) WithClusterAccess(full *Query, access map[string]string) *Query 
 	out.Limitations = slices.Clone(out.Limitations)
 	for _, id := range slices.Sorted(maps.Keys(access)) {
 		out.Limitations = append(out.Limitations, Limitation{Code: LimitationClusterHidden, Source: id,
-			Message: "cluster " + cmp.Or(names[id], id) + ": " + clusterHiddenReasons[access[id]]})
+			Message: clusterLabel(cmp.Or(names[id], id)) + ": " + clusterHiddenReasons[access[id]]})
 	}
 	sortSnapshotLimitations(&out)
 	out.Completeness = CompletenessPartial

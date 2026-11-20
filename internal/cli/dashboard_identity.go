@@ -52,7 +52,10 @@ var errOpenNeedsAllowAnonymous = errors.New("serving beyond loopback without sig
 // is configured (people sign in before the dashboard shows anything), local on
 // a loopback bind without either, and open (no delivery) anywhere else, only
 // with --allow-anonymous.
-func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, d deps) (*dashboardIdentity, error) {
+//
+// cluster is the sign-in cluster; entries are the resolved contexts the fleet
+// reads, whose reviewers narrow each signed-in person's view.
+func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, entries func(context.Context) []app.K8sEntry, d deps) (*dashboardIdentity, error) {
 	trust, err := app.DeliveryTrust(v.GetString("dashboard.delivery-trust"))
 	if err != nil {
 		return nil, err
@@ -101,7 +104,7 @@ func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, d d
 	switch {
 	case o != nil || t != nil:
 		id.auth = authn.NewShared(o, t).AcceptBearer(review)
-		id.viewer = clusterViewer(cluster, d.dynamicFor, mode, namespaces)
+		id.viewer = clusterViewer(entries, newHomeCluster(cluster, d), d, mode, namespaces)
 	case isLoopback(host):
 		id.auth = authn.NewLocal()
 	case v.GetBool("dashboard.allow-anonymous"):
@@ -180,11 +183,7 @@ func (id *dashboardIdentity) view(ctx context.Context, q *fleet.Query) (*fleet.Q
 	if st := id.state(ctx); st.SignedIn {
 		p = st.Person
 	}
-	r, err := id.viewer.Query(ctx, p, q)
-	if err != nil {
-		return nil, fmt.Errorf("checking your Kubernetes permissions failed: %w", err)
-	}
-	return r, nil
+	return id.viewer.Query(ctx, p, q)
 }
 
 // operationAccess says which Stage namespaces the caller may list operations
@@ -285,14 +284,16 @@ func checkReview(mode string, namespaces []string) error {
 	return fmt.Errorf("--review must be %s or %s, not %q", reviewCluster, reviewLocal, mode)
 }
 
-// clusterViewer narrows answers to what each person may read, reviewed in
-// the namespaces list only when mode is local (checkReview passed).
-func clusterViewer(cluster *rest.Config, newClient func(*rest.Config) (dynamic.Interface, error), mode string, namespaces []string) *authn.Viewer {
-	review := clusterReview(cluster, newClient, mode)
+// clusterViewer narrows answers to what each person may read in each cluster
+// of entries, reviewed there with that cluster's own credentials, in the
+// namespaces list only when mode is local (checkReview passed). home is the
+// sign-in cluster, the only one that reviews a cluster-local identity.
+func clusterViewer(entries func(context.Context) []app.K8sEntry, home homeCluster, d deps, mode string, namespaces []string) *authn.Viewer {
+	set := clusterReviews(entries, home, d, mode)
 	if mode == reviewLocal {
-		return authn.NewScopedViewer(review, namespaces)
+		return authn.NewScopedViewer(set.Reviews, namespaces).SignInCluster(set.Home)
 	}
-	return authn.NewViewer(review)
+	return authn.NewViewer(set.Reviews).SignInCluster(set.Home)
 }
 
 // clusterReview asks the cluster, with the dashboard's own credentials, what a
