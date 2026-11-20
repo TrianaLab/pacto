@@ -159,6 +159,7 @@ func impactRows() []surfaceRow {
 			{"impact <new>", "pacto_impact.new_ref", "GET /api/fleet/impact?new", whyImpactRefs},
 			{"impact --include-observed", "pacto_impact.include_observed", "GET /api/fleet/impact?includeObserved", ""},
 			{"", "", "POST /api/fleet/impact body.includeObserved", whyKeyedImpact},
+			{"impact --running", "", "", "the dashboard compares two revisions the reader picks; its service page shows which revision runs where"},
 			{"impact --traces", "pacto_impact.traces", "", "the dashboard reads the trace sources it was started with"},
 			{"impact --unavailable", "pacto_impact.event", "POST /api/fleet/impact body.event", "each CLI event flag names the event and its service at once"},
 			{"impact --removed", "", "", "pacto_impact.event and the dashboard's body.event take removed as a value"},

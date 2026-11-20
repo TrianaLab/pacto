@@ -777,6 +777,13 @@ func gateCases() []gateCase {
 				Limitations: []fleet.Limitation{{Code: LimitationInferredProvider}}}},
 		{name: "inferred provider, not breaking", gate: GateUnverified, reason: "0 of 0 consumers pin", code: GateCodeInferredProvider,
 			r: Result{Classification: "NON_BREAKING", Service: "stripe", Completeness: fleet.CompletenessComplete, Limitations: []fleet.Limitation{{Code: LimitationInferredProvider}}}},
+		// --running: an unread running revision never clears; a first version clears only when every running consumer accepts it.
+		{name: "running unread", gate: GateUnverified, reason: "could not read every revision of api that runs", code: GateCodeRunningUnread,
+			r: Result{Classification: "NON_BREAKING", Service: "api", unreadBaselines: []string{"prod/k8s/api runs a revision Pacto could not link"}}},
+		{name: "first version unchecked", gate: GateUnverified, reason: "first version of api on a known target, but the answer is partial", code: GateCodeFirstVersionUnchecked,
+			r: Result{Classification: "NON_BREAKING", Service: "api", Completeness: fleet.CompletenessPartial, firstVersion: true}},
+		{name: "first version accepted", gate: GateClear, reason: "first version of api on a known target: no consumer runs", code: GateCodeFirstVersionAccepted,
+			r: Result{Classification: "NON_BREAKING", Service: "api", Completeness: fleet.CompletenessComplete, firstVersion: true, Consumers: []AffectedConsumer{paper}}},
 		{name: "both", gate: GateBlocked, reason: "do not accept api 2.0.0: web", code: GateCodeConsumersIncompatible,
 			r: Result{Classification: "BREAKING", Service: "api", NewVersion: "2.0.0", Consumers: []AffectedConsumer{active, failingRunning}}},
 	}

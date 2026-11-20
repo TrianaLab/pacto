@@ -1677,6 +1677,8 @@ Composes a semantic contract diff (old→new) with the operational graph to answ
 
 When no fleet source holds the changed service, the new revision is added to the snapshot so the services that depend on it are found.
 
+With --running, impact judges &lt;new&gt; against the revisions of its service that run on known targets instead of an &lt;old&gt; revision, and keeps the worst gate. A local &lt;new&gt; takes the fleet domain that holds its service name; a name several domains hold exits 1 with their keys. With no running revision the new one is a first version: it is blocked when a running consumer's range rejects it, and clear only on a complete answer whose running consumers all accept it. A running revision Pacto could not link, pull or trust, one linked by tag only, an inferred workload of the service and a local &lt;new&gt; in no fleet domain each make the answer unverified at best. Running revisions are pulled only from the hosts of the target snapshots and of an oci:// &lt;new&gt;, plus the comma-separated hosts in $PACTO_RUNNING_REGISTRIES.
+
 With --unavailable, --removed or --regressed, impact answers what happens if that service becomes unavailable, is removed or a revision of it regressed. --unavailable and --removed also take offering:&lt;name&gt;, which asks the same of every service that provides the platform offering. Consumers are graded breaks (every edge on their path is required), may degrade (an optional edge) or unknown. The gate is unverified (exit 2) when anything depends on the service and clear (exit 0) only when the complete snapshot shows nothing does. --regressed with an artifact digest reads delivery's recorded failures with your own cluster credentials when a cluster is reachable.
 
 The answer ends in a release gate, and the exit status follows it:
@@ -1692,7 +1694,7 @@ When you pass no --k8s, --target-state, --evidence-url or --target-snapshot, imp
 From the same ref impact also reads the consumers published to the organization index, &lt;host&gt;/<first path segment>/pacto-index then &lt;host&gt;/pacto-index, checks them against the target snapshot it reads and prints a Consumers line; --index names another &lt;registry&gt;/pacto-index, --index none reads none, a --root list skips it and a pair of --local folders reads no index.
 
 ```
-pacto impact <old> <new> | --unavailable <service> | --removed <service> | --regressed <service>@<revision> [flags]
+pacto impact <old> <new> | --running <new> | --unavailable <service> | --removed <service> | --regressed <service>@<revision> [flags]
 ```
 
 **Examples:**
@@ -1704,6 +1706,10 @@ pacto impact <old> <new> | --unavailable <service> | --removed <service> | --reg
   # Impact of a published service against the clusters that run it, read
   # from the target snapshot next to its registry
   pacto impact oci://ghcr.io/acme/svc:1.0.0 ./svc --delivery-trust trust.yaml
+
+  # Judge a folder's contract against the revisions that run in the pinned
+  # clusters, as a GitOps render gate does
+  pacto impact --running . --target-snapshot oci://ghcr.io/acme/pacto-targets:cluster-<uid> --delivery-trust trust.yaml
 
   # Include observed (runtime) evidence and emit JSON
   pacto impact oci://ghcr.io/acme/svc:1.0.0 ./svc --include-observed --output-format json
@@ -1744,6 +1750,7 @@ pacto impact <old> <new> | --unavailable <service> | --removed <service> | --reg
       --regressed string                what happens if <service>@<revision> regressed; an artifact digest reads delivery's recorded failures
       --removed string                  what happens if this service (a fleet service key, or a name only one domain holds) is removed; offering:<name> asks it of every provider of an offering
       --root stringArray                contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
+      --running[=true|false]            judge <new> against the revisions of its service that run on known targets instead of an <old> revision; with no running revision only consumers' ranges are checked
       --stats-context string            comma-separated context to include in the run record: repository, run-url, environment=<name>; nothing is included unless named
       --stats-file string               write the run record to this file for pacto stats publish, replacing the record it holds, so give each command its own file; default $PACTO_STATS_FILE
       --stats-registry string           publish an unsigned run record (statistics, never evidence) to this repository, for example ghcr.io/acme/pacto-stats; default $PACTO_STATS_REGISTRY

@@ -5155,6 +5155,8 @@ export interface components {
             /** @description Where Pacto looked for a target snapshot when none was named */
             registry?: components["schemas"]["Impact.RegistryLookup"];
             regression?: components["schemas"]["Impact.RegressionEvidence"][] | null;
+            /** @description Set by --running: the revisions that run, the one this answer judged and the ones Pacto could not read */
+            running?: components["schemas"]["Impact.RunningBaseline"];
             schemaVersion: string;
             service: string;
             snapshotId: string;
@@ -5164,6 +5166,16 @@ export interface components {
             targetSnapshots?: components["schemas"]["Fleet.SourceState"][] | null;
             /** @description The service keys of the golden paths that reference the changed service's policy: they run nowhere, so they never hold the gate, but a service created from one checks against the new policy. Review each */
             templates?: string[] | null;
+        };
+        "Impact.RunningBaseline": {
+            /** @description No running revision could be judged, so the new revision was compared with itself and only the consumers' ranges speak */
+            firstVersion?: boolean;
+            /** @description The running revision this answer compared the new one with; empty for a first version */
+            judged?: string;
+            /** @description The registry refs of the revisions that run on known targets, sorted; empty when none runs */
+            refs: string[] | null;
+            /** @description The running revisions Pacto could not read, link or trust, in words; the gate never clears over them */
+            unread?: string[] | null;
         };
         "Impact.TallyBucket": {
             /** Format: int64 */

@@ -53,9 +53,17 @@ type ImpactOptions struct {
 	// OnResolved is called by [Service.Impact] once both revisions resolve;
 	// nil does nothing. The snapshot paths never call it.
 	OnResolved func(old, new *contract.Bundle)
+	// RunningRegistries are extra registry hosts [Service.ImpactRunning]
+	// may pull running revisions from, beyond the hosts of the target
+	// snapshots and of an oci:// NewPath.
+	RunningRegistries []string
 	// unpublished are the services pacto ci reads from repository folders
 	// never published: no index can hold them, so none is reported missing.
 	unpublished map[fleet.ServiceKey]bool
+	// firstVersion and unreadBaselines are impact's Options.FirstVersion and
+	// Options.UnreadBaselines; only [Service.ImpactRunning] sets them.
+	firstVersion    bool
+	unreadBaselines []string
 }
 
 // Impact builds a fleet snapshot from the configured sources and analyzes the
@@ -269,6 +277,14 @@ func (s *Service) resolveImpactPair(ctx context.Context, opts ImpactOptions) (ol
 	if oldBundle, err = s.resolveBundleWithOverrides(ctx, opts.OldPath, opts.OldOverrides); err != nil {
 		return nil, nil, fmt.Errorf("old revision: %w", err)
 	}
+	if newBundle, err = s.resolveNewRevision(ctx, opts); err != nil {
+		return nil, nil, err
+	}
+	return oldBundle, newBundle, nil
+}
+
+// resolveNewRevision resolves opts.NewPath with opts.NewOverrides.
+func (s *Service) resolveNewRevision(ctx context.Context, opts ImpactOptions) (newBundle *contract.Bundle, err error) {
 	logging.LoggerFromContext(ctx).Debug("resolving new revision", "path", opts.NewPath)
 	if opts.NewDirName != "" && !graph.ParseDependencyRef(opts.NewPath).IsOCI() {
 		var cat *externalcatalog.Catalog
@@ -280,9 +296,9 @@ func (s *Service) resolveImpactPair(ctx context.Context, opts ImpactOptions) (ol
 		newBundle, err = s.resolveBundleWithOverrides(ctx, opts.NewPath, opts.NewOverrides)
 	}
 	if err != nil {
-		return nil, nil, fmt.Errorf("new revision: %w", err)
+		return nil, fmt.Errorf("new revision: %w", err)
 	}
-	return oldBundle, newBundle, nil
+	return newBundle, nil
 }
 
 func (s *Service) analyzeImpact(ctx context.Context, opts ImpactOptions, snap *fleet.FleetSnapshot, oldBundle, newBundle *contract.Bundle, ix *impact.ConsumerIndex, indexed func(fleet.ServiceKey) bool) (*impact.Result, error) {
@@ -304,6 +320,8 @@ func (s *Service) analyzeImpact(ctx context.Context, opts ImpactOptions, snap *f
 			InferredProvider: inferredProvider(snap, opts.NewPath, fleet.NewServiceKeyDomain(opts.Domain, newBundle.Contract.Service.Name), newBundle.Contract.Service.Version),
 			Index:            ix,
 			Indexed:          indexed,
+			FirstVersion:     opts.firstVersion,
+			UnreadBaselines:  opts.unreadBaselines,
 		})
 	res.TargetSnapshots = targetSnapshotStates(snap)
 	return res, nil

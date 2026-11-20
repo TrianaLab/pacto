@@ -108,6 +108,13 @@ type Options struct {
 	Index *ConsumerIndex
 	// Indexed reports whether the index lists a service; nil skips both cross-checks.
 	Indexed func(fleet.ServiceKey) bool
+	// FirstVersion says no running revision Pacto could judge: old equals
+	// new, so only the consumers' ranges speak. A consumer that runs on a
+	// known target and does not accept the new version blocks the change.
+	FirstVersion bool
+	// UnreadBaselines are the running revisions Pacto could not read, link
+	// or trust, in words; the gate never clears over them.
+	UnreadBaselines []string
 }
 
 // ConsumerIndex is how the organization index was read for this answer.
@@ -263,6 +270,12 @@ type Result struct {
 	TargetSnapshots []fleet.SourceState `json:"targetSnapshots,omitempty" doc:"The signed target snapshots the answer read, pinned by digest"`
 	// ConsumerIndex is how the organization index was read; nil when none was.
 	ConsumerIndex *ConsumerIndex `json:"consumerIndex,omitempty" doc:"How the organization index was read: which repository, how many services it lists and how many depend on the changed service. Absent when no index was read, such as for local folders, over HTTP or in the dashboard"`
+	// Running is set by --running; nil on any other answer.
+	Running *RunningBaseline `json:"running,omitempty" doc:"Set by --running: the revisions that run, the one this answer judged and the ones Pacto could not read"`
+	// firstVersion and unreadBaselines are Options.FirstVersion and
+	// Options.UnreadBaselines (see runningGate).
+	firstVersion    bool
+	unreadBaselines []string
 	// observationSources are the observation sources an event answer read.
 	observationSources []string
 	// hiddenReferrers counts the services this viewer may not see that may
@@ -360,15 +373,16 @@ func (r *Result) blocks(c AffectedConsumer) bool {
 	return r.breaks(c) || c.policyVerdict == CompatibilityIncompatible && len(c.Targets) > 0
 }
 
-// breaks reports whether a BREAKING change breaks a consumer that runs on a
-// known target through its range or a guarantee it requires.
+// breaks reports whether a BREAKING change, or a first version (see
+// Options.FirstVersion), breaks a consumer that runs on a known target
+// through its range or a guarantee it requires.
 func (r *Result) breaks(c AffectedConsumer) bool {
 	verdict := c.CompatibilityVerdict
 	if c.policyVerdict != "" {
 		// A policy verdict is named by policyFailures: a referrer has no range.
 		verdict = c.rangeVerdict
 	}
-	return r.Classification == "BREAKING" &&
+	return (r.Classification == "BREAKING" || r.firstVersion) &&
 		(verdict == CompatibilityIncompatible || len(c.Unmet) > 0) && len(c.Targets) > 0
 }
 
@@ -386,10 +400,7 @@ func (r *Result) gate() (string, string) {
 	if r.Event != nil {
 		return r.eventGate()
 	}
-	if why := r.inferredProvider(); why != "" {
-		return GateUnverified, why
-	}
-	if gate, why := r.blockingGate(); gate != "" {
+	if gate, why := r.heldGate(); gate != "" {
 		return gate, why
 	}
 	if why := r.policyUnchecked(); why != "" && r.Classification != "BREAKING" {
@@ -468,9 +479,12 @@ func (r *Result) blockingGate() (string, string) {
 		if unmet {
 			accept += " or require a guarantee it does not meet"
 		}
-		if r.anyStale(active) {
+		switch {
+		case r.anyStale(active):
 			why = append(why, "breaking changes affect consumers that "+accept+": "+r.whereRun(active))
-		} else {
+		case r.firstVersion:
+			why = append(why, "first version of "+r.Service+" on a known target: running consumers "+accept+": "+strings.Join(active, ", "))
+		default:
 			why = append(why, "breaking changes affect active consumers, which run on known targets and "+accept+": "+strings.Join(active, ", "))
 		}
 	}
@@ -764,6 +778,7 @@ func Analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 	} else {
 		res = analyze(ctx, old, new, oldFS, newFS, snap, opts)
 		res.noteRangeOnlyMatches()
+		res.firstVersion, res.unreadBaselines = opts.FirstVersion, opts.UnreadBaselines
 		if opts.Index != nil {
 			idx := *opts.Index
 			res.ConsumerIndex = &idx
