@@ -987,7 +987,7 @@ func TestFleetGetDescribesOwnerProvenance(t *testing.T) {
 // The service owner's provenance and its attested source are named for agents.
 func TestFleetGetDescriptionNamesOwnerSource(t *testing.T) {
 	d := fleetGetTool().Description
-	for _, want := range []string{"'ownerSource'", "declared", "declared-via-target", "attested", "inferred"} {
+	for _, want := range []string{"'ownerSource'", "declared (", "declared-via-target (", "attested (", "or inferred;"} {
 		if !strings.Contains(d, want) {
 			t.Errorf("pacto_fleet_get description lacks %q", want)
 		}
