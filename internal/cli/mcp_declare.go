@@ -26,9 +26,10 @@ type mcpDeclarer struct {
 	base app.DeclareRequest
 }
 
-// newMCPDeclarer signs drafts against public-good Sigstore.
-func newMCPDeclarer(svc *app.Service) mcpDeclarer {
-	var base app.DeclareRequest
+// newMCPDeclarer signs drafts against public-good Sigstore and reads the
+// owner policy from the target snapshots trust verifies.
+func newMCPDeclarer(svc *app.Service, trust string) mcpDeclarer {
+	base := app.DeclareRequest{DeliveryTrust: trust}
 	base.Signing.FulcioURL, base.Signing.RekorURL = signing.PublicFulcio, signing.PublicRekor
 	return mcpDeclarer{svc: svc, base: base}
 }

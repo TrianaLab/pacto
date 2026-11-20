@@ -155,7 +155,7 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 		"refused over stdio, which reads it from the signed target snapshots")
 	cmd.Flags().Bool("publish", false, "expose pacto_publish_plan and pacto_publish beside the authoring tools")
 	cmd.Flags().String("delivery-namespace", delivery.PolicyNamespace, "in --delivery mode: "+"namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer")
-	cmd.Flags().String("delivery-trust", "", "the trust config delivery records (in --delivery mode), the golden paths pacto_create creates from and the target snapshots "+
+	cmd.Flags().String("delivery-trust", "", "the trust config delivery records (in --delivery mode), the golden paths pacto_create creates from and the target snapshots (the owner policy pacto_declare reads included) "+
 		"pacto_impact and --target-snapshot read are verified with (a PEM public key or a YAML trust config: the recorder's key for records, the operator's advertised installation key "+
 		"for a target snapshot, which verifies only under a key scoped to its cluster: streams [\"<uid>/*/*\"]; default $"+app.TrustEnv+")")
 	// Declared before the shared set so this spelling wins: here --root selects a
@@ -451,7 +451,7 @@ func mcpAuthoring(cmd *cobra.Command, svc *app.Service) pactomcp.Authoring {
 		trust, _ := cmd.Flags().GetString("delivery-trust")
 		a.Init = mcpInit(svc, trust)
 		a.Catalog, a.CatalogUnavailable = mcpCatalog(cmd, svc)
-		a.Declare = newMCPDeclarer(svc)
+		a.Declare = newMCPDeclarer(svc, trust)
 	}
 	return a
 }

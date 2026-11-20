@@ -133,6 +133,20 @@ func TestDeclareNoPolicyIsUnverified(t *testing.T) {
 	}
 }
 
+// TestDeclareReadsPolicyWithItsTrust: the request's trust config verifies
+// the owner policy's snapshots, not only $PACTO_DELIVERY_TRUST.
+func TestDeclareReadsPolicyWithItsTrust(t *testing.T) {
+	e := newDeclareEnv(t)
+	e.withBaseline(t)
+	e.login(personToken("admin@acme.com"))
+	req := e.dirReq(e.ownedDir(t, "payments"))
+	req.DeliveryTrust = filepath.Join(t.TempDir(), "missing.yaml")
+	_, err := e.svc.Declare(t.Context(), req)
+	if de := refusal(t, err); de.Code != delivery.OwnerPolicyUnverified || !strings.Contains(de.Message, "trust unreadable") {
+		t.Fatalf("%+v", de)
+	}
+}
+
 func TestDeclareOwnerUnchangedNeedsNoRight(t *testing.T) {
 	e := newDeclareEnv(t)
 	e.withBaseline(t)

@@ -313,7 +313,7 @@ func (pl *declarePlanner) currentOwner(ctx context.Context) (delivery.OwnerClaim
 // ownerPolicy reads the owner policy once per plan, on first need.
 func (pl *declarePlanner) ownerPolicy(ctx context.Context) (*delivery.OwnerPolicy, string) {
 	if pl.policyFrom == nil {
-		p, from := pl.s.OwnerPolicy(ctx, pl.repo(), "")
+		p, from := pl.s.OwnerPolicy(ctx, pl.repo(), pl.req.DeliveryTrust)
 		pl.ownerPol, pl.policyFrom = p, &from
 	}
 	return pl.ownerPol, *pl.policyFrom

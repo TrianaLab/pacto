@@ -53,6 +53,28 @@ func TestDeclareRefusesLocalOwnerPolicy(t *testing.T) {
 	}
 }
 
+// TestDeclareDeliveryTrustReachesThePolicy: --delivery-trust on pacto
+// declare and on a stdio pacto mcp is the trust the owner policy's target
+// snapshots are verified with, as on every other command.
+func TestDeclareDeliveryTrustReachesThePolicy(t *testing.T) {
+	noKube(t)
+	var got app.DeclareRequest
+	if _, _, err := runRoot(t, declareDeps(t, &got, &app.DeclarePlan{}, nil, nil), nil, "declare", "invoices", "--delivery-trust", "trust.yaml"); err != nil ||
+		got.DeliveryTrust != "trust.yaml" {
+		t.Fatalf("%v %q", err, got.DeliveryTrust)
+	}
+	cmd := newMCPCommand(app.NewService(nil, nil), "v", defaultDeps())
+	for k, v := range map[string]string{"transport": "stdio", "delivery-trust": "trust.yaml"} {
+		if err := cmd.Flags().Set(k, v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	decl, ok := mcpAuthoring(cmd, app.NewService(nil, nil)).Declare.(mcpDeclarer)
+	if req, err := decl.request(pactomcp.DeclareArgs{Service: "invoices"}); !ok || err != nil || req.DeliveryTrust != "trust.yaml" {
+		t.Fatalf("%v %v %q", ok, err, req.DeliveryTrust)
+	}
+}
+
 // TestDashboardOwnerPolicyEnv reads PACTO_DASHBOARD_OWNER_POLICY, the mount
 // the operator configures.
 func TestDashboardOwnerPolicyEnv(t *testing.T) {
@@ -149,7 +171,7 @@ func TestDeclareRefusalHidesRestrictedServiceOwner(t *testing.T) {
 func TestDeclareToolRunsAsAgentAndPerson(t *testing.T) {
 	e := newDeclareE2E(t)
 	dir, reg := e.ownerChange(t)
-	decl := newMCPDeclarer(app.NewService(nil, nil))
+	decl := newMCPDeclarer(app.NewService(nil, nil), "")
 	decl.base.Signing.FulcioURL, decl.base.Signing.TimestampURL, decl.base.Signing.RekorURL, decl.base.Signing.TrustedRoot = e.ss.Fulcio, e.ss.TSA, "", e.root
 	server := func() *mcpsdk.Server {
 		s, _ := pactomcp.New("v", pactomcp.Authoring{Declare: decl}, pactomcp.Modes{})

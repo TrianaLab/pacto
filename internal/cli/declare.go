@@ -55,8 +55,10 @@ reviewed.
 Setting, changing or removing service.owner (in a --dir folder or an
 accepted draft) takes a person who belongs to the current owner, declared or
 attested, or a default approver of the installation's owner policy; anyone
-else is refused before anything is pushed. An owner read from the workload's
-team label stays in pacto.inferred.yaml as inferred.`,
+else is refused before anything is pushed. The owner policy is read from
+the signed target snapshots in <registry>/pacto-targets, verified with
+--delivery-trust. An owner read from the workload's team label stays in
+pacto.inferred.yaml as inferred.`,
 		Example: `  # What declaring invoices would publish
   pacto declare billing/invoices --registry ghcr.io/acme
 
@@ -107,6 +109,8 @@ team label stays in pacto.inferred.yaml as inferred.`,
 	f.StringVar(&req.Signing.TimestampURL, "timestamp-url", "", "timestamp authority to date the signature with")
 	f.StringVar(&req.Signing.RekorURL, "rekor-url", signing.PublicRekor, "Rekor transparency log the signature is recorded in")
 	f.StringVar(&req.Signing.TrustedRoot, "trusted-root", "", "Sigstore trusted root JSON to verify with (default: public-good Sigstore)")
+	f.StringVar(&req.DeliveryTrust, "delivery-trust", "", "the trust config the target snapshots that carry the owner policy are verified with: "+
+		"a YAML file with a key scoped to each cluster (default $"+app.TrustEnv+")")
 	return cmd
 }
 

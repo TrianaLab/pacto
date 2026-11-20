@@ -47,6 +47,10 @@ type DeclareRequest struct {
 	CallWindow                          time.Duration
 	Signing                             declareSigning
 	Dynamic                             dynamic.Interface
+	// DeliveryTrust is the trust config the signed target snapshots that
+	// carry the owner policy are verified with ($PACTO_DELIVERY_TRUST when
+	// empty).
+	DeliveryTrust string
 	// Agent is a run on an agent's behalf: it writes a draft, never a
 	// declared record.
 	Agent bool
