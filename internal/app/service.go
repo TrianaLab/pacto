@@ -9,9 +9,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/rest"
 	"oras.land/oras-go/v2/registry/remote"
 
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
@@ -46,6 +48,10 @@ type Service struct {
 	// indexListings remembers organization index reads and, with no cache
 	// directory, their entries.
 	indexListings indexMemo
+	// k8sLast remembers, per kubeconfig context, the last cluster identity
+	// and the last collection of each live source read through it, so a
+	// long-running process serves an unreachable cluster stale.
+	k8sLast sync.Map
 }
 
 // sysDeps are the clock, filesystem, entropy and network the Service touches. A
@@ -60,7 +66,11 @@ type sysDeps struct {
 	rand        io.Reader
 	generateDoc func(*contractview.ServiceDetails, *graph.Result) (string, error)
 	marshalLock func(*lock.Lock) ([]byte, error)
-	newK8s      func() (k8sclient.K8sClient, error)
+	// newK8s builds the client of one kubeconfig context, "" the current one.
+	newK8s func(context string) (k8sclient.K8sClient, error)
+	// contextConfig is the config of one kubeconfig context, "" the current
+	// one; its server and CA tell two clusters with one id apart.
+	contextConfig func(context string) (*rest.Config, error)
 	// newDynamic builds the client a k8s: detection ref is read with.
 	newDynamic  func() (dynamic.Interface, error)
 	kubeContext func() string
@@ -115,7 +125,10 @@ func (s *Service) env() sysDeps {
 		d.marshalLock = (*lock.Lock).Marshal
 	}
 	if d.newK8s == nil {
-		d.newK8s = k8sclient.NewGoClient
+		d.newK8s = k8sclient.NewGoClientFor
+	}
+	if d.contextConfig == nil {
+		d.contextConfig = k8sclient.ConfigFor
 	}
 	if d.newDynamic == nil {
 		d.newDynamic = k8sclient.NewDynamic

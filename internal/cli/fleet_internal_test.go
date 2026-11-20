@@ -229,6 +229,27 @@ func TestMiraSourceFlagReachesFleetOptions(t *testing.T) {
 	}
 }
 
+// TestContextFlagReachesFleetOptions pins --context on every surface that
+// shares the fleet source flags, trimmed, deduplicated by name and in order.
+func TestContextFlagReachesFleetOptions(t *testing.T) {
+	root := NewRootCommand(newTestService(t), VersionInfo{Version: "test"})
+	for _, path := range [][]string{{"fleet", "search"}, {"mcp"}, {"tui"}, {"impact"}, {"stats"}} {
+		if cmd, _, err := root.Find(path); err != nil || cmd.Flag("context") == nil {
+			t.Errorf("pacto %v does not declare --context (%v)", path, err)
+		}
+	}
+	search, _, _ := root.Find([]string{"fleet", "search"})
+	if err := search.ParseFlags([]string{"--context", " us-prod ", "--context", "eu-prod", "--context", "", "--context", "us-prod"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := fleetOptions(search).K8sContexts; !slices.Equal(got, []string{"us-prod", "eu-prod"}) {
+		t.Errorf("K8sContexts = %v", got)
+	}
+	if got := fleetSourceArgs(search); !slices.Contains(got, "--context=eu-prod") {
+		t.Errorf("fleetSourceArgs = %v", got)
+	}
+}
+
 // TestPrintFleetNeighborhoodTruncatedEdges: the edge budget cutting the answer
 // is said in text, since the services it shows may all be there.
 func TestPrintFleetNeighborhoodTruncatedEdges(t *testing.T) {

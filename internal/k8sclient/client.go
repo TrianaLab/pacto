@@ -8,6 +8,7 @@ package k8sclient
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -99,11 +100,17 @@ type k8sGoClient struct {
 // NewGoClient constructs a cluster-backed K8sClient from in-cluster config or
 // the ambient kubeconfig.
 func NewGoClient() (K8sClient, error) {
-	return defaultBuilders().goClient()
+	return NewGoClientFor("")
 }
 
-func (b builders) goClient() (K8sClient, error) {
-	config, err := b.config()
+// NewGoClientFor is [NewGoClient] for one kubeconfig context; "" is the
+// current one.
+func NewGoClientFor(context string) (K8sClient, error) {
+	return defaultBuilders().goClient(context)
+}
+
+func (b builders) goClient(context string) (K8sClient, error) {
+	config, err := b.config(context)
 	if err != nil {
 		return nil, fmt.Errorf("loading kubeconfig: %w", err)
 	}
@@ -125,13 +132,14 @@ func (b builders) goClient() (K8sClient, error) {
 	}, nil
 }
 
-func (b builders) config() (*rest.Config, error) {
-	// Try in-cluster config first.
-	config, err := b.inCluster()
+// config is the config of the kubeconfig context named context. "" tries
+// in-cluster config first and falls back to the current context; a named
+// context never reads in-cluster config, so a pod can read it too.
+func (b builders) config(context string) (*rest.Config, error) {
+	config, err := b.inClusterUnless(context)
 	if err != nil {
-		// Fall back to kubeconfig.
 		loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
-		configOverrides := &clientcmd.ConfigOverrides{}
+		configOverrides := &clientcmd.ConfigOverrides{CurrentContext: context}
 		config, err = clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides).ClientConfig()
 		if err != nil {
 			return nil, err
@@ -143,6 +151,18 @@ func (b builders) config() (*rest.Config, error) {
 	// than mutating the client-go process global.
 	config.WarningHandlerWithContext = rest.NoWarnings{}
 	return config, nil
+}
+
+// errNamedContext sends a named context straight to the kubeconfig.
+var errNamedContext = errors.New("a named context reads the kubeconfig")
+
+// inClusterUnless is the in-cluster config when context is "", else
+// errNamedContext.
+func (b builders) inClusterUnless(context string) (*rest.Config, error) {
+	if context != "" {
+		return nil, errNamedContext
+	}
+	return b.inCluster()
 }
 
 func (c *k8sGoClient) DiscoverCRD(ctx context.Context) (*CRDDiscovery, error) {
@@ -246,7 +266,7 @@ func NewDynamic() (dynamic.Interface, error) {
 }
 
 func (b builders) newDynamic() (dynamic.Interface, error) {
-	config, err := b.config()
+	config, err := b.config("")
 	if err != nil {
 		return nil, fmt.Errorf("loading kubeconfig: %w", err)
 	}
@@ -256,7 +276,12 @@ func (b builders) newDynamic() (dynamic.Interface, error) {
 // Config is the cluster config from in-cluster config or the ambient
 // kubeconfig, with the process's own credentials.
 func Config() (*rest.Config, error) {
-	return defaultBuilders().config()
+	return ConfigFor("")
+}
+
+// ConfigFor is [Config] for one kubeconfig context; "" is the current one.
+func ConfigFor(context string) (*rest.Config, error) {
+	return defaultBuilders().config(context)
 }
 
 // Served reports whether the cluster serves the API group version gv,

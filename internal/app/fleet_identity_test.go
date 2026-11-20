@@ -20,7 +20,7 @@ import (
 // fake cannot read the cluster identity (Forbidden), so the context id stays.
 func k8sService(ctxName string) *Service {
 	svc := NewService(nil, nil)
-	svc.sys.newK8s = func() (k8sclient.K8sClient, error) {
+	svc.sys.newK8s = func(string) (k8sclient.K8sClient, error) {
 		return &fakeFleetK8sClient{
 			disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
 			listData: []byte(`{"items":[{"metadata":{"name":"svc-a","namespace":"prod"},"status":{"contractStatus":"Compliant","contract":{"serviceName":"svc-a"}}}]}`),

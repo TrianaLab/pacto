@@ -32,7 +32,7 @@ func TestBuildK8sConfigSuppressesAPIWarnings(t *testing.T) {
 		b := defaultBuilders()
 		b.inCluster = func() (*rest.Config, error) { return &rest.Config{Host: "https://example.test"}, nil }
 
-		cfg, err := b.config()
+		cfg, err := b.config("")
 		if err != nil {
 			t.Fatalf("config: %v", err)
 		}
@@ -66,7 +66,7 @@ users:
 `), 0o644)
 		t.Setenv("KUBECONFIG", kubeconfig)
 
-		cfg, err := b.config()
+		cfg, err := b.config("")
 		if err != nil {
 			t.Fatalf("config: %v", err)
 		}
@@ -82,7 +82,7 @@ func TestBuildK8sConfig_InCluster(t *testing.T) {
 		return &rest.Config{Host: "https://in-cluster:443"}, nil
 	}
 
-	config, err := b.config()
+	config, err := b.config("")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -118,7 +118,7 @@ users:
 `), 0o644)
 	t.Setenv("KUBECONFIG", kubeconfig)
 
-	config, err := b.config()
+	config, err := b.config("")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -137,7 +137,7 @@ func TestBuildK8sConfig_NoConfig(t *testing.T) {
 	t.Setenv("KUBECONFIG", filepath.Join(dir, "nonexistent"))
 	t.Setenv("HOME", dir)
 
-	_, err := b.config()
+	_, err := b.config("")
 	if err == nil {
 		t.Fatal("expected error when no kubeconfig exists")
 	}
@@ -174,7 +174,7 @@ users:
 		return nil, fmt.Errorf("not in cluster")
 	}
 
-	client, err := b.goClient()
+	client, err := b.goClient("")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -193,7 +193,7 @@ func TestNewK8sGoClient_ConfigError(t *testing.T) {
 	t.Setenv("KUBECONFIG", filepath.Join(dir, "nonexistent"))
 	t.Setenv("HOME", dir)
 
-	_, err := b.goClient()
+	_, err := b.goClient("")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -230,7 +230,7 @@ users:
 		return nil, fmt.Errorf("discovery creation failed")
 	}
 
-	_, err := b.goClient()
+	_, err := b.goClient("")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -267,7 +267,7 @@ users:
 		return nil, fmt.Errorf("dynamic creation failed")
 	}
 
-	_, err := b.goClient()
+	_, err := b.goClient("")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -685,5 +685,75 @@ func TestPreferredVersions(t *testing.T) {
 	disc.err = errors.New("unreachable")
 	if _, err := (&k8sGoClient{discovery: disc}).PreferredVersions(context.Background(), "argoproj.io"); err == nil {
 		t.Error("a discovery error read as no group served")
+	}
+}
+
+// twoContextKubeconfig writes a kubeconfig whose current context is "eu-prod"
+// and which also names "us-prod", and points KUBECONFIG at it.
+func twoContextKubeconfig(t *testing.T) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config")
+	if err := os.WriteFile(path, []byte(`apiVersion: v1
+kind: Config
+current-context: eu-prod
+clusters:
+- cluster:
+    server: https://eu.example:6443
+  name: eu
+- cluster:
+    server: https://us.example:6443
+  name: us
+contexts:
+- context:
+    cluster: eu
+    user: u
+  name: eu-prod
+- context:
+    cluster: us
+    user: u
+  name: us-prod
+users:
+- name: u
+  user:
+    token: t
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("KUBECONFIG", path)
+}
+
+// TestNamedContextSkipsInClusterConfig: a named context loads that context
+// from the kubeconfig even where in-cluster config would answer, so a pod can
+// read another cluster.
+func TestNamedContextSkipsInClusterConfig(t *testing.T) {
+	twoContextKubeconfig(t)
+	b := defaultBuilders()
+	b.inCluster = func() (*rest.Config, error) {
+		t.Fatal("in-cluster config read for a named context")
+		return nil, nil
+	}
+	cfg, err := b.config("us-prod")
+	if err != nil || cfg.Host != "https://us.example:6443" {
+		t.Fatalf("config = %v, %v", cfg, err)
+	}
+	if _, ok := cfg.WarningHandlerWithContext.(rest.NoWarnings); !ok {
+		t.Fatalf("warnings handler %T", cfg.WarningHandlerWithContext)
+	}
+	t.Setenv("KUBERNETES_SERVICE_HOST", "")
+	if cfg, err := ConfigFor("us-prod"); err != nil || cfg.Host != "https://us.example:6443" {
+		t.Fatalf("ConfigFor = %v, %v", cfg, err)
+	}
+	if c, err := NewGoClientFor("us-prod"); err != nil || c == nil {
+		t.Fatalf("NewGoClientFor = %v, %v", c, err)
+	}
+}
+
+func TestUnknownContextIsAnError(t *testing.T) {
+	twoContextKubeconfig(t)
+	if _, err := ConfigFor("ap-prod"); err == nil {
+		t.Fatal("an unknown context loaded")
+	}
+	if _, err := NewGoClientFor("ap-prod"); err == nil {
+		t.Fatal("an unknown context built a client")
 	}
 }

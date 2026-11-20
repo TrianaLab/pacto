@@ -26,7 +26,7 @@ func TestGoClientClusterIdentity(t *testing.T) {
 	b := defaultBuilders()
 	b.inCluster = func() (*rest.Config, error) { return &rest.Config{Host: "https://test:6443"}, nil }
 	b.dynamic = func(*rest.Config) (dynamic.Interface, error) { return dyn, nil }
-	client, err := b.goClient()
+	client, err := b.goClient("")
 	if err != nil {
 		t.Fatal(err)
 	}
