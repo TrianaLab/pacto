@@ -96,7 +96,7 @@ func TestCheckPublisherAcceptedByRule(t *testing.T) {
 	ss := testutil.New(t)
 	host, reg := testRegistry(t, true)
 	repo, d := signed(t, host, reg, ciSigner(t, ss, acmeSubject, acmeRepo))
-	v, _ := CheckPublisher(t.Context(), reg, ss.Root, false, repo, d, paymentsRef, acmeRepo, acmeRules(t), delivery.PublisherSourceRule, nil)
+	v, _ := CheckPublisher(t.Context(), reg, ss.Root, false, repo, d, paymentsRef, acmeRepo, acmeRules(t), delivery.PublisherSourceRule, nil, nil)
 	if v.Verdict != delivery.VerdictAccepted || v.Source != delivery.PublisherSourceRule || v.Digest != d || v.At == "" || v.Identity.Repository != acmeRepo {
 		t.Fatalf("verdict %+v", v)
 	}
@@ -108,7 +108,7 @@ func TestCheckPublisherAcceptedByPin(t *testing.T) {
 	const sub = "https://github.com/contractor/payments/.github/workflows/ci.yml@refs/heads/main"
 	repo, d := signed(t, host, reg, ciSigner(t, ss, sub, "https://github.com/contractor/payments"))
 	pin := delivery.IdentityPin{Service: paymentsRef, Issuer: ghIssuer, Subject: sub, Repository: "https://github.com/contractor/payments", Approver: "ana"}
-	v, _ := CheckPublisher(t.Context(), reg, ss.Root, false, repo, d, paymentsRef, "", acmeRules(t), delivery.PublisherSourceRule, []delivery.IdentityPin{pin})
+	v, _ := CheckPublisher(t.Context(), reg, ss.Root, false, repo, d, paymentsRef, "", acmeRules(t), delivery.PublisherSourceRule, []delivery.IdentityPin{pin}, nil)
 	if v.Verdict != delivery.VerdictAccepted || v.Source != delivery.PublisherSourcePin {
 		t.Fatalf("verdict %+v", v)
 	}
@@ -119,7 +119,7 @@ func TestCheckPublisherNewSigner(t *testing.T) {
 	host, reg := testRegistry(t, true)
 	const sub = "https://github.com/contractor/payments/.github/workflows/ci.yml@refs/heads/main"
 	repo, d := signed(t, host, reg, ciSigner(t, ss, sub, "https://github.com/contractor/payments"))
-	v, _ := CheckPublisher(t.Context(), reg, ss.Root, false, repo, d, paymentsRef, "", acmeRules(t), delivery.PublisherSourceRule, nil)
+	v, _ := CheckPublisher(t.Context(), reg, ss.Root, false, repo, d, paymentsRef, "", acmeRules(t), delivery.PublisherSourceRule, nil, nil)
 	if v.Verdict != delivery.VerdictNewSigner || v.Identity == nil || v.Identity.Subject != sub {
 		t.Fatalf("verdict %+v", v)
 	}
@@ -131,7 +131,7 @@ func TestCheckPublisherKeepsLookingPastOutsideSigner(t *testing.T) {
 	ss := testutil.New(t)
 	host, reg := testRegistry(t, true)
 	repo, d := signed(t, host, reg, signerFor(t, ss, testutil.Token("ana@acme.example", "https://accounts.example")), ciSigner(t, ss, acmeSubject, acmeRepo))
-	v, _ := CheckPublisher(t.Context(), reg, ss.Root, false, repo, d, paymentsRef, "", acmeRules(t), delivery.PublisherSourceRule, nil)
+	v, _ := CheckPublisher(t.Context(), reg, ss.Root, false, repo, d, paymentsRef, "", acmeRules(t), delivery.PublisherSourceRule, nil, nil)
 	if v.Verdict != delivery.VerdictAccepted || v.Identity.Subject != acmeSubject {
 		t.Fatalf("verdict %+v", v)
 	}
@@ -151,7 +151,7 @@ func TestCheckPublisherUnsigned(t *testing.T) {
 	ss := testutil.New(t)
 	host, reg := testRegistry(t, true)
 	repo, d := signed(t, host, reg)
-	v, _ := CheckPublisher(t.Context(), reg, ss.Root, false, repo, d, paymentsRef, "", acmeRules(t), delivery.PublisherSourceRule, nil)
+	v, _ := CheckPublisher(t.Context(), reg, ss.Root, false, repo, d, paymentsRef, "", acmeRules(t), delivery.PublisherSourceRule, nil, nil)
 	if v.Verdict != delivery.VerdictUnsigned || v.Source != delivery.PublisherSourceNone || !strings.Contains(v.Reason, d) {
 		t.Fatalf("verdict %+v", v)
 	}
@@ -161,7 +161,7 @@ func TestCheckPublisherUnreachable(t *testing.T) {
 	ss := testutil.New(t)
 	host, reg := testRegistry(t, true)
 	repo, d := signed(t, host, reg, ciSigner(t, ss, acmeSubject, acmeRepo))
-	v, _ := CheckPublisher(t.Context(), failingReferrers{reg}, ss.Root, false, repo, d, paymentsRef, "", acmeRules(t), delivery.PublisherSourceRule, nil)
+	v, _ := CheckPublisher(t.Context(), failingReferrers{reg}, ss.Root, false, repo, d, paymentsRef, "", acmeRules(t), delivery.PublisherSourceRule, nil, nil)
 	if v.Verdict != delivery.VerdictUnknown || !strings.Contains(v.Reason, "registry down") || len([]rune(v.Reason)) > maxVerdictReason+1 {
 		t.Fatalf("verdict %+v", v)
 	}
@@ -178,7 +178,7 @@ func TestCheckPublisherWrongRoot(t *testing.T) {
 		if root != nil {
 			tm = root.Root
 		}
-		v, _ := CheckPublisher(t.Context(), reg, tm, false, repo, d, paymentsRef, "", acmeRules(t), delivery.PublisherSourceRule, nil)
+		v, _ := CheckPublisher(t.Context(), reg, tm, false, repo, d, paymentsRef, "", acmeRules(t), delivery.PublisherSourceRule, nil, nil)
 		if v.Verdict != delivery.VerdictUnknown {
 			t.Fatalf("verdict %+v", v)
 		}
@@ -191,7 +191,7 @@ func TestCheckPublisherReadsSigTags(t *testing.T) {
 	ss := testutil.New(t)
 	host, reg := testRegistry(t, false)
 	repo, d := signed(t, host, reg, ciSigner(t, ss, acmeSubject, acmeRepo))
-	v, _ := CheckPublisher(t.Context(), reg, ss.Root, false, repo, d, paymentsRef, "", acmeRules(t), delivery.PublisherSourceRule, nil)
+	v, _ := CheckPublisher(t.Context(), reg, ss.Root, false, repo, d, paymentsRef, "", acmeRules(t), delivery.PublisherSourceRule, nil, nil)
 	if v.Verdict != delivery.VerdictAccepted {
 		t.Fatalf("verdict %+v", v)
 	}

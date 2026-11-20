@@ -125,7 +125,7 @@ func checkSurface(s *InferredSurface) error {
 	switch {
 	case s == nil:
 		return nil
-	case len(s.Identity) > 253 || !inferredIdentityRE.MatchString(s.Identity) || strings.Contains(s.Identity, ".."):
+	case !validIdentity(s.Identity):
 		return errors.New("surface.identity is not an external identity")
 	case !slices.Contains(surfaceClasses, s.Class):
 		return fmt.Errorf("surface.class is %q, want vendor-api, managed-cloud, legacy or unclassified", s.Class)
@@ -638,7 +638,7 @@ func validDuration(s string) bool {
 // carries a credential, and no error quotes the refused value: the fleet
 // shows it in a limitation.
 func checkInferredExternal(x *InferredExternal) error {
-	if len(x.Identity) > 253 || !inferredIdentityRE.MatchString(x.Identity) || strings.Contains(x.Identity, "..") {
+	if !validIdentity(x.Identity) {
 		return errors.New(".identity is not an external identity")
 	}
 	if x.Catalog != "" && x.Catalog != "default" && x.Catalog != "organization" {

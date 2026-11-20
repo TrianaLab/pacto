@@ -152,9 +152,11 @@ var fleetDeps = defaultDeps
 // publisherTrust is the fleet provenance checker's reader of the
 // installation's publisher trust config and pins over the ambient cluster,
 // in the namespace --delivery-namespace names (the chart's default when the
-// command has no such flag). nil when there is no cluster config, so a
-// signature is judged against the rule inferred from where it lives.
-func publisherTrust(cmd *cobra.Command, d deps) func(context.Context) (app.Installation, error) {
+// command has no such flag). detected (--detected) advertises the
+// operator's signer, which never makes a publisher. nil when there is no
+// cluster config, so a signature is judged against the rule inferred from
+// where it lives.
+func publisherTrust(cmd *cobra.Command, d deps, detected string) func(context.Context) (app.Installation, error) {
 	if d.clusterConfig == nil {
 		return nil
 	}
@@ -168,7 +170,7 @@ func publisherTrust(cmd *cobra.Command, d deps) func(context.Context) (app.Insta
 		if err != nil {
 			return app.Installation{}, err
 		}
-		c := &app.Delivery{Dynamic: dyn, Records: d.newRecordRepo, Policy: delivery.DefaultClassPolicy(), PolicyNamespace: ns, Now: time.Now}
+		c := &app.Delivery{Dynamic: dyn, Records: d.newRecordRepo, Policy: delivery.DefaultClassPolicy(), PolicyNamespace: ns, Detected: detected, Now: time.Now}
 		return c.InstallationTrust(ctx)
 	}
 }
@@ -199,7 +201,7 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 	snapshots, _ := cmd.Flags().GetStringArray("target-snapshot")
 	index, _ := cmd.Flags().GetString("index")
 	prov := app.NewProvenanceChecker()
-	prov.Trust = publisherTrust(cmd, fleetDeps())
+	prov.Trust = publisherTrust(cmd, fleetDeps(), detected)
 	return app.FleetOptions{
 		LocalRoots:         local,
 		CatalogRoots:       roots,

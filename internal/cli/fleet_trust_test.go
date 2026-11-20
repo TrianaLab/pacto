@@ -37,23 +37,23 @@ func TestFleetWiresPublisherTrust(t *testing.T) {
 		return deps{clusterConfig: ok, newDynamic: func() (dynamic.Interface, error) { return dyn, err }}
 	}
 	cmd := &cobra.Command{}
-	if publisherTrust(cmd, deps{}) != nil {
+	if publisherTrust(cmd, deps{}, "") != nil {
 		t.Fatal("no cluster config function read a cluster")
 	}
 	noConfig := deps{clusterConfig: func() (*rest.Config, error) { return nil, errors.New("no kubeconfig") }}
-	if publisherTrust(cmd, noConfig) != nil {
+	if publisherTrust(cmd, noConfig, "") != nil {
 		t.Fatal("no cluster config read a cluster")
 	}
-	if _, err := publisherTrust(cmd, cluster(nil, errors.New("unreachable")))(context.Background()); err == nil {
+	if _, err := publisherTrust(cmd, cluster(nil, errors.New("unreachable")), "")(context.Background()); err == nil {
 		t.Fatal("a cluster with no client read a config")
 	}
-	in, err := publisherTrust(cmd, cluster(publishersIn(delivery.PolicyNamespace, "ghcr.io/acme"), nil))(context.Background())
+	in, err := publisherTrust(cmd, cluster(publishersIn(delivery.PolicyNamespace, "ghcr.io/acme"), nil), "")(context.Background())
 	if err != nil || in.Config.Registry != "ghcr.io/acme" {
 		t.Fatalf("the chart's namespace: %+v %v", in, err)
 	}
 	cmd.Flags().String("delivery-namespace", "", "")
 	_ = cmd.Flags().Set("delivery-namespace", "elsewhere")
-	if in, err := publisherTrust(cmd, cluster(publishersIn("elsewhere", "ghcr.io/other"), nil))(context.Background()); err != nil || in.Config.Registry != "ghcr.io/other" {
+	if in, err := publisherTrust(cmd, cluster(publishersIn("elsewhere", "ghcr.io/other"), nil), "")(context.Background()); err != nil || in.Config.Registry != "ghcr.io/other" {
 		t.Fatalf("--delivery-namespace: %+v %v", in, err)
 	}
 

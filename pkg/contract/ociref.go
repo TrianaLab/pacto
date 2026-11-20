@@ -17,6 +17,29 @@ var (
 // contracts of external systems, one per identity: <registry>/pacto-inferred/<identity>.
 const InferredRepository = "pacto-inferred"
 
+// InferredRef is the external identity whose inferred contract ref names:
+// the path below a pacto-inferred segment, as in
+// oci://ghcr.io/acme/pacto-inferred/stripe:0.0.2. ok is false when ref names
+// no such repository, when pacto-inferred is the first path segment (an
+// organization of that name on a shared registry) or when the path below it
+// is no external identity. Only the location marks a contract inferred.
+func InferredRef(ref string) (identity string, ok bool) {
+	repo, _, _ := SplitOCIRef(TrimOCIScheme(ref))
+	segs := strings.Split(repo, "/")
+	for i := 2; i < len(segs)-1; i++ { // segs[0] is the registry host
+		if segs[i] == InferredRepository {
+			identity = strings.Join(segs[i+1:], "/")
+			return identity, validIdentity(identity)
+		}
+	}
+	return "", false
+}
+
+// validIdentity reports whether s has the shape of an external identity.
+func validIdentity(s string) bool {
+	return len(s) <= 253 && inferredIdentityRE.MatchString(s) && !strings.Contains(s, "..")
+}
+
 // AnnotationProvenance is the manifest annotation that says how a contract
 // came to be; ProvenanceInferred marks one Pacto inferred and published itself.
 // Registry UIs and third-party readers read it; Pacto reads the location and

@@ -12,8 +12,10 @@ import (
 	"golang.org/x/sync/errgroup"
 	"oras.land/oras-go/v2/registry/remote"
 
+	"github.com/trianalab/pacto/v4/internal/fleetsrc"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/signing"
 )
 
@@ -101,6 +103,7 @@ func (d *Delivery) InstallationTrust(ctx context.Context) (Installation, error) 
 	if err != nil {
 		return Installation{Config: cfg}, err
 	}
+	cfg.InferredSigner = d.inferredSigner(ctx)
 	in := Installation{Config: cfg}
 	in.Signers, in.SignersUnread = d.installationSigners(ctx)
 	pinAt := map[pinKey]time.Time{}
@@ -149,6 +152,29 @@ func (d *Delivery) InstallationTrust(ctx context.Context) (Installation, error) 
 		return out, cutNote(s, l.Cut), strings.Join(notes, "; "), err
 	}
 	return in, nil
+}
+
+// inferredSigner is the key the installation's operator signs inferred
+// contracts with, as the detection at d.Detected advertises it; nil when
+// none is named or it cannot be read. A stale advertisement still names the
+// key, and trusting it only ever refuses a signer.
+func (d *Delivery) inferredSigner(ctx context.Context) *delivery.TrustedKey {
+	rest, k8s := strings.CutPrefix(d.Detected, "k8s:")
+	var src *fleetsrc.DetectionSource
+	switch {
+	case d.Detected == "":
+		return nil
+	case k8s:
+		ns, name, _ := strings.Cut(rest, "/")
+		src = fleetsrc.NewDetectionK8sSource("detection", d.Dynamic, ns, name, d.Now)
+	default:
+		src = fleetsrc.NewDetectionFileSource("detection", d.Detected, d.Now)
+	}
+	res, st := src.Read(ctx)
+	if st.Status == fleet.SourceUnavailable || res.Installation == nil {
+		return nil
+	}
+	return delivery.InferredSignerFromAdvertisement(res.Installation.SnapshotKey)
 }
 
 // installationSigners is the installation signer policy, or why it could

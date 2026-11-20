@@ -243,12 +243,18 @@ func (p *ProvenanceChecker) judgeSignature(ctx context.Context, repo, digest str
 	}
 	service.Domain = contract.OCIDomain(repo)
 	pins, why, cut := t.pinsOf(ctx, service)
-	v, signers := publish.CheckPublisher(ctx, p.reg, tm, rekorURL != "", repo, digest, service, "", t.rules, t.source, pins)
+	v, signers := publish.CheckPublisher(ctx, p.reg, tm, rekorURL != "", repo, digest, service, "", t.rules, t.source, pins, t.operator)
+	if len(signers) == 0 && v.Verdict == delivery.VerdictUnknown {
+		// No keyless signer verified: the operator's key may be the only one.
+		if id, ok := p.operatorKeySigned(ctx, t.operator, repo, digest); ok {
+			v = delivery.OperatorRefusal(id)
+		}
+	}
 	sig = signatureOf(v, t.expect, sig)
 	switch {
 	case v.Source == delivery.PublisherSourcePin:
 		sig.Reason = capReason(pinReason(v, service, pins))
-	case cut && sig.Status == fleet.SignatureUnverified:
+	case cut && sig.Status == fleet.SignatureUnverified && sig.Source != fleet.SignatureSourceOperator:
 		sig.Status = fleet.SignatureUnknown // the pin that covers it may be one not read
 	}
 	if t.unguarded != "" && sig.Status == fleet.SignatureVerified && sig.Source != delivery.PublisherSourceRule {
@@ -260,6 +266,24 @@ func (p *ProvenanceChecker) judgeSignature(ctx context.Context, repo, digest str
 		sig.Reason = strings.TrimSuffix(sig.Reason, ".") + ". " + capReason(upperFirst(note)+".")
 	}
 	return sig, verifiedSigners(signers, t.classes)
+}
+
+// operatorKeySigned reports whether the installation operator's key k
+// signed repo@digest, naming it by its key hint. A keyless operator signer is
+// read with the other signers (delivery.JudgeSigners), so only a key is
+// checked here.
+func (p *ProvenanceChecker) operatorKeySigned(ctx context.Context, k *delivery.TrustedKey, repo, digest string) (delivery.PublisherIdentity, bool) {
+	if k == nil {
+		return delivery.PublisherIdentity{}, false
+	}
+	pol, err := signing.PolicyOf(*k)
+	if err != nil || pol.Key == nil {
+		return delivery.PublisherIdentity{}, false
+	}
+	if publish.VerifyDigest(ctx, p.reg, publish.PolicyVerifier(pol), repo, digest) != nil {
+		return delivery.PublisherIdentity{}, false
+	}
+	return delivery.PublisherIdentity{Subject: signing.Hint(pol.Key)}, true
 }
 
 // verifiedSigners is ids as the fleet lists them: classified by the verified
@@ -293,9 +317,12 @@ type installTrust struct {
 	// unguarded says why the promoter's high-water marks were not read, so
 	// a policy or pin accept reads unknown.
 	unguarded string
-	inferred  bool
-	failed    bool
-	until     time.Time
+	// operator is the installation operator's signer, which never makes a
+	// publisher; nil when no advertisement was read.
+	operator *delivery.TrustedKey
+	inferred bool
+	failed   bool
+	until    time.Time
 	// declare is the installation signer policy declarations are judged
 	// with, nil when no installation trust was read.
 	declare *fleet.DeclarationSignerPolicy
@@ -341,7 +368,7 @@ func (p *ProvenanceChecker) readInstallation(ctx context.Context) *installTrust 
 			declare: &fleet.DeclarationSignerPolicy{Unread: err.Error()}}
 	}
 	cfg := in.Config
-	t := &installTrust{pins: in.Pins, source: delivery.PublisherSourceRule, unguarded: in.Unguarded, failed: in.Unguarded != "",
+	t := &installTrust{pins: in.Pins, source: delivery.PublisherSourceRule, unguarded: in.Unguarded, failed: in.Unguarded != "", operator: cfg.InferredSigner,
 		declare: &fleet.DeclarationSignerPolicy{Unread: in.SignersUnread}}
 	for _, s := range in.Signers {
 		t.declare.Signers = append(t.declare.Signers, fleet.PolicySigner{Issuer: s.Issuer, Subjects: s.Subjects})
@@ -452,6 +479,9 @@ func pinReason(v delivery.PublisherVerdict, service delivery.ServiceRef, pins []
 func signatureOf(v delivery.PublisherVerdict, rule delivery.PublisherRule, sig fleet.BundleSignature) fleet.BundleSignature {
 	if v.Identity != nil {
 		sig.Signer, sig.Issuer = v.Identity.Subject, v.Identity.Issuer
+	}
+	if v.Source == delivery.PublisherSourceOperator {
+		sig.Source = fleet.SignatureSourceOperator
 	}
 	switch v.Verdict {
 	case delivery.VerdictAccepted:

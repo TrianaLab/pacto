@@ -2013,10 +2013,10 @@ export interface components {
             /** @description Why, in words */
             reason: string;
             /**
-             * @description What decided: an installation rule, a person's pin, the signed policy, a rule inferred from where the artifact lives, or nothing
+             * @description What decided: an installation rule, a person's pin, the signed policy, a rule inferred from where the artifact lives, nothing, or operator when only this installation's operator signed, which never makes a publisher
              * @enum {string}
              */
-            source: "rule" | "pin" | "policy" | "inferred" | "none";
+            source: "rule" | "pin" | "policy" | "inferred" | "none" | "operator";
             /**
              * @description What the check concluded; only accepted lets the digest through
              * @enum {string}
@@ -2582,7 +2582,7 @@ export interface components {
             reason?: string;
             signer?: string;
             /** @enum {string} */
-            source?: "rule" | "pin" | "policy" | "inferred" | "release" | "none";
+            source?: "rule" | "pin" | "policy" | "inferred" | "release" | "none" | "operator";
             /** @enum {string} */
             status: "verified" | "unverified" | "unsigned" | "unknown";
         };

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -428,4 +429,19 @@ func PublicKeyPEM(pub crypto.PublicKey) (string, error) {
 		return "", err
 	}
 	return string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})), nil
+}
+
+// InferredSignerFromAdvertisement is the operator's signer an installation
+// advertises as snapshotKey (the base64 of its public key's DER), scoped to
+// the inferred contracts; nil for an empty or malformed key.
+func InferredSignerFromAdvertisement(snapshotKey string) *TrustedKey {
+	der, err := base64.StdEncoding.DecodeString(snapshotKey)
+	if err != nil {
+		return nil
+	}
+	if _, err := x509.ParsePKIXPublicKey(der); err != nil {
+		return nil
+	}
+	pemKey := string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
+	return &TrustedKey{Name: "installation operator", PublicKey: pemKey, Streams: []string{"pacto-inferred/*"}}
 }

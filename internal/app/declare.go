@@ -498,7 +498,7 @@ func (pl *declarePlanner) judge(ctx context.Context, tm root.TrustedMaterial, di
 	case !errors.Is(err, publish.ErrNoSignature):
 		signer = "unknown (its signatures could not be read)"
 	}
-	v := publish.JudgeRead(digest, signers, err, delivery.ServiceRef{Name: pl.plan.Service}, "", pl.rules, delivery.PublisherSourceRule, nil)
+	v := publish.JudgeRead(digest, signers, err, delivery.ServiceRef{Name: pl.plan.Service}, "", pl.rules, delivery.PublisherSourceRule, nil, nil)
 	if v.Verdict == delivery.VerdictAccepted {
 		return true, signer, ""
 	}

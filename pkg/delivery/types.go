@@ -569,6 +569,11 @@ type PublisherConfig struct {
 	StreamsRepository string `json:"streamsRepository"`
 	PinSigner         string `json:"pinSigner"`
 	TrustedRoot       bool   `json:"trustedRoot"`
+	// InferredSigner is the key the installation's operator signs inferred
+	// contracts with, read from what the operator advertises
+	// (InferredSignerFromAdvertisement), never from publishers.json: the key
+	// is created at runtime. nil when no advertisement was read.
+	InferredSigner *TrustedKey `json:"-"`
 }
 
 // ParsePublishers reads a published PublisherConfig.

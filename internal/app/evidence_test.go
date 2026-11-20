@@ -1672,3 +1672,18 @@ func TestServeEvidence_ProviderScopedProvisioning(t *testing.T) {
 		t.Errorf("cache-adapter on cache after narrowing = %d %s, want 403", res.StatusCode, res.Body)
 	}
 }
+
+// TestTrustConfigRefusesInferredProviderRepo: no key may be scoped to an
+// inferred contract repository, the prefix or one identity below it.
+func TestTrustConfigRefusesInferredProviderRepo(t *testing.T) {
+	for _, p := range []string{"ghcr.io/acme/pacto-inferred", "ghcr.io/acme/pacto-inferred/stripe", "zot:5000/pacto-inferred/stripe"} {
+		err := validateProviderScope(trustConfigKey{AllowedProviderRepos: []string{p}, AllowedObservationKinds: []string{string(evidence.ResourceProvisioned)}})
+		if err == nil || !strings.Contains(err.Error(), "claim the external first") {
+			t.Errorf("%s: %v", p, err)
+		}
+	}
+	// A host named pacto-inferred is no inferred repository.
+	if err := validateProviderScope(trustConfigKey{AllowedProviderRepos: []string{"pacto-inferred.example/acme/db"}, AllowedObservationKinds: []string{string(evidence.ResourceProvisioned)}}); err != nil {
+		t.Error(err)
+	}
+}

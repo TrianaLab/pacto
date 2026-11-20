@@ -29,12 +29,15 @@ const (
 // accepted by a named person, rule the installation's default derived from a
 // chart value, and inferred a rule derived from where the artifact lives when
 // no installation config was read: it never makes a signature verified.
+// operator is a signature by this installation's operator, which signs only
+// the inferred contracts it publishes: it is always refused.
 const (
 	PublisherSourceRule     = "rule"
 	PublisherSourcePin      = "pin"
 	PublisherSourcePolicy   = "policy"
 	PublisherSourceInferred = "inferred"
 	PublisherSourceNone     = "none"
+	PublisherSourceOperator = "operator"
 )
 
 // CI issuers the derived rule knows, by registry host.
@@ -146,7 +149,7 @@ type PublisherVerdict struct {
 	// +kubebuilder:validation:Enum=accepted;new-signer;refused;unsigned;unknown
 	Verdict string `json:"verdict" enum:"accepted,new-signer,refused,unsigned,unknown" doc:"What the check concluded; only accepted lets the digest through"`
 	// +kubebuilder:validation:Enum=rule;pin;policy;inferred;none
-	Source string `json:"source" enum:"rule,pin,policy,inferred,none" doc:"What decided: an installation rule, a person's pin, the signed policy, a rule inferred from where the artifact lives, or nothing"`
+	Source string `json:"source" enum:"rule,pin,policy,inferred,none,operator" doc:"What decided: an installation rule, a person's pin, the signed policy, a rule inferred from where the artifact lives, nothing, or operator when only this installation's operator signed, which never makes a publisher"`
 	// +optional
 	Identity *PublisherIdentity `json:"identity,omitempty" doc:"Who signed it, when a signature verified"`
 	Reason   string             `json:"reason" doc:"Why, in words"`
@@ -258,8 +261,13 @@ func DeriveRule(registry, defaultBranch string) (PublisherRule, string) {
 // source pin), it is a CI identity of the artifact's own repository (new-signer:
 // a person decides), or it is refused. source is the artifact's
 // org.opencontainers.image.source annotation, or "" when it carries none. A
-// person identity is never offered for trust on first use.
-func JudgePublisher(service ServiceRef, id PublisherIdentity, source string, rules []PublisherRule, ruleSource string, pins []IdentityPin) PublisherVerdict {
+// person identity is never offered for trust on first use. inferred is the
+// installation operator's signer (nil when none is known): its identity is
+// refused before any rule or pin is read.
+func JudgePublisher(service ServiceRef, id PublisherIdentity, source string, rules []PublisherRule, ruleSource string, pins []IdentityPin, inferred *TrustedKey) PublisherVerdict {
+	if IsInferredSigner(id, inferred) {
+		return OperatorRefusal(id)
+	}
 	idc := id
 	v := PublisherVerdict{Identity: &idc, Source: PublisherSourceNone}
 	r, p := ruleCovering(service, id, rules), pinFor(service, id, pins)
@@ -284,11 +292,17 @@ func JudgePublisher(service ServiceRef, id PublisherIdentity, source string, rul
 }
 
 // JudgeSigners judges every verified signer of one digest: the first accepted
-// wins, else the most decisive verdict (refused over new-signer).
-func JudgeSigners(service ServiceRef, signers []PublisherIdentity, source string, rules []PublisherRule, ruleSource string, pins []IdentityPin) PublisherVerdict {
+// wins, else the most decisive verdict (refused over new-signer). The
+// operator's signer (inferred) is left out, so it never outweighs another
+// signer; it is the verdict only when it signed alone.
+func JudgeSigners(service ServiceRef, signers []PublisherIdentity, source string, rules []PublisherRule, ruleSource string, pins []IdentityPin, inferred *TrustedKey) PublisherVerdict {
+	others := slices.DeleteFunc(slices.Clone(signers), func(id PublisherIdentity) bool { return IsInferredSigner(id, inferred) })
+	if len(others) == 0 && len(signers) > 0 {
+		return OperatorRefusal(signers[0])
+	}
 	best := PublisherVerdict{Verdict: VerdictUnknown, Source: PublisherSourceNone, Reason: "no signature verified"}
-	for i, id := range signers {
-		v := JudgePublisher(service, id, source, rules, ruleSource, pins)
+	for i, id := range others {
+		v := JudgePublisher(service, id, source, rules, ruleSource, pins, nil)
 		if v.Verdict == VerdictAccepted {
 			return v
 		}
@@ -297,6 +311,19 @@ func JudgeSigners(service ServiceRef, signers []PublisherIdentity, source string
 		}
 	}
 	return best
+}
+
+// IsInferredSigner reports whether id is the keyless identity of inferred,
+// the installation operator's signer.
+func IsInferredSigner(id PublisherIdentity, inferred *TrustedKey) bool {
+	return inferred != nil && inferred.Identity != "" && id.Subject == inferred.Identity && id.Issuer == inferred.Issuer
+}
+
+// OperatorRefusal is the verdict on a signature by the installation's
+// operator, named by id: refused with source operator.
+func OperatorRefusal(id PublisherIdentity) PublisherVerdict {
+	return PublisherVerdict{Verdict: VerdictRefused, Source: PublisherSourceOperator, Identity: &id,
+		Reason: fmt.Sprintf("signed by %s, this installation's operator, which signs only inferred contracts; an operator signature never makes a publisher", id.Subject)}
 }
 
 // sameSource reports whether the artifact's source annotation, when it has

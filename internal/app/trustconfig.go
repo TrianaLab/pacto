@@ -159,7 +159,7 @@ func registryWithPort(p string) bool {
 // bare, lowercase registry/repo path with no empty segment and no tag (a tagged
 // prefix could never match, because the declared ref's tag is dropped before
 // matching; a registry port before the first "/", or a bare registry host and
-// port, stays valid), and a scope
+// port, stays valid) and never under pacto-inferred, and a scope
 // requires a provider-scoped kind to be granted, so it can never silently grant
 // nothing.
 func validateProviderScope(k trustConfigKey) error {
@@ -174,6 +174,9 @@ func validateProviderScope(k trustConfigKey) error {
 		// uppercase prefix or one with a trailing or doubled "/" could never match.
 		if p != strings.ToLower(p) || slices.Contains(strings.Split(p, "/"), "") {
 			return fmt.Errorf("allowedProviderRepos entry %q must be a lowercase repository path with no empty segment", p)
+		}
+		if slices.Contains(strings.Split(p, "/")[1:], contract.InferredRepository) {
+			return fmt.Errorf("allowedProviderRepos entry %q names %s: an inferred contract never anchors provisioning or usage evidence; claim the external first", p, contract.InferredRepository)
 		}
 	}
 	if len(k.AllowedProviderRepos) > 0 && !slices.ContainsFunc(evidenceingest.ProviderScopedKinds(), func(kind evidence.ObservationKind) bool {
